@@ -118,6 +118,111 @@ async function seedClassifiedCatalog({
 }
 
 async function cleanup() {
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
+    await tx.$executeRawUnsafe(
+      `DELETE FROM ward_indent_inventory_receipt_events
+        WHERE tenant_id = $1::uuid
+          AND ward_indent_id IN (
+            SELECT id FROM ward_indents
+             WHERE patient_uid = $2::uuid OR ward_name = $3
+          )`,
+      TENANT, PATIENT_UID, WARD_NAME,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM ward_indent_inventory_movement_links
+        WHERE tenant_id = $1::uuid
+          AND allocation_id IN (
+            SELECT allocation.id
+              FROM ward_indent_inventory_allocations allocation
+              JOIN ward_indents indent
+                ON indent.tenant_id = allocation.tenant_id
+               AND indent.id = allocation.ward_indent_id
+             WHERE allocation.tenant_id = $1::uuid
+               AND (indent.patient_uid = $2::uuid OR indent.ward_name = $3)
+          )`,
+      TENANT, PATIENT_UID, WARD_NAME,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM ward_indent_financial_events
+        WHERE tenant_id = $1::uuid
+          AND ward_indent_id IN (
+            SELECT id FROM ward_indents
+             WHERE patient_uid = $2::uuid OR ward_name = $3
+          )`,
+      TENANT, PATIENT_UID, WARD_NAME,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM ward_indent_inventory_allocations
+        WHERE tenant_id = $1::uuid
+          AND ward_indent_id IN (
+            SELECT id FROM ward_indents
+             WHERE patient_uid = $2::uuid OR ward_name = $3
+          )`,
+      TENANT, PATIENT_UID, WARD_NAME,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM ward_indent_events WHERE ward_indent_id IN (
+         SELECT id FROM ward_indents WHERE patient_uid = $1::uuid OR ward_name = $2)`,
+      PATIENT_UID, WARD_NAME,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM task_comments
+        WHERE task_id IN (
+          SELECT task.id
+            FROM tasks task
+            JOIN workflow_sla_instances sla
+              ON sla.tenant_id = task.tenant_id
+             AND sla.id = task.workflow_sla_instance_id
+           WHERE sla.source_table = 'ward_indents'
+             AND sla.source_id IN (
+               SELECT id::text FROM ward_indents
+                WHERE patient_uid = $1::uuid OR ward_name = $2
+             )
+        )`,
+      PATIENT_UID, WARD_NAME,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM tasks
+        WHERE workflow_sla_instance_id IN (
+          SELECT id FROM workflow_sla_instances
+           WHERE source_table = 'ward_indents'
+             AND source_id IN (
+               SELECT id::text FROM ward_indents
+                WHERE patient_uid = $1::uuid OR ward_name = $2
+             )
+        )`,
+      PATIENT_UID, WARD_NAME,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM workflow_sla_instances
+        WHERE source_table = 'ward_indents'
+          AND source_id IN (
+            SELECT id::text FROM ward_indents
+             WHERE patient_uid = $1::uuid OR ward_name = $2
+          )`,
+      PATIENT_UID, WARD_NAME,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM pharmacy_schedule_register
+        WHERE tenant_id = $1::uuid
+          AND inventory_item_id IN (
+            SELECT id FROM pharmacy_inventory_items
+             WHERE tenant_id = $1::uuid AND sku_code LIKE $2
+          )`,
+      TENANT, `${INVENTORY_SKU_PREFIX}-%`,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM pharmacy_stock_movements
+        WHERE tenant_id = $1::uuid
+          AND inventory_item_id IN (
+            SELECT id FROM pharmacy_inventory_items
+             WHERE tenant_id = $1::uuid AND sku_code LIKE $2
+          )`,
+      TENANT, `${INVENTORY_SKU_PREFIX}-%`,
+    );
+    await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'origin'");
+  });
   await prisma.$executeRawUnsafe(
     `DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid`, PATIENT_UID,
   ).catch(() => {});
@@ -125,20 +230,6 @@ async function cleanup() {
     prisma,
     `DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid`,
     PATIENT_UID,
-  ).catch(() => {});
-  await deleteWithAuditBypass(
-    prisma,
-    `DELETE FROM ward_indent_events WHERE ward_indent_id IN (
-       SELECT id FROM ward_indents WHERE patient_uid = $1::uuid OR ward_name = $2)`,
-    PATIENT_UID, WARD_NAME,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM workflow_sla_instances
-      WHERE source_table = 'ward_indents'
-        AND (metadata->>'ward_indent_id')::int IN (
-          SELECT id FROM ward_indents WHERE patient_uid = $1::uuid OR ward_name = $2
-        )`,
-    PATIENT_UID, WARD_NAME,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM ward_indent_items WHERE ward_indent_id IN (
@@ -166,24 +257,6 @@ async function cleanup() {
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM wards WHERE name = $1`, WARD_NAME,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM pharmacy_schedule_register
-      WHERE tenant_id = $1::uuid
-        AND inventory_item_id IN (
-          SELECT id FROM pharmacy_inventory_items
-           WHERE tenant_id = $1::uuid AND sku_code LIKE $2
-        )`,
-    TENANT, `${INVENTORY_SKU_PREFIX}-%`,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM pharmacy_stock_movements
-      WHERE tenant_id = $1::uuid
-        AND inventory_item_id IN (
-          SELECT id FROM pharmacy_inventory_items
-           WHERE tenant_id = $1::uuid AND sku_code LIKE $2
-        )`,
-    TENANT, `${INVENTORY_SKU_PREFIX}-%`,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM pharmacy_inventory_batches
@@ -239,6 +312,7 @@ d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonica
     gauzeCatalog = await seedClassifiedCatalog({
       name: `${CATALOG_NAME_PREFIX} Gauze roll`,
       sku: `${INVENTORY_SKU_PREFIX}-GAUZE`,
+      withBatch: true,
     });
     ceftriaxoneCatalog = await seedClassifiedCatalog({
       name: `${CATALOG_NAME_PREFIX} Ceftriaxone 1g`,
@@ -249,6 +323,7 @@ d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonica
     bedsheetCatalog = await seedClassifiedCatalog({
       name: `${CATALOG_NAME_PREFIX} Bedsheet`,
       sku: `${INVENTORY_SKU_PREFIX}-BEDSHEET`,
+      withBatch: true,
     });
   }, 120_000);
 
@@ -534,7 +609,7 @@ d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonica
     expect(audit[0].actor_uid).toBe(PHARMACY_UID);
   }, 60_000);
 
-  it('issuing a ward-stock indent with no linked patient writes no canonical rows (not patient-facing)', async () => {
+  it('closes a patientless ward-stock return with exact inventory evidence and no billing rows', async () => {
     const indent = await ipdSupportService.createWardIndent({
       wardId,
       indentType: 'consumables',
@@ -567,11 +642,239 @@ d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonica
     });
     expect(issued.status).toBe('issued');
 
+    const received = await ipdSupportService.receiveWardIndent({
+      indentId: indent.id,
+      receivedBy: NURSE_UID,
+      expectedVersion: 4,
+      commandKey: `bm5-stock-receive-${SUFFIX}`,
+      tenantId: TENANT,
+    });
+    expect(received).toMatchObject({ status: 'received', state_version: 5 });
+
+    const returnPending = await ipdSupportService.requestWardIndentReturn({
+      indentId: indent.id,
+      requestedBy: NURSE_UID,
+      itemQuantitiesReturned: [{
+        item_id: indent.items[0].id,
+        quantity_returned: 4,
+      }],
+      reason: 'Four unused bedsheets returned to pharmacy',
+      expectedVersion: 5,
+      commandKey: `bm5-stock-return-request-${SUFFIX}`,
+      tenantId: TENANT,
+    });
+    expect(returnPending).toMatchObject({ status: 'return_pending', state_version: 6 });
+
+    const allocation = (await prisma.$queryRawUnsafe(
+      `SELECT id, inventory_batch_id, issued_quantity, received_quantity,
+              returned_quantity, status
+         FROM ward_indent_inventory_allocations
+        WHERE tenant_id = $1::uuid
+          AND ward_indent_id = $2::int
+          AND ward_indent_item_id = $3::int`,
+      TENANT,
+      Number(indent.id),
+      Number(indent.items[0].id),
+    ))[0];
+    expect(allocation).toMatchObject({ status: 'issued' });
+    expect([
+      Number(allocation.issued_quantity),
+      Number(allocation.received_quantity),
+      Number(allocation.returned_quantity),
+    ]).toEqual([10, 10, 0]);
+
+    const unknownAllocationId = BigInt(allocation.id) + 999999999n;
+    await expect(ipdSupportService.reconcileWardIndent({
+      indentId: indent.id,
+      reconciledBy: NURSE_UID,
+      reason: 'Invalid allocation selection must roll back atomically',
+      allocationReturns: [{
+        allocation_id: allocation.id,
+        quantity: 4,
+      }, {
+        allocation_id: unknownAllocationId,
+        quantity: 1,
+      }],
+      expectedVersion: 6,
+      commandKey: `bm5-stock-invalid-reconcile-${SUFFIX}`,
+      tenantId: TENANT,
+    })).rejects.toThrow(`Allocation return ${unknownAllocationId} does not belong to this ward indent`);
+
+    const afterRejectedReturn = (await prisma.$queryRawUnsafe(
+      `SELECT indent.status, indent.state_version, item.quantity_returned,
+              allocation.returned_quantity,
+              batch.remaining_quantity,
+              COUNT(return_link.id)::int AS return_link_count
+         FROM ward_indents indent
+         JOIN ward_indent_items item
+           ON item.tenant_id = indent.tenant_id
+          AND item.ward_indent_id = indent.id
+         JOIN ward_indent_inventory_allocations allocation
+           ON allocation.tenant_id = item.tenant_id
+          AND allocation.ward_indent_item_id = item.id
+         JOIN pharmacy_inventory_batches batch
+           ON batch.tenant_id = allocation.tenant_id
+          AND batch.id = allocation.inventory_batch_id
+         LEFT JOIN ward_indent_inventory_movement_links return_link
+           ON return_link.tenant_id = allocation.tenant_id
+          AND return_link.allocation_id = allocation.id
+          AND return_link.movement_purpose = 'return'
+        WHERE indent.tenant_id = $1::uuid
+          AND indent.id = $2::int
+        GROUP BY indent.status, indent.state_version, item.quantity_returned,
+                 allocation.returned_quantity, batch.remaining_quantity`,
+      TENANT,
+      Number(indent.id),
+    ))[0];
+    expect(afterRejectedReturn).toMatchObject({
+      status: 'return_pending',
+      state_version: 6,
+      return_link_count: 0,
+    });
+    expect([
+      Number(afterRejectedReturn.quantity_returned),
+      Number(afterRejectedReturn.returned_quantity),
+      Number(afterRejectedReturn.remaining_quantity),
+    ]).toEqual([0, 0, 90]);
+
+    const reconciled = await ipdSupportService.reconcileWardIndent({
+      indentId: indent.id,
+      reconciledBy: NURSE_UID,
+      reason: 'Unused ward stock returned against its exact batch',
+      allocationReturns: [{
+        allocation_id: allocation.id,
+        quantity: 4,
+      }],
+      expectedVersion: 6,
+      commandKey: `bm5-stock-reconcile-${SUFFIX}`,
+      tenantId: TENANT,
+    });
+    expect(reconciled).toMatchObject({ status: 'reconciled', state_version: 7 });
+    expect(reconciled.workflow.events[0].details).toMatchObject({ returned_item_count: 1 });
+
+    const closed = await ipdSupportService.closeWardIndent({
+      indentId: indent.id,
+      closedBy: NURSE_UID,
+      reason: 'Ward-stock return fully reconciled',
+      expectedVersion: 7,
+      commandKey: `bm5-stock-close-${SUFFIX}`,
+      tenantId: TENANT,
+    });
+    expect(closed).toMatchObject({
+      status: 'closed',
+      state_version: 8,
+      closure_outcome: 'returned_reconciled',
+    });
+
+    const inventoryEvidence = await prisma.$queryRawUnsafe(
+      `SELECT link.movement_purpose, link.quantity,
+              movement.movement_kind, movement.reference_type, movement.reference_id
+         FROM ward_indent_inventory_movement_links link
+         JOIN ward_indent_inventory_allocations allocation
+           ON allocation.tenant_id = link.tenant_id
+          AND allocation.id = link.allocation_id
+         JOIN pharmacy_stock_movements movement
+           ON movement.tenant_id = link.tenant_id
+          AND movement.id = link.stock_movement_id
+        WHERE allocation.tenant_id = $1::uuid
+          AND allocation.ward_indent_id = $2::int
+        ORDER BY link.id`,
+      TENANT,
+      Number(indent.id),
+    );
+    expect(inventoryEvidence.map((row) => ({
+      purpose: row.movement_purpose,
+      quantity: Number(row.quantity),
+      kind: row.movement_kind,
+      reference_type: row.reference_type,
+      reference_id: row.reference_id,
+    }))).toEqual([{
+      purpose: 'issue',
+      quantity: 10,
+      kind: 'issue',
+      reference_type: 'ward_indent_allocation',
+      reference_id: String(allocation.id),
+    }, {
+      purpose: 'return',
+      quantity: 4,
+      kind: 'return',
+      reference_type: 'ward_indent_return_allocation',
+      reference_id: String(allocation.id),
+    }]);
+
+    const projectedInventory = (await prisma.$queryRawUnsafe(
+      `SELECT allocation.issued_quantity, allocation.received_quantity,
+              allocation.returned_quantity, batch.remaining_quantity,
+              catalog.stock_quantity
+         FROM ward_indent_inventory_allocations allocation
+         JOIN pharmacy_inventory_batches batch
+           ON batch.tenant_id = allocation.tenant_id
+          AND batch.id = allocation.inventory_batch_id
+         JOIN pharmacy_inventory_items inventory
+           ON inventory.tenant_id = allocation.tenant_id
+          AND inventory.id = allocation.inventory_item_id
+         JOIN pharmacy_catalog catalog
+           ON catalog.tenant_id = inventory.tenant_id
+          AND catalog.id = inventory.catalog_id
+        WHERE allocation.tenant_id = $1::uuid
+          AND allocation.ward_indent_id = $2::int`,
+      TENANT,
+      Number(indent.id),
+    ))[0];
+    expect([
+      Number(projectedInventory.issued_quantity),
+      Number(projectedInventory.received_quantity),
+      Number(projectedInventory.returned_quantity),
+      Number(projectedInventory.remaining_quantity),
+      Number(projectedInventory.stock_quantity),
+    ]).toEqual([10, 10, 4, 94, 94]);
+
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT COUNT(*)::int AS n FROM clinical_timeline_events
-        WHERE idempotency_key = $1`,
-      `ward_indents:${indent.id}:transition:4`,
+      `SELECT COUNT(*)::int AS n
+         FROM clinical_timeline_events
+        WHERE tenant_id = $1::uuid
+          AND source_table = 'ward_indents'
+          AND source_id = $2`,
+      TENANT,
+      String(indent.id),
     );
     expect(rows[0].n).toBe(0);
+
+    const financialRows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n
+         FROM ward_indent_financial_events
+        WHERE tenant_id = $1::uuid
+          AND ward_indent_id = $2::int`,
+      TENANT,
+      Number(indent.id),
+    );
+    expect(financialRows[0].n).toBe(0);
+
+    const creditNoteRows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n
+         FROM billing_credit_notes note
+         JOIN ward_indent_financial_events financial
+           ON financial.tenant_id = note.tenant_id
+          AND financial.id = note.source_financial_event_id
+        WHERE financial.tenant_id = $1::uuid
+          AND financial.ward_indent_id = $2::int`,
+      TENANT,
+      Number(indent.id),
+    );
+    expect(creditNoteRows[0].n).toBe(0);
+
+    const billingRows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n
+         FROM billing_invoice_items invoice_item
+         JOIN ward_indent_items indent_item
+           ON indent_item.tenant_id = invoice_item.tenant_id
+          AND indent_item.id = invoice_item.source_ref_id
+        WHERE invoice_item.tenant_id = $1::uuid
+          AND invoice_item.source_ref_type = 'ward_indent_item'
+          AND indent_item.ward_indent_id = $2::int`,
+      TENANT,
+      Number(indent.id),
+    );
+    expect(billingRows[0].n).toBe(0);
   }, 60_000);
 });

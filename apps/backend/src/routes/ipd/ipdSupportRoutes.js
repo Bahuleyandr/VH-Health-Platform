@@ -27,6 +27,7 @@ import { success, error } from '../../utils/responseHelper.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
+import { enforceStaffClinicalWriteDevicePosture } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
 import { sanitizeAllBodyStrings } from '../../middleware/sanitizeMiddleware.js';
 import {
   BILLING_ROUTE_ROLES,
@@ -109,19 +110,23 @@ const WARD_INDENT_RECONCILIATION_ROLES = [
   'ICU_INCHARGE',
 ];
 const WARD_INDENT_CANONICAL_BASE = '/api/v1/pharmacy-orders/ward-indents';
+const PG_INT4_MAX = 2147483647;
 const guardWardIndentRow = wardIndentRowGuard((req) => req.params.indentId);
 
 function wardIndentIdempotency(scope, action = null) {
-  return requireIdempotencyKey({
-    required: true,
-    scope: `ward_indent_${scope}`,
-    retainOnServerError: true,
-    requestPathForIdempotency: action
-      ? (req) => `${WARD_INDENT_CANONICAL_BASE}/${encodeURIComponent(
-          String(req.params.indentId),
-        )}/${action}`
-      : WARD_INDENT_CANONICAL_BASE,
-  });
+  return [
+    enforceStaffClinicalWriteDevicePosture,
+    requireIdempotencyKey({
+      required: true,
+      scope: `ward_indent_${scope}`,
+      retainOnServerError: true,
+      requestPathForIdempotency: action
+        ? (req) => `${WARD_INDENT_CANONICAL_BASE}/${encodeURIComponent(
+            String(req.params.indentId),
+          )}/${action}`
+        : WARD_INDENT_CANONICAL_BASE,
+    }),
+  ];
 }
 
 function wardIndentMutationContext(req) {
@@ -145,8 +150,9 @@ function actorRoleCodesOf(req) {
 }
 
 function requireIntParam(value, fieldName) {
-  const n = Number.parseInt(value, 10);
-  if (!Number.isInteger(n) || n <= 0) {
+  const text = typeof value === 'number' ? String(value) : String(value ?? '').trim();
+  const n = Number(text);
+  if (!/^[1-9][0-9]*$/.test(text) || !Number.isInteger(n) || n > PG_INT4_MAX) {
     const err = new Error(`${fieldName} must be a positive integer`);
     err.statusCode = HTTP_STATUS.BAD_REQUEST;
     throw err;
@@ -371,6 +377,28 @@ router.get(
   }),
 );
 
+router.get(
+  '/ward-indents/:indentId/items/:itemId/inventory-candidates',
+  requireRole(...WARD_INDENT_READ_ROLES),
+  guardWardIndentRow,
+  wrapAsync(async (req, res) => {
+    const indentId = requireIntParam(req.params.indentId, 'indentId');
+    const itemId = requireIntParam(req.params.itemId, 'itemId');
+    const candidates = await ipdSupportService.listWardIndentInventoryCandidates(
+      itemId,
+      {
+        tenantId: tenantOf(req),
+        wardIndentId: indentId,
+      },
+    );
+    return success(
+      res,
+      { item: candidates.item, candidates: candidates.candidates },
+      'Ward indent inventory candidates retrieved',
+    );
+  }),
+);
+
 router.post(
   '/ward-indents/:indentId/reserve',
   requireRole(...WARD_INDENT_SUPPLY_ROLES),
@@ -381,6 +409,7 @@ router.post(
       indentId: requireIntParam(req.params.indentId, 'indentId'),
       reservedBy: req.user?.uid,
       itemQuantitiesReserved: req.body?.item_quantities_reserved ?? req.body?.items ?? null,
+      inventorySelections: req.body?.inventory_selections ?? null,
       ...wardIndentMutationContext(req),
     });
     success(res, { indent }, 'Indent reserved');
@@ -398,6 +427,7 @@ router.post(
       markedBy: req.user?.uid,
       reason: req.body?.reason ?? req.body?.short_supply_reason,
       itemQuantitiesAvailable: req.body?.item_quantities_available ?? req.body?.items ?? null,
+      inventorySelections: req.body?.inventory_selections ?? null,
       ...wardIndentMutationContext(req),
     });
     success(res, { indent }, 'Indent short supply recorded');
@@ -429,6 +459,7 @@ router.post(
     const indent = await ipdSupportService.approveWardIndentSubstitution({
       indentId: requireIntParam(req.params.indentId, 'indentId'),
       decidedBy: req.user?.uid,
+      inventorySelections: req.body?.inventory_selections ?? null,
       ...wardIndentMutationContext(req),
     });
     success(res, { indent }, 'Indent substitution approved');
@@ -524,6 +555,7 @@ router.post(
       indentId: requireIntParam(req.params.indentId, 'indentId'),
       receivedBy: req.user?.uid,
       itemQuantitiesReceived: req.body?.item_quantities_received ?? req.body?.items ?? null,
+      substitutionAcknowledgements: req.body?.substitution_acknowledgements ?? null,
       ...wardIndentMutationContext(req),
     });
     success(res, { indent }, 'Indent receipt recorded');
@@ -575,6 +607,7 @@ router.post(
       reason: req.body?.reason,
       controlledReturnEvidence: req.body?.controlled_return_evidence ?? null,
       itemReconciliations: req.body?.item_reconciliations ?? null,
+      allocationReturns: req.body?.allocation_returns ?? null,
       ...wardIndentMutationContext(req),
     });
     success(res, { indent }, 'Indent reconciled');

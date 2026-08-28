@@ -170,15 +170,31 @@ const MANUAL_SEED_TABLES = new Set([
   // FK walker cannot preserve exact order, batch, custody, MAR, invoice, and
   // credit-note lineage across its append-only projections, so seed the
   // complete synthetic lifecycle together below.
+  'ward_indents',
+  'ward_indent_items',
+  'ward_indent_events',
   'ward_indent_inventory_allocations',
   'ward_indent_inventory_movement_links',
+  'ward_indent_inventory_receipt_events',
+  'medication_administrations',
   'mar_administration_command_receipts',
   'mar_transition_command_receipts',
+  'mar_medication_exception_cases',
+  'mar_medication_exception_events',
   'mar_supply_consumptions',
   'mar_supply_reconciliation_links',
+  'mar_supply_reconciliation_command_receipts',
   'ward_indent_financial_events',
   'billing_credit_notes',
   'billing_credit_note_events',
+  'clinical_alert_delivery_obligations',
+  // Billing refund, drawer, and counter-sale void evidence is lifecycle-bound:
+  // every actor, payout rail, stock return, task, and SLA receipt must describe
+  // one exact closure. The generic walker cannot synthesize that graph.
+  'billing_refunds',
+  'billing_refund_offline_electronic_evidence',
+  'cash_drawer_sessions',
+  'pharmacy_counter_sale_void_requests',
   // N6-12 mortuary slots enforce occupancy consistency: an available
   // slot cannot carry a current body reference.
   'mortuary_slots',
@@ -240,7 +256,7 @@ const MANUAL_SEED_TABLES = new Set([
   // Sign-off 2026-07-13: migration 573 seeds stemi_pathway_settings for every
   // tenant (incl. the default tenant), so the generic walker's default-tenant
   // insert would collide on the tenant_id PK. The migration owns this row.
-  'stemi_pathway_settings',
+  'stemi_pathway_settings'
 ]);
 
 const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
@@ -250,13 +266,13 @@ if (!connectionString) {
 
 assertSyntheticSeedTarget({
   connectionString,
-  scriptName: 'seed-comprehensive-test-data.mjs',
+  scriptName: 'seed-comprehensive-test-data.mjs'
 });
 
 const client = new pg.Client({ connectionString });
 await client.connect();
 
-const quote = (ident) => `"${String(ident).replaceAll('"', '""')}"`;
+const quote = ident => `"${String(ident).replaceAll('"', '""')}"`;
 const clip = (value, max) => {
   const text = String(value);
   return max && text.length > max ? text.slice(0, max) : text;
@@ -314,7 +330,7 @@ async function insertIfEmpty(table, rows) {
 async function insertIfTenantEmpty(table, rows, tenantId = DEFAULT_TENANT_ID) {
   const existing = await client.query(
     `SELECT 1 FROM ${quote(table)} WHERE tenant_id = $1::uuid LIMIT 1`,
-    [tenantId],
+    [tenantId]
   );
   if (existing.rowCount) return 0;
   let inserted = 0;
@@ -339,12 +355,7 @@ async function firstValue(table, column) {
 }
 
 async function firstTenantValue(table, column) {
-  const row = await first(
-    table,
-    quote(column),
-    'tenant_id = $1::uuid',
-    [DEFAULT_TENANT_ID],
-  );
+  const row = await first(table, quote(column), 'tenant_id = $1::uuid', [DEFAULT_TENANT_ID]);
   return row?.[column] ?? null;
 }
 
@@ -437,7 +448,8 @@ function detectXorPair(definition) {
   // Matches `(A IS NOT NULL AND B IS NULL) OR (A IS NULL AND B IS NOT NULL)`
   // regardless of how many parens pg_get_constraintdef wraps each clause in.
   const stripped = definition.replace(/[()]/g, ' ').replace(/\s+/g, ' ');
-  const re = /([a-z_][a-z0-9_]*)\s+IS\s+NOT\s+NULL\s+AND\s+([a-z_][a-z0-9_]*)\s+IS\s+NULL\s+OR\s+\1\s+IS\s+NULL\s+AND\s+\2\s+IS\s+NOT\s+NULL/i;
+  const re =
+    /([a-z_][a-z0-9_]*)\s+IS\s+NOT\s+NULL\s+AND\s+([a-z_][a-z0-9_]*)\s+IS\s+NULL\s+OR\s+\1\s+IS\s+NULL\s+AND\s+\2\s+IS\s+NOT\s+NULL/i;
   const match = stripped.match(re);
   return match ? [match[1], match[2]] : null;
 }
@@ -450,12 +462,10 @@ function checkedValue(checksByTable, table, column) {
   const lowerColumn = column.column_name.toLowerCase();
   for (const definition of definitions) {
     if (!definition.toLowerCase().includes(lowerColumn)) continue;
-    const values = [...definition.matchAll(/'([^']+)'(?:::|,|\)|\])/g)].map((match) => match[1]);
-    const cleaned = values.filter((value) => (
-      !value.includes('::')
-      && value.length <= 80
-      && !/[\\^$[\]{}+*?]/.test(value)
-    ));
+    const values = [...definition.matchAll(/'([^']+)'(?:::|,|\)|\])/g)].map(match => match[1]);
+    const cleaned = values.filter(
+      value => !value.includes('::') && value.length <= 80 && !/[\\^$[\]{}+*?]/.test(value)
+    );
     if (cleaned.length) return cleaned[0];
   }
   return null;
@@ -464,13 +474,14 @@ function checkedValue(checksByTable, table, column) {
 function semanticValue(column, table, index, ctx, maxLength) {
   const name = column.column_name.toLowerCase();
   const tablePrefix = table.replace(/[^a-z0-9]+/gi, '_').slice(0, 28);
-  const text = (value) => clip(value, maxLength);
+  const text = value => clip(value, maxLength);
 
   if (column.data_type === 'ARRAY' || column.udt_name.startsWith('_')) return [];
   if (name === 'tenant_id') return ctx.tenantId;
   if (name === 'patient_uid') return ctx.patient.uid;
   if (name === 'doctor_uid' || name === 'surgeon' || name === 'anesthetist') return ctx.doctor.uid;
-  if (name.includes('staff_uid') || name === 'sender_uid' || name === 'recipient_uid') return ctx.staff.uid;
+  if (name.includes('staff_uid') || name === 'sender_uid' || name === 'recipient_uid')
+    return ctx.staff.uid;
   if (name.endsWith('_uid') || name === 'uid') return ctx.generatedUuid;
 
   if (name === 'patient_id') return column.udt_name === 'uuid' ? ctx.patient.uid : ctx.patient.id;
@@ -508,20 +519,35 @@ function semanticValue(column, table, index, ctx, maxLength) {
   if (name.includes('severity')) return text('low');
   if (name.includes('status')) return text('active');
   if (name.includes('role')) return text('staff');
-  if (name.includes('type') || name.includes('kind') || name.includes('category')) return text('general');
+  if (name.includes('type') || name.includes('kind') || name.includes('category'))
+    return text('general');
   if (name.includes('code')) return text(`CODE-${index}`);
-  if (name.includes('number') && ['int2', 'int4', 'int8', 'float4', 'float8', 'numeric', 'money'].includes(column.udt_name)) return 1;
+  if (
+    name.includes('number') &&
+    ['int2', 'int4', 'int8', 'float4', 'float8', 'numeric', 'money'].includes(column.udt_name)
+  )
+    return 1;
   if (name.includes('number')) return text(`VH-${String(index).padStart(5, '0')}`);
   if (name.includes('key')) return text(`${SEED_TAG}_${tablePrefix}_${index}`);
   if (name.includes('sha256')) return text('0'.repeat(64));
   if (name.includes('hash')) return text(`hash_${tablePrefix}_${index}`);
   if (name.includes('url')) return text(`https://example.test/${tablePrefix}/${index}`);
-  if (name.includes('name') || name.includes('title') || name.includes('label')) return text(`Seed ${tablePrefix}`);
-  if (name.includes('description') || name.includes('reason') || name.includes('notes') || name.includes('body')) {
+  if (name.includes('name') || name.includes('title') || name.includes('label'))
+    return text(`Seed ${tablePrefix}`);
+  if (
+    name.includes('description') ||
+    name.includes('reason') ||
+    name.includes('notes') ||
+    name.includes('body')
+  ) {
     return text(`Synthetic local test data for ${table}.${column.column_name}`);
   }
   if (name.includes('date')) {
-    if (column.udt_name === 'date' || column.udt_name === 'timestamp' || column.udt_name === 'timestamptz') {
+    if (
+      column.udt_name === 'date' ||
+      column.udt_name === 'timestamp' ||
+      column.udt_name === 'timestamptz'
+    ) {
       return new Date('2026-05-04T00:00:00.000Z');
     }
   }
@@ -534,8 +560,20 @@ function semanticValue(column, table, index, ctx, maxLength) {
   if (/(^|_)(lat|latitude)($|_)/.test(name)) return 13.02936;
   if (/(^|_)(lng|lon|longitude)($|_)/.test(name)) return 80.24409;
   if (name === 'volume_ml') return 450;
-  if (name.includes('amount') || name.includes('cost') || name.includes('rate') || name.includes('score')) return 1;
-  if (name.includes('count') || name.includes('total') || name.includes('units') || name.includes('minutes')) return 1;
+  if (
+    name.includes('amount') ||
+    name.includes('cost') ||
+    name.includes('rate') ||
+    name.includes('score')
+  )
+    return 1;
+  if (
+    name.includes('count') ||
+    name.includes('total') ||
+    name.includes('units') ||
+    name.includes('minutes')
+  )
+    return 1;
 
   return undefined;
 }
@@ -552,23 +590,23 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
   // signer columns and violate the coupled CHECK constraints.
   radiology_orders: {
     status: 'signed_off',
-    ordered_by: (ctx) => ctx.doctor.uid,
-    radiologist: (ctx) => ctx.doctor.uid,
+    ordered_by: ctx => ctx.doctor.uid,
+    radiologist: ctx => ctx.doctor.uid,
     report: 'Seed radiology report with no diagnostic abnormality.',
     structured_report: JSON.stringify({
       sections: { impression: 'No diagnostic abnormality.' },
-      seed: true,
+      seed: true
     }),
     report_completed_at: () => new Date('2026-05-04T09:00:00.000Z'),
     report_signed_off_at: () => new Date('2026-05-04T09:00:00.000Z'),
-    report_signed_off_by: (ctx) => ctx.doctor.uid,
+    report_signed_off_by: ctx => ctx.doctor.uid,
     result_classification: 'normal',
     classification_basis: JSON.stringify({ explicit_normal_flag: true, seed: true }),
     report_generation_version: 1,
-    classification_signed_by: (ctx) => ctx.doctor.uid,
+    classification_signed_by: ctx => ctx.doctor.uid,
     classification_signed_at: () => new Date('2026-05-04T09:00:00.000Z'),
     signoff_idempotency_key: 'seed-radiology-signoff-v1',
-    signoff_request_sha256: '0'.repeat(64),
+    signoff_request_sha256: '0'.repeat(64)
   },
   radiology_report_addenda: {
     generation_version: 2,
@@ -576,22 +614,22 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     result_classification: 'normal',
     classification_basis: JSON.stringify({ explicit_normal_flag: true, seed: true }),
     clinical_significance: 'unchanged',
-    signed_by: (ctx) => ctx.doctor.uid,
+    signed_by: ctx => ctx.doctor.uid,
     idempotency_key: 'seed-radiology-addendum-v2',
-    request_sha256: '1'.repeat(64),
+    request_sha256: '1'.repeat(64)
   },
   ap_reports: {
     report_status: 'final',
     diagnosis_text: 'Seed anatomic pathology report with no diagnostic abnormality.',
-    report_author_uid: (ctx) => ctx.doctor.uid,
+    report_author_uid: ctx => ctx.doctor.uid,
     signed_at: () => new Date('2026-05-04T09:00:00.000Z'),
-    signed_by: (ctx) => ctx.doctor.uid,
+    signed_by: ctx => ctx.doctor.uid,
     result_classification: 'normal',
     classification_basis: JSON.stringify({ explicit_normal_flag: true, seed: true }),
     report_generation_version: 1,
-    classification_signed_by: (ctx) => ctx.doctor.uid,
+    classification_signed_by: ctx => ctx.doctor.uid,
     signoff_idempotency_key: 'seed-ap-signoff-v1',
-    signoff_request_sha256: '2'.repeat(64),
+    signoff_request_sha256: '2'.repeat(64)
   },
   ap_report_addenda: {
     generation_version: 2,
@@ -599,22 +637,22 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     result_classification: 'normal',
     classification_basis: JSON.stringify({ explicit_normal_flag: true, seed: true }),
     clinical_significance: 'unchanged',
-    addendum_by: (ctx) => ctx.doctor.uid,
+    addendum_by: ctx => ctx.doctor.uid,
     idempotency_key: 'seed-ap-addendum-v2',
-    request_sha256: '3'.repeat(64),
+    request_sha256: '3'.repeat(64)
   },
   // mig 562: started_at/due_at became nullable, but NULL is legal only for
   // stemi-sourced rows carrying explicit *_pending metadata — the generic
   // row must supply both clocks or every SLA-linked dependent cascades.
   workflow_sla_instances: {
     started_at: () => new Date('2026-05-04T09:00:00.000Z'),
-    due_at: () => new Date('2026-05-04T10:00:00.000Z'),
+    due_at: () => new Date('2026-05-04T10:00:00.000Z')
   },
   // mig 558: stemi_activations_door_clock requires door_time_at unless the
   // activation is a prehospital handover; pick the source whose branch the
   // generic row satisfies without coordinating three clock columns.
   stemi_activations: {
-    activation_source: 'prehospital_handover',
+    activation_source: 'prehospital_handover'
   },
   // mig 414: body_custody_release_has_method requires release_method whenever
   // event_type = 'release'. checkedValue() scans the table's CHECK definitions
@@ -625,7 +663,7 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
   // first decided pass vs fail — the intermittent 801/802 seeded-coverage
   // failure. Pin the safe branch deterministically.
   body_custody_events: {
-    event_type: 'receive',
+    event_type: 'receive'
   },
   // mig 704 has the same catalog-order ambiguity: event_type appears in both
   // its allowed-values CHECK and a conditional transition-evidence CHECK. If
@@ -633,16 +671,16 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
   // nullable to_status remains unset. Pin a non-transition event so the seed
   // is deterministic on fresh PostgreSQL catalogs.
   facility_asset_events: {
-    event_type: 'created',
+    event_type: 'created'
   },
   // migs 563-565: keep the generic cath usage row on the non-batch,
   // non-implant branch while satisfying its tenant-composite references.
   cath_consumable_catalog: {
-    tenant_id: (ctx) => ctx.tenantId,
-    inventory_item_id: async () => firstValue('pharmacy_inventory_items', 'id'),
+    tenant_id: ctx => ctx.tenantId,
+    inventory_item_id: async () => firstValue('pharmacy_inventory_items', 'id')
   },
   cath_case_consumable_usage: {
-    tenant_id: (ctx) => ctx.tenantId,
+    tenant_id: ctx => ctx.tenantId,
     case_id: async () => firstValue('cath_lab_cases', 'id'),
     procedure_log_id: null,
     catalog_item_id: async () => firstValue('cath_consumable_catalog', 'id'),
@@ -652,12 +690,12 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     is_implant: false,
     inventory_movement_id: null,
     timeline_event_id: null,
-    audit_event_id: null,
+    audit_event_id: null
   },
   surgical_implants: {
-    tenant_id: (ctx) => ctx.tenantId,
+    tenant_id: ctx => ctx.tenantId,
     cath_case_id: null,
-    cath_usage_id: null,
+    cath_usage_id: null
   },
   // mig 603: seed the preserved pathway-registry row shape. External recovery
   // rows require operator-owned policy, retention, and cursor evidence and
@@ -670,14 +708,14 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     historical_cutoff_event_id: 0,
     backfill_cursor_event_id: 0,
     registration_operability_action_id: null,
-    resume_operability_action_id: null,
+    resume_operability_action_id: null
   },
   pathway_projector_inbox: {
     scope_kind: 'pathway_registry',
     event_id: 0,
     offset_id: null,
     facility_id: null,
-    pending_task_id: null,
+    pending_task_id: null
   },
   // mig 620: generic coverage represents ordinary live webhook configuration
   // and an ad-hoc occurrence. Recovery provenance and owner classifications
@@ -688,7 +726,7 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     acknowledgement_config: {},
     recovery_contract_owner_uid: null,
     recovery_contract_owner_reason: null,
-    recovery_contract_classified_at: null,
+    recovery_contract_classified_at: null
   },
   webhook_deliveries: {
     event_outbox_id: null,
@@ -709,7 +747,7 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     recovery_owner_uid: null,
     recovery_owner_reason: null,
     recovery_evidence: null,
-    effect_disposition: 'live',
+    effect_disposition: 'live'
   },
   // mig 621: generic coverage represents an ordinary in-progress provider
   // page. A seed row never invents provider completeness, revision evidence,
@@ -732,36 +770,38 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     recovery_owner_uid: null,
     recovery_owner_reason: null,
     recovery_evidence: null,
-    effect_disposition: 'live',
+    effect_disposition: 'live'
   },
   clinical_trials_catalog: {
     provider_revision: null,
     source_payload_sha256: null,
-    source_sync_run_id: null,
+    source_sync_run_id: null
   },
   // migs 607/608: recovery links and pending evidence are backed by exact
   // canonical-inbox rows. Generic coverage data has no such occurrence.
   lab_interface_messages: {
+    tenant_id: ctx => ctx.tenantId,
     protocol: 'hl7v2',
+    authenticated_actor_uid: null,
     recovery_inbox_id: null,
     recovery_interface_family: null,
     recovery_critical_result_ids: [],
-    recovery_pending_task_id: null,
+    recovery_pending_task_id: null
   },
   // mig 624: release receipt links are command evidence. Generic coverage
   // rows must remain ordinary live/held messages and never synthesize release.
   hl7_outbound_messages: {
-    tenant_id: (ctx) => ctx.tenantId,
-    owner_release_client_event_id: null,
+    tenant_id: ctx => ctx.tenantId,
+    owner_release_client_event_id: null
   },
   vitals_chart: {
     recovery_inbox_id: null,
-    recovery_interface_family: null,
+    recovery_interface_family: null
   },
   // mig 611: generic coverage represents an ordinary live HL7v2 message and
   // its protocol-adapter receipt. Recovery provenance is owner-supplied only.
   interop_messages: {
-    tenant_id: (ctx) => ctx.tenantId,
+    tenant_id: ctx => ctx.tenantId,
     protocol: 'hl7v2',
     direction: 'inbound',
     message_type: 'ADT^A01',
@@ -772,7 +812,7 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     parsed_summary: JSON.stringify({
       seed: true,
       message_type: 'ADT^A01',
-      control_id: 'VH-SEED-I05',
+      control_id: 'VH-SEED-I05'
     }),
     status: 'received',
     recovery_ledger_version: 0,
@@ -788,7 +828,7 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     delivery_claim_token: null,
     delivery_claimed_at: null,
     delivery_lease_expires_at: null,
-    owner_release_client_event_id: null,
+    owner_release_client_event_id: null
   },
   // mig 618: generic coverage represents legacy/live ABDM rows. Recovery
   // ownership and canonical-inbox provenance are owner-supplied only.
@@ -798,7 +838,7 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     recovery_owner_uid: null,
     recovery_owner_reason: null,
     recovery_disposition: null,
-    recovery_claimed_at: null,
+    recovery_claimed_at: null
   },
   abdm_webhook_events: {
     receipt_source: null,
@@ -811,12 +851,12 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     source_position: null,
     source_token: null,
     predecessor_token: null,
-    duplicate_key: null,
+    duplicate_key: null
   },
   // mig 619: generic coverage represents an ordinary live NHCX envelope.
   // Recovery provenance and stranded-processing ownership are owner-supplied.
   nhcx_messages: {
-    tenant_id: (ctx) => ctx.tenantId,
+    tenant_id: ctx => ctx.tenantId,
     environment: 'sandbox',
     cycle: 'eligibility',
     recovery_inbox_id: null,
@@ -839,14 +879,14 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     inbound_owner_reason: null,
     inbound_owner_disposition: null,
     inbound_owner_claimed_at: null,
-    owner_release_client_event_id: null,
+    owner_release_client_event_id: null
   },
   // mig 604: legacy staff-device rows remain valid only when both identity
   // pointers are absent, while user_devices must not infer continuity or
   // facility authority for an ordinary pre-enrollment device.
   staff_devices: {
     staff_id: null,
-    user_uid: null,
+    user_uid: null
   },
   user_devices: {
     facility_id: null,
@@ -859,14 +899,14 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     continuity_issued_at: null,
     continuity_expires_at: null,
     continuity_validated_at: null,
-    continuity_validation_state: null,
+    continuity_validation_state: null
   },
   cold_chain_readings: {
-    tenant_id: (ctx) => ctx.tenantId,
+    tenant_id: ctx => ctx.tenantId,
     unit_id: async () => firstValue('cold_chain_units', 'id'),
     device_registry_id: async () => firstValue('device_registry', 'id'),
     facility_id: null,
-    recovery_inbox_id: null,
+    recovery_inbox_id: null
   },
   // The FHIR AllergyIntolerance reader is deliberately fail-closed: a
   // tenant-wide read refuses outright if ANY active row cannot be attributed to
@@ -878,8 +918,8 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
   // columns and keep them consistent — the reader rejects a uid/id pair that
   // disagrees just as hard as it rejects a missing one.
   patient_allergies: {
-    patient_id: (ctx) => ctx.patient.id,
-    patient_uid: (ctx) => ctx.patient.uid,
+    patient_id: ctx => ctx.patient.id,
+    patient_uid: ctx => ctx.patient.uid
   },
   // Same reader, second source, same reason: an active allergy whose substance
   // is unknown is unusable clinically, so the reader refuses rather than serve
@@ -887,14 +927,14 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
   // so the generic walk left the seed row with no substance at all. patient_uid
   // is NOT NULL here and is already filled by the generic walk.
   allergies: {
-    allergen: 'Seed allergen (synthetic)',
+    allergen: 'Seed allergen (synthetic)'
   },
   // The birth-notification schema currently declares VARCHAR(12) while its
   // legacy default "indeterminate" is 13 characters. Use an explicitly valid
   // value so fresh-DB coverage does not depend on that incompatible default.
   birth_notifications: {
     sex: 'female',
-    mother_patient_uid: (ctx) => ctx.patient.uid,
+    mother_patient_uid: ctx => ctx.patient.uid
   },
   // Optional dependent linkage is real consent evidence, not synthetic seed
   // material. A plain family contact remains a valid coverage row.
@@ -902,11 +942,11 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     linked_dependent_uid: null,
     linked_at: null,
     link_consent_method: null,
-    link_consent_ref: null,
+    link_consent_ref: null
   },
   fhir_allergy_intolerance_receipts: {
     resource_fingerprint: '4'.repeat(64),
-    payload_sha256: '5'.repeat(64),
+    payload_sha256: '5'.repeat(64)
   },
   hl7_inbound_clinical_receipts: {
     sender_identity: 'VH-SEED-SENDER',
@@ -914,19 +954,19 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     message_type: 'ADT^A01',
     payload_sha256: '6'.repeat(64),
     detail_table: 'admissions',
-    detail_id: async () => firstTenantValue('admissions', 'id'),
+    detail_id: async () => firstTenantValue('admissions', 'id')
   },
   mis_report_schedules: {
     report_keys: ['daily-ops'],
     cadence: 'daily',
     recipients: ['seed-mis@example.test'],
     send_weekday: null,
-    send_day_of_month: null,
+    send_day_of_month: null
   },
   mis_report_deliveries: {
     report_keys: ['daily-ops'],
     outcome: 'uncertain',
-    provider_message_id: null,
+    provider_message_id: null
   },
   payment_gateway_orders: {
     provider: 'dry_run',
@@ -934,7 +974,7 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     status: 'created',
     reconciled_at: null,
     reconciliation_note: null,
-    reconciled_by: null,
+    reconciled_by: null
   },
   payment_gateway_refunds: {
     provider: 'dry_run',
@@ -942,49 +982,49 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     status: 'initiated',
     reconciled_at: null,
     reconciliation_note: null,
-    reconciled_by: null,
+    reconciled_by: null
   },
   payment_gateway_webhook_events: {
     provider: 'dry_run',
     environment: 'sandbox',
-    status: 'pending',
+    status: 'pending'
   },
   pharmacy_counter_sales: {
     status: 'IN_PROGRESS',
     void_refund_id: null,
     voided_at: null,
     voided_by: null,
-    void_reason: null,
+    void_reason: null
   },
   staff_on_call_assignments: {
-    staff_id: (ctx) => ctx.staff.staffId,
-    staff_uid: (ctx) => ctx.staff.uid,
+    staff_id: ctx => ctx.staff.staffId,
+    staff_uid: ctx => ctx.staff.uid,
     start_at: () => new Date('2026-05-04T09:00:00.000Z'),
     end_at: () => new Date('2026-05-04T17:00:00.000Z'),
     is_active: true,
-    ended_at: null,
+    ended_at: null
   },
   staff_shift_swap_requests: {
-    requester_id: (ctx) => ctx.staff.staffId,
-    requester_uid: (ctx) => ctx.staff.uid,
+    requester_id: ctx => ctx.staff.staffId,
+    requester_uid: ctx => ctx.staff.uid,
     requester_assignment_id: null,
-    counterparty_id: (ctx) => ctx.secondStaff.staffId,
-    counterparty_uid: (ctx) => ctx.secondStaff.uid,
+    counterparty_id: ctx => ctx.secondStaff.staffId,
+    counterparty_uid: ctx => ctx.secondStaff.uid,
     counterparty_assignment_id: null,
     status: 'cancelled',
     counterparty_responded_at: null,
     decided_by: null,
     decided_by_uid: null,
     decided_at: null,
-    expires_at: () => new Date('2026-05-05T09:00:00.000Z'),
+    expires_at: () => new Date('2026-05-05T09:00:00.000Z')
   },
   // Addenda are legal only after the parent procedure report is signed.
   cath_procedure_reports: {
     status: 'signed',
-    preliminary_by: (ctx) => ctx.doctor.uid,
+    preliminary_by: ctx => ctx.doctor.uid,
     preliminary_at: () => new Date('2026-05-04T09:00:00.000Z'),
-    signed_by: (ctx) => ctx.doctor.uid,
-    signed_at: () => new Date('2026-05-04T09:00:00.000Z'),
+    signed_by: ctx => ctx.doctor.uid,
+    signed_at: () => new Date('2026-05-04T09:00:00.000Z')
   },
   // mig 744: MED-03 requires one coherent medication order to anchor the
   // synthetic order -> ward-indent -> MAR -> inventory -> billing lineage.
@@ -992,60 +1032,28 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
   // order and the database correctly rejects the MAR relationship.
   clinical_orders: {
     order_type: 'medication',
-    patient_uid: (ctx) => ctx.admissionPatientUid,
-    encounter_id: (ctx) => ctx.admissionEncounterId,
-    ordered_by: (ctx) => ctx.doctor.uid,
-  },
-  medication_administrations: {
-    tenant_id: (ctx) => ctx.tenantId,
-    patient_uid: (ctx) => ctx.admissionPatientUid,
-    clinical_order_id: async () => {
-      const row = await first(
-        'clinical_orders',
-        'id',
-        "tenant_id = $1::uuid AND order_type = 'medication'",
-        [DEFAULT_TENANT_ID],
-      );
-      return row?.id ?? null;
-    },
-    medication_name: 'Paracetamol 500 mg',
-    dosage: '500 mg',
-    route: 'oral',
-    scheduled_time: () => new Date('2026-05-04T09:00:00.000Z'),
-    administered_at: () => new Date('2026-05-04T09:01:00.000Z'),
-    administered_by: (ctx) => ctx.staff.uid,
-    status: 'administered',
-    notes: 'Synthetic MED-03 exact-batch matched administration.',
-    scanned_patient_uid: (ctx) => ctx.admissionPatientUid,
-    scanned_barcode: 'VH-SEED-MED03-PARA500',
-    rights_passed: JSON.stringify({ patient: true, medication: true, dose: true, route: true, time: true }),
-    all_rights_passed: true,
-    patient_scanned_at: () => new Date('2026-05-04T09:00:30.000Z'),
-    medication_scanned_at: () => new Date('2026-05-04T09:00:45.000Z'),
-    witness_uid: null,
-    hold_reason: null,
-    refusal_reason: null,
-    override_reason: null,
-    supply_quantity_per_dose: 1,
+    patient_uid: ctx => ctx.admissionPatientUid,
+    encounter_id: ctx => ctx.admissionEncounterId,
+    ordered_by: ctx => ctx.doctor.uid
   },
   ward_indents: {
-    admission_id: (ctx) => ctx.admissionId,
-    patient_uid: (ctx) => ctx.admissionPatientUid,
-    encounter_id: (ctx) => ctx.admissionEncounterId,
-    ward_id: (ctx) => ctx.wardId,
-    requested_by: (ctx) => ctx.staff.uid,
+    admission_id: ctx => ctx.admissionId,
+    patient_uid: ctx => ctx.admissionPatientUid,
+    encounter_id: ctx => ctx.admissionEncounterId,
+    ward_id: ctx => ctx.wardId,
+    requested_by: ctx => ctx.staff.uid,
     status: 'reconciled',
     state_version: 1,
-    approved_by: (ctx) => ctx.staff.uid,
+    approved_by: ctx => ctx.staff.uid,
     approved_at: () => new Date('2026-05-04T08:30:00.000Z'),
-    issued_by: (ctx) => ctx.staff.uid,
+    issued_by: ctx => ctx.staff.uid,
     issued_at: () => new Date('2026-05-04T08:40:00.000Z'),
-    received_by: (ctx) => ctx.staff.uid,
+    received_by: ctx => ctx.staff.uid,
     received_at: () => new Date('2026-05-04T08:50:00.000Z'),
-    return_requested_by: (ctx) => ctx.staff.uid,
+    return_requested_by: ctx => ctx.staff.uid,
     return_requested_at: () => new Date('2026-05-04T11:00:00.000Z'),
     reconciliation_reason: 'Two doses administered and one unused unit returned.',
-    reconciled_by: (ctx) => ctx.staff.uid,
+    reconciled_by: ctx => ctx.staff.uid,
     reconciled_at: () => new Date('2026-05-04T11:15:00.000Z'),
     rejection_reason: null,
     short_supply_reason: null,
@@ -1055,7 +1063,7 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     closed_by: null,
     closed_at: null,
     closure_outcome: null,
-    closure_reason: null,
+    closure_reason: null
   },
   ward_indent_items: {
     clinical_order_id: async () => {
@@ -1063,7 +1071,7 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
         'clinical_orders',
         'id',
         "tenant_id = $1::uuid AND order_type = 'medication'",
-        [DEFAULT_TENANT_ID],
+        [DEFAULT_TENANT_ID]
       );
       return row?.id ?? null;
     },
@@ -1093,18 +1101,18 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     controlled_movement_id: null,
     controlled_register_id: null,
     controlled_return_movement_id: null,
-    controlled_return_register_id: null,
+    controlled_return_register_id: null
   },
   ward_indent_events: {
     ward_indent_id: async () => firstTenantValue('ward_indents', 'id'),
     state_version: async () => firstTenantValue('ward_indents', 'state_version'),
     action: 'synthetic_reconciled_snapshot',
     to_status: async () => firstTenantValue('ward_indents', 'status'),
-    actor_uid: (ctx) => ctx.staff.uid,
+    actor_uid: ctx => ctx.staff.uid,
     owner_role_codes: async () => firstTenantValue('ward_indents', 'owner_role_codes'),
     from_status: null,
-    command_key: null,
-  },
+    command_key: null
+  }
 };
 
 function seedOverrideFor(table, columnName) {
@@ -1136,7 +1144,10 @@ function primitiveValue(column, table, index, ctx, checksByTable) {
   if (type.startsWith('_')) return [];
   if (type === 'bytea') return Buffer.from('seed');
   if (column.data_type === 'ARRAY') return [];
-  return clip(`${SEED_TAG}_${table}_${column.column_name}_${index}`, column.character_maximum_length);
+  return clip(
+    `${SEED_TAG}_${table}_${column.column_name}_${index}`,
+    column.character_maximum_length
+  );
 }
 
 async function fkValue(fk) {
@@ -1160,9 +1171,7 @@ async function rowForTable(table, columns, metadata, ctx, index, relaxed = false
     const tableOverrides = TABLE_COLUMN_SEED_OVERRIDES[table];
     if (tableOverrides && Object.hasOwn(tableOverrides, column.column_name)) {
       const override = tableOverrides[column.column_name];
-      row[column.column_name] = typeof override === 'function'
-        ? await override(ctx)
-        : override;
+      row[column.column_name] = typeof override === 'function' ? await override(ctx) : override;
       continue;
     }
 
@@ -1176,7 +1185,7 @@ async function rowForTable(table, columns, metadata, ctx, index, relaxed = false
       if (value === undefined) {
         if (required) {
           throw new Error(
-            `Seed dependency ${fk.foreign_table_name}.${fk.foreign_column_name} is empty`,
+            `Seed dependency ${fk.foreign_table_name}.${fk.foreign_column_name} is empty`
           );
         }
         continue;
@@ -1210,26 +1219,88 @@ async function seedCoreData() {
   const staffHash = await bcrypt.hash(STAFF_PASSWORD, 10);
   const adminHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
 
-  await insertIfEmpty('admins', [{
-    username: 'admin',
-    password_hash: adminHash,
-    email: 'admin@example.test',
-    name: 'Seed Admin',
-    role: 'SUPER_ADMIN',
-    status: 'active',
-    permissions: ['*'],
-    updated_at: new Date(),
-  }]);
+  await insertIfEmpty('admins', [
+    {
+      username: 'admin',
+      password_hash: adminHash,
+      email: 'admin@example.test',
+      name: 'Seed Admin',
+      role: 'SUPER_ADMIN',
+      status: 'active',
+      permissions: ['*'],
+      updated_at: new Date()
+    }
+  ]);
 
   const staffAccounts = [
-    ['EMP-1001', 'e2e_test Nurse Arya', 'NURSING_STAFF', '+919999990001', 'General Medicine', 'Staff Nurse'],
-    ['EMP-1002', 'e2e_test Pharmacist Bala', 'PHARMACY_STAFF', '+919999990002', 'Pharmacy', 'Pharmacist'],
-    ['EMP-1003', 'e2e_test LabTech Chitra', 'LAB_STAFF', '+919999990003', 'Laboratory', 'Lab Technician'],
+    [
+      'EMP-1001',
+      'e2e_test Nurse Arya',
+      'NURSING_STAFF',
+      '+919999990001',
+      'General Medicine',
+      'Staff Nurse'
+    ],
+    [
+      'EMP-1002',
+      'e2e_test Pharmacist Bala',
+      'PHARMACY_STAFF',
+      '+919999990002',
+      'Pharmacy',
+      'Pharmacist'
+    ],
+    [
+      'EMP-1003',
+      'e2e_test LabTech Chitra',
+      'LAB_STAFF',
+      '+919999990003',
+      'Laboratory',
+      'Lab Technician'
+    ],
     ['EMP-1004', 'Test Doctor', 'DOCTOR', '+919999990004', 'General Medicine', 'Consultant'],
     ['EMP-1005', 'Test HR', 'HR_STAFF', '+919999990005', 'HR', 'HR Officer'],
     ['EMP-1006', 'Test Admin', 'ADMIN', '+919999990006', 'Administration', 'Administrator'],
-    ['EMP-1007', 'Test Super Admin', 'SUPER_ADMIN', '+919999990007', 'Administration', 'Super Admin'],
+    [
+      'EMP-1007',
+      'Test Super Admin',
+      'SUPER_ADMIN',
+      '+919999990007',
+      'Administration',
+      'Super Admin'
+    ],
     ['EMP-1008', 'Test General Staff', 'GENERAL_STAFF', '+919999990008', 'Operations', 'Staff'],
+    [
+      'EMP-1009',
+      'e2e_test Pharmacy Incharge Dev',
+      'PHARMACY_INCHARGE',
+      '+919999990009',
+      'Pharmacy',
+      'Pharmacy Incharge'
+    ],
+    [
+      'EMP-1010',
+      'e2e_test Nursing Incharge Esha',
+      'NURSING_INCHARGE',
+      '+919999990010',
+      'Nursing',
+      'Nursing Incharge'
+    ],
+    [
+      'EMP-1011',
+      'e2e_test Billing Incharge Farah',
+      'BILLING_INCHARGE',
+      '+919999990011',
+      'Billing',
+      'Billing Incharge'
+    ],
+    [
+      'EMP-1012',
+      'e2e_test Cashier Gita',
+      'CASHIER',
+      '+919999990012',
+      'Billing',
+      'Cashier'
+    ]
   ];
 
   for (const [employeeId, name, role, phone, department, position] of staffAccounts) {
@@ -1284,7 +1355,7 @@ async function seedCoreData() {
             AND user_id = $2::integer
           ORDER BY id
           LIMIT 1`,
-        [DEFAULT_TENANT_ID, user.rows[0].id],
+        [DEFAULT_TENANT_ID, user.rows[0].id]
       );
       if (existingDoctor.rowCount) {
         await client.query(
@@ -1297,7 +1368,7 @@ async function seedCoreData() {
                   updated_at = NOW()
             WHERE id = $4
               AND tenant_id = $5::uuid`,
-          [name, department, position, existingDoctor.rows[0].id, DEFAULT_TENANT_ID],
+          [name, department, position, existingDoctor.rows[0].id, DEFAULT_TENANT_ID]
         );
       } else {
         await client.query(
@@ -1305,7 +1376,7 @@ async function seedCoreData() {
              (user_id, name, department, specialty, is_available, is_active,
               updated_at, tenant_id)
            VALUES ($1::integer, $2, $3, $4, TRUE, TRUE, NOW(), $5::uuid)`,
-          [user.rows[0].id, name, department, position, DEFAULT_TENANT_ID],
+          [user.rows[0].id, name, department, position, DEFAULT_TENANT_ID]
         );
       }
     }
@@ -1316,7 +1387,7 @@ async function seedCoreData() {
     ['+918888880002', 'Seed Patient Bala Menon', 'Male', 'A+'],
     ['+918888880003', 'Seed Patient Chitra Devi', 'Female', 'B+'],
     ['+918888880004', 'Seed Patient Dev Kumar', 'Male', 'AB+'],
-    ['+918888880005', 'Seed Patient Esha Nair', 'Female', 'O-'],
+    ['+918888880005', 'Seed Patient Esha Nair', 'Female', 'O-']
   ];
 
   for (const [phone, name, gender, bloodGroup] of patients) {
@@ -1342,7 +1413,9 @@ async function seedCoreData() {
 
   await seedCurrentBedStructure(client);
 
-  const firstWard = await first('wards', 'id, name, floor', 'LOWER(name) = LOWER($1)', ['A Block - Floor III']);
+  const firstWard = await first('wards', 'id, name, floor', 'LOWER(name) = LOWER($1)', [
+    'A Block - Floor III'
+  ]);
   const firstBed = await first('beds', 'id', 'LOWER(bed_number) = LOWER($1)', ['A-303']);
   if (firstWard && firstBed) {
     await client.query(
@@ -1360,7 +1433,15 @@ async function seedCoreData() {
               updated_at = NOW()
         WHERE id = $7
           AND (patient_uid IS NULL OR patient_uid = $2::uuid)`,
-      [refs.patient.id, refs.patient.uid, refs.patient.name, firstWard.id, firstWard.name, firstWard.floor, firstBed.id]
+      [
+        refs.patient.id,
+        refs.patient.uid,
+        refs.patient.name,
+        firstWard.id,
+        firstWard.name,
+        firstWard.floor,
+        firstBed.id
+      ]
     );
   }
 
@@ -1378,7 +1459,7 @@ async function seedCoreData() {
       reason: 'Seed general medicine review',
       token_number: 'A001',
       department: 'General Medicine',
-      updated_at: new Date(),
+      updated_at: new Date()
     },
     {
       phone: '+918888880002',
@@ -1392,19 +1473,21 @@ async function seedCoreData() {
       reason: 'Seed follow-up',
       token_number: 'A002',
       department: 'Cardiology',
-      updated_at: new Date(),
-    },
+      updated_at: new Date()
+    }
   ]);
 
   const afterAppointment = await getCoreRefs();
-  await insertIfTenantEmpty('appointment_status_history', [{
-    appointment_id: afterAppointment.appointmentId,
-    from_status: 'REQUESTED',
-    to_status: 'SCHEDULED',
-    changed_by: afterAppointment.staff.userId,
-    changed_by_role: 'SUPER_ADMIN',
-    reason: 'Seed status transition',
-  }]);
+  await insertIfTenantEmpty('appointment_status_history', [
+    {
+      appointment_id: afterAppointment.appointmentId,
+      from_status: 'REQUESTED',
+      to_status: 'SCHEDULED',
+      changed_by: afterAppointment.staff.userId,
+      changed_by_role: 'SUPER_ADMIN',
+      reason: 'Seed status transition'
+    }
+  ]);
 
   await insertIfEmpty('medications', [
     {
@@ -1420,190 +1503,218 @@ async function seedCoreData() {
       manufacturer: 'Seed Pharma',
       prescription_required: false,
       description: 'Seed medication',
-      updated_at: new Date(),
-    },
+      updated_at: new Date()
+    }
   ]);
 
-  await insertIfTenantEmpty('pharmacy_orders', [{
-    phone: afterAppointment.patient.phone,
-    patient_id: afterAppointment.patient.id,
-    patient_name: afterAppointment.patient.name,
-    patient_phone: afterAppointment.patient.phone,
-    order_note: 'Seed medication order',
-    medication: 'Paracetamol 500mg',
-    status: 'PENDING',
-    priority: 'NORMAL',
-    total_amount: 120,
-    items_list: JSON.stringify([{ name: 'Paracetamol', quantity: 10 }]),
-    updated_at: new Date(),
-  }]);
+  await insertIfTenantEmpty('pharmacy_orders', [
+    {
+      phone: afterAppointment.patient.phone,
+      patient_id: afterAppointment.patient.id,
+      patient_name: afterAppointment.patient.name,
+      patient_phone: afterAppointment.patient.phone,
+      order_note: 'Seed medication order',
+      medication: 'Paracetamol 500mg',
+      status: 'PENDING',
+      priority: 'NORMAL',
+      total_amount: 120,
+      items_list: JSON.stringify([{ name: 'Paracetamol', quantity: 10 }]),
+      updated_at: new Date()
+    }
+  ]);
 
-  await insertIfTenantEmpty('investigations', [{
-    phone: afterAppointment.patient.phone,
-    patient_id: afterAppointment.patient.id,
-    patient_uid: afterAppointment.patient.uid,
-    test_name: 'Complete Blood Count',
-    test_type: 'Pathology',
-    investigation_type: 'LAB',
-    status: 'REQUESTED',
-    priority: 'NORMAL',
-    requested_by: afterAppointment.doctor.uid,
-    doctor_id: afterAppointment.doctor.userId,
-    test_code: 'CBC',
-    type: 'LAB',
-    normal_range: 'Standard',
-    unit: 'cells/uL',
-    cost: 450,
-    updated_at: new Date(),
-  }]);
+  await insertIfTenantEmpty('investigations', [
+    {
+      phone: afterAppointment.patient.phone,
+      patient_id: afterAppointment.patient.id,
+      patient_uid: afterAppointment.patient.uid,
+      test_name: 'Complete Blood Count',
+      test_type: 'Pathology',
+      investigation_type: 'LAB',
+      status: 'REQUESTED',
+      priority: 'NORMAL',
+      requested_by: afterAppointment.doctor.uid,
+      doctor_id: afterAppointment.doctor.userId,
+      test_code: 'CBC',
+      type: 'LAB',
+      normal_range: 'Standard',
+      unit: 'cells/uL',
+      cost: 450,
+      updated_at: new Date()
+    }
+  ]);
 
   const afterInvestigation = await getCoreRefs();
-  await insertIfTenantEmpty('investigation_bookings', [{
-    patient_id: afterInvestigation.patient.id,
-    patient_name: afterInvestigation.patient.name,
-    patient_phone: afterInvestigation.patient.phone,
-    investigation_id: afterInvestigation.investigationId,
-    test_name: 'Complete Blood Count',
-    preferred_date: new Date(),
-    preferred_time_slot: '09:00-10:00',
-    estimated_cost: 450,
-    final_cost: 450,
-    status: 'BOOKED',
-    updated_at: new Date(),
-  }]);
+  await insertIfTenantEmpty('investigation_bookings', [
+    {
+      patient_id: afterInvestigation.patient.id,
+      patient_name: afterInvestigation.patient.name,
+      patient_phone: afterInvestigation.patient.phone,
+      investigation_id: afterInvestigation.investigationId,
+      test_name: 'Complete Blood Count',
+      preferred_date: new Date(),
+      preferred_time_slot: '09:00-10:00',
+      estimated_cost: 450,
+      final_cost: 450,
+      status: 'BOOKED',
+      updated_at: new Date()
+    }
+  ]);
 
-  await insertIfTenantEmpty('medical_records', [{
-    patient_id: afterInvestigation.patient.uid,
-    doctor_id: afterInvestigation.doctor.userId,
-    record_type: 'consultation',
-    title: 'Seed consultation note',
-    description: 'Stable vitals. Continue current medication.',
-    diagnosis: 'Hypertension',
-    treatment: 'Lifestyle advice and medication review',
-    medications: JSON.stringify([{ name: 'Amlodipine', dose: '5mg' }]),
-    lab_results: JSON.stringify([{ test: 'CBC', status: 'pending' }]),
-    updated_at: new Date(),
-  }]);
+  await insertIfTenantEmpty('medical_records', [
+    {
+      patient_id: afterInvestigation.patient.uid,
+      doctor_id: afterInvestigation.doctor.userId,
+      record_type: 'consultation',
+      title: 'Seed consultation note',
+      description: 'Stable vitals. Continue current medication.',
+      diagnosis: 'Hypertension',
+      treatment: 'Lifestyle advice and medication review',
+      medications: JSON.stringify([{ name: 'Amlodipine', dose: '5mg' }]),
+      lab_results: JSON.stringify([{ test: 'CBC', status: 'pending' }]),
+      updated_at: new Date()
+    }
+  ]);
 
-  await insertIfTenantEmpty('patient_records', [{
-    patient_id: afterInvestigation.patient.id,
-    document_type: 'lab_report',
-    title: 'Seed CBC report',
-    file_key: 'seed/patient-records/cbc.pdf',
-    file_name: 'cbc.pdf',
-    file_size: 1024,
-    file_mime: 'application/pdf',
-    source_hospital: 'Venkataeswara Hospitals',
-    record_date: new Date(),
-    notes: 'Seed patient record',
-  }]);
+  await insertIfTenantEmpty('patient_records', [
+    {
+      patient_id: afterInvestigation.patient.id,
+      document_type: 'lab_report',
+      title: 'Seed CBC report',
+      file_key: 'seed/patient-records/cbc.pdf',
+      file_name: 'cbc.pdf',
+      file_size: 1024,
+      file_mime: 'application/pdf',
+      source_hospital: 'Venkataeswara Hospitals',
+      record_date: new Date(),
+      notes: 'Seed patient record'
+    }
+  ]);
 
-  await insertIfTenantEmpty('health_records', [{
-    phone: afterInvestigation.patient.phone,
-    record_type: 'GENERAL',
-    file_name: 'seed-health-record.pdf',
-    file_type: 'application/pdf',
-    file_key: 'seed/health-records/general.pdf',
-    file_size: 1024,
-    privacy_level: 'RESTRICTED',
-    created_by: afterInvestigation.patient.uid,
-    updated_at: new Date(),
-  }]);
+  await insertIfTenantEmpty('health_records', [
+    {
+      phone: afterInvestigation.patient.phone,
+      record_type: 'GENERAL',
+      file_name: 'seed-health-record.pdf',
+      file_type: 'application/pdf',
+      file_key: 'seed/health-records/general.pdf',
+      file_size: 1024,
+      privacy_level: 'RESTRICTED',
+      created_by: afterInvestigation.patient.uid,
+      updated_at: new Date()
+    }
+  ]);
 
-  await insertIfTenantEmpty('admissions', [{
-    patient_uid: afterInvestigation.patient.uid,
-    status: 'admitted',
-    allergies: ['Penicillin'],
-    admitting_doctor: afterInvestigation.doctor.uid,
-    attending_doctor: afterInvestigation.doctor.uid,
-    department: 'General Medicine',
-    ward: 'General Ward',
-    bed_id: afterInvestigation.bedId,
-    bed_number: 'GW-201',
-    chief_complaint: 'Seed admission',
-    admitting_diagnosis: 'Observation',
-    admission_type: 'planned',
-    priority: 'routine',
-    admitted_at: new Date(),
-    updated_at: new Date(),
-  }]);
+  await insertIfTenantEmpty('admissions', [
+    {
+      patient_uid: afterInvestigation.patient.uid,
+      status: 'admitted',
+      allergies: ['Penicillin'],
+      admitting_doctor: afterInvestigation.doctor.uid,
+      attending_doctor: afterInvestigation.doctor.uid,
+      department: 'General Medicine',
+      ward: 'General Ward',
+      bed_id: afterInvestigation.bedId,
+      bed_number: 'GW-201',
+      chief_complaint: 'Seed admission',
+      admitting_diagnosis: 'Observation',
+      admission_type: 'planned',
+      priority: 'routine',
+      admitted_at: new Date(),
+      updated_at: new Date()
+    }
+  ]);
 
   const afterAdmission = await getCoreRefs();
-  await insertIfTenantEmpty('prescriptions', [{
-    patient_uid: afterAdmission.patient.uid,
-    medication_name: 'Paracetamol',
-    dosage: '500mg',
-    frequency: 'BD',
-    status: 'active',
-    duration_days: 3,
-  }]);
+  await insertIfTenantEmpty('prescriptions', [
+    {
+      patient_uid: afterAdmission.patient.uid,
+      medication_name: 'Paracetamol',
+      dosage: '500mg',
+      frequency: 'BD',
+      status: 'active',
+      duration_days: 3
+    }
+  ]);
 
-  await insertIfTenantEmpty('e_prescriptions', [{
-    appointment_id: afterAdmission.appointmentId,
-    patient_id: afterAdmission.patient.id,
-    doctor_id: afterAdmission.doctor.userId,
-    patient_uid: afterAdmission.patient.uid,
-    doctor_uid: afterAdmission.doctor.uid,
-    medication_name: 'Paracetamol',
-    diagnosis: 'Fever',
-    clinical_notes: 'Seed e-prescription',
-    medications: JSON.stringify([{ route: 'oral', dose: '500mg', frequency: 'BD' }]),
-    created_by: afterAdmission.doctor.userId,
-    updated_at: new Date(),
-  }]);
+  await insertIfTenantEmpty('e_prescriptions', [
+    {
+      appointment_id: afterAdmission.appointmentId,
+      patient_id: afterAdmission.patient.id,
+      doctor_id: afterAdmission.doctor.userId,
+      patient_uid: afterAdmission.patient.uid,
+      doctor_uid: afterAdmission.doctor.uid,
+      medication_name: 'Paracetamol',
+      diagnosis: 'Fever',
+      clinical_notes: 'Seed e-prescription',
+      medications: JSON.stringify([{ route: 'oral', dose: '500mg', frequency: 'BD' }]),
+      created_by: afterAdmission.doctor.userId,
+      updated_at: new Date()
+    }
+  ]);
 
-  await insertIfTenantEmpty('staff_attendance', [{
-    staff_id: afterAdmission.staff.userId,
-    staff_uid: afterAdmission.staff.uid,
-    type: 'check_in',
-    attendance_type: 'regular',
-    attendance_status: 'present',
-    check_in_time: new Date(),
-    location: 'Main Campus',
-    updated_at: new Date(),
-  }]);
+  await insertIfTenantEmpty('staff_attendance', [
+    {
+      staff_id: afterAdmission.staff.userId,
+      staff_uid: afterAdmission.staff.uid,
+      type: 'check_in',
+      attendance_type: 'regular',
+      attendance_status: 'present',
+      check_in_time: new Date(),
+      location: 'Main Campus',
+      updated_at: new Date()
+    }
+  ]);
 
-  await insertIfTenantEmpty('leave_applications', [{
-    staff_id: afterAdmission.staff.userId,
-    leave_type: 'sick',
-    start_date: new Date('2026-05-10T00:00:00.000Z'),
-    end_date: new Date('2026-05-11T00:00:00.000Z'),
-    days_taken: 2,
-    reason: 'Seed leave request',
-    status: 'pending',
-    applied_by: afterAdmission.staff.uid,
-  }]);
+  await insertIfTenantEmpty('leave_applications', [
+    {
+      staff_id: afterAdmission.staff.userId,
+      leave_type: 'sick',
+      start_date: new Date('2026-05-10T00:00:00.000Z'),
+      end_date: new Date('2026-05-11T00:00:00.000Z'),
+      days_taken: 2,
+      reason: 'Seed leave request',
+      status: 'pending',
+      applied_by: afterAdmission.staff.uid
+    }
+  ]);
 
-  await insertIfTenantEmpty('replacement_requests', [{
-    leave_request_id: await firstTenantValue('leave_applications', 'id'),
-    requester_id: afterAdmission.staff.userId,
-    replacement_staff_id: afterAdmission.secondStaff.userId,
-    dates: JSON.stringify(['2026-05-10', '2026-05-11']),
-    status: 'pending',
-    requester_message: 'Seed replacement request',
-  }]);
+  await insertIfTenantEmpty('replacement_requests', [
+    {
+      leave_request_id: await firstTenantValue('leave_applications', 'id'),
+      requester_id: afterAdmission.staff.userId,
+      replacement_staff_id: afterAdmission.secondStaff.userId,
+      dates: JSON.stringify(['2026-05-10', '2026-05-11']),
+      status: 'pending',
+      requester_message: 'Seed replacement request'
+    }
+  ]);
 
-  await insertIfTenantEmpty('staff_messages', [{
-    sender_uid: afterAdmission.staff.uid,
-    recipient_uid: afterAdmission.secondStaff.uid,
-    patient_uid: afterAdmission.patient.uid,
-    subject: 'Seed handover',
-    body: 'Seed staff message for desktop smoke testing.',
-    priority: 'normal',
-  }]);
+  await insertIfTenantEmpty('staff_messages', [
+    {
+      sender_uid: afterAdmission.staff.uid,
+      recipient_uid: afterAdmission.secondStaff.uid,
+      patient_uid: afterAdmission.patient.uid,
+      subject: 'Seed handover',
+      body: 'Seed staff message for desktop smoke testing.',
+      priority: 'normal'
+    }
+  ]);
 
   await seedCareTeam(afterAdmission);
 
-  await insertIfTenantEmpty('notifications', [{
-    uid: afterAdmission.patient.uid,
-    phone: afterAdmission.patient.phone,
-    title: 'Seed notification',
-    body: 'Your appointment is scheduled.',
-    type: 'APPOINTMENT',
-    priority: 'NORMAL',
-    user_id: afterAdmission.patient.id,
-    updated_at: new Date(),
-  }]);
+  await insertIfTenantEmpty('notifications', [
+    {
+      uid: afterAdmission.patient.uid,
+      phone: afterAdmission.patient.phone,
+      title: 'Seed notification',
+      body: 'Your appointment is scheduled.',
+      type: 'APPOINTMENT',
+      priority: 'NORMAL',
+      user_id: afterAdmission.patient.id,
+      updated_at: new Date()
+    }
+  ]);
 }
 
 async function seedCareTeam(refs) {
@@ -1621,7 +1732,7 @@ async function seedCareTeam(refs) {
       metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
       created_by: refs.staff.uid,
       updated_by: refs.staff.uid,
-      updated_at: new Date(),
+      updated_at: new Date()
     });
   }
 
@@ -1646,7 +1757,7 @@ async function seedCareTeam(refs) {
     metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
     created_by: refs.staff.uid,
     updated_by: refs.staff.uid,
-    updated_at: new Date(),
+    updated_at: new Date()
   });
 }
 
@@ -1669,7 +1780,7 @@ async function seedScheduledNotificationFixture() {
            AND type = 'feedback_request'
            AND data->>'appointment_id' = 'seed'
       )`,
-    [ctx.patient.tenant_id, ctx.patient.id],
+    [ctx.patient.tenant_id, ctx.patient.id]
   );
 }
 
@@ -1678,15 +1789,16 @@ async function getCoreRefs() {
     'users',
     'id, uid, phone, name, tenant_id',
     "tenant_id = $1::uuid AND role = 'PATIENT'",
-    [DEFAULT_TENANT_ID],
+    [DEFAULT_TENANT_ID]
   );
   const secondPatient = await first(
     'users',
     'id, uid, phone, name, tenant_id',
     "tenant_id = $1::uuid AND role = 'PATIENT' AND phone <> $2",
-    [DEFAULT_TENANT_ID, patient?.phone || ''],
+    [DEFAULT_TENANT_ID, patient?.phone || '']
   );
-  const doctor = await client.query(`
+  const doctor = await client.query(
+    `
     SELECT d.id, d.user_id, d.name, u.uid
       FROM doctors d
       JOIN users u
@@ -1695,8 +1807,11 @@ async function getCoreRefs() {
      WHERE d.tenant_id = $1::uuid
      ORDER BY d.id
      LIMIT 1
-  `, [DEFAULT_TENANT_ID]);
-  const staff = await client.query(`
+  `,
+    [DEFAULT_TENANT_ID]
+  );
+  const staff = await client.query(
+    `
     SELECT s.id AS staff_id, u.id AS user_id, u.uid, s.employee_id
       FROM staff s
       JOIN users u
@@ -1705,8 +1820,11 @@ async function getCoreRefs() {
      WHERE s.tenant_id = $1::uuid
      ORDER BY s.id
      LIMIT 1
-  `, [DEFAULT_TENANT_ID]);
-  const secondStaff = await client.query(`
+  `,
+    [DEFAULT_TENANT_ID]
+  );
+  const secondStaff = await client.query(
+    `
     SELECT s.id AS staff_id, u.id AS user_id, u.uid, s.employee_id
       FROM staff s
       JOIN users u
@@ -1716,7 +1834,9 @@ async function getCoreRefs() {
      ORDER BY s.id
      OFFSET 1
      LIMIT 1
-  `, [DEFAULT_TENANT_ID]);
+  `,
+    [DEFAULT_TENANT_ID]
+  );
   const doctorRow = doctor.rows[0];
   const staffRow = staff.rows[0];
   const secondStaffRow = secondStaff.rows[0] || staffRow;
@@ -1726,24 +1846,30 @@ async function getCoreRefs() {
     generatedUuid: '11111111-1111-4111-8111-111111111111',
     patient,
     secondPatient: secondPatient || patient,
-    doctor: doctorRow ? {
-      id: doctorRow.id,
-      userId: doctorRow.user_id,
-      uid: doctorRow.uid,
-      name: doctorRow.name,
-    } : null,
-    staff: staffRow ? {
-      staffId: staffRow.staff_id,
-      userId: staffRow.user_id,
-      uid: staffRow.uid,
-      employeeId: staffRow.employee_id,
-    } : null,
-    secondStaff: secondStaffRow ? {
-      staffId: secondStaffRow.staff_id,
-      userId: secondStaffRow.user_id,
-      uid: secondStaffRow.uid,
-      employeeId: secondStaffRow.employee_id,
-    } : null,
+    doctor: doctorRow
+      ? {
+          id: doctorRow.id,
+          userId: doctorRow.user_id,
+          uid: doctorRow.uid,
+          name: doctorRow.name
+        }
+      : null,
+    staff: staffRow
+      ? {
+          staffId: staffRow.staff_id,
+          userId: staffRow.user_id,
+          uid: staffRow.uid,
+          employeeId: staffRow.employee_id
+        }
+      : null,
+    secondStaff: secondStaffRow
+      ? {
+          staffId: secondStaffRow.staff_id,
+          userId: secondStaffRow.user_id,
+          uid: secondStaffRow.uid,
+          employeeId: secondStaffRow.employee_id
+        }
+      : null,
     departmentId: await firstTenantValue('departments', 'id'),
     wardId: await firstTenantValue('wards', 'id'),
     bedId: await firstTenantValue('beds', 'id'),
@@ -1759,18 +1885,19 @@ async function getCoreRefs() {
     chatSessionId: await firstTenantValue('chat_sessions', 'id'),
     taskId: await firstTenantValue('tasks', 'id'),
     apiClientId: await firstTenantValue('api_clients', 'id'),
-    kgNodeId: await firstTenantValue('clinical_ai_kg_nodes', 'id'),
+    kgNodeId: await firstTenantValue('clinical_ai_kg_nodes', 'id')
   };
 }
 
 async function seedRemainingTables() {
   const metadata = await getMetadata();
   const tables = [...metadata.columnsByTable.keys()]
-    .filter((table) => (
-      !table.startsWith('_')
-      && !MANUAL_SEED_TABLES.has(table)
-      && !INTENTIONALLY_EMPTY_TABLES.has(table)
-    ))
+    .filter(
+      table =>
+        !table.startsWith('_') &&
+        !MANUAL_SEED_TABLES.has(table) &&
+        !INTENTIONALLY_EMPTY_TABLES.has(table)
+    )
     .sort();
   const seeded = [];
   const failed = new Map();
@@ -1781,7 +1908,13 @@ async function seedRemainingTables() {
     for (const table of tables) {
       if (await tableCount(table)) continue;
       try {
-        const row = await rowForTable(table, metadata.columnsByTable.get(table), metadata, ctx, seeded.length + 1);
+        const row = await rowForTable(
+          table,
+          metadata.columnsByTable.get(table),
+          metadata,
+          ctx,
+          seeded.length + 1
+        );
         const error = await tryInsertSeedRow(table, row, `${pass}_${table}`);
         if (error) throw error;
         seeded.push(table);
@@ -1829,13 +1962,13 @@ async function summarize(failed) {
     'pharmacy_orders',
     'medical_records',
     'patient_records',
-    'notifications',
+    'notifications'
   ]) {
     if (await columnExists(table, 'id')) domainCounts[table] = await tableCount(table);
   }
 
   return {
-    totalAppTables: counts.rows.filter((row) => !row.table_name.startsWith('_')).length,
+    totalAppTables: counts.rows.filter(row => !row.table_name.startsWith('_')).length,
     nonEmptyAppTables: nonEmpty,
     emptyAppTables: empty,
     intentionallyEmptyAppTables: intentionallyEmpty,
@@ -1843,8 +1976,8 @@ async function summarize(failed) {
     domainCounts,
     credentials: {
       staff: 'EMP-1001..EMP-1008 / test1234',
-      admin: `admin / ${ADMIN_PASSWORD === STAFF_PASSWORD ? 'test1234' : '<VH_TEST_ADMIN_PASSWORD>'}`,
-    },
+      admin: `admin / ${ADMIN_PASSWORD === STAFF_PASSWORD ? 'test1234' : '<VH_TEST_ADMIN_PASSWORD>'}`
+    }
   };
 }
 
@@ -1862,12 +1995,9 @@ async function seedPayrollAttemptGraph() {
   const ctx = await getCoreRefs();
   if (!ctx.staff?.uid) throw new Error('Payroll seed graph requires an active staff user.');
 
-  let run = await first(
-    'payroll_runs',
-    'id, attempt_token',
-    'tenant_id = $1::uuid',
-    [DEFAULT_TENANT_ID],
-  );
+  let run = await first('payroll_runs', 'id, attempt_token', 'tenant_id = $1::uuid', [
+    DEFAULT_TENANT_ID
+  ]);
   if (!run) {
     const attemptToken = randomUUID();
     const inserted = await client.query(
@@ -1879,7 +2009,7 @@ async function seedPayrollAttemptGraph() {
          ($1::uuid, 5, 2026, 'draft', 0, 0, 0, 0, 0, $2::uuid,
           NULL, NULL, 'Synthetic local payroll attempt coverage')
        RETURNING id, attempt_token`,
-      [DEFAULT_TENANT_ID, attemptToken],
+      [DEFAULT_TENANT_ID, attemptToken]
     );
     run = inserted.rows[0];
   }
@@ -1891,19 +2021,14 @@ async function seedPayrollAttemptGraph() {
      VALUES ($1::uuid, $2::integer, $3::uuid, $4::timestamptz,
              'processing', 0, 0, 0)
      ON CONFLICT DO NOTHING`,
-    [
-      DEFAULT_TENANT_ID,
-      run.id,
-      run.attempt_token,
-      new Date('2026-05-04T09:00:00.000Z'),
-    ],
+    [DEFAULT_TENANT_ID, run.id, run.attempt_token, new Date('2026-05-04T09:00:00.000Z')]
   );
 
   let payslip = await first(
     'payslips',
     'id, payroll_run_id, generation_attempt_token, staff_uid, document_revision',
     'tenant_id = $1::uuid AND payroll_run_id = $2::integer AND staff_uid = $3::uuid',
-    [DEFAULT_TENANT_ID, run.id, ctx.staff.uid],
+    [DEFAULT_TENANT_ID, run.id, ctx.staff.uid]
   );
   if (!payslip) {
     const inserted = await client.query(
@@ -1914,7 +2039,7 @@ async function seedPayrollAttemptGraph() {
                5, 2026, 'draft', 1)
        RETURNING id, payroll_run_id, generation_attempt_token, staff_uid,
                  document_revision`,
-      [DEFAULT_TENANT_ID, run.id, run.attempt_token, ctx.staff.uid],
+      [DEFAULT_TENANT_ID, run.id, run.attempt_token, ctx.staff.uid]
     );
     payslip = inserted.rows[0];
   }
@@ -1924,7 +2049,7 @@ async function seedPayrollAttemptGraph() {
        (tenant_id, payroll_run_id, attempt_token, staff_uid, outcome)
      VALUES ($1::uuid, $2::integer, $3::uuid, $4::uuid, 'pending')
      ON CONFLICT DO NOTHING`,
-    [DEFAULT_TENANT_ID, run.id, run.attempt_token, ctx.staff.uid],
+    [DEFAULT_TENANT_ID, run.id, run.attempt_token, ctx.staff.uid]
   );
 
   if (!(await tableCount('payslip_documents'))) {
@@ -1945,8 +2070,8 @@ async function seedPayrollAttemptGraph() {
         payslip.document_revision,
         'seed/payroll/payslip-2026-05.pdf',
         'synthetic-test-credential-ciphertext',
-        '7'.repeat(64),
-      ],
+        '7'.repeat(64)
+      ]
     );
   }
 }
@@ -1961,7 +2086,7 @@ async function seedCarePathwayWorkflowGraph() {
     'care_pathway_definition_governance',
     'care_pathway_instances',
     'care_pathway_transition_events',
-    'care_handoff_instances',
+    'care_handoff_instances'
   ];
   const existingCounts = [];
   for (const table of graphTables) existingCounts.push(await tableCount(table));
@@ -1971,13 +2096,13 @@ async function seedCarePathwayWorkflowGraph() {
     'users',
     'uid, name',
     "tenant_id = $1::uuid AND role = 'PATIENT' AND is_active = TRUE",
-    [DEFAULT_TENANT_ID],
+    [DEFAULT_TENANT_ID]
   );
   const clinicalActor = await first(
     'users',
     'uid, role',
     "tenant_id = $1::uuid AND role = 'DOCTOR' AND is_active = TRUE AND status = 'active'",
-    [DEFAULT_TENANT_ID],
+    [DEFAULT_TENANT_ID]
   );
   const operationalActor = await first(
     'users',
@@ -1985,7 +2110,7 @@ async function seedCarePathwayWorkflowGraph() {
     `tenant_id = $1::uuid
      AND role IN ('NURSING_STAFF', 'CARE_COORDINATOR', 'DOCTOR')
      AND is_active = TRUE AND status = 'active'`,
-    [DEFAULT_TENANT_ID],
+    [DEFAULT_TENANT_ID]
   );
   const clinicalOwner = clinicalActor?.uid;
   const operationalOwner = operationalActor?.uid;
@@ -1994,10 +2119,12 @@ async function seedCarePathwayWorkflowGraph() {
     'uid, role',
     `tenant_id = $1::uuid
      AND role IN ('ADMIN', 'SUPER_ADMIN') AND is_active = TRUE AND status = 'active'`,
-    [DEFAULT_TENANT_ID],
+    [DEFAULT_TENANT_ID]
   );
   if (!patient?.uid || !clinicalOwner || !operationalOwner || !approver?.uid) {
-    throw new Error('Care-pathway seed graph requires a patient, two staff owners, and an admin approver.');
+    throw new Error(
+      'Care-pathway seed graph requires a patient, two staff owners, and an admin approver.'
+    );
   }
 
   const workflowKey = 'seed_test_care_pathway';
@@ -2005,22 +2132,24 @@ async function seedCarePathwayWorkflowGraph() {
   const rawDefinition = {
     workflow_key: workflowKey,
     version: 1,
-    steps: [{
-      step_key: stepKey,
-      step_kind: 'task',
-      display_name: 'Seed neutral handoff request',
-      assigned_role: 'DOCTOR',
-      metadata: { seed: true, source: 'seed-comprehensive-test-data' },
-      work_semantics: {
-        task_kind: 'general',
-        priority: 'normal',
-        title: 'Seed neutral handoff request',
-        description: 'Synthetic local test workflow coverage.',
-        sla_completion_semantics: 'none',
-      },
-    }],
+    steps: [
+      {
+        step_key: stepKey,
+        step_kind: 'task',
+        display_name: 'Seed neutral handoff request',
+        assigned_role: 'DOCTOR',
+        metadata: { seed: true, source: 'seed-comprehensive-test-data' },
+        work_semantics: {
+          task_kind: 'general',
+          priority: 'normal',
+          title: 'Seed neutral handoff request',
+          description: 'Synthetic local test workflow coverage.',
+          sla_completion_semantics: 'none'
+        }
+      }
+    ],
     triggers: [],
-    defaults: {},
+    defaults: {}
   };
   const compiledDefinition = compileWorkflowDefinition(rawDefinition);
   const evidenceAt = new Date();
@@ -2040,8 +2169,8 @@ async function seedCarePathwayWorkflowGraph() {
       JSON.stringify(compiledDefinition.steps),
       JSON.stringify(compiledDefinition.triggers),
       JSON.stringify(compiledDefinition.defaults),
-      operationalOwner,
-    ],
+      operationalOwner
+    ]
   );
   const definitionId = definition.rows[0].id;
 
@@ -2066,8 +2195,8 @@ async function seedCarePathwayWorkflowGraph() {
       JSON.stringify([{ uid: approver.uid, at: evidenceAt.toISOString() }]),
       approver.uid,
       evidenceAt,
-      compiledDefinition.checksum,
-    ],
+      compiledDefinition.checksum
+    ]
   );
   const approvalId = approval.rows[0].id;
 
@@ -2091,8 +2220,8 @@ async function seedCarePathwayWorkflowGraph() {
       approvalId,
       approver.uid,
       evidenceAt,
-      compiledDefinition.checksum,
-    ],
+      compiledDefinition.checksum
+    ]
   );
   const governanceId = governance.rows[0].id;
 
@@ -2100,7 +2229,7 @@ async function seedCarePathwayWorkflowGraph() {
     `UPDATE workflow_definitions
         SET is_active = TRUE, updated_at = NOW()
       WHERE tenant_id = $1::uuid AND id = $2::integer`,
-    [DEFAULT_TENANT_ID, definitionId],
+    [DEFAULT_TENANT_ID, definitionId]
   );
 
   const run = await client.query(
@@ -2121,8 +2250,8 @@ async function seedCarePathwayWorkflowGraph() {
       workflowKey,
       operationalOwner,
       governanceId,
-      compiledDefinition.checksum,
-    ],
+      compiledDefinition.checksum
+    ]
   );
   const runId = run.rows[0].id;
 
@@ -2135,7 +2264,7 @@ async function seedCarePathwayWorkflowGraph() {
         'task', 'pending', 0, $4::uuid, 'DOCTOR',
         '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb)
      RETURNING id`,
-    [DEFAULT_TENANT_ID, runId, stepKey, clinicalOwner],
+    [DEFAULT_TENANT_ID, runId, stepKey, clinicalOwner]
   );
   const stepId = step.rows[0].id;
 
@@ -2151,7 +2280,7 @@ async function seedCarePathwayWorkflowGraph() {
         $5::uuid, NULL, $6::uuid, 'none',
         '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb)
      RETURNING id`,
-    [DEFAULT_TENANT_ID, runId, stepId, patient.uid, clinicalOwner, operationalOwner],
+    [DEFAULT_TENANT_ID, runId, stepId, patient.uid, clinicalOwner, operationalOwner]
   );
   const taskId = task.rows[0].id;
 
@@ -2182,8 +2311,8 @@ async function seedCarePathwayWorkflowGraph() {
       operationalOwner,
       definitionId,
       governanceId,
-      compiledDefinition.checksum,
-    ],
+      compiledDefinition.checksum
+    ]
   );
   const pathwayId = pathway.rows[0].id;
   const eventId = (await client.query('SELECT gen_random_uuid() AS id')).rows[0].id;
@@ -2214,14 +2343,14 @@ async function seedCarePathwayWorkflowGraph() {
     effect_ordinal: 0,
     workflow_definition_id: definitionId,
     governance_id: governanceId,
-    definition_checksum: compiledDefinition.checksum,
+    definition_checksum: compiledDefinition.checksum
   };
   const eventMetadata = {
     seed: true,
     pathway_runtime: { definition_checksum: compiledDefinition.checksum },
     command_fingerprint: fingerprint,
     effect_ordinal: 0,
-    provenance: { kind: 'system', system_key: 'seed-comprehensive-test-data.v1' },
+    provenance: { kind: 'system', system_key: 'seed-comprehensive-test-data.v1' }
   };
 
   const timeline = await client.query(
@@ -2237,14 +2366,7 @@ async function seedCarePathwayWorkflowGraph() {
         ARRAY['care_pathway', $6::text, 'pathway', 'seed']::text[],
         'care_pathway_transition_events:' || $3::text || ':timeline')
      RETURNING id`,
-    [
-      DEFAULT_TENANT_ID,
-      patient.uid,
-      eventId,
-      evidenceAt,
-      JSON.stringify(eventPayload),
-      workflowKey,
-    ],
+    [DEFAULT_TENANT_ID, patient.uid, eventId, evidenceAt, JSON.stringify(eventPayload), workflowKey]
   );
   const audit = await client.query(
     `INSERT INTO clinical_audit_events
@@ -2265,8 +2387,8 @@ async function seedCarePathwayWorkflowGraph() {
       JSON.stringify(previousState),
       JSON.stringify(newState),
       JSON.stringify(eventMetadata),
-      evidenceAt,
-    ],
+      evidenceAt
+    ]
   );
 
   await client.query(
@@ -2298,8 +2420,8 @@ async function seedCarePathwayWorkflowGraph() {
       timeline.rows[0].id,
       audit.rows[0].id,
       JSON.stringify(eventPayload),
-      JSON.stringify(eventMetadata),
-    ],
+      JSON.stringify(eventMetadata)
+    ]
   );
 
   await client.query(
@@ -2324,15 +2446,15 @@ async function seedCarePathwayWorkflowGraph() {
       clinicalOwner,
       operationalOwner,
       evidenceAt,
-      taskId,
-    ],
+      taskId
+    ]
   );
 
   await client.query(
     `UPDATE workflow_definitions
         SET is_active = FALSE, updated_at = NOW()
       WHERE tenant_id = $1::uuid AND id = $2::integer`,
-    [DEFAULT_TENANT_ID, definitionId],
+    [DEFAULT_TENANT_ID, definitionId]
   );
   await client.query(
     `UPDATE care_pathway_definition_governance
@@ -2343,7 +2465,7 @@ async function seedCarePathwayWorkflowGraph() {
             effective_until = $2::timestamptz,
             updated_at = NOW()
       WHERE tenant_id = $3::uuid AND id = $4::uuid`,
-    [approver.uid, evidenceAt, DEFAULT_TENANT_ID, governanceId],
+    [approver.uid, evidenceAt, DEFAULT_TENANT_ID, governanceId]
   );
 }
 
@@ -2526,7 +2648,7 @@ async function seedOpInpatientEvidenceGraph() {
   );
   const runId = Number(run.rows[0].id);
   const step = await client.query(
-      `INSERT INTO workflow_steps
+    `INSERT INTO workflow_steps
          (tenant_id, workflow_run_id, step_key, display_name, step_kind,
           status, ordering, assigned_to, assigned_role, metadata)
       VALUES
@@ -3195,8 +3317,11 @@ async function seedOpInpatientEvidenceGraph() {
 }
 
 async function seedCarePathwayReconciliationEvidence() {
-  if (!(await tableExists('care_pathway_reconciliation_checks'))
-      || await tableCount('care_pathway_reconciliation_checks')) return;
+  if (
+    !(await tableExists('care_pathway_reconciliation_checks')) ||
+    (await tableCount('care_pathway_reconciliation_checks'))
+  )
+    return;
 
   const now = new Date('2026-05-04T12:00:00.000Z');
   await insert('care_pathway_reconciliation_checks', {
@@ -3216,13 +3341,15 @@ async function seedCarePathwayReconciliationEvidence() {
     error_count: 0,
     registry_complete: true,
     passed: false,
-    check_results: JSON.stringify([{
-      check_key: 'seed_fixture',
-      status: 'passed',
-      source: 'seed-comprehensive-test-data',
-    }]),
+    check_results: JSON.stringify([
+      {
+        check_key: 'seed_fixture',
+        status: 'passed',
+        source: 'seed-comprehensive-test-data'
+      }
+    ]),
     started_at: now,
-    completed_at: now,
+    completed_at: now
   });
 }
 
@@ -3231,7 +3358,7 @@ async function seedDiagnosticResultEvidence() {
     'diagnostic_result_generations',
     'diagnostic_result_generation_items',
     'diagnostic_result_actions',
-    'diagnostic_result_release_states',
+    'diagnostic_result_release_states'
   ];
   const existingCounts = [];
   for (const table of targetTables) existingCounts.push(await tableCount(table));
@@ -3241,23 +3368,25 @@ async function seedDiagnosticResultEvidence() {
     'investigations',
     'id, patient_uid, requested_by, test_name, result_version',
     'tenant_id = $1::uuid AND patient_uid IS NOT NULL',
-    [DEFAULT_TENANT_ID],
+    [DEFAULT_TENANT_ID]
   );
   const doctor = await first(
     'users',
     'uid, role',
     `tenant_id = $1::uuid
      AND role = 'DOCTOR' AND is_active = TRUE AND status = 'active'`,
-    [DEFAULT_TENANT_ID],
+    [DEFAULT_TENANT_ID]
   );
   let radiology = await first(
     'radiology_orders',
     'id, patient_uid, modality, body_part, report_generation_version',
     'tenant_id = $1::uuid AND patient_uid = $2::uuid AND report_signed_off_at IS NOT NULL',
-    [DEFAULT_TENANT_ID, investigation?.patient_uid],
+    [DEFAULT_TENANT_ID, investigation?.patient_uid]
   );
   if (!investigation?.id || !investigation.patient_uid || !doctor?.uid) {
-    throw new Error('Diagnostic-result seed evidence requires a patient-linked investigation and doctor.');
+    throw new Error(
+      'Diagnostic-result seed evidence requires a patient-linked investigation and doctor.'
+    );
   }
   if (!radiology?.id) {
     const seededRadiology = await client.query(
@@ -3284,15 +3413,13 @@ async function seedDiagnosticResultEvidence() {
         doctor.uid,
         new Date('2026-05-04T11:00:00.000Z'),
         JSON.stringify({ explicit_normal_flag: true, seed: true }),
-        '4'.repeat(64),
-      ],
+        '4'.repeat(64)
+      ]
     );
     radiology = seededRadiology.rows[0];
   }
 
-  const itemHash = createHash('sha256')
-    .update('seed-diagnostic-result-item-v1')
-    .digest('hex');
+  const itemHash = createHash('sha256').update('seed-diagnostic-result-item-v1').digest('hex');
   const generationHash = createHash('sha256').update(itemHash).digest('hex');
   const requestHash = createHash('sha256')
     .update('seed-diagnostic-normal-auto-close-v1')
@@ -3319,8 +3446,8 @@ async function seedDiagnosticResultEvidence() {
       generationId,
       signedAt,
       JSON.stringify({ seed: true, classification: 'normal' }),
-      `diagnostic-result-generation:${generationId}:timeline`,
-    ],
+      `diagnostic-result-generation:${generationId}:timeline`
+    ]
   );
   const generationAudit = await client.query(
     `INSERT INTO clinical_audit_events
@@ -3339,8 +3466,8 @@ async function seedDiagnosticResultEvidence() {
       JSON.stringify({ classification: 'normal', snapshot_sha256: generationHash }),
       JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
       `diagnostic-result-generation:${generationId}:audit`,
-      signedAt,
-    ],
+      signedAt
+    ]
   );
 
   await client.query(
@@ -3369,8 +3496,8 @@ async function seedDiagnosticResultEvidence() {
       JSON.stringify({ explicit_normal_flag: true, seed: true }),
       generationHash,
       generationTimeline.rows[0].id,
-      generationAudit.rows[0].id,
-    ],
+      generationAudit.rows[0].id
+    ]
   );
   await client.query(
     `INSERT INTO diagnostic_result_generation_items
@@ -3386,16 +3513,17 @@ async function seedDiagnosticResultEvidence() {
       generationId,
       String(radiology.id),
       String(radiology.report_generation_version || 1),
-      [radiology.modality, radiology.body_part].filter(Boolean).join(' ') || 'Seed radiology report',
+      [radiology.modality, radiology.body_part].filter(Boolean).join(' ') ||
+        'Seed radiology report',
       JSON.stringify({ report: 'No diagnostic abnormality.', seed: true }),
-      itemHash,
-    ],
+      itemHash
+    ]
   );
   await client.query(
     `INSERT INTO diagnostic_result_release_states
        (generation_id, tenant_id, patient_uid)
      VALUES ($1::uuid, $2::uuid, $3::uuid)`,
-    [generationId, DEFAULT_TENANT_ID, investigation.patient_uid],
+    [generationId, DEFAULT_TENANT_ID, investigation.patient_uid]
   );
 
   const actionTimeline = await client.query(
@@ -3416,8 +3544,8 @@ async function seedDiagnosticResultEvidence() {
       actionId,
       signedAt,
       JSON.stringify({ seed: true, generation_id: generationId }),
-      `diagnostic-result-action:${actionId}:timeline`,
-    ],
+      `diagnostic-result-action:${actionId}:timeline`
+    ]
   );
   const actionAudit = await client.query(
     `INSERT INTO clinical_audit_events
@@ -3436,8 +3564,8 @@ async function seedDiagnosticResultEvidence() {
       JSON.stringify({ action_kind: 'normal_auto_closed', generation_id: generationId }),
       JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
       `diagnostic-result-action:${actionId}:audit`,
-      signedAt,
-    ],
+      signedAt
+    ]
   );
   await client.query(
     `INSERT INTO diagnostic_result_actions
@@ -3460,23 +3588,22 @@ async function seedDiagnosticResultEvidence() {
       JSON.stringify({ decision: 'release_allowed', seed: true }),
       actionTimeline.rows[0].id,
       actionAudit.rows[0].id,
-      signedAt,
-    ],
+      signedAt
+    ]
   );
 }
 
 async function seedDiagnosticResultPatientNotificationEvidence() {
   if (await tableCount('diagnostic_result_patient_notifications')) return;
-  await client.query(
-    "SELECT set_config('app.current_tenant_id', $1::text, true)",
-    [DEFAULT_TENANT_ID],
-  );
+  await client.query("SELECT set_config('app.current_tenant_id', $1::text, true)", [
+    DEFAULT_TENANT_ID
+  ]);
   const generation = await first(
     'diagnostic_result_generations',
     'id, patient_uid',
     `tenant_id = $1::uuid
      AND source_kind IN ('radiology_report', 'anatomical_pathology_report')`,
-    [DEFAULT_TENANT_ID],
+    [DEFAULT_TENANT_ID]
   );
   if (!generation?.id || !generation.patient_uid) {
     throw new Error('Diagnostic notification seed evidence requires a structured generation.');
@@ -3497,9 +3624,9 @@ async function seedDiagnosticResultPatientNotificationEvidence() {
         tenant_id: DEFAULT_TENANT_ID,
         type: 'diagnostic_result_ready',
         route: '/portal/diagnostic-results',
-        seed: true,
-      }),
-    ],
+        seed: true
+      })
+    ]
   );
   await client.query(
     `INSERT INTO diagnostic_result_patient_notifications
@@ -3508,17 +3635,16 @@ async function seedDiagnosticResultPatientNotificationEvidence() {
      VALUES
        ($1::uuid, $2::uuid, $3::uuid, 'result_ready',
         'structured_diagnostic_result_ready.v1', $4::integer)`,
-    [DEFAULT_TENANT_ID, generation.id, generation.patient_uid, Number(outbox.rows[0].id)],
+    [DEFAULT_TENANT_ID, generation.id, generation.patient_uid, Number(outbox.rows[0].id)]
   );
 }
 
 async function seedNotificationDeliveryEvidence() {
-  if (!await tableExists('notification_delivery_attempts')) return;
+  if (!(await tableExists('notification_delivery_attempts'))) return;
   if (await tableCount('notification_delivery_attempts')) return;
-  await client.query(
-    "SELECT set_config('app.current_tenant_id', $1::text, true)",
-    [DEFAULT_TENANT_ID],
-  );
+  await client.query("SELECT set_config('app.current_tenant_id', $1::text, true)", [
+    DEFAULT_TENANT_ID
+  ]);
   const claimToken = randomUUID();
   const outbox = await client.query(
     `INSERT INTO notification_outbox
@@ -3536,15 +3662,19 @@ async function seedNotificationDeliveryEvidence() {
      ON CONFLICT ON CONSTRAINT ux_notification_outbox_delivery_intent
      DO NOTHING
      RETURNING id`,
-    [DEFAULT_TENANT_ID],
+    [DEFAULT_TENANT_ID]
   );
-  const outboxId = outbox.rows[0]?.id || (await client.query(
-    `SELECT id FROM notification_outbox
+  const outboxId =
+    outbox.rows[0]?.id ||
+    (
+      await client.query(
+        `SELECT id FROM notification_outbox
       WHERE tenant_id = $1::uuid
         AND source_event_key = 'seed:notification-delivery-accepted'
       LIMIT 1`,
-    [DEFAULT_TENANT_ID],
-  )).rows[0].id;
+        [DEFAULT_TENANT_ID]
+      )
+    ).rows[0].id;
   await client.query(
     `UPDATE notification_outbox
         SET status = 'CLAIMED', claim_token = $3::uuid,
@@ -3552,7 +3682,7 @@ async function seedNotificationDeliveryEvidence() {
             claimed_at = NOW(), lease_expires_at = NOW() + INTERVAL '2 minutes'
       WHERE tenant_id = $1::uuid AND id = $2::integer
         AND status = 'PENDING'`,
-    [DEFAULT_TENANT_ID, outboxId, claimToken],
+    [DEFAULT_TENANT_ID, outboxId, claimToken]
   );
   const attempt = await client.query(
     `INSERT INTO notification_delivery_attempts
@@ -3563,7 +3693,7 @@ async function seedNotificationDeliveryEvidence() {
        FROM notification_outbox
       WHERE tenant_id = $1::uuid AND id = $2::integer
      RETURNING attempt_id`,
-    [DEFAULT_TENANT_ID, outboxId],
+    [DEFAULT_TENANT_ID, outboxId]
   );
   await client.query(
     `INSERT INTO notification_provider_receipts
@@ -3573,52 +3703,49 @@ async function seedNotificationDeliveryEvidence() {
        ($1::uuid, $2::uuid, $3::integer, 'push', 'acknowledged',
         'provider_response', 'seed:no-egress:accepted', 'seed_acceptance',
         '{"seed":true,"provider_egress":false}'::jsonb)`,
-    [DEFAULT_TENANT_ID, attempt.rows[0].attempt_id, outboxId],
+    [DEFAULT_TENANT_ID, attempt.rows[0].attempt_id, outboxId]
   );
   await client.query(
     `INSERT INTO notification_delivery_cursors (tenant_id, channel)
      VALUES ($1::uuid, 'push')
      ON CONFLICT (tenant_id, channel) DO NOTHING`,
-    [DEFAULT_TENANT_ID],
+    [DEFAULT_TENANT_ID]
   );
   await client.query(
     `UPDATE notification_delivery_cursors
         SET last_contiguous_outbox_id = $2::integer, state = 'ready',
             blocked_outbox_id = NULL, inflight_outbox_id = NULL, updated_at = NOW()
       WHERE tenant_id = $1::uuid AND channel = 'push'`,
-    [DEFAULT_TENANT_ID, outboxId],
+    [DEFAULT_TENANT_ID, outboxId]
   );
   await client.query(
     `UPDATE notification_outbox
         SET status = 'SENT', claim_token = NULL, claimed_at = NULL,
             lease_expires_at = NULL, sent_at = NOW(), last_attempt_at = NOW()
       WHERE tenant_id = $1::uuid AND id = $2::integer`,
-    [DEFAULT_TENANT_ID, outboxId],
+    [DEFAULT_TENANT_ID, outboxId]
   );
 }
 
 async function seedHl7OutboundDeliveryEvidence() {
-  if (!await tableExists('hl7_outbound_transport_attempts')) return;
+  if (!(await tableExists('hl7_outbound_transport_attempts'))) return;
   if (await tableCount('hl7_outbound_transport_attempts')) return;
-  await client.query(
-    "SELECT set_config('app.current_tenant_id', $1::text, true)",
-    [DEFAULT_TENANT_ID],
-  );
+  await client.query("SELECT set_config('app.current_tenant_id', $1::text, true)", [
+    DEFAULT_TENANT_ID
+  ]);
 
   const claimToken = randomUUID();
   const controlId = 'VH-SEED-I04-AA';
   const payload = [
     `MSH|^~\\&|VH|VH|SEED|SEED|20260802000000||ADT^A01|${controlId}|P|2.5`,
-    'PID|1||SEED-I04^^^VH^MR||Recovery^Evidence',
+    'PID|1||SEED-I04^^^VH^MR||Recovery^Evidence'
   ].join('\r');
   const payloadHash = createHash('sha256').update(payload, 'utf8').digest('hex');
   const acknowledgement = [
     `MSH|^~\\&|SEED|SEED|VH|VH|20260802000001||ACK^A01|SEED-ACK-I04|P|2.5`,
-    `MSA|AA|${controlId}|Seed acceptance without provider egress`,
+    `MSA|AA|${controlId}|Seed acceptance without provider egress`
   ].join('\r');
-  const acknowledgementHash = createHash('sha256')
-    .update(acknowledgement, 'utf8')
-    .digest('hex');
+  const acknowledgementHash = createHash('sha256').update(acknowledgement, 'utf8').digest('hex');
 
   const subscription = await client.query(
     `INSERT INTO hl7_feed_subscriptions
@@ -3630,7 +3757,7 @@ async function seedHl7OutboundDeliveryEvidence() {
      ON CONFLICT (tenant_id, name) DO UPDATE
        SET is_active = FALSE, metadata = EXCLUDED.metadata
      RETURNING id`,
-    [DEFAULT_TENANT_ID],
+    [DEFAULT_TENANT_ID]
   );
   const message = await client.query(
     `INSERT INTO hl7_outbound_messages
@@ -3646,17 +3773,21 @@ async function seedHl7OutboundDeliveryEvidence() {
      ON CONFLICT ON CONSTRAINT ux_hl7_outbound_message_source
      DO NOTHING
      RETURNING id`,
-    [DEFAULT_TENANT_ID, subscription.rows[0].id, controlId, payload, payloadHash],
+    [DEFAULT_TENANT_ID, subscription.rows[0].id, controlId, payload, payloadHash]
   );
-  const messageId = message.rows[0]?.id || (await client.query(
-    `SELECT id
+  const messageId =
+    message.rows[0]?.id ||
+    (
+      await client.query(
+        `SELECT id
        FROM hl7_outbound_messages
       WHERE tenant_id = $1::uuid
         AND subscription_id = $2::integer
         AND source_event_key = 'seed:hl7-outbound-delivery-aa'
         AND message_type = 'ADT^A01'`,
-    [DEFAULT_TENANT_ID, subscription.rows[0].id],
-  )).rows[0].id;
+        [DEFAULT_TENANT_ID, subscription.rows[0].id]
+      )
+    ).rows[0].id;
 
   await client.query(
     `UPDATE hl7_outbound_messages
@@ -3665,7 +3796,7 @@ async function seedHl7OutboundDeliveryEvidence() {
             claimed_at = NOW(), lease_expires_at = NOW() + INTERVAL '2 minutes'
       WHERE tenant_id = $1::uuid AND id = $2::integer
         AND status = 'queued' AND send_authority = 'authorized'`,
-    [DEFAULT_TENANT_ID, messageId, claimToken],
+    [DEFAULT_TENANT_ID, messageId, claimToken]
   );
   const attempt = await client.query(
     `INSERT INTO hl7_outbound_transport_attempts
@@ -3676,7 +3807,7 @@ async function seedHl7OutboundDeliveryEvidence() {
        FROM hl7_outbound_messages
       WHERE tenant_id = $1::uuid AND id = $2::integer
      RETURNING attempt_id`,
-    [DEFAULT_TENANT_ID, messageId],
+    [DEFAULT_TENANT_ID, messageId]
   );
   const transport = await client.query(
     `INSERT INTO hl7_outbound_transport_results
@@ -3691,8 +3822,8 @@ async function seedHl7OutboundDeliveryEvidence() {
       attempt.rows[0].attempt_id,
       messageId,
       subscription.rows[0].id,
-      acknowledgementHash,
-    ],
+      acknowledgementHash
+    ]
   );
   await client.query(
     `INSERT INTO hl7_outbound_acknowledgements
@@ -3711,14 +3842,14 @@ async function seedHl7OutboundDeliveryEvidence() {
       messageId,
       subscription.rows[0].id,
       controlId,
-      acknowledgementHash,
-    ],
+      acknowledgementHash
+    ]
   );
   await client.query(
     `INSERT INTO hl7_outbound_delivery_cursors (tenant_id, subscription_id)
      VALUES ($1::uuid, $2::integer)
      ON CONFLICT (tenant_id, subscription_id) DO NOTHING`,
-    [DEFAULT_TENANT_ID, subscription.rows[0].id],
+    [DEFAULT_TENANT_ID, subscription.rows[0].id]
   );
   await client.query(
     `UPDATE hl7_outbound_delivery_cursors
@@ -3726,7 +3857,7 @@ async function seedHl7OutboundDeliveryEvidence() {
             blocked_message_id = NULL, inflight_message_id = NULL,
             updated_at = NOW()
       WHERE tenant_id = $1::uuid AND subscription_id = $2::integer`,
-    [DEFAULT_TENANT_ID, subscription.rows[0].id, messageId],
+    [DEFAULT_TENANT_ID, subscription.rows[0].id, messageId]
   );
   await client.query(
     `UPDATE hl7_outbound_messages
@@ -3735,22 +3866,21 @@ async function seedHl7OutboundDeliveryEvidence() {
             claim_token = NULL, claimed_at = NULL, lease_expires_at = NULL,
             sent_at = NOW(), last_error = NULL
       WHERE tenant_id = $1::uuid AND id = $2::integer`,
-    [DEFAULT_TENANT_ID, messageId],
+    [DEFAULT_TENANT_ID, messageId]
   );
 }
 
 async function seedInteropHl7v2DeliveryReceipt() {
-  if (!await tableExists('interop_backend_delivery_receipts')) return;
+  if (!(await tableExists('interop_backend_delivery_receipts'))) return;
   if (await tableCount('interop_backend_delivery_receipts')) return;
-  await client.query(
-    "SELECT set_config('app.current_tenant_id', $1::text, true)",
-    [DEFAULT_TENANT_ID],
-  );
+  await client.query("SELECT set_config('app.current_tenant_id', $1::text, true)", [
+    DEFAULT_TENANT_ID
+  ]);
   const message = await first(
     'interop_messages',
     'id, tenant_id, channel_id, channel_version_id, protocol, direction, payload_hash',
     "tenant_id = $1::uuid AND protocol = 'hl7v2' AND direction = 'inbound'",
-    [DEFAULT_TENANT_ID],
+    [DEFAULT_TENANT_ID]
   );
   if (!message) {
     throw new Error('I05 seed receipt requires the generic live HL7v2 message');
@@ -3775,17 +3905,16 @@ async function seedInteropHl7v2DeliveryReceipt() {
       message.protocol,
       message.direction,
       I05_SEED_PAYLOAD_HASH,
-      Buffer.byteLength(I05_SEED_PAYLOAD, 'utf8'),
-    ],
+      Buffer.byteLength(I05_SEED_PAYLOAD, 'utf8')
+    ]
   );
 }
 
 async function seedInteropHl7v2MessageGraph() {
-  if (!await tableExists('interop_messages')) return;
-  await client.query(
-    "SELECT set_config('app.current_tenant_id', $1::text, true)",
-    [DEFAULT_TENANT_ID],
-  );
+  if (!(await tableExists('interop_messages'))) return;
+  await client.query("SELECT set_config('app.current_tenant_id', $1::text, true)", [
+    DEFAULT_TENANT_ID
+  ]);
   const source = await client.query(
     `INSERT INTO interop_systems
        (tenant_id, system_key, display_name, kind, direction, status, metadata)
@@ -3797,7 +3926,7 @@ async function seedInteropHl7v2MessageGraph() {
            status = 'paused',
            metadata = EXCLUDED.metadata
      RETURNING id`,
-    [DEFAULT_TENANT_ID],
+    [DEFAULT_TENANT_ID]
   );
   const target = await client.query(
     `INSERT INTO interop_systems
@@ -3810,7 +3939,7 @@ async function seedInteropHl7v2MessageGraph() {
            status = 'paused',
            metadata = EXCLUDED.metadata
      RETURNING id`,
-    [DEFAULT_TENANT_ID],
+    [DEFAULT_TENANT_ID]
   );
   const channel = await client.query(
     `INSERT INTO interop_channels
@@ -3827,7 +3956,7 @@ async function seedInteropHl7v2MessageGraph() {
            status = 'paused',
            metadata = EXCLUDED.metadata
      RETURNING id`,
-    [DEFAULT_TENANT_ID, source.rows[0].id, target.rows[0].id],
+    [DEFAULT_TENANT_ID, source.rows[0].id, target.rows[0].id]
   );
   const version = await client.query(
     `INSERT INTO interop_channel_versions
@@ -3848,7 +3977,7 @@ async function seedInteropHl7v2MessageGraph() {
            routing_policy = EXCLUDED.routing_policy,
            redaction_profile = EXCLUDED.redaction_profile
      RETURNING id`,
-    [DEFAULT_TENANT_ID, channel.rows[0].id],
+    [DEFAULT_TENANT_ID, channel.rows[0].id]
   );
   await client.query(
     `INSERT INTO interop_messages
@@ -3878,7 +4007,7 @@ async function seedInteropHl7v2MessageGraph() {
             effect_disposition = 'held',
             send_authority = 'held',
             owner_reconciliation_required = TRUE`,
-    [DEFAULT_TENANT_ID, channel.rows[0].id, version.rows[0].id, I05_SEED_PAYLOAD_HASH],
+    [DEFAULT_TENANT_ID, channel.rows[0].id, version.rows[0].id, I05_SEED_PAYLOAD_HASH]
   );
 }
 
@@ -3886,7 +4015,7 @@ function stableSeedStringify(value) {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableSeedStringify).join(',')}]`;
   const keys = Object.keys(value).sort();
-  return `{${keys.map((key) => `${JSON.stringify(key)}:${stableSeedStringify(value[key])}`).join(',')}}`;
+  return `{${keys.map(key => `${JSON.stringify(key)}:${stableSeedStringify(value[key])}`).join(',')}}`;
 }
 
 async function seedReferralClosedLoopGraph() {
@@ -3894,7 +4023,7 @@ async function seedReferralClosedLoopGraph() {
     'referrals',
     'referral_transition_events',
     'referral_responses',
-    'referral_patient_notifications',
+    'referral_patient_notifications'
   ];
   const existingCounts = [];
   for (const table of targetTables) existingCounts.push(await tableCount(table));
@@ -3904,7 +4033,7 @@ async function seedReferralClosedLoopGraph() {
     'users',
     'uid, name',
     "tenant_id = $1::uuid AND role = 'PATIENT' AND is_active = TRUE",
-    [DEFAULT_TENANT_ID],
+    [DEFAULT_TENANT_ID]
   );
   const clinicians = await client.query(
     `SELECT user_record.uid, user_record.name, user_record.role,
@@ -3918,7 +4047,7 @@ async function seedReferralClosedLoopGraph() {
         AND doctor.is_active = TRUE
       ORDER BY doctor.id
       LIMIT 2`,
-    [DEFAULT_TENANT_ID],
+    [DEFAULT_TENANT_ID]
   );
   const originator = clinicians.rows[0];
   const receiver = clinicians.rows[1] || clinicians.rows[0];
@@ -3932,8 +4061,9 @@ async function seedReferralClosedLoopGraph() {
   const responseFingerprint = createHash('sha256')
     .update('seed-referral-response-v1')
     .digest('hex');
-  const referral = (await client.query(
-    `INSERT INTO referrals
+  const referral = (
+    await client.query(
+      `INSERT INTO referrals
        (referral_number, tenant_id, patient_uid, referring_doctor,
         referred_to_doctor, referred_to_department, referral_type, reason,
         urgency, priority, requester_id, performer_id, source, status,
@@ -3948,15 +4078,16 @@ async function seedReferralClosedLoopGraph() {
         $3::uuid, 'open', $6::char(64), NOW(),
         '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb)
      RETURNING id, referral_number, patient_uid`,
-    [
-      DEFAULT_TENANT_ID,
-      patient.uid,
-      originator.uid,
-      receiver.uid,
-      receiver.department || receiver.specialty || 'General Medicine',
-      requestFingerprint,
-    ],
-  )).rows[0];
+      [
+        DEFAULT_TENANT_ID,
+        patient.uid,
+        originator.uid,
+        receiver.uid,
+        receiver.department || receiver.specialty || 'General Medicine',
+        requestFingerprint
+      ]
+    )
+  ).rows[0];
 
   const transitionId = '33333333-4444-4555-8666-777777777777';
   const timeline = await client.query(
@@ -3976,8 +4107,8 @@ async function seedReferralClosedLoopGraph() {
       transitionId,
       String(referral.id),
       JSON.stringify({ referral_id: referral.id, seed: true }),
-      `seed-referral-transition:${transitionId}:timeline`,
-    ],
+      `seed-referral-transition:${transitionId}:timeline`
+    ]
   );
   const audit = await client.query(
     `INSERT INTO clinical_audit_events
@@ -3997,8 +4128,8 @@ async function seedReferralClosedLoopGraph() {
       receiver.role,
       transitionId,
       JSON.stringify({ status: 'completed', current_owner_uid: originator.uid }),
-      `seed-referral-transition:${transitionId}:audit`,
-    ],
+      `seed-referral-transition:${transitionId}:audit`
+    ]
   );
   await client.query(
     `INSERT INTO referral_transition_events
@@ -4020,8 +4151,8 @@ async function seedReferralClosedLoopGraph() {
       originator.uid,
       receiver.role,
       timeline.rows[0].id,
-      audit.rows[0].id,
-    ],
+      audit.rows[0].id
+    ]
   );
 
   const responseId = '44444444-5555-4666-8777-888888888888';
@@ -4046,8 +4177,8 @@ async function seedReferralClosedLoopGraph() {
       patient.uid,
       responseFingerprint,
       receiver.uid,
-      receiver.role,
-    ],
+      receiver.role
+    ]
   );
   const contentHash = createHash('sha256')
     .update(stableSeedStringify(responseResult.rows[0].document), 'utf8')
@@ -4070,8 +4201,8 @@ async function seedReferralClosedLoopGraph() {
       contentHash,
       receiver.uid,
       receiver.role,
-      receiver.name,
-    ],
+      receiver.name
+    ]
   );
   const outbox = await client.query(
     `INSERT INTO notification_outbox
@@ -4089,9 +4220,9 @@ async function seedReferralClosedLoopGraph() {
         tenant_id: DEFAULT_TENANT_ID,
         type: 'referral_response_ready',
         route: '/portal/referrals',
-        seed: true,
-      }),
-    ],
+        seed: true
+      })
+    ]
   );
   await client.query(
     `INSERT INTO referral_patient_notifications
@@ -4099,7 +4230,7 @@ async function seedReferralClosedLoopGraph() {
         notification_outbox_id)
      VALUES
        ($1::uuid, $2::uuid, $3::uuid, 'referral_response_ready', $4::integer)`,
-    [DEFAULT_TENANT_ID, responseId, patient.uid, Number(outbox.rows[0].id)],
+    [DEFAULT_TENANT_ID, responseId, patient.uid, Number(outbox.rows[0].id)]
   );
 }
 
@@ -4110,7 +4241,7 @@ async function seedLabIngestCriticalAlertGraph() {
     'lab_critical_alert_acknowledgement_receipts',
     'lab_critical_alert_reconciliation_receipts',
     'lab_oru_ingest_messages',
-    'lab_result_ingest_commands',
+    'lab_result_ingest_commands'
   ];
   const existingCounts = [];
   for (const table of targetTables) existingCounts.push(await tableCount(table));
@@ -4120,37 +4251,37 @@ async function seedLabIngestCriticalAlertGraph() {
     'users',
     'uid, name',
     "tenant_id = $1::uuid AND role = 'PATIENT' AND is_active = TRUE",
-    [DEFAULT_TENANT_ID],
+    [DEFAULT_TENANT_ID]
   );
   const labActor = await first(
     'users',
     'uid, name, role',
     `tenant_id = $1::uuid
      AND role = 'LAB_STAFF' AND is_active = TRUE AND status = 'active'`,
-    [DEFAULT_TENANT_ID],
+    [DEFAULT_TENANT_ID]
   );
   const doctorActor = await first(
     'users',
     'uid, name, role',
     `tenant_id = $1::uuid
      AND role = 'DOCTOR' AND is_active = TRUE AND status = 'active'`,
-    [DEFAULT_TENANT_ID],
+    [DEFAULT_TENANT_ID]
   );
   const investigation = await first(
     'investigations',
     'id, patient_uid, test_code, test_name',
     'tenant_id = $1::uuid AND patient_uid = $2::uuid',
-    [DEFAULT_TENANT_ID, patient?.uid],
+    [DEFAULT_TENANT_ID, patient?.uid]
   );
   if (
-    !labActor?.uid
-    || !doctorActor?.uid
-    || !patient?.uid
-    || !investigation?.id
-    || !investigation.test_code
+    !labActor?.uid ||
+    !doctorActor?.uid ||
+    !patient?.uid ||
+    !investigation?.id ||
+    !investigation.test_code
   ) {
     throw new Error(
-      'Lab seed graph requires active lab and doctor actors and a patient-linked investigation.',
+      'Lab seed graph requires active lab and doctor actors and a patient-linked investigation.'
     );
   }
 
@@ -4158,11 +4289,12 @@ async function seedLabIngestCriticalAlertGraph() {
     'lab_analyzers',
     'id, analyzer_code',
     "tenant_id = $1::uuid AND status = 'active'",
-    [DEFAULT_TENANT_ID],
+    [DEFAULT_TENANT_ID]
   );
   if (!analyzer) {
-    analyzer = (await client.query(
-      `INSERT INTO lab_analyzers
+    analyzer = (
+      await client.query(
+        `INSERT INTO lab_analyzers
          (tenant_id, analyzer_code, display_name, manufacturer, model,
           serial_number, interface_kind, status, metadata, created_by, updated_by)
        VALUES
@@ -4171,13 +4303,12 @@ async function seedLabIngestCriticalAlertGraph() {
           '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb,
           $2::uuid, $2::uuid)
        RETURNING id, analyzer_code`,
-      [DEFAULT_TENANT_ID, labActor.uid],
-    )).rows[0];
+        [DEFAULT_TENANT_ID, labActor.uid]
+      )
+    ).rows[0];
   }
   if (!analyzer?.id || !analyzer.analyzer_code) {
-    throw new Error(
-      'Lab seed graph could not resolve its active analyzer.',
-    );
+    throw new Error('Lab seed graph could not resolve its active analyzer.');
   }
 
   const analyzerCode = analyzer.analyzer_code;
@@ -4187,7 +4318,7 @@ async function seedLabIngestCriticalAlertGraph() {
     `PID|1||${patient.uid}||Seed^Patient`,
     `ORC|RE|VHINV-${investigation.id}`,
     `OBR|1|VHINV-${investigation.id}||${investigation.test_code}^${investigation.test_name || 'Seed test'}`,
-    `OBX|1|NM|${investigation.test_code}^${investigation.test_name || 'Seed test'}||7.1|seed-unit|0.0-5.0|HH|||F`,
+    `OBX|1|NM|${investigation.test_code}^${investigation.test_name || 'Seed test'}||7.1|seed-unit|0.0-5.0|HH|||F`
   ].join('\r');
   const oruClaim = await client.query(
     `INSERT INTO lab_oru_ingest_messages
@@ -4198,14 +4329,7 @@ async function seedLabIngestCriticalAlertGraph() {
        ($1::uuid, $2::text, $3::text, $4::text, 1, 'processing', $5::uuid,
         ARRAY[$6::text]::text[], 'actor_uid', $5::text)
      RETURNING id`,
-    [
-      DEFAULT_TENANT_ID,
-      analyzerCode,
-      messageControlId,
-      rawMessage,
-      labActor.uid,
-      labActor.role,
-    ],
+    [DEFAULT_TENANT_ID, analyzerCode, messageControlId, rawMessage, labActor.uid, labActor.role]
   );
 
   const criticalResult = await client.query(
@@ -4233,15 +4357,17 @@ async function seedLabIngestCriticalAlertGraph() {
       investigation.test_code,
       investigation.test_name || 'Seed test',
       `OBX|1|NM|${investigation.test_code}||7.1|seed-unit|0.0-5.0|HH|||F`,
-      new Date(),
-    ],
+      new Date()
+    ]
   );
   const resultId = criticalResult.rows[0].id;
-  const reservedIds = (await client.query(
-    `SELECT
+  const reservedIds = (
+    await client.query(
+      `SELECT
        nextval(pg_get_serial_sequence('tasks', 'id'))::integer AS task_id,
-       nextval(pg_get_serial_sequence('lab_critical_alerts', 'id'))::integer AS alert_id`,
-  )).rows[0];
+       nextval(pg_get_serial_sequence('lab_critical_alerts', 'id'))::integer AS alert_id`
+    )
+  ).rows[0];
   const taskId = reservedIds.task_id;
   const alertId = reservedIds.alert_id;
   const acknowledgedAt = new Date();
@@ -4272,8 +4398,8 @@ async function seedLabIngestCriticalAlertGraph() {
       dueAt,
       acknowledgedAt,
       doctorActor.uid,
-      String(taskId),
-    ],
+      String(taskId)
+    ]
   );
   const slaId = sla.rows[0].id;
   const task = await client.query(
@@ -4309,8 +4435,8 @@ async function seedLabIngestCriticalAlertGraph() {
       dueAt,
       slaId,
       String(alertId),
-      acknowledgedAt.toISOString(),
-    ],
+      acknowledgedAt.toISOString()
+    ]
   );
   if (task.rows[0].id !== taskId) throw new Error('Lab seed task reservation was not preserved.');
 
@@ -4341,8 +4467,8 @@ async function seedLabIngestCriticalAlertGraph() {
       acknowledgedAt,
       doctorActor.uid,
       doctorActor.name || 'Seed doctor',
-      taskId,
-    ],
+      taskId
+    ]
   );
 
   await client.query(
@@ -4360,14 +4486,14 @@ async function seedLabIngestCriticalAlertGraph() {
           'seed', TRUE
         ),
         $5::timestamptz)`,
-    [DEFAULT_TENANT_ID, taskId, doctorActor.uid, acknowledgedAt.toISOString(), acknowledgedAt],
+    [DEFAULT_TENANT_ID, taskId, doctorActor.uid, acknowledgedAt.toISOString(), acknowledgedAt]
   );
   const acknowledgementPayload = {
     alert_id: alertId,
     result_id: resultId,
     acknowledgement_authorization: 'assignee',
     read_back_method: 'verbal_readback',
-    ack_contract_version: 2,
+    ack_contract_version: 2
   };
   await client.query(
     `INSERT INTO clinical_timeline_events
@@ -4389,8 +4515,8 @@ async function seedLabIngestCriticalAlertGraph() {
       doctorActor.uid,
       doctorActor.role,
       acknowledgedAt,
-      JSON.stringify(acknowledgementPayload),
-    ],
+      JSON.stringify(acknowledgementPayload)
+    ]
   );
   await client.query(
     `INSERT INTO clinical_audit_events
@@ -4413,16 +4539,16 @@ async function seedLabIngestCriticalAlertGraph() {
         acknowledged_at: acknowledgedAt.toISOString(),
         acknowledged_by: doctorActor.uid,
         read_back_method: 'verbal_readback',
-        ack_contract_version: 2,
+        ack_contract_version: 2
       }),
-      acknowledgedAt,
-    ],
+      acknowledgedAt
+    ]
   );
   await client.query(
     `SELECT record_lab_critical_alert_acknowledgement_receipt(
        $1::uuid, $2::integer, $3::integer
      )`,
-    [DEFAULT_TENANT_ID, alertId, taskId],
+    [DEFAULT_TENANT_ID, alertId, taskId]
   );
 
   await client.query(
@@ -4442,7 +4568,7 @@ async function seedLabIngestCriticalAlertGraph() {
             completed_at = $5::timestamptz,
             updated_at = NOW()
       WHERE tenant_id = $6::uuid AND id = $7::bigint`,
-    [resultId, alertId, taskId, slaId, acknowledgedAt, DEFAULT_TENANT_ID, oruClaim.rows[0].id],
+    [resultId, alertId, taskId, slaId, acknowledgedAt, DEFAULT_TENANT_ID, oruClaim.rows[0].id]
   );
 
   const ingestCommand = await client.query(
@@ -4453,7 +4579,7 @@ async function seedLabIngestCriticalAlertGraph() {
        ($1::uuid, $2::uuid, 'manual_result', 'seed-manual-result-v1',
         $3::char(64), 'processing')
      RETURNING id`,
-    [DEFAULT_TENANT_ID, labActor.uid, 'd'.repeat(64)],
+    [DEFAULT_TENANT_ID, labActor.uid, 'd'.repeat(64)]
   );
   const correctedAt = new Date();
   const correctedResult = await client.query(
@@ -4480,8 +4606,8 @@ async function seedLabIngestCriticalAlertGraph() {
       investigation.test_code,
       investigation.test_name || 'Seed test',
       correctedAt,
-      doctorActor.uid,
-    ],
+      doctorActor.uid
+    ]
   );
   const correctedResultId = correctedResult.rows[0].id;
   await client.query(
@@ -4495,7 +4621,7 @@ async function seedLabIngestCriticalAlertGraph() {
             completed_at = $2::timestamptz,
             updated_at = NOW()
       WHERE tenant_id = $3::uuid AND id = $4::bigint`,
-    [correctedResultId, correctedAt, DEFAULT_TENANT_ID, ingestCommand.rows[0].id],
+    [correctedResultId, correctedAt, DEFAULT_TENANT_ID, ingestCommand.rows[0].id]
   );
   const signoff = await client.query(
     `INSERT INTO lab_pathologist_signoffs
@@ -4513,8 +4639,8 @@ async function seedLabIngestCriticalAlertGraph() {
       correctedResultId,
       doctorActor.uid,
       doctorActor.name || 'Seed doctor',
-      correctedAt,
-    ],
+      correctedAt
+    ]
   );
   await client.query(
     `INSERT INTO lab_critical_alert_reconciliation_receipts
@@ -4526,13 +4652,7 @@ async function seedLabIngestCriticalAlertGraph() {
         $5::timestamptz, 'no_active_critical_threshold',
         'seed-comprehensive-test-data', '4.1', 4.1, 'seed-unit',
         '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb)`,
-    [
-      DEFAULT_TENANT_ID,
-      correctedResultId,
-      patient.uid,
-      signoff.rows[0].id,
-      correctedAt,
-    ],
+    [DEFAULT_TENANT_ID, correctedResultId, patient.uid, signoff.rows[0].id, correctedAt]
   );
 }
 
@@ -4546,11 +4666,11 @@ async function assertNoActiveSyntheticWorkflowDefinitions() {
           OR LEFT(workflow_key, 5) = 'seed_'
           OR category = 'test_fixture'
         )
-      ORDER BY id`,
+      ORDER BY id`
   );
   if (activeSyntheticDefinitions.rowCount > 0) {
     throw new Error(
-      `Refusing to commit active synthetic workflow definitions: ${JSON.stringify(activeSyntheticDefinitions.rows)}`,
+      `Refusing to commit active synthetic workflow definitions: ${JSON.stringify(activeSyntheticDefinitions.rows)}`
     );
   }
 }
@@ -4572,7 +4692,7 @@ async function seedInsuranceClaimCaps() {
   const tpaClaim = legacyClaim ? null : await first('tpa_claims', 'id', 'TRUE', []);
   if (!legacyClaim && !tpaClaim) return; // can't seed without a parent
 
-  const staffUid = await firstValue('users', 'uid') || DEFAULT_TENANT_ID;
+  const staffUid = (await firstValue('users', 'uid')) || DEFAULT_TENANT_ID;
   // insurance_claim_caps has no tenant_id column — its tenant scope is
   // inherited through the parent claim row (insurance_claims has no
   // tenant_id either, tpa_claims has tenant_id). Columns: claim_id /
@@ -4584,27 +4704,34 @@ async function seedInsuranceClaimCaps() {
     currency: 'INR',
     source: 'tpa_preauth',
     notes: 'Seed cap for QA coverage',
-    created_by: staffUid,
+    created_by: staffUid
   };
 
   await insertIfEmpty('insurance_claim_caps', [
     legacyClaim
       ? { ...baseRow, claim_id: legacyClaim.id }
-      : { ...baseRow, tpa_claim_id: tpaClaim.id },
+      : { ...baseRow, tpa_claim_id: tpaClaim.id }
   ]);
 }
 
-async function seedMedicationClosureEvidence() {
+async function seedMedicationClosureEvidence(seedFailures = new Map()) {
+  await client.query("SELECT set_config('app.current_tenant_id', $1::text, true)", [
+    DEFAULT_TENANT_ID
+  ]);
   const evidenceTables = [
     'ward_indent_inventory_allocations',
     'ward_indent_inventory_movement_links',
+    'ward_indent_inventory_receipt_events',
     'mar_administration_command_receipts',
     'mar_transition_command_receipts',
+    'mar_medication_exception_cases',
+    'mar_medication_exception_events',
     'mar_supply_consumptions',
     'mar_supply_reconciliation_links',
+    'mar_supply_reconciliation_command_receipts',
     'ward_indent_financial_events',
     'billing_credit_notes',
-    'billing_credit_note_events',
+    'billing_credit_note_events'
   ];
   const counts = [];
   for (const table of evidenceTables) {
@@ -4614,131 +4741,985 @@ async function seedMedicationClosureEvidence() {
     'ward_indent_financial_events',
     'id',
     'tenant_id = $1::uuid AND event_key = $2',
-    [DEFAULT_TENANT_ID, 'seed-med03-charge-v1'],
+    [DEFAULT_TENANT_ID, 'seed-med03-charge-v1']
   );
-  if (marker && counts.every((count) => count > 0)) return;
-  if (counts.some((count) => count > 0)) {
+  if (marker && counts.every(count => count > 0)) return;
+  if (counts.some(count => count > 0)) {
     throw new Error(
-      'MED-03 synthetic evidence is partially populated; reset the synthetic database before reseeding',
+      'MED-03 synthetic evidence is partially populated; reset the synthetic database before reseeding'
     );
   }
 
   const ctx = await getCoreRefs();
-  if (!ctx.staff?.uid) {
-    throw new Error('MED-03 synthetic evidence requires a staff actor');
+  if (!ctx.doctor?.uid) {
+    throw new Error('MED-03 synthetic evidence requires a doctor order actor');
   }
-  const actorUid = ctx.staff.uid;
-  const lineageResult = await client.query(
-    `SELECT indent.id AS ward_indent_id,
-            indent.patient_uid,
-            indent.encounter_id,
-            indent.admission_id,
-            indent.state_version,
-            item.id AS ward_indent_item_id,
-            item.clinical_order_id,
-            item.pharmacy_catalog_id,
-            event.id AS ward_indent_event_id
-       FROM ward_indents indent
-       JOIN ward_indent_items item
-         ON item.tenant_id = indent.tenant_id
-        AND item.ward_indent_id = indent.id
-       JOIN ward_indent_events event
-         ON event.tenant_id = indent.tenant_id
-        AND event.ward_indent_id = indent.id
-        AND event.state_version = indent.state_version
-        AND event.to_status = indent.status
-      WHERE indent.tenant_id = $1::uuid
-        AND item.clinical_order_id IS NOT NULL
-      ORDER BY indent.id, item.id, event.id
-      LIMIT 1`,
-    [DEFAULT_TENANT_ID],
+  if (!ctx.admissionId || !ctx.admissionPatientUid || !ctx.admissionEncounterId || !ctx.wardId) {
+    throw new Error('MED-03 synthetic evidence requires an admission, patient, encounter, and ward');
+  }
+  const actorRows = await client.query(
+    `SELECT id, uid, phone, role
+       FROM users
+      WHERE tenant_id = $1::uuid
+        AND role = ANY($2::text[])
+        AND is_active = TRUE
+        AND COALESCE(is_deleted, FALSE) = FALSE
+        AND LOWER(COALESCE(status, 'active')) = 'active'`,
+    [DEFAULT_TENANT_ID, ['PHARMACY_INCHARGE', 'NURSING_INCHARGE', 'BILLING_INCHARGE']]
   );
-  const lineage = lineageResult.rows[0];
-  if (!lineage) {
-    throw new Error('MED-03 synthetic evidence requires an exact ward-indent medication order');
+  const actorsByRole = new Map(actorRows.rows.map(row => [row.role, row]));
+  const requiredActor = role => {
+    const actor = actorsByRole.get(role);
+    if (!actor?.uid || !actor?.id) {
+      throw new Error(`MED-03 synthetic evidence requires an active ${role}`);
+    }
+    return actor;
+  };
+  const pharmacyActor = requiredActor('PHARMACY_INCHARGE');
+  const nursingActor = requiredActor('NURSING_INCHARGE');
+  const billingActor = requiredActor('BILLING_INCHARGE');
+  const prescriberRoles = [
+    'DOCTOR',
+    'DUTY_DOCTOR',
+    'CONSULTANT',
+    'JUNIOR_DOCTOR',
+    'RESIDENT'
+  ];
+  const prescriberRows = await client.query(
+    `SELECT staff_member.id, staff_member.uid, staff_member.phone, staff_member.role
+       FROM users staff_member
+      WHERE staff_member.tenant_id = $1::uuid
+        AND staff_member.role = ANY($2::text[])
+        AND staff_member.is_active = TRUE
+        AND COALESCE(staff_member.is_deleted, FALSE) = FALSE
+        AND LOWER(COALESCE(staff_member.status, 'active')) = 'active'
+      ORDER BY CASE WHEN staff_member.uid = $3::uuid THEN 0 ELSE 1 END,
+               staff_member.last_sign_in_at DESC NULLS LAST,
+               staff_member.id ASC
+      LIMIT 1`,
+    [DEFAULT_TENANT_ID, prescriberRoles, ctx.doctor.uid]
+  );
+  const prescriberActor = prescriberRows.rows[0];
+  if (!prescriberActor?.id || !prescriberActor?.uid) {
+    throw new Error('MED-03 synthetic evidence requires an active prescriber recipient');
   }
+
+  const timelineResult = await client.query(
+    `SELECT date_trunc('second', CURRENT_TIMESTAMP) - INTERVAL '25 hours' AS opening_at,
+            date_trunc('second', CURRENT_TIMESTAMP) - INTERVAL '24 hours 50 minutes' AS ordered_at,
+            date_trunc('second', CURRENT_TIMESTAMP) - INTERVAL '24 hours 45 minutes' AS requested_at,
+            date_trunc('second', CURRENT_TIMESTAMP) - INTERVAL '24 hours 35 minutes' AS reserved_at,
+            date_trunc('second', CURRENT_TIMESTAMP) - INTERVAL '24 hours 25 minutes' AS approved_at,
+            date_trunc('second', CURRENT_TIMESTAMP) - INTERVAL '24 hours 15 minutes' AS issued_at,
+            date_trunc('second', CURRENT_TIMESTAMP) - INTERVAL '24 hours' AS no_scan_scheduled_at,
+            date_trunc('second', CURRENT_TIMESTAMP) - INTERVAL '23 hours 59 minutes' AS no_scan_administered_at,
+            date_trunc('second', CURRENT_TIMESTAMP) - INTERVAL '23 hours 50 minutes' AS received_at,
+            date_trunc('second', CURRENT_TIMESTAMP) - INTERVAL '23 hours 45 minutes' AS mar_reconciled_at,
+            date_trunc('second', CURRENT_TIMESTAMP) - INTERVAL '18 hours' AS scanned_scheduled_at,
+            date_trunc('second', CURRENT_TIMESTAMP) - INTERVAL '17 hours 59 minutes 30 seconds' AS patient_scanned_at,
+            date_trunc('second', CURRENT_TIMESTAMP) - INTERVAL '17 hours 59 minutes 15 seconds' AS medication_scanned_at,
+            date_trunc('second', CURRENT_TIMESTAMP) - INTERVAL '17 hours 59 minutes' AS scanned_administered_at,
+            date_trunc('second', CURRENT_TIMESTAMP) - INTERVAL '12 hours' AS held_scheduled_at,
+            date_trunc('second', CURRENT_TIMESTAMP) - INTERVAL '11 hours 59 minutes' AS held_at,
+            date_trunc('second', CURRENT_TIMESTAMP) - INTERVAL '6 hours' AS missed_scheduled_at,
+            date_trunc('second', CURRENT_TIMESTAMP) - INTERVAL '5 hours 59 minutes' AS missed_at,
+            date_trunc('second', CURRENT_TIMESTAMP) - INTERVAL '5 hours 30 minutes' AS return_pending_at,
+            date_trunc('second', CURRENT_TIMESTAMP) - INTERVAL '5 hours 20 minutes' AS reconciled_at,
+            date_trunc('second', CURRENT_TIMESTAMP) - INTERVAL '5 hours 15 minutes' AS credit_raised_at`
+  );
+  const timeline = timelineResult.rows[0];
+
+  const canonicalJson = value => {
+    if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+    if (value && typeof value === 'object') {
+      return `{${Object.keys(value)
+        .filter(key => value[key] !== undefined)
+        .sort()
+        .map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+        .join(',')}}`;
+    }
+    return JSON.stringify(value);
+  };
+  const sha256 = value => createHash('sha256').update(String(value), 'utf8').digest('hex');
+  const jsonHash = value => sha256(JSON.stringify(value));
+  const canonicalHash = value => sha256(canonicalJson(value));
+  const plusMinutes = (value, minutes) => new Date(value.getTime() + Number(minutes) * 60_000);
+  const stageOccurrenceKey = sourceId =>
+    `ward-medication-obligation:${sha256(`${DEFAULT_TENANT_ID}:${sourceId}`)}`;
+  const marExceptionOccurrenceKey = caseId =>
+    `mar-medication-exception:${sha256(
+      `${DEFAULT_TENANT_ID}:mar-medication-exception:${caseId}`
+    )}`;
+  const validateDeferredMedicationConstraints = async (...constraintNames) => {
+    const constraints = constraintNames.map(quote).join(', ');
+    await client.query(`SET CONSTRAINTS ${constraints} IMMEDIATE`);
+    await client.query(`SET CONSTRAINTS ${constraints} DEFERRED`);
+  };
+  const getSlaRule = async ruleCode => {
+    const rule = await first(
+      'workflow_sla_rules',
+      'id, target_minutes, severity',
+      `rule_code = $2
+        AND enabled = TRUE
+        AND (tenant_id IS NULL OR tenant_id = $1::uuid)
+        ORDER BY tenant_id NULLS LAST`,
+      [DEFAULT_TENANT_ID, ruleCode]
+    );
+    if (!rule) throw new Error(`MED-03 workflow SLA rule ${ruleCode} is missing`);
+    return rule;
+  };
+  const insertNotificationIntent = async ({
+    recipient,
+    type,
+    title,
+    body,
+    sourceEventKey,
+    payload,
+    createdAt,
+    templateVersion: requestedTemplateVersion = null
+  }) => {
+    const recipientId = String(recipient.id);
+    const recipientPhone = String(recipient.phone || '').trim() || null;
+    const templateVersion = requestedTemplateVersion || `${type}.v1`;
+    const renderedIntentHash = canonicalHash({
+      type,
+      channel: 'inapp',
+      recipient_id: recipientId,
+      recipient_phone: recipientPhone,
+      template_version: templateVersion,
+      title,
+      body,
+      payload
+    });
+    const inserted = await client.query(
+      `INSERT INTO notification_outbox
+         (tenant_id, type, recipient_id, recipient_phone, title, body, payload,
+          status, created_at, channel, source_event_key, recipient_key,
+          template_version, rendered_intent_hash, ledger_version, replay_generation)
+       VALUES ($1::uuid, $2::text, $3::text, $4::text, $5::text, $6::text,
+               $7::jsonb, 'PENDING', $8::timestamptz, 'inapp', $9::text,
+               $10::text, $11::text, $12::char(64), 1, 0)
+       RETURNING id`,
+      [
+        DEFAULT_TENANT_ID,
+        type,
+        recipientId,
+        recipientPhone,
+        title,
+        body,
+        JSON.stringify(payload),
+        createdAt,
+        sourceEventKey,
+        `id:${recipientId}`,
+        templateVersion,
+        renderedIntentHash
+      ]
+    );
+    return inserted.rows[0];
+  };
+  const materializeMarMedicationException = async ({
+    medicationAdministrationId,
+    clinicalOrderId,
+    clinicalOrderStatus,
+    patientUid,
+    encounterId,
+    exceptionKind,
+    reason,
+    raisedBy,
+    raisedByRole,
+    raisedAt,
+    transitionCommandKey,
+    transitionRequestHash,
+    assignedPrescriber,
+    resolvedAt = null,
+    resolutionReason = null,
+    resolutionCommandKey = null
+  }) => {
+    if (
+      resolvedAt
+      && (!String(resolutionReason || '').trim() || !String(resolutionCommandKey || '').trim())
+    ) {
+      throw new Error('MED-03 synthetic MAR resolution requires its exact reason and command');
+    }
+    const caseIdResult = await client.query(
+      `SELECT nextval(
+                pg_get_serial_sequence('mar_medication_exception_cases', 'id')
+              )::bigint AS id`
+    );
+    const caseId = String(caseIdResult.rows[0]?.id || '');
+    if (!/^[1-9][0-9]*$/.test(caseId)) {
+      throw new Error('MED-03 synthetic MAR exception identity was not allocated');
+    }
+
+    const rule = await getSlaRule('mar_medication_exception_review');
+    const slaId = randomUUID();
+    const dueAt = plusMinutes(raisedAt, rule.target_minutes);
+    await client.query(
+      `INSERT INTO workflow_sla_instances
+         (id, tenant_id, rule_id, rule_code, patient_uid, encounter_id,
+          source_table, source_id, status, priority, started_at, due_at,
+          assigned_role_codes, assigned_user_uid, metadata, created_at, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, 'mar_medication_exception_review',
+               $4::uuid, $5::uuid, 'mar_medication_exception_cases', $6::text,
+               'active', 'critical', $7::timestamptz, $8::timestamptz,
+               $9::text[], $10::uuid, $11::jsonb,
+               $7::timestamptz, $7::timestamptz)`,
+      [
+        slaId,
+        DEFAULT_TENANT_ID,
+        rule.id,
+        patientUid,
+        encounterId,
+        caseId,
+        raisedAt,
+        dueAt,
+        prescriberRoles,
+        assignedPrescriber.uid,
+        JSON.stringify({
+          med_03: true,
+          exception_case_id: Number(caseId),
+          medication_administration_id: Number(medicationAdministrationId),
+          exception_kind: exceptionKind
+        })
+      ]
+    );
+
+    const deepLink = `/mar/due?exception_id=${Number(caseId)}`;
+    const taskResult = await client.query(
+      `INSERT INTO tasks
+         (tenant_id, task_kind, title, description, patient_uid, encounter_id,
+          related_resource_type, related_resource_id, priority, status,
+          assigned_to_uid, assigned_to_role, created_by, due_at,
+          workflow_sla_instance_id, sla_completion_semantics,
+          stage_occurrence_key, metadata, created_at, updated_at)
+       VALUES ($1::uuid, 'review', $2::text,
+               'Record an explicit prescriber disposition. This task cannot change a medication order.',
+               $3::uuid, NULL, 'mar_medication_exception_cases', $4::text,
+               'critical', 'open', $5::uuid, NULL, $6::uuid, $7::timestamptz,
+               $8::uuid, 'domain_evidence', $9::text, $10::jsonb,
+               $11::timestamptz, $11::timestamptz)
+       RETURNING id`,
+      [
+        DEFAULT_TENANT_ID,
+        exceptionKind === 'held'
+          ? 'Review held medication dose'
+          : 'Review missed medication dose',
+        patientUid,
+        caseId,
+        assignedPrescriber.uid,
+        raisedBy,
+        dueAt,
+        slaId,
+        marExceptionOccurrenceKey(caseId),
+        JSON.stringify({
+          task_contract: 'mar_medication_exception_v1',
+          med_03: true,
+          sla_key: 'mar_medication_exception_review',
+          canonical_encounter_id: encounterId,
+          exception_case_id: Number(caseId),
+          medication_administration_id: Number(medicationAdministrationId),
+          clinical_order_id: Number(clinicalOrderId),
+          exception_kind: exceptionKind,
+          assignment_origin: 'source_prescriber',
+          evidence_kind: 'mar_medication_exception_resolution',
+          deep_link: deepLink
+        }),
+        raisedAt
+      ]
+    );
+    const taskId = taskResult.rows[0].id;
+
+    await client.query(
+      `INSERT INTO mar_medication_exception_cases
+         (id, tenant_id, medication_administration_id, clinical_order_id,
+          patient_uid, exception_kind, reason, raised_by, raised_at,
+          assigned_prescriber_uid, task_id, workflow_sla_instance_id,
+          created_at, updated_at)
+       VALUES ($1::bigint, $2::uuid, $3::int, $4::int, $5::uuid, $6::text,
+               $7::text, $8::uuid, $9::timestamptz, $10::uuid, $11::int,
+               $12::uuid, $9::timestamptz, $9::timestamptz)`,
+      [
+        caseId,
+        DEFAULT_TENANT_ID,
+        medicationAdministrationId,
+        clinicalOrderId,
+        patientUid,
+        exceptionKind,
+        reason,
+        raisedBy,
+        raisedAt,
+        assignedPrescriber.uid,
+        taskId,
+        slaId
+      ]
+    );
+
+    const raisedEventResult = await client.query(
+      `INSERT INTO mar_medication_exception_events
+         (tenant_id, exception_case_id, medication_administration_id,
+          event_type, actor_uid, actor_role, reason, command_key,
+          request_fingerprint, occurred_at, payload)
+       VALUES ($1::uuid, $2::bigint, $3::int, 'raised', $4::uuid, $5::text,
+               $6::text, $7::text, $8::char(64), $9::timestamptz, $10::jsonb)
+       RETURNING id`,
+      [
+        DEFAULT_TENANT_ID,
+        caseId,
+        medicationAdministrationId,
+        raisedBy,
+        raisedByRole,
+        reason,
+        transitionCommandKey,
+        transitionRequestHash,
+        raisedAt,
+        JSON.stringify({
+          clinical_order_id: Number(clinicalOrderId),
+          clinical_order_status: clinicalOrderStatus
+        })
+      ]
+    );
+    const raisedEventId = raisedEventResult.rows[0].id;
+    const notification = await insertNotificationIntent({
+      recipient: assignedPrescriber,
+      type: 'mar_medication_exception',
+      title: 'Medication dose requires prescriber review',
+      body: 'A held or missed inpatient medication dose requires a governed clinical disposition.',
+      sourceEventKey: `mar-exception:${caseId}:raised:${raisedEventId}`,
+      templateVersion: 'mar-medication-exception.v1',
+      payload: {
+        kind: 'mar_medication_exception',
+        task_id: Number(taskId),
+        exception_case_id: Number(caseId),
+        medication_administration_id: Number(medicationAdministrationId),
+        deep_link: deepLink,
+        action_label_key: 'orders.mar_recovery.action'
+      },
+      createdAt: raisedAt
+    });
+    await client.query(
+      `UPDATE mar_medication_exception_cases
+          SET notification_coverage_status = 'notified',
+              notified_at = $3::timestamptz
+        WHERE tenant_id = $1::uuid
+          AND id = $2::bigint`,
+      [DEFAULT_TENANT_ID, caseId, raisedAt]
+    );
+
+    let resolutionEventId = null;
+    if (resolvedAt) {
+      const disposition = 'reviewed_no_replacement';
+      const resolutionFingerprint = jsonHash({
+        exception_case_id: Number(caseId),
+        disposition,
+        reason: resolutionReason,
+        replacement_clinical_order_id: null
+      });
+      const resolutionEventResult = await client.query(
+        `INSERT INTO mar_medication_exception_events
+           (tenant_id, exception_case_id, medication_administration_id,
+            event_type, disposition, actor_uid, actor_role, reason,
+            replacement_clinical_order_id, command_key, request_fingerprint,
+            occurred_at, payload)
+         VALUES ($1::uuid, $2::bigint, $3::int, 'resolved', $4::text,
+                 $5::uuid, $6::text, $7::text, NULL, $8::text, $9::char(64),
+                 $10::timestamptz, $11::jsonb)
+         RETURNING id`,
+        [
+          DEFAULT_TENANT_ID,
+          caseId,
+          medicationAdministrationId,
+          disposition,
+          assignedPrescriber.uid,
+          assignedPrescriber.role,
+          resolutionReason,
+          resolutionCommandKey,
+          resolutionFingerprint,
+          resolvedAt,
+          JSON.stringify({
+            clinical_order_id: Number(clinicalOrderId),
+            clinical_order_status: clinicalOrderStatus,
+            replacement_clinical_order_status: null
+          })
+        ]
+      );
+      resolutionEventId = resolutionEventResult.rows[0].id;
+      const resolvedAtIso = resolvedAt.toISOString();
+      const completionEvidence = {
+        kind: 'mar_medication_exception_resolution',
+        resource_type: 'mar_medication_exception_event',
+        resource_id: String(resolutionEventId),
+        occurred_at: resolvedAtIso,
+        recorded_at: resolvedAtIso,
+        disposition,
+        actor_uid: String(assignedPrescriber.uid)
+      };
+      await client.query(
+        `UPDATE tasks
+            SET status = 'completed',
+                assigned_to_uid = $3::uuid,
+                assigned_to_role = NULL,
+                completed_at = $4::timestamptz,
+                updated_at = $4::timestamptz
+          WHERE tenant_id = $1::uuid
+            AND id = $2::int`,
+        [DEFAULT_TENANT_ID, taskId, assignedPrescriber.uid, resolvedAt]
+      );
+      await client.query(
+        `UPDATE workflow_sla_instances
+            SET status = CASE
+                  WHEN $3::timestamptz > due_at THEN 'breached'
+                  ELSE 'completed'
+                END,
+                completed_at = $3::timestamptz,
+                breached_at = CASE
+                  WHEN $3::timestamptz > due_at THEN due_at
+                  ELSE NULL
+                END,
+                metadata = metadata || $4::jsonb,
+                updated_at = $3::timestamptz
+          WHERE tenant_id = $1::uuid
+            AND id = $2::uuid`,
+        [
+          DEFAULT_TENANT_ID,
+          slaId,
+          resolvedAt,
+          JSON.stringify({
+            completed_via: 'domain_evidence',
+            completed_by_task: String(taskId),
+            completed_by: String(assignedPrescriber.uid),
+            completion_evidence: completionEvidence
+          })
+        ]
+      );
+      await client.query(
+        `UPDATE mar_medication_exception_cases
+            SET status = 'resolved',
+                resolution_kind = $3::text,
+                resolution_event_id = $4::bigint,
+                resolved_by = $5::uuid,
+                resolved_at = $6::timestamptz
+          WHERE tenant_id = $1::uuid
+            AND id = $2::bigint
+            AND status = 'open'`,
+        [
+          DEFAULT_TENANT_ID,
+          caseId,
+          disposition,
+          resolutionEventId,
+          assignedPrescriber.uid,
+          resolvedAt
+        ]
+      );
+      await client.query(
+        `INSERT INTO task_comments
+           (tenant_id, task_id, author_uid, body, body_kind, metadata, created_at)
+         VALUES ($1::uuid, $2::int, $3::uuid, $4::text, 'state_change',
+                 $5::jsonb, $6::timestamptz)`,
+        [
+          DEFAULT_TENANT_ID,
+          taskId,
+          assignedPrescriber.uid,
+          `Task completed from registered domain evidence ${completionEvidence.kind}:${completionEvidence.resource_id}`,
+          JSON.stringify({
+            to: 'completed',
+            completion_via: 'domain_evidence',
+            evidence: completionEvidence
+          }),
+          resolvedAt
+        ]
+      );
+    }
+
+    await validateDeferredMedicationConstraints(
+      'mar_medication_exception_case_receipt_guard',
+      'trg_tasks_sla_completion_receipt',
+      'trg_workflow_sla_completion_receipt'
+    );
+    return {
+      caseId,
+      taskId,
+      slaId,
+      dueAt,
+      raisedEventId,
+      resolutionEventId,
+      notificationId: notification.id
+    };
+  };
+
+  const statePresentation = {
+    requested: {
+      title: 'Review ward medication request',
+      description: 'Confirm exact Inventory V2 availability and reserve the requested ward medication.',
+      priority: 'high',
+      notificationKind: 'ward_indent_request'
+    },
+    reserved: {
+      title: 'Issue reserved ward medication',
+      description: 'Issue the exact reserved batches and preserve movement and charge lineage.',
+      priority: 'high',
+      notificationKind: 'ward_indent_reserved'
+    },
+    approved: {
+      title: 'Issue approved ward medication',
+      description: 'Issue the approved exact batches and preserve inventory and billing evidence.',
+      priority: 'high',
+      notificationKind: 'ward_indent_approved'
+    },
+    issued: {
+      title: 'Acknowledge ward medication receipt',
+      description: 'Record exact quantities received and acknowledge any approved substitution.',
+      priority: 'critical',
+      notificationKind: 'ward_indent_issued'
+    },
+    received: {
+      title: 'Reconcile ward medication custody',
+      description: 'Confirm received custody, MAR availability, and any pending return or variance.',
+      priority: 'high',
+      notificationKind: 'ward_indent_received'
+    },
+    return_pending: {
+      title: 'Reconcile ward medication return',
+      description: 'Validate unconsumed custody and complete exact-batch return and patient credit evidence.',
+      priority: 'high',
+      notificationKind: 'ward_indent_return_pending'
+    },
+    reconciled: {
+      title: 'Close reconciled ward medication indent',
+      description: 'Verify every clinical, inventory, financial, and return obligation before closure.',
+      priority: 'high',
+      notificationKind: 'ward_indent_reconciled'
+    }
+  };
+  const pharmacyOwners = ['PHARMACY_STAFF', 'PHARMACY_INCHARGE', 'PHARMACIST'];
+  const wardOwners = [
+    'NURSING_STAFF',
+    'NURSING_INCHARGE',
+    'IP_STAFF_NURSE',
+    'IP_INCHARGE',
+    'ICU_NURSE',
+    'ICU_INCHARGE',
+    'ICU_STAFF',
+    'ER_STAFF'
+  ];
+  const reconciliationOwners = [
+    'PHARMACY_INCHARGE',
+    'NURSING_INCHARGE',
+    'IP_INCHARGE',
+    'ICU_INCHARGE'
+  ];
+
+  const createWardStage = async ({
+    sourceId,
+    ruleCode,
+    state,
+    version,
+    eventId,
+    actor,
+    ownerRoles,
+    startedAt
+  }) => {
+    const rule = await getSlaRule(ruleCode);
+    const dueAt = plusMinutes(startedAt, rule.target_minutes);
+    const slaId = randomUUID();
+    await client.query(
+      `INSERT INTO workflow_sla_instances
+         (id, tenant_id, rule_id, rule_code, patient_uid, encounter_id,
+          source_table, source_id, status, priority, started_at, due_at,
+          assigned_role_codes, metadata, created_at, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::text, $5::uuid, $6::uuid,
+               'ward_indents', $7::text, 'active', $8::text,
+               $9::timestamptz, $10::timestamptz, $11::text[], $12::jsonb,
+               $9::timestamptz, $9::timestamptz)`,
+      [
+        slaId,
+        DEFAULT_TENANT_ID,
+        rule.id,
+        ruleCode,
+        ctx.admissionPatientUid,
+        ctx.admissionEncounterId,
+        sourceId,
+        statePresentation[state].priority,
+        startedAt,
+        dueAt,
+        ownerRoles,
+        JSON.stringify({
+          med_03: true,
+          ward_indent_id: Number(indent.id),
+          current_state: state,
+          state_version: version,
+          ward_indent_event_id: String(eventId)
+        })
+      ]
+    );
+    const taskMetadata = {
+      task_contract: 'ward_medication_obligation_v1',
+      med_03: true,
+      sla_key: ruleCode,
+      canonical_encounter_id: ctx.admissionEncounterId,
+      obligation_kind: 'ward_indent_state',
+      evidence_kind: 'ward_indent_transition',
+      ward_indent_id: Number(indent.id),
+      current_state: state,
+      state_version: version,
+      ward_indent_event_id: String(eventId),
+      owner_role_codes: ownerRoles,
+      deep_link: `/pharmacy?tab=ward-indents&indent_id=${Number(indent.id)}`
+    };
+    const task = await client.query(
+      `INSERT INTO tasks
+         (tenant_id, task_kind, title, description, patient_uid, encounter_id,
+          related_resource_type, related_resource_id, priority, status,
+          assigned_to_uid, assigned_to_role, created_by, due_at,
+          workflow_sla_instance_id, sla_completion_semantics,
+          stage_occurrence_key, metadata, created_at, updated_at)
+       VALUES ($1::uuid, 'review', $2::text, $3::text, $4::uuid, NULL,
+               'ward_indents', $5::text, $6::text, 'open', NULL, $7::text,
+               $8::uuid, $9::timestamptz, $10::uuid, 'domain_evidence',
+               $11::text, $12::jsonb, $13::timestamptz, $13::timestamptz)
+       RETURNING id`,
+      [
+        DEFAULT_TENANT_ID,
+        statePresentation[state].title,
+        statePresentation[state].description,
+        ctx.admissionPatientUid,
+        sourceId,
+        statePresentation[state].priority,
+        ownerRoles[0],
+        actor.uid,
+        dueAt,
+        slaId,
+        stageOccurrenceKey(sourceId),
+        JSON.stringify(taskMetadata),
+        startedAt
+      ]
+    );
+    return {
+      slaId,
+      taskId: task.rows[0].id,
+      sourceId,
+      dueAt,
+      state,
+      version
+    };
+  };
+  const updateWardStage = async ({ stage, state, version, eventId, actor, occurredAt }) => {
+    const presentation = statePresentation[state];
+    await client.query(
+      `UPDATE tasks
+          SET title = $3::text,
+              description = $4::text,
+              priority = $5::text,
+              assigned_to_uid = NULL,
+              assigned_to_role = $6::text,
+              metadata = metadata || $7::jsonb,
+              updated_at = $8::timestamptz
+        WHERE tenant_id = $1::uuid
+          AND id = $2::int`,
+      [
+        DEFAULT_TENANT_ID,
+        stage.taskId,
+        presentation.title,
+        presentation.description,
+        presentation.priority,
+        state === 'reserved' ? pharmacyOwners[0] : reconciliationOwners[0],
+        JSON.stringify({
+          current_state: state,
+          state_version: version,
+          ward_indent_event_id: String(eventId),
+          owner_role_codes: state === 'reserved' ? pharmacyOwners : reconciliationOwners,
+          deep_link: `/pharmacy?tab=ward-indents&indent_id=${Number(indent.id)}`
+        }),
+        occurredAt
+      ]
+    );
+    await client.query(
+      `INSERT INTO task_comments
+         (tenant_id, task_id, author_uid, body, body_kind, metadata, created_at)
+       VALUES ($1::uuid, $2::int, $3::uuid, $4::text, 'system_event', $5::jsonb,
+               $6::timestamptz)`,
+      [
+        DEFAULT_TENANT_ID,
+        stage.taskId,
+        actor.uid,
+        `Ward indent obligation advanced to ${state}.`,
+        JSON.stringify({
+          state,
+          state_version: version,
+          ward_indent_event_id: String(eventId)
+        }),
+        occurredAt
+      ]
+    );
+    stage.state = state;
+    stage.version = version;
+  };
+  const completeWardStage = async ({ stage, eventId, action, toStatus, actor, occurredAt }) => {
+    const occurredAtIso = occurredAt.toISOString();
+    const completionEvidence = {
+      kind: 'ward_indent_transition',
+      resource_type: 'ward_indent_event',
+      resource_id: String(eventId),
+      action,
+      from_status: stage.state,
+      to_status: toStatus,
+      state_version: Number(stage.version) + 1,
+      occurred_at: occurredAtIso,
+      recorded_at: occurredAtIso
+    };
+    await client.query(
+      `UPDATE workflow_sla_instances
+          SET status = 'completed',
+              completed_at = $3::timestamptz,
+              metadata = metadata || $4::jsonb,
+              updated_at = $3::timestamptz
+        WHERE tenant_id = $1::uuid
+          AND id = $2::uuid`,
+      [
+        DEFAULT_TENANT_ID,
+        stage.slaId,
+        occurredAt,
+        JSON.stringify({
+          completed_via: 'domain_evidence',
+          completed_by_task: String(stage.taskId),
+          completed_by: actor.uid,
+          completion_evidence: completionEvidence
+        })
+      ]
+    );
+    await client.query(
+      `UPDATE tasks
+          SET status = 'completed',
+              assigned_to_uid = $3::uuid,
+              completed_at = $4::timestamptz,
+              updated_at = $4::timestamptz
+        WHERE tenant_id = $1::uuid
+          AND id = $2::int`,
+      [DEFAULT_TENANT_ID, stage.taskId, actor.uid, occurredAt]
+    );
+    await client.query(
+      `INSERT INTO task_comments
+         (tenant_id, task_id, author_uid, body, body_kind, metadata, created_at)
+       VALUES ($1::uuid, $2::int, $3::uuid, $4::text, 'state_change', $5::jsonb,
+               $6::timestamptz)`,
+      [
+        DEFAULT_TENANT_ID,
+        stage.taskId,
+        actor.uid,
+        `Task completed from registered domain evidence ${completionEvidence.kind}:${completionEvidence.resource_id}`,
+        JSON.stringify({
+          to: 'completed',
+          completion_via: 'domain_evidence',
+          evidence: completionEvidence
+        }),
+        occurredAt
+      ]
+    );
+  };
+  const notifyWardState = async ({ state, version, stage, recipient, occurredAt }) => {
+    const presentation = statePresentation[state];
+    return insertNotificationIntent({
+      recipient,
+      type: presentation.notificationKind,
+      title: presentation.title,
+      body: `Ward indent VH-SEED-MED03-INDENT-001 requires action.`,
+      sourceEventKey: `ward-indent:${Number(indent.id)}:v${version}:${presentation.notificationKind}`,
+      payload: {
+        kind: presentation.notificationKind,
+        task_id: Number(stage.taskId),
+        ward_indent_id: Number(indent.id),
+        ward_indent_item_id: null,
+        state,
+        state_version: version,
+        deep_link: `/pharmacy?tab=ward-indents&indent_id=${Number(indent.id)}`
+      },
+      createdAt: occurredAt
+    });
+  };
+
+  let catalog = await first(
+    'pharmacy_catalog',
+    'id',
+    `tenant_id = $1::uuid
+      AND name = 'VH-SEED-MED03 Paracetamol 500 mg tablet'
+      AND strength_key = '500mg'
+      AND form_key = 'tablet'
+      AND route = 'oral'`,
+    [DEFAULT_TENANT_ID]
+  );
+  if (!catalog) {
+    const inserted = await client.query(
+      `INSERT INTO pharmacy_catalog
+         (tenant_id, name, generic_name, category, manufacturer, unit_price,
+          price, pack_size, requires_prescription, in_stock, is_active,
+          is_available, stock_quantity, stock, description, strength,
+          strength_key, form, form_key, route, created_at, updated_at)
+       VALUES
+         ($1::uuid, 'VH-SEED-MED03 Paracetamol 500 mg tablet', 'Paracetamol',
+          'analgesic', 'VH synthetic fixture', 10, 10, '10 tablets', TRUE,
+           TRUE, TRUE, TRUE, 10, 10,
+          'Synthetic exact-product catalog identity for the MED-03 journey.',
+          '500 mg', '500mg', 'tablet', 'tablet', 'oral',
+          $2::timestamptz, $2::timestamptz)
+       RETURNING id`,
+      [DEFAULT_TENANT_ID, timeline.ordered_at]
+    );
+    catalog = inserted.rows[0];
+  }
+  await client.query(
+    `UPDATE pharmacy_catalog
+        SET stock_quantity = 10,
+            stock = 10,
+            in_stock = TRUE,
+            updated_at = $3::timestamptz
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int`,
+    [DEFAULT_TENANT_ID, catalog.id, timeline.opening_at]
+  );
+
+  const clinicalOrderResult = await client.query(
+    `INSERT INTO clinical_orders
+       (tenant_id, order_number, encounter_id, patient_uid, order_type,
+        priority, details, route, status, ordered_by, start_date, notes,
+        created_at, updated_at)
+     VALUES
+       ($1::uuid, 'VH-SEED-MED03-ORDER-001', $2::uuid, $3::uuid,
+        'medication', 'routine', $4::jsonb, 'oral', 'ordered', $5::uuid,
+        $6::timestamptz, 'Synthetic MED-03 exact-lineage medication order.',
+        $6::timestamptz, $6::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      ctx.admissionEncounterId,
+      ctx.admissionPatientUid,
+      JSON.stringify({
+        medication_name: 'Paracetamol 500 mg',
+        catalog_id: Number(catalog.id),
+        dose: '500 mg',
+        dosage: '500 mg',
+        strength: '500 mg',
+        strength_key: '500mg',
+        form: 'tablet',
+        form_key: 'tablet',
+        route: 'oral',
+        frequency: 'QID',
+        duration_days: 1
+      }),
+      prescriberActor.uid,
+      timeline.ordered_at
+    ]
+  );
+  const clinicalOrder = clinicalOrderResult.rows[0];
+
+  const indentResult = await client.query(
+    `INSERT INTO ward_indents
+       (tenant_id, indent_number, ward_id, indent_type, status, requested_by,
+        requested_at, admission_id, encounter_id, patient_uid, state_version,
+        owner_role_codes, active_sla_source_id, last_transition_at, notes,
+        created_at, updated_at)
+     VALUES
+       ($1::uuid, 'VH-SEED-MED03-INDENT-001', $2::int, 'pharmacy',
+        'requested', $3::uuid, $4::timestamptz, $5::int, $6::uuid, $7::uuid,
+        1, $8::text[], NULL, $4::timestamptz,
+        'Synthetic MED-03 exact-custody ward indent.',
+        $4::timestamptz, $4::timestamptz)
+     RETURNING id, status, state_version, owner_role_codes, active_sla_source_id`,
+    [
+      DEFAULT_TENANT_ID,
+      ctx.wardId,
+      nursingActor.uid,
+      timeline.requested_at,
+      ctx.admissionId,
+      ctx.admissionEncounterId,
+      ctx.admissionPatientUid,
+      pharmacyOwners
+    ]
+  );
+  const indent = indentResult.rows[0];
+  const indentItemResult = await client.query(
+    `INSERT INTO ward_indent_items
+       (tenant_id, ward_indent_id, pharmacy_catalog_id,
+        original_pharmacy_catalog_id, item_name, original_item_name,
+        quantity_requested, quantity_reserved, quantity_approved,
+        quantity_issued, quantity_received, quantity_variance_resolved,
+        quantity_return_requested, quantity_returned, fulfilment_status,
+        clinical_order_id, unit, unit_price, notes, created_at, updated_at)
+     VALUES
+       ($1::uuid, $2::int, $3::int, $3::int,
+        'Paracetamol 500 mg', 'Paracetamol 500 mg',
+        3, 0, 0, 0, 0, 0, 0, 0, 'requested', $4::int,
+        'tablet', 10, 'Synthetic MED-03 exact-lineage indent item.',
+        $5::timestamptz, $5::timestamptz)
+     RETURNING id`,
+    [DEFAULT_TENANT_ID, indent.id, catalog.id, clinicalOrder.id, timeline.requested_at]
+  );
+  const indentItem = indentItemResult.rows[0];
+  const requestedEventResult = await client.query(
+    `INSERT INTO ward_indent_events
+       (tenant_id, ward_indent_id, state_version, action, from_status,
+        to_status, actor_uid, owner_role_codes, reason, command_key,
+        details, occurred_at)
+     VALUES
+       ($1::uuid, $2::int, 1, 'requested', NULL, 'requested', $3::uuid,
+        $4::text[], 'Ward nurse requested prescribed medication.',
+        'seed-med03-requested-v1', $5::jsonb, $6::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      indent.id,
+      nursingActor.uid,
+      pharmacyOwners,
+      JSON.stringify({ source: 'manual_request' }),
+      timeline.requested_at
+    ]
+  );
+  const requestedEventId = requestedEventResult.rows[0].id;
+  await validateDeferredMedicationConstraints('ward_indent_transition_evidence');
 
   const patient = await first(
     'users',
     'uid, phone, name',
     'tenant_id = $1::uuid AND uid = $2::uuid',
-    [DEFAULT_TENANT_ID, lineage.patient_uid],
+    [DEFAULT_TENANT_ID, ctx.admissionPatientUid]
   );
-  let matchedAdministration = await first(
-    'medication_administrations',
-    'id',
-    `tenant_id = $1::uuid
-      AND patient_uid = $2::uuid
-      AND clinical_order_id = $3::int`,
-    [DEFAULT_TENANT_ID, lineage.patient_uid, lineage.clinical_order_id],
-  );
-  if (!patient) {
-    throw new Error('MED-03 synthetic evidence requires a matching patient fixture');
-  }
-  if (!matchedAdministration) {
-    const inserted = await client.query(
-      `INSERT INTO medication_administrations
-         (tenant_id, patient_uid, medication_name, dosage, route,
-          scheduled_time, administered_at, administered_by, status,
-          clinical_order_id, supply_quantity_per_dose, scanned_patient_uid,
-          scanned_barcode, patient_scanned_at, medication_scanned_at,
-          rights_passed, all_rights_passed, notes)
-       VALUES ($1::uuid, $2::uuid, 'Paracetamol 500 mg', '500 mg', 'oral',
-               '2026-05-04T09:00:00.000Z'::timestamptz,
-               '2026-05-04T09:01:00.000Z'::timestamptz,
-               $3::uuid, 'administered', $4::int, 1, $2::uuid,
-               'VH-SEED-MED03-PARA500',
-               '2026-05-04T09:00:30.000Z'::timestamptz,
-               '2026-05-04T09:00:45.000Z'::timestamptz,
-               '{"patient":true,"drug":true,"dose":true,"route":true,"time":true}'::jsonb,
-               TRUE, 'Synthetic MED-03 exact-custody administration.')
-       RETURNING id`,
-      [DEFAULT_TENANT_ID, lineage.patient_uid, actorUid, lineage.clinical_order_id],
-    );
-    matchedAdministration = inserted.rows[0];
-  }
+  if (!patient) throw new Error('MED-03 synthetic evidence requires a matching patient fixture');
 
-  let inventoryItem = await first(
-    'pharmacy_inventory_items',
-    'id',
-    'tenant_id = $1::uuid AND sku_code = $2',
-    [DEFAULT_TENANT_ID, 'VH-SEED-MED03-PARA500'],
+  const inventoryItemResult = await client.query(
+    `INSERT INTO pharmacy_inventory_items
+       (tenant_id, sku_code, display_name, generic_name, form, strength,
+        unit_label, status, catalog_id, metadata, created_at, updated_at)
+     VALUES ($1::uuid, 'VH-SEED-MED03-PARA500', 'Paracetamol 500 mg tablet',
+             'Paracetamol', 'tablet', '500 mg', 'tablet', 'active', $2::int,
+             $3::jsonb, $4::timestamptz, $4::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      catalog.id,
+      JSON.stringify({ seed: true, med_03: true }),
+      timeline.opening_at
+    ]
   );
-  if (!inventoryItem) {
-    const inserted = await client.query(
-      `INSERT INTO pharmacy_inventory_items
-         (tenant_id, sku_code, display_name, generic_name, form, strength,
-          unit_label, status, catalog_id, metadata)
-       VALUES ($1::uuid, $2, 'Paracetamol 500 mg tablet', 'Paracetamol',
-               'tablet', '500 mg', 'tablet', 'active', $3::int,
-               '{"seed":true,"med_03":true}'::jsonb)
-       RETURNING id`,
-      [DEFAULT_TENANT_ID, 'VH-SEED-MED03-PARA500', lineage.pharmacy_catalog_id],
-    );
-    inventoryItem = inserted.rows[0];
-  }
-
-  let inventoryBatch = await first(
-    'pharmacy_inventory_batches',
-    'id',
-    'tenant_id = $1::uuid AND inventory_item_id = $2::int AND batch_number = $3',
-    [DEFAULT_TENANT_ID, inventoryItem.id, 'VH-SEED-MED03-BATCH-001'],
+  const inventoryItem = inventoryItemResult.rows[0];
+  const exactBatchBarcode = 'VH-SEED-MED03-BATCH-BARCODE-001';
+  const inventoryBatchResult = await client.query(
+    `INSERT INTO pharmacy_inventory_batches
+       (tenant_id, inventory_item_id, batch_number, lot_number,
+        manufacture_date, expiry_date, received_quantity, remaining_quantity,
+        unit_cost_minor, mrp_minor, status, metadata, created_at, updated_at)
+     VALUES ($1::uuid, $2::int, 'VH-SEED-MED03-BATCH-001',
+             'VH-SEED-MED03-LOT-001',
+             (CURRENT_DATE - INTERVAL '60 days')::date,
+             (CURRENT_DATE + INTERVAL '540 days')::date,
+              10, 10, 1000, 1000, 'in_stock', $3::jsonb,
+             $4::timestamptz, $4::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      inventoryItem.id,
+      JSON.stringify({ seed: true, med_03: true, barcode: exactBatchBarcode }),
+      timeline.opening_at
+    ]
   );
-  if (!inventoryBatch) {
-    const inserted = await client.query(
-      `INSERT INTO pharmacy_inventory_batches
-         (tenant_id, inventory_item_id, batch_number, lot_number, manufacture_date,
-          expiry_date, received_quantity, remaining_quantity, unit_cost_minor,
-          mrp_minor, status, metadata)
-       VALUES ($1::uuid, $2::int, $3, 'VH-SEED-MED03-LOT-001',
-               '2026-01-01'::date, '2027-12-31'::date, 10, 8, 100, 100,
-               'in_stock', '{"seed":true,"med_03":true}'::jsonb)
-       RETURNING id`,
-      [DEFAULT_TENANT_ID, inventoryItem.id, 'VH-SEED-MED03-BATCH-001'],
-    );
-    inventoryBatch = inserted.rows[0];
-  }
-
+  const inventoryBatch = inventoryBatchResult.rows[0];
   await client.query(
     `INSERT INTO pharmacy_stock_movements
        (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
@@ -4746,308 +5727,885 @@ async function seedMedicationClosureEvidence() {
         metadata, created_at)
      VALUES ($1::uuid, $2::int, $3::int, 'receive', 10,
              'synthetic_opening_receipt', 'seed-med03-opening', $4::uuid,
-             'Synthetic MED-03 opening stock receipt.',
-             '{"seed":true,"med_03":true}'::jsonb,
-             '2026-05-04T08:00:00.000Z'::timestamptz)`,
-    [DEFAULT_TENANT_ID, inventoryItem.id, inventoryBatch.id, actorUid],
+             'Synthetic MED-03 opening stock receipt.', $5::jsonb,
+             $6::timestamptz)`,
+    [
+      DEFAULT_TENANT_ID,
+      inventoryItem.id,
+      inventoryBatch.id,
+      pharmacyActor.uid,
+      JSON.stringify({ seed: true, med_03: true }),
+      timeline.opening_at
+    ]
   );
-
   const allocationResult = await client.query(
     `INSERT INTO ward_indent_inventory_allocations
        (tenant_id, ward_indent_id, ward_indent_item_id, inventory_item_id,
         inventory_batch_id, status, reserved_quantity, issued_quantity,
         received_quantity, consumed_quantity, returned_quantity,
-        reservation_key, reserved_by, reserved_at)
+        reservation_key, reserved_by, reserved_at, created_at, updated_at)
      VALUES ($1::uuid, $2::int, $3::int, $4::int, $5::int, 'reserved',
              3, 0, 0, 0, 0, 'seed-med03-reservation-v1', $6::uuid,
-             '2026-05-04T08:20:00.000Z'::timestamptz)
+             $7::timestamptz, $7::timestamptz, $7::timestamptz)
      RETURNING id`,
     [
       DEFAULT_TENANT_ID,
-      lineage.ward_indent_id,
-      lineage.ward_indent_item_id,
+      indent.id,
+      indentItem.id,
       inventoryItem.id,
       inventoryBatch.id,
-      actorUid,
-    ],
+      pharmacyActor.uid,
+      timeline.reserved_at
+    ]
   );
   const allocationId = allocationResult.rows[0].id;
 
-  const issueMovement = await client.query(
+  const requestedStage = await createWardStage({
+    sourceId: `ward-indent:${indent.id}:v1`,
+    ruleCode: 'ward_indent_pharmacy_response',
+    state: 'requested',
+    version: 1,
+    eventId: requestedEventId,
+    actor: nursingActor,
+    ownerRoles: pharmacyOwners,
+    startedAt: timeline.requested_at
+  });
+  await notifyWardState({
+    state: 'requested',
+    version: 1,
+    stage: requestedStage,
+    recipient: pharmacyActor,
+    occurredAt: timeline.requested_at
+  });
+
+  await client.query(
+    `UPDATE ward_indent_items
+        SET quantity_reserved = 3,
+            fulfilment_status = 'reserved',
+            updated_at = $3::timestamptz
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int`,
+    [DEFAULT_TENANT_ID, indentItem.id, timeline.reserved_at]
+  );
+  const reservedIndentResult = await client.query(
+    `UPDATE ward_indents
+        SET status = 'reserved',
+            state_version = 2,
+            owner_role_codes = $3::text[],
+            active_sla_source_id = $4::text,
+            last_transition_at = $5::timestamptz,
+            updated_at = $5::timestamptz
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int
+        AND status = 'requested'
+        AND state_version = 1
+      RETURNING owner_role_codes`,
+    [
+      DEFAULT_TENANT_ID,
+      indent.id,
+      pharmacyOwners,
+      requestedStage.sourceId,
+      timeline.reserved_at
+    ]
+  );
+  if (reservedIndentResult.rowCount !== 1) {
+    throw new Error('MED-03 synthetic reservation lost its requested ward-indent state');
+  }
+  const reservedEventResult = await client.query(
+    `INSERT INTO ward_indent_events
+       (tenant_id, ward_indent_id, state_version, action, from_status,
+        to_status, actor_uid, owner_role_codes, reason, command_key,
+        details, occurred_at)
+     VALUES ($1::uuid, $2::int, 2, 'reserved', 'requested', 'reserved',
+             $3::uuid, $4::text[], 'Exact prescribed batch reserved.',
+             'seed-med03-reserved-v2', $5::jsonb, $6::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      indent.id,
+      pharmacyActor.uid,
+      pharmacyOwners,
+      JSON.stringify({ reserved_item_count: 1, exact_batch_reservation: true }),
+      timeline.reserved_at
+    ]
+  );
+  const reservedEventId = reservedEventResult.rows[0].id;
+  await validateDeferredMedicationConstraints('ward_indent_transition_evidence');
+  await updateWardStage({
+    stage: requestedStage,
+    state: 'reserved',
+    version: 2,
+    eventId: reservedEventId,
+    actor: pharmacyActor,
+    occurredAt: timeline.reserved_at
+  });
+  await notifyWardState({
+    state: 'reserved',
+    version: 2,
+    stage: requestedStage,
+    recipient: pharmacyActor,
+    occurredAt: timeline.reserved_at
+  });
+
+  await client.query(
+    `UPDATE ward_indent_items
+        SET quantity_approved = 3,
+            fulfilment_status = 'approved',
+            updated_at = $3::timestamptz
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int`,
+    [DEFAULT_TENANT_ID, indentItem.id, timeline.approved_at]
+  );
+  const approvedSourceId = `ward-indent:${indent.id}:v3`;
+  const approvedIndentResult = await client.query(
+    `UPDATE ward_indents
+        SET status = 'approved',
+            state_version = 3,
+            approved_by = $3::uuid,
+            approved_at = $4::timestamptz,
+            owner_role_codes = $5::text[],
+            active_sla_source_id = $6::text,
+            last_transition_at = $4::timestamptz,
+            updated_at = $4::timestamptz
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int
+        AND status = 'reserved'
+        AND state_version = 2
+      RETURNING owner_role_codes`,
+    [
+      DEFAULT_TENANT_ID,
+      indent.id,
+      pharmacyActor.uid,
+      timeline.approved_at,
+      pharmacyOwners,
+      approvedSourceId
+    ]
+  );
+  if (approvedIndentResult.rowCount !== 1) {
+    throw new Error('MED-03 synthetic approval lost its reserved ward-indent state');
+  }
+  const approvedEventResult = await client.query(
+    `INSERT INTO ward_indent_events
+       (tenant_id, ward_indent_id, state_version, action, from_status,
+        to_status, actor_uid, owner_role_codes, reason, command_key,
+        details, occurred_at)
+     VALUES ($1::uuid, $2::int, 3, 'approved', 'reserved', 'approved',
+             $3::uuid, $4::text[], 'Reserved prescribed medication approved.',
+             'seed-med03-approved-v3', $5::jsonb, $6::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      indent.id,
+      pharmacyActor.uid,
+      pharmacyOwners,
+      JSON.stringify({ controlled_item_count: 0 }),
+      timeline.approved_at
+    ]
+  );
+  const approvedEventId = approvedEventResult.rows[0].id;
+  await validateDeferredMedicationConstraints('ward_indent_transition_evidence');
+  await completeWardStage({
+    stage: requestedStage,
+    eventId: approvedEventId,
+    action: 'approved',
+    toStatus: 'approved',
+    actor: pharmacyActor,
+    occurredAt: timeline.approved_at
+  });
+  const approvedStage = await createWardStage({
+    sourceId: approvedSourceId,
+    ruleCode: 'ward_indent_pharmacy_issue',
+    state: 'approved',
+    version: 3,
+    eventId: approvedEventId,
+    actor: pharmacyActor,
+    ownerRoles: pharmacyOwners,
+    startedAt: timeline.approved_at
+  });
+  await notifyWardState({
+    state: 'approved',
+    version: 3,
+    stage: approvedStage,
+    recipient: pharmacyActor,
+    occurredAt: timeline.approved_at
+  });
+
+  const invoiceResult = await client.query(
+    `INSERT INTO billing_invoices
+       (tenant_id, invoice_number, patient_uid, patient_phone, patient_name,
+        admission_id, invoice_type, subtotal, cgst_amount, sgst_amount,
+        igst_amount, discount_amount, total_amount, amount_paid, amount_due,
+        credit_note_amount, status, created_by, issued_at, notes,
+        created_at, updated_at)
+     VALUES ($1::uuid, 'VH-SEED-MED03-INV-0001', $2::uuid, $3::text, $4::text,
+             $5::int, 'IP', 30, 0, 0, 0, 0, 30, 0, 30, 0, 'ISSUED',
+             $6::uuid, $7::timestamptz,
+             'Synthetic MED-03 issued ward medication invoice.',
+             $7::timestamptz, $7::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      ctx.admissionPatientUid,
+      patient.phone,
+      patient.name,
+      ctx.admissionId,
+      billingActor.uid,
+      timeline.issued_at
+    ]
+  );
+  const invoice = invoiceResult.rows[0];
+  const invoiceItemResult = await client.query(
+    `INSERT INTO billing_invoice_items
+       (tenant_id, invoice_id, service_code, description, category, quantity,
+        unit_price, gst_rate, line_subtotal, cgst_amount, sgst_amount,
+        igst_amount, line_total, source_ref_type, source_ref_id,
+        source_ref_active, created_at)
+     VALUES ($1::uuid, $2::int, $3::text,
+             'Paracetamol 500 mg ward supply', 'pharmacy', 3, 10, 0, 30,
+             0, 0, 0, 30, 'ward_indent_item', $4::bigint, TRUE,
+             $5::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      invoice.id,
+      `WARD-MED-${indentItem.id}`,
+      indentItem.id,
+      timeline.issued_at
+    ]
+  );
+  const invoiceItem = invoiceItemResult.rows[0];
+
+  const ledgerAccountsResult = await client.query(
+    `SELECT id, code
+       FROM ledger_accounts
+      WHERE tenant_id = $1::uuid
+        AND code = ANY($2::text[])`,
+    [DEFAULT_TENANT_ID, ['PATIENT_AR', 'REVENUE']]
+  );
+  const ledgerAccounts = new Map(ledgerAccountsResult.rows.map(row => [row.code, row.id]));
+  if (!ledgerAccounts.has('PATIENT_AR') || !ledgerAccounts.has('REVENUE')) {
+    throw new Error('MED-03 invoice issue requires PATIENT_AR and REVENUE ledger accounts');
+  }
+  const invoiceLedgerResult = await client.query(
+    `INSERT INTO ledger_entries
+       (tenant_id, entry_type, occurred_at, created_by, idempotency_key,
+        metadata, created_at)
+     VALUES ($1::uuid, 'INVOICE_ISSUE', $2::timestamptz, $3::uuid, $4::text,
+             $5::jsonb, $2::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      timeline.issued_at,
+      billingActor.uid,
+      `issue-inv-${invoice.id}`,
+      JSON.stringify({
+        seed: true,
+        med_03: true,
+        invoice_id: Number(invoice.id),
+        ward_indent_id: Number(indent.id)
+      })
+    ]
+  );
+  const invoiceLedgerEntryId = invoiceLedgerResult.rows[0].id;
+  await client.query(
+    `INSERT INTO ledger_postings
+       (entry_id, tenant_id, account_id, amount_paise, patient_uid,
+        invoice_id, created_at)
+     VALUES
+       ($1::bigint, $2::uuid, $3::bigint, 3000, $4::uuid, $5::int,
+        $6::timestamptz),
+       ($1::bigint, $2::uuid, $7::bigint, -3000, NULL, NULL,
+        $6::timestamptz)`,
+    [
+      invoiceLedgerEntryId,
+      DEFAULT_TENANT_ID,
+      ledgerAccounts.get('PATIENT_AR'),
+      ctx.admissionPatientUid,
+      invoice.id,
+      timeline.issued_at,
+      ledgerAccounts.get('REVENUE')
+    ]
+  );
+
+  const issueMovementResult = await client.query(
     `INSERT INTO pharmacy_stock_movements
        (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
         quantity_delta, reference_type, reference_id, performed_by, notes,
         metadata, created_at)
      VALUES ($1::uuid, $2::int, $3::int, 'issue', -3,
-             'ward_indent_item', $4::text, $5::uuid,
-             'Synthetic MED-03 exact-batch ward issue.',
-             '{"seed":true,"med_03":true}'::jsonb,
-             '2026-05-04T08:40:00.000Z'::timestamptz)
+             'ward_indent_allocation', $4::text, $5::uuid,
+             'Synthetic MED-03 exact-batch ward issue.', $6::jsonb,
+             $7::timestamptz)
      RETURNING id`,
     [
       DEFAULT_TENANT_ID,
       inventoryItem.id,
       inventoryBatch.id,
-      String(lineage.ward_indent_item_id),
-      actorUid,
-    ],
+      String(allocationId),
+      pharmacyActor.uid,
+      JSON.stringify({ seed: true, med_03: true }),
+      timeline.issued_at
+    ]
   );
+  const issueMovementId = issueMovementResult.rows[0].id;
+  const issuedBatchProjection = await client.query(
+    `UPDATE pharmacy_inventory_batches
+        SET remaining_quantity = remaining_quantity - 3,
+            status = 'in_stock',
+            updated_at = $4::timestamptz
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int
+        AND inventory_item_id = $3::int
+        AND remaining_quantity = 10
+      RETURNING id`,
+    [DEFAULT_TENANT_ID, inventoryBatch.id, inventoryItem.id, timeline.issued_at]
+  );
+  if (issuedBatchProjection.rowCount !== 1) {
+    throw new Error('MED-03 synthetic issue lost its exact opening batch balance');
+  }
   await client.query(
     `INSERT INTO ward_indent_inventory_movement_links
-       (tenant_id, allocation_id, stock_movement_id, movement_purpose,
-        quantity, ward_indent_state_version, command_key, linked_by, created_at)
-     VALUES ($1::uuid, $2::bigint, $3::int, 'issue', 3, $4::int,
-             'seed-med03-issue-link-v1', $5::uuid,
-             '2026-05-04T08:40:00.000Z'::timestamptz)`,
-    [DEFAULT_TENANT_ID, allocationId, issueMovement.rows[0].id, lineage.state_version, actorUid],
+       (tenant_id, allocation_id, ward_indent_id, stock_movement_id,
+        movement_purpose, quantity, ward_indent_state_version, command_key,
+        linked_by, created_at)
+     VALUES ($1::uuid, $2::bigint, $3::int, $4::int, 'issue', 3, 4,
+             'seed-med03-issue-link-v4', $5::uuid, $6::timestamptz)`,
+    [
+      DEFAULT_TENANT_ID,
+      allocationId,
+      indent.id,
+      issueMovementId,
+      pharmacyActor.uid,
+      timeline.issued_at
+    ]
   );
   await client.query(
     `UPDATE ward_indent_inventory_allocations
-        SET received_quantity = 3,
-            updated_at = '2026-05-04T08:50:00.000Z'::timestamptz
+        SET updated_at = $3::timestamptz
       WHERE tenant_id = $1::uuid
         AND id = $2::bigint`,
-    [DEFAULT_TENANT_ID, allocationId],
+    [DEFAULT_TENANT_ID, allocationId, timeline.issued_at]
   );
-
   await client.query(
-    `INSERT INTO mar_supply_consumptions
-       (tenant_id, medication_administration_id, clinical_order_id,
-        ward_indent_item_id, inventory_allocation_id, inventory_batch_id,
-        quantity, evidence_status, administration_mode, command_key,
-        recorded_by, created_at)
-     VALUES ($1::uuid, $2::int, $3::int, $4::int, $5::bigint, $6::int,
-             1, 'matched', 'online_scan', 'seed-med03-mar-matched-v1',
-             $7::uuid, '2026-05-04T09:01:00.000Z'::timestamptz)`,
+    `UPDATE pharmacy_catalog
+        SET stock_quantity = 7,
+            stock = 7,
+            in_stock = TRUE,
+            updated_at = $3::timestamptz
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int`,
+    [DEFAULT_TENANT_ID, catalog.id, timeline.issued_at]
+  );
+  await client.query(
+    `UPDATE clinical_orders
+        SET status = 'verified',
+            verified_by = $3::uuid,
+            verified_at = $4::timestamptz,
+            updated_at = $4::timestamptz
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int`,
+    [DEFAULT_TENANT_ID, clinicalOrder.id, pharmacyActor.uid, timeline.issued_at]
+  );
+  await client.query(
+    `UPDATE ward_indent_items
+        SET quantity_issued = 3,
+            fulfilment_status = 'issued',
+            updated_at = $3::timestamptz
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int`,
+    [DEFAULT_TENANT_ID, indentItem.id, timeline.issued_at]
+  );
+  const issuedSourceId = `ward-indent:${indent.id}:v4`;
+  const issuedIndentResult = await client.query(
+    `UPDATE ward_indents
+        SET status = 'issued',
+            state_version = 4,
+            issued_by = $3::uuid,
+            issued_at = $4::timestamptz,
+            owner_role_codes = $5::text[],
+            active_sla_source_id = $6::text,
+            last_transition_at = $4::timestamptz,
+            updated_at = $4::timestamptz
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int
+        AND status = 'approved'
+        AND state_version = 3
+      RETURNING owner_role_codes`,
     [
       DEFAULT_TENANT_ID,
-      matchedAdministration.id,
-      lineage.clinical_order_id,
-      lineage.ward_indent_item_id,
-      allocationId,
-      inventoryBatch.id,
-      actorUid,
-    ],
+      indent.id,
+      pharmacyActor.uid,
+      timeline.issued_at,
+      wardOwners,
+      issuedSourceId
+    ]
   );
-
-  await client.query(
-    `INSERT INTO mar_administration_command_receipts
-       (tenant_id, medication_administration_id, actor_uid, command_scope,
-        command_key, request_body_sha256, administration_mode,
-        response_data, completed_at)
-     VALUES ($1::uuid, $2::int, $3::uuid, 'mar_administer_scan',
-             'seed-med03-mar-administer-scan-v1',
-             'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-             'online_barcode_scan',
-             jsonb_build_object(
-               'id', $2::int,
-               'tenant_id', $1::text,
-               'status', 'administered',
-               'administered_by', $3::text,
-               'scanned_patient_uid', $4::text,
-               'scanned_barcode', 'VH-SEED-MED03-PARA500',
-               'supply_state', jsonb_build_object('status', 'matched', 'quantity', 1)
-             ),
-             '2026-05-04T09:01:00.000Z'::timestamptz)`,
-    [DEFAULT_TENANT_ID, matchedAdministration.id, actorUid, lineage.patient_uid],
-  );
-
-  const transitionAdministrations = await client.query(
-    `INSERT INTO medication_administrations
-       (tenant_id, patient_uid, medication_name, dosage, route, scheduled_time,
-        status, notes, hold_reason, held_by, held_at, missed_by, missed_at,
-        clinical_order_id, supply_quantity_per_dose)
-     VALUES
-       ($1::uuid, $2::uuid, 'Paracetamol 500 mg', '500 mg', 'oral',
-        '2026-05-04T11:00:00.000Z'::timestamptz, 'held',
-        'Synthetic MED-03 hold receipt.', 'Awaiting prescriber review.',
-        $3::uuid, '2026-05-04T10:55:00.000Z'::timestamptz,
-        NULL, NULL, $4::int, 1),
-       ($1::uuid, $2::uuid, 'Paracetamol 500 mg', '500 mg', 'oral',
-        '2026-05-04T12:00:00.000Z'::timestamptz, 'missed',
-        'Patient declined the synthetic dose.', NULL, NULL, NULL,
-        $3::uuid, '2026-05-04T12:30:00.000Z'::timestamptz,
-        $4::int, 1)
-     RETURNING id, status`,
-    [DEFAULT_TENANT_ID, lineage.patient_uid, actorUid, lineage.clinical_order_id],
-  );
-  const heldAdministration = transitionAdministrations.rows.find((row) => row.status === 'held');
-  const missedAdministration = transitionAdministrations.rows.find((row) => row.status === 'missed');
-  await client.query(
-    `INSERT INTO mar_transition_command_receipts
-       (tenant_id, medication_administration_id, actor_uid, command_scope,
-        transition_action, command_key, request_body_sha256, response_data,
-        completed_at)
-     VALUES
-       ($1::uuid, $2::int, $4::uuid, 'mar_hold', 'held',
-        'seed-med03-mar-hold-v1',
-        'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-        jsonb_build_object(
-          'id', $2::int, 'tenant_id', $1::text, 'status', 'held',
-          'held_by', $4::text, 'hold_reason', 'Awaiting prescriber review.'
-        ),
-        '2026-05-04T10:55:00.000Z'::timestamptz),
-       ($1::uuid, $3::int, $4::uuid, 'mar_miss', 'missed',
-        'seed-med03-mar-miss-v1',
-        'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
-        jsonb_build_object(
-          'id', $3::int, 'tenant_id', $1::text, 'status', 'missed',
-          'missed_by', $4::text, 'notes', 'Patient declined the synthetic dose.'
-        ),
-        '2026-05-04T12:30:00.000Z'::timestamptz)`,
-    [
-      DEFAULT_TENANT_ID,
-      heldAdministration.id,
-      missedAdministration.id,
-      actorUid,
-    ],
-  );
-
-  const overrideAdministration = await client.query(
-    `INSERT INTO medication_administrations
-       (tenant_id, patient_uid, medication_name, dosage, route, scheduled_time,
-        administered_at, administered_by, status, notes, clinical_order_id,
-        supply_quantity_per_dose, rights_passed, all_rights_passed)
-     VALUES ($1::uuid, $2::uuid, 'Paracetamol 500 mg', '500 mg', 'oral',
-             '2026-05-04T10:00:00.000Z'::timestamptz,
-             '2026-05-04T10:05:00.000Z'::timestamptz, $3::uuid,
-             'administered',
-             'Synthetic downtime administration awaiting exact-batch reconciliation.',
-             $4::int, 1,
-             '{"patient":true,"medication":true,"dose":true,"route":true,"time":true}'::jsonb,
-             TRUE)
-     RETURNING id`,
-    [DEFAULT_TENANT_ID, lineage.patient_uid, actorUid, lineage.clinical_order_id],
-  );
-  const overrideAdministrationId = overrideAdministration.rows[0].id;
-
-  const marSlaId = randomUUID();
-  const marRule = await first(
-    'workflow_sla_rules',
-    'id',
-    `rule_code = 'ward_indent_mar_supply_reconciliation'
-      AND enabled = TRUE
-      AND (tenant_id IS NULL OR tenant_id = $1::uuid)
-      ORDER BY tenant_id NULLS LAST`,
-    [DEFAULT_TENANT_ID],
-  );
-  if (!marRule) {
-    throw new Error('MED-03 MAR reconciliation SLA rule is missing');
+  if (issuedIndentResult.rowCount !== 1) {
+    throw new Error('MED-03 synthetic issue lost its approved ward-indent state');
   }
+  const issuedEventResult = await client.query(
+    `INSERT INTO ward_indent_events
+       (tenant_id, ward_indent_id, state_version, action, from_status,
+        to_status, actor_uid, owner_role_codes, reason, command_key,
+        details, occurred_at)
+     VALUES ($1::uuid, $2::int, 4, 'issued', 'approved', 'issued',
+             $3::uuid, $4::text[], 'Approved exact batch issued to the ward.',
+             'seed-med03-issued-v4', $5::jsonb, $6::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      indent.id,
+      pharmacyActor.uid,
+      wardOwners,
+      JSON.stringify({
+        verified_clinical_order_ids: [Number(clinicalOrder.id)],
+        inventory_movement_ids: [Number(issueMovementId)],
+        billing_invoice_id: Number(invoice.id)
+      }),
+      timeline.issued_at
+    ]
+  );
+  const issuedEventId = issuedEventResult.rows[0].id;
+  const chargeResult = await client.query(
+    `INSERT INTO ward_indent_financial_events
+       (tenant_id, ward_indent_id, ward_indent_item_id, clinical_order_id,
+        ward_indent_event_id, ward_indent_state_version, event_kind,
+        quantity, unit_price_minor, amount_minor, currency, pricing_snapshot,
+        original_event_id, invoice_id, invoice_item_id, event_key, actor_uid,
+        occurred_at)
+     VALUES ($1::uuid, $2::int, $3::int, $4::int, $5::bigint, 4,
+             'charge', 3, 1000, 3000, 'INR', $6::jsonb, NULL, $7::int,
+             $8::int, 'seed-med03-charge-v1', $9::uuid, $10::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      indent.id,
+      indentItem.id,
+      clinicalOrder.id,
+      issuedEventId,
+      JSON.stringify({
+        source: 'ward_indent_approved_price',
+        catalog_id: Number(catalog.id),
+        catalog_name: 'VH-SEED-MED03 Paracetamol 500 mg tablet',
+        unit_price_minor: 1000,
+        currency: 'INR',
+        gst_rate: 0
+      }),
+      invoice.id,
+      invoiceItem.id,
+      pharmacyActor.uid,
+      timeline.issued_at
+    ]
+  );
+  const charge = chargeResult.rows[0];
+  await client.query(
+    `INSERT INTO audit_logs
+       (tenant_id, uid, role, action, resource, resource_id, metadata, created_at)
+     VALUES ($1::uuid, $2::uuid, $3::text,
+             'FRONT_OFFICE_BILLING_INVOICE_ISSUED', 'billing_invoice',
+             $4::text, $5::jsonb, $6::timestamptz)`,
+    [
+      DEFAULT_TENANT_ID,
+      billingActor.uid,
+      billingActor.role,
+      String(invoice.id),
+      JSON.stringify({
+        seed: true,
+        med_03: true,
+        patient_uid: ctx.admissionPatientUid,
+        admission_id: Number(ctx.admissionId),
+        ward_indent_id: Number(indent.id),
+        total_amount: 30,
+        currency: 'INR'
+      }),
+      timeline.issued_at
+    ]
+  );
+  await validateDeferredMedicationConstraints(
+    'ward_indent_transition_evidence',
+    'ward_indent_inventory_movement_workflow_event',
+    'ward_indent_inventory_allocation_evidence_equality'
+  );
+  await completeWardStage({
+    stage: approvedStage,
+    eventId: issuedEventId,
+    action: 'issued',
+    toStatus: 'issued',
+    actor: pharmacyActor,
+    occurredAt: timeline.issued_at
+  });
+  const issuedStage = await createWardStage({
+    sourceId: issuedSourceId,
+    ruleCode: 'ward_indent_ward_receipt',
+    state: 'issued',
+    version: 4,
+    eventId: issuedEventId,
+    actor: pharmacyActor,
+    ownerRoles: wardOwners,
+    startedAt: timeline.issued_at
+  });
+  await notifyWardState({
+    state: 'issued',
+    version: 4,
+    stage: issuedStage,
+    recipient: nursingActor,
+    occurredAt: timeline.issued_at
+  });
+
+  const noScanOverrideReason =
+    'Emergency administration verified by two patient identifiers; barcode scan was unavailable.';
+  const supplyOverrideReason =
+    'Medication was issued to the ward but electronic receipt evidence was not yet recorded.';
+  const noScanNotes = 'Emergency dose administered before electronic ward receipt was recorded.';
+  const noScanAdministrationResult = await client.query(
+    `INSERT INTO medication_administrations
+       (tenant_id, patient_uid, medication_name, dose, dosage, route,
+        scheduled_time, administered_at, administered_by, status,
+        clinical_order_id, supply_quantity_per_dose, scanned_patient_uid,
+        scanned_barcode, patient_scanned_at, medication_scanned_at,
+        rights_passed, all_rights_passed, override_reason, witness_uid,
+        notes, created_at, updated_at)
+     VALUES ($1::uuid, $2::uuid, 'Paracetamol 500 mg', '500 mg', '500 mg',
+             'oral', $3::timestamptz, $4::timestamptz, $5::uuid,
+             'administered', $6::int, 1, NULL, NULL, NULL, NULL, NULL, NULL,
+             $7::text, NULL, $8::text, $3::timestamptz, $4::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      ctx.admissionPatientUid,
+      timeline.no_scan_scheduled_at,
+      timeline.no_scan_administered_at,
+      nursingActor.uid,
+      clinicalOrder.id,
+      noScanOverrideReason,
+      noScanNotes
+    ]
+  );
+  const noScanAdministrationId = noScanAdministrationResult.rows[0].id;
+
+  const marRule = await getSlaRule('ward_indent_mar_supply_reconciliation');
+  const marSlaId = randomUUID();
+  const marDueAt = plusMinutes(timeline.no_scan_administered_at, marRule.target_minutes);
   await client.query(
     `INSERT INTO workflow_sla_instances
        (id, tenant_id, rule_id, rule_code, patient_uid, encounter_id,
         source_table, source_id, status, priority, started_at, due_at,
-        assigned_role_codes, metadata)
+        assigned_role_codes, metadata, created_at, updated_at)
      VALUES ($1::uuid, $2::uuid, $3::uuid,
              'ward_indent_mar_supply_reconciliation', $4::uuid, $5::uuid,
              'medication_administrations', $6::text, 'active', 'critical',
-             '2026-05-04T10:05:00.000Z'::timestamptz,
-             '2026-05-04T10:35:00.000Z'::timestamptz,
+             $7::timestamptz, $8::timestamptz,
              ARRAY['PHARMACY_INCHARGE','NURSING_INCHARGE','IP_INCHARGE']::text[],
-             $7::jsonb)`,
+             $9::jsonb, $7::timestamptz, $7::timestamptz)`,
     [
       marSlaId,
       DEFAULT_TENANT_ID,
       marRule.id,
-      lineage.patient_uid,
-      lineage.encounter_id,
-      String(overrideAdministrationId),
+      ctx.admissionPatientUid,
+      ctx.admissionEncounterId,
+      String(noScanAdministrationId),
+      timeline.no_scan_administered_at,
+      marDueAt,
       JSON.stringify({
         med_03: true,
-        medication_administration_id: Number(overrideAdministrationId),
-        clinical_order_id: Number(lineage.clinical_order_id),
-        ward_indent_id: Number(lineage.ward_indent_id),
-        ward_indent_item_id: Number(lineage.ward_indent_item_id),
-      }),
-    ],
+        medication_administration_id: Number(noScanAdministrationId),
+        clinical_order_id: Number(clinicalOrder.id),
+        ward_indent_id: Number(indent.id),
+        ward_indent_item_id: Number(indentItem.id)
+      })
+    ]
   );
-  const marTask = await client.query(
+  const marTaskResult = await client.query(
     `INSERT INTO tasks
        (tenant_id, task_kind, title, description, patient_uid, encounter_id,
         related_resource_type, related_resource_id, priority, status,
-        assigned_to_role, created_by, due_at, workflow_sla_instance_id,
-        sla_completion_semantics, stage_occurrence_key, metadata)
+        assigned_to_uid, assigned_to_role, created_by, due_at,
+        workflow_sla_instance_id, sla_completion_semantics,
+        stage_occurrence_key, metadata, created_at, updated_at)
      VALUES ($1::uuid, 'review', 'Reconcile MAR administration with ward custody',
-             'Match the synthetic downtime administration to exact received ward stock.',
+             'Match the documented emergency or downtime administration to exact received ward stock without creating a second pharmacy movement.',
              $2::uuid, NULL, 'medication_administrations', $3::text,
-             'critical', 'open', 'PHARMACY_INCHARGE', $4::uuid,
-             '2026-05-04T10:35:00.000Z'::timestamptz, $5::uuid,
-             'domain_evidence', 'seed-med03-mar-supply-reconciliation-v1',
-             $6::jsonb)
+             'critical', 'open', NULL, 'PHARMACY_INCHARGE', $4::uuid,
+             $5::timestamptz, $6::uuid, 'domain_evidence', $7::text,
+             $8::jsonb, $9::timestamptz, $9::timestamptz)
      RETURNING id`,
     [
       DEFAULT_TENANT_ID,
-      lineage.patient_uid,
-      String(overrideAdministrationId),
-      actorUid,
+      ctx.admissionPatientUid,
+      String(noScanAdministrationId),
+      nursingActor.uid,
+      marDueAt,
       marSlaId,
+      stageOccurrenceKey(`mar-supply:${noScanAdministrationId}`),
       JSON.stringify({
         task_contract: 'ward_medication_obligation_v1',
         med_03: true,
         sla_key: 'ward_indent_mar_supply_reconciliation',
-        sla_instance_id: marSlaId,
-        canonical_encounter_id: lineage.encounter_id,
+        canonical_encounter_id: ctx.admissionEncounterId,
         obligation_kind: 'mar_supply_reconciliation',
         evidence_kind: 'mar_supply_reconciled',
-        medication_administration_id: Number(overrideAdministrationId),
-        clinical_order_id: Number(lineage.clinical_order_id),
-        ward_indent_id: Number(lineage.ward_indent_id),
-        ward_indent_item_id: Number(lineage.ward_indent_item_id),
-        override_reason: 'Synthetic downtime administration.',
+        medication_administration_id: Number(noScanAdministrationId),
+        clinical_order_id: Number(clinicalOrder.id),
+        ward_indent_id: Number(indent.id),
+        ward_indent_item_id: Number(indentItem.id),
+        override_reason: supplyOverrideReason,
+        deep_link: `/clinical/mar/${noScanAdministrationId}?supply-reconciliation=1`
       }),
-    ],
+      timeline.no_scan_administered_at
+    ]
   );
-  const marTaskId = marTask.rows[0].id;
-  const unmatchedConsumption = await client.query(
+  const marTaskId = marTaskResult.rows[0].id;
+  const unmatchedConsumptionResult = await client.query(
     `INSERT INTO mar_supply_consumptions
        (tenant_id, medication_administration_id, clinical_order_id,
-        ward_indent_item_id, quantity, evidence_status, administration_mode,
-        command_key, recorded_by, override_reason, override_recorded_at,
+        ward_indent_item_id, inventory_allocation_id, inventory_batch_id,
+        quantity, evidence_status, administration_mode, command_key,
+        recorded_by, override_reason, override_recorded_at,
         reconciliation_task_id, created_at)
-     VALUES ($1::uuid, $2::int, $3::int, $4::int, 1,
-             'unmatched_override', 'downtime_reconciliation',
-             'seed-med03-mar-unmatched-v1', $5::uuid,
-             'Synthetic downtime administration required before batch evidence was available.',
-             '2026-05-04T10:05:00.000Z'::timestamptz, $6::int,
-             '2026-05-04T10:05:00.000Z'::timestamptz)
+     VALUES ($1::uuid, $2::int, $3::int, $4::int, NULL, NULL, 1,
+             'unmatched_override', 'online_no_scan', $5::text, $6::uuid,
+             $7::text, $8::timestamptz, $9::int, $8::timestamptz)
      RETURNING id`,
     [
       DEFAULT_TENANT_ID,
-      overrideAdministrationId,
-      lineage.clinical_order_id,
-      lineage.ward_indent_item_id,
-      actorUid,
-      marTaskId,
-    ],
+      noScanAdministrationId,
+      clinicalOrder.id,
+      indentItem.id,
+      `mar-supply-override:${noScanAdministrationId}:seed-med03-mar-administer-no-scan-v1`,
+      nursingActor.uid,
+      supplyOverrideReason,
+      timeline.no_scan_administered_at,
+      marTaskId
+    ]
   );
+  const unmatchedConsumptionId = unmatchedConsumptionResult.rows[0].id;
+  const noScanRequestHash = canonicalHash({
+    notes: noScanNotes,
+    witness_uid: null,
+    override_reason: noScanOverrideReason,
+    supply_override_reason: supplyOverrideReason,
+    supply_quantity: null
+  });
+  await client.query(
+    `INSERT INTO mar_administration_command_receipts
+       (tenant_id, medication_administration_id, actor_uid, command_scope,
+        command_key, request_body_sha256, administration_mode, response_data,
+        completed_at)
+     VALUES ($1::uuid, $2::int, $3::uuid, 'mar_administer',
+             'seed-med03-mar-administer-no-scan-v1', $4::char(64),
+             'online_no_scan', $5::jsonb, $6::timestamptz)`,
+    [
+      DEFAULT_TENANT_ID,
+      noScanAdministrationId,
+      nursingActor.uid,
+      noScanRequestHash,
+      JSON.stringify({
+        id: Number(noScanAdministrationId),
+        status: 'administered',
+        supply_state: {
+          status: 'unmatched_override',
+          reconciliation_task_id: Number(marTaskId)
+        }
+      }),
+      timeline.no_scan_administered_at
+    ]
+  );
+  await client.query(
+    `INSERT INTO medication_safety_reviews
+       (tenant_id, patient_uid, encounter_id, clinical_order_id, review_type,
+        severity, status, finding_code, medication_name, message,
+        override_required, override_reason, overridden_by, overridden_at,
+        payload, created_by, created_at, updated_at)
+     VALUES ($1::uuid, $2::uuid, $3::uuid, $4::int,
+             'bcma_no_scan_override', 'medium', 'overridden',
+             'BCMA_NO_SCAN_OVERRIDE', 'Paracetamol 500 mg', $5::text,
+             TRUE, $6::text, $7::uuid, $8::timestamptz, $9::jsonb,
+             $7::uuid, $8::timestamptz, $8::timestamptz)`,
+    [
+      DEFAULT_TENANT_ID,
+      ctx.admissionPatientUid,
+      ctx.admissionEncounterId,
+      clinicalOrder.id,
+      `Barcode scan bypassed for administration: ${noScanOverrideReason}`,
+      noScanOverrideReason,
+      nursingActor.uid,
+      timeline.no_scan_administered_at,
+      JSON.stringify({
+        medication_administration_id: Number(noScanAdministrationId),
+        clinical_order_id: Number(clinicalOrder.id),
+        issue: {
+          code: 'BCMA_NO_SCAN_OVERRIDE',
+          severity: 'medium',
+          message: 'Medication was administered without patient and medication barcode scans.'
+        }
+      })
+    ]
+  );
+  await insertNotificationIntent({
+    recipient: pharmacyActor,
+    type: 'ward_indent_mar_supply_reconciliation',
+    title: 'MAR administration requires supply reconciliation',
+    body: `Administration ${noScanAdministrationId} must be matched to exact received ward stock.`,
+    sourceEventKey: `mar-supply:${noScanAdministrationId}:unmatched`,
+    payload: {
+      kind: 'ward_indent_mar_supply_reconciliation',
+      task_id: Number(marTaskId),
+      medication_administration_id: Number(noScanAdministrationId),
+      clinical_order_id: Number(clinicalOrder.id),
+      ward_indent_id: Number(indent.id),
+      ward_indent_item_id: Number(indentItem.id),
+      deep_link: `/clinical/mar/${noScanAdministrationId}?supply-reconciliation=1`
+    },
+    createdAt: timeline.no_scan_administered_at
+  });
 
-  const reconciliationAt = new Date('2026-05-04T10:06:00.000Z');
-  const reconciliation = await client.query(
+  await client.query(
+    `INSERT INTO ward_indent_inventory_receipt_events
+       (tenant_id, inventory_allocation_id, ward_indent_id,
+        ward_indent_item_id, inventory_batch_id, ward_indent_state_version,
+        quantity_delta, command_key, received_by, created_at)
+     VALUES ($1::uuid, $2::bigint, $3::int, $4::int, $5::int, 5, 3,
+             'seed-med03-receipt-evidence-v5', $6::uuid, $7::timestamptz)`,
+    [
+      DEFAULT_TENANT_ID,
+      allocationId,
+      indent.id,
+      indentItem.id,
+      inventoryBatch.id,
+      nursingActor.uid,
+      timeline.received_at
+    ]
+  );
+  await client.query(
+    `UPDATE ward_indent_inventory_allocations
+        SET updated_at = $3::timestamptz
+      WHERE tenant_id = $1::uuid
+        AND id = $2::bigint`,
+    [DEFAULT_TENANT_ID, allocationId, timeline.received_at]
+  );
+  await client.query(
+    `UPDATE ward_indent_items
+        SET quantity_received = 3,
+            fulfilment_status = 'received',
+            updated_at = $3::timestamptz
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int`,
+    [DEFAULT_TENANT_ID, indentItem.id, timeline.received_at]
+  );
+  const receivedSourceId = `ward-indent:${indent.id}:v5`;
+  const receivedIndentResult = await client.query(
+    `UPDATE ward_indents
+        SET status = 'received',
+            state_version = 5,
+            received_by = $3::uuid,
+            received_at = $4::timestamptz,
+            owner_role_codes = $5::text[],
+            active_sla_source_id = $6::text,
+            last_transition_at = $4::timestamptz,
+            updated_at = $4::timestamptz
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int
+        AND status = 'issued'
+        AND state_version = 4
+      RETURNING owner_role_codes`,
+    [
+      DEFAULT_TENANT_ID,
+      indent.id,
+      nursingActor.uid,
+      timeline.received_at,
+      reconciliationOwners,
+      receivedSourceId
+    ]
+  );
+  if (receivedIndentResult.rowCount !== 1) {
+    throw new Error('MED-03 synthetic receipt lost its issued ward-indent state');
+  }
+  const receivedEventResult = await client.query(
+    `INSERT INTO ward_indent_events
+       (tenant_id, ward_indent_id, state_version, action, from_status,
+        to_status, actor_uid, owner_role_codes, reason, command_key,
+        details, occurred_at)
+     VALUES ($1::uuid, $2::int, 5, 'receipt_recorded', 'issued', 'received',
+             $3::uuid, $4::text[], 'Ward nurse recorded exact-batch receipt.',
+             'seed-med03-receipt-recorded-v5', $5::jsonb, $6::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      indent.id,
+      nursingActor.uid,
+      reconciliationOwners,
+      JSON.stringify({ fully_received: true }),
+      timeline.received_at
+    ]
+  );
+  const receivedEventId = receivedEventResult.rows[0].id;
+  await validateDeferredMedicationConstraints(
+    'ward_indent_transition_evidence',
+    'ward_indent_inventory_receipt_workflow_event',
+    'ward_indent_inventory_allocation_evidence_equality'
+  );
+  await completeWardStage({
+    stage: issuedStage,
+    eventId: receivedEventId,
+    action: 'receipt_recorded',
+    toStatus: 'received',
+    actor: nursingActor,
+    occurredAt: timeline.received_at
+  });
+  const receivedStage = await createWardStage({
+    sourceId: receivedSourceId,
+    ruleCode: 'ward_indent_reconciliation',
+    state: 'received',
+    version: 5,
+    eventId: receivedEventId,
+    actor: nursingActor,
+    ownerRoles: reconciliationOwners,
+    startedAt: timeline.received_at
+  });
+  await notifyWardState({
+    state: 'received',
+    version: 5,
+    stage: receivedStage,
+    recipient: pharmacyActor,
+    occurredAt: timeline.received_at
+  });
+
+  const reconciliationLinkCommand =
+    `mar-supply-reconcile:${unmatchedConsumptionId}:${allocationId}:seed-med03-mar-reconcile-v1`;
+  const reconciliationLinkResult = await client.query(
     `INSERT INTO mar_supply_reconciliation_links
        (tenant_id, unmatched_consumption_id, clinical_order_id,
         ward_indent_item_id, inventory_allocation_id, inventory_batch_id,
         quantity, command_key, reconciled_by, created_at)
      VALUES ($1::uuid, $2::bigint, $3::int, $4::int, $5::bigint, $6::int,
-             1, 'seed-med03-mar-reconciliation-v1', $7::uuid, $8::timestamptz)
+             1, $7::text, $8::uuid, $9::timestamptz)
      RETURNING id`,
     [
       DEFAULT_TENANT_ID,
-      unmatchedConsumption.rows[0].id,
-      lineage.clinical_order_id,
-      lineage.ward_indent_item_id,
+      unmatchedConsumptionId,
+      clinicalOrder.id,
+      indentItem.id,
       allocationId,
       inventoryBatch.id,
-      actorUid,
-      reconciliationAt,
-    ],
+      reconciliationLinkCommand,
+      pharmacyActor.uid,
+      timeline.mar_reconciled_at
+    ]
   );
-  const reconciliationEvidence = {
+  const reconciliationLinkId = reconciliationLinkResult.rows[0].id;
+  await client.query(
+    `UPDATE ward_indent_inventory_allocations
+        SET updated_at = $3::timestamptz
+      WHERE tenant_id = $1::uuid
+        AND id = $2::bigint`,
+    [DEFAULT_TENANT_ID, allocationId, timeline.mar_reconciled_at]
+  );
+  const marCompletionEvidence = {
     kind: 'mar_supply_reconciled',
     resource_type: 'mar_supply_reconciliation_link',
-    resource_id: String(reconciliation.rows[0].id),
-    occurred_at: reconciliationAt.toISOString(),
-    recorded_at: reconciliationAt.toISOString(),
+    resource_id: String(reconciliationLinkId),
+    occurred_at: timeline.mar_reconciled_at.toISOString(),
+    recorded_at: timeline.mar_reconciled_at.toISOString()
   };
   await client.query(
     `UPDATE workflow_sla_instances
@@ -5060,14 +6618,14 @@ async function seedMedicationClosureEvidence() {
     [
       DEFAULT_TENANT_ID,
       marSlaId,
-      reconciliationAt,
+      timeline.mar_reconciled_at,
       JSON.stringify({
         completed_via: 'domain_evidence',
         completed_by_task: String(marTaskId),
-        completed_by: actorUid,
-        completion_evidence: reconciliationEvidence,
-      }),
-    ],
+        completed_by: pharmacyActor.uid,
+        completion_evidence: marCompletionEvidence
+      })
+    ]
   );
   await client.query(
     `UPDATE tasks
@@ -5077,223 +6635,1698 @@ async function seedMedicationClosureEvidence() {
             updated_at = $4::timestamptz
       WHERE tenant_id = $1::uuid
         AND id = $2::int`,
-    [DEFAULT_TENANT_ID, marTaskId, actorUid, reconciliationAt],
+    [DEFAULT_TENANT_ID, marTaskId, pharmacyActor.uid, timeline.mar_reconciled_at]
+  );
+  const reconciliationRequestHash = sha256(
+    JSON.stringify({
+      consumption_id: String(unmatchedConsumptionId),
+      expected_medication_administration_id: Number(noScanAdministrationId),
+      allocations: [
+        {
+          inventory_allocation_id: String(allocationId),
+          quantity: '1.0000'
+        }
+      ]
+    })
+  );
+  await client.query(
+    `INSERT INTO mar_supply_reconciliation_command_receipts
+       (tenant_id, unmatched_consumption_id, medication_administration_id,
+        actor_uid, command_key, request_body_sha256, response_data,
+        completed_at)
+     VALUES ($1::uuid, $2::bigint, $3::int, $4::uuid,
+             'seed-med03-mar-reconcile-v1', $5::char(64), $6::jsonb,
+             $7::timestamptz)`,
+    [
+      DEFAULT_TENANT_ID,
+      unmatchedConsumptionId,
+      noScanAdministrationId,
+      pharmacyActor.uid,
+      reconciliationRequestHash,
+      JSON.stringify({
+        consumption: {
+          id: Number(unmatchedConsumptionId),
+          medication_administration_id: Number(noScanAdministrationId),
+          evidence_status: 'unmatched_override'
+        },
+        links: [
+          {
+            id: Number(reconciliationLinkId),
+            inventory_allocation_id: String(allocationId),
+            inventory_batch_id: Number(inventoryBatch.id),
+            quantity: 1
+          }
+        ],
+        reconciled_quantity: 1,
+        outstanding_quantity: 0,
+        state: {
+          medication_administration_id: Number(noScanAdministrationId),
+          reconciled_quantity: 1,
+          outstanding_quantity: 0
+        }
+      }),
+      timeline.mar_reconciled_at
+    ]
+  );
+  await validateDeferredMedicationConstraints(
+    'ward_indent_inventory_allocation_evidence_equality'
   );
 
-  const returnMovement = await client.query(
+  const scannedAdministrationResult = await client.query(
+    `INSERT INTO medication_administrations
+       (tenant_id, patient_uid, medication_name, dose, dosage, route,
+        scheduled_time, administered_at, administered_by, status,
+        clinical_order_id, supply_quantity_per_dose, scanned_patient_uid,
+        scanned_barcode, patient_scanned_at, medication_scanned_at,
+        rights_passed, all_rights_passed, override_reason, witness_uid,
+        notes, created_at, updated_at)
+     VALUES ($1::uuid, $2::uuid, 'Paracetamol 500 mg', '500 mg', '500 mg',
+             'oral', $3::timestamptz, $4::timestamptz, $5::uuid,
+             'administered', $6::int, 1, $2::uuid, $7::text,
+             $8::timestamptz, $9::timestamptz, $10::jsonb, TRUE, NULL, NULL,
+             'Barcode-verified MED-03 administration from exact received custody.',
+             $3::timestamptz, $4::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      ctx.admissionPatientUid,
+      timeline.scanned_scheduled_at,
+      timeline.scanned_administered_at,
+      nursingActor.uid,
+      clinicalOrder.id,
+      exactBatchBarcode,
+      timeline.patient_scanned_at,
+      timeline.medication_scanned_at,
+      JSON.stringify({ patient: true, drug: true, dose: true, route: true, time: true })
+    ]
+  );
+  const scannedAdministrationId = scannedAdministrationResult.rows[0].id;
+  await client.query(
+    `INSERT INTO mar_supply_consumptions
+       (tenant_id, medication_administration_id, clinical_order_id,
+        ward_indent_item_id, inventory_allocation_id, inventory_batch_id,
+        quantity, evidence_status, administration_mode, command_key,
+        recorded_by, override_reason, override_recorded_at,
+        reconciliation_task_id, created_at)
+     VALUES ($1::uuid, $2::int, $3::int, $4::int, $5::bigint, $6::int, 1,
+             'matched', 'online_barcode_scan', $7::text, $8::uuid,
+             NULL, NULL, NULL, $9::timestamptz)`,
+    [
+      DEFAULT_TENANT_ID,
+      scannedAdministrationId,
+      clinicalOrder.id,
+      indentItem.id,
+      allocationId,
+      inventoryBatch.id,
+      `mar-supply-match:${scannedAdministrationId}:${allocationId}:seed-med03-mar-administer-scan-v1`,
+      nursingActor.uid,
+      timeline.scanned_administered_at
+    ]
+  );
+  await client.query(
+    `UPDATE ward_indent_inventory_allocations
+        SET updated_at = $3::timestamptz
+      WHERE tenant_id = $1::uuid
+        AND id = $2::bigint`,
+    [DEFAULT_TENANT_ID, allocationId, timeline.scanned_administered_at]
+  );
+  const scannedRequestHash = canonicalHash({
+    scanned_patient_uid: ctx.admissionPatientUid,
+    scanned_barcode: exactBatchBarcode,
+    witness_uid: null,
+    override_reason: null,
+    supply_override_reason: null,
+    supply_quantity: null
+  });
+  await client.query(
+    `INSERT INTO mar_administration_command_receipts
+       (tenant_id, medication_administration_id, actor_uid, command_scope,
+        command_key, request_body_sha256, administration_mode, response_data,
+        completed_at)
+     VALUES ($1::uuid, $2::int, $3::uuid, 'mar_administer_scan',
+             'seed-med03-mar-administer-scan-v1', $4::char(64),
+             'online_barcode_scan', $5::jsonb, $6::timestamptz)`,
+    [
+      DEFAULT_TENANT_ID,
+      scannedAdministrationId,
+      nursingActor.uid,
+      scannedRequestHash,
+      JSON.stringify({
+        id: Number(scannedAdministrationId),
+        status: 'administered',
+        supply_state: {
+          status: 'matched',
+          inventory_allocation_id: String(allocationId),
+          inventory_batch_id: Number(inventoryBatch.id)
+        }
+      }),
+      timeline.scanned_administered_at
+    ]
+  );
+  await validateDeferredMedicationConstraints(
+    'ward_indent_inventory_allocation_evidence_equality'
+  );
+
+  const heldReason = 'Temporarily held pending clinical review.';
+  const heldTransitionRequestHash = canonicalHash({ reason: heldReason });
+  const heldAdministrationResult = await client.query(
+    `INSERT INTO medication_administrations
+       (tenant_id, patient_uid, medication_name, dose, dosage, route,
+        scheduled_time, administered_at, administered_by, status,
+        clinical_order_id, supply_quantity_per_dose, held_by, held_at,
+        hold_reason, notes, created_at, updated_at)
+     VALUES ($1::uuid, $2::uuid, 'Paracetamol 500 mg', '500 mg', '500 mg',
+             'oral', $3::timestamptz, NULL, NULL, 'held', $4::int, 1,
+             $5::uuid, $6::timestamptz, $7::text,
+             'Synthetic MED-03 clinically held scheduled dose.',
+             $3::timestamptz, $6::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      ctx.admissionPatientUid,
+      timeline.held_scheduled_at,
+      clinicalOrder.id,
+      nursingActor.uid,
+      timeline.held_at,
+      heldReason
+    ]
+  );
+  const heldAdministrationId = heldAdministrationResult.rows[0].id;
+  await client.query(
+    `INSERT INTO mar_transition_command_receipts
+       (tenant_id, medication_administration_id, actor_uid, command_scope,
+        transition_action, command_key, request_body_sha256, response_data,
+        completed_at)
+     VALUES ($1::uuid, $2::int, $3::uuid, 'mar_hold', 'held',
+             'seed-med03-mar-hold-v1', $4::char(64), $5::jsonb,
+             $6::timestamptz)`,
+    [
+      DEFAULT_TENANT_ID,
+      heldAdministrationId,
+      nursingActor.uid,
+      heldTransitionRequestHash,
+      JSON.stringify({ id: Number(heldAdministrationId), status: 'held' }),
+      timeline.held_at
+    ]
+  );
+  await materializeMarMedicationException({
+    medicationAdministrationId: heldAdministrationId,
+    clinicalOrderId: clinicalOrder.id,
+    clinicalOrderStatus: 'ordered',
+    patientUid: ctx.admissionPatientUid,
+    encounterId: ctx.admissionEncounterId,
+    exceptionKind: 'held',
+    reason: heldReason,
+    raisedBy: nursingActor.uid,
+    raisedByRole: nursingActor.role,
+    raisedAt: timeline.held_at,
+    transitionCommandKey: 'seed-med03-mar-hold-v1',
+    transitionRequestHash: heldTransitionRequestHash,
+    assignedPrescriber: prescriberActor
+  });
+
+  const missedReason = 'Dose omitted after clinical review of the scheduled administration.';
+  const missedTransitionRequestHash = canonicalHash({ reason: missedReason });
+  const missedAdministrationResult = await client.query(
+    `INSERT INTO medication_administrations
+       (tenant_id, patient_uid, medication_name, dose, dosage, route,
+        scheduled_time, administered_at, administered_by, status,
+        clinical_order_id, supply_quantity_per_dose, missed_by, missed_at,
+        refusal_reason, notes, created_at, updated_at)
+     VALUES ($1::uuid, $2::uuid, 'Paracetamol 500 mg', '500 mg', '500 mg',
+             'oral', $3::timestamptz, NULL, NULL, 'missed', $4::int, 1,
+             $5::uuid, $6::timestamptz, NULL,
+             $7::text,
+             $3::timestamptz, $6::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      ctx.admissionPatientUid,
+      timeline.missed_scheduled_at,
+      clinicalOrder.id,
+      nursingActor.uid,
+      timeline.missed_at,
+      missedReason
+    ]
+  );
+  const missedAdministrationId = missedAdministrationResult.rows[0].id;
+  await client.query(
+    `INSERT INTO mar_transition_command_receipts
+       (tenant_id, medication_administration_id, actor_uid, command_scope,
+        transition_action, command_key, request_body_sha256, response_data,
+        completed_at)
+     VALUES ($1::uuid, $2::int, $3::uuid, 'mar_miss', 'missed',
+             'seed-med03-mar-miss-v1', $4::char(64), $5::jsonb,
+             $6::timestamptz)`,
+    [
+      DEFAULT_TENANT_ID,
+      missedAdministrationId,
+      nursingActor.uid,
+      missedTransitionRequestHash,
+      JSON.stringify({ id: Number(missedAdministrationId), status: 'missed' }),
+      timeline.missed_at
+    ]
+  );
+  const missedResolutionReason =
+    'Prescriber reviewed the missed dose; no replacement dose was ordered.';
+  await materializeMarMedicationException({
+    medicationAdministrationId: missedAdministrationId,
+    clinicalOrderId: clinicalOrder.id,
+    clinicalOrderStatus: 'ordered',
+    patientUid: ctx.admissionPatientUid,
+    encounterId: ctx.admissionEncounterId,
+    exceptionKind: 'missed',
+    reason: missedReason,
+    raisedBy: nursingActor.uid,
+    raisedByRole: nursingActor.role,
+    raisedAt: timeline.missed_at,
+    transitionCommandKey: 'seed-med03-mar-miss-v1',
+    transitionRequestHash: missedTransitionRequestHash,
+    assignedPrescriber: prescriberActor,
+    resolvedAt: plusMinutes(timeline.missed_at, 5),
+    resolutionReason: missedResolutionReason,
+    resolutionCommandKey: 'seed-med03-mar-exception-missed-disposition-v1'
+  });
+
+  await client.query(
+    `UPDATE ward_indent_items
+        SET quantity_return_requested = 1,
+            fulfilment_status = 'return_pending',
+            updated_at = $3::timestamptz
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int`,
+    [DEFAULT_TENANT_ID, indentItem.id, timeline.return_pending_at]
+  );
+  const returnPendingIndentResult = await client.query(
+    `UPDATE ward_indents
+        SET status = 'return_pending',
+            state_version = 6,
+            return_requested_by = $3::uuid,
+            return_requested_at = $4::timestamptz,
+            reconciliation_reason = $5::text,
+            owner_role_codes = $6::text[],
+            active_sla_source_id = $7::text,
+            last_transition_at = $4::timestamptz,
+            updated_at = $4::timestamptz
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int
+        AND status = 'received'
+        AND state_version = 5
+      RETURNING owner_role_codes`,
+    [
+      DEFAULT_TENANT_ID,
+      indent.id,
+      nursingActor.uid,
+      timeline.return_pending_at,
+      'Two doses administered and one unused exact-batch unit returned.',
+      reconciliationOwners,
+      receivedSourceId
+    ]
+  );
+  if (returnPendingIndentResult.rowCount !== 1) {
+    throw new Error('MED-03 synthetic return request lost its received ward-indent state');
+  }
+  const returnPendingEventResult = await client.query(
+    `INSERT INTO ward_indent_events
+       (tenant_id, ward_indent_id, state_version, action, from_status,
+        to_status, actor_uid, owner_role_codes, reason, command_key,
+        details, occurred_at)
+     VALUES ($1::uuid, $2::int, 6, 'return_requested', 'received',
+             'return_pending', $3::uuid, $4::text[], $5::text,
+             'seed-med03-return-requested-v6', $6::jsonb, $7::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      indent.id,
+      nursingActor.uid,
+      reconciliationOwners,
+      'Two doses administered and one unused exact-batch unit returned.',
+      JSON.stringify({ return_item_count: 1 }),
+      timeline.return_pending_at
+    ]
+  );
+  const returnPendingEventId = returnPendingEventResult.rows[0].id;
+  await validateDeferredMedicationConstraints('ward_indent_transition_evidence');
+  await updateWardStage({
+    stage: receivedStage,
+    state: 'return_pending',
+    version: 6,
+    eventId: returnPendingEventId,
+    actor: nursingActor,
+    occurredAt: timeline.return_pending_at
+  });
+  await notifyWardState({
+    state: 'return_pending',
+    version: 6,
+    stage: receivedStage,
+    recipient: pharmacyActor,
+    occurredAt: timeline.return_pending_at
+  });
+
+  const returnMovementResult = await client.query(
     `INSERT INTO pharmacy_stock_movements
        (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
         quantity_delta, reference_type, reference_id, performed_by, notes,
         metadata, created_at)
      VALUES ($1::uuid, $2::int, $3::int, 'return', 1,
-             'ward_indent_item', $4::text, $5::uuid,
-             'Synthetic MED-03 unused ward unit return.',
-             '{"seed":true,"med_03":true}'::jsonb,
-             '2026-05-04T11:00:00.000Z'::timestamptz)
+             'ward_indent_return_allocation', $4::text, $5::uuid,
+             'Synthetic MED-03 unused ward unit return.', $6::jsonb,
+             $7::timestamptz)
      RETURNING id`,
     [
       DEFAULT_TENANT_ID,
       inventoryItem.id,
       inventoryBatch.id,
-      String(lineage.ward_indent_item_id),
-      actorUid,
-    ],
+      String(allocationId),
+      pharmacyActor.uid,
+      JSON.stringify({ seed: true, med_03: true }),
+      timeline.reconciled_at
+    ]
   );
+  const returnMovementId = returnMovementResult.rows[0].id;
+  const returnedBatchProjection = await client.query(
+    `UPDATE pharmacy_inventory_batches
+        SET remaining_quantity = remaining_quantity + 1,
+            status = 'in_stock',
+            updated_at = $4::timestamptz
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int
+        AND inventory_item_id = $3::int
+        AND remaining_quantity = 7
+      RETURNING id`,
+    [DEFAULT_TENANT_ID, inventoryBatch.id, inventoryItem.id, timeline.reconciled_at]
+  );
+  if (returnedBatchProjection.rowCount !== 1) {
+    throw new Error('MED-03 synthetic return lost its exact issued batch balance');
+  }
   await client.query(
     `INSERT INTO ward_indent_inventory_movement_links
-       (tenant_id, allocation_id, stock_movement_id, movement_purpose,
-        quantity, ward_indent_state_version, command_key, linked_by, created_at)
-     VALUES ($1::uuid, $2::bigint, $3::int, 'return', 1, $4::int,
-             'seed-med03-return-link-v1', $5::uuid,
-             '2026-05-04T11:00:00.000Z'::timestamptz)`,
-    [DEFAULT_TENANT_ID, allocationId, returnMovement.rows[0].id, lineage.state_version, actorUid],
+       (tenant_id, allocation_id, ward_indent_id, stock_movement_id,
+        movement_purpose, quantity, ward_indent_state_version, command_key,
+        linked_by, created_at)
+     VALUES ($1::uuid, $2::bigint, $3::int, $4::int, 'return', 1, 7,
+             'seed-med03-return-link-v7', $5::uuid, $6::timestamptz)`,
+    [
+      DEFAULT_TENANT_ID,
+      allocationId,
+      indent.id,
+      returnMovementId,
+      pharmacyActor.uid,
+      timeline.reconciled_at
+    ]
   );
+  await client.query(
+    `UPDATE ward_indent_inventory_allocations
+        SET updated_at = $3::timestamptz
+      WHERE tenant_id = $1::uuid
+        AND id = $2::bigint`,
+    [DEFAULT_TENANT_ID, allocationId, timeline.reconciled_at]
+  );
+  await client.query(
+    `UPDATE ward_indent_items
+        SET quantity_returned = 1,
+            fulfilment_status = 'reconciled',
+            updated_at = $3::timestamptz
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int`,
+    [DEFAULT_TENANT_ID, indentItem.id, timeline.reconciled_at]
+  );
+  const reconciledIndentResult = await client.query(
+    `UPDATE ward_indents
+        SET status = 'reconciled',
+            state_version = 7,
+            reconciled_by = $3::uuid,
+            reconciled_at = $4::timestamptz,
+            reconciliation_reason = $5::text,
+            owner_role_codes = $6::text[],
+            active_sla_source_id = $7::text,
+            last_transition_at = $4::timestamptz,
+            updated_at = $4::timestamptz
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int
+        AND status = 'return_pending'
+        AND state_version = 6
+      RETURNING owner_role_codes`,
+    [
+      DEFAULT_TENANT_ID,
+      indent.id,
+      pharmacyActor.uid,
+      timeline.reconciled_at,
+      'Unused exact-batch unit returned and custody reconciled.',
+      reconciliationOwners,
+      receivedSourceId
+    ]
+  );
+  if (reconciledIndentResult.rowCount !== 1) {
+    throw new Error('MED-03 synthetic reconciliation lost its return-pending ward-indent state');
+  }
+  const reconciledEventResult = await client.query(
+    `INSERT INTO ward_indent_events
+       (tenant_id, ward_indent_id, state_version, action, from_status,
+        to_status, actor_uid, owner_role_codes, reason, command_key,
+        details, occurred_at)
+     VALUES ($1::uuid, $2::int, 7, 'reconciled', 'return_pending',
+             'reconciled', $3::uuid, $4::text[], $5::text,
+             'seed-med03-reconciled-v7', $6::jsonb, $7::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      indent.id,
+      pharmacyActor.uid,
+      reconciliationOwners,
+      'Unused exact-batch unit returned and custody reconciled.',
+      JSON.stringify({
+        returned_item_count: 1,
+        variance_item_count: 0,
+        controlled_return_references: [],
+        inventory_movement_ids: [Number(returnMovementId)]
+      }),
+      timeline.reconciled_at
+    ]
+  );
+  const reconciledEventId = reconciledEventResult.rows[0].id;
+  const creditResult = await client.query(
+    `INSERT INTO ward_indent_financial_events
+       (tenant_id, ward_indent_id, ward_indent_item_id, clinical_order_id,
+        ward_indent_event_id, ward_indent_state_version, event_kind,
+        quantity, unit_price_minor, amount_minor, currency, pricing_snapshot,
+        original_event_id, invoice_id, invoice_item_id, event_key, actor_uid,
+        occurred_at)
+     VALUES ($1::uuid, $2::int, $3::int, $4::int, $5::bigint, 7,
+             'credit', 1, 1000, -1000, 'INR', $6::jsonb, $7::bigint,
+             $8::int, $9::int, 'seed-med03-credit-v1', $10::uuid,
+             $11::timestamptz)
+     RETURNING id`,
+    [
+      DEFAULT_TENANT_ID,
+      indent.id,
+      indentItem.id,
+      clinicalOrder.id,
+      reconciledEventId,
+      JSON.stringify({
+        source: 'ward_indent_approved_price',
+        catalog_id: Number(catalog.id),
+        catalog_name: 'VH-SEED-MED03 Paracetamol 500 mg tablet',
+        unit_price_minor: 1000,
+        currency: 'INR',
+        gst_rate: 0,
+        original_charge_event_id: String(charge.id)
+      }),
+      charge.id,
+      invoice.id,
+      invoiceItem.id,
+      pharmacyActor.uid,
+      timeline.reconciled_at
+    ]
+  );
+  const credit = creditResult.rows[0];
+  await validateDeferredMedicationConstraints(
+    'ward_indent_transition_evidence',
+    'ward_indent_inventory_movement_workflow_event',
+    'ward_indent_inventory_allocation_evidence_equality'
+  );
+  await updateWardStage({
+    stage: receivedStage,
+    state: 'reconciled',
+    version: 7,
+    eventId: reconciledEventId,
+    actor: pharmacyActor,
+    occurredAt: timeline.reconciled_at
+  });
+  await notifyWardState({
+    state: 'reconciled',
+    version: 7,
+    stage: receivedStage,
+    recipient: pharmacyActor,
+    occurredAt: timeline.reconciled_at
+  });
 
-  const invoice = await client.query(
-    `INSERT INTO billing_invoices
-       (tenant_id, invoice_number, patient_uid, patient_phone, patient_name,
-        admission_id, invoice_type, subtotal, cgst_amount, sgst_amount,
-        igst_amount, discount_amount, total_amount, amount_paid, amount_due,
-        status, created_by, notes)
-     VALUES ($1::uuid, 'VH-SEED-MED03-INV-0001', $2::uuid, $3, $4,
-             $5::int, 'IP', 3, 0, 0, 0, 0, 3, 0, 3, 'DRAFT', $6::uuid,
-             'Synthetic MED-03 ward medication invoice.')
-     RETURNING id`,
-    [
-      DEFAULT_TENANT_ID,
-      lineage.patient_uid,
-      patient.phone,
-      patient.name,
-      lineage.admission_id,
-      actorUid,
-    ],
-  );
-  const invoiceItem = await client.query(
-    `INSERT INTO billing_invoice_items
-       (tenant_id, invoice_id, service_code, description, category, quantity,
-        unit_price, gst_rate, line_subtotal, cgst_amount, sgst_amount,
-        igst_amount, line_total, source_ref_type, source_ref_id,
-        source_ref_active)
-     VALUES ($1::uuid, $2::int, 'MED03-PARA500',
-             'Paracetamol 500 mg ward supply', 'PHARMACY', 3, 1, 0, 3,
-             0, 0, 0, 3, 'ward_indent_item', $3::bigint, TRUE)
-     RETURNING id`,
-    [DEFAULT_TENANT_ID, invoice.rows[0].id, lineage.ward_indent_item_id],
-  );
-  const charge = await client.query(
-    `INSERT INTO ward_indent_financial_events
-       (tenant_id, ward_indent_id, ward_indent_item_id, clinical_order_id,
-        ward_indent_event_id, ward_indent_state_version, event_kind,
-        quantity, unit_price_minor, amount_minor, currency, pricing_snapshot,
-        original_event_id, invoice_id, invoice_item_id, event_key, actor_uid,
-        occurred_at)
-     VALUES ($1::uuid, $2::int, $3::int, $4::int, $5::bigint, $6::int,
-             'charge', 3, 100, 300, 'INR', $7::jsonb, NULL, $8::int,
-             $9::int, 'seed-med03-charge-v1', $10::uuid,
-             '2026-05-04T08:40:00.000Z'::timestamptz)
-     RETURNING id`,
-    [
-      DEFAULT_TENANT_ID,
-      lineage.ward_indent_id,
-      lineage.ward_indent_item_id,
-      lineage.clinical_order_id,
-      lineage.ward_indent_event_id,
-      lineage.state_version,
-      JSON.stringify({ unit_price_minor: 100, currency: 'INR', seed: true, med_03: true }),
-      invoice.rows[0].id,
-      invoiceItem.rows[0].id,
-      actorUid,
-    ],
-  );
-  const credit = await client.query(
-    `INSERT INTO ward_indent_financial_events
-       (tenant_id, ward_indent_id, ward_indent_item_id, clinical_order_id,
-        ward_indent_event_id, ward_indent_state_version, event_kind,
-        quantity, unit_price_minor, amount_minor, currency, pricing_snapshot,
-        original_event_id, invoice_id, invoice_item_id, event_key, actor_uid,
-        occurred_at)
-     VALUES ($1::uuid, $2::int, $3::int, $4::int, $5::bigint, $6::int,
-             'credit', 1, 100, -100, 'INR', $7::jsonb, $8::bigint,
-             $9::int, $10::int, 'seed-med03-credit-v1', $11::uuid,
-             '2026-05-04T11:15:00.000Z'::timestamptz)
-     RETURNING id`,
-    [
-      DEFAULT_TENANT_ID,
-      lineage.ward_indent_id,
-      lineage.ward_indent_item_id,
-      lineage.clinical_order_id,
-      lineage.ward_indent_event_id,
-      lineage.state_version,
-      JSON.stringify({ unit_price_minor: 100, currency: 'INR', seed: true, med_03: true }),
-      charge.rows[0].id,
-      invoice.rows[0].id,
-      invoiceItem.rows[0].id,
-      actorUid,
-    ],
-  );
-  const creditNote = await client.query(
+  const creditNoteResult = await client.query(
     `INSERT INTO billing_credit_notes
        (tenant_id, credit_note_number, invoice_id, patient_uid,
         source_financial_event_id, amount_minor, currency, reason, status,
-        raised_by, raised_at)
-     VALUES ($1::uuid, 'VH-SEED-MED03-CN-0001', $2::int, $3::uuid,
-             $4::bigint, 100, 'INR', 'Unused exact-batch ward unit returned.',
-             'pending', $5::uuid, '2026-05-04T11:20:00.000Z'::timestamptz)
+        raised_by, raised_at, receivable_credit_minor,
+        refund_obligation_minor, created_at, updated_at)
+     VALUES ($1::uuid, $2::text, $3::int, $4::uuid, $5::bigint, 1000,
+             'INR', 'Unused exact-batch ward unit returned.', 'pending',
+             $6::uuid, $7::timestamptz, 0, 0,
+             $7::timestamptz, $7::timestamptz)
      RETURNING id`,
-    [DEFAULT_TENANT_ID, invoice.rows[0].id, lineage.patient_uid, credit.rows[0].id, actorUid],
+    [
+      DEFAULT_TENANT_ID,
+      `CN-WI-${credit.id}`,
+      invoice.id,
+      ctx.admissionPatientUid,
+      credit.id,
+      pharmacyActor.uid,
+      timeline.credit_raised_at
+    ]
   );
+  const creditNote = creditNoteResult.rows[0];
+  const creditEventDetails = {
+    source_financial_event_id: String(credit.id),
+    auto_applied_draft: false
+  };
+  const creditEventCommandKey =
+    `ward-indent-credit-note:${indent.id}:${indentItem.id}:seed-med03-reconciled-v7:raised`;
   await client.query(
     `INSERT INTO billing_credit_note_events
        (tenant_id, credit_note_id, event_type, actor_uid, command_key,
-        details, occurred_at)
-     VALUES ($1::uuid, $2::bigint, 'raised', $3::uuid,
-             'seed-med03-credit-note-raised-v1',
-             '{"seed":true,"med_03":true}'::jsonb,
-             '2026-05-04T11:20:00.000Z'::timestamptz)`,
-    [DEFAULT_TENANT_ID, creditNote.rows[0].id, actorUid],
+        request_body_sha256, details, occurred_at)
+     VALUES ($1::uuid, $2::bigint, 'raised', $3::uuid, $4::text,
+             $5::char(64), $6::jsonb, $7::timestamptz)`,
+    [
+      DEFAULT_TENANT_ID,
+      creditNote.id,
+      pharmacyActor.uid,
+      creditEventCommandKey,
+      canonicalHash({ event_type: 'raised', details: creditEventDetails }),
+      JSON.stringify(creditEventDetails),
+      timeline.credit_raised_at
+    ]
   );
 
+  const creditRule = await getSlaRule('ward_indent_credit_note_review');
   const creditSlaId = randomUUID();
-  const creditRule = await first(
-    'workflow_sla_rules',
-    'id',
-    `rule_code = 'ward_indent_credit_note_review'
-      AND enabled = TRUE
-      AND (tenant_id IS NULL OR tenant_id = $1::uuid)
-      ORDER BY tenant_id NULLS LAST`,
-    [DEFAULT_TENANT_ID],
-  );
-  if (!creditRule) {
-    throw new Error('MED-03 credit-note review SLA rule is missing');
-  }
+  const creditDueAt = plusMinutes(timeline.credit_raised_at, creditRule.target_minutes);
   await client.query(
     `INSERT INTO workflow_sla_instances
        (id, tenant_id, rule_id, rule_code, patient_uid, encounter_id,
         source_table, source_id, status, priority, started_at, due_at,
-        assigned_role_codes, metadata)
+        assigned_role_codes, metadata, created_at, updated_at)
      VALUES ($1::uuid, $2::uuid, $3::uuid, 'ward_indent_credit_note_review',
              $4::uuid, $5::uuid, 'billing_credit_notes', $6::text,
-             'active', 'high', '2026-05-04T11:20:00.000Z'::timestamptz,
-             '2026-05-05T11:20:00.000Z'::timestamptz,
-             ARRAY['BILLING_INCHARGE','FINANCE_INCHARGE']::text[], $7::jsonb)`,
+             'active', 'high', $7::timestamptz, $8::timestamptz,
+             ARRAY['BILLING_INCHARGE','FINANCE_INCHARGE']::text[], $9::jsonb,
+             $7::timestamptz, $7::timestamptz)`,
     [
       creditSlaId,
       DEFAULT_TENANT_ID,
       creditRule.id,
-      lineage.patient_uid,
-      lineage.encounter_id,
-      String(creditNote.rows[0].id),
+      ctx.admissionPatientUid,
+      ctx.admissionEncounterId,
+      String(creditNote.id),
+      timeline.credit_raised_at,
+      creditDueAt,
       JSON.stringify({
         med_03: true,
-        credit_note_id: String(creditNote.rows[0].id),
-        ward_indent_id: Number(lineage.ward_indent_id),
-        invoice_id: Number(invoice.rows[0].id),
-      }),
-    ],
+        credit_note_id: String(creditNote.id),
+        ward_indent_id: Number(indent.id),
+        invoice_id: Number(invoice.id)
+      })
+    ]
   );
-  const creditTask = await client.query(
+  const creditTaskResult = await client.query(
     `INSERT INTO tasks
        (tenant_id, task_kind, title, description, patient_uid, encounter_id,
         related_resource_type, related_resource_id, priority, status,
-        assigned_to_role, created_by, due_at, workflow_sla_instance_id,
-        sla_completion_semantics, stage_occurrence_key, metadata)
+        assigned_to_uid, assigned_to_role, created_by, due_at,
+        workflow_sla_instance_id, sla_completion_semantics,
+        stage_occurrence_key, metadata, created_at, updated_at)
      VALUES ($1::uuid, 'review', 'Review ward medication credit note',
-             'Approve or reject the synthetic append-only original-price credit.',
-             $2::uuid, NULL, 'billing_credit_notes', $3::text,
-             'high', 'open', 'BILLING_INCHARGE', $4::uuid,
-             '2026-05-05T11:20:00.000Z'::timestamptz, $5::uuid,
-             'domain_evidence', 'seed-med03-credit-note-review-v1', $6::jsonb)
+             'Approve or reject the append-only original-price medication credit before it can alter an issued patient account.',
+             $2::uuid, NULL, 'billing_credit_notes', $3::text, 'high', 'open',
+             NULL, 'BILLING_INCHARGE', $4::uuid, $5::timestamptz,
+             $6::uuid, 'domain_evidence', $7::text, $8::jsonb,
+             $9::timestamptz, $9::timestamptz)
      RETURNING id`,
     [
       DEFAULT_TENANT_ID,
-      lineage.patient_uid,
-      String(creditNote.rows[0].id),
-      actorUid,
+      ctx.admissionPatientUid,
+      String(creditNote.id),
+      billingActor.uid,
+      creditDueAt,
       creditSlaId,
+      stageOccurrenceKey(`credit-note:${creditNote.id}`),
       JSON.stringify({
         task_contract: 'ward_medication_obligation_v1',
         med_03: true,
         sla_key: 'ward_indent_credit_note_review',
-        sla_instance_id: creditSlaId,
-        canonical_encounter_id: lineage.encounter_id,
+        canonical_encounter_id: ctx.admissionEncounterId,
         obligation_kind: 'credit_note_review',
         evidence_kind: 'billing_credit_note_decision',
-        credit_note_id: String(creditNote.rows[0].id),
-        ward_indent_id: Number(lineage.ward_indent_id),
-        ward_indent_item_id: Number(lineage.ward_indent_item_id),
-        invoice_id: Number(invoice.rows[0].id),
-        source_financial_event_id: String(credit.rows[0].id),
+        credit_note_id: String(creditNote.id),
+        ward_indent_id: Number(indent.id),
+        ward_indent_item_id: Number(indentItem.id),
+        invoice_id: Number(invoice.id),
+        source_financial_event_id: String(credit.id),
+        deep_link: `/billing/credit-notes/${creditNote.id}`
       }),
-    ],
+      timeline.credit_raised_at
+    ]
   );
+  const creditTaskId = creditTaskResult.rows[0].id;
   await client.query(
     `UPDATE billing_credit_notes
         SET task_id = $3::int,
-            updated_at = '2026-05-04T11:20:00.000Z'::timestamptz
+            updated_at = $4::timestamptz
       WHERE tenant_id = $1::uuid
         AND id = $2::bigint`,
-    [DEFAULT_TENANT_ID, creditNote.rows[0].id, creditTask.rows[0].id],
+    [DEFAULT_TENANT_ID, creditNote.id, creditTaskId, timeline.credit_raised_at]
   );
+  await insertNotificationIntent({
+    recipient: billingActor,
+    type: 'ward_indent_credit_note_review',
+    title: 'Ward medication credit note requires review',
+    body: `Credit note CN-WI-${credit.id} requires a finance decision.`,
+    sourceEventKey: `billing-credit-note:${creditNote.id}:raised`,
+    payload: {
+      kind: 'ward_indent_credit_note_review',
+      task_id: Number(creditTaskId),
+      credit_note_id: String(creditNote.id),
+      invoice_id: Number(invoice.id),
+      ward_indent_id: Number(indent.id),
+      deep_link: `/billing/credit-notes/${creditNote.id}`,
+      action_label_key: 'med03.credit_note.notification_action'
+    },
+    createdAt: timeline.credit_raised_at
+  });
+  await client.query(
+    `INSERT INTO audit_logs
+       (tenant_id, uid, role, action, resource, resource_id, metadata, created_at)
+     VALUES ($1::uuid, $2::uuid, $3::text,
+             'WARD_MEDICATION_CREDIT_NOTE_RAISED', 'billing_credit_note',
+             $4::text, $5::jsonb, $6::timestamptz)`,
+    [
+      DEFAULT_TENANT_ID,
+      pharmacyActor.uid,
+      pharmacyActor.role,
+      String(creditNote.id),
+      JSON.stringify({
+        seed: true,
+        med_03: true,
+        patient_uid: ctx.admissionPatientUid,
+        ward_indent_id: Number(indent.id),
+        ward_indent_item_id: Number(indentItem.id),
+        invoice_id: Number(invoice.id),
+        source_financial_event_id: String(credit.id),
+        amount_minor: 1000,
+        currency: 'INR',
+        status: 'pending'
+      }),
+      timeline.credit_raised_at
+    ]
+  );
+  await client.query(
+    `UPDATE pharmacy_catalog
+        SET stock_quantity = 8,
+            stock = 8,
+            in_stock = TRUE,
+            updated_at = $3::timestamptz
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int`,
+    [DEFAULT_TENANT_ID, catalog.id, timeline.reconciled_at]
+  );
+
+  void seedFailures;
+}
+
+async function seedBillingAndCounterSaleClosureEvidence() {
+  await client.query("SELECT set_config('app.current_tenant_id', $1::text, true)", [
+    DEFAULT_TENANT_ID
+  ]);
+
+  const commandKey = 'seed-med03-counter-sale-void-v1';
+  const providerRefundReference = 'VH-SEED-MED03-OFFLINE-REFUND-001';
+  const existingClosure = await client.query(
+    `SELECT request.id
+       FROM pharmacy_counter_sale_void_requests request
+       JOIN billing_refunds refund
+         ON refund.tenant_id = request.tenant_id
+        AND refund.id = request.refund_id
+       JOIN pharmacy_counter_sales sale
+         ON sale.tenant_id = request.tenant_id
+        AND sale.id = request.counter_sale_id
+       JOIN cash_drawer_sessions drawer
+         ON drawer.tenant_id = refund.tenant_id
+        AND drawer.id = refund.cash_drawer_session_id
+      WHERE request.tenant_id = $1::uuid
+        AND request.command_key = $2::text
+        AND request.status = 'COMPLETED'
+        AND sale.status = 'VOIDED'
+        AND refund.approval_status = 'PAID'
+        AND drawer.status = 'reviewed'
+        AND counter_sale_void_has_paid_evidence(request.id)`,
+    [DEFAULT_TENANT_ID, commandKey]
+  );
+  const existingOfflineEvidence = await client.query(
+    `SELECT evidence.id
+       FROM billing_refund_offline_electronic_evidence evidence
+       JOIN billing_refunds refund
+         ON refund.tenant_id = evidence.tenant_id
+        AND refund.id = evidence.refund_id
+        AND refund.offline_electronic_evidence_id = evidence.id
+      WHERE evidence.tenant_id = $1::uuid
+        AND evidence.provider_refund_reference = $2::text
+        AND refund.approval_status = 'PAID'
+        AND refund.payout_rail = 'offline_electronic'`,
+    [DEFAULT_TENANT_ID, providerRefundReference]
+  );
+  if (existingClosure.rowCount === 1 && existingOfflineEvidence.rowCount === 1) return;
+
+  const partialClosure = await client.query(
+    `SELECT
+       EXISTS (
+         SELECT 1
+           FROM pharmacy_counter_sale_void_requests
+          WHERE tenant_id = $1::uuid AND command_key = $2::text
+       ) AS counter_sale_void_exists,
+       EXISTS (
+         SELECT 1
+           FROM billing_refund_offline_electronic_evidence
+          WHERE tenant_id = $1::uuid AND provider_refund_reference = $3::text
+       ) AS offline_evidence_exists`,
+    [DEFAULT_TENANT_ID, commandKey, providerRefundReference]
+  );
+  if (
+    partialClosure.rows[0]?.counter_sale_void_exists
+    || partialClosure.rows[0]?.offline_evidence_exists
+  ) {
+    throw new Error(
+      'MED-03 billing closure evidence is partially populated; reset the synthetic database before reseeding'
+    );
+  }
+
+  const ctx = await getCoreRefs();
+  if (!ctx.admissionPatientUid) {
+    throw new Error('MED-03 billing closure requires a synthetic patient');
+  }
+  const patient = await first(
+    'users',
+    'uid, phone, name',
+    'tenant_id = $1::uuid AND uid = $2::uuid',
+    [DEFAULT_TENANT_ID, ctx.admissionPatientUid]
+  );
+  if (!patient) throw new Error('MED-03 billing closure patient is missing');
+
+  const actorRows = await client.query(
+    `SELECT id, uid, name, role
+       FROM users
+      WHERE tenant_id = $1::uuid
+        AND role = ANY($2::text[])
+        AND is_active = TRUE
+        AND COALESCE(is_deleted, FALSE) = FALSE
+        AND LOWER(COALESCE(status, 'active')) = 'active'`,
+    [DEFAULT_TENANT_ID, ['PHARMACY_INCHARGE', 'BILLING_INCHARGE', 'ADMIN', 'CASHIER']]
+  );
+  const actorsByRole = new Map(actorRows.rows.map(row => [row.role, row]));
+  const requiredActor = role => {
+    const actor = actorsByRole.get(role);
+    if (!actor?.uid) throw new Error(`MED-03 billing closure requires an active ${role}`);
+    return actor;
+  };
+  const pharmacyActor = requiredActor('PHARMACY_INCHARGE');
+  const billingActor = requiredActor('BILLING_INCHARGE');
+  const adminActor = requiredActor('ADMIN');
+  const cashierActor = requiredActor('CASHIER');
+
+  const inventoryRows = await client.query(
+    `SELECT item.id AS inventory_item_id,
+            item.display_name,
+            item.schedule_class,
+            item.is_narcotic,
+            batch.id AS inventory_batch_id,
+            batch.batch_number,
+            batch.expiry_date,
+            batch.remaining_quantity
+       FROM pharmacy_inventory_items item
+       JOIN pharmacy_inventory_batches batch
+         ON batch.tenant_id = item.tenant_id
+        AND batch.inventory_item_id = item.id
+      WHERE item.tenant_id = $1::uuid
+        AND item.sku_code = 'VH-SEED-MED03-PARA500'
+        AND item.status = 'active'
+        AND batch.status = 'in_stock'
+        AND batch.expiry_date >= (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+        AND batch.remaining_quantity >= 1
+      ORDER BY batch.expiry_date, batch.id
+      LIMIT 1
+      FOR UPDATE OF batch`,
+    [DEFAULT_TENANT_ID]
+  );
+  const inventory = inventoryRows.rows[0];
+  if (!inventory) {
+    throw new Error('MED-03 billing closure requires the exact usable medication batch');
+  }
+
+  const slaRuleRows = await client.query(
+    `SELECT id, target_minutes, owner_role_codes
+       FROM workflow_sla_rules
+      WHERE enabled = TRUE
+        AND rule_code = 'counter_sale_void_refund'
+        AND (tenant_id = $1::uuid OR tenant_id IS NULL)
+      ORDER BY CASE WHEN tenant_id = $1::uuid THEN 0 ELSE 1 END
+      LIMIT 1`,
+    [DEFAULT_TENANT_ID]
+  );
+  const slaRule = slaRuleRows.rows[0];
+  if (!slaRule?.id || !Number.isInteger(Number(slaRule.target_minutes))) {
+    throw new Error('MED-03 billing closure requires the counter-sale void SLA rule');
+  }
+
+  const requireOne = (result, message) => {
+    if (result.rowCount !== 1) throw new Error(message);
+    return result.rows[0];
+  };
+  const createPaidInvoice = async ({
+    invoiceNumber,
+    description,
+    amount,
+    mode,
+    reference,
+    collectedBy,
+    shift = null,
+    sourceRefType = null,
+    sourceRefId = null
+  }) => {
+    const invoice = requireOne(
+      await client.query(
+        `INSERT INTO billing_invoices
+           (tenant_id, invoice_number, patient_uid, patient_phone, patient_name,
+            department, invoice_type, subtotal, cgst_amount, sgst_amount,
+            igst_amount, discount_amount, total_amount, amount_paid, amount_due,
+            credit_note_amount, status, created_by, issued_at, notes,
+            created_at, updated_at)
+         VALUES ($1::uuid, $2::text, $3::uuid, $4::text, $5::text,
+                 'PHARMACY', 'PHARMACY', $6::numeric, 0, 0, 0, 0,
+                 $6::numeric, $6::numeric, 0, 0, 'PAID', $7::uuid,
+                 transaction_timestamp(), $8::text,
+                 transaction_timestamp(), transaction_timestamp())
+         RETURNING id, invoice_number`,
+        [
+          DEFAULT_TENANT_ID,
+          invoiceNumber,
+          patient.uid,
+          patient.phone,
+          patient.name,
+          amount,
+          billingActor.uid,
+          description
+        ]
+      ),
+      `MED-03 billing closure could not create invoice ${invoiceNumber}`
+    );
+    await client.query(
+      `INSERT INTO billing_invoice_items
+         (tenant_id, invoice_id, service_code, description, category, quantity,
+          unit_price, gst_rate, line_subtotal, cgst_amount, sgst_amount,
+          igst_amount, line_total, source_ref_type, source_ref_id,
+          source_ref_active, created_at)
+       VALUES ($1::uuid, $2::int, $3::text, $4::text, 'pharmacy', 1,
+               $5::numeric, 0, $5::numeric, 0, 0, 0, $5::numeric,
+               $6::text, $7::bigint, $8::boolean, transaction_timestamp())`,
+      [
+        DEFAULT_TENANT_ID,
+        invoice.id,
+        `MED03-${invoice.id}`,
+        description,
+        amount,
+        sourceRefType,
+        sourceRefId,
+        Boolean(sourceRefType && sourceRefId)
+      ]
+    );
+    const payment = requireOne(
+      await client.query(
+        `INSERT INTO billing_payments
+           (tenant_id, invoice_id, patient_uid, amount, mode, reference,
+            collected_by, collected_at, shift, notes, reversed)
+         VALUES ($1::uuid, $2::int, $3::uuid, $4::numeric, $5::text,
+                 $6::text, $7::uuid, transaction_timestamp(), $8::text,
+                 $9::text, FALSE)
+         RETURNING id, collected_at`,
+        [
+          DEFAULT_TENANT_ID,
+          invoice.id,
+          patient.uid,
+          amount,
+          mode,
+          reference,
+          collectedBy,
+          shift,
+          description
+        ]
+      ),
+      `MED-03 billing closure could not collect payment for ${invoiceNumber}`
+    );
+    return { invoice, payment };
+  };
+
+  const offlineCollectionReference = 'VH-SEED-MED03-CARD-CAPTURE-001';
+  const offlineInvoice = await createPaidInvoice({
+    invoiceNumber: 'VH-SEED-MED03-OFFLINE-INV-0001',
+    description: 'Synthetic offline electronic refund source payment.',
+    amount: 25,
+    mode: 'CARD',
+    reference: offlineCollectionReference,
+    collectedBy: billingActor.uid
+  });
+  const offlineRefund = requireOne(
+    await client.query(
+      `INSERT INTO billing_refunds
+         (tenant_id, patient_uid, invoice_id, advance_id, amount, reason,
+          mode, raised_by)
+       VALUES ($1::uuid, $2::uuid, $3::int, NULL, 25,
+               'Synthetic offline electronic refund closure.', 'CARD', $4::uuid)
+       RETURNING id`,
+      [DEFAULT_TENANT_ID, patient.uid, offlineInvoice.invoice.id, billingActor.uid]
+    ),
+    'MED-03 billing closure could not raise the offline electronic refund'
+  );
+  requireOne(
+    await client.query(
+      `UPDATE billing_refunds
+          SET approval_status = 'APPROVED', approved_by = $1::uuid
+        WHERE tenant_id = $2::uuid
+          AND id = $3::int
+          AND approval_status = 'PENDING'
+        RETURNING id, approved_at`,
+      [adminActor.uid, DEFAULT_TENANT_ID, offlineRefund.id]
+    ),
+    'MED-03 billing closure could not approve the offline electronic refund'
+  );
+  const offlineEvidence = requireOne(
+    await client.query(
+      `INSERT INTO billing_refund_offline_electronic_evidence
+         (tenant_id, refund_id, original_payment_id, original_advance_id,
+          mode, amount, provider_name, original_payment_reference,
+          provider_refund_reference, provider_refunded_at, recorded_by)
+       VALUES ($1::uuid, $2::int, $3::int, NULL, 'CARD', 25,
+               'VH Synthetic Acquirer', $4::text, $5::text,
+               transaction_timestamp(), $6::uuid)
+       RETURNING id`,
+      [
+        DEFAULT_TENANT_ID,
+        offlineRefund.id,
+        offlineInvoice.payment.id,
+        offlineCollectionReference,
+        providerRefundReference,
+        cashierActor.uid
+      ]
+    ),
+    'MED-03 billing closure could not record offline electronic evidence'
+  );
+  requireOne(
+    await client.query(
+      `UPDATE billing_refunds
+          SET approval_status = 'PAID',
+              paid_by = $1::uuid,
+              reference = $2::text,
+              payout_rail = 'offline_electronic',
+              offline_electronic_evidence_id = $3::bigint
+        WHERE tenant_id = $4::uuid
+          AND id = $5::int
+          AND approval_status = 'APPROVED'
+        RETURNING id, approval_status`,
+      [
+        cashierActor.uid,
+        providerRefundReference,
+        offlineEvidence.id,
+        DEFAULT_TENANT_ID,
+        offlineRefund.id
+      ]
+    ),
+    'MED-03 billing closure could not settle the offline electronic refund'
+  );
+
+  const drawer = requireOne(
+    await client.query(
+      `INSERT INTO cash_drawer_sessions
+         (tenant_id, cashier_uid, shift, opening_float)
+       VALUES ($1::uuid, $2::uuid, 'GENERAL', 500)
+       RETURNING id, opened_at`,
+      [DEFAULT_TENANT_ID, cashierActor.uid]
+    ),
+    'MED-03 billing closure could not open the cashier drawer'
+  );
+  const sale = requireOne(
+    await client.query(
+      `INSERT INTO pharmacy_counter_sales
+         (tenant_id, patient_uid, status, payment_mode, cash_shift,
+          total_amount, sold_by, sold_by_name, notes)
+       VALUES ($1::uuid, $2::uuid, 'IN_PROGRESS', 'CASH', 'GENERAL', 0,
+               $3::uuid, $4::text,
+               'Synthetic MED-03 counter-sale void closure.')
+       RETURNING id, created_at`,
+      [DEFAULT_TENANT_ID, patient.uid, pharmacyActor.uid, pharmacyActor.name]
+    ),
+    'MED-03 billing closure could not create the counter sale'
+  );
+  const saleInvoice = await createPaidInvoice({
+    invoiceNumber: 'VH-SEED-MED03-COUNTER-VOID-INV-0001',
+    description: 'Paracetamol 500 mg synthetic counter sale.',
+    amount: 10,
+    mode: 'CASH',
+    reference: null,
+    collectedBy: cashierActor.uid,
+    shift: 'GENERAL',
+    sourceRefType: 'pharmacy_counter_sale',
+    sourceRefId: sale.id
+  });
+  const saleLine = requireOne(
+    await client.query(
+      `INSERT INTO pharmacy_counter_sale_lines
+         (tenant_id, counter_sale_id, inventory_item_id, item_name,
+          schedule_class, is_narcotic, quantity, unit_price, gst_rate,
+          line_total)
+       VALUES ($1::uuid, $2::bigint, $3::int, $4::text, $5::text,
+               $6::boolean, 1, 10, 0, 10)
+       RETURNING id`,
+      [
+        DEFAULT_TENANT_ID,
+        sale.id,
+        inventory.inventory_item_id,
+        inventory.display_name,
+        inventory.schedule_class,
+        inventory.is_narcotic
+      ]
+    ),
+    'MED-03 billing closure could not create the counter-sale line'
+  );
+  const issueMovement = requireOne(
+    await client.query(
+      `INSERT INTO pharmacy_stock_movements
+         (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
+          quantity_delta, reference_type, reference_id, performed_by, notes,
+          metadata, created_at)
+       VALUES ($1::uuid, $2::int, $3::int, 'issue', -1,
+               'pharmacy_counter_sale', $4::text, $5::uuid,
+               'Synthetic counter-sale issue before governed void.',
+               $6::jsonb, transaction_timestamp())
+       RETURNING id`,
+      [
+        DEFAULT_TENANT_ID,
+        inventory.inventory_item_id,
+        inventory.inventory_batch_id,
+        String(sale.id),
+        pharmacyActor.uid,
+        JSON.stringify({ seed: true, med_03: true })
+      ]
+    ),
+    'MED-03 billing closure could not record the counter-sale stock issue'
+  );
+  requireOne(
+    await client.query(
+      `UPDATE pharmacy_inventory_batches
+          SET remaining_quantity = remaining_quantity - 1,
+              status = CASE WHEN remaining_quantity - 1 <= 0 THEN 'depleted' ELSE status END,
+              updated_at = NOW()
+        WHERE tenant_id = $1::uuid
+          AND id = $2::int
+          AND inventory_item_id = $3::int
+          AND remaining_quantity >= 1
+        RETURNING id`,
+      [DEFAULT_TENANT_ID, inventory.inventory_batch_id, inventory.inventory_item_id]
+    ),
+    'MED-03 billing closure lost the counter-sale batch issue balance'
+  );
+  const allocation = requireOne(
+    await client.query(
+      `INSERT INTO pharmacy_counter_sale_allocations
+         (tenant_id, counter_sale_line_id, inventory_batch_id, batch_number,
+          expiry_date, quantity, unit_price, movement_id)
+       VALUES ($1::uuid, $2::bigint, $3::int, $4::text, $5::date, 1, 10,
+               $6::int)
+       RETURNING id`,
+      [
+        DEFAULT_TENANT_ID,
+        saleLine.id,
+        inventory.inventory_batch_id,
+        inventory.batch_number,
+        inventory.expiry_date,
+        issueMovement.id
+      ]
+    ),
+    'MED-03 billing closure could not bind the counter-sale allocation'
+  );
+  requireOne(
+    await client.query(
+      `UPDATE pharmacy_counter_sales
+          SET status = 'COMPLETED',
+              invoice_id = $1::int,
+              total_amount = 10,
+              payment_reference = NULL,
+              updated_at = NOW()
+        WHERE tenant_id = $2::uuid
+          AND id = $3::bigint
+          AND status = 'IN_PROGRESS'
+        RETURNING id, status`,
+      [saleInvoice.invoice.id, DEFAULT_TENANT_ID, sale.id]
+    ),
+    'MED-03 billing closure could not complete the counter sale'
+  );
+
+  const requestFingerprint = createHash('sha256')
+    .update(
+      [DEFAULT_TENANT_ID, sale.id, pharmacyActor.uid, commandKey, 'NEVER_HANDED_OVER'].join('|'),
+      'utf8'
+    )
+    .digest('hex');
+  const voidRequest = requireOne(
+    await client.query(
+      `INSERT INTO pharmacy_counter_sale_void_requests
+         (tenant_id, counter_sale_id, invoice_id, patient_uid, amount,
+          refund_mode, disposition, reason, requested_by, requested_by_name,
+          requested_by_role, command_key, request_fingerprint, status,
+          task_stage)
+       VALUES ($1::uuid, $2::bigint, $3::int, $4::uuid, 10, 'CASH',
+               'NEVER_HANDED_OVER',
+               'Synthetic sale was never handed over to the patient.',
+               $5::uuid, $6::text, 'PHARMACY_INCHARGE', $7::text,
+               $8::char(64), 'CREATING', 'approval')
+       RETURNING *`,
+      [
+        DEFAULT_TENANT_ID,
+        sale.id,
+        saleInvoice.invoice.id,
+        patient.uid,
+        pharmacyActor.uid,
+        pharmacyActor.name,
+        commandKey,
+        requestFingerprint
+      ]
+    ),
+    'MED-03 billing closure could not create the counter-sale void request'
+  );
+  const counterRefund = requireOne(
+    await client.query(
+      `INSERT INTO billing_refunds
+         (tenant_id, patient_uid, invoice_id, advance_id, amount, reason,
+          mode, raised_by, counter_sale_void_request_id)
+       VALUES ($1::uuid, $2::uuid, $3::int, NULL, 10,
+               'Synthetic counter-sale void refund.', 'CASH', $4::uuid,
+               $5::bigint)
+       RETURNING id`,
+      [
+        DEFAULT_TENANT_ID,
+        patient.uid,
+        saleInvoice.invoice.id,
+        pharmacyActor.uid,
+        voidRequest.id
+      ]
+    ),
+    'MED-03 billing closure could not raise the counter-sale refund'
+  );
+  requireOne(
+    await client.query(
+      `UPDATE pharmacy_counter_sale_void_requests
+          SET refund_id = $1::int,
+              status = 'PENDING_REFUND',
+              updated_at = NOW()
+        WHERE tenant_id = $2::uuid
+          AND id = $3::bigint
+          AND status = 'CREATING'
+          AND refund_id IS NULL
+        RETURNING *`,
+      [counterRefund.id, DEFAULT_TENANT_ID, voidRequest.id]
+    ),
+    'MED-03 billing closure could not bind the counter-sale refund'
+  );
+
+  const slaStartedAt = (await client.query('SELECT transaction_timestamp() AS started_at')).rows[0]
+    .started_at;
+  const slaDueAt = new Date(
+    new Date(slaStartedAt).getTime() + Number(slaRule.target_minutes) * 60_000
+  );
+  const slaId = randomUUID();
+  await client.query(
+    `INSERT INTO workflow_sla_instances
+       (id, tenant_id, rule_id, rule_code, patient_uid, encounter_id,
+        source_table, source_id, status, priority, started_at, due_at,
+        assigned_role_codes, metadata, created_at, updated_at)
+     VALUES ($1::uuid, $2::uuid, $3::uuid, 'counter_sale_void_refund',
+             $4::uuid, NULL, 'pharmacy_counter_sale_void_requests', $5::text,
+             'active', 'high', $6::timestamptz, $7::timestamptz,
+             $8::text[], $9::jsonb, $6::timestamptz, $6::timestamptz)`,
+    [
+      slaId,
+      DEFAULT_TENANT_ID,
+      slaRule.id,
+      patient.uid,
+      String(voidRequest.id),
+      slaStartedAt,
+      slaDueAt,
+      slaRule.owner_role_codes,
+      JSON.stringify({
+        med_03: true,
+        counter_sale_void_request_id: String(voidRequest.id),
+        counter_sale_id: String(sale.id),
+        refund_id: Number(counterRefund.id),
+        task_stage: 'approval'
+      })
+    ]
+  );
+  const occurrenceDigest = createHash('sha256')
+    .update(`${DEFAULT_TENANT_ID}:${voidRequest.id}`, 'utf8')
+    .digest('hex');
+  const task = requireOne(
+    await client.query(
+      `INSERT INTO tasks
+         (tenant_id, task_kind, title, description, patient_uid, encounter_id,
+          related_resource_type, related_resource_id, priority, status,
+          assigned_to_uid, assigned_to_role, created_by, due_at,
+          workflow_sla_instance_id, sla_completion_semantics,
+          stage_occurrence_key, metadata, created_at, updated_at)
+       VALUES ($1::uuid, 'review', 'Authorize counter-sale void refund',
+               'Approve the exact dedicated full refund before stock reconciliation.',
+               $2::uuid, NULL, 'pharmacy_counter_sale_void_requests', $3::text,
+               'high', 'open', NULL, 'ADMIN', $4::uuid, $5::timestamptz,
+               $6::uuid, 'domain_evidence', $7::text, $8::jsonb,
+               $9::timestamptz, $9::timestamptz)
+       RETURNING id, metadata`,
+      [
+        DEFAULT_TENANT_ID,
+        patient.uid,
+        String(voidRequest.id),
+        pharmacyActor.uid,
+        slaDueAt,
+        slaId,
+        `counter-sale-void:${occurrenceDigest}`,
+        JSON.stringify({
+          task_contract: 'counter_sale_void_refund_v1',
+          evidence_kind: 'counter_sale_void_completed',
+          counter_sale_void_request_id: String(voidRequest.id),
+          counter_sale_id: String(sale.id),
+          refund_id: Number(counterRefund.id),
+          invoice_id: Number(saleInvoice.invoice.id),
+          task_stage: 'approval',
+          owner_role_codes: ['ADMIN', 'SUPER_ADMIN'],
+          finance_deep_link: `/billing/refunds/${counterRefund.id}?counter_sale_void_request_id=${voidRequest.id}`,
+          pharmacy_deep_link: `/pharmacy/counter-sales/${sale.id}`
+        }),
+        slaStartedAt
+      ]
+    ),
+    'MED-03 billing closure could not create the counter-sale task'
+  );
+  requireOne(
+    await client.query(
+      `UPDATE pharmacy_counter_sale_void_requests
+          SET task_id = $1::int,
+              workflow_sla_instance_id = $2::uuid,
+              updated_at = NOW()
+        WHERE tenant_id = $3::uuid
+          AND id = $4::bigint
+          AND status = 'PENDING_REFUND'
+          AND task_id IS NULL
+          AND workflow_sla_instance_id IS NULL
+        RETURNING id`,
+      [task.id, slaId, DEFAULT_TENANT_ID, voidRequest.id]
+    ),
+    'MED-03 billing closure could not bind the counter-sale task and SLA'
+  );
+  requireOne(
+    await client.query(
+      `UPDATE pharmacy_counter_sales
+          SET status = 'VOID_PENDING_REFUND',
+              void_refund_id = $1::int,
+              updated_at = NOW()
+        WHERE tenant_id = $2::uuid
+          AND id = $3::bigint
+          AND status = 'COMPLETED'
+          AND void_refund_id IS NULL
+        RETURNING id`,
+      [counterRefund.id, DEFAULT_TENANT_ID, sale.id]
+    ),
+    'MED-03 billing closure could not park the sale for its refund'
+  );
+
+  requireOne(
+    await client.query(
+      `UPDATE billing_refunds
+          SET approval_status = 'APPROVED', approved_by = $1::uuid
+        WHERE tenant_id = $2::uuid
+          AND id = $3::int
+          AND approval_status = 'PENDING'
+        RETURNING id`,
+      [adminActor.uid, DEFAULT_TENANT_ID, counterRefund.id]
+    ),
+    'MED-03 billing closure could not independently approve the counter-sale refund'
+  );
+  requireOne(
+    await client.query(
+      `UPDATE pharmacy_counter_sale_void_requests
+          SET task_stage = 'payout', updated_at = NOW()
+        WHERE tenant_id = $1::uuid
+          AND id = $2::bigint
+          AND task_stage = 'approval'
+        RETURNING id`,
+      [DEFAULT_TENANT_ID, voidRequest.id]
+    ),
+    'MED-03 billing closure could not advance the void task to payout'
+  );
+  requireOne(
+    await client.query(
+      `UPDATE tasks
+          SET title = 'Settle approved counter-sale void refund',
+              description = 'Complete the exact approved refund through its governed payout rail and retain settlement evidence.',
+              assigned_to_uid = NULL,
+              assigned_to_role = 'BILLING_INCHARGE',
+              metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb,
+              updated_at = NOW()
+        WHERE tenant_id = $2::uuid
+          AND id = $3::int
+          AND status IN ('open', 'in_progress', 'blocked', 'overdue')
+        RETURNING id`,
+      [
+        JSON.stringify({
+          task_stage: 'payout',
+          owner_role_codes: [
+            'FINANCE_INCHARGE',
+            'BILLING_INCHARGE',
+            'BILLING_STAFF',
+            'CASHIER'
+          ]
+        }),
+        DEFAULT_TENANT_ID,
+        task.id
+      ]
+    ),
+    'MED-03 billing closure could not assign the void payout task'
+  );
+  requireOne(
+    await client.query(
+      `UPDATE billing_refunds
+          SET approval_status = 'PAID',
+              paid_by = $1::uuid,
+              reference = 'VH-SEED-MED03-CASH-REFUND-001',
+              payout_rail = 'manual',
+              cash_drawer_session_id = $2::bigint
+        WHERE tenant_id = $3::uuid
+          AND id = $4::int
+          AND approval_status = 'APPROVED'
+        RETURNING id`,
+      [cashierActor.uid, drawer.id, DEFAULT_TENANT_ID, counterRefund.id]
+    ),
+    'MED-03 billing closure could not settle the counter-sale cash refund'
+  );
+  requireOne(
+    await client.query(
+      `UPDATE pharmacy_counter_sale_void_requests
+          SET task_stage = 'reconciliation', updated_at = NOW()
+        WHERE tenant_id = $1::uuid
+          AND id = $2::bigint
+          AND task_stage = 'payout'
+        RETURNING id`,
+      [DEFAULT_TENANT_ID, voidRequest.id]
+    ),
+    'MED-03 billing closure could not advance the void task to reconciliation'
+  );
+  requireOne(
+    await client.query(
+      `UPDATE tasks
+          SET title = 'Reconcile paid counter-sale void',
+              description = 'Verify exact paid-refund evidence and return only the never-handed-over allocations.',
+              assigned_to_uid = NULL,
+              assigned_to_role = 'PHARMACY_INCHARGE',
+              metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb,
+              updated_at = NOW()
+        WHERE tenant_id = $2::uuid
+          AND id = $3::int
+          AND status IN ('open', 'in_progress', 'blocked', 'overdue')
+        RETURNING id`,
+      [
+        JSON.stringify({
+          task_stage: 'reconciliation',
+          owner_role_codes: ['ADMIN', 'PHARMACY_INCHARGE']
+        }),
+        DEFAULT_TENANT_ID,
+        task.id
+      ]
+    ),
+    'MED-03 billing closure could not assign the void reconciliation task'
+  );
+
+  const returnMovement = requireOne(
+    await client.query(
+      `INSERT INTO pharmacy_stock_movements
+         (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
+          quantity_delta, reference_type, reference_id, performed_by, notes,
+          metadata, created_at)
+       VALUES ($1::uuid, $2::int, $3::int, 'return', 1,
+               'pharmacy_counter_sale_void', $4::text, $5::uuid,
+               'Synthetic never-handed-over counter-sale return.',
+               $6::jsonb, transaction_timestamp())
+       RETURNING id`,
+      [
+        DEFAULT_TENANT_ID,
+        inventory.inventory_item_id,
+        inventory.inventory_batch_id,
+        String(sale.id),
+        pharmacyActor.uid,
+        JSON.stringify({ seed: true, med_03: true, void_request_id: String(voidRequest.id) })
+      ]
+    ),
+    'MED-03 billing closure could not record the governed stock return'
+  );
+  requireOne(
+    await client.query(
+      `UPDATE pharmacy_inventory_batches
+          SET remaining_quantity = remaining_quantity + 1,
+              status = CASE
+                WHEN status = 'depleted'
+                 AND expiry_date >= (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+                  THEN 'in_stock'
+                ELSE status
+              END,
+              updated_at = NOW()
+        WHERE tenant_id = $1::uuid
+          AND id = $2::int
+          AND inventory_item_id = $3::int
+        RETURNING id`,
+      [DEFAULT_TENANT_ID, inventory.inventory_batch_id, inventory.inventory_item_id]
+    ),
+    'MED-03 billing closure lost the governed stock-return balance'
+  );
+  requireOne(
+    await client.query(
+      `UPDATE pharmacy_counter_sale_allocations
+          SET return_movement_id = $1::int
+        WHERE tenant_id = $2::uuid
+          AND id = $3::bigint
+          AND return_movement_id IS NULL
+        RETURNING id`,
+      [returnMovement.id, DEFAULT_TENANT_ID, allocation.id]
+    ),
+    'MED-03 billing closure could not bind the stock-return evidence'
+  );
+
+  const completedRequest = requireOne(
+    await client.query(
+      `UPDATE pharmacy_counter_sale_void_requests
+          SET status = 'COMPLETED',
+              task_stage = 'completed',
+              last_checked_at = NOW(),
+              reconciled_at = NOW(),
+              reconciled_by = $1::uuid,
+              reconciliation_source = 'manual',
+              updated_at = NOW()
+        WHERE tenant_id = $2::uuid
+          AND id = $3::bigint
+          AND status = 'PENDING_REFUND'
+          AND task_stage = 'reconciliation'
+        RETURNING *`,
+      [pharmacyActor.uid, DEFAULT_TENANT_ID, voidRequest.id]
+    ),
+    'MED-03 billing closure could not complete the void request'
+  );
+  requireOne(
+    await client.query(
+      `UPDATE pharmacy_counter_sales
+          SET status = 'VOIDED',
+              voided_at = NOW(),
+              voided_by = $1::uuid,
+              void_reason = $2::text,
+              updated_at = NOW()
+        WHERE tenant_id = $3::uuid
+          AND id = $4::bigint
+          AND status = 'VOID_PENDING_REFUND'
+          AND void_refund_id = $5::int
+        RETURNING id`,
+      [
+        pharmacyActor.uid,
+        completedRequest.reason,
+        DEFAULT_TENANT_ID,
+        sale.id,
+        counterRefund.id
+      ]
+    ),
+    'MED-03 billing closure could not terminally void the counter sale'
+  );
+
+  const completedAt = (await client.query('SELECT clock_timestamp() AS completed_at')).rows[0]
+    .completed_at;
+  const completedAtIso = new Date(completedAt).toISOString();
+  requireOne(
+    await client.query(
+      `UPDATE tasks
+          SET status = 'completed',
+              completed_at = $1::timestamptz,
+              metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb,
+              updated_at = NOW()
+        WHERE tenant_id = $3::uuid
+          AND id = $4::int
+          AND status IN ('open', 'in_progress', 'blocked', 'overdue')
+        RETURNING id`,
+      [
+        completedAt,
+        JSON.stringify({
+          completion_via: 'domain_evidence',
+          completion_evidence: {
+            kind: 'counter_sale_void_completed',
+            resource_type: 'pharmacy_counter_sale_void_requests',
+            resource_id: String(voidRequest.id),
+            recorded_at: completedAtIso
+          }
+        }),
+        DEFAULT_TENANT_ID,
+        task.id
+      ]
+    ),
+    'MED-03 billing closure could not complete the counter-sale task'
+  );
+  requireOne(
+    await client.query(
+      `UPDATE workflow_sla_instances
+          SET status = CASE
+                WHEN due_at < $1::timestamptz
+                  THEN CASE WHEN status = 'escalated' THEN 'escalated' ELSE 'breached' END
+                ELSE 'completed'
+              END,
+              completed_at = $1::timestamptz,
+              breached_at = CASE WHEN due_at < $1::timestamptz THEN due_at ELSE NULL END,
+              metadata = COALESCE(metadata, '{}'::jsonb)
+                || jsonb_build_object(
+                     'completed_via', 'domain_evidence',
+                     'completed_by_task', $2::int,
+                     'completed_by', $3::text,
+                     'completion_evidence', $4::jsonb
+                   ),
+              updated_at = NOW()
+        WHERE tenant_id = $5::uuid
+          AND id = $6::uuid
+          AND completed_at IS NULL
+          AND status <> 'cancelled'
+        RETURNING id`,
+      [
+        completedAt,
+        task.id,
+        String(pharmacyActor.uid),
+        JSON.stringify({
+          kind: 'counter_sale_void_completed',
+          resource_type: 'pharmacy_counter_sale_void_requests',
+          resource_id: String(voidRequest.id),
+          occurred_at: completedAtIso,
+          recorded_at: completedAtIso
+        }),
+        DEFAULT_TENANT_ID,
+        slaId
+      ]
+    ),
+    'MED-03 billing closure could not complete the counter-sale SLA'
+  );
+
+  const drawerTotals = requireOne(
+    await client.query(
+      `SELECT
+         COALESCE(SUM(payment.amount), 0)::numeric AS cash_inflow,
+         (
+           SELECT COALESCE(SUM(refund.amount), 0)::numeric
+             FROM billing_refunds refund
+            WHERE refund.tenant_id = $1::uuid
+              AND refund.cash_drawer_session_id = $2::bigint
+              AND refund.approval_status = 'PAID'
+              AND refund.payout_rail = 'manual'
+              AND UPPER(refund.mode) = 'CASH'
+         ) AS cash_refunds
+        FROM billing_payments payment
+       WHERE payment.tenant_id = $1::uuid
+         AND UPPER(payment.mode) = 'CASH'
+         AND payment.reversed = FALSE
+         AND payment.collected_by = $3::uuid
+         AND payment.shift = 'GENERAL'
+         AND payment.collected_at >= $4::timestamptz`,
+      [DEFAULT_TENANT_ID, drawer.id, cashierActor.uid, drawer.opened_at]
+    ),
+    'MED-03 billing closure could not calculate the drawer totals'
+  );
+  const cashInflow = Number(drawerTotals.cash_inflow);
+  const cashRefunds = Number(drawerTotals.cash_refunds);
+  const systemTotal = cashInflow - cashRefunds;
+  const countedTotal = 500 + systemTotal;
+  requireOne(
+    await client.query(
+      `UPDATE cash_drawer_sessions
+          SET counted_total = $1::numeric,
+              counted_denominations = $2::jsonb,
+              cash_inflow_total = $3::numeric,
+              cash_refund_total = $4::numeric,
+              system_total = $5::numeric,
+              variance = 0,
+              short_count = FALSE,
+              over_count = FALSE,
+              requires_review = FALSE,
+              status = 'reviewed',
+              reviewed_by = $6::uuid,
+              updated_at = NOW()
+        WHERE tenant_id = $7::uuid
+          AND id = $8::bigint
+          AND status = 'open'
+        RETURNING id`,
+      [
+        countedTotal,
+        JSON.stringify({ synthetic_counted_total: countedTotal }),
+        cashInflow,
+        cashRefunds,
+        systemTotal,
+        cashierActor.uid,
+        DEFAULT_TENANT_ID,
+        drawer.id
+      ]
+    ),
+    'MED-03 billing closure could not reconcile the cashier drawer'
+  );
+
+  const closureCheck = requireOne(
+    await client.query(
+      `SELECT counter_sale_void_has_paid_evidence($1::bigint) AS paid_evidence,
+              request.status AS request_status,
+              sale.status AS sale_status,
+              task.status AS task_status,
+              sla.status AS sla_status,
+              drawer.status AS drawer_status
+         FROM pharmacy_counter_sale_void_requests request
+         JOIN pharmacy_counter_sales sale
+           ON sale.tenant_id = request.tenant_id
+          AND sale.id = request.counter_sale_id
+         JOIN billing_refunds refund
+           ON refund.tenant_id = request.tenant_id
+          AND refund.id = request.refund_id
+         JOIN tasks task
+           ON task.tenant_id = request.tenant_id
+          AND task.id = request.task_id
+         JOIN workflow_sla_instances sla
+           ON sla.tenant_id = request.tenant_id
+          AND sla.id = request.workflow_sla_instance_id
+         JOIN cash_drawer_sessions drawer
+           ON drawer.tenant_id = refund.tenant_id
+          AND drawer.id = refund.cash_drawer_session_id
+        WHERE request.tenant_id = $2::uuid
+          AND request.id = $1::bigint`,
+      [voidRequest.id, DEFAULT_TENANT_ID]
+    ),
+    'MED-03 billing closure could not reload its terminal graph'
+  );
+  if (
+    closureCheck.paid_evidence !== true
+    || closureCheck.request_status !== 'COMPLETED'
+    || closureCheck.sale_status !== 'VOIDED'
+    || closureCheck.task_status !== 'completed'
+    || !['completed', 'breached', 'escalated'].includes(closureCheck.sla_status)
+    || closureCheck.drawer_status !== 'reviewed'
+  ) {
+    throw new Error('MED-03 billing closure did not reach its exact terminal evidence state');
+  }
 }
 
 // Explicit seed for the double-entry ledger (migrations 343/344). The
@@ -5315,7 +8348,7 @@ async function seedLedgerEntries() {
     const created = await client.query(
       `INSERT INTO ledger_accounts (code, type, description)
        VALUES ('SEED-COVERAGE', 'ASSET', 'Seed account for QA coverage')
-       RETURNING id`,
+       RETURNING id`
     );
     account = created.rows[0];
   }
@@ -5323,7 +8356,7 @@ async function seedLedgerEntries() {
   const entry = await client.query(
     `INSERT INTO ledger_entries (entry_type, idempotency_key, metadata)
      VALUES ('SEED_COVERAGE', 'seed-coverage-balanced-1', '{}'::jsonb)
-     RETURNING id`,
+     RETURNING id`
   );
   const entryId = entry.rows[0].id;
 
@@ -5333,7 +8366,7 @@ async function seedLedgerEntries() {
   await client.query(
     `INSERT INTO ledger_postings (entry_id, account_id, amount_paise)
      VALUES ($1, $2, $3), ($1, $2, $4)`,
-    [entryId, account.id, 100000, -100000],
+    [entryId, account.id, 100000, -100000]
   );
 }
 
@@ -5342,7 +8375,7 @@ async function seedIdentityProviderTables() {
     'tenant_identity_providers',
     'id',
     "tenant_id = $1::uuid AND realm = 'admin' AND protocol = 'oidc'",
-    [DEFAULT_TENANT_ID],
+    [DEFAULT_TENANT_ID]
   );
 
   if (!provider) {
@@ -5352,20 +8385,22 @@ async function seedIdentityProviderTables() {
        )
        VALUES ($1::uuid, 'admin', 'oidc', 'seed-oidc', 'Seed admin OIDC', 'draft')
        RETURNING id`,
-      [DEFAULT_TENANT_ID],
+      [DEFAULT_TENANT_ID]
     );
     provider = created.rows[0];
   }
 
-  await insertIfEmpty('tenant_idp_role_mappings', [{
-    tenant_id: DEFAULT_TENANT_ID,
-    provider_id: provider.id,
-    realm: 'admin',
-    idp_group: 'seed-admins',
-    vh_role: 'ADMIN',
-    status: 'active',
-    priority: 100,
-  }]);
+  await insertIfEmpty('tenant_idp_role_mappings', [
+    {
+      tenant_id: DEFAULT_TENANT_ID,
+      provider_id: provider.id,
+      realm: 'admin',
+      idp_group: 'seed-admins',
+      vh_role: 'ADMIN',
+      status: 'active',
+      priority: 100
+    }
+  ]);
 }
 
 // Explicit seeds for the Pillar-D workflow tables (migrations 285/290/292).
@@ -5382,44 +8417,50 @@ async function seedIdentityProviderTables() {
 async function seedPillarDWorkflowTables() {
   const doctor = await first('doctors', 'id');
   if (doctor) {
-    await insertIfEmpty('provider_availability_templates', [{
-      doctor_id: doctor.id,
-      weekday: 1,
-      start_time: '09:00:00',
-      end_time: '13:00:00',
-      slot_minutes: 15,
-      location: 'OPD-1 (seed)',
-    }]);
+    await insertIfEmpty('provider_availability_templates', [
+      {
+        doctor_id: doctor.id,
+        weekday: 1,
+        start_time: '09:00:00',
+        end_time: '13:00:00',
+        slot_minutes: 15,
+        location: 'OPD-1 (seed)'
+      }
+    ]);
   }
 
   const refs = await getCoreRefs();
   if (doctor && refs.patient?.uid) {
-    await insertIfEmpty('appointment_slot_holds', [{
-      tenant_id: DEFAULT_TENANT_ID,
-      doctor_id: doctor.id,
-      appointment_date: new Date().toISOString().slice(0, 10),
-      slot_start: '09:00:00',
-      slot_end: '09:15:00',
-      source_channel: 'staff',
-      idempotency_key: 'seed-slot-hold-0001',
-      held_by_uid: refs.staff?.uid,
-      held_by_role: 'RECEPTIONIST',
-      patient_uid: refs.patient.uid,
-      expires_at: new Date(Date.now() + 15 * 60 * 1000),
-      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-    }]);
+    await insertIfEmpty('appointment_slot_holds', [
+      {
+        tenant_id: DEFAULT_TENANT_ID,
+        doctor_id: doctor.id,
+        appointment_date: new Date().toISOString().slice(0, 10),
+        slot_start: '09:00:00',
+        slot_end: '09:15:00',
+        source_channel: 'staff',
+        idempotency_key: 'seed-slot-hold-0001',
+        held_by_uid: refs.staff?.uid,
+        held_by_role: 'RECEPTIONIST',
+        patient_uid: refs.patient.uid,
+        expires_at: new Date(Date.now() + 15 * 60 * 1000),
+        metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' })
+      }
+    ]);
   }
 
   const resource = await first('bookable_resources', 'id');
   if (resource) {
-    await insertIfEmpty('resource_bookings', [{
-      resource_id: resource.id,
-      starts_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-      ends_at: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
-      booked_for_type: 'other',
-      status: 'booked',
-      notes: 'Seed booking for QA coverage',
-    }]);
+    await insertIfEmpty('resource_bookings', [
+      {
+        resource_id: resource.id,
+        starts_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        ends_at: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+        booked_for_type: 'other',
+        status: 'booked',
+        notes: 'Seed booking for QA coverage'
+      }
+    ]);
   }
 
   // NL13-P1f: cath case ↔ booking link needs the real seeded parents (the
@@ -5427,55 +8468,63 @@ async function seedPillarDWorkflowTables() {
   const cathCase = await first('cath_lab_cases', 'id');
   const booking = await first('resource_bookings', 'id, resource_id');
   if (cathCase && booking?.resource_id) {
-    await insertIfEmpty('cath_case_schedule_links', [{
-      tenant_id: DEFAULT_TENANT_ID,
-      case_id: cathCase.id,
-      resource_booking_id: booking.id,
-      resource_id: booking.resource_id,
-      status: 'active',
-      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-    }]);
+    await insertIfEmpty('cath_case_schedule_links', [
+      {
+        tenant_id: DEFAULT_TENANT_ID,
+        case_id: cathCase.id,
+        resource_booking_id: booking.id,
+        resource_id: booking.resource_id,
+        status: 'active',
+        metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' })
+      }
+    ]);
   }
 
   const protocol = await first('chemo_protocols', 'id');
   if (protocol) {
-    await insertIfEmpty('chemo_protocol_drugs', [{
-      protocol_id: protocol.id,
-      drug_name: 'Doxorubicin (seed)',
-      dose_per_m2: 60, // XOR dosing: fixed_dose deliberately NULL
-      dose_unit: 'mg',
-      route: 'IV',
-      infusion_duration_min: 30,
-      is_vesicant: true,
-      max_lifetime_dose_per_m2: 450,
-      sequence: 1,
-      notes: 'Seed protocol drug for QA coverage',
-    }]);
+    await insertIfEmpty('chemo_protocol_drugs', [
+      {
+        protocol_id: protocol.id,
+        drug_name: 'Doxorubicin (seed)',
+        dose_per_m2: 60, // XOR dosing: fixed_dose deliberately NULL
+        dose_unit: 'mg',
+        route: 'IV',
+        infusion_duration_min: 30,
+        is_vesicant: true,
+        max_lifetime_dose_per_m2: 450,
+        sequence: 1,
+        notes: 'Seed protocol drug for QA coverage'
+      }
+    ]);
   }
 
   const plan = await first('chemo_treatment_plans', 'id');
   if (plan) {
-    await insertIfEmpty('chemo_cycles', [{
-      plan_id: plan.id,
-      cycle_number: 1,
-      scheduled_date: new Date().toISOString().slice(0, 10),
-      status: 'scheduled',
-      weight_kg: 70.0,
-      bsa_m2: 1.84,
-      notes: 'Seed cycle for QA coverage',
-    }]);
+    await insertIfEmpty('chemo_cycles', [
+      {
+        plan_id: plan.id,
+        cycle_number: 1,
+        scheduled_date: new Date().toISOString().slice(0, 10),
+        status: 'scheduled',
+        weight_kg: 70.0,
+        bsa_m2: 1.84,
+        notes: 'Seed cycle for QA coverage'
+      }
+    ]);
   }
 
   const patientUid = await firstValue('users', 'uid');
   if (patientUid) {
-    await insertIfEmpty('dental_tooth_findings', [{
-      patient_uid: patientUid,
-      tooth_fdi: '16',
-      surface: 'occlusal',
-      finding: 'caries',
-      status: 'active',
-      notes: 'Seed finding for QA coverage',
-    }]);
+    await insertIfEmpty('dental_tooth_findings', [
+      {
+        patient_uid: patientUid,
+        tooth_fdi: '16',
+        surface: 'occlusal',
+        finding: 'caries',
+        status: 'active',
+        notes: 'Seed finding for QA coverage'
+      }
+    ]);
   }
 }
 
@@ -5490,7 +8539,7 @@ async function seedRadiologyPeerReviews() {
     'radiology_orders',
     'id, tenant_id, ordered_by, radiologist, report_signed_off_by',
     'TRUE',
-    [],
+    []
   );
 
   if (!order) {
@@ -5508,7 +8557,7 @@ async function seedRadiologyPeerReviews() {
          '{"sections":{"findings":"No acute cardiopulmonary abnormality.","impression":"No acute abnormality."}}'::jsonb
        )
        RETURNING id, tenant_id, ordered_by, radiologist, report_signed_off_by`,
-      [DEFAULT_TENANT_ID, refs.patient.uid, refs.staff?.uid || fallbackAuthorUid, fallbackAuthorUid],
+      [DEFAULT_TENANT_ID, refs.patient.uid, refs.staff?.uid || fallbackAuthorUid, fallbackAuthorUid]
     );
     order = created.rows[0];
   }
@@ -5518,21 +8567,23 @@ async function seedRadiologyPeerReviews() {
     refs.secondStaff?.uid,
     refs.staff?.uid,
     refs.doctor?.uid,
-    refs.generatedUuid,
-  ].find((uid) => uid && uid !== reportAuthorUid);
+    refs.generatedUuid
+  ].find(uid => uid && uid !== reportAuthorUid);
 
   if (!reviewerUid) return;
 
-  await insertIfEmpty('radiology_peer_reviews', [{
-    tenant_id: order.tenant_id || DEFAULT_TENANT_ID,
-    radiology_order_id: order.id,
-    reviewer_uid: reviewerUid,
-    report_author_uid: reportAuthorUid,
-    discrepancy_score: 1,
-    outcome: 'no_change',
-    comments: 'Seed peer review for QA coverage',
-    metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-  }]);
+  await insertIfEmpty('radiology_peer_reviews', [
+    {
+      tenant_id: order.tenant_id || DEFAULT_TENANT_ID,
+      radiology_order_id: order.id,
+      reviewer_uid: reviewerUid,
+      report_author_uid: reportAuthorUid,
+      discrepancy_score: 1,
+      outcome: 'no_change',
+      comments: 'Seed peer review for QA coverage',
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' })
+    }
+  ]);
 }
 
 async function seedDonorIntakeTables() {
@@ -5543,29 +8594,33 @@ async function seedDonorIntakeTables() {
   if (!donor) return;
 
   if (!(await tableCount('donation_events'))) {
-    await insertIfEmpty('donation_events', [{
-      tenant_id: donor.tenant_id || DEFAULT_TENANT_ID,
-      donor_id: donor.id,
-      donation_code: 'DON-SEED-0001',
-      donation_barcode: 'DONBAR-SEED-0001',
-      collection_kind: 'in_house',
-      volume_ml: 450,
-      status: 'collected',
-      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-    }]);
+    await insertIfEmpty('donation_events', [
+      {
+        tenant_id: donor.tenant_id || DEFAULT_TENANT_ID,
+        donor_id: donor.id,
+        donation_code: 'DON-SEED-0001',
+        donation_barcode: 'DONBAR-SEED-0001',
+        collection_kind: 'in_house',
+        volume_ml: 450,
+        status: 'collected',
+        metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' })
+      }
+    ]);
   }
 
   if (!(await tableCount('donor_consents'))) {
-    await insertIfEmpty('donor_consents', [{
-      tenant_id: donor.tenant_id || DEFAULT_TENANT_ID,
-      donor_id: donor.id,
-      consent_type: 'blood_donation',
-      consent_version: 1,
-      consent_statement: 'Seed donor consent for QA coverage.',
-      consent_payload: JSON.stringify({ seed: true }),
-      sha256_hash: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
-      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-    }]);
+    await insertIfEmpty('donor_consents', [
+      {
+        tenant_id: donor.tenant_id || DEFAULT_TENANT_ID,
+        donor_id: donor.id,
+        consent_type: 'blood_donation',
+        consent_version: 1,
+        consent_statement: 'Seed donor consent for QA coverage.',
+        consent_payload: JSON.stringify({ seed: true }),
+        sha256_hash: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+        metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' })
+      }
+    ]);
   }
 }
 
@@ -5583,7 +8638,7 @@ async function seedBiomedCmmsTables() {
          1200, 0, 'in_service', '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb
        )
        RETURNING id, tenant_id`,
-      [DEFAULT_TENANT_ID],
+      [DEFAULT_TENANT_ID]
     );
     device = created.rows[0];
   }
@@ -5604,7 +8659,7 @@ async function seedBiomedCmmsTables() {
          '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb
        )
        RETURNING id, tenant_id`,
-      [device.tenant_id || DEFAULT_TENANT_ID, device.id, staffUser.id, staffUser.uid],
+      [device.tenant_id || DEFAULT_TENANT_ID, device.id, staffUser.id, staffUser.uid]
     );
     schedule = created.rows[0];
   }
@@ -5627,7 +8682,13 @@ async function seedBiomedCmmsTables() {
          '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb
        )
        RETURNING id, tenant_id`,
-      [schedule.tenant_id || device.tenant_id || DEFAULT_TENANT_ID, device.id, schedule.id, staffUser.id, staffUser.uid],
+      [
+        schedule.tenant_id || device.tenant_id || DEFAULT_TENANT_ID,
+        device.id,
+        schedule.id,
+        staffUser.id,
+        staffUser.uid
+      ]
     );
     workOrder = created.rows[0];
   }
@@ -5638,56 +8699,60 @@ async function seedBiomedCmmsTables() {
             updated_at = NOW()
       WHERE id = $2
         AND last_work_order_id IS NULL`,
-    [workOrder.id, schedule.id],
+    [workOrder.id, schedule.id]
   );
 
-  await insertIfEmpty('biomed_work_order_recipients', [{
-    tenant_id: workOrder.tenant_id || DEFAULT_TENANT_ID,
-    work_order_id: workOrder.id,
-    staff_id: staffUser.id,
-    staff_uid: staffUser.uid,
-    recipient_kind: 'assignee',
-    source: 'seed',
-  }]);
+  await insertIfEmpty('biomed_work_order_recipients', [
+    {
+      tenant_id: workOrder.tenant_id || DEFAULT_TENANT_ID,
+      work_order_id: workOrder.id,
+      staff_id: staffUser.id,
+      staff_uid: staffUser.uid,
+      recipient_kind: 'assignee',
+      source: 'seed'
+    }
+  ]);
 
-  await insertIfEmpty('biomed_work_order_updates', [{
-    tenant_id: workOrder.tenant_id || DEFAULT_TENANT_ID,
-    work_order_id: workOrder.id,
-    previous_status: 'open',
-    status: 'assigned',
-    message: 'Seed work-order update for QA coverage.',
-    author_id: staffUser.id,
-    author_uid: staffUser.uid,
-    author_role: 'BIOMEDICAL_STAFF',
-    metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-  }]);
+  await insertIfEmpty('biomed_work_order_updates', [
+    {
+      tenant_id: workOrder.tenant_id || DEFAULT_TENANT_ID,
+      work_order_id: workOrder.id,
+      previous_status: 'open',
+      status: 'assigned',
+      message: 'Seed work-order update for QA coverage.',
+      author_id: staffUser.id,
+      author_uid: staffUser.uid,
+      author_role: 'BIOMEDICAL_STAFF',
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' })
+    }
+  ]);
 
-  await insertIfEmpty('biomed_calibration_certificates', [{
-    tenant_id: workOrder.tenant_id || DEFAULT_TENANT_ID,
-    biomed_device_id: device.id,
-    work_order_id: workOrder.id,
-    certificate_number: 'BIO-CERT-SEED-0001',
-    calibrated_at: new Date('2026-05-04T09:00:00.000Z'),
-    due_at: new Date('2027-05-04T09:00:00.000Z'),
-    performed_by: 'Seed Biomedical Engineer',
-    performed_by_uid: staffUser.uid,
-    document_id: 'seed-biomed-calibration-document',
-    document_storage_key: 'seed/biomed/calibration/BIO-CERT-SEED-0001.pdf',
-    document_mime_type: 'application/pdf',
-    result: 'pass',
-    notes: 'Seed calibration certificate for QA coverage.',
-    created_by: staffUser.uid,
-    metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-  }]);
+  await insertIfEmpty('biomed_calibration_certificates', [
+    {
+      tenant_id: workOrder.tenant_id || DEFAULT_TENANT_ID,
+      biomed_device_id: device.id,
+      work_order_id: workOrder.id,
+      certificate_number: 'BIO-CERT-SEED-0001',
+      calibrated_at: new Date('2026-05-04T09:00:00.000Z'),
+      due_at: new Date('2027-05-04T09:00:00.000Z'),
+      performed_by: 'Seed Biomedical Engineer',
+      performed_by_uid: staffUser.uid,
+      document_id: 'seed-biomed-calibration-document',
+      document_storage_key: 'seed/biomed/calibration/BIO-CERT-SEED-0001.pdf',
+      document_mime_type: 'application/pdf',
+      result: 'pass',
+      notes: 'Seed calibration certificate for QA coverage.',
+      created_by: staffUser.uid,
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' })
+    }
+  ]);
 }
 
 async function seedColdChainTables() {
-  let device = await first(
-    'device_registry',
-    'id',
-    'tenant_id = $1 AND kind = $2',
-    [DEFAULT_TENANT_ID, 'fridge_sensor']
-  );
+  let device = await first('device_registry', 'id', 'tenant_id = $1 AND kind = $2', [
+    DEFAULT_TENANT_ID,
+    'fridge_sensor'
+  ]);
 
   if (!device) {
     await insert('device_registry', {
@@ -5700,51 +8765,50 @@ async function seedColdChainTables() {
       model: 'ColdChain',
       serial_number: 'SEED-COLD-FRIDGE-01',
       status: 'active',
-      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' })
     });
-    device = await first(
-      'device_registry',
-      'id',
-      'tenant_id = $1 AND kind = $2',
-      [DEFAULT_TENANT_ID, 'fridge_sensor']
-    );
+    device = await first('device_registry', 'id', 'tenant_id = $1 AND kind = $2', [
+      DEFAULT_TENANT_ID,
+      'fridge_sensor'
+    ]);
   }
 
   if (!device) return;
 
-  await insertIfEmpty('cold_chain_units', [{
-    tenant_id: DEFAULT_TENANT_ID,
-    unit_code: 'SEED-COLD-FRIDGE-01',
-    display_name: 'Seed cold-chain refrigerator',
-    kind: 'fridge',
-    department: 'pharmacy',
-    device_registry_id: device.id,
-    min_temp_c: 2,
-    max_temp_c: 8,
-    excursion_grace_minutes: 15,
-    status: 'active',
-    retention_days: 730,
-    metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-  }]);
+  await insertIfEmpty('cold_chain_units', [
+    {
+      tenant_id: DEFAULT_TENANT_ID,
+      unit_code: 'SEED-COLD-FRIDGE-01',
+      display_name: 'Seed cold-chain refrigerator',
+      kind: 'fridge',
+      department: 'pharmacy',
+      device_registry_id: device.id,
+      min_temp_c: 2,
+      max_temp_c: 8,
+      excursion_grace_minutes: 15,
+      status: 'active',
+      retention_days: 730,
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' })
+    }
+  ]);
 }
 
 async function seedMortuarySlots() {
-  await insertIfEmpty('mortuary_slots', [{
-    tenant_id: DEFAULT_TENANT_ID,
-    slot_code: 'MORT-SEED-0001',
-    display_name: 'Seed mortuary slot',
-    status: 'available',
-    notes: 'Seed slot for QA coverage',
-  }]);
+  await insertIfEmpty('mortuary_slots', [
+    {
+      tenant_id: DEFAULT_TENANT_ID,
+      slot_code: 'MORT-SEED-0001',
+      display_name: 'Seed mortuary slot',
+      status: 'available',
+      notes: 'Seed slot for QA coverage'
+    }
+  ]);
 }
 
 async function seedInfusionChairTables() {
-  let chair = await first(
-    'infusion_chairs',
-    'id, tenant_id',
-    'tenant_id = $1::uuid',
-    [DEFAULT_TENANT_ID],
-  );
+  let chair = await first('infusion_chairs', 'id, tenant_id', 'tenant_id = $1::uuid', [
+    DEFAULT_TENANT_ID
+  ]);
 
   if (!chair) {
     const created = await client.query(
@@ -5761,7 +8825,7 @@ async function seedInfusionChairTables() {
          status = 'active',
          updated_at = CURRENT_TIMESTAMP
        RETURNING id, tenant_id`,
-      [DEFAULT_TENANT_ID],
+      [DEFAULT_TENANT_ID]
     );
     chair = created.rows[0];
   }
@@ -5773,7 +8837,7 @@ async function seedInfusionChairTables() {
        FROM chemo_cycles c
        JOIN chemo_treatment_plans p ON p.id = c.plan_id
       ORDER BY c.id
-      LIMIT 1`,
+      LIMIT 1`
   );
   const cycle = cycleResult.rows[0];
   if (!chair || !cycle?.patient_uid) return;
@@ -5783,86 +8847,97 @@ async function seedInfusionChairTables() {
       ? cycle.scheduled_date.toISOString().slice(0, 10)
       : String(cycle.scheduled_date).slice(0, 10);
 
-  await insertIfEmpty('chair_bookings', [{
-    tenant_id: cycle.tenant_id || chair.tenant_id || DEFAULT_TENANT_ID,
-    chair_id: chair.id,
-    cycle_id: cycle.id,
-    patient_uid: cycle.patient_uid,
-    start_at: `${scheduledDate}T09:00:00.000Z`,
-    end_at: `${scheduledDate}T10:00:00.000Z`,
-    status: 'booked',
-    warning_codes: [],
-    notes: 'Seed booking for QA coverage',
-  }]);
+  await insertIfEmpty('chair_bookings', [
+    {
+      tenant_id: cycle.tenant_id || chair.tenant_id || DEFAULT_TENANT_ID,
+      chair_id: chair.id,
+      cycle_id: cycle.id,
+      patient_uid: cycle.patient_uid,
+      start_at: `${scheduledDate}T09:00:00.000Z`,
+      end_at: `${scheduledDate}T10:00:00.000Z`,
+      status: 'booked',
+      warning_codes: [],
+      notes: 'Seed booking for QA coverage'
+    }
+  ]);
 }
 
 async function seedMergedMainCoverageTables() {
   const hasBiomedCalibration = await tableExists('biomed_calibration_certificates');
   const hasBiomedMaintenance = await tableExists('biomed_maintenance_schedules');
 
-  if ((hasBiomedCalibration || hasBiomedMaintenance) && await tableExists('clinical_ai_biomed_devices')) {
+  if (
+    (hasBiomedCalibration || hasBiomedMaintenance) &&
+    (await tableExists('clinical_ai_biomed_devices'))
+  ) {
     const biomedDevice = await first(
       'clinical_ai_biomed_devices',
       'id, tenant_id',
       'tenant_id = $1::uuid',
-      [DEFAULT_TENANT_ID],
+      [DEFAULT_TENANT_ID]
     );
 
     if (biomedDevice && hasBiomedCalibration) {
-      await insertIfEmpty('biomed_calibration_certificates', [{
-        tenant_id: biomedDevice.tenant_id || DEFAULT_TENANT_ID,
-        biomed_device_id: biomedDevice.id,
-        certificate_number: 'CAL-SEED-0001',
-        calibrated_at: new Date('2026-05-04T09:00:00.000Z'),
-        due_at: new Date('2027-05-04T09:00:00.000Z'),
-        performed_by: 'Seed biomedical engineer',
-        document_id: 'DOC-SEED-CAL-0001',
-        document_storage_key: 'seed/biomed/calibration/DOC-SEED-CAL-0001.pdf',
-        document_mime_type: 'application/pdf',
-        result: 'pass',
-        notes: 'Seed calibration certificate for QA coverage',
-        metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-      }]);
+      await insertIfEmpty('biomed_calibration_certificates', [
+        {
+          tenant_id: biomedDevice.tenant_id || DEFAULT_TENANT_ID,
+          biomed_device_id: biomedDevice.id,
+          certificate_number: 'CAL-SEED-0001',
+          calibrated_at: new Date('2026-05-04T09:00:00.000Z'),
+          due_at: new Date('2027-05-04T09:00:00.000Z'),
+          performed_by: 'Seed biomedical engineer',
+          document_id: 'DOC-SEED-CAL-0001',
+          document_storage_key: 'seed/biomed/calibration/DOC-SEED-CAL-0001.pdf',
+          document_mime_type: 'application/pdf',
+          result: 'pass',
+          notes: 'Seed calibration certificate for QA coverage',
+          metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' })
+        }
+      ]);
     }
 
     if (biomedDevice && hasBiomedMaintenance) {
-      await insertIfEmpty('biomed_maintenance_schedules', [{
-        tenant_id: biomedDevice.tenant_id || DEFAULT_TENANT_ID,
-        biomed_device_id: biomedDevice.id,
-        kind: 'preventive',
-        interval_days: 90,
-        next_due_at: new Date('2026-08-04T09:00:00.000Z'),
-        assigned_role: 'BIOMEDICAL_STAFF',
-        active: true,
-        metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-      }]);
+      await insertIfEmpty('biomed_maintenance_schedules', [
+        {
+          tenant_id: biomedDevice.tenant_id || DEFAULT_TENANT_ID,
+          biomed_device_id: biomedDevice.id,
+          kind: 'preventive',
+          interval_days: 90,
+          next_due_at: new Date('2026-08-04T09:00:00.000Z'),
+          assigned_role: 'BIOMEDICAL_STAFF',
+          active: true,
+          metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' })
+        }
+      ]);
     }
   }
 
-  if (await tableExists('cold_chain_units') && await tableExists('device_registry')) {
+  if ((await tableExists('cold_chain_units')) && (await tableExists('device_registry'))) {
     const registeredDevice = await first(
       'device_registry',
       'id, tenant_id',
       'tenant_id = $1::uuid',
-      [DEFAULT_TENANT_ID],
+      [DEFAULT_TENANT_ID]
     );
 
     if (registeredDevice) {
-      await insertIfEmpty('cold_chain_units', [{
-        tenant_id: registeredDevice.tenant_id || DEFAULT_TENANT_ID,
-        unit_code: 'CC-SEED-0001',
-        display_name: 'Seed vaccine fridge',
-        kind: 'fridge',
-        department: 'pharmacy',
-        device_registry_id: registeredDevice.id,
-        min_temp_c: 2,
-        max_temp_c: 8,
-        excursion_grace_minutes: 15,
-        alert_roles: ['PHARMACY_INCHARGE'],
-        status: 'active',
-        retention_days: 730,
-        metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-      }]);
+      await insertIfEmpty('cold_chain_units', [
+        {
+          tenant_id: registeredDevice.tenant_id || DEFAULT_TENANT_ID,
+          unit_code: 'CC-SEED-0001',
+          display_name: 'Seed vaccine fridge',
+          kind: 'fridge',
+          department: 'pharmacy',
+          device_registry_id: registeredDevice.id,
+          min_temp_c: 2,
+          max_temp_c: 8,
+          excursion_grace_minutes: 15,
+          alert_roles: ['PHARMACY_INCHARGE'],
+          status: 'active',
+          retention_days: 730,
+          metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' })
+        }
+      ]);
     }
   }
 
@@ -5871,30 +8946,31 @@ async function seedMergedMainCoverageTables() {
 
   if (!hasMigrationSourceFiles || !(await tableExists('migration_import_jobs'))) return;
 
-  const importJob = await first(
-    'migration_import_jobs',
-    'id, tenant_id',
-    'tenant_id = $1::uuid',
-    [DEFAULT_TENANT_ID],
-  );
+  const importJob = await first('migration_import_jobs', 'id, tenant_id', 'tenant_id = $1::uuid', [
+    DEFAULT_TENANT_ID
+  ]);
 
   if (!importJob) return;
 
   if (hasMigrationSourceFiles) {
-    await insertIfEmpty('migration_source_files', [{
-      tenant_id: importJob.tenant_id || DEFAULT_TENANT_ID,
-      job_id: importJob.id,
-      file_kind: 'patient',
-      source_filename: 'seed-patients.csv',
-      content_sha256: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
-      mime_type: 'text/csv',
-      byte_size: 128,
-      row_count: 1,
-      header_row: JSON.stringify(['external_id', 'full_name']),
-      column_profile: JSON.stringify({ external_id: 'text', full_name: 'text' }),
-      sample_rows_redacted: JSON.stringify([{ external_id: 'SEED-1', full_name: 'Seed Patient' }]),
-      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-    }]);
+    await insertIfEmpty('migration_source_files', [
+      {
+        tenant_id: importJob.tenant_id || DEFAULT_TENANT_ID,
+        job_id: importJob.id,
+        file_kind: 'patient',
+        source_filename: 'seed-patients.csv',
+        content_sha256: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+        mime_type: 'text/csv',
+        byte_size: 128,
+        row_count: 1,
+        header_row: JSON.stringify(['external_id', 'full_name']),
+        column_profile: JSON.stringify({ external_id: 'text', full_name: 'text' }),
+        sample_rows_redacted: JSON.stringify([
+          { external_id: 'SEED-1', full_name: 'Seed Patient' }
+        ]),
+        metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' })
+      }
+    ]);
   }
 
   if (!hasMigrationImportRecords || !hasMigrationSourceFiles) return;
@@ -5903,25 +8979,27 @@ async function seedMergedMainCoverageTables() {
     'migration_source_files',
     'id, tenant_id, job_id',
     'tenant_id = $1::uuid',
-    [DEFAULT_TENANT_ID],
+    [DEFAULT_TENANT_ID]
   );
 
   if (!sourceFile) return;
 
-  await insertIfEmpty('migration_import_records', [{
-    tenant_id: sourceFile.tenant_id || DEFAULT_TENANT_ID,
-    job_id: sourceFile.job_id || importJob.id,
-    source_file_id: sourceFile.id,
-    target_kind: 'patient',
-    source_row_number: 1,
-    source_key: 'SEED-1',
-    row_hash: 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
-    normalized_preview_redacted: JSON.stringify({ external_id: 'SEED-1' }),
-    validation_state: 'valid',
-    duplicate_candidate: false,
-    duplicate_summary: JSON.stringify({}),
-    metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-  }]);
+  await insertIfEmpty('migration_import_records', [
+    {
+      tenant_id: sourceFile.tenant_id || DEFAULT_TENANT_ID,
+      job_id: sourceFile.job_id || importJob.id,
+      source_file_id: sourceFile.id,
+      target_kind: 'patient',
+      source_row_number: 1,
+      source_key: 'SEED-1',
+      row_hash: 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
+      normalized_preview_redacted: JSON.stringify({ external_id: 'SEED-1' }),
+      validation_state: 'valid',
+      duplicate_candidate: false,
+      duplicate_summary: JSON.stringify({}),
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' })
+    }
+  ]);
 }
 
 async function seedMigrationToolkitTables() {
@@ -5933,61 +9011,75 @@ async function seedMigrationToolkitTables() {
   const altHex64 = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 
   if (!(await tableCount('migration_source_files'))) {
-    await insertIfEmpty('migration_source_files', [{
-      tenant_id: job.tenant_id || DEFAULT_TENANT_ID,
-      job_id: job.id,
-      file_kind: 'patient',
-      source_filename: 'seed-patients.csv',
-      content_sha256: hex64,
-      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-    }]);
+    await insertIfEmpty('migration_source_files', [
+      {
+        tenant_id: job.tenant_id || DEFAULT_TENANT_ID,
+        job_id: job.id,
+        file_kind: 'patient',
+        source_filename: 'seed-patients.csv',
+        content_sha256: hex64,
+        metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' })
+      }
+    ]);
   }
 
   if (!(await tableCount('migration_import_records'))) {
     const file = await first('migration_source_files', 'id, tenant_id, job_id', 'TRUE', []);
     if (!file) return;
-    await insertIfEmpty('migration_import_records', [{
-      tenant_id: file.tenant_id || DEFAULT_TENANT_ID,
-      job_id: file.job_id,
-      source_file_id: file.id,
-      target_kind: 'patient',
-      source_row_number: 1,
-      row_hash: hex64,
-    }]);
+    await insertIfEmpty('migration_import_records', [
+      {
+        tenant_id: file.tenant_id || DEFAULT_TENANT_ID,
+        job_id: file.job_id,
+        source_file_id: file.id,
+        target_kind: 'patient',
+        source_row_number: 1,
+        row_hash: hex64
+      }
+    ]);
   }
 
-  if ((await tableExists('migration_hl7_adt_batches')) && !(await tableCount('migration_hl7_adt_batches'))) {
-    await insertIfEmpty('migration_hl7_adt_batches', [{
-      tenant_id: job.tenant_id || DEFAULT_TENANT_ID,
-      job_id: job.id,
-      status: 'committed',
-      source_filename: 'seed-adt-a01.hl7',
-      content_sha256: altHex64,
-      message_count: 1,
-      accepted_count: 1,
-      rejected_count: 0,
-      idempotency_key: 'seed-hl7-adt-batch-1',
-      summary: JSON.stringify({ seed: true, accepted: 1 }),
-      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-    }]);
+  if (
+    (await tableExists('migration_hl7_adt_batches')) &&
+    !(await tableCount('migration_hl7_adt_batches'))
+  ) {
+    await insertIfEmpty('migration_hl7_adt_batches', [
+      {
+        tenant_id: job.tenant_id || DEFAULT_TENANT_ID,
+        job_id: job.id,
+        status: 'committed',
+        source_filename: 'seed-adt-a01.hl7',
+        content_sha256: altHex64,
+        message_count: 1,
+        accepted_count: 1,
+        rejected_count: 0,
+        idempotency_key: 'seed-hl7-adt-batch-1',
+        summary: JSON.stringify({ seed: true, accepted: 1 }),
+        metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' })
+      }
+    ]);
   }
 
-  if ((await tableExists('migration_hl7_adt_messages')) && !(await tableCount('migration_hl7_adt_messages'))) {
+  if (
+    (await tableExists('migration_hl7_adt_messages')) &&
+    !(await tableCount('migration_hl7_adt_messages'))
+  ) {
     const batch = await first('migration_hl7_adt_batches', 'id, tenant_id', 'TRUE', []);
     if (!batch) return;
     const commitBatch = await first('migration_commit_batches', 'id', 'TRUE', []);
-    await insertIfEmpty('migration_hl7_adt_messages', [{
-      tenant_id: batch.tenant_id || DEFAULT_TENANT_ID,
-      hl7_batch_id: batch.id,
-      commit_batch_id: commitBatch?.id,
-      message_control_id: 'SEED-ADT-A01-1',
-      message_type: 'ADT^A01',
-      source_patient_key: 'SEED-1',
-      raw_message_hash: hex64,
-      parsed_summary_redacted: JSON.stringify({ messageType: 'ADT^A01', patientKey: 'SEED-1' }),
-      validation_findings: JSON.stringify([]),
-      status: 'committed',
-    }]);
+    await insertIfEmpty('migration_hl7_adt_messages', [
+      {
+        tenant_id: batch.tenant_id || DEFAULT_TENANT_ID,
+        hl7_batch_id: batch.id,
+        commit_batch_id: commitBatch?.id,
+        message_control_id: 'SEED-ADT-A01-1',
+        message_type: 'ADT^A01',
+        source_patient_key: 'SEED-1',
+        raw_message_hash: hex64,
+        parsed_summary_redacted: JSON.stringify({ messageType: 'ADT^A01', patientKey: 'SEED-1' }),
+        validation_findings: JSON.stringify([]),
+        status: 'committed'
+      }
+    ]);
   }
 }
 
@@ -5996,66 +9088,77 @@ async function seedSiemExportTables() {
   // CHAR(64) hex hashes, minimized_payload redaction invariant).
   const hex64 = 'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210';
   if (!(await tableCount('siem_export_targets'))) {
-    await insertIfEmpty('siem_export_targets', [{
-      tenant_id: DEFAULT_TENANT_ID,
-      target_key: 'seed-siem-webhook',
-      display_name: 'Seed SIEM webhook target',
-      transport: 'webhook',
-      status: 'draft',
-      min_severity: 'high',
-      acknowledgement_contract: 'unclassified',
-      acknowledgement_config: JSON.stringify({}),
-      acknowledgement_classified_by: null,
-      acknowledgement_owner_reason: null,
-      acknowledgement_owner_evidence: null,
-      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-    }]);
+    await insertIfEmpty('siem_export_targets', [
+      {
+        tenant_id: DEFAULT_TENANT_ID,
+        target_key: 'seed-siem-webhook',
+        display_name: 'Seed SIEM webhook target',
+        transport: 'webhook',
+        status: 'draft',
+        min_severity: 'high',
+        acknowledgement_contract: 'unclassified',
+        acknowledgement_config: JSON.stringify({}),
+        acknowledgement_classified_by: null,
+        acknowledgement_owner_reason: null,
+        acknowledgement_owner_evidence: null,
+        metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' })
+      }
+    ]);
   }
   if (!(await tableCount('siem_export_cursors'))) {
-    await insertIfEmpty('siem_export_cursors', [{
-      tenant_id: DEFAULT_TENANT_ID,
-      source_name: 'audit_log',
-      cursor_key: 'security',
-      cursor_semantics: 'capture_into_event_ledger',
-      writer_state: 'legacy_capture',
-      capture_schedule_decision: 'owner_activation_required',
-      metadata: JSON.stringify({
-        seed: true,
-        cursor_truth: 'capture_into_event_ledger_not_delivery',
-        automatic_scheduler_activated: false,
-      }),
-    }]);
+    await insertIfEmpty('siem_export_cursors', [
+      {
+        tenant_id: DEFAULT_TENANT_ID,
+        source_name: 'audit_log',
+        cursor_key: 'security',
+        cursor_semantics: 'capture_into_event_ledger',
+        writer_state: 'legacy_capture',
+        capture_schedule_decision: 'owner_activation_required',
+        metadata: JSON.stringify({
+          seed: true,
+          cursor_truth: 'capture_into_event_ledger_not_delivery',
+          automatic_scheduler_activated: false
+        })
+      }
+    ]);
   }
   const target = await first('siem_export_targets', 'id, tenant_id', 'TRUE', []);
   if (!target) return;
   if (!(await tableCount('siem_export_events'))) {
-    await insertIfEmpty('siem_export_events', [{
-      tenant_id: target.tenant_id || DEFAULT_TENANT_ID,
-      source_name: 'synthetic',
-      source_id: 'seed-event-1',
-      event_type: 'seed.security.event',
-      severity: 'high',
-      payload_sha256: hex64,
-      minimized_payload: JSON.stringify({ redaction: { raw_payload_exported: false }, seed: true }),
-      synthetic: true,
-    }]);
+    await insertIfEmpty('siem_export_events', [
+      {
+        tenant_id: target.tenant_id || DEFAULT_TENANT_ID,
+        source_name: 'synthetic',
+        source_id: 'seed-event-1',
+        event_type: 'seed.security.event',
+        severity: 'high',
+        payload_sha256: hex64,
+        minimized_payload: JSON.stringify({
+          redaction: { raw_payload_exported: false },
+          seed: true
+        }),
+        synthetic: true
+      }
+    ]);
   }
   const event = await first('siem_export_events', 'id, tenant_id', 'TRUE', []);
   if (!event) return;
   if (!(await tableCount('siem_export_delivery_attempts'))) {
-    await insertIfEmpty('siem_export_delivery_attempts', [{
-      tenant_id: event.tenant_id || DEFAULT_TENANT_ID,
-      event_id: event.id,
-      target_id: target.id,
-      transport: 'webhook',
-      status: 'pending',
-      payload_sha256: hex64,
-      lease_generation: 0,
-      acknowledgement_state: 'not_evaluated',
-      send_authority: 'normal',
-      effect_disposition: 'live',
-      metadata: JSON.stringify({ seed: true }),
-    }]);
+    await insertIfEmpty('siem_export_delivery_attempts', [
+      {
+        tenant_id: event.tenant_id || DEFAULT_TENANT_ID,
+        event_id: event.id,
+        target_id: target.id,
+        transport: 'webhook',
+        status: 'pending',
+        payload_sha256: hex64,
+        lease_generation: 0,
+        acknowledgement_state: 'not_evaluated',
+        send_authority: 'normal',
+        effect_disposition: 'live',
+        metadata: JSON.stringify({ seed: true })
+      }
+    ]);
   }
 }
 
@@ -6070,7 +9173,7 @@ async function seedNicuPicuChartTables() {
     'icu_admissions',
     'id, tenant_id, admission_id, patient_uid',
     'TRUE',
-    [],
+    []
   );
   const reviewerUid = refs.staff?.uid || refs.doctor?.uid;
   if (!icuAdmission?.id || !icuAdmission.patient_uid || !reviewerUid) return;
@@ -6089,7 +9192,7 @@ async function seedNicuPicuChartTables() {
         weight_grams: 1500,
         recorded_by: reviewerUid,
         notes: 'Seed NICU weight-of-day anchor for QA coverage.',
-        metadata: seedMeta,
+        metadata: seedMeta
       },
       {
         tenant_id: tenantId,
@@ -6103,7 +9206,7 @@ async function seedNicuPicuChartTables() {
         volume_ml: 30,
         duration_minutes: 20,
         recorded_by: reviewerUid,
-        metadata: seedMeta,
+        metadata: seedMeta
       },
       {
         tenant_id: tenantId,
@@ -6116,27 +9219,29 @@ async function seedNicuPicuChartTables() {
         output_volume_ml: 12,
         diaper_weight_based: true,
         recorded_by: reviewerUid,
-        metadata: seedMeta,
-      },
+        metadata: seedMeta
+      }
     ]);
   }
 
   if (hasJaundice) {
-    await insertIfEmpty('nicu_jaundice_phototherapy_events', [{
-      tenant_id: tenantId,
-      icu_admission_id: icuAdmission.id,
-      patient_uid: icuAdmission.patient_uid,
-      event_kind: 'bilirubin_measurement',
-      occurred_at: new Date('2026-05-04T10:00:00.000Z'),
-      bilirubin_total_mgdl: 11.4,
-      bilirubin_direct_mgdl: 0.6,
-      measurement_method: 'serum',
-      threshold_reference_source: 'nl5_content_studio',
-      threshold_reference_version: 'seed-tsb-v1',
-      recorded_by: reviewerUid,
-      notes: 'Seed bilirubin measurement for QA coverage.',
-      metadata: seedMeta,
-    }]);
+    await insertIfEmpty('nicu_jaundice_phototherapy_events', [
+      {
+        tenant_id: tenantId,
+        icu_admission_id: icuAdmission.id,
+        patient_uid: icuAdmission.patient_uid,
+        event_kind: 'bilirubin_measurement',
+        occurred_at: new Date('2026-05-04T10:00:00.000Z'),
+        bilirubin_total_mgdl: 11.4,
+        bilirubin_direct_mgdl: 0.6,
+        measurement_method: 'serum',
+        threshold_reference_source: 'nl5_content_studio',
+        threshold_reference_version: 'seed-tsb-v1',
+        recorded_by: reviewerUid,
+        notes: 'Seed bilirubin measurement for QA coverage.',
+        metadata: seedMeta
+      }
+    ]);
   }
 
   if (!hasScoring) return;
@@ -6148,9 +9253,9 @@ async function seedNicuPicuChartTables() {
     'nicu_picu_score_definitions',
     'id, reference_source, reference_version',
     'reference_source IS NOT NULL AND reference_version IS NOT NULL',
-    [],
+    []
   );
-  if (!definition && await tableExists('nicu_picu_score_definitions')) {
+  if (!definition && (await tableExists('nicu_picu_score_definitions'))) {
     const created = await client.query(
       `INSERT INTO nicu_picu_score_definitions (
          tenant_id, score_kind, display_name, description, age_scope, source,
@@ -6165,34 +9270,36 @@ async function seedNicuPicuChartTables() {
          '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb
        )
        RETURNING id, reference_source, reference_version`,
-      [tenantId, reviewerUid],
+      [tenantId, reviewerUid]
     );
     definition = created.rows[0];
   }
   if (!definition?.id) return;
 
-  await insertIfEmpty('nicu_picu_scoring_outputs', [{
-    tenant_id: tenantId,
-    icu_admission_id: icuAdmission.id,
-    patient_uid: icuAdmission.patient_uid,
-    score_definition_id: definition.id,
-    score_kind: 'crib_ii',
-    recorded_at: new Date('2026-05-04T11:00:00.000Z'),
-    input_facts: JSON.stringify({ gestational_age_weeks: 31.5, birth_weight_g: 1500 }),
-    score_value: 7,
-    score_label: 'CRIB-II 7',
-    output_payload: JSON.stringify({ score: 7, scale: 'CRIB-II' }),
-    reference_source: definition.reference_source,
-    reference_version: definition.reference_version,
-    reviewer_uid: reviewerUid,
-    reviewer_role: 'NURSING_STAFF',
-    reviewed_at: new Date('2026-05-04T11:05:00.000Z'),
-    review_status: 'reviewed',
-    score_available: true,
-    order_mutation_performed: false,
-    recorded_by: reviewerUid,
-    metadata: seedMeta,
-  }]);
+  await insertIfEmpty('nicu_picu_scoring_outputs', [
+    {
+      tenant_id: tenantId,
+      icu_admission_id: icuAdmission.id,
+      patient_uid: icuAdmission.patient_uid,
+      score_definition_id: definition.id,
+      score_kind: 'crib_ii',
+      recorded_at: new Date('2026-05-04T11:00:00.000Z'),
+      input_facts: JSON.stringify({ gestational_age_weeks: 31.5, birth_weight_g: 1500 }),
+      score_value: 7,
+      score_label: 'CRIB-II 7',
+      output_payload: JSON.stringify({ score: 7, scale: 'CRIB-II' }),
+      reference_source: definition.reference_source,
+      reference_version: definition.reference_version,
+      reviewer_uid: reviewerUid,
+      reviewer_role: 'NURSING_STAFF',
+      reviewed_at: new Date('2026-05-04T11:05:00.000Z'),
+      review_status: 'reviewed',
+      score_available: true,
+      order_mutation_performed: false,
+      recorded_by: reviewerUid,
+      metadata: seedMeta
+    }
+  ]);
 }
 
 async function seedResuscitationTables() {
@@ -6204,16 +9311,21 @@ async function seedResuscitationTables() {
   const recorderUid = refs.secondStaff?.uid || leaderUid;
   if (!patientUid || !leaderUid) return;
 
-  await insertIfEmpty('resuscitation_settings', [{
-    tenant_id: DEFAULT_TENANT_ID,
-    enabled: true,
-    charting_policy: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-    trigger_policy: JSON.stringify({ seed: true }),
-    policy_source: 'operator_supplied',
-    enabled_at: new Date('2026-05-04T08:00:00.000Z'),
-    enabled_by: leaderUid,
-    acceptance_snapshot: JSON.stringify({ seed: true, accepted_by: 'seed-comprehensive-test-data' }),
-  }]);
+  await insertIfEmpty('resuscitation_settings', [
+    {
+      tenant_id: DEFAULT_TENANT_ID,
+      enabled: true,
+      charting_policy: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+      trigger_policy: JSON.stringify({ seed: true }),
+      policy_source: 'operator_supplied',
+      enabled_at: new Date('2026-05-04T08:00:00.000Z'),
+      enabled_by: leaderUid,
+      acceptance_snapshot: JSON.stringify({
+        seed: true,
+        accepted_by: 'seed-comprehensive-test-data'
+      })
+    }
+  ]);
 
   let event = await first('resuscitation_events', 'id, tenant_id, patient_uid', 'TRUE', []);
   if (!event) {
@@ -6234,7 +9346,7 @@ async function seedResuscitationTables() {
          '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb
        )
        RETURNING id, tenant_id, patient_uid`,
-      [DEFAULT_TENANT_ID, patientUid, leaderUid, recorderUid],
+      [DEFAULT_TENANT_ID, patientUid, leaderUid, recorderUid]
     );
     event = created.rows[0];
   }
@@ -6248,7 +9360,7 @@ async function seedResuscitationTables() {
       entry_type: 'compressions_started',
       occurred_at: new Date('2026-05-04T11:00:30.000Z'),
       details: JSON.stringify({ seed: true }),
-      recorded_by: recorderUid,
+      recorded_by: recorderUid
     },
     {
       tenant_id: event.tenant_id || DEFAULT_TENANT_ID,
@@ -6260,7 +9372,7 @@ async function seedResuscitationTables() {
       rhythm: 'vf',
       energy_joules: 200,
       details: JSON.stringify({ seed: true, waveform: 'biphasic' }),
-      recorded_by: recorderUid,
+      recorded_by: recorderUid
     },
     {
       tenant_id: event.tenant_id || DEFAULT_TENANT_ID,
@@ -6273,7 +9385,7 @@ async function seedResuscitationTables() {
       dose: '1 mg',
       route: 'IV',
       details: JSON.stringify({ seed: true }),
-      recorded_by: recorderUid,
+      recorded_by: recorderUid
     },
     {
       tenant_id: event.tenant_id || DEFAULT_TENANT_ID,
@@ -6283,30 +9395,32 @@ async function seedResuscitationTables() {
       entry_type: 'rosc',
       occurred_at: new Date('2026-05-04T11:24:00.000Z'),
       details: JSON.stringify({ seed: true }),
-      recorded_by: recorderUid,
-    },
+      recorded_by: recorderUid
+    }
   ]);
 
   const medEntry = await first(
     'resuscitation_event_timeline',
     'id',
     "resuscitation_event_id = $1 AND entry_type = 'medication'",
-    [event.id],
+    [event.id]
   );
-  await insertIfEmpty('resuscitation_medication_links', [{
-    tenant_id: event.tenant_id || DEFAULT_TENANT_ID,
-    resuscitation_event_id: event.id,
-    timeline_entry_id: medEntry?.id,
-    patient_uid: event.patient_uid,
-    link_kind: 'unlinked_emergency',
-    medication_kind: 'medication',
-    medication_name: 'Adrenaline (epinephrine)',
-    dose: '1 mg',
-    route: 'IV',
-    reconciliation_status: 'pending_mar_reconciliation',
-    recorded_by: recorderUid,
-    metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-  }]);
+  await insertIfEmpty('resuscitation_medication_links', [
+    {
+      tenant_id: event.tenant_id || DEFAULT_TENANT_ID,
+      resuscitation_event_id: event.id,
+      timeline_entry_id: medEntry?.id,
+      patient_uid: event.patient_uid,
+      link_kind: 'unlinked_emergency',
+      medication_kind: 'medication',
+      medication_name: 'Adrenaline (epinephrine)',
+      dose: '1 mg',
+      route: 'IV',
+      reconciliation_status: 'pending_mar_reconciliation',
+      recorded_by: recorderUid,
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' })
+    }
+  ]);
 
   await insertIfEmpty('resuscitation_team_roles', [
     {
@@ -6321,7 +9435,7 @@ async function seedResuscitationTables() {
       signature_method: 'app_confirmation',
       signature_evidence: JSON.stringify({ seed: true }),
       assigned_by: leaderUid,
-      metadata: JSON.stringify({ seed: true }),
+      metadata: JSON.stringify({ seed: true })
     },
     {
       tenant_id: event.tenant_id || DEFAULT_TENANT_ID,
@@ -6335,70 +9449,77 @@ async function seedResuscitationTables() {
       signature_method: 'app_confirmation',
       signature_evidence: JSON.stringify({ seed: true }),
       assigned_by: leaderUid,
-      metadata: JSON.stringify({ seed: true }),
-    },
+      metadata: JSON.stringify({ seed: true })
+    }
   ]);
 
   const alertRow = await first('clinical_alerts', 'id', 'TRUE', []);
-  await insertIfEmpty('resuscitation_device_links', [{
-    tenant_id: event.tenant_id || DEFAULT_TENANT_ID,
-    resuscitation_event_id: event.id,
-    patient_uid: event.patient_uid,
-    link_kind: alertRow ? 'clinical_alert' : 'defibrillator',
-    clinical_alert_id: alertRow?.id,
-    evidence: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-    linked_by: recorderUid,
-    linked_at: new Date('2026-05-04T11:02:30.000Z'),
-  }]);
+  await insertIfEmpty('resuscitation_device_links', [
+    {
+      tenant_id: event.tenant_id || DEFAULT_TENANT_ID,
+      resuscitation_event_id: event.id,
+      patient_uid: event.patient_uid,
+      link_kind: alertRow ? 'clinical_alert' : 'defibrillator',
+      clinical_alert_id: alertRow?.id,
+      evidence: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+      linked_by: recorderUid,
+      linked_at: new Date('2026-05-04T11:02:30.000Z')
+    }
+  ]);
 
-  await insertIfEmpty('resuscitation_qa_reviews', [{
-    tenant_id: event.tenant_id || DEFAULT_TENANT_ID,
-    resuscitation_event_id: event.id,
-    patient_uid: event.patient_uid,
-    review_status: 'draft',
-    template_source: 'operator_supplied',
-    template_version: 'seed-qa-v1',
-    template_snapshot: JSON.stringify({ seed: true, questions: ['timeliness', 'documentation'] }),
-    evidence_owner_uid: leaderUid,
-    responses: JSON.stringify({ timeliness: 'seed answer' }),
-    findings: 'Seed QA review for coverage.',
-    action_items: JSON.stringify([]),
-    debrief_held_at: new Date('2026-05-04T12:00:00.000Z'),
-    debrief_lead_uid: leaderUid,
-    metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-  }]);
+  await insertIfEmpty('resuscitation_qa_reviews', [
+    {
+      tenant_id: event.tenant_id || DEFAULT_TENANT_ID,
+      resuscitation_event_id: event.id,
+      patient_uid: event.patient_uid,
+      review_status: 'draft',
+      template_source: 'operator_supplied',
+      template_version: 'seed-qa-v1',
+      template_snapshot: JSON.stringify({ seed: true, questions: ['timeliness', 'documentation'] }),
+      evidence_owner_uid: leaderUid,
+      responses: JSON.stringify({ timeliness: 'seed answer' }),
+      findings: 'Seed QA review for coverage.',
+      action_items: JSON.stringify([]),
+      debrief_held_at: new Date('2026-05-04T12:00:00.000Z'),
+      debrief_lead_uid: leaderUid,
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' })
+    }
+  ]);
 }
 
 async function seedEdEncounterEvidence() {
-  if (!(await tableExists('ed_encounter_evidence')) || await tableCount('ed_encounter_evidence')) return;
+  if (!(await tableExists('ed_encounter_evidence')) || (await tableCount('ed_encounter_evidence')))
+    return;
 
   const visit = await first('emergency_visits', 'id, tenant_id, patient_uid', 'TRUE', []);
   const vital = await first(
     'vitals_chart',
     'id, tenant_id, patient_uid, recorded_at, device_verified, recorded_by',
     'TRUE',
-    [],
+    []
   );
   if (!visit || !vital) return;
 
-  await insertIfEmpty('ed_encounter_evidence', [{
-    tenant_id: visit.tenant_id || vital.tenant_id || DEFAULT_TENANT_ID,
-    emergency_visit_id: visit.id,
-    patient_uid: visit.patient_uid || vital.patient_uid,
-    evidence_kind: 'vital_snapshot',
-    vitals_chart_id: vital.id,
-    observed_at: vital.recorded_at || new Date(),
-    verified: vital.device_verified ?? false,
-    linked_by_uid: vital.recorded_by,
-    notes: 'Seed ED vital snapshot evidence for QA coverage',
-    metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-  }]);
+  await insertIfEmpty('ed_encounter_evidence', [
+    {
+      tenant_id: visit.tenant_id || vital.tenant_id || DEFAULT_TENANT_ID,
+      emergency_visit_id: visit.id,
+      patient_uid: visit.patient_uid || vital.patient_uid,
+      evidence_kind: 'vital_snapshot',
+      vitals_chart_id: vital.id,
+      observed_at: vital.recorded_at || new Date(),
+      verified: vital.device_verified ?? false,
+      linked_by_uid: vital.recorded_by,
+      notes: 'Seed ED vital snapshot evidence for QA coverage',
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' })
+    }
+  ]);
 }
 
 async function seedEdClosureRecoveryEvidence() {
   if (
-    (await tableCount('ed_closure_evidence')) > 0
-    && (await tableCount('ed_recovery_contact_events')) > 0
+    (await tableCount('ed_closure_evidence')) > 0 &&
+    (await tableCount('ed_recovery_contact_events')) > 0
   ) {
     return;
   }
@@ -6425,13 +9546,7 @@ async function seedEdClosureRecoveryEvidence() {
            care_team_uids = EXCLUDED.care_team_uids,
            updated_by = EXCLUDED.updated_by,
            updated_at = NOW()`,
-    [
-      encounterId,
-      DEFAULT_TENANT_ID,
-      refs.patient.uid,
-      refs.doctor.uid,
-      occurredAt,
-    ],
+    [encounterId, DEFAULT_TENANT_ID, refs.patient.uid, refs.doctor.uid, occurredAt]
   );
 
   const visit = await client.query(
@@ -6458,13 +9573,7 @@ async function seedEdClosureRecoveryEvidence() {
            departure_at = EXCLUDED.departure_at,
            updated_at = NOW()
      RETURNING id`,
-    [
-      DEFAULT_TENANT_ID,
-      refs.patient.uid,
-      encounterId,
-      occurredAt,
-      refs.doctor.uid,
-    ],
+    [DEFAULT_TENANT_ID, refs.patient.uid, encounterId, occurredAt, refs.doctor.uid]
   );
   const visitId = Number(visit.rows[0].id);
 
@@ -6496,8 +9605,8 @@ async function seedEdClosureRecoveryEvidence() {
       closureId,
       refs.doctor.uid,
       occurredAt,
-      visitId,
-    ],
+      visitId
+    ]
   );
   const closureAudit = await client.query(
     `INSERT INTO clinical_audit_events
@@ -6516,14 +9625,7 @@ async function seedEdClosureRecoveryEvidence() {
        WHERE idempotency_key IS NOT NULL
      DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key
      RETURNING id`,
-    [
-      DEFAULT_TENANT_ID,
-      refs.patient.uid,
-      encounterId,
-      refs.doctor.uid,
-      closureId,
-      occurredAt,
-    ],
+    [DEFAULT_TENANT_ID, refs.patient.uid, encounterId, refs.doctor.uid, closureId, occurredAt]
   );
 
   await client.query(
@@ -6556,8 +9658,8 @@ async function seedEdClosureRecoveryEvidence() {
       refs.doctor.uid,
       closureTimeline.rows[0].id,
       closureAudit.rows[0].id,
-      occurredAt,
-    ],
+      occurredAt
+    ]
   );
 
   const recoveryTimeline = await client.query(
@@ -6590,8 +9692,8 @@ async function seedEdClosureRecoveryEvidence() {
       refs.doctor.uid,
       new Date('2026-05-04T11:05:00.000Z'),
       visitId,
-      closureId,
-    ],
+      closureId
+    ]
   );
   const recoveryAudit = await client.query(
     `INSERT INTO clinical_audit_events
@@ -6616,8 +9718,8 @@ async function seedEdClosureRecoveryEvidence() {
       encounterId,
       refs.doctor.uid,
       recoveryId,
-      new Date('2026-05-04T11:05:00.000Z'),
-    ],
+      new Date('2026-05-04T11:05:00.000Z')
+    ]
   );
 
   await client.query(
@@ -6646,8 +9748,8 @@ async function seedEdClosureRecoveryEvidence() {
       refs.doctor.uid,
       recoveryTimeline.rows[0].id,
       recoveryAudit.rows[0].id,
-      new Date('2026-05-04T11:05:00.000Z'),
-    ],
+      new Date('2026-05-04T11:05:00.000Z')
+    ]
   );
 }
 
@@ -6659,20 +9761,19 @@ async function seedTransplantProgramTables() {
   const ownerUid = refs.doctor?.uid || refs.staff.uid;
 
   if (await tableExists('transplant_program_settings')) {
-    await insertIfEmpty('transplant_program_settings', [{
-      tenant_id: DEFAULT_TENANT_ID,
-      enabled: false,
-      acceptance_snapshot: JSON.stringify({ seed: true, suite: 'nl13-p6-transplant' }),
-      owner_evidence_reference: 'seed-transplant-owner-evidence',
-    }]);
+    await insertIfEmpty('transplant_program_settings', [
+      {
+        tenant_id: DEFAULT_TENANT_ID,
+        enabled: false,
+        acceptance_snapshot: JSON.stringify({ seed: true, suite: 'nl13-p6-transplant' }),
+        owner_evidence_reference: 'seed-transplant-owner-evidence'
+      }
+    ]);
   }
 
-  let program = await first(
-    'transplant_programs',
-    'id, tenant_id',
-    'tenant_id = $1::uuid',
-    [DEFAULT_TENANT_ID],
-  );
+  let program = await first('transplant_programs', 'id, tenant_id', 'tenant_id = $1::uuid', [
+    DEFAULT_TENANT_ID
+  ]);
   if (!program) {
     const created = await client.query(
       `INSERT INTO transplant_programs (
@@ -6687,7 +9788,7 @@ async function seedTransplantProgramTables() {
          '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb, $3::uuid
        )
        RETURNING id, tenant_id`,
-      [DEFAULT_TENANT_ID, ownerUid, refs.staff.uid],
+      [DEFAULT_TENANT_ID, ownerUid, refs.staff.uid]
     );
     program = created.rows[0];
   }
@@ -6696,9 +9797,9 @@ async function seedTransplantProgramTables() {
     'transplant_candidates',
     'id, tenant_id, patient_uid',
     'tenant_id = $1::uuid',
-    [program.tenant_id || DEFAULT_TENANT_ID],
+    [program.tenant_id || DEFAULT_TENANT_ID]
   );
-  if (!candidate && await tableExists('transplant_candidates')) {
+  if (!candidate && (await tableExists('transplant_candidates'))) {
     const created = await client.query(
       `INSERT INTO transplant_candidates (
          tenant_id, program_id, patient_uid, diagnosis, required_organs,
@@ -6712,7 +9813,7 @@ async function seedTransplantProgramTables() {
          '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb, $4::uuid
        )
        RETURNING id, tenant_id, patient_uid`,
-      [program.tenant_id || DEFAULT_TENANT_ID, program.id, refs.patient.uid, refs.staff.uid],
+      [program.tenant_id || DEFAULT_TENANT_ID, program.id, refs.patient.uid, refs.staff.uid]
     );
     candidate = created.rows[0];
   }
@@ -6720,38 +9821,42 @@ async function seedTransplantProgramTables() {
   if (!candidate) return;
 
   if (await tableExists('transplant_committee_reviews')) {
-    await insertIfEmpty('transplant_committee_reviews', [{
-      tenant_id: candidate.tenant_id || DEFAULT_TENANT_ID,
-      program_id: program.id,
-      candidate_id: candidate.id,
-      attendees: JSON.stringify([{ staff_uid: refs.staff.uid, role: 'TRANSPLANT_COORDINATOR' }]),
-      quorum_policy_reference: 'seed-transplant-quorum-policy',
-      decision: 'approved',
-      recommendations: 'Seed committee approval for QA coverage.',
-      affects_candidate: true,
-      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-      created_by: refs.staff.uid,
-    }]);
+    await insertIfEmpty('transplant_committee_reviews', [
+      {
+        tenant_id: candidate.tenant_id || DEFAULT_TENANT_ID,
+        program_id: program.id,
+        candidate_id: candidate.id,
+        attendees: JSON.stringify([{ staff_uid: refs.staff.uid, role: 'TRANSPLANT_COORDINATOR' }]),
+        quorum_policy_reference: 'seed-transplant-quorum-policy',
+        decision: 'approved',
+        recommendations: 'Seed committee approval for QA coverage.',
+        affects_candidate: true,
+        metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+        created_by: refs.staff.uid
+      }
+    ]);
   }
 
   if (await tableExists('transplant_waitlist_status_history')) {
-    await insertIfEmpty('transplant_waitlist_status_history', [{
-      tenant_id: candidate.tenant_id || DEFAULT_TENANT_ID,
-      candidate_id: candidate.id,
-      status: 'listed',
-      reason: 'Seed waitlist status for QA coverage.',
-      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-      created_by: refs.staff.uid,
-    }]);
+    await insertIfEmpty('transplant_waitlist_status_history', [
+      {
+        tenant_id: candidate.tenant_id || DEFAULT_TENANT_ID,
+        candidate_id: candidate.id,
+        status: 'listed',
+        reason: 'Seed waitlist status for QA coverage.',
+        metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+        created_by: refs.staff.uid
+      }
+    ]);
   }
 
   let donorReferral = await first(
     'transplant_donor_referrals',
     'id, tenant_id',
     'tenant_id = $1::uuid',
-    [program.tenant_id || DEFAULT_TENANT_ID],
+    [program.tenant_id || DEFAULT_TENANT_ID]
   );
-  if (!donorReferral && await tableExists('transplant_donor_referrals')) {
+  if (!donorReferral && (await tableExists('transplant_donor_referrals'))) {
     const created = await client.query(
       `INSERT INTO transplant_donor_referrals (
          tenant_id, program_id, donor_type, source, relation_category,
@@ -6764,69 +9869,83 @@ async function seedTransplantProgramTables() {
          '{"seed":true,"source":"seed-comprehensive-test-data"}'::jsonb, $3::uuid
        )
        RETURNING id, tenant_id`,
-      [program.tenant_id || DEFAULT_TENANT_ID, program.id, refs.staff.uid],
+      [program.tenant_id || DEFAULT_TENANT_ID, program.id, refs.staff.uid]
     );
     donorReferral = created.rows[0];
   }
 
-  if (donorReferral && await tableExists('transplant_match_reviews')) {
-    await insertIfEmpty('transplant_match_reviews', [{
-      tenant_id: candidate.tenant_id || DEFAULT_TENANT_ID,
-      candidate_id: candidate.id,
-      donor_referral_id: donorReferral.id,
-      compatibility_summary: 'Seed compatibility review for QA coverage.',
-      crossmatch_documents: JSON.stringify([]),
-      chain_of_custody: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-      risk_flags: [],
-      decision: 'pending',
-      created_by: refs.staff.uid,
-    }]);
+  if (donorReferral && (await tableExists('transplant_match_reviews'))) {
+    await insertIfEmpty('transplant_match_reviews', [
+      {
+        tenant_id: candidate.tenant_id || DEFAULT_TENANT_ID,
+        candidate_id: candidate.id,
+        donor_referral_id: donorReferral.id,
+        compatibility_summary: 'Seed compatibility review for QA coverage.',
+        crossmatch_documents: JSON.stringify([]),
+        chain_of_custody: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+        risk_flags: [],
+        decision: 'pending',
+        created_by: refs.staff.uid
+      }
+    ]);
   }
 
   if (await tableExists('transplant_immunosuppression_plans')) {
-    await insertIfEmpty('transplant_immunosuppression_plans', [{
-      tenant_id: candidate.tenant_id || DEFAULT_TENANT_ID,
-      candidate_id: candidate.id,
-      patient_uid: candidate.patient_uid || refs.patient.uid,
-      regimen_summary: 'Seed immunosuppression regimen for QA coverage.',
-      monitoring_plan: 'Seed monitoring plan for QA coverage.',
-      prescribing_owner_uid: ownerUid,
-      downstream_medication_links: JSON.stringify([]),
-      status: 'draft',
-      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-      created_by: refs.staff.uid,
-    }]);
+    await insertIfEmpty('transplant_immunosuppression_plans', [
+      {
+        tenant_id: candidate.tenant_id || DEFAULT_TENANT_ID,
+        candidate_id: candidate.id,
+        patient_uid: candidate.patient_uid || refs.patient.uid,
+        regimen_summary: 'Seed immunosuppression regimen for QA coverage.',
+        monitoring_plan: 'Seed monitoring plan for QA coverage.',
+        prescribing_owner_uid: ownerUid,
+        downstream_medication_links: JSON.stringify([]),
+        status: 'draft',
+        metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+        created_by: refs.staff.uid
+      }
+    ]);
   }
 
   if (await tableExists('transplant_notto_exports')) {
-    await insertIfEmpty('transplant_notto_exports', [{
-      tenant_id: program.tenant_id || DEFAULT_TENANT_ID,
-      program_id: program.id,
-      candidate_id: candidate.id,
-      package_metadata: JSON.stringify({ seed: true, export_kind: 'candidate_snapshot' }),
-      owner_reviewed_status: 'pending_owner_review',
-      audit_evidence: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-      created_by: refs.staff.uid,
-    }]);
+    await insertIfEmpty('transplant_notto_exports', [
+      {
+        tenant_id: program.tenant_id || DEFAULT_TENANT_ID,
+        program_id: program.id,
+        candidate_id: candidate.id,
+        package_metadata: JSON.stringify({ seed: true, export_kind: 'candidate_snapshot' }),
+        owner_reviewed_status: 'pending_owner_review',
+        audit_evidence: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+        metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+        created_by: refs.staff.uid
+      }
+    ]);
   }
 }
 
 async function seedPerfusionSignoffs() {
-  if (!(await tableExists('perfusion_signoffs')) || await tableCount('perfusion_signoffs')) return;
-  const record = await first('perfusion_records', 'id, tenant_id, ot_schedule_id, patient_uid', 'TRUE', []);
+  if (!(await tableExists('perfusion_signoffs')) || (await tableCount('perfusion_signoffs')))
+    return;
+  const record = await first(
+    'perfusion_records',
+    'id, tenant_id, ot_schedule_id, patient_uid',
+    'TRUE',
+    []
+  );
   if (!record) return;
 
-  await insertIfEmpty('perfusion_signoffs', [{
-    tenant_id: record.tenant_id || DEFAULT_TENANT_ID,
-    perfusion_record_id: record.id,
-    ot_schedule_id: record.ot_schedule_id,
-    patient_uid: record.patient_uid,
-    status: 'draft',
-    signoff_policy_source_label: 'owner-pending-perfusion-signoff-policy',
-    signoff_policy_source_version: 'pending',
-    metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-  }]);
+  await insertIfEmpty('perfusion_signoffs', [
+    {
+      tenant_id: record.tenant_id || DEFAULT_TENANT_ID,
+      perfusion_record_id: record.id,
+      ot_schedule_id: record.ot_schedule_id,
+      patient_uid: record.patient_uid,
+      status: 'draft',
+      signoff_policy_source_label: 'owner-pending-perfusion-signoff-policy',
+      signoff_policy_source_version: 'pending',
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' })
+    }
+  ]);
 }
 
 async function seedIcuChartDepthTables() {
@@ -6840,18 +9959,15 @@ async function seedIcuChartDepthTables() {
     'icu_admissions',
     'id, tenant_id, admission_id, patient_uid',
     'TRUE',
-    [],
+    []
   );
   const reviewerUid = refs.staff?.uid || refs.doctor?.uid;
   if (!icuAdmission?.id || !icuAdmission.patient_uid || !reviewerUid) return;
 
-  let ventilationEpisode = await first(
-    'icu_ventilation_episodes',
-    'id',
-    'icu_admission_id = $1',
-    [icuAdmission.id],
-  );
-  if (hasWeaning && !ventilationEpisode && await tableExists('icu_ventilation_episodes')) {
+  let ventilationEpisode = await first('icu_ventilation_episodes', 'id', 'icu_admission_id = $1', [
+    icuAdmission.id
+  ]);
+  if (hasWeaning && !ventilationEpisode && (await tableExists('icu_ventilation_episodes'))) {
     const created = await client.query(
       `INSERT INTO icu_ventilation_episodes (
          tenant_id, icu_admission_id, admission_id, patient_uid, mode, oxygen_device,
@@ -6871,55 +9987,62 @@ async function seedIcuChartDepthTables() {
         icuAdmission.id,
         icuAdmission.admission_id,
         icuAdmission.patient_uid,
-        reviewerUid,
-      ],
+        reviewerUid
+      ]
     );
     ventilationEpisode = created.rows[0];
   }
 
   if (hasWeaning) {
-    await insertIfEmpty('icu_weaning_trials', [{
-      tenant_id: icuAdmission.tenant_id || DEFAULT_TENANT_ID,
-      icu_admission_id: icuAdmission.id,
-      ventilation_episode_id: ventilationEpisode?.id,
-      patient_uid: icuAdmission.patient_uid,
-      trial_kind: 'sbt',
-      readiness_status: 'ready',
-      started_at: new Date('2026-05-04T09:00:00.000Z'),
-      ended_at: new Date('2026-05-04T09:30:00.000Z'),
-      outcome: 'passed',
-      reason: 'Seed spontaneous breathing trial for QA coverage.',
-      criteria_snapshot: JSON.stringify({ fio2: 0.35, peepCmH2o: 5, hemodynamics: 'stable' }),
-      protocol_reference: JSON.stringify({ source: 'nl5_content_studio', version: 'seed-sbt-v1' }),
-      reviewer_uid: reviewerUid,
-      reviewed_at: new Date('2026-05-04T09:35:00.000Z'),
-      recorded_by: reviewerUid,
-      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-    }]);
+    await insertIfEmpty('icu_weaning_trials', [
+      {
+        tenant_id: icuAdmission.tenant_id || DEFAULT_TENANT_ID,
+        icu_admission_id: icuAdmission.id,
+        ventilation_episode_id: ventilationEpisode?.id,
+        patient_uid: icuAdmission.patient_uid,
+        trial_kind: 'sbt',
+        readiness_status: 'ready',
+        started_at: new Date('2026-05-04T09:00:00.000Z'),
+        ended_at: new Date('2026-05-04T09:30:00.000Z'),
+        outcome: 'passed',
+        reason: 'Seed spontaneous breathing trial for QA coverage.',
+        criteria_snapshot: JSON.stringify({ fio2: 0.35, peepCmH2o: 5, hemodynamics: 'stable' }),
+        protocol_reference: JSON.stringify({
+          source: 'nl5_content_studio',
+          version: 'seed-sbt-v1'
+        }),
+        reviewer_uid: reviewerUid,
+        reviewed_at: new Date('2026-05-04T09:35:00.000Z'),
+        recorded_by: reviewerUid,
+        metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' })
+      }
+    ]);
   }
 
   if (hasScoring) {
-    await insertIfEmpty('icu_scoring_outputs', [{
-      tenant_id: icuAdmission.tenant_id || DEFAULT_TENANT_ID,
-      icu_admission_id: icuAdmission.id,
-      patient_uid: icuAdmission.patient_uid,
-      scoring_kind: 'rass',
-      recorded_at: new Date('2026-05-04T10:00:00.000Z'),
-      input_facts: JSON.stringify({ agitation: 'calm', arousal: 'alert' }),
-      score_value: 0,
-      score_label: 'Alert and calm',
-      output_payload: JSON.stringify({ score: 0, scale: 'RASS' }),
-      reference_source: 'nl5_content_studio',
-      reference_version: 'seed-rass-v1',
-      reviewer_uid: reviewerUid,
-      reviewer_role: 'NURSING_STAFF',
-      reviewed_at: new Date('2026-05-04T10:05:00.000Z'),
-      review_status: 'reviewed',
-      protocol_available: true,
-      order_mutation_performed: false,
-      recorded_by: reviewerUid,
-      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-    }]);
+    await insertIfEmpty('icu_scoring_outputs', [
+      {
+        tenant_id: icuAdmission.tenant_id || DEFAULT_TENANT_ID,
+        icu_admission_id: icuAdmission.id,
+        patient_uid: icuAdmission.patient_uid,
+        scoring_kind: 'rass',
+        recorded_at: new Date('2026-05-04T10:00:00.000Z'),
+        input_facts: JSON.stringify({ agitation: 'calm', arousal: 'alert' }),
+        score_value: 0,
+        score_label: 'Alert and calm',
+        output_payload: JSON.stringify({ score: 0, scale: 'RASS' }),
+        reference_source: 'nl5_content_studio',
+        reference_version: 'seed-rass-v1',
+        reviewer_uid: reviewerUid,
+        reviewer_role: 'NURSING_STAFF',
+        reviewed_at: new Date('2026-05-04T10:05:00.000Z'),
+        review_status: 'reviewed',
+        protocol_available: true,
+        order_mutation_performed: false,
+        recorded_by: reviewerUid,
+        metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' })
+      }
+    ]);
   }
 
   if (!hasDeviceLinks) return;
@@ -6928,7 +10051,7 @@ async function seedIcuChartDepthTables() {
     'vitals_chart',
     'id, tenant_id, patient_uid',
     'patient_uid = $1::uuid',
-    [icuAdmission.patient_uid],
+    [icuAdmission.patient_uid]
   );
   if (!vitalsRow) {
     const created = await client.query(
@@ -6944,22 +10067,24 @@ async function seedIcuChartDepthTables() {
          'Seed ICU device vital for QA coverage.'
        )
        RETURNING id, tenant_id, patient_uid`,
-      [icuAdmission.tenant_id || DEFAULT_TENANT_ID, icuAdmission.patient_uid, reviewerUid],
+      [icuAdmission.tenant_id || DEFAULT_TENANT_ID, icuAdmission.patient_uid, reviewerUid]
     );
     vitalsRow = created.rows[0];
   }
 
-  await insertIfEmpty('icu_device_observation_links', [{
-    tenant_id: icuAdmission.tenant_id || vitalsRow.tenant_id || DEFAULT_TENANT_ID,
-    icu_admission_id: icuAdmission.id,
-    patient_uid: icuAdmission.patient_uid,
-    link_kind: 'vitals_chart',
-    vitals_chart_id: vitalsRow.id,
-    linked_at: new Date('2026-05-04T10:15:00.000Z'),
-    linked_by: reviewerUid,
-    context: 'seed_coverage',
-    metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
-  }]);
+  await insertIfEmpty('icu_device_observation_links', [
+    {
+      tenant_id: icuAdmission.tenant_id || vitalsRow.tenant_id || DEFAULT_TENANT_ID,
+      icu_admission_id: icuAdmission.id,
+      patient_uid: icuAdmission.patient_uid,
+      link_kind: 'vitals_chart',
+      vitals_chart_id: vitalsRow.id,
+      linked_at: new Date('2026-05-04T10:15:00.000Z'),
+      linked_by: reviewerUid,
+      context: 'seed_coverage',
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' })
+    }
+  ]);
 }
 
 async function seedClinicalContinuityTables() {
@@ -6974,12 +10099,11 @@ async function seedClinicalContinuityTables() {
        VALUES ($1::uuid, $2::text, 'Continuity seed tenant (inert)', 'suspended',
                '{"seed":true,"activation":"disabled"}'::jsonb)
        ON CONFLICT (id) DO NOTHING`,
-      [fixture.tenantId, fixture.tenantSlug],
+      [fixture.tenantId, fixture.tenantSlug]
     );
-    await client.query(
-      "SELECT set_config('app.current_tenant_id', $1::text, true)",
-      [fixture.tenantId],
-    );
+    await client.query("SELECT set_config('app.current_tenant_id', $1::text, true)", [
+      fixture.tenantId
+    ]);
     await client.query(
       `INSERT INTO facilities
          (id, tenant_id, facility_code, display_name, timezone, status, is_default, metadata)
@@ -6988,20 +10112,20 @@ async function seedClinicalContinuityTables() {
           'Asia/Kolkata', 'inactive', FALSE,
           '{"seed":true,"activation":"disabled"}'::jsonb)
        ON CONFLICT (tenant_id, facility_code) DO NOTHING`,
-      [fixture.facilityId, fixture.tenantId, fixture.facilityCode],
+      [fixture.facilityId, fixture.tenantId, fixture.facilityCode]
     );
 
     for (const key of [
       {
         keyId: fixture.policySigningKeyId,
         purpose: 'clinical_continuity_policy_signing',
-        publicKey: fixture.policySigningPublicKey,
+        publicKey: fixture.policySigningPublicKey
       },
       {
         keyId: fixture.currentPackSigningKeyId,
         purpose: 'clinical_continuity_pack_signing',
-        publicKey: fixture.currentPackSigningPublicKey,
-      },
+        publicKey: fixture.currentPackSigningPublicKey
+      }
     ]) {
       await client.query(
         `INSERT INTO encryption_keys
@@ -7017,9 +10141,9 @@ async function seedClinicalContinuityTables() {
             seed: true,
             purpose: key.purpose,
             public_key_spki_pem: key.publicKey,
-            private_key_material_present: false,
-          }),
-        ],
+            private_key_material_present: false
+          })
+        ]
       );
     }
 
@@ -7027,7 +10151,7 @@ async function seedClinicalContinuityTables() {
       'clinical_continuity_policy_versions',
       'id',
       'id = $1::uuid AND tenant_id = $2::uuid AND facility_id = $3::integer',
-      [fixture.policyId, fixture.tenantId, fixture.facilityId],
+      [fixture.policyId, fixture.tenantId, fixture.facilityId]
     );
     if (!existingPolicy) {
       await client.query(
@@ -7053,14 +10177,13 @@ async function seedClinicalContinuityTables() {
           fixture.currentPackSigningKeyId,
           fixture.currentPackSigningPublicKeySha256,
           Buffer.from(fixture.policySignature, 'base64'),
-          fixture.effectiveFrom,
-        ],
+          fixture.effectiveFrom
+        ]
       );
     }
-    await client.query(
-      "SELECT set_config('app.current_tenant_id', $1::text, true)",
-      [DEFAULT_TENANT_ID],
-    );
+    await client.query("SELECT set_config('app.current_tenant_id', $1::text, true)", [
+      DEFAULT_TENANT_ID
+    ]);
   }
 
   if (hasSnapshots) {
@@ -7068,25 +10191,27 @@ async function seedClinicalContinuityTables() {
       'users',
       'uid',
       "tenant_id = $1::uuid AND role = 'PATIENT'",
-      [DEFAULT_TENANT_ID],
+      [DEFAULT_TENANT_ID]
     );
     if (!defaultTenantPatient?.uid) {
       throw new Error(
-        'Clinical continuity legacy snapshot seed requires a default-tenant patient fixture',
+        'Clinical continuity legacy snapshot seed requires a default-tenant patient fixture'
       );
     }
-    await insertIfEmpty('downtime_snapshots', [{
-      tenant_id: DEFAULT_TENANT_ID,
-      patient_uid: defaultTenantPatient.uid,
-      scope: 'patient_chart',
-      label: 'Seed legacy downtime snapshot',
-      payload: JSON.stringify({
-        seed: true,
-        source: 'seed-comprehensive-test-data',
-        governedContinuityPublication: false,
-      }),
-      expires_at: new Date('2026-07-30T00:00:00.000Z'),
-    }]);
+    await insertIfEmpty('downtime_snapshots', [
+      {
+        tenant_id: DEFAULT_TENANT_ID,
+        patient_uid: defaultTenantPatient.uid,
+        scope: 'patient_chart',
+        label: 'Seed legacy downtime snapshot',
+        payload: JSON.stringify({
+          seed: true,
+          source: 'seed-comprehensive-test-data',
+          governedContinuityPublication: false
+        }),
+        expires_at: new Date('2026-07-30T00:00:00.000Z')
+      }
+    ]);
   }
 }
 
@@ -7108,8 +10233,8 @@ async function seedFhirVitalObservationReceiptGraph() {
       DEFAULT_TENANT_ID,
       ctx.patient.uid,
       FHIR_VITAL_SEED_SET_FINGERPRINT,
-      FHIR_VITAL_SEED_OBSERVED_AT,
-    ],
+      FHIR_VITAL_SEED_OBSERVED_AT
+    ]
   );
   let vitalsChartId = existingVitals?.id;
   if (!vitalsChartId) {
@@ -7124,8 +10249,8 @@ async function seedFhirVitalObservationReceiptGraph() {
         ctx.patient.uid,
         FHIR_VITAL_SEED_SET_FINGERPRINT,
         ctx.staff.uid,
-        FHIR_VITAL_SEED_OBSERVED_AT,
-      ],
+        FHIR_VITAL_SEED_OBSERVED_AT
+      ]
     );
     vitalsChartId = insertedVitals.rows[0].id;
   }
@@ -7141,8 +10266,8 @@ async function seedFhirVitalObservationReceiptGraph() {
       ctx.patient.uid,
       FHIR_VITAL_SEED_RESOURCE_ID,
       FHIR_VITAL_SEED_OBSERVED_AT,
-      ['8867-4'],
-    ],
+      ['8867-4']
+    ]
   );
 
   await client.query(
@@ -7159,8 +10284,8 @@ async function seedFhirVitalObservationReceiptGraph() {
       ctx.patient.uid,
       FHIR_VITAL_SEED_OBSERVED_AT,
       ctx.staff.uid,
-      vitalsChartId,
-    ],
+      vitalsChartId
+    ]
   );
 
   await client.query(
@@ -7168,11 +10293,7 @@ async function seedFhirVitalObservationReceiptGraph() {
        (tenant_id, set_fingerprint, resource_fingerprint)
      VALUES ($1::uuid, $2, $3)
      ON CONFLICT (tenant_id, set_fingerprint, resource_fingerprint) DO NOTHING`,
-    [
-      DEFAULT_TENANT_ID,
-      FHIR_VITAL_SEED_SET_FINGERPRINT,
-      FHIR_VITAL_SEED_RESOURCE_FINGERPRINT,
-    ],
+    [DEFAULT_TENANT_ID, FHIR_VITAL_SEED_SET_FINGERPRINT, FHIR_VITAL_SEED_RESOURCE_FINGERPRINT]
   );
 }
 
@@ -7192,13 +10313,14 @@ try {
   await seedNotificationDeliveryEvidence();
   await seedHl7OutboundDeliveryEvidence();
   await seedReferralClosedLoopGraph();
-  const { seeded } = await seedRemainingTables();
+  const { seeded, failed: initialSeedFailures } = await seedRemainingTables();
   await seedPayrollAttemptGraph();
   await seedFhirVitalObservationReceiptGraph();
   await seedInteropHl7v2DeliveryReceipt();
   await seedEdClosureRecoveryEvidence();
   await seedInsuranceClaimCaps();
-  await seedMedicationClosureEvidence();
+  await seedMedicationClosureEvidence(initialSeedFailures);
+  await seedBillingAndCounterSaleClosureEvidence();
   await seedLedgerEntries();
   await seedPillarDWorkflowTables();
   await seedRadiologyPeerReviews();

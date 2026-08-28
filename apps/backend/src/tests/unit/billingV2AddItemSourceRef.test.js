@@ -14,6 +14,10 @@ const setTenantTxMock = jest.fn(async (_tenantId, callback) => callback(prismaMo
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: prismaMock,
+  isTenantTransactionClient: (value) => value === prismaMock,
+  pickTenantClient: () => prismaMock,
+  runTenantScopedTransaction: async (_client, _guc, callback) => callback(prismaMock),
+  setTenant: async (_tenantId, callback) => callback(prismaMock),
   setTenantTx: setTenantTxMock,
 }));
 

@@ -36,25 +36,38 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
  * Returns [{ id, uid, phone, role }] (may be empty — the caller decides how
  * loudly to fail).
  */
-export async function resolveClinicalAlertRecipients(tenantId) {
+export async function resolveClinicalAlertRecipients(tenantId, {
+  tx = null,
+  primaryRole = ROLES.DUTY_DOCTOR,
+  fallbackRoles = DOCTOR_TIERS,
+} = {}) {
   const tid = String(tenantId || '').trim().toLowerCase();
   if (!UUID_RE.test(tid)) return [];
-  const query = (rolePredicate, roleValue) => setTenant(
-    tid,
-    tx => tx.$queryRawUnsafe(
+  const primary = String(primaryRole || '').trim();
+  const fallback = [...new Set(
+    (Array.isArray(fallbackRoles) ? fallbackRoles : [])
+      .map((role) => String(role || '').trim())
+      .filter(Boolean),
+  )];
+  if (!primary || fallback.length === 0) return [];
+  const query = (rolePredicate, roleValue) => {
+    const run = db => db.$queryRawUnsafe(
       `SELECT id, uid, phone, role
          FROM users
         WHERE tenant_id = $1::uuid
           AND is_active = TRUE
+          AND COALESCE(is_deleted, FALSE) = FALSE
+          AND deleted_at IS NULL
+          AND LOWER(COALESCE(status, 'active')) = 'active'
           AND ${rolePredicate}
         ORDER BY last_sign_in_at DESC NULLS LAST, id ASC
         LIMIT $3::integer`,
       tid, roleValue, CLINICAL_ALERT_FANOUT_CAP,
-    ),
-    { readOnly: true },
-  );
-  const exact = await query('role = $2::text', ROLES.DUTY_DOCTOR);
-  const rows = exact.length > 0 ? exact : await query('role = ANY($2::text[])', DOCTOR_TIERS);
+    );
+    return tx ? run(tx) : setTenant(tid, run, { readOnly: true });
+  };
+  const exact = await query('role = $2::text', primary);
+  const rows = exact.length > 0 ? exact : await query('role = ANY($2::text[])', fallback);
   const seen = new Set();
   const recipients = [];
   for (const row of rows) {
@@ -87,12 +100,15 @@ export async function queueClinicalAlertFanout(notification, {
   outbox = notificationOutbox,
   resolveRecipients = resolveClinicalAlertRecipients,
   strict = false,
+  tx = null,
 } = {}) {
   const { tenantId: rawTenantId, ...intent } = notification || {};
   const tenantId = String(rawTenantId || getCurrentTenantId() || '').trim().toLowerCase();
   let recipients = [];
   try {
-    recipients = await resolveRecipients(tenantId);
+    recipients = tx
+      ? await resolveRecipients(tenantId, { tx })
+      : await resolveRecipients(tenantId);
   } catch (err) {
     logger.error('clinical-alert fan-out: recipient resolution failed', {
       tenant_id: tenantId || null, err: err?.message,
@@ -115,7 +131,7 @@ export async function queueClinicalAlertFanout(notification, {
         recipientId: recipient.uid,
         recipientPhone: recipient.phone || null,
         data: { ...(intent.data || {}), recipient_role: recipient.role || null },
-      }, { strict: true });
+      }, { strict: true, ...(tx ? { tx } : {}) });
       if (row) queued += 1;
     } catch (err) {
       logger.warn('clinical-alert fan-out: outbox queue failed for recipient', {

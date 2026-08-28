@@ -4,6 +4,7 @@ const mockPrisma = { $queryRawUnsafe: jest.fn(), $executeRawUnsafe: jest.fn() };
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: mockPrisma,
+  isTenantTransactionClient: (value) => value === mockPrisma,
   setTenantTx: async (_tenantId, fn) => fn(mockPrisma),
   setTenant: async (_tenantId, fn) => fn(mockPrisma),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(mockPrisma),
@@ -60,6 +61,9 @@ describe('billing v2 payment invoice totals', () => {
 
   it('keeps advance settlements in amount_paid when reversing a later payment', async () => {
     mockPrisma.$queryRawUnsafe
+      .mockResolvedValueOnce([{
+        id: 9, reversed: false, mode: 'CASH', immutable_drawer_close: false,
+      }])
       .mockResolvedValueOnce([{ id: 9, invoice_id: 3, amount: '2300' }]) // UPDATE payment RETURNING
       .mockResolvedValueOnce([{ id: 3 }]) // lockBillingInvoice (SELECT ... FOR UPDATE)
       .mockResolvedValueOnce([{ paid: '15000' }]) // recompute aggregate
@@ -68,8 +72,8 @@ describe('billing v2 payment invoice totals', () => {
 
     await reversePayment(9, { reason: 'cash entry voided' });
 
-    // The lock is calls[1]; the paid aggregate is now calls[2].
-    const paidAggregateSql = mockPrisma.$queryRawUnsafe.mock.calls[2][0];
+    // The preflight is calls[0], payment UPDATE calls[1], and invoice lock calls[2].
+    const paidAggregateSql = mockPrisma.$queryRawUnsafe.mock.calls[3][0];
     expect(paidAggregateSql).toContain('billing_payments');
     expect(paidAggregateSql).toContain('billing_advance_settlements');
     expect(mockPrisma.$executeRawUnsafe).toHaveBeenCalledWith(

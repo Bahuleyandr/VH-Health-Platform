@@ -3,12 +3,104 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/platform_info.dart';
+import '../../../core/services/auth_service.dart';
+import '../../../core/services/idempotency_attempt_registry.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/api_error_messages.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 import '../models/order_draft.dart';
 import '../widgets/patient_summary_sheet.dart';
+
+const _nursingOrderVerifyRoles = <String>{
+  'NURSING_STAFF',
+  'NURSING_INCHARGE',
+  'IP_STAFF_NURSE',
+  'IP_INCHARGE',
+  'ICU_NURSE',
+  'ICU_INCHARGE',
+};
+
+const _medicationOrderVerifyRoles = <String>{
+  ..._nursingOrderVerifyRoles,
+  'PHARMACY_STAFF',
+  'PHARMACY_INCHARGE',
+  'PHARMACIST',
+};
+
+@visibleForTesting
+bool canVerifyMedicationOrders(String? role) =>
+    _medicationOrderVerifyRoles.contains(role?.trim().toUpperCase() ?? '');
+
+@visibleForTesting
+bool canRunMedicationOrderVerification(
+  String? role,
+  AppDeviceMode deviceMode,
+) => canVerifyMedicationOrders(role) && deviceMode != AppDeviceMode.mobile;
+
+@visibleForTesting
+bool canRunClinicalOrderVerification(
+  String? role,
+  AppDeviceMode deviceMode,
+  String? orderType,
+) {
+  if (deviceMode == AppDeviceMode.mobile) return false;
+  final normalizedRole = role?.trim().toUpperCase() ?? '';
+  final normalizedType = orderType?.trim().toLowerCase() ?? '';
+  if (normalizedType.isEmpty) return false;
+  if (_nursingOrderVerifyRoles.contains(normalizedRole)) return true;
+  return normalizedType == 'medication' &&
+      _medicationOrderVerifyRoles.contains(normalizedRole);
+}
+
+@visibleForTesting
+bool canRunMedicationOrderMarRecovery(String? role, AppDeviceMode deviceMode) {
+  return canPrescribeMedicationOrders(role) &&
+      deviceMode != AppDeviceMode.mobile;
+}
+
+class IcuMarReviewBanner extends StatelessWidget {
+  const IcuMarReviewBanner({super.key, required this.icuAdmissionId});
+
+  final int icuAdmissionId;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
+    final message = s.ordersIcuMarReviewBanner(icuAdmissionId);
+    return Semantics(
+      container: true,
+      liveRegion: true,
+      label: message,
+      child: Container(
+        key: Key('icu-mar-review-banner-$icuAdmissionId'),
+        width: double.infinity,
+        margin: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppTheme.warningAmber.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppTheme.warningAmber),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.medication_outlined, color: AppTheme.warningAmber),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 /// EMR Orders screen (roadmap E1) — patient order list with full status
 /// visibility (ordered → verified → completed / cancelled / discontinued),
@@ -19,12 +111,16 @@ class OrdersScreen extends StatefulWidget {
   final String patientUid;
   final String? patientName;
   final String? encounterId;
+  final int? marRecoveryOrderId;
+  final int? icuMarReviewAdmissionId;
 
   const OrdersScreen({
     super.key,
     required this.patientUid,
     this.patientName,
     this.encounterId,
+    this.marRecoveryOrderId,
+    this.icuMarReviewAdmissionId,
   });
 
   @override
@@ -36,11 +132,49 @@ class _OrdersScreenState extends State<OrdersScreen> {
   bool _loading = true;
   String? _error;
   String? _filterStatus;
+  String? _role;
+  final Set<int> _recoveringMarOrders = <int>{};
+  final Set<int> _verifyingOrders = <int>{};
+  final IdempotencyAttemptRegistry _marRecoveryAttempts =
+      IdempotencyAttemptRegistry();
+  final IdempotencyAttemptRegistry _verificationAttempts =
+      IdempotencyAttemptRegistry();
+
+  bool get _prescriberCanRecoverMar => canPrescribeMedicationOrders(_role);
+
+  bool get _deviceCanRecoverMar =>
+      appDeviceModeForContext(context) != AppDeviceMode.mobile;
+
+  bool get _canRecoverMar =>
+      canRunMedicationOrderMarRecovery(_role, appDeviceModeForContext(context));
+
+  bool _canVerifyOrder(String? orderType) => canRunClinicalOrderVerification(
+    _role,
+    appDeviceModeForContext(context),
+    orderType,
+  );
 
   @override
   void initState() {
     super.initState();
     _loadOrders();
+    _loadRole();
+  }
+
+  @override
+  void dispose() {
+    _marRecoveryAttempts.clear();
+    _verificationAttempts.clear();
+    super.dispose();
+  }
+
+  Future<void> _loadRole() async {
+    try {
+      final role = await AuthService.getRole();
+      if (mounted) setState(() => _role = role);
+    } catch (_) {
+      if (mounted) setState(() => _role = null);
+    }
   }
 
   Future<void> _loadOrders() async {
@@ -69,10 +203,32 @@ class _OrdersScreenState extends State<OrdersScreen> {
   }
 
   List<Map<String, dynamic>> get _filteredOrders {
-    if (_filterStatus == null) return _orders;
-    return _orders
-        .where((o) => (o['status'] as String?)?.toLowerCase() == _filterStatus)
-        .toList();
+    final result = _filterStatus == null
+        ? List<Map<String, dynamic>>.of(_orders)
+        : _orders
+              .where(
+                (o) => (o['status'] as String?)?.toLowerCase() == _filterStatus,
+              )
+              .toList();
+    final recoveryOrderId = widget.marRecoveryOrderId;
+    if (recoveryOrderId != null) {
+      result.sort((a, b) {
+        final aTarget = a['id'] == recoveryOrderId ? 0 : 1;
+        final bTarget = b['id'] == recoveryOrderId ? 0 : 1;
+        return aTarget.compareTo(bTarget);
+      });
+    }
+    return result;
+  }
+
+  bool get _recoveryTargetPending {
+    final target = widget.marRecoveryOrderId;
+    if (target == null) return false;
+    return _orders.any(
+      (order) =>
+          order['id'] == target &&
+          order['mar_schedule_status'] == 'action_required',
+    );
   }
 
   Future<void> _openComposer() async {
@@ -213,10 +369,18 @@ class _OrdersScreenState extends State<OrdersScreen> {
 
   // ── Lifecycle actions ──
 
-  Future<void> _verifyOrder(int id) async {
+  Future<void> _verifyOrder(int id, String? orderType) async {
+    if (!_canVerifyOrder(orderType) || _verifyingOrders.contains(id)) return;
     final s = AppStrings.of(context);
+    final attemptScope = 'clinical-order-verify:$id';
+    final idempotencyKey = _verificationAttempts.keyFor(
+      attemptScope,
+      const <String, dynamic>{},
+    );
+    setState(() => _verifyingOrders.add(id));
     try {
-      await MedicalApiService.verifyOrder(id);
+      await MedicalApiService.verifyOrder(id, idempotencyKey: idempotencyKey);
+      _verificationAttempts.complete(attemptScope);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -235,6 +399,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
           ),
         );
       }
+    } finally {
+      if (mounted) setState(() => _verifyingOrders.remove(id));
     }
   }
 
@@ -260,6 +426,46 @@ class _OrdersScreenState extends State<OrdersScreen> {
           ),
         );
       }
+    }
+  }
+
+  Future<void> _retryMarScheduling(int id) async {
+    if (_recoveringMarOrders.contains(id)) return;
+    final s = AppStrings.of(context);
+    final attemptScope = 'clinical-order-mar-recovery:$id';
+    final idempotencyKey = _marRecoveryAttempts.keyFor(
+      attemptScope,
+      const <String, dynamic>{},
+    );
+    setState(() => _recoveringMarOrders.add(id));
+    try {
+      final result = await MedicalApiService.retryMedicationOrderMarScheduling(
+        orderId: id,
+        idempotencyKey: idempotencyKey,
+      );
+      _marRecoveryAttempts.complete(attemptScope);
+      if (mounted) {
+        final count = (result['scheduled_dose_count'] as num?)?.toInt() ?? 0;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(s.ordersMarRecoverySuccess(count)),
+            backgroundColor: AppTheme.successGreen,
+          ),
+        );
+        await _loadOrders();
+      }
+    } catch (e) {
+      if (mounted) {
+        final localizedError = localizedApiErrorFromRaw(s, e);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(s.ordersMarRecoveryFailed(localizedError)),
+            backgroundColor: AppTheme.errorRed,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _recoveringMarOrders.remove(id));
     }
   }
 
@@ -450,6 +656,48 @@ class _OrdersScreenState extends State<OrdersScreen> {
             )
           : Column(
               children: [
+                if (widget.icuMarReviewAdmissionId case final admissionId?)
+                  IcuMarReviewBanner(icuAdmissionId: admissionId),
+                if (_recoveryTargetPending)
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppTheme.warningAmber.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: AppTheme.warningAmber),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.warning_amber_rounded,
+                          color: AppTheme.warningAmber,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(s.ordersMarRecoveryRequired),
+                              if (!_deviceCanRecoverMar) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  s.lookup('orders.mar_recovery.desktop_only'),
+                                  key: const Key(
+                                    'mar-recovery-desktop-only-banner',
+                                  ),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 const SizedBox(height: 8),
                 _buildStatusFilters(),
                 const SizedBox(height: 4),
@@ -494,7 +742,19 @@ class _OrdersScreenState extends State<OrdersScreen> {
     final display = orderDisplayFields(order);
     final orderNumber = order['order_number']?.toString();
     final statusLower = status?.toLowerCase();
-    final active = statusLower == 'ordered' || statusLower == 'verified';
+    final active = const {
+      'ordered',
+      'verified',
+      'in_progress',
+    }.contains(statusLower);
+    final discontinue =
+        statusLower == 'verified' || statusLower == 'in_progress';
+    final marRecoveryRequired =
+        type?.toLowerCase() == 'medication' &&
+        order['mar_schedule_status'] == 'action_required';
+    final recoveringMar =
+        orderId is int && _recoveringMarOrders.contains(orderId);
+    final verifying = orderId is int && _verifyingOrders.contains(orderId);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -576,29 +836,63 @@ class _OrdersScreenState extends State<OrdersScreen> {
               ),
             ],
             if (orderId is int && active) ...[
+              if (marRecoveryRequired &&
+                  _prescriberCanRecoverMar &&
+                  !_deviceCanRecoverMar) ...[
+                const SizedBox(height: 8),
+                Text(
+                  s.lookup('orders.mar_recovery.desktop_only'),
+                  key: Key('mar-recovery-desktop-only-$orderId'),
+                  style: const TextStyle(
+                    color: AppTheme.warningAmber,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
               const SizedBox(height: 10),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
+              Wrap(
+                alignment: WrapAlignment.end,
+                spacing: 4,
                 children: [
-                  TextButton.icon(
-                    onPressed: () => _stopOrder(
-                      orderId,
-                      discontinue: statusLower == 'verified',
+                  if (marRecoveryRequired && _prescriberCanRecoverMar)
+                    TextButton.icon(
+                      onPressed: recoveringMar || !_canRecoverMar
+                          ? null
+                          : () => _retryMarScheduling(orderId),
+                      icon: recoveringMar
+                          ? const SizedBox.square(
+                              dimension: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.replay_circle_filled, size: 18),
+                      label: Text(s.ordersMarRecoveryAction),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppTheme.warningAmber,
+                      ),
                     ),
+                  TextButton.icon(
+                    onPressed: () =>
+                        _stopOrder(orderId, discontinue: discontinue),
                     icon: const Icon(Icons.block, size: 18),
                     label: Text(
-                      statusLower == 'verified'
-                          ? s.ordersDiscontinue
-                          : s.ordersCancel,
+                      discontinue ? s.ordersDiscontinue : s.ordersCancel,
                     ),
                     style: TextButton.styleFrom(
                       foregroundColor: AppTheme.errorRed,
                     ),
                   ),
-                  if (statusLower == 'ordered')
+                  if (statusLower == 'ordered' && _canVerifyOrder(type))
                     TextButton.icon(
-                      onPressed: () => _verifyOrder(orderId),
-                      icon: const Icon(Icons.check_circle_outline, size: 18),
+                      onPressed: verifying
+                          ? null
+                          : () => _verifyOrder(orderId, type),
+                      icon: verifying
+                          ? const SizedBox.square(
+                              dimension: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.check_circle_outline, size: 18),
                       label: Text(s.ordersVerify),
                       style: TextButton.styleFrom(
                         foregroundColor: AppTheme.accentCyan,

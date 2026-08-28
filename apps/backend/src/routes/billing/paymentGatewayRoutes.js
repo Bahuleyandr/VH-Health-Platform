@@ -24,6 +24,7 @@ import {
   gatewayOrderIdValidator,
   gatewayOrderReconcileValidator,
   gatewayRefundReconcileValidator,
+  gatewayReconciliationQueueValidator,
   gatewayRefundCreateValidator,
   gatewayConfigUpsertValidator,
 } from '../../validators/paymentGatewayValidator.js';
@@ -211,7 +212,7 @@ router.post('/orders/:id/reconcile', requireAdmin, ...gatewayOrderReconcileValid
 }));
 
 // ── Refund execution leg ──────────────────────────────────────────────
-router.get('/refund-reconciliation', requireAdmin, wrap(async (req) =>
+router.get('/refund-reconciliation', requireAdmin, ...gatewayReconciliationQueueValidator, validate, wrap(async (req) =>
   gateway.listReconciliationGatewayRefunds({
     tenantId: tenantOf(req),
     include_resolved: String(req.query.include_resolved || '') === 'true',
@@ -225,6 +226,9 @@ router.post('/refunds/:id/reconcile', requireAdmin, ...gatewayRefundReconcileVal
     tenantId: tenantOf(req),
     id: req.params.id,
     note: req.body.note,
+    disposition: req.body.disposition,
+    evidence_reference: req.body.evidence_reference,
+    recovery_path: req.body.recovery_path,
     resolved_by: req.user?.uid,
   });
   await logGatewayAudit(req, 'PAYMENT_GATEWAY_REFUND_RECONCILED', {
@@ -232,6 +236,9 @@ router.post('/refunds/:id/reconcile', requireAdmin, ...gatewayRefundReconcileVal
     billing_refund_id: refund?.billing_refund_id ?? null,
     provider_refund_id: refund?.provider_refund_id ?? null,
     amount: refund?.amount ?? null,
+    disposition: req.body?.disposition ?? null,
+    evidence_reference: req.body?.evidence_reference ?? null,
+    recovery_path: req.body?.recovery_path ?? null,
     note: req.body?.note ?? null,
   }, {
     resource: 'payment_gateway_refund',
@@ -239,6 +246,17 @@ router.post('/refunds/:id/reconcile', requireAdmin, ...gatewayRefundReconcileVal
   });
   return refund;
 }));
+
+router.get(
+  '/refunds/:id/candidates',
+  requireGatewayRefundRole,
+  ...gatewayOrderIdValidator,
+  validate,
+  wrap(async (req) => gateway.listGatewayRefundCandidates({
+    tenantId: tenantOf(req),
+    billing_refund_id: req.params.id,
+  })),
+);
 
 router.post('/refunds', requireGatewayRefundRole, requireIdempotencyKey({
   // The provider call is protected by the committed gateway-refund intent and

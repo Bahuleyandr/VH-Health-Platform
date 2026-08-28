@@ -7,7 +7,6 @@
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { scheduleMedications } from './marService.js';
 import { closeIcuDeviceAssociationsForAdmission } from './icuChartingService.js';
 import { gcsTotal, netBalance, camPositive, bundleComplete, bundlePct } from './icuComputations.js';
 import { requireTenantId } from '../tenant/tenantService.js';
@@ -19,6 +18,7 @@ import {
   assertIcuFlowsheetPlausibility,
   assertIcuAssessmentPlausibility,
 } from '../../utils/clinical/icuPlausibility.js';
+import { persistClinicalAlertFailureWithCanonical } from './clinicalAlertDeliveryObligationService.js';
 
 function tenantOr(t) {
   return requireTenantId(t);
@@ -521,51 +521,252 @@ export async function dischargeAdmission({
 // re-running this on admission is safe and also picks up any ER medication
 // order that never reached the MAR. Finding:
 // 2026-05-08-emergency-walk-in-nurse-no-fasting-no-io-no-mar-handoff.
-async function carryErMedicationsToMar(visit, { tenantId, actorUid } = {}) {
-  if (!visit?.encounter_id || !visit?.patient_uid) return [];
-  const orders = await prisma.clinical_orders.findMany({
-    where: {
-      tenant_id: tenantOr(tenantId),
-      encounter_id: visit.encounter_id,
-      order_type: 'medication',
-      status: { notIn: ['cancelled', 'discontinued'] }
-    },
-    select: { id: true, details: true, start_date: true, created_at: true }
-  });
-  const meds = [];
-  for (const order of orders) {
-    const d = typeof order.details === 'string' ? JSON.parse(order.details) : order.details || {};
-    const medication_name = d.medication_name || d.drug_name;
-    const dose = d.dose || d.dosage;
-    const route = d.route;
-    const supplyQuantityPerDose = d.supply_quantity_per_dose
-      ?? d.dispense_units_per_dose
-      ?? d.units_per_dose
-      ?? null;
-    // scheduleMedications requires name + dose + route; skip ER orders
-    // that were filed without a chartable shape rather than 400 the whole
-    // carry-over.
-    if (!medication_name || !dose || !route) continue;
-    const when = order.start_date || order.created_at || new Date();
-    meds.push({
-      medication_name,
-      dose,
-      route,
-      scheduled_time: new Date(when).toISOString(),
-      notes: 'Carried over from ER visit on ICU admission',
-      clinical_order_id: order.id,
-      ...(supplyQuantityPerDose != null
-        ? { supply_quantity_per_dose: supplyQuantityPerDose }
-        : {}),
-    });
+const MAR_CARRYOVER_BATCH_SIZE = 100;
+
+export async function carryMedicationOrdersToMar(orders, {
+  actorUid = null,
+  actorRole = null,
+  deps = {},
+} = {}) {
+  const integration = (
+    deps.scheduleMedicationOrderOnMar && deps.escalateOrderIntegrationFailure
+  ) ? null : await import('../emr/orderEntryService.js');
+  const scheduleOrder = deps.scheduleMedicationOrderOnMar
+    || integration.scheduleMedicationOrderOnMar;
+  const escalateFailure = deps.escalateOrderIntegrationFailure
+    || integration.escalateOrderIntegrationFailure;
+  const medications = [];
+  const failures = [];
+  for (const order of orders || []) {
+    try {
+      const rows = await scheduleOrder(order, { actorUid, actorRole });
+      medications.push(...rows);
+    } catch (err) {
+      let escalation = { alertQueued: false, auditRecorded: false };
+      try {
+        escalation = await escalateFailure({
+          order,
+          stage: 'mar_carryover',
+          err,
+        });
+      } catch (escalationErr) {
+        logger.error(
+          `ER-to-ICU MAR failure escalation crashed for order ${order.order_number}: ${escalationErr.message}`,
+        );
+      }
+      failures.push({
+        order_id: Number(order.id),
+        order_number: order.order_number,
+        error_code: err?.code || 'MAR_CARRYOVER_FAILED',
+        alert_queued: escalation.alertQueued,
+        audit_recorded: escalation.auditRecorded,
+        recovery_endpoint: `/api/v1/emr/orders/${order.id}/retry-mar-scheduling`,
+        requires_doctor_authority: true,
+      });
+    }
   }
-  if (!meds.length) return [];
-  return scheduleMedications(visit.patient_uid, null, meds, {
-    tenantId: tenantOr(tenantId),
-    actorUid: actorUid || visit.attending_doctor_uid || null,
-    actorRole: 'DOCTOR',
-    encounterId: visit.encounter_id,
+  return {
+    medications,
+    failures,
+    active_order_count: (orders || []).length,
+  };
+}
+
+async function carryErMedicationsToMar(visit, {
+  tenantId,
+  actorUid,
+  actorRole,
+} = {}) {
+  if (!visit?.encounter_id || !visit?.patient_uid) {
+    return { medications: [], failures: [], active_order_count: 0 };
+  }
+  const result = { medications: [], failures: [], active_order_count: 0 };
+  let afterOrderId = 0;
+  while (true) {
+    const orders = await prisma.clinical_orders.findMany({
+      where: {
+        tenant_id: tenantOr(tenantId),
+        encounter_id: visit.encounter_id,
+        order_type: 'medication',
+        status: { in: ['ordered', 'verified', 'in_progress'] },
+        id: { gt: afterOrderId },
+      },
+      select: ORDER_MAR_CARRYOVER_SELECT,
+      orderBy: { id: 'asc' },
+      take: MAR_CARRYOVER_BATCH_SIZE,
+    });
+    if (orders.length === 0) break;
+    const batch = await carryMedicationOrdersToMar(orders, {
+      actorUid: actorUid || visit.attending_doctor_uid || null,
+      actorRole,
+    });
+    result.medications.push(...batch.medications);
+    result.failures.push(...batch.failures);
+    result.active_order_count += batch.active_order_count;
+    afterOrderId = Number(orders.at(-1).id);
+    if (orders.length < MAR_CARRYOVER_BATCH_SIZE) break;
+  }
+  return result;
+}
+
+export function buildIcuMarCarryoverReviewPath({ patientUid, admissionId }) {
+  const uid = String(patientUid || '').trim().toLowerCase();
+  const id = Number(admissionId);
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(uid)
+    || !Number.isSafeInteger(id)
+    || id <= 0
+  ) {
+    throw AppError.internal(
+      'ICU MAR carryover recovery requires exact patient and admission identity',
+      'ICU_MAR_CARRYOVER_REVIEW_IDENTITY_REQUIRED',
+    );
+  }
+  return `/emr/orders/${uid}?icu_mar_review=${id}`;
+}
+
+const ORDER_MAR_CARRYOVER_SELECT = Object.freeze({
+  id: true,
+  order_number: true,
+  encounter_id: true,
+  patient_uid: true,
+  order_type: true,
+  priority: true,
+  details: true,
+  status: true,
+  ordered_by: true,
+  start_date: true,
+  created_at: true,
+  tenant_id: true,
+});
+
+export async function escalateIcuMarCarryoverFailure({
+  admission,
+  visit,
+  actorUid,
+  actorRole,
+  err,
+  deps = {},
+}) {
+  const recordCanonical = deps.recordCanonicalClinicalEvent
+    || recordCanonicalClinicalEvent;
+  const sourceKey = `icu_admissions:${admission.id}:icu.mar_carryover_failed`;
+  const reviewPath = buildIcuMarCarryoverReviewPath({
+    patientUid: visit.patient_uid,
+    admissionId: admission.id,
   });
+  const alertSourceEventKey = `${sourceKey}:alert`;
+  const alertIntent = {
+    type: 'push',
+    tenantId: visit.tenant_id,
+    title: 'ICU MAR carryover could not inspect ER medication orders',
+    body: 'Review the patient\'s active ER medication orders and repair any missing MAR schedule from the governed order screen.',
+    sourceEventKey: alertSourceEventKey,
+    templateVersion: 'clinical-alert-icu-mar-carryover-failure.v1',
+    data: {
+      source_event_key: alertSourceEventKey,
+      icu_admission_id: Number(admission.id),
+      emergency_visit_id: Number(visit.id),
+      patient_uid: visit.patient_uid,
+      encounter_id: visit.encounter_id,
+      error_code: err?.code || 'MAR_CARRYOVER_QUERY_FAILED',
+      deep_link: reviewPath,
+      requires_doctor_authority: true,
+    },
+    channel: 'push',
+  };
+  let alertQueued = false;
+  try {
+    const fanout = deps.queueClinicalAlertFanout
+      || (await import('../../utils/notifications/clinicalAlertFanout.js'))
+        .queueClinicalAlertFanout;
+    const queued = await fanout(alertIntent, {
+      ...(deps.notificationOutbox ? { outbox: deps.notificationOutbox } : {}),
+      ...(deps.resolveClinicalAlertRecipients
+        ? { resolveRecipients: deps.resolveClinicalAlertRecipients }
+        : {}),
+      strict: true,
+    });
+    alertQueued = queued.queued > 0;
+  } catch (alertErr) {
+    logger.error(
+      `ICU MAR carryover alert could not be queued for admission ${admission.id}: ${alertErr.message}`,
+    );
+  }
+
+  const canonicalInput = {
+    tenantId: visit.tenant_id,
+    patientUid: visit.patient_uid,
+    encounterId: visit.encounter_id,
+    eventType: 'icu.mar_carryover_failed',
+    eventStatus: 'action_required',
+    action: 'icu_mar_carryover_failed',
+    actionStatus: 'failed',
+    sourceTable: 'icu_admissions',
+    sourceId: String(admission.id),
+    resourceType: 'icu_admission',
+    resourceTable: 'icu_admissions',
+    resourceId: String(admission.id),
+    actorUid,
+    actorRole,
+    summary: 'ER medication review required after ICU admission',
+    payload: {
+      icu_admission_id: Number(admission.id),
+      emergency_visit_id: Number(visit.id),
+      error_code: err?.code || 'MAR_CARRYOVER_QUERY_FAILED',
+      alert_queued: alertQueued,
+      deep_link: reviewPath,
+    },
+    metadata: {
+      error: err?.message || String(err),
+      error_code: err?.code || null,
+      alert_queued: alertQueued,
+    },
+    timelineIdempotencyKey: sourceKey,
+    auditIdempotencyKey: `${sourceKey}:audit`,
+  };
+  let canonicalRecorded = false;
+  try {
+    if (alertQueued) {
+      const canonical = await recordCanonical(canonicalInput, { strict: true });
+      canonicalRecorded = Boolean(canonical?.timeline && canonical?.audit);
+    } else {
+      const persistFailure = deps.persistClinicalAlertFailureWithCanonical
+        || persistClinicalAlertFailureWithCanonical;
+      const persisted = await persistFailure({
+        tenantId: visit.tenant_id,
+        obligation: {
+          sourceTable: 'icu_admissions',
+          sourceId: String(admission.id),
+          failureKind: 'icu_mar_carryover_query',
+          patientUid: visit.patient_uid,
+          encounterId: visit.encounter_id || null,
+          originActorUid: actorUid || null,
+          failureCode: err?.code || 'MAR_CARRYOVER_QUERY_FAILED',
+          notificationIntent: alertIntent,
+        },
+        recordCanonical: async (tx, obligation) => recordCanonical({
+          ...canonicalInput,
+          payload: {
+            ...canonicalInput.payload,
+            alert_recovery_obligation_id: Number(obligation.id),
+          },
+          metadata: {
+            ...canonicalInput.metadata,
+            alert_recovery_obligation_id: Number(obligation.id),
+          },
+        }, { db: tx, strict: true }),
+      });
+      canonicalRecorded = Boolean(
+        persisted?.canonical?.timeline && persisted?.canonical?.audit,
+      );
+    }
+  } catch (canonicalErr) {
+    logger.error(
+      `ICU MAR carryover failure evidence could not be completed for admission ${admission.id}: ${canonicalErr.message}`,
+    );
+  }
+  return { alertQueued, canonicalRecorded, reviewPath };
 }
 
 // "Admit from ER" — create an ICU admission that inherits the ER visit's
@@ -576,7 +777,13 @@ async function carryErMedicationsToMar(visit, { tenantId, actorUid } = {}) {
 // medication orders are carried into the ICU MAR (best-effort). Findings:
 //   2026-05-08-emergency-walk-in-doctor-er-to-icu-no-continuation
 //   2026-05-08-emergency-walk-in-nurse-no-fasting-no-io-no-mar-handoff
-export async function createAdmissionFromEr({ tenantId, emergencyVisitId, ...body }) {
+export async function createAdmissionFromEr({
+  tenantId,
+  emergencyVisitId,
+  actorUid = null,
+  actorRole = null,
+  ...body
+}) {
   const visitId = parseInt(emergencyVisitId, 10);
   if (!Number.isInteger(visitId)) {
     throw AppError.badRequest('A numeric emergency visit id is required');
@@ -605,6 +812,8 @@ export async function createAdmissionFromEr({ tenantId, emergencyVisitId, ...bod
   // cannot be overridden by the body.
   const admission = await createAdmission({
     tenantId,
+    actorUid,
+    actorRole,
     ...body,
     patient_uid: visit.patient_uid,
     er_visit_id: visit.id,
@@ -614,15 +823,44 @@ export async function createAdmissionFromEr({ tenantId, emergencyVisitId, ...bod
 
   // Phase 1.5 — best-effort MAR carry-over. A handoff failure must not
   // block the admission itself.
-  let carried_mar = [];
+  let carryover = { medications: [], failures: [], active_order_count: 0 };
+  let carryoverInfrastructureFailure = null;
   try {
-    carried_mar = await carryErMedicationsToMar(visit, {
+    carryover = await carryErMedicationsToMar(visit, {
       tenantId: visit.tenant_id,
-      actorUid: body.admitting_doctor_uid || visit.attending_doctor_uid || null,
+      actorUid,
+      actorRole,
     });
   } catch (err) {
     logger.warn(`ER→ICU MAR carry-over failed for emergency visit ${visit.id}: ${err.message}`);
+    let escalation = { alertQueued: false, canonicalRecorded: false, reviewPath: null };
+    try {
+      escalation = await escalateIcuMarCarryoverFailure({
+        admission,
+        visit,
+        actorUid,
+        actorRole,
+        err,
+      });
+    } catch (escalationErr) {
+      logger.error(
+        `ICU MAR carryover failure escalation crashed for admission ${admission.id}: ${escalationErr.message}`,
+      );
+    }
+    carryoverInfrastructureFailure = {
+      error_code: err?.code || 'MAR_CARRYOVER_QUERY_FAILED',
+      alert_queued: escalation.alertQueued,
+      canonical_recorded: escalation.canonicalRecorded,
+      review_path: escalation.reviewPath,
+      requires_doctor_authority: true,
+    };
   }
+
+  const recoveryStatus = carryoverInfrastructureFailure
+    ? 'degraded'
+    : carryover.failures.length > 0
+      ? (carryover.medications.length > 0 ? 'partial' : 'action_required')
+      : carryover.active_order_count > 0 ? 'complete' : 'not_required';
 
   return {
     admission,
@@ -631,7 +869,15 @@ export async function createAdmissionFromEr({ tenantId, emergencyVisitId, ...bod
       encounter_id: visit.encounter_id,
       patient_uid: visit.patient_uid
     },
-    carried_mar
+    carried_mar: carryover.medications,
+    carried_mar_recovery: {
+      status: recoveryStatus,
+      active_order_count: carryover.active_order_count,
+      scheduled_dose_count: carryover.medications.length,
+      recovery_required_count: carryover.failures.length,
+      failed_orders: carryover.failures,
+      infrastructure_failure: carryoverInfrastructureFailure,
+    },
   };
 }
 

@@ -40,12 +40,37 @@ import { resolveLedgerWiring } from './ledger/ledgerAuthoritativeMode.js';
 import { resolveAdapter, GATEWAY_PROVIDERS } from './gatewayProviders/index.js';
 import { sha256Hex } from './gatewayProviders/webhookSignature.js';
 import { runInTenantContext } from '../../lib/tenantContext.js';
+import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
 
 export const PAYMENT_GATEWAY_DISABLED = 'PAYMENT_GATEWAY_DISABLED';
 
 const GATEWAY_ENVIRONMENTS = new Set(['sandbox', 'production']);
 const GATEWAY_METHODS = new Set(['upi', 'card', 'netbanking', 'wallet']);
 const DEFAULT_ORDER_EXPIRY_HOURS = 24;
+
+const GATEWAY_REFUND_RECONCILIATION_ROLES = Object.freeze(['SUPER_ADMIN', 'ADMIN']);
+const GATEWAY_REFUND_RECONCILIATION_PRESENTATIONS = Object.freeze({
+  en: Object.freeze({
+    title: 'Provider refund needs reconciliation',
+    body: 'A gateway refund is parked. Verify provider evidence and record the exact outcome.',
+  }),
+  hi: Object.freeze({
+    title: 'प्रदाता रिफंड का मिलान आवश्यक है',
+    body: 'एक गेटवे रिफंड रोका गया है। प्रदाता साक्ष्य सत्यापित करें और सटीक परिणाम दर्ज करें।',
+  }),
+  ta: Object.freeze({
+    title: 'வழங்குநர் பணத்திருப்பிக்கு ஒப்புநோக்கம் தேவை',
+    body: 'ஒரு கேட்வே பணத்திருப்பி நிறுத்தப்பட்டுள்ளது. வழங்குநர் ஆதாரத்தைச் சரிபார்த்து சரியான முடிவைப் பதிவு செய்யவும்.',
+  }),
+  te: Object.freeze({
+    title: 'ప్రొవైడర్ రీఫండ్‌కు సరిపోలిక అవసరం',
+    body: 'ఒక గేట్‌వే రీఫండ్ నిలిపివేయబడింది. ప్రొవైడర్ ఆధారాన్ని ధృవీకరించి ఖచ్చితమైన ఫలితాన్ని నమోదు చేయండి.',
+  }),
+  ml: Object.freeze({
+    title: 'ദാതൃ റീഫണ്ടിന് പൊരുത്തപ്പെടുത്തൽ ആവശ്യമാണ്',
+    body: 'ഒരു ഗേറ്റ്‌വേ റീഫണ്ട് നിർത്തിവച്ചിരിക്കുന്നു. ദാതൃ തെളിവ് സ്ഥിരീകരിച്ച് കൃത്യമായ ഫലം രേഖപ്പെടുത്തുക.',
+  }),
+});
 
 // Provider "method" → billingV2 payment mode. VALID_PAYMENT_MODES carries no
 // 'ONLINE', so an unrecognised electronic method follows the
@@ -1324,6 +1349,231 @@ const REFUND_VIEW_COLUMNS = `
   failure_reason, reconciled_at, reconciliation_note, reconciled_by,
   created_at, updated_at`;
 
+const REFUND_RECONCILIATION_DISPOSITIONS = new Set([
+  'provider_not_refunded',
+  'manual_settled',
+]);
+const REFUND_RECOVERY_PATHS = new Set(['gateway_retry']);
+
+function normalizeRefundReconciliationInput({
+  disposition, evidence_reference, recovery_path,
+}) {
+  const normalizedDisposition = String(disposition || '').trim().toLowerCase();
+  const evidenceReference = String(evidence_reference || '').trim();
+  const recoveryPath = recovery_path == null
+    ? null
+    : String(recovery_path).trim().toLowerCase();
+  if (!REFUND_RECONCILIATION_DISPOSITIONS.has(normalizedDisposition)) {
+    throw AppError.badRequest(
+      'disposition must be provider_not_refunded or manual_settled',
+      'PAYMENT_GATEWAY_REFUND_RECONCILIATION_DISPOSITION_REQUIRED',
+    );
+  }
+  if (evidenceReference.length < 6 || evidenceReference.length > 120
+      || /(?:\*{2,}|masked|redacted)/i.test(evidenceReference)) {
+    throw AppError.badRequest(
+      'An attributable provider evidence reference of 6-120 characters is required',
+      'PAYMENT_GATEWAY_REFUND_RECONCILIATION_EVIDENCE_REQUIRED',
+    );
+  }
+  if (normalizedDisposition === 'provider_not_refunded'
+      && recoveryPath === 'manual_payout') {
+    throw AppError.badRequest(
+      'Integrated electronic refunds cannot be released to manual payout; use gateway_retry',
+      'PAYMENT_GATEWAY_REFUND_MANUAL_PAYOUT_FORBIDDEN',
+    );
+  }
+  if (normalizedDisposition === 'provider_not_refunded'
+      && !REFUND_RECOVERY_PATHS.has(recoveryPath)) {
+    throw AppError.badRequest(
+      'recovery_path must be gateway_retry when the provider did not refund',
+      'PAYMENT_GATEWAY_REFUND_RECOVERY_PATH_REQUIRED',
+    );
+  }
+  if (normalizedDisposition === 'manual_settled' && recoveryPath != null) {
+    throw AppError.badRequest(
+      'recovery_path is not valid for a manually settled provider refund',
+      'PAYMENT_GATEWAY_REFUND_RECOVERY_PATH_INVALID',
+    );
+  }
+  return {
+    disposition: normalizedDisposition,
+    evidenceReference,
+    recoveryPath,
+  };
+}
+
+async function lockGatewayRefundAuthorityTx(tx, { tenant, id }) {
+  const executionRows = await tx.$queryRawUnsafe(
+    `SELECT *
+       FROM payment_gateway_refunds
+      WHERE id = $1::int AND tenant_id = $2::uuid
+      FOR UPDATE`,
+    Number(id), tenant,
+  );
+  if (!executionRows.length) throw AppError.notFound('Payment gateway refund not found');
+  const execution = executionRows[0];
+  if (execution.billing_refund_id == null) {
+    throw AppError.conflict(
+      'Gateway refund reconciliation has no linked billing authority',
+      'PAYMENT_GATEWAY_REFUND_AUTHORITY_MISSING',
+    );
+  }
+  const authorityRows = await tx.$queryRawUnsafe(
+    `SELECT id, approval_status, payout_rail, gateway_refund_id, reference
+       FROM billing_refunds
+      WHERE id = $1::int AND tenant_id = $2::uuid
+      FOR UPDATE`,
+    Number(execution.billing_refund_id), tenant,
+  );
+  if (!authorityRows.length) {
+    throw AppError.conflict(
+      'Gateway refund reconciliation has no linked billing authority',
+      'PAYMENT_GATEWAY_REFUND_AUTHORITY_MISSING',
+    );
+  }
+  return { execution, authority: authorityRows[0] };
+}
+
+function exactProcessedAuthority(authority, execution, providerRefundId) {
+  return execution?.status === 'processed'
+    && execution?.processed_at != null
+    && String(execution?.provider_refund_id || '') === String(providerRefundId || '')
+    && authority?.approval_status === 'PAID'
+    && authority?.payout_rail === 'gateway'
+    && Number(authority?.gateway_refund_id) === Number(execution?.id)
+    && String(authority?.reference || '') === String(providerRefundId || '');
+}
+
+function hasExactRefundResolution(execution, {
+  disposition, evidenceReference, recoveryPath,
+}) {
+  const entries = Array.isArray(execution?.metadata?.reconciliation_resolutions)
+    ? execution.metadata.reconciliation_resolutions
+    : [];
+  return entries.some((entry) => entry?.disposition === disposition
+    && entry?.evidence_reference === evidenceReference
+    && (entry?.recovery_path ?? null) === (recoveryPath ?? null));
+}
+
+function gatewayRefundReconciliationLocale(value) {
+  const locale = String(value || '').trim().toLowerCase().split(/[-_]/u)[0];
+  return Object.hasOwn(GATEWAY_REFUND_RECONCILIATION_PRESENTATIONS, locale)
+    ? locale
+    : 'en';
+}
+
+export async function sweepGatewayRefundReconciliationNotifications({
+  tenantId, limit = 25,
+} = {}) {
+  const tenant = requireTenantId(tenantId);
+  const safeLimit = Math.max(1, Math.min(Number.parseInt(limit, 10) || 25, 100));
+  return setTenantTx(tenant, async (tx) => {
+    const refunds = await tx.$queryRawUnsafe(
+      `SELECT refund.id, refund.billing_refund_id, refund.provider,
+              refund.provider_payment_id, refund.provider_refund_id,
+              refund.amount, refund.currency, refund.failure_code,
+              refund.failure_reason, refund.updated_at,
+              FLOOR(EXTRACT(EPOCH FROM refund.updated_at) * 1000)::bigint::text
+                AS notification_generation
+         FROM payment_gateway_refunds refund
+        WHERE refund.tenant_id = $1::uuid
+          AND refund.status = 'requires_reconciliation'
+          AND refund.reconciled_at IS NULL
+          AND NOT EXISTS (
+            SELECT 1
+              FROM notification_outbox outbox
+             WHERE outbox.tenant_id = refund.tenant_id
+               AND outbox.type = 'GATEWAY_REFUND_RECONCILIATION'
+               AND outbox.source_event_key =
+                   'gateway-refund-reconciliation:' || refund.id::text || ':' ||
+                   FLOOR(EXTRACT(EPOCH FROM refund.updated_at) * 1000)::bigint::text
+               AND outbox.recipient_id IS NOT NULL
+          )
+        ORDER BY refund.initiated_at ASC, refund.id ASC
+        LIMIT $2::int
+        FOR UPDATE SKIP LOCKED`,
+      tenant,
+      safeLimit,
+    );
+    if (!refunds.length) return { scanned: 0, queued: 0, unassigned: 0 };
+
+    const recipientRows = await tx.$queryRawUnsafe(
+      `SELECT id, uid, role, preferred_language
+         FROM users
+        WHERE tenant_id = $1::uuid
+          AND role = ANY($2::text[])
+          AND is_active = TRUE
+          AND COALESCE(status, 'active') = 'active'
+          AND COALESCE(is_deleted, FALSE) = FALSE
+          AND deleted_at IS NULL
+        ORDER BY CASE role WHEN 'SUPER_ADMIN' THEN 0 ELSE 1 END,
+                 last_sign_in_at DESC NULLS LAST,
+                 id ASC
+        LIMIT 1`,
+      tenant,
+      GATEWAY_REFUND_RECONCILIATION_ROLES,
+    );
+    const recipient = recipientRows[0] || null;
+    let queued = 0;
+    let unassigned = 0;
+    for (const refund of refunds) {
+      const locale = gatewayRefundReconciliationLocale(recipient?.preferred_language);
+      const presentation = GATEWAY_REFUND_RECONCILIATION_PRESENTATIONS[locale];
+      const sourceEventKey = [
+        'gateway-refund-reconciliation',
+        String(refund.id),
+        String(refund.notification_generation),
+      ].join(':');
+      const route = `/billing/gateway-refund-reconciliation?refund_id=${Number(refund.id)}`;
+      const outbox = await notificationOutbox.queue({
+        tenantId: tenant,
+        type: 'GATEWAY_REFUND_RECONCILIATION',
+        channel: 'inapp',
+        recipientId: recipient?.id ?? null,
+        recipientPhone: null,
+        title: presentation.title,
+        body: presentation.body,
+        sourceEventKey,
+        templateVersion: 'gateway-refund-reconciliation.v1',
+        data: {
+          kind: 'gateway_refund_reconciliation',
+          event_type: 'GATEWAY_REFUND_RECONCILIATION',
+          gateway_refund_id: Number(refund.id),
+          billing_refund_id: refund.billing_refund_id == null
+            ? null
+            : Number(refund.billing_refund_id),
+          provider: refund.provider,
+          failure_code: refund.failure_code,
+          route,
+          deep_link: route,
+          action_label_key: 'med03.notification.gateway_refund_reconciliation.action',
+          intended_role_codes: GATEWAY_REFUND_RECONCILIATION_ROLES,
+          recipient_uid: recipient?.uid ?? null,
+          recipient_role: recipient?.role ?? null,
+          recipient_status_snapshot: recipient ? 'active' : null,
+          recipient_not_deleted_snapshot: recipient ? true : null,
+          coverage_gap: recipient == null,
+          delivery_coverage: recipient ? 'direct' : 'unassigned',
+          presentation_key: 'gateway_refund_reconciliation',
+          presentation_locale: locale,
+          presentation_copy_version: 'gateway-refund-reconciliation.v1',
+          presentations: GATEWAY_REFUND_RECONCILIATION_PRESENTATIONS,
+        },
+      }, { tx, strict: true });
+      if (!outbox?.id) {
+        throw AppError.internal(
+          'Gateway refund reconciliation notification was not persisted',
+          'PAYMENT_GATEWAY_REFUND_RECONCILIATION_NOTIFICATION_MISSING',
+        );
+      }
+      queued += 1;
+      if (!recipient) unassigned += 1;
+    }
+    return { scanned: refunds.length, queued, unassigned };
+  });
+}
+
 export async function listReconciliationGatewayRefunds({
   tenantId, include_resolved = false, limit = 50, offset = 0,
 } = {}) {
@@ -1347,7 +1597,7 @@ export async function listReconciliationGatewayRefunds({
 }
 
 export async function resolveGatewayRefundReconciliation({
-  tenantId, id, note, resolved_by,
+  tenantId, id, note, resolved_by, disposition, evidence_reference, recovery_path,
 }) {
   const tenant = requireTenantId(tenantId);
   const trimmedNote = String(note || '').trim();
@@ -1363,34 +1613,179 @@ export async function resolveGatewayRefundReconciliation({
       'PAYMENT_GATEWAY_REFUND_RECONCILIATION_ACTOR_REQUIRED',
     );
   }
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE payment_gateway_refunds
-        SET reconciled_at = NOW(), reconciliation_note = $1,
-            reconciled_by = $2::uuid, updated_at = NOW()
-      WHERE id = $3::int AND tenant_id = $4::uuid
-        AND status = 'requires_reconciliation' AND reconciled_at IS NULL
-      RETURNING ${REFUND_VIEW_COLUMNS}`,
-    trimmedNote, String(resolved_by), Number(id), tenant,
-  );
-  if (!rows.length) {
-    const existing = await prisma.$queryRawUnsafe(
-      `SELECT id, status, reconciled_at FROM payment_gateway_refunds
+  const normalized = normalizeRefundReconciliationInput({
+    disposition, evidence_reference, recovery_path,
+  });
+  const actor = String(resolved_by).trim();
+  const resolution = await setTenantTx(tenant, async (tx) => {
+    const actorRows = await tx.$queryRawUnsafe(
+      `SELECT uid
+         FROM users
+        WHERE tenant_id = $1::uuid AND uid = $2::uuid
+        LIMIT 1`,
+      tenant, actor,
+    );
+    if (!actorRows.length) {
+      throw AppError.forbidden(
+        'The reconciliation actor must belong to this tenant',
+        'PAYMENT_GATEWAY_REFUND_RECONCILIATION_ACTOR_TENANT_MISMATCH',
+      );
+    }
+    const { execution, authority } = await lockGatewayRefundAuthorityTx(tx, {
+      tenant, id,
+    });
+
+    if (hasExactRefundResolution(execution, normalized)) {
+      const completed = normalized.disposition === 'manual_settled'
+        ? exactProcessedAuthority(authority, execution, normalized.evidenceReference)
+          && execution.status === 'processed'
+        : execution.status === 'failed';
+      if (completed) return { row: execution, replay: true, settle: false };
+    }
+    if (execution.status !== 'requires_reconciliation') {
+      throw AppError.conflict(
+        'Gateway refund is not awaiting reconciliation',
+        'PAYMENT_GATEWAY_REFUND_NOT_RECONCILABLE',
+      );
+    }
+    if (normalized.disposition === 'manual_settled') {
+      if (!isExactProviderIdentifier(
+        execution.provider, 'refund', normalized.evidenceReference,
+      ) || (execution.provider_refund_id
+        && String(execution.provider_refund_id) !== normalized.evidenceReference)) {
+        throw AppError.badRequest(
+          'manual_settled requires the exact provider refund identifier for this execution',
+          'PAYMENT_GATEWAY_REFUND_MANUAL_SETTLEMENT_EVIDENCE_INVALID',
+        );
+      }
+      if (exactProcessedAuthority(authority, execution, normalized.evidenceReference)) {
+        return { row: execution, replay: true, settle: true };
+      }
+    }
+    if (authority.approval_status !== 'APPROVED'
+        || authority.payout_rail !== 'gateway'
+        || Number(authority.gateway_refund_id) !== Number(execution.id)) {
+      throw AppError.conflict(
+        'The billing refund is not owned by this unsettled gateway execution',
+        'PAYMENT_GATEWAY_REFUND_AUTHORITY_CONFLICT',
+      );
+    }
+
+    if (normalized.disposition === 'manual_settled') {
+      const rows = await tx.$queryRawUnsafe(
+        `UPDATE payment_gateway_refunds
+            SET provider_refund_id = COALESCE(provider_refund_id, $1::varchar),
+                metadata = jsonb_set(
+                  COALESCE(metadata, '{}'::jsonb),
+                  '{reconciliation_resolutions}',
+                  (
+                    CASE
+                      WHEN jsonb_typeof(metadata->'reconciliation_resolutions') = 'array'
+                        THEN metadata->'reconciliation_resolutions'
+                      ELSE '[]'::jsonb
+                    END
+                  ) || jsonb_build_array(jsonb_build_object(
+                    'disposition', 'manual_settled',
+                    'evidence_reference', $1::text,
+                    'note', $2::text,
+                    'resolved_by', $3::text,
+                    'resolved_at', NOW(),
+                    'outcome', 'settlement_claimed'
+                  )),
+                  true
+                ),
+                reconciled_at = NULL, reconciliation_note = NULL,
+                reconciled_by = NULL, updated_at = NOW()
+          WHERE id = $4::int AND tenant_id = $5::uuid
+            AND status = 'requires_reconciliation'
+          RETURNING *`,
+        normalized.evidenceReference, trimmedNote, actor,
+        Number(execution.id), tenant,
+      );
+      if (!rows.length) {
+        throw AppError.conflict(
+          'Gateway refund reconciliation changed concurrently',
+          'PAYMENT_GATEWAY_REFUND_RECONCILIATION_CONFLICT',
+        );
+      }
+      return { row: rows[0], replay: false, settle: true };
+    }
+
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE payment_gateway_refunds
+          SET status = 'failed', failed_at = NOW(),
+              failure_code = 'provider_confirmed_not_refunded',
+              failure_reason = $1::text,
+              metadata = jsonb_set(
+                COALESCE(metadata, '{}'::jsonb),
+                '{reconciliation_resolutions}',
+                (
+                  CASE
+                    WHEN jsonb_typeof(metadata->'reconciliation_resolutions') = 'array'
+                      THEN metadata->'reconciliation_resolutions'
+                    ELSE '[]'::jsonb
+                  END
+                ) || jsonb_build_array(jsonb_build_object(
+                  'disposition', 'provider_not_refunded',
+                  'evidence_reference', $2::text,
+                  'recovery_path', $3::text,
+                  'note', $1::text,
+                  'resolved_by', $4::text,
+                  'resolved_at', NOW(),
+                  'outcome', 'failed_confirmed'
+                )),
+                true
+              ),
+              reconciled_at = NULL, reconciliation_note = NULL,
+              reconciled_by = NULL, updated_at = NOW()
+        WHERE id = $5::int AND tenant_id = $6::uuid
+          AND status = 'requires_reconciliation'
+        RETURNING *`,
+      trimmedNote, normalized.evidenceReference, normalized.recoveryPath,
+      actor, Number(execution.id), tenant,
+    );
+    if (!rows.length) {
+      throw AppError.conflict(
+        'Gateway refund reconciliation changed concurrently',
+        'PAYMENT_GATEWAY_REFUND_RECONCILIATION_CONFLICT',
+      );
+    }
+    return { row: rows[0], replay: false, settle: false };
+  });
+
+  let completed = resolution;
+  if (resolution.settle) {
+    const settlement = await settleGatewayRefundProcessedEvidence({
+      tenant,
+      gatewayRefund: resolution.row,
+      providerRefundId: normalized.evidenceReference,
+      manualResolution: {
+        note: trimmedNote,
+        resolvedBy: actor,
+        evidenceReference: normalized.evidenceReference,
+      },
+    });
+    if (settlement.outcome === 'requires_reconciliation') {
+      throw AppError.conflict(
+        'Manual settlement evidence conflicted with the billing payout authority',
+        'PAYMENT_GATEWAY_REFUND_MANUAL_SETTLEMENT_CONFLICT',
+      );
+    }
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT * FROM payment_gateway_refunds
         WHERE id = $1::int AND tenant_id = $2::uuid LIMIT 1`,
-      Number(id), tenant,
+      Number(resolution.row.id), tenant,
     );
-    if (!existing.length) throw AppError.notFound('Payment gateway refund not found');
-    throw AppError.conflict(
-      existing[0].reconciled_at
-        ? 'This gateway refund was already reconciled'
-        : 'Gateway refund is not awaiting reconciliation',
-      'PAYMENT_GATEWAY_REFUND_NOT_RECONCILABLE',
-    );
+    if (!rows.length) throw AppError.notFound('Payment gateway refund not found');
+    completed = { row: rows[0], replay: resolution.replay, settle: false };
   }
   logger.info('payment gateway refund manually reconciled', {
-    gateway_refund_id: Number(rows[0].id),
-    resolved_by: resolved_by ? String(resolved_by) : null,
+    gateway_refund_id: Number(completed.row.id),
+    disposition: normalized.disposition,
+    recovery_path: normalized.recoveryPath,
+    resolved_by: actor,
   });
-  return toGatewayRefundResult(rows[0], false);
+  return toGatewayRefundResult(completed.row, completed.replay);
 }
 
 const PROVIDER_REFUND_STATUSES = new Set(['pending', 'processed', 'failed']);
@@ -1427,8 +1822,9 @@ function refundEvidenceMismatches(intent, evidence, { expectedStatus = null } = 
 }
 
 async function reopenRefundReconciliationForExactProviderEvidence({
-  tenant, gatewayRefund, providerRefundId,
+  tenant, gatewayRefund, providerRefundId, terminalStatus,
 }) {
+  const supersededBy = `exact_provider_${terminalStatus}_evidence`;
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE payment_gateway_refunds
         SET metadata = jsonb_set(
@@ -1445,22 +1841,70 @@ async function reopenRefundReconciliationForExactProviderEvidence({
                 'reconciliation_note', reconciliation_note,
                 'reconciled_by', reconciled_by,
                 'provider_refund_id', $1::text,
-                'superseded_by', 'exact_provider_processed_evidence'
+                'superseded_by', $2::text
               ))),
               true
             ),
             reconciled_at = NULL, reconciliation_note = NULL,
             reconciled_by = NULL, updated_at = NOW()
-      WHERE id = $2::int AND tenant_id = $3::uuid
+      WHERE id = $3::int AND tenant_id = $4::uuid
         AND status = 'requires_reconciliation' AND reconciled_at IS NOT NULL
       RETURNING id`,
-    String(providerRefundId), Number(gatewayRefund.id), tenant,
+    String(providerRefundId), supersededBy, Number(gatewayRefund.id), tenant,
   );
   if (rows.length) {
     logger.info('payment gateway refund reconciliation superseded by exact provider evidence', {
       gateway_refund_id: Number(gatewayRefund.id),
     });
   }
+}
+
+async function reopenFailedGatewayRefundForProcessedEvidence({
+  tenant, gatewayRefund, providerRefundId,
+}) {
+  return setTenantTx(tenant, async (tx) => {
+    const { execution, authority } = await lockGatewayRefundAuthorityTx(tx, {
+      tenant, id: gatewayRefund.id,
+    });
+    if (execution.status !== 'failed') return execution;
+    if (authority.approval_status !== 'APPROVED'
+        || authority.payout_rail !== 'gateway'
+        || Number(authority.gateway_refund_id) !== Number(execution.id)) {
+      return null;
+    }
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE payment_gateway_refunds
+          SET status = 'requires_reconciliation',
+              provider_refund_id = COALESCE(provider_refund_id, $1::varchar),
+              metadata = jsonb_set(
+                COALESCE(metadata, '{}'::jsonb),
+                '{provider_terminal_evidence_history}',
+                (
+                  CASE
+                    WHEN jsonb_typeof(metadata->'provider_terminal_evidence_history') = 'array'
+                      THEN metadata->'provider_terminal_evidence_history'
+                    ELSE '[]'::jsonb
+                  END
+                ) || jsonb_build_array(jsonb_strip_nulls(jsonb_build_object(
+                  'status', 'failed',
+                  'failed_at', failed_at,
+                  'failure_code', failure_code,
+                  'failure_reason', failure_reason,
+                  'superseded_by', 'exact_provider_processed_evidence',
+                  'provider_refund_id', $1::text,
+                  'superseded_at', NOW()
+                ))),
+                true
+              ),
+              failed_at = NULL, failure_code = NULL, failure_reason = NULL,
+              reconciled_at = NULL, reconciliation_note = NULL,
+              reconciled_by = NULL, updated_at = NOW()
+        WHERE id = $2::int AND tenant_id = $3::uuid AND status = 'failed'
+        RETURNING *`,
+      String(providerRefundId), Number(execution.id), tenant,
+    );
+    return rows[0] || execution;
+  });
 }
 
 async function findGatewayRefundForWebhook({ tenant, config, entity }) {
@@ -1496,7 +1940,7 @@ async function findGatewayRefundForWebhook({ tenant, config, entity }) {
           AND orders.provider_config_id = $4::int
           AND refunds.provider_payment_id = $5
           AND refunds.billing_refund_id = $6::int
-          AND refunds.status IN ('initiated', 'pending', 'requires_reconciliation')
+          AND refunds.status IN ('initiated', 'pending', 'failed', 'requires_reconciliation')
         ORDER BY refunds.id DESC
         LIMIT 1`,
       tenant, config.provider, config.environment, Number(config.id),
@@ -1590,6 +2034,98 @@ async function claimGatewayPayoutRailTx(tx, {
  * authority and the ledger REFUND_PAID posting stay with billingV2
  * (markGatewayRefundPaid, driven by exact refund.processed evidence).
  */
+export async function listGatewayRefundCandidates({ tenantId, billing_refund_id }) {
+  const tenant = requireTenantId(tenantId);
+  const refundId = Number(billing_refund_id);
+  if (!Number.isInteger(refundId) || refundId <= 0) {
+    throw AppError.badRequest(
+      'billing_refund_id must be a positive integer',
+      'PAYMENT_GATEWAY_BAD_REFUND',
+    );
+  }
+  await requireGatewayContext(tenant);
+  return setTenantTx(tenant, async (tx) => {
+    const refundRows = await tx.$queryRawUnsafe(
+      `SELECT id, invoice_id, patient_uid::text, amount, mode,
+              approval_status, payout_rail
+         FROM billing_refunds
+        WHERE tenant_id = $1::uuid AND id = $2::int
+        LIMIT 1`,
+      tenant,
+      refundId,
+    );
+    const refund = refundRows[0];
+    if (!refund) throw AppError.notFound('Billing refund not found');
+    if (refund.approval_status !== 'APPROVED') {
+      throw AppError.conflict(
+        'Refund must be approved before selecting a gateway payment source',
+        'PAYMENT_GATEWAY_REFUND_NOT_APPROVED',
+      );
+    }
+    if (refund.payout_rail === 'manual') {
+      throw AppError.conflict(
+        'This approved refund is already claimed for manual payout',
+        'PAYMENT_GATEWAY_REFUND_PAYOUT_RAIL_CONFLICT',
+      );
+    }
+    if (refund.invoice_id == null) {
+      throw AppError.badRequest(
+        'Only invoice-linked refunds can use a gateway payment source',
+        'PAYMENT_GATEWAY_REFUND_NOT_GATEWAY_COLLECTED',
+      );
+    }
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT orders.id AS gateway_order_id,
+              orders.provider,
+              orders.environment,
+              orders.method,
+              orders.amount,
+              orders.captured_at AS paid_at,
+              payments.reference AS payment_reference,
+              GREATEST(
+                orders.amount - COALESCE(SUM(execution.amount)
+                  FILTER (WHERE execution.status <> 'failed'), 0),
+                0
+              )::numeric AS refundable_amount
+         FROM payment_gateway_orders orders
+         JOIN billing_payments payments
+           ON payments.tenant_id = orders.tenant_id
+          AND payments.id = orders.billing_payment_id
+         JOIN payment_gateway_provider_configs config
+           ON config.tenant_id = orders.tenant_id
+          AND config.id = orders.provider_config_id
+          AND config.enabled = TRUE
+         LEFT JOIN payment_gateway_refunds execution
+           ON execution.tenant_id = orders.tenant_id
+          AND execution.gateway_order_id = orders.id
+        WHERE orders.tenant_id = $1::uuid
+          AND orders.status = 'paid'
+          AND orders.provider_payment_id IS NOT NULL
+          AND orders.invoice_id = $2::int
+          AND payments.invoice_id = $2::int
+          AND orders.patient_uid = $3::uuid
+          AND payments.patient_uid = $3::uuid
+          AND UPPER(payments.mode) = UPPER($4::text)
+          AND payments.reversed = FALSE
+          AND orders.provider = config.provider
+          AND orders.environment = config.environment
+        GROUP BY orders.id, payments.reference
+       HAVING GREATEST(
+                orders.amount - COALESCE(SUM(execution.amount)
+                  FILTER (WHERE execution.status <> 'failed'), 0),
+                0
+              ) >= $5::numeric
+        ORDER BY orders.captured_at DESC NULLS LAST, orders.id DESC`,
+      tenant,
+      Number(refund.invoice_id),
+      String(refund.patient_uid),
+      String(refund.mode),
+      Number(refund.amount),
+    );
+    return rows;
+  }, { readOnly: true });
+}
+
 export async function initiateGatewayRefund({
   tenantId, billing_refund_id, gateway_order_id, initiated_by,
 }) {
@@ -1924,6 +2460,205 @@ function gatewayRefundReceipt(row, order = {}) {
   return `pgr-${sha256Hex(identity).slice(0, 32)}`;
 }
 
+async function parkProcessedRefundAuthorityConflict({ tenant, gatewayRefund }) {
+  await prisma.$executeRawUnsafe(
+    `UPDATE payment_gateway_refunds
+        SET status = 'requires_reconciliation',
+            failure_code = 'payout_rail_conflict',
+            failure_reason = $1, updated_at = NOW()
+      WHERE id = $2::int AND tenant_id = $3::uuid
+        AND status IN ('initiated', 'pending', 'failed', 'processed', 'requires_reconciliation')`,
+    'Provider processed this refund but a different payout execution owns the billing refund',
+    Number(gatewayRefund.id), tenant,
+  );
+  return {
+    outcome: 'requires_reconciliation',
+    gatewayRefundId: Number(gatewayRefund.id),
+    billingRefundId: gatewayRefund.billing_refund_id != null
+      ? Number(gatewayRefund.billing_refund_id)
+      : null,
+    reason: 'payout_rail_conflict',
+  };
+}
+
+async function settleGatewayRefundProcessedEvidence({
+  tenant, gatewayRefund, providerRefundId, manualResolution = null,
+}) {
+  let current = gatewayRefund;
+  let billingAuthorityTransitioned = false;
+  if (current.status === 'failed') {
+    if (manualResolution) {
+      return parkProcessedRefundAuthorityConflict({ tenant, gatewayRefund: current });
+    }
+    current = await reopenFailedGatewayRefundForProcessedEvidence({
+      tenant, gatewayRefund: current, providerRefundId,
+    });
+    if (!current) {
+      return parkProcessedRefundAuthorityConflict({ tenant, gatewayRefund });
+    }
+  }
+  if (current.reconciled_at) {
+    await reopenRefundReconciliationForExactProviderEvidence({
+      tenant,
+      gatewayRefund: current,
+      providerRefundId,
+      terminalStatus: 'processed',
+    });
+  }
+
+  if (current.billing_refund_id != null) {
+    let settled = false;
+    for (let attempt = 0; attempt < 2 && !settled; attempt += 1) {
+      try {
+        const settlement = await markGatewayRefundPaid(Number(current.billing_refund_id), {
+          tenantId: tenant,
+          gateway_refund_id: Number(current.id),
+          provider_refund_id: String(providerRefundId),
+        });
+        billingAuthorityTransitioned = settlement?.gateway_authority_transitioned === true;
+        settled = true;
+      } catch (err) {
+        const stateRows = await prisma.$queryRawUnsafe(
+          `SELECT execution.*,
+                  authority.approval_status AS authority_approval_status,
+                  authority.payout_rail AS authority_payout_rail,
+                  authority.gateway_refund_id AS authority_gateway_refund_id,
+                  authority.reference AS authority_reference
+             FROM payment_gateway_refunds AS execution
+             LEFT JOIN billing_refunds AS authority
+               ON authority.id = execution.billing_refund_id
+              AND authority.tenant_id = execution.tenant_id
+            WHERE execution.id = $1::int AND execution.tenant_id = $2::uuid
+            LIMIT 1`,
+          Number(current.id), tenant,
+        );
+        const state = stateRows[0] || null;
+        const authority = state ? {
+          approval_status: state.authority_approval_status,
+          payout_rail: state.authority_payout_rail,
+          gateway_refund_id: state.authority_gateway_refund_id,
+          reference: state.authority_reference,
+        } : null;
+        if (state && exactProcessedAuthority(authority, state, providerRefundId)) {
+          current = state;
+          settled = true;
+          break;
+        }
+        if (!manualResolution && attempt === 0 && state?.status === 'failed'
+            && authority?.approval_status === 'APPROVED'
+            && authority?.payout_rail === 'gateway'
+            && Number(authority?.gateway_refund_id) === Number(state.id)) {
+          current = await reopenFailedGatewayRefundForProcessedEvidence({
+            tenant, gatewayRefund: state, providerRefundId,
+          });
+          if (current) continue;
+        }
+        if (authority?.approval_status === 'PAID'
+            || err?.code === 'BILLING_REFUND_PAYOUT_RAIL_CONFLICT'
+            || err?.code === 'BILLING_REFUND_GATEWAY_EXECUTION_CONFLICT'
+            || err?.code === 'BILLING_REFUND_GATEWAY_EVIDENCE_INVALID') {
+          return parkProcessedRefundAuthorityConflict({ tenant, gatewayRefund: current });
+        }
+        throw err;
+      }
+    }
+  }
+
+  return setTenantTx(tenant, async (tx) => {
+    const { execution, authority } = current.billing_refund_id != null
+      ? await lockGatewayRefundAuthorityTx(tx, { tenant, id: current.id })
+      : { execution: current, authority: null };
+    if (authority && !exactProcessedAuthority(authority, execution, providerRefundId)) {
+      await tx.$executeRawUnsafe(
+        `UPDATE payment_gateway_refunds
+            SET status = 'requires_reconciliation',
+                failure_code = 'payout_rail_conflict',
+                failure_reason = $1, updated_at = NOW()
+          WHERE id = $2::int AND tenant_id = $3::uuid
+            AND status IN ('initiated', 'pending', 'failed', 'processed', 'requires_reconciliation')`,
+        'Provider processed this refund but a different payout execution owns the billing refund',
+        Number(execution.id), tenant,
+      );
+      return {
+        outcome: 'requires_reconciliation',
+        gatewayRefundId: Number(execution.id),
+        billingRefundId: Number(execution.billing_refund_id),
+        reason: 'payout_rail_conflict',
+      };
+    }
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE payment_gateway_refunds
+          SET metadata = jsonb_set(
+                jsonb_set(
+                  COALESCE(metadata, '{}'::jsonb),
+                  '{provider_terminal_evidence_history}',
+                  (
+                    CASE
+                      WHEN jsonb_typeof(metadata->'provider_terminal_evidence_history') = 'array'
+                        THEN metadata->'provider_terminal_evidence_history'
+                      ELSE '[]'::jsonb
+                    END
+                  ) || jsonb_build_array(jsonb_strip_nulls(jsonb_build_object(
+                    'previous_status', status,
+                    'failed_at', failed_at,
+                    'failure_code', failure_code,
+                    'failure_reason', failure_reason,
+                    'reconciled_at', reconciled_at,
+                    'reconciliation_note', reconciliation_note,
+                    'reconciled_by', reconciled_by,
+                    'provider_refund_id', $1::text,
+                    'terminal_status', 'processed',
+                    'recorded_at', NOW()
+                  ))),
+                  true
+                ),
+                '{reconciliation_resolutions}',
+                CASE
+                  WHEN $2::boolean THEN
+                    (
+                      CASE
+                        WHEN jsonb_typeof(metadata->'reconciliation_resolutions') = 'array'
+                          THEN metadata->'reconciliation_resolutions'
+                        ELSE '[]'::jsonb
+                      END
+                    ) || jsonb_build_array(jsonb_build_object(
+                      'disposition', 'manual_settled',
+                      'evidence_reference', $1::text,
+                      'note', $3::text,
+                      'resolved_by', $4::text,
+                      'resolved_at', NOW(),
+                      'outcome', 'settlement_completed'
+                    ))
+                  ELSE COALESCE(metadata->'reconciliation_resolutions', '[]'::jsonb)
+                END,
+                true
+              ),
+              updated_at = NOW()
+        WHERE id = $5::int AND tenant_id = $6::uuid
+          AND status = 'processed'
+          AND provider_refund_id = $1::varchar
+          AND processed_at IS NOT NULL
+        RETURNING *`,
+      String(providerRefundId), Boolean(manualResolution),
+      manualResolution?.note || null, manualResolution?.resolvedBy || null,
+      Number(execution.id), tenant,
+    );
+    if (!rows.length) {
+      throw AppError.conflict(
+        'Gateway refund terminal state changed before settlement completed',
+        'PAYMENT_GATEWAY_REFUND_TERMINAL_CONFLICT',
+      );
+    }
+    return {
+      outcome: billingAuthorityTransitioned ? 'refund_processed' : 'replay',
+      gatewayRefundId: Number(execution.id),
+      billingRefundId: execution.billing_refund_id != null
+        ? Number(execution.billing_refund_id)
+        : null,
+    };
+  });
+}
+
 /**
  * Exact refund.processed provider evidence → mark the execution leg processed and drive
  * markGatewayRefundPaid (billingV2 authority; posts REFUND_PAID per ledger wiring)
@@ -1943,9 +2678,22 @@ export async function handleRefundProcessedEvent({ tenantId, config, payload }) 
     return { outcome: 'ignored', reason: 'no matching gateway refund row' };
   }
   if (gatewayRefund.status === 'processed') {
-    return { outcome: 'replay', gatewayRefundId: Number(gatewayRefund.id) };
+    if (gatewayRefund.billing_refund_id == null) {
+      return { outcome: 'replay', gatewayRefundId: Number(gatewayRefund.id) };
+    }
+    const authorityRows = await prisma.$queryRawUnsafe(
+      `SELECT approval_status, payout_rail, gateway_refund_id, reference
+         FROM billing_refunds
+        WHERE id = $1::int AND tenant_id = $2::uuid
+        LIMIT 1`,
+      Number(gatewayRefund.billing_refund_id), tenant,
+    );
+    if (exactProcessedAuthority(
+      authorityRows[0], gatewayRefund, gatewayRefund.provider_refund_id,
+    )) {
+      return { outcome: 'replay', gatewayRefundId: Number(gatewayRefund.id) };
+    }
   }
-
   const evidenceMismatches = refundEvidenceMismatches(
     gatewayRefund, evidence, { expectedStatus: 'processed' },
   );
@@ -1955,88 +2703,9 @@ export async function handleRefundProcessedEvent({ tenantId, config, payload }) 
     });
   }
 
-  if (gatewayRefund.reconciled_at) {
-    await reopenRefundReconciliationForExactProviderEvidence({
-      tenant, gatewayRefund, providerRefundId,
-    });
-  }
-
-  // Authority first: flip the billing refund APPROVED → PAID (its own
-  // setTenantTx; idempotent via the status guard) with the provider refund id
-  // as the payout reference. A crash between this and the execution-row
-  // update self-heals on redelivery via the already-PAID acceptance below.
-  if (gatewayRefund.billing_refund_id != null) {
-    try {
-      await markGatewayRefundPaid(Number(gatewayRefund.billing_refund_id), {
-        tenantId: tenant,
-        gateway_refund_id: Number(gatewayRefund.id),
-        provider_refund_id: String(providerRefundId),
-      });
-    } catch (err) {
-      const billingRows = await prisma.$queryRawUnsafe(
-          `SELECT approval_status, payout_rail, gateway_refund_id, reference
-             FROM billing_refunds
-            WHERE id = $1::int AND tenant_id = $2::uuid LIMIT 1`,
-          Number(gatewayRefund.billing_refund_id), tenant,
-        );
-      const billingRefund = billingRows[0] || null;
-      const exactAlreadyPaid = err instanceof AppError && err.statusCode === 404
-        && billingRefund?.approval_status === 'PAID'
-        && billingRefund?.payout_rail === 'gateway'
-        && Number(billingRefund?.gateway_refund_id) === Number(gatewayRefund.id)
-        && String(billingRefund?.reference || '') === String(providerRefundId);
-      if (!exactAlreadyPaid) {
-        if (billingRefund?.approval_status === 'PAID'
-            || err?.code === 'BILLING_REFUND_PAYOUT_RAIL_CONFLICT'
-            || err?.code === 'BILLING_REFUND_GATEWAY_EXECUTION_CONFLICT') {
-          await prisma.$executeRawUnsafe(
-            `UPDATE payment_gateway_refunds
-                SET status = 'requires_reconciliation',
-                    failure_code = 'payout_rail_conflict',
-                    failure_reason = $1, updated_at = NOW()
-              WHERE id = $2::int AND tenant_id = $3::uuid
-                AND status IN ('initiated', 'pending', 'requires_reconciliation')`,
-            'Provider processed this refund but a different payout execution owns the billing refund',
-            Number(gatewayRefund.id), tenant,
-          );
-          return {
-            outcome: 'requires_reconciliation',
-            gatewayRefundId: Number(gatewayRefund.id),
-            billingRefundId: Number(gatewayRefund.billing_refund_id),
-            reason: 'payout_rail_conflict',
-          };
-        }
-        throw err;
-      }
-    }
-  }
-
-  const updated = await prisma.$queryRawUnsafe(
-    `UPDATE payment_gateway_refunds
-        SET status = 'processed',
-            provider_refund_id = COALESCE(provider_refund_id, $1),
-            processed_at = NOW(), updated_at = NOW()
-      WHERE id = $2::int AND tenant_id = $3::uuid
-        AND status IN ('initiated', 'pending', 'requires_reconciliation')
-        AND (
-          billing_refund_id IS NULL
-          OR EXISTS (
-            SELECT 1 FROM billing_refunds AS authority
-             WHERE authority.id = payment_gateway_refunds.billing_refund_id
-               AND authority.tenant_id = payment_gateway_refunds.tenant_id
-               AND authority.payout_rail = 'gateway'
-               AND authority.gateway_refund_id = payment_gateway_refunds.id
-               AND authority.approval_status = 'PAID'
-          )
-        )
-      RETURNING id`,
-    String(providerRefundId), Number(gatewayRefund.id), tenant,
-  );
-  return {
-    outcome: updated.length ? 'refund_processed' : 'replay',
-    gatewayRefundId: Number(gatewayRefund.id),
-    billingRefundId: gatewayRefund.billing_refund_id != null ? Number(gatewayRefund.billing_refund_id) : null,
-  };
+  return settleGatewayRefundProcessedEvidence({
+    tenant, gatewayRefund, providerRefundId,
+  });
 }
 
 async function handleRefundFailedEvent({ tenantId, config, payload }) {
@@ -2049,12 +2718,6 @@ async function handleRefundFailedEvent({ tenantId, config, payload }) {
   if (!gatewayRefund) {
     return { outcome: 'ignored', reason: 'no matching in-flight gateway refund' };
   }
-  if (gatewayRefund.reconciled_at) {
-    return { outcome: 'replay', gatewayRefundId: Number(gatewayRefund.id) };
-  }
-  if (gatewayRefund.status === 'failed') {
-    return { outcome: 'replay', gatewayRefundId: Number(gatewayRefund.id) };
-  }
   const evidenceMismatches = refundEvidenceMismatches(
     gatewayRefund, evidence, { expectedStatus: 'failed' },
   );
@@ -2063,21 +2726,134 @@ async function handleRefundFailedEvent({ tenantId, config, payload }) {
       tenant, gatewayRefund, evidence, mismatches: evidenceMismatches,
     });
   }
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE payment_gateway_refunds
-        SET status = 'failed', provider_refund_id = COALESCE(provider_refund_id, $1::varchar),
-            failed_at = NOW(), failure_code = $2, failure_reason = $3, updated_at = NOW()
-      WHERE id = $4::int AND tenant_id = $5::uuid
-        AND status IN ('initiated', 'pending', 'requires_reconciliation')
-      RETURNING id`,
-    String(entity.id),
-    entity.error_code ? String(entity.error_code).slice(0, 80) : null,
-    entity.error_description ? String(entity.error_description).slice(0, 500) : 'provider reported refund failure',
-    Number(gatewayRefund.id), tenant,
-  );
-  return rows.length
-    ? { outcome: 'refund_failed_recorded', gatewayRefundId: Number(rows[0].id) }
-    : { outcome: 'replay', gatewayRefundId: Number(gatewayRefund.id) };
+  return setTenantTx(tenant, async (tx) => {
+    const { execution, authority } = await lockGatewayRefundAuthorityTx(tx, {
+      tenant, id: gatewayRefund.id,
+    });
+    const lockedMismatches = refundEvidenceMismatches(
+      execution, evidence, { expectedStatus: 'failed' },
+    );
+    if (lockedMismatches.length) {
+      const rows = await tx.$queryRawUnsafe(
+        `UPDATE payment_gateway_refunds
+            SET status = 'requires_reconciliation',
+                failure_code = 'provider_evidence_mismatch',
+                failure_reason = $1::text, updated_at = NOW()
+          WHERE id = $2::int AND tenant_id = $3::uuid
+            AND status IN ('initiated', 'pending', 'requires_reconciliation')
+          RETURNING id`,
+        refundEvidenceMismatchReason(lockedMismatches), Number(execution.id), tenant,
+      );
+      return {
+        outcome: 'requires_reconciliation',
+        gatewayRefundId: Number(execution.id),
+        reason: rows.length
+          ? refundEvidenceMismatchReason(lockedMismatches)
+          : 'terminal_state_changed',
+      };
+    }
+    if (exactProcessedAuthority(authority, execution, entity.id)) {
+      await tx.$executeRawUnsafe(
+        `UPDATE payment_gateway_refunds
+            SET status = 'processed',
+                provider_refund_id = COALESCE(provider_refund_id, $1::varchar),
+                processed_at = COALESCE(processed_at, NOW()),
+                failed_at = NULL, failure_code = NULL, failure_reason = NULL,
+                reconciled_at = NULL, reconciliation_note = NULL,
+                reconciled_by = NULL,
+                metadata = jsonb_set(
+                  COALESCE(metadata, '{}'::jsonb),
+                  '{provider_terminal_evidence_history}',
+                  (
+                    CASE
+                      WHEN jsonb_typeof(metadata->'provider_terminal_evidence_history') = 'array'
+                        THEN metadata->'provider_terminal_evidence_history'
+                      ELSE '[]'::jsonb
+                    END
+                  ) || jsonb_build_array(jsonb_strip_nulls(jsonb_build_object(
+                    'terminal_status', 'failed',
+                    'provider_refund_id', $1::text,
+                    'error_code', $2::text,
+                    'error_description', $3::text,
+                    'received_at', NOW(),
+                    'disposition', 'ignored_after_authoritative_processed_settlement'
+                  ))),
+                  true
+                ),
+                updated_at = NOW()
+          WHERE id = $4::int AND tenant_id = $5::uuid`,
+        String(entity.id),
+        entity.error_code ? String(entity.error_code).slice(0, 80) : null,
+        entity.error_description ? String(entity.error_description).slice(0, 500) : null,
+        Number(execution.id), tenant,
+      );
+      return { outcome: 'replay', gatewayRefundId: Number(execution.id) };
+    }
+    if (execution.status === 'failed') {
+      return { outcome: 'replay', gatewayRefundId: Number(execution.id) };
+    }
+    if (authority.approval_status !== 'APPROVED'
+        || authority.payout_rail !== 'gateway'
+        || Number(authority.gateway_refund_id) !== Number(execution.id)
+        || execution.status === 'processed') {
+      const rows = await tx.$queryRawUnsafe(
+        `UPDATE payment_gateway_refunds
+            SET status = 'requires_reconciliation',
+                failure_code = 'provider_terminal_authority_conflict',
+                failure_reason = $1::text, updated_at = NOW()
+          WHERE id = $2::int AND tenant_id = $3::uuid
+            AND status IN ('initiated', 'pending', 'processed', 'requires_reconciliation')
+          RETURNING id`,
+        'Provider failure evidence conflicts with the billing refund payout authority',
+        Number(execution.id), tenant,
+      );
+      return {
+        outcome: 'requires_reconciliation',
+        gatewayRefundId: Number(execution.id),
+        reason: rows.length ? 'provider_terminal_authority_conflict' : 'terminal_state_changed',
+      };
+    }
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE payment_gateway_refunds
+          SET status = 'failed',
+              provider_refund_id = COALESCE(provider_refund_id, $1::varchar),
+              failed_at = NOW(), failure_code = $2::varchar, failure_reason = $3::text,
+              metadata = jsonb_set(
+                COALESCE(metadata, '{}'::jsonb),
+                '{provider_terminal_evidence_history}',
+                (
+                  CASE
+                    WHEN jsonb_typeof(metadata->'provider_terminal_evidence_history') = 'array'
+                      THEN metadata->'provider_terminal_evidence_history'
+                    ELSE '[]'::jsonb
+                  END
+                ) || jsonb_build_array(jsonb_strip_nulls(jsonb_build_object(
+                  'previous_status', status,
+                  'reconciled_at', reconciled_at,
+                  'reconciliation_note', reconciliation_note,
+                  'reconciled_by', reconciled_by,
+                  'terminal_status', 'failed',
+                  'provider_refund_id', $1::text,
+                  'error_code', $2::text,
+                  'error_description', $3::text,
+                  'received_at', NOW()
+                ))),
+                true
+              ),
+              reconciled_at = NULL, reconciliation_note = NULL,
+              reconciled_by = NULL, updated_at = NOW()
+        WHERE id = $4::int AND tenant_id = $5::uuid
+          AND status IN ('initiated', 'pending', 'requires_reconciliation')
+        RETURNING id`,
+      String(entity.id),
+      entity.error_code ? String(entity.error_code).slice(0, 80) : null,
+      entity.error_description ? String(entity.error_description).slice(0, 500) : 'provider reported refund failure',
+      Number(execution.id), tenant,
+    );
+    return rows.length
+      ? { outcome: 'refund_failed_recorded', gatewayRefundId: Number(rows[0].id) }
+      : { outcome: 'replay', gatewayRefundId: Number(execution.id) };
+  });
 }
 
 // ───────────────────────────────────────────────────────────────────────
@@ -2172,6 +2948,7 @@ export default {
   processWebhookEvent,
   handleCaptureEvent,
   handleRefundProcessedEvent,
+  listGatewayRefundCandidates,
   initiateGatewayRefund,
   getPublicGatewayViewForLink,
 };

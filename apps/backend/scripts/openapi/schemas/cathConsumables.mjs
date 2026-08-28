@@ -44,6 +44,12 @@ const BIGINT_WIRE = {
     }
   ]
 };
+const NULLABLE_BIGINT_WIRE = { ...BIGINT_WIRE, nullable: true };
+const FIXED_QUANTITY_WIRE = {
+  type: 'string',
+  pattern: '^(?:0|[1-9][0-9]*)\\.[0-9]{4}$',
+  description: 'Non-negative quantity rendered with exactly four decimal places.'
+};
 
 const countData = (arrayKey, itemSchemaName) => ({
   type: 'object',
@@ -365,6 +371,107 @@ export const schemas = {
   },
   CathCaseConsumableUsageMutationResponse: envelope('CathCaseConsumableUsageMutationData'),
 
+  CathInventoryReconciliation: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'case_id',
+      'usage_id',
+      'patient_uid',
+      'item_name',
+      'catalog_item_id',
+      'inventory_item_id',
+      'inventory_batch_id',
+      'batch_number',
+      'documented_quantity',
+      'decremented_quantity',
+      'remaining_quantity',
+      'inventory_decrement_status',
+      'inventory_warning',
+      'task_id',
+      'task_status',
+      'workflow_sla_instance_id',
+      'sla_status',
+      'sla_recorded_status',
+      'due_at',
+      'actionable',
+      'coverage_gap',
+      'deep_link',
+      'retry_path'
+    ],
+    properties: {
+      case_id: BIGINT_WIRE,
+      usage_id: BIGINT_WIRE,
+      patient_uid: { type: 'string', format: 'uuid' },
+      item_name: { type: 'string', minLength: 1 },
+      catalog_item_id: BIGINT_WIRE,
+      inventory_item_id: BIGINT_WIRE,
+      inventory_batch_id: NULLABLE_BIGINT_WIRE,
+      batch_number: nullableString,
+      documented_quantity: FIXED_QUANTITY_WIRE,
+      decremented_quantity: FIXED_QUANTITY_WIRE,
+      remaining_quantity: FIXED_QUANTITY_WIRE,
+      inventory_decrement_status: {
+        type: 'string',
+        enum: ['insufficient_stock', 'decremented']
+      },
+      inventory_warning: { type: 'string' },
+      task_id: BIGINT_WIRE,
+      task_status: {
+        type: 'string',
+        enum: ['open', 'in_progress', 'blocked', 'completed', 'overdue']
+      },
+      workflow_sla_instance_id: { type: 'string', format: 'uuid' },
+      sla_status: {
+        type: 'string',
+        enum: ['active', 'completed', 'breached', 'escalated']
+      },
+      sla_recorded_status: {
+        type: 'string',
+        enum: ['active', 'completed', 'breached', 'escalated']
+      },
+      due_at: { type: 'string', format: 'date-time' },
+      actionable: { type: 'boolean' },
+      coverage_gap: { type: 'boolean' },
+      deep_link: {
+        type: 'string',
+        pattern: '^/pharmacy/cath-inventory-reconciliation\\?case_id=[1-9][0-9]*&consumable_usage_id=[1-9][0-9]*$'
+      },
+      retry_path: {
+        type: 'string',
+        pattern: '^/api/v1/cath-lab/cases/[1-9][0-9]*/consumables/[1-9][0-9]*/inventory-reconcile$'
+      }
+    }
+  },
+
+  CathInventoryReconciliationReadData: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['reconciliation'],
+    properties: {
+      reconciliation: { $ref: '#/components/schemas/CathInventoryReconciliation' }
+    }
+  },
+  CathInventoryReconciliationReadResponse: envelope(
+    'CathInventoryReconciliationReadData'
+  ),
+
+  CathInventoryReconciliationCommandData: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['outcome', 'reconciliation'],
+    properties: {
+      outcome: {
+        type: 'string',
+        enum: ['completed', 'still_insufficient']
+      },
+      reconciliation: { $ref: '#/components/schemas/CathInventoryReconciliation' }
+    }
+  },
+  CathInventoryReconciliationCommandResponse: envelope(
+    'CathInventoryReconciliationCommandData'
+  ),
+
   CathConsumablesBillingSettings: {
     type: 'object',
     additionalProperties: false,
@@ -532,5 +639,26 @@ export const operations = {
     parameters: [idempotencyHeaderParameter],
     request: 'CathCaseConsumableUsageCreateRequest',
     response: 'CathCaseConsumableUsageMutationResponse'
+  },
+  'GET /api/v1/cath-lab/cases/{caseId}/consumables/{usageId}/inventory-reconcile': {
+    description:
+      'Returns the task-backed Cath consumable inventory shortfall and its current stock-movement evidence. Routine access is limited to PHARMACIST, PHARMACY_STAFF, and PHARMACY_INCHARGE. ADMIN and SUPER_ADMIN may use this read only for coverage-gap recovery when no active pharmacy operator is available.',
+    security: [{ ApiKeyAuth: [], BearerAuth: [] }],
+    pathParameters: {
+      caseId: BIGINT_WIRE,
+      usageId: BIGINT_WIRE
+    },
+    response: 'CathInventoryReconciliationReadResponse'
+  },
+  'POST /api/v1/cath-lab/cases/{caseId}/consumables/{usageId}/inventory-reconcile': {
+    description:
+      'Atomically retries only the remaining Cath consumable inventory decrement and returns completed or still_insufficient with refreshed reconciliation evidence. This no-body command requires Idempotency-Key and is limited to PHARMACIST, PHARMACY_STAFF, and PHARMACY_INCHARGE. ADMIN and SUPER_ADMIN remain read-only coverage-gap recovery viewers and cannot perform this inventory mutation.',
+    security: [{ ApiKeyAuth: [], BearerAuth: [] }],
+    pathParameters: {
+      caseId: BIGINT_WIRE,
+      usageId: BIGINT_WIRE
+    },
+    parameters: [idempotencyHeaderParameter],
+    response: 'CathInventoryReconciliationCommandResponse'
   }
 };

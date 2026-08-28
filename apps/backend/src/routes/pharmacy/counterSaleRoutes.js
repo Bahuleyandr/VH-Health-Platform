@@ -49,17 +49,30 @@ export const COUNTER_SALE_APPROVAL_HOST_ROLES = [
   ...new Set([...COUNTER_SALE_SELL_ROLES, ...CONTROLLED_DISPENSE_WITNESS_ROLES]),
 ];
 
-function wrap(handler) {
+function wrap(handler, { status = 200 } = {}) {
   return async (req, res, _next) => {
     try {
       const data = await handler(req, res);
       if (res.headersSent) return;
-      return success(res, data);
+      return success(res, data, 'Success', status);
     } catch (err) {
       return relayAppError(res, err, 'Counter sale error');
     }
   };
 }
+
+export const COUNTER_SALE_IDEMPOTENCY_BASE = '/api/v1/pharmacy-orders/counter-sales';
+const counterSaleMutationPath = (suffix = '') => `${COUNTER_SALE_IDEMPOTENCY_BASE}${suffix}`;
+const canonicalMutationId = (value) => {
+  const raw = String(value ?? '').trim();
+  return /^\d+$/.test(raw) ? raw.replace(/^0+(?=\d)/, '') : raw;
+};
+const counterSaleIdMutationPath = (suffix) => (req) => (
+  counterSaleMutationPath(`/${canonicalMutationId(req.params.id)}/${suffix}`)
+);
+const counterSaleWitnessApprovalPath = (req) => (
+  counterSaleMutationPath(`/witness-approvals/${canonicalMutationId(req.params.id)}/approve`)
+);
 
 function requireCounterSaleRole(allowedRoles, message) {
   return (req, res, next) => {
@@ -140,6 +153,7 @@ router.post('/witness-approvals', requireSell, guardSaleBodyPatient, requireIdem
   required: true,
   scope: 'pharmacy_counter_sale_witness_request',
   retainOnServerError: true,
+  requestPathForIdempotency: counterSaleMutationPath('/witness-approvals'),
 }), wrap(async (req) => (
   counterSales.requestCounterSaleWitnessApproval({
     ...req.body,
@@ -153,6 +167,7 @@ pharmacyCounterSaleWitnessApprovalRoutes.post('/', requireApprovalHost, requireI
   scope: 'pharmacy_counter_sale_witness_approval',
   retainOnServerError: true,
   requestBodyForIdempotency: witnessApprovalIdempotencyBody,
+  requestPathForIdempotency: counterSaleWitnessApprovalPath,
 }), wrap(async (req) => {
   const tenantId = tenantOf(req);
   const actor = await resolveWitnessActor(req, tenantId);
@@ -181,6 +196,7 @@ router.post('/', requireSell, guardSaleBodyPatient, requireIdempotencyKey({
   // happened". Releasing the claim would let the transport's automatic replay
   // dispense and charge a second time.
   required: true, scope: 'pharmacy_counter_sale', retainOnServerError: true,
+  requestPathForIdempotency: counterSaleMutationPath(),
 }), wrap(async (req) => counterSales.createCounterSale({
   tenantId: tenantOf(req),
   lines: req.body.lines,
@@ -206,27 +222,64 @@ router.get('/', requireRead, wrap(async (req) => ({
   }),
 })));
 
+router.get('/:id/void-status', requireVoid, guardSaleRowPatient, wrap(async (req) => (
+  counterSales.getCounterSaleVoidStatus({
+    tenantId: tenantOf(req),
+    id: req.params.id,
+  })
+)));
+
 router.get('/:id', requireRead, guardSaleRowPatient, wrap(async (req) => counterSales.getCounterSale({
   tenantId: tenantOf(req),
   id: req.params.id,
 })));
 
-// Same-day void: billing refund + exact per-batch restock (controlled lines
-// re-enter the statutory register in the return direction). Idempotency-Key
-// required for the same reason as the sale: a void moves money (refund) and
-// stock (restock); a transport replay must return the original void result,
-// not race a second attempt.
+// Same-day initiation creates one dedicated pending refund. Pharmacy cannot
+// approve or pay it, and stock stays untouched until exact paid-refund
+// reconciliation closes the obligation.
 router.post('/:id/void', requireVoid, guardSaleRowPatient, requireIdempotencyKey({
-  // Same reasoning as the sale: a void moves money (refund) and stock
-  // (restock), so a post-commit 5xx must not be replayed into a second void.
-  required: true, scope: 'pharmacy_counter_sale_void', retainOnServerError: true,
+  required: true,
+  scope: 'pharmacy_counter_sale_void',
+  retainOnServerError: false,
+  requestPathForIdempotency: counterSaleIdMutationPath('void'),
 }), wrap(async (req) => counterSales.voidCounterSale({
   tenantId: tenantOf(req),
   id: req.params.id,
   reason: req.body.reason,
+  disposition: req.body.disposition,
   voided_by: req.user?.uid,
-  voided_by_name: req.body.voided_by_name || req.user?.name || null,
+  voided_by_name: req.user?.name || null,
+  voided_by_role: req.user?.role || req.user?.rawRole || null,
+  command_key: req.idempotencyClaim?.requestKey,
+}), { status: 202 }));
+
+router.post('/:id/void/reconcile', requireVoid, guardSaleRowPatient, requireIdempotencyKey({
+  required: true,
+  scope: 'pharmacy_counter_sale_void_reconcile',
+  retainOnServerError: false,
+  requestPathForIdempotency: counterSaleIdMutationPath('void/reconcile'),
+}), wrap(async (req) => counterSales.reconcileCounterSaleVoid({
+  tenantId: tenantOf(req),
+  id: req.params.id,
+  reconciled_by: req.user?.uid,
+  reconciled_by_role: req.user?.role || req.user?.rawRole || null,
   request_id: req.id,
 })));
+
+router.post('/:id/void/rejection/resolve', requireVoid, guardSaleRowPatient,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'pharmacy_counter_sale_void_rejection_resolution',
+    retainOnServerError: false,
+    requestPathForIdempotency: counterSaleIdMutationPath('void/rejection/resolve'),
+  }), wrap(async (req) => counterSales.resolveRejectedCounterSaleVoid({
+    tenantId: tenantOf(req),
+    id: req.params.id,
+    resolution: req.body.resolution,
+    reason: req.body.reason,
+    resolved_by: req.user?.uid,
+    resolved_by_role: req.user?.role || req.user?.rawRole || null,
+    request_id: req.id,
+  })));
 
 export default router;

@@ -5,27 +5,35 @@
 // invoice with pay-at-counter, tied to the cashier's open cash-drawer session.
 import { envelope } from './_helpers.mjs';
 
-const witnessErrorResponse = (description) => ({
+const witnessErrorResponse = description => ({
   description,
   content: {
     'application/json': {
-      schema: { $ref: '#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse' },
-    },
-  },
+      schema: { $ref: '#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse' }
+    }
+  }
 });
 
 const witnessErrorResponses = ({ idempotent = false } = {}) => ({
-  400: witnessErrorResponse('The dispense payload, witness identity, or credential pair was invalid.'),
+  400: witnessErrorResponse(
+    'The dispense payload, witness identity, or credential pair was invalid.'
+  ),
   401: witnessErrorResponse('The independently supplied witness credentials were invalid.'),
   403: witnessErrorResponse('The authenticated caller or witness tenant/role was not permitted.'),
   404: witnessErrorResponse('The inventory item or witness approval was not found in this tenant.'),
-  409: witnessErrorResponse('The approval expired, was consumed, or did not match the unchanged dispense.'),
+  409: witnessErrorResponse(
+    'The approval expired, was consumed, or did not match the unchanged dispense.'
+  ),
   429: witnessErrorResponse('The witness credential attempt was rate limited or locked.'),
   500: witnessErrorResponse('The controlled-dispense approval could not be completed.'),
-  ...(idempotent ? {
-    422: witnessErrorResponse('The Idempotency-Key was reused with a different request body.'),
-    503: witnessErrorResponse('The idempotency store was unavailable, so the mutation failed closed.'),
-  } : {}),
+  ...(idempotent
+    ? {
+        422: witnessErrorResponse('The Idempotency-Key was reused with a different request body.'),
+        503: witnessErrorResponse(
+          'The idempotency store was unavailable, so the mutation failed closed.'
+        )
+      }
+    : {})
 });
 
 const bearerSecurity = [{ ApiKeyAuth: [], BearerAuth: [] }];
@@ -39,32 +47,75 @@ const idempotencyKeyParameter = {
     type: 'string',
     minLength: 1,
     maxLength: 200,
-    pattern: '^[A-Za-z0-9_\\-:.]+$',
-  },
+    pattern: '^[A-Za-z0-9_\\-:.]+$'
+  }
 };
-const approvalIdPathSchema = { type: 'string', pattern: '^[1-9][0-9]*$' };
+const positiveSignedInt64IdSchema = (description =
+  'Canonical positive signed 64-bit decimal string (1..9223372036854775807).') => ({
+  type: 'string',
+  pattern: '^[1-9][0-9]{0,18}$',
+  minLength: 1,
+  maxLength: 19,
+  'x-maximum': '9223372036854775807',
+  description
+});
+const approvalIdPathSchema = positiveSignedInt64IdSchema();
 
 const counterSaleIntentProperties = {
   lines: {
     type: 'array',
     minItems: 1,
-    items: { $ref: '#/components/schemas/PharmacyCounterSaleLineInput' },
+    items: { $ref: '#/components/schemas/PharmacyCounterSaleLineInput' }
   },
   patient_uid: {
-    type: 'string', format: 'uuid', nullable: true,
-    description: 'Registered patient. Omit for an anonymous walk-in (customer_name then required).',
+    type: 'string',
+    format: 'uuid',
+    nullable: true,
+    description: 'Registered patient. Omit for an anonymous walk-in (customer_name then required).'
   },
   customer_name: { type: 'string', nullable: true },
   customer_phone: { type: 'string', nullable: true },
   rx: { allOf: [{ $ref: '#/components/schemas/PharmacyCounterSaleRxInput' }], nullable: true },
   payment_mode: {
     type: 'string',
-    enum: ['CASH', 'CARD', 'UPI', 'NETBANKING', 'CHEQUE', 'DD', 'WALLET'],
+    enum: ['CASH', 'CARD', 'UPI', 'NETBANKING', 'CHEQUE', 'DD', 'WALLET']
   },
-  payment_reference: { type: 'string', nullable: true },
+  payment_reference: {
+    type: 'string',
+    nullable: true,
+    minLength: 1,
+    maxLength: 200,
+    pattern: '^[^\\u0000-\\u001F\\u007F]+$',
+    description:
+      'Original external receipt, instrument, or provider reference. Required for CARD, UPI, NETBANKING, CHEQUE, DD, and WALLET so any later refund can bind to the original payment; optional for CASH.'
+  },
   notes: { type: 'string', nullable: true },
-  sold_by_name: { type: 'string', nullable: true },
+  sold_by_name: { type: 'string', nullable: true }
 };
+
+const counterSalePaymentReferenceOneOf = [
+  {
+    title: 'Cash sale',
+    properties: { payment_mode: { type: 'string', enum: ['CASH'] } }
+  },
+  {
+    title: 'Externally referenced sale',
+    required: ['payment_reference'],
+    properties: {
+      payment_mode: {
+        type: 'string',
+        enum: ['CARD', 'UPI', 'NETBANKING', 'CHEQUE', 'DD', 'WALLET']
+      },
+      payment_reference: {
+        type: 'string',
+        nullable: false,
+        minLength: 1,
+        maxLength: 200,
+        pattern: '^[^\\u0000-\\u001F\\u007F]+$'
+      }
+    }
+  }
+];
 
 export const schemas = {
   PharmacyCounterSaleLineInput: {
@@ -72,8 +123,8 @@ export const schemas = {
     required: ['inventory_item_id', 'quantity'],
     properties: {
       inventory_item_id: { type: 'integer' },
-      quantity: { type: 'number', minimum: 0.0001 },
-    },
+      quantity: { type: 'number', minimum: 0.0001 }
+    }
   },
 
   PharmacyCounterSaleRxInput: {
@@ -83,16 +134,21 @@ export const schemas = {
     properties: {
       doctor_name: { type: 'string', nullable: true },
       reference: { type: 'string', nullable: true, description: 'Rx number / free reference.' },
-      upload_id: { type: 'integer', nullable: true, description: 'Pointer into the tenant upload store (e.g. a photographed paper Rx).' },
+      upload_id: {
+        type: 'integer',
+        nullable: true,
+        description: 'Pointer into the tenant upload store (e.g. a photographed paper Rx).'
+      },
       id_proof_type: { type: 'string', nullable: true },
-      id_proof_last4: { type: 'string', nullable: true },
-    },
+      id_proof_last4: { type: 'string', nullable: true }
+    }
   },
 
   PharmacyCounterSaleCreateRequest: {
     type: 'object',
     additionalProperties: false,
     required: ['lines', 'payment_mode'],
+    oneOf: counterSalePaymentReferenceOneOf,
     properties: {
       ...counterSaleIntentProperties,
       witness_approval_id: {
@@ -100,18 +156,19 @@ export const schemas = {
         pattern: '^[1-9][0-9]*$',
         nullable: true,
         description:
-          'Approved, unexpired one-time witness approval returned by the two-person approval flow. Required for Schedule X / narcotic lines; caller-selected witness identity is never accepted.',
-      },
-    },
+          'Approved, unexpired one-time witness approval returned by the two-person approval flow. Required for Schedule X / narcotic lines; caller-selected witness identity is never accepted.'
+      }
+    }
   },
 
   PharmacyCounterSaleWitnessApprovalRequest: {
     type: 'object',
     additionalProperties: false,
     required: ['lines', 'payment_mode'],
+    oneOf: counterSalePaymentReferenceOneOf,
     properties: { ...counterSaleIntentProperties },
     description:
-      'The exact prospective sale payload to bind to a short-lived pending witness approval. witness_approval_id is not accepted on this pre-approval request.',
+      'The exact prospective sale payload to bind to a short-lived pending witness approval. witness_approval_id is not accepted on this pre-approval request.'
   },
 
   PharmacyCounterSaleWitnessApprovalDecisionRequest: {
@@ -120,13 +177,13 @@ export const schemas = {
     required: ['sale'],
     properties: {
       sale: {
-        $ref: '#/components/schemas/PharmacyCounterSaleWitnessApprovalRequest',
+        $ref: '#/components/schemas/PharmacyCounterSaleWitnessApprovalRequest'
       },
       employeeId: {
         type: 'string',
         pattern: '^[A-Z0-9-]{3,20}$',
         description:
-          'Witness employee ID for an in-session password step-up. Must be supplied with password; the server derives the witness UID from this authentication.',
+          'Witness employee ID for an in-session password step-up. Must be supplied with password; the server derives the witness UID from this authentication.'
       },
       password: {
         type: 'string',
@@ -135,20 +192,17 @@ export const schemas = {
         maxLength: 100,
         writeOnly: true,
         description:
-          'Witness password for the one-request step-up. It is neither returned nor persisted and does not replace the seller session.',
-      },
+          'Witness password for the one-request step-up. It is neither returned nor persisted and does not replace the seller session.'
+      }
     },
     oneOf: [
       { required: ['employeeId', 'password'] },
       {
         not: {
-          anyOf: [
-            { required: ['employeeId'] },
-            { required: ['password'] },
-          ],
-        },
-      },
-    ],
+          anyOf: [{ required: ['employeeId'] }, { required: ['password'] }]
+        }
+      }
+    ]
   },
 
   PharmacyCounterSaleWitnessApproval: {
@@ -158,7 +212,7 @@ export const schemas = {
       id: {
         type: 'string',
         pattern: '^[1-9][0-9]*$',
-        description: 'BIGSERIAL approval id serialized as text.',
+        description: 'BIGSERIAL approval id serialized as text.'
       },
       status: { type: 'string', enum: ['pending', 'approved'] },
       expires_at: { type: 'string', format: 'date-time' },
@@ -170,10 +224,10 @@ export const schemas = {
         properties: {
           uid: { type: 'string', format: 'uuid' },
           name: { type: 'string' },
-          role: { type: 'string' },
-        },
-      },
-    },
+          role: { type: 'string' }
+        }
+      }
+    }
   },
 
   PharmacyInventoryWitnessApprovalRequest: {
@@ -193,8 +247,8 @@ export const schemas = {
       prescriber_name: { type: 'string', nullable: true },
       prescriber_registration: { type: 'string', nullable: true },
       patient_id_proof_type: { type: 'string', nullable: true },
-      patient_id_proof_last4: { type: 'string', nullable: true },
-    },
+      patient_id_proof_last4: { type: 'string', nullable: true }
+    }
   },
 
   PharmacyInventoryWitnessApprovalDecisionRequest: {
@@ -207,7 +261,7 @@ export const schemas = {
         type: 'string',
         pattern: '^[A-Z0-9-]{3,20}$',
         description:
-          'Witness employee ID for an in-session password step-up. Supply with password; otherwise the authenticated bearer is the witness.',
+          'Witness employee ID for an in-session password step-up. Supply with password; otherwise the authenticated bearer is the witness.'
       },
       password: {
         type: 'string',
@@ -216,20 +270,17 @@ export const schemas = {
         maxLength: 100,
         writeOnly: true,
         description:
-          'Witness password for the one-request step-up. Supply with employeeId; it is never returned or persisted.',
-      },
+          'Witness password for the one-request step-up. Supply with employeeId; it is never returned or persisted.'
+      }
     },
     oneOf: [
       { required: ['employeeId', 'password'] },
       {
         not: {
-          anyOf: [
-            { required: ['employeeId'] },
-            { required: ['password'] },
-          ],
-        },
-      },
-    ],
+          anyOf: [{ required: ['employeeId'] }, { required: ['password'] }]
+        }
+      }
+    ]
   },
 
   PharmacyInventoryControlledDispenseRequest: {
@@ -255,11 +306,11 @@ export const schemas = {
         pattern: '^[1-9][0-9]*$',
         nullable: true,
         description:
-          'Approved, unexpired one-time approval bound to this exact dispense. Required for Schedule X / narcotic items.',
+          'Approved, unexpired one-time approval bound to this exact dispense. Required for Schedule X / narcotic items.'
       },
       notes: { type: 'string', nullable: true },
-      reference_id: { type: 'string', nullable: true },
-    },
+      reference_id: { type: 'string', nullable: true }
+    }
   },
 
   PharmacyInventoryMovementRequest: {
@@ -273,14 +324,21 @@ export const schemas = {
         minimum: 1,
         nullable: true,
         description:
-          'Required for every controlled-stock decrement and validated against the authenticated tenant and item.',
+          'Required for every controlled-stock decrement and validated against the authenticated tenant and item.'
       },
       movement_kind: {
         type: 'string',
         enum: [
-          'receive', 'issue', 'transfer_out', 'transfer_in', 'return',
-          'adjust_increase', 'adjust_decrease', 'dispose', 'expire', 'recall',
-        ],
+          'receive',
+          'issue',
+          'transfer_out',
+          'transfer_in',
+          'return',
+          'adjust_increase',
+          'adjust_decrease',
+          'dispose',
+          'expire'
+        ]
       },
       quantity: { type: 'number', minimum: 0.0001 },
       reference_type: { type: 'string', nullable: true },
@@ -294,9 +352,9 @@ export const schemas = {
         pattern: '^[1-9][0-9]*$',
         nullable: true,
         description:
-          'Approved, unexpired one-time approval bound to this exact movement. Required for Schedule X / narcotic decrements; witness_uid and witness_name are never accepted.',
-      },
-    },
+          'Approved, unexpired one-time approval bound to this exact movement. Required for Schedule X / narcotic decrements; witness_uid and witness_name are never accepted.'
+      }
+    }
   },
 
   PharmacyInventoryMovementWitnessApprovalRequest: {
@@ -308,7 +366,7 @@ export const schemas = {
       inventory_batch_id: { type: 'integer', minimum: 1 },
       movement_kind: {
         type: 'string',
-        enum: ['transfer_out', 'adjust_decrease', 'dispose', 'expire', 'recall'],
+        enum: ['transfer_out', 'adjust_decrease', 'dispose', 'expire']
       },
       quantity: { type: 'number', minimum: 0.0001 },
       reference_type: { type: 'string', nullable: true },
@@ -316,10 +374,10 @@ export const schemas = {
       notes: { type: 'string', nullable: true },
       expected_batch_number: { type: 'string', nullable: true },
       expected_lot_number: { type: 'string', nullable: true },
-      expected_expiry_date: { type: 'string', format: 'date', nullable: true },
+      expected_expiry_date: { type: 'string', format: 'date', nullable: true }
     },
     description:
-      'Exact prospective Schedule X / narcotic decrement bound to a distinct generic-movement approval scope. Caller-selected witness identity and witness_approval_id are not accepted.',
+      'Exact prospective Schedule X / narcotic decrement bound to a distinct generic-movement approval scope. Caller-selected witness identity and witness_approval_id are not accepted.'
   },
 
   PharmacyInventoryMovementWitnessApprovalDecisionRequest: {
@@ -328,13 +386,13 @@ export const schemas = {
     required: ['movement'],
     properties: {
       movement: {
-        $ref: '#/components/schemas/PharmacyInventoryMovementWitnessApprovalRequest',
+        $ref: '#/components/schemas/PharmacyInventoryMovementWitnessApprovalRequest'
       },
       employeeId: {
         type: 'string',
         pattern: '^[A-Z0-9-]{3,20}$',
         description:
-          'Witness employee ID for an in-session password step-up. Supply with password; otherwise the authenticated bearer is the witness.',
+          'Witness employee ID for an in-session password step-up. Supply with password; otherwise the authenticated bearer is the witness.'
       },
       password: {
         type: 'string',
@@ -343,20 +401,17 @@ export const schemas = {
         maxLength: 100,
         writeOnly: true,
         description:
-          'Witness password for the one-request step-up. Supply with employeeId; it is never returned or persisted.',
-      },
+          'Witness password for the one-request step-up. Supply with employeeId; it is never returned or persisted.'
+      }
     },
     oneOf: [
       { required: ['employeeId', 'password'] },
       {
         not: {
-          anyOf: [
-            { required: ['employeeId'] },
-            { required: ['password'] },
-          ],
-        },
-      },
-    ],
+          anyOf: [{ required: ['employeeId'] }, { required: ['password'] }]
+        }
+      }
+    ]
   },
 
   PharmacyInventoryMovementResult: {
@@ -369,11 +424,11 @@ export const schemas = {
         type: 'object',
         additionalProperties: true,
         nullable: true,
-        description: 'Present for controlled-stock custody movements.',
+        description: 'Present for controlled-stock custody movements.'
       },
       increasing: { type: 'boolean' },
-      decreasing: { type: 'boolean' },
-    },
+      decreasing: { type: 'boolean' }
+    }
   },
 
   PharmacyInventoryControlledDispenseResult: {
@@ -382,8 +437,8 @@ export const schemas = {
     required: ['register_entry', 'movement'],
     properties: {
       register_entry: { type: 'object', additionalProperties: true },
-      movement: { type: 'object', additionalProperties: true },
-    },
+      movement: { type: 'object', additionalProperties: true }
+    }
   },
 
   PharmacyControlledDispenseWitnessErrorResponse: {
@@ -395,28 +450,35 @@ export const schemas = {
       message: { type: 'string' },
       code: { type: 'string' },
       requestId: { type: 'string' },
-      details: { type: 'object', additionalProperties: true },
-    },
+      details: { type: 'object', additionalProperties: true }
+    }
   },
 
   PharmacyCounterSaleAllocation: {
     type: 'object',
     properties: {
-      id: { type: 'string', description: 'BIGSERIAL id serialized as text.' },
+      id: positiveSignedInt64IdSchema('Canonical allocation BIGSERIAL id serialized as text.'),
       inventory_batch_id: { type: 'integer' },
       batch_number: { type: 'string' },
       expiry_date: { type: 'string', format: 'date' },
       quantity: { type: 'number' },
       unit_price: { type: 'number' },
-      movement_id: { type: 'integer', description: 'The pharmacy_stock_movements issue row this allocation committed with.' },
-      return_movement_id: { type: 'integer', nullable: true, description: 'Set once a void restocked this allocation.' },
-    },
+      movement_id: {
+        type: 'integer',
+        description: 'The pharmacy_stock_movements issue row this allocation committed with.'
+      },
+      return_movement_id: {
+        type: 'integer',
+        nullable: true,
+        description: 'Set once a void restocked this allocation.'
+      }
+    }
   },
 
   PharmacyCounterSaleLine: {
     type: 'object',
     properties: {
-      id: { type: 'string' },
+      id: positiveSignedInt64IdSchema('Canonical counter-sale line BIGSERIAL id serialized as text.'),
       inventory_item_id: { type: 'integer' },
       item_name: { type: 'string' },
       schedule_class: { type: 'string', nullable: true, enum: ['H', 'H1', 'X', 'OTC', null] },
@@ -427,15 +489,15 @@ export const schemas = {
       line_total: { type: 'number' },
       allocations: {
         type: 'array',
-        items: { $ref: '#/components/schemas/PharmacyCounterSaleAllocation' },
-      },
-    },
+        items: { $ref: '#/components/schemas/PharmacyCounterSaleAllocation' }
+      }
+    }
   },
 
   PharmacyCounterSale: {
     type: 'object',
     properties: {
-      id: { type: 'string', description: 'BIGSERIAL id serialized as text.' },
+      id: positiveSignedInt64IdSchema('Canonical counter-sale BIGSERIAL id serialized as text.'),
       tenant_id: { type: 'string', format: 'uuid' },
       patient_uid: { type: 'string', format: 'uuid', nullable: true },
       customer_name: { type: 'string', nullable: true },
@@ -443,7 +505,10 @@ export const schemas = {
       rx_doctor_name: { type: 'string', nullable: true },
       rx_reference: { type: 'string', nullable: true },
       rx_upload_id: { type: 'integer', nullable: true },
-      status: { type: 'string', enum: ['IN_PROGRESS', 'COMPLETED', 'VOIDED', 'FAILED'] },
+      status: {
+        type: 'string',
+        enum: ['IN_PROGRESS', 'COMPLETED', 'VOID_PENDING_REFUND', 'VOIDED', 'FAILED']
+      },
       invoice_id: { type: 'integer', nullable: true },
       invoice_number: { type: 'string', nullable: true },
       payment_mode: { type: 'string', nullable: true },
@@ -457,13 +522,49 @@ export const schemas = {
       voided_by: { type: 'string', format: 'uuid', nullable: true },
       void_reason: { type: 'string', nullable: true },
       void_refund_id: { type: 'integer', nullable: true },
+      void_request_id: {
+        ...positiveSignedInt64IdSchema(
+          'Latest durable canonical counter-sale void request id.'
+        ),
+        nullable: true
+      },
+      void_request_status: {
+        type: 'string',
+        nullable: true,
+        enum: [
+          'CREATING',
+          'PENDING_REFUND',
+          'REFUND_REJECTED_REVIEW',
+          'CANCELLED_HANDOVER_CONFIRMED',
+          'COMPLETED',
+          null
+        ]
+      },
+      void_refund_status: {
+        type: 'string',
+        nullable: true,
+        enum: ['PENDING', 'APPROVED', 'REJECTED', 'PAID', null]
+      },
+      void_readiness: {
+        type: 'string',
+        enum: [
+          'READY',
+          'ORIGINAL_PAYMENT_REFERENCE_MISSING',
+          'OUTSIDE_SAME_DAY_WINDOW',
+          'PENDING_REFUND',
+          'VOIDED',
+          'NOT_COMPLETED'
+        ],
+        description:
+          'Server-derived readiness. Legacy non-cash sales without an original payment reference remain fail-closed and are never given fabricated refund evidence.'
+      },
       created_at: { type: 'string', format: 'date-time' },
       updated_at: { type: 'string', format: 'date-time' },
       lines: {
         type: 'array',
-        items: { $ref: '#/components/schemas/PharmacyCounterSaleLine' },
-      },
-    },
+        items: { $ref: '#/components/schemas/PharmacyCounterSaleLine' }
+      }
+    }
   },
 
   PharmacyCounterSaleCreateResult: {
@@ -473,34 +574,214 @@ export const schemas = {
       sale: { $ref: '#/components/schemas/PharmacyCounterSale' },
       invoice: {
         type: 'object',
-        description: 'The billingV2 PHARMACY invoice (issued + paid) backing the sale.',
+        description: 'The billingV2 PHARMACY invoice (issued + paid) backing the sale.'
       },
       payment: {
         type: 'object',
-        description: 'The billing_payments row collected at the counter.',
-      },
-    },
+        description: 'The billing_payments row collected at the counter.'
+      }
+    }
   },
 
   PharmacyCounterSaleVoidRequest: {
     type: 'object',
-    required: ['reason'],
+    additionalProperties: false,
+    required: ['reason', 'disposition'],
     properties: {
+      reason: { type: 'string', minLength: 1, maxLength: 255 },
+      disposition: {
+        type: 'string',
+        enum: ['NEVER_HANDED_OVER'],
+        description:
+          'Only never-handed-over medicine can use this restock path. Patient-returned medicine fails closed and must enter the governed return/quarantine workflow.'
+      }
+    }
+  },
+
+  PharmacyCounterSaleVoidRejectionResolutionRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['resolution', 'reason'],
+    properties: {
+      resolution: { type: 'string', enum: ['CUSTOMER_HANDOVER_CONFIRMED'] },
+      reason: {
+        type: 'string',
+        minLength: 1,
+        maxLength: 255,
+        description:
+          'Auditable explanation confirming that custody remained with the customer after finance rejected the refund. No stock return is performed.'
+      }
+    }
+  },
+
+  PharmacyCounterSaleVoidTask: {
+    type: 'object',
+    required: [
+      'id', 'counter_sale_id', 'invoice_id', 'refund_id', 'amount', 'refund_mode',
+      'disposition', 'reason', 'status', 'task_stage', 'requested_at'
+    ],
+    properties: {
+      id: positiveSignedInt64IdSchema('Canonical counter-sale void request id.'),
+      counter_sale_id: positiveSignedInt64IdSchema('Canonical counter-sale id.'),
+      invoice_id: { type: 'integer' },
+      refund_id: { type: 'integer' },
+      amount: { type: 'number', minimum: 0.01 },
+      refund_mode: {
+        type: 'string',
+        enum: ['CASH', 'CARD', 'UPI', 'NETBANKING', 'CHEQUE', 'DD', 'WALLET']
+      },
+      disposition: { type: 'string', enum: ['NEVER_HANDED_OVER'] },
       reason: { type: 'string' },
-      voided_by_name: { type: 'string', nullable: true },
-    },
+      status: {
+        type: 'string',
+        enum: [
+          'PENDING_REFUND',
+          'REFUND_REJECTED_REVIEW',
+          'CANCELLED_HANDOVER_CONFIRMED',
+          'COMPLETED'
+        ]
+      },
+      task_stage: {
+        type: 'string',
+        enum: ['approval', 'payout', 'reconciliation', 'rejected_review', 'completed', 'cancelled']
+      },
+      task_id: { type: 'integer', nullable: true },
+      task_status: { type: 'string', nullable: true },
+      task_due_at: { type: 'string', format: 'date-time', nullable: true },
+      workflow_sla_instance_id: { type: 'string', format: 'uuid', nullable: true },
+      requested_at: { type: 'string', format: 'date-time' },
+      last_checked_at: { type: 'string', format: 'date-time', nullable: true },
+      reconciled_at: { type: 'string', format: 'date-time', nullable: true },
+      reconciliation_source: { type: 'string', enum: ['manual', 'system'], nullable: true }
+    }
+  },
+
+  PharmacyCounterSaleVoidRefund: {
+    type: 'object',
+    required: ['id', 'invoice_id', 'patient_uid', 'amount', 'mode', 'approval_status'],
+    properties: {
+      id: { type: 'integer' },
+      invoice_id: { type: 'integer' },
+      patient_uid: { type: 'string', format: 'uuid' },
+      amount: { type: 'number', minimum: 0.01 },
+      mode: {
+        type: 'string',
+        enum: ['CASH', 'CARD', 'UPI', 'NETBANKING', 'CHEQUE', 'DD', 'WALLET']
+      },
+      approval_status: { type: 'string', enum: ['PENDING', 'APPROVED', 'REJECTED', 'PAID'] },
+      payout_rail: {
+        type: 'string',
+        enum: ['manual', 'gateway', 'offline_electronic'],
+        nullable: true
+      },
+      reference: { type: 'string', nullable: true },
+      raised_at: { type: 'string', format: 'date-time', nullable: true },
+      approved_at: { type: 'string', format: 'date-time', nullable: true },
+      paid_at: { type: 'string', format: 'date-time', nullable: true },
+      gateway_execution_status: { type: 'string', nullable: true }
+    }
+  },
+
+  PharmacyCounterSaleVoidAction: {
+    type: 'object',
+    required: ['action_key', 'deep_link', 'resource_type', 'resource_id'],
+    properties: {
+      action_key: { type: 'string' },
+      deep_link: {
+        type: 'string',
+        description:
+          'Strict local Staff navigation target carrying positive resource identifiers; it is not a raw API path.'
+      },
+      resource_type: { type: 'string' },
+      resource_id: {
+        oneOf: [
+          { type: 'integer' },
+          positiveSignedInt64IdSchema('Canonical counter-sale resource id.')
+        ]
+      },
+      invoice_id: { type: 'integer', nullable: true },
+      counter_sale_void_request_id: positiveSignedInt64IdSchema(
+        'Canonical counter-sale void request id.'
+      )
+    }
+  },
+
+  PharmacyCounterSaleVoidActions: {
+    type: 'object',
+    required: ['finance_review', 'pharmacy_reconciliation'],
+    properties: {
+      finance_review: { $ref: '#/components/schemas/PharmacyCounterSaleVoidAction' },
+      pharmacy_reconciliation: { $ref: '#/components/schemas/PharmacyCounterSaleVoidAction' }
+    }
   },
 
   PharmacyCounterSaleVoidResult: {
     type: 'object',
-    required: ['sale'],
+    required: ['outcome', 'workflow_status', 'sale', 'void_request', 'refund', 'actions'],
     properties: {
-      sale: { $ref: '#/components/schemas/PharmacyCounterSale' },
-      refund: {
-        type: 'object',
-        description: 'The billing_refunds row (raised, approved, and paid) for the void.',
+      outcome: {
+        type: 'string',
+        enum: [
+          'pending_refund', 'refund_rejected_review', 'voided', 'handover_confirmed', 'replay'
+        ]
       },
-    },
+      workflow_status: {
+        type: 'string',
+        enum: [
+          'NOT_REQUESTED',
+          'AWAITING_FINANCE_APPROVAL',
+          'AWAITING_FINANCE_PAYOUT',
+          'AWAITING_GATEWAY_PAYOUT',
+          'AWAITING_GATEWAY_EVIDENCE',
+          'AWAITING_PAYOUT_EVIDENCE',
+          'READY_TO_RECONCILE',
+          'REFUND_REJECTED_REVIEW',
+          'VOIDED',
+          'CANCELLED_HANDOVER_CONFIRMED',
+          'PENDING_REVIEW'
+        ]
+      },
+      sale: { $ref: '#/components/schemas/PharmacyCounterSale' },
+      void_request: { $ref: '#/components/schemas/PharmacyCounterSaleVoidTask' },
+      refund: { $ref: '#/components/schemas/PharmacyCounterSaleVoidRefund' },
+      actions: { $ref: '#/components/schemas/PharmacyCounterSaleVoidActions' }
+    }
+  },
+
+  PharmacyCounterSaleVoidStatusResult: {
+    type: 'object',
+    required: ['workflow_status', 'sale', 'void_request', 'refund', 'actions'],
+    properties: {
+      workflow_status: {
+        type: 'string',
+        enum: [
+          'NOT_REQUESTED',
+          'AWAITING_FINANCE_APPROVAL',
+          'AWAITING_FINANCE_PAYOUT',
+          'AWAITING_GATEWAY_PAYOUT',
+          'AWAITING_GATEWAY_EVIDENCE',
+          'AWAITING_PAYOUT_EVIDENCE',
+          'READY_TO_RECONCILE',
+          'REFUND_REJECTED_REVIEW',
+          'VOIDED',
+          'CANCELLED_HANDOVER_CONFIRMED',
+          'PENDING_REVIEW'
+        ]
+      },
+      sale: { $ref: '#/components/schemas/PharmacyCounterSale' },
+      void_request: {
+        allOf: [{ $ref: '#/components/schemas/PharmacyCounterSaleVoidTask' }],
+        nullable: true
+      },
+      refund: {
+        allOf: [{ $ref: '#/components/schemas/PharmacyCounterSaleVoidRefund' }],
+        nullable: true
+      },
+      actions: {
+        allOf: [{ $ref: '#/components/schemas/PharmacyCounterSaleVoidActions' }],
+        nullable: true
+      }
+    }
   },
 
   PharmacyCounterSaleSellableItem: {
@@ -517,12 +798,19 @@ export const schemas = {
       schedule_class: { type: 'string', nullable: true },
       is_narcotic: { type: 'boolean' },
       hsn_code: { type: 'string', nullable: true },
-      in_stock_quantity: { type: 'number', description: 'Total usable (in_stock, non-expired) quantity.' },
+      in_stock_quantity: {
+        type: 'number',
+        description: 'Total usable (in_stock, non-expired) quantity.'
+      },
       fefo_batch_id: { type: 'integer', nullable: true },
       fefo_batch_number: { type: 'string', nullable: true },
       fefo_expiry_date: { type: 'string', format: 'date', nullable: true },
-      fefo_unit_price: { type: 'number', nullable: true, description: 'MRP of the FEFO head batch (the price the next unit sells at).' },
-    },
+      fefo_unit_price: {
+        type: 'number',
+        nullable: true,
+        description: 'MRP of the FEFO head batch (the price the next unit sells at).'
+      }
+    }
   },
 
   PharmacyCounterSaleSellableItemList: {
@@ -531,9 +819,9 @@ export const schemas = {
     properties: {
       items: {
         type: 'array',
-        items: { $ref: '#/components/schemas/PharmacyCounterSaleSellableItem' },
-      },
-    },
+        items: { $ref: '#/components/schemas/PharmacyCounterSaleSellableItem' }
+      }
+    }
   },
 
   PharmacyCounterSaleList: {
@@ -542,44 +830,52 @@ export const schemas = {
     properties: {
       sales: {
         type: 'array',
-        items: { $ref: '#/components/schemas/PharmacyCounterSale' },
-      },
-    },
+        items: { $ref: '#/components/schemas/PharmacyCounterSale' }
+      }
+    }
   },
 
   PharmacyCounterSaleCreateResponse: envelope('PharmacyCounterSaleCreateResult'),
   PharmacyCounterSaleVoidResponse: envelope('PharmacyCounterSaleVoidResult'),
+  PharmacyCounterSaleVoidStatusResponse: envelope('PharmacyCounterSaleVoidStatusResult'),
   PharmacyCounterSaleResponse: envelope('PharmacyCounterSale'),
   PharmacyCounterSaleListResponse: envelope('PharmacyCounterSaleList'),
   PharmacyCounterSaleSellableItemsResponse: envelope('PharmacyCounterSaleSellableItemList'),
   PharmacyCounterSaleWitnessApprovalResponse: envelope('PharmacyCounterSaleWitnessApproval'),
   PharmacyInventoryWitnessApprovalResponse: envelope('PharmacyCounterSaleWitnessApproval'),
-  PharmacyInventoryControlledDispenseResponse: envelope('PharmacyInventoryControlledDispenseResult'),
-  PharmacyInventoryMovementResponse: envelope('PharmacyInventoryMovementResult'),
+  PharmacyInventoryControlledDispenseResponse: envelope(
+    'PharmacyInventoryControlledDispenseResult'
+  ),
+  PharmacyInventoryMovementResponse: envelope('PharmacyInventoryMovementResult')
 };
 
 const DESCRIPTIONS = {
   items:
     'POS pick list: active drug-master items with total usable stock and the FEFO head batch (number, expiry, MRP-derived unit price — what the next unit actually sells at). Expired, quarantined and depleted batches are excluded.',
   create:
-    'Sells a walk-in counter sale end-to-end: FEFO (earliest-expiry-first) batch allocation with atomic per-batch stock decrement, schedule-class enforcement (OTC free; Schedule H/H1 require the rx prescription reference; Schedule X / narcotics go through the witnessed statutory-register dispense), a billingV2 PHARMACY invoice priced at batch MRP with master-data GST, and the pay-at-counter payment — CASH requires the seller’s open cash-drawer session and stamps its shift for drawer reconciliation. Anonymous walk-ins pass customer_name/phone; registered patients pass patient_uid and additionally get a canonical clinical-timeline entry.',
+    'Sells a walk-in counter sale end-to-end under one required stable Idempotency-Key: FEFO batch allocation, atomic stock decrement, schedule-class and witness enforcement, billingV2 PHARMACY invoice, and pay-at-counter collection. Every non-CASH mode requires the bounded original external receipt or instrument reference; legacy evidence is never fabricated. CASH requires the seller’s open cash-drawer session. Equivalent requests through the pharmacy alias and canonical pharmacy-orders mount share one durable mutation identity.',
   requestWitnessApproval:
     'Seller creates a short-lived pending witness approval bound to the authenticated seller and the exact prospective sale payload.',
   approveWitnessApproval:
     'A separately authenticated eligible pharmacy, medical, or nursing witness approves the unchanged sale payload. The seller may then submit the returned one-time approval id; self-witness, administrative/nonclinical witnesses, tenant mismatch, expiry, replay, and payload changes fail closed.',
-  list:
-    'Lists counter sales for the tenant, newest first; filterable by status (IN_PROGRESS/COMPLETED/VOIDED/FAILED) and IST sale date.',
+  list: 'Lists tenant-scoped counter sales newest first, including durable void request/refund status and server-derived void readiness. VOID_PENDING_REFUND remains unavailable for resale or restock while finance approval, payout evidence, rejection review, or pharmacy reconciliation is outstanding.',
   detail:
-    'One counter sale with its lines and per-batch FEFO allocation evidence (batch, expiry, quantity, stock-movement ids).',
+    'Returns one tenant-scoped sale with line and exact FEFO allocation evidence plus its latest durable void/refund presentation fields. A legacy non-CASH sale lacking the original payment reference is reported as fail-closed rather than made refund-ready.',
   void:
-    'Same-day void of a completed counter sale: raises, approves and pays a billing refund for the collected amount, restocks every allocation into its exact batch, and writes statutory-register return rows for Schedule H/H1/X / narcotic lines. Later returns go through the billing refund workflow instead.',
+    'Starts, but does not complete, a same-day void for medicine explicitly confirmed never handed over. The server creates one tenant-bound full-amount PENDING refund tied to the exact sale, invoice, patient, mode, payment and command identity, parks the sale in VOID_PENDING_REFUND, and returns 202 with finance and pharmacy action links plus a staged task/SLA. Pharmacy cannot approve or pay the refund. No stock or controlled-register return occurs until the separately authorized billing/gateway workflow has durably reached PAID with the required manual, processed-gateway, or offline-electronic evidence. Patient-returned medicine fails closed into the governed return/quarantine workflow.',
+  voidStatus:
+    'Reads the authoritative tenant-scoped counter-sale void obligation, exact refund status, staged task/SLA, reconciliation state, and strict local Staff action targets. NOT_REQUESTED is returned with null obligation/refund/actions when no request exists; rejected refunds remain REFUND_REJECTED_REVIEW with stock and sale locked.',
+  reconcileVoid:
+    'Idempotently rechecks the exact bound refund and advances the staged task. It returns pending while approval, payout, or rail evidence is incomplete; a rejected refund enters explicit custody review without reopening or restocking. Only a durably PAID exact full refund with valid CASH drawer/voucher, processed gateway, or governed offline-electronic evidence can atomically restock every exact allocation, write controlled-register returns, complete task/SLA evidence, and mark the sale VOIDED. Retries after crashes are safe.',
+  resolveRejectedVoid:
+    'Closes a rejected-refund custody review only after an authorized pharmacy incharge or admin explicitly confirms customer handover with a reason. It verifies that no stock return occurred, closes the task/SLA with domain evidence, and restores the sale to COMPLETED without restocking. It never converts a rejected refund into a payout or silently reopens the sale.'
 };
 
 function ops(prefix) {
   return {
     [`GET ${prefix}/counter-sales/items`]: {
       description: DESCRIPTIONS.items,
-      response: 'PharmacyCounterSaleSellableItemsResponse',
+      response: 'PharmacyCounterSaleSellableItemsResponse'
     },
     [`POST ${prefix}/counter-sales`]: {
       description: DESCRIPTIONS.create,
@@ -587,7 +883,7 @@ function ops(prefix) {
       response: 'PharmacyCounterSaleCreateResponse',
       security: bearerSecurity,
       parameters: [idempotencyKeyParameter],
-      additionalResponses: witnessErrorResponses({ idempotent: true }),
+      additionalResponses: witnessErrorResponses({ idempotent: true })
     },
     [`POST ${prefix}/counter-sales/witness-approvals`]: {
       description: DESCRIPTIONS.requestWitnessApproval,
@@ -595,7 +891,7 @@ function ops(prefix) {
       response: 'PharmacyCounterSaleWitnessApprovalResponse',
       security: bearerSecurity,
       parameters: [idempotencyKeyParameter],
-      additionalResponses: witnessErrorResponses({ idempotent: true }),
+      additionalResponses: witnessErrorResponses({ idempotent: true })
     },
     [`POST ${prefix}/counter-sales/witness-approvals/{id}/approve`]: {
       description: DESCRIPTIONS.approveWitnessApproval,
@@ -604,7 +900,7 @@ function ops(prefix) {
       security: bearerSecurity,
       pathParameters: { id: approvalIdPathSchema },
       parameters: [idempotencyKeyParameter],
-      additionalResponses: witnessErrorResponses({ idempotent: true }),
+      additionalResponses: witnessErrorResponses({ idempotent: true })
     },
     [`POST ${prefix}/inventory/v2/controlled-dispense`]: {
       description:
@@ -613,7 +909,7 @@ function ops(prefix) {
       response: 'PharmacyInventoryControlledDispenseResponse',
       security: bearerSecurity,
       parameters: [idempotencyKeyParameter],
-      additionalResponses: witnessErrorResponses({ idempotent: true }),
+      additionalResponses: witnessErrorResponses({ idempotent: true })
     },
     [`POST ${prefix}/inventory/v2/movements`]: {
       description:
@@ -622,7 +918,7 @@ function ops(prefix) {
       response: 'PharmacyInventoryMovementResponse',
       security: bearerSecurity,
       parameters: [idempotencyKeyParameter],
-      additionalResponses: witnessErrorResponses({ idempotent: true }),
+      additionalResponses: witnessErrorResponses({ idempotent: true })
     },
     [`POST ${prefix}/inventory/v2/movements/witness-approvals`]: {
       description:
@@ -631,7 +927,7 @@ function ops(prefix) {
       response: 'PharmacyInventoryWitnessApprovalResponse',
       security: bearerSecurity,
       parameters: [idempotencyKeyParameter],
-      additionalResponses: witnessErrorResponses({ idempotent: true }),
+      additionalResponses: witnessErrorResponses({ idempotent: true })
     },
     [`POST ${prefix}/inventory/v2/movements/witness-approvals/{id}/approve`]: {
       description:
@@ -641,7 +937,7 @@ function ops(prefix) {
       security: bearerSecurity,
       pathParameters: { id: approvalIdPathSchema },
       parameters: [idempotencyKeyParameter],
-      additionalResponses: witnessErrorResponses({ idempotent: true }),
+      additionalResponses: witnessErrorResponses({ idempotent: true })
     },
     [`POST ${prefix}/inventory/v2/controlled-dispense/witness-approvals`]: {
       description:
@@ -650,7 +946,7 @@ function ops(prefix) {
       response: 'PharmacyInventoryWitnessApprovalResponse',
       security: bearerSecurity,
       parameters: [idempotencyKeyParameter],
-      additionalResponses: witnessErrorResponses({ idempotent: true }),
+      additionalResponses: witnessErrorResponses({ idempotent: true })
     },
     [`POST ${prefix}/inventory/v2/controlled-dispense/witness-approvals/{id}/approve`]: {
       description:
@@ -660,22 +956,50 @@ function ops(prefix) {
       security: bearerSecurity,
       pathParameters: { id: approvalIdPathSchema },
       parameters: [idempotencyKeyParameter],
-      additionalResponses: witnessErrorResponses({ idempotent: true }),
+      additionalResponses: witnessErrorResponses({ idempotent: true })
     },
     [`GET ${prefix}/counter-sales`]: {
       description: DESCRIPTIONS.list,
-      response: 'PharmacyCounterSaleListResponse',
+      response: 'PharmacyCounterSaleListResponse'
     },
     [`GET ${prefix}/counter-sales/{id}`]: {
       description: DESCRIPTIONS.detail,
       response: 'PharmacyCounterSaleResponse',
+      pathParameters: { id: approvalIdPathSchema }
+    },
+    [`GET ${prefix}/counter-sales/{id}/void-status`]: {
+      description: DESCRIPTIONS.voidStatus,
+      response: 'PharmacyCounterSaleVoidStatusResponse',
+      pathParameters: { id: approvalIdPathSchema },
+      security: bearerSecurity
     },
     [`POST ${prefix}/counter-sales/{id}/void`]: {
       description: DESCRIPTIONS.void,
       request: 'PharmacyCounterSaleVoidRequest',
       response: 'PharmacyCounterSaleVoidResponse',
+      responseStatus: 202,
+      pathParameters: { id: approvalIdPathSchema },
+      security: bearerSecurity,
       parameters: [idempotencyKeyParameter],
+      additionalResponses: witnessErrorResponses({ idempotent: true })
     },
+    [`POST ${prefix}/counter-sales/{id}/void/reconcile`]: {
+      description: DESCRIPTIONS.reconcileVoid,
+      response: 'PharmacyCounterSaleVoidResponse',
+      pathParameters: { id: approvalIdPathSchema },
+      security: bearerSecurity,
+      parameters: [idempotencyKeyParameter],
+      additionalResponses: witnessErrorResponses({ idempotent: true })
+    },
+    [`POST ${prefix}/counter-sales/{id}/void/rejection/resolve`]: {
+      description: DESCRIPTIONS.resolveRejectedVoid,
+      request: 'PharmacyCounterSaleVoidRejectionResolutionRequest',
+      response: 'PharmacyCounterSaleVoidResponse',
+      pathParameters: { id: approvalIdPathSchema },
+      security: bearerSecurity,
+      parameters: [idempotencyKeyParameter],
+      additionalResponses: witnessErrorResponses({ idempotent: true })
+    }
   };
 }
 
@@ -683,5 +1007,5 @@ function ops(prefix) {
 // and /api/v1/pharmacy (alias); the spec captures both.
 export const operations = {
   ...ops('/api/v1/pharmacy-orders'),
-  ...ops('/api/v1/pharmacy'),
+  ...ops('/api/v1/pharmacy')
 };

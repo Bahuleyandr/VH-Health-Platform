@@ -85,6 +85,10 @@ void main() {
           );
         }
         expect(request.url.path, endsWith('/pharmacy-orders/counter-sales'));
+        expect(
+          request.headers['Idempotency-Key'],
+          'counter-sale-create:test-1',
+        );
         expect(body['witness_approval_id'], '71');
         expect(body.containsKey('witness'), isFalse);
         return http.Response(
@@ -118,6 +122,7 @@ void main() {
       rx: Map<String, dynamic>.from(sale['rx'] as Map),
       witnessApprovalId: '71',
       paymentMode: 'CASH',
+      idempotencyKey: 'counter-sale-create:test-1',
     );
 
     expect(call, 3);
@@ -487,5 +492,176 @@ void main() {
     );
 
     expect(call, 4);
+  });
+
+  test(
+    'ward-indent candidate lookup uses the exact indent item endpoint',
+    () async {
+      VHHttpClient.setClientForTesting(
+        MockClient((request) async {
+          expect(request.method, 'GET');
+          expect(
+            request.url.path,
+            endsWith(
+              '/pharmacy-orders/ward-indents/73/items/91/inventory-candidates',
+            ),
+          );
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'data': {
+                'candidates': [
+                  {
+                    'id': 501,
+                    'catalog_id': 17,
+                    'facility_id': 8,
+                    'unreserved_quantity': 2,
+                  },
+                ],
+              },
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      final rows = await PharmacyApiService.getWardIndentInventoryCandidates(
+        73,
+        91,
+      );
+
+      expect(rows.single['id'], 501);
+      expect(rows.single['facility_id'], 8);
+    },
+  );
+
+  test('controlled return records exact movement evidence contract', () async {
+    late http.Request captured;
+    VHHttpClient.setClientForTesting(
+      MockClient((request) async {
+        captured = request;
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'data': {
+              'movement': {'id': 811},
+              'register_entry': {'id': 911, 'movement_kind': 'return'},
+            },
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    );
+    const movement = <String, dynamic>{
+      'inventory_item_id': 501,
+      'inventory_batch_id': 601,
+      'catalog_id': 17,
+      'movement_kind': 'return',
+      'quantity': 2,
+      'reference_type': 'ward_indent_return',
+      'reference_id': 'ward-indent:73:item:91',
+      'patient_uid': '11111111-1111-4111-8111-111111111111',
+    };
+
+    final result = await PharmacyApiService.recordInventoryMovement(
+      movement: movement,
+      idempotencyKey: 'ward-indent-return:test',
+    );
+
+    expect(result['movement']['id'], 811);
+    expect(result['register_entry']['movement_kind'], 'return');
+    expect(captured.method, 'POST');
+    expect(captured.url.path, endsWith('/pharmacy/inventory/v2/movements'));
+    expect(captured.headers['Idempotency-Key'], 'ward-indent-return:test');
+    expect(jsonDecode(captured.body), movement);
+  });
+
+  test('counter-sale create and void closure commands carry exact protected contracts', () async {
+    final captured = <http.Request>[];
+    VHHttpClient.setClientForTesting(
+      MockClient((request) async {
+        captured.add(request);
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'data': request.method == 'GET'
+                ? {
+                    'workflow_status': 'REFUND_REJECTED_REVIEW',
+                    'sale': {'id': 91, 'status': 'VOID_PENDING_REFUND'},
+                  }
+                : {
+                    'sale': {'id': 91, 'status': 'VOID_PENDING_REFUND'},
+                  },
+          }),
+          request.url.path.endsWith('/void') ? 202 : 200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    );
+
+    await PharmacyApiService.createCounterSale(
+      lines: const [
+        {'inventory_item_id': 17, 'quantity': 1},
+      ],
+      customerName: 'Walk-in Customer',
+      paymentMode: 'UPI',
+      paymentReference: ' UPI-ORIGINAL-91 ',
+      idempotencyKey: 'counter-sale-create:91',
+    );
+    await PharmacyApiService.voidCounterSale(
+      '91',
+      ' Wrong item selected ',
+      disposition: 'never_handed_over',
+      idempotencyKey: 'counter-sale-void:91',
+    );
+    await PharmacyApiService.getCounterSaleVoidStatus('91');
+    await PharmacyApiService.reconcileCounterSaleVoid(
+      '91',
+      idempotencyKey: 'counter-sale-reconcile:91',
+    );
+    await PharmacyApiService.resolveRejectedCounterSaleVoid(
+      '91',
+      reason: ' Customer received medication ',
+      idempotencyKey: 'counter-sale-handover:91',
+    );
+
+    expect(captured, hasLength(5));
+    expect(captured[0].url.path, endsWith('/pharmacy-orders/counter-sales'));
+    expect(captured[0].headers['Idempotency-Key'], 'counter-sale-create:91');
+    expect(
+      jsonDecode(captured[0].body)['payment_reference'],
+      'UPI-ORIGINAL-91',
+    );
+    expect(
+      captured[1].url.path,
+      endsWith('/pharmacy-orders/counter-sales/91/void'),
+    );
+    expect(captured[1].headers['Idempotency-Key'], 'counter-sale-void:91');
+    expect(jsonDecode(captured[1].body), {
+      'reason': 'Wrong item selected',
+      'disposition': 'NEVER_HANDED_OVER',
+    });
+    expect(captured[2].method, 'GET');
+    expect(
+      captured[2].url.path,
+      endsWith('/pharmacy-orders/counter-sales/91/void-status'),
+    );
+    expect(
+      captured[3].url.path,
+      endsWith('/pharmacy-orders/counter-sales/91/void/reconcile'),
+    );
+    expect(captured[3].headers['Idempotency-Key'], 'counter-sale-reconcile:91');
+    expect(jsonDecode(captured[3].body), <String, dynamic>{});
+    expect(
+      captured[4].url.path,
+      endsWith('/pharmacy-orders/counter-sales/91/void/rejection/resolve'),
+    );
+    expect(captured[4].headers['Idempotency-Key'], 'counter-sale-handover:91');
+    expect(jsonDecode(captured[4].body), {
+      'resolution': 'CUSTOMER_HANDOVER_CONFIRMED',
+      'reason': 'Customer received medication',
+    });
   });
 }

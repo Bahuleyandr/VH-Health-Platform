@@ -1740,6 +1740,86 @@ void main() {
       }
     }
   });
+
+  test('MAR recovery copy has five-locale parity including Malayalam', () {
+    const keys = {
+      'orders.mar_recovery.action',
+      'orders.mar_recovery.required',
+      'orders.mar_recovery.success',
+      'orders.mar_recovery.failed',
+      'orders.mar_recovery.desktop_only',
+      'orders.icu_mar_review.banner',
+    };
+    final english = AppStrings.forLocale(const Locale('en'));
+    for (final locale in AppStrings.supportedLocales) {
+      final strings = AppStrings.forLocale(locale);
+      for (final key in keys) {
+        expect(strings.lookup(key), isNot(key), reason: locale.languageCode);
+      }
+      expect(
+        strings.format('orders.mar_recovery.success', {'count': 7}),
+        contains('7'),
+        reason: locale.languageCode,
+      );
+      expect(
+        strings.format('orders.mar_recovery.failed', {'error': '__ERROR__'}),
+        contains('__ERROR__'),
+        reason: locale.languageCode,
+      );
+      if (locale.languageCode != 'en') {
+        expect(
+          strings.lookup('orders.mar_recovery.required'),
+          isNot(english.lookup('orders.mar_recovery.required')),
+          reason: '${locale.languageCode} must not fall back to English',
+        );
+      }
+    }
+  });
+
+  test('MED-03 workflow keys never fall through to English', () {
+    final source = File('lib/l10n/app_strings.dart').readAsStringSync();
+    final localeKeys = {
+      for (final locale in const ['en', 'hi', 'ta', 'te', 'ml'])
+        locale: _mapKeysForLocale(source, locale),
+    };
+    final med03Keys = localeKeys['en']!
+        .where(
+          (key) =>
+              key.startsWith('ward_indent.') ||
+              key.startsWith('mar_supply.') ||
+              key.startsWith('med03.credit_note.') ||
+              key.startsWith('med03.cath_inventory.') ||
+              key.startsWith('orders.mar_recovery.') ||
+              key.startsWith('orders.icu_mar_review.') ||
+              key.startsWith('due_meds.actions.') ||
+              key == 'due_meds.held_review_state' ||
+              key == 'clinical_inbox.open_workflow' ||
+              key == 'clinical_inbox.workflow_link_unavailable',
+        )
+        .toSet();
+
+    expect(med03Keys.length, greaterThanOrEqualTo(150));
+    final english = AppStrings.forLocale(const Locale('en'));
+    for (final locale in const ['hi', 'ta', 'te', 'ml']) {
+      final missing = med03Keys.difference(localeKeys[locale]!);
+      expect(
+        missing,
+        isEmpty,
+        reason: 'MED-03 keys missing from $locale: ${missing.toList()..sort()}',
+      );
+      final localized = AppStrings.forLocale(Locale(locale));
+      final fallbackKeys =
+          med03Keys
+              .where((key) => localized.lookup(key) == english.lookup(key))
+              .toList()
+            ..sort();
+      expect(
+        fallbackKeys,
+        isEmpty,
+        reason: '$locale MED-03 keys must not fall through to English',
+      );
+    }
+  });
 }
 
 class _Pattern {

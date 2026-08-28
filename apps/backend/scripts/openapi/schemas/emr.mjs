@@ -29,7 +29,15 @@ const idempotencyKeyParameter = {
     maxLength: 200,
     pattern: '^[A-Za-z0-9_\\-:.]+$',
   },
+  description: 'Required durable command identity; reuse is valid only for the exact same tenant, actor, role, order, and body.',
 };
+const authenticatedSecurity = [{ ApiKeyAuth: [], BearerAuth: [] }];
+const emrErrorResponse = description => ({
+  description,
+  content: {
+    'application/json': { schema: { $ref: '#/components/schemas/EmrErrorResponse' } },
+  },
+});
 
 // ---------------------------------------------------------------------------
 // Null-free const enums — EXACT casing from admissionService.js / the DB.
@@ -231,6 +239,18 @@ const aiMetadata = {
 };
 
 export const schemas = {
+  EmrErrorResponse: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['success', 'message'],
+    properties: {
+      success: { type: 'boolean', enum: [false] },
+      message: { type: 'string' },
+      code: { type: 'string' },
+      requestId: { type: 'string' },
+      details: { type: 'object', additionalProperties: true },
+    },
+  },
   // =========================================================================
   // Shared admission objects
   // =========================================================================
@@ -362,6 +382,43 @@ export const schemas = {
       created_at: { type: 'string', format: 'date-time' },
       updated_at: { type: 'string', format: 'date-time' },
       tenant_id: { type: 'string', format: 'uuid' },
+      mar_schedule_status: {
+        type: 'string',
+        nullable: true,
+        enum: ['scheduled', 'action_required', 'not_applicable'],
+      },
+      mar_scheduled_dose_count: { type: 'integer', nullable: true, minimum: 0 },
+      mar_recovery_endpoint: { type: 'string', nullable: true },
+    },
+  },
+
+  // ---- MarSchedulingRecovery --------------------------------------------
+  // POST /orders/{id}/retry-mar-scheduling replays only the persisted active
+  // CPOE definition. It never accepts dose overrides. Existing dose slots are
+  // returned idempotently; missing slots are created with order/supply lineage.
+  MarSchedulingRecovery: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'order_id', 'order_number', 'patient_uid', 'status',
+      'scheduled_dose_count', 'scheduled_dose_ids',
+      'recovery_timeline_event_id', 'recovery_audit_event_id',
+    ],
+    properties: {
+      order_id: { type: 'integer' },
+      order_number: { type: 'string' },
+      patient_uid: { type: 'string', format: 'uuid' },
+      status: { type: 'string', enum: ['scheduled'] },
+      scheduled_dose_count: { type: 'integer', minimum: 1 },
+      scheduled_dose_ids: { type: 'array', items: { type: 'integer' }, minItems: 1 },
+      recovery_timeline_event_id: {
+        nullable: true,
+        oneOf: [{ type: 'integer' }, { type: 'string' }],
+      },
+      recovery_audit_event_id: {
+        nullable: true,
+        oneOf: [{ type: 'integer' }, { type: 'string' }],
+      },
     },
   },
 
@@ -1854,6 +1911,7 @@ export const schemas = {
   ClinicalOrderCreateData: { $ref: '#/components/schemas/ClinicalOrderCreateResult' },
   // PUT verify/complete/cancel/discontinue → ClinicalOrder directly.
   ClinicalOrderData: { $ref: '#/components/schemas/ClinicalOrder' },
+  MarSchedulingRecoveryData: { $ref: '#/components/schemas/MarSchedulingRecovery' },
   // POST /orders/bulk → bare ClinicalOrderCreateResult[] (EmrClinicalOrderBulkResponse
   // uses listEnvelope directly). POST /orders/apply-set → bare ApplyOrderSetResult[].
   // POST /order-sets → OrderSet directly.
@@ -1870,10 +1928,10 @@ export const schemas = {
   EmrApplyOrderSetResponse: listEnvelope('ApplyOrderSetResult'),
   // PUT verify/complete/cancel/discontinue (data = ClinicalOrder).
   EmrClinicalOrderResponse: envelope('ClinicalOrderData'),
+  EmrMarSchedulingRecoveryResponse: envelope('MarSchedulingRecoveryData'),
   // GET /orders/patient/{uid} + /orders/encounter/{encounterId} — bare
-  // ClinicalOrder[]. patient list spreads pagination FLAT into meta (page/limit/
-  // total/totalPages/hasNext/hasPrev), encounter list has no meta — both typed
-  // loosely by listEnvelope's meta:{additionalProperties:true}.
+  // ClinicalOrder[]. Both lists spread bounded pagination FLAT into meta
+  // (page/limit/total/totalPages/hasNext/hasPrev).
   EmrClinicalOrderListResponse: listEnvelope('ClinicalOrder'),
   // GET /order-sets — bare OrderSet[].
   EmrOrderSetListResponse: listEnvelope('OrderSet'),
@@ -2528,7 +2586,7 @@ const EMR_ONLY_OPS = [
 
   // -------------------------------------------------------------------------
   // orders sub-domain (orderRoutes.js → orderEntryService.js — EMR-only mount,
-  // NOT aliased to /api/v1/admissions). 11 ops. Every response wraps via
+  // NOT aliased to /api/v1/admissions). 12 ops. Every response wraps via
   // success(res,data,…). order/order-set rows carry jsonb (details/payload) →
   // loose objects; cds_warnings mixed string|object; apply-set mixed elements.
   // -------------------------------------------------------------------------
@@ -2538,8 +2596,31 @@ const EMR_ONLY_OPS = [
   ['POST /orders/bulk', { request: 'EmrBulkOrderRequest', response: 'EmrClinicalOrderBulkResponse' }],
   // POST /orders/apply-set — apply order set → mixed ApplyOrderSetResult[] (201).
   ['POST /orders/apply-set', { request: 'EmrApplyOrderSetRequest', response: 'EmrApplyOrderSetResponse' }],
+  ['POST /orders/{id}/retry-mar-scheduling', {
+    summary: 'Repair a missing MAR schedule from the active CPOE order',
+    description: 'Doctor-authorized, replay-safe recovery only. Replays the persisted medication order through the canonical MAR scheduler, creates no prescription changes, returns existing dose slots idempotently, and appends canonical recovery evidence. If the stored schedule is clinically invalid, the order must be discontinued and replaced through CPOE.',
+    pathParameters: { id: { type: 'integer', minimum: 1 } },
+    parameters: [idempotencyKeyParameter],
+    response: 'EmrMarSchedulingRecoveryResponse',
+  }],
   // PUT lifecycle transitions → ClinicalOrder (single).
-  ['PUT /orders/{id}/verify', { response: 'EmrClinicalOrderResponse' }],
+  ['PUT /orders/{id}/verify', {
+    summary: 'Verify a persisted clinical order under current patient authority',
+    description: 'Staff clinical write; mobile Staff mode is forbidden. Nursing roles NURSING_STAFF, NURSING_INCHARGE, IP_STAFF_NURSE, IP_INCHARGE, ICU_NURSE, and ICU_INCHARGE may verify any canonical clinical order type. Pharmacy roles PHARMACY_STAFF, PHARMACY_INCHARGE, and PHARMACIST may verify medication orders only. Current device posture, exact role, capability, patient relationship, and persisted order type are rechecked before every replay. Idempotency-Key permanently binds the tenant, actor UID, actor role, order, and request body; an exact retry returns the immutable original verified response.',
+    pathParameters: { id: { type: 'integer', minimum: 1 } },
+    parameters: [idempotencyKeyParameter],
+    security: authenticatedSecurity,
+    response: 'EmrClinicalOrderResponse',
+    additionalResponses: {
+      400: emrErrorResponse('The order identifier, order state, or required Idempotency-Key is invalid.'),
+      401: emrErrorResponse('API-key and bearer authentication are required.'),
+      403: emrErrorResponse('The current device, role, capability, patient relationship, or persisted order type does not authorize verification.'),
+      404: emrErrorResponse('The clinical order was not found in the authenticated tenant.'),
+      409: emrErrorResponse('The verification is already in flight, the order changed concurrently, or the permanent command receipt conflicts.'),
+      422: emrErrorResponse('The Idempotency-Key was reused with a different actor role or request body.'),
+      503: emrErrorResponse('Durable idempotency or persistence infrastructure was unavailable; the command failed closed and retry is safe.'),
+    },
+  }],
   ['PUT /orders/{id}/complete', { response: 'EmrClinicalOrderResponse' }],
   ['PUT /orders/{id}/cancel', { request: 'EmrOrderReasonRequest', response: 'EmrClinicalOrderResponse' }],
   ['PUT /orders/{id}/discontinue', { request: 'EmrOrderReasonRequest', response: 'EmrClinicalOrderResponse' }],

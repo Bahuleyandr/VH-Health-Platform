@@ -50,6 +50,9 @@ const d = DB_CONFIGURED ? describe : describe.skip;
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const PATIENT_UID = 'cd5c0000-0000-4000-8000-0000000000c1';
 const ORDERER_UID = 'cd5c0000-0000-4000-8000-0000000000c2';
+const VERIFIER_UID = 'cd5c0000-0000-4000-8000-0000000000c3';
+const SECOND_VERIFIER_UID = 'cd5c0000-0000-4000-8000-0000000000c4';
+const NURSE_VERIFIER_UID = 'cd5c0000-0000-4000-8000-0000000000c5';
 const PATIENT_PHONE = `9120${String(Date.now() % 1000000).padStart(6, '0')}`;
 
 let patientId;
@@ -82,7 +85,12 @@ async function cleanup() {
   ).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM patient_allergies WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
   await prisma.$executeRawUnsafe(
-    `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, ORDERER_UID,
+    `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid)`,
+    PATIENT_UID,
+    ORDERER_UID,
+    VERIFIER_UID,
+    SECOND_VERIFIER_UID,
+    NURSE_VERIFIER_UID,
   ).catch(() => {});
 }
 
@@ -108,6 +116,21 @@ d('CPOE CDS fail-closed on exception (MEDIUM §4)', () => {
       `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, updated_at)
        VALUES ($1::uuid, $2, 'CDS FailClosed Doctor', 'DOCTOR', true, $3::uuid, NOW())`,
       ORDERER_UID, `${PATIENT_PHONE}1`, TENANT_ID,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, updated_at)
+       VALUES ($1::uuid, $2, 'CDS Verification Pharmacist', 'PHARMACY_STAFF', true, $3::uuid, NOW())`,
+      VERIFIER_UID, `${PATIENT_PHONE}2`, TENANT_ID,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, updated_at)
+       VALUES ($1::uuid, $2, 'CDS Verification Pharmacy Lead', 'PHARMACY_INCHARGE', true, $3::uuid, NOW())`,
+      SECOND_VERIFIER_UID, `${PATIENT_PHONE}3`, TENANT_ID,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, updated_at)
+       VALUES ($1::uuid, $2, 'CDS Verification Nurse', 'IP_STAFF_NURSE', true, $3::uuid, NOW())`,
+      NURSE_VERIFIER_UID, `${PATIENT_PHONE}4`, TENANT_ID,
     );
   });
 
@@ -290,37 +313,168 @@ d('CPOE CDS fail-closed on exception (MEDIUM §4)', () => {
     }
   });
 
-  test('concurrent verifyOrder on the same order → exactly one verifies (M6 TOCTOU)', async () => {
+  test('concurrent exact verification commands replay one canonical effect', async () => {
     safetyControl.throwError = null;
     const created = await createOrder({
       patient_uid: PATIENT_UID,
-      order_type: 'investigation',
-      details: { test_name: 'ESR' },
+      order_type: 'medication',
+      details: { medication_name: 'Metformin', dose: '500mg', route: 'PO', frequency: 'BD' },
       ordered_by: ORDERER_UID,
       tenantId: TENANT_ID,
     });
     const orderId = Number(created.order.id);
 
-    // Two simultaneous verifies. Without the atomic status guard both read
-    // status='ordered', both pass the pre-check, and both UPDATE + write a
-    // canonical event (duplicate verify). With the WHERE status='ordered' guard,
-    // the loser's updateMany matches 0 rows and is rejected as a 409 conflict.
+    const idempotencyKey = `cpoe-verify-concurrent:${orderId}`;
+    const options = {
+      tenantId: TENANT_ID,
+      actorRole: 'PHARMACY_STAFF',
+      idempotencyKey,
+    };
     const results = await Promise.allSettled([
-      verifyOrder(orderId, ORDERER_UID),
-      verifyOrder(orderId, ORDERER_UID),
+      verifyOrder(orderId, VERIFIER_UID, options),
+      verifyOrder(orderId, VERIFIER_UID, options),
     ]);
     const fulfilled = results.filter((r) => r.status === 'fulfilled');
-    const rejected = results.filter((r) => r.status === 'rejected');
-    expect(fulfilled).toHaveLength(1);
-    expect(rejected).toHaveLength(1);
-    expect(rejected[0].reason).toMatchObject({ statusCode: 409 });
+    expect(fulfilled).toHaveLength(2);
+    expect(fulfilled.map((result) => Number(result.value.id))).toEqual([
+      orderId,
+      orderId,
+    ]);
+    const originalResponse = JSON.parse(JSON.stringify(fulfilled[0].value));
+    expect(JSON.parse(JSON.stringify(fulfilled[1].value))).toEqual(originalResponse);
 
-    // Exactly one order.verified canonical timeline event — no duplicate.
-    const evts = await prisma.$queryRawUnsafe(
-      `SELECT count(*)::int AS n FROM clinical_timeline_events
-        WHERE source_table = 'clinical_orders' AND source_id = $1 AND event_type = 'order.verified'`,
+    await prisma.clinical_orders.update({
+      where: { id: orderId },
+      data: {
+        status: 'completed',
+        completed_by: ORDERER_UID,
+        completed_at: new Date(),
+      },
+    });
+    const replayAfterLaterTransition = await verifyOrder(orderId, VERIFIER_UID, options);
+    expect(JSON.parse(JSON.stringify(replayAfterLaterTransition))).toEqual(originalResponse);
+    expect(replayAfterLaterTransition.status).toBe('verified');
+    expect((await prisma.clinical_orders.findUnique({
+      where: { id: orderId },
+      select: { status: true },
+    })).status).toBe('completed');
+
+    const events = await prisma.$queryRawUnsafe(
+      `SELECT timeline.payload, audit.metadata
+         FROM clinical_timeline_events timeline
+         JOIN clinical_audit_events audit
+           ON audit.resource_table = timeline.source_table
+          AND audit.resource_id = timeline.source_id
+          AND audit.action = timeline.event_type
+        WHERE timeline.source_table = 'clinical_orders'
+          AND timeline.source_id = $1
+          AND timeline.event_type = 'order.verified'`,
       String(orderId),
     );
-    expect(evts[0].n).toBe(1);
+    expect(events).toHaveLength(1);
+    expect(events[0].payload.verification_command_fingerprint).toMatch(/^[0-9a-f]{64}$/);
+    expect(events[0].metadata.verification_command_fingerprint)
+      .toBe(events[0].payload.verification_command_fingerprint);
+    expect(events[0].payload.verification_response).toEqual(originalResponse);
+    expect(events[0].metadata.verification_response).toEqual(originalResponse);
+    expect(events[0].payload.verification_response_sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(events[0].metadata.verification_response_sha256)
+      .toBe(events[0].payload.verification_response_sha256);
+
+    for (const mismatch of [
+      {
+        actorUid: SECOND_VERIFIER_UID,
+        options,
+      },
+      {
+        actorUid: VERIFIER_UID,
+        options: { ...options, actorRole: 'PHARMACY_INCHARGE' },
+      },
+      {
+        actorUid: VERIFIER_UID,
+        options: { ...options, requestBodySha256: 'f'.repeat(64) },
+      },
+    ]) {
+      await expect(
+        verifyOrder(orderId, mismatch.actorUid, mismatch.options),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'CLINICAL_ORDER_VERIFY_IDEMPOTENCY_CONFLICT',
+      });
+    }
+  });
+
+  test('one verification command key cannot be rebound to another order', async () => {
+    const first = await createOrder({
+      patient_uid: PATIENT_UID,
+      order_type: 'medication',
+      details: { medication_name: 'Paracetamol', dose: '500mg', route: 'PO', frequency: 'TDS' },
+      ordered_by: ORDERER_UID,
+      tenantId: TENANT_ID,
+    });
+    const second = await createOrder({
+      patient_uid: PATIENT_UID,
+      order_type: 'medication',
+      details: { medication_name: 'Pantoprazole', dose: '40mg', route: 'PO', frequency: 'OD' },
+      ordered_by: ORDERER_UID,
+      tenantId: TENANT_ID,
+    });
+    const firstId = Number(first.order.id);
+    const secondId = Number(second.order.id);
+    const idempotencyKey = `cpoe-verify-mismatch:${firstId}`;
+    const options = {
+      tenantId: TENANT_ID,
+      actorRole: 'PHARMACY_STAFF',
+      idempotencyKey,
+    };
+
+    await verifyOrder(firstId, VERIFIER_UID, options);
+    await expect(
+      verifyOrder(secondId, VERIFIER_UID, options),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CLINICAL_ORDER_VERIFY_IDEMPOTENCY_CONFLICT',
+    });
+
+    const untouched = await prisma.clinical_orders.findUnique({
+      where: { id: secondId },
+      select: { status: true, verified_by: true, verified_at: true },
+    });
+    expect(untouched).toEqual({
+      status: 'ordered',
+      verified_by: null,
+      verified_at: null,
+    });
+  });
+
+  test('pharmacy cannot verify non-medication orders while inpatient nursing can', async () => {
+    const created = await createOrder({
+      patient_uid: PATIENT_UID,
+      order_type: 'investigation',
+      details: { test_name: 'Serum ferritin' },
+      ordered_by: ORDERER_UID,
+      tenantId: TENANT_ID,
+    });
+    const orderId = Number(created.order.id);
+
+    await expect(verifyOrder(orderId, VERIFIER_UID, {
+      tenantId: TENANT_ID,
+      actorRole: 'PHARMACY_STAFF',
+      idempotencyKey: `cpoe-pharmacy-non-med:${orderId}`,
+    })).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'CLINICAL_ORDER_VERIFY_ORDER_TYPE_FORBIDDEN',
+    });
+    expect((await prisma.clinical_orders.findUnique({
+      where: { id: orderId },
+      select: { status: true },
+    })).status).toBe('ordered');
+
+    const verified = await verifyOrder(orderId, NURSE_VERIFIER_UID, {
+      tenantId: TENANT_ID,
+      actorRole: 'IP_STAFF_NURSE',
+      idempotencyKey: `cpoe-nurse-non-med:${orderId}`,
+    });
+    expect(verified.status).toBe('verified');
   });
 });

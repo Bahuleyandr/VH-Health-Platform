@@ -71,6 +71,7 @@ import {
   BILLING_V2_ROUTE_ROLES,
   BLOOD_BANK_ROUTE_ROLES,
   BURN_ROUTE_ROLES,
+  CATH_INVENTORY_RECONCILIATION_ROUTE_ROLES,
   CATH_LAB_ROUTE_ROLES,
   CARE_PATHWAY_ROUTE_ROLES,
   COLD_CHAIN_ROUTE_ROLES,
@@ -307,6 +308,7 @@ import birthNotificationRoutes from './routes/clinical/birthNotificationRoutes.j
 import publicHealthRoutes from './routes/publicHealth/publicHealthRoutes.js';
 import dialysisRoutes from './routes/clinical/dialysisRoutes.js';
 import cathLabRoutes from './routes/clinical/cathLabRoutes.js';
+import cathInventoryReconciliationRoutes from './routes/clinical/cathInventoryReconciliationRoutes.js';
 import radiationOncologyRoutes from './routes/clinical/radiationOncologyRoutes.js';
 import bloodBankRoutes from './routes/bloodbank/bloodBankRoutes.js';
 
@@ -1441,6 +1443,7 @@ rewriteToMarPrefix.__openapiSkipMount = true;
 app.use(
   '/api/v1/emr/mar',
   requireRole(...CLINICAL_STAFF_ROLES),
+  sanitizeAllBodyStrings,
   patientAccessGuard('CLINICAL_WORKFLOW'),
   phiAccessLogger('CLINICAL_WORKFLOW'),
   rewriteToMarPrefix,
@@ -1449,6 +1452,7 @@ app.use(
 app.use(
   '/api/v1/nursing/mar',
   requireRole(...CLINICAL_STAFF_ROLES),
+  sanitizeAllBodyStrings,
   patientAccessGuard('CLINICAL_WORKFLOW'),
   phiAccessLogger('CLINICAL_WORKFLOW'),
   rewriteToMarPrefix,
@@ -1851,6 +1855,13 @@ app.use('/api/v1/dialysis', requireRole(...DIALYSIS_ROUTE_ROLES), phiAccessLogge
 // Re-audit M: the CLINICAL_WORKFLOW guard moved INTO cathLabRoutes +
 // cathSchedulingRoutes (per-route case/report selectors; catalogs and the day
 // list stay role-gated).
+app.use(
+  '/api/v1/cath-lab/cases/:caseId/consumables/:usageId/inventory-reconcile',
+  requireRole(...CATH_INVENTORY_RECONCILIATION_ROUTE_ROLES),
+  sanitizeAllBodyStrings,
+  phiAccessLogger('CATH_LAB_INVENTORY_RECONCILIATION'),
+  cathInventoryReconciliationRoutes,
+);
 app.use('/api/v1/cath-lab', requireRole(...CATH_LAB_ROUTE_ROLES), sanitizeAllBodyStrings, phiAccessLogger('CATH_LAB'), cathLabRoutes);
 
 // Blood Bank

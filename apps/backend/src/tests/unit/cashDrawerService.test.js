@@ -38,7 +38,8 @@ const OTHER = '33333333-3333-4333-8333-333333333333';
 const REVIEWER = '44444444-4444-4444-8444-444444444444';
 
 beforeEach(() => {
-  jest.clearAllMocks();
+  mockPrisma.$queryRawUnsafe.mockReset();
+  mockPrisma.$executeRawUnsafe.mockReset();
 });
 
 describe('cashDrawerService — module config', () => {
@@ -161,7 +162,7 @@ describe('closeSession', () => {
   it('closes within tolerance → reviewed, reviewed_by stamped, no reason needed', async () => {
     mockPrisma.$queryRawUnsafe
       .mockResolvedValueOnce([wireOpenSession()]) // SELECT session
-      .mockResolvedValueOnce([{ system_total: '4000' }]) // SUM payments
+      .mockResolvedValueOnce([{ cash_inflow_total: '4000', cash_refund_total: '0' }])
       .mockResolvedValueOnce([{ id: 5, status: 'reviewed' }]); // UPDATE
 
     // counted = 5000; expected = system 4000 + float 1000 = 5000; variance 0.
@@ -174,9 +175,14 @@ describe('closeSession', () => {
 
     expect(result).toMatchObject({ id: 5, status: 'reviewed' });
     const updateArgs = mockPrisma.$queryRawUnsafe.mock.calls[2];
-    const [updateSql, countedTotal, , systemTotal, variance, shortCount, overCount, requiresReview, reason, newStatus] = updateArgs;
+    const [
+      updateSql, countedTotal, , cashInflowTotal, cashRefundTotal,
+      systemTotal, variance, shortCount, overCount, requiresReview, reason, newStatus,
+    ] = updateArgs;
     expect(updateSql).toContain('UPDATE cash_drawer_sessions');
     expect(countedTotal).toBe(5000);
+    expect(cashInflowTotal).toBe(4000);
+    expect(cashRefundTotal).toBe(0);
     expect(systemTotal).toBe(4000);
     expect(variance).toBe(0);
     expect(shortCount).toBe(false);
@@ -186,10 +192,38 @@ describe('closeSession', () => {
     expect(newStatus).toBe('reviewed');
   });
 
+  it('reconciles signed net cash as inflow less exact linked CASH refunds', async () => {
+    mockPrisma.$queryRawUnsafe
+      .mockResolvedValueOnce([wireOpenSession()])
+      .mockResolvedValueOnce([{ cash_inflow_total: '4000', cash_refund_total: '750' }])
+      .mockResolvedValueOnce([{
+        id: 5,
+        status: 'reviewed',
+        cash_inflow_total: '4000.00',
+        cash_refund_total: '750.00',
+        system_total: '3250.00',
+      }]);
+
+    const result = await closeSession({
+      tenantId: TENANT,
+      id: 5,
+      cashier_uid: CASHIER,
+      counted_denominations: { 500: 8, 250: 1 },
+    });
+
+    expect(result).toMatchObject({
+      cash_inflow_total: '4000.00',
+      cash_refund_total: '750.00',
+      system_total: '3250.00',
+    });
+    const update = mockPrisma.$queryRawUnsafe.mock.calls[2];
+    expect(update.slice(3, 7)).toEqual([4000, 750, 3250, 0]);
+  });
+
   it('over-count beyond tolerance with a reason → closed + requires_review', async () => {
     mockPrisma.$queryRawUnsafe
       .mockResolvedValueOnce([wireOpenSession({ opening_float: 0 })])
-      .mockResolvedValueOnce([{ system_total: '1000' }])
+      .mockResolvedValueOnce([{ cash_inflow_total: '1000', cash_refund_total: '0' }])
       .mockResolvedValueOnce([{ id: 5, status: 'closed' }]);
 
     // counted 1500, expected 1000 → variance +500 (> tolerance 1).
@@ -202,7 +236,8 @@ describe('closeSession', () => {
     });
 
     expect(result).toMatchObject({ status: 'closed' });
-    const [, , , , variance, shortCount, overCount, requiresReview, reason, newStatus] = mockPrisma.$queryRawUnsafe.mock.calls[2];
+    const [, , , , , , variance, shortCount, overCount, requiresReview, reason, newStatus]
+      = mockPrisma.$queryRawUnsafe.mock.calls[2];
     expect(variance).toBe(500);
     expect(shortCount).toBe(false);
     expect(overCount).toBe(true);
@@ -214,7 +249,7 @@ describe('closeSession', () => {
   it('short-count beyond tolerance sets short_count true', async () => {
     mockPrisma.$queryRawUnsafe
       .mockResolvedValueOnce([wireOpenSession({ opening_float: 0 })])
-      .mockResolvedValueOnce([{ system_total: '1000' }])
+      .mockResolvedValueOnce([{ cash_inflow_total: '1000', cash_refund_total: '0' }])
       .mockResolvedValueOnce([{ id: 5, status: 'closed' }]);
 
     // counted 500, expected 1000 → variance -500.
@@ -225,7 +260,8 @@ describe('closeSession', () => {
       counted_denominations: { 500: 1 },
       variance_reason: 'till came up short',
     });
-    const [, , , , variance, shortCount, overCount] = mockPrisma.$queryRawUnsafe.mock.calls[2];
+    const [, , , , , , variance, shortCount, overCount]
+      = mockPrisma.$queryRawUnsafe.mock.calls[2];
     expect(variance).toBe(-500);
     expect(shortCount).toBe(true);
     expect(overCount).toBe(false);
@@ -234,7 +270,7 @@ describe('closeSession', () => {
   it('truncates a very long variance_reason to 500 chars', async () => {
     mockPrisma.$queryRawUnsafe
       .mockResolvedValueOnce([wireOpenSession({ opening_float: 0 })])
-      .mockResolvedValueOnce([{ system_total: '0' }])
+      .mockResolvedValueOnce([{ cash_inflow_total: '0', cash_refund_total: '0' }])
       .mockResolvedValueOnce([{ id: 5, status: 'closed' }]);
 
     const longReason = 'x'.repeat(800);
@@ -245,14 +281,14 @@ describe('closeSession', () => {
       counted_denominations: { 100: 5 }, // variance +500
       variance_reason: longReason,
     });
-    const reason = mockPrisma.$queryRawUnsafe.mock.calls[2][8];
+    const reason = mockPrisma.$queryRawUnsafe.mock.calls[2][10];
     expect(reason).toHaveLength(500);
   });
 
   it('requires a variance_reason when |variance| exceeds tolerance', async () => {
     mockPrisma.$queryRawUnsafe
       .mockResolvedValueOnce([wireOpenSession({ opening_float: 0 })])
-      .mockResolvedValueOnce([{ system_total: '0' }]);
+      .mockResolvedValueOnce([{ cash_inflow_total: '0', cash_refund_total: '0' }]);
 
     await expect(closeSession({
       tenantId: TENANT,
@@ -281,8 +317,11 @@ describe('closeSession', () => {
       cashier_uid: CASHIER,
       counted_denominations: {},
     });
-    const [, countedTotal, , systemTotal, variance] = mockPrisma.$queryRawUnsafe.mock.calls[2];
+    const [, countedTotal, , cashInflowTotal, cashRefundTotal, systemTotal, variance]
+      = mockPrisma.$queryRawUnsafe.mock.calls[2];
     expect(countedTotal).toBe(0);
+    expect(cashInflowTotal).toBe(0);
+    expect(cashRefundTotal).toBe(0);
     expect(systemTotal).toBe(0);
     expect(variance).toBe(0);
   });
@@ -290,7 +329,7 @@ describe('closeSession', () => {
   it('serializes null denominations to an empty-object jsonb param', async () => {
     mockPrisma.$queryRawUnsafe
       .mockResolvedValueOnce([wireOpenSession({ opening_float: 0 })])
-      .mockResolvedValueOnce([{ system_total: '0' }])
+      .mockResolvedValueOnce([{ cash_inflow_total: '0', cash_refund_total: '0' }])
       .mockResolvedValueOnce([{ id: 5, status: 'reviewed' }]);
 
     await closeSession({
@@ -340,7 +379,7 @@ describe('closeSession', () => {
   it('raises an optimistic-lock conflict when the UPDATE returns no row', async () => {
     mockPrisma.$queryRawUnsafe
       .mockResolvedValueOnce([wireOpenSession()])
-      .mockResolvedValueOnce([{ system_total: '4000' }])
+      .mockResolvedValueOnce([{ cash_inflow_total: '4000', cash_refund_total: '0' }])
       .mockResolvedValueOnce([]); // UPDATE matched nothing (status changed)
 
     await expect(closeSession({

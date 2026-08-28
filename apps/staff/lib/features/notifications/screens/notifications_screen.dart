@@ -95,12 +95,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     return item.isRead || (id != null && _locallyReadIds.contains(id));
   }
 
-  bool _matchesQuery(NotificationItem item) {
+  bool _matchesQuery(NotificationItem item, AppStrings strings) {
     final q = _searchQuery.trim().toLowerCase();
     if (q.isEmpty) return true;
     final haystack = [
-      item.title,
-      item.body,
+      item.titleFor(strings),
+      item.bodyFor(strings),
       item.type ?? '',
       item.priority ?? '',
       item.relatedId?.toString() ?? '',
@@ -290,7 +290,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       ...live.map((item) => _AlertRow(item, isLive: true)),
                       ...persisted.map((item) => _AlertRow(item)),
                     ].where((row) {
-                      return _matchesQuery(row.item) &&
+                      return _matchesQuery(row.item, s) &&
                           _matchesFilter(row.item);
                     }).toList();
 
@@ -339,6 +339,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final colorScheme = Theme.of(context).colorScheme;
     final route = item.actionRoute;
     final typeLabel = _labelize(item.type ?? item.normalizedType);
+    final localizedTitle = item.titleFor(s);
+    final localizedBody = item.bodyFor(s);
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 5),
@@ -379,7 +381,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       children: [
                         Expanded(
                           child: Text(
-                            item.title,
+                            localizedTitle,
                             style: TextStyle(
                               fontWeight: isRead
                                   ? FontWeight.w500
@@ -429,10 +431,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           ),
                       ],
                     ),
-                    if (item.body.isNotEmpty) ...[
+                    if (localizedBody.isNotEmpty) ...[
                       const SizedBox(height: 8),
                       Text(
-                        item.body,
+                        localizedBody,
                         maxLines: 3,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -476,7 +478,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           FilledButton.tonalIcon(
                             onPressed: () => _openAlert(item),
                             icon: const Icon(Icons.open_in_new, size: 16),
-                            label: Text(item.actionLabel),
+                            label: Text(item.actionLabelFor(s)),
                           ),
                       ],
                     ),

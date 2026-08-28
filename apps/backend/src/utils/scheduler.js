@@ -763,6 +763,90 @@ if (process.env.NODE_ENV !== 'test') {
     ));
   }));
 
+  // Every 5 minutes — recreate durable ward-medication notification intent
+  // after the required roster role becomes available. The coverage task row
+  // is claimed with SKIP LOCKED and can complete only from persisted outbox
+  // evidence; this sweep never changes ward-indent clinical state.
+  registerCron('*/5 * * * *', withJobLock('ward-indent-notification-coverage-recovery', async () => {
+    const { sweepWardIndentNotificationCoverage } = await import(
+      '../services/ipd/wardIndentObligationService.js'
+    );
+    const result = await runForEachTenant(
+      'ward-indent-notification-coverage-recovery',
+      (tenantId) => sweepWardIndentNotificationCoverage({ tenantId, limit: 25 }),
+    );
+    logger.info('ward-indent-notification-coverage-recovery complete', result);
+  }));
+
+  registerCron('*/5 * * * *', withJobLock('clinical-alert-delivery-obligation-recovery', async () => {
+    const { sweepClinicalAlertDeliveryObligations } = await import(
+      '../services/clinical/clinicalAlertDeliveryObligationService.js'
+    );
+    const result = await runForEachTenant(
+      'clinical-alert-delivery-obligation-recovery',
+      (tenantId) => sweepClinicalAlertDeliveryObligations({ tenantId, limit: 25 }),
+    );
+    logger.info('clinical-alert-delivery-obligation-recovery complete', result);
+  }));
+
+  registerCron('*/5 * * * *', withJobLock('mar-medication-exception-reconciliation', async () => {
+    const { reconcileMarMedicationExceptions } = await import(
+      '../services/clinical/marMedicationExceptionService.js'
+    );
+    const { createMarMedicationExceptionTaskTx } = await import(
+      '../services/workflow/taskService.js'
+    );
+    const result = await runForEachTenant(
+      'mar-medication-exception-reconciliation',
+      (tenantId) => reconcileMarMedicationExceptions({
+        tenantId,
+        limit: 25,
+        createTaskTx: createMarMedicationExceptionTaskTx,
+      }),
+    );
+    logger.info('mar-medication-exception-reconciliation complete', result);
+  }));
+
+  registerCron('*/5 * * * *', withJobLock('cath-inventory-shortfall-assignment-recovery', async () => {
+    const { sweepCathInventoryShortfallAssignments } = await import(
+      '../services/clinical/cathLabService.js'
+    );
+    const result = await runForEachTenant(
+      'cath-inventory-shortfall-assignment-recovery',
+      (tenantId) => sweepCathInventoryShortfallAssignments({ tenantId, limit: 25 }),
+    );
+    logger.info('cath-inventory-shortfall-assignment-recovery complete', result);
+  }));
+
+  // Every 5 minutes — close counter-sale voids only after their exact bound
+  // refund has durable PAID rail evidence. The service sweep is tenant-bound,
+  // bounded, idempotent and isolates an individual request failure.
+  registerCron('*/5 * * * *', withJobLock('counter-sale-void-reconciliation', async () => {
+    const { reconcileCounterSaleVoidsForTenant } = await import(
+      '../services/pharmacy/counterSaleService.js'
+    );
+    const result = await runForEachTenant(
+      'counter-sale-void-reconciliation',
+      (tenantId) => reconcileCounterSaleVoidsForTenant({ tenantId, limit: 25 }),
+    );
+    logger.info('counter-sale-void-reconciliation complete', result);
+  }));
+
+  // Every 5 minutes — make every unresolved provider-refund park visible to
+  // an active platform administrator. The source key includes the refund
+  // row generation, so retries dedupe while later exact provider evidence can
+  // reopen the workflow with a new actionable notification.
+  registerCron('*/5 * * * *', withJobLock('gateway-refund-reconciliation-notification', async () => {
+    const { sweepGatewayRefundReconciliationNotifications } = await import(
+      '../services/billing/paymentGatewayService.js'
+    );
+    const result = await runForEachTenant(
+      'gateway-refund-reconciliation-notification',
+      (tenantId) => sweepGatewayRefundReconciliationNotifications({ tenantId, limit: 25 }),
+    );
+    logger.info('gateway-refund-reconciliation-notification complete', result);
+  }));
+
   // 🔄 Every 5 minutes - Retry failed push/SMS notifications (exponential backoff)
   registerCron('*/5 * * * *', withJobLock('retry-failed-notifications', retryFailedNotifications));
 
@@ -1525,6 +1609,91 @@ export async function runAllScheduledTasksNow() {
           runWorkflowSlaOverdueSweep({ tenantId })
         ));
       }))
+    ));
+    await runManualTask('ward-indent-notification-coverage-recovery', () => (
+      withDbAdvisoryLock('ward-indent-notification-coverage-recovery', () => (
+        runWithSuperAdmin(async () => {
+          const { sweepWardIndentNotificationCoverage } = await import(
+            '../services/ipd/wardIndentObligationService.js'
+          );
+          return runForEachTenant(
+            'ward-indent-notification-coverage-recovery',
+            (tenantId) => sweepWardIndentNotificationCoverage({ tenantId, limit: 25 }),
+          );
+        })
+      ))
+    ));
+    await runManualTask('clinical-alert-delivery-obligation-recovery', () => (
+      withDbAdvisoryLock('clinical-alert-delivery-obligation-recovery', () => (
+        runWithSuperAdmin(async () => {
+          const { sweepClinicalAlertDeliveryObligations } = await import(
+            '../services/clinical/clinicalAlertDeliveryObligationService.js'
+          );
+          return runForEachTenant(
+            'clinical-alert-delivery-obligation-recovery',
+            (tenantId) => sweepClinicalAlertDeliveryObligations({ tenantId, limit: 25 }),
+          );
+        })
+      ))
+    ));
+    await runManualTask('mar-medication-exception-reconciliation', () => (
+      withDbAdvisoryLock('mar-medication-exception-reconciliation', () => (
+        runWithSuperAdmin(async () => {
+          const { reconcileMarMedicationExceptions } = await import(
+            '../services/clinical/marMedicationExceptionService.js'
+          );
+          const { createMarMedicationExceptionTaskTx } = await import(
+            '../services/workflow/taskService.js'
+          );
+          return runForEachTenant(
+            'mar-medication-exception-reconciliation',
+            (tenantId) => reconcileMarMedicationExceptions({
+              tenantId,
+              limit: 25,
+              createTaskTx: createMarMedicationExceptionTaskTx,
+            }),
+          );
+        })
+      ))
+    ));
+    await runManualTask('cath-inventory-shortfall-assignment-recovery', () => (
+      withDbAdvisoryLock('cath-inventory-shortfall-assignment-recovery', () => (
+        runWithSuperAdmin(async () => {
+          const { sweepCathInventoryShortfallAssignments } = await import(
+            '../services/clinical/cathLabService.js'
+          );
+          return runForEachTenant(
+            'cath-inventory-shortfall-assignment-recovery',
+            (tenantId) => sweepCathInventoryShortfallAssignments({ tenantId, limit: 25 }),
+          );
+        })
+      ))
+    ));
+    await runManualTask('counter-sale-void-reconciliation', () => (
+      withDbAdvisoryLock('counter-sale-void-reconciliation', () => (
+        runWithSuperAdmin(async () => {
+          const { reconcileCounterSaleVoidsForTenant } = await import(
+            '../services/pharmacy/counterSaleService.js'
+          );
+          return runForEachTenant(
+            'counter-sale-void-reconciliation',
+            (tenantId) => reconcileCounterSaleVoidsForTenant({ tenantId, limit: 25 }),
+          );
+        })
+      ))
+    ));
+    await runManualTask('gateway-refund-reconciliation-notification', () => (
+      withDbAdvisoryLock('gateway-refund-reconciliation-notification', () => (
+        runWithSuperAdmin(async () => {
+          const { sweepGatewayRefundReconciliationNotifications } = await import(
+            '../services/billing/paymentGatewayService.js'
+          );
+          return runForEachTenant(
+            'gateway-refund-reconciliation-notification',
+            (tenantId) => sweepGatewayRefundReconciliationNotifications({ tenantId, limit: 25 }),
+          );
+        })
+      ))
     ));
     await runManualTask('unread-critical-notification-escalation', () => (
       withDbAdvisoryLock('unread-critical-notification-escalation', () => (

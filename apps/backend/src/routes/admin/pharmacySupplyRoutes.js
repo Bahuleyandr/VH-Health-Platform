@@ -6,8 +6,10 @@
 import express from 'express';
 
 import { PHARMACY_SUPPLY_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
+import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import rbac from '../../middleware/rbacMiddleware.js';
 import { success } from '../../utils/responseHelper.js';
+import { AppError } from '../../utils/AppError.js';
 import {
   acknowledgeExpiryAlert,
   addInventoryBatch,
@@ -35,6 +37,22 @@ import {
 } from '../../services/pharmacySupply/pharmacySupplyService.js';
 
 const router = express.Router();
+const RESERVE_STOCK_CANONICAL_PATH = '/api/v1/admin/pharmacy-supply/reserve-stock';
+
+function requireReservationLineage(req, _res, next) {
+  const referenceType = typeof req.body?.reference_type === 'string'
+    ? req.body.reference_type.trim()
+    : '';
+  const referenceId = typeof req.body?.reference_id === 'string'
+    ? req.body.reference_id.trim()
+    : '';
+  if (!referenceType || !referenceId) {
+    return next(AppError.badRequest(
+      'reference_type and reference_id are required for stock reservations',
+    ));
+  }
+  return next();
+}
 
 router.use(rbac(PHARMACY_SUPPLY_ROUTE_ROLES));
 
@@ -147,7 +165,12 @@ router.patch('/batches/:id/recall', async (req, res, next) => {
   } catch (err) { return next(err); }
 });
 
-router.post('/reserve-stock', async (req, res, next) => {
+router.post('/reserve-stock', requireReservationLineage, requireIdempotencyKey({
+  required: true,
+  scope: 'pharmacy_supply_reserve_stock',
+  retainOnServerError: true,
+  requestPathForIdempotency: RESERVE_STOCK_CANONICAL_PATH,
+}), async (req, res, next) => {
   try {
     const b = req.body || {};
     const result = await reserveStock({
@@ -158,6 +181,10 @@ router.post('/reserve-stock', async (req, res, next) => {
       referenceType: b.reference_type, referenceId: b.reference_id,
       performedBy: req.user?.uid || null,
       notes: b.notes,
+      commandKey: req.idempotencyClaim?.requestKey || req.get('idempotency-key'),
+      requestFingerprint: req.idempotencyClaim?.requestBodyHash || null,
+      httpIdempotencyClaimId: req.idempotencyClaim?.id || null,
+      requestId: req.id || null,
     });
     return success(res, result, 'Stock reserved (FEFO)');
   } catch (err) { return next(err); }

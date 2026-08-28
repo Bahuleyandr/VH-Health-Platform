@@ -12,6 +12,192 @@ import Sentry from '../../../utils/sentry.js';
 import { recordLedgerReconciliationDrift } from '../../../observability/reliabilityMetrics.js';
 import { postLedgerEntry } from './ledgerService.js';
 
+function normalizedMedicationCreditLine({
+  accountCode,
+  amountPaise,
+  patientUid = null,
+  invoiceId = null,
+  advanceId = null,
+  paymentId = null,
+  cashDrawerSessionId = null,
+}) {
+  return {
+    accountCode,
+    amountPaise: String(amountPaise),
+    patientUid: patientUid == null ? null : String(patientUid),
+    invoiceId: invoiceId == null ? null : Number(invoiceId),
+    advanceId: advanceId == null ? null : Number(advanceId),
+    paymentId: paymentId == null ? null : Number(paymentId),
+    cashDrawerSessionId: cashDrawerSessionId == null ? null : Number(cashDrawerSessionId),
+  };
+}
+
+function medicationCreditLineKey(line) {
+  return JSON.stringify(line);
+}
+
+function medicationCreditLinesMatch(expected, actual) {
+  const expectedKeys = expected.map(medicationCreditLineKey).sort();
+  const actualKeys = actual.map(medicationCreditLineKey).sort();
+  return expectedKeys.length === actualKeys.length
+    && expectedKeys.every((key, index) => key === actualKeys[index]);
+}
+
+function expectedMedicationCreditLines(note) {
+  const amountMinor = BigInt(note.amountMinor);
+  const receivableMinor = BigInt(note.receivableCreditMinor);
+  const refundMinor = BigInt(note.refundObligationMinor);
+  const lines = [normalizedMedicationCreditLine({
+    accountCode: 'REVENUE',
+    amountPaise: amountMinor,
+  })];
+  if (receivableMinor > 0n) {
+    lines.push(normalizedMedicationCreditLine({
+      accountCode: 'PATIENT_AR',
+      amountPaise: -receivableMinor,
+      patientUid: note.patientUid,
+      invoiceId: note.invoiceId,
+    }));
+  }
+  if (refundMinor > 0n) {
+    lines.push(normalizedMedicationCreditLine({
+      accountCode: 'REFUNDS_PAYABLE',
+      amountPaise: -refundMinor,
+      patientUid: note.patientUid,
+    }));
+  }
+  return lines;
+}
+
+async function findMedicationCreditDrift(tx, tenantId) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT note.id::text AS credit_note_id,
+            note.credit_note_number,
+            note.invoice_id,
+            invoice.status AS invoice_status,
+            note.patient_uid,
+            note.source_financial_event_id::text AS source_financial_event_id,
+            note.amount_minor::text AS amount_minor,
+            note.receivable_credit_minor::text AS receivable_credit_minor,
+            note.refund_obligation_minor::text AS refund_obligation_minor,
+            EXISTS (
+              SELECT 1
+                FROM billing_credit_note_events raised
+               WHERE raised.tenant_id = note.tenant_id
+                 AND raised.credit_note_id = note.id
+                 AND raised.event_type = 'raised'
+                 AND raised.details->>'auto_applied_draft' = 'true'
+            ) AS auto_applied_draft,
+            entry.id::text AS entry_id,
+            entry.entry_type,
+            entry.idempotency_key,
+            entry.metadata,
+            posting.id::text AS posting_id,
+            account.code AS account_code,
+            posting.amount_paise::text AS amount_paise,
+            posting.patient_uid AS posting_patient_uid,
+            posting.invoice_id AS posting_invoice_id,
+            posting.advance_id AS posting_advance_id,
+            posting.payment_id AS posting_payment_id,
+            posting.cash_drawer_session_id AS posting_cash_drawer_session_id
+       FROM billing_credit_notes note
+       JOIN billing_invoices invoice
+         ON invoice.tenant_id = note.tenant_id
+        AND invoice.id = note.invoice_id
+       LEFT JOIN ledger_entries entry
+         ON entry.tenant_id = note.tenant_id
+        AND entry.idempotency_key = 'ward-medication-credit-' || note.id::text
+       LEFT JOIN ledger_postings posting
+         ON posting.tenant_id = note.tenant_id
+        AND posting.entry_id = entry.id
+       LEFT JOIN ledger_accounts account ON account.id = posting.account_id
+      WHERE note.tenant_id = $1::uuid
+        AND note.status = 'applied'
+        AND invoice.status IN ('ISSUED', 'PARTIAL', 'PAID')
+      ORDER BY note.id, posting.id`,
+    tenantId,
+  );
+
+  const notes = new Map();
+  for (const row of rows) {
+    let note = notes.get(row.credit_note_id);
+    if (!note) {
+      note = {
+        creditNoteId: String(row.credit_note_id),
+        creditNoteNumber: row.credit_note_number,
+        invoiceId: Number(row.invoice_id),
+        invoiceStatus: row.invoice_status,
+        patientUid: String(row.patient_uid),
+        sourceFinancialEventId: String(row.source_financial_event_id),
+        amountMinor: String(row.amount_minor),
+        receivableCreditMinor: String(row.receivable_credit_minor),
+        refundObligationMinor: String(row.refund_obligation_minor),
+        autoAppliedDraft: Boolean(row.auto_applied_draft),
+        entryId: row.entry_id == null ? null : String(row.entry_id),
+        entryType: row.entry_type,
+        idempotencyKey: row.idempotency_key,
+        metadata: row.metadata || {},
+        actualLines: [],
+      };
+      notes.set(row.credit_note_id, note);
+    }
+    if (row.posting_id != null) {
+      note.actualLines.push(normalizedMedicationCreditLine({
+        accountCode: row.account_code,
+        amountPaise: row.amount_paise,
+        patientUid: row.posting_patient_uid,
+        invoiceId: row.posting_invoice_id,
+        advanceId: row.posting_advance_id,
+        paymentId: row.posting_payment_id,
+        cashDrawerSessionId: row.posting_cash_drawer_session_id,
+      }));
+    }
+  }
+
+  const drift = [];
+  for (const note of notes.values()) {
+    const expectedIdempotencyKey = `ward-medication-credit-${note.creditNoteId}`;
+    const expectedLines = expectedMedicationCreditLines(note);
+    const reasons = [];
+    if (note.autoAppliedDraft) {
+      if (note.entryId != null) reasons.push('unexpected_draft_credit_entry');
+    } else if (note.entryId == null) {
+      reasons.push('missing_entry');
+    } else {
+      if (note.entryType !== 'WARD_MEDICATION_CREDIT') reasons.push('entry_type_mismatch');
+      if (note.idempotencyKey !== expectedIdempotencyKey) reasons.push('idempotency_key_mismatch');
+      if (String(note.metadata?.credit_note_id || '') !== note.creditNoteId) {
+        reasons.push('credit_note_metadata_mismatch');
+      }
+      if (String(note.metadata?.source_financial_event_id || '') !== note.sourceFinancialEventId) {
+        reasons.push('source_event_metadata_mismatch');
+      }
+      if (!medicationCreditLinesMatch(expectedLines, note.actualLines)) {
+        reasons.push('posting_split_mismatch');
+      }
+    }
+    if (reasons.length) {
+      drift.push({
+        kind: 'WARD_MEDICATION_CREDIT',
+        creditNoteId: note.creditNoteId,
+        creditNoteNumber: note.creditNoteNumber,
+        invoiceId: note.invoiceId,
+        invoiceStatus: note.invoiceStatus,
+        autoAppliedDraft: note.autoAppliedDraft,
+        entryId: note.entryId,
+        reasons,
+        expectedEntryType: note.autoAppliedDraft ? null : 'WARD_MEDICATION_CREDIT',
+        expectedIdempotencyKey: note.autoAppliedDraft ? null : expectedIdempotencyKey,
+        expectedLines: note.autoAppliedDraft ? [] : expectedLines,
+        actualEntryType: note.entryType || null,
+        actualIdempotencyKey: note.idempotencyKey || null,
+        actualLines: note.actualLines,
+      });
+    }
+  }
+  return drift;
+}
+
 /**
  * Cutover: for each ISSUED invoice with amount_due > 0 in this tenant that has
  * NO existing PATIENT_AR ledger balance, post a balanced OPENING_BALANCE entry
@@ -62,10 +248,11 @@ export async function applyArOpeningBalances(tenantId) {
 /**
  * Reconcile the ledger against the legacy billing tables for one tenant.
  * Signals:
- * - mismatches:  ISSUED invoices WITH a ledger receivable that != the legacy
+ * - mismatches:  active invoices WITH a ledger receivable that != the legacy
  *                amount_due column (meaningful in shadow; tautological-but-
  *                harmless once the column is ledger-derived under enforce).
- * - unwired:     ISSUED invoices with amount_due > 0 and NO ledger receivable
+ * - unwired:     active invoices with amount_due > 0 or applied medication
+ *                credits and NO ledger receivable
  *                (need a cutover / a post that never landed / a bypass writer).
  * - eventsDrift: INDEPENDENT ledger-vs-events oracle — for fully ledger-era
  *                invoices (those with an INVOICE_ISSUE entry), the ledger
@@ -77,7 +264,11 @@ export async function applyArOpeningBalances(tenantId) {
  *                meaningful cross-check under enforce,
  *                where the column comparison is tautological. Cutover /
  *                opening-balance invoices have no event baseline, so they are
- *                excluded.
+ *                excluded. Applied post-issue medication credits are also
+ *                checked one-by-one for their exact WARD_MEDICATION_CREDIT
+ *                entry, metadata, and posting split. Draft-applied credits are
+ *                expected in the net INVOICE_ISSUE amount instead; a separate
+ *                credit entry for one is reported as drift.
  * - trialBalancePaise: Σ(signed balances) across all accounts; must be 0.
  *
  * The receivable uses PATIENT_AR + INSURANCE_AR so the insurance two-step
@@ -99,11 +290,24 @@ export async function reconcileLedger(tenantId, { mode = 'shadow' } = {}) {
       `SELECT i.id AS invoice_id,
               ROUND(i.amount_due * 100)::bigint AS legacy_due_paise,
               bal.ledger_paise,
-              EXISTS (SELECT 1 FROM ledger_entries e WHERE e.idempotency_key = 'issue-inv-' || i.id) AS ledger_era,
+              EXISTS (
+                SELECT 1 FROM ledger_entries e
+                 WHERE e.tenant_id = i.tenant_id
+                   AND e.idempotency_key = 'issue-inv-' || i.id
+              ) AS ledger_era,
               ROUND((
                  i.total_amount
-                 - COALESCE((SELECT SUM(p.amount) FROM billing_payments p WHERE p.invoice_id = i.id AND p.reversed = false), 0)
-                 - COALESCE((SELECT SUM(s.amount) FROM billing_advance_settlements s WHERE s.invoice_id = i.id), 0)
+                 - COALESCE((
+                     SELECT SUM(p.amount) FROM billing_payments p
+                      WHERE p.tenant_id = i.tenant_id
+                        AND p.invoice_id = i.id
+                        AND p.reversed = false
+                   ), 0)
+                 - COALESCE((
+                     SELECT SUM(s.amount) FROM billing_advance_settlements s
+                      WHERE s.tenant_id = i.tenant_id
+                        AND s.invoice_id = i.id
+                   ), 0)
                  - COALESCE((
                      SELECT SUM(note.receivable_credit_minor)::numeric / 100
                        FROM billing_credit_notes note
@@ -128,12 +332,26 @@ export async function reconcileLedger(tenantId, { mode = 'shadow' } = {}) {
                ) * 100)::bigint AS events_due_paise
          FROM billing_invoices i
          LEFT JOIN (
-           SELECT b.invoice_id, SUM(b.balance_paise)::bigint AS ledger_paise
+           SELECT b.tenant_id, b.invoice_id, SUM(b.balance_paise)::bigint AS ledger_paise
              FROM ledger_balances b JOIN ledger_accounts a ON a.id = b.account_id
-            WHERE a.code IN ('PATIENT_AR','INSURANCE_AR') AND b.invoice_id IS NOT NULL
-            GROUP BY b.invoice_id
-         ) bal ON bal.invoice_id = i.id
-        WHERE i.status = 'ISSUED' AND i.amount_due > 0`,
+            WHERE b.tenant_id = $1::uuid
+              AND a.code IN ('PATIENT_AR','INSURANCE_AR')
+              AND b.invoice_id IS NOT NULL
+            GROUP BY b.tenant_id, b.invoice_id
+         ) bal ON bal.tenant_id = i.tenant_id AND bal.invoice_id = i.id
+        WHERE i.tenant_id = $1::uuid
+          AND i.status IN ('ISSUED', 'PARTIAL', 'PAID')
+          AND (
+            i.amount_due > 0
+            OR EXISTS (
+              SELECT 1
+                FROM billing_credit_notes note
+               WHERE note.tenant_id = i.tenant_id
+                 AND note.invoice_id = i.id
+                 AND note.status = 'applied'
+            )
+          )`,
+      tenantId,
     );
     const mismatches = [];
     const unwired = [];
@@ -153,9 +371,12 @@ export async function reconcileLedger(tenantId, { mode = 'shadow' } = {}) {
         eventsDrift.push({ invoiceId: Number(r.invoice_id), ledgerPaise, eventsPaise: Number(r.events_due_paise) });
       }
     }
+    eventsDrift.push(...await findMedicationCreditDrift(tx, tenantId));
     const tb = await tx.$queryRawUnsafe(
       `SELECT COALESCE(SUM(b.balance_paise * ledger_account_normal_side(a.type)), 0)::bigint AS tb
-         FROM ledger_balances b JOIN ledger_accounts a ON a.id = b.account_id`,
+         FROM ledger_balances b JOIN ledger_accounts a ON a.id = b.account_id
+        WHERE b.tenant_id = $1::uuid`,
+      tenantId,
     );
     return { mismatches, unwired, eventsDrift, trialBalancePaise: Number(tb[0].tb) };
   });
@@ -163,12 +384,23 @@ export async function reconcileLedger(tenantId, { mode = 'shadow' } = {}) {
   const { mismatches, unwired, eventsDrift, trialBalancePaise } = result;
   const hasDrift = mismatches.length || unwired.length || eventsDrift.length || trialBalancePaise !== 0;
   if (hasDrift) {
+    const medicationCreditDrift = eventsDrift
+      .filter((item) => item.kind === 'WARD_MEDICATION_CREDIT')
+      .map((item) => ({
+        creditNoteId: item.creditNoteId,
+        invoiceId: item.invoiceId,
+        invoiceStatus: item.invoiceStatus,
+        entryId: item.entryId,
+        reasons: item.reasons,
+      }));
     const detail = {
       tenantId,
       mismatches: mismatches.length,
       unwired: unwired.length,
       eventsDrift: eventsDrift.length,
       trialBalancePaise,
+      medicationCreditDrift: medicationCreditDrift.slice(0, 50),
+      medicationCreditDriftTruncated: Math.max(0, medicationCreditDrift.length - 50),
     };
     if (mode === 'enforce') {
       // Ledger is authoritative — drift is a financial-integrity incident.

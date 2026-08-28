@@ -4,6 +4,7 @@ import 'package:vhhealth_core/models/client_readiness.dart';
 import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 import 'package:vhhealth_staff/core/config/role_config.dart';
 import 'package:vhhealth_staff/core/models/composition_alternatives.dart';
+import 'package:vhhealth_staff/core/services/idempotency_attempt_registry.dart';
 import 'package:vhhealth_staff/features/pharmacy/models/ward_indent_models.dart';
 import 'package:vhhealth_staff/features/pharmacy/services/ward_indent_gateway.dart';
 import 'package:vhhealth_staff/features/pharmacy/services/ward_indent_role_policy.dart';
@@ -18,6 +19,62 @@ void main() {
 
   tearDown(() async {
     await ConnectivitySyncService.instance.resetForTesting();
+  });
+
+  test('multi-item controlled handoff preserves each exact reserved batch', () {
+    final indent = WardIndent.fromJson({
+      'id': 73,
+      'status': 'controlled_handoff_required',
+      'state_version': 3,
+      'items': [
+        {
+          'id': 701,
+          'item_name': 'Controlled A',
+          'controlled_reference_id': 'ward-indent:73:item:701',
+        },
+        {
+          'id': 702,
+          'item_name': 'Controlled B',
+          'controlled_reference_id': 'ward-indent:73:item:702',
+        },
+      ],
+      'workflow': {
+        'medication_closure': {
+          'allocations': [
+            {
+              'id': '9001',
+              'ward_indent_id': 73,
+              'ward_indent_item_id': 701,
+              'inventory_item_id': 501,
+              'inventory_batch_id': 601,
+              'status': 'reserved',
+              'reserved_quantity': 1,
+              'issued_quantity': 0,
+            },
+            {
+              'id': '9002',
+              'ward_indent_id': 73,
+              'ward_indent_item_id': 702,
+              'inventory_item_id': 502,
+              'inventory_batch_id': 602,
+              'status': 'reserved',
+              'reserved_quantity': 2,
+              'issued_quantity': 0,
+            },
+          ],
+        },
+      },
+    });
+
+    final first = exactControlledIssueAllocation(indent, indent.items[0]);
+    final second = exactControlledIssueAllocation(indent, indent.items[1]);
+
+    expect(first?.id, '9001');
+    expect(first?.inventoryItemId, 501);
+    expect(first?.inventoryBatchId, 601);
+    expect(second?.id, '9002');
+    expect(second?.inventoryItemId, 502);
+    expect(second?.inventoryBatchId, 602);
   });
 
   testWidgets('hydrates an exact deep-linked indent outside the first list', (
@@ -166,10 +223,102 @@ void main() {
 
     expect(gateway.mutateCalls, 1);
     expect(gateway.lastMutationVersion, 1);
-    expect(gateway.lastIdempotencyKey, startsWith('ward-indent-73-reserve-'));
+    expect(gateway.lastIdempotencyKey, startsWith('ward-indent-73-reserve:'));
     expect(gateway.getIds, [73, 73]);
     expect(find.textContaining('version 2'), findsOneWidget);
     expect(find.text('Reserved'), findsWidgets);
+  });
+
+  testWidgets('ambiguous mutation retry reuses the exact payload key', (
+    tester,
+  ) async {
+    final requested = _indent(id: 73, number: 'WARD-73');
+    final reserved = _indent(
+      id: 73,
+      number: 'WARD-73',
+      status: 'reserved',
+      version: 2,
+      quantityReserved: 2,
+    );
+    final attempts = IdempotencyAttemptRegistry();
+    final gateway = _FakeWardIndentGateway(
+      listRows: [requested],
+      initialDetail: requested,
+      refreshedDetail: requested,
+      mutationResult: reserved,
+      mutateErrors: [Exception('response lost'), null],
+    );
+
+    await _pumpWorkbench(
+      tester,
+      gateway: gateway,
+      rawRole: 'PHARMACY_STAFF',
+      initialIndentId: 73,
+      attempts: attempts,
+    );
+
+    Future<void> reserve() async {
+      final action = find.byKey(const Key('ward-indent-action-reserve'));
+      await tester.ensureVisible(action);
+      await tester.tap(action);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+    }
+
+    await reserve();
+    expect(gateway.idempotencyKeys, hasLength(1));
+    expect(
+      attempts.current('ward-indent:73:reserve'),
+      gateway.idempotencyKeys.single,
+    );
+
+    await reserve();
+    expect(gateway.idempotencyKeys, hasLength(2));
+    expect(gateway.idempotencyKeys[1], gateway.idempotencyKeys[0]);
+    expect(attempts.current('ward-indent:73:reserve'), isNull);
+    expect(find.text('Reserved'), findsWidgets);
+  });
+
+  testWidgets('changed authoritative version starts a new mutation key', (
+    tester,
+  ) async {
+    final requestedV1 = _indent(id: 73, number: 'WARD-73');
+    final requestedV2 = _indent(id: 73, number: 'WARD-73', version: 2);
+    final reserved = _indent(
+      id: 73,
+      number: 'WARD-73',
+      status: 'reserved',
+      version: 3,
+      quantityReserved: 2,
+    );
+    final gateway = _FakeWardIndentGateway(
+      listRows: [requestedV1],
+      initialDetail: requestedV1,
+      refreshedDetail: requestedV2,
+      mutationResult: reserved,
+      mutateErrors: [Exception('state changed'), null],
+    );
+
+    await _pumpWorkbench(
+      tester,
+      gateway: gateway,
+      rawRole: 'PHARMACY_STAFF',
+      initialIndentId: 73,
+    );
+
+    for (var attempt = 0; attempt < 2; attempt++) {
+      final action = find.byKey(const Key('ward-indent-action-reserve'));
+      await tester.ensureVisible(action);
+      await tester.tap(action);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+    }
+
+    expect(gateway.idempotencyKeys, hasLength(2));
+    expect(gateway.idempotencyKeys[1], isNot(gateway.idempotencyKeys[0]));
+    expect(gateway.mutationVersions, [1, 2]);
   });
 
   testWidgets('reconciliation requires an explicit variance disposition', (
@@ -232,8 +381,6 @@ void main() {
   testWidgets('controlled dispense uses witness and recovered exact evidence', (
     tester,
   ) async {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
     final pending = _indent(
       id: 73,
       number: 'WARD-73',
@@ -273,7 +420,7 @@ void main() {
       initialDetail: pending,
       refreshedDetail: recoverable,
       mutationResult: completed,
-      inventoryItems: const [
+      inventoryCandidates: const [
         WardIndentInventoryItem(
           id: 501,
           catalogId: 101,
@@ -281,15 +428,16 @@ void main() {
           scheduleClass: 'X',
           isNarcotic: true,
           unitLabel: 'each',
-        ),
-      ],
-      inventoryBatches: [
-        WardIndentInventoryBatch(
-          id: 601,
-          inventoryItemId: 501,
-          batchNumber: 'B-1',
-          remainingQuantity: 10,
-          expiryDate: today,
+          unreservedQuantity: 8,
+          batches: [
+            WardIndentInventoryBatch(
+              id: 601,
+              inventoryItemId: 501,
+              batchNumber: 'B-1',
+              remainingQuantity: 10,
+              unreservedQuantity: 8,
+            ),
+          ],
         ),
       ],
     );
@@ -307,8 +455,6 @@ void main() {
     await tester.tap(action);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Confirm'));
-    await _pumpUntilFound(tester, find.textContaining('B-1'));
-    await tester.tap(find.textContaining('B-1'));
     await _pumpUntilFound(
       tester,
       find.byKey(const Key('ward-indent-witness-employee-id')),
@@ -325,7 +471,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(gateway.witnessRequestCalls, 1);
-    expect(gateway.lastInventoryCatalogId, 101);
+    expect(gateway.inventoryCandidateCalls, 1);
     expect(gateway.witnessApprovalCalls, 1);
     expect(gateway.lastWitnessEmployeeId, 'WIT-2');
     expect(gateway.dispenseCalls, 1);
@@ -382,6 +528,309 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('reserve submits the selected inventory candidate identity', (
+    tester,
+  ) async {
+    final requested = _indent(id: 73, number: 'WARD-73');
+    final gateway = _FakeWardIndentGateway(
+      listRows: [requested],
+      initialDetail: requested,
+      inventoryCandidates: const [
+        WardIndentInventoryItem(
+          id: 991,
+          catalogId: 101,
+          displayName: 'Exact ward stock',
+          isNarcotic: false,
+          unreservedQuantity: 2,
+        ),
+      ],
+    );
+
+    await _pumpWorkbench(
+      tester,
+      gateway: gateway,
+      rawRole: 'PHARMACY_STAFF',
+      initialIndentId: 73,
+    );
+    final action = find.byKey(const Key('ward-indent-action-reserve'));
+    await tester.ensureVisible(action);
+    await tester.tap(action);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Confirm'));
+    await tester.pumpAndSettle();
+
+    expect(gateway.inventoryCandidateCalls, 1);
+    expect(gateway.lastAction, WardIndentAction.reserve);
+    expect(gateway.lastPayload, {
+      'inventory_selections': [
+        {'item_id': 701, 'inventory_item_id': 991},
+      ],
+    });
+  });
+
+  testWidgets(
+    'substitution approval accepts global stock for a facility indent',
+    (tester) async {
+      final pending = _indent(
+        id: 73,
+        number: 'WARD-73',
+        status: 'substitution_pending',
+        ownerRoles: const ['DOCTOR'],
+        substitutionStatus: 'pending',
+        proposedName: 'Composition-safe alternate',
+        proposedCatalogId: 102,
+        proposedQuantity: 2,
+        facilityId: 8,
+      );
+      final gateway = _FakeWardIndentGateway(
+        listRows: [pending],
+        initialDetail: pending,
+        inventoryItems: const [
+          WardIndentInventoryItem(
+            id: 992,
+            catalogId: 102,
+            displayName: 'Proposed stock',
+            isNarcotic: false,
+            unreservedQuantity: 2,
+          ),
+        ],
+      );
+
+      await _pumpWorkbench(
+        tester,
+        gateway: gateway,
+        rawRole: 'DOCTOR',
+        initialIndentId: 73,
+      );
+      final action = find.byKey(
+        const Key('ward-indent-action-approveSubstitution'),
+      );
+      await tester.ensureVisible(action);
+      await tester.tap(action);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+
+      expect(gateway.lastInventoryCatalogId, 102);
+      expect(gateway.lastAction, WardIndentAction.approveSubstitution);
+      expect(gateway.lastPayload, {
+        'inventory_selections': [
+          {'item_id': 701, 'inventory_item_id': 992},
+        ],
+      });
+    },
+  );
+
+  testWidgets('short supply binds available quantity to inventory selection', (
+    tester,
+  ) async {
+    final requested = _indent(id: 73, number: 'WARD-73');
+    final gateway = _FakeWardIndentGateway(
+      listRows: [requested],
+      initialDetail: requested,
+      inventoryCandidates: const [
+        WardIndentInventoryItem(
+          id: 993,
+          catalogId: 101,
+          displayName: 'Partial stock',
+          isNarcotic: false,
+          unreservedQuantity: 1,
+        ),
+      ],
+    );
+
+    await _pumpWorkbench(
+      tester,
+      gateway: gateway,
+      rawRole: 'PHARMACY_STAFF',
+      initialIndentId: 73,
+    );
+    final action = find.byKey(const Key('ward-indent-action-shortSupply'));
+    await tester.ensureVisible(action);
+    await tester.tap(action);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('ward-indent-reason')),
+      'Only one pack is available in ward-linked inventory',
+    );
+    await tester.tap(find.text('Confirm'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('ward-indent-quantity-701')),
+      '1',
+    );
+    await tester.tap(find.text('Confirm'));
+    await tester.pumpAndSettle();
+
+    expect(gateway.lastAction, WardIndentAction.shortSupply);
+    expect(gateway.lastPayload?['item_quantities_available'], [
+      {'item_id': 701, 'quantity_available': 1.0},
+    ]);
+    expect(gateway.lastPayload?['inventory_selections'], [
+      {'item_id': 701, 'inventory_item_id': 993},
+    ]);
+  });
+
+  testWidgets('receipt sends approved substitution acknowledgement', (
+    tester,
+  ) async {
+    final issued = _indent(
+      id: 73,
+      number: 'WARD-73',
+      status: 'issued',
+      version: 5,
+      ownerRoles: const ['NURSING_STAFF'],
+      quantityIssued: 2,
+      substitutionStatus: 'approved',
+      proposedName: 'Approved alternate',
+      proposedCatalogId: 102,
+      proposedQuantity: 2,
+    );
+    final gateway = _FakeWardIndentGateway(
+      listRows: [issued],
+      initialDetail: issued,
+    );
+
+    await _pumpWorkbench(
+      tester,
+      gateway: gateway,
+      rawRole: 'NURSING_STAFF',
+      initialIndentId: 73,
+    );
+    final action = find.byKey(const Key('ward-indent-action-receive'));
+    await tester.ensureVisible(action);
+    await tester.tap(action);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Confirm'));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('ward-indent-substitution-acknowledge')),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.byKey(const Key('ward-indent-substitution-acknowledge')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(gateway.lastAction, WardIndentAction.receive);
+    expect(gateway.lastPayload?['substitution_acknowledgements'], [
+      {'item_id': 701},
+    ]);
+    expect(gateway.lastPayload?['item_quantities_received'], [
+      {'item_id': 701, 'quantity_received': 2.0},
+    ]);
+  });
+
+  testWidgets('return request defaults and caps at unconsumed ward custody', (
+    tester,
+  ) async {
+    final received = _indent(
+      id: 73,
+      number: 'WARD-73',
+      status: 'received',
+      version: 8,
+      ownerRoles: const ['NURSING_STAFF'],
+      quantityIssued: 10,
+      quantityReceived: 10,
+      quantityReturned: 1,
+      quantityConsumed: 4,
+    );
+    final gateway = _FakeWardIndentGateway(
+      listRows: [received],
+      initialDetail: received,
+    );
+
+    await _pumpWorkbench(
+      tester,
+      gateway: gateway,
+      rawRole: 'NURSING_STAFF',
+      initialIndentId: 73,
+    );
+    final action = find.byKey(const Key('ward-indent-action-requestReturn'));
+    await tester.ensureVisible(action);
+    await tester.tap(action);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('ward-indent-reason')),
+      'Returning unused packs after administered doses',
+    );
+    await tester.tap(find.text('Confirm'));
+    await tester.pumpAndSettle();
+
+    final quantityField = find.byKey(const Key('ward-indent-quantity-701'));
+    expect(tester.widget<TextFormField>(quantityField).initialValue, '6');
+    expect(find.text('1 - 6'), findsOneWidget);
+    await tester.tap(find.text('Confirm'));
+    await tester.pumpAndSettle();
+
+    expect(gateway.lastAction, WardIndentAction.requestReturn);
+    expect(gateway.lastPayload?['item_quantities_returned'], [
+      {'item_id': 701, 'quantity_returned': 6.0},
+    ]);
+  });
+
+  testWidgets(
+    'reconciliation creates controlled return evidence and allocation lineage',
+    (tester) async {
+      final pending = _indent(
+        id: 73,
+        number: 'WARD-73',
+        status: 'reconciliation_required',
+        version: 9,
+        ownerRoles: const ['PHARMACY_INCHARGE'],
+        quantityReserved: 2,
+        quantityIssued: 2,
+        quantityReceived: 2,
+        quantityReturnRequested: 2,
+        controlledReference: 'ward-indent:73:item:701',
+      );
+      final gateway = _FakeWardIndentGateway(
+        listRows: [pending],
+        initialDetail: pending,
+      );
+
+      await _pumpWorkbench(
+        tester,
+        gateway: gateway,
+        rawRole: 'PHARMACY_INCHARGE',
+        initialIndentId: 73,
+      );
+      final action = find.byKey(const Key('ward-indent-action-reconcile'));
+      await tester.ensureVisible(action);
+      await tester.tap(action);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('ward-indent-reason')),
+        'Controlled balance returned to pharmacy custody',
+      );
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+
+      expect(gateway.movementCalls, 1);
+      expect(gateway.lastMovement, {
+        'inventory_item_id': 501,
+        'inventory_batch_id': 601,
+        'catalog_id': 101,
+        'movement_kind': 'return',
+        'quantity': 2.0,
+        'reference_type': 'ward_indent_return',
+        'reference_id': 'ward-indent:73:item:701',
+        'patient_uid': '00000000-0000-4000-8000-000000000073',
+        'expected_batch_number': 'B-1',
+        'expected_lot_number': 'L-1',
+        'expected_expiry_date': '2027-08-27',
+        'notes': 'Ward indent WARD-73 return allocation 9001',
+      });
+      expect(gateway.lastAction, WardIndentAction.reconcile);
+      expect(gateway.lastPayload?['allocation_returns'], [
+        {'allocation_id': '9001', 'quantity': 2.0},
+      ]);
+      expect(gateway.lastPayload?['controlled_return_evidence'], [
+        {'item_id': 701, 'movement_id': 811, 'register_id': 911},
+      ]);
+    },
+  );
 
   testWidgets('loads the next server-filtered page with the stable cursor', (
     tester,
@@ -445,6 +894,7 @@ Future<void> _pumpWorkbench(
   required _FakeWardIndentGateway gateway,
   required String rawRole,
   int? initialIndentId,
+  IdempotencyAttemptRegistry? attempts,
 }) async {
   tester.view.physicalSize = const Size(1200, 900);
   tester.view.devicePixelRatio = 1;
@@ -458,6 +908,7 @@ Future<void> _pumpWorkbench(
           role: StaffRole.fromString(rawRole),
           initialIndentId: initialIndentId,
           gateway: gateway,
+          attempts: attempts ?? IdempotencyAttemptRegistry(),
         ),
       ),
     ),
@@ -483,9 +934,17 @@ WardIndent _indent({
   double quantityApproved = 0,
   double quantityIssued = 0,
   double quantityReceived = 0,
+  double quantityReturnRequested = 0,
+  double quantityReturned = 0,
+  double quantityConsumed = 0,
   String? controlledReference,
+  String? substitutionStatus,
+  String? proposedName,
+  int? proposedCatalogId,
+  double? proposedQuantity,
   Map<String, dynamic>? recovery,
   DateTime? requestedAt,
+  int? facilityId,
 }) {
   return WardIndent.fromJson({
     'id': id,
@@ -493,6 +952,7 @@ WardIndent _indent({
     'status': status,
     'state_version': version,
     'patient_uid': '00000000-0000-4000-8000-000000000073',
+    'facility_id': ?facilityId,
     'ward_name': 'Ward A',
     'requested_at': requestedAt?.toIso8601String(),
     'items': [
@@ -505,9 +965,13 @@ WardIndent _indent({
         'quantity_approved': quantityApproved,
         'quantity_issued': quantityIssued,
         'quantity_received': quantityReceived,
-        'quantity_return_requested': 0,
-        'quantity_returned': 0,
+        'quantity_return_requested': quantityReturnRequested,
+        'quantity_returned': quantityReturned,
         'quantity_variance_resolved': 0,
+        'substitution_status': ?substitutionStatus,
+        'proposed_item_name': ?proposedName,
+        'proposed_pharmacy_catalog_id': ?proposedCatalogId,
+        'proposed_quantity': ?proposedQuantity,
         'controlled_reference_id': ?controlledReference,
       },
     ],
@@ -516,6 +980,31 @@ WardIndent _indent({
       'active_slas': const [],
       'events': const [],
       'pending_controlled_handoff_evidence': [?recovery],
+      'medication_closure': {
+        'allocations': [
+          if (quantityReserved > 0 || quantityReceived > 0)
+            {
+              'id': '9001',
+              'ward_indent_id': id,
+              'ward_indent_item_id': 701,
+              'inventory_item_id': 501,
+              'inventory_batch_id': 601,
+              'status': 'reserved',
+              'reserved_quantity': quantityReserved,
+              'issued_quantity': 0,
+              'received_quantity': quantityReceived,
+              'consumed_quantity': quantityConsumed,
+              'returned_quantity': quantityReturned,
+              'custody_available_quantity':
+                  quantityReceived - quantityConsumed - quantityReturned,
+              'batch_number': 'B-1',
+              'lot_number': 'L-1',
+              'expiry_date': '2027-08-27',
+            },
+        ],
+        'movement_lineage': const [],
+        'financial_events': const [],
+      },
     },
   });
 }
@@ -528,8 +1017,17 @@ class _FakeWardIndentGateway implements WardIndentGateway {
     this.refreshedDetail,
     this.mutationResult,
     this.mutateError,
+    this.mutateErrors,
     this.inventoryItems = const [],
-    this.inventoryBatches = const [],
+    this.inventoryCandidates = const [
+      WardIndentInventoryItem(
+        id: 501,
+        catalogId: 101,
+        displayName: 'Test inventory',
+        isNarcotic: false,
+        unreservedQuantity: 100,
+      ),
+    ],
   });
 
   final List<WardIndent> listRows;
@@ -538,8 +1036,9 @@ class _FakeWardIndentGateway implements WardIndentGateway {
   final WardIndent? refreshedDetail;
   final WardIndent? mutationResult;
   final Object? mutateError;
+  final List<Object?>? mutateErrors;
   final List<WardIndentInventoryItem> inventoryItems;
-  final List<WardIndentInventoryBatch> inventoryBatches;
+  final List<WardIndentInventoryItem> inventoryCandidates;
 
   final List<int> getIds = [];
   final List<_ListRequest> listRequests = [];
@@ -548,11 +1047,16 @@ class _FakeWardIndentGateway implements WardIndentGateway {
   int dispenseCalls = 0;
   int witnessRequestCalls = 0;
   int witnessApprovalCalls = 0;
+  int inventoryCandidateCalls = 0;
+  int movementCalls = 0;
   int? lastMutationVersion;
   String? lastIdempotencyKey;
+  final List<String> idempotencyKeys = [];
+  final List<int> mutationVersions = [];
   WardIndentAction? lastAction;
   Map<String, dynamic>? lastPayload;
   Map<String, dynamic>? lastDispense;
+  Map<String, dynamic>? lastMovement;
   String? lastWitnessEmployeeId;
   int? lastInventoryCatalogId;
 
@@ -606,10 +1110,17 @@ class _FakeWardIndentGateway implements WardIndentGateway {
   }) async {
     mutateCalls += 1;
     lastMutationVersion = indent.stateVersion;
+    mutationVersions.add(indent.stateVersion);
     lastIdempotencyKey = idempotencyKey;
+    idempotencyKeys.add(idempotencyKey);
     lastAction = action;
     lastPayload = payload;
-    if (mutateError != null) throw mutateError!;
+    final queuedError =
+        mutateErrors != null && mutateCalls <= mutateErrors!.length
+        ? mutateErrors![mutateCalls - 1]
+        : null;
+    if (queuedError != null) throw queuedError;
+    if (mutateErrors == null && mutateError != null) throw mutateError!;
     return mutationResult ?? indent;
   }
 
@@ -625,7 +1136,16 @@ class _FakeWardIndentGateway implements WardIndentGateway {
   Future<List<WardIndentInventoryBatch>> listInventoryBatches(
     int itemId,
   ) async {
-    return inventoryBatches;
+    return const [];
+  }
+
+  @override
+  Future<List<WardIndentInventoryItem>> listInventoryCandidates(
+    int indentId,
+    int itemId,
+  ) async {
+    inventoryCandidateCalls += 1;
+    return inventoryCandidates;
   }
 
   @override
@@ -671,6 +1191,19 @@ class _FakeWardIndentGateway implements WardIndentGateway {
     return const {
       'movement': {'id': 801},
       'register_entry': {'id': 901},
+    };
+  }
+
+  @override
+  Future<Map<String, dynamic>> recordInventoryMovement({
+    required Map<String, dynamic> movement,
+    required String idempotencyKey,
+  }) async {
+    movementCalls += 1;
+    lastMovement = Map<String, dynamic>.from(movement);
+    return const {
+      'movement': {'id': 811},
+      'register_entry': {'id': 911},
     };
   }
 }

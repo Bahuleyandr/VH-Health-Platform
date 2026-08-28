@@ -7,6 +7,8 @@
 // controlled-dispense register bypass. These tests prove, against a real DB:
 //   - a controlled ISSUE is refused (409) and steered to /controlled-dispense;
 //     stock is untouched and no register row is written;
+//   - generic recall movements are refused for all stock because recall is a
+//     status-only quarantine action and witnessed disposal owns the decrement;
 //   - caller-provided witness text cannot authorize a Schedule X decrement;
 //   - a Schedule X dispose with an independently approved one-time witness
 //     decrements the batch AND writes one
@@ -36,15 +38,18 @@ describeIfDb('recordMovement controlled-stock register guard', () => {
   let otcItemId; let otcBatchId;
 
   async function cleanup() {
-    for (const sql of [
-      `DELETE FROM pharmacy_schedule_register WHERE tenant_id=$1::uuid`,
-      `DELETE FROM pharmacy_stock_movements WHERE tenant_id=$1::uuid`,
-      `DELETE FROM pharmacy_inventory_batches WHERE tenant_id=$1::uuid AND batch_number LIKE 'CMOV-%'`,
-      `DELETE FROM pharmacy_inventory_items WHERE tenant_id=$1::uuid AND sku_code LIKE 'CMOV-%'`,
-      `DELETE FROM approvals WHERE tenant_id=$1::uuid AND subject_resource_type='inventory_controlled_movement'`,
-      `DELETE FROM staff WHERE tenant_id=$1::uuid AND employee_id LIKE 'CMOV-%'`,
-      `DELETE FROM users WHERE tenant_id=$1::uuid AND uid IN ('${ACTOR}'::uuid, '${WITNESS}'::uuid)`,
-    ]) await prisma.$executeRawUnsafe(sql, TENANT).catch(() => {});
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
+      for (const sql of [
+        `DELETE FROM pharmacy_schedule_register WHERE tenant_id=$1::uuid`,
+        `DELETE FROM pharmacy_stock_movements WHERE tenant_id=$1::uuid`,
+        `DELETE FROM pharmacy_inventory_batches WHERE tenant_id=$1::uuid AND batch_number LIKE 'CMOV-%'`,
+        `DELETE FROM pharmacy_inventory_items WHERE tenant_id=$1::uuid AND sku_code LIKE 'CMOV-%'`,
+        `DELETE FROM approvals WHERE tenant_id=$1::uuid AND subject_resource_type='inventory_controlled_movement'`,
+        `DELETE FROM staff WHERE tenant_id=$1::uuid AND employee_id LIKE 'CMOV-%'`,
+        `DELETE FROM users WHERE tenant_id=$1::uuid AND uid IN ('${ACTOR}'::uuid, '${WITNESS}'::uuid)`,
+      ]) await tx.$executeRawUnsafe(sql, TENANT);
+    });
   }
 
   async function seedItem(sku, name, { schedule_class = null, is_narcotic = false }) {
@@ -104,6 +109,13 @@ describeIfDb('recordMovement controlled-stock register guard', () => {
     `SELECT movement_kind, quantity, schedule_class, witness_uid, witness_name FROM pharmacy_schedule_register WHERE tenant_id=$1::uuid AND inventory_item_id=$2 ORDER BY id`,
     TENANT, itemId,
   );
+  const movementRows = async (itemId) => prisma.$queryRawUnsafe(
+    `SELECT movement_kind, quantity_delta
+       FROM pharmacy_stock_movements
+      WHERE tenant_id=$1::uuid AND inventory_item_id=$2::int
+      ORDER BY id`,
+    TENANT, itemId,
+  );
 
   test('controlled ISSUE is refused and steered to /controlled-dispense; stock + register untouched', async () => {
     await expect(recordMovement({
@@ -111,6 +123,34 @@ describeIfDb('recordMovement controlled-stock register guard', () => {
       movement_kind: 'issue', quantity: 10, performed_by: ACTOR,
     })).rejects.toMatchObject({ code: 'CONTROLLED_MOVEMENT_REQUIRES_DISPENSE_PATH' });
     expect(await remaining(xBatchId)).toBe(100);
+    expect(await registerRows(xItemId)).toHaveLength(0);
+  });
+
+  test('generic recall cannot decrement either controlled or non-controlled inventory', async () => {
+    const controlledRecall = {
+      tenantId: TENANT,
+      inventory_item_id: xItemId,
+      inventory_batch_id: xBatchId,
+      movement_kind: 'recall',
+      quantity: 100,
+      performed_by: ACTOR,
+    };
+    await expect(requestControlledMovementWitnessApproval({
+      ...controlledRecall,
+      requested_by: ACTOR,
+    })).rejects.toMatchObject({ code: 'INVENTORY_RECALL_REQUIRES_BATCH_RECALL_PATH' });
+    await expect(recordMovement(controlledRecall))
+      .rejects.toMatchObject({ code: 'INVENTORY_RECALL_REQUIRES_BATCH_RECALL_PATH' });
+    await expect(recordMovement({
+      ...controlledRecall,
+      inventory_item_id: otcItemId,
+      inventory_batch_id: otcBatchId,
+    })).rejects.toMatchObject({ code: 'INVENTORY_RECALL_REQUIRES_BATCH_RECALL_PATH' });
+
+    expect(await remaining(xBatchId)).toBe(100);
+    expect(await remaining(otcBatchId)).toBe(100);
+    expect(await movementRows(xItemId)).toHaveLength(0);
+    expect(await movementRows(otcItemId)).toHaveLength(0);
     expect(await registerRows(xItemId)).toHaveLength(0);
   });
 

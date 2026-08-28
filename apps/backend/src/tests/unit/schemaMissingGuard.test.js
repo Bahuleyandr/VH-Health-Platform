@@ -23,12 +23,18 @@ afterEach(() => {
 
 describe('M3 — schemaMissingGuard', () => {
   describe('extractSqlState', () => {
-    test('reads err.code / meta.code / driverAdapterError originalCode', () => {
+    test('reads err.code / meta.code / nested and direct driver-adapter originalCode', () => {
       expect(extractSqlState({ code: '42P01' })).toBe('42P01');
       expect(extractSqlState({ meta: { code: '42P01' } })).toBe('42P01');
       expect(
         extractSqlState({
           meta: { driverAdapterError: { cause: { originalCode: '42P01' } } },
+        }),
+      ).toBe('42P01');
+      expect(
+        extractSqlState({
+          name: 'DriverAdapterError',
+          cause: { originalCode: '42P01' },
         }),
       ).toBe('42P01');
     });

@@ -3,22 +3,36 @@
 // Covers the pharmacist clinical-verification gate (verify → preparing,
 // blockers → override-with-reason, rejected orders frozen), med-pack
 // barcode + label, the scan-first MAR policy (bare administer 409s,
-// override audited), pack-barcode drug-right matching, and wristband
-// printing.
+// override audited), exact ward-batch identity, and wristband printing.
 
 import request from 'supertest';
 import { createHash } from 'node:crypto';
+import { jest } from '@jest/globals';
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
 import { authClient, API_KEY, generateTestToken } from './testClient.js';
 import { __resetDrugKbCache } from '../services/clinical/drugKnowledgeBaseService.js';
 import { renderWristbandAllergyStrip } from '../routes/clinical/bcmaRoutes.js';
+import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
+import { reconcileMarSupplyOverride } from '../services/clinical/marSupplyService.js';
+import {
+  approveWardIndent,
+  createWardIndent,
+  issueWardIndent,
+  receiveWardIndent,
+  reserveWardIndent,
+} from '../services/ipd/ipdSupportService.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
+jest.setTimeout(60_000);
 
 const PHONE = `+9199907${String(Date.now() % 10000).padStart(5, '0')}`;
 const NURSE_UID = 'b1b1b1b1-1111-4111-8111-b1b1b1b1fd01';
+const DOCTOR_UID = 'b1b1b1b1-1111-4111-8111-b1b1b1b1fd02';
+const PHARMACIST_UID = 'b1b1b1b1-1111-4111-8111-b1b1b1b1fd03';
+const RUN = `${process.pid}-${Date.now()}`;
+const BATCH_BARCODE = `B1-BATCH-${RUN}`;
 // MAR routes sit behind the patient-access guard: the acting staff member
 // must exist in users and hold a care relationship (admission context).
 const nurseClient = () => {
@@ -29,13 +43,271 @@ const nurseClient = () => {
   };
 };
 
+function nursePostWithKey(path, key) {
+  return nurseClient().post(path).set('Idempotency-Key', key);
+}
+
+function doctorPostWithKey(path, key) {
+  const token = generateTestToken('DOCTOR', { uid: DOCTOR_UID });
+  return request(app)
+    .post(path)
+    .set('x-api-key', API_KEY)
+    .set('Authorization', `Bearer ${token}`)
+    .set('Idempotency-Key', key);
+}
+
 let patientId;
 let patientUid;
 let cleanOrderId; // order with benign items
 let riskyOrderId; // order whose items trip a KB contraindication
 let maId; // scheduled MAR row for scan-policy tests
+let clinicalOrderId;
+let wardIndentId;
+let wardIndentItemId;
+let wardIndentStateVersion;
+let catalogId;
+let inventoryItemId;
+let inventoryBatchId;
 
 async function cleanup() {
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+    await tx.$executeRawUnsafe(
+      `DO $cleanup$
+       BEGIN
+         IF to_regclass('public.mar_supply_reconciliation_command_receipts') IS NOT NULL THEN
+           DELETE FROM mar_supply_reconciliation_command_receipts
+            WHERE tenant_id = '${DEFAULT_TENANT_ID}'::uuid
+              AND medication_administration_id IN (
+                SELECT id FROM medication_administrations
+                 WHERE tenant_id = '${DEFAULT_TENANT_ID}'::uuid
+                   AND medication_name LIKE 'B1TEST%'
+              );
+         END IF;
+       END
+      $cleanup$`,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM mar_supply_reconciliation_links
+        WHERE tenant_id = $1::uuid
+          AND unmatched_consumption_id IN (
+            SELECT id FROM mar_supply_consumptions
+             WHERE tenant_id = $1::uuid
+               AND medication_administration_id IN (
+                 SELECT id FROM medication_administrations
+                  WHERE tenant_id = $1::uuid AND medication_name LIKE 'B1TEST%'
+               )
+          )`,
+      DEFAULT_TENANT_ID,
+    ).catch(() => {});
+    await tx.$executeRawUnsafe(
+      `DELETE FROM idempotency_keys
+        WHERE tenant_id = $1::uuid
+          AND user_uid IN ($2::uuid, $3::uuid, $4::uuid)
+          AND request_key LIKE 'b1-mar-%'`,
+      DEFAULT_TENANT_ID,
+      NURSE_UID,
+      DOCTOR_UID,
+      PHARMACIST_UID,
+    ).catch(() => {});
+    for (const table of [
+      'mar_administration_command_receipts',
+      'mar_transition_command_receipts',
+      'mar_supply_consumptions',
+    ]) {
+      await tx.$executeRawUnsafe(
+        `DELETE FROM ${table}
+          WHERE tenant_id = $1::uuid
+            AND medication_administration_id IN (
+              SELECT id FROM medication_administrations
+               WHERE tenant_id = $1::uuid AND medication_name LIKE 'B1TEST%'
+            )`,
+        DEFAULT_TENANT_ID,
+      ).catch(() => {});
+    }
+    await tx.$executeRawUnsafe(
+      `DELETE FROM ward_indent_inventory_receipt_events
+        WHERE tenant_id = $1::uuid
+          AND received_by = $2::uuid
+          AND command_key LIKE '%b1-mar-receive-%'`,
+      DEFAULT_TENANT_ID,
+      NURSE_UID,
+    ).catch(() => {});
+    await tx.$executeRawUnsafe(
+      `DELETE FROM notification_outbox
+        WHERE tenant_id = $1::uuid
+          AND source_event_key LIKE 'mar-supply:%'`,
+      DEFAULT_TENANT_ID,
+    ).catch(() => {});
+    await tx.$executeRawUnsafe(
+      `DELETE FROM workflow_sla_instances
+        WHERE tenant_id = $1::uuid
+          AND id IN (
+            SELECT workflow_sla_instance_id
+              FROM tasks
+             WHERE tenant_id = $1::uuid
+               AND related_resource_type = 'medication_administrations'
+               AND related_resource_id IN (
+                 SELECT id::text FROM medication_administrations
+                  WHERE tenant_id = $1::uuid AND medication_name LIKE 'B1TEST%'
+               )
+          )`,
+      DEFAULT_TENANT_ID,
+    ).catch(() => {});
+    await tx.$executeRawUnsafe(
+      `DELETE FROM tasks
+        WHERE tenant_id = $1::uuid
+          AND related_resource_type = 'medication_administrations'
+          AND related_resource_id IN (
+            SELECT id::text FROM medication_administrations
+             WHERE tenant_id = $1::uuid AND medication_name LIKE 'B1TEST%'
+          )`,
+      DEFAULT_TENANT_ID,
+    ).catch(() => {});
+    await tx.$executeRawUnsafe(
+      `DELETE FROM pharmacy_stock_movements
+        WHERE tenant_id = $1::uuid
+          AND performed_by = $2::uuid
+          AND reference_type = 'ward_indent_allocation'`,
+      DEFAULT_TENANT_ID,
+      PHARMACIST_UID,
+    ).catch(() => {});
+    await tx.$executeRawUnsafe(
+      `DELETE FROM billing_invoice_items
+        WHERE tenant_id = $1::uuid
+          AND id IN (
+            SELECT invoice_item_id
+              FROM ward_indent_financial_events
+             WHERE tenant_id = $1::uuid
+               AND actor_uid = $2::uuid
+               AND invoice_item_id IS NOT NULL
+          )`,
+      DEFAULT_TENANT_ID,
+      PHARMACIST_UID,
+    ).catch(() => {});
+    await tx.$executeRawUnsafe(
+      `DELETE FROM billing_invoices
+        WHERE tenant_id = $1::uuid
+          AND id IN (
+            SELECT invoice_id
+              FROM ward_indent_financial_events
+             WHERE tenant_id = $1::uuid
+               AND actor_uid = $2::uuid
+               AND invoice_id IS NOT NULL
+          )`,
+      DEFAULT_TENANT_ID,
+      PHARMACIST_UID,
+    ).catch(() => {});
+    await tx.$executeRawUnsafe(
+      `DELETE FROM ward_indent_financial_events
+        WHERE tenant_id = $1::uuid AND actor_uid = $2::uuid`,
+      DEFAULT_TENANT_ID,
+      PHARMACIST_UID,
+    ).catch(() => {});
+    await tx.$executeRawUnsafe(
+      `DELETE FROM ward_indent_inventory_movement_links
+        WHERE tenant_id = $1::uuid
+          AND allocation_id IN (
+            SELECT allocation.id
+              FROM ward_indent_inventory_allocations allocation
+              JOIN ward_indent_items item
+                ON item.tenant_id = allocation.tenant_id
+               AND item.id = allocation.ward_indent_item_id
+              JOIN clinical_orders clinical_order
+                ON clinical_order.tenant_id = item.tenant_id
+               AND clinical_order.id = item.clinical_order_id
+             WHERE allocation.tenant_id = $1::uuid
+               AND clinical_order.order_number LIKE 'B1-MAR-%'
+          )`,
+      DEFAULT_TENANT_ID,
+    ).catch(() => {});
+    await tx.$executeRawUnsafe(
+      `DELETE FROM ward_indent_inventory_allocations
+        WHERE tenant_id = $1::uuid
+          AND ward_indent_id IN (
+            SELECT item.ward_indent_id
+              FROM ward_indent_items item
+              JOIN clinical_orders clinical_order
+                ON clinical_order.tenant_id = item.tenant_id
+               AND clinical_order.id = item.clinical_order_id
+             WHERE item.tenant_id = $1::uuid
+               AND clinical_order.order_number LIKE 'B1-MAR-%'
+          )`,
+      DEFAULT_TENANT_ID,
+    ).catch(() => {});
+    await tx.$executeRawUnsafe(
+      `DELETE FROM ward_indent_events
+        WHERE tenant_id = $1::uuid
+          AND ward_indent_id IN (
+            SELECT item.ward_indent_id
+              FROM ward_indent_items item
+              JOIN clinical_orders clinical_order
+                ON clinical_order.tenant_id = item.tenant_id
+               AND clinical_order.id = item.clinical_order_id
+             WHERE item.tenant_id = $1::uuid
+               AND clinical_order.order_number LIKE 'B1-MAR-%'
+          )`,
+      DEFAULT_TENANT_ID,
+    ).catch(() => {});
+    await tx.$executeRawUnsafe(
+      `DELETE FROM ward_indent_items
+        WHERE tenant_id = $1::uuid
+          AND ward_indent_id IN (
+            SELECT item.ward_indent_id
+              FROM ward_indent_items item
+              JOIN clinical_orders clinical_order
+                ON clinical_order.tenant_id = item.tenant_id
+               AND clinical_order.id = item.clinical_order_id
+             WHERE item.tenant_id = $1::uuid
+               AND clinical_order.order_number LIKE 'B1-MAR-%'
+          )`,
+      DEFAULT_TENANT_ID,
+    ).catch(() => {});
+    await tx.$executeRawUnsafe(
+      `DELETE FROM ward_indents
+        WHERE tenant_id = $1::uuid
+          AND id NOT IN (
+            SELECT ward_indent_id FROM ward_indent_items WHERE tenant_id = $1::uuid
+          )
+          AND requested_by = $2::uuid
+          AND ward_id IN (
+            SELECT id FROM wards
+             WHERE tenant_id = $1::uuid AND name LIKE 'B1TEST MAR Ward%'
+          )`,
+      DEFAULT_TENANT_ID,
+      NURSE_UID,
+    ).catch(() => {});
+    await tx.$executeRawUnsafe(
+      `DELETE FROM medication_administrations
+        WHERE tenant_id = $1::uuid AND medication_name LIKE 'B1TEST%'`,
+      DEFAULT_TENANT_ID,
+    ).catch(() => {});
+    await tx.$executeRawUnsafe(
+      `DELETE FROM clinical_orders
+        WHERE tenant_id = $1::uuid AND order_number LIKE 'B1-MAR-%'`,
+      DEFAULT_TENANT_ID,
+    ).catch(() => {});
+    await tx.$executeRawUnsafe(
+      `DELETE FROM pharmacy_inventory_batches
+        WHERE tenant_id = $1::uuid AND batch_number LIKE 'B1-MAR-%'`,
+      DEFAULT_TENANT_ID,
+    ).catch(() => {});
+    await tx.$executeRawUnsafe(
+      `DELETE FROM pharmacy_inventory_items
+        WHERE tenant_id = $1::uuid AND sku_code LIKE 'B1-MAR-%'`,
+      DEFAULT_TENANT_ID,
+    ).catch(() => {});
+    await tx.$executeRawUnsafe(
+      `DELETE FROM pharmacy_catalog
+        WHERE tenant_id = $1::uuid AND name LIKE 'B1TEST MAR Catalog%'`,
+      DEFAULT_TENANT_ID,
+    ).catch(() => {});
+    await tx.$executeRawUnsafe(
+      `DELETE FROM wards
+        WHERE tenant_id = $1::uuid AND name LIKE 'B1TEST MAR Ward%'`,
+      DEFAULT_TENANT_ID,
+    ).catch(() => {});
+  }).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM medication_administrations WHERE medication_name LIKE 'B1TEST%'`,
   ).catch(() => {});
@@ -54,8 +326,44 @@ async function cleanup() {
   await prisma.$executeRawUnsafe(
     `DELETE FROM patient_access_audit_log WHERE patient_uid IN (SELECT uid FROM users WHERE name LIKE 'B1TEST%')`,
   ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM staff WHERE tenant_id = $1::uuid AND user_id IN ($2::uuid, $3::uuid, $4::uuid)`,
+    DEFAULT_TENANT_ID,
+    NURSE_UID,
+    DOCTOR_UID,
+    PHARMACIST_UID,
+  ).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM users WHERE name LIKE 'B1TEST%'`).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, NURSE_UID).catch(() => {});
+  await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, DOCTOR_UID).catch(() => {});
+  await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PHARMACIST_UID).catch(() => {});
+}
+
+async function createMarAdministration({
+  scheduledOffsetHours = 0,
+  status = 'scheduled',
+  dose = '500mg',
+  route = 'oral',
+  supplyQuantity = 1,
+} = {}) {
+  const scheduledAt = new Date(Date.now() + scheduledOffsetHours * 60 * 60 * 1000).toISOString();
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO medication_administrations
+       (tenant_id, patient_uid, medication_name, dose, route, scheduled_time,
+        status, clinical_order_id, supply_quantity_per_dose)
+     VALUES ($1::uuid, $2::uuid, 'B1TEST Paracetamol 500mg', $6::text,
+             $7::text, $3::timestamptz, $4::text, $5::int, $8::numeric)
+     RETURNING id`,
+    DEFAULT_TENANT_ID,
+    patientUid,
+    scheduledAt,
+    status,
+    clinicalOrderId,
+    dose,
+    route,
+    supplyQuantity,
+  );
+  return Number(rows[0].id);
 }
 
 d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
@@ -97,20 +405,175 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
        ON CONFLICT (uid) DO NOTHING`,
       NURSE_UID, `+9199908${String(Date.now() % 10000).padStart(5, '0')}`,
     );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, status, updated_at)
+       VALUES ($1::uuid, $2, 'B1TEST Prescriber', 'DOCTOR', true, 'active', NOW())
+       ON CONFLICT (uid) DO NOTHING`,
+      DOCTOR_UID,
+      `+9199909${String(Date.now() % 10000).padStart(5, '0')}`,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, status, updated_at)
+       VALUES ($1::uuid, $2, 'B1TEST Pharmacist', 'PHARMACY_INCHARGE', true, 'active', NOW())
+       ON CONFLICT (uid) DO NOTHING`,
+      PHARMACIST_UID,
+      `+9199910${String(Date.now() % 10000).padStart(5, '0')}`,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO staff
+         (tenant_id, user_id, employee_id, name, designation, skills,
+          certifications, is_active, archived, created_at, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3::text, 'B1TEST Prescriber', 'Doctor',
+               '{}'::text[], '{}'::text[], TRUE, FALSE, NOW(), NOW())
+       ON CONFLICT DO NOTHING`,
+      DEFAULT_TENANT_ID,
+      DOCTOR_UID,
+      `B1-DOC-${RUN}`,
+    );
 
     // Active admission — gives the MAR access guard an admission-context
     // care relationship for this patient (BCMA is an inpatient loop).
     await prisma.$executeRawUnsafe(
-      `INSERT INTO admissions (patient_uid, allergies, status, admitted_at, ward, bed_number, created_by, created_at, updated_at)
-       VALUES ($1::uuid, '{}', 'admitted', NOW(), 'B1TEST Ward', 'B1T-01', $2::uuid, NOW(), NOW())`,
-      patientUid, NURSE_UID,
+      `INSERT INTO admissions
+         (patient_uid, allergies, status, admitted_at, ward, bed_number,
+          created_by, attending_doctor, created_at, updated_at)
+       VALUES ($1::uuid, '{}', 'admitted', NOW(), 'B1TEST Ward', 'B1T-01',
+               $2::uuid, $3::uuid, NOW(), NOW())`,
+      patientUid, NURSE_UID, DOCTOR_UID,
     );
 
-    const ma = await prisma.$queryRawUnsafe(
-      `INSERT INTO medication_administrations (patient_uid, medication_name, dose, route, scheduled_time, status)
-       VALUES ($1::uuid, 'B1TEST Paracetamol 500mg', '500mg', 'oral', NOW(), 'scheduled')
+    const catalog = (await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_catalog
+         (tenant_id, name, strength, strength_key, form, form_key, route,
+          is_active, is_available, in_stock, stock_quantity, updated_at)
+       VALUES ($1::uuid, $2::text, '500 mg', '500mg', 'tablet', 'tablet',
+               'oral', TRUE, TRUE, TRUE, 50, NOW())
        RETURNING id`,
+      DEFAULT_TENANT_ID,
+      `B1TEST MAR Catalog ${RUN}`,
+    ))[0];
+    catalogId = Number(catalog.id);
+    const inventoryItem = (await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_inventory_items
+         (tenant_id, sku_code, display_name, catalog_id, form, strength,
+          unit_label, schedule_class, is_narcotic, status, metadata)
+       VALUES ($1::uuid, $2::text, 'B1TEST Paracetamol 500mg', $3::int,
+               'tablet', '500 mg', 'tablet', 'OTC', FALSE, 'active', '{}'::jsonb)
+       RETURNING id`,
+      DEFAULT_TENANT_ID,
+      `B1-MAR-SKU-${RUN}`,
+      Number(catalog.id),
+    ))[0];
+    inventoryItemId = Number(inventoryItem.id);
+    const batch = (await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_inventory_batches
+         (tenant_id, inventory_item_id, batch_number, lot_number, expiry_date,
+          received_quantity, remaining_quantity, status, metadata)
+       VALUES ($1::uuid, $2::int, $3::text, $4::text,
+               (CURRENT_DATE + INTERVAL '365 days')::date,
+                20, 20, 'in_stock', jsonb_build_object('barcode', $5::text))
+       RETURNING id`,
+      DEFAULT_TENANT_ID,
+      Number(inventoryItem.id),
+      `B1-MAR-BATCH-${RUN}`,
+      `B1-MAR-LOT-${RUN}`,
+      BATCH_BARCODE,
+    ))[0];
+    inventoryBatchId = Number(batch.id);
+    const ward = (await prisma.$queryRawUnsafe(
+      `INSERT INTO wards (tenant_id, name, total_beds, created_at, updated_at)
+       VALUES ($1::uuid, $2::text, 10, NOW(), NOW())
+       RETURNING id`,
+      DEFAULT_TENANT_ID,
+      `B1TEST MAR Ward ${RUN}`,
+    ))[0];
+    const order = (await prisma.$queryRawUnsafe(
+      `INSERT INTO clinical_orders
+         (tenant_id, order_number, patient_uid, order_type, status, ordered_by,
+          route, details, updated_at)
+       VALUES ($1::uuid, $2::text, $3::uuid, 'medication', 'ordered', $4::uuid,
+               'oral', jsonb_build_object(
+                 'catalog_id', $5::int,
+                 'medication_name', 'B1TEST Paracetamol 500mg',
+                 'dose', '500mg',
+                 'route', 'oral',
+                 'strength', '500 mg',
+                 'strength_key', '500mg',
+                 'form', 'tablet',
+                 'form_key', 'tablet'
+               ), NOW())
+       RETURNING id`,
+      DEFAULT_TENANT_ID,
+      `B1-MAR-ORDER-${RUN}`,
       patientUid,
+      NURSE_UID,
+      Number(catalog.id),
+    ))[0];
+    clinicalOrderId = Number(order.id);
+    const indent = await createWardIndent({
+      wardId: Number(ward.id),
+      patientUid,
+      indentType: 'pharmacy',
+      items: [{
+        pharmacy_catalog_id: Number(catalog.id),
+        clinical_order_id: clinicalOrderId,
+        item_name: 'Caller name is not authoritative',
+        quantity_requested: 20,
+      }],
+      requestedBy: NURSE_UID,
+      commandKey: `b1-mar-create-${RUN}`,
+      tenantId: DEFAULT_TENANT_ID,
+    });
+    wardIndentId = Number(indent.id);
+    const [indentItem] = await prisma.$queryRawUnsafe(
+      `SELECT id FROM ward_indent_items
+        WHERE tenant_id = $1::uuid AND ward_indent_id = $2::int
+        LIMIT 1`,
+      DEFAULT_TENANT_ID,
+      wardIndentId,
+    );
+    wardIndentItemId = Number(indentItem.id);
+    const reserved = await reserveWardIndent({
+      indentId: wardIndentId,
+      reservedBy: PHARMACIST_UID,
+      expectedVersion: indent.state_version,
+      commandKey: `b1-mar-reserve-${RUN}`,
+      tenantId: DEFAULT_TENANT_ID,
+    });
+    const approved = await approveWardIndent({
+      indentId: wardIndentId,
+      approvedBy: PHARMACIST_UID,
+      expectedVersion: reserved.state_version,
+      commandKey: `b1-mar-approve-${RUN}`,
+      tenantId: DEFAULT_TENANT_ID,
+    });
+    const issued = await issueWardIndent({
+      indentId: wardIndentId,
+      issuedBy: PHARMACIST_UID,
+      expectedVersion: approved.state_version,
+      commandKey: `b1-mar-issue-${RUN}`,
+      tenantId: DEFAULT_TENANT_ID,
+    });
+    const received = await receiveWardIndent({
+      indentId: wardIndentId,
+      receivedBy: NURSE_UID,
+      itemQuantitiesReceived: [{ item_id: wardIndentItemId, quantity_received: 5 }],
+      expectedVersion: issued.state_version,
+      commandKey: `b1-mar-receive-${RUN}`,
+      tenantId: DEFAULT_TENANT_ID,
+    });
+    wardIndentStateVersion = received.state_version;
+
+    const ma = await prisma.$queryRawUnsafe(
+      `INSERT INTO medication_administrations
+         (tenant_id, patient_uid, medication_name, dose, route, scheduled_time,
+          status, clinical_order_id, supply_quantity_per_dose)
+       VALUES ($1::uuid, $2::uuid, 'B1TEST Paracetamol 500mg', '500mg',
+               'oral', NOW(), 'scheduled', $3::int, 1)
+       RETURNING id`,
+      DEFAULT_TENANT_ID,
+      patientUid,
+      clinicalOrderId,
     );
     maId = Number(ma[0].id);
   });
@@ -193,11 +656,16 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
   });
 
   test('MAR: bare administer 409s under scan-first policy; override is persisted + audited', async () => {
-    const bare = await nurseClient().post(`/api/v1/clinical/mar/${maId}/administer`).send({});
+    const bare = await nursePostWithKey(
+      `/api/v1/clinical/mar/${maId}/administer`,
+      `b1-mar-bare-${RUN}`,
+    ).send({});
     expect(bare.status).toBe(409);
 
-    const withReason = await nurseClient()
-      .post(`/api/v1/clinical/mar/${maId}/administer`)
+    const withReason = await nursePostWithKey(
+      `/api/v1/clinical/mar/${maId}/administer`,
+      `b1-mar-override-${RUN}`,
+    )
       .send({ override_reason: 'B1TEST scanner battery dead, identity verified verbally' });
     expect(withReason.status).toBe(200);
     expect(withReason.body.data.override_reason).toMatch(/scanner battery dead/);
@@ -218,30 +686,116 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
     expect(reviews[0].override_reason).toMatch(/scanner battery dead/);
   });
 
+  test('MAR supply reconciliation stores and replays one durable whole-command receipt', async () => {
+    const reconciliationMaId = await createMarAdministration({
+      scheduledOffsetHours: 6,
+      supplyQuantity: 5,
+    });
+    const unmatched = await nursePostWithKey(
+      `/api/v1/clinical/mar/${reconciliationMaId}/administer`,
+      `b1-mar-reconcile-source-${RUN}`,
+    ).send({
+      override_reason: 'B1TEST scanner downtime administration documented at bedside',
+      supply_override_reason: 'B1TEST received substitution awaits ward acknowledgement and exact stock reconciliation',
+    });
+    expect(unmatched.status).toBe(200);
+    const received = await receiveWardIndent({
+      indentId: wardIndentId,
+      receivedBy: NURSE_UID,
+      itemQuantitiesReceived: [{ item_id: wardIndentItemId, quantity_received: 20 }],
+      expectedVersion: wardIndentStateVersion,
+      commandKey: `b1-mar-receive-remainder-${RUN}`,
+      tenantId: DEFAULT_TENANT_ID,
+    });
+    wardIndentStateVersion = received.state_version;
+
+    const [consumption] = await prisma.$queryRawUnsafe(
+      `SELECT id
+         FROM mar_supply_consumptions
+        WHERE tenant_id = $1::uuid
+          AND medication_administration_id = $2::int
+          AND evidence_status = 'unmatched_override'
+        LIMIT 1`,
+      DEFAULT_TENANT_ID,
+      reconciliationMaId,
+    );
+    const [allocation] = await prisma.$queryRawUnsafe(
+      `SELECT id
+         FROM ward_indent_inventory_allocations
+        WHERE tenant_id = $1::uuid
+          AND ward_indent_id = $2::int
+        LIMIT 1`,
+      DEFAULT_TENANT_ID,
+      wardIndentId,
+    );
+    expect(consumption).toBeDefined();
+    expect(allocation).toBeDefined();
+
+    const commandKey = `b1-mar-reconcile-${RUN}`;
+    const options = {
+      tenantId: DEFAULT_TENANT_ID,
+      reconciledBy: NURSE_UID,
+      commandKey,
+      expectedMedicationAdministrationId: reconciliationMaId,
+    };
+    const recorded = await reconcileMarSupplyOverride(
+      consumption.id,
+      [
+        { inventory_allocation_id: allocation.id, quantity: 0.25 },
+        { inventory_allocation_id: allocation.id, quantity: 4.75 },
+      ],
+      options,
+    );
+    const replay = await reconcileMarSupplyOverride(
+      consumption.id,
+      [{ inventory_allocation_id: allocation.id, quantity: 5 }],
+      options,
+    );
+    expect(replay).toEqual(recorded);
+
+    const receipts = await prisma.$queryRawUnsafe(
+      `SELECT command_key, request_body_sha256, response_data
+         FROM mar_supply_reconciliation_command_receipts
+        WHERE tenant_id = $1::uuid AND command_key = $2::text`,
+      DEFAULT_TENANT_ID,
+      commandKey,
+    );
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0].request_body_sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(receipts[0].response_data).toEqual(recorded);
+
+    await expect(reconcileMarSupplyOverride(
+      consumption.id,
+      [{ inventory_allocation_id: allocation.id, quantity: 4.5 }],
+      options,
+    )).rejects.toMatchObject({
+      statusCode: 422,
+      code: 'MAR_SUPPLY_RECONCILIATION_COMMAND_MISMATCH',
+    });
+  });
+
   test('C-M1: a soft-right (time) override with scan records one overridden safety review per failed right', async () => {
     // Dose scheduled 3 hours ago — right-time fails (±60 min window); patient
     // and drug scans match, so only the soft right blocks.
-    const late = await prisma.$queryRawUnsafe(
-      `INSERT INTO medication_administrations (patient_uid, medication_name, dose, route, scheduled_time, status)
-       VALUES ($1::uuid, 'B1TEST Paracetamol 500mg', '500mg', 'oral', NOW() - INTERVAL '3 hours', 'scheduled')
-       RETURNING id`,
-      patientUid,
-    );
-    const lateId = Number(late[0].id);
+    const lateId = await createMarAdministration({ scheduledOffsetHours: -3 });
 
-    const noOverride = await nurseClient()
-      .post(`/api/v1/clinical/mar/${lateId}/administer-with-scan`)
+    const noOverride = await nursePostWithKey(
+      `/api/v1/clinical/mar/${lateId}/administer-with-scan`,
+      `b1-mar-late-blocked-${RUN}`,
+    )
       .send({
         scanned_patient_uid: patientUid,
-        scanned_barcode: 'B1TEST Paracetamol 500mg',
+        scanned_barcode: BATCH_BARCODE,
       });
     expect(noOverride.status).toBe(409);
 
-    const overridden = await nurseClient()
-      .post(`/api/v1/clinical/mar/${lateId}/administer-with-scan`)
+    const overridden = await nursePostWithKey(
+      `/api/v1/clinical/mar/${lateId}/administer-with-scan`,
+      `b1-mar-late-override-${RUN}`,
+    )
       .send({
         scanned_patient_uid: patientUid,
-        scanned_barcode: 'B1TEST Paracetamol 500mg',
+        scanned_barcode: BATCH_BARCODE,
         override_reason: 'B1TEST dose delayed in theatre recovery, charge nurse approved late administration',
       });
     expect(overridden.status).toBe(200);
@@ -264,19 +818,15 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
   });
 
   test('C-M1: a clean all-rights-passed scan administration records no safety review', async () => {
-    const clean = await prisma.$queryRawUnsafe(
-      `INSERT INTO medication_administrations (patient_uid, medication_name, dose, route, scheduled_time, status)
-       VALUES ($1::uuid, 'B1TEST Paracetamol 500mg', '500mg', 'oral', NOW(), 'scheduled')
-       RETURNING id`,
-      patientUid,
-    );
-    const cleanMaId = Number(clean[0].id);
+    const cleanMaId = await createMarAdministration();
 
-    const res = await nurseClient()
-      .post(`/api/v1/clinical/mar/${cleanMaId}/administer-with-scan`)
+    const res = await nursePostWithKey(
+      `/api/v1/clinical/mar/${cleanMaId}/administer-with-scan`,
+      `b1-mar-clean-${RUN}`,
+    )
       .send({
         scanned_patient_uid: patientUid,
-        scanned_barcode: 'B1TEST Paracetamol 500mg',
+        scanned_barcode: BATCH_BARCODE,
       });
     expect(res.status).toBe(200);
 
@@ -291,21 +841,17 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
 
   test('B4.2: a mismatched patient scan is a NON-overridable hard-stop (audit F-H1)', async () => {
     // Fresh scheduled row for this patient.
-    const ma3 = await prisma.$queryRawUnsafe(
-      `INSERT INTO medication_administrations (patient_uid, medication_name, dose, route, scheduled_time, status)
-       VALUES ($1::uuid, 'B1TEST Paracetamol 500mg', '500mg', 'oral', NOW(), 'scheduled')
-       RETURNING id`,
-      patientUid,
-    );
-    const scanMaId = Number(ma3[0].id);
+    const scanMaId = await createMarAdministration();
 
     // Mismatched wristband UID (NURSE_UID is a real user but not this MA's
     // patient) with no override → wrong-patient hard-stop, 409 MAR_PATIENT_MISMATCH.
-    const mismatch = await nurseClient()
-      .post(`/api/v1/clinical/mar/${scanMaId}/administer-with-scan`)
+    const mismatch = await nursePostWithKey(
+      `/api/v1/clinical/mar/${scanMaId}/administer-with-scan`,
+      `b1-mar-patient-mismatch-${RUN}`,
+    )
       .send({
         scanned_patient_uid: NURSE_UID,
-        scanned_barcode: 'B1TEST Paracetamol 500mg',
+        scanned_barcode: BATCH_BARCODE,
       });
     expect(mismatch.status).toBe(409);
     expect(mismatch.body.code).toBe('MAR_PATIENT_MISMATCH');
@@ -313,11 +859,13 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
     // The canonical BCMA never-event: the SAME wrong-patient scan WITH a
     // documented override must STILL be refused — wrong-patient is not a
     // justify-and-proceed. The order must remain unadministered.
-    const overridden = await nurseClient()
-      .post(`/api/v1/clinical/mar/${scanMaId}/administer-with-scan`)
+    const overridden = await nursePostWithKey(
+      `/api/v1/clinical/mar/${scanMaId}/administer-with-scan`,
+      `b1-mar-patient-mismatch-override-${RUN}`,
+    )
       .send({
         scanned_patient_uid: NURSE_UID,
-        scanned_barcode: 'B1TEST Paracetamol 500mg',
+        scanned_barcode: BATCH_BARCODE,
         override_reason: 'B1TEST wristband unreadable; identity confirmed verbally + ID band',
       });
     expect(overridden.status).toBe(409);
@@ -331,28 +879,489 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
     expect(after[0].status).toBe('scheduled');
   });
 
-  test('5-rights drug-right passes via med-pack barcode for the right patient', async () => {
-    // Fresh scheduled row + the pack barcode of the verified order.
-    const ma2 = await prisma.$queryRawUnsafe(
-      `INSERT INTO medication_administrations (patient_uid, medication_name, dose, route, scheduled_time, status)
-       VALUES ($1::uuid, 'B1TEST Paracetamol 500mg', '500mg', 'oral', NOW(), 'scheduled')
-       RETURNING id`,
-      patientUid,
+  test('held dose stays blocked until a prescriber releases it; release replay is exact and changed body conflicts', async () => {
+    const heldMaId = await createMarAdministration();
+    const held = await nursePostWithKey(
+      `/api/v1/clinical/mar/${heldMaId}/hold`,
+      `b1-mar-hold-${RUN}`,
+    ).send({ reason: 'B1TEST awaiting prescriber review after blood-pressure change' });
+    expect(held.status).toBe(200);
+    expect(held.body.data).toMatchObject({
+      id: heldMaId,
+      status: 'held',
+      held_by: NURSE_UID,
+    });
+
+    const blocked = await nursePostWithKey(
+      `/api/v1/clinical/mar/${heldMaId}/administer-with-scan`,
+      `b1-mar-held-blocked-${RUN}`,
+    ).send({
+      scanned_patient_uid: patientUid,
+      scanned_barcode: BATCH_BARCODE,
+      override_reason: 'B1TEST bedside staff cannot override a prescriber hold',
+    });
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.code).toBe('MAR_HOLD_RELEASE_REQUIRED');
+
+    const releaseKey = `b1-mar-release-hold-${RUN}`;
+    const releaseBody = {
+      reason: 'B1TEST prescriber reviewed observations and approved this scheduled dose',
+    };
+    const released = await doctorPostWithKey(
+      `/api/v1/clinical/mar/${heldMaId}/release-hold`,
+      releaseKey,
+    ).send(releaseBody);
+    expect(released.status).toBe(200);
+    expect(released.body.data).toMatchObject({
+      id: heldMaId,
+      status: 'scheduled',
+      hold_reason: 'B1TEST awaiting prescriber review after blood-pressure change',
+      held_by: NURSE_UID,
+    });
+
+    const replay = await doctorPostWithKey(
+      `/api/v1/clinical/mar/${heldMaId}/release-hold`,
+      releaseKey,
+    ).send(releaseBody);
+    expect(replay.status).toBe(200);
+    expect(replay.body).toEqual(released.body);
+
+    const changedBody = await doctorPostWithKey(
+      `/api/v1/clinical/mar/${heldMaId}/release-hold`,
+      releaseKey,
+    ).send({ reason: 'B1TEST a different prescriber release rationale' });
+    expect(changedBody.status).toBe(422);
+
+    const events = await prisma.$queryRawUnsafe(
+      `SELECT event_type, payload
+         FROM clinical_timeline_events
+        WHERE tenant_id = $1::uuid
+          AND source_table = 'medication_administrations'
+          AND source_id = $2::text
+          AND event_type = 'mar.hold_released'`,
+      DEFAULT_TENANT_ID,
+      String(heldMaId),
     );
+    expect(events).toHaveLength(1);
+    expect(events[0].payload).toMatchObject({
+      release_reason: releaseBody.reason,
+      held_reason: 'B1TEST awaiting prescriber review after blood-pressure change',
+    });
+  });
+
+  test('5-rights rejects product-pack evidence and accepts the exact eligible ward batch', async () => {
+    const verifyMaId = await createMarAdministration();
     const labelRes = await authClient('PHARMACY_STAFF').get(`/api/v1/pharmacy/orders/${cleanOrderId}/pack-label`);
     const packBarcode = labelRes.body.data.pack_barcode;
 
-    const verify = await nurseClient()
+    const productOnly = await nurseClient()
       .post('/api/v1/clinical/mar/verify')
       .send({
-        ma_id: Number(ma2[0].id),
+        ma_id: verifyMaId,
         scanned_patient_uid: patientUid,
         scanned_barcode: packBarcode,
       });
+    expect(productOnly.status).toBe(200);
+    expect(productOnly.body.data.rights.drug).toBe(false);
+    expect(productOnly.body.data.context.identityFailure).toBe('authoritative_batch_barcode_mismatch');
+
+    const exactBatch = await nurseClient()
+      .post('/api/v1/clinical/mar/verify')
+      .send({
+        ma_id: verifyMaId,
+        scanned_patient_uid: patientUid,
+        scanned_barcode: BATCH_BARCODE,
+      });
+    expect(exactBatch.status).toBe(200);
+    expect(exactBatch.body.data.rights).toMatchObject({
+      patient: true,
+      drug: true,
+      dose: true,
+      route: true,
+    });
+    expect(exactBatch.body.data.context.drugMatchMode).toBe('inventory_batch_barcode');
+  });
+
+  test('last-unit issue keeps a depleted central batch administerable from received ward custody', async () => {
+    const batch = (await prisma.$queryRawUnsafe(
+      `SELECT status, remaining_quantity
+         FROM pharmacy_inventory_batches
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      DEFAULT_TENANT_ID,
+      inventoryBatchId,
+    ))[0];
+    expect(batch.status).toBe('depleted');
+    expect(Number(batch.remaining_quantity)).toBe(0);
+
+    const allocation = (await prisma.$queryRawUnsafe(
+      `SELECT id, received_quantity, consumed_quantity, returned_quantity
+         FROM ward_indent_inventory_allocations
+        WHERE tenant_id = $1::uuid
+          AND ward_indent_item_id = $2::int
+          AND inventory_batch_id = $3::int`,
+      DEFAULT_TENANT_ID,
+      wardIndentItemId,
+      inventoryBatchId,
+    ))[0];
+    expect(Number(allocation.received_quantity)
+      - Number(allocation.consumed_quantity)
+      - Number(allocation.returned_quantity)).toBeGreaterThan(0);
+
+    const depletedMaId = await createMarAdministration();
+    const verify = await nurseClient()
+      .post('/api/v1/clinical/mar/verify')
+      .send({
+        ma_id: depletedMaId,
+        scanned_patient_uid: patientUid,
+        scanned_barcode: BATCH_BARCODE,
+      });
     expect(verify.status).toBe(200);
-    expect(verify.body.data.rights.drug).toBe(true);
-    expect(verify.body.data.rights.patient).toBe(true);
-    expect(verify.body.data.context.drugMatchMode).toBe('pack_barcode');
+    expect(verify.body.data.rights).toMatchObject({
+      patient: true,
+      drug: true,
+      dose: true,
+      route: true,
+    });
+    expect(verify.body.data.context).toMatchObject({
+      batchStatus: 'depleted',
+      identityFailure: null,
+    });
+
+    const administered = await nursePostWithKey(
+      `/api/v1/clinical/mar/${depletedMaId}/administer-with-scan`,
+      `b1-mar-depleted-ward-custody-${RUN}`,
+    ).send({
+      scanned_patient_uid: patientUid,
+      scanned_barcode: BATCH_BARCODE,
+    });
+    expect(administered.status).toBe(200);
+    expect(administered.body.data).toMatchObject({
+      id: depletedMaId,
+      status: 'administered',
+    });
+    const consumptions = await prisma.$queryRawUnsafe(
+      `SELECT inventory_allocation_id, inventory_batch_id, ward_indent_item_id, quantity
+         FROM mar_supply_consumptions
+        WHERE tenant_id = $1::uuid
+          AND medication_administration_id = $2::bigint`,
+      DEFAULT_TENANT_ID,
+      depletedMaId,
+    );
+    expect(consumptions).toHaveLength(1);
+    expect(Number(consumptions[0].inventory_allocation_id)).toBe(Number(allocation.id));
+    expect(consumptions[0].inventory_batch_id).toBe(inventoryBatchId);
+    expect(consumptions[0].ward_indent_item_id).toBe(wardIndentItemId);
+    expect(Number(consumptions[0].quantity)).toBe(1);
+  });
+
+  test('structured strength, form, dose, and route evidence must agree exactly', async () => {
+    const originalDetails = (await prisma.$queryRawUnsafe(
+      `SELECT details
+         FROM clinical_orders
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      DEFAULT_TENANT_ID,
+      clinicalOrderId,
+    ))[0].details;
+    const verify = (maId) => nurseClient()
+      .post('/api/v1/clinical/mar/verify')
+      .send({
+        ma_id: maId,
+        scanned_patient_uid: patientUid,
+        scanned_barcode: BATCH_BARCODE,
+      });
+
+    try {
+      const identityMaId = await createMarAdministration();
+      await prisma.$executeRawUnsafe(
+        `UPDATE clinical_orders
+            SET details = jsonb_set(details, '{strength_key}', '"250mg"'::jsonb),
+                updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND id = $2::int`,
+        DEFAULT_TENANT_ID,
+        clinicalOrderId,
+      );
+      const strengthMismatch = await verify(identityMaId);
+      expect(strengthMismatch.body.data.rights.drug).toBe(false);
+      expect(strengthMismatch.body.data.context.identityFailure)
+        .toBe('strength_evidence_mismatch_or_missing');
+
+      await prisma.$executeRawUnsafe(
+        `UPDATE clinical_orders
+            SET details = jsonb_set(
+              jsonb_set($3::jsonb, '{strength}', '"1.0 mg"'::jsonb),
+              '{strength_key}', '"1.0mg"'::jsonb
+            ), updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND id = $2::int`,
+        DEFAULT_TENANT_ID,
+        clinicalOrderId,
+        JSON.stringify(originalDetails),
+      );
+      await prisma.$executeRawUnsafe(
+        `UPDATE pharmacy_catalog
+            SET strength = '10 mg', strength_key = '10mg', updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND id = $2::int`,
+        DEFAULT_TENANT_ID,
+        catalogId,
+      );
+      await prisma.$executeRawUnsafe(
+        `UPDATE pharmacy_inventory_items
+            SET strength = '10 mg', updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND id = $2::int`,
+        DEFAULT_TENANT_ID,
+        inventoryItemId,
+      );
+      const decimalCollision = await verify(identityMaId);
+      expect(decimalCollision.body.data.rights.drug).toBe(false);
+      expect(decimalCollision.body.data.context.identityFailure)
+        .toBe('strength_evidence_mismatch_or_missing');
+
+      await prisma.$executeRawUnsafe(
+        `UPDATE clinical_orders
+            SET details = jsonb_set($3::jsonb, '{form_key}', '"liquid"'::jsonb),
+                updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND id = $2::int`,
+        DEFAULT_TENANT_ID,
+        clinicalOrderId,
+        JSON.stringify(originalDetails),
+      );
+      await prisma.$executeRawUnsafe(
+        `UPDATE pharmacy_catalog
+            SET strength = '500 mg', strength_key = '500mg', updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND id = $2::int`,
+        DEFAULT_TENANT_ID,
+        catalogId,
+      );
+      await prisma.$executeRawUnsafe(
+        `UPDATE pharmacy_inventory_items
+            SET strength = '500 mg', updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND id = $2::int`,
+        DEFAULT_TENANT_ID,
+        inventoryItemId,
+      );
+      const formMismatch = await verify(identityMaId);
+      expect(formMismatch.body.data.rights.drug).toBe(false);
+      expect(formMismatch.body.data.context.identityFailure)
+        .toBe('form_evidence_mismatch_or_missing');
+
+      await prisma.$executeRawUnsafe(
+        `UPDATE clinical_orders
+            SET details = $3::jsonb, updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND id = $2::int`,
+        DEFAULT_TENANT_ID,
+        clinicalOrderId,
+        JSON.stringify(originalDetails),
+      );
+      const doseMismatch = await verify(await createMarAdministration({ dose: '250mg' }));
+      expect(doseMismatch.body.data.rights).toMatchObject({ drug: true, dose: false });
+
+      const routeMismatch = await verify(await createMarAdministration({ route: 'iv' }));
+      expect(routeMismatch.body.data.rights).toMatchObject({ drug: true, route: false });
+
+      await prisma.$executeRawUnsafe(
+        `UPDATE pharmacy_catalog
+            SET route = NULL, updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND id = $2::int`,
+        DEFAULT_TENANT_ID,
+        catalogId,
+      );
+      const missingRouteMaId = await createMarAdministration();
+      const missingRoute = await verify(missingRouteMaId);
+      expect(missingRoute.body.data.rights).toMatchObject({ drug: true, route: false });
+      const missingRouteOverride = await nursePostWithKey(
+        `/api/v1/clinical/mar/${missingRouteMaId}/administer-with-scan`,
+        `b1-mar-route-evidence-blocked-${RUN}`,
+      ).send({
+        scanned_patient_uid: patientUid,
+        scanned_barcode: BATCH_BARCODE,
+        override_reason: 'B1TEST missing catalog route cannot be overridden at bedside',
+      });
+      expect(missingRouteOverride.status).toBe(409);
+      expect(missingRouteOverride.body.code).toBe('MAR_ROUTE_MISMATCH');
+
+      await prisma.$executeRawUnsafe(
+        `UPDATE pharmacy_catalog
+            SET route = 'oral', updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND id = $2::int`,
+        DEFAULT_TENANT_ID,
+        catalogId,
+      );
+      const doseHardStopMaId = await createMarAdministration({ dose: '250mg' });
+      const doseOverride = await nursePostWithKey(
+        `/api/v1/clinical/mar/${doseHardStopMaId}/administer-with-scan`,
+        `b1-mar-dose-mismatch-blocked-${RUN}`,
+      ).send({
+        scanned_patient_uid: patientUid,
+        scanned_barcode: BATCH_BARCODE,
+        override_reason: 'B1TEST dose mismatch cannot be overridden at bedside',
+      });
+      expect(doseOverride.status).toBe(409);
+      expect(doseOverride.body.code).toBe('MAR_DOSE_MISMATCH');
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `UPDATE clinical_orders
+            SET details = $3::jsonb, updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND id = $2::int`,
+        DEFAULT_TENANT_ID,
+        clinicalOrderId,
+        JSON.stringify(originalDetails),
+      );
+      await prisma.$executeRawUnsafe(
+        `UPDATE pharmacy_catalog
+            SET strength = '500 mg', strength_key = '500mg', form = 'tablet',
+                form_key = 'tablet', route = 'oral', updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND id = $2::int`,
+        DEFAULT_TENANT_ID,
+        catalogId,
+      );
+      await prisma.$executeRawUnsafe(
+        `UPDATE pharmacy_inventory_items
+            SET strength = '500 mg', form = 'tablet', updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND id = $2::int`,
+        DEFAULT_TENANT_ID,
+        inventoryItemId,
+      );
+    }
+  });
+
+  test('recalled, quarantined, and expired exact batches fail closed even with an override', async () => {
+    const unsafeMaId = await createMarAdministration();
+    const verifyUnsafe = () => nurseClient()
+      .post('/api/v1/clinical/mar/verify')
+      .send({
+        ma_id: unsafeMaId,
+        scanned_patient_uid: patientUid,
+        scanned_barcode: BATCH_BARCODE,
+      });
+
+    for (const status of ['quarantined', 'recalled']) {
+      await prisma.$executeRawUnsafe(
+        `UPDATE pharmacy_inventory_batches
+            SET status = $3::text, updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND id = $2::int`,
+        DEFAULT_TENANT_ID,
+        inventoryBatchId,
+        status,
+      );
+      const result = await verifyUnsafe();
+      expect(result.status).toBe(200);
+      expect(result.body.data.rights.drug).toBe(false);
+      expect(result.body.data.context.identityFailure).toBe(`batch_${status}`);
+      const blocked = await nursePostWithKey(
+        `/api/v1/clinical/mar/${unsafeMaId}/administer-with-scan`,
+        `b1-mar-${status}-blocked-${RUN}`,
+      ).send({
+        scanned_patient_uid: patientUid,
+        scanned_barcode: BATCH_BARCODE,
+        override_reason: `B1TEST a ${status} batch can never be overridden`,
+      });
+      expect(blocked.status).toBe(409);
+      expect(blocked.body.code).toBe('MAR_BATCH_UNAVAILABLE');
+    }
+
+    await prisma.$executeRawUnsafe(
+      `UPDATE pharmacy_inventory_batches
+          SET status = 'depleted', expiry_date = (CURRENT_DATE - INTERVAL '1 day')::date,
+              updated_at = NOW()
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      DEFAULT_TENANT_ID,
+      inventoryBatchId,
+    );
+    const expired = await verifyUnsafe();
+    expect(expired.status).toBe(200);
+    expect(expired.body.data.rights.drug).toBe(false);
+    expect(expired.body.data.context.identityFailure).toBe('batch_expired');
+    const expiredBlocked = await nursePostWithKey(
+      `/api/v1/clinical/mar/${unsafeMaId}/administer-with-scan`,
+      `b1-mar-expired-blocked-${RUN}`,
+    ).send({
+      scanned_patient_uid: patientUid,
+      scanned_barcode: BATCH_BARCODE,
+      override_reason: 'B1TEST an expired batch can never be overridden',
+    });
+    expect(expiredBlocked.status).toBe(409);
+    expect(expiredBlocked.body.code).toBe('MAR_BATCH_UNAVAILABLE');
+
+    const [unchangedAdministration, consumptionCount] = await Promise.all([
+      prisma.$queryRawUnsafe(
+        `SELECT status
+           FROM medication_administrations
+          WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+        DEFAULT_TENANT_ID,
+        unsafeMaId,
+      ),
+      prisma.$queryRawUnsafe(
+        `SELECT COUNT(*)::int AS count
+           FROM mar_supply_consumptions
+          WHERE tenant_id = $1::uuid
+            AND medication_administration_id = $2::bigint`,
+        DEFAULT_TENANT_ID,
+        unsafeMaId,
+      ),
+    ]);
+    expect(unchangedAdministration[0].status).toBe('scheduled');
+    expect(Number(consumptionCount[0].count)).toBe(0);
+
+    await prisma.$executeRawUnsafe(
+      `UPDATE pharmacy_inventory_batches
+          SET status = 'depleted', expiry_date = (CURRENT_DATE + INTERVAL '365 days')::date,
+              updated_at = NOW()
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      DEFAULT_TENANT_ID,
+      inventoryBatchId,
+    );
+  });
+
+  test('Schedule X bedside administration requires an independent active clinical witness', async () => {
+    await prisma.$executeRawUnsafe(
+      `UPDATE pharmacy_inventory_items
+          SET schedule_class = 'X', is_narcotic = TRUE, updated_at = NOW()
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      DEFAULT_TENANT_ID,
+      inventoryItemId,
+    );
+    const controlledMaId = await createMarAdministration();
+    const body = {
+      scanned_patient_uid: patientUid,
+      scanned_barcode: BATCH_BARCODE,
+    };
+
+    const missing = await nursePostWithKey(
+      `/api/v1/clinical/mar/${controlledMaId}/administer-with-scan`,
+      `b1-mar-controlled-missing-${RUN}`,
+    ).send(body);
+    expect(missing.status).toBe(409);
+    expect(missing.body.code).toBe('MAR_CONTROLLED_WITNESS_REQUIRED');
+
+    const selfWitness = await nursePostWithKey(
+      `/api/v1/clinical/mar/${controlledMaId}/administer-with-scan`,
+      `b1-mar-controlled-self-${RUN}`,
+    ).send({ ...body, witness_uid: NURSE_UID });
+    expect(selfWitness.status).toBe(409);
+    expect(selfWitness.body.code).toBe('MAR_CONTROLLED_WITNESS_SEPARATION_REQUIRED');
+
+    const unauthorized = await nursePostWithKey(
+      `/api/v1/clinical/mar/${controlledMaId}/administer-with-scan`,
+      `b1-mar-controlled-unauthorized-${RUN}`,
+    ).send({ ...body, witness_uid: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
+    expect(unauthorized.status).toBe(409);
+    expect(unauthorized.body.code).toBe('MAR_CONTROLLED_WITNESS_NOT_AUTHORIZED');
+
+    const witnessed = await nursePostWithKey(
+      `/api/v1/clinical/mar/${controlledMaId}/administer-with-scan`,
+      `b1-mar-controlled-witnessed-${RUN}`,
+    ).send({ ...body, witness_uid: DOCTOR_UID });
+    expect(witnessed.status).toBe(200);
+    expect(witnessed.body.data).toMatchObject({
+      id: controlledMaId,
+      status: 'administered',
+      witness_uid: DOCTOR_UID,
+      supply_state: {
+        controlled_witness: {
+          uid: DOCTOR_UID,
+          role: 'DOCTOR',
+        },
+      },
+    });
   });
 
   test('wristband JSON + printable HTML with Code 39 of the patient UID', async () => {

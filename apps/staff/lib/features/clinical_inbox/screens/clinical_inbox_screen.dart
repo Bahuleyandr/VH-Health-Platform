@@ -1,10 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 
 import '../../../core/models/care_pathway_work_models.dart';
+import '../../../core/config/api_config.dart';
+import '../../../core/navigation/staff_route_policy.dart';
 import '../../../core/providers/clinical_inbox_provider.dart';
 import '../../../core/services/care_pathway_api_service.dart';
 import '../../../core/services/clinical_inbox_api_service.dart';
@@ -22,6 +25,8 @@ class ClinicalInboxScreen extends StatefulWidget {
 class _ClinicalInboxScreenState extends State<ClinicalInboxScreen> {
   Timer? _minuteTimer;
   final Set<String> _acceptingTransfers = {};
+  String _staffRole = '';
+  bool _canOpenAlertRecovery = false;
 
   @override
   void initState() {
@@ -30,11 +35,29 @@ class _ClinicalInboxScreenState extends State<ClinicalInboxScreen> {
       if (!mounted) return;
       unawaited(context.read<ClinicalInboxProvider>().refresh());
     });
+    unawaited(_loadStaffRole());
     _minuteTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       if (!mounted) return;
       setState(() {});
       unawaited(context.read<ClinicalInboxProvider>().refresh());
     });
+  }
+
+  Future<void> _loadStaffRole() async {
+    final role = (await ApiConfig.getRole()).trim().toUpperCase();
+    if (!mounted) return;
+    setState(() {
+      _staffRole = role;
+      _canOpenAlertRecovery = role == 'ADMIN' || role == 'SUPER_ADMIN';
+    });
+  }
+
+  String? _taskWorkflowRoute(ClinicalInboxTask task) {
+    if (!task.needsRoutedDomainEvidence) return null;
+    final candidate = task.isCounterSaleVoidRefund
+        ? task.counterSaleVoidRouteForRole(_staffRole)
+        : task.domainEvidenceRoute;
+    return StaffRoutePolicy.sanitizeExternalRoute(candidate);
   }
 
   @override
@@ -55,6 +78,12 @@ class _ClinicalInboxScreenState extends State<ClinicalInboxScreen> {
       appBar: AppBar(
         title: Text(strings.clinicalInboxTitle),
         actions: [
+          if (_canOpenAlertRecovery)
+            IconButton(
+              tooltip: strings.lookup('clinical_inbox.open_workflow'),
+              icon: const Icon(Icons.notification_important_outlined),
+              onPressed: () => context.push('/clinical-inbox/recovery'),
+            ),
           IconButton(
             tooltip: strings.actionRefresh,
             icon: provider.isRefreshing
@@ -109,6 +138,8 @@ class _ClinicalInboxScreenState extends State<ClinicalInboxScreen> {
                       onReview: () => _beginDiagnosticReview(context, task),
                       onAcceptTransfer: () =>
                           _acceptInpatientTransfer(context, task),
+                      onOpenWorkflow: () => _openTaskWorkflow(context, task),
+                      canOpenRoutedWorkflow: _taskWorkflowRoute(task) != null,
                     ),
                   ),
               ],
@@ -132,6 +163,68 @@ class _ClinicalInboxScreenState extends State<ClinicalInboxScreen> {
         SnackBar(content: Text(strings.clinicalInboxAckFailed('$e'))),
       );
     }
+  }
+
+  Future<void> _openTaskWorkflow(
+    BuildContext context,
+    ClinicalInboxTask task,
+  ) async {
+    final inboxProvider = context.read<ClinicalInboxProvider>();
+    var currentTask = inboxProvider.tasks.firstWhere(
+      (candidate) => candidate.id == task.id,
+      orElse: () => task,
+    );
+    if (currentTask.isMarMedicationException && currentTask.isRoleOwned) {
+      try {
+        currentTask = await inboxProvider.claimMarMedicationException(
+          currentTask,
+        );
+      } catch (error) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              AppStrings.of(context)
+                  .clinicalInboxActionFailed(error.toString()),
+            ),
+          ),
+        );
+        return;
+      }
+    } else if (currentTask.isClinicalAlertDeliveryRecovery &&
+        currentTask.isRoleOwned) {
+      final role = (await ApiConfig.getRole()).trim().toUpperCase();
+      if (role == 'ADMIN') {
+        try {
+          currentTask = await inboxProvider.claimForReview(currentTask.id);
+        } catch (error) {
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                AppStrings.of(context)
+                    .clinicalInboxActionFailed(error.toString()),
+              ),
+            ),
+          );
+          return;
+        }
+      }
+    }
+    if (!context.mounted) return;
+    final route = _taskWorkflowRoute(currentTask);
+    if (route == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            AppStrings.of(context)
+                .lookup('clinical_inbox.workflow_link_unavailable'),
+          ),
+        ),
+      );
+      return;
+    }
+    await context.push<void>(route);
   }
 
   Future<void> _beginDiagnosticReview(
@@ -360,6 +453,7 @@ class _ClinicalInboxScreenState extends State<ClinicalInboxScreen> {
         task: task,
         acceptingTransfer: _acceptingTransfers.contains(task.id),
         isOnline: ConnectivitySyncService.instance.isOnline,
+        canOpenRoutedWorkflow: _taskWorkflowRoute(task) != null,
         onAcknowledge: () => _acknowledge(context, task),
         onReview: () {
           Navigator.pop(sheetContext);
@@ -368,6 +462,10 @@ class _ClinicalInboxScreenState extends State<ClinicalInboxScreen> {
         onAcceptTransfer: () {
           Navigator.pop(sheetContext);
           unawaited(_acceptInpatientTransfer(context, task));
+        },
+        onOpenWorkflow: () {
+          Navigator.pop(sheetContext);
+          unawaited(_openTaskWorkflow(context, task));
         },
       ),
     );
@@ -381,8 +479,10 @@ class _ClinicalInboxTaskCard extends StatelessWidget {
   final VoidCallback onAcknowledge;
   final VoidCallback onReview;
   final VoidCallback onAcceptTransfer;
+  final VoidCallback onOpenWorkflow;
   final bool acceptingTransfer;
   final bool isOnline;
+  final bool canOpenRoutedWorkflow;
 
   const _ClinicalInboxTaskCard({
     required this.task,
@@ -391,8 +491,10 @@ class _ClinicalInboxTaskCard extends StatelessWidget {
     required this.onAcknowledge,
     required this.onReview,
     required this.onAcceptTransfer,
+    required this.onOpenWorkflow,
     required this.acceptingTransfer,
     required this.isOnline,
+    required this.canOpenRoutedWorkflow,
   });
 
   @override
@@ -408,6 +510,7 @@ class _ClinicalInboxTaskCard extends StatelessWidget {
         task.sourceAppointmentId != null &&
         !acceptingTransfer &&
         isOnline;
+    final canOpenWorkflow = canOpenRoutedWorkflow && !busy && isOnline;
     final color = _priorityColor(context, task, now);
 
     return Card(
@@ -495,6 +598,7 @@ class _ClinicalInboxTaskCard extends StatelessWidget {
                   (task.needsAcknowledgement ||
                       task.needsDoctorAction ||
                       task.needsPostDischargeCrossSign ||
+                      canOpenRoutedWorkflow ||
                       task.isOpInpatientTransferReview))
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
@@ -517,6 +621,8 @@ class _ClinicalInboxTaskCard extends StatelessWidget {
                       ? onReview
                       : canAck
                       ? onAcknowledge
+                      : canOpenWorkflow
+                      ? onOpenWorkflow
                       : null,
                   child: busy
                       ? Row(
@@ -573,6 +679,8 @@ class _ClinicalInboxTaskCard extends StatelessWidget {
                                     ? strings
                                           .clinicalInboxAcknowledgeRecoveredCritical
                                     : strings.clinicalInboxAcknowledgeCritical
+                              : task.needsRoutedDomainEvidence
+                              ? strings.lookup('clinical_inbox.open_workflow')
                               : strings.clinicalInboxAcknowledged,
                         ),
                 ),
@@ -590,16 +698,20 @@ class _ClinicalInboxTaskDetail extends StatelessWidget {
   final VoidCallback onAcknowledge;
   final VoidCallback onReview;
   final VoidCallback onAcceptTransfer;
+  final VoidCallback onOpenWorkflow;
   final bool acceptingTransfer;
   final bool isOnline;
+  final bool canOpenRoutedWorkflow;
 
   const _ClinicalInboxTaskDetail({
     required this.task,
     required this.onAcknowledge,
     required this.onReview,
     required this.onAcceptTransfer,
+    required this.onOpenWorkflow,
     required this.acceptingTransfer,
     required this.isOnline,
+    required this.canOpenRoutedWorkflow,
   });
 
   @override
@@ -790,6 +902,8 @@ class _ClinicalInboxTaskDetail extends StatelessWidget {
                       ? onReview
                       : currentTask.needsAcknowledgement && !busy && isOnline
                       ? onAcknowledge
+                      : canOpenRoutedWorkflow && !busy && isOnline
+                      ? onOpenWorkflow
                       : null,
                   child: busy || acceptingTransfer
                       ? Row(
@@ -833,6 +947,8 @@ class _ClinicalInboxTaskDetail extends StatelessWidget {
                                     ? strings
                                           .clinicalInboxAcknowledgeRecoveredCritical
                                     : strings.clinicalInboxAcknowledgeCritical
+                              : currentTask.needsRoutedDomainEvidence
+                              ? strings.lookup('clinical_inbox.open_workflow')
                               : strings.clinicalInboxAcknowledged,
                         ),
                 ),

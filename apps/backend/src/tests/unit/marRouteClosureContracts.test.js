@@ -32,18 +32,76 @@ describe('MAR route closure contracts', () => {
         ? '/**\n * POST /clinical/mar/:id/hold'
         : '/**\n * GET /clinical/mar/patient/:patientUid',
     );
-    expect(route).toContain(`requireIdempotencyKey({ required: true, scope: '${scope}' })`);
+    expect(route).toContain(`scope: '${scope}'`);
+    expect(route).toContain('requestBodyForIdempotency: marTransitionIdempotencyBody');
     expect(route).toContain(`marService.${serviceMethod}(`);
     expect(route).toContain('httpIdempotencyClaimId: req.idempotencyClaim?.id');
     expect(route).toContain('requestFingerprint: req.idempotencyClaim?.requestBodyHash');
   });
 
-  test('ER-to-ICU carryover preserves order, tenant, and supply identity', () => {
+  test('MAR supply reconciliation is desktop/tablet-only before request validation or mutation', () => {
+    const route = between(
+      routes,
+      "'/mar/:id/supply-overrides/:consumptionId/reconcile'",
+      '/**\n * POST /clinical/mar/:id/miss',
+    );
+    expect(routes).toContain(
+      "import { enforceStaffClinicalWriteDevicePosture } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';",
+    );
+    expect(route).toContain('enforceStaffClinicalWriteDevicePosture');
+    expect(route.indexOf('enforceStaffClinicalWriteDevicePosture')).toBeLessThan(
+      route.indexOf("canonicalMedicationAdministrationIdParam('id')"),
+    );
+    expect(route.indexOf('enforceStaffClinicalWriteDevicePosture')).toBeLessThan(
+      route.indexOf('requireMarSupplyReconciliationRole'),
+    );
+    expect(route.indexOf('enforceStaffClinicalWriteDevicePosture')).toBeLessThan(
+      route.indexOf('reconcileMarSupplyOverride'),
+    );
+  });
+
+  test('ER-to-ICU carryover uses the canonical order scheduler and leaves an actionable recovery path', () => {
     const icu = source('services/clinical/icuService.js');
-    const carry = between(icu, 'async function carryErMedicationsToMar', '// "Admit from ER"');
-    expect(carry).toContain('tenant_id: tenantOr(tenantId)');
-    expect(carry).toContain('clinical_order_id: order.id');
-    expect(carry).toContain('supply_quantity_per_dose: supplyQuantityPerDose');
-    expect(carry).toContain('tenantId: tenantOr(tenantId)');
+    const carry = between(icu, 'export async function carryMedicationOrdersToMar', 'async function carryErMedicationsToMar');
+    const query = between(icu, 'async function carryErMedicationsToMar', 'const ORDER_MAR_CARRYOVER_SELECT');
+    expect(query).toContain('tenant_id: tenantOr(tenantId)');
+    expect(query).toContain("status: { in: ['ordered', 'verified', 'in_progress'] }");
+    expect(carry).toContain('scheduleMedicationOrderOnMar');
+    expect(carry).toContain("stage: 'mar_carryover'");
+    expect(carry).toContain('recovery_endpoint: `/api/v1/emr/orders/${order.id}/retry-mar-scheduling`');
+    expect(carry).toContain('requires_doctor_authority: true');
+  });
+
+  test('clinical-order MAR recovery is doctor-gated, patient-guarded, and replay-safe', () => {
+    const orderRoutes = source('routes/emr/orderRoutes.js');
+    const retry = between(
+      orderRoutes,
+      "'/orders/:id/retry-mar-scheduling'",
+      '// ===================================================================\n// PUT /emr/orders/:id/verify',
+    );
+    expect(retry).toContain("requireIdempotencyKey({ required: true, scope: 'clinical_order_mar_retry' })");
+    expect(retry).toContain('guardClinicalOrderMarRecovery');
+    expect(retry).toContain('requireMedicationOrderWriteRole');
+    expect(retry).toContain('requireMedicationOrderMarRecoveryAuthority');
+    expect(retry).toContain('retryMedicationOrderMarScheduling');
+    expect(retry.indexOf('requireMedicationOrderWriteRole')).toBeLessThan(
+      retry.indexOf('guardClinicalOrderMarRecovery'),
+    );
+    expect(retry.indexOf('guardClinicalOrderMarRecovery')).toBeLessThan(
+      retry.indexOf('requireMedicationOrderMarRecoveryAuthority'),
+    );
+    expect(retry.indexOf('requireMedicationOrderMarRecoveryAuthority')).toBeLessThan(
+      retry.indexOf("requireIdempotencyKey({ required: true, scope: 'clinical_order_mar_retry' })"),
+    );
+
+    const service = source('services/emr/orderEntryService.js');
+    const recover = between(
+      service,
+      'export async function retryMedicationOrderMarScheduling',
+      'async function dispatchOrderIntegrations',
+    );
+    expect(recover).toContain('scheduleMedicationOrderOnMar(currentOrder');
+    expect(recover).toContain("eventType: 'mar.scheduling_recovered'");
+    expect(recover).toContain('clinical_orders:${currentOrder.id}:mar_scheduling_recovered');
   });
 });

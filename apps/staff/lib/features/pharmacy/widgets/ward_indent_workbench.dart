@@ -1,10 +1,9 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
 
 import '../../../core/config/role_config.dart';
 import '../../../core/config/ward_indent_role_contract.dart';
 import '../../../core/models/composition_alternatives.dart';
+import '../../../core/services/idempotency_attempt_registry.dart';
 import '../../../core/widgets/online_only_action_state.dart';
 import '../../../l10n/app_strings.dart';
 import '../models/ward_indent_models.dart';
@@ -13,6 +12,9 @@ import '../services/ward_indent_role_policy.dart';
 
 enum WardIndentWorklistFilter { open, terminal, owned, overdue }
 
+final IdempotencyAttemptRegistry _sharedWardIndentAttempts =
+    IdempotencyAttemptRegistry();
+
 class WardIndentWorkbench extends StatefulWidget {
   const WardIndentWorkbench({
     super.key,
@@ -20,19 +22,20 @@ class WardIndentWorkbench extends StatefulWidget {
     required this.role,
     this.initialIndentId,
     this.gateway = const ApiWardIndentGateway(),
+    this.attempts,
   });
 
   final String rawRole;
   final StaffRole role;
   final int? initialIndentId;
   final WardIndentGateway gateway;
+  final IdempotencyAttemptRegistry? attempts;
 
   @override
   State<WardIndentWorkbench> createState() => _WardIndentWorkbenchState();
 }
 
 class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
-  static final Random _random = Random.secure();
   static const _pageSize = 100;
   static const _reconciliationDispositions = [
     'transit_shortage',
@@ -55,10 +58,12 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
   DateTime? _nextBeforeRequestedAt;
   int? _nextBeforeId;
   int _loadGeneration = 0;
+  late final IdempotencyAttemptRegistry _attempts;
 
   @override
   void initState() {
     super.initState();
+    _attempts = widget.attempts ?? _sharedWardIndentAttempts;
     _loadWorkbench();
   }
 
@@ -241,7 +246,12 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
     final indent = _selected;
     if (indent == null || _mutating) return;
     if (!OnlineOnlyActionGuard.require(context)) return;
-    final intentKey = _newIntentKey(indent.id, action.apiPath);
+    final attemptScope = _attemptScope(indent.id, action.apiPath);
+    final attemptPayload = {
+      ...payload,
+      'expected_version': indent.stateVersion,
+    };
+    final intentKey = _attempts.keyFor(attemptScope, attemptPayload);
     setState(() {
       _mutating = true;
       _actionError = null;
@@ -253,6 +263,7 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
         payload: payload,
         idempotencyKey: intentKey,
       );
+      _attempts.complete(attemptScope);
       if (!mounted) return;
       _acceptMutation(result);
     } catch (error) {
@@ -287,10 +298,32 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
 
     switch (action) {
       case WardIndentAction.reserve:
-      case WardIndentAction.approveSubstitution:
       case WardIndentAction.approve:
       case WardIndentAction.issue:
-        if (await _confirm(actionLabel)) await _mutate(action, const {});
+        if (!await _confirm(actionLabel)) return;
+        if (action == WardIndentAction.reserve) {
+          final selections = await _collectInventorySelections({
+            for (final item in indent.items) item.id: item.quantityRequested,
+          });
+          if (selections == null) return;
+          await _mutate(action, {'inventory_selections': selections});
+        } else {
+          await _mutate(action, const {});
+        }
+        return;
+      case WardIndentAction.approveSubstitution:
+        if (!await _confirm(actionLabel)) return;
+        final substitutionTargets = {
+          for (final item in indent.items)
+            if (item.substitutionStatus == 'pending')
+              item.id: item.proposedQuantity ?? item.quantityRequested,
+        };
+        final substitutionSelections = await _collectInventorySelections(
+          substitutionTargets,
+          useProposedCatalog: true,
+        );
+        if (substitutionSelections == null) return;
+        await _mutate(action, {'inventory_selections': substitutionSelections});
         return;
       case WardIndentAction.shortSupply:
         final reason = await _askReason(actionLabel);
@@ -314,9 +347,16 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
           _setActionError(s.lookup('ward_indent.error.shortfall_required'));
           return;
         }
+        final selections = await _collectInventorySelections({
+          for (final row in quantities)
+            row['item_id'] as int: (row['quantity_available'] as num)
+                .toDouble(),
+        });
+        if (selections == null) return;
         await _mutate(action, {
           'reason': reason,
           'item_quantities_available': quantities,
+          'inventory_selections': selections,
         });
         return;
       case WardIndentAction.proposeSubstitution:
@@ -354,7 +394,26 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
           _setActionError(s.lookup('ward_indent.error.progress_required'));
           return;
         }
-        await _mutate(action, {'item_quantities_received': quantities});
+        final acknowledgements = indent.items
+            .where((item) {
+              if (!item.needsSubstitutionAcknowledgement) return false;
+              final row = quantities.firstWhere(
+                (entry) => entry['item_id'] == item.id,
+              );
+              return (row['quantity_received'] as num).toDouble() >
+                  item.quantityReceived;
+            })
+            .toList(growable: false);
+        if (acknowledgements.isNotEmpty &&
+            !await _confirmSubstitutionAcknowledgements(acknowledgements)) {
+          return;
+        }
+        await _mutate(action, {
+          'item_quantities_received': quantities,
+          'substitution_acknowledgements': [
+            for (final item in acknowledgements) {'item_id': item.id},
+          ],
+        });
         return;
       case WardIndentAction.requestReturn:
         final reason = await _askReason(actionLabel);
@@ -362,9 +421,9 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
         final quantities = await _askQuantities(
           title: s.lookup('ward_indent.quantity.returned'),
           fieldName: 'quantity_returned',
-          initial: (item) => item.quantityReceived,
+          initial: indent.returnCeilingForItem,
           minimum: (item) => item.quantityReturned,
-          maximum: (item) => item.quantityReceived,
+          maximum: indent.returnCeilingForItem,
         );
         if (quantities == null) return;
         final progressed = indent.items.any((item) {
@@ -388,6 +447,125 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
         if (payload != null) await _mutate(action, payload);
         return;
     }
+  }
+
+  Future<List<Map<String, dynamic>>?> _collectInventorySelections(
+    Map<int, double> targetQuantities, {
+    bool useProposedCatalog = false,
+  }) async {
+    final indent = _selected;
+    if (indent == null) return null;
+    final strings = AppStrings.of(context);
+    final selections = <Map<String, dynamic>>[];
+    setState(() => _mutating = true);
+    try {
+      for (final line in indent.items) {
+        final target = targetQuantities[line.id] ?? 0;
+        if (target <= 0) continue;
+        List<WardIndentInventoryItem> candidates;
+        if (useProposedCatalog && line.substitutionStatus == 'pending') {
+          final proposedCatalogId = line.proposedCatalogId;
+          if (proposedCatalogId == null) {
+            throw StateError(
+              strings.format('ward_indent.inventory.none', {
+                'item': line.proposedName ?? line.name,
+              }),
+            );
+          }
+          candidates =
+              (await widget.gateway.listInventoryItems(
+                    catalogId: proposedCatalogId,
+                  ))
+                  .where((candidate) {
+                    return candidate.catalogId == proposedCatalogId &&
+                        (candidate.facilityId == null ||
+                            indent.facilityId == null ||
+                            candidate.facilityId == indent.facilityId);
+                  })
+                  .toList(growable: false);
+        } else {
+          candidates = await widget.gateway.listInventoryCandidates(
+            indent.id,
+            line.id,
+          );
+        }
+        if (!useProposedCatalog || line.substitutionStatus != 'pending') {
+          candidates = candidates
+              .where(
+                (candidate) =>
+                    candidate.unreservedQuantity > 0 ||
+                    candidate.batches.any(
+                      (batch) => batch.unreservedQuantity > 0,
+                    ),
+              )
+              .toList(growable: false);
+        }
+        if (candidates.isEmpty) {
+          throw StateError(
+            strings.format('ward_indent.inventory.none', {
+              'item': useProposedCatalog
+                  ? line.proposedName ?? line.name
+                  : line.name,
+            }),
+          );
+        }
+        final selected = candidates.length == 1
+            ? candidates.single
+            : await _choose<WardIndentInventoryItem>(
+                strings.format('ward_indent.inventory.select', {
+                  'item': useProposedCatalog
+                      ? line.proposedName ?? line.name
+                      : line.name,
+                }),
+                candidates,
+                (candidate) =>
+                    '${candidate.displayName} — '
+                    '${_quantity(candidate.unreservedQuantity)} '
+                    '${candidate.unitLabel ?? ''}',
+              );
+        if (selected == null) return null;
+        selections.add({'item_id': line.id, 'inventory_item_id': selected.id});
+      }
+      return selections;
+    } catch (error) {
+      if (mounted) _setActionError(_errorText(error));
+      return null;
+    } finally {
+      if (mounted) setState(() => _mutating = false);
+    }
+  }
+
+  Future<bool> _confirmSubstitutionAcknowledgements(
+    List<WardIndentItem> items,
+  ) async {
+    final strings = AppStrings.of(context);
+    return await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: Text(
+              strings.lookup('ward_indent.substitution.acknowledge_title'),
+            ),
+            content: Text(
+              strings.format('ward_indent.substitution.acknowledge_body', {
+                'items': items
+                    .map((item) => item.proposedName ?? item.name)
+                    .join(', '),
+              }),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: Text(strings.actionCancel),
+              ),
+              FilledButton(
+                key: const Key('ward-indent-substitution-acknowledge'),
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: Text(strings.actionConfirm),
+              ),
+            ],
+          ),
+        ) ??
+        false;
   }
 
   Future<Map<String, dynamic>?> _buildSubstitutionPayload() async {
@@ -465,21 +643,154 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
     final varianceItems = indent.items
         .where((item) => item.unresolvedVariance > 0)
         .toList(growable: false);
-    final controlledReturns = indent.items
-        .where((item) => item.outstandingReturn > 0 && item.isControlled)
-        .toList(growable: false);
     final reconciliations = await _askVarianceReconciliations(
       varianceItems,
       reason,
     );
     if (reconciliations == null) return null;
-    final evidence = await _askControlledReturnEvidence(controlledReturns);
+    final allocationReturns = _buildAllocationReturns(indent);
+    if (allocationReturns == null) return null;
+    final evidence = await _recordControlledReturnEvidence(
+      indent,
+      allocationReturns,
+    );
     if (evidence == null) return null;
     return {
       'reason': reason,
       'controlled_return_evidence': evidence,
+      'allocation_returns': [
+        for (final entry in allocationReturns)
+          {'allocation_id': entry.allocation.id, 'quantity': entry.quantity},
+      ],
       'item_reconciliations': reconciliations,
     };
+  }
+
+  List<_AllocationReturnPlan>? _buildAllocationReturns(WardIndent indent) {
+    final strings = AppStrings.of(context);
+    final result = <_AllocationReturnPlan>[];
+    for (final item in indent.items.where(
+      (candidate) => candidate.outstandingReturn > 0,
+    )) {
+      var remaining = item.outstandingReturn;
+      final available = indent.medicationClosure
+          .allocationsForItem(item.id)
+          .where((allocation) => allocation.hasCustodyQuantity)
+          .toList(growable: false);
+      if (item.isControlled && available.length != 1) {
+        _setActionError(
+          strings.format('ward_indent.reconcile.exact_allocation_required', {
+            'item': item.name,
+          }),
+        );
+        return null;
+      }
+      for (final allocation in available) {
+        if (remaining <= 0) break;
+        final quantity = allocation.custodyAvailableQuantity < remaining
+            ? allocation.custodyAvailableQuantity
+            : remaining;
+        if (quantity <= 0) continue;
+        result.add(
+          _AllocationReturnPlan(
+            item: item,
+            allocation: allocation,
+            quantity: quantity,
+          ),
+        );
+        remaining = (remaining - quantity).clamp(0, double.infinity);
+      }
+      if (remaining > 1e-9) {
+        _setActionError(
+          strings.format('ward_indent.reconcile.return_exceeds_custody', {
+            'item': item.name,
+          }),
+        );
+        return null;
+      }
+    }
+    return result;
+  }
+
+  Future<List<Map<String, dynamic>>?> _recordControlledReturnEvidence(
+    WardIndent indent,
+    List<_AllocationReturnPlan> allocationReturns,
+  ) async {
+    final controlled = allocationReturns
+        .where((entry) => entry.item.isControlled)
+        .toList(growable: false);
+    if (controlled.isEmpty) return const [];
+    if (!OnlineOnlyActionGuard.require(context)) return null;
+    final strings = AppStrings.of(context);
+    final result = <Map<String, dynamic>>[];
+    setState(() => _mutating = true);
+    try {
+      for (final entry in controlled) {
+        final referenceId = entry.item.controlledReferenceId;
+        if (referenceId == null || referenceId.isEmpty) {
+          throw StateError(
+            strings.format('ward_indent.controlled.reference_missing', {
+              'item': entry.item.name,
+            }),
+          );
+        }
+        final allocation = entry.allocation;
+        final movementPayload = <String, dynamic>{
+          'inventory_item_id': allocation.inventoryItemId,
+          'inventory_batch_id': allocation.inventoryBatchId,
+          if (entry.item.catalogId != null) 'catalog_id': entry.item.catalogId,
+          'movement_kind': 'return',
+          'quantity': entry.quantity,
+          'reference_type': 'ward_indent_return',
+          'reference_id': referenceId,
+          if (indent.patientUid != null) 'patient_uid': indent.patientUid,
+          if (allocation.batchNumber != null)
+            'expected_batch_number': allocation.batchNumber,
+          if (allocation.lotNumber != null)
+            'expected_lot_number': allocation.lotNumber,
+          if (allocation.expiryDate != null)
+            'expected_expiry_date': allocation.expiryDate!
+                .toIso8601String()
+                .substring(0, 10),
+          'notes':
+              'Ward indent ${indent.indentNumber} return allocation '
+              '${allocation.id}',
+        };
+        final attemptScope = _attemptScope(
+          indent.id,
+          'controlled-return:${allocation.id}',
+        );
+        final response = await widget.gateway.recordInventoryMovement(
+          movement: movementPayload,
+          idempotencyKey: _attempts.keyFor(attemptScope, movementPayload),
+        );
+        final movementRecord = response['movement'];
+        final register = response['register_entry'];
+        final movementId = movementRecord is Map
+            ? int.tryParse('${movementRecord['id']}')
+            : null;
+        final registerId = register is Map
+            ? int.tryParse('${register['id']}')
+            : null;
+        if (movementId == null || registerId == null) {
+          throw StateError(
+            strings.lookup('ward_indent.reconcile.return_evidence_missing'),
+          );
+        }
+        _attempts.complete(attemptScope);
+        result.add({
+          'item_id': entry.item.id,
+          'movement_id': movementId,
+          'register_id': registerId,
+        });
+      }
+      return result;
+    } catch (error) {
+      if (mounted) _setActionError(_errorText(error));
+      return null;
+    } finally {
+      if (mounted) setState(() => _mutating = false);
+    }
   }
 
   Future<List<Map<String, dynamic>>?> _askVarianceReconciliations(
@@ -570,120 +881,6 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
     );
   }
 
-  Future<List<Map<String, dynamic>>?> _askControlledReturnEvidence(
-    List<WardIndentItem> items,
-  ) async {
-    if (items.isEmpty) return const [];
-    final movementControllers = {
-      for (final item in items) item.id: TextEditingController(),
-    };
-    final registerControllers = {
-      for (final item in items) item.id: TextEditingController(),
-    };
-    try {
-      return await showDialog<List<Map<String, dynamic>>>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: Text(
-            AppStrings.of(context)
-                .lookup('ward_indent.reconcile.controlled_return_evidence'),
-          ),
-          content: SizedBox(
-            width: 520,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    AppStrings.of(context)
-                        .lookup('ward_indent.reconcile.controlled_return_help'),
-                  ),
-                  const SizedBox(height: 12),
-                  for (final item in items) ...[
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        item.name,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            key: Key('ward-indent-return-movement-${item.id}'),
-                            controller: movementControllers[item.id],
-                            keyboardType: TextInputType.number,
-                            decoration: InputDecoration(
-                              labelText: AppStrings.of(context)
-                                  .lookup('ward_indent.reconcile.movement_id'),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextField(
-                            key: Key('ward-indent-return-register-${item.id}'),
-                            controller: registerControllers[item.id],
-                            keyboardType: TextInputType.number,
-                            decoration: InputDecoration(
-                              labelText: AppStrings.of(context)
-                                  .lookup('ward_indent.reconcile.register_id'),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: Text(AppStrings.of(context).actionCancel),
-            ),
-            FilledButton(
-              onPressed: () {
-                final rows = <Map<String, dynamic>>[];
-                for (final item in items) {
-                  final movementId = int.tryParse(
-                    movementControllers[item.id]!.text.trim(),
-                  );
-                  final registerId = int.tryParse(
-                    registerControllers[item.id]!.text.trim(),
-                  );
-                  if (movementId == null ||
-                      movementId <= 0 ||
-                      registerId == null ||
-                      registerId <= 0) {
-                    return;
-                  }
-                  rows.add({
-                    'item_id': item.id,
-                    'movement_id': movementId,
-                    'register_id': registerId,
-                  });
-                }
-                Navigator.pop(dialogContext, rows);
-              },
-              child: Text(AppStrings.of(context).actionConfirm),
-            ),
-          ],
-        ),
-      );
-    } finally {
-      for (final controller in movementControllers.values) {
-        controller.dispose();
-      }
-      for (final controller in registerControllers.values) {
-        controller.dispose();
-      }
-    }
-  }
-
   Future<void> _completeControlledHandoff() async {
     final initial = _selected;
     if (initial == null || _mutating) return;
@@ -706,79 +903,58 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
         final existing = _recoveryFor(current, line.id);
         if (existing?.isRecoverable == true) continue;
 
-        final catalogId = line.catalogId;
-        if (catalogId == null) {
+        final allocation = exactControlledIssueAllocation(current, line);
+        if (allocation == null) {
           throw StateError(
-            strings.format('ward_indent.controlled.no_inventory_link', {
+            strings.format('ward_indent.controlled.exact_allocation_required', {
               'item': line.name,
             }),
           );
         }
-        final inventory = await widget.gateway.listInventoryItems(
-          catalogId: catalogId,
+        final candidates = await widget.gateway.listInventoryCandidates(
+          current.id,
+          line.id,
         );
-        final linkedItems = inventory
-            .where((item) => item.catalogId == catalogId && item.isControlled)
+        final exactInventory = candidates
+            .where((candidate) => candidate.id == allocation.inventoryItemId)
             .toList(growable: false);
-        if (linkedItems.isEmpty) {
+        if (exactInventory.length != 1 || !exactInventory.single.isControlled) {
           throw StateError(
             strings.format('ward_indent.controlled.no_inventory_link', {
               'item': line.name,
             }),
           );
         }
-        final inventoryItem = linkedItems.length == 1
-            ? linkedItems.single
-            : await _choose<WardIndentInventoryItem>(
-                strings.lookup('ward_indent.controlled.select_inventory'),
-                linkedItems,
-                (item) => item.displayName,
-              );
-        if (inventoryItem == null) return;
-        final now = DateTime.now();
-        final today = DateTime(now.year, now.month, now.day);
-        final batches =
-            (await widget.gateway.listInventoryBatches(inventoryItem.id))
-                .where((batch) {
-                  final expiry = batch.expiryDate;
-                  final notExpired = expiry == null || !expiry.isBefore(today);
-                  return notExpired &&
-                      batch.remainingQuantity >= line.quantityApproved;
-                })
-                .toList(growable: false);
-        if (batches.isEmpty) {
+        final inventoryItem = exactInventory.single;
+        final exactBatch = inventoryItem.batches
+            .where((batch) => batch.id == allocation.inventoryBatchId)
+            .toList(growable: false);
+        if (exactBatch.length != 1) {
           throw StateError(
             strings.format('ward_indent.controlled.no_usable_batch', {
               'item': line.name,
             }),
           );
         }
-        final batch = await _choose<WardIndentInventoryBatch>(
-          strings.lookup('ward_indent.controlled.select_batch'),
-          batches,
-          (entry) =>
-              '${entry.batchNumber} - '
-              '${_quantity(entry.remainingQuantity)} '
-              '${inventoryItem.unitLabel ?? ''}',
-        );
-        if (batch == null) return;
         final dispense = <String, dynamic>{
-          'inventory_item_id': inventoryItem.id,
-          'inventory_batch_id': batch.id,
-          'quantity': line.quantityApproved,
+          'inventory_item_id': allocation.inventoryItemId,
+          'inventory_batch_id': allocation.inventoryBatchId,
+          'quantity': allocation.issueAvailableQuantity,
           if (current.patientUid != null) 'patient_uid': current.patientUid,
           'prescription_number': current.indentNumber,
           'reference_id': line.controlledReferenceId,
-          'notes': 'Ward indent ${current.indentNumber}',
+          'notes':
+              'Ward indent ${current.indentNumber} allocation ${allocation.id}',
         };
         if (inventoryItem.requiresWitness) {
+          final witnessRequestScope = _attemptScope(
+            current.id,
+            'controlled-witness-request:${line.id}',
+          );
           final requested = await widget.gateway
               .requestControlledDispenseWitnessApproval(
                 dispense: dispense,
-                idempotencyKey: _newRawIntentKey(
-                  current.id,
-                  'controlled-witness-request-${line.id}',
-                ),
+                idempotencyKey: _attempts.keyFor(witnessRequestScope, dispense),
               );
           final approvalId =
               requested['id']?.toString() ??
@@ -788,27 +964,40 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
               strings.lookup('ward_indent.controlled.witness_id_missing'),
             );
           }
+          _attempts.complete(witnessRequestScope);
           final credentials = await _askWitnessCredentials(line.name);
           if (credentials == null) return;
+          final witnessApprovalScope = _attemptScope(
+            current.id,
+            'controlled-witness-approve:$approvalId',
+          );
+          final witnessApprovalPayload = <String, dynamic>{
+            'dispense': dispense,
+            'employeeId': credentials.employeeId.trim().toUpperCase(),
+            'password': credentials.password,
+          };
           await widget.gateway.approveControlledDispenseWitnessApproval(
             approvalId: approvalId,
             dispense: dispense,
-            employeeId: credentials.employeeId,
-            password: credentials.password,
-            idempotencyKey: _newRawIntentKey(
-              current.id,
-              'controlled-witness-approve-${line.id}',
+            employeeId: witnessApprovalPayload['employeeId'] as String,
+            password: witnessApprovalPayload['password'] as String,
+            idempotencyKey: _attempts.keyFor(
+              witnessApprovalScope,
+              witnessApprovalPayload,
             ),
           );
+          _attempts.complete(witnessApprovalScope);
           dispense['witness_approval_id'] = approvalId;
         }
+        final controlledDispenseScope = _attemptScope(
+          current.id,
+          'controlled-dispense:${allocation.id}',
+        );
         await widget.gateway.dispenseControlledInventory(
           dispense: dispense,
-          idempotencyKey: _newRawIntentKey(
-            current.id,
-            'controlled-dispense-${line.id}',
-          ),
+          idempotencyKey: _attempts.keyFor(controlledDispenseScope, dispense),
         );
+        _attempts.complete(controlledDispenseScope);
         current = await widget.gateway.getIndent(current.id);
         if (mounted) {
           setState(() {
@@ -837,15 +1026,21 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
           'register_id': recovery.registerId,
         });
       }
+      final handoffPayload = {'item_evidence': evidence};
+      final handoffScope = _attemptScope(
+        current.id,
+        WardIndentAction.controlledHandoff.apiPath,
+      );
       final result = await widget.gateway.mutateIndent(
         current,
         WardIndentAction.controlledHandoff,
-        payload: {'item_evidence': evidence},
-        idempotencyKey: _newIntentKey(
-          current.id,
-          WardIndentAction.controlledHandoff.apiPath,
-        ),
+        payload: handoffPayload,
+        idempotencyKey: _attempts.keyFor(handoffScope, {
+          ...handoffPayload,
+          'expected_version': current.stateVersion,
+        }),
       );
+      _attempts.complete(handoffScope);
       if (!mounted) return;
       _acceptMutation(result);
     } catch (error) {
@@ -889,67 +1084,60 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
   }
 
   Future<_WitnessCredentials?> _askWitnessCredentials(String itemName) async {
-    final employeeController = TextEditingController();
-    final passwordController = TextEditingController();
-    try {
-      return await showDialog<_WitnessCredentials>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: Text(
-            AppStrings.of(context)
-                .lookup('ward_indent.controlled.witness_title'),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(itemName),
-              const SizedBox(height: 12),
-              TextField(
-                key: const Key('ward-indent-witness-employee-id'),
-                controller: employeeController,
-                textCapitalization: TextCapitalization.characters,
-                decoration: InputDecoration(
-                  labelText: AppStrings.of(context)
-                      .lookup('ward_indent.controlled.witness_employee_id'),
-                ),
+    var employeeId = '';
+    var password = '';
+    return showDialog<_WitnessCredentials>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+          AppStrings.of(context).lookup('ward_indent.controlled.witness_title'),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(itemName),
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('ward-indent-witness-employee-id'),
+              textCapitalization: TextCapitalization.characters,
+              onChanged: (value) => employeeId = value,
+              decoration: InputDecoration(
+                labelText: AppStrings.of(context)
+                    .lookup('ward_indent.controlled.witness_employee_id'),
               ),
-              TextField(
-                key: const Key('ward-indent-witness-password'),
-                controller: passwordController,
-                obscureText: true,
-                decoration: InputDecoration(
-                  labelText: AppStrings.of(context)
-                      .lookup('ward_indent.controlled.witness_password'),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: Text(AppStrings.of(context).actionCancel),
             ),
-            FilledButton(
-              key: const Key('ward-indent-witness-confirm'),
-              onPressed: () {
-                final employeeId = employeeController.text.trim().toUpperCase();
-                final password = passwordController.text;
-                if (employeeId.isEmpty || password.isEmpty) return;
-                Navigator.pop(
-                  dialogContext,
-                  _WitnessCredentials(employeeId, password),
-                );
-              },
-              child: Text(AppStrings.of(context).actionConfirm),
+            TextField(
+              key: const Key('ward-indent-witness-password'),
+              obscureText: true,
+              onChanged: (value) => password = value,
+              decoration: InputDecoration(
+                labelText: AppStrings.of(context)
+                    .lookup('ward_indent.controlled.witness_password'),
+              ),
             ),
           ],
         ),
-      );
-    } finally {
-      employeeController.dispose();
-      passwordController.dispose();
-    }
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(AppStrings.of(context).actionCancel),
+          ),
+          FilledButton(
+            key: const Key('ward-indent-witness-confirm'),
+            onPressed: () {
+              final normalizedEmployeeId = employeeId.trim().toUpperCase();
+              if (normalizedEmployeeId.isEmpty || password.isEmpty) return;
+              Navigator.pop(
+                dialogContext,
+                _WitnessCredentials(normalizedEmployeeId, password),
+              );
+            },
+            child: Text(AppStrings.of(context).actionConfirm),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<bool> _confirm(String actionLabel) async {
@@ -1016,73 +1204,65 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
   }) async {
     final indent = _selected;
     if (indent == null) return null;
-    final controllers = {
-      for (final item in indent.items)
-        item.id: TextEditingController(text: _quantity(initial(item))),
+    final values = {
+      for (final item in indent.items) item.id: _quantity(initial(item)),
     };
-    try {
-      return await showDialog<List<Map<String, dynamic>>>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: Text(title),
-          content: SizedBox(
-            width: 520,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  for (final item in indent.items)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: TextField(
-                        key: Key('ward-indent-quantity-${item.id}'),
-                        controller: controllers[item.id],
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        decoration: InputDecoration(
-                          labelText: item.name,
-                          helperText:
-                              '${_quantity(minimum(item))} - '
-                              '${_quantity(maximum(item))}',
-                        ),
+    return showDialog<List<Map<String, dynamic>>>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final item in indent.items)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: TextFormField(
+                      key: Key('ward-indent-quantity-${item.id}'),
+                      initialValue: values[item.id],
+                      onChanged: (value) => values[item.id] = value,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: InputDecoration(
+                        labelText: item.name,
+                        helperText:
+                            '${_quantity(minimum(item))} - '
+                            '${_quantity(maximum(item))}',
                       ),
                     ),
-                ],
-              ),
+                  ),
+              ],
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: Text(AppStrings.of(context).actionCancel),
-            ),
-            FilledButton(
-              onPressed: () {
-                final rows = <Map<String, dynamic>>[];
-                for (final item in indent.items) {
-                  final value = double.tryParse(
-                    controllers[item.id]!.text.trim(),
-                  );
-                  if (value == null ||
-                      value < minimum(item) ||
-                      value > maximum(item)) {
-                    return;
-                  }
-                  rows.add({'item_id': item.id, fieldName: value});
-                }
-                Navigator.pop(dialogContext, rows);
-              },
-              child: Text(AppStrings.of(context).actionConfirm),
-            ),
-          ],
         ),
-      );
-    } finally {
-      for (final controller in controllers.values) {
-        controller.dispose();
-      }
-    }
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(AppStrings.of(context).actionCancel),
+          ),
+          FilledButton(
+            onPressed: () {
+              final rows = <Map<String, dynamic>>[];
+              for (final item in indent.items) {
+                final value = double.tryParse(values[item.id]!.trim());
+                if (value == null ||
+                    value < minimum(item) ||
+                    value > maximum(item)) {
+                  return;
+                }
+                rows.add({'item_id': item.id, fieldName: value});
+              }
+              Navigator.pop(dialogContext, rows);
+            },
+            child: Text(AppStrings.of(context).actionConfirm),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<T?> _choose<T>(
@@ -1348,7 +1528,8 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
                     ),
                     for (final sla in indent.activeSlas)
                       Text(
-                        '${sla.ruleCode ?? '-'}: ${sla.status}'
+                        '${localizedWardIndentCode(s, WardIndentCodeKind.slaRule, sla.ruleCode)}: '
+                        '${localizedWardIndentCode(s, WardIndentCodeKind.slaStatus, sla.status)}'
                         '${sla.dueAt == null ? '' : ' - ${_date(sla.dueAt!)}'}',
                       ),
                   ],
@@ -1395,7 +1576,11 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
                       Text(
                         s.format('ward_indent.controlled.recovery_row', {
                           'item': recovery.itemId,
-                          'status': recovery.status,
+                          'status': localizedWardIndentCode(
+                            s,
+                            WardIndentCodeKind.recovery,
+                            recovery.status,
+                          ),
                           'count': recovery.candidateCount,
                         }),
                       ),
@@ -1461,9 +1646,16 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
                 .map(
                   (event) => ListTile(
                     dense: true,
-                    title: Text(event.action),
+                    title: Text(
+                      localizedWardIndentCode(
+                        s,
+                        WardIndentCodeKind.event,
+                        event.action,
+                      ),
+                    ),
                     subtitle: Text(
-                      '${event.fromStatus ?? '-'} - ${event.toStatus}'
+                      '${event.fromStatus == null ? '-' : localizedWardIndentCode(s, WardIndentCodeKind.status, event.fromStatus)} - '
+                      '${localizedWardIndentCode(s, WardIndentCodeKind.status, event.toStatus)}'
                       '${event.reason == null ? '' : '\n${event.reason}'}',
                     ),
                     trailing: Text('v${event.stateVersion}'),
@@ -1537,13 +1729,21 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
               Text(
                 s.format('ward_indent.item.substitution', {
                   'name': item.proposedName!,
-                  'status': item.substitutionStatus ?? '-',
+                  'status': localizedWardIndentCode(
+                    s,
+                    WardIndentCodeKind.substitution,
+                    item.substitutionStatus,
+                  ),
                 }),
               ),
             if (item.fulfilmentStatus != null)
               Text(
                 s.format('ward_indent.item.fulfilment', {
-                  'status': item.fulfilmentStatus!,
+                  'status': localizedWardIndentCode(
+                    s,
+                    WardIndentCodeKind.fulfilment,
+                    item.fulfilmentStatus,
+                  ),
                 }),
               ),
           ],
@@ -1556,15 +1756,8 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
     if (mounted) setState(() => _actionError = message);
   }
 
-  String _newIntentKey(int indentId, String action) {
-    return _newRawIntentKey(indentId, action.replaceAll('/', '-'));
-  }
-
-  String _newRawIntentKey(int indentId, String scope) {
-    return 'ward-indent-$indentId-$scope-'
-        '${DateTime.now().microsecondsSinceEpoch}-'
-        '${_random.nextInt(0x7fffffff)}';
-  }
+  String _attemptScope(int indentId, String action) =>
+      'ward-indent:$indentId:${action.replaceAll('/', '-')}';
 }
 
 class _WitnessCredentials {
@@ -1572,6 +1765,18 @@ class _WitnessCredentials {
 
   final String employeeId;
   final String password;
+}
+
+class _AllocationReturnPlan {
+  const _AllocationReturnPlan({
+    required this.item,
+    required this.allocation,
+    required this.quantity,
+  });
+
+  final WardIndentItem item;
+  final WardIndentInventoryAllocation allocation;
+  final double quantity;
 }
 
 class _Fact extends StatelessWidget {
@@ -1682,6 +1887,124 @@ String _date(DateTime value) {
       '${local.day.toString().padLeft(2, '0')} '
       '${local.hour.toString().padLeft(2, '0')}:'
       '${local.minute.toString().padLeft(2, '0')}';
+}
+
+@visibleForTesting
+WardIndentInventoryAllocation? exactControlledIssueAllocation(
+  WardIndent indent,
+  WardIndentItem item,
+) {
+  final allocations = indent.medicationClosure
+      .allocationsForItem(item.id)
+      .where((allocation) => allocation.hasIssueQuantity)
+      .toList(growable: false);
+  return allocations.length == 1 ? allocations.single : null;
+}
+
+@visibleForTesting
+enum WardIndentCodeKind {
+  status,
+  slaStatus,
+  slaRule,
+  recovery,
+  event,
+  substitution,
+  fulfilment,
+}
+
+const _wardIndentStatusKeys = <String, String>{
+  'requested': 'ward_indent.status.requested',
+  'reserved': 'ward_indent.status.reserved',
+  'short_supply': 'ward_indent.status.short_supply',
+  'substitution_pending': 'ward_indent.status.substitution_pending',
+  'controlled_handoff_required':
+      'ward_indent.status.controlled_handoff_required',
+  'approved': 'ward_indent.status.approved',
+  'issued': 'ward_indent.status.issued',
+  'partially_received': 'ward_indent.status.partially_received',
+  'received': 'ward_indent.status.received',
+  'return_pending': 'ward_indent.status.return_pending',
+  'reconciliation_required': 'ward_indent.status.reconciliation_required',
+  'reconciled': 'ward_indent.status.reconciled',
+  'rejected': 'ward_indent.status.rejected',
+  'cancelled': 'ward_indent.status.cancelled',
+  'closed': 'ward_indent.status.closed',
+};
+
+const _wardIndentEventKeys = <String, String>{
+  'requested': 'ward_indent.status.requested',
+  'reserved': 'ward_indent.status.reserved',
+  'short_supply_recorded': 'ward_indent.action.short_supply',
+  'substitution_proposed': 'ward_indent.action.propose_substitution',
+  'substitution_approved': 'ward_indent.action.approve_substitution',
+  'substitution_rejected': 'ward_indent.action.reject_substitution',
+  'approved': 'ward_indent.status.approved',
+  'rejected': 'ward_indent.status.rejected',
+  'controlled_handoff_recorded': 'ward_indent.action.controlled_handoff',
+  'issued': 'ward_indent.status.issued',
+  'receipt_recorded': 'ward_indent.action.receive',
+  'return_requested': 'ward_indent.action.request_return',
+  'reconciliation_required': 'ward_indent.status.reconciliation_required',
+  'reconciled': 'ward_indent.status.reconciled',
+  'cancelled': 'ward_indent.status.cancelled',
+  'closed': 'ward_indent.status.closed',
+};
+
+const _wardIndentSubstitutionKeys = <String, String>{
+  'pending': 'ward_indent.status.substitution_pending',
+  'approved': 'ward_indent.status.approved',
+  'rejected': 'ward_indent.status.rejected',
+};
+
+const _wardIndentFulfilmentKeys = <String, String>{
+  ..._wardIndentStatusKeys,
+  'controlled_handoff_recorded': 'ward_indent.action.controlled_handoff',
+};
+
+const _wardIndentSlaStatuses = <String>{'active', 'breached', 'escalated'};
+const _wardIndentSlaRules = <String>{
+  'ward_indent_pharmacy_response',
+  'ward_indent_substitution_authorization',
+  'ward_indent_controlled_handoff',
+  'ward_indent_pharmacy_issue',
+  'ward_indent_ward_receipt',
+  'ward_indent_reconciliation',
+  'ward_indent_notification_coverage',
+  'ward_indent_credit_note_review',
+  'ward_indent_mar_supply_reconciliation',
+};
+const _wardIndentRecoveryStatuses = <String>{
+  'available',
+  'missing',
+  'ambiguous',
+};
+
+@visibleForTesting
+String localizedWardIndentCode(
+  AppStrings strings,
+  WardIndentCodeKind kind,
+  Object? code,
+) {
+  final normalized = code?.toString().trim().toLowerCase() ?? '';
+  final key = switch (kind) {
+    WardIndentCodeKind.status => _wardIndentStatusKeys[normalized],
+    WardIndentCodeKind.slaStatus =>
+      _wardIndentSlaStatuses.contains(normalized)
+          ? 'ward_indent.sla.status.$normalized'
+          : null,
+    WardIndentCodeKind.slaRule =>
+      _wardIndentSlaRules.contains(normalized)
+          ? 'ward_indent.sla.rule.$normalized'
+          : null,
+    WardIndentCodeKind.recovery =>
+      _wardIndentRecoveryStatuses.contains(normalized)
+          ? 'ward_indent.controlled.recovery_status.$normalized'
+          : null,
+    WardIndentCodeKind.event => _wardIndentEventKeys[normalized],
+    WardIndentCodeKind.substitution => _wardIndentSubstitutionKeys[normalized],
+    WardIndentCodeKind.fulfilment => _wardIndentFulfilmentKeys[normalized],
+  };
+  return strings.lookup(key ?? 'ward_indent.code.unknown');
 }
 
 String _statusLabel(AppStrings s, WardIndentStatus status) {

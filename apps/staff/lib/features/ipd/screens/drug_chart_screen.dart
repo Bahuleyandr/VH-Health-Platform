@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 
 import '../../../core/models/composition_alternatives.dart';
+import '../../../core/platform_info.dart';
+import '../../../core/services/idempotency_attempt_registry.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/services/order_payloads.dart';
 import '../../../core/services/staff_clinical_action_gateway.dart';
@@ -75,6 +77,30 @@ DrugChartDraftValidationFailure? validateDrugChartDraft({
   return null;
 }
 
+@visibleForTesting
+bool canOpenDrugChartMarScanner(Object? status, {required bool canAdminister}) {
+  return canAdminister && _text(status).toLowerCase() == 'scheduled';
+}
+
+@visibleForTesting
+const Set<AppDeviceMode> drugChartMarHoldReleaseDeviceModes = {
+  AppDeviceMode.mobile,
+  AppDeviceMode.tablet,
+  AppDeviceMode.desktop,
+  AppDeviceMode.web,
+};
+
+@visibleForTesting
+bool canReleaseDrugChartMarHold(
+  Object? status, {
+  required bool canPrescribe,
+  required AppDeviceMode deviceMode,
+}) {
+  return canPrescribe &&
+      drugChartMarHoldReleaseDeviceModes.contains(deviceMode) &&
+      _text(status).toLowerCase() == 'held';
+}
+
 class DrugChartScreen extends StatefulWidget {
   final int admissionId;
   final String? patientName;
@@ -94,6 +120,9 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
   Map<String, dynamic>? _chart;
   bool _loading = true;
   String? _error;
+  final Set<int> _releasingHeldAdministrations = <int>{};
+  final IdempotencyAttemptRegistry _holdReleaseAttempts =
+      IdempotencyAttemptRegistry();
 
   Map<String, dynamic> get _admission =>
       (_chart?['admission'] as Map?)?.cast<String, dynamic>() ?? const {};
@@ -122,6 +151,7 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
     for (final row in _draftRows) {
       row.dispose();
     }
+    _holdReleaseAttempts.clear();
     super.dispose();
   }
 
@@ -144,6 +174,95 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _releaseHeldAdministration(Map<String, dynamic> row) async {
+    final maId = int.tryParse(row['id']?.toString() ?? '');
+    if (maId == null ||
+        !_canPrescribe ||
+        _releasingHeldAdministrations.contains(maId)) {
+      return;
+    }
+    final reason = await _promptHoldReleaseReason();
+    if (reason == null || !mounted) return;
+    final scope = 'mar-releaseHold:$maId';
+    final payload = <String, dynamic>{'reason': reason};
+    final idempotencyKey = _holdReleaseAttempts.keyFor(scope, payload);
+    setState(() => _releasingHeldAdministrations.add(maId));
+    try {
+      await MedicalApiService.releaseHeldMedication(
+        maId: maId,
+        reason: reason,
+        idempotencyKey: idempotencyKey,
+      );
+      _holdReleaseAttempts.complete(scope);
+      if (!mounted) return;
+      _showSnack(
+        AppStrings.of(context).lookup('due_meds.actions.release_success'),
+      );
+      await _load();
+    } catch (error) {
+      if (mounted) {
+        _showSnack(
+          localizedApiErrorFromRaw(AppStrings.of(context), error),
+          isError: true,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _releasingHeldAdministrations.remove(maId));
+      }
+    }
+  }
+
+  Future<String?> _promptHoldReleaseReason() {
+    var reason = '';
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final strings = AppStrings.of(context);
+          final valid = reason.trim().length >= 5;
+          return AlertDialog(
+            title: Text(strings.lookup('due_meds.actions.release_title')),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(strings.lookup('due_meds.actions.release_body')),
+                const SizedBox(height: 16),
+                TextField(
+                  key: const Key('drug-chart-hold-release-reason'),
+                  autofocus: true,
+                  maxLength: 500,
+                  minLines: 2,
+                  maxLines: 4,
+                  decoration: InputDecoration(
+                    labelText: strings.lookup('due_meds.actions.reason_label'),
+                    hintText: strings.lookup('due_meds.actions.reason_hint'),
+                  ),
+                  onChanged: (value) => setDialogState(() => reason = value),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: Text(strings.lookup('due_meds.actions.cancel')),
+              ),
+              FilledButton(
+                key: const Key('drug-chart-hold-release-confirm'),
+                onPressed: valid
+                    ? () => Navigator.pop(dialogContext, reason.trim())
+                    : null,
+                child: Text(strings.lookup('due_meds.actions.confirm_release')),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   void _addDraftRow() {
@@ -415,6 +534,8 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
           onSaveDraft: _saveDraftRow,
           onStopOrder: _stopOrder,
           onAdministrationChanged: _load,
+          onReleaseHold: _releaseHeldAdministration,
+          releasingHoldIds: _releasingHeldAdministrations,
           patientUid: _text(_admission['patient_uid']),
           admissionId: widget.admissionId,
         ),
@@ -554,6 +675,8 @@ class _DrugChartTable extends StatelessWidget {
   final void Function(_DrugChartDraftRow row) onSaveDraft;
   final void Function(Map<String, dynamic> order) onStopOrder;
   final VoidCallback onAdministrationChanged;
+  final ValueChanged<Map<String, dynamic>> onReleaseHold;
+  final Set<int> releasingHoldIds;
   final String? patientUid;
   final int admissionId;
 
@@ -567,6 +690,8 @@ class _DrugChartTable extends StatelessWidget {
     required this.onSaveDraft,
     required this.onStopOrder,
     required this.onAdministrationChanged,
+    required this.onReleaseHold,
+    required this.releasingHoldIds,
     required this.patientUid,
     required this.admissionId,
   });
@@ -582,6 +707,8 @@ class _DrugChartTable extends StatelessWidget {
           canAdminister: canAdminister,
           onStop: () => onStopOrder(order),
           onAdministrationChanged: onAdministrationChanged,
+          onReleaseHold: onReleaseHold,
+          releasingHoldIds: releasingHoldIds,
         ),
       ),
       ...draftRows.map(
@@ -783,6 +910,8 @@ class _DrugChartOrderRow extends StatelessWidget {
   final bool canAdminister;
   final VoidCallback onStop;
   final VoidCallback onAdministrationChanged;
+  final ValueChanged<Map<String, dynamic>> onReleaseHold;
+  final Set<int> releasingHoldIds;
 
   const _DrugChartOrderRow({
     required this.order,
@@ -790,6 +919,8 @@ class _DrugChartOrderRow extends StatelessWidget {
     required this.canAdminister,
     required this.onStop,
     required this.onAdministrationChanged,
+    required this.onReleaseHold,
+    required this.releasingHoldIds,
   });
 
   @override
@@ -882,7 +1013,10 @@ class _DrugChartOrderRow extends StatelessWidget {
               slot: slot,
               order: order,
               canAdminister: canAdminister,
+              canReleaseHold: canPrescribe,
               onAdministrationChanged: onAdministrationChanged,
+              onReleaseHold: onReleaseHold,
+              releasingHoldIds: releasingHoldIds,
             ),
           ),
           _tableTextCell(
@@ -1704,13 +1838,19 @@ class _DoseTimeCell extends StatelessWidget {
   final _DoseSlot slot;
   final Map<String, dynamic> order;
   final bool canAdminister;
+  final bool canReleaseHold;
   final VoidCallback onAdministrationChanged;
+  final ValueChanged<Map<String, dynamic>> onReleaseHold;
+  final Set<int> releasingHoldIds;
 
   const _DoseTimeCell({
     required this.slot,
     required this.order,
     required this.canAdminister,
+    required this.canReleaseHold,
     required this.onAdministrationChanged,
+    required this.onReleaseHold,
+    required this.releasingHoldIds,
   });
 
   @override
@@ -1725,10 +1865,17 @@ class _DoseTimeCell extends StatelessWidget {
         )
         .toList();
     final latest = matched.isEmpty ? null : matched.last;
-    final status = _text(latest?['status'], fallback: 'scheduled');
+    final status = _text(
+      latest?['status'],
+      fallback: 'scheduled',
+    ).toLowerCase();
+    final maId = int.tryParse(latest?['id']?.toString() ?? '');
     final given = latest == null ? null : _dateTime(latest['administered_at']);
-    final due = latest != null && (status == 'scheduled' || status == 'held');
+    final scheduled = latest != null && status == 'scheduled';
+    final held = latest != null && status == 'held';
+    final releasing = maId != null && releasingHoldIds.contains(maId);
     final selected = doseTimes.contains(slot.time) || latest != null;
+    final strings = AppStrings.of(context);
 
     return _tableCell(
       width: _timeCol,
@@ -1740,32 +1887,82 @@ class _DoseTimeCell extends StatelessWidget {
                   Icon(
                     given != null
                         ? Icons.check_circle
-                        : due
+                        : scheduled || held
                         ? Icons.schedule
                         : Icons.radio_button_checked,
                     color: given != null
                         ? AppTheme.successOnSurface
-                        : due
+                        : scheduled || held
                         ? AppTheme.warningOnSurface
                         : AppTheme.primaryBlue,
                     size: 18,
                   ),
-                  if (canAdminister && due && latest['id'] != null)
+                  if (canOpenDrugChartMarScanner(
+                        status,
+                        canAdminister: canAdminister,
+                      ) &&
+                      maId != null)
                     TextButton(
+                      key: Key('drug-chart-mar-scan-$maId'),
                       style: TextButton.styleFrom(
                         padding: EdgeInsets.zero,
                         minimumSize: const Size(48, 28),
                       ),
                       onPressed: () => context
-                          .push('/mar/scan/${latest['id']}')
+                          .push('/mar/scan/$maId')
                           .then((_) => onAdministrationChanged()),
-                      child: Text(AppStrings.of(context).drugChartScan),
+                      child: Text(strings.drugChartScan),
+                    )
+                  else if (held)
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Tooltip(
+                          message: strings.lookup('due_meds.held_review_state'),
+                          child: Text(
+                            strings.dueMedsHeldBadge,
+                            key: Key('drug-chart-held-review-${maId ?? 0}'),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: AppTheme.errorOnSurface,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        if (canReleaseDrugChartMarHold(
+                              status,
+                              canPrescribe: canReleaseHold,
+                              deviceMode: appDeviceModeForContext(context),
+                            ) &&
+                            maId != null)
+                          TextButton(
+                            key: Key('drug-chart-release-hold-$maId'),
+                            style: TextButton.styleFrom(
+                              padding: EdgeInsets.zero,
+                              minimumSize: const Size(48, 28),
+                            ),
+                            onPressed: releasing
+                                ? null
+                                : () => onReleaseHold(latest),
+                            child: releasing
+                                ? const SizedBox.square(
+                                    dimension: 14,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : Text(
+                                    strings.lookup('due_meds.actions.release'),
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(fontSize: 10),
+                                  ),
+                          ),
+                      ],
                     )
                   else
                     Text(
-                      given != null
-                          ? AppStrings.of(context).drugChartGiven
-                          : status,
+                      given != null ? strings.drugChartGiven : status,
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: AppTheme.textSecondary,

@@ -269,6 +269,63 @@ export const schemas = {
 
   // Approval rows share the counter-sale/inventory witness approval shape.
   PharmacySubstitutionWitnessApprovalResponse: envelope('PharmacyCounterSaleWitnessApproval'),
+
+  PharmacySupplyReservationRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['inventory_item_id', 'quantity', 'reference_type', 'reference_id'],
+    properties: {
+      inventory_item_id: { type: 'integer', minimum: 1 },
+      quantity: { type: 'number', minimum: 0.0001, multipleOf: 0.0001 },
+      movement_kind: {
+        type: 'string',
+        enum: ['issue', 'transfer_out', 'adjust_decrease', 'dispose', 'expire'],
+        default: 'issue',
+        description:
+          'Server-approved stock-decreasing operation. Increasing and status-only labels are rejected before any database mutation.',
+      },
+      reference_type: { type: 'string', minLength: 1, maxLength: 60 },
+      reference_id: { type: 'string', minLength: 1, maxLength: 120 },
+      notes: { type: 'string', maxLength: 8000, nullable: true },
+    },
+  },
+  PharmacySupplyReservationBatch: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['batch_id', 'quantity_taken'],
+    properties: {
+      batch_id: { type: 'integer', minimum: 1 },
+      batch_number: { type: 'string', nullable: true },
+      quantity_taken: { type: 'number', minimum: 0.0001, multipleOf: 0.0001 },
+    },
+  },
+  PharmacySupplyReservationResult: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['requested', 'fulfilled', 'short_by', 'consumed'],
+    properties: {
+      requested: { type: 'number', minimum: 0.0001, multipleOf: 0.0001 },
+      fulfilled: { type: 'number', minimum: 0, multipleOf: 0.0001 },
+      short_by: { type: 'number', minimum: 0, multipleOf: 0.0001 },
+      consumed: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/PharmacySupplyReservationBatch' },
+      },
+      idempotent_replay: { type: 'boolean', nullable: true },
+    },
+  },
+  PharmacySupplyReservationResponse: envelope('PharmacySupplyReservationResult'),
+  PharmacySupplyReservationErrorResponse: {
+    type: 'object',
+    required: ['success', 'message'],
+    properties: {
+      success: { type: 'boolean', enum: [false] },
+      message: { type: 'string' },
+      code: { type: 'string', nullable: true },
+      details: { type: 'object', additionalProperties: true, nullable: true },
+      requestId: { type: 'string', nullable: true },
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -315,6 +372,14 @@ const substitutionIdempotencyKeyParameter = {
   },
 };
 const substitutionApprovalIdPathSchema = { type: 'string', pattern: '^[1-9][0-9]*$' };
+const supplyReservationErrorResponse = (description) => ({
+  description,
+  content: {
+    'application/json': {
+      schema: { $ref: '#/components/schemas/PharmacySupplyReservationErrorResponse' },
+    },
+  },
+});
 
 const OPS = [
   ['GET /catalog', { response: 'PharmacyCatalogListResponse' }],
@@ -349,6 +414,34 @@ const OPS = [
 ];
 
 const PREFIXES = ['/api/v1/pharmacy-orders', '/api/v1/pharmacy'];
+const SUPPLY_PREFIXES = ['/api/v1/admin/pharmacy-supply', '/api/v1/pharmacy-supply'];
+const SUPPLY_RESERVATION_OPS = [
+  ['POST /reserve-stock', {
+    description:
+      'Atomically decrements usable batches in first-expiry-first-out order and records one movement per consumed batch. Idempotency-Key is required and canonical across both route aliases; the exact result, including zero fulfilment, is committed as an immutable receipt so later stock replenishment cannot change a replay. Only issue, transfer_out, adjust_decrease, dispose, and expire are accepted. Schedule H/H1/X and narcotic items fail closed because this generic endpoint carries no witnessed statutory-register evidence.',
+    request: 'PharmacySupplyReservationRequest',
+    response: 'PharmacySupplyReservationResponse',
+    security: substitutionBearerSecurity,
+    parameters: [substitutionIdempotencyKeyParameter],
+    additionalResponses: {
+      400: supplyReservationErrorResponse(
+        'The request, movement kind, quantity, or required Idempotency-Key is invalid.',
+      ),
+      403: supplyReservationErrorResponse(
+        'The authenticated role is not permitted, the actor is missing, or controlled stock requires a witnessed path.',
+      ),
+      409: supplyReservationErrorResponse(
+        'The command is already in flight or durable reservation evidence is inconsistent.',
+      ),
+      422: supplyReservationErrorResponse(
+        'The Idempotency-Key was reused with a different reservation body.',
+      ),
+      503: supplyReservationErrorResponse(
+        'The idempotency store is unavailable, so the reservation failed closed.',
+      ),
+    },
+  }],
+];
 
 /** Fan each [«METHOD /suffix», overlay] out to the given mount prefixes. */
 function aliasOps(pairs, prefixes = PREFIXES) {
@@ -362,4 +455,7 @@ function aliasOps(pairs, prefixes = PREFIXES) {
   return out;
 }
 
-export const operations = aliasOps(OPS);
+export const operations = {
+  ...aliasOps(OPS),
+  ...aliasOps(SUPPLY_RESERVATION_OPS, SUPPLY_PREFIXES),
+};

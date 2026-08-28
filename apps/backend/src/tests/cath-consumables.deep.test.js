@@ -1,8 +1,12 @@
 import prisma from '../lib/prisma.js';
 import {
+  __testing__ as cathLabTesting,
+  getCathConsumableInventoryReconciliation,
   listUnbilledConsumableUsage,
   maybeEmitCathBillingLines,
+  reconcileCathConsumableInventory,
   recordConsumableUsage,
+  sweepCathInventoryShortfallAssignments,
   transitionCaseStatus,
   upsertCathConsumablesBillingSettings,
   upsertConsumableCatalogItem,
@@ -16,8 +20,12 @@ const TENANT_A = '00000000-0000-4000-8000-000000000001';
 const TENANT_B = '00000000-0000-4000-8000-00000000d1b2';
 const PATIENT_A = 'cd000000-0000-4000-8000-00000000a001';
 const CLINICIAN_A = 'cd000000-0000-4000-8000-00000000a002';
+const ADMIN_A = 'cd000000-0000-4000-8000-00000000a003';
+const PHARMACIST_A = 'cd000000-0000-4000-8000-00000000a004';
+const PHARMACY_INCHARGE_A = 'cd000000-0000-4000-8000-00000000a005';
 const PATIENT_B = 'cd000000-0000-4000-8000-00000000b001';
-const RLS_ROLE = 'rls_test_app';
+const RLS_ROLE = 'vhhealth_runtime';
+const CATH_RUNTIME_ROLES = ['vhhealth_app', 'vhhealth_runtime'];
 const PROCEDURE_CODE = 'CATH-PROC-NL13-P1D-TEST';
 const IMPLANT_CODE = 'CATH-IMPLANT-NL13-P1D-TEST';
 
@@ -40,6 +48,8 @@ let lowStockBatchId;
 let mappedCatalog;
 let wasteCatalog;
 let unmappedCatalog;
+let shortfallUsageId;
+let pharmacyOperatorSnapshots = [];
 
 async function asRlsRole(tenantId, sql, ...params) {
   return prisma.$transaction(async (tx) => {
@@ -49,6 +59,28 @@ async function asRlsRole(tenantId, sql, ...params) {
       tenantId,
     );
     return tx.$queryRawUnsafe(sql, ...params);
+  });
+}
+
+async function asCathRuntimeRole(role, tenantId, sql, ...params) {
+  if (!CATH_RUNTIME_ROLES.includes(role)) {
+    throw new Error(`Unsupported Cath runtime probe role: ${role}`);
+  }
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL ROLE ${role}`);
+    await tx.$executeRawUnsafe(
+      "SELECT set_config('app.current_tenant_id', $1, true)",
+      tenantId,
+    );
+    return tx.$queryRawUnsafe(sql, ...params);
+  });
+}
+
+async function executeWithImmediateConstraints(sql, ...params) {
+  return prisma.$transaction(async (tx) => {
+    const result = await tx.$executeRawUnsafe(sql, ...params);
+    await tx.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
+    return result;
   });
 }
 
@@ -80,13 +112,90 @@ async function cleanup() {
       PATIENT_B,
     );
     await tx.$executeRawUnsafe(
-      `DELETE FROM pharmacy_stock_movements
-        WHERE reference_type = 'cath_consumable_usage'
-          AND reference_id IN (
+      `DELETE FROM notification_outbox
+        WHERE type = 'cath_inventory_shortfall'
+          AND payload->>'cath_consumable_usage_id' IN (
             SELECT id::text
               FROM cath_case_consumable_usage
              WHERE patient_uid IN ($1::uuid, $2::uuid)
           )`,
+      PATIENT_A,
+      PATIENT_B,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM audit_logs
+        WHERE tenant_id IN ($1::uuid, $2::uuid)
+          AND action = 'CATH_INVENTORY_SHORTFALL_ASSIGNMENT_RECOVERED'
+          AND resource = 'task'
+          AND resource_id IN (
+            SELECT id::text
+              FROM tasks
+             WHERE related_resource_type = 'cath_case_consumable_usage'
+               AND patient_uid IN ($3::uuid, $4::uuid)
+          )`,
+      TENANT_A,
+      TENANT_B,
+      PATIENT_A,
+      PATIENT_B,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM tasks
+        WHERE related_resource_type = 'cath_case_consumable_usage'
+          AND related_resource_id IN (
+            SELECT id::text
+              FROM cath_case_consumable_usage
+             WHERE patient_uid IN ($1::uuid, $2::uuid)
+          )`,
+      PATIENT_A,
+      PATIENT_B,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM tasks
+        WHERE tenant_id = $1::uuid
+          AND title = 'Cath identity spoof probe'`,
+      TENANT_A,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM workflow_sla_instances
+        WHERE tenant_id = $1::uuid
+          AND metadata->>'task_contract' = 'cath_inventory_shortfall_v1'
+          AND rule_code = 'generic_inventory_follow_up'`,
+      TENANT_A,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM notification_outbox
+        WHERE tenant_id = $1::uuid
+          AND source_event_key LIKE 'generic:cath-spoof:%'`,
+      TENANT_A,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM workflow_sla_instances
+        WHERE source_table = 'cath_case_consumable_usage'
+          AND source_id IN (
+            SELECT id::text
+              FROM cath_case_consumable_usage
+             WHERE patient_uid IN ($1::uuid, $2::uuid)
+          )`,
+      PATIENT_A,
+      PATIENT_B,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM pharmacy_stock_movements
+        WHERE (
+          reference_type = 'cath_consumable_usage'
+          AND reference_id IN (
+              SELECT id::text
+                FROM cath_case_consumable_usage
+               WHERE patient_uid IN ($1::uuid, $2::uuid)
+            )
+        ) OR (
+          reference_type = 'cath_consumable_reconciliation'
+          AND metadata->>'cath_consumable_usage_id' IN (
+              SELECT id::text
+                FROM cath_case_consumable_usage
+               WHERE patient_uid IN ($1::uuid, $2::uuid)
+            )
+        )`,
       PATIENT_A,
       PATIENT_B,
     );
@@ -134,9 +243,22 @@ async function cleanup() {
       PATIENT_B,
     );
     await tx.$executeRawUnsafe(
-      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+      `DELETE FROM idempotency_keys
+        WHERE user_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+      ADMIN_A,
+      PHARMACIST_A,
+      PHARMACY_INCHARGE_A,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM users
+        WHERE uid IN (
+          $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid
+        )`,
       PATIENT_A,
       CLINICIAN_A,
+      ADMIN_A,
+      PHARMACIST_A,
+      PHARMACY_INCHARGE_A,
       PATIENT_B,
     );
     await tx.$executeRawUnsafe(
@@ -148,9 +270,61 @@ async function cleanup() {
   });
 }
 
+async function createCathInventoryReconciliationClaim(
+  requestKey,
+  actorUid = PHARMACIST_A,
+  actorRole = 'PHARMACIST',
+) {
+  const requestPath = `/api/v1/cath-lab/cases/${String(caseAId)}`
+    + `/consumables/${String(shortfallUsageId)}/inventory-reconcile`;
+  const requestFingerprint = cathLabTesting.cathInventoryReconciliationRequestFingerprint(
+    caseAId,
+    shortfallUsageId,
+  );
+  const [claim] = await prisma.$queryRawUnsafe(
+    `INSERT INTO idempotency_keys
+       (tenant_id, request_key, user_uid, request_method, request_path,
+        request_body_hash, status)
+     VALUES ($1::uuid, $2::text, $3::uuid, 'POST', $4::text, $5::char(64), 'in_flight')
+     RETURNING id`,
+    TENANT_A,
+    requestKey,
+    actorUid,
+    requestPath,
+    requestFingerprint,
+  );
+  return {
+    tenantId: TENANT_A,
+    actorUid,
+    actorRole,
+    rawRole: actorRole,
+    actorRoles: [actorRole],
+    idempotencyKey: requestKey,
+    requestFingerprint,
+    httpIdempotencyClaimId: claim.id,
+    requestId: requestKey,
+  };
+}
+
 describeIfDb('NL-13 P1d cath consumables deep integration', () => {
   beforeAll(async () => {
     await cleanup();
+    pharmacyOperatorSnapshots = await prisma.$queryRawUnsafe(
+      `SELECT uid, is_active, status, updated_at
+         FROM users
+        WHERE tenant_id = $1::uuid
+          AND role IN ('PHARMACIST', 'PHARMACY_STAFF', 'PHARMACY_INCHARGE')`,
+      TENANT_A,
+    );
+    await prisma.$executeRawUnsafe(
+      `UPDATE users
+          SET is_active = FALSE,
+              status = 'inactive',
+              updated_at = NOW()
+        WHERE tenant_id = $1::uuid
+          AND role IN ('PHARMACIST', 'PHARMACY_STAFF', 'PHARMACY_INCHARGE')`,
+      TENANT_A,
+    );
     await prisma.$executeRawUnsafe(
       `INSERT INTO tenants (id, slug, name)
        VALUES ($1::uuid, 'nl13-p1d-tenant-b', 'NL13 P1d Tenant B')`,
@@ -161,10 +335,12 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
        VALUES
          ($1::uuid, $2::uuid, '9011776101', 'Cath Consumable Patient A', 'PATIENT', TRUE, 'active', NOW()),
          ($1::uuid, $3::uuid, '9011776102', 'Dr Cath Consumable A', 'DOCTOR', TRUE, 'active', NOW()),
-         ($4::uuid, $5::uuid, '9011776103', 'Cath Consumable Patient B', 'PATIENT', TRUE, 'active', NOW())`,
+         ($1::uuid, $4::uuid, '9011776104', 'Cath Coverage Admin A', 'ADMIN', TRUE, 'active', NOW()),
+         ($5::uuid, $6::uuid, '9011776103', 'Cath Consumable Patient B', 'PATIENT', TRUE, 'active', NOW())`,
       TENANT_A,
       PATIENT_A,
       CLINICIAN_A,
+      ADMIN_A,
       TENANT_B,
       PATIENT_B,
     );
@@ -289,11 +465,26 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
 
   afterAll(async () => {
     await cleanup();
+    for (const snapshot of pharmacyOperatorSnapshots) {
+      await prisma.$executeRawUnsafe(
+        `UPDATE users
+            SET is_active = $3::boolean,
+                status = $4::text,
+                updated_at = $5::timestamptz
+          WHERE tenant_id = $1::uuid
+            AND uid = $2::uuid`,
+        TENANT_A,
+        snapshot.uid,
+        snapshot.is_active,
+        snapshot.status,
+        snapshot.updated_at,
+      );
+    }
     await prisma.$disconnect().catch(() => {});
   });
 
   test('rejects missing batch/expiry at the database constraint', async () => {
-    await expect(prisma.$executeRawUnsafe(
+    await expect(executeWithImmediateConstraints(
       `INSERT INTO cath_case_consumable_usage
          (tenant_id, case_id, procedure_log_id, catalog_item_id, patient_uid,
           quantity, batch_tracked, is_implant, serial_number,
@@ -333,7 +524,7 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
       tenantBItemId,
     )).rejects.toThrow(/fk_cath_consumable_catalog_inventory_tenant|foreign key/i);
 
-    await expect(prisma.$executeRawUnsafe(
+    await expect(executeWithImmediateConstraints(
       `INSERT INTO cath_consumable_catalog
          (tenant_id, item_name, category, is_implant, batch_tracked)
        VALUES ($1::uuid, 'Invalid non-implant stent', 'stent', FALSE, TRUE)`,
@@ -505,20 +696,507 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
       inventory_batch_id: lowStockBatchId,
       quantity: 2,
     }, actor);
+    shortfallUsageId = usage.id;
     expect(usage.id).toBeTruthy();
     expect(usage.inventory_decrement_status).toBe('insufficient_stock');
-    expect(usage.inventory_warning).toMatch(/clinical usage was saved/i);
+    expect(usage.inventory_warning).toMatch(
+      /documented 2\.0000, decremented 0\.5000/i,
+    );
     const batch = await prisma.$queryRawUnsafe(
       `SELECT remaining_quantity FROM pharmacy_inventory_batches WHERE id = $1::int`,
       lowStockBatchId,
     );
-    expect(Number(batch[0].remaining_quantity)).toBe(0.5);
+    expect(Number(batch[0].remaining_quantity)).toBe(0);
+    const [contract] = await prisma.$queryRawUnsafe(
+      `SELECT task.id AS task_id,
+              task.status AS task_status,
+              task.assigned_to_uid,
+              task.assigned_to_role,
+              task.workflow_sla_instance_id,
+              sla.status AS sla_status,
+              sla.assigned_role_codes,
+              outbox.id AS notification_id,
+              outbox.payload->>'coverage_gap' AS coverage_gap,
+              outbox.payload->>'delivery_coverage' AS delivery_coverage,
+              outbox.payload->>'recipient_role' AS recipient_role,
+              movement.quantity_delta
+         FROM cath_case_consumable_usage usage
+         JOIN tasks task
+           ON task.tenant_id = usage.tenant_id
+          AND task.related_resource_type = 'cath_case_consumable_usage'
+          AND task.related_resource_id = usage.id::text
+          AND task.metadata->>'task_contract' = 'cath_inventory_shortfall_v1'
+         JOIN workflow_sla_instances sla
+           ON sla.id = task.workflow_sla_instance_id
+          AND sla.tenant_id = task.tenant_id
+         JOIN notification_outbox outbox
+           ON outbox.tenant_id = usage.tenant_id
+          AND outbox.type = 'cath_inventory_shortfall'
+          AND outbox.source_event_key = 'cath-inventory-shortfall:' || usage.id::text
+         JOIN pharmacy_stock_movements movement
+           ON movement.tenant_id = usage.tenant_id
+          AND movement.reference_type = 'cath_consumable_usage'
+          AND movement.reference_id = usage.id::text
+        WHERE usage.id = $1::bigint`,
+      usage.id,
+    );
+    expect(contract).toMatchObject({
+      task_status: 'open',
+      assigned_to_uid: null,
+      assigned_to_role: 'PHARMACIST',
+      sla_status: 'active',
+      assigned_role_codes: ['PHARMACIST', 'PHARMACY_STAFF', 'PHARMACY_INCHARGE'],
+      coverage_gap: 'true',
+      delivery_coverage: 'operator_recovery',
+    });
+    expect(['ADMIN', 'SUPER_ADMIN']).toContain(contract.recipient_role);
+    expect(contract.task_id).toBeTruthy();
+    expect(contract.workflow_sla_instance_id).toBeTruthy();
+    expect(contract.notification_id).toBeTruthy();
+    expect(Number(contract.quantity_delta)).toBe(-0.5);
+    const adminView = await getCathConsumableInventoryReconciliation(
+      caseAId,
+      usage.id,
+      {
+        tenantId: TENANT_A,
+        actorUid: ADMIN_A,
+        actorRole: 'ADMIN',
+        rawRole: 'ADMIN',
+        actorRoles: ['ADMIN'],
+      },
+    );
+    expect(adminView).toMatchObject({
+      case_id: String(caseAId),
+      usage_id: String(usage.id),
+      inventory_decrement_status: 'insufficient_stock',
+      decremented_quantity: '0.5000',
+      remaining_quantity: '1.5000',
+      actionable: false,
+      coverage_gap: true,
+    });
     const events = await prisma.$queryRawUnsafe(
       `SELECT id FROM clinical_timeline_events
         WHERE source_table = 'cath_case_consumable_usage' AND source_id = $1`,
       String(usage.id),
     );
     expect(events).toHaveLength(1);
+
+    for (const role of CATH_RUNTIME_ROLES) {
+      const rows = await asCathRuntimeRole(
+        role,
+        TENANT_A,
+        `UPDATE tasks
+            SET metadata = metadata
+          WHERE tenant_id = $1::uuid
+            AND related_resource_type = 'cath_case_consumable_usage'
+            AND related_resource_id = $2::text
+            AND metadata->>'task_contract' = 'cath_inventory_shortfall_v1'
+        RETURNING id`,
+        TENANT_A,
+        String(usage.id),
+      );
+      expect(rows).toHaveLength(1);
+    }
+  });
+
+  test('rejects direct-SQL Cath identity spoofing, desynchronization, under-evidence closure, and over-evidence movement', async () => {
+    const [contract] = await prisma.$queryRawUnsafe(
+      `SELECT task.id AS task_id,
+              task.workflow_sla_instance_id AS sla_id
+         FROM tasks task
+        WHERE task.tenant_id = $1::uuid
+          AND task.related_resource_type = 'cath_case_consumable_usage'
+          AND task.related_resource_id = $2::text
+          AND task.metadata->>'task_contract' = 'cath_inventory_shortfall_v1'`,
+      TENANT_A,
+      String(shortfallUsageId),
+    );
+
+    await expect(executeWithImmediateConstraints(
+      `INSERT INTO tasks
+         (tenant_id, task_kind, title, status, metadata)
+       VALUES ($1::uuid, 'general', 'Cath identity spoof probe', 'open',
+               jsonb_build_object('cath_consumable_usage_id', $2::text))`,
+      TENANT_A,
+      String(shortfallUsageId),
+    )).rejects.toThrow(/Cath inventory shortfall/i);
+
+    await expect(executeWithImmediateConstraints(
+      `INSERT INTO workflow_sla_instances
+         (tenant_id, rule_code, source_table, source_id, status, priority,
+          started_at, due_at, metadata)
+       VALUES ($1::uuid, 'generic_inventory_follow_up', 'generic_resource',
+               $2::text, 'active', 'normal',
+               date_trunc('milliseconds', clock_timestamp()),
+               date_trunc('milliseconds', clock_timestamp()) + INTERVAL '1 hour',
+               jsonb_build_object(
+                 'task_contract', 'cath_inventory_shortfall_v1',
+                 'cath_consumable_usage_id', $2::text
+               ))`,
+      TENANT_A,
+      String(shortfallUsageId),
+    )).rejects.toThrow(/Cath inventory shortfall/i);
+
+    await expect(executeWithImmediateConstraints(
+      `INSERT INTO notification_outbox
+         (tenant_id, type, title, body, payload, channel, source_event_key,
+          recipient_key, template_version, rendered_intent_hash)
+       VALUES ($1::uuid, 'generic_notice', 'Cath identity spoof probe',
+               'Cath identity spoof probe',
+               jsonb_build_object('cath_consumable_usage_id', $2::text),
+               'inapp', 'generic:cath-spoof:' || $2::text,
+               'generic:cath-spoof:' || $2::text, 'generic.v1', repeat('0', 64))`,
+      TENANT_A,
+      String(shortfallUsageId),
+    )).rejects.toThrow(/Cath inventory shortfall/i);
+
+    await expect(executeWithImmediateConstraints(
+      `UPDATE tasks
+          SET metadata = jsonb_set(
+            metadata,
+            '{deep_link}',
+            to_jsonb('/pharmacy/cath-inventory-reconciliation?case_id=1&consumable_usage_id=999'::text)
+          )
+        WHERE tenant_id = $1::uuid
+          AND id = $2::int`,
+      TENANT_A,
+      contract.task_id,
+    )).rejects.toThrow(/Cath inventory shortfall/i);
+
+    await expect(executeWithImmediateConstraints(
+      `UPDATE workflow_sla_instances
+          SET rule_code = 'generic_inventory_follow_up'
+        WHERE tenant_id = $1::uuid
+          AND id = $2::uuid`,
+      TENANT_A,
+      contract.sla_id,
+    )).rejects.toThrow(/Cath inventory shortfall|workflow SLA/i);
+
+    await expect(executeWithImmediateConstraints(
+      `UPDATE notification_outbox
+          SET type = 'generic_notice'
+        WHERE tenant_id = $1::uuid
+          AND type = 'cath_inventory_shortfall'
+          AND source_event_key = 'cath-inventory-shortfall:' || $2::text`,
+      TENANT_A,
+      String(shortfallUsageId),
+    )).rejects.toThrow(
+      /Cath inventory shortfall|Notification outbox rendered intent is immutable/i,
+    );
+
+    await expect(executeWithImmediateConstraints(
+      `UPDATE tasks
+          SET status = 'completed',
+              completed_at = date_trunc('milliseconds', clock_timestamp())
+        WHERE tenant_id = $1::uuid
+          AND id = $2::int`,
+      TENANT_A,
+      contract.task_id,
+    )).rejects.toThrow(/exact durable inventory evidence/i);
+
+    await expect(executeWithImmediateConstraints(
+      `INSERT INTO pharmacy_stock_movements
+         (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
+          quantity_delta, reference_type, reference_id, performed_by, notes, metadata)
+       VALUES ($1::uuid, $2::int, $3::int, 'issue', -2::numeric,
+               'cath_consumable_reconciliation', repeat('0', 64), $4::uuid,
+               'Direct SQL over-evidence forgery probe',
+               jsonb_build_object(
+                 'command_contract', 'cath_inventory_reconciliation_v1',
+                 'command_key_sha256', repeat('0', 64),
+                 'request_fingerprint', repeat('1', 64),
+                 'http_idempotency_claim_id', '1',
+                 'cath_consumable_usage_id', $5::text,
+                 'source_reference_type', 'cath_case_consumable_usage',
+                 'source_reference_id', $5::text,
+                 'requested_quantity', '2.0000',
+                 'quantity_taken', '2.0000',
+                 'inventory_batch_id', $3::text,
+                 'actor_role', 'PHARMACIST'
+               ))`,
+      TENANT_A,
+      lowStockItemId,
+      lowStockBatchId,
+      CLINICIAN_A,
+      String(shortfallUsageId),
+    )).rejects.toThrow(/Cath consumable movement evidence/i);
+  });
+
+  test('replenishes the same batch and reconciles only the exact remaining quantity', async () => {
+    await prisma.$queryRawUnsafe(
+      `INSERT INTO users
+         (tenant_id, uid, phone, name, role, is_active, status, updated_at)
+       VALUES ($1::uuid, $2::uuid, '9011776105', 'Cath Pharmacist A',
+               'PHARMACIST', TRUE, 'active', NOW())`,
+      TENANT_A,
+      PHARMACIST_A,
+    );
+    const pharmacyContext = {
+      tenantId: TENANT_A,
+      actorUid: PHARMACIST_A,
+      actorRole: 'PHARMACIST',
+      rawRole: 'PHARMACIST',
+      actorRoles: ['PHARMACIST'],
+    };
+    const before = await getCathConsumableInventoryReconciliation(
+      caseAId,
+      shortfallUsageId,
+      pharmacyContext,
+    );
+    expect(before).toMatchObject({
+      decremented_quantity: '0.5000',
+      remaining_quantity: '1.5000',
+      task_status: 'open',
+      sla_status: 'active',
+      actionable: true,
+    });
+
+    await prisma.$executeRawUnsafe(
+      `UPDATE pharmacy_inventory_batches
+          SET received_quantity = received_quantity + 0.5,
+              remaining_quantity = 0.5,
+              status = 'in_stock',
+              updated_at = NOW()
+        WHERE tenant_id = $1::uuid
+          AND id = $2::int`,
+      TENANT_A,
+      lowStockBatchId,
+    );
+    const partialContext = await createCathInventoryReconciliationClaim(
+      'cath-reconcile-partial-1',
+    );
+    const partial = await reconcileCathConsumableInventory(
+      caseAId,
+      shortfallUsageId,
+      partialContext,
+    );
+    expect(partial).toMatchObject({
+      outcome: 'still_insufficient',
+      reconciliation: {
+        inventory_decrement_status: 'insufficient_stock',
+        task_status: 'open',
+        decremented_quantity: '1.0000',
+        remaining_quantity: '1.0000',
+        actionable: true,
+      },
+    });
+
+    await prisma.$executeRawUnsafe(
+      `UPDATE users
+          SET is_active = FALSE,
+              status = 'inactive',
+              updated_at = NOW()
+        WHERE tenant_id = $1::uuid
+          AND uid = $2::uuid`,
+      TENANT_A,
+      PHARMACIST_A,
+    );
+    await expect(sweepCathInventoryShortfallAssignments({
+      tenantId: TENANT_A,
+      limit: 25,
+    })).resolves.toMatchObject({
+      scanned: 1,
+      recovered: 0,
+      coverage_gaps: 1,
+      skipped: 0,
+      failed: 0,
+    });
+    await prisma.$queryRawUnsafe(
+      `INSERT INTO users
+         (tenant_id, uid, phone, name, role, is_active, status, updated_at)
+       VALUES ($1::uuid, $2::uuid, '9011776106', 'Cath Pharmacy Incharge A',
+               'PHARMACY_INCHARGE', TRUE, 'active', NOW())`,
+      TENANT_A,
+      PHARMACY_INCHARGE_A,
+    );
+
+    const recovered = await sweepCathInventoryShortfallAssignments({
+      tenantId: TENANT_A,
+      limit: 25,
+    });
+    expect(recovered).toMatchObject({
+      scanned: 1,
+      recovered: 1,
+      coverage_gaps: 0,
+      skipped: 0,
+      failed: 0,
+    });
+    const [recoveredOwnership] = await prisma.$queryRawUnsafe(
+      `SELECT task.id::text AS task_id,
+              task.assigned_to_uid,
+              task.metadata->>'assignment_recovered_from_uid' AS recovered_from_uid,
+              sla.assigned_user_uid AS sla_assigned_user_uid,
+              audit.role AS audit_role,
+              audit.action AS audit_action,
+              audit.metadata->>'recovered_assigned_to_uid' AS audit_recovered_uid
+         FROM tasks task
+         JOIN workflow_sla_instances sla
+           ON sla.tenant_id = task.tenant_id
+          AND sla.id = task.workflow_sla_instance_id
+         JOIN audit_logs audit
+           ON audit.tenant_id = task.tenant_id
+          AND audit.resource = 'task'
+          AND audit.resource_id = task.id::text
+          AND audit.action = 'CATH_INVENTORY_SHORTFALL_ASSIGNMENT_RECOVERED'
+        WHERE task.tenant_id = $1::uuid
+          AND task.related_resource_type = 'cath_case_consumable_usage'
+          AND task.related_resource_id = $2::text
+          AND task.metadata->>'task_contract' = 'cath_inventory_shortfall_v1'`,
+      TENANT_A,
+      String(shortfallUsageId),
+    );
+    expect(recoveredOwnership).toMatchObject({
+      assigned_to_uid: PHARMACY_INCHARGE_A,
+      recovered_from_uid: PHARMACIST_A,
+      sla_assigned_user_uid: PHARMACY_INCHARGE_A,
+      audit_role: 'system',
+      audit_action: 'CATH_INVENTORY_SHORTFALL_ASSIGNMENT_RECOVERED',
+      audit_recovered_uid: PHARMACY_INCHARGE_A,
+    });
+    await expect(sweepCathInventoryShortfallAssignments({
+      tenantId: TENANT_A,
+      limit: 25,
+    })).resolves.toMatchObject({ scanned: 0, recovered: 0 });
+
+    await prisma.$executeRawUnsafe(
+      `UPDATE pharmacy_inventory_batches
+          SET received_quantity = received_quantity + 1,
+              remaining_quantity = 1,
+              status = 'in_stock',
+              updated_at = NOW()
+        WHERE tenant_id = $1::uuid
+          AND id = $2::int`,
+      TENANT_A,
+      lowStockBatchId,
+    );
+    const [completionContext, concurrentReplayContext] = await Promise.all([
+      createCathInventoryReconciliationClaim(
+        'cath-reconcile-complete-1',
+        PHARMACY_INCHARGE_A,
+        'PHARMACY_INCHARGE',
+      ),
+      createCathInventoryReconciliationClaim(
+        'cath-reconcile-concurrent-1',
+        PHARMACY_INCHARGE_A,
+        'PHARMACY_INCHARGE',
+      ),
+    ]);
+    const completions = await Promise.all([
+      reconcileCathConsumableInventory(
+        caseAId,
+        shortfallUsageId,
+        completionContext,
+      ),
+      reconcileCathConsumableInventory(
+        caseAId,
+        shortfallUsageId,
+        concurrentReplayContext,
+      ),
+    ]);
+    for (const result of completions) {
+      expect(result).toMatchObject({
+        outcome: 'completed',
+        reconciliation: {
+          inventory_decrement_status: 'decremented',
+          task_status: 'completed',
+          sla_status: 'completed',
+          decremented_quantity: '2.0000',
+          remaining_quantity: '0.0000',
+          actionable: false,
+        },
+      });
+    }
+
+    const [evidence] = await prisma.$queryRawUnsafe(
+      `SELECT usage.inventory_decrement_status,
+              usage.inventory_movement_id,
+              task.status AS task_status,
+              task.assigned_to_uid,
+              task.completed_at AS task_completed_at,
+              sla.status AS sla_status,
+              sla.completed_at AS sla_completed_at,
+              sla.metadata->>'completed_by' AS sla_completed_by,
+              final_movement.created_at AS movement_created_at,
+              final_movement.performed_by AS movement_performed_by,
+              final_movement.reference_type AS movement_reference_type,
+              final_movement.metadata->>'command_contract' AS command_contract,
+              COUNT(movement.id)::int AS movement_count,
+              SUM(-movement.quantity_delta)::numeric(14,4)::text AS movement_total,
+              COUNT(DISTINCT outbox.id)::int AS notification_count
+         FROM cath_case_consumable_usage usage
+         JOIN tasks task
+           ON task.tenant_id = usage.tenant_id
+          AND task.related_resource_type = 'cath_case_consumable_usage'
+          AND task.related_resource_id = usage.id::text
+          AND task.metadata->>'task_contract' = 'cath_inventory_shortfall_v1'
+         JOIN workflow_sla_instances sla
+           ON sla.id = task.workflow_sla_instance_id
+          AND sla.tenant_id = task.tenant_id
+         JOIN pharmacy_stock_movements final_movement
+           ON final_movement.tenant_id = usage.tenant_id
+          AND final_movement.id = usage.inventory_movement_id
+         JOIN pharmacy_stock_movements movement
+           ON movement.tenant_id = usage.tenant_id
+          AND (
+            (movement.reference_type = 'cath_consumable_usage'
+             AND movement.reference_id = usage.id::text)
+            OR
+            (movement.reference_type = 'cath_consumable_reconciliation'
+             AND movement.metadata->>'cath_consumable_usage_id' = usage.id::text)
+          )
+         JOIN notification_outbox outbox
+           ON outbox.tenant_id = usage.tenant_id
+          AND outbox.type = 'cath_inventory_shortfall'
+          AND outbox.source_event_key = 'cath-inventory-shortfall:' || usage.id::text
+        WHERE usage.id = $1::bigint
+        GROUP BY usage.inventory_decrement_status, usage.inventory_movement_id,
+                 task.status, task.assigned_to_uid, task.completed_at,
+                 sla.status, sla.completed_at, sla.metadata,
+                 final_movement.created_at, final_movement.performed_by,
+                 final_movement.reference_type, final_movement.metadata`,
+      shortfallUsageId,
+    );
+    expect(evidence).toMatchObject({
+      inventory_decrement_status: 'decremented',
+      task_status: 'completed',
+      assigned_to_uid: PHARMACY_INCHARGE_A,
+      sla_completed_by: PHARMACY_INCHARGE_A,
+      movement_performed_by: PHARMACY_INCHARGE_A,
+      movement_reference_type: 'cath_consumable_reconciliation',
+      command_contract: 'cath_inventory_reconciliation_v1',
+      movement_count: 3,
+      movement_total: '2.0000',
+      notification_count: 1,
+    });
+    expect(evidence.inventory_movement_id).toBeTruthy();
+    expect(evidence.task_completed_at).toEqual(evidence.movement_created_at);
+    expect(evidence.sla_completed_at).toEqual(evidence.movement_created_at);
+    const [stock] = await prisma.$queryRawUnsafe(
+      `SELECT remaining_quantity
+         FROM pharmacy_inventory_batches
+        WHERE tenant_id = $1::uuid
+          AND id = $2::int`,
+      TENANT_A,
+      lowStockBatchId,
+    );
+    expect(Number(stock.remaining_quantity)).toBe(0);
+
+    for (const role of CATH_RUNTIME_ROLES) {
+      const rows = await asCathRuntimeRole(
+        role,
+        TENANT_A,
+        `UPDATE tasks
+            SET metadata = metadata
+          WHERE tenant_id = $1::uuid
+            AND related_resource_type = 'cath_case_consumable_usage'
+            AND related_resource_id = $2::text
+            AND metadata->>'task_contract' = 'cath_inventory_shortfall_v1'
+        RETURNING id`,
+        TENANT_A,
+        String(shortfallUsageId),
+      );
+      expect(rows).toHaveLength(1);
+    }
   });
 
   test('completion emits mapped billing lines and keeps unmapped usage fail-visible', async () => {
@@ -642,7 +1320,7 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
     expect(activeLines[0].invoice_id).not.toBe(activeInvoice.id);
   });
 
-  test('voiding an issued invoice keeps its posted cath source reference active', async () => {
+  test('issued invoice remains posted and requires the auditable reversal workflow', async () => {
     const [issuedInvoice] = await prisma.$queryRawUnsafe(
       `INSERT INTO billing_invoices
          (tenant_id, patient_uid, invoice_type, department, status, issued_at)
@@ -664,10 +1342,13 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
       sourceRefId,
     );
 
-    await voidInvoice(issuedInvoice.id, {
+    await expect(voidInvoice(issuedInvoice.id, {
       tenantId: TENANT_A,
       reason: 'Deep test issued source remains claimed',
       voided_by: CLINICIAN_A,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'BILLING_INVOICE_REVERSAL_WORKFLOW_REQUIRED',
     });
 
     const [postedLine] = await prisma.$queryRawUnsafe(
@@ -680,7 +1361,7 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
       TENANT_A,
       sourceRefId,
     );
-    expect(postedLine).toEqual({ source_ref_active: true, status: 'VOID' });
+    expect(postedLine).toEqual({ source_ref_active: true, status: 'ISSUED' });
   });
 
   test('concurrent cath hooks share one draft and keep every active line together', async () => {
@@ -1006,12 +1687,14 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
           WHERE id = $1::bigint`,
         beforeUsage.id,
       );
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
       await tx.$executeRawUnsafe(
         `DELETE FROM pharmacy_stock_movements
           WHERE reference_type = 'cath_consumable_usage'
             AND reference_id = $1`,
         String(beforeUsage.id),
       );
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'origin'`);
       await tx.$executeRawUnsafe(
         `UPDATE pharmacy_inventory_batches
             SET remaining_quantity = 3, status = 'in_stock'
@@ -1105,6 +1788,18 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
       idempotencyKey: 'nl13-p1d-replay-completed-billing',
     };
     const usage = await recordConsumableUsage(caseAId, input, replayActor);
+    const [caseState] = await prisma.$queryRawUnsafe(
+      `SELECT status FROM cath_lab_cases
+        WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+      TENANT_A,
+      caseAId,
+    );
+    if (caseState.status !== 'completed') {
+      await transitionCaseStatus(caseAId, {
+        tenantId: TENANT_A,
+        status: 'completed',
+      }, actor);
+    }
 
     await prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(
@@ -1115,6 +1810,7 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
           WHERE id = $1::bigint`,
         usage.id,
       );
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
       await tx.$executeRawUnsafe(
         `DELETE FROM pharmacy_stock_movements
           WHERE tenant_id = $1::uuid
@@ -1123,6 +1819,7 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
         TENANT_A,
         String(usage.id),
       );
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'origin'`);
       await tx.$executeRawUnsafe(
         `UPDATE pharmacy_inventory_batches
             SET remaining_quantity = 2, status = 'in_stock'
@@ -1219,12 +1916,14 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
           WHERE id = $1::bigint`,
         beforeUsage.id,
       );
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
       await tx.$executeRawUnsafe(
         `DELETE FROM pharmacy_stock_movements
           WHERE reference_type = 'cath_consumable_usage'
             AND reference_id = $1`,
         String(beforeUsage.id),
       );
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'origin'`);
       await tx.$executeRawUnsafe(
         `UPDATE pharmacy_inventory_batches
             SET remaining_quantity = 4, status = 'in_stock'

@@ -232,6 +232,20 @@ class PharmacyApiService {
     );
   }
 
+  /// Records an Inventory V2 movement. Controlled returns are committed with
+  /// their statutory schedule-register row by the backend in the same tenant
+  /// transaction.
+  static Future<Map<String, dynamic>> recordInventoryMovement({
+    required Map<String, dynamic> movement,
+    required String idempotencyKey,
+  }) {
+    return _post(
+      '/pharmacy/inventory/v2/movements',
+      movement,
+      idempotencyKey: idempotencyKey,
+    );
+  }
+
   /// POST /pharmacy/inventory/v2/items — Stores/Purchase or Pharmacy Incharge.
   static Future<Map<String, dynamic>> createInventoryItem({
     required String skuCode,
@@ -413,6 +427,22 @@ class PharmacyApiService {
   /// event history, and controlled-handoff recovery evidence.
   static Future<Map<String, dynamic>> getWardIndent(int id) {
     return _get('/pharmacy-orders/ward-indents/$id');
+  }
+
+  /// Loads same-facility, catalog-matched stock candidates for one exact ward
+  /// indent line, including unreserved FEFO batch capacity.
+  static Future<List<Map<String, dynamic>>> getWardIndentInventoryCandidates(
+    int indentId,
+    int itemId,
+  ) async {
+    final response = await _get(
+      '/pharmacy-orders/ward-indents/$indentId/items/$itemId/'
+      'inventory-candidates',
+    );
+    return _listFrom(response, const ['candidates'])
+        .whereType<Map>()
+        .map((row) => Map<String, dynamic>.from(row))
+        .toList(growable: false);
   }
 
   /// POST one canonical ward-indent transition. The backend re-authorizes the
@@ -618,6 +648,7 @@ class PharmacyApiService {
     required String paymentMode,
     String? paymentReference,
     String? notes,
+    required String idempotencyKey,
   }) async {
     return _post('/pharmacy-orders/counter-sales', {
       'lines': lines,
@@ -627,9 +658,10 @@ class PharmacyApiService {
       'rx': ?rx,
       'witness_approval_id': ?witnessApprovalId,
       'payment_mode': paymentMode,
-      'payment_reference': ?paymentReference,
+      if (paymentReference != null)
+        'payment_reference': paymentReference.trim(),
       'notes': ?notes,
-    });
+    }, idempotencyKey: idempotencyKey);
   }
 
   /// GET /pharmacy-orders/counter-sales — recent sales (newest first).
@@ -646,12 +678,58 @@ class PharmacyApiService {
     ]).whereType<Map>().map((row) => Map<String, dynamic>.from(row)).toList();
   }
 
-  /// POST /pharmacy-orders/counter-sales/:id/void — same-day void: billing
-  /// refund + exact per-batch restock (register returns for scheduled lines).
+  /// GET /pharmacy-orders/counter-sales/:id — authoritative sale, refund and
+  /// void-reconciliation state after a money/stock mutation.
+  static Future<Map<String, dynamic>> getCounterSale(String id) {
+    return _get('/pharmacy-orders/counter-sales/${id.trim()}');
+  }
+
+  /// POST /pharmacy-orders/counter-sales/:id/void — requests a same-day void.
+  /// Billing approval and payout remain independent; exact per-batch restock
+  /// follows only after paid-refund evidence is reconciled.
   static Future<Map<String, dynamic>> voidCounterSale(
     String id,
-    String reason,
-  ) async {
-    return _post('/pharmacy-orders/counter-sales/$id/void', {'reason': reason});
+    String reason, {
+    required String disposition,
+    required String idempotencyKey,
+  }) async {
+    return _post('/pharmacy-orders/counter-sales/$id/void', {
+      'reason': reason.trim(),
+      'disposition': disposition.trim().toUpperCase(),
+    }, idempotencyKey: idempotencyKey);
+  }
+
+  /// GET /pharmacy-orders/counter-sales/:id/void-status — authoritative
+  /// finance, payout and exact-restock reconciliation state.
+  static Future<Map<String, dynamic>> getCounterSaleVoidStatus(String id) {
+    return _get('/pharmacy-orders/counter-sales/${id.trim()}/void-status');
+  }
+
+  /// POST /pharmacy-orders/counter-sales/:id/void/reconcile — rechecks the
+  /// exact refund evidence and closes the sale/restock only when it is paid.
+  static Future<Map<String, dynamic>> reconcileCounterSaleVoid(
+    String id, {
+    required String idempotencyKey,
+  }) {
+    return _post(
+      '/pharmacy-orders/counter-sales/${id.trim()}/void/reconcile',
+      const {},
+      idempotencyKey: idempotencyKey,
+    );
+  }
+
+  /// POST /pharmacy-orders/counter-sales/:id/void/rejection/resolve — records
+  /// that medication was handed over after finance rejected the refund. This
+  /// cancels the void obligation without refunding or returning stock.
+  static Future<Map<String, dynamic>> resolveRejectedCounterSaleVoid(
+    String id, {
+    required String reason,
+    required String idempotencyKey,
+  }) {
+    return _post(
+      '/pharmacy-orders/counter-sales/${id.trim()}/void/rejection/resolve',
+      {'resolution': 'CUSTOMER_HANDOVER_CONFIRMED', 'reason': reason.trim()},
+      idempotencyKey: idempotencyKey,
+    );
   }
 }

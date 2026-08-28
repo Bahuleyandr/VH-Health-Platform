@@ -25,7 +25,21 @@ const RECONCILIATION_DISPOSITIONS = [
   'documented_exception',
 ];
 
-const positiveId = { type: 'integer', minimum: 1 };
+const positiveId = { type: 'integer', minimum: 1, maximum: 2147483647 };
+const positiveBigIntWire = {
+  oneOf: [
+    {
+      type: 'integer',
+      minimum: 1,
+      maximum: Number.MAX_SAFE_INTEGER,
+    },
+    {
+      type: 'string',
+      pattern: '^[1-9][0-9]*$',
+      description: 'Positive decimal string when the identifier exceeds the JavaScript safe-integer range.',
+    },
+  ],
+};
 const versionProperties = {
   expected_version: {
     ...positiveId,
@@ -159,6 +173,59 @@ export const schemas = {
     },
   },
   WardIndentNamedListResponse: envelope('WardIndentNamedListPayload'),
+  WardIndentInventoryCandidateBatch: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['id', 'inventory_item_id', 'remaining_quantity', 'unreserved_quantity'],
+    properties: {
+      id: positiveId,
+      inventory_item_id: positiveId,
+      batch_number: { type: 'string' },
+      lot_number: { type: 'string', nullable: true },
+      expiry_date: { type: 'string', format: 'date' },
+      remaining_quantity: { type: 'number', minimum: 0 },
+      unreserved_quantity: { type: 'number', minimum: 0 },
+      status: { type: 'string' },
+    },
+  },
+  WardIndentInventoryCandidate: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['id', 'catalog_id', 'sku_code', 'display_name', 'unreserved_quantity', 'batches'],
+    properties: {
+      id: positiveId,
+      catalog_id: positiveId,
+      sku_code: { type: 'string' },
+      display_name: { type: 'string' },
+      generic_name: { type: 'string', nullable: true },
+      brand_name: { type: 'string', nullable: true },
+      form: { type: 'string', nullable: true },
+      strength: { type: 'string', nullable: true },
+      unit_label: { type: 'string', nullable: true },
+      schedule_class: { type: 'string', nullable: true },
+      is_narcotic: { type: 'boolean' },
+      status: { type: 'string' },
+      facility_id: { ...positiveId, nullable: true },
+      unreserved_quantity: { type: 'number', minimum: 0 },
+      batches: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/WardIndentInventoryCandidateBatch' },
+      },
+    },
+  },
+  WardIndentInventoryCandidatesPayload: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['item', 'candidates'],
+    properties: {
+      item: { $ref: '#/components/schemas/WardIndentItem' },
+      candidates: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/WardIndentInventoryCandidate' },
+      },
+    },
+  },
+  WardIndentInventoryCandidatesResponse: envelope('WardIndentInventoryCandidatesPayload'),
   WardIndentCreateItem: {
     type: 'object',
     additionalProperties: false,
@@ -202,9 +269,46 @@ export const schemas = {
   WardIndentQuantityIssuedEntry: quantityEntry('quantity_issued'),
   WardIndentQuantityReceivedEntry: quantityEntry('quantity_received', { allowZero: true }),
   WardIndentQuantityReturnedEntry: quantityEntry('quantity_returned', { allowZero: true }),
-  WardIndentReserveRequest: quantityRequest('quantity_reserved'),
+  WardIndentInventorySelection: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['item_id', 'inventory_item_id'],
+    properties: {
+      item_id: positiveId,
+      inventory_item_id: positiveId,
+    },
+  },
+  WardIndentReserveRequest: {
+    ...quantityRequest('quantity_reserved'),
+    properties: {
+      ...quantityRequest('quantity_reserved').properties,
+      inventory_selections: {
+        type: 'array',
+        uniqueItems: true,
+        items: { $ref: '#/components/schemas/WardIndentInventorySelection' },
+      },
+    },
+  },
   WardIndentIssueRequest: quantityRequest('quantity_issued'),
-  WardIndentReceiveRequest: quantityRequest('quantity_received'),
+  WardIndentSubstitutionAcknowledgement: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['item_id'],
+    properties: {
+      item_id: positiveId,
+    },
+  },
+  WardIndentReceiveRequest: {
+    ...quantityRequest('quantity_received'),
+    properties: {
+      ...quantityRequest('quantity_received').properties,
+      substitution_acknowledgements: {
+        type: 'array',
+        uniqueItems: true,
+        items: { $ref: '#/components/schemas/WardIndentSubstitutionAcknowledgement' },
+      },
+    },
+  },
   WardIndentReturnRequest: {
     ...quantityRequest('quantity_returned'),
     required: ['item_quantities_returned', 'reason'],
@@ -233,6 +337,11 @@ export const schemas = {
         type: 'array',
         minItems: 1,
         items: { $ref: '#/components/schemas/WardIndentShortSupplyEntry' },
+      },
+      inventory_selections: {
+        type: 'array',
+        uniqueItems: true,
+        items: { $ref: '#/components/schemas/WardIndentInventorySelection' },
       },
     },
   },
@@ -264,6 +373,18 @@ export const schemas = {
     type: 'object',
     additionalProperties: false,
     properties: versionProperties,
+  },
+  WardIndentSubstitutionApprovalRequest: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      ...versionProperties,
+      inventory_selections: {
+        type: 'array',
+        uniqueItems: true,
+        items: { $ref: '#/components/schemas/WardIndentInventorySelection' },
+      },
+    },
   },
   WardIndentReasonRequest: {
     type: 'object',
@@ -310,6 +431,17 @@ export const schemas = {
       note: { type: 'string', minLength: 1 },
     },
   },
+  WardIndentAllocationReturn: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['allocation_id', 'quantity'],
+    properties: {
+      allocation_id: positiveBigIntWire,
+      quantity: {
+        type: 'number', minimum: 0.01, multipleOf: 0.01,
+      },
+    },
+  },
   WardIndentReconcileRequest: {
     type: 'object',
     additionalProperties: false,
@@ -324,6 +456,11 @@ export const schemas = {
       item_reconciliations: {
         type: 'array',
         items: { $ref: '#/components/schemas/WardIndentReconciliationItem' },
+      },
+      allocation_returns: {
+        type: 'array',
+        uniqueItems: true,
+        items: { $ref: '#/components/schemas/WardIndentAllocationReturn' },
       },
     },
   },
@@ -343,6 +480,23 @@ const listParameters = [
   { name: 'admission_id', in: 'query', schema: positiveId },
   { name: 'patient_uid', in: 'query', schema: { type: 'string', format: 'uuid' } },
   { name: 'overdue_only', in: 'query', schema: { type: 'boolean' } },
+  {
+    name: 'worklist',
+    in: 'query',
+    schema: { type: 'string', enum: ['open', 'terminal', 'owned', 'overdue'] },
+  },
+  {
+    name: 'before_requested_at',
+    in: 'query',
+    description: 'Exclusive ISO-8601 requested-at cursor. Must be supplied together with before_id.',
+    schema: { type: 'string', format: 'date-time' },
+  },
+  {
+    name: 'before_id',
+    in: 'query',
+    description: 'Exclusive positive indent identifier cursor. Must be supplied together with before_requested_at.',
+    schema: positiveId,
+  },
   { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 200 } },
 ];
 const admissionListParameters = listParameters.filter((parameter) => (
@@ -358,7 +512,7 @@ const ACTIONS = [
   ['reserve', 'WardIndentReserveRequest', 'Reserves exact per-line quantities against locked same-tenant catalog rows and advances the durable owner/SLA state.'],
   ['short-supply', 'WardIndentShortSupplyRequest', 'Records an evidenced stock shortfall and keeps the pharmacy response obligation open for substitution or rejection.'],
   ['substitutions', 'WardIndentSubstitutionRequest', 'Proposes same-tenant catalog substitutions for short-supply lines and transfers ownership to the prescriber decision role.'],
-  ['substitutions/approve', 'WardIndentVersionRequest', 'Authorizes pending substitutions as the prescribing clinician, preserving original and replacement catalog identity.'],
+  ['substitutions/approve', 'WardIndentSubstitutionApprovalRequest', 'Authorizes pending substitutions as the prescribing clinician, preserving original and replacement catalog identity and any explicit Inventory V2 mapping selection.'],
   ['substitutions/reject', 'WardIndentReasonRequest', 'Rejects pending substitutions as the prescribing clinician and records the reason in the append-only workflow evidence.'],
   ['approve', 'WardIndentVersionRequest', 'Approves reserved supply; controlled lines stop at the mandatory controlled-handoff evidence gate.'],
   ['reject', 'WardIndentReasonRequest', 'Rejects the request as a terminal, reasoned pharmacy decision and closes its active SLA.'],
@@ -388,6 +542,7 @@ function addSurface(out, {
   response,
   listResponse,
   named = false,
+  inventoryCandidates = false,
 }) {
   const idPath = `{${idName}}`;
   out[`GET ${prefix}`] = {
@@ -411,6 +566,17 @@ function addSurface(out, {
     pathParameters: { [idName]: positiveId },
     parameters: [eventLimitParameter],
   };
+  if (inventoryCandidates) {
+    out[`GET ${prefix}/${idPath}/items/{itemId}/inventory-candidates`] = {
+      description: 'Lists active, same-tenant Inventory V2 mappings and non-expired FEFO batch availability for one catalog-linked ward-indent line.',
+      response: 'WardIndentInventoryCandidatesResponse',
+      security,
+      pathParameters: {
+        [idName]: positiveId,
+        itemId: positiveId,
+      },
+    };
+  }
   for (const [action, request, description] of ACTIONS) {
     out[`POST ${prefix}/${idPath}/${action}`] = {
       ...mutationOverlay(description, request, response),
@@ -434,12 +600,14 @@ addSurface(operations, {
   idName: 'id',
   response: 'WardIndentResponse',
   listResponse: 'WardIndentListResponse',
+  inventoryCandidates: true,
 });
 addSurface(operations, {
   prefix: '/api/v1/pharmacy/ward-indents',
   idName: 'id',
   response: 'WardIndentResponse',
   listResponse: 'WardIndentListResponse',
+  inventoryCandidates: true,
 });
 addSurface(operations, {
   prefix: '/api/v1/ipd/ward-indents',
@@ -447,4 +615,5 @@ addSurface(operations, {
   response: 'WardIndentNamedResponse',
   listResponse: 'WardIndentNamedListResponse',
   named: true,
+  inventoryCandidates: true,
 });

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vhhealth_core/models/client_readiness.dart';
+import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 import 'package:vhhealth_staff/features/pharmacy/screens/counter_sale_screen.dart';
 
 Map<String, dynamic> _item({
@@ -31,6 +33,11 @@ Widget _screen({
   CounterSaleWitnessApprovalApprover? approveWitnessApproval,
   CounterSaleLister? listSales,
   CounterSaleVoider? voidSale,
+  CounterSaleGetter? getSale,
+  CounterSaleVoidStatusGetter? getVoidStatus,
+  CounterSaleVoidReconciler? reconcileVoid,
+  CounterSaleRejectedVoidResolver? resolveRejectedVoid,
+  String? initialSaleId,
 }) {
   return MaterialApp(
     home: CounterSaleScreen(
@@ -47,6 +54,7 @@ Widget _screen({
             required String paymentMode,
             String? paymentReference,
             String? notes,
+            required String idempotencyKey,
           }) async => {
             'sale': {'id': '1', 'status': 'COMPLETED'},
             'invoice': {'invoice_number': 'INV-2026-000001'},
@@ -54,7 +62,22 @@ Widget _screen({
       requestWitnessApproval: requestWitnessApproval,
       approveWitnessApproval: approveWitnessApproval,
       listSales: listSales ?? ({String? status, String? date}) async => [],
-      voidSale: voidSale ?? (id, reason) async => {'sale': {}},
+      voidSale:
+          voidSale ??
+          (id, reason, {required disposition, required idempotencyKey}) async =>
+              {
+                'sale': {'id': id, 'status': 'VOID_PENDING_REFUND'},
+              },
+      getSale: getSale,
+      getVoidStatus:
+          getVoidStatus ??
+          (id) async => {
+            'workflow_status': 'AWAITING_FINANCE_APPROVAL',
+            'sale': {'id': id, 'status': 'VOID_PENDING_REFUND'},
+          },
+      reconcileVoid: reconcileVoid,
+      resolveRejectedVoid: resolveRejectedVoid,
+      initialSaleId: initialSaleId,
     ),
   );
 }
@@ -86,7 +109,34 @@ Future<void> _pumpWitnessDialog(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 300));
 }
 
+Future<void> _prepareOtcSale(WidgetTester tester) async {
+  await _addFirstResult(tester);
+  await tester.enterText(
+    find.byKey(const ValueKey('counter-sale-customer-name')),
+    'Walk-in Customer',
+  );
+  await tester.ensureVisible(find.byKey(const ValueKey('counter-sale-sell')));
+}
+
+Future<void> _pumpUntil(WidgetTester tester, bool Function() condition) async {
+  for (var i = 0; i < 20 && !condition(); i++) {
+    await tester.pump(const Duration(milliseconds: 50));
+  }
+}
+
 void main() {
+  setUp(() async {
+    await ConnectivitySyncService.instance.resetForTesting();
+    ConnectivitySyncService.instance.setConnectionStateForTesting(
+      transport: ClientTransportState.available,
+      continuity: ContinuityLifecycleState.readyInternal,
+    );
+  });
+
+  tearDown(() async {
+    await ConnectivitySyncService.instance.resetForTesting();
+  });
+
   testWidgets('search shows FEFO batch, expiry, stock and price', (
     tester,
   ) async {
@@ -128,6 +178,7 @@ void main() {
               required String paymentMode,
               String? paymentReference,
               String? notes,
+              required String idempotencyKey,
             }) async {
               sentLines = lines;
               sentMode = paymentMode;
@@ -242,6 +293,7 @@ void main() {
                 required paymentMode,
                 paymentReference,
                 notes,
+                required idempotencyKey,
               }) async {
                 submittedApprovalId = witnessApprovalId;
                 return {
@@ -495,23 +547,36 @@ void main() {
   testWidgets('recent tab lists sales and voids with a reason', (tester) async {
     String? voidedId;
     String? voidedReason;
+    String? voidedDisposition;
+    String? voidIdempotencyKey;
     await tester.pumpWidget(
       _screen(
         listSales: ({String? status, String? date}) async => [
           {
             'id': '5',
             'status': 'COMPLETED',
+            'void_readiness': 'READY',
             'invoice_number': 'INV-2026-000005',
             'customer_name': 'Walk-in Customer',
             'total_amount': 651,
             'payment_mode': 'CASH',
           },
         ],
-        voidSale: (id, reason) async {
-          voidedId = id;
-          voidedReason = reason;
-          return {'sale': {}};
-        },
+        voidSale:
+            (
+              id,
+              reason, {
+              required disposition,
+              required idempotencyKey,
+            }) async {
+              voidedId = id;
+              voidedReason = reason;
+              voidedDisposition = disposition;
+              voidIdempotencyKey = idempotencyKey;
+              return {
+                'sale': {'id': id, 'status': 'VOID_PENDING_REFUND'},
+              };
+            },
       ),
     );
     await tester.pumpAndSettle();
@@ -522,11 +587,461 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('counter-sale-void-5')));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).last, 'Customer returned');
-    await tester.tap(find.byType(FilledButton).last);
+    await tester.tap(
+      find.byKey(const ValueKey('counter-sale-void-disposition')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Never handed to the patient').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('counter-sale-void-reason')),
+      'Cancelled before handoff',
+    );
+    await tester.pump();
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('counter-sale-void-submit')),
+    );
+    tester
+        .widget<FilledButton>(
+          find.byKey(const ValueKey('counter-sale-void-submit')),
+        )
+        .onPressed!();
+    await tester.pumpAndSettle();
+    await _pumpUntil(tester, () => voidedId != null);
     await tester.pumpAndSettle();
 
     expect(voidedId, '5');
-    expect(voidedReason, 'Customer returned');
+    expect(voidedReason, 'Cancelled before handoff');
+    expect(voidedDisposition, 'NEVER_HANDED_OVER');
+    expect(voidIdempotencyKey, startsWith('counter-sale-5-void:'));
+    expect(find.text('Awaiting independent finance approval'), findsOneWidget);
+  });
+
+  testWidgets('lost create response retries with the same protected key', (
+    tester,
+  ) async {
+    _useTallViewport(tester);
+    final keys = <String>[];
+    var calls = 0;
+    await tester.pumpWidget(
+      _screen(
+        createSale:
+            ({
+              required lines,
+              patientUid,
+              customerName,
+              customerPhone,
+              rx,
+              witnessApprovalId,
+              required paymentMode,
+              paymentReference,
+              notes,
+              required idempotencyKey,
+            }) async {
+              keys.add(idempotencyKey);
+              calls++;
+              if (calls == 1) throw Exception('response lost after write');
+              return {
+                'sale': {'id': '19', 'status': 'COMPLETED'},
+                'invoice': {'invoice_number': 'INV-19'},
+              };
+            },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _prepareOtcSale(tester);
+
+    tester
+        .widget<FilledButton>(find.byKey(const ValueKey('counter-sale-sell')))
+        .onPressed!();
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('counter-sale-ambiguous-sale')),
+      findsOneWidget,
+    );
+
+    tester
+        .widget<FilledButton>(find.byKey(const ValueKey('counter-sale-sell')))
+        .onPressed!();
+    await tester.pumpAndSettle();
+    expect(keys, hasLength(2));
+    expect(keys[1], keys[0]);
+  });
+
+  testWidgets('changed payload requires acknowledgement and a new create key', (
+    tester,
+  ) async {
+    _useTallViewport(tester);
+    final keys = <String>[];
+    var calls = 0;
+    await tester.pumpWidget(
+      _screen(
+        createSale:
+            ({
+              required lines,
+              patientUid,
+              customerName,
+              customerPhone,
+              rx,
+              witnessApprovalId,
+              required paymentMode,
+              paymentReference,
+              notes,
+              required idempotencyKey,
+            }) async {
+              keys.add(idempotencyKey);
+              calls++;
+              if (calls == 1) throw Exception('response lost after write');
+              return {
+                'sale': {'id': '20', 'status': 'COMPLETED'},
+                'invoice': {'invoice_number': 'INV-20'},
+              };
+            },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _prepareOtcSale(tester);
+    await tester.tap(find.byKey(const ValueKey('counter-sale-sell')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey('counter-sale-customer-name')),
+      'Different Customer',
+    );
+    await tester.tap(find.byKey(const ValueKey('counter-sale-sell')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('counter-sale-new-attempt-confirm')),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('counter-sale-new-attempt-confirm')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(keys, hasLength(2));
+    expect(keys[1], isNot(keys[0]));
+  });
+
+  testWidgets('non-cash sale is blocked until original reference is present', (
+    tester,
+  ) async {
+    _useTallViewport(tester);
+    String? sentReference;
+    await tester.pumpWidget(
+      _screen(
+        createSale:
+            ({
+              required lines,
+              patientUid,
+              customerName,
+              customerPhone,
+              rx,
+              witnessApprovalId,
+              required paymentMode,
+              paymentReference,
+              notes,
+              required idempotencyKey,
+            }) async {
+              sentReference = paymentReference;
+              return {
+                'sale': {'id': '21', 'status': 'COMPLETED'},
+                'invoice': {'invoice_number': 'INV-21'},
+              };
+            },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _prepareOtcSale(tester);
+    await tester.tap(find.byKey(const ValueKey('counter-sale-payment-mode')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('UPI').last);
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const ValueKey('counter-sale-sell')))
+          .onPressed,
+      isNull,
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('counter-sale-payment-reference')),
+      'UPI-ORIGINAL-21',
+    );
+    await tester.pump();
+    await tester.ensureVisible(find.byKey(const ValueKey('counter-sale-sell')));
+    tester
+        .widget<FilledButton>(find.byKey(const ValueKey('counter-sale-sell')))
+        .onPressed!();
+    await tester.pumpAndSettle();
+    await _pumpUntil(tester, () => sentReference != null);
+    expect(sentReference, 'UPI-ORIGINAL-21');
+  });
+
+  testWidgets('patient-returned custody outcome blocks void locally', (
+    tester,
+  ) async {
+    var calls = 0;
+    await tester.pumpWidget(
+      _screen(
+        listSales: ({String? status, String? date}) async => [
+          {
+            'id': '22',
+            'status': 'COMPLETED',
+            'void_readiness': 'READY',
+            'payment_mode': 'CASH',
+          },
+        ],
+        voidSale:
+            (
+              id,
+              reason, {
+              required disposition,
+              required idempotencyKey,
+            }) async {
+              calls++;
+              return {};
+            },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Recent sales'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('counter-sale-void-22')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('counter-sale-void-disposition')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Returned after patient handling').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('counter-sale-void-reason')),
+      'Returned at counter',
+    );
+    await tester.pump();
+
+    expect(
+      find.textContaining('cannot re-enter sellable stock'),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.byKey(const ValueKey('counter-sale-void-submit')),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(calls, 0);
+  });
+
+  testWidgets('lost void response retries with the same protected key', (
+    tester,
+  ) async {
+    final keys = <String>[];
+    var calls = 0;
+    await tester.pumpWidget(
+      _screen(
+        listSales: ({String? status, String? date}) async => [
+          {
+            'id': '23',
+            'status': 'COMPLETED',
+            'void_readiness': 'READY',
+            'payment_mode': 'CASH',
+          },
+        ],
+        voidSale:
+            (
+              id,
+              reason, {
+              required disposition,
+              required idempotencyKey,
+            }) async {
+              keys.add(idempotencyKey);
+              calls++;
+              if (calls == 1) throw Exception('lost response');
+              return {
+                'sale': {'id': id, 'status': 'VOID_PENDING_REFUND'},
+              };
+            },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Recent sales'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('counter-sale-void-23')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('counter-sale-void-disposition')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Never handed to the patient').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('counter-sale-void-reason')),
+      'Cancelled before handoff',
+    );
+    await tester.pump();
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('counter-sale-void-submit')),
+    );
+    tester
+        .widget<FilledButton>(
+          find.byKey(const ValueKey('counter-sale-void-submit')),
+        )
+        .onPressed!();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('counter-sale-void-23')));
+    await tester.pumpAndSettle();
+    tester
+        .widget<FilledButton>(
+          find.byKey(const ValueKey('counter-sale-void-submit')),
+        )
+        .onPressed!();
+    await tester.pumpAndSettle();
+    expect(keys, hasLength(2));
+    expect(keys[1], keys[0]);
+  });
+
+  testWidgets('authoritative readiness blocks an ineligible void', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _screen(
+        listSales: ({String? status, String? date}) async => [
+          {
+            'id': '24',
+            'status': 'COMPLETED',
+            'void_readiness': 'OUTSIDE_SAME_DAY_WINDOW',
+            'payment_mode': 'CASH',
+          },
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Recent sales'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('counter-sale-void-24')), findsNothing);
+    expect(
+      find.textContaining('same-day void window has closed'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'refund rejection resolution reuses its key and refreshes terminal state',
+    (tester) async {
+      final keys = <String>[];
+      var calls = 0;
+      await tester.pumpWidget(
+        _screen(
+          listSales: ({String? status, String? date}) async => [
+            {
+              'id': '25',
+              'status': 'VOID_PENDING_REFUND',
+              'void_readiness': 'PENDING_REFUND',
+              'void_request_id': '125',
+              'void_request_status': 'REFUND_REJECTED_REVIEW',
+              'void_refund_id': '225',
+              'void_refund_status': 'REJECTED',
+              'payment_mode': 'CASH',
+            },
+          ],
+          resolveRejectedVoid:
+              (id, {required reason, required idempotencyKey}) async {
+                keys.add(idempotencyKey);
+                calls++;
+                if (calls == 1) throw Exception('response lost');
+                return {'outcome': 'handover_confirmed'};
+              },
+          getVoidStatus: (id) async => {
+            'workflow_status': 'CANCELLED_HANDOVER_CONFIRMED',
+            'sale': {
+              'id': id,
+              'status': 'COMPLETED',
+              'void_readiness': 'NOT_COMPLETED',
+              'void_request_id': '125',
+              'void_request_status': 'CANCELLED_HANDOVER_CONFIRMED',
+              'void_refund_id': '225',
+              'void_refund_status': 'REJECTED',
+              'payment_mode': 'CASH',
+            },
+            'void_request': {
+              'id': '125',
+              'status': 'CANCELLED_HANDOVER_CONFIRMED',
+            },
+            'refund': {'id': '225', 'approval_status': 'REJECTED'},
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Recent sales'));
+      await tester.pumpAndSettle();
+      final action = find.byKey(
+        const ValueKey('counter-sale-handover-resolution-25'),
+      );
+      await tester.tap(action);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('counter-sale-handover-resolution-reason')),
+        'Customer retained medicine',
+      );
+      await tester.pump();
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('counter-sale-handover-resolution-submit')),
+      );
+      tester
+          .widget<FilledButton>(
+            find.byKey(
+              const ValueKey('counter-sale-handover-resolution-submit'),
+            ),
+          )
+          .onPressed!();
+      await tester.pumpAndSettle();
+
+      await tester.tap(action);
+      await tester.pumpAndSettle();
+      tester
+          .widget<FilledButton>(
+            find.byKey(
+              const ValueKey('counter-sale-handover-resolution-submit'),
+            ),
+          )
+          .onPressed!();
+      await tester.pumpAndSettle();
+      expect(keys, hasLength(2));
+      expect(keys[1], keys[0]);
+      expect(
+        find.textContaining('no refund or restock occurred'),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('counter-sale-void-25')), findsNothing);
+    },
+  );
+
+  testWidgets('offline state disables create and void actions', (tester) async {
+    ConnectivitySyncService.instance.setConnectionStateForTesting(
+      transport: ClientTransportState.unavailable,
+      continuity: ContinuityLifecycleState.notReady,
+    );
+    _useTallViewport(tester);
+    await tester.pumpWidget(_screen());
+    await tester.pumpAndSettle();
+    await _prepareOtcSale(tester);
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const ValueKey('counter-sale-sell')))
+          .onPressed,
+      isNull,
+    );
+    expect(
+      find.byKey(const ValueKey('counter-sale-offline-message')),
+      findsOneWidget,
+    );
   });
 }

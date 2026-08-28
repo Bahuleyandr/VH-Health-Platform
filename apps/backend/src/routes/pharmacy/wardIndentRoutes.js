@@ -12,6 +12,7 @@ import {
 } from '../../config/routeRolePolicy.js';
 import * as ctl from '../../controllers/pharmacy/wardIndentController.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
+import { enforceStaffClinicalWriteDevicePosture } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
 import { sanitizeAllBodyStrings } from '../../middleware/sanitizeMiddleware.js';
 import { DOCTOR_TIERS } from '../../utils/roleHelpers.js';
@@ -50,12 +51,15 @@ function canonicalActionPath(action) {
 }
 
 function mutationGuard(scope, requestPathForIdempotency) {
-  return requireIdempotencyKey({
-    required: true,
-    scope: `ward_indent_${scope}`,
-    retainOnServerError: true,
-    requestPathForIdempotency,
-  });
+  return [
+    enforceStaffClinicalWriteDevicePosture,
+    requireIdempotencyKey({
+      required: true,
+      scope: `ward_indent_${scope}`,
+      retainOnServerError: true,
+      requestPathForIdempotency,
+    }),
+  ];
 }
 
 router.use(sanitizeAllBodyStrings);

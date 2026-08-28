@@ -29,6 +29,7 @@ void main() {
       'ward_item_required',
       'ward_item_ambiguous',
       'reconciliation_required',
+      'batch_unavailable',
       'unknown',
     ]) {
       expect(
@@ -36,6 +37,20 @@ void main() {
         isTrue,
         reason: status,
       );
+    }
+  });
+
+  test('unknown and future supply statuses fail closed as unknown', () {
+    for (final state in <Map<String, dynamic>?>[
+      null,
+      const {},
+      const {'status': 'future_auto_allocate'},
+      const {'status': ''},
+    ]) {
+      expect(marSupplyStatus(state), 'unknown', reason: '$state');
+      expect(marSupplyIsHardBlocked(state), isTrue, reason: '$state');
+      expect(marSupplyRequiresQuantity(state), isFalse, reason: '$state');
+      expect(marSupplyRequiresOverrideReason(state), isFalse, reason: '$state');
     }
   });
 }

@@ -31,7 +31,9 @@ jest.unstable_mockModule('../../services/tenant/tenantSettingsService.js', () =>
 }));
 // Heavy sale-path collaborators — not exercised by the advisory helper.
 jest.unstable_mockModule('../../services/pharmacy/inventoryV2Service.js', () => ({
-  recordMovementTx: jest.fn(), dispenseControlledTx: jest.fn(),
+  recordMovementTx: jest.fn(),
+  dispenseControlledTx: jest.fn(),
+  lockControlledRegisterItemTx: jest.fn(),
 }));
 jest.unstable_mockModule('../../services/pharmacy/controlledDispenseWitnessService.js', () => ({
   CONTROLLED_DISPENSE_APPROVAL_SCOPES: { counterSale: 'counter_sale' },
@@ -43,23 +45,26 @@ jest.unstable_mockModule('../../services/pharmacy/controlledDispenseWitnessServi
 jest.unstable_mockModule('../../services/billing/billingV2Service.js', () => ({
   createDraftInvoice: jest.fn(),
   addInvoiceItem: jest.fn(),
-  issueInvoice: jest.fn(),
+  fiscalYearOf: jest.fn(),
   voidInvoice: jest.fn(),
   collectPayment: jest.fn(),
   raiseRefund: jest.fn(),
   approveRefund: jest.fn(),
   markRefundPaid: jest.fn(),
   getInvoice: jest.fn(),
+  issueInvoiceTx: jest.fn(),
   deriveInvoicePaymentStateFromLedgerTx: jest.fn(),
 }));
 jest.unstable_mockModule('../../services/billing/ledger/ledgerAuthoritativeMode.js', () => ({
   resolveLedgerWiring: jest.fn(),
 }));
 jest.unstable_mockModule('../../services/billing/ledger/ledgerPostings.js', () => ({
+  postInvoiceIssueEntry: jest.fn(),
   postPaymentEntry: jest.fn(),
 }));
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
   recordCanonicalClinicalEvent: jest.fn(),
+  startWorkflowSla: jest.fn(),
 }));
 
 const { counterSaleDrugKbAdvisory } = await import('../../services/pharmacy/counterSaleService.js');

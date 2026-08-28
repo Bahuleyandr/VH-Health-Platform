@@ -1,9 +1,11 @@
 import { jest } from '@jest/globals';
 
 const mockPrisma = { $queryRawUnsafe: jest.fn(), $executeRawUnsafe: jest.fn() };
+const postInvoiceIssueEntry = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: mockPrisma,
+  isTenantTransactionClient: (value) => value === mockPrisma,
   setTenantTx: async (_tenantId, fn) => fn(mockPrisma),
   setTenant: async (_tenantId, fn) => fn(mockPrisma),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(mockPrisma),
@@ -11,6 +13,16 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+}));
+
+jest.unstable_mockModule('../../services/billing/ledger/ledgerPostings.js', () => ({
+  postInvoiceIssueEntry,
+  postPaymentEntry: jest.fn(),
+  postAdvanceCollectEntry: jest.fn(),
+  postAdvanceSettleEntry: jest.fn(),
+  postPaymentReversalEntry: jest.fn(),
+  postRefundApproveEntry: jest.fn(),
+  postRefundPaidEntry: jest.fn(),
 }));
 
 jest.unstable_mockModule('../../services/billing/ledger/ledgerAuthoritativeMode.js', () => ({
@@ -76,5 +88,47 @@ describe('billing v2 issueInvoice — GST recipient-field backfill', () => {
     expect(sql).toMatch(/SELECT\s+a\.attending_doctor/i);
     expect(sql).toMatch(/department\s*=\s*COALESCE/i);
     expect(sql).toMatch(/SELECT\s+a\.department\s+FROM\s+admissions/i);
+
+    const issueMetaSql = mockPrisma.$queryRawUnsafe.mock.calls.find(
+      (c) => /AS\s+ledger_issue_amount/i.test(c[0]),
+    )?.[0];
+    expect(issueMetaSql).toMatch(
+      /GREATEST\(total_amount\s*-\s*COALESCE\(credit_note_amount,\s*0\),\s*0\)\s+AS\s+ledger_issue_amount/i,
+    );
+  });
+
+  it('posts only the net receivable when a draft invoice already has an applied credit', async () => {
+    const tenantId = '00000000-0000-4000-8000-000000000001';
+    const patientUid = '11111111-1111-4111-8111-111111111111';
+    mockPrisma.$queryRawUnsafe
+      .mockResolvedValueOnce([{ id: 12, status: 'DRAFT', tenant_id: tenantId }])
+      .mockResolvedValueOnce([{ id: 12, status: 'DRAFT', tenant_id: tenantId }])
+      .mockResolvedValueOnce([{ c: 1 }])
+      .mockResolvedValueOnce([{ next_value: 3 }])
+      .mockResolvedValueOnce([{
+        admission_id: null,
+        patient_uid: patientUid,
+        tenant_id: tenantId,
+        total_amount: '25.00',
+        ledger_issue_amount: '12.50',
+        tax_amount: '0.00',
+      }])
+      .mockResolvedValueOnce([{ id: 12, invoice_number: 'INV-2026-000002' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    await issueInvoice(12, { tenantId });
+
+    expect(postInvoiceIssueEntry).toHaveBeenCalledTimes(1);
+    expect(postInvoiceIssueEntry).toHaveBeenCalledWith({
+      invoice: {
+        id: 12,
+        patient_uid: patientUid,
+        total_amount: '12.50',
+        tax_amount: '0.00',
+      },
+      tenantId,
+    });
   });
 });

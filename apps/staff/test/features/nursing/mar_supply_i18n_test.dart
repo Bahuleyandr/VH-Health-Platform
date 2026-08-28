@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vhhealth_staff/core/providers/notification_provider.dart';
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 void main() {
@@ -13,6 +14,7 @@ void main() {
     'mar_scan.supply.status.ward_item_required',
     'mar_scan.supply.status.ward_item_ambiguous',
     'mar_scan.supply.status.reconciliation_required',
+    'mar_scan.supply.status.batch_unavailable',
     'mar_scan.supply.status.unknown',
     'mar_scan.supply.available_quantity',
     'mar_scan.supply.required_quantity',
@@ -24,6 +26,7 @@ void main() {
     'mar_scan.supply.quantity_error',
     'mar_scan.supply.override_error',
     'mar_scan.supply.hard_stop_error',
+    'mar_supply.notification_action',
   ];
 
   test('MAR supply safety copy is localized in all five shipped locales', () {
@@ -52,5 +55,39 @@ void main() {
     ]) {
       expect(malayalam.lookup(key), isNot(english.lookup(key)), reason: key);
     }
+  });
+
+  test('MAR reconciliation notification action follows the active locale', () {
+    final item = NotificationItem(
+      title: 'MAR supply evidence required',
+      body: 'Reconcile exact allocation quantities',
+      timestamp: DateTime.utc(2026, 8, 27),
+      type: 'ward_indent_mar_supply_reconciliation',
+    );
+
+    for (final locale in AppStrings.supportedLocales) {
+      final strings = AppStrings.forLocale(locale);
+      expect(
+        item.actionLabelFor(strings),
+        strings.lookup('mar_supply.notification_action'),
+        reason: locale.languageCode,
+      );
+    }
+    expect(item.actionLabel, 'Reconcile MAR supply');
+  });
+
+  test('ward allocation label is not cross-wired between scripts', () {
+    expect(
+      AppStrings.forLocale(const Locale('en')).lookup('mar_supply.allocation'),
+      'Ward allocation',
+    );
+    expect(
+      AppStrings.forLocale(const Locale('ta')).lookup('mar_supply.allocation'),
+      'வார்டு ஒதுக்கீடு',
+    );
+    expect(
+      AppStrings.forLocale(const Locale('te')).lookup('mar_supply.allocation'),
+      'వార్డు కేటాయింపు',
+    );
   });
 }

@@ -1753,14 +1753,20 @@ async function findAppointmentRelationship(req, patient, role, policy = null, re
   return firstRow(rows);
 }
 
-async function findAdmissionRelationship(req, patient, role) {
+async function findAdmissionRelationship(req, patient, role, {
+  recordType = null,
+  policyCode = null,
+} = {}) {
   const actorUid = cleanUuid(actorUidOf(req));
   const patientUid = cleanUuid(patient?.uid);
   if (!patientUid) return null;
 
-  const nursingScoped = IP_RELATIONSHIP_ROLES.has(role);
+  const nursingScoped = IP_RELATIONSHIP_ROLES.has(role)
+    || (role === 'ICU_STAFF' && String(recordType || '').trim().toUpperCase() === 'MAR');
   const doctorScoped = DOCTOR_RELATIONSHIP_ROLES.has(role);
-  const operationalScoped = ADMISSION_OPERATIONS_ROLES.has(role);
+  const orderVerificationScoped = policyCode === ACCESS_POLICY_CODES.PATIENT_CLINICAL_ORDER_VERIFY
+    && (role === 'PHARMACIST' || role === 'ICU_INCHARGE');
+  const operationalScoped = ADMISSION_OPERATIONS_ROLES.has(role) || orderVerificationScoped;
   if (!nursingScoped && !doctorScoped && !operationalScoped) return null;
 
   const rows = await prisma.$queryRawUnsafe(
@@ -1991,6 +1997,8 @@ export async function authorizePatientAccessRequest(req, {
     policy,
     rolePolicy,
   };
+  const policyScopedPharmacistPhi = role === 'PHARMACIST'
+    && policy.code === ACCESS_POLICY_CODES.PATIENT_CLINICAL_ORDER_VERIFY;
   let decision;
 
   if (!rolePolicy) {
@@ -2017,7 +2025,10 @@ export async function authorizePatientAccessRequest(req, {
     ACCESS_POLICY_CODES.PATIENT_TIMELINE_VIEW,
   ].includes(policy.code)) {
     decision = allowDecision(args, 'role', 'medical records office role');
-  } else if (!decision && [PHI_ACCESS_LEVELS.NONE, PHI_ACCESS_LEVELS.STAFF_ONLY, PHI_ACCESS_LEVELS.OPERATIONAL_ONLY].includes(rolePolicy.phi?.access_level)) {
+  } else if (!decision
+    && !policyScopedPharmacistPhi
+    && [PHI_ACCESS_LEVELS.NONE, PHI_ACCESS_LEVELS.STAFF_ONLY, PHI_ACCESS_LEVELS.OPERATIONAL_ONLY]
+      .includes(rolePolicy.phi?.access_level)) {
     decision = denyDecision(args, `${role} does not have a patient PHI access scope`);
   } else if (!decision && (
     rankPhiLevel(rolePolicy.phi?.access_level) >= policyMinimumRank(policy)
@@ -2035,7 +2046,9 @@ export async function authorizePatientAccessRequest(req, {
     }
   }
 
-  if (!decision && rankPhiLevel(rolePolicy.phi?.access_level) < policyMinimumRank(policy)) {
+  if (!decision
+    && !policyScopedPharmacistPhi
+    && rankPhiLevel(rolePolicy.phi?.access_level) < policyMinimumRank(policy)) {
     if (rolePolicy.phi?.access_level === PHI_ACCESS_LEVELS.ADMIN_BREAK_GLASS) {
       decision = denyDecision(args, 'Administrative PHI access requires an active break-glass session');
     } else {
@@ -2160,7 +2173,10 @@ export async function authorizePatientAccessRequest(req, {
   }
 
   if (!decision && policy.relationship_checks.includes('admission')) {
-    const admission = await findAdmissionRelationship(req, resolvedPatient, role);
+    const admission = await findAdmissionRelationship(req, resolvedPatient, role, {
+      recordType,
+      policyCode: policy.code,
+    });
     if (admission?.id) {
       decision = allowDecision(args, 'admission', 'active admission relationship', { admissionId: admission.id });
     }

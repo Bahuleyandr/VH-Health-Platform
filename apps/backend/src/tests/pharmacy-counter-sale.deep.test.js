@@ -8,8 +8,17 @@ import prisma from '../lib/prisma.js';
 import {
   approveCounterSaleWitnessApproval,
   createCounterSale, voidCounterSale, getCounterSale, listCounterSales,
+  reconcileCounterSaleVoid, reconcileCounterSaleVoidsForTenant,
+  resolveRejectedCounterSaleVoid,
   requestCounterSaleWitnessApproval, searchSellableItems, ensureWalkInAnchorUid,
 } from '../services/pharmacy/counterSaleService.js';
+import {
+  approveRefund,
+  markGatewayRefundPaid,
+  markOfflineElectronicRefundPaid,
+  markRefundPaid,
+  rejectRefund,
+} from '../services/billing/billingV2Service.js';
 import {
   approveInventoryDispenseWitnessApproval,
   dispenseControlled,
@@ -23,6 +32,8 @@ const CASHIER = 'c0511111-1111-4111-8111-111111111111';
 const NO_DRAWER_CASHIER = 'c0522222-2222-4222-8222-222222222222';
 const WITNESS = 'c0533333-3333-4333-8333-333333333333';
 const PATIENT = 'c0544444-4444-4444-8444-444444444444';
+const VOID_APPROVER = 'c0599999-9999-4999-8999-999999999999';
+const VOID_PAYER = 'c05aaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 // Witness-validation fixtures (PR #875 follow-up: witness.uid must be a real,
 // active, appropriately-rolled staff member of the same tenant).
 const GHOST_WITNESS = 'c0555555-5555-4555-8555-555555555555'; // no users row
@@ -38,6 +49,8 @@ let h1ExpiredBatch; let h1QuarantinedBatch;
 let xItem; let xBatch; let xOtherBatch;
 let expiredItem;
 let foreignItem;
+let voidPayerDrawerId;
+let voidCommandSequence = 0;
 
 async function remaining(batchId) {
   const rows = await prisma.$queryRawUnsafe(
@@ -45,6 +58,21 @@ async function remaining(batchId) {
     batchId,
   );
   return { qty: Number(rows[0].remaining_quantity), status: rows[0].status };
+}
+
+async function allocationReturnCount(saleId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT COUNT(*) FILTER (WHERE allocation.return_movement_id IS NOT NULL)::int AS returned
+       FROM pharmacy_counter_sale_allocations allocation
+       JOIN pharmacy_counter_sale_lines line
+         ON line.tenant_id = allocation.tenant_id
+        AND line.id = allocation.counter_sale_line_id
+      WHERE allocation.tenant_id = $1::uuid
+        AND line.counter_sale_id = $2::bigint`,
+    TENANT,
+    Number(saleId),
+  );
+  return Number(rows[0].returned);
 }
 
 async function insertItem(tenant, sku, { schedule = null, narcotic = false, hsn = null } = {}) {
@@ -73,11 +101,175 @@ async function insertBatch(tenant, itemId, batchNumber, {
   return Number(rows[0].id);
 }
 
+async function payCounterSaleVoidRefund(initiated) {
+  if (String(initiated.refund.mode).toUpperCase() === 'CASH') {
+    await markRefundPaid(initiated.refund.id, {
+      tenantId: TENANT,
+      paid_by: VOID_PAYER,
+      reference: `POS-CASH-VOID-${process.pid}-${voidCommandSequence}`,
+      cash_drawer_session_id: voidPayerDrawerId,
+    });
+  } else {
+    const payments = await prisma.$queryRawUnsafe(
+      `SELECT id, reference
+         FROM billing_payments
+        WHERE tenant_id = $1::uuid
+          AND invoice_id = $2::int
+          AND reversed = false
+        ORDER BY id`,
+      TENANT,
+      Number(initiated.refund.invoice_id),
+    );
+    expect(payments).toHaveLength(1);
+    await markOfflineElectronicRefundPaid(initiated.refund.id, {
+      tenantId: TENANT,
+      paid_by: VOID_PAYER,
+      original_payment_reference: payments[0].reference,
+      provider_name: 'POS Test Acquirer',
+      provider_refund_reference: `POS-ELECTRONIC-VOID-${process.pid}-${voidCommandSequence}`,
+      provider_refunded_at: new Date().toISOString(),
+    });
+  }
+}
+
+async function createCounterSaleGatewayExecution({ initiated, source, label }) {
+  const payments = await prisma.$queryRawUnsafe(
+    `SELECT id, patient_uid, amount, mode, reference
+       FROM billing_payments
+      WHERE tenant_id = $1::uuid
+        AND invoice_id = $2::int
+        AND reversed = FALSE
+      ORDER BY id`,
+    TENANT,
+    Number(source.invoice.id),
+  );
+  expect(payments).toHaveLength(1);
+  const providerRefundId = `rfnd-pos-${label}-${process.pid}`;
+  const orders = await prisma.$queryRawUnsafe(
+    `INSERT INTO payment_gateway_orders
+       (tenant_id, provider, environment, patient_uid, invoice_id, amount,
+        receipt, provider_order_id, provider_payment_id, method, status,
+        billing_payment_id, captured_at, created_by, webhook_credential_version)
+     VALUES ($1::uuid, 'dry_run', 'sandbox', $2::uuid, $3::int, $4::numeric,
+             $5, $6, $7, 'upi', 'paid', $8::int, NOW(), $9::uuid, 1)
+     RETURNING id`,
+    TENANT,
+    String(payments[0].patient_uid),
+    Number(source.invoice.id),
+    Number(source.sale.total_amount),
+    `pos-counter-sale-gateway-${label}-${process.pid}`,
+    `order-pos-${label}-${process.pid}`,
+    String(payments[0].reference),
+    Number(payments[0].id),
+    VOID_PAYER,
+  );
+  const executions = await prisma.$queryRawUnsafe(
+    `INSERT INTO payment_gateway_refunds
+       (tenant_id, provider, environment, gateway_order_id, billing_refund_id,
+        provider_payment_id, provider_refund_id, amount, status, reason,
+        initiated_by, provider_idempotency_key, webhook_credential_version)
+     VALUES ($1::uuid, 'dry_run', 'sandbox', $2::int, $3::int,
+             $4, $5, $6::numeric, 'pending', 'counter-sale gateway evidence',
+             $7::uuid, $8, 1)
+     RETURNING id, status, provider_refund_id`,
+    TENANT,
+    Number(orders[0].id),
+    Number(initiated.refund.id),
+    String(payments[0].reference),
+    providerRefundId,
+    Number(initiated.refund.amount),
+    VOID_PAYER,
+    `pgr-pos-${label}-${process.pid}`,
+  );
+  const claimed = await prisma.$executeRawUnsafe(
+    `UPDATE billing_refunds AS refund
+        SET payout_rail = 'gateway',
+            payout_rail_claimed_at = COALESCE(refund.payout_rail_claimed_at, NOW()),
+            gateway_refund_id = $1::int,
+            updated_at = NOW()
+      WHERE refund.tenant_id = $2::uuid
+        AND refund.id = $3::int
+        AND refund.approval_status = 'APPROVED'
+        AND (
+          refund.payout_rail IS NULL
+          OR (
+            refund.payout_rail = 'gateway'
+            AND (
+              refund.gateway_refund_id IS NULL
+              OR refund.gateway_refund_id = $1::int
+              OR EXISTS (
+                SELECT 1
+                  FROM payment_gateway_refunds prior
+                 WHERE prior.tenant_id = refund.tenant_id
+                   AND prior.id = refund.gateway_refund_id
+                   AND prior.status = 'failed'
+              )
+            )
+          )
+        )`,
+    Number(executions[0].id),
+    TENANT,
+    Number(initiated.refund.id),
+  );
+  expect(Number(claimed)).toBe(1);
+  return executions[0];
+}
+
+async function settleCounterSaleVoid({ saleId, initiated }) {
+  await approveRefund(initiated.refund.id, {
+    tenantId: TENANT,
+    approved_by: VOID_APPROVER,
+  });
+  const awaitingPayout = await reconcileCounterSaleVoid({
+    tenantId: TENANT,
+    id: saleId,
+  });
+  expect(awaitingPayout.workflow_status).toBe('AWAITING_FINANCE_PAYOUT');
+  expect(await allocationReturnCount(saleId)).toBe(0);
+
+  await payCounterSaleVoidRefund(initiated);
+
+  const reconciled = await reconcileCounterSaleVoid({
+    tenantId: TENANT,
+    id: saleId,
+    reconciled_by: CASHIER,
+    reconciled_by_role: 'PHARMACY_INCHARGE',
+  });
+  expect(reconciled.outcome).toBe('voided');
+  return reconciled;
+}
+
+async function initiateCounterSaleVoid({ saleId, reason, disposition = 'NEVER_HANDED_OVER' }) {
+  voidCommandSequence += 1;
+  return voidCounterSale({
+    tenantId: TENANT,
+    id: saleId,
+    reason,
+    disposition,
+    voided_by: CASHIER,
+    voided_by_name: 'Counter Pharmacist',
+    voided_by_role: 'PHARMACY_INCHARGE',
+    command_key: `pos-void-direct-${process.pid}-${voidCommandSequence}`,
+  });
+}
+
+async function completeCounterSaleVoid({ saleId, reason }) {
+  const initiated = await initiateCounterSaleVoid({ saleId, reason });
+  expect(initiated.outcome).toBe('pending_refund');
+  expect(initiated.sale.status).toBe('VOID_PENDING_REFUND');
+  expect(initiated.refund.approval_status).toBe('PENDING');
+  const reconciled = await settleCounterSaleVoid({ saleId, initiated });
+  return { initiated, reconciled };
+}
+
 async function cleanup() {
-  // Ledger entries this suite posted (append-only → audit_bypass), collected
-  // by tenant BEFORE the billing rows they reference are deleted.
   const cleanupTenantIds = [TENANT, OTHER];
+  const witnessFixtureUids = [
+    WITNESS, CASHIER, CLERK_WITNESS, INACTIVE_WITNESS, FOREIGN_WITNESS,
+    VOID_APPROVER, VOID_PAYER,
+  ];
   await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
     await tx.$executeRawUnsafe("SELECT set_config('app.audit_bypass', 'on', true)");
     const entryRows = await tx.$queryRawUnsafe(
       `SELECT id FROM ledger_entries WHERE tenant_id = ANY($1::uuid[])`,
@@ -92,78 +284,112 @@ async function cleanup() {
         `DELETE FROM ledger_entries WHERE id = ANY($1::bigint[])`, entryIds,
       );
     }
-  }).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM idempotency_keys WHERE request_key LIKE 'pos-idem-%'`,
-  ).catch(() => {});
-  for (const tid of [TENANT, OTHER]) {
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM approvals
-        WHERE tenant_id = $1::uuid AND approval_kind = 'controlled_dispense_witness'`, tid,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM pharmacy_counter_sale_allocations WHERE tenant_id = $1::uuid`, tid,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM pharmacy_counter_sale_lines WHERE tenant_id = $1::uuid`, tid,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM pharmacy_counter_sales WHERE tenant_id = $1::uuid`, tid,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM pharmacy_schedule_register WHERE tenant_id = $1::uuid`, tid,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM pharmacy_stock_movements WHERE tenant_id = $1::uuid
-        AND (reference_type LIKE 'pharmacy_counter_sale%' OR reference_type = 'controlled_dispense')`,
-      tid,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM pharmacy_inventory_batches WHERE tenant_id = $1::uuid AND batch_number LIKE 'POS-%'`, tid,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM pharmacy_inventory_items WHERE tenant_id = $1::uuid AND sku_code LIKE 'POS-%'`, tid,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM billing_refunds WHERE tenant_id = $1::uuid`, tid,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM billing_payments WHERE tenant_id = $1::uuid`, tid,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM billing_invoice_items WHERE tenant_id = $1::uuid`, tid,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM billing_invoices WHERE tenant_id = $1::uuid`, tid,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM cash_drawer_sessions WHERE tenant_id = $1::uuid`, tid,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM billing_service_master WHERE tenant_id = $1::uuid AND code LIKE 'POSGST%'`, tid,
-    ).catch(() => {});
-  }
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid`, PATIENT,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid`, PATIENT,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM users WHERE tenant_id = $1::uuid AND (role = 'PHARMACY_WALKIN' OR uid = $2::uuid)`,
-    TENANT, PATIENT,
-  ).catch(() => {});
-  // Witness-roster fixture rows (bound as one uuid[] param — the variable
-  // form is the sanctioned array-binding idiom, mirroring cleanupTenantIds).
-  const witnessFixtureUids = [WITNESS, CASHIER, CLERK_WITNESS, INACTIVE_WITNESS, FOREIGN_WITNESS];
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM staff WHERE user_id = ANY($1::uuid[])`,
-    witnessFixtureUids,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM users WHERE uid = ANY($1::uuid[])`,
-    witnessFixtureUids,
-  ).catch(() => {});
+    await tx.$executeRawUnsafe(
+      `DELETE FROM idempotency_keys WHERE request_key LIKE 'pos-idem-%'`,
+    );
+    for (const tid of cleanupTenantIds) {
+      await tx.$executeRawUnsafe(
+        `DELETE FROM notifications
+          WHERE tenant_id = $1::uuid
+            AND type LIKE 'COUNTER_SALE_VOID_%'`, tid,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM tasks
+          WHERE tenant_id = $1::uuid
+            AND (related_resource_type = 'pharmacy_counter_sale_void_requests'
+                 OR title LIKE 'MED-03 counter-sale wrapper delegation %')`, tid,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM workflow_sla_instances
+          WHERE tenant_id = $1::uuid
+            AND source_table = 'pharmacy_counter_sale_void_requests'`, tid,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM audit_logs
+          WHERE tenant_id = $1::uuid
+            AND action LIKE 'COUNTER_SALE_VOID_%'`, tid,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM pharmacy_counter_sale_void_requests WHERE tenant_id = $1::uuid`, tid,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM approvals
+          WHERE tenant_id = $1::uuid AND approval_kind = 'controlled_dispense_witness'`, tid,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM pharmacy_counter_sale_allocations WHERE tenant_id = $1::uuid`, tid,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM pharmacy_counter_sale_lines WHERE tenant_id = $1::uuid`, tid,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM pharmacy_counter_sales WHERE tenant_id = $1::uuid`, tid,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM pharmacy_schedule_register WHERE tenant_id = $1::uuid`, tid,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM pharmacy_stock_movements WHERE tenant_id = $1::uuid
+          AND (reference_type LIKE 'pharmacy_counter_sale%' OR reference_type = 'controlled_dispense')`,
+        tid,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM pharmacy_inventory_batches WHERE tenant_id = $1::uuid AND batch_number LIKE 'POS-%'`, tid,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM pharmacy_inventory_items WHERE tenant_id = $1::uuid AND sku_code LIKE 'POS-%'`, tid,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM payment_gateway_refunds
+          WHERE tenant_id = $1::uuid
+            AND reason = 'counter-sale gateway evidence'`, tid,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM payment_gateway_orders
+          WHERE tenant_id = $1::uuid
+            AND receipt LIKE 'pos-counter-sale-gateway-%'`, tid,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM billing_refund_offline_electronic_evidence WHERE tenant_id = $1::uuid`, tid,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM billing_refunds WHERE tenant_id = $1::uuid`, tid,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM billing_payments WHERE tenant_id = $1::uuid`, tid,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM billing_invoice_items WHERE tenant_id = $1::uuid`, tid,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM billing_invoices WHERE tenant_id = $1::uuid`, tid,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM cash_drawer_sessions WHERE tenant_id = $1::uuid`, tid,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM billing_service_master WHERE tenant_id = $1::uuid AND code LIKE 'POSGST%'`, tid,
+      );
+    }
+    await tx.$executeRawUnsafe(
+      `DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid`, PATIENT,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid`, PATIENT,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM users WHERE tenant_id = $1::uuid AND (role = 'PHARMACY_WALKIN' OR uid = $2::uuid)`,
+      TENANT, PATIENT,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM staff WHERE user_id = ANY($1::uuid[])`,
+      witnessFixtureUids,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM users WHERE uid = ANY($1::uuid[])`,
+      witnessFixtureUids,
+    );
+  });
 }
 
 beforeAll(async () => {
@@ -190,7 +416,7 @@ beforeAll(async () => {
     `INSERT INTO users (uid, name, role, tenant_id, updated_at)
      VALUES
        ($1::uuid, 'Witness Pharmacist', 'PHARMACY_STAFF', $5::uuid, NOW()),
-       ($2::uuid, 'Counter Pharmacist', 'PHARMACY_STAFF', $5::uuid, NOW()),
+       ($2::uuid, 'Counter Pharmacist', 'PHARMACY_INCHARGE', $5::uuid, NOW()),
        ($3::uuid, 'Front Desk Clerk', 'RECEPTIONIST', $5::uuid, NOW()),
        ($4::uuid, 'Foreign Pharmacist', 'PHARMACY_STAFF', $6::uuid, NOW())
      ON CONFLICT (uid) DO NOTHING`,
@@ -201,6 +427,13 @@ beforeAll(async () => {
      VALUES ($1::uuid, 'Departed Pharmacist', 'PHARMACY_STAFF', $2::uuid, false, NOW())
      ON CONFLICT (uid) DO NOTHING`,
     INACTIVE_WITNESS, TENANT,
+  );
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO users (uid, name, role, tenant_id, updated_at)
+     VALUES
+       ($1::uuid, 'Void Refund Approver', 'ADMIN', $3::uuid, NOW()),
+       ($2::uuid, 'Void Refund Payer', 'FINANCE_INCHARGE', $3::uuid, NOW())`,
+    VOID_APPROVER, VOID_PAYER, TENANT,
   );
   await prisma.$executeRawUnsafe(
     `INSERT INTO staff
@@ -250,6 +483,13 @@ beforeAll(async () => {
      VALUES ($1::uuid, $2::uuid, 'MORNING', 500)`,
     TENANT, CASHIER,
   );
+  const payoutDrawers = await prisma.$queryRawUnsafe(
+    `INSERT INTO cash_drawer_sessions (tenant_id, cashier_uid, shift, opening_float)
+     VALUES ($1::uuid, $2::uuid, 'GENERAL', 10000)
+     RETURNING id::text`,
+    TENANT, VOID_PAYER,
+  );
+  voidPayerDrawerId = payoutDrawers[0].id;
 });
 
 afterAll(async () => {
@@ -321,6 +561,86 @@ describe('direct controlled-dispense batch safety', () => {
 
 describe('walk-in counter sale — FEFO + billing + drawer', () => {
   let saleId;
+
+  test('round-trips sale, request, line, and allocation ids above 2^53 as decimal strings', async () => {
+    const suffix = `${process.pid}-${Date.now()}`;
+    const bigintItem = await insertItem(TENANT, `POS-BIGINT-${suffix}`);
+    await insertBatch(TENANT, bigintItem, `POS-BIGINT-${suffix}`, {
+      expiryDays: 60, qty: 10, mrpMinor: 1000,
+    });
+    const highSaleId = '9007199254740993';
+    const highLineId = '9007199254740994';
+    const highAllocationId = '9007199254740995';
+    const highRequestId = '9007199254740996';
+    const sequenceTargets = [
+      ['pharmacy_counter_sales_id_seq', highSaleId],
+      ['pharmacy_counter_sale_lines_id_seq', highLineId],
+      ['pharmacy_counter_sale_allocations_id_seq', highAllocationId],
+      ['pharmacy_counter_sale_void_requests_id_seq', highRequestId],
+    ];
+    const previousSequenceState = [];
+    let created;
+    let initiated;
+    try {
+      for (const [sequence, nextValue] of sequenceTargets) {
+        const state = await prisma.$queryRawUnsafe(
+          `SELECT start_value::text, last_value::text
+             FROM pg_sequences
+            WHERE schemaname = 'public' AND sequencename = $1`,
+          sequence,
+        );
+        previousSequenceState.push([sequence, state[0]]);
+        await prisma.$queryRawUnsafe(
+          `SELECT setval($1::regclass, $2::bigint, false)`,
+          sequence,
+          nextValue,
+        );
+      }
+      created = await createCounterSale({
+        tenantId: TENANT,
+        lines: [{ inventory_item_id: bigintItem, quantity: 1 }],
+        customer_name: 'Signed 64-bit Identifier Proof',
+        payment_mode: 'UPI',
+        payment_reference: `upi-bigint-${suffix}`,
+        sold_by: CASHIER,
+      });
+      initiated = await initiateCounterSaleVoid({
+        saleId: created.sale.id,
+        reason: 'Signed 64-bit request proof before handover',
+      });
+    } finally {
+      for (const [sequence, state] of previousSequenceState) {
+        await prisma.$queryRawUnsafe(
+          `SELECT setval($1::regclass, $2::bigint, $3::boolean)`,
+          sequence,
+          state.last_value ?? state.start_value,
+          state.last_value != null,
+        );
+      }
+    }
+
+    expect(created.sale.id).toBe(highSaleId);
+    expect(initiated.void_request.id).toBe(highRequestId);
+    const detail = await getCounterSale({ tenantId: TENANT, id: highSaleId });
+    expect(detail.id).toBe(highSaleId);
+    expect(detail.void_request_id).toBe(highRequestId);
+    expect(detail.lines[0].id).toBe(highLineId);
+    expect(detail.lines[0].allocations[0].id).toBe(highAllocationId);
+    const notifications = await prisma.$queryRawUnsafe(
+      `SELECT data
+         FROM notifications
+        WHERE tenant_id = $1::uuid
+          AND type = 'COUNTER_SALE_VOID_REFUND_REQUIRED'
+          AND data->>'counter_sale_void_request_id' = $2`,
+      TENANT,
+      highRequestId,
+    );
+    expect(notifications.length).toBeGreaterThan(0);
+    expect(notifications.every((row) => (
+      row.data.action_label_key === 's4.lib.counter_sale.open_finance_workflow'
+      && row.data.deep_link.includes(`void_request_id=${highRequestId}`)
+    ))).toBe(true);
+  });
 
   test('anonymous CASH sale spans batches earliest-expiry-first and pays the invoice', async () => {
     const result = await createCounterSale({
@@ -396,20 +716,16 @@ describe('walk-in counter sale — FEFO + billing + drawer', () => {
     expect(result.invoice.patient_phone).toBe('9800000001');
   });
 
-  test('same-day void restores the exact batches and pays the refund', async () => {
+  test('same-day void waits for independent payout, then restores the exact batches', async () => {
     const before = [await remaining(otcNear), await remaining(otcFar)];
     expect(before[0].qty).toBe(0);
 
-    const result = await voidCounterSale({
-      tenantId: TENANT,
-      id: saleId,
-      reason: 'Customer returned items',
-      voided_by: CASHIER,
-      voided_by_name: 'Counter Pharmacist',
+    const { initiated, reconciled } = await completeCounterSaleVoid({
+      saleId,
+      reason: 'Sale cancelled before customer handover',
     });
-    expect(result.sale.status).toBe('VOIDED');
-    expect(result.refund.approval_status).toBe('PAID');
-    expect(Number(result.refund.amount)).toBe(651);
+    expect(reconciled.sale.status).toBe('VOIDED');
+    expect(Number(initiated.refund.amount)).toBe(651);
 
     // Exact restock, including reviving the fully-depleted near batch.
     expect((await remaining(otcNear)).qty).toBe(50);
@@ -418,13 +734,19 @@ describe('walk-in counter sale — FEFO + billing + drawer', () => {
 
     const detail = await getCounterSale({ tenantId: TENANT, id: saleId });
     expect(detail.status).toBe('VOIDED');
-    expect(detail.void_reason).toBe('Customer returned items');
+    expect(detail.void_reason).toBe('Sale cancelled before customer handover');
     for (const alloc of detail.lines[0].allocations) {
       expect(alloc.return_movement_id).not.toBeNull();
     }
 
     const voidAgain = voidCounterSale({
-      tenantId: TENANT, id: saleId, reason: 'again', voided_by: CASHIER,
+      tenantId: TENANT,
+      id: saleId,
+      reason: 'again',
+      disposition: 'NEVER_HANDED_OVER',
+      voided_by: CASHIER,
+      voided_by_role: 'PHARMACY_INCHARGE',
+      command_key: `pos-void-direct-${process.pid}-already-voided`,
     });
     await expect(voidAgain).rejects.toMatchObject({ code: 'COUNTER_SALE_ALREADY_VOIDED' });
   });
@@ -451,6 +773,773 @@ describe('walk-in counter sale — FEFO + billing + drawer', () => {
   });
 });
 
+describe('counter-sale void refund obligation closure', () => {
+  test('unrelated runtime task insert commits through the cumulative wrapper delegation chain', async () => {
+    const title = `MED-03 counter-sale wrapper delegation ${process.pid}`;
+    const inserted = await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('SET LOCAL ROLE vhhealth_app');
+      await tx.$executeRawUnsafe(
+        `SELECT set_config('app.current_tenant_id', $1::text, true)`,
+        TENANT,
+      );
+      return tx.$queryRawUnsafe(
+        `INSERT INTO tasks (tenant_id, task_kind, title, status)
+         VALUES ($1::uuid, 'general', $2, 'open')
+         RETURNING id, title`,
+        TENANT,
+        title,
+      );
+    });
+    expect(inserted[0].title).toBe(title);
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM tasks WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT,
+      Number(inserted[0].id),
+    );
+  });
+
+  test('non-cash sale creation rejects a missing original payment reference before mutation', async () => {
+    const before = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count
+         FROM pharmacy_counter_sales
+        WHERE tenant_id = $1::uuid AND customer_name = 'Missing Reference Customer'`,
+      TENANT,
+    );
+    await expect(createCounterSale({
+      tenantId: TENANT,
+      lines: [{ inventory_item_id: otcItem, quantity: 1 }],
+      customer_name: 'Missing Reference Customer',
+      payment_mode: 'UPI',
+      sold_by: CASHIER,
+    })).rejects.toMatchObject({ code: 'COUNTER_SALE_PAYMENT_REFERENCE_REQUIRED' });
+    const after = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count
+         FROM pharmacy_counter_sales
+        WHERE tenant_id = $1::uuid AND customer_name = 'Missing Reference Customer'`,
+      TENANT,
+    );
+    expect(after[0].count).toBe(before[0].count);
+  });
+
+  test('direct SQL cannot backdate or delete governed void evidence', async () => {
+    const created = await createCounterSale({
+      tenantId: TENANT,
+      lines: [{ inventory_item_id: otcItem, quantity: 1 }],
+      customer_name: 'Timestamp Guard Customer',
+      payment_mode: 'UPI',
+      payment_reference: 'upi-timestamp-guard-1',
+      sold_by: CASHIER,
+    });
+    const beforeInsert = Date.now();
+    const initiated = await initiateCounterSaleVoid({
+      saleId: Number(created.sale.id),
+      reason: 'Never handed over timestamp guard proof',
+    });
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id::text, requested_at, created_at,
+              requested_at = created_at AS timestamps_aligned
+         FROM pharmacy_counter_sale_void_requests
+        WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+      TENANT,
+      initiated.void_request.id,
+    );
+    expect(rows[0].timestamps_aligned).toBe(true);
+    expect(new Date(rows[0].requested_at).getTime()).toBeGreaterThanOrEqual(beforeInsert - 1000);
+    await expect(prisma.$executeRawUnsafe(
+      `UPDATE pharmacy_counter_sale_void_requests
+          SET requested_at = '2000-01-01T00:00:00Z'::timestamptz
+        WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+      TENANT,
+      rows[0].id,
+    )).rejects.toThrow(/identity is immutable/i);
+    await expect(prisma.$executeRawUnsafe(
+      `DELETE FROM pharmacy_counter_sale_void_requests
+        WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+      TENANT,
+      rows[0].id,
+    )).rejects.toThrow(/append-only/i);
+    await settleCounterSaleVoid({ saleId: Number(created.sale.id), initiated });
+  });
+
+  test('patient-returned disposition fails closed without request, refund, or stock mutation', async () => {
+    const created = await createCounterSale({
+      tenantId: TENANT,
+      lines: [{ inventory_item_id: otcItem, quantity: 1 }],
+      customer_name: 'Patient Return Customer',
+      payment_mode: 'UPI',
+      payment_reference: 'upi-patient-return-1',
+      sold_by: CASHIER,
+    });
+    const saleId = Number(created.sale.id);
+    const stockBefore = (await remaining(otcNear)).qty + (await remaining(otcFar)).qty;
+    await expect(initiateCounterSaleVoid({
+      saleId,
+      reason: 'Medicine came back from patient custody',
+      disposition: 'PATIENT_RETURNED',
+    })).rejects.toMatchObject({ code: 'COUNTER_SALE_PATIENT_RETURN_QUARANTINE_REQUIRED' });
+    expect((await remaining(otcNear)).qty + (await remaining(otcFar)).qty).toBe(stockBefore);
+    const state = await prisma.$queryRawUnsafe(
+      `SELECT sale.status, sale.void_refund_id,
+              COUNT(request.id)::int AS request_count,
+              COUNT(refund.id)::int AS refund_count
+         FROM pharmacy_counter_sales sale
+         LEFT JOIN pharmacy_counter_sale_void_requests request
+           ON request.tenant_id = sale.tenant_id
+          AND request.counter_sale_id = sale.id
+         LEFT JOIN billing_refunds refund
+           ON refund.tenant_id = sale.tenant_id
+          AND refund.counter_sale_void_request_id = request.id
+        WHERE sale.tenant_id = $1::uuid AND sale.id = $2::bigint
+        GROUP BY sale.status, sale.void_refund_id`,
+      TENANT,
+      saleId,
+    );
+    expect(state[0]).toMatchObject({
+      status: 'COMPLETED', void_refund_id: null, request_count: 0, refund_count: 0,
+    });
+  });
+
+  test('an unrelated partial invoice refund blocks rather than being selected by the void', async () => {
+    const created = await createCounterSale({
+      tenantId: TENANT,
+      lines: [{ inventory_item_id: otcItem, quantity: 1 }],
+      customer_name: 'Unrelated Refund Customer',
+      payment_mode: 'UPI',
+      payment_reference: 'upi-unrelated-refund-1',
+      sold_by: CASHIER,
+    });
+    const saleId = Number(created.sale.id);
+    const unrelated = await prisma.$queryRawUnsafe(
+      `INSERT INTO billing_refunds
+         (patient_uid, invoice_id, amount, reason, mode, raised_by, tenant_id)
+       VALUES ($1::uuid, $2::int, 0.50, 'unrelated partial refund', 'UPI', $3::uuid, $4::uuid)
+       RETURNING id`,
+      String(created.invoice.patient_uid),
+      Number(created.invoice.id),
+      VOID_PAYER,
+      TENANT,
+    );
+    await expect(initiateCounterSaleVoid({
+      saleId,
+      reason: 'Never handed over but invoice has another refund',
+    })).rejects.toMatchObject({ code: 'COUNTER_SALE_VOID_REFUND_CONFLICT' });
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT sale.status, sale.void_refund_id,
+              COUNT(request.id)::int AS request_count
+         FROM pharmacy_counter_sales sale
+         LEFT JOIN pharmacy_counter_sale_void_requests request
+           ON request.tenant_id = sale.tenant_id
+          AND request.counter_sale_id = sale.id
+        WHERE sale.tenant_id = $1::uuid AND sale.id = $2::bigint
+        GROUP BY sale.status, sale.void_refund_id`,
+      TENANT,
+      saleId,
+    );
+    expect(rows[0]).toMatchObject({ status: 'COMPLETED', void_refund_id: null, request_count: 0 });
+    expect(Number(unrelated[0].id)).toBeGreaterThan(0);
+  });
+
+  test('durable command identity converges concurrent duplicates, rejects mismatch, and is tenant-bound', async () => {
+    const created = await createCounterSale({
+      tenantId: TENANT,
+      lines: [{ inventory_item_id: otcItem, quantity: 1 }],
+      customer_name: 'Durable Void Command Customer',
+      payment_mode: 'UPI',
+      payment_reference: 'upi-durable-command-1',
+      sold_by: CASHIER,
+    });
+    const saleId = Number(created.sale.id);
+    const command = {
+      tenantId: TENANT,
+      id: saleId,
+      reason: 'Never handed over durable command',
+      disposition: 'NEVER_HANDED_OVER',
+      voided_by: CASHIER,
+      voided_by_name: 'Counter Pharmacist',
+      voided_by_role: 'PHARMACY_INCHARGE',
+      command_key: `pos-void-concurrent-${process.pid}`,
+    };
+    const [first, second] = await Promise.all([
+      voidCounterSale(command),
+      voidCounterSale(command),
+    ]);
+    expect(new Set([first.refund.id, second.refund.id]).size).toBe(1);
+    expect(new Set([first.void_request.id, second.void_request.id]).size).toBe(1);
+    expect([first.outcome, second.outcome].sort()).toEqual(['pending_refund', 'replay']);
+    await expect(voidCounterSale({
+      ...command,
+      reason: 'Changed intent under the same command key',
+    })).rejects.toMatchObject({ code: 'COUNTER_SALE_VOID_COMMAND_MISMATCH' });
+    await expect(reconcileCounterSaleVoid({
+      tenantId: OTHER,
+      id: saleId,
+    })).rejects.toMatchObject({ statusCode: 404 });
+    const counts = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(DISTINCT request.id)::int AS request_count,
+              COUNT(DISTINCT refund.id)::int AS refund_count
+         FROM pharmacy_counter_sale_void_requests request
+         JOIN billing_refunds refund
+           ON refund.tenant_id = request.tenant_id
+          AND refund.counter_sale_void_request_id = request.id
+        WHERE request.tenant_id = $1::uuid
+          AND request.counter_sale_id = $2::bigint`,
+      TENANT,
+      saleId,
+    );
+    expect(counts[0]).toMatchObject({ request_count: 1, refund_count: 1 });
+    await settleCounterSaleVoid({ saleId, initiated: first });
+  });
+
+  test('linked void task and SLA satisfy the cumulative care-pathway contract and reject a forged source', async () => {
+    const created = await createCounterSale({
+      tenantId: TENANT,
+      lines: [{ inventory_item_id: otcItem, quantity: 1 }],
+      customer_name: 'Task SLA Binding Customer',
+      payment_mode: 'UPI',
+      payment_reference: 'upi-task-sla-binding-1',
+      sold_by: CASHIER,
+    });
+    const saleId = Number(created.sale.id);
+    const initiated = await initiateCounterSaleVoid({
+      saleId,
+      reason: 'Never handed over task SLA binding proof',
+    });
+    const bindings = await prisma.$queryRawUnsafe(
+      `SELECT request.id::text AS request_id, request.task_id,
+              request.workflow_sla_instance_id::text AS sla_id,
+              task.metadata->>'task_contract' AS task_contract,
+              sla.source_id
+         FROM pharmacy_counter_sale_void_requests request
+         JOIN tasks task
+           ON task.tenant_id = request.tenant_id
+          AND task.id = request.task_id
+         JOIN workflow_sla_instances sla
+           ON sla.tenant_id = request.tenant_id
+          AND sla.id = request.workflow_sla_instance_id
+        WHERE request.tenant_id = $1::uuid
+          AND request.counter_sale_id = $2::bigint`,
+      TENANT,
+      saleId,
+    );
+    expect(bindings[0]).toMatchObject({
+      request_id: bindings[0].source_id,
+      task_contract: 'counter_sale_void_refund_v1',
+    });
+    await prisma.$queryRawUnsafe(
+      `SELECT care_pathway_assert_task_sla_source_binding($1::uuid, $2::int)::text,
+              care_pathway_assert_task_sla_completion_receipt($1::uuid, $2::int)::text`,
+      TENANT,
+      Number(bindings[0].task_id),
+    );
+    const runtimeTitle = `Reconcile exact counter-sale void refund ${saleId}`;
+    const ownTenantMutation = await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('SET LOCAL ROLE vhhealth_app');
+      await tx.$executeRawUnsafe(
+        `SELECT set_config('app.current_tenant_id', $1::text, true)`,
+        TENANT,
+      );
+      return tx.$queryRawUnsafe(
+        `UPDATE tasks
+            SET title = $1
+          WHERE tenant_id = $2::uuid AND id = $3::int
+          RETURNING id, title`,
+        runtimeTitle,
+        TENANT,
+        Number(bindings[0].task_id),
+      );
+    });
+    expect(ownTenantMutation[0].title).toBe(runtimeTitle);
+
+    const crossTenantMutation = await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('SET LOCAL ROLE vhhealth_app');
+      await tx.$executeRawUnsafe(
+        `SELECT set_config('app.current_tenant_id', $1::text, true)`,
+        OTHER,
+      );
+      return tx.$queryRawUnsafe(
+        `UPDATE tasks
+            SET title = 'FORGED CROSS TENANT COUNTER-SALE TASK'
+          WHERE id = $1::int
+          RETURNING id`,
+        Number(bindings[0].task_id),
+      );
+    });
+    expect(crossTenantMutation).toHaveLength(0);
+    const unchanged = await prisma.$queryRawUnsafe(
+      `SELECT title FROM tasks WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT,
+      Number(bindings[0].task_id),
+    );
+    expect(unchanged[0].title).toBe(runtimeTitle);
+
+    await expect(prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `UPDATE workflow_sla_instances
+            SET source_id = $1
+          WHERE tenant_id = $2::uuid AND id = $3::uuid`,
+        `${bindings[0].request_id}-forged`,
+        TENANT,
+        bindings[0].sla_id,
+      );
+    })).rejects.toThrow(/counter-sale void task (and linked SLA do not describe|has no exact SLA receipt contract)/i);
+
+    await settleCounterSaleVoid({ saleId, initiated });
+  });
+
+  test('pharmacy cannot self-approve or self-pay and offline evidence binds the exact original payment', async () => {
+    const originalReference = 'upi-independent-actors-1';
+    const created = await createCounterSale({
+      tenantId: TENANT,
+      lines: [{ inventory_item_id: otcItem, quantity: 1 }],
+      customer_name: 'Independent Actors Customer',
+      payment_mode: 'UPI',
+      payment_reference: originalReference,
+      sold_by: CASHIER,
+    });
+    const saleId = Number(created.sale.id);
+    const initiated = await initiateCounterSaleVoid({
+      saleId,
+      reason: 'Never handed over independent actors',
+    });
+    await expect(approveRefund(initiated.refund.id, {
+      tenantId: TENANT,
+      approved_by: CASHIER,
+    })).rejects.toThrow(/independent.*approval|approval.*independent/i);
+    await approveRefund(initiated.refund.id, {
+      tenantId: TENANT,
+      approved_by: VOID_APPROVER,
+    });
+    await reconcileCounterSaleVoid({ tenantId: TENANT, id: saleId });
+
+    const attemptedEvidence = {
+      tenantId: TENANT,
+      original_payment_reference: originalReference,
+      provider_name: 'POS Test Acquirer',
+      provider_refund_reference: `POS-UNAUTHORIZED-${process.pid}`,
+      provider_refunded_at: new Date().toISOString(),
+    };
+    const originalPayments = await prisma.$queryRawUnsafe(
+      `SELECT id
+         FROM billing_payments
+        WHERE tenant_id = $1::uuid
+          AND invoice_id = $2::int
+          AND reversed = FALSE`,
+      TENANT,
+      Number(created.invoice.id),
+    );
+    expect(originalPayments).toHaveLength(1);
+    const tamperedReference = `${originalReference}-tampered`;
+    await prisma.$executeRawUnsafe(
+      `UPDATE billing_payments
+          SET reference = $1
+        WHERE tenant_id = $2::uuid AND id = $3::int`,
+      tamperedReference,
+      TENANT,
+      Number(originalPayments[0].id),
+    );
+    await expect(markOfflineElectronicRefundPaid(initiated.refund.id, {
+      ...attemptedEvidence,
+      paid_by: VOID_PAYER,
+      original_payment_reference: tamperedReference,
+      provider_refund_reference: `POS-TAMPERED-RECEIPT-${process.pid}`,
+    })).rejects.toThrow(/original sale receipt|exact evidence/i);
+    const rejectedTamper = await prisma.$queryRawUnsafe(
+      `SELECT refund.approval_status,
+              COUNT(evidence.id)::int AS evidence_count
+         FROM billing_refunds refund
+         LEFT JOIN billing_refund_offline_electronic_evidence evidence
+           ON evidence.tenant_id = refund.tenant_id
+          AND evidence.refund_id = refund.id
+        WHERE refund.tenant_id = $1::uuid AND refund.id = $2::int
+        GROUP BY refund.approval_status`,
+      TENANT,
+      Number(initiated.refund.id),
+    );
+    expect(rejectedTamper[0]).toMatchObject({
+      approval_status: 'APPROVED', evidence_count: 0,
+    });
+    await prisma.$executeRawUnsafe(
+      `UPDATE billing_payments
+          SET reference = $1
+        WHERE tenant_id = $2::uuid AND id = $3::int`,
+      originalReference,
+      TENANT,
+      Number(originalPayments[0].id),
+    );
+    await expect(markOfflineElectronicRefundPaid(initiated.refund.id, {
+      ...attemptedEvidence,
+      paid_by: CASHIER,
+    })).rejects.toThrow(/independent|exact evidence/i);
+    await expect(markOfflineElectronicRefundPaid(initiated.refund.id, {
+      ...attemptedEvidence,
+      paid_by: WITNESS,
+    })).rejects.toThrow(/exact evidence/i);
+    await markOfflineElectronicRefundPaid(initiated.refund.id, {
+      ...attemptedEvidence,
+      paid_by: VOID_PAYER,
+      provider_refund_reference: `POS-AUTHORIZED-${process.pid}`,
+    });
+    const final = await reconcileCounterSaleVoid({
+      tenantId: TENANT,
+      id: saleId,
+      reconciled_by: CASHIER,
+      reconciled_by_role: 'PHARMACY_INCHARGE',
+    });
+    expect(final.workflow_status).toBe('VOIDED');
+    const evidence = await prisma.$queryRawUnsafe(
+      `SELECT evidence.original_payment_id, evidence.original_advance_id,
+              evidence.original_payment_reference, payment.invoice_id
+         FROM billing_refund_offline_electronic_evidence evidence
+         JOIN billing_payments payment
+           ON payment.tenant_id = evidence.tenant_id
+          AND payment.id = evidence.original_payment_id
+        WHERE evidence.tenant_id = $1::uuid
+          AND evidence.refund_id = $2::int`,
+      TENANT,
+      initiated.refund.id,
+    );
+    expect(evidence).toHaveLength(1);
+    expect(evidence[0]).toMatchObject({
+      original_advance_id: null,
+      original_payment_reference: originalReference,
+      invoice_id: Number(created.invoice.id),
+    });
+  });
+
+  test('gateway rail rejects an unrelated capture and closes only after exact processed provider evidence', async () => {
+    const target = await createCounterSale({
+      tenantId: TENANT,
+      lines: [{ inventory_item_id: otcItem, quantity: 1 }],
+      customer_name: 'Gateway Evidence Target Customer',
+      payment_mode: 'UPI',
+      payment_reference: 'pay-gateway-target-1',
+      sold_by: CASHIER,
+    });
+    const unrelated = await createCounterSale({
+      tenantId: TENANT,
+      lines: [{ inventory_item_id: otcItem, quantity: 1 }],
+      customer_name: 'Gateway Evidence Unrelated Customer',
+      payment_mode: 'UPI',
+      payment_reference: 'pay-gateway-unrelated-1',
+      sold_by: CASHIER,
+    });
+    const saleId = Number(target.sale.id);
+    const initiated = await initiateCounterSaleVoid({
+      saleId,
+      reason: 'Never handed over exact gateway evidence proof',
+    });
+    await approveRefund(initiated.refund.id, {
+      tenantId: TENANT,
+      approved_by: VOID_APPROVER,
+    });
+    await reconcileCounterSaleVoid({ tenantId: TENANT, id: saleId });
+
+    const forged = await createCounterSaleGatewayExecution({
+      initiated,
+      source: unrelated,
+      label: 'unrelated',
+    });
+    await expect(markGatewayRefundPaid(initiated.refund.id, {
+      tenantId: TENANT,
+      gateway_refund_id: Number(forged.id),
+      provider_refund_id: forged.provider_refund_id,
+    })).rejects.toThrow(/counter-sale void gateway payout lacks execution evidence/i);
+    const rolledBack = await prisma.$queryRawUnsafe(
+      `SELECT execution.status, execution.processed_at, refund.approval_status
+         FROM payment_gateway_refunds execution
+         JOIN billing_refunds refund
+           ON refund.tenant_id = execution.tenant_id
+          AND refund.id = execution.billing_refund_id
+        WHERE execution.tenant_id = $1::uuid AND execution.id = $2::int`,
+      TENANT,
+      Number(forged.id),
+    );
+    expect(rolledBack[0]).toMatchObject({
+      status: 'pending', processed_at: null, approval_status: 'APPROVED',
+    });
+    await prisma.$executeRawUnsafe(
+      `UPDATE payment_gateway_refunds
+          SET status = 'failed',
+              failed_at = NOW(),
+              failure_code = 'TEST_CAPTURE_MISMATCH',
+              failure_reason = 'Unrelated capture rejected by exact evidence guard',
+              updated_at = NOW()
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT,
+      Number(forged.id),
+    );
+
+    const exact = await createCounterSaleGatewayExecution({
+      initiated,
+      source: target,
+      label: 'exact',
+    });
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM payment_gateway_refunds
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT,
+      Number(forged.id),
+    );
+    await markGatewayRefundPaid(initiated.refund.id, {
+      tenantId: TENANT,
+      gateway_refund_id: Number(exact.id),
+      provider_refund_id: exact.provider_refund_id,
+    });
+    const paid = await prisma.$queryRawUnsafe(
+      `SELECT execution.status, execution.processed_at,
+              refund.approval_status, refund.payout_rail
+         FROM payment_gateway_refunds execution
+         JOIN billing_refunds refund
+           ON refund.tenant_id = execution.tenant_id
+          AND refund.id = execution.billing_refund_id
+        WHERE execution.tenant_id = $1::uuid AND execution.id = $2::int`,
+      TENANT,
+      Number(exact.id),
+    );
+    expect(paid[0]).toMatchObject({
+      status: 'processed', approval_status: 'PAID', payout_rail: 'gateway',
+    });
+    expect(paid[0].processed_at).not.toBeNull();
+    const reconciled = await reconcileCounterSaleVoid({
+      tenantId: TENANT,
+      id: saleId,
+      reconciled_by: CASHIER,
+      reconciled_by_role: 'PHARMACY_INCHARGE',
+    });
+    expect(reconciled).toMatchObject({
+      outcome: 'voided', sale: { status: 'VOIDED' },
+    });
+  });
+
+  test('bounded tenant reconciler closes exact paid refunds once with system attribution', async () => {
+    const created = await createCounterSale({
+      tenantId: TENANT,
+      lines: [{ inventory_item_id: otcItem, quantity: 1 }],
+      customer_name: 'Automatic Reconciliation Customer',
+      payment_mode: 'UPI',
+      payment_reference: 'upi-automatic-reconciliation-1',
+      sold_by: CASHIER,
+    });
+    const saleId = Number(created.sale.id);
+    const initiated = await initiateCounterSaleVoid({
+      saleId,
+      reason: 'Never handed over automatic reconciliation proof',
+    });
+    await approveRefund(initiated.refund.id, {
+      tenantId: TENANT,
+      approved_by: VOID_APPROVER,
+    });
+    await reconcileCounterSaleVoid({ tenantId: TENANT, id: saleId });
+    await payCounterSaleVoidRefund(initiated);
+
+    const first = await reconcileCounterSaleVoidsForTenant({ tenantId: TENANT, limit: 10 });
+    expect(first.reconciled).toBeGreaterThanOrEqual(1);
+    expect(first.results).toEqual(expect.arrayContaining([
+      expect.objectContaining({ outcome: 'voided', sale: expect.objectContaining({ id: String(saleId) }) }),
+    ]));
+    const second = await reconcileCounterSaleVoidsForTenant({ tenantId: TENANT, limit: 10 });
+    expect(second.results).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ outcome: 'voided', sale: expect.objectContaining({ id: String(saleId) }) }),
+    ]));
+    const evidence = await prisma.$queryRawUnsafe(
+      `SELECT request.status, request.reconciliation_source, request.reconciled_by,
+              task.status AS task_status, sla.metadata->>'completed_by' AS completed_by
+         FROM pharmacy_counter_sale_void_requests request
+         JOIN tasks task
+           ON task.tenant_id = request.tenant_id AND task.id = request.task_id
+         JOIN workflow_sla_instances sla
+           ON sla.tenant_id = request.tenant_id
+          AND sla.id = request.workflow_sla_instance_id
+        WHERE request.tenant_id = $1::uuid
+          AND request.counter_sale_id = $2::bigint`,
+      TENANT,
+      saleId,
+    );
+    expect(evidence[0]).toMatchObject({
+      status: 'COMPLETED',
+      reconciliation_source: 'system',
+      reconciled_by: null,
+      task_status: 'completed',
+      completed_by: CASHIER,
+    });
+    expect(await allocationReturnCount(saleId)).toBeGreaterThan(0);
+  });
+
+  test('refund rejection opens named review and explicit handover closes without restock', async () => {
+    const created = await createCounterSale({
+      tenantId: TENANT,
+      lines: [{ inventory_item_id: otcItem, quantity: 1 }],
+      customer_name: 'Rejected Refund Customer',
+      payment_mode: 'UPI',
+      payment_reference: 'upi-rejected-refund-1',
+      sold_by: CASHIER,
+    });
+    const saleId = Number(created.sale.id);
+    const initiated = await initiateCounterSaleVoid({
+      saleId,
+      reason: 'Void awaiting independent review',
+    });
+    await rejectRefund(initiated.refund.id, {
+      tenantId: TENANT,
+      rejected_by: VOID_APPROVER,
+      rejection_reason: 'Customer already took custody',
+    });
+    const review = await reconcileCounterSaleVoid({ tenantId: TENANT, id: saleId });
+    expect(review).toMatchObject({
+      outcome: 'refund_rejected_review',
+      workflow_status: 'REFUND_REJECTED_REVIEW',
+      sale: { status: 'VOID_PENDING_REFUND' },
+      void_request: { task_stage: 'rejected_review' },
+    });
+    expect(await allocationReturnCount(saleId)).toBe(0);
+    const openTask = await prisma.$queryRawUnsafe(
+      `SELECT task.status, task.assigned_to_role, sla.status AS sla_status
+         FROM pharmacy_counter_sale_void_requests request
+         JOIN tasks task
+           ON task.tenant_id = request.tenant_id AND task.id = request.task_id
+         JOIN workflow_sla_instances sla
+           ON sla.tenant_id = request.tenant_id
+          AND sla.id = request.workflow_sla_instance_id
+        WHERE request.tenant_id = $1::uuid AND request.counter_sale_id = $2::bigint`,
+      TENANT,
+      saleId,
+    );
+    expect(openTask[0].status).toMatch(/open|in_progress|blocked|overdue/);
+    expect(openTask[0].assigned_to_role).toBe('ADMIN');
+    expect(['active', 'breached', 'escalated']).toContain(openTask[0].sla_status);
+
+    const closed = await resolveRejectedCounterSaleVoid({
+      tenantId: TENANT,
+      id: saleId,
+      resolution: 'CUSTOMER_HANDOVER_CONFIRMED',
+      reason: 'Pharmacist confirmed customer custody against the receipt',
+      resolved_by: CASHIER,
+      resolved_by_role: 'PHARMACY_INCHARGE',
+    });
+    expect(closed).toMatchObject({
+      outcome: 'handover_confirmed',
+      workflow_status: 'CANCELLED_HANDOVER_CONFIRMED',
+      sale: { status: 'COMPLETED', void_refund_id: null },
+      void_request: { status: 'CANCELLED_HANDOVER_CONFIRMED', task_stage: 'cancelled' },
+    });
+    expect(await allocationReturnCount(saleId)).toBe(0);
+    const terminal = await prisma.$queryRawUnsafe(
+      `SELECT task.status, sla.completed_at, request.rejection_resolution
+         FROM pharmacy_counter_sale_void_requests request
+         JOIN tasks task
+           ON task.tenant_id = request.tenant_id AND task.id = request.task_id
+         JOIN workflow_sla_instances sla
+           ON sla.tenant_id = request.tenant_id
+          AND sla.id = request.workflow_sla_instance_id
+        WHERE request.tenant_id = $1::uuid AND request.counter_sale_id = $2::bigint`,
+      TENANT,
+      saleId,
+    );
+    expect(terminal[0]).toMatchObject({
+      status: 'completed', rejection_resolution: 'CUSTOMER_HANDOVER_CONFIRMED',
+    });
+    expect(terminal[0].completed_at).not.toBeNull();
+  });
+
+  test('a mid-restock failure rolls back every return and a retry closes exactly once', async () => {
+    const created = await createCounterSale({
+      tenantId: TENANT,
+      lines: [{ inventory_item_id: otcItem, quantity: 60 }],
+      customer_name: 'Crash Retry Customer',
+      payment_mode: 'UPI',
+      payment_reference: 'upi-crash-retry-1',
+      sold_by: CASHIER,
+    });
+    const saleId = Number(created.sale.id);
+    const allocations = await prisma.$queryRawUnsafe(
+      `SELECT allocation.id::text, allocation.inventory_batch_id
+         FROM pharmacy_counter_sale_allocations allocation
+         JOIN pharmacy_counter_sale_lines line
+           ON line.tenant_id = allocation.tenant_id
+          AND line.id = allocation.counter_sale_line_id
+        WHERE allocation.tenant_id = $1::uuid AND line.counter_sale_id = $2::bigint
+        ORDER BY allocation.id`,
+      TENANT,
+      saleId,
+    );
+    expect(allocations).toHaveLength(2);
+    const dispensedState = [await remaining(otcNear), await remaining(otcFar)];
+    const initiated = await initiateCounterSaleVoid({
+      saleId,
+      reason: 'Crash-safe return before handover',
+    });
+    await approveRefund(initiated.refund.id, {
+      tenantId: TENANT,
+      approved_by: VOID_APPROVER,
+    });
+    await reconcileCounterSaleVoid({ tenantId: TENANT, id: saleId });
+    await payCounterSaleVoidRefund(initiated);
+
+    await prisma.$executeRawUnsafe(
+      `CREATE OR REPLACE FUNCTION codex_fail_counter_sale_far_return_746()
+       RETURNS TRIGGER LANGUAGE plpgsql AS $fn$
+       BEGIN
+         IF OLD.return_movement_id IS NULL
+            AND NEW.return_movement_id IS NOT NULL
+            AND EXISTS (
+              SELECT 1 FROM pharmacy_inventory_batches batch
+               WHERE batch.id = NEW.inventory_batch_id
+                 AND batch.batch_number = 'POS-OTC-FAR'
+            ) THEN
+           RAISE EXCEPTION 'forced mid-restock crash';
+         END IF;
+         RETURN NEW;
+       END
+       $fn$`,
+    );
+    await prisma.$executeRawUnsafe(
+      `CREATE TRIGGER codex_fail_counter_sale_far_return_746
+       BEFORE UPDATE OF return_movement_id ON pharmacy_counter_sale_allocations
+       FOR EACH ROW EXECUTE FUNCTION codex_fail_counter_sale_far_return_746()`,
+    );
+    try {
+      await expect(reconcileCounterSaleVoid({
+        tenantId: TENANT,
+        id: saleId,
+        reconciled_by: CASHIER,
+        reconciled_by_role: 'PHARMACY_INCHARGE',
+      })).rejects.toThrow(/forced mid-restock crash/i);
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `DROP TRIGGER codex_fail_counter_sale_far_return_746
+           ON pharmacy_counter_sale_allocations`,
+      );
+      await prisma.$executeRawUnsafe(
+        `DROP FUNCTION codex_fail_counter_sale_far_return_746()`,
+      );
+    }
+    expect(await allocationReturnCount(saleId)).toBe(0);
+    expect(await remaining(otcNear)).toEqual(dispensedState[0]);
+    expect(await remaining(otcFar)).toEqual(dispensedState[1]);
+    const failedReturns = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count
+         FROM pharmacy_stock_movements
+        WHERE tenant_id = $1::uuid
+          AND reference_type = 'pharmacy_counter_sale_void'
+          AND reference_id = $2`,
+      TENANT,
+      String(saleId),
+    );
+    expect(failedReturns[0].count).toBe(0);
+
+    const retried = await reconcileCounterSaleVoid({
+      tenantId: TENANT,
+      id: saleId,
+      reconciled_by: CASHIER,
+      reconciled_by_role: 'PHARMACY_INCHARGE',
+    });
+    expect(retried.workflow_status).toBe('VOIDED');
+    expect(await allocationReturnCount(saleId)).toBe(2);
+    const replay = await reconcileCounterSaleVoid({ tenantId: TENANT, id: saleId });
+    expect(replay).toMatchObject({ outcome: 'replay', workflow_status: 'VOIDED' });
+  });
+});
+
 describe('schedule-class enforcement', () => {
   test('witness approval request rejects a caller-preselected approval id', async () => {
     await expect(requestCounterSaleWitnessApproval({
@@ -460,6 +1549,7 @@ describe('schedule-class enforcement', () => {
       customer_phone: '9800000042',
       rx: RX,
       payment_mode: 'CARD',
+      payment_reference: 'card-preselected-1',
       requested_by: CASHIER,
       witness_approval_id: '71',
     })).rejects.toMatchObject({
@@ -473,6 +1563,7 @@ describe('schedule-class enforcement', () => {
       lines: [{ inventory_item_id: h1Item, quantity: 2 }],
       customer_name: 'No Rx',
       payment_mode: 'UPI',
+      payment_reference: 'upi-no-rx-1',
       sold_by: CASHIER,
     })).rejects.toMatchObject({ code: 'COUNTER_SALE_RX_REQUIRED' });
   });
@@ -523,11 +1614,9 @@ describe('schedule-class enforcement', () => {
     expect(audit.map((a) => a.action)).toContain('pharmacy.counter_sale.dispensed');
 
     // Voiding the controlled sale restocks THROUGH the register.
-    const voided = await voidCounterSale({
-      tenantId: TENANT,
-      id: result.sale.id,
-      reason: 'Rx withdrawn',
-      voided_by: CASHIER,
+    const { reconciled: voided } = await completeCounterSaleVoid({
+      saleId: result.sale.id,
+      reason: 'Rx withdrawn before handover',
     });
     expect(voided.sale.status).toBe('VOIDED');
     expect((await remaining(h1Batch)).qty).toBe(60);
@@ -547,6 +1636,7 @@ describe('schedule-class enforcement', () => {
       customer_name: 'X Buyer',
       rx: RX,
       payment_mode: 'CARD',
+      payment_reference: 'card-x-witness-required-1',
       sold_by: CASHIER,
     })).rejects.toMatchObject({ code: 'COUNTER_SALE_WITNESS_REQUIRED' });
 
@@ -557,6 +1647,7 @@ describe('schedule-class enforcement', () => {
       customer_phone: '9800000042',
       rx: RX,
       payment_mode: 'CARD',
+      payment_reference: 'card-x-complete-1',
       sold_by: CASHIER,
       sold_by_name: 'Counter Pharmacist',
     };
@@ -620,6 +1711,7 @@ describe('schedule-class enforcement', () => {
         customer_phone: '9800000042',
         rx: RX,
         payment_mode: 'CARD',
+        payment_reference: 'card-x-witness-validation-1',
         sold_by: CASHIER,
         sold_by_name: 'Counter Pharmacist',
       };
@@ -685,7 +1777,8 @@ describe('atomicity + isolation', () => {
     // Two lines of the same item: plans are computed against the same
     // unlocked snapshot, so together they over-allocate the near batch. The
     // finalize tx must fail on the second line and roll the first line's
-    // decrement back, then void the issued invoice as compensation.
+    // decrement back. Invoice issuance is in that same finalize transaction,
+    // so compensation must only ever void the rolled-back DRAFT invoice.
     const nearBefore = (await remaining(otcNear)).qty;
     const farBefore = (await remaining(otcFar)).qty;
 
@@ -715,15 +1808,26 @@ describe('atomicity + isolation', () => {
     const failed = sales[0];
     expect(failed.status).toBe('FAILED');
 
-    // The compensating void hit the issued invoice.
+    // The failed finalize never issued a statutory invoice number; the
+    // compensating void therefore stayed within billing's DRAFT-only guard.
     const invoices = await prisma.$queryRawUnsafe(
-      `SELECT status, void_reason FROM billing_invoices
+      `SELECT id, status, invoice_number, issued_at, void_reason
+         FROM billing_invoices
         WHERE tenant_id = $1::uuid AND notes = $2
         ORDER BY id DESC LIMIT 1`,
       TENANT, `Pharmacy counter sale #${failed.id}`,
     );
     expect(invoices).toHaveLength(1);
     expect(invoices[0].status).toBe('VOID');
+    expect(invoices[0].invoice_number).toBeNull();
+    expect(invoices[0].issued_at).toBeNull();
+    const payments = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count
+         FROM billing_payments
+        WHERE tenant_id = $1::uuid AND invoice_id = $2::int`,
+      TENANT, invoices[0].id,
+    );
+    expect(payments[0].count).toBe(0);
   });
 
   test('cross-tenant: foreign items are unsellable and foreign sales unreadable', async () => {
@@ -732,6 +1836,7 @@ describe('atomicity + isolation', () => {
       lines: [{ inventory_item_id: foreignItem, quantity: 1 }],
       customer_name: 'Cross Tenant',
       payment_mode: 'UPI',
+      payment_reference: 'upi-cross-tenant-1',
       sold_by: CASHIER,
     })).rejects.toMatchObject({ statusCode: 404 });
 
@@ -767,6 +1872,7 @@ describe('atomicity + isolation', () => {
 // never dispenses/charges (or refunds/restocks) a second time.
 describe('idempotent counter-sale mutations (route-level)', () => {
   const BASE = '/api/v1/pharmacy-orders/counter-sales';
+  const ALIAS = '/api/v1/pharmacy/counter-sales';
   const staff = () => authClient('PHARMACY_STAFF', { uid: CASHIER, tenant_id: TENANT });
   const incharge = () => authClient('PHARMACY_INCHARGE', { uid: CASHIER, tenant_id: TENANT });
   const witness = () => authClient('PHARMACY_STAFF', { uid: WITNESS, tenant_id: TENANT });
@@ -806,6 +1912,7 @@ describe('idempotent counter-sale mutations (route-level)', () => {
       customer_phone: '9800000088',
       rx: RX,
       payment_mode: 'CARD',
+      payment_reference: 'card-witness-retry-1',
     };
     const requestKey = `pos-idem-${process.pid}-witness-request`;
     const firstRequest = await staff().post(`${BASE}/witness-approvals`)
@@ -815,7 +1922,7 @@ describe('idempotent counter-sale mutations (route-level)', () => {
     expect(approvalId).toMatch(/^[1-9][0-9]*$/);
     await waitForIdemComplete(requestKey);
 
-    const replayedRequest = await staff().post(`${BASE}/witness-approvals`)
+    const replayedRequest = await staff().post(`${ALIAS}/witness-approvals`)
       .set('Idempotency-Key', requestKey).send(sale);
     expect(replayedRequest.status).toBe(200);
     expect(replayedRequest.body.data.id).toBe(approvalId);
@@ -830,7 +1937,7 @@ describe('idempotent counter-sale mutations (route-level)', () => {
     await waitForIdemComplete(approvalKey);
 
     const replayedApproval = await witness()
-      .post(`${BASE}/witness-approvals/${approvalId}/approve`)
+      .post(`${ALIAS}/witness-approvals/${approvalId}/approve`)
       .set('Idempotency-Key', approvalKey).send(approvalBody);
     expect(replayedApproval.status).toBe(200);
     expect(replayedApproval.body.data).toEqual(firstApproval.body.data);
@@ -857,7 +1964,7 @@ describe('idempotent counter-sale mutations (route-level)', () => {
     const invoiceId = Number(first.body.data.invoice.id);
     await waitForIdemComplete(key);
 
-    const replay = await staff().post(BASE).set('Idempotency-Key', key)
+    const replay = await staff().post(ALIAS).set('Idempotency-Key', key)
       .send(saleBody('Replay Customer', 'upi-idem-1'));
     expect(replay.status).toBe(200);
     expect(replay.body.data.sale.id).toBe(saleId);
@@ -917,7 +2024,7 @@ describe('idempotent counter-sale mutations (route-level)', () => {
     expect(payments).toHaveLength(1);
   });
 
-  test('void replay returns the original void — refund raised exactly once', async () => {
+  test('cross-alias void replay returns one pending obligation and one exact refund', async () => {
     const createKey = `pos-idem-${process.pid}-create-void`;
     const created = await staff().post(BASE).set('Idempotency-Key', createKey)
       .send(saleBody('Void Idem Customer', 'upi-idem-4'));
@@ -926,17 +2033,22 @@ describe('idempotent counter-sale mutations (route-level)', () => {
     const invoiceId = Number(created.body.data.invoice.id);
 
     const voidKey = `pos-idem-${process.pid}-void-1`;
-    const voidBody = { reason: 'replay-safety check' };
+    const voidBody = {
+      reason: 'replay-safety check before handover',
+      disposition: 'NEVER_HANDED_OVER',
+    };
     const firstVoid = await incharge().post(`${BASE}/${saleId}/void`)
       .set('Idempotency-Key', voidKey).send(voidBody);
-    expect(firstVoid.status).toBe(200);
-    expect(firstVoid.body.data.sale.status).toBe('VOIDED');
+    expect(firstVoid.status).toBe(202);
+    expect(firstVoid.body.data.sale.status).toBe('VOID_PENDING_REFUND');
+    expect(firstVoid.body.data.workflow_status).toBe('AWAITING_FINANCE_APPROVAL');
+    expect(firstVoid.body.data.refund.approval_status).toBe('PENDING');
     await waitForIdemComplete(voidKey);
 
-    const replayVoid = await incharge().post(`${BASE}/${saleId}/void`)
+    const replayVoid = await incharge().post(`${ALIAS}/${saleId}/void`)
       .set('Idempotency-Key', voidKey).send(voidBody);
-    expect(replayVoid.status).toBe(200);
-    expect(replayVoid.body.data.sale.status).toBe('VOIDED');
+    expect(replayVoid.status).toBe(202);
+    expect(replayVoid.body.data.sale.status).toBe('VOID_PENDING_REFUND');
     expect(replayVoid.body.data.refund.id).toBe(firstVoid.body.data.refund.id);
 
     const refunds = await prisma.$queryRawUnsafe(
@@ -1092,11 +2204,9 @@ describe('scheduled-drug walk-in identity', () => {
     expect(dispense[0].patient_name).toBe('Anon H1 Buyer');
     expect(dispense[0].patient_phone).toBe('9800000088');
 
-    const voided = await voidCounterSale({
-      tenantId: TENANT,
-      id: result.sale.id,
-      reason: 'identity return check',
-      voided_by: CASHIER,
+    const { reconciled: voided } = await completeCounterSaleVoid({
+      saleId: result.sale.id,
+      reason: 'identity return check before handover',
     });
     expect(voided.sale.status).toBe('VOIDED');
     const returned = await prisma.$queryRawUnsafe(

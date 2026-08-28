@@ -8,6 +8,7 @@ import 'package:vhhealth_core/services/mar_offline_cache.dart';
 // second badge is added here to avoid a duplicate in the app bar.
 
 import '../../../core/services/medical_api_service.dart';
+import '../../../core/services/idempotency_attempt_registry.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/offline_clinical_fallback_dialog.dart';
 import '../../../core/widgets/staff_scaffold.dart';
@@ -22,6 +23,95 @@ Future<void> showMarAdministrationOfflineFallback(BuildContext context) {
     paperFormSet: s.offlineClinicalFallbackMarSheets,
   );
 }
+
+typedef MarAdministrationCommand = Future<Map<String, dynamic>> Function(
+  String idempotencyKey,
+);
+typedef MarAdministrationRefresh = Future<Map<String, dynamic>?> Function();
+
+class MarAdministrationAttemptResult {
+  const MarAdministrationAttemptResult({
+    required this.confirmedAdministered,
+    required this.idempotencyKey,
+    this.authoritative,
+    this.error,
+  });
+
+  final bool confirmedAdministered;
+  final String idempotencyKey;
+  final Map<String, dynamic>? authoritative;
+  final Object? error;
+}
+
+class MarAdministrationAttemptCoordinator {
+  const MarAdministrationAttemptCoordinator(this.attempts);
+
+  final IdempotencyAttemptRegistry attempts;
+
+  Future<MarAdministrationAttemptResult> submit({
+    required int maId,
+    required Map<String, dynamic> payload,
+    required MarAdministrationCommand command,
+    required MarAdministrationRefresh refresh,
+  }) async {
+    final scope = 'mar-administer-scan:$maId';
+    final key = attempts.keyFor(scope, payload);
+    Object? commandError;
+    try {
+      await command(key);
+    } catch (error) {
+      commandError = error;
+    }
+
+    try {
+      final authoritative = await refresh();
+      final authoritativeId = int.tryParse('${authoritative?['id'] ?? ''}');
+      final status = authoritative?['status']?.toString().trim().toLowerCase();
+      if (authoritativeId == maId && status == 'administered') {
+        attempts.complete(scope);
+        return MarAdministrationAttemptResult(
+          confirmedAdministered: true,
+          idempotencyKey: key,
+          authoritative: authoritative,
+        );
+      }
+      return MarAdministrationAttemptResult(
+        confirmedAdministered: false,
+        idempotencyKey: key,
+        authoritative: authoritative,
+        error:
+            commandError ??
+            StateError(
+              'The authoritative MAR has not confirmed this administration.',
+            ),
+      );
+    } catch (refreshError) {
+      return MarAdministrationAttemptResult(
+        confirmedAdministered: false,
+        idempotencyKey: key,
+        error: commandError ?? refreshError,
+      );
+    }
+  }
+}
+
+@visibleForTesting
+Map<String, dynamic> marAdministrationPayload({
+  required String scannedPatientUid,
+  required String scannedBarcode,
+  String? overrideReason,
+  String? supplyOverrideReason,
+  num? supplyQuantity,
+}) => {
+  'scanned_patient_uid': scannedPatientUid,
+  'scanned_barcode': scannedBarcode,
+  'override_reason': ?overrideReason,
+  'supply_override_reason': ?supplyOverrideReason,
+  'supply_quantity': ?supplyQuantity,
+};
+
+final IdempotencyAttemptRegistry _sharedMarAdministrationAttempts =
+    IdempotencyAttemptRegistry();
 
 /// Bedside medication administration with 5-rights barcode verification.
 ///
@@ -40,10 +130,11 @@ Future<void> showMarAdministrationOfflineFallback(BuildContext context) {
 /// that's already been scheduled for this patient. That's passed in via the
 /// constructor — callers typically pick it from a "due meds" list.
 class MarScanScreen extends StatefulWidget {
-  const MarScanScreen({super.key, required this.maId});
+  const MarScanScreen({super.key, required this.maId, this.attempts});
 
   /// The medication_administrations row ID to administer against.
   final int maId;
+  final IdempotencyAttemptRegistry? attempts;
 
   @override
   State<MarScanScreen> createState() => _MarScanScreenState();
@@ -61,22 +152,31 @@ bool marIsIdentityMismatch(Map<String, dynamic> rights) {
   return rights['patient'] == false || rights['drug'] == false;
 }
 
-const _marSupplyHardStopStatuses = <String>{
+const _marSupplySafeStatuses = <String>{
+  'available',
+  'quantity_required',
+  'custody_unavailable',
+  'substitution_acknowledgement_required',
+};
+
+const _marSupplyKnownStatuses = <String>{
+  ..._marSupplySafeStatuses,
   'order_link_required',
   'ward_item_required',
   'ward_item_ambiguous',
   'reconciliation_required',
+  'batch_unavailable',
 };
 
 @visibleForTesting
 String marSupplyStatus(Map<String, dynamic>? state) {
-  return state?['status']?.toString().trim().toLowerCase() ?? 'unknown';
+  final status = state?['status']?.toString().trim().toLowerCase() ?? '';
+  return _marSupplyKnownStatuses.contains(status) ? status : 'unknown';
 }
 
 @visibleForTesting
 bool marSupplyIsHardBlocked(Map<String, dynamic>? state) {
-  final status = marSupplyStatus(state);
-  return status == 'unknown' || _marSupplyHardStopStatuses.contains(status);
+  return !_marSupplySafeStatuses.contains(marSupplyStatus(state));
 }
 
 @visibleForTesting
@@ -93,6 +193,7 @@ bool marSupplyRequiresOverrideReason(Map<String, dynamic>? state) {
 }
 
 class _MarScanScreenState extends State<MarScanScreen> {
+  late final IdempotencyAttemptRegistry _attempts;
   _Step _step = _Step.scanWristband;
   String? _patientUid;
   String? _barcode;
@@ -111,6 +212,12 @@ class _MarScanScreenState extends State<MarScanScreen> {
     detectionSpeed: DetectionSpeed.noDuplicates,
   );
   bool _scanLock = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _attempts = widget.attempts ?? _sharedMarAdministrationAttempts;
+  }
 
   @override
   void dispose() {
@@ -245,14 +352,39 @@ class _MarScanScreenState extends State<MarScanScreen> {
         }
         supplyOverrideReason = reason;
       }
-      await MedicalApiService.administerWithScan(
-        maId: widget.maId,
+      final payload = marAdministrationPayload(
         scannedPatientUid: _patientUid!,
         scannedBarcode: _barcode!,
         overrideReason: overrideReason,
         supplyOverrideReason: supplyOverrideReason,
         supplyQuantity: supplyQuantity,
       );
+      final result = await MarAdministrationAttemptCoordinator(_attempts)
+          .submit(
+            maId: widget.maId,
+            payload: payload,
+            command: (idempotencyKey) => MedicalApiService.administerWithScan(
+              maId: widget.maId,
+              scannedPatientUid: payload['scanned_patient_uid'] as String,
+              scannedBarcode: payload['scanned_barcode'] as String,
+              overrideReason: payload['override_reason'] as String?,
+              supplyOverrideReason:
+                  payload['supply_override_reason'] as String?,
+              supplyQuantity: payload['supply_quantity'] as num?,
+              idempotencyKey: idempotencyKey,
+            ),
+            refresh: () => MedicalApiService.getMedicationAdministration(
+              maId: widget.maId,
+              patientUid: _patientUid!,
+              scheduledDate: _scheduledAdministrationDate(),
+            ),
+          );
+      if (!result.confirmedAdministered) {
+        throw result.error ??
+            StateError(
+              'The authoritative MAR has not confirmed this administration.',
+            );
+      }
       if (!mounted) return;
       setState(() => _step = _Step.done);
     } catch (e) {
@@ -262,6 +394,14 @@ class _MarScanScreenState extends State<MarScanScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  String? _scheduledAdministrationDate() {
+    final ma = (_verifyResult?['ma'] as Map?)?.cast<String, dynamic>();
+    final scheduledAt = DateTime.tryParse(
+      ma?['scheduled_time']?.toString() ?? '',
+    );
+    return scheduledAt?.toUtc().toIso8601String().substring(0, 10);
   }
 
   /// Offline administer: re-run the pure safety decision against the cached

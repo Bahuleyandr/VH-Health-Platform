@@ -94,6 +94,43 @@ void main() {
         expect(closed.isTerminal, isTrue);
       },
     );
+
+    test('return ceiling subtracts administered MAR consumption', () {
+      final indent = WardIndent.fromJson({
+        'id': 73,
+        'status': 'received',
+        'state_version': 8,
+        'items': [
+          {
+            'id': 91,
+            'item_name': 'Dose packs',
+            'quantity_received': 10,
+            'quantity_returned': 1,
+          },
+        ],
+        'workflow': {
+          'medication_closure': {
+            'allocations': [
+              {
+                'id': '701',
+                'ward_indent_id': 73,
+                'ward_indent_item_id': 91,
+                'inventory_item_id': 501,
+                'inventory_batch_id': 601,
+                'status': 'received',
+                'received_quantity': 10,
+                'consumed_quantity': 4,
+                'returned_quantity': 1,
+                'custody_available_quantity': 5,
+              },
+            ],
+          },
+        },
+      });
+
+      expect(indent.consumedQuantityForItem(91), 4);
+      expect(indent.returnCeilingForItem(indent.items.single), 6);
+    });
   });
 
   group('WardIndentRolePolicy', () {
@@ -172,6 +209,21 @@ void main() {
       );
       expect(actions, isNot(contains(WardIndentAction.approve)));
     });
+
+    test(
+      'senior doctor is not offered backend-rejected substitution actions',
+      () {
+        final actions = WardIndentRolePolicy.actionsFor(
+          indent('substitution_pending'),
+          rawRole: 'SENIOR_DOCTOR',
+          role: StaffRole.doctor,
+        );
+
+        expect(actions, isNot(contains(WardIndentAction.approveSubstitution)));
+        expect(actions, isNot(contains(WardIndentAction.rejectSubstitution)));
+        expect(actions, contains(WardIndentAction.cancel));
+      },
+    );
 
     test(
       'ward nurses receive and report discrepancies but cannot reconcile',

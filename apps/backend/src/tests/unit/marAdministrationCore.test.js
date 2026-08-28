@@ -127,7 +127,7 @@ describe('shared MAR administration transaction core', () => {
     }));
 
     const updateCall = tx.$queryRawUnsafe.mock.calls.find(([sql]) => sql.includes('UPDATE medication_administrations'));
-    expect(updateCall[0]).toContain("lower(status) IN ('scheduled', 'held')");
+    expect(updateCall[0]).toContain("lower(status) = 'scheduled'");
     expect(updateCall[0]).not.toContain("'due'");
     expect(updateCall[0]).not.toContain("'pending'");
     expect(updateCall.slice(1)).toEqual([
@@ -144,6 +144,7 @@ describe('shared MAR administration transaction core', () => {
   test.each([
     ['due', 'MAR_STATE_CONFLICT'],
     ['pending', 'MAR_STATE_CONFLICT'],
+    ['held', 'MAR_HOLD_RELEASE_REQUIRED'],
     ['administered', null],
   ])('does not broaden canonical source state %s', async (status, expectedCode) => {
     const tx = createTx({ status });

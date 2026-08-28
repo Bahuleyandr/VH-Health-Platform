@@ -38,17 +38,16 @@ export { CONTROLLED_DISPENSE_WITNESS_ROLES };
 const ALLOWED_SCHEDULES = ['H', 'H1', 'X', 'OTC', null];
 const VALID_MOVEMENTS = [
   'receive', 'issue', 'transfer_out', 'transfer_in', 'return',
-  'adjust_increase', 'adjust_decrease', 'dispose', 'expire', 'recall',
+  'adjust_increase', 'adjust_decrease', 'dispose', 'expire',
 ];
 const CONTROLLED_DECREASING_MOVEMENTS = new Set([
-  'transfer_out', 'adjust_decrease', 'dispose', 'expire', 'recall',
+  'transfer_out', 'adjust_decrease', 'dispose', 'expire',
 ]);
 const CONTROLLED_BATCH_POLICY_BY_MOVEMENT = Object.freeze({
   transfer_out: 'usable',
   adjust_decrease: 'usable',
   dispose: 'disposable',
   expire: 'expired',
-  recall: 'recallable',
 });
 const CONTROLLED_MOVEMENT_BATCH_CONTRACT =
   'controlled_movement_exact_batch_policy_v1';
@@ -63,8 +62,24 @@ function isControlledItem(item) {
   return CONTROLLED_SCHEDULES.includes(item?.schedule_class) || item?.is_narcotic === true;
 }
 
-// Maps a stock movement_kind onto the statutory register's own vocabulary
-// (migration 150: receive / dispense / return / dispose / recall / adjust).
+function refuseGenericRecallMovement(movementKind) {
+  if (movementKind !== 'recall') return;
+  throw AppError.conflict(
+    'Batch recall is a status-only quarantine action; use PATCH /api/v1/admin/pharmacy-supply/batches/:id/recall, then record witnessed disposal separately',
+    'INVENTORY_RECALL_REQUIRES_BATCH_RECALL_PATH',
+  );
+}
+
+export async function lockControlledRegisterItemTx(tx, tenantId, inventoryItemId) {
+  await tx.$queryRawUnsafe(
+    `SELECT pg_advisory_xact_lock(
+              hashtextextended($1::text, 0)
+            )::text AS lock_acquired`,
+    `pharmacy-controlled-register:${tenantId}:${Number(inventoryItemId)}`,
+  );
+}
+
+// Maps a stock movement_kind onto the statutory register's own vocabulary.
 // 'issue' is deliberately absent — a controlled issue is a patient dispense and
 // must go through the witnessed /controlled-dispense path, never this endpoint.
 const REGISTER_KIND_BY_MOVEMENT = {
@@ -75,7 +90,6 @@ const REGISTER_KIND_BY_MOVEMENT = {
   adjust_decrease: 'adjust',
   dispose: 'dispose',
   expire: 'dispose',
-  recall: 'recall',
   transfer_out: 'adjust',
 };
 
@@ -251,6 +265,7 @@ function replayedMovementResult(movement, { movementKind, delta, increasing, dec
 }
 
 export async function recordMovement(params) {
+  refuseGenericRecallMovement(params.movement_kind);
   return setTenantTx(params.tenantId, async (tx) => {
     // Controlled stock can never move without its statutory register row. This
     // public single-movement path spreads req.body straight through, so the
@@ -348,8 +363,8 @@ async function recordControlledMovementTx(tx, params, item) {
       inventory_batch_id: controlledBatchId,
     })
     : null;
-  // Schedule X / narcotic decrements (disposal, recall, downward adjustment,
-  // expiry write-off, transfer out) consume the same independently
+  // Schedule X / narcotic decrements (disposal, downward adjustment, expiry
+  // write-off, transfer out) consume the same independently
   // authenticated, one-time approval lifecycle as a controlled dispense.
   const needsWitness = decreasing && (item.schedule_class === 'X' || item.is_narcotic === true);
   let witness = null;
@@ -385,8 +400,9 @@ async function recordControlledMovementTx(tx, params, item) {
       : null,
   });
 
-  // Running balance read inside the same tx so it reflects the movement above
-  // (no stale-balance race), mirroring dispenseControlledTx.
+  // Serialize the item-wide balance projection across different batches of
+  // the same controlled item before appending its register row.
+  await lockControlledRegisterItemTx(tx, tenantId, params.inventory_item_id);
   const balance = await tx.$queryRawUnsafe(
     `SELECT COALESCE(SUM(remaining_quantity), 0)::numeric AS bal
        FROM pharmacy_inventory_batches
@@ -451,6 +467,7 @@ export async function recordMovementTx(tx, {
   expected_lot_number = null,
   expected_expiry_date = null,
 }) {
+  refuseGenericRecallMovement(movement_kind);
   if (!VALID_MOVEMENTS.includes(movement_kind)) {
     throw AppError.badRequest(`Invalid movement_kind. Allowed: ${VALID_MOVEMENTS.join(', ')}`);
   }
@@ -459,7 +476,7 @@ export async function recordMovementTx(tx, {
     throw AppError.badRequest('quantity must be > 0');
   }
 
-  const decreasing = ['issue', 'transfer_out', 'dispose', 'expire', 'recall', 'adjust_decrease'].includes(movement_kind);
+  const decreasing = ['issue', 'transfer_out', 'dispose', 'expire', 'adjust_decrease'].includes(movement_kind);
   const increasing = ['receive', 'transfer_in', 'return', 'adjust_increase'].includes(movement_kind);
   const delta = decreasing ? -Math.abs(Number(quantity)) : Math.abs(Number(quantity));
   const inventoryItemId = Number(inventory_item_id);
@@ -690,15 +707,6 @@ function assertControlledMovementBatchState(batch, policy) {
     }
     return;
   }
-  if (policy === 'recallable') {
-    if (!['in_stock', 'recalled'].includes(status)) {
-      throw AppError.badRequest(
-        `Inventory batch is not available for recall (status: ${status})`,
-        'INVENTORY_BATCH_UNAVAILABLE',
-      );
-    }
-    return;
-  }
   if (policy === 'disposable') {
     if (!['in_stock', 'expired', 'recalled', 'quarantined'].includes(status)) {
       throw AppError.badRequest(
@@ -743,6 +751,7 @@ function normalizedDateOrNull(value) {
 
 export function controlledMovementWitnessPayload(params = {}) {
   const movementKind = String(params.movement_kind || '');
+  refuseGenericRecallMovement(movementKind);
   if (!CONTROLLED_DECREASING_MOVEMENTS.has(movementKind)) {
     throw AppError.badRequest(
       'A witness approval is only available for controlled stock decrements',
@@ -1020,8 +1029,7 @@ export async function dispenseControlledTx(tx, {
       require_usable_batch: true,
     });
 
-    // Compute running balance across batches, read inside the same tx so it
-    // reflects the decrement above (no stale-balance race).
+    await lockControlledRegisterItemTx(tx, tenantId, inventory_item_id);
     const balance = await tx.$queryRawUnsafe(
       `SELECT COALESCE(SUM(remaining_quantity), 0)::numeric AS bal
          FROM pharmacy_inventory_batches
@@ -1094,13 +1102,13 @@ export async function listScheduleRegister({ tenantId, schedule_class, item_id, 
   if (date_from) { params.push(date_from); where.push(`created_at >= $${params.length}::timestamptz`); }
   if (date_to) { params.push(date_to); where.push(`created_at <= $${params.length}::timestamptz`); }
   params.push(boundedInteger(limit, { fallback: 200, min: 1, max: 500 }));
-  return prisma.$queryRawUnsafe(
+  return setTenantTx(tenantId, (tx) => tx.$queryRawUnsafe(
     `SELECT * FROM pharmacy_schedule_register_full
       WHERE ${where.join(' AND ')}
       ORDER BY created_at DESC
       LIMIT $${params.length}::int`,
     ...params,
-  );
+  ));
 }
 
 // ── Expiry scan ───────────────────────────────────────────────────────

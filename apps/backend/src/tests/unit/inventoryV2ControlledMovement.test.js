@@ -79,6 +79,7 @@ jest.unstable_mockModule('../../services/pharmacy/controlledDispenseWitnessServi
 const {
   controlledMovementWitnessPayload,
   recordMovement,
+  requestControlledMovementWitnessApproval,
 } = await import('../../services/pharmacy/inventoryV2Service.js');
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
@@ -112,6 +113,23 @@ describe('recordMovement controlled-stock guard', () => {
       .rejects.toMatchObject({ code: 'CONTROLLED_MOVEMENT_REQUIRES_DISPENSE_PATH', statusCode: 409 });
     expect(movementInserts()).toHaveLength(0);
     expect(registerInserts()).toHaveLength(0);
+  });
+
+  test('generic recall is rejected before any stock or approval write', async () => {
+    const recall = { ...base, movement_kind: 'recall' };
+    await expect(recordMovement(recall)).rejects.toMatchObject({
+      code: 'INVENTORY_RECALL_REQUIRES_BATCH_RECALL_PATH',
+      statusCode: 409,
+    });
+    await expect(requestControlledMovementWitnessApproval({
+      ...recall,
+      requested_by: base.performed_by,
+    })).rejects.toMatchObject({
+      code: 'INVENTORY_RECALL_REQUIRES_BATCH_RECALL_PATH',
+      statusCode: 409,
+    });
+    expect(calls.queries).toHaveLength(0);
+    expect(calls.executes).toHaveLength(0);
   });
 
   test('caller-asserted witness identity cannot authorize a Schedule X decrement', async () => {

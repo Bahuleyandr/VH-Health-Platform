@@ -27,7 +27,7 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
   startWorkflowSla: jest.fn(),
 }));
 
-const { listWardIndentPage } = await import(
+const { getWardIndent, listWardIndentPage } = await import(
   '../../services/ipd/wardIndentWorkflowService.js'
 );
 
@@ -164,4 +164,18 @@ test('rejects partial cursors and conflicting list filters before querying', asy
     overdueOnly: true,
   })).rejects.toMatchObject({ code: 'WARD_INDENT_FILTER_CONFLICT' });
   expect(findManyIndents).not.toHaveBeenCalled();
+});
+
+test('rejects PostgreSQL int4 overflow identifiers before querying', async () => {
+  await expect(getWardIndent('2147483648', { tenantId: TENANT }))
+    .rejects.toThrow('indentId must be a positive integer');
+  await expect(listWardIndentPage({
+    tenantId: TENANT,
+    beforeRequestedAt: '2026-08-27T10:30:00.000Z',
+    beforeId: '2147483648',
+  })).rejects.toThrow('before_id must be a positive integer');
+
+  expect(findManyIndents).not.toHaveBeenCalled();
+  expect(findManySlas).not.toHaveBeenCalled();
+  expect(queryRaw).not.toHaveBeenCalled();
 });

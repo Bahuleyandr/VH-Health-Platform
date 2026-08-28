@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 
+import { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
 import { startWorkflowSla } from '../clinical/canonicalClinicalPlatformService.js';
@@ -10,8 +11,14 @@ import {
 } from '../workflow/taskService.js';
 
 const RECIPIENT_LIMIT = 12;
+const COVERAGE_RECOVERY_LIMIT = 25;
+const COVERAGE_RECOVERY_MAX_LIMIT = 100;
+const COVERAGE_RECOVERY_SOURCE = 'ward-indent-notification-coverage-recovery.v1';
+const COVERAGE_RECOVERY_MANUAL_HOLD = 'manual_hold';
 const COVERAGE_ROLES = ['ADMIN', 'SUPER_ADMIN'];
 const BILLING_ROLES = ['BILLING_INCHARGE', 'FINANCE_INCHARGE'];
+const REFUND_APPROVAL_ROLES = ['ADMIN', 'SUPER_ADMIN'];
+const CREDIT_NOTE_NOTIFICATION_ACTION_LABEL_KEY = 'med03.credit_note.notification_action';
 const MAR_SUPPLY_RECONCILIATION_ROLES = [
   'PHARMACY_INCHARGE',
   'NURSING_INCHARGE',
@@ -139,7 +146,7 @@ function notificationSourceKey(event, kind) {
 }
 
 function deepLink(indentId) {
-  return `/pharmacy/ward-indents/${indentId}`;
+  return `/pharmacy?tab=ward-indents&indent_id=${Number(indentId)}`;
 }
 
 async function loadSla(tx, { tenantId, sourceId }) {
@@ -216,6 +223,8 @@ async function queueRecipientNotifications(tx, {
   presentation,
   sourceEventKey = null,
   coverageTaskId = null,
+  recoverySource = null,
+  recoveryActorUid = null,
 }) {
   const queued = [];
   for (const recipient of recipients) {
@@ -238,6 +247,8 @@ async function queueRecipientNotifications(tx, {
         state_version: Number(indent.state_version),
         deep_link: deepLink(indent.id),
         ...(coverageTaskId ? { coverage_task_id: Number(coverageTaskId) } : {}),
+        ...(recoverySource ? { recovery_source: recoverySource } : {}),
+        ...(recoveryActorUid ? { recovery_actor_uid: recoveryActorUid } : {}),
       },
     }, { tx, strict: true });
     if (!outbox?.id) {
@@ -251,15 +262,157 @@ async function queueRecipientNotifications(tx, {
   return queued;
 }
 
+function coverageNotificationIntent({
+  taskId,
+  type,
+  title,
+  body,
+  sourceEventKey,
+  templateVersion,
+  data,
+}) {
+  const originalTaskId = Number(taskId);
+  const notificationType = String(type || '').trim();
+  const notificationTitle = String(title || '').trim();
+  const notificationBody = String(body || '').trim();
+  const notificationSourceEventKey = String(sourceEventKey || '').trim();
+  const notificationTemplateVersion = String(templateVersion || '').trim();
+  const notificationData = data && typeof data === 'object' && !Array.isArray(data)
+    ? data
+    : null;
+  if (
+    !Number.isSafeInteger(originalTaskId)
+    || originalTaskId <= 0
+    || !notificationType
+    || !notificationTitle
+    || !notificationBody
+    || !notificationSourceEventKey
+    || !notificationTemplateVersion
+    || !notificationData
+    || typeof notificationData.deep_link !== 'string'
+    || !notificationData.deep_link.startsWith('/')
+  ) {
+    throw AppError.internal(
+      'Notification coverage requires one exact actionable notification intent',
+      'WARD_MEDICATION_COVERAGE_INTENT_INVALID',
+    );
+  }
+  return {
+    type: notificationType,
+    title: notificationTitle,
+    body: notificationBody,
+    source_event_key: notificationSourceEventKey,
+    template_version: notificationTemplateVersion,
+    data: {
+      ...notificationData,
+      kind: notificationType,
+      task_id: originalTaskId,
+    },
+  };
+}
+
+function storedCoverageNotificationIntent(metadata) {
+  const intent = metadata?.notification_intent;
+  return coverageNotificationIntent({
+    taskId: intent?.data?.task_id,
+    type: intent?.type,
+    title: intent?.title,
+    body: intent?.body,
+    sourceEventKey: intent?.source_event_key,
+    templateVersion: intent?.template_version,
+    data: intent?.data,
+  });
+}
+
+function isInvalidCoverageIntent(error) {
+  return error?.code === 'WARD_MEDICATION_COVERAGE_INTENT_INVALID';
+}
+
+async function holdInvalidCoverageIntentTx(tx, {
+  tenantId,
+  gap,
+}) {
+  const rows = await tx.$queryRawUnsafe(
+    `UPDATE tasks
+        SET status = 'blocked',
+            metadata = COALESCE(metadata, '{}'::jsonb) || $3::jsonb,
+            updated_at = NOW()
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int
+        AND metadata->>'task_contract' = 'ward_medication_obligation_v1'
+        AND metadata->>'obligation_kind' = 'notification_coverage'
+        AND status = ANY($4::text[])
+      RETURNING id`,
+    tenantId,
+    Number(gap.id),
+    JSON.stringify({
+      notification_recovery_status: COVERAGE_RECOVERY_MANUAL_HOLD,
+      notification_recovery_hold_code: 'WARD_MEDICATION_COVERAGE_INTENT_INVALID',
+      notification_recovery_hold_reason: 'Exact pre-upgrade notification intent is unavailable; manual evidence review is required. No replacement notification was emitted.',
+      notification_recovery_held_at: new Date().toISOString(),
+    }),
+    ACTIONABLE_TASK_STATUSES,
+  );
+  return rows[0] ? Number(rows[0].id) : null;
+}
+
+async function queueRecoveredCoverageNotifications(tx, {
+  tenantId,
+  recipients,
+  gap,
+  actorUid,
+}) {
+  const intent = storedCoverageNotificationIntent(gap.metadata);
+  const queued = [];
+  for (const recipient of recipients) {
+    const outbox = await notificationOutbox.queue({
+      tenantId,
+      type: intent.type,
+      channel: 'inapp',
+      recipientId: recipient.id,
+      recipientPhone: recipient.phone || null,
+      title: intent.title,
+      body: intent.body,
+      sourceEventKey: intent.source_event_key,
+      templateVersion: intent.template_version,
+      data: {
+        ...intent.data,
+        coverage_task_id: Number(gap.id),
+        recovery_source: COVERAGE_RECOVERY_SOURCE,
+        recovery_actor_uid: actorUid,
+      },
+    }, { tx, strict: true });
+    if (!outbox?.id) {
+      throw AppError.internal(
+        'Recovered notification intent was not persisted',
+        'WARD_MEDICATION_COVERAGE_RECOVERY_INTENT_MISSING',
+      );
+    }
+    queued.push(outbox);
+  }
+  return queued;
+}
+
 async function createCoverageGap(tx, {
   indent,
   actorUid,
   event,
   presentation,
   intendedRoles,
+  notificationIntent,
 }) {
   const tenantId = String(indent.tenant_id);
-  const coverageSourceId = `ward-indent-coverage:${indent.id}:v${indent.state_version}:${event.id}`;
+  const exactNotificationIntent = storedCoverageNotificationIntent({
+    notification_intent: notificationIntent,
+  });
+  const coverageIntentDigest = createHash('sha256')
+    .update([
+      exactNotificationIntent.type,
+      exactNotificationIntent.source_event_key,
+      exactNotificationIntent.template_version,
+    ].join(':'), 'utf8')
+    .digest('hex');
+  const coverageSourceId = `ward-indent-coverage:${indent.id}:${coverageIntentDigest}`;
   const sla = await startWorkflowSla({
     tenantId,
     ruleCode: 'ward_indent_notification_coverage',
@@ -306,8 +459,11 @@ async function createCoverageGap(tx, {
       state_version: Number(indent.state_version),
       source_event_id: String(event.id),
       intended_roles: intendedRoles,
+      intended_departments: presentation.departments || [],
+      intended_notification_title: presentation.title,
       intended_notification_kind: presentation.notificationKind,
-      deep_link: deepLink(indent.id),
+      deep_link: exactNotificationIntent.data.deep_link,
+      notification_intent: exactNotificationIntent,
     },
     tx,
   });
@@ -465,6 +621,21 @@ async function ensureStateTask(tx, {
         event,
         presentation,
         intendedRoles: indent.owner_role_codes,
+        notificationIntent: coverageNotificationIntent({
+          taskId: task.id,
+          type: presentation.notificationKind,
+          title: presentation.title,
+          body: `Ward indent ${indent.indent_number} requires action.`,
+          sourceEventKey: notificationSourceKey(event, presentation.notificationKind),
+          templateVersion: `${presentation.notificationKind}.v1`,
+          data: {
+            ward_indent_id: Number(indent.id),
+            ward_indent_item_id: null,
+            state: indent.status,
+            state_version: Number(indent.state_version),
+            deep_link: deepLink(indent.id),
+          },
+        }),
       });
     } else {
       await queueRecipientNotifications(tx, {
@@ -545,6 +716,7 @@ export async function reconcileWardIndentNotificationCoverageTx(tx, {
         AND metadata->>'obligation_kind' = 'notification_coverage'
         AND metadata->>'ward_indent_id' = $2::text
         AND status = ANY($3::text[])
+        AND COALESCE(metadata->>'notification_recovery_status', '') <> $5::text
       ORDER BY created_at ASC, id ASC
       LIMIT $4::int
       FOR UPDATE SKIP LOCKED`,
@@ -552,28 +724,28 @@ export async function reconcileWardIndentNotificationCoverageTx(tx, {
     String(indent.id),
     ACTIONABLE_TASK_STATUSES,
     Math.min(Math.max(Number(limit) || 20, 1), 100),
+    COVERAGE_RECOVERY_MANUAL_HOLD,
   );
   const completed = [];
   for (const gap of gaps) {
+    try {
+      storedCoverageNotificationIntent(gap.metadata);
+    } catch (error) {
+      if (!isInvalidCoverageIntent(error)) throw error;
+      await holdInvalidCoverageIntentTx(tx, { tenantId, gap });
+      continue;
+    }
     const roles = Array.isArray(gap.metadata?.intended_roles) ? gap.metadata.intended_roles : [];
-    const recipients = await resolveRecipients(tx, { tenantId, roles });
+    const departments = Array.isArray(gap.metadata?.intended_departments)
+      ? gap.metadata.intended_departments
+      : [];
+    const recipients = await resolveRecipients(tx, { tenantId, roles, departments });
     if (recipients.length === 0) continue;
-    const presentation = {
-      title: 'Ward medication notification coverage restored',
-      notificationKind: 'ward_indent_notification_coverage_restored',
-    };
-    const queued = await queueRecipientNotifications(tx, {
+    const queued = await queueRecoveredCoverageNotifications(tx, {
       tenantId,
       recipients,
-      task: gap,
-      indent,
-      event: {
-        ward_indent_id: indent.id,
-        state_version: indent.state_version,
-      },
-      presentation,
-      sourceEventKey: `ward-indent-coverage-restored:${gap.id}`,
-      coverageTaskId: gap.id,
+      gap,
+      actorUid,
     });
     await completeTaskFromDomainEvidence({
       tenantId,
@@ -587,6 +759,170 @@ export async function reconcileWardIndentNotificationCoverageTx(tx, {
     completed.push(Number(gap.id));
   }
   return completed;
+}
+
+function coverageRecoveryLimit(value) {
+  const requested = Number(value);
+  if (!Number.isSafeInteger(requested) || requested <= 0) return COVERAGE_RECOVERY_LIMIT;
+  return Math.min(requested, COVERAGE_RECOVERY_MAX_LIMIT);
+}
+
+async function recoverCoverageGapTx(tx, {
+  tenantId,
+  gap,
+  actorUid,
+}) {
+  storedCoverageNotificationIntent(gap.metadata);
+  const roles = Array.isArray(gap.metadata?.intended_roles) ? gap.metadata.intended_roles : [];
+  const departments = Array.isArray(gap.metadata?.intended_departments)
+    ? gap.metadata.intended_departments
+    : [];
+  const recipients = await resolveRecipients(tx, { tenantId, roles, departments });
+  if (recipients.length === 0) return null;
+  const completionActorUid = actorUid || recipients[0].uid;
+
+  const queued = await queueRecoveredCoverageNotifications(tx, {
+    tenantId,
+    recipients,
+    gap,
+    actorUid: completionActorUid,
+  });
+  await completeTaskFromDomainEvidence({
+    tenantId,
+    id: Number(gap.id),
+    evidenceKind: 'notification_coverage_restored',
+    evidenceResourceType: 'notification_outbox',
+    evidenceResourceId: String(queued[0].id),
+    actorUid: completionActorUid,
+    tx,
+  });
+  return Number(gap.id);
+}
+
+/**
+ * Recreates durable, actionable notification coverage after roster recovery.
+ * The task row is the claim: SKIP LOCKED makes concurrent ticks disjoint, and
+ * task completion remains evidence-gated on the notification_outbox row.
+ */
+export async function sweepWardIndentNotificationCoverage({
+  tenantId,
+  actorUid = null,
+  limit = COVERAGE_RECOVERY_LIMIT,
+} = {}) {
+  const tid = String(tenantId || '').trim().toLowerCase();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(tid)) {
+    throw AppError.badRequest(
+      'Ward medication notification recovery requires tenantId',
+      'WARD_MEDICATION_COVERAGE_TENANT_REQUIRED',
+    );
+  }
+  const boundedLimit = coverageRecoveryLimit(limit);
+  const candidateIds = await setTenantTx(tid, (tx) => tx.$queryRawUnsafe(
+    `SELECT gap.id
+       FROM tasks gap
+       JOIN workflow_sla_instances sla
+         ON sla.tenant_id = gap.tenant_id
+        AND sla.id = gap.workflow_sla_instance_id
+      WHERE gap.tenant_id = $1::uuid
+        AND gap.metadata->>'task_contract' = 'ward_medication_obligation_v1'
+        AND gap.metadata->>'obligation_kind' = 'notification_coverage'
+        AND gap.status = ANY($2::text[])
+        AND COALESCE(gap.metadata->>'notification_recovery_status', '') <> $3::text
+        AND sla.rule_code = 'ward_indent_notification_coverage'
+        AND sla.completed_at IS NULL
+        AND sla.status = ANY($4::text[])
+      ORDER BY gap.created_at ASC, gap.id ASC
+      LIMIT $5::int`,
+    tid,
+    ACTIONABLE_TASK_STATUSES,
+    COVERAGE_RECOVERY_MANUAL_HOLD,
+    ['active', 'breached', 'escalated'],
+    boundedLimit,
+  ));
+
+  const recoveredTaskIds = [];
+  const heldTaskIds = [];
+  let awaitingRecipients = 0;
+  for (const candidateId of candidateIds) {
+    const outcome = await setTenantTx(tid, async (tx) => {
+      const candidates = await tx.$queryRawUnsafe(
+        `SELECT gap.id, gap.metadata,
+                indent.id AS indent_id,
+                indent.indent_number,
+                indent.patient_uid,
+                indent.encounter_id,
+                indent.status AS indent_status,
+                indent.state_version AS indent_state_version
+           FROM tasks gap
+           JOIN workflow_sla_instances sla
+             ON sla.tenant_id = gap.tenant_id
+            AND sla.id = gap.workflow_sla_instance_id
+           JOIN ward_indents indent
+             ON indent.tenant_id = gap.tenant_id
+            AND indent.id = CASE
+                  WHEN gap.metadata->>'ward_indent_id' ~ '^[1-9][0-9]*$'
+                    THEN (gap.metadata->>'ward_indent_id')::int
+                  ELSE NULL
+                END
+          WHERE gap.tenant_id = $1::uuid
+            AND gap.id = $2::int
+            AND gap.metadata->>'task_contract' = 'ward_medication_obligation_v1'
+            AND gap.metadata->>'obligation_kind' = 'notification_coverage'
+            AND gap.status = ANY($3::text[])
+            AND COALESCE(gap.metadata->>'notification_recovery_status', '') <> $4::text
+            AND sla.rule_code = 'ward_indent_notification_coverage'
+            AND sla.completed_at IS NULL
+            AND sla.status = ANY($5::text[])
+          FOR UPDATE OF gap SKIP LOCKED`,
+        tid,
+        Number(candidateId.id),
+        ACTIONABLE_TASK_STATUSES,
+        COVERAGE_RECOVERY_MANUAL_HOLD,
+        ['active', 'breached', 'escalated'],
+      );
+      const candidate = candidates[0];
+      if (!candidate) return { kind: 'skipped' };
+      const gap = {
+        id: candidate.id,
+        metadata: candidate.metadata,
+        indent: {
+          id: Number(candidate.indent_id),
+          indent_number: candidate.indent_number,
+          tenant_id: tid,
+          patient_uid: candidate.patient_uid,
+          encounter_id: candidate.encounter_id,
+          status: candidate.indent_status,
+          state_version: Number(candidate.indent_state_version),
+        },
+      };
+      try {
+        const taskId = await recoverCoverageGapTx(tx, {
+          tenantId: tid,
+          gap,
+          actorUid,
+        });
+        return taskId == null
+          ? { kind: 'awaiting_recipients' }
+          : { kind: 'recovered', taskId };
+      } catch (error) {
+        if (!isInvalidCoverageIntent(error)) throw error;
+        const taskId = await holdInvalidCoverageIntentTx(tx, { tenantId: tid, gap });
+        return { kind: 'held', taskId };
+      }
+    });
+    if (outcome.kind === 'recovered') recoveredTaskIds.push(outcome.taskId);
+    if (outcome.kind === 'held' && outcome.taskId != null) heldTaskIds.push(outcome.taskId);
+    if (outcome.kind === 'awaiting_recipients') awaitingRecipients += 1;
+  }
+  return {
+    scanned: candidateIds.length,
+    recovered: recoveredTaskIds.length,
+    held: heldTaskIds.length,
+    awaitingRecipients,
+    recoveredTaskIds,
+    heldTaskIds,
+    limit: boundedLimit,
+  };
 }
 
 async function loadOpenCreditNoteTask(tx, tenantId, creditNoteId) {
@@ -705,8 +1041,24 @@ export async function materializeBillingCreditNoteObligationTx(tx, {
       presentation: {
         title: 'Ward medication credit note requires review',
         notificationKind: 'ward_indent_credit_note_review',
+        departments: ['billing', 'finance'],
       },
       intendedRoles: BILLING_ROLES,
+      notificationIntent: coverageNotificationIntent({
+        taskId: task.id,
+        type: 'ward_indent_credit_note_review',
+        title: 'Ward medication credit note requires review',
+        body: `Credit note ${creditNote.credit_note_number} requires a finance decision.`,
+        sourceEventKey: `billing-credit-note:${creditNoteId}:raised`,
+        templateVersion: 'ward_indent_credit_note_review.v1',
+        data: {
+          credit_note_id: creditNoteId,
+          invoice_id: Number(creditNote.invoice_id),
+          ward_indent_id: Number(creditNote.ward_indent_id),
+          deep_link: `/billing/credit-notes/${creditNoteId}`,
+          action_label_key: CREDIT_NOTE_NOTIFICATION_ACTION_LABEL_KEY,
+        },
+      }),
     });
     return task;
   }
@@ -729,6 +1081,7 @@ export async function materializeBillingCreditNoteObligationTx(tx, {
         invoice_id: Number(creditNote.invoice_id),
         ward_indent_id: Number(creditNote.ward_indent_id),
         deep_link: `/billing/credit-notes/${creditNoteId}`,
+        action_label_key: CREDIT_NOTE_NOTIFICATION_ACTION_LABEL_KEY,
       },
     }, { tx, strict: true });
     if (!outbox?.id) {
@@ -743,7 +1096,55 @@ export async function materializeBillingCreditNoteObligationTx(tx, {
 
 export async function completeBillingCreditNoteObligationTx(tx, {
   creditNote,
-  decisionEvent,
+  lifecycleEvent,
+  evidenceKind,
+  actorUid,
+}) {
+  requiredTx(tx);
+  if (!['billing_credit_note_decision', 'billing_credit_note_application'].includes(evidenceKind)) {
+    throw AppError.internal(
+      'Billing credit-note completion requires registered lifecycle evidence',
+      'BILLING_CREDIT_NOTE_COMPLETION_EVIDENCE_INVALID',
+    );
+  }
+  let task = await loadOpenCreditNoteTask(
+    tx,
+    String(creditNote.tenant_id),
+    String(creditNote.id),
+  );
+  if (!task) {
+    const raised = await tx.$queryRawUnsafe(
+      `SELECT id
+         FROM billing_credit_note_events
+        WHERE tenant_id = $1::uuid
+          AND credit_note_id = $2::bigint
+          AND event_type = 'raised'
+        ORDER BY id ASC
+        LIMIT 1`,
+      String(creditNote.tenant_id),
+      BigInt(creditNote.id),
+    );
+    task = await materializeBillingCreditNoteObligationTx(tx, {
+      creditNote: { ...creditNote, status: 'pending' },
+      actorUid,
+      sourceEvent: raised[0] || lifecycleEvent,
+      notify: false,
+    });
+  }
+  return completeTaskFromDomainEvidence({
+    tenantId: String(creditNote.tenant_id),
+    id: Number(task.id),
+    evidenceKind,
+    evidenceResourceType: 'billing_credit_note_event',
+    evidenceResourceId: String(lifecycleEvent.id),
+    actorUid,
+    tx,
+  });
+}
+
+export async function advanceBillingCreditNoteObligationTx(tx, {
+  creditNote,
+  approvalEvent,
   actorUid,
 }) {
   requiredTx(tx);
@@ -767,16 +1168,317 @@ export async function completeBillingCreditNoteObligationTx(tx, {
     task = await materializeBillingCreditNoteObligationTx(tx, {
       creditNote: { ...creditNote, status: 'pending' },
       actorUid,
-      sourceEvent: raised[0] || decisionEvent,
+      sourceEvent: raised[0] || approvalEvent,
       notify: false,
     });
+  }
+  const rows = await tx.$queryRawUnsafe(
+    `UPDATE tasks
+        SET title = 'Apply approved ward medication credit note',
+            description = 'Apply the approved credit to the patient account and preserve any refund as a separately authorized payout obligation.',
+            metadata = COALESCE(metadata, '{}'::jsonb) || $3::jsonb,
+            updated_at = NOW()
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int
+        AND status = ANY($4::text[])
+      RETURNING id, metadata, status, workflow_sla_instance_id`,
+    String(creditNote.tenant_id),
+    Number(task.id),
+    JSON.stringify({
+      evidence_kind: 'billing_credit_note_application',
+      credit_note_stage: 'approved',
+      approval_event_id: String(approvalEvent.id),
+    }),
+    ACTIONABLE_TASK_STATUSES,
+  );
+  if (!rows[0]) {
+    throw AppError.conflict(
+      'Credit-note review task changed before application ownership could be recorded',
+      'BILLING_CREDIT_NOTE_TASK_STAGE_CONFLICT',
+    );
+  }
+  await postTaskComment({
+    tenantId: String(creditNote.tenant_id),
+    taskId: Number(task.id),
+    authorUid: actorUid,
+    body: 'Credit note approved; the same SLA remains open until account application.',
+    bodyKind: 'system_event',
+    metadata: {
+      credit_note_id: String(creditNote.id),
+      approval_event_id: String(approvalEvent.id),
+      next_stage: 'application',
+    },
+    tx,
+  });
+  return rows[0];
+}
+
+async function queueCreditNoteStageNotifications(tx, {
+  creditNote,
+  lifecycleEvent,
+  task,
+  roles,
+  departments,
+  notificationKind,
+  title,
+  body,
+  sourceEventKey,
+}) {
+  const tenantId = String(creditNote.tenant_id);
+  const recipients = await resolveRecipients(tx, { tenantId, roles, departments });
+  if (recipients.length === 0) {
+    const stateVersion = Number(
+      creditNote.current_ward_indent_state_version
+      || creditNote.ward_indent_state_version
+      || 1,
+    );
+    await createCoverageGap(tx, {
+      indent: {
+        id: Number(creditNote.ward_indent_id),
+        indent_number: creditNote.indent_number || `#${creditNote.ward_indent_id}`,
+        tenant_id: tenantId,
+        patient_uid: creditNote.patient_uid,
+        encounter_id: creditNote.encounter_id || null,
+        status: creditNote.ward_indent_status || 'reconciliation_required',
+        state_version: stateVersion,
+      },
+      actorUid: String(lifecycleEvent.actor_uid),
+      event: {
+        id: lifecycleEvent.id,
+        ward_indent_id: Number(creditNote.ward_indent_id),
+        state_version: stateVersion,
+      },
+      presentation: { title, notificationKind, departments },
+      intendedRoles: roles,
+      notificationIntent: coverageNotificationIntent({
+        taskId: task.id,
+        type: notificationKind,
+        title,
+        body,
+        sourceEventKey,
+        templateVersion: `${notificationKind}.v1`,
+        data: {
+          credit_note_id: String(creditNote.id),
+          refund_id: Number(creditNote.refund_id),
+          invoice_id: Number(creditNote.invoice_id),
+          ward_indent_id: Number(creditNote.ward_indent_id),
+          deep_link: `/billing/credit-notes/${creditNote.id}`,
+          action_label_key: CREDIT_NOTE_NOTIFICATION_ACTION_LABEL_KEY,
+        },
+      }),
+    });
+    return;
+  }
+  for (const recipient of recipients) {
+    const outbox = await notificationOutbox.queue({
+      tenantId,
+      type: notificationKind,
+      channel: 'inapp',
+      recipientId: recipient.id,
+      recipientPhone: recipient.phone || null,
+      title,
+      body,
+      sourceEventKey,
+      templateVersion: `${notificationKind}.v1`,
+      data: {
+        kind: notificationKind,
+        task_id: Number(task.id),
+        credit_note_id: String(creditNote.id),
+        refund_id: Number(creditNote.refund_id),
+        invoice_id: Number(creditNote.invoice_id),
+        ward_indent_id: Number(creditNote.ward_indent_id),
+        deep_link: `/billing/credit-notes/${creditNote.id}`,
+        action_label_key: CREDIT_NOTE_NOTIFICATION_ACTION_LABEL_KEY,
+      },
+    }, { tx, strict: true });
+    if (!outbox?.id) {
+      throw AppError.internal(
+        'Credit-note refund notification intent was not persisted',
+        'BILLING_CREDIT_NOTE_REFUND_NOTIFICATION_MISSING',
+      );
+    }
+  }
+}
+
+export async function advanceBillingCreditNoteRefundObligationTx(tx, {
+  creditNote,
+  applicationEvent,
+  actorUid,
+}) {
+  requiredTx(tx);
+  const refundId = Number(creditNote.refund_id);
+  if (!Number.isSafeInteger(refundId) || refundId <= 0) {
+    throw AppError.internal(
+      'Credit-note refund ownership requires an exact refund',
+      'BILLING_CREDIT_NOTE_REFUND_ID_MISSING',
+    );
+  }
+  const task = await loadOpenCreditNoteTask(
+    tx,
+    String(creditNote.tenant_id),
+    String(creditNote.id),
+  );
+  if (!task) {
+    throw AppError.conflict(
+      'Credit-note task was not actionable when refund ownership was created',
+      'BILLING_CREDIT_NOTE_REFUND_TASK_MISSING',
+    );
+  }
+  const rows = await tx.$queryRawUnsafe(
+    `UPDATE tasks
+        SET title = 'Authorize ward medication credit refund',
+            description = 'Approve the patient refund obligation created by the applied medication credit; payout remains separately controlled.',
+            assigned_to_uid = NULL,
+            assigned_to_role = $3::text,
+            metadata = COALESCE(metadata, '{}'::jsonb) || $4::jsonb,
+            updated_at = NOW()
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int
+        AND status = ANY($5::text[])
+      RETURNING id, metadata, status, workflow_sla_instance_id`,
+    String(creditNote.tenant_id),
+    Number(task.id),
+    REFUND_APPROVAL_ROLES[0],
+    JSON.stringify({
+      evidence_kind: 'billing_credit_note_refund_paid',
+      credit_note_stage: 'refund_approval',
+      application_event_id: String(applicationEvent.id),
+      refund_id: refundId,
+    }),
+    ACTIONABLE_TASK_STATUSES,
+  );
+  if (!rows[0]) {
+    throw AppError.conflict(
+      'Credit-note task changed before refund ownership could be recorded',
+      'BILLING_CREDIT_NOTE_REFUND_TASK_STAGE_CONFLICT',
+    );
+  }
+  await postTaskComment({
+    tenantId: String(creditNote.tenant_id),
+    taskId: Number(task.id),
+    authorUid: actorUid,
+    body: 'Credit application created a patient refund; the SLA remains open through authorized payout.',
+    bodyKind: 'system_event',
+    metadata: {
+      credit_note_id: String(creditNote.id),
+      refund_id: refundId,
+      next_stage: 'refund_approval',
+    },
+    tx,
+  });
+  await queueCreditNoteStageNotifications(tx, {
+    creditNote,
+    lifecycleEvent: applicationEvent,
+    task: rows[0],
+    roles: REFUND_APPROVAL_ROLES,
+    departments: ['administration', 'finance'],
+    notificationKind: 'ward_indent_credit_note_refund_approval',
+    title: 'Medication credit refund requires approval',
+    body: `Refund #${refundId} for credit note ${creditNote.credit_note_number} requires approval.`,
+    sourceEventKey: `billing-credit-note:${creditNote.id}:refund:${refundId}:approval`,
+  });
+  return rows[0];
+}
+
+export async function advanceBillingCreditNoteRefundPayoutObligationTx(tx, {
+  creditNote,
+  refund,
+  actorUid,
+}) {
+  requiredTx(tx);
+  const task = await loadOpenCreditNoteTask(
+    tx,
+    String(creditNote.tenant_id),
+    String(creditNote.id),
+  );
+  if (!task) {
+    throw AppError.conflict(
+      'Credit-note refund task was not actionable at approval',
+      'BILLING_CREDIT_NOTE_REFUND_TASK_MISSING',
+    );
+  }
+  const rows = await tx.$queryRawUnsafe(
+    `UPDATE tasks
+        SET title = 'Settle approved ward medication credit refund',
+            description = 'Complete the approved refund through its exact manual or provider payout rail and retain settlement evidence.',
+            assigned_to_uid = NULL,
+            assigned_to_role = $3::text,
+            metadata = COALESCE(metadata, '{}'::jsonb) || $4::jsonb,
+            updated_at = NOW()
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int
+        AND status = ANY($5::text[])
+      RETURNING id, metadata, status, workflow_sla_instance_id`,
+    String(creditNote.tenant_id),
+    Number(task.id),
+    BILLING_ROLES[1],
+    JSON.stringify({
+      evidence_kind: 'billing_credit_note_refund_paid',
+      credit_note_stage: 'refund_payout',
+      refund_id: Number(refund.id),
+      refund_approved_at: refund.approved_at,
+    }),
+    ACTIONABLE_TASK_STATUSES,
+  );
+  if (!rows[0]) {
+    throw AppError.conflict(
+      'Credit-note refund task changed before payout ownership could be recorded',
+      'BILLING_CREDIT_NOTE_REFUND_TASK_STAGE_CONFLICT',
+    );
+  }
+  await postTaskComment({
+    tenantId: String(creditNote.tenant_id),
+    taskId: Number(task.id),
+    authorUid: actorUid,
+    body: 'Patient refund approved; the SLA remains open until exact payout evidence is recorded.',
+    bodyKind: 'system_event',
+    metadata: {
+      credit_note_id: String(creditNote.id),
+      refund_id: Number(refund.id),
+      next_stage: 'refund_payout',
+    },
+    tx,
+  });
+  await queueCreditNoteStageNotifications(tx, {
+    creditNote: { ...creditNote, refund_id: refund.id },
+    lifecycleEvent: {
+      id: refund.id,
+      actor_uid: actorUid,
+    },
+    task: rows[0],
+    roles: BILLING_ROLES,
+    departments: ['billing', 'finance'],
+    notificationKind: 'ward_indent_credit_note_refund_payout',
+    title: 'Medication credit refund is ready for payout',
+    body: `Approved refund #${refund.id} requires settlement evidence.`,
+    sourceEventKey: `billing-credit-note:${creditNote.id}:refund:${refund.id}:payout`,
+  });
+  return rows[0];
+}
+
+export async function completeBillingCreditNoteRefundObligationTx(tx, {
+  creditNote,
+  refund,
+  actorUid,
+}) {
+  requiredTx(tx);
+  const task = await loadOpenCreditNoteTask(
+    tx,
+    String(creditNote.tenant_id),
+    String(creditNote.id),
+  );
+  if (!task) {
+    throw AppError.conflict(
+      'Credit-note refund task was not actionable at payout',
+      'BILLING_CREDIT_NOTE_REFUND_TASK_MISSING',
+    );
   }
   return completeTaskFromDomainEvidence({
     tenantId: String(creditNote.tenant_id),
     id: Number(task.id),
-    evidenceKind: 'billing_credit_note_decision',
-    evidenceResourceType: 'billing_credit_note_event',
-    evidenceResourceId: String(decisionEvent.id),
+    evidenceKind: 'billing_credit_note_refund_paid',
+    evidenceResourceType: 'billing_refund',
+    evidenceResourceId: String(refund.id),
     actorUid,
     tx,
   });
@@ -893,8 +1595,7 @@ export async function materializeMarSupplyReconciliationObligationTx(tx, {
         WHERE tenant_id = $1::uuid
           AND ward_indent_id = $2::int
         ORDER BY state_version DESC, id DESC
-        LIMIT 1
-        FOR SHARE`,
+        LIMIT 1`,
       tenantId,
       Number(indent.id),
     );
@@ -911,8 +1612,24 @@ export async function materializeMarSupplyReconciliationObligationTx(tx, {
       presentation: {
         title: 'MAR supply reconciliation requires coverage',
         notificationKind: 'ward_indent_mar_supply_reconciliation',
+        departments: ['pharmacy', 'nursing'],
       },
       intendedRoles: MAR_SUPPLY_RECONCILIATION_ROLES,
+      notificationIntent: coverageNotificationIntent({
+        taskId: task.id,
+        type: 'ward_indent_mar_supply_reconciliation',
+        title: 'MAR administration requires supply reconciliation',
+        body: `Administration ${administration.id} must be matched to exact received ward stock.`,
+        sourceEventKey: `mar-supply:${medicationAdministrationId}:unmatched`,
+        templateVersion: 'ward_indent_mar_supply_reconciliation.v1',
+        data: {
+          medication_administration_id: Number(administration.id),
+          clinical_order_id: Number(administration.clinical_order_id),
+          ward_indent_id: Number(indent.id),
+          ward_indent_item_id: Number(wardItem.id),
+          deep_link: `/clinical/mar/${administration.id}?supply-reconciliation=1`,
+        },
+      }),
     });
     return task;
   }
@@ -975,7 +1692,12 @@ export default {
   completeWardIndentStateObligationTx,
   materializeWardIndentStateObligationTx,
   reconcileWardIndentNotificationCoverageTx,
+  sweepWardIndentNotificationCoverage,
   materializeBillingCreditNoteObligationTx,
+  advanceBillingCreditNoteObligationTx,
+  advanceBillingCreditNoteRefundObligationTx,
+  advanceBillingCreditNoteRefundPayoutObligationTx,
+  completeBillingCreditNoteRefundObligationTx,
   completeBillingCreditNoteObligationTx,
   materializeMarSupplyReconciliationObligationTx,
   completeMarSupplyReconciliationObligationTx,

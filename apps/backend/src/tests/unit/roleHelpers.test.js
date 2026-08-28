@@ -49,6 +49,7 @@ import {
   isPlatformRole,
   isResident,
   isStaff,
+  isSupportStaff,
   isStoresPurchaseIncharge,
   isWebhookClient,
 } from '../../utils/roleHelpers.js';
@@ -157,6 +158,12 @@ describe('Phase F1 role registry', () => {
     // staff:* channel + requireStaffOrAdmin gate. Mirrors the LAB_STAFF/PATHOLOGIST gap.
     expect(isStaff('RADIOLOGY_STAFF')).toBe(true);
     expect(isClinical('RADIOLOGY_STAFF')).toBe(false);
+  });
+
+  it('treats CASHIER as support staff, never clinical staff', () => {
+    expect(isStaff('CASHIER')).toBe(true);
+    expect(isSupportStaff('CASHIER')).toBe(true);
+    expect(isClinical('CASHIER')).toBe(false);
   });
 });
 

@@ -10,18 +10,24 @@ class WardIndentInventoryItem {
     required this.displayName,
     required this.isNarcotic,
     this.catalogId,
+    this.facilityId,
     this.compositionId,
     this.scheduleClass,
     this.unitLabel,
+    this.unreservedQuantity = 0,
+    this.batches = const [],
   });
 
   final int id;
   final int? catalogId;
+  final int? facilityId;
   final int? compositionId;
   final String displayName;
   final String? scheduleClass;
   final String? unitLabel;
   final bool isNarcotic;
+  final double unreservedQuantity;
+  final List<WardIndentInventoryBatch> batches;
 
   bool get isControlled =>
       const {'H', 'H1', 'X'}.contains(scheduleClass) || isNarcotic;
@@ -31,6 +37,7 @@ class WardIndentInventoryItem {
     return WardIndentInventoryItem(
       id: _int(json['id']) ?? 0,
       catalogId: _int(json['catalog_id']),
+      facilityId: _int(json['facility_id']),
       compositionId: _int(json['composition_id']),
       displayName:
           _string(json['display_name']) ??
@@ -39,6 +46,10 @@ class WardIndentInventoryItem {
       scheduleClass: _string(json['schedule_class'])?.toUpperCase(),
       unitLabel: _string(json['unit_label']),
       isNarcotic: json['is_narcotic'] == true,
+      unreservedQuantity: _double(json['unreserved_quantity']),
+      batches: _maps(json['batches'])
+          .map(WardIndentInventoryBatch.fromJson)
+          .toList(growable: false),
     );
   }
 }
@@ -49,6 +60,9 @@ class WardIndentInventoryBatch {
     required this.inventoryItemId,
     required this.batchNumber,
     required this.remainingQuantity,
+    this.unreservedQuantity = 0,
+    this.lotNumber,
+    this.status,
     this.expiryDate,
   });
 
@@ -56,6 +70,9 @@ class WardIndentInventoryBatch {
   final int inventoryItemId;
   final String batchNumber;
   final double remainingQuantity;
+  final double unreservedQuantity;
+  final String? lotNumber;
+  final String? status;
   final DateTime? expiryDate;
 
   factory WardIndentInventoryBatch.fromJson(Map<String, dynamic> json) {
@@ -67,6 +84,11 @@ class WardIndentInventoryBatch {
           _string(json['lot_number']) ??
           'Batch #${_int(json['id']) ?? 0}',
       remainingQuantity: _double(json['remaining_quantity']),
+      unreservedQuantity:
+          _nullableDouble(json['unreserved_quantity']) ??
+          _double(json['remaining_quantity']),
+      lotNumber: _string(json['lot_number']),
+      status: _string(json['status']),
       expiryDate: DateTime.tryParse(json['expiry_date']?.toString() ?? ''),
     );
   }
@@ -108,6 +130,11 @@ abstract interface class WardIndentGateway {
 
   Future<List<WardIndentInventoryBatch>> listInventoryBatches(int itemId);
 
+  Future<List<WardIndentInventoryItem>> listInventoryCandidates(
+    int indentId,
+    int itemId,
+  );
+
   Future<CompositionAlternativesResult> getCatalogAlternatives(int catalogId);
 
   Future<Map<String, dynamic>> requestControlledDispenseWitnessApproval({
@@ -125,6 +152,11 @@ abstract interface class WardIndentGateway {
 
   Future<Map<String, dynamic>> dispenseControlledInventory({
     required Map<String, dynamic> dispense,
+    required String idempotencyKey,
+  });
+
+  Future<Map<String, dynamic>> recordInventoryMovement({
+    required Map<String, dynamic> movement,
     required String idempotencyKey,
   });
 }
@@ -197,6 +229,18 @@ class ApiWardIndentGateway implements WardIndentGateway {
   }
 
   @override
+  Future<List<WardIndentInventoryItem>> listInventoryCandidates(
+    int indentId,
+    int itemId,
+  ) async {
+    final rows = await PharmacyApiService.getWardIndentInventoryCandidates(
+      indentId,
+      itemId,
+    );
+    return rows.map(WardIndentInventoryItem.fromJson).toList(growable: false);
+  }
+
+  @override
   Future<CompositionAlternativesResult> getCatalogAlternatives(int catalogId) {
     return MedicalApiService.getCatalogAlternatives(catalogId);
   }
@@ -239,6 +283,17 @@ class ApiWardIndentGateway implements WardIndentGateway {
       idempotencyKey: idempotencyKey,
     );
   }
+
+  @override
+  Future<Map<String, dynamic>> recordInventoryMovement({
+    required Map<String, dynamic> movement,
+    required String idempotencyKey,
+  }) {
+    return PharmacyApiService.recordInventoryMovement(
+      movement: movement,
+      idempotencyKey: idempotencyKey,
+    );
+  }
 }
 
 int? _int(Object? value) {
@@ -252,7 +307,19 @@ double _double(Object? value) {
   return double.tryParse(value?.toString() ?? '') ?? 0;
 }
 
+double? _nullableDouble(Object? value) {
+  if (value is num) return value.toDouble();
+  return double.tryParse(value?.toString() ?? '');
+}
+
 String? _string(Object? value) {
   final text = value?.toString().trim() ?? '';
   return text.isEmpty || text.toLowerCase() == 'null' ? null : text;
 }
+
+List<Map<String, dynamic>> _maps(Object? value) => value is List
+    ? value
+          .whereType<Map>()
+          .map((entry) => Map<String, dynamic>.from(entry))
+          .toList(growable: false)
+    : const [];

@@ -363,6 +363,28 @@ describe('src/lib/prisma.js hardening', () => {
       expect(prismaModule.circuitBreakerStatus().consecutiveFailures).toBe(0);
     });
 
+    it('ignores direct DriverAdapterError SQLSTATE from deferred transaction commit', async () => {
+      const prisma = prismaModule.default;
+      const primaryStub = await getPrimaryStub(prismaModule);
+      const integrityError = Object.assign(new Error('UniqueConstraintViolation'), {
+        name: 'DriverAdapterError',
+        cause: {
+          originalCode: '23505',
+          kind: 'UniqueConstraintViolation',
+        },
+      });
+      primaryStub.$transaction = jest.fn().mockRejectedValue(integrityError);
+
+      for (let i = 0; i < 10; i += 1) {
+        await expect(prisma.$transaction(async () => 'commit')).rejects.toBe(integrityError);
+      }
+
+      expect(prismaModule.circuitBreakerStatus()).toMatchObject({
+        open: false,
+        consecutiveFailures: 0,
+      });
+    });
+
     it('mixed ignored and infra failures: ignored errors reset the streak', async () => {
       const prisma = prismaModule.default;
       const primaryStub = await getPrimaryStub(prismaModule);

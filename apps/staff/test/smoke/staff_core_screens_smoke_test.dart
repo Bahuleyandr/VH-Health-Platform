@@ -80,6 +80,14 @@ class _SmokeClinicalInboxApi extends ClinicalInboxApi {
   }
 
   @override
+  Future<void> claimMarMedicationException({
+    required String caseId,
+    required String idempotencyKey,
+  }) => throw UnsupportedError(
+    'Smoke test has no MAR medication exceptions to claim',
+  );
+
+  @override
   Future<DiagnosticActionReceipt> recordDiagnosticAction(
     DiagnosticActionCommand command,
   ) {

@@ -36,6 +36,16 @@ jest.unstable_mockModule('../../middleware/idempotencyMiddleware.js', () => ({
   },
 }));
 
+jest.unstable_mockModule('../../middleware/rejectMobileClinicalWriteMiddleware.js', () => ({
+  enforceStaffClinicalWriteDevicePosture: function enforceStaffClinicalWriteDevicePosture(
+    _req,
+    _res,
+    next,
+  ) {
+    next();
+  },
+}));
+
 jest.unstable_mockModule('../../middleware/sanitizeMiddleware.js', () => ({
   sanitizeAllBodyStrings: (_req, _res, next) => next(),
 }));
@@ -100,6 +110,23 @@ const MUTATIONS = [
   ['/:id/cancel', 'ward_indent_cancel'],
   ['/:id/close', 'ward_indent_close'],
 ];
+
+test('all canonical and IPD-alias ward-indent mutations require desktop or tablet posture', () => {
+  for (const [path] of MUTATIONS) {
+    const layer = route(path, 'post');
+    const handlers = layer.route.stack.map((entry) => entry.handle?.name);
+    expect(handlers).toContain('enforceStaffClinicalWriteDevicePosture');
+  }
+
+  expect(ipdAliasSource).toContain(
+    "import { enforceStaffClinicalWriteDevicePosture } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';",
+  );
+  const helper = ipdAliasSource.slice(
+    ipdAliasSource.indexOf('function wardIndentIdempotency'),
+    ipdAliasSource.indexOf('function wardIndentMutationContext'),
+  );
+  expect(helper).toContain('enforceStaffClinicalWriteDevicePosture');
+});
 
 describe('ward-indent patient selectors', () => {
   beforeEach(() => prismaMock.$queryRawUnsafe.mockReset());
@@ -223,5 +250,42 @@ describe('IPD compatibility alias', () => {
     expect(ipdAliasSource).toMatch(/router\.get\([\s\S]*?'\/ward-indents',[\s\S]*?wardIndentListGuard\(\)/);
     expect(ipdAliasSource).toMatch(/'\/admissions\/:id\/ward-indents',[\s\S]*?wardIndentAdmissionGuard/);
     expect(ipdAliasSource).toMatch(/'\/ward-indents\/:indentId',[\s\S]*?guardWardIndentRow/);
+  });
+
+  test('forwards every exact-inventory input consumed by the canonical workflow', () => {
+    const actionBlock = (action) => {
+      const start = ipdAliasSource.indexOf(`  '/ward-indents/:indentId/${action}',`);
+      const end = ipdAliasSource.indexOf('\nrouter.', start + 1);
+      expect(start).toBeGreaterThan(-1);
+      return ipdAliasSource.slice(start, end < 0 ? undefined : end);
+    };
+
+    expect(actionBlock('reserve')).toContain(
+      'inventorySelections: req.body?.inventory_selections ?? null',
+    );
+    expect(actionBlock('short-supply')).toContain(
+      'inventorySelections: req.body?.inventory_selections ?? null',
+    );
+    expect(actionBlock('substitutions/approve')).toContain(
+      'inventorySelections: req.body?.inventory_selections ?? null',
+    );
+    expect(actionBlock('receive')).toContain(
+      'substitutionAcknowledgements: req.body?.substitution_acknowledgements ?? null',
+    );
+    expect(actionBlock('reconcile')).toContain(
+      'allocationReturns: req.body?.allocation_returns ?? null',
+    );
+  });
+
+  test('exposes the guarded exact inventory-candidate read needed to choose batches', () => {
+    const path = '/ward-indents/:indentId/items/:itemId/inventory-candidates';
+    const start = ipdAliasSource.indexOf(`  '${path}',`);
+    const end = ipdAliasSource.indexOf('\nrouter.', start + 1);
+    expect(start).toBeGreaterThan(-1);
+    const block = ipdAliasSource.slice(start, end < 0 ? undefined : end);
+    expect(block).toContain('requireRole(...WARD_INDENT_READ_ROLES)');
+    expect(block).toContain('guardWardIndentRow');
+    expect(block).toContain('listWardIndentInventoryCandidates');
+    expect(block).toContain('wardIndentId: indentId');
   });
 });

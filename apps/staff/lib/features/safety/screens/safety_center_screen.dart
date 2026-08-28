@@ -451,7 +451,7 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
               FilledButton.tonalIcon(
                 onPressed: () => _openAlert(item),
                 icon: const Icon(Icons.open_in_new, size: 16),
-                label: Text(item.actionLabel),
+                label: Text(item.actionLabelFor(s)),
               ),
           ],
         );

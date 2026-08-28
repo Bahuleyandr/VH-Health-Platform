@@ -16,6 +16,7 @@ const createGatewayOrder = jest.fn();
 const getGatewayOrder = jest.fn();
 const cancelGatewayOrder = jest.fn();
 const initiateGatewayRefund = jest.fn();
+const listGatewayRefundCandidates = jest.fn();
 const listGatewayConfigs = jest.fn();
 const upsertGatewayConfig = jest.fn();
 const listReconciliationGatewayOrders = jest.fn();
@@ -33,6 +34,7 @@ jest.unstable_mockModule('../../services/billing/paymentGatewayService.js', () =
   getGatewayOrder,
   cancelGatewayOrder,
   initiateGatewayRefund,
+  listGatewayRefundCandidates,
   listGatewayConfigs,
   upsertGatewayConfig,
   listReconciliationGatewayOrders,
@@ -78,6 +80,9 @@ beforeEach(() => {
     orderId: 21, providerOrderId: 'order_dry_pg-x', provider: 'dry_run',
     keyId: null, amount: 500, currency: 'INR', status: 'created',
   });
+  listGatewayRefundCandidates.mockResolvedValue([
+    { gateway_order_id: 21, refundable_amount: '500.00' },
+  ]);
 });
 
 describe('order creation idempotency', () => {
@@ -288,18 +293,41 @@ describe('role gates', () => {
       tenantId: 'trusted-tenant', include_resolved: true,
     }));
 
+    const badQueue = await request(app('ADMIN'))
+      .get('/api/v1/billing/gateway/refund-reconciliation?limit=all');
+    expect(badQueue.status).toBe(400);
+
+    const badId = await request(app('ADMIN'))
+      .post('/api/v1/billing/gateway/refunds/not-a-number/reconcile')
+      .send({
+        disposition: 'provider_not_refunded',
+        evidence_reference: 'provider-case-7781',
+        recovery_path: 'gateway_retry',
+        note: 'Provider confirmed no refund was issued; retain gateway retry ownership',
+      });
+    expect(badId.status).toBe(400);
+    expect(resolveGatewayRefundReconciliation).not.toHaveBeenCalled();
+
     resolveGatewayRefundReconciliation.mockResolvedValue({
       id: 7,
-      status: 'requires_reconciliation',
+      status: 'failed',
       amount: 150,
-      reconciliation_note: 'Verified provider refund and billing payout manually',
+      replay: false,
     });
     const resolved = await request(app('ADMIN'))
       .post('/api/v1/billing/gateway/refunds/7/reconcile')
-      .send({ note: 'Verified provider refund and billing payout manually' });
+      .send({
+        disposition: 'provider_not_refunded',
+        evidence_reference: 'provider-case-7781',
+        recovery_path: 'gateway_retry',
+        note: 'Provider confirmed no refund was issued; retain gateway retry ownership',
+      });
     expect(resolved.status).toBe(200);
     expect(resolveGatewayRefundReconciliation).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: 'trusted-tenant', id: '7',
+      disposition: 'provider_not_refunded',
+      evidence_reference: 'provider-case-7781',
+      recovery_path: 'gateway_retry',
       resolved_by: '11111111-1111-4111-8111-111111111111',
     }));
     expect(logAudit).toHaveBeenCalledWith(
@@ -311,6 +339,22 @@ describe('role gates', () => {
   });
 
   it('refund execution requires a finance/cashier/admin tier', async () => {
+    const deniedCandidates = await request(app('RECEPTIONIST'))
+      .get('/api/v1/billing/gateway/refunds/9/candidates');
+    expect(deniedCandidates.status).toBe(403);
+    expect(listGatewayRefundCandidates).not.toHaveBeenCalled();
+
+    const candidates = await request(app('FINANCE_INCHARGE'))
+      .get('/api/v1/billing/gateway/refunds/9/candidates');
+    expect(candidates.status).toBe(200);
+    expect(candidates.body.data).toEqual([
+      { gateway_order_id: 21, refundable_amount: '500.00' },
+    ]);
+    expect(listGatewayRefundCandidates).toHaveBeenCalledWith({
+      tenantId: 'trusted-tenant',
+      billing_refund_id: '9',
+    });
+
     const res = await request(app('RECEPTIONIST'))
       .post('/api/v1/billing/gateway/refunds')
       .set('Idempotency-Key', 'refund-key-1')

@@ -10,8 +10,13 @@
 
 import { Router } from 'express';
 import * as billing from '../../services/billing/billingV2Service.js';
+import * as creditNotes from '../../services/billing/billingCreditNoteService.js';
 import * as cashDrawer from '../../services/billing/cashDrawerService.js';
 import * as payLinks from '../../services/billing/paymentLinkService.js';
+import {
+  REFUND_APPROVAL_IDEMPOTENCY_PATH,
+  refundApprovalIdempotencyBody,
+} from '../../services/billing/billingRefundApprovalCommand.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
@@ -34,10 +39,13 @@ const CASH_DRAWER_REVIEWER_ROLES = ['ADMIN', 'SUPER_ADMIN', 'FINANCE_INCHARGE'];
 // staff"): the actual money-OUT steps — paying a refund, settling an advance
 // against an invoice — are restricted to finance/cashier roles + admin. The
 // broader BILLING_V2_EXTRA_STAFF_ROLES (receptionists, admission officers, etc.)
-// may raise/approve but not perform the payout/settle disbursement.
+// may use front-office billing flows but cannot create or disburse refunds.
 const BILLING_CASH_OUT_ROLES = [
   'ADMIN', 'SUPER_ADMIN',
   'FINANCE_INCHARGE', 'BILLING_INCHARGE', 'BILLING_STAFF', 'CASHIER',
+];
+const BILLING_CREDIT_NOTE_REVIEW_ROLES = [
+  'ADMIN', 'SUPER_ADMIN', 'FINANCE_INCHARGE', 'BILLING_INCHARGE',
 ];
 
 // Wrap each handler with try/catch + AppError → response so route
@@ -83,6 +91,60 @@ function requireCashOut(req, res, next) {
     return error(res, 'Refund payout / advance settlement requires a finance, cashier, or admin role', 403);
   }
   next();
+}
+
+function requireRefundReviewer(req, res, next) {
+  const role = String(req.user?.role || '').trim().toUpperCase();
+  if (!BILLING_CASH_OUT_ROLES.includes(role)) {
+    return error(
+      res,
+      'Refund evidence requires a finance, billing, cashier, or admin role',
+      403,
+    );
+  }
+  next();
+}
+
+function requireCreditNoteReviewer(req, res, next) {
+  const role = String(req.user?.role || '').trim().toUpperCase();
+  if (!BILLING_CREDIT_NOTE_REVIEW_ROLES.includes(role)) {
+    return error(res, 'Medication credit-note review requires a billing, finance, or admin role', 403);
+  }
+  next();
+}
+
+function commandKeyOf(req) {
+  return req.idempotencyClaim?.requestKey || req.get('idempotency-key');
+}
+
+function boundedAuditText(value, maxLength) {
+  if (value == null) return null;
+  const text = Array.from(String(value))
+    .filter((character) => {
+      const codePoint = character.codePointAt(0);
+      return codePoint >= 32 && codePoint !== 127;
+    })
+    .join('')
+    .trim();
+  return text ? text.slice(0, maxLength) : null;
+}
+
+function refundApprovalAuditContextOf(req) {
+  const actorUid = req.acting?.actorUid ?? req.user?.uid;
+  const actorRole = req.acting?.actorRole ?? req.user?.role;
+  return {
+    actorUid: boundedAuditText(actorUid, 36),
+    subjectUid: boundedAuditText(req.user?.uid, 36),
+    actorRole: boundedAuditText(actorRole, 50),
+    actingAsDependent: req.acting != null,
+    requestId: boundedAuditText(req.id, 200),
+    deviceType: boundedAuditText(
+      req.user?.deviceType ?? req.user?.claims?.deviceType,
+      80,
+    ),
+    ipAddress: boundedAuditText(req.ip ?? req.socket?.remoteAddress, 45),
+    userAgent: boundedAuditText(req.get('user-agent'), 500),
+  };
 }
 
 function tenantOf(req) {
@@ -445,82 +507,233 @@ router.post('/advances/:id/settle', requireCashOut, requireIdempotencyKey({ requ
 }));
 
 // ── Refunds ───────────────────────────────────────────────────────────
-router.post('/refunds', requireStaffOrAdmin, wrap(async (req) => {
+router.post('/refunds', requireRefundReviewer, requireIdempotencyKey({
+  required: true,
+  scope: 'billing_refund_raise',
+  retainOnServerError: true,
+  requestBodyForIdempotency: (req) => billing.refundRaiseIdempotencyBody(req.body),
+  requestPathForIdempotency: billing.REFUND_RAISE_IDEMPOTENCY_PATH,
+}), wrap(async (req) => {
+  const auditContext = refundApprovalAuditContextOf(req);
   const refund = await billing.raiseRefund({
     ...req.body,
     tenantId: tenantOf(req),
-    raised_by: req.user?.uid,
-  });
-  await logBillingAudit(req, 'FRONT_OFFICE_BILLING_REFUND_RAISED', {
-    ...refund,
-    refund_id: refund?.id,
-  }, {
-    amount: refund?.amount ?? req.body?.amount ?? null,
-    mode: refund?.mode ?? req.body?.mode ?? null,
-    reason_present: Boolean(refund?.reason ?? req.body?.reason),
-  }, {
-    resource: 'billing_refund',
-    resourceId: refund?.id ?? null,
+    raised_by: auditContext.actorUid,
+    commandKey: commandKeyOf(req),
+    requestFingerprint: req.idempotencyClaim?.requestBodyHash,
+    httpIdempotencyClaimId: req.idempotencyClaim?.id,
+    requestId: auditContext.requestId,
+    auditContext,
   });
   return refund;
 }));
 
-router.get('/refunds', requireStaffOrAdmin, wrap(async (req) => billing.listRefunds({
+router.get('/refunds', requireRefundReviewer, wrap(async (req) => billing.listRefunds({
   tenantId: tenantOf(req),
   approval_status: req.query.approval_status,
   patient_uid: req.query.patient_uid,
+  id: req.query.id,
+  counter_sale_void_request_id: req.query.counter_sale_void_request_id,
 })));
 
-router.post('/refunds/:id/approve', requireAdmin, wrap(async (req) => {
+router.get('/refunds/:id', requireRefundReviewer, wrap(async (req) => billing.getRefund(
+  req.params.id,
+  { tenantId: tenantOf(req) },
+)));
+
+router.post('/refunds/:id/approve', requireAdmin, requireIdempotencyKey({
+  required: true,
+  scope: 'billing_refund_approve',
+  retainOnServerError: true,
+  requestBodyForIdempotency: (req) => refundApprovalIdempotencyBody(req.params.id),
+  requestPathForIdempotency: REFUND_APPROVAL_IDEMPOTENCY_PATH,
+}), wrap(async (req) => {
+  const auditContext = refundApprovalAuditContextOf(req);
   const refund = await billing.approveRefund(req.params.id, {
     tenantId: tenantOf(req),
-    approved_by: req.user?.uid,
-  });
-  await logBillingAudit(req, 'FRONT_OFFICE_BILLING_REFUND_APPROVED', {
-    ...refund,
-    refund_id: refund?.id ?? req.params.id,
-  }, {}, {
-    resource: 'billing_refund',
-    resourceId: refund?.id ?? req.params.id,
+    approved_by: auditContext.actorUid,
+    commandKey: commandKeyOf(req),
+    requestFingerprint: req.idempotencyClaim?.requestBodyHash,
+    httpIdempotencyClaimId: req.idempotencyClaim?.id,
+    requestId: auditContext.requestId,
+    auditContext,
   });
   return refund;
 }));
 
-router.post('/refunds/:id/reject', requireAdmin, wrap(async (req) => {
+router.post('/refunds/:id/reject', requireAdmin, requireIdempotencyKey({
+  required: true,
+  scope: 'billing_refund_reject',
+  requestBodyForIdempotency: (req) => billing.refundRejectionIdempotencyBody(
+    req.params.id,
+    req.body,
+  ),
+  requestPathForIdempotency: billing.REFUND_REJECTION_IDEMPOTENCY_PATH,
+}), wrap(async (req) => {
+  const auditContext = refundApprovalAuditContextOf(req);
   const refund = await billing.rejectRefund(req.params.id, {
-    ...req.body,
+    rejection_reason: req.body?.rejection_reason,
     tenantId: tenantOf(req),
-    rejected_by: req.user?.uid,
-  });
-  await logBillingAudit(req, 'FRONT_OFFICE_BILLING_REFUND_REJECTED', {
-    ...refund,
-    refund_id: refund?.id ?? req.params.id,
-  }, {
-    rejection_reason_present: Boolean(req.body?.rejection_reason),
-  }, {
-    resource: 'billing_refund',
-    resourceId: refund?.id ?? req.params.id,
+    rejected_by: auditContext.actorUid,
+    commandKey: commandKeyOf(req),
+    requestFingerprint: req.idempotencyClaim?.requestBodyHash,
+    httpIdempotencyClaimId: req.idempotencyClaim?.id,
+    requestId: auditContext.requestId,
+    auditContext,
   });
   return refund;
 }));
 
-router.post('/refunds/:id/pay', requireCashOut, requireIdempotencyKey({ required: true, scope: 'billing_refund_pay' }), wrap(async (req) => {
+router.post('/refunds/:id/pay', requireCashOut, requireIdempotencyKey({
+  required: true,
+  scope: 'billing_refund_pay',
+  requestBodyForIdempotency: (req) => billing.refundManualPayoutIdempotencyBody(
+    req.params.id,
+    req.body,
+  ),
+  requestPathForIdempotency: billing.REFUND_MANUAL_PAYOUT_IDEMPOTENCY_PATH,
+}), wrap(async (req) => {
+  const auditContext = refundApprovalAuditContextOf(req);
   const refund = await billing.markRefundPaid(req.params.id, {
     tenantId: tenantOf(req),
-    paid_by: req.user?.uid,
+    paid_by: auditContext.actorUid,
     reference: req.body?.reference,
-  });
-  await logBillingAudit(req, 'FRONT_OFFICE_BILLING_REFUND_PAID', {
-    ...refund,
-    refund_id: refund?.id ?? req.params.id,
-  }, {
-    reference_present: Boolean(refund?.reference ?? req.body?.reference),
-  }, {
-    resource: 'billing_refund',
-    resourceId: refund?.id ?? req.params.id,
+    cash_drawer_session_id: req.body?.cash_drawer_session_id,
+    commandKey: commandKeyOf(req),
+    requestFingerprint: req.idempotencyClaim?.requestBodyHash,
+    httpIdempotencyClaimId: req.idempotencyClaim?.id,
+    requestId: auditContext.requestId,
+    auditContext,
   });
   return refund;
 }));
+
+router.post('/refunds/:id/pay/offline-electronic', requireCashOut, requireIdempotencyKey({
+  required: true,
+  scope: 'billing_refund_pay_offline_electronic',
+  requestBodyForIdempotency: (req) => billing.refundOfflineElectronicPayoutIdempotencyBody(
+    req.params.id,
+    req.body,
+  ),
+  requestPathForIdempotency: billing.REFUND_OFFLINE_ELECTRONIC_PAYOUT_IDEMPOTENCY_PATH,
+}), wrap(async (req) => {
+  const auditContext = refundApprovalAuditContextOf(req);
+  return billing.markOfflineElectronicRefundPaid(req.params.id, {
+    tenantId: tenantOf(req),
+    paid_by: auditContext.actorUid,
+    original_payment_reference: req.body?.original_payment_reference,
+    provider_name: req.body?.provider_name,
+    provider_refund_reference: req.body?.provider_refund_reference,
+    provider_refunded_at: req.body?.provider_refunded_at,
+    commandKey: commandKeyOf(req),
+    requestFingerprint: req.idempotencyClaim?.requestBodyHash,
+    httpIdempotencyClaimId: req.idempotencyClaim?.id,
+    requestId: auditContext.requestId,
+    auditContext,
+  });
+}));
+
+// ── Ward-medication credit notes ─────────────────────────────────────
+// Review and receivable/refund-obligation application are finance-owned.
+// Any actual money-out remains on the separately authorized refund payout
+// workflow above; applying a credit note can only create a PENDING refund.
+router.get('/credit-notes', requireCreditNoteReviewer, wrap(async (req) =>
+  creditNotes.listBillingCreditNotes({
+    tenantId: tenantOf(req),
+    status: req.query.status,
+    invoiceId: req.query.invoice_id,
+    limit: req.query.limit,
+  }),
+));
+
+router.get('/credit-notes/:id', requireCreditNoteReviewer, wrap(async (req, res) => {
+  const note = await creditNotes.getBillingCreditNote(req.params.id, {
+    tenantId: tenantOf(req),
+  });
+  if (!note) return error(res, 'Billing credit note not found', 404);
+  return note;
+}));
+
+router.post(
+  '/credit-notes/:id/approve',
+  requireCreditNoteReviewer,
+  requireIdempotencyKey({ required: true, scope: 'billing_credit_note_approve' }),
+  wrap(async (req) => {
+    const note = await creditNotes.approveBillingCreditNote(req.params.id, {
+      tenantId: tenantOf(req),
+      approvedBy: req.user?.uid,
+      commandKey: commandKeyOf(req),
+    });
+    await logBillingAudit(req, 'FRONT_OFFICE_BILLING_CREDIT_NOTE_APPROVED', {
+      ...note,
+      patient_uid: note?.patient_uid,
+      invoice_id: note?.invoice_id,
+    }, {
+      credit_note_id: String(note?.id ?? req.params.id),
+      amount_minor: String(note?.amount_minor ?? ''),
+    }, {
+      resource: 'billing_credit_note',
+      resourceId: String(note?.id ?? req.params.id),
+    });
+    return note;
+  }),
+);
+
+router.post(
+  '/credit-notes/:id/reject',
+  requireCreditNoteReviewer,
+  requireIdempotencyKey({ required: true, scope: 'billing_credit_note_reject' }),
+  wrap(async (req) => {
+    const note = await creditNotes.rejectBillingCreditNote(req.params.id, {
+      tenantId: tenantOf(req),
+      rejectedBy: req.user?.uid,
+      rejectionReason: req.body?.rejection_reason,
+      commandKey: commandKeyOf(req),
+    });
+    await logBillingAudit(req, 'FRONT_OFFICE_BILLING_CREDIT_NOTE_REJECTED', {
+      ...note,
+      patient_uid: note?.patient_uid,
+      invoice_id: note?.invoice_id,
+    }, {
+      credit_note_id: String(note?.id ?? req.params.id),
+      rejection_reason_present: Boolean(req.body?.rejection_reason),
+    }, {
+      resource: 'billing_credit_note',
+      resourceId: String(note?.id ?? req.params.id),
+    });
+    return note;
+  }),
+);
+
+router.post(
+  '/credit-notes/:id/apply',
+  requireCreditNoteReviewer,
+  requireIdempotencyKey({ required: true, scope: 'billing_credit_note_apply' }),
+  wrap(async (req) => {
+    const note = await creditNotes.applyBillingCreditNote(req.params.id, {
+      tenantId: tenantOf(req),
+      appliedBy: req.user?.uid,
+      refundMode: req.body?.refund_mode,
+      commandKey: commandKeyOf(req),
+    });
+    await logBillingAudit(req, 'FRONT_OFFICE_BILLING_CREDIT_NOTE_APPLIED', {
+      ...note,
+      patient_uid: note?.patient_uid,
+      invoice_id: note?.invoice_id,
+      refund_id: note?.refund_id,
+    }, {
+      credit_note_id: String(note?.id ?? req.params.id),
+      receivable_credit_minor: String(note?.receivable_credit_minor ?? ''),
+      refund_obligation_minor: String(note?.refund_obligation_minor ?? ''),
+      refund_mode: req.body?.refund_mode || null,
+      payout_authorized: false,
+    }, {
+      resource: 'billing_credit_note',
+      resourceId: String(note?.id ?? req.params.id),
+    });
+    return note;
+  }),
+);
 
 // ── Reports ───────────────────────────────────────────────────────────
 router.get('/reports/daily-collection', requireStaffOrAdmin, wrap(async (req) =>

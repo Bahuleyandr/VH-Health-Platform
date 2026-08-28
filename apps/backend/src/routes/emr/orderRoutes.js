@@ -3,7 +3,10 @@ import express from 'express';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
-import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
+import {
+  enforceStaffClinicalWriteDevicePosture,
+  rejectMobileClinicalWrite,
+} from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
 import * as orderEntryService from '../../services/emr/orderEntryService.js';
 import * as orderSetGovernanceService from '../../services/emr/orderSetGovernanceService.js';
 import {
@@ -16,6 +19,7 @@ import {
   patientAccessErrorPayload,
 } from '../../services/security/accessDecisionService.js';
 import prisma from '../../lib/prisma.js';
+import { hashRequestBody } from '../../services/idempotency/idempotencyService.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
 
@@ -29,6 +33,14 @@ const guardClinicalOrderWrite = patientAccessGuard('CLINICAL_ORDER', {
 });
 const guardClinicalOrderResourceWrite = patientAccessGuardForResource('CLINICAL_ORDER', {
   policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+  resourceType: 'clinical_order',
+});
+const guardClinicalOrderVerification = patientAccessGuardForResource('CLINICAL_ORDER', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_ORDER_VERIFY,
+  resourceType: 'clinical_order',
+});
+const guardClinicalOrderMarRecovery = patientAccessGuardForResource('CLINICAL_ORDER', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_ORDER_MAR_RECOVERY,
   resourceType: 'clinical_order',
 });
 const guardClinicalOrderEncounterView = patientAccessGuardForResource('CLINICAL_ORDER', {
@@ -59,6 +71,79 @@ function isMedicationOrderType(orderType) {
 
 function rejectMedicationWrite(res) {
   return error(res, 'Only doctors can prescribe or edit inpatient medication orders', 403);
+}
+
+function requireMedicationOrderWriteRole(req, res, next) {
+  if (roleCanWriteMedicationOrder(req)) return next();
+  return rejectMedicationWrite(res);
+}
+
+function requireMedicationOrderWriteRoleForBody(req, res, next) {
+  if (!isMedicationOrderType(req.body?.order_type)) return next();
+  return requireMedicationOrderWriteRole(req, res, next);
+}
+
+function requireMedicationOrderWriteRoleForBulk(req, res, next) {
+  const orders = Array.isArray(req.body?.orders) ? req.body.orders : [];
+  if (!orders.some((order) => isMedicationOrderType(order?.order_type))) return next();
+  return requireMedicationOrderWriteRole(req, res, next);
+}
+
+function requireMedicationOrderVerificationRole(req, res, next) {
+  if (orderEntryService.canVerifyMedicationOrderRole(req.user?.role)) return next();
+  return error(res, 'Only inpatient nursing and pharmacy staff can verify clinical orders', 403);
+}
+
+async function requireClinicalOrderVerificationAuthority(req, res, next) {
+  try {
+    const orderId = Number(req.params.id);
+    if (!Number.isSafeInteger(orderId) || orderId <= 0) {
+      return error(res, 'Invalid order ID', 400);
+    }
+    if (!req.tenantId) {
+      return error(res, 'Tenant context required', 403);
+    }
+    const order = await prisma.clinical_orders.findFirst({
+      where: { id: orderId, tenant_id: req.tenantId },
+      select: { order_type: true },
+    });
+    if (!order) return error(res, 'Order not found', 404);
+    if (!orderEntryService.canVerifyClinicalOrderType(req.user?.role, order.order_type)) {
+      return error(
+        res,
+        'Pharmacy staff can verify medication orders only; other clinical orders require inpatient nursing verification',
+        403,
+      );
+    }
+    req.clinicalOrderVerification = { orderId, orderType: order.order_type };
+    return next();
+  } catch (err) {
+    return next(err);
+  }
+}
+
+async function requireMedicationOrderMarRecoveryAuthority(req, res, next) {
+  try {
+    const orderId = Number(req.params.id);
+    if (!Number.isSafeInteger(orderId) || orderId <= 0) {
+      return error(res, 'Invalid order ID', 400);
+    }
+    if (!req.tenantId) {
+      return error(res, 'Tenant context required', 403);
+    }
+    const order = await prisma.clinical_orders.findFirst({
+      where: { id: orderId, tenant_id: req.tenantId },
+      select: { order_type: true },
+    });
+    if (!order) return error(res, 'Order not found', 404);
+    if (!isMedicationOrderType(order.order_type)) {
+      return error(res, 'Only medication orders own a MAR schedule', 409);
+    }
+    req.medicationOrderMarRecovery = { orderId, orderType: order.order_type };
+    return next();
+  } catch (err) {
+    return next(err);
+  }
 }
 
 async function guardBulkOrderPatients(req, res, next) {
@@ -155,7 +240,7 @@ function resolveOrderDetails(body) {
 // POST /emr/orders — Create a clinical order
 // ===================================================================
 
-router.post('/orders', rejectMobileClinicalWrite, requireIdempotencyKey({ required: true, scope: 'clinical_order' }), guardClinicalOrderWrite, async (req, res, next) => {
+router.post('/orders', enforceStaffClinicalWriteDevicePosture, requireMedicationOrderWriteRoleForBody, guardClinicalOrderWrite, requireIdempotencyKey({ required: true, scope: 'clinical_order' }), async (req, res, next) => {
   try {
     const {
       encounter_id, er_visit_id, patient_uid, order_type, priority,
@@ -170,10 +255,6 @@ router.post('/orders', rejectMobileClinicalWrite, requireIdempotencyKey({ requir
     if (!patient_uid || !order_type || isEmptyDetails(details)) {
       return error(res, 'patient_uid, order_type, and details are required', 400);
     }
-    if (isMedicationOrderType(order_type) && !roleCanWriteMedicationOrder(req)) {
-      return rejectMedicationWrite(res);
-    }
-
     const result = await orderEntryService.createOrder({
       encounter_id: encounter_id || null,
       er_visit_id: er_visit_id || null,
@@ -208,17 +289,13 @@ router.post('/orders', rejectMobileClinicalWrite, requireIdempotencyKey({ requir
 // POST /emr/orders/apply-set — Apply an order set
 // ===================================================================
 
-router.post('/orders/apply-set', rejectMobileClinicalWrite, requireIdempotencyKey({ required: false, scope: 'clinical_order_apply_set' }), guardClinicalOrderWrite, async (req, res, next) => {
+router.post('/orders/apply-set', requireMedicationOrderWriteRole, enforceStaffClinicalWriteDevicePosture, guardClinicalOrderWrite, requireIdempotencyKey({ required: false, scope: 'clinical_order_apply_set' }), async (req, res, next) => {
   try {
     const { patient_uid, encounter_id, order_set_id } = req.body;
 
     if (!patient_uid || !order_set_id) {
       return error(res, 'patient_uid and order_set_id are required', 400);
     }
-    if (!roleCanWriteMedicationOrder(req)) {
-      return rejectMedicationWrite(res);
-    }
-
     const result = await orderEntryService.applyOrderSet(
       patient_uid,
       encounter_id || null,
@@ -254,7 +331,7 @@ router.post('/orders/apply-set', rejectMobileClinicalWrite, requireIdempotencyKe
 // front, then inserts all rows in one transaction.
 // Finding 2026-05-08-inpatient-admission-doctor-no-batch-ordering.
 
-router.post('/orders/bulk', rejectMobileClinicalWrite, requireIdempotencyKey({ required: false, scope: 'clinical_order_bulk' }), guardBulkOrderPatients, async (req, res, next) => {
+router.post('/orders/bulk', enforceStaffClinicalWriteDevicePosture, requireMedicationOrderWriteRoleForBulk, guardBulkOrderPatients, requireIdempotencyKey({ required: false, scope: 'clinical_order_bulk' }), async (req, res, next) => {
   try {
     const { encounter_id, orders } = req.body;
 
@@ -264,10 +341,6 @@ router.post('/orders/bulk', rejectMobileClinicalWrite, requireIdempotencyKey({ r
     if (orders.length > 50) {
       return error(res, 'orders array too large — max 50 per batch', 400);
     }
-    if (orders.some((order) => isMedicationOrderType(order.order_type)) && !roleCanWriteMedicationOrder(req)) {
-      return rejectMedicationWrite(res);
-    }
-
     // Each item accepts the same flat-or-nested shape as POST /orders. A
     // batch-level encounter_id is the default; an item may still carry
     // its own. The service runs full per-item validation + CDS up front.
@@ -315,23 +388,80 @@ router.post('/orders/bulk', rejectMobileClinicalWrite, requireIdempotencyKey({ r
 });
 
 // ===================================================================
+// POST /emr/orders/:id/retry-mar-scheduling — Repair MAR integration
+// ===================================================================
+//
+// This does not prescribe, edit, or reinterpret a medication order. It
+// replays the exact active CPOE schedule through the same order-owned MAR
+// materializer used on initial create and records canonical recovery evidence.
+// Doctor authority and a replay-safe HTTP command key are both mandatory.
+router.post(
+  '/orders/:id/retry-mar-scheduling',
+  requireMedicationOrderWriteRole,
+  enforceStaffClinicalWriteDevicePosture,
+  guardClinicalOrderMarRecovery,
+  requireMedicationOrderMarRecoveryAuthority,
+  requireIdempotencyKey({ required: true, scope: 'clinical_order_mar_retry' }),
+  async (req, res, next) => {
+    try {
+      const { orderId } = req.medicationOrderMarRecovery;
+
+      const result = await orderEntryService.retryMedicationOrderMarScheduling({
+        tenantId: req.tenantId,
+        orderId,
+        actorUid: req.user.uid,
+        actorRole: req.user.role,
+      });
+      logPhiAccess({
+        userId: req.user.uid,
+        userRole: req.user.role,
+        patientId: result.patient_uid,
+        recordType: 'clinical_order:mar_recovery',
+        action: 'UPDATE',
+        ip: req.ip,
+        requestId: req.id,
+      });
+      return success(res, result, 'MAR scheduling recovered');
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// ===================================================================
 // PUT /emr/orders/:id/verify — Verify an order
 // ===================================================================
 
-router.put('/orders/:id/verify', rejectMobileClinicalWrite, guardClinicalOrderResourceWrite, async (req, res, next) => {
-  try {
-    const orderId = parseInt(req.params.id, 10);
+router.put(
+  '/orders/:id/verify',
+  requireMedicationOrderVerificationRole,
+  enforceStaffClinicalWriteDevicePosture,
+  guardClinicalOrderVerification,
+  requireClinicalOrderVerificationAuthority,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'clinical_order_verify',
+    requestBodyForIdempotency: (req) => ({
+      actor_role: String(req.user?.role || '').trim().toUpperCase(),
+      body: req.body || {},
+    }),
+  }),
+  async (req, res, next) => {
+    try {
+      const { orderId } = req.clinicalOrderVerification;
 
-    if (isNaN(orderId)) {
-      return error(res, 'Invalid order ID', 400);
+      const result = await orderEntryService.verifyOrder(orderId, req.user.uid, {
+        tenantId: req.tenantId,
+        actorRole: req.user.role,
+        idempotencyKey: req.idempotencyClaim?.requestKey || req.get('idempotency-key'),
+        requestBodySha256: hashRequestBody(req.body || {}),
+      });
+      return success(res, result, 'Order verified');
+    } catch (err) {
+      return next(err);
     }
-
-    const result = await orderEntryService.verifyOrder(orderId, req.user.uid);
-    return success(res, result, 'Order verified');
-  } catch (err) {
-    next(err);
-  }
-});
+  },
+);
 
 // ===================================================================
 // PUT /emr/orders/:id/complete — Complete an order
@@ -413,6 +543,7 @@ router.get('/orders/patient/:uid', guardClinicalOrderView, async (req, res, next
     const { order_type, status, date_from, date_to, page, limit } = req.query;
 
     const result = await orderEntryService.getPatientOrders(uid, {
+      tenantId: req.tenantId,
       order_type,
       status,
       date_from,
@@ -444,8 +575,13 @@ router.get('/orders/patient/:uid', guardClinicalOrderView, async (req, res, next
 router.get('/orders/encounter/:encounterId', guardClinicalOrderEncounterView, async (req, res, next) => {
   try {
     const { encounterId } = req.params;
-    const result = await orderEntryService.getEncounterOrders(encounterId);
-    return success(res, result, 'Encounter orders retrieved');
+    const { page, limit } = req.query;
+    const result = await orderEntryService.getEncounterOrders(encounterId, {
+      tenantId: req.tenantId,
+      page,
+      limit,
+    });
+    return success(res, result.orders, 'Encounter orders retrieved', 200, result.pagination);
   } catch (err) {
     next(err);
   }

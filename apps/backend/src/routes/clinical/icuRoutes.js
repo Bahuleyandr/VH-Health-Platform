@@ -204,7 +204,11 @@ router.post(
       actorUid: req.user?.uid,
       actorRole: req.user?.role
     });
-    emitIcuBoardEvent('admitted', { admissionId: row?.id, status: row?.status, tenantId });
+    emitIcuBoardEvent('admitted', {
+      admissionId: row?.id,
+      status: row?.status,
+      tenantId,
+    });
     return row;
   })
 );
@@ -228,7 +232,11 @@ router.post(
       actorUid: req.user?.uid,
       actorRole: req.user?.role
     });
-    emitIcuBoardEvent('admitted', { admissionId: row?.id, status: row?.status, tenantId });
+    emitIcuBoardEvent('admitted', {
+      admissionId: row?.admission?.id,
+      status: row?.admission?.status,
+      tenantId,
+    });
     return row;
   })
 );

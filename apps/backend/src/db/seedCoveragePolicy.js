@@ -4,6 +4,12 @@ export const INTENTIONALLY_EMPTY_SEED_TABLES = Object.freeze([
   // a table-coverage count.
   'scheduled_job_runs',
   'scheduled_job_tenant_runs',
+  // Clinical-alert obligations exist only after an exact delivery failure.
+  // A healthy seed must not fabricate a missing roster or failed alert; the
+  // pending-to-completed recovery path is covered by its database test.
+  'clinical_alert_delivery_obligations',
+  'clinical_alert_delivery_recovery_cases',
+  'clinical_alert_delivery_recovery_actions',
   // Activation authority ships inert. Seed coverage must not invent signing
   // identities, weaken a cohort evidence floor, or fabricate a transition.
   'clinical_continuity_activation_evidence_gate_configs',
@@ -71,7 +77,7 @@ export const INTENTIONALLY_EMPTY_SEED_TABLES = Object.freeze([
   'scim_provisioning_commands',
   // Recipient priority is tenant policy. Seed coverage must not invent a
   // hospital hierarchy or silently activate ranking for any tenant.
-  'escalation_recipient_rank_mappings',
+  'escalation_recipient_rank_mappings'
 ]);
 
 const intentionallyEmptySeedTableSet = new Set(INTENTIONALLY_EMPTY_SEED_TABLES);

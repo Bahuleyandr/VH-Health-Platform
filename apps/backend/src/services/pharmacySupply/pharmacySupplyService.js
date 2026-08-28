@@ -17,9 +17,12 @@
  * dispense flow uses it as a hint, not a hard auto-swap.
  */
 
+import { createHash } from 'node:crypto';
+
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { lockControlledRegisterItemTx } from '../pharmacy/inventoryV2Service.js';
 
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 200;
@@ -36,6 +39,19 @@ export const MOVEMENT_KINDS = [
   'receive', 'issue', 'transfer_out', 'transfer_in', 'return',
   'adjust_increase', 'adjust_decrease', 'dispose', 'expire', 'recall',
 ];
+const RESERVATION_DECREMENT_DIRECTION = Object.freeze({
+  issue: -1,
+  transfer_out: -1,
+  adjust_decrease: -1,
+  dispose: -1,
+  expire: -1,
+});
+const RESERVATION_ACTIVE_ITEM_MOVEMENTS = new Set(['issue', 'transfer_out']);
+const RESERVATION_COMMAND_CONTRACT = 'pharmacy_supply_reservation_v1';
+const RESERVATION_COMMAND_REFERENCE_TYPE = 'pharmacy_supply_reservation';
+const RESERVATION_IDEMPOTENCY_PATH = '/api/v1/admin/pharmacy-supply/reserve-stock';
+const RESERVATION_SUCCESS_MESSAGE = 'Stock reserved (FEFO)';
+const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9_\-:.]{1,200}$/;
 export const EXPIRY_SEVERITIES = ['low', 'medium', 'high', 'critical'];
 export const EXPIRY_STATUSES = ['open', 'acknowledged', 'returned', 'disposed', 'expired_used', 'cancelled'];
 export const SUBSTITUTE_KINDS = [
@@ -142,7 +158,6 @@ const SUPPLY_REGISTER_KIND_BY_MOVEMENT = Object.freeze({
   transfer_in: 'receive',
   return: 'return',
   adjust_increase: 'adjust',
-  recall: 'recall',
 });
 
 function isControlledSupplyItem(item) {
@@ -151,7 +166,7 @@ function isControlledSupplyItem(item) {
 
 async function loadSupplyMovementItem(db, tenantId, inventoryItemId) {
   const rows = await db.$queryRawUnsafe(
-    `SELECT id, schedule_class, is_narcotic, unit_label
+    `SELECT id, status, schedule_class, is_narcotic, unit_label
        FROM pharmacy_inventory_items
       WHERE id = $1::int AND tenant_id = $2::uuid`,
     Number(inventoryItemId),
@@ -186,7 +201,7 @@ function requireControlledPerformer(performerUid) {
 /**
  * Same-transaction statutory register append for the custody events this
  * router may record on controlled stock (receipts, returns, upward
- * adjustments, batch recalls). Mirrors inventoryV2Service's register INSERT:
+ * adjustments). Mirrors inventoryV2Service's register INSERT:
  * running balance is read inside the same tx so it reflects the movement that
  * was just written.
  */
@@ -196,6 +211,7 @@ async function appendControlledSupplyRegisterTx(tx, {
 }) {
   const registerKind = SUPPLY_REGISTER_KIND_BY_MOVEMENT[movementKind];
   if (!registerKind) refuseControlledSupplyDecrement(movementKind);
+  await lockControlledRegisterItemTx(tx, tenantId, inventoryItemId);
   const balance = await tx.$queryRawUnsafe(
     `SELECT COALESCE(SUM(remaining_quantity), 0)::numeric AS bal
        FROM pharmacy_inventory_batches
@@ -264,7 +280,13 @@ function normalizeQuantity(value, label, { min = 0, max = 1_000_000_000, require
   if (!Number.isFinite(parsed)) throw AppError.badRequest(`${label} must be numeric`);
   if (parsed < min) throw AppError.badRequest(`${label} must be >= ${min}`);
   if (parsed > max) throw AppError.badRequest(`${label} must be <= ${max}`);
-  return parsed;
+  const scaled = parsed * 10_000;
+  const nearest = Math.round(scaled);
+  const tolerance = Number.EPSILON * Math.max(1, Math.abs(scaled)) * 8;
+  if (!Number.isSafeInteger(nearest) || Math.abs(scaled - nearest) > tolerance) {
+    throw AppError.badRequest(`${label} must have at most 4 decimal places`);
+  }
+  return nearest / 10_000;
 }
 
 function normalizeInt(value, label, { min = null, max = null } = {}) {
@@ -538,49 +560,49 @@ export async function addInventoryBatch({
   const cleanExpiry = normalizeDate(expiryDate, 'expiry_date', { required: true });
   const qty = normalizeQuantity(receivedQuantity, 'received_quantity', { min: 0, required: true });
 
-  // Controlled stock: the receipt is a statutory custody event — batch,
-  // movement and register row must land in one transaction, with a named
-  // performer (no missing-schema swallow on the movement either).
-  const controlledItem = await loadSupplyMovementItem(prisma, tid, itemId);
-  if (controlledItem && isControlledSupplyItem(controlledItem)) {
-    const performerUid = requireControlledPerformer(maybeUuid(performedBy, 'performed_by'));
-    try {
-      return await setTenantTx(tid, async (tx) => {
-        const insertRows = await tx.$queryRawUnsafe(
-          `INSERT INTO pharmacy_inventory_batches
-             (tenant_id, inventory_item_id, facility_id,
-              batch_number, lot_number, manufacture_date, expiry_date,
-              received_quantity, remaining_quantity, unit_cost_minor, mrp_minor,
-              supplier_id, goods_receipt_id, storage_location_id, status, metadata)
-           VALUES ($1::uuid, $2, $3, $4, $5, $6::date, $7::date,
-                   $8, $8, $9, $10,
-                   $11, $12, $13, 'in_stock', $14::jsonb)
-           RETURNING ${BATCH_RETURNING}`,
-          tid, itemId,
-          facilityId ? normalizeId(facilityId, 'facility_id') : null,
-          cleanBatch, safeText(lotNumber, 120),
-          normalizeDate(manufactureDate, 'manufacture_date'),
-          cleanExpiry, qty,
-          normalizeBigInt(unitCostMinor, 'unit_cost_minor', { min: 0, max: 1_000_000_000_000 }),
-          normalizeBigInt(mrpMinor, 'mrp_minor', { min: 0, max: 1_000_000_000_000 }),
-          supplierId ? normalizeId(supplierId, 'supplier_id') : null,
-          goodsReceiptId ? normalizeId(goodsReceiptId, 'goods_receipt_id') : null,
-          storageLocationId ? normalizeId(storageLocationId, 'storage_location_id') : null,
-          JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
-        );
-        const batch = insertRows[0];
-        const movementRows = await tx.$queryRawUnsafe(
-          `INSERT INTO pharmacy_stock_movements
-             (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
-              quantity_delta, reference_type, reference_id, performed_by, notes)
-           VALUES ($1::uuid, $2, $3, 'receive', $4, $5, $6, $7::uuid, $8)
-           RETURNING id`,
-          tid, itemId, batch.id, qty,
-          goodsReceiptId ? 'goods_receipt' : null,
-          goodsReceiptId ? String(goodsReceiptId) : null,
-          performerUid,
-          `Batch ${batch.batch_number} received`,
-        );
+  try {
+    return await setTenantTx(tid, async (tx) => {
+      const controlledItem = await loadSupplyMovementItem(tx, tid, itemId);
+      const controlled = controlledItem && isControlledSupplyItem(controlledItem);
+      const performerUid = controlled
+        ? requireControlledPerformer(maybeUuid(performedBy, 'performed_by'))
+        : maybeUuid(performedBy, 'performed_by');
+      const insertRows = await tx.$queryRawUnsafe(
+        `INSERT INTO pharmacy_inventory_batches
+           (tenant_id, inventory_item_id, facility_id,
+            batch_number, lot_number, manufacture_date, expiry_date,
+            received_quantity, remaining_quantity, unit_cost_minor, mrp_minor,
+            supplier_id, goods_receipt_id, storage_location_id, status, metadata)
+         VALUES ($1::uuid, $2, $3, $4, $5, $6::date, $7::date,
+                 $8, $8, $9, $10,
+                 $11, $12, $13, 'in_stock', $14::jsonb)
+         RETURNING ${BATCH_RETURNING}`,
+        tid, itemId,
+        facilityId ? normalizeId(facilityId, 'facility_id') : null,
+        cleanBatch, safeText(lotNumber, 120),
+        normalizeDate(manufactureDate, 'manufacture_date'),
+        cleanExpiry, qty,
+        normalizeBigInt(unitCostMinor, 'unit_cost_minor', { min: 0, max: 1_000_000_000_000 }),
+        normalizeBigInt(mrpMinor, 'mrp_minor', { min: 0, max: 1_000_000_000_000 }),
+        supplierId ? normalizeId(supplierId, 'supplier_id') : null,
+        goodsReceiptId ? normalizeId(goodsReceiptId, 'goods_receipt_id') : null,
+        storageLocationId ? normalizeId(storageLocationId, 'storage_location_id') : null,
+        JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
+      );
+      const batch = insertRows[0];
+      const movementRows = await tx.$queryRawUnsafe(
+        `INSERT INTO pharmacy_stock_movements
+           (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
+            quantity_delta, reference_type, reference_id, performed_by, notes)
+         VALUES ($1::uuid, $2, $3, 'receive', $4, $5, $6, $7::uuid, $8)
+         RETURNING id`,
+        tid, itemId, batch.id, qty,
+        goodsReceiptId ? 'goods_receipt' : null,
+        goodsReceiptId ? String(goodsReceiptId) : null,
+        performerUid,
+        `Batch ${batch.batch_number} received`,
+      );
+      if (controlled) {
         await appendControlledSupplyRegisterTx(tx, {
           tenantId: tid,
           item: controlledItem,
@@ -592,57 +614,9 @@ export async function addInventoryBatch({
           referenceMovementId: movementRows[0]?.id || null,
           notes: `Batch ${batch.batch_number} received`,
         });
-        return batch;
-      });
-    } catch (err) {
-      if (isUniqueViolation(err)) throw AppError.conflict('batch_number already exists for this item');
-      if (isFkViolation(err)) throw AppError.badRequest('Invalid foreign key reference');
-      throw err;
-    }
-  }
-
-  try {
-    const insertRows = await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_inventory_batches
-         (tenant_id, inventory_item_id, facility_id,
-          batch_number, lot_number, manufacture_date, expiry_date,
-          received_quantity, remaining_quantity, unit_cost_minor, mrp_minor,
-          supplier_id, goods_receipt_id, storage_location_id, status, metadata)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6::date, $7::date,
-               $8, $8, $9, $10,
-               $11, $12, $13, 'in_stock', $14::jsonb)
-       RETURNING ${BATCH_RETURNING}`,
-      tid, itemId,
-      facilityId ? normalizeId(facilityId, 'facility_id') : null,
-      cleanBatch, safeText(lotNumber, 120),
-      normalizeDate(manufactureDate, 'manufacture_date'),
-      cleanExpiry, qty,
-      normalizeBigInt(unitCostMinor, 'unit_cost_minor', { min: 0, max: 1_000_000_000_000 }),
-      normalizeBigInt(mrpMinor, 'mrp_minor', { min: 0, max: 1_000_000_000_000 }),
-      supplierId ? normalizeId(supplierId, 'supplier_id') : null,
-      goodsReceiptId ? normalizeId(goodsReceiptId, 'goods_receipt_id') : null,
-      storageLocationId ? normalizeId(storageLocationId, 'storage_location_id') : null,
-      JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
-    );
-    const batch = insertRows[0];
-
-    // Append the 'receive' stock movement.
-    try {
-      await prisma.$queryRawUnsafe(
-        `INSERT INTO pharmacy_stock_movements
-           (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
-            quantity_delta, reference_type, reference_id, performed_by, notes)
-         VALUES ($1::uuid, $2, $3, 'receive', $4, $5, $6, $7::uuid, $8)`,
-        tid, itemId, batch.id, qty,
-        goodsReceiptId ? 'goods_receipt' : null,
-        goodsReceiptId ? String(goodsReceiptId) : null,
-        maybeUuid(performedBy, 'performed_by'),
-        `Batch ${batch.batch_number} received`,
-      );
-    } catch (err) {
-      if (!isMissingSchemaError(err)) throw err;
-    }
-    return batch;
+      }
+      return batch;
+    });
   } catch (err) {
     if (isUniqueViolation(err)) throw AppError.conflict('batch_number already exists for this item');
     if (isFkViolation(err)) throw AppError.badRequest('Invalid foreign key reference');
@@ -657,6 +631,314 @@ export async function addInventoryBatch({
  *
  * The FEFO locks, batch decrements, and movement rows commit atomically.
  */
+function normalizeReservationMovementKind(movementKind) {
+  const cleanKind = normalizeEnum(movementKind, MOVEMENT_KINDS, 'movement_kind') || 'issue';
+  if (RESERVATION_DECREMENT_DIRECTION[cleanKind] !== -1) {
+    throw AppError.badRequest(
+      `movement_kind must be one of: ${Object.keys(RESERVATION_DECREMENT_DIRECTION).join(', ')}`,
+      'PHARMACY_SUPPLY_RESERVATION_MOVEMENT_KIND_INVALID',
+    );
+  }
+  return cleanKind;
+}
+
+function normalizeReservationCommand({
+  tenantId,
+  inventoryItemId,
+  quantity,
+  movementKind,
+  referenceType,
+  referenceId,
+  performedBy,
+  notes,
+  commandKey,
+  requestFingerprint,
+  httpIdempotencyClaimId,
+  requestId,
+}) {
+  if (commandKey == null || commandKey === '') {
+    if (requestFingerprint != null || httpIdempotencyClaimId != null) {
+      throw AppError.badRequest(
+        'Reservation command evidence requires commandKey',
+        'PHARMACY_SUPPLY_RESERVATION_COMMAND_KEY_REQUIRED',
+      );
+    }
+    return null;
+  }
+  const key = String(commandKey).trim();
+  if (!IDEMPOTENCY_KEY_RE.test(key)) {
+    throw AppError.badRequest(
+      'commandKey must be 1-200 chars [A-Za-z0-9_-:.]',
+      'PHARMACY_SUPPLY_RESERVATION_COMMAND_KEY_INVALID',
+    );
+  }
+  const actorUid = maybeUuid(performedBy, 'performed_by');
+  if (!actorUid) {
+    throw AppError.forbidden(
+      'An authenticated performer is required for a durable stock reservation',
+      'PHARMACY_SUPPLY_RESERVATION_ACTOR_REQUIRED',
+    );
+  }
+  const suppliedFingerprint = requestFingerprint == null
+    ? null
+    : String(requestFingerprint).trim().toLowerCase();
+  if (suppliedFingerprint != null && !/^[a-f0-9]{64}$/.test(suppliedFingerprint)) {
+    throw AppError.badRequest(
+      'requestFingerprint must be a SHA-256 hex digest',
+      'PHARMACY_SUPPLY_RESERVATION_FINGERPRINT_INVALID',
+    );
+  }
+  const canonicalFingerprint = createHash('sha256').update(JSON.stringify({
+    inventory_item_id: inventoryItemId,
+    quantity,
+    movement_kind: movementKind,
+    reference_type: referenceType,
+    reference_id: referenceId,
+    performed_by: actorUid,
+    notes,
+  })).digest('hex');
+  const keySha256 = createHash('sha256')
+    .update(`${tenantId}:${actorUid}:${key}`)
+    .digest('hex');
+  let claimId = null;
+  if (httpIdempotencyClaimId != null) {
+    claimId = Number(httpIdempotencyClaimId);
+    if (!Number.isSafeInteger(claimId) || claimId <= 0) {
+      throw AppError.badRequest(
+        'httpIdempotencyClaimId must be a positive integer',
+        'PHARMACY_SUPPLY_RESERVATION_HTTP_CLAIM_INVALID',
+      );
+    }
+  }
+  return {
+    actorUid,
+    commandKey: key,
+    keySha256,
+    requestFingerprint: suppliedFingerprint || canonicalFingerprint,
+    httpIdempotencyClaimId: claimId,
+    requestId: safeText(requestId, 255),
+  };
+}
+
+async function lockReservationCommandTx(tx, { tenantId, keySha256 }) {
+  await tx.$queryRawUnsafe(
+    `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))::text AS lock_acquired`,
+    `pharmacy-supply-reservation:${tenantId}:${keySha256}`,
+  );
+}
+
+async function existingReservationCommand(db, { tenantId, keySha256 }) {
+  return db.$queryRawUnsafe(
+    `SELECT m.id, m.tenant_id, m.inventory_item_id, m.inventory_batch_id,
+            m.movement_kind, m.quantity_delta, m.reference_type, m.reference_id,
+            m.performed_by, m.notes, m.metadata, m.created_at, b.batch_number
+       FROM pharmacy_stock_movements m
+       LEFT JOIN pharmacy_inventory_batches b
+         ON b.id = m.inventory_batch_id
+        AND b.tenant_id = m.tenant_id
+      WHERE m.tenant_id = $1::uuid
+        AND m.reference_type = $2
+        AND m.reference_id = $3
+      ORDER BY m.id`,
+    tenantId,
+    RESERVATION_COMMAND_REFERENCE_TYPE,
+    keySha256,
+  );
+}
+
+function jsonObject(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+  if (typeof value !== 'string') return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function reservationResponseBody(result, requestId = null) {
+  return {
+    success: true,
+    message: RESERVATION_SUCCESS_MESSAGE,
+    data: result,
+    ...(requestId ? { requestId } : {}),
+  };
+}
+
+async function existingReservationHttpReceiptTx(tx, {
+  tenantId,
+  requested,
+  command,
+}) {
+  if (!command?.httpIdempotencyClaimId) return null;
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT id, status, response_status, response_body,
+            (expires_at = 'infinity'::timestamptz) AS is_immutable
+       FROM idempotency_keys
+      WHERE id = $1::int
+        AND tenant_id = $2::uuid
+        AND user_uid = $3::uuid
+        AND request_key = $4::text
+        AND request_body_hash = $5::char(64)
+        AND request_method = 'POST'
+        AND request_path = $6::text
+      FOR UPDATE`,
+    command.httpIdempotencyClaimId,
+    tenantId,
+    command.actorUid,
+    command.commandKey,
+    command.requestFingerprint,
+    RESERVATION_IDEMPOTENCY_PATH,
+  );
+  const receipt = rows[0];
+  if (!receipt) {
+    throw AppError.conflict(
+      'Reservation idempotency claim is missing or no longer matches this command',
+      'PHARMACY_SUPPLY_RESERVATION_IDEMPOTENCY_CHANGED',
+    );
+  }
+  if (receipt.status === 'in_flight') return null;
+  const responseBody = jsonObject(receipt.response_body);
+  const result = jsonObject(responseBody?.data);
+  const recordedRequested = Number(result?.requested);
+  const recordedFulfilled = Number(result?.fulfilled);
+  const recordedShortBy = Number(result?.short_by);
+  if (
+    receipt.status !== 'complete'
+    || Number(receipt.response_status) !== 200
+    || receipt.is_immutable !== true
+    || responseBody?.success !== true
+    || responseBody?.message !== RESERVATION_SUCCESS_MESSAGE
+    || !Number.isFinite(recordedRequested)
+    || !Number.isFinite(recordedFulfilled)
+    || !Number.isFinite(recordedShortBy)
+    || Math.abs(recordedRequested - requested) > 0.000001
+    || recordedFulfilled !== 0
+    || Math.abs(recordedShortBy - requested) > 0.000001
+    || !Array.isArray(result.consumed)
+    || result.consumed.length !== 0
+  ) {
+    throw AppError.conflict(
+      'Reservation idempotency receipt is not valid immutable zero-fulfilment evidence',
+      'PHARMACY_SUPPLY_RESERVATION_RECEIPT_CONFLICT',
+    );
+  }
+  return result;
+}
+
+async function finaliseReservationHttpReceiptTx(tx, {
+  tenantId,
+  result,
+  command,
+}) {
+  if (!command?.httpIdempotencyClaimId) {
+    if (result.consumed.length === 0) {
+      throw AppError.conflict(
+        'A durable HTTP idempotency claim is required to record a zero-fulfilment reservation',
+        'PHARMACY_SUPPLY_RESERVATION_HTTP_RECEIPT_REQUIRED',
+      );
+    }
+    return null;
+  }
+  const rows = await tx.$queryRawUnsafe(
+    `UPDATE idempotency_keys
+        SET status = 'complete',
+            response_status = 200,
+            response_body = $6::jsonb,
+            expires_at = 'infinity'::timestamptz,
+            updated_at = NOW()
+      WHERE id = $1::int
+        AND tenant_id = $2::uuid
+        AND user_uid = $3::uuid
+        AND request_key = $4::text
+        AND request_body_hash = $5::char(64)
+        AND request_method = 'POST'
+        AND request_path = $7::text
+        AND status = 'in_flight'
+      RETURNING id, status, response_status, response_body`,
+    command.httpIdempotencyClaimId,
+    tenantId,
+    command.actorUid,
+    command.commandKey,
+    command.requestFingerprint,
+    JSON.stringify(reservationResponseBody(result, command.requestId)),
+    RESERVATION_IDEMPOTENCY_PATH,
+  );
+  if (!rows[0]) {
+    throw AppError.conflict(
+      'Reservation idempotency claim changed before the stock transaction committed',
+      'PHARMACY_SUPPLY_RESERVATION_IDEMPOTENCY_CHANGED',
+    );
+  }
+  return rows[0];
+}
+
+function movementMetadata(row) {
+  if (row?.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)) {
+    return row.metadata;
+  }
+  if (typeof row?.metadata === 'string') {
+    try {
+      const parsed = JSON.parse(row.metadata);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function replayedReservationCommand(rows, {
+  inventoryItemId,
+  requested,
+  movementKind,
+  command,
+}) {
+  if (!rows.length) return null;
+  const consumed = rows.map((row) => {
+    const metadata = movementMetadata(row);
+    const quantityTaken = -Number(row.quantity_delta);
+    const recordedRequested = Number(metadata?.requested_quantity);
+    const recordedTaken = Number(metadata?.quantity_taken);
+    if (
+      metadata?.command_contract !== RESERVATION_COMMAND_CONTRACT
+      || metadata?.command_key_sha256 !== command.keySha256
+      || metadata?.request_fingerprint !== command.requestFingerprint
+      || Number(row.inventory_item_id) !== inventoryItemId
+      || row.movement_kind !== movementKind
+      || String(row.performed_by || '') !== command.actorUid
+      || !(quantityTaken > 0)
+      || Math.abs(recordedRequested - requested) > 0.000001
+      || Math.abs(recordedTaken - quantityTaken) > 0.000001
+    ) {
+      throw AppError.unprocessable(
+        'Idempotency-Key was reused with a different stock reservation command',
+        'PHARMACY_SUPPLY_RESERVATION_COMMAND_MISMATCH',
+      );
+    }
+    return {
+      batch_id: metadata.inventory_batch_id ?? row.inventory_batch_id,
+      batch_number: metadata.batch_number ?? row.batch_number,
+      quantity_taken: quantityTaken,
+    };
+  });
+  const fulfilled = consumed.reduce((sum, row) => sum + row.quantity_taken, 0);
+  if (fulfilled - requested > 0.000001) {
+    throw AppError.conflict(
+      'Durable reservation evidence exceeds the requested quantity',
+      'PHARMACY_SUPPLY_RESERVATION_EVIDENCE_CONFLICT',
+    );
+  }
+  return {
+    requested,
+    fulfilled,
+    short_by: Math.max(0, requested - fulfilled),
+    consumed,
+    idempotent_replay: true,
+  };
+}
+
 async function existingCathReservation(db, {
   tenantId,
   inventoryItemId,
@@ -722,23 +1004,91 @@ export async function reserveStock({
   referenceId = null,
   performedBy = null,
   notes = null,
+  commandKey = null,
+  requestFingerprint = null,
+  httpIdempotencyClaimId = null,
+  requestId = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const itemId = normalizeId(inventoryItemId, 'inventory_item_id');
   const want = normalizeQuantity(quantity, 'quantity', { min: 0.0001, required: true });
-  const cleanKind = normalizeEnum(movementKind, MOVEMENT_KINDS, 'movement_kind') || 'issue';
+  const cleanKind = normalizeReservationMovementKind(movementKind);
   const cleanReferenceType = safeText(referenceType, 60);
   const cleanReferenceId = safeText(referenceId, 120);
-  const cathUsageReplay = cleanReferenceType === 'cath_consumable_usage'
+  const cleanNotes = safeText(notes);
+  const hasCommandIdentity = [
+    commandKey,
+    requestFingerprint,
+    httpIdempotencyClaimId,
+    requestId,
+  ].some((value) => value !== null && value !== undefined && value !== '');
+  if (Boolean(cleanReferenceType) !== Boolean(cleanReferenceId)) {
+    throw AppError.badRequest('reference_type and reference_id must be supplied together');
+  }
+  if (hasCommandIdentity && (!cleanReferenceType || !cleanReferenceId)) {
+    throw AppError.badRequest(
+      'reference_type and reference_id are required for stock reservations',
+    );
+  }
+  const command = normalizeReservationCommand({
+    tenantId: tid,
+    inventoryItemId: itemId,
+    quantity: want,
+    movementKind: cleanKind,
+    referenceType: cleanReferenceType,
+    referenceId: cleanReferenceId,
+    performedBy,
+    notes: cleanNotes,
+    commandKey,
+    requestFingerprint,
+    httpIdempotencyClaimId,
+    requestId,
+  });
+  const performerUid = command?.actorUid || maybeUuid(performedBy, 'performed_by');
+  const cathUsageReplay = !command && cleanReferenceType === 'cath_consumable_usage'
     && Boolean(cleanReferenceId);
 
   try {
     return await setTenantTx(tid, async (tx) => {
+      if (command) {
+        await lockReservationCommandTx(tx, { tenantId: tid, keySha256: command.keySha256 });
+        const existing = await existingReservationCommand(tx, {
+          tenantId: tid,
+          keySha256: command.keySha256,
+        });
+        const replay = replayedReservationCommand(existing, {
+          inventoryItemId: itemId,
+          requested: want,
+          movementKind: cleanKind,
+          command,
+        });
+        if (replay) return replay;
+        const receiptReplay = await existingReservationHttpReceiptTx(tx, {
+          tenantId: tid,
+          requested: want,
+          command,
+        });
+        if (receiptReplay) return receiptReplay;
+      }
       // Controlled stock never leaves the shelf through FEFO reservation: an
       // issue is a witnessed patient dispense, every other decrement needs the
       // inventory-v2 register ceremony. Fail closed before any batch lock.
       const reservedItem = await loadSupplyMovementItem(tx, tid, itemId);
-      if (reservedItem && isControlledSupplyItem(reservedItem)) {
+      if (!reservedItem) {
+        throw AppError.notFound('Inventory item not found');
+      }
+      const itemStatus = String(reservedItem.status || '').trim().toLowerCase();
+      if (
+        RESERVATION_ACTIVE_ITEM_MOVEMENTS.has(cleanKind)
+        && itemStatus
+        && itemStatus !== 'active'
+      ) {
+        throw AppError.conflict(
+          `Inventory item is ${itemStatus} and cannot be ${cleanKind === 'issue' ? 'issued' : 'transferred'}`,
+          'INVENTORY_ITEM_UNAVAILABLE',
+        );
+      }
+      if (isControlledSupplyItem(reservedItem)) {
         refuseControlledSupplyDecrement(cleanKind);
       }
       const batches = await tx.$queryRawUnsafe(
@@ -769,16 +1119,32 @@ export async function reserveStock({
         if (remainingNeed <= 0) break;
         const take = Math.min(Number(batch.remaining_quantity), remainingNeed);
         if (take <= 0) continue;
+        const movementMetadataValue = command ? {
+          command_contract: RESERVATION_COMMAND_CONTRACT,
+          command_key_sha256: command.keySha256,
+          request_fingerprint: command.requestFingerprint,
+          http_idempotency_claim_id: command.httpIdempotencyClaimId,
+          requested_quantity: want,
+          quantity_taken: take,
+          inventory_batch_id: Number(batch.id),
+          batch_number: batch.batch_number,
+          source_reference_type: cleanReferenceType,
+          source_reference_id: cleanReferenceId,
+        } : {};
         const inserted = await tx.$queryRawUnsafe(
           `INSERT INTO pharmacy_stock_movements
              (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
-              quantity_delta, reference_type, reference_id, performed_by, notes)
-           VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::uuid, $9)
+              quantity_delta, reference_type, reference_id, performed_by, notes, metadata)
+           VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::uuid, $9, $10::jsonb)
            ${cathUsageReplay ? 'ON CONFLICT DO NOTHING' : ''}
            RETURNING id`,
           tid, itemId, batch.id, cleanKind,
-          -take, cleanReferenceType, cleanReferenceId,
-          maybeUuid(performedBy, 'performed_by'), safeText(notes),
+          -take,
+          command ? RESERVATION_COMMAND_REFERENCE_TYPE : cleanReferenceType,
+          command ? command.keySha256 : cleanReferenceId,
+          performerUid,
+          cleanNotes,
+          JSON.stringify(movementMetadataValue),
         );
         if (cathUsageReplay && !inserted[0]) {
           throw AppError.conflict(
@@ -802,12 +1168,20 @@ export async function reserveStock({
         consumed.push({ batch_id: batch.id, batch_number: batch.batch_number, quantity_taken: take });
         remainingNeed -= take;
       }
-      return {
+      const result = {
         requested: want,
         fulfilled: want - remainingNeed,
         short_by: remainingNeed,
         consumed,
       };
+      if (command) {
+        await finaliseReservationHttpReceiptTx(tx, {
+          tenantId: tid,
+          result,
+          command,
+        });
+      }
+      return result;
     });
   } catch (err) {
     if (err?.code !== 'CATH_INVENTORY_RESERVATION_REPLAY_RACE') throw err;
@@ -864,65 +1238,39 @@ export async function listBatches({
 }
 
 export async function recallBatch({
-  tenantId = null, id, recallReference = null, performedBy = null,
+  tenantId = null, id, recallReference = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const batchId = normalizeId(id, 'batch id');
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE pharmacy_inventory_batches
-     SET status = 'recalled', recall_reference = $1, updated_at = NOW()
-     WHERE id = $2 AND tenant_id = $3::uuid AND status NOT IN ('disposed', 'expired', 'recalled')
-     RETURNING ${BATCH_RETURNING}`,
-    safeText(recallReference, 255), batchId, tid,
-  );
-  if (!rows[0]) throw AppError.notFound('Batch not found or not in a recallable state');
-
-  // Controlled stock: a recall pulls the batch's remaining quantity out of the
-  // dispensable balance — a custody event the statutory register must record,
-  // by a named performer, atomically with the movement row.
-  const recalledItem = await loadSupplyMovementItem(prisma, tid, rows[0].inventory_item_id);
-  if (recalledItem && isControlledSupplyItem(recalledItem)) {
-    const performerUid = requireControlledPerformer(maybeUuid(performedBy, 'performed_by'));
-    await setTenantTx(tid, async (tx) => {
-      const movementRows = await tx.$queryRawUnsafe(
-        `INSERT INTO pharmacy_stock_movements
-           (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
-            quantity_delta, performed_by, notes)
-         VALUES ($1::uuid, $2, $3, 'recall', 0, $4::uuid, $5)
-         RETURNING id`,
-        tid, rows[0].inventory_item_id, batchId,
-        performerUid,
-        safeText(recallReference, 255),
-      );
-      await appendControlledSupplyRegisterTx(tx, {
-        tenantId: tid,
-        item: recalledItem,
-        inventoryItemId: rows[0].inventory_item_id,
-        inventoryBatchId: batchId,
-        movementKind: 'recall',
-        quantity: Number(rows[0].remaining_quantity) || 0,
-        performedBy: performerUid,
-        referenceMovementId: movementRows[0]?.id || null,
-        notes: safeText(recallReference, 255),
-      });
-    });
-    return rows[0];
-  }
-
-  try {
-    await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_stock_movements
-         (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
-          quantity_delta, performed_by, notes)
-       VALUES ($1::uuid, $2, $3, 'recall', 0, $4::uuid, $5)`,
-      tid, rows[0].inventory_item_id, batchId,
-      maybeUuid(performedBy, 'performed_by'),
-      safeText(recallReference, 255),
+  const cleanRecallReference = safeText(recallReference, 255);
+  return setTenantTx(tid, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE pharmacy_inventory_batches
+       SET status = 'recalled', recall_reference = $1, updated_at = NOW()
+       WHERE id = $2 AND tenant_id = $3::uuid AND status NOT IN ('disposed', 'expired', 'recalled')
+       RETURNING ${BATCH_RETURNING}`,
+      cleanRecallReference, batchId, tid,
     );
-  } catch (err) {
-    if (!isMissingSchemaError(err)) throw err;
-  }
-  return rows[0];
+    if (rows[0]) return rows[0];
+
+    const existingRows = await tx.$queryRawUnsafe(
+      `SELECT ${BATCH_RETURNING}
+         FROM pharmacy_inventory_batches
+        WHERE id = $1 AND tenant_id = $2::uuid
+        FOR UPDATE`,
+      batchId,
+      tid,
+    );
+    const existing = existingRows[0];
+    if (existing?.status === 'recalled') {
+      if ((existing.recall_reference || null) === cleanRecallReference) return existing;
+      throw AppError.conflict(
+        'Batch recall was already recorded with a different recall reference',
+        'BATCH_RECALL_REPLAY_MISMATCH',
+      );
+    }
+    throw AppError.notFound('Batch not found or not in a recallable state');
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1171,71 +1519,48 @@ export async function appendStockMovement({
   const delta = Number(quantityDelta);
   if (!Number.isFinite(delta)) throw AppError.badRequest('quantity_delta must be numeric');
 
-  // Controlled stock: decrement kinds (and any negative delta) belong to the
-  // witnessed inventory-v2 paths; the custody events this ledger may record
-  // (receive / transfer_in / return / adjust_increase) get a same-tx statutory
-  // register row with a named performer.
-  const ledgerItem = await loadSupplyMovementItem(prisma, tid, itemId);
-  if (ledgerItem && isControlledSupplyItem(ledgerItem)) {
-    if (SUPPLY_DECREASING_MOVEMENTS.has(cleanKind) || delta < 0) {
-      refuseControlledSupplyDecrement(cleanKind);
-    }
-    const performerUid = requireControlledPerformer(maybeUuid(performedBy, 'performed_by'));
-    try {
-      return await setTenantTx(tid, async (tx) => {
-        const rows = await tx.$queryRawUnsafe(
-          `INSERT INTO pharmacy_stock_movements
-             (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
-              quantity_delta, reference_type, reference_id, performed_by, notes, metadata)
-           VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::uuid, $9, $10::jsonb)
-           RETURNING id, tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
-                     quantity_delta, reference_type, reference_id, performed_by,
-                     notes, metadata, created_at`,
-          tid, itemId,
-          inventoryBatchId ? normalizeId(inventoryBatchId, 'inventory_batch_id') : null,
-          cleanKind, delta,
-          safeText(referenceType, 60), safeText(referenceId, 120),
-          performerUid,
-          safeText(notes),
-          JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
-        );
+  try {
+    return await setTenantTx(tid, async (tx) => {
+      const ledgerItem = await loadSupplyMovementItem(tx, tid, itemId);
+      const controlled = ledgerItem && isControlledSupplyItem(ledgerItem);
+      if (controlled && (SUPPLY_DECREASING_MOVEMENTS.has(cleanKind) || delta < 0)) {
+        refuseControlledSupplyDecrement(cleanKind);
+      }
+      const performerUid = controlled
+        ? requireControlledPerformer(maybeUuid(performedBy, 'performed_by'))
+        : maybeUuid(performedBy, 'performed_by');
+      const batchId = inventoryBatchId
+        ? normalizeId(inventoryBatchId, 'inventory_batch_id')
+        : null;
+      const rows = await tx.$queryRawUnsafe(
+        `INSERT INTO pharmacy_stock_movements
+           (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
+            quantity_delta, reference_type, reference_id, performed_by, notes, metadata)
+         VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::uuid, $9, $10::jsonb)
+         RETURNING id, tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
+                   quantity_delta, reference_type, reference_id, performed_by,
+                   notes, metadata, created_at`,
+        tid, itemId, batchId, cleanKind, delta,
+        safeText(referenceType, 60), safeText(referenceId, 120),
+        performerUid,
+        safeText(notes),
+        JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
+      );
+      if (controlled) {
         await appendControlledSupplyRegisterTx(tx, {
           tenantId: tid,
           item: ledgerItem,
           inventoryItemId: itemId,
-          inventoryBatchId: inventoryBatchId ? normalizeId(inventoryBatchId, 'inventory_batch_id') : null,
+          inventoryBatchId: batchId,
           movementKind: cleanKind,
           quantity: delta,
           performedBy: performerUid,
           referenceMovementId: rows[0]?.id || null,
           notes: safeText(notes),
         });
-        return rows[0];
-      });
-    } catch (err) {
-      if (isFkViolation(err)) throw AppError.badRequest('Invalid foreign key reference');
-      throw err;
-    }
-  }
-
-  try {
-    const rows = await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_stock_movements
-         (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
-          quantity_delta, reference_type, reference_id, performed_by, notes, metadata)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::uuid, $9, $10::jsonb)
-       RETURNING id, tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
-                 quantity_delta, reference_type, reference_id, performed_by,
-                 notes, metadata, created_at`,
-      tid, itemId,
-      inventoryBatchId ? normalizeId(inventoryBatchId, 'inventory_batch_id') : null,
-      cleanKind, delta,
-      safeText(referenceType, 60), safeText(referenceId, 120),
-      maybeUuid(performedBy, 'performed_by'),
-      safeText(notes),
-      JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
-    );
-    return rows[0];
+      }
+      return rows[0];
+    });
   } catch (err) {
     if (isFkViolation(err)) throw AppError.badRequest('Invalid foreign key reference');
     throw err;
@@ -1263,7 +1588,7 @@ export async function listStockMovements({
   }
   const safeLimit = normalizeLimit(limit);
   try {
-    const rows = await prisma.$queryRawUnsafe(
+    const rows = await setTenantTx(tid, (tx) => tx.$queryRawUnsafe(
       `SELECT id, tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
               quantity_delta, reference_type, reference_id, performed_by,
               notes, metadata, created_at
@@ -1272,7 +1597,7 @@ export async function listStockMovements({
        ORDER BY created_at DESC
        LIMIT $${params.length + 1}`,
       ...params, safeLimit,
-    );
+    ));
     return { movements: rows, count: rows.length };
   } catch (err) {
     if (isMissingSchemaError(err)) return { movements: [], count: 0 };
@@ -1699,14 +2024,14 @@ export async function bridgeForecastToBatches({
     }
 
     try {
-      const issuedRows = await prisma.$queryRawUnsafe(
+      const issuedRows = await setTenantTx(tid, (tx) => tx.$queryRawUnsafe(
         `SELECT COALESCE(SUM(-quantity_delta), 0)::numeric AS total_issued
          FROM pharmacy_stock_movements
          WHERE tenant_id = $1::uuid AND inventory_item_id = $2
            AND movement_kind = 'issue'
            AND created_at >= NOW() - ($3::int * INTERVAL '1 day')`,
         tid, item.id, days,
-      );
+      ));
       consumptionPerDay = Number(issuedRows[0]?.total_issued || 0) / days;
     } catch (err) {
       if (!isMissingSchemaError(err)) throw err;
@@ -1771,7 +2096,11 @@ export const __testing__ = {
   CONTROLLED_SCHEDULES,
   SUPPLY_DECREASING_MOVEMENTS,
   SUPPLY_REGISTER_KIND_BY_MOVEMENT,
+  RESERVATION_DECREMENT_DIRECTION,
+  RESERVATION_COMMAND_CONTRACT,
+  RESERVATION_COMMAND_REFERENCE_TYPE,
   isControlledSupplyItem,
+  normalizeReservationMovementKind,
 };
 
 export default {

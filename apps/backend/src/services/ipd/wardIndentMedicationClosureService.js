@@ -100,6 +100,24 @@ async function inventoryItemsForCatalogTx(tx, tenantId, catalogId, {
 }
 
 async function candidateBatchesTx(tx, tenantId, inventoryItemId, { lock = false } = {}) {
+  if (lock) {
+    // The reservation total must be read in a new READ COMMITTED statement after
+    // every candidate batch is locked; otherwise a waiter can retain a stale
+    // lateral-subquery snapshot after the lock holder commits its allocation.
+    await tx.$queryRawUnsafe(
+      `SELECT batch.id
+         FROM pharmacy_inventory_batches batch
+        WHERE batch.tenant_id = $1::uuid
+          AND batch.inventory_item_id = $2::int
+          AND batch.status = 'in_stock'
+          AND batch.expiry_date >= (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+          AND batch.remaining_quantity > 0
+        ORDER BY batch.expiry_date, batch.id
+        FOR UPDATE`,
+      tenantId,
+      inventoryItemId,
+    );
+  }
   return tx.$queryRawUnsafe(
     `SELECT batch.id, batch.inventory_item_id, batch.batch_number, batch.lot_number,
             batch.expiry_date, batch.remaining_quantity, batch.status,
@@ -121,8 +139,7 @@ async function candidateBatchesTx(tx, tenantId, inventoryItemId, { lock = false 
         AND batch.status = 'in_stock'
         AND batch.expiry_date >= (NOW() AT TIME ZONE 'Asia/Kolkata')::date
         AND batch.remaining_quantity > 0
-      ORDER BY batch.expiry_date, batch.id
-      ${lock ? 'FOR UPDATE OF batch' : ''}`,
+      ORDER BY batch.expiry_date, batch.id`,
     tenantId,
     inventoryItemId,
     ACTIVE_ALLOCATION_STATUSES,
@@ -515,8 +532,7 @@ export async function linkControlledWardIndentMovementTx(tx, {
        FROM pharmacy_stock_movements movement
       WHERE movement.tenant_id = $1::uuid
         AND movement.id = $2::int
-        AND movement.inventory_batch_id IS NOT NULL
-      FOR KEY SHARE`,
+        AND movement.inventory_batch_id IS NOT NULL`,
     indent.tenant_id,
     Number(movementId),
   );
@@ -587,12 +603,45 @@ export async function linkControlledWardIndentMovementTx(tx, {
 }
 
 async function ensureDraftInvoiceTx(tx, indent, actor) {
+  if (indent.admission_id != null) {
+    const admissions = await tx.$queryRawUnsafe(
+      `SELECT id, billing_closed_at
+         FROM admissions
+        WHERE tenant_id = $1::uuid
+          AND id = $2::int
+          AND patient_uid = $3::uuid
+        FOR SHARE`,
+      indent.tenant_id,
+      Number(indent.admission_id),
+      String(indent.patient_uid),
+    );
+    if (!admissions[0]) throw AppError.notFound('Admission not found');
+    if (admissions[0].billing_closed_at) {
+      throw AppError.conflict(
+        `Billing is closed for admission ${Number(indent.admission_id)}`,
+        'BILLING_CLOSED',
+      );
+    }
+  }
+  const invoiceLockKey = [
+    'ward-indent-draft-invoice',
+    indent.tenant_id,
+    String(indent.patient_uid),
+    indent.admission_id == null ? 'no-admission' : Number(indent.admission_id),
+  ].join(':');
+  await tx.$queryRawUnsafe(
+    `SELECT 1::int AS locked
+       FROM (SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))) AS guard`,
+    invoiceLockKey,
+  );
   const rows = await tx.$queryRawUnsafe(
     `SELECT *
        FROM billing_invoices
       WHERE tenant_id = $1::uuid
         AND patient_uid = $2::uuid
         AND status = 'DRAFT'
+        AND invoice_type = 'IP'
+        AND department IS NULL
         AND (
           ($3::int IS NOT NULL AND admission_id = $3::int)
           OR ($3::int IS NULL AND admission_id IS NULL)
@@ -608,8 +657,8 @@ async function ensureDraftInvoiceTx(tx, indent, actor) {
   const created = await tx.$queryRawUnsafe(
     `INSERT INTO billing_invoices
        (patient_uid, admission_id, invoice_type, status, created_by, tenant_id,
-        notes)
-     VALUES ($1::uuid, $2::int, 'IP', 'DRAFT', $3::uuid, $4::uuid,
+        department, notes)
+     VALUES ($1::uuid, $2::int, 'IP', 'DRAFT', $3::uuid, $4::uuid, NULL,
              'Medication charge projection from authoritative ward indent')
      RETURNING *`,
     String(indent.patient_uid),
@@ -725,6 +774,10 @@ export async function issueWardIndentInventoryTx(tx, {
     catalogIds.push(Number(wardItem.pharmacy_catalog_id));
   }
   await projectLegacyCatalogBalancesTx(tx, indent.tenant_id, catalogIds);
+
+  if (indent.patient_uid == null) {
+    return { invoice: null, chargePlans: [], movementIds };
+  }
 
   const invoice = await ensureDraftInvoiceTx(tx, indent, issuedBy);
   const pricingByCatalog = await catalogPricingTx(tx, indent.tenant_id, catalogIds);
@@ -854,6 +907,7 @@ function acknowledgedItemIds(entries) {
 export async function receiveWardIndentInventoryTx(tx, {
   indent,
   receivedBy,
+  commandKey,
   desiredReceivedByItem,
   substitutionAcknowledgements = null,
   nextStateVersion,
@@ -936,20 +990,40 @@ export async function receiveWardIndentInventoryTx(tx, {
     let remaining = desired;
     for (const allocation of itemAllocations) {
       const projected = Math.min(remaining, Number(allocation.issued_quantity));
-      if (projected + 1e-9 < Number(allocation.received_quantity)) {
+      const currentReceived = Number(allocation.received_quantity);
+      if (projected + 1e-9 < currentReceived) {
         throw AppError.conflict(
           `Ward indent item ${itemId} cannot reduce an exact-batch receipt`,
           'WARD_INDENT_ALLOCATION_RECEIPT_DECREASE_FORBIDDEN',
         );
       }
-      await tx.$executeRawUnsafe(
-        `UPDATE ward_indent_inventory_allocations
-            SET received_quantity = $1::numeric, updated_at = NOW()
-          WHERE tenant_id = $2::uuid AND id = $3::bigint`,
-        projected,
-        indent.tenant_id,
-        allocation.id,
-      );
+      const quantityDelta = Math.round((projected - currentReceived) * 10000) / 10000;
+      if (quantityDelta > 0) {
+        await tx.$executeRawUnsafe(
+          `INSERT INTO ward_indent_inventory_receipt_events
+             (tenant_id, inventory_allocation_id, ward_indent_id, ward_indent_item_id,
+              inventory_batch_id, ward_indent_state_version, quantity_delta,
+              command_key, received_by)
+           VALUES ($1::uuid, $2::bigint, $3::int, $4::int, $5::int,
+                   $6::int, $7::numeric, $8::text, $9::uuid)`,
+          indent.tenant_id,
+          allocation.id,
+          Number(indent.id),
+          itemId,
+          Number(allocation.inventory_batch_id),
+          Number(nextStateVersion),
+          quantityDelta,
+          durableKey(
+            'ward-indent-receipt',
+            commandKey,
+            indent.id,
+            itemId,
+            allocation.id,
+            nextStateVersion,
+          ),
+          receivedBy,
+        );
+      }
       remaining = Math.round((remaining - projected) * 10000) / 10000;
     }
     if (remaining > 1e-9) {
@@ -982,8 +1056,7 @@ async function originalChargeTx(tx, tenantId, wardItemId) {
         AND ward_indent_item_id = $2::int
         AND event_kind = 'charge'
       ORDER BY occurred_at, id
-      LIMIT 1
-      FOR KEY SHARE`,
+      LIMIT 1`,
     tenantId,
     Number(wardItemId),
   );
@@ -1150,7 +1223,9 @@ export async function returnWardIndentInventoryTx(tx, {
         movementIds.push(Number(movement.id));
       }
     }
-    const charge = await originalChargeTx(tx, indent.tenant_id, wardItem.id);
+    const charge = indent.patient_uid == null
+      ? null
+      : await originalChargeTx(tx, indent.tenant_id, wardItem.id);
     returnPlans.push({ wardItem, quantity: outstanding, originalCharge: charge });
     catalogIds.push(Number(wardItem.pharmacy_catalog_id));
   }
@@ -1179,6 +1254,7 @@ export async function appendWardIndentCreditEventsTx(tx, {
   const financialEvents = [];
   const creditNotes = [];
   for (const plan of returnPlans) {
+    if (indent.patient_uid == null) continue;
     const charge = plan.originalCharge;
     const eventRows = await tx.$queryRawUnsafe(
       `INSERT INTO ward_indent_financial_events

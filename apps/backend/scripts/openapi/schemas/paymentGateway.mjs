@@ -199,6 +199,30 @@ export const schemas = {
     },
   },
 
+  PaymentGatewayRefundCandidate: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'gateway_order_id', 'provider', 'environment', 'amount',
+      'refundable_amount',
+    ],
+    properties: {
+      gateway_order_id: { type: 'integer', minimum: 1 },
+      provider: { type: 'string', enum: ['razorpay', 'dry_run'] },
+      environment: { type: 'string', enum: ['sandbox', 'production'] },
+      method: { type: 'string', nullable: true },
+      amount: { type: 'string', pattern: '^\\d+(\\.\\d{1,2})?$' },
+      refundable_amount: { type: 'string', pattern: '^\\d+(\\.\\d{1,2})?$' },
+      paid_at: { type: 'string', format: 'date-time', nullable: true },
+      payment_reference: { type: 'string', nullable: true },
+    },
+  },
+  PaymentGatewayRefundCandidateList: {
+    type: 'array',
+    items: { $ref: '#/components/schemas/PaymentGatewayRefundCandidate' },
+  },
+  PaymentGatewayRefundCandidateListResponse: envelope('PaymentGatewayRefundCandidateList'),
+
   PaymentGatewayRefundReconciliationList: {
     type: 'object',
     required: ['refunds', 'limit', 'offset'],
@@ -211,8 +235,25 @@ export const schemas = {
 
   PaymentGatewayRefundReconcileRequest: {
     type: 'object',
-    required: ['note'],
+    required: ['note', 'disposition', 'evidence_reference'],
     properties: {
+      disposition: {
+        type: 'string',
+        enum: ['provider_not_refunded', 'manual_settled'],
+        description: 'Explicit terminal decision. provider_not_refunded closes this execution as failed; manual_settled settles billing and the execution from attributable provider evidence.',
+      },
+      evidence_reference: {
+        type: 'string',
+        minLength: 6,
+        maxLength: 120,
+        description: 'Provider case/reference for provider_not_refunded, or the exact provider refund identifier for manual_settled.',
+      },
+      recovery_path: {
+        type: 'string',
+        enum: ['gateway_retry'],
+        nullable: true,
+        description: 'Required only for provider_not_refunded. gateway_retry retains authoritative integrated-gateway ownership; electronic refunds cannot be released to manual payout.',
+      },
       note: {
         type: 'string',
         minLength: 10,
@@ -376,11 +417,46 @@ export const operations = {
       500: errorResponse('An internal billing, ledger, or persistence failure prevented refund execution.'),
     },
   },
+  'GET /api/v1/billing/gateway/refunds/{id}/candidates': {
+    description:
+      'Lists exact paid gateway orders eligible to fund one APPROVED billing refund. Candidates must match tenant, patient, invoice, payment mode, provider configuration, and remaining captured headroom. This read does not claim a payout rail or contact the provider.',
+    response: 'PaymentGatewayRefundCandidateListResponse',
+    security: authenticatedSecurity,
+    pathParameters: { id: { type: 'integer', minimum: 1 } },
+    additionalResponses: {
+      400: errorResponse('The refund identifier was malformed or the refund is not invoice-linked.'),
+      401: errorResponse('API-key and bearer authentication are required.'),
+      403: errorResponse('The gateway is disabled or the caller lacks refund execution authority.'),
+      404: errorResponse('The billing refund was not found.'),
+      409: errorResponse('The refund is not approved or is already owned by the manual payout rail.'),
+      500: errorResponse('Eligible payment sources could not be read.'),
+    },
+  },
   'GET /api/v1/billing/gateway/refund-reconciliation': {
     description:
       'Admin work queue of provider refund legs parked in requires_reconciliation. Unresolved rows only by default; include_resolved=true includes operator-stamped history. Provider idempotency keys remain write-only.',
     response: 'PaymentGatewayRefundReconciliationListResponse',
     security: authenticatedSecurity,
+    parameters: [
+      {
+        name: 'include_resolved',
+        in: 'query',
+        required: false,
+        schema: { type: 'boolean', default: false },
+      },
+      {
+        name: 'limit',
+        in: 'query',
+        required: false,
+        schema: { type: 'integer', minimum: 1, maximum: 200, default: 50 },
+      },
+      {
+        name: 'offset',
+        in: 'query',
+        required: false,
+        schema: { type: 'integer', minimum: 0, maximum: 10000, default: 0 },
+      },
+    ],
     additionalResponses: {
       401: errorResponse('API-key and bearer authentication are required.'),
       403: errorResponse('Administrator authority is required.'),
@@ -389,12 +465,13 @@ export const operations = {
   },
   'POST /api/v1/billing/gateway/refunds/{id}/reconcile': {
     description:
-      'Admin resolution stamp for a requires_reconciliation provider refund. Records the authenticated operator, time, and a substantive audit note; status remains requires_reconciliation so manual evidence is never represented as automated provider processing. If exact processed provider evidence arrives later, the stamp is preserved in metadata before the trusted billing settlement path supersedes it.',
+      'Admin terminal resolution for a requires_reconciliation provider refund. provider_not_refunded requires attributable provider evidence plus gateway_retry; it closes the execution as failed while retaining integrated-gateway billing ownership. manual_settled requires the exact provider refund identifier and settles billing plus the execution through the trusted gateway payout path. Integrated electronic refunds cannot be released to manual payout. Actor, note, evidence, disposition, and outcome remain in metadata. Exact signed terminal evidence is still evaluated and cannot be ignored by an earlier note.',
     request: 'PaymentGatewayRefundReconcileRequest',
     response: 'PaymentGatewayRefundResponse',
     security: authenticatedSecurity,
+    pathParameters: { id: { type: 'integer', minimum: 1, maximum: 2147483647 } },
     additionalResponses: {
-      400: errorResponse('The reconciliation note was missing or outside 10-500 characters.'),
+      400: errorResponse('The disposition, evidence reference, recovery path, or 10-500 character note was invalid.'),
       401: errorResponse('API-key and bearer authentication are required.'),
       403: errorResponse('Administrator authority or a same-tenant reconciliation actor was not verified.'),
       404: errorResponse('The gateway refund was not found.'),

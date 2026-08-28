@@ -32,13 +32,16 @@ import { AppError } from '../../utils/AppError.js';
 import { relayAppError, success } from '../../utils/responseHelper.js';
 import { normalizeRole } from '../../utils/roles.js';
 
+const PG_INT4_MAX = 2147483647;
+
 function tenantOf(req) {
   return resolveTenantOrThrow(req);
 }
 
 function positiveInt(raw, fieldName) {
-  const value = Number(raw);
-  if (!Number.isSafeInteger(value) || value <= 0) {
+  const text = typeof raw === 'number' ? String(raw) : String(raw ?? '').trim();
+  const value = Number(text);
+  if (!/^[1-9][0-9]*$/.test(text) || !Number.isInteger(value) || value > PG_INT4_MAX) {
     throw AppError.badRequest(
       `${fieldName} must be a positive integer`,
       'WARD_INDENT_INVALID_IDENTIFIER',

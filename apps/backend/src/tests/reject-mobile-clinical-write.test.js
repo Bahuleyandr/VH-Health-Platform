@@ -10,6 +10,7 @@ jest.unstable_mockModule(
 );
 
 const {
+  enforceStaffClinicalWriteDevicePosture,
   rejectMobileClinicalWrite,
 } = await import('../middleware/rejectMobileClinicalWriteMiddleware.js');
 
@@ -120,4 +121,59 @@ describe('rejectMobileClinicalWrite', () => {
       expect(res.body).toBeNull();
     }
   });
+
+  it.each(['ICU_NURSE', 'ICU_INCHARGE', 'PHARMACIST'])(
+    'strict verifier posture denies %s on mobile even when the global staff classifier is stale',
+    (role) => {
+      const req = createRequest('mobile');
+      req.user.role = role;
+      const res = createResponse();
+      const next = jest.fn();
+
+      enforceStaffClinicalWriteDevicePosture(req, res, next);
+
+      expect(next).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(403);
+      expect(res.body).toMatchObject({
+        success: false,
+        code: 'CLINICAL_WRITE_DESKTOP_ONLY',
+      });
+    },
+  );
+
+  it.each(['ICU_NURSE', 'ICU_INCHARGE', 'PHARMACIST'])(
+    'strict verifier posture denies %s when deviceType is missing',
+    (role) => {
+      const req = createRequest(undefined);
+      req.user.role = role;
+      delete req.user.deviceType;
+      const res = createResponse();
+      const next = jest.fn();
+
+      enforceStaffClinicalWriteDevicePosture(req, res, next);
+
+      expect(next).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(403);
+      expect(res.body).toMatchObject({
+        success: false,
+        code: 'DEVICE_TYPE_MISSING',
+      });
+    },
+  );
+
+  it.each(['ICU_NURSE', 'ICU_INCHARGE', 'PHARMACIST'])(
+    'strict verifier posture allows %s on desktop',
+    (role) => {
+      const req = createRequest('desktop');
+      req.user.role = role;
+      const res = createResponse();
+      const next = jest.fn();
+
+      enforceStaffClinicalWriteDevicePosture(req, res, next);
+
+      expect(next).toHaveBeenCalledTimes(1);
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toBeNull();
+    },
+  );
 });

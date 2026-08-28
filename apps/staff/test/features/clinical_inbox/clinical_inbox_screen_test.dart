@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
@@ -105,6 +106,138 @@ void main() {
     await provider.acknowledge('1');
     expect(provider.pendingCount, 1);
     expect(api.acknowledgeCalls, 1);
+  });
+
+  test(
+    'provider claims an exact MAR role-queue task before navigation',
+    () async {
+      final task = _task(
+        id: '83',
+        taskKind: 'review',
+        semantics: 'domain_evidence',
+        assignedToRole: 'DOCTOR',
+        relatedResourceType: 'mar_medication_exception_cases',
+        relatedResourceId: '73',
+        metadata: const {
+          'task_contract': 'mar_medication_exception_v1',
+          'exception_case_id': 73,
+          'medication_administration_id': 42,
+          'exception_kind': 'missed',
+          'sla_key': 'mar_medication_exception_review',
+        },
+      );
+      final api = _FakeClinicalInboxApi(tasks: [task]);
+      final provider = ClinicalInboxProvider(api: api);
+      await provider.refresh();
+
+      final claimed = await provider.claimMarMedicationException(task);
+
+      expect(api.marExceptionClaimCalls, 1);
+      expect(api.marExceptionClaimCaseIds, ['73']);
+      expect(api.marExceptionClaimIdempotencyKeys.single, isNotEmpty);
+      expect(claimed.assignedToUid, 'doctor-1');
+      expect(claimed.assignedToRole, isEmpty);
+    },
+  );
+
+  testWidgets('finance operator opens the exact governed refund workbench', (
+    tester,
+  ) async {
+    FlutterSecureStorage.setMockInitialValues({
+      'staff_role': 'BILLING_INCHARGE',
+    });
+    final provider = ClinicalInboxProvider(
+      api: _FakeClinicalInboxApi(
+        tasks: [_counterSaleVoidTask(stage: 'payout')],
+      ),
+    );
+
+    await tester.pumpWidget(_workflowHost(provider));
+    await tester.pumpAndSettle();
+
+    final open = find.widgetWithText(FilledButton, 'Open workflow');
+    expect(open, findsOneWidget);
+    expect(tester.widget<FilledButton>(open).onPressed, isNotNull);
+    await tester.tap(open);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        '/billing/refunds?refund_id=2147483643&void_request_id=9223372036854775801',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'pharmacy operator opens exact reconciliation from the task detail',
+    (tester) async {
+      FlutterSecureStorage.setMockInitialValues({
+        'staff_role': 'PHARMACY_INCHARGE',
+      });
+      final provider = ClinicalInboxProvider(
+        api: _FakeClinicalInboxApi(
+          tasks: [_counterSaleVoidTask(stage: 'reconciliation')],
+        ),
+      );
+
+      await tester.pumpWidget(_workflowHost(provider));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Reconcile paid counter-sale void'));
+      await tester.pumpAndSettle();
+
+      final open = find.widgetWithText(FilledButton, 'Open workflow');
+      expect(open, findsNWidgets(2));
+      expect(tester.widget<FilledButton>(open.last).onPressed, isNotNull);
+      await tester.tap(open.last);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('/pharmacy?tab=counter-sales&sale_id=9223372036854775802'),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('unauthorized counter-sale task action stays disabled', (
+    tester,
+  ) async {
+    FlutterSecureStorage.setMockInitialValues({'staff_role': 'GENERAL_STAFF'});
+    final provider = ClinicalInboxProvider(
+      api: _FakeClinicalInboxApi(
+        tasks: [_counterSaleVoidTask(stage: 'approval')],
+      ),
+    );
+
+    await tester.pumpWidget(_workflowHost(provider));
+    await tester.pumpAndSettle();
+
+    final open = find.widgetWithText(FilledButton, 'Open workflow');
+    expect(open, findsOneWidget);
+    expect(tester.widget<FilledButton>(open).onPressed, isNull);
+    expect(find.byKey(const Key('workflow-destination')), findsNothing);
+  });
+
+  testWidgets('forged counter-sale deep link never enables navigation', (
+    tester,
+  ) async {
+    FlutterSecureStorage.setMockInitialValues({'staff_role': 'ADMIN'});
+    final provider = ClinicalInboxProvider(
+      api: _FakeClinicalInboxApi(
+        tasks: [
+          _counterSaleVoidTask(
+            stage: 'approval',
+            financeDeepLink: '/billing/refunds?refund_id=7&void_request_id=9223372036854775801',
+          ),
+        ],
+      ),
+    );
+
+    await tester.pumpWidget(_workflowHost(provider));
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(FilledButton, 'Open workflow'), findsNothing);
+    expect(find.byKey(const Key('workflow-destination')), findsNothing);
   });
 
   testWidgets('clinical inbox badge updates from provider count', (
@@ -521,10 +654,105 @@ Widget _host(ClinicalInboxProvider provider) {
   );
 }
 
+Widget _workflowHost(ClinicalInboxProvider provider) {
+  final router = GoRouter(
+    initialLocation: '/clinical-inbox',
+    routes: [
+      GoRoute(
+        path: '/clinical-inbox',
+        builder: (context, state) => const ClinicalInboxScreen(),
+      ),
+      GoRoute(
+        path: '/billing/refunds',
+        builder: (context, state) => Scaffold(
+          body: Text(
+            state.uri.toString(),
+            key: const Key('workflow-destination'),
+          ),
+        ),
+      ),
+      GoRoute(
+        path: '/pharmacy',
+        builder: (context, state) => Scaffold(
+          body: Text(
+            state.uri.toString(),
+            key: const Key('workflow-destination'),
+          ),
+        ),
+      ),
+    ],
+  );
+  return ChangeNotifierProvider.value(
+    value: provider,
+    child: MaterialApp.router(routerConfig: router),
+  );
+}
+
+ClinicalInboxTask _counterSaleVoidTask({
+  required String stage,
+  String? financeDeepLink,
+}) {
+  const taskId = '9223372036854775800';
+  const requestId = '9223372036854775801';
+  const saleId = '9223372036854775802';
+  const refundId = '2147483643';
+  const invoiceId = '9223372036854775804';
+  final assignedRole = switch (stage) {
+    'approval' => 'ADMIN',
+    'payout' => 'BILLING_INCHARGE',
+    'reconciliation' => 'PHARMACY_INCHARGE',
+    'rejected_review' => 'ADMIN',
+    _ => '',
+  };
+  final ownerRoles = switch (stage) {
+    'approval' => const ['ADMIN', 'SUPER_ADMIN'],
+    'payout' => const [
+      'FINANCE_INCHARGE',
+      'BILLING_INCHARGE',
+      'BILLING_STAFF',
+      'CASHIER',
+    ],
+    'reconciliation' => const ['ADMIN', 'PHARMACY_INCHARGE'],
+    'rejected_review' => const ['ADMIN', 'SUPER_ADMIN', 'PHARMACY_INCHARGE'],
+    _ => const <String>[],
+  };
+  return ClinicalInboxTask.fromJson({
+    'id': taskId,
+    'task_kind': 'review',
+    'title': stage == 'reconciliation'
+        ? 'Reconcile paid counter-sale void'
+        : 'Settle counter-sale void refund',
+    'priority': 'high',
+    'status': 'open',
+    'related_resource_type': 'pharmacy_counter_sale_void_requests',
+    'related_resource_id': requestId,
+    'assigned_to_role': assignedRole,
+    'workflow_sla_instance_id': '11111111-1111-4111-8111-111111111111',
+    'sla_completion_semantics': 'domain_evidence',
+    'metadata': {
+      'task_contract': 'counter_sale_void_refund_v1',
+      'evidence_kind': 'counter_sale_void_completed',
+      'counter_sale_void_request_id': requestId,
+      'counter_sale_id': saleId,
+      'refund_id': refundId,
+      'invoice_id': invoiceId,
+      'task_stage': stage,
+      'owner_role_codes': ownerRoles,
+      'finance_deep_link':
+          financeDeepLink ??
+          '/billing/refunds?refund_id=$refundId&void_request_id=$requestId',
+      'pharmacy_deep_link': '/pharmacy?tab=counter-sales&sale_id=$saleId',
+      'sla_key': 'counter_sale_void_refund',
+      'sla_instance_id': '11111111-1111-4111-8111-111111111111',
+    },
+  });
+}
+
 ClinicalInboxTask _task({
   required String id,
   String semantics = 'acknowledgement',
   String assignedToUid = '',
+  String? assignedToRole,
   String taskKind = '',
   String status = 'open',
   String relatedResourceType = 'lab_result',
@@ -555,7 +783,8 @@ ClinicalInboxTask _task({
     relatedResourceType: relatedResourceType,
     relatedResourceId: relatedResourceId ?? 'lr-$id',
     assignedToUid: assignedToUid,
-    assignedToRole: assignedToUid.isEmpty ? 'DUTY_DOCTOR' : '',
+    assignedToRole:
+        assignedToRole ?? (assignedToUid.isEmpty ? 'DUTY_DOCTOR' : ''),
     slaCompletionSemantics: recoveredCriticalAwareness ? 'none' : semantics,
     diagnosticGenerationId:
         diagnosticGenerationId ??
@@ -598,11 +827,11 @@ ClinicalInboxTask _task({
 
 class _FakeClinicalInboxApi extends ClinicalInboxApi {
   _FakeClinicalInboxApi({
-    required List<ClinicalInboxTask> tasks,
+    required this._tasks,
     this.acknowledgeDelay,
     this.crossSignFailure,
     this.tasksAfterCrossSignFailure,
-  }) : _tasks = tasks;
+  });
 
   List<ClinicalInboxTask> _tasks;
   final Future<void>? acknowledgeDelay;
@@ -611,6 +840,9 @@ class _FakeClinicalInboxApi extends ClinicalInboxApi {
   int acknowledgeCalls = 0;
   int actionCalls = 0;
   int crossSignCalls = 0;
+  int marExceptionClaimCalls = 0;
+  final List<String> marExceptionClaimCaseIds = [];
+  final List<String> marExceptionClaimIdempotencyKeys = [];
   final List<String> crossSignIdempotencyKeys = [];
   DiagnosticActionCommand? lastAction;
   PostDischargeCrossSignCommand? lastCrossSign;
@@ -642,6 +874,22 @@ class _FakeClinicalInboxApi extends ClinicalInboxApi {
         .copyWith(assignedToUid: 'doctor-1', assignedToRole: '');
     _tasks = [for (final task in _tasks) task.id == id ? updated : task];
     return updated;
+  }
+
+  @override
+  Future<void> claimMarMedicationException({
+    required String caseId,
+    required String idempotencyKey,
+  }) async {
+    marExceptionClaimCalls += 1;
+    marExceptionClaimCaseIds.add(caseId);
+    marExceptionClaimIdempotencyKeys.add(idempotencyKey);
+    final updated = _tasks
+        .firstWhere((task) => task.relatedResourceId == caseId)
+        .copyWith(assignedToUid: 'doctor-1', assignedToRole: '');
+    _tasks = [
+      for (final task in _tasks) task.id == updated.id ? updated : task,
+    ];
   }
 
   @override

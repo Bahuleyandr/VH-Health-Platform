@@ -14,7 +14,11 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   setTenantTx: setTenantTxMock,
 }));
 
-const { listItems, recordMovement } = await import('../../services/pharmacy/inventoryV2Service.js');
+const {
+  listItems,
+  listScheduleRegister,
+  recordMovement,
+} = await import('../../services/pharmacy/inventoryV2Service.js');
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const ACTOR = '11111111-1111-4111-8111-111111111111';
@@ -60,6 +64,19 @@ describe('inventoryV2Service.listItems', () => {
     await expect(listItems({ tenantId: TENANT, catalogId: 'not-an-id' }))
       .rejects.toMatchObject({ statusCode: 400 });
     expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('inventoryV2Service.listScheduleRegister', () => {
+  test('reads the legacy register view inside a tenant-scoped transaction', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([]);
+
+    await listScheduleRegister({ tenantId: TENANT, schedule_class: 'H1' });
+
+    expect(setTenantTxMock).toHaveBeenCalledWith(TENANT, expect.any(Function));
+    expect(queryRawUnsafeMock.mock.calls[0][0])
+      .toContain('FROM pharmacy_schedule_register_full');
+    expect(queryRawUnsafeMock.mock.calls[0].slice(1, 3)).toEqual([TENANT, 'H1']);
   });
 });
 
@@ -228,6 +245,7 @@ describe('inventoryV2Service.recordMovement', () => {
       29,
       TENANT,
       17,
+      'issue',
     );
     expect(queryRawUnsafeMock.mock.calls[3][0]).toEqual(
       expect.stringContaining('INSERT INTO pharmacy_stock_movements'),

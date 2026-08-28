@@ -13,10 +13,14 @@
 // so existing callers (mobile + admin) keep working unchanged. Findings:
 //   2026-05-09-emergency-walk-in-doctor-order-sets-500
 //   2026-05-10-emergency-walk-in-doctor-chest-pain-orderset-500
+import { createHash } from 'node:crypto';
+
 import prisma, { setTenantTx } from '../../lib/prisma.js';
+import { MAR_SCHEDULE_LIMITS } from '../../config/pharmacyConfig.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
+import { hashRequestBody, isValidIdempotencyKey } from '../idempotency/idempotencyService.js';
 import {
   validatePrescriptionSafety,
   checkAntithromboticInteractions,
@@ -29,7 +33,7 @@ import {
 } from '../../utils/clinical/contrastAllergyCheck.js';
 import notificationOutbox from '../../utils/notifications/notificationOutbox.js'; // eslint-disable-line import/no-named-as-default
 import { queueClinicalAlertFanout } from '../../utils/notifications/clinicalAlertFanout.js';
-import { scheduleMedications } from '../clinical/marService.js';
+import { expandSchedule, scheduleMedications } from '../clinical/marService.js';
 import { recordFirstDrugChartEntry } from '../clinical/drugChartSlaService.js';
 import { createWardIndentForClinicalMedicationOrder } from '../ipd/ipdSupportService.js';
 import { createInvestigationOrder } from '../investigation/orderService.js';
@@ -45,6 +49,7 @@ import { publishOpChildResourceLinkedFromEncounterTx } from '../appointment/opCh
 import { enrichMedicationsWithComposition } from '../pharmacy/compositionIdentityService.js';
 import { recordBrandSubstitutionAudit } from '../pharmacy/compositionSubstitutionAudit.js';
 import { isContentStudioEnabled } from './orderSetContentStudioSettingsService.js';
+import { persistClinicalAlertFailureWithCanonical } from '../clinical/clinicalAlertDeliveryObligationService.js';
 
 
 // ===================================================================
@@ -58,6 +63,36 @@ import { isContentStudioEnabled } from './orderSetContentStudioSettingsService.j
 // blood test. Finding: 2026-05-09-emergency-walk-in-doctor-no-ecg-order-type.
 export const VALID_ORDER_TYPES = ['medication', 'investigation', 'nursing', 'diet', 'activity', 'consultation', 'ecg', 'radiology', 'procedure'];
 const VALID_PRIORITIES = ['stat', 'urgent', 'routine', 'prn'];
+
+const NURSING_ORDER_VERIFY_ROLES = new Set([
+  'NURSING_STAFF',
+  'NURSING_INCHARGE',
+  'IP_STAFF_NURSE',
+  'IP_INCHARGE',
+  'ICU_NURSE',
+  'ICU_INCHARGE',
+]);
+
+const PHARMACY_MEDICATION_ORDER_VERIFY_ROLES = new Set([
+  'PHARMACY_STAFF',
+  'PHARMACY_INCHARGE',
+  'PHARMACIST',
+]);
+
+export function canVerifyMedicationOrderRole(role) {
+  const normalizedRole = String(role || '').trim().toUpperCase();
+  return NURSING_ORDER_VERIFY_ROLES.has(normalizedRole)
+    || PHARMACY_MEDICATION_ORDER_VERIFY_ROLES.has(normalizedRole);
+}
+
+export function canVerifyClinicalOrderType(role, orderType) {
+  const normalizedRole = String(role || '').trim().toUpperCase();
+  const normalizedType = String(orderType || '').trim().toLowerCase();
+  if (!VALID_ORDER_TYPES.includes(normalizedType)) return false;
+  if (NURSING_ORDER_VERIFY_ROLES.has(normalizedRole)) return true;
+  return normalizedType === 'medication'
+    && PHARMACY_MEDICATION_ORDER_VERIFY_ROLES.has(normalizedRole);
+}
 
 // Structured medication route (migration 229). Maps the free-text
 // spellings clinicians actually write onto a canonical value so the MAR
@@ -696,6 +731,9 @@ async function recordCanonicalOrderEvent({
   afterState = null,
   safety = null,
   override = null,
+  metadata = {},
+  timelineIdempotencyKey = null,
+  auditIdempotencyKey = null,
 } = {}) {
   if (!order?.id) return null;
   const status = eventStatus || order.status || null;
@@ -748,9 +786,12 @@ async function recordCanonicalOrderEvent({
     },
     beforeState: beforeState || (previousStatus ? { status: previousStatus } : null),
     afterState: afterState || { status },
+    metadata,
     tags: ['clinical_order', order.order_type].filter(Boolean),
-    timelineIdempotencyKey: `clinical_orders:${order.id}:${eventType}:${status || 'none'}:${stamp}`,
-    auditIdempotencyKey: `clinical_orders:${order.id}:audit:${eventType}:${status || 'none'}:${stamp}`,
+    timelineIdempotencyKey: timelineIdempotencyKey
+      || `clinical_orders:${order.id}:${eventType}:${status || 'none'}:${stamp}`,
+    auditIdempotencyKey: auditIdempotencyKey
+      || `clinical_orders:${order.id}:audit:${eventType}:${status || 'none'}:${stamp}`,
   }, { db: tx });
 }
 
@@ -887,7 +928,12 @@ const ORDER_INTEGRATION_FAILURE_ALERTS = {
   mar_schedule: {
     action: 'mar_scheduling_failed',
     title: 'Medication order has NO scheduled MAR doses',
-    body: (order) => `MAR scheduling FAILED for medication order ${order.order_number} — no doses are on the drug chart. Schedule the doses manually and verify the order.`,
+    body: (order) => `MAR scheduling FAILED for medication order ${order.order_number} — no doses are on the drug chart. Open the order and use Repair MAR; if the schedule definition is invalid, discontinue it and place a corrected CPOE order.`,
+  },
+  mar_carryover: {
+    action: 'mar_carryover_failed',
+    title: 'ER medication did not carry into the ICU MAR',
+    body: (order) => `ER-to-ICU MAR carryover FAILED for medication order ${order.order_number}. Open the order and use Repair MAR; if the schedule definition is invalid, discontinue it and place a corrected CPOE order.`,
   },
   ward_indent: {
     action: 'ward_indent_creation_failed',
@@ -919,9 +965,9 @@ const ORDER_INTEGRATION_FAILURE_ALERTS = {
  *      canonical helpers under the safeCanonical post-commit policy
  *      (42P01 canonical-table-absent -> warn; any other fault -> ERROR log).
  *
- * The two attempts are INDEPENDENT — one failing never skips the other; if
- * both fail, the logger.error trail remains as the last resort. Never
- * throws. Exported for unit tests (precedent: buildMarEntryFromOrderDetails).
+ * For MAR failures, a failed alert fan-out stores its exact recovery intent
+ * in the same transaction as the failed clinical audit event. Other stages
+ * retain the existing independent alert/audit attempts. Never throws.
  */
 export async function escalateOrderIntegrationFailure({ order, stage, err, deps = {} } = {}) {
   const copy = ORDER_INTEGRATION_FAILURE_ALERTS[stage];
@@ -929,26 +975,40 @@ export async function escalateOrderIntegrationFailure({ order, stage, err, deps 
   const outbox = deps.notificationOutbox || notificationOutbox;
   const recordAudit = deps.recordClinicalAuditEvent || recordClinicalAuditEvent;
   const runSafeCanonical = deps.safeCanonical || safeCanonical;
+  const queueAlert = deps.queueClinicalAlertFanout || queueClinicalAlertFanout;
+  const persistFailure = deps.persistClinicalAlertFailureWithCanonical
+    || persistClinicalAlertFailureWithCanonical;
+  const sourceEventKey = `clinical_orders:${order.id}:${stage}_failed:alert`;
+  const alertIntent = {
+    type: 'push',
+    tenantId: order.tenant_id || null,
+    title: copy.title,
+    body: copy.body(order),
+    sourceEventKey,
+    templateVersion: 'clinical-alert-order-integration-failure.v1',
+    data: {
+      source_event_key: sourceEventKey,
+      order_id: order.id,
+      order_number: order.order_number,
+      order_type: order.order_type,
+      priority: order.priority,
+      patient_uid: order.patient_uid,
+      failure_stage: stage,
+      error_code: err?.code || null,
+      ...(stage === 'mar_schedule' || stage === 'mar_carryover'
+        ? {
+          recovery_endpoint: `/api/v1/emr/orders/${order.id}/retry-mar-scheduling`,
+          deep_link: `/emr/orders/${order.patient_uid}?mar_recovery_order=${order.id}`,
+          requires_doctor_authority: true,
+        }
+        : {}),
+    },
+    channel: 'push',
+  };
 
   let alertQueued = false;
   try {
-    const fanout = await queueClinicalAlertFanout({
-      type: 'push',
-      tenantId: order.tenant_id || null,
-      title: copy.title,
-      body: copy.body(order),
-      data: {
-        source_event_key: `clinical_orders:${order.id}:${stage}_failed:alert`,
-        order_id: order.id,
-        order_number: order.order_number,
-        order_type: order.order_type,
-        priority: order.priority,
-        patient_uid: order.patient_uid,
-        failure_stage: stage,
-        error_code: err?.code || null,
-      },
-      channel: 'clinical_alert',
-    }, {
+    const fanout = await queueAlert(alertIntent, {
       outbox,
       resolveRecipients: deps.resolveClinicalAlertRecipients,
       strict: true,
@@ -961,32 +1021,67 @@ export async function escalateOrderIntegrationFailure({ order, stage, err, deps 
     );
   }
 
+  const auditInput = {
+    tenantId: order.tenant_id || null,
+    patientUid: order.patient_uid,
+    encounterId: order.encounter_id || null,
+    action: copy.action,
+    actionStatus: 'failed',
+    actorUid: order.ordered_by || null,
+    resourceType: 'clinical_order',
+    resourceTable: 'clinical_orders',
+    resourceId: String(order.id),
+    metadata: {
+      order_number: order.order_number,
+      order_type: order.order_type,
+      priority: order.priority,
+      failure_stage: stage,
+      error: err?.message || String(err),
+      error_code: err?.code || null,
+      alert_queued: alertQueued,
+    },
+    idempotencyKey: `clinical_orders:${order.id}:${stage}_failed`,
+  };
+
   let auditRecorded = false;
-  await runSafeCanonical(`order ${stage} failure audit (order ${order.order_number})`, async () => {
-    const row = await recordAudit({
-      tenantId: order.tenant_id || null,
-      patientUid: order.patient_uid,
-      encounterId: order.encounter_id || null,
-      action: copy.action,
-      actionStatus: 'failed',
-      actorUid: order.ordered_by || null,
-      resourceType: 'clinical_order',
-      resourceTable: 'clinical_orders',
-      resourceId: String(order.id),
-      metadata: {
-        order_number: order.order_number,
-        order_type: order.order_type,
-        priority: order.priority,
-        failure_stage: stage,
-        error: err?.message || String(err),
-        error_code: err?.code || null,
-        alert_queued: alertQueued,
-      },
-      idempotencyKey: `clinical_orders:${order.id}:${stage}_failed`,
+  if (!alertQueued && (stage === 'mar_schedule' || stage === 'mar_carryover')) {
+    try {
+      const persisted = await persistFailure({
+        tenantId: order.tenant_id,
+        obligation: {
+          sourceTable: 'clinical_orders',
+          sourceId: String(order.id),
+          failureKind: stage === 'mar_schedule'
+            ? 'order_mar_schedule'
+            : 'order_mar_carryover',
+          patientUid: order.patient_uid,
+          encounterId: order.encounter_id || null,
+          originActorUid: order.ordered_by || null,
+          failureCode: err?.code || `ORDER_${stage.toUpperCase()}_FAILED`,
+          notificationIntent: alertIntent,
+        },
+        recordCanonical: async (tx, obligation) => recordAudit({
+          ...auditInput,
+          metadata: {
+            ...auditInput.metadata,
+            alert_recovery_obligation_id: Number(obligation.id),
+          },
+        }, { db: tx, strict: true }),
+      });
+      auditRecorded = Boolean(persisted?.canonical);
+    } catch (persistErr) {
+      logger.error(
+        `Order ${stage} failure evidence and alert obligation could NOT be persisted for order ${order.order_number}: ${persistErr.message}`,
+        { order_id: order.id, stage, error_code: persistErr?.code || null },
+      );
+    }
+  } else {
+    await runSafeCanonical(`order ${stage} failure audit (order ${order.order_number})`, async () => {
+      const row = await recordAudit(auditInput);
+      auditRecorded = !!row;
+      return row;
     });
-    auditRecorded = !!row;
-    return row;
-  });
+  }
 
   if (!alertQueued && !auditRecorded) {
     // Last resort — both durable escalation channels failed.
@@ -1078,7 +1173,7 @@ async function dispatchPostCreateSideEffects(order) {
     logger.error(`Order integration dispatch failed for order ${order.order_number}: ${err.message}`);
     await escalateOrderIntegrationFailure({ order, stage: 'integration_dispatch', err });
   });
-  if (order.order_type === 'investigation') {
+  if (order.order_type === 'investigation' || order.order_type === 'medication') {
     await integrationDispatch;
   }
 
@@ -1518,8 +1613,28 @@ export function buildMarEntriesFromOrderDetails(details, { startDate } = {}) {
   const durationDays = (() => {
     const d = details.duration_days ?? details.duration ?? null;
     const n = Number(d);
-    return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 14) : 1;
+    if (d == null || d === '') return 1;
+    if (!Number.isSafeInteger(n) || n <= 0) {
+      throw AppError.badRequest('duration_days must be a positive integer');
+    }
+    if (n > MAR_SCHEDULE_LIMITS.maxScheduleDays) {
+      throw AppError.badRequest(
+        `duration_days ${n} exceeds the ${MAR_SCHEDULE_LIMITS.maxScheduleDays}-day MAR scheduling window`,
+        'MAR_DURATION_EXCEEDS_WINDOW',
+        { requested_days: n, max_schedule_days: MAR_SCHEDULE_LIMITS.maxScheduleDays },
+      );
+    }
+    return n;
   })();
+  const totalDoses = durationDays * doseTimes.length;
+  if (totalDoses > MAR_SCHEDULE_LIMITS.maxTotalDoses) {
+    throw AppError.badRequest(
+      `Explicit dose times would create ${totalDoses} MAR doses (ceiling ${MAR_SCHEDULE_LIMITS.maxTotalDoses})`,
+      'MAR_SCHEDULE_DOSE_CEILING',
+      { requested_days: durationDays, total_doses: totalDoses,
+        max_total_doses: MAR_SCHEDULE_LIMITS.maxTotalDoses },
+    );
+  }
   const start = startDate ? new Date(startDate) : new Date();
   const safeStart = Number.isNaN(start.getTime()) ? new Date() : start;
   const notes = [
@@ -1546,30 +1661,214 @@ export function buildMarEntriesFromOrderDetails(details, { startDate } = {}) {
   return entries;
 }
 
+const ACTIVE_MAR_ORDER_STATUSES = new Set(['ordered', 'verified', 'in_progress']);
+
+function normalizedMedicationOrderDetails(rawDetails) {
+  const details = typeof rawDetails === 'string'
+    ? JSON.parse(rawDetails)
+    : { ...(rawDetails || {}) };
+  return {
+    ...details,
+    medication_name: details.medication_name || details.drug_name || null,
+    dose: details.dose || details.dosage || null,
+    route: details.route || null,
+    supply_quantity_per_dose: details.supply_quantity_per_dose
+      ?? details.dispense_units_per_dose
+      ?? details.units_per_dose
+      ?? null,
+  };
+}
+
+function expectedMedicationOrderMarDoseCount(order) {
+  try {
+    const details = normalizedMedicationOrderDetails(order.details);
+    if (['medication_name', 'dose', 'route'].some((field) => !String(details[field] || '').trim())) {
+      return null;
+    }
+    const entries = buildMarEntriesFromOrderDetails(details, {
+      startDate: order.start_date,
+    });
+    let count = 0;
+    for (const entry of entries) {
+      if (entry.scheduled_time) {
+        count += 1;
+        continue;
+      }
+      const expanded = expandSchedule(
+        entry.frequency,
+        entry.start_time,
+        entry.duration_days,
+      );
+      if (!expanded) return null;
+      count += expanded.length;
+    }
+    return count > 0 ? count : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Materialize the exact MAR schedule owned by one committed medication order.
+ * This is the single governed entry point used by initial CPOE dispatch,
+ * ER-to-ICU continuation, and explicit recovery. scheduleMedications is
+ * idempotent on the clinical dose slot and enforces order/supply identity, so
+ * a retry fills missing rows without duplicating an existing schedule.
+ */
+export async function scheduleMedicationOrderOnMar(order, {
+  actorUid = null,
+  actorRole = null,
+  db = null,
+} = {}) {
+  if (!order?.id || order.order_type !== 'medication') {
+    throw AppError.badRequest(
+      'A committed medication clinical order is required',
+      'MAR_SCHEDULE_MEDICATION_ORDER_REQUIRED',
+    );
+  }
+  if (!ACTIVE_MAR_ORDER_STATUSES.has(String(order.status || '').toLowerCase())) {
+    throw AppError.conflict(
+      `Medication order ${order.order_number || order.id} is not active`,
+      'MAR_SCHEDULE_ORDER_INACTIVE',
+      { order_id: Number(order.id), status: order.status || null },
+    );
+  }
+  const details = normalizedMedicationOrderDetails(order.details);
+  const missingFields = ['medication_name', 'dose', 'route']
+    .filter((field) => !String(details[field] || '').trim());
+  if (missingFields.length > 0) {
+    throw AppError.conflict(
+      `Medication order ${order.order_number || order.id} cannot be charted until its medication, dose, and route are corrected`,
+      'MAR_SCHEDULE_ORDER_DETAILS_INVALID',
+      { order_id: Number(order.id), missing_fields: missingFields },
+    );
+  }
+
+  const marEntries = buildMarEntriesFromOrderDetails(details, {
+    startDate: order.start_date,
+  }).map((entry) => ({
+    ...entry,
+    clinical_order_id: Number(order.id),
+    notes: [
+      entry.notes,
+      `clinical_order_id:${order.id}`,
+      `order_number:${order.order_number}`,
+    ].filter(Boolean).join('; '),
+  }));
+
+  return scheduleMedications(order.patient_uid, null, marEntries, {
+    tenantId: requireTenantId(order.tenant_id),
+    actorUid: actorUid || order.ordered_by || null,
+    actorRole,
+    sourceClinicalOrderId: Number(order.id),
+    encounterId: order.encounter_id || null,
+    db,
+  });
+}
+
+/**
+ * Doctor-authorized recovery for a committed medication order whose MAR
+ * integration did not finish. The HTTP route supplies an Idempotency-Key;
+ * this service also relies on MAR slot identity, then appends one canonical
+ * recovery receipt so an operational alert has an exact reconciliation fact.
+ */
+export async function retryMedicationOrderMarScheduling({
+  tenantId,
+  orderId,
+  actorUid,
+  actorRole = null,
+} = {}) {
+  const id = Number(orderId);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw AppError.badRequest('A positive clinical order id is required');
+  }
+  const tid = String(requireTenantId(tenantId)).trim().toLowerCase();
+  const order = await prisma.clinical_orders.findFirst({
+    where: { id, tenant_id: tid },
+    select: ORDER_RETURNING_SELECT,
+  });
+  if (!order) throw AppError.notFound('Clinical order not found');
+  if (order.order_type !== 'medication') {
+    throw AppError.conflict(
+      'Only medication orders own a MAR schedule',
+      'MAR_SCHEDULE_MEDICATION_ORDER_REQUIRED',
+    );
+  }
+
+  return setTenantTx(tid, async (tx) => {
+    const locked = await tx.$queryRawUnsafe(
+      `SELECT id
+         FROM clinical_orders
+        WHERE tenant_id = $1::uuid
+          AND id = $2::int
+        FOR UPDATE`,
+      tid,
+      id,
+    );
+    if (!locked[0]) throw AppError.notFound('Clinical order not found');
+    const currentOrder = await tx.clinical_orders.findFirst({
+      where: { id, tenant_id: tid },
+      select: ORDER_RETURNING_SELECT,
+    });
+    const scheduled = await scheduleMedicationOrderOnMar(currentOrder, {
+      actorUid,
+      actorRole,
+      db: tx,
+    });
+    const scheduledDoseIds = scheduled.map((row) => Number(row.id));
+    const canonical = await recordCanonicalClinicalEvent({
+      tenantId: tid,
+      patientUid: currentOrder.patient_uid,
+      encounterId: currentOrder.encounter_id || null,
+      eventType: 'mar.scheduling_recovered',
+      eventStatus: 'completed',
+      action: 'mar_scheduling_recovered',
+      actionStatus: 'success',
+      sourceTable: 'clinical_orders',
+      sourceId: String(currentOrder.id),
+      resourceType: 'clinical_order',
+      resourceTable: 'clinical_orders',
+      resourceId: String(currentOrder.id),
+      actorUid,
+      actorRole,
+      summary: `MAR schedule reconciled for medication order ${currentOrder.order_number}`,
+      payload: {
+        order_id: Number(currentOrder.id),
+        order_number: currentOrder.order_number,
+        scheduled_dose_count: scheduledDoseIds.length,
+        scheduled_dose_ids: scheduledDoseIds,
+        resolved_failure_keys: [
+          `clinical_orders:${currentOrder.id}:mar_schedule_failed`,
+          `clinical_orders:${currentOrder.id}:mar_carryover_failed`,
+        ],
+      },
+      metadata: {
+        order_number: currentOrder.order_number,
+        scheduled_dose_count: scheduledDoseIds.length,
+        scheduled_dose_ids: scheduledDoseIds,
+      },
+      timelineIdempotencyKey: `clinical_orders:${currentOrder.id}:mar_scheduling_recovered`,
+      auditIdempotencyKey: `clinical_orders:${currentOrder.id}:mar_scheduling_recovered`,
+    }, { db: tx, strict: true });
+
+    return {
+      order_id: Number(currentOrder.id),
+      order_number: currentOrder.order_number,
+      patient_uid: currentOrder.patient_uid,
+      status: 'scheduled',
+      scheduled_dose_count: scheduledDoseIds.length,
+      scheduled_dose_ids: scheduledDoseIds,
+      recovery_timeline_event_id: canonical.timeline?.id || null,
+      recovery_audit_event_id: canonical.audit?.id || null,
+    };
+  });
+}
+
 async function dispatchOrderIntegrations(order) {
   if (order.order_type === 'medication') {
     // Create MAR entries via existing marService
     try {
-      // `details` comes back from typed Prisma as a parsed object, but
-      // keep the string-fallback for safety in case any caller passes a
-      // pre-stringified payload.
-      const details = typeof order.details === 'string' ? JSON.parse(order.details) : order.details;
-      const marEntries = buildMarEntriesFromOrderDetails(details, {
-        startDate: order.start_date,
-      }).map((entry) => ({
-        ...entry,
-        notes: [
-          entry.notes,
-          `clinical_order_id:${order.id}`,
-          `order_number:${order.order_number}`,
-        ].filter(Boolean).join('; '),
-      }));
-      await scheduleMedications(order.patient_uid, null, marEntries, {
-        tenantId: order.tenant_id,
-        actorUid: order.ordered_by,
-        sourceClinicalOrderId: order.id,
-        encounterId: order.encounter_id,
-      });
+      await scheduleMedicationOrderOnMar(order, { actorUid: order.ordered_by });
       logger.info(`MAR entries created for medication order ${order.order_number}`);
     } catch (err) {
       // C-L3: expandSchedule now throws MAR_DURATION_EXCEEDS_WINDOW /
@@ -1762,33 +2061,241 @@ async function materializeInvestigationForClinicalOrder(order) {
 // verifyOrder
 // ===================================================================
 
+const ORDER_VERIFICATION_EVENT = 'order.verified';
+const ORDER_VERIFICATION_STATUS = 'verified';
+
+function verificationSha256(value) {
+  return createHash('sha256').update(String(value)).digest('hex');
+}
+
+function canonicalVerificationJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => canonicalVerificationJson(entry)).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map(
+      (key) => `${JSON.stringify(key)}:${canonicalVerificationJson(value[key])}`,
+    ).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function orderVerificationResponseSnapshot(order) {
+  return JSON.parse(JSON.stringify(order, (_key, value) => (
+    typeof value === 'bigint' ? value.toString() : value
+  )));
+}
+
+function orderVerificationResponseDigest(snapshot) {
+  return verificationSha256(canonicalVerificationJson(snapshot));
+}
+
+function orderVerificationCommandIdentity({
+  tenantId,
+  orderId,
+  actorUid,
+  actorRole,
+  commandKey,
+  requestBodySha256,
+}) {
+  if (!isValidIdempotencyKey(commandKey)) {
+    throw AppError.badRequest(
+      'Idempotency-Key must be 1-200 chars [A-Za-z0-9_-:.]',
+      'CLINICAL_ORDER_VERIFY_IDEMPOTENCY_KEY_INVALID',
+    );
+  }
+  if (!/^[0-9a-f]{64}$/.test(String(requestBodySha256 || ''))) {
+    throw AppError.badRequest(
+      'Clinical-order verification request fingerprint is invalid',
+      'CLINICAL_ORDER_VERIFY_REQUEST_FINGERPRINT_INVALID',
+    );
+  }
+  const normalizedRole = String(actorRole || '').trim().toUpperCase();
+  const commandDigest = verificationSha256(`${tenantId}\n${commandKey}`);
+  const requestFingerprint = verificationSha256(JSON.stringify({
+    action: ORDER_VERIFICATION_EVENT,
+    tenant_id: tenantId,
+    clinical_order_id: orderId,
+    actor_uid: String(actorUid).toLowerCase(),
+    actor_role: normalizedRole,
+    request_body_sha256: requestBodySha256,
+  }));
+  return {
+    actorRole: normalizedRole,
+    auditIdempotencyKey: `clinical_orders:verify:${commandDigest}:audit`,
+    requestBodySha256,
+    requestFingerprint,
+    timelineIdempotencyKey: `clinical_orders:verify:${commandDigest}:timeline`,
+  };
+}
+
+function orderVerificationReceiptConflict() {
+  return AppError.conflict(
+    'Idempotency-Key is already bound to a different clinical-order verification command',
+    'CLINICAL_ORDER_VERIFY_IDEMPOTENCY_CONFLICT',
+  );
+}
+
+function assertOrderVerificationReceiptMatches(receipt, {
+  tenantId,
+  orderId,
+  actorUid,
+  identity,
+}) {
+  const timeline = receipt?.timeline;
+  const audit = receipt?.audit;
+  const actor = String(actorUid).toLowerCase();
+  const resourceId = String(orderId);
+  const timelineSnapshot = timeline?.payload?.verification_response;
+  const auditSnapshot = audit?.metadata?.verification_response;
+  const timelineSnapshotDigest = timelineSnapshot && typeof timelineSnapshot === 'object'
+    ? orderVerificationResponseDigest(timelineSnapshot)
+    : null;
+  const auditSnapshotDigest = auditSnapshot && typeof auditSnapshot === 'object'
+    ? orderVerificationResponseDigest(auditSnapshot)
+    : null;
+  const snapshotIsVerifiedResponse = Boolean(
+    timelineSnapshot
+    && !Array.isArray(timelineSnapshot)
+    && Number(timelineSnapshot.id) === orderId
+    && String(timelineSnapshot.tenant_id || '').toLowerCase() === tenantId
+    && String(timelineSnapshot.patient_uid || '').toLowerCase()
+      === String(timeline?.patient_uid || '').toLowerCase()
+    && String(timelineSnapshot.encounter_id || '').toLowerCase()
+      === String(timeline?.encounter_id || '').toLowerCase()
+    && timelineSnapshot.status === ORDER_VERIFICATION_STATUS
+    && String(timelineSnapshot.verified_by || '').toLowerCase() === actor
+    && Number.isFinite(Date.parse(String(timelineSnapshot.verified_at || '')))
+  );
+  if (
+    !timeline
+    || !audit
+    || String(timeline.tenant_id).toLowerCase() !== tenantId
+    || String(audit.tenant_id).toLowerCase() !== tenantId
+    || String(timeline.patient_uid || '').toLowerCase()
+      !== String(audit.patient_uid || '').toLowerCase()
+    || String(timeline.encounter_id || '').toLowerCase()
+      !== String(audit.encounter_id || '').toLowerCase()
+    || timeline.event_type !== ORDER_VERIFICATION_EVENT
+    || timeline.event_status !== ORDER_VERIFICATION_STATUS
+    || timeline.source_table !== 'clinical_orders'
+    || String(timeline.source_id) !== resourceId
+    || timeline.resource_type !== 'clinical_order'
+    || String(timeline.resource_id) !== resourceId
+    || String(timeline.actor_uid).toLowerCase() !== actor
+    || String(timeline.actor_role).trim().toUpperCase() !== identity.actorRole
+    || timeline.payload?.verification_command_fingerprint !== identity.requestFingerprint
+    || timeline.payload?.request_body_sha256 !== identity.requestBodySha256
+    || timeline.payload?.verification_response_sha256 !== timelineSnapshotDigest
+    || audit.action !== ORDER_VERIFICATION_EVENT
+    || audit.action_status !== 'success'
+    || audit.resource_table !== 'clinical_orders'
+    || String(audit.resource_id) !== resourceId
+    || String(audit.actor_uid).toLowerCase() !== actor
+    || String(audit.actor_role).trim().toUpperCase() !== identity.actorRole
+    || audit.metadata?.verification_command_fingerprint !== identity.requestFingerprint
+    || audit.metadata?.request_body_sha256 !== identity.requestBodySha256
+    || audit.metadata?.verification_response_sha256 !== auditSnapshotDigest
+    || timelineSnapshotDigest !== auditSnapshotDigest
+    || !snapshotIsVerifiedResponse
+  ) {
+    throw orderVerificationReceiptConflict();
+  }
+  return timelineSnapshot;
+}
+
+async function findOrderVerificationReceiptTx(tx, identity) {
+  const timelineRows = await tx.$queryRawUnsafe(
+    `SELECT tenant_id::text, patient_uid::text, encounter_id::text,
+            event_type, event_status, source_table, source_id,
+            resource_type, resource_id, actor_uid::text, actor_role, payload
+       FROM clinical_timeline_events
+      WHERE idempotency_key = $1
+      LIMIT 1`,
+    identity.timelineIdempotencyKey,
+  );
+  const auditRows = await tx.$queryRawUnsafe(
+    `SELECT tenant_id::text, patient_uid::text, encounter_id::text,
+            action, action_status, resource_table, resource_id,
+            actor_uid::text, actor_role, metadata
+       FROM clinical_audit_events
+      WHERE idempotency_key = $1
+      LIMIT 1`,
+    identity.auditIdempotencyKey,
+  );
+  if (!timelineRows[0] && !auditRows[0]) return null;
+  return { timeline: timelineRows[0] || null, audit: auditRows[0] || null };
+}
+
 /**
  * Pharmacist/nurse verification of an order.
  * @param {number} orderId
  * @param {string} verifiedBy - UID of verifier
+ * @param {Object} options - tenant, actor role, and durable command identity
  * @returns {Object} Updated order
  */
-export async function verifyOrder(orderId, verifiedBy) {
+export async function verifyOrder(orderId, verifiedBy, {
+  tenantId,
+  actorRole,
+  idempotencyKey,
+  requestBodySha256 = hashRequestBody({}),
+} = {}) {
   if (!verifiedBy) {
     throw AppError.badRequest('verifiedBy is required');
   }
-
-  const existing = await prisma.clinical_orders.findUnique({
-    where: { id: Number(orderId) },
-    select: ORDER_RETURNING_SELECT,
+  const id = Number(orderId);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw AppError.badRequest('orderId must be a positive integer');
+  }
+  if (!canVerifyMedicationOrderRole(actorRole)) {
+    throw AppError.forbidden(
+      'Only inpatient nursing and pharmacy staff can verify clinical orders',
+      'CLINICAL_ORDER_VERIFY_ROLE_REQUIRED',
+    );
+  }
+  const tid = requireTenantId(tenantId);
+  const identity = orderVerificationCommandIdentity({
+    tenantId: tid,
+    orderId: id,
+    actorUid: verifiedBy,
+    actorRole,
+    commandKey: idempotencyKey,
+    requestBodySha256,
   });
-
-  if (!existing) {
-    throw AppError.notFound('Order not found');
-  }
-
-  if (existing.status !== 'ordered') {
-    throw AppError.badRequest(`Cannot verify order in status '${existing.status}'. Order must be in 'ordered' status.`);
-  }
 
   // Atomic clinical write (canonical timeline invariant): status change +
   // canonical timeline/audit events persist together or not at all.
-  const updated = await setTenantTx(requireTenantId(existing.tenant_id), async (tx) => {
+  const result = await setTenantTx(tid, async (tx) => {
+    const existing = await tx.clinical_orders.findFirst({
+      where: { id, tenant_id: tid },
+      select: ORDER_RETURNING_SELECT,
+    });
+    if (!existing) throw AppError.notFound('Order not found');
+    if (!canVerifyClinicalOrderType(identity.actorRole, existing.order_type)) {
+      throw AppError.forbidden(
+        'Pharmacy staff can verify medication orders only; other clinical orders require inpatient nursing verification',
+        'CLINICAL_ORDER_VERIFY_ORDER_TYPE_FORBIDDEN',
+      );
+    }
+
+    const existingReceipt = await findOrderVerificationReceiptTx(tx, identity);
+    if (existingReceipt) {
+      const replayOrder = assertOrderVerificationReceiptMatches(existingReceipt, {
+        tenantId: tid,
+        orderId: id,
+        actorUid: verifiedBy,
+        identity,
+      });
+      return {
+        order: replayOrder,
+        replayed: true,
+      };
+    }
+
+    if (existing.status !== 'ordered') {
+      throw AppError.badRequest(`Cannot verify order in status '${existing.status}'. Order must be in 'ordered' status.`);
+    }
+
     // M6 (audit 2026-06-22): guard the expected status in the UPDATE itself, not
     // just the pre-check read. A single conditional updateMany serialises on the
     // row lock; count===0 means a concurrent transition already moved the order
@@ -1803,26 +2310,64 @@ export async function verifyOrder(orderId, verifiedBy) {
       },
     });
     if (reserved.count === 0) {
+      const concurrentReceipt = await findOrderVerificationReceiptTx(tx, identity);
+      if (concurrentReceipt) {
+        const replayOrder = assertOrderVerificationReceiptMatches(concurrentReceipt, {
+          tenantId: tid,
+          orderId: id,
+          actorUid: verifiedBy,
+          identity,
+        });
+        return {
+          order: replayOrder,
+          replayed: true,
+        };
+      }
       throw AppError.conflict(`Order ${existing.order_number} is no longer in 'ordered' status (changed concurrently)`);
     }
     const row = await tx.clinical_orders.findUnique({
       where: { id: existing.id },
       select: ORDER_RETURNING_SELECT,
     });
+    const responseSnapshot = orderVerificationResponseSnapshot(row);
+    const responseSnapshotDigest = orderVerificationResponseDigest(responseSnapshot);
 
-    await recordCanonicalOrderEvent({
+    const canonical = await recordCanonicalOrderEvent({
       order: row,
       tx,
-      eventType: 'order.verified',
+      eventType: ORDER_VERIFICATION_EVENT,
       eventStatus: row.status,
       actorUid: verifiedBy,
+      actorRole: identity.actorRole,
       previousStatus: existing.status,
+      payload: {
+        verification_command_fingerprint: identity.requestFingerprint,
+        request_body_sha256: identity.requestBodySha256,
+        verification_response: responseSnapshot,
+        verification_response_sha256: responseSnapshotDigest,
+      },
+      metadata: {
+        verification_command_fingerprint: identity.requestFingerprint,
+        request_body_sha256: identity.requestBodySha256,
+        verification_response: responseSnapshot,
+        verification_response_sha256: responseSnapshotDigest,
+      },
+      timelineIdempotencyKey: identity.timelineIdempotencyKey,
+      auditIdempotencyKey: identity.auditIdempotencyKey,
     });
-    return row;
+    const canonicalOrder = assertOrderVerificationReceiptMatches(canonical, {
+      tenantId: tid,
+      orderId: id,
+      actorUid: verifiedBy,
+      identity,
+    });
+    return { order: canonicalOrder, replayed: false };
   });
 
-  logger.info(`Order ${updated.order_number} verified by ${verifiedBy}`);
-  return updated;
+  logger.info(`Order ${result.order.order_number} verified by ${verifiedBy}`, {
+    replayed: result.replayed,
+  });
+  return result.order;
 }
 
 // ===================================================================
@@ -2035,14 +2580,15 @@ export async function discontinueOrder(orderId, discontinuedBy, reason) {
  * @returns {Object} { orders, pagination }
  */
 export async function getPatientOrders(patientUid, filters = {}) {
-  const { order_type, status, date_from, date_to } = filters;
+  const { order_type, status, date_from, date_to, tenantId } = filters;
+  const tid = requireTenantId(tenantId);
   const listQuery = parseListQuery(filters, {
     defaultLimit: 20,
     maxLimit: 100,
     defaultSortBy: 'created_at'
   });
 
-  const where = { patient_uid: patientUid };
+  const where = { tenant_id: tid, patient_uid: patientUid };
   if (order_type) where.order_type = order_type;
   if (status) where.status = status;
   if (date_from || date_to) {
@@ -2061,10 +2607,45 @@ export async function getPatientOrders(patientUid, filters = {}) {
       skip: listQuery.offset,
     }),
   ]);
+  const medicationOrderIds = orders
+    .filter((order) => order.order_type === 'medication')
+    .map((order) => Number(order.id));
+  const marCounts = medicationOrderIds.length > 0
+    ? await prisma.medication_administrations.groupBy({
+      by: ['clinical_order_id'],
+      where: {
+        tenant_id: tid,
+        clinical_order_id: { in: medicationOrderIds },
+        status: { not: 'cancelled' },
+      },
+      _count: { _all: true },
+    })
+    : [];
+  const marCountByOrder = new Map(
+    marCounts.map((row) => [Number(row.clinical_order_id), Number(row._count._all)]),
+  );
+  const shapedOrders = orders.map((order) => {
+    if (order.order_type !== 'medication') return order;
+    const count = marCountByOrder.get(Number(order.id)) || 0;
+    const expectedCount = expectedMedicationOrderMarDoseCount(order);
+    const isComplete = expectedCount != null && count === expectedCount;
+    const isActive = ACTIVE_MAR_ORDER_STATUSES.has(String(order.status || '').toLowerCase());
+    return {
+      ...order,
+      mar_schedule_status: isComplete
+        ? 'scheduled'
+        : isActive ? 'action_required' : 'not_applicable',
+      mar_scheduled_dose_count: count,
+      mar_expected_dose_count: expectedCount,
+      mar_recovery_endpoint: isActive && !isComplete
+        ? `/api/v1/emr/orders/${order.id}/retry-mar-scheduling`
+        : null,
+    };
+  });
   const pagination = buildPagination(total, listQuery.page, listQuery.limit);
 
   return {
-    orders,
+    orders: shapedOrders,
     pagination,
   };
 }
@@ -2074,16 +2655,34 @@ export async function getPatientOrders(patientUid, filters = {}) {
 // ===================================================================
 
 /**
- * Get all orders for an encounter/admission.
+ * Get one bounded page of orders for an encounter/admission.
  * @param {string} encounterId - UUID
- * @returns {Array} Orders sorted by created_at
+ * @returns {Object} Orders sorted by created_at plus pagination metadata
  */
-export async function getEncounterOrders(encounterId) {
-  return prisma.clinical_orders.findMany({
-    where: { encounter_id: encounterId },
-    select: ORDER_RETURNING_SELECT,
-    orderBy: { created_at: 'desc' },
+export async function getEncounterOrders(encounterId, filters = {}) {
+  const listQuery = parseListQuery(filters, {
+    defaultLimit: 20,
+    maxLimit: 100,
+    defaultSortBy: 'created_at',
   });
+  const where = {
+    tenant_id: requireTenantId(filters.tenantId),
+    encounter_id: encounterId,
+  };
+  const [orders, total] = await Promise.all([
+    prisma.clinical_orders.findMany({
+      where,
+      select: ORDER_RETURNING_SELECT,
+      orderBy: { created_at: 'desc' },
+      take: listQuery.limit,
+      skip: listQuery.offset,
+    }),
+    prisma.clinical_orders.count({ where }),
+  ]);
+  return {
+    orders,
+    pagination: buildPagination(total, listQuery.page, listQuery.limit),
+  };
 }
 
 // ===================================================================

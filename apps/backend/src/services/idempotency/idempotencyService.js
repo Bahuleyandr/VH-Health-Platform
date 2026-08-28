@@ -14,10 +14,6 @@ import { AppError } from '../../utils/AppError.js';
 const RETENTION_HOURS = 24;
 const KEY_MAX_LEN = 200;
 
-function isUniqueViolation(err) {
-  return /duplicate key value/i.test(String(err?.message || ''));
-}
-
 export function hashRequestBody(body) {
   if (body === null || body === undefined) return null;
   const text = typeof body === 'string' ? body : JSON.stringify(body);
@@ -62,19 +58,18 @@ export async function claimIdempotencyKey({
   if (!isValidIdempotencyKey(requestKey)) {
     throw AppError.badRequest('Idempotency-Key must be 1-200 chars [A-Za-z0-9_-:.]');
   }
-  try {
-    const inserted = await prisma.$queryRawUnsafe(
-      `INSERT INTO idempotency_keys
-         (tenant_id, user_uid, request_key, request_method, request_path,
-          request_body_hash, status)
-       VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, 'in_flight')
-       RETURNING id, status`,
-      tenantId || null, userUid || null,
-      requestKey, requestMethod, requestPath, requestBodyHash,
-    );
+  const inserted = await prisma.$queryRawUnsafe(
+    `INSERT INTO idempotency_keys
+       (tenant_id, user_uid, request_key, request_method, request_path,
+        request_body_hash, status)
+     VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, 'in_flight')
+     ON CONFLICT DO NOTHING
+     RETURNING id, status`,
+    tenantId || null, userUid || null,
+    requestKey, requestMethod, requestPath, requestBodyHash,
+  );
+  if (inserted[0]) {
     return { state: 'claimed', id: inserted[0].id };
-  } catch (err) {
-    if (!isUniqueViolation(err)) throw err;
   }
 
   // Existing row — fetch and decide. `is_expired` lets us refuse to replay a
@@ -97,6 +92,9 @@ export async function claimIdempotencyKey({
   if (existing.request_body_hash && requestBodyHash
       && existing.request_body_hash !== requestBodyHash) {
     return { state: 'mismatch' };
+  }
+  if (existing.status === 'expired') {
+    return reclaimExpiredRow({ id: existing.id, requestBodyHash });
   }
   if (existing.status === 'complete' || existing.status === 'failed') {
     // Replay the cached answer only while the row is still within its
@@ -157,6 +155,7 @@ export async function finaliseIdempotencyKey({
        SET status = $1, response_status = $2, response_body = $3::jsonb,
            updated_at = NOW()
        WHERE id = $4
+         AND status = 'in_flight'
        RETURNING id, status`,
       cleanStatus,
       responseStatus,

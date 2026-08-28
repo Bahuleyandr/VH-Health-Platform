@@ -57,9 +57,18 @@ describe('dispenseSubstitution — atomic decrement + canonical events + equival
   let xItemId; let xBatchId; let h1ItemId; let h1BatchId;
 
   async function cleanup() {
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
+      await tx.$executeRawUnsafe(
+        `DELETE FROM pharmacy_schedule_register WHERE tenant_id=$1::uuid`, TENANT,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM pharmacy_stock_movements WHERE tenant_id=$1::uuid AND reference_type IN ('dispense_substitution', 'controlled_dispense')`,
+        TENANT,
+      );
+      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'origin'");
+    });
     for (const sql of [
-      `DELETE FROM pharmacy_schedule_register WHERE tenant_id=$1::uuid`,
-      `DELETE FROM pharmacy_stock_movements WHERE tenant_id=$1::uuid AND reference_type IN ('dispense_substitution', 'controlled_dispense')`,
       `DELETE FROM approvals WHERE tenant_id=$1::uuid AND approval_kind='controlled_dispense_witness'`,
       `DELETE FROM pharmacy_inventory_batches WHERE tenant_id=$1::uuid AND batch_number LIKE 'DSUB-%'`,
       `DELETE FROM pharmacy_inventory_items WHERE tenant_id=$1::uuid AND sku_code LIKE 'DSUB-%'`,

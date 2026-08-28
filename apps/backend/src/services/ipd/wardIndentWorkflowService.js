@@ -114,14 +114,23 @@ const TERMINAL_WARD_INDENT_STATUSES = ['rejected', 'cancelled', 'closed'];
 const WARD_INDENT_WORKLISTS = new Set(['open', 'terminal', 'owned', 'overdue']);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ISO_INSTANT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/;
+const PG_INT4_MAX = 2147483647;
 
 function tenantOf(value) {
   return requireTenantId(value);
 }
 
 function positiveInt(value, fieldName) {
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+  if (typeof value === 'number') {
+    if (Number.isInteger(value) && value > 0 && value <= PG_INT4_MAX) return value;
+    throw AppError.badRequest(`${fieldName} must be a positive integer`);
+  }
+  const text = String(value ?? '').trim();
+  if (!/^[1-9][0-9]*$/.test(text)) {
+    throw AppError.badRequest(`${fieldName} must be a positive integer`);
+  }
+  const parsed = Number(text);
+  if (!Number.isInteger(parsed) || parsed > PG_INT4_MAX) {
     throw AppError.badRequest(`${fieldName} must be a positive integer`);
   }
   return parsed;
@@ -730,6 +739,37 @@ async function loadAllocationControlByItem(tx, indent) {
   return controlByItem;
 }
 
+function assertControlledWardIndentPatient(indent) {
+  if (indent.patient_uid != null) return;
+  throw AppError.conflict(
+    'Controlled medication cannot use a patientless ward-stock indent; use a patient-linked dispense workflow',
+    'WARD_INDENT_CONTROLLED_PATIENT_REQUIRED',
+    { ward_indent_id: Number(indent.id) },
+  );
+}
+
+async function assertControlledWardIndentAdmissionOpenTx(tx, indent) {
+  if (indent.admission_id == null) return;
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT id, billing_closed_at
+       FROM admissions
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int
+        AND patient_uid = $3::uuid
+      FOR SHARE`,
+    indent.tenant_id,
+    Number(indent.admission_id),
+    String(indent.patient_uid),
+  );
+  if (!rows[0]) throw AppError.notFound('Admission not found');
+  if (rows[0].billing_closed_at) {
+    throw AppError.conflict(
+      `Billing is closed for admission ${Number(indent.admission_id)}`,
+      'BILLING_CLOSED',
+    );
+  }
+}
+
 async function lockCatalogRows(tx, tenantId, catalogIds) {
   const ids = [...new Set(catalogIds.map(Number))].sort((a, b) => a - b);
   if (!ids.length) return new Map();
@@ -1228,6 +1268,13 @@ export async function approveWardIndent({
         }
       }
       const controlByItem = await loadAllocationControlByItem(tx, current);
+      const controlledItemIds = current.items
+        .filter((item) => controlByItem.get(Number(item.id)) === true)
+        .map((item) => Number(item.id));
+      if (controlledItemIds.length) {
+        assertControlledWardIndentPatient(current);
+        await assertControlledWardIndentAdmissionOpenTx(tx, current);
+      }
       let controlledCount = 0;
       for (const item of current.items) {
         const controlled = controlByItem.get(Number(item.id)) === true;
@@ -1424,6 +1471,8 @@ export async function recordWardIndentControlledHandoff({
     action: 'controlled_handoff_recorded',
     allowedStatuses: ['controlled_handoff_required'],
     mutate: async (tx, current) => {
+      assertControlledWardIndentPatient(current);
+      await assertControlledWardIndentAdmissionOpenTx(tx, current);
       if (!Array.isArray(itemEvidence) || itemEvidence.length === 0) {
         throw AppError.badRequest('item_evidence must be a non-empty array');
       }
@@ -1567,7 +1616,9 @@ export async function issueWardIndent({
         details: {
           verified_clinical_order_ids: clinicalOrderIds,
           inventory_movement_ids: inventoryClosure.movementIds,
-          billing_invoice_id: Number(inventoryClosure.invoice.id),
+          billing_invoice_id: inventoryClosure.invoice == null
+            ? null
+            : Number(inventoryClosure.invoice.id),
         },
         afterEvidence: async ({ event }) => {
           await appendWardIndentChargeEventsTx(tx, {
@@ -1636,6 +1687,7 @@ export async function receiveWardIndent({
       await receiveWardIndentInventoryTx(tx, {
         indent: current,
         receivedBy,
+        commandKey,
         desiredReceivedByItem,
         substitutionAcknowledgements,
         nextStateVersion: Number(current.state_version) + 1,

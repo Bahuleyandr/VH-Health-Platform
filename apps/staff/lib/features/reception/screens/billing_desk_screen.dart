@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/services/billing_api_service.dart';
 import '../../../core/services/patient_api_service.dart';
@@ -345,6 +346,11 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
             tooltip: AppStrings.of(context).lookup('action.refresh'),
             onPressed: _loadInvoices,
             icon: const Icon(Icons.refresh),
+          ),
+          OutlinedButton.icon(
+            onPressed: () => context.push('/billing/credit-notes'),
+            icon: const Icon(Icons.request_quote_outlined),
+            label: const AppText('med03.credit_note.open_queue'),
           ),
         ],
       ),

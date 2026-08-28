@@ -1,12 +1,20 @@
 // Device payloads stay with NL-7; cath-lab stores only case-scoped links.
 
+import { createHash } from 'node:crypto';
+
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { addInvoiceItem, createDraftInvoice } from '../billing/billingV2Service.js';
-import { recordMovement } from '../pharmacy/inventoryV2Service.js';
-import { reserveStock } from '../pharmacySupply/pharmacySupplyService.js';
+import { recordMovementTx } from '../pharmacy/inventoryV2Service.js';
+import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
+import {
+  claimInboxTask,
+  completeTaskFromDomainEvidence,
+  createCathInventoryShortfallTaskTx,
+  recoverCathInventoryShortfallTaskAssignmentTx
+} from '../workflow/taskService.js';
 import { emitCathProcedureCompletionFollowUps } from './cathQuickWinsService.js';
 import {
   cancelWorkflowSla,
@@ -75,6 +83,46 @@ const CATH_CONSUMABLE_WASTAGE_STATUSES = new Set([
   'completed',
   'cancelled'
 ]);
+const CATH_INVENTORY_SHORTFALL_TASK_CONTRACT = 'cath_inventory_shortfall_v1';
+const CATH_INVENTORY_RECONCILIATION_COMMAND_CONTRACT =
+  'cath_inventory_reconciliation_v1';
+const CATH_INVENTORY_SHORTFALL_SLA_RULE = 'cath_consumable_inventory_reconciliation';
+const CATH_INVENTORY_SHORTFALL_OPERATOR_ROLES = Object.freeze([
+  'PHARMACIST',
+  'PHARMACY_STAFF',
+  'PHARMACY_INCHARGE'
+]);
+const CATH_INVENTORY_SHORTFALL_COVERAGE_ROLES = Object.freeze([
+  'ADMIN',
+  'SUPER_ADMIN'
+]);
+const CATH_INVENTORY_SHORTFALL_ACTION_LABEL_KEY = 'clinical_inbox.open_workflow';
+const SHA256_PATTERN = /^[0-9a-f]{64}$/;
+const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9_\-:.]+$/;
+const QUANTITY_SCALE = 10_000;
+
+export const CATH_INVENTORY_SHORTFALL_PRESENTATIONS = Object.freeze({
+  en: Object.freeze({
+    title: 'Reconcile Cath consumable stock',
+    body: 'Documented Cath consumable stock is incomplete. Replenish and retry the exact remaining quantity.'
+  }),
+  hi: Object.freeze({
+    title: 'कैथ उपभोग्य स्टॉक का मिलान करें',
+    body: 'दर्ज कैथ उपभोग्य स्टॉक अधूरा है। स्टॉक भरें और केवल शेष मात्रा का पुनः प्रयास करें।'
+  }),
+  ta: Object.freeze({
+    title: 'கேத் நுகர்பொருள் இருப்பை சரிசெய்யவும்',
+    body: 'பதிவுசெய்த கேத் நுகர்பொருள் இருப்பு முழுமையில்லை. இருப்பை நிரப்பி மீதமுள்ள அளவை மட்டும் மீண்டும் முயலவும்.'
+  }),
+  te: Object.freeze({
+    title: 'క్యాథ్ వినియోగ వస్తు నిల్వను సరిపోల్చండి',
+    body: 'నమోదైన క్యాథ్ వినియోగ వస్తు నిల్వ అసంపూర్ణంగా ఉంది. నిల్వను నింపి మిగిలిన పరిమాణాన్ని మాత్రమే మళ్లీ ప్రయత్నించండి.'
+  }),
+  ml: Object.freeze({
+    title: 'കാത്ത് ഉപഭോഗവസ്തു സ്റ്റോക്ക് പൊരുത്തപ്പെടുത്തുക',
+    body: 'രേഖപ്പെടുത്തിയ കാത്ത് ഉപഭോഗവസ്തു സ്റ്റോക്ക് അപൂർണ്ണമാണ്. സ്റ്റോക്ക് നിറച്ച് ശേഷിക്കുന്ന അളവ് മാത്രം വീണ്ടും ശ്രമിക്കുക.'
+  })
+});
 
 const CONTRAST_FIELDS = [
   'contrast_volume_ml',
@@ -118,6 +166,18 @@ function normalizeId(value, label = 'id') {
   return parsed <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(parsed) : text;
 }
 
+function normalizeCathReconciliationId(value, label) {
+  const text = String(value ?? '');
+  if (!/^[1-9][0-9]*$/.test(text)) {
+    throw AppError.badRequest(`${label} must be a canonical positive integer`, 'CATH_LAB_BAD_ID');
+  }
+  const parsed = BigInt(text);
+  if (parsed > 9_223_372_036_854_775_807n) {
+    throw AppError.badRequest(`${label} exceeds the signed 64-bit range`, 'CATH_LAB_BAD_ID');
+  }
+  return parsed <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(parsed) : text;
+}
+
 function sourceReferenceId(value, label = 'source_id') {
   return normalizeId(value, label);
 }
@@ -154,6 +214,189 @@ function positiveNumber(value, label) {
     throw AppError.badRequest(`${label} must be greater than zero`, 'CATH_CONSUMABLE_BAD_QUANTITY');
   }
   return number;
+}
+
+function quantityUnits(value, label = 'quantity') {
+  const number = Number(value);
+  const units = Math.round(number * QUANTITY_SCALE);
+  if (
+    !Number.isFinite(number)
+    || number <= 0
+    || !Number.isSafeInteger(units)
+    || Math.abs(number - units / QUANTITY_SCALE) > 1e-9
+  ) {
+    throw AppError.badRequest(
+      `${label} must be a positive quantity with at most four decimal places`,
+      'CATH_CONSUMABLE_BAD_QUANTITY'
+    );
+  }
+  return units;
+}
+
+function quantityFromUnits(units) {
+  return (Number(units) / QUANTITY_SCALE).toFixed(4);
+}
+
+function normalizeCathInventoryOperatorRole(role) {
+  const normalized = String(role || '').trim().toUpperCase();
+  return CATH_INVENTORY_SHORTFALL_OPERATOR_ROLES.includes(normalized)
+    ? normalized
+    : null;
+}
+
+export function canViewCathInventoryReconciliationRole(role) {
+  const normalized = String(role || '').trim().toUpperCase();
+  return Boolean(normalizeCathInventoryOperatorRole(normalized))
+    || CATH_INVENTORY_SHORTFALL_COVERAGE_ROLES.includes(normalized);
+}
+
+export function canMutateCathInventoryReconciliationRole(role) {
+  return Boolean(normalizeCathInventoryOperatorRole(role));
+}
+
+function cathInventoryShortfallPresentation(locale) {
+  const normalized = cathInventoryShortfallPresentationLocale(locale);
+  return CATH_INVENTORY_SHORTFALL_PRESENTATIONS[normalized]
+    || CATH_INVENTORY_SHORTFALL_PRESENTATIONS.en;
+}
+
+function cathInventoryShortfallPresentationLocale(locale) {
+  const normalized = String(locale || '').trim().toLowerCase().split(/[-_]/)[0];
+  return Object.hasOwn(CATH_INVENTORY_SHORTFALL_PRESENTATIONS, normalized)
+    ? normalized
+    : 'en';
+}
+
+function cathInventoryReconciliationPath(caseId, usageId) {
+  return `/api/v1/cath-lab/cases/${String(caseId)}`
+    + `/consumables/${String(usageId)}/inventory-reconcile`;
+}
+
+function cathInventoryShortfallDeepLink(caseId, usageId) {
+  return '/pharmacy/cath-inventory-reconciliation'
+    + `?case_id=${String(caseId)}&consumable_usage_id=${String(usageId)}`;
+}
+
+function sha256(value) {
+  return createHash('sha256').update(String(value), 'utf8').digest('hex');
+}
+
+function cathInventoryReconciliationRequestFingerprint(caseId, usageId) {
+  return sha256(JSON.stringify({
+    case_id: String(caseId),
+    usage_id: String(usageId)
+  }));
+}
+
+function normalizeCathInventoryReconciliationCommand({
+  tenantId,
+  caseId,
+  usageId,
+  actorUid,
+  commandKey,
+  requestFingerprint,
+  httpIdempotencyClaimId,
+  requestId = null
+}) {
+  const actor = maybeUuid(actorUid, 'actorUid')?.toLowerCase();
+  const canonicalTenantId = maybeUuid(tenantId, 'tenantId')?.toLowerCase();
+  const key = String(commandKey || '');
+  const fingerprint = String(requestFingerprint || '').trim().toLowerCase();
+  const claimId = Number(httpIdempotencyClaimId);
+  const expectedFingerprint = cathInventoryReconciliationRequestFingerprint(caseId, usageId);
+  if (
+    !actor
+    || !Number.isSafeInteger(claimId)
+    || claimId <= 0
+    || key.length < 1
+    || key.length > 200
+    || key !== key.trim()
+    || !IDEMPOTENCY_KEY_PATTERN.test(key)
+    || !SHA256_PATTERN.test(fingerprint)
+  ) {
+    throw AppError.badRequest(
+      'Cath inventory reconciliation idempotency identity is invalid',
+      'CATH_INVENTORY_RECONCILIATION_IDEMPOTENCY_INVALID'
+    );
+  }
+  if (fingerprint !== expectedFingerprint) {
+    throw AppError.unprocessable(
+      'Idempotency-Key is bound to a different Cath inventory reconciliation command',
+      'CATH_INVENTORY_RECONCILIATION_COMMAND_MISMATCH'
+    );
+  }
+  return Object.freeze({
+    actor,
+    claimId,
+    commandKey: key,
+    requestFingerprint: fingerprint,
+    requestPath: cathInventoryReconciliationPath(caseId, usageId),
+    commandKeySha256: sha256(
+      `${canonicalTenantId}:${actor}:cath-inventory-shortfall:${String(usageId)}:${key}`
+    ),
+    requestId: requestId ? String(requestId) : null
+  });
+}
+
+function cathInventoryAuthenticatedRoles(context = {}) {
+  return [
+    context.rawRole,
+    context.actorRole,
+    ...(Array.isArray(context.actorRoles) ? context.actorRoles : [])
+  ]
+    .map(role => String(role || '').trim().toUpperCase())
+    .filter(Boolean);
+}
+
+async function cathInventoryReconciliationActorTx(tx, tenantId, context = {}) {
+  const actorUid = maybeUuid(context.actorUid, 'actorUid');
+  if (!actorUid) {
+    throw AppError.forbidden(
+      'Cath inventory reconciliation requires an authenticated operator',
+      'CATH_INVENTORY_RECONCILIATION_FORBIDDEN'
+    );
+  }
+  const authenticatedRoles = cathInventoryAuthenticatedRoles(context);
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT uid, role
+       FROM users
+      WHERE tenant_id = $1::uuid
+        AND uid = $2::uuid
+        AND is_active = TRUE
+        AND status = 'active'
+        AND COALESCE(is_deleted, FALSE) = FALSE
+        AND role = ANY($3::text[])
+      LIMIT 1`,
+    tenantId,
+    actorUid,
+    [
+      ...CATH_INVENTORY_SHORTFALL_OPERATOR_ROLES,
+      ...CATH_INVENTORY_SHORTFALL_COVERAGE_ROLES
+    ]
+  );
+  const actor = rows[0];
+  const role = String(actor?.role || '').trim().toUpperCase();
+  if (!actor?.uid || !authenticatedRoles.includes(role)) {
+    throw AppError.forbidden(
+      'Cath inventory reconciliation requires an authorized pharmacy operator',
+      'CATH_INVENTORY_RECONCILIATION_FORBIDDEN'
+    );
+  }
+  return Object.freeze({
+    uid: String(actor.uid),
+    role,
+    routine: Boolean(normalizeCathInventoryOperatorRole(role)),
+    coverage: CATH_INVENTORY_SHORTFALL_COVERAGE_ROLES.includes(role)
+  });
+}
+
+function cathInventoryReconciliationResponseBody(result, requestId = null) {
+  return {
+    success: true,
+    message: 'Cath consumable inventory reconciliation',
+    data: result,
+    ...(requestId ? { requestId } : {})
+  };
 }
 
 function booleanValue(value, fallback = false) {
@@ -1520,38 +1763,17 @@ export async function listCaseConsumableUsage(caseId, { tenantId, db = prisma } 
   return normalizeRows(rows);
 }
 
-async function persistInventoryOutcome(tenantId, usageId, {
-  status,
-  movementId = null,
-  warning = null
-}) {
-  return setTenantTx(tenantId, async tx => {
-    await tx.$queryRawUnsafe(
-      `UPDATE cath_case_consumable_usage
-          SET inventory_decrement_status = $3,
-              inventory_movement_id = $4::int,
-              inventory_warning = $5,
-              updated_at = NOW()
-        WHERE tenant_id = $1::uuid
-          AND id = $2::bigint`,
-      tenantId,
-      normalizeId(usageId, 'usage_id'),
-      status,
-      movementId,
-      warning
-    );
-    return consumableUsageById(tx, tenantId, usageId);
-  });
-}
-
 function batchLineageMismatch(batch, { batchNumber, lotNumber, expiryDate }) {
   const actualBatch = cleanText(batch.batch_number, 120);
   const actualLot = cleanText(batch.lot_number, 120);
   const actualExpiry = optionalDate(batch.expiry_date, 'inventory_batch.expiry_date');
+  const expectedBatch = cleanText(batchNumber, 120);
+  const expectedLot = cleanText(lotNumber, 120);
+  const expectedExpiry = optionalDate(expiryDate, 'documented.expiry_date');
   return Boolean(
-    (batchNumber && batchNumber !== actualBatch)
-    || (lotNumber && lotNumber !== actualLot)
-    || (expiryDate && expiryDate !== actualExpiry)
+    (expectedBatch && expectedBatch !== actualBatch)
+    || (expectedLot && expectedLot !== actualLot)
+    || (expectedExpiry && expectedExpiry !== actualExpiry)
   );
 }
 
@@ -1578,105 +1800,1211 @@ function evaluateCathInventoryBatch(batch, quantity) {
   }
   if (remaining < quantity) {
     return {
-      status: 'insufficient_stock',
-      warning: `Insufficient stock in exact batch: requested ${quantity}, available ${remaining}; clinical usage was saved without a stock decrement`
+      status: 'pending',
+      warning: `Insufficient stock in exact batch: requested ${quantity}, available ${remaining}; inventory reconciliation will be materialized after the clinical record commits`
     };
   }
   return { status: 'pending', warning: null };
 }
 
+async function cathUsageInventoryRowTx(tx, tenantId, usageId) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT usage.id, usage.tenant_id, usage.case_id, usage.patient_uid,
+            usage.catalog_item_id, usage.inventory_batch_id, usage.quantity,
+            usage.batch_tracked, usage.batch_number, usage.lot_number,
+            usage.expiry_date, usage.wasted, usage.waste_reason, usage.used_by,
+            usage.inventory_decrement_status, usage.inventory_movement_id,
+            usage.inventory_warning, usage.metadata,
+            catalog.item_name, catalog.inventory_item_id,
+            cath_case.encounter_id,
+            inventory_item.schedule_class, inventory_item.is_narcotic
+       FROM cath_case_consumable_usage usage
+       JOIN cath_consumable_catalog catalog
+         ON catalog.tenant_id = usage.tenant_id
+        AND catalog.id = usage.catalog_item_id
+       JOIN cath_lab_cases cath_case
+         ON cath_case.tenant_id = usage.tenant_id
+        AND cath_case.id = usage.case_id
+        AND cath_case.patient_uid = usage.patient_uid
+       LEFT JOIN pharmacy_inventory_items inventory_item
+         ON inventory_item.tenant_id = usage.tenant_id
+        AND inventory_item.id = catalog.inventory_item_id
+      WHERE usage.tenant_id = $1::uuid
+        AND usage.id = $2::bigint
+      LIMIT 1
+      FOR UPDATE OF usage`,
+    tenantId,
+    normalizeId(usageId, 'usage_id')
+  );
+  if (!rows[0]) {
+    throw AppError.notFound('Cath consumable usage not found', 'CATH_CONSUMABLE_USAGE_NOT_FOUND');
+  }
+  return normalizeDbValue(rows[0]);
+}
+
+async function cathMovementEvidenceTx(tx, usage) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT COALESCE(SUM(-movement.quantity_delta), 0::numeric) AS decremented_quantity,
+            (ARRAY_AGG(movement.id ORDER BY movement.created_at DESC, movement.id DESC)
+              FILTER (WHERE movement.id IS NOT NULL))[1] AS final_movement_id
+       FROM pharmacy_stock_movements movement
+      WHERE movement.tenant_id = $1::uuid
+        AND (
+          (movement.reference_type = 'cath_consumable_usage'
+           AND movement.reference_id = $2::text)
+          OR
+          (movement.reference_type = 'cath_consumable_reconciliation'
+           AND movement.metadata->>'cath_consumable_usage_id' = $2::text)
+        )`,
+    usage.tenant_id,
+    String(usage.id)
+  );
+  return {
+    decrementedUnits: Math.round(Number(rows[0]?.decremented_quantity || 0) * QUANTITY_SCALE),
+    finalMovementId: rows[0]?.final_movement_id || null
+  };
+}
+
+async function updateCathInventoryOutcomeTx(tx, usage, {
+  status,
+  movementId = null,
+  warning = null,
+  metadata = null
+}) {
+  await tx.$queryRawUnsafe(
+    `UPDATE cath_case_consumable_usage
+        SET inventory_decrement_status = $3,
+            inventory_movement_id = $4::int,
+            inventory_warning = $5,
+            metadata = COALESCE(metadata, '{}'::jsonb) || $6::jsonb,
+            updated_at = NOW()
+      WHERE tenant_id = $1::uuid
+        AND id = $2::bigint`,
+    usage.tenant_id,
+    normalizeId(usage.id, 'usage_id'),
+    status,
+    movementId,
+    warning,
+    JSON.stringify(metadata || {})
+  );
+}
+
+async function cathShortfallNotificationRecipientTx(tx, tenantId) {
+  const routine = await tx.$queryRawUnsafe(
+    `SELECT id, uid, phone, preferred_language, role
+       FROM users
+      WHERE tenant_id = $1::uuid
+        AND is_active = TRUE
+        AND status = 'active'
+        AND COALESCE(is_deleted, FALSE) = FALSE
+        AND role = ANY($2::text[])
+      ORDER BY CASE role
+                 WHEN 'PHARMACIST' THEN 0
+                 WHEN 'PHARMACY_INCHARGE' THEN 1
+                 ELSE 2
+               END,
+               last_sign_in_at DESC NULLS LAST,
+               id
+      LIMIT 1`,
+    tenantId,
+    CATH_INVENTORY_SHORTFALL_OPERATOR_ROLES
+  );
+  if (routine[0]) return { ...routine[0], coverageGap: false, deliveryCoverage: 'direct' };
+  const coverage = await tx.$queryRawUnsafe(
+    `SELECT id, uid, phone, preferred_language, role
+       FROM users
+      WHERE tenant_id = $1::uuid
+        AND is_active = TRUE
+        AND status = 'active'
+        AND COALESCE(is_deleted, FALSE) = FALSE
+        AND role = ANY($2::text[])
+      ORDER BY CASE role WHEN 'SUPER_ADMIN' THEN 0 ELSE 1 END,
+               last_sign_in_at DESC NULLS LAST,
+               id
+      LIMIT 1`,
+    tenantId,
+    CATH_INVENTORY_SHORTFALL_COVERAGE_ROLES
+  );
+  if (coverage[0]) {
+    return { ...coverage[0], coverageGap: true, deliveryCoverage: 'operator_recovery' };
+  }
+  return {
+    id: null,
+    uid: null,
+    phone: null,
+    preferred_language: 'en',
+    role: null,
+    coverageGap: true,
+    deliveryCoverage: 'unassigned'
+  };
+}
+
+async function materializeCathInventoryShortfallTx(tx, usage, {
+  decrementedUnits,
+  finalMovementId,
+  warning
+}) {
+  const deepLink = cathInventoryShortfallDeepLink(usage.case_id, usage.id);
+  const retryPath = cathInventoryReconciliationPath(usage.case_id, usage.id);
+  const intendedRoleCodes = [...CATH_INVENTORY_SHORTFALL_OPERATOR_ROLES];
+  await updateCathInventoryOutcomeTx(tx, usage, {
+    status: 'insufficient_stock',
+    movementId: finalMovementId,
+    warning,
+    metadata: {
+      inventory_shortfall_contract: CATH_INVENTORY_SHORTFALL_TASK_CONTRACT,
+      inventory_shortfall_deep_link: deepLink,
+      inventory_shortfall_retry_path: retryPath,
+      inventory_shortfall_intended_role_codes: intendedRoleCodes
+    }
+  });
+  const sla = await startWorkflowSla({
+    tenantId: usage.tenant_id,
+    ruleCode: CATH_INVENTORY_SHORTFALL_SLA_RULE,
+    patientUid: usage.patient_uid,
+    encounterId: usage.encounter_id,
+    sourceTable: 'cath_case_consumable_usage',
+    sourceId: String(usage.id),
+    priority: 'high',
+    assignedRoleCodes: intendedRoleCodes,
+    metadata: {
+      task_contract: CATH_INVENTORY_SHORTFALL_TASK_CONTRACT,
+      cath_case_id: String(usage.case_id),
+      cath_consumable_usage_id: String(usage.id),
+      inventory_item_id: String(usage.inventory_item_id)
+    }
+  }, { db: tx, strict: true });
+  if (!sla?.id) {
+    throw AppError.internal(
+      'Cath inventory shortfall SLA was not materialized',
+      'CATH_INVENTORY_SHORTFALL_SLA_MISSING'
+    );
+  }
+  const taskMetadata = {
+    cath_consumable_usage_id: String(usage.id),
+    cath_case_id: String(usage.case_id),
+    inventory_item_id: String(usage.inventory_item_id),
+    movement_kind: usage.wasted ? 'dispose' : 'issue',
+    deep_link: deepLink,
+    retry_path: retryPath,
+    action_label_key: CATH_INVENTORY_SHORTFALL_ACTION_LABEL_KEY,
+    presentation_key: 'cath_inventory_shortfall',
+    presentations: CATH_INVENTORY_SHORTFALL_PRESENTATIONS,
+    documented_quantity: quantityFromUnits(quantityUnits(usage.quantity)),
+    decremented_quantity: quantityFromUnits(decrementedUnits)
+  };
+  let task = await createCathInventoryShortfallTaskTx({
+    tenantId: usage.tenant_id,
+    title: CATH_INVENTORY_SHORTFALL_PRESENTATIONS.en.title,
+    description: CATH_INVENTORY_SHORTFALL_PRESENTATIONS.en.body,
+    patientUid: usage.patient_uid,
+    encounterId: usage.encounter_id,
+    relatedResourceId: String(usage.id),
+    createdBy: usage.used_by,
+    workflowSlaInstanceId: sla.id,
+    stageOccurrenceKey: `cath-inventory-shortfall:usage:${String(usage.id)}`,
+    metadata: taskMetadata,
+    tx
+  });
+  if (!task) {
+    const existing = await tx.$queryRawUnsafe(
+      `SELECT *
+         FROM tasks
+        WHERE tenant_id = $1::uuid
+          AND related_resource_type = 'cath_case_consumable_usage'
+          AND related_resource_id = $2::text
+          AND metadata->>'task_contract' = $3::text
+        LIMIT 1
+        FOR UPDATE`,
+      usage.tenant_id,
+      String(usage.id),
+      CATH_INVENTORY_SHORTFALL_TASK_CONTRACT
+    );
+    task = existing[0] || null;
+  }
+  if (!task?.id || String(task.workflow_sla_instance_id) !== String(sla.id)) {
+    throw AppError.conflict(
+      'Cath inventory shortfall task changed before materialization',
+      'CATH_INVENTORY_SHORTFALL_TASK_CONFLICT'
+    );
+  }
+  const recipient = await cathShortfallNotificationRecipientTx(tx, usage.tenant_id);
+  const presentation = cathInventoryShortfallPresentation(recipient.preferred_language);
+  const outbox = await notificationOutbox.queue({
+    tenantId: usage.tenant_id,
+    type: 'cath_inventory_shortfall',
+    channel: 'inapp',
+    recipientId: recipient.id,
+    recipientPhone: null,
+    title: presentation.title,
+    body: presentation.body,
+    sourceEventKey: `cath-inventory-shortfall:${String(usage.id)}`,
+    templateVersion: 'cath-inventory-shortfall.v1',
+    data: {
+      kind: 'cath_inventory_shortfall',
+      task_id: String(task.id),
+      cath_case_id: String(usage.case_id),
+      cath_consumable_usage_id: String(usage.id),
+      inventory_item_id: String(usage.inventory_item_id),
+      deep_link: deepLink,
+      retry_path: retryPath,
+      action_label_key: CATH_INVENTORY_SHORTFALL_ACTION_LABEL_KEY,
+      coverage_gap: recipient.coverageGap,
+      delivery_coverage: recipient.deliveryCoverage,
+      intended_role_codes: intendedRoleCodes,
+      recipient_uid: recipient.uid,
+      recipient_role: recipient.role,
+      recipient_status_snapshot: recipient.id ? 'active' : null,
+      recipient_not_deleted_snapshot: recipient.id ? true : null,
+      presentation_key: 'cath_inventory_shortfall',
+      presentation_locale: cathInventoryShortfallPresentationLocale(
+        recipient.preferred_language
+      ),
+      presentation_copy_version: 'cath-inventory-shortfall.v1',
+      presentations: CATH_INVENTORY_SHORTFALL_PRESENTATIONS
+    }
+  }, { tx, strict: true });
+  if (!outbox?.id) {
+    throw AppError.internal(
+      'Cath inventory shortfall notification intent was not persisted',
+      'CATH_INVENTORY_SHORTFALL_NOTIFICATION_MISSING'
+    );
+  }
+  await updateCathInventoryOutcomeTx(tx, usage, {
+    status: 'insufficient_stock',
+    movementId: finalMovementId,
+    warning,
+    metadata: {
+      inventory_shortfall_contract: CATH_INVENTORY_SHORTFALL_TASK_CONTRACT,
+      inventory_shortfall_task_id: String(task.id),
+      inventory_shortfall_sla_instance_id: String(sla.id),
+      inventory_shortfall_notification_outbox_id: String(outbox.id),
+      inventory_shortfall_notification_delivery: recipient.deliveryCoverage
+    }
+  });
+  return { task, sla, outbox };
+}
+
+async function initialCathInventoryBatchesTx(tx, usage) {
+  if (usage.inventory_batch_id) {
+    return tx.$queryRawUnsafe(
+      `SELECT id, inventory_item_id, batch_number, lot_number, expiry_date,
+              remaining_quantity, status,
+              (expiry_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date) AS is_expired
+         FROM pharmacy_inventory_batches
+        WHERE tenant_id = $1::uuid
+          AND inventory_item_id = $2::int
+          AND id = $3::int
+        LIMIT 1
+        FOR UPDATE`,
+      usage.tenant_id,
+      Number(usage.inventory_item_id),
+      Number(usage.inventory_batch_id)
+    );
+  }
+  return tx.$queryRawUnsafe(
+    `SELECT id, inventory_item_id, batch_number, lot_number, expiry_date,
+            remaining_quantity, status, FALSE AS is_expired
+       FROM pharmacy_inventory_batches
+      WHERE tenant_id = $1::uuid
+        AND inventory_item_id = $2::int
+        AND status = 'in_stock'
+        AND remaining_quantity > 0
+        AND expiry_date >= (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+      ORDER BY expiry_date, id
+      FOR UPDATE`,
+    usage.tenant_id,
+    Number(usage.inventory_item_id)
+  );
+}
+
 async function applyConsumableInventoryDecrement(usage) {
   const tenantId = tenantOr(usage.tenant_id);
-  if (
-    usage.inventory_decrement_status
-    && usage.inventory_decrement_status !== 'pending'
-  ) {
-    return usage;
-  }
-  if (!usage.inventory_item_id) {
-    return persistInventoryOutcome(tenantId, usage.id, { status: 'not_linked' });
-  }
-  if (usage.batch_tracked && !usage.inventory_batch_id) {
-    return persistInventoryOutcome(tenantId, usage.id, {
-      status: 'error',
-      warning: usage.inventory_warning
-        || 'Exact inventory batch could not be resolved; clinical usage was saved without a stock decrement'
-    });
-  }
-  const movementKind = usage.wasted ? 'dispose' : 'issue';
-  const notes = usage.wasted
-    ? `Cath usage #${usage.id}: opened but not used${usage.waste_reason ? ` — ${usage.waste_reason}` : ''}`
-    : `Cath usage #${usage.id}: documented for case #${usage.case_id}`;
-  try {
-    if (usage.inventory_batch_id) {
-      const result = await recordMovement({
+  return setTenantTx(tenantId, async tx => {
+    const current = await cathUsageInventoryRowTx(tx, tenantId, usage.id);
+    if (current.inventory_decrement_status !== 'pending') {
+      return consumableUsageById(tx, tenantId, current.id);
+    }
+    if (!current.inventory_item_id) {
+      await updateCathInventoryOutcomeTx(tx, current, { status: 'not_linked' });
+      return consumableUsageById(tx, tenantId, current.id);
+    }
+    const lockedInventoryItems = await tx.$queryRawUnsafe(
+      `SELECT schedule_class, is_narcotic
+         FROM pharmacy_inventory_items
+        WHERE tenant_id = $1::uuid
+          AND id = $2::int
+        LIMIT 1
+        FOR UPDATE`,
+      tenantId,
+      Number(current.inventory_item_id)
+    );
+    if (!lockedInventoryItems[0]) {
+      throw AppError.conflict(
+        'Cath consumable inventory item changed before decrement',
+        'CATH_INVENTORY_ITEM_CHANGED'
+      );
+    }
+    current.schedule_class = lockedInventoryItems[0].schedule_class;
+    current.is_narcotic = lockedInventoryItems[0].is_narcotic;
+    if (current.batch_tracked && !current.inventory_batch_id) {
+      await updateCathInventoryOutcomeTx(tx, current, {
+        status: 'error',
+        warning: current.inventory_warning
+          || 'Exact inventory batch could not be resolved; clinical usage was saved without a stock decrement'
+      });
+      return consumableUsageById(tx, tenantId, current.id);
+    }
+    if (
+      ['H', 'H1', 'X'].includes(String(current.schedule_class || '').toUpperCase())
+      || current.is_narcotic === true
+    ) {
+      await updateCathInventoryOutcomeTx(tx, current, {
+        status: 'error',
+        warning: 'Controlled stock requires the statutory dispensing workflow; no Cath inventory movement was recorded'
+      });
+      return consumableUsageById(tx, tenantId, current.id);
+    }
+    const documentedUnits = quantityUnits(current.quantity);
+    const existing = await cathMovementEvidenceTx(tx, current);
+    if (existing.decrementedUnits > documentedUnits) {
+      throw AppError.conflict(
+        'Cath consumable movements exceed the documented quantity',
+        'CATH_INVENTORY_MOVEMENT_OVER_DECREMENT'
+      );
+    }
+    if (existing.decrementedUnits === documentedUnits) {
+      await updateCathInventoryOutcomeTx(tx, current, {
+        status: 'decremented',
+        movementId: existing.finalMovementId,
+        warning: null
+      });
+      return consumableUsageById(tx, tenantId, current.id);
+    }
+    if (existing.decrementedUnits > 0) {
+      const warning = `Insufficient stock: documented ${quantityFromUnits(documentedUnits)}, decremented ${quantityFromUnits(existing.decrementedUnits)}`;
+      await materializeCathInventoryShortfallTx(tx, current, {
+        decrementedUnits: existing.decrementedUnits,
+        finalMovementId: existing.finalMovementId,
+        warning
+      });
+      return consumableUsageById(tx, tenantId, current.id);
+    }
+    const batches = await initialCathInventoryBatchesTx(tx, current);
+    if (current.inventory_batch_id) {
+      const exact = batches[0];
+      if (!exact || batchLineageMismatch(exact, {
+        batchNumber: current.batch_number,
+        lotNumber: current.lot_number,
+        expiryDate: current.expiry_date
+      })) {
+        await updateCathInventoryOutcomeTx(tx, current, {
+          status: 'error',
+          warning: 'Inventory batch lineage changed before decrement; clinical usage was saved without a stock decrement'
+        });
+        return consumableUsageById(tx, tenantId, current.id);
+      }
+      if (exact.is_expired || !['in_stock', 'depleted'].includes(String(exact.status))) {
+        await updateCathInventoryOutcomeTx(tx, current, {
+          status: 'error',
+          warning: exact.is_expired
+            ? 'Exact inventory batch is expired; clinical usage was saved without a stock decrement'
+            : 'Exact inventory batch is unavailable; clinical usage was saved without a stock decrement'
+        });
+        return consumableUsageById(tx, tenantId, current.id);
+      }
+    }
+    let remainingUnits = documentedUnits;
+    let decrementedUnits = 0;
+    let finalMovementId = null;
+    const movementKind = current.wasted ? 'dispose' : 'issue';
+    const notes = current.wasted
+      ? `Cath usage #${current.id}: opened but not used${current.waste_reason ? ` — ${current.waste_reason}` : ''}`
+      : `Cath usage #${current.id}: documented for case #${current.case_id}`;
+    for (const batch of batches) {
+      if (remainingUnits <= 0) break;
+      const availableUnits = Math.max(
+        0,
+        Math.round(Number(batch.remaining_quantity || 0) * QUANTITY_SCALE)
+      );
+      const takeUnits = Math.min(remainingUnits, availableUnits);
+      if (takeUnits <= 0) continue;
+      const result = await recordMovementTx(tx, {
         tenantId,
-        inventory_item_id: usage.inventory_item_id,
-        inventory_batch_id: usage.inventory_batch_id,
+        inventory_item_id: current.inventory_item_id,
+        inventory_batch_id: batch.id,
         movement_kind: movementKind,
-        quantity: usage.quantity,
+        quantity: quantityFromUnits(takeUnits),
         reference_type: 'cath_consumable_usage',
-        reference_id: String(usage.id),
-        performed_by: usage.used_by,
+        reference_id: String(current.id),
+        performed_by: current.used_by,
         notes,
         require_usable_batch: true,
-        expected_batch_number: usage.batch_number,
-        expected_lot_number: usage.lot_number,
-        expected_expiry_date: usage.expiry_date
+        expected_batch_number: batch.batch_number,
+        expected_lot_number: batch.lot_number,
+        expected_expiry_date: batch.expiry_date
       });
-      return persistInventoryOutcome(tenantId, usage.id, {
-        status: 'decremented',
-        movementId: result.movement?.id || null
-      });
+      decrementedUnits += takeUnits;
+      remainingUnits -= takeUnits;
+      finalMovementId = result.movement?.id || finalMovementId;
     }
-    const reservation = await reserveStock({
-      tenantId,
-      inventoryItemId: usage.inventory_item_id,
-      quantity: usage.quantity,
-      movementKind,
-      referenceType: 'cath_consumable_usage',
-      referenceId: String(usage.id),
-      performedBy: usage.used_by,
-      notes
-    });
-    if (Number(reservation.short_by || 0) > 0) {
-      const warning = `Insufficient stock: requested ${reservation.requested}, decremented ${reservation.fulfilled}`;
-      return persistInventoryOutcome(tenantId, usage.id, {
-        status: 'insufficient_stock',
+    if (remainingUnits === 0) {
+      await updateCathInventoryOutcomeTx(tx, current, {
+        status: 'decremented',
+        movementId: finalMovementId,
+        warning: null
+      });
+    } else {
+      const warning = `Insufficient stock: documented ${quantityFromUnits(documentedUnits)}, decremented ${quantityFromUnits(decrementedUnits)}`;
+      await materializeCathInventoryShortfallTx(tx, current, {
+        decrementedUnits,
+        finalMovementId,
         warning
       });
     }
-    return persistInventoryOutcome(tenantId, usage.id, { status: 'decremented' });
-  } catch (err) {
-    const insufficient = err?.code === 'INVENTORY_INSUFFICIENT_STOCK'
-      || /insufficient stock/i.test(String(err?.message || ''));
-    const warning = (() => {
-      if (insufficient) {
-        return 'Insufficient stock; clinical usage was saved and inventory requires reconciliation';
-      }
-      if (err?.code === 'INVENTORY_BATCH_EXPIRED') {
-        return 'Exact inventory batch is expired; clinical usage was saved without a stock decrement';
-      }
-      if (err?.code === 'INVENTORY_BATCH_UNAVAILABLE') {
-        return 'Exact inventory batch is unavailable; clinical usage was saved without a stock decrement';
-      }
-      if (err?.code === 'INVENTORY_BATCH_LINEAGE_MISMATCH') {
-        return 'Inventory batch lineage changed before decrement; clinical usage was saved without a stock decrement';
-      }
-      return 'Inventory decrement could not be completed; stock review is required';
-    })();
-    logger[insufficient ? 'warn' : 'error']('Cath consumable inventory decrement failed', {
-      tenantId,
-      usageId: usage.id,
-      inventoryItemId: usage.inventory_item_id,
-      inventoryBatchId: usage.inventory_batch_id,
-      error: err?.message
-    });
-    return persistInventoryOutcome(tenantId, usage.id, {
-      status: insufficient ? 'insufficient_stock' : 'error',
-      warning
-    });
+    return consumableUsageById(tx, tenantId, current.id);
+  });
+}
+
+async function cathInventoryReconciliationRowTx(tx, tenantId, caseId, usageId, {
+  lock = false
+} = {}) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT usage.id AS usage_id,
+            usage.tenant_id,
+            usage.case_id,
+            usage.patient_uid,
+            usage.catalog_item_id,
+            usage.inventory_batch_id,
+            usage.batch_number,
+            usage.lot_number,
+            usage.expiry_date,
+            usage.quantity::numeric(14,4)::text AS documented_quantity,
+            usage.inventory_decrement_status,
+            usage.inventory_movement_id,
+            usage.inventory_warning,
+            usage.wasted,
+            usage.used_by,
+            usage.metadata AS usage_metadata,
+            catalog.item_name,
+            catalog.inventory_item_id,
+            inventory_item.schedule_class,
+            inventory_item.is_narcotic,
+            cath_case.encounter_id,
+            task.id AS task_id,
+            task.status AS task_status,
+            task.assigned_to_uid AS task_assigned_to_uid,
+            task.assigned_to_role AS task_assigned_to_role,
+            COALESCE(
+              task_assignee.uid IS NOT NULL
+              AND task_assignee.is_active = TRUE
+              AND task_assignee.status = 'active'
+              AND COALESCE(task_assignee.is_deleted, FALSE) = FALSE
+              AND task_assignee.role = ANY($6::text[]),
+              FALSE
+            ) AS task_assignee_active,
+            task.workflow_sla_instance_id,
+            task.completed_at AS task_completed_at,
+            task.metadata AS task_metadata,
+            sla.status AS sla_status,
+            sla.started_at AS sla_started_at,
+            sla.due_at,
+            sla.completed_at AS sla_completed_at,
+            sla.assigned_user_uid AS sla_assigned_user_uid,
+            sla.assigned_role_codes AS sla_assigned_role_codes,
+            outbox.payload AS notification_payload,
+            COALESCE(evidence.decremented_quantity, 0::numeric)::numeric(14,4)::text
+              AS decremented_quantity,
+            evidence.final_movement_id,
+            evidence.final_movement_reference_type,
+            COALESCE(operator_state.operator_available, FALSE) AS operator_available
+       FROM cath_case_consumable_usage usage
+       JOIN cath_lab_cases cath_case
+         ON cath_case.tenant_id = usage.tenant_id
+        AND cath_case.id = usage.case_id
+        AND cath_case.patient_uid = usage.patient_uid
+       JOIN cath_consumable_catalog catalog
+         ON catalog.tenant_id = usage.tenant_id
+        AND catalog.id = usage.catalog_item_id
+       JOIN pharmacy_inventory_items inventory_item
+         ON inventory_item.tenant_id = usage.tenant_id
+        AND inventory_item.id = catalog.inventory_item_id
+       JOIN tasks task
+         ON task.tenant_id = usage.tenant_id
+        AND task.related_resource_type = 'cath_case_consumable_usage'
+        AND task.related_resource_id = usage.id::text
+        AND task.metadata->>'task_contract' = $4::text
+       JOIN workflow_sla_instances sla
+         ON sla.tenant_id = usage.tenant_id
+        AND sla.id = task.workflow_sla_instance_id
+        AND sla.rule_code = $5::text
+         AND sla.source_table = 'cath_case_consumable_usage'
+         AND sla.source_id = usage.id::text
+       LEFT JOIN users task_assignee
+         ON task_assignee.tenant_id = task.tenant_id
+        AND task_assignee.uid = task.assigned_to_uid
+       LEFT JOIN notification_outbox outbox
+         ON outbox.tenant_id = usage.tenant_id
+        AND outbox.type = 'cath_inventory_shortfall'
+        AND outbox.source_event_key = 'cath-inventory-shortfall:' || usage.id::text
+       LEFT JOIN LATERAL (
+         SELECT COALESCE(SUM(-movement.quantity_delta), 0::numeric)
+                  AS decremented_quantity,
+                (ARRAY_AGG(movement.id ORDER BY movement.created_at DESC, movement.id DESC)
+                  FILTER (WHERE movement.id IS NOT NULL))[1] AS final_movement_id,
+                (ARRAY_AGG(movement.reference_type
+                  ORDER BY movement.created_at DESC, movement.id DESC)
+                  FILTER (WHERE movement.id IS NOT NULL))[1]
+                  AS final_movement_reference_type
+           FROM pharmacy_stock_movements movement
+          WHERE movement.tenant_id = usage.tenant_id
+            AND (
+              (movement.reference_type = 'cath_consumable_usage'
+               AND movement.reference_id = usage.id::text)
+              OR
+              (movement.reference_type = 'cath_consumable_reconciliation'
+               AND movement.metadata->>'cath_consumable_usage_id' = usage.id::text)
+            )
+       ) evidence ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT EXISTS (
+           SELECT 1
+             FROM users available_operator
+            WHERE available_operator.tenant_id = usage.tenant_id
+              AND available_operator.is_active = TRUE
+              AND available_operator.status = 'active'
+              AND COALESCE(available_operator.is_deleted, FALSE) = FALSE
+              AND available_operator.role = ANY($6::text[])
+         ) AS operator_available
+       ) operator_state ON TRUE
+      WHERE usage.tenant_id = $1::uuid
+        AND usage.case_id = $2::bigint
+        AND usage.id = $3::bigint
+        AND usage.metadata->>'inventory_shortfall_contract' = $4::text
+      LIMIT 1
+      ${lock ? 'FOR UPDATE OF usage, task, sla, inventory_item' : ''}`,
+    tenantId,
+    normalizeId(caseId, 'case_id'),
+    normalizeId(usageId, 'usage_id'),
+    CATH_INVENTORY_SHORTFALL_TASK_CONTRACT,
+    CATH_INVENTORY_SHORTFALL_SLA_RULE,
+    CATH_INVENTORY_SHORTFALL_OPERATOR_ROLES
+  );
+  if (!rows[0]) {
+    throw AppError.notFound(
+      'Cath inventory reconciliation was not found',
+      'CATH_INVENTORY_RECONCILIATION_NOT_FOUND'
+    );
   }
+  return normalizeDbValue(rows[0]);
+}
+
+function assertCathInventoryReconciliationAccess(record, actor, { mutation = false } = {}) {
+  const assignedUid = String(record.task_assigned_to_uid || '').trim().toLowerCase();
+  const assignedRole = String(record.task_assigned_to_role || '').trim().toUpperCase();
+  const queueAccess = !assignedUid && assignedRole === 'PHARMACIST';
+  const assignedAccess = assignedUid && assignedUid === actor.uid.toLowerCase();
+  const staleRecoveryAccess = actor.routine
+    && assignedUid
+    && record.task_assignee_active !== true;
+  const coverageGap = record.notification_payload?.coverage_gap === true
+    || record.operator_available !== true;
+  const coverageAccess = actor.coverage
+    && coverageGap
+    && record.operator_available !== true
+    && !mutation;
+  if (
+    (actor.routine && (queueAccess || assignedAccess || staleRecoveryAccess))
+    || (!mutation && coverageAccess)
+  ) {
+    return;
+  }
+  throw AppError.forbidden(
+    mutation
+      ? 'Cath inventory reconciliation mutations require the assigned pharmacy operator'
+      : 'Not authorized to view this Cath inventory reconciliation',
+    'CATH_INVENTORY_RECONCILIATION_FORBIDDEN'
+  );
+}
+
+function cathInventoryReconciliationView(record, actor) {
+  const documentedUnits = quantityUnits(record.documented_quantity, 'documented_quantity');
+  const decrementedUnits = Math.round(Number(record.decremented_quantity || 0) * QUANTITY_SCALE);
+  const remainingUnits = Math.max(0, documentedUnits - decrementedUnits);
+  const taskActionable = ['open', 'in_progress', 'blocked', 'overdue']
+    .includes(String(record.task_status || '').toLowerCase());
+  const slaActionable = !record.sla_completed_at
+    && ['active', 'breached', 'escalated'].includes(
+      String(record.sla_status || '').toLowerCase()
+    );
+  const actionable = actor.routine
+    && record.inventory_decrement_status === 'insufficient_stock'
+    && remainingUnits > 0
+    && taskActionable
+    && slaActionable;
+  const effectiveSlaStatus = record.sla_completed_at
+    ? 'completed'
+    : String(record.sla_status || 'unknown');
+  return Object.freeze({
+    case_id: String(record.case_id),
+    usage_id: String(record.usage_id),
+    patient_uid: String(record.patient_uid),
+    item_name: String(record.item_name || ''),
+    catalog_item_id: String(record.catalog_item_id),
+    inventory_item_id: String(record.inventory_item_id),
+    inventory_batch_id: record.inventory_batch_id == null
+      ? null
+      : String(record.inventory_batch_id),
+    batch_number: record.batch_number || null,
+    documented_quantity: quantityFromUnits(documentedUnits),
+    decremented_quantity: quantityFromUnits(decrementedUnits),
+    remaining_quantity: quantityFromUnits(remainingUnits),
+    inventory_decrement_status: String(record.inventory_decrement_status),
+    inventory_warning: String(record.inventory_warning || ''),
+    task_id: String(record.task_id),
+    task_status: String(record.task_status),
+    workflow_sla_instance_id: String(record.workflow_sla_instance_id),
+    sla_status: effectiveSlaStatus,
+    sla_recorded_status: String(record.sla_status),
+    due_at: record.due_at || null,
+    actionable,
+    coverage_gap: record.notification_payload?.coverage_gap === true
+      || record.operator_available !== true,
+    deep_link: cathInventoryShortfallDeepLink(record.case_id, record.usage_id),
+    retry_path: cathInventoryReconciliationPath(record.case_id, record.usage_id)
+  });
+}
+
+async function lockCathInventoryReconciliationClaimTx(tx, tenantId, command) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT id, status
+       FROM idempotency_keys
+      WHERE id = $1::int
+        AND tenant_id = $2::uuid
+        AND user_uid = $3::uuid
+        AND request_key = $4::text
+        AND request_body_hash = $5::char(64)
+        AND request_method = 'POST'
+        AND request_path = $6::text
+      FOR UPDATE`,
+    command.claimId,
+    tenantId,
+    command.actor,
+    command.commandKey,
+    command.requestFingerprint,
+    command.requestPath
+  );
+  if (!rows[0] || rows[0].status !== 'in_flight') {
+    throw AppError.conflict(
+      'Cath inventory reconciliation idempotency claim changed before execution',
+      'CATH_INVENTORY_RECONCILIATION_IDEMPOTENCY_CHANGED'
+    );
+  }
+}
+
+async function finaliseCathInventoryReconciliationClaimTx(tx, tenantId, command, result) {
+  const rows = await tx.$queryRawUnsafe(
+    `UPDATE idempotency_keys
+        SET status = 'complete',
+            response_status = 200,
+            response_body = $6::jsonb,
+            expires_at = 'infinity'::timestamptz,
+            updated_at = NOW()
+      WHERE id = $1::int
+        AND tenant_id = $2::uuid
+        AND user_uid = $3::uuid
+        AND request_key = $4::text
+        AND request_body_hash = $5::char(64)
+        AND request_method = 'POST'
+        AND request_path = $7::text
+        AND status = 'in_flight'
+      RETURNING id`,
+    command.claimId,
+    tenantId,
+    command.actor,
+    command.commandKey,
+    command.requestFingerprint,
+    JSON.stringify(cathInventoryReconciliationResponseBody(result, command.requestId)),
+    command.requestPath
+  );
+  if (!rows[0]) {
+    throw AppError.conflict(
+      'Cath inventory reconciliation idempotency claim changed before commit',
+      'CATH_INVENTORY_RECONCILIATION_IDEMPOTENCY_CHANGED'
+    );
+  }
+}
+
+async function recordCathReconciliationMovementTx(tx, usage, batch, {
+  actorRole,
+  command,
+  requestedUnits,
+  takeUnits
+}) {
+  const quantity = quantityFromUnits(takeUnits);
+  const updated = await tx.$queryRawUnsafe(
+    `UPDATE pharmacy_inventory_batches
+        SET remaining_quantity = remaining_quantity - $4::numeric,
+            status = CASE
+              WHEN remaining_quantity - $4::numeric <= 0 THEN 'depleted'
+              ELSE status
+            END,
+            updated_at = NOW()
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int
+        AND inventory_item_id = $3::int
+        AND status = 'in_stock'
+        AND expiry_date >= (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+        AND remaining_quantity >= $4::numeric
+      RETURNING id`,
+    usage.tenant_id,
+    Number(batch.id),
+    Number(usage.inventory_item_id),
+    quantity
+  );
+  if (!updated[0]) {
+    throw AppError.conflict(
+      'Cath inventory batch changed before reconciliation movement',
+      'CATH_INVENTORY_RECONCILIATION_BATCH_CONFLICT'
+    );
+  }
+  const metadata = {
+    command_contract: CATH_INVENTORY_RECONCILIATION_COMMAND_CONTRACT,
+    command_key_sha256: command.commandKeySha256,
+    request_fingerprint: command.requestFingerprint,
+    http_idempotency_claim_id: String(command.claimId),
+    cath_consumable_usage_id: String(usage.usage_id),
+    source_reference_type: 'cath_case_consumable_usage',
+    source_reference_id: String(usage.usage_id),
+    requested_quantity: quantityFromUnits(requestedUnits),
+    quantity_taken: quantity,
+    inventory_batch_id: String(batch.id),
+    actor_role: actorRole,
+    ...(command.requestId ? { request_id: command.requestId } : {})
+  };
+  const rows = await tx.$queryRawUnsafe(
+    `INSERT INTO pharmacy_stock_movements
+       (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
+        quantity_delta, reference_type, reference_id, performed_by, notes, metadata,
+        created_at)
+     VALUES ($1::uuid, $2::int, $3::int, $4::text,
+             -$5::numeric, 'cath_consumable_reconciliation', $6::text,
+             $7::uuid, $8::text, $9::jsonb,
+             date_trunc('milliseconds', clock_timestamp()))
+     RETURNING id, created_at`,
+    usage.tenant_id,
+    Number(usage.inventory_item_id),
+    Number(batch.id),
+    usage.wasted ? 'dispose' : 'issue',
+    quantity,
+    command.commandKeySha256,
+    command.actor,
+    `Cath consumable usage #${String(usage.usage_id)} inventory reconciliation`,
+    JSON.stringify(metadata)
+  );
+  if (!rows[0]) {
+    throw AppError.conflict(
+      'Cath inventory reconciliation movement was not persisted',
+      'CATH_INVENTORY_RECONCILIATION_MOVEMENT_MISSING'
+    );
+  }
+  return rows[0];
+}
+
+export async function getCathConsumableInventoryReconciliation(
+  caseId,
+  usageId,
+  { tenantId, ...context } = {}
+) {
+  const tid = tenantOr(tenantId);
+  const normalizedCaseId = normalizeCathReconciliationId(caseId, 'case_id');
+  const normalizedUsageId = normalizeCathReconciliationId(usageId, 'usage_id');
+  return setTenantTx(tid, async tx => {
+    const actor = await cathInventoryReconciliationActorTx(tx, tid, context);
+    const record = await cathInventoryReconciliationRowTx(
+      tx,
+      tid,
+      normalizedCaseId,
+      normalizedUsageId
+    );
+    assertCathInventoryReconciliationAccess(record, actor);
+    return cathInventoryReconciliationView(record, actor);
+  });
+}
+
+function boundedCathAssignmentRecoveryLimit(value) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(parsed)) return 25;
+  return Math.max(1, Math.min(parsed, 100));
+}
+
+async function cathInventoryStaleAssignmentCandidatesTx(tx, tenantId, limit) {
+  return tx.$queryRawUnsafe(
+    `SELECT task.id::text AS task_id,
+            usage.id::text AS usage_id,
+            task.assigned_to_uid::text AS stale_uid
+       FROM tasks task
+       JOIN cath_case_consumable_usage usage
+         ON usage.tenant_id = task.tenant_id
+        AND usage.id::text = task.related_resource_id
+        AND usage.patient_uid = task.patient_uid
+        AND usage.inventory_decrement_status = 'insufficient_stock'
+        AND usage.metadata->>'inventory_shortfall_contract' = $3::text
+       JOIN workflow_sla_instances sla
+         ON sla.tenant_id = task.tenant_id
+        AND sla.id = task.workflow_sla_instance_id
+        AND sla.rule_code = $4::text
+        AND sla.source_table = 'cath_case_consumable_usage'
+        AND sla.source_id = usage.id::text
+        AND sla.patient_uid = usage.patient_uid
+        AND sla.assigned_user_uid = task.assigned_to_uid
+        AND sla.completed_at IS NULL
+        AND sla.status IN ('active', 'breached', 'escalated')
+      WHERE task.tenant_id = $1::uuid
+        AND task.status IN ('open', 'in_progress', 'blocked', 'overdue')
+        AND task.task_kind = 'review'
+        AND task.sla_completion_semantics = 'domain_evidence'
+        AND task.related_resource_type = 'cath_case_consumable_usage'
+        AND task.related_resource_id = task.metadata->>'cath_consumable_usage_id'
+        AND task.metadata->>'task_contract' = $3::text
+        AND task.metadata->>'sla_key' = $4::text
+        AND task.metadata->>'cath_case_id' = usage.case_id::text
+        AND task.metadata->>'inventory_item_id' ~ '^[1-9][0-9]*$'
+        AND task.metadata->>'movement_kind' IN ('issue', 'dispose')
+        AND task.assigned_to_uid IS NOT NULL
+        AND task.assigned_to_role IS NULL
+        AND NOT EXISTS (
+          SELECT 1
+            FROM users current_owner
+           WHERE current_owner.tenant_id = task.tenant_id
+             AND current_owner.uid = task.assigned_to_uid
+             AND current_owner.is_active = TRUE
+             AND LOWER(COALESCE(current_owner.status, '')) = 'active'
+             AND COALESCE(current_owner.is_deleted, FALSE) = FALSE
+             AND current_owner.deleted_at IS NULL
+             AND current_owner.role = ANY($5::text[])
+        )
+      ORDER BY task.updated_at ASC, task.id ASC
+      LIMIT $2::int`,
+    tenantId,
+    limit,
+    CATH_INVENTORY_SHORTFALL_TASK_CONTRACT,
+    CATH_INVENTORY_SHORTFALL_SLA_RULE,
+    CATH_INVENTORY_SHORTFALL_OPERATOR_ROLES
+  );
+}
+
+async function nextCathInventoryRecoveryOwnerTx(tx, tenantId, staleUid) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT uid::text AS uid, UPPER(BTRIM(role)) AS role
+       FROM users
+      WHERE tenant_id = $1::uuid
+        AND uid IS DISTINCT FROM $2::uuid
+        AND is_active = TRUE
+        AND LOWER(COALESCE(status, '')) = 'active'
+        AND COALESCE(is_deleted, FALSE) = FALSE
+        AND deleted_at IS NULL
+        AND role = ANY($3::text[])
+      ORDER BY CASE UPPER(BTRIM(role))
+                 WHEN 'PHARMACY_INCHARGE' THEN 0
+                 WHEN 'PHARMACIST' THEN 1
+                 ELSE 2
+               END,
+               uid
+      LIMIT 1
+      FOR SHARE`,
+    tenantId,
+    staleUid,
+    CATH_INVENTORY_SHORTFALL_OPERATOR_ROLES
+  );
+  return rows[0] || null;
+}
+
+export async function sweepCathInventoryShortfallAssignments({
+  tenantId,
+  limit = 25
+} = {}) {
+  const tid = tenantOr(tenantId);
+  const boundedLimit = boundedCathAssignmentRecoveryLimit(limit);
+  const candidates = await setTenantTx(tid, tx => (
+    cathInventoryStaleAssignmentCandidatesTx(tx, tid, boundedLimit)
+  ));
+  const summary = {
+    tenant_id: tid,
+    scanned: candidates.length,
+    recovered: 0,
+    coverage_gaps: 0,
+    skipped: 0,
+    failed: 0,
+    recovered_task_ids: [],
+    coverage_gap_task_ids: [],
+    limit: boundedLimit
+  };
+
+  for (const candidate of candidates) {
+    try {
+      const outcome = await setTenantTx(tid, async tx => {
+        const owner = await nextCathInventoryRecoveryOwnerTx(
+          tx,
+          tid,
+          String(candidate.stale_uid)
+        );
+        if (!owner) return { kind: 'coverage_gap' };
+        const recoveryKey = `cath-stale-assignment:${candidate.task_id}:${candidate.stale_uid}`;
+        const task = await recoverCathInventoryShortfallTaskAssignmentTx({
+          tenantId: tid,
+          id: candidate.task_id,
+          actorUid: owner.uid,
+          actorRoles: [owner.role],
+          actorPrimaryRole: owner.role,
+          actorRawRole: owner.role,
+          idempotencyKey: recoveryKey,
+          tx
+        });
+        await tx.$executeRawUnsafe(
+          `INSERT INTO audit_logs
+             (uid, role, action, resource, resource_id, metadata, tenant_id, created_at)
+           VALUES
+             (NULL, 'system', 'CATH_INVENTORY_SHORTFALL_ASSIGNMENT_RECOVERED',
+              'task', $2::text, $3::jsonb, $1::uuid, NOW())`,
+          tid,
+          String(candidate.task_id),
+          JSON.stringify({
+            recovery_source: 'cath-inventory-shortfall-assignment-recovery.v1',
+            consumable_usage_id: String(candidate.usage_id),
+            previous_assigned_to_uid: String(candidate.stale_uid),
+            recovered_assigned_to_uid: String(owner.uid),
+            recovered_assigned_to_role: String(owner.role),
+            task_status: String(task.status)
+          })
+        );
+        return { kind: 'recovered' };
+      });
+      if (outcome.kind === 'coverage_gap') {
+        summary.coverage_gaps += 1;
+        summary.coverage_gap_task_ids.push(String(candidate.task_id));
+      } else {
+        summary.recovered += 1;
+        summary.recovered_task_ids.push(String(candidate.task_id));
+      }
+    } catch (error) {
+      if ([403, 404, 409].includes(Number(error?.statusCode))) {
+        summary.skipped += 1;
+      } else {
+        summary.failed += 1;
+        logger.warn('Cath inventory shortfall assignment recovery failed', {
+          tenantId: tid,
+          taskId: String(candidate.task_id),
+          error: error?.message
+        });
+      }
+    }
+  }
+  return summary;
+}
+
+export async function reconcileCathConsumableInventory(
+  caseId,
+  usageId,
+  { tenantId, ...context } = {}
+) {
+  const tid = tenantOr(tenantId);
+  const normalizedCaseId = normalizeCathReconciliationId(caseId, 'case_id');
+  const normalizedUsageId = normalizeCathReconciliationId(usageId, 'usage_id');
+  const command = normalizeCathInventoryReconciliationCommand({
+    tenantId: tid,
+    caseId: normalizedCaseId,
+    usageId: normalizedUsageId,
+    actorUid: context.actorUid,
+    commandKey: context.idempotencyKey,
+    requestFingerprint: context.requestFingerprint,
+    httpIdempotencyClaimId: context.httpIdempotencyClaimId,
+    requestId: context.requestId
+  });
+  return setTenantTx(tid, async tx => {
+    const actor = await cathInventoryReconciliationActorTx(tx, tid, context);
+    if (!actor.routine) {
+      throw AppError.forbidden(
+        'Only a pharmacy operator may reconcile Cath inventory',
+        'CATH_INVENTORY_RECONCILIATION_PHARMACY_ROLE_REQUIRED'
+      );
+    }
+    await lockCathInventoryReconciliationClaimTx(tx, tid, command);
+    await cathInventoryReconciliationRowTx(
+      tx,
+      tid,
+      normalizedCaseId,
+      normalizedUsageId,
+      { lock: true }
+    );
+    let record = await cathInventoryReconciliationRowTx(
+      tx,
+      tid,
+      normalizedCaseId,
+      normalizedUsageId
+    );
+    assertCathInventoryReconciliationAccess(record, actor, { mutation: true });
+
+    if (record.inventory_decrement_status === 'decremented') {
+      const reconciliation = cathInventoryReconciliationView(record, actor);
+      const result = Object.freeze({ outcome: 'completed', reconciliation });
+      await finaliseCathInventoryReconciliationClaimTx(tx, tid, command, result);
+      return result;
+    }
+    if (record.inventory_decrement_status !== 'insufficient_stock') {
+      throw AppError.conflict(
+        'Cath consumable usage is not in an inventory-shortfall state',
+        'CATH_INVENTORY_RECONCILIATION_NOT_ACTIONABLE'
+      );
+    }
+    if (
+      ['H', 'H1', 'X'].includes(String(record.schedule_class || '').toUpperCase())
+      || record.is_narcotic === true
+    ) {
+      throw AppError.conflict(
+        'Controlled stock requires the statutory dispensing workflow',
+        'CATH_INVENTORY_RECONCILIATION_CONTROLLED_STOCK_FORBIDDEN'
+      );
+    }
+
+    if (
+      record.task_assigned_to_uid
+      && String(record.task_assigned_to_uid).toLowerCase() !== actor.uid.toLowerCase()
+      && actor.routine
+      && record.task_assignee_active !== true
+    ) {
+      await recoverCathInventoryShortfallTaskAssignmentTx({
+        tenantId: tid,
+        id: record.task_id,
+        actorUid: actor.uid,
+        actorRoles: [actor.role],
+        actorPrimaryRole: actor.role,
+        actorRawRole: actor.role,
+        idempotencyKey: command.commandKey,
+        tx
+      });
+      record = await cathInventoryReconciliationRowTx(
+        tx,
+        tid,
+        normalizedCaseId,
+        normalizedUsageId,
+        { lock: true }
+      );
+      assertCathInventoryReconciliationAccess(record, actor, { mutation: true });
+    } else if (!record.task_assigned_to_uid) {
+      await claimInboxTask({
+        tenantId: tid,
+        id: record.task_id,
+        actorUid: actor.uid,
+        actorRoles: [actor.role],
+        actorPrimaryRole: actor.role,
+        actorRawRole: actor.role,
+        idempotencyKey: command.commandKey,
+        tx
+      });
+      record = await cathInventoryReconciliationRowTx(
+        tx,
+        tid,
+        normalizedCaseId,
+        normalizedUsageId,
+        { lock: true }
+      );
+      assertCathInventoryReconciliationAccess(record, actor, { mutation: true });
+    }
+
+    const documentedUnits = quantityUnits(record.documented_quantity, 'documented_quantity');
+    const existing = await cathMovementEvidenceTx(tx, {
+      tenant_id: tid,
+      id: record.usage_id
+    });
+    if (existing.decrementedUnits > documentedUnits) {
+      throw AppError.conflict(
+        'Cath consumable movements exceed the documented quantity',
+        'CATH_INVENTORY_MOVEMENT_OVER_DECREMENT'
+      );
+    }
+    const requestedUnits = documentedUnits - existing.decrementedUnits;
+    let remainingUnits = requestedUnits;
+    let finalMovementId = existing.finalMovementId;
+    const batches = await initialCathInventoryBatchesTx(tx, {
+      tenant_id: tid,
+      inventory_item_id: record.inventory_item_id,
+      inventory_batch_id: record.inventory_batch_id
+    });
+    if (record.inventory_batch_id && batches[0] && batchLineageMismatch(batches[0], {
+      batchNumber: record.batch_number,
+      lotNumber: record.lot_number,
+      expiryDate: record.expiry_date
+    })) {
+      throw AppError.conflict(
+        'Cath inventory batch lineage changed before reconciliation',
+        'CATH_INVENTORY_RECONCILIATION_BATCH_LINEAGE_MISMATCH'
+      );
+    }
+    for (const batch of batches) {
+      if (remainingUnits <= 0) break;
+      if (batch.is_expired || String(batch.status) !== 'in_stock') continue;
+      const availableUnits = Math.max(
+        0,
+        Math.round(Number(batch.remaining_quantity || 0) * QUANTITY_SCALE)
+      );
+      const takeUnits = Math.min(remainingUnits, availableUnits);
+      if (takeUnits <= 0) continue;
+      const movement = await recordCathReconciliationMovementTx(tx, record, batch, {
+        actorRole: actor.role,
+        command,
+        requestedUnits,
+        takeUnits
+      });
+      remainingUnits -= takeUnits;
+      finalMovementId = movement.id;
+    }
+
+    const totalDecrementedUnits = documentedUnits - remainingUnits;
+    if (remainingUnits > 0) {
+      await updateCathInventoryOutcomeTx(tx, {
+        tenant_id: tid,
+        id: record.usage_id
+      }, {
+        status: 'insufficient_stock',
+        movementId: finalMovementId,
+        warning: `Insufficient stock: documented ${quantityFromUnits(documentedUnits)}, decremented ${quantityFromUnits(totalDecrementedUnits)}`
+      });
+    } else {
+      await updateCathInventoryOutcomeTx(tx, {
+        tenant_id: tid,
+        id: record.usage_id
+      }, {
+        status: 'decremented',
+        movementId: finalMovementId,
+        warning: null
+      });
+      await completeTaskFromDomainEvidence({
+        tenantId: tid,
+        id: record.task_id,
+        evidenceKind: 'cath_consumable_inventory_reconciled',
+        evidenceResourceType: 'pharmacy_stock_movement',
+        evidenceResourceId: finalMovementId,
+        actorUid: actor.uid,
+        tx
+      });
+    }
+
+    record = await cathInventoryReconciliationRowTx(
+      tx,
+      tid,
+      normalizedCaseId,
+      normalizedUsageId,
+      { lock: true }
+    );
+    const reconciliation = cathInventoryReconciliationView(record, actor);
+    const result = Object.freeze({
+      outcome: remainingUnits === 0 ? 'completed' : 'still_insufficient',
+      reconciliation
+    });
+    await finaliseCathInventoryReconciliationClaimTx(tx, tid, command, result);
+    return result;
+  });
 }
 
 export async function recordConsumableUsage(caseId, input = {}, context = {}) {
@@ -2458,6 +3786,9 @@ export const __testing__ = {
   normalizeId,
   normalizeDbValue,
   applyConsumableInventoryDecrement,
+  cathInventoryReconciliationRequestFingerprint,
+  normalizeCathInventoryReconciliationCommand,
+  cathInventoryReconciliationView,
   optionalDate,
   batchLineageMismatch,
   evaluateCathInventoryBatch,
@@ -2480,6 +3811,9 @@ export default {
   listCatalogBatches,
   listCaseConsumableUsage,
   recordConsumableUsage,
+  getCathConsumableInventoryReconciliation,
+  sweepCathInventoryShortfallAssignments,
+  reconcileCathConsumableInventory,
   getCathConsumablesBillingSettings,
   upsertCathConsumablesBillingSettings,
   maybeEmitCathBillingLines,

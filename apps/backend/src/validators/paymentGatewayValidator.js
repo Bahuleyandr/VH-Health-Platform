@@ -5,9 +5,8 @@
 // (PR #785 convention). Amount bounds mirror billingV2: positive decimal
 // rupees; the service re-validates against the invoice/link due.
 
-import { body } from 'express-validator';
+import { body, param, query } from 'express-validator';
 import {
-  paramId,
   optionalString,
   optionalEnum,
 } from './sharedValidators.js';
@@ -16,6 +15,11 @@ import { toPaise } from '../utils/money.js';
 const GATEWAY_PROVIDERS = ['razorpay', 'dry_run'];
 const GATEWAY_ENVIRONMENTS = ['sandbox', 'production'];
 const GATEWAY_METHODS = ['upi', 'card', 'netbanking', 'wallet'];
+const PG_INTEGER_MAX = 2147483647;
+
+const gatewayId = (name = 'id') => param(name)
+  .isInt({ min: 1, max: PG_INTEGER_MAX })
+  .withMessage(`${name} must be a positive 32-bit integer`);
 
 /** POST /api/v1/billing/gateway/orders */
 export const gatewayOrderCreateValidator = [
@@ -51,11 +55,11 @@ export const gatewayOrderCreateValidator = [
 ];
 
 /** POST /api/v1/billing/gateway/orders/:id/cancel + GET /orders/:id */
-export const gatewayOrderIdValidator = [paramId('id')];
+export const gatewayOrderIdValidator = [gatewayId('id')];
 
 /** POST /api/v1/billing/gateway/orders/:id/reconcile */
 export const gatewayOrderReconcileValidator = [
-  paramId('id'),
+  gatewayId('id'),
   body('note')
     .exists({ checkFalsy: true }).withMessage('note is required')
     .isString()
@@ -65,12 +69,27 @@ export const gatewayOrderReconcileValidator = [
 
 /** POST /api/v1/billing/gateway/refunds/:id/reconcile */
 export const gatewayRefundReconcileValidator = [
-  paramId('id'),
+  gatewayId('id'),
   body('note')
     .exists({ checkFalsy: true }).withMessage('note is required')
     .isString()
     .trim()
     .isLength({ min: 10, max: 500 }).withMessage('note must be 10-500 chars describing the manual resolution'),
+];
+
+export const gatewayReconciliationQueueValidator = [
+  query('include_resolved')
+    .optional()
+    .isBoolean()
+    .withMessage('include_resolved must be true or false'),
+  query('limit')
+    .optional()
+    .isInt({ min: 1, max: 200 })
+    .withMessage('limit must be an integer between 1 and 200'),
+  query('offset')
+    .optional()
+    .isInt({ min: 0, max: 10000 })
+    .withMessage('offset must be an integer between 0 and 10000'),
 ];
 
 /** POST /api/v1/billing/gateway/refunds */
@@ -116,6 +135,7 @@ export default {
   gatewayOrderIdValidator,
   gatewayOrderReconcileValidator,
   gatewayRefundReconcileValidator,
+  gatewayReconciliationQueueValidator,
   gatewayRefundCreateValidator,
   gatewayConfigUpsertValidator,
 };

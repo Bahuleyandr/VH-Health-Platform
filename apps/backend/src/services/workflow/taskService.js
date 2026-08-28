@@ -26,7 +26,7 @@ import { getStaffRosterRoleCodes } from '../../config/rolePolicyGraph.js';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { isAdmin } from '../../utils/roleHelpers.js';
+import { isAdmin, isDoctor } from '../../utils/roleHelpers.js';
 import { normalizeRole } from '../../utils/roles.js';
 import { isInpatientPendingResultPhysicianRole } from '../emr/inpatientPendingResultPolicy.js';
 import { isValidIdempotencyKey } from '../idempotency/idempotencyService.js';
@@ -131,6 +131,15 @@ const LAB_THRESHOLD_EXCEPTION_TASK_CREATION_AUTHORITY = Symbol(
 const WARD_MEDICATION_TASK_CREATION_AUTHORITY = Symbol(
   'WARD_MEDICATION_TASK_CREATION_AUTHORITY',
 );
+const MAR_MEDICATION_EXCEPTION_TASK_CREATION_AUTHORITY = Symbol(
+  'MAR_MEDICATION_EXCEPTION_TASK_CREATION_AUTHORITY',
+);
+const CATH_INVENTORY_SHORTFALL_TASK_CREATION_AUTHORITY = Symbol(
+  'CATH_INVENTORY_SHORTFALL_TASK_CREATION_AUTHORITY',
+);
+const MAR_MEDICATION_EXCEPTION_TASK_CLAIM_AUTHORITY = Symbol(
+  'MAR_MEDICATION_EXCEPTION_TASK_CLAIM_AUTHORITY',
+);
 const PENDING_RESULT_TASK_SETTLEMENT_AUTHORITY = Symbol(
   'PENDING_RESULT_TASK_SETTLEMENT_AUTHORITY',
 );
@@ -145,6 +154,17 @@ const ED_DESTINATION_HANDOFF_TASK_CONTRACT = 'ed_destination_handoff_review_v1';
 const ED_CLOSURE_TASK_CONTRACT = 'ed_closure_review_v1';
 const LAB_THRESHOLD_EXCEPTION_TASK_CONTRACT = 'lab_threshold_policy_exception_v1';
 const WARD_MEDICATION_TASK_CONTRACT = 'ward_medication_obligation_v1';
+const CLINICAL_ALERT_DELIVERY_RECOVERY_TASK_CONTRACT =
+  'clinical_alert_delivery_recovery_v1';
+const MAR_MEDICATION_EXCEPTION_TASK_CONTRACT = 'mar_medication_exception_v1';
+const CATH_INVENTORY_SHORTFALL_TASK_CONTRACT = 'cath_inventory_shortfall_v1';
+const MAR_MEDICATION_EXCEPTION_EXACT_PRESCRIBER_ROLES = new Set([
+  'DOCTOR',
+  'DUTY_DOCTOR',
+  'CONSULTANT',
+  'JUNIOR_DOCTOR',
+  'RESIDENT',
+]);
 const WARD_MEDICATION_SLA_RULES = new Set([
   'ward_indent_pharmacy_response',
   'ward_indent_substitution_authorization',
@@ -155,6 +175,17 @@ const WARD_MEDICATION_SLA_RULES = new Set([
   'ward_indent_mar_supply_reconciliation',
   'ward_indent_credit_note_review',
   'ward_indent_notification_coverage',
+]);
+const CLINICAL_ALERT_DELIVERY_RECOVERY_SLA_RULES = new Set([
+  'clinical_alert_delivery_manual_hold_review',
+  'clinical_alert_delivery_recipient_coverage',
+]);
+const MAR_MEDICATION_EXCEPTION_SLA_RULE = 'mar_medication_exception_review';
+const CATH_INVENTORY_SHORTFALL_SLA_RULE = 'cath_consumable_inventory_reconciliation';
+const CATH_INVENTORY_SHORTFALL_OPERATOR_ROLES = new Set([
+  'PHARMACIST',
+  'PHARMACY_STAFF',
+  'PHARMACY_INCHARGE',
 ]);
 
 function requiredTaskFactoryTx(tx, code, message) {
@@ -238,6 +269,8 @@ function assertProtectedTaskCreationAllowed({
       PENDING_RESULT_TASK_CREATION_AUTHORITY,
       LAB_THRESHOLD_EXCEPTION_TASK_CREATION_AUTHORITY,
       WARD_MEDICATION_TASK_CREATION_AUTHORITY,
+      MAR_MEDICATION_EXCEPTION_TASK_CREATION_AUTHORITY,
+      CATH_INVENTORY_SHORTFALL_TASK_CREATION_AUTHORITY,
     ].includes(authority)
   ) {
     throw AppError.conflict(
@@ -654,7 +687,8 @@ async function assertTaskSlaSourceBinding({
   if (!slaInstanceId) return null;
   const rows = await db.$queryRawUnsafe(
     `SELECT sla.id, sla.rule_code, sla.source_table, sla.source_id, sla.due_at,
-            sla.status, sla.completed_at
+            sla.status, sla.completed_at, sla.assigned_user_uid,
+            sla.assigned_role_codes
        FROM workflow_sla_instances sla
       WHERE sla.tenant_id = $1::uuid
         AND sla.id = $2::uuid
@@ -709,6 +743,40 @@ async function assertTaskSlaSourceBinding({
   } else if (sla && WARD_MEDICATION_SLA_RULES.has(String(sla.rule_code))) {
     valid = taskRow.sla_completion_semantics === 'domain_evidence'
       && Boolean(taskResourceType && taskResourceId)
+      && sourceTable === taskResourceType
+      && sourceId === taskResourceId;
+  } else if (
+    sla
+    && CLINICAL_ALERT_DELIVERY_RECOVERY_SLA_RULES.has(String(sla.rule_code))
+  ) {
+    const caseKind = String(taskRow?.metadata?.case_kind || '');
+    const expectedRule = caseKind === 'manual_hold'
+      ? 'clinical_alert_delivery_manual_hold_review'
+      : caseKind === 'recipient_coverage'
+        ? 'clinical_alert_delivery_recipient_coverage'
+        : null;
+    valid = taskRow.sla_completion_semantics === 'domain_evidence'
+      && taskRow?.metadata?.task_contract
+        === CLINICAL_ALERT_DELIVERY_RECOVERY_TASK_CONTRACT
+      && taskResourceType === 'clinical_alert_delivery_recovery_cases'
+      && Boolean(taskResourceId)
+      && sourceTable === taskResourceType
+      && sourceId === taskResourceId
+      && sla.rule_code === expectedRule;
+  } else if (sla?.rule_code === MAR_MEDICATION_EXCEPTION_SLA_RULE) {
+    valid = taskRow.sla_completion_semantics === 'domain_evidence'
+      && taskRow?.metadata?.task_contract === MAR_MEDICATION_EXCEPTION_TASK_CONTRACT
+      && taskResourceType === 'mar_medication_exception_cases'
+      && Boolean(taskResourceId)
+      && taskResourceId === String(taskRow?.metadata?.exception_case_id || '')
+      && sourceTable === taskResourceType
+      && sourceId === taskResourceId;
+  } else if (sla?.rule_code === CATH_INVENTORY_SHORTFALL_SLA_RULE) {
+    valid = taskRow.sla_completion_semantics === 'domain_evidence'
+      && taskRow?.metadata?.task_contract === CATH_INVENTORY_SHORTFALL_TASK_CONTRACT
+      && taskResourceType === 'cath_case_consumable_usage'
+      && /^[1-9]\d*$/.test(String(taskResourceId || ''))
+      && taskResourceId === String(taskRow?.metadata?.cath_consumable_usage_id || '')
       && sourceTable === taskResourceType
       && sourceId === taskResourceId;
   }
@@ -925,6 +993,7 @@ export async function createTask({
       workflow_step_id: cleanWorkflowStepId,
       related_resource_type: cleanRelatedResourceType,
       related_resource_id: cleanRelatedResourceId,
+      metadata: cleanMetadata,
     },
     db,
   });
@@ -1079,6 +1148,168 @@ export async function createWardMedicationObligationTaskTx({
       task_contract: WARD_MEDICATION_TASK_CONTRACT,
     },
     protectedTaskCreationAuthority: WARD_MEDICATION_TASK_CREATION_AUTHORITY,
+    tx: db,
+    onConflictResourceDoNothing: true,
+  });
+}
+
+export async function createMarMedicationExceptionTaskTx({
+  tenantId = null,
+  title,
+  description = null,
+  patientUid,
+  encounterId = null,
+  relatedResourceId,
+  assignedToUid = null,
+  assignedToRole = null,
+  createdBy,
+  workflowSlaInstanceId,
+  stageOccurrenceKey,
+  metadata = null,
+  tx,
+} = {}) {
+  const db = requiredTaskFactoryTx(
+    tx,
+    'MAR_EXCEPTION_TASK_TRANSACTION_REQUIRED',
+    'MAR medication exception tasks require the caller transaction',
+  );
+  const slaId = maybeUuid(workflowSlaInstanceId, 'workflow_sla_instance_id');
+  if (!slaId) {
+    throw AppError.internal(
+      'MAR medication exception tasks require a linked workflow SLA',
+      'MAR_EXCEPTION_TASK_SLA_REQUIRED',
+    );
+  }
+  const caseId = safeText(relatedResourceId, 120);
+  const cleanMetadata = normalizeTaskMetadata(metadata);
+  const medicationAdministrationId = String(
+    cleanMetadata?.medication_administration_id || '',
+  );
+  const exceptionKind = safeText(cleanMetadata?.exception_kind, 20);
+  if (
+    !/^[1-9][0-9]{0,18}$/.test(caseId)
+    || BigInt(caseId) > 9223372036854775807n
+    || !/^[1-9]\d*$/.test(medicationAdministrationId)
+    || !['held', 'missed'].includes(exceptionKind)
+  ) {
+    throw AppError.internal(
+      'MAR medication exception task identity is invalid',
+      'MAR_EXCEPTION_TASK_IDENTITY_INVALID',
+    );
+  }
+  const cleanCanonicalEncounterId = maybeUuid(encounterId, 'encounter_id');
+  return createTask({
+    tenantId,
+    taskKind: 'review',
+    title,
+    description,
+    patientUid,
+    relatedResourceType: 'mar_medication_exception_cases',
+    relatedResourceId: caseId,
+    priority: 'critical',
+    assignedToUid,
+    assignedToRole,
+    createdBy,
+    workflowSlaInstanceId: slaId,
+    slaCompletionSemantics: 'domain_evidence',
+    stageOccurrenceKey,
+    metadata: {
+      ...cleanMetadata,
+      exception_case_id: caseId,
+      medication_administration_id: Number(medicationAdministrationId),
+      exception_kind: exceptionKind,
+      assignment_origin: assignedToUid
+        ? 'source_prescriber'
+        : 'prescriber_coverage_queue',
+      sla_key: MAR_MEDICATION_EXCEPTION_SLA_RULE,
+      ...(cleanCanonicalEncounterId
+        ? { canonical_encounter_id: cleanCanonicalEncounterId }
+        : {}),
+      task_contract: MAR_MEDICATION_EXCEPTION_TASK_CONTRACT,
+    },
+    protectedTaskCreationAuthority: MAR_MEDICATION_EXCEPTION_TASK_CREATION_AUTHORITY,
+    tx: db,
+    onConflictResourceDoNothing: true,
+  });
+}
+
+export async function createCathInventoryShortfallTaskTx({
+  tenantId = null,
+  title,
+  description = null,
+  patientUid,
+  encounterId = null,
+  relatedResourceId,
+  createdBy,
+  workflowSlaInstanceId,
+  stageOccurrenceKey,
+  metadata = null,
+  tx,
+} = {}) {
+  const db = requiredTaskFactoryTx(
+    tx,
+    'CATH_INVENTORY_SHORTFALL_TASK_TRANSACTION_REQUIRED',
+    'Cath inventory shortfall tasks require the caller transaction',
+  );
+  const slaId = maybeUuid(workflowSlaInstanceId, 'workflow_sla_instance_id');
+  if (!slaId) {
+    throw AppError.internal(
+      'Cath inventory shortfall tasks require a linked workflow SLA',
+      'CATH_INVENTORY_SHORTFALL_TASK_SLA_REQUIRED',
+    );
+  }
+  const usageId = safeText(relatedResourceId, 120);
+  const cleanMetadata = normalizeTaskMetadata(metadata);
+  const caseId = String(cleanMetadata?.cath_case_id || '').trim();
+  const inventoryItemId = String(cleanMetadata?.inventory_item_id || '').trim();
+  const movementKind = safeText(cleanMetadata?.movement_kind, 20);
+  const expectedStageOccurrenceKey = `cath-inventory-shortfall:usage:${usageId}`;
+  const expectedDeepLink = '/pharmacy/cath-inventory-reconciliation'
+    + `?case_id=${caseId}&consumable_usage_id=${usageId}`;
+  const expectedRetryPath = `/api/v1/cath-lab/cases/${caseId}`
+    + `/consumables/${usageId}/inventory-reconcile`;
+  if (
+    !/^[1-9]\d*$/.test(usageId)
+    || !/^[1-9]\d*$/.test(caseId)
+    || !/^[1-9]\d*$/.test(inventoryItemId)
+    || !['issue', 'dispose'].includes(movementKind)
+    || stageOccurrenceKey !== expectedStageOccurrenceKey
+    || cleanMetadata?.deep_link !== expectedDeepLink
+    || cleanMetadata?.retry_path !== expectedRetryPath
+  ) {
+    throw AppError.internal(
+      'Cath inventory shortfall task identity is invalid',
+      'CATH_INVENTORY_SHORTFALL_TASK_IDENTITY_INVALID',
+    );
+  }
+  const cleanCanonicalEncounterId = maybeUuid(encounterId, 'encounter_id');
+  return createTask({
+    tenantId,
+    taskKind: 'review',
+    title,
+    description,
+    patientUid,
+    relatedResourceType: 'cath_case_consumable_usage',
+    relatedResourceId: usageId,
+    priority: 'high',
+    assignedToRole: 'PHARMACIST',
+    createdBy,
+    workflowSlaInstanceId: slaId,
+    slaCompletionSemantics: 'domain_evidence',
+    stageOccurrenceKey,
+    metadata: {
+      ...cleanMetadata,
+      cath_consumable_usage_id: usageId,
+      cath_case_id: caseId,
+      inventory_item_id: inventoryItemId,
+      movement_kind: movementKind,
+      sla_key: CATH_INVENTORY_SHORTFALL_SLA_RULE,
+      ...(cleanCanonicalEncounterId
+        ? { canonical_encounter_id: cleanCanonicalEncounterId }
+        : {}),
+      task_contract: CATH_INVENTORY_SHORTFALL_TASK_CONTRACT,
+    },
+    protectedTaskCreationAuthority: CATH_INVENTORY_SHORTFALL_TASK_CREATION_AUTHORITY,
     tx: db,
     onConflictResourceDoNothing: true,
   });
@@ -1800,6 +2031,29 @@ function assertGenericTaskMutationAllowed(taskRow, authority = null) {
   }
 }
 
+function assertGovernedClinicalTaskTransitionAllowed(
+  taskRow,
+  nextStatus,
+  domainEvidenceAuthority = null,
+) {
+  if (domainEvidenceAuthority === DOMAIN_EVIDENCE_COMPLETION_AUTHORITY) return;
+  if (isMarMedicationExceptionContractBoundTask(taskRow)) {
+    throw AppError.conflict(
+      'MAR medication exception tasks must be actioned through the medication-exception workflow',
+      'MAR_EXCEPTION_TASK_WORKFLOW_REQUIRED',
+    );
+  }
+  if (
+    isClinicalAlertDeliveryRecoveryContractBoundTask(taskRow)
+    && !(taskRow?.status === 'open' && nextStatus === 'in_progress')
+  ) {
+    throw AppError.conflict(
+      'Clinical alert recovery tasks must be actioned through the recovery workflow',
+      'CLINICAL_ALERT_RECOVERY_TASK_WORKFLOW_REQUIRED',
+    );
+  }
+}
+
 export async function transitionTask({
   tenantId = null, id, nextStatus,
   cancellationReason = null,
@@ -1838,6 +2092,16 @@ export async function transitionTask({
   const db = tx;
 
   const current = await getTaskForUpdate({ tenantId: tid, id: taskId, db });
+  assertGovernedClinicalTaskTransitionAllowed(current, cleanNext, domainEvidenceAuthority);
+  if (
+    isCathInventoryShortfallContractBoundTask(current)
+    && domainEvidenceAuthority !== DOMAIN_EVIDENCE_COMPLETION_AUTHORITY
+  ) {
+    throw AppError.conflict(
+      'Cath inventory shortfall tasks must be actioned through the inventory reconciliation workflow',
+      'CATH_INVENTORY_SHORTFALL_TASK_WORKFLOW_REQUIRED',
+    );
+  }
   assertGenericTaskMutationAllowed(
     current,
     coveringTransferTaskAuthority
@@ -3124,6 +3388,117 @@ const DOMAIN_EVIDENCE_VALIDATORS = Object.freeze({
       decision: rows[0].event_type,
     };
   },
+  billing_credit_note_application: async ({
+    tenantId, taskRow, evidenceResourceType, evidenceResourceId, db,
+  }) => {
+    if (
+      evidenceResourceType !== 'billing_credit_note_event'
+      || taskRow?.metadata?.task_contract !== WARD_MEDICATION_TASK_CONTRACT
+      || taskRow?.metadata?.obligation_kind !== 'credit_note_review'
+    ) {
+      return null;
+    }
+    const evidenceId = String(evidenceResourceId || '').trim();
+    const creditNoteId = String(taskRow?.metadata?.credit_note_id || '').trim();
+    if (!/^[1-9]\d*$/.test(evidenceId) || !/^[1-9]\d*$/.test(creditNoteId)) return null;
+    const rows = await db.$queryRawUnsafe(
+      `SELECT event.id, event.credit_note_id, event.occurred_at,
+              (EXTRACT(EPOCH FROM event.occurred_at) * 1000)::double precision AS occurred_at_epoch_ms
+         FROM billing_credit_note_events event
+         JOIN workflow_sla_instances sla
+           ON sla.tenant_id = event.tenant_id
+          AND sla.id = $4::uuid
+        WHERE event.tenant_id = $1::uuid
+          AND event.id::text = $2::text
+          AND event.credit_note_id::text = $3::text
+          AND event.event_type = 'applied'
+          AND sla.rule_code = 'ward_indent_credit_note_review'
+          AND sla.source_table = $5::text
+          AND sla.source_id = $6::text
+        LIMIT 1`,
+      tenantId,
+      evidenceId,
+      creditNoteId,
+      taskRow.workflow_sla_instance_id,
+      String(taskRow.related_resource_type || ''),
+      String(taskRow.related_resource_id || ''),
+    );
+    if (!rows[0]) return null;
+    const occurredAt = new Date(rows[0].occurred_at_epoch_ms).toISOString();
+    return {
+      kind: 'billing_credit_note_application',
+      resource_type: 'billing_credit_note_event',
+      resource_id: String(rows[0].id),
+      occurred_at: occurredAt,
+      recorded_at: occurredAt,
+      credit_note_id: String(rows[0].credit_note_id),
+      event_type: 'applied',
+    };
+  },
+  billing_credit_note_refund_paid: async ({
+    tenantId, taskRow, evidenceResourceType, evidenceResourceId, db,
+  }) => {
+    if (
+      evidenceResourceType !== 'billing_refund'
+      || taskRow?.metadata?.task_contract !== WARD_MEDICATION_TASK_CONTRACT
+      || taskRow?.metadata?.obligation_kind !== 'credit_note_review'
+    ) {
+      return null;
+    }
+    const refundId = String(evidenceResourceId || '').trim();
+    const creditNoteId = String(taskRow?.metadata?.credit_note_id || '').trim();
+    if (
+      !/^[1-9]\d*$/.test(refundId)
+      || !/^[1-9]\d*$/.test(creditNoteId)
+      || String(taskRow?.metadata?.refund_id || '') !== refundId
+    ) {
+      return null;
+    }
+    const rows = await db.$queryRawUnsafe(
+      `SELECT refund.id, refund.paid_at, refund.payout_rail,
+              COALESCE(refund.paid_by, execution.initiated_by) AS completion_actor,
+              (EXTRACT(EPOCH FROM refund.paid_at) * 1000)::double precision AS paid_at_epoch_ms
+         FROM billing_refunds refund
+         JOIN billing_credit_notes note
+           ON note.tenant_id = refund.tenant_id
+          AND note.refund_id = refund.id
+          AND note.id::text = $3::text
+         JOIN workflow_sla_instances sla
+           ON sla.tenant_id = refund.tenant_id
+          AND sla.id = $4::uuid
+         LEFT JOIN payment_gateway_refunds execution
+           ON execution.tenant_id = refund.tenant_id
+          AND execution.id = refund.gateway_refund_id
+          AND execution.billing_refund_id = refund.id
+        WHERE refund.tenant_id = $1::uuid
+          AND refund.id::text = $2::text
+          AND refund.approval_status = 'PAID'
+          AND refund.paid_at IS NOT NULL
+          AND COALESCE(refund.paid_by, execution.initiated_by) IS NOT NULL
+          AND sla.rule_code = 'ward_indent_credit_note_review'
+          AND sla.source_table = $5::text
+          AND sla.source_id = $6::text
+        LIMIT 1`,
+      tenantId,
+      refundId,
+      creditNoteId,
+      taskRow.workflow_sla_instance_id,
+      String(taskRow.related_resource_type || ''),
+      String(taskRow.related_resource_id || ''),
+    );
+    if (!rows[0]) return null;
+    const paidAt = new Date(rows[0].paid_at_epoch_ms).toISOString();
+    return {
+      kind: 'billing_credit_note_refund_paid',
+      resource_type: 'billing_refund',
+      resource_id: String(rows[0].id),
+      occurred_at: paidAt,
+      recorded_at: paidAt,
+      credit_note_id: creditNoteId,
+      payout_rail: rows[0].payout_rail,
+      completion_actor: String(rows[0].completion_actor),
+    };
+  },
   mar_supply_reconciled: async ({
     tenantId, taskRow, evidenceResourceType, evidenceResourceId, db,
   }) => {
@@ -3189,6 +3564,249 @@ const DOMAIN_EVIDENCE_VALIDATORS = Object.freeze({
       recorded_at: occurredAt,
       unmatched_consumption_id: String(rows[0].unmatched_consumption_id),
       medication_administration_id: String(rows[0].medication_administration_id),
+    };
+  },
+  mar_medication_exception_resolution: async ({
+    tenantId,
+    taskRow,
+    evidenceResourceType,
+    evidenceResourceId,
+    actorUid,
+    db,
+  }) => {
+    if (
+      evidenceResourceType !== 'mar_medication_exception_event'
+      || taskRow?.metadata?.task_contract !== MAR_MEDICATION_EXCEPTION_TASK_CONTRACT
+      || taskRow?.related_resource_type !== 'mar_medication_exception_cases'
+    ) {
+      return null;
+    }
+    const evidenceId = String(evidenceResourceId || '').trim();
+    const caseId = String(taskRow?.metadata?.exception_case_id || '').trim();
+    const medicationAdministrationId = String(
+      taskRow?.metadata?.medication_administration_id || '',
+    ).trim();
+    if (
+      !/^[1-9]\d*$/.test(evidenceId)
+      || !/^[1-9]\d*$/.test(caseId)
+      || !/^[1-9]\d*$/.test(medicationAdministrationId)
+      || String(taskRow.related_resource_id || '') !== caseId
+      || !actorUid
+    ) {
+      return null;
+    }
+    const rows = await db.$queryRawUnsafe(
+      `SELECT event.id,
+              event.disposition,
+              event.occurred_at,
+              event.actor_uid::text,
+              (EXTRACT(EPOCH FROM event.occurred_at) * 1000)::double precision
+                AS occurred_at_epoch_ms
+         FROM mar_medication_exception_events event
+         JOIN mar_medication_exception_cases exception_case
+           ON exception_case.tenant_id = event.tenant_id
+          AND exception_case.id = event.exception_case_id
+         JOIN medication_administrations administration
+           ON administration.tenant_id = exception_case.tenant_id
+          AND administration.id = exception_case.medication_administration_id
+         JOIN workflow_sla_instances sla
+           ON sla.tenant_id = exception_case.tenant_id
+          AND sla.id = exception_case.workflow_sla_instance_id
+        WHERE event.tenant_id = $1::uuid
+          AND event.id::text = $2::text
+          AND event.exception_case_id::text = $3::text
+          AND event.medication_administration_id::text = $4::text
+          AND event.event_type = 'resolved'
+          AND event.actor_uid = $5::uuid
+          AND exception_case.task_id = $6::integer
+          AND exception_case.exception_kind = $7::text
+          AND sla.rule_code = $8::text
+          AND sla.source_table = $9::text
+          AND sla.source_id = $10::text
+           AND (
+             (exception_case.exception_kind = 'held'
+              AND event.disposition IN ('hold_released', 'order_stopped'))
+            OR
+            (exception_case.exception_kind = 'missed'
+             AND event.disposition IN (
+               'reviewed_no_replacement',
+               'replacement_ordered',
+               'order_stopped'
+             ))
+           )
+           AND (
+             event.disposition <> 'hold_released'
+             OR LOWER(administration.status) = 'scheduled'
+           )
+          AND (
+            event.disposition <> 'replacement_ordered'
+            OR EXISTS (
+              SELECT 1
+                FROM clinical_orders replacement_order
+               WHERE replacement_order.tenant_id = event.tenant_id
+                 AND replacement_order.id = event.replacement_clinical_order_id
+                 AND replacement_order.id IS DISTINCT FROM exception_case.clinical_order_id
+                 AND replacement_order.patient_uid = exception_case.patient_uid
+                 AND replacement_order.order_type = 'medication'
+                 AND LOWER(replacement_order.status) IN ('ordered', 'verified', 'in_progress')
+                 AND replacement_order.created_at >= exception_case.raised_at
+            )
+          )
+          AND (
+            event.disposition <> 'order_stopped'
+            OR EXISTS (
+              SELECT 1
+                FROM clinical_orders stopped_order
+               WHERE stopped_order.tenant_id = exception_case.tenant_id
+                 AND stopped_order.id = exception_case.clinical_order_id
+                 AND LOWER(stopped_order.status) NOT IN ('ordered', 'verified', 'in_progress')
+            )
+          )
+        LIMIT 1`,
+      tenantId,
+      evidenceId,
+      caseId,
+      medicationAdministrationId,
+      actorUid,
+      Number(taskRow.id),
+      String(taskRow?.metadata?.exception_kind || ''),
+      MAR_MEDICATION_EXCEPTION_SLA_RULE,
+      String(taskRow.related_resource_type || ''),
+      String(taskRow.related_resource_id || ''),
+    );
+    if (!rows[0]) return null;
+    const occurredAt = new Date(rows[0].occurred_at_epoch_ms).toISOString();
+    return {
+      kind: 'mar_medication_exception_resolution',
+      resource_type: 'mar_medication_exception_event',
+      resource_id: String(rows[0].id),
+      occurred_at: occurredAt,
+      recorded_at: occurredAt,
+      disposition: rows[0].disposition,
+      actor_uid: String(rows[0].actor_uid),
+    };
+  },
+  cath_consumable_inventory_reconciled: async ({
+    tenantId, taskRow, evidenceResourceType, evidenceResourceId, actorUid, db,
+  }) => {
+    if (
+      evidenceResourceType !== 'pharmacy_stock_movement'
+      || taskRow?.metadata?.task_contract !== CATH_INVENTORY_SHORTFALL_TASK_CONTRACT
+      || taskRow?.related_resource_type !== 'cath_case_consumable_usage'
+      || !actorUid
+    ) {
+      return null;
+    }
+    const evidenceId = String(evidenceResourceId || '').trim();
+    const usageId = String(taskRow?.metadata?.cath_consumable_usage_id || '').trim();
+    if (
+      !/^[1-9]\d*$/.test(evidenceId)
+      || !/^[1-9]\d*$/.test(usageId)
+      || String(taskRow.related_resource_id || '') !== usageId
+    ) {
+      return null;
+    }
+    const rows = await db.$queryRawUnsafe(
+      `SELECT usage.id,
+              usage.quantity::numeric(14,4)::text AS documented_quantity,
+              evidence.id AS evidence_id,
+              (EXTRACT(EPOCH FROM evidence.created_at) * 1000)::double precision
+                AS evidence_created_at_epoch_ms
+         FROM cath_case_consumable_usage usage
+         JOIN cath_lab_cases cath_case
+           ON cath_case.tenant_id = usage.tenant_id
+          AND cath_case.id = usage.case_id
+          AND cath_case.patient_uid = usage.patient_uid
+         JOIN cath_consumable_catalog catalog
+           ON catalog.tenant_id = usage.tenant_id
+          AND catalog.id = usage.catalog_item_id
+         JOIN workflow_sla_instances sla
+           ON sla.tenant_id = usage.tenant_id
+          AND sla.id = $4::uuid
+          AND sla.rule_code = $5::text
+          AND sla.source_table = 'cath_case_consumable_usage'
+          AND sla.source_id = usage.id::text
+         JOIN pharmacy_stock_movements evidence
+           ON evidence.tenant_id = usage.tenant_id
+          AND evidence.id::text = $2::text
+          AND evidence.id = usage.inventory_movement_id
+          AND evidence.reference_type = 'cath_consumable_reconciliation'
+          AND evidence.metadata->>'cath_consumable_usage_id' = usage.id::text
+          AND evidence.performed_by = $6::uuid
+        WHERE usage.tenant_id = $1::uuid
+          AND usage.id::text = $3::text
+          AND usage.inventory_decrement_status = 'decremented'
+          AND catalog.inventory_item_id IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1
+              FROM pharmacy_stock_movements invalid
+             WHERE invalid.tenant_id = usage.tenant_id
+               AND (
+                 (invalid.reference_type = 'cath_consumable_usage'
+                  AND invalid.reference_id = usage.id::text)
+                 OR
+                 (invalid.reference_type = 'cath_consumable_reconciliation'
+                  AND invalid.metadata->>'cath_consumable_usage_id' = usage.id::text)
+               )
+               AND (
+                 invalid.inventory_item_id IS DISTINCT FROM catalog.inventory_item_id
+                 OR invalid.quantity_delta >= 0
+                 OR invalid.movement_kind IS DISTINCT FROM
+                      CASE WHEN usage.wasted THEN 'dispose' ELSE 'issue' END
+                 OR (
+                   usage.inventory_batch_id IS NOT NULL
+                   AND invalid.inventory_batch_id IS DISTINCT FROM usage.inventory_batch_id
+                 )
+                 OR (
+                   invalid.reference_type = 'cath_consumable_reconciliation'
+                   AND (
+                     invalid.reference_id !~ '^[0-9a-f]{64}$'
+                     OR invalid.metadata->>'command_contract'
+                          IS DISTINCT FROM 'cath_inventory_reconciliation_v1'
+                     OR invalid.metadata->>'command_key_sha256'
+                          IS DISTINCT FROM invalid.reference_id
+                     OR invalid.metadata->>'request_fingerprint' !~ '^[0-9a-f]{64}$'
+                     OR invalid.metadata->>'http_idempotency_claim_id' !~ '^[1-9][0-9]*$'
+                     OR invalid.metadata->>'source_reference_type'
+                          IS DISTINCT FROM 'cath_case_consumable_usage'
+                     OR invalid.metadata->>'source_reference_id'
+                          IS DISTINCT FROM usage.id::text
+                   )
+                 )
+               )
+          )
+          AND (
+            SELECT COALESCE(SUM(-movement.quantity_delta), 0::numeric)
+              FROM pharmacy_stock_movements movement
+             WHERE movement.tenant_id = usage.tenant_id
+               AND (
+                 (movement.reference_type = 'cath_consumable_usage'
+                  AND movement.reference_id = usage.id::text)
+                 OR
+                 (movement.reference_type = 'cath_consumable_reconciliation'
+                  AND movement.metadata->>'cath_consumable_usage_id' = usage.id::text)
+               )
+          ) = usage.quantity
+        LIMIT 1`,
+      tenantId,
+      evidenceId,
+      usageId,
+      taskRow.workflow_sla_instance_id,
+      CATH_INVENTORY_SHORTFALL_SLA_RULE,
+      actorUid,
+    );
+    if (!rows[0]) return null;
+    const recordedAt = new Date(rows[0].evidence_created_at_epoch_ms).toISOString();
+    return {
+      kind: 'cath_consumable_inventory_reconciled',
+      resource_type: 'pharmacy_stock_movement',
+      resource_id: String(rows[0].evidence_id),
+      occurred_at: recordedAt,
+      recorded_at: recordedAt,
+      cath_consumable_usage_id: String(rows[0].id),
+      documented_quantity: rows[0].documented_quantity,
+      decremented_quantity: rows[0].documented_quantity,
+      actor_uid: String(actorUid),
     };
   },
   notification_coverage_restored: async ({
@@ -3292,6 +3910,7 @@ export async function completeTaskFromDomainEvidence({
     taskRow: current,
     evidenceResourceType: safeText(evidenceResourceType, 120),
     evidenceResourceId,
+    actorUid,
     db: tx,
   });
   if (!evidence) {
@@ -3309,6 +3928,7 @@ export async function completeTaskFromDomainEvidence({
         id: taskId,
         nextStatus: 'in_progress',
         executorAuthority,
+        domainEvidenceAuthority: DOMAIN_EVIDENCE_COMPLETION_AUTHORITY,
         slaSourceBindingAuthority: TASK_SLA_SOURCE_BINDING_AUTHORITY,
         tx,
       });
@@ -3323,6 +3943,48 @@ export async function completeTaskFromDomainEvidence({
       slaSourceBindingAuthority: TASK_SLA_SOURCE_BINDING_AUTHORITY,
       tx,
     });
+    if (isMarMedicationExceptionContractBoundTask(current)) {
+      const stamped = await tx.$queryRawUnsafe(
+        `UPDATE tasks
+            SET completed_at = $3::timestamptz,
+                updated_at = $3::timestamptz
+          WHERE tenant_id = $1::uuid
+            AND id = $2::integer
+            AND status = 'completed'
+          RETURNING ${TASK_RETURNING}`,
+        tid,
+        taskId,
+        evidence.recorded_at,
+      );
+      if (!stamped[0]) {
+        throw AppError.conflict(
+          'MAR medication exception task completion timestamp changed concurrently',
+          'MAR_EXCEPTION_TASK_COMPLETION_CONFLICT',
+        );
+      }
+      current = stamped[0];
+    }
+    if (isCathInventoryShortfallContractBoundTask(current)) {
+      const stamped = await tx.$queryRawUnsafe(
+        `UPDATE tasks
+            SET completed_at = $3::timestamptz,
+                updated_at = $3::timestamptz
+          WHERE tenant_id = $1::uuid
+            AND id = $2::integer
+            AND status = 'completed'
+          RETURNING ${TASK_RETURNING}`,
+        tid,
+        taskId,
+        evidence.recorded_at,
+      );
+      if (!stamped[0]) {
+        throw AppError.conflict(
+          'Cath inventory shortfall task completion timestamp changed concurrently',
+          'CATH_INVENTORY_SHORTFALL_TASK_COMPLETION_CONFLICT',
+        );
+      }
+      current = stamped[0];
+    }
   }
 
   const completedSla = await completeLinkedSla({
@@ -3845,14 +4507,151 @@ function acknowledgedByUid(taskRow) {
     .test(value) ? value : null;
 }
 
+function isMarMedicationExceptionContractBoundTask(taskRow) {
+  return taskRow?.metadata?.task_contract === MAR_MEDICATION_EXCEPTION_TASK_CONTRACT
+    || taskRow?.related_resource_type === 'mar_medication_exception_cases'
+    || taskRow?.metadata?.sla_key === MAR_MEDICATION_EXCEPTION_SLA_RULE;
+}
+
+function isClinicalAlertDeliveryRecoveryContractBoundTask(taskRow) {
+  return taskRow?.metadata?.task_contract
+      === CLINICAL_ALERT_DELIVERY_RECOVERY_TASK_CONTRACT
+    || taskRow?.related_resource_type === 'clinical_alert_delivery_recovery_cases'
+    || CLINICAL_ALERT_DELIVERY_RECOVERY_SLA_RULES.has(
+      String(taskRow?.metadata?.sla_key || ''),
+    );
+}
+
+function isCathInventoryShortfallContractBoundTask(taskRow) {
+  return taskRow?.metadata?.task_contract === CATH_INVENTORY_SHORTFALL_TASK_CONTRACT
+    || taskRow?.related_resource_type === 'cath_case_consumable_usage'
+    || taskRow?.metadata?.sla_key === CATH_INVENTORY_SHORTFALL_SLA_RULE;
+}
+
+function isCathInventoryShortfallOperatorRole(role) {
+  return CATH_INVENTORY_SHORTFALL_OPERATOR_ROLES.has(
+    String(role || '').trim().toUpperCase(),
+  );
+}
+
+function isExactCathInventoryShortfallTask(taskRow) {
+  const resourceId = String(taskRow?.related_resource_id || '').trim();
+  return taskRow?.task_kind === 'review'
+    && taskRow?.sla_completion_semantics === 'domain_evidence'
+    && taskRow?.metadata?.task_contract === CATH_INVENTORY_SHORTFALL_TASK_CONTRACT
+    && taskRow?.metadata?.sla_key === CATH_INVENTORY_SHORTFALL_SLA_RULE
+    && taskRow?.related_resource_type === 'cath_case_consumable_usage'
+    && /^[1-9]\d*$/.test(resourceId)
+    && resourceId === String(taskRow?.metadata?.cath_consumable_usage_id || '')
+    && /^[1-9]\d*$/.test(String(taskRow?.metadata?.cath_case_id || ''))
+    && /^[1-9]\d*$/.test(String(taskRow?.metadata?.inventory_item_id || ''))
+    && ['issue', 'dispose'].includes(String(taskRow?.metadata?.movement_kind || ''));
+}
+
+function assertGovernedClinicalTaskReassignmentAllowed(taskRow) {
+  if (isClinicalAlertDeliveryRecoveryContractBoundTask(taskRow)) {
+    throw AppError.conflict(
+      'Clinical alert recovery task ownership is managed by the recovery workflow',
+      'CLINICAL_ALERT_RECOVERY_TASK_WORKFLOW_REQUIRED',
+    );
+  }
+  if (isMarMedicationExceptionContractBoundTask(taskRow)) {
+    throw AppError.conflict(
+      'MAR medication exception task ownership is managed by the medication-exception workflow',
+      'MAR_EXCEPTION_TASK_WORKFLOW_REQUIRED',
+    );
+  }
+  if (isCathInventoryShortfallContractBoundTask(taskRow)) {
+    throw AppError.conflict(
+      'Cath inventory shortfall task ownership is managed by the inventory reconciliation workflow',
+      'CATH_INVENTORY_SHORTFALL_TASK_WORKFLOW_REQUIRED',
+    );
+  }
+}
+
+function assertGovernedClinicalTaskAcknowledgementAllowed(taskRow) {
+  if (isClinicalAlertDeliveryRecoveryContractBoundTask(taskRow)) {
+    throw AppError.conflict(
+      'Clinical alert recovery tasks must be actioned through the recovery workflow',
+      'CLINICAL_ALERT_RECOVERY_TASK_WORKFLOW_REQUIRED',
+    );
+  }
+  if (isMarMedicationExceptionContractBoundTask(taskRow)) {
+    throw AppError.conflict(
+      'MAR medication exception tasks must be actioned through the medication-exception workflow',
+      'MAR_EXCEPTION_TASK_WORKFLOW_REQUIRED',
+    );
+  }
+  if (isCathInventoryShortfallContractBoundTask(taskRow)) {
+    throw AppError.conflict(
+      'Cath inventory shortfall tasks must be actioned through the inventory reconciliation workflow',
+      'CATH_INVENTORY_SHORTFALL_TASK_WORKFLOW_REQUIRED',
+    );
+  }
+}
+
+function isExactMarMedicationExceptionTask(taskRow) {
+  const resourceId = String(taskRow?.related_resource_id || '').trim();
+  const caseId = String(taskRow?.metadata?.exception_case_id || '').trim();
+  const medicationAdministrationId = String(
+    taskRow?.metadata?.medication_administration_id || '',
+  ).trim();
+  return taskRow?.task_kind === 'review'
+    && taskRow?.sla_completion_semantics === 'domain_evidence'
+    && taskRow?.metadata?.task_contract === MAR_MEDICATION_EXCEPTION_TASK_CONTRACT
+    && taskRow?.metadata?.sla_key === MAR_MEDICATION_EXCEPTION_SLA_RULE
+    && taskRow?.related_resource_type === 'mar_medication_exception_cases'
+    && /^[1-9]\d*$/.test(resourceId)
+    && resourceId === caseId
+    && /^[1-9]\d*$/.test(medicationAdministrationId)
+    && ['held', 'missed'].includes(String(taskRow?.metadata?.exception_kind || ''));
+}
+
+function isExactMarMedicationExceptionPrescriberRawRole(value) {
+  return MAR_MEDICATION_EXCEPTION_EXACT_PRESCRIBER_ROLES.has(
+    String(value || '').trim().toUpperCase(),
+  );
+}
+
+function assertMarMedicationExceptionClaimAuthority(taskRow, authority = null) {
+  if (!isMarMedicationExceptionContractBoundTask(taskRow)) return;
+  if (
+    authority !== MAR_MEDICATION_EXCEPTION_TASK_CLAIM_AUTHORITY
+    || !isExactMarMedicationExceptionTask(taskRow)
+  ) {
+    throw AppError.conflict(
+      'MAR medication exception tasks must use the medication-exception claim workflow',
+      'MAR_EXCEPTION_TASK_CLAIM_WORKFLOW_REQUIRED',
+    );
+  }
+}
+
 async function claimTaskForCurrentActorTx({
   tenantId,
   taskId,
   actor,
   idempotencyKey,
   db,
+  marMedicationExceptionClaimAuthority = null,
 } = {}) {
   const current = await getTaskForUpdate({ tenantId, id: taskId, db });
+  assertMarMedicationExceptionClaimAuthority(
+    current,
+    marMedicationExceptionClaimAuthority,
+  );
+  const isCathInventoryShortfallClaim = isCathInventoryShortfallContractBoundTask(current);
+  if (
+    isCathInventoryShortfallClaim
+    && (
+      !isExactCathInventoryShortfallTask(current)
+      || !isCathInventoryShortfallOperatorRole(actor.role)
+    )
+  ) {
+    throw AppError.conflict(
+      'Cath inventory shortfall tasks can only be claimed by the exact pharmacy-operator workflow',
+      'CATH_INVENTORY_SHORTFALL_TASK_CLAIM_WORKFLOW_REQUIRED',
+    );
+  }
   const claimReceipt = deriveTaskClaimReceipt({
     tenantId,
     taskId,
@@ -3861,6 +4660,17 @@ async function claimTaskForCurrentActorTx({
   });
   const currentUid = String(current.assigned_to_uid || '').trim().toLowerCase() || null;
   const currentRole = String(current.assigned_to_role || '').trim().toUpperCase() || null;
+  const isMarMedicationExceptionClaim = marMedicationExceptionClaimAuthority
+    === MAR_MEDICATION_EXCEPTION_TASK_CLAIM_AUTHORITY;
+  const isClinicalAlertDeliveryRecoveryClaim =
+    isClinicalAlertDeliveryRecoveryContractBoundTask(current);
+  const claimQueueRole = isMarMedicationExceptionClaim
+    ? 'DOCTOR'
+    : isClinicalAlertDeliveryRecoveryClaim
+      ? 'ADMIN'
+    : isCathInventoryShortfallClaim
+      ? 'PHARMACIST'
+      : actor.queueRole;
   const receiptKey = String(current.metadata?.role_claim_receipt || '').trim();
   const receiptFingerprint = String(current.metadata?.role_claim_command_fingerprint || '').trim();
   const receiptActor = String(current.metadata?.role_claimed_by || '').trim().toLowerCase();
@@ -3877,7 +4687,7 @@ async function claimTaskForCurrentActorTx({
     !TASK_CLAIMABLE_STATUSES.has(String(current.status || '').toLowerCase())
     || currentUid
     || !currentRole
-    || currentRole !== actor.queueRole
+    || currentRole !== claimQueueRole
   ) {
     throw taskClaimForbidden(current);
   }
@@ -3886,7 +4696,12 @@ async function claimTaskForCurrentActorTx({
     current.status === 'in_progress'
     && recordedAcker
   );
-  if (recordedRoleAcknowledgementReceipt && recordedAcker !== actor.uid) {
+  if (
+    recordedRoleAcknowledgementReceipt
+    && recordedAcker !== actor.uid
+    && !isMarMedicationExceptionClaim
+    && !isClinicalAlertDeliveryRecoveryClaim
+  ) {
     throw taskClaimForbidden(current);
   }
 
@@ -3910,7 +4725,8 @@ async function claimTaskForCurrentActorTx({
                    'role_claimed_by', $3::text,
                    'role_claimed_from_role', $5::text,
                    'role_claimed_at', $6::text
-                 ),
+                 )
+              || $9::jsonb,
             updated_at = NOW()
       WHERE tenant_id = $1::uuid
         AND id = $2::bigint
@@ -3922,10 +4738,17 @@ async function claimTaskForCurrentActorTx({
     taskId,
     actor.uid,
     claimReceipt.receipt,
-    actor.queueRole,
+    claimQueueRole,
     claimedAt,
     current.status,
     claimReceipt.commandFingerprint,
+    JSON.stringify(
+      isMarMedicationExceptionClaim
+      || isClinicalAlertDeliveryRecoveryClaim
+      || isCathInventoryShortfallClaim ? {
+      role_claimed_actor_role: actor.role,
+      role_claimed_actor_raw_role: actor.rawRole,
+    } : {}),
   );
   const claimed = rows[0];
   if (!claimed) throw taskClaimForbidden(current);
@@ -3957,14 +4780,21 @@ async function claimTaskForCurrentActorTx({
     tenantId,
     taskId,
     authorUid: actor.uid,
-    body: `Task claimed from ${actor.queueRole} role queue`,
+    body: `Task claimed from ${claimQueueRole} role queue`,
     bodyKind: 'state_change',
     metadata: {
-      from_assigned_to_role: actor.queueRole,
+      from_assigned_to_role: claimQueueRole,
       to_assigned_to_uid: actor.uid,
       claimed_at: claimedAt,
       claim_receipt: claimReceipt.receipt,
       command_fingerprint: claimReceipt.commandFingerprint,
+      ...(
+        isMarMedicationExceptionClaim
+        || isClinicalAlertDeliveryRecoveryClaim
+        || isCathInventoryShortfallClaim ? {
+        actor_role: actor.role,
+        actor_raw_role: actor.rawRole,
+      } : {}),
     },
     tx: db,
   });
@@ -4011,6 +4841,235 @@ export async function claimInboxTask({
     actor,
     idempotencyKey: key,
     db: tx,
+  });
+  return Object.freeze({ ...claimed.task, replayed: claimed.replayed });
+}
+
+export async function recoverCathInventoryShortfallTaskAssignmentTx({
+  tenantId = null,
+  id,
+  actorUid = null,
+  actorRoles = [],
+  actorPrimaryRole = null,
+  actorRawRole = null,
+  idempotencyKey,
+  tx,
+} = {}) {
+  const db = requiredTaskFactoryTx(
+    tx,
+    'CATH_INVENTORY_SHORTFALL_RECOVERY_TRANSACTION_REQUIRED',
+    'Cath inventory shortfall assignment recovery requires the caller transaction',
+  );
+  const tid = resolveTenantId({ tenantId });
+  const taskId = normalizeId(id, 'task id');
+  const key = normalizeClaimIdempotencyKey(idempotencyKey);
+  const actor = await resolveCurrentHumanActorTx({
+    tx: db,
+    tenantId: tid,
+    actorUid,
+    authenticatedRoles: actorRoles,
+    authenticatedPrimaryRole: actorPrimaryRole,
+    authenticatedRawRole: actorRawRole,
+    rolePredicate: isTaskHumanOwnerRole,
+  });
+  if (!isCathInventoryShortfallOperatorRole(actor.role)) {
+    throw AppError.forbidden(
+      'Only a pharmacy operator may recover an inactive Cath inventory assignee',
+      'CATH_INVENTORY_SHORTFALL_RECOVERY_ROLE_REQUIRED',
+    );
+  }
+  const current = await getTaskForUpdate({ tenantId: tid, id: taskId, db });
+  const staleUid = String(current.assigned_to_uid || '').trim().toLowerCase();
+  if (
+    !isExactCathInventoryShortfallTask(current)
+    || !TASK_CLAIMABLE_STATUSES.has(String(current.status || '').toLowerCase())
+    || !staleUid
+    || staleUid === actor.uid
+    || current.assigned_to_role
+  ) {
+    throw taskClaimForbidden(current);
+  }
+  const activeOwners = await db.$queryRawUnsafe(
+    `SELECT uid
+       FROM users
+      WHERE tenant_id = $1::uuid
+        AND uid = $2::uuid
+        AND is_active = TRUE
+        AND status = 'active'
+        AND COALESCE(is_deleted, FALSE) = FALSE
+        AND role = ANY($3::text[])
+      LIMIT 1`,
+    tid,
+    staleUid,
+    [...CATH_INVENTORY_SHORTFALL_OPERATOR_ROLES],
+  );
+  if (activeOwners[0]) throw taskClaimForbidden(current);
+
+  const linkedSla = await assertTaskSlaSourceBinding({
+    tenantId: tid,
+    taskRow: current,
+    db,
+  });
+  if (
+    !linkedSla
+    || linkedSla.completed_at
+    || ['completed', 'cancelled'].includes(String(linkedSla.status || '').toLowerCase())
+    || String(linkedSla.assigned_user_uid || '').toLowerCase() !== staleUid
+  ) {
+    throw AppError.conflict(
+      'Cath inventory shortfall SLA ownership cannot be recovered',
+      'CATH_INVENTORY_SHORTFALL_RECOVERY_SLA_CONFLICT',
+    );
+  }
+
+  const claimReceipt = deriveTaskClaimReceipt({
+    tenantId: tid,
+    taskId,
+    actorUid: actor.uid,
+    rawKey: key,
+  });
+  const recoveryFingerprint = createHash('sha256')
+    .update(JSON.stringify({
+      operation: 'cath_inventory_shortfall_assignment_recovery',
+      tenantId: tid,
+      taskId: String(taskId),
+      fromUid: staleUid,
+      toUid: actor.uid,
+    }))
+    .digest('hex');
+  const recoveryReceipt = `cath-assignment-recovery-v1:${createHash('sha256')
+    .update(JSON.stringify({ recoveryFingerprint, rawKey: key }))
+    .digest('hex')}`;
+  const recoveredAt = new Date().toISOString();
+  const rows = await db.$queryRawUnsafe(
+    `UPDATE tasks
+        SET assigned_to_uid = $3::uuid,
+            assigned_to_role = NULL,
+            metadata = COALESCE(metadata, '{}'::jsonb)
+              || jsonb_build_object(
+                   'role_claim_receipt', $4::text,
+                   'role_claim_command_fingerprint', $5::text,
+                   'role_claimed_by', $3::text,
+                   'role_claimed_from_role', 'PHARMACIST',
+                   'role_claimed_at', $6::text,
+                   'role_claimed_actor_role', $12::text,
+                   'role_claimed_actor_raw_role', $7::text,
+                   'assignment_recovery_receipt', $8::text,
+                   'assignment_recovery_command_fingerprint', $9::text,
+                   'assignment_recovered_from_uid', $10::text,
+                   'assignment_recovered_at', $6::text
+                 ),
+            updated_at = NOW()
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int
+        AND assigned_to_uid = $10::uuid
+        AND assigned_to_role IS NULL
+        AND status = $11::text
+      RETURNING ${TASK_RETURNING}`,
+    tid,
+    taskId,
+    actor.uid,
+    claimReceipt.receipt,
+    claimReceipt.commandFingerprint,
+    recoveredAt,
+    actor.rawRole,
+    recoveryReceipt,
+    recoveryFingerprint,
+    staleUid,
+    current.status,
+    actor.role,
+  );
+  const recovered = rows[0];
+  if (!recovered) throw taskClaimForbidden(current);
+
+  const slaRows = await db.$queryRawUnsafe(
+    `UPDATE workflow_sla_instances
+        SET assigned_user_uid = $3::uuid,
+            assigned_role_codes = ARRAY[]::text[],
+            metadata = COALESCE(metadata, '{}'::jsonb)
+              || jsonb_build_object(
+                   'assignment_recovery_receipt', $4::text,
+                   'assignment_recovered_from_uid', $5::text,
+                   'assignment_recovered_at', $6::text
+                 ),
+            updated_at = NOW()
+      WHERE tenant_id = $1::uuid
+        AND id = $2::uuid
+        AND assigned_user_uid = $5::uuid
+        AND completed_at IS NULL
+        AND status NOT IN ('completed', 'cancelled')
+      RETURNING id`,
+    tid,
+    linkedSla.id,
+    actor.uid,
+    recoveryReceipt,
+    staleUid,
+    recoveredAt,
+  );
+  if (!slaRows[0]) {
+    throw AppError.conflict(
+      'Cath inventory shortfall SLA ownership changed before recovery',
+      'CATH_INVENTORY_SHORTFALL_RECOVERY_SLA_CONFLICT',
+    );
+  }
+  await postTaskComment({
+    tenantId: tid,
+    taskId,
+    authorUid: actor.uid,
+    body: 'Inactive Cath inventory assignee recovered by Pharmacy Incharge',
+    bodyKind: 'state_change',
+    metadata: {
+      from_assigned_to_uid: staleUid,
+      to_assigned_to_uid: actor.uid,
+      recovered_at: recoveredAt,
+      recovery_receipt: recoveryReceipt,
+      command_fingerprint: recoveryFingerprint,
+      actor_role: actor.role,
+      actor_raw_role: actor.rawRole,
+    },
+    tx: db,
+  });
+  return Object.freeze(recovered);
+}
+
+export async function claimMarMedicationExceptionTaskTx({
+  tenantId = null,
+  id,
+  actorUid = null,
+  actorRoles = [],
+  actorPrimaryRole = null,
+  actorRawRole = null,
+  idempotencyKey,
+  tx,
+} = {}) {
+  const db = requiredTaskFactoryTx(
+    tx,
+    'MAR_EXCEPTION_TASK_CLAIM_TRANSACTION_REQUIRED',
+    'MAR medication exception task claims require the caller transaction',
+  );
+  const tid = resolveTenantId({ tenantId });
+  const taskId = normalizeId(id, 'task id');
+  const key = normalizeClaimIdempotencyKey(idempotencyKey);
+  const actor = await resolveCurrentHumanActorTx({
+    tx: db,
+    tenantId: tid,
+    actorUid,
+    authenticatedRoles: actorRoles,
+    authenticatedPrimaryRole: actorPrimaryRole,
+    authenticatedRawRole: actorRawRole,
+    rolePredicate: isDoctor,
+  });
+  if (!isExactMarMedicationExceptionPrescriberRawRole(actor.rawRole)) {
+    throw taskClaimForbidden();
+  }
+  const claimed = await claimTaskForCurrentActorTx({
+    tenantId: tid,
+    taskId,
+    actor,
+    idempotencyKey: key,
+    db,
+    marMedicationExceptionClaimAuthority:
+      MAR_MEDICATION_EXCEPTION_TASK_CLAIM_AUTHORITY,
   });
   return Object.freeze({ ...claimed.task, replayed: claimed.replayed });
 }
@@ -4571,6 +5630,25 @@ async function acknowledgeTaskInternal({
   // Pre-read for a clean, intention-revealing error before attempting the write.
   let current = await getTask({ tenantId: tid, id: taskId, tx });
 
+  if (
+    isClinicalAlertDeliveryRecoveryContractBoundTask(current)
+    || isMarMedicationExceptionContractBoundTask(current)
+    || isCathInventoryShortfallContractBoundTask(current)
+  ) {
+    await resolveVerifiedAckAuthorization({
+      tenantId: tid,
+      taskRow: current,
+      actorUid: ackUid,
+      actorRoles: currentActorRoles,
+      actorRole: currentActor.role,
+      actorQueueRole: currentActor.queueRole,
+      breakGlassId,
+      trustedOverride,
+      db,
+    });
+    assertGovernedClinicalTaskAcknowledgementAllowed(current);
+  }
+
   const recordedRoleAcknowledgementReceipt = Boolean(
     current.status === 'in_progress'
     && !current.assigned_to_uid
@@ -5033,6 +6111,136 @@ export async function listInboxTasks({
                   assigned_to_uid IS NULL
                   AND UPPER(BTRIM(assigned_to_role)) = $3::text
                 )
+                OR (
+                  $6::boolean
+                  AND assigned_to_uid IS NULL
+                  AND UPPER(BTRIM(assigned_to_role)) = 'DOCTOR'
+                  AND task_kind = 'review'
+                  AND sla_completion_semantics = 'domain_evidence'
+                  AND related_resource_type = 'mar_medication_exception_cases'
+                  AND related_resource_id = metadata->>'exception_case_id'
+                  AND metadata->>'task_contract' = 'mar_medication_exception_v1'
+                  AND metadata->>'sla_key' = 'mar_medication_exception_review'
+                  AND metadata->>'medication_administration_id' ~ '^[1-9][0-9]*$'
+                  AND metadata->>'exception_kind' IN ('held', 'missed')
+                  AND EXISTS (
+                    SELECT 1
+                      FROM mar_medication_exception_cases exception_case
+                      JOIN workflow_sla_instances exception_sla
+                        ON exception_sla.tenant_id = exception_case.tenant_id
+                       AND exception_sla.id = exception_case.workflow_sla_instance_id
+                     WHERE exception_case.tenant_id = tasks.tenant_id
+                       AND exception_case.id::text = tasks.related_resource_id
+                       AND exception_case.task_id = tasks.id
+                       AND exception_case.status = 'open'
+                       AND exception_case.assigned_prescriber_uid IS NULL
+                       AND exception_sla.id = tasks.workflow_sla_instance_id
+                       AND exception_sla.rule_code = 'mar_medication_exception_review'
+                       AND exception_sla.source_table = 'mar_medication_exception_cases'
+                       AND exception_sla.source_id = tasks.related_resource_id
+                       AND exception_sla.completed_at IS NULL
+                       AND exception_sla.status IN ('active', 'breached', 'escalated')
+                   )
+                 )
+                OR (
+                  $8::boolean
+                  AND assigned_to_uid IS NOT NULL
+                  AND assigned_to_role IS NULL
+                  AND task_kind = 'review'
+                  AND sla_completion_semantics = 'domain_evidence'
+                  AND related_resource_type = 'mar_medication_exception_cases'
+                  AND related_resource_id = metadata->>'exception_case_id'
+                  AND metadata->>'task_contract' = 'mar_medication_exception_v1'
+                  AND metadata->>'sla_key' = 'mar_medication_exception_review'
+                  AND metadata->>'medication_administration_id' ~ '^[1-9][0-9]*$'
+                  AND metadata->>'exception_kind' IN ('held', 'missed')
+                  AND EXISTS (
+                    SELECT 1
+                      FROM mar_medication_exception_cases exception_case
+                      JOIN workflow_sla_instances exception_sla
+                        ON exception_sla.tenant_id = exception_case.tenant_id
+                       AND exception_sla.id = exception_case.workflow_sla_instance_id
+                     WHERE exception_case.tenant_id = tasks.tenant_id
+                       AND exception_case.id::text = tasks.related_resource_id
+                       AND exception_case.task_id = tasks.id
+                       AND exception_case.status = 'open'
+                       AND exception_case.assigned_prescriber_uid = tasks.assigned_to_uid
+                       AND exception_sla.id = tasks.workflow_sla_instance_id
+                       AND exception_sla.rule_code = 'mar_medication_exception_review'
+                       AND exception_sla.source_table = 'mar_medication_exception_cases'
+                       AND exception_sla.source_id = tasks.related_resource_id
+                       AND exception_sla.assigned_user_uid = tasks.assigned_to_uid
+                       AND exception_sla.completed_at IS NULL
+                       AND exception_sla.status IN ('active', 'breached', 'escalated')
+                  )
+                )
+                OR (
+                  $7::boolean
+                  AND assigned_to_uid IS NULL
+                  AND UPPER(BTRIM(assigned_to_role)) = 'PHARMACIST'
+                  AND task_kind = 'review'
+                  AND sla_completion_semantics = 'domain_evidence'
+                  AND related_resource_type = 'cath_case_consumable_usage'
+                  AND related_resource_id = metadata->>'cath_consumable_usage_id'
+                  AND metadata->>'task_contract' = 'cath_inventory_shortfall_v1'
+                  AND metadata->>'sla_key' = 'cath_consumable_inventory_reconciliation'
+                  AND metadata->>'cath_case_id' ~ '^[1-9][0-9]*$'
+                  AND metadata->>'inventory_item_id' ~ '^[1-9][0-9]*$'
+                  AND metadata->>'movement_kind' IN ('issue', 'dispose')
+                  AND EXISTS (
+                    SELECT 1
+                      FROM cath_case_consumable_usage cath_usage
+                      JOIN workflow_sla_instances cath_sla
+                        ON cath_sla.tenant_id = cath_usage.tenant_id
+                       AND cath_sla.id = tasks.workflow_sla_instance_id
+                     WHERE cath_usage.tenant_id = tasks.tenant_id
+                       AND cath_usage.id::text = tasks.related_resource_id
+                       AND cath_usage.case_id::text = tasks.metadata->>'cath_case_id'
+                       AND cath_usage.patient_uid = tasks.patient_uid
+                       AND cath_usage.inventory_decrement_status = 'insufficient_stock'
+                       AND cath_sla.rule_code = 'cath_consumable_inventory_reconciliation'
+                       AND cath_sla.source_table = 'cath_case_consumable_usage'
+                       AND cath_sla.source_id = tasks.related_resource_id
+                       AND cath_sla.completed_at IS NULL
+                       AND cath_sla.status IN ('active', 'breached', 'escalated')
+                   )
+                 )
+                OR (
+                  $8::boolean
+                  AND assigned_to_uid IS NULL
+                  AND UPPER(BTRIM(assigned_to_role)) = 'ADMIN'
+                  AND task_kind = 'escalation'
+                  AND sla_completion_semantics = 'domain_evidence'
+                  AND related_resource_type = 'clinical_alert_delivery_recovery_cases'
+                  AND metadata->>'task_contract' =
+                        'clinical_alert_delivery_recovery_v1'
+                  AND related_resource_id ~ '^[1-9][0-9]*$'
+                  AND metadata->>'case_kind' IN (
+                    'manual_hold',
+                    'recipient_coverage'
+                  )
+                  AND EXISTS (
+                    SELECT 1
+                      FROM clinical_alert_delivery_recovery_cases recovery_case
+                      JOIN workflow_sla_instances recovery_sla
+                        ON recovery_sla.tenant_id = recovery_case.tenant_id
+                       AND recovery_sla.id = recovery_case.workflow_sla_instance_id
+                     WHERE recovery_case.tenant_id = tasks.tenant_id
+                       AND recovery_case.id::text = tasks.related_resource_id
+                       AND recovery_case.task_id = tasks.id
+                       AND recovery_case.status = 'open'
+                       AND recovery_sla.id = tasks.workflow_sla_instance_id
+                       AND recovery_sla.source_table =
+                             'clinical_alert_delivery_recovery_cases'
+                       AND recovery_sla.source_id = tasks.related_resource_id
+                       AND recovery_sla.completed_at IS NULL
+                       AND recovery_sla.status IN (
+                         'active',
+                         'breached',
+                         'escalated'
+                       )
+                   )
+                 )
               )
          ) AS inbox
          LEFT JOIN workflow_steps AS step
@@ -5130,6 +6338,9 @@ export async function listInboxTasks({
       actor.queueRole,
       safeLimit,
       isInpatientPendingResultPhysicianRole(actor.role),
+      isExactMarMedicationExceptionPrescriberRawRole(actor.rawRole),
+      isCathInventoryShortfallOperatorRole(actor.role),
+      isAdmin(actor.role),
     );
     return { tasks: rows, count: rows.length };
   } catch (err) {
@@ -5724,6 +6935,7 @@ export async function reassignTask({
     }));
   }
   const current = await getTaskForUpdate({ tenantId: tid, id: taskId, db });
+  assertGovernedClinicalTaskReassignmentAllowed(current);
   assertGenericTaskMutationAllowed(current, pendingResultTaskTransferAuthority);
   const attachedRunId = await taskRowWorkflowRunId({ tenantId: tid, taskRow: current, db });
   await assertPathwayExecutorAuthority({
@@ -6773,6 +7985,9 @@ export const __testing__ = {
 export default {
   createTask,
   createWardMedicationObligationTaskTx,
+  createMarMedicationExceptionTaskTx,
+  createCathInventoryShortfallTaskTx,
+  claimMarMedicationExceptionTaskTx,
   createLabThresholdExceptionReviewTaskTx,
   createPendingResultTrackingTaskTx,
   createPendingResultOwnerActionTaskTx,

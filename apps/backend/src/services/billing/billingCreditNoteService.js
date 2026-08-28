@@ -5,10 +5,13 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import {
+  advanceBillingCreditNoteObligationTx,
+  advanceBillingCreditNoteRefundObligationTx,
   completeBillingCreditNoteObligationTx,
   materializeBillingCreditNoteObligationTx,
 } from '../ipd/wardIndentObligationService.js';
 import {
+  calculateInvoiceRefundHeadroomTx,
   deriveInvoicePaymentStateFromLedgerTx,
 } from './billingV2Service.js';
 import { resolveLedgerWiring } from './ledger/ledgerAuthoritativeMode.js';
@@ -16,23 +19,49 @@ import { postWardMedicationCreditEntry } from './ledger/ledgerPostings.js';
 
 const CREDIT_NOTE_STATUSES = new Set(['pending', 'approved', 'rejected', 'applied']);
 const REFUND_MODES = new Set([
-  'CASH', 'CARD', 'UPI', 'NETBANKING', 'CHEQUE', 'DD', 'WALLET', 'INSURANCE',
+  'CASH', 'CARD', 'UPI', 'NETBANKING', 'CHEQUE', 'DD', 'WALLET',
 ]);
+const COMMAND_REPLAY_EXPECTATIONS = Object.freeze({
+  approve: {
+    actorField: 'approved_by',
+    eventType: 'approved',
+    statuses: new Set(['approved', 'applied']),
+  },
+  reject: {
+    actorField: 'rejected_by',
+    eventType: 'rejected',
+    statuses: new Set(['rejected']),
+  },
+  apply: {
+    actorField: 'applied_by',
+    eventType: 'applied',
+    statuses: new Set(['applied']),
+  },
+});
 
 function positiveId(value, fieldName) {
   const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+  if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > 2_147_483_647) {
     throw AppError.badRequest(`${fieldName} must be a positive integer`);
   }
   return parsed;
 }
 
 function positiveBigInt(value, fieldName) {
+  if (typeof value === 'number' && !Number.isSafeInteger(value)) {
+    throw AppError.badRequest(
+      `${fieldName} must be sent as a decimal string above the JavaScript safe-integer range`,
+    );
+  }
   const text = typeof value === 'bigint' ? value.toString() : String(value ?? '').trim();
   if (!/^[1-9][0-9]*$/.test(text)) {
     throw AppError.badRequest(`${fieldName} must be a positive integer`);
   }
-  return BigInt(text);
+  const parsed = BigInt(text);
+  if (parsed > 9_223_372_036_854_775_807n) {
+    throw AppError.badRequest(`${fieldName} exceeds the signed 64-bit range`);
+  }
+  return parsed;
 }
 
 function actorUid(value) {
@@ -54,6 +83,24 @@ function eventKey(scope, id, commandKey) {
   const candidate = `billing-credit-note:${id}:${scope}:${command}`;
   if (candidate.length <= 200) return candidate;
   return `billing-credit-note:${id}:${scope}:${createHash('sha256').update(candidate).digest('hex')}`;
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value)
+      .filter((key) => value[key] !== undefined)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function requestBodySha256(payload) {
+  return createHash('sha256').update(canonicalJson(payload)).digest('hex');
 }
 
 function normalizeBigInt(value) {
@@ -150,13 +197,40 @@ async function loadCreditNoteTx(tx, tenantId, creditNoteId) {
     tenantId,
     positiveBigInt(creditNoteId, 'creditNoteId'),
   );
-  return normalizeCreditNote({ ...rows[0], events });
+  const refund = rows[0].refund_id == null
+    ? null
+    : (await tx.$queryRawUnsafe(
+      `SELECT *
+         FROM billing_refunds
+        WHERE tenant_id = $1::uuid
+          AND id = $2::int
+        LIMIT 1`,
+      tenantId,
+      Number(rows[0].refund_id),
+    ))[0] || null;
+  return normalizeCreditNote({ ...rows[0], events, refund });
 }
 
-async function replayForEvent(tx, tenantId, creditNoteId, scope, commandKey, actor) {
+async function replayForEvent(
+  tx,
+  tenantId,
+  creditNoteId,
+  scope,
+  commandKey,
+  actor,
+  requestBody,
+) {
   const key = eventKey(scope, creditNoteId, commandKey);
+  const requestHash = requestBodySha256(requestBody);
+  const expectation = COMMAND_REPLAY_EXPECTATIONS[scope];
+  if (!expectation) {
+    throw AppError.internal(
+      'Credit-note idempotency scope is not registered',
+      'BILLING_CREDIT_NOTE_IDEMPOTENCY_SCOPE_INVALID',
+    );
+  }
   const rows = await tx.$queryRawUnsafe(
-    `SELECT actor_uid
+    `SELECT credit_note_id, event_type, actor_uid, request_body_sha256
        FROM billing_credit_note_events
       WHERE tenant_id = $1::uuid
         AND command_key = $2::text
@@ -164,14 +238,34 @@ async function replayForEvent(tx, tenantId, creditNoteId, scope, commandKey, act
     tenantId,
     key,
   );
-  if (!rows[0]) return { key, replay: null };
+  if (!rows[0]) return { key, requestHash, replay: null };
   if (String(rows[0].actor_uid).toLowerCase() !== String(actor).toLowerCase()) {
     throw AppError.conflict(
       'Idempotency key was already used by another credit-note actor',
       'BILLING_CREDIT_NOTE_IDEMPOTENCY_ACTOR_CONFLICT',
     );
   }
-  return { key, replay: await loadCreditNoteTx(tx, tenantId, creditNoteId) };
+  if (String(rows[0].request_body_sha256).trim() !== requestHash) {
+    throw AppError.conflict(
+      'Idempotency key was already used with a different credit-note command payload',
+      'BILLING_CREDIT_NOTE_IDEMPOTENCY_PAYLOAD_CONFLICT',
+    );
+  }
+  const replay = await loadCreditNoteTx(tx, tenantId, creditNoteId);
+  if (
+    String(rows[0].credit_note_id) !== String(positiveBigInt(creditNoteId, 'creditNoteId'))
+    || rows[0].event_type !== expectation.eventType
+    || !replay
+    || !expectation.statuses.has(replay.status)
+    || String(replay[expectation.actorField]).toLowerCase() !== String(actor).toLowerCase()
+    || (scope === 'apply' && replay.application_key !== key)
+  ) {
+    throw AppError.conflict(
+      'Idempotency event does not match the requested credit-note command state',
+      'BILLING_CREDIT_NOTE_IDEMPOTENCY_STATE_CONFLICT',
+    );
+  }
+  return { key, requestHash, replay };
 }
 
 async function insertLifecycleEvent(tx, {
@@ -180,21 +274,87 @@ async function insertLifecycleEvent(tx, {
   eventType,
   actor,
   commandKey,
+  requestBody,
   details = {},
 }) {
+  const requestHash = requestBodySha256(requestBody ?? {
+    event_type: eventType,
+    details,
+  });
   const rows = await tx.$queryRawUnsafe(
     `INSERT INTO billing_credit_note_events
-       (tenant_id, credit_note_id, event_type, actor_uid, command_key, details)
-     VALUES ($1::uuid, $2::bigint, $3::text, $4::uuid, $5::text, $6::jsonb)
-     RETURNING id, credit_note_id, event_type, actor_uid, occurred_at`,
+       (tenant_id, credit_note_id, event_type, actor_uid, command_key,
+        request_body_sha256, details)
+     VALUES ($1::uuid, $2::bigint, $3::text, $4::uuid, $5::text, $6::text, $7::jsonb)
+     RETURNING id, credit_note_id, event_type, actor_uid,
+               request_body_sha256, occurred_at`,
     tenantId,
     BigInt(creditNoteId),
     eventType,
     actor,
     commandKey,
+    requestHash,
     JSON.stringify(details),
   );
   return rows[0];
+}
+
+async function loadRefundTenderHeadroomTx(tx, tenantId, invoiceId) {
+  const rows = await tx.$queryRawUnsafe(
+    `WITH gross_rows AS (
+       SELECT NULLIF(UPPER(BTRIM(payment.mode)), '') AS mode,
+              payment.amount
+         FROM billing_payments payment
+        WHERE payment.tenant_id = $1::uuid
+          AND payment.invoice_id = $2::int
+          AND payment.reversed = FALSE
+       UNION ALL
+       SELECT NULLIF(UPPER(BTRIM(advance.mode)), '') AS mode,
+              settlement.amount
+         FROM billing_advance_settlements settlement
+         JOIN billing_advances advance
+           ON advance.tenant_id = $1::uuid
+          AND advance.id = settlement.advance_id
+        WHERE settlement.tenant_id = $1::uuid
+          AND settlement.invoice_id = $2::int
+     ), gross_by_mode AS (
+       SELECT mode, COALESCE(SUM(amount), 0)::numeric AS gross_paid
+         FROM gross_rows
+        WHERE mode IS NOT NULL
+        GROUP BY mode
+     ), refunds_by_mode AS (
+       SELECT NULLIF(UPPER(BTRIM(refund.mode)), '') AS mode,
+              COALESCE(SUM(refund.amount), 0)::numeric AS active_refunds
+         FROM billing_refunds refund
+        WHERE refund.tenant_id = $1::uuid
+          AND refund.invoice_id = $2::int
+          AND refund.approval_status <> 'REJECTED'
+        GROUP BY NULLIF(UPPER(BTRIM(refund.mode)), '')
+     ), modes AS (
+       SELECT mode FROM gross_by_mode
+       UNION
+       SELECT mode FROM refunds_by_mode WHERE mode IS NOT NULL
+     )
+     SELECT modes.mode,
+            COALESCE(gross.gross_paid, 0)::numeric AS gross_paid,
+            COALESCE(refunds.active_refunds, 0)::numeric AS active_refunds,
+            GREATEST(
+              COALESCE(gross.gross_paid, 0) - COALESCE(refunds.active_refunds, 0),
+              0
+            )::numeric AS refundable
+       FROM modes
+       LEFT JOIN gross_by_mode gross ON gross.mode = modes.mode
+       LEFT JOIN refunds_by_mode refunds ON refunds.mode = modes.mode
+      ORDER BY modes.mode`,
+    tenantId,
+    Number(invoiceId),
+  );
+  return rows.map((row) => ({
+    mode: String(row.mode),
+    gross_paid_minor: Math.round(Number(row.gross_paid || 0) * 100),
+    active_refunds_minor: Math.round(Number(row.active_refunds || 0) * 100),
+    refundable_minor: Math.round(Number(row.refundable || 0) * 100),
+  }));
 }
 
 export async function createBillingCreditNoteFromFinancialEventTx(tx, {
@@ -279,7 +439,7 @@ export async function createBillingCreditNoteFromFinancialEventTx(tx, {
     draft ? 'applied' : 'pending',
     actor,
     draft,
-    `${baseKey}:draft-application`,
+    `${baseKey}:applied`,
   );
   const note = insertRows[0];
   if (!note) {
@@ -376,7 +536,9 @@ export async function listBillingCreditNotes({
   return setTenantTx(tid, async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `SELECT note.*, invoice.invoice_number, invoice.status AS invoice_status,
-              financial.ward_indent_id, financial.ward_indent_item_id
+              financial.ward_indent_id, financial.ward_indent_item_id,
+              refund.approval_status AS refund_approval_status,
+              refund.payout_rail AS refund_payout_rail
          FROM billing_credit_notes note
          JOIN billing_invoices invoice
            ON invoice.tenant_id = note.tenant_id
@@ -384,6 +546,9 @@ export async function listBillingCreditNotes({
          JOIN ward_indent_financial_events financial
            ON financial.tenant_id = note.tenant_id
           AND financial.id = note.source_financial_event_id
+         LEFT JOIN billing_refunds refund
+           ON refund.tenant_id = note.tenant_id
+          AND refund.id = note.refund_id
         WHERE note.tenant_id = $1::uuid
           AND ($2::text IS NULL OR note.status = $2::text)
           AND ($3::int IS NULL OR note.invoice_id = $3::int)
@@ -414,10 +579,17 @@ export async function approveBillingCreditNote(creditNoteId, {
 } = {}) {
   const tid = requireTenantId(tenantId);
   const actor = actorUid(approvedBy);
+  const requestBody = {};
   return setTenantTx(tid, async (tx) => {
-    const replay = await replayForEvent(tx, tid, creditNoteId, 'approve', commandKey, actor);
+    let replay = await replayForEvent(
+      tx, tid, creditNoteId, 'approve', commandKey, actor, requestBody,
+    );
     if (replay.replay) return replay.replay;
     const note = await lockCreditNote(tx, tid, creditNoteId);
+    replay = await replayForEvent(
+      tx, tid, creditNoteId, 'approve', commandKey, actor, requestBody,
+    );
+    if (replay.replay) return replay.replay;
     if (note.status !== 'pending') {
       throw AppError.invalidTransition(note.status, 'approved', ['pending']);
     }
@@ -436,12 +608,13 @@ export async function approveBillingCreditNote(creditNoteId, {
       eventType: 'approved',
       actor,
       commandKey: replay.key,
+      requestBody,
       details: { payout_authorized: false },
     });
     const approved = await loadCreditNoteTx(tx, tid, note.id);
-    await completeBillingCreditNoteObligationTx(tx, {
+    await advanceBillingCreditNoteObligationTx(tx, {
       creditNote: approved,
-      decisionEvent,
+      approvalEvent: decisionEvent,
       actorUid: actor,
     });
     return approved;
@@ -457,10 +630,17 @@ export async function rejectBillingCreditNote(creditNoteId, {
   const tid = requireTenantId(tenantId);
   const actor = actorUid(rejectedBy);
   const reason = requiredText(rejectionReason, 'rejectionReason');
+  const requestBody = { rejection_reason: reason };
   return setTenantTx(tid, async (tx) => {
-    const replay = await replayForEvent(tx, tid, creditNoteId, 'reject', commandKey, actor);
+    let replay = await replayForEvent(
+      tx, tid, creditNoteId, 'reject', commandKey, actor, requestBody,
+    );
     if (replay.replay) return replay.replay;
     const note = await lockCreditNote(tx, tid, creditNoteId);
+    replay = await replayForEvent(
+      tx, tid, creditNoteId, 'reject', commandKey, actor, requestBody,
+    );
+    if (replay.replay) return replay.replay;
     if (note.status !== 'pending') {
       throw AppError.invalidTransition(note.status, 'rejected', ['pending']);
     }
@@ -480,12 +660,14 @@ export async function rejectBillingCreditNote(creditNoteId, {
       eventType: 'rejected',
       actor,
       commandKey: replay.key,
+      requestBody,
       details: { rejection_reason: reason },
     });
     const rejected = await loadCreditNoteTx(tx, tid, note.id);
     await completeBillingCreditNoteObligationTx(tx, {
       creditNote: rejected,
-      decisionEvent,
+      lifecycleEvent: decisionEvent,
+      evidenceKind: 'billing_credit_note_decision',
       actorUid: actor,
     });
     return rejected;
@@ -504,11 +686,18 @@ export async function applyBillingCreditNote(creditNoteId, {
   if (cleanMode && !REFUND_MODES.has(cleanMode)) {
     throw AppError.badRequest('refundMode is invalid');
   }
+  const requestBody = { refund_mode: cleanMode };
   const wiring = await resolveLedgerWiring(tid);
-  const applied = await setTenantTx(tid, async (tx) => {
-    const replay = await replayForEvent(tx, tid, creditNoteId, 'apply', commandKey, actor);
-    if (replay.replay) return replay.replay;
+  const application = await setTenantTx(tid, async (tx) => {
+    let replay = await replayForEvent(
+      tx, tid, creditNoteId, 'apply', commandKey, actor, requestBody,
+    );
+    if (replay.replay) return { creditNote: replay.replay, replayed: true };
     const note = await lockCreditNote(tx, tid, creditNoteId);
+    replay = await replayForEvent(
+      tx, tid, creditNoteId, 'apply', commandKey, actor, requestBody,
+    );
+    if (replay.replay) return { creditNote: replay.replay, replayed: true };
     if (note.status !== 'approved') {
       throw AppError.invalidTransition(note.status, 'applied', ['approved']);
     }
@@ -523,26 +712,39 @@ export async function applyBillingCreditNote(creditNoteId, {
       );
     }
     if (refundMinor > 0) {
-      const priorRefundRows = await tx.$queryRawUnsafe(
-        `SELECT COALESCE(SUM(amount), 0)::numeric AS total
-           FROM billing_refunds
-          WHERE tenant_id = $1::uuid
-            AND invoice_id = $2::int
-            AND approval_status <> 'REJECTED'`,
-        tid,
-        Number(note.invoice_id),
-      );
-      const refundableMinor = Math.max(
-        0,
-        Math.round(
-          (Number(note.amount_paid || 0) - Number(priorRefundRows[0]?.total || 0)) * 100,
-        ),
-      );
+      const headroom = await calculateInvoiceRefundHeadroomTx(tx, note.invoice_id);
+      const refundableMinor = Math.round(headroom.refundable * 100);
       if (refundMinor > refundableMinor) {
         throw AppError.conflict(
           'The credit creates a refund obligation above the remaining paid balance',
           'BILLING_CREDIT_NOTE_REFUND_HEADROOM_CONFLICT',
-          { refund_obligation_minor: refundMinor, refundable_minor: refundableMinor },
+          {
+            refund_obligation_minor: refundMinor,
+            refundable_minor: refundableMinor,
+            gross_paid_minor: Math.round(headroom.gross_paid * 100),
+            active_refunds_minor: Math.round(headroom.active_refunds * 100),
+          },
+        );
+      }
+      const tenderHeadroom = await loadRefundTenderHeadroomTx(tx, tid, note.invoice_id);
+      const requestedTender = tenderHeadroom.find(({ mode }) => mode === cleanMode) || {
+        mode: cleanMode,
+        gross_paid_minor: 0,
+        active_refunds_minor: 0,
+        refundable_minor: 0,
+      };
+      if (refundMinor > requestedTender.refundable_minor) {
+        throw AppError.conflict(
+          'The selected refund mode exceeds receipts collected through that tender',
+          'BILLING_CREDIT_NOTE_REFUND_TENDER_MISMATCH',
+          {
+            refund_mode: cleanMode,
+            refund_obligation_minor: refundMinor,
+            refundable_minor: requestedTender.refundable_minor,
+            gross_paid_minor: requestedTender.gross_paid_minor,
+            active_refunds_minor: requestedTender.active_refunds_minor,
+            tender_headroom: tenderHeadroom,
+          },
         );
       }
     }
@@ -551,17 +753,16 @@ export async function applyBillingCreditNote(creditNoteId, {
     if (refundMinor > 0) {
       const refundRows = await tx.$queryRawUnsafe(
         `INSERT INTO billing_refunds
-           (patient_uid, invoice_id, amount, reason, mode, reference,
+           (patient_uid, invoice_id, amount, reason, mode,
             approval_status, raised_by, tenant_id)
-         VALUES ($1::uuid, $2::int, $3::numeric, $4::text, $5::text, $6::text,
-                 'PENDING', $7::uuid, $8::uuid)
+         VALUES ($1::uuid, $2::int, $3::numeric, $4::text, $5::text,
+                 'PENDING', $6::uuid, $7::uuid)
          RETURNING id`,
         String(note.patient_uid),
         Number(note.invoice_id),
         refundMinor / 100,
         `Ward medication credit note ${note.credit_note_number}`.slice(0, 500),
         cleanMode,
-        `billing-credit-note:${note.id}`,
         actor,
         tid,
       );
@@ -616,12 +817,13 @@ export async function applyBillingCreditNote(creditNoteId, {
       tid,
       note.id,
     );
-    await insertLifecycleEvent(tx, {
+    const applicationEvent = await insertLifecycleEvent(tx, {
       tenantId: tid,
       creditNoteId: note.id,
       eventType: 'applied',
       actor,
       commandKey: replay.key,
+      requestBody,
       details: {
         receivable_credit_minor: receivableMinor,
         refund_obligation_minor: refundMinor,
@@ -629,6 +831,21 @@ export async function applyBillingCreditNote(creditNoteId, {
         payout_authorized: false,
       },
     });
+    const completed = await loadCreditNoteTx(tx, tid, note.id);
+    if (completed.refund_id) {
+      await advanceBillingCreditNoteRefundObligationTx(tx, {
+        creditNote: completed,
+        applicationEvent,
+        actorUid: actor,
+      });
+    } else {
+      await completeBillingCreditNoteObligationTx(tx, {
+        creditNote: completed,
+        lifecycleEvent: applicationEvent,
+        evidenceKind: 'billing_credit_note_application',
+        actorUid: actor,
+      });
+    }
     const postingNote = {
       ...note,
       receivable_credit_minor: receivableMinor,
@@ -638,10 +855,11 @@ export async function applyBillingCreditNote(creditNoteId, {
       await postWardMedicationCreditEntry({ creditNote: postingNote, tenantId: tid, tx });
       await deriveInvoicePaymentStateFromLedgerTx(tx, Number(note.invoice_id));
     }
-    return loadCreditNoteTx(tx, tid, note.id);
+    return { creditNote: completed, replayed: false };
   });
+  const applied = application.creditNote;
 
-  if (wiring.postCommit && applied?.invoice_status !== 'DRAFT') {
+  if (!application.replayed && wiring.postCommit && applied?.invoice_status !== 'DRAFT') {
     try {
       await postWardMedicationCreditEntry({ creditNote: applied, tenantId: tid });
     } catch (err) {

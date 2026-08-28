@@ -78,10 +78,11 @@ describe('claimIdempotencyKey', () => {
     });
     expect(out.state).toBe('claimed');
     expect(out.id).toBe(1);
+    expect(queryUnsafeMock.mock.calls[0][0]).toContain('ON CONFLICT DO NOTHING');
   });
 
   it('returns replay on duplicate complete row with matching body hash', async () => {
-    queryUnsafeMock.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'));
+    queryUnsafeMock.mockResolvedValueOnce([]);
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 1, status: 'complete', response_status: 201,
       response_body: { ok: true, id: 99 }, request_body_hash: 'abc',
@@ -96,7 +97,7 @@ describe('claimIdempotencyKey', () => {
   });
 
   it('returns in_flight when a concurrent retry is mid-execution', async () => {
-    queryUnsafeMock.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'));
+    queryUnsafeMock.mockResolvedValueOnce([]);
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 1, status: 'in_flight', request_body_hash: 'abc',
     }]);
@@ -108,7 +109,7 @@ describe('claimIdempotencyKey', () => {
   });
 
   it('returns mismatch when the same key is reused with a different body', async () => {
-    queryUnsafeMock.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'));
+    queryUnsafeMock.mockResolvedValueOnce([]);
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 1, status: 'complete', response_status: 201,
       response_body: {}, request_body_hash: 'abc',
@@ -118,6 +119,93 @@ describe('claimIdempotencyKey', () => {
       requestMethod: 'POST', requestPath: '/billing/invoice', requestBodyHash: 'DIFFERENT',
     });
     expect(out.state).toBe('mismatch');
+  });
+
+  it('CAS-reclaims an expired row with the exact request body', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        id: 7,
+        status: 'expired',
+        response_status: 201,
+        response_body: { stale: true },
+        request_body_hash: 'abc',
+        is_expired: true,
+      }])
+      .mockResolvedValueOnce([{ id: 7 }]);
+
+    await expect(claimIdempotencyKey({
+      tenantId: TENANT, userUid: USER, requestKey: 'expired-exact',
+      requestMethod: 'POST', requestPath: '/billing/invoice', requestBodyHash: 'abc',
+    })).resolves.toEqual({ state: 'claimed', id: 7 });
+
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(3);
+    expect(queryUnsafeMock.mock.calls[2][0]).toContain(
+      "status IN ('complete', 'failed', 'expired')",
+    );
+    expect(queryUnsafeMock.mock.calls[2].slice(1)).toEqual([7, 'abc', '24']);
+  });
+
+  it('preserves body mismatch semantics for an expired row', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        id: 8,
+        status: 'expired',
+        response_status: 201,
+        response_body: { stale: true },
+        request_body_hash: 'abc',
+        is_expired: true,
+      }]);
+
+    await expect(claimIdempotencyKey({
+      tenantId: TENANT, userUid: USER, requestKey: 'expired-mismatch',
+      requestMethod: 'POST', requestPath: '/billing/invoice', requestBodyHash: 'different',
+    })).resolves.toEqual({ state: 'mismatch' });
+
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => (
+      sql.startsWith('UPDATE idempotency_keys')
+    ))).toBe(false);
+  });
+
+  it('allows exactly one of two concurrent retries to reclaim an expired row', async () => {
+    let reclaimAttempts = 0;
+    queryUnsafeMock.mockImplementation(async (sql) => {
+      if (sql.startsWith('INSERT INTO idempotency_keys')) {
+        return [];
+      }
+      if (sql.includes('SELECT id, status, response_status')) {
+        return [{
+          id: 9,
+          status: 'expired',
+          response_status: 201,
+          response_body: { stale: true },
+          request_body_hash: 'abc',
+          is_expired: true,
+        }];
+      }
+      if (sql.startsWith('UPDATE idempotency_keys')) {
+        reclaimAttempts += 1;
+        return reclaimAttempts === 1 ? [{ id: 9 }] : [];
+      }
+      throw new Error(`Unexpected SQL in test: ${sql}`);
+    });
+
+    const command = {
+      tenantId: TENANT, userUid: USER, requestKey: 'expired-race',
+      requestMethod: 'POST', requestPath: '/billing/invoice', requestBodyHash: 'abc',
+    };
+    const results = await Promise.all([
+      claimIdempotencyKey(command),
+      claimIdempotencyKey(command),
+    ]);
+
+    expect(results).toEqual(expect.arrayContaining([
+      { state: 'claimed', id: 9 },
+      { state: 'in_flight' },
+    ]));
+    expect(reclaimAttempts).toBe(2);
   });
 
   it('fails closed on schema-missing', async () => {

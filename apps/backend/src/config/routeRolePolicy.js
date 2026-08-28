@@ -72,6 +72,13 @@ export const CATH_LAB_ROUTE_ROLES = mergeRoles(
   // role-policy graph entry. Keep it explicit at the route boundary.
   ['TECHNICIAN'],
 );
+export const CATH_INVENTORY_RECONCILIATION_ROUTE_ROLES = rolesFrom([
+  'PHARMACIST',
+  'PHARMACY_STAFF',
+  'PHARMACY_INCHARGE',
+  'ADMIN',
+  'SUPER_ADMIN',
+]);
 export const HOUSEKEEPING_ROUTE_ROLES = getRolesForCapabilityGroups('housekeeping');
 export const NOTIFICATION_AUDIT_ROUTE_ROLES = getRolesForCapabilityGroups('notifications_audit');
 
@@ -476,6 +483,7 @@ export const COLD_CHAIN_ROUTE_ROLES = mergeRoles(
 
 export const BILLING_V2_ROUTE_ROLES = mergeRoles(
   BILLING_ROUTE_ROLES,
+  getRolesForCapabilityGroups('cashier_operations'),
   getRolesForCapabilityGroups(['ip_flow', 'op_flow']),
 );
 
