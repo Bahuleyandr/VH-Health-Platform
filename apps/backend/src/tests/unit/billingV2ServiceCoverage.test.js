@@ -56,6 +56,7 @@ const TENANT = '00000000-0000-4000-8000-000000000001';
 const PATIENT = '11111111-1111-4111-8111-111111111111';
 const APPROVER = '22222222-2222-4222-8222-222222222222';
 const REQUEST_ID = 'refund-coverage-request';
+const RECENT_PROVIDER_REFUNDED_AT = new Date(Date.now() - 60_000).toISOString();
 
 function refundAuditContext(actorUid, overrides = {}) {
   return {
@@ -2166,7 +2167,7 @@ describe('refunds', () => {
       original_payment_reference: 'UPI-COLLECTION-8',
       provider_name: 'Acquirer',
       provider_refund_reference: 'OFFLINE-REFUND-8',
-      provider_refunded_at: '2026-08-28T08:00:00.000Z',
+      provider_refunded_at: RECENT_PROVIDER_REFUNDED_AT,
     };
     const expectFailure = async (refund, overrides, code, extraRows = []) => {
       queryMock.mockReset();
@@ -2226,7 +2227,7 @@ describe('refunds', () => {
       original_payment_reference: 'UPI-COLLECTION-8',
       provider_name: 'Acquirer',
       provider_refund_reference: 'OFFLINE-REFUND-8',
-      provider_refunded_at: '2026-08-28T08:00:00.000Z',
+      provider_refunded_at: RECENT_PROVIDER_REFUNDED_AT,
     };
     const body = svc.refundOfflineElectronicPayoutIdempotencyBody(8, commandBody);
     queryMock
@@ -2279,7 +2280,7 @@ describe('refunds', () => {
       original_payment_reference: 'CARD-12',
       provider_name: 'Acquirer',
       provider_refund_reference: 'OFFLINE-REFUND-9',
-      provider_refunded_at: '2026-08-28T08:00:00.000Z',
+      provider_refunded_at: RECENT_PROVIDER_REFUNDED_AT,
     });
     expect(result).toMatchObject({ id: 9, approval_status: 'PAID' });
     expect(queryMock.mock.calls.some(call => /UPDATE billing_advances/.test(call[0])))
@@ -2459,7 +2460,7 @@ describe('refunds', () => {
       original_payment_reference: 'UPI-COLLECTION-8',
       provider_name: 'Acquirer',
       provider_refund_reference: 'OFFLINE-REFUND-8',
-      provider_refunded_at: '2026-08-28T08:00:00.000Z',
+      provider_refunded_at: RECENT_PROVIDER_REFUNDED_AT,
     })).rejects.toMatchObject({
       code: 'BILLING_REFUND_PROVIDER_REFUND_REFERENCE_DUPLICATE',
     });
