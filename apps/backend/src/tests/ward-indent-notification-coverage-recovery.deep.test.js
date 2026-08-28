@@ -35,6 +35,11 @@ describeIfDb('MED-03 ward-indent notification coverage recovery', () => {
         'tasks',
         'notification_outbox',
         'workflow_sla_instances',
+        'billing_credit_note_events',
+        'billing_credit_notes',
+        'ward_indent_financial_events',
+        'billing_invoice_items',
+        'billing_invoices',
         'ward_indent_events',
         'clinical_timeline_events',
         'clinical_audit_events',
@@ -272,6 +277,7 @@ describeIfDb('MED-03 ward-indent notification coverage recovery', () => {
   test('recovers the exact finance credit-note notification after roster restoration', async () => {
     const indent = (await prisma.$queryRawUnsafe(
       `SELECT wi.*, item.id AS ward_indent_item_id,
+              item.clinical_order_id,
               event.id AS source_event_id
          FROM ward_indents wi
          JOIN ward_indent_items item
@@ -290,29 +296,120 @@ describeIfDb('MED-03 ward-indent notification coverage recovery', () => {
         LIMIT 1`,
       TENANT,
     ))[0];
-    const creditNoteId = '74401001';
-    const invoiceId = 74401002;
     const creditNumber = `WMCN-${RUN}`;
-
-    const task = await setTenantTx(TENANT, (tx) => materializeBillingCreditNoteObligationTx(tx, {
-      creditNote: {
-        id: creditNoteId,
-        status: 'pending',
-        tenant_id: TENANT,
-        patient_uid: PATIENT,
-        encounter_id: null,
-        ward_indent_id: Number(indent.id),
-        ward_indent_item_id: Number(indent.ward_indent_item_id),
-        invoice_id: invoiceId,
-        source_financial_event_id: '74401003',
-        credit_note_number: creditNumber,
-        indent_number: indent.indent_number,
-        ward_indent_status: indent.status,
-        ward_indent_state_version: Number(indent.state_version),
-      },
-      actorUid: REQUESTER,
-      sourceEvent: { id: String(indent.source_event_id) },
-    }));
+    const invoiceId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO billing_invoices
+         (patient_uid, invoice_type, status, subtotal, total_amount,
+          amount_paid, amount_due, tenant_id)
+       VALUES ($1::uuid, 'IP', 'ISSUED', 12.50, 12.50, 0, 12.50, $2::uuid)
+       RETURNING id`,
+      PATIENT,
+      TENANT,
+    ))[0].id);
+    const invoiceItemId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO billing_invoice_items
+         (tenant_id, invoice_id, description, quantity, unit_price,
+          line_subtotal, line_total, source_ref_type, source_ref_id,
+          source_ref_active)
+       VALUES ($1::uuid, $2::int, 'Ward medication coverage fixture',
+               1, 12.50, 12.50, 12.50, 'ward_indent_item', $3::bigint, TRUE)
+       RETURNING id`,
+      TENANT,
+      invoiceId,
+      Number(indent.ward_indent_item_id),
+    ))[0].id);
+    const chargeEventId = String((await prisma.$queryRawUnsafe(
+      `INSERT INTO ward_indent_financial_events
+         (tenant_id, ward_indent_id, ward_indent_item_id, clinical_order_id,
+          ward_indent_event_id, ward_indent_state_version, event_kind, quantity,
+          unit_price_minor, amount_minor, pricing_snapshot, invoice_id,
+          invoice_item_id, event_key, actor_uid)
+       VALUES ($1::uuid, $2::int, $3::int, $4::int, $5::bigint,
+               $6::int, 'charge', 1, 1250, 1250, '{}'::jsonb, $7::int,
+               $8::int, $9::text, $10::uuid)
+       RETURNING id`,
+      TENANT,
+      Number(indent.id),
+      Number(indent.ward_indent_item_id),
+      indent.clinical_order_id == null ? null : Number(indent.clinical_order_id),
+      String(indent.source_event_id),
+      Number(indent.state_version),
+      invoiceId,
+      invoiceItemId,
+      `coverage-credit-charge-${RUN}`,
+      REQUESTER,
+    ))[0].id);
+    const creditEventId = String((await prisma.$queryRawUnsafe(
+      `INSERT INTO ward_indent_financial_events
+         (tenant_id, ward_indent_id, ward_indent_item_id, clinical_order_id,
+          ward_indent_event_id, ward_indent_state_version, event_kind, quantity,
+          unit_price_minor, amount_minor, pricing_snapshot, original_event_id,
+          invoice_id, invoice_item_id, event_key, actor_uid)
+       VALUES ($1::uuid, $2::int, $3::int, $4::int, $5::bigint,
+               $6::int, 'credit', 1, 1250, -1250, '{}'::jsonb, $7::bigint,
+               $8::int, $9::int, $10::text, $11::uuid)
+       RETURNING id`,
+      TENANT,
+      Number(indent.id),
+      Number(indent.ward_indent_item_id),
+      indent.clinical_order_id == null ? null : Number(indent.clinical_order_id),
+      String(indent.source_event_id),
+      Number(indent.state_version),
+      chargeEventId,
+      invoiceId,
+      invoiceItemId,
+      `coverage-credit-credit-${RUN}`,
+      REQUESTER,
+    ))[0].id);
+    let creditNoteId;
+    const task = await setTenantTx(TENANT, async (tx) => {
+      creditNoteId = String((await tx.$queryRawUnsafe(
+        `INSERT INTO billing_credit_notes
+           (tenant_id, credit_note_number, invoice_id, patient_uid,
+            source_financial_event_id, amount_minor, reason, status, raised_by)
+         VALUES ($1::uuid, $2::text, $3::int, $4::uuid,
+                 $5::bigint, 1250, 'Coverage recovery fixture', 'pending', $6::uuid)
+         RETURNING id`,
+        TENANT,
+        creditNumber,
+        invoiceId,
+        PATIENT,
+        creditEventId,
+        REQUESTER,
+      ))[0].id);
+      const raisedEvent = (await tx.$queryRawUnsafe(
+        `INSERT INTO billing_credit_note_events
+           (tenant_id, credit_note_id, event_type, actor_uid,
+            command_key, request_body_sha256, details)
+         VALUES ($1::uuid, $2::bigint, 'raised', $3::uuid,
+                 $4::text, $5::char(64), '{}'::jsonb)
+         RETURNING id`,
+        TENANT,
+        creditNoteId,
+        REQUESTER,
+        `coverage-credit-note-raised-${RUN}`,
+        '0'.repeat(64),
+      ))[0];
+      return materializeBillingCreditNoteObligationTx(tx, {
+        creditNote: {
+          id: creditNoteId,
+          status: 'pending',
+          tenant_id: TENANT,
+          patient_uid: PATIENT,
+          encounter_id: null,
+          ward_indent_id: Number(indent.id),
+          ward_indent_item_id: Number(indent.ward_indent_item_id),
+          invoice_id: invoiceId,
+          source_financial_event_id: creditEventId,
+          credit_note_number: creditNumber,
+          indent_number: indent.indent_number,
+          ward_indent_status: indent.status,
+          ward_indent_state_version: Number(indent.state_version),
+        },
+        actorUid: REQUESTER,
+        sourceEvent: raisedEvent,
+      });
+    });
     expect(Number(task.id)).toBeGreaterThan(0);
 
     const gap = (await prisma.$queryRawUnsafe(

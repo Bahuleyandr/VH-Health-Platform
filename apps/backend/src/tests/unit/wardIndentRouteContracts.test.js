@@ -82,11 +82,15 @@ jest.unstable_mockModule('../../controllers/pharmacy/wardIndentController.js', (
 ));
 
 const guards = await import('../../routes/pharmacy/wardIndentPatientGuards.js');
-const { default: router } = await import('../../routes/pharmacy/wardIndentRoutes.js');
+const {
+  default: router,
+  WARD_INDENT_HOST_ROLES,
+} = await import('../../routes/pharmacy/wardIndentRoutes.js');
 const ipdAliasSource = readFileSync(
   new URL('../../routes/ipd/ipdSupportRoutes.js', import.meta.url),
   'utf8',
 );
+const appSource = readFileSync(new URL('../../app.js', import.meta.url), 'utf8');
 
 function route(path, method) {
   return router.stack.find((layer) => layer.route?.path === path && layer.route.methods?.[method]);
@@ -252,6 +256,24 @@ describe('authoritative pharmacy ward-indent router', () => {
     expect(metadata('/', 'post', '__roles')[0]).not.toContain('STORES_PURCHASE_INCHARGE');
   });
 
+  test('mounts exact ward routes for every inner ER and stores authority without widening pharmacy', () => {
+    expect(WARD_INDENT_HOST_ROLES).toEqual(expect.arrayContaining([
+      'ER_STAFF',
+      'STORES_PURCHASE_INCHARGE',
+    ]));
+    expect(metadata('/:id/receive', 'post', '__roles')[0]).toContain('ER_STAFF');
+    expect(metadata('/:id/issue', 'post', '__roles')[0]).toContain('STORES_PURCHASE_INCHARGE');
+
+    const exactMount = appSource.indexOf(
+      "app.use('/api/v1/pharmacy-orders/ward-indents', patientRateLimiter, requireRole(...WARD_INDENT_HOST_ROLES)",
+    );
+    const broadMount = appSource.indexOf(
+      "app.use('/api/v1/pharmacy-orders', patientRateLimiter, requireRole(...PHARMACY_ORDER_ROUTE_ROLES)",
+    );
+    expect(exactMount).toBeGreaterThan(-1);
+    expect(broadMount).toBeGreaterThan(exactMount);
+  });
+
   test('inventory candidates are tenant/patient guarded and read-only', () => {
     const candidates = metadata(
       '/:id/items/:itemId/inventory-candidates',
@@ -274,6 +296,11 @@ describe('authoritative pharmacy ward-indent router', () => {
 });
 
 describe('IPD compatibility alias', () => {
+  test('does not advertise ER or stores grants blocked by the IPD parent mount', () => {
+    expect(ipdAliasSource).not.toContain("'ER_STAFF'");
+    expect(ipdAliasSource).not.toContain('PHARMACY_SUPPLY_ROUTE_ROLES');
+  });
+
   test('carries a row guard and the same durable idempotency contract on every mutation', () => {
     for (const [path, scope] of MUTATIONS.slice(1)) {
       const ipdPath = path.replace('/:id', '/ward-indents/:indentId');

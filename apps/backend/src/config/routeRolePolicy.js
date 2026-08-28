@@ -105,7 +105,12 @@ export const CARE_PATHWAY_ROUTE_ROLES = mergeRoles(
 export const CLINICAL_INBOX_ROUTE_ROLES = mergeRoles(
   CLINICAL_STAFF_ROUTE_ROLES,
   PATHWAY_NAMED_CLINICIAN_ROLES,
-  rolesFrom(['LAB_STAFF', 'QUALITY_OFFICER']),
+  rolesFrom([
+    'LAB_STAFF',
+    'QUALITY_OFFICER',
+    'BILLING_INCHARGE',
+    'FINANCE_INCHARGE',
+  ]),
 );
 
 export const PHYSIO_ROUTE_ROLES = mergeRoles(

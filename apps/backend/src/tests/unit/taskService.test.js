@@ -659,6 +659,65 @@ describe('claimInboxTask', () => {
     expect(queryUnsafeMock.mock.calls.flat().join(' ')).not.toContain('claim-key');
   });
 
+  it('lets any declared ward-medication owner role atomically claim the one task and SLA', async () => {
+    const wardTask = roleTask({
+      assigned_to_role: 'BILLING_INCHARGE',
+      metadata: {
+        task_contract: 'ward_medication_obligation_v1',
+        owner_role_codes: ['BILLING_INCHARGE', 'FINANCE_INCHARGE'],
+      },
+    });
+    queryUnsafeMock
+      .mockResolvedValueOnce([wardTask])
+      .mockResolvedValueOnce([{
+        ...wardTask,
+        assigned_to_uid: USER,
+        assigned_to_role: null,
+      }])
+      .mockResolvedValueOnce([{ id: 1 }]);
+
+    await expect(claimInboxTask(claimInput({
+      actorRoles: ['FINANCE_INCHARGE'],
+      actorPrimaryRole: 'FINANCE_INCHARGE',
+      actorRawRole: 'FINANCE_INCHARGE',
+    }))).resolves.toMatchObject({
+      id: 41,
+      assigned_to_uid: USER,
+      replayed: false,
+    });
+
+    const updateCall = queryUnsafeMock.mock.calls[1];
+    expect(updateCall[0]).toContain('UPPER(BTRIM(assigned_to_role)) = $10::text');
+    expect(updateCall[5]).toBe('BILLING_INCHARGE');
+    expect(JSON.parse(updateCall[9])).toMatchObject({
+      role_claimed_actor_role: 'FINANCE_INCHARGE',
+      role_claimed_actor_raw_role: 'FINANCE_INCHARGE',
+    });
+    expect(updateCall[10]).toBe('BILLING_INCHARGE');
+    const commentMetadata = JSON.parse(queryUnsafeMock.mock.calls[2][6]);
+    expect(commentMetadata).toMatchObject({
+      from_assigned_to_role: 'BILLING_INCHARGE',
+      claim_authority_role: 'FINANCE_INCHARGE',
+    });
+  });
+
+  it('does not treat the ward task contract as authority for an undeclared role', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([roleTask({
+      assigned_to_role: 'BILLING_INCHARGE',
+      metadata: {
+        task_contract: 'ward_medication_obligation_v1',
+        owner_role_codes: ['BILLING_INCHARGE', 'FINANCE_INCHARGE'],
+      },
+    })]);
+
+    await expect(claimInboxTask(claimInput({
+      actorRoles: ['ADMIN'],
+      actorPrimaryRole: 'ADMIN',
+      actorRawRole: 'ADMIN',
+    }))).rejects.toMatchObject({ statusCode: 403, code: 'TASK_CLAIM_FORBIDDEN' });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
   it('replays only the exact actor, task, and derived command receipt', async () => {
     queryUnsafeMock
       .mockResolvedValueOnce([roleTask()])
@@ -1839,7 +1898,7 @@ describe('acknowledgeColdChainTaskFromTrustedWorkflow', () => {
 });
 
 describe('listInboxTasks', () => {
-  it('filters by assignee-OR-role and open/in_progress/overdue, ordered by priority then due_at', async () => {
+  it('includes blocked work and every declared ward-medication owner role', async () => {
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1 }, { id: 2 }]);
     const result = await listInboxTasks({
       tenantId: TENANT, assigneeUid: USER, roles: ['DOCTOR', 'DUTY_DOCTOR'],
@@ -1850,8 +1909,11 @@ describe('listInboxTasks', () => {
     expect(sql).toMatch(/assigned_to_uid = /);
     expect(sql).toMatch(/assigned_to_role/);
     expect(sql).toMatch(/assigned_to_uid IS NULL[\s\S]+UPPER\(BTRIM\(assigned_to_role\)\) = \$3::text/);
+    expect(sql).toContain("metadata->>'task_contract' = 'ward_medication_obligation_v1'");
+    expect(sql).toContain('jsonb_array_elements_text(');
+    expect(sql).toContain("THEN metadata->'owner_role_codes'");
     // inbox status set
-    expect(sql).toMatch(/'open', 'in_progress', 'overdue'/);
+    expect(sql).toMatch(/'open', 'in_progress', 'blocked', 'overdue'/);
     // ordering
     expect(sql).toMatch(/CASE inbox\.priority WHEN 'critical' THEN 0/);
     expect(sql).toMatch(/due_at/);

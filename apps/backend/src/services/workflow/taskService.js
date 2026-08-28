@@ -4626,6 +4626,13 @@ function assertMarMedicationExceptionClaimAuthority(taskRow, authority = null) {
   }
 }
 
+function wardMedicationOwnerRoleCodes(taskRow) {
+  if (taskRow?.metadata?.task_contract !== WARD_MEDICATION_TASK_CONTRACT) return [];
+  const declaredRoles = taskRow?.metadata?.owner_role_codes;
+  if (!Array.isArray(declaredRoles)) return [];
+  return [...new Set(declaredRoles.map(normalizeRole).filter(Boolean))];
+}
+
 async function claimTaskForCurrentActorTx({
   tenantId,
   taskId,
@@ -4660,6 +4667,7 @@ async function claimTaskForCurrentActorTx({
   });
   const currentUid = String(current.assigned_to_uid || '').trim().toLowerCase() || null;
   const currentRole = String(current.assigned_to_role || '').trim().toUpperCase() || null;
+  const wardMedicationOwnerRoles = wardMedicationOwnerRoleCodes(current);
   const isMarMedicationExceptionClaim = marMedicationExceptionClaimAuthority
     === MAR_MEDICATION_EXCEPTION_TASK_CLAIM_AUTHORITY;
   const isClinicalAlertDeliveryRecoveryClaim =
@@ -4671,6 +4679,8 @@ async function claimTaskForCurrentActorTx({
     : isCathInventoryShortfallClaim
       ? 'PHARMACIST'
       : actor.queueRole;
+  const claimsDeclaredWardMedicationRole = wardMedicationOwnerRoles.includes(currentRole)
+    && wardMedicationOwnerRoles.includes(claimQueueRole);
   const receiptKey = String(current.metadata?.role_claim_receipt || '').trim();
   const receiptFingerprint = String(current.metadata?.role_claim_command_fingerprint || '').trim();
   const receiptActor = String(current.metadata?.role_claimed_by || '').trim().toLowerCase();
@@ -4687,7 +4697,10 @@ async function claimTaskForCurrentActorTx({
     !TASK_CLAIMABLE_STATUSES.has(String(current.status || '').toLowerCase())
     || currentUid
     || !currentRole
-    || currentRole !== claimQueueRole
+    || (
+      currentRole !== claimQueueRole
+      && !claimsDeclaredWardMedicationRole
+    )
   ) {
     throw taskClaimForbidden(current);
   }
@@ -4732,23 +4745,25 @@ async function claimTaskForCurrentActorTx({
         AND id = $2::bigint
         AND status = $7::text
         AND assigned_to_uid IS NULL
-        AND UPPER(BTRIM(assigned_to_role)) = $5::text
+        AND UPPER(BTRIM(assigned_to_role)) = $10::text
       RETURNING ${TASK_RETURNING}`,
     tenantId,
     taskId,
     actor.uid,
     claimReceipt.receipt,
-    claimQueueRole,
+    currentRole,
     claimedAt,
     current.status,
     claimReceipt.commandFingerprint,
     JSON.stringify(
       isMarMedicationExceptionClaim
       || isClinicalAlertDeliveryRecoveryClaim
-      || isCathInventoryShortfallClaim ? {
+      || isCathInventoryShortfallClaim
+      || (claimsDeclaredWardMedicationRole && currentRole !== claimQueueRole) ? {
       role_claimed_actor_role: actor.role,
       role_claimed_actor_raw_role: actor.rawRole,
     } : {}),
+    currentRole,
   );
   const claimed = rows[0];
   if (!claimed) throw taskClaimForbidden(current);
@@ -4780,10 +4795,13 @@ async function claimTaskForCurrentActorTx({
     tenantId,
     taskId,
     authorUid: actor.uid,
-    body: `Task claimed from ${claimQueueRole} role queue`,
+    body: claimsDeclaredWardMedicationRole && currentRole !== claimQueueRole
+      ? `Task claimed under ${claimQueueRole} authority from ${currentRole} role queue`
+      : `Task claimed from ${claimQueueRole} role queue`,
     bodyKind: 'state_change',
     metadata: {
-      from_assigned_to_role: claimQueueRole,
+      from_assigned_to_role: currentRole,
+      claim_authority_role: claimQueueRole,
       to_assigned_to_uid: actor.uid,
       claimed_at: claimedAt,
       claim_receipt: claimReceipt.receipt,
@@ -5957,7 +5975,7 @@ export async function acknowledgeColdChainTaskFromTrustedWorkflow({
 /**
  * Results-inbox query: the open work for "me or my role".
  *
- * Returns tasks in the active inbox statuses (open / in_progress / overdue)
+ * Returns tasks in the active inbox statuses (open / in_progress / blocked / overdue)
  * assigned to `assigneeUid` OR to any of `roles`, ordered by clinical urgency
  * (priority, then due_at). Thin wrapper over the same raw SELECT `listTasks`
  * uses; degrades to empty when the schema is absent (mirrors listTasks).
@@ -6104,12 +6122,42 @@ export async function listInboxTasks({
            SELECT ${TASK_RETURNING}
              FROM tasks
             WHERE tenant_id = $1::uuid
-              AND status IN ('open', 'in_progress', 'overdue')
+              AND status IN ('open', 'in_progress', 'blocked', 'overdue')
               AND (
                 assigned_to_uid = $2::uuid
                 OR (
                   assigned_to_uid IS NULL
                   AND UPPER(BTRIM(assigned_to_role)) = $3::text
+                )
+                OR (
+                  assigned_to_uid IS NULL
+                  AND metadata->>'task_contract' = 'ward_medication_obligation_v1'
+                  AND jsonb_typeof(metadata->'owner_role_codes') = 'array'
+                  AND EXISTS (
+                    SELECT 1
+                      FROM jsonb_array_elements_text(
+                        CASE
+                          WHEN jsonb_typeof(metadata->'owner_role_codes') = 'array'
+                            THEN metadata->'owner_role_codes'
+                          ELSE '[]'::jsonb
+                        END
+                      )
+                           AS canonical_owner(role_code)
+                     WHERE UPPER(BTRIM(canonical_owner.role_code)) =
+                           UPPER(BTRIM(assigned_to_role))
+                  )
+                  AND EXISTS (
+                    SELECT 1
+                      FROM jsonb_array_elements_text(
+                        CASE
+                          WHEN jsonb_typeof(metadata->'owner_role_codes') = 'array'
+                            THEN metadata->'owner_role_codes'
+                          ELSE '[]'::jsonb
+                        END
+                      )
+                           AS declared_owner(role_code)
+                     WHERE UPPER(BTRIM(declared_owner.role_code)) = $3::text
+                  )
                 )
                 OR (
                   $6::boolean

@@ -6,7 +6,7 @@
 //
 // Auth: JWT required. Roles allowed: ADMIN, SUPER_ADMIN, HR_STAFF (for
 // reads), and "billing" generally requires admin/staff write power.
-// Refund approval requires ADMIN.
+// Refund approval requires ADMIN or SUPER_ADMIN.
 
 import { Router } from 'express';
 import * as billing from '../../services/billing/billingV2Service.js';
@@ -71,7 +71,10 @@ function requireStaffOrAdmin(req, res, next) {
 }
 
 function requireAdmin(req, res, next) {
-  if (!isAdmin(req.user?.role)) return error(res, 'Admin role required', 403);
+  const role = String(req.user?.role || '').trim().toUpperCase();
+  if (!['ADMIN', 'SUPER_ADMIN'].includes(role)) {
+    return error(res, 'Admin role required', 403);
+  }
   next();
 }
 

@@ -25,6 +25,7 @@ import {
 } from '../services/billing/billingV2Service.js';
 import { administerWithScan } from '../services/clinical/marFiveRightsService.js';
 import { holdMedication, recordMissed } from '../services/clinical/marService.js';
+import { acknowledgeTask, claimInboxTask } from '../services/workflow/taskService.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const describeIfDb = databaseUrl ? describe : describe.skip;
@@ -42,6 +43,7 @@ describeIfDb('MED-03 ward medication credit-note closure', () => {
   const pharmacist = randomUUID();
   const receiver = randomUUID();
   const billingOwner = randomUUID();
+  const financeOwner = randomUUID();
   const admin = randomUUID();
   const patient = randomUUID();
   const run = `${process.pid}-${Date.now()}`;
@@ -58,16 +60,18 @@ describeIfDb('MED-03 ward medication credit-note closure', () => {
     await prisma.$executeRawUnsafe(
       `INSERT INTO users (uid, tenant_id, name, role, is_active, status, updated_at)
        VALUES
-         ($1::uuid, $7::uuid, 'Request Nurse', 'IP_STAFF_NURSE', TRUE, 'active', NOW()),
-         ($2::uuid, $7::uuid, 'Pharmacist', 'PHARMACY_INCHARGE', TRUE, 'active', NOW()),
-         ($3::uuid, $7::uuid, 'Receipt Nurse', 'NURSING_INCHARGE', TRUE, 'active', NOW()),
-         ($4::uuid, $7::uuid, 'Billing Owner', 'BILLING_INCHARGE', TRUE, 'active', NOW()),
-         ($5::uuid, $7::uuid, 'Admin Approver', 'ADMIN', TRUE, 'active', NOW()),
-         ($6::uuid, $7::uuid, 'Patient', 'PATIENT', TRUE, 'active', NOW())`,
+         ($1::uuid, $8::uuid, 'Request Nurse', 'IP_STAFF_NURSE', TRUE, 'active', NOW()),
+         ($2::uuid, $8::uuid, 'Pharmacist', 'PHARMACY_INCHARGE', TRUE, 'active', NOW()),
+         ($3::uuid, $8::uuid, 'Receipt Nurse', 'NURSING_INCHARGE', TRUE, 'active', NOW()),
+         ($4::uuid, $8::uuid, 'Billing Owner', 'BILLING_INCHARGE', TRUE, 'active', NOW()),
+         ($5::uuid, $8::uuid, 'Finance Owner', 'FINANCE_INCHARGE', TRUE, 'active', NOW()),
+         ($6::uuid, $8::uuid, 'Admin Approver', 'ADMIN', TRUE, 'active', NOW()),
+         ($7::uuid, $8::uuid, 'Patient', 'PATIENT', TRUE, 'active', NOW())`,
       requester,
       pharmacist,
       receiver,
       billingOwner,
+      financeOwner,
       admin,
       patient,
       tenantId,
@@ -236,6 +240,7 @@ describeIfDb('MED-03 ward medication credit-note closure', () => {
     const taskRows = await prisma.$queryRawUnsafe(
       `SELECT task.id, task.status, task.assigned_to_role,
               task.sla_completion_semantics, task.workflow_sla_instance_id,
+              task.metadata->'owner_role_codes' AS owner_role_codes,
               sla.rule_code, sla.due_at
          FROM tasks task
          JOIN workflow_sla_instances sla
@@ -251,9 +256,21 @@ describeIfDb('MED-03 ward medication credit-note closure', () => {
     expect(taskRows[0]).toMatchObject({
       status: 'open',
       assigned_to_role: 'BILLING_INCHARGE',
+      owner_role_codes: ['BILLING_INCHARGE', 'FINANCE_INCHARGE'],
       sla_completion_semantics: 'domain_evidence',
       rule_code: 'ward_indent_credit_note_review',
     });
+    expect(Number(pending[0].task_id)).toBe(Number(taskRows[0].id));
+    expect((await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count
+         FROM workflow_sla_instances
+        WHERE tenant_id = $1::uuid
+          AND source_table = 'billing_credit_notes'
+          AND source_id = $2::text
+          AND rule_code = 'ward_indent_credit_note_review'`,
+      tenantId,
+      String(pending[0].id),
+    ))[0].count).toBe(1);
     expect((await prisma.$queryRawUnsafe(
       `SELECT id
          FROM notification_outbox
@@ -266,6 +283,32 @@ describeIfDb('MED-03 ward medication credit-note closure', () => {
       billingOwner,
       String(pending[0].id),
     ))).toHaveLength(1);
+
+    await claimInboxTask({
+      tenantId,
+      id: Number(taskRows[0].id),
+      actorUid: billingOwner,
+      actorRoles: ['BILLING_INCHARGE'],
+      actorPrimaryRole: 'BILLING_INCHARGE',
+      actorRawRole: 'BILLING_INCHARGE',
+      idempotencyKey: `credit-review-claim-${run}`,
+    });
+    const acknowledgedReview = await acknowledgeTask({
+      tenantId,
+      id: Number(taskRows[0].id),
+      actorUid: billingOwner,
+      actorRoles: ['BILLING_INCHARGE'],
+      actorPrimaryRole: 'BILLING_INCHARGE',
+      actorRawRole: 'BILLING_INCHARGE',
+    });
+    expect(acknowledgedReview).toMatchObject({
+      status: 'in_progress',
+      assigned_to_uid: billingOwner,
+      metadata: {
+        acknowledged_by: billingOwner,
+        role_claimed_by: billingOwner,
+      },
+    });
 
     const approvedAttempts = await Promise.all(Array.from({ length: 4 }, () => (
       approveBillingCreditNote(pending[0].id, {
@@ -290,12 +333,14 @@ describeIfDb('MED-03 ward medication credit-note closure', () => {
       Number(taskRows[0].id),
     ))[0];
     expect(applicationTask).toMatchObject({
-      status: 'open',
+      status: 'in_progress',
       title: 'Apply approved ward medication credit note',
       completed_at: null,
       task_metadata: {
         evidence_kind: 'billing_credit_note_application',
         credit_note_stage: 'approved',
+        acknowledged_by: billingOwner,
+        role_claimed_by: billingOwner,
       },
     });
 
@@ -692,8 +737,10 @@ describeIfDb('MED-03 ward medication credit-note closure', () => {
     expect(sqlState(duplicateRefundError)).toBe('23505');
 
     const ownershipRows = await prisma.$queryRawUnsafe(
-      `SELECT task.id, task.status, task.title, task.assigned_to_role,
-              task.metadata AS task_metadata, sla.completed_at
+      `SELECT task.id, task.status, task.title, task.assigned_to_uid,
+              task.assigned_to_role,
+              task.metadata AS task_metadata, sla.completed_at,
+              sla.assigned_role_codes
          FROM tasks task
          JOIN workflow_sla_instances sla
            ON sla.tenant_id = task.tenant_id
@@ -708,14 +755,20 @@ describeIfDb('MED-03 ward medication credit-note closure', () => {
     expect(ownershipRows[0]).toMatchObject({
       status: 'open',
       title: 'Authorize ward medication credit refund',
+      assigned_to_uid: null,
       assigned_to_role: 'ADMIN',
+      assigned_role_codes: ['ADMIN', 'SUPER_ADMIN'],
       completed_at: null,
       task_metadata: {
         evidence_kind: 'billing_credit_note_refund_paid',
         credit_note_stage: 'refund_approval',
+        owner_role_codes: ['ADMIN', 'SUPER_ADMIN'],
+        ownership_stage_version: 2,
         refund_id: refundId,
       },
     });
+    expect(ownershipRows[0].task_metadata).not.toHaveProperty('acknowledged_by');
+    expect(ownershipRows[0].task_metadata).not.toHaveProperty('role_claimed_by');
     expect((await prisma.$queryRawUnsafe(
       `SELECT id
          FROM notification_outbox
@@ -728,6 +781,32 @@ describeIfDb('MED-03 ward medication credit-note closure', () => {
       admin,
       String(refundId),
     ))).toHaveLength(1);
+
+    await claimInboxTask({
+      tenantId,
+      id: Number(ownershipRows[0].id),
+      actorUid: admin,
+      actorRoles: ['ADMIN'],
+      actorPrimaryRole: 'ADMIN',
+      actorRawRole: 'ADMIN',
+      idempotencyKey: `refund-approval-claim-${run}`,
+    });
+    const acknowledgedApproval = await acknowledgeTask({
+      tenantId,
+      id: Number(ownershipRows[0].id),
+      actorUid: admin,
+      actorRoles: ['ADMIN'],
+      actorPrimaryRole: 'ADMIN',
+      actorRawRole: 'ADMIN',
+    });
+    expect(acknowledgedApproval).toMatchObject({
+      status: 'in_progress',
+      assigned_to_uid: admin,
+      metadata: {
+        acknowledged_by: admin,
+        role_claimed_by: admin,
+      },
+    });
 
     await expect(rejectRefund(refundId, {
       rejected_by: admin,
@@ -743,8 +822,10 @@ describeIfDb('MED-03 ward medication credit-note closure', () => {
     });
     expect(approvedRefund.approval_status).toBe('APPROVED');
     const payoutOwnership = (await prisma.$queryRawUnsafe(
-      `SELECT task.status, task.title, task.assigned_to_role,
-              task.metadata AS task_metadata, sla.completed_at
+      `SELECT task.status, task.title, task.assigned_to_uid,
+              task.assigned_to_role,
+              task.metadata AS task_metadata, sla.completed_at,
+              sla.assigned_role_codes
          FROM tasks task
          JOIN workflow_sla_instances sla
            ON sla.tenant_id = task.tenant_id
@@ -756,14 +837,20 @@ describeIfDb('MED-03 ward medication credit-note closure', () => {
     expect(payoutOwnership).toMatchObject({
       status: 'open',
       title: 'Settle approved ward medication credit refund',
+      assigned_to_uid: null,
       assigned_to_role: 'FINANCE_INCHARGE',
+      assigned_role_codes: ['BILLING_INCHARGE', 'FINANCE_INCHARGE'],
       completed_at: null,
       task_metadata: {
         evidence_kind: 'billing_credit_note_refund_paid',
         credit_note_stage: 'refund_payout',
+        owner_role_codes: ['BILLING_INCHARGE', 'FINANCE_INCHARGE'],
+        ownership_stage_version: 3,
         refund_id: refundId,
       },
     });
+    expect(payoutOwnership.task_metadata).not.toHaveProperty('acknowledged_by');
+    expect(payoutOwnership.task_metadata).not.toHaveProperty('role_claimed_by');
     expect((await prisma.$queryRawUnsafe(
       `SELECT id
          FROM notification_outbox
@@ -777,8 +864,58 @@ describeIfDb('MED-03 ward medication credit-note closure', () => {
       String(refundId),
     )).length).toBeGreaterThanOrEqual(1);
 
+    await claimInboxTask({
+      tenantId,
+      id: Number(ownershipRows[0].id),
+      actorUid: financeOwner,
+      actorRoles: ['FINANCE_INCHARGE'],
+      actorPrimaryRole: 'FINANCE_INCHARGE',
+      actorRawRole: 'FINANCE_INCHARGE',
+      idempotencyKey: `refund-payout-claim-${run}`,
+    });
+    const acknowledgedPayout = await acknowledgeTask({
+      tenantId,
+      id: Number(ownershipRows[0].id),
+      actorUid: financeOwner,
+      actorRoles: ['FINANCE_INCHARGE'],
+      actorPrimaryRole: 'FINANCE_INCHARGE',
+      actorRawRole: 'FINANCE_INCHARGE',
+    });
+    expect(acknowledgedPayout).toMatchObject({
+      status: 'in_progress',
+      assigned_to_uid: financeOwner,
+      metadata: {
+        acknowledged_by: financeOwner,
+        role_claimed_by: financeOwner,
+      },
+    });
+
+    const handoffHistory = await prisma.$queryRawUnsafe(
+      `SELECT metadata
+         FROM task_comments
+        WHERE tenant_id = $1::uuid
+          AND task_id = $2::int
+          AND metadata->>'ownership_rearmed' = 'true'
+        ORDER BY id`,
+      tenantId,
+      Number(ownershipRows[0].id),
+    );
+    expect(handoffHistory).toHaveLength(2);
+    expect(handoffHistory[0].metadata).toMatchObject({
+      ownership_stage_version: 2,
+      prior_status: 'in_progress',
+      prior_acknowledgement: { acknowledged_by: billingOwner },
+      prior_role_claim: { role_claimed_by: billingOwner },
+    });
+    expect(handoffHistory[1].metadata).toMatchObject({
+      ownership_stage_version: 3,
+      prior_status: 'in_progress',
+      prior_acknowledgement: { acknowledged_by: admin },
+      prior_role_claim: { role_claimed_by: admin },
+    });
+
     const paidRefund = await markRefundPaid(refundId, {
-      paid_by: billingOwner,
+      paid_by: financeOwner,
       reference: `MED03-MANUAL-PAYOUT-${run}`,
       tenantId,
     });
@@ -800,7 +937,7 @@ describeIfDb('MED-03 ward medication credit-note closure', () => {
     expect(completed.completed_at).not.toBeNull();
     expect(completed.metadata).toMatchObject({
       completed_via: 'domain_evidence',
-      completed_by: billingOwner,
+      completed_by: financeOwner,
       completion_evidence: {
         kind: 'billing_credit_note_refund_paid',
         resource_type: 'billing_refund',

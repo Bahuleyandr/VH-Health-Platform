@@ -163,6 +163,8 @@ describe('workflow human owner policy', () => {
     expect(isTaskHumanOwnerRole('DIETITIAN')).toBe(true);
     expect(isTaskHumanOwnerRole('COUNSELLOR')).toBe(true);
     expect(isTaskHumanOwnerRole('QUALITY_OFFICER')).toBe(true);
+    expect(isTaskHumanOwnerRole('BILLING_INCHARGE')).toBe(true);
+    expect(isTaskHumanOwnerRole('FINANCE_INCHARGE')).toBe(true);
     expect(isClinicalHumanOwnerRole('PATIENT')).toBe(false);
     expect(isTaskHumanOwnerRole('WEBHOOK_CLIENT')).toBe(false);
     expect(isTaskHumanOwnerRole('UNKNOWN_ROLE')).toBe(false);

@@ -33,7 +33,6 @@ import {
   BILLING_ROUTE_ROLES,
   IP_FLOW_ROUTE_ROLES,
   PHARMACY_ROUTE_ROLES,
-  PHARMACY_SUPPLY_ROUTE_ROLES,
 } from '../../config/routeRolePolicy.js';
 import { DOCTOR_TIERS } from '../../utils/roleHelpers.js';
 import { normalizeRole } from '../../utils/roles.js';
@@ -86,11 +85,9 @@ const WARD_INDENT_REQUEST_ROLES = [...new Set([
 ])];
 const WARD_INDENT_READ_ROLES = [...new Set([
   ...WARD_INDENT_REQUEST_ROLES,
-  ...PHARMACY_SUPPLY_ROUTE_ROLES,
 ])];
 const WARD_INDENT_SUPPLY_ROLES = [...new Set([
   ...PHARMACY_ROUTE_ROLES,
-  ...PHARMACY_SUPPLY_ROUTE_ROLES,
 ])];
 const WARD_INDENT_SUBSTITUTION_DECISION_ROLES = [...DOCTOR_TIERS];
 const WARD_INDENT_RECEIPT_ROLES = [
@@ -101,7 +98,6 @@ const WARD_INDENT_RECEIPT_ROLES = [
   'ICU_NURSE',
   'ICU_INCHARGE',
   'ICU_STAFF',
-  'ER_STAFF',
 ];
 const WARD_INDENT_RECONCILIATION_ROLES = [
   'PHARMACY_INCHARGE',

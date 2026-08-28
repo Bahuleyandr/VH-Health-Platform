@@ -181,6 +181,9 @@ import engagementRoutes from './routes/engagement/engagementRoutes.js';
 import patientSearchRoutes from './routes/patient/patientSearchRoutes.js';
 import patientFlowRoutes from './routes/patientFlow/kioskCheckinRoutes.js';
 import pharmacyRoutes from './routes/pharmacy/index.js';
+import wardIndentRoutes, {
+  WARD_INDENT_HOST_ROLES,
+} from './routes/pharmacy/wardIndentRoutes.js';
 import {
   COUNTER_SALE_APPROVAL_HOST_ROLES,
   pharmacyCounterSaleWitnessApprovalRoutes,
@@ -1153,6 +1156,12 @@ app.use(
 app.use('/api/v1/pharmacy/inventory/v2', patientRateLimiter, requireRole(...PHARMACY_INVENTORY_PARENT_ROLES), pharmacyInventoryV2Routes);
 app.use('/api/v1/pharmacy-orders/inventory/v2', patientRateLimiter, requireRole(...PHARMACY_INVENTORY_PARENT_ROLES), pharmacyInventoryV2Routes);
 app.use('/api/v1/pharmacy-supply', adminRateLimiter, requireRole(...PHARMACY_SUPPLY_ROUTE_ROLES), pharmacySupplyRoutes);
+// Ward indents carry narrower per-operation role and patient guards. Mount
+// their exact subtree before the broad pharmacy-order host so emergency
+// receipt and stores/supply roles can reach only the operations explicitly
+// granted inside wardIndentRoutes.
+app.use('/api/v1/pharmacy-orders/ward-indents', patientRateLimiter, requireRole(...WARD_INDENT_HOST_ROLES), phiAccessLogger('PHARMACY_ORDER'), wardIndentRoutes);
+app.use('/api/v1/pharmacy/ward-indents', patientRateLimiter, requireRole(...WARD_INDENT_HOST_ROLES), phiAccessLogger('PHARMACY_ORDER'), wardIndentRoutes);
 
 // Re-audit M: the PHARMACY_ORDER patient-access guard moved INTO the router
 // (per-route selectors — see routes/pharmacy/pharmacyOrderPatientGuards.js);

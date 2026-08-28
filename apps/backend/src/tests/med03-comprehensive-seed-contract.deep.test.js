@@ -1582,6 +1582,7 @@ describeIfDb('MED-03 comprehensive seed production journey', () => {
       med_03: true,
       obligation_kind: 'credit_note_review',
       evidence_kind: 'billing_credit_note_decision',
+      owner_role_codes: ['BILLING_INCHARGE', 'FINANCE_INCHARGE'],
       credit_note_id: String(creditNote.id),
       invoice_id: invoice.id,
     });

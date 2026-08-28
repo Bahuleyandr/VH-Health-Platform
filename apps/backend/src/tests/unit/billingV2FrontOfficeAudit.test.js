@@ -223,6 +223,33 @@ describe('billing v2 front-office audit logging', () => {
     expect(raiseRefundMock).not.toHaveBeenCalled();
   });
 
+  it('admits both explicit admin roles to refund approve and reject decisions', async () => {
+    approveRefundMock.mockResolvedValueOnce({ id: 31, approval_status: 'APPROVED' });
+    rejectRefundMock.mockResolvedValueOnce({ id: 32, approval_status: 'REJECTED' });
+    const app = makeApp({ role: 'SUPER_ADMIN' });
+
+    const approved = await request(app)
+      .post('/refunds/31/approve')
+      .set('Idempotency-Key', `super-admin-refund-approve-${Date.now()}-${Math.random()}`)
+      .send({});
+    const rejected = await request(app)
+      .post('/refunds/32/reject')
+      .set('Idempotency-Key', `super-admin-refund-reject-${Date.now()}-${Math.random()}`)
+      .send({ rejection_reason: 'Duplicate medication charge' });
+
+    expect(approved.status).toBe(200);
+    expect(rejected.status).toBe(200);
+    expect(approveRefundMock).toHaveBeenCalledWith('31', expect.objectContaining({
+      approved_by: ACTOR_UID,
+      tenantId: TENANT_ID,
+    }));
+    expect(rejectRefundMock).toHaveBeenCalledWith('32', expect.objectContaining({
+      rejected_by: ACTOR_UID,
+      rejection_reason: 'Duplicate medication charge',
+      tenantId: TENANT_ID,
+    }));
+  });
+
   it('restricts expanded refund evidence reads to finance operators', async () => {
     listRefundsMock.mockResolvedValueOnce([]);
     getRefundMock.mockResolvedValueOnce({ refund: { id: 21 } });

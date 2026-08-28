@@ -49,6 +49,13 @@ const RECONCILIATION_ROLES = [
 const COVERAGE_RECOVERY_ROLES = [
   ...new Set([...RECONCILIATION_ROLES, ...ADMIN_ROUTE_ROLES]),
 ];
+export const WARD_INDENT_HOST_ROLES = [...new Set([
+  ...READ_ROLES,
+  ...SUPPLY_ROLES,
+  ...SUBSTITUTION_DECISION_ROLES,
+  ...WARD_RECEIPT_ROLES,
+  ...RECONCILIATION_ROLES,
+])];
 const guardIndentRow = wardIndentRowGuard((req) => req.params.id);
 
 function canonicalActionPath(action) {

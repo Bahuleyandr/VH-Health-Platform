@@ -25,6 +25,25 @@ const MAR_SUPPLY_RECONCILIATION_ROLES = [
   'IP_INCHARGE',
 ];
 const ACTIONABLE_TASK_STATUSES = ['open', 'in_progress', 'blocked', 'overdue'];
+const CREDIT_NOTE_LIVE_OWNERSHIP_METADATA_KEYS = [
+  'acknowledged_at',
+  'acknowledged_by',
+  'acknowledged_via',
+  'ack_contract_version',
+  'acknowledge_override_source',
+  'acknowledge_override_id',
+  'acknowledge_override_reason',
+  'acknowledgement_receipt_repaired',
+  'previous_acknowledged_at',
+  'acknowledgement_receipt_repaired_from',
+  'role_claim_receipt',
+  'role_claim_command_fingerprint',
+  'role_claimed_by',
+  'role_claimed_from_role',
+  'role_claimed_at',
+  'role_claimed_actor_role',
+  'role_claimed_actor_raw_role',
+];
 
 const STATE_PRESENTATION = Object.freeze({
   requested: {
@@ -458,6 +477,7 @@ async function createCoverageGap(tx, {
       current_state: indent.status,
       state_version: Number(indent.state_version),
       source_event_id: String(event.id),
+      owner_role_codes: COVERAGE_ROLES,
       intended_roles: intendedRoles,
       intended_departments: presentation.departments || [],
       intended_notification_title: presentation.title,
@@ -926,22 +946,112 @@ export async function sweepWardIndentNotificationCoverage({
 }
 
 async function loadOpenCreditNoteTask(tx, tenantId, creditNoteId) {
-  const rows = await tx.$queryRawUnsafe(
-    `SELECT id, metadata, status, workflow_sla_instance_id
-       FROM tasks
+  const noteRows = await tx.$queryRawUnsafe(
+    `SELECT task_id
+       FROM billing_credit_notes
       WHERE tenant_id = $1::uuid
-        AND metadata->>'task_contract' = 'ward_medication_obligation_v1'
-        AND metadata->>'obligation_kind' = 'credit_note_review'
-        AND metadata->>'credit_note_id' = $2::text
-        AND status = ANY($3::text[])
-      ORDER BY id DESC
+        AND id = $2::bigint
+      FOR UPDATE`,
+    tenantId,
+    creditNoteId,
+  );
+  if (!noteRows[0]) return null;
+
+  const canonicalTaskId = noteRows[0].task_id == null
+    ? null
+    : Number(noteRows[0].task_id);
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT task.id, task.metadata, task.status, task.workflow_sla_instance_id,
+            task.assigned_to_uid, task.assigned_to_role
+       FROM tasks task
+      WHERE task.tenant_id = $1::uuid
+        AND (
+          ($3::int IS NOT NULL AND task.id = $3::int)
+          OR (
+            $3::int IS NULL
+            AND task.metadata->>'task_contract' = 'ward_medication_obligation_v1'
+            AND task.metadata->>'obligation_kind' = 'credit_note_review'
+            AND task.metadata->>'credit_note_id' = $2::text
+          )
+        )
+        AND task.metadata->>'task_contract' = 'ward_medication_obligation_v1'
+        AND task.metadata->>'obligation_kind' = 'credit_note_review'
+        AND task.metadata->>'credit_note_id' = $2::text
+        AND task.status = ANY($4::text[])
+      ORDER BY task.id DESC
       LIMIT 1
       FOR UPDATE`,
     tenantId,
-    String(creditNoteId),
+    creditNoteId,
+    canonicalTaskId,
     ACTIONABLE_TASK_STATUSES,
   );
+  if (!rows[0] && canonicalTaskId != null) {
+    throw AppError.conflict(
+      'Credit-note review task linkage is not actionable or does not match the governed obligation',
+      'WARD_MEDICATION_CREDIT_NOTE_TASK_LINK_CONFLICT',
+    );
+  }
   return rows[0] || null;
+}
+
+async function reassignOpenCreditNoteSlaTx(tx, {
+  tenantId,
+  task,
+  assignedRoleCodes,
+}) {
+  if (!task?.workflow_sla_instance_id) {
+    throw AppError.internal(
+      'Credit-note task is missing its governed SLA linkage',
+      'WARD_MEDICATION_CREDIT_NOTE_SLA_MISSING',
+    );
+  }
+  const rows = await tx.$queryRawUnsafe(
+    `UPDATE workflow_sla_instances
+        SET assigned_user_uid = NULL,
+            assigned_role_codes = $3::text[],
+            updated_at = NOW()
+      WHERE tenant_id = $1::uuid
+        AND id = $2::uuid
+        AND completed_at IS NULL
+        AND status IN ('active', 'breached', 'escalated')
+      RETURNING id`,
+    tenantId,
+    String(task.workflow_sla_instance_id),
+    assignedRoleCodes,
+  );
+  if (!rows[0]) {
+    throw AppError.conflict(
+      'Credit-note task SLA changed before queue ownership could be reassigned',
+      'WARD_MEDICATION_CREDIT_NOTE_SLA_OWNERSHIP_CONFLICT',
+    );
+  }
+}
+
+function priorCreditNoteOwnershipAudit(task) {
+  const metadata = task?.metadata && typeof task.metadata === 'object'
+    ? task.metadata
+    : {};
+  return {
+    prior_status: task?.status || null,
+    prior_assigned_to_uid: task?.assigned_to_uid || null,
+    prior_assigned_to_role: task?.assigned_to_role || null,
+    prior_ownership_stage_version: Number(metadata.ownership_stage_version || 1),
+    prior_acknowledgement: metadata.acknowledged_by ? {
+      acknowledged_by: metadata.acknowledged_by,
+      acknowledged_at: metadata.acknowledged_at || null,
+      acknowledged_via: metadata.acknowledged_via || null,
+    } : null,
+    prior_role_claim: metadata.role_claimed_by ? {
+      role_claimed_by: metadata.role_claimed_by,
+      role_claimed_from_role: metadata.role_claimed_from_role || null,
+      role_claimed_at: metadata.role_claimed_at || null,
+      role_claim_receipt: metadata.role_claim_receipt || null,
+      role_claim_command_fingerprint: metadata.role_claim_command_fingerprint || null,
+      role_claimed_actor_role: metadata.role_claimed_actor_role || null,
+      role_claimed_actor_raw_role: metadata.role_claimed_actor_raw_role || null,
+    } : null,
+  };
 }
 
 export async function materializeBillingCreditNoteObligationTx(tx, {
@@ -998,6 +1108,8 @@ export async function materializeBillingCreditNoteObligationTx(tx, {
         sla_key: 'ward_indent_credit_note_review',
         obligation_kind: 'credit_note_review',
         evidence_kind: 'billing_credit_note_decision',
+        owner_role_codes: BILLING_ROLES,
+        ownership_stage_version: 1,
         credit_note_id: creditNoteId,
         ward_indent_id: Number(creditNote.ward_indent_id),
         ward_indent_item_id: Number(creditNote.ward_indent_item_id),
@@ -1012,6 +1124,24 @@ export async function materializeBillingCreditNoteObligationTx(tx, {
     throw AppError.internal(
       'Ward medication credit-note task could not be materialized',
       'WARD_MEDICATION_CREDIT_NOTE_TASK_MISSING',
+    );
+  }
+  const linkedRows = await tx.$queryRawUnsafe(
+    `UPDATE billing_credit_notes
+        SET task_id = $3::int,
+            updated_at = NOW()
+      WHERE tenant_id = $1::uuid
+        AND id = $2::bigint
+        AND (task_id IS NULL OR task_id = $3::int)
+      RETURNING task_id`,
+    tenantId,
+    creditNoteId,
+    Number(task.id),
+  );
+  if (!linkedRows[0] || Number(linkedRows[0].task_id) !== Number(task.id)) {
+    throw AppError.conflict(
+      'Credit-note review task changed before canonical linkage was persisted',
+      'WARD_MEDICATION_CREDIT_NOTE_TASK_LINK_CONFLICT',
     );
   }
   if (!notify) return task;
@@ -1328,13 +1458,15 @@ export async function advanceBillingCreditNoteRefundObligationTx(tx, {
     `UPDATE tasks
         SET title = 'Authorize ward medication credit refund',
             description = 'Approve the patient refund obligation created by the applied medication credit; payout remains separately controlled.',
+            status = 'open',
             assigned_to_uid = NULL,
             assigned_to_role = $3::text,
-            metadata = COALESCE(metadata, '{}'::jsonb) || $4::jsonb,
+            metadata = (COALESCE(metadata, '{}'::jsonb) - $6::text[]) || $4::jsonb,
             updated_at = NOW()
       WHERE tenant_id = $1::uuid
         AND id = $2::int
         AND status = ANY($5::text[])
+        AND metadata->>'credit_note_stage' = 'approved'
       RETURNING id, metadata, status, workflow_sla_instance_id`,
     String(creditNote.tenant_id),
     Number(task.id),
@@ -1342,10 +1474,13 @@ export async function advanceBillingCreditNoteRefundObligationTx(tx, {
     JSON.stringify({
       evidence_kind: 'billing_credit_note_refund_paid',
       credit_note_stage: 'refund_approval',
+      owner_role_codes: REFUND_APPROVAL_ROLES,
+      ownership_stage_version: 2,
       application_event_id: String(applicationEvent.id),
       refund_id: refundId,
     }),
     ACTIONABLE_TASK_STATUSES,
+    CREDIT_NOTE_LIVE_OWNERSHIP_METADATA_KEYS,
   );
   if (!rows[0]) {
     throw AppError.conflict(
@@ -1353,6 +1488,11 @@ export async function advanceBillingCreditNoteRefundObligationTx(tx, {
       'BILLING_CREDIT_NOTE_REFUND_TASK_STAGE_CONFLICT',
     );
   }
+  await reassignOpenCreditNoteSlaTx(tx, {
+    tenantId: String(creditNote.tenant_id),
+    task: rows[0],
+    assignedRoleCodes: REFUND_APPROVAL_ROLES,
+  });
   await postTaskComment({
     tenantId: String(creditNote.tenant_id),
     taskId: Number(task.id),
@@ -1363,6 +1503,9 @@ export async function advanceBillingCreditNoteRefundObligationTx(tx, {
       credit_note_id: String(creditNote.id),
       refund_id: refundId,
       next_stage: 'refund_approval',
+      ownership_rearmed: true,
+      ownership_stage_version: 2,
+      ...priorCreditNoteOwnershipAudit(task),
     },
     tx,
   });
@@ -1401,13 +1544,15 @@ export async function advanceBillingCreditNoteRefundPayoutObligationTx(tx, {
     `UPDATE tasks
         SET title = 'Settle approved ward medication credit refund',
             description = 'Complete the approved refund through its exact manual or provider payout rail and retain settlement evidence.',
+            status = 'open',
             assigned_to_uid = NULL,
             assigned_to_role = $3::text,
-            metadata = COALESCE(metadata, '{}'::jsonb) || $4::jsonb,
+            metadata = (COALESCE(metadata, '{}'::jsonb) - $6::text[]) || $4::jsonb,
             updated_at = NOW()
       WHERE tenant_id = $1::uuid
         AND id = $2::int
         AND status = ANY($5::text[])
+        AND metadata->>'credit_note_stage' = 'refund_approval'
       RETURNING id, metadata, status, workflow_sla_instance_id`,
     String(creditNote.tenant_id),
     Number(task.id),
@@ -1415,10 +1560,13 @@ export async function advanceBillingCreditNoteRefundPayoutObligationTx(tx, {
     JSON.stringify({
       evidence_kind: 'billing_credit_note_refund_paid',
       credit_note_stage: 'refund_payout',
+      owner_role_codes: BILLING_ROLES,
+      ownership_stage_version: 3,
       refund_id: Number(refund.id),
       refund_approved_at: refund.approved_at,
     }),
     ACTIONABLE_TASK_STATUSES,
+    CREDIT_NOTE_LIVE_OWNERSHIP_METADATA_KEYS,
   );
   if (!rows[0]) {
     throw AppError.conflict(
@@ -1426,6 +1574,11 @@ export async function advanceBillingCreditNoteRefundPayoutObligationTx(tx, {
       'BILLING_CREDIT_NOTE_REFUND_TASK_STAGE_CONFLICT',
     );
   }
+  await reassignOpenCreditNoteSlaTx(tx, {
+    tenantId: String(creditNote.tenant_id),
+    task: rows[0],
+    assignedRoleCodes: BILLING_ROLES,
+  });
   await postTaskComment({
     tenantId: String(creditNote.tenant_id),
     taskId: Number(task.id),
@@ -1436,6 +1589,9 @@ export async function advanceBillingCreditNoteRefundPayoutObligationTx(tx, {
       credit_note_id: String(creditNote.id),
       refund_id: Number(refund.id),
       next_stage: 'refund_payout',
+      ownership_rearmed: true,
+      ownership_stage_version: 3,
+      ...priorCreditNoteOwnershipAudit(task),
     },
     tx,
   });
@@ -1566,6 +1722,7 @@ export async function materializeMarSupplyReconciliationObligationTx(tx, {
         sla_key: 'ward_indent_mar_supply_reconciliation',
         obligation_kind: 'mar_supply_reconciliation',
         evidence_kind: 'mar_supply_reconciled',
+        owner_role_codes: MAR_SUPPLY_RECONCILIATION_ROLES,
         medication_administration_id: Number(administration.id),
         clinical_order_id: Number(administration.clinical_order_id),
         ward_indent_id: Number(indent.id),
