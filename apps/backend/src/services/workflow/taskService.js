@@ -3003,7 +3003,7 @@ const DOMAIN_EVIDENCE_VALIDATORS = Object.freeze({
              AND refund.provider_refund_id ~ '^rfnd_[A-Za-z0-9]+$')
             OR
             (refund.provider <> 'razorpay'
-             AND refund.provider_refund_id !~* '(\*{2,}|masked|redacted)')
+             AND refund.provider_refund_id !~* '(\\*{2,}|masked|redacted)')
           )
           AND refund.reconciliation_reviewed_by = refund.reconciled_by
           AND refund.status = 'failed'

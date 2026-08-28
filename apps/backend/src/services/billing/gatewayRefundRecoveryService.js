@@ -1,4 +1,4 @@
-import prisma, { setTenantTx } from '../../lib/prisma.js';
+import { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { decryptField } from '../../utils/fieldEncryption.js';
 import { toPaise } from '../../utils/money.js';
@@ -1501,7 +1501,7 @@ async function recoverClaimedRow({ tenantId, row, actorUid = null }) {
     keySecret = gatewayContext.config.key_secret_ciphertext
       ? decryptField(gatewayContext.config.key_secret_ciphertext)
       : null;
-  } catch (error) {
+  } catch (_error) {
     return markRetry({
       tenantId: tenant,
       row,
