@@ -1515,8 +1515,9 @@ BEGIN
           facility_id, interface_family, direction, source_partition,
           source_position, source_token, predecessor_token, duplicate_key,
           command_fingerprint, occurred_at, received_at, recorded_at,
-          arrival_class, effect_disposition, next_attempt_at, policy_version,
-          policy_signature, retention_policy, retention_until
+          arrival_class, effect_disposition, status, next_attempt_at, policy_version,
+          policy_signature, retention_policy, retention_until,
+          lease_owner, lease_expires_at
         ) ON TABLE public.pathway_projector_inbox TO ${role};
         GRANT UPDATE (
           status, attempts, lease_owner, lease_expires_at, next_attempt_at,

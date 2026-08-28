@@ -156,9 +156,10 @@ describe('Phase 3c — insurance two-step', () => {
     expect(await bal('PATIENT_AR', { patient_uid: patient, invoice_id: invoiceId })).toBe(20000); // patient owes the rest
 
     // insurer pays the ₹800 against the invoice
+    const bankBefore = await bal('BANK');
     await billing.collectPayment({ invoice_id: invoiceId, patient_uid: patient, amount: 800, mode: 'INSURANCE', tenantId: TENANT });
     expect(await bal('INSURANCE_AR', { invoice_id: invoiceId })).toBe(0);     // insurer debt cleared
     expect(await bal('PATIENT_AR', { patient_uid: patient, invoice_id: invoiceId })).toBe(20000); // unchanged (not double-credited)
-    expect(await bal('BANK')).toBeGreaterThanOrEqual(80000);
+    expect(await bal('BANK')).toBe(bankBefore + 80000);
   });
 });

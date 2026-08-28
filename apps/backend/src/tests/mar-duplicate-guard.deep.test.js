@@ -45,10 +45,14 @@ async function seedRow(scheduledTime, status = 'scheduled') {
   );
   return rows[0].id;
 }
-async function administer(id) {
+async function administer(id, scheduledTime = null) {
   return prisma.$executeRawUnsafe(
-    `UPDATE medication_administrations SET status = 'administered', administered_at = NOW() WHERE id = $1`,
-    id,
+    `UPDATE medication_administrations
+        SET status = 'administered',
+            administered_at = NOW(),
+            scheduled_time = COALESCE($2::timestamptz, scheduled_time)
+      WHERE id = $1`,
+    id, scheduledTime,
   );
 }
 
@@ -78,17 +82,17 @@ d('MAR duplicate-administration DB guard (migration 327)', () => {
 
   it('rejects a second administered row for the same patient+medication+scheduled_time', async () => {
     const a = await seedRow(SCHED);
-    // A duplicate sibling for the same dose. Since migration 642 a second
-    // SCHEDULED row for the slot is itself impossible, so seed the sibling as
-    // 'held' — a real reachable state (holdMedication) not covered by either
-    // partial index until it is administered.
-    const b = await seedRow(SCHED, 'held');
+    // Migration 642 makes an exact duplicate scheduled seed impossible. Stage
+    // the sibling at an adjacent slot, then atomically re-key it to the original
+    // slot while charting so the administered-dose guard remains the constraint
+    // under test without fabricating a held dose that lacks MED-03 evidence.
+    const b = await seedRow('2026-06-19T08:00:01Z');
 
     await administer(a); // first administration of the dose: ok
 
     let code = null;
     try {
-      await administer(b); // second row for the SAME dose must be impossible
+      await administer(b, SCHED); // second row for the SAME dose must be impossible
     } catch (err) {
       code = pgErrorCode(err);
     }

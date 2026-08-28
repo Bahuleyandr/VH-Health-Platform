@@ -574,7 +574,7 @@ jobs:
                 l = $0
                 gsub(/\r/, "", l)
                 if (l ~ /^[[:space:]]*$/) {
-                  # Jest prints a blank line right after the '●' header; skip
+                  # Jest prints a blank line right after the bullet header; skip
                   # leading blanks, but treat a blank AFTER captured content as
                   # the end of this test's assertion block.
                   if (n > 0) capture = 0

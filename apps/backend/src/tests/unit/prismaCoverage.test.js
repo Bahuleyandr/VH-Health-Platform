@@ -1154,6 +1154,40 @@ describe('src/lib/prisma.js coverage completion', () => {
       expect(grantSql).toContain(
         "pg_catalog.to_regclass('public.pathway_projector_inbox')",
       );
+      const pathwayInboxInsertGrant = grantSql.match(
+        /GRANT INSERT \(\s*([a-z0-9_,\s]+?)\s*\) ON TABLE public\.pathway_projector_inbox TO vhhealth_app/,
+      );
+      expect(pathwayInboxInsertGrant).not.toBeNull();
+      expect(pathwayInboxInsertGrant[1].split(',').map(column => column.trim())).toEqual([
+        'scope_kind',
+        'tenant_id',
+        'consumer_key',
+        'generation',
+        'event_id',
+        'offset_id',
+        'facility_id',
+        'interface_family',
+        'direction',
+        'source_partition',
+        'source_position',
+        'source_token',
+        'predecessor_token',
+        'duplicate_key',
+        'command_fingerprint',
+        'occurred_at',
+        'received_at',
+        'recorded_at',
+        'arrival_class',
+        'effect_disposition',
+        'status',
+        'next_attempt_at',
+        'policy_version',
+        'policy_signature',
+        'retention_policy',
+        'retention_until',
+        'lease_owner',
+        'lease_expires_at',
+      ]);
       expect(grantSql).toContain(
         "pg_catalog.to_regclass('public.hl7_inbound_recovery_receipts')",
       );
