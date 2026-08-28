@@ -18,6 +18,11 @@ jest.unstable_mockModule('../../middleware/phiAccessMiddleware.js', () => ({
     const middleware = (_req, _res, next) => next();
     return middleware;
   },
+  phiAccessLogger: (recordType) => {
+    const middleware = (_req, _res, next) => next();
+    middleware.__phiAccess = { recordType };
+    return middleware;
+  },
 }));
 
 jest.unstable_mockModule('../../middleware/rbacMiddleware.js', () => ({
@@ -54,6 +59,7 @@ const controllerNames = [
   'listIndents',
   'getIndent',
   'listInventoryCandidates',
+  'recoverNotificationCoverage',
   'createIndent',
   'reserveIndent',
   'markShortSupply',
@@ -185,6 +191,41 @@ describe('authoritative pharmacy ward-indent router', () => {
     expect(create.requestPathForIdempotency).toBe('/api/v1/pharmacy-orders/ward-indents');
     expect(receive.requestPathForIdempotency({ params: { id: 71 } }))
       .toBe('/api/v1/pharmacy-orders/ward-indents/71/receive');
+  });
+
+  test('operator notification recovery is ordered before /:id and governed end to end', () => {
+    const recoveryPath = '/notification-coverage/recover';
+    const recoveryIndex = router.stack.findIndex((layer) => (
+      layer.route?.path === recoveryPath && layer.route.methods?.post
+    ));
+    const rowIndex = router.stack.findIndex((layer) => (
+      layer.route?.path === '/:id' && layer.route.methods?.get
+    ));
+    expect(recoveryIndex).toBeGreaterThan(-1);
+    expect(recoveryIndex).toBeLessThan(rowIndex);
+
+    expect(metadata(recoveryPath, 'post', '__roles')).toEqual([[
+      'PHARMACY_INCHARGE',
+      'NURSING_INCHARGE',
+      'IP_INCHARGE',
+      'ICU_INCHARGE',
+      'SUPER_ADMIN',
+      'ADMIN',
+    ]]);
+    expect(metadata(recoveryPath, 'post', '__idempotency')).toEqual([
+      expect.objectContaining({
+        required: true,
+        retainOnServerError: true,
+        scope: 'ward_indent_notification_coverage_recover',
+        requestPathForIdempotency:
+          '/api/v1/pharmacy-orders/ward-indents/notification-coverage/recover',
+      }),
+    ]);
+    expect(metadata(recoveryPath, 'post', '__phiAccess')).toEqual([
+      { recordType: 'PHARMACY_ORDER' },
+    ]);
+    const handlers = route(recoveryPath, 'post').route.stack.map((entry) => entry.handle?.name);
+    expect(handlers).toContain('enforceStaffClinicalWriteDevicePosture');
   });
 
   test('supply, prescriber, receipt, and reconciliation roles remain separated', () => {

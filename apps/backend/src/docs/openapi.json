@@ -52567,6 +52567,92 @@
           }
         }
       },
+      "WardIndentNotificationCoverageRecoveryRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 25,
+            "description": "Maximum notification-coverage obligations inspected in this operator run."
+          }
+        }
+      },
+      "WardIndentNotificationCoverageRecoveryResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/WardIndentNotificationCoverageRecoverySummary"
+          }
+        }
+      },
+      "WardIndentNotificationCoverageRecoverySummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scanned",
+          "recovered",
+          "held",
+          "awaitingRecipients",
+          "recoveredTaskIds",
+          "heldTaskIds",
+          "limit"
+        ],
+        "properties": {
+          "scanned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "recovered": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "held": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "awaitingRecipients": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "recoveredTaskIds": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            }
+          },
+          "heldTaskIds": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            }
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
+      },
       "WardIndentQuantityIssuedEntry": {
         "type": "object",
         "additionalProperties": false,
@@ -140159,6 +140245,56 @@
         }
       }
     },
+    "/api/v1/pharmacy-orders/ward-indents/notification-coverage/recover": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_orders_ward_indents_notification_coverage_recover",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentNotificationCoverageRecoveryResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Runs a bounded, tenant-scoped operator recovery over open ward-indent notification-coverage obligations. Only evidence-backed notification outbox rows complete tasks; invalid stored intents are held and gaps without active recipients remain actionable.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentNotificationCoverageRecoveryRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/pharmacy-orders/ward-indents/{id}": {
       "get": {
         "operationId": "get_api_v1_pharmacy_orders_ward_indents_by_id",
@@ -145844,6 +145980,56 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/WardIndentCreateRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pharmacy/ward-indents/notification-coverage/recover": {
+      "post": {
+        "operationId": "post_api_v1_pharmacy_ward_indents_notification_coverage_recover",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WardIndentNotificationCoverageRecoveryResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Runs a bounded, tenant-scoped operator recovery over open ward-indent notification-coverage obligations. Only evidence-backed notification outbox rows complete tasks; invalid stored intents are held and gaps without active recipients remain actionable.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable command key. Exact retries replay the original durable state transition.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WardIndentNotificationCoverageRecoveryRequest"
               }
             }
           }

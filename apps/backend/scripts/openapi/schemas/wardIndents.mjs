@@ -226,6 +226,44 @@ export const schemas = {
     },
   },
   WardIndentInventoryCandidatesResponse: envelope('WardIndentInventoryCandidatesPayload'),
+  WardIndentNotificationCoverageRecoveryRequest: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      limit: {
+        type: 'integer',
+        minimum: 1,
+        maximum: 100,
+        default: 25,
+        description: 'Maximum notification-coverage obligations inspected in this operator run.',
+      },
+    },
+  },
+  WardIndentNotificationCoverageRecoverySummary: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'scanned',
+      'recovered',
+      'held',
+      'awaitingRecipients',
+      'recoveredTaskIds',
+      'heldTaskIds',
+      'limit',
+    ],
+    properties: {
+      scanned: { type: 'integer', minimum: 0 },
+      recovered: { type: 'integer', minimum: 0 },
+      held: { type: 'integer', minimum: 0 },
+      awaitingRecipients: { type: 'integer', minimum: 0 },
+      recoveredTaskIds: { type: 'array', uniqueItems: true, items: positiveId },
+      heldTaskIds: { type: 'array', uniqueItems: true, items: positiveId },
+      limit: { type: 'integer', minimum: 1, maximum: 100 },
+    },
+  },
+  WardIndentNotificationCoverageRecoveryResponse: envelope(
+    'WardIndentNotificationCoverageRecoverySummary',
+  ),
   WardIndentCreateItem: {
     type: 'object',
     additionalProperties: false,
@@ -543,6 +581,7 @@ function addSurface(out, {
   listResponse,
   named = false,
   inventoryCandidates = false,
+  notificationCoverageRecovery = false,
 }) {
   const idPath = `{${idName}}`;
   out[`GET ${prefix}`] = {
@@ -559,6 +598,13 @@ function addSurface(out, {
     ),
     responseStatus: 201,
   };
+  if (notificationCoverageRecovery) {
+    out[`POST ${prefix}/notification-coverage/recover`] = mutationOverlay(
+      'Runs a bounded, tenant-scoped operator recovery over open ward-indent notification-coverage obligations. Only evidence-backed notification outbox rows complete tasks; invalid stored intents are held and gaps without active recipients remain actionable.',
+      'WardIndentNotificationCoverageRecoveryRequest',
+      'WardIndentNotificationCoverageRecoveryResponse',
+    );
+  }
   out[`GET ${prefix}/${idPath}`] = {
     description: 'Returns one tenant-scoped ward indent with ordered lines, active SLA ownership, controlled-handoff references, and append-only transition history.',
     response,
@@ -601,6 +647,7 @@ addSurface(operations, {
   response: 'WardIndentResponse',
   listResponse: 'WardIndentListResponse',
   inventoryCandidates: true,
+  notificationCoverageRecovery: true,
 });
 addSurface(operations, {
   prefix: '/api/v1/pharmacy/ward-indents',
@@ -608,6 +655,7 @@ addSurface(operations, {
   response: 'WardIndentResponse',
   listResponse: 'WardIndentListResponse',
   inventoryCandidates: true,
+  notificationCoverageRecovery: true,
 });
 addSurface(operations, {
   prefix: '/api/v1/ipd/ward-indents',

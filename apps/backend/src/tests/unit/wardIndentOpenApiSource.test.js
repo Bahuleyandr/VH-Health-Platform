@@ -7,6 +7,8 @@ import {
 const LIST_PATH = '/api/v1/pharmacy/ward-indents';
 const RECEIVE_PATH = '/api/v1/pharmacy/ward-indents/{id}/receive';
 const RECONCILE_PATH = '/api/v1/pharmacy/ward-indents/{id}/reconcile';
+const COVERAGE_RECOVERY_PATH =
+  '/api/v1/pharmacy-orders/ward-indents/notification-coverage/recover';
 const IPD_CANDIDATES_PATH = '/api/v1/ipd/ward-indents/{indentId}/items/{itemId}/inventory-candidates';
 
 function buildDocument(routes) {
@@ -142,5 +144,40 @@ describe('ward-indent OpenAPI source matches the live Staff contract', () => {
         },
       }),
     ]));
+  });
+
+  it('documents the bounded operator notification-coverage recovery contract', () => {
+    const document = buildDocument([{ method: 'post', path: COVERAGE_RECOVERY_PATH }]);
+    const operation = document.paths[COVERAGE_RECOVERY_PATH].post;
+    expect(operation.parameters).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'Idempotency-Key', in: 'header', required: true }),
+    ]));
+    expect(operation.requestBody.content['application/json'].schema).toEqual({
+      $ref: '#/components/schemas/WardIndentNotificationCoverageRecoveryRequest',
+    });
+    expect(schemas.WardIndentNotificationCoverageRecoveryRequest).toEqual({
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        limit: expect.objectContaining({
+          type: 'integer',
+          minimum: 1,
+          maximum: 100,
+          default: 25,
+        }),
+      },
+    });
+    expect(operation.responses['200'].content['application/json'].schema).toEqual({
+      $ref: '#/components/schemas/WardIndentNotificationCoverageRecoveryResponse',
+    });
+    expect(schemas.WardIndentNotificationCoverageRecoverySummary.required).toEqual([
+      'scanned',
+      'recovered',
+      'held',
+      'awaitingRecipients',
+      'recoveredTaskIds',
+      'heldTaskIds',
+      'limit',
+    ]);
   });
 });

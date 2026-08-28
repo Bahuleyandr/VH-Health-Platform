@@ -27,12 +27,16 @@ import {
   requestWardIndentReturn,
   reserveWardIndent,
 } from '../../services/ipd/ipdSupportService.js';
+import { sweepWardIndentNotificationCoverage } from '../../services/ipd/wardIndentObligationService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
+import { logAudit } from '../../utils/logAudit.js';
 import { relayAppError, success } from '../../utils/responseHelper.js';
 import { normalizeRole } from '../../utils/roles.js';
 
 const PG_INT4_MAX = 2147483647;
+const COVERAGE_RECOVERY_DEFAULT_LIMIT = 25;
+const COVERAGE_RECOVERY_MAX_LIMIT = 100;
 
 function tenantOf(req) {
   return resolveTenantOrThrow(req);
@@ -80,6 +84,22 @@ function expectedVersionOf(req) {
 function bodyArray(req, fieldName) {
   if (Array.isArray(req.body?.[fieldName])) return req.body[fieldName];
   return Array.isArray(req.body?.items) ? req.body.items : null;
+}
+
+function coverageRecoveryLimitOf(req) {
+  const raw = req.body?.limit;
+  if (raw == null || raw === '') return COVERAGE_RECOVERY_DEFAULT_LIMIT;
+  const text = typeof raw === 'number' ? String(raw) : String(raw).trim();
+  const value = Number(text);
+  if (!/^[1-9][0-9]*$/.test(text) || !Number.isSafeInteger(value)
+    || value > COVERAGE_RECOVERY_MAX_LIMIT) {
+    throw AppError.badRequest(
+      `limit must be an integer between 1 and ${COVERAGE_RECOVERY_MAX_LIMIT}`,
+      'WARD_INDENT_COVERAGE_RECOVERY_LIMIT_INVALID',
+      { field: 'limit', maximum: COVERAGE_RECOVERY_MAX_LIMIT },
+    );
+  }
+  return value;
 }
 
 function actionHandler({ operation, message, invoke }) {
@@ -157,6 +177,30 @@ export async function listInventoryCandidates(req, res) {
   } catch (err) {
     logger.error('Ward indent inventory candidate list failed:', err);
     return relayAppError(res, err, 'Failed to list ward indent inventory candidates');
+  }
+}
+
+export async function recoverNotificationCoverage(req, res) {
+  try {
+    const summary = await sweepWardIndentNotificationCoverage({
+      tenantId: tenantOf(req),
+      actorUid: actorOf(req),
+      limit: coverageRecoveryLimitOf(req),
+    });
+    await logAudit(req, 'WARD_INDENT_NOTIFICATION_COVERAGE_RECOVERY_RUN', {
+      scanned: summary.scanned,
+      recovered: summary.recovered,
+      held: summary.held,
+      awaiting_recipients: summary.awaitingRecipients,
+      bounded_limit: summary.limit,
+    }, {
+      resource: 'ward_indent_notification_coverage',
+      resourceId: commandOf(req),
+    });
+    return success(res, summary, 'Ward indent notification coverage recovery completed');
+  } catch (err) {
+    logger.error('Ward indent notification coverage recovery failed:', err);
+    return relayAppError(res, err, 'Failed to recover ward indent notification coverage');
   }
 }
 

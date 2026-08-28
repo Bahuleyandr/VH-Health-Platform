@@ -6,12 +6,14 @@
 
 import express from 'express';
 import {
+  ADMIN_ROUTE_ROLES,
   IP_FLOW_ROUTE_ROLES,
   PHARMACY_ROUTE_ROLES,
   PHARMACY_SUPPLY_ROUTE_ROLES,
 } from '../../config/routeRolePolicy.js';
 import * as ctl from '../../controllers/pharmacy/wardIndentController.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
+import { phiAccessLogger } from '../../middleware/phiAccessMiddleware.js';
 import { enforceStaffClinicalWriteDevicePosture } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
 import { sanitizeAllBodyStrings } from '../../middleware/sanitizeMiddleware.js';
@@ -44,6 +46,9 @@ const RECONCILIATION_ROLES = [
   'IP_INCHARGE',
   'ICU_INCHARGE',
 ];
+const COVERAGE_RECOVERY_ROLES = [
+  ...new Set([...RECONCILIATION_ROLES, ...ADMIN_ROUTE_ROLES]),
+];
 const guardIndentRow = wardIndentRowGuard((req) => req.params.id);
 
 function canonicalActionPath(action) {
@@ -65,6 +70,16 @@ function mutationGuard(scope, requestPathForIdempotency) {
 router.use(sanitizeAllBodyStrings);
 
 router.get('/', requireRole(...READ_ROLES), wardIndentListGuard(), ctl.listIndents);
+router.post(
+  '/notification-coverage/recover',
+  requireRole(...COVERAGE_RECOVERY_ROLES),
+  mutationGuard(
+    'notification_coverage_recover',
+    `${CANONICAL_BASE}/notification-coverage/recover`,
+  ),
+  phiAccessLogger('PHARMACY_ORDER'),
+  ctl.recoverNotificationCoverage,
+);
 router.get('/:id', requireRole(...READ_ROLES), guardIndentRow, ctl.getIndent);
 router.get(
   '/:id/items/:itemId/inventory-candidates',
