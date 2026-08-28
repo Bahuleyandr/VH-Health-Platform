@@ -142,9 +142,4 @@ regexes = [
   # test material, never real credentials.
   '''pgr_persisted_key_1234''',
   '''abcdefghijklmnop1234567890''',
-  # Refund command idempotency fixture introduced in PR #940. The working-tree
-  # copy is now deliberately low-entropy, but PR range scans still inspect the
-  # introducing commit. This exact string is request-deduplication test data,
-  # never an authentication credential.
-  '''refund-coverage-key''',
 ]
