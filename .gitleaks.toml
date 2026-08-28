@@ -142,4 +142,9 @@ regexes = [
   # test material, never real credentials.
   '''pgr_persisted_key_1234''',
   '''abcdefghijklmnop1234567890''',
+  # Cash-refund idempotency fixture introduced in PR #940. Range scans retain
+  # the introducing commit even though the working-tree copy is now
+  # low-entropy. This exact value is request-deduplication test data, not an
+  # authentication credential.
+  '''pay-cash-refund-8''',
 ]
