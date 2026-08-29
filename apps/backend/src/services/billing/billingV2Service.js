@@ -3015,6 +3015,7 @@ async function settleRefundPaid(refundId, {
   paid_by, reference, tenantId, payoutRail, gatewayRefundId = null,
   providerRefundId = null, cashDrawerSessionId = null,
   offlineElectronicEvidence = null, command = null, auditContext = null,
+  recoveryClaimToken = null,
 }) {
   const id = normalizeRefundId(refundId);
   const tenant = requireTenantId(tenantId);
@@ -3024,6 +3025,11 @@ async function settleRefundPaid(refundId, {
     refund = await setTenantTx(tenant, async (tx) => {
       let lockedGatewayEvidence = null;
       if (payoutRail === 'gateway') {
+        // The recovery lease fence is asserted here, under FOR UPDATE: a
+        // recovery worker may only settle a leg that is still leased to its
+        // exact claim token. The row stays locked for the remainder of this
+        // transaction, so the writes below inherit that fence without needing
+        // to re-check the token.
         const evidenceRows = await tx.$queryRawUnsafe(
           `SELECT id, initiated_by, initiated_at, status,
                   provider_refund_id, processed_at
@@ -3031,13 +3037,19 @@ async function settleRefundPaid(refundId, {
             WHERE id = $1::int
               AND tenant_id = $2::uuid
               AND billing_refund_id = $3::int
-              AND status IN ('initiated', 'pending', 'processed', 'requires_reconciliation')
+              AND status IN (
+                'initiated', 'pending', 'processed', 'failed', 'requires_reconciliation'
+              )
               AND (provider_refund_id IS NULL OR provider_refund_id = $4)
+              AND ($5::uuid IS NULL OR (
+                recovery_claim_token = $5::uuid AND recovery_state = 'claimed'
+              ))
             FOR UPDATE`,
           gatewayRefundId,
           tenant,
           id,
           providerRefundId,
+          recoveryClaimToken,
         );
         if (!evidenceRows.length) {
           throw AppError.conflict(
@@ -3324,6 +3336,12 @@ async function settleRefundPaid(refundId, {
             'BILLING_REFUND_GATEWAY_EVIDENCE_INVALID',
           );
         }
+        // Exact provider `processed` evidence outranks any operator
+        // reconciliation already recorded against this leg: the prior
+        // disposition is preserved in metadata (append-only history) and every
+        // reconciliation column is cleared together, because
+        // chk_pg_refund_reconciliation_review only admits an all-NULL or a
+        // fully populated review tuple.
         const processedRows = await tx.$queryRawUnsafe(
           `UPDATE payment_gateway_refunds
               SET status = 'processed',
@@ -3332,14 +3350,44 @@ async function settleRefundPaid(refundId, {
                   failed_at = NULL,
                   failure_code = NULL,
                   failure_reason = NULL,
+                  metadata = CASE
+                    WHEN reconciliation_disposition IS NULL AND reconciled_at IS NULL
+                      THEN metadata
+                    ELSE jsonb_set(
+                      COALESCE(metadata, '{}'::jsonb),
+                      '{provider_evidence_superseded_reconciliations}',
+                      (
+                        CASE
+                          WHEN jsonb_typeof(metadata->'provider_evidence_superseded_reconciliations') = 'array'
+                            THEN metadata->'provider_evidence_superseded_reconciliations'
+                          ELSE '[]'::jsonb
+                        END
+                      ) || jsonb_build_array(jsonb_strip_nulls(jsonb_build_object(
+                        'reconciled_at', reconciled_at,
+                        'reconciled_by', reconciled_by,
+                        'disposition', reconciliation_disposition,
+                        'evidence', reconciliation_evidence,
+                        'reviewed_by', reconciliation_reviewed_by,
+                        'reviewed_at', reconciliation_reviewed_at,
+                        'superseded_by', 'exact_provider_processed_evidence'
+                      ))),
+                      true
+                    )
+                  END,
                   reconciled_at = NULL,
                   reconciliation_note = NULL,
                   reconciled_by = NULL,
+                  reconciliation_disposition = NULL,
+                  reconciliation_evidence = NULL,
+                  reconciliation_reviewed_by = NULL,
+                  reconciliation_reviewed_at = NULL,
                   updated_at = NOW()
             WHERE id = $2::int
               AND tenant_id = $3::uuid
               AND billing_refund_id = $4::int
-              AND status IN ('initiated', 'pending', 'processed', 'requires_reconciliation')
+              AND status IN (
+                'initiated', 'pending', 'processed', 'failed', 'requires_reconciliation'
+              )
               AND (provider_refund_id IS NULL OR provider_refund_id = $1)
             RETURNING id, status, provider_refund_id, processed_at`,
           providerRefundId, gatewayRefundId, tenant, id,
@@ -3653,7 +3701,7 @@ export async function markOfflineElectronicRefundPaid(refundId, {
 }
 
 export async function markGatewayRefundPaid(refundId, {
-  tenantId, gateway_refund_id, provider_refund_id,
+  tenantId, gateway_refund_id, provider_refund_id, recovery_claim_token = null,
 } = {}) {
   const id = normalizeRefundId(refundId);
   const gatewayRefundId = Number(gateway_refund_id);
@@ -3672,6 +3720,7 @@ export async function markGatewayRefundPaid(refundId, {
     payoutRail: 'gateway',
     gatewayRefundId,
     providerRefundId,
+    recoveryClaimToken: recovery_claim_token,
   });
 }
 

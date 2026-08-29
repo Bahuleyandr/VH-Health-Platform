@@ -13,7 +13,9 @@
 import { Router } from 'express';
 import { validationResult } from 'express-validator';
 import * as gateway from '../../services/billing/paymentGatewayService.js';
+import * as refundRecovery from '../../services/billing/gatewayRefundRecoveryService.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
+import { sanitizeAllBodyStrings } from '../../middleware/sanitizeMiddleware.js';
 import { markRouterDomain } from '../../config/openapiDomain.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
@@ -25,6 +27,7 @@ import {
   gatewayOrderReconcileValidator,
   gatewayRefundReconcileValidator,
   gatewayReconciliationQueueValidator,
+  gatewayRefundRecoveryValidator,
   gatewayRefundCreateValidator,
   gatewayConfigUpsertValidator,
 } from '../../validators/paymentGatewayValidator.js';
@@ -221,25 +224,74 @@ router.get('/refund-reconciliation', requireAdmin, ...gatewayReconciliationQueue
   }),
 ));
 
-router.post('/refunds/:id/reconcile', requireAdmin, ...gatewayRefundReconcileValidator, validate, wrap(async (req) => {
-  const refund = await gateway.resolveGatewayRefundReconciliation({
+router.get('/refund-recovery', requireGatewayRefundRole, wrap(async (req) =>
+  refundRecovery.listGatewayRefundRecovery({
     tenantId: tenantOf(req),
-    id: req.params.id,
-    note: req.body.note,
-    disposition: req.body.disposition,
-    evidence_reference: req.body.evidence_reference,
-    recovery_path: req.body.recovery_path,
-    resolved_by: req.user?.uid,
+    include_terminal: String(req.query.include_terminal || '') === 'true',
+    limit: req.query.limit,
+    offset: req.query.offset,
+  }),
+));
+
+router.post(
+  '/refunds/:id/reconcile',
+  requireAdmin,
+  sanitizeAllBodyStrings,
+  ...gatewayRefundReconcileValidator,
+  validate,
+  wrap(async (req) => {
+    // Two rails share this endpoint (validator keeps their bodies disjoint):
+    // the structured provider-evidence review carries `evidence`, while the
+    // operator-terminal settlement carries note + evidence_reference and the
+    // recovery_path gateway-rail governance the service still enforces.
+    const refund = await gateway.resolveGatewayRefundReconciliation({
+      tenantId: tenantOf(req),
+      id: req.params.id,
+      disposition: req.body.disposition,
+      evidence: req.body.evidence,
+      note: req.body.note,
+      evidence_reference: req.body.evidence_reference,
+      recovery_path: req.body.recovery_path,
+      resolved_by: req.user?.uid,
+    });
+    await logGatewayAudit(req, 'PAYMENT_GATEWAY_REFUND_RECONCILED', {
+      gateway_refund_id: refund?.id ?? Number(req.params.id),
+      billing_refund_id: refund?.billing_refund_id ?? null,
+      provider_refund_id: refund?.provider_refund_id ?? null,
+      amount: refund?.amount ?? null,
+      disposition: req.body.disposition,
+      evidence_source: req.body.evidence?.source ?? null,
+      evidence_reference: req.body.evidence?.reference
+        ?? req.body.evidence_reference ?? null,
+      evidence_observed_at: req.body.evidence?.observed_at ?? null,
+      evidence_provider_status: req.body.evidence?.provider_status ?? null,
+      evidence_notes: req.body.evidence?.notes ?? null,
+      recovery_path: req.body.recovery_path ?? null,
+      note: req.body.note ?? null,
+    }, {
+      resource: 'payment_gateway_refund',
+      resourceId: refund?.id ?? req.params.id,
+    });
+    return refund;
+  }),
+);
+
+router.post('/refunds/:id/recover', requireGatewayRefundRole, requireIdempotencyKey({
+  required: true,
+  scope: 'payment_gateway_refund_recovery',
+  retainOnServerError: false,
+}), ...gatewayRefundRecoveryValidator, validate, wrap(async (req) => {
+  const refund = await refundRecovery.recoverGatewayRefundNow({
+    tenantId: tenantOf(req),
+    gatewayRefundId: req.params.id,
+    actorUid: req.user?.uid,
   });
-  await logGatewayAudit(req, 'PAYMENT_GATEWAY_REFUND_RECONCILED', {
+  await logGatewayAudit(req, 'PAYMENT_GATEWAY_REFUND_RECOVERY_REQUESTED', {
     gateway_refund_id: refund?.id ?? Number(req.params.id),
     billing_refund_id: refund?.billing_refund_id ?? null,
     provider_refund_id: refund?.provider_refund_id ?? null,
-    amount: refund?.amount ?? null,
-    disposition: req.body?.disposition ?? null,
-    evidence_reference: req.body?.evidence_reference ?? null,
-    recovery_path: req.body?.recovery_path ?? null,
-    note: req.body?.note ?? null,
+    recovery_state: refund?.recovery_state ?? null,
+    recovery_attempt_count: refund?.recovery_attempt_count ?? null,
   }, {
     resource: 'payment_gateway_refund',
     resourceId: refund?.id ?? req.params.id,

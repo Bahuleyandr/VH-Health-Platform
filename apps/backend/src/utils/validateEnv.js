@@ -786,6 +786,10 @@ export const envSchema = Joi.object({
     .valid('true', 'false')
     .default('false')
     .label('PAYMENT_GATEWAY_ENABLED'),
+  PAYMENT_GATEWAY_REFUND_RECOVERY_ENABLED: Joi.string()
+    .valid('true', 'false')
+    .default('false')
+    .label('PAYMENT_GATEWAY_REFUND_RECOVERY_ENABLED'),
 
   // General facility asset register (migrations 704/706/710) deployment-wide
   // kill switch. Default OFF (dark-shipped). Effective enablement additionally

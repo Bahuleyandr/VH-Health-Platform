@@ -45,7 +45,9 @@ export async function fetchPayment(paymentId) {
   };
 }
 
-export async function createRefund({ providerPaymentId, amountPaise, receipt, idempotencyKey } = {}) {
+export async function createRefund({
+  providerPaymentId, amountPaise, receipt, notes = {}, idempotencyKey,
+} = {}) {
   if (!providerPaymentId) throw new Error('dry_run createRefund requires providerPaymentId');
   if (!Number.isInteger(amountPaise) || amountPaise <= 0) {
     throw new Error('dry_run createRefund requires a positive integer amountPaise');
@@ -57,10 +59,26 @@ export async function createRefund({ providerPaymentId, amountPaise, receipt, id
     providerPaymentId: String(providerPaymentId),
     amountPaise,
     currency: 'INR',
+    billingRefundId: notes.billing_refund_id,
     // pending: the terminal `processed` arrives via the (simulated) webhook,
     // mirroring the live provider's asynchronous refund lifecycle.
     status: 'pending',
     raw: { provider: 'dry_run' },
+  };
+}
+
+export async function fetchRefund({
+  providerRefundId, providerPaymentId, amountPaise, currency = 'INR', billingRefundId,
+} = {}) {
+  if (!providerRefundId) throw new Error('dry_run fetchRefund requires a refund id');
+  return {
+    providerRefundId: String(providerRefundId),
+    providerPaymentId: String(providerPaymentId),
+    amountPaise: Number(amountPaise),
+    currency,
+    billingRefundId,
+    status: 'pending',
+    raw: { provider: 'dry_run', synthetic: true },
   };
 }
 
@@ -75,5 +93,6 @@ export default {
   findOrderByReceipt,
   fetchPayment,
   createRefund,
+  fetchRefund,
   verifyWebhookSignature,
 };

@@ -196,6 +196,62 @@ export const schemas = {
       reconciled_at: { type: 'string', format: 'date-time', nullable: true },
       reconciliation_note: { type: 'string', nullable: true, maxLength: 500 },
       reconciled_by: { type: 'string', format: 'uuid', nullable: true },
+      reconciliation_disposition: {
+        type: 'string',
+        nullable: true,
+        enum: ['provider_processed', 'provider_failed', 'provider_pending', 'provider_status_unknown'],
+        description: 'Latest structured manual review outcome. Processed, pending, unknown, and provider_failed without an exact validated provider refund id remain open until trusted provider evidence resolves the leg.',
+      },
+      reconciliation_evidence: {
+        type: 'object',
+        nullable: true,
+        additionalProperties: false,
+        required: ['source', 'reference', 'observed_at', 'provider_status'],
+        properties: {
+          source: {
+            type: 'string',
+            enum: ['provider_dashboard', 'provider_support', 'bank_statement', 'other_authoritative'],
+          },
+          reference: { type: 'string', minLength: 6, maxLength: 255 },
+          observed_at: { type: 'string', format: 'date-time' },
+          provider_status: { type: 'string', enum: ['processed', 'failed', 'pending', 'unknown'] },
+          notes: { type: 'string', nullable: true, maxLength: 500 },
+        },
+        description: 'Operator-supplied review evidence. It never represents trusted provider-adapter success evidence.',
+      },
+      reconciliation_reviewed_by: {
+        type: 'string',
+        format: 'uuid',
+        nullable: true,
+        description: 'Authenticated same-tenant administrator who recorded the latest structured review.',
+      },
+      reconciliation_reviewed_at: {
+        type: 'string',
+        format: 'date-time',
+        nullable: true,
+      },
+      provider_request_fingerprint: {
+        type: 'string',
+        pattern: '^[0-9a-f]{64}$',
+        description: 'Database-derived identity of the exact provider retry authority. The provider idempotency key itself is never returned.',
+      },
+      recovery_state: {
+        type: 'string',
+        enum: ['queued', 'claimed', 'provider_pending', 'retry_wait', 'blocked_authority', 'succeeded', 'failed', 'requires_reconciliation'],
+      },
+      recovery_attempt_count: { type: 'integer', minimum: 0 },
+      recovery_next_attempt_at: { type: 'string', format: 'date-time', nullable: true },
+      recovery_last_attempt_at: { type: 'string', format: 'date-time', nullable: true },
+      provider_status_checked_at: { type: 'string', format: 'date-time', nullable: true },
+      recovery_last_error_code: { type: 'string', nullable: true },
+      recovery_last_error_reason: { type: 'string', nullable: true },
+      recovery_terminal_at: { type: 'string', format: 'date-time', nullable: true },
+      recovery_task_id: { type: 'integer', nullable: true },
+      recovery_task_status: { type: 'string', nullable: true },
+      recovery_task_owner_role: { type: 'string', nullable: true },
+      recovery_sla_instance_id: { type: 'string', format: 'uuid', nullable: true },
+      recovery_sla_status: { type: 'string', nullable: true },
+      recovery_sla_due_at: { type: 'string', format: 'date-time', nullable: true },
     },
   },
 
@@ -235,12 +291,27 @@ export const schemas = {
 
   PaymentGatewayRefundReconcileRequest: {
     type: 'object',
-    required: ['note', 'disposition', 'evidence_reference'],
+    additionalProperties: false,
+    required: ['disposition'],
+    description: 'One endpoint, two rails, selected by disposition. The four structured-review dispositions carry the `evidence` object owned by the durable refund-recovery obligation. The two operator-terminal dispositions (provider_not_refunded / manual_settled) carry the local settlement tuple `note` + `evidence_reference` (+ `recovery_path`) that hands billing payout authority over. Mixing the two shapes in one body is rejected.',
+    oneOf: [
+      {
+        title: 'PaymentGatewayRefundStructuredReview',
+        required: ['disposition', 'evidence'],
+      },
+      {
+        title: 'PaymentGatewayRefundOperatorSettlement',
+        required: ['disposition', 'note', 'evidence_reference'],
+      },
+    ],
     properties: {
       disposition: {
         type: 'string',
-        enum: ['provider_not_refunded', 'manual_settled'],
-        description: 'Explicit terminal decision. provider_not_refunded closes this execution as failed; manual_settled settles billing and the execution from attributable provider evidence.',
+        enum: [
+          'provider_processed', 'provider_failed', 'provider_pending', 'provider_status_unknown',
+          'provider_not_refunded', 'manual_settled',
+        ],
+        description: 'Structured review outcome or operator-terminal decision. provider_processed, provider_pending, and provider_status_unknown remain open and pollable. provider_failed is terminal only when an exact validated provider refund id is already bound; otherwise it remains open and replacement-blocking. Processed and failed observations require an independent reviewer. provider_not_refunded closes this execution as failed; manual_settled settles billing and the execution from attributable provider evidence.',
       },
       evidence_reference: {
         type: 'string',
@@ -258,7 +329,40 @@ export const schemas = {
         type: 'string',
         minLength: 10,
         maxLength: 500,
-        description: 'What the operator verified or completed at the provider and in billing for this parked refund.',
+        description: 'What the operator verified or completed at the provider and in billing for this parked refund. Required by the operator-terminal rail only; the structured-review rail carries context in evidence.notes instead.',
+      },
+      evidence: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['source', 'reference', 'observed_at', 'provider_status'],
+        properties: {
+          source: {
+            type: 'string',
+            enum: ['provider_dashboard', 'provider_support', 'bank_statement', 'other_authoritative'],
+          },
+          reference: {
+            type: 'string',
+            minLength: 6,
+            maxLength: 255,
+            description: 'Durable provider, support, or statement reference for the review evidence.',
+          },
+          observed_at: {
+            type: 'string',
+            format: 'date-time',
+            description: 'When the evidence was observed. It must not be later than server acceptance time; no future clock skew is accepted.',
+          },
+          provider_status: {
+            type: 'string',
+            enum: ['processed', 'failed', 'pending', 'unknown'],
+            description: 'Must match disposition: provider_processed=processed, provider_failed=failed, provider_pending=pending, provider_status_unknown=unknown.',
+          },
+          notes: {
+            type: 'string',
+            nullable: true,
+            maxLength: 500,
+            description: 'Optional context; never a substitute for the structured evidence fields.',
+          },
+        },
       },
     },
   },
@@ -326,6 +430,7 @@ export const schemas = {
   PaymentGatewayOrderResponse: envelope('PaymentGatewayOrder'),
   PaymentGatewayRefundResponse: envelope('PaymentGatewayRefund'),
   PaymentGatewayRefundReconciliationListResponse: envelope('PaymentGatewayRefundReconciliationList'),
+  PaymentGatewayRefundRecoveryListResponse: envelope('PaymentGatewayRefundReconciliationList'),
   PaymentGatewayConfigListResponse: envelope('PaymentGatewayConfigList'),
   PaymentGatewayConfigViewResponse: envelope('PaymentGatewayConfigView'),
   PaymentGatewayWebhookAckResponse: envelope('PaymentGatewayWebhookAck'),
@@ -439,21 +544,16 @@ export const operations = {
     security: authenticatedSecurity,
     parameters: [
       {
-        name: 'include_resolved',
-        in: 'query',
-        required: false,
+        name: 'include_resolved', in: 'query', required: false,
         schema: { type: 'boolean', default: false },
+        description: 'Include terminal operator-reviewed provider_failed history.',
       },
       {
-        name: 'limit',
-        in: 'query',
-        required: false,
+        name: 'limit', in: 'query', required: false,
         schema: { type: 'integer', minimum: 1, maximum: 200, default: 50 },
       },
       {
-        name: 'offset',
-        in: 'query',
-        required: false,
+        name: 'offset', in: 'query', required: false,
         schema: { type: 'integer', minimum: 0, maximum: 10000, default: 0 },
       },
     ],
@@ -463,20 +563,68 @@ export const operations = {
       500: errorResponse('The refund reconciliation queue could not be read.'),
     },
   },
+  'GET /api/v1/billing/gateway/refund-recovery': {
+    description:
+      'Finance/cashier/admin provider-confirmation queue for unresolved gateway refund executions. Each unresolved leg exposes its durable retry projection, operator task, and SLA state while keeping provider idempotency credentials write-only. include_terminal=true includes provider-confirmed history. A provider refund id is correlation only and never means success.',
+    response: 'PaymentGatewayRefundRecoveryListResponse',
+    security: authenticatedSecurity,
+    parameters: [
+      {
+        name: 'include_terminal', in: 'query', required: false,
+        schema: { type: 'boolean', default: false },
+        description: 'Include provider-confirmed terminal recovery projections.',
+      },
+      {
+        name: 'limit', in: 'query', required: false,
+        schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 },
+      },
+      {
+        name: 'offset', in: 'query', required: false,
+        schema: { type: 'integer', minimum: 0, default: 0 },
+      },
+    ],
+    additionalResponses: {
+      401: errorResponse('API-key and bearer authentication are required.'),
+      403: errorResponse('Finance, cashier, or administrator refund authority is required.'),
+      500: errorResponse('The refund recovery queue could not be read.'),
+    },
+  },
+  'POST /api/v1/billing/gateway/refunds/{id}/recover': {
+    description:
+      'Requests one fenced recovery attempt for the exact durable gateway refund. Default OFF behind PAYMENT_GATEWAY_REFUND_RECOVERY_ENABLED=true and still requires the existing deployment, tenant, exact provider-config, and credential gates. A missing provider id replays only the original provider request identity; otherwise recovery polls the authoritative provider GET refund endpoint. Only exact status=processed evidence may settle billing; exact status=failed evidence projects terminal failure. Both terminal provider outcomes close the task/SLA, while pending, mismatched, missing-authority, and exhausted outcomes remain explicit and unresolved. Idempotency-Key required (scope payment_gateway_refund_recovery).',
+    parameters: [idempotencyHeader],
+    pathParameters: {
+      id: { type: 'integer', minimum: 1 },
+    },
+    response: 'PaymentGatewayRefundResponse',
+    security: authenticatedSecurity,
+    additionalResponses: {
+      400: errorResponse('The refund id or Idempotency-Key was invalid.'),
+      401: errorResponse('API-key and bearer authentication are required.'),
+      403: errorResponse('Recovery is not activated, provider authority is unavailable, or the caller lacks refund authority.'),
+      409: errorResponse('The refund is already leased or its durable request identity/status conflicts.'),
+      422: errorResponse('The Idempotency-Key was reused with a different recovery request.'),
+      502: errorResponse('The provider status endpoint did not return usable evidence.'),
+      503: errorResponse('The recovery task/SLA authority is unavailable.'),
+      500: errorResponse('The recovery attempt could not be persisted.'),
+    },
+  },
   'POST /api/v1/billing/gateway/refunds/{id}/reconcile': {
     description:
-      'Admin terminal resolution for a requires_reconciliation provider refund. provider_not_refunded requires attributable provider evidence plus gateway_retry; it closes the execution as failed while retaining integrated-gateway billing ownership. manual_settled requires the exact provider refund identifier and settles billing plus the execution through the trusted gateway payout path. Integrated electronic refunds cannot be released to manual payout. Actor, note, evidence, disposition, and outcome remain in metadata. Exact signed terminal evidence is still evaluated and cannot be ignored by an earlier note.',
+      'Admin structured review for a requires_reconciliation provider refund. provider_processed, provider_pending, and provider_status_unknown record attributed evidence while keeping the recovery task/SLA open and the refund pollable. A processed observation requires an independent reviewer but cannot settle billing or close the obligation. provider_failed becomes a terminal manual closure only when the execution is already bound to an exact validated provider_refund_id; without that identifier it remains open and replacement-blocking so late processed evidence can still correlate. Terminal failure requires a reviewer independent of the refund raiser, approver, and provider initiator. Only exact evidence obtained through the trusted provider adapter may project financial success. The two operator-terminal dispositions stay on the local settlement rail and take note + evidence_reference instead: provider_not_refunded requires attributable provider evidence plus recovery_path=gateway_retry; it closes the execution as failed while retaining integrated-gateway billing ownership. manual_settled requires the exact provider refund identifier and settles billing plus the execution through the trusted gateway payout path. Integrated electronic refunds cannot be released to manual payout. Actor, note, evidence, disposition, and outcome remain in metadata. Exact signed terminal evidence is still evaluated and cannot be ignored by an earlier note.',
     request: 'PaymentGatewayRefundReconcileRequest',
     response: 'PaymentGatewayRefundResponse',
     security: authenticatedSecurity,
-    pathParameters: { id: { type: 'integer', minimum: 1, maximum: 2147483647 } },
+    pathParameters: {
+      id: { type: 'integer', minimum: 1, maximum: 2147483647 },
+    },
     additionalResponses: {
-      400: errorResponse('The disposition, evidence reference, recovery path, or 10-500 character note was invalid.'),
+      400: errorResponse('The disposition, structured evidence, or the operator-terminal note / evidence_reference / recovery_path tuple was missing, invalid, future-dated, mixed across the two rails, or internally inconsistent.'),
       401: errorResponse('API-key and bearer authentication are required.'),
-      403: errorResponse('Administrator authority or a same-tenant reconciliation actor was not verified.'),
+      403: errorResponse('Administrator authority, same-tenant identity, or the independent-reviewer policy was not satisfied.'),
       404: errorResponse('The gateway refund was not found.'),
-      409: errorResponse('The refund is not awaiting reconciliation or was already reconciled.'),
-      500: errorResponse('The reconciliation stamp or its audit evidence could not be persisted.'),
+      409: errorResponse('The refund is not awaiting reconciliation, its exact terminal provider id is unavailable, a provider recovery lease is live, or it was already reconciled.'),
+      500: errorResponse('The structured reconciliation review or its audit evidence could not be persisted.'),
     },
   },
   'GET /api/v1/billing/gateway/config': {
@@ -492,7 +640,7 @@ export const operations = {
   },
   'PUT /api/v1/billing/gateway/config': {
     description:
-      'Admin upsert of the per-tenant provider config (one row per provider+environment; at most one enabled per tenant). key_secret / webhook_secret are write-only and stored as encryptField() ciphertext; enabling a non-dry_run provider without credentials is rejected. The webhook routing token is minted once and stays stable.',
+      'Admin upsert of the per-tenant provider config (one row per provider+environment; at most one enabled per tenant). key_secret / webhook_secret are write-only and stored as encryptField() ciphertext; enabling a non-dry_run provider without credentials is rejected. Enabling the exact config atomically requeues matching authority-blocked refund recoveries with their audit/outbox transition; if that transition cannot persist, config enablement rolls back. The webhook routing token is minted once and stays stable.',
     request: 'PaymentGatewayConfigUpsertRequest',
     response: 'PaymentGatewayConfigViewResponse',
     security: authenticatedSecurity,
