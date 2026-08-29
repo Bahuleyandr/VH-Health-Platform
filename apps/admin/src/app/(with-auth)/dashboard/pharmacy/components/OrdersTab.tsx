@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { FormEvent } from "react";
 import { fetchAdminAPI, postJSON } from "@/lib/api";
 import {
   ClientTablePagination,
@@ -44,7 +43,6 @@ export function OrdersTab() {
   const [pageSize, setPageSize] = useState(10);
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<PharmacyOrderLifecycle | null>(null);
-  const [showCreateOrder, setShowCreateOrder] = useState(false);
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
@@ -137,12 +135,6 @@ export function OrdersTab() {
           setPage(1);
         }}
       >
-        <button
-          onClick={() => setShowCreateOrder(true)}
-          className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground hover:bg-primary/90"
-        >
-          New order
-        </button>
         <button onClick={fetchOrders} className="rounded-md border border-input px-3 py-2 text-sm text-primary hover:bg-muted">
           Refresh
         </button>
@@ -316,101 +308,6 @@ export function OrdersTab() {
       {selectedOrder && (
         <OrderDetailModal order={selectedOrder} onClose={() => setSelectedOrder(null)} />
       )}
-      {showCreateOrder && (
-        <CreatePharmacyOrderModal
-          onClose={() => setShowCreateOrder(false)}
-          onSuccess={() => {
-            setShowCreateOrder(false);
-            fetchOrders();
-          }}
-        />
-      )}
-    </div>
-  );
-}
-
-function CreatePharmacyOrderModal({
-  onClose,
-  onSuccess,
-}: {
-  onClose: () => void;
-  onSuccess: () => void;
-}) {
-  const [phone, setPhone] = useState("");
-  const [orderNote, setOrderNote] = useState("");
-  const [urgent, setUrgent] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    const digits = phone.replace(/\D/g, "");
-    if (digits.length < 10) {
-      alert("Valid phone number required");
-      return;
-    }
-    if (!orderNote.trim()) {
-      alert("Order note is required");
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      await postJSON("/api/v1/pharmacy-orders/orders", {
-        phone: phone.trim(),
-        order_note: orderNote.trim(),
-        urgent,
-      });
-      onSuccess();
-    } catch (error) {
-      alert(error instanceof Error ? error.message : "Failed to create order");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <form onSubmit={submit} className="w-full max-w-md rounded-xl bg-card p-6 text-card-foreground shadow-xl">
-        <h3 className="mb-4 text-lg font-bold">Create Pharmacy Order</h3>
-        <div className="space-y-3">
-          <div>
-            <label className="text-sm font-medium">Patient phone</label>
-            <input
-              type="tel"
-              value={phone}
-              onChange={(event) => setPhone(event.target.value)}
-              className="mt-1 w-full rounded border bg-background px-3 py-2 text-sm"
-              placeholder="10-digit mobile number"
-            />
-          </div>
-          <div>
-            <label className="text-sm font-medium">Order note</label>
-            <textarea
-              value={orderNote}
-              onChange={(event) => setOrderNote(event.target.value)}
-              className="mt-1 w-full rounded border bg-background px-3 py-2 text-sm"
-              rows={4}
-              placeholder="Medicine names, dose, quantity, or prescription note"
-            />
-          </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={urgent} onChange={(event) => setUrgent(event.target.checked)} />
-            Mark urgent
-          </label>
-        </div>
-        <div className="mt-4 flex gap-3">
-          <button type="button" onClick={onClose} className="flex-1 rounded border px-4 py-2 text-sm hover:bg-muted">
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={submitting}
-            className="flex-1 rounded bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          >
-            {submitting ? "Creating..." : "Create"}
-          </button>
-        </div>
-      </form>
     </div>
   );
 }

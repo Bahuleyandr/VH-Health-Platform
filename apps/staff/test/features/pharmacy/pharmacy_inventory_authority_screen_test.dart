@@ -136,8 +136,16 @@ void main() {
 
       await tester.tap(find.text('Verify order'));
       await tester.pumpAndSettle();
-      final decision = tester.widget<DropdownButtonFormField<String>>(
-        find.byKey(const ValueKey('pharmacy-verification-decision')),
+      // Flutter 3.47's DropdownButtonFormField no longer exposes `items`:
+      // it builds an inner DropdownButton via _formField carrying the same
+      // list, and that button's onChanged routes through didChange back to
+      // the field's own onChanged. Read both off the inner button so this
+      // authority assertion keeps its exact meaning.
+      final decision = tester.widget<DropdownButton<String>>(
+        find.descendant(
+          of: find.byKey(const ValueKey('pharmacy-verification-decision')),
+          matching: find.byType(DropdownButton<String>),
+        ),
       );
       expect(decision.items!.map((item) => item.value), [
         'verified',
@@ -157,8 +165,16 @@ void main() {
 
       await tester.tap(find.text('Verify order'));
       await tester.pumpAndSettle();
-      final decision = tester.widget<DropdownButtonFormField<String>>(
-        find.byKey(const ValueKey('pharmacy-verification-decision')),
+      // Flutter 3.47's DropdownButtonFormField no longer exposes `items`:
+      // it builds an inner DropdownButton via _formField carrying the same
+      // list, and that button's onChanged routes through didChange back to
+      // the field's own onChanged. Read both off the inner button so this
+      // authority assertion keeps its exact meaning.
+      final decision = tester.widget<DropdownButton<String>>(
+        find.descendant(
+          of: find.byKey(const ValueKey('pharmacy-verification-decision')),
+          matching: find.byType(DropdownButton<String>),
+        ),
       );
       expect(decision.items!.map((item) => item.value), [
         'verified',

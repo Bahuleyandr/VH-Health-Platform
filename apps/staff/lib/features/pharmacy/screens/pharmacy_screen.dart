@@ -77,7 +77,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
   bool get _canBreakGlassVerification => _role == StaffRole.pharmacyIncharge;
 
   bool get _canOpenBillingDesk =>
-      RoleConfig.getFeaturesForRawRole(_rawRole)
+      RoleFeatures.getFeaturesForRawRole(_rawRole)
           .any((feature) => feature.id == 'billing_desk');
 
   bool get _canViewInventory =>
@@ -250,185 +250,6 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
   // ═══════════════════════════════════════════════════════════════════════════
   // ACTIONS
   // ═══════════════════════════════════════════════════════════════════════════
-
-  Future<void> _createOrder() async {
-    final orderCreatedMessage = AppStrings.of(context)
-        .lookup('s4.lib.pharmacy.order_created');
-    final formKey = GlobalKey<FormState>();
-    final phoneCtrl = TextEditingController();
-    final noteCtrl = TextEditingController();
-    var urgent = false;
-    var submitting = false;
-
-    try {
-      final created = await showModalBottomSheet<bool>(
-        context: context,
-        isScrollControlled: true,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        builder: (ctx) => StatefulBuilder(
-          builder: (ctx, setSheetState) {
-            Future<void> submit() async {
-              if (!formKey.currentState!.validate()) return;
-              setSheetState(() => submitting = true);
-              try {
-                await PharmacyApiService.placePharmacyOrder(
-                  phone: phoneCtrl.text.trim(),
-                  orderNote: noteCtrl.text.trim(),
-                  urgent: urgent,
-                );
-                if (!ctx.mounted) return;
-                Navigator.pop(ctx, true);
-              } catch (e) {
-                if (!ctx.mounted) return;
-                setSheetState(() => submitting = false);
-                ScaffoldMessenger.of(ctx).showSnackBar(
-                  SnackBar(
-                    content: Text(e.toString().replaceFirst('Exception: ', '')),
-                    backgroundColor: AppTheme.errorRed,
-                  ),
-                );
-              }
-            }
-
-            return Padding(
-              padding: EdgeInsets.only(
-                left: 20,
-                right: 20,
-                top: 20,
-                bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
-              ),
-              child: SingleChildScrollView(
-                child: Form(
-                  key: formKey,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Expanded(
-                            child: AppText(
-                              's4.lib.pharmacy.create_pharmacy_order',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.close),
-                            tooltip: AppStrings.of(context)
-                                .lookup('action.close'),
-                            onPressed: submitting
-                                ? null
-                                : () => Navigator.pop(ctx, false),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: phoneCtrl,
-                        keyboardType: TextInputType.phone,
-                        decoration: InputDecoration(
-                          labelText: AppStrings.of(context)
-                              .lookup('reception_counter.patient.phone'),
-                          hintText: AppStrings.of(context)
-                              .lookup('s4.lib.pharmacy.10_digit_mobile_number'),
-                          prefixIcon: const ExcludeSemantics(
-                            child: Icon(Icons.phone_outlined),
-                          ),
-                        ),
-                        validator: (value) {
-                          final digits = (value ?? '').replaceAll(
-                            RegExp(r'\D'),
-                            '',
-                          );
-                          return digits.length < 10
-                              ? AppStrings.of(
-                                  context,
-                                ).lookup('s4.lib.pharmacy.phone_required_valid')
-                              : null;
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: noteCtrl,
-                        decoration: InputDecoration(
-                          labelText: AppStrings.of(context)
-                              .lookup('s4.lib.pharmacy.order_note'),
-                          hintText: AppStrings.of(context).lookup(
-                            's4.lib.pharmacy.medicine_names_dose_quantity_or_rx_note',
-                          ),
-                          prefixIcon: const ExcludeSemantics(
-                            child: Icon(Icons.medication_outlined),
-                          ),
-                          alignLabelWithHint: true,
-                        ),
-                        minLines: 3,
-                        maxLines: 5,
-                        validator: (value) => (value?.trim().isEmpty ?? true)
-                            ? AppStrings.of(context)
-                                  .lookup('s4.lib.pharmacy.order_note_required')
-                            : null,
-                      ),
-                      const SizedBox(height: 8),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        value: urgent,
-                        title: const AppText('s4.lib.pharmacy.mark_urgent'),
-                        onChanged: submitting
-                            ? null
-                            : (value) => setSheetState(() => urgent = value),
-                      ),
-                      const SizedBox(height: 18),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: submitting ? null : submit,
-                          icon: submitting
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : const Icon(Icons.add, color: Colors.white),
-                          label: Text(
-                            AppStrings.of(context).lookup(
-                              submitting
-                                  ? 's4.lib.pharmacy.creating'
-                                  : 's4.lib.pharmacy.create_order',
-                            ),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFE65100),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        ),
-      );
-
-      if (created == true) {
-        _snack(orderCreatedMessage);
-        unawaited(_loadOrders());
-      }
-    } finally {
-      phoneCtrl.dispose();
-      noteCtrl.dispose();
-    }
-  }
 
   Future<void> _confirmOrder(Map<String, dynamic> order) async {
     final s = AppStrings.of(context);
@@ -3087,18 +2908,6 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                       color: Color(0xFFE65100),
                     ),
                     label: const AppText('s4.lib.counter_sale.open'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.cardSurface,
-                      foregroundColor: const Color(0xFFE65100),
-                      minimumSize: const Size(0, 38),
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  ElevatedButton.icon(
-                    onPressed: _createOrder,
-                    icon: const Icon(Icons.add, color: Color(0xFFE65100)),
-                    label: const AppText('s4.lib.pharmacy.new_order'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.cardSurface,
                       foregroundColor: const Color(0xFFE65100),

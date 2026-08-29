@@ -216,8 +216,12 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
     final explicit = widget.requesterGateway;
     if (explicit != null) return explicit;
     final gateway = widget.gateway;
+    // WardIndentGateway and WardIndentRequesterGateway are sibling
+    // interfaces, so Dart does not promote `gateway` here: promotion
+    // requires the tested type to be a subtype of the declared type.
+    // The cast is safe because the same `is` check guards it.
     return gateway is WardIndentRequesterGateway
-        ? gateway
+        ? gateway as WardIndentRequesterGateway
         : const ApiWardIndentGateway();
   }
 

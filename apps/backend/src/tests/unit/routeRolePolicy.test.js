@@ -51,8 +51,6 @@ describe('routeRolePolicy', () => {
       ...expectedAudience,
       'LAB_STAFF',
       'QUALITY_OFFICER',
-      'BILLING_INCHARGE',
-      'FINANCE_INCHARGE',
     ];
     expect(routePolicy.CARE_PATHWAY_ROUTE_ROLES).toEqual(expectedAudience);
     expect(routePolicy.CLINICAL_INBOX_ROUTE_ROLES).toEqual(expectedClinicalInboxAudience);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useEffect, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 
@@ -71,7 +71,13 @@ export function CatalogTab() {
     queryFn: () => listCathConsumablesFacilities(),
     staleTime: 5 * 60 * 1000,
   });
-  const facilities = facilitiesQuery.data?.facilities ?? [];
+  // Memoised because this feeds the auto-select effect's dependency array:
+  // as a bare `?? []` logical expression it produced a fresh array identity
+  // every render, which react-hooks/exhaustive-deps flags.
+  const facilities = useMemo(
+    () => facilitiesQuery.data?.facilities ?? [],
+    [facilitiesQuery.data],
+  );
 
   // Auto-select only when the tenant has exactly one active facility: with a
   // single option there is nothing to infer. With none or several the selector
