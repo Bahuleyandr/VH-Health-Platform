@@ -154,7 +154,8 @@ regexes = [
   # credential, and none is ever sent to an authenticating party.
   '''can016-arrears-foreign''',
   '''verification-gate-71''',
-  '''staff-inpatient-order-attempt-1''',
+  '''staff-inpatient-order-attempt-\d+''',
+  '''staff-bulk-order-attempt-\d+''',
   # Kubernetes configMapKeyRef KEY NAME (not a value) on the migration-754
   # PreSync Job. The referenced ConfigMap field is deliberately left BLANK so
   # the acceptance gate fails closed until an operator fills it; the literal
