@@ -354,6 +354,37 @@ async function firstValue(table, column) {
   return row?.[column] ?? null;
 }
 
+// Migration 753 binds a cath usage row to ONE facility authority: the case,
+// the catalog entry and the batch must all name the same facility and item,
+// and the usage must repeat the batch's number/lot/expiry exactly. Resolving
+// each of those columns independently (which is what the generic FK walker
+// does) cannot satisfy that, so every cath override reads this single row.
+// The order and admission of a cap reservation must be the SAME pair the order
+// records as its funding admission - the FK is composite. Resolving them
+// independently (what the generic walker does) cannot guarantee that.
+async function seedFundedPharmacyOrder() {
+  return first(
+    'pharmacy_orders',
+    'id, funding_admission_id',
+    `tenant_id = $1::uuid
+       AND funding_admission_id IS NOT NULL
+     ORDER BY id`,
+    [DEFAULT_TENANT_ID]
+  );
+}
+
+async function seedCathInventoryBatch() {
+  return first(
+    'pharmacy_inventory_batches',
+    'id, inventory_item_id, facility_id, batch_number, lot_number, expiry_date',
+    `tenant_id = $1::uuid
+       AND facility_id IS NOT NULL
+       AND inventory_item_id IS NOT NULL
+     ORDER BY id`,
+    [DEFAULT_TENANT_ID]
+  );
+}
+
 async function firstTenantValue(table, column) {
   const row = await first(table, quote(column), 'tenant_id = $1::uuid', [DEFAULT_TENANT_ID]);
   return row?.[column] ?? null;
@@ -460,8 +491,23 @@ function checkedValue(checksByTable, table, column) {
 
   const definitions = checksByTable.get(table) || [];
   const lowerColumn = column.column_name.toLowerCase();
+  // A definition that constrains THIS column by regex is describing its FORMAT,
+  // not its allowed values, so none of its literals belong to it — they belong to
+  // the conjuncts next door. Harvesting them anyway is how a CHAR(64) digest
+  // column ends up holding 'RESERVED' or 'ADMIN': the first clean literal of a
+  // big multi-column identity CHECK wins, and every hex pattern is already
+  // filtered out below for looking like a regex. Skip such a definition and let
+  // semanticValue answer the format question instead. pg_get_constraintdef
+  // deparses a bpchar/varchar regex test as ((col)::text ~ '...'::text), so the
+  // cast and parens are tolerated. Column names here are all [a-z0-9_], so
+  // interpolating one into a RegExp is safe.
+  const formatConstrained = new RegExp(
+    `\\b${lowerColumn}\\b[)\\s]*(?:::\\s*[a-z][a-z0-9_ ]*)?[)\\s]*!?~`
+  );
   for (const definition of definitions) {
-    if (!definition.toLowerCase().includes(lowerColumn)) continue;
+    const lowerDefinition = definition.toLowerCase();
+    if (!lowerDefinition.includes(lowerColumn)) continue;
+    if (formatConstrained.test(lowerDefinition)) continue;
     const values = [...definition.matchAll(/'([^']+)'(?:::|,|\)|\])/g)].map(match => match[1]);
     const cleaned = values.filter(
       value => !value.includes('::') && value.length <= 80 && !/[\\^$[\]{}+*?]/.test(value)
@@ -589,6 +635,210 @@ function semanticValue(column, table, index, ctx, maxLength) {
 // override column is still filled (the generic walk skips nullable non-FK
 // columns). Keep entries minimal and tied to the migration that needs them.
 const TABLE_COLUMN_SEED_OVERRIDES = {
+  // mig 754: the walker fills hr_signed_by and approved_by from the same FK
+  // heuristic, so both land on one staff uid and break the two-person rule
+  // (chk_bulk_revision_signer_separation). A seeded job is simply unsigned.
+  // mig 754: a salary revision carries TWO coupled contracts. Its financial
+  // evidence is recomputed by salary_revision_financial_evidence_valid() —
+  // gross is derived from the baseline components and the increment arithmetic
+  // must agree — and its lifecycle evidence couples status to signer identity,
+  // role, authority source and signature hashes. The generic walker fills the
+  // signer FKs and invents a status, which satisfies neither.
+  //
+  // Seed the earliest honest state instead: a PROPOSED increment awaiting HR.
+  // 'pending_hr' requires no signature, no signer role and no authority
+  // attestation, so nothing here asserts that a human signed or checked
+  // anything — which is exactly what must not be bootstrapped. The figures are
+  // synthetic but internally consistent:
+  //   basic 50000, hra 20%, da 10%, allowances 5000 + 2000 + 1000
+  //   current gross  = 50000 + 10000 + 5000 + 8000 = 73000
+  //   proposed basic = 55000  (increment 5000, i.e. 10.00%)
+  //   proposed gross = 55000 + 11000 + 5500 + 8000 = 79500
+  // effective_from must fall on the 1st for an increment.
+  // mig 753: a capacity reservation is either ACTIVE with no release evidence,
+  // or RELEASED with a named releaser, timestamp and reason. The walker fills
+  // released_by because it is an FK, producing an 'active' row that also claims
+  // a releaser — neither branch. A seeded reservation is simply still held.
+  pharmacy_cap_reservations: {
+    // mig 753 binds (tenant_id, pharmacy_order_id, admission_id) to
+    // pharmacy_orders(tenant_id, id, funding_admission_id), and admission_id is
+    // NOT NULL. The generic walker resolves admission_id independently of the
+    // order it reserves against, so the composite key can never line up. Pin it
+    // to the same admission the seeded order names as its funding admission.
+    pharmacy_order_id: async () =>
+      (await seedFundedPharmacyOrder())?.id ?? null,
+    admission_id: async () =>
+      (await seedFundedPharmacyOrder())?.funding_admission_id ?? null,
+    status: 'ACTIVE',
+    released_by: null,
+    released_at: null,
+    release_reason: null
+  },
+  // mig 754: a command receipt pins the identity of an accepted command —
+  // scope, key, request digest, target and the role the actor held. The walker
+  // leaves authority_source as generic text and response_data non-object. The
+  // actor here is a real seeded active user, so recording that its role came
+  // from the active users row states what actually happened.
+  salary_revision_command_receipts: {
+    request_body_sha256: '0'.repeat(64),
+    command_scope: 'salary_revision',
+    command_key: 'seed-salary-revision-command-1',
+    target_identity: 'seed-salary-revision-1',
+    actor_role: 'ADMIN',
+    authority_source: 'users_active_row',
+    response_data: JSON.stringify({ seed: true })
+  },
+  // Same checkedValue() hazard as the salary receipt above: these digests sit
+  // in a multi-column identity CHECK, so they must be set explicitly.
+  // mig 754: a freshly enqueued cohort item — pending, unclaimed, not
+  // finalised. staff_role_at_freeze snapshots the role the staff member held
+  // when the cohort was frozen and must be upper-case and non-PATIENT; the
+  // walker's generic 'staff' fails both halves of that contract.
+  bulk_revision_job_items: {
+    status: 'pending',
+    staff_role_at_freeze: 'NURSING_STAFF',
+    claim_token: null,
+    claimed_at: null,
+    lease_expires_at: null,
+    revision_id: null,
+    applied_at: null,
+    finalized_at: null,
+    outcome: JSON.stringify({})
+  },
+  salary_arrears_command_receipts: {
+    request_body_sha256: '0'.repeat(64),
+    command_key: 'seed-salary-arrears-command-1',
+    actor_role: 'ADMIN',
+    authority_source: 'users_active_row',
+    response_data: JSON.stringify({ seed: true })
+  },
+  // mig 754: a payable starts life unclaimed — no payroll run, no claim token,
+  // no payslip, nothing paid. Every later state needs real payroll evidence.
+  salary_revision_payables: {
+    status: 'pending',
+    reconciliation_decision: null,
+    reconciliation_hr_by: null,
+    reconciliation_hr_at: null,
+    reconciliation_hr_evidence: null,
+    reconciliation_hr_evidence_sha256: null,
+    reconciliation_hr_request_sha256: null,
+    reconciliation_hr_actor_role: null,
+    reconciliation_hr_authority_checked_at: null,
+    reconciliation_hr_authority_source: null,
+    reconciliation_admin_by: null,
+    reconciliation_admin_at: null,
+    reconciliation_admin_evidence: null,
+    reconciliation_admin_signature_sha256: null,
+    reconciliation_admin_request_sha256: null,
+    reconciliation_admin_actor_role: null,
+    reconciliation_admin_authority_checked_at: null,
+    reconciliation_admin_authority_source: null,
+    payroll_run_id: null,
+    claim_attempt_token: null,
+    payslip_id: null,
+    claimed_at: null,
+    paid_at: null,
+    reconciliation_reason: null
+  },
+  salary_revisions: {
+    revision_type: 'increment',
+    salary_baseline: JSON.stringify({
+      basic_salary: 50000,
+      hra_pct: 20,
+      da_pct: 10,
+      special_allowance: 5000,
+      transport_allowance: 2000,
+      medical_allowance: 1000,
+      tds_monthly: 0,
+      pf_employee_pct: 12,
+      esi_applicable: false
+    }),
+    current_basic: 50000,
+    current_gross: 73000,
+    proposed_basic: 55000,
+    proposed_gross: 79500,
+    increment_amount: 5000,
+    increment_pct: 10,
+    bonus_amount: null,
+    bonus_reason: null,
+    other_changes: null,
+    effective_from: '2026-06-01',
+    status: 'pending_hr',
+    proposed_at: () => new Date('2026-05-04T09:00:00.000Z'),
+    hr_signed_by: null,
+    hr_signed_at: null,
+    hr_signer_role: null,
+    hr_authority_checked_at: null,
+    hr_authority_source: null,
+    hr_comment: null,
+    admin_signed_by: null,
+    admin_signed_at: null,
+    admin_signer_role: null,
+    admin_authority_checked_at: null,
+    admin_authority_source: null,
+    admin_comment: null,
+    terms_manifest_sha256: null,
+    hr_signature_sha256: null,
+    admin_signature_sha256: null,
+    signature_hash: null,
+    rejected_by: null,
+    rejected_at: null,
+    rejection_reason: null,
+    rejected_actor_role: null,
+    rejected_authority_checked_at: null,
+    rejected_authority_source: null,
+    rejection_evidence_sha256: null,
+    applied_at: null,
+    tenant_reconciliation_required: false,
+    tenant_reconciliation_reason: null
+  },
+  bulk_revision_jobs: {
+    // mig 754 lifecycle: 'building' is the one state that needs no cohort or
+    // terms manifest and no signatures. Every later state requires real signed
+    // manifests, which a seed must not manufacture. staff_count must be 0 to
+    // match. The manifest digests are nulled explicitly because the walker
+    // would otherwise fill them from the sha256 heuristic.
+    status: 'building',
+    staff_count: 0,
+    cohort_manifest_sha256: null,
+    terms_manifest_sha256: null,
+    hr_signature_sha256: null,
+    admin_signature_sha256: null,
+    hr_signed_at: null,
+    hr_signer_role: null,
+    hr_authority_checked_at: null,
+    hr_authority_source: null,
+    admin_signed_at: null,
+    admin_signer_role: null,
+    admin_authority_checked_at: null,
+    admin_authority_source: null,
+    hr_signed_by: null,
+    approved_by: null,
+    // mig 754: the job must record which role its creator held and how that
+    // authority was established. Bind created_by to a real seeded ADMIN user and
+    // record that same role, so the stored authority is one the creator actually
+    // holds rather than a role asserted over an unrelated user.
+    created_by: async () => {
+      const row = await first(
+        'users',
+        'uid',
+        "tenant_id = $1::uuid AND role = 'ADMIN' ORDER BY id",
+        [DEFAULT_TENANT_ID]
+      );
+      return row?.uid ?? null;
+    },
+    created_by_role: 'ADMIN',
+    creator_authority_checked_at: () => new Date('2026-05-04T09:00:00.000Z'),
+    creator_authority_source: 'users_active_row'
+  },
+  // mig 753 trigger: when a claim names an invoice, that invoice must belong to
+  // the SAME patient and admission. The walker resolves invoice_id, patient_uid
+  // and admission_id independently, so they can disagree and the trigger raises
+  // 'claim invoice is not bound to the exact patient and admission'. A seeded
+  // claim is pre-invoice, which is a real state and keeps the binding honest.
+  tpa_claims: {
+    invoice_id: null
+  },
   // mig 591: structured Radiology/AP sign-off and addendum evidence is
   // all-or-nothing. Seed complete, internally consistent normal-result
   // snapshots instead of letting the generic FK walker populate only the
@@ -680,22 +930,14 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
   },
   // migs 563-565: keep the generic cath usage row on the non-batch,
   // non-implant branch while satisfying its tenant-composite references.
+  cath_lab_cases: {
+    facility_id: async () => (await seedCathInventoryBatch())?.facility_id ?? null
+  },
   cath_consumable_catalog: {
     tenant_id: ctx => ctx.tenantId,
-    inventory_item_id: async () => firstValue('pharmacy_inventory_items', 'id')
-  },
-  cath_case_consumable_usage: {
-    tenant_id: ctx => ctx.tenantId,
-    case_id: async () => firstValue('cath_lab_cases', 'id'),
-    procedure_log_id: null,
-    catalog_item_id: async () => firstValue('cath_consumable_catalog', 'id'),
-    patient_uid: async () => firstValue('cath_lab_cases', 'patient_uid'),
-    inventory_batch_id: null,
-    batch_tracked: false,
-    is_implant: false,
-    inventory_movement_id: null,
-    timeline_event_id: null,
-    audit_event_id: null
+    facility_id: async () => (await seedCathInventoryBatch())?.facility_id ?? null,
+    inventory_item_id: async () =>
+      (await seedCathInventoryBatch())?.inventory_item_id ?? null
   },
   surgical_implants: {
     tenant_id: ctx => ctx.tenantId,
@@ -884,7 +1126,22 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     inbound_owner_reason: null,
     inbound_owner_disposition: null,
     inbound_owner_claimed_at: null,
-    owner_release_client_event_id: null
+    owner_release_client_event_id: null,
+    // mig 753: a message is either 'no transport attempted' (this whole group
+    // NULL) or a fully evidenced accepted outbound transport. The walker fills
+    // projection_task_id because it is an FK and invents a projection_status,
+    // which satisfies neither branch. An ordinary seeded envelope has not been
+    // sent yet, so the group stays NULL.
+    transport_accepted_at: null,
+    transport_http_status: null,
+    transport_response_sha256: null,
+    transport_gateway_reference: null,
+    transport_response_excerpt: null,
+    projection_status: null,
+    projection_error: null,
+    projection_evidence: null,
+    projection_task_id: null,
+    projection_updated_at: null
   },
   // mig 604: legacy staff-device rows remain valid only when both identity
   // pointers are absent, while user_devices must not infer continuity or
@@ -1563,22 +1820,6 @@ async function seedCoreData() {
     [DEFAULT_TENANT_ID, seedFacilityId]
   );
 
-  await insertIfTenantEmpty('pharmacy_orders', [
-    {
-      facility_id: seedFacilityId,
-      phone: afterAppointment.patient.phone,
-      patient_id: afterAppointment.patient.id,
-      patient_name: afterAppointment.patient.name,
-      patient_phone: afterAppointment.patient.phone,
-      order_note: 'Seed medication order',
-      medication: 'Paracetamol 500mg',
-      status: 'PENDING',
-      priority: 'NORMAL',
-      total_amount: 120,
-      items_list: JSON.stringify([{ name: 'Paracetamol', quantity: 10 }]),
-      updated_at: new Date()
-    }
-  ]);
 
   await insertIfTenantEmpty('investigations', [
     {
@@ -1681,6 +1922,38 @@ async function seedCoreData() {
       updated_at: new Date()
     }
   ]);
+
+  // Seeded AFTER admissions on purpose. pharmacy_cap_reservations.admission_id
+  // is NOT NULL behind a composite FK onto
+  // pharmacy_orders(tenant_id, id, funding_admission_id), so the order has to
+  // name the admission that funds it -- and
+  // chk_pharmacy_orders_funding_admission_authority_753 is all-or-nothing, so
+  // the id, order version and items digest must be set together, at INSERT.
+  // Setting them by a later UPDATE is not an option: that fires
+  // bump_pharmacy_patient_safety_version_753, whose projection helper runs
+  // jsonb_array_elements over a value it only COALESCEs against NULL, so it
+  // aborts with 22023 on any non-array jsonb in the projected payload.
+  const seedFundingAdmissionId = await firstTenantValue('admissions', 'id');
+  await insertIfTenantEmpty('pharmacy_orders', [
+    {
+      facility_id: seedFacilityId,
+      funding_admission_id: seedFundingAdmissionId,
+      funding_admission_order_version: 1,
+      funding_admission_items_sha256: '0'.repeat(64),
+      phone: afterAppointment.patient.phone,
+      patient_id: afterAppointment.patient.id,
+      patient_name: afterAppointment.patient.name,
+      patient_phone: afterAppointment.patient.phone,
+      order_note: 'Seed medication order',
+      medication: 'Paracetamol 500mg',
+      status: 'PENDING',
+      priority: 'NORMAL',
+      total_amount: 120,
+      items_list: JSON.stringify([{ name: 'Paracetamol', quantity: 10 }]),
+      updated_at: new Date()
+    }
+  ]);
+
 
   const afterAdmission = await getCoreRefs();
   await insertIfTenantEmpty('prescriptions', [
