@@ -138,8 +138,13 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
   Future<void> _retryNhcxProjection() async {
     final recovery = _nhcxProjectionRecovery;
     final messageId = widget.prefillNhcxProjectionMessageId;
-    final transportHash = recovery?['transport_response_sha256']?.toString() ?? '';
-    if (messageId == null || messageId <= 0 || transportHash.isEmpty || _nhcxBusy) return;
+    final transportHash =
+        recovery?['transport_response_sha256']?.toString() ?? '';
+    if (messageId == null ||
+        messageId <= 0 ||
+        transportHash.isEmpty ||
+        _nhcxBusy)
+      return;
     const scope = 'nhcx-accepted-projection-retry';
     final payload = {
       'message_id': messageId,
@@ -321,14 +326,18 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
           .where((line) => line['source_ref_active'] == true)
           .toList(growable: false);
       final keeperIds = lines
-          .map((line) => int.tryParse(line['invoice_item_id']?.toString() ?? ''))
+          .map(
+            (line) => int.tryParse(line['invoice_item_id']?.toString() ?? ''),
+          )
           .whereType<int>()
           .toSet();
       setState(() {
         _fundingReconciliation = reconciliation;
         _fundingBusy = false;
         if (!keeperIds.contains(_reconciliationKeeperItemId)) {
-          _reconciliationKeeperItemId = keeperIds.isEmpty ? null : keeperIds.first;
+          _reconciliationKeeperItemId = keeperIds.isEmpty
+              ? null
+              : keeperIds.first;
         }
         final existingPath = reconciliation['resolution_path']?.toString();
         if (_reconciliationPaths.contains(existingPath)) {
@@ -354,29 +363,49 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
   String _reconciliationPathLabel(AppStrings strings, String path) {
     switch (path) {
       case 'SAFE_DEACTIVATE_DUPLICATES':
-        return strings.lookup('med03.pharmacy.funding_reconciliation.path.safe');
+        return strings.lookup(
+          'med03.pharmacy.funding_reconciliation.path.safe',
+        );
       case 'KEEP_CURRENT_AUTHORITY':
-        return strings.lookup('med03.pharmacy.funding_reconciliation.path.keep');
+        return strings.lookup(
+          'med03.pharmacy.funding_reconciliation.path.keep',
+        );
       case 'CANCEL_ORDER':
-        return strings.lookup('med03.pharmacy.funding_reconciliation.path.cancel');
+        return strings.lookup(
+          'med03.pharmacy.funding_reconciliation.path.cancel',
+        );
       case 'REBILL':
-        return strings.lookup('med03.pharmacy.funding_reconciliation.path.rebill');
+        return strings.lookup(
+          'med03.pharmacy.funding_reconciliation.path.rebill',
+        );
     }
-    return strings.lookup('med03.pharmacy.funding_reconciliation.status.unknown');
+    return strings.lookup(
+      'med03.pharmacy.funding_reconciliation.status.unknown',
+    );
   }
 
   String _reconciliationStatusLabel(AppStrings strings, String status) {
     switch (status) {
       case 'OPEN':
-        return strings.lookup('med03.pharmacy.funding_reconciliation.status.open');
+        return strings.lookup(
+          'med03.pharmacy.funding_reconciliation.status.open',
+        );
       case 'PENDING_APPROVAL':
-        return strings.lookup('med03.pharmacy.funding_reconciliation.status.pending');
+        return strings.lookup(
+          'med03.pharmacy.funding_reconciliation.status.pending',
+        );
       case 'BLOCKED':
-        return strings.lookup('med03.pharmacy.funding_reconciliation.status.blocked');
+        return strings.lookup(
+          'med03.pharmacy.funding_reconciliation.status.blocked',
+        );
       case 'RESOLVED':
-        return strings.lookup('med03.pharmacy.funding_reconciliation.status.resolved');
+        return strings.lookup(
+          'med03.pharmacy.funding_reconciliation.status.resolved',
+        );
     }
-    return strings.lookup('med03.pharmacy.funding_reconciliation.status.unknown');
+    return strings.lookup(
+      'med03.pharmacy.funding_reconciliation.status.unknown',
+    );
   }
 
   Future<void> _recordFundingReconciliationDecision() async {
@@ -385,7 +414,10 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
     final keeperId = _reconciliationKeeperItemId;
     final snapshotHash =
         reconciliation?['current_snapshot_sha256']?.toString() ?? '';
-    if (caseId == null || keeperId == null || snapshotHash.isEmpty || _fundingBusy) {
+    if (caseId == null ||
+        keeperId == null ||
+        snapshotHash.isEmpty ||
+        _fundingBusy) {
       return;
     }
     final payload = {
@@ -447,8 +479,14 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
     final hash = recovery?['source_authority_sha256']?.toString() ?? '';
     final approved = num.tryParse(_approvedCtrl.text.trim());
     final nonPayable = num.tryParse(_nonPayableCtrl.text.trim());
-    if (taskId == null || claimId == null || version == null || hash.isEmpty ||
-        approved == null || approved < 0 || nonPayable == null || nonPayable < 0) {
+    if (taskId == null ||
+        claimId == null ||
+        version == null ||
+        hash.isEmpty ||
+        approved == null ||
+        approved < 0 ||
+        nonPayable == null ||
+        nonPayable < 0) {
       setState(() {
         _error = AppStrings.of(context)
             .lookup('med03.pharmacy.funding_desk.invalid_decision');
@@ -500,9 +538,7 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
   }
 
   Future<void> _retryPostedFunding() async {
-    final taskId = int.tryParse(
-      _fundingRecovery?['task_id']?.toString() ?? '',
-    );
+    final taskId = int.tryParse(_fundingRecovery?['task_id']?.toString() ?? '');
     if (taskId == null || _fundingBusy) return;
     final payload = {
       'task_id': taskId,
@@ -699,9 +735,7 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
       return _Surface(
         child: Row(
           children: [
-            const Expanded(
-              child: AppText('med03.nhcx.projection.unavailable'),
-            ),
+            const Expanded(child: AppText('med03.nhcx.projection.unavailable')),
             IconButton.filledTonal(
               onPressed: _nhcxBusy ? null : _loadNhcxProjectionRecovery,
               icon: const Icon(Icons.refresh),
@@ -789,7 +823,8 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
     final metadata = recovery['metadata'] is Map
         ? Map<String, dynamic>.from(recovery['metadata'] as Map)
         : const <String, dynamic>{};
-    final outstanding = metadata['amount_outstanding'] ??
+    final outstanding =
+        metadata['amount_outstanding'] ??
         recovery['non_payable_amount'] ??
         recovery['line_total'];
     final isInsurance = taskType == 'pharmacy_tpa_line_decision';
@@ -834,9 +869,9 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
                       decimal: true,
                     ),
                     decoration: InputDecoration(
-                      labelText: AppStrings.of(context).lookup(
-                        'med03.pharmacy.funding_desk.approved_amount',
-                      ),
+                      labelText: AppStrings.of(
+                        context,
+                      ).lookup('med03.pharmacy.funding_desk.approved_amount'),
                     ),
                   ),
                 ),
@@ -859,9 +894,8 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
                   child: DropdownButtonFormField<String>(
                     initialValue: _reasonCode,
                     decoration: InputDecoration(
-                      labelText: AppStrings.of(context).lookup(
-                        'med03.pharmacy.funding_desk.reason_code',
-                      ),
+                      labelText: AppStrings.of(context)
+                          .lookup('med03.pharmacy.funding_desk.reason_code'),
                     ),
                     items: _fundingReasonCodes
                         .map(
@@ -881,9 +915,8 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
                   child: TextField(
                     controller: _reasonTextCtrl,
                     decoration: InputDecoration(
-                      labelText: AppStrings.of(context).lookup(
-                        'med03.pharmacy.funding_desk.reason_text',
-                      ),
+                      labelText: AppStrings.of(context)
+                          .lookup('med03.pharmacy.funding_desk.reason_text'),
                     ),
                   ),
                 ),
@@ -929,7 +962,9 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
         child: Row(
           children: [
             const Expanded(
-              child: AppText('med03.pharmacy.funding_reconciliation.unavailable'),
+              child: AppText(
+                'med03.pharmacy.funding_reconciliation.unavailable',
+              ),
             ),
             IconButton.filledTonal(
               onPressed: _fundingBusy ? null : _loadFundingReconciliation,
@@ -956,7 +991,9 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
         children: [
           _SectionTitle(
             icon: Icons.rule_folder_outlined,
-            title: strings.lookup('med03.pharmacy.funding_reconciliation.title'),
+            title: strings.lookup(
+              'med03.pharmacy.funding_reconciliation.title',
+            ),
             trailing: IconButton.filledTonal(
               onPressed: _fundingBusy ? null : _loadFundingReconciliation,
               icon: const Icon(Icons.refresh),
@@ -964,19 +1001,20 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            strings.format('med03.pharmacy.funding_reconciliation.case_summary', {
-              'case': reconciliation['id'],
-              'task': reconciliation['task_id'],
-              'status': _reconciliationStatusLabel(strings, status),
-              'owner': strings.lookup(
-                'med03.pharmacy.funding_reconciliation.owner.finance',
-              ),
-            }),
+            strings.format(
+              'med03.pharmacy.funding_reconciliation.case_summary',
+              {
+                'case': reconciliation['id'],
+                'task': reconciliation['task_id'],
+                'status': _reconciliationStatusLabel(strings, status),
+                'owner': strings.lookup(
+                  'med03.pharmacy.funding_reconciliation.owner.finance',
+                ),
+              },
+            ),
           ),
           const SizedBox(height: 8),
-          const AppText(
-            'med03.pharmacy.funding_reconciliation.help',
-          ),
+          const AppText('med03.pharmacy.funding_reconciliation.help'),
           const SizedBox(height: 12),
           DropdownButtonFormField<int>(
             key: ValueKey(
@@ -989,25 +1027,28 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
               ),
               border: OutlineInputBorder(),
             ),
-            items: lines.map((line) {
-              final itemId = int.parse(line['invoice_item_id'].toString());
-              return DropdownMenuItem(
-                value: itemId,
-                child: Text(
-                  strings.format(
-                    'med03.pharmacy.funding_reconciliation.line_option',
-                    {
-                      'line': itemId,
-                      'invoice': line['invoice_id'],
-                      'amount': _money(line['line_total']),
-                    },
-                  ),
-                ),
-              );
-            }).toList(growable: false),
+            items: lines
+                .map((line) {
+                  final itemId = int.parse(line['invoice_item_id'].toString());
+                  return DropdownMenuItem(
+                    value: itemId,
+                    child: Text(
+                      strings.format(
+                        'med03.pharmacy.funding_reconciliation.line_option',
+                        {
+                          'line': itemId,
+                          'invoice': line['invoice_id'],
+                          'amount': _money(line['line_total']),
+                        },
+                      ),
+                    ),
+                  );
+                })
+                .toList(growable: false),
             onChanged: _fundingBusy
                 ? null
-                : (value) => setState(() => _reconciliationKeeperItemId = value),
+                : (value) =>
+                      setState(() => _reconciliationKeeperItemId = value),
           ),
           const SizedBox(height: 10),
           DropdownButtonFormField<String>(
@@ -1019,10 +1060,12 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
               border: OutlineInputBorder(),
             ),
             items: _reconciliationPaths
-                .map((path) => DropdownMenuItem(
-                      value: path,
-                      child: Text(_reconciliationPathLabel(strings, path)),
-                    ))
+                .map(
+                  (path) => DropdownMenuItem(
+                    value: path,
+                    child: Text(_reconciliationPathLabel(strings, path)),
+                  ),
+                )
                 .toList(growable: false),
             onChanged: _fundingBusy
                 ? null
@@ -1039,7 +1082,8 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
           ],
           const SizedBox(height: 12),
           FilledButton.icon(
-            onPressed: _fundingBusy || resolved || _reconciliationKeeperItemId == null
+            onPressed:
+                _fundingBusy || resolved || _reconciliationKeeperItemId == null
                 ? null
                 : _recordFundingReconciliationDecision,
             icon: const Icon(Icons.fact_check_outlined),
@@ -1049,12 +1093,12 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
                       'med03.pharmacy.funding_reconciliation.action.approve',
                     )
                   : resolved
-                      ? strings.lookup(
-                          'med03.pharmacy.funding_reconciliation.status.resolved',
-                        )
-                      : strings.lookup(
-                          'med03.pharmacy.funding_reconciliation.action.propose',
-                        ),
+                  ? strings.lookup(
+                      'med03.pharmacy.funding_reconciliation.status.resolved',
+                    )
+                  : strings.lookup(
+                      'med03.pharmacy.funding_reconciliation.action.propose',
+                    ),
             ),
           ),
           if (_fundingBusy) ...[

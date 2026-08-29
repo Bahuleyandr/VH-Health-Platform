@@ -44,8 +44,9 @@ void main() {
       }),
     );
 
-    final recovery =
-        await BillingApiService.getAcceptedNhcxProjectionRecovery(42);
+    final recovery = await BillingApiService.getAcceptedNhcxProjectionRecovery(
+      42,
+    );
     expect(recovery['projection_status'], 'reconciliation_required');
 
     final applied = await BillingApiService.retryAcceptedNhcxProjection(
@@ -55,10 +56,7 @@ void main() {
     );
     expect(applied['projection_status'], 'applied');
     expect(requests[0].method, 'GET');
-    expect(
-      requests[0].url.path,
-      endsWith('/insurance/nhcx/projections/42'),
-    );
+    expect(requests[0].url.path, endsWith('/insurance/nhcx/projections/42'));
     expect(requests[1].method, 'POST');
     expect(
       requests[1].url.path,

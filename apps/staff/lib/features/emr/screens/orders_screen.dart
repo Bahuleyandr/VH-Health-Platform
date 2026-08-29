@@ -415,10 +415,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
       const <String, dynamic>{},
     );
     try {
-      await MedicalApiService.completeOrder(
-        id,
-        idempotencyKey: idempotencyKey,
-      );
+      await MedicalApiService.completeOrder(id, idempotencyKey: idempotencyKey);
       _terminalOrderAttempts.complete(attemptScope);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

@@ -278,7 +278,9 @@ class _TransportTasksScreenState extends State<TransportTasksScreen>
     if (latitude is! num || longitude is! num) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(LocationService.getLocationStatusMessage(location))),
+        SnackBar(
+          content: Text(LocationService.getLocationStatusMessage(location)),
+        ),
       );
       return;
     }
@@ -304,9 +306,7 @@ class _TransportTasksScreenState extends State<TransportTasksScreen>
     );
   }
 
-  Future<void> _completePharmacyDelivery(
-    Map<String, dynamic> delivery,
-  ) async {
+  Future<void> _completePharmacyDelivery(Map<String, dynamic> delivery) async {
     final id = _pharmacyDeliveryId(delivery);
     if (id == null) return;
     final token = await showDialog<String>(
@@ -316,10 +316,8 @@ class _TransportTasksScreenState extends State<TransportTasksScreen>
     );
     if (token == null || !mounted) return;
     await _perform(
-      () => PharmacyApiService.completePharmacyDelivery(
-        id,
-        handoffToken: token,
-      ),
+      () =>
+          PharmacyApiService.completePharmacyDelivery(id, handoffToken: token),
       AppStrings.of(context).pharmacyOrderDeliveredToast,
     );
   }
@@ -336,10 +334,8 @@ class _TransportTasksScreenState extends State<TransportTasksScreen>
     );
     if (reason == null || !mounted) return;
     await _perform(
-      () => PharmacyApiService.requestPharmacyDeliveryReturn(
-        id,
-        reason: reason,
-      ),
+      () =>
+          PharmacyApiService.requestPharmacyDeliveryReturn(id, reason: reason),
       AppStrings.of(context).pharmacyCancellationReason,
     );
   }
@@ -425,8 +421,7 @@ class _TransportTasksScreenState extends State<TransportTasksScreen>
                   delivery: delivery,
                   onShareLocation: () =>
                       _sharePharmacyDeliveryLocation(delivery),
-                  onStopTracking: () =>
-                      _stopPharmacyDeliveryTracking(delivery),
+                  onStopTracking: () => _stopPharmacyDeliveryTracking(delivery),
                   onComplete: () => _completePharmacyDelivery(delivery),
                   onRequestReturn: () =>
                       _requestPharmacyDeliveryReturn(delivery),

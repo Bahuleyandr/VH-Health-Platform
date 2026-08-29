@@ -331,19 +331,13 @@ void main() {
       );
       expect(tester.widget<TextField>(drugField).controller?.text, 'Aspirin');
       expect(tester.widget<TextField>(doseField).controller?.text, '75 mg');
-      expect(
-        tester.widget<TextField>(supplyQuantity).controller?.text,
-        '14',
-      );
+      expect(tester.widget<TextField>(supplyQuantity).controller?.text, '14');
 
       await tester.tap(find.text(strings.offlineClinicalFallbackKeepOpen));
       await pumpUiTransition(tester);
       expect(tester.widget<TextField>(drugField).controller?.text, 'Aspirin');
       expect(tester.widget<TextField>(doseField).controller?.text, '75 mg');
-      expect(
-        tester.widget<TextField>(supplyQuantity).controller?.text,
-        '14',
-      );
+      expect(tester.widget<TextField>(supplyQuantity).controller?.text, '14');
       expect(find.widgetWithText(FilledButton, strings.actionSave), findsOne);
     },
   );

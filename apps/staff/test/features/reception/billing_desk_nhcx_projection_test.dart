@@ -59,8 +59,9 @@ void main() {
               'transport_http_status': 202,
               'transport_response_sha256': hash,
               'transport_gateway_reference': 'GW-42',
-              'projection_status':
-                  applied ? 'applied' : 'reconciliation_required',
+              'projection_status': applied
+                  ? 'applied'
+                  : 'reconciliation_required',
               'projection_error': applied ? null : 'Local projection failed',
               'projection_evidence': <String, dynamic>{},
               'task_id': 71,

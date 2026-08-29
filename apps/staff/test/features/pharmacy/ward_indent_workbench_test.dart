@@ -832,7 +832,10 @@ void main() {
       expect(gateway.lastPayload?['allocation_returns'], [
         {'allocation_id': '9001', 'quantity': 2.0},
       ]);
-      expect(gateway.lastPayload?.containsKey('controlled_return_evidence'), isFalse);
+      expect(
+        gateway.lastPayload?.containsKey('controlled_return_evidence'),
+        isFalse,
+      );
     },
   );
 
@@ -1184,7 +1187,6 @@ class _FakeWardIndentGateway implements WardIndentGateway {
     lastWitnessEmployeeId = employeeId;
     return const {'status': 'approved'};
   }
-
 }
 
 class _ListRequest {

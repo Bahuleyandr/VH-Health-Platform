@@ -328,8 +328,8 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
             }.contains(ctx['payment_mode']?.toString())
             ? ctx['payment_mode'].toString()
             : '';
-        _amountCollectedCtrl.text =
-            (ctx['amount_collected'] as num? ?? 0).toString();
+        _amountCollectedCtrl.text = (ctx['amount_collected'] as num? ?? 0)
+            .toString();
         _tpaReferenceCtrl.text = ctx['tpa_reference']?.toString() ?? '';
         _lines = lines;
         _selectedLine = lines.isNotEmpty ? lines.first : null;
@@ -854,8 +854,8 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
                       const SizedBox(height: 12),
                       TextField(
                         key: const ValueKey('substitution-tpa-reference'),
-                      controller: _tpaReferenceCtrl,
-                      readOnly: true,
+                        controller: _tpaReferenceCtrl,
+                        readOnly: true,
                         maxLength: 160,
                         decoration: InputDecoration(
                           labelText: s.lookup('med03.pharmacy.tpa_reference'),

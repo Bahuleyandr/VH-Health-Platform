@@ -580,13 +580,17 @@ final GoRouter appRouter = GoRouter(
                 prefillPatientUid: q['patient_uid'],
                 prefillPatientName: q['name'],
                 prefillPatientPhone: q['phone'],
-                prefillPharmacyOrderId: int.tryParse(q['pharmacy_order_id'] ?? ''),
+                prefillPharmacyOrderId: int.tryParse(
+                  q['pharmacy_order_id'] ?? '',
+                ),
                 prefillInvoiceItemId: int.tryParse(q['invoice_item_id'] ?? ''),
                 prefillTpaClaimId: int.tryParse(q['tpa_claim_id'] ?? ''),
-                prefillFundingReconciliationCaseId:
-                    int.tryParse(q['funding_reconciliation_case_id'] ?? ''),
-                prefillNhcxProjectionMessageId:
-                    int.tryParse(q['nhcx_projection_message_id'] ?? ''),
+                prefillFundingReconciliationCaseId: int.tryParse(
+                  q['funding_reconciliation_case_id'] ?? '',
+                ),
+                prefillNhcxProjectionMessageId: int.tryParse(
+                  q['nhcx_projection_message_id'] ?? '',
+                ),
               ),
             );
           },

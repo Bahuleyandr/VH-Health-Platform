@@ -84,8 +84,12 @@ abstract final class WardIndentRolePolicy {
           });
           break;
         case WardIndentStatus.substitutionPending:
-          if (indent.items.any((item) => item.substitutionStatus == 'approved') &&
-              !indent.items.any((item) => item.substitutionStatus == 'pending')) {
+          if (indent.items.any(
+                (item) => item.substitutionStatus == 'approved',
+              ) &&
+              !indent.items.any(
+                (item) => item.substitutionStatus == 'pending',
+              )) {
             actions.add(WardIndentAction.applyApprovedSubstitution);
           }
           actions.add(WardIndentAction.reject);

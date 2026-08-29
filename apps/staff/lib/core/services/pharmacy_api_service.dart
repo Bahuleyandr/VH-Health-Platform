@@ -724,11 +724,7 @@ class PharmacyApiService {
       );
     }
     body['delivery_assignee_uid'] = assigneeUid;
-    return _idempotentOrderMutation(
-      id,
-      'dispatch',
-      body,
-    );
+    return _idempotentOrderMutation(id, 'dispatch', body);
   }
 
   /// GET /pharmacy-orders/orders/:id/delivery-assignees
@@ -1186,8 +1182,7 @@ class PharmacyApiService {
   /// OWN active pharmacy facility grants, derived server-side from the bearer.
   /// The POS facility picker is fed from this: the client never chooses its own
   /// authority scope, and the server re-proves the grant on every counter call.
-  static Future<List<Map<String, dynamic>>>
-  getCounterSaleFacilities() async {
+  static Future<List<Map<String, dynamic>>> getCounterSaleFacilities() async {
     final resp = await _get('/pharmacy-orders/counter-sales/facilities');
     return _listFrom(resp, const [
       'facilities',

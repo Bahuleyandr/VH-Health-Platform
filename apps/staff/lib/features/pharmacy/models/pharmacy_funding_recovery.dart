@@ -47,7 +47,8 @@ class PharmacyFundingRecovery {
         uri.path != '/billing-desk') {
       return null;
     }
-    final reconciliationLink = uri.queryParametersAll.length == 1 &&
+    final reconciliationLink =
+        uri.queryParametersAll.length == 1 &&
         uri.queryParameters.containsKey('funding_reconciliation_case_id') &&
         _positiveQueryId(uri, 'funding_reconciliation_case_id');
     final exactFundingLink =

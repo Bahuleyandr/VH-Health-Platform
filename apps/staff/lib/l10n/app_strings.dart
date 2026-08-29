@@ -9758,12 +9758,10 @@ class AppStrings {
       's4.lib.counter_sale.sell_tab': "Sell",
       's4.lib.counter_sale.recent_tab': "Recent sales",
       's4.lib.counter_sale.facility_id': "Dispensing facility",
-      's4.lib.counter_sale.facility_hint':
-          "Choose one of the facilities you hold an active pharmacy grant for. It is locked while the cart has items.",
+      's4.lib.counter_sale.facility_hint': "Choose one of the facilities you hold an active pharmacy grant for. It is locked while the cart has items.",
       's4.lib.counter_sale.facility_required':
           "Select an exact dispensing facility before searching or selling.",
-      's4.lib.counter_sale.facility_none':
-          "You hold no active pharmacy facility grant. A tenant administrator must grant one before you can search or sell.",
+      's4.lib.counter_sale.facility_none': "You hold no active pharmacy facility grant. A tenant administrator must grant one before you can search or sell.",
       's4.lib.counter_sale.search_hint': "Search items (name / SKU / generic)",
       's4.lib.counter_sale.in_stock': "{count} in stock",
       's4.lib.counter_sale.out_of_stock': "Out of stock",
@@ -9783,10 +9781,8 @@ class AppStrings {
       's4.lib.counter_sale.rx_prescription_id': "Signed e-prescription ID",
       's4.lib.counter_sale.rx_line_index':
           "{medicine} · eRx line index (zero-based)",
-      's4.lib.counter_sale.rx_exact_mapping_hint':
-          "Enter the signed e-prescription ID and map every scheduled medicine to its exact zero-based eRx line.",
-      's4.lib.counter_sale.rx_mapping_required':
-          "Map every scheduled medicine to its exact signed e-prescription line.",
+      's4.lib.counter_sale.rx_exact_mapping_hint': "Enter the signed e-prescription ID and map every scheduled medicine to its exact zero-based eRx line.",
+      's4.lib.counter_sale.rx_mapping_required': "Map every scheduled medicine to its exact signed e-prescription line.",
       's4.lib.counter_sale.witness_section':
           "Witness (required for Schedule X / narcotic)",
       's4.lib.counter_sale.witness_two_person_hint': "Request approval for this exact sale, then hand the device to an eligible second staff member to review and sign in.",
@@ -9880,7 +9876,8 @@ class AppStrings {
       'med03.pharmacy.recovery.contact_owner': "Hand this blocked order to its named workflow owner and keep stock unchanged.",
       'med03.pharmacy.recovery.open_billing_desk': "Open billing desk",
       'med03.pharmacy.recovery.materialize_pharmacy_funding': "Create the exact funding task from the locked order and invoice authority.",
-      'med03.pharmacy.recovery.open_exact_pharmacy_funding_task': "Open the existing exact funding task; do not attest payment here.",
+      'med03.pharmacy.recovery.open_exact_pharmacy_funding_task':
+          "Open the existing exact funding task; do not attest payment here.",
       'med03.pharmacy.cancellation_reason_help': "Required: 3 to 500 characters. This reason is retained with the order history.",
       'med03.pharmacy.delivery_type_counter': "Counter dispense",
       'med03.pharmacy.status_dispensed': "Dispensed",
@@ -9909,40 +9906,61 @@ class AppStrings {
       'med03.pharmacy.funding_recovery.owner.billing': "Billing team",
       'med03.pharmacy.funding_recovery.owner.unknown': "Assigned finance owner",
       'med03.pharmacy.funding_desk.title': "Pharmacy funding authority",
-      'med03.nhcx.projection.unavailable': 'The exact accepted NHCX projection recovery is unavailable.',
+      'med03.nhcx.projection.unavailable':
+          'The exact accepted NHCX projection recovery is unavailable.',
       'med03.nhcx.projection.title': 'Accepted NHCX local projection',
       'med03.nhcx.projection.help': 'The gateway has already accepted this exact message. Retry applies only the local claim or pre-authorization projection and never resends to NHCX.',
-      'med03.nhcx.projection.summary': 'Message #{message} · task #{task} · {status} · {owner}',
+      'med03.nhcx.projection.summary':
+          'Message #{message} · task #{task} · {status} · {owner}',
       'med03.nhcx.projection.receipt': 'Immutable gateway receipt: {hash}',
       'med03.nhcx.projection.retry_local': 'Retry local projection',
       'med03.nhcx.projection.completed': 'Local projection completed',
-      'med03.pharmacy.funding_desk.unavailable': "Funding recovery is unavailable for this exact order line.",
+      'med03.pharmacy.funding_desk.unavailable':
+          "Funding recovery is unavailable for this exact order line.",
       'med03.pharmacy.funding_desk.insurance_help': "Record the insurer decision for this exact draft line. Approved plus non-payable must equal the line total.",
       'med03.pharmacy.funding_desk.finance_help': "Post the patient payment on the listed invoice, then reconcile here. This screen never accepts a self-reported collected amount.",
       'med03.pharmacy.funding_desk.approved_amount': "TPA approved amount",
-      'med03.pharmacy.funding_desk.non_payable_amount': "Patient responsibility",
+      'med03.pharmacy.funding_desk.non_payable_amount':
+          "Patient responsibility",
       'med03.pharmacy.funding_desk.reason_code': "Decision reason",
       'med03.pharmacy.funding_desk.reason_text': "Decision note",
-      'med03.pharmacy.funding_desk.record_decision': "Record exact line decision",
-      'med03.pharmacy.funding_desk.retry_posted_payment': "Reconcile posted payment",
-      'med03.pharmacy.funding_desk.resolved': "This exact pharmacy line has no active funding task.",
+      'med03.pharmacy.funding_desk.record_decision':
+          "Record exact line decision",
+      'med03.pharmacy.funding_desk.retry_posted_payment':
+          "Reconcile posted payment",
+      'med03.pharmacy.funding_desk.resolved':
+          "This exact pharmacy line has no active funding task.",
       'med03.pharmacy.funding_desk.invalid_decision': "Enter valid non-negative amounts and reload any missing task authority.",
-      'med03.pharmacy.funding_reconciliation.unavailable': 'Exact duplicate-line reconciliation is unavailable.',
-      'med03.pharmacy.funding_reconciliation.title': 'Duplicate pharmacy billing authority',
-      'med03.pharmacy.funding_reconciliation.case_summary': 'Case #{case} · Task #{task} · {status} · {owner}',
+      'med03.pharmacy.funding_reconciliation.unavailable':
+          'Exact duplicate-line reconciliation is unavailable.',
+      'med03.pharmacy.funding_reconciliation.title':
+          'Duplicate pharmacy billing authority',
+      'med03.pharmacy.funding_reconciliation.case_summary':
+          'Case #{case} · Task #{task} · {status} · {owner}',
       'med03.pharmacy.funding_reconciliation.help': 'The server compares exact line, invoice, posted-payment, allocation, reversal, and stock evidence. A different finance owner must approve the same proposal. This screen cannot alter or attest payment amounts.',
-      'med03.pharmacy.funding_reconciliation.keeper_label': 'Line that remains authoritative',
-      'med03.pharmacy.funding_reconciliation.line_option': 'Line #{line} · Invoice #{invoice} · {amount}',
-      'med03.pharmacy.funding_reconciliation.path_label': 'Governed resolution path',
-      'med03.pharmacy.funding_reconciliation.path.safe': 'Safely deactivate exact duplicates',
-      'med03.pharmacy.funding_reconciliation.path.keep': 'Keep the selected authority',
-      'med03.pharmacy.funding_reconciliation.path.cancel': 'Cancel the terminal order',
-      'med03.pharmacy.funding_reconciliation.path.rebill': 'Confirm governed rebilling',
-      'med03.pharmacy.funding_reconciliation.pending_owner': 'Proposed by {owner}. A distinct finance owner is required.',
-      'med03.pharmacy.funding_reconciliation.action.approve': 'Approve exact proposal as second owner',
-      'med03.pharmacy.funding_reconciliation.action.propose': 'Propose exact disposition',
+      'med03.pharmacy.funding_reconciliation.keeper_label':
+          'Line that remains authoritative',
+      'med03.pharmacy.funding_reconciliation.line_option':
+          'Line #{line} · Invoice #{invoice} · {amount}',
+      'med03.pharmacy.funding_reconciliation.path_label':
+          'Governed resolution path',
+      'med03.pharmacy.funding_reconciliation.path.safe':
+          'Safely deactivate exact duplicates',
+      'med03.pharmacy.funding_reconciliation.path.keep':
+          'Keep the selected authority',
+      'med03.pharmacy.funding_reconciliation.path.cancel':
+          'Cancel the terminal order',
+      'med03.pharmacy.funding_reconciliation.path.rebill':
+          'Confirm governed rebilling',
+      'med03.pharmacy.funding_reconciliation.pending_owner':
+          'Proposed by {owner}. A distinct finance owner is required.',
+      'med03.pharmacy.funding_reconciliation.action.approve':
+          'Approve exact proposal as second owner',
+      'med03.pharmacy.funding_reconciliation.action.propose':
+          'Propose exact disposition',
       'med03.pharmacy.funding_reconciliation.status.open': 'Open',
-      'med03.pharmacy.funding_reconciliation.status.pending': 'Pending second approval',
+      'med03.pharmacy.funding_reconciliation.status.pending':
+          'Pending second approval',
       'med03.pharmacy.funding_reconciliation.status.blocked': 'Blocked',
       'med03.pharmacy.funding_reconciliation.status.resolved': 'Resolved',
       'med03.pharmacy.funding_reconciliation.status.unknown': 'Unknown',
@@ -18815,12 +18833,10 @@ class AppStrings {
       's4.lib.counter_sale.sell_tab': 'बेचें',
       's4.lib.counter_sale.recent_tab': 'हाल की बिक्री',
       's4.lib.counter_sale.facility_id': 'वितरण सुविधा',
-      's4.lib.counter_sale.facility_hint':
-          'उन सुविधाओं में से एक चुनें जिनके लिए आपके पास सक्रिय फार्मेसी अनुदान है। कार्ट में आइटम होने पर इसे बदला नहीं जा सकता।',
+      's4.lib.counter_sale.facility_hint': 'उन सुविधाओं में से एक चुनें जिनके लिए आपके पास सक्रिय फार्मेसी अनुदान है। कार्ट में आइटम होने पर इसे बदला नहीं जा सकता।',
       's4.lib.counter_sale.facility_required':
           'खोजने या बेचने से पहले सटीक वितरण सुविधा चुनें।',
-      's4.lib.counter_sale.facility_none':
-          'आपके पास कोई सक्रिय फार्मेसी सुविधा अनुदान नहीं है। खोजने या बेचने से पहले टेनेंट प्रशासक को अनुदान देना होगा।',
+      's4.lib.counter_sale.facility_none': 'आपके पास कोई सक्रिय फार्मेसी सुविधा अनुदान नहीं है। खोजने या बेचने से पहले टेनेंट प्रशासक को अनुदान देना होगा।',
       's4.lib.counter_sale.search_hint': 'आइटम खोजें (नाम / SKU / जेनेरिक)',
       's4.lib.counter_sale.in_stock': 'स्टॉक में {count}',
       's4.lib.counter_sale.out_of_stock': 'स्टॉक में नहीं',
@@ -18844,10 +18860,8 @@ class AppStrings {
           'हस्ताक्षरित ई-प्रिस्क्रिप्शन ID',
       's4.lib.counter_sale.rx_line_index':
           '{medicine} · eRx लाइन इंडेक्स (शून्य-आधारित)',
-      's4.lib.counter_sale.rx_exact_mapping_hint':
-          'हस्ताक्षरित ई-प्रिस्क्रिप्शन ID दर्ज करें और प्रत्येक अनुसूचित दवा को उसकी सटीक शून्य-आधारित eRx लाइन से मैप करें।',
-      's4.lib.counter_sale.rx_mapping_required':
-          'प्रत्येक अनुसूचित दवा को उसकी सटीक हस्ताक्षरित ई-प्रिस्क्रिप्शन लाइन से मैप करें।',
+      's4.lib.counter_sale.rx_exact_mapping_hint': 'हस्ताक्षरित ई-प्रिस्क्रिप्शन ID दर्ज करें और प्रत्येक अनुसूचित दवा को उसकी सटीक शून्य-आधारित eRx लाइन से मैप करें।',
+      's4.lib.counter_sale.rx_mapping_required': 'प्रत्येक अनुसूचित दवा को उसकी सटीक हस्ताक्षरित ई-प्रिस्क्रिप्शन लाइन से मैप करें।',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       's4.lib.counter_sale.witness_section':
           'साक्षी (Schedule X / नारकोटिक के लिए आवश्यक)',
@@ -18965,8 +18979,10 @@ class AppStrings {
           'आवश्यक मैन्युअल एलर्जी समीक्षा पूरी करके दर्ज करें।',
       'med03.pharmacy.recovery.contact_owner': 'इस अवरुद्ध ऑर्डर को नामित कार्यप्रवाह उत्तरदायी को सौंपें और स्टॉक अपरिवर्तित रखें।',
       'med03.pharmacy.recovery.open_billing_desk': 'बिलिंग डेस्क खोलें',
-      'med03.pharmacy.recovery.materialize_pharmacy_funding': 'लॉक किए गए ऑर्डर और चालान प्राधिकरण से सटीक फंडिंग कार्य बनाएँ।',
-      'med03.pharmacy.recovery.open_exact_pharmacy_funding_task': 'मौजूदा सटीक फंडिंग कार्य खोलें; यहाँ भुगतान की स्वयं पुष्टि न करें।',
+      'med03.pharmacy.recovery.materialize_pharmacy_funding':
+          'लॉक किए गए ऑर्डर और चालान प्राधिकरण से सटीक फंडिंग कार्य बनाएँ।',
+      'med03.pharmacy.recovery.open_exact_pharmacy_funding_task':
+          'मौजूदा सटीक फंडिंग कार्य खोलें; यहाँ भुगतान की स्वयं पुष्टि न करें।',
       'med03.pharmacy.cancellation_reason_help':
           'आवश्यक: 3 से 500 अक्षर। यह कारण ऑर्डर इतिहास में सुरक्षित रहेगा।',
       'med03.pharmacy.delivery_type_counter': 'काउंटर वितरण',
@@ -18994,40 +19010,60 @@ class AppStrings {
       'med03.pharmacy.funding_recovery.owner.unknown':
           'नियुक्त वित्त उत्तरदायी',
       'med03.pharmacy.funding_desk.title': 'फार्मेसी फंडिंग प्राधिकरण',
-      'med03.nhcx.projection.unavailable': 'सटीक स्वीकृत NHCX स्थानीय प्रोजेक्शन रिकवरी उपलब्ध नहीं है।',
+      'med03.nhcx.projection.unavailable':
+          'सटीक स्वीकृत NHCX स्थानीय प्रोजेक्शन रिकवरी उपलब्ध नहीं है।',
       'med03.nhcx.projection.title': 'स्वीकृत NHCX स्थानीय प्रोजेक्शन',
       'med03.nhcx.projection.help': 'गेटवे इस सटीक संदेश को पहले ही स्वीकार कर चुका है। पुनः प्रयास केवल स्थानीय क्लेम या प्री-ऑथराइजेशन प्रोजेक्शन लागू करता है और NHCX को दोबारा नहीं भेजता।',
-      'med03.nhcx.projection.summary': 'संदेश #{message} · कार्य #{task} · {status} · {owner}',
+      'med03.nhcx.projection.summary':
+          'संदेश #{message} · कार्य #{task} · {status} · {owner}',
       'med03.nhcx.projection.receipt': 'अपरिवर्तनीय गेटवे रसीद: {hash}',
-      'med03.nhcx.projection.retry_local': 'स्थानीय प्रोजेक्शन पुनः प्रयास करें',
+      'med03.nhcx.projection.retry_local':
+          'स्थानीय प्रोजेक्शन पुनः प्रयास करें',
       'med03.nhcx.projection.completed': 'स्थानीय प्रोजेक्शन पूरा हुआ',
-      'med03.pharmacy.funding_desk.unavailable': 'इस सटीक ऑर्डर लाइन के लिए फंडिंग रिकवरी उपलब्ध नहीं है।',
+      'med03.pharmacy.funding_desk.unavailable':
+          'इस सटीक ऑर्डर लाइन के लिए फंडिंग रिकवरी उपलब्ध नहीं है।',
       'med03.pharmacy.funding_desk.insurance_help': 'इस सटीक ड्राफ्ट लाइन के लिए बीमाकर्ता का निर्णय दर्ज करें। स्वीकृत और गैर-देय राशि का योग लाइन कुल के बराबर होना चाहिए।',
       'med03.pharmacy.funding_desk.finance_help': 'सूचीबद्ध चालान पर रोगी का भुगतान पोस्ट करें, फिर यहाँ मिलान करें। यह स्क्रीन स्वयं बताई गई वसूली राशि स्वीकार नहीं करती।',
       'med03.pharmacy.funding_desk.approved_amount': 'TPA स्वीकृत राशि',
       'med03.pharmacy.funding_desk.non_payable_amount': 'रोगी की देयता',
       'med03.pharmacy.funding_desk.reason_code': 'निर्णय कारण',
       'med03.pharmacy.funding_desk.reason_text': 'निर्णय टिप्पणी',
-      'med03.pharmacy.funding_desk.record_decision': 'सटीक लाइन निर्णय दर्ज करें',
-      'med03.pharmacy.funding_desk.retry_posted_payment': 'पोस्ट किए भुगतान का मिलान करें',
-      'med03.pharmacy.funding_desk.resolved': 'इस सटीक फार्मेसी लाइन के लिए कोई सक्रिय फंडिंग कार्य नहीं है।',
+      'med03.pharmacy.funding_desk.record_decision':
+          'सटीक लाइन निर्णय दर्ज करें',
+      'med03.pharmacy.funding_desk.retry_posted_payment':
+          'पोस्ट किए भुगतान का मिलान करें',
+      'med03.pharmacy.funding_desk.resolved':
+          'इस सटीक फार्मेसी लाइन के लिए कोई सक्रिय फंडिंग कार्य नहीं है।',
       'med03.pharmacy.funding_desk.invalid_decision': 'मान्य गैर-ऋणात्मक राशियाँ दर्ज करें और अनुपलब्ध कार्य प्राधिकरण पुनः लोड करें।',
-      'med03.pharmacy.funding_reconciliation.unavailable': 'सटीक डुप्लिकेट-लाइन मिलान उपलब्ध नहीं है।',
-      'med03.pharmacy.funding_reconciliation.title': 'डुप्लिकेट फार्मेसी बिलिंग प्राधिकरण',
-      'med03.pharmacy.funding_reconciliation.case_summary': 'मामला #{case} · कार्य #{task} · {status} · {owner}',
+      'med03.pharmacy.funding_reconciliation.unavailable':
+          'सटीक डुप्लिकेट-लाइन मिलान उपलब्ध नहीं है।',
+      'med03.pharmacy.funding_reconciliation.title':
+          'डुप्लिकेट फार्मेसी बिलिंग प्राधिकरण',
+      'med03.pharmacy.funding_reconciliation.case_summary':
+          'मामला #{case} · कार्य #{task} · {status} · {owner}',
       'med03.pharmacy.funding_reconciliation.help': 'सर्वर सटीक लाइन, चालान, पोस्ट किया गया भुगतान, आवंटन, प्रत्यावर्तन और स्टॉक साक्ष्य मिलाता है। उसी प्रस्ताव को किसी दूसरे वित्त स्वामी की मंजूरी चाहिए। यह स्क्रीन भुगतान राशि बदल या स्वयं प्रमाणित नहीं कर सकती।',
-      'med03.pharmacy.funding_reconciliation.keeper_label': 'प्राधिकृत रहने वाली लाइन',
-      'med03.pharmacy.funding_reconciliation.line_option': 'लाइन #{line} · चालान #{invoice} · {amount}',
+      'med03.pharmacy.funding_reconciliation.keeper_label':
+          'प्राधिकृत रहने वाली लाइन',
+      'med03.pharmacy.funding_reconciliation.line_option':
+          'लाइन #{line} · चालान #{invoice} · {amount}',
       'med03.pharmacy.funding_reconciliation.path_label': 'नियंत्रित समाधान पथ',
-      'med03.pharmacy.funding_reconciliation.path.safe': 'सटीक डुप्लिकेट सुरक्षित रूप से निष्क्रिय करें',
-      'med03.pharmacy.funding_reconciliation.path.keep': 'चुना हुआ प्राधिकरण रखें',
-      'med03.pharmacy.funding_reconciliation.path.cancel': 'समाप्त ऑर्डर रद्द करें',
-      'med03.pharmacy.funding_reconciliation.path.rebill': 'नियंत्रित पुनः बिलिंग की पुष्टि करें',
-      'med03.pharmacy.funding_reconciliation.pending_owner': '{owner} ने प्रस्ताव दिया। अलग वित्त स्वामी आवश्यक है।',
-      'med03.pharmacy.funding_reconciliation.action.approve': 'दूसरे स्वामी के रूप में सटीक प्रस्ताव मंजूर करें',
-      'med03.pharmacy.funding_reconciliation.action.propose': 'सटीक निपटान प्रस्तावित करें',
+      'med03.pharmacy.funding_reconciliation.path.safe':
+          'सटीक डुप्लिकेट सुरक्षित रूप से निष्क्रिय करें',
+      'med03.pharmacy.funding_reconciliation.path.keep':
+          'चुना हुआ प्राधिकरण रखें',
+      'med03.pharmacy.funding_reconciliation.path.cancel':
+          'समाप्त ऑर्डर रद्द करें',
+      'med03.pharmacy.funding_reconciliation.path.rebill':
+          'नियंत्रित पुनः बिलिंग की पुष्टि करें',
+      'med03.pharmacy.funding_reconciliation.pending_owner':
+          '{owner} ने प्रस्ताव दिया। अलग वित्त स्वामी आवश्यक है।',
+      'med03.pharmacy.funding_reconciliation.action.approve':
+          'दूसरे स्वामी के रूप में सटीक प्रस्ताव मंजूर करें',
+      'med03.pharmacy.funding_reconciliation.action.propose':
+          'सटीक निपटान प्रस्तावित करें',
       'med03.pharmacy.funding_reconciliation.status.open': 'खुला',
-      'med03.pharmacy.funding_reconciliation.status.pending': 'दूसरी मंजूरी लंबित',
+      'med03.pharmacy.funding_reconciliation.status.pending':
+          'दूसरी मंजूरी लंबित',
       'med03.pharmacy.funding_reconciliation.status.blocked': 'अवरुद्ध',
       'med03.pharmacy.funding_reconciliation.status.resolved': 'समाधान हुआ',
       'med03.pharmacy.funding_reconciliation.status.unknown': 'अज्ञात',
@@ -27544,12 +27580,9 @@ class AppStrings {
       's4.lib.counter_sale.sell_tab': 'விற்பனை',
       's4.lib.counter_sale.recent_tab': 'சமீபத்திய விற்பனைகள்',
       's4.lib.counter_sale.facility_id': 'வழங்கும் வசதி',
-      's4.lib.counter_sale.facility_hint':
-          'உங்களுக்கு செயலில் உள்ள மருந்தக அனுமதி வழங்கப்பட்டுள்ள வசதிகளில் ஒன்றைத் தேர்ந்தெடுக்கவும். வண்டியில் உருப்படிகள் இருக்கும்போது இதை மாற்ற முடியாது.',
-      's4.lib.counter_sale.facility_required':
-          'தேடுவதற்கு அல்லது விற்பதற்கு முன் சரியான வழங்கும் வசதியைத் தேர்ந்தெடுக்கவும்.',
-      's4.lib.counter_sale.facility_none':
-          'உங்களுக்கு செயலில் உள்ள மருந்தக வசதி அனுமதி எதுவும் இல்லை. தேடுவதற்கு அல்லது விற்பதற்கு முன் குத்தகைதாரர் நிர்வாகி ஒன்றை வழங்க வேண்டும்.',
+      's4.lib.counter_sale.facility_hint': 'உங்களுக்கு செயலில் உள்ள மருந்தக அனுமதி வழங்கப்பட்டுள்ள வசதிகளில் ஒன்றைத் தேர்ந்தெடுக்கவும். வண்டியில் உருப்படிகள் இருக்கும்போது இதை மாற்ற முடியாது.',
+      's4.lib.counter_sale.facility_required': 'தேடுவதற்கு அல்லது விற்பதற்கு முன் சரியான வழங்கும் வசதியைத் தேர்ந்தெடுக்கவும்.',
+      's4.lib.counter_sale.facility_none': 'உங்களுக்கு செயலில் உள்ள மருந்தக வசதி அனுமதி எதுவும் இல்லை. தேடுவதற்கு அல்லது விற்பதற்கு முன் குத்தகைதாரர் நிர்வாகி ஒன்றை வழங்க வேண்டும்.',
       's4.lib.counter_sale.search_hint':
           'உருப்படிகளைத் தேடு (பெயர் / SKU / பொதுப்பெயர்)',
       's4.lib.counter_sale.in_stock': '{count} கையிருப்பில்',
@@ -27575,10 +27608,8 @@ class AppStrings {
           'கையொப்பமிட்ட மின் மருந்துச் சீட்டு ID',
       's4.lib.counter_sale.rx_line_index':
           '{medicine} · eRx வரிசை குறியீடு (பூஜ்ஜிய அடிப்படை)',
-      's4.lib.counter_sale.rx_exact_mapping_hint':
-          'கையொப்பமிட்ட மின் மருந்துச் சீட்டு ID-ஐ உள்ளிட்டு, ஒவ்வொரு அட்டவணை மருந்தையும் அதன் சரியான பூஜ்ஜிய அடிப்படை eRx வரியுடன் இணைக்கவும்.',
-      's4.lib.counter_sale.rx_mapping_required':
-          'ஒவ்வொரு அட்டவணை மருந்தையும் அதன் சரியான கையொப்பமிட்ட மின் மருந்துச் சீட்டு வரியுடன் இணைக்கவும்.',
+      's4.lib.counter_sale.rx_exact_mapping_hint': 'கையொப்பமிட்ட மின் மருந்துச் சீட்டு ID-ஐ உள்ளிட்டு, ஒவ்வொரு அட்டவணை மருந்தையும் அதன் சரியான பூஜ்ஜிய அடிப்படை eRx வரியுடன் இணைக்கவும்.',
+      's4.lib.counter_sale.rx_mapping_required': 'ஒவ்வொரு அட்டவணை மருந்தையும் அதன் சரியான கையொப்பமிட்ட மின் மருந்துச் சீட்டு வரியுடன் இணைக்கவும்.',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       's4.lib.counter_sale.witness_section':
           'சாட்சி (Schedule X / போதைப்பொருளுக்குத் தேவை)',
@@ -27697,10 +27728,8 @@ class AppStrings {
       'med03.pharmacy.recovery.contact_owner': 'தடுக்கப்பட்ட இந்த ஆர்டரை பெயரிடப்பட்ட பணிப்பாய்வு பொறுப்பாளரிடம் ஒப்படைத்து சரக்கை மாற்றாமல் வைத்திருக்கவும்.',
       'med03.pharmacy.recovery.open_billing_desk':
           'பில்லிங் மேசையைத் திறக்கவும்',
-      'med03.pharmacy.recovery.materialize_pharmacy_funding':
-          'பூட்டப்பட்ட ஆர்டர் மற்றும் விலைப்பட்டியல் அதிகாரத்திலிருந்து துல்லிய நிதிப் பணியை உருவாக்கவும்.',
-      'med03.pharmacy.recovery.open_exact_pharmacy_funding_task':
-          'ஏற்கனவே உள்ள துல்லிய நிதிப் பணியைத் திறக்கவும்; இங்கே கட்டணத்தைச் சுயமாக உறுதிப்படுத்த வேண்டாம்.',
+      'med03.pharmacy.recovery.materialize_pharmacy_funding': 'பூட்டப்பட்ட ஆர்டர் மற்றும் விலைப்பட்டியல் அதிகாரத்திலிருந்து துல்லிய நிதிப் பணியை உருவாக்கவும்.',
+      'med03.pharmacy.recovery.open_exact_pharmacy_funding_task': 'ஏற்கனவே உள்ள துல்லிய நிதிப் பணியைத் திறக்கவும்; இங்கே கட்டணத்தைச் சுயமாக உறுதிப்படுத்த வேண்டாம்.',
       'med03.pharmacy.cancellation_reason_help': 'தேவை: 3 முதல் 500 எழுத்துகள். இந்தக் காரணம் ஆர்டர் வரலாற்றில் சேமிக்கப்படும்.',
       'med03.pharmacy.delivery_type_counter': 'கவுண்டர் வழங்கல்',
       'med03.pharmacy.status_dispensed': 'வழங்கப்பட்டது',
@@ -27732,41 +27761,63 @@ class AppStrings {
           'நியமிக்கப்பட்ட நிதிப் பொறுப்பாளர்',
       'med03.pharmacy.funding_desk.title': 'மருந்தக நிதி அதிகாரம்',
       'med03.nhcx.projection.unavailable': 'சரியாக ஏற்றுக்கொள்ளப்பட்ட NHCX உள்ளூர் திட்டமிடல் மீட்பு கிடைக்கவில்லை.',
-      'med03.nhcx.projection.title': 'ஏற்றுக்கொள்ளப்பட்ட NHCX உள்ளூர் திட்டமிடல்',
+      'med03.nhcx.projection.title':
+          'ஏற்றுக்கொள்ளப்பட்ட NHCX உள்ளூர் திட்டமிடல்',
       'med03.nhcx.projection.help': 'இந்தச் சரியான செய்தியை நுழைவாயில் ஏற்கனவே ஏற்றுக்கொண்டது. மீண்டும் முயற்சிப்பது உள்ளூர் கோரிக்கை அல்லது முன் அனுமதி திட்டமிடலை மட்டும் செயல்படுத்தும்; NHCX-க்கு மீண்டும் அனுப்பாது.',
-      'med03.nhcx.projection.summary': 'செய்தி #{message} · பணி #{task} · {status} · {owner}',
+      'med03.nhcx.projection.summary':
+          'செய்தி #{message} · பணி #{task} · {status} · {owner}',
       'med03.nhcx.projection.receipt': 'மாற்ற முடியாத நுழைவாயில் ரசீது: {hash}',
-      'med03.nhcx.projection.retry_local': 'உள்ளூர் திட்டமிடலை மீண்டும் முயற்சிக்கவும்',
+      'med03.nhcx.projection.retry_local':
+          'உள்ளூர் திட்டமிடலை மீண்டும் முயற்சிக்கவும்',
       'med03.nhcx.projection.completed': 'உள்ளூர் திட்டமிடல் முடிந்தது',
-      'med03.pharmacy.funding_desk.unavailable': 'இந்தத் துல்லியமான ஆர்டர் வரிக்கான நிதி மீட்பு கிடைக்கவில்லை.',
+      'med03.pharmacy.funding_desk.unavailable':
+          'இந்தத் துல்லியமான ஆர்டர் வரிக்கான நிதி மீட்பு கிடைக்கவில்லை.',
       'med03.pharmacy.funding_desk.insurance_help': 'இந்தத் துல்லியமான வரைவு வரிக்கான காப்பீட்டு முடிவைப் பதிவு செய்யவும். அங்கீகரித்ததும் செலுத்தாததும் சேர்த்து வரி மொத்தமாக இருக்க வேண்டும்.',
       'med03.pharmacy.funding_desk.finance_help': 'பட்டியலிடப்பட்ட விலைப்பட்டியலில் நோயாளர் கட்டணத்தைப் பதிவு செய்து, பின்னர் இங்கே ஒப்பிடவும். இந்தத் திரை சுயமாகத் தெரிவித்த வசூல் தொகையை ஏற்காது.',
       'med03.pharmacy.funding_desk.approved_amount': 'TPA அங்கீகரித்த தொகை',
       'med03.pharmacy.funding_desk.non_payable_amount': 'நோயாளர் பொறுப்பு',
       'med03.pharmacy.funding_desk.reason_code': 'முடிவு காரணம்',
       'med03.pharmacy.funding_desk.reason_text': 'முடிவு குறிப்பு',
-      'med03.pharmacy.funding_desk.record_decision': 'துல்லிய வரி முடிவைப் பதிவு செய்',
-      'med03.pharmacy.funding_desk.retry_posted_payment': 'பதிவிட்ட கட்டணத்தை ஒப்பிடு',
-      'med03.pharmacy.funding_desk.resolved': 'இந்தத் துல்லியமான மருந்தக வரிக்கு செயலில் நிதிப் பணி இல்லை.',
+      'med03.pharmacy.funding_desk.record_decision':
+          'துல்லிய வரி முடிவைப் பதிவு செய்',
+      'med03.pharmacy.funding_desk.retry_posted_payment':
+          'பதிவிட்ட கட்டணத்தை ஒப்பிடு',
+      'med03.pharmacy.funding_desk.resolved':
+          'இந்தத் துல்லியமான மருந்தக வரிக்கு செயலில் நிதிப் பணி இல்லை.',
       'med03.pharmacy.funding_desk.invalid_decision': 'செல்லுபடியான எதிர்மறையல்லா தொகைகளை உள்ளிட்டு, காணாத பணி அதிகாரத்தை மீண்டும் ஏற்றவும்.',
-      'med03.pharmacy.funding_reconciliation.unavailable': 'துல்லியமான நகல்-வரி ஒப்பீடு கிடைக்கவில்லை.',
-      'med03.pharmacy.funding_reconciliation.title': 'நகல் மருந்தக பில்லிங் அதிகாரம்',
-      'med03.pharmacy.funding_reconciliation.case_summary': 'வழக்கு #{case} · பணி #{task} · {status} · {owner}',
+      'med03.pharmacy.funding_reconciliation.unavailable':
+          'துல்லியமான நகல்-வரி ஒப்பீடு கிடைக்கவில்லை.',
+      'med03.pharmacy.funding_reconciliation.title':
+          'நகல் மருந்தக பில்லிங் அதிகாரம்',
+      'med03.pharmacy.funding_reconciliation.case_summary':
+          'வழக்கு #{case} · பணி #{task} · {status} · {owner}',
       'med03.pharmacy.funding_reconciliation.help': 'சேவையகம் துல்லிய வரி, விலைப்பட்டியல், பதிவிட்ட கட்டணம், ஒதுக்கீடு, மாற்றுப் பதிவு மற்றும் இருப்புச் சான்றை ஒப்பிடுகிறது. அதே முன்மொழிவை வேறு நிதி உரிமையாளர் அங்கீகரிக்க வேண்டும். இந்தத் திரை கட்டணத் தொகையை மாற்றவோ சுயமாகச் சான்றளிக்கவோ முடியாது.',
-      'med03.pharmacy.funding_reconciliation.keeper_label': 'அதிகாரப்பூர்வமாக நீடிக்கும் வரி',
-      'med03.pharmacy.funding_reconciliation.line_option': 'வரி #{line} · விலைப்பட்டியல் #{invoice} · {amount}',
-      'med03.pharmacy.funding_reconciliation.path_label': 'நிர்வகிக்கப்பட்ட தீர்வு வழி',
-      'med03.pharmacy.funding_reconciliation.path.safe': 'துல்லிய நகல்களைப் பாதுகாப்பாக செயலிழக்கச் செய்',
-      'med03.pharmacy.funding_reconciliation.path.keep': 'தேர்ந்த அதிகாரத்தை வைத்திரு',
-      'med03.pharmacy.funding_reconciliation.path.cancel': 'இறுதி ஆர்டரை ரத்து செய்',
-      'med03.pharmacy.funding_reconciliation.path.rebill': 'நிர்வகிக்கப்பட்ட மறுபில்லிங்கை உறுதிசெய்',
-      'med03.pharmacy.funding_reconciliation.pending_owner': '{owner} முன்மொழிந்தார். வேறு நிதி உரிமையாளர் தேவை.',
-      'med03.pharmacy.funding_reconciliation.action.approve': 'இரண்டாம் உரிமையாளராகத் துல்லிய முன்மொழிவை அங்கீகரி',
-      'med03.pharmacy.funding_reconciliation.action.propose': 'துல்லிய தீர்வை முன்மொழி',
+      'med03.pharmacy.funding_reconciliation.keeper_label':
+          'அதிகாரப்பூர்வமாக நீடிக்கும் வரி',
+      'med03.pharmacy.funding_reconciliation.line_option':
+          'வரி #{line} · விலைப்பட்டியல் #{invoice} · {amount}',
+      'med03.pharmacy.funding_reconciliation.path_label':
+          'நிர்வகிக்கப்பட்ட தீர்வு வழி',
+      'med03.pharmacy.funding_reconciliation.path.safe':
+          'துல்லிய நகல்களைப் பாதுகாப்பாக செயலிழக்கச் செய்',
+      'med03.pharmacy.funding_reconciliation.path.keep':
+          'தேர்ந்த அதிகாரத்தை வைத்திரு',
+      'med03.pharmacy.funding_reconciliation.path.cancel':
+          'இறுதி ஆர்டரை ரத்து செய்',
+      'med03.pharmacy.funding_reconciliation.path.rebill':
+          'நிர்வகிக்கப்பட்ட மறுபில்லிங்கை உறுதிசெய்',
+      'med03.pharmacy.funding_reconciliation.pending_owner':
+          '{owner} முன்மொழிந்தார். வேறு நிதி உரிமையாளர் தேவை.',
+      'med03.pharmacy.funding_reconciliation.action.approve':
+          'இரண்டாம் உரிமையாளராகத் துல்லிய முன்மொழிவை அங்கீகரி',
+      'med03.pharmacy.funding_reconciliation.action.propose':
+          'துல்லிய தீர்வை முன்மொழி',
       'med03.pharmacy.funding_reconciliation.status.open': 'திறந்துள்ளது',
-      'med03.pharmacy.funding_reconciliation.status.pending': 'இரண்டாம் அங்கீகாரம் நிலுவையில்',
+      'med03.pharmacy.funding_reconciliation.status.pending':
+          'இரண்டாம் அங்கீகாரம் நிலுவையில்',
       'med03.pharmacy.funding_reconciliation.status.blocked': 'தடுக்கப்பட்டது',
-      'med03.pharmacy.funding_reconciliation.status.resolved': 'தீர்க்கப்பட்டது',
+      'med03.pharmacy.funding_reconciliation.status.resolved':
+          'தீர்க்கப்பட்டது',
       'med03.pharmacy.funding_reconciliation.status.unknown': 'தெரியாது',
       'med03.pharmacy.funding_reconciliation.owner.finance': 'நிதி உரிமையாளர்',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
@@ -36225,12 +36276,9 @@ class AppStrings {
       's4.lib.counter_sale.sell_tab': 'విక్రయం',
       's4.lib.counter_sale.recent_tab': 'ఇటీవలి అమ్మకాలు',
       's4.lib.counter_sale.facility_id': 'పంపిణీ సౌకర్యం',
-      's4.lib.counter_sale.facility_hint':
-          'మీకు క్రియాశీల ఫార్మసీ మంజూరు ఉన్న సౌకర్యాలలో ఒకదాన్ని ఎంచుకోండి. కార్ట్‌లో వస్తువులు ఉన్నప్పుడు దీన్ని మార్చలేరు.',
-      's4.lib.counter_sale.facility_required':
-          'వెతకడానికి లేదా విక్రయించడానికి ముందు ఖచ్చితమైన పంపిణీ సౌకర్యాన్ని ఎంచుకోండి.',
-      's4.lib.counter_sale.facility_none':
-          'మీకు క్రియాశీల ఫార్మసీ సౌకర్య మంజూరు లేదు. వెతకడానికి లేదా విక్రయించడానికి ముందు టెనెంట్ నిర్వాహకుడు ఒకదాన్ని మంజూరు చేయాలి.',
+      's4.lib.counter_sale.facility_hint': 'మీకు క్రియాశీల ఫార్మసీ మంజూరు ఉన్న సౌకర్యాలలో ఒకదాన్ని ఎంచుకోండి. కార్ట్‌లో వస్తువులు ఉన్నప్పుడు దీన్ని మార్చలేరు.',
+      's4.lib.counter_sale.facility_required': 'వెతకడానికి లేదా విక్రయించడానికి ముందు ఖచ్చితమైన పంపిణీ సౌకర్యాన్ని ఎంచుకోండి.',
+      's4.lib.counter_sale.facility_none': 'మీకు క్రియాశీల ఫార్మసీ సౌకర్య మంజూరు లేదు. వెతకడానికి లేదా విక్రయించడానికి ముందు టెనెంట్ నిర్వాహకుడు ఒకదాన్ని మంజూరు చేయాలి.',
       's4.lib.counter_sale.search_hint':
           'వస్తువులను వెతకండి (పేరు / SKU / జెనరిక్)',
       's4.lib.counter_sale.in_stock': 'స్టాక్‌లో {count}',
@@ -36255,10 +36303,8 @@ class AppStrings {
           'సంతకం చేసిన ఈ-ప్రిస్క్రిప్షన్ ID',
       's4.lib.counter_sale.rx_line_index':
           '{medicine} · eRx లైన్ సూచిక (సున్నా ఆధారితం)',
-      's4.lib.counter_sale.rx_exact_mapping_hint':
-          'సంతకం చేసిన ఈ-ప్రిస్క్రిప్షన్ ID నమోదు చేసి, ప్రతి షెడ్యూల్ మందును దాని ఖచ్చితమైన సున్నా-ఆధారిత eRx లైన్‌కు మ్యాప్ చేయండి.',
-      's4.lib.counter_sale.rx_mapping_required':
-          'ప్రతి షెడ్యూల్ మందును దాని ఖచ్చితమైన సంతకం చేసిన ఈ-ప్రిస్క్రిప్షన్ లైన్‌కు మ్యాప్ చేయండి.',
+      's4.lib.counter_sale.rx_exact_mapping_hint': 'సంతకం చేసిన ఈ-ప్రిస్క్రిప్షన్ ID నమోదు చేసి, ప్రతి షెడ్యూల్ మందును దాని ఖచ్చితమైన సున్నా-ఆధారిత eRx లైన్‌కు మ్యాప్ చేయండి.',
+      's4.lib.counter_sale.rx_mapping_required': 'ప్రతి షెడ్యూల్ మందును దాని ఖచ్చితమైన సంతకం చేసిన ఈ-ప్రిస్క్రిప్షన్ లైన్‌కు మ్యాప్ చేయండి.',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       's4.lib.counter_sale.witness_section':
           'సాక్షి (Schedule X / నార్కోటిక్ కోసం తప్పనిసరి)',
@@ -36415,39 +36461,60 @@ class AppStrings {
       'med03.nhcx.projection.unavailable': 'ఖచ్చితంగా అంగీకరించిన NHCX స్థానిక ప్రొజెక్షన్ రికవరీ అందుబాటులో లేదు.',
       'med03.nhcx.projection.title': 'అంగీకరించిన NHCX స్థానిక ప్రొజెక్షన్',
       'med03.nhcx.projection.help': 'గేట్‌వే ఈ ఖచ్చితమైన సందేశాన్ని ఇప్పటికే అంగీకరించింది. మళ్లీ ప్రయత్నించడం స్థానిక క్లెయిమ్ లేదా ప్రీ-ఆథరైజేషన్ ప్రొజెక్షన్‌ను మాత్రమే వర్తింపజేస్తుంది; NHCXకు మళ్లీ పంపదు.',
-      'med03.nhcx.projection.summary': 'సందేశం #{message} · పని #{task} · {status} · {owner}',
+      'med03.nhcx.projection.summary':
+          'సందేశం #{message} · పని #{task} · {status} · {owner}',
       'med03.nhcx.projection.receipt': 'మార్చలేని గేట్‌వే రసీదు: {hash}',
-      'med03.nhcx.projection.retry_local': 'స్థానిక ప్రొజెక్షన్‌ను మళ్లీ ప్రయత్నించండి',
+      'med03.nhcx.projection.retry_local':
+          'స్థానిక ప్రొజెక్షన్‌ను మళ్లీ ప్రయత్నించండి',
       'med03.nhcx.projection.completed': 'స్థానిక ప్రొజెక్షన్ పూర్తయింది',
-      'med03.pharmacy.funding_desk.unavailable': 'ఈ ఖచ్చితమైన ఆర్డర్ లైన్‌కు నిధుల రికవరీ అందుబాటులో లేదు.',
+      'med03.pharmacy.funding_desk.unavailable':
+          'ఈ ఖచ్చితమైన ఆర్డర్ లైన్‌కు నిధుల రికవరీ అందుబాటులో లేదు.',
       'med03.pharmacy.funding_desk.insurance_help': 'ఈ ఖచ్చితమైన డ్రాఫ్ట్ లైన్‌కు బీమా నిర్ణయాన్ని నమోదు చేయండి. ఆమోదిత మరియు చెల్లించని మొత్తం లైన్ మొత్తానికి సమానం కావాలి.',
       'med03.pharmacy.funding_desk.finance_help': 'జాబితా చేసిన ఇన్వాయిస్‌పై రోగి చెల్లింపును పోస్ట్ చేసి, తర్వాత ఇక్కడ సరిచూడండి. ఈ స్క్రీన్ స్వయంగా తెలిపిన వసూలు మొత్తాన్ని అంగీకరించదు.',
       'med03.pharmacy.funding_desk.approved_amount': 'TPA ఆమోదిత మొత్తం',
       'med03.pharmacy.funding_desk.non_payable_amount': 'రోగి బాధ్యత',
       'med03.pharmacy.funding_desk.reason_code': 'నిర్ణయ కారణం',
       'med03.pharmacy.funding_desk.reason_text': 'నిర్ణయ గమనిక',
-      'med03.pharmacy.funding_desk.record_decision': 'ఖచ్చితమైన లైన్ నిర్ణయాన్ని నమోదు చేయండి',
-      'med03.pharmacy.funding_desk.retry_posted_payment': 'పోస్ట్ చేసిన చెల్లింపును సరిచూడండి',
-      'med03.pharmacy.funding_desk.resolved': 'ఈ ఖచ్చితమైన ఫార్మసీ లైన్‌కు సక్రియ నిధుల పని లేదు.',
+      'med03.pharmacy.funding_desk.record_decision':
+          'ఖచ్చితమైన లైన్ నిర్ణయాన్ని నమోదు చేయండి',
+      'med03.pharmacy.funding_desk.retry_posted_payment':
+          'పోస్ట్ చేసిన చెల్లింపును సరిచూడండి',
+      'med03.pharmacy.funding_desk.resolved':
+          'ఈ ఖచ్చితమైన ఫార్మసీ లైన్‌కు సక్రియ నిధుల పని లేదు.',
       'med03.pharmacy.funding_desk.invalid_decision': 'చెల్లుబాటు అయ్యే ప్రతికూలం కాని మొత్తాలను నమోదు చేసి, లేని పని అధికారాన్ని మళ్లీ లోడ్ చేయండి.',
-      'med03.pharmacy.funding_reconciliation.unavailable': 'ఖచ్చితమైన నకిలీ-లైన్ సరిచూడటం అందుబాటులో లేదు.',
-      'med03.pharmacy.funding_reconciliation.title': 'నకిలీ ఫార్మసీ బిల్లింగ్ అధికారం',
-      'med03.pharmacy.funding_reconciliation.case_summary': 'కేసు #{case} · పని #{task} · {status} · {owner}',
+      'med03.pharmacy.funding_reconciliation.unavailable':
+          'ఖచ్చితమైన నకిలీ-లైన్ సరిచూడటం అందుబాటులో లేదు.',
+      'med03.pharmacy.funding_reconciliation.title':
+          'నకిలీ ఫార్మసీ బిల్లింగ్ అధికారం',
+      'med03.pharmacy.funding_reconciliation.case_summary':
+          'కేసు #{case} · పని #{task} · {status} · {owner}',
       'med03.pharmacy.funding_reconciliation.help': 'సర్వర్ ఖచ్చితమైన లైన్, ఇన్వాయిస్, పోస్ట్ చేసిన చెల్లింపు, కేటాయింపు, రివర్సల్ మరియు స్టాక్ సాక్ష్యాన్ని సరిపోలుస్తుంది. అదే ప్రతిపాదనను వేరొక ఆర్థిక యజమాని ఆమోదించాలి. ఈ స్క్రీన్ చెల్లింపు మొత్తాలను మార్చదు లేదా స్వయంగా ధృవీకరించదు.',
-      'med03.pharmacy.funding_reconciliation.keeper_label': 'అధికారికంగా మిగిలే లైన్',
-      'med03.pharmacy.funding_reconciliation.line_option': 'లైన్ #{line} · ఇన్వాయిస్ #{invoice} · {amount}',
-      'med03.pharmacy.funding_reconciliation.path_label': 'నియంత్రిత పరిష్కార మార్గం',
-      'med03.pharmacy.funding_reconciliation.path.safe': 'ఖచ్చితమైన నకిలీలను సురక్షితంగా నిలిపివేయండి',
-      'med03.pharmacy.funding_reconciliation.path.keep': 'ఎంచుకున్న అధికారాన్ని ఉంచండి',
-      'med03.pharmacy.funding_reconciliation.path.cancel': 'ముగిసిన ఆర్డర్‌ను రద్దు చేయండి',
-      'med03.pharmacy.funding_reconciliation.path.rebill': 'నియంత్రిత రీబిల్లింగ్‌ను నిర్ధారించండి',
-      'med03.pharmacy.funding_reconciliation.pending_owner': '{owner} ప్రతిపాదించారు. వేరొక ఆర్థిక యజమాని అవసరం.',
-      'med03.pharmacy.funding_reconciliation.action.approve': 'రెండవ యజమానిగా ఖచ్చితమైన ప్రతిపాదనను ఆమోదించండి',
-      'med03.pharmacy.funding_reconciliation.action.propose': 'ఖచ్చితమైన పరిష్కారాన్ని ప్రతిపాదించండి',
+      'med03.pharmacy.funding_reconciliation.keeper_label':
+          'అధికారికంగా మిగిలే లైన్',
+      'med03.pharmacy.funding_reconciliation.line_option':
+          'లైన్ #{line} · ఇన్వాయిస్ #{invoice} · {amount}',
+      'med03.pharmacy.funding_reconciliation.path_label':
+          'నియంత్రిత పరిష్కార మార్గం',
+      'med03.pharmacy.funding_reconciliation.path.safe':
+          'ఖచ్చితమైన నకిలీలను సురక్షితంగా నిలిపివేయండి',
+      'med03.pharmacy.funding_reconciliation.path.keep':
+          'ఎంచుకున్న అధికారాన్ని ఉంచండి',
+      'med03.pharmacy.funding_reconciliation.path.cancel':
+          'ముగిసిన ఆర్డర్‌ను రద్దు చేయండి',
+      'med03.pharmacy.funding_reconciliation.path.rebill':
+          'నియంత్రిత రీబిల్లింగ్‌ను నిర్ధారించండి',
+      'med03.pharmacy.funding_reconciliation.pending_owner':
+          '{owner} ప్రతిపాదించారు. వేరొక ఆర్థిక యజమాని అవసరం.',
+      'med03.pharmacy.funding_reconciliation.action.approve':
+          'రెండవ యజమానిగా ఖచ్చితమైన ప్రతిపాదనను ఆమోదించండి',
+      'med03.pharmacy.funding_reconciliation.action.propose':
+          'ఖచ్చితమైన పరిష్కారాన్ని ప్రతిపాదించండి',
       'med03.pharmacy.funding_reconciliation.status.open': 'తెరిచి ఉంది',
-      'med03.pharmacy.funding_reconciliation.status.pending': 'రెండవ ఆమోదం పెండింగ్‌లో ఉంది',
+      'med03.pharmacy.funding_reconciliation.status.pending':
+          'రెండవ ఆమోదం పెండింగ్‌లో ఉంది',
       'med03.pharmacy.funding_reconciliation.status.blocked': 'నిరోధించబడింది',
-      'med03.pharmacy.funding_reconciliation.status.resolved': 'పరిష్కరించబడింది',
+      'med03.pharmacy.funding_reconciliation.status.resolved':
+          'పరిష్కరించబడింది',
       'med03.pharmacy.funding_reconciliation.status.unknown': 'తెలియదు',
       'med03.pharmacy.funding_reconciliation.owner.finance': 'ఆర్థిక యజమాని',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
@@ -36926,42 +36993,64 @@ class AppStrings {
       'med03.pharmacy.funding_recovery.owner.unknown':
           'നിയുക്ത ധനകാര്യ ഉത്തരവാദി',
       'med03.pharmacy.funding_desk.title': 'ഫാർമസി ധന അധികാരം',
-      'med03.nhcx.projection.unavailable': 'കൃത്യമായി സ്വീകരിച്ച NHCX ലോക്കൽ പ്രൊജക്ഷൻ വീണ്ടെടുക്കൽ ലഭ്യമല്ല.',
+      'med03.nhcx.projection.unavailable':
+          'കൃത്യമായി സ്വീകരിച്ച NHCX ലോക്കൽ പ്രൊജക്ഷൻ വീണ്ടെടുക്കൽ ലഭ്യമല്ല.',
       'med03.nhcx.projection.title': 'സ്വീകരിച്ച NHCX ലോക്കൽ പ്രൊജക്ഷൻ',
       'med03.nhcx.projection.help': 'ഗേറ്റ്‌വേ ഈ കൃത്യമായ സന്ദേശം ഇതിനകം സ്വീകരിച്ചിട്ടുണ്ട്. വീണ്ടും ശ്രമിക്കുന്നത് ലോക്കൽ ക്ലെയിം അല്ലെങ്കിൽ പ്രീ-ഓതറൈസേഷൻ പ്രൊജക്ഷൻ മാത്രം പ്രയോഗിക്കും; NHCX-ലേക്ക് വീണ്ടും അയയ്ക്കില്ല.',
-      'med03.nhcx.projection.summary': 'സന്ദേശം #{message} · ടാസ്ക് #{task} · {status} · {owner}',
+      'med03.nhcx.projection.summary':
+          'സന്ദേശം #{message} · ടാസ്ക് #{task} · {status} · {owner}',
       'med03.nhcx.projection.receipt': 'മാറ്റാനാവാത്ത ഗേറ്റ്‌വേ രസീത്: {hash}',
-      'med03.nhcx.projection.retry_local': 'ലോക്കൽ പ്രൊജക്ഷൻ വീണ്ടും ശ്രമിക്കുക',
+      'med03.nhcx.projection.retry_local':
+          'ലോക്കൽ പ്രൊജക്ഷൻ വീണ്ടും ശ്രമിക്കുക',
       'med03.nhcx.projection.completed': 'ലോക്കൽ പ്രൊജക്ഷൻ പൂർത്തിയായി',
-      'med03.pharmacy.funding_desk.unavailable': 'ഈ കൃത്യമായ ഓർഡർ ലൈനിന് ധന വീണ്ടെടുക്കൽ ലഭ്യമല്ല.',
+      'med03.pharmacy.funding_desk.unavailable':
+          'ഈ കൃത്യമായ ഓർഡർ ലൈനിന് ധന വീണ്ടെടുക്കൽ ലഭ്യമല്ല.',
       'med03.pharmacy.funding_desk.insurance_help': 'ഈ കൃത്യമായ ഡ്രാഫ്റ്റ് ലൈനിന് ഇൻഷുറർ തീരുമാനം രേഖപ്പെടുത്തുക. അംഗീകരിച്ചതും അടയ്ക്കാത്തതും ചേർന്ന് ലൈൻ ആകെ തുകയാകണം.',
       'med03.pharmacy.funding_desk.finance_help': 'പട്ടികപ്പെടുത്തിയ ഇൻവോയിസിൽ രോഗിയുടെ പണമടവ് പോസ്റ്റ് ചെയ്ത് ഇവിടെ പൊരുത്തപ്പെടുത്തുക. സ്വയം റിപ്പോർട്ട് ചെയ്ത ശേഖരിച്ച തുക ഈ സ്ക്രീൻ സ്വീകരിക്കില്ല.',
       'med03.pharmacy.funding_desk.approved_amount': 'TPA അംഗീകരിച്ച തുക',
       'med03.pharmacy.funding_desk.non_payable_amount': 'രോഗിയുടെ ബാധ്യത',
       'med03.pharmacy.funding_desk.reason_code': 'തീരുമാന കാരണം',
       'med03.pharmacy.funding_desk.reason_text': 'തീരുമാന കുറിപ്പ്',
-      'med03.pharmacy.funding_desk.record_decision': 'കൃത്യമായ ലൈൻ തീരുമാനം രേഖപ്പെടുത്തുക',
-      'med03.pharmacy.funding_desk.retry_posted_payment': 'പോസ്റ്റ് ചെയ്ത പണമടവ് പൊരുത്തപ്പെടുത്തുക',
-      'med03.pharmacy.funding_desk.resolved': 'ഈ കൃത്യമായ ഫാർമസി ലൈനിന് സജീവ ധന പണി ഇല്ല.',
+      'med03.pharmacy.funding_desk.record_decision':
+          'കൃത്യമായ ലൈൻ തീരുമാനം രേഖപ്പെടുത്തുക',
+      'med03.pharmacy.funding_desk.retry_posted_payment':
+          'പോസ്റ്റ് ചെയ്ത പണമടവ് പൊരുത്തപ്പെടുത്തുക',
+      'med03.pharmacy.funding_desk.resolved':
+          'ഈ കൃത്യമായ ഫാർമസി ലൈനിന് സജീവ ധന പണി ഇല്ല.',
       'med03.pharmacy.funding_desk.invalid_decision': 'സാധുവായ നെഗറ്റീവ് അല്ലാത്ത തുകകൾ നൽകി നഷ്ടമായ പണി അധികാരം വീണ്ടും ലോഡ് ചെയ്യുക.',
       // REVIEW: Malayalam finance/legal wording is technical parity only and must remain fail-closed until human approval.
-      'med03.pharmacy.funding_reconciliation.unavailable': 'കൃത്യമായ ഡ്യൂപ്ലിക്കേറ്റ്-ലൈൻ പൊരുത്തപ്പെടുത്തൽ ലഭ്യമല്ല.',
-      'med03.pharmacy.funding_reconciliation.title': 'ഡ്യൂപ്ലിക്കേറ്റ് ഫാർമസി ബില്ലിംഗ് അധികാരം',
-      'med03.pharmacy.funding_reconciliation.case_summary': 'കേസ് #{case} · പണി #{task} · {status} · {owner}',
+      'med03.pharmacy.funding_reconciliation.unavailable':
+          'കൃത്യമായ ഡ്യൂപ്ലിക്കേറ്റ്-ലൈൻ പൊരുത്തപ്പെടുത്തൽ ലഭ്യമല്ല.',
+      'med03.pharmacy.funding_reconciliation.title':
+          'ഡ്യൂപ്ലിക്കേറ്റ് ഫാർമസി ബില്ലിംഗ് അധികാരം',
+      'med03.pharmacy.funding_reconciliation.case_summary':
+          'കേസ് #{case} · പണി #{task} · {status} · {owner}',
       'med03.pharmacy.funding_reconciliation.help': 'സെർവർ കൃത്യമായ ലൈൻ, ഇൻവോയിസ്, പോസ്റ്റ് ചെയ്ത പണമടവ്, അലോക്കേഷൻ, റിവേഴ്സൽ, സ്റ്റോക്ക് തെളിവുകൾ പൊരുത്തപ്പെടുത്തുന്നു. അതേ നിർദ്ദേശം മറ്റൊരു ധനകാര്യ ഉടമ അംഗീകരിക്കണം. ഈ സ്ക്രീനിന് പണമടവ് തുക മാറ്റാനോ സ്വയം സാക്ഷ്യപ്പെടുത്താനോ കഴിയില്ല.',
-      'med03.pharmacy.funding_reconciliation.keeper_label': 'ആധികാരികമായി തുടരുന്ന ലൈൻ',
-      'med03.pharmacy.funding_reconciliation.line_option': 'ലൈൻ #{line} · ഇൻവോയിസ് #{invoice} · {amount}',
-      'med03.pharmacy.funding_reconciliation.path_label': 'നിയന്ത്രിത പരിഹാര പാത',
-      'med03.pharmacy.funding_reconciliation.path.safe': 'കൃത്യമായ ഡ്യൂപ്ലിക്കേറ്റുകൾ സുരക്ഷിതമായി നിർജ്ജീവമാക്കുക',
-      'med03.pharmacy.funding_reconciliation.path.keep': 'തിരഞ്ഞെടുത്ത അധികാരം നിലനിർത്തുക',
-      'med03.pharmacy.funding_reconciliation.path.cancel': 'അവസാനിച്ച ഓർഡർ റദ്ദാക്കുക',
-      'med03.pharmacy.funding_reconciliation.path.rebill': 'നിയന്ത്രിത പുനർബില്ലിംഗ് സ്ഥിരീകരിക്കുക',
-      'med03.pharmacy.funding_reconciliation.pending_owner': '{owner} നിർദ്ദേശിച്ചു. വേറൊരു ധനകാര്യ ഉടമ ആവശ്യമാണ്.',
-      'med03.pharmacy.funding_reconciliation.action.approve': 'രണ്ടാം ഉടമയായി കൃത്യമായ നിർദ്ദേശം അംഗീകരിക്കുക',
-      'med03.pharmacy.funding_reconciliation.action.propose': 'കൃത്യമായ തീർപ്പ് നിർദ്ദേശിക്കുക',
+      'med03.pharmacy.funding_reconciliation.keeper_label':
+          'ആധികാരികമായി തുടരുന്ന ലൈൻ',
+      'med03.pharmacy.funding_reconciliation.line_option':
+          'ലൈൻ #{line} · ഇൻവോയിസ് #{invoice} · {amount}',
+      'med03.pharmacy.funding_reconciliation.path_label':
+          'നിയന്ത്രിത പരിഹാര പാത',
+      'med03.pharmacy.funding_reconciliation.path.safe':
+          'കൃത്യമായ ഡ്യൂപ്ലിക്കേറ്റുകൾ സുരക്ഷിതമായി നിർജ്ജീവമാക്കുക',
+      'med03.pharmacy.funding_reconciliation.path.keep':
+          'തിരഞ്ഞെടുത്ത അധികാരം നിലനിർത്തുക',
+      'med03.pharmacy.funding_reconciliation.path.cancel':
+          'അവസാനിച്ച ഓർഡർ റദ്ദാക്കുക',
+      'med03.pharmacy.funding_reconciliation.path.rebill':
+          'നിയന്ത്രിത പുനർബില്ലിംഗ് സ്ഥിരീകരിക്കുക',
+      'med03.pharmacy.funding_reconciliation.pending_owner':
+          '{owner} നിർദ്ദേശിച്ചു. വേറൊരു ധനകാര്യ ഉടമ ആവശ്യമാണ്.',
+      'med03.pharmacy.funding_reconciliation.action.approve':
+          'രണ്ടാം ഉടമയായി കൃത്യമായ നിർദ്ദേശം അംഗീകരിക്കുക',
+      'med03.pharmacy.funding_reconciliation.action.propose':
+          'കൃത്യമായ തീർപ്പ് നിർദ്ദേശിക്കുക',
       'med03.pharmacy.funding_reconciliation.status.open': 'തുറന്നിരിക്കുന്നു',
-      'med03.pharmacy.funding_reconciliation.status.pending': 'രണ്ടാം അംഗീകാരം കാത്തിരിക്കുന്നു',
-      'med03.pharmacy.funding_reconciliation.status.blocked': 'തടഞ്ഞിരിക്കുന്നു',
+      'med03.pharmacy.funding_reconciliation.status.pending':
+          'രണ്ടാം അംഗീകാരം കാത്തിരിക്കുന്നു',
+      'med03.pharmacy.funding_reconciliation.status.blocked':
+          'തടഞ്ഞിരിക്കുന്നു',
       'med03.pharmacy.funding_reconciliation.status.resolved': 'പരിഹരിച്ചു',
       'med03.pharmacy.funding_reconciliation.status.unknown': 'അജ്ഞാതം',
       'med03.pharmacy.funding_reconciliation.owner.finance': 'ധനകാര്യ ഉടമ',
@@ -39048,22 +39137,16 @@ class AppStrings {
       'mar_scan.supply.hard_stop_error': 'വിതരണ തെളിവ് അപൂർണ്ണമോ വ്യക്തമല്ലാത്തതോ ആണ്. മരുന്ന് നൽകുന്നതിന് മുമ്പ് റീകൺസൈൽ ചെയ്യുക.',
       // REVIEW: MED-03 ml technical parity; Malayalam-fluent pharmacy and finance review is required before activation.
       's4.lib.counter_sale.facility_id': 'വിതരണ കേന്ദ്രം',
-      's4.lib.counter_sale.facility_hint':
-          'നിങ്ങൾക്ക് സജീവമായ ഫാർമസി അനുമതിയുള്ള കേന്ദ്രങ്ങളിൽ ഒന്ന് തിരഞ്ഞെടുക്കുക. കാർട്ടിൽ ഇനങ്ങളുള്ളപ്പോൾ ഇത് മാറ്റാനാകില്ല.',
-      's4.lib.counter_sale.facility_required':
-          'തിരയുന്നതിനോ വിൽക്കുന്നതിനോ മുമ്പ് കൃത്യമായ വിതരണ കേന്ദ്രം തിരഞ്ഞെടുക്കുക.',
-      's4.lib.counter_sale.facility_none':
-          'നിങ്ങൾക്ക് സജീവമായ ഫാർമസി കേന്ദ്ര അനുമതിയില്ല. തിരയുന്നതിനോ വിൽക്കുന്നതിനോ മുമ്പ് ടെനന്റ് അഡ്മിനിസ്ട്രേറ്റർ ഒന്ന് അനുവദിക്കണം.',
+      's4.lib.counter_sale.facility_hint': 'നിങ്ങൾക്ക് സജീവമായ ഫാർമസി അനുമതിയുള്ള കേന്ദ്രങ്ങളിൽ ഒന്ന് തിരഞ്ഞെടുക്കുക. കാർട്ടിൽ ഇനങ്ങളുള്ളപ്പോൾ ഇത് മാറ്റാനാകില്ല.',
+      's4.lib.counter_sale.facility_required': 'തിരയുന്നതിനോ വിൽക്കുന്നതിനോ മുമ്പ് കൃത്യമായ വിതരണ കേന്ദ്രം തിരഞ്ഞെടുക്കുക.',
+      's4.lib.counter_sale.facility_none': 'നിങ്ങൾക്ക് സജീവമായ ഫാർമസി കേന്ദ്ര അനുമതിയില്ല. തിരയുന്നതിനോ വിൽക്കുന്നതിനോ മുമ്പ് ടെനന്റ് അഡ്മിനിസ്ട്രേറ്റർ ഒന്ന് അനുവദിക്കണം.',
       's4.lib.counter_sale.scheduled_patient_required':
           'ഷെഡ്യൂൾ മരുന്നുകൾക്ക് രജിസ്റ്റർ ചെയ്ത രോഗിയുടെ UID നിർബന്ധമാണ്.',
-      's4.lib.counter_sale.rx_prescription_id':
-          'ഒപ്പിട്ട ഇ-പ്രിസ്ക്രിപ്ഷൻ ഐഡി',
+      's4.lib.counter_sale.rx_prescription_id': 'ഒപ്പിട്ട ഇ-പ്രിസ്ക്രിപ്ഷൻ ഐഡി',
       's4.lib.counter_sale.rx_line_index':
           '{medicine} · eRx വരി സൂചിക (പൂജ്യം അടിസ്ഥാനമാക്കി)',
-      's4.lib.counter_sale.rx_exact_mapping_hint':
-          'ഒപ്പിട്ട ഇ-പ്രിസ്ക്രിപ്ഷൻ ഐഡി നൽകി ഓരോ ഷെഡ്യൂൾ മരുന്നും അതിന്റെ കൃത്യമായ പൂജ്യം-അടിസ്ഥാന eRx വരിയുമായി മാപ്പ് ചെയ്യുക.',
-      's4.lib.counter_sale.rx_mapping_required':
-          'ഓരോ ഷെഡ്യൂൾ മരുന്നും അതിന്റെ കൃത്യമായ ഒപ്പിട്ട ഇ-പ്രിസ്ക്രിപ്ഷൻ വരിയുമായി മാപ്പ് ചെയ്യുക.',
+      's4.lib.counter_sale.rx_exact_mapping_hint': 'ഒപ്പിട്ട ഇ-പ്രിസ്ക്രിപ്ഷൻ ഐഡി നൽകി ഓരോ ഷെഡ്യൂൾ മരുന്നും അതിന്റെ കൃത്യമായ പൂജ്യം-അടിസ്ഥാന eRx വരിയുമായി മാപ്പ് ചെയ്യുക.',
+      's4.lib.counter_sale.rx_mapping_required': 'ഓരോ ഷെഡ്യൂൾ മരുന്നും അതിന്റെ കൃത്യമായ ഒപ്പിട്ട ഇ-പ്രിസ്ക്രിപ്ഷൻ വരിയുമായി മാപ്പ് ചെയ്യുക.',
       's4.lib.counter_sale.original_payment_reference':
           'യഥാർത്ഥ പേയ്മെന്റ് റഫറൻസ്',
       's4.lib.counter_sale.original_payment_reference_value':

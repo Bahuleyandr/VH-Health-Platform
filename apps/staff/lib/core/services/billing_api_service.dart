@@ -182,7 +182,8 @@ class BillingApiService {
     return _dataFrom(response);
   }
 
-  static Future<Map<String, dynamic>> recordPharmacyFundingReconciliationDecision({
+  static Future<Map<String, dynamic>>
+  recordPharmacyFundingReconciliationDecision({
     required int caseId,
     required int keeperInvoiceItemId,
     required String resolutionPath,
@@ -219,8 +220,9 @@ class BillingApiService {
       '/insurance/nhcx/projections/$messageId/retry',
       idempotencyKey: idempotencyKey,
       body: {
-        'expected_transport_response_sha256':
-            expectedTransportResponseSha256.trim().toLowerCase(),
+        'expected_transport_response_sha256': expectedTransportResponseSha256
+            .trim()
+            .toLowerCase(),
       },
     );
     return _dataFrom(response);

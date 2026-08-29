@@ -585,10 +585,7 @@ void main() {
       );
 
       await expectLater(
-        PharmacyApiService.completePharmacyDelivery(
-          91,
-          handoffToken: token,
-        ),
+        PharmacyApiService.completePharmacyDelivery(91, handoffToken: token),
         throwsA(
           isA<PharmacyApiException>().having(
             (error) => error.statusCode,
@@ -1520,10 +1517,7 @@ void main() {
         throwsArgumentError,
       );
       await expectLater(
-        PharmacyApiService.completePharmacyDelivery(
-          401,
-          handoffToken: 'short',
-        ),
+        PharmacyApiService.completePharmacyDelivery(401, handoffToken: 'short'),
         throwsArgumentError,
       );
       expect(

@@ -1528,8 +1528,39 @@ async function seedCoreData() {
     }
   ]);
 
+  // Migration 753 holds any non-terminal pharmacy order that carries no
+  // facility (chk_pharmacy_orders_facility_progression_753): an order that can
+  // still progress must name the facility its dispense custody belongs to.
+  // The seeded order is PENDING, so it needs a real facility rather than the
+  // NULL the rest of the core seed uses.
+  let seedFacilityId = await firstTenantValue('facilities', 'id');
+  if (seedFacilityId === null) {
+    const seededFacility = await client.query(
+      `INSERT INTO facilities
+         (tenant_id, facility_code, display_name, timezone, status, is_default)
+       VALUES ($1::uuid, 'SEED-MAIN', 'Seed Main Facility', 'Asia/Kolkata',
+               'active', TRUE)
+       ON CONFLICT (tenant_id, facility_code) DO UPDATE
+         SET display_name = EXCLUDED.display_name
+       RETURNING id`,
+      [DEFAULT_TENANT_ID]
+    );
+    seedFacilityId = seededFacility.rows[0].id;
+  }
+  await client.query(
+    `INSERT INTO facility_locations
+       (tenant_id, facility_id, location_code, display_name,
+        location_kind, status)
+     VALUES ($1::uuid, $2::int, 'SEED-PHARMACY-STORE',
+             'Seed Pharmacy Store', 'pharmacy', 'active')
+     ON CONFLICT (facility_id, location_code) DO UPDATE
+       SET status = 'active'`,
+    [DEFAULT_TENANT_ID, seedFacilityId]
+  );
+
   await insertIfTenantEmpty('pharmacy_orders', [
     {
+      facility_id: seedFacilityId,
       phone: afterAppointment.patient.phone,
       patient_id: afterAppointment.patient.id,
       patient_name: afterAppointment.patient.name,
@@ -1893,6 +1924,8 @@ async function getCoreRefs() {
       : null,
     departmentId: await firstTenantValue('departments', 'id'),
     wardId: await firstTenantValue('wards', 'id'),
+    facilityId: await firstTenantValue('facilities', 'id'),
+    storageLocationId: await firstTenantValue('facility_locations', 'id'),
     bedId: await firstTenantValue('beds', 'id'),
     appointmentId: await firstTenantValue('appointments', 'id'),
     admissionId: await firstTenantValue('admissions', 'id'),
@@ -5636,13 +5669,13 @@ async function seedMedicationClosureEvidence(seedFailures = new Map()) {
        (tenant_id, indent_number, ward_id, indent_type, status, requested_by,
         requested_at, admission_id, encounter_id, patient_uid, state_version,
         owner_role_codes, active_sla_source_id, last_transition_at, notes,
-        created_at, updated_at)
+        facility_id, created_at, updated_at)
      VALUES
        ($1::uuid, 'VH-SEED-MED03-INDENT-001', $2::int, 'pharmacy',
         'requested', $3::uuid, $4::timestamptz, $5::int, $6::uuid, $7::uuid,
         1, $8::text[], NULL, $4::timestamptz,
         'Synthetic MED-03 exact-custody ward indent.',
-        $4::timestamptz, $4::timestamptz)
+        $9::int, $4::timestamptz, $4::timestamptz)
      RETURNING id, status, state_version, owner_role_codes, active_sla_source_id`,
     [
       DEFAULT_TENANT_ID,
@@ -5652,7 +5685,8 @@ async function seedMedicationClosureEvidence(seedFailures = new Map()) {
       ctx.admissionId,
       ctx.admissionEncounterId,
       ctx.admissionPatientUid,
-      pharmacyOwners
+      pharmacyOwners,
+      ctx.facilityId
     ]
   );
   const indent = indentResult.rows[0];
@@ -5707,16 +5741,18 @@ async function seedMedicationClosureEvidence(seedFailures = new Map()) {
   const inventoryItemResult = await client.query(
     `INSERT INTO pharmacy_inventory_items
        (tenant_id, sku_code, display_name, generic_name, form, strength,
-        unit_label, status, catalog_id, metadata, created_at, updated_at)
+        unit_label, status, catalog_id, facility_id, metadata,
+        created_at, updated_at)
      VALUES ($1::uuid, 'VH-SEED-MED03-PARA500', 'Paracetamol 500 mg tablet',
              'Paracetamol', 'tablet', '500 mg', 'tablet', 'active', $2::int,
-             $3::jsonb, $4::timestamptz, $4::timestamptz)
+             $5::int, $3::jsonb, $4::timestamptz, $4::timestamptz)
      RETURNING id`,
     [
       DEFAULT_TENANT_ID,
       catalog.id,
       JSON.stringify({ seed: true, med_03: true }),
-      timeline.opening_at
+      timeline.opening_at,
+      ctx.facilityId
     ]
   );
   const inventoryItem = inventoryItemResult.rows[0];
@@ -5725,19 +5761,22 @@ async function seedMedicationClosureEvidence(seedFailures = new Map()) {
     `INSERT INTO pharmacy_inventory_batches
        (tenant_id, inventory_item_id, batch_number, lot_number,
         manufacture_date, expiry_date, received_quantity, remaining_quantity,
-        unit_cost_minor, mrp_minor, status, metadata, created_at, updated_at)
+        unit_cost_minor, mrp_minor, status, facility_id, storage_location_id,
+        metadata, created_at, updated_at)
      VALUES ($1::uuid, $2::int, 'VH-SEED-MED03-BATCH-001',
              'VH-SEED-MED03-LOT-001',
              (CURRENT_DATE - INTERVAL '60 days')::date,
              (CURRENT_DATE + INTERVAL '540 days')::date,
-              10, 10, 1000, 1000, 'in_stock', $3::jsonb,
+              10, 10, 1000, 1000, 'in_stock', $5::int, $6::int, $3::jsonb,
              $4::timestamptz, $4::timestamptz)
      RETURNING id`,
     [
       DEFAULT_TENANT_ID,
       inventoryItem.id,
       JSON.stringify({ seed: true, med_03: true, barcode: exactBatchBarcode }),
-      timeline.opening_at
+      timeline.opening_at,
+      ctx.facilityId,
+      ctx.storageLocationId
     ]
   );
   const inventoryBatch = inventoryBatchResult.rows[0];
@@ -7463,6 +7502,7 @@ async function seedBillingAndCounterSaleClosureEvidence() {
 
   const inventoryRows = await client.query(
     `SELECT item.id AS inventory_item_id,
+            item.facility_id,
             item.display_name,
             item.schedule_class,
             item.is_narcotic,
@@ -7684,12 +7724,18 @@ async function seedBillingAndCounterSaleClosureEvidence() {
     await client.query(
       `INSERT INTO pharmacy_counter_sales
          (tenant_id, patient_uid, status, payment_mode, cash_shift,
-          total_amount, sold_by, sold_by_name, notes)
+          total_amount, sold_by, sold_by_name, facility_id, notes)
        VALUES ($1::uuid, $2::uuid, 'IN_PROGRESS', 'CASH', 'GENERAL', 0,
-               $3::uuid, $4::text,
+               $3::uuid, $4::text, $5::int,
                'Synthetic MED-03 counter-sale void closure.')
        RETURNING id, created_at`,
-      [DEFAULT_TENANT_ID, patient.uid, pharmacyActor.uid, pharmacyActor.name]
+      [
+        DEFAULT_TENANT_ID,
+        patient.uid,
+        pharmacyActor.uid,
+        pharmacyActor.name,
+        inventory.facility_id
+      ]
     ),
     'MED-03 billing closure could not create the counter sale'
   );
@@ -7709,9 +7755,9 @@ async function seedBillingAndCounterSaleClosureEvidence() {
       `INSERT INTO pharmacy_counter_sale_lines
          (tenant_id, counter_sale_id, inventory_item_id, item_name,
           schedule_class, is_narcotic, quantity, unit_price, gst_rate,
-          line_total)
+          line_total, facility_id)
        VALUES ($1::uuid, $2::bigint, $3::int, $4::text, $5::text,
-               $6::boolean, 1, 10, 0, 10)
+               $6::boolean, 1, 10, 0, 10, $7::int)
        RETURNING id`,
       [
         DEFAULT_TENANT_ID,
@@ -7719,7 +7765,8 @@ async function seedBillingAndCounterSaleClosureEvidence() {
         inventory.inventory_item_id,
         inventory.display_name,
         inventory.schedule_class,
-        inventory.is_narcotic
+        inventory.is_narcotic,
+        inventory.facility_id
       ]
     ),
     'MED-03 billing closure could not create the counter-sale line'

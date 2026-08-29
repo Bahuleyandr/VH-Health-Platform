@@ -153,7 +153,6 @@ abstract interface class WardIndentGateway {
     required String password,
     required String idempotencyKey,
   });
-
 }
 
 class WardIndentRequestConflict implements Exception {
@@ -352,7 +351,6 @@ class ApiWardIndentGateway
       idempotencyKey: idempotencyKey,
     );
   }
-
 }
 
 int? _positiveInt(Object? value) {

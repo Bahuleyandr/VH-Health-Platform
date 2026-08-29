@@ -394,8 +394,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
             .map(_grantedFacilityId)
             .whereType<int>()
             .toList(growable: false);
-        if (_selectedFacilityId != null &&
-            !ids.contains(_selectedFacilityId)) {
+        if (_selectedFacilityId != null && !ids.contains(_selectedFacilityId)) {
           _selectedFacilityId = null;
           _searchGeneration += 1;
           _searching = false;
@@ -1491,9 +1490,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         name.isEmpty ? '#$facilityId' : name,
         if (code.isNotEmpty) '($code)',
       ].join(' ');
-      entries.add(
-        DropdownMenuItem<int>(value: facilityId, child: Text(label)),
-      );
+      entries.add(DropdownMenuItem<int>(value: facilityId, child: Text(label)));
     }
     final hasGrant = entries.isNotEmpty;
     final selected = _facilityId;

@@ -943,8 +943,10 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
               key: const ValueKey('pharmacy-counter-complete-submit'),
               onPressed: () {
                 final amount = num.tryParse(amountController.text.trim());
-                if (paymentMode.isEmpty || amount == null ||
-                    !amount.isFinite || amount < 0) {
+                if (paymentMode.isEmpty ||
+                    amount == null ||
+                    !amount.isFinite ||
+                    amount < 0) {
                   return;
                 }
                 final tpaReference = tpaReferenceController.text.trim();
@@ -1402,9 +1404,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
               if (requiresBreakGlassReason) ...[
                 const SizedBox(height: 12),
                 TextField(
-                  key: const ValueKey(
-                    'pharmacy-delivery-break-glass-reason',
-                  ),
+                  key: const ValueKey('pharmacy-delivery-break-glass-reason'),
                   controller: reasonController,
                   minLines: 2,
                   maxLines: 4,
@@ -1463,6 +1463,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
       _snack(error.toString(), isError: true);
     }
   }
+
   void _clearControlledDeliveryWitnessState(int orderId) {
     final marker = ':$orderId:';
     _controlledDeliveryWitnessAttempts.removeWhere(
