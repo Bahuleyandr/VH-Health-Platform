@@ -57,6 +57,8 @@ async function cleanup() {
       'ward_indents',
       'clinical_orders',
       'pharmacy_catalog',
+      'admissions',
+      'beds',
       'wards',
       'staff',
       'audit_logs',

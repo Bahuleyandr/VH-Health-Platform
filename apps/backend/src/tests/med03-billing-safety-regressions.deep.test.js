@@ -23,6 +23,7 @@ import {
   requestWardIndentReturn,
   reserveWardIndent,
 } from '../services/ipd/ipdSupportService.js';
+import { verifyOrder } from '../services/emr/orderEntryService.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const describeIfDb = databaseUrl ? describe : describe.skip;
@@ -41,6 +42,8 @@ describeIfDb('MED-03 billing safety regressions', () => {
   let previousLedgerMode;
   let wardId;
   let catalogId;
+  let admissionId;
+  let encounterId;
 
   async function cleanupTenant() {
     await prisma.$transaction(async (tx) => {
@@ -81,8 +84,10 @@ describeIfDb('MED-03 billing safety regressions', () => {
         'pharmacy_inventory_items',
         'ward_indent_items',
         'ward_indents',
+        'clinical_orders',
         'admissions',
         'pharmacy_catalog',
+        'beds',
         'wards',
         'audit_logs',
         'users',
@@ -101,12 +106,39 @@ describeIfDb('MED-03 billing safety regressions', () => {
   }
 
   async function createWardCharge(label) {
+    const order = (await prisma.$queryRawUnsafe(
+      `INSERT INTO clinical_orders
+         (tenant_id, order_number, patient_uid, encounter_id, order_type, status,
+          ordered_by, details, updated_at)
+       VALUES ($1::uuid, $2::text, $3::uuid, $4::uuid, 'medication', 'ordered',
+               $5::uuid,
+               jsonb_build_object(
+                 'catalog_id', $6::int,
+                 'quantity_requested', 2,
+                 'unit', 'each'
+               ), NOW())
+       RETURNING id`,
+      tenantId,
+      `MED03-BILLING-${label}-${run}`.slice(0, 80),
+      patient,
+      encounterId,
+      requester,
+      catalogId,
+    ))[0];
+    await verifyOrder(Number(order.id), pharmacist, {
+      tenantId,
+      actorRole: 'PHARMACY_INCHARGE',
+      idempotencyKey: `billing-verify-${label}-${run}`,
+    });
     const indent = await createWardIndent({
       wardId,
+      admissionId,
+      encounterId,
       patientUid: patient,
-      indentType: 'pharmacy',
+      indentType: 'consumables',
       items: [{
         pharmacy_catalog_id: catalogId,
+        clinical_order_id: Number(order.id),
         item_name: 'Caller text is not authoritative',
         quantity_requested: 2,
       }],
@@ -292,6 +324,36 @@ describeIfDb('MED-03 billing safety regressions', () => {
       tenantId,
       `MED-03 Billing Safety Ward ${run}`,
     ))[0].id);
+    encounterId = randomUUID();
+    const bedNumber = `MED03-BILLING-${run}`.slice(0, 50);
+    const bedId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO beds
+         (tenant_id, ward_id, ward_name, bed_number, status, patient_uid,
+          created_at, updated_at)
+       VALUES ($1::uuid, $2::int, $3::text, $4::text, 'occupied', $5::uuid,
+               NOW(), NOW())
+       RETURNING id`,
+      tenantId,
+      wardId,
+      `MED-03 Billing Safety Ward ${run}`,
+      bedNumber,
+      patient,
+    ))[0].id);
+    admissionId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO admissions
+         (tenant_id, patient_uid, encounter_id, bed_id, bed_number, ward,
+          status, admitted_at, created_by, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::int, $5::text, $6::text,
+               'admitted', NOW(), $7::uuid, NOW())
+       RETURNING id`,
+      tenantId,
+      patient,
+      encounterId,
+      bedId,
+      bedNumber,
+      `MED-03 Billing Safety Ward ${run}`,
+      requester,
+    ))[0].id);
     catalogId = Number((await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_catalog
          (tenant_id, name, is_active, stock_quantity, unit_price, price, updated_at)
@@ -304,7 +366,7 @@ describeIfDb('MED-03 billing safety regressions', () => {
       `INSERT INTO pharmacy_inventory_items
          (tenant_id, sku_code, display_name, catalog_id, unit_label,
           schedule_class, is_narcotic)
-       VALUES ($1::uuid, $2::text, $3::text, $4::int, 'unit', 'OTC', FALSE)
+       VALUES ($1::uuid, $2::text, $3::text, $4::int, 'each', 'OTC', FALSE)
        RETURNING id`,
       tenantId,
       `MED03-BILLING-${run}`,
@@ -476,16 +538,7 @@ describeIfDb('MED-03 billing safety regressions', () => {
   }, 60_000);
 
   test('a close transaction that wins the admission lock prevents a concurrent item removal', async () => {
-    const admission = (await prisma.$queryRawUnsafe(
-      `INSERT INTO admissions
-         (tenant_id, patient_uid, status, ward, created_by, admitted_at, updated_at)
-       VALUES ($1::uuid, $2::uuid, 'admitted', $3::text, $4::uuid, NOW(), NOW())
-       RETURNING id`,
-      tenantId,
-      patient,
-      `MED-03 Close Race Ward ${run}`,
-      requester,
-    ))[0];
+    const admission = { id: admissionId };
     const invoice = await createDraftInvoice({
       patient_uid: patient,
       admission_id: Number(admission.id),

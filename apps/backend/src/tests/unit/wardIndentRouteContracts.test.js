@@ -66,9 +66,12 @@ const controllerNames = [
   'proposeSubstitution',
   'approveSubstitution',
   'rejectSubstitution',
+  'applyApprovedSubstitution',
   'approveIndent',
   'rejectIndent',
   'recordControlledHandoff',
+  'requestControlledWitness',
+  'approveControlledWitness',
   'issueIndent',
   'receiveIndent',
   'requestReturn',
@@ -91,6 +94,14 @@ const ipdAliasSource = readFileSync(
   'utf8',
 );
 const appSource = readFileSync(new URL('../../app.js', import.meta.url), 'utf8');
+const ipdServiceSource = readFileSync(
+  new URL('../../services/ipd/ipdSupportService.js', import.meta.url),
+  'utf8',
+);
+const workflowSource = readFileSync(
+  new URL('../../services/ipd/wardIndentWorkflowService.js', import.meta.url),
+  'utf8',
+);
 
 function route(path, method) {
   return router.stack.find((layer) => layer.route?.path === path && layer.route.methods?.[method]);
@@ -136,6 +147,77 @@ test('all canonical and IPD-alias ward-indent mutations require desktop or table
     ipdAliasSource.indexOf('function wardIndentMutationContext'),
   );
   expect(helper).toContain('enforceStaffClinicalWriteDevicePosture');
+});
+
+test('both create aliases defer medication-line authority to the fail-closed service boundary', () => {
+  expect(ipdAliasSource).toContain('items,');
+  expect(ipdServiceSource).toContain('loadWardIndentCatalogClassificationsTx(tx');
+  expect(ipdServiceSource).toContain("indentType === 'pharmacy'");
+  expect(ipdServiceSource).toContain('WARD_INDENT_MIXED_CLINICAL_CLASSIFICATION');
+  expect(ipdServiceSource).toContain('WARD_INDENT_CLINICAL_ORDER_REQUIRED');
+  expect(ipdServiceSource).toContain('WARD_INDENT_CLINICAL_ORDER_CATALOG_MISMATCH');
+  expect(ipdServiceSource).toContain('WARD_INDENT_CLINICAL_ORDER_QUANTITY_MISMATCH');
+  expect(ipdServiceSource).toContain('WARD_INDENT_CLINICAL_ORDER_UNIT_MISMATCH');
+});
+
+test('legacy unlinked pharmacy rows abort before inventory or billing issue', () => {
+  const bindingStart = workflowSource.indexOf(
+    'async function assertWardIndentMedicationBindingAtIssueTx',
+  );
+  const issueStart = workflowSource.indexOf('export async function issueWardIndent');
+  const issueEnd = workflowSource.indexOf('export async function receiveWardIndent', issueStart);
+  const binding = workflowSource.slice(bindingStart, issueStart);
+  const issue = workflowSource.slice(issueStart, issueEnd);
+  expect(binding).toContain('loadWardIndentCatalogClassificationsTx(tx');
+  expect(binding).toContain('WARD_INDENT_CLINICAL_ORDER_REQUIRED');
+  expect(binding).toContain("current.indent_type === 'pharmacy'");
+  expect(binding).toContain('FOR UPDATE OF clinical_order');
+  expect(binding).toContain("lower(status) IN ('verified', 'in_progress')");
+  expect(binding).toContain('if (progressedRows.length !== 1)');
+  expect(issue).toContain('assertWardIndentMedicationBindingAtIssueTx(tx, current)');
+  expect(issue.indexOf('assertWardIndentMedicationBindingAtIssueTx(tx, current)')).toBeLessThan(
+    issue.indexOf('issueWardIndentInventoryTx'),
+  );
+});
+
+test('medication substitution is compatibility-gated at proposal, approval, and issue', () => {
+  const compatibilityStart = workflowSource.indexOf(
+    'function medicationSubstitutionMismatches',
+  );
+  const compatibilityEnd = workflowSource.indexOf(
+    'export async function loadMedicationCatalogAuthorityTx',
+    compatibilityStart,
+  );
+  const compatibility = workflowSource.slice(compatibilityStart, compatibilityEnd);
+  expect(compatibility).toContain('composition_id_missing');
+  expect(compatibility).toContain("composition_confidence) !== 'high'");
+  expect(compatibility).toContain('composition_source_missing');
+  expect(compatibility).toContain("'strength_key', 'strength'");
+  expect(compatibility).toContain("'form_key', 'form'");
+  expect(compatibility).toContain("mismatches.push('route')");
+  expect(compatibility).toContain('exactStrengthComponentsMatch');
+  expect(compatibility).toContain('provenance_sha256');
+  expect(compatibility).toContain('WARD_INDENT_MEDICATION_SUBSTITUTION_INCOMPATIBLE');
+
+  const proposeStart = workflowSource.indexOf('export async function proposeWardIndentSubstitution');
+  const approveStart = workflowSource.indexOf('export async function approveWardIndentSubstitution');
+  const rejectStart = workflowSource.indexOf('export async function rejectWardIndentSubstitution');
+  const proposal = workflowSource.slice(proposeStart, approveStart);
+  const approval = workflowSource.slice(approveStart, rejectStart);
+  expect(proposal).toContain("phase: 'proposal'");
+  expect(approval).toContain("phase: 'approval'");
+
+  const bindingStart = workflowSource.indexOf(
+    'async function assertWardIndentMedicationBindingAtIssueTx',
+  );
+  const issueStart = workflowSource.indexOf('export async function issueWardIndent');
+  const binding = workflowSource.slice(bindingStart, issueStart);
+  expect(binding).toContain('Number(item.original_pharmacy_catalog_id)');
+  expect(binding).toContain('catalogIds,\n    lock: true');
+  expect(binding).toContain('originalCatalog: catalogById.get(originalCatalogId)');
+  expect(binding).toContain('substituteCatalog: catalogById.get(currentCatalogId)');
+  expect(binding).toContain("phase: 'issue'");
+  expect(binding).toContain('substitutionCompatibilityEvidence');
 });
 
 describe('ward-indent patient selectors', () => {

@@ -216,6 +216,123 @@ describe('requireIdempotencyKey', () => {
     );
   });
 
+  it.each(['complete', 'cancel', 'discontinue'])(
+    'replays the committed %s terminal response before the handler can re-run',
+    async (action) => {
+      const terminalBody = {
+        action,
+        reason: action === 'complete' ? null : 'Therapy no longer indicated',
+      };
+      queryUnsafeMock
+        .mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'))
+        .mockResolvedValueOnce([{
+          id: 91,
+          status: 'complete',
+          response_status: 200,
+          response_body: { success: true, data: { id: 47, status: `${action}d` } },
+          request_body_hash: hashRequestBody(terminalBody),
+          is_expired: false,
+        }]);
+      const mw = requireIdempotencyKey({
+        required: true,
+        scope: 'clinical_order_terminal',
+        retainOnServerError: true,
+        requestPathForIdempotency: (req) => (
+          `/api/v1/emr/orders/${Number(req.params.id)}/terminal`
+        ),
+        requestBodyForIdempotency: (req) => ({
+          action,
+          reason: String(req.body?.reason || '').trim() || null,
+        }),
+      });
+      const { req, res } = makeReqRes({
+        method: 'PUT',
+        originalUrl: `/emr/orders/47/${action}?client=staff`,
+        params: { id: '47' },
+        headers: { 'idempotency-key': `terminal-${action}-47` },
+        body: { reason: terminalBody.reason },
+      });
+      const next = jest.fn();
+
+      await mw(req, res, next);
+
+      expect(next).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(200);
+      expect(res.body.data).toMatchObject({ id: 47 });
+      expect(queryUnsafeMock.mock.calls[0][5]).toBe('/api/v1/emr/orders/47/terminal');
+      expect(queryUnsafeMock.mock.calls[0][6]).toBe(hashRequestBody(terminalBody));
+    },
+  );
+
+  it('rejects reuse of a terminal key for a different terminal action', async () => {
+    queryUnsafeMock
+      .mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'))
+      .mockResolvedValueOnce([{
+        id: 92,
+        status: 'complete',
+        response_status: 200,
+        response_body: { success: true },
+        request_body_hash: hashRequestBody({ action: 'complete', reason: null }),
+        is_expired: false,
+      }]);
+    const mw = requireIdempotencyKey({
+      required: true,
+      scope: 'clinical_order_terminal',
+      requestPathForIdempotency: (req) => (
+        `/api/v1/emr/orders/${Number(req.params.id)}/terminal`
+      ),
+      requestBodyForIdempotency: () => ({
+        action: 'cancel',
+        reason: 'Entered in error',
+      }),
+    });
+    const { req, res } = makeReqRes({
+      method: 'PUT',
+      originalUrl: '/api/v1/emr/orders/47/cancel',
+      params: { id: '47' },
+      headers: { 'idempotency-key': 'terminal-action-conflict-47' },
+      body: { reason: 'Entered in error' },
+    });
+    const next = jest.fn();
+
+    await mw(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(422);
+  });
+
+  it('releases a recoverable terminal conflict so the same key can resume', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{ id: 93, status: 'in_flight' }])
+      .mockResolvedValueOnce([{ id: 93 }]);
+    const mw = requireIdempotencyKey({
+      required: true,
+      scope: 'clinical_order_terminal',
+      retainOnServerError: true,
+      releaseOnResponseCodes: [
+        'MAR_ORDER_TERMINAL_EXCEPTION_NOTIFICATION_IN_FLIGHT',
+      ],
+    });
+    const { req, res } = makeReqRes({
+      method: 'PUT',
+      headers: { 'idempotency-key': 'terminal-reconcile-47' },
+    });
+    const next = jest.fn(() => {
+      res.status(409).json({
+        success: false,
+        code: 'MAR_ORDER_TERMINAL_EXCEPTION_NOTIFICATION_IN_FLIGHT',
+      });
+    });
+
+    await mw(req, res, next);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/DELETE FROM idempotency_keys/);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/status = 'in_flight'/);
+    expect(queryUnsafeMock.mock.calls[1][1]).toBe(93);
+  });
+
   it('proceeds to handler on first claim, captures response, persists complete', async () => {
     queryUnsafeMock.mockResolvedValueOnce([{ id: 99, status: 'in_flight' }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 99, status: 'complete' }]);

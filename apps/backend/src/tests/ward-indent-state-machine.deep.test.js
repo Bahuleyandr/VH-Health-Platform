@@ -22,6 +22,8 @@ import {
   recordMovement,
 } from '../services/pharmacy/inventoryV2Service.js';
 import admissionService from '../services/emr/admissionService.js';
+import { cancelOrder, verifyOrder } from '../services/emr/orderEntryService.js';
+import { bindMedicationOrderCatalogAuthority } from '../services/ipd/wardIndentWorkflowService.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const describeIfDb = databaseUrl ? describe : describe.skip;
@@ -54,11 +56,18 @@ function databaseMessage(error) {
 
 describeIfDb('MED-01 authoritative ward-indent state machine', () => {
   let wardId;
+  let medicationAdmissionId;
+  let medicationEncounterId;
   let plain;
   let shortSupply;
   let substitute;
   let controlled;
+  let medicationShortSupply;
+  let medicationSubstitute;
+  let medicationIncompatibleSubstitute;
   let unclassified;
+  let medicationCompositionId;
+  let unrelatedCompositionId;
 
   async function cleanup() {
     await prisma.$transaction(async (tx) => {
@@ -96,32 +105,72 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
         'admissions',
         'clinical_orders',
         'pharmacy_catalog',
+        'beds',
         'wards',
         'users',
       ]) {
         await tx.$executeRawUnsafe(`DELETE FROM ${table} WHERE tenant_id = $1::uuid`, TENANT);
       }
+      await tx.$executeRawUnsafe(
+        `DELETE FROM drug_compositions WHERE composition_key IN ($1::text, $2::text)`,
+        `med01-paracetamol-${RUN}`,
+        `med01-ceftriaxone-${RUN}`,
+      );
     });
   }
 
   async function seedCatalog(name, stock, {
-    scheduleClass = 'OTC',
+    scheduleClass = null,
     withBatch = true,
+    medication = false,
+    genericName = null,
+    strength = null,
+    form = null,
+    route = null,
+    compositionId = null,
   } = {}) {
+    const effectiveCompositionId = medication
+      ? (compositionId || medicationCompositionId)
+      : null;
+    const effectiveStrength = medication ? (strength || '1 each') : strength;
+    const effectiveForm = medication ? (form || 'tablet') : form;
+    const effectiveRoute = medication ? (route || 'oral') : route;
     const catalog = (await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_catalog
-         (tenant_id, name, is_active, stock_quantity, unit_price, price, updated_at)
-       VALUES ($1::uuid, $2, TRUE, $3, 12.50, 12.50, NOW())
-       RETURNING id, name`,
+         (tenant_id, name, category, requires_prescription, is_active,
+          generic_name, composition_id, composition_source, composition_confidence,
+          strength, strength_key, strength_components,
+          form, form_key, release_key, route,
+          stock_quantity, unit_price, price, updated_at)
+       VALUES ($1::uuid, $2, $4::text, $5::boolean, TRUE,
+               $6::text, $7::int, 'curated', 'high',
+               $8::text, lower(regexp_replace($8::text, '\\s+', '', 'g')),
+               jsonb_build_array(jsonb_build_object(
+                 'ingredient', lower(COALESCE($6::text, $2::text)),
+                 'value', regexp_replace($8::text, '[^0-9.]', '', 'g'),
+                 'unit', COALESCE(NULLIF(regexp_replace($8::text, '[0-9.\\s]', '', 'g'), ''), 'each')
+               )),
+               $9::text, lower($9::text), 'ir', $10::text,
+               $3, 12.50, 12.50, NOW())
+       RETURNING id, name, generic_name, composition_id, composition_source,
+                 composition_confidence, strength, strength_key, strength_components,
+                 form, form_key, release_key, route, is_active`,
       TENANT,
       name,
       stock,
+      medication ? 'medication' : 'ward_supply',
+      medication,
+      genericName,
+      effectiveCompositionId,
+      effectiveStrength,
+      effectiveForm,
+      effectiveRoute,
     ))[0];
     const inventory = (await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_inventory_items
          (tenant_id, sku_code, display_name, catalog_id, unit_label,
           schedule_class, is_narcotic)
-       VALUES ($1::uuid, $2, $3, $4, 'unit', $5, FALSE)
+       VALUES ($1::uuid, $2, $3, $4, 'each', $5, FALSE)
        RETURNING id`,
       TENANT,
       `MED01-${RUN}-${catalog.id}`,
@@ -149,7 +198,97 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
       inventoryItemId: Number(inventory.id),
       batchId,
       name,
+      ...catalog,
     };
+  }
+
+  async function seedMedicationAdmission(patientUid, key) {
+    const encounterId = randomUUID();
+    const wardName = `MED-01 Ward ${RUN}`;
+    const bedNumber = `MED01-${key}-${RUN}`.slice(0, 50);
+    const bedId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO beds
+         (tenant_id, ward_id, ward_name, bed_number, status, patient_uid,
+          created_at, updated_at)
+       VALUES ($1::uuid, $2::int, $3::text, $4::text, 'occupied', $5::uuid,
+               NOW(), NOW())
+       RETURNING id`,
+      TENANT,
+      wardId,
+      wardName,
+      bedNumber,
+      patientUid,
+    ))[0].id);
+    const admissionId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO admissions
+         (tenant_id, patient_uid, encounter_id, bed_id, bed_number, ward,
+          status, admitted_at, created_by, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::int, $5::text, $6::text,
+               'admitted', NOW(), $7::uuid, NOW())
+       RETURNING id`,
+      TENANT,
+      patientUid,
+      encounterId,
+      bedId,
+      bedNumber,
+      wardName,
+      REQUESTER,
+    ))[0].id);
+    return { admissionId, encounterId };
+  }
+
+  async function createControlledMedicationIndent({
+    patientUid = PATIENT,
+    admissionId = medicationAdmissionId,
+    encounterId = medicationEncounterId,
+    catalog = controlled,
+    quantity = 1,
+    key,
+  }) {
+    const details = bindMedicationOrderCatalogAuthority({
+      medication_name: catalog.name,
+      catalog_id: catalog.catalogId,
+      dose: catalog.strength,
+      route: catalog.route,
+      quantity_requested: quantity,
+      unit: 'each',
+    }, { ...catalog, id: catalog.catalogId }, { phase: 'create' });
+    const order = (await prisma.$queryRawUnsafe(
+      `INSERT INTO clinical_orders
+         (tenant_id, order_number, patient_uid, encounter_id, order_type,
+          status, ordered_by, details, updated_at)
+       VALUES ($1::uuid, $2::text, $3::uuid, $4::uuid, 'medication',
+               'ordered', $5::uuid,
+               $6::jsonb, NOW())
+       RETURNING id`,
+      TENANT,
+      `MED-01-${key}-${RUN}`.slice(0, 80),
+      patientUid,
+      encounterId,
+      DOCTOR,
+      JSON.stringify(details),
+    ))[0];
+    await verifyOrder(Number(order.id), PHARMACIST, {
+      tenantId: TENANT,
+      actorRole: 'PHARMACY_INCHARGE',
+      idempotencyKey: `med01-verify-${key}-${RUN}`,
+    });
+    return createWardIndent({
+      wardId,
+      admissionId,
+      encounterId,
+      patientUid,
+      indentType: 'consumables',
+      items: [{
+        pharmacy_catalog_id: catalog.catalogId,
+        clinical_order_id: Number(order.id),
+        item_name: catalog.name,
+        quantity_requested: quantity,
+      }],
+      requestedBy: REQUESTER,
+      commandKey: `med01-create-${key}-${RUN}`,
+      tenantId: TENANT,
+    });
   }
 
   beforeAll(async () => {
@@ -188,17 +327,66 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
       TENANT,
       `MED-01 Ward ${RUN}`,
     ))[0].id);
+    medicationCompositionId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO drug_compositions
+         (composition_key, display_label, active_ingredients, source)
+       VALUES ($1::text, 'Paracetamol', ARRAY['paracetamol'], 'curated')
+       RETURNING id`,
+      `med01-paracetamol-${RUN}`,
+    ))[0].id);
+    unrelatedCompositionId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO drug_compositions
+         (composition_key, display_label, active_ingredients, source)
+       VALUES ($1::text, 'Ceftriaxone', ARRAY['ceftriaxone'], 'curated')
+       RETURNING id`,
+      `med01-ceftriaxone-${RUN}`,
+    ))[0].id);
+    ({
+      admissionId: medicationAdmissionId,
+      encounterId: medicationEncounterId,
+    } = await seedMedicationAdmission(PATIENT, 'base'));
     plain = await seedCatalog(`MED-01 Plain ${RUN}`, 100);
     shortSupply = await seedCatalog(`MED-01 Short ${RUN}`, 1);
     substitute = await seedCatalog(`MED-01 Substitute ${RUN}`, 100);
     controlled = await seedCatalog(`MED-01 H1 ${RUN}`, 20, {
       scheduleClass: 'H1',
       withBatch: true,
+      medication: true,
     });
+    medicationShortSupply = await seedCatalog(`MED-01 Medication Short ${RUN}`, 1, {
+      scheduleClass: 'OTC',
+      medication: true,
+      genericName: 'Paracetamol',
+      strength: '500 mg',
+      form: 'tablet',
+      route: 'oral',
+    });
+    medicationSubstitute = await seedCatalog(`MED-01 Medication Substitute ${RUN}`, 20, {
+      scheduleClass: 'OTC',
+      medication: true,
+      genericName: 'Paracetamol',
+      strength: '500 mg',
+      form: 'tablet',
+      route: 'oral',
+    });
+    medicationIncompatibleSubstitute = await seedCatalog(
+      `MED-01 Unrelated Medication ${RUN}`,
+      20,
+      {
+        scheduleClass: 'OTC',
+        medication: true,
+        genericName: 'Ceftriaxone',
+        strength: '1 g',
+        form: 'injection',
+        route: 'intravenous',
+        compositionId: unrelatedCompositionId,
+      },
+    );
     const unclassifiedRow = (await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_catalog
-         (tenant_id, name, is_active, stock_quantity, unit_price, price, updated_at)
-       VALUES ($1::uuid, $2, TRUE, 10, 5, 5, NOW())
+         (tenant_id, name, category, requires_prescription, is_active,
+          stock_quantity, unit_price, price, updated_at)
+       VALUES ($1::uuid, $2, 'ward_supply', FALSE, TRUE, 10, 5, 5, NOW())
        RETURNING id, name`,
       TENANT,
       `MED-01 Unclassified ${RUN}`,
@@ -218,7 +406,7 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
     const createInput = {
       wardId,
       patientUid: PATIENT,
-      indentType: 'pharmacy',
+      indentType: 'consumables',
       items: [{
         pharmacy_catalog_id: plain.catalogId,
         item_name: 'Caller-controlled name',
@@ -370,7 +558,7 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
     const indents = await Promise.all(['a', 'b'].map((suffix) => createWardIndent({
       wardId,
       patientUid: PATIENT,
-      indentType: 'pharmacy',
+      indentType: 'consumables',
       items: [{
         pharmacy_catalog_id: competing.catalogId,
         item_name: competing.name,
@@ -409,17 +597,77 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
     expect(Number(reservations[0].total)).toBeLessThanOrEqual(5);
   }, 60_000);
 
-  test('reuses one draft invoice when different indents issue concurrently', async () => {
-    const admission = (await prisma.$queryRawUnsafe(
-      `INSERT INTO admissions
-         (tenant_id, patient_uid, status, allergies, ward, created_by, admitted_at)
-       VALUES ($1::uuid, $2::uuid, 'admitted', ARRAY[]::text[], $3, $4::uuid, NOW())
-       RETURNING id`,
+  test('rejects a legacy unlinked pharmacy indent before inventory and billing issue', async () => {
+    const indent = await createWardIndent({
+      wardId,
+      patientUid: PATIENT,
+      indentType: 'consumables',
+      items: [{
+        pharmacy_catalog_id: plain.catalogId,
+        item_name: plain.name,
+        quantity_requested: 1,
+      }],
+      requestedBy: REQUESTER,
+      commandKey: `legacy-unlinked-create-${RUN}`,
+      tenantId: TENANT,
+    });
+    const reserved = await reserveWardIndent({
+      indentId: indent.id,
+      reservedBy: PHARMACIST,
+      expectedVersion: indent.state_version,
+      commandKey: `legacy-unlinked-reserve-${RUN}`,
+      tenantId: TENANT,
+    });
+    const approved = await approveWardIndent({
+      indentId: indent.id,
+      approvedBy: PHARMACIST,
+      expectedVersion: reserved.state_version,
+      commandKey: `legacy-unlinked-approve-${RUN}`,
+      tenantId: TENANT,
+    });
+    await prisma.$executeRawUnsafe(
+      `UPDATE ward_indents
+          SET indent_type = 'pharmacy', updated_at = NOW()
+        WHERE tenant_id = $1::uuid AND id = $2::integer`,
       TENANT,
-      PATIENT,
-      `MED-03 Invoice Race Ward ${RUN}`,
-      REQUESTER,
-    ))[0];
+      Number(indent.id),
+    );
+    const stockBefore = Number((await prisma.$queryRawUnsafe(
+      `SELECT remaining_quantity
+         FROM pharmacy_inventory_batches
+        WHERE tenant_id = $1::uuid AND id = $2::integer`,
+      TENANT,
+      plain.batchId,
+    ))[0].remaining_quantity);
+
+    await expect(issueWardIndent({
+      indentId: indent.id,
+      issuedBy: PHARMACIST,
+      expectedVersion: approved.state_version,
+      commandKey: `legacy-unlinked-issue-${RUN}`,
+      tenantId: TENANT,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'WARD_INDENT_CLINICAL_ORDER_REQUIRED',
+    });
+    expect(Number((await prisma.$queryRawUnsafe(
+      `SELECT remaining_quantity
+         FROM pharmacy_inventory_batches
+        WHERE tenant_id = $1::uuid AND id = $2::integer`,
+      TENANT,
+      plain.batchId,
+    ))[0].remaining_quantity)).toBe(stockBefore);
+    expect(await prisma.$queryRawUnsafe(
+      `SELECT id
+         FROM ward_indent_financial_events
+        WHERE tenant_id = $1::uuid AND ward_indent_id = $2::integer`,
+      TENANT,
+      Number(indent.id),
+    )).toHaveLength(0);
+  }, 60_000);
+
+  test('reuses one draft invoice when different indents issue concurrently', async () => {
+    const admission = { id: medicationAdmissionId };
     const specialtyDrafts = await prisma.$queryRawUnsafe(
       `INSERT INTO billing_invoices
          (tenant_id, patient_uid, admission_id, invoice_type, status,
@@ -443,7 +691,7 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
       wardId,
       admissionId: Number(admission.id),
       patientUid: PATIENT,
-      indentType: 'pharmacy',
+      indentType: 'consumables',
       items: [{
         pharmacy_catalog_id: catalog.catalogId,
         item_name: catalog.name,
@@ -531,7 +779,7 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
   test('fails closed before reservation for unclassified catalog and free-text lines', async () => {
     const unclassifiedIndent = await createWardIndent({
       wardId,
-      indentType: 'pharmacy',
+      indentType: 'consumables',
       items: [{
         pharmacy_catalog_id: unclassified.catalogId,
         item_name: unclassified.name,
@@ -586,15 +834,25 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
   test('rejects a typed clinical-order link owned by another patient', async () => {
     const order = (await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_orders
-         (tenant_id, order_number, patient_uid, order_type, status, details, updated_at)
-       VALUES ($1::uuid, $2, $3::uuid, 'medication', 'ordered', '{}'::jsonb, NOW())
+         (tenant_id, order_number, patient_uid, encounter_id, order_type, status,
+          details, updated_at)
+       VALUES ($1::uuid, $2, $3::uuid, $4::uuid, 'medication', 'ordered',
+               jsonb_build_object(
+                 'catalog_id', $5::int,
+                 'quantity_requested', 1,
+                 'unit', 'each'
+               ), NOW())
        RETURNING id`,
       TENANT,
       `MED-01-CROSS-PATIENT-${RUN}`,
       OTHER_PATIENT,
+      medicationEncounterId,
+      plain.catalogId,
     ))[0];
     await expect(createWardIndent({
       wardId,
+      admissionId: medicationAdmissionId,
+      encounterId: medicationEncounterId,
       patientUid: PATIENT,
       indentType: 'pharmacy',
       items: [{
@@ -611,11 +869,214 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
     });
   });
 
+  test('requires active admission context and a non-null exact order encounter', async () => {
+    async function insertOrder(orderNumber, encounterId) {
+      return (await prisma.$queryRawUnsafe(
+        `INSERT INTO clinical_orders
+           (tenant_id, order_number, patient_uid, encounter_id, order_type, status,
+            details, updated_at)
+         VALUES ($1::uuid, $2::text, $3::uuid, $4::uuid, 'medication', 'ordered',
+                 jsonb_build_object(
+                   'catalog_id', $5::int,
+                   'quantity_requested', 1,
+                   'unit', 'each'
+                 ), NOW())
+         RETURNING id`,
+        TENANT,
+        orderNumber,
+        PATIENT,
+        encounterId,
+        plain.catalogId,
+      ))[0];
+    }
+    const activeOrder = await insertOrder(`MED-01-NO-ADMISSION-${RUN}`, medicationEncounterId);
+    await expect(createWardIndent({
+      wardId,
+      patientUid: PATIENT,
+      indentType: 'consumables',
+      items: [{
+        pharmacy_catalog_id: plain.catalogId,
+        clinical_order_id: Number(activeOrder.id),
+        quantity_requested: 1,
+      }],
+      requestedBy: REQUESTER,
+      commandKey: `bound-admission-required-${RUN}`,
+      tenantId: TENANT,
+    })).rejects.toMatchObject({
+      code: 'WARD_INDENT_ADMISSION_REQUIRED',
+      statusCode: 400,
+    });
+
+    const nullEncounterOrder = await insertOrder(`MED-01-NULL-ENCOUNTER-${RUN}`, null);
+    await expect(createWardIndent({
+      wardId,
+      admissionId: medicationAdmissionId,
+      encounterId: medicationEncounterId,
+      patientUid: PATIENT,
+      indentType: 'consumables',
+      items: [{
+        pharmacy_catalog_id: plain.catalogId,
+        clinical_order_id: Number(nullEncounterOrder.id),
+        quantity_requested: 1,
+      }],
+      requestedBy: REQUESTER,
+      commandKey: `bound-null-encounter-${RUN}`,
+      tenantId: TENANT,
+    })).rejects.toMatchObject({
+      code: 'WARD_INDENT_CLINICAL_ORDER_ENCOUNTER_MISMATCH',
+      statusCode: 400,
+    });
+  });
+
+  test('server-binds linked manual indents to the ordered catalog, quantity, and unit', async () => {
+    const order = (await prisma.$queryRawUnsafe(
+      `INSERT INTO clinical_orders
+         (tenant_id, order_number, patient_uid, encounter_id, order_type, status,
+          details, updated_at)
+       VALUES ($1::uuid, $2::text, $3::uuid, $4::uuid, 'medication', 'ordered',
+               jsonb_build_object(
+                 'medication_name', $5::text,
+                 'catalog_id', $6::int,
+                 'quantity_requested', 2,
+                 'unit', 'tablet'
+               ), NOW())
+       RETURNING id`,
+      TENANT,
+      `MED-01-BOUND-${RUN}`,
+      PATIENT,
+      medicationEncounterId,
+      medicationSubstitute.name,
+      medicationSubstitute.catalogId,
+    ))[0];
+    const base = {
+      wardId,
+      admissionId: medicationAdmissionId,
+      encounterId: medicationEncounterId,
+      patientUid: PATIENT,
+      indentType: 'pharmacy',
+      requestedBy: REQUESTER,
+      tenantId: TENANT,
+    };
+    await expect(createWardIndent({
+      ...base,
+      items: [{
+        pharmacy_catalog_id: shortSupply.catalogId,
+        clinical_order_id: Number(order.id),
+        quantity_requested: 2,
+      }],
+      commandKey: `bound-catalog-mismatch-${RUN}`,
+    })).rejects.toMatchObject({
+      code: 'WARD_INDENT_CLINICAL_ORDER_CATALOG_MISMATCH',
+      statusCode: 409,
+    });
+    await expect(createWardIndent({
+      ...base,
+      items: [{
+        clinical_order_id: Number(order.id),
+        item_name: medicationSubstitute.name,
+        quantity_requested: 3,
+      }],
+      commandKey: `bound-quantity-mismatch-${RUN}`,
+    })).rejects.toMatchObject({
+      code: 'WARD_INDENT_CLINICAL_ORDER_QUANTITY_MISMATCH',
+      statusCode: 409,
+    });
+    await expect(createWardIndent({
+      ...base,
+      items: [{
+        clinical_order_id: Number(order.id),
+        item_name: medicationSubstitute.name,
+        quantity_requested: 2,
+        unit: 'vial',
+      }],
+      commandKey: `bound-unit-mismatch-${RUN}`,
+    })).rejects.toMatchObject({
+      code: 'WARD_INDENT_CLINICAL_ORDER_UNIT_MISMATCH',
+      statusCode: 409,
+    });
+
+    const indent = await createWardIndent({
+      ...base,
+      items: [{
+        clinical_order_id: Number(order.id),
+        item_name: 'Caller-projected drug-chart name',
+        quantity_requested: 2,
+      }],
+      commandKey: `bound-derived-${RUN}`,
+    });
+    expect(indent.items[0]).toMatchObject({
+      pharmacy_catalog_id: medicationSubstitute.catalogId,
+      quantity_requested: 2,
+      unit: 'tablet',
+    });
+  });
+
+  test('fails closed when a linked order lacks any canonical supply-binding field', async () => {
+    const order = (await prisma.$queryRawUnsafe(
+      `INSERT INTO clinical_orders
+         (tenant_id, order_number, patient_uid, encounter_id, order_type, status,
+          details, updated_at)
+       VALUES ($1::uuid, $2::text, $3::uuid, $4::uuid, 'medication', 'ordered',
+               jsonb_build_object('medication_name', $5::text), NOW())
+       RETURNING id`,
+      TENANT,
+      `MED-01-INCOMPLETE-BOUND-${RUN}`,
+      PATIENT,
+      medicationEncounterId,
+      plain.name,
+    ))[0];
+    const create = (commandKey) => createWardIndent({
+      wardId,
+      admissionId: medicationAdmissionId,
+      encounterId: medicationEncounterId,
+      patientUid: PATIENT,
+      indentType: 'pharmacy',
+      requestedBy: REQUESTER,
+      tenantId: TENANT,
+      commandKey,
+      items: [{
+        pharmacy_catalog_id: plain.catalogId,
+        clinical_order_id: Number(order.id),
+        item_name: plain.name,
+        quantity_requested: 2,
+        unit: 'tablet',
+      }],
+    });
+
+    await expect(create(`bound-missing-catalog-${RUN}`)).rejects.toMatchObject({
+      code: 'WARD_INDENT_CLINICAL_ORDER_CATALOG_REQUIRED',
+      statusCode: 409,
+    });
+    await prisma.$executeRawUnsafe(
+      `UPDATE clinical_orders
+          SET details = details || jsonb_build_object('catalog_id', $1::int)
+        WHERE tenant_id = $2::uuid AND id = $3::int`,
+      plain.catalogId,
+      TENANT,
+      Number(order.id),
+    );
+    await expect(create(`bound-missing-quantity-${RUN}`)).rejects.toMatchObject({
+      code: 'WARD_INDENT_CLINICAL_ORDER_QUANTITY_REQUIRED',
+      statusCode: 409,
+    });
+    await prisma.$executeRawUnsafe(
+      `UPDATE clinical_orders
+          SET details = details || '{"quantity_requested":2}'::jsonb
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT,
+      Number(order.id),
+    );
+    await expect(create(`bound-missing-unit-${RUN}`)).rejects.toMatchObject({
+      code: 'WARD_INDENT_CLINICAL_ORDER_UNIT_REQUIRED',
+      statusCode: 409,
+    });
+  });
+
   test('closes the short-supply substitution loop with prescriber evidence', async () => {
     const indent = await createWardIndent({
       wardId,
       patientUid: PATIENT,
-      indentType: 'pharmacy',
+      indentType: 'consumables',
       items: [{
         pharmacy_catalog_id: shortSupply.catalogId,
         item_name: shortSupply.name,
@@ -685,19 +1146,822 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
     expect(authorized.items[0].item_name).toBe(substitute.name);
   }, 60_000);
 
-  test('requires statutory handoff and patient-linked return evidence for Schedule H1', async () => {
+  test('rejects incompatible medication products and rechecks exact compatibility through issue', async () => {
+    const indent = await createControlledMedicationIndent({
+      catalog: medicationShortSupply,
+      quantity: 5,
+      key: 'medication-substitution',
+    });
+    const short = await markWardIndentShortSupply({
+      indentId: indent.id,
+      markedBy: PHARMACIST,
+      reason: 'Original medication stock is insufficient',
+      itemQuantitiesAvailable: [{ item_id: indent.items[0].id, quantity_available: 1 }],
+      expectedVersion: 1,
+      commandKey: `med-sub-short-${RUN}`,
+      tenantId: TENANT,
+    });
+    await expect(proposeWardIndentSubstitution({
+      indentId: indent.id,
+      proposedBy: PHARMACIST,
+      substitutions: [{
+        item_id: indent.items[0].id,
+        substitute_catalog_id: medicationIncompatibleSubstitute.catalogId,
+        quantity: 5,
+        reason: 'Unrelated medicine must never enter prescriber approval',
+      }],
+      expectedVersion: short.state_version,
+      commandKey: `med-sub-incompatible-propose-${RUN}`,
+      tenantId: TENANT,
+    })).rejects.toMatchObject({
+      code: 'WARD_INDENT_MEDICATION_SUBSTITUTION_INCOMPATIBLE',
+      statusCode: 409,
+      details: expect.objectContaining({
+        phase: 'proposal',
+        mismatched_dimensions: expect.arrayContaining([
+          'composition_id',
+          'strength',
+          'dosage_form',
+          'route',
+        ]),
+      }),
+    });
+    const proposed = await proposeWardIndentSubstitution({
+      indentId: indent.id,
+      proposedBy: PHARMACIST,
+      substitutions: [{
+        item_id: indent.items[0].id,
+        substitute_catalog_id: medicationSubstitute.catalogId,
+        quantity: 5,
+        reason: 'Equivalent medication formulation confirmed for prescriber review',
+      }],
+      expectedVersion: short.state_version,
+      commandKey: `med-sub-propose-${RUN}`,
+      tenantId: TENANT,
+    });
+    await prisma.$executeRawUnsafe(
+      `UPDATE pharmacy_catalog
+          SET route = 'intravenous', updated_at = NOW()
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT,
+      medicationSubstitute.catalogId,
+    );
+    await expect(approveWardIndentSubstitution({
+      indentId: indent.id,
+      decidedBy: DOCTOR,
+      expectedVersion: proposed.state_version,
+      commandKey: `med-sub-incompatible-approve-${RUN}`,
+      tenantId: TENANT,
+    })).rejects.toMatchObject({
+      code: 'WARD_INDENT_MEDICATION_SUBSTITUTION_INCOMPATIBLE',
+      statusCode: 409,
+      details: expect.objectContaining({
+        phase: 'approval',
+        mismatched_dimensions: expect.arrayContaining(['route']),
+      }),
+    });
+    await prisma.$executeRawUnsafe(
+      `UPDATE pharmacy_catalog
+          SET route = 'oral', updated_at = NOW()
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT,
+      medicationSubstitute.catalogId,
+    );
+    await prisma.$executeRawUnsafe(
+      `UPDATE users SET is_active = FALSE, updated_at = NOW()
+        WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+      TENANT,
+      DOCTOR,
+    );
+    await expect(approveWardIndentSubstitution({
+      indentId: indent.id,
+      decidedBy: DOCTOR,
+      expectedVersion: proposed.state_version,
+      commandKey: `med-sub-inactive-prescriber-${RUN}`,
+      tenantId: TENANT,
+    })).rejects.toMatchObject({
+      code: 'WARD_INDENT_SUBSTITUTION_ACTIVE_PRESCRIBER_REQUIRED',
+      statusCode: 403,
+    });
+    await prisma.$executeRawUnsafe(
+      `UPDATE users SET is_active = TRUE, updated_at = NOW()
+        WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+      TENANT,
+      DOCTOR,
+    );
+    const authorized = await approveWardIndentSubstitution({
+      indentId: indent.id,
+      decidedBy: DOCTOR,
+      expectedVersion: proposed.state_version,
+      commandKey: `med-sub-authorize-${RUN}`,
+      tenantId: TENANT,
+    });
+    expect(authorized.items[0]).toMatchObject({
+      pharmacy_catalog_id: medicationSubstitute.catalogId,
+      original_pharmacy_catalog_id: medicationShortSupply.catalogId,
+      clinical_order_id: indent.items[0].clinical_order_id,
+      substitution_status: 'approved',
+      substitution_decided_by: DOCTOR,
+    });
+    const approved = await approveWardIndent({
+      indentId: indent.id,
+      approvedBy: PHARMACIST,
+      expectedVersion: authorized.state_version,
+      commandKey: `med-sub-approve-${RUN}`,
+      tenantId: TENANT,
+    });
+    const stockBeforeRejectedIssue = Number((await prisma.$queryRawUnsafe(
+      `SELECT remaining_quantity
+         FROM pharmacy_inventory_batches
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT,
+      medicationSubstitute.batchId,
+    ))[0].remaining_quantity);
+    const invoicesBeforeRejectedIssue = Number((await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count
+         FROM billing_invoices
+        WHERE tenant_id = $1::uuid AND admission_id = $2::int`,
+      TENANT,
+      medicationAdmissionId,
+    ))[0].count);
+    await prisma.$executeRawUnsafe(
+      `UPDATE pharmacy_catalog
+          SET strength = '1000 mg', updated_at = NOW()
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT,
+      medicationSubstitute.catalogId,
+    );
+    await expect(issueWardIndent({
+      indentId: indent.id,
+      issuedBy: PHARMACIST,
+      expectedVersion: approved.state_version,
+      commandKey: `med-sub-incompatible-issue-${RUN}`,
+      tenantId: TENANT,
+    })).rejects.toMatchObject({
+      code: 'WARD_INDENT_MEDICATION_SUBSTITUTION_INCOMPATIBLE',
+      statusCode: 409,
+      details: expect.objectContaining({
+        phase: 'issue',
+        mismatched_dimensions: expect.arrayContaining(['strength']),
+      }),
+    });
+    expect(Number((await prisma.$queryRawUnsafe(
+      `SELECT remaining_quantity
+         FROM pharmacy_inventory_batches
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT,
+      medicationSubstitute.batchId,
+    ))[0].remaining_quantity)).toBe(stockBeforeRejectedIssue);
+    expect(Number((await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count
+         FROM billing_invoices
+        WHERE tenant_id = $1::uuid AND admission_id = $2::int`,
+      TENANT,
+      medicationAdmissionId,
+    ))[0].count)).toBe(invoicesBeforeRejectedIssue);
+    await prisma.$executeRawUnsafe(
+      `UPDATE pharmacy_catalog
+          SET strength = '500 mg', updated_at = NOW()
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT,
+      medicationSubstitute.catalogId,
+    );
+    const issued = await issueWardIndent({
+      indentId: indent.id,
+      issuedBy: PHARMACIST,
+      expectedVersion: approved.state_version,
+      commandKey: `med-sub-compatible-issue-${RUN}`,
+      tenantId: TENANT,
+    });
+    expect(issued.status).toBe('issued');
+    expect(issued.items[0]).toMatchObject({
+      pharmacy_catalog_id: medicationSubstitute.catalogId,
+      original_pharmacy_catalog_id: medicationShortSupply.catalogId,
+      substitution_status: 'approved',
+    });
+    const issuedEvent = issued.workflow.events.find((event) => event.action === 'issued');
+    expect(issuedEvent.details.medication_substitution_compatibility).toEqual([
+      expect.objectContaining({
+        item_id: indent.items[0].id,
+        original_catalog_id: medicationShortSupply.catalogId,
+        substitute_catalog_id: medicationSubstitute.catalogId,
+        compatibility_rule: 'same_high_confidence_composition_exact_strength_components_form_route_release_v2',
+        provenance: expect.objectContaining({
+          original: expect.objectContaining({
+            composition_id: medicationCompositionId,
+            composition_confidence: 'high',
+          }),
+          substitute: expect.objectContaining({
+            composition_id: medicationCompositionId,
+            composition_confidence: 'high',
+          }),
+        }),
+        provenance_sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+      }),
+    ]);
+  }, 60_000);
+
+  test('aborts issue when the authoritative order catalog is reclassified as non-medication', async () => {
+    const catalog = await seedCatalog(`MED-01 Reclassified ${RUN}`, 8, {
+      scheduleClass: 'OTC',
+      medication: true,
+    });
+    const indent = await createControlledMedicationIndent({
+      catalog,
+      quantity: 2,
+      key: 'catalog-reclassified-before-issue',
+    });
+    const reserved = await reserveWardIndent({
+      indentId: indent.id,
+      reservedBy: PHARMACIST,
+      expectedVersion: indent.state_version,
+      commandKey: `reclassified-reserve-${RUN}`,
+      tenantId: TENANT,
+    });
+    const approved = await approveWardIndent({
+      indentId: indent.id,
+      approvedBy: PHARMACIST,
+      expectedVersion: reserved.state_version,
+      commandKey: `reclassified-approve-${RUN}`,
+      tenantId: TENANT,
+    });
+    const stockBefore = Number((await prisma.$queryRawUnsafe(
+      `SELECT remaining_quantity
+         FROM pharmacy_inventory_batches
+        WHERE tenant_id = $1::uuid AND id = $2::integer`,
+      TENANT,
+      catalog.batchId,
+    ))[0].remaining_quantity);
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `UPDATE pharmacy_catalog
+            SET category = 'ward_supply',
+                requires_prescription = FALSE,
+                composition_id = NULL,
+                strength = NULL,
+                form = NULL,
+                route = NULL,
+                updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND id = $2::int`,
+        TENANT,
+        catalog.catalogId,
+      );
+      await tx.$executeRawUnsafe(
+        `UPDATE pharmacy_inventory_items
+            SET composition_id = NULL,
+                strength = NULL,
+                form = NULL,
+                schedule_class = NULL,
+                is_narcotic = FALSE,
+                metadata = '{}'::jsonb
+          WHERE tenant_id = $1::uuid AND catalog_id = $2::int`,
+        TENANT,
+        catalog.catalogId,
+      );
+    });
+
+    await expect(issueWardIndent({
+      indentId: indent.id,
+      issuedBy: PHARMACIST,
+      expectedVersion: approved.state_version,
+      commandKey: `reclassified-issue-${RUN}`,
+      tenantId: TENANT,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'WARD_INDENT_MEDICATION_CATALOG_CLASSIFICATION_MISMATCH',
+    });
+    expect(Number((await prisma.$queryRawUnsafe(
+      `SELECT remaining_quantity
+         FROM pharmacy_inventory_batches
+        WHERE tenant_id = $1::uuid AND id = $2::integer`,
+      TENANT,
+      catalog.batchId,
+    ))[0].remaining_quantity)).toBe(stockBefore);
+    expect(await prisma.$queryRawUnsafe(
+      `SELECT id
+         FROM ward_indent_financial_events
+        WHERE tenant_id = $1::uuid AND ward_indent_id = $2::integer`,
+      TENANT,
+      Number(indent.id),
+    )).toHaveLength(0);
+  }, 60_000);
+
+  test('aborts before inventory or billing when the linked order became terminal', async () => {
+    const catalog = await seedCatalog(`MED-03 Terminal Order ${RUN}`, 8, {
+      scheduleClass: 'OTC',
+      medication: true,
+    });
+    const indent = await createControlledMedicationIndent({
+      catalog,
+      quantity: 2,
+      key: 'terminal-before-issue',
+    });
+    const reserved = await reserveWardIndent({
+      indentId: indent.id,
+      reservedBy: PHARMACIST,
+      expectedVersion: indent.state_version,
+      commandKey: `terminal-before-issue-reserve-${RUN}`,
+      tenantId: TENANT,
+    });
+    const approved = await approveWardIndent({
+      indentId: indent.id,
+      approvedBy: PHARMACIST,
+      expectedVersion: reserved.state_version,
+      commandKey: `terminal-before-issue-approve-${RUN}`,
+      tenantId: TENANT,
+    });
+    const cancelledOrder = await cancelOrder(
+      Number(indent.items[0].clinical_order_id),
+      DOCTOR,
+      'Medication no longer indicated',
+    );
+    expect(cancelledOrder.ward_indent_terminal_projection).toMatchObject({
+      disposition: 'cancelled',
+      ward_indent_id: Number(indent.id),
+      ward_indent_status: 'cancelled',
+      remaining_active_clinical_order_ids: []
+    });
+    const cancelledIndent = await getWardIndent(indent.id, { tenantId: TENANT });
+    expect(cancelledIndent).toMatchObject({
+      status: 'cancelled',
+      active_sla_source_id: null,
+      items: [
+        expect.objectContaining({
+          fulfilment_status: 'cancelled',
+          quantity_reserved: 0,
+          quantity_approved: 0
+        })
+      ]
+    });
+    const released = await prisma.$queryRawUnsafe(
+      `SELECT status, issued_quantity
+         FROM ward_indent_inventory_allocations
+        WHERE tenant_id = $1::uuid AND ward_indent_id = $2::int`,
+      TENANT,
+      Number(indent.id)
+    );
+    expect(released.length).toBeGreaterThan(0);
+    expect(
+      released.every(row => row.status === 'released' && Number(row.issued_quantity) === 0)
+    ).toBe(true);
+    expect(
+      await prisma.$queryRawUnsafe(
+        `SELECT id FROM tasks
+        WHERE tenant_id = $1::uuid
+          AND metadata->>'ward_indent_id' = $2::text
+          AND status = ANY($3::text[])`,
+        TENANT,
+        String(indent.id),
+        ['open', 'in_progress', 'blocked', 'overdue']
+      )
+    ).toHaveLength(0);
+    expect(
+      await prisma.$queryRawUnsafe(
+        `SELECT id FROM workflow_sla_instances
+        WHERE tenant_id = $1::uuid
+          AND source_table = 'ward_indents'
+          AND source_id LIKE $2
+          AND completed_at IS NULL`,
+        TENANT,
+        `ward-indent:${indent.id}:%`
+      )
+    ).toHaveLength(0);
+    const stockBefore = Number(
+      (
+        await prisma.$queryRawUnsafe(
+          `SELECT remaining_quantity
+         FROM pharmacy_inventory_batches
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT,
+      catalog.batchId,
+    ))[0].remaining_quantity);
+
+    await expect(
+      issueWardIndent({
+        indentId: indent.id,
+        issuedBy: PHARMACIST,
+        expectedVersion: approved.state_version,
+        commandKey: `terminal-before-issue-attempt-${RUN}`,
+        tenantId: TENANT
+      })
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(
+      Number(
+        (
+          await prisma.$queryRawUnsafe(
+            `SELECT remaining_quantity
+         FROM pharmacy_inventory_batches
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT,
+      catalog.batchId,
+    ))[0].remaining_quantity)).toBe(stockBefore);
+    expect(await prisma.$queryRawUnsafe(
+      `SELECT id
+         FROM ward_indent_financial_events
+        WHERE tenant_id = $1::uuid AND ward_indent_id = $2::int`,
+      TENANT,
+      Number(indent.id),
+    )).toHaveLength(0);
+  }, 60_000);
+
+  test('terminal order with issued custody opens reconciliation without stock return or credit', async () => {
+    const catalog = await seedCatalog(`MED-03 Issued Terminal ${RUN}`, 8, {
+      scheduleClass: 'OTC',
+      medication: true
+    });
+    const indent = await createControlledMedicationIndent({
+      catalog,
+      quantity: 2,
+      key: 'issued-terminal'
+    });
+    const reserved = await reserveWardIndent({
+      indentId: indent.id,
+      reservedBy: PHARMACIST,
+      expectedVersion: indent.state_version,
+      commandKey: `issued-terminal-reserve-${RUN}`,
+      tenantId: TENANT
+    });
+    const approved = await approveWardIndent({
+      indentId: indent.id,
+      approvedBy: PHARMACIST,
+      expectedVersion: reserved.state_version,
+      commandKey: `issued-terminal-approve-${RUN}`,
+      tenantId: TENANT
+    });
+    const issued = await issueWardIndent({
+      indentId: indent.id,
+      issuedBy: PHARMACIST,
+      expectedVersion: approved.state_version,
+      commandKey: `issued-terminal-issue-${RUN}`,
+      tenantId: TENANT
+    });
+    expect(issued.status).toBe('issued');
+    const stockAfterIssue = Number(
+      (
+        await prisma.$queryRawUnsafe(
+          `SELECT remaining_quantity FROM pharmacy_inventory_batches
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+          TENANT,
+          catalog.batchId
+        )
+      )[0].remaining_quantity
+    );
+    const financialBefore = await prisma.$queryRawUnsafe(
+      `SELECT id, status FROM ward_indent_financial_events
+        WHERE tenant_id = $1::uuid AND ward_indent_id = $2::int`,
+      TENANT,
+      Number(indent.id)
+    );
+    expect(financialBefore.length).toBeGreaterThan(0);
+
+    const cancelledOrder = await cancelOrder(
+      Number(indent.items[0].clinical_order_id),
+      DOCTOR,
+      'Therapy stopped after issue; reconcile ward custody'
+    );
+    expect(cancelledOrder.ward_indent_terminal_projection).toMatchObject({
+      disposition: 'reconciliation_required',
+      ward_indent_id: Number(indent.id),
+      ward_indent_status: 'reconciliation_required'
+    });
+    const projected = await getWardIndent(indent.id, { tenantId: TENANT });
+    expect(projected).toMatchObject({ status: 'reconciliation_required' });
+    expect(
+      Number(
+        (
+          await prisma.$queryRawUnsafe(
+            `SELECT remaining_quantity FROM pharmacy_inventory_batches
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+            TENANT,
+            catalog.batchId
+          )
+        )[0].remaining_quantity
+      )
+    ).toBe(stockAfterIssue);
+    expect(
+      await prisma.$queryRawUnsafe(
+        `SELECT id, status FROM ward_indent_financial_events
+        WHERE tenant_id = $1::uuid AND ward_indent_id = $2::int
+        ORDER BY id`,
+        TENANT,
+        Number(indent.id)
+      )
+    ).toEqual(financialBefore);
+    expect(
+      await prisma.$queryRawUnsafe(
+        `SELECT id FROM billing_credit_notes
+        WHERE tenant_id = $1::uuid
+          AND source_financial_event_id IN (
+            SELECT id FROM ward_indent_financial_events
+             WHERE tenant_id = $1::uuid AND ward_indent_id = $2::int
+          )`,
+        TENANT,
+        Number(indent.id)
+      )
+    ).toHaveLength(0);
+    expect(
+      (
+        await prisma.$queryRawUnsafe(
+          `SELECT COUNT(*)::int AS count FROM tasks
+        WHERE tenant_id = $1::uuid
+          AND metadata->>'ward_indent_id' = $2::text
+          AND status = ANY($3::text[])`,
+          TENANT,
+          String(indent.id),
+          ['open', 'in_progress', 'blocked', 'overdue']
+        )
+      )[0].count
+    ).toBe(1);
+    expect(
+      (
+        await prisma.$queryRawUnsafe(
+          `SELECT COUNT(*)::int AS count FROM workflow_sla_instances
+        WHERE tenant_id = $1::uuid
+          AND source_table = 'ward_indents'
+          AND source_id = $2
+          AND completed_at IS NULL`,
+          TENANT,
+          projected.active_sla_source_id
+        )
+      )[0].count
+    ).toBe(1);
+  }, 60_000);
+
+  test('ward-transition failure rolls back the terminal order and reservation release together', async () => {
+    const catalog = await seedCatalog(`MED-03 Terminal Rollback ${RUN}`, 8, {
+      scheduleClass: 'OTC',
+      medication: true
+    });
+    const indent = await createControlledMedicationIndent({
+      catalog,
+      quantity: 2,
+      key: 'terminal-rollback'
+    });
+    await reserveWardIndent({
+      indentId: indent.id,
+      reservedBy: PHARMACIST,
+      expectedVersion: indent.state_version,
+      commandKey: `terminal-rollback-reserve-${RUN}`,
+      tenantId: TENANT
+    });
+    await prisma.$executeRawUnsafe(
+      'DROP TRIGGER IF EXISTS test_med03_terminal_ward_rollback ON ward_indent_events'
+    );
+    await prisma.$executeRawUnsafe(
+      'DROP FUNCTION IF EXISTS public.test_med03_terminal_ward_rollback()'
+    );
+    await prisma.$executeRawUnsafe(
+      `CREATE FUNCTION public.test_med03_terminal_ward_rollback()
+       RETURNS trigger LANGUAGE plpgsql AS $$
+       BEGIN
+         IF NEW.ward_indent_id = ${Number(indent.id)} AND NEW.action = 'cancelled' THEN
+           RAISE EXCEPTION 'forced terminal ward rollback' USING ERRCODE = 'P0001';
+         END IF;
+         RETURN NEW;
+       END $$`
+    );
+    await prisma.$executeRawUnsafe(
+      `CREATE TRIGGER test_med03_terminal_ward_rollback
+       BEFORE INSERT ON ward_indent_events
+       FOR EACH ROW EXECUTE FUNCTION public.test_med03_terminal_ward_rollback()`
+    );
+    try {
+      await expect(
+        cancelOrder(
+          Number(indent.items[0].clinical_order_id),
+          DOCTOR,
+          'Force the shared transaction to roll back'
+        )
+      ).rejects.toThrow(/forced terminal ward rollback/i);
+    } finally {
+      await prisma.$executeRawUnsafe(
+        'DROP TRIGGER IF EXISTS test_med03_terminal_ward_rollback ON ward_indent_events'
+      );
+      await prisma.$executeRawUnsafe(
+        'DROP FUNCTION IF EXISTS public.test_med03_terminal_ward_rollback()'
+      );
+    }
+    expect(
+      await prisma.clinical_orders.findUnique({
+        where: { id: Number(indent.items[0].clinical_order_id) },
+        select: { status: true }
+      })
+    ).toEqual({ status: 'verified' });
+    expect(await getWardIndent(indent.id, { tenantId: TENANT })).toMatchObject({
+      status: 'reserved'
+    });
+    expect(
+      (
+        await prisma.$queryRawUnsafe(
+          `SELECT COUNT(*)::int AS count
+         FROM ward_indent_inventory_allocations
+        WHERE tenant_id = $1::uuid
+          AND ward_indent_id = $2::int
+          AND status = 'reserved'`,
+          TENANT,
+          Number(indent.id)
+        )
+      )[0].count
+    ).toBeGreaterThan(0);
+  }, 60_000);
+
+  test('terminal projection releases later unissued lines while mixed controlled custody remains in reconciliation', async () => {
+    const regularCatalog = await seedCatalog(`MED-03 Multi-line Terminal ${RUN}`, 8, {
+      scheduleClass: 'OTC',
+      medication: true
+    });
+    const controlledDetails = bindMedicationOrderCatalogAuthority(
+      {
+        medication_name: controlled.name,
+        catalog_id: controlled.catalogId,
+        dose: controlled.strength,
+        route: controlled.route,
+        quantity_requested: 1,
+        unit: 'each'
+      },
+      { ...controlled, id: controlled.catalogId },
+      { phase: 'create' }
+    );
+    const regularDetails = bindMedicationOrderCatalogAuthority(
+      {
+        medication_name: regularCatalog.name,
+        catalog_id: regularCatalog.catalogId,
+        dose: regularCatalog.strength,
+        route: regularCatalog.route,
+        quantity_requested: 1,
+        unit: 'each'
+      },
+      { ...regularCatalog, id: regularCatalog.catalogId },
+      { phase: 'create' }
+    );
+    const orderRows = (
+      await prisma.$queryRawUnsafe(
+        `INSERT INTO clinical_orders
+         (tenant_id, order_number, patient_uid, encounter_id, order_type,
+          status, ordered_by, details, updated_at)
+       VALUES
+         ($1::uuid, $2, $3::uuid, $4::uuid, 'medication', 'ordered',
+          $5::uuid, $6::jsonb, NOW()),
+         ($1::uuid, $7, $3::uuid, $4::uuid, 'medication', 'ordered',
+          $5::uuid, $8::jsonb, NOW()),
+         ($1::uuid, $9, $3::uuid, $4::uuid, 'medication', 'ordered',
+          $5::uuid, $8::jsonb, NOW())
+       RETURNING id`,
+        TENANT,
+        `MED-01-multi-stop-${RUN}`.slice(0, 80),
+        PATIENT,
+        medicationEncounterId,
+        DOCTOR,
+        JSON.stringify(controlledDetails),
+        `MED-01-multi-unissued-${RUN}`.slice(0, 80),
+        JSON.stringify(regularDetails),
+        `MED-01-multi-still-active-${RUN}`.slice(0, 80)
+      )
+    ).sort((left, right) => Number(left.id) - Number(right.id));
+    for (const [index, row] of orderRows.entries()) {
+      await verifyOrder(Number(row.id), PHARMACIST, {
+        tenantId: TENANT,
+        actorRole: 'PHARMACY_INCHARGE',
+        idempotencyKey: `med01-verify-multi-${index}-${RUN}`
+      });
+    }
     const indent = await createWardIndent({
       wardId,
+      admissionId: medicationAdmissionId,
+      encounterId: medicationEncounterId,
       patientUid: PATIENT,
-      indentType: 'pharmacy',
-      items: [{
-        pharmacy_catalog_id: controlled.catalogId,
-        item_name: controlled.name,
-        quantity_requested: 2,
-      }],
+      indentType: 'consumables',
+      items: orderRows.map((row, index) => ({
+        pharmacy_catalog_id: index === 0 ? controlled.catalogId : regularCatalog.catalogId,
+        clinical_order_id: Number(row.id),
+        item_name: index === 0 ? controlled.name : regularCatalog.name,
+        quantity_requested: 1
+      })),
       requestedBy: REQUESTER,
-      commandKey: `controlled-create-${RUN}`,
+      commandKey: `med01-create-multi-${RUN}`,
+      tenantId: TENANT
+    });
+    const reserved = await reserveWardIndent({
+      indentId: indent.id,
+      reservedBy: PHARMACIST,
+      expectedVersion: indent.state_version,
+      commandKey: `med01-reserve-multi-${RUN}`,
+      tenantId: TENANT
+    });
+    const approval = await approveWardIndent({
+      indentId: indent.id,
+      approvedBy: PHARMACIST,
+      expectedVersion: reserved.state_version,
+      commandKey: `med01-approve-multi-${RUN}`,
+      tenantId: TENANT
+    });
+    expect(approval.status).toBe('controlled_handoff_required');
+    const controlledLine = approval.items.find(
+      item => Number(item.clinical_order_id) === Number(orderRows[0].id)
+    );
+    const dispense = await dispenseControlled({
       tenantId: TENANT,
+      inventory_item_id: controlled.inventoryItemId,
+      inventory_batch_id: controlled.batchId,
+      quantity: 1,
+      patient_uid: PATIENT,
+      patient_name: 'Ward Patient',
+      performed_by: PHARMACIST,
+      performed_by_name: 'Issuing Pharmacist',
+      reference_id: controlledLine.controlled_reference_id
+    });
+    const handoff = await recordWardIndentControlledHandoff({
+      indentId: indent.id,
+      recordedBy: PHARMACIST,
+      itemEvidence: [
+        {
+          item_id: controlledLine.id,
+          movement_id: dispense.movement.id,
+          register_id: dispense.register_entry.id
+        }
+      ],
+      expectedVersion: approval.state_version,
+      commandKey: `med01-controlled-handoff-multi-${RUN}`,
+      tenantId: TENANT
+    });
+    expect(handoff.status).toBe('approved');
+
+    const cancelled = await cancelOrder(
+      Number(orderRows[0].id),
+      DOCTOR,
+      'Stop the issued controlled medication line'
+    );
+    expect(cancelled.ward_indent_terminal_projection).toMatchObject({
+      disposition: 'reconciliation_required',
+      remaining_active_clinical_order_ids: [
+        Number(orderRows[1].id),
+        Number(orderRows[2].id)
+      ]
+    });
+    const secondCancelled = await cancelOrder(
+      Number(orderRows[1].id),
+      DOCTOR,
+      'Stop the second medication line while reconciliation remains open'
+    );
+    expect(secondCancelled.ward_indent_terminal_projection).toMatchObject({
+      disposition: 'reconciliation_required',
+      remaining_active_clinical_order_ids: [Number(orderRows[2].id)]
+    });
+    const allocations = await prisma.$queryRawUnsafe(
+      `SELECT item.clinical_order_id, allocation.status,
+              allocation.reserved_quantity, allocation.issued_quantity
+         FROM ward_indent_inventory_allocations allocation
+         JOIN ward_indent_items item
+           ON item.tenant_id = allocation.tenant_id
+          AND item.id = allocation.ward_indent_item_id
+        WHERE allocation.tenant_id = $1::uuid
+          AND allocation.ward_indent_id = $2::int
+        ORDER BY item.clinical_order_id`,
+      TENANT,
+      Number(indent.id)
+    );
+    expect(allocations).toHaveLength(3);
+    expect(
+      allocations.find(row => Number(row.clinical_order_id) === Number(orderRows[0].id))
+    ).toMatchObject({ status: 'released' });
+    expect(
+      allocations.find(row => Number(row.clinical_order_id) === Number(orderRows[1].id))
+    ).toMatchObject({ status: 'released' });
+    expect(
+      allocations.find(row => Number(row.clinical_order_id) === Number(orderRows[2].id))
+    ).toMatchObject({ status: 'reserved' });
+    const projectedItems = await prisma.$queryRawUnsafe(
+      `SELECT clinical_order_id, controlled_movement_id, fulfilment_status
+         FROM ward_indent_items
+        WHERE tenant_id = $1::uuid
+          AND ward_indent_id = $2::int
+        ORDER BY clinical_order_id`,
+      TENANT,
+      Number(indent.id)
+    );
+    expect(
+      projectedItems.find(row => Number(row.clinical_order_id) === Number(orderRows[0].id))
+    ).toMatchObject({
+      controlled_movement_id: dispense.movement.id,
+      fulfilment_status: 'reconciliation_required'
+    });
+    expect(
+      projectedItems.find(row => Number(row.clinical_order_id) === Number(orderRows[1].id))
+    ).toMatchObject({ fulfilment_status: 'reconciliation_required' });
+    expect(
+      projectedItems.find(row => Number(row.clinical_order_id) === Number(orderRows[2].id))
+    ).toMatchObject({ fulfilment_status: 'approved' });
+    const activeOrder = await prisma.clinical_orders.findUnique({
+      where: { id: Number(orderRows[2].id) },
+      select: { status: true }
+    });
+    expect(activeOrder.status).toBe('verified');
+  }, 60_000);
+
+  test('requires statutory handoff and patient-linked return evidence for Schedule H1', async () => {
+    const indent = await createControlledMedicationIndent({
+      quantity: 2,
+      key: 'controlled',
     });
     await reserveWardIndent({
       indentId: indent.id,
@@ -858,30 +2122,13 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
   }, 60_000);
 
   test('keeps admission billing open until committed controlled custody reaches issue', async () => {
-    const admission = (await prisma.$queryRawUnsafe(
-      `INSERT INTO admissions
-         (tenant_id, patient_uid, status, allergies, ward, created_by, admitted_at, updated_at)
-       VALUES ($1::uuid, $2::uuid, 'admitted', ARRAY[]::text[], $3::text,
-               $4::uuid, NOW(), NOW())
-      RETURNING id`,
-      TENANT,
-      OTHER_PATIENT,
-      `MED-03 Controlled Custody Ward ${RUN}`,
-      REQUESTER,
-    ))[0];
-    const indent = await createWardIndent({
-      wardId,
-      admissionId: Number(admission.id),
+    const admission = await seedMedicationAdmission(OTHER_PATIENT, 'controlled-custody');
+    const indent = await createControlledMedicationIndent({
       patientUid: OTHER_PATIENT,
-      indentType: 'pharmacy',
-      items: [{
-        pharmacy_catalog_id: controlled.catalogId,
-        item_name: controlled.name,
-        quantity_requested: 1,
-      }],
-      requestedBy: REQUESTER,
-      commandKey: `controlled-custody-create-${RUN}`,
-      tenantId: TENANT,
+      admissionId: admission.admissionId,
+      encounterId: admission.encounterId,
+      quantity: 1,
+      key: 'controlled-custody',
     });
     const reserved = await reserveWardIndent({
       indentId: indent.id,
@@ -924,7 +2171,7 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
     expect(handoff.status).toBe('approved');
 
     await expect(admissionService.markForDischarge(
-      Number(admission.id),
+      admission.admissionId,
       REQUESTER,
       'IP_STAFF_NURSE',
       { tenantId: TENANT },
@@ -937,7 +2184,7 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
          FROM admissions
         WHERE tenant_id = $1::uuid AND id = $2::int`,
       TENANT,
-      Number(admission.id),
+      admission.admissionId,
     ))[0]).toMatchObject({
       billing_closed_at: null,
       discharge_initiated_at: null,
@@ -952,18 +2199,18 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
     });
     expect(issued.status).toBe('issued');
     const discharge = await admissionService.markForDischarge(
-      Number(admission.id),
+      admission.admissionId,
       REQUESTER,
       'IP_STAFF_NURSE',
       { tenantId: TENANT },
     );
-    expect(Number(discharge.admission.id)).toBe(Number(admission.id));
+    expect(Number(discharge.admission.id)).toBe(admission.admissionId);
     expect((await prisma.$queryRawUnsafe(
       `SELECT billing_closed_at
          FROM admissions
         WHERE tenant_id = $1::uuid AND id = $2::int`,
       TENANT,
-      Number(admission.id),
+      admission.admissionId,
     ))[0].billing_closed_at).toBeTruthy();
   }, 60_000);
 
@@ -971,7 +2218,7 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
     const indent = await createWardIndent({
       wardId,
       patientUid: null,
-      indentType: 'pharmacy',
+      indentType: 'consumables',
       items: [{
         pharmacy_catalog_id: plain.catalogId,
         item_name: plain.name,
@@ -1003,11 +2250,11 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
     expect(approved.items[0].controlled_reference_id).toBeNull();
   }, 60_000);
 
-  test('rejects patientless controlled ward-stock approval before custody is committed', async () => {
-    const indent = await createWardIndent({
+  test('rejects patientless controlled medication before a ward indent is created', async () => {
+    await expect(createWardIndent({
       wardId,
       patientUid: null,
-      indentType: 'pharmacy',
+      indentType: 'consumables',
       items: [{
         pharmacy_catalog_id: controlled.catalogId,
         item_name: controlled.name,
@@ -1016,96 +2263,13 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
       requestedBy: REQUESTER,
       commandKey: `patientless-controlled-create-${RUN}`,
       tenantId: TENANT,
-    });
-    const reserved = await reserveWardIndent({
-      indentId: indent.id,
-      reservedBy: PHARMACIST,
-      expectedVersion: 1,
-      commandKey: `patientless-controlled-reserve-${RUN}`,
-      tenantId: TENANT,
-    });
-    expect(reserved.items[0].controlled_reference_id).toBeTruthy();
-    await expect(approveWardIndent({
-      indentId: indent.id,
-      approvedBy: PHARMACIST,
-      expectedVersion: reserved.state_version,
-      commandKey: `patientless-controlled-approve-${RUN}`,
-      tenantId: TENANT,
     })).rejects.toMatchObject({
       statusCode: 409,
-      code: 'WARD_INDENT_CONTROLLED_PATIENT_REQUIRED',
-    });
-    expect(await getWardIndent(indent.id, { tenantId: TENANT }))
-      .toMatchObject({ status: 'reserved', state_version: reserved.state_version });
-
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
-      await tx.$executeRawUnsafe(
-        `UPDATE ward_indents
-            SET status = 'controlled_handoff_required',
-                state_version = 3,
-                owner_role_codes = ARRAY['PHARMACY_STAFF']::text[],
-                active_sla_source_id = $1::text,
-                updated_at = NOW()
-          WHERE tenant_id = $2::uuid AND id = $3::int`,
-        `ward-indent:${indent.id}:v3`,
-        TENANT,
-        Number(indent.id),
-      );
-    });
-    await expect(recordWardIndentControlledHandoff({
-      indentId: indent.id,
-      recordedBy: PHARMACIST,
-      itemEvidence: [],
-      expectedVersion: 3,
-      commandKey: `patientless-controlled-handoff-${RUN}`,
-      tenantId: TENANT,
-    })).rejects.toMatchObject({
-      statusCode: 409,
-      code: 'WARD_INDENT_CONTROLLED_PATIENT_REQUIRED',
+      code: 'WARD_INDENT_CLINICAL_ORDER_REQUIRED',
     });
   }, 60_000);
 
-  test('migration rejects a patientless ward-controlled statutory dispense with SQLSTATE 23514', async () => {
-    const indent = await createWardIndent({
-      wardId,
-      patientUid: null,
-      indentType: 'pharmacy',
-      items: [{
-        pharmacy_catalog_id: controlled.catalogId,
-        item_name: controlled.name,
-        quantity_requested: 1,
-      }],
-      requestedBy: REQUESTER,
-      commandKey: `patientless-ddl-create-${RUN}`,
-      tenantId: TENANT,
-    });
-    const reserved = await reserveWardIndent({
-      indentId: indent.id,
-      reservedBy: PHARMACIST,
-      expectedVersion: 1,
-      commandKey: `patientless-ddl-reserve-${RUN}`,
-      tenantId: TENANT,
-    });
-
-    let transitionFailure;
-    try {
-      await prisma.$executeRawUnsafe(
-        `UPDATE ward_indents
-            SET status = 'controlled_handoff_required',
-                state_version = state_version + 1,
-                updated_at = NOW()
-          WHERE tenant_id = $1::uuid AND id = $2::int`,
-        TENANT,
-        Number(indent.id),
-      );
-    } catch (error) {
-      transitionFailure = error;
-    }
-    expect(sqlState(transitionFailure)).toBe('23514');
-    expect(databaseMessage(transitionFailure))
-      .toMatch(/chk_ward_indent_controlled_patient_required|patientless ward-stock/i);
-
+  test('migration rejects a patientless controlled statutory dispense with SQLSTATE 23514', async () => {
     let failure;
     try {
       await dispenseControlled({
@@ -1116,7 +2280,7 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
         patient_uid: null,
         performed_by: PHARMACIST,
         performed_by_name: 'Issuing Pharmacist',
-        reference_id: reserved.items[0].controlled_reference_id,
+        reference_id: `patientless-ddl-${RUN}`,
       });
     } catch (error) {
       failure = error;
@@ -1127,18 +2291,9 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
   }, 60_000);
 
   test('fails controlled-handoff recovery closed when matching evidence is ambiguous', async () => {
-    const indent = await createWardIndent({
-      wardId,
-      patientUid: PATIENT,
-      indentType: 'pharmacy',
-      items: [{
-        pharmacy_catalog_id: controlled.catalogId,
-        item_name: controlled.name,
-        quantity_requested: 1,
-      }],
-      requestedBy: REQUESTER,
-      commandKey: `ambiguous-create-${RUN}`,
-      tenantId: TENANT,
+    const indent = await createControlledMedicationIndent({
+      quantity: 1,
+      key: 'ambiguous',
     });
     await reserveWardIndent({
       indentId: indent.id,

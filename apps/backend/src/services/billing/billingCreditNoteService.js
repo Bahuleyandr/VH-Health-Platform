@@ -468,6 +468,7 @@ export async function createBillingCreditNoteFromFinancialEventTx(tx, {
     commandKey: `${baseKey}:raised`,
     details: { source_financial_event_id: String(sourceId), auto_applied_draft: draft },
   });
+  let appliedEvent = null;
   if (draft) {
     await insertLifecycleEvent(tx, {
       tenantId: tid,
@@ -477,7 +478,7 @@ export async function createBillingCreditNoteFromFinancialEventTx(tx, {
       commandKey: `${baseKey}:approved`,
       details: { authority: 'draft_invoice_projection' },
     });
-    await insertLifecycleEvent(tx, {
+    appliedEvent = await insertLifecycleEvent(tx, {
       tenantId: tid,
       creditNoteId: note.id,
       eventType: 'applied',
@@ -516,8 +517,15 @@ export async function createBillingCreditNoteFromFinancialEventTx(tx, {
       actorUid: actor,
       sourceEvent: raisedEvent,
     });
+  } else {
+    await completeBillingCreditNoteObligationTx(tx, {
+      creditNote: created,
+      lifecycleEvent: appliedEvent,
+      evidenceKind: 'billing_credit_note_application',
+      actorUid: actor,
+    });
   }
-  return created;
+  return loadCreditNoteTx(tx, tid, note.id);
 }
 
 export async function listBillingCreditNotes({

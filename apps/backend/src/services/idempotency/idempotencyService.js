@@ -176,7 +176,10 @@ export async function finaliseIdempotencyKey({
 export async function releaseIdempotencyKey(id) {
   if (!id) return null;
   const rows = await prisma.$queryRawUnsafe(
-      `DELETE FROM idempotency_keys WHERE id = $1 RETURNING id`,
+      `DELETE FROM idempotency_keys
+        WHERE id = $1
+          AND status = 'in_flight'
+        RETURNING id`,
       id,
   );
   return rows[0] || null;

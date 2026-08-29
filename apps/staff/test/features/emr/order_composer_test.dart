@@ -9,10 +9,35 @@
 // persisted-row display helper. Same no-plugin-channel philosophy as
 // cds_allergy_blocker_test.dart / vitals_chart_screen_test.dart.
 
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vhhealth_staff/core/services/order_payloads.dart';
 import 'package:vhhealth_staff/features/emr/models/order_draft.dart';
 
 void main() {
+  test('both order-set exits run medication reconciliation before handoff', () {
+    final source = File(
+      'lib/features/productivity/screens/order_sets_screen.dart',
+    ).readAsStringSync();
+    const reconciliationCall =
+        'final ready = await _reconcileSelectedMedicationItems();';
+
+    expect(
+      RegExp(RegExp.escape(reconciliationCall)).allMatches(source),
+      hasLength(2),
+    );
+    expect(
+      source,
+      contains("'payload': _reconciledMedicationPayloads[it.id] ?? it.payload"),
+    );
+    expect(
+      RegExp(r'_selectedCatalog = null;').allMatches(source),
+      hasLength(2),
+      reason: 'editing catalog search must invalidate the prior selection',
+    );
+  });
+
   group('canPrescribeMedicationOrders', () {
     test('doctor-class roles can prescribe', () {
       for (final role in [
@@ -21,9 +46,6 @@ void main() {
         'CONSULTANT',
         'JUNIOR_DOCTOR',
         'RESIDENT',
-        'MEDICAL_SUPERINTENDENT',
-        'ADMIN',
-        'SUPER_ADMIN',
       ]) {
         expect(canPrescribeMedicationOrders(role), isTrue, reason: role);
       }
@@ -35,9 +57,16 @@ void main() {
     });
 
     test('nurse/pharmacy/null cannot prescribe', () {
-      expect(canPrescribeMedicationOrders('NURSE'), isFalse);
-      expect(canPrescribeMedicationOrders('PHARMACY'), isFalse);
-      expect(canPrescribeMedicationOrders('IP_STAFF_NURSE'), isFalse);
+      for (final role in [
+        'ADMIN',
+        'SUPER_ADMIN',
+        'MEDICAL_SUPERINTENDENT',
+        'NURSE',
+        'PHARMACY',
+        'IP_STAFF_NURSE',
+      ]) {
+        expect(canPrescribeMedicationOrders(role), isFalse, reason: role);
+      }
       expect(canPrescribeMedicationOrders(null), isFalse);
       expect(canPrescribeMedicationOrders(''), isFalse);
     });
@@ -54,6 +83,8 @@ void main() {
           'route': 'PO',
           'frequency': 'TDS',
           'duration_days': 5,
+          'quantity_requested': 15,
+          'unit': 'capsule',
         },
       );
       final item = buildBulkOrderItem(
@@ -69,6 +100,8 @@ void main() {
       final details = item['details'] as Map<String, dynamic>;
       expect(details['medication_name'], 'Amoxicillin');
       expect(details['duration_days'], 5);
+      expect(details['quantity_requested'], 15);
+      expect(details['unit'], 'capsule');
       // No flat legacy fields on the item itself.
       expect(item.containsKey('medication'), isFalse);
       expect(item.containsKey('dosage'), isFalse);
@@ -122,13 +155,162 @@ void main() {
           'route': 'IV',
           'frequency': 'BD',
           'duration_days': 7,
+          'catalog_id': 41,
+          'quantity_requested': 14,
+          'unit': 'vial',
         },
       });
       expect(draft, isNotNull);
       expect(draft!.orderType, 'medication');
       expect(draft.details['medication_name'], 'Ceftriaxone');
       expect(draft.details['duration_days'], 7);
+      expect(draft.details['catalog_id'], 41);
+      expect(draft.details['quantity_requested'], 14);
+      expect(draft.details['unit'], 'vial');
       expect(draft.source, 'order-set');
+      expect(medicationHasAuthoritativeCatalog(draft), isTrue);
+
+      final item = buildBulkOrderItem(draft, patientUid: 'patient-1');
+      final details = item['details'] as Map<String, dynamic>;
+      expect(details['catalog_id'], 41);
+      expect(details['quantity_requested'], 14);
+      expect(details['unit'], 'vial');
+    });
+
+    test('seeded medication items require live catalog reconciliation', () {
+      final seeded = <String, dynamic>{
+        'drug': 'Ceftriaxone',
+        'dose': '1g',
+        'route': 'PO',
+        'frequency': 'q12h',
+        'duration_days': 7,
+      };
+
+      expect(medicationOrderSetPayloadNeedsReconciliation(seeded), isTrue);
+
+      final reconciled = reconcileMedicationOrderSetPayload(
+        payload: seeded,
+        catalogRow: {
+          'id': 41,
+          'name': 'Ceftriaxone 1 g vial',
+          'generic_name': 'Ceftriaxone',
+          'strength': '1 g',
+          'form': 'vial',
+          'route': 'IV',
+        },
+        dose: '1 g every 12 hours',
+        quantityRequested: '14',
+        unit: 'VIAL',
+      );
+
+      expect(reconciled['drug'], 'Ceftriaxone 1 g vial');
+      expect(reconciled['medication_name'], 'Ceftriaxone 1 g vial');
+      expect(reconciled['catalog_id'], 41);
+      expect(reconciled['quantity_requested'], 14);
+      expect(reconciled['unit'], 'vial');
+      expect(reconciled['dose'], '1 g every 12 hours');
+      expect(reconciled['route'], 'IV');
+      expect(reconciled['frequency'], 'q12h');
+      expect(
+        medicationOrderSetPayloadNeedsReconciliation(reconciled),
+        isTrue,
+        reason: 'a future application must re-confirm the live catalog row',
+      );
+      expect(
+        medicationOrderSetPayloadNeedsReconciliation(
+          reconciled,
+          liveCatalogSelected: true,
+        ),
+        isFalse,
+      );
+    });
+
+    test(
+      'medication directions require an explicit dose and catalog route',
+      () {
+        final complete = OrderDraft(
+          orderType: 'medication',
+          details: {'dose': '500 mg', 'route': 'PO'},
+        );
+        expect(medicationClinicalDirectionsFailure(complete), isNull);
+
+        final noDose = OrderDraft(
+          orderType: 'medication',
+          details: {'route': 'PO'},
+        );
+        expect(
+          medicationClinicalDirectionsFailure(noDose),
+          MedicationClinicalDirectionsValidationFailure.doseRequired,
+        );
+
+        final noRoute = OrderDraft(
+          orderType: 'medication',
+          details: {'dose': '500 mg'},
+        );
+        expect(
+          medicationClinicalDirectionsFailure(noRoute),
+          MedicationClinicalDirectionsValidationFailure.routeRequired,
+        );
+
+        expect(
+          medicationClinicalDirectionsFailure(
+            OrderDraft(orderType: 'investigation', details: const {}),
+          ),
+          isNull,
+        );
+      },
+    );
+
+    test(
+      'reconciliation rejects blank dose and catalog rows without route',
+      () {
+        final catalog = <String, dynamic>{
+          'id': 41,
+          'name': 'Ceftriaxone 1 g vial',
+          'route': 'IV',
+        };
+        expect(
+          () => reconcileMedicationOrderSetPayload(
+            payload: const {'drug': 'Ceftriaxone'},
+            catalogRow: catalog,
+            dose: ' ',
+            quantityRequested: 1,
+            unit: 'vial',
+          ),
+          throwsArgumentError,
+        );
+        expect(
+          () => reconcileMedicationOrderSetPayload(
+            payload: const {'drug': 'Ceftriaxone'},
+            catalogRow: const {'id': 41, 'name': 'Ceftriaxone 1 g vial'},
+            dose: '1 g',
+            quantityRequested: 1,
+            unit: 'vial',
+          ),
+          throwsArgumentError,
+        );
+      },
+    );
+
+    test('generic dose aliases are not accepted as ward-supply quantity', () {
+      for (final alias in ['quantity', 'qty', 'units']) {
+        final draft = orderDraftFromSetItem({
+          'kind': 'med',
+          'payload': {
+            'drug': 'Metformin',
+            'catalog_id': 73,
+            alias: 1,
+            'unit': 'tablet',
+          },
+        });
+
+        expect(draft!.details['quantity_requested'], isNull, reason: alias);
+        expect(
+          medicationWardSupplyFailure(draft),
+          MedicationWardSupplyValidationFailure.quantityRequired,
+          reason: alias,
+        );
+      }
     });
 
     test('lab item maps to an investigation draft', () {
@@ -192,6 +374,7 @@ void main() {
   group('catalog row mapping', () {
     test('pharmacy formulary row pre-fills a medication draft', () {
       final draft = orderDraftFromMedCatalogRow({
+        'id': 73,
         'name': 'Metformin',
         'strength': '500mg',
         'generic_name': 'Metformin HCl',
@@ -199,7 +382,47 @@ void main() {
       expect(draft.orderType, 'medication');
       expect(draft.details['medication_name'], 'Metformin');
       expect(draft.details['dose'], '500mg');
+      expect(draft.details['catalog_id'], 73);
+      expect(draft.details['generic_name'], 'Metformin HCl');
+      expect(draft.details.containsKey('quantity_requested'), isFalse);
+      expect(draft.details.containsKey('unit'), isFalse);
       expect(draft.source, 'catalog');
+      expect(medicationHasAuthoritativeCatalog(draft), isTrue);
+    });
+
+    test('medication supply remains incomplete until explicitly captured', () {
+      final draft = orderDraftFromMedCatalogRow({
+        'id': 73,
+        'name': 'Metformin',
+        'strength': '500mg',
+        'form': 'tablet',
+        'pack_size': '10 x 10',
+      });
+
+      expect(
+        medicationWardSupplyFailure(draft),
+        MedicationWardSupplyValidationFailure.quantityRequired,
+      );
+      draft.details['quantity_requested'] = 20;
+      expect(
+        medicationWardSupplyFailure(draft),
+        MedicationWardSupplyValidationFailure.unitRequired,
+      );
+      draft.details['unit'] = 'tablet';
+      expect(medicationWardSupplyFailure(draft), isNull);
+    });
+
+    test('free-form medication draft has no authoritative catalog', () {
+      final draft = OrderDraft(
+        orderType: 'medication',
+        details: {
+          'medication_name': 'Free-text medicine',
+          'quantity_requested': 1,
+          'unit': 'each',
+        },
+      );
+
+      expect(medicationHasAuthoritativeCatalog(draft), isFalse);
     });
 
     test('lab catalog row maps to investigation with code + fasting', () {

@@ -13,7 +13,7 @@
 // recordCanonicalClinicalEvent (delegates to the real impl unless forced to fail).
 
 import { jest } from '@jest/globals';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -28,14 +28,19 @@ jest.unstable_mockModule('../services/clinical/canonicalClinicalPlatformService.
   },
 }));
 
-const prisma = (await import('../lib/prisma.js')).default;
+const prismaModule = await import('../lib/prisma.js');
+const prisma = prismaModule.default;
+const { setTenantTx } = prismaModule;
 const marService = await import('../services/clinical/marService.js');
+const orderEntryService = await import('../services/emr/orderEntryService.js');
 const { seedReceivedMedicationSupply } = await import('./helpers/medicationEvidenceFixture.js');
 
 const TENANT_ID = randomUUID();
 const PATIENT_UID = randomUUID();
 const NURSE_UID = randomUUID();
+const DOCTOR_UID = randomUUID();
 const PHARMACIST_UID = randomUUID();
+const ADMIN_UID = randomUUID();
 const SCHED_BASE = '2026-07-01T08:00:00Z';
 const DRUG = `MAR_ATOM_${randomUUID().slice(0, 8)}`;
 const RUN = `${process.pid}-${Date.now()}-${randomUUID().slice(0, 8)}`;
@@ -122,6 +127,8 @@ async function cleanupAll() {
       'ward_indents',
       'clinical_orders',
       'pharmacy_catalog',
+      'admissions',
+      'beds',
       'wards',
       'audit_logs',
       'users',
@@ -164,12 +171,16 @@ d('MAR canonical atomicity — schedule/missed/held (audit §3)', () => {
     await prisma.$executeRawUnsafe(
       `INSERT INTO users (uid, tenant_id, name, role, is_active, status, updated_at)
        VALUES
-         ($1::uuid, $4::uuid, 'MAR Atomic Patient', 'PATIENT', TRUE, 'active', NOW()),
-         ($2::uuid, $4::uuid, 'MAR Atomic Nurse', 'NURSING_STAFF', TRUE, 'active', NOW()),
-         ($3::uuid, $4::uuid, 'MAR Atomic Pharmacist', 'PHARMACY_INCHARGE', TRUE, 'active', NOW())`,
+         ($1::uuid, $6::uuid, 'MAR Atomic Patient', 'PATIENT', TRUE, 'active', NOW()),
+         ($2::uuid, $6::uuid, 'MAR Atomic Nurse', 'NURSING_STAFF', TRUE, 'active', NOW()),
+         ($3::uuid, $6::uuid, 'MAR Atomic Pharmacist', 'PHARMACY_INCHARGE', TRUE, 'active', NOW()),
+         ($4::uuid, $6::uuid, 'MAR Atomic Doctor', 'DOCTOR', TRUE, 'active', NOW()),
+         ($5::uuid, $6::uuid, 'MAR Atomic Admin', 'ADMIN', TRUE, 'active', NOW())`,
       PATIENT_UID,
       NURSE_UID,
       PHARMACIST_UID,
+      DOCTOR_UID,
+      ADMIN_UID,
       TENANT_ID,
     );
     const supply = await seedReceivedMedicationSupply({
@@ -177,6 +188,7 @@ d('MAR canonical atomicity — schedule/missed/held (audit §3)', () => {
       tenantId: TENANT_ID,
       patientUid: PATIENT_UID,
       requesterUid: NURSE_UID,
+      prescriberUid: DOCTOR_UID,
       pharmacistUid: PHARMACIST_UID,
       receiverUid: NURSE_UID,
       run: `atomic-${RUN}`,
@@ -290,4 +302,156 @@ d('MAR canonical atomicity — schedule/missed/held (audit §3)', () => {
     expect((await timelineRows('mar.held')).length).toBeGreaterThanOrEqual(1);
     expect((await auditRows('mar.held')).length).toBeGreaterThanOrEqual(1);
   }, 30_000);
+
+  it('requires cancel instead of completing a never-verified medication order', async () => {
+    const rows = await prisma.$queryRawUnsafe(
+      `INSERT INTO clinical_orders
+         (tenant_id, order_number, patient_uid, order_type, status, ordered_by, details)
+       VALUES ($1::uuid, $2::text, $3::uuid, 'medication', 'ordered', $4::uuid, '{}'::jsonb)
+       RETURNING id`,
+      TENANT_ID,
+      `ORD-NEVER-VERIFIED-${RUN}`,
+      PATIENT_UID,
+      DOCTOR_UID,
+    );
+
+    await expect(
+      orderEntryService.completeOrder(Number(rows[0].id), DOCTOR_UID),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'MEDICATION_ORDER_COMPLETION_VERIFICATION_REQUIRED',
+    });
+  });
+
+  it('projects overdue and future MAR rows when a prescriber completes the order', async () => {
+    await cleanupMarRows();
+    await expect(orderEntryService.completeOrder(
+      product.clinicalOrderId,
+      ADMIN_UID,
+    )).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'MEDICATION_ORDER_TERMINAL_PRESCRIBER_REQUIRED',
+    });
+    const firstFutureAt = new Date(Date.now() + 20 * 60_000).toISOString();
+    const racedFutureAt = new Date(Date.now() + 40 * 60_000).toISOString();
+    const pastAt = new Date(Date.now() - 20 * 60_000).toISOString();
+    await marService.scheduleMedications(PATIENT_UID, null, [{
+      medication_name: DRUG,
+      dose: '5 mg',
+      route: 'oral',
+      scheduled_time: firstFutureAt,
+      clinical_order_id: product.clinicalOrderId,
+      supply_quantity_per_dose: 1,
+    }, {
+      medication_name: DRUG,
+      dose: '5 mg',
+      route: 'oral',
+      scheduled_time: pastAt,
+      clinical_order_id: product.clinicalOrderId,
+      supply_quantity_per_dose: 1,
+    }], { actorUid: NURSE_UID, actorRole: 'NURSING_STAFF', tenantId: TENANT_ID });
+
+    const terminalKey = `terminal-complete-${RUN}`;
+    const terminalFingerprint = createHash('sha256')
+      .update(JSON.stringify({ action: 'complete', reason: null }))
+      .digest('hex');
+    const claimRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO idempotency_keys
+         (tenant_id, user_uid, request_key, request_method, request_path,
+          request_body_hash, status)
+       VALUES ($1::uuid, $2::uuid, $3::text, 'PUT', $4::text, $5::char(64), 'in_flight')
+       RETURNING id`,
+      TENANT_ID,
+      DOCTOR_UID,
+      terminalKey,
+      `/api/v1/emr/orders/${product.clinicalOrderId}/terminal`,
+      terminalFingerprint,
+    );
+
+    const [scheduleResult, completeResult] = await Promise.allSettled([
+      marService.scheduleMedications(PATIENT_UID, null, [{
+        medication_name: DRUG,
+        dose: '5 mg',
+        route: 'oral',
+        scheduled_time: racedFutureAt,
+        clinical_order_id: product.clinicalOrderId,
+        supply_quantity_per_dose: 1,
+      }], { actorUid: NURSE_UID, actorRole: 'NURSING_STAFF', tenantId: TENANT_ID }),
+      orderEntryService.completeOrder(product.clinicalOrderId, DOCTOR_UID, {
+        commandKey: terminalKey,
+        requestFingerprint: terminalFingerprint,
+        httpIdempotencyClaimId: Number(claimRows[0].id),
+        requestId: `request-${RUN}`,
+      }),
+    ]);
+    expect(completeResult.status).toBe('fulfilled');
+    if (scheduleResult.status === 'rejected') {
+      expect(scheduleResult.reason).toMatchObject({
+        code: 'MAR_SCHEDULE_ORDER_INACTIVE',
+        statusCode: 409,
+      });
+    }
+
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id, status, scheduled_time
+         FROM medication_administrations
+        WHERE tenant_id = $1::uuid
+          AND clinical_order_id = $2::int
+        ORDER BY scheduled_time, id`,
+      TENANT_ID,
+      product.clinicalOrderId,
+    );
+    const futureRows = rows.filter((row) => new Date(row.scheduled_time).getTime() >= Date.now());
+    const pastRows = rows.filter((row) => new Date(row.scheduled_time).getTime() < Date.now());
+    expect(futureRows.length).toBeGreaterThanOrEqual(1);
+    expect(futureRows.every((row) => row.status === 'cancelled')).toBe(true);
+    expect(pastRows.length).toBeGreaterThanOrEqual(1);
+    expect(pastRows.every((row) => row.status === 'cancelled')).toBe(true);
+
+    const projectionEvents = await timelineRows('mar.order_terminally_projected');
+    expect(projectionEvents).toHaveLength(rows.length);
+    const due = await marService.getDueMedications({
+      tenantId: TENANT_ID,
+      pastMinutes: 120,
+      futureMinutes: 120,
+    });
+    const overdue = await marService.getOverdueMedications(null, { tenantId: TENANT_ID });
+    expect(due.some((row) => Number(row.clinical_order_id) === product.clinicalOrderId)).toBe(false);
+    expect(overdue.some((row) => Number(row.clinical_order_id) === product.clinicalOrderId)).toBe(false);
+    const terminalReceipts = await prisma.$queryRawUnsafe(
+      `SELECT status, response_status, response_body
+         FROM idempotency_keys
+        WHERE id = $1::int`,
+      Number(claimRows[0].id),
+    );
+    expect(terminalReceipts[0]).toMatchObject({ status: 'complete', response_status: 200 });
+    expect(terminalReceipts[0].response_body).toMatchObject({
+      success: true,
+      message: 'Order completed',
+      data: {
+        id: product.clinicalOrderId,
+        status: 'completed',
+        ward_indent_terminal_projection: {
+          disposition: 'reconciliation_required',
+          ward_indent_status: 'reconciliation_required'
+        }
+      }
+    });
+
+    const replay = await setTenantTx(TENANT_ID, async (tx) => (
+      marService.terminallyProjectMedicationOrderDosesTx(tx, {
+        tenantId: TENANT_ID,
+        order: {
+          id: product.clinicalOrderId,
+          tenant_id: TENANT_ID,
+          order_type: 'medication',
+        },
+        actorUid: DOCTOR_UID,
+        terminalStatus: 'completed',
+        reason: 'Medication order course completed by prescriber',
+      })
+    ));
+    expect(replay).toEqual([]);
+    expect(await timelineRows('mar.order_terminally_projected')).toHaveLength(rows.length);
+  }, 60_000);
 });

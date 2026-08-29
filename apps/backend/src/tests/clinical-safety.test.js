@@ -51,6 +51,8 @@ async function cleanupFixtures() {
       'ward_indents',
       'clinical_orders',
       'pharmacy_catalog',
+      'admissions',
+      'beds',
       'wards',
       'audit_logs',
       'users',

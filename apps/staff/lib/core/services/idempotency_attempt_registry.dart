@@ -15,6 +15,22 @@ class IdempotencyAttemptRegistry {
 
   String? current(String scope) => _attempts[scope]?.current;
 
+  Future<T> execute<T>({
+    required String scope,
+    required Map<String, dynamic> body,
+    required Future<T> Function(
+      String idempotencyKey,
+      Map<String, dynamic> body,
+    )
+    send,
+    required bool Function(T result) isSuccess,
+  }) async {
+    final key = keyFor(scope, body);
+    final result = await send(key, body);
+    if (isSuccess(result)) complete(scope);
+    return result;
+  }
+
   void clear() {
     for (final attempt in _attempts.values) {
       attempt.reset();

@@ -95,11 +95,13 @@ describeIfDb('MED-03 ward-indent notification coverage recovery', () => {
     ))[0].id);
     catalogId = Number((await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_catalog
-         (tenant_id, name, is_active, stock_quantity, unit_price, price, updated_at)
-       VALUES ($1::uuid, $2::text, TRUE, 10, 12.50, 12.50, NOW())
+         (tenant_id, name, category, requires_prescription, is_active,
+          stock_quantity, unit_price, price, updated_at)
+       VALUES ($1::uuid, $2::text, 'ward_supply', FALSE, TRUE,
+               10, 12.50, 12.50, NOW())
        RETURNING id`,
       TENANT,
-      `MED-03 Coverage Medicine ${RUN}`,
+      `MED-03 Coverage Supply ${RUN}`,
     ))[0].id);
   }, 30000);
 
@@ -118,7 +120,7 @@ describeIfDb('MED-03 ward-indent notification coverage recovery', () => {
     const indent = await createWardIndent({
       wardId,
       patientUid: PATIENT,
-      indentType: 'pharmacy',
+      indentType: 'consumables',
       items: [{ pharmacy_catalog_id: catalogId, quantity_requested: 1 }],
       requestedBy: REQUESTER,
       commandKey: `coverage-create-${RUN}-${randomUUID()}`,
@@ -580,7 +582,7 @@ describeIfDb('MED-03 ward-indent notification coverage recovery', () => {
     const indent = await createWardIndent({
       wardId,
       patientUid: PATIENT,
-      indentType: 'pharmacy',
+      indentType: 'consumables',
       items: [{ pharmacy_catalog_id: catalogId, quantity_requested: 1 }],
       requestedBy: REQUESTER,
       commandKey: `legacy-coverage-create-${RUN}-${randomUUID()}`,

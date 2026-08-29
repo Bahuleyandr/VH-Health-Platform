@@ -32,6 +32,29 @@ const idempotencyKeyParameter = {
   description: 'Required durable command identity; reuse is valid only for the exact same tenant, actor, role, order, and body.',
 };
 const authenticatedSecurity = [{ ApiKeyAuth: [], BearerAuth: [] }];
+const medicationWardSupplyDetails = {
+  type: 'object',
+  additionalProperties: true,
+  required: ['catalog_id', 'dose', 'route', 'quantity_requested', 'unit'],
+  description:
+    'Every MAR-bound medication order requires catalog_id, dose, route, quantity_requested, and unit together. They are the order-owned medication and ward-supply authority used to create the MAR and exact pharmacy indent; free-form substitutions or inferred quantities are rejected.',
+  properties: {
+    catalog_id: { type: 'integer', minimum: 1, maximum: 2_147_483_647 },
+    dose: { type: 'string', minLength: 1 },
+    route: { type: 'string', minLength: 1 },
+    quantity_requested: {
+      type: 'number', minimum: 0, exclusiveMinimum: true, maximum: 99_999_999.99, multipleOf: 0.01,
+    },
+    unit: {
+      type: 'string',
+      enum: [
+        'tablet', 'capsule', 'ampoule', 'vial', 'bag', 'prefilled syringe',
+        'cartridge', 'mL', 'dose', 'patch', 'actuation', 'spray', 'application',
+        'bottle', 'tube', 'sachet', 'suppository', 'drop', 'kit', 'each',
+      ],
+    },
+  },
+};
 const emrErrorResponse = description => ({
   description,
   content: {
@@ -1847,22 +1870,10 @@ export const schemas = {
   },
 
   // ---- ApplyOrderSetResult -----------------------------------------------
-  // POST /orders/apply-set array element — heterogeneous: success element is a
-  // ClinicalOrderCreateResult ({order,cds_warnings}); failure element is
-  // {error,kind}. oneOf [ClinicalOrderCreateResult, OrderSetApplyError]. LOOSE.
+  // POST /orders/apply-set is atomic: every element is a successful
+  // ClinicalOrderCreateResult, or the entire request fails without rows.
   ApplyOrderSetResult: {
-    oneOf: [
-      { $ref: '#/components/schemas/ClinicalOrderCreateResult' },
-      {
-        type: 'object',
-        additionalProperties: true,
-        required: ['error', 'kind'],
-        properties: {
-          error: { type: 'string' },
-          kind: { type: 'string' },
-        },
-      },
-    ],
+    $ref: '#/components/schemas/ClinicalOrderCreateResult'
   },
 
   // ---- OrderSetItem ------------------------------------------------------
@@ -1913,7 +1924,7 @@ export const schemas = {
   ClinicalOrderData: { $ref: '#/components/schemas/ClinicalOrder' },
   MarSchedulingRecoveryData: { $ref: '#/components/schemas/MarSchedulingRecovery' },
   // POST /orders/bulk → bare ClinicalOrderCreateResult[] (EmrClinicalOrderBulkResponse
-  // uses listEnvelope directly). POST /orders/apply-set → bare ApplyOrderSetResult[].
+  // uses listEnvelope directly). POST /orders/apply-set is the same atomic list shape.
   // POST /order-sets → OrderSet directly.
   OrderSetData: { $ref: '#/components/schemas/OrderSet' },
 
@@ -1924,7 +1935,7 @@ export const schemas = {
   EmrClinicalOrderCreateResponse: envelope('ClinicalOrderCreateData'),
   // POST /orders/bulk (data = ClinicalOrderCreateResult[]).
   EmrClinicalOrderBulkResponse: listEnvelope('ClinicalOrderCreateResult'),
-  // POST /orders/apply-set (data = ApplyOrderSetResult[] mixed).
+  // POST /orders/apply-set (data = ClinicalOrderCreateResult[]).
   EmrApplyOrderSetResponse: listEnvelope('ApplyOrderSetResult'),
   // PUT verify/complete/cancel/discontinue (data = ClinicalOrder).
   EmrClinicalOrderResponse: envelope('ClinicalOrderData'),
@@ -1942,31 +1953,216 @@ export const schemas = {
   // orders — request bodies (LOOSE; routes accept flat-or-nested intake +
   // resolveOrderDetails coercion, so keep additionalProperties:true).
   // =========================================================================
-  // CreateOrderRequest — patient_uid + order_type required; details derivable
-  // from flat fields (resolveOrderDetails) so not required at the schema level.
+  // Every medication accepted here is MAR-bound and requires an admission-backed
+  // encounter. Outpatient prescriptions use their separate workflow. Medication
+  // authority stays nested; documented non-medication flat fields mirror only
+  // the mounted route's resolveOrderDetails coercions.
   EmrCreateOrderRequest: {
     type: 'object', additionalProperties: true,
     required: ['patient_uid', 'order_type'],
     properties: {
       patient_uid: { type: 'string', format: 'uuid' },
-      order_type: { type: 'string' },
-      encounter_id: { type: 'string', format: 'uuid' },
-      er_visit_id: { type: 'integer' },
+      order_type: { type: 'string', enum: ORDER_TYPE },
+      encounter_id: { type: 'string', format: 'uuid', nullable: true },
+      er_visit_id: { type: 'integer', minimum: 1, nullable: true },
       priority: { type: 'string', enum: ORDER_PRIORITY },
       details: { type: 'object', additionalProperties: true },
       route: { type: 'string' },
       start_date: { type: 'string', format: 'date-time' },
       end_date: { type: 'string', format: 'date-time' },
       notes: { type: 'string' },
+      investigation: { type: 'string' },
+      test_name: { type: 'string' },
+      test_code: { type: 'string' },
+      reason: { type: 'string' },
+      clinical_indication: { type: 'string' },
+      fasting_required: { type: 'boolean' },
+      specialty: { type: 'string' },
+      description: { type: 'string' },
+      frequency: { type: 'string' },
+      instructions: { type: 'string' }
     },
+    oneOf: [
+      {
+        title: 'Encounter medication order with authoritative ward supply',
+        required: ['encounter_id', 'details'],
+        properties: {
+          order_type: { type: 'string', enum: ['medication'] },
+          encounter_id: { type: 'string', format: 'uuid' },
+          details: medicationWardSupplyDetails,
+        },
+      },
+      {
+        title: 'Flat or nested investigation or radiology order',
+        properties: {
+          order_type: { type: 'string', enum: ['investigation', 'radiology'] },
+          details: { type: 'object', minProperties: 1, additionalProperties: true }
+        },
+        anyOf: [
+          { required: ['details'] },
+          { required: ['investigation'] },
+          { required: ['test_name'] }
+        ]
+      },
+      {
+        title: 'Flat or nested consultation order',
+        properties: {
+          order_type: { type: 'string', enum: ['consultation'] },
+          details: { type: 'object', minProperties: 1, additionalProperties: true }
+        },
+        anyOf: [{ required: ['details'] }, { required: ['specialty'] }, { required: ['reason'] }]
+      },
+      {
+        title: 'Flat or nested nursing order',
+        properties: {
+          order_type: { type: 'string', enum: ['nursing'] },
+          details: { type: 'object', minProperties: 1, additionalProperties: true }
+        },
+        anyOf: [
+          { required: ['details'] },
+          { required: ['description'] },
+          { required: ['frequency'] },
+          { required: ['instructions'] }
+        ]
+      },
+      {
+        title: 'Nested non-medication clinical order',
+        required: ['details'],
+        properties: {
+          order_type: {
+            type: 'string',
+            enum: ['diet', 'activity', 'ecg', 'procedure']
+          },
+          details: { type: 'object', minProperties: 1, additionalProperties: true }
+        }
+      }
+    ]
+  },
+  // When a bulk request carries a batch encounter_id, every medication item
+  // inherits inpatient semantics even if the item omits its own encounter_id.
+  EmrEncounterBoundOrderRequest: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['patient_uid', 'order_type'],
+    properties: {
+      patient_uid: { type: 'string', format: 'uuid' },
+      order_type: { type: 'string', enum: ORDER_TYPE },
+      encounter_id: { type: 'string', format: 'uuid', nullable: true },
+      er_visit_id: { type: 'integer', minimum: 1, nullable: true },
+      priority: { type: 'string', enum: ORDER_PRIORITY },
+      details: { type: 'object', additionalProperties: true },
+      route: { type: 'string' },
+      start_date: { type: 'string', format: 'date-time' },
+      end_date: { type: 'string', format: 'date-time' },
+      notes: { type: 'string' },
+      investigation: { type: 'string' },
+      test_name: { type: 'string' },
+      test_code: { type: 'string' },
+      reason: { type: 'string' },
+      clinical_indication: { type: 'string' },
+      fasting_required: { type: 'boolean' },
+      specialty: { type: 'string' },
+      description: { type: 'string' },
+      frequency: { type: 'string' },
+      instructions: { type: 'string' }
+    },
+    oneOf: [
+      {
+        title: 'Encounter-bound medication order',
+        required: ['details'],
+        properties: {
+          order_type: { type: 'string', enum: ['medication'] },
+          details: medicationWardSupplyDetails
+        }
+      },
+      {
+        title: 'Encounter-bound flat or nested investigation or radiology order',
+        properties: {
+          order_type: { type: 'string', enum: ['investigation', 'radiology'] },
+          details: { type: 'object', minProperties: 1, additionalProperties: true }
+        },
+        anyOf: [
+          { required: ['details'] },
+          { required: ['investigation'] },
+          { required: ['test_name'] }
+        ]
+      },
+      {
+        title: 'Encounter-bound flat or nested consultation order',
+        properties: {
+          order_type: { type: 'string', enum: ['consultation'] },
+          details: { type: 'object', minProperties: 1, additionalProperties: true }
+        },
+        anyOf: [{ required: ['details'] }, { required: ['specialty'] }, { required: ['reason'] }]
+      },
+      {
+        title: 'Encounter-bound flat or nested nursing order',
+        properties: {
+          order_type: { type: 'string', enum: ['nursing'] },
+          details: { type: 'object', minProperties: 1, additionalProperties: true }
+        },
+        anyOf: [
+          { required: ['details'] },
+          { required: ['description'] },
+          { required: ['frequency'] },
+          { required: ['instructions'] }
+        ]
+      },
+      {
+        title: 'Encounter-bound nested non-medication order',
+        required: ['details'],
+        properties: {
+          order_type: {
+            type: 'string',
+            enum: ['diet', 'activity', 'ecg', 'procedure']
+          },
+          details: { type: 'object', minProperties: 1, additionalProperties: true }
+        }
+      }
+    ]
   },
   // BulkOrderRequest — { orders: [...] } (each item same flat-or-nested shape).
   EmrBulkOrderRequest: {
     type: 'object', additionalProperties: true, required: ['orders'],
+    description: 'Each item uses EmrCreateOrderRequest. A batch-level encounter_id is inherited by items that omit it, including the inpatient-medication ward-supply requirement on details.',
     properties: {
-      encounter_id: { type: 'string', format: 'uuid' },
-      orders: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      encounter_id: { type: 'string', format: 'uuid', nullable: true },
+      orders: {
+        type: 'array',
+        minItems: 1,
+        maxItems: 50
+      },
     },
+    oneOf: [
+      {
+        title: 'Batch-level inpatient encounter',
+        required: ['encounter_id'],
+        properties: {
+          encounter_id: { type: 'string', format: 'uuid' },
+          orders: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 50,
+            items: { $ref: '#/components/schemas/EmrEncounterBoundOrderRequest' },
+          },
+        },
+      },
+      {
+        title: 'Per-item encounter context',
+        not: {
+          required: ['encounter_id'],
+          properties: { encounter_id: { type: 'string' } },
+        },
+        properties: {
+          orders: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 50,
+            items: { $ref: '#/components/schemas/EmrCreateOrderRequest' },
+          },
+        },
+      },
+    ],
   },
   // ApplyOrderSetRequest — patient_uid + order_set_id required.
   EmrApplyOrderSetRequest: {
@@ -2591,39 +2787,114 @@ const EMR_ONLY_OPS = [
   // loose objects; cds_warnings mixed string|object; apply-set mixed elements.
   // -------------------------------------------------------------------------
   // POST /orders — single create → { order, cds_warnings } (201).
-  ['POST /orders', { request: 'EmrCreateOrderRequest', response: 'EmrClinicalOrderCreateResponse' }],
-  // POST /orders/bulk — atomic batch → ClinicalOrderCreateResult[] (201).
-  ['POST /orders/bulk', { request: 'EmrBulkOrderRequest', response: 'EmrClinicalOrderBulkResponse' }],
-  // POST /orders/apply-set — apply order set → mixed ApplyOrderSetResult[] (201).
-  ['POST /orders/apply-set', { request: 'EmrApplyOrderSetRequest', response: 'EmrApplyOrderSetResponse' }],
-  ['POST /orders/{id}/retry-mar-scheduling', {
-    summary: 'Repair a missing MAR schedule from the active CPOE order',
-    description: 'Doctor-authorized, replay-safe recovery only. Replays the persisted medication order through the canonical MAR scheduler, creates no prescription changes, returns existing dose slots idempotently, and appends canonical recovery evidence. If the stored schedule is clinically invalid, the order must be discontinued and replaced through CPOE.',
-    pathParameters: { id: { type: 'integer', minimum: 1 } },
-    parameters: [idempotencyKeyParameter],
-    response: 'EmrMarSchedulingRecoveryResponse',
-  }],
-  // PUT lifecycle transitions → ClinicalOrder (single).
-  ['PUT /orders/{id}/verify', {
-    summary: 'Verify a persisted clinical order under current patient authority',
-    description: 'Staff clinical write; mobile Staff mode is forbidden. Nursing roles NURSING_STAFF, NURSING_INCHARGE, IP_STAFF_NURSE, IP_INCHARGE, ICU_NURSE, and ICU_INCHARGE may verify any canonical clinical order type. Pharmacy roles PHARMACY_STAFF, PHARMACY_INCHARGE, and PHARMACIST may verify medication orders only. Current device posture, exact role, capability, patient relationship, and persisted order type are rechecked before every replay. Idempotency-Key permanently binds the tenant, actor UID, actor role, order, and request body; an exact retry returns the immutable original verified response.',
-    pathParameters: { id: { type: 'integer', minimum: 1 } },
+  ['POST /orders', {
+    request: 'EmrCreateOrderRequest',
+    response: 'EmrClinicalOrderCreateResponse',
+    responseStatus: 201,
     parameters: [idempotencyKeyParameter],
     security: authenticatedSecurity,
-    response: 'EmrClinicalOrderResponse',
-    additionalResponses: {
-      400: emrErrorResponse('The order identifier, order state, or required Idempotency-Key is invalid.'),
-      401: emrErrorResponse('API-key and bearer authentication are required.'),
-      403: emrErrorResponse('The current device, role, capability, patient relationship, or persisted order type does not authorize verification.'),
-      404: emrErrorResponse('The clinical order was not found in the authenticated tenant.'),
-      409: emrErrorResponse('The verification is already in flight, the order changed concurrently, or the permanent command receipt conflicts.'),
-      422: emrErrorResponse('The Idempotency-Key was reused with a different actor role or request body.'),
-      503: emrErrorResponse('Durable idempotency or persistence infrastructure was unavailable; the command failed closed and retry is safe.'),
-    },
   }],
-  ['PUT /orders/{id}/complete', { response: 'EmrClinicalOrderResponse' }],
-  ['PUT /orders/{id}/cancel', { request: 'EmrOrderReasonRequest', response: 'EmrClinicalOrderResponse' }],
-  ['PUT /orders/{id}/discontinue', { request: 'EmrOrderReasonRequest', response: 'EmrClinicalOrderResponse' }],
+  // POST /orders/bulk — atomic batch → ClinicalOrderCreateResult[] (201).
+  [
+    'POST /orders/bulk',
+    {
+      request: 'EmrBulkOrderRequest',
+      response: 'EmrClinicalOrderBulkResponse',
+      responseStatus: 201,
+      parameters: [idempotencyKeyParameter],
+      security: authenticatedSecurity
+    }
+  ],
+  // POST /orders/apply-set — atomic order-set application → ClinicalOrderCreateResult[] (201).
+  [
+    'POST /orders/apply-set',
+    {
+      request: 'EmrApplyOrderSetRequest',
+      response: 'EmrApplyOrderSetResponse',
+      responseStatus: 201,
+      parameters: [idempotencyKeyParameter],
+      security: authenticatedSecurity
+    }
+  ],
+  [
+    'POST /orders/{id}/retry-mar-scheduling',
+    {
+      summary: 'Repair a missing MAR schedule from the active CPOE order',
+      description:
+        'Doctor-authorized, replay-safe recovery only. The active, non-deleted same-tenant doctor role is rechecked before receipt replay and again in the serialized transaction. Replays the persisted medication order through the canonical MAR scheduler, creates no prescription changes, returns existing dose slots idempotently, and appends canonical recovery evidence. If the stored schedule is clinically invalid, the order must be discontinued and replaced through CPOE.',
+      pathParameters: { id: { type: 'integer', minimum: 1 } },
+      parameters: [idempotencyKeyParameter],
+      security: authenticatedSecurity,
+      response: 'EmrMarSchedulingRecoveryResponse'
+    }
+  ],
+  // PUT lifecycle transitions → ClinicalOrder (single).
+  [
+    'PUT /orders/{id}/verify',
+    {
+      summary: 'Verify a persisted clinical order under current patient authority',
+      description:
+        'Staff clinical write; mobile Staff mode is forbidden. Nursing roles NURSING_STAFF, NURSING_INCHARGE, IP_STAFF_NURSE, IP_INCHARGE, ICU_NURSE, and ICU_INCHARGE may verify any canonical clinical order type. Pharmacy roles PHARMACY_STAFF, PHARMACY_INCHARGE, and PHARMACIST may verify medication orders only. Current device posture, active non-deleted same-tenant user, exact database role, capability, patient relationship, and persisted order type are rechecked before every replay and again in the serialized transaction. Idempotency-Key permanently binds the tenant, actor UID, actor role, order, and request body; an exact retry returns the immutable original verified response.',
+      pathParameters: { id: { type: 'integer', minimum: 1 } },
+      parameters: [idempotencyKeyParameter],
+      security: authenticatedSecurity,
+      response: 'EmrClinicalOrderResponse',
+      additionalResponses: {
+        400: emrErrorResponse(
+          'The order identifier, order state, or required Idempotency-Key is invalid.'
+        ),
+        401: emrErrorResponse('API-key and bearer authentication are required.'),
+        403: emrErrorResponse(
+          'The current device, role, capability, patient relationship, or persisted order type does not authorize verification.'
+        ),
+        404: emrErrorResponse('The clinical order was not found in the authenticated tenant.'),
+        409: emrErrorResponse(
+          'The verification is already in flight, the order changed concurrently, or the permanent command receipt conflicts.'
+        ),
+        422: emrErrorResponse(
+          'The Idempotency-Key was reused with a different actor role or request body.'
+        ),
+        503: emrErrorResponse(
+          'Durable idempotency or persistence infrastructure was unavailable; the command failed closed and retry is safe.'
+        )
+      }
+    }
+  ],
+  [
+    'PUT /orders/{id}/complete',
+    {
+      description:
+        'Terminally completes an authorized, verified medication order and projects every outstanding scheduled, held, or missed MAR obligation plus linked ward-indent reservation, custody, task, SLA, and reconciliation obligations atomically. Idempotency-Key is required; an exact retry replays the committed response.',
+      pathParameters: { id: { type: 'integer', minimum: 1 } },
+      parameters: [idempotencyKeyParameter],
+      security: authenticatedSecurity,
+      response: 'EmrClinicalOrderResponse'
+    }
+  ],
+  [
+    'PUT /orders/{id}/cancel',
+    {
+      description:
+        'Terminally cancels an authorized clinical order with the supplied reason and projects every outstanding scheduled, held, or missed MAR obligation plus linked ward-indent reservation, custody, task, SLA, and reconciliation obligations atomically. Idempotency-Key is required; an exact retry replays the committed response.',
+      pathParameters: { id: { type: 'integer', minimum: 1 } },
+      parameters: [idempotencyKeyParameter],
+      security: authenticatedSecurity,
+      request: 'EmrOrderReasonRequest',
+      response: 'EmrClinicalOrderResponse'
+    }
+  ],
+  [
+    'PUT /orders/{id}/discontinue',
+    {
+      description:
+        'Terminally discontinues an authorized clinical order with the supplied reason and projects every outstanding scheduled, held, or missed MAR obligation plus linked ward-indent reservation, custody, task, SLA, and reconciliation obligations atomically. Idempotency-Key is required; an exact retry replays the committed response.',
+      pathParameters: { id: { type: 'integer', minimum: 1 } },
+      parameters: [idempotencyKeyParameter],
+      security: authenticatedSecurity,
+      request: 'EmrOrderReasonRequest',
+      response: 'EmrClinicalOrderResponse'
+    }
+  ],
   // GET LIST (patient — flat-meta pagination / encounter — no meta). Bare ClinicalOrder[].
   ['GET /orders/patient/{uid}', { response: 'EmrClinicalOrderListResponse' }],
   ['GET /orders/encounter/{encounterId}', { response: 'EmrClinicalOrderListResponse' }],

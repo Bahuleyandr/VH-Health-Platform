@@ -77,8 +77,23 @@ export function requireIdempotencyKey({
   // the recorded 5xx instead of running again — the operator reconciles one
   // uncertain outcome rather than discovering two real ones.
   retainOnServerError = false,
+  // ★ Set on routes whose in-flight claim is backed by a durable domain
+  // receipt (stock movement, dispense, billing document). A concurrent replay
+  // is handed the claim with `recoveringInFlight: true` so the handler can
+  // reconcile against the receipt that already exists instead of being told
+  // 409 with no way to observe the committed effect.
   durableDomainReceipt = false,
+  // ★ Application error codes whose 4xx is a *recoverable* conflict rather
+  // than a deterministic outcome. The claim is released so the exact same
+  // logical command may resume once the named obligation goes terminal,
+  // instead of the key being poisoned with a cached 409.
+  releaseOnResponseCodes = [],
 } = {}) {
+  const retryableResponseCodes = new Set(
+    (Array.isArray(releaseOnResponseCodes) ? releaseOnResponseCodes : [])
+      .map((code) => String(code || '').trim())
+      .filter(Boolean),
+  );
   return async function idempotencyMiddleware(req, res, next) {
     if (onlyWhen && !onlyWhen(req)) return next();
     const headerValue = req.get(HEADER);
@@ -176,8 +191,24 @@ export function requireIdempotencyKey({
     };
     const originalJson = res.json.bind(res);
     res.json = function patchedJson(body) {
-      const out = originalJson(body);
       const status = res.statusCode;
+      const responseCode = String(body?.code || '').trim();
+      if (status >= 400 && retryableResponseCodes.has(responseCode)) {
+        // Some conflict states are deliberately recoverable without changing
+        // the logical command (for example, a claimed notification attempt
+        // that must first reconcile). Do not poison that command key with a
+        // cached 409; release it so the exact same request may resume once the
+        // named obligation is terminal.
+        void releaseIdempotencyKey(claimId)
+          .catch((err) => {
+            logger.warn('Retryable idempotency conflict release failed:', {
+              error: err.message, claimId, responseCode,
+            });
+          })
+          .finally(() => originalJson(body));
+        return res;
+      }
+      const out = originalJson(body);
       if (status >= 500 && !retainOnServerError) {
         // Transient failure — free the claim so the client's retry re-runs the
         // handler instead of being pinned to this 5xx forever.

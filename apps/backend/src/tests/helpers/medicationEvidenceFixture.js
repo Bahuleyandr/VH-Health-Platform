@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import {
   approveWardIndent,
   createWardIndent,
@@ -5,6 +7,8 @@ import {
   receiveWardIndent,
   reserveWardIndent,
 } from '../../services/ipd/ipdSupportService.js';
+import { verifyOrder } from '../../services/emr/orderEntryService.js';
+import { bindMedicationOrderCatalogAuthority } from '../../services/ipd/wardIndentWorkflowService.js';
 
 function compact(value) {
   return String(value).trim().toLowerCase().replace(/\s+/g, '');
@@ -15,6 +19,7 @@ export async function seedReceivedMedicationSupply({
   tenantId,
   patientUid,
   requesterUid,
+  prescriberUid = requesterUid,
   pharmacistUid,
   receiverUid,
   run,
@@ -27,34 +32,88 @@ export async function seedReceivedMedicationSupply({
     tenantId,
     `MAR fixture ward ${run}`,
   ))[0].id);
+  const encounterId = randomUUID();
+  const bedNumber = `MAR-${run}`.slice(0, 50);
+  const bedId = Number((await prisma.$queryRawUnsafe(
+    `INSERT INTO beds
+       (tenant_id, ward_id, ward_name, bed_number, status, patient_uid,
+        created_at, updated_at)
+     VALUES ($1::uuid, $2::int, $3::text, $4::text, 'occupied', $5::uuid,
+             NOW(), NOW())
+     RETURNING id`,
+    tenantId,
+    wardId,
+    `MAR fixture ward ${run}`,
+    bedNumber,
+    patientUid,
+  ))[0].id);
+  const admissionId = Number((await prisma.$queryRawUnsafe(
+    `INSERT INTO admissions
+       (tenant_id, patient_uid, encounter_id, bed_id, bed_number, ward,
+        status, admitted_at, created_by, updated_at)
+     VALUES ($1::uuid, $2::uuid, $3::uuid, $4::int, $5::text, $6::text,
+             'admitted', NOW(), $7::uuid, NOW())
+     RETURNING id`,
+    tenantId,
+    patientUid,
+    encounterId,
+    bedId,
+    bedNumber,
+    `MAR fixture ward ${run}`,
+    requesterUid,
+  ))[0].id);
 
   const products = {};
+  const compositionId = Number((await prisma.$queryRawUnsafe(
+    `INSERT INTO drug_compositions
+       (composition_key, display_label, active_ingredients, source)
+     VALUES
+       ('mar_medication_evidence_fixture_v1', 'MAR medication evidence fixture',
+        ARRAY['fixture_ingredient']::text[], 'test_fixture')
+     ON CONFLICT (composition_key) DO UPDATE
+       SET display_label = EXCLUDED.display_label
+     RETURNING id`,
+  ))[0].id);
   for (const [index, medication] of medications.entries()) {
     const strengthKey = medication.strengthKey || compact(medication.strength);
     const formKey = medication.formKey || compact(medication.form);
     const quantity = medication.quantity || 20;
-    const catalogId = Number((await prisma.$queryRawUnsafe(
+    const strengthComponents = medication.strengthComponents || [{
+      ingredient: 'fixture_ingredient',
+      value: String(index + 1),
+      unit: 'fixture_unit',
+    }];
+    const catalog = (await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_catalog
-         (tenant_id, name, is_active, stock_quantity, unit_price, price,
-          strength, strength_key, form, form_key, route, updated_at)
-       VALUES ($1::uuid, $2::text, TRUE, $3::numeric, 1.00, 1.00,
-               $4::text, $5::text, $6::text, $7::text, $8::text, NOW())
-       RETURNING id`,
+         (tenant_id, name, generic_name, is_active, stock_quantity, unit_price, price,
+          composition_id, composition_confidence, composition_source,
+          strength, strength_key, strength_components,
+          form, form_key, release_key, route, updated_at)
+       VALUES ($1::uuid, $2::text, $2::text, TRUE, $3::numeric, 1.00, 1.00,
+                $4::int, 'high', 'test_fixture',
+                $5::text, $6::text, $7::jsonb,
+                $8::text, $9::text, 'immediate_release', $10::text, NOW())
+       RETURNING id, name, generic_name, composition_id, composition_confidence,
+                 composition_source, strength, strength_key, strength_components,
+                 form, form_key, release_key, route`,
       tenantId,
       medication.name,
       quantity,
+      compositionId,
       medication.strength,
       strengthKey,
+      JSON.stringify(strengthComponents),
       medication.form,
       formKey,
       medication.route,
-    ))[0].id);
+    ))[0];
+    const catalogId = Number(catalog.id);
     const inventoryItemId = Number((await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_inventory_items
          (tenant_id, sku_code, display_name, catalog_id, strength, form,
           unit_label, schedule_class, is_narcotic)
        VALUES ($1::uuid, $2::text, $3::text, $4::int, $5::text, $6::text,
-               'unit', 'OTC', FALSE)
+               'each', 'OTC', FALSE)
        RETURNING id`,
       tenantId,
       `MAR-${run}-${index}`.slice(0, 80),
@@ -76,28 +135,37 @@ export async function seedReceivedMedicationSupply({
       batchNumber,
       quantity,
     ))[0].id);
+    const orderDetails = bindMedicationOrderCatalogAuthority({
+      catalog_id: catalogId,
+      dose: medication.dose,
+      route: medication.route,
+      strength: medication.strength,
+      strength_key: strengthKey,
+      form: medication.form,
+      form_key: formKey,
+      quantity_requested: quantity,
+      unit: 'each',
+    }, catalog);
     const clinicalOrderId = Number((await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_orders
-         (tenant_id, order_number, patient_uid, order_type, status,
+         (tenant_id, order_number, patient_uid, encounter_id, order_type, status,
           ordered_by, details, route, updated_at)
-       VALUES ($1::uuid, $2::text, $3::uuid, 'medication', 'ordered',
-               $4::uuid, $5::jsonb, $6::text, NOW())
+       VALUES ($1::uuid, $2::text, $3::uuid, $4::uuid, 'medication', 'ordered',
+               $5::uuid, $6::jsonb, $7::text, NOW())
        RETURNING id`,
       tenantId,
       `MAR-FIX-${run}-${index}`.slice(0, 80),
       patientUid,
-      requesterUid,
-      JSON.stringify({
-        catalog_id: catalogId,
-        dose: medication.dose,
-        route: medication.route,
-        strength: medication.strength,
-        strength_key: strengthKey,
-        form: medication.form,
-        form_key: formKey,
-      }),
+      encounterId,
+      prescriberUid,
+       JSON.stringify(orderDetails),
       medication.route,
     ))[0].id);
+    await verifyOrder(clinicalOrderId, pharmacistUid, {
+      tenantId,
+      actorRole: 'PHARMACY_INCHARGE',
+      idempotencyKey: `mar-fixture-verify-${run}-${index}`,
+    });
     products[medication.key] = {
       ...medication,
       strengthKey,
@@ -113,6 +181,8 @@ export async function seedReceivedMedicationSupply({
 
   const indent = await createWardIndent({
     wardId,
+    admissionId,
+    encounterId,
     patientUid,
     indentType: 'pharmacy',
     items: Object.values(products).map((product) => ({
@@ -154,5 +224,13 @@ export async function seedReceivedMedicationSupply({
     tenantId,
   });
 
-  return { wardId, indentId: Number(indent.id), received, products };
+  return {
+    wardId,
+    bedId,
+    admissionId,
+    encounterId,
+    indentId: Number(indent.id),
+    received,
+    products,
+  };
 }

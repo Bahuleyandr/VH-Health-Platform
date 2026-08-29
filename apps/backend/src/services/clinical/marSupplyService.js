@@ -18,6 +18,7 @@ const CONTROLLED_WITNESS_ROLE_SET = new Set(CONTROLLED_DISPENSE_WITNESS_ROLES);
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const COMMAND_KEY_PATTERN = /^[A-Za-z0-9_:.-]+$/;
+const MEDICATION_ORDER_EXECUTION_STATUSES = Object.freeze(['verified', 'in_progress']);
 
 function normalizedIdentity(value) {
   return String(value ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
@@ -122,6 +123,74 @@ function requiredUuid(value, fieldName) {
   return text;
 }
 
+export async function assertMedicationOrdersExecutionReadyTx(tx, {
+  tenantId,
+  clinicalOrderIds,
+  lock = true,
+} = {}) {
+  if (!tx?.$queryRawUnsafe) {
+    throw AppError.internal(
+      'Medication-order execution verification requires the caller transaction',
+      'MEDICATION_ORDER_EXECUTION_TRANSACTION_REQUIRED',
+    );
+  }
+  const tid = requireTenantId(tenantId);
+  const ids = [...new Set((clinicalOrderIds || []).map((value) => (
+    positiveId(value, 'clinicalOrderId')
+  )))];
+  if (ids.length === 0) {
+    throw AppError.conflict(
+      'A linked medication order is required before clinical execution',
+      'MEDICATION_ORDER_EXECUTION_ORDER_REQUIRED',
+    );
+  }
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT clinical_order.id,
+            clinical_order.status,
+            clinical_order.verified_by::text,
+            clinical_order.verified_at
+       FROM clinical_orders clinical_order
+      WHERE clinical_order.tenant_id = $1::uuid
+        AND clinical_order.id = ANY($2::int[])
+        AND clinical_order.order_type = 'medication'
+      ORDER BY clinical_order.id
+      ${lock ? 'FOR SHARE OF clinical_order' : ''}`,
+    tid,
+    ids,
+  );
+  const byId = new Map(rows.map((row) => [Number(row.id), row]));
+  for (const id of ids) {
+    const order = byId.get(id);
+    if (!order) {
+      throw AppError.conflict(
+        `Linked medication order ${id} was not found in this tenant`,
+        'MEDICATION_ORDER_EXECUTION_ORDER_NOT_FOUND',
+        { clinical_order_id: id },
+      );
+    }
+    const status = String(order.status || '').trim().toLowerCase();
+    if (!MEDICATION_ORDER_EXECUTION_STATUSES.includes(status)) {
+      throw AppError.conflict(
+        `Medication order ${id} is not verified for clinical execution`,
+        'MEDICATION_ORDER_VERIFICATION_REQUIRED',
+        {
+          clinical_order_id: id,
+          status: order.status || null,
+          allowed_statuses: MEDICATION_ORDER_EXECUTION_STATUSES,
+        },
+      );
+    }
+    if (!order.verified_by || !order.verified_at) {
+      throw AppError.conflict(
+        `Medication order ${id} is missing dedicated verification evidence`,
+        'MEDICATION_ORDER_VERIFICATION_EVIDENCE_REQUIRED',
+        { clinical_order_id: id, status: order.status || null },
+      );
+    }
+  }
+  return rows;
+}
+
 function reconciliationCommandKey(value) {
   const key = String(value ?? '');
   if (
@@ -158,6 +227,8 @@ async function loadWardContextTx(tx, tenantId, administration, { lock = true } =
             clinical_order.details AS clinical_order_details,
             clinical_order.route AS clinical_order_route,
             clinical_order.status AS clinical_order_status,
+            clinical_order.verified_by::text AS clinical_order_verified_by,
+            clinical_order.verified_at AS clinical_order_verified_at,
             catalog_item.id AS current_catalog_id,
             catalog_item.strength AS current_catalog_strength,
             catalog_item.strength_key AS current_catalog_strength_key,
@@ -228,12 +299,19 @@ function assertWardProductIdentity(wardItem, administration) {
   const originalCatalogId = positiveCatalogId(wardItem.original_pharmacy_catalog_id);
   const substitutionApproved = String(wardItem.substitution_status || '').toLowerCase() === 'approved';
 
-  if (!['ordered', 'verified', 'in_progress'].includes(
+  if (!MEDICATION_ORDER_EXECUTION_STATUSES.includes(
     String(wardItem.clinical_order_status || '').toLowerCase(),
   )) {
     throw AppError.conflict(
       'Medication order is no longer active for bedside administration',
       'MAR_CLINICAL_ORDER_INACTIVE',
+    );
+  }
+  if (!wardItem.clinical_order_verified_by || !wardItem.clinical_order_verified_at) {
+    throw AppError.conflict(
+      'Medication order is missing dedicated verification evidence',
+      'MEDICATION_ORDER_VERIFICATION_EVIDENCE_REQUIRED',
+      { clinical_order_id: Number(wardItem.clinical_order_id) },
     );
   }
 
@@ -700,6 +778,17 @@ export async function consumeMarSupplyTx(tx, {
       'MAR_SUPPLY_ADMINISTRATION_CONTEXT_MISMATCH',
     );
   }
+  if (!administration.clinical_order_id) {
+    throw AppError.conflict(
+      'MAR administration is not directly linked to a medication order',
+      'MAR_SUPPLY_ORDER_REQUIRED',
+      { medication_administration_id: Number(administration.id) },
+    );
+  }
+  await assertMedicationOrdersExecutionReadyTx(tx, {
+    tenantId: tid,
+    clinicalOrderIds: [administration.clinical_order_id],
+  });
   const actorUid = requiredText(recordedBy, 'recordedBy', 100);
   const mode = requiredText(administrationMode, 'administrationMode', 50);
   const explicitQuantity = optionalQuantity(supplyQuantity, 'supply_quantity');

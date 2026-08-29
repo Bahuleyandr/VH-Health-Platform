@@ -108,6 +108,36 @@ class AppStrings {
     return result;
   }
 
+  static const _medicationWardSupplyUnitKeys = <String, String>{
+    'tablet': 'tablet',
+    'capsule': 'capsule',
+    'ampoule': 'ampoule',
+    'vial': 'vial',
+    'bag': 'bag',
+    'prefilled syringe': 'prefilled_syringe',
+    'cartridge': 'cartridge',
+    'mL': 'ml',
+    'dose': 'dose',
+    'patch': 'patch',
+    'actuation': 'actuation',
+    'spray': 'spray',
+    'application': 'application',
+    'bottle': 'bottle',
+    'tube': 'tube',
+    'sachet': 'sachet',
+    'suppository': 'suppository',
+    'drop': 'drop',
+    'kit': 'kit',
+    'each': 'each',
+  };
+
+  String medicationWardSupplyUnit(String canonicalUnit) {
+    final unitKey = _medicationWardSupplyUnitKeys[canonicalUnit];
+    return unitKey == null
+        ? canonicalUnit
+        : _t('medication_supply.unit.$unitKey');
+  }
+
   // ────────────────────────────────────────────────────────────────────
   // Public string accessors. Group by screen; keep keys alphabetised
   // within a section so additions don't conflict.
@@ -6657,6 +6687,26 @@ class AppStrings {
       'mar_scan.hardstop.body':
           'Patient- and drug-identity mismatches cannot be overridden. Confirm '
           'you have the correct patient and medication, then scan again.',
+      'medication_supply.unit.tablet': 'Tablet',
+      'medication_supply.unit.capsule': 'Capsule',
+      'medication_supply.unit.ampoule': 'Ampoule',
+      'medication_supply.unit.vial': 'Vial',
+      'medication_supply.unit.bag': 'Bag',
+      'medication_supply.unit.prefilled_syringe': 'Prefilled syringe',
+      'medication_supply.unit.cartridge': 'Cartridge',
+      'medication_supply.unit.ml': 'mL',
+      'medication_supply.unit.dose': 'Dose',
+      'medication_supply.unit.patch': 'Patch',
+      'medication_supply.unit.actuation': 'Actuation',
+      'medication_supply.unit.spray': 'Spray',
+      'medication_supply.unit.application': 'Application',
+      'medication_supply.unit.bottle': 'Bottle',
+      'medication_supply.unit.tube': 'Tube',
+      'medication_supply.unit.sachet': 'Sachet',
+      'medication_supply.unit.suppository': 'Suppository',
+      'medication_supply.unit.drop': 'Drop',
+      'medication_supply.unit.kit': 'Kit',
+      'medication_supply.unit.each': 'Each',
       'mar_scan.supply.title': 'Ward supply evidence',
       'mar_scan.supply.status.available': 'Exact ward custody available',
       'mar_scan.supply.status.quantity_required':
@@ -18232,6 +18282,26 @@ class AppStrings {
           'स्कैन किया गया बारकोड आदेशित दवा से मेल नहीं खाता (गलत दवा)।',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       'mar_scan.hardstop.body': 'रोगी और दवा की पहचान के मेल न खाने को ओवरराइड नहीं किया जा सकता। पुष्टि करें कि रोगी और दवा सही हैं, फिर दोबारा स्कैन करें।',
+      'medication_supply.unit.tablet': 'गोली',
+      'medication_supply.unit.capsule': 'कैप्सूल',
+      'medication_supply.unit.ampoule': 'एम्प्यूल',
+      'medication_supply.unit.vial': 'शीशी',
+      'medication_supply.unit.bag': 'बैग',
+      'medication_supply.unit.prefilled_syringe': 'पहले से भरी सिरिंज',
+      'medication_supply.unit.cartridge': 'कार्ट्रिज',
+      'medication_supply.unit.ml': 'मिलीलीटर',
+      'medication_supply.unit.dose': 'खुराक',
+      'medication_supply.unit.patch': 'पैच',
+      'medication_supply.unit.actuation': 'एक पफ',
+      'medication_supply.unit.spray': 'स्प्रे',
+      'medication_supply.unit.application': 'लगाना',
+      'medication_supply.unit.bottle': 'बोतल',
+      'medication_supply.unit.tube': 'ट्यूब',
+      'medication_supply.unit.sachet': 'सैशे',
+      'medication_supply.unit.suppository': 'सपोजिटरी',
+      'medication_supply.unit.drop': 'बूंद',
+      'medication_supply.unit.kit': 'किट',
+      'medication_supply.unit.each': 'प्रत्येक',
       // REVIEW: MED-03 AI first pass - confirm medication custody wording with a Hindi-fluent clinician.
       'mar_scan.supply.title': 'वार्ड आपूर्ति साक्ष्य',
       'mar_scan.supply.status.available': 'सटीक वार्ड अभिरक्षा उपलब्ध है',
@@ -20972,11 +21042,13 @@ class AppStrings {
       'composer.duration_days': 'காலம் (நாட்கள்)',
       // REVIEW: AI first-pass
       'composer.study_name': 'ஸ்டடி',
-      'composer.study_hint': 'Chest X-ray PA, CT Brain plain...',
+      'composer.study_hint':
+          'மார்பு எக்ஸ்-ரே PA, கான்ட்ராஸ்ட் இல்லாத CT மூளை...',
       // REVIEW: AI first-pass
       'composer.specialty': 'சிறப்புப் பிரிவு',
-      'composer.specialty_hint': 'Cardiology, Nephrology...',
-      'composer.diet_hint': 'Diabetic diet, NPO, soft diet...',
+      'composer.specialty_hint': 'இதயவியல், சிறுநீரகவியல்...',
+      'composer.diet_hint':
+          'நீரிழிவு உணவு, வாய்வழி எதுவுமில்லை (NPO), மென்மையான உணவு...',
       // REVIEW: AI first-pass
       'order_sets.no_placeable_items':
           'பதிவு செய்யக்கூடிய ஆர்டர் உருப்படிகள் தேர்வு செய்யப்படவில்லை',
@@ -26907,6 +26979,26 @@ class AppStrings {
       'mar_scan.hardstop.drug': 'ஸ்கேன் செய்யப்பட்ட பார்கோடு ஆணையிடப்பட்ட மருந்துடன் பொருந்தவில்லை (தவறான மருந்து).',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       'mar_scan.hardstop.body': 'நோயாளர் மற்றும் மருந்து அடையாளப் பொருத்தமின்மையை மீற முடியாது. சரியான நோயாளியும் சரியான மருந்தும் உள்ளதா என உறுதிசெய்து, மீண்டும் ஸ்கேன் செய்யவும்.',
+      'medication_supply.unit.tablet': 'மாத்திரை',
+      'medication_supply.unit.capsule': 'காப்ஸ்யூல்',
+      'medication_supply.unit.ampoule': 'ஆம்பூல்',
+      'medication_supply.unit.vial': 'வயல்',
+      'medication_supply.unit.bag': 'பை',
+      'medication_supply.unit.prefilled_syringe': 'முன்நிரப்பப்பட்ட சிரிஞ்ச்',
+      'medication_supply.unit.cartridge': 'கார்ட்ரிட்ஜ்',
+      'medication_supply.unit.ml': 'மில்லிலிட்டர்',
+      'medication_supply.unit.dose': 'மருந்தளவு',
+      'medication_supply.unit.patch': 'ஒட்டுப் பட்டை',
+      'medication_supply.unit.actuation': 'ஒரு பஃப்',
+      'medication_supply.unit.spray': 'தெளிப்பு',
+      'medication_supply.unit.application': 'தடவல்',
+      'medication_supply.unit.bottle': 'பாட்டில்',
+      'medication_supply.unit.tube': 'குழாய்',
+      'medication_supply.unit.sachet': 'பொட்டலம்',
+      'medication_supply.unit.suppository': 'சப்போசிட்டரி',
+      'medication_supply.unit.drop': 'துளி',
+      'medication_supply.unit.kit': 'தொகுப்பு',
+      'medication_supply.unit.each': 'ஒவ்வொன்று',
       // REVIEW: MED-03 AI first pass - confirm medication custody wording with a Tamil-fluent clinician.
       'mar_scan.supply.title': 'வார்டு மருந்து வழங்கல் சான்று',
       'mar_scan.supply.status.available': 'துல்லியமான வார்டு கையிருப்பு உள்ளது',
@@ -29666,11 +29758,13 @@ class AppStrings {
       'composer.duration_days': 'వ్యవధి (రోజులు)',
       // REVIEW: AI first-pass
       'composer.study_name': 'స్టడీ',
-      'composer.study_hint': 'Chest X-ray PA, CT Brain plain...',
+      'composer.study_hint':
+          'ఛాతీ ఎక్స్-రే PA, కాంట్రాస్ట్ లేని CT బ్రెయిన్...',
       // REVIEW: AI first-pass
       'composer.specialty': 'ప్రత్యేకత',
-      'composer.specialty_hint': 'Cardiology, Nephrology...',
-      'composer.diet_hint': 'Diabetic diet, NPO, soft diet...',
+      'composer.specialty_hint': 'హృద్రోగ విభాగం, మూత్రపిండాల విభాగం...',
+      'composer.diet_hint':
+          'మధుమేహ ఆహారం, నోటి ద్వారా ఏమీ ఇవ్వకూడదు (NPO), మృదువైన ఆహారం...',
       // REVIEW: AI first-pass
       'order_sets.no_placeable_items': 'నమోదు చేయగల ఆర్డర్ అంశాలు ఎంచుకోబడలేదు',
       // REVIEW: AI first-pass
@@ -35538,6 +35632,26 @@ class AppStrings {
       'mar_scan.hardstop.drug': 'స్కాన్ చేసిన బార్‌కోడ్ ఆర్డర్ చేసిన మందుతో సరిపోలడం లేదు (తప్పు మందు).',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       'mar_scan.hardstop.body': 'రోగి మరియు మందు గుర్తింపు సరిపోలకపోవడాన్ని ఓవర్‌రైడ్ చేయలేరు. సరైన రోగి మరియు సరైన మందు ఉన్నాయని నిర్ధారించుకుని, మళ్లీ స్కాన్ చేయండి.',
+      'medication_supply.unit.tablet': 'మాత్ర',
+      'medication_supply.unit.capsule': 'క్యాప్సూల్',
+      'medication_supply.unit.ampoule': 'ఆంపూల్',
+      'medication_supply.unit.vial': 'వయల్',
+      'medication_supply.unit.bag': 'బ్యాగ్',
+      'medication_supply.unit.prefilled_syringe': 'ముందుగా నింపిన సిరింజ్',
+      'medication_supply.unit.cartridge': 'కార్ట్రిడ్జ్',
+      'medication_supply.unit.ml': 'మిల్లీలీటర్',
+      'medication_supply.unit.dose': 'మోతాదు',
+      'medication_supply.unit.patch': 'ప్యాచ్',
+      'medication_supply.unit.actuation': 'ఒక పఫ్',
+      'medication_supply.unit.spray': 'స్ప్రే',
+      'medication_supply.unit.application': 'పూయడం',
+      'medication_supply.unit.bottle': 'సీసా',
+      'medication_supply.unit.tube': 'ట్యూబ్',
+      'medication_supply.unit.sachet': 'సాచెట్',
+      'medication_supply.unit.suppository': 'సపోజిటరీ',
+      'medication_supply.unit.drop': 'చుక్క',
+      'medication_supply.unit.kit': 'కిట్',
+      'medication_supply.unit.each': 'ఒక్కొక్కటి',
       // REVIEW: MED-03 AI first pass - confirm medication custody wording with a Telugu-fluent clinician.
       'mar_scan.supply.title': 'వార్డు మందుల సరఫరా ఆధారం',
       'mar_scan.supply.status.available':
@@ -38450,6 +38564,19 @@ class AppStrings {
           'MAR ഷെഡ്യൂൾ പൊരുത്തപ്പെടുത്തി ({count} ഡോസുകൾ).',
       'orders.mar_recovery.failed': 'MAR ഷെഡ്യൂൾ ശരിയാക്കാനായില്ല: {error}',
       'orders.icu_mar_review.banner': 'ICU പ്രവേശനം #{admissionId}-നുള്ള മരുന്ന് തുടർച്ച അവലോകനം ചെയ്യണം. ഓർഡറുകളും MAR തുടർച്ചയും പരിശോധിക്കുക; ഈ അറിയിപ്പ് ക്ലിനിക്കൽ ഡാറ്റ മാറ്റുന്നില്ല.',
+      'admission.required': 'നിർബന്ധമാണ്',
+      'drug_chart.column.drug': 'മരുന്ന്',
+      's4.dynamic.order_sets.duration_days': '× {days} ദിവസം',
+      's4.dynamic.order_sets.via_route': '{route} വഴി',
+      's4.lib.drug_chart.catalog_selection_required': 'സേവ് ചെയ്യുന്നതിന് മുമ്പ് അംഗീകൃത മരുന്ന് കാറ്റലോഗിൽ നിന്ന് ഒരു മരുന്ന് തിരഞ്ഞെടുക്കുക.',
+      's4.lib.drug_chart.catalog_unavailable': 'മരുന്ന് കാറ്റലോഗ് ലഭ്യമല്ല. ഈ ഓർഡർ സൃഷ്ടിക്കുന്നതിന് മുമ്പ് വീണ്ടും ശ്രമിക്കുക.',
+      's4.lib.order_sets.no_order_sets': 'ഓർഡർ സെറ്റുകളൊന്നുമില്ല',
+      's4.lib.order_sets.order_sets': 'ഓർഡർ സെറ്റുകൾ',
+      's4.lib.order_sets.search_pneumonia_sepsis':
+          'തിരയുക (ന്യൂമോണിയ, സെപ്സിസ്, …)',
+      's4.lib.pharmacy.metric_unit': 'യൂണിറ്റ്',
+      's4.lib.pharmacy.quantity': 'അളവ്',
+      's4.lib.prescriptions.type_drug_name': 'മരുന്നിന്റെ പേര് ടൈപ്പ് ചെയ്യുക',
       'composer.title': 'പുതിയ ഓർഡറുകൾ',
       'composer.search_label': 'ഓർഡർ കാറ്റലോഗിൽ തിരയുക',
       'composer.search_hint': 'മരുന്നുകളും പരിശോധനകളും തിരയുക...',
@@ -38483,10 +38610,12 @@ class AppStrings {
       'composer.add_to_basket': 'ബാസ്കറ്റിൽ ചേർക്കുക',
       'composer.duration_days': 'കാലയളവ് (ദിവസം)',
       'composer.study_name': 'സ്റ്റഡി',
-      'composer.study_hint': 'Chest X-ray PA, CT Brain plain...',
+      'composer.study_hint':
+          'ചെസ്റ്റ് എക്സ്-റേ PA, കോൺട്രാസ്റ്റ് ഇല്ലാത്ത CT ബ്രെയിൻ...',
       'composer.specialty': 'സ്പെഷ്യാലിറ്റി',
-      'composer.specialty_hint': 'Cardiology, Nephrology...',
-      'composer.diet_hint': 'Diabetic diet, NPO, soft diet...',
+      'composer.specialty_hint': 'ഹൃദ്രോഗവിഭാഗം, വൃക്കരോഗവിഭാഗം...',
+      'composer.diet_hint':
+          'പ്രമേഹ ഭക്ഷണക്രമം, വായിലൂടെ ഒന്നുമില്ല (NPO), മൃദുവായ ഭക്ഷണം...',
       'order_sets.no_placeable_items':
           'നൽകാവുന്ന ഓർഡർ ഇനങ്ങൾ തിരഞ്ഞെടുത്തിട്ടില്ല',
       'order_sets.apply_failed': 'പ്രയോഗിക്കാനായില്ല',
@@ -38748,6 +38877,26 @@ class AppStrings {
       'mar_scan.hardstop.drug':
           'സ്കാൻ ചെയ്ത ബാർകോഡ് ഓർഡർ ചെയ്ത മരുന്നുമായി പൊരുത്തപ്പെടുന്നില്ല.',
       'mar_scan.hardstop.body': 'രോഗിയുടെയോ മരുന്നിന്റെയോ തിരിച്ചറിയൽ പൊരുത്തക്കേട് ഓവർറൈഡ് ചെയ്യാനാകില്ല. ശരിയായ രോഗിയും മരുന്നുമാണെന്ന് ഉറപ്പാക്കി വീണ്ടും സ്കാൻ ചെയ്യുക.',
+      'medication_supply.unit.tablet': 'ഗുളിക',
+      'medication_supply.unit.capsule': 'ക്യാപ്സ്യൂൾ',
+      'medication_supply.unit.ampoule': 'ആംപ്യൂൾ',
+      'medication_supply.unit.vial': 'വയൽ',
+      'medication_supply.unit.bag': 'ബാഗ്',
+      'medication_supply.unit.prefilled_syringe': 'മുൻകൂട്ടി നിറച്ച സിറിഞ്ച്',
+      'medication_supply.unit.cartridge': 'കാർട്രിഡ്ജ്',
+      'medication_supply.unit.ml': 'മില്ലിലിറ്റർ',
+      'medication_supply.unit.dose': 'ഡോസ്',
+      'medication_supply.unit.patch': 'പാച്ച്',
+      'medication_supply.unit.actuation': 'ഒരു പഫ്',
+      'medication_supply.unit.spray': 'സ്പ്രേ',
+      'medication_supply.unit.application': 'പ്രയോഗം',
+      'medication_supply.unit.bottle': 'കുപ്പി',
+      'medication_supply.unit.tube': 'ട്യൂബ്',
+      'medication_supply.unit.sachet': 'സാഷെ',
+      'medication_supply.unit.suppository': 'സപ്പോസിറ്ററി',
+      'medication_supply.unit.drop': 'തുള്ളി',
+      'medication_supply.unit.kit': 'കിറ്റ്',
+      'medication_supply.unit.each': 'ഓരോന്ന്',
       // REVIEW: MED-03 AI first pass - confirm medication custody wording with a Malayalam-fluent clinician.
       'mar_scan.supply.title': 'വാർഡ് മരുന്ന് വിതരണ തെളിവ്',
       'mar_scan.supply.status.available': 'കൃത്യമായ വാർഡ് കസ്റ്റഡി ലഭ്യമാണ്',

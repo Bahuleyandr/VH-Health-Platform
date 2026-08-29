@@ -270,12 +270,15 @@ export async function listWardIndentInventoryCandidates(wardIndentItemId, {
   }, { readOnly: true });
 }
 
-export async function releaseWardIndentReservationsTx(tx, {
-  indent,
-  releasedBy,
-  reason,
-}) {
+export async function releaseUnissuedWardIndentReservationsTx(
+  tx,
+  { indent, releasedBy, reason, wardIndentItemIds = null }
+) {
   const cleanReason = requiredText(reason, 'reservation release reason');
+  const scopedItemIds =
+    wardIndentItemIds == null
+      ? null
+      : [...new Set(wardIndentItemIds.map(itemId => positiveInt(itemId, 'wardIndentItemId')))];
   const rows = await tx.$queryRawUnsafe(
     `UPDATE ward_indent_inventory_allocations
         SET status = 'released', released_by = $1::uuid, released_at = NOW(),
@@ -284,13 +287,24 @@ export async function releaseWardIndentReservationsTx(tx, {
         AND ward_indent_id = $4::int
         AND status = ANY($5::text[])
         AND issued_quantity = 0
+        AND ($6::int[] IS NULL OR ward_indent_item_id = ANY($6::int[]))
       RETURNING id`,
     releasedBy,
     cleanReason,
     indent.tenant_id,
     Number(indent.id),
     ACTIVE_ALLOCATION_STATUSES,
+    scopedItemIds
   );
+  return rows.length;
+}
+
+export async function releaseWardIndentReservationsTx(tx, { indent, releasedBy, reason }) {
+  const released = await releaseUnissuedWardIndentReservationsTx(tx, {
+    indent,
+    releasedBy,
+    reason
+  });
   const issued = await tx.$queryRawUnsafe(
     `SELECT id
        FROM ward_indent_inventory_allocations
@@ -309,7 +323,7 @@ export async function releaseWardIndentReservationsTx(tx, {
       'WARD_INDENT_ALLOCATION_RELEASE_REQUIRES_RECONCILIATION',
     );
   }
-  return rows.length;
+  return released;
 }
 
 export async function assertNoOpenWardAllocationAuthorityRecoveryTx(tx, {

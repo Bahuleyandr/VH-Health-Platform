@@ -21,6 +21,7 @@ import {
 import prisma from '../../lib/prisma.js';
 import { hashRequestBody } from '../../services/idempotency/idempotencyService.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
+import { AppError } from '../../utils/AppError.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 const router = express.Router();
@@ -50,14 +51,11 @@ const guardClinicalOrderEncounterView = patientAccessGuardForResource('CLINICAL_
 });
 
 const MEDICATION_ORDER_WRITE_ROLES = new Set([
-  'ADMIN',
-  'SUPER_ADMIN',
   'DOCTOR',
   'DUTY_DOCTOR',
   'CONSULTANT',
   'JUNIOR_DOCTOR',
   'RESIDENT',
-  'MEDICAL_SUPERINTENDENT',
 ]);
 
 function roleCanWriteMedicationOrder(req) {
@@ -71,6 +69,24 @@ function isMedicationOrderType(orderType) {
 
 function rejectMedicationWrite(res) {
   return error(res, 'Only doctors can prescribe or edit inpatient medication orders', 403);
+}
+
+function clinicalOrderTerminalIdempotency(action) {
+  return requireIdempotencyKey({
+    required: true,
+    scope: 'clinical_order_terminal',
+    retainOnServerError: true,
+    requestPathForIdempotency: (req) => (
+      `/api/v1/emr/orders/${Number(req.params.id)}/terminal`
+    ),
+    requestBodyForIdempotency: (req) => ({
+      action,
+      reason: String(req.body?.reason || '').trim() || null,
+    }),
+    releaseOnResponseCodes: [
+      'MAR_ORDER_TERMINAL_EXCEPTION_NOTIFICATION_IN_FLIGHT',
+    ],
+  });
 }
 
 function requireMedicationOrderWriteRole(req, res, next) {
@@ -103,16 +119,38 @@ async function requireClinicalOrderVerificationAuthority(req, res, next) {
     if (!req.tenantId) {
       return error(res, 'Tenant context required', 403);
     }
-    const order = await prisma.clinical_orders.findFirst({
-      where: { id: orderId, tenant_id: req.tenantId },
-      select: { order_type: true },
-    });
+    const [order, actor] = await Promise.all([
+      prisma.clinical_orders.findFirst({
+        where: { id: orderId, tenant_id: req.tenantId },
+        select: { order_type: true }
+      }),
+      prisma.users.findFirst({
+        where: {
+          uid: req.user.uid,
+          tenant_id: req.tenantId,
+          is_active: true,
+          is_deleted: false,
+          deleted_at: null,
+          status: { equals: 'active', mode: 'insensitive' }
+        },
+        select: { role: true }
+      })
+    ]);
     if (!order) return error(res, 'Order not found', 404);
-    if (!orderEntryService.canVerifyClinicalOrderType(req.user?.role, order.order_type)) {
+    if (
+      !actor ||
+      String(actor.role || '')
+        .trim()
+        .toUpperCase() !==
+        String(req.user?.role || '')
+          .trim()
+          .toUpperCase() ||
+      !orderEntryService.canVerifyClinicalOrderType(actor.role, order.order_type)
+    ) {
       return error(
         res,
-        'Pharmacy staff can verify medication orders only; other clinical orders require inpatient nursing verification',
-        403,
+        'Order verification requires an active same-tenant inpatient nurse or pharmacist; sign in again if your role changed',
+        403
       );
     }
     req.clinicalOrderVerification = { orderId, orderType: order.order_type };
@@ -131,13 +169,42 @@ async function requireMedicationOrderMarRecoveryAuthority(req, res, next) {
     if (!req.tenantId) {
       return error(res, 'Tenant context required', 403);
     }
-    const order = await prisma.clinical_orders.findFirst({
-      where: { id: orderId, tenant_id: req.tenantId },
-      select: { order_type: true },
-    });
+    const [order, actor] = await Promise.all([
+      prisma.clinical_orders.findFirst({
+        where: { id: orderId, tenant_id: req.tenantId },
+        select: { order_type: true }
+      }),
+      prisma.users.findFirst({
+        where: {
+          uid: req.user.uid,
+          tenant_id: req.tenantId,
+          is_active: true,
+          is_deleted: false,
+          deleted_at: null,
+          status: { equals: 'active', mode: 'insensitive' }
+        },
+        select: { role: true }
+      })
+    ]);
     if (!order) return error(res, 'Order not found', 404);
     if (!isMedicationOrderType(order.order_type)) {
       return error(res, 'Only medication orders own a MAR schedule', 409);
+    }
+    if (
+      !actor ||
+      String(actor.role || '')
+        .trim()
+        .toUpperCase() !==
+        String(req.user?.role || '')
+          .trim()
+          .toUpperCase() ||
+      !orderEntryService.canTerminalMedicationOrderRole(actor.role)
+    ) {
+      return error(
+        res,
+        'MAR recovery requires an active same-tenant prescriber; sign in again if your role changed',
+        403
+      );
     }
     req.medicationOrderMarRecovery = { orderId, orderType: order.order_type };
     return next();
@@ -170,15 +237,44 @@ async function guardBulkOrderPatients(req, res, next) {
   }
 }
 
-async function ensureExistingMedicationWriteAllowed(req, res, orderId) {
-  const order = await prisma.clinical_orders.findUnique({
-    where: { id: Number(orderId) },
-    select: { order_type: true },
-  });
-  if (!order || order.order_type !== 'medication') return true;
-  if (roleCanWriteMedicationOrder(req)) return true;
-  rejectMedicationWrite(res);
-  return false;
+async function requireClinicalOrderTerminalAuthority(req, _res, next) {
+  try {
+    const orderId = Number(req.params.id);
+    if (!Number.isSafeInteger(orderId) || orderId <= 0) {
+      throw AppError.badRequest('Invalid order ID');
+    }
+    if (!req.tenantId) {
+      throw AppError.forbidden('Tenant context required');
+    }
+    const order = await prisma.clinical_orders.findFirst({
+      where: { id: orderId, tenant_id: req.tenantId },
+      select: { order_type: true },
+    });
+    if (!order) throw AppError.notFound('Order not found');
+    if (!isMedicationOrderType(order.order_type)) return next();
+
+    const actor = await prisma.users.findFirst({
+      where: {
+        uid: req.user.uid,
+        tenant_id: req.tenantId,
+        is_active: true,
+        is_deleted: false,
+        deleted_at: null,
+        status: { equals: 'active', mode: 'insensitive' },
+      },
+      select: { role: true },
+    });
+    if (!orderEntryService.canTerminalMedicationOrderRole(actor?.role)) {
+      throw AppError.forbidden(
+        'Only an active prescriber may complete, cancel, or discontinue a medication order',
+        'MEDICATION_ORDER_TERMINAL_PRESCRIBER_REQUIRED',
+      );
+    }
+    req.clinicalOrderTerminal = { orderId, orderType: order.order_type };
+    return next();
+  } catch (err) {
+    return next(err);
+  }
 }
 
 // The staff Orders sheet posts the medication / lab / radiology fields
@@ -256,8 +352,8 @@ router.post('/orders', enforceStaffClinicalWriteDevicePosture, requireMedication
       return error(res, 'patient_uid, order_type, and details are required', 400);
     }
     const result = await orderEntryService.createOrder({
-      encounter_id: encounter_id || null,
-      er_visit_id: er_visit_id || null,
+      encounter_id: encounter_id ?? null,
+      er_visit_id: er_visit_id ?? null,
       patient_uid,
       order_type,
       priority,
@@ -267,6 +363,12 @@ router.post('/orders', enforceStaffClinicalWriteDevicePosture, requireMedication
       end_date,
       notes,
       tenantId: req.tenantId,
+      httpCommand: {
+        commandKey: req.idempotencyClaim?.requestKey,
+        requestFingerprint: req.idempotencyClaim?.requestBodyHash,
+        httpIdempotencyClaimId: req.idempotencyClaim?.id,
+        requestId: req.id,
+      },
     });
 
     logPhiAccess({
@@ -289,7 +391,7 @@ router.post('/orders', enforceStaffClinicalWriteDevicePosture, requireMedication
 // POST /emr/orders/apply-set — Apply an order set
 // ===================================================================
 
-router.post('/orders/apply-set', requireMedicationOrderWriteRole, enforceStaffClinicalWriteDevicePosture, guardClinicalOrderWrite, requireIdempotencyKey({ required: false, scope: 'clinical_order_apply_set' }), async (req, res, next) => {
+router.post('/orders/apply-set', requireMedicationOrderWriteRole, enforceStaffClinicalWriteDevicePosture, guardClinicalOrderWrite, requireIdempotencyKey({ required: true, scope: 'clinical_order_apply_set' }), async (req, res, next) => {
   try {
     const { patient_uid, encounter_id, order_set_id } = req.body;
 
@@ -301,7 +403,15 @@ router.post('/orders/apply-set', requireMedicationOrderWriteRole, enforceStaffCl
       encounter_id || null,
       order_set_id,
       req.user.uid,
-      req.tenantId
+      req.tenantId,
+      {
+        httpCommand: {
+          commandKey: req.idempotencyClaim?.requestKey,
+          requestFingerprint: req.idempotencyClaim?.requestBodyHash,
+          httpIdempotencyClaimId: req.idempotencyClaim?.id,
+          requestId: req.id
+        }
+      }
     );
 
     logPhiAccess({
@@ -331,7 +441,7 @@ router.post('/orders/apply-set', requireMedicationOrderWriteRole, enforceStaffCl
 // front, then inserts all rows in one transaction.
 // Finding 2026-05-08-inpatient-admission-doctor-no-batch-ordering.
 
-router.post('/orders/bulk', enforceStaffClinicalWriteDevicePosture, requireMedicationOrderWriteRoleForBulk, guardBulkOrderPatients, requireIdempotencyKey({ required: false, scope: 'clinical_order_bulk' }), async (req, res, next) => {
+router.post('/orders/bulk', enforceStaffClinicalWriteDevicePosture, requireMedicationOrderWriteRoleForBulk, guardBulkOrderPatients, requireIdempotencyKey({ required: true, scope: 'clinical_order_bulk' }), async (req, res, next) => {
   try {
     const { encounter_id, orders } = req.body;
 
@@ -350,7 +460,8 @@ router.post('/orders/bulk', enforceStaffClinicalWriteDevicePosture, requireMedic
         body.encounter_id = encounter_id;
       }
       return {
-        encounter_id: body.encounter_id || null,
+        encounter_id: body.encounter_id ?? null,
+        er_visit_id: body.er_visit_id ?? null,
         patient_uid: body.patient_uid,
         order_type: body.order_type,
         priority: body.priority,
@@ -364,6 +475,12 @@ router.post('/orders/bulk', enforceStaffClinicalWriteDevicePosture, requireMedic
     const result = await orderEntryService.createOrdersBulk(items, {
       ordered_by: req.user.uid,
       tenantId: req.tenantId,
+      httpCommand: {
+        commandKey: req.idempotencyClaim?.requestKey,
+        requestFingerprint: req.idempotencyClaim?.requestBodyHash,
+        httpIdempotencyClaimId: req.idempotencyClaim?.id,
+        requestId: req.id,
+      },
     });
 
     // PHI log per distinct patient — a batch is normally one admission,
@@ -411,6 +528,10 @@ router.post(
         orderId,
         actorUid: req.user.uid,
         actorRole: req.user.role,
+        commandKey: req.idempotencyClaim?.requestKey,
+        requestFingerprint: req.idempotencyClaim?.requestBodyHash,
+        httpIdempotencyClaimId: req.idempotencyClaim?.id,
+        requestId: req.id,
       });
       logPhiAccess({
         userId: req.user.uid,
@@ -455,6 +576,9 @@ router.put(
         actorRole: req.user.role,
         idempotencyKey: req.idempotencyClaim?.requestKey || req.get('idempotency-key'),
         requestBodySha256: hashRequestBody(req.body || {}),
+        requestFingerprint: req.idempotencyClaim?.requestBodyHash,
+        httpIdempotencyClaimId: req.idempotencyClaim?.id,
+        requestId: req.id,
       });
       return success(res, result, 'Order verified');
     } catch (err) {
@@ -467,71 +591,101 @@ router.put(
 // PUT /emr/orders/:id/complete — Complete an order
 // ===================================================================
 
-router.put('/orders/:id/complete', rejectMobileClinicalWrite, guardClinicalOrderResourceWrite, async (req, res, next) => {
-  try {
-    const orderId = parseInt(req.params.id, 10);
+router.put(
+  '/orders/:id/complete',
+  rejectMobileClinicalWrite,
+  guardClinicalOrderResourceWrite,
+  requireClinicalOrderTerminalAuthority,
+  clinicalOrderTerminalIdempotency('complete'),
+  async (req, res, next) => {
+    try {
+      const orderId = parseInt(req.params.id, 10);
 
-    if (isNaN(orderId)) {
-      return error(res, 'Invalid order ID', 400);
+      if (isNaN(orderId)) {
+        return error(res, 'Invalid order ID', 400);
+      }
+      const result = await orderEntryService.completeOrder(orderId, req.user.uid, {
+        commandKey: req.idempotencyClaim?.requestKey,
+        requestFingerprint: req.idempotencyClaim?.requestBodyHash,
+        httpIdempotencyClaimId: req.idempotencyClaim?.id,
+        requestId: req.id,
+      });
+      return success(res, result, 'Order completed');
+    } catch (err) {
+      next(err);
     }
-    if (!(await ensureExistingMedicationWriteAllowed(req, res, orderId))) return null;
-
-    const result = await orderEntryService.completeOrder(orderId, req.user.uid);
-    return success(res, result, 'Order completed');
-  } catch (err) {
-    next(err);
-  }
-});
+  },
+);
 
 // ===================================================================
 // PUT /emr/orders/:id/cancel — Cancel an order
 // ===================================================================
 
-router.put('/orders/:id/cancel', rejectMobileClinicalWrite, guardClinicalOrderResourceWrite, async (req, res, next) => {
-  try {
-    const orderId = parseInt(req.params.id, 10);
-    const { reason } = req.body;
+router.put(
+  '/orders/:id/cancel',
+  rejectMobileClinicalWrite,
+  guardClinicalOrderResourceWrite,
+  requireClinicalOrderTerminalAuthority,
+  clinicalOrderTerminalIdempotency('cancel'),
+  async (req, res, next) => {
+    try {
+      const orderId = parseInt(req.params.id, 10);
+      const { reason } = req.body;
 
-    if (isNaN(orderId)) {
-      return error(res, 'Invalid order ID', 400);
+      if (isNaN(orderId)) {
+        return error(res, 'Invalid order ID', 400);
+      }
+
+      if (!reason) {
+        return error(res, 'Cancellation reason is required', 400);
+      }
+      const result = await orderEntryService.cancelOrder(orderId, req.user.uid, reason, {
+        commandKey: req.idempotencyClaim?.requestKey,
+        requestFingerprint: req.idempotencyClaim?.requestBodyHash,
+        httpIdempotencyClaimId: req.idempotencyClaim?.id,
+        requestId: req.id,
+      });
+      return success(res, result, 'Order cancelled');
+    } catch (err) {
+      next(err);
     }
-
-    if (!reason) {
-      return error(res, 'Cancellation reason is required', 400);
-    }
-    if (!(await ensureExistingMedicationWriteAllowed(req, res, orderId))) return null;
-
-    const result = await orderEntryService.cancelOrder(orderId, req.user.uid, reason);
-    return success(res, result, 'Order cancelled');
-  } catch (err) {
-    next(err);
-  }
-});
+  },
+);
 
 // ===================================================================
 // PUT /emr/orders/:id/discontinue — Discontinue an order
 // ===================================================================
 
-router.put('/orders/:id/discontinue', rejectMobileClinicalWrite, guardClinicalOrderResourceWrite, async (req, res, next) => {
-  try {
-    const orderId = parseInt(req.params.id, 10);
-    const { reason } = req.body;
+router.put(
+  '/orders/:id/discontinue',
+  rejectMobileClinicalWrite,
+  guardClinicalOrderResourceWrite,
+  requireClinicalOrderTerminalAuthority,
+  clinicalOrderTerminalIdempotency('discontinue'),
+  async (req, res, next) => {
+    try {
+      const orderId = parseInt(req.params.id, 10);
+      const { reason } = req.body;
 
-    if (isNaN(orderId)) {
-      return error(res, 'Invalid order ID', 400);
+      if (isNaN(orderId)) {
+        return error(res, 'Invalid order ID', 400);
+      }
+
+      if (!reason) {
+        return error(res, 'Discontinuation reason is required', 400);
+      }
+      const result = await orderEntryService.discontinueOrder(orderId, req.user.uid, reason, {
+        commandKey: req.idempotencyClaim?.requestKey,
+        requestFingerprint: req.idempotencyClaim?.requestBodyHash,
+        httpIdempotencyClaimId: req.idempotencyClaim?.id,
+        requestId: req.id,
+      });
+      return success(res, result, 'Order discontinued');
+    } catch (err) {
+      next(err);
     }
-
-    if (!reason) {
-      return error(res, 'Discontinuation reason is required', 400);
-    }
-    if (!(await ensureExistingMedicationWriteAllowed(req, res, orderId))) return null;
-
-    const result = await orderEntryService.discontinueOrder(orderId, req.user.uid, reason);
-    return success(res, result, 'Order discontinued');
-  } catch (err) {
-    next(err);
-  }
-});
+  },
+);
 
 // ===================================================================
 // GET /emr/orders/patient/:uid — Patient orders

@@ -28,6 +28,8 @@ import {
   issueWardIndent,
   listWardIndentPage,
   listWardIndents,
+  loadMedicationCatalogAuthorityTx,
+  loadWardIndentCatalogClassificationsTx,
   markWardIndentShortSupply,
   proposeWardIndentSubstitution,
   requestWardIndentControlledWitnessApproval,
@@ -231,95 +233,61 @@ function parseClinicalOrderDetails(details) {
   return typeof details === 'object' ? details : {};
 }
 
-function normalizeOrderRoute(value) {
-  if (value === null || value === undefined || value === '') return null;
-  const route = String(value).trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ');
-  if (!route) return null;
-  if (/\b(iv|intravenous|infusion|injectable|injection|inj|vial|ampoule)\b/.test(route)) return 'iv';
-  if (/\b(im|intramuscular)\b/.test(route)) return 'im';
-  if (/\b(sc|subcutaneous|subcut)\b/.test(route)) return 'sc';
-  if (/\b(po|oral|mouth|tablet|tab|capsule|cap|syrup|sachet)\b/.test(route)) return 'oral';
-  return route;
-}
-
-function inferMedicationRoute(order, details) {
-  return normalizeOrderRoute(
-    order?.route
-      ?? details.route
-      ?? details.medication_route
-      ?? details.prescribed_route
-      ?? details.administration_route
-      ?? details.form
-      ?? details.dosage_form
-  );
-}
-
-function inferVolumeMl(details, medicationName) {
-  const explicit = Number(
-    details.volume_ml
-      ?? details.volumeMl
-      ?? details.iv_fluid_ml
-      ?? details.ivFluidsMl
-      ?? details.fluid_ml
-  );
-  if (Number.isFinite(explicit) && explicit > 0) return Math.round(explicit);
-
-  const text = [
-    medicationName,
-    details.dose,
-    details.dosage,
-    details.strength,
-    details.quantity_label,
-    details.unit,
-  ].filter(Boolean).join(' ');
-  const match = text.match(/\b(\d{2,4})\s*(ml|mL|ML)\b/);
-  return match ? Number.parseInt(match[1], 10) : null;
-}
-
-function catalogSearchTerms(medicationName, details) {
-  const terms = new Set();
-  const add = (value) => {
-    const text = value == null ? '' : String(value).trim();
-    if (text) terms.add(text);
+function stableClinicalOrderDetails(details) {
+  const normalize = (value) => {
+    if (Array.isArray(value)) return value.map(normalize);
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(
+        Object.keys(value).sort().map((key) => [key, normalize(value[key])]),
+      );
+    }
+    return value;
   };
-
-  add(medicationName);
-  add(details.generic_name);
-  add(details.generic);
-  add(details.drug);
-
-  const text = [
-    medicationName,
-    details.generic_name,
-    details.generic,
-    details.drug,
-    details.dose,
-    details.dosage,
-    details.strength,
-  ].filter(Boolean).join(' ').toLowerCase();
-
-  if (/\b(ns|normal saline|saline|sodium chloride|nacl)\b/.test(text)) {
-    add('Normal Saline');
-    add('Sodium Chloride');
-    add('Sodium Chloride 0.9%');
-  }
-  if (/\b(rl|ringer|ringer lactate|compound sodium lactate|hartmann)\b/.test(text)) {
-    add('Ringer Lactate');
-    add('Compound Sodium Lactate');
-  }
-  if (/\b(dns|dextrose normal saline)\b/.test(text)) {
-    add('DNS');
-    add('Dextrose-Normal Saline');
-  }
-
-  return [...terms];
+  return JSON.stringify(normalize(parseClinicalOrderDetails(details)));
 }
 
-function quantityFromMedicationDetails(details, projectedQuantity = null) {
-  const qty = Number(details.quantity_requested ?? details.quantity ?? details.qty ?? details.units);
-  if (Number.isFinite(qty) && qty > 0) return qty;
-  const projected = Number(projectedQuantity);
-  return Number.isFinite(projected) && projected > 0 ? projected : 1;
+function manualIndentQuantityFromMedicationDetails(details) {
+  const raw = details.quantity_requested;
+  const value = String(raw ?? '').trim();
+  if (!/^(?:\d+(?:\.\d{1,2})?|\.\d{1,2})$/.test(value)) return null;
+  const quantity = Number(value);
+  return Number.isFinite(quantity)
+    && quantity > 0
+    && quantity <= 99999999.99
+    ? quantity
+    : null;
+}
+
+function manualIndentUnitFromMedicationDetails(details) {
+  const raw = details.unit;
+  if (typeof raw !== 'string') return null;
+  const unit = raw.trim();
+  return unit || null;
+}
+
+function manualIndentCatalogFromMedicationDetails(details) {
+  const raw = details.catalog_id ?? details.catalogId;
+  if (
+    typeof raw !== 'number'
+    && (typeof raw !== 'string' || !/^[1-9]\d*$/.test(raw.trim()))
+  ) return null;
+  const catalogId = Number(raw);
+  return Number.isSafeInteger(catalogId) && catalogId > 0 ? catalogId : null;
+}
+
+function normalizedUnit(value) {
+  return String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function isDatabaseUniqueConflict(err) {
+  return [
+    err?.code,
+    err?.meta?.code,
+    err?.meta?.driverAdapterError?.cause?.code,
+    err?.meta?.driverAdapterError?.cause?.originalCode,
+    err?.original?.code,
+    err?.cause?.code,
+  ].some((code) => ['P2002', '23505'].includes(String(code || '').toUpperCase()));
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -922,6 +890,12 @@ export async function createWardIndent({
   if (patientUid != null && !isUuid(patientUid)) {
     throw AppError.badRequest('patient_uid must be a UUID');
   }
+  const clinicalOrderIds = normalizedItems
+    .map((item) => item.clinicalOrderId)
+    .filter((id) => id != null);
+  const catalogIds = [...new Set(normalizedItems
+    .map((item) => item.catalogId)
+    .filter((id) => id != null))];
 
   // Closes finding 2026-05-17-inpatient-admission-pharmacy-05748c99.
   // Snapshot ward/patient/encounter from a locked admission inside the
@@ -947,6 +921,36 @@ export async function createWardIndent({
       actorUid: requestedBy,
     });
     if (replay) return replay;
+    let catalogById = await loadWardIndentCatalogClassificationsTx(tx, {
+      tenantId: tid,
+      catalogIds,
+      lock: true,
+    });
+    const medicationItems = normalizedItems.filter((item) => (
+      indentType === 'pharmacy'
+      || item.clinicalOrderId != null
+      || catalogById.get(item.catalogId)?.is_medication_identity === true
+    ));
+    if (medicationItems.length && medicationItems.length !== normalizedItems.length) {
+      throw AppError.conflict(
+        'Medication and non-medication ward-stock lines cannot share one indent',
+        'WARD_INDENT_MIXED_CLINICAL_CLASSIFICATION',
+      );
+    }
+    if (medicationItems.some((item) => item.clinicalOrderId == null)) {
+      throw AppError.conflict(
+        'Every medication ward-indent line must be bound to a clinical order',
+        'WARD_INDENT_CLINICAL_ORDER_REQUIRED',
+      );
+    }
+    const medicationWardIndent = medicationItems.length > 0;
+    const resolvedIndentType = medicationWardIndent ? 'pharmacy' : indentType;
+    if (medicationWardIndent && resolvedAdmissionId == null) {
+      throw AppError.badRequest(
+        'admission_id is required for a medication ward indent',
+        'WARD_INDENT_ADMISSION_REQUIRED',
+      );
+    }
     if (resolvedAdmissionId != null) {
       const rows = await tx.$queryRawUnsafe(
         `SELECT a.id, a.patient_uid, a.encounter_id, a.status,
@@ -965,32 +969,76 @@ export async function createWardIndent({
         resolvedAdmissionId, tid,
       );
       const admission = rows[0];
-      if (!admission) throw AppError.notFound('Admission not found');
-      if (['discharged', 'cancelled'].includes(String(admission.status || '').toLowerCase())) {
+      if (!admission) {
+        throw AppError.notFound(
+          'Admission not found',
+          'WARD_INDENT_ADMISSION_NOT_FOUND',
+        );
+      }
+      if (!['admitted', 'transferred'].includes(
+        String(admission.status || '').trim().toLowerCase(),
+      )) {
         throw AppError.conflict(
           'Ward indent cannot be created for an inactive admission',
           'WARD_INDENT_ADMISSION_INACTIVE',
+          { admission_id: Number(admission.id), status: admission.status || null },
         );
       }
-      if (wardId != null && admission.ward_id != null
-        && Number(wardId) !== Number(admission.ward_id)) {
-        throw AppError.badRequest('ward_id does not match the admission ward');
+      if (wardId != null && (
+        admission.ward_id == null || Number(wardId) !== Number(admission.ward_id)
+      )) {
+        throw AppError.badRequest(
+          'ward_id does not match the admission ward',
+          'WARD_INDENT_ADMISSION_WARD_MISMATCH',
+        );
       }
-      if (patientUid != null && admission.patient_uid != null
-        && String(patientUid) !== String(admission.patient_uid)) {
-        throw AppError.badRequest('patient_uid does not match the admission patient');
+      if (patientUid != null && String(patientUid) !== String(admission.patient_uid)) {
+        throw AppError.badRequest(
+          'patient_uid does not match the admission patient',
+          'WARD_INDENT_ADMISSION_PATIENT_MISMATCH',
+        );
       }
-      if (encounterId != null && admission.encounter_id != null
-        && String(encounterId) !== String(admission.encounter_id)) {
-        throw AppError.badRequest('encounter_id does not match the admission encounter');
+      if (encounterId != null && String(encounterId) !== String(admission.encounter_id)) {
+        throw AppError.badRequest(
+          'encounter_id does not match the admission encounter',
+          'WARD_INDENT_ADMISSION_ENCOUNTER_MISMATCH',
+        );
       }
-      resolvedWardId = admission.ward_id ?? resolvedWardId;
-      resolvedWardName = admission.ward_name ?? resolvedWardName;
+      if (medicationWardIndent && admission.patient_uid == null) {
+        throw AppError.conflict(
+          'Medication ward-indent admission has no authoritative patient',
+          'WARD_INDENT_ADMISSION_PATIENT_REQUIRED',
+        );
+      }
+      if (medicationWardIndent && admission.encounter_id == null) {
+        throw AppError.conflict(
+          'Medication ward-indent admission has no authoritative encounter',
+          'WARD_INDENT_ADMISSION_ENCOUNTER_REQUIRED',
+        );
+      }
+      if (medicationWardIndent && admission.ward_id == null) {
+        throw AppError.conflict(
+          'Medication ward-indent admission has no authoritative ward',
+          'WARD_INDENT_ADMISSION_WARD_REQUIRED',
+        );
+      }
+      resolvedWardId = medicationWardIndent
+        ? Number(admission.ward_id)
+        : admission.ward_id ?? resolvedWardId;
+      resolvedWardName = medicationWardIndent
+        ? admission.ward_name
+        : admission.ward_name ?? resolvedWardName;
+      // The locked admission ward is the facility authority for this indent;
+      // the ward/facility re-check below fails closed if it moved mid-create.
       resolvedFacilityId = admission.facility_id == null
         ? null
         : Number(admission.facility_id);
-      resolvedPatientUid = admission.patient_uid ?? resolvedPatientUid;
-      resolvedEncounterId = admission.encounter_id ?? resolvedEncounterId;
+      resolvedPatientUid = medicationWardIndent
+        ? admission.patient_uid
+        : admission.patient_uid ?? resolvedPatientUid;
+      resolvedEncounterId = medicationWardIndent
+        ? admission.encounter_id
+        : admission.encounter_id ?? resolvedEncounterId;
     }
     if (resolvedPatientUid != null) {
       const patientRows = await tx.$queryRawUnsafe(
@@ -1038,9 +1086,6 @@ export async function createWardIndent({
         'WARD_INDENT_FACILITY_REQUIRED',
       );
     }
-    const clinicalOrderIds = normalizedItems
-      .map((item) => item.clinicalOrderId)
-      .filter((id) => id != null);
     if (new Set(clinicalOrderIds).size !== clinicalOrderIds.length) {
       throw AppError.badRequest(
         'A clinical order can be linked to only one ward-indent line',
@@ -1056,7 +1101,9 @@ export async function createWardIndent({
       }
       const linkedOrders = await tx.$queryRawUnsafe(
         `SELECT clinical_order.id, clinical_order.patient_uid,
-                clinical_order.encounter_id, clinical_order.order_type
+                clinical_order.encounter_id, clinical_order.order_type,
+                clinical_order.status, clinical_order.verified_by::text,
+                clinical_order.verified_at, clinical_order.details
            FROM clinical_orders clinical_order
           WHERE clinical_order.tenant_id = $1::uuid
             AND clinical_order.id = ANY($2::int[])
@@ -1071,25 +1118,131 @@ export async function createWardIndent({
         if (!order || order.order_type !== 'medication') {
           throw AppError.notFound(`Medication clinical order ${clinicalOrderId} not found`);
         }
+        const orderStatus = String(order.status || '').trim().toLowerCase();
+        if (!['ordered', 'verified', 'in_progress'].includes(orderStatus)) {
+          throw AppError.conflict(
+            `Clinical order ${clinicalOrderId} is not active for a ward indent`,
+            'WARD_INDENT_CLINICAL_ORDER_INACTIVE',
+            { clinical_order_id: clinicalOrderId, status: order.status || null },
+          );
+        }
+        if (
+          ['verified', 'in_progress'].includes(orderStatus)
+          && (!order.verified_by || !order.verified_at)
+        ) {
+          throw AppError.conflict(
+            `Clinical order ${clinicalOrderId} is missing dedicated verification evidence`,
+            'MEDICATION_ORDER_VERIFICATION_EVIDENCE_REQUIRED',
+            { clinical_order_id: clinicalOrderId, status: order.status || null },
+          );
+        }
         if (String(order.patient_uid) !== String(resolvedPatientUid)) {
           throw AppError.badRequest(
             `Clinical order ${clinicalOrderId} does not belong to the indent patient`,
             'WARD_INDENT_CLINICAL_ORDER_PATIENT_MISMATCH',
           );
         }
-        if (order.encounter_id != null
-          && String(order.encounter_id) !== String(resolvedEncounterId)) {
+        if (
+          !order.encounter_id
+          || String(order.encounter_id) !== String(resolvedEncounterId)
+        ) {
           throw AppError.badRequest(
             `Clinical order ${clinicalOrderId} does not belong to the indent encounter`,
             'WARD_INDENT_CLINICAL_ORDER_ENCOUNTER_MISMATCH',
+            {
+              clinical_order_id: clinicalOrderId,
+              clinical_order_encounter_id: order.encounter_id || null,
+              admission_encounter_id: resolvedEncounterId || null,
+            },
           );
         }
+        const item = normalizedItems.find((candidate) => (
+          candidate.clinicalOrderId === clinicalOrderId
+        ));
+        const details = parseClinicalOrderDetails(order.details);
+        const expectedCatalogId = manualIndentCatalogFromMedicationDetails(details);
+        if (expectedCatalogId == null) {
+          throw AppError.conflict(
+            `Clinical order ${clinicalOrderId} has no authoritative formulary catalog`,
+            'WARD_INDENT_CLINICAL_ORDER_CATALOG_REQUIRED',
+            { clinical_order_id: clinicalOrderId },
+          );
+        }
+        if (item.catalogId != null && item.catalogId !== expectedCatalogId) {
+          throw AppError.conflict(
+            `Ward-indent catalog does not match clinical order ${clinicalOrderId}`,
+            'WARD_INDENT_CLINICAL_ORDER_CATALOG_MISMATCH',
+            {
+              clinical_order_id: clinicalOrderId,
+              expected_catalog_id: expectedCatalogId,
+              requested_catalog_id: item.catalogId,
+            },
+          );
+        }
+        const expectedQuantity = manualIndentQuantityFromMedicationDetails(details);
+        if (expectedQuantity == null) {
+          throw AppError.conflict(
+            `Clinical order ${clinicalOrderId} has no authoritative ward-supply quantity`,
+            'WARD_INDENT_CLINICAL_ORDER_QUANTITY_REQUIRED',
+            { clinical_order_id: clinicalOrderId },
+          );
+        }
+        if (Math.abs(item.quantity - expectedQuantity) > Number.EPSILON) {
+          throw AppError.conflict(
+            `Ward-indent quantity does not match clinical order ${clinicalOrderId}`,
+            'WARD_INDENT_CLINICAL_ORDER_QUANTITY_MISMATCH',
+            {
+              clinical_order_id: clinicalOrderId,
+              expected_quantity: expectedQuantity,
+              requested_quantity: item.quantity,
+            },
+          );
+        }
+        const expectedUnit = manualIndentUnitFromMedicationDetails(details);
+        if (!expectedUnit) {
+          throw AppError.conflict(
+            `Clinical order ${clinicalOrderId} has no authoritative ward-supply unit`,
+            'WARD_INDENT_CLINICAL_ORDER_UNIT_REQUIRED',
+            { clinical_order_id: clinicalOrderId },
+          );
+        }
+        if (item.unit != null && normalizedUnit(item.unit) !== normalizedUnit(expectedUnit)) {
+          throw AppError.conflict(
+            `Ward-indent unit does not match clinical order ${clinicalOrderId}`,
+            'WARD_INDENT_CLINICAL_ORDER_UNIT_MISMATCH',
+            {
+              clinical_order_id: clinicalOrderId,
+              expected_unit: expectedUnit,
+              requested_unit: item.unit,
+            },
+          );
+        }
+        item.catalogId = expectedCatalogId;
+        item.unit = expectedUnit;
       }
+      // Caller catalog fields are optional on the recovery route, so the
+      // authoritative order may have populated catalog IDs that were absent
+      // from the first classification pass. Lock and classify the final union
+      // before persisting any line, price snapshot, or workflow obligation.
+      const resolvedCatalogIds = [...new Set(normalizedItems
+        .map((item) => item.catalogId)
+        .filter((id) => id != null))];
+      catalogById = await loadMedicationCatalogAuthorityTx(tx, {
+        tenantId: tid,
+        catalogIds: resolvedCatalogIds,
+        lock: true,
+        unavailableCode: 'WARD_INDENT_CLINICAL_ORDER_CATALOG_UNAVAILABLE',
+        classificationCode: 'WARD_INDENT_CLINICAL_ORDER_CATALOG_CLASSIFICATION_MISMATCH',
+      });
       const existingLinks = await tx.$queryRawUnsafe(
-        `SELECT clinical_order_id
-           FROM ward_indent_items
-          WHERE tenant_id = $1::uuid
-            AND clinical_order_id = ANY($2::int[])
+        `SELECT item.clinical_order_id, indent.id AS ward_indent_id,
+                indent.indent_number
+           FROM ward_indent_items item
+           JOIN ward_indents indent
+             ON indent.tenant_id = item.tenant_id
+            AND indent.id = item.ward_indent_id
+          WHERE item.tenant_id = $1::uuid
+            AND item.clinical_order_id = ANY($2::int[])
           LIMIT 1`,
         tid,
         clinicalOrderIds,
@@ -1098,22 +1251,15 @@ export async function createWardIndent({
         throw AppError.conflict(
           `Clinical order ${existingLinks[0].clinical_order_id} already has a ward indent`,
           'WARD_INDENT_CLINICAL_ORDER_ALREADY_LINKED',
+          {
+            clinical_order_id: Number(existingLinks[0].clinical_order_id),
+            ward_indent_id: existingLinks[0].ward_indent_id == null
+              ? null
+              : Number(existingLinks[0].ward_indent_id),
+            indent_number: existingLinks[0].indent_number || null,
+          },
         );
       }
-    }
-    const catalogIds = [...new Set(normalizedItems
-      .map((item) => item.catalogId)
-      .filter((id) => id != null))];
-    const catalogs = catalogIds.length
-      ? await tx.pharmacy_catalog.findMany({
-          where: { tenant_id: tid, id: { in: catalogIds }, is_active: { not: false } },
-          select: { id: true, name: true, unit_price: true, price: true },
-        })
-      : [];
-    const catalogById = new Map(catalogs.map((catalog) => [Number(catalog.id), catalog]));
-    const missingCatalogIds = catalogIds.filter((id) => !catalogById.has(id));
-    if (missingCatalogIds.length) {
-      throw AppError.notFound(`Active catalog item ${missingCatalogIds[0]} not found`);
     }
     const indentNumber = await nextIndentNumber(tx, tid);
     const indent = await tx.ward_indents.create({
@@ -1126,7 +1272,7 @@ export async function createWardIndent({
         admission_id: resolvedAdmissionId,
         encounter_id: resolvedEncounterId,
         patient_uid: resolvedPatientUid,
-        indent_type: indentType,
+        indent_type: resolvedIndentType,
         status: 'requested',
         requested_by: requestedBy,
         notes,
@@ -1159,29 +1305,122 @@ export async function createWardIndent({
       commandKey,
       source: 'manual_request',
     });
+  }).catch(async (err) => {
+    if (!isDatabaseUniqueConflict(err) || clinicalOrderIds.length === 0) {
+      throw err;
+    }
+    const existingLinks = await setTenantTx(tid, (tx) => tx.$queryRawUnsafe(
+      `SELECT item.clinical_order_id, indent.id AS ward_indent_id,
+              indent.indent_number
+         FROM ward_indent_items item
+         JOIN ward_indents indent
+           ON indent.tenant_id = item.tenant_id
+          AND indent.id = item.ward_indent_id
+        WHERE item.tenant_id = $1::uuid
+          AND item.clinical_order_id = ANY($2::int[])
+        ORDER BY indent.created_at DESC, indent.id DESC
+        LIMIT 1`,
+      tid,
+      clinicalOrderIds,
+    ));
+    if (!existingLinks[0]) throw err;
+    throw AppError.conflict(
+      `Clinical order ${existingLinks[0].clinical_order_id} already has a ward indent`,
+      'WARD_INDENT_CLINICAL_ORDER_ALREADY_LINKED',
+      {
+        clinical_order_id: Number(existingLinks[0].clinical_order_id),
+        ward_indent_id: Number(existingLinks[0].ward_indent_id),
+        indent_number: existingLinks[0].indent_number || null,
+      },
+    );
   });
 }
 
-export async function createWardIndentForClinicalMedicationOrder(order, {
-  projectedSupplyQuantity = null,
-} = {}) {
-  if (!order || order.order_type !== 'medication' || !order.encounter_id) return null;
-
-  const details = parseClinicalOrderDetails(order.details);
-  const medicationName = details.medication_name || details.medication || details.name;
-  if (!medicationName || !order.ordered_by) return null;
-  const medicationRoute = inferMedicationRoute(order, details);
-  const volumeMl = inferVolumeMl(details, medicationName);
-  const searchTerms = catalogSearchTerms(medicationName, details);
-  const wildcardTerms = searchTerms.map((term) => `%${term}%`);
+export async function createWardIndentForClinicalMedicationOrder(order) {
+  if (!order || order.order_type !== 'medication' || !order.id || !order.tenant_id) return null;
 
   const result = await setTenantTx(requireTenantId(order.tenant_id), async (tx) => {
+    const orderRows = await tx.$queryRawUnsafe(
+      `SELECT id, status, patient_uid::text, encounter_id::text, order_type,
+              order_number, details, route, ordered_by::text, tenant_id::text
+         FROM clinical_orders
+        WHERE tenant_id = $1::uuid
+          AND id = $2::int
+          AND order_type = 'medication'
+        LIMIT 1
+        FOR SHARE`,
+      requireTenantId(order.tenant_id),
+      Number(order.id),
+    );
+    const currentOrder = orderRows[0];
+    if (!currentOrder) {
+      throw AppError.conflict(
+        'Medication order is unavailable for ward-indent materialization',
+        'WARD_INDENT_CLINICAL_ORDER_NOT_FOUND',
+      );
+    }
+    if (!['ordered', 'verified', 'in_progress'].includes(
+      String(currentOrder.status || '').trim().toLowerCase(),
+    )) {
+      throw AppError.conflict(
+        'Medication order is no longer active for ward-indent materialization',
+        'WARD_INDENT_CLINICAL_ORDER_INACTIVE',
+        { clinical_order_id: Number(order.id), status: currentOrder.status || null },
+      );
+    }
+    if (
+      String(currentOrder.patient_uid) !== String(order.patient_uid)
+      || String(currentOrder.encounter_id || '') !== String(order.encounter_id || '')
+      || String(currentOrder.ordered_by || '') !== String(order.ordered_by || '')
+      || String(currentOrder.route || '') !== String(order.route || '')
+      || stableClinicalOrderDetails(currentOrder.details)
+        !== stableClinicalOrderDetails(order.details)
+    ) {
+      throw AppError.conflict(
+        'Medication order context changed before ward-indent materialization',
+        'WARD_INDENT_CLINICAL_ORDER_CONTEXT_CHANGED',
+      );
+    }
     const replay = await findWardIndentCreateReplayTx(tx, {
-      tenantId: order.tenant_id,
-      commandKey: `clinical-order:${order.id}`,
-      actorUid: order.ordered_by,
+      tenantId: currentOrder.tenant_id,
+      commandKey: `clinical-order:${currentOrder.id}`,
+      actorUid: currentOrder.ordered_by,
     });
     if (replay) return { indent: replay, created: false, admission: null };
+    if (!currentOrder.encounter_id || !currentOrder.ordered_by) return null;
+    const details = parseClinicalOrderDetails(currentOrder.details);
+    const medicationName = details.medication_name || details.medication || details.name;
+    if (!medicationName) {
+      throw AppError.conflict(
+        'Medication order has no authoritative medication identity',
+        'WARD_INDENT_CLINICAL_ORDER_MEDICATION_REQUIRED',
+        { clinical_order_id: Number(currentOrder.id) },
+      );
+    }
+    const catalogId = manualIndentCatalogFromMedicationDetails(details);
+    if (catalogId == null) {
+      throw AppError.conflict(
+        'Medication order has no authoritative formulary catalog',
+        'WARD_INDENT_CLINICAL_ORDER_CATALOG_REQUIRED',
+        { clinical_order_id: Number(currentOrder.id) },
+      );
+    }
+    const supplyQuantity = manualIndentQuantityFromMedicationDetails(details);
+    if (supplyQuantity == null) {
+      throw AppError.conflict(
+        'Medication order has no authoritative ward-supply quantity',
+        'WARD_INDENT_CLINICAL_ORDER_QUANTITY_REQUIRED',
+        { clinical_order_id: Number(currentOrder.id) },
+      );
+    }
+    const supplyUnit = manualIndentUnitFromMedicationDetails(details);
+    if (!supplyUnit) {
+      throw AppError.conflict(
+        'Medication order has no authoritative ward-supply unit',
+        'WARD_INDENT_CLINICAL_ORDER_UNIT_REQUIRED',
+        { clinical_order_id: Number(currentOrder.id) },
+      );
+    }
     const existing = await tx.$queryRawUnsafe(
       `SELECT wi.id
          FROM ward_indents wi
@@ -1197,8 +1436,8 @@ export async function createWardIndentForClinicalMedicationOrder(order, {
         LIMIT 1`,
       Number(order.id),
       order.tenant_id,
-      order.patient_uid,
-      order.encounter_id,
+      currentOrder.patient_uid,
+      currentOrder.encounter_id,
     );
     if (existing.length) {
       const indent = await tx.ward_indents.findUnique({
@@ -1210,7 +1449,7 @@ export async function createWardIndentForClinicalMedicationOrder(order, {
 
     const admissions = await tx.$queryRawUnsafe(
       `SELECT a.id, a.tenant_id, a.ward AS admission_ward, a.encounter_id,
-              a.patient_uid, b.ward_id,
+              a.patient_uid, a.status, b.ward_id,
               COALESCE(w.name, b.ward_name, a.ward) AS ward_name,
               facility.id AS facility_id
          FROM admissions a
@@ -1232,104 +1471,85 @@ export async function createWardIndentForClinicalMedicationOrder(order, {
           -- to another hospital. Null tenant preserves the prior
           -- COALESCE($3, a.tenant_id) any-tenant behaviour.
           AND ($3::uuid IS NULL OR a.tenant_id = $3::uuid)
-          AND COALESCE(a.status, 'admitted') NOT IN ('discharged', 'cancelled')
         ORDER BY a.admitted_at DESC NULLS LAST, a.id DESC
         LIMIT 1
         FOR SHARE OF a, facility`,
-      order.encounter_id,
-      order.patient_uid,
+      currentOrder.encounter_id,
+      currentOrder.patient_uid,
       order.tenant_id || null,
     );
     const admission = admissions[0];
     if (!admission) return null;
-    if (admission.ward_id == null || admission.facility_id == null) {
+    if (!['admitted', 'transferred'].includes(
+      String(admission.status || '').trim().toLowerCase(),
+    )) {
+      throw AppError.conflict(
+        'Ward indent cannot be created for an inactive admission',
+        'WARD_INDENT_ADMISSION_INACTIVE',
+        { admission_id: Number(admission.id), status: admission.status || null },
+      );
+    }
+    if (admission.patient_uid == null) {
+      throw AppError.conflict(
+        'Medication ward-indent admission has no authoritative patient',
+        'WARD_INDENT_ADMISSION_PATIENT_REQUIRED',
+      );
+    }
+    if (admission.encounter_id == null) {
+      throw AppError.conflict(
+        'Medication ward-indent admission has no authoritative encounter',
+        'WARD_INDENT_ADMISSION_ENCOUNTER_REQUIRED',
+      );
+    }
+    if (admission.ward_id == null) {
+      throw AppError.conflict(
+        'Medication ward-indent admission has no authoritative ward',
+        'WARD_INDENT_ADMISSION_WARD_REQUIRED',
+      );
+    }
+    if (admission.facility_id == null) {
       throw AppError.conflict(
         'Clinical medication order requires an active facility-bound ward before pharmacy indent creation',
         'WARD_INDENT_FACILITY_REQUIRED',
       );
     }
 
-    const catalogMatches = await tx.$queryRawUnsafe(
-      `SELECT id, name, COALESCE(unit_price, price) AS unit_price
-         FROM pharmacy_catalog
-        WHERE tenant_id = $5::uuid
-          AND COALESCE(is_active, TRUE) = TRUE
-          AND (
-            name ILIKE ANY($1::text[])
-            OR generic_name ILIKE ANY($1::text[])
-            OR EXISTS (
-              SELECT 1
-                FROM unnest($2::text[]) AS term(value)
-               WHERE term.value ILIKE '%' || name || '%'
-                  OR (generic_name IS NOT NULL AND term.value ILIKE '%' || generic_name || '%')
-            )
-          )
-        ORDER BY
-          CASE
-            WHEN $3::text = 'iv' AND LOWER(COALESCE(category, '')) = 'iv_fluid' THEN 0
-            WHEN $3::text = 'iv'
-              AND LOWER(CONCAT_WS(' ', name, generic_name, category, pack_size, description))
-                ~ '(injection|injectable|inj|vial|ampoule|intravenous|\\biv\\b|infusion)' THEN 1
-            WHEN $3::text = 'iv'
-              AND LOWER(CONCAT_WS(' ', name, generic_name, category, pack_size, description))
-                ~ '(tablet|\\btab\\b|capsule|\\bcap\\b|syrup|sachet|oral)' THEN 50
-            WHEN $3::text = 'oral'
-              AND LOWER(CONCAT_WS(' ', name, generic_name, category, pack_size, description))
-                ~ '(tablet|\\btab\\b|capsule|\\bcap\\b|syrup|sachet|oral)' THEN 0
-            WHEN $3::text = 'oral'
-              AND LOWER(CONCAT_WS(' ', name, generic_name, category, pack_size, description))
-                ~ '(injection|injectable|inj|vial|ampoule|intravenous|\\biv\\b|infusion)' THEN 50
-            ELSE 10
-          END,
-          CASE
-            WHEN $4::int IS NULL THEN 5
-            WHEN name ILIKE '%' || $4::text || 'ml%' THEN 0
-            WHEN pack_size ILIKE '%' || $4::text || 'ml%' THEN 1
-            ELSE 5
-          END,
-          CASE
-            WHEN name ILIKE ANY($1::text[]) THEN 0
-            WHEN generic_name ILIKE ANY($1::text[]) THEN 1
-            ELSE 2
-          END,
-          COALESCE(is_available, TRUE) DESC,
-          id ASC
-        LIMIT 1`,
-      wildcardTerms,
-      searchTerms,
-      medicationRoute,
-      volumeMl,
-      order.tenant_id,
-    );
-    const catalog = catalogMatches[0] ?? null;
+    const catalogById = await loadMedicationCatalogAuthorityTx(tx, {
+      tenantId: order.tenant_id,
+      catalogIds: [catalogId],
+      lock: true,
+      unavailableCode: 'WARD_INDENT_CLINICAL_ORDER_CATALOG_INACTIVE',
+      classificationCode: 'WARD_INDENT_CLINICAL_ORDER_CATALOG_CLASSIFICATION_MISMATCH',
+    });
+    const catalog = catalogById.get(catalogId);
     const indentNumber = await nextIndentNumber(tx, order.tenant_id);
 
     const indent = await tx.ward_indents.create({
       data: {
         indent_number: indentNumber,
-        ward_id: admission.ward_id ?? null,
+        ward_id: Number(admission.ward_id),
         ward_name: admission.ward_name ?? admission.admission_ward ?? null,
         facility_id: Number(admission.facility_id),
         facility_authority_version: 1,
-        admission_id: admission.id ?? null,
-        encounter_id: admission.encounter_id ?? order.encounter_id ?? null,
-        patient_uid: admission.patient_uid ?? order.patient_uid ?? null,
+        admission_id: admission.id,
+        encounter_id: admission.encounter_id,
+        patient_uid: admission.patient_uid,
         indent_type: 'pharmacy',
         status: 'requested',
-        requested_by: order.ordered_by,
-        notes: `Generated from inpatient medication order ${order.order_number}`,
+        requested_by: currentOrder.ordered_by,
+        notes: `Generated from inpatient medication order ${currentOrder.order_number}`,
         tenant_id: requireTenantId(admission.tenant_id || order.tenant_id),
         items: {
           create: [{
-            pharmacy_catalog_id: catalog?.id ?? null,
-            original_pharmacy_catalog_id: catalog?.id ?? null,
-            clinical_order_id: Number(order.id),
-            item_name: catalog?.name ?? medicationName,
-            original_item_name: catalog?.name ?? medicationName,
-            quantity_requested: quantityFromMedicationDetails(details, projectedSupplyQuantity),
-            unit: details.unit ?? null,
-            unit_price: catalog?.unit_price != null ? Number(catalog.unit_price) : null,
-            notes: `clinical_order_id:${order.id}; order_number:${order.order_number}`,
+            pharmacy_catalog_id: Number(catalog.id),
+            original_pharmacy_catalog_id: Number(catalog.id),
+            clinical_order_id: Number(currentOrder.id),
+            item_name: catalog.name,
+            original_item_name: catalog.name,
+            quantity_requested: supplyQuantity,
+            unit: supplyUnit,
+            unit_price: catalog.unit_price != null ? Number(catalog.unit_price) : null,
+            notes: `clinical_order_id:${currentOrder.id}; order_number:${currentOrder.order_number}`,
           }],
         },
       },
@@ -1337,18 +1557,46 @@ export async function createWardIndentForClinicalMedicationOrder(order, {
     });
     const initialized = await initializeWardIndentWorkflowTx(tx, {
       indent,
-      actorUid: order.ordered_by,
+      actorUid: currentOrder.ordered_by,
       commandKey: `clinical-order:${order.id}`,
       source: 'clinical_medication_order',
     });
-    return { indent: initialized, created: true, admission };
+    return { indent: initialized, created: true, admission, order: currentOrder, medicationName };
+  }).catch(async (err) => {
+    if (!isDatabaseUniqueConflict(err)) throw err;
+    const existingRows = await setTenantTx(requireTenantId(order.tenant_id), (tx) => (
+      tx.$queryRawUnsafe(
+        `SELECT item.clinical_order_id, indent.id AS ward_indent_id,
+                indent.indent_number
+           FROM ward_indent_items item
+           JOIN ward_indents indent
+             ON indent.tenant_id = item.tenant_id
+            AND indent.id = item.ward_indent_id
+          WHERE item.tenant_id = $1::uuid
+            AND item.clinical_order_id = $2::integer
+          ORDER BY indent.created_at DESC, indent.id DESC
+          LIMIT 1`,
+        requireTenantId(order.tenant_id),
+        Number(order.id),
+      )
+    ));
+    if (!existingRows[0]) throw err;
+    throw AppError.conflict(
+      `Clinical order ${existingRows[0].clinical_order_id} already has a ward indent`,
+      'WARD_INDENT_CLINICAL_ORDER_ALREADY_LINKED',
+      {
+        clinical_order_id: Number(existingRows[0].clinical_order_id),
+        ward_indent_id: Number(existingRows[0].ward_indent_id),
+        indent_number: existingRows[0].indent_number || null,
+      },
+    );
   });
 
   if (result?.created && result.indent) {
     await notifyPharmacyStaffOfWardIndent({
       indent: result.indent,
-      order,
-      medicationName,
+      order: result.order,
+      medicationName: result.medicationName,
       admission: result.admission,
     }).catch((err) => {
       logger.warn(`Failed to notify pharmacy for ward indent ${result.indent?.indent_number || result.indent?.id}: ${err.message}`);

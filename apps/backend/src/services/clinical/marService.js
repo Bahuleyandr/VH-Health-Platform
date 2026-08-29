@@ -1,4 +1,6 @@
 // src/services/clinical/marService.js
+import { createHash } from 'node:crypto';
+
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
@@ -9,7 +11,10 @@ import {
 } from './canonicalClinicalPlatformService.js';
 import { BCMA_CONFIG, MAR_SCHEDULE_LIMITS } from '../../config/pharmacyConfig.js';
 import { requireTenantId } from '../tenant/tenantService.js';
-import { consumeMarSupplyTx } from './marSupplyService.js';
+import {
+  assertMedicationOrdersExecutionReadyTx,
+  consumeMarSupplyTx,
+} from './marSupplyService.js';
 import {
   finaliseMarHttpIdempotencyTx,
   findMarAdministrationCommandReplayTx,
@@ -29,6 +34,7 @@ import {
   openMarMedicationExceptionTx,
   requiredMarMedicationExceptionCaseId,
   requiredMarMedicationExceptionEventId,
+  resolveMarMedicationExceptionForTerminalOrderTx,
   resolveMarMedicationExceptionTx,
 } from './marMedicationExceptionService.js';
 import {
@@ -268,6 +274,230 @@ async function recordCanonicalMarEvent({
   }
 }
 
+const TERMINAL_CLINICAL_ORDER_STATUSES = new Set(['completed', 'cancelled', 'discontinued']);
+
+export async function terminallyProjectMedicationOrderDosesTx(tx, {
+  tenantId,
+  order,
+  actorUid,
+  terminalStatus,
+  reason,
+} = {}) {
+  if (!tx?.$queryRawUnsafe || !order?.id || order.order_type !== 'medication') {
+    throw AppError.internal(
+      'Medication-order terminal projection requires a medication order and caller transaction',
+      'MAR_ORDER_TERMINAL_PROJECTION_CONTEXT_REQUIRED',
+    );
+  }
+  const tid = requireTenantId(tenantId || order.tenant_id);
+  const normalizedTerminalStatus = String(terminalStatus || '').trim().toLowerCase();
+  if (!TERMINAL_CLINICAL_ORDER_STATUSES.has(normalizedTerminalStatus)) {
+    throw AppError.badRequest(
+      'Medication-order terminal projection status is invalid',
+      'MAR_ORDER_TERMINAL_PROJECTION_STATUS_INVALID',
+    );
+  }
+  const cleanReason = String(reason || '').trim();
+  if (!actorUid || !cleanReason) {
+    throw AppError.badRequest(
+      'Medication-order terminal projection requires actor and reason evidence',
+      'MAR_ORDER_TERMINAL_PROJECTION_EVIDENCE_REQUIRED',
+    );
+  }
+
+  const orderRows = await tx.$queryRawUnsafe(
+    `SELECT clinical_order.id, clinical_order.status, actor.role AS actor_role
+       FROM clinical_orders clinical_order
+       JOIN users actor
+         ON actor.tenant_id = clinical_order.tenant_id
+        AND actor.uid = $3::uuid
+        AND actor.is_active = TRUE
+        AND COALESCE(actor.is_deleted, FALSE) = FALSE
+        AND actor.deleted_at IS NULL
+        AND lower(COALESCE(actor.status, 'active')) = 'active'
+      WHERE clinical_order.tenant_id = $1::uuid
+        AND clinical_order.id = $2::int
+        AND clinical_order.order_type = 'medication'
+      LIMIT 1
+      FOR SHARE OF clinical_order, actor`,
+    tid,
+    Number(order.id),
+    actorUid,
+  );
+  const terminalOrder = orderRows[0];
+  if (!terminalOrder || String(terminalOrder.status || '').toLowerCase() !== normalizedTerminalStatus) {
+    throw AppError.conflict(
+      'Medication order does not contain the committed terminal state',
+      'MAR_ORDER_TERMINAL_STATE_EVIDENCE_MISSING',
+      { clinical_order_id: Number(order.id), expected_status: normalizedTerminalStatus },
+    );
+  }
+  if (!isDoctor(String(terminalOrder.actor_role || '').trim().toUpperCase())) {
+    throw AppError.forbidden(
+      'Only an active prescriber may terminally project a medication order on MAR',
+      'MEDICATION_ORDER_TERMINAL_PRESCRIBER_REQUIRED',
+    );
+  }
+
+  const doses = await tx.$queryRawUnsafe(
+    `SELECT id, patient_uid::text, medication_name, dose, dosage, route,
+            scheduled_time, administered_at, administered_by::text, status,
+            notes, hold_reason, refusal_reason, witness_uid::text,
+            tenant_id::text, clinical_order_id, supply_quantity_per_dose,
+            created_at, updated_at
+      FROM medication_administrations
+      WHERE tenant_id = $1::uuid
+        AND clinical_order_id = $2::int
+        AND lower(status) IN ('scheduled', 'held', 'missed')
+      ORDER BY scheduled_time, id
+      FOR UPDATE`,
+    tid,
+    Number(order.id),
+  );
+  const projected = [];
+  for (const dose of doses) {
+    let resolvedExceptionCaseId = null;
+    let suppressedNotificationCount = 0;
+    if (['held', 'missed'].includes(String(dose.status || '').toLowerCase())) {
+      const caseRows = await tx.$queryRawUnsafe(
+        `SELECT id
+           FROM mar_medication_exception_cases
+          WHERE tenant_id = $1::uuid
+            AND medication_administration_id = $2::integer
+            AND status = 'open'
+          LIMIT 1
+          FOR UPDATE`,
+        tid,
+        Number(dose.id),
+      );
+      const exceptionCase = caseRows[0];
+      if (!exceptionCase) {
+        throw AppError.conflict(
+          'A medication exception dose has no open obligation to close atomically',
+          'MAR_ORDER_TERMINAL_EXCEPTION_OBLIGATION_MISSING',
+          {
+            clinical_order_id: Number(order.id),
+            medication_administration_id: Number(dose.id),
+            dose_status: dose.status,
+          },
+        );
+      }
+      const caseId = requiredMarMedicationExceptionCaseId(exceptionCase.id);
+      const outboxRows = await tx.$queryRawUnsafe(
+        `SELECT id, status, claim_token::text, claim_generation, lease_expires_at
+           FROM notification_outbox
+          WHERE tenant_id = $1::uuid
+            AND source_event_key LIKE $2::text
+          ORDER BY id
+          FOR UPDATE`,
+        tid,
+        `mar-exception:${caseId}:%`,
+      );
+      const inFlightOutbox = outboxRows.find((row) => (
+        ['CLAIMED', 'RECONCILIATION_REQUIRED'].includes(
+          String(row.status || '').trim().toUpperCase(),
+        )
+      ));
+      if (inFlightOutbox) {
+        throw AppError.conflict(
+          'A medication-exception notification attempt must reconcile before stopping the order',
+          'MAR_ORDER_TERMINAL_EXCEPTION_NOTIFICATION_IN_FLIGHT',
+          {
+            clinical_order_id: Number(order.id),
+            medication_administration_id: Number(dose.id),
+            exception_case_id: caseId,
+            notification_outbox_id: Number(inFlightOutbox.id),
+            notification_status: inFlightOutbox.status,
+            notification_claim_generation: inFlightOutbox.claim_generation,
+            notification_lease_expires_at: inFlightOutbox.lease_expires_at || null,
+          },
+        );
+      }
+      const commandKey = `clinical-order-terminal:${order.id}:${dose.id}:resolve`;
+      const requestFingerprint = createHash('sha256').update(JSON.stringify({
+        action: 'order_stopped',
+        clinical_order_id: Number(order.id),
+        medication_administration_id: Number(dose.id),
+        terminal_status: normalizedTerminalStatus,
+        actor_uid: String(actorUid).toLowerCase(),
+        reason: cleanReason,
+      }), 'utf8').digest('hex');
+      await resolveMarMedicationExceptionForTerminalOrderTx(tx, {
+        tenantId: tid,
+        exceptionCaseId: caseId,
+        reason: cleanReason,
+        actorUid,
+        commandKey,
+        requestFingerprint,
+        completeTaskTx: completeTaskFromDomainEvidence,
+      });
+      resolvedExceptionCaseId = caseId;
+      suppressedNotificationCount = Number(await tx.$executeRawUnsafe(
+        `UPDATE notification_outbox
+            SET status = 'SUPPRESSED',
+                failure_reason = 'clinical_order_terminal',
+                last_attempt_at = clock_timestamp()
+          WHERE tenant_id = $1::uuid
+            AND source_event_key LIKE $2::text
+            AND status IN ('PENDING', 'FAILED')`,
+        tid,
+        `mar-exception:${caseId}:%`,
+      ));
+    }
+
+    const updatedRows = await tx.$queryRawUnsafe(
+      `UPDATE medication_administrations
+          SET status = 'cancelled',
+              updated_at = clock_timestamp()
+        WHERE tenant_id = $1::uuid
+          AND id = $2::integer
+          AND clinical_order_id = $3::integer
+          AND lower(status) = $4::text
+        RETURNING id, patient_uid::text, medication_name, dose, dosage, route,
+                  scheduled_time, administered_at, administered_by::text, status,
+                  notes, hold_reason, refusal_reason, witness_uid::text,
+                  tenant_id::text, clinical_order_id, supply_quantity_per_dose,
+                  created_at, updated_at`,
+      tid,
+      Number(dose.id),
+      Number(order.id),
+      String(dose.status || '').toLowerCase(),
+    );
+    if (updatedRows.length !== 1) {
+      throw AppError.conflict(
+        'MAR dose changed during medication-order terminal projection',
+        'MAR_ORDER_TERMINAL_PROJECTION_RACE',
+        { medication_administration_id: Number(dose.id) },
+      );
+    }
+    const updated = updatedRows[0];
+    await recordCanonicalMarEvent({
+      record: updated,
+      eventType: 'mar.order_terminally_projected',
+      actorUid,
+      actorRole: terminalOrder.actor_role,
+      previousStatus: dose.status,
+      encounterId: order.encounter_id || null,
+      sourceClinicalOrderId: Number(order.id),
+      payload: {
+        clinical_order_terminal_status: normalizedTerminalStatus,
+        terminal_reason: cleanReason,
+        resolved_exception_case_id: resolvedExceptionCaseId,
+        suppressed_notification_count: suppressedNotificationCount,
+      },
+      db: tx,
+    });
+    projected.push({
+      medication_administration_id: Number(updated.id),
+      previous_status: dose.status,
+      status: updated.status,
+      resolved_exception_case_id: resolvedExceptionCaseId,
+      suppressed_notification_count: suppressedNotificationCount,
+    });
+  }
+  return projected;
+}
+
 // Locate an existing non-cancelled row for the same patient + medication in
 // the same clinical slot (±1 minute — absorbs ER-to-ICU carry-over drift).
 // Used both as the friendly Phase-0 pre-check and as the winner lookup after
@@ -318,6 +548,47 @@ function assertScheduledSiblingCompatible(row, {
         requested_supply_quantity_per_dose: supplyQuantityPerDose,
       },
     );
+  }
+}
+
+async function assertMedicationOrdersSchedulableTx(tx, tenantId, clinicalOrderIds) {
+  const ids = [...new Set(clinicalOrderIds
+    .map(Number)
+    .filter((id) => Number.isSafeInteger(id) && id > 0))].sort((left, right) => left - right);
+  if (ids.length === 0) return;
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT id, status, verified_by::text, verified_at
+       FROM clinical_orders
+      WHERE tenant_id = $1::uuid
+        AND id = ANY($2::int[])
+        AND order_type = 'medication'
+      ORDER BY id
+      FOR SHARE`,
+    tenantId,
+    ids,
+  );
+  if (rows.length !== ids.length) {
+    throw AppError.conflict(
+      'MAR scheduling requires an exact tenant medication order',
+      'MAR_SCHEDULE_MEDICATION_ORDER_REQUIRED',
+    );
+  }
+  for (const row of rows) {
+    const status = String(row.status || '').toLowerCase();
+    if (!['ordered', 'verified', 'in_progress'].includes(status)) {
+      throw AppError.conflict(
+        'Medication order became inactive before MAR scheduling completed',
+        'MAR_SCHEDULE_ORDER_INACTIVE',
+        { order_id: Number(row.id), status },
+      );
+    }
+    if (['verified', 'in_progress'].includes(status) && (!row.verified_by || !row.verified_at)) {
+      throw AppError.conflict(
+        'Active medication order is missing verification evidence',
+        'MEDICATION_ORDER_VERIFICATION_EVIDENCE_REQUIRED',
+        { clinical_order_id: Number(row.id), status },
+      );
+    }
   }
 }
 
@@ -413,6 +684,11 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
   if (allExisting) return preflight;
 
   const persistSchedule = async (tx) => {
+    await assertMedicationOrdersSchedulableTx(
+      tx,
+      tenantId,
+      preparedMeds.map((med) => med.clinicalOrderId).filter((id) => id != null),
+    );
     const lockKeys = [...new Set(preparedMeds.map((med) => (
       `mar-schedule:${tenantId}:${patientUid}:${med.medication_name.trim().toLowerCase()}`
     )))].sort();
@@ -573,6 +849,29 @@ export async function inspectMedicationAdministrationTx(tx, {
     throw AppError.badRequest('Medication administration mode is invalid', 'MAR_ADMINISTRATION_MODE_INVALID');
   }
   const tid = requireTenantId(tenantId);
+  const orderContextRows = await tx.$queryRawUnsafe(
+    `SELECT clinical_order_id
+       FROM medication_administrations
+      WHERE tenant_id = $1::uuid
+        AND id = $2::integer
+      LIMIT 1`,
+    tid,
+    medicationAdministrationId,
+  );
+  if (!orderContextRows[0]) {
+    return { disposition: 'conflict', code: 'MAR_TARGET_NOT_FOUND' };
+  }
+  if (!orderContextRows[0].clinical_order_id) {
+    throw AppError.conflict(
+      'Medication administration is not linked to a verified clinical order',
+      'MEDICATION_ORDER_EXECUTION_ORDER_REQUIRED',
+      { medication_administration_id: Number(medicationAdministrationId) },
+    );
+  }
+  await assertMedicationOrdersExecutionReadyTx(tx, {
+    tenantId: tid,
+    clinicalOrderIds: [orderContextRows[0].clinical_order_id],
+  });
   const rows = await tx.$queryRawUnsafe(
     `SELECT id, patient_uid::text, medication_name, dose, dosage, route,
             scheduled_time, administered_at, administered_by::text, status,
@@ -587,6 +886,9 @@ export async function inspectMedicationAdministrationTx(tx, {
   );
   const row = rows[0];
   if (!row) return { disposition: 'conflict', code: 'MAR_TARGET_NOT_FOUND' };
+  if (Number(row.clinical_order_id) !== Number(orderContextRows[0].clinical_order_id)) {
+    return { disposition: 'conflict', code: 'MAR_INSPECTION_CONTEXT_MISMATCH', row };
+  }
   if (expectedPatientUid && row.patient_uid !== expectedPatientUid) {
     return { disposition: 'conflict', code: 'MAR_TARGET_MISMATCH', row };
   }
@@ -1226,6 +1528,62 @@ export async function releaseHeldMedication(id, reason, releasedBy, {
   }
 
   const record = await setTenantTx(tid, async (tx) => {
+    const preflightRows = await tx.$queryRawUnsafe(
+      `SELECT clinical_order_id
+         FROM medication_administrations
+        WHERE tenant_id = $1::uuid
+          AND id = $2::integer
+        LIMIT 1`,
+      tid,
+      id,
+    );
+    const clinicalOrderId = Number(preflightRows[0]?.clinical_order_id);
+    if (!Number.isSafeInteger(clinicalOrderId) || clinicalOrderId <= 0) {
+      throw AppError.notFound('Held medication administration record not found');
+    }
+    const orderRows = await tx.$queryRawUnsafe(
+      `SELECT clinical_order.id,
+              clinical_order.status AS clinical_order_status,
+              clinical_order.verified_by::text AS clinical_order_verified_by,
+              clinical_order.verified_at AS clinical_order_verified_at,
+              actor.role AS release_actor_role
+         FROM clinical_orders clinical_order
+         JOIN users actor
+           ON actor.tenant_id = clinical_order.tenant_id
+          AND actor.uid = $3::uuid
+          AND actor.is_active = TRUE
+          AND actor.status = 'active'
+          AND COALESCE(actor.is_deleted, FALSE) = FALSE
+        WHERE clinical_order.tenant_id = $1::uuid
+          AND clinical_order.id = $2::integer
+          AND clinical_order.order_type = 'medication'
+        LIMIT 1
+        FOR UPDATE OF clinical_order
+        FOR SHARE OF actor`,
+      tid,
+      clinicalOrderId,
+      actorUid,
+    );
+    const lockedOrder = orderRows[0];
+    if (!lockedOrder) throw AppError.notFound('Held medication administration record not found');
+    if (!isDoctor(String(lockedOrder.release_actor_role || '').trim().toUpperCase())) {
+      throw AppError.forbidden(
+        'Only an active prescriber may release a held medication',
+        'MAR_HOLD_RELEASE_PRESCRIBER_REQUIRED',
+      );
+    }
+    if (
+      !['verified', 'in_progress'].includes(
+        String(lockedOrder.clinical_order_status || '').toLowerCase(),
+      )
+      || !lockedOrder.clinical_order_verified_by
+      || !lockedOrder.clinical_order_verified_at
+    ) {
+      throw AppError.conflict(
+        'The medication order is not verified and active, so this held dose cannot be released',
+        'MAR_HOLD_RELEASE_ORDER_INACTIVE',
+      );
+    }
     const rows = await tx.$queryRawUnsafe(
       `SELECT administration.id, administration.patient_uid::text,
               administration.medication_name, administration.dose,
@@ -1238,41 +1596,27 @@ export async function releaseHeldMedication(id, reason, releasedBy, {
               administration.tenant_id::text,
               administration.clinical_order_id,
               administration.supply_quantity_per_dose,
-              administration.created_at, administration.updated_at,
-              clinical_order.status AS clinical_order_status,
-              actor.role AS release_actor_role
+              administration.created_at, administration.updated_at
          FROM medication_administrations administration
-         JOIN clinical_orders clinical_order
-           ON clinical_order.tenant_id = administration.tenant_id
-          AND clinical_order.id = administration.clinical_order_id
-          AND clinical_order.order_type = 'medication'
-         JOIN users actor
-           ON actor.tenant_id = administration.tenant_id
-          AND actor.uid = $3::uuid
-          AND actor.is_active = TRUE
-          AND actor.status = 'active'
-          AND COALESCE(actor.is_deleted, FALSE) = FALSE
         WHERE administration.tenant_id = $1::uuid
           AND administration.id = $2::integer
-        FOR UPDATE OF administration, clinical_order, actor`,
+          AND administration.clinical_order_id = $3::integer
+        FOR UPDATE OF administration`,
       tid,
       id,
-      actorUid,
+      clinicalOrderId,
     );
-    const current = rows[0];
-    if (!current) throw AppError.notFound('Held medication administration record not found');
-    if (!isDoctor(String(current.release_actor_role || '').trim().toUpperCase())) {
-      throw AppError.forbidden(
-        'Only an active prescriber may release a held medication',
-        'MAR_HOLD_RELEASE_PRESCRIBER_REQUIRED',
-      );
-    }
-    if (!['ordered', 'verified', 'in_progress'].includes(
-      String(current.clinical_order_status || '').toLowerCase(),
-    )) {
+    const current = rows[0] ? {
+      ...rows[0],
+      clinical_order_status: lockedOrder.clinical_order_status,
+      clinical_order_verified_by: lockedOrder.clinical_order_verified_by,
+      clinical_order_verified_at: lockedOrder.clinical_order_verified_at,
+      release_actor_role: lockedOrder.release_actor_role,
+    } : null;
+    if (!current) {
       throw AppError.conflict(
-        'The medication order is no longer active and cannot release this held dose',
-        'MAR_HOLD_RELEASE_ORDER_INACTIVE',
+        'Medication hold order binding changed concurrently',
+        'MAR_HOLD_RELEASE_STATE_CONFLICT',
       );
     }
     if (String(current.status || '').toLowerCase() !== 'held') {
@@ -1620,9 +1964,17 @@ export async function getPatientMAR(patientUid, date) {
 export async function getOverdueMedications(wardId, { tenantId } = {}) {
   const tid = requireTenantId(tenantId);
   let query = `
-    SELECT ma.id, ma.patient_uid, ma.medication_name, ma.dose, ma.route,
+    SELECT ma.id, ma.patient_uid, ma.clinical_order_id,
+           ma.medication_name, ma.dose, ma.route,
            ma.scheduled_time, ma.status, ma.notes
     FROM medication_administrations ma
+    JOIN clinical_orders clinical_order
+      ON clinical_order.tenant_id = ma.tenant_id
+     AND clinical_order.id = ma.clinical_order_id
+     AND clinical_order.order_type = 'medication'
+     AND lower(clinical_order.status) IN ('verified', 'in_progress')
+     AND clinical_order.verified_by IS NOT NULL
+     AND clinical_order.verified_at IS NOT NULL
     WHERE ma.tenant_id = $1::uuid
       AND ma.status = 'scheduled'
       AND ma.scheduled_time < NOW()
@@ -1675,6 +2027,7 @@ export async function getDueMedications({
   const query = `
     SELECT ma.id,
            ma.patient_uid,
+           ma.clinical_order_id,
            ma.medication_name,
            ma.dose,
            ma.dosage,
@@ -1687,6 +2040,13 @@ export async function getDueMedications({
            b.ward_id,
            w.name AS ward_name
       FROM medication_administrations ma
+      JOIN clinical_orders clinical_order
+        ON clinical_order.tenant_id = ma.tenant_id
+       AND clinical_order.id = ma.clinical_order_id
+       AND clinical_order.order_type = 'medication'
+       AND lower(clinical_order.status) IN ('verified', 'in_progress')
+       AND clinical_order.verified_by IS NOT NULL
+       AND clinical_order.verified_at IS NOT NULL
       LEFT JOIN users u
         ON u.tenant_id = ma.tenant_id
        AND u.uid = ma.patient_uid

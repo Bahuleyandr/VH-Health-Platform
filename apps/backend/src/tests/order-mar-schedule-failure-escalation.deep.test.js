@@ -33,6 +33,10 @@ const d = DB_CONFIGURED ? describe : describe.skip;
 const TENANT = DEFAULT_TENANT_ID;
 const PATIENT_UID = randomUUID();
 const DOCTOR_UID = randomUUID();
+const ENCOUNTER_ID = randomUUID();
+const CATALOG_NAME = `Escalatol-${randomUUID().slice(0, 8)}`;
+const WARD_NAME = `MAR Escalation Ward ${randomUUID().slice(0, 8)}`;
+let catalogId;
 
 let phoneSequence = 0;
 function nextPhone() {
@@ -70,24 +74,98 @@ async function cleanup() {
       `DELETE FROM notification_outbox WHERE source_event_key LIKE $1`, `clinical_orders:${id}:%`,
     ).catch(() => {});
   }
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid`, PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid`, PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM medication_safety_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM medication_administrations WHERE patient_uid = $1::uuid`, PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM clinical_orders WHERE patient_uid = $1::uuid`, PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, DOCTOR_UID,
-  ).catch(() => {});
+  for (const table of ['tasks', 'workflow_sla_instances']) {
+    await prisma
+      .$executeRawUnsafe(
+        `DELETE FROM ${table} WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
+        TENANT,
+        PATIENT_UID
+      )
+      .catch(() => {});
+  }
+  for (const table of [
+    'ward_indent_inventory_allocations',
+    'ward_indent_events',
+    'ward_indent_items'
+  ]) {
+    await prisma
+      .$executeRawUnsafe(
+        `DELETE FROM ${table}
+        WHERE tenant_id = $1::uuid
+          AND ward_indent_id IN (
+            SELECT id FROM ward_indents
+             WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
+          )`,
+        TENANT,
+        PATIENT_UID
+      )
+      .catch(() => {});
+  }
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM ward_indents WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
+      TENANT,
+      PATIENT_UID
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid`,
+      PATIENT_UID
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid`,
+      PATIENT_UID
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM medication_safety_reviews WHERE patient_uid = $1::uuid`,
+      PATIENT_UID
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM medication_administrations WHERE patient_uid = $1::uuid`,
+      PATIENT_UID
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(`DELETE FROM clinical_orders WHERE patient_uid = $1::uuid`, PATIENT_UID)
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, PATIENT_UID)
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM beds WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
+      TENANT,
+      PATIENT_UID
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM wards WHERE tenant_id = $1::uuid AND name = $2`,
+      TENANT,
+      WARD_NAME
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM pharmacy_catalog WHERE tenant_id = $1::uuid AND name = $2`,
+      TENANT,
+      CATALOG_NAME
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`,
+      PATIENT_UID,
+      DOCTOR_UID
+    )
+    .catch(() => {});
 }
 
 d('BE-H1 — MAR scheduling failure on a committed medication order escalates durably', () => {
@@ -95,6 +173,68 @@ d('BE-H1 — MAR scheduling failure on a committed medication order escalates du
     await cleanup();
     await seedUser(PATIENT_UID, 'PATIENT', 'MAR Escalation Patient');
     await seedUser(DOCTOR_UID, 'DOCTOR', 'MAR Escalation Doctor');
+    const wardId = Number(
+      (
+        await prisma.$queryRawUnsafe(
+          `INSERT INTO wards (tenant_id, name, total_beds, created_at, updated_at)
+       VALUES ($1::uuid, $2, 1, NOW(), NOW()) RETURNING id`,
+          TENANT,
+          WARD_NAME
+        )
+      )[0].id
+    );
+    const bedId = Number(
+      (
+        await prisma.$queryRawUnsafe(
+          `INSERT INTO beds
+         (tenant_id, ward_id, ward_name, bed_number, status, patient_uid,
+          created_at, updated_at)
+       VALUES ($1::uuid, $2::int, $3, $4, 'occupied', $5::uuid,
+               NOW(), NOW()) RETURNING id`,
+          TENANT,
+          wardId,
+          WARD_NAME,
+          `MAR-ESC-${String(Date.now()).slice(-8)}`,
+          PATIENT_UID
+        )
+      )[0].id
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO admissions
+         (tenant_id, patient_uid, encounter_id, admitting_doctor, attending_doctor,
+          bed_id, ward, status, admitted_at, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $4::uuid,
+               $5::int, $6, 'admitted', NOW(), NOW())`,
+      TENANT,
+      PATIENT_UID,
+      ENCOUNTER_ID,
+      DOCTOR_UID,
+      bedId,
+      WARD_NAME
+    );
+    const composition = await prisma.$queryRawUnsafe(
+      `INSERT INTO drug_compositions
+         (composition_key, display_label, active_ingredients, source)
+       VALUES ($1, $2, ARRAY['escalatol']::text[], 'curated')
+       RETURNING id`,
+      `mar_escalation_${randomUUID()}`,
+      CATALOG_NAME,
+    );
+    const catalog = await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_catalog
+         (tenant_id, name, generic_name, is_active, composition_id,
+          composition_confidence, composition_source, strength, strength_key,
+          strength_components, form, form_key, route, release_key, updated_at)
+       VALUES ($1::uuid, $2, 'escalatol', TRUE, $3::int,
+               'high', 'curated', '500mg', '500mg', $4::jsonb,
+               'tablet', 'tablet', 'oral', 'ir', NOW())
+       RETURNING id`,
+      TENANT,
+      CATALOG_NAME,
+      Number(composition[0].id),
+      JSON.stringify([{ ingredient: 'escalatol', value: 500, unit: 'mg' }]),
+    );
+    catalogId = Number(catalog[0].id);
   }, 30_000);
 
   afterAll(async () => {
@@ -107,10 +247,14 @@ d('BE-H1 — MAR scheduling failure on a committed medication order escalates du
       tenantId: TENANT,
       patient_uid: PATIENT_UID,
       order_type: 'medication',
+      encounter_id: ENCOUNTER_ID,
       priority: 'routine',
       ordered_by: DOCTOR_UID,
       details: {
-        medication_name: `Escalatol-${randomUUID().slice(0, 8)}`,
+        medication_name: CATALOG_NAME,
+        catalog_id: catalogId,
+        quantity_requested: 10,
+        unit: 'tablet',
         dose: '500mg',
         route: 'oral',
         frequency: 'BD',

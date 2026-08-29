@@ -29,6 +29,7 @@ import {
   loadWardIndentMedicationClosureTx,
   receiveWardIndentInventoryTx,
   releaseWardIndentReservationsTx,
+  releaseUnissuedWardIndentReservationsTx,
   reserveWardIndentInventoryTx,
   returnWardIndentInventoryTx,
 } from './wardIndentMedicationClosureService.js';
@@ -37,6 +38,11 @@ import {
   materializeWardIndentStateObligationTx,
   reconcileWardIndentNotificationCoverageTx,
 } from './wardIndentObligationService.js';
+import { assertMedicationOrdersExecutionReadyTx } from '../clinical/marSupplyService.js';
+import {
+  canonicalMedicationRoute,
+  comparableMedicationRoute
+} from '../clinical/medicationRoute.js';
 
 const PHARMACY_OWNERS = [
   ROLES.PHARMACY_STAFF,
@@ -572,109 +578,337 @@ async function appendTransitionEvidence(tx, {
   return event;
 }
 
-async function applyTransition({
-  indentId,
-  tenantId,
-  actorUid,
-  expectedVersion = null,
-  action,
-  allowedStatuses,
-  reason = null,
-  commandKey = null,
-  facilityGrantRequired = false,
-  actorRole = null,
-  mutate,
-}) {
+async function applyTransitionTx(
+  tx,
+  {
+    indentId,
+    tenantId,
+    actorUid,
+    expectedVersion = null,
+    action,
+    allowedStatuses,
+    reason = null,
+    commandKey = null,
+    facilityGrantRequired = false,
+    actorRole = null,
+    mutate,
+    lockedCurrent = null
+  }
+) {
   const cleanActorUid = uuid(actorUid, 'actorUid');
   const tid = tenantOf(tenantId);
-  return setTenantTx(tid, async (tx) => {
-    const current = await lockWardIndent(tx, indentId, tid);
-    if (facilityGrantRequired) {
-      if (current.facility_id == null) {
-        throw AppError.conflict(
-          'Ward indent facility custody is unresolved',
-          'WARD_INDENT_FACILITY_REQUIRED',
-        );
-      }
-      await assertPharmacyFacilityGrant(tx, {
-        tenantId: tid,
-        facilityId: Number(current.facility_id),
-        actorUid: cleanActorUid,
-        actorRole,
-        forUpdate: true,
-      });
-    }
-    const replay = await loadCommandReplay(tx, {
-      tenantId: tid,
-      indentId: current.id,
-      action,
-      commandKey,
-      actorUid: cleanActorUid,
-    });
-    if (replay) return replay;
-    assertState(current, allowedStatuses, action);
-    assertExpectedVersion(current, expectedVersion);
-    const outcome = await mutate(tx, current);
-    const toStatus = outcome.toStatus;
-    const contract = WARD_INDENT_STATE_CONTRACT[toStatus];
-    if (!contract) {
-      throw AppError.internal(
-        `Ward indent state contract is missing '${toStatus}'`,
-        'WARD_INDENT_STATE_CONTRACT_MISSING',
+  const current = lockedCurrent || (await lockWardIndent(tx, indentId, tid));
+  if (
+    Number(current.id) !== positiveInt(indentId, 'indentId') ||
+    String(current.tenant_id) !== tid
+  ) {
+    throw AppError.conflict(
+      'Locked ward indent does not match the requested transition',
+      'WARD_INDENT_LOCK_CONTEXT_MISMATCH'
+    );
+  }
+  if (facilityGrantRequired) {
+    if (current.facility_id == null) {
+      throw AppError.conflict(
+        'Ward indent facility custody is unresolved',
+        'WARD_INDENT_FACILITY_REQUIRED'
       );
     }
-    const previousRule = WARD_INDENT_STATE_CONTRACT[current.status]?.slaRuleCode || null;
-    const nextRule = contract.slaRuleCode || null;
-    const nextVersion = Number(current.state_version) + 1;
-    const nextSlaSourceId = nextRule == null
+    await assertPharmacyFacilityGrant(tx, {
+      tenantId: tid,
+      facilityId: Number(current.facility_id),
+      actorUid: cleanActorUid,
+      actorRole,
+      forUpdate: true
+    });
+  }
+  const replay = await loadCommandReplay(tx, {
+    tenantId: tid,
+    indentId: current.id,
+    action,
+    commandKey,
+    actorUid: cleanActorUid
+  });
+  if (replay) return replay;
+  assertState(current, allowedStatuses, action);
+  assertExpectedVersion(current, expectedVersion);
+  const outcome = await mutate(tx, current);
+  const toStatus = outcome.toStatus;
+  const contract = WARD_INDENT_STATE_CONTRACT[toStatus];
+  if (!contract) {
+    throw AppError.internal(
+      `Ward indent state contract is missing '${toStatus}'`,
+      'WARD_INDENT_STATE_CONTRACT_MISSING'
+    );
+  }
+  const previousRule = WARD_INDENT_STATE_CONTRACT[current.status]?.slaRuleCode || null;
+  const nextRule = contract.slaRuleCode || null;
+  const nextVersion = Number(current.state_version) + 1;
+  const nextSlaSourceId =
+    nextRule == null
       ? null
       : previousRule === nextRule
         ? activeSlaSourceId(current)
         : `ward-indent:${current.id}:v${nextVersion}`;
-    const updated = await tx.ward_indents.update({
-      where: { id: current.id },
-      data: {
-        ...outcome.indentData,
-        status: toStatus,
-        state_version: { increment: 1 },
-        owner_role_codes: contract.ownerRoles,
-        active_sla_source_id: nextSlaSourceId,
-        last_transition_at: new Date(),
-        updated_at: new Date(),
-      },
-      include: { items: { orderBy: { id: 'asc' } } },
-    });
-    const event = await appendTransitionEvidence(tx, {
-      before: current,
-      after: updated,
-      action,
-      actorUid: cleanActorUid,
-      reason,
-      commandKey,
-      details: outcome.details || {},
-    });
-    if (typeof outcome.afterEvidence === 'function') {
-      await outcome.afterEvidence({ tx, before: current, after: updated, event });
-    }
-    await completeWardIndentStateObligationTx(tx, {
-      before: current,
-      after: updated,
-      event,
-      actorUid: cleanActorUid,
-    });
-    await rotateSla(tx, current, updated, action);
-    await reconcileWardIndentNotificationCoverageTx(tx, {
-      tenantId: tid,
-      indent: updated,
-      actorUid: cleanActorUid,
-    });
-    await materializeWardIndentStateObligationTx(tx, {
-      indent: updated,
-      event,
-      actorUid: cleanActorUid,
-    });
-    return loadWardIndentWorkflow(tx, current.id, tid);
+  const updated = await tx.ward_indents.update({
+    where: { id: current.id },
+    data: {
+      ...outcome.indentData,
+      status: toStatus,
+      state_version: { increment: 1 },
+      owner_role_codes: contract.ownerRoles,
+      active_sla_source_id: nextSlaSourceId,
+      last_transition_at: new Date(),
+      updated_at: new Date()
+    },
+    include: { items: { orderBy: { id: 'asc' } } }
   });
+  const event = await appendTransitionEvidence(tx, {
+    before: current,
+    after: updated,
+    action,
+    actorUid: cleanActorUid,
+    reason,
+    commandKey,
+    details: outcome.details || {}
+  });
+  if (typeof outcome.afterEvidence === 'function') {
+    await outcome.afterEvidence({ tx, before: current, after: updated, event });
+  }
+  await completeWardIndentStateObligationTx(tx, {
+    before: current,
+    after: updated,
+    event,
+    actorUid: cleanActorUid
+  });
+  await rotateSla(tx, current, updated, action);
+  await reconcileWardIndentNotificationCoverageTx(tx, {
+    tenantId: tid,
+    indent: updated,
+    actorUid: cleanActorUid
+  });
+  await materializeWardIndentStateObligationTx(tx, {
+    indent: updated,
+    event,
+    actorUid: cleanActorUid
+  });
+  return loadWardIndentWorkflow(tx, current.id, tid);
+}
+
+async function applyTransition(options) {
+  const tid = tenantOf(options.tenantId);
+  return setTenantTx(tid, tx =>
+    applyTransitionTx(tx, {
+      ...options,
+      tenantId: tid
+    })
+  );
+}
+
+export async function lockMedicationOrderWardIndentTx(tx, { tenantId, clinicalOrderId }) {
+  const tid = tenantOf(tenantId);
+  const orderId = positiveInt(clinicalOrderId, 'clinicalOrderId');
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT indent.id
+       FROM ward_indents indent
+      WHERE indent.tenant_id = $1::uuid
+        AND indent.id IN (
+          SELECT item.ward_indent_id
+            FROM ward_indent_items item
+           WHERE item.tenant_id = $1::uuid
+             AND item.clinical_order_id = $2::int
+        )
+      ORDER BY indent.id
+      LIMIT 2
+      FOR UPDATE OF indent`,
+    tid,
+    orderId
+  );
+  if (rows.length > 1) {
+    throw AppError.conflict(
+      'Medication order is linked to multiple ward indents',
+      'CLINICAL_ORDER_WARD_INDENT_LINK_AMBIGUOUS',
+      { clinical_order_id: orderId, ward_indent_ids: rows.map(row => Number(row.id)) }
+    );
+  }
+  return rows[0] ? lockWardIndent(tx, Number(rows[0].id), tid) : null;
+}
+
+function terminalWardIndentProjection(current, disposition, remainingActiveOrderIds = []) {
+  return {
+    disposition,
+    ward_indent_id: current == null ? null : Number(current.id),
+    ward_indent_status: current?.status || null,
+    ward_indent_state_version: current == null ? null : Number(current.state_version),
+    remaining_active_clinical_order_ids: remainingActiveOrderIds
+  };
+}
+
+export async function terminallyProjectMedicationOrderWardIndentTx(
+  tx,
+  { tenantId, order, actorUid, terminalStatus, reason, lockedIndent = null }
+) {
+  const tid = tenantOf(tenantId);
+  const orderId = positiveInt(order?.id, 'clinicalOrderId');
+  const cleanActorUid = uuid(actorUid, 'actorUid');
+  const cleanReason = reasonText(reason, 'terminal reason');
+  const normalizedTerminalStatus = String(terminalStatus || '')
+    .trim()
+    .toLowerCase();
+  if (!['completed', 'cancelled', 'discontinued'].includes(normalizedTerminalStatus)) {
+    throw AppError.badRequest(
+      'Medication-order ward-indent projection status is invalid',
+      'CLINICAL_ORDER_WARD_INDENT_TERMINAL_STATUS_INVALID'
+    );
+  }
+  const current =
+    lockedIndent ||
+    (await lockMedicationOrderWardIndentTx(tx, {
+      tenantId: tid,
+      clinicalOrderId: orderId
+    }));
+  if (!current) return terminalWardIndentProjection(null, 'not_materialized');
+
+  const linkedOrderIds = [
+    ...new Set(
+      current.items
+        .map(item => Number(item.clinical_order_id))
+        .filter(id => Number.isSafeInteger(id) && id > 0)
+    )
+  ];
+  const terminalOrderItemIds = current.items
+    .filter(item => Number(item.clinical_order_id) === orderId)
+    .map(item => Number(item.id));
+  if (terminalOrderItemIds.length === 0) {
+    throw AppError.conflict(
+      'Medication order ward-indent linkage disappeared while locked',
+      'CLINICAL_ORDER_WARD_INDENT_LINK_MISSING',
+      { clinical_order_id: orderId, ward_indent_id: Number(current.id) }
+    );
+  }
+  const orderRows =
+    linkedOrderIds.length === 0
+      ? []
+      : await tx.$queryRawUnsafe(
+          `SELECT id, status
+         FROM clinical_orders
+        WHERE tenant_id = $1::uuid
+          AND id = ANY($2::int[])
+        ORDER BY id
+        FOR SHARE`,
+          tid,
+          linkedOrderIds
+        );
+  const remainingActiveOrderIds = orderRows
+    .filter(
+      row =>
+        Number(row.id) !== orderId &&
+        ['ordered', 'verified', 'in_progress'].includes(
+          String(row.status || '')
+            .trim()
+            .toLowerCase()
+        )
+    )
+    .map(row => Number(row.id));
+
+  if (TERMINAL_WARD_INDENT_STATUSES.includes(current.status)) {
+    return terminalWardIndentProjection(current, 'already_terminal', remainingActiveOrderIds);
+  }
+
+  const hasIssuedCustody = current.items.some(
+    item =>
+      item.controlled_movement_id != null ||
+      Number(item.quantity_issued || 0) > 0 ||
+      Number(item.quantity_received || 0) > 0
+  );
+  const safelyCancellable = !hasIssuedCustody && remainingActiveOrderIds.length === 0;
+  const commandKey = `clinical-order-terminal:${orderId}:${normalizedTerminalStatus}`;
+
+  if (safelyCancellable) {
+    const projected = await applyTransitionTx(tx, {
+      indentId: current.id,
+      tenantId: tid,
+      actorUid: cleanActorUid,
+      commandKey,
+      reason: cleanReason,
+      action: 'cancelled',
+      allowedStatuses: [current.status],
+      lockedCurrent: current,
+      mutate: async (db, indent) => {
+        await releaseWardIndentReservationsTx(db, {
+          indent,
+          releasedBy: cleanActorUid,
+          reason: cleanReason
+        });
+        await db.ward_indent_items.updateMany({
+          where: { ward_indent_id: indent.id, tenant_id: indent.tenant_id },
+          data: {
+            quantity_reserved: 0,
+            quantity_approved: 0,
+            fulfilment_status: 'cancelled',
+            updated_at: new Date()
+          }
+        });
+        return {
+          toStatus: 'cancelled',
+          indentData: {
+            cancelled_by: cleanActorUid,
+            cancelled_at: new Date(),
+            cancellation_reason: cleanReason
+          },
+          details: {
+            clinical_order_id: orderId,
+            clinical_order_terminal_status: normalizedTerminalStatus,
+            terminal_projection: true
+          }
+        };
+      }
+    });
+    return terminalWardIndentProjection(projected, 'cancelled', remainingActiveOrderIds);
+  }
+
+  const projected = await applyTransitionTx(tx, {
+    indentId: current.id,
+    tenantId: tid,
+    actorUid: cleanActorUid,
+    commandKey,
+    reason: cleanReason,
+    action: 'reconciliation_required',
+    allowedStatuses: [current.status],
+    lockedCurrent: current,
+    mutate: async (db, indent) => {
+      const releasedReservationCount = await releaseUnissuedWardIndentReservationsTx(db, {
+        indent,
+        releasedBy: cleanActorUid,
+        reason: cleanReason,
+        wardIndentItemIds: terminalOrderItemIds
+      });
+      await db.ward_indent_items.updateMany({
+        where: {
+          id: { in: terminalOrderItemIds },
+          ward_indent_id: indent.id,
+          tenant_id: indent.tenant_id
+        },
+        data: { fulfilment_status: 'reconciliation_required', updated_at: new Date() }
+      });
+      return {
+        toStatus: 'reconciliation_required',
+        indentData: { reconciliation_reason: cleanReason },
+        details: {
+          clinical_order_id: orderId,
+          clinical_order_terminal_status: normalizedTerminalStatus,
+          terminal_projection: true,
+          released_unissued_reservation_count: releasedReservationCount,
+          remaining_active_clinical_order_ids: remainingActiveOrderIds
+        }
+      };
+    }
+  });
+  return terminalWardIndentProjection(
+    projected,
+    'reconciliation_required',
+    remainingActiveOrderIds
+  );
 }
 
 async function assertCatalogInventoryMappings(tx, tenantId, facilityId, catalogIds) {
@@ -782,24 +1016,500 @@ async function assertControlledWardIndentAdmissionOpenTx(tx, indent) {
   }
 }
 
-async function lockCatalogRows(tx, tenantId, catalogIds) {
-  const ids = [...new Set(catalogIds.map(Number))].sort((a, b) => a - b);
+const NON_MEDICATION_CATALOG_CATEGORIES = [
+  'consumable',
+  'consumables',
+  'linen',
+  'medical_supply',
+  'medical_supplies',
+  'sterile_supply',
+  'sterile_supplies',
+  'ward_supply',
+  'ward_supplies',
+];
+
+export async function loadWardIndentCatalogClassificationsTx(tx, {
+  tenantId,
+  catalogIds,
+  lock = false,
+  unavailableCode = 'WARD_INDENT_CATALOG_UNAVAILABLE',
+}) {
+  const ids = [...new Set((catalogIds || []).map(Number))]
+    .filter((id) => Number.isSafeInteger(id) && id > 0)
+    .sort((a, b) => a - b);
   if (!ids.length) return new Map();
-  const rows = await tx.$queryRawUnsafe(
-    `SELECT id, name, generic_name, unit_price, price, stock_quantity, is_active
-       FROM pharmacy_catalog
-      WHERE tenant_id = $1::uuid
-        AND id = ANY($2::int[])
-      ORDER BY id
-      FOR UPDATE`,
+  const catalogRows = await tx.$queryRawUnsafe(
+    `SELECT catalog.id, catalog.name, catalog.generic_name,
+            catalog.unit_price, catalog.price,
+            catalog.is_active, catalog.category, catalog.requires_prescription,
+            catalog.composition_id, catalog.composition_source,
+            catalog.composition_confidence,
+            catalog.strength, catalog.strength_key, catalog.strength_components,
+            catalog.form, catalog.form_key, catalog.release_key, catalog.route
+       FROM pharmacy_catalog catalog
+      WHERE catalog.tenant_id = $1::uuid
+        AND catalog.id = ANY($2::int[])
+      ORDER BY catalog.id
+      ${lock ? 'FOR SHARE OF catalog' : ''}`,
     tenantId,
     ids,
   );
-  const byId = new Map(rows.map((row) => [Number(row.id), row]));
+  const inventoryRows = await tx.$queryRawUnsafe(
+    `SELECT inventory.id, inventory.catalog_id, inventory.composition_id,
+            inventory.strength, inventory.form, inventory.schedule_class,
+            inventory.is_narcotic, inventory.metadata
+       FROM pharmacy_inventory_items inventory
+      WHERE inventory.tenant_id = $1::uuid
+        AND inventory.catalog_id = ANY($2::int[])
+      ORDER BY inventory.catalog_id, inventory.id
+      ${lock ? 'FOR SHARE OF inventory' : ''}`,
+    tenantId,
+    ids,
+  );
+  const inventoryMedicationCatalogs = new Set(inventoryRows
+    .filter((inventory) => (
+      inventory.composition_id != null
+      || String(inventory.strength || '').trim() !== ''
+      || String(inventory.form || '').trim() !== ''
+      || ['OTC', 'H', 'H1', 'X'].includes(
+        String(inventory.schedule_class || '').trim().toUpperCase(),
+      )
+      || inventory.is_narcotic === true
+      || String(inventory.metadata?.product_type || '').trim().toLowerCase() === 'medication'
+    ))
+    .map((inventory) => Number(inventory.catalog_id)));
+  const byId = new Map(catalogRows.map((catalog) => {
+    const explicitNonMedication = NON_MEDICATION_CATALOG_CATEGORIES.includes(
+      String(catalog.category || '').trim().toLowerCase(),
+    ) && catalog.requires_prescription === false;
+    const catalogMedicationIdentity = (
+      catalog.composition_id != null
+      || String(catalog.strength || '').trim() !== ''
+      || String(catalog.form || '').trim() !== ''
+      || String(catalog.route || '').trim() !== ''
+    );
+    return [Number(catalog.id), {
+      ...catalog,
+      is_medication_identity: catalogMedicationIdentity
+        || inventoryMedicationCatalogs.has(Number(catalog.id))
+        || !explicitNonMedication,
+    }];
+  }));
   for (const id of ids) {
     const row = byId.get(id);
-    if (!row || row.is_active === false) {
-      throw AppError.notFound(`Active catalog item ${id} not found`);
+    if (!row || row.is_active !== true) {
+      throw AppError.conflict(
+        `Active catalog item ${id} is unavailable`,
+        unavailableCode,
+        { catalog_id: id, exists: Boolean(row), is_active: row?.is_active ?? null },
+      );
+    }
+  }
+  return byId;
+}
+
+const WARD_MEDICATION_SUBSTITUTION_COMPATIBILITY_RULE =
+  'same_high_confidence_composition_exact_strength_components_form_route_release_v2';
+
+function normalizedClinicalProductText(value) {
+  return String(value ?? '')
+    .normalize('NFKC')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+function canonicalCatalogMedicationName(catalog) {
+  return String(catalog?.name ?? '')
+    .normalize('NFKC')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function exactCatalogDimensionMatches(original, substitute, keyField, fallbackField) {
+  const originalKey = normalizedClinicalProductText(original?.[keyField]);
+  const substituteKey = normalizedClinicalProductText(substitute?.[keyField]);
+  const originalValue = normalizedClinicalProductText(original?.[fallbackField]);
+  const substituteValue = normalizedClinicalProductText(substitute?.[fallbackField]);
+  if (!originalValue || !substituteValue || originalValue !== substituteValue) return false;
+  if (!originalKey && !substituteKey) return true;
+  return Boolean(originalKey && substituteKey && originalKey === substituteKey);
+}
+
+function catalogStrengthComponents(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string') return null;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function strengthComponentSignature(component) {
+  const dimensions = [
+    normalizedClinicalProductText(component?.ingredient),
+    normalizedClinicalProductText(component?.amount ?? component?.value),
+    normalizedClinicalProductText(component?.unit),
+  ];
+  if (dimensions.some((dimension) => !dimension)) return null;
+  return dimensions.join('|');
+}
+
+function exactStrengthComponentsMatch(original, substitute) {
+  const originalValue = original?.strength_components;
+  const substituteValue = substitute?.strength_components;
+  const originalComponents = catalogStrengthComponents(originalValue);
+  const substituteComponents = catalogStrengthComponents(substituteValue);
+  if (
+    !originalComponents
+    || !substituteComponents
+    || originalComponents.length === 0
+    || substituteComponents.length === 0
+  ) return false;
+  if (originalComponents.length !== substituteComponents.length) return false;
+  const originalSignatures = originalComponents.map(strengthComponentSignature).sort();
+  const substituteSignatures = substituteComponents.map(strengthComponentSignature).sort();
+  if (originalSignatures.some((signature) => signature == null)) return false;
+  if (substituteSignatures.some((signature) => signature == null)) return false;
+  return originalSignatures.every((signature, index) => (
+    signature === substituteSignatures[index]
+  ));
+}
+
+function medicationSubstitutionMismatches(original, substitute) {
+  const mismatches = [];
+  const originalCompositionId = Number(original?.composition_id);
+  const substituteCompositionId = Number(substitute?.composition_id);
+  const originalHasComposition = Number.isSafeInteger(originalCompositionId)
+    && originalCompositionId > 0;
+  const substituteHasComposition = Number.isSafeInteger(substituteCompositionId)
+    && substituteCompositionId > 0;
+  if (!originalHasComposition || !substituteHasComposition) {
+    mismatches.push('composition_id_missing');
+  } else if (originalCompositionId !== substituteCompositionId) {
+    mismatches.push('composition_id');
+  }
+  if (
+    normalizedClinicalProductText(original?.composition_confidence) !== 'high'
+    || normalizedClinicalProductText(substitute?.composition_confidence) !== 'high'
+  ) {
+    mismatches.push('composition_confidence');
+  }
+  if (
+    !normalizedClinicalProductText(original?.composition_source)
+    || !normalizedClinicalProductText(substitute?.composition_source)
+  ) {
+    mismatches.push('composition_source_missing');
+  }
+  if (!exactCatalogDimensionMatches(original, substitute, 'strength_key', 'strength')) {
+    mismatches.push('strength');
+  }
+  if (!exactStrengthComponentsMatch(original, substitute)) {
+    mismatches.push('strength_components');
+  }
+  if (!exactCatalogDimensionMatches(original, substitute, 'form_key', 'form')) {
+    mismatches.push('dosage_form');
+  }
+  const originalRoute = comparableMedicationRoute(original?.route);
+  const substituteRoute = comparableMedicationRoute(substitute?.route);
+  if (!originalRoute || !substituteRoute || originalRoute !== substituteRoute) {
+    mismatches.push('route');
+  }
+  const originalRelease = normalizedClinicalProductText(original?.release_key);
+  const substituteRelease = normalizedClinicalProductText(substitute?.release_key);
+  if (!originalRelease || !substituteRelease || originalRelease !== substituteRelease) {
+    mismatches.push('release');
+  }
+  return mismatches;
+}
+
+function substitutionCatalogSnapshot(catalog) {
+  const components = catalogStrengthComponents(catalog?.strength_components) || [];
+  return {
+    catalog_id: Number(catalog?.id),
+    name: normalizedClinicalProductText(catalog?.name) || null,
+    generic_name: normalizedClinicalProductText(catalog?.generic_name) || null,
+    composition_id: Number(catalog?.composition_id),
+    composition_confidence: normalizedClinicalProductText(catalog?.composition_confidence),
+    composition_source: normalizedClinicalProductText(
+      catalog?.composition_source ?? catalog?.metadata?.composition_source,
+    ) || null,
+    strength: normalizedClinicalProductText(catalog?.strength) || null,
+    strength_key: normalizedClinicalProductText(catalog?.strength_key) || null,
+    strength_components: components
+      .map((component) => ({
+        ingredient: normalizedClinicalProductText(component?.ingredient),
+        value: normalizedClinicalProductText(component?.amount ?? component?.value),
+        unit: normalizedClinicalProductText(component?.unit),
+      }))
+      .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))),
+    form: normalizedClinicalProductText(catalog?.form) || null,
+    form_key: normalizedClinicalProductText(catalog?.form_key) || null,
+    route: normalizedClinicalProductText(catalog?.route) || null,
+    release_key: normalizedClinicalProductText(catalog?.release_key) || null,
+  };
+}
+
+export function bindMedicationOrderCatalogAuthority(details, catalog, {
+  phase = 'create',
+} = {}) {
+  if (!details || typeof details !== 'object' || Array.isArray(details) || !catalog?.id) {
+    throw AppError.conflict(
+      'Medication catalog authority context is invalid',
+      'CLINICAL_ORDER_MEDICATION_CATALOG_AUTHORITY_INVALID',
+      { phase },
+    );
+  }
+  const catalogSnapshot = substitutionCatalogSnapshot(catalog);
+  const canonicalMedicationName = canonicalCatalogMedicationName(catalog);
+  const components = catalogSnapshot.strength_components;
+  const incompleteDimensions = [
+    !canonicalMedicationName ? 'medication_name' : null,
+    !Number.isSafeInteger(catalogSnapshot.composition_id)
+      || catalogSnapshot.composition_id <= 0 ? 'composition_id' : null,
+    catalogSnapshot.composition_confidence !== 'high' ? 'composition_confidence' : null,
+    !catalogSnapshot.composition_source ? 'composition_source' : null,
+    !Array.isArray(components)
+      || components.length === 0
+      || components.some((component) => (
+        !component.ingredient || !component.value || !component.unit
+      )) ? 'strength_components' : null,
+    !catalogSnapshot.strength ? 'strength' : null,
+    !catalogSnapshot.form ? 'form' : null,
+    !catalogSnapshot.route ? 'route' : null,
+    !catalogSnapshot.release_key ? 'release' : null,
+  ].filter(Boolean);
+  if (incompleteDimensions.length) {
+    throw AppError.conflict(
+      'Medication catalog lacks complete high-confidence clinical product authority',
+      'CLINICAL_ORDER_MEDICATION_CATALOG_CLINICAL_IDENTITY_INCOMPLETE',
+      {
+        catalog_id: Number(catalog.id),
+        incomplete_dimensions: incompleteDimensions,
+        phase,
+      },
+    );
+  }
+  const prescribedDose = String(details.dose ?? details.dosage ?? '').trim();
+  if (!prescribedDose) {
+    throw AppError.badRequest(
+      'Medication dose is required and must be bound to the selected catalog product',
+      'CLINICAL_ORDER_MEDICATION_DOSE_REQUIRED',
+    );
+  }
+  const prescribedRoute = comparableMedicationRoute(details.route);
+  const catalogRoute = comparableMedicationRoute(catalogSnapshot.route);
+  const suppliedStrength = normalizedClinicalProductText(details.strength);
+  const suppliedStrengthKey = normalizedClinicalProductText(details.strength_key);
+  const suppliedForm = normalizedClinicalProductText(details.form);
+  const suppliedFormKey = normalizedClinicalProductText(details.form_key);
+  const suppliedRelease = normalizedClinicalProductText(details.release_key);
+  const suppliedMedicationName = normalizedClinicalProductText(
+    details.medication_name ?? details.drug_name ?? details.name ?? details.medication,
+  );
+  const mismatches = [];
+  if (
+    suppliedMedicationName
+    && suppliedMedicationName !== normalizedClinicalProductText(canonicalMedicationName)
+  ) {
+    mismatches.push('medication_name');
+  }
+  if (!prescribedRoute || prescribedRoute !== catalogRoute) mismatches.push('route');
+  if (suppliedStrength && suppliedStrength !== catalogSnapshot.strength)
+    mismatches.push('strength');
+  if (suppliedStrengthKey && suppliedStrengthKey !== catalogSnapshot.strength_key) {
+    mismatches.push('strength_key');
+  }
+  if (suppliedForm && suppliedForm !== catalogSnapshot.form) mismatches.push('form');
+  if (suppliedFormKey && suppliedFormKey !== catalogSnapshot.form_key) mismatches.push('form_key');
+  if (suppliedRelease && suppliedRelease !== catalogSnapshot.release_key) mismatches.push('release');
+  const suppliedCompositionId = Number(details.composition_id);
+  if (
+    details.composition_id != null
+    && (!Number.isSafeInteger(suppliedCompositionId)
+      || suppliedCompositionId !== catalogSnapshot.composition_id)
+  ) {
+    mismatches.push('composition_id');
+  }
+  if (mismatches.length) {
+    throw AppError.conflict(
+      'Medication order clinical identity conflicts with the selected catalog product',
+      'CLINICAL_ORDER_MEDICATION_CATALOG_CLINICAL_IDENTITY_MISMATCH',
+      { catalog_id: Number(catalog.id), mismatched_dimensions: mismatches, phase },
+    );
+  }
+  const authority = {
+    version: 'medication_catalog_authority_v1',
+    catalog: catalogSnapshot,
+    prescribed: {
+      medication_name: canonicalMedicationName,
+      dose: prescribedDose,
+      route: canonicalMedicationRoute(catalogSnapshot.route),
+      quantity_requested:
+        details.quantity_requested == null
+          ? null
+          : Number.isFinite(Number(details.quantity_requested))
+            ? Number(details.quantity_requested)
+            : null,
+      unit: String(details.unit || '').trim() || null
+    }
+  };
+  const authoritySha256 = createHash('sha256')
+    .update(JSON.stringify(authority), 'utf8')
+    .digest('hex');
+  if (phase !== 'create') {
+    if (
+      details.catalog_authority?.version !== authority.version
+      || details.catalog_authority_sha256 !== authoritySha256
+    ) {
+      throw AppError.conflict(
+        'Medication order catalog authority changed after prescribing',
+        'CLINICAL_ORDER_MEDICATION_CATALOG_AUTHORITY_MISMATCH',
+        {
+          catalog_id: Number(catalog.id),
+          expected_sha256: details.catalog_authority_sha256 || null,
+          actual_sha256: authoritySha256,
+          phase,
+        },
+      );
+    }
+  }
+  return {
+    ...details,
+    medication_name: canonicalMedicationName,
+    composition_id: catalogSnapshot.composition_id,
+    composition_source: catalogSnapshot.composition_source,
+    composition_confidence: catalogSnapshot.composition_confidence,
+    strength: catalogSnapshot.strength,
+    strength_key: catalogSnapshot.strength_key,
+    strength_components: catalogSnapshot.strength_components,
+    form: catalogSnapshot.form,
+    form_key: catalogSnapshot.form_key,
+    route: canonicalMedicationRoute(catalogSnapshot.route),
+    release_key: catalogSnapshot.release_key,
+    generic_name: catalogSnapshot.generic_name,
+    catalog_authority: authority,
+    catalog_authority_sha256: authoritySha256,
+  };
+}
+
+function substitutionCompatibilityEvidence({ item, originalCatalog, substituteCatalog }) {
+  const provenance = {
+    rule: WARD_MEDICATION_SUBSTITUTION_COMPATIBILITY_RULE,
+    original: substitutionCatalogSnapshot(originalCatalog),
+    substitute: substitutionCatalogSnapshot(substituteCatalog),
+  };
+  return {
+    item_id: Number(item.id),
+    original_catalog_id: Number(originalCatalog.id),
+    substitute_catalog_id: Number(substituteCatalog.id),
+    compatibility_rule: WARD_MEDICATION_SUBSTITUTION_COMPATIBILITY_RULE,
+    provenance,
+    provenance_sha256: createHash('sha256')
+      .update(JSON.stringify(provenance), 'utf8')
+      .digest('hex'),
+  };
+}
+
+function assertWardMedicationSubstitutionCompatibility({
+  item,
+  originalCatalog,
+  substituteCatalog,
+  phase,
+}) {
+  const medicationLine = item.clinical_order_id != null
+    || originalCatalog?.is_medication_identity === true
+    || substituteCatalog?.is_medication_identity === true;
+  if (!medicationLine) return null;
+  if (item.clinical_order_id == null) {
+    throw AppError.conflict(
+      `Medication ward-indent item ${Number(item.id)} requires a clinical order before substitution`,
+      'WARD_INDENT_CLINICAL_ORDER_REQUIRED',
+      { item_id: Number(item.id), phase },
+    );
+  }
+  if (
+    originalCatalog?.is_medication_identity !== true
+    || substituteCatalog?.is_medication_identity !== true
+  ) {
+    throw AppError.conflict(
+      `Medication ward-indent item ${Number(item.id)} requires medication-classified products`,
+      'WARD_INDENT_MEDICATION_SUBSTITUTION_CLASSIFICATION_MISMATCH',
+      {
+        item_id: Number(item.id),
+        original_catalog_id: Number(originalCatalog?.id) || null,
+        substitute_catalog_id: Number(substituteCatalog?.id) || null,
+        phase,
+      },
+    );
+  }
+  const mismatchedDimensions = medicationSubstitutionMismatches(
+    originalCatalog,
+    substituteCatalog,
+  );
+  if (mismatchedDimensions.length) {
+    throw AppError.conflict(
+      `Medication substitute for ward-indent item ${Number(item.id)} is not clinically compatible`,
+      'WARD_INDENT_MEDICATION_SUBSTITUTION_INCOMPATIBLE',
+      {
+        item_id: Number(item.id),
+        original_catalog_id: Number(originalCatalog.id),
+        substitute_catalog_id: Number(substituteCatalog.id),
+        compatibility_rule: WARD_MEDICATION_SUBSTITUTION_COMPATIBILITY_RULE,
+        mismatched_dimensions: mismatchedDimensions,
+        phase,
+      },
+    );
+  }
+  return substitutionCompatibilityEvidence({ item, originalCatalog, substituteCatalog });
+}
+
+async function assertActiveWardIndentPrescriberTx(tx, tenantId, actorUid) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT role
+       FROM users
+      WHERE tenant_id = $1::uuid
+        AND uid = $2::uuid
+        AND is_active = TRUE
+        AND COALESCE(is_deleted, FALSE) = FALSE
+        AND deleted_at IS NULL
+        AND LOWER(COALESCE(status, 'active')) = 'active'
+      LIMIT 1
+      FOR SHARE`,
+    tenantId,
+    actorUid,
+  );
+  if (!DOCTOR_TIERS.includes(String(rows[0]?.role || '').trim().toUpperCase())) {
+    throw AppError.forbidden(
+      'Only an active same-tenant prescriber may approve a medication substitution',
+      'WARD_INDENT_SUBSTITUTION_ACTIVE_PRESCRIBER_REQUIRED',
+    );
+  }
+  return rows[0];
+}
+
+export async function loadMedicationCatalogAuthorityTx(tx, {
+  tenantId,
+  catalogIds,
+  lock = false,
+  unavailableCode = 'WARD_INDENT_CATALOG_UNAVAILABLE',
+  classificationCode = 'WARD_INDENT_MEDICATION_CATALOG_CLASSIFICATION_MISMATCH',
+}) {
+  const byId = await loadWardIndentCatalogClassificationsTx(tx, {
+    tenantId,
+    catalogIds,
+    lock,
+    unavailableCode,
+  });
+  for (const [catalogId, catalog] of byId) {
+    if (catalog.is_medication_identity !== true) {
+      throw AppError.conflict(
+        `Catalog item ${catalogId} is not classified as medication`,
+        classificationCode,
+        { catalog_id: catalogId, category: catalog.category || null },
+      );
     }
   }
   return byId;
@@ -1063,6 +1773,9 @@ export async function proposeWardIndentSubstitution({
         }
         proposals.push({
           item,
+          originalCatalogId: Number(
+            item.original_pharmacy_catalog_id || item.pharmacy_catalog_id,
+          ),
           catalogId,
           quantity: quantity(
             entry?.quantity ?? item.quantity_requested,
@@ -1071,11 +1784,14 @@ export async function proposeWardIndentSubstitution({
           reason: reasonText(entry?.reason, 'substitution reason'),
         });
       }
-      const catalogById = await lockCatalogRows(
-        tx,
-        current.tenant_id,
-        proposals.map((entry) => entry.catalogId),
-      );
+      const catalogById = await loadWardIndentCatalogClassificationsTx(tx, {
+        tenantId: current.tenant_id,
+        catalogIds: proposals.flatMap((entry) => [
+          entry.originalCatalogId,
+          entry.catalogId,
+        ]),
+        lock: true,
+      });
       await assertCatalogInventoryMappings(
         tx,
         current.tenant_id,
@@ -1087,6 +1803,12 @@ export async function proposeWardIndentSubstitution({
           throw AppError.badRequest(`Item ${proposal.item.id} substitution quantity exceeds requested quantity`);
         }
         const catalog = catalogById.get(proposal.catalogId);
+        proposal.compatibilityEvidence = assertWardMedicationSubstitutionCompatibility({
+          item: proposal.item,
+          originalCatalog: catalogById.get(proposal.originalCatalogId),
+          substituteCatalog: catalog,
+          phase: 'proposal',
+        });
         await tx.ward_indent_items.update({
           where: { id: proposal.item.id },
           data: {
@@ -1106,6 +1828,9 @@ export async function proposeWardIndentSubstitution({
         toStatus: 'substitution_pending',
         details: {
           substitution_item_ids: proposals.map((entry) => entry.item.id),
+          medication_substitution_compatibility: proposals
+            .map((entry) => entry.compatibilityEvidence)
+            .filter(Boolean),
         },
       };
     },
@@ -1128,18 +1853,50 @@ export async function approveWardIndentSubstitution({
     action: 'substitution_approved',
     allowedStatuses: ['substitution_pending'],
     mutate: async (tx, current) => {
+      await assertActiveWardIndentPrescriberTx(tx, current.tenant_id, decidedBy);
       const pending = current.items.filter((item) => item.substitution_status === 'pending');
       if (!pending.length) throw AppError.conflict('Ward indent has no pending substitutions');
-      const catalogIds = pending.map((item) => Number(item.proposed_pharmacy_catalog_id));
-      const catalogById = await lockCatalogRows(tx, current.tenant_id, catalogIds);
+      const pendingIds = new Set(pending.map((item) => Number(item.id)));
+      const catalogIds = current.items.flatMap((item) => (
+        pendingIds.has(Number(item.id))
+          ? [
+            Number(item.original_pharmacy_catalog_id || item.pharmacy_catalog_id),
+            Number(item.proposed_pharmacy_catalog_id),
+          ]
+          : [Number(item.pharmacy_catalog_id)]
+      ));
+      const catalogById = await loadWardIndentCatalogClassificationsTx(tx, {
+        tenantId: current.tenant_id,
+        catalogIds,
+        lock: true,
+        unavailableCode: 'WARD_INDENT_SUBSTITUTION_CATALOG_CHANGED',
+      });
+      await assertCatalogInventoryMappings(
+        tx,
+        current.tenant_id,
+        current.facility_id,
+        catalogIds,
+      );
+      const compatibilityEvidence = [];
       for (const item of pending) {
         const catalogId = Number(item.proposed_pharmacy_catalog_id);
-        if (!catalogById.get(catalogId)) {
+        const catalog = catalogById.get(catalogId);
+        if (!catalog) {
           throw AppError.conflict(
             `Proposed catalog item for ward indent item ${item.id} is no longer active`,
             'WARD_INDENT_SUBSTITUTION_CATALOG_CHANGED',
           );
         }
+        const originalCatalogId = Number(
+          item.original_pharmacy_catalog_id || item.pharmacy_catalog_id,
+        );
+        const compatibility = assertWardMedicationSubstitutionCompatibility({
+          item,
+          originalCatalog: catalogById.get(originalCatalogId),
+          substituteCatalog: catalog,
+          phase: 'approval',
+        });
+        if (compatibility) compatibilityEvidence.push(compatibility);
         await tx.ward_indent_items.update({
           where: { id: item.id },
           data: {
@@ -1155,6 +1912,7 @@ export async function approveWardIndentSubstitution({
         toStatus: 'substitution_pending',
         details: {
           substitution_item_ids: pending.map((item) => item.id),
+          medication_substitution_compatibility: compatibilityEvidence,
           inventory_action_required: 'apply_approved_substitution',
         },
       };
@@ -1201,16 +1959,31 @@ export async function applyApprovedWardIndentSubstitution({
           ? Number(item.proposed_pharmacy_catalog_id)
           : Number(item.pharmacy_catalog_id)
       ));
-      const catalogById = await lockCatalogRows(tx, current.tenant_id, catalogIds);
+      const catalogById = await loadWardIndentCatalogClassificationsTx(tx, {
+        tenantId: current.tenant_id,
+        catalogIds,
+        lock: true,
+      });
       await assertCatalogInventoryMappings(
         tx,
         current.tenant_id,
         current.facility_id,
         catalogIds,
       );
+      const compatibilityEvidence = [];
       for (const item of approved) {
         const catalogId = Number(item.proposed_pharmacy_catalog_id);
         const catalog = catalogById.get(catalogId);
+        const originalCatalogId = Number(
+          item.original_pharmacy_catalog_id || item.pharmacy_catalog_id,
+        );
+        const compatibility = assertWardMedicationSubstitutionCompatibility({
+          item,
+          originalCatalog: catalogById.get(originalCatalogId),
+          substituteCatalog: catalog,
+          phase: 'application',
+        });
+        if (compatibility) compatibilityEvidence.push(compatibility);
         await tx.ward_indent_items.update({
           where: { id: item.id },
           data: {
@@ -1267,6 +2040,7 @@ export async function applyApprovedWardIndentSubstitution({
         indentData: fullyReserved ? { short_supply_reason: null } : {},
         details: {
           substitution_item_ids: approved.map((item) => item.id),
+          medication_substitution_compatibility: compatibilityEvidence,
           fully_reserved: fullyReserved,
           shortfalls: exact.shortfalls,
         },
@@ -1717,6 +2491,336 @@ function linkedClinicalOrderIds(items) {
     .filter((id) => Number.isSafeInteger(id) && id > 0))];
 }
 
+function wardMedicationOrderDetails(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+  if (typeof value !== 'string') return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function wardMedicationOrderCatalogId(details) {
+  const value = details.catalog_id ?? details.catalogId;
+  const id = typeof value === 'number'
+    ? value
+    : typeof value === 'string' && /^[1-9]\d*$/.test(value.trim())
+      ? Number(value.trim())
+      : null;
+  return Number.isSafeInteger(id) && id > 0 && id <= PG_INT4_MAX ? id : null;
+}
+
+function wardMedicationOrderQuantity(details) {
+  const value = String(details.quantity_requested ?? '').trim();
+  if (!/^(?:\d+(?:\.\d{1,2})?|\.\d{1,2})$/.test(value)) return null;
+  const quantityValue = Number(value);
+  return Number.isFinite(quantityValue)
+    && quantityValue > 0
+    && quantityValue <= 99999999.99
+    ? quantityValue
+    : null;
+}
+
+function wardMedicationOrderUnit(details) {
+  const value = details.unit;
+  const unitValue = String(value ?? '').trim();
+  return unitValue || null;
+}
+
+function normalizedWardMedicationUnit(value) {
+  return String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+async function assertWardIndentMedicationBindingAtIssueTx(tx, current) {
+  const catalogIds = current.items
+    .flatMap((item) => [
+      Number(item.pharmacy_catalog_id),
+      Number(item.original_pharmacy_catalog_id),
+    ])
+    .filter((id) => Number.isSafeInteger(id) && id > 0);
+  const catalogById = await loadWardIndentCatalogClassificationsTx(tx, {
+    tenantId: current.tenant_id,
+    catalogIds,
+    lock: true,
+  });
+  const medicationItems = current.items.filter((item) => (
+    current.indent_type === 'pharmacy'
+    || item.clinical_order_id != null
+    || catalogById.get(Number(item.pharmacy_catalog_id))?.is_medication_identity === true
+  ));
+  if (!medicationItems.length) {
+    return { clinicalOrderIds: [], substitutionCompatibilityEvidence: [] };
+  }
+  if (medicationItems.length !== current.items.length) {
+    throw AppError.conflict(
+      'Medication and non-medication ward-stock lines cannot share one indent',
+      'WARD_INDENT_MIXED_CLINICAL_CLASSIFICATION',
+    );
+  }
+  for (const item of medicationItems) {
+    const catalogId = Number(item.pharmacy_catalog_id);
+    if (catalogById.get(catalogId)?.is_medication_identity !== true) {
+      throw AppError.conflict(
+        `Ward-indent catalog ${catalogId} is no longer classified as medication`,
+        'WARD_INDENT_MEDICATION_CATALOG_CLASSIFICATION_MISMATCH',
+        { ward_indent_item_id: Number(item.id), catalog_id: catalogId },
+      );
+    }
+  }
+  if (current.indent_type !== 'pharmacy') {
+    throw AppError.conflict(
+      'Medication catalog lines must be persisted as a pharmacy ward indent',
+      'WARD_INDENT_MEDICATION_TYPE_MISMATCH',
+    );
+  }
+  const clinicalOrderIds = linkedClinicalOrderIds(medicationItems);
+  if (clinicalOrderIds.length !== medicationItems.length) {
+    throw AppError.conflict(
+      'Every medication ward-indent line must remain bound to a clinical order',
+      'WARD_INDENT_CLINICAL_ORDER_REQUIRED',
+    );
+  }
+  if (current.admission_id == null) {
+    throw AppError.conflict(
+      'Medication ward indents require an active inpatient admission',
+      'WARD_INDENT_ADMISSION_REQUIRED',
+    );
+  }
+  const admissions = await tx.$queryRawUnsafe(
+    `SELECT admission.id, admission.status, admission.patient_uid::text,
+            admission.encounter_id::text, bed.ward_id
+       FROM admissions admission
+       LEFT JOIN beds bed
+         ON bed.tenant_id = admission.tenant_id
+        AND bed.id = admission.bed_id
+      WHERE admission.tenant_id = $1::uuid
+        AND admission.id = $2::int
+      FOR SHARE OF admission`,
+    current.tenant_id,
+    Number(current.admission_id),
+  );
+  const admission = admissions[0];
+  if (!admission) {
+    throw AppError.conflict(
+      'Medication ward-indent admission is unavailable',
+      'WARD_INDENT_ADMISSION_NOT_FOUND',
+    );
+  }
+  if (!['admitted', 'transferred'].includes(
+    String(admission.status || '').trim().toLowerCase(),
+  )) {
+    throw AppError.conflict(
+      'Medication ward-indent admission is no longer active',
+      'WARD_INDENT_ADMISSION_INACTIVE',
+      { admission_id: Number(admission.id), status: admission.status || null },
+    );
+  }
+  if (
+    !admission.patient_uid
+    || !admission.encounter_id
+    || admission.ward_id == null
+    || String(admission.patient_uid) !== String(current.patient_uid)
+    || String(admission.encounter_id) !== String(current.encounter_id)
+    || Number(admission.ward_id) !== Number(current.ward_id)
+  ) {
+    throw AppError.conflict(
+      'Medication ward-indent context no longer matches its active admission',
+      'WARD_INDENT_ADMISSION_CONTEXT_MISMATCH',
+    );
+  }
+  const orders = await tx.$queryRawUnsafe(
+    `SELECT clinical_order.id, clinical_order.patient_uid::text,
+             clinical_order.encounter_id::text, clinical_order.order_type,
+             clinical_order.status, clinical_order.verified_by::text,
+             clinical_order.verified_at, clinical_order.details
+       FROM clinical_orders clinical_order
+      WHERE clinical_order.tenant_id = $1::uuid
+        AND clinical_order.id = ANY($2::int[])
+       ORDER BY clinical_order.id
+       FOR UPDATE OF clinical_order`,
+    current.tenant_id,
+    clinicalOrderIds,
+  );
+  const orderById = new Map(orders.map((order) => [Number(order.id), order]));
+  const substitutionCompatibilityEvidence = [];
+  const approvedSubstitutionRows = await tx.$queryRawUnsafe(
+    `SELECT details
+       FROM ward_indent_events
+      WHERE tenant_id = $1::uuid
+        AND ward_indent_id = $2::int
+        AND action = 'substitution_approved'
+      ORDER BY state_version DESC
+      LIMIT 1
+      FOR SHARE`,
+    current.tenant_id,
+    Number(current.id),
+  );
+  const approvedSubstitutionEvidence = new Map(
+    (Array.isArray(approvedSubstitutionRows[0]?.details?.medication_substitution_compatibility)
+      ? approvedSubstitutionRows[0].details.medication_substitution_compatibility
+      : [])
+      .map((evidence) => [Number(evidence?.item_id), evidence]),
+  );
+  for (const item of medicationItems) {
+    const clinicalOrderId = Number(item.clinical_order_id);
+    const order = orderById.get(clinicalOrderId);
+    if (!order || order.order_type !== 'medication') {
+      throw AppError.conflict(
+        `Medication clinical order ${clinicalOrderId} is unavailable at issue`,
+        'MEDICATION_ORDER_EXECUTION_ORDER_NOT_FOUND',
+        { clinical_order_id: clinicalOrderId },
+      );
+    }
+    const orderStatus = String(order.status || '').trim().toLowerCase();
+    if (!['verified', 'in_progress'].includes(orderStatus)) {
+      throw AppError.conflict(
+        `Medication clinical order ${clinicalOrderId} is not verified and active at issue`,
+        'MEDICATION_ORDER_VERIFICATION_REQUIRED',
+        { clinical_order_id: clinicalOrderId, status: order.status || null },
+      );
+    }
+    if (!order.verified_by || !order.verified_at) {
+      throw AppError.conflict(
+        `Medication clinical order ${clinicalOrderId} lacks dedicated verification evidence`,
+        'MEDICATION_ORDER_VERIFICATION_EVIDENCE_REQUIRED',
+        { clinical_order_id: clinicalOrderId, status: order.status || null },
+      );
+    }
+    if (String(order.patient_uid) !== String(admission.patient_uid)) {
+      throw AppError.conflict(
+        `Clinical order ${clinicalOrderId} no longer matches the admission patient`,
+        'WARD_INDENT_CLINICAL_ORDER_PATIENT_MISMATCH',
+      );
+    }
+    if (
+      !order.encounter_id
+      || String(order.encounter_id) !== String(admission.encounter_id)
+    ) {
+      throw AppError.conflict(
+        `Clinical order ${clinicalOrderId} no longer matches the admission encounter`,
+        'WARD_INDENT_CLINICAL_ORDER_ENCOUNTER_MISMATCH',
+      );
+    }
+    const details = wardMedicationOrderDetails(order.details);
+    const expectedCatalogId = wardMedicationOrderCatalogId(details);
+    if (expectedCatalogId == null) {
+      throw AppError.conflict(
+        `Clinical order ${clinicalOrderId} has no authoritative formulary catalog`,
+        'WARD_INDENT_CLINICAL_ORDER_CATALOG_REQUIRED',
+      );
+    }
+    bindMedicationOrderCatalogAuthority(
+      details,
+      catalogById.get(expectedCatalogId),
+      { phase: 'issue' },
+    );
+    const currentCatalogId = Number(item.pharmacy_catalog_id);
+    const originalCatalogId = Number(item.original_pharmacy_catalog_id);
+    const substitutionApproved = String(item.substitution_status || '').trim().toLowerCase()
+      === 'approved';
+    const approvedSubstitutionEvidenceComplete = substitutionApproved
+      && originalCatalogId === expectedCatalogId
+      && Number(item.proposed_pharmacy_catalog_id) === currentCatalogId
+      && item.substitution_proposed_by != null
+      && item.substitution_proposed_at != null
+      && String(item.substitution_reason || '').trim() !== ''
+      && item.substitution_decided_by != null
+      && item.substitution_decided_at != null
+      && catalogById.get(currentCatalogId)?.is_medication_identity === true;
+    if (currentCatalogId !== expectedCatalogId && approvedSubstitutionEvidenceComplete) {
+      const compatibility = assertWardMedicationSubstitutionCompatibility({
+        item,
+        originalCatalog: catalogById.get(originalCatalogId),
+        substituteCatalog: catalogById.get(currentCatalogId),
+        phase: 'issue',
+      });
+      const approvedEvidence = approvedSubstitutionEvidence.get(Number(item.id));
+      if (
+        !compatibility
+        || !approvedEvidence
+        || !approvedEvidence.provenance_sha256
+        || approvedEvidence.provenance_sha256 !== compatibility.provenance_sha256
+      ) {
+        throw AppError.conflict(
+          `Approved medication substitution evidence changed before issue for item ${Number(item.id)}`,
+          'WARD_INDENT_MEDICATION_SUBSTITUTION_PROVENANCE_MISMATCH',
+          {
+            item_id: Number(item.id),
+            approved_provenance_sha256: approvedEvidence?.provenance_sha256 || null,
+            issue_provenance_sha256: compatibility?.provenance_sha256 || null,
+          },
+        );
+      }
+      substitutionCompatibilityEvidence.push(compatibility);
+    }
+    if (currentCatalogId !== expectedCatalogId && !approvedSubstitutionEvidenceComplete) {
+      throw AppError.conflict(
+        `Ward-indent catalog no longer matches clinical order ${clinicalOrderId}`,
+        'WARD_INDENT_CLINICAL_ORDER_CATALOG_MISMATCH',
+        {
+          clinical_order_id: clinicalOrderId,
+          ordered_catalog_id: expectedCatalogId,
+          ward_catalog_id: currentCatalogId,
+          substitution_status: item.substitution_status || null,
+        },
+      );
+    }
+    const expectedQuantity = wardMedicationOrderQuantity(details);
+    if (expectedQuantity == null) {
+      throw AppError.conflict(
+        `Clinical order ${clinicalOrderId} has no authoritative ward-supply quantity`,
+        'WARD_INDENT_CLINICAL_ORDER_QUANTITY_REQUIRED',
+      );
+    }
+    if (Math.abs(Number(item.quantity_requested) - expectedQuantity) > Number.EPSILON) {
+      throw AppError.conflict(
+        `Ward-indent quantity no longer matches clinical order ${clinicalOrderId}`,
+        'WARD_INDENT_CLINICAL_ORDER_QUANTITY_MISMATCH',
+      );
+    }
+    const expectedUnit = wardMedicationOrderUnit(details);
+    if (!expectedUnit) {
+      throw AppError.conflict(
+        `Clinical order ${clinicalOrderId} has no authoritative ward-supply unit`,
+        'WARD_INDENT_CLINICAL_ORDER_UNIT_REQUIRED',
+      );
+    }
+    if (normalizedWardMedicationUnit(item.unit) !== normalizedWardMedicationUnit(expectedUnit)) {
+      throw AppError.conflict(
+        `Ward-indent unit no longer matches clinical order ${clinicalOrderId}`,
+        'WARD_INDENT_CLINICAL_ORDER_UNIT_MISMATCH',
+      );
+    }
+    const progressedRows = await tx.$queryRawUnsafe(
+      `UPDATE clinical_orders
+          SET status = status
+        WHERE tenant_id = $1::uuid
+          AND id = $2::int
+          AND order_type = 'medication'
+          AND lower(status) IN ('verified', 'in_progress')
+          AND verified_by IS NOT NULL
+          AND verified_at IS NOT NULL
+        RETURNING id, status`,
+      current.tenant_id,
+      clinicalOrderId,
+    );
+    if (progressedRows.length !== 1) {
+      throw AppError.conflict(
+        `Medication clinical order ${clinicalOrderId} changed before issue`,
+        'MEDICATION_ORDER_EXECUTION_STATE_CONFLICT',
+        { clinical_order_id: clinicalOrderId },
+      );
+    }
+  }
+  await assertMedicationOrdersExecutionReadyTx(tx, {
+    tenantId: current.tenant_id,
+    clinicalOrderIds,
+  });
+  return { clinicalOrderIds, substitutionCompatibilityEvidence };
+}
+
 export async function issueWardIndent({
   indentId,
   issuedBy,
@@ -1737,6 +2841,10 @@ export async function issueWardIndent({
     action: 'issued',
     allowedStatuses: ['approved'],
     mutate: async (tx, current) => {
+      const {
+        clinicalOrderIds,
+        substitutionCompatibilityEvidence,
+      } = await assertWardIndentMedicationBindingAtIssueTx(tx, current);
       const issuedMap = itemEntryMap(
         itemQuantitiesIssued,
         'quantity_issued',
@@ -1772,23 +2880,6 @@ export async function issueWardIndent({
         });
       }
 
-      const clinicalOrderIds = linkedClinicalOrderIds(current.items);
-      if (clinicalOrderIds.length) {
-        await tx.clinical_orders.updateMany({
-          where: {
-            id: { in: clinicalOrderIds },
-            tenant_id: current.tenant_id,
-            order_type: 'medication',
-            status: { in: ['ordered', 'verified', 'in_progress'] },
-          },
-          data: {
-            status: 'verified',
-            verified_by: issuedBy,
-            verified_at: new Date(),
-            updated_at: new Date(),
-          },
-        });
-      }
       return {
         toStatus: 'issued',
         indentData: {
@@ -1797,6 +2888,7 @@ export async function issueWardIndent({
         },
         details: {
           verified_clinical_order_ids: clinicalOrderIds,
+          medication_substitution_compatibility: substitutionCompatibilityEvidence,
           inventory_movement_ids: inventoryClosure.movementIds,
           billing_invoice_id: inventoryClosure.invoice == null
             ? null
@@ -2216,6 +3308,235 @@ export async function cancelWardIndent({
   });
 }
 
+const TERMINAL_CREDIT_NOTE_STATUSES = new Set(['applied', 'rejected']);
+const TERMINAL_SLA_STATUSES = new Set(['completed', 'breached', 'escalated']);
+
+function reconciliationFailure({ financialEvent, creditNote = null, reason }) {
+  return {
+    financial_event_id: String(financialEvent.id),
+    credit_note_id: creditNote?.id == null ? null : String(creditNote.id),
+    refund_id: creditNote?.refund_id == null ? null : Number(creditNote.refund_id),
+    reason,
+  };
+}
+
+async function assertWardIndentFinancialReconciliationCompleteTx(tx, indent) {
+  const financialEvents = await tx.$queryRawUnsafe(
+    `SELECT id, invoice_id
+       FROM ward_indent_financial_events
+      WHERE tenant_id = $1::uuid
+        AND ward_indent_id = $2::int
+        AND event_kind = 'credit'
+      ORDER BY id
+      FOR UPDATE`,
+    String(indent.tenant_id),
+    Number(indent.id),
+  );
+  const outstanding = [];
+
+  for (const financialEvent of financialEvents) {
+    const initialCreditNotes = await tx.$queryRawUnsafe(
+      `SELECT id, status, task_id, refund_obligation_minor, refund_id
+         FROM billing_credit_notes
+        WHERE tenant_id = $1::uuid
+          AND source_financial_event_id = $2::bigint
+        LIMIT 1`,
+      String(indent.tenant_id),
+      BigInt(financialEvent.id),
+    );
+    const initialCreditNote = initialCreditNotes[0] || null;
+    const refunds = initialCreditNote?.refund_id == null
+      ? []
+      : await tx.$queryRawUnsafe(
+        `SELECT id, approval_status, paid_at, payout_rail
+           FROM billing_refunds
+          WHERE tenant_id = $1::uuid
+            AND id = $2::int
+          LIMIT 1
+          FOR UPDATE`,
+        String(indent.tenant_id),
+        Number(initialCreditNote.refund_id),
+      );
+    const lockedRefund = refunds[0] || null;
+    const creditNotes = await tx.$queryRawUnsafe(
+      `SELECT id, status, task_id, refund_obligation_minor, refund_id
+         FROM billing_credit_notes
+        WHERE tenant_id = $1::uuid
+          AND source_financial_event_id = $2::bigint
+        LIMIT 1
+        FOR UPDATE`,
+      String(indent.tenant_id),
+      BigInt(financialEvent.id),
+    );
+    const creditNote = creditNotes[0] || null;
+    if (!creditNote) {
+      if (financialEvent.invoice_id != null) {
+        outstanding.push(reconciliationFailure({
+          financialEvent,
+          reason: 'credit_note_missing',
+        }));
+      }
+      continue;
+    }
+    if (String(initialCreditNote?.refund_id || '') !== String(creditNote.refund_id || '')) {
+      outstanding.push(reconciliationFailure({
+        financialEvent,
+        creditNote,
+        reason: 'financial_reconciliation_state_changed',
+      }));
+      continue;
+    }
+    if (!TERMINAL_CREDIT_NOTE_STATUSES.has(creditNote.status)) {
+      outstanding.push(reconciliationFailure({
+        financialEvent,
+        creditNote,
+        reason: `credit_note_${creditNote.status}`,
+      }));
+      continue;
+    }
+    if (creditNote.task_id == null) {
+      outstanding.push(reconciliationFailure({
+        financialEvent,
+        creditNote,
+        reason: 'credit_note_task_missing',
+      }));
+      continue;
+    }
+
+    const tasks = await tx.$queryRawUnsafe(
+      `SELECT id, status, completed_at, workflow_sla_instance_id,
+              sla_completion_semantics, related_resource_type,
+              related_resource_id, metadata
+         FROM tasks
+        WHERE tenant_id = $1::uuid
+          AND id = $2::int
+        LIMIT 1
+        FOR UPDATE`,
+      String(indent.tenant_id),
+      Number(creditNote.task_id),
+    );
+    const task = tasks[0] || null;
+    if (
+      !task
+      || task.status !== 'completed'
+      || !task.completed_at
+      || !task.workflow_sla_instance_id
+      || task.sla_completion_semantics !== 'domain_evidence'
+      || task.related_resource_type !== 'billing_credit_notes'
+      || String(task.related_resource_id || '') !== String(creditNote.id)
+      || task.metadata?.task_contract !== 'ward_medication_obligation_v1'
+      || task.metadata?.obligation_kind !== 'credit_note_review'
+      || String(task.metadata?.credit_note_id || '') !== String(creditNote.id)
+    ) {
+      outstanding.push(reconciliationFailure({
+        financialEvent,
+        creditNote,
+        reason: 'credit_note_task_nonterminal',
+      }));
+      continue;
+    }
+
+    const slas = await tx.$queryRawUnsafe(
+      `SELECT id, status, completed_at, rule_code, source_table, source_id, metadata
+         FROM workflow_sla_instances
+        WHERE tenant_id = $1::uuid
+          AND id = $2::uuid
+        LIMIT 1
+        FOR UPDATE`,
+      String(indent.tenant_id),
+      String(task.workflow_sla_instance_id),
+    );
+    const sla = slas[0] || null;
+    if (
+      !sla
+      || !sla.completed_at
+      || !TERMINAL_SLA_STATUSES.has(sla.status)
+      || sla.rule_code !== 'ward_indent_credit_note_review'
+      || sla.source_table !== 'billing_credit_notes'
+      || String(sla.source_id || '') !== String(creditNote.id)
+      || sla.metadata?.completed_via !== 'domain_evidence'
+    ) {
+      outstanding.push(reconciliationFailure({
+        financialEvent,
+        creditNote,
+        reason: 'credit_note_sla_nonterminal',
+      }));
+      continue;
+    }
+
+    let evidenceKind;
+    let evidenceResourceType;
+    let evidenceResourceId;
+    if (creditNote.status === 'rejected') {
+      const events = await tx.$queryRawUnsafe(
+        `SELECT id
+           FROM billing_credit_note_events
+          WHERE tenant_id = $1::uuid
+            AND credit_note_id = $2::bigint
+            AND event_type = 'rejected'
+          LIMIT 1`,
+        String(indent.tenant_id),
+        BigInt(creditNote.id),
+      );
+      evidenceKind = 'billing_credit_note_decision';
+      evidenceResourceType = 'billing_credit_note_event';
+      evidenceResourceId = events[0]?.id == null ? null : String(events[0].id);
+    } else if (Number(creditNote.refund_obligation_minor || 0) > 0) {
+      if (
+        !lockedRefund
+        || lockedRefund.approval_status !== 'PAID'
+        || !lockedRefund.paid_at
+        || !lockedRefund.payout_rail
+      ) {
+        outstanding.push(reconciliationFailure({
+          financialEvent,
+          creditNote,
+          reason: 'refund_nonterminal',
+        }));
+        continue;
+      }
+      evidenceKind = 'billing_credit_note_refund_paid';
+      evidenceResourceType = 'billing_refund';
+      evidenceResourceId = String(lockedRefund.id);
+    } else {
+      const events = await tx.$queryRawUnsafe(
+        `SELECT id
+           FROM billing_credit_note_events
+          WHERE tenant_id = $1::uuid
+            AND credit_note_id = $2::bigint
+            AND event_type = 'applied'
+          LIMIT 1`,
+        String(indent.tenant_id),
+        BigInt(creditNote.id),
+      );
+      evidenceKind = 'billing_credit_note_application';
+      evidenceResourceType = 'billing_credit_note_event';
+      evidenceResourceId = events[0]?.id == null ? null : String(events[0].id);
+    }
+    const completionEvidence = sla.metadata?.completion_evidence;
+    if (
+      !evidenceResourceId
+      || completionEvidence?.kind !== evidenceKind
+      || completionEvidence?.resource_type !== evidenceResourceType
+      || String(completionEvidence?.resource_id || '') !== evidenceResourceId
+    ) {
+      outstanding.push(reconciliationFailure({
+        financialEvent,
+        creditNote,
+        reason: 'financial_reconciliation_evidence_incomplete',
+      }));
+    }
+  }
+
+  if (outstanding.length > 0) {
+    throw AppError.conflict(
+      'Ward indent cannot close until linked credits, refunds, tasks, and SLAs are terminal',
+      'WARD_INDENT_FINANCIAL_RECONCILIATION_REQUIRED',
+      { outstanding },
+    );
+  }
+}
+
 export async function closeWardIndent({
   indentId,
   closedBy,
@@ -2265,6 +3586,7 @@ export async function closeWardIndent({
           'WARD_INDENT_ISSUE_RECONCILIATION_INCOMPLETE',
         );
       }
+      await assertWardIndentFinancialReconciliationCompleteTx(tx, current);
       const hasReturns = current.items.some((item) => Number(item.quantity_returned || 0) > 0);
       const hasVariance = current.items.some(
         (item) => Number(item.quantity_variance_resolved || 0) > 0,

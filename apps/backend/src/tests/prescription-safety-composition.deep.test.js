@@ -23,11 +23,13 @@ const TENANT_OFF = '00000000-0000-4000-8000-00000c5a0002';
 const PATIENT_UID = 'c5a00000-0000-4000-8000-00000000a001'; // amoxicillin-allergic patient
 const PATIENT_PENI_UID = 'c5a00000-0000-4000-8000-00000000a002'; // penicillin-allergic patient
 const DOCTOR_UID = 'c5a00000-0000-4000-8000-00000000a003'; // orderer for the IPD createOrder test
+const ENCOUNTER_ID = 'c5a00000-0000-4000-8000-00000000a005';
 const PATIENT_CLAV_UID = 'c5a00000-0000-4000-8000-00000000a004'; // "clavulanic acid" (multi-word) allergic patient
 const PATIENT_PHONE = '+919700000501';
 const PATIENT_PENI_PHONE = '+919700000502';
 const DOCTOR_PHONE = '+919700000503';
 const PATIENT_CLAV_PHONE = '+919700000504';
+const WARD_NAME = 'PSC Inpatient Ward';
 
 jest.setTimeout(60000);
 
@@ -61,23 +63,59 @@ describe('validatePrescriptionSafety — composition allergy + same-composition 
     await seedTenant(TENANT_OFF, 'psc-tenant-off', 'PSC Tenant OFF');
 
     // Clean any prior run.
-    await prisma.$executeRawUnsafe(`DELETE FROM pharmacy_catalog WHERE name LIKE 'PSCTEST %'`).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM patient_allergies WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
-      PATIENT_UID, PATIENT_PENI_UID, PATIENT_CLAV_UID,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM e_prescriptions WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
-      PATIENT_UID, PATIENT_PENI_UID, PATIENT_CLAV_UID,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM clinical_orders WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
-      PATIENT_UID, PATIENT_PENI_UID, PATIENT_CLAV_UID,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
-      PATIENT_UID, PATIENT_PENI_UID, DOCTOR_UID, PATIENT_CLAV_UID,
-    ).catch(() => {});
+    await prisma
+      .$executeRawUnsafe(`DELETE FROM pharmacy_catalog WHERE name LIKE 'PSCTEST %'`)
+      .catch(() => {});
+    await prisma
+      .$executeRawUnsafe(
+        `DELETE FROM patient_allergies WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+        PATIENT_UID,
+        PATIENT_PENI_UID,
+        PATIENT_CLAV_UID
+      )
+      .catch(() => {});
+    await prisma
+      .$executeRawUnsafe(
+        `DELETE FROM e_prescriptions WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+        PATIENT_UID,
+        PATIENT_PENI_UID,
+        PATIENT_CLAV_UID
+      )
+      .catch(() => {});
+    await prisma
+      .$executeRawUnsafe(
+        `DELETE FROM clinical_orders WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+        PATIENT_UID,
+        PATIENT_PENI_UID,
+        PATIENT_CLAV_UID
+      )
+      .catch(() => {});
+    await prisma
+      .$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, PATIENT_UID)
+      .catch(() => {});
+    await prisma
+      .$executeRawUnsafe(
+        `DELETE FROM beds WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
+        TENANT_ON,
+        PATIENT_UID
+      )
+      .catch(() => {});
+    await prisma
+      .$executeRawUnsafe(
+        `DELETE FROM wards WHERE tenant_id = $1::uuid AND name = $2`,
+        TENANT_ON,
+        WARD_NAME
+      )
+      .catch(() => {});
+    await prisma
+      .$executeRawUnsafe(
+        `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
+        PATIENT_UID,
+        PATIENT_PENI_UID,
+        DOCTOR_UID,
+        PATIENT_CLAV_UID
+      )
+      .catch(() => {});
 
     // Patient A — recorded amoxicillin allergy (structured store).
     const p1 = await prisma.$queryRawUnsafe(
@@ -129,6 +167,44 @@ describe('validatePrescriptionSafety — composition allergy + same-composition 
        VALUES ($1::uuid, $2, 'PSC Doctor [test]', 'DOCTOR', true, $3::uuid, NOW())`,
       DOCTOR_UID, DOCTOR_PHONE, TENANT_ON,
     );
+    const wardId = Number(
+      (
+        await prisma.$queryRawUnsafe(
+          `INSERT INTO wards (tenant_id, name, total_beds, created_at, updated_at)
+       VALUES ($1::uuid, $2, 1, NOW(), NOW()) RETURNING id`,
+          TENANT_ON,
+          WARD_NAME
+        )
+      )[0].id
+    );
+    const bedId = Number(
+      (
+        await prisma.$queryRawUnsafe(
+          `INSERT INTO beds
+         (tenant_id, ward_id, ward_name, bed_number, status, patient_uid,
+          created_at, updated_at)
+       VALUES ($1::uuid, $2::int, $3, 'PSC-BED-1', 'occupied', $4::uuid,
+               NOW(), NOW()) RETURNING id`,
+          TENANT_ON,
+          wardId,
+          WARD_NAME,
+          PATIENT_UID
+        )
+      )[0].id
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO admissions
+         (tenant_id, patient_uid, encounter_id, admitting_doctor, attending_doctor,
+          bed_id, bed_number, ward, status, admitted_at, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $4::uuid,
+               $5::int, 'PSC-BED-1', $6, 'admitted', NOW(), NOW())`,
+      TENANT_ON,
+      PATIENT_UID,
+      ENCOUNTER_ID,
+      DOCTOR_UID,
+      bedId,
+      WARD_NAME
+    );
 
     // Global composition (amoxicillin + clavulanic acid).
     const comp = await prisma.$queryRawUnsafe(
@@ -148,17 +224,23 @@ describe('validatePrescriptionSafety — composition allergy + same-composition 
     await prisma.$executeRawUnsafe(
       `INSERT INTO pharmacy_catalog
          (name, generic_name, is_active, tenant_id, composition_id, strength, strength_key,
-          form, form_key, route, composition_confidence, composition_source, updated_at)
+          strength_components, form, form_key, release_key, route,
+          composition_confidence, composition_source, updated_at)
        VALUES ('PSCTEST Augmentin 625', 'Amox+Clav', TRUE, $1::uuid, $2::int,
-               '500mg+125mg', '625mg', 'Tablet', 'tablet', 'oral', 'high', 'parsed', NOW())`,
+               '500mg+125mg', '625mg',
+               '[{"ingredient":"amoxicillin","value":500,"unit":"mg"},{"ingredient":"clavulanic_acid","value":125,"unit":"mg"}]'::jsonb,
+               'Tablet', 'tablet', 'ir', 'oral', 'high', 'parsed', NOW())`,
       TENANT_ON, compositionId,
     );
     await prisma.$executeRawUnsafe(
       `INSERT INTO pharmacy_catalog
          (name, generic_name, is_active, tenant_id, composition_id, strength, strength_key,
-          form, form_key, route, composition_confidence, composition_source, updated_at)
+          strength_components, form, form_key, release_key, route,
+          composition_confidence, composition_source, updated_at)
        VALUES ('PSCTEST Clavam 625', 'Amox+Clav', TRUE, $1::uuid, $2::int,
-               '500mg+125mg', '625mg', 'Tablet', 'tablet', 'oral', 'high', 'parsed', NOW())`,
+               '500mg+125mg', '625mg',
+               '[{"ingredient":"amoxicillin","value":500,"unit":"mg"},{"ingredient":"clavulanic_acid","value":125,"unit":"mg"}]'::jsonb,
+               'Tablet', 'tablet', 'ir', 'oral', 'high', 'parsed', NOW())`,
       TENANT_ON, compositionId,
     );
 
@@ -172,9 +254,12 @@ describe('validatePrescriptionSafety — composition allergy + same-composition 
     await prisma.$executeRawUnsafe(
       `INSERT INTO pharmacy_catalog
          (name, generic_name, is_active, tenant_id, composition_id, strength, strength_key,
-          form, form_key, route, composition_confidence, composition_source, updated_at)
+          strength_components, form, form_key, release_key, route,
+          composition_confidence, composition_source, updated_at)
        VALUES ('PSCTEST Calpol 500', 'Paracetamol', TRUE, $1::uuid, $2::int,
-               '500mg', '500mg', 'Tablet', 'tablet', 'oral', 'high', 'parsed', NOW())`,
+               '500mg', '500mg',
+               '[{"ingredient":"paracetamol","value":500,"unit":"mg"}]'::jsonb,
+               'Tablet', 'tablet', 'ir', 'oral', 'high', 'parsed', NOW())`,
       TENANT_ON, Number(paraComp[0].id),
     );
 
@@ -192,35 +277,82 @@ describe('validatePrescriptionSafety — composition allergy + same-composition 
   });
 
   afterAll(async () => {
-    await prisma.$executeRawUnsafe(`DELETE FROM pharmacy_catalog WHERE name LIKE 'PSCTEST %'`).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM patient_allergies WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
-      PATIENT_UID, PATIENT_PENI_UID, PATIENT_CLAV_UID,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM e_prescriptions WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
-      PATIENT_UID, PATIENT_PENI_UID, PATIENT_CLAV_UID,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM clinical_timeline_events WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid) AND source_table = 'clinical_orders'`,
-      PATIENT_UID, PATIENT_PENI_UID, PATIENT_CLAV_UID,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM clinical_audit_events WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid) AND resource_table = 'clinical_orders'`,
-      PATIENT_UID, PATIENT_PENI_UID, PATIENT_CLAV_UID,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM clinical_orders WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
-      PATIENT_UID, PATIENT_PENI_UID, PATIENT_CLAV_UID,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM composition_search_settings WHERE tenant_id IN ($1::uuid, $2::uuid)`,
-      TENANT_ON, TENANT_OFF,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
-      PATIENT_UID, PATIENT_PENI_UID, DOCTOR_UID, PATIENT_CLAV_UID,
-    ).catch(() => {});
+    await prisma
+      .$executeRawUnsafe(`DELETE FROM pharmacy_catalog WHERE name LIKE 'PSCTEST %'`)
+      .catch(() => {});
+    await prisma
+      .$executeRawUnsafe(
+        `DELETE FROM patient_allergies WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+        PATIENT_UID,
+        PATIENT_PENI_UID,
+        PATIENT_CLAV_UID
+      )
+      .catch(() => {});
+    await prisma
+      .$executeRawUnsafe(
+        `DELETE FROM e_prescriptions WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+        PATIENT_UID,
+        PATIENT_PENI_UID,
+        PATIENT_CLAV_UID
+      )
+      .catch(() => {});
+    await prisma
+      .$executeRawUnsafe(
+        `DELETE FROM clinical_timeline_events WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid) AND source_table = 'clinical_orders'`,
+        PATIENT_UID,
+        PATIENT_PENI_UID,
+        PATIENT_CLAV_UID
+      )
+      .catch(() => {});
+    await prisma
+      .$executeRawUnsafe(
+        `DELETE FROM clinical_audit_events WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid) AND resource_table = 'clinical_orders'`,
+        PATIENT_UID,
+        PATIENT_PENI_UID,
+        PATIENT_CLAV_UID
+      )
+      .catch(() => {});
+    await prisma
+      .$executeRawUnsafe(
+        `DELETE FROM clinical_orders WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+        PATIENT_UID,
+        PATIENT_PENI_UID,
+        PATIENT_CLAV_UID
+      )
+      .catch(() => {});
+    await prisma
+      .$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, PATIENT_UID)
+      .catch(() => {});
+    await prisma
+      .$executeRawUnsafe(
+        `DELETE FROM beds WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
+        TENANT_ON,
+        PATIENT_UID
+      )
+      .catch(() => {});
+    await prisma
+      .$executeRawUnsafe(
+        `DELETE FROM wards WHERE tenant_id = $1::uuid AND name = $2`,
+        TENANT_ON,
+        WARD_NAME
+      )
+      .catch(() => {});
+    await prisma
+      .$executeRawUnsafe(
+        `DELETE FROM composition_search_settings WHERE tenant_id IN ($1::uuid, $2::uuid)`,
+        TENANT_ON,
+        TENANT_OFF
+      )
+      .catch(() => {});
+    await prisma
+      .$executeRawUnsafe(
+        `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
+        PATIENT_UID,
+        PATIENT_PENI_UID,
+        DOCTOR_UID,
+        PATIENT_CLAV_UID
+      )
+      .catch(() => {});
     await prisma.$disconnect().catch(() => {});
   });
 
@@ -549,12 +681,14 @@ describe('validatePrescriptionSafety — composition allergy + same-composition 
       created = await createOrder({
         patient_uid: PATIENT_UID,
         order_type: 'medication',
-        encounter_id: null,
+        encounter_id: ENCOUNTER_ID,
         details: {
-          medication_name: 'Clavam 625', // brand — no "amoxicillin" token
+          medication_name: 'PSCTEST Clavam 625', // brand — no "amoxicillin" token
           catalog_id: clavamId,
           dose: '1 tab',
           route: 'oral',
+          quantity_requested: 10,
+          unit: 'tablet',
         },
         ordered_by: DOCTOR_UID,
         tenantId: TENANT_ON,

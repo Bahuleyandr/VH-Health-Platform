@@ -74,7 +74,10 @@ describeIfDb('MED-03 medication evidence invariants', () => {
   const patient = randomUUID();
   const run = `${process.pid}-${Date.now()}`;
   let wardId;
+  let admissionId;
+  let encounterId;
   let catalogId;
+  let clinicalOrderId;
   let indent;
   let issued;
 
@@ -120,6 +123,35 @@ describeIfDb('MED-03 medication evidence invariants', () => {
       tenantId,
       `MED-03 Evidence Ward ${run}`,
     ))[0].id);
+    encounterId = randomUUID();
+    const bedId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO beds
+         (tenant_id, ward_id, ward_name, bed_number, status, patient_uid,
+          created_at, updated_at)
+       VALUES ($1::uuid, $2::int, $3::text, $4::text, 'occupied', $5::uuid,
+               NOW(), NOW())
+       RETURNING id`,
+      tenantId,
+      wardId,
+      `MED-03 Evidence Ward ${run}`,
+      `MED03-EVIDENCE-${run}`.slice(0, 50),
+      patient,
+    ))[0].id);
+    admissionId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO admissions
+         (tenant_id, patient_uid, encounter_id, bed_id, bed_number, ward,
+          status, admitted_at, created_by, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::int, $5::text, $6::text,
+               'admitted', NOW(), $7::uuid, NOW())
+       RETURNING id`,
+      tenantId,
+      patient,
+      encounterId,
+      bedId,
+      `MED03-EVIDENCE-${run}`.slice(0, 50),
+      `MED-03 Evidence Ward ${run}`,
+      requester,
+    ))[0].id);
     catalogId = Number((await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_catalog
          (tenant_id, name, is_active, stock_quantity, unit_price, price, updated_at)
@@ -132,7 +164,7 @@ describeIfDb('MED-03 medication evidence invariants', () => {
       `INSERT INTO pharmacy_inventory_items
          (tenant_id, sku_code, display_name, catalog_id, unit_label,
           schedule_class, is_narcotic)
-       VALUES ($1::uuid, $2::text, $3::text, $4::int, 'unit', 'OTC', FALSE)
+       VALUES ($1::uuid, $2::text, $3::text, $4::int, 'each', 'OTC', FALSE)
        RETURNING id`,
       tenantId,
       `MED03-EVIDENCE-${run}`,
@@ -149,13 +181,36 @@ describeIfDb('MED-03 medication evidence invariants', () => {
       inventoryItemId,
       `MED03-EVIDENCE-BATCH-${run}`,
     );
+    clinicalOrderId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO clinical_orders
+         (tenant_id, order_number, patient_uid, encounter_id, order_type, status,
+          ordered_by, verified_by, verified_at, details, updated_at)
+       VALUES ($1::uuid, $2::text, $3::uuid, $4::uuid, 'medication', 'verified',
+               $5::uuid, $6::uuid, NOW(), $7::jsonb, NOW())
+       RETURNING id`,
+      tenantId,
+      `MED03-EVIDENCE-ORDER-${run}`,
+      patient,
+      encounterId,
+      requester,
+      pharmacist,
+      JSON.stringify({
+        medication_name: `MED-03 Evidence Medicine ${run}`,
+        catalog_id: catalogId,
+        quantity_requested: 2,
+        unit: 'each',
+      }),
+    ))[0].id);
 
     indent = await createWardIndent({
       wardId,
+      admissionId,
+      encounterId,
       patientUid: patient,
       indentType: 'pharmacy',
       items: [{
         pharmacy_catalog_id: catalogId,
+        clinical_order_id: clinicalOrderId,
         item_name: 'Caller text is not authoritative',
         quantity_requested: 2,
       }],
@@ -214,7 +269,10 @@ describeIfDb('MED-03 medication evidence invariants', () => {
         'pharmacy_inventory_items',
         'ward_indent_items',
         'ward_indents',
+        'clinical_orders',
         'pharmacy_catalog',
+        'admissions',
+        'beds',
         'wards',
         'audit_logs',
         'users',

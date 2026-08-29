@@ -945,21 +945,44 @@ export async function sweepWardIndentNotificationCoverage({
   };
 }
 
-async function loadOpenCreditNoteTask(tx, tenantId, creditNoteId) {
-  const noteRows = await tx.$queryRawUnsafe(
-    `SELECT task_id
+async function lockCreditNoteTaskBinding(tx, tenantId, creditNoteId) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT id, task_id
        FROM billing_credit_notes
       WHERE tenant_id = $1::uuid
         AND id = $2::bigint
+      LIMIT 1
       FOR UPDATE`,
     tenantId,
-    creditNoteId,
+    BigInt(creditNoteId),
   );
-  if (!noteRows[0]) return null;
+  if (!rows[0]) {
+    throw AppError.conflict(
+      'Billing credit note changed before its workflow obligation could be bound',
+      'BILLING_CREDIT_NOTE_TASK_BINDING_CONFLICT',
+    );
+  }
+  return rows[0];
+}
 
-  const canonicalTaskId = noteRows[0].task_id == null
-    ? null
-    : Number(noteRows[0].task_id);
+async function loadOpenCreditNoteTask(tx, tenantId, creditNoteId, taskId = null) {
+  let canonicalTaskId = taskId == null ? null : Number(taskId);
+  if (canonicalTaskId == null) {
+    const noteRows = await tx.$queryRawUnsafe(
+      `SELECT task_id
+         FROM billing_credit_notes
+        WHERE tenant_id = $1::uuid
+          AND id = $2::bigint
+        LIMIT 1
+        FOR UPDATE`,
+      tenantId,
+      creditNoteId,
+    );
+    if (!noteRows[0]) return null;
+    canonicalTaskId = noteRows[0].task_id == null
+      ? null
+      : Number(noteRows[0].task_id);
+  }
   const rows = await tx.$queryRawUnsafe(
     `SELECT task.id, task.metadata, task.status, task.workflow_sla_instance_id,
             task.assigned_to_uid, task.assigned_to_role
@@ -974,6 +997,8 @@ async function loadOpenCreditNoteTask(tx, tenantId, creditNoteId) {
             AND task.metadata->>'credit_note_id' = $2::text
           )
         )
+        AND task.related_resource_type = 'billing_credit_notes'
+        AND task.related_resource_id = $2::text
         AND task.metadata->>'task_contract' = 'ward_medication_obligation_v1'
         AND task.metadata->>'obligation_kind' = 'credit_note_review'
         AND task.metadata->>'credit_note_id' = $2::text
@@ -982,7 +1007,7 @@ async function loadOpenCreditNoteTask(tx, tenantId, creditNoteId) {
       LIMIT 1
       FOR UPDATE`,
     tenantId,
-    creditNoteId,
+    String(creditNoteId),
     canonicalTaskId,
     ACTIONABLE_TASK_STATUSES,
   );
@@ -1028,6 +1053,31 @@ async function reassignOpenCreditNoteSlaTx(tx, {
   }
 }
 
+async function bindCreditNoteTask(tx, {
+  tenantId,
+  creditNoteId,
+  taskId,
+}) {
+  const rows = await tx.$queryRawUnsafe(
+    `UPDATE billing_credit_notes
+        SET task_id = $3::int,
+            updated_at = CASE WHEN task_id IS NULL THEN NOW() ELSE updated_at END
+      WHERE tenant_id = $1::uuid
+        AND id = $2::bigint
+        AND (task_id IS NULL OR task_id = $3::int)
+      RETURNING task_id`,
+    tenantId,
+    BigInt(creditNoteId),
+    Number(taskId),
+  );
+  if (!rows[0] || Number(rows[0].task_id) !== Number(taskId)) {
+    throw AppError.conflict(
+      'Billing credit note is already bound to another workflow obligation',
+      'BILLING_CREDIT_NOTE_TASK_BINDING_CONFLICT',
+    );
+  }
+}
+
 function priorCreditNoteOwnershipAudit(task) {
   const metadata = task?.metadata && typeof task.metadata === 'object'
     ? task.metadata
@@ -1064,7 +1114,22 @@ export async function materializeBillingCreditNoteObligationTx(tx, {
   if (!creditNote?.id || creditNote.status !== 'pending') return null;
   const tenantId = String(creditNote.tenant_id);
   const creditNoteId = String(creditNote.id);
-  let task = await loadOpenCreditNoteTask(tx, tenantId, creditNoteId);
+  const binding = await lockCreditNoteTaskBinding(tx, tenantId, creditNoteId);
+  let task = await loadOpenCreditNoteTask(
+    tx,
+    tenantId,
+    creditNoteId,
+    binding.task_id,
+  );
+  if (binding.task_id != null && !task) {
+    throw AppError.conflict(
+      'Billing credit note workflow obligation is no longer actionable',
+      'BILLING_CREDIT_NOTE_TASK_BINDING_CONFLICT',
+    );
+  }
+  if (!task && binding.task_id == null) {
+    task = await loadOpenCreditNoteTask(tx, tenantId, creditNoteId);
+  }
   if (!task) {
     const sourceId = creditNoteId;
     const sla = await startWorkflowSla({
@@ -1126,24 +1191,11 @@ export async function materializeBillingCreditNoteObligationTx(tx, {
       'WARD_MEDICATION_CREDIT_NOTE_TASK_MISSING',
     );
   }
-  const linkedRows = await tx.$queryRawUnsafe(
-    `UPDATE billing_credit_notes
-        SET task_id = $3::int,
-            updated_at = NOW()
-      WHERE tenant_id = $1::uuid
-        AND id = $2::bigint
-        AND (task_id IS NULL OR task_id = $3::int)
-      RETURNING task_id`,
+  await bindCreditNoteTask(tx, {
     tenantId,
     creditNoteId,
-    Number(task.id),
-  );
-  if (!linkedRows[0] || Number(linkedRows[0].task_id) !== Number(task.id)) {
-    throw AppError.conflict(
-      'Credit-note review task changed before canonical linkage was persisted',
-      'WARD_MEDICATION_CREDIT_NOTE_TASK_LINK_CONFLICT',
-    );
-  }
+    taskId: task.id,
+  });
   if (!notify) return task;
 
   const recipients = await resolveRecipients(tx, {
@@ -1241,6 +1293,7 @@ export async function completeBillingCreditNoteObligationTx(tx, {
     tx,
     String(creditNote.tenant_id),
     String(creditNote.id),
+    creditNote.task_id,
   );
   if (!task) {
     const raised = await tx.$queryRawUnsafe(
@@ -1282,6 +1335,7 @@ export async function advanceBillingCreditNoteObligationTx(tx, {
     tx,
     String(creditNote.tenant_id),
     String(creditNote.id),
+    creditNote.task_id,
   );
   if (!task) {
     const raised = await tx.$queryRawUnsafe(
@@ -1447,6 +1501,7 @@ export async function advanceBillingCreditNoteRefundObligationTx(tx, {
     tx,
     String(creditNote.tenant_id),
     String(creditNote.id),
+    creditNote.task_id,
   );
   if (!task) {
     throw AppError.conflict(
@@ -1533,6 +1588,7 @@ export async function advanceBillingCreditNoteRefundPayoutObligationTx(tx, {
     tx,
     String(creditNote.tenant_id),
     String(creditNote.id),
+    creditNote.task_id,
   );
   if (!task) {
     throw AppError.conflict(
@@ -1622,6 +1678,7 @@ export async function completeBillingCreditNoteRefundObligationTx(tx, {
     tx,
     String(creditNote.tenant_id),
     String(creditNote.id),
+    creditNote.task_id,
   );
   if (!task) {
     throw AppError.conflict(

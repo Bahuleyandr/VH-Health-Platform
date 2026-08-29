@@ -3,23 +3,11 @@
 // Phase 2 — persist SERVER-DERIVED composition identity into the two clinical
 // write paths (IPD/CPOE createOrder + createOrdersBulk, and e-Rx create/update).
 //
-// The invariant under test: whenever a medication write carries a `catalog_id`
-// and the server can resolve a composition identity for it, the PERSISTED
-// payload (clinical_orders.details / e_prescriptions.medications) carries the
-// SERVER-derived CANONICAL composition identity (composition_id, active_ingredients,
-// strength_key/form_key/release_key, composition_confidence, strength_components,
-// composition_key/label) — never a client-sent `composition_id`. A bogus client
-// composition_id (999999) must be OVERWRITTEN by the real one.
-//
-// INERTNESS: the overlay must NOT touch the four clinician-entered clinical
-// free-text fields — `strength`, `form`, `route`, `generic_name`. A doctor who
-// sets route:'IV' (or overrides strength/form) keeps their value verbatim even
-// when the catalog column differs or is NULL. This keeps the always-on persist
-// path from changing what MAR/e-Rx-PDF/drug-chart/pharmacist readers see.
-//
-// The enrichment is always-on when a catalog_id is present (NOT flag-gated) and
-// is guarded so a resolution failure leaves the original payload untouched and
-// the write still succeeds.
+// CPOE medication orders bind the selected active catalog's high-confidence
+// composition, strength components, form, route, and release identity before
+// persistence. Conflicting caller identity is rejected rather than silently
+// overlaid. The e-prescription assertions below retain their separate
+// server-derived composition contract.
 //
 // Model: real DB + real createOrder / real controller handlers. The QA test DB
 // runs as superuser (RLS bypassed) — fine for tests: we seed tenant-scoped rows
@@ -40,10 +28,14 @@ const PATIENT_UID = 'c1d00000-0000-4000-8000-00000000d001'; // NO-allergy patien
 const DOCTOR_UID = 'c1d00000-0000-4000-8000-00000000d002';
 const EMPTY_PATIENT_UID = 'c1d00000-0000-4000-8000-00000000e001';
 const EMPTY_DOCTOR_UID = 'c1d00000-0000-4000-8000-00000000e002';
+const ENCOUNTER_ID = 'c1d00000-0000-4000-8000-00000000d003';
+const EMPTY_ENCOUNTER_ID = 'c1d00000-0000-4000-8000-00000000e003';
 const PATIENT_PHONE = '+919711000701';
 const DOCTOR_PHONE = '+919711000702';
 const EMPTY_PATIENT_PHONE = '+919711000703';
 const EMPTY_DOCTOR_PHONE = '+919711000704';
+const WARD_NAME = 'CIP Inpatient Ward';
+const EMPTY_WARD_NAME = 'CIP Empty Tenant Ward';
 
 jest.setTimeout(60000);
 
@@ -106,32 +98,107 @@ async function readPersistedRxMedications(prescriptionId) {
 }
 
 async function cleanup() {
-  await prisma.$executeRawUnsafe(`DELETE FROM pharmacy_catalog WHERE name LIKE 'CIPTEST %'`).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM prescription_safety_overrides WHERE patient_id = $1`, patientId ?? -1,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM e_prescriptions
+  for (const table of ['tasks', 'workflow_sla_instances']) {
+    await prisma
+      .$executeRawUnsafe(
+        `DELETE FROM ${table}
+        WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+        PATIENT_UID,
+        EMPTY_PATIENT_UID
+      )
+      .catch(() => {});
+  }
+  for (const table of [
+    'ward_indent_inventory_allocations',
+    'ward_indent_events',
+    'ward_indent_items'
+  ]) {
+    await prisma
+      .$executeRawUnsafe(
+        `DELETE FROM ${table}
+        WHERE ward_indent_id IN (
+          SELECT id FROM ward_indents
+           WHERE patient_uid IN ($1::uuid, $2::uuid)
+        )`,
+        PATIENT_UID,
+        EMPTY_PATIENT_UID
+      )
+      .catch(() => {});
+  }
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM ward_indents
       WHERE patient_uid IN ($1::uuid, $2::uuid)`,
-    PATIENT_UID,
-    EMPTY_PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid AND source_table = 'clinical_orders'`,
-    PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid AND resource_table = 'clinical_orders'`,
-    PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM medication_safety_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM clinical_orders WHERE patient_uid = $1::uuid`, PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM users
+      PATIENT_UID,
+      EMPTY_PATIENT_UID
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(`DELETE FROM pharmacy_catalog WHERE name LIKE 'CIPTEST %'`)
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM prescription_safety_overrides WHERE patient_id = $1`,
+      patientId ?? -1
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM e_prescriptions
+      WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+      PATIENT_UID,
+      EMPTY_PATIENT_UID
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid AND source_table = 'clinical_orders'`,
+      PATIENT_UID
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid AND resource_table = 'clinical_orders'`,
+      PATIENT_UID
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM medication_safety_reviews WHERE patient_uid = $1::uuid`,
+      PATIENT_UID
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(`DELETE FROM clinical_orders WHERE patient_uid = $1::uuid`, PATIENT_UID)
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM admissions WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+      PATIENT_UID,
+      EMPTY_PATIENT_UID
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM beds WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+      PATIENT_UID,
+      EMPTY_PATIENT_UID
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM wards
+      WHERE (tenant_id = $1::uuid AND name = $2)
+         OR (tenant_id = $3::uuid AND name = $4)`,
+      TENANT_ID,
+      WARD_NAME,
+      EMPTY_TENANT_ID,
+      EMPTY_WARD_NAME
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM users
       WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
     PATIENT_UID,
     DOCTOR_UID,
@@ -145,25 +212,7 @@ describe('composition identity persistence (IPD createOrder/bulk + e-Rx create/u
     await seedTenant(TENANT_ID, 'cip-tenant', 'CIP Tenant');
     await seedTenant(EMPTY_TENANT_ID, 'cip-empty-tenant', 'CIP Empty Tenant');
 
-    // Ensure users cleared before seeding (patientId/doctorId not yet known here).
-    await prisma.$executeRawUnsafe(`DELETE FROM pharmacy_catalog WHERE name LIKE 'CIPTEST %'`).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM e_prescriptions
-        WHERE patient_uid IN ($1::uuid, $2::uuid)`,
-      PATIENT_UID,
-      EMPTY_PATIENT_UID,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM clinical_orders WHERE patient_uid = $1::uuid`, PATIENT_UID,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM users
-        WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
-      PATIENT_UID,
-      DOCTOR_UID,
-      EMPTY_PATIENT_UID,
-      EMPTY_DOCTOR_UID,
-    ).catch(() => {});
+    await cleanup();
 
     // NO-allergy patient so CDS does not block the medication create.
     const p = await prisma.$queryRawUnsafe(
@@ -205,6 +254,78 @@ describe('composition identity persistence (IPD createOrder/bulk + e-Rx create/u
       EMPTY_TENANT_ID,
     );
     emptyDoctorId = Number(emptyDoctor[0].id);
+    const mainWardId = Number(
+      (
+        await prisma.$queryRawUnsafe(
+          `INSERT INTO wards (tenant_id, name, total_beds, created_at, updated_at)
+       VALUES ($1::uuid, $2, 1, NOW(), NOW()) RETURNING id`,
+          TENANT_ID,
+          WARD_NAME
+        )
+      )[0].id
+    );
+    const emptyWardId = Number(
+      (
+        await prisma.$queryRawUnsafe(
+          `INSERT INTO wards (tenant_id, name, total_beds, created_at, updated_at)
+       VALUES ($1::uuid, $2, 1, NOW(), NOW()) RETURNING id`,
+          EMPTY_TENANT_ID,
+          EMPTY_WARD_NAME
+        )
+      )[0].id
+    );
+    const mainBedId = Number(
+      (
+        await prisma.$queryRawUnsafe(
+          `INSERT INTO beds
+         (tenant_id, ward_id, ward_name, bed_number, status, patient_uid,
+          created_at, updated_at)
+       VALUES ($1::uuid, $2::int, $3, 'CIP-BED-1', 'occupied', $4::uuid,
+               NOW(), NOW()) RETURNING id`,
+          TENANT_ID,
+          mainWardId,
+          WARD_NAME,
+          PATIENT_UID
+        )
+      )[0].id
+    );
+    const emptyBedId = Number(
+      (
+        await prisma.$queryRawUnsafe(
+          `INSERT INTO beds
+         (tenant_id, ward_id, ward_name, bed_number, status, patient_uid,
+          created_at, updated_at)
+       VALUES ($1::uuid, $2::int, $3, 'CIP-EMPTY-1', 'occupied', $4::uuid,
+               NOW(), NOW()) RETURNING id`,
+          EMPTY_TENANT_ID,
+          emptyWardId,
+          EMPTY_WARD_NAME,
+          EMPTY_PATIENT_UID
+        )
+      )[0].id
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO admissions
+         (tenant_id, patient_uid, encounter_id, admitting_doctor, attending_doctor,
+          bed_id, bed_number, ward, status, admitted_at, updated_at)
+       VALUES
+         ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $4::uuid,
+          $9::int, 'CIP-BED-1', $10, 'admitted', NOW(), NOW()),
+         ($5::uuid, $6::uuid, $7::uuid, $8::uuid, $8::uuid,
+          $11::int, 'CIP-EMPTY-1', $12, 'admitted', NOW(), NOW())`,
+      TENANT_ID,
+      PATIENT_UID,
+      ENCOUNTER_ID,
+      DOCTOR_UID,
+      EMPTY_TENANT_ID,
+      EMPTY_PATIENT_UID,
+      EMPTY_ENCOUNTER_ID,
+      EMPTY_DOCTOR_UID,
+      mainBedId,
+      WARD_NAME,
+      emptyBedId,
+      EMPTY_WARD_NAME
+    );
 
     // Composition (amoxicillin + clavulanic acid).
     const comp = await prisma.$queryRawUnsafe(
@@ -220,9 +341,11 @@ describe('composition identity persistence (IPD createOrder/bulk + e-Rx create/u
     await prisma.$executeRawUnsafe(
       `INSERT INTO pharmacy_catalog
          (name, generic_name, is_active, tenant_id, composition_id, strength, strength_key,
-          strength_components, form, form_key, route, composition_confidence, composition_source, updated_at)
+          strength_components, form, form_key, release_key, route,
+          composition_confidence, composition_source, updated_at)
        VALUES ('CIPTEST Augmentin 625', 'Amox+Clav', TRUE, $1::uuid, $2::int,
-               '500mg+125mg', '625mg', $3::jsonb, 'Tablet', 'tablet', 'oral', 'high', 'parsed', NOW())`,
+               '500mg+125mg', '625mg', $3::jsonb, 'Tablet', 'tablet', 'ir',
+               'oral', 'high', 'parsed', NOW())`,
       TENANT_ID, compositionId,
       JSON.stringify([{ ingredient: 'amoxicillin', value: 500, unit: 'mg' }, { ingredient: 'clavulanic_acid', value: 125, unit: 'mg' }]),
     );
@@ -235,21 +358,23 @@ describe('composition identity persistence (IPD createOrder/bulk + e-Rx create/u
   });
 
   // ── IPD (CPOE) createOrder ────────────────────────────────────────────────
-  it('IPD: createOrder persists server-derived CANONICAL identity; bogus client composition_id overwritten; clinician route/strength/form/generic_name PRESERVED', async () => {
+  it('IPD: createOrder binds the selected catalog clinical identity and dose', async () => {
     const result = await createOrder({
       patient_uid: PATIENT_UID,
       order_type: 'medication',
-      encounter_id: null,
+      encounter_id: ENCOUNTER_ID,
       details: {
-        medication_name: 'Augmentin 625',
+        medication_name: 'CIPTEST Augmentin 625',
         catalog_id: augmentinId,
-        composition_id: 999999, // bogus client value — must be overwritten
+        composition_id: compositionId,
         dose: '1 tab',
-        route: 'IV', // clinician value DIFFERS from catalog 'oral' — must be preserved
-        strength: '875mg+125mg', // clinician override of catalog '500mg+125mg'
-        form: 'Injection', // clinician override of catalog 'Tablet'
-        generic_name: 'clinician amox+clav', // clinician override of catalog 'Amox+Clav'
+        route: 'oral',
+        strength: '500mg+125mg',
+        form: 'Tablet',
+        generic_name: 'Amox+Clav',
         frequency: 'BD',
+        quantity_requested: 10,
+        unit: 'tablet',
       },
       ordered_by: DOCTOR_UID,
       tenantId: TENANT_ID,
@@ -263,39 +388,65 @@ describe('composition identity persistence (IPD createOrder/bulk + e-Rx create/u
       ? JSON.parse(rows[0].details)
       : rows[0].details;
 
-    // Server-derived CANONICAL identity — bogus 999999 overwritten with the real one.
+    // Server-derived canonical identity is persisted from the selected catalog.
     expect(details.composition_id).toBe(compositionId);
-    expect(details.composition_id).not.toBe(999999);
     expect(Array.isArray(details.strength_components)).toBe(true);
     expect(details.strength_components).toEqual([
       { ingredient: 'amoxicillin', value: 500, unit: 'mg' },
       { ingredient: 'clavulanic_acid', value: 125, unit: 'mg' },
     ]);
-    // Inertness: clinician clinical free-text PRESERVED verbatim — NOT
-    // overwritten by the catalog's route/strength/form/generic_name.
-    expect(details.route).toBe('IV');
-    expect(details.strength).toBe('875mg+125mg');
-    expect(details.form).toBe('Injection');
-    expect(details.generic_name).toBe('clinician amox+clav');
+    expect(details.route).toBe('oral');
+    expect(details.strength).toBe('500mg+125mg');
+    expect(details.form).toBe('tablet');
+    expect(details.generic_name).toBe('amox+clav');
+    expect(details.catalog_authority.version).toBe('medication_catalog_authority_v1');
+    expect(details.catalog_authority.prescribed.quantity_requested).toBe(10);
+    expect(details.catalog_authority.prescribed.unit).toBe('tablet');
+    expect(details.catalog_authority_sha256).toMatch(/^[0-9a-f]{64}$/);
     // Original details fields survive.
-    expect(details.medication_name).toBe('Augmentin 625');
+    expect(details.medication_name).toBe('CIPTEST Augmentin 625');
     expect(details.dose).toBe('1 tab');
     expect(details.frequency).toBe('BD');
     expect(Number(details.catalog_id)).toBe(augmentinId);
   });
 
-  it('IPD: createOrdersBulk persists server-derived CANONICAL identity on the medication item; clinician route preserved', async () => {
+  it('IPD: createOrder rejects caller composition identity that conflicts with catalog authority', async () => {
+    await expect(createOrder({
+      patient_uid: PATIENT_UID,
+      order_type: 'medication',
+      encounter_id: ENCOUNTER_ID,
+      details: {
+        medication_name: 'CIPTEST Augmentin 625',
+        catalog_id: augmentinId,
+        composition_id: 999999,
+        dose: '1 tab',
+        route: 'oral',
+        quantity_requested: 10,
+        unit: 'tablet',
+      },
+      ordered_by: DOCTOR_UID,
+      tenantId: TENANT_ID,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CLINICAL_ORDER_MEDICATION_CATALOG_CLINICAL_IDENTITY_MISMATCH',
+    });
+  });
+
+  it('IPD: createOrdersBulk binds the selected catalog identity on medication items', async () => {
     const results = await createOrdersBulk([
       { patient_uid: PATIENT_UID, order_type: 'investigation', details: { test_name: 'CBC' } },
       {
         patient_uid: PATIENT_UID,
         order_type: 'medication',
+        encounter_id: ENCOUNTER_ID,
         details: {
-          medication_name: 'Augmentin 625',
+          medication_name: 'CIPTEST Augmentin 625',
           catalog_id: augmentinId,
-          composition_id: 999999,
+          composition_id: compositionId,
           dose: '1 tab',
-          route: 'IV', // differs from catalog 'oral' — must be preserved
+          route: 'oral',
+          quantity_requested: 10,
+          unit: 'tablet',
         },
       },
     ], { ordered_by: DOCTOR_UID, tenantId: TENANT_ID });
@@ -309,72 +460,67 @@ describe('composition identity persistence (IPD createOrder/bulk + e-Rx create/u
       : rows[0].details;
     // Server-derived canonical identity set.
     expect(details.composition_id).toBe(compositionId);
-    expect(details.composition_id).not.toBe(999999);
     expect(Array.isArray(details.strength_components)).toBe(true);
-    // Clinician route preserved (not overwritten by catalog 'oral').
-    expect(details.route).toBe('IV');
-    // The clinician did not send strength/generic_name; the inert overlay does
-    // NOT fabricate them from the catalog.
-    expect(details).not.toHaveProperty('strength');
-    expect(details).not.toHaveProperty('generic_name');
+    expect(details.route).toBe('oral');
+    expect(details.strength).toBe('500mg+125mg');
+    expect(details.generic_name).toBe('amox+clav');
+    expect(details.catalog_authority_sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(details.dose).toBe('1 tab');
   });
 
-  it('IPD: an order with NO catalog_id saves normally with no fabricated composition fields', async () => {
-    const result = await createOrder({
+  it('IPD: a MAR-bound medication cannot bypass catalog authority', async () => {
+    await expect(createOrder({
       patient_uid: PATIENT_UID,
       order_type: 'medication',
-      encounter_id: null,
+      encounter_id: ENCOUNTER_ID,
       details: {
         medication_name: 'Paracetamol 500 (free text)',
         dose: '1 tab',
         route: 'oral',
+        quantity_requested: 10,
+        unit: 'tablet',
       },
       ordered_by: DOCTOR_UID,
       tenantId: TENANT_ID,
+    })).rejects.toMatchObject({
+      code: 'CLINICAL_ORDER_MEDICATION_CATALOG_REQUIRED',
     });
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT details FROM clinical_orders WHERE id = $1`, Number(result.order.id),
-    );
-    const details = typeof rows[0].details === 'string'
-      ? JSON.parse(rows[0].details)
-      : rows[0].details;
-    expect(details.medication_name).toBe('Paracetamol 500 (free text)');
-    expect(details).not.toHaveProperty('composition_id');
-    expect(details).not.toHaveProperty('strength_key');
-    expect(details).not.toHaveProperty('generic_name');
   });
 
-  it('IPD: guarded — a catalog_id under an empty tenant resolves nothing; write succeeds, client composition_id stripped, no fields fabricated', async () => {
-    const result = await createOrder({
-      patient_uid: PATIENT_UID,
+  it('IPD: fail-closes when catalog authority does not exist in the order tenant', async () => {
+    const before = Number((await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count
+         FROM clinical_orders
+        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
+      EMPTY_TENANT_ID,
+      EMPTY_PATIENT_UID,
+    ))[0].count);
+    await expect(createOrder({
+      patient_uid: EMPTY_PATIENT_UID,
       order_type: 'medication',
-      encounter_id: null,
+      encounter_id: EMPTY_ENCOUNTER_ID,
       details: {
         medication_name: 'Ghost Drug',
         catalog_id: augmentinId, // real id, but EMPTY_TENANT_ID cannot resolve it
         composition_id: 999999, // client value — must be stripped (never trusted)
         dose: '1 tab',
+        route: 'oral',
+        quantity_requested: 10,
+        unit: 'tablet',
       },
-      ordered_by: DOCTOR_UID,
+      ordered_by: EMPTY_DOCTOR_UID,
       tenantId: EMPTY_TENANT_ID,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CLINICAL_ORDER_MEDICATION_CATALOG_UNAVAILABLE',
     });
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT details FROM clinical_orders WHERE id = $1`, Number(result.order.id),
-    );
-    const details = typeof rows[0].details === 'string'
-      ? JSON.parse(rows[0].details)
-      : rows[0].details;
-    // Write succeeded, original non-identity fields survive.
-    expect(details.medication_name).toBe('Ghost Drug');
-    expect(details.dose).toBe('1 tab');
-    // Client composition_id was stripped (never trusted) and no server value overlaid.
-    expect(details.composition_id).toBeUndefined();
-    expect(details).not.toHaveProperty('generic_name');
-    // Clean up under EMPTY_TENANT_ID (superuser test DB → direct delete).
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM clinical_orders WHERE id = $1`, Number(result.order.id),
-    ).catch(() => {});
+    expect(Number((await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count
+         FROM clinical_orders
+        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
+      EMPTY_TENANT_ID,
+      EMPTY_PATIENT_UID,
+    ))[0].count)).toBe(before);
   });
 
   // ── e-Rx create ───────────────────────────────────────────────────────────

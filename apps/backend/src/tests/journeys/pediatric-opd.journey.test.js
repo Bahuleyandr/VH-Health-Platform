@@ -43,8 +43,10 @@ import {
   cleanupJourney,
   uidForUserId,
   CANONICAL_EVENTS,
+  DEFAULT_TENANT,
   prisma,
 } from './_journeyHarness.js';
+import { ensureEncounterForAppointment } from '../../services/clinical/canonicalClinicalPlatformService.js';
 
 const RUN = runSuffix();
 const DOCTOR_UID = `b5000001-0000-4000-8000-${RUN.padStart(12, '0')}`;
@@ -58,6 +60,7 @@ const DOCTOR_PHONE = `+9196603${RUN}`;
 const STRANGER_PHONE = `+9196604${RUN}`;
 const RECEPTIONIST_PHONE = `96605${RUN}`;
 const NURSE_PHONE = `+9196606${RUN}`;
+const CATALOG_NAME = `JPaeds Paracetamol Syrup ${RUN}`;
 
 describeJourney('Journey: pediatric-opd', () => {
   let receptionist;
@@ -72,6 +75,8 @@ describeJourney('Journey: pediatric-opd', () => {
   let patientId;
   let patientUid;
   let childDob;
+  let encounterId;
+  let catalogId;
 
   beforeAll(async () => {
     await cleanupJourney({
@@ -80,6 +85,11 @@ describeJourney('Journey: pediatric-opd', () => {
       phones: [PATIENT_PHONE, GUARDIAN_PHONE, RECEPTIONIST_PHONE],
       departments: [DEPARTMENT, `${DEPARTMENT}-other`],
     });
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM pharmacy_catalog WHERE tenant_id = $1::uuid AND name = $2`,
+      DEFAULT_TENANT,
+      CATALOG_NAME,
+    ).catch(() => {});
 
     // ~2 years old: inside the WHO 0-5 growth table (so the percentile snapshot
     // resolves) AND well past every at-birth immunisation dose (so the "due"
@@ -113,6 +123,30 @@ describeJourney('Journey: pediatric-opd', () => {
     doctor = roleClient('DOCTOR', { uid: DOCTOR_UID, id: doctorUserId, phone: DOCTOR_PHONE });
     strangerDoctor = roleClient('DOCTOR', { uid: STRANGER_DOCTOR_UID, id: 0, phone: STRANGER_PHONE });
     nurse = roleClient('NURSING_STAFF', { uid: NURSE_UID, id: nurseId, phone: NURSE_PHONE });
+
+    const composition = await prisma.$queryRawUnsafe(
+      `INSERT INTO drug_compositions
+         (composition_key, display_label, active_ingredients, source)
+       VALUES ($1, 'Paracetamol', ARRAY['paracetamol']::text[], 'curated')
+       ON CONFLICT (composition_key) DO UPDATE SET display_label = EXCLUDED.display_label
+       RETURNING id`,
+      `journey_paeds_paracetamol_${RUN}`,
+    );
+    const catalog = await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_catalog
+         (tenant_id, name, generic_name, is_active, composition_id,
+          composition_confidence, composition_source, strength, strength_key,
+          strength_components, form, form_key, route, release_key, updated_at)
+       VALUES ($1::uuid, $2, 'paracetamol', TRUE, $3::int,
+               'high', 'curated', '25mg/mL', '25mg/ml', $4::jsonb,
+               'syrup', 'syrup', 'oral', 'ir', NOW())
+       RETURNING id`,
+      DEFAULT_TENANT,
+      CATALOG_NAME,
+      Number(composition[0].id),
+      JSON.stringify([{ ingredient: 'paracetamol', value: 25, unit: 'mg/ml' }]),
+    );
+    catalogId = Number(catalog[0].id);
   });
 
   afterAll(async () => {
@@ -122,6 +156,11 @@ describeJourney('Journey: pediatric-opd', () => {
       phones: [PATIENT_PHONE, GUARDIAN_PHONE, RECEPTIONIST_PHONE],
       departments: [DEPARTMENT, `${DEPARTMENT}-other`],
     });
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM pharmacy_catalog WHERE tenant_id = $1::uuid AND name = $2`,
+      DEFAULT_TENANT,
+      CATALOG_NAME,
+    ).catch(() => {});
     await prisma.$disconnect().catch(() => {});
   });
 
@@ -217,6 +256,16 @@ describeJourney('Journey: pediatric-opd', () => {
         patientUid, staffUid: NURSE_UID, staffRole: 'NURSING_STAFF',
         memberName: `Paeds Child ${RUN}`,
       });
+      const encounter = await ensureEncounterForAppointment({
+        tenantId: DEFAULT_TENANT,
+        appointmentId,
+        patientUid,
+        doctorUid: DOCTOR_UID,
+        actorUid: DOCTOR_UID,
+        metadata: { journey: 'pediatric-opd', run: RUN },
+      }, { db: prisma });
+      encounterId = encounter?.id;
+      expect(encounterId).toMatch(/^[0-9a-f-]{36}$/i);
     });
   });
 
@@ -274,9 +323,13 @@ describeJourney('Journey: pediatric-opd', () => {
       const res = await nurse.post('/api/v1/emr/orders').set('Idempotency-Key', `ped-opd-nurse-order-${Date.now()}`).send({
         patient_uid: patientUid,
         order_type: 'medication',
+        encounter_id: encounterId,
         priority: 'routine',
         details: {
-          medication_name: 'Paracetamol syrup',
+          medication_name: CATALOG_NAME,
+          catalog_id: catalogId,
+          quantity_requested: 60,
+          unit: 'mL',
           dose: '180 mg',
           route: 'oral',
           frequency: 'QID',
@@ -294,9 +347,13 @@ describeJourney('Journey: pediatric-opd', () => {
       const res = await doctor.post('/api/v1/emr/orders').set('Idempotency-Key', `ped-opd-doctor-order-${Date.now()}`).send({
         patient_uid: patientUid,
         order_type: 'medication',
+        encounter_id: encounterId,
         priority: 'routine',
         details: {
-          medication_name: 'Paracetamol syrup',
+          medication_name: CATALOG_NAME,
+          catalog_id: catalogId,
+          quantity_requested: 60,
+          unit: 'mL',
           dose: '150 mg',
           strength_mg_per_ml: 25,
           dose_basis_mg_per_kg: 12,
@@ -323,7 +380,7 @@ describeJourney('Journey: pediatric-opd', () => {
   describe('Step 5 — doctor writes the OP consultation note', () => {
     let noteId;
 
-    it('creates an op_consultation note bound to the visit (auto-creates the encounter)', async () => {
+    it('creates an op_consultation note bound to the existing appointment encounter', async () => {
       const res = await doctor.post('/api/v1/emr/notes').send({
         patient_uid: patientUid,
         appointment_id: appointmentId,
@@ -340,8 +397,8 @@ describeJourney('Journey: pediatric-opd', () => {
       noteId = res.body.data.id;
       expect(noteId).toBeTruthy();
 
-      // The OP note auto-creates the canonical encounter (migration 240 +
-      // ensureEncounterForAppointment) — the UUID encounter_id is stamped.
+      // The OP note reuses the canonical appointment encounter created before
+      // the MAR-bound medication order — the UUID encounter_id is stamped.
       const row = await prisma.$queryRawUnsafe(
         `SELECT appointment_id, encounter_id, note_type FROM clinical_notes WHERE id = $1::int`,
         noteId);

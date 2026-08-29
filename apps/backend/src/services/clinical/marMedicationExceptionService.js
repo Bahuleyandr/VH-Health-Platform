@@ -27,7 +27,8 @@ const MAR_EXCEPTION_ESCALATION_ROLES = Object.freeze([
   'ADMIN',
   'SUPER_ADMIN',
 ]);
-const ACTIVE_ORDER_STATUSES = new Set(['ordered', 'verified', 'in_progress']);
+const EXECUTABLE_ORDER_STATUSES = new Set(['verified', 'in_progress']);
+const NON_TERMINAL_ORDER_STATUSES = new Set(['ordered', 'verified', 'in_progress']);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const POSITIVE_BIGINT_RE = /^[1-9][0-9]{0,18}$/;
 const POSTGRES_BIGINT_MAX = 9223372036854775807n;
@@ -1436,40 +1437,106 @@ export async function resolveMarMedicationExceptionTx(tx, {
     'MAR_EXCEPTION_IDEMPOTENCY_REQUIRED',
   );
   const fingerprint = requiredFingerprint(requestFingerprint);
-  const rows = await tx.$queryRawUnsafe(
-    `SELECT exception_case.*,
-            administration.status AS administration_status,
-            administration.medication_name,
-            administration.scheduled_time,
-            clinical_order.status AS clinical_order_status,
-            task.assigned_to_uid::text,
-            actor.role AS actor_role
+  let requestedReplacementId = null;
+  if (cleanDisposition === 'replacement_ordered') {
+    requestedReplacementId = Number(replacementClinicalOrderId);
+    if (!Number.isSafeInteger(requestedReplacementId) || requestedReplacementId <= 0) {
+      throw AppError.badRequest(
+        'replacement_clinical_order_id is required for replacement_ordered',
+        'MAR_EXCEPTION_REPLACEMENT_ORDER_REQUIRED',
+      );
+    }
+  } else if (replacementClinicalOrderId != null) {
+    throw AppError.badRequest(
+      'replacement_clinical_order_id is allowed only for replacement_ordered',
+      'MAR_EXCEPTION_REPLACEMENT_ORDER_UNEXPECTED',
+    );
+  }
+  const caseId = requiredMarMedicationExceptionCaseId(exceptionCaseId);
+  const preflightRows = await tx.$queryRawUnsafe(
+    `SELECT clinical_order_id, medication_administration_id, task_id
+       FROM mar_medication_exception_cases
+      WHERE tenant_id = $1::uuid
+        AND id = $2::bigint
+      LIMIT 1`,
+    tenantId,
+    caseId,
+  );
+  const preflight = preflightRows[0];
+  if (!preflight) throw AppError.notFound('MAR medication exception not found');
+  const orderIds = [...new Set([
+    Number(preflight.clinical_order_id),
+    ...(requestedReplacementId == null ? [] : [requestedReplacementId]),
+  ])].sort((left, right) => left - right);
+  const lockedOrders = await tx.$queryRawUnsafe(
+    `SELECT id, status, patient_uid::text, order_type, created_at,
+            verified_by::text, verified_at
+       FROM clinical_orders
+      WHERE tenant_id = $1::uuid
+        AND id = ANY($2::integer[])
+      ORDER BY id
+      FOR UPDATE`,
+    tenantId,
+    orderIds,
+  );
+  const orderById = new Map(lockedOrders.map((order) => [Number(order.id), order]));
+  const clinicalOrder = orderById.get(Number(preflight.clinical_order_id));
+  const administrationRows = await tx.$queryRawUnsafe(
+    `SELECT id, status, medication_name, scheduled_time
+       FROM medication_administrations
+      WHERE tenant_id = $1::uuid
+        AND id = $2::integer
+        AND clinical_order_id = $3::integer
+      FOR UPDATE`,
+    tenantId,
+    Number(preflight.medication_administration_id),
+    Number(preflight.clinical_order_id),
+  );
+  const caseRows = await tx.$queryRawUnsafe(
+    `SELECT exception_case.*, task.assigned_to_uid::text
        FROM mar_medication_exception_cases exception_case
-       JOIN medication_administrations administration
-         ON administration.tenant_id = exception_case.tenant_id
-        AND administration.id = exception_case.medication_administration_id
        JOIN tasks task
          ON task.tenant_id = exception_case.tenant_id
         AND task.id = exception_case.task_id
-       JOIN users actor
-         ON actor.tenant_id = exception_case.tenant_id
-        AND actor.uid = $3::uuid
-        AND actor.is_active = TRUE
-        AND COALESCE(actor.is_deleted, FALSE) = FALSE
-        AND actor.deleted_at IS NULL
-        AND LOWER(COALESCE(actor.status, 'active')) = 'active'
-       JOIN clinical_orders clinical_order
-         ON clinical_order.tenant_id = exception_case.tenant_id
-        AND clinical_order.id = exception_case.clinical_order_id
       WHERE exception_case.tenant_id = $1::uuid
         AND exception_case.id = $2::bigint
-      FOR UPDATE OF exception_case, administration, clinical_order, task, actor`,
+        AND exception_case.clinical_order_id = $3::integer
+        AND exception_case.medication_administration_id = $4::integer
+        AND exception_case.task_id = $5::integer
+      FOR UPDATE OF exception_case, task`,
     tenantId,
-    requiredMarMedicationExceptionCaseId(exceptionCaseId),
+    caseId,
+    Number(preflight.clinical_order_id),
+    Number(preflight.medication_administration_id),
+    Number(preflight.task_id),
+  );
+  const actorRows = await tx.$queryRawUnsafe(
+    `SELECT role
+       FROM users
+      WHERE tenant_id = $1::uuid
+        AND uid = $2::uuid
+        AND is_active = TRUE
+        AND COALESCE(is_deleted, FALSE) = FALSE
+        AND deleted_at IS NULL
+        AND LOWER(COALESCE(status, 'active')) = 'active'
+      FOR SHARE`,
+    tenantId,
     actorUid,
   );
-  const exceptionCase = rows[0];
-  if (!exceptionCase) throw AppError.notFound('MAR medication exception not found');
+  if (!clinicalOrder || !administrationRows[0] || !caseRows[0]) {
+    throw AppError.conflict(
+      'MAR medication exception context changed during disposition',
+      'MAR_EXCEPTION_CONTEXT_CHANGED',
+    );
+  }
+  const exceptionCase = {
+    ...caseRows[0],
+    administration_status: administrationRows[0].status,
+    medication_name: administrationRows[0].medication_name,
+    scheduled_time: administrationRows[0].scheduled_time,
+    clinical_order_status: clinicalOrder.status,
+    actor_role: actorRows[0]?.role || null,
+  };
   if (!isDoctor(String(exceptionCase.actor_role || '').trim().toUpperCase())) {
     throw AppError.forbidden(
       'Only an active assigned prescriber may disposition a medication exception',
@@ -1494,7 +1561,7 @@ export async function resolveMarMedicationExceptionTx(tx, {
         AND event.command_key = $3::text
       LIMIT 1`,
     tenantId,
-    requiredMarMedicationExceptionCaseId(exceptionCaseId),
+    caseId,
     cleanCommandKey,
   );
   if (replayRows[0]) {
@@ -1537,50 +1604,29 @@ export async function resolveMarMedicationExceptionTx(tx, {
 
   let replacementOrder = null;
   if (cleanDisposition === 'replacement_ordered') {
-    const replacementId = Number(replacementClinicalOrderId);
-    if (!Number.isSafeInteger(replacementId) || replacementId <= 0) {
-      throw AppError.badRequest(
-        'replacement_clinical_order_id is required for replacement_ordered',
-        'MAR_EXCEPTION_REPLACEMENT_ORDER_REQUIRED',
-      );
-    }
-    const replacementRows = await tx.$queryRawUnsafe(
-      `SELECT replacement.id, replacement.status
-         FROM clinical_orders replacement
-        WHERE replacement.tenant_id = $1::uuid
-          AND replacement.id = $2::integer
-          AND replacement.id IS DISTINCT FROM $3::integer
-          AND replacement.patient_uid = $4::uuid
-          AND replacement.order_type = 'medication'
-          AND LOWER(replacement.status) = ANY($5::text[])
-          AND replacement.created_at >= $6::timestamptz
-        LIMIT 1
-        FOR SHARE`,
-      tenantId,
-      replacementId,
-      exceptionCase.clinical_order_id == null ? null : Number(exceptionCase.clinical_order_id),
-      exceptionCase.patient_uid,
-      [...ACTIVE_ORDER_STATUSES],
-      exceptionCase.raised_at,
-    );
-    replacementOrder = replacementRows[0];
-    if (!replacementOrder) {
+    replacementOrder = orderById.get(requestedReplacementId);
+    if (
+      !replacementOrder
+      || requestedReplacementId === Number(exceptionCase.clinical_order_id)
+      || String(replacementOrder.patient_uid) !== String(exceptionCase.patient_uid)
+      || replacementOrder.order_type !== 'medication'
+      || !EXECUTABLE_ORDER_STATUSES.has(String(replacementOrder.status || '').toLowerCase())
+      || new Date(replacementOrder.created_at).getTime()
+        < new Date(exceptionCase.raised_at).getTime()
+      || !replacementOrder.verified_by
+      || !replacementOrder.verified_at
+    ) {
       throw AppError.conflict(
-        'Referenced replacement is not a separately authorized active medication order',
+        'Referenced replacement is not a separately verified active medication order',
         'MAR_EXCEPTION_REPLACEMENT_ORDER_INVALID',
       );
     }
-  } else if (replacementClinicalOrderId != null) {
-    throw AppError.badRequest(
-      'replacement_clinical_order_id is allowed only for replacement_ordered',
-      'MAR_EXCEPTION_REPLACEMENT_ORDER_UNEXPECTED',
-    );
   }
 
   if (cleanDisposition === 'order_stopped') {
     if (
       exceptionCase.clinical_order_id == null
-      || ACTIVE_ORDER_STATUSES.has(String(exceptionCase.clinical_order_status || '').toLowerCase())
+      || NON_TERMINAL_ORDER_STATUSES.has(String(exceptionCase.clinical_order_status || '').toLowerCase())
     ) {
       throw AppError.conflict(
         'The original medication order does not contain exact stopped-order evidence',
@@ -1599,7 +1645,7 @@ export async function resolveMarMedicationExceptionTx(tx, {
              $8::integer, $9::text, $10::char(64), $11::jsonb)
      RETURNING id, disposition, occurred_at`,
     tenantId,
-    requiredMarMedicationExceptionCaseId(exceptionCaseId),
+    caseId,
     Number(exceptionCase.medication_administration_id),
     cleanDisposition,
     actorUid,
@@ -1638,8 +1684,181 @@ export async function resolveMarMedicationExceptionTx(tx, {
         AND status = 'open'
       RETURNING *`,
     tenantId,
-    requiredMarMedicationExceptionCaseId(exceptionCaseId),
+    caseId,
     cleanDisposition,
+    String(event.id),
+    actorUid,
+    event.occurred_at,
+  );
+  if (resolvedRows.length !== 1) {
+    throw AppError.conflict(
+      'MAR medication exception state changed concurrently',
+      'MAR_EXCEPTION_STATE_CONFLICT',
+    );
+  }
+  return {
+    exceptionCase: { ...exceptionCase, ...resolvedRows[0] },
+    event,
+    replayed: false,
+  };
+}
+
+export async function resolveMarMedicationExceptionForTerminalOrderTx(tx, {
+  tenantId,
+  exceptionCaseId,
+  reason,
+  actorUid,
+  commandKey,
+  requestFingerprint,
+  completeTaskTx,
+}) {
+  requiredTx(tx);
+  if (typeof completeTaskTx !== 'function') {
+    throw AppError.internal(
+      'MAR medication exception completion authority is unavailable',
+      'MAR_EXCEPTION_COMPLETION_AUTHORITY_REQUIRED',
+    );
+  }
+  const cleanReason = requiredCommand(
+    reason,
+    'MAR medication exception disposition reason',
+    'MAR_EXCEPTION_DISPOSITION_REASON_REQUIRED',
+  );
+  const cleanCommandKey = requiredCommand(
+    commandKey,
+    'MAR medication exception command key',
+    'MAR_EXCEPTION_IDEMPOTENCY_REQUIRED',
+  );
+  const fingerprint = requiredFingerprint(requestFingerprint);
+  const caseId = requiredMarMedicationExceptionCaseId(exceptionCaseId);
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT exception_case.*,
+            administration.status AS administration_status,
+            clinical_order.status AS clinical_order_status,
+            task.assigned_to_uid::text,
+            actor.role AS actor_role
+       FROM mar_medication_exception_cases exception_case
+       JOIN medication_administrations administration
+         ON administration.tenant_id = exception_case.tenant_id
+        AND administration.id = exception_case.medication_administration_id
+       JOIN tasks task
+         ON task.tenant_id = exception_case.tenant_id
+        AND task.id = exception_case.task_id
+       JOIN clinical_orders clinical_order
+         ON clinical_order.tenant_id = exception_case.tenant_id
+        AND clinical_order.id = exception_case.clinical_order_id
+       JOIN users actor
+         ON actor.tenant_id = exception_case.tenant_id
+        AND actor.uid = $3::uuid
+        AND actor.is_active = TRUE
+        AND COALESCE(actor.is_deleted, FALSE) = FALSE
+        AND actor.deleted_at IS NULL
+        AND LOWER(COALESCE(actor.status, 'active')) = 'active'
+      WHERE exception_case.tenant_id = $1::uuid
+        AND exception_case.id = $2::bigint
+      FOR UPDATE OF exception_case, task
+      FOR SHARE OF actor`,
+    tenantId,
+    caseId,
+    actorUid,
+  );
+  const exceptionCase = rows[0];
+  if (!exceptionCase) throw AppError.notFound('MAR medication exception not found');
+  if (!isDoctor(String(exceptionCase.actor_role || '').trim().toUpperCase())) {
+    throw AppError.forbidden(
+      'Only an active prescriber may close medication exceptions from a terminal order',
+      'MAR_ORDER_TERMINAL_PRESCRIBER_REQUIRED',
+    );
+  }
+  if (
+    exceptionCase.clinical_order_id == null
+    || NON_TERMINAL_ORDER_STATUSES.has(
+      String(exceptionCase.clinical_order_status || '').toLowerCase(),
+    )
+  ) {
+    throw AppError.conflict(
+      'The original medication order does not contain exact stopped-order evidence',
+      'MAR_EXCEPTION_ORDER_STILL_ACTIVE',
+    );
+  }
+
+  const replayRows = await tx.$queryRawUnsafe(
+    `SELECT event.id, event.request_fingerprint, event.disposition
+       FROM mar_medication_exception_events event
+      WHERE event.tenant_id = $1::uuid
+        AND event.exception_case_id = $2::bigint
+        AND event.command_key = $3::text
+      LIMIT 1`,
+    tenantId,
+    caseId,
+    cleanCommandKey,
+  );
+  if (replayRows[0]) {
+    if (String(replayRows[0].request_fingerprint) !== fingerprint) {
+      throw AppError.conflict(
+        'MAR medication exception command key was reused with a different request',
+        'MAR_EXCEPTION_IDEMPOTENCY_CONFLICT',
+      );
+    }
+    return { exceptionCase, event: replayRows[0], replayed: true };
+  }
+  if (exceptionCase.status !== 'open') {
+    throw AppError.conflict(
+      'MAR medication exception is already resolved',
+      'MAR_EXCEPTION_ALREADY_RESOLVED',
+    );
+  }
+
+  const eventRows = await tx.$queryRawUnsafe(
+    `INSERT INTO mar_medication_exception_events
+       (tenant_id, exception_case_id, medication_administration_id,
+        event_type, disposition, actor_uid, actor_role, reason,
+        replacement_clinical_order_id, command_key, request_fingerprint, payload)
+     VALUES ($1::uuid, $2::bigint, $3::integer,
+             'resolved', 'order_stopped', $4::uuid, $5::text, $6::text,
+             NULL, $7::text, $8::char(64), $9::jsonb)
+     RETURNING id, disposition, occurred_at`,
+    tenantId,
+    caseId,
+    Number(exceptionCase.medication_administration_id),
+    actorUid,
+    exceptionCase.actor_role,
+    cleanReason,
+    cleanCommandKey,
+    fingerprint,
+    JSON.stringify({
+      clinical_order_id: Number(exceptionCase.clinical_order_id),
+      clinical_order_status: exceptionCase.clinical_order_status || null,
+      parent_order_terminal_transition: true,
+      original_assigned_prescriber_uid: exceptionCase.assigned_prescriber_uid || null,
+      original_task_assigned_to_uid: exceptionCase.assigned_to_uid || null,
+      terminal_actor_uid: actorUid,
+      terminal_actor_role: exceptionCase.actor_role,
+    }),
+  );
+  const event = eventRows[0];
+  await completeTaskTx({
+    tenantId,
+    id: Number(exceptionCase.task_id),
+    evidenceKind: 'mar_medication_exception_resolution',
+    evidenceResourceType: 'mar_medication_exception_event',
+    evidenceResourceId: String(event.id),
+    actorUid,
+    tx,
+  });
+  const resolvedRows = await tx.$queryRawUnsafe(
+    `UPDATE mar_medication_exception_cases
+        SET status = 'resolved',
+            resolution_kind = 'order_stopped',
+            resolution_event_id = $3::bigint,
+            resolved_by = $4::uuid,
+            resolved_at = $5::timestamptz
+      WHERE tenant_id = $1::uuid
+        AND id = $2::bigint
+        AND status = 'open'
+      RETURNING *`,
+    tenantId,
+    caseId,
     String(event.id),
     actorUid,
     event.occurred_at,
@@ -1786,6 +2005,7 @@ export default {
   openMarMedicationExceptionTx,
   claimMarMedicationExceptionTx,
   resolveMarMedicationExceptionTx,
+  resolveMarMedicationExceptionForTerminalOrderTx,
   listAssignedMarMedicationExceptions,
   getMarExceptionMedicationAdministrationId,
   reconcileMarMedicationExceptions,

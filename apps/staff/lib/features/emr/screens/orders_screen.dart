@@ -139,6 +139,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
       IdempotencyAttemptRegistry();
   final IdempotencyAttemptRegistry _verificationAttempts =
       IdempotencyAttemptRegistry();
+  final IdempotencyAttemptRegistry _terminalOrderAttempts =
+      IdempotencyAttemptRegistry();
 
   bool get _prescriberCanRecoverMar => canPrescribeMedicationOrders(_role);
 
@@ -165,6 +167,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
   void dispose() {
     _marRecoveryAttempts.clear();
     _verificationAttempts.clear();
+    _terminalOrderAttempts.clear();
     super.dispose();
   }
 
@@ -406,8 +409,17 @@ class _OrdersScreenState extends State<OrdersScreen> {
 
   Future<void> _completeOrder(int id) async {
     final s = AppStrings.of(context);
+    final attemptScope = 'clinical-order-terminal:complete:$id';
+    final idempotencyKey = _terminalOrderAttempts.keyFor(
+      attemptScope,
+      const <String, dynamic>{},
+    );
     try {
-      await MedicalApiService.completeOrder(id);
+      await MedicalApiService.completeOrder(
+        id,
+        idempotencyKey: idempotencyKey,
+      );
+      _terminalOrderAttempts.complete(attemptScope);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -478,18 +490,29 @@ class _OrdersScreenState extends State<OrdersScreen> {
       hint: s.ordersStopReasonHint,
     );
     if (reason == null || reason.trim().length < 3 || !mounted) return;
+    final trimmedReason = reason.trim();
+    final action = discontinue ? 'discontinue' : 'cancel';
+    final attemptScope = 'clinical-order-terminal:$action:$id';
+    final requestBody = <String, dynamic>{'reason': trimmedReason};
+    final idempotencyKey = _terminalOrderAttempts.keyFor(
+      attemptScope,
+      requestBody,
+    );
     try {
       if (discontinue) {
         await MedicalApiService.discontinueClinicalOrder(
           orderId: id,
-          reason: reason.trim(),
+          reason: trimmedReason,
+          idempotencyKey: idempotencyKey,
         );
       } else {
         await MedicalApiService.cancelClinicalOrder(
           orderId: id,
-          reason: reason.trim(),
+          reason: trimmedReason,
+          idempotencyKey: idempotencyKey,
         );
       }
+      _terminalOrderAttempts.complete(attemptScope);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

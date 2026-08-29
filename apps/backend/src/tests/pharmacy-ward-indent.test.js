@@ -24,13 +24,25 @@ let nurseToken;
 let wardId;
 let paracetamolCatalogId;
 let salineCatalogId;
+let medicationCatalogId;
 const createdIndentIds = [];
 
-async function seedClassifiedCatalog({ name, sku, scheduleClass = null }) {
+async function seedClassifiedCatalog({
+  name,
+  sku,
+  scheduleClass = null,
+  medication = false,
+}) {
   const catalogRows = await prisma.$queryRawUnsafe(
-    `INSERT INTO pharmacy_catalog (name, is_active, tenant_id, stock_quantity, updated_at)
-     VALUES ($1, TRUE, $2::uuid, 100, NOW()) RETURNING id`,
-    name, DEFAULT_TENANT_ID,
+    `INSERT INTO pharmacy_catalog
+       (name, category, requires_prescription, is_active, tenant_id,
+        stock_quantity, updated_at)
+     VALUES ($1, $3::text, $4::boolean, TRUE, $2::uuid, 100, NOW())
+     RETURNING id`,
+    name,
+    DEFAULT_TENANT_ID,
+    medication ? 'medication' : 'ward_supply',
+    medication,
   );
   const catalogId = Number(catalogRows[0].id);
   await prisma.$executeRawUnsafe(
@@ -116,13 +128,18 @@ describe('IPD pharmacy ward-indent REST surface', () => {
     wardId = wardRows[0].id;
 
     paracetamolCatalogId = await seedClassifiedCatalog({
-      name: `${CATALOG_NAME_PREFIX} Paracetamol 500mg`,
-      sku: `${INVENTORY_SKU_PREFIX}-PARACETAMOL`,
-      scheduleClass: 'OTC',
+      name: `${CATALOG_NAME_PREFIX} Sterile Gauze Pack`,
+      sku: `${INVENTORY_SKU_PREFIX}-GAUZE`,
     });
     salineCatalogId = await seedClassifiedCatalog({
       name: `${CATALOG_NAME_PREFIX} Normal Saline 500ml`,
       sku: `${INVENTORY_SKU_PREFIX}-SALINE`,
+    });
+    medicationCatalogId = await seedClassifiedCatalog({
+      name: `${CATALOG_NAME_PREFIX} Paracetamol 500mg`,
+      sku: `${INVENTORY_SKU_PREFIX}-PARACETAMOL`,
+      scheduleClass: 'OTC',
+      medication: true,
     });
 
     staffToken = generateTestToken('PHARMACY_STAFF', { uid: STAFF_UID });
@@ -143,14 +160,14 @@ describe('IPD pharmacy ward-indent REST surface', () => {
       .set('idempotency-key', `ward-indent-create-${RUN_SUFFIX}`)
       .send({
         ward_id: wardId,
-        indent_type: 'pharmacy',
+        indent_type: 'consumables',
         notes: 'Routine ward stock replenishment',
         items: [
           {
             pharmacy_catalog_id: paracetamolCatalogId,
-            item_name: 'Paracetamol 500mg',
+            item_name: 'Sterile Gauze Pack',
             quantity_requested: 50,
-            unit: 'tablets',
+            unit: 'packs',
           },
           {
             pharmacy_catalog_id: salineCatalogId,
@@ -167,7 +184,7 @@ describe('IPD pharmacy ward-indent REST surface', () => {
     createdIndentIds.push(indent.id);
     expect(indent).toMatchObject({
       ward_id: wardId,
-      indent_type: 'pharmacy',
+      indent_type: 'consumables',
       status: 'requested',
     });
     expect(indent.items).toHaveLength(2);
@@ -254,6 +271,27 @@ describe('IPD pharmacy ward-indent REST surface', () => {
     expect(closeRes.body.data.workflow.events).toHaveLength(6);
   });
 
+  it('rejects a medication catalog masquerading as consumables without a CPOE order', async () => {
+    const response = await request(app)
+      .post('/api/v1/pharmacy/ward-indents')
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .set('idempotency-key', `ward-indent-medication-bypass-${RUN_SUFFIX}`)
+      .send({
+        ward_id: wardId,
+        indent_type: 'consumables',
+        items: [{
+          pharmacy_catalog_id: medicationCatalogId,
+          item_name: 'Caller supplied medication name',
+          quantity_requested: 1,
+          unit: 'tablet',
+        }],
+      });
+
+    expect(response.statusCode).toBe(409);
+    expect(JSON.stringify(response.body)).toContain('WARD_INDENT_CLINICAL_ORDER_REQUIRED');
+  });
+
   it('rejects an indent with a reason and refuses to issue it afterwards', async () => {
     const createRes = await request(app)
       .post('/api/v1/pharmacy/ward-indents')
@@ -262,7 +300,8 @@ describe('IPD pharmacy ward-indent REST surface', () => {
       .set('idempotency-key', `ward-indent-reject-create-${RUN_SUFFIX}`)
       .send({
         ward_id: wardId,
-        items: [{ item_name: 'Ibuprofen 400mg', quantity_requested: 100 }],
+        indent_type: 'consumables',
+        items: [{ item_name: 'Disposable ward drape', quantity_requested: 100 }],
       });
     expect(createRes.statusCode).toBe(201);
     const indentId = createRes.body.data.id;

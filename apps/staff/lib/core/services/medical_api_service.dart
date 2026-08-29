@@ -9,7 +9,6 @@ import 'package:vhhealth_core/services/idempotency_key.dart';
 import '../models/composition_alternatives.dart';
 import 'api_client.dart';
 import 'clinical_platform_api_service.dart';
-import 'order_payloads.dart';
 
 /// Medical API calls: investigations, consultations, prescriptions, EMR,
 /// health records, vitals, diagnosis, clinical notes, and CDS.
@@ -61,9 +60,14 @@ class MedicalApiService {
 
   static Future<Map<String, dynamic>> _put(
     String path,
-    Map<String, dynamic> body,
-  ) async {
-    final resp = await ApiClient.put(path, body: body);
+    Map<String, dynamic> body, {
+    String? idempotencyKey,
+  }) async {
+    final resp = await ApiClient.put(
+      path,
+      body: body,
+      idempotencyKey: idempotencyKey,
+    );
     return _handle(resp);
   }
 
@@ -812,65 +816,6 @@ class MedicalApiService {
     return _get('/clinical/drug-chart/admission/$admissionId');
   }
 
-  /// POST /emr/orders — doctor-only inpatient medication order. The backend
-  /// schedules MAR rows and creates the pharmacy ward indent as side effects.
-  static Future<Map<String, dynamic>> createInpatientMedicationOrder({
-    required String patientUid,
-    required String? encounterId,
-    required String medicationName,
-    required String dose,
-    required String route,
-    required String frequency,
-    int? durationDays,
-    List<String>? doseTimes,
-    String? foodTiming,
-    String? instructions,
-    int? catalogId,
-    int? originalCatalogId,
-    int? compositionId,
-    String? compositionLabel,
-    String? compositionConfidence,
-    String? genericName,
-    String? strength,
-    String? strengthKey,
-    String? form,
-    String? formKey,
-    String? releaseKey,
-    bool doNotSubstitute = false,
-    String priority = 'routine',
-    DateTime? startDate,
-  }) async {
-    return _post(
-      '/emr/orders',
-      buildInpatientMedicationOrderBody(
-        patientUid: patientUid,
-        encounterId: encounterId,
-        medicationName: medicationName,
-        dose: dose,
-        route: route,
-        frequency: frequency,
-        durationDays: durationDays,
-        doseTimes: doseTimes,
-        foodTiming: foodTiming,
-        instructions: instructions,
-        catalogId: catalogId,
-        originalCatalogId: originalCatalogId,
-        compositionId: compositionId,
-        compositionLabel: compositionLabel,
-        compositionConfidence: compositionConfidence,
-        genericName: genericName,
-        strength: strength,
-        strengthKey: strengthKey,
-        form: form,
-        formKey: formKey,
-        releaseKey: releaseKey,
-        doNotSubstitute: doNotSubstitute,
-        priority: priority,
-        startDate: startDate ?? DateTime.now(),
-      ),
-    );
-  }
-
   /// GET /pharmacy-orders/catalog — shared formulary suggestions for inpatient
   /// and outpatient prescription type-ahead. This intentionally uses the
   /// pharmacy catalog namespace because older deployed backends may route
@@ -1096,8 +1041,11 @@ class MedicalApiService {
   static Future<Map<String, dynamic>> discontinueClinicalOrder({
     required int orderId,
     required String reason,
+    required String idempotencyKey,
   }) async {
-    return _put('/emr/orders/$orderId/discontinue', {'reason': reason});
+    return _put('/emr/orders/$orderId/discontinue', {
+      'reason': reason,
+    }, idempotencyKey: idempotencyKey);
   }
 
   /// POST /clinical/mar/:id/administer — nurse administration without barcode.
@@ -1690,9 +1638,10 @@ class MedicalApiService {
 
   /// POST /emr/orders — create an order (medication, investigation, nursing)
   static Future<Map<String, dynamic>> createEmrOrder(
-    Map<String, dynamic> data,
-  ) async {
-    return _post('/emr/orders', data);
+    Map<String, dynamic> data, {
+    required String idempotencyKey,
+  }) async {
+    return _post('/emr/orders', data, idempotencyKey: idempotencyKey);
   }
 
   /// POST /emr/orders/bulk — create up to 50 orders atomically (one
@@ -1703,6 +1652,7 @@ class MedicalApiService {
   /// message-only Exception.
   static Future<ApiResponse> createEmrOrdersBulkRaw(
     List<Map<String, dynamic>> orders, {
+    required String idempotencyKey,
     String? encounterId,
   }) {
     return ApiClient.post(
@@ -1712,6 +1662,7 @@ class MedicalApiService {
         if (encounterId != null && encounterId.isNotEmpty)
           'encounter_id': encounterId,
       },
+      idempotencyKey: idempotencyKey,
     );
   }
 
@@ -1740,8 +1691,11 @@ class MedicalApiService {
   static Future<Map<String, dynamic>> cancelClinicalOrder({
     required int orderId,
     required String reason,
+    required String idempotencyKey,
   }) async {
-    return _put('/emr/orders/$orderId/cancel', {'reason': reason});
+    return _put('/emr/orders/$orderId/cancel', {
+      'reason': reason,
+    }, idempotencyKey: idempotencyKey);
   }
 
   /// POST /emr/orders/:id/retry-mar-scheduling — replay the exact active
@@ -1810,9 +1764,15 @@ class MedicalApiService {
   }
 
   /// PUT /emr/orders/:id/complete — complete an order
-  static Future<Map<String, dynamic>> completeOrder(int id) async {
-    final resp = await ApiClient.put('/emr/orders/$id/complete', body: {});
-    return _handle(resp);
+  static Future<Map<String, dynamic>> completeOrder(
+    int id, {
+    required String idempotencyKey,
+  }) async {
+    return _put(
+      '/emr/orders/$id/complete',
+      const {},
+      idempotencyKey: idempotencyKey,
+    );
   }
 
   // ─── EMR: Vitals ──────────────────────────────────────────────────────────

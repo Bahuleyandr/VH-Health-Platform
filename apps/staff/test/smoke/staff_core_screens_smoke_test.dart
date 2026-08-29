@@ -464,6 +464,14 @@ void main() {
     await tester.tap(catalogSuggestion);
     await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextField, 'Dose'), '75 mg');
+    await tester.enterText(
+      find.byKey(const Key('drug-chart-supply-quantity')),
+      '14',
+    );
+    await tester.tap(find.byKey(const Key('drug-chart-supply-unit')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('tablet').last);
+    await tester.pumpAndSettle();
     final saveButton = find.widgetWithText(FilledButton, 'Save');
     await _pumpUntilFound(tester, saveButton);
     await tester.ensureVisible(saveButton);
@@ -476,6 +484,8 @@ void main() {
     expect(details?['medication_name'], 'Aspirin');
     expect(details?['dose'], '75 mg');
     expect(details?['catalog_id'], 41);
+    expect(details?['quantity_requested'], 14);
+    expect(details?['unit'], 'tablet');
   });
 
   testWidgets(

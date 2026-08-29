@@ -3,8 +3,10 @@ import { readFileSync } from 'node:fs';
 import { jest } from '@jest/globals';
 
 const consumeMarSupplyTxMock = jest.fn();
+const assertMedicationOrdersExecutionReadyTxMock = jest.fn();
 
 jest.unstable_mockModule('../../services/clinical/marSupplyService.js', () => ({
+  assertMedicationOrdersExecutionReadyTx: assertMedicationOrdersExecutionReadyTxMock,
   consumeMarSupplyTx: consumeMarSupplyTxMock,
 }));
 
@@ -32,6 +34,9 @@ function createTx({
   updateError = null,
 } = {}) {
   const query = jest.fn(async (sql) => {
+    if (sql.includes('SELECT clinical_order_id') && sql.includes('LIMIT 1')) {
+      return [{ clinical_order_id: 91 }];
+    }
     if (sql.includes('FROM medication_administrations') && sql.includes('FOR UPDATE')) {
       return [{
         id: 42,
@@ -43,6 +48,7 @@ function createTx({
         status,
         witness_uid: status === 'administered' ? IDS.checker : null,
         tenant_id: IDS.tenant,
+        clinical_order_id: 91,
       }];
     }
     if (sql.includes('FROM admissions')) {
@@ -95,6 +101,8 @@ function paperInput(overrides = {}) {
 
 describe('shared MAR administration transaction core', () => {
   beforeEach(() => {
+    assertMedicationOrdersExecutionReadyTxMock.mockReset();
+    assertMedicationOrdersExecutionReadyTxMock.mockResolvedValue([{ id: 91 }]);
     consumeMarSupplyTxMock.mockReset();
     consumeMarSupplyTxMock.mockResolvedValue({ status: 'matched', quantity: 1 });
   });

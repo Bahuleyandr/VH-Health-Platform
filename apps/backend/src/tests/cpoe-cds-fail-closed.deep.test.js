@@ -53,25 +53,107 @@ const ORDERER_UID = 'cd5c0000-0000-4000-8000-0000000000c2';
 const VERIFIER_UID = 'cd5c0000-0000-4000-8000-0000000000c3';
 const SECOND_VERIFIER_UID = 'cd5c0000-0000-4000-8000-0000000000c4';
 const NURSE_VERIFIER_UID = 'cd5c0000-0000-4000-8000-0000000000c5';
+const ENCOUNTER_ID = 'cd5c0000-0000-4000-8000-0000000000c6';
+const CATALOG_NAME = 'CDS FailClosed Ceftriaxone 1g';
 const PATIENT_PHONE = `9120${String(Date.now() % 1000000).padStart(6, '0')}`;
 
 let patientId;
+let catalogId;
+let wardId;
+
+const medicationDetails = (overrides = {}) => ({
+  medication_name: CATALOG_NAME,
+  catalog_id: catalogId,
+  quantity_requested: 10,
+  unit: 'vial',
+  dose: '1g',
+  route: 'iv',
+  frequency: 'BD',
+  ...overrides,
+});
 
 async function cleanup() {
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM medication_safety_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid AND source_table = 'clinical_orders'`,
-    PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid AND resource_table = 'clinical_orders'`,
-    PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(`DELETE FROM clinical_orders WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM clinical_order_set_items
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM tasks WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
+      TENANT_ID,
+      PATIENT_UID
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM workflow_sla_instances
+      WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
+      TENANT_ID,
+      PATIENT_UID
+    )
+    .catch(() => {});
+  for (const table of [
+    'ward_indent_events',
+    'ward_indent_inventory_allocations',
+    'ward_indent_items'
+  ]) {
+    await prisma
+      .$executeRawUnsafe(
+        `DELETE FROM ${table}
+        WHERE tenant_id = $1::uuid
+          AND ward_indent_id IN (
+            SELECT id FROM ward_indents
+             WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
+          )`,
+        TENANT_ID,
+        PATIENT_UID
+      )
+      .catch(() => {});
+  }
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM ward_indents
+      WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
+      TENANT_ID,
+      PATIENT_UID
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM medication_safety_reviews WHERE patient_uid = $1::uuid`,
+      PATIENT_UID
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid AND source_table = 'clinical_orders'`,
+      PATIENT_UID
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid AND resource_table = 'clinical_orders'`,
+      PATIENT_UID
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(`DELETE FROM clinical_orders WHERE patient_uid = $1::uuid`, PATIENT_UID)
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, PATIENT_UID)
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM beds WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
+      TENANT_ID,
+      PATIENT_UID
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM wards WHERE tenant_id = $1::uuid AND name = 'CDS FailClosed Ward'`,
+      TENANT_ID
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM clinical_order_set_items
       WHERE order_set_id IN (
         SELECT id FROM clinical_order_sets
          WHERE tenant_id = $1::uuid AND family_key = 'CDS-APPLY-FAIL-CLOSED'
@@ -84,6 +166,11 @@ async function cleanup() {
     TENANT_ID,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM patient_allergies WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM pharmacy_catalog WHERE tenant_id = $1::uuid AND name = $2`,
+    TENANT_ID,
+    CATALOG_NAME,
+  ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid)`,
     PATIENT_UID,
@@ -132,6 +219,66 @@ d('CPOE CDS fail-closed on exception (MEDIUM §4)', () => {
        VALUES ($1::uuid, $2, 'CDS Verification Nurse', 'IP_STAFF_NURSE', true, $3::uuid, NOW())`,
       NURSE_VERIFIER_UID, `${PATIENT_PHONE}4`, TENANT_ID,
     );
+    wardId = Number(
+      (
+        await prisma.$queryRawUnsafe(
+          `INSERT INTO wards (tenant_id, name, total_beds, created_at, updated_at)
+       VALUES ($1::uuid, 'CDS FailClosed Ward', 1, NOW(), NOW())
+       RETURNING id`,
+          TENANT_ID
+        )
+      )[0].id
+    );
+    const bedId = Number(
+      (
+        await prisma.$queryRawUnsafe(
+          `INSERT INTO beds
+         (tenant_id, ward_id, ward_name, bed_number, status, patient_uid,
+          created_at, updated_at)
+       VALUES ($1::uuid, $2::int, 'CDS FailClosed Ward', 'CDS-FC-1',
+               'occupied', $3::uuid, NOW(), NOW())
+       RETURNING id`,
+          TENANT_ID,
+          wardId,
+          PATIENT_UID
+        )
+      )[0].id
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO admissions
+         (tenant_id, patient_uid, encounter_id, admitting_doctor, attending_doctor,
+          bed_id, bed_number, ward, status, admitted_at, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $4::uuid,
+               $5::int, 'CDS-FC-1', 'CDS FailClosed Ward',
+               'admitted', NOW(), NOW())`,
+      TENANT_ID,
+      PATIENT_UID,
+      ENCOUNTER_ID,
+      ORDERER_UID,
+      bedId
+    );
+    const composition = await prisma.$queryRawUnsafe(
+      `INSERT INTO drug_compositions
+         (composition_key, display_label, active_ingredients, source)
+       VALUES ('cds_failclosed_ceftriaxone', 'Ceftriaxone', ARRAY['ceftriaxone']::text[], 'curated')
+       ON CONFLICT (composition_key) DO UPDATE SET display_label = EXCLUDED.display_label
+       RETURNING id`,
+    );
+    const catalog = await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_catalog
+         (tenant_id, name, generic_name, is_active, composition_id,
+          composition_confidence, composition_source, strength, strength_key,
+          strength_components, form, form_key, route, release_key, updated_at)
+       VALUES ($1::uuid, $2, 'ceftriaxone', TRUE, $3::int,
+               'high', 'curated', '1g', '1000mg', $4::jsonb,
+               'vial', 'vial', 'iv', 'ir', NOW())
+       RETURNING id`,
+      TENANT_ID,
+      CATALOG_NAME,
+      Number(composition[0].id),
+      JSON.stringify([{ ingredient: 'ceftriaxone', value: 1000, unit: 'mg' }]),
+    );
+    catalogId = Number(catalog[0].id);
   });
 
   afterAll(async () => {
@@ -152,7 +299,8 @@ d('CPOE CDS fail-closed on exception (MEDIUM §4)', () => {
     await expect(createOrder({
       patient_uid: PATIENT_UID,
       order_type: 'medication',
-      details: { medication_name: 'Amoxicillin', dose: '500mg', route: 'PO' },
+      encounter_id: ENCOUNTER_ID,
+      details: medicationDetails(),
       ordered_by: ORDERER_UID,
       tenantId: TENANT_ID,
     })).rejects.toMatchObject({ code: 'CDS_BLOCKER', statusCode: 400 });
@@ -187,7 +335,8 @@ d('CPOE CDS fail-closed on exception (MEDIUM §4)', () => {
     const result = await createOrder({
       patient_uid: PATIENT_UID,
       order_type: 'medication',
-      details: { medication_name: 'Ceftriaxone', dose: '1g', route: 'IV' },
+      encounter_id: ENCOUNTER_ID,
+      details: medicationDetails(),
       ordered_by: ORDERER_UID,
       tenantId: TENANT_ID,
       override: { reason: 'Manual chart review by attending — patient cleared.' },
@@ -220,14 +369,90 @@ d('CPOE CDS fail-closed on exception (MEDIUM §4)', () => {
 
     await expect(createOrdersBulk([
       { patient_uid: PATIENT_UID, order_type: 'investigation', details: { test_name: 'LFT' } },
-      { patient_uid: PATIENT_UID, order_type: 'medication', details: { medication_name: 'Metformin', dose: '500mg' } },
+      {
+        patient_uid: PATIENT_UID,
+        order_type: 'medication',
+        encounter_id: ENCOUNTER_ID,
+        details: medicationDetails(),
+      },
     ], { ordered_by: ORDERER_UID, tenantId: TENANT_ID })).rejects.toMatchObject({ code: 'CDS_BLOCKER' });
 
     // Atomic: NOT EVEN the valid lab order persisted.
     expect(await orderCount()).toBe(before);
   });
 
-  test('applyOrderSet reports the CDS blocker and does not create the medication order', async () => {
+  test('concurrent medication creates serialize CDS before either write can screen stale state', async () => {
+    safetyControl.throwError = null;
+    await prisma.$executeRawUnsafe(
+      `UPDATE clinical_orders
+          SET status = 'cancelled', updated_at = NOW()
+        WHERE tenant_id = $1::uuid
+          AND patient_uid = $2::uuid
+          AND order_type = 'medication'`,
+      TENANT_ID,
+      PATIENT_UID,
+    );
+
+    const results = await Promise.all([
+      createOrder({
+        patient_uid: PATIENT_UID,
+        order_type: 'medication',
+        encounter_id: ENCOUNTER_ID,
+        details: medicationDetails(),
+        ordered_by: ORDERER_UID,
+        tenantId: TENANT_ID,
+      }),
+      createOrder({
+        patient_uid: PATIENT_UID,
+        order_type: 'medication',
+        encounter_id: ENCOUNTER_ID,
+        details: medicationDetails(),
+        ordered_by: ORDERER_UID,
+        tenantId: TENANT_ID,
+      }),
+    ]);
+    const duplicateWarnings = results.map((result) => result.cds_warnings.filter(
+      (warning) => warning?.type === 'DUPLICATE_INPATIENT_MEDICATION',
+    ).length);
+    expect(duplicateWarnings.sort()).toEqual([0, 1]);
+  });
+
+  test('bulk CDS sees earlier medication writes in the same atomic batch', async () => {
+    safetyControl.throwError = null;
+    await prisma.$executeRawUnsafe(
+      `UPDATE clinical_orders
+          SET status = 'cancelled', updated_at = NOW()
+        WHERE tenant_id = $1::uuid
+          AND patient_uid = $2::uuid
+          AND order_type = 'medication'`,
+      TENANT_ID,
+      PATIENT_UID,
+    );
+
+    const results = await createOrdersBulk([
+      {
+        patient_uid: PATIENT_UID,
+        order_type: 'medication',
+        encounter_id: ENCOUNTER_ID,
+        details: medicationDetails({ frequency: 'OD' }),
+      },
+      {
+        patient_uid: PATIENT_UID,
+        order_type: 'medication',
+        encounter_id: ENCOUNTER_ID,
+        details: medicationDetails({ frequency: 'TDS' }),
+      },
+    ], { ordered_by: ORDERER_UID, tenantId: TENANT_ID });
+
+    expect(results[0].cds_warnings.some(
+      (warning) => warning?.type === 'DUPLICATE_INPATIENT_MEDICATION',
+    )).toBe(false);
+    expect(results[1].cds_warnings.some(
+      (warning) => warning?.type === 'DUPLICATE_INPATIENT_MEDICATION',
+    )).toBe(true);
+  });
+
+  test('applyOrderSet rejects atomically on a CDS blocker and creates no order', async () => {
     const before = await orderCount();
     const created = await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_order_sets
@@ -243,22 +468,19 @@ d('CPOE CDS fail-closed on exception (MEDIUM §4)', () => {
     await prisma.$executeRawUnsafe(
       `INSERT INTO clinical_order_set_items
          (tenant_id, order_set_id, display_order, kind, payload, default_selected)
-       VALUES ($1::uuid, $2::int, 1, 'med', $3::jsonb, TRUE)`,
+       VALUES
+         ($1::uuid, $2::int, 1, 'lab', $3::jsonb, TRUE),
+         ($1::uuid, $2::int, 2, 'med', $4::jsonb, TRUE)`,
       TENANT_ID,
       Number(created[0].id),
-      JSON.stringify({ medication_name: 'Metformin', dose: '500mg', route: 'PO' }),
+      JSON.stringify({ test_name: 'Atomic rollback CBC', priority: 'routine' }),
+      JSON.stringify(medicationDetails())
     );
     safetyControl.throwError = new Error('simulated safety-screen DB fault');
 
-    const result = await applyOrderSet(PATIENT_UID, null, created[0].id, ORDERER_UID, TENANT_ID);
-
-    expect(result).toEqual([
-      expect.objectContaining({
-        kind: 'med',
-        code: 'CDS_BLOCKER',
-        error: 'Order template could not be applied',
-      }),
-    ]);
+    await expect(
+      applyOrderSet(PATIENT_UID, ENCOUNTER_ID, created[0].id, ORDERER_UID, TENANT_ID)
+    ).rejects.toMatchObject({ code: 'CDS_BLOCKER', statusCode: 400 });
     expect(await orderCount()).toBe(before);
     expect(validatePrescriptionSafetySpy).toHaveBeenCalledTimes(1);
   });
@@ -266,7 +488,7 @@ d('CPOE CDS fail-closed on exception (MEDIUM §4)', () => {
   test('drug-KB source cutover leaves CPOE safety-screen inputs unchanged', async () => {
     safetyControl.throwError = null;
     validatePrescriptionSafetySpy.mockClear();
-    const details = { medication_name: 'Metformin', dose: '500mg', route: 'PO', frequency: 'BD' };
+    const details = medicationDetails();
 
     try {
       await prisma.$executeRawUnsafe(
@@ -279,6 +501,7 @@ d('CPOE CDS fail-closed on exception (MEDIUM §4)', () => {
       await createOrder({
         patient_uid: PATIENT_UID,
         order_type: 'medication',
+        encounter_id: ENCOUNTER_ID,
         details,
         ordered_by: ORDERER_UID,
         tenantId: TENANT_ID,
@@ -295,6 +518,7 @@ d('CPOE CDS fail-closed on exception (MEDIUM §4)', () => {
       await createOrder({
         patient_uid: PATIENT_UID,
         order_type: 'medication',
+        encounter_id: ENCOUNTER_ID,
         details,
         ordered_by: ORDERER_UID,
         tenantId: TENANT_ID,
@@ -318,7 +542,8 @@ d('CPOE CDS fail-closed on exception (MEDIUM §4)', () => {
     const created = await createOrder({
       patient_uid: PATIENT_UID,
       order_type: 'medication',
-      details: { medication_name: 'Metformin', dose: '500mg', route: 'PO', frequency: 'BD' },
+      encounter_id: ENCOUNTER_ID,
+      details: medicationDetails(),
       ordered_by: ORDERER_UID,
       tenantId: TENANT_ID,
     });
@@ -408,14 +633,16 @@ d('CPOE CDS fail-closed on exception (MEDIUM §4)', () => {
     const first = await createOrder({
       patient_uid: PATIENT_UID,
       order_type: 'medication',
-      details: { medication_name: 'Paracetamol', dose: '500mg', route: 'PO', frequency: 'TDS' },
+      encounter_id: ENCOUNTER_ID,
+      details: medicationDetails({ frequency: 'TDS' }),
       ordered_by: ORDERER_UID,
       tenantId: TENANT_ID,
     });
     const second = await createOrder({
       patient_uid: PATIENT_UID,
       order_type: 'medication',
-      details: { medication_name: 'Pantoprazole', dose: '40mg', route: 'PO', frequency: 'OD' },
+      encounter_id: ENCOUNTER_ID,
+      details: medicationDetails({ frequency: 'OD' }),
       ordered_by: ORDERER_UID,
       tenantId: TENANT_ID,
     });
@@ -445,6 +672,47 @@ d('CPOE CDS fail-closed on exception (MEDIUM §4)', () => {
       verified_by: null,
       verified_at: null,
     });
+  });
+
+  test('serialized verification rechecks active authority before exact receipt replay', async () => {
+    const created = await createOrder({
+      patient_uid: PATIENT_UID,
+      order_type: 'medication',
+      encounter_id: ENCOUNTER_ID,
+      details: medicationDetails({ frequency: 'QID' }),
+      ordered_by: ORDERER_UID,
+      tenantId: TENANT_ID
+    });
+    const orderId = Number(created.order.id);
+    const options = {
+      tenantId: TENANT_ID,
+      actorRole: 'PHARMACY_STAFF',
+      idempotencyKey: `cpoe-verify-active-replay:${orderId}`
+    };
+    const first = await verifyOrder(orderId, VERIFIER_UID, options);
+    expect(first.status).toBe('verified');
+
+    await prisma.users.update({
+      where: { uid: VERIFIER_UID },
+      data: { is_active: false }
+    });
+    try {
+      await expect(verifyOrder(orderId, VERIFIER_UID, options)).rejects.toMatchObject({
+        statusCode: 403,
+        code: 'CLINICAL_ORDER_VERIFY_ACTIVE_ACTOR_REQUIRED'
+      });
+    } finally {
+      await prisma.users.update({
+        where: { uid: VERIFIER_UID },
+        data: { is_active: true, role: 'PHARMACY_STAFF' }
+      });
+    }
+    expect(
+      await prisma.clinical_orders.findUnique({
+        where: { id: orderId },
+        select: { status: true, verified_by: true }
+      })
+    ).toMatchObject({ status: 'verified', verified_by: VERIFIER_UID });
   });
 
   test('pharmacy cannot verify non-medication orders while inpatient nursing can', async () => {

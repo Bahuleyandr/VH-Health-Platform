@@ -9,9 +9,9 @@
 //   2. (B-M4) /api/v1/ipd operations carry per-route requireRole guards:
 //      refund payout is finance/cashier-only, ward-indent issue is
 //      pharmacy-only, pass revoke is admission/ward-leadership-only.
-//   3. (B-M5) issuing a patient-linked ward indent writes exactly one
-//      clinical_timeline_events row + one clinical_audit_events row in the
-//      same transaction as the clinical_orders 'verified' flip.
+//   3. (B-M5) issuing a patient-linked ward indent requires durable order
+//      verification evidence, then writes exactly one clinical timeline row
+//      and one clinical audit row without mutating the clinical-order state.
 
 import { randomUUID } from 'crypto';
 import request from 'supertest';
@@ -22,6 +22,7 @@ const d = DB_CONFIGURED ? describe : describe.skip;
 const app = (await import('../app.js')).default;
 const prisma = (await import('../lib/prisma.js')).default;
 const ipdSupportService = (await import('../services/ipd/ipdSupportService.js')).default;
+const { verifyOrder } = await import('../services/emr/orderEntryService.js');
 const { dispenseControlled } = await import('../services/pharmacy/inventoryV2Service.js');
 const { API_KEY, generateTestToken } = await import('./testClient.js');
 const { deleteWithAuditBypass } = await import('./helpers/auditBypass.js');
@@ -42,6 +43,7 @@ const CATALOG_NAME_PREFIX = `BM-CATALOG-${SUFFIX}`;
 
 let wardId;
 let admissionId;
+let encounterId;
 let gauzeCatalog;
 let ceftriaxoneCatalog;
 let bedsheetCatalog;
@@ -86,9 +88,15 @@ async function seedClassifiedCatalog({
   withBatch = false,
 }) {
   const catalogRows = await prisma.$queryRawUnsafe(
-    `INSERT INTO pharmacy_catalog (name, is_active, tenant_id, stock_quantity, updated_at)
-     VALUES ($1, TRUE, $2::uuid, 100, NOW()) RETURNING id`,
-    name, TENANT,
+    `INSERT INTO pharmacy_catalog
+       (name, category, requires_prescription, is_active, tenant_id,
+        stock_quantity, updated_at)
+     VALUES ($1, $3::text, $4::boolean, TRUE, $2::uuid, 100, NOW())
+     RETURNING id`,
+    name,
+    TENANT,
+    scheduleClass ? 'medication' : 'ward_supply',
+    Boolean(scheduleClass),
   );
   const catalogId = Number(catalogRows[0].id);
   const inventoryRows = await prisma.$queryRawUnsafe(
@@ -256,6 +264,10 @@ async function cleanup() {
     `DELETE FROM admissions WHERE patient_uid = $1::uuid`, PATIENT_UID,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
+    `DELETE FROM beds WHERE tenant_id = $1::uuid AND ward_name = $2::text`,
+    TENANT, WARD_NAME,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
     `DELETE FROM wards WHERE name = $1`, WARD_NAME,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
@@ -300,11 +312,34 @@ d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonica
     );
     wardId = wardRows[0].id;
 
-    const admissionRows = await prisma.$queryRawUnsafe(
-      `INSERT INTO admissions (tenant_id, patient_uid, status, ward, admitted_at, updated_at)
-       VALUES ($1::uuid, $2::uuid, 'admitted', $3, NOW(), NOW())
+    encounterId = randomUUID();
+    const bedRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO beds
+         (tenant_id, ward_id, ward_name, bed_number, status, patient_uid,
+          created_at, updated_at)
+       VALUES ($1::uuid, $2::int, $3::text, $4::text, 'occupied', $5::uuid,
+               NOW(), NOW())
        RETURNING id`,
-      TENANT, PATIENT_UID, WARD_NAME,
+      TENANT,
+      Number(wardId),
+      WARD_NAME,
+      `BM-BED-${SUFFIX}`,
+      PATIENT_UID,
+    );
+
+    const admissionRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO admissions
+         (tenant_id, patient_uid, encounter_id, bed_id, bed_number, status,
+          ward, admitted_at, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::int, $5::text,
+               'admitted', $6::text, NOW(), NOW())
+       RETURNING id`,
+      TENANT,
+      PATIENT_UID,
+      encounterId,
+      Number(bedRows[0].id),
+      `BM-BED-${SUFFIX}`,
+      WARD_NAME,
     );
     admissionId = admissionRows[0].id;
 
@@ -441,7 +476,7 @@ d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonica
   it('ward-indent issue: RECEPTIONIST and IP_STAFF_NURSE get 403; PHARMACY_STAFF passes', async () => {
     const indent = await ipdSupportService.createWardIndent({
       wardId,
-      indentType: 'pharmacy',
+      indentType: 'consumables',
       items: [{
         item_name: 'Gauze roll',
         quantity_requested: 5,
@@ -506,20 +541,31 @@ d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonica
 
   // ── B-M5: ward-indent issue writes canonical timeline + audit rows ────────
 
-  it('issuing a patient-linked indent flips clinical_orders to verified AND writes one timeline + one audit row', async () => {
+  it('requires preverified clinical-order evidence and writes one ward-issue timeline + audit row', async () => {
     const orderRows = await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_orders
          (order_number, encounter_id, patient_uid, order_type, status, ordered_by, details, tenant_id)
-       VALUES ($1, NULL, $2::uuid, 'medication', 'ordered', $3::uuid,
-               '{"medication_name":"Ceftriaxone 1g"}'::jsonb, $4::uuid)
+       VALUES ($1, $2::uuid, $3::uuid, 'medication', 'ordered', $4::uuid,
+               jsonb_build_object(
+                 'medication_name', 'Ceftriaxone 1g',
+                 'catalog_id', $5::int,
+                 'quantity_requested', 2,
+                 'unit', 'vial'
+               ), $6::uuid)
        RETURNING id`,
-      `ORD-BM5-${SUFFIX}`, PATIENT_UID, NURSE_UID, TENANT,
+      `ORD-BM5-${SUFFIX}`,
+      encounterId,
+      PATIENT_UID,
+      NURSE_UID,
+      ceftriaxoneCatalog.catalogId,
+      TENANT,
     );
     const clinicalOrderId = orderRows[0].id;
 
     const indent = await ipdSupportService.createWardIndent({
       wardId,
       admissionId,
+      encounterId,
       patientUid: PATIENT_UID,
       indentType: 'pharmacy',
       items: [{
@@ -568,6 +614,42 @@ d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonica
       }],
       commandKey: `bm5-patient-handoff-${SUFFIX}`,
       tenantId: TENANT,
+    });
+    await expect(ipdSupportService.issueWardIndent({
+      indentId: indent.id,
+      issuedBy: PHARMACY_UID,
+      commandKey: `bm5-patient-premature-issue-${SUFFIX}`,
+      tenantId: TENANT,
+    })).rejects.toMatchObject({
+      code: 'MEDICATION_ORDER_VERIFICATION_REQUIRED',
+      statusCode: 409,
+    });
+    const preVerificationEffects = (await prisma.$queryRawUnsafe(
+      `SELECT
+         (SELECT COUNT(*)::int
+            FROM ward_indent_inventory_movement_links movement_link
+            JOIN ward_indent_inventory_allocations allocation
+              ON allocation.tenant_id = movement_link.tenant_id
+             AND allocation.id = movement_link.allocation_id
+           WHERE allocation.tenant_id = $1::uuid
+             AND allocation.ward_indent_id = $2::int
+             AND movement_link.movement_purpose = 'issue') AS issue_movements,
+         (SELECT COUNT(*)::int
+            FROM billing_invoice_items invoice_item
+            JOIN ward_indent_items indent_item
+              ON indent_item.tenant_id = invoice_item.tenant_id
+             AND indent_item.id = invoice_item.source_ref_id
+           WHERE invoice_item.tenant_id = $1::uuid
+             AND invoice_item.source_ref_type = 'ward_indent_item'
+             AND indent_item.ward_indent_id = $2::int) AS billing_lines`,
+      TENANT,
+      Number(indent.id),
+    ))[0];
+    expect(preVerificationEffects).toEqual({ issue_movements: 0, billing_lines: 0 });
+    await verifyOrder(clinicalOrderId, PHARMACY_UID, {
+      tenantId: TENANT,
+      actorRole: 'PHARMACY_INCHARGE',
+      idempotencyKey: `bm5-patient-verify-${SUFFIX}`,
     });
     const issued = await ipdSupportService.issueWardIndent({
       indentId: indent.id,

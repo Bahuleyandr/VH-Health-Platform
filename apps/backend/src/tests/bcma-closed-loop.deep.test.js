@@ -37,7 +37,7 @@
 // dropped.
 
 import request from 'supertest';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { jest } from '@jest/globals';
 import app from '../app.js';
 import prisma, { setTenantTx } from '../lib/prisma.js';
@@ -46,6 +46,7 @@ import { __resetDrugKbCache } from '../services/clinical/drugKnowledgeBaseServic
 import { renderWristbandAllergyStrip } from '../routes/clinical/bcmaRoutes.js';
 import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
 import { reconcileMarSupplyOverride } from '../services/clinical/marSupplyService.js';
+import { verifyOrder } from '../services/emr/orderEntryService.js';
 import {
   approveWardIndent,
   createWardIndent,
@@ -466,6 +467,16 @@ async function cleanup() {
       DEFAULT_TENANT_ID,
     ).catch(() => {});
     await tx.$executeRawUnsafe(
+      `DELETE FROM admissions
+        WHERE tenant_id = $1::uuid AND ward LIKE 'B1TEST MAR Ward%'`,
+      DEFAULT_TENANT_ID,
+    ).catch(() => {});
+    await tx.$executeRawUnsafe(
+      `DELETE FROM beds
+        WHERE tenant_id = $1::uuid AND ward_name LIKE 'B1TEST MAR Ward%'`,
+      DEFAULT_TENANT_ID,
+    ).catch(() => {});
+    await tx.$executeRawUnsafe(
       `DELETE FROM wards
         WHERE tenant_id = $1::uuid AND name LIKE 'B1TEST MAR Ward%'`,
       DEFAULT_TENANT_ID,
@@ -657,17 +668,6 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
       PHARMACIST_UID,
     ));
 
-    // Active admission — gives the MAR access guard an admission-context
-    // care relationship for this patient (BCMA is an inpatient loop).
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO admissions
-         (patient_uid, allergies, status, admitted_at, ward, bed_number,
-          created_by, attending_doctor, created_at, updated_at)
-       VALUES ($1::uuid, '{}', 'admitted', NOW(), 'B1TEST Ward', 'B1T-01',
-               $2::uuid, $3::uuid, NOW(), NOW())`,
-      patientUid, NURSE_UID, DOCTOR_UID,
-    );
-
     const catalog = (await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_catalog
          (tenant_id, name, strength, strength_key, form, form_key, route,
@@ -729,31 +729,73 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
       `B1TEST MAR Ward ${RUN}`,
       facilityId,
     ))[0];
+    const encounterId = randomUUID();
+    const bedNumber = `B1-MAR-${RUN}`.slice(0, 50);
+    const bed = (await prisma.$queryRawUnsafe(
+      `INSERT INTO beds
+         (tenant_id, ward_id, ward_name, bed_number, status, patient_uid,
+          created_at, updated_at)
+       VALUES ($1::uuid, $2::int, $3::text, $4::text, 'occupied', $5::uuid,
+               NOW(), NOW())
+       RETURNING id`,
+      DEFAULT_TENANT_ID,
+      Number(ward.id),
+      `B1TEST MAR Ward ${RUN}`,
+      bedNumber,
+      patientUid,
+    ))[0];
+    const admission = (await prisma.$queryRawUnsafe(
+      `INSERT INTO admissions
+         (tenant_id, patient_uid, encounter_id, allergies, status, admitted_at,
+          ward, bed_id, bed_number, created_by, attending_doctor, created_at, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, '{}', 'admitted', NOW(),
+               $4::text, $5::int, $6::text, $7::uuid, $8::uuid, NOW(), NOW())
+       RETURNING id`,
+      DEFAULT_TENANT_ID,
+      patientUid,
+      encounterId,
+      `B1TEST MAR Ward ${RUN}`,
+      Number(bed.id),
+      bedNumber,
+      NURSE_UID,
+      DOCTOR_UID,
+    ))[0];
     const order = (await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_orders
-         (tenant_id, order_number, patient_uid, order_type, status, ordered_by,
-          route, details, updated_at)
-       VALUES ($1::uuid, $2::text, $3::uuid, 'medication', 'ordered', $4::uuid,
+         (tenant_id, order_number, patient_uid, encounter_id, order_type, status,
+          ordered_by, route, details, updated_at)
+       VALUES ($1::uuid, $2::text, $3::uuid, $4::uuid,
+               'medication', 'ordered', $5::uuid,
                'oral', jsonb_build_object(
-                 'catalog_id', $5::int,
+                 'catalog_id', $6::int,
                  'medication_name', 'B1TEST Paracetamol 500mg',
                  'dose', '500mg',
                  'route', 'oral',
                  'strength', '500 mg',
                  'strength_key', '500mg',
                  'form', 'tablet',
-                 'form_key', 'tablet'
+                 'form_key', 'tablet',
+                 'quantity_requested', 20,
+                 'unit', 'tablet'
                ), NOW())
        RETURNING id`,
       DEFAULT_TENANT_ID,
       `B1-MAR-ORDER-${RUN}`,
       patientUid,
+      encounterId,
       DOCTOR_UID,
       Number(catalog.id),
     ))[0];
     clinicalOrderId = Number(order.id);
+    await verifyOrder(clinicalOrderId, PHARMACIST_UID, {
+      tenantId: DEFAULT_TENANT_ID,
+      actorRole: 'PHARMACY_INCHARGE',
+      idempotencyKey: `b1-mar-verify-${RUN}`,
+    });
     const indent = await createWardIndent({
       wardId: Number(ward.id),
+      admissionId: Number(admission.id),
+      encounterId,
       patientUid,
       indentType: 'pharmacy',
       items: [{

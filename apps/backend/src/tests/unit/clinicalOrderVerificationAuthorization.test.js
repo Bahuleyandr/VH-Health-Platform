@@ -103,6 +103,7 @@ describe('clinical-order verification authorization', () => {
       roleFence: 'requireMedicationOrderWriteRoleForBody',
       authorityFence: null,
       patientFence: '__patientGuard',
+      deviceFence: 'enforceStaffClinicalWriteDevicePosture',
     },
     {
       path: '/orders/apply-set',
@@ -111,6 +112,7 @@ describe('clinical-order verification authorization', () => {
       roleFence: 'requireMedicationOrderWriteRole',
       authorityFence: null,
       patientFence: '__patientGuard',
+      deviceFence: 'enforceStaffClinicalWriteDevicePosture',
     },
     {
       path: '/orders/bulk',
@@ -119,6 +121,7 @@ describe('clinical-order verification authorization', () => {
       roleFence: 'requireMedicationOrderWriteRoleForBulk',
       authorityFence: 'guardBulkOrderPatients',
       patientFence: null,
+      deviceFence: 'enforceStaffClinicalWriteDevicePosture',
     },
     {
       path: '/orders/:id/retry-mar-scheduling',
@@ -127,6 +130,7 @@ describe('clinical-order verification authorization', () => {
       roleFence: 'requireMedicationOrderWriteRole',
       authorityFence: 'requireMedicationOrderMarRecoveryAuthority',
       patientFence: '__patientGuard',
+      deviceFence: 'enforceStaffClinicalWriteDevicePosture',
     },
     {
       path: '/orders/:id/verify',
@@ -135,20 +139,38 @@ describe('clinical-order verification authorization', () => {
       roleFence: 'requireMedicationOrderVerificationRole',
       authorityFence: 'requireClinicalOrderVerificationAuthority',
       patientFence: '__patientGuard',
+      deviceFence: 'enforceStaffClinicalWriteDevicePosture',
     },
+    ...['complete', 'cancel', 'discontinue'].map((action) => ({
+      path: `/orders/:id/${action}`,
+      method: 'put',
+      scope: 'clinical_order_terminal',
+      roleFence: null,
+      authorityFence: 'requireClinicalOrderTerminalAuthority',
+      patientFence: '__patientGuard',
+      deviceFence: 'rejectMobileClinicalWrite',
+    })),
   ])(
     '$method $path rechecks device, role, and patient/order authority before replay',
-    ({ path: routePath, method, scope, roleFence, authorityFence, patientFence }) => {
+    ({
+      path: routePath,
+      method,
+      scope,
+      roleFence,
+      authorityFence,
+      patientFence,
+      deviceFence,
+    }) => {
       const layer = route(routePath, method);
       const idempotencyIndex = layer.route.stack.findIndex(
         (entry) => entry.handle?.__idempotency?.scope === scope,
       );
       const deviceIndex = layer.route.stack.findIndex(
-        (entry) => entry.handle?.name === 'enforceStaffClinicalWriteDevicePosture',
+        (entry) => entry.handle?.name === deviceFence,
       );
-      const roleIndex = layer.route.stack.findIndex(
-        (entry) => entry.handle?.name === roleFence,
-      );
+      const roleIndex = roleFence
+        ? layer.route.stack.findIndex((entry) => entry.handle?.name === roleFence)
+        : -1;
       const authorityIndex = authorityFence
         ? layer.route.stack.findIndex((entry) => entry.handle?.name === authorityFence)
         : -1;
@@ -157,10 +179,15 @@ describe('clinical-order verification authorization', () => {
         : -1;
 
       expect(idempotencyIndex).toBeGreaterThanOrEqual(0);
+      expect(
+        layer.route.stack[idempotencyIndex].handle.__idempotency.required,
+      ).toBe(true);
       expect(deviceIndex).toBeGreaterThanOrEqual(0);
-      expect(roleIndex).toBeGreaterThanOrEqual(0);
       expect(idempotencyIndex).toBeGreaterThan(deviceIndex);
-      expect(idempotencyIndex).toBeGreaterThan(roleIndex);
+      if (roleFence) {
+        expect(roleIndex).toBeGreaterThanOrEqual(0);
+        expect(idempotencyIndex).toBeGreaterThan(roleIndex);
+      }
       if (authorityFence) {
         expect(authorityIndex).toBeGreaterThanOrEqual(0);
         expect(idempotencyIndex).toBeGreaterThan(authorityIndex);
@@ -214,6 +241,36 @@ describe('clinical-order verification authorization', () => {
     expect(res.body).toMatchObject({ code: 'PATIENT_RELATIONSHIP_REQUIRED' });
     expect(idempotencyInvocations).toBe(0);
   });
+
+  test.each(['complete', 'cancel', 'discontinue'])(
+    'revoked patient authority stops %s before terminal receipt replay',
+    (action) => {
+      const layer = route(`/orders/:id/${action}`, 'put');
+      const guard = layer.route.stack.find((entry) => entry.handle?.__patientGuard).handle;
+      const idempotency = layer.route.stack.find((entry) => (
+        entry.handle?.__idempotency?.scope === 'clinical_order_terminal'
+      )).handle;
+      const res = {
+        statusCode: 200,
+        body: null,
+        status(code) {
+          this.statusCode = code;
+          return this;
+        },
+        json(body) {
+          this.body = body;
+          return this;
+        },
+      };
+      denyPatientGuard = true;
+
+      guard({}, res, () => idempotency({}, res, jest.fn()));
+
+      expect(res.statusCode).toBe(403);
+      expect(res.body).toMatchObject({ code: 'PATIENT_RELATIONSHIP_REQUIRED' });
+      expect(idempotencyInvocations).toBe(0);
+    },
+  );
 
   test('uses a dedicated role, capability, relationship, and required-command fence', () => {
     const layer = route(path, 'put');

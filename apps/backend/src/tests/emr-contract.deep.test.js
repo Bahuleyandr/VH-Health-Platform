@@ -26,6 +26,8 @@ const ADMIN_UID = 'e3000002-0003-4e30-8e30-e30000020003';
 const NURSE_UID = 'e3000002-0004-4e30-8e30-e30000020004';
 const PHARMACIST_UID = 'e3000002-0005-4e30-8e30-e30000020005';
 const ICU_INCHARGE_UID = 'e3000002-0006-4e30-8e30-e30000020006';
+const MEDICATION_CATALOG_NAME = `EMRC Paracetamol ${process.pid}`;
+const MEDICATION_COMPOSITION_KEY = `emrc_paracetamol_${process.pid}`;
 
 function client(role, claims) {
   const t = generateTestToken(role, claims);
@@ -63,12 +65,25 @@ function check(res, status, schema) {
 
 async function clean() {
   for (const sql of [
+    `DELETE FROM task_comments WHERE task_id IN
+       (SELECT id FROM tasks WHERE patient_uid = $1::uuid)`,
+    `DELETE FROM notification_outbox WHERE tenant_id = '${TENANT_ID}'::uuid
+       AND payload->>'patient_uid' = $1::text`,
+    `DELETE FROM tasks WHERE patient_uid = $1::uuid`,
+    `DELETE FROM workflow_sla_instances WHERE patient_uid = $1::uuid`,
     `DELETE FROM medication_administrations WHERE patient_uid = $1::uuid`,
     `DELETE FROM intake_output WHERE patient_uid = $1::uuid`,
     `DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`,
     `DELETE FROM news2_scores WHERE patient_uid = $1::uuid`,
     `DELETE FROM clinical_notes WHERE patient_uid = $1::uuid`,
     `DELETE FROM diagnoses WHERE patient_uid = $1::uuid`,
+    `DELETE FROM ward_indent_financial_events WHERE ward_indent_id IN
+       (SELECT id FROM ward_indents WHERE patient_uid = $1::uuid)`,
+    `DELETE FROM ward_indent_events WHERE ward_indent_id IN
+       (SELECT id FROM ward_indents WHERE patient_uid = $1::uuid)`,
+    `DELETE FROM ward_indent_items WHERE ward_indent_id IN
+       (SELECT id FROM ward_indents WHERE patient_uid = $1::uuid)`,
+    `DELETE FROM ward_indents WHERE patient_uid = $1::uuid`,
     `DELETE FROM clinical_orders WHERE patient_uid = $1::uuid`,
     `DELETE FROM investigation_files WHERE investigation_id IN
        (SELECT id FROM investigations WHERE patient_uid = $1::uuid)`,
@@ -80,6 +95,15 @@ async function clean() {
   ]) await prisma.$executeRawUnsafe(sql, PATIENT_UID).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number = 'EMRC-BED-1'`).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM wards WHERE name = 'EMRC-WARD'`).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM pharmacy_catalog WHERE tenant_id = $1::uuid AND name = $2::text`,
+    TENANT_ID,
+    MEDICATION_CATALOG_NAME,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM drug_compositions WHERE composition_key = $1`,
+    MEDICATION_COMPOSITION_KEY,
+  ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM users WHERE uid IN ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::uuid,$6::uuid)`,
     PATIENT_UID, DOCTOR_UID, ADMIN_UID, NURSE_UID, PHARMACIST_UID, ICU_INCHARGE_UID,
@@ -103,7 +127,7 @@ async function enablePatientRecordSummaryModule() {
 }
 
 describe('EMR contract — clinical lifecycle (live assertResponse)', () => {
-  let admissionId; let encounterId; let bedId; let noteId; let dxId; let orderId;
+  let admissionId; let encounterId; let bedId; let noteId; let dxId; let orderId; let catalogId;
 
   beforeAll(async () => {
     await clean();
@@ -125,7 +149,30 @@ describe('EMR contract — clinical lifecycle (live assertResponse)', () => {
     const b = await prisma.$queryRawUnsafe(
       `INSERT INTO beds (ward_id, ward_name, bed_number, status) VALUES ($1,'EMRC-WARD','EMRC-BED-1','available') RETURNING id`,
       w[0].id);
+    const compositionId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO drug_compositions
+         (composition_key, display_label, active_ingredients, source)
+       VALUES ($1, 'Paracetamol', ARRAY['paracetamol']::text[], 'curated')
+       RETURNING id`,
+      MEDICATION_COMPOSITION_KEY,
+    ))[0].id);
     bedId = b[0].id;
+    catalogId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_catalog
+         (tenant_id, name, category, requires_prescription, is_active,
+          stock_quantity, unit_price, price, generic_name, composition_id,
+          composition_confidence, composition_source, strength, strength_key,
+          strength_components, form, form_key, route, release_key, updated_at)
+       VALUES ($1::uuid, $2::text, 'medication', TRUE, TRUE,
+               100, 2.50, 2.50, 'paracetamol', $3::int,
+               'high', 'curated', '500 mg', '500mg', $4::jsonb,
+               'tablet', 'tablet', 'oral', 'ir', NOW())
+       RETURNING id`,
+      TENANT_ID,
+      MEDICATION_CATALOG_NAME,
+      compositionId,
+      JSON.stringify([{ ingredient: 'paracetamol', value: 500, unit: 'mg' }]),
+    ))[0].id);
   }, 60000);
 
   afterAll(async () => { await clean(); await prisma.$disconnect().catch(() => {}); }, 60000);
@@ -238,7 +285,9 @@ describe('EMR contract — clinical lifecycle (live assertResponse)', () => {
     check(await N.put(`/api/v1/emr/orders/${orderId}/verify`)
       .set('Idempotency-Key', `emr-contract-order-verify-${orderId}`)
       .send({}), 200, 'EmrClinicalOrderResponse');
-    check(await A.put(`/api/v1/emr/orders/${orderId}/complete`).send({}), 200, 'EmrClinicalOrderResponse');
+    check(await A.put(`/api/v1/emr/orders/${orderId}/complete`)
+      .set('Idempotency-Key', `emr-contract-order-complete-${orderId}`)
+      .send({}), 200, 'EmrClinicalOrderResponse');
 
     const medication = await D.post('/api/v1/emr/orders')
       .set('Idempotency-Key', `emr-contract-medication-${Date.now()}`)
@@ -247,7 +296,15 @@ describe('EMR contract — clinical lifecycle (live assertResponse)', () => {
         encounter_id: encounterId,
         order_type: 'medication',
         priority: 'routine',
-        details: { medication_name: 'Paracetamol', dose: '500mg', route: 'PO', frequency: 'TDS' },
+        details: {
+          medication_name: MEDICATION_CATALOG_NAME,
+          dose: '500mg',
+          route: 'oral',
+          frequency: 'TDS',
+          catalog_id: catalogId,
+          quantity_requested: 6,
+          unit: 'tablet',
+        },
       });
     check(medication, 201, 'EmrClinicalOrderCreateResponse');
     const medicationOrderId = medication.body.data.order?.id ?? medication.body.data.id;

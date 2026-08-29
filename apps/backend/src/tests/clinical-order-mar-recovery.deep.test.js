@@ -242,6 +242,39 @@ d('MED-03 clinical-order MAR recovery', () => {
     expect(rows).toHaveLength(0);
   });
 
+  test('serialized recovery rechecks active doctor authority before touching MAR', async () => {
+    await prisma.users.update({
+      where: { uid: DOCTOR_UID },
+      data: { is_active: false }
+    });
+    try {
+      await expect(
+        retryMedicationOrderMarScheduling({
+          tenantId: TENANT,
+          orderId: invalidOrderId,
+          actorUid: DOCTOR_UID,
+          actorRole: 'DOCTOR'
+        })
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        code: 'MAR_RECOVERY_ACTIVE_PRESCRIBER_REQUIRED'
+      });
+    } finally {
+      await prisma.users.update({
+        where: { uid: DOCTOR_UID },
+        data: { is_active: true, role: 'DOCTOR' }
+      });
+    }
+    expect(
+      await prisma.$queryRawUnsafe(
+        `SELECT id FROM medication_administrations
+        WHERE tenant_id = $1::uuid AND clinical_order_id = $2::int`,
+        TENANT,
+        invalidOrderId
+      )
+    ).toHaveLength(0);
+  });
+
   test('a forced mid-batch failure rolls back every scheduled dose and canonical event', async () => {
     await prisma.$executeRawUnsafe(
       'DROP TRIGGER IF EXISTS test_med03_reject_second_mar_row ON medication_administrations',

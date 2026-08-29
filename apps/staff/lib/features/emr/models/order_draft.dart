@@ -7,23 +7,156 @@
 // plugin channels (test/features/emr/order_composer_test.dart), following
 // the vitals_chart_screen.dart pure-helper pattern.
 
+import '../../../core/services/order_payloads.dart';
 import '../../../core/utils/api_error_codes.dart';
 
 /// Mirrors MEDICATION_ORDER_WRITE_ROLES in apps/backend orderRoutes.js.
 /// Keep in sync — the server gate is canonical; this only shapes the UI.
 const kMedicationOrderWriteRoles = <String>{
-  'ADMIN',
-  'SUPER_ADMIN',
   'DOCTOR',
   'DUTY_DOCTOR',
   'CONSULTANT',
   'JUNIOR_DOCTOR',
   'RESIDENT',
-  'MEDICAL_SUPERINTENDENT',
 };
 
 bool canPrescribeMedicationOrders(String? role) =>
     kMedicationOrderWriteRoles.contains(role?.trim().toUpperCase() ?? '');
+
+bool medicationHasAuthoritativeCatalog(OrderDraft draft) {
+  if (draft.orderType != 'medication') return true;
+  final raw = draft.details['catalog_id'];
+  final id = raw is int ? raw : int.tryParse(raw?.toString() ?? '');
+  return id != null && id > 0;
+}
+
+bool medicationHasAuthoritativeCatalogRoute(OrderDraft draft) {
+  if (draft.orderType != 'medication') return true;
+  return draft.details['route']?.toString().trim().isNotEmpty == true;
+}
+
+enum MedicationClinicalDirectionsValidationFailure {
+  doseRequired,
+  routeRequired,
+}
+
+MedicationClinicalDirectionsValidationFailure?
+medicationClinicalDirectionsFailure(OrderDraft draft) {
+  if (draft.orderType != 'medication') return null;
+  if (draft.details['dose']?.toString().trim().isNotEmpty != true) {
+    return MedicationClinicalDirectionsValidationFailure.doseRequired;
+  }
+  if (!medicationHasAuthoritativeCatalogRoute(draft)) {
+    return MedicationClinicalDirectionsValidationFailure.routeRequired;
+  }
+  return null;
+}
+
+MedicationWardSupplyValidationFailure? medicationWardSupplyFailure(
+  OrderDraft draft,
+) {
+  if (draft.orderType != 'medication') return null;
+  return validateMedicationWardSupply(
+    quantity: draft.details['quantity_requested'],
+    unit: draft.details['unit'],
+  );
+}
+
+/// Persisted order-set payloads never prove that their catalog identity is
+/// still active. Only pass [liveCatalogSelected] after the clinician selects a
+/// row returned by the current catalog search in this screen session.
+bool medicationOrderSetPayloadNeedsReconciliation(
+  Map<String, dynamic> payload, {
+  bool liveCatalogSelected = false,
+}) {
+  final draft = orderDraftFromSetItem({'kind': 'med', 'payload': payload});
+  return !liveCatalogSelected ||
+      draft == null ||
+      !medicationHasAuthoritativeCatalog(draft) ||
+      medicationClinicalDirectionsFailure(draft) != null ||
+      medicationWardSupplyFailure(draft) != null;
+}
+
+Map<String, dynamic> reconcileMedicationOrderSetPayload({
+  required Map<String, dynamic> payload,
+  required Map<String, dynamic> catalogRow,
+  required Object? dose,
+  required Object? quantityRequested,
+  required Object? unit,
+}) {
+  final catalogDraft = orderDraftFromMedCatalogRow(catalogRow);
+  if (!medicationHasAuthoritativeCatalog(catalogDraft)) {
+    throw ArgumentError.value(
+      catalogRow,
+      'catalogRow',
+      'must contain an authoritative pharmacy catalog id',
+    );
+  }
+  final prescribedDose = dose?.toString().trim() ?? '';
+  if (prescribedDose.isEmpty) {
+    throw ArgumentError.value(
+      dose,
+      'dose',
+      'must be an explicit non-empty prescribed dose',
+    );
+  }
+  final catalogRoute = catalogDraft.details['route']?.toString().trim() ?? '';
+  if (catalogRoute.isEmpty) {
+    throw ArgumentError.value(
+      catalogRow,
+      'catalogRow',
+      'must contain the authoritative medication route',
+    );
+  }
+  final quantity = parseMedicationWardSupplyQuantity(quantityRequested);
+  if (quantity == null) {
+    throw ArgumentError.value(
+      quantityRequested,
+      'quantityRequested',
+      'must be positive with at most two decimal places',
+    );
+  }
+  final supplyUnit = canonicalMedicationWardSupplyUnit(unit);
+  if (supplyUnit == null) {
+    throw ArgumentError.value(
+      unit,
+      'unit',
+      'must be an explicitly selected medication ward-supply unit',
+    );
+  }
+
+  final selected = catalogDraft.details;
+  final medicationName = selected['medication_name']?.toString().trim() ?? '';
+  final reconciled = Map<String, dynamic>.from(payload)
+    ..remove('catalogId')
+    ..remove('quantity')
+    ..remove('qty')
+    ..remove('units')
+    ..['drug'] = medicationName
+    ..['medication_name'] = medicationName
+    ..['dose'] = prescribedDose
+    ..['route'] = catalogRoute
+    ..['catalog_id'] = selected['catalog_id']
+    ..['quantity_requested'] = quantity
+    ..['unit'] = supplyUnit;
+  for (final key in const [
+    'composition_id',
+    'composition_label',
+    'composition_confidence',
+    'generic_name',
+    'strength',
+    'strength_key',
+    'form',
+    'form_key',
+    'release_key',
+  ]) {
+    final value = selected[key];
+    if (value != null && value.toString().trim().isNotEmpty) {
+      reconciled[key] = value;
+    }
+  }
+  return reconciled;
+}
 
 /// One un-signed order in the composer basket.
 class OrderDraft {
@@ -134,6 +267,13 @@ OrderDraft? orderDraftFromSetItem(Map<String, dynamic> item) {
           'frequency': payload['frequency'],
           'duration_days': payload['duration_days'],
           'instructions': payload['instructions'],
+          'catalog_id': payload['catalog_id'] ?? payload['catalogId'],
+          'quantity_requested': payload['quantity_requested'],
+          'unit':
+              payload['unit'] ??
+              payload['quantity_unit'] ??
+              payload['dispense_unit'] ??
+              payload['supply_unit'],
         },
       );
     case 'lab':
@@ -203,6 +343,16 @@ OrderDraft orderDraftFromMedCatalogRow(Map<String, dynamic> row) {
       'medication_name': '$name',
       'dose': row['strength'],
       'route': row['route'] ?? row['default_route'],
+      'catalog_id': row['catalog_id'] ?? row['id'],
+      'composition_id': row['composition_id'],
+      'composition_label': row['composition_label'],
+      'composition_confidence': row['composition_confidence'],
+      'generic_name': row['generic_name'],
+      'strength': row['strength'],
+      'strength_key': row['strength_key'],
+      'form': row['form'],
+      'form_key': row['form_key'],
+      'release_key': row['release_key'],
     },
   );
 }

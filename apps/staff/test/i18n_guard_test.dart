@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vhhealth_staff/core/services/order_payloads.dart';
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 void main() {
@@ -1798,6 +1799,7 @@ void main() {
               key.startsWith('s4.lib.counter_sale.') ||
               key.startsWith('orders.mar_recovery.') ||
               key.startsWith('orders.icu_mar_review.') ||
+              key.startsWith('medication_supply.unit.') ||
               key.startsWith('due_meds.actions.') ||
               key == 'due_meds.held_review_state' ||
               key == 'clinical_inbox.open_workflow' ||
@@ -1827,6 +1829,122 @@ void main() {
       );
     }
   });
+
+  test('CPOE and order-set copy has five-locale technical parity', () {
+    final source = File('lib/l10n/app_strings.dart').readAsStringSync();
+    final localeKeys = {
+      for (final locale in const ['en', 'hi', 'ta', 'te', 'ml'])
+        locale: _mapKeysForLocale(source, locale),
+    };
+    const reusedKeys = {
+      'admission.required',
+      'drug_chart.column.drug',
+      'orders.dosage',
+      'orders.route',
+      's4.lib.drug_chart.catalog_selection_required',
+      's4.lib.drug_chart.catalog_unavailable',
+      's4.lib.pharmacy.metric_unit',
+      's4.lib.pharmacy.quantity',
+      's4.lib.prescriptions.type_drug_name',
+      'composer.study_hint',
+      'composer.specialty_hint',
+      'composer.diet_hint',
+    };
+    final cpoeKeys = localeKeys['en']!
+        .where(
+          (key) =>
+              key.startsWith('composer.') ||
+              key.startsWith('order_sets.') ||
+              key.startsWith('s4.dynamic.order_sets.') ||
+              key.startsWith('s4.lib.order_sets.') ||
+              reusedKeys.contains(key),
+        )
+        .toSet();
+
+    expect(cpoeKeys, containsAll(reusedKeys));
+    for (final locale in const ['hi', 'ta', 'te', 'ml']) {
+      expect(
+        cpoeKeys.difference(localeKeys[locale]!),
+        isEmpty,
+        reason: '$locale CPOE/order-set keys must match English',
+      );
+    }
+
+    const localizedCpoeKeys = {
+      'admission.required',
+      'drug_chart.column.drug',
+      's4.dynamic.order_sets.duration_days',
+      's4.dynamic.order_sets.via_route',
+      's4.lib.drug_chart.catalog_selection_required',
+      's4.lib.drug_chart.catalog_unavailable',
+      's4.lib.order_sets.no_order_sets',
+      's4.lib.order_sets.order_sets',
+      's4.lib.order_sets.search_pneumonia_sepsis',
+      's4.lib.pharmacy.metric_unit',
+      's4.lib.pharmacy.quantity',
+      's4.lib.prescriptions.type_drug_name',
+      'composer.study_hint',
+      'composer.specialty_hint',
+      'composer.diet_hint',
+    };
+    final english = AppStrings.forLocale(const Locale('en'));
+    for (final locale in const ['hi', 'ta', 'te', 'ml']) {
+      final localized = AppStrings.forLocale(Locale(locale));
+      for (final key in localizedCpoeKeys) {
+        expect(
+          localized.lookup(key),
+          isNot(english.lookup(key)),
+          reason: '$locale $key must be localized, not English fallback',
+        );
+      }
+    }
+    final malayalam = AppStrings.forLocale(const Locale('ml'));
+    expect(
+      malayalam.format('s4.dynamic.order_sets.via_route', {
+        'route': '__ROUTE__',
+      }),
+      contains('__ROUTE__'),
+    );
+    expect(
+      malayalam.format('s4.dynamic.order_sets.duration_days', {'days': 7}),
+      contains('7'),
+    );
+  });
+
+  test(
+    'ward-supply units display localized labels without changing values',
+    () {
+      final source = File('lib/l10n/app_strings.dart').readAsStringSync();
+      final localeKeys = {
+        for (final locale in const ['en', 'hi', 'ta', 'te', 'ml'])
+          locale: _mapKeysForLocale(source, locale),
+      };
+      final unitKeys = localeKeys['en']!
+          .where((key) => key.startsWith('medication_supply.unit.'))
+          .toSet();
+      expect(unitKeys, hasLength(medicationWardSupplyUnits.length));
+      for (final locale in const ['hi', 'ta', 'te', 'ml']) {
+        expect(
+          unitKeys.difference(localeKeys[locale]!),
+          isEmpty,
+          reason: '$locale ward-supply unit keys must match English',
+        );
+      }
+
+      final malayalam = AppStrings.forLocale(const Locale('ml'));
+      for (final canonicalUnit in medicationWardSupplyUnits) {
+        final label = malayalam.medicationWardSupplyUnit(canonicalUnit);
+        expect(label, isNotEmpty, reason: canonicalUnit);
+        expect(label, isNot(canonicalUnit), reason: canonicalUnit);
+        expect(
+          canonicalMedicationWardSupplyUnit(canonicalUnit),
+          canonicalUnit,
+          reason:
+              'localized labels must not replace submitted canonical values',
+        );
+      }
+    },
+  );
 }
 
 class _Pattern {

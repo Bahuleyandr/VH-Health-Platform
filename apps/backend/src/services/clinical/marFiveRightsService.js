@@ -32,7 +32,11 @@ import {
   duplicateAdministrationError,
   MAR_ADMINISTRATION_MODES,
 } from './marService.js';
-import { consumeMarSupplyTx, evaluateMarScanIdentityTx } from './marSupplyService.js';
+import {
+  assertMedicationOrdersExecutionReadyTx,
+  consumeMarSupplyTx,
+  evaluateMarScanIdentityTx,
+} from './marSupplyService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import {
   finaliseMarHttpIdempotencyTx,
@@ -76,6 +80,18 @@ async function evaluate5RightsTx(tx, {
   );
   if (rows.length === 0) throw AppError.notFound('Medication administration record not found');
   const ma = rows[0];
+  if (!ma.clinical_order_id) {
+    throw AppError.conflict(
+      'Medication administration is not linked to a verified clinical order',
+      'MEDICATION_ORDER_EXECUTION_ORDER_REQUIRED',
+      { medication_administration_id: Number(ma.id) },
+    );
+  }
+  await assertMedicationOrdersExecutionReadyTx(tx, {
+    tenantId: tid,
+    clinicalOrderIds: [ma.clinical_order_id],
+    lock: false,
+  });
 
   const status = String(ma.status || '').toLowerCase();
   if (status === 'held') {
@@ -308,8 +324,33 @@ export async function administerWithScan({
         return replay;
       }
     }
-    // Lock the target before evaluating the clinical evidence or changing
-    // state so two bedside scans for the same dose serialize on one fact.
+    const orderContextRows = await tx.$queryRawUnsafe(
+      `SELECT clinical_order_id
+         FROM medication_administrations
+        WHERE id = $1::integer
+          AND tenant_id = $2::uuid
+        LIMIT 1`,
+      ma_id,
+      tid,
+    );
+    if (!orderContextRows[0]) {
+      throw AppError.notFound('Medication administration record not found');
+    }
+    if (!orderContextRows[0].clinical_order_id) {
+      throw AppError.conflict(
+        'Medication administration is not linked to a verified clinical order',
+        'MEDICATION_ORDER_EXECUTION_ORDER_REQUIRED',
+        { medication_administration_id: Number(ma_id) },
+      );
+    }
+    await assertMedicationOrdersExecutionReadyTx(tx, {
+      tenantId: tid,
+      clinicalOrderIds: [orderContextRows[0].clinical_order_id],
+    });
+
+    // Lock the target only after locking its execution-authority order. This
+    // lock order matches cancellation/discontinuation and makes a concurrent
+    // terminal transition serialize before inventory or administration.
     const lockedRows = await tx.$queryRawUnsafe(
       `SELECT id, patient_uid::text, medication_name, dose, dosage, route,
               scheduled_time, status, tenant_id::text, clinical_order_id,
@@ -322,6 +363,12 @@ export async function administerWithScan({
     );
     const locked = lockedRows[0];
     if (!locked) throw AppError.notFound('Medication administration record not found');
+    if (Number(locked.clinical_order_id) !== Number(orderContextRows[0].clinical_order_id)) {
+      throw AppError.conflict(
+        'Medication administration order context changed',
+        'MAR_INSPECTION_CONTEXT_MISMATCH',
+      );
+    }
     if (String(locked.status || '').toLowerCase() !== 'scheduled') {
       if (commandIdentity) {
         const replay = await findMarAdministrationCommandReplayTx(tx, commandIdentity);

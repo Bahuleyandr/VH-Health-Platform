@@ -101,6 +101,10 @@ function toPositiveInt(value) {
  *
  * @param {string} tenantId  tenant uuid (RLS scope)
  * @param {Array<number|string>} catalogIds  pharmacy_catalog ids
+ * @param {object} [options]
+ * @param {object} [options.db]  Prisma client or transaction client. The
+ *   composition API is OPTIONS-OBJECT shaped ({ db }) — pass a tx client here to
+ *   read inside an open transaction; never pass the client positionally.
  * @returns {Promise<Map<number, object>>} keyed by catalog_id (number). Never throws.
  */
 export async function resolveCompositionIdentitiesByCatalogIds(
@@ -189,6 +193,9 @@ export async function resolveCompositionIdentitiesByCatalogIds(
  *
  * @param {string} tenantId
  * @param {Array<object>} meds
+ * @param {object} [options]
+ * @param {object} [options.db]  Prisma client or transaction client ({ db }
+ *   options-object shape — see resolveCompositionIdentitiesByCatalogIds).
  * @returns {Promise<Array<object>>} never throws
  */
 export async function enrichMedicationsWithComposition(tenantId, meds, { db = prisma } = {}) {

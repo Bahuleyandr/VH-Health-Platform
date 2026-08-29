@@ -21,6 +21,9 @@ const txWardIndentUpdateMock = jest.fn();
 const txWardIndentItemUpdateMock = jest.fn();
 const txClinicalOrderUpdateManyMock = jest.fn();
 const sendStaffNotificationsMock = jest.fn();
+const txWardFindFirstMock = jest.fn();
+const loadWardIndentCatalogClassificationsTxMock = jest.fn();
+const loadMedicationCatalogAuthorityTxMock = jest.fn();
 
 const __prismaDefaultMock = {
   attendant_passes: {
@@ -63,6 +66,8 @@ jest.unstable_mockModule('../../services/ipd/wardIndentWorkflowService.js', () =
   wardIndentCommandKey: jest.fn(),
   findWardIndentCreateReplayTx: findWardIndentCreateReplayTxMock,
   initializeWardIndentWorkflowTx: initializeWardIndentWorkflowTxMock,
+  loadMedicationCatalogAuthorityTx: loadMedicationCatalogAuthorityTxMock,
+  loadWardIndentCatalogClassificationsTx: loadWardIndentCatalogClassificationsTxMock,
   reserveWardIndent: workflowStub,
   markWardIndentShortSupply: workflowStub,
   proposeWardIndentSubstitution: workflowStub,
@@ -100,10 +105,33 @@ beforeEach(() => {
   txWardIndentUpdateMock.mockReset();
   txWardIndentItemUpdateMock.mockReset();
   txClinicalOrderUpdateManyMock.mockReset();
+  txWardFindFirstMock.mockReset();
+  loadWardIndentCatalogClassificationsTxMock.mockReset();
+  loadMedicationCatalogAuthorityTxMock.mockReset();
   sendStaffNotificationsMock.mockReset();
   initializeWardIndentWorkflowTxMock.mockClear();
   findWardIndentCreateReplayTxMock.mockClear();
   sendStaffNotificationsMock.mockResolvedValue({ notification_count: 1 });
+  loadWardIndentCatalogClassificationsTxMock.mockImplementation(async (_tx, { catalogIds }) => (
+    new Map((catalogIds || []).map((id) => [Number(id), {
+      id: Number(id),
+      name: `Catalog ${id}`,
+      unit_price: 45,
+      price: 45,
+      is_active: true,
+      is_medication_identity: true,
+    }]))
+  ));
+  loadMedicationCatalogAuthorityTxMock.mockImplementation(async (_tx, { catalogIds }) => (
+    new Map((catalogIds || []).map((id) => [Number(id), {
+      id: Number(id),
+      name: `Catalog ${id}`,
+      unit_price: 45,
+      price: 45,
+      is_active: true,
+      is_medication_identity: true,
+    }]))
+  ));
   transactionMock.mockImplementation(async (callback) => callback({
     $queryRawUnsafe: txQueryRawUnsafeMock,
     ward_indents: {
@@ -114,6 +142,7 @@ beforeEach(() => {
     },
     ward_indent_items: { update: txWardIndentItemUpdateMock },
     clinical_orders: { updateMany: txClinicalOrderUpdateManyMock },
+    wards: { findFirst: txWardFindFirstMock },
   }));
 });
 
@@ -188,7 +217,333 @@ describe('ipdSupportService.getAdmissionDepositBalance — deferred-advance mirr
   });
 });
 
-describe('ipdSupportService.createWardIndentForClinicalMedicationOrder — catalog form matching (H D13)', () => {
+describe('ipdSupportService.createWardIndent — medication-order binding', () => {
+  const REQUESTER_UID = '33333333-3333-4333-8333-333333333333';
+  const PATIENT_UID = '22222222-2222-4222-8222-222222222222';
+  const ENCOUNTER_ID = '11111111-1111-4111-8111-111111111111';
+  const ADMISSION = {
+    id: 42,
+    patient_uid: PATIENT_UID,
+    encounter_id: ENCOUNTER_ID,
+    status: 'admitted',
+    ward_id: 7,
+    ward_name: 'Ward A',
+  };
+
+  it('rejects a free-form pharmacy line before any inventory-bearing write', async () => {
+    await expect(ipdSupportService.createWardIndent({
+      admissionId: 42,
+      indentType: 'pharmacy',
+      items: [{ pharmacy_catalog_id: 202, quantity_requested: 1, unit: 'vial' }],
+      requestedBy: REQUESTER_UID,
+      tenantId: DEFAULT_TENANT_ID,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'WARD_INDENT_CLINICAL_ORDER_REQUIRED',
+    });
+    expect(txWardIndentCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects an order-bound line when admission_id is omitted', async () => {
+    await expect(ipdSupportService.createWardIndent({
+      patientUid: PATIENT_UID,
+      indentType: 'pharmacy',
+      items: [{
+        pharmacy_catalog_id: 202,
+        clinical_order_id: 501,
+        quantity_requested: 1,
+        unit: 'vial',
+      }],
+      requestedBy: REQUESTER_UID,
+      tenantId: DEFAULT_TENANT_ID,
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'WARD_INDENT_ADMISSION_REQUIRED',
+    });
+    expect(txWardIndentCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a medication catalog masquerading as consumables', async () => {
+    await expect(ipdSupportService.createWardIndent({
+      indentType: 'consumables',
+      items: [{ pharmacy_catalog_id: 202, quantity_requested: 1, unit: 'vial' }],
+      requestedBy: REQUESTER_UID,
+      tenantId: DEFAULT_TENANT_ID,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'WARD_INDENT_CLINICAL_ORDER_REQUIRED',
+    });
+    expect(txWardIndentCreateMock).not.toHaveBeenCalled();
+  });
+
+  it.each(['lama', '', 'unknown'])('rejects a manual indent admission in status %p', async (status) => {
+    txQueryRawUnsafeMock.mockResolvedValueOnce([{
+      id: 42,
+      patient_uid: PATIENT_UID,
+      encounter_id: ENCOUNTER_ID,
+      status,
+      ward_id: 7,
+      ward_name: 'Ward A',
+    }]);
+
+    await expect(ipdSupportService.createWardIndent({
+      admissionId: 42,
+      indentType: 'pharmacy',
+      items: [{
+        pharmacy_catalog_id: 202,
+        clinical_order_id: 501,
+        quantity_requested: 1,
+        unit: 'vial',
+      }],
+      requestedBy: REQUESTER_UID,
+      tenantId: DEFAULT_TENANT_ID,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'WARD_INDENT_ADMISSION_INACTIVE',
+    });
+    expect(txWardIndentCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a bound medication order whose encounter_id is NULL', async () => {
+    txQueryRawUnsafeMock
+      .mockResolvedValueOnce([ADMISSION])
+      .mockResolvedValueOnce([{ uid: PATIENT_UID }])
+      .mockResolvedValueOnce([{
+        id: 501,
+        patient_uid: PATIENT_UID,
+        encounter_id: null,
+        order_type: 'medication',
+        status: 'ordered',
+        verified_by: null,
+        verified_at: null,
+        details: {
+          medication_name: 'Pantoprazole',
+          catalog_id: 202,
+          quantity_requested: 1,
+          unit: 'vial',
+        },
+      }]);
+    txWardFindFirstMock.mockResolvedValueOnce({ name: 'Ward A' });
+
+    await expect(ipdSupportService.createWardIndent({
+      admissionId: 42,
+      wardId: 7,
+      patientUid: PATIENT_UID,
+      encounterId: ENCOUNTER_ID,
+      indentType: 'pharmacy',
+      items: [{
+        pharmacy_catalog_id: 202,
+        clinical_order_id: 501,
+        quantity_requested: 1,
+        unit: 'vial',
+      }],
+      requestedBy: REQUESTER_UID,
+      tenantId: DEFAULT_TENANT_ID,
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'WARD_INDENT_CLINICAL_ORDER_ENCOUNTER_MISMATCH',
+      details: {
+        clinical_order_id: 501,
+        clinical_order_encounter_id: null,
+        admission_encounter_id: ENCOUNTER_ID,
+      },
+    });
+    expect(txWardIndentCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('derives exact patient, encounter, ward, type, catalog, quantity, and unit context', async () => {
+    txQueryRawUnsafeMock
+      .mockResolvedValueOnce([ADMISSION])
+      .mockResolvedValueOnce([{ uid: PATIENT_UID }])
+      .mockResolvedValueOnce([{
+        id: 501,
+        patient_uid: PATIENT_UID,
+        encounter_id: ENCOUNTER_ID,
+        order_type: 'medication',
+        status: 'ordered',
+        verified_by: null,
+        verified_at: null,
+        details: {
+          medication_name: 'Pantoprazole',
+          catalog_id: 202,
+          quantity_requested: 1,
+          unit: 'vial',
+        },
+      }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ locked: 1 }]);
+    txWardFindFirstMock.mockResolvedValueOnce({ name: 'Ward A' });
+    txWardIndentFindFirstMock.mockResolvedValueOnce(null);
+    txWardIndentCreateMock.mockImplementationOnce(async ({ data }) => ({
+      id: 9001,
+      ...data,
+      items: data.items.create,
+    }));
+
+    const indent = await ipdSupportService.createWardIndent({
+      admissionId: 42,
+      wardId: 7,
+      patientUid: PATIENT_UID,
+      encounterId: ENCOUNTER_ID,
+      indentType: 'consumables',
+      items: [{
+        pharmacy_catalog_id: 202,
+        clinical_order_id: 501,
+        quantity_requested: 1,
+      }],
+      requestedBy: REQUESTER_UID,
+      tenantId: DEFAULT_TENANT_ID,
+    });
+
+    expect(indent).toMatchObject({
+      ward_id: 7,
+      admission_id: 42,
+      encounter_id: ENCOUNTER_ID,
+      patient_uid: PATIENT_UID,
+      indent_type: 'pharmacy',
+    });
+    expect(indent.items[0]).toMatchObject({
+      pharmacy_catalog_id: 202,
+      clinical_order_id: 501,
+      quantity_requested: 1,
+      unit: 'vial',
+    });
+  });
+
+  it('relocks and classifies a catalog derived from the authoritative clinical order', async () => {
+    txQueryRawUnsafeMock
+      .mockResolvedValueOnce([ADMISSION])
+      .mockResolvedValueOnce([{ uid: PATIENT_UID }])
+      .mockResolvedValueOnce([{
+        id: 501,
+        patient_uid: PATIENT_UID,
+        encounter_id: ENCOUNTER_ID,
+        order_type: 'medication',
+        status: 'ordered',
+        verified_by: null,
+        verified_at: null,
+        details: {
+          medication_name: 'Pantoprazole',
+          catalog_id: 202,
+          quantity_requested: 1,
+          unit: 'vial',
+        },
+      }]);
+    txWardFindFirstMock.mockResolvedValueOnce({ name: 'Ward A' });
+    loadWardIndentCatalogClassificationsTxMock.mockResolvedValueOnce(new Map());
+    loadMedicationCatalogAuthorityTxMock.mockRejectedValueOnce(
+      Object.assign(new Error('inactive catalog'), {
+        statusCode: 409,
+        code: 'WARD_INDENT_CLINICAL_ORDER_CATALOG_UNAVAILABLE',
+      }),
+    );
+
+    await expect(ipdSupportService.createWardIndent({
+      admissionId: 42,
+      wardId: 7,
+      patientUid: PATIENT_UID,
+      encounterId: ENCOUNTER_ID,
+      indentType: 'pharmacy',
+      items: [{
+        clinical_order_id: 501,
+        quantity_requested: 1,
+      }],
+      requestedBy: REQUESTER_UID,
+      tenantId: DEFAULT_TENANT_ID,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'WARD_INDENT_CLINICAL_ORDER_CATALOG_UNAVAILABLE',
+    });
+    expect(loadMedicationCatalogAuthorityTxMock).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        tenantId: DEFAULT_TENANT_ID,
+        catalogIds: [202],
+        lock: true,
+        unavailableCode: 'WARD_INDENT_CLINICAL_ORDER_CATALOG_UNAVAILABLE',
+        classificationCode: 'WARD_INDENT_CLINICAL_ORDER_CATALOG_CLASSIFICATION_MISMATCH',
+      },
+    );
+    expect(txWardIndentCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('maps a concurrent unique-link race to the canonical already-linked conflict', async () => {
+    const clinicalOrder = {
+      id: 501,
+      patient_uid: PATIENT_UID,
+      encounter_id: ENCOUNTER_ID,
+      order_type: 'medication',
+      status: 'ordered',
+      verified_by: null,
+      verified_at: null,
+      details: {
+        medication_name: 'Pantoprazole',
+        catalog_id: 202,
+        quantity_requested: 1,
+        unit: 'vial',
+      },
+    };
+    const firstTx = {
+      $queryRawUnsafe: jest.fn()
+        .mockResolvedValueOnce([ADMISSION])
+        .mockResolvedValueOnce([{ uid: PATIENT_UID }])
+        .mockResolvedValueOnce([clinicalOrder])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ locked: 1 }]),
+      pharmacy_catalog: {
+        findMany: jest.fn().mockResolvedValueOnce([{
+          id: 202,
+          name: 'Pantoprazole 40mg Injection',
+          unit_price: 45,
+          price: 45,
+        }]),
+      },
+      ward_indents: {
+        findFirst: jest.fn().mockResolvedValueOnce(null),
+        create: jest.fn().mockRejectedValueOnce(Object.assign(new Error('unique'), {
+          code: 'P2002',
+        })),
+      },
+      wards: { findFirst: jest.fn().mockResolvedValueOnce({ name: 'Ward A' }) },
+    };
+    const existingTx = {
+      $queryRawUnsafe: jest.fn().mockResolvedValueOnce([{
+        clinical_order_id: 501,
+        ward_indent_id: 9001,
+        indent_number: 'WI-EXISTING',
+      }]),
+    };
+    transactionMock
+      .mockImplementationOnce(async (callback) => callback(firstTx))
+      .mockImplementationOnce(async (callback) => callback(existingTx));
+
+    await expect(ipdSupportService.createWardIndent({
+      patientUid: PATIENT_UID,
+      admissionId: 42,
+      wardId: 7,
+      encounterId: ENCOUNTER_ID,
+      indentType: 'pharmacy',
+      items: [{
+        pharmacy_catalog_id: 202,
+        clinical_order_id: 501,
+        quantity_requested: 1,
+        unit: 'vial',
+      }],
+      requestedBy: REQUESTER_UID,
+      tenantId: DEFAULT_TENANT_ID,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'WARD_INDENT_CLINICAL_ORDER_ALREADY_LINKED',
+      details: {
+        clinical_order_id: 501,
+        ward_indent_id: 9001,
+        indent_number: 'WI-EXISTING',
+      },
+    });
+  });
+});
+
+describe('ipdSupportService.createWardIndentForClinicalMedicationOrder — locked order binding', () => {
   const ORDER_BASE = {
     id: 501,
     order_number: 'ORD-IPD-501',
@@ -196,6 +551,7 @@ describe('ipdSupportService.createWardIndentForClinicalMedicationOrder — catal
     encounter_id: '11111111-1111-4111-8111-111111111111',
     patient_uid: '22222222-2222-4222-8222-222222222222',
     ordered_by: '33333333-3333-4333-8333-333333333333',
+    tenant_id: DEFAULT_TENANT_ID,
   };
   const ADMISSION_ROW = {
     id: 42,
@@ -205,13 +561,39 @@ describe('ipdSupportService.createWardIndentForClinicalMedicationOrder — catal
     patient_uid: ORDER_BASE.patient_uid,
     ward_id: 7,
     ward_name: 'Ward A',
+    status: 'admitted',
   };
 
-  function mockIndentCreation(catalogRow) {
+  function canonicalOrder(overrides = {}) {
+    return {
+      ...ORDER_BASE,
+      route: 'iv',
+      details: {
+        medication_name: 'Pantoprazole',
+        catalog_id: 202,
+        quantity_requested: 6,
+        unit: 'vial',
+      },
+      ...overrides,
+    };
+  }
+
+  function mockIndentCreation(catalogRow, currentOrder) {
     txQueryRawUnsafeMock
+      .mockResolvedValueOnce([{
+        ...currentOrder,
+        status: 'ordered',
+        order_type: 'medication',
+      }])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([ADMISSION_ROW])
-      .mockResolvedValueOnce(catalogRow ? [catalogRow] : []);
+      .mockResolvedValueOnce([ADMISSION_ROW]);
+    loadMedicationCatalogAuthorityTxMock.mockResolvedValueOnce(new Map(
+      catalogRow ? [[Number(catalogRow.id), {
+        ...catalogRow,
+        is_active: catalogRow.is_active ?? true,
+        is_medication_identity: catalogRow.is_medication_identity ?? true,
+      }]] : [],
+    ));
     txWardIndentFindFirstMock.mockResolvedValueOnce(null);
     txWardIndentCreateMock.mockImplementationOnce(async (payload) => ({
       id: 9001,
@@ -220,29 +602,29 @@ describe('ipdSupportService.createWardIndentForClinicalMedicationOrder — catal
     }));
   }
 
-  it('prefers an injectable Pantoprazole catalog row for IV medication orders', async () => {
+  it('binds catalog, quantity, and unit directly from the locked order', async () => {
+    const order = canonicalOrder();
     mockIndentCreation({
       id: 202,
       name: 'Pantoprazole 40mg Injection',
       unit_price: '45.00',
-    });
+    }, order);
 
-    const indent = await ipdSupportService.createWardIndentForClinicalMedicationOrder({
-      ...ORDER_BASE,
-      route: 'iv',
-      details: {
-        medication_name: 'Pantoprazole',
-        route: 'IV',
-        dose: '40mg',
-      },
-    });
+    const indent = await ipdSupportService.createWardIndentForClinicalMedicationOrder(order);
 
-    const catalogCall = txQueryRawUnsafeMock.mock.calls[2];
-    expect(catalogCall[3]).toBe('iv');
-    expect(catalogCall[1]).toEqual(expect.arrayContaining(['%Pantoprazole%']));
+    expect(loadMedicationCatalogAuthorityTxMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        tenantId: DEFAULT_TENANT_ID,
+        catalogIds: [202],
+        lock: true,
+      }),
+    );
     expect(indent.items[0]).toMatchObject({
       pharmacy_catalog_id: 202,
       item_name: 'Pantoprazole 40mg Injection',
+      quantity_requested: 6,
+      unit: 'vial',
       unit_price: 45,
     });
     expect(sendStaffNotificationsMock).toHaveBeenCalledWith(expect.objectContaining({
@@ -258,60 +640,116 @@ describe('ipdSupportService.createWardIndentForClinicalMedicationOrder — catal
     }));
   });
 
-  it('maps NS/normal-saline IV fluid orders to the stocked IV-fluid catalog item', async () => {
-    mockIndentCreation({
-      id: 303,
-      name: 'Normal Saline 0.9% 500ml',
-      unit_price: '35.00',
-    });
-
-    const indent = await ipdSupportService.createWardIndentForClinicalMedicationOrder({
-      ...ORDER_BASE,
-      id: 502,
-      order_number: 'ORD-IPD-502',
-      route: 'iv',
+  it('rejects a stale snapshot when a correction wins before the locked re-read', async () => {
+    const stale = canonicalOrder();
+    const corrected = canonicalOrder({
       details: {
-        medication_name: 'NS',
-        route: 'IV infusion',
-        dose: '500ml',
+        medication_name: 'Pantoprazole',
+        catalog_id: 303,
+        quantity_requested: 2,
+        unit: 'ampoule',
       },
     });
+    txQueryRawUnsafeMock.mockResolvedValueOnce([{ ...corrected, status: 'ordered' }]);
 
-    const catalogCall = txQueryRawUnsafeMock.mock.calls[2];
-    expect(catalogCall[1]).toEqual(expect.arrayContaining([
-      '%NS%',
-      '%Normal Saline%',
-      '%Sodium Chloride%',
-      '%Sodium Chloride 0.9%%',
-    ]));
-    expect(catalogCall[3]).toBe('iv');
-    expect(catalogCall[4]).toBe(500);
-    expect(indent.items[0]).toMatchObject({
-      pharmacy_catalog_id: 303,
-      item_name: 'Normal Saline 0.9% 500ml',
-      unit_price: 35,
+    await expect(
+      ipdSupportService.createWardIndentForClinicalMedicationOrder(stale),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'WARD_INDENT_CLINICAL_ORDER_CONTEXT_CHANGED',
+    });
+    expect(txWardIndentCreateMock).not.toHaveBeenCalled();
+  });
+
+  it.each(['lama', '', 'unknown'])('rejects an auto-indent admission in status %p', async (status) => {
+    const order = canonicalOrder();
+    txQueryRawUnsafeMock
+      .mockResolvedValueOnce([{ ...order, status: 'ordered' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ ...ADMISSION_ROW, status }]);
+
+    await expect(
+      ipdSupportService.createWardIndentForClinicalMedicationOrder(order),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'WARD_INDENT_ADMISSION_INACTIVE',
+      details: { admission_id: 42, status: status || null },
+    });
+    expect(txWardIndentCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('maps an auto-create unique-link race to the canonical existing indent reference', async () => {
+    const order = canonicalOrder();
+    txQueryRawUnsafeMock
+      .mockResolvedValueOnce([{ ...order, status: 'ordered' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([ADMISSION_ROW])
+      .mockResolvedValueOnce([{ locked: 1 }])
+      .mockResolvedValueOnce([{
+        clinical_order_id: 501,
+        ward_indent_id: 9001,
+        indent_number: 'WI-EXISTING',
+      }]);
+    txWardIndentFindFirstMock.mockResolvedValueOnce(null);
+    txWardIndentCreateMock.mockRejectedValueOnce(Object.assign(new Error('unique'), {
+      code: '23505',
+    }));
+
+    await expect(
+      ipdSupportService.createWardIndentForClinicalMedicationOrder(order),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'WARD_INDENT_CLINICAL_ORDER_ALREADY_LINKED',
+      details: {
+        clinical_order_id: 501,
+        ward_indent_id: 9001,
+        indent_number: 'WI-EXISTING',
+      },
     });
   });
 
+  it('rejects auto-materialization when the locked catalog is not medication authority', async () => {
+    const order = canonicalOrder();
+    txQueryRawUnsafeMock
+      .mockResolvedValueOnce([{ ...order, status: 'ordered' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([ADMISSION_ROW]);
+    loadMedicationCatalogAuthorityTxMock.mockRejectedValueOnce(
+      Object.assign(new Error('not medication'), {
+        statusCode: 409,
+        code: 'WARD_INDENT_CLINICAL_ORDER_CATALOG_CLASSIFICATION_MISMATCH',
+      }),
+    );
+
+    await expect(
+      ipdSupportService.createWardIndentForClinicalMedicationOrder(order),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'WARD_INDENT_CLINICAL_ORDER_CATALOG_CLASSIFICATION_MISMATCH',
+    });
+    expect(loadMedicationCatalogAuthorityTxMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        tenantId: DEFAULT_TENANT_ID,
+        catalogIds: [202],
+        lock: true,
+      }),
+    );
+    expect(txWardIndentCreateMock).not.toHaveBeenCalled();
+  });
+
   it('does not resend pharmacy notifications for an existing linked ward indent', async () => {
-    txQueryRawUnsafeMock.mockResolvedValueOnce([{ id: 777 }]);
+    const order = canonicalOrder({ id: 503, order_number: 'ORD-IPD-503' });
+    txQueryRawUnsafeMock
+      .mockResolvedValueOnce([{ ...order, status: 'ordered' }])
+      .mockResolvedValueOnce([{ id: 777 }]);
     txWardIndentFindUniqueMock.mockResolvedValueOnce({
       id: 777,
       indent_number: 'WI-EXISTING',
       items: [{ item_name: 'Ceftriaxone 1g Injection' }],
     });
 
-    const indent = await ipdSupportService.createWardIndentForClinicalMedicationOrder({
-      ...ORDER_BASE,
-      id: 503,
-      order_number: 'ORD-IPD-503',
-      route: 'iv',
-      details: {
-        medication_name: 'Ceftriaxone 1 g',
-        route: 'IV',
-        dose: '1 g',
-      },
-    });
+    const indent = await ipdSupportService.createWardIndentForClinicalMedicationOrder(order);
 
     expect(indent.id).toBe(777);
     expect(txWardIndentFindUniqueMock).toHaveBeenCalledWith({
@@ -337,14 +775,23 @@ describe('ipdSupportService.createWardIndentForClinicalMedicationOrder — catal
 
     it('informs pharmacy at LOW priority with the manual-fallback body by default', async () => {
       delete process.env.PHARMACY_WARD_INDENT_PUSH_ENABLED;
-      mockIndentCreation({ id: 404, name: 'Paracetamol 500mg Tablet', unit_price: '2.00' });
-
-      await ipdSupportService.createWardIndentForClinicalMedicationOrder({
-        ...ORDER_BASE,
+      const order = canonicalOrder({
         id: 504,
         order_number: 'ORD-IPD-504',
-        details: { medication_name: 'Paracetamol', route: 'oral', dose: '500mg' },
+        route: 'oral',
+        details: {
+          medication_name: 'Paracetamol',
+          catalog_id: 404,
+          quantity_requested: 10,
+          unit: 'tablet',
+        },
       });
+      mockIndentCreation(
+        { id: 404, name: 'Paracetamol 500mg Tablet', unit_price: '2.00' },
+        order,
+      );
+
+      await ipdSupportService.createWardIndentForClinicalMedicationOrder(order);
 
       expect(sendStaffNotificationsMock).toHaveBeenCalledTimes(1);
       const payload = sendStaffNotificationsMock.mock.calls[0][0];
@@ -369,14 +816,23 @@ describe('ipdSupportService.createWardIndentForClinicalMedicationOrder — catal
 
     it('restores the HIGH dispatch alert when the operator flips the flag on', async () => {
       process.env.PHARMACY_WARD_INDENT_PUSH_ENABLED = 'true';
-      mockIndentCreation({ id: 405, name: 'Paracetamol 500mg Tablet', unit_price: '2.00' });
-
-      await ipdSupportService.createWardIndentForClinicalMedicationOrder({
-        ...ORDER_BASE,
+      const order = canonicalOrder({
         id: 505,
         order_number: 'ORD-IPD-505',
-        details: { medication_name: 'Paracetamol', route: 'oral', dose: '500mg' },
+        route: 'oral',
+        details: {
+          medication_name: 'Paracetamol',
+          catalog_id: 405,
+          quantity_requested: 10,
+          unit: 'tablet',
+        },
       });
+      mockIndentCreation(
+        { id: 405, name: 'Paracetamol 500mg Tablet', unit_price: '2.00' },
+        order,
+      );
+
+      await ipdSupportService.createWardIndentForClinicalMedicationOrder(order);
 
       const payload = sendStaffNotificationsMock.mock.calls[0][0];
       expect(payload.priority).toBe('HIGH');

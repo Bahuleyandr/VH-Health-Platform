@@ -345,7 +345,9 @@ describe('Lab worklist + manual result validation — deep integration', () => {
     });
 
     it('materializes a STAT bulk EMR lab order onto the lab worklist (D66)', async () => {
-      const res = await doctor.post('/api/v1/emr/orders/bulk').send({
+      const res = await doctor.post('/api/v1/emr/orders/bulk')
+        .set('Idempotency-Key', `lab-worklist-bulk-${IDEMPOTENCY_RUN}`)
+        .send({
         orders: [
           {
             patient_uid: PATIENT_ER_UID,
