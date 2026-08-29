@@ -4501,7 +4501,7 @@ BEGIN
     IF movement_record.inventory_item_id IS DISTINCT FROM usage_record.inventory_item_id
        OR movement_record.inventory_batch_id IS DISTINCT FROM usage_record.inventory_batch_id
        OR movement_record.movement_kind IS DISTINCT FROM
-            CASE WHEN usage_record.wasted THEN 'dispose' ELSE 'issue' END
+            (CASE WHEN usage_record.wasted THEN 'dispose' ELSE 'issue' END)
        OR movement_record.quantity_delta >= 0
        OR movement_record.performed_by::text
             IS DISTINCT FROM movement_record.metadata->>'canonical_actor_uid'

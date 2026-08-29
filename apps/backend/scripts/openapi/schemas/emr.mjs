@@ -2130,7 +2130,8 @@ export const schemas = {
       orders: {
         type: 'array',
         minItems: 1,
-        maxItems: 50
+        maxItems: 50,
+        items: { $ref: '#/components/schemas/EmrCreateOrderRequest' },
       },
     },
     oneOf: [

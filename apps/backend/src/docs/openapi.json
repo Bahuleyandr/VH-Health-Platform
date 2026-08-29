@@ -23296,7 +23296,10 @@
           "orders": {
             "type": "array",
             "minItems": 1,
-            "maxItems": 50
+            "maxItems": 50,
+            "items": {
+              "$ref": "#/components/schemas/EmrCreateOrderRequest"
+            }
           }
         },
         "oneOf": [
@@ -45401,23 +45404,28 @@
           },
           "dispensed_quantity": {
             "type": "number",
-            "exclusiveMinimum": 0
+            "minimum": 0,
+            "exclusiveMinimum": true
           },
           "dispensed_qty": {
             "type": "number",
-            "exclusiveMinimum": 0
+            "minimum": 0,
+            "exclusiveMinimum": true
           },
           "qty": {
             "type": "number",
-            "exclusiveMinimum": 0
+            "minimum": 0,
+            "exclusiveMinimum": true
           },
           "quantity": {
             "type": "number",
-            "exclusiveMinimum": 0
+            "minimum": 0,
+            "exclusiveMinimum": true
           },
           "dispensed_quantity_ml": {
             "type": "number",
-            "exclusiveMinimum": 0
+            "minimum": 0,
+            "exclusiveMinimum": true
           },
           "prescribed_dose": {
             "type": "string",
@@ -47386,7 +47394,8 @@
               },
               "weight_kg": {
                 "type": "number",
-                "exclusiveMinimum": 0,
+                "minimum": 0,
+                "exclusiveMinimum": true,
                 "nullable": true
               },
               "allergies": {
@@ -49551,11 +49560,13 @@
           },
           "quantity": {
             "type": "number",
-            "exclusiveMinimum": 0
+            "minimum": 0,
+            "exclusiveMinimum": true
           },
           "unit_price": {
             "type": "number",
-            "exclusiveMinimum": 0
+            "minimum": 0,
+            "exclusiveMinimum": true
           },
           "line_total": {
             "type": "number",
@@ -49692,7 +49703,8 @@
           },
           "required_quantity": {
             "type": "number",
-            "exclusiveMinimum": 0
+            "minimum": 0,
+            "exclusiveMinimum": true
           },
           "payment_mode": {
             "type": "string",
@@ -49857,7 +49869,8 @@
           },
           "ordered_qty": {
             "type": "number",
-            "exclusiveMinimum": 0
+            "minimum": 0,
+            "exclusiveMinimum": true
           },
           "dispensed_qty": {
             "type": "number",
@@ -49877,7 +49890,8 @@
           },
           "price": {
             "type": "number",
-            "exclusiveMinimum": 0
+            "minimum": 0,
+            "exclusiveMinimum": true
           },
           "inventory_billable_total": {
             "type": "number",
@@ -49972,7 +49986,8 @@
           },
           "quantity": {
             "type": "number",
-            "exclusiveMinimum": 0
+            "minimum": 0,
+            "exclusiveMinimum": true
           },
           "witness_approval_id": {
             "oneOf": [
@@ -50042,22 +50057,26 @@
           },
           "quantity": {
             "type": "number",
-            "exclusiveMinimum": 0,
+            "minimum": 0,
+            "exclusiveMinimum": true,
             "nullable": true
           },
           "qty": {
             "type": "number",
-            "exclusiveMinimum": 0,
+            "minimum": 0,
+            "exclusiveMinimum": true,
             "nullable": true
           },
           "ordered_qty": {
             "type": "number",
-            "exclusiveMinimum": 0,
+            "minimum": 0,
+            "exclusiveMinimum": true,
             "nullable": true
           },
           "prescribed_qty": {
             "type": "number",
-            "exclusiveMinimum": 0,
+            "minimum": 0,
+            "exclusiveMinimum": true,
             "nullable": true
           },
           "dispensed_qty": {
@@ -50072,7 +50091,8 @@
           },
           "price": {
             "type": "number",
-            "exclusiveMinimum": 0,
+            "minimum": 0,
+            "exclusiveMinimum": true,
             "nullable": true
           },
           "line_total": {
@@ -50142,22 +50162,26 @@
           },
           "quantity": {
             "type": "number",
-            "exclusiveMinimum": 0,
+            "minimum": 0,
+            "exclusiveMinimum": true,
             "nullable": true
           },
           "qty": {
             "type": "number",
-            "exclusiveMinimum": 0,
+            "minimum": 0,
+            "exclusiveMinimum": true,
             "nullable": true
           },
           "ordered_qty": {
             "type": "number",
-            "exclusiveMinimum": 0,
+            "minimum": 0,
+            "exclusiveMinimum": true,
             "nullable": true
           },
           "prescribed_qty": {
             "type": "number",
-            "exclusiveMinimum": 0,
+            "minimum": 0,
+            "exclusiveMinimum": true,
             "nullable": true
           },
           "dispensed_qty": {
@@ -50172,7 +50196,8 @@
           },
           "price": {
             "type": "number",
-            "exclusiveMinimum": 0,
+            "minimum": 0,
+            "exclusiveMinimum": true,
             "nullable": true
           },
           "line_total": {
@@ -50317,7 +50342,8 @@
           },
           "quantity": {
             "type": "number",
-            "exclusiveMinimum": 0
+            "minimum": 0,
+            "exclusiveMinimum": true
           }
         }
       },
@@ -50733,22 +50759,26 @@
           },
           "quantity": {
             "type": "number",
-            "exclusiveMinimum": 0,
+            "minimum": 0,
+            "exclusiveMinimum": true,
             "nullable": true
           },
           "qty": {
             "type": "number",
-            "exclusiveMinimum": 0,
+            "minimum": 0,
+            "exclusiveMinimum": true,
             "nullable": true
           },
           "ordered_qty": {
             "type": "number",
-            "exclusiveMinimum": 0,
+            "minimum": 0,
+            "exclusiveMinimum": true,
             "nullable": true
           },
           "prescribed_qty": {
             "type": "number",
-            "exclusiveMinimum": 0,
+            "minimum": 0,
+            "exclusiveMinimum": true,
             "nullable": true
           },
           "dispensed_qty": {
@@ -50763,7 +50793,8 @@
           },
           "price": {
             "type": "number",
-            "exclusiveMinimum": 0,
+            "minimum": 0,
+            "exclusiveMinimum": true,
             "nullable": true
           },
           "line_total": {
@@ -51284,7 +51315,8 @@
           },
           "quantity": {
             "type": "number",
-            "exclusiveMinimum": 0,
+            "minimum": 0,
+            "exclusiveMinimum": true,
             "nullable": true
           }
         }
@@ -51764,7 +51796,10 @@
               },
               "blockers": {
                 "type": "array",
-                "maxItems": 0
+                "maxItems": 0,
+                "items": {
+                  "$ref": "#/components/schemas/PharmacyOrderSafetyFinding"
+                }
               },
               "warnings": {
                 "type": "array",
@@ -52166,7 +52201,8 @@
           },
           "quantity_delta": {
             "type": "number",
-            "exclusiveMinimum": 0
+            "minimum": 0,
+            "exclusiveMinimum": true
           },
           "reference_type": {
             "type": "string",
@@ -52257,7 +52293,8 @@
           },
           "quantity_delta": {
             "type": "number",
-            "exclusiveMinimum": 0
+            "minimum": 0,
+            "exclusiveMinimum": true
           },
           "reference_type": {
             "type": "string",
@@ -52480,7 +52517,8 @@
               },
               "quantity": {
                 "type": "number",
-                "exclusiveMinimum": 0
+                "minimum": 0,
+                "exclusiveMinimum": true
               },
               "patient_uid": {
                 "type": "string",

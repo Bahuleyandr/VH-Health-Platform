@@ -432,8 +432,35 @@ CREATE INDEX IF NOT EXISTS idx_pg_refund_recovery_projection_drift
      OR (status = 'failed' AND recovery_state <> 'failed');
 
 -- Register the refund obligation as a typed domain-evidence task/SLA contract.
--- Every extension is anchored against the exact predecessor function and aborts
--- the migration if that predecessor drifted; no existing contract is weakened.
+--
+-- Two shapes are used, chosen per function from how that predecessor is
+-- actually structured at this migration's turn:
+--
+--   * Rename-and-delegate - the pattern established by 744/745/746/748 - for
+--     care_pathway_assert_task_sla_source_binding and
+--     care_pathway_assert_task_sla_completion_receipt. Those migrations have
+--     already wrapped both, so their live top-level bodies are thin delegating
+--     wrappers and the historical rule_code dispatch now lives several
+--     delegation levels down; a textual anchor against the top-level body
+--     matches zero times. 752 becomes the new outermost wrapper: it claims only
+--     the gateway-refund obligation and PERFORMs the immediately preceding
+--     definition - renamed to ..._pre_752, by name, whatever its nesting depth -
+--     for everything else, so no existing rule_code branch is re-implemented,
+--     moved, or dropped.
+--
+--   * In-place extension for the four functions that nothing in this stack has
+--     wrapped or redefined, whose anchors are therefore still present in the
+--     live body exactly once:
+--       care_pathway_route_actionable_roles(text)     - last defined by 743
+--       tasks_sync_workflow_sla_compat()              - 580 body + 594 patch
+--       care_pathway_assert_human_sla_task_obligation - last defined by 585
+--       care_pathway_assert_actionable_task_owner     - 586 body + 594 patch
+--     tasks_sync_workflow_sla_compat() could not be delegated to in any case:
+--     PL/pgSQL refuses a direct call to a trigger function.
+--
+-- Every extension of either shape is anchored against the exact predecessor and
+-- aborts the migration if that predecessor drifted; no existing contract is
+-- weakened.
 DO $gwr_task_sla_contract$
 DECLARE
   function_definition TEXT;
@@ -443,6 +470,12 @@ DECLARE
 BEGIN
   SELECT pg_get_functiondef('care_pathway_route_actionable_roles(text)'::regprocedure)
     INTO function_definition;
+  -- Function bodies are stored VERBATIM by Postgres, so a function created by a
+  -- migration file with CRLF endings (585 is one) carries \r\n inside its body,
+  -- while the multi-line anchors below are written with bare \n and can never
+  -- match it. Normalize first so an anchor matches either form. Note replace() is
+  -- a literal (non-regex) substitution, so the anchor must equal the real bytes.
+  function_definition := replace(function_definition, E'\r\n', E'\n');
   IF POSITION('payment_gateway_refund_recovery' IN function_definition) = 0 THEN
     anchor := $anchor$WHEN obligation_rule_code = 'cold_chain_excursion_ack' THEN$anchor$;
     SELECT COUNT(*)::integer INTO match_count
@@ -459,6 +492,12 @@ BEGIN
 
   SELECT pg_get_functiondef('tasks_sync_workflow_sla_compat()'::regprocedure)
     INTO function_definition;
+  -- Function bodies are stored VERBATIM by Postgres, so a function created by a
+  -- migration file with CRLF endings (585 is one) carries \r\n inside its body,
+  -- while the multi-line anchors below are written with bare \n and can never
+  -- match it. Normalize first so an anchor matches either form. Note replace() is
+  -- a literal (non-regex) substitution, so the anchor must equal the real bytes.
+  function_definition := replace(function_definition, E'\r\n', E'\n');
   IF POSITION($needle$sla_record.rule_code = 'payment_gateway_refund_recovery'$needle$ IN function_definition) = 0 THEN
     anchor := $anchor$ELSIF sla_record.rule_code = 'mortuary_unclaimed_body' THEN$anchor$;
     SELECT COUNT(*)::integer INTO match_count
@@ -486,98 +525,14 @@ BEGIN
   END IF;
 
   SELECT pg_get_functiondef(
-    'care_pathway_assert_task_sla_source_binding(uuid,integer)'::regprocedure
-  ) INTO function_definition;
-  IF POSITION($needle$sla_record.rule_code = 'payment_gateway_refund_recovery'$needle$ IN function_definition) = 0 THEN
-    anchor := $anchor$ELSIF FOUND AND sla_record.rule_code = 'mortuary_unclaimed_body' THEN$anchor$;
-    SELECT COUNT(*)::integer INTO match_count
-      FROM regexp_matches(function_definition, anchor, 'g');
-    IF match_count <> 1 THEN
-      RAISE EXCEPTION 'Cannot extend task source binding: expected one domain anchor, found %', match_count;
-    END IF;
-    replacement := $replacement$ELSIF FOUND AND sla_record.rule_code = 'payment_gateway_refund_recovery' THEN
-    valid_binding := task_record.sla_completion_semantics = 'domain_evidence'
-      AND task_record.related_resource_type IS NOT DISTINCT FROM 'payment_gateway_refunds'
-      AND NULLIF(BTRIM(task_record.related_resource_id), '') IS NOT NULL
-      AND sla_record.source_table IS NOT DISTINCT FROM 'payment_gateway_refunds'
-      AND sla_record.source_id IS NOT DISTINCT FROM task_record.related_resource_id
-       AND EXISTS (
-         SELECT 1 FROM payment_gateway_refunds AS refund
-          WHERE refund.tenant_id = task_record.tenant_id
-            AND refund.id::text = task_record.related_resource_id
-       );
-  ELSIF FOUND AND sla_record.rule_code = 'mortuary_unclaimed_body' THEN$replacement$;
-    EXECUTE replace(function_definition, anchor, replacement);
-  END IF;
-
-  SELECT pg_get_functiondef(
-    'care_pathway_assert_task_sla_completion_receipt(uuid,integer)'::regprocedure
-  ) INTO function_definition;
-  IF POSITION($needle$sla_record.rule_code = 'payment_gateway_refund_recovery'$needle$ IN function_definition) = 0 THEN
-    anchor := $anchor$IF sla_record.rule_code = 'mortuary_unclaimed_body' THEN$anchor$;
-    SELECT COUNT(*)::integer INTO match_count
-      FROM regexp_matches(function_definition, anchor, 'g');
-    IF match_count <> 1 THEN
-      RAISE EXCEPTION 'Cannot extend task completion receipt: expected one domain anchor, found %', match_count;
-    END IF;
-    replacement := $replacement$IF sla_record.rule_code = 'payment_gateway_refund_recovery' THEN
-      IF task_record.related_resource_type IS DISTINCT FROM 'payment_gateway_refunds'
-         OR evidence->>'resource_type' IS DISTINCT FROM 'payment_gateway_refunds'
-         OR evidence->>'resource_id' IS DISTINCT FROM task_record.related_resource_id
-         OR NOT EXISTS (
-           SELECT 1
-             FROM payment_gateway_refunds AS refund
-             LEFT JOIN billing_refunds AS billing
-               ON billing.tenant_id = refund.tenant_id
-              AND billing.id = refund.billing_refund_id
-            WHERE refund.tenant_id = task_record.tenant_id
-              AND refund.id::text = task_record.related_resource_id
-              AND (
-                (
-                  evidence->>'kind' = 'payment_gateway_refund_provider_status'
-                  AND refund.status IN ('processed', 'failed')
-                  AND evidence->>'provider_status' = refund.status
-                  AND evidence->>'provider_refund_id'
-                        IS NOT DISTINCT FROM refund.provider_refund_id
-                )
-                OR
-                (
-                  evidence->>'kind' = 'payment_gateway_refund_operator_reconciliation'
-                  AND refund.reconciled_at IS NOT NULL
-                  AND refund.reconciliation_disposition = 'provider_failed'
-                  AND refund.provider_refund_id IS NOT NULL
-                  AND length(btrim(refund.provider_refund_id)) BETWEEN 1 AND 120
-                  AND (
-                    (refund.provider = 'razorpay'
-                     AND refund.provider_refund_id ~ '^rfnd_[A-Za-z0-9]+$')
-                    OR
-                    (refund.provider <> 'razorpay'
-                     AND refund.provider_refund_id !~* '(\*{2,}|masked|redacted)')
-                  )
-                  AND refund.status = 'failed'
-                  AND evidence->>'disposition' = refund.reconciliation_disposition
-                  AND evidence->'evidence' = refund.reconciliation_evidence
-                  AND evidence->>'reviewed_by' = refund.reconciled_by::text
-                  AND refund.reconciled_by IS DISTINCT FROM refund.initiated_by
-                  AND refund.reconciled_by IS DISTINCT FROM billing.raised_by
-                  AND refund.reconciled_by IS DISTINCT FROM billing.approved_by
-                )
-              )
-         )
-      THEN
-        RAISE EXCEPTION 'gateway refund domain-evidence receipt is not authoritative'
-          USING ERRCODE = 'check_violation';
-      END IF;
-      RETURN;
-    END IF;
-
-    IF sla_record.rule_code = 'mortuary_unclaimed_body' THEN$replacement$;
-    EXECUTE replace(function_definition, anchor, replacement);
-  END IF;
-
-  SELECT pg_get_functiondef(
     'care_pathway_assert_human_sla_task_obligation(uuid,uuid)'::regprocedure
   ) INTO function_definition;
+  -- Function bodies are stored VERBATIM by Postgres, so a function created by a
+  -- migration file with CRLF endings (585 is one) carries \r\n inside its body,
+  -- while the multi-line anchors below are written with bare \n and can never
+  -- match it. Normalize first so an anchor matches either form. Note replace() is
+  -- a literal (non-regex) substitution, so the anchor must equal the real bytes.
+  function_definition := replace(function_definition, E'\r\n', E'\n');
   IF POSITION($needle$sla_record.rule_code = 'payment_gateway_refund_recovery'$needle$ IN function_definition) = 0 THEN
     anchor := $anchor$ELSIF sla_record.rule_code = 'mortuary_unclaimed_body' THEN
     expected_semantics := 'domain_evidence';$anchor$;
@@ -596,6 +551,12 @@ BEGIN
   SELECT pg_get_functiondef(
     'care_pathway_assert_actionable_task_owner(uuid,integer)'::regprocedure
   ) INTO function_definition;
+  -- Function bodies are stored VERBATIM by Postgres, so a function created by a
+  -- migration file with CRLF endings (585 is one) carries \r\n inside its body,
+  -- while the multi-line anchors below are written with bare \n and can never
+  -- match it. Normalize first so an anchor matches either form. Note replace() is
+  -- a literal (non-regex) substitution, so the anchor must equal the real bytes.
+  function_definition := replace(function_definition, E'\r\n', E'\n');
   IF POSITION($needle$'payment_gateway_refund_recovery'$needle$ IN function_definition) = 0 THEN
     anchor := $anchor$'critical_result_ack',[[:space:]]*'cold_chain_excursion_ack',[[:space:]]*'referral_response',[[:space:]]*'mortuary_unclaimed_body'$anchor$;
     SELECT COUNT(*)::integer INTO match_count
@@ -608,6 +569,374 @@ BEGIN
   END IF;
 END
 $gwr_task_sla_contract$;
+
+-- care_pathway_assert_task_sla_source_binding is already a delegating wrapper
+-- (748 over 746 over 745 over the 744 dispatch), so the gateway-refund branch
+-- is added by wrapping it once more rather than by editing a body that is no
+-- longer where the dispatch lives. The rename is skipped when this extension is
+-- already installed, so a re-run cannot double-wrap.
+DO $gwr_source_binding_rename$
+BEGIN
+  IF pg_catalog.to_regprocedure(
+       'public.care_pathway_assert_task_sla_source_binding(uuid,integer)'
+     ) IS NULL
+  THEN
+    RAISE EXCEPTION
+      'Cannot extend task source binding: care_pathway_assert_task_sla_source_binding(uuid,integer) is absent';
+  END IF;
+
+  IF pg_catalog.to_regprocedure(
+       'public.care_pathway_assert_task_sla_source_binding_pre_752(uuid,integer)'
+     ) IS NULL
+  THEN
+    IF POSITION(
+         'payment_gateway_refund_recovery' IN pg_catalog.pg_get_functiondef(
+           'public.care_pathway_assert_task_sla_source_binding(uuid,integer)'::regprocedure
+         )
+       ) > 0
+    THEN
+      RAISE EXCEPTION
+        'Cannot extend task source binding: the live function already carries a gateway refund branch without a 752 predecessor';
+    END IF;
+
+    EXECUTE 'ALTER FUNCTION public.care_pathway_assert_task_sla_source_binding(UUID, INTEGER)'
+      || ' RENAME TO care_pathway_assert_task_sla_source_binding_pre_752';
+  END IF;
+END
+$gwr_source_binding_rename$;
+
+CREATE OR REPLACE FUNCTION public.care_pathway_assert_task_sla_source_binding(
+  target_tenant_id UUID,
+  target_task_id INTEGER
+)
+RETURNS void
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $gwr_source_binding$
+DECLARE
+  task_record public.tasks%ROWTYPE;
+  sla_record public.workflow_sla_instances%ROWTYPE;
+  sla_found BOOLEAN := FALSE;
+  valid_binding BOOLEAN := FALSE;
+BEGIN
+  SELECT task.*
+    INTO task_record
+    FROM public.tasks task
+   WHERE task.tenant_id = target_tenant_id
+     AND task.id = target_task_id;
+
+  IF FOUND AND task_record.workflow_sla_instance_id IS NOT NULL THEN
+    SELECT sla.*
+      INTO sla_record
+      FROM public.workflow_sla_instances sla
+     WHERE sla.tenant_id = task_record.tenant_id
+       AND sla.id = task_record.workflow_sla_instance_id;
+    sla_found := FOUND;
+  END IF;
+
+  -- The gateway-refund branch sits after the workflow-step branch in the
+  -- inherited dispatch, so a refund-rule task that is also bound to a workflow
+  -- step keeps the workflow-step contract. Everything else - unknown task,
+  -- unlinked task, dangling SLA, any other rule_code - is the predecessor's.
+  IF NOT sla_found
+     OR task_record.workflow_step_id IS NOT NULL
+     OR sla_record.rule_code IS DISTINCT FROM 'payment_gateway_refund_recovery'
+  THEN
+    PERFORM public.care_pathway_assert_task_sla_source_binding_pre_752(
+      target_tenant_id,
+      target_task_id
+    );
+    RETURN;
+  END IF;
+
+  -- Shared prelude, carried verbatim from the inherited contract so the refund
+  -- branch is guarded exactly as it would be inside that dispatch chain. The
+  -- SLA row is known to exist on this path.
+  IF task_record.metadata->>'sla_instance_id'
+       IS DISTINCT FROM task_record.workflow_sla_instance_id::text
+     OR NULLIF(BTRIM(task_record.metadata->>'sla_key'), '')
+       IS DISTINCT FROM sla_record.rule_code
+  THEN
+    RAISE EXCEPTION
+      'typed task SLA legacy aliases must equal the linked instance and rule'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  IF task_record.due_at IS NULL THEN
+    RAISE EXCEPTION
+      'linked task deadline must be present'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  IF task_record.status IN ('open', 'in_progress', 'blocked', 'overdue')
+     AND (
+       sla_record.due_at IS NULL
+       OR task_record.due_at IS DISTINCT FROM sla_record.due_at
+     )
+  THEN
+    RAISE EXCEPTION
+      'task and linked SLA deadlines must both be present and exactly equal'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  IF task_record.sla_completion_semantics = 'acknowledgement'
+     AND task_record.status = 'in_progress'
+     AND sla_record.completed_at IS NULL
+  THEN
+    RAISE EXCEPTION
+      'acknowledged task must have a completed linked SLA clock'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  IF task_record.sla_completion_semantics = 'acknowledgement'
+     AND task_record.status IN ('open', 'blocked', 'overdue')
+     AND (
+       sla_record.completed_at IS NOT NULL
+       OR sla_record.status NOT IN ('active', 'breached', 'escalated')
+     )
+  THEN
+    RAISE EXCEPTION
+      'actionable acknowledgement task must have an incomplete linked SLA clock'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  valid_binding := task_record.sla_completion_semantics = 'domain_evidence'
+    AND task_record.related_resource_type IS NOT DISTINCT FROM 'payment_gateway_refunds'
+    AND NULLIF(BTRIM(task_record.related_resource_id), '') IS NOT NULL
+    AND sla_record.source_table IS NOT DISTINCT FROM 'payment_gateway_refunds'
+    AND sla_record.source_id IS NOT DISTINCT FROM task_record.related_resource_id
+    AND EXISTS (
+      SELECT 1 FROM public.payment_gateway_refunds AS refund
+       WHERE refund.tenant_id = task_record.tenant_id
+         AND refund.id::text = task_record.related_resource_id
+    );
+
+  IF NOT valid_binding THEN
+    RAISE EXCEPTION
+      'task and linked SLA source do not describe the same obligation'
+      USING ERRCODE = 'check_violation';
+  END IF;
+END
+$gwr_source_binding$;
+
+-- care_pathway_assert_task_sla_completion_receipt is wrapped the same way
+-- (748 over 746 over 745 over 744's two wrappers over the 580 dispatch), so the
+-- gateway-refund receipt is added as one more outer wrapper. Only the shared
+-- domain-evidence prelude that the refund branch sits behind is carried over;
+-- every other receipt contract stays with the predecessor.
+DO $gwr_completion_receipt_rename$
+BEGIN
+  IF pg_catalog.to_regprocedure(
+       'public.care_pathway_assert_task_sla_completion_receipt(uuid,integer)'
+     ) IS NULL
+  THEN
+    RAISE EXCEPTION
+      'Cannot extend task completion receipt: care_pathway_assert_task_sla_completion_receipt(uuid,integer) is absent';
+  END IF;
+
+  IF pg_catalog.to_regprocedure(
+       'public.care_pathway_assert_task_sla_completion_receipt_pre_752(uuid,integer)'
+     ) IS NULL
+  THEN
+    IF POSITION(
+         'payment_gateway_refund_recovery' IN pg_catalog.pg_get_functiondef(
+           'public.care_pathway_assert_task_sla_completion_receipt(uuid,integer)'::regprocedure
+         )
+       ) > 0
+    THEN
+      RAISE EXCEPTION
+        'Cannot extend task completion receipt: the live function already carries a gateway refund branch without a 752 predecessor';
+    END IF;
+
+    EXECUTE 'ALTER FUNCTION public.care_pathway_assert_task_sla_completion_receipt(UUID, INTEGER)'
+      || ' RENAME TO care_pathway_assert_task_sla_completion_receipt_pre_752';
+  END IF;
+END
+$gwr_completion_receipt_rename$;
+
+CREATE OR REPLACE FUNCTION public.care_pathway_assert_task_sla_completion_receipt(
+  target_tenant_id UUID,
+  target_task_id INTEGER
+)
+RETURNS void
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $gwr_completion_receipt$
+DECLARE
+  task_record public.tasks%ROWTYPE;
+  sla_record public.workflow_sla_instances%ROWTYPE;
+  sla_found BOOLEAN := FALSE;
+  evidence JSONB;
+BEGIN
+  SELECT task.*
+    INTO task_record
+    FROM public.tasks task
+   WHERE task.tenant_id = target_tenant_id
+     AND task.id = target_task_id;
+
+  IF FOUND AND task_record.workflow_sla_instance_id IS NOT NULL THEN
+    SELECT sla.*
+      INTO sla_record
+      FROM public.workflow_sla_instances sla
+     WHERE sla.tenant_id = task_record.tenant_id
+       AND sla.id = task_record.workflow_sla_instance_id;
+    sla_found := FOUND;
+  END IF;
+
+  -- The gateway-refund receipt lives inside the domain-evidence arm of the
+  -- inherited dispatch. Anything else - unknown task, unlinked task, 'none' or
+  -- acknowledgement semantics, a missing SLA row (which the predecessor rejects
+  -- with its own error), any other rule_code - stays with the predecessor.
+  IF NOT sla_found
+     OR task_record.sla_completion_semantics IS DISTINCT FROM 'domain_evidence'
+     OR sla_record.rule_code IS DISTINCT FROM 'payment_gateway_refund_recovery'
+  THEN
+    PERFORM public.care_pathway_assert_task_sla_completion_receipt_pre_752(
+      target_tenant_id,
+      target_task_id
+    );
+    RETURN;
+  END IF;
+
+  -- Shared domain-evidence prelude, carried verbatim from the inherited
+  -- contract so the refund receipt is guarded exactly as it would be inside
+  -- that dispatch chain.
+  IF task_record.status IN ('open', 'in_progress', 'blocked', 'overdue') THEN
+    IF sla_record.completed_at IS NOT NULL
+       OR sla_record.status NOT IN ('active', 'breached', 'escalated')
+       OR COALESCE(sla_record.metadata, '{}'::jsonb) ?| ARRAY[
+            'completed_via',
+            'completed_by_task',
+            'completed_by',
+            'acknowledged_at',
+            'acknowledged_by',
+            'acknowledged_via',
+            'completion_evidence'
+          ]
+    THEN
+      RAISE EXCEPTION
+        'actionable domain-evidence task must have a clean incomplete SLA clock'
+        USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN;
+  END IF;
+
+  IF task_record.status IN ('completed', 'cancelled')
+     AND sla_record.completed_at IS NOT NULL
+     AND task_record.due_at IS DISTINCT FROM sla_record.due_at
+  THEN
+    RAISE EXCEPTION
+      'terminal domain-evidence task and terminal SLA deadlines must exactly match'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  evidence := sla_record.metadata->'completion_evidence';
+  IF task_record.status NOT IN ('completed', 'cancelled')
+     OR sla_record.completed_at IS NULL
+     OR sla_record.status NOT IN ('completed', 'breached', 'escalated')
+     OR sla_record.metadata->>'completed_via' IS DISTINCT FROM 'domain_evidence'
+     OR sla_record.metadata->>'completed_by_task' IS DISTINCT FROM task_record.id::text
+     OR jsonb_typeof(evidence) IS DISTINCT FROM 'object'
+  THEN
+    RAISE EXCEPTION
+      'terminal domain-evidence task requires its exact completed SLA receipt'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  IF task_record.related_resource_type IS DISTINCT FROM 'payment_gateway_refunds'
+     OR evidence->>'resource_type' IS DISTINCT FROM 'payment_gateway_refunds'
+     OR evidence->>'resource_id' IS DISTINCT FROM task_record.related_resource_id
+     OR NOT EXISTS (
+       SELECT 1
+         FROM public.payment_gateway_refunds AS refund
+         LEFT JOIN public.billing_refunds AS billing
+           ON billing.tenant_id = refund.tenant_id
+          AND billing.id = refund.billing_refund_id
+        WHERE refund.tenant_id = task_record.tenant_id
+          AND refund.id::text = task_record.related_resource_id
+          AND (
+            (
+              evidence->>'kind' = 'payment_gateway_refund_provider_status'
+              AND refund.status IN ('processed', 'failed')
+              AND evidence->>'provider_status' = refund.status
+              AND evidence->>'provider_refund_id'
+                    IS NOT DISTINCT FROM refund.provider_refund_id
+            )
+            OR
+            (
+              evidence->>'kind' = 'payment_gateway_refund_operator_reconciliation'
+              AND refund.reconciled_at IS NOT NULL
+              AND refund.reconciliation_disposition = 'provider_failed'
+              AND refund.provider_refund_id IS NOT NULL
+              AND length(btrim(refund.provider_refund_id)) BETWEEN 1 AND 120
+              AND (
+                (refund.provider = 'razorpay'
+                 AND refund.provider_refund_id ~ '^rfnd_[A-Za-z0-9]+$')
+                OR
+                (refund.provider <> 'razorpay'
+                 AND refund.provider_refund_id !~* '(\*{2,}|masked|redacted)')
+              )
+              AND refund.status = 'failed'
+              AND evidence->>'disposition' = refund.reconciliation_disposition
+              AND evidence->'evidence' = refund.reconciliation_evidence
+              AND evidence->>'reviewed_by' = refund.reconciled_by::text
+              AND refund.reconciled_by IS DISTINCT FROM refund.initiated_by
+              AND refund.reconciled_by IS DISTINCT FROM billing.raised_by
+              AND refund.reconciled_by IS DISTINCT FROM billing.approved_by
+            )
+          )
+     )
+  THEN
+    RAISE EXCEPTION 'gateway refund domain-evidence receipt is not authoritative'
+      USING ERRCODE = 'check_violation';
+  END IF;
+END
+$gwr_completion_receipt$;
+
+-- The two new wrappers are freshly created objects, so they carry the default
+-- PUBLIC EXECUTE grant. Restore the closed default that 745/746/748 apply to
+-- every link in this delegation chain.
+REVOKE ALL PRIVILEGES ON FUNCTION
+  public.care_pathway_assert_task_sla_source_binding(UUID, INTEGER) FROM PUBLIC;
+REVOKE ALL PRIVILEGES ON FUNCTION
+  public.care_pathway_assert_task_sla_source_binding_pre_752(UUID, INTEGER) FROM PUBLIC;
+REVOKE ALL PRIVILEGES ON FUNCTION
+  public.care_pathway_assert_task_sla_completion_receipt(UUID, INTEGER) FROM PUBLIC;
+REVOKE ALL PRIVILEGES ON FUNCTION
+  public.care_pathway_assert_task_sla_completion_receipt_pre_752(UUID, INTEGER) FROM PUBLIC;
+
+DO $gwr_task_sla_runtime_privileges$
+DECLARE
+  runtime_role TEXT;
+  callable_function_name TEXT;
+  callable_functions CONSTANT TEXT[] := ARRAY[
+    'care_pathway_assert_task_sla_source_binding',
+    'care_pathway_assert_task_sla_source_binding_pre_752',
+    'care_pathway_assert_task_sla_completion_receipt',
+    'care_pathway_assert_task_sla_completion_receipt_pre_752'
+  ];
+BEGIN
+  FOREACH runtime_role IN ARRAY ARRAY['vhhealth_app', 'vhhealth_runtime']::TEXT[]
+  LOOP
+    IF pg_catalog.to_regrole(runtime_role) IS NULL THEN
+      CONTINUE;
+    END IF;
+    FOREACH callable_function_name IN ARRAY callable_functions
+    LOOP
+      EXECUTE pg_catalog.format(
+        'REVOKE ALL PRIVILEGES ON FUNCTION public.%I(UUID, INTEGER) FROM %I',
+        callable_function_name,
+        runtime_role
+      );
+      EXECUTE pg_catalog.format(
+        'GRANT EXECUTE ON FUNCTION public.%I(UUID, INTEGER) TO %I',
+        callable_function_name,
+        runtime_role
+      );
+    END LOOP;
+  END LOOP;
+END
+$gwr_task_sla_runtime_privileges$;
 
 -- Resource-side mutation must not be able to detach or falsify the deferred
 -- task/SLA contract after its task row has already passed validation.
