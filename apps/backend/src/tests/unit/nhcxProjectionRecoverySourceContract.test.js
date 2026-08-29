@@ -82,8 +82,8 @@ describe('accepted NHCX projection recovery source contract', () => {
     expect(migration).toMatch(/NEW\.cycle IS DISTINCT FROM OLD\.cycle/);
     expect(migration).toMatch(/task\.metadata->>'transport_response_sha256'=btrim\(NEW\.transport_response_sha256\)/);
     expect(migration).toMatch(/UPPER\(actor\.role\)=NEW\.actor_role/);
-    expect(routes).toMatch(/router\.get\([\s\S]*\/nhcx\/projections\/\:messageId/);
-    expect(routes).toMatch(/\/nhcx\/projections\/\:messageId\/retry/);
+    expect(routes).toMatch(/router\.get\([\s\S]*\/nhcx\/projections\/:messageId/);
+    expect(routes).toMatch(/\/nhcx\/projections\/:messageId\/retry/);
     expect(openapi).toMatch(/additionalProperties: false/);
     expect(openapi).toMatch(/expected_transport_response_sha256/);
     expect(staffRouter).toMatch(/nhcx_projection_message_id/);

@@ -12,6 +12,28 @@ import {
 import { assertPharmacyFacilityGrant } from '../pharmacy/pharmacyFacilityAuthorityService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
+// Local copy: the identical helper is module-private in
+// wardIndentWorkflowService.js, and that module imports from THIS one, so
+// importing it back would create a cycle. routes/pharmacy/
+// pharmacyOrderPatientGuards.js keeps its own copy for the same reason.
+const PG_INT4_MAX = 2147483647;
+
+function positiveInt(value, fieldName) {
+  if (typeof value === 'number') {
+    if (Number.isInteger(value) && value > 0 && value <= PG_INT4_MAX) return value;
+    throw AppError.badRequest(`${fieldName} must be a positive integer`);
+  }
+  const text = String(value ?? '').trim();
+  if (!/^[1-9][0-9]*$/.test(text)) {
+    throw AppError.badRequest(`${fieldName} must be a positive integer`);
+  }
+  const parsed = Number(text);
+  if (!Number.isInteger(parsed) || parsed > PG_INT4_MAX) {
+    throw AppError.badRequest(`${fieldName} must be a positive integer`);
+  }
+  return parsed;
+}
+
 const ACTIVE_ALLOCATION_STATUSES = ['reserved', 'partially_issued', 'issued'];
 
 function positiveId(value, fieldName) {

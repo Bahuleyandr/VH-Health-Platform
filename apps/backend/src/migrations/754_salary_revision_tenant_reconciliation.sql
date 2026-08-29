@@ -1491,9 +1491,9 @@ CREATE TRIGGER salary_revision_activation_terminal_immutable
 
 ALTER TABLE salary_revision_activation_jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE salary_revision_activation_jobs FORCE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS salary_revision_activation_jobs_tenant_isolation
+DROP POLICY IF EXISTS tenant_isolation
   ON salary_revision_activation_jobs;
-CREATE POLICY salary_revision_activation_jobs_tenant_isolation
+CREATE POLICY tenant_isolation
   ON salary_revision_activation_jobs
   AS PERMISSIVE
   FOR ALL
@@ -1683,9 +1683,9 @@ CREATE TRIGGER salary_revision_arrears_work_item_immutable
 
 ALTER TABLE salary_revision_arrears_work_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE salary_revision_arrears_work_items FORCE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS salary_revision_arrears_work_items_tenant_isolation
+DROP POLICY IF EXISTS tenant_isolation
   ON salary_revision_arrears_work_items;
-CREATE POLICY salary_revision_arrears_work_items_tenant_isolation
+CREATE POLICY tenant_isolation
   ON salary_revision_arrears_work_items
   AS PERMISSIVE
   FOR ALL
@@ -1756,9 +1756,9 @@ CREATE TRIGGER salary_arrears_command_receipts_append_only
 
 ALTER TABLE salary_arrears_command_receipts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE salary_arrears_command_receipts FORCE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS salary_arrears_command_receipts_tenant_isolation
+DROP POLICY IF EXISTS tenant_isolation
   ON salary_arrears_command_receipts;
-CREATE POLICY salary_arrears_command_receipts_tenant_isolation
+CREATE POLICY tenant_isolation
   ON salary_arrears_command_receipts
   AS PERMISSIVE
   FOR ALL
@@ -2017,9 +2017,9 @@ CREATE TRIGGER salary_revision_command_receipts_append_only
 
 ALTER TABLE salary_revision_command_receipts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE salary_revision_command_receipts FORCE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS salary_revision_command_receipts_tenant_isolation
+DROP POLICY IF EXISTS tenant_isolation
   ON salary_revision_command_receipts;
-CREATE POLICY salary_revision_command_receipts_tenant_isolation
+CREATE POLICY tenant_isolation
   ON salary_revision_command_receipts
   AS PERMISSIVE
   FOR ALL
@@ -2842,8 +2842,8 @@ CREATE TRIGGER bulk_revision_job_item_terminal_immutable
 
 ALTER TABLE bulk_revision_job_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bulk_revision_job_items FORCE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS bulk_revision_job_items_tenant_isolation ON bulk_revision_job_items;
-CREATE POLICY bulk_revision_job_items_tenant_isolation
+DROP POLICY IF EXISTS tenant_isolation ON bulk_revision_job_items;
+CREATE POLICY tenant_isolation
   ON bulk_revision_job_items
   AS PERMISSIVE
   FOR ALL
@@ -3095,9 +3095,9 @@ CREATE TRIGGER salary_revision_payable_reconciliation_immutable
 
 ALTER TABLE salary_revision_payables ENABLE ROW LEVEL SECURITY;
 ALTER TABLE salary_revision_payables FORCE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS salary_revision_payables_tenant_isolation
+DROP POLICY IF EXISTS tenant_isolation
   ON salary_revision_payables;
-CREATE POLICY salary_revision_payables_tenant_isolation
+CREATE POLICY tenant_isolation
   ON salary_revision_payables
   AS PERMISSIVE
   FOR ALL
@@ -3169,9 +3169,9 @@ CREATE TRIGGER salary_revision_activation_event_append_only
 
 ALTER TABLE salary_revision_activation_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE salary_revision_activation_events FORCE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS salary_revision_activation_events_tenant_isolation
+DROP POLICY IF EXISTS tenant_isolation
   ON salary_revision_activation_events;
-CREATE POLICY salary_revision_activation_events_tenant_isolation
+CREATE POLICY tenant_isolation
   ON salary_revision_activation_events
   AS PERMISSIVE
   FOR ALL

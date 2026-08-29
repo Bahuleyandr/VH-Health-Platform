@@ -448,7 +448,7 @@ async function failClaim(claim, failure) {
               THEN jsonb_build_object(
                 'code', 'salary_revision_activation_failed',
                 'attempt_count', attempt_count,
-                'message', $4
+                'message', $4::text
               ) ELSE outcome END,
             finalized_at = CASE WHEN $5::boolean THEN clock_timestamp() ELSE NULL END,
             updated_at = clock_timestamp()

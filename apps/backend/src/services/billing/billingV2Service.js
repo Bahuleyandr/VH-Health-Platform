@@ -7528,7 +7528,7 @@ export async function recordPharmacyFundingReconciliationDecision({
     let deactivatedIds = [];
     let voidedInvoiceIds = [];
     let monetaryCompensations = [];
-    let recomputedInvoices = [];
+    const recomputedInvoices = [];
     let invalidatedTpaDecisionIds = [];
     let terminalCompensation = null;
     if (!state.keeper) blockReason = 'KEEPER_NOT_ACTIVE';

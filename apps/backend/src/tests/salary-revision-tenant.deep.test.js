@@ -23,6 +23,12 @@ const TENANT_A = '00000000-0000-4000-8000-000000000001';
 const TENANT_B = '22222222-2222-4222-8222-222222222222';
 const STAFF_A = 'c0de0016-00a0-4000-8000-0000000000a1';
 const STAFF_B = 'c0de0016-00b0-4000-8000-0000000000b1';
+// Single array-valued parameter for `= ANY($1::uuid[])`. Passed via a
+// variable, the repo idiom (see billing-money-path-concurrency-deep.test.js),
+// because an inline array literal is indistinguishable from the mistaken
+// params-array form the raw-param lint rule exists to catch.
+const STAFF_UIDS = [STAFF_A, STAFF_B];
+const ACTOR_UIDS = [ADMIN_A, ADMIN_B, HR_A, HR_B];
 const ADMIN_A = 'c0de0016-00a0-4000-8000-0000000000a2';
 const ADMIN_B = 'c0de0016-00b0-4000-8000-0000000000b2';
 const HR_A = 'c0de0016-00a0-4000-8000-0000000000a3';
@@ -55,58 +61,58 @@ async function clean() {
       WHERE revision_id IN (
         SELECT id FROM salary_revisions WHERE staff_uid = ANY($1::uuid[])
       )`,
-    [STAFF_A, STAFF_B],
+    STAFF_UIDS,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM salary_revision_arrears_work_items WHERE staff_uid = ANY($1::uuid[])`,
-    [STAFF_A, STAFF_B],
+    STAFF_UIDS,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM salary_revision_activation_jobs
       WHERE revision_id IN (
         SELECT id FROM salary_revisions WHERE staff_uid = ANY($1::uuid[])
       )`,
-    [STAFF_A, STAFF_B],
+    STAFF_UIDS,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM salary_revision_command_receipts WHERE actor_uid = ANY($1::uuid[])`,
-    [ADMIN_A, ADMIN_B, HR_A, HR_B],
+    ACTOR_UIDS,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM salary_revision_payables WHERE staff_uid = ANY($1::uuid[])`,
-    [STAFF_A, STAFF_B],
+    STAFF_UIDS,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM bulk_revision_job_items WHERE staff_uid = ANY($1::uuid[])`,
-    [STAFF_A, STAFF_B],
+    STAFF_UIDS,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM bulk_revision_jobs WHERE created_by = ANY($1::uuid[])`,
-    [ADMIN_A, ADMIN_B, HR_A, HR_B],
+    ACTOR_UIDS,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM salary_arrears_command_receipts WHERE actor_uid = ANY($1::uuid[])`,
-    [ADMIN_A, ADMIN_B, HR_A, HR_B],
+    ACTOR_UIDS,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM salary_arrears WHERE staff_uid = ANY($1::uuid[])`,
-    [STAFF_A, STAFF_B],
+    STAFF_UIDS,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM annual_review_reminders WHERE staff_uid = ANY($1::uuid[])`,
-    [STAFF_A, STAFF_B],
+    STAFF_UIDS,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM idempotency_keys WHERE user_uid = ANY($1::uuid[])`,
-    [ADMIN_A, ADMIN_B, HR_A, HR_B],
+    ACTOR_UIDS,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM salary_revisions WHERE staff_uid = ANY($1::uuid[])`,
-    [STAFF_A, STAFF_B],
+    STAFF_UIDS,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM staff_salary WHERE staff_uid = ANY($1::uuid[])`,
-    [STAFF_A, STAFF_B],
+    STAFF_UIDS,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM users WHERE uid = ANY($1::uuid[])`,

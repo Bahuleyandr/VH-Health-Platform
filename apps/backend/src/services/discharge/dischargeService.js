@@ -1572,7 +1572,7 @@ export async function sign({
   // admissions RLS policies. The e_prescriptions med materialisation stays
   // POST-COMMIT best-effort (idempotent, patient-app convenience) — an
   // e_prescriptions hiccup must not roll back a legally-signed discharge.
-  const signed = await setTenantTx(requireTenantId(tenantId), async (tx) => {
+  await setTenantTx(requireTenantId(tenantId), async (tx) => {
     await assertSummarySignableTx({ tx, tenantId, id });
     const rows = await tx.$queryRawUnsafe(
       `UPDATE discharge_summaries

@@ -1484,7 +1484,8 @@ export async function normalizeOrderInput(data) {
   // Both are `let`, not part of the const destructure: `encounter_id` may
   // be re-derived from `er_visit_id` below (chip stage-5-1), and `details`
   // is re-shaped with the structured route (chip stage-5-6).
-  let { encounter_id, details } = data;
+  const { encounter_id } = data;
+  let { details } = data;
 
   // Clinicians write priority in upper case ("STAT" / "URGENT") — that's
   // the universal medical convention. Lower-case server-side before

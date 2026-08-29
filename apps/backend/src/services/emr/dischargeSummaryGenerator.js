@@ -1510,7 +1510,7 @@ export async function signDischargeSummary(admissionId, doctorUid, tenantId = nu
 }
 
 async function materialiseDischargeMedsFromClinicalNote({
-  tenantId, note_id, admission_id, patient_uid, doctor_uid, db = prisma,
+  tenantId, note_id, patient_uid, doctor_uid, db = prisma,
 }) {
   if (!patient_uid) return;
   const tid = requireTenantId(tenantId);

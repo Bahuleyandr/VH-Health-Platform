@@ -280,7 +280,7 @@ describeIfDb('MED-03 gateway ward-credit refund closure', () => {
     ))[0];
     const invoiceId = Number(charge.invoice_id);
     const invoice = await issueInvoice(invoiceId, { tenantId });
-    const order = await gateway.createGatewayOrder({
+    const gatewayOrder = await gateway.createGatewayOrder({
       tenantId,
       invoice_id: invoiceId,
       actor: { uid: patient, role: 'PATIENT' },
@@ -295,7 +295,7 @@ describeIfDb('MED-03 gateway ward-credit refund closure', () => {
           payment: {
             entity: {
               id: providerPaymentId,
-              order_id: order.providerOrderId,
+              order_id: gatewayOrder.providerOrderId,
               method: 'upi',
               amount: toPaise(invoice.total_amount),
               currency: 'INR',
@@ -373,7 +373,7 @@ describeIfDb('MED-03 gateway ward-credit refund closure', () => {
     const leg = await gateway.initiateGatewayRefund({
       tenantId,
       billing_refund_id: refundId,
-      gateway_order_id: Number(order.orderId),
+      gateway_order_id: Number(gatewayOrder.orderId),
       initiated_by: billingOwner,
     });
     expect(leg).toMatchObject({

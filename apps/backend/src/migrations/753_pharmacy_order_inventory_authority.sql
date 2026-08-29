@@ -5141,7 +5141,7 @@ ALTER TABLE pharmacy_funding_reconciliation_cases FORCE ROW LEVEL SECURITY;
 ALTER TABLE pharmacy_funding_reconciliation_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE pharmacy_funding_reconciliation_events FORCE ROW LEVEL SECURITY;
 
-CREATE POLICY pharmacy_funding_reconciliation_cases_tenant_isolation
+CREATE POLICY tenant_isolation
   ON pharmacy_funding_reconciliation_cases
   AS PERMISSIVE
   USING (
@@ -5170,7 +5170,7 @@ CREATE POLICY pharmacy_funding_reconciliation_cases_tenant_restrictive
     AND current_setting('app.current_tenant_id', TRUE) <> 'bypass'
     AND tenant_id = public.app_current_tenant_id_uuid()
   );
-CREATE POLICY pharmacy_funding_reconciliation_events_tenant_isolation
+CREATE POLICY tenant_isolation
   ON pharmacy_funding_reconciliation_events
   AS PERMISSIVE
   USING (
@@ -5554,7 +5554,7 @@ FOR EACH ROW EXECUTE FUNCTION public.enforce_nhcx_projection_command_753();
 
 ALTER TABLE nhcx_projection_commands ENABLE ROW LEVEL SECURITY;
 ALTER TABLE nhcx_projection_commands FORCE ROW LEVEL SECURITY;
-CREATE POLICY nhcx_projection_commands_tenant_isolation_753
+CREATE POLICY tenant_isolation
   ON nhcx_projection_commands AS PERMISSIVE
   USING (
     current_setting('app.current_tenant_id',TRUE) IS NULL

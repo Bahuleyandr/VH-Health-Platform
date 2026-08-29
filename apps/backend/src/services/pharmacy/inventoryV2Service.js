@@ -21,7 +21,7 @@
 // and money never lose precision.
 
 import { createHash } from 'node:crypto';
-import prisma, { setTenantTx } from '../../lib/prisma.js';
+import { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { boundedInteger } from '../../utils/pagination.js';
 import { AppError } from '../../utils/AppError.js';
@@ -131,75 +131,6 @@ async function resolveControlledPerformerTx(db, tenantId, actorUid) {
 
 function tenantOf(req) {
   return requireTenantId(req?.tenantId || req?.user?.tenantId || req?.tenant?.id);
-}
-
-function inventoryCommand(params, contract) {
-  const commandKey = String(params.commandKey || '').trim();
-  const requestSha256 = String(params.requestFingerprint || '').trim().toLowerCase();
-  if (!commandKey) return null;
-  if (!/^[0-9a-f]{64}$/.test(requestSha256)) {
-    throw AppError.badRequest(
-      'A durable idempotency request fingerprint is required',
-      'INVENTORY_COMMAND_FINGERPRINT_REQUIRED',
-    );
-  }
-  return {
-    contract,
-    keySha256: createHash('sha256').update(commandKey).digest('hex'),
-    requestSha256,
-  };
-}
-
-async function replayInventoryCommandTx(tx, tenantId, command) {
-  if (!command) return null;
-  await tx.$queryRawUnsafe(
-    `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))::text AS lock_acquired`,
-    `${command.contract}:${tenantId}:${command.keySha256}`,
-  );
-  const rows = await tx.$queryRawUnsafe(
-    `SELECT metadata
-       FROM pharmacy_stock_movements
-      WHERE tenant_id=$1::uuid
-        AND metadata->>'contract'=$2
-        AND metadata->>'command_key_sha256'=$3
-      ORDER BY id
-      LIMIT 1`,
-    tenantId,
-    command.contract,
-    command.keySha256,
-  );
-  if (!rows[0]) return null;
-  const metadata = rows[0].metadata || {};
-  if (metadata.request_sha256 !== command.requestSha256) {
-    throw AppError.conflict(
-      'Idempotency-Key was already used for a different inventory command',
-      'INVENTORY_COMMAND_REPLAY_CONFLICT',
-    );
-  }
-  if (!metadata.response || typeof metadata.response !== 'object') {
-    throw AppError.conflict(
-      'The inventory command committed without a complete replay receipt and requires recovery',
-      'INVENTORY_COMMAND_RECEIPT_INCOMPLETE',
-    );
-  }
-  return metadata.response;
-}
-
-async function persistInventoryCommandTx(tx, tenantId, movementId, command, response) {
-  if (!command) return;
-  await tx.$executeRawUnsafe(
-    `UPDATE pharmacy_stock_movements
-        SET metadata=COALESCE(metadata, '{}'::jsonb) || $1::jsonb
-      WHERE tenant_id=$2::uuid AND id=$3::int`,
-    JSON.stringify({
-      contract: command.contract,
-      command_key_sha256: command.keySha256,
-      request_sha256: command.requestSha256,
-      response,
-    }),
-    tenantId,
-    Number(movementId),
-  );
 }
 
 // ── Drug master / items ───────────────────────────────────────────────
@@ -829,56 +760,6 @@ export function controlledMovementWitnessPayload(params = {}) {
   };
 }
 
-async function requireUsableControlledBatch(db, {
-  tenantId, inventoryItemId, inventoryBatchId, quantity,
-}) {
-  const batchId = requireControlledBatchId(inventoryBatchId);
-  const requestedQuantity = Number(quantity);
-  if (!Number.isFinite(requestedQuantity) || requestedQuantity <= 0) {
-    throw AppError.badRequest('quantity must be > 0');
-  }
-  const rows = await db.$queryRawUnsafe(
-    `SELECT batch.id, batch.status, batch.remaining_quantity,
-            (batch.expiry_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date) AS is_expired
-       FROM pharmacy_inventory_batches batch
-       JOIN pharmacy_inventory_items item
-         ON item.tenant_id=batch.tenant_id
-        AND item.id=batch.inventory_item_id
-        AND item.facility_id=batch.facility_id
-        AND item.status='active'
-       JOIN facilities facility
-         ON facility.tenant_id=item.tenant_id
-        AND facility.id=item.facility_id
-        AND facility.status='active'
-      WHERE batch.tenant_id = $1::uuid
-        AND batch.inventory_item_id = $2::int
-        AND batch.id = $3::int`,
-    tenantId,
-    Number(inventoryItemId),
-    batchId,
-  );
-  if (!rows[0]) throw AppError.notFound('Batch not found');
-  if (rows[0].status !== 'in_stock') {
-    throw AppError.badRequest(
-      `Inventory batch is not available for issue (status: ${rows[0].status})`,
-      'INVENTORY_BATCH_UNAVAILABLE',
-    );
-  }
-  if (rows[0].is_expired) {
-    throw AppError.badRequest(
-      'Inventory batch is expired and cannot be issued',
-      'INVENTORY_BATCH_EXPIRED',
-    );
-  }
-  if (Number(rows[0].remaining_quantity) < requestedQuantity) {
-    throw AppError.badRequest(
-      `Insufficient stock. Available: ${rows[0].remaining_quantity}`,
-      'INVENTORY_INSUFFICIENT_STOCK',
-    );
-  }
-  return rows[0];
-}
-
 async function resolveControlledDispenseAuthority(db, params, {
   forUpdate = false,
   requirePrescription = false,
@@ -1077,29 +958,6 @@ export function controlledDispenseWitnessPayload(params = {}) {
       ? String(params.patient_id_proof_last4).slice(-4)
       : null,
   };
-}
-
-async function requireWitnessedInventoryItem(db, { tenantId, inventoryItemId }) {
-  const rows = await db.$queryRawUnsafe(
-    `SELECT item.id, item.schedule_class, item.is_narcotic
-       FROM pharmacy_inventory_items item
-       JOIN facilities facility
-         ON facility.tenant_id=item.tenant_id
-        AND facility.id=item.facility_id
-        AND facility.status='active'
-      WHERE item.tenant_id = $1::uuid
-        AND item.id = $2::int
-        AND item.status='active'`,
-    tenantId,
-    Number(inventoryItemId),
-  );
-  if (!rows[0]) throw AppError.notFound('Inventory item not found');
-  if (rows[0].schedule_class !== 'X' && rows[0].is_narcotic !== true) {
-    throw AppError.badRequest(
-      'A witness approval is only available for Schedule X / narcotic dispensing',
-      'CONTROLLED_DISPENSE_WITNESS_NOT_REQUIRED',
-    );
-  }
 }
 
 export async function requestControlledDispenseWitnessApproval(params) {
@@ -4011,7 +3869,7 @@ export async function resolveWardAllocationAuthorityRecovery({
           SET status='RESOLVED', resolved_by=$3::uuid, resolved_at=NOW(),
               resolution_note=$4, updated_at=NOW(),
               authority_snapshot=authority_snapshot || jsonb_build_object(
-                'resolved_allocation_status', $5,
+                'resolved_allocation_status', $5::text,
                 'issued_quantity', $6::text,
                 'received_quantity', $7::text,
                 'consumed_quantity', $8::text,

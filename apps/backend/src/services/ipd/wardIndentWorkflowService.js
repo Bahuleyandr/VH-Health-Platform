@@ -121,7 +121,6 @@ export const WARD_INDENT_STATE_CONTRACT = Object.freeze({
   closed: { ownerRoles: [], slaRuleCode: null, terminal: true },
 });
 
-const CONTROLLED_SCHEDULES = new Set(['H', 'H1', 'X']);
 const RECONCILIATION_DISPOSITIONS = new Set([
   'transit_shortage',
   'ward_count_variance',

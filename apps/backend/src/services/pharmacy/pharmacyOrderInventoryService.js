@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import prisma, { setTenantTx } from '../../lib/prisma.js';
+import { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { lockTenantPatientMergeStability } from '../../utils/patientMergeStabilityLock.js';
@@ -747,7 +747,7 @@ export async function allocateOrderInventoryTx(tx, {
     );
   }
   const facilityId = requireOrderFacility(order);
-  let resolvedActorName = await resolveAuthenticatedPerformerNameTx(tx, {
+  const resolvedActorName = await resolveAuthenticatedPerformerNameTx(tx, {
     tenantId,
     actorUid,
     codePrefix: 'PHARMACY_ORDER',

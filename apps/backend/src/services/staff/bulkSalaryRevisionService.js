@@ -820,7 +820,7 @@ async function markClaimFailure(claim, failure, { maxAttempts }) {
             outcome = CASE
               WHEN $6::boolean THEN jsonb_build_object(
                 'code', 'bulk_revision_staff_failed',
-                'message', $4,
+                'message', $4::text,
                 'attempt_count', item.attempt_count
               )
               ELSE item.outcome
@@ -843,7 +843,7 @@ async function markClaimFailure(claim, failure, { maxAttempts }) {
   ));
 }
 
-export async function reconcileBulkRevisionJob({ tenantId, jobId, now = new Date() }) {
+export async function reconcileBulkRevisionJob({ tenantId, jobId }) {
   const id = requireJobId(jobId);
   return setTenant(tenantId, async (tx) => {
     const jobs = await tx.$queryRawUnsafe(
@@ -1227,7 +1227,6 @@ export async function processClaimedBulkRevisionItem(claim, {
     await reconcileBulkRevisionJob({
       tenantId: claim.tenant_id,
       jobId: claim.job_id,
-      now,
     });
     return result;
   } catch (failure) {
@@ -1236,7 +1235,6 @@ export async function processClaimedBulkRevisionItem(claim, {
     await reconcileBulkRevisionJob({
       tenantId: claim.tenant_id,
       jobId: claim.job_id,
-      now,
     });
     return { outcome: 'failed', error: failure.message };
   }
@@ -1281,7 +1279,6 @@ export async function processBulkSalaryRevisionJobs({
     await reconcileBulkRevisionJob({
       tenantId,
       jobId,
-      now,
     });
   } else if (claimed.length === 0 && jobId != null) {
     const jobRows = await setTenant(null, async (tx) => tx.$queryRawUnsafe(
@@ -1292,7 +1289,6 @@ export async function processBulkSalaryRevisionJobs({
       await reconcileBulkRevisionJob({
         tenantId: jobRows[0].tenant_id,
         jobId,
-        now,
       });
     }
   }
