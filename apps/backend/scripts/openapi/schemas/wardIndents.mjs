@@ -554,7 +554,6 @@ const ACTIONS = [
   ['substitutions/reject', 'WardIndentReasonRequest', 'Rejects pending substitutions as the prescribing clinician and records the reason in the append-only workflow evidence.'],
   ['approve', 'WardIndentVersionRequest', 'Approves reserved supply; controlled lines stop at the mandatory controlled-handoff evidence gate.'],
   ['reject', 'WardIndentReasonRequest', 'Rejects the request as a terminal, reasoned pharmacy decision and closes its active SLA.'],
-  ['controlled-handoff', 'WardIndentControlledHandoffRequest', 'Binds every controlled line to its sanctioned inventory movement and statutory register entry before issue.'],
   ['issue', 'WardIndentIssueRequest', 'Issues approved quantities, decrements non-controlled stock atomically, and transfers the receipt obligation to the ward.'],
   ['receive', 'WardIndentReceiveRequest', 'Records an independent ward receipt, supports partial receipt, and prevents the issuing actor from self-acknowledging.'],
   ['returns', 'WardIndentReturnRequest', 'Requests return of received quantities and opens reconciliation; controlled returns require sanctioned evidence at reconciliation.'],
