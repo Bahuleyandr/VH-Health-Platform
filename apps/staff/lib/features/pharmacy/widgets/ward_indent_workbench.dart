@@ -981,13 +981,6 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
     }
   }
 
-  ControlledHandoffRecovery? _recoveryFor(WardIndent indent, int itemId) {
-    for (final recovery in indent.controlledRecovery) {
-      if (recovery.itemId == itemId) return recovery;
-    }
-    return null;
-  }
-
   Future<_WitnessCredentials?> _askWitnessCredentials(String itemName) async {
     var employeeId = '';
     var password = '';

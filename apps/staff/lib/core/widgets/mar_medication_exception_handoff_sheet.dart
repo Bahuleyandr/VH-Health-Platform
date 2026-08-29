@@ -25,7 +25,6 @@ final RegExp _uuidPattern = RegExp(
   caseSensitive: false,
 );
 
-@visibleForTesting
 bool canHandoffMarMedicationException(String role, ClinicalInboxTask task) {
   return _handoffOperatorRoles.contains(role.trim().toUpperCase()) &&
       task.isMarMedicationException &&

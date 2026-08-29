@@ -1730,9 +1730,6 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
       _controlledDeliveryPendingApprovals[requestScope] = approvalId;
     }
     final resolvedApprovalId = approvalId;
-    if (resolvedApprovalId == null) {
-      throw StateError('Controlled delivery witness approval id is missing');
-    }
     final approvalScope = 'approve:$orderId:$resolvedApprovalId';
     final approvalAttempt = _controlledDeliveryWitnessAttempts.putIfAbsent(
       approvalScope,

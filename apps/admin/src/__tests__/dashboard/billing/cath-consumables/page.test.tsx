@@ -213,6 +213,12 @@ describe("<CathConsumablesPage />", () => {
     expect(await screen.findByText("Facility required")).toBeInTheDocument();
     expect(mockedCatalog).not.toHaveBeenCalled();
 
+    // The facility list resolves asynchronously. Selecting before its options
+    // exist makes jsdom reject the unknown value, reset the select to "" and
+    // fire onChange with null, leaving facilityId unset and the catalog read
+    // gated forever. Wait for the option itself, not just the empty state.
+    await screen.findByRole("option", { name: "VH Annexe" });
+
     fireEvent.change(screen.getByLabelText("Facility"), {
       target: { value: "9" },
     });
