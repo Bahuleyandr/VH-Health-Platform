@@ -1794,6 +1794,7 @@ void main() {
               key.startsWith(
                 'med03.notification.gateway_refund_reconciliation.',
               ) ||
+              key.startsWith('med03.pharmacy.') ||
               key.startsWith('s4.lib.counter_sale.') ||
               key.startsWith('orders.mar_recovery.') ||
               key.startsWith('orders.icu_mar_review.') ||

@@ -23,6 +23,8 @@ import {
   wardIndentListGuard,
   wardIndentRowGuard,
 } from './wardIndentPatientGuards.js';
+import { resolveWitnessActor } from './inventoryV2Routes.js';
+import { relayAppError } from '../../utils/responseHelper.js';
 
 const router = express.Router();
 const CANONICAL_BASE = '/api/v1/pharmacy-orders/ward-indents';
@@ -74,6 +76,25 @@ function mutationGuard(scope, requestPathForIdempotency) {
   ];
 }
 
+function wardWitnessApprovalIdempotencyBody(req) {
+  return {
+    item_id: req.body?.item_id ?? null,
+    allocation_id: req.body?.allocation_id ?? null,
+    employee_id: req.body?.employeeId == null
+      ? null
+      : String(req.body.employeeId).trim().toUpperCase(),
+  };
+}
+
+async function resolveWardWitnessActor(req, res, next) {
+  try {
+    req.wardWitnessActor = await resolveWitnessActor(req, req.tenantId);
+    return next();
+  } catch (err) {
+    return relayAppError(res, err, 'Failed to authenticate controlled ward handoff witness');
+  }
+}
+
 router.use(sanitizeAllBodyStrings);
 
 router.get('/', requireRole(...READ_ROLES), wardIndentListGuard(), ctl.listIndents);
@@ -90,7 +111,7 @@ router.post(
 router.get('/:id', requireRole(...READ_ROLES), guardIndentRow, ctl.getIndent);
 router.get(
   '/:id/items/:itemId/inventory-candidates',
-  requireRole(...READ_ROLES),
+  requireRole(...SUPPLY_ROLES),
   guardIndentRow,
   ctl.listInventoryCandidates,
 );
@@ -130,6 +151,13 @@ router.post(
   ctl.approveSubstitution,
 );
 router.post(
+  '/:id/substitutions/apply',
+  requireRole(...SUPPLY_ROLES),
+  guardIndentRow,
+  mutationGuard('substitution_apply', canonicalActionPath('substitutions/apply')),
+  ctl.applyApprovedSubstitution,
+);
+router.post(
   '/:id/substitutions/reject',
   requireRole(...SUBSTITUTION_DECISION_ROLES),
   guardIndentRow,
@@ -156,6 +184,33 @@ router.post(
   guardIndentRow,
   mutationGuard('controlled_handoff', canonicalActionPath('controlled-handoff')),
   ctl.recordControlledHandoff,
+);
+router.post(
+  '/:id/controlled-handoff/witness-approvals',
+  requireRole(...SUPPLY_ROLES),
+  guardIndentRow,
+  mutationGuard(
+    'controlled_handoff_witness_request',
+    canonicalActionPath('controlled-handoff/witness-approvals'),
+  ),
+  ctl.requestControlledWitness,
+);
+router.post(
+  '/:id/controlled-handoff/witness-approvals/:approvalId/approve',
+  requireRole(...SUPPLY_ROLES),
+  guardIndentRow,
+  enforceStaffClinicalWriteDevicePosture,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'ward_indent_controlled_handoff_witness_approve',
+    retainOnServerError: true,
+    requestBodyForIdempotency: wardWitnessApprovalIdempotencyBody,
+    requestPathForIdempotency: (req) => `${canonicalActionPath(
+      'controlled-handoff/witness-approvals',
+    )(req)}/${encodeURIComponent(String(req.params.approvalId))}/approve`,
+  }),
+  resolveWardWitnessActor,
+  ctl.approveControlledWitness,
 );
 router.post(
   '/:id/issue',

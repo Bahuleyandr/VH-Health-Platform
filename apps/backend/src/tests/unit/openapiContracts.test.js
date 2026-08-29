@@ -402,6 +402,312 @@ describe('OpenAPI contract overlays (static gate)', () => {
       .toBe(false);
   });
 
+  it('publishes the tenant/facility pharmacy order authority contract end to end', () => {
+    const idempotencyHeader = expect.objectContaining({
+      name: 'Idempotency-Key',
+      in: 'header',
+      required: true,
+    });
+    const positiveOrderId = expect.objectContaining({
+      name: 'id',
+      in: 'path',
+      required: true,
+      schema: {
+        type: 'integer', minimum: 1, maximum: 2147483647,
+      },
+    });
+    const line = spec.components.schemas.PharmacyOrderLine;
+    const queueItem = spec.components.schemas.PharmacyOrderQueueItem;
+    const queueResponse = spec.components.schemas.PharmacyOrderQueueResponse;
+    const lineIdentityRequest =
+      spec.components.schemas.PharmacyOrderLineIdentityResolutionRequest;
+    const lineIdentityResult =
+      spec.components.schemas.PharmacyOrderLineIdentityResolutionResult;
+    const manualLine = spec.components.schemas.PharmacyOrderManualConfirmationLine;
+    const counterLine = spec.components.schemas.PharmacyCounterDispenseLine;
+    const counterRequest = spec.components.schemas.PharmacyCounterDispenseRequest;
+    const bodyCounterRequest = spec.components.schemas.PharmacyBodyCounterDispenseRequest;
+    const substitution = spec.components.schemas.PharmacyDispenseSubstitutionRequest;
+    const substitutionWitness =
+      spec.components.schemas.PharmacySubstitutionWitnessApprovalRequest;
+    const supplyMovement = spec.components.schemas.PharmacySupplyStockMovementRequest;
+    const authenticatedSecurity = [{ ApiKeyAuth: [], BearerAuth: [] }];
+
+    expect(line.required).toEqual(['order_line_index', 'catalog_id']);
+    expect(queueItem.properties.items_list.items).toEqual({
+      $ref: '#/components/schemas/PharmacyOrderQueueLine',
+    });
+    expect(spec.components.schemas.PharmacyOrderQueueLine.properties).toMatchObject({
+      order_line_index: { type: 'integer', minimum: 0 },
+      prescription_line_index: { type: 'integer', minimum: 0, nullable: true },
+    });
+    expect(queueItem.properties.prescription_medications.items).toEqual({
+      $ref: '#/components/schemas/PharmacyPrescriptionMedication',
+    });
+    expect(queueItem.properties.line_identity_recovery_required).toEqual({ type: 'boolean' });
+    expect(queueItem.required).toEqual(expect.arrayContaining([
+      'payment_mode', 'amount_collected', 'payment_metadata',
+    ]));
+    expect(queueItem.properties.funding_recovery).toEqual({
+      nullable: true,
+      allOf: [{ $ref: '#/components/schemas/PharmacyFundingRecoveryTask' }],
+    });
+    expect(spec.components.schemas.PharmacyFundingRecoveryTask).toMatchObject({
+      additionalProperties: false,
+      required: [
+        'task_id', 'status', 'owner_role', 'pharmacy_order_id',
+        'invoice_item_id', 'order_version', 'order_items_sha256', 'deep_link',
+      ],
+      properties: {
+        status: { type: 'string' },
+        owner_role: { type: 'string' },
+        deep_link: {
+          type: 'string',
+          format: 'uri-reference',
+          pattern:
+            '^/billing-desk\\?pharmacy_order_id=[1-9][0-9]*&invoice_item_id=[1-9][0-9]*(&tpa_claim_id=[1-9][0-9]*)?$',
+        },
+      },
+    });
+    expect(queueResponse.properties.requestId).toEqual({ type: 'string', nullable: true });
+    expect(spec.components.schemas.PharmacyOrderMutationResponse.properties.requestId)
+      .toEqual({ type: 'string', nullable: true });
+    expect(spec.components.schemas.PharmacyOrderDispensableContext.required)
+      .toContain('tpa_reference');
+    expect(spec.components.schemas.PharmacyOrderDispensableContext.properties.tpa_reference)
+      .toEqual({ type: 'string', nullable: true });
+    expect(spec.components.schemas.PharmacyOrderDispenseRecoveryDetails.properties)
+      .toMatchObject({
+        next_action: { type: 'string' },
+        payment_mode: { type: 'string', nullable: true },
+        tpa_reference: { type: 'string', nullable: true },
+        clinical_verification_status: { type: 'string', nullable: true },
+        manual_allergy_review_required: { type: 'boolean', nullable: true },
+        funding_recovery: {
+          nullable: true,
+          allOf: [{ $ref: '#/components/schemas/PharmacyFundingRecoveryTask' }],
+        },
+      });
+    expect(spec.components.schemas.PharmacyOrderVerificationRequest.required)
+      .toEqual(['decision']);
+    expect(spec.components.schemas.PharmacyOrderVerificationRequest.properties
+      .manual_allergy_review_completed).toMatchObject({ type: 'boolean' });
+    expect(spec.components.schemas.PharmacyOrderVerificationRequest.oneOf)
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          properties: expect.objectContaining({
+            decision: { enum: ['rejected'] },
+            notes: { type: 'string', minLength: 10, maxLength: 500 },
+          }),
+          required: ['notes'],
+        }),
+      ]));
+    expect(spec.components.schemas.PharmacyOrderCancelRequest.required)
+      .toEqual(['cancellation_reason']);
+    expect(spec.components.schemas.PharmacyOrderCancelRequest.properties.cancellation_reason)
+      .toMatchObject({ type: 'string', minLength: 3, maxLength: 500 });
+    expect(spec.components.schemas.PharmacyOrderUnavailableRequest.required)
+      .toEqual(['reason']);
+    expect(spec.components.schemas.PharmacyOrderUnavailableRequest.properties.reason)
+      .toEqual({ type: 'string', minLength: 1, maxLength: 500 });
+    expect(spec.components.schemas.PharmacyOrderDeliveryRequest.required)
+      .toEqual(['handoff_token']);
+    expect(spec.components.schemas.PharmacyOrderDispatchRequest.required)
+      .toEqual(['delivery_assignee_uid']);
+    expect(spec.components.schemas.PharmacyOrderDispatchRequest.properties)
+      .not.toHaveProperty('delivery_person');
+    expect(spec.components.schemas.PharmacyOrderDispatchRequest.properties)
+      .not.toHaveProperty('delivery_person_phone');
+    expect(lineIdentityRequest.required).toEqual(['line_mappings']);
+    expect(lineIdentityRequest.properties.line_mappings).toMatchObject({
+      type: 'array', minItems: 1, maxItems: 100,
+      items: { $ref: '#/components/schemas/PharmacyOrderLineIdentityMapping' },
+    });
+    expect(lineIdentityResult.properties.items_list.items).toEqual({
+      $ref: '#/components/schemas/PharmacyOrderLineIdentityResolutionLine',
+    });
+    expect(spec.components.schemas.PharmacyOrderLineIdentityResolutionLine.required).toEqual([
+      'order_line_index', 'prescription_line_index', 'catalog_id',
+    ]);
+    expect(manualLine.properties.inventory_item_id).toEqual({
+      type: 'integer', minimum: 1, maximum: 2147483647,
+    });
+    for (const quantityName of [
+      'dispensed_quantity', 'dispensed_qty', 'qty', 'quantity', 'dispensed_quantity_ml',
+    ]) {
+      expect(counterLine.properties[quantityName]).toMatchObject({
+        type: 'number', exclusiveMinimum: 0,
+      });
+    }
+    for (const request of [counterRequest, bodyCounterRequest]) {
+      expect(request.required).toEqual(['payment_mode', 'amount_collected']);
+      expect(request.properties.payment_mode.enum).toEqual([
+        'cash', 'card', 'upi', 'wallet', 'corporate_tpa', 'insurance', 'none',
+      ]);
+      expect(request.properties.payment_method.enum).not.toContain('package');
+      expect(request.properties.payment_method.enum).not.toContain('credit');
+      expect(request.properties.tpa_reference).toEqual({
+        type: 'string', minLength: 1, maxLength: 160,
+      });
+    }
+    expect(spec.components.schemas.PharmacyCounterDispenseResult.properties.status.enum)
+      .toEqual(['PARTIALLY_DISPENSED', 'DISPENSED']);
+    for (const request of [substitution, substitutionWitness]) {
+      expect(request.properties.performed_by_name).toBeUndefined();
+      expect(request.properties.encounter_id).toMatchObject({
+        type: 'integer', minimum: 1, nullable: true,
+      });
+      expect(request.properties.payment_mode.enum).toEqual([
+        'cash', 'card', 'upi', 'wallet', 'insurance', 'corporate_tpa',
+      ]);
+      expect(request.properties.amount_collected).toMatchObject({
+        type: 'number', minimum: 0,
+      });
+      expect(request.properties.tpa_reference).toMatchObject({
+        type: 'string', minLength: 1, maxLength: 160,
+      });
+      expect(request.required).toEqual(expect.arrayContaining([
+        'payment_mode', 'amount_collected',
+      ]));
+    }
+    expect(supplyMovement.properties.performed_by_name).toBeUndefined();
+
+    const lifecycle = {
+      '/orders/{id}/confirm': ['PharmacyOrderConfirmationRequest', 'PharmacyOrderMutationResponse'],
+      '/orders/{id}/verify': ['PharmacyOrderVerificationRequest', 'PharmacyOrderVerificationResponse'],
+      '/orders/{id}/dispatch': ['PharmacyOrderDispatchRequest', 'PharmacyOrderMutationResponse'],
+      '/orders/{id}/delivered': ['PharmacyOrderDeliveryRequest', 'PharmacyOrderDeliveryResponse'],
+      '/orders/{id}/delivery-handoff/reissue': ['PharmacyDeliveryHandoffReissueRequest', 'PharmacyOrderMutationResponse'],
+      '/orders/{id}/delivery-return/request': ['PharmacyDeliveryReturnRequest', 'PharmacyOrderMutationResponse'],
+      '/orders/{id}/delivery-return/complete': ['PharmacyDeliveryReturnCompletionRequest', 'PharmacyOrderMutationResponse'],
+      '/orders/{id}/dispense-counter': ['PharmacyCounterDispenseRequest', 'PharmacyCounterDispenseResponse'],
+      '/orders/{id}/dispense': ['PharmacyCounterDispenseRequest', 'PharmacyCounterDispenseResponse'],
+      '/orders/{id}/unavailable': ['PharmacyOrderUnavailableRequest', 'PharmacyOrderMutationResponse'],
+      '/orders/{id}/cancel': ['PharmacyOrderCancelRequest', 'PharmacyOrderMutationResponse'],
+      '/orders/{id}/assign-facility': ['PharmacyOrderFacilityAssignmentRequest', 'PharmacyOrderMutationResponse'],
+      '/orders/{id}/resolve-line-identities': [
+        'PharmacyOrderLineIdentityResolutionRequest',
+        'PharmacyOrderLineIdentityResolutionResponse',
+      ],
+    };
+    for (const prefix of ['/api/v1/pharmacy-orders', '/api/v1/pharmacy']) {
+      for (const queueSuffix of ['/orders', '/orders/queue']) {
+        const operation = spec.paths[`${prefix}${queueSuffix}`].get;
+        expect(operation.security).toEqual(authenticatedSecurity);
+        expect(operation.responses['200'].content['application/json'].schema).toEqual({
+          $ref: '#/components/schemas/PharmacyOrderQueueResponse',
+        });
+      }
+      const dispensable = spec.paths[`${prefix}/orders/{id}/dispensable`].get;
+      expect(dispensable.parameters).toEqual(expect.arrayContaining([positiveOrderId]));
+      expect(dispensable.responses['200'].content['application/json'].schema).toEqual({
+        $ref: '#/components/schemas/PharmacyOrderDispensableContextResponse',
+      });
+      const assignedDeliveries = spec.paths[`${prefix}/orders/assigned`].get;
+      expect(assignedDeliveries.security).toEqual(authenticatedSecurity);
+      expect(assignedDeliveries.parameters).not.toEqual(expect.arrayContaining([
+        positiveOrderId,
+      ]));
+      expect(assignedDeliveries.responses['200'].content['application/json'].schema).toEqual({
+        $ref: '#/components/schemas/PharmacyAssignedDeliveryResponse',
+      });
+
+      for (const [suffix, [requestName, responseName]] of Object.entries(lifecycle)) {
+        const operation = spec.paths[`${prefix}${suffix}`].post;
+        expect(operation.security).toEqual(authenticatedSecurity);
+        expect(operation.parameters).toEqual(expect.arrayContaining([positiveOrderId]));
+        expect(operation.requestBody.content['application/json'].schema).toEqual({
+          $ref: `#/components/schemas/${requestName}`,
+        });
+        expect(operation.responses['200'].content['application/json'].schema).toEqual({
+          $ref: `#/components/schemas/${responseName}`,
+        });
+        expect(operation.responses['409'].content['application/json'].schema).toEqual({
+          $ref: '#/components/schemas/PharmacyOrderDispenseErrorResponse',
+        });
+      }
+      const preparing = spec.paths[`${prefix}/orders/{id}/preparing`].post;
+      expect(preparing.parameters).toEqual(expect.arrayContaining([positiveOrderId]));
+      expect(preparing.security).toEqual(authenticatedSecurity);
+      for (const suffix of [
+        '/orders/{id}/confirm',
+        '/orders/{id}/verify',
+        '/orders/{id}/preparing',
+        '/orders/{id}/dispatch',
+        '/orders/{id}/delivered',
+        '/orders/{id}/delivery-handoff/reissue',
+        '/orders/{id}/delivery-return/request',
+        '/orders/{id}/delivery-return/complete',
+        '/orders/{id}/dispense-counter',
+        '/orders/{id}/dispense',
+        '/orders/{id}/assign-facility',
+        '/orders/{id}/resolve-line-identities',
+        '/orders/{id}/unavailable',
+        '/orders/{id}/cancel',
+      ]) {
+        expect(spec.paths[`${prefix}${suffix}`].post.parameters)
+          .toEqual(expect.arrayContaining([idempotencyHeader]));
+      }
+      expect(spec.paths[`${prefix}/orders/{orderId}/status`]).toBeUndefined();
+      for (const suffix of [
+        '/dispense-substitution',
+        '/dispense-substitution/witness-approvals',
+        '/dispense-substitution/witness-approvals/{id}/approve',
+      ]) {
+        expect(spec.paths[`${prefix}${suffix}`].post.parameters)
+          .toEqual(expect.arrayContaining([idempotencyHeader]));
+      }
+    }
+
+    for (const suffix of ['order-pharmacy', 'refill']) {
+      const operation = spec.paths[`/api/v1/prescriptions/{id}/${suffix}`].post;
+      expect(operation.security).toEqual(authenticatedSecurity);
+      expect(operation.parameters).toEqual(expect.arrayContaining([
+        positiveOrderId,
+        idempotencyHeader,
+      ]));
+      expect(operation.requestBody.content['application/json'].schema).toEqual({
+        $ref: '#/components/schemas/PharmacyPrescriptionOrderRequest',
+      });
+      expect(operation.responses['200'].content['application/json'].schema).toEqual({
+        $ref: '#/components/schemas/PharmacyPrescriptionOrderResponse',
+      });
+    }
+
+    for (const prefix of ['/api/v1/admin/pharmacy-supply', '/api/v1/pharmacy-supply']) {
+      const movement = spec.paths[`${prefix}/stock-movements`].post;
+      expect(movement.parameters).toEqual(expect.arrayContaining([idempotencyHeader]));
+      expect(movement.responses['201'].content['application/json'].schema).toEqual({
+        $ref: '#/components/schemas/PharmacySupplyStockMovementResponse',
+      });
+      const qc = spec.paths[`${prefix}/goods-receipts/{id}/items/{itemId}/qc`].patch;
+      expect(qc.requestBody.content['application/json'].schema).toEqual({
+        $ref: '#/components/schemas/PharmacySupplyGoodsReceiptLineQcRequest',
+      });
+      const transition = spec.paths[`${prefix}/goods-receipts/{id}/transition`].patch;
+      expect(transition.requestBody.content['application/json'].schema).toEqual({
+        $ref: '#/components/schemas/PharmacySupplyGoodsReceiptTransitionRequest',
+      });
+    }
+    expect(Object.keys(pharmacy.operations).filter((key) => key.endsWith('/reserve-stock')))
+      .toEqual([]);
+    expect(Object.keys(pharmacy.schemas).filter((key) => /^PharmacySupplyReservation/.test(key)))
+      .toEqual([]);
+    const positiveSupplyMovements = ['receive', 'transfer_in', 'return', 'adjust_increase'];
+    expect(pharmacy.schemas.PharmacySupplyStockMovementRequest.properties.movement_kind.enum)
+      .toEqual(positiveSupplyMovements);
+    expect(pharmacy.schemas.PharmacySupplyStockMovementRequest.properties.quantity_delta)
+      .toEqual({ type: 'number', exclusiveMinimum: 0 });
+    expect(pharmacy.schemas.PharmacySupplyStockMovementResult.properties.movement_kind.enum)
+      .toEqual(positiveSupplyMovements);
+    expect(pharmacy.schemas.PharmacySupplyStockMovementResult.properties.quantity_delta)
+      .toEqual({ type: 'number', exclusiveMinimum: 0 });
+    expect(pharmacy.schemas.PharmacySupplyGoodsReceiptLineQcRequest.properties.qc_status.enum)
+      .toEqual(['passed', 'failed']);
+    expect(pharmacy.schemas.PharmacySupplyGoodsReceiptTransitionRequest.properties.action.enum)
+      .toEqual(['reject', 'finalize', 'close', 'archive']);
+  });
+
   it('documents notification-authority validation as a bearer-authenticated fail-closed request', () => {
     const operation = spec.paths['/api/v1/devices/notification-authority/validate'].post;
 

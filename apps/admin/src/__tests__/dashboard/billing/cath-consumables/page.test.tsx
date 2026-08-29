@@ -3,6 +3,7 @@ import {
   getCathConsumablesBillingSettings,
   listActiveInventoryItems,
   listCathConsumablesCatalog,
+  listCathConsumablesFacilities,
   listCathConsumablesUnbilledUsage,
   updateCathConsumablesBillingSettings,
   upsertCathConsumable,
@@ -16,6 +17,7 @@ import {
   within,
 } from "@testing-library/react";
 import type { ReactElement } from "react";
+import toast from "react-hot-toast";
 
 jest.mock("react-hot-toast", () => ({
   __esModule: true,
@@ -26,6 +28,7 @@ jest.mock("@/lib/api/cathConsumables", () => ({
   getCathConsumablesBillingSettings: jest.fn(),
   listActiveInventoryItems: jest.fn(),
   listCathConsumablesCatalog: jest.fn(),
+  listCathConsumablesFacilities: jest.fn(),
   listCathConsumablesUnbilledUsage: jest.fn(),
   updateCathConsumablesBillingSettings: jest.fn(),
   upsertCathConsumable: jest.fn(),
@@ -51,6 +54,9 @@ const mockedUpdateSettings =
 const mockedUpsert = upsertCathConsumable as jest.MockedFunction<
   typeof upsertCathConsumable
 >;
+const mockedFacilities = listCathConsumablesFacilities as jest.MockedFunction<
+  typeof listCathConsumablesFacilities
+>;
 
 function renderWithQuery(ui: ReactElement) {
   const queryClient = new QueryClient({
@@ -65,6 +71,20 @@ function renderWithQuery(ui: ReactElement) {
 }
 
 function seedApiMocks() {
+  // The catalog read is facility-scoped and the portal must name the facility.
+  // A single active facility is the only case the tab may resolve on its own.
+  mockedFacilities.mockResolvedValue({
+    facilities: [
+      {
+        id: 5,
+        facility_code: "VH-MAIN",
+        display_name: "VH Main Hospital",
+        status: "active",
+        is_default: true,
+      },
+    ],
+    count: 1,
+  } as never);
   mockedCatalog.mockResolvedValue({
     items: [
       {
@@ -160,10 +180,51 @@ describe("<CathConsumablesPage />", () => {
     expect(screen.getByText("Inert")).toBeInTheDocument();
     expect(screen.getByDisplayValue("CATH-PROC-OWNER")).toBeInTheDocument();
     expect(mockedCatalog).toHaveBeenCalledWith({
+      facility_id: 5,
       q: undefined,
       category: undefined,
       status: "active",
       limit: 500,
+    });
+  });
+
+  it("does not read the facility-scoped catalog until a facility is chosen", async () => {
+    mockedFacilities.mockResolvedValue({
+      facilities: [
+        {
+          id: 5,
+          facility_code: "VH-MAIN",
+          display_name: "VH Main Hospital",
+          status: "active",
+          is_default: true,
+        },
+        {
+          id: 9,
+          facility_code: "VH-ANNEX",
+          display_name: "VH Annexe",
+          status: "active",
+          is_default: false,
+        },
+      ],
+      count: 2,
+    } as never);
+    renderWithQuery(<CathConsumablesPage />);
+
+    expect(await screen.findByText("Facility required")).toBeInTheDocument();
+    expect(mockedCatalog).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("Facility"), {
+      target: { value: "9" },
+    });
+
+    await waitFor(() => {
+      expect(mockedCatalog).toHaveBeenCalledWith({
+        facility_id: 9,
+        q: undefined,
+        category: undefined,
+        status: "active",
+        limit: 500,
+      });
     });
   });
 
@@ -220,6 +281,9 @@ describe("<CathConsumablesPage />", () => {
           batch_tracked: true,
           status: "active",
         }),
+        // The PUT is mounted with `requireIdempotencyKey({ required: true })`;
+        // the key is a required argument minted by the tab, not by the client.
+        expect.stringMatching(/^cath-consumable-catalog-upsert:/),
       );
     });
   });
@@ -273,6 +337,7 @@ describe("<CathConsumablesPage />", () => {
           default_unit_cost_reference: null,
           billing_item_code: null,
         }),
+        expect.stringMatching(/^cath-consumable-catalog-upsert:/),
       );
     });
   });
@@ -316,6 +381,7 @@ describe("<CathConsumablesPage />", () => {
 
     await waitFor(() => {
       expect(mockedCatalog).toHaveBeenCalledWith({
+        facility_id: 5,
         q: "coronary",
         category: "stent",
         status: "retired",
@@ -435,8 +501,37 @@ describe("<CathConsumablesPage />", () => {
           item_name: "Everolimus coronary stent",
           status: "retired",
         }),
+        expect.stringMatching(/^cath-consumable-catalog-upsert:/),
       );
     });
+  });
+
+  it("ends the catalog attempt on success so a repeated save is not swallowed as a replay", async () => {
+    renderWithQuery(<CathConsumablesPage />);
+    await screen.findByText("Everolimus coronary stent");
+
+    const retireButton = () =>
+      screen.getByRole("button", { name: "Retire Everolimus coronary stent" });
+
+    // The catalog read is mocked, so the row never leaves `active` and a second
+    // click produces a byte-identical payload. Without `reset()` on success the
+    // attempt store would hand back the first key, the backend would replay its
+    // recorded response, and the operator's second deliberate save would be
+    // silently dropped.
+    fireEvent.click(retireButton());
+    await waitFor(() => {
+      // The success toast proves onSuccess ran, so the attempt was reset and
+      // the button is live again rather than still pending-disabled.
+      expect(toast.success).toHaveBeenCalledTimes(1);
+      expect(retireButton()).toBeEnabled();
+    });
+    fireEvent.click(retireButton());
+    await waitFor(() => expect(mockedUpsert).toHaveBeenCalledTimes(2));
+
+    const [[firstPayload, firstKey], [secondPayload, secondKey]] =
+      mockedUpsert.mock.calls;
+    expect(secondPayload).toEqual(firstPayload);
+    expect(secondKey).not.toBe(firstKey);
   });
 
   it("shows every fail-visible unbilled usage row", async () => {

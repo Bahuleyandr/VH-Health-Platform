@@ -106,7 +106,12 @@ const rbacConfig = {
   pharmacyPatientOrderRoutes: [PATIENT, PHARMACY_STAFF, PHARMACY_INCHARGE, NURSING_STAFF, IP_STAFF_NURSE, OP_STAFF_NURSE, DOCTOR, ADMIN],
   // Pharmacy staff/admin lifecycle actions
   pharmacyLifecycleRoutes: [PHARMACY_STAFF, PHARMACY_INCHARGE, ADMIN],
-  pharmacyStaffOrderRoutes: [PHARMACY_STAFF, PHARMACY_INCHARGE, ADMIN],
+  // `pharmacyStaffOrderRoutes` lived here for the generic
+  // PUT /pharmacy-orders/orders/:orderId/status mutation. That route was
+  // retired (it bypassed the facility-bound, verified Inventory V2 lifecycle)
+  // and its wrapAutoRBAC group deleted from routes/pharmacy/orderRoutes.js, so
+  // the key had no reader left. wrapAutoRBAC throws on a MISSING key, never on
+  // an unused one, so an orphan key is silent drift — removed with the route.
   pharmacyStaffMedicationRoutes: [PHARMACY_STAFF, PHARMACY_INCHARGE, STORES_PURCHASE_INCHARGE, ADMIN],
   pharmacyAdminMedicationRoutes: [PHARMACY_INCHARGE, ADMIN],
   pharmacyStaffInventoryRoutes: [PHARMACY_STAFF, PHARMACY_INCHARGE, STORES_PURCHASE_INCHARGE, ADMIN],
@@ -154,6 +159,12 @@ const rbacConfig = {
     CMO,
     MEDICAL_SUPERINTENDENT,
     ADMIN
+  ],
+  ePrescriptionRejectedAmendmentRoutes: [
+    DOCTOR,
+    DUTY_DOCTOR,
+    CMO,
+    MEDICAL_SUPERINTENDENT
   ],
   // /prescriptions/patient/my — a patient's OWN prescriptions (self-scoped).
   ePrescriptionPatientRoutes: [

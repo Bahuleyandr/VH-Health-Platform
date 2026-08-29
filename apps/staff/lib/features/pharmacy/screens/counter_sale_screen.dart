@@ -11,10 +11,16 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/online_only_action_state.dart';
 import '../../../l10n/app_strings.dart';
 
+/// The actor's OWN active pharmacy facility grants, as the server proved them.
+/// The counter never types an authority scope — it picks one of these.
+typedef CounterSaleFacilityLister =
+    Future<List<Map<String, dynamic>>> Function();
 typedef CounterSaleItemSearcher = Future<List<Map<String, dynamic>>> Function({
+  required int facilityId,
   String? search,
 });
 typedef CounterSaleCreator = Future<Map<String, dynamic>> Function({
+  required int facilityId,
   required List<Map<String, dynamic>> lines,
   String? patientUid,
   String? customerName,
@@ -75,6 +81,10 @@ const _kPaymentModes = [
 const _kScheduled = {'H', 'H1', 'X'};
 const _kNeverHandedOver = 'NEVER_HANDED_OVER';
 const _kPatientReturned = 'PATIENT_RETURNED';
+final _kUuidPattern = RegExp(
+  r'^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+  caseSensitive: false,
+);
 
 Map<String, dynamic>? _counterSaleMap(Object? value) =>
     value is Map ? Map<String, dynamic>.from(value) : null;
@@ -219,6 +229,7 @@ class _CartLine {
   _CartLine(this.item, this.quantity);
   final Map<String, dynamic> item;
   double quantity;
+  int? prescriptionLineIndex;
 
   int get itemId => (item['id'] as num).toInt();
   String get name => (item['display_name'] ?? '').toString();
@@ -236,15 +247,15 @@ class _CartLine {
   }
 }
 
-/// Walk-in pharmacy point-of-sale: item search with FEFO batch/expiry/MRP
-/// preview, cart, patient-or-walk-in customer capture, prescription fields
-/// for Schedule H/H1/X items (witness for X/narcotic), pay-at-counter, and a
-/// same-day void with reason on the recent-sales tab. The backend owns
-/// pricing, allocation and schedule enforcement — this screen only captures.
+/// Pharmacy point-of-sale: facility-bound item search with FEFO
+/// batch/expiry/MRP preview, exact patient/eRx line capture for Schedule
+/// H/H1/X items (witness for X/narcotic), pay-at-counter, and same-day void.
+/// The backend owns pricing, allocation and schedule enforcement.
 class CounterSaleScreen extends StatefulWidget {
   const CounterSaleScreen({
     super.key,
     this.initialSaleId,
+    this.listFacilities,
     this.searchItems,
     this.createSale,
     this.requestWitnessApproval,
@@ -258,6 +269,7 @@ class CounterSaleScreen extends StatefulWidget {
   });
 
   final String? initialSaleId;
+  final CounterSaleFacilityLister? listFacilities;
   final CounterSaleItemSearcher? searchItems;
   final CounterSaleCreator? createSale;
   final CounterSaleWitnessApprovalRequester? requestWitnessApproval;
@@ -278,13 +290,20 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
   final _customerNameCtrl = TextEditingController();
   final _customerPhoneCtrl = TextEditingController();
   final _patientUidCtrl = TextEditingController();
-  final _rxDoctorCtrl = TextEditingController();
-  final _rxRefCtrl = TextEditingController();
+  final _rxPrescriptionIdCtrl = TextEditingController();
   final _paymentRefCtrl = TextEditingController();
+
+  // Server-proved facility grants for THIS actor. `_selectedFacilityId` is only
+  // ever one of these ids — the counter cannot name a facility it holds no
+  // active grant for, and the backend re-proves the grant on every call.
+  List<Map<String, dynamic>> _facilities = const [];
+  bool _facilitiesLoading = false;
+  int? _selectedFacilityId;
 
   List<Map<String, dynamic>> _results = const [];
   final List<_CartLine> _cart = [];
   bool _searching = false;
+  int _searchGeneration = 0;
   bool _selling = false;
   bool _witnessBusy = false;
   bool _walkIn = true;
@@ -315,6 +334,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
   @override
   void initState() {
     super.initState();
+    _loadFacilities();
     _loadRecent(selectSaleId: widget.initialSaleId);
   }
 
@@ -324,8 +344,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     _customerNameCtrl.dispose();
     _customerPhoneCtrl.dispose();
     _patientUidCtrl.dispose();
-    _rxDoctorCtrl.dispose();
-    _rxRefCtrl.dispose();
+    _rxPrescriptionIdCtrl.dispose();
     _paymentRefCtrl.dispose();
     _saleAttempt.reset();
     for (final intent in _voidIntents.values) {
@@ -342,27 +361,111 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
 
   bool get _needsRx => _cart.any((l) => l.isScheduled);
   bool get _needsWitness => _cart.any((l) => l.isWitnessed);
+
+  static int? _grantedFacilityId(Map<String, dynamic> grant) {
+    final raw = grant['facility_id'];
+    final value = raw is num
+        ? raw.toInt()
+        : int.tryParse(raw?.toString().trim() ?? '');
+    return value != null && value > 0 ? value : null;
+  }
+
+  /// Never a free-typed value: the selection must still be one of the grants
+  /// the server returned, so a revoked grant drops the scope on the next load.
+  int? get _facilityId {
+    final selected = _selectedFacilityId;
+    if (selected == null) return null;
+    final granted = _facilities.any(
+      (grant) => _grantedFacilityId(grant) == selected,
+    );
+    return granted ? selected : null;
+  }
+
+  Future<void> _loadFacilities() async {
+    setState(() => _facilitiesLoading = true);
+    try {
+      final lister =
+          widget.listFacilities ?? PharmacyApiService.getCounterSaleFacilities;
+      final facilities = await lister();
+      if (!mounted) return;
+      setState(() {
+        _facilities = facilities;
+        final ids = facilities
+            .map(_grantedFacilityId)
+            .whereType<int>()
+            .toList(growable: false);
+        if (_selectedFacilityId != null &&
+            !ids.contains(_selectedFacilityId)) {
+          _selectedFacilityId = null;
+          _searchGeneration += 1;
+          _searching = false;
+          _results = const [];
+          _clearWitnessApprovalState();
+        }
+        // A single granted facility is not a choice — bind it.
+        if (_selectedFacilityId == null && ids.length == 1) {
+          _selectedFacilityId = ids.first;
+        }
+      });
+    } catch (e) {
+      if (mounted) _snack('$e', error: true);
+    } finally {
+      if (mounted) setState(() => _facilitiesLoading = false);
+    }
+  }
+
+  void _selectFacility(int? facilityId) {
+    if (facilityId == _selectedFacilityId) return;
+    setState(() {
+      _selectedFacilityId = facilityId;
+      _searchGeneration += 1;
+      _searching = false;
+      _results = const [];
+      _clearWitnessApprovalState();
+    });
+  }
+
+  int? get _prescriptionId {
+    final value = int.tryParse(_rxPrescriptionIdCtrl.text.trim());
+    return value != null && value > 0 ? value : null;
+  }
+
+  bool get _hasRegisteredPatientUid =>
+      _kUuidPattern.hasMatch(_patientUidCtrl.text.trim());
+  bool get _hasCustomerIdentity => _walkIn
+      ? _customerNameCtrl.text.trim().isNotEmpty
+      : _hasRegisteredPatientUid;
+  bool get _hasRegisteredScheduledPatient =>
+      !_needsRx || (!_walkIn && _hasRegisteredPatientUid);
+  bool get _hasExactRxMapping =>
+      !_needsRx ||
+      (_prescriptionId != null &&
+          _cart
+              .where((line) => line.isScheduled)
+              .every((line) => line.prescriptionLineIndex != null));
   bool get _needsPaymentReference => _paymentMode != 'CASH';
   bool get _hasRequiredPaymentReference =>
       !_needsPaymentReference || _paymentRefCtrl.text.trim().isNotEmpty;
 
   Map<String, dynamic> _currentSalePayload() {
-    final rxDoctor = _rxDoctorCtrl.text.trim();
-    final rxRef = _rxRefCtrl.text.trim();
     final paymentReference = _paymentRefCtrl.text.trim();
     return {
+      'facility_id': _facilityId,
       'lines': _cart
-          .map((l) => {'inventory_item_id': l.itemId, 'quantity': l.quantity})
+          .map(
+            (line) => {
+              'inventory_item_id': line.itemId,
+              'quantity': line.quantity,
+              if (line.isScheduled)
+                'prescription_line_index': line.prescriptionLineIndex,
+            },
+          )
           .toList(),
       if (_walkIn) 'customer_name': _customerNameCtrl.text.trim(),
       if (_walkIn && _customerPhoneCtrl.text.trim().isNotEmpty)
         'customer_phone': _customerPhoneCtrl.text.trim(),
       if (!_walkIn) 'patient_uid': _patientUidCtrl.text.trim(),
-      if (_needsRx)
-        'rx': {
-          if (rxDoctor.isNotEmpty) 'doctor_name': rxDoctor,
-          if (rxRef.isNotEmpty) 'reference': rxRef,
-        },
+      if (_needsRx) 'rx': {'prescription_id': _prescriptionId},
       'payment_mode': _paymentMode,
       if (paymentReference.isNotEmpty) 'payment_reference': paymentReference,
     };
@@ -383,8 +486,9 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
   }
 
   void _invalidateWitnessApproval() {
-    if (_witnessApprovalId == null) return;
-    setState(_clearWitnessApprovalState);
+    setState(() {
+      if (_witnessApprovalId != null) _clearWitnessApprovalState();
+    });
   }
 
   double get _estimatedTotal =>
@@ -401,18 +505,34 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
   }
 
   Future<void> _runSearch() async {
+    final s = AppStrings.of(context);
+    final facilityId = _facilityId;
+    if (facilityId == null) {
+      _snack(s.lookup('s4.lib.counter_sale.facility_required'), error: true);
+      return;
+    }
     final q = _searchCtrl.text.trim();
+    final searchGeneration = ++_searchGeneration;
     setState(() => _searching = true);
     try {
       final searcher =
           widget.searchItems ?? PharmacyApiService.getCounterSaleItems;
-      final items = await searcher(search: q.isEmpty ? null : q);
-      if (!mounted) return;
+      final items = await searcher(
+        facilityId: facilityId,
+        search: q.isEmpty ? null : q,
+      );
+      if (!mounted ||
+          searchGeneration != _searchGeneration ||
+          _facilityId != facilityId) {
+        return;
+      }
       setState(() => _results = items);
     } catch (e) {
       _snack('$e', error: true);
     } finally {
-      if (mounted) setState(() => _searching = false);
+      if (mounted && searchGeneration == _searchGeneration) {
+        setState(() => _searching = false);
+      }
     }
   }
 
@@ -453,7 +573,9 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
       if (existing.isNotEmpty) {
         existing.first.quantity += qty;
       } else {
-        _cart.add(_CartLine(item, qty));
+        final line = _CartLine(item, qty);
+        _cart.add(line);
+        if (line.isScheduled) _walkIn = false;
       }
     });
   }
@@ -507,6 +629,21 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     final s = AppStrings.of(context);
     if (_cart.isEmpty || _selling) return;
     if (!OnlineOnlyActionGuard.require(context)) return;
+    if (_facilityId == null) {
+      _snack(s.lookup('s4.lib.counter_sale.facility_required'), error: true);
+      return;
+    }
+    if (!_hasRegisteredScheduledPatient) {
+      _snack(
+        s.lookup('s4.lib.counter_sale.scheduled_patient_required'),
+        error: true,
+      );
+      return;
+    }
+    if (!_hasExactRxMapping) {
+      _snack(s.lookup('s4.lib.counter_sale.rx_mapping_required'), error: true);
+      return;
+    }
     if (!_hasRequiredPaymentReference) {
       _snack(
         s.lookup('s4.lib.counter_sale.payment_reference_required'),
@@ -540,6 +677,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     try {
       final creator = widget.createSale ?? PharmacyApiService.createCounterSale;
       final result = await creator(
+        facilityId: sale['facility_id'] as int,
         lines: List<Map<String, dynamic>>.from(sale['lines'] as List),
         patientUid: sale['patient_uid']?.toString(),
         customerName: sale['customer_name']?.toString(),
@@ -571,8 +709,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         _upsertRecentSale(completedSale!);
         _clearWitnessApprovalState();
         _cart.clear();
-        _rxDoctorCtrl.clear();
-        _rxRefCtrl.clear();
+        _rxPrescriptionIdCtrl.clear();
         _paymentRefCtrl.clear();
         _customerNameCtrl.clear();
         _customerPhoneCtrl.clear();
@@ -724,6 +861,21 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
   Future<void> _requestOrApproveWitness() async {
     final s = AppStrings.of(context);
     if (_witnessBusy || !_needsWitness || _cart.isEmpty) return;
+    if (_facilityId == null) {
+      _snack(s.lookup('s4.lib.counter_sale.facility_required'), error: true);
+      return;
+    }
+    if (!_hasRegisteredScheduledPatient) {
+      _snack(
+        s.lookup('s4.lib.counter_sale.scheduled_patient_required'),
+        error: true,
+      );
+      return;
+    }
+    if (!_hasExactRxMapping) {
+      _snack(s.lookup('s4.lib.counter_sale.rx_mapping_required'), error: true);
+      return;
+    }
     final sale = _currentSalePayload();
     final fingerprint = _saleFingerprint(sale);
     var attemptStage = _WitnessAttemptStage.request;
@@ -1247,6 +1399,8 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
+        _buildFacilitySection(s),
+        const SizedBox(height: 12),
         _buildSearchSection(s),
         const SizedBox(height: 12),
         _buildCartSection(s),
@@ -1292,6 +1446,10 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                     !isOnline ||
                         _cart.isEmpty ||
                         _selling ||
+                        _facilityId == null ||
+                        !_hasCustomerIdentity ||
+                        !_hasRegisteredScheduledPatient ||
+                        !_hasExactRxMapping ||
                         !_hasRequiredPaymentReference ||
                         (_needsWitness && !_hasCurrentWitnessApproval)
                     ? null
@@ -1319,6 +1477,67 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         ),
         const SizedBox(height: 24),
       ],
+    );
+  }
+
+  Widget _buildFacilitySection(AppStrings s) {
+    final entries = <DropdownMenuItem<int>>[];
+    for (final grant in _facilities) {
+      final facilityId = _grantedFacilityId(grant);
+      if (facilityId == null) continue;
+      final name = grant['display_name']?.toString().trim() ?? '';
+      final code = grant['facility_code']?.toString().trim() ?? '';
+      final label = [
+        name.isEmpty ? '#$facilityId' : name,
+        if (code.isNotEmpty) '($code)',
+      ].join(' ');
+      entries.add(
+        DropdownMenuItem<int>(value: facilityId, child: Text(label)),
+      );
+    }
+    final hasGrant = entries.isNotEmpty;
+    final selected = _facilityId;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // The subtree key carries the authoritative selection so a grant
+            // revoked server-side (or the single-grant auto-bind) re-seeds the
+            // form field instead of leaving a stale facility on screen.
+            KeyedSubtree(
+              key: ValueKey(
+                'counter-sale-facility-${selected ?? 0}-${entries.length}',
+              ),
+              child: DropdownButtonFormField<int>(
+                key: const ValueKey('counter-sale-facility-id'),
+                initialValue: selected,
+                items: entries,
+                // Locked once the cart holds stock priced at one facility, and
+                // while the granted list is still being proved by the server.
+                onChanged: !hasGrant || _facilitiesLoading || _cart.isNotEmpty
+                    ? null
+                    : _selectFacility,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: s.lookup('s4.lib.counter_sale.facility_id'),
+                  helperText: s.lookup('s4.lib.counter_sale.facility_hint'),
+                ),
+              ),
+            ),
+            if (!hasGrant && !_facilitiesLoading)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  s.lookup('s4.lib.counter_sale.facility_none'),
+                  key: const ValueKey('counter-sale-facility-none'),
+                  style: TextStyle(color: Colors.red.shade700),
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1500,10 +1719,19 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                 ),
               ],
               selected: {_walkIn},
-              onSelectionChanged: (v) => setState(() {
-                _clearWitnessApprovalState();
-                _walkIn = v.first;
-              }),
+              onSelectionChanged: (v) {
+                if (_needsRx && v.first) {
+                  _snack(
+                    s.lookup('s4.lib.counter_sale.scheduled_patient_required'),
+                    error: true,
+                  );
+                  return;
+                }
+                setState(() {
+                  _clearWitnessApprovalState();
+                  _walkIn = v.first;
+                });
+              },
             ),
             const SizedBox(height: 8),
             if (_walkIn) ...[
@@ -1526,6 +1754,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
               ),
             ] else
               TextField(
+                key: const ValueKey('counter-sale-patient-uid'),
                 controller: _patientUidCtrl,
                 onChanged: (_) => _invalidateWitnessApproval(),
                 decoration: InputDecoration(
@@ -1550,22 +1779,45 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
               s.lookup('s4.lib.counter_sale.rx_section'),
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _rxDoctorCtrl,
-              onChanged: (_) => _invalidateWitnessApproval(),
-              decoration: InputDecoration(
-                labelText: s.lookup('s4.lib.counter_sale.rx_doctor'),
-              ),
+            const SizedBox(height: 4),
+            Text(
+              s.lookup('s4.lib.counter_sale.rx_exact_mapping_hint'),
+              style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 8),
             TextField(
-              controller: _rxRefCtrl,
+              key: const ValueKey('counter-sale-prescription-id'),
+              controller: _rxPrescriptionIdCtrl,
+              keyboardType: TextInputType.number,
               onChanged: (_) => _invalidateWitnessApproval(),
               decoration: InputDecoration(
-                labelText: s.lookup('s4.lib.counter_sale.rx_reference'),
+                labelText: s.lookup('s4.lib.counter_sale.rx_prescription_id'),
               ),
             ),
+            ..._cart
+                .where((line) => line.isScheduled)
+                .map(
+                  (line) => Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: TextFormField(
+                      key: ValueKey('counter-sale-rx-line-${line.itemId}'),
+                      initialValue: line.prescriptionLineIndex?.toString(),
+                      keyboardType: TextInputType.number,
+                      onChanged: (value) {
+                        final parsed = int.tryParse(value.trim());
+                        line.prescriptionLineIndex =
+                            parsed != null && parsed >= 0 ? parsed : null;
+                        _invalidateWitnessApproval();
+                      },
+                      decoration: InputDecoration(
+                        labelText: s.format(
+                          's4.lib.counter_sale.rx_line_index',
+                          {'medicine': line.name},
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
           ],
         ),
       ),
@@ -1618,7 +1870,13 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
             const SizedBox(height: 8),
             OutlinedButton.icon(
               key: const ValueKey('counter-sale-witness-request'),
-              onPressed: _witnessBusy ? null : _requestOrApproveWitness,
+              onPressed:
+                  _witnessBusy ||
+                      _facilityId == null ||
+                      !_hasRegisteredScheduledPatient ||
+                      !_hasExactRxMapping
+                  ? null
+                  : _requestOrApproveWitness,
               icon: _witnessBusy
                   ? const SizedBox(
                       width: 16,
@@ -1673,9 +1931,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                 key: const ValueKey('counter-sale-payment-reference'),
                 controller: _paymentRefCtrl,
                 onChanged: (_) {
-                  final hadApproval = _witnessApprovalId != null;
                   _invalidateWitnessApproval();
-                  if (!hadApproval && mounted) setState(() {});
                 },
                 decoration: InputDecoration(
                   labelText: s.lookup(

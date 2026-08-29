@@ -1056,6 +1056,7 @@ describe('createClaim attaches non-blocking warnings (does not reject)', () => {
       policy_id: 1,
       preauth_id: 90,
       patient_uid: patientUid,
+      claim_type: 'reimbursement',
       total_billed: 80000,
       claimed_amount: 80000,
     });
@@ -1098,6 +1099,7 @@ describe('createClaim attaches non-blocking warnings (does not reject)', () => {
       tenantId,
       policy_id: 1,
       patient_uid: patientUid,
+      claim_type: 'reimbursement',
       total_billed: 50000,
     });
     expect(claim.id).toBe(315);

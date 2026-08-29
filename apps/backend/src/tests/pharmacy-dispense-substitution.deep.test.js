@@ -22,6 +22,8 @@
 import prisma from '../lib/prisma.js';
 import {
   dispenseSubstitution,
+  markCounterDispensed,
+  markDelivered,
   requestSubstitutionWitnessApproval,
   approveSubstitutionWitnessApproval,
 } from '../controllers/pharmacy/pharmacyOrderController.js';
@@ -45,8 +47,50 @@ function mockRes() {
     json(b) { this.body = b; return this; },
   };
 }
-async function callController(body) {
-  const req = { tenantId: TENANT, user: { uid: ACTOR, role: 'PHARMACY_INCHARGE' }, id: 'req-dsub', body };
+function bodyCode(res) {
+  return res.body?.code ?? res.body?.details?.code ?? null;
+}
+async function callDelivery(orderId, body = {}) {
+  const req = {
+    tenantId: TENANT,
+    user: { uid: ACTOR, role: 'PHARMACY_INCHARGE' },
+    id: 'req-dsub-delivery',
+    params: { id: String(orderId) },
+    idempotencyClaim: { requestKey: `dsub-delivery-${orderId}` },
+    body,
+  };
+  const res = mockRes();
+  await markDelivered(req, res);
+  return res;
+}
+async function callCounter(orderId, body = {}) {
+  const req = {
+    tenantId: TENANT,
+    user: { id: null, uid: ACTOR, role: 'PHARMACY_INCHARGE' },
+    id: 'req-dsub-counter',
+    params: { id: String(orderId) },
+    idempotencyClaim: { requestKey: `dsub-counter-${orderId}` },
+    body,
+  };
+  const res = mockRes();
+  await markCounterDispensed(req, res);
+  return res;
+}
+let commandSequence = 0;
+let currentOrderId;
+let currentPrescriptionId;
+async function callController(body, { idempotencyKey = `dsub-command-${++commandSequence}` } = {}) {
+  const req = {
+    tenantId: TENANT,
+    user: { uid: ACTOR, role: 'PHARMACY_INCHARGE' },
+    id: 'req-dsub',
+    idempotencyClaim: { requestKey: idempotencyKey },
+    body: {
+      order_id: currentOrderId,
+      prescription_id: currentPrescriptionId,
+      ...body,
+    },
+  };
   const res = mockRes();
   await dispenseSubstitution(req, res);
   return res;
@@ -55,6 +99,7 @@ async function callController(body) {
 describe('dispenseSubstitution — atomic decrement + canonical events + equivalence gate', () => {
   let compId; let origId; let subId; let diffId; let itemId; let batchId;
   let xItemId; let xBatchId; let h1ItemId; let h1BatchId;
+  let orderId; let prescriptionId;
 
   async function cleanup() {
     await prisma.$transaction(async (tx) => {
@@ -70,6 +115,8 @@ describe('dispenseSubstitution — atomic decrement + canonical events + equival
     });
     for (const sql of [
       `DELETE FROM approvals WHERE tenant_id=$1::uuid AND approval_kind='controlled_dispense_witness'`,
+      `DELETE FROM e_prescriptions WHERE tenant_id=$1::uuid`,
+      `DELETE FROM pharmacy_orders WHERE tenant_id=$1::uuid AND order_note='dsub-origin'`,
       `DELETE FROM pharmacy_inventory_batches WHERE tenant_id=$1::uuid AND batch_number LIKE 'DSUB-%'`,
       `DELETE FROM pharmacy_inventory_items WHERE tenant_id=$1::uuid AND sku_code LIKE 'DSUB-%'`,
       `DELETE FROM clinical_timeline_events WHERE tenant_id=$1::uuid`,
@@ -88,16 +135,18 @@ describe('dispenseSubstitution — atomic decrement + canonical events + equival
     ).catch(() => {});
   }
 
-  async function seedCatalog(name, { strengthKey, strengthComponents, manufacturer }) {
+  async function seedCatalog(name, {
+    strengthKey, strengthComponents, manufacturer, unitPrice,
+  }) {
     const r = await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_catalog
          (name, generic_name, manufacturer, is_active, tenant_id, composition_id, strength,
           strength_key, strength_components, form, form_key, release_key, route,
-          composition_confidence, updated_at)
+          composition_confidence, unit_price, updated_at)
        VALUES ($1,'Amoxicillin + Clavulanic acid',$2,TRUE,$3::uuid,$4,$5,$5,$6::jsonb,
-               'tablet','tablet',NULL,NULL,'high',NOW())
+               'tablet','tablet',NULL,NULL,'high',$7,NOW())
        RETURNING id`,
-      name, manufacturer, TENANT, compId, strengthKey, strengthComponents,
+      name, manufacturer, TENANT, compId, strengthKey, strengthComponents, unitPrice,
     );
     return Number(r[0].id);
   }
@@ -115,8 +164,12 @@ describe('dispenseSubstitution — atomic decrement + canonical events + equival
       COMP_KEY,
     );
     compId = Number(cr[0].id);
-    origId = await seedCatalog('DSUBTEST Augmentin 625', { strengthKey: '625mg', strengthComponents: combo, manufacturer: 'GSK' });
-    subId = await seedCatalog('DSUBTEST Clavam 625', { strengthKey: '625mg', strengthComponents: combo, manufacturer: 'Alkem' });
+    origId = await seedCatalog('DSUBTEST Augmentin 625', {
+      strengthKey: '625mg', strengthComponents: combo, manufacturer: 'GSK', unitPrice: 10,
+    });
+    subId = await seedCatalog('DSUBTEST Clavam 625', {
+      strengthKey: '625mg', strengthComponents: combo, manufacturer: 'Alkem', unitPrice: 12,
+    });
     diffId = await seedCatalog('DSUBTEST Clavam 375', {
       strengthKey: '375mg',
       strengthComponents: JSON.stringify([
@@ -124,6 +177,7 @@ describe('dispenseSubstitution — atomic decrement + canonical events + equival
         { ingredient: 'clavulanic_acid', amount: 125, unit: 'mg' },
       ]),
       manufacturer: 'Alkem',
+      unitPrice: 8,
     });
     const it = await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_inventory_items (tenant_id, sku_code, display_name, catalog_id, composition_id)
@@ -193,6 +247,56 @@ describe('dispenseSubstitution — atomic decrement + canonical events + equival
     );
   });
 
+  beforeEach(async () => {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM e_prescriptions WHERE tenant_id=$1::uuid AND patient_uid=$2::uuid`,
+      TENANT,
+      PATIENT,
+    );
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM pharmacy_orders WHERE tenant_id=$1::uuid AND order_note='dsub-origin'`,
+      TENANT,
+    );
+    const orderRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_orders
+         (tenant_id, phone, patient_name, patient_phone, order_note, delivery_type,
+          status, items_list, total_amount, clinical_verification_status, updated_at)
+        VALUES ($1::uuid, '9812345699', 'Substitution Patient', '9812345699',
+          'dsub-origin', 'delivery', 'CONFIRMED', $2::jsonb, 2000000, 'verified', NOW())
+       RETURNING id`,
+      TENANT,
+      JSON.stringify([{
+        catalog_id: origId,
+        name: 'DSUBTEST Augmentin 625',
+        quantity: 200000,
+        qty: 200000,
+        price: 10,
+        line_total: 2000000,
+      }]),
+    );
+    orderId = Number(orderRows[0].id);
+    const prescriptionRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO e_prescriptions
+         (tenant_id, pharmacy_order_id, patient_uid, medications, status,
+          prescription_number, created_at, updated_at)
+       VALUES ($1::uuid, $2::int, $3::uuid, $4::jsonb, 'pharmacy_linked',
+          $5, NOW(), NOW())
+       RETURNING id`,
+      TENANT,
+      orderId,
+      PATIENT,
+      JSON.stringify([{
+        catalog_id: origId,
+        name: 'DSUBTEST Augmentin 625',
+        quantity: 200000,
+      }]),
+      `DSUB-RX-${orderId}`,
+    );
+    prescriptionId = Number(prescriptionRows[0].id);
+    currentOrderId = orderId;
+    currentPrescriptionId = prescriptionId;
+  });
+
   afterAll(async () => {
     await cleanup();
     if (typeof prisma.$disconnect === 'function') await prisma.$disconnect();
@@ -217,6 +321,47 @@ describe('dispenseSubstitution — atomic decrement + canonical events + equival
     );
     expect(mv.length).toBe(1);
     expect(Number(mv[0].quantity_delta)).toBe(-10);
+    expect(mv[0].metadata).toEqual(expect.objectContaining({
+      order_id: orderId,
+      prescription_id: prescriptionId,
+      fulfilment_status: 'partial',
+      remaining_quantity: 199990,
+      billable_subtotal: 120,
+    }));
+    expect(res.body.data).toEqual(expect.objectContaining({
+      order_id: orderId,
+      prescription_id: prescriptionId,
+      remaining_quantity: 199990,
+      fulfilment_status: 'partial',
+      billable_subtotal: 120,
+      batch_evidence: expect.objectContaining({ inventory_batch_id: batchId }),
+    }));
+    const projection = await prisma.$queryRawUnsafe(
+      `SELECT po.partial_dispense, po.total_amount, po.items_list,
+              ep.status AS prescription_status, ep.medications
+         FROM pharmacy_orders po
+         JOIN e_prescriptions ep ON ep.pharmacy_order_id=po.id AND ep.tenant_id=po.tenant_id
+        WHERE po.id=$1::int AND ep.id=$2::int`,
+      orderId,
+      prescriptionId,
+    );
+    expect(projection[0].partial_dispense).toBe(true);
+    expect(Number(projection[0].total_amount)).toBe(120);
+    expect(projection[0].prescription_status).toBe('pharmacy_linked');
+    expect(projection[0].medications[0]).toEqual(expect.objectContaining({
+      dispensed_quantity: 10,
+      remaining_quantity: 199990,
+      fulfilment_status: 'partial',
+    }));
+    expect(projection[0].items_list[0]).toEqual(expect.objectContaining({
+      catalog_id: subId,
+      inventory_item_id: itemId,
+      price: 12,
+      inventory_billable_total: 120,
+      line_total: 120,
+      dispensed_qty: 10,
+      inventory_dispensed_quantity: 10,
+    }));
 
     // canonical pair committed in the same tx (a 200 + decrement already implies it, but assert explicitly)
     const tl = await prisma.$queryRawUnsafe(`SELECT COUNT(*)::int AS n FROM clinical_timeline_events WHERE tenant_id=$1::uuid`, TENANT);
@@ -247,8 +392,450 @@ describe('dispenseSubstitution — atomic decrement + canonical events + equival
     expect(Number(after[0].remaining_quantity)).toBe(Number(before[0].remaining_quantity));
   });
 
+  test('delivery rejects caller line quantities and unmatched catalog lines', async () => {
+    await prisma.$executeRawUnsafe(
+      `UPDATE pharmacy_orders SET status='DISPATCHED'
+        WHERE id=$1::int AND tenant_id=$2::uuid`,
+      orderId,
+      TENANT,
+    );
+    const before = await prisma.$queryRawUnsafe(
+      `SELECT remaining_quantity FROM pharmacy_inventory_batches WHERE id=$1`,
+      batchId,
+    );
+    const quantityMutation = await callDelivery(orderId, {
+      dispensed_items: [{
+        catalog_id: origId,
+        inventory_item_id: itemId,
+        quantity: 1,
+        inventory_allocations: [{ inventory_batch_id: batchId, quantity: 1 }],
+      }],
+    });
+    expect(quantityMutation.statusCode).toBe(400);
+    expect(bodyCode(quantityMutation)).toBe('PHARMACY_ORDER_DELIVERY_LINE_MUTATION_FORBIDDEN');
+
+    const unmatched = await callDelivery(orderId, {
+      dispensed_items: [{
+        catalog_id: diffId,
+        inventory_item_id: itemId,
+        inventory_allocations: [{ inventory_batch_id: batchId, quantity: 1 }],
+      }],
+    });
+    expect(unmatched.statusCode).toBe(409);
+    expect(bodyCode(unmatched)).toBe('PHARMACY_ORDER_DELIVERY_LINE_UNRESOLVED');
+    const after = await prisma.$queryRawUnsafe(
+      `SELECT remaining_quantity FROM pharmacy_inventory_batches WHERE id=$1`,
+      batchId,
+    );
+    expect(Number(after[0].remaining_quantity)).toBe(Number(before[0].remaining_quantity));
+    const orderRows = await prisma.$queryRawUnsafe(
+      `SELECT status FROM pharmacy_orders WHERE id=$1::int AND tenant_id=$2::uuid`,
+      orderId,
+      TENANT,
+    );
+    expect(orderRows[0].status).toBe('DISPATCHED');
+  });
+
+  test('counter rejects unmatched and caller-priced lines before billing or stock movement', async () => {
+    await prisma.$executeRawUnsafe(
+      `UPDATE pharmacy_orders SET delivery_type='counter'
+        WHERE id=$1::int AND tenant_id=$2::uuid`,
+      orderId,
+      TENANT,
+    );
+    const before = await prisma.$queryRawUnsafe(
+      `SELECT remaining_quantity FROM pharmacy_inventory_batches WHERE id=$1`,
+      batchId,
+    );
+    const priced = await callCounter(orderId, {
+      dispensed_items: [{ catalog_id: origId, quantity: 1, price: 0 }],
+      payment_mode: 'none',
+    });
+    expect(priced.statusCode).toBe(400);
+    expect(bodyCode(priced)).toBe('PHARMACY_ORDER_PRICE_MUTATION_FORBIDDEN');
+    const unmatched = await callCounter(orderId, {
+      dispensed_items: [{ catalog_id: diffId, quantity: 1 }],
+      payment_mode: 'none',
+    });
+    expect(unmatched.statusCode).toBe(409);
+    expect(bodyCode(unmatched)).toBe('PHARMACY_ORDER_DISPENSE_LINE_UNRESOLVED');
+    const after = await prisma.$queryRawUnsafe(
+      `SELECT remaining_quantity FROM pharmacy_inventory_batches WHERE id=$1`,
+      batchId,
+    );
+    expect(Number(after[0].remaining_quantity)).toBe(Number(before[0].remaining_quantity));
+  });
+
+  test('partial substitution then delivery allocates only the remainder and closes billing + eRx evidence', async () => {
+    await prisma.$executeRawUnsafe(
+      `UPDATE e_prescriptions SET medications=$3::jsonb
+        WHERE id=$1::int AND tenant_id=$2::uuid`,
+      prescriptionId,
+      TENANT,
+      JSON.stringify([{ catalog_id: origId, name: 'DSUBTEST Augmentin 625', quantity: 5 }]),
+    );
+    await prisma.$executeRawUnsafe(
+      `UPDATE pharmacy_orders SET items_list=$3::jsonb, total_amount=50
+        WHERE id=$1::int AND tenant_id=$2::uuid`,
+      orderId,
+      TENANT,
+      JSON.stringify([{
+        catalog_id: origId,
+        name: 'DSUBTEST Augmentin 625',
+        quantity: 5,
+        qty: 5,
+        price: 10,
+        line_total: 50,
+      }]),
+    );
+    const before = await prisma.$queryRawUnsafe(
+      `SELECT remaining_quantity FROM pharmacy_inventory_batches WHERE id=$1`,
+      batchId,
+    );
+    const partial = await callController({
+      patient_uid: PATIENT,
+      inventory_item_id: itemId,
+      inventory_batch_id: batchId,
+      quantity: 2,
+      original_catalog_id: origId,
+      final_catalog_id: subId,
+    });
+    expect(partial.statusCode).toBe(200);
+    expect(partial.body?.data).toEqual(expect.objectContaining({
+      fulfilment_status: 'partial',
+      remaining_quantity: 3,
+    }));
+    await prisma.$executeRawUnsafe(
+      `UPDATE pharmacy_orders SET status='DISPATCHED'
+        WHERE id=$1::int AND tenant_id=$2::uuid`,
+      orderId,
+      TENANT,
+    );
+
+    const delivered = await callDelivery(orderId);
+
+    expect(delivered.statusCode).toBe(200);
+    const after = await prisma.$queryRawUnsafe(
+      `SELECT remaining_quantity FROM pharmacy_inventory_batches WHERE id=$1`,
+      batchId,
+    );
+    expect(Number(after[0].remaining_quantity)).toBe(Number(before[0].remaining_quantity) - 5);
+    const projection = await prisma.$queryRawUnsafe(
+      `SELECT po.status, po.total_amount, po.items_list,
+              ep.status AS prescription_status, ep.medications
+         FROM pharmacy_orders po
+         JOIN e_prescriptions ep ON ep.pharmacy_order_id=po.id AND ep.tenant_id=po.tenant_id
+        WHERE po.id=$1::int AND ep.id=$2::int`,
+      orderId,
+      prescriptionId,
+    );
+    expect(projection[0].status).toBe('DELIVERED');
+    expect(Number(projection[0].total_amount)).toBe(60);
+    expect(projection[0].items_list[0]).toEqual(expect.objectContaining({
+      catalog_id: subId,
+      ordered_qty: 5,
+      dispensed_qty: 5,
+      remaining_qty: 0,
+      inventory_dispensed_quantity: 5,
+      inventory_remaining_quantity: 0,
+      price: 12,
+      line_total: 60,
+    }));
+    expect(projection[0].prescription_status).toBe('fulfilled');
+    expect(projection[0].medications[0]).toEqual(expect.objectContaining({
+      ordered_quantity: 5,
+      dispensed_quantity: 5,
+      remaining_quantity: 0,
+      fulfilment_status: 'fulfilled',
+    }));
+  });
+
+  test('repeated partial substitutions preserve each movement price without repricing history', async () => {
+    await prisma.$executeRawUnsafe(
+      `UPDATE e_prescriptions SET medications=$3::jsonb
+        WHERE id=$1::int AND tenant_id=$2::uuid`,
+      prescriptionId,
+      TENANT,
+      JSON.stringify([{ catalog_id: origId, name: 'DSUBTEST Augmentin 625', quantity: 5 }]),
+    );
+    await prisma.$executeRawUnsafe(
+      `UPDATE pharmacy_orders SET items_list=$3::jsonb, total_amount=50
+        WHERE id=$1::int AND tenant_id=$2::uuid`,
+      orderId,
+      TENANT,
+      JSON.stringify([{
+        catalog_id: origId,
+        name: 'DSUBTEST Augmentin 625',
+        quantity: 5,
+        qty: 5,
+        price: 10,
+        line_total: 50,
+      }]),
+    );
+    const first = await callController({
+      patient_uid: PATIENT,
+      inventory_item_id: itemId,
+      inventory_batch_id: batchId,
+      quantity: 2,
+      original_catalog_id: origId,
+      final_catalog_id: subId,
+    });
+    expect(first.statusCode).toBe(200);
+
+    await prisma.$executeRawUnsafe(
+      `UPDATE pharmacy_catalog SET unit_price=15, updated_at=NOW() WHERE id=$1::int`,
+      subId,
+    );
+    try {
+      const second = await callController({
+        patient_uid: PATIENT,
+        inventory_item_id: itemId,
+        inventory_batch_id: batchId,
+        quantity: 1,
+        original_catalog_id: origId,
+        final_catalog_id: subId,
+      });
+      expect(second.statusCode).toBe(200);
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT total_amount, items_list FROM pharmacy_orders
+          WHERE id=$1::int AND tenant_id=$2::uuid`,
+        orderId,
+        TENANT,
+      );
+      expect(Number(rows[0].total_amount)).toBe(39);
+      expect(rows[0].items_list[0]).toEqual(expect.objectContaining({
+        dispensed_qty: 3,
+        inventory_dispensed_quantity: 3,
+        inventory_billable_total: 39,
+        line_total: 39,
+      }));
+      expect(rows[0].items_list[0].substitution_history).toEqual([
+        expect.objectContaining({ quantity: 2, unit_price: 12, line_total: 24 }),
+        expect.objectContaining({ quantity: 1, unit_price: 15, line_total: 15 }),
+      ]);
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `UPDATE pharmacy_catalog SET unit_price=12, updated_at=NOW() WHERE id=$1::int`,
+        subId,
+      );
+    }
+  });
+
+  test('partial substitution then counter finalization preserves substituted price and allocates the remainder', async () => {
+    await prisma.$executeRawUnsafe(
+      `UPDATE e_prescriptions SET medications=$3::jsonb
+        WHERE id=$1::int AND tenant_id=$2::uuid`,
+      prescriptionId,
+      TENANT,
+      JSON.stringify([{ catalog_id: origId, name: 'DSUBTEST Augmentin 625', quantity: 4 }]),
+    );
+    await prisma.$executeRawUnsafe(
+      `UPDATE pharmacy_orders
+          SET delivery_type='counter', items_list=$3::jsonb, total_amount=40
+        WHERE id=$1::int AND tenant_id=$2::uuid`,
+      orderId,
+      TENANT,
+      JSON.stringify([{
+        catalog_id: origId,
+        name: 'DSUBTEST Augmentin 625',
+        quantity: 4,
+        qty: 4,
+        price: 10,
+        line_total: 40,
+      }]),
+    );
+    const before = await prisma.$queryRawUnsafe(
+      `SELECT remaining_quantity FROM pharmacy_inventory_batches WHERE id=$1`,
+      batchId,
+    );
+    const partial = await callController({
+      patient_uid: PATIENT,
+      inventory_item_id: itemId,
+      inventory_batch_id: batchId,
+      quantity: 1,
+      original_catalog_id: origId,
+      final_catalog_id: subId,
+    });
+    expect(partial.statusCode).toBe(200);
+
+    const counter = await callCounter(orderId, {
+      payment_mode: 'cash',
+      amount_collected: 48,
+    });
+
+    expect(counter.statusCode).toBe(200);
+    const after = await prisma.$queryRawUnsafe(
+      `SELECT remaining_quantity FROM pharmacy_inventory_batches WHERE id=$1`,
+      batchId,
+    );
+    expect(Number(after[0].remaining_quantity)).toBe(Number(before[0].remaining_quantity) - 4);
+    const projection = await prisma.$queryRawUnsafe(
+      `SELECT po.status, po.total_amount, po.items_list,
+              ep.status AS prescription_status, ep.medications
+         FROM pharmacy_orders po
+         JOIN e_prescriptions ep ON ep.pharmacy_order_id=po.id AND ep.tenant_id=po.tenant_id
+        WHERE po.id=$1::int AND ep.id=$2::int`,
+      orderId,
+      prescriptionId,
+    );
+    expect(projection[0].status).toBe('DISPENSED');
+    expect(Number(projection[0].total_amount)).toBe(48);
+    expect(projection[0].items_list[0]).toEqual(expect.objectContaining({
+      catalog_id: subId,
+      ordered_qty: 4,
+      dispensed_qty: 4,
+      inventory_dispensed_quantity: 4,
+      inventory_remaining_quantity: 0,
+      price: 12,
+      line_total: 48,
+    }));
+    expect(projection[0].prescription_status).toBe('fulfilled');
+    expect(projection[0].medications[0]).toEqual(expect.objectContaining({
+      dispensed_quantity: 4,
+      remaining_quantity: 0,
+      fulfilment_status: 'fulfilled',
+    }));
+  });
+
+  test('cancelled prescription is rejected before stock or order mutation', async () => {
+    await prisma.$executeRawUnsafe(
+      `UPDATE e_prescriptions SET status='cancelled'
+        WHERE id=$1::int AND tenant_id=$2::uuid`,
+      prescriptionId,
+      TENANT,
+    );
+    const before = await prisma.$queryRawUnsafe(
+      `SELECT remaining_quantity FROM pharmacy_inventory_batches WHERE id=$1`,
+      batchId,
+    );
+
+    const response = await callController({
+      patient_uid: PATIENT,
+      inventory_item_id: itemId,
+      inventory_batch_id: batchId,
+      quantity: 1,
+      original_catalog_id: origId,
+      final_catalog_id: subId,
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.body?.code ?? response.body?.details?.code)
+      .toBe('SUBSTITUTION_PRESCRIPTION_STATUS_INVALID');
+    const after = await prisma.$queryRawUnsafe(
+      `SELECT remaining_quantity FROM pharmacy_inventory_batches WHERE id=$1`,
+      batchId,
+    );
+    expect(Number(after[0].remaining_quantity)).toBe(Number(before[0].remaining_quantity));
+  });
+
+  test('pending pharmacy verification blocks substitution before stock mutation', async () => {
+    await prisma.$executeRawUnsafe(
+      `UPDATE pharmacy_orders SET clinical_verification_status='pending'
+        WHERE id=$1::int AND tenant_id=$2::uuid`,
+      orderId,
+      TENANT,
+    );
+    const before = await prisma.$queryRawUnsafe(
+      `SELECT remaining_quantity FROM pharmacy_inventory_batches WHERE id=$1`,
+      batchId,
+    );
+
+    const response = await callController({
+      patient_uid: PATIENT,
+      inventory_item_id: itemId,
+      inventory_batch_id: batchId,
+      quantity: 1,
+      original_catalog_id: origId,
+      final_catalog_id: subId,
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.body?.code ?? response.body?.details?.code)
+      .toBe('PHARMACY_VERIFICATION_REQUIRED');
+    const after = await prisma.$queryRawUnsafe(
+      `SELECT remaining_quantity FROM pharmacy_inventory_batches WHERE id=$1`,
+      batchId,
+    );
+    expect(Number(after[0].remaining_quantity)).toBe(Number(before[0].remaining_quantity));
+  });
+
+  test('same command key replays once and conflicts when the linked body changes', async () => {
+    const before = await prisma.$queryRawUnsafe(
+      `SELECT remaining_quantity FROM pharmacy_inventory_batches WHERE id=$1`,
+      batchId,
+    );
+    const commandKey = `dsub-replay-${orderId}`;
+    const body = {
+      patient_uid: PATIENT,
+      inventory_item_id: itemId,
+      inventory_batch_id: batchId,
+      quantity: 1,
+      original_catalog_id: origId,
+      final_catalog_id: subId,
+    };
+    const first = await callController(body, { idempotencyKey: commandKey });
+    const replay = await callController(body, { idempotencyKey: commandKey });
+    const mismatch = await callController(
+      { ...body, quantity: 2 },
+      { idempotencyKey: commandKey },
+    );
+
+    expect(first.statusCode).toBe(200);
+    expect(replay.statusCode).toBe(200);
+    expect(replay.body?.data?.idempotent_replay).toBe(true);
+    expect(mismatch.statusCode).toBe(422);
+    const after = await prisma.$queryRawUnsafe(
+      `SELECT remaining_quantity FROM pharmacy_inventory_batches WHERE id=$1`,
+      batchId,
+    );
+    expect(Number(after[0].remaining_quantity)).toBe(Number(before[0].remaining_quantity) - 1);
+  });
+
+  test('a fully fulfilled prescription still replays from durable movement evidence', async () => {
+    await prisma.$executeRawUnsafe(
+      `UPDATE e_prescriptions SET medications=$3::jsonb
+        WHERE id=$1::int AND tenant_id=$2::uuid`,
+      prescriptionId,
+      TENANT,
+      JSON.stringify([{ catalog_id: origId, name: 'DSUBTEST Augmentin 625', quantity: 1 }]),
+    );
+    await prisma.$executeRawUnsafe(
+      `UPDATE pharmacy_orders SET items_list=$3::jsonb, total_amount=10
+        WHERE id=$1::int AND tenant_id=$2::uuid`,
+      orderId,
+      TENANT,
+      JSON.stringify([{
+        catalog_id: origId,
+        name: 'DSUBTEST Augmentin 625',
+        quantity: 1,
+        qty: 1,
+        price: 10,
+        line_total: 10,
+      }]),
+    );
+    const commandKey = `dsub-fulfilled-replay-${orderId}`;
+    const body = {
+      patient_uid: PATIENT,
+      inventory_item_id: itemId,
+      inventory_batch_id: batchId,
+      quantity: 1,
+      original_catalog_id: origId,
+      final_catalog_id: subId,
+    };
+    const first = await callController(body, { idempotencyKey: commandKey });
+    const replay = await callController(body, { idempotencyKey: commandKey });
+
+    expect(first.statusCode).toBe(200);
+    expect(first.body?.data?.fulfilment_status).toBe('fulfilled');
+    expect(first.body?.data?.remaining_quantity).toBe(0);
+    expect(replay.statusCode).toBe(200);
+    expect(replay.body?.data?.idempotent_replay).toBe(true);
+  });
+
   describe('controlled substitutes route through the statutory register (STAFF F1)', () => {
     const xBody = (overrides = {}) => ({
+      order_id: orderId,
+      prescription_id: prescriptionId,
       patient_uid: PATIENT,
       inventory_item_id: xItemId,
       inventory_batch_id: xBatchId,
@@ -258,8 +845,6 @@ describe('dispenseSubstitution — atomic decrement + canonical events + equival
       reason: 'x substitute',
       ...overrides,
     });
-
-    const bodyCode = (res) => res.body?.code ?? res.body?.details?.code ?? null;
 
     test('Schedule X substitute WITHOUT a witness approval fails closed: no decrement, no movement, no register row', async () => {
       const before = await prisma.$queryRawUnsafe(`SELECT remaining_quantity FROM pharmacy_inventory_batches WHERE id=$1`, xBatchId);
@@ -329,7 +914,23 @@ describe('dispenseSubstitution — atomic decrement + canonical events + equival
         substitution: { tenantId: TENANT, ...body },
       });
 
-      const res = await callController({ ...body, witness_approval_id: approval.id });
+      const commandKey = `dsub-x-${orderId}`;
+      const forged = await callController(
+        { ...body, witness_approval_id: approval.id, performed_by_name: 'Forged Performer' },
+        { idempotencyKey: commandKey },
+      );
+      expect(forged.statusCode).toBe(400);
+      expect(bodyCode(forged)).toBe('SUBSTITUTION_PERFORMER_NAME_FORBIDDEN');
+      const beforeValid = await prisma.$queryRawUnsafe(
+        `SELECT remaining_quantity FROM pharmacy_inventory_batches WHERE id=$1`,
+        xBatchId,
+      );
+      expect(Number(beforeValid[0].remaining_quantity)).toBe(40);
+
+      const res = await callController(
+        { ...body, witness_approval_id: approval.id },
+        { idempotencyKey: commandKey },
+      );
       expect(res.statusCode).toBe(200);
       expect(res.body?.success).toBe(true);
       expect(res.body?.data?.schedule_class).toBe('X');
@@ -348,7 +949,7 @@ describe('dispenseSubstitution — atomic decrement + canonical events + equival
       expect(mv[0].movement_kind).toBe('issue');
       expect(Number(mv[0].quantity_delta)).toBe(-4);
       expect(mv[0].reference_type).toBe('controlled_dispense');
-      expect(mv[0].reference_id).toBe(`dispense-substitution-${subId}`);
+      expect(mv[0].reference_id).toMatch(/^dispense-substitution:/);
 
       // The statutory register row: schedule, quantities, patient identity
       // snapshot, dispenser + CANONICAL roster witness — same contract as the
@@ -373,11 +974,14 @@ describe('dispenseSubstitution — atomic decrement + canonical events + equival
       expect(String(reg[0].witness_uid)).toBe(WITNESS);
       expect(reg[0].witness_name).toBe('Roster Substitution Witness');
 
-      // The approval is consumed in the same tx — a replay fails closed with
-      // stock untouched.
-      const replay = await callController({ ...body, witness_approval_id: approval.id });
-      expect(replay.statusCode).toBe(409);
-      expect(bodyCode(replay)).toBe('CONTROLLED_DISPENSE_WITNESS_APPROVAL_CONSUMED');
+      // The exact durable command replays without consuming the witness or
+      // decrementing the batch a second time.
+      const replay = await callController(
+        { ...body, witness_approval_id: approval.id },
+        { idempotencyKey: commandKey },
+      );
+      expect(replay.statusCode).toBe(200);
+      expect(replay.body?.data?.idempotent_replay).toBe(true);
       const batAfterReplay = await prisma.$queryRawUnsafe(`SELECT remaining_quantity FROM pharmacy_inventory_batches WHERE id=$1`, xBatchId);
       expect(Number(batAfterReplay[0].remaining_quantity)).toBe(36);
 
@@ -411,6 +1015,38 @@ describe('dispenseSubstitution — atomic decrement + canonical events + equival
       expect(reg[0].schedule_class).toBe('H1');
       expect(reg[0].witness_uid).toBeNull();
       expect(reg[0].patient_name).toBe('Substitution Patient');
+    });
+
+    test('controlled substitution rejects an inactive dispenser roster before decrement', async () => {
+      const before = await prisma.$queryRawUnsafe(
+        `SELECT remaining_quantity FROM pharmacy_inventory_batches WHERE id=$1`,
+        h1BatchId,
+      );
+      await prisma.$executeRawUnsafe(
+        `UPDATE staff SET is_active=false WHERE tenant_id=$1::uuid AND user_id=$2::uuid`,
+        TENANT,
+        ACTOR,
+      );
+      try {
+        const res = await callController(xBody({
+          inventory_item_id: h1ItemId,
+          inventory_batch_id: h1BatchId,
+          quantity: 1,
+        }));
+        expect(res.statusCode).toBe(403);
+        expect(bodyCode(res)).toBe('SUBSTITUTION_PERFORMER_IDENTITY_REQUIRED');
+        const after = await prisma.$queryRawUnsafe(
+          `SELECT remaining_quantity FROM pharmacy_inventory_batches WHERE id=$1`,
+          h1BatchId,
+        );
+        expect(Number(after[0].remaining_quantity)).toBe(Number(before[0].remaining_quantity));
+      } finally {
+        await prisma.$executeRawUnsafe(
+          `UPDATE staff SET is_active=true WHERE tenant_id=$1::uuid AND user_id=$2::uuid`,
+          TENANT,
+          ACTOR,
+        );
+      }
     });
   });
 });

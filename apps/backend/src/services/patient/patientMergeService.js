@@ -263,7 +263,12 @@ async function discoverMergeSweepTargets(tx) {
          (a.attname = 'patient_uid' AND a.atttypid = 'uuid'::regtype)
          OR (a.attname = 'patient_id' AND a.atttypid IN ('int4'::regtype, 'int8'::regtype))
        )
-     ORDER BY c.relname, a.attname`,
+     ORDER BY CASE c.relname
+                WHEN 'pharmacy_orders' THEN 0
+                WHEN 'e_prescriptions' THEN 1
+                ELSE 2
+              END,
+              c.relname, a.attname`,
   );
   return rows
     .filter((row) => {

@@ -185,6 +185,16 @@ import wardIndentRoutes, {
   WARD_INDENT_HOST_ROLES,
 } from './routes/pharmacy/wardIndentRoutes.js';
 import {
+  PHARMACY_DELIVERY_ASSIGNED_ROLES,
+  PHARMACY_DELIVERY_CUSTODY_ROLES,
+  PHARMACY_DELIVERY_INCHARGE_ROLES,
+  pharmacyAssignedDeliveryRoutes,
+  pharmacyDeliveryCompletionRoutes,
+  pharmacyDeliveryHandoffReissueRoutes,
+  pharmacyDeliveryReturnCompletionRoutes,
+  pharmacyDeliveryReturnRequestRoutes,
+} from './routes/pharmacy/orderRoutes.js';
+import {
   COUNTER_SALE_APPROVAL_HOST_ROLES,
   pharmacyCounterSaleWitnessApprovalRoutes,
 } from './routes/pharmacy/counterSaleRoutes.js';
@@ -1163,6 +1173,99 @@ app.use('/api/v1/pharmacy-supply', adminRateLimiter, requireRole(...PHARMACY_SUP
 app.use('/api/v1/pharmacy-orders/ward-indents', patientRateLimiter, requireRole(...WARD_INDENT_HOST_ROLES), phiAccessLogger('PHARMACY_ORDER'), wardIndentRoutes);
 app.use('/api/v1/pharmacy/ward-indents', patientRateLimiter, requireRole(...WARD_INDENT_HOST_ROLES), phiAccessLogger('PHARMACY_ORDER'), wardIndentRoutes);
 
+// Delivery custody sits on EXACT, NON-OVERLAPPING full-path mounts, each
+// carrying its own mount-level requireRole — the same shape as the
+// witness-approval mounts above. A prefix mount on
+// `/api/v1/pharmacy-orders/orders` would sit over the ENTIRE order lifecycle
+// (routes/pharmacy/index.js mounts orderRoutes at `/orders`), so a mount-level
+// role gate there would 403 every non-delivery role out of place/my/queue/sla/
+// confirm/verify/preparing/dispatch/dispense/cancel — and omitting the gate to
+// avoid that lockout is not an option either: it fails the Phase-3 RBAC
+// coverage gate (src/tests/route-role-coverage.test.js), and every unmatched
+// request would fall through to the broad pharmacy-orders mount below and run
+// patientRateLimiter and phiAccessLogger('PHARMACY_ORDER') a SECOND time.
+// phiAccessLogger registers a fresh res.on('finish') per invocation and does
+// not dedupe (middleware/phiAccessMiddleware.js), so the whole lifecycle would
+// write two rows into the PHI trail HIPAA breach detection reads, and the
+// single shared patientRateLimiter instance would double-count.
+// Exact mounts carry no fall-through traffic, so each request is gated, PHI
+// logged, and rate limited exactly once. No client-visible path moves: the
+// staff app calls /pharmacy-orders/orders/{assigned,:id/delivered,
+// :id/delivery-handoff/reissue,:id/delivery-return/*}
+// (apps/staff/lib/core/services/pharmacy_api_service.dart), and the
+// /api/v1/pharmacy alias set is registered because the OpenAPI source keys
+// every pharmacy-order operation under BOTH prefixes
+// (scripts/openapi/schemas/pharmacy.mjs — aliasOps/PREFIXES).
+app.use(
+  '/api/v1/pharmacy-orders/orders/assigned',
+  patientRateLimiter,
+  requireRole(...PHARMACY_DELIVERY_ASSIGNED_ROLES),
+  phiAccessLogger('PHARMACY_ORDER'),
+  pharmacyAssignedDeliveryRoutes,
+);
+app.use(
+  '/api/v1/pharmacy/orders/assigned',
+  patientRateLimiter,
+  requireRole(...PHARMACY_DELIVERY_ASSIGNED_ROLES),
+  phiAccessLogger('PHARMACY_ORDER'),
+  pharmacyAssignedDeliveryRoutes,
+);
+app.use(
+  '/api/v1/pharmacy-orders/orders/:id/delivered',
+  patientRateLimiter,
+  requireRole(...PHARMACY_DELIVERY_CUSTODY_ROLES),
+  phiAccessLogger('PHARMACY_ORDER'),
+  pharmacyDeliveryCompletionRoutes,
+);
+app.use(
+  '/api/v1/pharmacy/orders/:id/delivered',
+  patientRateLimiter,
+  requireRole(...PHARMACY_DELIVERY_CUSTODY_ROLES),
+  phiAccessLogger('PHARMACY_ORDER'),
+  pharmacyDeliveryCompletionRoutes,
+);
+app.use(
+  '/api/v1/pharmacy-orders/orders/:id/delivery-handoff/reissue',
+  patientRateLimiter,
+  requireRole(...PHARMACY_DELIVERY_INCHARGE_ROLES),
+  phiAccessLogger('PHARMACY_ORDER'),
+  pharmacyDeliveryHandoffReissueRoutes,
+);
+app.use(
+  '/api/v1/pharmacy/orders/:id/delivery-handoff/reissue',
+  patientRateLimiter,
+  requireRole(...PHARMACY_DELIVERY_INCHARGE_ROLES),
+  phiAccessLogger('PHARMACY_ORDER'),
+  pharmacyDeliveryHandoffReissueRoutes,
+);
+app.use(
+  '/api/v1/pharmacy-orders/orders/:id/delivery-return/request',
+  patientRateLimiter,
+  requireRole(...PHARMACY_DELIVERY_CUSTODY_ROLES),
+  phiAccessLogger('PHARMACY_ORDER'),
+  pharmacyDeliveryReturnRequestRoutes,
+);
+app.use(
+  '/api/v1/pharmacy/orders/:id/delivery-return/request',
+  patientRateLimiter,
+  requireRole(...PHARMACY_DELIVERY_CUSTODY_ROLES),
+  phiAccessLogger('PHARMACY_ORDER'),
+  pharmacyDeliveryReturnRequestRoutes,
+);
+app.use(
+  '/api/v1/pharmacy-orders/orders/:id/delivery-return/complete',
+  patientRateLimiter,
+  requireRole(...PHARMACY_DELIVERY_INCHARGE_ROLES),
+  phiAccessLogger('PHARMACY_ORDER'),
+  pharmacyDeliveryReturnCompletionRoutes,
+);
+app.use(
+  '/api/v1/pharmacy/orders/:id/delivery-return/complete',
+  patientRateLimiter,
+  requireRole(...PHARMACY_DELIVERY_INCHARGE_ROLES),
+  phiAccessLogger('PHARMACY_ORDER'),
+  pharmacyDeliveryReturnCompletionRoutes,
+);
 // Re-audit M: the PHARMACY_ORDER patient-access guard moved INTO the router
 // (per-route selectors — see routes/pharmacy/pharmacyOrderPatientGuards.js);
 // the mount-level guard never resolved path-keyed subjects. phiAccessLogger

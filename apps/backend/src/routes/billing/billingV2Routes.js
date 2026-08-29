@@ -8,6 +8,7 @@
 // reads), and "billing" generally requires admin/staff write power.
 // Refund approval requires ADMIN or SUPER_ADMIN.
 
+import { createHash } from 'node:crypto';
 import { Router } from 'express';
 import * as billing from '../../services/billing/billingV2Service.js';
 import * as creditNotes from '../../services/billing/billingCreditNoteService.js';
@@ -47,6 +48,14 @@ const BILLING_CASH_OUT_ROLES = [
 const BILLING_CREDIT_NOTE_REVIEW_ROLES = [
   'ADMIN', 'SUPER_ADMIN', 'FINANCE_INCHARGE', 'BILLING_INCHARGE',
 ];
+const PHARMACY_TPA_DECISION_ROLES = [
+  'INSURANCE_COORDINATOR', 'CLAIMS_MANAGER',
+  'FINANCE_INCHARGE', 'ADMIN', 'SUPER_ADMIN',
+];
+const PHARMACY_PAYMENT_RECOVERY_ROLES = [
+  'FINANCE_INCHARGE', 'BILLING_INCHARGE', 'ADMIN', 'SUPER_ADMIN',
+];
+const PHARMACY_RECONCILIATION_ROLES = ['FINANCE_INCHARGE', 'SUPER_ADMIN'];
 
 // Wrap each handler with try/catch + AppError → response so route
 // definitions stay terse.
@@ -116,8 +125,44 @@ function requireCreditNoteReviewer(req, res, next) {
   next();
 }
 
+function requirePharmacyTpaDecisionReviewer(req, res, next) {
+  const role = String(req.user?.role || '').trim().toUpperCase();
+  if (!PHARMACY_TPA_DECISION_ROLES.includes(role)) {
+    return error(res, 'TPA line decisions require an insurance coordinator or authorised fallback', 403);
+  }
+  next();
+}
+
+function requirePharmacyPaymentRecoveryReviewer(req, res, next) {
+  const role = String(req.user?.role || '').trim().toUpperCase();
+  if (!PHARMACY_PAYMENT_RECOVERY_ROLES.includes(role)) {
+    return error(res, 'Posted-payment recovery requires a finance owner', 403);
+  }
+  next();
+}
+
+function requirePharmacyFundingReviewer(req, res, next) {
+  const role = String(req.user?.role || '').trim().toUpperCase();
+  if (![...PHARMACY_TPA_DECISION_ROLES, ...PHARMACY_PAYMENT_RECOVERY_ROLES].includes(role)) {
+    return error(res, 'Pharmacy funding recovery requires its insurance or finance owner', 403);
+  }
+  next();
+}
+
+function requirePharmacyReconciliationReviewer(req, res, next) {
+  const role = String(req.user?.role || '').trim().toUpperCase();
+  if (!PHARMACY_RECONCILIATION_ROLES.includes(role)) {
+    return error(res, 'Duplicate pharmacy-line reconciliation requires a finance owner', 403);
+  }
+  next();
+}
+
 function commandKeyOf(req) {
   return req.idempotencyClaim?.requestKey || req.get('idempotency-key');
+}
+
+function commandKeySha256Of(req) {
+  return createHash('sha256').update(String(commandKeyOf(req) || '')).digest('hex');
 }
 
 function boundedAuditText(value, maxLength) {
@@ -323,6 +368,148 @@ router.post('/invoices/:id/items/:itemId/tpa-decision', requireStaffOrAdmin, wra
   return item;
 }));
 
+router.post(
+  '/pharmacy-funding/orders/:orderId/materialize',
+  requirePharmacyFundingReviewer,
+  wrap(async (req, res) => {
+    const orderId = Number(req.params.orderId);
+    const tpaClaimId = req.body?.tpa_claim_id == null ? null : Number(req.body.tpa_claim_id);
+    if (!Number.isInteger(orderId) || orderId <= 0
+        || (tpaClaimId != null && (!Number.isInteger(tpaClaimId) || tpaClaimId <= 0))) {
+      return error(res, 'An exact positive pharmacy order and optional TPA claim are required', 400);
+    }
+    return billing.materializePharmacyFundingAuthority({
+      tenantId: tenantOf(req),
+      orderId,
+      tpaClaimId,
+      actorUid: req.user?.uid,
+      actorRole: req.user?.role,
+    });
+  }),
+);
+
+router.get('/pharmacy-funding/recovery', requirePharmacyFundingReviewer, wrap(async (req, res) => {
+  const orderId = Number(req.query.pharmacy_order_id);
+  const invoiceItemId = Number(req.query.invoice_item_id);
+  const tpaClaimId = req.query.tpa_claim_id == null ? null : Number(req.query.tpa_claim_id);
+  if (!Number.isInteger(orderId) || orderId <= 0
+      || !Number.isInteger(invoiceItemId) || invoiceItemId <= 0
+      || (tpaClaimId != null && (!Number.isInteger(tpaClaimId) || tpaClaimId <= 0))) {
+    return error(res, 'Exact positive pharmacy_order_id and invoice_item_id are required', 400);
+  }
+  return billing.getPharmacyFundingRecovery({
+    tenantId: tenantOf(req),
+    orderId,
+    invoiceItemId,
+    tpaClaimId,
+  });
+}));
+
+router.post(
+  '/pharmacy-funding/tasks/:taskId/decision',
+  requirePharmacyTpaDecisionReviewer,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'pharmacy_funding_line_decision',
+    durableDomainReceipt: true,
+    requestPathForIdempotency: (req) =>
+      `/api/v1/billing/v2/pharmacy-funding/tasks/${req.params.taskId}/decision`,
+  }),
+  wrap(async (req) => {
+    const result = await billing.recordPharmacyFundingLineDecision({
+      tenantId: tenantOf(req),
+      taskId: req.params.taskId,
+      orderId: req.body?.pharmacy_order_id,
+      invoiceItemId: req.body?.invoice_item_id,
+      tpaClaimId: req.body?.tpa_claim_id,
+      orderVersion: req.body?.order_version,
+      orderItemsSha256: req.body?.order_items_sha256,
+      approvedAmount: req.body?.approved_amount,
+      nonPayableAmount: req.body?.non_payable_amount,
+      reasonCode: req.body?.reason_code,
+      reasonText: req.body?.reason_text,
+      actorUid: req.user?.uid,
+      commandKeySha256: commandKeySha256Of(req),
+    });
+    await logBillingAudit(req, 'PHARMACY_TPA_LINE_DECISION_RECORDED', {
+      item_id: req.body?.invoice_item_id,
+    }, {
+      task_id: Number(req.params.taskId),
+      pharmacy_order_id: Number(req.body?.pharmacy_order_id),
+      tpa_claim_id: Number(req.body?.tpa_claim_id),
+      order_version: Number(req.body?.order_version),
+      replayed: Boolean(result?.replayed),
+    }, {
+      resource: 'pharmacy_funding_task',
+      resourceId: req.params.taskId,
+    });
+    return result;
+  }),
+);
+
+router.post(
+  '/pharmacy-funding/tasks/:taskId/retry',
+  requirePharmacyPaymentRecoveryReviewer,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'pharmacy_funding_payment_retry',
+    durableDomainReceipt: true,
+    requestPathForIdempotency: (req) =>
+      `/api/v1/billing/v2/pharmacy-funding/tasks/${req.params.taskId}/retry`,
+  }),
+  wrap(async (req) => billing.retryPharmacyFundingTask({
+    tenantId: tenantOf(req),
+    taskId: req.params.taskId,
+    actorUid: req.user?.uid,
+    paymentId: req.body?.payment_id,
+    commandKeySha256: commandKeySha256Of(req),
+  })),
+);
+
+router.get(
+  '/pharmacy-funding/reconciliations/:caseId',
+  requirePharmacyReconciliationReviewer,
+  wrap(async (req) => billing.getPharmacyFundingReconciliationCase({
+    tenantId: tenantOf(req),
+    caseId: req.params.caseId,
+  })),
+);
+
+router.post(
+  '/pharmacy-funding/reconciliations/:caseId/decision',
+  requirePharmacyReconciliationReviewer,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'pharmacy_funding_duplicate_line_reconciliation',
+    durableDomainReceipt: true,
+    requestPathForIdempotency: (req) =>
+      `/api/v1/billing/v2/pharmacy-funding/reconciliations/${req.params.caseId}/decision`,
+  }),
+  wrap(async (req) => {
+    const result = await billing.recordPharmacyFundingReconciliationDecision({
+      tenantId: tenantOf(req),
+      caseId: req.params.caseId,
+      keeperInvoiceItemId: req.body?.keeper_invoice_item_id,
+      resolutionPath: req.body?.resolution_path,
+      expectedSnapshotSha256: req.body?.expected_snapshot_sha256,
+      actorUid: req.user?.uid,
+      commandKeySha256: commandKeySha256Of(req),
+    });
+    await logBillingAudit(req, 'PHARMACY_FUNDING_DUPLICATE_LINE_RECONCILED', {
+      status: result?.status,
+    }, {
+      case_id: Number(req.params.caseId),
+      keeper_invoice_item_id: Number(req.body?.keeper_invoice_item_id),
+      resolution_path: req.body?.resolution_path,
+      replayed: Boolean(result?.replayed),
+    }, {
+      resource: 'pharmacy_funding_reconciliation_case',
+      resourceId: req.params.caseId,
+    });
+    return result;
+  }),
+);
+
 // Patient-portal-facing read: running total of non-payable items on
 // this invoice with the reason breakdown.
 router.get('/invoices/:id/non-payable', requireStaffOrAdmin, wrap(async (req) =>
@@ -441,11 +628,16 @@ router.post('/payments', requireStaffOrAdmin, requireIdempotencyKey({ required: 
   return payment;
 }));
 
-router.post('/payments/:id/reverse', requireAdmin, wrap(async (req) => {
+router.post(
+  '/payments/:id/reverse',
+  requireAdmin,
+  requireIdempotencyKey({ required: true, scope: 'billing_payment_reverse' }),
+  wrap(async (req) => {
   const payment = await billing.reversePayment(req.params.id, {
     ...req.body,
     tenantId: tenantOf(req),
     reversed_by: req.user?.uid,
+    commandKeySha256: commandKeySha256Of(req),
   });
   await logBillingAudit(req, 'FRONT_OFFICE_BILLING_PAYMENT_REVERSED', {
     ...payment,
@@ -457,7 +649,8 @@ router.post('/payments/:id/reverse', requireAdmin, wrap(async (req) => {
     resourceId: payment?.id ?? req.params.id,
   });
   return payment;
-}));
+  }),
+);
 
 // ── Advances ──────────────────────────────────────────────────────────
 router.post('/advances', requireStaffOrAdmin, requireIdempotencyKey({ required: true, scope: 'billing_advance' }), wrap(async (req) => {

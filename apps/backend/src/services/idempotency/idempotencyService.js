@@ -111,7 +111,7 @@ export async function claimIdempotencyKey({
       response_body: existing.response_body,
     };
   }
-  return { state: 'in_flight' };
+  return { state: 'in_flight', id: existing.id };
 }
 
 /**

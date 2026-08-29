@@ -4,7 +4,12 @@ import { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { recomputeInvoiceTotals } from '../billing/billingV2Service.js';
 import { createBillingCreditNoteFromFinancialEventTx } from '../billing/billingCreditNoteService.js';
-import { recordMovementTx } from '../pharmacy/inventoryV2Service.js';
+import {
+  recordMovementTx,
+  returnWardControlledAllocationTx,
+  WARD_INVENTORY_RETURN_AUTHORITY,
+} from '../pharmacy/inventoryV2Service.js';
+import { assertPharmacyFacilityGrant } from '../pharmacy/pharmacyFacilityAuthorityService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 const ACTIVE_ALLOCATION_STATUSES = ['reserved', 'partially_issued', 'issued'];
@@ -127,7 +132,11 @@ async function candidateBatchesTx(tx, tenantId, inventoryItemId, { lock = false 
             )::numeric AS unreserved_quantity
        FROM pharmacy_inventory_batches batch
        LEFT JOIN LATERAL (
-         SELECT COALESCE(SUM(allocation.reserved_quantity - allocation.issued_quantity), 0)::numeric
+         SELECT COALESCE(SUM(
+                  allocation.reserved_quantity
+                    - allocation.issued_quantity
+                    - allocation.authority_released_quantity
+                ), 0)::numeric
                   AS reserved_outstanding
            FROM ward_indent_inventory_allocations allocation
           WHERE allocation.tenant_id = batch.tenant_id
@@ -201,6 +210,8 @@ async function resolveInventoryItemTx(tx, {
 export async function listWardIndentInventoryCandidates(wardIndentItemId, {
   tenantId,
   wardIndentId = null,
+  actorUid,
+  actorRole,
 } = {}) {
   const tid = requireTenantId(tenantId);
   const itemId = positiveId(wardIndentItemId, 'wardIndentItemId');
@@ -209,14 +220,11 @@ export async function listWardIndentInventoryCandidates(wardIndentItemId, {
     const wardRows = await tx.$queryRawUnsafe(
       `SELECT item.id, item.ward_indent_id, item.pharmacy_catalog_id,
               item.item_name, item.quantity_requested, item.quantity_reserved,
-              ward.facility_id
+              indent.facility_id
          FROM ward_indent_items item
          JOIN ward_indents indent
            ON indent.tenant_id = item.tenant_id
           AND indent.id = item.ward_indent_id
-         LEFT JOIN wards ward
-           ON ward.tenant_id = indent.tenant_id
-          AND ward.id = indent.ward_id
         WHERE item.tenant_id = $1::uuid
           AND item.id = $2::int
           AND ($3::int IS NULL OR item.ward_indent_id = $3::int)
@@ -227,6 +235,18 @@ export async function listWardIndentInventoryCandidates(wardIndentItemId, {
     );
     const wardItem = wardRows[0];
     if (!wardItem) throw AppError.notFound('Ward indent item not found');
+    if (wardItem.facility_id == null) {
+      throw AppError.conflict(
+        'Ward indent facility custody is unresolved',
+        'WARD_INDENT_FACILITY_REQUIRED',
+      );
+    }
+    await assertPharmacyFacilityGrant(tx, {
+      tenantId: tid,
+      facilityId: Number(wardItem.facility_id),
+      actorUid,
+      actorRole,
+    });
     if (!wardItem.pharmacy_catalog_id) return { item: wardItem, candidates: [] };
     const items = await inventoryItemsForCatalogTx(
       tx,
@@ -290,6 +310,33 @@ export async function releaseWardIndentReservationsTx(tx, {
     );
   }
   return rows.length;
+}
+
+export async function assertNoOpenWardAllocationAuthorityRecoveryTx(tx, {
+  tenantId,
+  wardIndentId,
+}) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT id, allocation_id, reason_code
+       FROM pharmacy_ward_allocation_authority_recovery
+      WHERE tenant_id=$1::uuid AND ward_indent_id=$2::int AND status='OPEN'
+      ORDER BY id
+      LIMIT 1`,
+    tenantId,
+    Number(wardIndentId),
+  );
+  if (rows.length) {
+    throw AppError.conflict(
+      'Ward inventory has an open authority recovery and cannot progress',
+      'PHARMACY_WARD_ALLOCATION_AUTHORITY_RECOVERY_REQUIRED',
+      {
+        recovery_id: String(rows[0].id),
+        allocation_id: String(rows[0].allocation_id),
+        reason_code: rows[0].reason_code,
+        recovery_endpoint: '/api/v1/pharmacy-orders/inventory/v2/ward-allocation-authority-recovery',
+      },
+    );
+  }
 }
 
 export async function reserveWardIndentInventoryTx(tx, {
@@ -731,7 +778,9 @@ export async function issueWardIndentInventoryTx(tx, {
       );
     }
     for (const allocation of itemAllocations) {
-      const outstanding = Number(allocation.reserved_quantity) - Number(allocation.issued_quantity);
+      const outstanding = Number(allocation.reserved_quantity)
+        - Number(allocation.issued_quantity)
+        - Number(allocation.authority_released_quantity || 0);
       if (outstanding <= 0) continue;
       const controlled = allocation.is_narcotic === true
         || ['H', 'H1', 'X'].includes(String(allocation.schedule_class || '').toUpperCase());
@@ -752,6 +801,7 @@ export async function issueWardIndentInventoryTx(tx, {
         notes: `Ward indent ${indent.indent_number} item ${wardItem.id}`,
         performed_by: issuedBy,
         require_usable_batch: true,
+        expected_facility_id: Number(indent.facility_id),
       });
       await insertMovementLinkTx(tx, {
         tenantId: indent.tenant_id,
@@ -1074,7 +1124,6 @@ export async function returnWardIndentInventoryTx(tx, {
   returnedBy,
   commandKey,
   nextStateVersion,
-  controlledEvidenceByItem = new Map(),
   allocationReturns = null,
 }) {
   const requestedByAllocation = allocationReturnMap(allocationReturns);
@@ -1104,6 +1153,7 @@ export async function returnWardIndentInventoryTx(tx, {
   }
   const returnPlans = [];
   const movementIds = [];
+  const controlledByItem = new Map();
   const catalogIds = [];
   const usedAllocationKeys = new Set();
 
@@ -1177,21 +1227,42 @@ export async function returnWardIndentInventoryTx(tx, {
         );
       }
       if (controlled) {
-        const evidence = controlledEvidenceByItem.get(Number(wardItem.id));
-        if (!evidence) {
-          throw AppError.badRequest(`Controlled return evidence is required for item ${wardItem.id}`);
+        const sourceRegisterId = Number(wardItem.controlled_register_id);
+        if (!Number.isSafeInteger(sourceRegisterId) || sourceRegisterId <= 0) {
+          throw AppError.conflict(
+            `Controlled ward indent item ${wardItem.id} has no original issue register`,
+            'WARD_INDENT_CONTROLLED_RETURN_LINEAGE_INVALID',
+          );
         }
+        const evidence = await returnWardControlledAllocationTx(tx, {
+          tenantId: indent.tenant_id,
+          facilityId: Number(indent.facility_id),
+          indentId: Number(indent.id),
+          wardItemId: Number(wardItem.id),
+          allocationId: entry.allocation.id,
+          inventoryItemId: Number(entry.allocation.inventory_item_id),
+          inventoryBatchId: Number(entry.allocation.inventory_batch_id),
+          quantity: entry.quantity,
+          sourceRegisterId,
+          returnedBy,
+          commandKey,
+          wardAuthority: WARD_INVENTORY_RETURN_AUTHORITY,
+        });
         await linkControlledWardIndentMovementTx(tx, {
           indent,
           wardItem,
-          movementId: evidence.movementId,
-          controlledRegisterId: evidence.registerId,
+          movementId: evidence.movement.id,
+          controlledRegisterId: evidence.register_entry.id,
           purpose: 'return',
           actor: returnedBy,
           commandKey,
           stateVersion: nextStateVersion,
         });
-        movementIds.push(Number(evidence.movementId));
+        controlledByItem.set(Number(wardItem.id), {
+          movementId: Number(evidence.movement.id),
+          registerId: Number(evidence.register_entry.id),
+        });
+        movementIds.push(Number(evidence.movement.id));
       } else {
         const { movement } = await recordMovementTx(tx, {
           tenantId: indent.tenant_id,
@@ -1203,6 +1274,8 @@ export async function returnWardIndentInventoryTx(tx, {
           reference_id: String(entry.allocation.id),
           notes: `Ward indent ${indent.indent_number} return item ${wardItem.id}`,
           performed_by: returnedBy,
+          expected_facility_id: Number(indent.facility_id),
+          facility_authority: WARD_INVENTORY_RETURN_AUTHORITY,
         });
         await insertMovementLinkTx(tx, {
           tenantId: indent.tenant_id,
@@ -1240,7 +1313,7 @@ export async function returnWardIndentInventoryTx(tx, {
     }
   }
   await projectLegacyCatalogBalancesTx(tx, indent.tenant_id, catalogIds);
-  return { returnPlans, movementIds };
+  return { returnPlans, movementIds, controlledByItem };
 }
 
 export async function appendWardIndentCreditEventsTx(tx, {

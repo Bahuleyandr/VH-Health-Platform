@@ -38,6 +38,7 @@ export const CONTROLLED_DISPENSE_APPROVAL_SCOPES = Object.freeze({
   inventoryMovement: 'inventory_controlled_movement',
   counterSale: 'pharmacy_counter_sale',
   dispenseSubstitution: 'pharmacy_dispense_substitution',
+  wardIndent: 'ward_indent_controlled_handoff',
 });
 
 const APPROVAL_KIND = 'controlled_dispense_witness';

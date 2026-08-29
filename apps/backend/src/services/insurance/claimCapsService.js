@@ -23,9 +23,14 @@
 //
 // Categories mirror the existing invoice-line buckets.
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import {
+  lockPharmacyFundingAdmissionTx,
+  lockPharmacyFundingAuthorityTx,
+  resolvePharmacyFundingPatientUidTx,
+} from '../pharmacy/pharmacyCapService.js';
 
 const VALID_CATEGORIES = new Set([
   'room_rent', 'pharmacy', 'investigations', 'consultation',
@@ -62,7 +67,7 @@ function parseClaimId(claimId) {
  * @param {string} tenantId  REQUIRED — throws 403 TENANT_SCOPE_REQUIRED if falsy.
  * @returns {{ id: number, side: 'legacy'|'tpa', whereByParent: object }}
  */
-async function resolveClaimTarget(claimId, tenantId) {
+async function resolveClaimTarget(claimId, tenantId, db = prisma) {
   if (!tenantId) {
     throw AppError.forbidden(
       'Tenant context is required for claim cap operations',
@@ -72,22 +77,58 @@ async function resolveClaimTarget(claimId, tenantId) {
   const id = parseClaimId(claimId);
   const where = { id, tenant_id: String(tenantId) };
   const [tpa, legacy] = await Promise.all([
-    prisma.tpa_claims.findFirst({
+    db.tpa_claims.findFirst({
       where,
-      select: { id: true, tenant_id: true, patient_uid: true },
+      select: { id: true, tenant_id: true, patient_uid: true, admission_id: true },
     }),
-    prisma.insurance_claims.findFirst({
+    db.insurance_claims.findFirst({
       where,
-      select: { id: true, tenant_id: true, patient_uid: true },
+      select: { id: true, tenant_id: true, patient_uid: true, invoice_id: true },
     }),
   ]);
   if (tpa) {
-    return { id, side: 'tpa', tenant_id: tpa.tenant_id, patient_uid: tpa.patient_uid, whereByParent: { tpa_claim_id: id } };
+    return { id, side: 'tpa', tenant_id: tpa.tenant_id, patient_uid: tpa.patient_uid, admission_id: tpa.admission_id, whereByParent: { tpa_claim_id: id } };
   }
   if (legacy) {
-    return { id, side: 'legacy', tenant_id: legacy.tenant_id, patient_uid: legacy.patient_uid, whereByParent: { claim_id: id } };
+    return { id, side: 'legacy', tenant_id: legacy.tenant_id, patient_uid: legacy.patient_uid, invoice_id: legacy.invoice_id, whereByParent: { claim_id: id } };
   }
   throw AppError.notFound(`Claim ${id} not found`);
+}
+
+async function lockClaimFundingAuthorityTx(tx, target, tenantId) {
+  let admissionId = target.admission_id ?? null;
+  let patientUid = target.patient_uid == null ? null : String(target.patient_uid);
+  if (target.invoice_id) {
+    const invoice = await tx.billing_invoices.findFirst({
+      where: { id: Number(target.invoice_id), tenant_id: String(tenantId) },
+      select: { admission_id: true, patient_uid: true },
+    });
+    if (!invoice || (patientUid && String(invoice.patient_uid) !== patientUid)) {
+      throw AppError.conflict(
+        'The legacy claim invoice does not belong to the exact claim patient',
+        'PHARMACY_FUNDING_PATIENT_IDENTITY_MISMATCH',
+      );
+    }
+    admissionId = invoice.admission_id ?? null;
+    patientUid = String(invoice.patient_uid);
+  }
+  const canonicalPatientUid = await resolvePharmacyFundingPatientUidTx(tx, {
+    tenantId,
+    admissionId,
+    patientUid,
+  });
+  await lockPharmacyFundingAuthorityTx(tx, {
+    tenantId,
+    patientUid: canonicalPatientUid,
+  });
+  if (admissionId) {
+    await lockPharmacyFundingAdmissionTx(tx, {
+      tenantId,
+      admissionId,
+      patientUid: canonicalPatientUid,
+    });
+  }
+  return { admissionId, patientUid: canonicalPatientUid };
 }
 
 /**
@@ -120,9 +161,10 @@ export async function setClaimCaps({ tenantId, claimId, caps, actorUid }) {
     }
   }
 
-  const target = await resolveClaimTarget(claimId, tenantId);
-
-  const result = await prisma.$transaction(async (tx) => {
+  let target;
+  const result = await setTenantTx(tenantId, async (tx) => {
+    target = await resolveClaimTarget(claimId, tenantId, tx);
+    await lockClaimFundingAuthorityTx(tx, target, tenantId);
     const rows = [];
     for (const c of caps) {
       const existing = await tx.insurance_claim_caps.findFirst({
@@ -188,9 +230,9 @@ export async function deleteCap({ tenantId, claimId, category, actorUid }) {
     throw AppError.badRequest(`Invalid category: ${category}`);
   }
   if (!actorUid) throw AppError.badRequest('actorUid is required');
-  const target = await resolveClaimTarget(claimId, tenantId);
-
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tenantId, async (tx) => {
+    const target = await resolveClaimTarget(claimId, tenantId, tx);
+    await lockClaimFundingAuthorityTx(tx, target, tenantId);
     const existing = await tx.insurance_claim_caps.findFirst({
       where: { ...target.whereByParent, category },
     });

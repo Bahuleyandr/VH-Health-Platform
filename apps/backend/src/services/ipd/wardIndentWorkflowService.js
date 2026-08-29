@@ -3,6 +3,17 @@ import { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { DOCTOR_TIERS, ROLES } from '../../utils/roleHelpers.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { assertPharmacyFacilityGrant } from '../pharmacy/pharmacyFacilityAuthorityService.js';
+import {
+  dispenseWardControlledAllocationTx,
+  wardControlledHandoffWitnessPayload,
+  WARD_CONTROLLED_HANDOFF_AUTHORITY,
+} from '../pharmacy/inventoryV2Service.js';
+import {
+  approveControlledDispenseWitnessApproval,
+  CONTROLLED_DISPENSE_APPROVAL_SCOPES,
+  createControlledDispenseWitnessApproval,
+} from '../pharmacy/controlledDispenseWitnessService.js';
 import {
   cancelWorkflowSla,
   completeWorkflowSla,
@@ -12,6 +23,7 @@ import {
 import {
   appendWardIndentChargeEventsTx,
   appendWardIndentCreditEventsTx,
+  assertNoOpenWardAllocationAuthorityRecoveryTx,
   issueWardIndentInventoryTx,
   linkControlledWardIndentMovementTx,
   loadWardIndentMedicationClosureTx,
@@ -208,11 +220,8 @@ async function lockWardIndent(tx, indentId, tenantId) {
             indent.admission_id, indent.ward_id, indent.ward_name,
             indent.indent_type, indent.requested_by, indent.approved_by,
             indent.issued_by, indent.received_by, indent.owner_role_codes,
-            ward.facility_id
+            indent.facility_id
        FROM ward_indents indent
-       LEFT JOIN wards ward
-         ON ward.tenant_id = indent.tenant_id
-        AND ward.id = indent.ward_id
       WHERE indent.id = $1::int
         AND indent.tenant_id = $2::uuid
       FOR UPDATE OF indent`,
@@ -330,20 +339,6 @@ async function loadWardIndentWorkflow(tx, indentId, tenantId, { eventLimit = 100
     include: { items: { orderBy: { id: 'asc' } } },
   });
   if (!indent) return null;
-  const facilityRows = indent.ward_id == null
-    ? []
-    : await tx.$queryRawUnsafe(
-      `SELECT facility_id
-         FROM wards
-        WHERE tenant_id = $1::uuid
-          AND id = $2::int
-        LIMIT 1`,
-      tenantId,
-      Number(indent.ward_id),
-    );
-  indent.facility_id = facilityRows[0]?.facility_id == null
-    ? null
-    : Number(facilityRows[0].facility_id);
   const events = await tx.ward_indent_events.findMany({
     where: { tenant_id: tenantId, ward_indent_id: Number(indentId) },
     orderBy: { state_version: 'desc' },
@@ -586,12 +581,29 @@ async function applyTransition({
   allowedStatuses,
   reason = null,
   commandKey = null,
+  facilityGrantRequired = false,
+  actorRole = null,
   mutate,
 }) {
   const cleanActorUid = uuid(actorUid, 'actorUid');
   const tid = tenantOf(tenantId);
   return setTenantTx(tid, async (tx) => {
     const current = await lockWardIndent(tx, indentId, tid);
+    if (facilityGrantRequired) {
+      if (current.facility_id == null) {
+        throw AppError.conflict(
+          'Ward indent facility custody is unresolved',
+          'WARD_INDENT_FACILITY_REQUIRED',
+        );
+      }
+      await assertPharmacyFacilityGrant(tx, {
+        tenantId: tid,
+        facilityId: Number(current.facility_id),
+        actorUid: cleanActorUid,
+        actorRole,
+        forUpdate: true,
+      });
+    }
     const replay = await loadCommandReplay(tx, {
       tenantId: tid,
       indentId: current.id,
@@ -850,11 +862,14 @@ export async function reserveWardIndent({
   expectedVersion = null,
   commandKey = null,
   tenantId,
+  actorRole = null,
 }) {
   return applyTransition({
     indentId,
     tenantId,
     actorUid: reservedBy,
+    actorRole,
+    facilityGrantRequired: true,
     expectedVersion,
     commandKey,
     action: 'reserved',
@@ -925,12 +940,15 @@ export async function markWardIndentShortSupply({
   expectedVersion = null,
   commandKey = null,
   tenantId,
+  actorRole = null,
 }) {
   const cleanReason = reasonText(reason, 'short_supply_reason');
   return applyTransition({
     indentId,
     tenantId,
     actorUid: markedBy,
+    actorRole,
+    facilityGrantRequired: true,
     expectedVersion,
     commandKey,
     reason: cleanReason,
@@ -1007,11 +1025,14 @@ export async function proposeWardIndentSubstitution({
   expectedVersion = null,
   commandKey = null,
   tenantId,
+  actorRole = null,
 }) {
   return applyTransition({
     indentId,
     tenantId,
     actorUid: proposedBy,
+    actorRole,
+    facilityGrantRequired: true,
     expectedVersion,
     commandKey,
     action: 'substitution_proposed',
@@ -1094,7 +1115,6 @@ export async function proposeWardIndentSubstitution({
 export async function approveWardIndentSubstitution({
   indentId,
   decidedBy,
-  inventorySelections = null,
   expectedVersion = null,
   commandKey = null,
   tenantId,
@@ -1110,9 +1130,74 @@ export async function approveWardIndentSubstitution({
     mutate: async (tx, current) => {
       const pending = current.items.filter((item) => item.substitution_status === 'pending');
       if (!pending.length) throw AppError.conflict('Ward indent has no pending substitutions');
-      const pendingIds = new Set(pending.map((item) => Number(item.id)));
+      const catalogIds = pending.map((item) => Number(item.proposed_pharmacy_catalog_id));
+      const catalogById = await lockCatalogRows(tx, current.tenant_id, catalogIds);
+      for (const item of pending) {
+        const catalogId = Number(item.proposed_pharmacy_catalog_id);
+        if (!catalogById.get(catalogId)) {
+          throw AppError.conflict(
+            `Proposed catalog item for ward indent item ${item.id} is no longer active`,
+            'WARD_INDENT_SUBSTITUTION_CATALOG_CHANGED',
+          );
+        }
+        await tx.ward_indent_items.update({
+          where: { id: item.id },
+          data: {
+            substitution_status: 'approved',
+            substitution_decided_by: decidedBy,
+            substitution_decided_at: new Date(),
+            fulfilment_status: 'substitution_pending',
+            updated_at: new Date(),
+          },
+        });
+      }
+      return {
+        toStatus: 'substitution_pending',
+        details: {
+          substitution_item_ids: pending.map((item) => item.id),
+          inventory_action_required: 'apply_approved_substitution',
+        },
+      };
+    },
+  });
+}
+
+export async function applyApprovedWardIndentSubstitution({
+  indentId,
+  appliedBy,
+  actorRole = null,
+  inventorySelections = null,
+  expectedVersion = null,
+  commandKey = null,
+  tenantId,
+}) {
+  return applyTransition({
+    indentId,
+    tenantId,
+    actorUid: appliedBy,
+    actorRole,
+    facilityGrantRequired: true,
+    expectedVersion,
+    commandKey,
+    action: 'substitution_applied',
+    allowedStatuses: ['substitution_pending'],
+    mutate: async (tx, current) => {
+      const approved = current.items.filter((item) => item.substitution_status === 'approved');
+      if (!approved.length) {
+        throw AppError.conflict(
+          'Ward indent has no clinician-approved substitutions to apply',
+          'WARD_INDENT_SUBSTITUTION_APPROVAL_REQUIRED',
+        );
+      }
+      if (current.items.some((item) => item.substitution_status === 'pending')) {
+        throw AppError.conflict(
+          'Every pending substitution requires a clinician decision before inventory can change',
+          'WARD_INDENT_SUBSTITUTION_DECISION_INCOMPLETE',
+        );
+      }
+      const approvedIds = new Set(approved.map((item) => Number(item.id)));
       const catalogIds = current.items.map((item) => (
-        pendingIds.has(Number(item.id))
+        approvedIds.has(Number(item.id))
           ? Number(item.proposed_pharmacy_catalog_id)
           : Number(item.pharmacy_catalog_id)
       ));
@@ -1123,7 +1208,7 @@ export async function approveWardIndentSubstitution({
         current.facility_id,
         catalogIds,
       );
-      for (const item of pending) {
+      for (const item of approved) {
         const catalogId = Number(item.proposed_pharmacy_catalog_id);
         const catalog = catalogById.get(catalogId);
         await tx.ward_indent_items.update({
@@ -1135,9 +1220,6 @@ export async function approveWardIndentSubstitution({
             pharmacy_catalog_id: catalogId,
             item_name: catalog.name,
             unit_price: catalog.unit_price ?? catalog.price ?? item.unit_price,
-            substitution_status: 'approved',
-            substitution_decided_by: decidedBy,
-            substitution_decided_at: new Date(),
             fulfilment_status: 'substitution_pending',
             updated_at: new Date(),
           },
@@ -1149,13 +1231,13 @@ export async function approveWardIndentSubstitution({
       });
       const targetQuantities = new Map(updatedItems.map((item) => [
         Number(item.id),
-        pendingIds.has(Number(item.id))
+        approvedIds.has(Number(item.id))
           ? Number(item.proposed_quantity)
           : Number(item.quantity_reserved),
       ]));
       const exact = await reserveWardIndentInventoryTx(tx, {
         indent: { ...current, items: updatedItems },
-        reservedBy: decidedBy,
+        reservedBy: appliedBy,
         targetQuantities,
         inventorySelections,
         commandKey,
@@ -1184,7 +1266,7 @@ export async function approveWardIndentSubstitution({
         toStatus: fullyReserved ? 'reserved' : 'short_supply',
         indentData: fullyReserved ? { short_supply_reason: null } : {},
         details: {
-          substitution_item_ids: pending.map((item) => item.id),
+          substitution_item_ids: approved.map((item) => item.id),
           fully_reserved: fullyReserved,
           shortfalls: exact.shortfalls,
         },
@@ -1243,11 +1325,14 @@ export async function approveWardIndent({
   expectedVersion = null,
   commandKey = null,
   tenantId,
+  actorRole = null,
 }) {
   return applyTransition({
     indentId,
     tenantId,
     actorUid: approvedBy,
+    actorRole,
+    facilityGrantRequired: true,
     expectedVersion,
     commandKey,
     action: 'approved',
@@ -1317,12 +1402,15 @@ export async function rejectWardIndent({
   expectedVersion = null,
   commandKey = null,
   tenantId,
+  actorRole = null,
 }) {
   const cleanReason = reasonText(reason, 'rejection reason');
   return applyTransition({
     indentId,
     tenantId,
     actorUid: rejectedBy,
+    actorRole,
+    facilityGrantRequired: true,
     expectedVersion,
     commandKey,
     reason: cleanReason,
@@ -1371,87 +1459,138 @@ export async function rejectWardIndent({
   });
 }
 
-async function validateControlledEvidence(tx, {
+async function loadWardControlledWitnessPayloadTx(tx, {
   tenantId,
-  indent,
-  item,
-  evidence,
-  movementKind,
-  registerKind,
-  expectedReference,
-  expectedQuantity,
+  indentId,
+  itemId,
+  allocationId,
+  requestedBy,
+  actorRole,
 }) {
-  const movementId = positiveInt(evidence?.movement_id, 'movement_id');
-  const registerId = positiveInt(evidence?.register_id, 'register_id');
-  const rows = await tx.$queryRawUnsafe(
-    `SELECT movement.id AS movement_id,
-            movement.inventory_item_id,
-            movement.inventory_batch_id,
-            movement.movement_kind,
-            movement.quantity_delta,
-            movement.reference_type,
-            movement.reference_id,
-            register_entry.id AS register_id,
-            register_entry.movement_kind AS register_movement_kind,
-            register_entry.quantity AS register_quantity,
-            register_entry.patient_uid,
-            inventory.catalog_id,
-            inventory.schedule_class,
-            inventory.is_narcotic
-       FROM pharmacy_stock_movements movement
-       JOIN pharmacy_schedule_register register_entry
-         ON register_entry.tenant_id = movement.tenant_id
-        AND register_entry.reference_movement_id = movement.id
-       JOIN pharmacy_inventory_items inventory
-         ON inventory.tenant_id = movement.tenant_id
-        AND inventory.id = movement.inventory_item_id
-      WHERE movement.tenant_id = $1::uuid
-        AND movement.id = $2::int
-        AND register_entry.id = $3::int`,
+  const current = await lockWardIndent(tx, indentId, tenantId);
+  if (!current.facility_id) {
+    throw AppError.conflict(
+      'Ward indent has no pinned facility authority',
+      'WARD_INDENT_FACILITY_REQUIRED',
+    );
+  }
+  await assertPharmacyFacilityGrant(tx, {
     tenantId,
-    movementId,
-    registerId,
-  );
-  const row = rows[0];
-  const signedQuantity = movementKind === 'issue'
-    ? -Math.abs(Number(expectedQuantity))
-    : Math.abs(Number(expectedQuantity));
-  if (
-    !row
-    || !row.inventory_batch_id
-    || row.movement_kind !== movementKind
-    || Number(row.quantity_delta) !== signedQuantity
-    || row.register_movement_kind !== registerKind
-    || Number(row.register_quantity) !== Math.abs(Number(expectedQuantity))
-    || String(row.reference_id || '') !== expectedReference
-    || Number(row.catalog_id) !== Number(item.pharmacy_catalog_id)
-    || (!CONTROLLED_SCHEDULES.has(row.schedule_class) && row.is_narcotic !== true)
-    || (indent.patient_uid && String(row.patient_uid || '') !== String(indent.patient_uid))
-  ) {
+    facilityId: Number(current.facility_id),
+    actorUid: requestedBy,
+    actorRole,
+    forUpdate: true,
+  });
+  assertControlledWardIndentPatient(current);
+  await assertControlledWardIndentAdmissionOpenTx(tx, current);
+  if (String(current.status) !== 'controlled_handoff_required') {
     throw AppError.conflict(
-      `Controlled-drug evidence does not match ward indent item ${item.id}`,
-      'WARD_INDENT_CONTROLLED_EVIDENCE_MISMATCH',
-      { item_id: item.id, movement_id: movementId, register_id: registerId },
+      'Ward indent is not awaiting a controlled handoff',
+      'WARD_INDENT_CONTROLLED_HANDOFF_STATE_INVALID',
     );
   }
-  if (movementKind === 'issue' && row.reference_type !== 'controlled_dispense') {
-    throw AppError.conflict(
-      `Controlled-drug issue evidence for item ${item.id} is not a sanctioned dispense`,
-      'WARD_INDENT_CONTROLLED_EVIDENCE_PATH_MISMATCH',
+  const item = current.items.find((candidate) => Number(candidate.id) === Number(itemId));
+  if (!item || !item.controlled_reference_id) {
+    throw AppError.badRequest(
+      'item_id must identify a controlled line on this ward indent',
+      'WARD_INDENT_CONTROLLED_ITEM_REQUIRED',
     );
   }
-  if (movementKind === 'return' && row.reference_type !== 'ward_indent_return') {
+  if (!item.clinical_order_id) {
     throw AppError.conflict(
-      `Controlled-drug return evidence for item ${item.id} is not a sanctioned ward-indent return`,
-      'WARD_INDENT_CONTROLLED_RETURN_PATH_MISMATCH',
+      'Controlled ward dispensing requires a linked medication clinical order',
+      'WARD_INDENT_CONTROLLED_CLINICAL_ORDER_REQUIRED',
     );
   }
-  return {
-    movementId,
-    registerId,
-    inventoryItemId: Number(row.inventory_item_id),
-    inventoryBatchId: Number(row.inventory_batch_id),
-  };
+  const closure = await loadWardIndentMedicationClosureTx(tx, tenantId, current.id);
+  const allocations = closure.allocations.filter((allocation) => (
+    Number(allocation.ward_indent_item_id) === Number(item.id)
+    && String(allocation.id) === String(allocationId)
+    && ['reserved', 'partially_issued'].includes(String(allocation.status))
+  ));
+  if (allocations.length !== 1) {
+    throw AppError.conflict(
+      'Witness request must identify one active controlled allocation',
+      'WARD_INDENT_CONTROLLED_ALLOCATION_MISMATCH',
+    );
+  }
+  const allocation = allocations[0];
+  const quantity = Number(allocation.reserved_quantity)
+    - Number(allocation.issued_quantity || 0)
+    - Number(allocation.authority_released_quantity || 0);
+  if (quantity <= 0 || Math.abs(quantity - Number(item.quantity_approved)) > 1e-9) {
+    throw AppError.conflict(
+      'Controlled ward allocation quantity changed',
+      'WARD_INDENT_EXACT_RESERVATION_MISMATCH',
+    );
+  }
+  return wardControlledHandoffWitnessPayload({
+    ward_indent_id: current.id,
+    ward_indent_item_id: item.id,
+    allocation_id: allocation.id,
+    inventory_item_id: allocation.inventory_item_id,
+    inventory_batch_id: allocation.inventory_batch_id,
+    quantity,
+    patient_uid: current.patient_uid,
+    clinical_order_id: item.clinical_order_id,
+    catalog_id: item.pharmacy_catalog_id,
+    reference_id: item.controlled_reference_id,
+  });
+}
+
+export async function requestWardIndentControlledWitnessApproval({
+  tenantId,
+  indentId,
+  itemId,
+  allocationId,
+  requestedBy,
+  actorRole,
+}) {
+  const tid = tenantOf(tenantId);
+  const payload = await setTenantTx(tid, (tx) => loadWardControlledWitnessPayloadTx(tx, {
+    tenantId: tid,
+    indentId,
+    itemId,
+    allocationId,
+    requestedBy,
+    actorRole,
+  }));
+  const approval = await createControlledDispenseWitnessApproval({
+    tenantId: tid,
+    scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.wardIndent,
+    payload,
+    requestedBy,
+  });
+  return { ...approval, witness_payload: payload };
+}
+
+export async function approveWardIndentControlledWitnessApproval({
+  tenantId,
+  indentId,
+  itemId,
+  allocationId,
+  requesterUid,
+  requesterRole,
+  witnessUid,
+  approvalId,
+}) {
+  const tid = tenantOf(tenantId);
+  const payload = await setTenantTx(tid, (tx) => loadWardControlledWitnessPayloadTx(tx, {
+    tenantId: tid,
+    indentId,
+    itemId,
+    allocationId,
+    requestedBy: requesterUid,
+    actorRole: requesterRole,
+  }));
+  const approval = await approveControlledDispenseWitnessApproval({
+    tenantId: tid,
+    approvalId,
+    actorUid: witnessUid,
+    payload,
+    requesterUid,
+  });
+  return { ...approval, witness_payload: payload };
 }
 
 export async function recordWardIndentControlledHandoff({
@@ -1461,11 +1600,14 @@ export async function recordWardIndentControlledHandoff({
   expectedVersion = null,
   commandKey = null,
   tenantId,
+  actorRole = null,
 }) {
   return applyTransition({
     indentId,
     tenantId,
     actorUid: recordedBy,
+    actorRole,
+    facilityGrantRequired: true,
     expectedVersion,
     commandKey,
     action: 'controlled_handoff_recorded',
@@ -1490,24 +1632,61 @@ export async function recordWardIndentControlledHandoff({
           throw AppError.badRequest(`Item evidence ${itemId} is not a controlled line on this indent`);
         }
       }
+      const closure = await loadWardIndentMedicationClosureTx(
+        tx,
+        current.tenant_id,
+        current.id,
+      );
       for (const item of controlled) {
         const evidence = evidenceByItem.get(Number(item.id));
         if (!evidence) throw AppError.badRequest(`Controlled evidence is required for item ${item.id}`);
-        const validated = await validateControlledEvidence(tx, {
+        const allocations = closure.allocations.filter((allocation) => (
+          Number(allocation.ward_indent_item_id) === Number(item.id)
+          && ['reserved', 'partially_issued'].includes(String(allocation.status))
+          && Number(allocation.reserved_quantity)
+            - Number(allocation.issued_quantity || 0)
+            - Number(allocation.authority_released_quantity || 0) > 0
+        ));
+        if (allocations.length !== 1) {
+          throw AppError.conflict(
+            `Controlled ward indent item ${item.id} must have one exact active allocation`,
+            'WARD_INDENT_CONTROLLED_ALLOCATION_MISMATCH',
+            { item_id: Number(item.id), allocation_count: allocations.length },
+          );
+        }
+        const allocation = allocations[0];
+        const outstanding = Number(allocation.reserved_quantity)
+          - Number(allocation.issued_quantity || 0)
+          - Number(allocation.authority_released_quantity || 0);
+        if (Math.abs(outstanding - Number(item.quantity_approved)) > 1e-9) {
+          throw AppError.conflict(
+            `Controlled ward indent item ${item.id} allocation quantity changed`,
+            'WARD_INDENT_EXACT_RESERVATION_MISMATCH',
+          );
+        }
+        const controlledResult = await dispenseWardControlledAllocationTx(tx, {
           tenantId: current.tenant_id,
-          indent: current,
-          item,
-          evidence,
-          movementKind: 'issue',
-          registerKind: 'dispense',
-          expectedReference: item.controlled_reference_id,
-          expectedQuantity: Number(item.quantity_approved),
+          facilityId: Number(current.facility_id),
+          indentId: Number(current.id),
+          wardItemId: Number(item.id),
+          allocationId: allocation.id,
+          inventoryItemId: Number(allocation.inventory_item_id),
+          inventoryBatchId: Number(allocation.inventory_batch_id),
+          quantity: outstanding,
+          patientUid: current.patient_uid,
+          clinicalOrderId: item.clinical_order_id,
+          catalogId: item.pharmacy_catalog_id,
+          referenceId: item.controlled_reference_id,
+          performedBy: recordedBy,
+          witnessApprovalId: evidence.witness_approval_id || null,
+          commandKey,
+          wardAuthority: WARD_CONTROLLED_HANDOFF_AUTHORITY,
         });
         await linkControlledWardIndentMovementTx(tx, {
           indent: current,
           wardItem: item,
-          movementId: validated.movementId,
-          controlledRegisterId: validated.registerId,
+          movementId: controlledResult.movement.id,
+          controlledRegisterId: controlledResult.register_entry.id,
           purpose: 'issue',
           actor: recordedBy,
           commandKey,
@@ -1516,8 +1695,8 @@ export async function recordWardIndentControlledHandoff({
         await tx.ward_indent_items.update({
           where: { id: item.id },
           data: {
-            controlled_movement_id: validated.movementId,
-            controlled_register_id: validated.registerId,
+            controlled_movement_id: controlledResult.movement.id,
+            controlled_register_id: controlledResult.register_entry.id,
             quantity_issued: Number(item.quantity_approved),
             fulfilment_status: 'controlled_handoff_recorded',
             updated_at: new Date(),
@@ -1545,11 +1724,14 @@ export async function issueWardIndent({
   expectedVersion = null,
   commandKey = null,
   tenantId,
+  actorRole = null,
 }) {
   return applyTransition({
     indentId,
     tenantId,
     actorUid: issuedBy,
+    actorRole,
+    facilityGrantRequired: true,
     expectedVersion,
     commandKey,
     action: 'issued',
@@ -1738,6 +1920,10 @@ export async function requestWardIndentReturn({
     action: 'return_requested',
     allowedStatuses: ['partially_received', 'received'],
     mutate: async (tx, current) => {
+      await assertNoOpenWardAllocationAuthorityRecoveryTx(tx, {
+        tenantId: current.tenant_id,
+        wardIndentId: current.id,
+      });
       const returnMap = itemEntryMap(
         itemQuantitiesReturned,
         'quantity_returned',
@@ -1831,30 +2017,30 @@ export async function reconcileWardIndent({
   indentId,
   reconciledBy,
   reason,
-  controlledReturnEvidence = null,
   itemReconciliations = null,
   allocationReturns = null,
   expectedVersion = null,
   commandKey = null,
   tenantId,
+  actorRole = null,
 }) {
   const cleanReason = reasonText(reason, 'reconciliation reason');
   return applyTransition({
     indentId,
     tenantId,
     actorUid: reconciledBy,
+    actorRole,
+    facilityGrantRequired: String(actorRole || '').toUpperCase() === 'PHARMACY_INCHARGE',
     expectedVersion,
     commandKey,
     reason: cleanReason,
     action: 'reconciled',
     allowedStatuses: ['return_pending', 'reconciliation_required'],
     mutate: async (tx, current) => {
-      const evidenceByItem = new Map();
-      for (const evidence of (Array.isArray(controlledReturnEvidence) ? controlledReturnEvidence : [])) {
-        const itemId = positiveInt(evidence?.item_id, 'item_id');
-        if (evidenceByItem.has(itemId)) throw AppError.badRequest(`Duplicate return evidence ${itemId}`);
-        evidenceByItem.set(itemId, evidence);
-      }
+      await assertNoOpenWardAllocationAuthorityRecoveryTx(tx, {
+        tenantId: current.tenant_id,
+        wardIndentId: current.id,
+      });
       const reconciliationByItem = new Map();
       for (const entry of (Array.isArray(itemReconciliations) ? itemReconciliations : [])) {
         const itemId = positiveInt(entry?.item_id, 'item_id');
@@ -1876,58 +2062,19 @@ export async function reconcileWardIndent({
           note: reasonText(entry?.note, 'reconciliation note'),
         });
       }
-      const catalogIds = current.items
-        .filter((item) => Number(item.quantity_return_requested) > Number(item.quantity_returned))
-        .map((item) => Number(item.pharmacy_catalog_id));
-      const controlByItem = catalogIds.length
-        ? await loadAllocationControlByItem(tx, current)
-        : new Map();
-      const controlledReturnItemIds = new Set(current.items
-        .filter((item) => (
-          Number(item.quantity_return_requested) > Number(item.quantity_returned)
-          && controlByItem.get(Number(item.id)) === true
-        ))
-        .map((item) => Number(item.id)));
-      for (const itemId of evidenceByItem.keys()) {
-        if (!controlledReturnItemIds.has(itemId)) {
-          throw AppError.badRequest(`Return evidence ${itemId} is not required for this indent`);
-        }
-      }
-      const validatedControlledEvidence = new Map();
-      const controlledReturnReferences = [];
-      for (const item of current.items) {
-        const outstanding = Number(item.quantity_return_requested || 0)
-          - Number(item.quantity_returned || 0);
-        if (outstanding <= 0) continue;
-        const controlled = controlByItem.get(Number(item.id)) === true;
-        if (!controlled) continue;
-        const evidence = evidenceByItem.get(Number(item.id));
-        if (!evidence) throw AppError.badRequest(`Controlled return evidence is required for item ${item.id}`);
-        const validated = await validateControlledEvidence(tx, {
-          tenantId: current.tenant_id,
-          indent: current,
-          item,
-          evidence,
-          movementKind: 'return',
-          registerKind: 'return',
-          expectedReference: `ward-indent-return:${current.id}:item:${item.id}`,
-          expectedQuantity: outstanding,
-        });
-        validatedControlledEvidence.set(Number(item.id), validated);
-        controlledReturnReferences.push({
-          item_id: Number(item.id),
-          movement_id: validated.movementId,
-          register_id: validated.registerId,
-        });
-      }
       const inventoryReturn = await returnWardIndentInventoryTx(tx, {
         indent: current,
         returnedBy: reconciledBy,
         commandKey,
         nextStateVersion: Number(current.state_version) + 1,
-        controlledEvidenceByItem: validatedControlledEvidence,
         allocationReturns,
       });
+      const controlledReturnReferences = [...inventoryReturn.controlledByItem.entries()]
+        .map(([itemId, evidence]) => ({
+          item_id: Number(itemId),
+          movement_id: evidence.movementId,
+          register_id: evidence.registerId,
+        }));
       const returnedItemCount = inventoryReturn.returnPlans.length;
       let varianceItemCount = 0;
       for (const item of current.items) {
@@ -1963,7 +2110,7 @@ export async function reconcileWardIndent({
         const alreadyReturned = Number(item.quantity_returned || 0);
         const outstanding = requested - alreadyReturned;
         if (outstanding <= 0) continue;
-        const controlledReturn = validatedControlledEvidence.get(Number(item.id)) || null;
+        const controlledReturn = inventoryReturn.controlledByItem.get(Number(item.id)) || null;
         await tx.ward_indent_items.update({
           where: { id: item.id },
           data: {
@@ -2088,6 +2235,10 @@ export async function closeWardIndent({
     action: 'closed',
     allowedStatuses: ['received', 'reconciled'],
     mutate: async (tx, current) => {
+      await assertNoOpenWardAllocationAuthorityRecoveryTx(tx, {
+        tenantId: current.tenant_id,
+        wardIndentId: current.id,
+      });
       if (current.status === 'received' && current.items.some(
         (item) => Number(item.quantity_received) !== Number(item.quantity_issued || 0),
       )) {
@@ -2451,6 +2602,9 @@ export default {
   markWardIndentShortSupply,
   proposeWardIndentSubstitution,
   approveWardIndentSubstitution,
+  applyApprovedWardIndentSubstitution,
+  requestWardIndentControlledWitnessApproval,
+  approveWardIndentControlledWitnessApproval,
   rejectWardIndentSubstitution,
   approveWardIndent,
   rejectWardIndent,

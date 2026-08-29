@@ -829,11 +829,22 @@ async function resolveTeamMembers(tx, tenantId, settings, inputTeam, occurredAt)
 async function validateExistingCathCase(tx, tenantId, caseId, context) {
   if (!caseId) return null;
   const rows = await tx.$queryRawUnsafe(
-    `SELECT id, tenant_id, patient_uid, encounter_id, urgency, status,
-            requested_procedure, team, timeline_event_id, audit_event_id
-       FROM cath_lab_cases
-      WHERE tenant_id = $1::uuid AND id = $2::bigint
-      FOR UPDATE`,
+    `SELECT cath_case.id, cath_case.tenant_id, cath_case.patient_uid,
+            cath_case.encounter_id, cath_case.urgency, cath_case.status,
+            cath_case.facility_id, cath_case.requested_procedure, cath_case.team,
+            cath_case.timeline_event_id, cath_case.audit_event_id,
+            CASE
+              WHEN encounter.metadata->>'facility_id' ~ '^[1-9][0-9]*$'
+              THEN (encounter.metadata->>'facility_id')::int
+              ELSE NULL
+            END AS encounter_facility_id
+       FROM cath_lab_cases cath_case
+       LEFT JOIN patient_encounters encounter
+         ON encounter.tenant_id=cath_case.tenant_id
+        AND encounter.id=cath_case.encounter_id
+        AND encounter.patient_uid=cath_case.patient_uid
+      WHERE cath_case.tenant_id = $1::uuid AND cath_case.id = $2::bigint
+      FOR UPDATE OF cath_case`,
     tenantId,
     positiveId(caseId, 'cath_case_id'),
   );
@@ -845,6 +856,24 @@ async function validateExistingCathCase(tx, tenantId, caseId, context) {
   if (context.encounterId
     && String(cathCase.encounter_id || '') !== String(context.encounterId)) {
     throw AppError.conflict('Cath-lab case belongs to a different encounter', 'STEMI_CATH_ENCOUNTER_MISMATCH');
+  }
+  if (cathCase.facility_id == null) {
+    throw AppError.conflict(
+      'A linked Code-STEMI Cath case requires exact facility authority recovery',
+      'STEMI_CATH_CASE_FACILITY_REQUIRED',
+    );
+  }
+  if (cathCase.encounter_facility_id == null) {
+    throw AppError.conflict(
+      'Linked Code-STEMI Cath case encounter has no exact facility authority',
+      'STEMI_CATH_CASE_FACILITY_REQUIRED',
+    );
+  }
+  if (Number(cathCase.encounter_facility_id) !== Number(cathCase.facility_id)) {
+    throw AppError.conflict(
+      'Linked Code-STEMI Cath case facility does not match its encounter authority',
+      'STEMI_CATH_CASE_FACILITY_MISMATCH',
+    );
   }
   if (cathCase.urgency !== 'emergency') {
     throw AppError.conflict(
@@ -862,20 +891,50 @@ async function validateExistingCathCase(tx, tenantId, caseId, context) {
 }
 
 async function spawnCathCase(tx, tenantId, activation, team, actorUid, actorRole) {
+  const encounterRows = await tx.$queryRawUnsafe(
+    `SELECT CASE
+              WHEN encounter.metadata->>'facility_id' ~ '^[1-9][0-9]*$'
+              THEN (encounter.metadata->>'facility_id')::int
+              ELSE NULL
+            END AS facility_id
+       FROM patient_encounters encounter
+       JOIN facilities facility
+         ON facility.tenant_id=encounter.tenant_id
+        AND encounter.metadata->>'facility_id' ~ '^[1-9][0-9]*$'
+        AND facility.id=(encounter.metadata->>'facility_id')::int
+        AND facility.status='active'
+      WHERE encounter.tenant_id=$1::uuid AND encounter.id=$2::uuid
+        AND encounter.patient_uid=$3::uuid
+      FOR KEY SHARE OF encounter, facility`,
+    tenantId,
+    activation.encounter_id,
+    activation.patient_uid,
+  );
+  if (encounterRows.length !== 1 || encounterRows[0].facility_id == null) {
+    throw AppError.conflict(
+      'Code-STEMI Cath case requires the encounter exact active facility authority',
+      'STEMI_CATH_CASE_FACILITY_REQUIRED',
+    );
+  }
   const rows = await tx.$queryRawUnsafe(
     `INSERT INTO cath_lab_cases
-       (tenant_id, patient_uid, encounter_id, requested_procedure, indication,
+       (tenant_id, patient_uid, encounter_id, facility_id, requested_procedure, indication,
         urgency, status, team, created_by, updated_by, metadata)
-     VALUES ($1::uuid, $2::uuid, $3::uuid, 'Primary PCI',
+     VALUES ($1::uuid, $2::uuid, $3::uuid, $4::int, 'Primary PCI',
              'Code-STEMI activation', 'emergency', 'readiness_pending',
-             $4::jsonb, $5::uuid, $5::uuid, $6::jsonb)
+             $5::jsonb, $6::uuid, $6::uuid, $7::jsonb)
      RETURNING *`,
     tenantId,
     activation.patient_uid,
     activation.encounter_id,
+    Number(encounterRows[0].facility_id),
     json(team),
     actorUid,
-    json({ stemi_activation_id: String(activation.id), source: 'nl13_p1c_stemi' }),
+    json({
+      stemi_activation_id: String(activation.id),
+      facility_id: Number(encounterRows[0].facility_id),
+      source: 'nl13_p1c_stemi',
+    }),
   );
   const cathCase = rows[0];
   await tx.$queryRawUnsafe(
@@ -902,6 +961,7 @@ async function spawnCathCase(tx, tenantId, activation, team, actorUid, actorRole
     summary: 'Emergency primary-PCI cath-lab case created from Code-STEMI',
     payload: {
       stemi_activation_id: wireId(activation.id),
+      facility_id: Number(cathCase.facility_id),
       requested_procedure: cathCase.requested_procedure,
       urgency: cathCase.urgency,
     },

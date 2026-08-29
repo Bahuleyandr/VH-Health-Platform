@@ -7,6 +7,8 @@
 
 import logger from '../../logging/logger.js';
 import {
+  applyApprovedWardIndentSubstitution,
+  approveWardIndentControlledWitnessApproval,
   approveWardIndent,
   approveWardIndentSubstitution,
   cancelWardIndent,
@@ -18,6 +20,7 @@ import {
   listWardIndentPage,
   markWardIndentShortSupply,
   proposeWardIndentSubstitution,
+  requestWardIndentControlledWitnessApproval,
   receiveWardIndent,
   reconcileWardIndent,
   recordWardIndentControlledHandoff,
@@ -110,6 +113,7 @@ function actionHandler({ operation, message, invoke }) {
         req,
         indentId,
         actorUid: actorOf(req),
+        actorRole: actorRoleCodesOf(req)[0] || null,
         tenantId: tenantOf(req),
         expectedVersion: expectedVersionOf(req),
         commandKey: commandOf(req),
@@ -172,6 +176,8 @@ export async function listInventoryCandidates(req, res) {
     const candidates = await listWardIndentInventoryCandidates(itemId, {
       tenantId: tenantOf(req),
       wardIndentId: indentId,
+      actorUid: actorOf(req),
+      actorRole: actorRoleCodesOf(req)[0] || null,
     });
     return success(res, candidates, 'Ward indent inventory candidates retrieved');
   } catch (err) {
@@ -229,9 +235,10 @@ export async function createIndent(req, res) {
 export const reserveIndent = actionHandler({
   operation: 'reserve',
   message: 'Ward indent reserved',
-  invoke: ({ req, actorUid, ...common }) => reserveWardIndent({
+  invoke: ({ req, actorUid, actorRole, ...common }) => reserveWardIndent({
     ...common,
     reservedBy: actorUid,
+    actorRole,
     itemQuantitiesReserved: bodyArray(req, 'item_quantities_reserved'),
     inventorySelections: bodyArray(req, 'inventory_selections'),
   }),
@@ -240,9 +247,10 @@ export const reserveIndent = actionHandler({
 export const markShortSupply = actionHandler({
   operation: 'record short supply for',
   message: 'Ward indent short supply recorded',
-  invoke: ({ req, actorUid, ...common }) => markWardIndentShortSupply({
+  invoke: ({ req, actorUid, actorRole, ...common }) => markWardIndentShortSupply({
     ...common,
     markedBy: actorUid,
+    actorRole,
     reason: req.body?.reason ?? req.body?.short_supply_reason,
     itemQuantitiesAvailable: bodyArray(req, 'item_quantities_available'),
     inventorySelections: bodyArray(req, 'inventory_selections'),
@@ -252,9 +260,10 @@ export const markShortSupply = actionHandler({
 export const proposeSubstitution = actionHandler({
   operation: 'propose substitution for',
   message: 'Ward indent substitution proposed',
-  invoke: ({ req, actorUid, ...common }) => proposeWardIndentSubstitution({
+  invoke: ({ req, actorUid, actorRole, ...common }) => proposeWardIndentSubstitution({
     ...common,
     proposedBy: actorUid,
+    actorRole,
     substitutions: req.body?.substitutions,
   }),
 });
@@ -262,12 +271,62 @@ export const proposeSubstitution = actionHandler({
 export const approveSubstitution = actionHandler({
   operation: 'approve substitution for',
   message: 'Ward indent substitution approved',
-  invoke: ({ req, actorUid, ...common }) => approveWardIndentSubstitution({
+  invoke: ({ actorUid, ...common }) => approveWardIndentSubstitution({
     ...common,
     decidedBy: actorUid,
+  }),
+});
+
+export const applyApprovedSubstitution = actionHandler({
+  operation: 'apply approved substitution for',
+  message: 'Approved ward indent substitution applied to inventory',
+  invoke: ({ req, actorUid, actorRole, ...common }) => applyApprovedWardIndentSubstitution({
+    ...common,
+    appliedBy: actorUid,
+    actorRole,
     inventorySelections: bodyArray(req, 'inventory_selections'),
   }),
 });
+
+export async function requestControlledWitness(req, res) {
+  try {
+    const approval = await requestWardIndentControlledWitnessApproval({
+      tenantId: tenantOf(req),
+      indentId: positiveInt(req.params.id, 'indent_id'),
+      itemId: positiveInt(req.body?.item_id, 'item_id'),
+      allocationId: req.body?.allocation_id,
+      requestedBy: actorOf(req),
+      actorRole: actorRoleCodesOf(req)[0] || null,
+    });
+    return success(res, approval, 'Controlled ward handoff witness requested', 201);
+  } catch (err) {
+    logger.error('Ward indent controlled witness request failed:', err);
+    return relayAppError(res, err, 'Failed to request controlled ward handoff witness');
+  }
+}
+
+export async function approveControlledWitness(req, res) {
+  try {
+    const witnessActor = req.wardWitnessActor;
+    if (!witnessActor?.actorUid) {
+      throw AppError.unauthorized('Authenticated witness identity required');
+    }
+    const approval = await approveWardIndentControlledWitnessApproval({
+      tenantId: tenantOf(req),
+      indentId: positiveInt(req.params.id, 'indent_id'),
+      itemId: positiveInt(req.body?.item_id, 'item_id'),
+      allocationId: req.body?.allocation_id,
+      requesterUid: actorOf(req),
+      requesterRole: actorRoleCodesOf(req)[0] || null,
+      witnessUid: witnessActor.actorUid,
+      approvalId: req.params.approvalId,
+    });
+    return success(res, approval, 'Controlled ward handoff witness approved');
+  } catch (err) {
+    logger.error('Ward indent controlled witness approval failed:', err);
+    return relayAppError(res, err, 'Failed to approve controlled ward handoff witness');
+  }
+}
 
 export const rejectSubstitution = actionHandler({
   operation: 'reject substitution for',
@@ -282,18 +341,20 @@ export const rejectSubstitution = actionHandler({
 export const approveIndent = actionHandler({
   operation: 'approve',
   message: 'Ward indent approved',
-  invoke: ({ actorUid, ...common }) => approveWardIndent({
+  invoke: ({ actorUid, actorRole, ...common }) => approveWardIndent({
     ...common,
     approvedBy: actorUid,
+    actorRole,
   }),
 });
 
 export const rejectIndent = actionHandler({
   operation: 'reject',
   message: 'Ward indent rejected',
-  invoke: ({ req, actorUid, ...common }) => rejectWardIndent({
+  invoke: ({ req, actorUid, actorRole, ...common }) => rejectWardIndent({
     ...common,
     rejectedBy: actorUid,
+    actorRole,
     reason: req.body?.reason,
   }),
 });
@@ -301,9 +362,10 @@ export const rejectIndent = actionHandler({
 export const recordControlledHandoff = actionHandler({
   operation: 'record controlled handoff for',
   message: 'Ward indent controlled-drug handoff recorded',
-  invoke: ({ req, actorUid, ...common }) => recordWardIndentControlledHandoff({
+  invoke: ({ req, actorUid, actorRole, ...common }) => recordWardIndentControlledHandoff({
     ...common,
     recordedBy: actorUid,
+    actorRole,
     itemEvidence: req.body?.item_evidence,
   }),
 });
@@ -311,9 +373,10 @@ export const recordControlledHandoff = actionHandler({
 export const issueIndent = actionHandler({
   operation: 'issue',
   message: 'Ward indent issued',
-  invoke: ({ req, actorUid, ...common }) => issueWardIndent({
+  invoke: ({ req, actorUid, actorRole, ...common }) => issueWardIndent({
     ...common,
     issuedBy: actorUid,
+    actorRole,
     itemQuantitiesIssued: bodyArray(req, 'item_quantities_issued'),
   }),
 });
@@ -353,11 +416,11 @@ export const reportDiscrepancy = actionHandler({
 export const reconcileIndent = actionHandler({
   operation: 'reconcile',
   message: 'Ward indent reconciled',
-  invoke: ({ req, actorUid, ...common }) => reconcileWardIndent({
+  invoke: ({ req, actorUid, actorRole, ...common }) => reconcileWardIndent({
     ...common,
     reconciledBy: actorUid,
+    actorRole,
     reason: req.body?.reason,
-    controlledReturnEvidence: req.body?.controlled_return_evidence,
     itemReconciliations: req.body?.item_reconciliations,
     allocationReturns: req.body?.allocation_returns,
   }),

@@ -77,6 +77,7 @@ export function requireIdempotencyKey({
   // the recorded 5xx instead of running again — the operator reconciles one
   // uncertain outcome rather than discovering two real ones.
   retainOnServerError = false,
+  durableDomainReceipt = false,
 } = {}) {
   return async function idempotencyMiddleware(req, res, next) {
     if (onlyWhen && !onlyWhen(req)) return next();
@@ -133,9 +134,20 @@ export function requireIdempotencyKey({
       return res.json(claim.response_body ?? {});
     }
     if (claim.state === 'in_flight') {
+      if (durableDomainReceipt) {
+        req.idempotencyClaim = {
+          id: claim.id || null,
+          requestKey: headerValue,
+          requestBodyHash,
+          scope,
+          recoveringInFlight: true,
+        };
+        if (!claim.id) return next();
+      } else {
       return error(res, 'A request with this Idempotency-Key is currently in flight', 409, {
         scope, idempotency_key: headerValue,
       });
+      }
     }
     if (claim.state === 'mismatch') {
       return error(res, 'Idempotency-Key reused with a different request body', 422, {

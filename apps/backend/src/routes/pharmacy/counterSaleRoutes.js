@@ -3,9 +3,18 @@
 // Walk-in pharmacy point-of-sale (migration 684). Mounted at
 // /api/v1/pharmacy-orders/counter-sales (and the /api/v1/pharmacy alias).
 // Role gates mirror inventoryV2Routes: selling requires a dispensing role
-// (ADMIN / PHARMACY_STAFF / PHARMACY_INCHARGE — Schedule X flows through the
+// (PHARMACY_STAFF / PHARMACY_INCHARGE — Schedule X flows through the
 // witnessed controlled-dispense path), voiding is incharge/admin-only, reads
 // use the wider inventory-read roster.
+//
+// ★ ADMIN is deliberately NOT a seller. Every counter sale now resolves a
+// canonical performer inside counterSaleService (resolveCounterSalePerformerTx),
+// which accepts exactly {PHARMACY_STAFF, PHARMACY_INCHARGE} — the same set
+// inventoryV2Service's CONTROLLED_DISPENSE_ROLES uses for the register
+// performer it stamps. Leaving ADMIN on this gate would advertise an authority
+// the service refuses with a 403 after the request is already in flight.
+// ADMIN keeps its void authority and its read authority, and stays on the
+// witness-approval host roster below.
 
 import { Router } from 'express';
 import * as counterSales from '../../services/pharmacy/counterSaleService.js';
@@ -40,13 +49,21 @@ export const pharmacyCounterSaleWitnessApprovalRoutes = Router({ mergeParams: tr
 const guardSaleBodyPatient = pharmacyOrderGuard(selectPatientFromBodyUid);
 const guardSaleRowPatient = pharmacyOrderGuard(selectCounterSalePatient);
 
-export const COUNTER_SALE_SELL_ROLES = [ADMIN, PHARMACY_STAFF, PHARMACY_INCHARGE];
+export const COUNTER_SALE_SELL_ROLES = [PHARMACY_STAFF, PHARMACY_INCHARGE];
 export const COUNTER_SALE_VOID_ROLES = [ADMIN, PHARMACY_INCHARGE];
 export const COUNTER_SALE_READ_ROLES = [
   ADMIN, PHARMACY_STAFF, PHARMACY_INCHARGE, STORES_PURCHASE_INCHARGE,
 ];
+// Pinned membership, deliberately NOT derived from the seller roster alone:
+// app.js mounts this on both /counter-sales/witness-approvals/:id/approve
+// paths, so narrowing who may SELL must not silently narrow who may CARRY an
+// approval request. ADMIN is therefore listed explicitly, exactly as it was
+// before ADMIN left COUNTER_SALE_SELL_ROLES. Hosting confers nothing on its
+// own: the witness identity is proved server-side against
+// CONTROLLED_DISPENSE_WITNESS_ROLES (controlledDispenseWitnessService.js:155),
+// which does not contain ADMIN.
 export const COUNTER_SALE_APPROVAL_HOST_ROLES = [
-  ...new Set([...COUNTER_SALE_SELL_ROLES, ...CONTROLLED_DISPENSE_WITNESS_ROLES]),
+  ...new Set([ADMIN, ...COUNTER_SALE_SELL_ROLES, ...CONTROLLED_DISPENSE_WITNESS_ROLES]),
 ];
 
 function wrap(handler, { status = 200 } = {}) {
@@ -140,15 +157,36 @@ async function resolveWitnessActor(req, tenantId) {
   }
 }
 
+// The actor's OWN active pharmacy facility grants. The POS facility picker is
+// fed from this instead of letting the client type an authority scope.
+// Registered before '/:id' so the literal path is not eaten by the id route.
+router.get('/facilities', requireRead, wrap(async (req) => ({
+  facilities: await counterSales.listCounterSaleFacilities({
+    tenantId: tenantOf(req),
+    actorUid: req.user?.uid,
+    actorRole: req.user?.role,
+  }),
+})));
+
 // POS pick list: sellable items with usable stock + FEFO head batch/price.
+// facility_id is a REQUEST, not authority: the service proves it against the
+// actor's active grant before reading a single batch.
 router.get('/items', requireRead, wrap(async (req) => ({
   items: await counterSales.searchSellableItems({
     tenantId: tenantOf(req),
+    facilityId: req.query.facility_id,
+    actorUid: req.user?.uid,
+    actorRole: req.user?.role,
     search: req.query.q,
     limit: req.query.limit,
   }),
 })));
 
+// body.facility_id is a REQUEST, not authority: the service proves the actor's
+// ACTIVE grant on it before it reads a single inventory row, so this surface
+// cannot be used to enumerate another facility's catalogue. requested_by and
+// requested_by_role are written AFTER the body spread on purpose — they are
+// server-derived identity and a client-supplied value must never win.
 router.post('/witness-approvals', requireSell, guardSaleBodyPatient, requireIdempotencyKey({
   required: true,
   scope: 'pharmacy_counter_sale_witness_request',
@@ -159,6 +197,7 @@ router.post('/witness-approvals', requireSell, guardSaleBodyPatient, requireIdem
     ...req.body,
     tenantId: tenantOf(req),
     requested_by: req.user?.uid,
+    requested_by_role: req.user?.role || req.user?.rawRole || null,
   })
 )));
 
@@ -199,6 +238,7 @@ router.post('/', requireSell, guardSaleBodyPatient, requireIdempotencyKey({
   requestPathForIdempotency: counterSaleMutationPath(),
 }), wrap(async (req) => counterSales.createCounterSale({
   tenantId: tenantOf(req),
+  facility_id: req.body.facility_id,
   lines: req.body.lines,
   patient_uid: req.body.patient_uid,
   customer_name: req.body.customer_name,
@@ -209,29 +249,48 @@ router.post('/', requireSell, guardSaleBodyPatient, requireIdempotencyKey({
   payment_reference: req.body.payment_reference,
   notes: req.body.notes,
   sold_by: req.user?.uid,
-  sold_by_name: req.body.sold_by_name || req.user?.name || null,
   request_id: req.id,
 })));
 
+// Scoped to the facilities the actor holds an ACTIVE grant for — tenant scope
+// alone is not custody authority for a cross-facility POS ledger.
 router.get('/', requireRead, wrap(async (req) => ({
   sales: await counterSales.listCounterSales({
     tenantId: tenantOf(req),
+    actorUid: req.user?.uid,
+    actorRole: req.user?.role,
+    facilityId: req.query.facility_id,
     status: req.query.status,
     date: req.query.date,
     limit: req.query.limit,
   }),
 })));
 
+// ── The void surface ─────────────────────────────────────────────────
+//
+// ★ requireVoid is a ROLE gate, not custody. All four routes below therefore
+// carry the caller's identity into the service, which resolves the sale's OWN
+// facility from the stored row and asserts the actor's ACTIVE grant on it
+// (assertCounterSaleFacilityCustodyTx). The read and the three mutations run
+// the identical test — a mutation must never be weaker than the read of the
+// same resource, and ADMIN sits on this roster without necessarily holding a
+// grant anywhere. The mutations pass their actor through the existing
+// voided_by / reconciled_by / resolved_by (+ _role) fields they already stamp
+// on the evidence rows; do not add a route here without one.
 router.get('/:id/void-status', requireVoid, guardSaleRowPatient, wrap(async (req) => (
   counterSales.getCounterSaleVoidStatus({
     tenantId: tenantOf(req),
     id: req.params.id,
+    actorUid: req.user?.uid,
+    actorRole: req.user?.role,
   })
 )));
 
 router.get('/:id', requireRead, guardSaleRowPatient, wrap(async (req) => counterSales.getCounterSale({
   tenantId: tenantOf(req),
   id: req.params.id,
+  actorUid: req.user?.uid,
+  actorRole: req.user?.role,
 })));
 
 // Same-day initiation creates one dedicated pending refund. Pharmacy cannot

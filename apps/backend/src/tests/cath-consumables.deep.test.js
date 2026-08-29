@@ -24,6 +24,8 @@ const ADMIN_A = 'cd000000-0000-4000-8000-00000000a003';
 const PHARMACIST_A = 'cd000000-0000-4000-8000-00000000a004';
 const PHARMACY_INCHARGE_A = 'cd000000-0000-4000-8000-00000000a005';
 const PATIENT_B = 'cd000000-0000-4000-8000-00000000b001';
+const CLINICIAN_B = 'cd000000-0000-4000-8000-00000000b002';
+const ADMIN_B = 'cd000000-0000-4000-8000-00000000b003';
 const RLS_ROLE = 'vhhealth_runtime';
 const CATH_RUNTIME_ROLES = ['vhhealth_app', 'vhhealth_runtime'];
 const PROCEDURE_CODE = 'CATH-PROC-NL13-P1D-TEST';
@@ -33,6 +35,16 @@ const actor = {
   actorUid: CLINICIAN_A,
   actorRole: 'DOCTOR',
   requestId: 'cath-consumables-deep',
+};
+const catalogActorA = {
+  actorUid: ADMIN_A,
+  actorRole: 'ADMIN',
+  requestId: 'cath-consumables-catalog-a',
+};
+const catalogActorB = {
+  actorUid: ADMIN_B,
+  actorRole: 'ADMIN',
+  requestId: 'cath-consumables-catalog-b',
 };
 
 let caseAId;
@@ -45,6 +57,9 @@ let tenantBItemId;
 let implantBatchId;
 let wasteBatchId;
 let lowStockBatchId;
+let tenantBBatchId;
+let facilityAId;
+let facilityBId;
 let mappedCatalog;
 let wasteCatalog;
 let unmappedCatalog;
@@ -245,15 +260,39 @@ async function cleanup() {
     );
     await tx.$executeRawUnsafe(
       `DELETE FROM idempotency_keys
-        WHERE user_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+        WHERE user_uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
       ADMIN_A,
       PHARMACIST_A,
       PHARMACY_INCHARGE_A,
+      ADMIN_B,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM pharmacy_staff_facility_grants
+        WHERE tenant_id IN ($1::uuid, $2::uuid)
+          AND staff_uid IN ($3::uuid, $4::uuid, $5::uuid, $6::uuid)`,
+      TENANT_A,
+      TENANT_B,
+      ADMIN_A,
+      PHARMACIST_A,
+      PHARMACY_INCHARGE_A,
+      ADMIN_B,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM staff
+        WHERE tenant_id IN ($1::uuid, $2::uuid)
+          AND user_id IN ($3::uuid, $4::uuid, $5::uuid, $6::uuid)`,
+      TENANT_A,
+      TENANT_B,
+      ADMIN_A,
+      PHARMACIST_A,
+      PHARMACY_INCHARGE_A,
+      ADMIN_B,
     );
     await tx.$executeRawUnsafe(
       `DELETE FROM users
         WHERE uid IN (
-          $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid
+          $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7::uuid,
+          $8::uuid
         )`,
       PATIENT_A,
       CLINICIAN_A,
@@ -261,11 +300,17 @@ async function cleanup() {
       PHARMACIST_A,
       PHARMACY_INCHARGE_A,
       PATIENT_B,
+      CLINICIAN_B,
+      ADMIN_B,
     );
     await tx.$executeRawUnsafe(
       `DELETE FROM billing_service_master WHERE code IN ($1, $2)`,
       PROCEDURE_CODE,
       IMPLANT_CODE,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM facilities
+        WHERE facility_code IN ('NL13-P1D-CATH-A', 'NL13-P1D-CATH-B')`,
     );
     await tx.$executeRawUnsafe(`DELETE FROM tenants WHERE id = $1::uuid`, TENANT_B);
   });
@@ -275,12 +320,13 @@ async function createCathInventoryReconciliationClaim(
   requestKey,
   actorUid = PHARMACIST_A,
   actorRole = 'PHARMACIST',
+  usageId = shortfallUsageId,
 ) {
   const requestPath = `/api/v1/cath-lab/cases/${String(caseAId)}`
-    + `/consumables/${String(shortfallUsageId)}/inventory-reconcile`;
+    + `/consumables/${String(usageId)}/inventory-reconcile`;
   const requestFingerprint = cathLabTesting.cathInventoryReconciliationRequestFingerprint(
     caseAId,
-    shortfallUsageId,
+    usageId,
   );
   const [claim] = await prisma.$queryRawUnsafe(
     `INSERT INTO idempotency_keys
@@ -305,6 +351,67 @@ async function createCathInventoryReconciliationClaim(
     httpIdempotencyClaimId: claim.id,
     requestId: requestKey,
   };
+}
+
+async function createCathPharmacyOperator({ uid, role, name, phone, employeeId }) {
+  await prisma.$queryRawUnsafe(
+    `INSERT INTO users
+       (tenant_id, uid, phone, name, role, is_active, status, updated_at)
+     VALUES ($1::uuid, $2::uuid, $3, $4, $5, TRUE, 'active', NOW())`,
+    TENANT_A,
+    uid,
+    phone,
+    name,
+    role,
+  );
+  await prisma.$queryRawUnsafe(
+    `INSERT INTO staff
+       (tenant_id, user_id, employee_id, name, is_active, archived, updated_at)
+     VALUES ($1::uuid, $2::uuid, $3, $4, TRUE, FALSE, NOW())`,
+    TENANT_A,
+    uid,
+    employeeId,
+    name,
+  );
+  await prisma.$queryRawUnsafe(
+    `INSERT INTO pharmacy_staff_facility_grants
+       (tenant_id, facility_id, staff_uid, status, grant_source,
+        grant_reason, granted_by)
+     VALUES ($1::uuid, $2::int, $3::uuid, 'active', 'deep_test',
+             'Cath reconciliation deep-test facility authority', $4::uuid)`,
+    TENANT_A,
+    facilityAId,
+    uid,
+    ADMIN_A,
+  );
+}
+
+async function createCathCatalogAuthority({
+  tenantId,
+  facilityId,
+  uid,
+  name,
+  employeeId,
+}) {
+  await prisma.$queryRawUnsafe(
+    `INSERT INTO staff
+       (tenant_id, user_id, employee_id, name, is_active, archived, updated_at)
+     VALUES ($1::uuid, $2::uuid, $3, $4, TRUE, FALSE, NOW())`,
+    tenantId,
+    uid,
+    employeeId,
+    name,
+  );
+  await prisma.$queryRawUnsafe(
+    `INSERT INTO pharmacy_staff_facility_grants
+       (tenant_id, facility_id, staff_uid, status, grant_source,
+        grant_reason, granted_by)
+     VALUES ($1::uuid, $2::int, $3::uuid, 'active', 'deep_test',
+             'Cath catalog deep-test facility authority', $3::uuid)`,
+    tenantId,
+    facilityId,
+    uid,
+  );
 }
 
 describeIfDb('NL-13 P1d cath consumables deep integration', () => {
@@ -342,14 +449,44 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
          ($1::uuid, $2::uuid, '9011776101', 'Cath Consumable Patient A', 'PATIENT', TRUE, 'active', NOW()),
          ($1::uuid, $3::uuid, '9011776102', 'Dr Cath Consumable A', 'DOCTOR', TRUE, 'active', NOW()),
          ($1::uuid, $4::uuid, '9011776104', 'Cath Coverage Admin A', 'ADMIN', TRUE, 'active', NOW()),
-         ($5::uuid, $6::uuid, '9011776103', 'Cath Consumable Patient B', 'PATIENT', TRUE, 'active', NOW())`,
+         ($5::uuid, $6::uuid, '9011776103', 'Cath Consumable Patient B', 'PATIENT', TRUE, 'active', NOW()),
+         ($5::uuid, $7::uuid, '9011776107', 'Dr Cath Consumable B', 'DOCTOR', TRUE, 'active', NOW()),
+         ($5::uuid, $8::uuid, '9011776108', 'Cath Coverage Admin B', 'ADMIN', TRUE, 'active', NOW())`,
       TENANT_A,
       PATIENT_A,
       CLINICIAN_A,
       ADMIN_A,
       TENANT_B,
       PATIENT_B,
+      CLINICIAN_B,
+      ADMIN_B,
     );
+    const facilities = await prisma.$queryRawUnsafe(
+      `INSERT INTO facilities
+         (tenant_id, facility_code, display_name, status, is_default)
+       VALUES
+         ($1::uuid, 'NL13-P1D-CATH-A', 'NL13 P1d Cath Facility A', 'active', FALSE),
+         ($2::uuid, 'NL13-P1D-CATH-B', 'NL13 P1d Cath Facility B', 'active', FALSE)
+       RETURNING id, tenant_id`,
+      TENANT_A,
+      TENANT_B,
+    );
+    facilityAId = facilities.find((row) => row.tenant_id === TENANT_A).id;
+    facilityBId = facilities.find((row) => row.tenant_id === TENANT_B).id;
+    await createCathCatalogAuthority({
+      tenantId: TENANT_A,
+      facilityId: facilityAId,
+      uid: ADMIN_A,
+      name: 'Cath Coverage Admin A',
+      employeeId: 'NL13-P1D-ADMIN-A',
+    });
+    await createCathCatalogAuthority({
+      tenantId: TENANT_B,
+      facilityId: facilityBId,
+      uid: ADMIN_B,
+      name: 'Cath Coverage Admin B',
+      employeeId: 'NL13-P1D-ADMIN-B',
+    });
     await prisma.$queryRawUnsafe(
       `INSERT INTO billing_service_master
          (code, description, category, default_price, gst_rate, hsn_sac, tenant_id)
@@ -362,15 +499,17 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
     );
     const inventoryItems = await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_inventory_items
-         (tenant_id, sku_code, display_name, unit_label, status)
+         (tenant_id, facility_id, sku_code, display_name, unit_label, status)
        VALUES
-         ($1::uuid, 'NL13-P1D-STENT', 'Deep test coronary stent', 'each', 'active'),
-         ($1::uuid, 'NL13-P1D-BALLOON', 'Deep test balloon', 'each', 'active'),
-         ($1::uuid, 'NL13-P1D-WIRE', 'Deep test guidewire', 'each', 'active'),
-         ($2::uuid, 'NL13-P1D-TENANT-B', 'Tenant B inventory item', 'each', 'active')
+         ($1::uuid, $3::int, 'NL13-P1D-STENT', 'Deep test coronary stent', 'each', 'active'),
+         ($1::uuid, $3::int, 'NL13-P1D-BALLOON', 'Deep test balloon', 'each', 'active'),
+         ($1::uuid, $3::int, 'NL13-P1D-WIRE', 'Deep test guidewire', 'each', 'active'),
+         ($2::uuid, $4::int, 'NL13-P1D-TENANT-B', 'Tenant B inventory item', 'each', 'active')
        RETURNING id, sku_code`,
       TENANT_A,
       TENANT_B,
+      facilityAId,
+      facilityBId,
     );
     implantItemId = inventoryItems.find((row) => row.sku_code === 'NL13-P1D-STENT').id;
     wasteItemId = inventoryItems.find((row) => row.sku_code === 'NL13-P1D-BALLOON').id;
@@ -378,33 +517,44 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
     tenantBItemId = inventoryItems.find((row) => row.sku_code === 'NL13-P1D-TENANT-B').id;
     const batches = await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_inventory_batches
-         (tenant_id, inventory_item_id, batch_number, lot_number, expiry_date,
+         (tenant_id, facility_id, inventory_item_id, batch_number, lot_number, expiry_date,
           received_quantity, remaining_quantity, status)
        VALUES
-         ($1::uuid, $2::int, 'NL13-P1D-STENT-B1', 'LOT-STENT-B1', '2028-12-31', 5, 5, 'in_stock'),
-         ($1::uuid, $3::int, 'NL13-P1D-BALLOON-B1', 'LOT-BALLOON-B1', '2028-12-31', 2, 2, 'in_stock'),
-         ($1::uuid, $4::int, 'NL13-P1D-WIRE-B1', 'LOT-WIRE-B1', '2028-12-31', 0.5, 0.5, 'in_stock')
+         ($1::uuid, $5::int, $2::int, 'NL13-P1D-STENT-B1', 'LOT-STENT-B1', '2028-12-31', 5, 5, 'in_stock'),
+         ($1::uuid, $5::int, $3::int, 'NL13-P1D-BALLOON-B1', 'LOT-BALLOON-B1', '2028-12-31', 2, 2, 'in_stock'),
+         ($1::uuid, $5::int, $4::int, 'NL13-P1D-WIRE-B1', 'LOT-WIRE-B1', '2028-12-31', 0.5, 0.5, 'in_stock'),
+         ($6::uuid, $7::int, $8::int, 'NL13-P1D-TENANT-B-B1', 'LOT-TENANT-B-B1', '2028-12-31', 2, 2, 'in_stock')
        RETURNING id, batch_number`,
       TENANT_A,
       implantItemId,
       wasteItemId,
       lowStockItemId,
+      facilityAId,
+      TENANT_B,
+      facilityBId,
+      tenantBItemId,
     );
     implantBatchId = batches.find((row) => row.batch_number === 'NL13-P1D-STENT-B1').id;
     wasteBatchId = batches.find((row) => row.batch_number === 'NL13-P1D-BALLOON-B1').id;
     lowStockBatchId = batches.find((row) => row.batch_number === 'NL13-P1D-WIRE-B1').id;
+    tenantBBatchId = batches.find((row) => row.batch_number === 'NL13-P1D-TENANT-B-B1').id;
     const cases = await prisma.$queryRawUnsafe(
       `INSERT INTO cath_lab_cases
-         (tenant_id, patient_uid, requested_procedure, status, actual_start_at, created_by, updated_by)
+         (tenant_id, patient_uid, facility_id, requested_procedure, status,
+          actual_start_at, created_by, updated_by)
        VALUES
-         ($1::uuid, $2::uuid, 'PTCA with stent', 'in_progress', NOW() - INTERVAL '30 minutes', $3::uuid, $3::uuid),
-         ($4::uuid, $5::uuid, 'Tenant B diagnostic cath', 'in_progress', NOW() - INTERVAL '20 minutes', NULL, NULL)
+         ($1::uuid, $2::uuid, $6::int, 'PTCA with stent', 'in_progress',
+          NOW() - INTERVAL '30 minutes', $3::uuid, $3::uuid),
+         ($4::uuid, $5::uuid, $7::int, 'Tenant B diagnostic cath', 'in_progress',
+          NOW() - INTERVAL '20 minutes', NULL, NULL)
        RETURNING id, tenant_id`,
       TENANT_A,
       PATIENT_A,
       CLINICIAN_A,
       TENANT_B,
       PATIENT_B,
+      facilityAId,
+      facilityBId,
     );
     caseAId = cases.find((row) => row.tenant_id === TENANT_A).id;
     caseBId = cases.find((row) => row.tenant_id === TENANT_B).id;
@@ -433,7 +583,7 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
       billing_item_code: IMPLANT_CODE,
       default_unit_cost_reference: 32000,
       metadata: { test_scope: 'nl13_p1d_deep' },
-    }, actor);
+    }, catalogActorA);
     wasteCatalog = await upsertConsumableCatalogItem({
       tenantId: TENANT_A,
       item_name: 'Deep test angioplasty balloon',
@@ -441,24 +591,30 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
       batch_tracked: true,
       inventory_item_id: wasteItemId,
       metadata: { test_scope: 'nl13_p1d_deep' },
-    }, actor);
+    }, catalogActorA);
     unmappedCatalog = await upsertConsumableCatalogItem({
       tenantId: TENANT_A,
       item_name: 'Deep test unmapped guidewire',
       category: 'guidewire',
       inventory_item_id: lowStockItemId,
       metadata: { test_scope: 'nl13_p1d_deep' },
-    }, actor);
+    }, catalogActorA);
     const tenantBCatalog = await upsertConsumableCatalogItem({
       tenantId: TENANT_B,
       item_name: 'Tenant B catheter',
       category: 'catheter',
+      inventory_item_id: tenantBItemId,
       metadata: { test_scope: 'nl13_p1d_deep' },
-    });
+    }, catalogActorB);
     await recordConsumableUsage(caseBId, {
       tenantId: TENANT_B,
       catalog_item_id: tenantBCatalog.id,
+      inventory_batch_id: tenantBBatchId,
       quantity: 1,
+    }, {
+      actorUid: CLINICIAN_B,
+      actorRole: 'DOCTOR',
+      idempotencyKey: 'nl13-p1d-tenant-b-usage',
     });
     await upsertCathConsumablesBillingSettings({
       tenantId: TENANT_A,
@@ -496,50 +652,64 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
 
   test('rejects missing batch/expiry at the database constraint', async () => {
     await expect(executeWithImmediateConstraints(
-      `INSERT INTO cath_case_consumable_usage
-         (tenant_id, case_id, procedure_log_id, catalog_item_id, patient_uid,
-          quantity, batch_tracked, is_implant, serial_number,
-          inventory_decrement_status)
-       VALUES ($1::uuid, $2::bigint, $3::bigint, $4::bigint, $5::uuid,
-               1, TRUE, TRUE, 'SERIAL-MISSING-BATCH', 'pending')`,
+       `INSERT INTO cath_case_consumable_usage
+          (tenant_id, case_id, procedure_log_id, catalog_item_id, patient_uid,
+           facility_id, inventory_item_id, inventory_batch_id,
+           quantity, batch_tracked, is_implant, serial_number,
+           inventory_decrement_status)
+        VALUES ($1::uuid, $2::bigint, $3::bigint, $4::bigint, $5::uuid,
+                $6::int, $7::int, $8::int,
+                1, TRUE, TRUE, 'SERIAL-MISSING-BATCH', 'pending')`,
       TENANT_A,
       caseAId,
       procedureAId,
       mappedCatalog.id,
       PATIENT_A,
+      facilityAId,
+      implantItemId,
+      implantBatchId,
     )).rejects.toThrow(/cath_consumable_usage_batch_expiry_check/i);
   });
 
   test('database constraints reject cross-tenant and downgraded implant links', async () => {
     await expect(asRlsRole(
       TENANT_A,
-      `INSERT INTO cath_case_consumable_usage
-         (tenant_id, case_id, catalog_item_id, patient_uid, quantity,
-          batch_tracked, is_implant, batch_number, expiry_date, serial_number)
-       VALUES ($1::uuid, $2::bigint, $3::bigint, $4::uuid, 1,
-               TRUE, TRUE, 'CROSS-TENANT', '2028-12-31', 'CROSS-TENANT-SERIAL')
+       `INSERT INTO cath_case_consumable_usage
+          (tenant_id, case_id, catalog_item_id, patient_uid, quantity,
+           facility_id, inventory_item_id, inventory_batch_id,
+           batch_tracked, is_implant, batch_number, expiry_date, serial_number)
+        VALUES ($1::uuid, $2::bigint, $3::bigint, $4::uuid, 1,
+                $5::int, $6::int, $7::int,
+                TRUE, TRUE, 'CROSS-TENANT', '2028-12-31', 'CROSS-TENANT-SERIAL')
        RETURNING id`,
       TENANT_A,
       caseBId,
       mappedCatalog.id,
       PATIENT_B,
+      facilityAId,
+      implantItemId,
+      implantBatchId,
     )).rejects.toThrow(/fk_cath_consumable_usage_case_tenant_patient|foreign key/i);
 
     await expect(asRlsRole(
       TENANT_A,
-      `INSERT INTO cath_consumable_catalog
-         (tenant_id, inventory_item_id, item_name, category, is_implant, batch_tracked)
-       VALUES ($1::uuid, $2::int, 'Cross-tenant inventory', 'other', FALSE, FALSE)
-       RETURNING id`,
+       `INSERT INTO cath_consumable_catalog
+          (tenant_id, facility_id, inventory_item_id, item_name, category, is_implant, batch_tracked)
+        VALUES ($1::uuid, $2::int, $3::int, 'Cross-tenant inventory', 'other', FALSE, FALSE)
+        RETURNING id`,
       TENANT_A,
+      facilityAId,
       tenantBItemId,
     )).rejects.toThrow(/fk_cath_consumable_catalog_inventory_tenant|foreign key/i);
 
     await expect(executeWithImmediateConstraints(
-      `INSERT INTO cath_consumable_catalog
-         (tenant_id, item_name, category, is_implant, batch_tracked)
-       VALUES ($1::uuid, 'Invalid non-implant stent', 'stent', FALSE, TRUE)`,
+       `INSERT INTO cath_consumable_catalog
+          (tenant_id, facility_id, inventory_item_id, item_name, category, is_implant, batch_tracked)
+        VALUES ($1::uuid, $2::int, $3::int,
+                'Invalid non-implant stent', 'stent', FALSE, TRUE)`,
       TENANT_A,
+      facilityAId,
+      implantItemId,
     )).rejects.toThrow(/cath_consumable_catalog_category_implant_check/i);
 
     const [foreignTimeline] = await prisma.$queryRawUnsafe(
@@ -565,21 +735,26 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
     ]) {
       await expect(asRlsRole(
         TENANT_A,
-        `INSERT INTO cath_case_consumable_usage
-           (tenant_id, case_id, catalog_item_id, patient_uid, quantity,
-            batch_tracked, is_implant, ${column})
-         VALUES ($1::uuid, $2::bigint, $3::bigint, $4::uuid, 1, FALSE, FALSE, $5::uuid)
-         RETURNING id`,
+         `INSERT INTO cath_case_consumable_usage
+            (tenant_id, case_id, catalog_item_id, patient_uid, quantity,
+             facility_id, inventory_item_id, inventory_batch_id,
+             batch_tracked, is_implant, ${column})
+          VALUES ($1::uuid, $2::bigint, $3::bigint, $4::uuid, 1,
+                  $5::int, $6::int, $7::int, FALSE, FALSE, $8::uuid)
+          RETURNING id`,
         TENANT_A,
         caseAId,
         unmappedCatalog.id,
         PATIENT_A,
+        facilityAId,
+        lowStockItemId,
+        lowStockBatchId,
         id,
       )).rejects.toThrow(new RegExp(`${constraint}|foreign key`, 'i'));
     }
   });
 
-  test('records mapped implant usage, decrements inventory, and feeds patient implant registry', async () => {
+  test('records mapped implant usage and atomically creates facility-bound pharmacy work', async () => {
     const input = {
       tenantId: TENANT_A,
       procedure_log_id: procedureAId,
@@ -593,8 +768,10 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
     const replay = await recordConsumableUsage(caseAId, input, idempotentActor);
     expect(replay.id).toBe(usage.id);
     expect(replay.idempotent_replay).toBe(true);
-    expect(usage.inventory_decrement_status).toBe('decremented');
-    expect(usage.inventory_warning).toBeNull();
+    expect(usage.inventory_decrement_status).toBe('insufficient_stock');
+    expect(usage.inventory_warning).toMatch(/facility pharmacy reconciliation is required/i);
+    expect(Number(usage.facility_id)).toBe(Number(facilityAId));
+    expect(Number(usage.inventory_item_id)).toBe(Number(implantItemId));
     expect(usage.used_by_name).toBe('Dr Cath Consumable A');
     expect(usage.implant_record_id).toBeTruthy();
 
@@ -602,16 +779,33 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
       `SELECT remaining_quantity FROM pharmacy_inventory_batches WHERE id = $1::int`,
       implantBatchId,
     );
-    expect(Number(batch[0].remaining_quantity)).toBe(4);
+    expect(Number(batch[0].remaining_quantity)).toBe(5);
     const movement = await prisma.$queryRawUnsafe(
-      `SELECT movement_kind, quantity_delta, reference_type, reference_id
+      `SELECT id
          FROM pharmacy_stock_movements
-        WHERE reference_type = 'cath_consumable_usage' AND reference_id = $1`,
+        WHERE reference_type = 'cath_consumable_reconciliation'
+          AND metadata->>'cath_consumable_usage_id' = $1`,
       String(usage.id),
     );
-    expect(movement).toHaveLength(1);
-    expect(movement[0].movement_kind).toBe('issue');
-    expect(Number(movement[0].quantity_delta)).toBe(-1);
+    expect(movement).toEqual([]);
+    const [work] = await prisma.$queryRawUnsafe(
+      `SELECT task.id AS task_id, task.metadata->>'facility_id' AS facility_id,
+              task.workflow_sla_instance_id, outbox.id AS outbox_id
+         FROM tasks task
+         JOIN notification_outbox outbox
+           ON outbox.tenant_id=task.tenant_id
+          AND outbox.source_event_key='cath-inventory-shortfall:' || task.related_resource_id
+        WHERE task.tenant_id=$1::uuid
+          AND task.related_resource_type='cath_case_consumable_usage'
+          AND task.related_resource_id=$2::text
+          AND task.metadata->>'task_contract'='cath_inventory_shortfall_v1'`,
+      TENANT_A,
+      String(usage.id),
+    );
+    expect(work).toMatchObject({ facility_id: String(facilityAId) });
+    expect(work.task_id).toBeTruthy();
+    expect(work.workflow_sla_instance_id).toBeTruthy();
+    expect(work.outbox_id).toBeTruthy();
 
     const implant = await prisma.$queryRawUnsafe(
       `SELECT cath_case_id, cath_usage_id, patient_uid, serial_number, status
@@ -624,57 +818,30 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
     expect(implant[0].status).toBe('in_situ');
   });
 
-  test('global SET NULL and CASCADE references coexist with tenant-aware cath FKs', async () => {
+  test('Cath case clinical history is append-only after facility authority is pinned', async () => {
     const [tempCase] = await prisma.$queryRawUnsafe(
       `INSERT INTO cath_lab_cases
-         (tenant_id, patient_uid, requested_procedure, status)
-       VALUES ($1::uuid, $2::uuid, 'Temporary FK deletion probe', 'in_progress')
+         (tenant_id, patient_uid, facility_id, requested_procedure, status)
+       VALUES ($1::uuid, $2::uuid, $3::int, 'Temporary immutability probe', 'in_progress')
        RETURNING id`,
       TENANT_A,
       PATIENT_A,
+      facilityAId,
     );
-    const [tempProcedure] = await prisma.$queryRawUnsafe(
-      `INSERT INTO cath_procedure_logs
-         (tenant_id, case_id, patient_uid, procedure_type, status)
-       VALUES ($1::uuid, $2::bigint, $3::uuid, 'Deletion probe', 'finalized')
-       RETURNING id`,
-      TENANT_A,
+    await expect(prisma.$executeRawUnsafe(
+      'DELETE FROM cath_lab_cases WHERE id = $1::bigint',
       tempCase.id,
-      PATIENT_A,
-    );
-    const [tempUsage] = await prisma.$queryRawUnsafe(
-      `INSERT INTO cath_case_consumable_usage
-         (tenant_id, case_id, procedure_log_id, catalog_item_id, patient_uid,
-          quantity, batch_tracked, is_implant, idempotency_key)
-       VALUES ($1::uuid, $2::bigint, $3::bigint, $4::bigint, $5::uuid,
-               1, FALSE, FALSE, 'nl13-p1d-delete-probe')
-       RETURNING id`,
-      TENANT_A,
-      tempCase.id,
-      tempProcedure.id,
-      unmappedCatalog.id,
-      PATIENT_A,
-    );
-
-    await prisma.$executeRawUnsafe(
-      'DELETE FROM cath_procedure_logs WHERE id = $1::bigint',
-      tempProcedure.id,
-    );
-    const [afterProcedureDelete] = await prisma.$queryRawUnsafe(
-      'SELECT procedure_log_id FROM cath_case_consumable_usage WHERE id = $1::bigint',
-      tempUsage.id,
-    );
-    expect(afterProcedureDelete.procedure_log_id).toBeNull();
-
-    await prisma.$executeRawUnsafe('DELETE FROM cath_lab_cases WHERE id = $1::bigint', tempCase.id);
-    const [{ count }] = await prisma.$queryRawUnsafe(
-      'SELECT COUNT(*)::int AS count FROM cath_case_consumable_usage WHERE id = $1::bigint',
-      tempUsage.id,
-    );
-    expect(count).toBe(0);
+    )).rejects.toMatchObject({ code: 'P2010' });
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe("SET LOCAL session_replication_role='replica'");
+      await tx.$executeRawUnsafe(
+        'DELETE FROM cath_lab_cases WHERE id = $1::bigint',
+        tempCase.id,
+      );
+    });
   });
 
-  test('wastage decrements stock with dispose semantics and remains auditable', async () => {
+  test('wastage remains auditable and waits for pharmacy disposal reconciliation', async () => {
     const usage = await recordConsumableUsage(caseAId, {
       tenantId: TENANT_A,
       procedure_log_id: procedureAId,
@@ -685,21 +852,22 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
       waste_reason: 'Opened during setup but not used',
     }, actor);
     expect(usage.wasted).toBe(true);
-    expect(usage.inventory_decrement_status).toBe('decremented');
+    expect(usage.inventory_decrement_status).toBe('insufficient_stock');
     const batch = await prisma.$queryRawUnsafe(
       `SELECT remaining_quantity FROM pharmacy_inventory_batches WHERE id = $1::int`,
       wasteBatchId,
     );
-    expect(Number(batch[0].remaining_quantity)).toBe(1);
+    expect(Number(batch[0].remaining_quantity)).toBe(2);
     const movement = await prisma.$queryRawUnsafe(
       `SELECT movement_kind FROM pharmacy_stock_movements
-        WHERE reference_type = 'cath_consumable_usage' AND reference_id = $1`,
+        WHERE reference_type = 'cath_consumable_reconciliation'
+          AND metadata->>'cath_consumable_usage_id' = $1`,
       String(usage.id),
     );
-    expect(movement[0].movement_kind).toBe('dispose');
+    expect(movement).toEqual([]);
   });
 
-  test('insufficient stock warns without blocking the clinical record', async () => {
+  test('clinical usage remains durable while facility pharmacy owns stock reconciliation', async () => {
     const usage = await recordConsumableUsage(caseAId, {
       tenantId: TENANT_A,
       procedure_log_id: procedureAId,
@@ -711,13 +879,13 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
     expect(usage.id).toBeTruthy();
     expect(usage.inventory_decrement_status).toBe('insufficient_stock');
     expect(usage.inventory_warning).toMatch(
-      /documented 2\.0000, decremented 0\.5000/i,
+      /requested 2, available 0\.5/i,
     );
     const batch = await prisma.$queryRawUnsafe(
       `SELECT remaining_quantity FROM pharmacy_inventory_batches WHERE id = $1::int`,
       lowStockBatchId,
     );
-    expect(Number(batch[0].remaining_quantity)).toBe(0);
+    expect(Number(batch[0].remaining_quantity)).toBe(0.5);
     const [contract] = await prisma.$queryRawUnsafe(
       `SELECT task.id AS task_id,
               task.status AS task_status,
@@ -730,7 +898,7 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
               outbox.payload->>'coverage_gap' AS coverage_gap,
               outbox.payload->>'delivery_coverage' AS delivery_coverage,
               outbox.payload->>'recipient_role' AS recipient_role,
-              movement.quantity_delta
+              task.metadata->>'facility_id' AS facility_id
          FROM cath_case_consumable_usage usage
          JOIN tasks task
            ON task.tenant_id = usage.tenant_id
@@ -744,10 +912,6 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
            ON outbox.tenant_id = usage.tenant_id
           AND outbox.type = 'cath_inventory_shortfall'
           AND outbox.source_event_key = 'cath-inventory-shortfall:' || usage.id::text
-         JOIN pharmacy_stock_movements movement
-           ON movement.tenant_id = usage.tenant_id
-          AND movement.reference_type = 'cath_consumable_usage'
-          AND movement.reference_id = usage.id::text
         WHERE usage.id = $1::bigint`,
       usage.id,
     );
@@ -759,12 +923,12 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
       assigned_role_codes: ['PHARMACIST', 'PHARMACY_STAFF', 'PHARMACY_INCHARGE'],
       coverage_gap: 'true',
       delivery_coverage: 'operator_recovery',
+      facility_id: String(facilityAId),
     });
     expect(['ADMIN', 'SUPER_ADMIN']).toContain(contract.recipient_role);
     expect(contract.task_id).toBeTruthy();
     expect(contract.workflow_sla_instance_id).toBeTruthy();
     expect(contract.notification_id).toBeTruthy();
-    expect(Number(contract.quantity_delta)).toBe(-0.5);
     const adminView = await getCathConsumableInventoryReconciliation(
       caseAId,
       usage.id,
@@ -780,8 +944,8 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
       case_id: String(caseAId),
       usage_id: String(usage.id),
       inventory_decrement_status: 'insufficient_stock',
-      decremented_quantity: '0.5000',
-      remaining_quantity: '1.5000',
+      decremented_quantity: '0.0000',
+      remaining_quantity: '2.0000',
       actionable: false,
       coverage_gap: true,
     });
@@ -934,14 +1098,13 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
   });
 
   test('replenishes the same batch and reconciles only the exact remaining quantity', async () => {
-    await prisma.$queryRawUnsafe(
-      `INSERT INTO users
-         (tenant_id, uid, phone, name, role, is_active, status, updated_at)
-       VALUES ($1::uuid, $2::uuid, '9011776105', 'Cath Pharmacist A',
-               'PHARMACIST', TRUE, 'active', NOW())`,
-      TENANT_A,
-      PHARMACIST_A,
-    );
+    await createCathPharmacyOperator({
+      uid: PHARMACIST_A,
+      role: 'PHARMACIST',
+      name: 'Cath Pharmacist A',
+      phone: '9011776105',
+      employeeId: 'NL13-P1D-PHARMACIST-A',
+    });
     const pharmacyContext = {
       tenantId: TENANT_A,
       actorUid: PHARMACIST_A,
@@ -955,8 +1118,8 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
       pharmacyContext,
     );
     expect(before).toMatchObject({
-      decremented_quantity: '0.5000',
-      remaining_quantity: '1.5000',
+      decremented_quantity: '0.0000',
+      remaining_quantity: '2.0000',
       task_status: 'open',
       sla_status: 'active',
       actionable: true,
@@ -986,8 +1149,8 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
       reconciliation: {
         inventory_decrement_status: 'insufficient_stock',
         task_status: 'open',
-        decremented_quantity: '1.0000',
-        remaining_quantity: '1.0000',
+        decremented_quantity: '0.5000',
+        remaining_quantity: '1.5000',
         actionable: true,
       },
     });
@@ -1012,14 +1175,13 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
       skipped: 0,
       failed: 0,
     });
-    await prisma.$queryRawUnsafe(
-      `INSERT INTO users
-         (tenant_id, uid, phone, name, role, is_active, status, updated_at)
-       VALUES ($1::uuid, $2::uuid, '9011776106', 'Cath Pharmacy Incharge A',
-               'PHARMACY_INCHARGE', TRUE, 'active', NOW())`,
-      TENANT_A,
-      PHARMACY_INCHARGE_A,
-    );
+    await createCathPharmacyOperator({
+      uid: PHARMACY_INCHARGE_A,
+      role: 'PHARMACY_INCHARGE',
+      name: 'Cath Pharmacy Incharge A',
+      phone: '9011776106',
+      employeeId: 'NL13-P1D-INCHARGE-A',
+    });
 
     const recovered = await sweepCathInventoryShortfallAssignments({
       tenantId: TENANT_A,
@@ -1071,8 +1233,8 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
 
     await prisma.$executeRawUnsafe(
       `UPDATE pharmacy_inventory_batches
-          SET received_quantity = received_quantity + 1,
-              remaining_quantity = 1,
+          SET received_quantity = received_quantity + 1.5,
+              remaining_quantity = 1.5,
               status = 'in_stock',
               updated_at = NOW()
         WHERE tenant_id = $1::uuid
@@ -1175,7 +1337,7 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
       movement_performed_by: PHARMACY_INCHARGE_A,
       movement_reference_type: 'cath_consumable_reconciliation',
       command_contract: 'cath_inventory_reconciliation_v1',
-      movement_count: 3,
+      movement_count: 2,
       movement_total: '2.0000',
       notification_count: 1,
     });
@@ -1447,11 +1609,12 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
     });
     const [secondCase] = await prisma.$queryRawUnsafe(
       `INSERT INTO cath_lab_cases
-         (tenant_id, patient_uid, requested_procedure, status)
-       VALUES ($1::uuid, $2::uuid, 'Staged PCI', 'completed')
+         (tenant_id, patient_uid, facility_id, requested_procedure, status)
+       VALUES ($1::uuid, $2::uuid, $3::int, 'Staged PCI', 'completed')
        RETURNING id`,
       TENANT_A,
       PATIENT_A,
+      facilityAId,
     );
     await prisma.$queryRawUnsafe(
       `INSERT INTO cath_procedure_logs
@@ -1530,260 +1693,36 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
     expect(tenantBCatalog[0].tenant_id).toBe(TENANT_B);
   });
 
-  test('decrements only exact documented lineage and warns without debiting unusable batches', async () => {
-    const batches = await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_inventory_batches
-         (tenant_id, inventory_item_id, batch_number, lot_number, expiry_date,
-          received_quantity, remaining_quantity, status)
-       VALUES
-         ($1::uuid, $2::int, 'NL13-P1D-EXACT-DECOY', 'LOT-EXACT-DECOY', '2028-06-01', 3, 3, 'in_stock'),
-         ($1::uuid, $2::int, 'NL13-P1D-EXACT-TARGET', 'LOT-EXACT-TARGET', '2029-12-31', 3, 3, 'in_stock'),
-         ($1::uuid, $2::int, 'NL13-P1D-EXPIRED', 'LOT-EXPIRED', '2025-01-01', 2, 2, 'in_stock'),
-         ($1::uuid, $2::int, 'NL13-P1D-RECALLED', 'LOT-RECALLED', '2029-01-01', 2, 2, 'recalled'),
-         ($1::uuid, $3::int, 'NL13-P1D-OPTIONAL-DECOY', 'LOT-OPTIONAL-DECOY', '2028-07-01', 3, 3, 'in_stock'),
-         ($1::uuid, $3::int, 'NL13-P1D-OPTIONAL-TARGET', 'LOT-OPTIONAL-TARGET', '2029-11-30', 3, 3, 'in_stock')
-       RETURNING id, batch_number`,
-      TENANT_A,
-      wasteItemId,
-      lowStockItemId,
-    );
-    const idOf = (batchNumber) => batches.find(
-      (row) => row.batch_number === batchNumber,
-    ).id;
-
-    const exact = await recordConsumableUsage(caseAId, {
+  test('fails closed when usage lacks the exact catalog facility batch identity', async () => {
+    await expect(recordConsumableUsage(caseAId, {
+      tenantId: TENANT_A,
+      catalog_item_id: wasteCatalog.id,
+      inventory_batch_id: lowStockBatchId,
+      quantity: 1,
+    }, actor)).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CATH_CONSUMABLE_BATCH_AUTHORITY_MISMATCH',
+    });
+    await expect(recordConsumableUsage(caseAId, {
       tenantId: TENANT_A,
       catalog_item_id: wasteCatalog.id,
       quantity: 1,
-      batch_number: 'NL13-P1D-EXACT-TARGET',
-      lot_number: 'LOT-EXACT-TARGET',
-      expiry_date: '2029-12-31',
-    }, actor);
-    expect(exact).toMatchObject({
-      inventory_batch_id: idOf('NL13-P1D-EXACT-TARGET'),
-      batch_number: 'NL13-P1D-EXACT-TARGET',
-      lot_number: 'LOT-EXACT-TARGET',
-      inventory_decrement_status: 'decremented',
-      inventory_warning: null,
-    });
-
-    const optionalTracking = await recordConsumableUsage(caseAId, {
-      tenantId: TENANT_A,
-      catalog_item_id: unmappedCatalog.id,
-      quantity: 1,
-      batch_number: 'NL13-P1D-OPTIONAL-TARGET',
-      lot_number: 'LOT-OPTIONAL-TARGET',
-      expiry_date: '2029-11-30',
-    }, actor);
-    expect(optionalTracking).toMatchObject({
-      batch_tracked: false,
-      inventory_batch_id: idOf('NL13-P1D-OPTIONAL-TARGET'),
-      inventory_decrement_status: 'decremented',
-    });
-
-    const expired = await recordConsumableUsage(caseAId, {
-      tenantId: TENANT_A,
-      catalog_item_id: wasteCatalog.id,
-      quantity: 1,
-      batch_number: 'NL13-P1D-EXPIRED',
-      lot_number: 'LOT-EXPIRED',
-      expiry_date: '2025-01-01',
-    }, actor);
-    expect(expired).toMatchObject({
-      inventory_batch_id: idOf('NL13-P1D-EXPIRED'),
-      inventory_decrement_status: 'error',
-      inventory_warning: expect.stringMatching(/expired.*without a stock decrement/i),
-    });
-
-    const recalled = await recordConsumableUsage(caseAId, {
-      tenantId: TENANT_A,
-      catalog_item_id: wasteCatalog.id,
-      inventory_batch_id: idOf('NL13-P1D-RECALLED'),
-      quantity: 1,
-    }, actor);
-    expect(recalled).toMatchObject({
-      inventory_batch_id: idOf('NL13-P1D-RECALLED'),
-      inventory_decrement_status: 'error',
-      inventory_warning: expect.stringMatching(/recalled.*without a stock decrement/i),
-    });
-
-    const invalid = await recordConsumableUsage(caseAId, {
-      tenantId: TENANT_A,
-      catalog_item_id: wasteCatalog.id,
-      inventory_batch_id: idOf('NL13-P1D-OPTIONAL-TARGET'),
-      quantity: 1,
-      batch_number: 'NL13-P1D-OPTIONAL-TARGET',
-      lot_number: 'LOT-OPTIONAL-TARGET',
-      expiry_date: '2029-11-30',
-    }, actor);
-    expect(invalid).toMatchObject({
-      inventory_batch_id: null,
-      inventory_decrement_status: 'error',
-      inventory_warning: expect.stringMatching(/outside this tenant or catalog item/i),
-    });
-
-    const stock = await prisma.$queryRawUnsafe(
-      `SELECT batch_number, remaining_quantity
-         FROM pharmacy_inventory_batches
-        WHERE id IN ($1::int, $2::int, $3::int, $4::int, $5::int, $6::int)
-        ORDER BY batch_number`,
-      idOf('NL13-P1D-EXACT-DECOY'),
-      idOf('NL13-P1D-EXACT-TARGET'),
-      idOf('NL13-P1D-EXPIRED'),
-      idOf('NL13-P1D-RECALLED'),
-      idOf('NL13-P1D-OPTIONAL-DECOY'),
-      idOf('NL13-P1D-OPTIONAL-TARGET'),
-    );
-    const remaining = Object.fromEntries(stock.map((row) => [
-      row.batch_number,
-      Number(row.remaining_quantity),
-    ]));
-    expect(remaining).toMatchObject({
-      'NL13-P1D-EXACT-DECOY': 3,
-      'NL13-P1D-EXACT-TARGET': 2,
-      'NL13-P1D-EXPIRED': 2,
-      'NL13-P1D-RECALLED': 2,
-      'NL13-P1D-OPTIONAL-DECOY': 3,
-      'NL13-P1D-OPTIONAL-TARGET': 2,
-    });
-
-    const unusableMovements = await prisma.$queryRawUnsafe(
-      `SELECT reference_id
-         FROM pharmacy_stock_movements
-        WHERE reference_type = 'cath_consumable_usage'
-          AND reference_id IN ($1, $2, $3)`,
-      String(expired.id),
-      String(recalled.id),
-      String(invalid.id),
-    );
-    expect(unusableMovements).toEqual([]);
-  });
-
-  test('idempotent replay resumes both exact-batch crash windows without double decrement', async () => {
-    const batches = await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_inventory_batches
-         (tenant_id, inventory_item_id, batch_number, lot_number, expiry_date,
-          received_quantity, remaining_quantity, status)
-       VALUES
-         ($1::uuid, $2::int, 'NL13-P1D-REPLAY-EXACT-BEFORE', 'LOT-REPLAY-BEFORE', '2029-10-31', 3, 3, 'in_stock'),
-         ($1::uuid, $2::int, 'NL13-P1D-REPLAY-EXACT-AFTER', 'LOT-REPLAY-AFTER', '2029-11-30', 3, 3, 'in_stock')
-       RETURNING id, batch_number`,
-      TENANT_A,
-      wasteItemId,
-    );
-    const beforeBatchId = batches.find(
-      (row) => row.batch_number === 'NL13-P1D-REPLAY-EXACT-BEFORE',
-    ).id;
-    const afterBatchId = batches.find(
-      (row) => row.batch_number === 'NL13-P1D-REPLAY-EXACT-AFTER',
-    ).id;
-
-    const beforeInput = {
-      tenantId: TENANT_A,
-      catalog_item_id: wasteCatalog.id,
-      inventory_batch_id: beforeBatchId,
-      quantity: 1,
-    };
-    const beforeActor = {
-      ...actor,
-      idempotencyKey: 'nl13-p1d-replay-exact-before-movement',
-    };
-    const beforeUsage = await recordConsumableUsage(caseAId, beforeInput, beforeActor);
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(
-        `UPDATE cath_case_consumable_usage
-            SET inventory_decrement_status = 'pending',
-                inventory_movement_id = NULL,
-                inventory_warning = NULL
-          WHERE id = $1::bigint`,
-        beforeUsage.id,
-      );
-      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
-      await tx.$executeRawUnsafe(
-        `DELETE FROM pharmacy_stock_movements
-          WHERE reference_type = 'cath_consumable_usage'
-            AND reference_id = $1`,
-        String(beforeUsage.id),
-      );
-      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'origin'`);
-      await tx.$executeRawUnsafe(
-        `UPDATE pharmacy_inventory_batches
-            SET remaining_quantity = 3, status = 'in_stock'
-          WHERE id = $1::int`,
-        beforeBatchId,
-      );
-    });
-
-    const resumedBefore = await recordConsumableUsage(caseAId, beforeInput, beforeActor);
-    expect(resumedBefore).toMatchObject({
-      id: beforeUsage.id,
-      idempotent_replay: true,
-      inventory_decrement_status: 'decremented',
-    });
-    const [beforeStock] = await prisma.$queryRawUnsafe(
-      `SELECT remaining_quantity FROM pharmacy_inventory_batches WHERE id = $1::int`,
-      beforeBatchId,
-    );
-    expect(Number(beforeStock.remaining_quantity)).toBe(2);
-
-    const afterInput = {
-      tenantId: TENANT_A,
-      catalog_item_id: wasteCatalog.id,
-      inventory_batch_id: afterBatchId,
-      quantity: 1,
-    };
-    const afterActor = {
-      ...actor,
-      idempotencyKey: 'nl13-p1d-replay-exact-after-movement',
-    };
-    const afterUsage = await recordConsumableUsage(caseAId, afterInput, afterActor);
-    await prisma.$executeRawUnsafe(
-      `UPDATE cath_case_consumable_usage
-          SET inventory_decrement_status = 'pending',
-              inventory_movement_id = NULL,
-              inventory_warning = NULL
-        WHERE id = $1::bigint`,
-      afterUsage.id,
-    );
-    const resumedAfter = await recordConsumableUsage(caseAId, afterInput, afterActor);
-    expect(resumedAfter).toMatchObject({
-      id: afterUsage.id,
-      idempotent_replay: true,
-      inventory_decrement_status: 'decremented',
-    });
-    const [afterStock] = await prisma.$queryRawUnsafe(
-      `SELECT remaining_quantity FROM pharmacy_inventory_batches WHERE id = $1::int`,
-      afterBatchId,
-    );
-    expect(Number(afterStock.remaining_quantity)).toBe(2);
-
-    const movementCounts = await prisma.$queryRawUnsafe(
-      `SELECT reference_id, COUNT(*)::int AS count
-         FROM pharmacy_stock_movements
-        WHERE reference_type = 'cath_consumable_usage'
-          AND reference_id IN ($1, $2)
-        GROUP BY reference_id`,
-      String(beforeUsage.id),
-      String(afterUsage.id),
-    );
-    expect(Object.fromEntries(movementCounts.map((row) => [
-      row.reference_id,
-      row.count,
-    ]))).toEqual({
-      [String(beforeUsage.id)]: 1,
-      [String(afterUsage.id)]: 1,
+    }, actor)).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'CATH_CONSUMABLE_BATCH_AUTHORITY_REQUIRED',
     });
   });
 
   test('completed-case replay restores a billing hook missed after the clinical commit', async () => {
     const [batch] = await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_inventory_batches
-         (tenant_id, inventory_item_id, batch_number, lot_number, expiry_date,
+         (tenant_id, facility_id, inventory_item_id, batch_number, lot_number, expiry_date,
           received_quantity, remaining_quantity, status)
-       VALUES ($1::uuid, $2::int, 'NL13-P1D-REPLAY-BILLING', 'LOT-REPLAY-BILLING',
-               '2030-01-31', 2, 2, 'in_stock')
+       VALUES ($1::uuid, $2::int, $3::int, 'NL13-P1D-REPLAY-BILLING',
+               'LOT-REPLAY-BILLING', '2030-01-31', 2, 2, 'in_stock')
        RETURNING id`,
       TENANT_A,
+      facilityAId,
       implantItemId,
     );
     const input = {
@@ -1812,48 +1751,20 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
       }, actor);
     }
 
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(
-        `UPDATE cath_case_consumable_usage
-            SET inventory_decrement_status = 'pending',
-                inventory_movement_id = NULL,
-                inventory_warning = NULL
-          WHERE id = $1::bigint`,
-        usage.id,
-      );
-      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
-      await tx.$executeRawUnsafe(
-        `DELETE FROM pharmacy_stock_movements
-          WHERE tenant_id = $1::uuid
-            AND reference_type = 'cath_consumable_usage'
-            AND reference_id = $2`,
-        TENANT_A,
-        String(usage.id),
-      );
-      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'origin'`);
-      await tx.$executeRawUnsafe(
-        `UPDATE pharmacy_inventory_batches
-            SET remaining_quantity = 2, status = 'in_stock'
-          WHERE id = $1::int
-            AND tenant_id = $2::uuid`,
-        batch.id,
-        TENANT_A,
-      );
-      await tx.$executeRawUnsafe(
-        `DELETE FROM billing_invoice_items
-          WHERE tenant_id = $1::uuid
-            AND source_ref_type = 'cath_consumable_usage'
-            AND source_ref_id = $2::bigint`,
-        TENANT_A,
-        usage.id,
-      );
-    });
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM billing_invoice_items
+        WHERE tenant_id = $1::uuid
+          AND source_ref_type = 'cath_consumable_usage'
+          AND source_ref_id = $2::bigint`,
+      TENANT_A,
+      usage.id,
+    );
 
     const replay = await recordConsumableUsage(caseAId, input, replayActor);
     expect(replay).toMatchObject({
       id: usage.id,
       idempotent_replay: true,
-      inventory_decrement_status: 'decremented',
+      inventory_decrement_status: 'insufficient_stock',
       billing_hook: { status: 'emitted', emitted: 1 },
     });
     const [stock] = await prisma.$queryRawUnsafe(
@@ -1863,15 +1774,15 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
       batch.id,
       TENANT_A,
     );
-    expect(Number(stock.remaining_quantity)).toBe(1);
+    expect(Number(stock.remaining_quantity)).toBe(2);
     const [{ movement_count: movementCount, billing_count: billingCount }]
       = await prisma.$queryRawUnsafe(
         `SELECT
            (SELECT COUNT(*)::int
               FROM pharmacy_stock_movements
              WHERE tenant_id = $1::uuid
-               AND reference_type = 'cath_consumable_usage'
-               AND reference_id = $2) AS movement_count,
+                AND reference_type = 'cath_consumable_reconciliation'
+                AND metadata->>'cath_consumable_usage_id' = $2) AS movement_count,
            (SELECT COUNT(*)::int
               FROM billing_invoice_items
              WHERE tenant_id = $1::uuid
@@ -1881,124 +1792,8 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
         String(usage.id),
         usage.id,
       );
-    expect(movementCount).toBe(1);
+    expect(movementCount).toBe(0);
     expect(billingCount).toBe(1);
-  });
-
-  test('idempotent replay resumes both FEFO crash windows without double decrement', async () => {
-    const [item] = await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_inventory_items
-         (tenant_id, sku_code, display_name, unit_label, status)
-       VALUES ($1::uuid, 'NL13-P1D-REPLAY-FEFO', 'Replay FEFO guidewire', 'each', 'active')
-       RETURNING id`,
-      TENANT_A,
-    );
-    const [batch] = await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_inventory_batches
-         (tenant_id, inventory_item_id, batch_number, lot_number, expiry_date,
-          received_quantity, remaining_quantity, status)
-       VALUES ($1::uuid, $2::int, 'NL13-P1D-REPLAY-FEFO-B1', 'LOT-REPLAY-FEFO', '2029-12-31', 4, 4, 'in_stock')
-       RETURNING id`,
-      TENANT_A,
-      item.id,
-    );
-    const catalog = await upsertConsumableCatalogItem({
-      tenantId: TENANT_A,
-      item_name: 'Replay FEFO guidewire',
-      category: 'guidewire',
-      inventory_item_id: item.id,
-      metadata: { test_scope: 'nl13_p1d_deep' },
-    }, actor);
-
-    const beforeInput = {
-      tenantId: TENANT_A,
-      catalog_item_id: catalog.id,
-      quantity: 1,
-    };
-    const beforeActor = {
-      ...actor,
-      idempotencyKey: 'nl13-p1d-replay-fefo-before-movement',
-    };
-    const beforeUsage = await recordConsumableUsage(caseAId, beforeInput, beforeActor);
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(
-        `UPDATE cath_case_consumable_usage
-            SET inventory_decrement_status = 'pending', inventory_warning = NULL
-          WHERE id = $1::bigint`,
-        beforeUsage.id,
-      );
-      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
-      await tx.$executeRawUnsafe(
-        `DELETE FROM pharmacy_stock_movements
-          WHERE reference_type = 'cath_consumable_usage'
-            AND reference_id = $1`,
-        String(beforeUsage.id),
-      );
-      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'origin'`);
-      await tx.$executeRawUnsafe(
-        `UPDATE pharmacy_inventory_batches
-            SET remaining_quantity = 4, status = 'in_stock'
-          WHERE id = $1::int`,
-        batch.id,
-      );
-    });
-
-    const resumedBefore = await recordConsumableUsage(caseAId, beforeInput, beforeActor);
-    expect(resumedBefore).toMatchObject({
-      id: beforeUsage.id,
-      idempotent_replay: true,
-      inventory_decrement_status: 'decremented',
-    });
-    const [stockAfterBeforeWindow] = await prisma.$queryRawUnsafe(
-      `SELECT remaining_quantity FROM pharmacy_inventory_batches WHERE id = $1::int`,
-      batch.id,
-    );
-    expect(Number(stockAfterBeforeWindow.remaining_quantity)).toBe(3);
-
-    const afterInput = {
-      tenantId: TENANT_A,
-      catalog_item_id: catalog.id,
-      quantity: 1,
-    };
-    const afterActor = {
-      ...actor,
-      idempotencyKey: 'nl13-p1d-replay-fefo-after-movement',
-    };
-    const afterUsage = await recordConsumableUsage(caseAId, afterInput, afterActor);
-    await prisma.$executeRawUnsafe(
-      `UPDATE cath_case_consumable_usage
-          SET inventory_decrement_status = 'pending', inventory_warning = NULL
-        WHERE id = $1::bigint`,
-      afterUsage.id,
-    );
-    const resumedAfter = await recordConsumableUsage(caseAId, afterInput, afterActor);
-    expect(resumedAfter).toMatchObject({
-      id: afterUsage.id,
-      idempotent_replay: true,
-      inventory_decrement_status: 'decremented',
-    });
-    const [stockAfterAfterWindow] = await prisma.$queryRawUnsafe(
-      `SELECT remaining_quantity FROM pharmacy_inventory_batches WHERE id = $1::int`,
-      batch.id,
-    );
-    expect(Number(stockAfterAfterWindow.remaining_quantity)).toBe(2);
-
-    const movementCounts = await prisma.$queryRawUnsafe(
-      `SELECT reference_id, COUNT(*)::int AS count
-         FROM pharmacy_stock_movements
-        WHERE reference_type = 'cath_consumable_usage'
-          AND reference_id IN ($1, $2)
-        GROUP BY reference_id`,
-      String(beforeUsage.id),
-      String(afterUsage.id),
-    );
-    expect(Object.fromEntries(movementCounts.map((row) => [
-      row.reference_id,
-      row.count,
-    ]))).toEqual({
-      [String(beforeUsage.id)]: 1,
-      [String(afterUsage.id)]: 1,
-    });
   });
 
   test.each([

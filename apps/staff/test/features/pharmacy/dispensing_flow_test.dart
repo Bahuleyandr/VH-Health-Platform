@@ -15,15 +15,18 @@
 //   2. CONFIRMED, PREPARING, READY, DISPATCHED are mid-lifecycle statuses
 //      that belong in the "active" tab — nurses/patients depend on this to
 //      find in-progress orders.
-//   3. DELIVERED and CANCELLED are terminal statuses — they belong in the
-//      "completed" tab only.
+//   3. PARTIALLY_DISPENSED remains active; DISPENSED, DELIVERED, UNAVAILABLE,
+//      and CANCELLED are terminal statuses in the completed tab only.
 //   4. Role access: only pharmacy, pharmacyIncharge, and admin-tier roles
 //      can work pharmacy orders (dispense/confirm/prepare). Stores/purchase
 //      roles see inventory but not patient dispensing.
 //   5. Formulary management (add/remove drugs) is restricted to
 //      pharmacyIncharge and admin-tier only (not plain pharmacy staff).
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
+import 'package:vhhealth_staff/features/pharmacy/models/pharmacy_funding_recovery.dart';
 
 // ── Mirror of role enum ───────────────────────────────────────────────────────
 // Mirrors the StaffRole values relevant to pharmacy from role_config.dart.
@@ -50,6 +53,13 @@ bool canWorkPharmacyOrders(PharmacyTestRole role) =>
 
 bool canManageFormulary(PharmacyTestRole role) =>
     role == PharmacyTestRole.pharmacyIncharge || _isAdminTier(role);
+
+bool canPerformClinicalVerification(PharmacyTestRole role) =>
+    role == PharmacyTestRole.pharmacy ||
+    role == PharmacyTestRole.pharmacyIncharge;
+
+bool canBreakGlassVerification(PharmacyTestRole role) =>
+    role == PharmacyTestRole.pharmacyIncharge;
 
 bool canViewInventory(PharmacyTestRole role) =>
     role == PharmacyTestRole.pharmacy ||
@@ -79,12 +89,18 @@ bool isActiveStatus(Object? status) {
     'PREPARING',
     'READY',
     'DISPATCHED',
+    'PARTIALLY_DISPENSED',
   }.contains(value);
 }
 
 bool isCompletedStatus(Object? status) {
   final value = status?.toString().toUpperCase();
-  return const {'DELIVERED', 'CANCELLED'}.contains(value);
+  return const {
+    'DISPENSED',
+    'DELIVERED',
+    'UNAVAILABLE',
+    'CANCELLED',
+  }.contains(value);
 }
 
 // ── Mirror of order list filters from _PharmacyScreenState ───────────────────
@@ -103,6 +119,114 @@ List<Map<String, dynamic>> filterCompletedOrders(
 // ─────────────────────────────────────────────────────────────────────────────
 
 void main() {
+  const inventoryAuthorityKeys = <String>[
+    'med03.pharmacy.catalog_fallback',
+    'med03.pharmacy.locked_line_summary',
+    'med03.pharmacy.order_line_fallback',
+    'med03.pharmacy.verification_pharmacist_only',
+    'med03.pharmacy.verification_rejection_reason',
+    'med03.pharmacy.verification_override_incharge',
+    'med03.pharmacy.verification_manual_allergy_review',
+    'med03.pharmacy.verification_manual_allergy_review_help',
+    'med03.pharmacy.payment_mode.cash',
+    'med03.pharmacy.payment_mode.card',
+    'med03.pharmacy.payment_mode.upi',
+    'med03.pharmacy.payment_mode.wallet',
+    'med03.pharmacy.payment_mode.insurance',
+    'med03.pharmacy.payment_mode.corporate_tpa',
+    'med03.pharmacy.payment_mode.none',
+    'med03.pharmacy.recovery.select_exact_tpa_claim_allocation',
+    'med03.pharmacy.recovery.materialize_pharmacy_funding',
+    'med03.pharmacy.recovery.open_exact_pharmacy_funding_task',
+    'med03.pharmacy.recovery.complete_manual_allergy_review',
+    'med03.pharmacy.recovery.contact_owner',
+    'med03.pharmacy.recovery.open_billing_desk',
+    'med03.pharmacy.cancellation_reason_help',
+    'med03.pharmacy.delivery_type_counter',
+    'med03.pharmacy.status_dispensed',
+    'med03.pharmacy.inventory_status.active',
+    'med03.pharmacy.inventory_status.inactive',
+    'med03.pharmacy.inventory_status.quarantined',
+    'med03.pharmacy.inventory_status.unknown',
+    'med03.pharmacy.expiry_bucket.expired',
+    'med03.pharmacy.expiry_bucket.within_30',
+    'med03.pharmacy.expiry_bucket.within_60',
+    'med03.pharmacy.expiry_bucket.within_90',
+    'med03.pharmacy.expiry_bucket.beyond_90',
+    'med03.pharmacy.expiry_bucket.unknown',
+    'med03.pharmacy.funding_recovery.task_summary',
+    'med03.pharmacy.funding_recovery.status.pending',
+    'med03.pharmacy.funding_recovery.status.in_progress',
+    'med03.pharmacy.funding_recovery.status.blocked',
+    'med03.pharmacy.funding_recovery.status.completed',
+    'med03.pharmacy.funding_recovery.status.unknown',
+    'med03.pharmacy.funding_recovery.owner.finance',
+    'med03.pharmacy.funding_recovery.owner.insurance',
+    'med03.pharmacy.funding_recovery.owner.billing',
+    'med03.pharmacy.funding_recovery.owner.unknown',
+  ];
+
+  test('inventory-authority workflow keys ship in all five locales', () {
+    for (final locale in const ['en', 'hi', 'ta', 'te', 'ml']) {
+      final strings = AppStrings.forLocale(Locale(locale));
+      for (final key in inventoryAuthorityKeys) {
+        expect(
+          strings.lookup(key),
+          isNot(key),
+          reason: '$locale must own $key without English fallback tokens',
+        );
+      }
+    }
+  });
+
+  test('funding recovery accepts only exact role-gated billing deep links', () {
+    final recovery = PharmacyFundingRecovery.from(const {
+      'task_id': 'TPA-91',
+      'status': 'in_progress',
+      'owner_role': 'INSURANCE_COORDINATOR',
+      'deep_link': '/billing-desk?pharmacy_order_id=91&invoice_item_id=81&tpa_claim_id=71',
+    });
+    expect(recovery, isNotNull);
+    expect(recovery!.blocksStockIssue, isTrue);
+    expect(recovery.deepLink, isNotNull);
+
+    final duplicateLineRecovery = PharmacyFundingRecovery.from(const {
+      'task_id': 'FIN-92',
+      'status': 'blocked',
+      'owner_role': 'FINANCE_INCHARGE',
+      'deep_link': '/billing-desk?funding_reconciliation_case_id=92',
+    });
+    expect(duplicateLineRecovery, isNotNull);
+    expect(duplicateLineRecovery!.deepLink, isNotNull);
+
+    final absoluteLink = PharmacyFundingRecovery.from(const {
+      'task_id': 'TPA-91',
+      'status': 'pending',
+      'owner_role': 'INSURANCE_COORDINATOR',
+      'deep_link': 'https://example.invalid/billing-desk?pharmacy_order_id=91&invoice_item_id=81&tpa_claim_id=71',
+    });
+    expect(absoluteLink, isNotNull);
+    expect(absoluteLink!.deepLink, isNull);
+
+    final duplicateIdentity = PharmacyFundingRecovery.from(const {
+      'task_id': 'TPA-91',
+      'status': 'pending',
+      'owner_role': 'INSURANCE_COORDINATOR',
+      'deep_link': '/billing-desk?pharmacy_order_id=91&pharmacy_order_id=92&invoice_item_id=81&tpa_claim_id=71',
+    });
+    expect(duplicateIdentity, isNotNull);
+    expect(duplicateIdentity!.deepLink, isNull);
+
+    final pharmacyProjection = PharmacyFundingRecovery.from(const {
+      'task_id': 'TPA-91',
+      'status': 'pending',
+      'owner_role': 'INSURANCE_COORDINATOR',
+      'deep_link': null,
+    });
+    expect(pharmacyProjection, isNotNull);
+    expect(pharmacyProjection!.deepLink, isNull);
+  });
+
   // ── Order status classification ───────────────────────────────────────────
   group('isNewStatus (new-orders tab gate)', () {
     test('PENDING is a new status (canonical)', () {
@@ -185,8 +309,11 @@ void main() {
       {'id': 4, 'status': 'PREPARING'},
       {'id': 5, 'status': 'READY'},
       {'id': 6, 'status': 'DISPATCHED'},
-      {'id': 7, 'status': 'DELIVERED'},
-      {'id': 8, 'status': 'CANCELLED'},
+      {'id': 7, 'status': 'PARTIALLY_DISPENSED'},
+      {'id': 8, 'status': 'DISPENSED'},
+      {'id': 9, 'status': 'DELIVERED'},
+      {'id': 10, 'status': 'UNAVAILABLE'},
+      {'id': 11, 'status': 'CANCELLED'},
     ];
 
     test('new orders tab receives PENDING + PLACED only', () {
@@ -197,14 +324,14 @@ void main() {
 
     test('active orders tab receives CONFIRMED/PREPARING/READY/DISPATCHED', () {
       final active = filterActiveOrders(orders);
-      expect(active.map((o) => o['id']), containsAll([3, 4, 5, 6]));
-      expect(active, hasLength(4));
+      expect(active.map((o) => o['id']), containsAll([3, 4, 5, 6, 7]));
+      expect(active, hasLength(5));
     });
 
-    test('completed orders tab receives DELIVERED + CANCELLED', () {
+    test('completed tab receives every terminal dispense outcome', () {
       final done = filterCompletedOrders(orders);
-      expect(done.map((o) => o['id']), containsAll([7, 8]));
-      expect(done, hasLength(2));
+      expect(done.map((o) => o['id']), containsAll([8, 9, 10, 11]));
+      expect(done, hasLength(4));
     });
 
     test('every order lands in exactly one tab (no overlaps)', () {
@@ -297,6 +424,33 @@ void main() {
     });
   });
 
+  group('clinical verification authority', () {
+    test('pharmacy staff and incharge may verify or reject', () {
+      expect(canPerformClinicalVerification(PharmacyTestRole.pharmacy), isTrue);
+      expect(
+        canPerformClinicalVerification(PharmacyTestRole.pharmacyIncharge),
+        isTrue,
+      );
+    });
+
+    test('administrators have oversight but no clinical decision control', () {
+      expect(canPerformClinicalVerification(PharmacyTestRole.admin), isFalse);
+      expect(
+        canPerformClinicalVerification(PharmacyTestRole.superAdmin),
+        isFalse,
+      );
+    });
+
+    test('only pharmacy incharge has break-glass override authority', () {
+      expect(canBreakGlassVerification(PharmacyTestRole.pharmacy), isFalse);
+      expect(
+        canBreakGlassVerification(PharmacyTestRole.pharmacyIncharge),
+        isTrue,
+      );
+      expect(canBreakGlassVerification(PharmacyTestRole.admin), isFalse);
+    });
+  });
+
   group('canViewInventory', () {
     test('pharmacy, pharmacyIncharge, stores, admin can view inventory', () {
       expect(canViewInventory(PharmacyTestRole.pharmacy), isTrue);
@@ -345,7 +499,10 @@ void main() {
         'PREPARING',
         'READY',
         'DISPATCHED',
+        'PARTIALLY_DISPENSED',
+        'DISPENSED',
         'DELIVERED',
+        'UNAVAILABLE',
         'CANCELLED',
       ];
 

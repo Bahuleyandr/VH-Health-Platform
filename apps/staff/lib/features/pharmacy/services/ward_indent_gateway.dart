@@ -137,28 +137,23 @@ abstract interface class WardIndentGateway {
 
   Future<CompositionAlternativesResult> getCatalogAlternatives(int catalogId);
 
-  Future<Map<String, dynamic>> requestControlledDispenseWitnessApproval({
-    required Map<String, dynamic> dispense,
+  Future<Map<String, dynamic>> requestWardControlledWitnessApproval({
+    required int indentId,
+    required int itemId,
+    required Object allocationId,
     required String idempotencyKey,
   });
 
-  Future<Map<String, dynamic>> approveControlledDispenseWitnessApproval({
+  Future<Map<String, dynamic>> approveWardControlledWitnessApproval({
+    required int indentId,
     required String approvalId,
-    required Map<String, dynamic> dispense,
+    required int itemId,
+    required Object allocationId,
     required String employeeId,
     required String password,
     required String idempotencyKey,
   });
 
-  Future<Map<String, dynamic>> dispenseControlledInventory({
-    required Map<String, dynamic> dispense,
-    required String idempotencyKey,
-  });
-
-  Future<Map<String, dynamic>> recordInventoryMovement({
-    required Map<String, dynamic> movement,
-    required String idempotencyKey,
-  });
 }
 
 class ApiWardIndentGateway implements WardIndentGateway {
@@ -246,54 +241,41 @@ class ApiWardIndentGateway implements WardIndentGateway {
   }
 
   @override
-  Future<Map<String, dynamic>> requestControlledDispenseWitnessApproval({
-    required Map<String, dynamic> dispense,
+  Future<Map<String, dynamic>> requestWardControlledWitnessApproval({
+    required int indentId,
+    required int itemId,
+    required Object allocationId,
     required String idempotencyKey,
   }) {
-    return PharmacyApiService.requestControlledDispenseWitnessApproval(
-      dispense: dispense,
+    return PharmacyApiService.requestWardControlledWitnessApproval(
+      indentId: indentId,
+      itemId: itemId,
+      allocationId: allocationId,
       idempotencyKey: idempotencyKey,
     );
   }
 
   @override
-  Future<Map<String, dynamic>> approveControlledDispenseWitnessApproval({
+  Future<Map<String, dynamic>> approveWardControlledWitnessApproval({
+    required int indentId,
     required String approvalId,
-    required Map<String, dynamic> dispense,
+    required int itemId,
+    required Object allocationId,
     required String employeeId,
     required String password,
     required String idempotencyKey,
   }) {
-    return PharmacyApiService.approveControlledDispenseWitnessApproval(
+    return PharmacyApiService.approveWardControlledWitnessApproval(
+      indentId: indentId,
       approvalId: approvalId,
-      dispense: dispense,
+      itemId: itemId,
+      allocationId: allocationId,
       employeeId: employeeId,
       password: password,
       idempotencyKey: idempotencyKey,
     );
   }
 
-  @override
-  Future<Map<String, dynamic>> dispenseControlledInventory({
-    required Map<String, dynamic> dispense,
-    required String idempotencyKey,
-  }) {
-    return PharmacyApiService.dispenseControlledInventory(
-      dispense: dispense,
-      idempotencyKey: idempotencyKey,
-    );
-  }
-
-  @override
-  Future<Map<String, dynamic>> recordInventoryMovement({
-    required Map<String, dynamic> movement,
-    required String idempotencyKey,
-  }) {
-    return PharmacyApiService.recordInventoryMovement(
-      movement: movement,
-      idempotencyKey: idempotencyKey,
-    );
-  }
 }
 
 int? _int(Object? value) {

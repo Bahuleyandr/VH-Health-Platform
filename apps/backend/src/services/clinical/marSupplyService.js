@@ -8,6 +8,7 @@ import {
   completeMarSupplyReconciliationObligationTx,
   materializeMarSupplyReconciliationObligationTx,
 } from '../ipd/wardIndentObligationService.js';
+import { assertNoOpenWardAllocationAuthorityRecoveryTx } from '../ipd/wardIndentMedicationClosureService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 const MAX_QUANTITY = 9999999999.9999;
@@ -748,6 +749,10 @@ export async function consumeMarSupplyTx(tx, {
   }
 
   const { wardItem, indent } = await loadWardContextTx(tx, tid, administration);
+  await assertNoOpenWardAllocationAuthorityRecoveryTx(tx, {
+    tenantId: tid,
+    wardIndentId: indent.id,
+  });
   assertWardProductIdentity(wardItem, administration);
   const substitutionAcknowledged = String(wardItem.substitution_status || '').toLowerCase() !== 'approved'
     || Boolean(wardItem.substitution_acknowledged_at);

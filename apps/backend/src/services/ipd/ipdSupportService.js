@@ -16,6 +16,8 @@ import { resolveLedgerWiring } from '../billing/ledger/ledgerAuthoritativeMode.j
 import { postAdvanceRefundEntry } from '../billing/ledger/ledgerPostings.js';
 import { deriveAdvanceBalanceFromLedgerTx } from '../billing/billingV2Service.js';
 import {
+  applyApprovedWardIndentSubstitution,
+  approveWardIndentControlledWitnessApproval,
   approveWardIndent,
   approveWardIndentSubstitution,
   cancelWardIndent,
@@ -28,6 +30,7 @@ import {
   listWardIndents,
   markWardIndentShortSupply,
   proposeWardIndentSubstitution,
+  requestWardIndentControlledWitnessApproval,
   receiveWardIndent,
   reconcileWardIndent,
   recordWardIndentControlledHandoff,
@@ -40,6 +43,8 @@ import {
 import { listWardIndentInventoryCandidates } from './wardIndentMedicationClosureService.js';
 
 export {
+  applyApprovedWardIndentSubstitution,
+  approveWardIndentControlledWitnessApproval,
   approveWardIndent,
   approveWardIndentSubstitution,
   cancelWardIndent,
@@ -51,6 +56,7 @@ export {
   listWardIndentInventoryCandidates,
   markWardIndentShortSupply,
   proposeWardIndentSubstitution,
+  requestWardIndentControlledWitnessApproval,
   receiveWardIndent,
   reconcileWardIndent,
   recordWardIndentControlledHandoff,
@@ -922,6 +928,7 @@ export async function createWardIndent({
   // creation transaction so a concurrent discharge cannot race an indent.
   let resolvedWardId = wardId ?? null;
   let resolvedWardName = null;
+  let resolvedFacilityId = null;
   let resolvedPatientUid = patientUid;
   let resolvedEncounterId = encounterId;
   let resolvedAdmissionId = null;
@@ -943,7 +950,8 @@ export async function createWardIndent({
     if (resolvedAdmissionId != null) {
       const rows = await tx.$queryRawUnsafe(
         `SELECT a.id, a.patient_uid, a.encounter_id, a.status,
-                b.ward_id, COALESCE(w.name, b.ward_name, a.ward) AS ward_name
+                b.ward_id, COALESCE(w.name, b.ward_name, a.ward) AS ward_name,
+                w.facility_id
            FROM admissions a
            LEFT JOIN beds b
              ON b.tenant_id = a.tenant_id
@@ -978,6 +986,9 @@ export async function createWardIndent({
       }
       resolvedWardId = admission.ward_id ?? resolvedWardId;
       resolvedWardName = admission.ward_name ?? resolvedWardName;
+      resolvedFacilityId = admission.facility_id == null
+        ? null
+        : Number(admission.facility_id);
       resolvedPatientUid = admission.patient_uid ?? resolvedPatientUid;
       resolvedEncounterId = admission.encounter_id ?? resolvedEncounterId;
     }
@@ -994,12 +1005,38 @@ export async function createWardIndent({
       if (!patientRows.length) throw AppError.notFound('Patient not found');
     }
     if (resolvedWardId) {
-      const ward = await tx.wards.findFirst({
-        where: { id: resolvedWardId, tenant_id: tid },
-        select: { name: true },
-      });
-      if (!ward) throw AppError.notFound('Ward not found');
-      resolvedWardName = ward.name;
+      const wards = await tx.$queryRawUnsafe(
+        `SELECT ward.name, ward.facility_id
+           FROM wards ward
+           JOIN facilities facility
+             ON facility.tenant_id=ward.tenant_id
+            AND facility.id=ward.facility_id
+            AND facility.status='active'
+          WHERE ward.tenant_id=$1::uuid AND ward.id=$2::int
+          FOR SHARE OF ward, facility`,
+        tid,
+        Number(resolvedWardId),
+      );
+      if (!wards.length) {
+        throw AppError.conflict(
+          'Pharmacy ward indent requires a ward assigned to an active facility',
+          'WARD_INDENT_FACILITY_REQUIRED',
+        );
+      }
+      if (resolvedFacilityId != null
+          && resolvedFacilityId !== Number(wards[0].facility_id)) {
+        throw AppError.conflict(
+          'Admission ward facility changed during indent creation',
+          'WARD_INDENT_FACILITY_CHANGED',
+        );
+      }
+      resolvedWardName = wards[0].name;
+      resolvedFacilityId = Number(wards[0].facility_id);
+    } else if (indentType === 'pharmacy') {
+      throw AppError.conflict(
+        'Pharmacy ward indent requires an exact ward and active facility',
+        'WARD_INDENT_FACILITY_REQUIRED',
+      );
     }
     const clinicalOrderIds = normalizedItems
       .map((item) => item.clinicalOrderId)
@@ -1084,6 +1121,8 @@ export async function createWardIndent({
         indent_number: indentNumber,
         ward_id: resolvedWardId,
         ward_name: resolvedWardName,
+        facility_id: resolvedFacilityId,
+        facility_authority_version: 1,
         admission_id: resolvedAdmissionId,
         encounter_id: resolvedEncounterId,
         patient_uid: resolvedPatientUid,
@@ -1170,7 +1209,10 @@ export async function createWardIndentForClinicalMedicationOrder(order, {
     }
 
     const admissions = await tx.$queryRawUnsafe(
-      `SELECT a.id, a.tenant_id, a.ward AS admission_ward, a.encounter_id, a.patient_uid, b.ward_id, COALESCE(w.name, b.ward_name, a.ward) AS ward_name
+      `SELECT a.id, a.tenant_id, a.ward AS admission_ward, a.encounter_id,
+              a.patient_uid, b.ward_id,
+              COALESCE(w.name, b.ward_name, a.ward) AS ward_name,
+              facility.id AS facility_id
          FROM admissions a
          LEFT JOIN beds b
            ON b.tenant_id = a.tenant_id
@@ -1178,6 +1220,10 @@ export async function createWardIndentForClinicalMedicationOrder(order, {
          LEFT JOIN wards w
            ON w.tenant_id = a.tenant_id
           AND w.id = b.ward_id
+         JOIN facilities facility
+           ON facility.tenant_id=w.tenant_id
+          AND facility.id=w.facility_id
+          AND facility.status='active'
         WHERE a.encounter_id = $1::uuid
           AND a.patient_uid = $2::uuid
           -- Explicit tenant_id filter (defense-in-depth): a non-null order
@@ -1189,13 +1235,19 @@ export async function createWardIndentForClinicalMedicationOrder(order, {
           AND COALESCE(a.status, 'admitted') NOT IN ('discharged', 'cancelled')
         ORDER BY a.admitted_at DESC NULLS LAST, a.id DESC
         LIMIT 1
-        FOR SHARE OF a`,
+        FOR SHARE OF a, facility`,
       order.encounter_id,
       order.patient_uid,
       order.tenant_id || null,
     );
     const admission = admissions[0];
     if (!admission) return null;
+    if (admission.ward_id == null || admission.facility_id == null) {
+      throw AppError.conflict(
+        'Clinical medication order requires an active facility-bound ward before pharmacy indent creation',
+        'WARD_INDENT_FACILITY_REQUIRED',
+      );
+    }
 
     const catalogMatches = await tx.$queryRawUnsafe(
       `SELECT id, name, COALESCE(unit_price, price) AS unit_price
@@ -1257,6 +1309,8 @@ export async function createWardIndentForClinicalMedicationOrder(order, {
         indent_number: indentNumber,
         ward_id: admission.ward_id ?? null,
         ward_name: admission.ward_name ?? admission.admission_ward ?? null,
+        facility_id: Number(admission.facility_id),
+        facility_authority_version: 1,
         admission_id: admission.id ?? null,
         encounter_id: admission.encounter_id ?? order.encounter_id ?? null,
         patient_uid: admission.patient_uid ?? order.patient_uid ?? null,
@@ -1374,6 +1428,9 @@ export default {
   markWardIndentShortSupply,
   proposeWardIndentSubstitution,
   approveWardIndentSubstitution,
+  applyApprovedWardIndentSubstitution,
+  approveWardIndentControlledWitnessApproval,
+  requestWardIndentControlledWitnessApproval,
   rejectWardIndentSubstitution,
   approveWardIndent,
   rejectWardIndent,

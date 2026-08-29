@@ -101,10 +101,13 @@ async function cleanup() {
       WHERE case_id IN (SELECT id FROM cath_lab_cases WHERE patient_uid = $1::uuid)`,
     CATH_PATIENT,
   ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM cath_lab_cases WHERE patient_uid = $1::uuid`,
-    CATH_PATIENT,
-  ).catch(() => {});
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe("SET LOCAL session_replication_role='replica'");
+    await tx.$executeRawUnsafe(
+      `DELETE FROM cath_lab_cases WHERE patient_uid = $1::uuid`,
+      CATH_PATIENT,
+    );
+  }).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid`,
     CATH_PATIENT,
@@ -275,6 +278,13 @@ d('SLA cancel leg + generic overdue sweep (SLA-halves audit)', () => {
         {
           tenantId: DEFAULT_TENANT,
           patient_uid: CATH_PATIENT,
+          facility_id: Number((await prisma.$queryRawUnsafe(
+            `SELECT id FROM facilities
+              WHERE tenant_id=$1::uuid AND status='active'
+              ORDER BY is_default DESC, id
+              LIMIT 1`,
+            DEFAULT_TENANT,
+          ))[0].id),
           requested_procedure: 'Coronary angiogram (SLA cancel regression)',
           urgency: 'routine',
           sla_rule_code: BED_RULE,

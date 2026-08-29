@@ -25,7 +25,6 @@ import {
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import {
-  ADMIN,
   PHARMACY_INCHARGE,
   PHARMACY_STAFF,
   hasRole,
@@ -52,10 +51,12 @@ const guardSubstitutionWitnessPatient = pharmacyOrderGuard(selectPatientFromBody
   requirePatientContext: true,
 });
 
-export const SUBSTITUTION_DISPENSE_ROLES = [ADMIN, PHARMACY_STAFF, PHARMACY_INCHARGE];
+export const SUBSTITUTION_DISPENSE_ROLES = [PHARMACY_STAFF, PHARMACY_INCHARGE];
 export const SUBSTITUTION_WITNESS_APPROVAL_HOST_ROLES = [
   ...new Set([...SUBSTITUTION_DISPENSE_ROLES, ...CONTROLLED_DISPENSE_WITNESS_ROLES]),
 ];
+const SUBSTITUTION_WITNESS_CANONICAL_PATH =
+  '/api/v1/pharmacy-orders/dispense-substitution/witness-approvals';
 
 function wrap(handler) {
   return async (req, res, _next) => {
@@ -135,6 +136,7 @@ router.post('/', requireDispense, guardSubstitutionWitnessPatient, requireIdempo
   required: true,
   scope: 'pharmacy_substitution_witness_request',
   retainOnServerError: true,
+  requestPathForIdempotency: SUBSTITUTION_WITNESS_CANONICAL_PATH,
 }), wrap(async (req) => requestSubstitutionWitnessApproval({
   ...req.body,
   tenantId: req.tenantId,
@@ -146,6 +148,8 @@ pharmacySubstitutionWitnessApprovalRoutes.post('/', requireApprovalHost, require
   scope: 'pharmacy_substitution_witness_approval',
   retainOnServerError: true,
   requestBodyForIdempotency: witnessApprovalIdempotencyBody,
+  requestPathForIdempotency: (req) =>
+    `${SUBSTITUTION_WITNESS_CANONICAL_PATH}/${req.params.id}/approve`,
 }), wrap(async (req) => {
   const tenantId = req.tenantId;
   const actor = await resolveWitnessActor(req, tenantId);

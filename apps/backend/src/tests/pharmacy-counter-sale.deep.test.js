@@ -1,10 +1,20 @@
-// Deep tests for the walk-in pharmacy point-of-sale (migration 684):
+// Deep tests for the walk-in pharmacy point-of-sale (migration 684, facility
+// custody + signed-prescription authority from migration 753):
 // counterSaleService end-to-end against the seeded QA DB — FEFO allocation +
-// atomic stock decrement, schedule-class enforcement (H/H1 rx, X witnessed),
-// billingV2 PHARMACY invoice + payment + cash-drawer shift linkage, same-day
-// void with exact restock + statutory-register returns, expired/quarantined
-// batch rejection, and cross-tenant isolation.
-import prisma from '../lib/prisma.js';
+// atomic stock decrement, schedule-class enforcement (H/H1/X require a
+// registered patient plus an exact signed prescription line; X additionally
+// requires an independent witness), billingV2 PHARMACY invoice + payment +
+// cash-drawer shift linkage, same-day void with exact restock + statutory-
+// register returns, expired/quarantined batch rejection, and cross-tenant
+// isolation.
+//
+// ★ FACILITY CUSTODY. Every counter-sale surface is now facility-scoped and
+// grant-enforced: createCounterSale demands facility_id, and every read and
+// void mutation proves the actor holds an ACTIVE pharmacy_staff_facility_grants
+// row for the sale's OWN facility. The fixtures below therefore seed a real
+// facility, real staff rows, and real ACTIVE grants — the suite would otherwise
+// be asserting a 403 fixture gap rather than the sale contract.
+import prisma, { setTenantTx } from '../lib/prisma.js';
 import {
   approveCounterSaleWitnessApproval,
   createCounterSale, voidCounterSale, getCounterSale, listCounterSales,
@@ -19,11 +29,6 @@ import {
   markRefundPaid,
   rejectRefund,
 } from '../services/billing/billingV2Service.js';
-import {
-  approveInventoryDispenseWitnessApproval,
-  dispenseControlled,
-  requestControlledDispenseWitnessApproval,
-} from '../services/pharmacy/inventoryV2Service.js';
 import { authClient } from './testClient.js';
 
 const TENANT = '00000000-0000-4000-8000-0000c05a1e01';
@@ -31,6 +36,13 @@ const OTHER = '00000000-0000-4000-8000-0000c05a1e99';
 const CASHIER = 'c0511111-1111-4111-8111-111111111111';
 const NO_DRAWER_CASHIER = 'c0522222-2222-4222-8222-222222222222';
 const WITNESS = 'c0533333-3333-4333-8333-333333333333';
+// Route-level seller. The grant assertion compares the caller's JWT role with
+// the actor's CANONICAL DB role, so the HTTP fixtures need a seller whose DB
+// role really is PHARMACY_STAFF; CASHIER is a PHARMACY_INCHARGE and can only
+// ever carry an incharge token.
+const SELLER = 'c05bbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+// Signer of the e-prescriptions every controlled line now dispenses against.
+const DOCTOR = 'c05ccccc-cccc-4ccc-8ccc-cccccccccccc';
 const PATIENT = 'c0544444-4444-4444-8444-444444444444';
 const VOID_APPROVER = 'c0599999-9999-4999-8999-999999999999';
 const VOID_PAYER = 'c05aaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -41,8 +53,31 @@ const CLERK_WITNESS = 'c0566666-6666-4666-8666-666666666666'; // RECEPTIONIST
 const INACTIVE_WITNESS = 'c0577777-7777-4777-8777-777777777777'; // deactivated
 const FOREIGN_WITNESS = 'c0588888-8888-4888-8888-888888888888'; // other tenant
 
-const RX = { doctor_name: 'Dr. Test Prescriber', reference: 'RX-POS-001' };
+// The prescriber snapshot kept on the sale header. It is deliberately NOT the
+// schedule authority any more: rx.prescription_id (a signed e_prescriptions
+// row) plus a per-line prescription_line_index is what enforceScheduleRules
+// and dispenseControlledTx accept, and free text never satisfies that gate.
+const RX_DOCTOR_NAME = 'Dr. Test Prescriber';
+const H1_RX_NUMBER = 'RX-POS-H1-001';
+const X_RX_NUMBER = 'RX-POS-X-001';
+const rxFor = (prescriptionId, reference) => ({
+  prescription_id: prescriptionId,
+  doctor_name: RX_DOCTOR_NAME,
+  reference,
+});
 
+// ★ STORAGE AUTHORITY. Migration 753 made the storage location part of the
+// batch's identity: every fixture facility gets exactly one ACTIVE pharmacy
+// store room under this code. facility_locations is UNIQUE (facility_id,
+// location_code), so both tenants reuse the same code inside their OWN
+// facility, and cleanup can narrow on it.
+const STORAGE_LOCATION_CODE = 'POSTEST-STORE';
+
+let facilityId;
+let otherFacilityId;
+let patientId;
+let h1PrescriptionId;
+let xPrescriptionId;
 let otcItem; let otcNear; let otcFar;
 let h1Item; let h1Batch;
 let h1ExpiredBatch; let h1QuarantinedBatch;
@@ -51,6 +86,11 @@ let expiredItem;
 let foreignItem;
 let voidPayerDrawerId;
 let voidCommandSequence = 0;
+// inventory item id → the pharmacy_catalog id it was seeded against. The
+// controlled-dispense authority refuses any item whose catalog identity does
+// not match the exact prescribed line, so the prescription fixtures below are
+// built from this map rather than from a guessed id.
+const itemCatalogIds = new Map();
 
 async function remaining(batchId) {
   const rows = await prisma.$queryRawUnsafe(
@@ -75,28 +115,104 @@ async function allocationReturnCount(saleId) {
   return Number(rows[0].returned);
 }
 
-async function insertItem(tenant, sku, { schedule = null, narcotic = false, hsn = null } = {}) {
+// An ACTIVE inventory item now needs BOTH a facility and a catalog identity
+// (chk_pharmacy_inventory_items_active_authority_753), and the counter-sale
+// line FK pins (tenant_id, facility_id, id) — so every fixture item is minted
+// with its own catalog row inside the tenant's facility.
+async function insertItem(tenant, sku, {
+  schedule = null, narcotic = false, hsn = null,
+} = {}) {
+  const catalogRows = await prisma.$queryRawUnsafe(
+    `INSERT INTO pharmacy_catalog (tenant_id, name, is_active, is_available, in_stock)
+     VALUES ($1::uuid, $2, TRUE, TRUE, TRUE)
+     RETURNING id`,
+    tenant, `POSTEST ${sku} catalog`,
+  );
+  const catalogId = Number(catalogRows[0].id);
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO pharmacy_inventory_items
-       (tenant_id, sku_code, display_name, unit_label, schedule_class, is_narcotic, hsn_code)
-     VALUES ($1::uuid, $2, $3, 'tab', $4, $5, $6)
+       (tenant_id, facility_id, catalog_id, sku_code, display_name, unit_label,
+        schedule_class, is_narcotic, hsn_code, status)
+     VALUES ($1::uuid, $2::int, $3::int, $4, $5, 'tab', $6, $7, $8, 'active')
      RETURNING id`,
-    tenant, sku, `POSTEST ${sku}`, schedule, narcotic, hsn,
+    tenant,
+    tenant === OTHER ? otherFacilityId : facilityId,
+    catalogId,
+    sku, `POSTEST ${sku}`, schedule, narcotic, hsn,
   );
-  return Number(rows[0].id);
+  const itemId = Number(rows[0].id);
+  itemCatalogIds.set(itemId, catalogId);
+  return itemId;
 }
 
+// The batch inherits BOTH its facility and its storage location from the item
+// by SELECT rather than by threaded arguments:
+//   * fk_pharmacy_batches_item_facility_753 pins
+//     (tenant_id, facility_id, inventory_item_id), so a batch can never sit in
+//     a different facility from its item;
+//   * trg_pharmacy_batch_storage_authority_supply_753 rejects any batch in
+//     status in_stock / reserved / quarantined without storage_location_id, and
+//     rejects a storage_location_id that is not an ACTIVE facility_locations
+//     row of the batch's OWN (tenant_id, facility_id) — which
+//     fk_pharmacy_batches_storage_authority_supply_753 also pins as a composite
+//     FK against facility_locations (tenant_id, facility_id, id), and
+//     chk_pharmacy_batches_usable_storage_supply_753 restates for usable stock.
+// Resolving the store room through the item's own facility means the fixture
+// cannot hand a batch a location belonging to the other tenant's facility.
 async function insertBatch(tenant, itemId, batchNumber, {
   expiryDays = 180, qty = 100, mrpMinor = 1000, status = 'in_stock',
 } = {}) {
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO pharmacy_inventory_batches
-       (tenant_id, inventory_item_id, batch_number, expiry_date,
+       (tenant_id, inventory_item_id, facility_id, storage_location_id,
+        batch_number, expiry_date,
         received_quantity, remaining_quantity, mrp_minor, status)
-     VALUES ($1::uuid, $2::int, $3, (NOW() + ($4::int || ' days')::interval)::date,
-             $5::numeric, $5::numeric, $6::bigint, $7)
+     SELECT $1::uuid, item.id, item.facility_id, location.id, $3::text,
+            (NOW() + ($4::int || ' days')::interval)::date,
+            $5::numeric, $5::numeric, $6::bigint, $7::text
+       FROM pharmacy_inventory_items item
+       JOIN facility_locations location
+         ON location.tenant_id = item.tenant_id
+        AND location.facility_id = item.facility_id
+        AND location.location_code = $8::text
+        AND location.status = 'active'
+      WHERE item.tenant_id = $1::uuid AND item.id = $2::int
      RETURNING id`,
     tenant, itemId, batchNumber, expiryDays, qty, mrpMinor, status,
+    STORAGE_LOCATION_CODE,
+  );
+  if (rows.length !== 1) {
+    throw new Error(
+      `insertBatch fixture: inventory item ${itemId} in tenant ${tenant} has no ACTIVE `
+      + `${STORAGE_LOCATION_CODE} storage location in its own facility`,
+    );
+  }
+  return Number(rows[0].id);
+}
+
+// A signed e-prescription for exactly one catalog line. dispenseControlledTx
+// refuses anything else: the row must be signed, the patient must be the exact
+// active tenant patient, the prescriber must be an active DOCTOR, and the line
+// at prescription_line_index must carry the item's own catalog_id.
+async function insertSignedPrescription({ number, catalogId, quantity }) {
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO e_prescriptions
+       (tenant_id, patient_id, patient_uid, doctor_uid, medications, status,
+        lifecycle_status, signed_at, signed_by, prescription_number,
+        created_at, updated_at)
+     VALUES ($1::uuid, $2::int, $3::uuid, $4::uuid, $5::jsonb, 'active',
+             'signed', NOW(), $4::uuid, $6, NOW(), NOW())
+     RETURNING id`,
+    TENANT,
+    patientId,
+    PATIENT,
+    DOCTOR,
+    JSON.stringify([{
+      catalog_id: catalogId,
+      name: `POSTEST prescribed line ${number}`,
+      quantity,
+    }]),
+    number,
   );
   return Number(rows[0].id);
 }
@@ -265,9 +381,31 @@ async function completeCounterSaleVoid({ saleId, reason }) {
 async function cleanup() {
   const cleanupTenantIds = [TENANT, OTHER];
   const witnessFixtureUids = [
-    WITNESS, CASHIER, CLERK_WITNESS, INACTIVE_WITNESS, FOREIGN_WITNESS,
-    VOID_APPROVER, VOID_PAYER,
+    WITNESS, CASHIER, SELLER, NO_DRAWER_CASHIER, CLERK_WITNESS, INACTIVE_WITNESS,
+    FOREIGN_WITNESS, VOID_APPROVER, VOID_PAYER, DOCTOR,
   ];
+  // pharmacy_staff_facility_grants AND pharmacy_staff_facility_grant_events are
+  // both ENABLE + FORCE ROW LEVEL SECURITY (753:645-646 and 753:656-657): with
+  // app.current_tenant_id unset the tenant_isolation policy evaluates to NULL
+  // and the DELETE silently removes nothing, even for the table owner, so
+  // setTenantTx is the only way to reach these rows — the same idiom
+  // pharmacy-inventory-ledger-hardening.deep.test.js uses. The grant-event
+  // stream is additionally append-only
+  // (trg_pharmacy_staff_facility_grant_events_append_only_753, 753:641, a
+  // BEFORE UPDATE OR DELETE trigger that unconditionally RAISEs 23514), so this
+  // transaction must also run in replica mode — exactly like the append-only
+  // teardowns in the main cleanup transaction below.
+  for (const tid of cleanupTenantIds) {
+    await setTenantTx(tid, async (tx) => {
+      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
+      await tx.$executeRawUnsafe(
+        `DELETE FROM pharmacy_staff_facility_grant_events WHERE tenant_id = $1::uuid`, tid,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM pharmacy_staff_facility_grants WHERE tenant_id = $1::uuid`, tid,
+      );
+    });
+  }
   await prisma.$transaction(async (tx) => {
     await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
     await tx.$executeRawUnsafe("SELECT set_config('app.audit_bypass', 'on', true)");
@@ -340,6 +478,16 @@ async function cleanup() {
         `DELETE FROM pharmacy_inventory_items WHERE tenant_id = $1::uuid AND sku_code LIKE 'POS-%'`, tid,
       );
       await tx.$executeRawUnsafe(
+        `DELETE FROM pharmacy_catalog WHERE tenant_id = $1::uuid AND name LIKE 'POSTEST %'`, tid,
+      );
+      // Fixture-scoped: insertSignedPrescription only ever mints RX-POS-*
+      // numbers, and a tenant-wide delete here would destroy a sibling
+      // fixture's prescriptions the day this tenant stops being suite-owned.
+      await tx.$executeRawUnsafe(
+        `DELETE FROM e_prescriptions
+          WHERE tenant_id = $1::uuid AND prescription_number LIKE 'RX-POS-%'`, tid,
+      );
+      await tx.$executeRawUnsafe(
         `DELETE FROM payment_gateway_refunds
           WHERE tenant_id = $1::uuid
             AND reason = 'counter-sale gateway evidence'`, tid,
@@ -389,6 +537,21 @@ async function cleanup() {
       `DELETE FROM users WHERE uid = ANY($1::uuid[])`,
       witnessFixtureUids,
     );
+    // The store rooms go before their facilities: this transaction runs in
+    // replica mode, so the facilities → facility_locations ON DELETE CASCADE
+    // does NOT fire and the rows would otherwise survive as orphans that
+    // collide with the next run's UNIQUE (facility_id, location_code). Both
+    // deletes are narrowed to this fixture's own codes.
+    for (const tid of cleanupTenantIds) {
+      await tx.$executeRawUnsafe(
+        `DELETE FROM facility_locations
+          WHERE tenant_id = $1::uuid AND location_code = $2::text`, tid, STORAGE_LOCATION_CODE,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM facilities
+          WHERE tenant_id = $1::uuid AND facility_code LIKE 'POS-%'`, tid,
+      );
+    }
   });
 }
 
@@ -402,12 +565,53 @@ beforeAll(async () => {
       tid, slug,
     );
   }
-  await prisma.$executeRawUnsafe(
+  // One active facility per tenant. Counter sales, inventory items, batches,
+  // lines and allocations are all pinned to it by composite FK, and it is the
+  // scope every pharmacy_staff_facility_grants row below is issued against.
+  const facilityRows = await prisma.$queryRawUnsafe(
+    `INSERT INTO facilities (tenant_id, facility_code, display_name, status, is_default)
+     VALUES ($1::uuid, 'POS-COUNTER', 'POS Test Counter', 'active', TRUE)
+     RETURNING id`,
+    TENANT,
+  );
+  facilityId = Number(facilityRows[0].id);
+  const otherFacilityRows = await prisma.$queryRawUnsafe(
+    `INSERT INTO facilities (tenant_id, facility_code, display_name, status, is_default)
+     VALUES ($1::uuid, 'POS-OTHER-COUNTER', 'POS Other Counter', 'active', TRUE)
+     RETURNING id`,
+    OTHER,
+  );
+  otherFacilityId = Number(otherFacilityRows[0].id);
+
+  // One ACTIVE pharmacy store room per facility. Since migration 753 every
+  // in_stock / reserved / quarantined batch must name an exact storage location
+  // that is ACTIVE inside the batch's own (tenant_id, facility_id) — without
+  // these rows insertBatch below cannot satisfy
+  // trg_pharmacy_batch_storage_authority_supply_753 and the suite would be
+  // asserting a 23514 fixture gap instead of the sale contract. The composite
+  // FK fk_facility_locations_facility_tenant (migration 598) also demands the
+  // (tenant_id, facility_id) pair match the facilities row exactly, so each
+  // location is seeded against its own tenant's facility id.
+  for (const [tid, fid, label] of [
+    [TENANT, facilityId, 'POSTEST Counter Store'],
+    [OTHER, otherFacilityId, 'POSTEST Other Counter Store'],
+  ]) {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO facility_locations
+         (tenant_id, facility_id, location_code, display_name, location_kind, status)
+       VALUES ($1::uuid, $2::int, $3, $4, 'pharmacy', 'active')`,
+      tid, fid, STORAGE_LOCATION_CODE, label,
+    );
+  }
+
+  const patientRows = await prisma.$queryRawUnsafe(
     `INSERT INTO users (uid, name, phone, role, tenant_id, updated_at)
      VALUES ($1::uuid, 'POS Registered Patient', '9812345670', 'PATIENT', $2::uuid, NOW())
-     ON CONFLICT (uid) DO NOTHING`,
+     ON CONFLICT (uid) DO UPDATE SET updated_at = NOW()
+     RETURNING id`,
     PATIENT, TENANT,
   );
+  patientId = Number(patientRows[0].id);
   // Witness roster: the valid witness is a real active pharmacist of the SAME
   // tenant; the invalid ones exercise every rejection branch of
   // assertControlledDispenseWitness (no row / wrong role / inactive / other
@@ -421,6 +625,20 @@ beforeAll(async () => {
        ($4::uuid, 'Foreign Pharmacist', 'PHARMACY_STAFF', $6::uuid, NOW())
      ON CONFLICT (uid) DO NOTHING`,
     WITNESS, CASHIER, CLERK_WITNESS, FOREIGN_WITNESS, TENANT, OTHER,
+  );
+  // SELLER carries the HTTP fixtures (canonical DB role PHARMACY_STAFF, so a
+  // PHARMACY_STAFF token matches it); NO_DRAWER_CASHIER is a fully authorised
+  // seller that simply has no open drawer, which is what keeps the CASH-drawer
+  // test asserting the drawer gate rather than the performer gate that now runs
+  // before it; DOCTOR signs the e-prescriptions the controlled lines cite.
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO users (uid, name, role, tenant_id, updated_at)
+     VALUES
+       ($1::uuid, 'Counter Salesperson', 'PHARMACY_STAFF', $4::uuid, NOW()),
+       ($2::uuid, 'Drawerless Pharmacist', 'PHARMACY_STAFF', $4::uuid, NOW()),
+       ($3::uuid, 'POS Prescriber', 'DOCTOR', $4::uuid, NOW())
+     ON CONFLICT (uid) DO NOTHING`,
+    SELLER, NO_DRAWER_CASHIER, DOCTOR, TENANT,
   );
   await prisma.$executeRawUnsafe(
     `INSERT INTO users (uid, name, role, tenant_id, is_active, updated_at)
@@ -446,6 +664,38 @@ beforeAll(async () => {
        ($5::uuid, 'POS-FOREIGN', 'Roster Foreign Pharmacist', true, false, $7::uuid, NOW())`,
     WITNESS, CASHIER, CLERK_WITNESS, INACTIVE_WITNESS, FOREIGN_WITNESS, TENANT, OTHER,
   );
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO staff
+       (user_id, employee_id, name, is_active, archived, tenant_id, updated_at)
+     VALUES
+       ($1::uuid, 'POS-SELLER', 'Roster Counter Salesperson', true, false, $3::uuid, NOW()),
+       ($2::uuid, 'POS-NODRAWER', 'Roster Drawerless Pharmacist', true, false, $3::uuid, NOW())`,
+    SELLER, NO_DRAWER_CASHIER, TENANT,
+  );
+  // ACTIVE facility grants. Without these every read, sale and void 403s with
+  // PHARMACY_FACILITY_GRANT_REQUIRED: the grant row IS the custody authority,
+  // and tenant membership alone is not. WITNESS deliberately holds NO grant —
+  // the witness-approval path takes no custody actor, and a test below proves
+  // an ungranted pharmacist cannot sell.
+  await setTenantTx(TENANT, (tx) => tx.$executeRawUnsafe(
+    `INSERT INTO pharmacy_staff_facility_grants
+       (tenant_id, facility_id, staff_uid, status, grant_source, grant_reason, granted_by)
+     VALUES
+       ($1::uuid, $2::int, $3::uuid, 'active', 'test_fixture',
+        'POS counter-sale custody fixture', $3::uuid),
+       ($1::uuid, $2::int, $4::uuid, 'active', 'test_fixture',
+        'POS counter-sale custody fixture', $3::uuid),
+       ($1::uuid, $2::int, $5::uuid, 'active', 'test_fixture',
+        'POS counter-sale custody fixture', $3::uuid)`,
+    TENANT, facilityId, CASHIER, SELLER, NO_DRAWER_CASHIER,
+  ));
+  await setTenantTx(OTHER, (tx) => tx.$executeRawUnsafe(
+    `INSERT INTO pharmacy_staff_facility_grants
+       (tenant_id, facility_id, staff_uid, status, grant_source, grant_reason, granted_by)
+     VALUES ($1::uuid, $2::int, $3::uuid, 'active', 'test_fixture',
+             'POS cross-tenant custody fixture', $3::uuid)`,
+    OTHER, otherFacilityId, FOREIGN_WITNESS,
+  ));
 
   otcItem = await insertItem(TENANT, 'POS-OTC-1', { hsn: '3004' });
   otcNear = await insertBatch(TENANT, otcItem, 'POS-OTC-NEAR', { expiryDays: 30, qty: 50, mrpMinor: 1000 });
@@ -469,6 +719,20 @@ beforeAll(async () => {
 
   foreignItem = await insertItem(OTHER, 'POS-FOREIGN-1');
   await insertBatch(OTHER, foreignItem, 'POS-FOREIGN-B1', { qty: 100 });
+
+  // Signed prescriptions the controlled lines dispense against. Each is sized
+  // well above what the suite dispenses so a void (which restocks but does NOT
+  // credit the prescription remainder back) cannot starve a later case.
+  h1PrescriptionId = await insertSignedPrescription({
+    number: H1_RX_NUMBER,
+    catalogId: itemCatalogIds.get(h1Item),
+    quantity: 30,
+  });
+  xPrescriptionId = await insertSignedPrescription({
+    number: X_RX_NUMBER,
+    catalogId: itemCatalogIds.get(xItem),
+    quantity: 10,
+  });
 
   // GST master-data override for HSN 3004 → 5% (default slab is 12).
   await prisma.$executeRawUnsafe(
@@ -496,68 +760,6 @@ afterAll(async () => {
   await cleanup();
   if (typeof prisma.$disconnect === 'function') await prisma.$disconnect();
 }, 30_000);
-
-describe('direct controlled-dispense batch safety', () => {
-  const h1Dispense = (overrides = {}) => ({
-    tenantId: TENANT,
-    inventory_item_id: h1Item,
-    inventory_batch_id: h1Batch,
-    quantity: 1,
-    performed_by: CASHIER,
-    performed_by_name: 'Counter Pharmacist',
-    ...overrides,
-  });
-
-  test('requires a concrete batch and ignores caller attempts to disable safety', async () => {
-    await expect(dispenseControlled(h1Dispense({
-      inventory_batch_id: null,
-      require_usable_batch: false,
-    }))).rejects.toMatchObject({ code: 'INVENTORY_BATCH_REQUIRED' });
-    await expect(dispenseControlled(h1Dispense({
-      inventory_batch_id: h1QuarantinedBatch,
-      require_usable_batch: false,
-    }))).rejects.toMatchObject({ code: 'INVENTORY_BATCH_UNAVAILABLE' });
-    await expect(dispenseControlled(h1Dispense({
-      inventory_batch_id: h1ExpiredBatch,
-      require_usable_batch: false,
-    }))).rejects.toMatchObject({ code: 'INVENTORY_BATCH_EXPIRED' });
-    await expect(dispenseControlled(h1Dispense({
-      quantity: 10_000,
-      require_usable_batch: false,
-    }))).rejects.toMatchObject({ code: 'INVENTORY_INSUFFICIENT_STOCK' });
-  });
-
-  test('binds an inventory witness approval to the canonical concrete batch', async () => {
-    const dispense = {
-      inventory_item_id: xItem,
-      inventory_batch_id: xBatch,
-      quantity: 1,
-    };
-    const approval = await requestControlledDispenseWitnessApproval({
-      tenantId: TENANT,
-      requested_by: CASHIER,
-      ...dispense,
-    });
-    expect(approval.id).toMatch(/^[1-9][0-9]*$/);
-    await approveInventoryDispenseWitnessApproval({
-      tenantId: TENANT,
-      approvalId: approval.id,
-      actorUid: WITNESS,
-      dispense,
-    });
-
-    await expect(dispenseControlled({
-      tenantId: TENANT,
-      ...dispense,
-      inventory_batch_id: xOtherBatch,
-      performed_by: CASHIER,
-      performed_by_name: 'Counter Pharmacist',
-      witness_approval_id: approval.id,
-    })).rejects.toMatchObject({
-      code: 'CONTROLLED_DISPENSE_WITNESS_APPROVAL_MISMATCH',
-    });
-  });
-});
 
 describe('walk-in counter sale — FEFO + billing + drawer', () => {
   let saleId;
@@ -598,6 +800,7 @@ describe('walk-in counter sale — FEFO + billing + drawer', () => {
       }
       created = await createCounterSale({
         tenantId: TENANT,
+        facility_id: facilityId,
         lines: [{ inventory_item_id: bigintItem, quantity: 1 }],
         customer_name: 'Signed 64-bit Identifier Proof',
         payment_mode: 'UPI',
@@ -621,7 +824,9 @@ describe('walk-in counter sale — FEFO + billing + drawer', () => {
 
     expect(created.sale.id).toBe(highSaleId);
     expect(initiated.void_request.id).toBe(highRequestId);
-    const detail = await getCounterSale({ tenantId: TENANT, id: highSaleId });
+    const detail = await getCounterSale({
+      tenantId: TENANT, id: highSaleId, actorUid: CASHIER, actorRole: 'PHARMACY_INCHARGE',
+    });
     expect(detail.id).toBe(highSaleId);
     expect(detail.void_request_id).toBe(highRequestId);
     expect(detail.lines[0].id).toBe(highLineId);
@@ -645,12 +850,12 @@ describe('walk-in counter sale — FEFO + billing + drawer', () => {
   test('anonymous CASH sale spans batches earliest-expiry-first and pays the invoice', async () => {
     const result = await createCounterSale({
       tenantId: TENANT,
+      facility_id: facilityId,
       lines: [{ inventory_item_id: otcItem, quantity: 60 }],
       customer_name: 'Walk-in Customer',
       customer_phone: '9800000001',
       payment_mode: 'CASH',
       sold_by: CASHIER,
-      sold_by_name: 'Counter Pharmacist',
     });
     saleId = Number(result.sale.id);
 
@@ -661,7 +866,9 @@ describe('walk-in counter sale — FEFO + billing + drawer', () => {
     expect(result.invoice.invoice_number).toMatch(/^INV-\d{4}-\d{6}$/);
 
     // FEFO: near batch (30d) fully consumed before far batch (365d).
-    const detail = await getCounterSale({ tenantId: TENANT, id: saleId });
+    const detail = await getCounterSale({
+      tenantId: TENANT, id: saleId, actorUid: CASHIER, actorRole: 'PHARMACY_INCHARGE',
+    });
     expect(detail.lines).toHaveLength(1);
     const allocs = detail.lines[0].allocations;
     expect(allocs).toHaveLength(2);
@@ -732,7 +939,9 @@ describe('walk-in counter sale — FEFO + billing + drawer', () => {
     expect((await remaining(otcNear)).status).toBe('in_stock');
     expect((await remaining(otcFar)).qty).toBe(100);
 
-    const detail = await getCounterSale({ tenantId: TENANT, id: saleId });
+    const detail = await getCounterSale({
+      tenantId: TENANT, id: saleId, actorUid: CASHIER, actorRole: 'PHARMACY_INCHARGE',
+    });
     expect(detail.status).toBe('VOIDED');
     expect(detail.void_reason).toBe('Sale cancelled before customer handover');
     for (const alloc of detail.lines[0].allocations) {
@@ -752,8 +961,12 @@ describe('walk-in counter sale — FEFO + billing + drawer', () => {
   });
 
   test('CASH sale without an open drawer session is rejected', async () => {
+    // NO_DRAWER_CASHIER is an active PHARMACY_STAFF member holding an ACTIVE
+    // grant on this facility — the performer and custody gates both pass, so
+    // the rejection below is the drawer gate and nothing else.
     await expect(createCounterSale({
       tenantId: TENANT,
+      facility_id: facilityId,
       lines: [{ inventory_item_id: otcItem, quantity: 1 }],
       customer_name: 'No Drawer',
       payment_mode: 'CASH',
@@ -764,6 +977,7 @@ describe('walk-in counter sale — FEFO + billing + drawer', () => {
   test('expired-only stock can never be allocated', async () => {
     await expect(createCounterSale({
       tenantId: TENANT,
+      facility_id: facilityId,
       lines: [{ inventory_item_id: expiredItem, quantity: 1 }],
       customer_name: 'Expired Wanter',
       payment_mode: 'UPI',
@@ -807,6 +1021,7 @@ describe('counter-sale void refund obligation closure', () => {
     );
     await expect(createCounterSale({
       tenantId: TENANT,
+      facility_id: facilityId,
       lines: [{ inventory_item_id: otcItem, quantity: 1 }],
       customer_name: 'Missing Reference Customer',
       payment_mode: 'UPI',
@@ -824,6 +1039,7 @@ describe('counter-sale void refund obligation closure', () => {
   test('direct SQL cannot backdate or delete governed void evidence', async () => {
     const created = await createCounterSale({
       tenantId: TENANT,
+      facility_id: facilityId,
       lines: [{ inventory_item_id: otcItem, quantity: 1 }],
       customer_name: 'Timestamp Guard Customer',
       payment_mode: 'UPI',
@@ -864,6 +1080,7 @@ describe('counter-sale void refund obligation closure', () => {
   test('patient-returned disposition fails closed without request, refund, or stock mutation', async () => {
     const created = await createCounterSale({
       tenantId: TENANT,
+      facility_id: facilityId,
       lines: [{ inventory_item_id: otcItem, quantity: 1 }],
       customer_name: 'Patient Return Customer',
       payment_mode: 'UPI',
@@ -902,6 +1119,7 @@ describe('counter-sale void refund obligation closure', () => {
   test('an unrelated partial invoice refund blocks rather than being selected by the void', async () => {
     const created = await createCounterSale({
       tenantId: TENANT,
+      facility_id: facilityId,
       lines: [{ inventory_item_id: otcItem, quantity: 1 }],
       customer_name: 'Unrelated Refund Customer',
       payment_mode: 'UPI',
@@ -942,6 +1160,7 @@ describe('counter-sale void refund obligation closure', () => {
   test('durable command identity converges concurrent duplicates, rejects mismatch, and is tenant-bound', async () => {
     const created = await createCounterSale({
       tenantId: TENANT,
+      facility_id: facilityId,
       lines: [{ inventory_item_id: otcItem, quantity: 1 }],
       customer_name: 'Durable Void Command Customer',
       payment_mode: 'UPI',
@@ -993,6 +1212,7 @@ describe('counter-sale void refund obligation closure', () => {
   test('linked void task and SLA satisfy the cumulative care-pathway contract and reject a forged source', async () => {
     const created = await createCounterSale({
       tenantId: TENANT,
+      facility_id: facilityId,
       lines: [{ inventory_item_id: otcItem, quantity: 1 }],
       customer_name: 'Task SLA Binding Customer',
       payment_mode: 'UPI',
@@ -1090,6 +1310,7 @@ describe('counter-sale void refund obligation closure', () => {
     const originalReference = 'upi-independent-actors-1';
     const created = await createCounterSale({
       tenantId: TENANT,
+      facility_id: facilityId,
       lines: [{ inventory_item_id: otcItem, quantity: 1 }],
       customer_name: 'Independent Actors Customer',
       payment_mode: 'UPI',
@@ -1209,6 +1430,7 @@ describe('counter-sale void refund obligation closure', () => {
   test('gateway rail rejects an unrelated capture and closes only after exact processed provider evidence', async () => {
     const target = await createCounterSale({
       tenantId: TENANT,
+      facility_id: facilityId,
       lines: [{ inventory_item_id: otcItem, quantity: 1 }],
       customer_name: 'Gateway Evidence Target Customer',
       payment_mode: 'UPI',
@@ -1217,6 +1439,7 @@ describe('counter-sale void refund obligation closure', () => {
     });
     const unrelated = await createCounterSale({
       tenantId: TENANT,
+      facility_id: facilityId,
       lines: [{ inventory_item_id: otcItem, quantity: 1 }],
       customer_name: 'Gateway Evidence Unrelated Customer',
       payment_mode: 'UPI',
@@ -1314,6 +1537,7 @@ describe('counter-sale void refund obligation closure', () => {
   test('bounded tenant reconciler closes exact paid refunds once with system attribution', async () => {
     const created = await createCounterSale({
       tenantId: TENANT,
+      facility_id: facilityId,
       lines: [{ inventory_item_id: otcItem, quantity: 1 }],
       customer_name: 'Automatic Reconciliation Customer',
       payment_mode: 'UPI',
@@ -1368,6 +1592,7 @@ describe('counter-sale void refund obligation closure', () => {
   test('refund rejection opens named review and explicit handover closes without restock', async () => {
     const created = await createCounterSale({
       tenantId: TENANT,
+      facility_id: facilityId,
       lines: [{ inventory_item_id: otcItem, quantity: 1 }],
       customer_name: 'Rejected Refund Customer',
       payment_mode: 'UPI',
@@ -1444,6 +1669,7 @@ describe('counter-sale void refund obligation closure', () => {
   test('a mid-restock failure rolls back every return and a retry closes exactly once', async () => {
     const created = await createCounterSale({
       tenantId: TENANT,
+      facility_id: facilityId,
       lines: [{ inventory_item_id: otcItem, quantity: 60 }],
       customer_name: 'Crash Retry Customer',
       payment_mode: 'UPI',
@@ -1544,10 +1770,13 @@ describe('schedule-class enforcement', () => {
   test('witness approval request rejects a caller-preselected approval id', async () => {
     await expect(requestCounterSaleWitnessApproval({
       tenantId: TENANT,
-      lines: [{ inventory_item_id: xItem, quantity: 1 }],
-      customer_name: 'Preselected approval',
+      facility_id: facilityId,
+      lines: [{
+        inventory_item_id: xItem, quantity: 1, prescription_line_index: 0,
+      }],
+      patient_uid: PATIENT,
       customer_phone: '9800000042',
-      rx: RX,
+      rx: rxFor(xPrescriptionId, X_RX_NUMBER),
       payment_mode: 'CARD',
       payment_reference: 'card-preselected-1',
       requested_by: CASHIER,
@@ -1557,9 +1786,10 @@ describe('schedule-class enforcement', () => {
     });
   });
 
-  test('Schedule H1 requires a prescription reference', async () => {
+  test('Schedule H1 without a signed prescription anchor is refused', async () => {
     await expect(createCounterSale({
       tenantId: TENANT,
+      facility_id: facilityId,
       lines: [{ inventory_item_id: h1Item, quantity: 2 }],
       customer_name: 'No Rx',
       payment_mode: 'UPI',
@@ -1568,22 +1798,56 @@ describe('schedule-class enforcement', () => {
     })).rejects.toMatchObject({ code: 'COUNTER_SALE_RX_REQUIRED' });
   });
 
-  test('Schedule H1 with rx dispenses through the statutory register', async () => {
-    const result = await createCounterSale({
+  test('Schedule H1 refuses a prescription anchor with no per-line pointer', async () => {
+    // The sale-level anchor alone is not enough: every controlled LINE must
+    // name the exact prescription line it dispenses, or the stored register
+    // evidence cannot be tied back to a signed order.
+    await expect(createCounterSale({
       tenantId: TENANT,
+      facility_id: facilityId,
       lines: [{ inventory_item_id: h1Item, quantity: 2 }],
       patient_uid: PATIENT,
-      rx: RX,
+      rx: rxFor(h1PrescriptionId, H1_RX_NUMBER),
+      payment_mode: 'UPI',
+      payment_reference: 'upi-no-line-pointer-1',
+      sold_by: CASHIER,
+    })).rejects.toMatchObject({ code: 'COUNTER_SALE_RX_REQUIRED' });
+  });
+
+  test('Schedule H1 with a signed prescription dispenses through the statutory register', async () => {
+    const result = await createCounterSale({
+      tenantId: TENANT,
+      facility_id: facilityId,
+      lines: [{
+        inventory_item_id: h1Item, quantity: 2, prescription_line_index: 0,
+      }],
+      patient_uid: PATIENT,
+      rx: rxFor(h1PrescriptionId, H1_RX_NUMBER),
       payment_mode: 'UPI',
       payment_reference: 'upi-h1-1',
       sold_by: CASHIER,
-      sold_by_name: 'Counter Pharmacist',
     });
     expect(result.sale.status).toBe('COMPLETED');
     expect((await remaining(h1Batch)).qty).toBe(58);
+    // FEFO never reaches the expired or quarantined H1 batches.
+    expect(await remaining(h1ExpiredBatch)).toEqual({ qty: 20, status: 'in_stock' });
+    expect(await remaining(h1QuarantinedBatch)).toEqual({ qty: 20, status: 'quarantined' });
+
+    // The stored line carries the exact signed pointer, not free text.
+    const storedLines = await prisma.$queryRawUnsafe(
+      `SELECT prescription_id, prescription_line_index, facility_id
+         FROM pharmacy_counter_sale_lines
+        WHERE tenant_id = $1::uuid AND counter_sale_id = $2::bigint`,
+      TENANT, Number(result.sale.id),
+    );
+    expect(storedLines).toHaveLength(1);
+    expect(Number(storedLines[0].prescription_id)).toBe(h1PrescriptionId);
+    expect(Number(storedLines[0].prescription_line_index)).toBe(0);
+    expect(Number(storedLines[0].facility_id)).toBe(facilityId);
 
     const register = await prisma.$queryRawUnsafe(
-      `SELECT schedule_class, movement_kind, quantity, prescription_number, prescriber_name,
+      `SELECT schedule_class, movement_kind, quantity, prescription_id,
+              prescription_number, prescriber_name, performed_by_name,
               patient_uid, patient_name, patient_phone
          FROM pharmacy_schedule_register
         WHERE tenant_id = $1::uuid AND inventory_item_id = $2::int AND movement_kind = 'dispense'`,
@@ -1592,8 +1856,14 @@ describe('schedule-class enforcement', () => {
     expect(register).toHaveLength(1);
     expect(register[0].schedule_class).toBe('H1');
     expect(Number(register[0].quantity)).toBe(2);
-    expect(register[0].prescription_number).toBe('RX-POS-001');
-    expect(register[0].prescriber_name).toBe('Dr. Test Prescriber');
+    // The register binds the SIGNED prescription, resolved server-side — not
+    // the free-text reference the caller passed on the sale header.
+    expect(Number(register[0].prescription_id)).toBe(h1PrescriptionId);
+    expect(register[0].prescription_number).toBe(H1_RX_NUMBER);
+    expect(register[0].prescriber_name).toBe('POS Prescriber');
+    // sold_by_name is no longer a caller input: the performer name is derived
+    // from the seller's own staff roster row.
+    expect(register[0].performed_by_name).toBe('Roster Counter Pharmacist');
     expect(String(register[0].patient_uid)).toBe(PATIENT);
     // Statutory identity snapshot: registered patient's name/phone.
     expect(register[0].patient_name).toBe('POS Registered Patient');
@@ -1632,9 +1902,12 @@ describe('schedule-class enforcement', () => {
   test('Schedule X requires a witness; witnessed dispense lands in the register', async () => {
     await expect(createCounterSale({
       tenantId: TENANT,
-      lines: [{ inventory_item_id: xItem, quantity: 1 }],
-      customer_name: 'X Buyer',
-      rx: RX,
+      facility_id: facilityId,
+      lines: [{
+        inventory_item_id: xItem, quantity: 1, prescription_line_index: 0,
+      }],
+      patient_uid: PATIENT,
+      rx: rxFor(xPrescriptionId, X_RX_NUMBER),
       payment_mode: 'CARD',
       payment_reference: 'card-x-witness-required-1',
       sold_by: CASHIER,
@@ -1642,14 +1915,15 @@ describe('schedule-class enforcement', () => {
 
     const saleArgs = {
       tenantId: TENANT,
-      lines: [{ inventory_item_id: xItem, quantity: 1 }],
-      customer_name: 'X Buyer',
-      customer_phone: '9800000042',
-      rx: RX,
+      facility_id: facilityId,
+      lines: [{
+        inventory_item_id: xItem, quantity: 1, prescription_line_index: 0,
+      }],
+      patient_uid: PATIENT,
+      rx: rxFor(xPrescriptionId, X_RX_NUMBER),
       payment_mode: 'CARD',
       payment_reference: 'card-x-complete-1',
       sold_by: CASHIER,
-      sold_by_name: 'Counter Pharmacist',
     };
     const approval = await requestCounterSaleWitnessApproval({
       ...saleArgs,
@@ -1667,9 +1941,12 @@ describe('schedule-class enforcement', () => {
     });
     expect(result.sale.status).toBe('COMPLETED');
     expect((await remaining(xBatch)).qty).toBe(29);
+    // FEFO took the earliest-expiry X batch and left the later one whole.
+    expect((await remaining(xOtherBatch)).qty).toBe(30);
 
     const register = await prisma.$queryRawUnsafe(
-      `SELECT schedule_class, witness_name, witness_uid, patient_uid, patient_name, patient_phone
+      `SELECT schedule_class, witness_name, witness_uid, prescription_id,
+              prescription_number, patient_uid, patient_name, patient_phone
          FROM pharmacy_schedule_register
         WHERE tenant_id = $1::uuid AND inventory_item_id = $2::int AND movement_kind = 'dispense'`,
       TENANT, xItem,
@@ -1678,10 +1955,13 @@ describe('schedule-class enforcement', () => {
     expect(register[0].schedule_class).toBe('X');
     expect(register[0].witness_name).toBe('Roster Witness Pharmacist');
     expect(String(register[0].witness_uid)).toBe(WITNESS);
-    // Anonymous walk-in: the captured identity lands on the statutory row.
-    expect(register[0].patient_uid).toBeNull();
-    expect(register[0].patient_name).toBe('X Buyer');
-    expect(register[0].patient_phone).toBe('9800000042');
+    expect(Number(register[0].prescription_id)).toBe(xPrescriptionId);
+    expect(register[0].prescription_number).toBe(X_RX_NUMBER);
+    // A controlled walk-in can no longer be anonymous: the statutory row names
+    // the registered patient the signed prescription was written for.
+    expect(String(register[0].patient_uid)).toBe(PATIENT);
+    expect(register[0].patient_name).toBe('POS Registered Patient');
+    expect(register[0].patient_phone).toBe('9812345670');
 
     const approvalRows = await prisma.$queryRawUnsafe(
       `SELECT status, decided_by, metadata
@@ -1706,14 +1986,16 @@ describe('schedule-class enforcement', () => {
     const xSale = async (actorUid) => {
       const sale = {
         tenantId: TENANT,
-        lines: [{ inventory_item_id: xItem, quantity: 1 }],
-        customer_name: 'X Buyer',
+        facility_id: facilityId,
+        lines: [{
+          inventory_item_id: xItem, quantity: 1, prescription_line_index: 0,
+        }],
+        patient_uid: PATIENT,
         customer_phone: '9800000042',
-        rx: RX,
+        rx: rxFor(xPrescriptionId, X_RX_NUMBER),
         payment_mode: 'CARD',
         payment_reference: 'card-x-witness-validation-1',
         sold_by: CASHIER,
-        sold_by_name: 'Counter Pharmacist',
       };
       const approval = await requestCounterSaleWitnessApproval({
         ...sale,
@@ -1726,20 +2008,33 @@ describe('schedule-class enforcement', () => {
       });
     };
 
-    async function expectNoSideEffects(before) {
-      // Phase-0 rejection: no stock moved and no sale header was written
-      // (the only 'X Buyer' sale is the COMPLETED witnessed one above).
-      expect((await remaining(xBatch)).qty).toBe(before);
-      const sales = await prisma.$queryRawUnsafe(
-        `SELECT status FROM pharmacy_counter_sales
-          WHERE tenant_id = $1::uuid AND customer_name = 'X Buyer' AND status <> 'COMPLETED'`,
-        TENANT,
+    async function xItemSaleCount() {
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT COUNT(DISTINCT sale.id)::int AS count
+           FROM pharmacy_counter_sales sale
+           JOIN pharmacy_counter_sale_lines line
+             ON line.tenant_id = sale.tenant_id AND line.counter_sale_id = sale.id
+          WHERE sale.tenant_id = $1::uuid AND line.inventory_item_id = $2::int`,
+        TENANT, xItem,
       );
-      expect(sales).toHaveLength(0);
+      return Number(rows[0].count);
+    }
+
+    async function expectNoSideEffects(before) {
+      // Phase-0 rejection: no stock moved and no sale header was written.
+      // Counting by the Schedule X LINE rather than by customer_name is what
+      // keeps this exact now that a controlled sale is always attached to a
+      // registered patient and stores no walk-in name at all.
+      expect((await remaining(xBatch)).qty).toBe(before.qty);
+      expect(await xItemSaleCount()).toBe(before.saleCount);
+    }
+
+    async function xSaleState() {
+      return { qty: (await remaining(xBatch)).qty, saleCount: await xItemSaleCount() };
     }
 
     test('rejects a witness uid with no staff row (ghost uid)', async () => {
-      const before = (await remaining(xBatch)).qty;
+      const before = await xSaleState();
       await expect(xSale(GHOST_WITNESS))
         .rejects.toMatchObject({ statusCode: 400, code: 'CONTROLLED_DISPENSE_WITNESS_NOT_FOUND' });
       await expectNoSideEffects(before);
@@ -1788,6 +2083,7 @@ describe('atomicity + isolation', () => {
     // INVENTORY_INSUFFICIENT_STOCK instead — both are the atomic rejection).
     await expect(createCounterSale({
       tenantId: TENANT,
+      facility_id: facilityId,
       lines: [
         { inventory_item_id: otcItem, quantity: nearBefore },       // consumes all of near
         { inventory_item_id: otcItem, quantity: nearBefore + 10 },  // plans near again
@@ -1803,7 +2099,12 @@ describe('atomicity + isolation', () => {
     expect((await remaining(otcNear)).qty).toBe(nearBefore);
     expect((await remaining(otcFar)).qty).toBe(farBefore);
 
-    const sales = await listCounterSales({ tenantId: TENANT, status: 'FAILED' });
+    const sales = await listCounterSales({
+      tenantId: TENANT,
+      actorUid: CASHIER,
+      actorRole: 'PHARMACY_INCHARGE',
+      status: 'FAILED',
+    });
     expect(sales.length).toBeGreaterThanOrEqual(1);
     const failed = sales[0];
     expect(failed.status).toBe('FAILED');
@@ -1831,8 +2132,11 @@ describe('atomicity + isolation', () => {
   });
 
   test('cross-tenant: foreign items are unsellable and foreign sales unreadable', async () => {
+    // The foreign item lives in OTHER's facility, so this tenant's facility
+    // scope cannot see it at all — the sale fails at item resolution.
     await expect(createCounterSale({
       tenantId: TENANT,
+      facility_id: facilityId,
       lines: [{ inventory_item_id: foreignItem, quantity: 1 }],
       customer_name: 'Cross Tenant',
       payment_mode: 'UPI',
@@ -1840,26 +2144,80 @@ describe('atomicity + isolation', () => {
       sold_by: CASHIER,
     })).rejects.toMatchObject({ statusCode: 404 });
 
-    const mySales = await listCounterSales({ tenantId: TENANT });
+    const mySales = await listCounterSales({
+      tenantId: TENANT, actorUid: CASHIER, actorRole: 'PHARMACY_INCHARGE',
+    });
     expect(mySales.length).toBeGreaterThanOrEqual(1);
-    await expect(getCounterSale({ tenantId: OTHER, id: mySales[0].id }))
-      .rejects.toMatchObject({ statusCode: 404 });
-    const otherSales = await listCounterSales({ tenantId: OTHER });
+    // The foreign pharmacist holds a real ACTIVE grant in their own tenant, so
+    // an empty result here is tenant isolation and not a missing fixture.
+    await expect(getCounterSale({
+      tenantId: OTHER,
+      id: mySales[0].id,
+      actorUid: FOREIGN_WITNESS,
+      actorRole: 'PHARMACY_STAFF',
+    })).rejects.toMatchObject({ statusCode: 404 });
+    const otherSales = await listCounterSales({
+      tenantId: OTHER, actorUid: FOREIGN_WITNESS, actorRole: 'PHARMACY_STAFF',
+    });
     expect(otherSales).toHaveLength(0);
   });
 
+  test('an ungranted pharmacist can neither sell at nor read the facility', async () => {
+    // WITNESS is an active PHARMACY_STAFF member of this tenant with a staff
+    // roster row — everything except an ACTIVE grant on the facility. The grant
+    // row IS the custody authority, so every surface must fail closed.
+    await expect(createCounterSale({
+      tenantId: TENANT,
+      facility_id: facilityId,
+      lines: [{ inventory_item_id: otcItem, quantity: 1 }],
+      customer_name: 'Ungranted Seller Probe',
+      payment_mode: 'UPI',
+      payment_reference: 'upi-ungranted-1',
+      sold_by: WITNESS,
+    })).rejects.toMatchObject({
+      statusCode: 403, code: 'PHARMACY_FACILITY_GRANT_REQUIRED',
+    });
+    await expect(searchSellableItems({
+      tenantId: TENANT,
+      facilityId,
+      actorUid: WITNESS,
+      actorRole: 'PHARMACY_STAFF',
+      search: 'POS-OTC-1',
+    })).rejects.toMatchObject({
+      statusCode: 403, code: 'PHARMACY_FACILITY_GRANT_REQUIRED',
+    });
+    const ungrantedSales = await listCounterSales({
+      tenantId: TENANT, actorUid: WITNESS, actorRole: 'PHARMACY_STAFF',
+    });
+    expect(ungrantedSales).toHaveLength(0);
+  });
+
   test('sellable-item search reports usable stock and the FEFO head batch', async () => {
-    const items = await searchSellableItems({ tenantId: TENANT, search: 'POS-OTC-1' });
+    const items = await searchSellableItems({
+      tenantId: TENANT,
+      facilityId,
+      actorUid: CASHIER,
+      actorRole: 'PHARMACY_INCHARGE',
+      search: 'POS-OTC-1',
+    });
     expect(items).toHaveLength(1);
     const item = items[0];
+    expect(Number(item.facility_id)).toBe(facilityId);
     // Expired + quarantined batches are excluded from both the total and the head.
     expect(Number(item.in_stock_quantity)).toBe(
       (await remaining(otcNear)).qty + (await remaining(otcFar)).qty,
     );
     expect(item.fefo_batch_id).toBe(otcNear);
     expect(Number(item.fefo_unit_price)).toBe(10);
-    // Foreign tenant sees nothing.
-    const foreign = await searchSellableItems({ tenantId: OTHER, search: 'POS-OTC-1' });
+    // A granted pharmacist of the other tenant, searching their own granted
+    // facility, sees none of this tenant's catalogue.
+    const foreign = await searchSellableItems({
+      tenantId: OTHER,
+      facilityId: otherFacilityId,
+      actorUid: FOREIGN_WITNESS,
+      actorRole: 'PHARMACY_STAFF',
+      search: 'POS-OTC-1',
+    });
     expect(foreign).toHaveLength(0);
   });
 });
@@ -1873,11 +2231,16 @@ describe('atomicity + isolation', () => {
 describe('idempotent counter-sale mutations (route-level)', () => {
   const BASE = '/api/v1/pharmacy-orders/counter-sales';
   const ALIAS = '/api/v1/pharmacy/counter-sales';
-  const staff = () => authClient('PHARMACY_STAFF', { uid: CASHIER, tenant_id: TENANT });
+  // ★ The JWT role must match the actor's CANONICAL DB role: the grant
+  // assertion compares the two and 403s on a mismatch. SELLER is a real
+  // PHARMACY_STAFF row, CASHIER a real PHARMACY_INCHARGE — a PHARMACY_STAFF
+  // token for CASHIER would fail custody, not the route gate under test.
+  const staff = () => authClient('PHARMACY_STAFF', { uid: SELLER, tenant_id: TENANT });
   const incharge = () => authClient('PHARMACY_INCHARGE', { uid: CASHIER, tenant_id: TENANT });
   const witness = () => authClient('PHARMACY_STAFF', { uid: WITNESS, tenant_id: TENANT });
 
   const saleBody = (name, ref) => ({
+    facility_id: facilityId,
     lines: [{ inventory_item_id: otcItem, quantity: 1 }],
     customer_name: name,
     customer_phone: '9800000077',
@@ -1907,10 +2270,13 @@ describe('idempotent counter-sale mutations (route-level)', () => {
 
   test('lost-response retries reuse one durable witness request and approval decision', async () => {
     const sale = {
-      lines: [{ inventory_item_id: xItem, quantity: 1 }],
-      customer_name: 'Witness Retry Customer',
+      facility_id: facilityId,
+      lines: [{
+        inventory_item_id: xItem, quantity: 1, prescription_line_index: 0,
+      }],
+      patient_uid: PATIENT,
       customer_phone: '9800000088',
-      rx: RX,
+      rx: rxFor(xPrescriptionId, X_RX_NUMBER),
       payment_mode: 'CARD',
       payment_reference: 'card-witness-retry-1',
     };
@@ -2100,6 +2466,7 @@ describe('counter-sale ledger postings', () => {
   test('shadow mode (default): PAYMENT leg posts post-commit and PATIENT_AR nets to zero', async () => {
     const result = await createCounterSale({
       tenantId: TENANT,
+      facility_id: facilityId,
       lines: [{ inventory_item_id: otcItem, quantity: 2 }],
       customer_name: 'Ledger Shadow Customer',
       payment_mode: 'UPI',
@@ -2131,6 +2498,7 @@ describe('counter-sale ledger postings', () => {
     try {
       const result = await createCounterSale({
         tenantId: TENANT,
+        facility_id: facilityId,
         lines: [{ inventory_item_id: otcItem, quantity: 1 }],
         customer_name: 'Ledger Enforce Customer',
         payment_mode: 'CASH',
@@ -2154,25 +2522,46 @@ describe('counter-sale ledger postings', () => {
 
 // ── Scheduled-drug walk-in identity (statutory register) ──────────────
 //
-// The H1 register and Schedule X account must name the patient. Anonymous
-// H1/X/narcotic sales require captured name+phone (a registered patient
-// linkage suffices by itself); OTC and plain Schedule H stay untouched.
+// The H1 register and Schedule X account must name the patient. A controlled
+// line can no longer be sold to an anonymous walk-in at all: it needs a
+// registered patient_uid AND a signed prescription line, so the captured
+// name+phone path that used to satisfy the register is gone. OTC stays
+// untouched.
 describe('scheduled-drug walk-in identity', () => {
-  test('anonymous H1 sale without a phone is rejected', async () => {
-    await expect(createCounterSale({
+  test('anonymous H1 sale is refused outright, phone or no phone', async () => {
+    const anonymousH1 = (extra) => createCounterSale({
       tenantId: TENANT,
-      lines: [{ inventory_item_id: h1Item, quantity: 1 }],
+      facility_id: facilityId,
+      lines: [{
+        inventory_item_id: h1Item, quantity: 1, prescription_line_index: 0,
+      }],
       customer_name: 'Anon H1 Buyer',
-      rx: RX,
+      rx: rxFor(h1PrescriptionId, H1_RX_NUMBER),
       payment_mode: 'UPI',
-      payment_reference: 'upi-anon-h1-0',
       sold_by: CASHIER,
-    })).rejects.toMatchObject({ code: 'COUNTER_SALE_SCHEDULED_IDENTITY_REQUIRED' });
+      ...extra,
+    });
+    await expect(anonymousH1({ payment_reference: 'upi-anon-h1-0' }))
+      .rejects.toMatchObject({ code: 'COUNTER_SALE_RX_REQUIRED' });
+    // A captured contact number no longer buys an anonymous controlled sale:
+    // the registered-patient requirement fires first and unconditionally.
+    await expect(anonymousH1({
+      customer_phone: '9800000088',
+      payment_reference: 'upi-anon-h1-1',
+    })).rejects.toMatchObject({ code: 'COUNTER_SALE_RX_REQUIRED' });
+    const anonymousRegisterRows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count FROM pharmacy_schedule_register
+        WHERE tenant_id = $1::uuid AND inventory_item_id = $2::int
+          AND patient_uid IS NULL`,
+      TENANT, h1Item,
+    );
+    expect(anonymousRegisterRows[0].count).toBe(0);
   });
 
   test('anonymous OTC sale without a phone still completes', async () => {
     const result = await createCounterSale({
       tenantId: TENANT,
+      facility_id: facilityId,
       lines: [{ inventory_item_id: otcItem, quantity: 1 }],
       customer_name: 'Anon OTC Buyer',
       payment_mode: 'UPI',
@@ -2180,43 +2569,5 @@ describe('scheduled-drug walk-in identity', () => {
       sold_by: CASHIER,
     });
     expect(result.sale.status).toBe('COMPLETED');
-  });
-
-  test('anonymous H1 sale with name+phone writes the identity into the register, both directions', async () => {
-    const result = await createCounterSale({
-      tenantId: TENANT,
-      lines: [{ inventory_item_id: h1Item, quantity: 3 }],
-      customer_name: 'Anon H1 Buyer',
-      customer_phone: '9800000088',
-      rx: RX,
-      payment_mode: 'UPI',
-      payment_reference: 'upi-anon-h1-1',
-      sold_by: CASHIER,
-    });
-    expect(result.sale.status).toBe('COMPLETED');
-    const dispense = await prisma.$queryRawUnsafe(
-      `SELECT patient_uid, patient_name, patient_phone FROM pharmacy_schedule_register
-        WHERE tenant_id = $1::uuid AND inventory_item_id = $2::int
-          AND movement_kind = 'dispense' AND patient_uid IS NULL`,
-      TENANT, h1Item,
-    );
-    expect(dispense).toHaveLength(1);
-    expect(dispense[0].patient_name).toBe('Anon H1 Buyer');
-    expect(dispense[0].patient_phone).toBe('9800000088');
-
-    const { reconciled: voided } = await completeCounterSaleVoid({
-      saleId: result.sale.id,
-      reason: 'identity return check before handover',
-    });
-    expect(voided.sale.status).toBe('VOIDED');
-    const returned = await prisma.$queryRawUnsafe(
-      `SELECT patient_name, patient_phone FROM pharmacy_schedule_register
-        WHERE tenant_id = $1::uuid AND inventory_item_id = $2::int
-          AND movement_kind = 'return' AND patient_uid IS NULL`,
-      TENANT, h1Item,
-    );
-    expect(returned).toHaveLength(1);
-    expect(returned[0].patient_name).toBe('Anon H1 Buyer');
-    expect(returned[0].patient_phone).toBe('9800000088');
   });
 });

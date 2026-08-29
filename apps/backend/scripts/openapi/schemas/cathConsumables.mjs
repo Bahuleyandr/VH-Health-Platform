@@ -83,6 +83,29 @@ const idempotencyHeaderParameter = {
   }
 };
 
+// Clinical Cath catalog and batch reads are case-scoped: the route guard
+// (cathLabRoutes.js `cathCaseQueryGuard('case_id')`) resolves the case before
+// the handler runs, and listConsumableCatalog/listCatalogBatches then pin the
+// facility from that case. Without case_id the read cannot prove which facility
+// it is allowed to see, so the parameter is required rather than optional.
+const requiredCaseIdQueryParameter = {
+  name: 'case_id',
+  in: 'query',
+  required: true,
+  schema: BIGINT_WIRE
+};
+
+// The admin catalog read has no case to pin a facility from, so the operator
+// must name the facility explicitly. `listConsumableCatalog` throws
+// 'case_id or facility_id is required for facility-scoped Cath catalog access'
+// when neither is supplied — the facility is never inferred.
+const requiredFacilityIdQueryParameter = {
+  name: 'facility_id',
+  in: 'query',
+  required: true,
+  schema: { type: 'integer', minimum: 1 }
+};
+
 export const schemas = {
   CathConsumableCatalogItem: {
     type: 'object',
@@ -167,6 +190,138 @@ export const schemas = {
     }
   },
   CathConsumableCatalogMutationResponse: envelope('CathConsumableCatalogMutationData'),
+
+  // Governed authority-recovery resolve. The request shape below is exactly
+  // what the route reads — `req.body.resolution` and `req.body.resolution_note`
+  // (cathConsumablesRoutes.js) — and exactly what
+  // `resolveCathConsumableAuthorityRecovery` (cathLabService.js) then validates.
+  // Nothing else in the body is ever consulted.
+  CathConsumableAuthorityRecoveryResolution: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['action', 'facility_id'],
+    properties: {
+      action: {
+        type: 'string',
+        enum: ['REATTACH', 'PRESERVE', 'CANCEL', 'RETIRE'],
+        description:
+          'Narrowed per worklist entity_type: cath_consumable_catalog accepts all four, cath_consumable_usage accepts REATTACH, PRESERVE, or CANCEL, and cath_lab_case accepts REATTACH only. Anything else is a 400 CATH_AUTHORITY_RECOVERY_ACTION_REQUIRED.'
+      },
+      facility_id: {
+        type: 'integer',
+        minimum: 1,
+        description:
+          'The one exact active facility the recovery is governed by. Always required — the resolver never infers a facility.'
+      },
+      inventory_item_id: {
+        type: 'integer',
+        minimum: 1,
+        description:
+          'Required when action is REATTACH on a cath_consumable_catalog or cath_consumable_usage row; unread otherwise.'
+      },
+      inventory_batch_id: {
+        type: 'integer',
+        minimum: 1,
+        description:
+          'Required when action is REATTACH on a cath_consumable_usage row; unread otherwise.'
+      }
+    }
+  },
+
+  CathConsumableAuthorityRecoveryResolveRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['resolution', 'resolution_note'],
+    properties: {
+      resolution: {
+        $ref: '#/components/schemas/CathConsumableAuthorityRecoveryResolution'
+      },
+      resolution_note: {
+        type: 'string',
+        minLength: 3,
+        maxLength: 500,
+        description:
+          'Operator justification, measured after trimming: under 3 or over 500 characters is a 400 CATH_AUTHORITY_RECOVERY_NOTE_REQUIRED.'
+      }
+    }
+  },
+
+  // Columns are the worklist row this route returns. The resolve branch
+  // RETURNINGs id, entity_type, entity_id, inventory_item_id, facility_id,
+  // reason_code, authority_snapshot, status, resolved_by, resolved_at,
+  // resolution_note, created_at and updated_at; the idempotent-replay branch
+  // returns the same row read without created_at/updated_at plus
+  // `replayed: true`, which is why those three are optional and the other
+  // eleven are required. Nullability and value sets are taken from the table
+  // (migration 753) rather than guessed.
+  CathConsumableAuthorityRecoveryItem: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'id',
+      'entity_type',
+      'entity_id',
+      'inventory_item_id',
+      'facility_id',
+      'reason_code',
+      'authority_snapshot',
+      'status',
+      'resolved_by',
+      'resolved_at',
+      'resolution_note'
+    ],
+    properties: {
+      id: BIGINT_WIRE,
+      entity_type: {
+        type: 'string',
+        enum: ['cath_consumable_catalog', 'cath_consumable_usage', 'cath_lab_case'],
+        description:
+          'This route resolves only the three Cath entity types; any other worklist row is a 404 CATH_AUTHORITY_RECOVERY_NOT_FOUND.'
+      },
+      entity_id: BIGINT_WIRE,
+      inventory_item_id: nullableInteger,
+      facility_id: nullableInteger,
+      reason_code: {
+        type: 'string',
+        enum: [
+          'CATH_CATALOG_FACILITY_UNRESOLVED',
+          'CATH_USAGE_AUTHORITY_UNRESOLVED',
+          'CATH_CASE_FACILITY_UNRESOLVED'
+        ]
+      },
+      authority_snapshot: { type: 'object', additionalProperties: true },
+      status: {
+        type: 'string',
+        enum: ['OPEN', 'RESOLVED'],
+        description:
+          'The table permits both, but a 2xx from this route always carries RESOLVED — the resolve branch writes it and the replay branch is only reachable for an already-resolved row.'
+      },
+      resolved_by: nullableUuid,
+      resolved_at: nullableDateTime,
+      resolution_note: nullableString,
+      created_at: { type: 'string', format: 'date-time' },
+      updated_at: { type: 'string', format: 'date-time' },
+      replayed: {
+        type: 'boolean',
+        description:
+          'Present and true only when this Idempotency-Key already resolved this same row for this same actor, so the recorded resolution was replayed rather than re-applied.'
+      }
+    }
+  },
+
+  CathConsumableAuthorityRecoveryResolveData: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['recovery'],
+    properties: {
+      recovery: {
+        $ref: '#/components/schemas/CathConsumableAuthorityRecoveryItem'
+      }
+    }
+  },
+  CathConsumableAuthorityRecoveryResolveResponse: envelope(
+    'CathConsumableAuthorityRecoveryResolveData'
+  ),
 
   CathConsumableBatch: {
     type: 'object',
@@ -380,6 +535,7 @@ export const schemas = {
       'patient_uid',
       'item_name',
       'catalog_item_id',
+      'facility_id',
       'inventory_item_id',
       'inventory_batch_id',
       'batch_number',
@@ -405,6 +561,10 @@ export const schemas = {
       patient_uid: { type: 'string', format: 'uuid' },
       item_name: { type: 'string', minLength: 1 },
       catalog_item_id: BIGINT_WIRE,
+      // The pinned facility this shortfall belongs to. Unlike the identifiers
+      // above it is a facilities.id (int4), and cathInventoryReconciliationView
+      // emits it as a JSON Number — not a BIGINT_WIRE decimal string.
+      facility_id: { type: 'integer', minimum: 1 },
       inventory_item_id: BIGINT_WIRE,
       inventory_batch_id: NULLABLE_BIGINT_WIRE,
       batch_number: nullableString,
@@ -598,14 +758,26 @@ const catalogQueryParameters = [
 export const operations = {
   'GET /api/v1/admin/cath-consumables/catalog': {
     parameters: [
+      requiredFacilityIdQueryParameter,
       ...catalogQueryParameters.filter(parameter => parameter.name !== 'scan'),
       queryParameter('mapped', { type: 'boolean' })
     ],
     response: 'CathConsumableCatalogListResponse'
   },
   'PUT /api/v1/admin/cath-consumables/catalog': {
+    parameters: [idempotencyHeaderParameter],
     request: 'CathConsumableCatalogUpsertRequest',
     response: 'CathConsumableCatalogMutationResponse'
+  },
+  'POST /api/v1/admin/cath-consumables/authority-recovery/{id}/resolve': {
+    description:
+      'Resolves one governed Cath consumable inventory-authority recovery worklist row. The route is mounted with requireIdempotencyKey({ required: true, scope: cath_consumable_authority_recovery, retainOnServerError: true, durableDomainReceipt: true }), so the Idempotency-Key header is not optional — omitting it is a hard 400, and the retained claim is what makes a retry replay the recorded resolution instead of resolving the row twice.',
+    pathParameters: {
+      id: BIGINT_WIRE
+    },
+    parameters: [idempotencyHeaderParameter],
+    request: 'CathConsumableAuthorityRecoveryResolveRequest',
+    response: 'CathConsumableAuthorityRecoveryResolveResponse'
   },
   'GET /api/v1/admin/cath-consumables/billing-settings': {
     response: 'CathConsumablesBillingSettingsResponse'
@@ -626,10 +798,11 @@ export const operations = {
     response: 'CathConsumableUnbilledUsageListResponse'
   },
   'GET /api/v1/cath-lab/consumables/catalog': {
-    parameters: catalogQueryParameters,
+    parameters: [requiredCaseIdQueryParameter, ...catalogQueryParameters],
     response: 'CathConsumableCatalogListResponse'
   },
   'GET /api/v1/cath-lab/consumables/catalog/{id}/batches': {
+    parameters: [requiredCaseIdQueryParameter],
     response: 'CathConsumableBatchListResponse'
   },
   'GET /api/v1/cath-lab/cases/{id}/consumables': {

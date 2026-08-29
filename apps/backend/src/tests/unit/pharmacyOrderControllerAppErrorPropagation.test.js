@@ -17,6 +17,8 @@ import { AppError } from '../../utils/AppError.js';
 // byte-identical.
 
 const prismaQueryMock = jest.fn();
+const assertVerificationClearedMock = jest.fn(async () => {});
+const assertVerificationClearedTxMock = jest.fn(async () => {});
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: prismaQueryMock },
@@ -34,8 +36,33 @@ jest.unstable_mockModule('../../controllers/delivery/deliveryTrackingController.
   calculateETA: jest.fn(() => null),
 }));
 jest.unstable_mockModule('../../services/pharmacy/pharmacyCapService.js', () => ({
-  probePharmacyCap: jest.fn(async () => ({ message: null })),
-  shouldBlockDispense: jest.fn(() => false),
+  assertPharmacyCapForDispenseTx: jest.fn(async () => ({ message: null })),
+  lockPharmacyFundingAuthorityTx: jest.fn(async () => ({})),
+  releasePharmacyCapReservationTx: jest.fn(async () => null),
+  resolveAuthoritativeCounterFundingTx: jest.fn(async () => ({
+    fundedAmount: 0,
+    fundingSource: null,
+    fundingReference: null,
+  })),
+  resolvePharmacyFundingPatientUidTx: jest.fn(async () => '11111111-1111-4111-8111-111111111111'),
+}));
+jest.unstable_mockModule('../../services/pharmacy/pharmacyFacilityAuthorityService.js', () => ({
+  assertPharmacyFacilityGrant: jest.fn(async () => ({
+    actor_uid: '11111111-1111-4111-8111-111111111111',
+    actor_role: 'PHARMACY_STAFF',
+  })),
+  pharmacyFacilityActorFromRequest: jest.fn((req) => ({
+    actorUid: req.user?.uid,
+    actorRole: req.user?.role,
+  })),
+  requestedPharmacyFacilityId: jest.fn(() => null),
+  requireOrderFacility: jest.fn((order) => Number(order.facility_id || 7)),
+  resolveOrderPharmacyFacility: jest.fn(async () => ({ id: 7 })),
+  resolvePharmacyFacility: jest.fn(async () => ({ id: 7 })),
+}));
+jest.unstable_mockModule('../../services/billing/billingV2Service.js', () => ({
+  compensateTerminalPharmacyFundingAuthorityTx: jest.fn(async () => ({ status: 'compensated' })),
+  materializePharmacyFundingAuthority: jest.fn(async () => ({ status: 'funded' })),
 }));
 jest.unstable_mockModule('../../services/clinical/allergySourceService.js', () => ({
   getUnifiedActiveAllergies: jest.fn(async () => []),
@@ -44,7 +71,9 @@ jest.unstable_mockModule('../../services/clinical/canonicalOperationalBridgeServ
   emitPharmacyOrderEvent: jest.fn(async () => ({})),
 }));
 jest.unstable_mockModule('../../services/pharmacy/pharmacistVerificationService.js', () => ({
-  assertVerificationCleared: jest.fn(async () => {}),
+  assertVerificationCleared: assertVerificationClearedMock,
+  assertVerificationClearedTx: assertVerificationClearedTxMock,
+  clinicalOrderItemsSha256: jest.fn(() => 'items-sha256'),
   ensurePackBarcode: jest.fn(async () => 'PACK-1'),
   verifyOrder: jest.fn(async () => ({})),
   getPackLabel: jest.fn(async () => ({})),
@@ -90,6 +119,9 @@ jest.unstable_mockModule('../../middleware/uploadMiddleware.js', () => ({
   validateFileContent: (_req, _res, next) => next(),
   validatePatientUpload: (_req, _res, next) => next(),
 }));
+jest.unstable_mockModule('../../middleware/idempotencyMiddleware.js', () => ({
+  requireIdempotencyKey: () => (_req, _res, next) => next(),
+}));
 jest.unstable_mockModule('../../validators/pharmacy/orderValidators.js', () => ({
   placeOrderValidation: (_req, _res, next) => next(),
   updateOrderStatusValidation: (_req, _res, next) => next(),
@@ -121,6 +153,48 @@ app.use('/api/v1/pharmacy', pharmacyOrderRoutes);
 
 beforeEach(() => {
   prismaQueryMock.mockReset();
+  assertVerificationClearedMock.mockReset();
+  assertVerificationClearedMock.mockResolvedValue(undefined);
+});
+
+describe('dispense verification gate preserves its machine-readable code', () => {
+  test('ordinary pharmacy staff cannot authorise a TPA cap override', async () => {
+    const response = await request(app)
+      .post('/api/v1/pharmacy/71/delivered')
+      .set('Idempotency-Key', 'cap-override-authority-71')
+      .send({
+        cap_override: true,
+        cap_override_reason: 'Insurer enhancement is approved offline',
+      });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.body.code).toBe('TPA_PHARMACY_CAP_OVERRIDE_FORBIDDEN');
+    expect(assertVerificationClearedMock).not.toHaveBeenCalled();
+  });
+
+  test('PHARMACY_VERIFICATION_REQUIRED is returned at the envelope root', async () => {
+    assertVerificationClearedMock.mockRejectedValueOnce(AppError.conflict(
+      'Pharmacist clinical verification is required before dispense',
+      'PHARMACY_VERIFICATION_REQUIRED',
+      {
+        clinical_verification_status: 'pending',
+        verify_endpoint: '/api/v1/pharmacy/orders/71/verify',
+      },
+    ));
+
+    const response = await request(app)
+      .post('/api/v1/pharmacy/71/delivered')
+      .set('Idempotency-Key', 'verification-gate-71')
+      .send({});
+
+    expect(response.statusCode).toBe(409);
+    expect(response.body.code).toBe('PHARMACY_VERIFICATION_REQUIRED');
+    expect(response.body.details).toEqual({
+      clinical_verification_status: 'pending',
+      verify_endpoint: '/api/v1/pharmacy/orders/71/verify',
+    });
+    expect(response.body.details).not.toHaveProperty('code');
+  });
 });
 
 describe('confirmOrder catch relays AppError code + details (predicate kept)', () => {

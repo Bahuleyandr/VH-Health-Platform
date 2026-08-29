@@ -54,7 +54,7 @@ import {
   __testing__ as mergeTesting,
 } from '../services/patient/patientMergeService.js';
 import { lookupByIdentifier } from '../services/patient/patientIdentifierService.js';
-import { importFhirBundle } from '../services/import/patientDataImport.js';
+import { importFhirBundle as importFhirBundleWithAuthority } from '../services/import/patientDataImport.js';
 import { reconcileRecordedVitalsEffects } from '../services/emr/vitalsChartService.js';
 import {
   listWorkflowSlaInstances,
@@ -76,6 +76,17 @@ const TENANT = '00000000-0000-4000-8000-000000000001';
 const MARK = `PMERGE-${process.pid}-${Date.now()}`;
 const RUNTIME_ROLE = `vh_p2_merge_${process.pid}_${Date.now().toString(36)}`;
 const PRIOR_RUNTIME_ROLE = process.env.AUTH_TENANT_RLS_RUNTIME_ROLE;
+
+function importFhirBundle(bundle, importedBy, options = {}) {
+  const patientReference = (bundle.entry || [])
+    .map(({ resource }) => resource?.subject?.reference || resource?.patient?.reference)
+    .find(Boolean);
+  const patientUid = String(patientReference || '').replace('Patient/', '');
+  return importFhirBundleWithAuthority(bundle, importedBy, {
+    ...options,
+    authority: { patientUid },
+  });
+}
 
 const REQUESTER = randomUUID();
 const APPROVER = randomUUID();

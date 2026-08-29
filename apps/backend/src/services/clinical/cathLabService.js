@@ -8,6 +8,7 @@ import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { addInvoiceItem, createDraftInvoice } from '../billing/billingV2Service.js';
 import { recordMovementTx } from '../pharmacy/inventoryV2Service.js';
+import { assertPharmacyFacilityGrant } from '../pharmacy/pharmacyFacilityAuthorityService.js';
 import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
 import {
   claimInboxTask,
@@ -348,6 +349,47 @@ function cathInventoryAuthenticatedRoles(context = {}) {
     .filter(Boolean);
 }
 
+async function cathCanonicalActorTx(tx, tenantId, context = {}) {
+  const actorUid = maybeUuid(context.actorUid, 'actorUid');
+  if (!actorUid) {
+    throw AppError.forbidden(
+      'Cath clinical writes require a canonical authenticated actor',
+      'CATH_CANONICAL_ACTOR_REQUIRED'
+    );
+  }
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT uid, role, name
+       FROM users
+      WHERE tenant_id=$1::uuid
+        AND uid=$2::uuid
+        AND is_active=TRUE
+        AND status='active'
+        AND COALESCE(is_deleted, FALSE)=FALSE
+        AND merged_into_uid IS NULL
+      LIMIT 1
+      FOR SHARE`,
+    tenantId,
+    actorUid
+  );
+  const actor = rows[0];
+  const canonicalRole = String(actor?.role || '').trim().toUpperCase();
+  const authenticatedRoles = cathInventoryAuthenticatedRoles(context);
+  if (
+    !actor?.uid
+    || (authenticatedRoles.length > 0 && !authenticatedRoles.includes(canonicalRole))
+  ) {
+    throw AppError.forbidden(
+      'Cath clinical write actor does not match an active same-tenant identity',
+      'CATH_CANONICAL_ACTOR_REQUIRED'
+    );
+  }
+  return Object.freeze({
+    uid: String(actor.uid),
+    role: canonicalRole,
+    name: actor.name || null
+  });
+}
+
 async function cathInventoryReconciliationActorTx(tx, tenantId, context = {}) {
   const actorUid = maybeUuid(context.actorUid, 'actorUid');
   if (!actorUid) {
@@ -363,9 +405,10 @@ async function cathInventoryReconciliationActorTx(tx, tenantId, context = {}) {
       WHERE tenant_id = $1::uuid
         AND uid = $2::uuid
         AND is_active = TRUE
-        AND status = 'active'
-        AND COALESCE(is_deleted, FALSE) = FALSE
-        AND role = ANY($3::text[])
+         AND status = 'active'
+         AND COALESCE(is_deleted, FALSE) = FALSE
+         AND merged_into_uid IS NULL
+         AND role = ANY($3::text[])
       LIMIT 1`,
     tenantId,
     actorUid,
@@ -544,7 +587,7 @@ async function assertPatient(tenantId, patientUid) {
 
 async function caseById(db, tenantId, caseId, { lock = false } = {}) {
   const rows = await db.$queryRawUnsafe(
-    `SELECT id, tenant_id, patient_uid, encounter_id, requested_procedure,
+    `SELECT id, tenant_id, patient_uid, encounter_id, facility_id, requested_procedure,
             indication, urgency, lab_room, status, planned_start_at, planned_end_at,
             actual_start_at, actual_end_at, team, sla_rule_code, sla_instance_id
        FROM cath_lab_cases
@@ -659,6 +702,11 @@ async function updateCaseCanonicalRefs(db, { tenantId, caseId, event, sla = null
 export async function createCase(input = {}, context = {}) {
   const tenantId = tenantOr(input.tenantId);
   const patientUid = maybeUuid(input.patient_uid || input.patientUid, 'patient_uid');
+  const encounterId = maybeUuid(input.encounter_id || input.encounterId, 'encounter_id');
+  const requestedFacilityValue = input.facility_id ?? input.facilityId;
+  const requestedFacilityId = requestedFacilityValue == null || requestedFacilityValue === ''
+    ? null
+    : normalizeId(requestedFacilityValue, 'facility_id');
   await assertPatient(tenantId, patientUid);
   const requestedProcedure = cleanText(input.requested_procedure || input.requestedProcedure, 160);
   if (!requestedProcedure) {
@@ -683,19 +731,92 @@ export async function createCase(input = {}, context = {}) {
   const slaRuleCode = cleanText(input.sla_rule_code || input.slaRuleCode, 100);
 
   return setTenantTx(tenantId, async tx => {
+    let facilityId = requestedFacilityId;
+    if (encounterId) {
+      const encounters = await tx.$queryRawUnsafe(
+        `SELECT encounter.id, encounter.patient_uid,
+                CASE WHEN encounter.metadata->>'facility_id' ~ '^[1-9][0-9]*$'
+                     THEN (encounter.metadata->>'facility_id')::int ELSE NULL END
+                  AS facility_id
+           FROM patient_encounters encounter
+          WHERE encounter.tenant_id=$1::uuid
+            AND encounter.id=$2::uuid
+            AND encounter.patient_uid=$3::uuid
+          FOR KEY SHARE OF encounter`,
+        tenantId,
+        encounterId,
+        patientUid
+      );
+      if (encounters.length !== 1) {
+        throw AppError.conflict(
+          'Cath-lab encounter must belong to the exact same-tenant patient',
+          'CATH_LAB_CASE_ENCOUNTER_INVALID'
+        );
+      }
+      if (encounters[0].facility_id == null) {
+        throw AppError.conflict(
+          'Cath-lab encounter has no exact facility authority',
+          'CATH_LAB_CASE_FACILITY_REQUIRED'
+        );
+      }
+      const encounterFacilityId = Number(encounters[0].facility_id);
+      if (requestedFacilityId != null && encounterFacilityId !== requestedFacilityId) {
+        throw AppError.conflict(
+          'Cath-lab case facility must match the encounter facility authority',
+          'CATH_LAB_CASE_FACILITY_MISMATCH'
+        );
+      }
+      facilityId = encounterFacilityId;
+      const facilities = await tx.$queryRawUnsafe(
+        `SELECT id
+           FROM facilities
+          WHERE tenant_id=$1::uuid AND id=$2::int AND status='active'
+          FOR KEY SHARE`,
+        tenantId,
+        facilityId
+      );
+      if (facilities.length !== 1) {
+        throw AppError.conflict(
+          'Cath-lab encounter facility authority is not active',
+          'CATH_LAB_CASE_FACILITY_REQUIRED'
+        );
+      }
+    } else {
+      if (facilityId == null) {
+        throw AppError.badRequest(
+          'facility_id is required when a Cath-lab case has no encounter',
+          'CATH_LAB_CASE_FACILITY_REQUIRED'
+        );
+      }
+      const facilities = await tx.$queryRawUnsafe(
+        `SELECT id
+           FROM facilities
+          WHERE tenant_id=$1::uuid AND id=$2::int AND status='active'
+          FOR KEY SHARE`,
+        tenantId,
+        facilityId
+      );
+      if (facilities.length !== 1) {
+        throw AppError.conflict(
+          'Cath-lab cases require one exact active facility',
+          'CATH_LAB_CASE_FACILITY_REQUIRED'
+        );
+      }
+    }
     const rows = await tx.$queryRawUnsafe(
       `INSERT INTO cath_lab_cases
-         (tenant_id, patient_uid, encounter_id, appointment_id, requested_procedure,
+         (tenant_id, patient_uid, encounter_id, appointment_id, facility_id, requested_procedure,
           indication, urgency, lab_room, status, planned_start_at, planned_end_at,
           team, sla_rule_code, created_by, updated_by, metadata)
-       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::int, $5,
-               $6, $7, $8, $9, $10::timestamptz, $11::timestamptz,
-               $12::jsonb, $13, $14::uuid, $14::uuid, $15::jsonb)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::int, $5::int, $6,
+               $7, $8, $9, $10, $11::timestamptz, $12::timestamptz,
+               $13::jsonb, $14, $15::uuid, $15::uuid, $16::jsonb)
        RETURNING *`,
       tenantId,
       patientUid,
-      maybeUuid(input.encounter_id || input.encounterId, 'encounter_id'),
+      encounterId,
       input.appointment_id ? normalizeId(input.appointment_id, 'appointment_id') : null,
+      facilityId,
       requestedProcedure,
       cleanText(input.indication),
       urgency,
@@ -732,6 +853,7 @@ export async function createCase(input = {}, context = {}) {
       actorRole: context.actorRole,
       summary: `Cath-lab case created: ${requestedProcedure}`,
       payload: {
+        facility_id: facilityId,
         requested_procedure: requestedProcedure,
         urgency,
         lab_room: cathCase.lab_room
@@ -748,7 +870,7 @@ export async function createCase(input = {}, context = {}) {
             sourceTable: 'cath_lab_cases',
             sourceId: String(cathCase.id),
             assignedRoleCodes: ['CATH_LAB_INCHARGE', 'CATH_LAB_STAFF'],
-            metadata: { requested_procedure: requestedProcedure, urgency }
+            metadata: { facility_id: facilityId, requested_procedure: requestedProcedure, urgency }
           },
           { db: tx }
         )
@@ -773,7 +895,8 @@ export async function listCases({ tenantId, date = null, status = null, limit = 
   const safeLimit = Math.max(1, Math.min(Number.parseInt(limit, 10) || 100, 500));
   const rows = await prisma.$queryRawUnsafe(
     `SELECT c.id, c.tenant_id, c.patient_uid, u.name AS patient_name,
-            c.encounter_id, c.appointment_id, c.requested_procedure, c.indication,
+            c.encounter_id, c.facility_id, c.appointment_id,
+            c.requested_procedure, c.indication,
             c.urgency, c.lab_room, c.status, c.planned_start_at, c.planned_end_at,
             c.actual_start_at, c.actual_end_at, c.team, c.sla_rule_code,
             c.sla_instance_id, c.created_at, c.updated_at,
@@ -1401,12 +1524,13 @@ export async function addDeviceLink(caseId, input = {}, context = {}) {
 }
 
 const CATH_CONSUMABLE_CATALOG_SELECT = `
-  c.id, c.tenant_id, c.inventory_item_id, c.item_name, c.category,
+  c.id, c.tenant_id, c.facility_id, c.inventory_item_id, c.item_name, c.category,
   c.manufacturer, c.model, c.is_implant, c.batch_tracked,
   c.default_unit_cost_reference, c.billing_item_code, c.status,
   c.retired_at, c.created_by, c.updated_by, c.created_at, c.updated_at,
   c.metadata, i.sku_code AS inventory_sku, i.display_name AS inventory_item_name,
-  i.unit_label AS inventory_unit_label`;
+  i.unit_label AS inventory_unit_label, i.status AS inventory_item_status,
+  i.facility_id AS inventory_facility_id, f.status AS inventory_facility_status`;
 
 async function catalogItemById(db, tenantId, catalogItemId, { lock = false } = {}) {
   const rows = await db.$queryRawUnsafe(
@@ -1415,6 +1539,9 @@ async function catalogItemById(db, tenantId, catalogItemId, { lock = false } = {
        LEFT JOIN pharmacy_inventory_items i
          ON i.id = c.inventory_item_id
         AND i.tenant_id = c.tenant_id
+       LEFT JOIN facilities f
+         ON f.tenant_id = c.tenant_id
+        AND f.id = c.facility_id
       WHERE c.tenant_id = $1::uuid
         AND c.id = $2::bigint
       ${lock ? 'FOR UPDATE OF c' : ''}
@@ -1437,12 +1564,41 @@ export async function listConsumableCatalog({
   category = null,
   status = 'active',
   mapped = null,
+  caseId = null,
+  facilityId = null,
   limit = 100,
   db = prisma
 } = {}) {
   const tid = tenantOr(tenantId);
-  const params = [tid];
-  const clauses = ['c.tenant_id = $1::uuid'];
+  let exactFacilityId = facilityId == null || facilityId === ''
+    ? null
+    : normalizeId(facilityId, 'facility_id');
+  if (caseId != null && caseId !== '') {
+    const cathCase = await caseById(db, tid, caseId);
+    if (cathCase.facility_id == null) {
+      throw AppError.conflict(
+        'Cath-lab case has no exact facility authority',
+        'CATH_LAB_CASE_FACILITY_UNRESOLVED'
+      );
+    }
+    exactFacilityId = Number(cathCase.facility_id);
+  }
+  if (exactFacilityId == null) {
+    throw AppError.badRequest(
+      'case_id or facility_id is required for facility-scoped Cath catalog access',
+      'CATH_CONSUMABLE_FACILITY_SCOPE_REQUIRED'
+    );
+  }
+  const params = [tid, exactFacilityId];
+  const clauses = ['c.tenant_id = $1::uuid', 'c.facility_id = $2::int'];
+  if (caseId != null && caseId !== '') {
+    clauses.push(
+      "c.status = 'active'",
+      "i.status = 'active'",
+      'i.facility_id = c.facility_id',
+      "f.status = 'active'"
+    );
+  }
   const query = cleanText(q || search, 160);
   if (query) {
     params.push(`%${query.toLowerCase()}%`);
@@ -1483,6 +1639,9 @@ export async function listConsumableCatalog({
        LEFT JOIN pharmacy_inventory_items i
          ON i.id = c.inventory_item_id
         AND i.tenant_id = c.tenant_id
+       LEFT JOIN facilities f
+         ON f.tenant_id = c.tenant_id
+        AND f.id = c.facility_id
       WHERE ${clauses.join(' AND ')}
       ORDER BY c.status, c.item_name, c.id
       LIMIT $${params.length}::int`,
@@ -1498,6 +1657,27 @@ export async function upsertConsumableCatalogItem(input = {}, context = {}) {
     const existing = itemId
       ? await catalogItemById(tx, tenantId, itemId, { lock: true })
       : null;
+    if (existing) {
+      const recovery = await tx.$queryRawUnsafe(
+        `SELECT id
+           FROM pharmacy_inventory_authority_recovery_worklist
+          WHERE tenant_id=$1::uuid
+            AND entity_type='cath_consumable_catalog'
+            AND entity_id=$2::bigint
+            AND status='OPEN'
+          LIMIT 1
+          FOR UPDATE`,
+        tenantId,
+        existing.id
+      );
+      if (recovery.length) {
+        throw AppError.conflict(
+          'Unresolved Cath catalog authority requires the governed recovery command',
+          'CATH_CONSUMABLE_RECOVERY_COMMAND_REQUIRED',
+          { recovery_worklist_id: String(recovery[0].id) }
+        );
+      }
+    }
     const itemName = cleanText(input.item_name ?? input.itemName ?? existing?.item_name, 255);
     if (!itemName) {
       throw AppError.badRequest('item_name is required', 'CATH_CONSUMABLE_NAME_REQUIRED');
@@ -1547,40 +1727,57 @@ export async function upsertConsumableCatalogItem(input = {}, context = {}) {
     if (
       existing
       && inventoryInputProvided
-      && inventoryItemId !== existingInventoryItemId
+      && String(inventoryItemId ?? '') !== String(existingInventoryItemId ?? '')
     ) {
-      const usage = await tx.$queryRawUnsafe(
-        `SELECT 1
-           FROM cath_case_consumable_usage
-          WHERE tenant_id = $1::uuid
-            AND catalog_item_id = $2::bigint
-          LIMIT 1`,
-        tenantId,
-        existing.id
+      throw AppError.conflict(
+        'Cath catalog facility/item authority is immutable; retire this item and create a new catalog entry',
+        'CATH_CONSUMABLE_INVENTORY_LINK_IMMUTABLE'
       );
-      if (usage.length) {
-        throw AppError.conflict(
-          'Inventory link cannot be changed after cath usage has been recorded; retire this item and create a new catalog entry',
-          'CATH_CONSUMABLE_INVENTORY_LINK_IMMUTABLE'
-        );
-      }
     }
+    let inventoryFacilityId = existing?.facility_id == null
+      ? null
+      : Number(existing.facility_id);
     if (inventoryItemId) {
       const inventory = await tx.$queryRawUnsafe(
-        `SELECT id, tenant_id
-           FROM pharmacy_inventory_items
-          WHERE id = $1::int
-            AND tenant_id = $2::uuid
-          LIMIT 1`,
+        `SELECT item.id, item.tenant_id, item.facility_id,
+                item.status AS inventory_item_status,
+                facility.status AS facility_status
+           FROM pharmacy_inventory_items item
+           JOIN facilities facility
+             ON facility.tenant_id=item.tenant_id
+            AND facility.id=item.facility_id
+          WHERE item.id = $1::int
+            AND item.tenant_id = $2::uuid
+            AND item.status = 'active'
+            AND facility.status = 'active'
+          LIMIT 1
+          FOR UPDATE OF item, facility`,
         inventoryItemId,
         tenantId
       );
-      if (!inventory.length) {
+      if (!inventory.length || inventory[0].facility_id == null) {
         throw AppError.badRequest(
-          'Linked inventory item was not found in this tenant',
+          'Linked inventory item must belong to one active facility in this tenant',
           'CATH_CONSUMABLE_INVENTORY_ITEM_INVALID'
         );
       }
+      inventoryFacilityId = Number(inventory[0].facility_id);
+    } else if (status === 'active') {
+      throw AppError.conflict(
+        'An active Cath catalog item must map to one active facility inventory item',
+        'CATH_CONSUMABLE_FACILITY_MAPPING_REQUIRED',
+        { recovery_action: 'map_or_retire_cath_consumable_catalog_item' }
+      );
+    }
+    const canonicalActor = await cathCanonicalActorTx(tx, tenantId, context);
+    if (inventoryFacilityId != null) {
+      await assertPharmacyFacilityGrant(tx, {
+        tenantId,
+        facilityId: inventoryFacilityId,
+        actorUid: canonicalActor.uid,
+        actorRole: canonicalActor.role,
+        forUpdate: true
+      });
     }
     const manufacturerInput = providedInput(input, 'manufacturer');
     const manufacturer = manufacturerInput.provided
@@ -1603,33 +1800,34 @@ export async function upsertConsumableCatalogItem(input = {}, context = {}) {
       ? cleanText(billingCodeInput.value, 50)
       : (existing?.billing_item_code ?? null);
     const metadata = normalizeJson(input.metadata, 'metadata', existing?.metadata || {});
-    const actorUid = maybeUuid(context.actorUid, 'actorUid');
     let savedId;
     if (existing) {
       const rows = await tx.$queryRawUnsafe(
         `UPDATE cath_consumable_catalog
-            SET inventory_item_id = $3::int,
-                item_name = $4,
-                category = $5,
-                manufacturer = $6,
-                model = $7,
-                is_implant = $8,
-                batch_tracked = $9,
-                default_unit_cost_reference = $10::numeric,
-                billing_item_code = $11,
-                status = $12::varchar(20),
+            SET facility_id = $3::int,
+                inventory_item_id = $4::int,
+                item_name = $5,
+                category = $6,
+                manufacturer = $7,
+                model = $8,
+                is_implant = $9,
+                batch_tracked = $10,
+                default_unit_cost_reference = $11::numeric,
+                billing_item_code = $12,
+                status = $13::varchar(20),
                 retired_at = CASE
-                  WHEN $12::varchar(20) = 'retired' THEN COALESCE(retired_at, NOW())
+                  WHEN $13::varchar(20) = 'retired' THEN COALESCE(retired_at, NOW())
                   ELSE NULL
                 END,
-                updated_by = $13::uuid,
+                updated_by = $14::uuid,
                 updated_at = NOW(),
-                metadata = $14::jsonb
+                metadata = $15::jsonb
           WHERE tenant_id = $1::uuid
             AND id = $2::bigint
         RETURNING id`,
         tenantId,
         existing.id,
+        inventoryFacilityId,
         inventoryItemId,
         itemName,
         category,
@@ -1640,22 +1838,23 @@ export async function upsertConsumableCatalogItem(input = {}, context = {}) {
         unitCost,
         billingCode,
         status,
-        actorUid,
+        canonicalActor.uid,
         JSON.stringify(metadata)
       );
       savedId = rows[0].id;
     } else {
       const rows = await tx.$queryRawUnsafe(
         `INSERT INTO cath_consumable_catalog
-           (tenant_id, inventory_item_id, item_name, category, manufacturer, model,
+           (tenant_id, facility_id, inventory_item_id, item_name, category, manufacturer, model,
             is_implant, batch_tracked, default_unit_cost_reference, billing_item_code,
             status, retired_at, created_by, updated_by, metadata)
-         VALUES ($1::uuid, $2::int, $3, $4, $5, $6,
-                 $7, $8, $9::numeric, $10, $11::varchar(20),
-                 CASE WHEN $11::varchar(20) = 'retired' THEN NOW() ELSE NULL END,
-                 $12::uuid, $12::uuid, $13::jsonb)
+         VALUES ($1::uuid, $2::int, $3::int, $4, $5, $6, $7,
+                 $8, $9, $10::numeric, $11, $12::varchar(20),
+                 CASE WHEN $12::varchar(20) = 'retired' THEN NOW() ELSE NULL END,
+                 $13::uuid, $13::uuid, $14::jsonb)
          RETURNING id`,
         tenantId,
+        inventoryFacilityId,
         inventoryItemId,
         itemName,
         category,
@@ -1666,7 +1865,7 @@ export async function upsertConsumableCatalogItem(input = {}, context = {}) {
         unitCost,
         billingCode,
         status,
-        actorUid,
+        canonicalActor.uid,
         JSON.stringify(metadata)
       );
       savedId = rows[0].id;
@@ -1675,36 +1874,846 @@ export async function upsertConsumableCatalogItem(input = {}, context = {}) {
   });
 }
 
-export async function listCatalogBatches(catalogItemId, { tenantId, db = prisma } = {}) {
+function normalizeCathRecoveryJson(value) {
+  if (typeof value === 'bigint') return value.toString();
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map(normalizeCathRecoveryJson);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.keys(value).sort().map(key => [key, normalizeCathRecoveryJson(value[key])])
+    );
+  }
+  return value;
+}
+
+function cathRecoveryCommandEvidence({ commandKey, requestFingerprint, resolution, note }) {
+  const key = String(commandKey || '').trim();
+  const requestSha256 = String(requestFingerprint || '').trim().toLowerCase();
+  if (!key || !SHA256_PATTERN.test(requestSha256)) {
+    throw AppError.badRequest(
+      'A durable Idempotency-Key and request fingerprint are required for Cath recovery',
+      'CATH_AUTHORITY_RECOVERY_COMMAND_EVIDENCE_REQUIRED'
+    );
+  }
+  const normalizedResolution = normalizeCathRecoveryJson(resolution || {});
+  return Object.freeze({
+    commandKeySha256: sha256(key),
+    requestSha256,
+    requestPayload: normalizeCathRecoveryJson({
+      resolution: normalizedResolution,
+      resolution_note: String(note || '').trim()
+    }),
+    resolutionPayload: normalizedResolution
+  });
+}
+
+async function cathRecoveryTargetSnapshotTx(tx, tenantId, recovery) {
+  const table = recovery.entity_type === 'cath_consumable_catalog'
+    ? 'cath_consumable_catalog'
+    : recovery.entity_type === 'cath_consumable_usage'
+      ? 'cath_case_consumable_usage'
+      : recovery.entity_type === 'cath_lab_case'
+        ? 'cath_lab_cases'
+        : null;
+  if (!table) {
+    throw AppError.conflict(
+      'Recovery item is not a Cath authority target',
+      'CATH_AUTHORITY_RECOVERY_TARGET_INVALID'
+    );
+  }
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT to_jsonb(target) AS snapshot
+       FROM ${table} target
+      WHERE target.tenant_id=$1::uuid AND target.id=$2::bigint
+      FOR UPDATE`,
+    tenantId,
+    String(recovery.entity_id)
+  );
+  if (!rows[0]?.snapshot) {
+    throw AppError.conflict(
+      'Cath authority recovery target no longer exists',
+      'CATH_AUTHORITY_RECOVERY_TARGET_MISSING'
+    );
+  }
+  return normalizeCathRecoveryJson(rows[0].snapshot);
+}
+
+async function setCathRecoveryEvidenceTx(tx, {
+  actorUid,
+  requestId,
+  command,
+  targetIdentity,
+  targetBefore,
+  targetAfter
+}) {
+  await tx.$queryRawUnsafe(
+    `SELECT
+       set_config('app.pharmacy_recovery_actor_uid', $1, TRUE) AS actor_uid,
+       set_config('app.pharmacy_recovery_request_id', $2, TRUE) AS request_id,
+       set_config('app.pharmacy_recovery_command_key_sha256', $3, TRUE) AS command_sha,
+       set_config('app.pharmacy_recovery_request_sha256', $4, TRUE) AS request_sha,
+       set_config('app.pharmacy_recovery_request_payload', $5, TRUE) AS request_payload,
+       set_config('app.pharmacy_recovery_resolution_payload', $6, TRUE) AS resolution_payload,
+       set_config('app.pharmacy_recovery_target_identity', $7, TRUE) AS target_identity,
+       set_config('app.pharmacy_recovery_target_before', $8, TRUE) AS target_before,
+       set_config('app.pharmacy_recovery_target_after', $9, TRUE) AS target_after`,
+    actorUid,
+    String(requestId || '').slice(0, 200),
+    command.commandKeySha256,
+    command.requestSha256,
+    JSON.stringify(command.requestPayload),
+    JSON.stringify(command.resolutionPayload),
+    JSON.stringify(normalizeCathRecoveryJson(targetIdentity)),
+    JSON.stringify(targetBefore),
+    JSON.stringify(targetAfter)
+  );
+}
+
+async function reattachCathUsageAuthorityTx(tx, tenantId, recovery, resolution, actor) {
+  const facilityId = normalizeId(resolution.facility_id, 'resolution.facility_id');
+  const inventoryItemId = normalizeId(
+    resolution.inventory_item_id,
+    'resolution.inventory_item_id'
+  );
+  const inventoryBatchId = normalizeId(
+    resolution.inventory_batch_id,
+    'resolution.inventory_batch_id'
+  );
+  const usageRows = await tx.$queryRawUnsafe(
+    `SELECT usage.*, cath_case.facility_id AS case_facility_id,
+            cath_case.encounter_id, catalog.facility_id AS catalog_facility_id,
+            catalog.inventory_item_id AS catalog_inventory_item_id,
+            timeline.id AS exact_timeline_event_id,
+            timeline.payload->>'facility_id' AS timeline_facility_id,
+            timeline.payload->>'inventory_item_id' AS timeline_inventory_item_id,
+            timeline.payload->>'inventory_batch_id' AS timeline_inventory_batch_id,
+            clinical_audit.id AS exact_audit_event_id
+       FROM cath_case_consumable_usage usage
+       JOIN cath_lab_cases cath_case
+         ON cath_case.tenant_id=usage.tenant_id AND cath_case.id=usage.case_id
+        AND cath_case.patient_uid=usage.patient_uid
+       JOIN cath_consumable_catalog catalog
+         ON catalog.tenant_id=usage.tenant_id AND catalog.id=usage.catalog_item_id
+       LEFT JOIN clinical_timeline_events timeline
+         ON timeline.tenant_id=usage.tenant_id
+        AND timeline.id=usage.timeline_event_id
+        AND timeline.patient_uid=usage.patient_uid
+        AND timeline.encounter_id IS NOT DISTINCT FROM cath_case.encounter_id
+        AND timeline.source_table='cath_case_consumable_usage'
+        AND timeline.source_id=usage.id::text
+        AND timeline.resource_type='cath_case_consumable_usage'
+        AND timeline.resource_id=usage.id::text
+        AND timeline.actor_uid IS NOT DISTINCT FROM usage.used_by
+        AND timeline.event_type=CASE WHEN usage.wasted
+          THEN 'cath_lab.consumable_wasted' ELSE 'cath_lab.consumable_used' END
+       LEFT JOIN clinical_audit_events clinical_audit
+         ON clinical_audit.tenant_id=usage.tenant_id
+        AND clinical_audit.id=usage.audit_event_id
+        AND clinical_audit.patient_uid IS NOT DISTINCT FROM usage.patient_uid
+        AND clinical_audit.encounter_id IS NOT DISTINCT FROM cath_case.encounter_id
+        AND clinical_audit.resource_table='cath_case_consumable_usage'
+        AND clinical_audit.resource_id=usage.id::text
+        AND clinical_audit.actor_uid IS NOT DISTINCT FROM usage.used_by
+        AND clinical_audit.action=CASE WHEN usage.wasted
+          THEN 'cath_lab.consumable_wasted' ELSE 'cath_lab.consumable_used' END
+      WHERE usage.tenant_id=$1::uuid AND usage.id=$2::bigint
+      FOR UPDATE OF usage, cath_case, catalog`,
+    tenantId,
+    String(recovery.entity_id)
+  );
+  const usage = usageRows[0];
+  if (!usage
+      || Number(usage.catalog_facility_id) !== facilityId
+      || Number(usage.catalog_inventory_item_id) !== inventoryItemId) {
+    throw AppError.conflict(
+      'Cath usage recovery must use the exact current catalog facility/item authority',
+      'CATH_AUTHORITY_RECOVERY_MAPPING_INVALID'
+    );
+  }
+  if (!usage.timeline_event_id || !usage.audit_event_id
+      || !usage.exact_timeline_event_id || !usage.exact_audit_event_id
+      || Number(usage.timeline_facility_id) !== facilityId
+      || Number(usage.timeline_inventory_item_id) !== inventoryItemId
+      || Number(usage.timeline_inventory_batch_id) !== inventoryBatchId) {
+    throw AppError.conflict(
+      'Cath usage without canonical clinical provenance cannot be reattached to inventory custody',
+      'CATH_AUTHORITY_RECOVERY_CANONICAL_PROVENANCE_REQUIRED',
+      { recovery_actions: ['PRESERVE', 'CANCEL'] }
+    );
+  }
+  if (usage.case_facility_id == null) {
+    throw AppError.conflict(
+      'Cath usage cannot be reattached until the case facility recovery is resolved',
+      'CATH_LAB_CASE_FACILITY_UNRESOLVED',
+      { recovery_action: 'resolve_cath_lab_case_facility_authority_worklist' }
+    );
+  }
+  if (Number(usage.case_facility_id) !== facilityId) {
+    throw AppError.conflict(
+      'Cath usage recovery facility does not match the pinned case facility',
+      'CATH_LAB_CASE_FACILITY_MISMATCH'
+    );
+  }
+  const movements = await tx.$queryRawUnsafe(
+    `SELECT id
+       FROM pharmacy_stock_movements
+      WHERE tenant_id=$1::uuid
+        AND (
+          (reference_type='cath_consumable_usage' AND reference_id=$2::text)
+          OR (reference_type='cath_consumable_reconciliation'
+              AND metadata->>'cath_consumable_usage_id'=$2::text)
+        )
+      LIMIT 1
+      FOR SHARE`,
+    tenantId,
+    String(recovery.entity_id)
+  );
+  if (movements.length) {
+    throw AppError.conflict(
+      'Existing Cath stock movement custody cannot be rebound by changing clinical usage authority',
+      'CATH_AUTHORITY_RECOVERY_MOVEMENT_EXISTS'
+    );
+  }
+  const batches = await tx.$queryRawUnsafe(
+    `SELECT batch.id, batch.batch_number, batch.lot_number, batch.expiry_date,
+            batch.remaining_quantity, batch.status
+       FROM pharmacy_inventory_batches batch
+       JOIN pharmacy_inventory_items item
+         ON item.tenant_id=batch.tenant_id AND item.id=batch.inventory_item_id
+        AND item.facility_id=batch.facility_id AND item.status='active'
+       JOIN facilities facility
+         ON facility.tenant_id=batch.tenant_id AND facility.id=batch.facility_id
+        AND facility.status='active'
+      WHERE batch.tenant_id=$1::uuid AND batch.facility_id=$2::int
+        AND batch.inventory_item_id=$3::int AND batch.id=$4::int
+      FOR UPDATE OF batch, item, facility`,
+    tenantId,
+    facilityId,
+    inventoryItemId,
+    inventoryBatchId
+  );
+  if (batches.length !== 1) {
+    throw AppError.conflict(
+      'Cath usage recovery batch is outside the exact active facility/item authority',
+      'CATH_AUTHORITY_RECOVERY_BATCH_INVALID'
+    );
+  }
+  const updated = await tx.$queryRawUnsafe(
+    `UPDATE cath_case_consumable_usage
+        SET facility_id=$3::int, inventory_item_id=$4::int,
+            inventory_batch_id=$5::int, batch_number=$6, lot_number=$7,
+            expiry_date=$8::date, inventory_decrement_status='pending',
+            inventory_movement_id=NULL,
+            inventory_warning='Recovered exact facility inventory authority; pharmacy reconciliation is required',
+            metadata=COALESCE(metadata, '{}'::jsonb) || $9::jsonb,
+            updated_at=NOW()
+      WHERE tenant_id=$1::uuid AND id=$2::bigint
+      RETURNING *`,
+    tenantId,
+    String(recovery.entity_id),
+    facilityId,
+    inventoryItemId,
+    inventoryBatchId,
+    batches[0].batch_number,
+    batches[0].lot_number,
+    batches[0].expiry_date,
+    JSON.stringify({
+      authority_recovery: {
+        action: 'REATTACH',
+        recovery_id: String(recovery.id),
+        actor_uid: actor.uid
+      }
+    })
+  );
+  const recovered = normalizeDbValue(updated[0]);
+  await materializeCathInventoryShortfallTx(tx, {
+    ...recovered,
+    encounter_id: usage.encounter_id
+  }, {
+    decrementedUnits: 0,
+    finalMovementId: null,
+    warning: recovered.inventory_warning
+  });
+}
+
+export async function resolveCathConsumableAuthorityRecovery({
+  tenantId,
+  recoveryId,
+  resolution = {},
+  actorUid,
+  actorRole,
+  actorRoles = [],
+  requestId = null,
+  commandKey,
+  requestFingerprint,
+  note
+} = {}) {
+  const tid = tenantOr(tenantId);
+  const id = String(recoveryId ?? '').trim();
+  if (!/^[1-9][0-9]*$/.test(id)) {
+    throw AppError.badRequest(
+      'recovery_id must be a positive integer',
+      'CATH_AUTHORITY_RECOVERY_INPUT_INVALID'
+    );
+  }
+  const resolutionNote = String(note || '').trim();
+  if (resolutionNote.length < 3 || resolutionNote.length > 500) {
+    throw AppError.badRequest(
+      'resolution_note must contain 3 to 500 characters',
+      'CATH_AUTHORITY_RECOVERY_NOTE_REQUIRED'
+    );
+  }
+  const action = String(resolution?.action || '').trim().toUpperCase();
+  if (!['REATTACH', 'PRESERVE', 'CANCEL', 'RETIRE'].includes(action)) {
+    throw AppError.badRequest(
+      'resolution.action must be REATTACH, PRESERVE, CANCEL, or RETIRE',
+      'CATH_AUTHORITY_RECOVERY_ACTION_REQUIRED'
+    );
+  }
+  const command = cathRecoveryCommandEvidence({
+    commandKey,
+    requestFingerprint,
+    resolution: { ...resolution, action },
+    note: resolutionNote
+  });
+  return setTenantTx(tid, async tx => {
+    const actor = await cathCanonicalActorTx(tx, tid, {
+      actorUid,
+      actorRole,
+      actorRoles
+    });
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT id, entity_type, entity_id, inventory_item_id, facility_id,
+              reason_code, authority_snapshot, status, resolved_by, resolved_at,
+              resolution_note
+         FROM pharmacy_inventory_authority_recovery_worklist
+        WHERE tenant_id=$1::uuid AND id=$2::bigint
+          AND entity_type IN (
+            'cath_consumable_catalog', 'cath_consumable_usage', 'cath_lab_case'
+          )
+        FOR UPDATE`,
+      tid,
+      id
+    );
+    const recovery = rows[0];
+    if (!recovery) {
+      throw AppError.notFound(
+        'Cath authority recovery item not found',
+        'CATH_AUTHORITY_RECOVERY_NOT_FOUND'
+      );
+    }
+    const expectedReason = {
+      cath_consumable_catalog: 'CATH_CATALOG_FACILITY_UNRESOLVED',
+      cath_consumable_usage: 'CATH_USAGE_AUTHORITY_UNRESOLVED',
+      cath_lab_case: 'CATH_CASE_FACILITY_UNRESOLVED'
+    }[recovery.entity_type];
+    if (recovery.reason_code !== expectedReason) {
+      throw AppError.conflict(
+        'Cath authority recovery reason does not match its governed resolver',
+        'CATH_AUTHORITY_RECOVERY_REASON_INVALID'
+      );
+    }
+    const priorCommands = await tx.$queryRawUnsafe(
+      `SELECT recovery_id, request_sha256, actor_uid
+         FROM pharmacy_inventory_authority_recovery_events
+        WHERE tenant_id=$1::uuid AND command_key_sha256=$2
+        LIMIT 1`,
+      tid,
+      command.commandKeySha256
+    );
+    if (priorCommands[0]
+        && (String(priorCommands[0].recovery_id) !== id
+          || priorCommands[0].request_sha256 !== command.requestSha256
+          || String(priorCommands[0].actor_uid || '').toLowerCase() !== actor.uid.toLowerCase())) {
+      throw AppError.conflict(
+        'Idempotency-Key was already used for a different Cath recovery command',
+        'CATH_AUTHORITY_RECOVERY_REPLAY_CONFLICT'
+      );
+    }
+    const facilityId = normalizeId(resolution.facility_id, 'resolution.facility_id');
+    const facilities = await tx.$queryRawUnsafe(
+      `SELECT id
+         FROM facilities
+        WHERE tenant_id=$1::uuid AND id=$2::int AND status='active'
+        FOR UPDATE`,
+      tid,
+      facilityId
+    );
+    if (facilities.length !== 1) {
+      throw AppError.conflict(
+        'Cath authority recovery requires one exact active facility',
+        'CATH_AUTHORITY_RECOVERY_FACILITY_INVALID'
+      );
+    }
+    await assertPharmacyFacilityGrant(tx, {
+      tenantId: tid,
+      facilityId,
+      actorUid: actor.uid,
+      actorRole: actor.role,
+      forUpdate: true
+    });
+    if (recovery.status === 'RESOLVED') {
+      if (priorCommands[0]) return { ...normalizeDbValue(recovery), replayed: true };
+      throw AppError.conflict(
+        'Cath authority recovery was already resolved by another command',
+        'CATH_AUTHORITY_RECOVERY_ALREADY_RESOLVED'
+      );
+    }
+    await tx.$queryRawUnsafe(
+      `SELECT
+         set_config('app.pharmacy_recovery_command_key_sha256', $1::text, TRUE)
+           AS command_sha,
+         set_config('app.pharmacy_recovery_actor_uid', $2::text, TRUE)
+           AS actor_uid`,
+      command.commandKeySha256,
+      actor.uid
+    );
+    const targetBefore = await cathRecoveryTargetSnapshotTx(tx, tid, recovery);
+    if (recovery.entity_type === 'cath_consumable_catalog') {
+      if (action === 'REATTACH') {
+        const inventoryItemId = normalizeId(
+          resolution.inventory_item_id,
+          'resolution.inventory_item_id'
+        );
+        const authority = await tx.$queryRawUnsafe(
+          `SELECT item.id
+             FROM pharmacy_inventory_items item
+             JOIN facilities facility
+               ON facility.tenant_id=item.tenant_id AND facility.id=item.facility_id
+              AND facility.status='active'
+            WHERE item.tenant_id=$1::uuid AND item.facility_id=$2::int
+              AND item.id=$3::int AND item.status='active'
+            FOR UPDATE OF item, facility`,
+          tid,
+          facilityId,
+          inventoryItemId
+        );
+        if (authority.length !== 1) {
+          throw AppError.conflict(
+            'Cath catalog recovery requires one exact active facility inventory item',
+            'CATH_AUTHORITY_RECOVERY_MAPPING_INVALID'
+          );
+        }
+        await tx.$executeRawUnsafe(
+          `UPDATE cath_consumable_catalog
+              SET facility_id=$3::int, inventory_item_id=$4::int, status='active',
+                  retired_at=NULL, updated_by=$5::uuid,
+                  metadata=COALESCE(metadata, '{}'::jsonb) || $6::jsonb,
+                  updated_at=NOW()
+            WHERE tenant_id=$1::uuid AND id=$2::bigint`,
+          tid,
+          String(recovery.entity_id),
+          facilityId,
+          inventoryItemId,
+          actor.uid,
+          JSON.stringify({
+            authority_recovery: {
+              action,
+              recovery_id: id,
+              actor_uid: actor.uid
+            }
+          })
+        );
+      } else if (['PRESERVE', 'CANCEL', 'RETIRE'].includes(action)) {
+        await tx.$executeRawUnsafe(
+          `UPDATE cath_consumable_catalog
+              SET status='retired', retired_at=COALESCE(retired_at, NOW()),
+                  updated_by=$3::uuid,
+                  metadata=COALESCE(metadata, '{}'::jsonb) || $4::jsonb,
+                  updated_at=NOW()
+            WHERE tenant_id=$1::uuid AND id=$2::bigint`,
+          tid,
+          String(recovery.entity_id),
+          actor.uid,
+          JSON.stringify({
+            authority_recovery: {
+              action,
+              recovery_id: id,
+              actor_uid: actor.uid,
+              preserved_snapshot: targetBefore
+            }
+          })
+        );
+      }
+    } else if (recovery.entity_type === 'cath_consumable_usage') {
+      const usageCaseAuthority = await tx.$queryRawUnsafe(
+        `SELECT cath_case.facility_id, cath_case.encounter_id,
+                CASE
+                  WHEN encounter.metadata->>'facility_id' ~ '^[1-9][0-9]*$'
+                  THEN (encounter.metadata->>'facility_id')::int
+                  ELSE NULL
+                END AS encounter_facility_id,
+                EXISTS (
+                  SELECT 1
+                    FROM pharmacy_inventory_authority_recovery_worklist case_recovery
+                   WHERE case_recovery.tenant_id=cath_case.tenant_id
+                     AND case_recovery.entity_type='cath_lab_case'
+                     AND case_recovery.entity_id=cath_case.id
+                     AND case_recovery.reason_code='CATH_CASE_FACILITY_UNRESOLVED'
+                     AND case_recovery.status='OPEN'
+                ) AS case_recovery_open
+           FROM cath_case_consumable_usage usage
+           JOIN cath_lab_cases cath_case
+             ON cath_case.tenant_id=usage.tenant_id
+            AND cath_case.id=usage.case_id
+            AND cath_case.patient_uid=usage.patient_uid
+           LEFT JOIN patient_encounters encounter
+             ON encounter.tenant_id=cath_case.tenant_id
+            AND encounter.id=cath_case.encounter_id
+            AND encounter.patient_uid=cath_case.patient_uid
+          WHERE usage.tenant_id=$1::uuid AND usage.id=$2::bigint
+          FOR KEY SHARE OF cath_case`,
+        tid,
+        String(recovery.entity_id)
+      );
+      const caseAuthority = usageCaseAuthority[0];
+      const terminalAgainstRecoveringCase = ['PRESERVE', 'CANCEL'].includes(action)
+        && caseAuthority?.case_recovery_open === true
+        && (
+          caseAuthority?.encounter_id == null
+          || Number(caseAuthority?.encounter_facility_id) === facilityId
+        );
+      if (caseAuthority?.facility_id == null && !terminalAgainstRecoveringCase) {
+        throw AppError.conflict(
+          'Cath usage recovery requires the case facility authority to be resolved first',
+          'CATH_LAB_CASE_FACILITY_UNRESOLVED',
+          { recovery_action: 'resolve_cath_lab_case_facility_authority_worklist' }
+        );
+      }
+      if (Number(caseAuthority?.facility_id) !== facilityId && !terminalAgainstRecoveringCase) {
+        throw AppError.conflict(
+          'Cath usage recovery must be governed by the exact pinned case facility',
+          'CATH_LAB_CASE_FACILITY_MISMATCH'
+        );
+      }
+      if (action === 'REATTACH') {
+        await reattachCathUsageAuthorityTx(tx, tid, recovery, {
+          ...resolution,
+          facility_id: facilityId
+        }, actor);
+      } else if (['PRESERVE', 'CANCEL'].includes(action)) {
+        const movements = await tx.$queryRawUnsafe(
+          `SELECT id
+             FROM pharmacy_stock_movements
+            WHERE tenant_id=$1::uuid
+              AND (
+                (reference_type='cath_consumable_usage' AND reference_id=$2::text)
+                OR (reference_type='cath_consumable_reconciliation'
+                    AND metadata->>'cath_consumable_usage_id'=$2::text)
+              )
+            LIMIT 1
+            FOR SHARE`,
+          tid,
+          String(recovery.entity_id)
+        );
+        if (movements.length) {
+          throw AppError.conflict(
+            'Existing Cath inventory movement evidence must be reattached, not discarded',
+            'CATH_AUTHORITY_RECOVERY_MOVEMENT_EXISTS'
+          );
+        }
+        const claimedNotifications = await tx.$queryRawUnsafe(
+          `SELECT id
+             FROM notification_outbox
+            WHERE tenant_id=$1::uuid
+              AND type='cath_inventory_shortfall'
+              AND source_event_key='cath-inventory-shortfall:' || $2::text
+              AND status='CLAIMED'
+            LIMIT 1
+            FOR UPDATE`,
+          tid,
+          String(recovery.entity_id)
+        );
+        if (claimedNotifications.length) {
+          throw AppError.conflict(
+            'Cath recovery cannot close while its pharmacy notification is claimed for delivery',
+            'CATH_AUTHORITY_RECOVERY_NOTIFICATION_CLAIMED'
+          );
+        }
+        await tx.$executeRawUnsafe(
+          `UPDATE cath_case_consumable_usage
+              SET facility_id=NULL, inventory_item_id=NULL, inventory_batch_id=NULL,
+                  inventory_decrement_status='not_applicable',
+                  inventory_movement_id=NULL,
+                  inventory_warning=$3,
+                  metadata=COALESCE(metadata, '{}'::jsonb) || $4::jsonb,
+                  updated_at=NOW()
+            WHERE tenant_id=$1::uuid AND id=$2::bigint`,
+          tid,
+          String(recovery.entity_id),
+          action === 'PRESERVE'
+            ? 'Historical clinical usage preserved without inferred inventory custody'
+            : 'Inventory reconciliation cancelled without altering clinical history',
+          JSON.stringify({
+            authority_recovery: {
+              action,
+              recovery_id: id,
+              actor_uid: actor.uid,
+              governing_facility_id: facilityId,
+              preserved_snapshot: targetBefore
+            }
+          })
+        );
+        await tx.$executeRawUnsafe(
+          `UPDATE tasks
+              SET status='cancelled', cancelled_at=COALESCE(cancelled_at, NOW()),
+                  cancellation_reason=$4,
+                  metadata=COALESCE(metadata, '{}'::jsonb) || $5::jsonb,
+                  updated_at=NOW()
+            WHERE tenant_id=$1::uuid
+              AND related_resource_type='cath_case_consumable_usage'
+              AND related_resource_id=$2::text
+              AND metadata->>'task_contract'=$3::text
+              AND status IN ('open','in_progress','blocked','overdue')`,
+          tid,
+          String(recovery.entity_id),
+          CATH_INVENTORY_SHORTFALL_TASK_CONTRACT,
+          `Governed Cath authority recovery ${action.toLowerCase()}`,
+          JSON.stringify({
+            authority_recovery_terminal: {
+              action,
+              recovery_id: id,
+              actor_uid: actor.uid
+            }
+          })
+        );
+        await tx.$executeRawUnsafe(
+          `UPDATE workflow_sla_instances
+              SET status='cancelled',
+                  metadata=COALESCE(metadata, '{}'::jsonb) || $4::jsonb,
+                  updated_at=NOW()
+            WHERE tenant_id=$1::uuid
+              AND rule_code=$2::text
+              AND source_table='cath_case_consumable_usage'
+              AND source_id=$3::text
+              AND completed_at IS NULL
+              AND status IN ('active','breached','escalated')`,
+          tid,
+          CATH_INVENTORY_SHORTFALL_SLA_RULE,
+          String(recovery.entity_id),
+          JSON.stringify({
+            authority_recovery_terminal: {
+              action,
+              recovery_id: id,
+              actor_uid: actor.uid
+            }
+          })
+        );
+        await tx.$executeRawUnsafe(
+          `UPDATE notification_outbox
+              SET status='SUPPRESSED',
+                  failure_reason=$3
+            WHERE tenant_id=$1::uuid
+              AND type='cath_inventory_shortfall'
+              AND source_event_key='cath-inventory-shortfall:' || $2::text
+              AND status IN ('PENDING','FAILED')`,
+          tid,
+          String(recovery.entity_id),
+          `Governed Cath authority recovery ${action.toLowerCase()}`
+        );
+      } else {
+        throw AppError.badRequest(
+          'Cath usage recovery supports REATTACH, PRESERVE, or CANCEL',
+          'CATH_AUTHORITY_RECOVERY_ACTION_REQUIRED'
+        );
+      }
+    } else if (action === 'REATTACH') {
+      const conflictingUsage = await tx.$queryRawUnsafe(
+        `SELECT id
+           FROM cath_case_consumable_usage
+          WHERE tenant_id=$1::uuid AND case_id=$2::bigint
+            AND facility_id IS NOT NULL AND facility_id<>$3::int
+          LIMIT 1
+          FOR SHARE`,
+        tid,
+        String(recovery.entity_id),
+        facilityId
+      );
+      if (conflictingUsage.length) {
+        throw AppError.conflict(
+          'Cath case contains conflicting historical facility authority',
+          'CATH_LAB_CASE_FACILITY_AMBIGUOUS'
+        );
+      }
+      if (targetBefore.encounter_id) {
+        const encounter = await tx.$queryRawUnsafe(
+          `SELECT CASE
+                    WHEN metadata->>'facility_id' ~ '^[1-9][0-9]*$'
+                    THEN (metadata->>'facility_id')::int ELSE NULL
+                  END AS facility_id
+             FROM patient_encounters
+            WHERE tenant_id=$1::uuid AND id=$2::uuid AND patient_uid=$3::uuid
+            FOR KEY SHARE`,
+          tid,
+          targetBefore.encounter_id,
+          targetBefore.patient_uid
+        );
+        if (encounter.length !== 1) {
+          throw AppError.conflict(
+            'Cath case recovery encounter no longer matches its same-tenant patient',
+            'CATH_LAB_CASE_ENCOUNTER_INVALID'
+          );
+        }
+        if (encounter[0].facility_id == null) {
+          throw AppError.conflict(
+            'Cath case recovery encounter has no exact facility authority',
+            'CATH_LAB_CASE_FACILITY_REQUIRED'
+          );
+        }
+        if (Number(encounter[0].facility_id) !== facilityId) {
+          throw AppError.conflict(
+            'Cath case recovery facility must match the encounter facility authority',
+            'CATH_LAB_CASE_FACILITY_MISMATCH'
+          );
+        }
+      }
+      const repaired = await tx.$queryRawUnsafe(
+        `UPDATE cath_lab_cases
+            SET facility_id=$3::int, updated_by=$4::uuid,
+                metadata=COALESCE(metadata, '{}'::jsonb) || $6::jsonb,
+                updated_at=NOW()
+          WHERE tenant_id=$1::uuid AND id=$2::bigint
+            AND facility_id IS NOT DISTINCT FROM $5::int
+          RETURNING id, facility_id`,
+        tid,
+        String(recovery.entity_id),
+        facilityId,
+        actor.uid,
+        targetBefore.facility_id == null ? null : Number(targetBefore.facility_id),
+        JSON.stringify({
+          authority_recovery: {
+            action: 'REATTACH',
+            recovery_id: id,
+            actor_uid: actor.uid
+          }
+        })
+      );
+      if (repaired.length !== 1 || Number(repaired[0].facility_id) !== facilityId) {
+        throw AppError.conflict(
+          'Cath case facility authority changed before governed recovery completed',
+          'CATH_AUTHORITY_RECOVERY_STATE_CHANGED'
+        );
+      }
+    } else {
+      throw AppError.badRequest(
+        'Cath case facility recovery supports REATTACH only',
+        'CATH_AUTHORITY_RECOVERY_ACTION_REQUIRED'
+      );
+    }
+    const targetAfter = await cathRecoveryTargetSnapshotTx(tx, tid, recovery);
+    const targetIdentity = {
+      entity_type: recovery.entity_type,
+      entity_id: String(recovery.entity_id),
+      recovery_id: id,
+      reason_code: recovery.reason_code,
+      governing_facility_id: facilityId,
+      case_id: targetAfter.case_id == null ? null : String(targetAfter.case_id),
+      catalog_item_id: targetAfter.catalog_item_id == null
+        ? null
+        : String(targetAfter.catalog_item_id),
+      inventory_item_id: targetAfter.inventory_item_id == null
+        ? null
+        : Number(targetAfter.inventory_item_id),
+      inventory_batch_id: targetAfter.inventory_batch_id == null
+        ? null
+        : Number(targetAfter.inventory_batch_id)
+    };
+    await setCathRecoveryEvidenceTx(tx, {
+      actorUid: actor.uid,
+      requestId,
+      command,
+      targetIdentity,
+      targetBefore,
+      targetAfter
+    });
+    const resolved = await tx.$queryRawUnsafe(
+      `UPDATE pharmacy_inventory_authority_recovery_worklist
+          SET status='RESOLVED', resolved_by=$3::uuid, resolved_at=NOW(),
+              resolution_note=$4, updated_at=NOW(), facility_id=$5::int,
+              inventory_item_id=$6::int
+        WHERE tenant_id=$1::uuid AND id=$2::bigint AND status='OPEN'
+        RETURNING id, entity_type, entity_id, inventory_item_id, facility_id,
+                  reason_code, authority_snapshot, status, resolved_by,
+                  resolved_at, resolution_note, created_at, updated_at`,
+      tid,
+      id,
+      actor.uid,
+      resolutionNote,
+      facilityId,
+      targetIdentity.inventory_item_id
+    );
+    if (resolved.length !== 1) {
+      throw AppError.conflict(
+        'Cath authority recovery state changed before resolution',
+        'CATH_AUTHORITY_RECOVERY_STATE_CHANGED'
+      );
+    }
+    return normalizeDbValue(resolved[0]);
+  });
+}
+
+export async function listCatalogBatches(
+  catalogItemId,
+  { tenantId, caseId, db = prisma } = {}
+) {
+  const cathCase = await caseById(db, tenantId, caseId);
+  if (cathCase.facility_id == null) {
+    throw AppError.conflict(
+      'Cath-lab case has no exact facility authority',
+      'CATH_LAB_CASE_FACILITY_UNRESOLVED'
+    );
+  }
   const item = await catalogItemById(db, tenantId, catalogItemId);
-  if (!item.inventory_item_id) return [];
+  if (Number(item.facility_id) !== Number(cathCase.facility_id)) {
+    throw AppError.forbidden(
+      'Cath consumable catalog item belongs to another facility',
+      'CATH_CONSUMABLE_FACILITY_SCOPE_MISMATCH'
+    );
+  }
+  if (
+    item.status !== 'active'
+    || !item.inventory_item_id
+    || Number(item.inventory_facility_id) !== Number(item.facility_id)
+    || item.inventory_item_status !== 'active'
+    || item.inventory_facility_status !== 'active'
+  ) {
+    throw AppError.conflict(
+      'Cath batch access requires one exact active facility catalog and inventory mapping',
+      'CATH_CONSUMABLE_FACILITY_MAPPING_UNRESOLVED',
+      { recovery_action: 'resolve_cath_consumable_catalog_authority_worklist' }
+    );
+  }
   const rows = await db.$queryRawUnsafe(
     `SELECT b.id, b.inventory_item_id, b.batch_number, b.lot_number,
-            b.expiry_date, b.remaining_quantity, b.status,
+            b.facility_id, b.expiry_date, b.remaining_quantity, b.status,
             b.unit_cost_minor, b.mrp_minor
        FROM pharmacy_inventory_batches b
       WHERE b.tenant_id = $1::uuid
         AND b.inventory_item_id = $2::int
+        AND b.facility_id = $3::int
         AND b.status = 'in_stock'
         AND b.remaining_quantity > 0
         AND b.expiry_date >= (NOW() AT TIME ZONE 'Asia/Kolkata')::date
       ORDER BY b.expiry_date, b.id`,
     tenantOr(tenantId),
-    Number(item.inventory_item_id)
+    Number(item.inventory_item_id),
+    Number(item.facility_id)
   );
   return normalizeRows(rows);
 }
 
 const CATH_CONSUMABLE_USAGE_SELECT = `
   u.id, u.tenant_id, u.case_id, u.procedure_log_id, u.catalog_item_id,
-  u.patient_uid, u.inventory_batch_id, u.quantity, u.batch_tracked,
+  u.patient_uid, u.facility_id, u.inventory_item_id, u.inventory_batch_id,
+  u.quantity, u.batch_tracked,
   u.is_implant, u.batch_number, u.lot_number, u.expiry_date,
   u.serial_number, u.unit_cost_snapshot, u.used_by, u.used_at,
   u.wasted, u.waste_reason, u.inventory_decrement_status,
   u.inventory_movement_id, u.inventory_warning, u.timeline_event_id,
   u.audit_event_id, u.idempotency_key, u.created_at, u.updated_at, u.metadata,
   c.item_name, c.category, c.manufacturer, c.model, c.billing_item_code,
-  c.inventory_item_id, i.sku_code AS inventory_sku,
+  c.facility_id AS catalog_facility_id,
+  c.inventory_item_id AS catalog_inventory_item_id, i.sku_code AS inventory_sku,
   i.display_name AS inventory_item_name, i.unit_label AS inventory_unit_label,
   clinician.name AS used_by_name,
   si.id AS implant_record_id`;
@@ -1717,8 +2726,9 @@ async function consumableUsageById(db, tenantId, usageId) {
          ON c.id = u.catalog_item_id
         AND c.tenant_id = u.tenant_id
        LEFT JOIN pharmacy_inventory_items i
-         ON i.id = c.inventory_item_id
-        AND i.tenant_id = c.tenant_id
+         ON i.id = u.inventory_item_id
+        AND i.facility_id = u.facility_id
+        AND i.tenant_id = u.tenant_id
        LEFT JOIN users clinician
          ON clinician.uid = u.used_by
         AND clinician.tenant_id = u.tenant_id
@@ -1746,8 +2756,9 @@ export async function listCaseConsumableUsage(caseId, { tenantId, db = prisma } 
          ON c.id = u.catalog_item_id
         AND c.tenant_id = u.tenant_id
        LEFT JOIN pharmacy_inventory_items i
-         ON i.id = c.inventory_item_id
-        AND i.tenant_id = c.tenant_id
+         ON i.id = u.inventory_item_id
+        AND i.facility_id = u.facility_id
+        AND i.tenant_id = u.tenant_id
        LEFT JOIN users clinician
          ON clinician.uid = u.used_by
         AND clinician.tenant_id = u.tenant_id
@@ -1807,41 +2818,6 @@ function evaluateCathInventoryBatch(batch, quantity) {
   return { status: 'pending', warning: null };
 }
 
-async function cathUsageInventoryRowTx(tx, tenantId, usageId) {
-  const rows = await tx.$queryRawUnsafe(
-    `SELECT usage.id, usage.tenant_id, usage.case_id, usage.patient_uid,
-            usage.catalog_item_id, usage.inventory_batch_id, usage.quantity,
-            usage.batch_tracked, usage.batch_number, usage.lot_number,
-            usage.expiry_date, usage.wasted, usage.waste_reason, usage.used_by,
-            usage.inventory_decrement_status, usage.inventory_movement_id,
-            usage.inventory_warning, usage.metadata,
-            catalog.item_name, catalog.inventory_item_id,
-            cath_case.encounter_id,
-            inventory_item.schedule_class, inventory_item.is_narcotic
-       FROM cath_case_consumable_usage usage
-       JOIN cath_consumable_catalog catalog
-         ON catalog.tenant_id = usage.tenant_id
-        AND catalog.id = usage.catalog_item_id
-       JOIN cath_lab_cases cath_case
-         ON cath_case.tenant_id = usage.tenant_id
-        AND cath_case.id = usage.case_id
-        AND cath_case.patient_uid = usage.patient_uid
-       LEFT JOIN pharmacy_inventory_items inventory_item
-         ON inventory_item.tenant_id = usage.tenant_id
-        AND inventory_item.id = catalog.inventory_item_id
-      WHERE usage.tenant_id = $1::uuid
-        AND usage.id = $2::bigint
-      LIMIT 1
-      FOR UPDATE OF usage`,
-    tenantId,
-    normalizeId(usageId, 'usage_id')
-  );
-  if (!rows[0]) {
-    throw AppError.notFound('Cath consumable usage not found', 'CATH_CONSUMABLE_USAGE_NOT_FOUND');
-  }
-  return normalizeDbValue(rows[0]);
-}
-
 async function cathMovementEvidenceTx(tx, usage) {
   const rows = await tx.$queryRawUnsafe(
     `SELECT COALESCE(SUM(-movement.quantity_delta), 0::numeric) AS decremented_quantity,
@@ -1889,25 +2865,39 @@ async function updateCathInventoryOutcomeTx(tx, usage, {
   );
 }
 
-async function cathShortfallNotificationRecipientTx(tx, tenantId) {
+async function cathShortfallNotificationRecipientTx(tx, tenantId, facilityId) {
   const routine = await tx.$queryRawUnsafe(
-    `SELECT id, uid, phone, preferred_language, role
-       FROM users
-      WHERE tenant_id = $1::uuid
-        AND is_active = TRUE
-        AND status = 'active'
-        AND COALESCE(is_deleted, FALSE) = FALSE
-        AND role = ANY($2::text[])
-      ORDER BY CASE role
+    `SELECT actor.id, actor.uid, actor.phone, actor.preferred_language, actor.role,
+            facility_grant.id AS facility_grant_id
+       FROM users actor
+       JOIN staff actor_staff
+         ON actor_staff.tenant_id=actor.tenant_id
+        AND actor_staff.user_id=actor.uid
+        AND actor_staff.is_active=TRUE
+        AND actor_staff.archived=FALSE
+       JOIN pharmacy_staff_facility_grants facility_grant
+         ON facility_grant.tenant_id=actor.tenant_id
+        AND facility_grant.staff_uid=actor.uid
+        AND facility_grant.facility_id=$3::int
+        AND facility_grant.status='active'
+        AND facility_grant.revoked_at IS NULL
+      WHERE actor.tenant_id = $1::uuid
+        AND actor.is_active = TRUE
+        AND actor.status = 'active'
+        AND COALESCE(actor.is_deleted, FALSE) = FALSE
+        AND actor.merged_into_uid IS NULL
+        AND actor.role = ANY($2::text[])
+      ORDER BY CASE actor.role
                  WHEN 'PHARMACIST' THEN 0
                  WHEN 'PHARMACY_INCHARGE' THEN 1
                  ELSE 2
                END,
-               last_sign_in_at DESC NULLS LAST,
-               id
+               actor.last_sign_in_at DESC NULLS LAST,
+               actor.id
       LIMIT 1`,
     tenantId,
-    CATH_INVENTORY_SHORTFALL_OPERATOR_ROLES
+    CATH_INVENTORY_SHORTFALL_OPERATOR_ROLES,
+    Number(facilityId)
   );
   if (routine[0]) return { ...routine[0], coverageGap: false, deliveryCoverage: 'direct' };
   const coverage = await tx.$queryRawUnsafe(
@@ -1916,8 +2906,9 @@ async function cathShortfallNotificationRecipientTx(tx, tenantId) {
       WHERE tenant_id = $1::uuid
         AND is_active = TRUE
         AND status = 'active'
-        AND COALESCE(is_deleted, FALSE) = FALSE
-        AND role = ANY($2::text[])
+         AND COALESCE(is_deleted, FALSE) = FALSE
+         AND merged_into_uid IS NULL
+         AND role = ANY($2::text[])
       ORDER BY CASE role WHEN 'SUPER_ADMIN' THEN 0 ELSE 1 END,
                last_sign_in_at DESC NULLS LAST,
                id
@@ -1955,7 +2946,8 @@ async function materializeCathInventoryShortfallTx(tx, usage, {
       inventory_shortfall_contract: CATH_INVENTORY_SHORTFALL_TASK_CONTRACT,
       inventory_shortfall_deep_link: deepLink,
       inventory_shortfall_retry_path: retryPath,
-      inventory_shortfall_intended_role_codes: intendedRoleCodes
+      inventory_shortfall_intended_role_codes: intendedRoleCodes,
+      inventory_facility_id: Number(usage.facility_id)
     }
   });
   const sla = await startWorkflowSla({
@@ -1971,7 +2963,9 @@ async function materializeCathInventoryShortfallTx(tx, usage, {
       task_contract: CATH_INVENTORY_SHORTFALL_TASK_CONTRACT,
       cath_case_id: String(usage.case_id),
       cath_consumable_usage_id: String(usage.id),
-      inventory_item_id: String(usage.inventory_item_id)
+      inventory_item_id: String(usage.inventory_item_id),
+      inventory_batch_id: String(usage.inventory_batch_id),
+      inventory_facility_id: Number(usage.facility_id)
     }
   }, { db: tx, strict: true });
   if (!sla?.id) {
@@ -1984,6 +2978,8 @@ async function materializeCathInventoryShortfallTx(tx, usage, {
     cath_consumable_usage_id: String(usage.id),
     cath_case_id: String(usage.case_id),
     inventory_item_id: String(usage.inventory_item_id),
+    inventory_batch_id: String(usage.inventory_batch_id),
+    facility_id: Number(usage.facility_id),
     movement_kind: usage.wasted ? 'dispose' : 'issue',
     deep_link: deepLink,
     retry_path: retryPath,
@@ -2028,7 +3024,11 @@ async function materializeCathInventoryShortfallTx(tx, usage, {
       'CATH_INVENTORY_SHORTFALL_TASK_CONFLICT'
     );
   }
-  const recipient = await cathShortfallNotificationRecipientTx(tx, usage.tenant_id);
+  const recipient = await cathShortfallNotificationRecipientTx(
+    tx,
+    usage.tenant_id,
+    usage.facility_id
+  );
   const presentation = cathInventoryShortfallPresentation(recipient.preferred_language);
   const outbox = await notificationOutbox.queue({
     tenantId: usage.tenant_id,
@@ -2046,6 +3046,8 @@ async function materializeCathInventoryShortfallTx(tx, usage, {
       cath_case_id: String(usage.case_id),
       cath_consumable_usage_id: String(usage.id),
       inventory_item_id: String(usage.inventory_item_id),
+      inventory_batch_id: String(usage.inventory_batch_id),
+      facility_id: Number(usage.facility_id),
       deep_link: deepLink,
       retry_path: retryPath,
       action_label_key: CATH_INVENTORY_SHORTFALL_ACTION_LABEL_KEY,
@@ -2054,6 +3056,9 @@ async function materializeCathInventoryShortfallTx(tx, usage, {
       intended_role_codes: intendedRoleCodes,
       recipient_uid: recipient.uid,
       recipient_role: recipient.role,
+      recipient_facility_grant_id: recipient.facility_grant_id == null
+        ? null
+        : String(recipient.facility_grant_id),
       recipient_status_snapshot: recipient.id ? 'active' : null,
       recipient_not_deleted_snapshot: recipient.id ? true : null,
       presentation_key: 'cath_inventory_shortfall',
@@ -2086,184 +3091,22 @@ async function materializeCathInventoryShortfallTx(tx, usage, {
 }
 
 async function initialCathInventoryBatchesTx(tx, usage) {
-  if (usage.inventory_batch_id) {
-    return tx.$queryRawUnsafe(
-      `SELECT id, inventory_item_id, batch_number, lot_number, expiry_date,
-              remaining_quantity, status,
-              (expiry_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date) AS is_expired
-         FROM pharmacy_inventory_batches
-        WHERE tenant_id = $1::uuid
-          AND inventory_item_id = $2::int
-          AND id = $3::int
-        LIMIT 1
-        FOR UPDATE`,
-      usage.tenant_id,
-      Number(usage.inventory_item_id),
-      Number(usage.inventory_batch_id)
-    );
-  }
   return tx.$queryRawUnsafe(
-    `SELECT id, inventory_item_id, batch_number, lot_number, expiry_date,
-            remaining_quantity, status, FALSE AS is_expired
+    `SELECT id, inventory_item_id, facility_id, batch_number, lot_number, expiry_date,
+            remaining_quantity, status,
+            (expiry_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date) AS is_expired
        FROM pharmacy_inventory_batches
       WHERE tenant_id = $1::uuid
         AND inventory_item_id = $2::int
-        AND status = 'in_stock'
-        AND remaining_quantity > 0
-        AND expiry_date >= (NOW() AT TIME ZONE 'Asia/Kolkata')::date
-      ORDER BY expiry_date, id
+        AND facility_id = $3::int
+        AND id = $4::int
+      LIMIT 1
       FOR UPDATE`,
     usage.tenant_id,
-    Number(usage.inventory_item_id)
+    Number(usage.inventory_item_id),
+    Number(usage.facility_id),
+    Number(usage.inventory_batch_id)
   );
-}
-
-async function applyConsumableInventoryDecrement(usage) {
-  const tenantId = tenantOr(usage.tenant_id);
-  return setTenantTx(tenantId, async tx => {
-    const current = await cathUsageInventoryRowTx(tx, tenantId, usage.id);
-    if (current.inventory_decrement_status !== 'pending') {
-      return consumableUsageById(tx, tenantId, current.id);
-    }
-    if (!current.inventory_item_id) {
-      await updateCathInventoryOutcomeTx(tx, current, { status: 'not_linked' });
-      return consumableUsageById(tx, tenantId, current.id);
-    }
-    const lockedInventoryItems = await tx.$queryRawUnsafe(
-      `SELECT schedule_class, is_narcotic
-         FROM pharmacy_inventory_items
-        WHERE tenant_id = $1::uuid
-          AND id = $2::int
-        LIMIT 1
-        FOR UPDATE`,
-      tenantId,
-      Number(current.inventory_item_id)
-    );
-    if (!lockedInventoryItems[0]) {
-      throw AppError.conflict(
-        'Cath consumable inventory item changed before decrement',
-        'CATH_INVENTORY_ITEM_CHANGED'
-      );
-    }
-    current.schedule_class = lockedInventoryItems[0].schedule_class;
-    current.is_narcotic = lockedInventoryItems[0].is_narcotic;
-    if (current.batch_tracked && !current.inventory_batch_id) {
-      await updateCathInventoryOutcomeTx(tx, current, {
-        status: 'error',
-        warning: current.inventory_warning
-          || 'Exact inventory batch could not be resolved; clinical usage was saved without a stock decrement'
-      });
-      return consumableUsageById(tx, tenantId, current.id);
-    }
-    if (
-      ['H', 'H1', 'X'].includes(String(current.schedule_class || '').toUpperCase())
-      || current.is_narcotic === true
-    ) {
-      await updateCathInventoryOutcomeTx(tx, current, {
-        status: 'error',
-        warning: 'Controlled stock requires the statutory dispensing workflow; no Cath inventory movement was recorded'
-      });
-      return consumableUsageById(tx, tenantId, current.id);
-    }
-    const documentedUnits = quantityUnits(current.quantity);
-    const existing = await cathMovementEvidenceTx(tx, current);
-    if (existing.decrementedUnits > documentedUnits) {
-      throw AppError.conflict(
-        'Cath consumable movements exceed the documented quantity',
-        'CATH_INVENTORY_MOVEMENT_OVER_DECREMENT'
-      );
-    }
-    if (existing.decrementedUnits === documentedUnits) {
-      await updateCathInventoryOutcomeTx(tx, current, {
-        status: 'decremented',
-        movementId: existing.finalMovementId,
-        warning: null
-      });
-      return consumableUsageById(tx, tenantId, current.id);
-    }
-    if (existing.decrementedUnits > 0) {
-      const warning = `Insufficient stock: documented ${quantityFromUnits(documentedUnits)}, decremented ${quantityFromUnits(existing.decrementedUnits)}`;
-      await materializeCathInventoryShortfallTx(tx, current, {
-        decrementedUnits: existing.decrementedUnits,
-        finalMovementId: existing.finalMovementId,
-        warning
-      });
-      return consumableUsageById(tx, tenantId, current.id);
-    }
-    const batches = await initialCathInventoryBatchesTx(tx, current);
-    if (current.inventory_batch_id) {
-      const exact = batches[0];
-      if (!exact || batchLineageMismatch(exact, {
-        batchNumber: current.batch_number,
-        lotNumber: current.lot_number,
-        expiryDate: current.expiry_date
-      })) {
-        await updateCathInventoryOutcomeTx(tx, current, {
-          status: 'error',
-          warning: 'Inventory batch lineage changed before decrement; clinical usage was saved without a stock decrement'
-        });
-        return consumableUsageById(tx, tenantId, current.id);
-      }
-      if (exact.is_expired || !['in_stock', 'depleted'].includes(String(exact.status))) {
-        await updateCathInventoryOutcomeTx(tx, current, {
-          status: 'error',
-          warning: exact.is_expired
-            ? 'Exact inventory batch is expired; clinical usage was saved without a stock decrement'
-            : 'Exact inventory batch is unavailable; clinical usage was saved without a stock decrement'
-        });
-        return consumableUsageById(tx, tenantId, current.id);
-      }
-    }
-    let remainingUnits = documentedUnits;
-    let decrementedUnits = 0;
-    let finalMovementId = null;
-    const movementKind = current.wasted ? 'dispose' : 'issue';
-    const notes = current.wasted
-      ? `Cath usage #${current.id}: opened but not used${current.waste_reason ? ` — ${current.waste_reason}` : ''}`
-      : `Cath usage #${current.id}: documented for case #${current.case_id}`;
-    for (const batch of batches) {
-      if (remainingUnits <= 0) break;
-      const availableUnits = Math.max(
-        0,
-        Math.round(Number(batch.remaining_quantity || 0) * QUANTITY_SCALE)
-      );
-      const takeUnits = Math.min(remainingUnits, availableUnits);
-      if (takeUnits <= 0) continue;
-      const result = await recordMovementTx(tx, {
-        tenantId,
-        inventory_item_id: current.inventory_item_id,
-        inventory_batch_id: batch.id,
-        movement_kind: movementKind,
-        quantity: quantityFromUnits(takeUnits),
-        reference_type: 'cath_consumable_usage',
-        reference_id: String(current.id),
-        performed_by: current.used_by,
-        notes,
-        require_usable_batch: true,
-        expected_batch_number: batch.batch_number,
-        expected_lot_number: batch.lot_number,
-        expected_expiry_date: batch.expiry_date
-      });
-      decrementedUnits += takeUnits;
-      remainingUnits -= takeUnits;
-      finalMovementId = result.movement?.id || finalMovementId;
-    }
-    if (remainingUnits === 0) {
-      await updateCathInventoryOutcomeTx(tx, current, {
-        status: 'decremented',
-        movementId: finalMovementId,
-        warning: null
-      });
-    } else {
-      const warning = `Insufficient stock: documented ${quantityFromUnits(documentedUnits)}, decremented ${quantityFromUnits(decrementedUnits)}`;
-      await materializeCathInventoryShortfallTx(tx, current, {
-        decrementedUnits,
-        finalMovementId,
-        warning
-      });
-    }
-    return consumableUsageById(tx, tenantId, current.id);
-  });
 }
 
 async function cathInventoryReconciliationRowTx(tx, tenantId, caseId, usageId, {
@@ -2275,6 +3118,8 @@ async function cathInventoryReconciliationRowTx(tx, tenantId, caseId, usageId, {
             usage.case_id,
             usage.patient_uid,
             usage.catalog_item_id,
+            usage.facility_id,
+            usage.inventory_item_id,
             usage.inventory_batch_id,
             usage.batch_number,
             usage.lot_number,
@@ -2287,7 +3132,6 @@ async function cathInventoryReconciliationRowTx(tx, tenantId, caseId, usageId, {
             usage.used_by,
             usage.metadata AS usage_metadata,
             catalog.item_name,
-            catalog.inventory_item_id,
             inventory_item.schedule_class,
             inventory_item.is_narcotic,
             cath_case.encounter_id,
@@ -2300,7 +3144,10 @@ async function cathInventoryReconciliationRowTx(tx, tenantId, caseId, usageId, {
               AND task_assignee.is_active = TRUE
               AND task_assignee.status = 'active'
               AND COALESCE(task_assignee.is_deleted, FALSE) = FALSE
-              AND task_assignee.role = ANY($6::text[]),
+              AND task_assignee.merged_into_uid IS NULL
+              AND task_assignee.role = ANY($6::text[])
+              AND task_assignee_staff.id IS NOT NULL
+              AND task_assignee_grant.id IS NOT NULL,
               FALSE
             ) AS task_assignee_active,
             task.workflow_sla_instance_id,
@@ -2323,30 +3170,128 @@ async function cathInventoryReconciliationRowTx(tx, tenantId, caseId, usageId, {
          ON cath_case.tenant_id = usage.tenant_id
         AND cath_case.id = usage.case_id
         AND cath_case.patient_uid = usage.patient_uid
+        AND cath_case.facility_id = usage.facility_id
        JOIN cath_consumable_catalog catalog
          ON catalog.tenant_id = usage.tenant_id
+        AND catalog.facility_id = usage.facility_id
         AND catalog.id = usage.catalog_item_id
+        AND catalog.inventory_item_id = usage.inventory_item_id
+        AND catalog.status = 'active'
        JOIN pharmacy_inventory_items inventory_item
          ON inventory_item.tenant_id = usage.tenant_id
-        AND inventory_item.id = catalog.inventory_item_id
+        AND inventory_item.facility_id = usage.facility_id
+        AND inventory_item.id = usage.inventory_item_id
+        AND inventory_item.status = 'active'
+       JOIN pharmacy_inventory_batches inventory_batch
+         ON inventory_batch.tenant_id = usage.tenant_id
+        AND inventory_batch.facility_id = usage.facility_id
+        AND inventory_batch.id = usage.inventory_batch_id
+        AND inventory_batch.inventory_item_id = usage.inventory_item_id
+        AND inventory_batch.batch_number IS NOT DISTINCT FROM usage.batch_number
+        AND inventory_batch.lot_number IS NOT DISTINCT FROM usage.lot_number
+        AND inventory_batch.expiry_date IS NOT DISTINCT FROM usage.expiry_date
+       JOIN facilities inventory_facility
+         ON inventory_facility.tenant_id=usage.tenant_id
+        AND inventory_facility.id=usage.facility_id
+        AND inventory_facility.status='active'
+       JOIN clinical_timeline_events timeline
+         ON timeline.tenant_id=usage.tenant_id
+        AND timeline.id=usage.timeline_event_id
+        AND timeline.patient_uid=usage.patient_uid
+        AND timeline.encounter_id IS NOT DISTINCT FROM cath_case.encounter_id
+        AND timeline.source_table='cath_case_consumable_usage'
+        AND timeline.source_id=usage.id::text
+        AND timeline.resource_type='cath_case_consumable_usage'
+        AND timeline.resource_id=usage.id::text
+        AND timeline.actor_uid IS NOT DISTINCT FROM usage.used_by
+        AND timeline.event_type=CASE WHEN usage.wasted
+          THEN 'cath_lab.consumable_wasted' ELSE 'cath_lab.consumable_used' END
+        AND timeline.payload->>'facility_id'=usage.facility_id::text
+        AND timeline.payload->>'inventory_item_id'=usage.inventory_item_id::text
+        AND timeline.payload->>'inventory_batch_id'=usage.inventory_batch_id::text
+       JOIN clinical_audit_events clinical_audit
+         ON clinical_audit.tenant_id=usage.tenant_id
+        AND clinical_audit.id=usage.audit_event_id
+        AND clinical_audit.patient_uid IS NOT DISTINCT FROM usage.patient_uid
+        AND clinical_audit.encounter_id IS NOT DISTINCT FROM cath_case.encounter_id
+        AND clinical_audit.resource_table='cath_case_consumable_usage'
+        AND clinical_audit.resource_id=usage.id::text
+        AND clinical_audit.actor_uid IS NOT DISTINCT FROM usage.used_by
+        AND clinical_audit.action=CASE WHEN usage.wasted
+          THEN 'cath_lab.consumable_wasted' ELSE 'cath_lab.consumable_used' END
        JOIN tasks task
          ON task.tenant_id = usage.tenant_id
         AND task.related_resource_type = 'cath_case_consumable_usage'
         AND task.related_resource_id = usage.id::text
         AND task.metadata->>'task_contract' = $4::text
+        AND task.patient_uid = usage.patient_uid
+        AND task.metadata->>'cath_consumable_usage_id' = usage.id::text
+        AND task.metadata->>'cath_case_id' = usage.case_id::text
+        AND task.metadata->>'facility_id' = usage.facility_id::text
+        AND task.metadata->>'inventory_item_id' = usage.inventory_item_id::text
+        AND task.metadata->>'inventory_batch_id' = usage.inventory_batch_id::text
        JOIN workflow_sla_instances sla
          ON sla.tenant_id = usage.tenant_id
         AND sla.id = task.workflow_sla_instance_id
         AND sla.rule_code = $5::text
          AND sla.source_table = 'cath_case_consumable_usage'
          AND sla.source_id = usage.id::text
+         AND sla.patient_uid = usage.patient_uid
+         AND sla.encounter_id IS NOT DISTINCT FROM cath_case.encounter_id
+         AND sla.metadata->>'cath_case_id' = usage.case_id::text
+         AND sla.metadata->>'inventory_facility_id' = usage.facility_id::text
+         AND sla.metadata->>'inventory_item_id' = usage.inventory_item_id::text
+         AND sla.metadata->>'inventory_batch_id' = usage.inventory_batch_id::text
        LEFT JOIN users task_assignee
          ON task_assignee.tenant_id = task.tenant_id
         AND task_assignee.uid = task.assigned_to_uid
-       LEFT JOIN notification_outbox outbox
+       LEFT JOIN pharmacy_staff_facility_grants task_assignee_grant
+         ON task_assignee_grant.tenant_id=task.tenant_id
+        AND task_assignee_grant.staff_uid=task.assigned_to_uid
+        AND task_assignee_grant.facility_id=usage.facility_id
+        AND task_assignee_grant.status='active'
+        AND task_assignee_grant.revoked_at IS NULL
+       LEFT JOIN staff task_assignee_staff
+         ON task_assignee_staff.tenant_id=task.tenant_id
+        AND task_assignee_staff.user_id=task.assigned_to_uid
+        AND task_assignee_staff.is_active=TRUE
+        AND task_assignee_staff.archived=FALSE
+       JOIN notification_outbox outbox
          ON outbox.tenant_id = usage.tenant_id
         AND outbox.type = 'cath_inventory_shortfall'
         AND outbox.source_event_key = 'cath-inventory-shortfall:' || usage.id::text
+        AND outbox.payload->>'cath_consumable_usage_id' = usage.id::text
+        AND outbox.payload->>'cath_case_id' = usage.case_id::text
+        AND outbox.payload->>'facility_id' = usage.facility_id::text
+        AND outbox.payload->>'inventory_item_id' = usage.inventory_item_id::text
+        AND outbox.payload->>'inventory_batch_id' = usage.inventory_batch_id::text
+        AND (
+          outbox.payload->>'delivery_coverage' IS DISTINCT FROM 'direct'
+          OR (
+            outbox.payload->>'recipient_facility_grant_id' ~ '^[1-9][0-9]*$'
+            AND EXISTS (
+              SELECT 1
+                FROM pharmacy_staff_facility_grants recipient_grant
+                JOIN users recipient
+                  ON recipient.tenant_id=recipient_grant.tenant_id
+                 AND recipient.uid=recipient_grant.staff_uid
+                JOIN staff recipient_staff
+                  ON recipient_staff.tenant_id=recipient.tenant_id
+                 AND recipient_staff.user_id=recipient.uid
+               WHERE recipient_grant.tenant_id=usage.tenant_id
+                 AND recipient_grant.id::text=
+                       outbox.payload->>'recipient_facility_grant_id'
+                 AND recipient_grant.facility_id=usage.facility_id
+                 AND recipient_grant.staff_uid::text=outbox.payload->>'recipient_uid'
+                 AND recipient.id::text=outbox.recipient_id
+                 AND outbox.payload->>'recipient_status_snapshot'='active'
+                 AND outbox.payload->>'recipient_not_deleted_snapshot'='true'
+                 AND recipient_grant.granted_at <= outbox.created_at
+                 AND (recipient_grant.revoked_at IS NULL
+                      OR recipient_grant.revoked_at >= outbox.created_at)
+            )
+          )
+        )
        LEFT JOIN LATERAL (
          SELECT COALESCE(SUM(-movement.quantity_delta), 0::numeric)
                   AS decremented_quantity,
@@ -2369,20 +3314,70 @@ async function cathInventoryReconciliationRowTx(tx, tenantId, caseId, usageId, {
        LEFT JOIN LATERAL (
          SELECT EXISTS (
            SELECT 1
-             FROM users available_operator
+             FROM pharmacy_stock_movements movement
+            WHERE movement.tenant_id=usage.tenant_id
+              AND (
+                (movement.reference_type='cath_consumable_usage'
+                 AND movement.reference_id=usage.id::text)
+                OR (movement.reference_type='cath_consumable_reconciliation'
+                 AND movement.metadata->>'cath_consumable_usage_id'=usage.id::text)
+              )
+              AND (
+                movement.inventory_item_id IS DISTINCT FROM usage.inventory_item_id
+                OR movement.inventory_batch_id IS DISTINCT FROM usage.inventory_batch_id
+                OR movement.movement_kind IS DISTINCT FROM
+                     CASE WHEN usage.wasted THEN 'dispose' ELSE 'issue' END
+                OR movement.quantity_delta >= 0
+                OR movement.metadata->>'facility_id' IS DISTINCT FROM usage.facility_id::text
+                OR movement.performed_by::text
+                     IS DISTINCT FROM movement.metadata->>'canonical_actor_uid'
+                OR movement.metadata->>'actor_facility_grant_id' !~ '^[1-9][0-9]*$'
+                OR NOT EXISTS (
+                  SELECT 1
+                    FROM pharmacy_staff_facility_grants movement_grant
+                   WHERE movement_grant.tenant_id=movement.tenant_id
+                     AND movement_grant.id::text=
+                           movement.metadata->>'actor_facility_grant_id'
+                     AND movement_grant.staff_uid=movement.performed_by
+                     AND movement_grant.facility_id=usage.facility_id
+                     AND movement_grant.granted_at <= movement.created_at
+                     AND (movement_grant.revoked_at IS NULL
+                          OR movement_grant.revoked_at >= movement.created_at)
+                )
+              )
+         ) AS invalid_movement
+       ) movement_authority ON TRUE
+       LEFT JOIN LATERAL (
+          SELECT EXISTS (
+            SELECT 1
+              FROM users available_operator
+              JOIN staff available_operator_staff
+                ON available_operator_staff.tenant_id=available_operator.tenant_id
+               AND available_operator_staff.user_id=available_operator.uid
+               AND available_operator_staff.is_active=TRUE
+               AND available_operator_staff.archived=FALSE
+              JOIN pharmacy_staff_facility_grants available_grant
+                ON available_grant.tenant_id=available_operator.tenant_id
+               AND available_grant.staff_uid=available_operator.uid
+               AND available_grant.facility_id=usage.facility_id
+               AND available_grant.status='active'
+               AND available_grant.revoked_at IS NULL
             WHERE available_operator.tenant_id = usage.tenant_id
               AND available_operator.is_active = TRUE
               AND available_operator.status = 'active'
-              AND COALESCE(available_operator.is_deleted, FALSE) = FALSE
-              AND available_operator.role = ANY($6::text[])
+               AND COALESCE(available_operator.is_deleted, FALSE) = FALSE
+               AND available_operator.merged_into_uid IS NULL
+               AND available_operator.role = ANY($6::text[])
          ) AS operator_available
        ) operator_state ON TRUE
       WHERE usage.tenant_id = $1::uuid
         AND usage.case_id = $2::bigint
         AND usage.id = $3::bigint
         AND usage.metadata->>'inventory_shortfall_contract' = $4::text
+        AND COALESCE(movement_authority.invalid_movement, FALSE)=FALSE
       LIMIT 1
-      ${lock ? 'FOR UPDATE OF usage, task, sla, inventory_item' : ''}`,
+      ${lock ? `FOR UPDATE OF usage, cath_case, catalog, inventory_item,
+                              inventory_batch, task, sla` : ''}`,
     tenantId,
     normalizeId(caseId, 'case_id'),
     normalizeId(usageId, 'usage_id'),
@@ -2391,6 +3386,36 @@ async function cathInventoryReconciliationRowTx(tx, tenantId, caseId, usageId, {
     CATH_INVENTORY_SHORTFALL_OPERATOR_ROLES
   );
   if (!rows[0]) {
+    const unresolved = await tx.$queryRawUnsafe(
+      `SELECT usage.id AS usage_id, usage.facility_id, usage.inventory_item_id,
+              recovery.id AS recovery_id, recovery.reason_code
+         FROM cath_case_consumable_usage usage
+         LEFT JOIN pharmacy_inventory_authority_recovery_worklist recovery
+           ON recovery.tenant_id=usage.tenant_id
+          AND recovery.entity_type='cath_consumable_usage'
+          AND recovery.entity_id=usage.id
+          AND recovery.status='OPEN'
+        WHERE usage.tenant_id=$1::uuid
+          AND usage.case_id=$2::bigint
+          AND usage.id=$3::bigint
+        LIMIT 1`,
+      tenantId,
+      normalizeId(caseId, 'case_id'),
+      normalizeId(usageId, 'usage_id')
+    );
+    if (unresolved[0]) {
+      throw AppError.conflict(
+        'Cath usage inventory authority is unresolved and cannot be inferred',
+        'CATH_INVENTORY_RECONCILIATION_AUTHORITY_UNRESOLVED',
+        {
+          recovery_worklist_id: unresolved[0].recovery_id == null
+            ? null
+            : String(unresolved[0].recovery_id),
+          reason_code: unresolved[0].reason_code || 'CATH_USAGE_AUTHORITY_UNRESOLVED',
+          recovery_action: 'resolve_cath_consumable_usage_authority_worklist'
+        }
+      );
+    }
     throw AppError.notFound(
       'Cath inventory reconciliation was not found',
       'CATH_INVENTORY_RECONCILIATION_NOT_FOUND'
@@ -2451,6 +3476,7 @@ function cathInventoryReconciliationView(record, actor) {
     patient_uid: String(record.patient_uid),
     item_name: String(record.item_name || ''),
     catalog_item_id: String(record.catalog_item_id),
+    facility_id: Number(record.facility_id),
     inventory_item_id: String(record.inventory_item_id),
     inventory_batch_id: record.inventory_batch_id == null
       ? null
@@ -2537,37 +3563,12 @@ async function finaliseCathInventoryReconciliationClaimTx(tx, tenantId, command,
 
 async function recordCathReconciliationMovementTx(tx, usage, batch, {
   actorRole,
+  actorAuthority,
   command,
   requestedUnits,
   takeUnits
 }) {
   const quantity = quantityFromUnits(takeUnits);
-  const updated = await tx.$queryRawUnsafe(
-    `UPDATE pharmacy_inventory_batches
-        SET remaining_quantity = remaining_quantity - $4::numeric,
-            status = CASE
-              WHEN remaining_quantity - $4::numeric <= 0 THEN 'depleted'
-              ELSE status
-            END,
-            updated_at = NOW()
-      WHERE tenant_id = $1::uuid
-        AND id = $2::int
-        AND inventory_item_id = $3::int
-        AND status = 'in_stock'
-        AND expiry_date >= (NOW() AT TIME ZONE 'Asia/Kolkata')::date
-        AND remaining_quantity >= $4::numeric
-      RETURNING id`,
-    usage.tenant_id,
-    Number(batch.id),
-    Number(usage.inventory_item_id),
-    quantity
-  );
-  if (!updated[0]) {
-    throw AppError.conflict(
-      'Cath inventory batch changed before reconciliation movement',
-      'CATH_INVENTORY_RECONCILIATION_BATCH_CONFLICT'
-    );
-  }
   const metadata = {
     command_contract: CATH_INVENTORY_RECONCILIATION_COMMAND_CONTRACT,
     command_key_sha256: command.commandKeySha256,
@@ -2579,36 +3580,38 @@ async function recordCathReconciliationMovementTx(tx, usage, batch, {
     requested_quantity: quantityFromUnits(requestedUnits),
     quantity_taken: quantity,
     inventory_batch_id: String(batch.id),
+    facility_id: Number(usage.facility_id),
     actor_role: actorRole,
+    actor_facility_grant_id: String(actorAuthority.grant_id),
+    canonical_actor_uid: actorAuthority.actor_uid,
+    canonical_actor_role: actorAuthority.actor_role,
+    canonical_actor_name: actorAuthority.actor_name,
     ...(command.requestId ? { request_id: command.requestId } : {})
   };
-  const rows = await tx.$queryRawUnsafe(
-    `INSERT INTO pharmacy_stock_movements
-       (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
-        quantity_delta, reference_type, reference_id, performed_by, notes, metadata,
-        created_at)
-     VALUES ($1::uuid, $2::int, $3::int, $4::text,
-             -$5::numeric, 'cath_consumable_reconciliation', $6::text,
-             $7::uuid, $8::text, $9::jsonb,
-             date_trunc('milliseconds', clock_timestamp()))
-     RETURNING id, created_at`,
-    usage.tenant_id,
-    Number(usage.inventory_item_id),
-    Number(batch.id),
-    usage.wasted ? 'dispose' : 'issue',
+  const result = await recordMovementTx(tx, {
+    tenantId: usage.tenant_id,
+    inventory_item_id: Number(usage.inventory_item_id),
+    inventory_batch_id: Number(batch.id),
+    movement_kind: usage.wasted ? 'dispose' : 'issue',
     quantity,
-    command.commandKeySha256,
-    command.actor,
-    `Cath consumable usage #${String(usage.usage_id)} inventory reconciliation`,
-    JSON.stringify(metadata)
-  );
-  if (!rows[0]) {
+    reference_type: 'cath_consumable_reconciliation',
+    reference_id: command.commandKeySha256,
+    performed_by: actorAuthority.actor_uid,
+    notes: `Cath consumable usage #${String(usage.usage_id)} inventory reconciliation`,
+    expected_facility_id: Number(usage.facility_id),
+    require_usable_batch: true,
+    expected_batch_number: batch.batch_number,
+    expected_lot_number: batch.lot_number,
+    expected_expiry_date: batch.expiry_date,
+    metadata
+  });
+  if (!result?.movement?.id) {
     throw AppError.conflict(
       'Cath inventory reconciliation movement was not persisted',
       'CATH_INVENTORY_RECONCILIATION_MOVEMENT_MISSING'
     );
   }
-  return rows[0];
+  return result.movement;
 }
 
 export async function getCathConsumableInventoryReconciliation(
@@ -2627,6 +3630,13 @@ export async function getCathConsumableInventoryReconciliation(
       normalizedCaseId,
       normalizedUsageId
     );
+    await assertPharmacyFacilityGrant(tx, {
+      tenantId: tid,
+      facilityId: Number(record.facility_id),
+      actorUid: actor.uid,
+      actorRole: actor.role,
+      forUpdate: false
+    });
     assertCathInventoryReconciliationAccess(record, actor);
     return cathInventoryReconciliationView(record, actor);
   });
@@ -2642,6 +3652,7 @@ async function cathInventoryStaleAssignmentCandidatesTx(tx, tenantId, limit) {
   return tx.$queryRawUnsafe(
     `SELECT task.id::text AS task_id,
             usage.id::text AS usage_id,
+            usage.facility_id::text AS facility_id,
             task.assigned_to_uid::text AS stale_uid
        FROM tasks task
        JOIN cath_case_consumable_usage usage
@@ -2670,18 +3681,31 @@ async function cathInventoryStaleAssignmentCandidatesTx(tx, tenantId, limit) {
         AND task.metadata->>'sla_key' = $4::text
         AND task.metadata->>'cath_case_id' = usage.case_id::text
         AND task.metadata->>'inventory_item_id' ~ '^[1-9][0-9]*$'
+        AND task.metadata->>'facility_id' = usage.facility_id::text
         AND task.metadata->>'movement_kind' IN ('issue', 'dispose')
         AND task.assigned_to_uid IS NOT NULL
         AND task.assigned_to_role IS NULL
         AND NOT EXISTS (
-          SELECT 1
-            FROM users current_owner
-           WHERE current_owner.tenant_id = task.tenant_id
+           SELECT 1
+             FROM users current_owner
+             JOIN staff current_owner_staff
+               ON current_owner_staff.tenant_id=current_owner.tenant_id
+              AND current_owner_staff.user_id=current_owner.uid
+              AND current_owner_staff.is_active=TRUE
+              AND current_owner_staff.archived=FALSE
+             JOIN pharmacy_staff_facility_grants current_grant
+               ON current_grant.tenant_id=current_owner.tenant_id
+              AND current_grant.staff_uid=current_owner.uid
+              AND current_grant.facility_id=usage.facility_id
+              AND current_grant.status='active'
+              AND current_grant.revoked_at IS NULL
+            WHERE current_owner.tenant_id = task.tenant_id
              AND current_owner.uid = task.assigned_to_uid
              AND current_owner.is_active = TRUE
              AND LOWER(COALESCE(current_owner.status, '')) = 'active'
              AND COALESCE(current_owner.is_deleted, FALSE) = FALSE
-             AND current_owner.deleted_at IS NULL
+              AND current_owner.deleted_at IS NULL
+              AND current_owner.merged_into_uid IS NULL
              AND current_owner.role = ANY($5::text[])
         )
       ORDER BY task.updated_at ASC, task.id ASC
@@ -2694,18 +3718,30 @@ async function cathInventoryStaleAssignmentCandidatesTx(tx, tenantId, limit) {
   );
 }
 
-async function nextCathInventoryRecoveryOwnerTx(tx, tenantId, staleUid) {
+async function nextCathInventoryRecoveryOwnerTx(tx, tenantId, facilityId, staleUid) {
   const rows = await tx.$queryRawUnsafe(
-    `SELECT uid::text AS uid, UPPER(BTRIM(role)) AS role
-       FROM users
-      WHERE tenant_id = $1::uuid
-        AND uid IS DISTINCT FROM $2::uuid
-        AND is_active = TRUE
-        AND LOWER(COALESCE(status, '')) = 'active'
-        AND COALESCE(is_deleted, FALSE) = FALSE
-        AND deleted_at IS NULL
-        AND role = ANY($3::text[])
-      ORDER BY CASE UPPER(BTRIM(role))
+    `SELECT actor.uid::text AS uid, UPPER(BTRIM(actor.role)) AS role
+       FROM users actor
+       JOIN staff actor_staff
+         ON actor_staff.tenant_id=actor.tenant_id
+        AND actor_staff.user_id=actor.uid
+        AND actor_staff.is_active=TRUE
+        AND actor_staff.archived=FALSE
+       JOIN pharmacy_staff_facility_grants facility_grant
+         ON facility_grant.tenant_id=actor.tenant_id
+        AND facility_grant.staff_uid=actor.uid
+        AND facility_grant.facility_id=$2::int
+        AND facility_grant.status='active'
+        AND facility_grant.revoked_at IS NULL
+      WHERE actor.tenant_id = $1::uuid
+        AND actor.uid IS DISTINCT FROM $3::uuid
+        AND actor.is_active = TRUE
+        AND LOWER(COALESCE(actor.status, '')) = 'active'
+        AND COALESCE(actor.is_deleted, FALSE) = FALSE
+        AND actor.deleted_at IS NULL
+        AND actor.merged_into_uid IS NULL
+        AND actor.role = ANY($4::text[])
+      ORDER BY CASE UPPER(BTRIM(actor.role))
                  WHEN 'PHARMACY_INCHARGE' THEN 0
                  WHEN 'PHARMACIST' THEN 1
                  ELSE 2
@@ -2714,6 +3750,7 @@ async function nextCathInventoryRecoveryOwnerTx(tx, tenantId, staleUid) {
       LIMIT 1
       FOR SHARE`,
     tenantId,
+    Number(facilityId),
     staleUid,
     CATH_INVENTORY_SHORTFALL_OPERATOR_ROLES
   );
@@ -2747,6 +3784,7 @@ export async function sweepCathInventoryShortfallAssignments({
         const owner = await nextCathInventoryRecoveryOwnerTx(
           tx,
           tid,
+          candidate.facility_id,
           String(candidate.stale_uid)
         );
         if (!owner) return { kind: 'coverage_gap' };
@@ -2844,6 +3882,13 @@ export async function reconcileCathConsumableInventory(
       normalizedUsageId
     );
     assertCathInventoryReconciliationAccess(record, actor, { mutation: true });
+    const actorAuthority = await assertPharmacyFacilityGrant(tx, {
+      tenantId: tid,
+      facilityId: Number(record.facility_id),
+      actorUid: actor.uid,
+      actorRole: actor.role,
+      forUpdate: true
+    });
 
     if (record.inventory_decrement_status === 'decremented') {
       const reconciliation = cathInventoryReconciliationView(record, actor);
@@ -2864,6 +3909,13 @@ export async function reconcileCathConsumableInventory(
       throw AppError.conflict(
         'Controlled stock requires the statutory dispensing workflow',
         'CATH_INVENTORY_RECONCILIATION_CONTROLLED_STOCK_FORBIDDEN'
+      );
+    }
+    if (!record.inventory_batch_id) {
+      throw AppError.conflict(
+        'Legacy Cath usage has no exact facility inventory batch and cannot be auto-selected',
+        'CATH_INVENTORY_RECONCILIATION_BATCH_UNRESOLVED',
+        { recovery_action: 'resolve_cath_consumable_usage_authority_worklist' }
       );
     }
 
@@ -2928,6 +3980,7 @@ export async function reconcileCathConsumableInventory(
     let finalMovementId = existing.finalMovementId;
     const batches = await initialCathInventoryBatchesTx(tx, {
       tenant_id: tid,
+      facility_id: record.facility_id,
       inventory_item_id: record.inventory_item_id,
       inventory_batch_id: record.inventory_batch_id
     });
@@ -2952,6 +4005,7 @@ export async function reconcileCathConsumableInventory(
       if (takeUnits <= 0) continue;
       const movement = await recordCathReconciliationMovementTx(tx, record, batch, {
         actorRole: actor.role,
+        actorAuthority,
         command,
         requestedUnits,
         takeUnits
@@ -3023,7 +4077,15 @@ export async function recordConsumableUsage(caseId, input = {}, context = {}) {
     );
   }
   const committed = await setTenantTx(tenantId, async tx => {
+    const canonicalActor = await cathCanonicalActorTx(tx, tenantId, context);
     const cathCase = await caseById(tx, tenantId, caseId, { lock: true });
+    if (cathCase.facility_id == null) {
+      throw AppError.conflict(
+        'Cath-lab case facility authority is unresolved',
+        'CATH_LAB_CASE_FACILITY_UNRESOLVED',
+        { recovery_action: 'resolve_cath_lab_case_facility_authority_worklist' }
+      );
+    }
     if (!canRecordConsumableForCaseStatus(cathCase.status, wasted)) {
       throw AppError.conflict(
         wasted
@@ -3037,6 +4099,45 @@ export async function recordConsumableUsage(caseId, input = {}, context = {}) {
       throw AppError.badRequest(
         'Retired catalog items cannot be added to new usage',
         'CATH_CONSUMABLE_RETIRED'
+      );
+    }
+    if (
+      catalog.inventory_item_id == null
+      || catalog.facility_id == null
+      || Number(catalog.facility_id) !== Number(cathCase.facility_id)
+      || Number(catalog.inventory_facility_id) !== Number(catalog.facility_id)
+      || catalog.inventory_item_status !== 'active'
+      || catalog.inventory_facility_status !== 'active'
+    ) {
+      throw AppError.conflict(
+        'Cath consumable usage requires one exact active facility catalog and inventory mapping',
+        'CATH_CONSUMABLE_FACILITY_MAPPING_UNRESOLVED',
+        {
+          catalog_item_id: String(catalog.id),
+          recovery_action: 'resolve_cath_consumable_catalog_authority_worklist'
+        }
+      );
+    }
+    const lockedAuthority = await tx.$queryRawUnsafe(
+      `SELECT item.id, item.facility_id
+         FROM pharmacy_inventory_items item
+         JOIN facilities facility
+           ON facility.tenant_id=item.tenant_id
+          AND facility.id=item.facility_id
+          AND facility.status='active'
+        WHERE item.tenant_id=$1::uuid
+          AND item.facility_id=$2::int
+          AND item.id=$3::int
+          AND item.status='active'
+        FOR UPDATE OF item, facility`,
+      tenantId,
+      Number(cathCase.facility_id),
+      Number(catalog.inventory_item_id)
+    );
+    if (lockedAuthority.length !== 1) {
+      throw AppError.conflict(
+        'Cath consumable facility inventory authority changed before usage capture',
+        'CATH_CONSUMABLE_FACILITY_MAPPING_CHANGED'
       );
     }
     const procedureLogIdValue = input.procedure_log_id || input.procedureLogId;
@@ -3066,10 +4167,8 @@ export async function recordConsumableUsage(caseId, input = {}, context = {}) {
     let batchNumber = cleanText(input.batch_number || input.batchNumber, 120);
     let lotNumber = cleanText(input.lot_number || input.lotNumber, 120);
     let expiryDate = optionalDate(input.expiry_date || input.expiryDate, 'expiry_date');
-    let inventoryDecrementStatus = catalog.inventory_item_id ? 'pending' : 'not_linked';
-    let inventoryWarning = catalog.inventory_item_id
-      ? null
-      : 'Catalog item is not linked to inventory; clinical usage was saved without a stock decrement';
+    const inventoryDecrementStatus = 'pending';
+    let inventoryWarning = 'Clinical usage recorded; exact facility pharmacy reconciliation is required';
 
     if (inventoryBatchValue && catalog.inventory_item_id) {
       const requestedInventoryBatchId = normalizeId(
@@ -3077,33 +4176,38 @@ export async function recordConsumableUsage(caseId, input = {}, context = {}) {
         'inventory_batch_id'
       );
       const batches = await tx.$queryRawUnsafe(
-        `SELECT id, batch_number, lot_number, expiry_date, remaining_quantity,
+        `SELECT id, facility_id, batch_number, lot_number, expiry_date, remaining_quantity,
                 status,
                 (expiry_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date) AS is_expired
            FROM pharmacy_inventory_batches
           WHERE tenant_id = $1::uuid
             AND inventory_item_id = $2::int
-            AND id = $3::int
+            AND facility_id = $3::int
+            AND id = $4::int
           LIMIT 1`,
         tenantId,
         Number(catalog.inventory_item_id),
+        Number(cathCase.facility_id),
         requestedInventoryBatchId
       );
       const batch = unwrap(batches);
       if (!batch) {
-        inventoryDecrementStatus = 'error';
-        inventoryWarning = 'Selected inventory batch is outside this tenant or catalog item; clinical usage was saved without a stock decrement';
+        throw AppError.conflict(
+          'Selected inventory batch is outside the exact Cath facility and inventory mapping',
+          'CATH_CONSUMABLE_BATCH_AUTHORITY_MISMATCH'
+        );
       } else if (batchLineageMismatch(batch, { batchNumber, lotNumber, expiryDate })) {
-        inventoryDecrementStatus = 'error';
-        inventoryWarning = 'Documented batch/lot/expiry does not match the selected inventory batch; clinical usage was saved without a stock decrement';
+        throw AppError.conflict(
+          'Documented batch/lot/expiry does not match the exact selected inventory batch',
+          'CATH_CONSUMABLE_BATCH_LINEAGE_MISMATCH'
+        );
       } else {
         inventoryBatchId = requestedInventoryBatchId;
         batchNumber = cleanText(batch.batch_number, 120);
         lotNumber = cleanText(batch.lot_number, 120);
         expiryDate = optionalDate(batch.expiry_date, 'expiry_date');
         const outcome = evaluateCathInventoryBatch(batch, quantity);
-        inventoryDecrementStatus = outcome.status;
-        inventoryWarning = outcome.warning;
+        inventoryWarning = outcome.warning || inventoryWarning;
       }
     } else if (
       catalog.inventory_item_id
@@ -3116,23 +4220,27 @@ export async function recordConsumableUsage(caseId, input = {}, context = {}) {
             'CATH_CONSUMABLE_BATCH_EXPIRY_REQUIRED'
           );
         }
-        inventoryDecrementStatus = 'error';
-        inventoryWarning = 'Documented inventory lineage is incomplete; clinical usage was saved without a stock decrement';
+        throw AppError.badRequest(
+          'Exact batch/lot/expiry lineage is required for Cath inventory reconciliation',
+          'CATH_CONSUMABLE_BATCH_AUTHORITY_REQUIRED'
+        );
       } else {
         const batches = await tx.$queryRawUnsafe(
-          `SELECT id, batch_number, lot_number, expiry_date, remaining_quantity,
+          `SELECT id, facility_id, batch_number, lot_number, expiry_date, remaining_quantity,
                   status,
                   (expiry_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date) AS is_expired
              FROM pharmacy_inventory_batches
             WHERE tenant_id = $1::uuid
               AND inventory_item_id = $2::int
-              AND expiry_date = $3::date
-              AND ($4::text IS NULL OR batch_number = $4::text)
-              AND ($5::text IS NULL OR lot_number = $5::text)
+              AND facility_id = $3::int
+              AND expiry_date = $4::date
+              AND ($5::text IS NULL OR batch_number = $5::text)
+              AND ($6::text IS NULL OR lot_number = $6::text)
             ORDER BY id
             LIMIT 2`,
           tenantId,
           Number(catalog.inventory_item_id),
+          Number(cathCase.facility_id),
           expiryDate,
           batchNumber,
           lotNumber
@@ -3144,17 +4252,21 @@ export async function recordConsumableUsage(caseId, input = {}, context = {}) {
           lotNumber = cleanText(batch.lot_number, 120);
           expiryDate = optionalDate(batch.expiry_date, 'expiry_date');
           const outcome = evaluateCathInventoryBatch(batch, quantity);
-          inventoryDecrementStatus = outcome.status;
-          inventoryWarning = outcome.warning;
+          inventoryWarning = outcome.warning || inventoryWarning;
         } else {
-          inventoryDecrementStatus = 'error';
-          inventoryWarning = batches.length > 1
-            ? 'Documented batch/lot/expiry matches multiple inventory batches; clinical usage was saved without a stock decrement'
-            : 'Documented batch/lot/expiry was not found in inventory; clinical usage was saved without a stock decrement';
+          throw AppError.conflict(
+            batches.length > 1
+              ? 'Documented batch/lot/expiry matches multiple facility inventory batches'
+              : 'Documented batch/lot/expiry was not found in the exact facility inventory',
+            'CATH_CONSUMABLE_BATCH_AUTHORITY_UNRESOLVED'
+          );
         }
       }
-    } else if (inventoryBatchValue) {
-      inventoryWarning = 'Catalog item is not linked to inventory; selected batch was recorded as manual lineage without a stock decrement';
+    } else {
+      throw AppError.badRequest(
+        'inventory_batch_id or exact batch/lot/expiry lineage is required for Cath inventory reconciliation',
+        'CATH_CONSUMABLE_BATCH_AUTHORITY_REQUIRED'
+      );
     }
     if (catalog.batch_tracked && (!batchNumber && !lotNumber || !expiryDate)) {
       throw AppError.badRequest(
@@ -3170,24 +4282,36 @@ export async function recordConsumableUsage(caseId, input = {}, context = {}) {
       );
     }
     const usedAt = optionalTimestamp(input.used_at || input.usedAt, 'used_at');
-    const actorUid = maybeUuid(context.actorUid, 'actorUid');
-    const metadata = normalizeJson(input.metadata, 'metadata', {});
+    const metadata = {
+      ...normalizeJson(input.metadata, 'metadata', {}),
+      inventory_authority: {
+        facility_id: Number(cathCase.facility_id),
+        catalog_item_id: String(catalog.id),
+        inventory_item_id: Number(catalog.inventory_item_id),
+        inventory_batch_id: Number(inventoryBatchId),
+        mapping_contract: 'cath_facility_catalog_inventory_v1',
+        canonical_actor_uid: canonicalActor.uid,
+        canonical_actor_role: canonicalActor.role,
+        canonical_actor_name: canonicalActor.name
+      }
+    };
     const idempotencyKey = cleanText(
       context.idempotencyKey || input.idempotency_key || input.idempotencyKey,
       200
     );
     const rows = await tx.$queryRawUnsafe(
-      `INSERT INTO cath_case_consumable_usage
-         (tenant_id, case_id, procedure_log_id, catalog_item_id, patient_uid,
-           inventory_batch_id, quantity, batch_tracked, is_implant, batch_number,
-           lot_number, expiry_date, serial_number, unit_cost_snapshot, used_by,
-           used_at, wasted, waste_reason, inventory_decrement_status,
-           inventory_warning, metadata, idempotency_key)
-        VALUES ($1::uuid, $2::bigint, $3::bigint, $4::bigint, $5::uuid,
-                $6::int, $7::numeric, $8, $9, $10,
-                $11, $12::date, $13, $14::numeric, $15::uuid,
-                COALESCE($16::timestamptz, NOW()), $17, $18, $19, $20,
-                $21::jsonb, $22)
+       `INSERT INTO cath_case_consumable_usage
+          (tenant_id, case_id, procedure_log_id, catalog_item_id, patient_uid,
+            facility_id, inventory_item_id, inventory_batch_id,
+            quantity, batch_tracked, is_implant, batch_number,
+            lot_number, expiry_date, serial_number, unit_cost_snapshot, used_by,
+            used_at, wasted, waste_reason, inventory_decrement_status,
+            inventory_warning, metadata, idempotency_key)
+         VALUES ($1::uuid, $2::bigint, $3::bigint, $4::bigint, $5::uuid,
+                 $6::int, $7::int, $8::int, $9::numeric, $10, $11, $12,
+                 $13, $14::date, $15, $16::numeric, $17::uuid,
+                 COALESCE($18::timestamptz, NOW()), $19, $20, $21, $22,
+                 $23::jsonb, $24)
        ON CONFLICT (tenant_id, idempotency_key)
        WHERE idempotency_key IS NOT NULL
        DO NOTHING
@@ -3197,6 +4321,8 @@ export async function recordConsumableUsage(caseId, input = {}, context = {}) {
       procedureLogId,
       catalog.id,
       cathCase.patient_uid,
+      Number(cathCase.facility_id),
+      Number(catalog.inventory_item_id),
       inventoryBatchId,
       quantity,
       catalog.batch_tracked,
@@ -3206,7 +4332,7 @@ export async function recordConsumableUsage(caseId, input = {}, context = {}) {
       expiryDate,
       serialNumber,
       catalog.default_unit_cost_reference,
-      actorUid,
+      canonicalActor.uid,
       usedAt,
       wasted,
       wasteReason,
@@ -3262,7 +4388,7 @@ export async function recordConsumableUsage(caseId, input = {}, context = {}) {
         lotNumber || batchNumber,
         serialNumber,
         expiryDate,
-        actorUid,
+        canonicalActor.uid,
         usage.used_at,
         wasted ? `Opened but not used: ${wasteReason}` : 'Recorded from cath consumable usage',
         JSON.stringify({ cath_usage_id: String(usage.id), source: 'nl13_p1d' })
@@ -3276,13 +4402,16 @@ export async function recordConsumableUsage(caseId, input = {}, context = {}) {
       eventStatus: wasted ? 'wasted' : 'recorded',
       sourceTable: 'cath_case_consumable_usage',
       sourceId: normalizedUsage.id,
-      actorUid: context.actorUid,
-      actorRole: context.actorRole,
+      actorUid: canonicalActor.uid,
+      actorRole: canonicalActor.role,
       summary: `${wasted ? 'Cath consumable wasted' : 'Cath consumable recorded'}: ${catalog.item_name}`,
       payload: {
         case_id: normalizeDbValue(cathCase.id),
         procedure_log_id: procedureLogId,
         catalog_item_id: catalog.id,
+        facility_id: Number(cathCase.facility_id),
+        inventory_item_id: Number(catalog.inventory_item_id),
+        inventory_batch_id: Number(inventoryBatchId),
         item_name: catalog.item_name,
         category: catalog.category,
         quantity,
@@ -3307,27 +4436,33 @@ export async function recordConsumableUsage(caseId, input = {}, context = {}) {
       event?.timeline?.id || null,
       event?.audit?.id || null
     );
+    await materializeCathInventoryShortfallTx(tx, {
+      ...normalizedUsage,
+      encounter_id: cathCase.encounter_id,
+      facility_id: Number(cathCase.facility_id),
+      inventory_item_id: Number(catalog.inventory_item_id)
+    }, {
+      decrementedUnits: 0,
+      finalMovementId: null,
+      warning: inventoryWarning
+    });
     return {
       usage: await consumableUsageById(tx, tenantId, usage.id),
       caseStatus: cathCase.status
     };
   });
   if (committed.replayed) {
-    const replayedUsage = committed.usage.inventory_decrement_status === 'pending'
-      ? await applyConsumableInventoryDecrement(committed.usage)
-      : committed.usage;
     const billingHook = committed.caseStatus === 'completed'
       ? await maybeEmitCathBillingLines({ tenantId, caseId, actorUid: context.actorUid || null })
       : null;
     return billingHook
-      ? { ...replayedUsage, idempotent_replay: true, billing_hook: billingHook }
-      : { ...replayedUsage, idempotent_replay: true };
+      ? { ...committed.usage, idempotent_replay: true, billing_hook: billingHook }
+      : { ...committed.usage, idempotent_replay: true };
   }
-  const usage = await applyConsumableInventoryDecrement(committed.usage);
   const billingHook = committed.caseStatus === 'completed'
     ? await maybeEmitCathBillingLines({ tenantId, caseId, actorUid: context.actorUid || null })
     : null;
-  return billingHook ? { ...usage, billing_hook: billingHook } : usage;
+  return billingHook ? { ...committed.usage, billing_hook: billingHook } : committed.usage;
 }
 
 export async function getCathConsumablesBillingSettings({ tenantId, db = prisma } = {}) {
@@ -3785,7 +4920,6 @@ export const __testing__ = {
   canRecordConsumableForCaseStatus,
   normalizeId,
   normalizeDbValue,
-  applyConsumableInventoryDecrement,
   cathInventoryReconciliationRequestFingerprint,
   normalizeCathInventoryReconciliationCommand,
   cathInventoryReconciliationView,
@@ -3808,6 +4942,7 @@ export default {
   addDeviceLink,
   listConsumableCatalog,
   upsertConsumableCatalogItem,
+  resolveCathConsumableAuthorityRecovery,
   listCatalogBatches,
   listCaseConsumableUsage,
   recordConsumableUsage,

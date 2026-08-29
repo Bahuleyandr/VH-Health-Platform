@@ -41,10 +41,13 @@ Widget _screen({
 }) {
   return MaterialApp(
     home: CounterSaleScreen(
-      searchItems: searchItems ?? ({String? search}) async => [_item()],
+      searchItems:
+          searchItems ??
+          ({required int facilityId, String? search}) async => [_item()],
       createSale:
           createSale ??
           ({
+            required int facilityId,
             required List<Map<String, dynamic>> lines,
             String? patientUid,
             String? customerName,
@@ -92,6 +95,10 @@ void _useTallViewport(WidgetTester tester) {
 
 Future<void> _addFirstResult(WidgetTester tester) async {
   await tester.enterText(
+    find.byKey(const ValueKey('counter-sale-facility-id')),
+    '8',
+  );
+  await tester.enterText(
     find.byKey(const ValueKey('counter-sale-search')),
     'para',
   );
@@ -102,6 +109,22 @@ Future<void> _addFirstResult(WidgetTester tester) async {
   // Quantity dialog: confirm the default of 1.
   await tester.tap(find.byType(FilledButton).last);
   await tester.pumpAndSettle();
+}
+
+Future<void> _enterScheduledAuthority(WidgetTester tester) async {
+  await tester.enterText(
+    find.byKey(const ValueKey('counter-sale-patient-uid')),
+    '11111111-1111-4111-8111-111111111111',
+  );
+  await tester.enterText(
+    find.byKey(const ValueKey('counter-sale-prescription-id')),
+    '77',
+  );
+  await tester.enterText(
+    find.byKey(const ValueKey('counter-sale-rx-line-1')),
+    '0',
+  );
+  await tester.pump();
 }
 
 Future<void> _pumpWitnessDialog(WidgetTester tester) async {
@@ -145,6 +168,10 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(
+      find.byKey(const ValueKey('counter-sale-facility-id')),
+      '8',
+    );
+    await tester.enterText(
       find.byKey(const ValueKey('counter-sale-search')),
       'para',
     );
@@ -158,10 +185,56 @@ void main() {
     expect(find.textContaining('₹10.50'), findsOneWidget);
   });
 
+  testWidgets('item search requires and forwards the exact facility', (
+    tester,
+  ) async {
+    _useTallViewport(tester);
+    var calls = 0;
+    int? searchedFacilityId;
+    await tester.pumpWidget(
+      _screen(
+        searchItems: ({required int facilityId, String? search}) async {
+          calls += 1;
+          searchedFacilityId = facilityId;
+          return [_item()];
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey('counter-sale-search')),
+      'para',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    expect(calls, 0);
+    expect(
+      find.text(
+        'Select an exact dispensing facility before searching or selling.',
+      ),
+      findsOneWidget,
+    );
+
+    await tester.enterText(
+      find.byKey(const ValueKey('counter-sale-facility-id')),
+      '8',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('counter-sale-search')),
+      'para',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    expect(calls, 1);
+    expect(searchedFacilityId, 8);
+  });
+
   testWidgets('OTC cart shows no rx/witness sections and sells', (
     tester,
   ) async {
     List<Map<String, dynamic>>? sentLines;
+    int? sentFacilityId;
     String? sentMode;
     String? sentCustomer;
     _useTallViewport(tester);
@@ -169,6 +242,7 @@ void main() {
       _screen(
         createSale:
             ({
+              required int facilityId,
               required List<Map<String, dynamic>> lines,
               String? patientUid,
               String? customerName,
@@ -180,6 +254,7 @@ void main() {
               String? notes,
               required String idempotencyKey,
             }) async {
+              sentFacilityId = facilityId;
               sentLines = lines;
               sentMode = paymentMode;
               sentCustomer = customerName;
@@ -205,6 +280,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(sentLines, hasLength(1));
+    expect(sentFacilityId, 8);
     expect(sentLines!.first['inventory_item_id'], 1);
     expect(sentMode, 'CASH');
     expect(sentCustomer, 'Walk-in Customer');
@@ -217,7 +293,7 @@ void main() {
       _useTallViewport(tester);
       await tester.pumpWidget(
         _screen(
-          searchItems: ({String? search}) async => [
+          searchItems: ({required int facilityId, String? search}) async => [
             _item(name: 'Morphine 10', schedule: 'X', narcotic: true),
           ],
         ),
@@ -232,6 +308,22 @@ void main() {
       );
       expect(
         find.byKey(const ValueKey('counter-sale-witness-request')),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<OutlinedButton>(
+              find.byKey(const ValueKey('counter-sale-witness-request')),
+            )
+            .onPressed,
+        isNull,
+      );
+      expect(
+        find.byKey(const ValueKey('counter-sale-prescription-id')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('counter-sale-rx-line-1')),
         findsOneWidget,
       );
       expect(
@@ -251,10 +343,11 @@ void main() {
       String? witnessRequestIdempotencyKey;
       String? witnessApprovalIdempotencyKey;
       String? submittedApprovalId;
+      int? submittedFacilityId;
       _useTallViewport(tester);
       await tester.pumpWidget(
         _screen(
-          searchItems: ({String? search}) async => [
+          searchItems: ({required int facilityId, String? search}) async => [
             _item(name: 'Morphine 10', schedule: 'X', narcotic: true),
           ],
           requestWitnessApproval:
@@ -284,6 +377,7 @@ void main() {
               },
           createSale:
               ({
+                required facilityId,
                 required lines,
                 patientUid,
                 customerName,
@@ -295,6 +389,7 @@ void main() {
                 notes,
                 required idempotencyKey,
               }) async {
+                submittedFacilityId = facilityId;
                 submittedApprovalId = witnessApprovalId;
                 return {
                   'sale': {'id': '9', 'status': 'COMPLETED'},
@@ -305,13 +400,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       await _addFirstResult(tester);
-      await tester.enterText(
-        find.byKey(const ValueKey('counter-sale-customer-name')),
-        'Walk-in Customer',
-      );
-      await tester.enterText(find.byType(TextField).at(2), '9876543210');
-      await tester.enterText(find.byType(TextField).at(3), 'Dr Rao');
-      await tester.enterText(find.byType(TextField).at(4), 'RX-77');
+      await _enterScheduledAuthority(tester);
 
       final sellButton = tester.widget<FilledButton>(
         find.byKey(const ValueKey('counter-sale-sell')),
@@ -353,6 +442,17 @@ void main() {
         isNot(witnessRequestIdempotencyKey),
       );
       expect(approvedSale, requestedSale);
+      expect(requestedSale?['facility_id'], 8);
+      expect(
+        requestedSale?['patient_uid'],
+        '11111111-1111-4111-8111-111111111111',
+      );
+      expect(requestedSale?['rx'], {'prescription_id': 77});
+      expect((requestedSale?['lines'] as List).single, {
+        'inventory_item_id': 1,
+        'quantity': 1.0,
+        'prescription_line_index': 0,
+      });
       expect(find.text('Approved by Canonical Nurse'), findsOneWidget);
       expect(find.text('witness-secret'), findsNothing);
 
@@ -362,6 +462,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('counter-sale-sell')));
       await tester.pumpAndSettle();
       expect(submittedApprovalId, '71');
+      expect(submittedFacilityId, 8);
     },
   );
 
@@ -371,7 +472,7 @@ void main() {
     _useTallViewport(tester);
     await tester.pumpWidget(
       _screen(
-        searchItems: ({String? search}) async => [
+        searchItems: ({required int facilityId, String? search}) async => [
           _item(name: 'Morphine 10', schedule: 'X', narcotic: true),
         ],
         requestWitnessApproval: ({
@@ -394,10 +495,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     await _addFirstResult(tester);
-    await tester.enterText(
-      find.byKey(const ValueKey('counter-sale-customer-name')),
-      'Walk-in Customer',
-    );
+    await _enterScheduledAuthority(tester);
     await tester.ensureVisible(
       find.byKey(const ValueKey('counter-sale-witness-request')),
     );
@@ -419,7 +517,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Approved by Canonical Nurse'), findsOneWidget);
 
-    await tester.enterText(find.byType(TextField).at(4), 'RX-CHANGED');
+    await tester.enterText(
+      find.byKey(const ValueKey('counter-sale-prescription-id')),
+      '78',
+    );
     await tester.pump();
     expect(find.text('Approval not requested'), findsOneWidget);
     final sellButton = tester.widget<FilledButton>(
@@ -435,7 +536,7 @@ void main() {
       _useTallViewport(tester);
       await tester.pumpWidget(
         _screen(
-          searchItems: ({String? search}) async => [
+          searchItems: ({required int facilityId, String? search}) async => [
             _item(name: 'Morphine 10', schedule: 'X', narcotic: true),
           ],
           requestWitnessApproval:
@@ -450,6 +551,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       await _addFirstResult(tester);
+      await _enterScheduledAuthority(tester);
 
       final witnessButton = find.byKey(
         const ValueKey('counter-sale-witness-request'),
@@ -477,7 +579,7 @@ void main() {
       _useTallViewport(tester);
       await tester.pumpWidget(
         _screen(
-          searchItems: ({String? search}) async => [
+          searchItems: ({required int facilityId, String? search}) async => [
             _item(name: 'Morphine 10', schedule: 'X', narcotic: true),
           ],
           requestWitnessApproval: ({
@@ -510,6 +612,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       await _addFirstResult(tester);
+      await _enterScheduledAuthority(tester);
 
       Future<void> submitWitnessCredentials() async {
         await tester.tap(
@@ -628,6 +731,7 @@ void main() {
       _screen(
         createSale:
             ({
+              required facilityId,
               required lines,
               patientUid,
               customerName,
@@ -679,6 +783,7 @@ void main() {
       _screen(
         createSale:
             ({
+              required facilityId,
               required lines,
               patientUid,
               customerName,
@@ -733,6 +838,7 @@ void main() {
       _screen(
         createSale:
             ({
+              required facilityId,
               required lines,
               patientUid,
               customerName,

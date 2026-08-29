@@ -75,6 +75,11 @@ import {
 } from '../clinical/canonicalClinicalPlatformService.js';
 import { evaluateDrugKb } from '../clinical/drugKnowledgeBaseService.js';
 import { isDrugKbDeterministicEnvEnabled } from '../clinical/drugKbLinkService.js';
+import { lockTenantPatientMergeStability } from '../../utils/patientMergeStabilityLock.js';
+import {
+  FACILITY_OPERATION_ROLES,
+  assertPharmacyFacilityGrant,
+} from './pharmacyFacilityAuthorityService.js';
 // Dynamic import on purpose (labCodeMappingService precedent): keeps
 // tenantSettingsService (and its tenantService import) out of this module's
 // static graph so partial jest mocks across the pharmacy/prescription suites
@@ -89,6 +94,45 @@ async function getDrugKbSettingsLazy(tenantId) {
 export const COUNTER_SALE_PAYMENT_MODES = [
   'CASH', 'CARD', 'UPI', 'NETBANKING', 'CHEQUE', 'DD', 'WALLET',
 ];
+const COUNTER_SALE_PERFORMER_ROLES = new Set(['PHARMACY_STAFF', 'PHARMACY_INCHARGE']);
+
+// ★ Derived from the canonical Set, NOT a hand copy. assertPharmacyFacilityGrant
+// applies this membership test to the actor's CANONICAL DB role
+// (pharmacyFacilityAuthorityService.js:258) before it will accept any grant, so
+// the grant-JOIN reads below must apply the identical test: a JWT-role equality
+// conjunct alone pins the row to whatever role the token carries, so an actor
+// whose canonical role moved OFF the pharmacy roster while an active grant
+// survived would be listed here and then 403 on the by-id read of that very row.
+// Importing the owning Set is what keeps the two in step when a role is added
+// there — a local literal had nothing pinning it and would silently diverge.
+const PHARMACY_FACILITY_OPERATION_ROLES = [...FACILITY_OPERATION_ROLES];
+
+async function resolveCounterSalePerformerTx(db, { tenantId, actorUid }) {
+  const rows = await db.$queryRawUnsafe(
+    `SELECT NULLIF(BTRIM(s.name), '') AS name, UPPER(u.role) AS role
+       FROM users u
+       JOIN staff s
+         ON s.tenant_id=u.tenant_id AND s.user_id=u.uid
+      WHERE u.tenant_id=$1::uuid AND u.uid=$2::uuid
+        AND u.is_active=TRUE AND u.status='active'
+        AND COALESCE(u.is_deleted, FALSE)=FALSE
+        AND s.is_active=TRUE AND COALESCE(s.archived, FALSE)=FALSE
+        AND s.archived_at IS NULL
+      LIMIT 2
+      FOR KEY SHARE OF u, s`,
+    tenantId,
+    String(actorUid),
+  );
+  const name = String(rows[0]?.name || '').trim();
+  const role = String(rows[0]?.role || '').trim().toUpperCase();
+  if (rows.length !== 1 || !name || !COUNTER_SALE_PERFORMER_ROLES.has(role)) {
+    throw AppError.forbidden(
+      'Counter sale requires an active same-tenant pharmacy performer',
+      'COUNTER_SALE_PERFORMER_AUTHORITY_REQUIRED',
+    );
+  }
+  return { name, role };
+}
 
 // GST fallback when the tenant's billing_service_master has no row for the
 // item's HSN code. 12% is the majority slab for medicaments (HSN 3004);
@@ -185,19 +229,40 @@ export async function ensureWalkInAnchorUid(tenantId, db = prisma) {
  * total usable stock and the FEFO head batch (the batch the next unit will
  * actually come from — its number, expiry and MRP-derived price are what the
  * counter shows before the sale).
+ *
+ * The caller-supplied facility is never trusted on its own: the requested
+ * facility is proved against the actor's ACTIVE pharmacy grant through the
+ * canonical assertPharmacyFacilityGrant helper (the same gate
+ * inventoryV2Service.listItems uses) before a single row is read.
  */
-export async function searchSellableItems({ tenantId, search, limit = 30 }) {
+export async function searchSellableItems({
+  tenantId, facilityId, actorUid, actorRole, search, limit = 30,
+}) {
   const tenant = requireTenant(tenantId);
-  const params = [tenant];
+  const facility = Number(facilityId);
+  if (!Number.isSafeInteger(facility) || facility <= 0) {
+    throw AppError.badRequest(
+      'facility_id is required for counter-sale inventory search',
+      'COUNTER_SALE_FACILITY_REQUIRED',
+    );
+  }
+  const params = [tenant, facility];
   let searchSql = '';
   if (search) {
     params.push(`%${String(search).toLowerCase()}%`);
-    searchSql = ` AND (LOWER(i.display_name) LIKE $2 OR LOWER(i.generic_name) LIKE $2
-      OR LOWER(i.brand_name) LIKE $2 OR LOWER(i.sku_code) LIKE $2)`;
+    searchSql = ` AND (LOWER(i.display_name) LIKE $3 OR LOWER(i.generic_name) LIKE $3
+      OR LOWER(i.brand_name) LIKE $3 OR LOWER(i.sku_code) LIKE $3)`;
   }
   params.push(boundedInteger(limit, { fallback: 30, min: 1, max: 100 }));
-  return prisma.$queryRawUnsafe(
-    `SELECT i.id, i.sku_code, i.display_name, i.generic_name, i.brand_name,
+  return setTenantTx(tenant, async (tx) => {
+    await assertPharmacyFacilityGrant(tx, {
+      tenantId: tenant,
+      facilityId: facility,
+      actorUid,
+      actorRole,
+    });
+    return tx.$queryRawUnsafe(
+      `SELECT i.id, i.facility_id, i.sku_code, i.display_name, i.generic_name, i.brand_name,
             i.form, i.strength, i.unit_label, i.schedule_class, i.is_narcotic,
             i.hsn_code,
             COALESCE(s.in_stock_quantity, 0)::numeric AS in_stock_quantity,
@@ -212,6 +277,7 @@ export async function searchSellableItems({ tenantId, search, limit = 30 }) {
          SELECT SUM(b.remaining_quantity) AS in_stock_quantity
            FROM pharmacy_inventory_batches b
           WHERE b.tenant_id = i.tenant_id AND b.inventory_item_id = i.id
+            AND b.facility_id = i.facility_id
             AND b.status = 'in_stock' AND b.remaining_quantity > 0
             AND b.expiry_date >= (NOW() AT TIME ZONE 'Asia/Kolkata')::date
        ) s ON TRUE
@@ -219,16 +285,67 @@ export async function searchSellableItems({ tenantId, search, limit = 30 }) {
          SELECT b.id, b.batch_number, b.expiry_date, b.mrp_minor
            FROM pharmacy_inventory_batches b
           WHERE b.tenant_id = i.tenant_id AND b.inventory_item_id = i.id
+            AND b.facility_id = i.facility_id
             AND b.status = 'in_stock' AND b.remaining_quantity > 0
             AND b.expiry_date >= (NOW() AT TIME ZONE 'Asia/Kolkata')::date
           ORDER BY b.expiry_date ASC, b.id ASC
           LIMIT 1
        ) head ON TRUE
-      WHERE i.tenant_id = $1::uuid AND i.status = 'active'${searchSql}
+      WHERE i.tenant_id = $1::uuid AND i.facility_id=$2::int
+        AND i.status = 'active'${searchSql}
       ORDER BY (COALESCE(s.in_stock_quantity, 0) > 0) DESC, i.display_name
       LIMIT $${params.length}::int`,
-    ...params,
-  );
+      ...params,
+    );
+  }, { readOnly: true });
+}
+
+/**
+ * The actor's OWN active pharmacy facility grants. The POS facility picker is
+ * fed from this — the client never types an authority scope, it chooses one the
+ * server already proved. Grant rows are the authority; the facilities join only
+ * supplies the display identity and keeps archived/paused facilities out.
+ */
+export async function listCounterSaleFacilities({ tenantId, actorUid, actorRole }) {
+  const tenant = requireTenant(tenantId);
+  const uid = String(actorUid || '').trim();
+  const role = String(actorRole || '').trim().toUpperCase();
+  if (!uid) {
+    throw AppError.forbidden(
+      'An authenticated actor is required for pharmacy facility custody',
+      'PHARMACY_FACILITY_GRANT_REQUIRED',
+    );
+  }
+  return setTenantTx(tenant, (tx) => tx.$queryRawUnsafe(
+    `SELECT facility.id AS facility_id, facility.facility_code,
+            facility.display_name,
+            facility_grant.id::text AS grant_id,
+            facility_grant.authority_version
+       FROM pharmacy_staff_facility_grants facility_grant
+       JOIN facilities facility
+         ON facility.tenant_id=facility_grant.tenant_id
+        AND facility.id=facility_grant.facility_id
+        AND facility.status='active'
+       JOIN users actor
+         ON actor.tenant_id=facility_grant.tenant_id
+        AND actor.uid=facility_grant.staff_uid
+        AND actor.is_active=TRUE AND actor.status='active'
+        AND actor.is_deleted=FALSE AND actor.merged_into_uid IS NULL
+       JOIN staff
+         ON staff.tenant_id=actor.tenant_id AND staff.user_id=actor.uid
+        AND staff.is_active=TRUE AND staff.archived=FALSE
+      WHERE facility_grant.tenant_id=$1::uuid
+        AND facility_grant.staff_uid=$2::uuid
+        AND facility_grant.status='active'
+        AND facility_grant.revoked_at IS NULL
+        AND UPPER(actor.role) = ANY($4::text[])
+        AND ($3::text='' OR UPPER(actor.role)=$3::text)
+      ORDER BY facility.display_name, facility.id`,
+    tenant,
+    uid,
+    role,
+    PHARMACY_FACILITY_OPERATION_ROLES,
+  ), { readOnly: true });
 }
 
 // ── FEFO planning ─────────────────────────────────────────────────────
@@ -241,15 +358,18 @@ export async function searchSellableItems({ tenantId, search, limit = 30 }) {
  * (mrp_minor, paise → rupees); a usable batch without an MRP makes the item
  * unsellable at the counter rather than silently free.
  */
-async function planFefoAllocation(db, { tenantId, inventoryItemId, quantity }) {
+async function planFefoAllocation(db, {
+  tenantId, facilityId, inventoryItemId, quantity,
+}) {
   const batches = await db.$queryRawUnsafe(
     `SELECT id, batch_number, expiry_date, remaining_quantity, mrp_minor
        FROM pharmacy_inventory_batches
       WHERE tenant_id = $1::uuid AND inventory_item_id = $2::int
+        AND facility_id = $3::int
         AND status = 'in_stock' AND remaining_quantity > 0
         AND expiry_date >= (NOW() AT TIME ZONE 'Asia/Kolkata')::date
       ORDER BY expiry_date ASC, id ASC`,
-    tenantId, Number(inventoryItemId),
+    tenantId, Number(inventoryItemId), Number(facilityId),
   );
   let need = Number(quantity);
   const plan = [];
@@ -354,15 +474,16 @@ function validateSaleInput({
   return normalizedPaymentReference || null;
 }
 
-async function loadSaleItems(db, tenantId, lines) {
+async function loadSaleItems(db, tenantId, facilityId, lines) {
   const ids = [...new Set(lines.map((l) => Number(l.inventory_item_id)))];
   const rows = await db.$queryRawUnsafe(
-    `SELECT id, sku_code, display_name, unit_label, schedule_class, is_narcotic,
-            hsn_code, status
+    `SELECT id, facility_id, catalog_id, sku_code, display_name, unit_label,
+            schedule_class, is_narcotic, hsn_code, status
        FROM pharmacy_inventory_items
       WHERE tenant_id = $1::uuid
+        AND facility_id = $3::int
         AND id = ANY(ARRAY(SELECT (jsonb_array_elements_text($2::jsonb))::int))`,
-    tenantId, JSON.stringify(ids),
+    tenantId, JSON.stringify(ids), Number(facilityId),
   );
   const byId = new Map(rows.map((r) => [Number(r.id), r]));
   for (const id of ids) {
@@ -391,13 +512,17 @@ function enforceScheduleRules({
     if (isWitnessed(item)) needsWitness = true;
   }
   if (scheduled.length) {
-    const hasDoctor = Boolean(rx?.doctor_name && String(rx.doctor_name).trim());
-    const hasRef = Boolean(
-      (rx?.reference && String(rx.reference).trim()) || rx?.upload_id,
-    );
-    if (!hasDoctor || !hasRef) {
+    const prescriptionId = Number(rx?.prescription_id);
+    const unmapped = lines.filter((line) => {
+      const item = itemsById.get(Number(line.inventory_item_id));
+      const lineIndex = Number(line.prescription_line_index);
+      return isControlled(item)
+        && (!Number.isSafeInteger(lineIndex) || lineIndex < 0);
+    });
+    if (!patient_uid || !Number.isSafeInteger(prescriptionId) || prescriptionId <= 0
+      || unmapped.length) {
       throw AppError.badRequest(
-        'Schedule H/H1/X items require a prescription reference: rx.doctor_name plus rx.reference or rx.upload_id',
+        'Schedule H/H1/X items require a registered patient and an exact signed prescription_id + prescription_line_index for every controlled line',
         'COUNTER_SALE_RX_REQUIRED',
         { scheduled_items: scheduled.map((i) => i.display_name) },
       );
@@ -424,22 +549,71 @@ function enforceScheduleRules({
   return { hasScheduled: scheduled.length > 0, needsWitness };
 }
 
+/**
+ * The sale-level signed-prescription anchor, normalized. enforceScheduleRules
+ * above is the only gate that decides whether a sale may proceed without one;
+ * this just re-reads the value that gate already validated so every downstream
+ * writer binds the same authority.
+ */
+function counterSalePrescriptionId(rx) {
+  const prescriptionId = Number(rx?.prescription_id);
+  return Number.isSafeInteger(prescriptionId) && prescriptionId > 0 ? prescriptionId : null;
+}
+
+/**
+ * The (prescription_id, prescription_line_index) pointer for one sale line.
+ *
+ * ★ prescription_id is the SALE-level anchor — `rx.prescription_id`, the single
+ * already-validated authority enforceScheduleRules checks and
+ * dispenseControlledTx consumes. A line input carries only the zero-based index
+ * into that prescription and never its own prescription_id (see
+ * PharmacyCounterSaleLineInput), so reading one off the line would always bind
+ * NULL and every controlled line would violate
+ * chk_pharmacy_counter_sale_lines_prescription_pointer_753
+ * (753:6202-6206 — an index is storable ONLY alongside a non-null
+ * prescription_id, and NOT VALID skips only pre-existing rows, never new
+ * ones). The pair is therefore emitted whole or not at all, and an
+ * index with no anchor is refused in Phase 0 rather than becoming an INSERT
+ * failure after the sale row exists.
+ */
+function counterSaleLinePrescriptionPointer(prescriptionId, sourceLine) {
+  const rawIndex = sourceLine?.prescription_line_index;
+  if (rawIndex == null) return { prescriptionId: null, lineIndex: null };
+  const lineIndex = Number(rawIndex);
+  if (!Number.isSafeInteger(lineIndex) || lineIndex < 0) {
+    throw AppError.badRequest(
+      'prescription_line_index must be a zero-based integer',
+      'COUNTER_SALE_RX_LINE_POINTER_INVALID',
+    );
+  }
+  if (prescriptionId == null) {
+    throw AppError.badRequest(
+      'prescription_line_index requires rx.prescription_id: a line pointer with no signed prescription is not storable register evidence',
+      'COUNTER_SALE_RX_LINE_POINTER_INVALID',
+    );
+  }
+  return { prescriptionId, lineIndex };
+}
+
 function counterSaleWitnessPayload({
-  lines, patient_uid, customer_name, customer_phone, rx,
+  facility_id, lines, patient_uid, customer_name, customer_phone, rx,
   payment_mode, payment_reference, notes,
 }) {
   return {
+    facility_id: Number(facility_id),
     lines: lines
       .map((line) => ({
         inventory_item_id: Number(line.inventory_item_id),
         quantity: Number(line.quantity),
+        prescription_line_index: line.prescription_line_index == null
+          ? null
+          : Number(line.prescription_line_index),
       })),
     patient_uid: patient_uid ? String(patient_uid) : null,
     customer_name: customer_name ? String(customer_name).trim() : null,
     customer_phone: customer_phone ? String(customer_phone).trim() : null,
     prescription: {
-      doctor_name: rx?.doctor_name ? String(rx.doctor_name).trim() : null,
-      reference: rx?.reference ? String(rx.reference).trim() : null,
+      prescription_id: rx?.prescription_id == null ? null : Number(rx.prescription_id),
       upload_id: rx?.upload_id == null ? null : Number(rx.upload_id),
       id_proof_type: rx?.id_proof_type || null,
       id_proof_last4: rx?.id_proof_last4 ? String(rx.id_proof_last4).slice(-4) : null,
@@ -450,7 +624,12 @@ function counterSaleWitnessPayload({
   };
 }
 
-async function prepareCounterSaleWitnessPayload(params) {
+/**
+ * Pure, body-local shape validation shared by both witness surfaces, plus the
+ * request-body facility_id. Reads nothing: every check here is decidable from
+ * the request alone, so it is safe to run before any authority has been proven.
+ */
+function validateCounterSaleWitnessRequest(params) {
   if (Object.hasOwn(params || {}, 'witness_approval_id')) {
     throw AppError.badRequest(
       'witness_approval_id is not accepted before witness approval',
@@ -459,10 +638,61 @@ async function prepareCounterSaleWitnessPayload(params) {
   }
   validateSaleInput({
     ...params,
-    sold_by: params.requested_by || 'authenticated-seller',
+    sold_by: params?.requested_by || 'authenticated-seller',
   });
+  const facilityId = Number(params?.facility_id);
+  if (!Number.isSafeInteger(facilityId) || facilityId <= 0) {
+    throw AppError.badRequest(
+      'facility_id is required for counter-sale witness approval',
+      'COUNTER_SALE_FACILITY_REQUIRED',
+    );
+  }
+  return facilityId;
+}
+
+/**
+ * Builds the exact witness payload for a counter-sale approval REQUEST — the
+ * only path that mints one.
+ *
+ * ★ `custodyActorUid` is REQUIRED, and proving its grant before the first
+ * inventory read is what closes a cross-facility enumeration oracle.
+ * facility_id arrives from the request body and used to be validated only as
+ * "a positive integer", after which loadSaleItems read
+ * pharmacy_inventory_items scoped to THAT facility and reported, per item id,
+ * whether the row exists there and whether it is active (404 vs
+ * COUNTER_SALE_ITEM_INACTIVE vs success). A granted seller could therefore walk
+ * any facility in the tenant and map its catalogue without holding a single
+ * grant on it. The assert now has no ungated branch to fall through: an
+ * actor-less call is a programming error, not a system-actor mode.
+ *
+ * The witness-APPROVAL path deliberately does not come through here at all —
+ * its actor is the independent second signatory drawn from
+ * CONTROLLED_DISPENSE_WITNESS_ROLES (doctors, duty doctors, nursing staff), who
+ * by construction cannot hold a pharmacy facility grant because
+ * FACILITY_OPERATION_ROLES contains no clinical role, so requiring one there
+ * would make two-person controlled dispensing unperformable. See
+ * approveCounterSaleWitnessApproval for what stands in its place.
+ */
+async function prepareCounterSaleWitnessPayload(params, {
+  custodyActorUid, custodyActorRole = null,
+} = {}) {
+  if (!custodyActorUid) {
+    throw AppError.internal(
+      'Counter-sale witness approval requires the requesting custody actor',
+      'COUNTER_SALE_WITNESS_CUSTODY_ACTOR_REQUIRED',
+    );
+  }
+  const facilityId = validateCounterSaleWitnessRequest(params);
   const tenant = String(params.tenantId);
-  const itemsById = await loadSaleItems(prisma, tenant, params.lines);
+  const itemsById = await setTenantTx(tenant, async (tx) => {
+    await assertPharmacyFacilityGrant(tx, {
+      tenantId: tenant,
+      facilityId,
+      actorUid: custodyActorUid,
+      actorRole: custodyActorRole,
+    });
+    return loadSaleItems(tx, tenant, facilityId, params.lines);
+  });
   const rules = enforceScheduleRules({
     itemsById,
     lines: params.lines,
@@ -478,11 +708,14 @@ async function prepareCounterSaleWitnessPayload(params) {
       'CONTROLLED_DISPENSE_WITNESS_NOT_REQUIRED',
     );
   }
-  return counterSaleWitnessPayload({ itemsById, ...params });
+  return counterSaleWitnessPayload(params);
 }
 
 export async function requestCounterSaleWitnessApproval(params) {
-  const payload = await prepareCounterSaleWitnessPayload(params);
+  const payload = await prepareCounterSaleWitnessPayload(params, {
+    custodyActorUid: params.requested_by,
+    custodyActorRole: params.requested_by_role || null,
+  });
   return createControlledDispenseWitnessApproval({
     tenantId: params.tenantId,
     scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.counterSale,
@@ -491,13 +724,42 @@ export async function requestCounterSaleWitnessApproval(params) {
   });
 }
 
+/**
+ * A separately authenticated witness approves the UNCHANGED sale payload.
+ *
+ * ★ Ordering is the security property, and this path reads NO inventory.
+ * The witness is a clinical second signatory who cannot hold a pharmacy
+ * facility grant (see prepareCounterSaleWitnessPayload), so there is no
+ * custody assert available to put in front of a facility-scoped item read —
+ * and an item read here would be reachable with a caller-supplied
+ * sale.facility_id and a garbage :id, BEFORE the approval id was ever looked
+ * at, turning loadSaleItems' per-item 404 / COUNTER_SALE_ITEM_INACTIVE /
+ * success split into a cross-facility catalogue oracle for any pharmacist
+ * granted at some OTHER facility.
+ *
+ * The stored approval fingerprint stands in its place. Everything before the
+ * call below is decidable from the request body alone; the first thing that
+ * touches the database is approveControlledDispenseWitnessApproval, which
+ * loads and locks the approval row, proves the requester, and refuses unless
+ * the payload rebuilt from this request body hashes byte-for-byte to the
+ * fingerprint stored at mint time (assertApprovalContract). Those bytes are
+ * the whole authority: a match proves they already passed the grant assert,
+ * the item read and the schedule / needs-a-witness gates inside
+ * requestCounterSaleWitnessApproval, which is the only path that can mint an
+ * approval — so re-reading the items here would prove nothing the stored hash
+ * does not already carry. Item state at SALE time is re-proven where it
+ * matters: createCounterSale re-runs loadSaleItems under the seller's own
+ * grant and re-locks every row FOR UPDATE behind
+ * COUNTER_SALE_ITEM_AUTHORITY_CHANGED before any stock or money moves.
+ */
 export async function approveCounterSaleWitnessApproval(params) {
-  const payload = await prepareCounterSaleWitnessPayload(params.sale);
+  const sale = params?.sale || {};
+  validateCounterSaleWitnessRequest(sale);
   return approveControlledDispenseWitnessApproval({
-    tenantId: params.sale.tenantId,
+    tenantId: sale.tenantId,
     approvalId: params.approvalId,
     actorUid: params.actorUid,
-    payload,
+    payload: counterSaleWitnessPayload(sale),
     requesterUid: params.requesterUid,
   });
 }
@@ -606,9 +868,9 @@ export async function counterSaleDrugKbAdvisory({
 }
 
 export async function createCounterSale({
-  tenantId, lines, patient_uid, customer_name, customer_phone,
+  tenantId, facility_id, lines, patient_uid, customer_name, customer_phone,
   rx, witness_approval_id, payment_mode, payment_reference, notes,
-  sold_by, sold_by_name, request_id,
+  sold_by, request_id,
 }) {
   // ── Phase 0: pre-flight (reads only) ──────────────────────────────────
   const normalizedPaymentReference = validateSaleInput({
@@ -621,6 +883,48 @@ export async function createCounterSale({
     sold_by,
   });
   const tenant = String(tenantId);
+  const facilityId = Number(facility_id);
+  if (!Number.isSafeInteger(facilityId) || facilityId <= 0) {
+    throw AppError.badRequest(
+      'facility_id is required for counter-sale inventory custody',
+      'COUNTER_SALE_FACILITY_REQUIRED',
+    );
+  }
+  // ★ The pre-flight authority read runs INSIDE a tenant-scoped transaction, on
+  // `tx` — never on the bare singleton. pharmacy_staff_facility_grants is
+  // ENABLE + FORCE ROW LEVEL SECURITY (migration 753:645-646) and its
+  // tenant_isolation policy is
+  //   current_setting('app.current_tenant_id', TRUE) = 'bypass'
+  //     OR tenant_id = public.app_current_tenant_id_uuid()
+  // With the GUC unset BOTH branches evaluate to NULL, the row is filtered, and
+  // the assertion 403s an actor who holds a live grant. FORCE removes the owner
+  // exemption, so the table owner cannot read through it either — and the
+  // auto-wrapper in lib/prisma.js only sets the GUC when AUTH_ENFORCE_TENANT_RLS
+  // is on AND a tenant AsyncLocalStorage context exists, which is false in dev,
+  // QA and CI. setTenantTx is the explicit primitive, and it is what every
+  // sibling assertPharmacyFacilityGrant call site in this repo passes
+  // (inventoryV2Service, pharmacyOrderController, cathLabService, wardIndent*,
+  // and searchSellableItems / getCounterSale in this very module).
+  const performer = await setTenantTx(tenant, async (tx) => {
+    const facilities = await tx.$queryRawUnsafe(
+      `SELECT id FROM facilities
+        WHERE tenant_id=$1::uuid AND id=$2::int AND status='active'`,
+      tenant,
+      facilityId,
+    );
+    if (!facilities[0]) throw AppError.notFound('Active counter-sale facility not found');
+    const actor = await resolveCounterSalePerformerTx(tx, {
+      tenantId: tenant,
+      actorUid: sold_by,
+    });
+    await assertPharmacyFacilityGrant(tx, {
+      tenantId: tenant,
+      facilityId,
+      actorUid: sold_by,
+      actorRole: actor.role,
+    });
+    return actor;
+  });
 
   let registeredPatient = null;
   if (patient_uid) {
@@ -634,7 +938,7 @@ export async function createCounterSale({
     registeredPatient = rows[0];
   }
 
-  const itemsById = await loadSaleItems(prisma, tenant, lines);
+  const itemsById = await loadSaleItems(prisma, tenant, facilityId, lines);
   const scheduleRules = enforceScheduleRules({
     itemsById,
     lines,
@@ -646,6 +950,7 @@ export async function createCounterSale({
 
   const witnessPayload = scheduleRules.needsWitness
     ? counterSaleWitnessPayload({
+      facility_id: facilityId,
       lines,
       patient_uid,
       customer_name,
@@ -682,11 +987,13 @@ export async function createCounterSale({
   }
 
   // FEFO plan + pricing per line.
+  const rxPrescriptionId = counterSalePrescriptionId(rx);
   const plannedLines = [];
   for (const line of lines) {
     const item = itemsById.get(Number(line.inventory_item_id));
     const plan = await planFefoAllocation(prisma, {
       tenantId: tenant,
+      facilityId,
       inventoryItemId: item.id,
       quantity: line.quantity,
     });
@@ -696,6 +1003,7 @@ export async function createCounterSale({
     );
     plannedLines.push({
       item,
+      prescriptionPointer: counterSaleLinePrescriptionPointer(rxPrescriptionId, line),
       quantity: Number(line.quantity),
       plan,
       gstRate,
@@ -718,14 +1026,23 @@ export async function createCounterSale({
 
   // ── Phase 1: sale header + lines ──────────────────────────────────────
   const { sale, lineRows } = await setTenantTx(tenant, async (tx) => {
+    await lockTenantPatientMergeStability(tx, tenant);
+    await assertPharmacyFacilityGrant(tx, {
+      tenantId: tenant,
+      facilityId,
+      actorUid: sold_by,
+      actorRole: performer.role,
+      forUpdate: true,
+    });
     const saleRows = await tx.$queryRawUnsafe(
       `INSERT INTO pharmacy_counter_sales
-         (tenant_id, patient_uid, customer_name, customer_phone,
-          rx_doctor_name, rx_reference, rx_upload_id,
-          status, payment_mode, cash_shift, sold_by, sold_by_name, notes)
-       VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, 'IN_PROGRESS', $8, $9, $10::uuid, $11, $12)
-       RETURNING id::text AS id, tenant_id, patient_uid, customer_name, customer_phone, status, created_at`,
+         (tenant_id, facility_id, patient_uid, customer_name, customer_phone,
+           rx_doctor_name, rx_reference, rx_upload_id,
+           status, payment_mode, cash_shift, sold_by, sold_by_name, notes)
+       VALUES ($1::uuid, $2::int, $3::uuid, $4, $5, $6, $7, $8, 'IN_PROGRESS', $9, $10, $11::uuid, $12, $13)
+       RETURNING id::text AS id, tenant_id, facility_id, patient_uid, customer_name, customer_phone, status, created_at`,
       tenant,
+      facilityId,
       registeredPatient ? registeredPatient.uid : null,
       registeredPatient ? null : String(customer_name).trim(),
       registeredPatient ? null : (customer_phone ? String(customer_phone).trim() : null),
@@ -735,7 +1052,7 @@ export async function createCounterSale({
       payment_mode,
       drawer ? drawer.shift : null,
       String(sold_by),
-      sold_by_name || null,
+      performer.name,
       notes || null,
     );
     const saleRow = saleRows[0];
@@ -743,12 +1060,16 @@ export async function createCounterSale({
     for (const planned of plannedLines) {
       const rows = await tx.$queryRawUnsafe(
         `INSERT INTO pharmacy_counter_sale_lines
-           (tenant_id, counter_sale_id, inventory_item_id, item_name,
-            schedule_class, is_narcotic, quantity, unit_price, gst_rate, line_total)
-         VALUES ($1::uuid, $2::bigint, $3::int, $4, $5, $6, $7::numeric, $8::numeric, $9::numeric, $10::numeric)
+           (tenant_id, facility_id, counter_sale_id, inventory_item_id, item_name,
+            schedule_class, is_narcotic, prescription_id, prescription_line_index,
+            quantity, unit_price, gst_rate, line_total)
+         VALUES ($1::uuid, $2::int, $3::bigint, $4::int, $5, $6, $7,
+                 $8::int, $9::int, $10::numeric, $11::numeric, $12::numeric, $13::numeric)
          RETURNING id::text AS id`,
-        tenant, saleRow.id, planned.item.id, planned.item.display_name,
+        tenant, facilityId, saleRow.id, planned.item.id, planned.item.display_name,
         planned.item.schedule_class || null, planned.item.is_narcotic === true,
+        planned.prescriptionPointer.prescriptionId,
+        planned.prescriptionPointer.lineIndex,
         planned.quantity, planned.unitPrice, planned.gstRate, planned.lineSubtotal,
       );
       inserted.push({ planned, lineId: rows[0].id });
@@ -838,6 +1159,75 @@ export async function createCounterSale({
   try {
     const wiring = await resolveLedgerWiring(tenant);
     const result = await setTenantTx(tenant, async (tx) => {
+      await lockTenantPatientMergeStability(tx, tenant);
+      await assertPharmacyFacilityGrant(tx, {
+        tenantId: tenant,
+        facilityId,
+        actorUid: sold_by,
+        actorRole: performer.role,
+        forUpdate: true,
+      });
+      const lockedPerformer = await resolveCounterSalePerformerTx(tx, {
+        tenantId: tenant,
+        actorUid: sold_by,
+      });
+      if (registeredPatient) {
+        const patientRows = await tx.$queryRawUnsafe(
+          `SELECT id, uid, name, phone
+             FROM users
+            WHERE tenant_id=$1::uuid AND uid=$2::uuid
+              AND role='PATIENT' AND is_active=TRUE AND status='active'
+              AND is_deleted=FALSE AND merged_into_uid IS NULL
+            FOR KEY SHARE`,
+          tenant,
+          String(registeredPatient.uid),
+        );
+        if (!patientRows[0]) {
+          throw AppError.conflict(
+            'Registered patient authority changed before counter-sale finalize',
+            'COUNTER_SALE_PATIENT_AUTHORITY_CHANGED',
+          );
+        }
+        registeredPatient = patientRows[0];
+      }
+      const lockedItems = await tx.$queryRawUnsafe(
+        `SELECT i.id, i.facility_id, i.catalog_id, i.sku_code, i.display_name,
+                i.unit_label, i.schedule_class, i.is_narcotic, i.hsn_code, i.status
+           FROM pharmacy_inventory_items i
+           JOIN facilities f
+             ON f.tenant_id=i.tenant_id AND f.id=i.facility_id AND f.status='active'
+          WHERE i.tenant_id=$1::uuid AND i.facility_id=$2::int
+            AND i.id=ANY($3::int[]) AND i.status='active'
+          ORDER BY i.id
+          FOR UPDATE OF i, f`,
+        tenant,
+        facilityId,
+        plannedLines.map((line) => Number(line.item.id)),
+      );
+      const lockedItemById = new Map(lockedItems.map((item) => [Number(item.id), item]));
+      for (const planned of plannedLines) {
+        const locked = lockedItemById.get(Number(planned.item.id));
+        if (!locked
+          || Number(locked.facility_id) !== facilityId
+          || Number(locked.catalog_id) !== Number(planned.item.catalog_id)
+          || String(locked.schedule_class || '') !== String(planned.item.schedule_class || '')
+          || (locked.is_narcotic === true) !== (planned.item.is_narcotic === true)
+          || String(locked.hsn_code || '') !== String(planned.item.hsn_code || '')) {
+          throw AppError.conflict(
+            'Counter-sale item authority changed after pricing; refresh the cart',
+            'COUNTER_SALE_ITEM_AUTHORITY_CHANGED',
+            { inventory_item_id: Number(planned.item.id), recovery_action: 'refresh_cart' },
+          );
+        }
+        planned.item = locked;
+      }
+      // NOTE: no validatePrescriptionSafety gate here, deliberately. The
+      // advisory-screen block above (counterSaleDrugKbAdvisory, ~:731-741)
+      // records this module's standing decision: there is no clinician in the
+      // loop on a walk-in sale, so the counter-sale surface is ADVISORY ONLY
+      // and the fail-CLOSED validatePrescriptionSafety posture belongs to
+      // CPOE / prescription saves. Adding a hard safety blocker here is a
+      // clinical-workflow change and needs its own decision, not a ride-along.
       const witnessEvidence = scheduleRules.needsWitness
         ? await consumeControlledDispenseWitnessApproval({
           tx,
@@ -861,12 +1251,12 @@ export async function createCounterSale({
               patient_uid: registeredPatient ? registeredPatient.uid : null,
               patient_name: registerPatientName,
               patient_phone: registerPatientPhone,
-              prescription_number: rx?.reference || null,
-              prescriber_name: rx?.doctor_name || null,
+              prescription_id: planned.prescriptionPointer.prescriptionId,
+              prescription_line_index: planned.prescriptionPointer.lineIndex,
               patient_id_proof_type: rx?.id_proof_type || null,
               patient_id_proof_last4: rx?.id_proof_last4 || null,
               performed_by: sold_by,
-              performed_by_name: sold_by_name || 'Pharmacy counter',
+              performed_by_name: lockedPerformer.name,
               witness_evidence: witnessEvidence,
               notes: `Counter sale #${sale.id}`,
               reference_id: `counter-sale-${sale.id}`,
@@ -886,15 +1276,18 @@ export async function createCounterSale({
               notes: `Counter sale #${sale.id}`,
               require_usable_batch: true,
               expected_batch_number: alloc.batch_number,
+              expected_facility_id: facilityId,
             });
             movementId = movement.id;
           }
           await tx.$executeRawUnsafe(
             `INSERT INTO pharmacy_counter_sale_allocations
-               (tenant_id, counter_sale_line_id, inventory_batch_id, batch_number,
-                expiry_date, quantity, unit_price, movement_id)
-             VALUES ($1::uuid, $2::bigint, $3::int, $4, $5::date, $6::numeric, $7::numeric, $8::int)`,
-            tenant, lineId, alloc.inventory_batch_id, alloc.batch_number,
+               (tenant_id, facility_id, counter_sale_line_id, inventory_item_id,
+                inventory_batch_id, batch_number, expiry_date, quantity, unit_price, movement_id)
+             VALUES ($1::uuid, $2::int, $3::bigint, $4::int, $5::int, $6, $7::date,
+                     $8::numeric, $9::numeric, $10::int)`,
+            tenant, facilityId, lineId, planned.item.id,
+            alloc.inventory_batch_id, alloc.batch_number,
             alloc.expiry_date, alloc.quantity, alloc.unit_price, movementId,
           );
         }
@@ -945,7 +1338,7 @@ export async function createCounterSale({
           sourceTable: 'pharmacy_counter_sales',
           sourceId: String(sale.id),
           actorUid: sold_by,
-          actorRole: 'PHARMACY_STAFF',
+          actorRole: lockedPerformer.role,
           requestId: request_id || null,
           summary: `Pharmacy counter sale: ${lineRows.length} item(s), INR ${totalAmount.toFixed(2)}`,
           payload: {
@@ -1043,7 +1436,8 @@ export async function createCounterSale({
 // ── Reads ─────────────────────────────────────────────────────────────
 
 const SALE_COLUMNS = `
-  s.id::text AS id, s.tenant_id, s.patient_uid, s.customer_name, s.customer_phone,
+  s.id::text AS id, s.tenant_id, s.facility_id,
+  s.patient_uid, s.customer_name, s.customer_phone,
   s.rx_doctor_name, s.rx_reference, s.rx_upload_id, s.status, s.invoice_id,
   s.payment_mode, s.payment_reference, s.cash_shift, s.total_amount,
   s.sold_by, s.sold_by_name, s.notes, s.voided_at, s.voided_by, s.void_reason,
@@ -1083,51 +1477,148 @@ const SALE_COLUMNS = `
     LIMIT 1) AS void_refund_status
 `;
 
-export async function getCounterSale({ tenantId, id }) {
-  const tenant = requireTenant(tenantId);
-  const saleId = positiveSaleId(id);
-  const sales = await prisma.$queryRawUnsafe(
-    `SELECT ${SALE_COLUMNS}, b.invoice_number
+/**
+ * One sale by id. The sale's OWN facility is resolved from the stored row and
+ * the actor's active grant is asserted against THAT facility — a by-id read
+ * never accepts a caller-supplied scope, so a guessed id from another
+ * facility fails closed instead of returning custody evidence. A sale row that
+ * carries no facility cannot be proved and fails closed too (there is nothing
+ * to infer a custody scope from).
+ */
+/**
+ * The custody gate for an EXISTING sale, shared by the read path and by every
+ * mutation on the void surface.
+ *
+ * ★ A mutation must never be weaker than the read of the same resource. The
+ * void roster (COUNTER_SALE_VOID_ROLES) is a role gate only — role membership
+ * is not facility custody, and ADMIN sits on that roster without necessarily
+ * holding a grant anywhere. So `GET /:id/void-status`, `POST /:id/void`,
+ * `POST /:id/void/reconcile` and `POST /:id/void/rejection/resolve` all resolve
+ * the sale's OWN facility from the stored row and prove the actor's ACTIVE
+ * grant on THAT facility through this one helper. Keeping it in a single place
+ * is what stops the four surfaces drifting apart again.
+ *
+ * The caller supplies no scope: a guessed id belonging to another facility
+ * fails closed rather than returning custody evidence, and a sale row carrying
+ * no facility cannot be proved at all (there is nothing to infer a scope from).
+ *
+ * `db` MUST be the tenant-scoped `tx` — pharmacy_staff_facility_grants is
+ * FORCE ROW LEVEL SECURITY (migration 753:645-646) and is invisible without
+ * app.current_tenant_id.
+ */
+async function assertCounterSaleFacilityCustodyTx(db, {
+  tenantId, saleId, actorUid, actorRole = null, forUpdate = false,
+}) {
+  const custody = await db.$queryRawUnsafe(
+    `SELECT s.facility_id
        FROM pharmacy_counter_sales s
-       LEFT JOIN billing_invoices b ON b.id = s.invoice_id
       WHERE s.id = $1::bigint AND s.tenant_id = $2::uuid
       LIMIT 1`,
-    saleId, tenant,
+    saleId, tenantId,
   );
-  if (!sales.length) throw AppError.notFound('Counter sale not found');
-  const lines = await prisma.$queryRawUnsafe(
-    `SELECT l.id::text AS id, l.inventory_item_id, l.item_name, l.schedule_class,
-            l.is_narcotic, l.quantity, l.unit_price, l.gst_rate, l.line_total
-       FROM pharmacy_counter_sale_lines l
-      WHERE l.counter_sale_id = $1::bigint AND l.tenant_id = $2::uuid
-      ORDER BY l.id`,
-    saleId, tenant,
-  );
-  const allocations = await prisma.$queryRawUnsafe(
-    `SELECT a.id::text AS id, a.counter_sale_line_id::text AS counter_sale_line_id,
-            a.inventory_batch_id, a.batch_number, a.expiry_date, a.quantity,
-            a.unit_price, a.movement_id, a.return_movement_id
-       FROM pharmacy_counter_sale_allocations a
-       JOIN pharmacy_counter_sale_lines l ON l.id = a.counter_sale_line_id
-      WHERE l.counter_sale_id = $1::bigint AND a.tenant_id = $2::uuid
-      ORDER BY a.id`,
-    saleId, tenant,
-  );
-  const byLine = new Map();
-  for (const alloc of allocations) {
-    if (!byLine.has(alloc.counter_sale_line_id)) byLine.set(alloc.counter_sale_line_id, []);
-    byLine.get(alloc.counter_sale_line_id).push(alloc);
+  if (!custody.length) throw AppError.notFound('Counter sale not found');
+  const saleFacilityId = Number(custody[0].facility_id);
+  if (!Number.isSafeInteger(saleFacilityId) || saleFacilityId <= 0) {
+    throw AppError.conflict(
+      'This counter sale has no authoritative facility assignment',
+      'COUNTER_SALE_FACILITY_UNRESOLVED',
+      { recovery_action: 'assign_counter_sale_facility' },
+    );
   }
-  return {
-    ...sales[0],
-    lines: lines.map((line) => ({ ...line, allocations: byLine.get(line.id) || [] })),
-  };
+  return assertPharmacyFacilityGrant(db, {
+    tenantId,
+    facilityId: saleFacilityId,
+    actorUid,
+    actorRole,
+    forUpdate,
+  });
 }
 
-export async function listCounterSales({ tenantId, status, date, limit = 50 }) {
+export async function getCounterSale({ tenantId, id, actorUid, actorRole }) {
   const tenant = requireTenant(tenantId);
-  const params = [tenant];
+  const saleId = positiveSaleId(id);
+  return setTenantTx(tenant, async (tx) => {
+    const { facility_id: saleFacilityId } = await assertCounterSaleFacilityCustodyTx(tx, {
+      tenantId: tenant,
+      saleId,
+      actorUid,
+      actorRole,
+    });
+    const sales = await tx.$queryRawUnsafe(
+      `SELECT ${SALE_COLUMNS}, b.invoice_number
+         FROM pharmacy_counter_sales s
+         LEFT JOIN billing_invoices b ON b.id = s.invoice_id
+        WHERE s.id = $1::bigint AND s.tenant_id = $2::uuid
+          AND s.facility_id = $3::int
+        LIMIT 1`,
+      saleId, tenant, saleFacilityId,
+    );
+    if (!sales.length) throw AppError.notFound('Counter sale not found');
+    const lines = await tx.$queryRawUnsafe(
+      `SELECT l.id::text AS id, l.inventory_item_id, l.item_name, l.schedule_class,
+              l.is_narcotic, l.quantity, l.unit_price, l.gst_rate, l.line_total
+         FROM pharmacy_counter_sale_lines l
+        WHERE l.counter_sale_id = $1::bigint AND l.tenant_id = $2::uuid
+        ORDER BY l.id`,
+      saleId, tenant,
+    );
+    const allocations = await tx.$queryRawUnsafe(
+      `SELECT a.id::text AS id, a.counter_sale_line_id::text AS counter_sale_line_id,
+              a.inventory_batch_id, a.batch_number, a.expiry_date, a.quantity,
+              a.unit_price, a.movement_id, a.return_movement_id
+         FROM pharmacy_counter_sale_allocations a
+         JOIN pharmacy_counter_sale_lines l ON l.id = a.counter_sale_line_id
+        WHERE l.counter_sale_id = $1::bigint AND a.tenant_id = $2::uuid
+        ORDER BY a.id`,
+      saleId, tenant,
+    );
+    const byLine = new Map();
+    for (const alloc of allocations) {
+      if (!byLine.has(alloc.counter_sale_line_id)) byLine.set(alloc.counter_sale_line_id, []);
+      byLine.get(alloc.counter_sale_line_id).push(alloc);
+    }
+    return {
+      ...sales[0],
+      lines: lines.map((line) => ({ ...line, allocations: byLine.get(line.id) || [] })),
+    };
+  }, { readOnly: true });
+}
+
+/**
+ * Counter sales the actor may see: the grant JOIN is the facility dimension —
+ * a sale is listed only when the actor holds an ACTIVE, unrevoked grant for
+ * the facility that sale belongs to. Tenant scope alone is not authority.
+ *
+ * ★ The actor conjuncts are the full assertPharmacyFacilityGrant test, not a
+ * subset: canonical-role membership of the pharmacy operation roster (:249)
+ * AND, when the caller's JWT names a role, equality with it. Dropping the
+ * membership half would let a row appear here that getCounterSale 403s on.
+ */
+export async function listCounterSales({
+  tenantId, actorUid, actorRole, facilityId = null, status, date, limit = 50,
+}) {
+  const tenant = requireTenant(tenantId);
+  const uid = String(actorUid || '').trim();
+  if (!uid) {
+    throw AppError.forbidden(
+      'An authenticated actor is required for pharmacy facility custody',
+      'PHARMACY_FACILITY_GRANT_REQUIRED',
+    );
+  }
+  const role = String(actorRole || '').trim().toUpperCase();
+  const params = [tenant, uid, role, PHARMACY_FACILITY_OPERATION_ROLES];
   const where = ['s.tenant_id = $1::uuid'];
+  if (facilityId != null && String(facilityId).trim() !== '') {
+    const exactFacilityId = Number(facilityId);
+    if (!Number.isSafeInteger(exactFacilityId) || exactFacilityId <= 0) {
+      throw AppError.badRequest(
+        'facility_id must be a positive integer',
+        'COUNTER_SALE_FACILITY_REQUIRED',
+      );
+    }
+    params.push(exactFacilityId);
+    where.push(`s.facility_id = $${params.length}::int`);
+  }
   if (status) {
     params.push(String(status).toUpperCase());
     where.push(`s.status = $${params.length}`);
@@ -1137,17 +1628,33 @@ export async function listCounterSales({ tenantId, status, date, limit = 50 }) {
     where.push(`(s.created_at AT TIME ZONE 'Asia/Kolkata')::date = $${params.length}::date`);
   }
   params.push(boundedInteger(limit, { fallback: 50, min: 1, max: 200 }));
-  return prisma.$queryRawUnsafe(
+  return setTenantTx(tenant, (tx) => tx.$queryRawUnsafe(
     `SELECT ${SALE_COLUMNS}, b.invoice_number,
             (SELECT COUNT(*)::int FROM pharmacy_counter_sale_lines l
               WHERE l.counter_sale_id = s.id) AS line_count
        FROM pharmacy_counter_sales s
+       JOIN pharmacy_staff_facility_grants facility_grant
+         ON facility_grant.tenant_id = s.tenant_id
+        AND facility_grant.facility_id = s.facility_id
+        AND facility_grant.staff_uid = $2::uuid
+        AND facility_grant.status = 'active'
+        AND facility_grant.revoked_at IS NULL
+       JOIN users actor
+         ON actor.tenant_id = facility_grant.tenant_id
+        AND actor.uid = facility_grant.staff_uid
+        AND actor.is_active = TRUE AND actor.status = 'active'
+        AND actor.is_deleted = FALSE AND actor.merged_into_uid IS NULL
+        AND UPPER(actor.role) = ANY($4::text[])
+        AND ($3::text = '' OR UPPER(actor.role) = $3::text)
+       JOIN staff
+         ON staff.tenant_id = actor.tenant_id AND staff.user_id = actor.uid
+        AND staff.is_active = TRUE AND staff.archived = FALSE
        LEFT JOIN billing_invoices b ON b.id = s.invoice_id
       WHERE ${where.join(' AND ')}
       ORDER BY s.created_at DESC, s.id DESC
       LIMIT $${params.length}::int`,
     ...params,
-  );
+  ), { readOnly: true });
 }
 
 // ── Void request / finance-owned refund / return reconciliation ───────
@@ -1865,6 +2372,19 @@ export async function voidCounterSale({
   });
 
   const result = await setTenantTx(tenant, async (tx) => {
+    // ★ Custody BEFORE anything else, including the replay lookup: the read of
+    // this same sale (GET /:id/void-status → getCounterSale) requires an active
+    // grant on the sale's own facility, so initiating its void cannot require
+    // less. COUNTER_SALE_VOID_ROLES is a role gate, not custody. Taken
+    // FOR UPDATE so the grant cannot be revoked underneath the refund this
+    // transaction raises — the same lock createCounterSale's finalize tx takes.
+    await assertCounterSaleFacilityCustodyTx(tx, {
+      tenantId: tenant,
+      saleId,
+      actorUid: voided_by,
+      actorRole: voided_by_role,
+      forUpdate: true,
+    });
     const replay = await loadVoidCommandTx(tx, {
       tenant, requestedBy: voided_by, commandKey,
     });
@@ -2176,10 +2696,14 @@ function workflowStatusForVoid(row) {
   return 'PENDING_REVIEW';
 }
 
-export async function getCounterSaleVoidStatus({ tenantId, id }) {
+export async function getCounterSaleVoidStatus({ tenantId, id, actorUid, actorRole }) {
   const tenant = requireTenant(tenantId);
   const saleId = positiveSaleId(id);
-  const sale = await getCounterSale({ tenantId: tenant, id: saleId });
+  // getCounterSale resolves the sale's OWN facility and asserts the actor's
+  // active grant on it, so the void obligation below is already custody-gated.
+  const sale = await getCounterSale({
+    tenantId: tenant, id: saleId, actorUid, actorRole,
+  });
   const rows = await setTenantTx(tenant, (tx) => tx.$queryRawUnsafe(
     `SELECT request.id::text AS request_id,
             request.counter_sale_id::text,
@@ -2247,6 +2771,7 @@ async function loadVoidReconciliationTx(tx, { tenant, saleId }) {
   const saleRows = await tx.$queryRawUnsafe(
     `SELECT sale.id::text,
             sale.tenant_id,
+            sale.facility_id,
             sale.patient_uid,
             sale.customer_name,
             sale.customer_phone,
@@ -2331,11 +2856,48 @@ async function loadVoidReconciliationTx(tx, { tenant, saleId }) {
  */
 export async function reconcileCounterSaleVoid({
   tenantId, id, reconciled_by = null, reconciled_by_role = null,
-  request_id = null,
+  request_id = null, systemActor = false,
 }) {
   const tenant = requireTenant(tenantId);
   const saleId = positiveSaleId(id);
+  // ★ Two callers, two authority models, and the split must not be decided by
+  // the TRUTHINESS of a uid. An ACTOR-driven reconcile (the POST
+  // /:id/void/reconcile route, which always stamps reconciled_by from the JWT)
+  // must pass the same custody test the read of this sale passes — otherwise
+  // the mutation is weaker than the read. The tenant sweep
+  // (reconcileCounterSaleVoidsForTenant) is the system actor: it has no uid to
+  // prove, is already tenant-scoped, and says so with systemActor: true.
+  //
+  // These two guards are what make `if (reconciled_by)` below mean "an actor
+  // was supplied" rather than "the supplied actor happened to be truthy". A
+  // supplied-but-unusable uid ('' / 0 / false / a non-string) is refused here
+  // instead of silently falling through to the ungated system branch, and a
+  // caller cannot claim to be the system sweep while carrying an actor. Siblings
+  // voidCounterSale and resolveRejectedCounterSaleVoid hard-fail on a missing
+  // actor because they have no system caller at all.
+  if (systemActor && reconciled_by != null) {
+    throw AppError.internal(
+      'Counter-sale void reconciliation cannot be a system sweep and carry an actor',
+      'COUNTER_SALE_VOID_RECONCILE_ACTOR_CONTRADICTION',
+    );
+  }
+  if (reconciled_by != null
+    && (typeof reconciled_by !== 'string' || !reconciled_by.trim())) {
+    throw AppError.badRequest(
+      'reconciled_by must be a non-empty actor uid when supplied',
+      'COUNTER_SALE_VOID_RECONCILE_ACTOR_INVALID',
+    );
+  }
   return setTenantTx(tenant, async (tx) => {
+    if (reconciled_by) {
+      await assertCounterSaleFacilityCustodyTx(tx, {
+        tenantId: tenant,
+        saleId,
+        actorUid: reconciled_by,
+        actorRole: reconciled_by_role,
+        forUpdate: true,
+      });
+    }
     const loaded = await loadVoidReconciliationTx(tx, { tenant, saleId });
     const { sale } = loaded;
     let { request } = loaded;
@@ -2574,6 +3136,7 @@ export async function reconcileCounterSaleVoid({
         performed_by: request.requested_by,
         notes: `Counter sale #${saleId} void: ${request.reason}`,
         expected_batch_number: allocation.batch_number,
+        expected_facility_id: Number(sale.facility_id),
       });
       const linked = await tx.$queryRawUnsafe(
         `UPDATE pharmacy_counter_sale_allocations
@@ -2773,6 +3336,17 @@ export async function resolveRejectedCounterSaleVoid({
   }
 
   return setTenantTx(tenant, async (tx) => {
+    // ★ Same custody test as the read of this sale. This surface closes a
+    // rejected refund by asserting the customer physically took the goods, so
+    // it is the strongest claim on the void surface — it must not be the only
+    // one that skips the facility grant.
+    await assertCounterSaleFacilityCustodyTx(tx, {
+      tenantId: tenant,
+      saleId,
+      actorUid: resolved_by,
+      actorRole: resolved_by_role,
+      forUpdate: true,
+    });
     const { sale, request } = await loadVoidReconciliationTx(tx, { tenant, saleId });
     if (!request) throw AppError.notFound('Counter-sale void request not found');
     if (request.status === 'CANCELLED_HANDOVER_CONFIRMED') {
@@ -2945,7 +3519,11 @@ export async function reconcileCounterSaleVoidsForTenant({
       results.push(await reconcileCounterSaleVoid({
         tenantId: tenant,
         id: candidate.counter_sale_id,
+        // The one system caller. systemActor is declared rather than implied by
+        // the absent uid, so the ungated branch is taken on purpose here and
+        // never by a route that simply failed to stamp its actor.
         reconciled_by: null,
+        systemActor: true,
       }));
     } catch (err) {
       logger.error('Counter-sale void reconciliation failed', {

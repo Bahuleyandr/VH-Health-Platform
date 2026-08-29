@@ -3,6 +3,7 @@
 // Includes deduplication to avoid creating duplicate records on re-import.
 
 import crypto from 'node:crypto';
+import { XMLParser, XMLValidator } from 'fast-xml-parser';
 
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
@@ -12,22 +13,118 @@ import {
   PATIENT_MERGE_STABILITY_TIMEOUT_MS,
 } from '../../utils/patientMergeStabilityLock.js';
 import { fromFhirPatient } from '../fhir/fhirAdapter.js';
+import { createFhirAllergyIntolerance } from '../fhir/fhirAllergyIntoleranceService.js';
 import { fhirObservationToVitals } from '../fhir/observationVitalsMapper.js';
+import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const FHIR_EFFECT_LEASE_SECONDS = 300;
 const FHIR_EFFECT_RETRY_BASE_SECONDS = 120;
 const FHIR_EFFECT_RETRY_MAX_SECONDS = 3600;
 const FHIR_EFFECT_SWEEP_MAX = 100;
+const GOVERNED_IMPORT_CLINICAL_ASSERTION_PROMOTION_ENABLED = false;
 
 function fhirEffectRetrySeconds(attempts) {
   const exponent = Math.max(0, Math.min(Number(attempts || 1) - 1, 5));
   return Math.min(FHIR_EFFECT_RETRY_BASE_SECONDS * (2 ** exponent), FHIR_EFFECT_RETRY_MAX_SECONDS);
 }
 
-function importedUidOrNew(value) {
-  const text = value == null ? '' : String(value).trim();
-  return UUID_RE.test(text) ? text : crypto.randomUUID();
+function stableImportJson(value) {
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map(stableImportJson);
+  if (value && typeof value === 'object') {
+    return Object.keys(value).sort().reduce((result, key) => {
+      result[key] = stableImportJson(value[key]);
+      return result;
+    }, {});
+  }
+  return value ?? null;
+}
+
+function requiredImportTenantId(value) {
+  const tenantId = String(value || '').trim().toLowerCase();
+  if (!UUID_RE.test(tenantId)) {
+    throw AppError.forbidden('Clinical import requires explicit tenant authority', 'IMPORT_TENANT_REQUIRED');
+  }
+  return tenantId;
+}
+
+function requiredImportPatientUid(value) {
+  const patientUid = String(value || '').trim().toLowerCase();
+  if (!UUID_RE.test(patientUid)) {
+    throw AppError.badRequest(
+      'Clinical import requires one explicit target patient UUID',
+      'IMPORT_TARGET_PATIENT_REQUIRED',
+    );
+  }
+  return patientUid;
+}
+
+function fhirPatientIdentifierUid(resource) {
+  const candidate = (resource?.identifier || []).find((identifier) => (
+    identifier?.system === 'urn:vhhealth:uid' && UUID_RE.test(String(identifier?.value || ''))
+  ));
+  return candidate ? String(candidate.value).toLowerCase() : null;
+}
+
+function normalizeFhirBundlePatientReferences(bundle, targetPatientUid) {
+  const canonicalReference = `Patient/${targetPatientUid}`;
+  const acceptedReferences = new Set([canonicalReference, targetPatientUid]);
+  for (const entry of bundle.entry || []) {
+    const resource = entry?.resource;
+    if (resource?.resourceType !== 'Patient') continue;
+    const identifierUid = fhirPatientIdentifierUid(resource);
+    if (identifierUid && identifierUid !== targetPatientUid) {
+      throw AppError.conflict(
+        'FHIR Bundle patient identity does not match the authorised target patient',
+        'IMPORT_PATIENT_IDENTITY_MISMATCH',
+      );
+    }
+    if (resource.id) {
+      acceptedReferences.add(String(resource.id));
+      acceptedReferences.add(`Patient/${resource.id}`);
+    }
+    if (entry.fullUrl) acceptedReferences.add(String(entry.fullUrl));
+  }
+
+  const entries = (bundle.entry || []).map((entry) => {
+    const resource = structuredClone(entry?.resource || null);
+    if (!resource) return { ...entry, resource };
+    if (resource.resourceType === 'Patient') {
+      resource.id = targetPatientUid;
+      resource.identifier = [
+        ...(Array.isArray(resource.identifier) ? resource.identifier.filter((identifier) => (
+          identifier?.system !== 'urn:vhhealth:uid'
+        )) : []),
+        { system: 'urn:vhhealth:uid', value: targetPatientUid },
+      ];
+      return { ...entry, resource };
+    }
+    const referenceHolder = resource.subject || resource.patient;
+    if (referenceHolder?.reference) {
+      const reference = String(referenceHolder.reference);
+      if (!acceptedReferences.has(reference)) {
+        throw AppError.conflict(
+          `${resource.resourceType} references a patient outside the authorised import manifest`,
+          'IMPORT_RESOURCE_PATIENT_MISMATCH',
+          { resource_type: resource.resourceType, resource_id: resource.id || null },
+        );
+      }
+      referenceHolder.reference = canonicalReference;
+    } else if (['Condition', 'MedicationRequest', 'AllergyIntolerance', 'Observation']
+      .includes(resource.resourceType)) {
+      throw AppError.badRequest(
+        `${resource.resourceType} is missing its patient reference`,
+        'IMPORT_RESOURCE_PATIENT_REQUIRED',
+      );
+    }
+    return { ...entry, resource };
+  });
+  const priority = { Patient: 0, Condition: 1, MedicationRequest: 1, AllergyIntolerance: 1, Observation: 2 };
+  entries.sort((left, right) => (
+    (priority[left.resource?.resourceType] ?? 1) - (priority[right.resource?.resourceType] ?? 1)
+  ));
+  return { ...bundle, entry: entries };
 }
 
 // =============================================================================
@@ -44,33 +141,44 @@ function importedUidOrNew(value) {
  */
 export async function importFhirBundle(bundle, importedBy, {
   tenantId = null,
+  authority = null,
   beforeFhirVitalWrite = null,
 } = {}) {
   if (!bundle || bundle.resourceType !== 'Bundle') {
     throw new Error('Invalid FHIR Bundle: resourceType must be Bundle');
   }
 
-  const containsObservations = (bundle.entry || []).some(({ resource }) => (
-    resource?.resourceType === 'Observation'
+  const tid = requiredImportTenantId(tenantId);
+  const targetPatientUid = requiredImportPatientUid(authority?.patientUid);
+  const normalizedBundle = normalizeFhirBundlePatientReferences(bundle, targetPatientUid);
+  const gatedAssertion = (normalizedBundle.entry || []).find(({ resource }) => (
+    resource?.resourceType === 'Condition' || resource?.resourceType === 'AllergyIntolerance'
   ));
-  if (containsObservations && tenantId) {
-    return setTenantTx(tenantId, async (lockTx) => {
-      await lockTenantPatientMergeStability(lockTx, tenantId);
-      return importFhirBundleWithStablePatientSnapshot(bundle, importedBy, {
-        tenantId,
-        beforeFhirVitalWrite,
-      });
-    }, { timeout: PATIENT_MERGE_STABILITY_TIMEOUT_MS });
+  if (gatedAssertion) {
+    throw AppError.conflict(
+      'External diagnoses and allergies require a governed review and promotion workflow',
+      'IMPORT_CLINICAL_ASSERTION_REVIEW_REQUIRED',
+      {
+        resource_type: gatedAssertion.resource.resourceType,
+        resource_id: gatedAssertion.resource.id || null,
+      },
+    );
   }
-
-  return importFhirBundleWithStablePatientSnapshot(bundle, importedBy, {
-    tenantId,
-    beforeFhirVitalWrite,
-  });
+  return setTenantTx(tid, async (lockTx) => {
+    await lockTenantPatientMergeStability(lockTx, tid);
+    return importFhirBundleWithStablePatientSnapshot(normalizedBundle, importedBy, {
+      tenantId: tid,
+      authority: { ...authority, patientUid: targetPatientUid },
+      db: lockTx,
+      beforeFhirVitalWrite,
+    });
+  }, { timeout: PATIENT_MERGE_STABILITY_TIMEOUT_MS });
 }
 
 async function importFhirBundleWithStablePatientSnapshot(bundle, importedBy, {
   tenantId,
+  authority,
+  db,
   beforeFhirVitalWrite,
 }) {
 
@@ -97,15 +205,19 @@ async function importFhirBundleWithStablePatientSnapshot(bundle, importedBy, {
 
     let resources = [resource];
     try {
+      let outcome = null;
       switch (resource.resourceType) {
         case 'Patient':
-          await importPatient(resource, importedBy, { tenantId });
+          outcome = await importPatient(resource, importedBy, { tenantId, authority, db });
           break;
         case 'Condition':
-          await importCondition(resource, importedBy, { tenantId });
+          outcome = await importCondition(resource, importedBy, { tenantId, authority, db });
           break;
         case 'MedicationRequest':
-          await importMedication(resource, importedBy, { tenantId });
+          outcome = await importMedication(resource, importedBy, { tenantId, authority, db });
+          break;
+        case 'AllergyIntolerance':
+          outcome = await importAllergyIntolerance(resource, importedBy, { tenantId, authority, db });
           break;
         case 'Observation': {
           let groupKey = observationGroupKeyByResource.get(resource);
@@ -157,14 +269,18 @@ async function importFhirBundleWithStablePatientSnapshot(bundle, importedBy, {
           results.skipped++;
           continue;
       }
-      results.imported += resources.length;
+      if (outcome === 'imported') results.imported += resources.length;
+      else if (outcome === 'deduplicated') results.deduplicated += resources.length;
+      else if (resources.length) results.skipped += resources.length;
     } catch (err) {
+      if (err instanceof AppError || err?.statusCode) throw err;
       for (const failedResource of resources) {
         logger.warn(`FHIR import error for ${failedResource.resourceType}/${failedResource.id}: ${err.message}`);
         results.errors.push({
           resource: failedResource.resourceType,
           id: failedResource.id,
           error: err.message,
+          ...(err?.code ? { code: err.code } : {}),
         });
       }
     }
@@ -189,59 +305,63 @@ async function importFhirBundleWithStablePatientSnapshot(bundle, importedBy, {
  * @param {{tenantId?: string|null}} options
  * @returns {Object} Import results
  */
-export async function importCCDA(xmlString, importedBy, { tenantId = null } = {}) {
+export async function importCCDA(xmlString, importedBy, {
+  tenantId = null,
+  authority = null,
+} = {}) {
   if (!xmlString || typeof xmlString !== 'string') {
-    throw new Error('Invalid C-CDA: expected XML string');
+    throw AppError.badRequest('Invalid C-CDA: expected XML string', 'CCDA_XML_REQUIRED');
   }
-
-  const results = { imported: 0, skipped: 0, errors: [] };
-
-  try {
-    // Extract patient demographics
-    const patientData = extractCCDAPatient(xmlString);
-    if (patientData) {
-      await importPatientFromCCDA(patientData, importedBy, { tenantId });
-      results.imported++;
-    }
-
-    // Extract problems/diagnoses
-    const problems = extractCCDASection(xmlString, '11450-4');
-    for (const problem of problems) {
-      try {
-        await importDiagnosisFromCCDA(problem, patientData?.uid, importedBy, { tenantId });
-        results.imported++;
-      } catch (err) {
-        results.errors.push({ resource: 'Problem', error: err.message });
-      }
-    }
-
-    // Extract medications
-    const medications = extractCCDASection(xmlString, '10160-0');
-    for (const med of medications) {
-      try {
-        await importMedicationFromCCDA(med, patientData?.uid, importedBy, { tenantId });
-        results.imported++;
-      } catch (err) {
-        results.errors.push({ resource: 'Medication', error: err.message });
-      }
-    }
-
-    // Extract allergies
-    const allergies = extractCCDASection(xmlString, '48765-2');
-    for (const allergy of allergies) {
-      try {
-        await importAllergyFromCCDA(allergy, patientData?.uid, importedBy, { tenantId });
-        results.imported++;
-      } catch (err) {
-        results.errors.push({ resource: 'Allergy', error: err.message });
-      }
-    }
-  } catch (err) {
-    logger.error(`C-CDA import failed: ${err.message}`);
-    results.errors.push({ resource: 'CDA', error: err.message });
+  const tid = requiredImportTenantId(tenantId);
+  const patientUid = requiredImportPatientUid(authority?.patientUid);
+  const parsed = parseCcdaClinicalDocument(xmlString);
+  if (parsed.patient?.uid && UUID_RE.test(String(parsed.patient.uid))
+    && String(parsed.patient.uid).toLowerCase() !== patientUid) {
+    throw AppError.conflict(
+      'C-CDA recordTarget does not match the authorised target patient',
+      'IMPORT_PATIENT_IDENTITY_MISMATCH',
+    );
   }
-
-  logger.info(`C-CDA import complete: ${results.imported} imported, ${results.skipped} skipped, ${results.errors.length} errors`);
+  const results = await setTenantTx(tid, async (tx) => {
+    await lockTenantPatientMergeStability(tx, tid);
+    await importPatientFromCCDA(parsed.patient, importedBy, {
+      tenantId: tid,
+      authority: { ...authority, patientUid },
+      db: tx,
+    });
+    const outcome = { imported: 0, skipped: 0, deduplicated: 1, errors: [] };
+    for (const problem of parsed.problems) {
+      await importDiagnosisFromCCDA(problem, patientUid, importedBy, {
+        tenantId: tid,
+        authority,
+        db: tx,
+      });
+    }
+    for (const allergy of parsed.allergies) {
+      await importAllergyFromCCDA(allergy, patientUid, importedBy, {
+        tenantId: tid,
+        authority,
+        db: tx,
+      });
+    }
+    for (let lineIndex = 0; lineIndex < parsed.medications.length; lineIndex += 1) {
+      const medication = parsed.medications[lineIndex];
+      const status = await importMedicationFromCCDA(
+        medication,
+        patientUid,
+        importedBy,
+        { tenantId: tid, authority, db: tx, lineIndex },
+      );
+      if (status === 'imported') outcome.imported += 1;
+      else if (status === 'deduplicated') outcome.deduplicated += 1;
+      else outcome.skipped += 1;
+    }
+    return outcome;
+  }, { timeout: PATIENT_MERGE_STABILITY_TIMEOUT_MS });
+  logger.info(
+    `C-CDA import complete: ${results.imported} imported, ${results.deduplicated} deduplicated, `
+    + `${results.skipped} skipped`,
+  );
   return results;
 }
 
@@ -252,10 +372,14 @@ export async function importCCDA(xmlString, importedBy, { tenantId = null } = {}
 async function findPatientByUid(patientUid, tenantId = null) {
   if (!patientUid) return null;
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT uid, phone, tenant_id
+    `SELECT id, uid, phone, tenant_id
        FROM users
       WHERE uid = $1::uuid
         AND role = 'PATIENT'
+        AND is_active=TRUE
+        AND status='active'
+        AND is_deleted=FALSE
+        AND merged_into_uid IS NULL
         AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
       LIMIT 1`,
     patientUid,
@@ -316,62 +440,65 @@ async function resolveFhirVitalPatientInTenant(patientUid, tenantId = null) {
   return patient;
 }
 
-async function importPatient(fhirPatient, _importedBy, { tenantId = null } = {}) {
+async function importPatient(fhirPatient, _importedBy, {
+  tenantId = null,
+  authority = null,
+  db = prisma,
+} = {}) {
+  const targetPatientUid = requiredImportPatientUid(authority?.patientUid);
   const patient = fromFhirPatient(fhirPatient);
-  if (!patient || !patient.phone) {
-    throw new Error('Patient must have a phone number');
+  if (!patient) {
+    throw AppError.badRequest('FHIR Patient resource is invalid', 'IMPORT_PATIENT_INVALID');
   }
-
-  // Dedup by phone inside the caller tenant only. If the phone exists in
-  // another tenant, do not update that chart from this import.
-  const existing = await prisma.$queryRawUnsafe(
-    `SELECT uid, tenant_id
+  const existing = await db.$queryRawUnsafe(
+    `SELECT id, uid, phone, tenant_id
        FROM users
-      WHERE phone = $1
-        AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+      WHERE tenant_id=$1::uuid
+        AND uid=$2::uuid
+        AND role='PATIENT'
+        AND is_active=TRUE
+        AND status='active'
+        AND is_deleted=FALSE
+        AND merged_into_uid IS NULL
       LIMIT 1`,
-    patient.phone,
     tenantId,
+    targetPatientUid,
   );
-
-  if (existing.length) {
-    // Update existing patient with any new data
-    const updates = [];
-    const params = [];
-    let idx = 1;
-
-    if (patient.name) { updates.push(`name = $${idx++}`); params.push(patient.name); }
-    if (patient.gender) { updates.push(`gender = $${idx++}`); params.push(patient.gender); }
-    if (patient.birthday) { updates.push(`birthday = $${idx++}`); params.push(patient.birthday); }
-    if (patient.address) { updates.push(`address = $${idx++}`); params.push(patient.address); }
-    if (patient.email) { updates.push(`email = $${idx++}`); params.push(patient.email); }
-
-    if (updates.length > 0) {
-      updates.push(`updated_at = NOW()`);
-      await prisma.$queryRawUnsafe(
-        `UPDATE users
-            SET ${updates.join(', ')}
-          WHERE uid = $${idx}::uuid
-            AND ($${idx + 1}::uuid IS NULL OR tenant_id = $${idx + 1}::uuid)`,
-        ...params, existing[0].uid, tenantId
-      );
-      logger.info(`Updated existing patient ${existing[0].uid} from FHIR import`);
-    }
-    return;
+  if (!existing.length) {
+    throw AppError.notFound('Authorised import patient not found', 'IMPORT_TARGET_PATIENT_NOT_FOUND');
   }
-
-  // Create new patient — generate UID
-  const uid = importedUidOrNew(patient.uid);
-  await prisma.$queryRawUnsafe(
-    `INSERT INTO users (uid, tenant_id, phone, name, gender, birthday, address, email, role, is_active, registered_at)
-     VALUES ($1, COALESCE($2::uuid, '00000000-0000-4000-8000-000000000001'::uuid), $3, $4, $5, $6, $7, $8, 'PATIENT', true, NOW())`,
-    uid, tenantId, patient.phone, patient.name, patient.gender, patient.birthday, patient.address, patient.email
-  );
-  logger.info(`Created new patient ${uid} from FHIR import`);
+  if (patient.phone && String(existing[0].phone || '') !== String(patient.phone)) {
+    const collision = await db.$queryRawUnsafe(
+      `SELECT uid, role, is_active, status, is_deleted, merged_into_uid
+         FROM users
+        WHERE tenant_id=$1::uuid AND phone=$2
+        ORDER BY id
+        LIMIT 2`,
+      tenantId,
+      patient.phone,
+    );
+    throw AppError.conflict(
+      'FHIR demographics do not match the authorised patient identity',
+      collision.length ? 'IMPORT_PATIENT_PHONE_OWNERSHIP_CONFLICT' : 'IMPORT_PATIENT_DEMOGRAPHICS_MISMATCH',
+    );
+  }
+  return 'deduplicated';
 }
 
-async function importCondition(fhirCondition, importedBy, { tenantId = null } = {}) {
-  if (!fhirCondition || fhirCondition.resourceType !== 'Condition') return;
+async function importCondition(fhirCondition, importedBy, {
+  tenantId = null,
+  authority = null,
+  db = prisma,
+} = {}) {
+  if (!fhirCondition || fhirCondition.resourceType !== 'Condition') return 'skipped';
+  if (!GOVERNED_IMPORT_CLINICAL_ASSERTION_PROMOTION_ENABLED
+    || authority?.clinicalAssertionPromotion !== 'governed') {
+    throw AppError.conflict(
+      'External diagnoses require a governed review and promotion workflow',
+      'IMPORT_CLINICAL_ASSERTION_REVIEW_REQUIRED',
+      { resource_type: 'Condition', resource_id: fhirCondition.id || null },
+    );
+  }
 
   const patientRef = fhirCondition.subject?.reference || '';
   const patientUid = patientRef.replace('Patient/', '');
@@ -387,7 +514,7 @@ async function importCondition(fhirCondition, importedBy, { tenantId = null } = 
   const clinicalStatus = fhirCondition.clinicalStatus?.coding?.[0]?.code || 'active';
 
   // Dedup: check by patient + icd10 code + description
-  const existing = await prisma.$queryRawUnsafe(
+  const existing = await db.$queryRawUnsafe(
     `SELECT id FROM diagnoses
      WHERE patient_uid = $1::uuid
        AND ($4::uuid IS NULL OR tenant_id = $4::uuid)
@@ -400,10 +527,10 @@ async function importCondition(fhirCondition, importedBy, { tenantId = null } = 
 
   if (existing.length) {
     logger.info(`Skipped duplicate condition for patient ${patientUid}: ${description}`);
-    return;
+    return 'deduplicated';
   }
 
-  await prisma.$queryRawUnsafe(
+  await db.$queryRawUnsafe(
     `INSERT INTO diagnoses (tenant_id, patient_uid, icd10_code, description, status, onset_date, diagnosed_by, created_at)
      VALUES (COALESCE($1::uuid, '00000000-0000-4000-8000-000000000001'::uuid), $2::uuid, $3, $4, $5, $6, $7, NOW())`,
     
@@ -416,51 +543,234 @@ async function importCondition(fhirCondition, importedBy, { tenantId = null } = 
       importedBy,
     
   );
+  return 'imported';
 }
 
-async function importMedication(fhirMedication, importedBy, { tenantId = null } = {}) {
-  if (!fhirMedication || fhirMedication.resourceType !== 'MedicationRequest') return;
+async function importMedication(fhirMedication, importedBy, {
+  tenantId = null,
+  authority = null,
+  db = prisma,
+} = {}) {
+  if (!fhirMedication || fhirMedication.resourceType !== 'MedicationRequest') return 'skipped';
+  if (!tenantId) {
+    throw AppError.forbidden(
+      'Medication import requires explicit tenant authority',
+      'IMPORT_TENANT_REQUIRED',
+    );
+  }
 
   const patientRef = fhirMedication.subject?.reference || '';
   const patientUid = patientRef.replace('Patient/', '');
   if (!patientUid) throw new Error('MedicationRequest missing patient reference');
-  const patient = await assertPatientInTenant(patientUid, tenantId);
+  const patientRows = await db.$queryRawUnsafe(
+    `SELECT id, uid
+       FROM users
+      WHERE tenant_id=$1::uuid
+        AND uid=$2::uuid
+        AND role='PATIENT'
+        AND is_active=TRUE
+        AND status='active'
+        AND is_deleted=FALSE
+        AND merged_into_uid IS NULL
+      FOR UPDATE`,
+    tenantId,
+    patientUid,
+  );
+  const patient = patientRows[0];
+  if (!patient) {
+    throw AppError.forbidden(
+      'Imported resource references a patient outside this tenant',
+      'IMPORT_PATIENT_TENANT_MISMATCH',
+    );
+  }
 
   const medication = fhirMedication.medicationCodeableConcept?.text ||
     fhirMedication.medicationCodeableConcept?.coding?.[0]?.display || 'Imported medication';
   const note = fhirMedication.note?.[0]?.text || null;
 
-  // Map FHIR status back to VH Health
+  // Imported MedicationRequest rows are longitudinal medication history, not
+  // actionable pharmacy orders. They stay unlinked until a local clinician
+  // creates a governed prescription/order with catalog and facility authority.
   const statusMap = {
-    active: 'PENDING',
-    completed: 'DISPENSED',
-    cancelled: 'CANCELLED',
-    stopped: 'REJECTED',
-    'on-hold': 'ON_HOLD',
+    active: 'active',
+    completed: 'completed',
+    cancelled: 'cancelled',
+    stopped: 'stopped',
+    'on-hold': 'on-hold',
   };
-  const status = statusMap[fhirMedication.status] || 'PENDING';
+  const status = statusMap[fhirMedication.status] || 'unknown';
+  if (!fhirMedication.id) {
+    throw AppError.badRequest(
+      'MedicationRequest must have a stable source resource id',
+      'IMPORT_SOURCE_RESOURCE_ID_REQUIRED',
+    );
+  }
+  const sourceIdentityPayload = {
+    contract_version: 'clinical-import-resource-v1',
+    source_system: authority?.sourceSystem || null,
+    source_document_id: authority?.sourceDocumentId || null,
+    source: 'FHIR_MedicationRequest',
+    patientUid,
+    resourceId: fhirMedication.id,
+  };
+  const importIdentity = crypto.createHash('sha256').update(JSON.stringify(
+    stableImportJson(sourceIdentityPayload),
+  )).digest('hex');
+  const payloadSha256 = crypto.createHash('sha256').update(JSON.stringify(stableImportJson({
+    medication,
+    medicationCodeableConcept: fhirMedication.medicationCodeableConcept || null,
+    dosageInstruction: fhirMedication.dosageInstruction || [],
+    status,
+    authoredOn: fhirMedication.authoredOn || null,
+    occurrence: fhirMedication.occurrenceDateTime
+      || fhirMedication.occurrencePeriod
+      || fhirMedication.occurrenceTiming
+      || null,
+    note: fhirMedication.note || [],
+  }))).digest('hex');
+  const prescriptionNumber = `IMP-FHIR-${importIdentity.slice(0, 32)}`;
 
-  // Dedup: check recent orders for same patient + medication text
-  const existing = await prisma.$queryRawUnsafe(
-    `SELECT id FROM pharmacy_orders
-     WHERE uid = $1::uuid
-       AND medication = $2
-       AND ($3::uuid IS NULL OR tenant_id = $3::uuid)
-       AND created_at > NOW() - INTERVAL '24 hours'
-     LIMIT 1`,
-    patientUid, medication, tenantId
+  // Stable source identity makes retries deterministic for the lifetime of the
+  // imported clinical record, not merely a 24-hour transport window.
+  const existing = await db.$queryRawUnsafe(
+    `SELECT id, patient_id, patient_uid, lifecycle_status, pharmacy_order_id, medications
+       FROM e_prescriptions
+      WHERE tenant_id=$1::uuid AND prescription_number=$2
+      LIMIT 1`,
+    tenantId,
+    prescriptionNumber,
   );
 
   if (existing.length) {
+    const receipt = Array.isArray(existing[0].medications)
+      ? existing[0].medications[0]?.import_receipt
+      : null;
+    if (String(existing[0].patient_uid) !== String(patientUid)
+      || String(existing[0].lifecycle_status || '').toLowerCase() !== 'imported_history'
+      || existing[0].pharmacy_order_id
+      || receipt?.source_identity_sha256 !== importIdentity
+      || receipt?.payload_sha256 !== payloadSha256) {
+      throw AppError.conflict(
+        'MedicationRequest source identity was replayed with different clinical content',
+        'IMPORT_SOURCE_IDENTITY_DRIFT',
+        { source_resource_id: fhirMedication.id },
+      );
+    }
     logger.info(`Skipped duplicate medication for patient ${patientUid}: ${medication}`);
-    return;
+    return 'deduplicated';
   }
 
-  await prisma.$queryRawUnsafe(
-    `INSERT INTO pharmacy_orders (tenant_id, uid, phone, medication, order_note, status, prescribed_by, created_at)
-     VALUES (COALESCE($1::uuid, '00000000-0000-4000-8000-000000000001'::uuid), $2::uuid, $3, $4, $5, $6, $7, NOW())`,
-    tenantId, patientUid, patient.phone || '', medication, note || '', status, importedBy
+  const importReceipt = {
+    contract_version: 'clinical-import-resource-v1',
+    source_system: authority?.sourceSystem || null,
+    source_document_id: authority?.sourceDocumentId || null,
+    source_facility_id: authority?.sourceFacilityId || null,
+    asserted_source_signature_sha256: authority?.sourceSignatureSha256 || null,
+    source_payload_sha256: authority?.sourcePayloadSha256 || null,
+    source_resource_type: 'MedicationRequest',
+    source_resource_id: fhirMedication.id,
+    source_identity_sha256: importIdentity,
+    payload_sha256: payloadSha256,
+    imported_by_uid: importedBy,
+    actor_role: authority?.actorRole || null,
+    ingestion_mode: authority?.ingestionMode || null,
+    idempotency_key: authority?.idempotencyKey || null,
+    request_id: authority?.requestId || null,
+  };
+
+  const inserted = await db.$queryRawUnsafe(
+    `INSERT INTO e_prescriptions
+       (tenant_id, patient_id, patient_uid, medication_name, medications,
+        clinical_notes, notes, status, lifecycle_status, prescription_number,
+        pharmacy_opted, created_at, updated_at)
+     VALUES ($1::uuid, $2::int, $3::uuid, $4, $5::jsonb,
+             $6, $6, $7, 'imported_history', $8, FALSE, NOW(), NOW())
+     RETURNING id`,
+    tenantId,
+    Number(patient.id),
+    patientUid,
+    medication,
+    JSON.stringify([{
+      name: medication,
+      dosage_instruction: fhirMedication.dosageInstruction || [],
+      source: 'FHIR_MedicationRequest',
+      source_id: fhirMedication.id,
+      import_receipt: importReceipt,
+    }]),
+    note || `Imported by ${importedBy}`,
+    status,
+    prescriptionNumber,
   );
+  await recordCanonicalClinicalEvent({
+    tenantId,
+    patientUid,
+    eventType: 'medication.history_imported',
+    eventStatus: status,
+    sourceTable: 'e_prescriptions',
+    sourceId: String(inserted[0].id),
+    resourceType: 'medication_history',
+    resourceId: String(inserted[0].id),
+    actorUid: importedBy,
+    actorRole: authority?.actorRole || 'MEDICAL_RECORDS',
+    requestId: authority?.requestId || null,
+    summary: `Medication history imported: ${medication}`,
+    payload: { import_receipt: importReceipt, status },
+    afterState: { lifecycle_status: 'imported_history', status },
+    timelineIdempotencyKey: `clinical-import:${tenantId}:${importIdentity}:timeline`,
+    auditIdempotencyKey: `clinical-import:${tenantId}:${importIdentity}:audit`,
+  }, { db, strict: true });
+  return 'imported';
+}
+
+async function importAllergyIntolerance(fhirAllergy, importedBy, {
+  tenantId = null,
+  authority = null,
+} = {}) {
+  if (!fhirAllergy || fhirAllergy.resourceType !== 'AllergyIntolerance') return 'skipped';
+  if (!GOVERNED_IMPORT_CLINICAL_ASSERTION_PROMOTION_ENABLED
+    || authority?.clinicalAssertionPromotion !== 'governed') {
+    throw AppError.conflict(
+      'External allergies require a governed review and promotion workflow',
+      'IMPORT_CLINICAL_ASSERTION_REVIEW_REQUIRED',
+      { resource_type: 'AllergyIntolerance', resource_id: fhirAllergy.id || null },
+    );
+  }
+  const patientRef = fhirAllergy.patient?.reference || fhirAllergy.subject?.reference || '';
+  const patientUid = patientRef.replace('Patient/', '');
+  await assertPatientInTenant(patientUid, tenantId);
+  const lifecycle = String(
+    fhirAllergy.clinicalStatus?.coding?.[0]?.code || 'active',
+  ).trim().toLowerCase();
+  if (lifecycle !== 'active') return 'skipped';
+  const allergen = fhirAllergy.code?.text
+    || fhirAllergy.code?.coding?.find((coding) => coding?.display)?.display
+    || fhirAllergy.code?.coding?.[0]?.code;
+  if (!allergen) {
+    throw AppError.badRequest(
+      'AllergyIntolerance.code needs text or a coded display',
+      'FHIR_ALLERGY_NO_CODE',
+    );
+  }
+  const criticality = String(fhirAllergy.criticality || '').toLowerCase();
+  const reactionSeverity = String(fhirAllergy.reaction?.[0]?.severity || '').toLowerCase();
+  const severity = criticality === 'high' || reactionSeverity === 'severe'
+    ? 'SEVERE'
+    : reactionSeverity === 'moderate' ? 'MODERATE' : 'MILD';
+  const reaction = fhirAllergy.reaction?.[0]?.manifestation?.[0]?.text
+    || fhirAllergy.reaction?.[0]?.description
+    || null;
+  const result = await createFhirAllergyIntolerance({
+    tenantId,
+    patientUid,
+    allergen,
+    severity,
+    reaction,
+    clinicalStatus: 'active',
+    actorUid: importedBy,
+    actorRole: authority?.actorRole || 'MEDICAL_RECORDS',
+    requestId: authority?.requestId || null,
+  });
+  return result.created ? 'imported' : 'deduplicated';
 }
 
 function isVitalSignsCategoryCoding(coding) {
@@ -1827,147 +2137,235 @@ export async function importFhirVitalObservation(fhirObservation, importedBy, {
 }
 
 // =============================================================================
-// C-CDA XML EXTRACTORS (simple regex-based parsing)
+// C-CDA XML EXTRACTORS
 // =============================================================================
 
-function extractCCDAPatient(xml) {
-  try {
-    const patient = {};
-
-    // Extract patient ID
-    const idMatch = xml.match(/<recordTarget>[\s\S]*?<id\s+root="([^"]+)"[\s\S]*?<\/recordTarget>/);
-    if (idMatch) patient.uid = idMatch[1];
-
-    // Extract name
-    const nameMatch = xml.match(/<recordTarget>[\s\S]*?<given>([^<]+)<\/given>[\s\S]*?<\/recordTarget>/);
-    if (nameMatch) patient.name = unescapeXml(nameMatch[1]);
-
-    // Extract phone
-    const phoneMatch = xml.match(/<recordTarget>[\s\S]*?<telecom\s+value="tel:([^"]+)"[\s\S]*?<\/recordTarget>/);
-    if (phoneMatch) patient.phone = phoneMatch[1];
-
-    // Extract gender
-    const genderMatch = xml.match(/<administrativeGenderCode\s+code="([^"]+)"/);
-    if (genderMatch) {
-      const genderMap = { M: 'Male', F: 'Female', UN: null };
-      patient.gender = genderMap[genderMatch[1]] || null;
-    }
-
-    // Extract birthdate
-    const birthMatch = xml.match(/<birthTime\s+value="([^"]+)"/);
-    if (birthMatch) {
-      const val = birthMatch[1];
-      if (val.length >= 8) {
-        patient.birthday = `${val.slice(0, 4)}-${val.slice(4, 6)}-${val.slice(6, 8)}`;
-      }
-    }
-
-    // Extract address
-    const addrMatch = xml.match(/<recordTarget>[\s\S]*?<addr>([^<]*)<\/addr>[\s\S]*?<\/recordTarget>/);
-    if (addrMatch) patient.address = unescapeXml(addrMatch[1]);
-
-    return patient.phone || patient.uid ? patient : null;
-  } catch (err) {
-    logger.warn(`Failed to extract patient from C-CDA: ${err.message}`);
-    return null;
-  }
+function ccdaArray(value) {
+  if (value == null) return [];
+  return Array.isArray(value) ? value : [value];
 }
 
-/**
- * Extract entries from a C-CDA section identified by LOINC code.
- * Returns an array of { code, displayName, text } objects.
- */
-function extractCCDASection(xml, loincCode) {
-  const entries = [];
+function ccdaText(value) {
+  if (value == null) return null;
+  if (typeof value === 'string' || typeof value === 'number') return String(value).trim() || null;
+  if (typeof value === 'object') return String(value['#text'] || value.text || '').trim() || null;
+  return null;
+}
 
-  try {
-    // Find the section with this LOINC code
-    const sectionRegex = new RegExp(
-      `<section>[\\s\\S]*?<code\\s+code="${loincCode}"[\\s\\S]*?</section>`,
-      'g'
+function collectCcdaNodes(value, key, output = [], depth = 0, count = { value: 0 }) {
+  if (depth > 64 || count.value > 100000) {
+    throw AppError.badRequest('C-CDA document exceeds structural limits', 'CCDA_STRUCTURE_LIMIT_EXCEEDED');
+  }
+  if (!value || typeof value !== 'object') return output;
+  count.value += 1;
+  for (const [childKey, childValue] of Object.entries(value)) {
+    if (childKey === key) output.push(...ccdaArray(childValue));
+    for (const child of ccdaArray(childValue)) {
+      collectCcdaNodes(child, key, output, depth + 1, count);
+    }
+  }
+  return output;
+}
+
+function firstCcdaNode(value, key) {
+  return collectCcdaNodes(value, key)[0] || null;
+}
+
+function parseCcdaDate(value) {
+  const text = String(value || '').trim();
+  if (!/^\d{8}/.test(text)) return null;
+  return `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)}`;
+}
+
+function ccdaClinicalEntry(entry, statementKey) {
+  const statement = firstCcdaNode(entry, statementKey);
+  if (!statement) return null;
+  const code = collectCcdaNodes(statement, 'code').find((candidate) => (
+    candidate && typeof candidate === 'object'
+    && (candidate['@_displayName'] || candidate.originalText || candidate['@_code'])
+    && !new Set(['ASSERTION', 'SBADM', 'Problem', 'Medication activity', 'Allergy observation'])
+      .has(String(candidate['@_code'] || candidate['@_displayName'] || ''))
+  ));
+  if (!code) {
+    throw AppError.badRequest(
+      `C-CDA ${statementKey} entry has no coded clinical identity`,
+      'CCDA_ENTRY_IDENTITY_REQUIRED',
     );
-    const sectionMatch = xml.match(sectionRegex);
-    if (!sectionMatch) return entries;
-
-    const sectionXml = sectionMatch[0];
-
-    // Extract displayName values from entries
-    const displayNameRegex = /displayName="([^"]+)"/g;
-    let match;
-    const seen = new Set();
-    while ((match = displayNameRegex.exec(sectionXml)) !== null) {
-      const name = unescapeXml(match[1]);
-      // Skip generic/structural display names
-      if (name && !seen.has(name) && !isStructuralDisplayName(name)) {
-        seen.add(name);
-        entries.push({ displayName: name, text: name });
-      }
-    }
-
-    // Also extract originalText values
-    const originalTextRegex = /<originalText>([^<]+)<\/originalText>/g;
-    while ((match = originalTextRegex.exec(sectionXml)) !== null) {
-      const text = unescapeXml(match[1]);
-      if (text && !seen.has(text)) {
-        seen.add(text);
-        entries.push({ displayName: text, text });
-      }
-    }
-  } catch (err) {
-    logger.warn(`Failed to extract C-CDA section ${loincCode}: ${err.message}`);
   }
-
-  return entries;
+  const displayName = String(
+    code['@_displayName'] || ccdaText(code.originalText) || code['@_code'] || '',
+  ).trim();
+  if (!displayName) {
+    throw AppError.badRequest('C-CDA clinical entry has an empty identity', 'CCDA_ENTRY_IDENTITY_REQUIRED');
+  }
+  const status = firstCcdaNode(statement, 'statusCode');
+  const effective = firstCcdaNode(statement, 'effectiveTime');
+  const low = effective && typeof effective === 'object' ? effective.low : null;
+  const high = effective && typeof effective === 'object' ? effective.high : null;
+  return {
+    code: code['@_code'] || null,
+    codeSystem: code['@_codeSystem'] || code['@_codeSystemName'] || null,
+    displayName,
+    text: ccdaText(code.originalText) || displayName,
+    status: status?.['@_code'] || null,
+    effectiveStart: parseCcdaDate(effective?.['@_value'] || low?.['@_value']),
+    effectiveEnd: parseCcdaDate(high?.['@_value']),
+  };
 }
 
-function isStructuralDisplayName(name) {
-  const structural = [
-    'Problem', 'Medications', 'Allergies', 'Vital Signs', 'Procedures',
-    'Results', 'Problem List', 'Assertion',
-  ];
-  return structural.includes(name);
+function extractStructuredCcdaSection(document, loincCode, statementKey) {
+  const sections = collectCcdaNodes(document, 'section').filter((section) => (
+    String(section?.code?.['@_code'] || '') === loincCode
+  ));
+  if (sections.length > 1) {
+    throw AppError.badRequest(
+      `C-CDA contains multiple ${loincCode} sections`,
+      'CCDA_SECTION_AMBIGUOUS',
+    );
+  }
+  if (!sections.length) return [];
+  const expectedTemplates = {
+    '11450-4': ['2.16.840.1.113883.10.20.22.2.5', '2.16.840.1.113883.10.20.22.2.5.1'],
+    '10160-0': ['2.16.840.1.113883.10.20.22.2.1', '2.16.840.1.113883.10.20.22.2.1.1'],
+    '48765-2': ['2.16.840.1.113883.10.20.22.2.6', '2.16.840.1.113883.10.20.22.2.6.1'],
+  }[loincCode] || [];
+  const sectionTemplates = ccdaArray(sections[0].templateId)
+    .map((template) => String(template?.['@_root'] || ''));
+  if (!sectionTemplates.some((template) => expectedTemplates.includes(template))) {
+    throw AppError.badRequest(
+      `C-CDA ${loincCode} section is missing its supported template identity`,
+      'CCDA_SECTION_TEMPLATE_UNSUPPORTED',
+    );
+  }
+  return ccdaArray(sections[0].entry)
+    .map((entry) => ccdaClinicalEntry(entry, statementKey))
+    .filter(Boolean);
+}
+
+function parseCcdaClinicalDocument(xml) {
+  if (Buffer.byteLength(xml, 'utf8') > 5 * 1024 * 1024) {
+    throw AppError.badRequest('C-CDA document exceeds the 5 MiB limit', 'CCDA_DOCUMENT_TOO_LARGE');
+  }
+  if (/<!DOCTYPE|<!ENTITY/i.test(xml) || xml.includes('\u0000')) {
+    throw AppError.badRequest('C-CDA document contains prohibited XML constructs', 'CCDA_XML_UNSAFE');
+  }
+  const validation = XMLValidator.validate(xml, { allowBooleanAttributes: false });
+  if (validation !== true) {
+    throw AppError.badRequest('C-CDA XML is malformed', 'CCDA_XML_INVALID', { validation });
+  }
+  let parsed;
+  try {
+    parsed = new XMLParser({
+      ignoreAttributes: false,
+      attributeNamePrefix: '@_',
+      removeNSPrefix: true,
+      processEntities: false,
+      allowBooleanAttributes: false,
+      trimValues: true,
+      parseTagValue: false,
+      parseAttributeValue: false,
+    }).parse(xml);
+  } catch (err) {
+    throw AppError.badRequest('C-CDA XML could not be parsed', 'CCDA_XML_INVALID', {
+      parser_error: err.message,
+    });
+  }
+  const document = parsed?.ClinicalDocument;
+  if (!document || typeof document !== 'object') {
+    throw AppError.badRequest('C-CDA ClinicalDocument root is required', 'CCDA_ROOT_REQUIRED');
+  }
+  collectCcdaNodes(document, '__structure_probe__');
+  const recordTargets = ccdaArray(document.recordTarget);
+  if (recordTargets.length !== 1) {
+    throw AppError.badRequest('C-CDA must contain exactly one recordTarget', 'CCDA_PATIENT_AMBIGUOUS');
+  }
+  const patientRole = recordTargets[0]?.patientRole;
+  const patientNode = patientRole?.patient;
+  if (!patientRole || !patientNode) {
+    throw AppError.badRequest('C-CDA recordTarget patient is required', 'CCDA_PATIENT_REQUIRED');
+  }
+  const name = ccdaArray(patientNode.name)[0] || {};
+  const given = ccdaArray(name.given).map(ccdaText).filter(Boolean).join(' ');
+  const family = ccdaArray(name.family).map(ccdaText).filter(Boolean).join(' ');
+  const telecom = ccdaArray(patientRole.telecom)
+    .map((entry) => String(entry?.['@_value'] || ''))
+    .find((value) => value.startsWith('tel:'));
+  const patientId = ccdaArray(patientRole.id)[0] || {};
+  const address = ccdaArray(patientRole.addr)[0] || {};
+  return {
+    patient: {
+      uid: patientId['@_extension'] || patientId['@_root'] || null,
+      name: [given, family].filter(Boolean).join(' ') || null,
+      phone: telecom ? telecom.slice(4) : null,
+      gender: { M: 'Male', F: 'Female' }[patientNode.administrativeGenderCode?.['@_code']] || null,
+      birthday: parseCcdaDate(patientNode.birthTime?.['@_value']),
+      address: [address.streetAddressLine, address.city, address.state, address.postalCode]
+        .flatMap(ccdaArray).map(ccdaText).filter(Boolean).join(', ') || null,
+    },
+    problems: extractStructuredCcdaSection(document, '11450-4', 'observation'),
+    medications: extractStructuredCcdaSection(document, '10160-0', 'substanceAdministration'),
+    allergies: extractStructuredCcdaSection(document, '48765-2', 'observation'),
+  };
 }
 
 // =============================================================================
 // C-CDA RESOURCE IMPORTERS
 // =============================================================================
 
-async function importPatientFromCCDA(patientData, _importedBy, { tenantId = null } = {}) {
-  if (!patientData.phone) {
-    logger.warn('C-CDA patient has no phone number, skipping patient import');
-    return;
-  }
-
-  // Dedup by phone inside the caller tenant only.
-  const existing = await prisma.$queryRawUnsafe(
-    `SELECT uid
+async function importPatientFromCCDA(patientData, _importedBy, {
+  tenantId = null,
+  authority = null,
+  db = prisma,
+} = {}) {
+  const targetPatientUid = requiredImportPatientUid(authority?.patientUid);
+  const rows = await db.$queryRawUnsafe(
+    `SELECT id, uid, phone
        FROM users
-      WHERE phone = $1
-        AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
-      LIMIT 1`,
-    patientData.phone,
-    tenantId
+      WHERE tenant_id=$1::uuid
+        AND uid=$2::uuid
+        AND role='PATIENT'
+        AND is_active=TRUE
+        AND status='active'
+        AND is_deleted=FALSE
+        AND merged_into_uid IS NULL
+      FOR UPDATE`,
+    tenantId,
+    targetPatientUid,
   );
-
-  if (existing.length) {
-    patientData.uid = existing[0].uid;
-    logger.info(`Patient already exists: ${existing[0].uid}`);
-    return;
+  if (!rows.length) {
+    throw AppError.notFound('Authorised C-CDA patient not found', 'IMPORT_TARGET_PATIENT_NOT_FOUND');
   }
-
-  const uid = importedUidOrNew(patientData.uid);
-  patientData.uid = uid;
-
-  await prisma.$queryRawUnsafe(
-    `INSERT INTO users (uid, tenant_id, phone, name, gender, birthday, address, role, is_active, registered_at)
-     VALUES ($1, COALESCE($2::uuid, '00000000-0000-4000-8000-000000000001'::uuid), $3, $4, $5, $6, $7, 'PATIENT', true, NOW())`,
-    uid, tenantId, patientData.phone, patientData.name, patientData.gender, patientData.birthday, patientData.address
-  );
-  logger.info(`Created new patient ${uid} from C-CDA import`);
+  if (patientData?.phone && String(patientData.phone) !== String(rows[0].phone || '')) {
+    const collision = await db.$queryRawUnsafe(
+      `SELECT uid, role, is_active, status, is_deleted, merged_into_uid
+         FROM users
+        WHERE tenant_id=$1::uuid AND phone=$2
+        ORDER BY id
+        LIMIT 2`,
+      tenantId,
+      patientData.phone,
+    );
+    throw AppError.conflict(
+      'C-CDA demographics do not match the authorised patient identity',
+      collision.length ? 'IMPORT_PATIENT_PHONE_OWNERSHIP_CONFLICT' : 'IMPORT_PATIENT_DEMOGRAPHICS_MISMATCH',
+    );
+  }
+  return 'deduplicated';
 }
 
-async function importDiagnosisFromCCDA(problem, patientUid, importedBy, { tenantId = null } = {}) {
+async function importDiagnosisFromCCDA(problem, patientUid, importedBy, {
+  tenantId = null,
+  authority = null,
+} = {}) {
   if (!patientUid || !problem.displayName) return;
+  if (!GOVERNED_IMPORT_CLINICAL_ASSERTION_PROMOTION_ENABLED
+    || authority?.clinicalAssertionPromotion !== 'governed') {
+    throw AppError.conflict(
+      'External diagnoses require a governed review and promotion workflow',
+      'IMPORT_CLINICAL_ASSERTION_REVIEW_REQUIRED',
+      { resource_type: 'C-CDA_Problem' },
+    );
+  }
   await assertPatientInTenant(patientUid, tenantId);
 
   // Dedup
@@ -1988,31 +2386,173 @@ async function importDiagnosisFromCCDA(problem, patientUid, importedBy, { tenant
   );
 }
 
-async function importMedicationFromCCDA(med, patientUid, importedBy, { tenantId = null } = {}) {
-  if (!patientUid || !med.displayName) return;
-  const patient = await assertPatientInTenant(patientUid, tenantId);
-
-  // Dedup
-  const existing = await prisma.$queryRawUnsafe(
-    `SELECT id FROM pharmacy_orders
-     WHERE uid = $1::uuid
-       AND medication = $2
-       AND ($3::uuid IS NULL OR tenant_id = $3::uuid)
-       AND created_at > NOW() - INTERVAL '24 hours'
-     LIMIT 1`,
-    patientUid, med.displayName, tenantId
+async function importMedicationFromCCDA(med, patientUid, importedBy, {
+  tenantId = null,
+  authority = null,
+  db = prisma,
+  lineIndex = null,
+} = {}) {
+  if (!patientUid || !med.displayName) return 'skipped';
+  if (!tenantId) {
+    throw AppError.forbidden(
+      'Medication import requires explicit tenant authority',
+      'IMPORT_TENANT_REQUIRED',
+    );
+  }
+  const patients = await db.$queryRawUnsafe(
+    `SELECT id, uid
+       FROM users
+      WHERE tenant_id=$1::uuid
+        AND uid=$2::uuid
+        AND role='PATIENT'
+        AND is_active=TRUE
+        AND status='active'
+        AND is_deleted=FALSE
+        AND merged_into_uid IS NULL
+      FOR UPDATE`,
+    tenantId,
+    patientUid,
   );
-  if (existing.length) return;
+  const patient = patients[0];
+  if (!patient) {
+    throw AppError.forbidden(
+      'Imported medication references a patient outside this tenant',
+      'IMPORT_PATIENT_TENANT_MISMATCH',
+    );
+  }
+  const sourceIdentityPayload = {
+    contract_version: 'clinical-import-resource-v1',
+    source_system: authority?.sourceSystem || null,
+    source_document_id: authority?.sourceDocumentId || null,
+    source: 'C-CDA_Medication',
+    patientUid,
+    resource_index: lineIndex,
+  };
+  const importIdentity = crypto.createHash('sha256').update(JSON.stringify(
+    stableImportJson(sourceIdentityPayload),
+  )).digest('hex');
+  const payloadSha256 = crypto.createHash('sha256').update(JSON.stringify(stableImportJson({
+    medication: med.displayName,
+    code: med.code || null,
+    code_system: med.codeSystem || null,
+    text: med.text || null,
+    status: med.status || null,
+    effective_start: med.effectiveStart || null,
+    effective_end: med.effectiveEnd || null,
+  }))).digest('hex');
+  const prescriptionNumber = `IMP-CCDA-${importIdentity.slice(0, 32)}`;
 
-  await prisma.$queryRawUnsafe(
-    `INSERT INTO pharmacy_orders (tenant_id, uid, phone, medication, order_note, status, prescribed_by, created_at)
-     VALUES (COALESCE($1::uuid, '00000000-0000-4000-8000-000000000001'::uuid), $2::uuid, $3, $4, $4, 'PENDING', $5, NOW())`,
-    tenantId, patientUid, patient.phone || '', med.displayName, importedBy
+  // Stable history identity prevents duplicate imports without creating an
+  // authority-less dispensing workflow.
+  const existing = await db.$queryRawUnsafe(
+    `SELECT id, patient_uid, lifecycle_status, pharmacy_order_id, medications
+       FROM e_prescriptions
+      WHERE tenant_id=$1::uuid AND prescription_number=$2
+      LIMIT 1`,
+    tenantId,
+    prescriptionNumber,
   );
+  if (existing.length) {
+    const receipt = Array.isArray(existing[0].medications)
+      ? existing[0].medications[0]?.import_receipt
+      : null;
+    if (String(existing[0].patient_uid) !== String(patientUid)
+      || String(existing[0].lifecycle_status || '').toLowerCase() !== 'imported_history'
+      || existing[0].pharmacy_order_id
+      || receipt?.source_identity_sha256 !== importIdentity
+      || receipt?.payload_sha256 !== payloadSha256) {
+      throw AppError.conflict(
+        'C-CDA medication source identity was replayed with different clinical content',
+        'IMPORT_SOURCE_IDENTITY_DRIFT',
+        { source_resource_index: lineIndex },
+      );
+    }
+    return 'deduplicated';
+  }
+
+  const sourceStatus = String(med.status || '').trim().toLowerCase();
+  const status = ['active', 'completed', 'cancelled', 'canceled', 'stopped', 'on-hold']
+    .includes(sourceStatus) ? sourceStatus : 'unknown';
+  const importReceipt = {
+    contract_version: 'clinical-import-resource-v1',
+    source_system: authority?.sourceSystem || null,
+    source_document_id: authority?.sourceDocumentId || null,
+    source_facility_id: authority?.sourceFacilityId || null,
+    asserted_source_signature_sha256: authority?.sourceSignatureSha256 || null,
+    source_payload_sha256: authority?.sourcePayloadSha256 || null,
+    source_resource_type: 'C-CDA_Medication',
+    source_resource_index: lineIndex,
+    source_identity_sha256: importIdentity,
+    payload_sha256: payloadSha256,
+    imported_by_uid: importedBy,
+    actor_role: authority?.actorRole || null,
+    ingestion_mode: authority?.ingestionMode || null,
+    idempotency_key: authority?.idempotencyKey || null,
+    request_id: authority?.requestId || null,
+  };
+
+  const inserted = await db.$queryRawUnsafe(
+    `INSERT INTO e_prescriptions
+       (tenant_id, patient_id, patient_uid, medication_name, medications,
+        clinical_notes, notes, status, lifecycle_status, prescription_number,
+        pharmacy_opted, created_at, updated_at)
+      VALUES ($1::uuid, $2::int, $3::uuid, $4, $5::jsonb,
+              $6, $6, $8, 'imported_history', $7, FALSE, NOW(), NOW())
+     RETURNING id`,
+    tenantId,
+    Number(patient.id),
+    patientUid,
+    med.displayName,
+    JSON.stringify([{
+      name: med.displayName,
+      source: 'C-CDA_Medication',
+      source_text: med.text || null,
+      source_code: med.code || null,
+      source_code_system: med.codeSystem || null,
+      source_status: status,
+      effective_start: med.effectiveStart || null,
+      effective_end: med.effectiveEnd || null,
+      timing_unresolved: status === 'active' && !med.effectiveEnd,
+      import_receipt: importReceipt,
+    }]),
+    med.text || `Imported by ${importedBy}`,
+    prescriptionNumber,
+    status,
+  );
+  await recordCanonicalClinicalEvent({
+    tenantId,
+    patientUid,
+    eventType: 'medication.history_imported',
+    eventStatus: status,
+    sourceTable: 'e_prescriptions',
+    sourceId: String(inserted[0].id),
+    resourceType: 'medication_history',
+    resourceId: String(inserted[0].id),
+    actorUid: importedBy,
+    actorRole: authority?.actorRole || 'MEDICAL_RECORDS',
+    requestId: authority?.requestId || null,
+    summary: `Medication history imported: ${med.displayName}`,
+    payload: { import_receipt: importReceipt, status },
+    afterState: { lifecycle_status: 'imported_history', status },
+    timelineIdempotencyKey: `clinical-import:${tenantId}:${importIdentity}:timeline`,
+    auditIdempotencyKey: `clinical-import:${tenantId}:${importIdentity}:audit`,
+  }, { db, strict: true });
+  return 'imported';
 }
 
-async function importAllergyFromCCDA(allergy, patientUid, _importedBy, { tenantId = null } = {}) {
+async function importAllergyFromCCDA(allergy, patientUid, _importedBy, {
+  tenantId = null,
+  authority = null,
+} = {}) {
   if (!patientUid || !allergy.displayName) return;
+  if (!GOVERNED_IMPORT_CLINICAL_ASSERTION_PROMOTION_ENABLED
+    || authority?.clinicalAssertionPromotion !== 'governed') {
+    throw AppError.conflict(
+      'External allergies require a governed review and promotion workflow',
+      'IMPORT_CLINICAL_ASSERTION_REVIEW_REQUIRED',
+      { resource_type: 'C-CDA_Allergy' },
+    );
+  }
   await assertPatientInTenant(patientUid, tenantId);
 
   // Dedup
@@ -2031,20 +2571,6 @@ async function importAllergyFromCCDA(allergy, patientUid, _importedBy, { tenantI
      VALUES (COALESCE($1::uuid, '00000000-0000-4000-8000-000000000001'::uuid), $2::uuid, $3, $3, NOW())`,
     tenantId, patientUid, allergy.displayName
   );
-}
-
-// =============================================================================
-// HELPERS
-// =============================================================================
-
-function unescapeXml(str) {
-  if (!str) return '';
-  return str
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'");
 }
 
 export default { importFhirBundle, importCCDA };

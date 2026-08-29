@@ -1,22 +1,26 @@
 "use client";
 
-import { useDeferredValue, useState } from "react";
+import { useDeferredValue, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 
 import { EmptyState } from "@/components/EmptyState";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 import {
   listActiveInventoryItems,
   listCathConsumablesCatalog,
+  listCathConsumablesFacilities,
   upsertCathConsumable,
   type CathConsumableCatalogInput,
   type CathConsumableCatalogItem,
 } from "@/lib/api/cathConsumables";
+import { payloadIdentity } from "@/lib/idempotencyKey";
 
 import { CatalogForm, CATH_CONSUMABLE_CATEGORIES } from "./CatalogForm";
 
 const CATALOG_QUERY_KEY = ["cath-consumables", "catalog"] as const;
+const FACILITY_QUERY_KEY = ["cath-consumables", "facilities"] as const;
 const INVENTORY_QUERY_KEY = [
   "pharmacy-supply",
   "inventory-items",
@@ -60,16 +64,48 @@ export function CatalogTab() {
   const [formOpen, setFormOpen] = useState(false);
   const [inventorySearch, setInventorySearch] = useState("");
   const deferredInventorySearch = useDeferredValue(inventorySearch.trim());
+  const [facilityId, setFacilityId] = useState<number | null>(null);
+
+  const facilitiesQuery = useQuery({
+    queryKey: FACILITY_QUERY_KEY,
+    queryFn: () => listCathConsumablesFacilities(),
+    staleTime: 5 * 60 * 1000,
+  });
+  const facilities = facilitiesQuery.data?.facilities ?? [];
+
+  // Auto-select only when the tenant has exactly one active facility: with a
+  // single option there is nothing to infer. With none or several the selector
+  // stays empty and the catalog read never fires, because guessing which
+  // facility an operator meant would invent a facility fact the server refuses
+  // to invent for us.
+  useEffect(() => {
+    if (facilityId !== null || facilities.length !== 1) return;
+    setFacilityId(facilities[0].id);
+  }, [facilities, facilityId]);
 
   const catalogQuery = useQuery({
-    queryKey: [...CATALOG_QUERY_KEY, deferredSearch, category, status],
-    queryFn: () =>
-      listCathConsumablesCatalog({
+    queryKey: [
+      ...CATALOG_QUERY_KEY,
+      facilityId,
+      deferredSearch,
+      category,
+      status,
+    ],
+    queryFn: () => {
+      if (facilityId === null) {
+        throw new Error(
+          "Select a facility before loading the cath consumable catalog",
+        );
+      }
+      return listCathConsumablesCatalog({
+        facility_id: facilityId,
         q: deferredSearch || undefined,
         category: category || undefined,
         status: status || undefined,
         limit: 500,
-      }),
+      });
+    },
+    enabled: facilityId !== null,
   });
   const inventoryQuery = useQuery({
     queryKey: [...INVENTORY_QUERY_KEY, deferredInventorySearch],
@@ -82,10 +118,22 @@ export function CatalogTab() {
     staleTime: 5 * 60 * 1000,
   });
 
+  // One attempt = one key. `keyFor` is stable while the payload identity is
+  // unchanged, so a double-click or the 401→refresh replay in `api/core.ts`
+  // reuses the key and the backend replays its recorded response instead of
+  // saving twice. `reset()` on success ends the attempt, so a deliberate
+  // second edit that lands on the same payload identity — retire, activate,
+  // retire again — is a genuinely separate save rather than a swallowed replay.
+  const catalogSaveKey = useIdempotencyKey("cath-consumable-catalog-upsert");
+
   const saveMutation = useMutation({
     mutationFn: (payload: CathConsumableCatalogInput) =>
-      upsertCathConsumable(payload),
+      upsertCathConsumable(
+        payload,
+        catalogSaveKey.keyFor(payloadIdentity(payload)),
+      ),
     onSuccess: (_result, payload) => {
+      catalogSaveKey.reset();
       toast.success(payload.id ? "Catalog item updated" : "Catalog item added");
       setEditingItem(null);
       setFormOpen(false);
@@ -144,7 +192,26 @@ export function CatalogTab() {
         </button>
       </div>
 
-      <div className="grid gap-3 rounded-lg border border-border bg-card p-4 md:grid-cols-[minmax(220px,1fr)_180px_160px_auto]">
+      <div className="grid gap-3 rounded-lg border border-border bg-card p-4 md:grid-cols-[minmax(200px,1fr)_200px_180px_160px_auto]">
+        <label className="text-xs font-medium text-muted-foreground">
+          Facility
+          <select
+            className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground"
+            onChange={(event) =>
+              setFacilityId(
+                event.target.value === "" ? null : Number(event.target.value),
+              )
+            }
+            value={facilityId === null ? "" : String(facilityId)}
+          >
+            <option value="">Select a facility</option>
+            {facilities.map((facility) => (
+              <option key={facility.id} value={String(facility.id)}>
+                {facility.display_name}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="text-xs font-medium text-muted-foreground">
           Search
           <input
@@ -193,7 +260,20 @@ export function CatalogTab() {
         </div>
       </div>
 
-      {catalogQuery.isLoading ? (
+      {facilityId === null ? (
+        <div className="rounded-lg border border-border bg-card">
+          <EmptyState
+            description={
+              facilitiesQuery.isFetching
+                ? "Loading the facility list."
+                : facilities.length === 0
+                  ? "No active facility is available for this tenant, so the facility-scoped cath catalog cannot be read."
+                  : "The cath consumable catalog is facility-scoped. Choose the facility whose catalog you are managing."
+            }
+            title="Facility required"
+          />
+        </div>
+      ) : catalogQuery.isLoading ? (
         <LoadingSpinner label="Loading cath consumables" />
       ) : catalogQuery.error ? (
         <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">

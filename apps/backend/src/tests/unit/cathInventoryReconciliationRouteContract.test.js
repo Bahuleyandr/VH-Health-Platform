@@ -71,6 +71,138 @@ describe('Cath inventory reconciliation route contract', () => {
     expect(getAuthorityIndex).toBeGreaterThan(getIndex);
     expect(getAuthorityIndex).toBeLessThan(postIndex);
     expect(postAuthorityIndex).toBeGreaterThan(postIndex);
+    expect(routes.slice(getIndex, postIndex)).toContain('guardCathCase');
+  });
+
+  test('requires patient/case authority and an exact active facility grant even for GET coverage', () => {
+    const routes = source('routes/clinical/cathInventoryReconciliationRoutes.js');
+    const service = source('services/clinical/cathLabService.js');
+    const getService = service.slice(
+      service.indexOf('export async function getCathConsumableInventoryReconciliation'),
+      service.indexOf('function boundedCathAssignmentRecoveryLimit'),
+    );
+    expect(routes).toContain("const guardCathCase = cathCaseGuard('caseId')");
+    expect(getService).toContain('await assertPharmacyFacilityGrant(tx');
+    expect(getService).toContain('facilityId: Number(record.facility_id)');
+    expect(getService).toContain('actorUid: actor.uid');
+    expect(getService).toContain('forUpdate: false');
+    expect(service).toContain('AND cath_case.facility_id = usage.facility_id');
+    expect(service).toContain('AND inventory_batch.facility_id = usage.facility_id');
+    expect(service).toContain(
+      'AND inventory_batch.batch_number IS NOT DISTINCT FROM usage.batch_number',
+    );
+    expect(service).toContain('JOIN clinical_timeline_events timeline');
+    expect(service).toContain('JOIN clinical_audit_events clinical_audit');
+    expect(service).toContain("AND task.metadata->>'inventory_batch_id' = usage.inventory_batch_id::text");
+    expect(service).toContain("AND sla.metadata->>'inventory_facility_id' = usage.facility_id::text");
+    expect(service).toContain('JOIN notification_outbox outbox');
+    expect(service).toContain("AND outbox.payload->>'facility_id' = usage.facility_id::text");
+    expect(service).toContain("outbox.payload->>'recipient_facility_grant_id'");
+  });
+
+  test('binds reconciliation to a locked facility grant and the hardened inventory ledger', () => {
+    const service = source('services/clinical/cathLabService.js');
+    const reconciliation = service.slice(
+      service.indexOf('export async function reconcileCathConsumableInventory'),
+      service.indexOf('export async function recordConsumableUsage'),
+    );
+    const movement = service.slice(
+      service.indexOf('async function recordCathReconciliationMovementTx'),
+      service.indexOf('export async function getCathConsumableInventoryReconciliation'),
+    );
+
+    expect(reconciliation).toContain('await assertPharmacyFacilityGrant(tx');
+    expect(reconciliation).toContain('forUpdate: true');
+    expect(reconciliation).toContain('facility_id: record.facility_id');
+    expect(reconciliation).toContain('Legacy Cath usage has no exact facility inventory batch');
+    expect(movement).toContain('await recordMovementTx(tx');
+    expect(movement).toContain('expected_facility_id: Number(usage.facility_id)');
+    expect(movement).toContain('actor_facility_grant_id');
+    expect(movement).not.toContain('UPDATE pharmacy_inventory_batches');
+  });
+
+  test('persists clinical history and the facility-bound pharmacy task atomically', () => {
+    const service = source('services/clinical/cathLabService.js');
+    const usage = service.slice(
+      service.indexOf('export async function recordConsumableUsage'),
+      service.indexOf('export async function getCathConsumablesBillingSettings'),
+    );
+    const canonicalIndex = usage.indexOf('const event = requireCanonicalEvent');
+    const taskIndex = usage.indexOf('await materializeCathInventoryShortfallTx');
+
+    expect(canonicalIndex).toBeGreaterThan(-1);
+    expect(taskIndex).toBeGreaterThan(canonicalIndex);
+    expect(usage).toContain('const canonicalActor = await cathCanonicalActorTx');
+    expect(usage).toContain('facility_id: Number(cathCase.facility_id)');
+    expect(usage).toContain("mapping_contract: 'cath_facility_catalog_inventory_v1'");
+    expect(usage).toContain('canonical_actor_uid: canonicalActor.uid');
+    expect(usage).not.toContain('applyConsumableInventoryDecrement');
+  });
+
+  test('derives a new Cath case facility from the locked encounter authority', () => {
+    const service = source('services/clinical/cathLabService.js');
+    const create = service.slice(
+      service.indexOf('export async function createCase'),
+      service.indexOf('export async function listCases'),
+    );
+    expect(create).toContain("encounter.metadata->>'facility_id'");
+    expect(create).toContain('FOR KEY SHARE OF encounter');
+    expect(create).toContain('facilityId = encounterFacilityId');
+    expect(create).toContain('Cath-lab encounter facility authority is not active');
+    expect(create).toContain(
+      'facility_id is required when a Cath-lab case has no encounter',
+    );
+  });
+
+  test('governs Cath catalog, case, and usage recovery with durable exact receipts', () => {
+    const service = source('services/clinical/cathLabService.js');
+    const usageRecovery = service.slice(
+      service.indexOf('async function reattachCathUsageAuthorityTx'),
+      service.indexOf('export async function resolveCathConsumableAuthorityRecovery'),
+    );
+    const recovery = service.slice(
+      service.indexOf('export async function resolveCathConsumableAuthorityRecovery'),
+      service.indexOf('export async function listCatalogBatches'),
+    );
+    expect(recovery).toContain("'cath_consumable_catalog', 'cath_consumable_usage', 'cath_lab_case'");
+    expect(recovery).toContain('await assertPharmacyFacilityGrant(tx');
+    expect(recovery).toContain('forUpdate: true');
+    expect(recovery).toContain("app.pharmacy_recovery_command_key_sha256");
+    expect(recovery).toContain('const targetBefore = await cathRecoveryTargetSnapshotTx');
+    expect(recovery).toContain('const targetAfter = await cathRecoveryTargetSnapshotTx');
+    expect(recovery).toContain('await setCathRecoveryEvidenceTx');
+    expect(recovery).toContain("set_config('app.pharmacy_recovery_actor_uid'");
+    expect(recovery).toContain("action === 'REATTACH'");
+    expect(recovery).toContain("['PRESERVE', 'CANCEL']");
+    expect(recovery).toContain(
+      'Cath usage recovery must be governed by the exact pinned case facility',
+    );
+    expect(recovery).toContain("case_recovery.entity_type='cath_lab_case'");
+    expect(recovery).toContain("case_recovery.reason_code='CATH_CASE_FACILITY_UNRESOLVED'");
+    expect(recovery).toContain('terminalAgainstRecoveringCase');
+    expect(usageRecovery).toContain(
+      'Cath usage cannot be reattached until the case facility recovery is resolved',
+    );
+    expect(usageRecovery).toContain(
+      'Existing Cath stock movement custody cannot be rebound by changing clinical usage authority',
+    );
+    expect(usageRecovery).toContain('timeline.id AS exact_timeline_event_id');
+    expect(usageRecovery).toContain('clinical_audit.id AS exact_audit_event_id');
+    expect(recovery).toContain('Cath authority recovery reason does not match its governed resolver');
+    expect(recovery).toContain('encounter no longer matches its same-tenant patient');
+    expect(recovery).toContain('Cath case recovery encounter has no exact facility authority');
+    expect(recovery).toContain(
+      'Cath case recovery facility must match the encounter facility authority',
+    );
+    expect(recovery).toContain('AND facility_id IS NOT DISTINCT FROM $5::int');
+    expect(recovery).toContain("metadata=COALESCE(metadata, '{}'::jsonb) || $6::jsonb");
+    expect(service).toContain('Cath-lab encounter has no exact facility authority');
+    expect(recovery).toContain("SET status='cancelled'");
+    expect(recovery).toContain("SET status='SUPPRESSED'");
+    expect(recovery).toContain(
+      'SET facility_id=NULL, inventory_item_id=NULL, inventory_batch_id=NULL',
+    );
+    expect(recovery).toContain("status='RESOLVED'");
   });
 
   test.each(PHARMACY_OPERATOR_ROLES)('%s can read and reconcile', (role) => {

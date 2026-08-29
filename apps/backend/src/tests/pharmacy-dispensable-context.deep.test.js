@@ -27,7 +27,7 @@ async function call(fn, tenantId, params) {
 }
 
 describe('pharmacist dispense-substitution read endpoints', () => {
-  let compId; let catalogId; let orderId; let itemId; let batchNear; let batchFar;
+  let compId; let catalogId; let orderId; let prescriptionId; let itemId; let batchNear; let batchFar;
 
   async function cleanup() {
     await prisma.$executeRawUnsafe(`DELETE FROM e_prescriptions WHERE tenant_id=$1::uuid AND patient_uid=$2::uuid`, TENANT, PATIENT).catch(() => {});
@@ -46,10 +46,11 @@ describe('pharmacist dispense-substitution read endpoints', () => {
     compId = Number((await prisma.$queryRawUnsafe(`INSERT INTO drug_compositions (composition_key,display_label,active_ingredients,source) VALUES ($1,'Amox+Clav',ARRAY['amoxicillin','clavulanic_acid'],'curated') RETURNING id`, COMP_KEY))[0].id);
     catalogId = Number((await prisma.$queryRawUnsafe(`INSERT INTO pharmacy_catalog (name,generic_name,manufacturer,is_active,tenant_id,composition_id,strength,strength_key,form,form_key,composition_confidence,updated_at) VALUES ('DCTXTEST Clavam 625','Amoxicillin + Clavulanic acid','Alkem',TRUE,$1::uuid,$2,'625 mg','625mg','tablet','tablet','high',NOW()) RETURNING id`, TENANT, compId))[0].id);
     orderId = Number((await prisma.$queryRawUnsafe(`INSERT INTO pharmacy_orders (phone,order_note,status,tenant_id,updated_at) VALUES ('9999999999','dctx-test','CONFIRMED',$1::uuid,NOW()) RETURNING id`, TENANT))[0].id);
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO e_prescriptions (pharmacy_order_id,patient_uid,medications,status,tenant_id,created_at,updated_at) VALUES ($1::int,$2::uuid,$3::jsonb,'active',$4::uuid,NOW(),NOW())`,
+    const prescriptionRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO e_prescriptions (pharmacy_order_id,patient_uid,medications,status,tenant_id,created_at,updated_at) VALUES ($1::int,$2::uuid,$3::jsonb,'active',$4::uuid,NOW(),NOW()) RETURNING id`,
       orderId, PATIENT, JSON.stringify([{ catalog_id: catalogId, name: 'Clavam 625', quantity: 10 }]), TENANT,
     );
+    prescriptionId = Number(prescriptionRows[0].id);
     itemId = Number((await prisma.$queryRawUnsafe(`INSERT INTO pharmacy_inventory_items (tenant_id,sku_code,display_name,catalog_id,composition_id) VALUES ($1::uuid,'DCTX-SKU-1','Clavam 625',$2,$3) RETURNING id`, TENANT, catalogId, compId))[0].id);
     batchNear = Number((await prisma.$queryRawUnsafe(`INSERT INTO pharmacy_inventory_batches (tenant_id,inventory_item_id,batch_number,expiry_date,received_quantity,remaining_quantity,status) VALUES ($1::uuid,$2,'DCTX-NEAR',(NOW()+INTERVAL '30 days')::date,50,50,'in_stock') RETURNING id`, TENANT, itemId))[0].id);
     batchFar = Number((await prisma.$queryRawUnsafe(`INSERT INTO pharmacy_inventory_batches (tenant_id,inventory_item_id,batch_number,expiry_date,received_quantity,remaining_quantity,status) VALUES ($1::uuid,$2,'DCTX-FAR',(NOW()+INTERVAL '365 days')::date,100,100,'in_stock') RETURNING id`, TENANT, itemId))[0].id);
@@ -67,7 +68,9 @@ describe('pharmacist dispense-substitution read endpoints', () => {
     const res = await call(getOrderDispensableContext, TENANT, { id: String(orderId) });
     expect(res.statusCode).toBe(200);
     expect(res.body.data.patient_uid).toBe(PATIENT);
+    expect(res.body.data.prescription_id).toBe(prescriptionId);
     expect(res.body.data.lines).toHaveLength(1);
+    expect(res.body.data.lines[0].prescription_id).toBe(prescriptionId);
     expect(res.body.data.lines[0].catalog_id).toBe(catalogId);
     expect(res.body.data.lines[0].quantity).toBe(10);
   });

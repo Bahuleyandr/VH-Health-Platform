@@ -21,6 +21,8 @@ jest.unstable_mockModule('../../services/pharmacy/pharmacistVerificationService.
   verifyOrder: verifyOrderMock,
   getPackLabel: getPackLabelMock,
   assertVerificationCleared: jest.fn(async () => {}),
+  assertVerificationClearedTx: jest.fn(async () => {}),
+  clinicalOrderItemsSha256: jest.fn(() => 'items-sha256'),
   ensurePackBarcode: jest.fn(async () => 'PACK-1'),
 }));
 
@@ -41,8 +43,18 @@ jest.unstable_mockModule('../../controllers/delivery/deliveryTrackingController.
   calculateETA: jest.fn(() => null),
 }));
 jest.unstable_mockModule('../../services/pharmacy/pharmacyCapService.js', () => ({
-  probePharmacyCap: jest.fn(async () => ({ message: null })),
-  shouldBlockDispense: jest.fn(() => false),
+  assertPharmacyCapForDispenseTx: jest.fn(async () => ({ message: null })),
+  releasePharmacyCapReservationTx: jest.fn(async () => null),
+  resolveAuthoritativeCounterFundingTx: jest.fn(async () => ({
+    fundedAmount: 0,
+    fundingSource: null,
+    fundingReference: null,
+  })),
+}));
+jest.unstable_mockModule('../../services/pharmacy/pharmacyFacilityAuthorityService.js', () => ({
+  requestedPharmacyFacilityId: jest.fn(() => null),
+  requireOrderFacility: jest.fn((order) => Number(order.facility_id || 7)),
+  resolvePharmacyFacility: jest.fn(async () => ({ id: 7 })),
 }));
 jest.unstable_mockModule('../../services/clinical/allergySourceService.js', () => ({
   getUnifiedActiveAllergies: jest.fn(async () => []),
@@ -85,6 +97,18 @@ jest.unstable_mockModule('../../middleware/identityValidator.js', () => ({
 jest.unstable_mockModule('../../middleware/sanitizeMiddleware.js', () => ({
   sanitizePharmacyFields: (_req, _res, next) => next(),
 }));
+jest.unstable_mockModule('../../middleware/idempotencyMiddleware.js', () => ({
+  requireIdempotencyKey: ({ required }) => (req, res, next) => {
+    if (required && !req.get('Idempotency-Key')) {
+      return res.status(400).json({
+        success: false,
+        code: 'IDEMPOTENCY_KEY_REQUIRED',
+        message: 'Idempotency-Key header is required for this endpoint',
+      });
+    }
+    return next();
+  },
+}));
 jest.unstable_mockModule('../../middleware/uploadMiddleware.js', () => ({
   validateFileContent: (_req, _res, next) => next(),
   validatePatientUpload: (_req, _res, next) => next(),
@@ -124,6 +148,25 @@ beforeEach(() => {
 });
 
 describe('pharmacy verification handleFailure() relays AppError code + details', () => {
+  test('verification and pack-label calls carry the authenticated request tenant', async () => {
+    verifyOrderMock.mockResolvedValueOnce({ order: { id: 71 } });
+    getPackLabelMock.mockResolvedValueOnce({ order_id: 71, pack_barcode: 'PACK-1' });
+
+    await request(app)
+      .post('/api/v1/pharmacy/71/verify')
+      .set('Idempotency-Key', 'verify-tenant-71')
+      .send({ decision: 'verified' });
+    await request(app).get('/api/v1/pharmacy/71/pack-label');
+
+    expect(verifyOrderMock).toHaveBeenCalledWith(71, expect.objectContaining({
+      tenantId: '00000000-0000-4000-8000-000000000001',
+    }));
+    expect(getPackLabelMock).toHaveBeenCalledWith(
+      71,
+      '00000000-0000-4000-8000-000000000001',
+    );
+  });
+
   test('AppError code + details reach the envelope root / details key', async () => {
     verifyOrderMock.mockRejectedValueOnce(AppError.conflict(
       'Order already carries a verification verdict',
@@ -133,6 +176,7 @@ describe('pharmacy verification handleFailure() relays AppError code + details',
 
     const response = await request(app)
       .post('/api/v1/pharmacy/71/verify')
+      .set('Idempotency-Key', 'verify-app-error-71')
       .send({ decision: 'verified' });
 
     expect(response.statusCode).toBe(409);
@@ -150,6 +194,7 @@ describe('pharmacy verification handleFailure() relays AppError code + details',
 
     const response = await request(app)
       .post('/api/v1/pharmacy/71/verify')
+      .set('Idempotency-Key', 'verify-generic-error-71')
       .send({ decision: 'verified' });
 
     expect(response.statusCode).toBe(500);
@@ -168,5 +213,15 @@ describe('pharmacy verification handleFailure() relays AppError code + details',
     expect(response.statusCode).toBe(500);
     expect(response.body.message).toBe('Failed to build pack label');
     expect(response.body.message).not.toMatch(/barcode/);
+  });
+
+  test('verification rejects a missing durable idempotency key before the controller', async () => {
+    const response = await request(app)
+      .post('/api/v1/pharmacy/71/verify')
+      .send({ decision: 'verified' });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.body.code).toBe('IDEMPOTENCY_KEY_REQUIRED');
+    expect(verifyOrderMock).not.toHaveBeenCalled();
   });
 });

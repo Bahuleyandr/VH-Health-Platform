@@ -11,6 +11,7 @@
 // app never sends a calculated total — it sends the inputs and the
 // service is the source of truth.
 
+import { createHash } from 'node:crypto';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
@@ -33,6 +34,13 @@ import {
   refundApprovalRequestFingerprint,
 } from './billingRefundApprovalCommand.js';
 import { hashRequestBody } from '../idempotency/idempotencyService.js';
+import {
+  lockPharmacyFundingAdmissionTx,
+  lockPharmacyFundingAuthorityTx,
+  releasePharmacyCapReservationTx,
+  resolvePharmacyFundingPatientUidTx,
+} from '../pharmacy/pharmacyCapService.js';
+import { clinicalOrderItemsSha256 } from '../pharmacy/pharmacistVerificationService.js';
 
 export {
   REFUND_APPROVAL_IDEMPOTENCY_PATH,
@@ -815,7 +823,7 @@ export async function recomputeInvoiceTotals(invoiceId, db = prisma, { emitTpaAl
        COALESCE(SUM(sgst_amount), 0)::numeric   AS sgst,
        COALESCE(SUM(igst_amount), 0)::numeric   AS igst
      FROM billing_invoice_items
-     WHERE invoice_id = $1::int`,
+     WHERE invoice_id = $1::int AND source_ref_active=TRUE`,
     invoiceId,
   );
   const a = aggregates[0];
@@ -1227,6 +1235,44 @@ const VALID_SOURCE_REF_TYPES = new Set([
 const SOURCE_REF_ID_OPTIONAL = new Set(['manual', 'package', 'admission_package']);
 
 const TENANT_PATIENT_SOURCE_REF_SQL = Object.freeze({
+  pharmacy_order: `SELECT po.id
+    FROM pharmacy_orders po
+    JOIN users patient
+      ON patient.tenant_id = po.tenant_id
+     AND patient.id = po.patient_id
+     AND patient.role = 'PATIENT'
+     AND patient.is_active = TRUE
+     AND patient.status = 'active'
+     AND patient.is_deleted = FALSE
+     AND patient.merged_into_uid IS NULL
+    LEFT JOIN admissions admission
+      ON admission.tenant_id = po.tenant_id
+     AND admission.id = $4::int
+     AND admission.patient_uid = patient.uid
+   WHERE po.id = $1::bigint
+     AND po.tenant_id = $2::uuid
+     AND patient.uid = $3::uuid
+     AND (po.uid IS NULL OR po.uid = patient.uid)
+     AND (
+       ($4::int IS NULL AND po.funding_admission_id IS NULL)
+       OR
+       ($4::int IS NOT NULL AND admission.id IS NOT NULL
+        AND po.funding_admission_id=admission.id)
+     )
+     AND po.status IN ('DISPENSED','DELIVERED')
+     AND COALESCE(po.dispensed_at,po.delivered_at) IS NOT NULL
+     AND EXISTS (
+       SELECT 1 FROM pharmacy_stock_movements movement
+        WHERE movement.tenant_id=po.tenant_id
+          AND movement.metadata->>'order_id'=po.id::text
+          AND movement.movement_kind='issue'
+          AND movement.quantity_delta < 0
+          AND movement.metadata->>'contract' IN (
+            'pharmacy_order_inventory_allocation_v1',
+            'pharmacy_dispense_substitution_v1'
+          )
+     )
+   LIMIT 1`,
   ward_indent: `SELECT wi.id
     FROM ward_indents wi
     LEFT JOIN admissions a
@@ -1267,16 +1313,16 @@ async function assertSourceReferenceBelongsToInvoice({
   sourceRefId,
   invoiceTenantId,
   invoicePatientUid,
+  invoiceAdmissionId = null,
   db = prisma,
 }) {
   const ownershipSql = TENANT_PATIENT_SOURCE_REF_SQL[sourceRefType];
   if (!ownershipSql) return;
-  const rows = await db.$queryRawUnsafe(
-    ownershipSql,
-    sourceRefId,
-    invoiceTenantId,
-    String(invoicePatientUid),
-  );
+  const ownershipParams = [sourceRefId, invoiceTenantId, String(invoicePatientUid)];
+  if (sourceRefType === 'pharmacy_order') {
+    ownershipParams.push(invoiceAdmissionId == null ? null : Number(invoiceAdmissionId));
+  }
+  const rows = await db.$queryRawUnsafe(ownershipSql, ...ownershipParams);
   if (!rows.length) {
     throw AppError.badRequest(
       'Billing source reference does not belong to this invoice patient and tenant',
@@ -1392,6 +1438,7 @@ export async function addInvoiceItem(invoiceId, {
       sourceRefId: resolvedSourceRefId,
       invoiceTenantId,
       invoicePatientUid: invoice.patient_uid,
+      invoiceAdmissionId: invoice.admission_id,
       db: tx,
     });
 
@@ -1405,16 +1452,16 @@ export async function addInvoiceItem(invoiceId, {
       patientState: invoice.patient_state,
       hospitalState: invoice.hospital_state,
     });
-    const rows = await tx.$queryRawUnsafe(
-      `INSERT INTO billing_invoice_items
+    const insertSql = `INSERT INTO billing_invoice_items
         (invoice_id, service_code, description, category, hsn_sac, quantity,
          unit_price, gst_rate, line_subtotal, cgst_amount, sgst_amount,
          igst_amount, line_total, notes, source_ref_type, source_ref_id, tenant_id,
          source_ref_active)
        VALUES ($1::int, $2, $3, $4, $5, $6::numeric, $7::numeric, $8::numeric,
                $9::numeric, $10::numeric, $11::numeric, $12::numeric, $13::numeric, $14, $15, $16,
-               $17::uuid, TRUE)
-       RETURNING *`,
+               $17::uuid, TRUE)`;
+    const rows = await tx.$queryRawUnsafe(
+      `${insertSql} RETURNING *`,
       Number(invoiceId), service_code || null, resolved.description, resolved.category,
       resolved.hsn_sac, qty, price, rate, lineSub,
       split.cgst, split.sgst, split.igst, split.lineTotal, notes || null,
@@ -2283,15 +2330,74 @@ export async function collectPayment({
   return payment;
 }
 
-export async function reversePayment(paymentId, { reversed_by, reason, tenantId }) {
+export async function reversePayment(paymentId, {
+  reversed_by,
+  reason,
+  tenantId,
+  commandKeySha256,
+}) {
   if (!reason) throw AppError.badRequest('reason is required');
   const tenant = requireTenantId(tenantId);
+  const reversalCommand = String(commandKeySha256 || '').trim().toLowerCase();
   const wiring = await resolveLedgerWiring(tenant);
   let reversed;
   try {
     reversed = await setTenantTx(tenant, async (tx) => {
+      const paymentPreRead = await tx.$queryRawUnsafe(
+        `SELECT payment.patient_uid,
+                EXISTS (
+                  SELECT 1 FROM pharmacy_payment_allocations allocation
+                   WHERE allocation.tenant_id=payment.tenant_id
+                     AND allocation.billing_payment_id=payment.id
+                ) AS has_pharmacy_allocations
+           FROM billing_payments payment
+          WHERE payment.tenant_id=$1::uuid AND payment.id=$2::int`,
+        tenant, Number(paymentId),
+      );
+      if (!paymentPreRead.length) throw AppError.notFound('Payment not found');
+      const patientUid = paymentPreRead[0].has_pharmacy_allocations
+        ? await resolvePharmacyFundingPatientUidTx(tx, {
+          tenantId: tenant,
+          patientUid: String(paymentPreRead[0].patient_uid),
+        })
+        : String(paymentPreRead[0].patient_uid);
+      if (paymentPreRead[0].has_pharmacy_allocations) {
+        await lockPharmacyFundingAuthorityTx(tx, { tenantId: tenant, patientUid });
+      }
+      const fundedOrderRows = await tx.$queryRawUnsafe(
+        `SELECT pharmacy_order.id,pharmacy_order.status,
+                EXISTS (
+                  SELECT 1 FROM pharmacy_stock_movements movement
+                   WHERE movement.tenant_id=pharmacy_order.tenant_id
+                     AND movement.metadata->>'order_id'=pharmacy_order.id::text
+                ) AS has_stock_movement
+           FROM pharmacy_orders pharmacy_order
+          WHERE pharmacy_order.tenant_id=$1::uuid
+            AND pharmacy_order.id IN (
+              SELECT allocation.pharmacy_order_id
+                FROM pharmacy_payment_allocations allocation
+               WHERE allocation.tenant_id=$1::uuid
+                 AND allocation.billing_payment_id=$2::int
+            )
+          ORDER BY pharmacy_order.id
+          FOR UPDATE OF pharmacy_order`,
+        tenant, Number(paymentId),
+      );
+      const preIssueStatuses = new Set([
+        'PENDING', 'CONFIRMED', 'PREPARING', 'READY', 'DISPATCHED', 'PARTIALLY_DISPENSED',
+      ]);
+      const unsafeOrder = fundedOrderRows.find((row) => row.has_stock_movement
+        || !preIssueStatuses.has(String(row.status).toUpperCase()));
+      if (unsafeOrder) {
+        throw AppError.conflict(
+          'An allocated pharmacy payment cannot be reversed after stock issue or a terminal order transition',
+          'PHARMACY_PAYMENT_ALLOCATION_REVERSAL_ORDER_NOT_ACTIONABLE',
+          { pharmacy_order_id: Number(unsafeOrder.id), order_status: unsafeOrder.status },
+        );
+      }
       const paymentRows = await tx.$queryRawUnsafe(
-        `SELECT payment.id, payment.reversed, payment.mode,
+        `SELECT payment.id,payment.invoice_id,payment.patient_uid,payment.amount,
+                payment.reversed,payment.mode,
                 EXISTS (
                   SELECT 1
                     FROM cash_drawer_sessions drawer
@@ -2320,6 +2426,49 @@ export async function reversePayment(paymentId, { reversed_by, reason, tenantId 
           'BILLING_CASH_PAYMENT_CLOSED_DRAWER_REVERSAL_FORBIDDEN',
         );
       }
+      const allocations = await tx.$queryRawUnsafe(
+        `SELECT allocation.*,
+                (allocation.allocated_amount
+                  - COALESCE(SUM(reversal.reversed_amount),0))::numeric AS remaining_amount
+           FROM pharmacy_payment_allocations allocation
+           LEFT JOIN pharmacy_payment_allocation_reversals reversal
+             ON reversal.tenant_id=allocation.tenant_id
+            AND reversal.allocation_id=allocation.id
+          WHERE allocation.tenant_id=$1::uuid
+            AND allocation.billing_payment_id=$2::int
+          GROUP BY allocation.id
+         HAVING allocation.allocated_amount
+                - COALESCE(SUM(reversal.reversed_amount),0) > 0.001
+          ORDER BY allocation.pharmacy_order_id,allocation.id`,
+        tenant, Number(paymentId),
+      );
+      if (allocations.length && !SHA256_PATTERN.test(reversalCommand)) {
+        throw AppError.badRequest(
+          'A durable payment reversal command identity is required for allocated pharmacy funding',
+          'BILLING_PAYMENT_REVERSAL_COMMAND_REQUIRED',
+        );
+      }
+      for (const allocation of allocations) {
+        const allocationCommand = pharmacyFundingHash('PAYMENT_ALLOCATION_REVERSAL', {
+          parent_command_sha256: reversalCommand,
+          allocation_id: Number(allocation.id),
+          payment_id: Number(paymentId),
+        });
+        await reversePharmacyPaymentAllocationTx(tx, {
+          tenantId: tenant,
+          allocationId: Number(allocation.id),
+          pharmacyOrderId: Number(allocation.pharmacy_order_id),
+          invoiceId: Number(allocation.invoice_id),
+          invoiceItemId: Number(allocation.invoice_item_id),
+          billingPaymentId: Number(paymentId),
+          orderVersion: Number(allocation.source_authority_version),
+          orderItemsSha256: String(allocation.source_authority_sha256),
+          reversedAmount: Number(allocation.remaining_amount),
+          actorUid: String(reversed_by),
+          reason,
+          commandKeySha256: allocationCommand,
+        });
+      }
       // Flip the reversal flag first (guarded by reversed = false so a double
       // reverse is a no-op), then recompute the parent invoice under a FOR UPDATE
       // lock so a concurrent collectPayment can't interleave with the recompute.
@@ -2343,6 +2492,131 @@ export async function reversePayment(paymentId, { reversed_by, reason, tenantId 
         await lockBillingInvoice(tx, rows[0].invoice_id, tenant, 'id');
         const paymentState = await recomputeInvoicePaymentStateTx(tx, rows[0].invoice_id);
         await syncUnusedAdmissionAdvancesForInvoice(rows[0].invoice_id, paymentState, tx);
+      }
+      const allocationByOrder = new Map();
+      for (const allocation of allocations) {
+        allocationByOrder.set(Number(allocation.pharmacy_order_id), allocation);
+      }
+      for (const allocation of allocationByOrder.values()) {
+        const authorityRows = await tx.$queryRawUnsafe(
+          `SELECT pharmacy_order.id,pharmacy_order.facility_id,pharmacy_order.patient_id,
+                  pharmacy_order.total_amount,pharmacy_order.inventory_authority_version,
+                  pharmacy_order.items_list,pharmacy_order.payment_mode,
+                  pharmacy_order.payment_metadata,patient.uid AS patient_uid,
+                  item.id AS invoice_item_id,item.invoice_id,item.source_authority_version,
+                  item.source_authority_sha256,invoice.admission_id
+             FROM pharmacy_orders pharmacy_order
+             JOIN users patient
+               ON patient.tenant_id=pharmacy_order.tenant_id
+              AND patient.id=pharmacy_order.patient_id
+              AND patient.role='PATIENT' AND patient.is_active=TRUE
+              AND patient.status='active' AND patient.is_deleted=FALSE
+              AND patient.merged_into_uid IS NULL
+             JOIN billing_invoice_items item
+               ON item.tenant_id=pharmacy_order.tenant_id
+              AND item.id=$3::int AND item.source_ref_type='pharmacy_order'
+              AND item.source_ref_id=pharmacy_order.id::bigint
+              AND item.source_ref_active=TRUE
+             JOIN billing_invoices invoice
+               ON invoice.tenant_id=item.tenant_id AND invoice.id=item.invoice_id
+            WHERE pharmacy_order.tenant_id=$1::uuid AND pharmacy_order.id=$2::int`,
+          tenant, Number(allocation.pharmacy_order_id), Number(allocation.invoice_item_id),
+        );
+        if (!authorityRows.length) {
+          throw AppError.conflict(
+            'The reversed allocation no longer owns an active pharmacy invoice line',
+            'PHARMACY_PAYMENT_ALLOCATION_REVERSAL_TARGET_MISMATCH',
+          );
+        }
+        const order = authorityRows[0];
+        const canonicalItemsSha256 = clinicalOrderItemsSha256(order.items_list);
+        if (Number(order.inventory_authority_version) !== Number(allocation.source_authority_version)
+            || canonicalItemsSha256 !== String(allocation.source_authority_sha256)
+            || Number(order.source_authority_version) !== Number(allocation.source_authority_version)
+            || String(order.source_authority_sha256) !== String(allocation.source_authority_sha256)) {
+          throw AppError.conflict(
+            'The reversed allocation is stale relative to the current order and line',
+            'PHARMACY_PAYMENT_TASK_AUTHORITY_STALE',
+          );
+        }
+        const authority = normalizePharmacyFundingAuthority({
+          tenantId: tenant,
+          facilityId: Number(order.facility_id),
+          orderId: Number(order.id),
+          patientId: Number(order.patient_id),
+          patientUid: String(order.patient_uid),
+          authoritativeAmount: Number(order.total_amount),
+          orderVersion: Number(order.inventory_authority_version),
+          orderItemsSha256: canonicalItemsSha256,
+          paymentMode: String(
+            order.payment_mode || order.payment_metadata?.payment_mode || '',
+          ).trim().toLowerCase(),
+          tpaReference: order.payment_metadata?.tpa_reference,
+          actorUid: String(reversed_by),
+        });
+        const decisionRows = PHARMACY_TPA_PAYMENT_MODES.has(authority.paymentMode)
+          ? await tx.$queryRawUnsafe(
+            `SELECT decision.*,claim.status AS claim_status
+               FROM tpa_claim_line_decisions decision
+               JOIN tpa_claims claim
+                 ON claim.tenant_id=decision.tenant_id AND claim.id=decision.claim_id
+              WHERE decision.tenant_id=$1::uuid AND decision.invoice_item_id=$2::int
+                AND decision.source_authority_version=$3::int
+                AND decision.source_authority_sha256=$4
+                AND decision.invalidated_at IS NULL
+                AND claim.status IN ('approved','partially_approved','paid')
+              FOR UPDATE OF decision,claim`,
+            tenant, Number(order.invoice_item_id), authority.orderVersion,
+            authority.orderItemsSha256,
+          )
+          : [];
+        if (decisionRows.length > 1) {
+          throw AppError.conflict(
+            'More than one current TPA decision owns the reversed pharmacy line',
+            'PHARMACY_TPA_CLAIM_AMBIGUOUS',
+          );
+        }
+        authority.tpaClaimId = decisionRows[0]?.claim_id == null
+          ? null : Number(decisionRows[0].claim_id);
+        const remainingAllocations = await loadPharmacyPaymentAllocationsTx(tx, {
+          tenantId: tenant,
+          invoiceId: Number(order.invoice_id),
+          invoiceItemId: Number(order.invoice_item_id),
+          orderId: authority.orderId,
+          orderVersion: authority.orderVersion,
+          orderItemsSha256: authority.orderItemsSha256,
+          patientUid: authority.patientUid,
+        });
+        const approvedTpaAmount = Number(decisionRows[0]?.approved_amount || 0);
+        const outstanding = Math.max(0, toFixed2(
+          authority.authoritativeAmount - approvedTpaAmount - remainingAllocations.amount,
+        ));
+        if (outstanding > 0.001) {
+          await invalidateCurrentPharmacyFundingAuthorityStateTx(tx, {
+            authority,
+            reason: 'billing_payment_allocation_reversed',
+            actorRole: null,
+            billingPaymentId: Number(paymentId),
+            commandKeySha256: reversalCommand,
+          });
+          await upsertPharmacyFundingTaskTx(tx, {
+            authority,
+            invoiceId: Number(order.invoice_id),
+            invoiceItemId: Number(order.invoice_item_id),
+            admissionId: order.admission_id == null ? null : Number(order.admission_id),
+            taskType: PHARMACY_TPA_PAYMENT_MODES.has(authority.paymentMode)
+              && !decisionRows.length ? 'tpa_line_decision' : 'posted_payment',
+            stage: PHARMACY_TPA_PAYMENT_MODES.has(authority.paymentMode)
+              && !decisionRows.length ? 'line_decision' : 'payment_reversal_recovery',
+            assignedRole: PHARMACY_TPA_PAYMENT_MODES.has(authority.paymentMode)
+              && !decisionRows.length ? 'INSURANCE_COORDINATOR' : 'FINANCE_INCHARGE',
+            tpaClaimId: decisionRows[0]?.claim_id == null
+              ? null : Number(decisionRows[0].claim_id),
+            amountOutstanding: outstanding,
+          });
+        } else {
+          await resolvePostedPharmacyFundingTx(tx, authority);
+        }
       }
       // Phase 4 enforce: post the reversal INSIDE the tx so a ledger failure rolls back.
       if (wiring.sameTx) {
@@ -4156,7 +4430,7 @@ export async function itemizeAdmissionInvoice(invoiceId, {
   const inv = await findBillingInvoice(
     invId,
     tenantId,
-    'id, status, admission_id',
+    'id, status, admission_id, patient_uid, tenant_id',
   );
   if (!inv) throw AppError.notFound('Invoice not found');
   if (inv.status !== 'DRAFT') {
@@ -4167,6 +4441,13 @@ export async function itemizeAdmissionInvoice(invoiceId, {
   }
   const admission = await fetchAdmissionForItemizing(inv.admission_id, tenantId);
   if (!admission) throw AppError.notFound('Admission not found');
+  if (String(inv.tenant_id) !== String(admission.tenant_id)
+      || String(inv.patient_uid) !== String(admission.patient_uid)) {
+    throw AppError.conflict(
+      'The invoice does not belong to the exact admission patient and tenant',
+      'BILLING_ADMISSION_PATIENT_MISMATCH',
+    );
+  }
 
   const startTs = admission.admitted_at || admission.created_at;
   const endTs = admission.discharged_at || null;
@@ -4290,7 +4571,7 @@ export async function itemizeAdmissionInvoice(invoiceId, {
       notes,
       source_ref_type,
       source_ref_id,
-      tenantId,
+      tenantId: itemizerTenantId,
     });
     existingLines.set(key, row);
     // Stamp the TPA decision on the newly-created line. addInvoiceItem
@@ -4337,16 +4618,39 @@ export async function itemizeAdmissionInvoice(invoiceId, {
   // 2. Pharmacy orders dispensed during the stay.
   if (emit_pharmacy) {
     const orders = await prisma.$queryRawUnsafe(
-      `SELECT id, order_number, medication, total_amount, dispensed_at
-         FROM pharmacy_orders
-        WHERE uid IS NOT NULL
-          AND uid = $1::uuid
-          AND status = 'DELIVERED'
-          AND dispensed_at >= $2::timestamptz
-          AND dispensed_at <= COALESCE($3::timestamptz, NOW())
-        ORDER BY dispensed_at`,
-      String(admission.patient_uid),
-      startTs, endTs,
+      `SELECT pharmacy_order.id,pharmacy_order.order_number,
+              pharmacy_order.medication,pharmacy_order.total_amount,
+              COALESCE(pharmacy_order.dispensed_at,pharmacy_order.delivered_at) AS dispensed_at
+         FROM pharmacy_orders pharmacy_order
+         JOIN users patient
+           ON patient.tenant_id=pharmacy_order.tenant_id
+          AND patient.id=pharmacy_order.patient_id
+          AND patient.uid=$1::uuid AND patient.role='PATIENT'
+          AND patient.is_active=TRUE AND patient.status='active'
+          AND patient.is_deleted=FALSE AND patient.merged_into_uid IS NULL
+        WHERE pharmacy_order.tenant_id=$2::uuid
+          AND pharmacy_order.funding_admission_id=$5::int
+          AND (pharmacy_order.uid IS NULL OR pharmacy_order.uid=patient.uid)
+          AND pharmacy_order.status IN ('DISPENSED','DELIVERED')
+          AND COALESCE(pharmacy_order.dispensed_at,pharmacy_order.delivered_at)
+              >= $3::timestamptz
+          AND COALESCE(pharmacy_order.dispensed_at,pharmacy_order.delivered_at)
+              <= COALESCE($4::timestamptz,NOW())
+          AND EXISTS (
+            SELECT 1 FROM pharmacy_stock_movements movement
+             WHERE movement.tenant_id=pharmacy_order.tenant_id
+               AND movement.metadata->>'order_id'=pharmacy_order.id::text
+               AND movement.movement_kind='issue'
+               AND movement.quantity_delta < 0
+               AND movement.metadata->>'contract' IN (
+                 'pharmacy_order_inventory_allocation_v1',
+                 'pharmacy_dispense_substitution_v1'
+               )
+          )
+        ORDER BY COALESCE(pharmacy_order.dispensed_at,pharmacy_order.delivered_at),
+                 pharmacy_order.id`,
+      String(admission.patient_uid), itemizerTenantId,
+      startTs, endTs, Number(admission.id),
     );
     for (const o of orders) {
       const price = Number(o.total_amount ?? 0);
@@ -4534,6 +4838,3438 @@ export async function itemizeAdmissionInvoice(invoiceId, {
     package_id: admission.package_id ?? null,
     summary,
   };
+}
+
+const PHARMACY_TPA_PAYMENT_MODES = new Set(['insurance', 'corporate_tpa', 'tpa']);
+const PHARMACY_TPA_DECISION_ROLES = new Set([
+  'INSURANCE_COORDINATOR', 'CLAIMS_MANAGER',
+  // Existing claim-update policy explicitly permits this operational fallback.
+  'FINANCE_INCHARGE', 'ADMIN', 'SUPER_ADMIN',
+]);
+const PHARMACY_FUNDING_MATERIALIZE_ROLES = new Set([
+  'PHARMACY_STAFF', 'PHARMACIST', 'PHARMACY_INCHARGE', 'DELIVERY_STAFF',
+  'BILLING_INCHARGE', 'FINANCE_INCHARGE',
+  'INSURANCE_COORDINATOR', 'CLAIMS_MANAGER', 'ADMIN', 'SUPER_ADMIN',
+]);
+const PHARMACY_FUNDING_FACILITY_GRANT_ROLES = new Set([
+  'PHARMACY_STAFF', 'PHARMACIST', 'PHARMACY_INCHARGE', 'DELIVERY_STAFF',
+]);
+const PHARMACY_TPA_REASON_CODES = new Set([
+  'room_upgrade', 'over_cap_pharmacy', 'over_cap_consumables', 'non_listed',
+  'partial_approval', 'co_pay', 'sub_limit', 'pre_existing_waiting', 'other',
+]);
+const PHARMACY_RECONCILIATION_ROLES = new Set(['FINANCE_INCHARGE', 'SUPER_ADMIN']);
+const PHARMACY_RECONCILIATION_PATHS = new Set([
+  'SAFE_DEACTIVATE_DUPLICATES', 'KEEP_CURRENT_AUTHORITY', 'CANCEL_ORDER', 'REBILL',
+]);
+const ACTIVE_TASK_STATUSES = "'open','in_progress','blocked','overdue'";
+
+function pharmacyFundingHash(eventType, values) {
+  return createHash('sha256')
+    .update(JSON.stringify({ event_type: eventType, ...values }))
+    .digest('hex');
+}
+
+async function currentPharmacyFundingAuthorityEventTx(tx, authority) {
+  await tx.$queryRawUnsafe(
+    `SELECT pg_advisory_xact_lock(hashtextextended(
+       'vh:pharmacy_funding_event_chain:' || $1::uuid::text || ':'
+         || $2::int::text || ':' || $3::int::text || ':' || $4,
+       753
+     ))`,
+    authority.tenantId,
+    authority.orderId,
+    authority.orderVersion,
+    authority.orderItemsSha256,
+  );
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT event.*
+       FROM pharmacy_funding_decision_events event
+      WHERE event.tenant_id=$1::uuid AND event.pharmacy_order_id=$2::int
+        AND event.source_authority_version=$3::int
+        AND event.source_authority_sha256=$4
+        AND event.authority_generation IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM pharmacy_funding_decision_events successor
+           WHERE successor.tenant_id=event.tenant_id
+             AND successor.supersedes_event_id=event.id
+        )
+      ORDER BY event.authority_generation DESC,event.id DESC
+      LIMIT 2
+      FOR UPDATE OF event`,
+    authority.tenantId,
+    authority.orderId,
+    authority.orderVersion,
+    authority.orderItemsSha256,
+  );
+  if (rows.length > 1) {
+    throw AppError.conflict(
+      'The pharmacy funding event chain has more than one current authority',
+      'PHARMACY_FUNDING_CURRENT_EVENT_AMBIGUOUS',
+    );
+  }
+  return rows[0] || null;
+}
+
+export async function appendPharmacyFundingAuthorityStateTx(tx, {
+  authority,
+  eventType,
+  admissionId,
+  invoiceId,
+  invoiceItemId,
+  tpaClaimId = null,
+  billingPaymentId = null,
+  taskId = null,
+  amount,
+  evidence,
+}) {
+  if (!['FUNDING_RESOLVED', 'AUTHORITY_INVALIDATED'].includes(eventType)) {
+    throw AppError.internal(
+      'Unsupported pharmacy funding authority state transition',
+      'PHARMACY_FUNDING_EVENT_TYPE_INVALID',
+    );
+  }
+  let current = await currentPharmacyFundingAuthorityEventTx(tx, authority);
+  const authorityFingerprintSha256 = pharmacyFundingHash(eventType, evidence);
+  if (current?.event_type === eventType
+      && current.evidence?.authority_fingerprint_sha256 === authorityFingerprintSha256) {
+    return { ...current, replayed: true };
+  }
+  if (eventType === 'FUNDING_RESOLVED' && current?.event_type === 'FUNDING_RESOLVED') {
+    await appendPharmacyFundingAuthorityStateTx(tx, {
+      authority,
+      eventType: 'AUTHORITY_INVALIDATED',
+      admissionId: current.admission_id,
+      invoiceId: current.invoice_id,
+      invoiceItemId: current.invoice_item_id,
+      tpaClaimId: current.tpa_claim_id,
+      billingPaymentId: current.billing_payment_id,
+      taskId: current.task_id,
+      amount: current.amount,
+      evidence: {
+        contract: 'pharmacy_funding_authority_state_v1',
+        pharmacy_order_id: authority.orderId,
+        invalidation_reason: 'funding_evidence_replaced',
+        prior_funding_event_id: Number(current.id),
+      },
+    });
+    current = await currentPharmacyFundingAuthorityEventTx(tx, authority);
+  }
+  const authorityGeneration = Number(current?.authority_generation || 0) + 1;
+  const supersedesEventId = current == null ? null : Number(current.id);
+  const durableEvidence = {
+    ...evidence,
+    authority_generation: authorityGeneration,
+    supersedes_event_id: supersedesEventId,
+    authority_fingerprint_sha256: authorityFingerprintSha256,
+  };
+  const command = pharmacyFundingHash(eventType, {
+    authority_fingerprint_sha256: authorityFingerprintSha256,
+    authority_generation: authorityGeneration,
+    supersedes_event_id: supersedesEventId,
+  });
+  const rows = await tx.$queryRawUnsafe(
+    `INSERT INTO pharmacy_funding_decision_events
+      (tenant_id,facility_id,pharmacy_order_id,admission_id,event_type,
+       source_authority_version,source_authority_sha256,invoice_id,invoice_item_id,
+       tpa_claim_id,billing_payment_id,task_id,amount,command_key_sha256,evidence,
+       recorded_by,authority_generation,supersedes_event_id)
+     VALUES ($1::uuid,$2::int,$3::int,$4::int,$5,$6::int,$7,$8::int,$9::int,
+             $10::int,$11::int,$12::int,$13::numeric,$14,$15::jsonb,$16::uuid,
+             $17::bigint,$18::bigint)
+     RETURNING *`,
+    authority.tenantId,
+    authority.facilityId,
+    authority.orderId,
+    admissionId == null ? null : Number(admissionId),
+    eventType,
+    authority.orderVersion,
+    authority.orderItemsSha256,
+    Number(invoiceId),
+    Number(invoiceItemId),
+    tpaClaimId == null ? null : Number(tpaClaimId),
+    billingPaymentId == null ? null : Number(billingPaymentId),
+    taskId == null ? null : Number(taskId),
+    Number(amount || 0),
+    command,
+    JSON.stringify(durableEvidence),
+    authority.actorUid,
+    authorityGeneration,
+    supersedesEventId,
+  );
+  return { ...rows[0], replayed: false };
+}
+
+async function invalidateCurrentPharmacyFundingAuthorityStateTx(tx, {
+  authority,
+  reason,
+  actorRole,
+  billingPaymentId = null,
+  commandKeySha256 = null,
+}) {
+  const current = await currentPharmacyFundingAuthorityEventTx(tx, authority);
+  if (current == null || current.event_type !== 'FUNDING_RESOLVED') return current;
+  return appendPharmacyFundingAuthorityStateTx(tx, {
+    authority,
+    eventType: 'AUTHORITY_INVALIDATED',
+    admissionId: current.admission_id,
+    invoiceId: current.invoice_id,
+    invoiceItemId: current.invoice_item_id,
+    tpaClaimId: current.tpa_claim_id,
+    billingPaymentId,
+    taskId: current.task_id,
+    amount: current.amount,
+    evidence: {
+      contract: 'pharmacy_funding_authority_state_v1',
+      pharmacy_order_id: authority.orderId,
+      invalidation_reason: String(reason),
+      invalidation_command_key_sha256: commandKeySha256,
+      actor_role: actorRole,
+      prior_funding_event_id: Number(current.id),
+    },
+  });
+}
+
+function normalizePharmacyFundingAuthority(args) {
+  const authority = {
+    tenantId: requireTenantId(args.tenantId),
+    facilityId: Number(args.facilityId),
+    orderId: Number(args.orderId),
+    patientId: args.patientId == null ? null : Number(args.patientId),
+    patientUid: args.patientUid == null ? null : String(args.patientUid),
+    authoritativeAmount: Number(args.authoritativeAmount),
+    orderVersion: Number(args.orderVersion),
+    orderItemsSha256: String(args.orderItemsSha256 || '').trim().toLowerCase(),
+    paymentMode: String(args.paymentMode || '').trim().toLowerCase(),
+    tpaClaimId: args.tpaClaimId == null ? null : Number(args.tpaClaimId),
+    tpaReference: String(args.tpaReference || '').trim() || null,
+    paymentId: args.paymentId == null ? null : Number(args.paymentId),
+    actorUid: String(args.actorUid || '').trim(),
+    actorRole: String(args.actorRole || '').trim().toUpperCase() || null,
+  };
+  if (!Number.isInteger(authority.facilityId) || authority.facilityId <= 0
+      || !Number.isInteger(authority.orderId) || authority.orderId <= 0
+      || !Number.isInteger(authority.orderVersion) || authority.orderVersion <= 0
+      || !Number.isFinite(authority.authoritativeAmount) || authority.authoritativeAmount < 0
+      || !SHA256_PATTERN.test(authority.orderItemsSha256)
+      || (!authority.patientId && !authority.patientUid)
+      || !authority.actorUid) {
+    throw AppError.badRequest(
+      'Exact order, patient, facility, amount, version, item hash, and actor authority are required',
+      'PHARMACY_FUNDING_AUTHORITY_REQUIRED',
+    );
+  }
+  return authority;
+}
+
+async function assertPharmacyFundingActorTx(tx, authority, permittedRoles = null) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT uid, UPPER(role) AS role
+       FROM users
+      WHERE tenant_id=$1::uuid AND uid=$2::uuid
+        AND is_active=TRUE AND status='active' AND is_deleted=FALSE
+        AND merged_into_uid IS NULL
+      FOR KEY SHARE`,
+    authority.tenantId,
+    authority.actorUid,
+  );
+  if (!rows.length
+      || (authority.actorRole != null && authority.actorRole !== rows[0].role)
+      || (permittedRoles && !permittedRoles.has(rows[0].role))) {
+    throw AppError.forbidden(
+      'The funding actor is not an active permitted tenant identity',
+      'PHARMACY_FUNDING_ACTOR_FORBIDDEN',
+    );
+  }
+  return rows[0];
+}
+
+function pharmacyFundingDeepLink({ orderId, invoiceItemId, tpaClaimId }) {
+  const query = new URLSearchParams({
+    pharmacy_order_id: String(orderId),
+    invoice_item_id: String(invoiceItemId),
+  });
+  if (tpaClaimId) query.set('tpa_claim_id', String(tpaClaimId));
+  return `/billing-desk?${query.toString()}`;
+}
+
+async function upsertPharmacyFundingTaskTx(tx, {
+  authority,
+  invoiceId,
+  invoiceItemId,
+  admissionId,
+  taskType,
+  stage,
+  assignedRole,
+  tpaClaimId = null,
+  amountOutstanding,
+}) {
+  const resourceType = taskType === 'tpa_line_decision'
+    ? 'pharmacy_tpa_line_decision'
+    : 'pharmacy_posted_payment';
+  const title = taskType === 'tpa_line_decision'
+    ? `Review exact TPA pharmacy line for order ${authority.orderId}`
+    : `Post pharmacy payment for order ${authority.orderId}`;
+  const actionUrl = pharmacyFundingDeepLink({
+    orderId: authority.orderId,
+    invoiceItemId,
+    tpaClaimId,
+  });
+  const metadata = {
+    contract: 'pharmacy_funding_task_v1',
+    task_type: taskType,
+    stage,
+    pharmacy_order_id: authority.orderId,
+    admission_id: admissionId == null ? null : Number(admissionId),
+    invoice_id: Number(invoiceId),
+    invoice_item_id: Number(invoiceItemId),
+    tpa_claim_id: tpaClaimId == null ? null : Number(tpaClaimId),
+    order_version: authority.orderVersion,
+    order_items_sha256: authority.orderItemsSha256,
+    authoritative_amount: authority.authoritativeAmount,
+    amount_outstanding: Number(amountOutstanding),
+    action_url: actionUrl,
+    permitted_roles: taskType === 'tpa_line_decision'
+      ? [...PHARMACY_TPA_DECISION_ROLES]
+      : ['FINANCE_INCHARGE', 'BILLING_INCHARGE', 'ADMIN', 'SUPER_ADMIN'],
+  };
+  const rows = await tx.$queryRawUnsafe(
+    `INSERT INTO tasks
+      (tenant_id,task_kind,title,description,patient_uid,related_resource_type,
+       related_resource_id,priority,status,assigned_to_role,created_by,metadata,
+       sla_completion_semantics)
+     VALUES ($1::uuid,'review',$2,$3,$4::uuid,$5,$6,'high','open',$7,$8::uuid,
+             $9::jsonb,'none')
+     ON CONFLICT (tenant_id, related_resource_type, related_resource_id)
+       WHERE status IN (${ACTIVE_TASK_STATUSES})
+         AND related_resource_type IS NOT NULL AND related_resource_id IS NOT NULL
+     DO UPDATE SET assigned_to_role=EXCLUDED.assigned_to_role,
+                   title=EXCLUDED.title, description=EXCLUDED.description,
+                   metadata=EXCLUDED.metadata, updated_at=NOW()
+     RETURNING id,status,assigned_to_role,related_resource_type,related_resource_id,
+               metadata,created_at,updated_at`,
+    authority.tenantId,
+    title,
+    `Resolve ${stage.replaceAll('_', ' ')} before stock issue. The task is bound to the exact order version and billing line.`,
+    authority.patientUid,
+    resourceType,
+    String(authority.orderId),
+    assignedRole,
+    authority.actorUid,
+    JSON.stringify(metadata),
+  );
+  return rows[0];
+}
+
+async function completePharmacyFundingTaskTx(tx, {
+  tenantId,
+  taskType,
+  orderId,
+  evidence,
+  taskId = null,
+}) {
+  const resourceType = taskType === 'tpa_line_decision'
+    ? 'pharmacy_tpa_line_decision'
+    : 'pharmacy_posted_payment';
+  const rows = await tx.$queryRawUnsafe(
+    `UPDATE tasks
+        SET status='completed', completed_at=NOW(), updated_at=NOW(),
+            metadata=metadata || $4::jsonb
+      WHERE tenant_id=$1::uuid AND related_resource_type=$2
+        AND related_resource_id=$3 AND status IN (${ACTIVE_TASK_STATUSES})
+        AND ($5::int IS NULL OR id=$5::int)
+      RETURNING id,status,assigned_to_role,metadata,completed_at`,
+    requireTenantId(tenantId),
+    resourceType,
+    String(orderId),
+    JSON.stringify({ domain_evidence: evidence }),
+    taskId == null ? null : Number(taskId),
+  );
+  return rows[0] || null;
+}
+
+async function resolveExactPharmacyClaimTx(tx, authority, admissionId) {
+  if (!PHARMACY_TPA_PAYMENT_MODES.has(authority.paymentMode)) return null;
+  const params = [authority.tenantId, Number(admissionId), authority.patientUid];
+  const predicates = [
+    'claim.tenant_id=$1::uuid',
+    'claim.admission_id=$2::int',
+    'claim.patient_uid=$3::uuid',
+  ];
+  if (authority.tpaClaimId) {
+    params.push(authority.tpaClaimId);
+    predicates.push(`claim.id=$${params.length}::int`);
+  } else if (authority.tpaReference) {
+    params.push(authority.tpaReference);
+    predicates.push(`(claim.claim_number=$${params.length} OR claim.tpa_reference_id=$${params.length})`);
+  } else {
+    predicates.push("claim.status IN ('approved','partially_approved','paid')");
+  }
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT claim.id,claim.claim_number,claim.tpa_reference_id,claim.status,
+            claim.approved_amount,claim.invoice_id,claim.preauth_id
+       FROM tpa_claims claim
+      WHERE ${predicates.join(' AND ')}
+      ORDER BY claim.updated_at DESC,claim.id DESC
+      FOR UPDATE`,
+    ...params,
+  );
+  if (rows.length > 1) {
+    throw AppError.conflict(
+      'More than one claim matches the supplied pharmacy funding authority',
+      'PHARMACY_TPA_CLAIM_AMBIGUOUS',
+      { candidate_claim_ids: rows.map((row) => Number(row.id)) },
+    );
+  }
+  if (!rows.length) return null;
+  if (authority.tpaReference
+      && authority.tpaClaimId
+      && ![rows[0].claim_number, rows[0].tpa_reference_id].includes(authority.tpaReference)) {
+    throw AppError.conflict(
+      'The claim id and TPA reference identify different authority',
+      'PHARMACY_TPA_CLAIM_IDENTITY_MISMATCH',
+    );
+  }
+  return rows[0];
+}
+
+async function loadPharmacyPaymentAllocationsTx(tx, {
+  tenantId,
+  invoiceId,
+  invoiceItemId,
+  orderId,
+  orderVersion,
+  orderItemsSha256,
+  patientUid,
+}) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT allocation.id AS allocation_id,
+            (allocation.allocated_amount
+              - COALESCE(SUM(reversal.reversed_amount),0))::numeric AS allocated_amount,
+            payment.id AS payment_id,payment.mode,payment.reference,payment.collected_at
+       FROM pharmacy_payment_allocations allocation
+       JOIN billing_payments payment
+         ON payment.tenant_id=allocation.tenant_id
+        AND payment.id=allocation.billing_payment_id
+        AND payment.invoice_id=allocation.invoice_id
+        AND payment.patient_uid=$7::uuid
+        AND payment.reversed=FALSE
+       LEFT JOIN pharmacy_payment_allocation_reversals reversal
+         ON reversal.tenant_id=allocation.tenant_id
+        AND reversal.allocation_id=allocation.id
+      WHERE allocation.tenant_id=$1::uuid AND allocation.invoice_id=$2::int
+        AND allocation.invoice_item_id=$3::int
+        AND allocation.pharmacy_order_id=$4::int
+        AND allocation.source_authority_version=$5::int
+        AND allocation.source_authority_sha256=$6
+      GROUP BY allocation.id,allocation.allocated_amount,payment.id,payment.mode,
+               payment.reference,payment.collected_at
+      HAVING allocation.allocated_amount
+             - COALESCE(SUM(reversal.reversed_amount),0) > 0.001
+      ORDER BY allocation.id`,
+    requireTenantId(tenantId),
+    Number(invoiceId),
+    Number(invoiceItemId),
+    Number(orderId),
+    Number(orderVersion),
+    String(orderItemsSha256),
+    String(patientUid),
+  );
+  return {
+    amount: toFixed2(rows.reduce((sum, row) => sum + Number(row.allocated_amount || 0), 0)),
+    rows,
+  };
+}
+
+export async function reversePharmacyPaymentAllocationTx(tx, {
+  tenantId,
+  allocationId,
+  pharmacyOrderId,
+  invoiceId,
+  invoiceItemId,
+  billingPaymentId,
+  orderVersion,
+  orderItemsSha256,
+  reversedAmount,
+  actorUid,
+  reason,
+  commandKeySha256,
+}) {
+  const tid = requireTenantId(tenantId);
+  const command = String(commandKeySha256 || '').trim().toLowerCase();
+  const amount = toFixed2(Number(reversedAmount));
+  const reversalReason = String(reason || '').trim().slice(0, 255);
+  if (!Number.isInteger(Number(allocationId)) || Number(allocationId) <= 0
+      || !Number.isInteger(Number(pharmacyOrderId)) || Number(pharmacyOrderId) <= 0
+      || !Number.isInteger(Number(invoiceId)) || Number(invoiceId) <= 0
+      || !Number.isInteger(Number(invoiceItemId)) || Number(invoiceItemId) <= 0
+      || !Number.isInteger(Number(billingPaymentId)) || Number(billingPaymentId) <= 0
+      || !Number.isInteger(Number(orderVersion)) || Number(orderVersion) <= 0
+      || !SHA256_PATTERN.test(String(orderItemsSha256 || ''))
+      || !Number.isFinite(amount) || amount <= 0
+      || !SHA256_PATTERN.test(command) || !String(actorUid || '').trim()
+      || !reversalReason) {
+    throw AppError.badRequest(
+      'An exact allocation target, positive amount, actor, reason, and command are required',
+      'PHARMACY_PAYMENT_ALLOCATION_REVERSAL_INVALID',
+    );
+  }
+  const patientUid = await resolvePharmacyFundingPatientUidTx(tx, {
+    tenantId: tid,
+    orderId: Number(pharmacyOrderId),
+  });
+  await lockPharmacyFundingAuthorityTx(tx, { tenantId: tid, patientUid });
+  const orderRows = await tx.$queryRawUnsafe(
+    `SELECT id,status FROM pharmacy_orders
+      WHERE tenant_id=$1::uuid AND id=$2::int
+      FOR UPDATE`,
+    tid, Number(pharmacyOrderId),
+  );
+  if (!orderRows.length) throw AppError.notFound('Pharmacy order not found');
+  const permittedRoles = new Set([
+    'FINANCE_INCHARGE', 'BILLING_INCHARGE', 'ADMIN', 'SUPER_ADMIN',
+  ]);
+  if (['CANCELLED', 'UNAVAILABLE', 'REJECTED'].includes(String(orderRows[0].status).toUpperCase())
+      && reversalReason.startsWith('terminal_order_')) {
+    permittedRoles.add('PHARMACY_INCHARGE');
+    permittedRoles.add('PHARMACIST');
+    permittedRoles.add('PHARMACY_STAFF');
+    permittedRoles.add('INSURANCE_COORDINATOR');
+    permittedRoles.add('CLAIMS_MANAGER');
+  }
+  const actor = await assertPharmacyFundingActorTx(tx, {
+    tenantId: tid,
+    actorUid: String(actorUid),
+  }, permittedRoles);
+  const allocationRows = await tx.$queryRawUnsafe(
+    `SELECT allocation.*
+       FROM pharmacy_payment_allocations allocation
+       JOIN billing_payments payment
+         ON payment.tenant_id=allocation.tenant_id
+        AND payment.id=allocation.billing_payment_id
+        AND payment.invoice_id=allocation.invoice_id
+        AND payment.patient_uid=$9::uuid
+      WHERE allocation.tenant_id=$1::uuid AND allocation.id=$2::bigint
+        AND allocation.pharmacy_order_id=$3::int AND allocation.invoice_id=$4::int
+        AND allocation.invoice_item_id=$5::int AND allocation.billing_payment_id=$6::int
+        AND allocation.source_authority_version=$7::int
+        AND allocation.source_authority_sha256=$8
+      FOR UPDATE OF allocation`,
+    tid, Number(allocationId), Number(pharmacyOrderId), Number(invoiceId),
+    Number(invoiceItemId), Number(billingPaymentId), Number(orderVersion),
+    String(orderItemsSha256), patientUid,
+  );
+  if (!allocationRows.length) {
+    throw AppError.conflict(
+      'The allocation reversal target does not match the exact payment/order/line authority',
+      'PHARMACY_PAYMENT_ALLOCATION_REVERSAL_TARGET_MISMATCH',
+    );
+  }
+  const existingCommandRows = await tx.$queryRawUnsafe(
+    `SELECT * FROM pharmacy_payment_allocation_reversals
+      WHERE tenant_id=$1::uuid AND reversal_command_sha256=$2
+      FOR KEY SHARE`,
+    tid, command,
+  );
+  if (existingCommandRows.length) {
+    const existing = existingCommandRows[0];
+    const matches = Number(existing.allocation_id) === Number(allocationId)
+      && Number(existing.pharmacy_order_id) === Number(pharmacyOrderId)
+      && Number(existing.invoice_id) === Number(invoiceId)
+      && Number(existing.invoice_item_id) === Number(invoiceItemId)
+      && Number(existing.billing_payment_id) === Number(billingPaymentId)
+      && Number(existing.source_authority_version) === Number(orderVersion)
+      && existing.source_authority_sha256 === String(orderItemsSha256)
+      && Math.abs(Number(existing.reversed_amount) - amount) <= 0.001
+      && existing.reason === reversalReason
+      && String(existing.reversed_by) === String(actor.uid);
+    if (!matches) {
+      throw AppError.unprocessable(
+        'The allocation reversal command is already bound to different authority',
+        'PHARMACY_PAYMENT_ALLOCATION_REVERSAL_COMMAND_MISMATCH',
+      );
+    }
+    return { ...existing, replayed: true };
+  }
+  const totals = await tx.$queryRawUnsafe(
+    `SELECT COALESCE(SUM(reversed_amount),0)::numeric AS reversed_amount
+       FROM pharmacy_payment_allocation_reversals
+      WHERE tenant_id=$1::uuid AND allocation_id=$2::bigint`,
+    tid, Number(allocationId),
+  );
+  const remaining = toFixed2(
+    Number(allocationRows[0].allocated_amount) - Number(totals[0]?.reversed_amount || 0),
+  );
+  if (amount > remaining + 0.001) {
+    throw AppError.conflict(
+      'The requested reversal exceeds the allocation balance',
+      'PHARMACY_PAYMENT_ALLOCATION_REVERSAL_EXCEEDS_BALANCE',
+      { remaining_amount: remaining },
+    );
+  }
+  const rows = await tx.$queryRawUnsafe(
+    `INSERT INTO pharmacy_payment_allocation_reversals
+      (tenant_id,allocation_id,pharmacy_order_id,invoice_id,invoice_item_id,
+       billing_payment_id,source_authority_version,source_authority_sha256,
+       reversed_amount,reversal_command_sha256,reason,reversed_by,evidence)
+     VALUES ($1::uuid,$2::bigint,$3::int,$4::int,$5::int,$6::int,$7::int,$8,
+             $9::numeric,$10,$11,$12::uuid,$13::jsonb)
+     ON CONFLICT (tenant_id,reversal_command_sha256) DO NOTHING
+     RETURNING *`,
+    tid, Number(allocationId), Number(pharmacyOrderId), Number(invoiceId),
+    Number(invoiceItemId), Number(billingPaymentId), Number(orderVersion),
+    String(orderItemsSha256), amount, command, reversalReason, actor.uid,
+    JSON.stringify({
+      contract: 'pharmacy_payment_allocation_reversal_v1',
+      prior_unreversed_amount: remaining,
+      resulting_unreversed_amount: toFixed2(remaining - amount),
+    }),
+  );
+  if (!rows.length) {
+    const racedRows = await tx.$queryRawUnsafe(
+      `SELECT * FROM pharmacy_payment_allocation_reversals
+        WHERE tenant_id=$1::uuid AND reversal_command_sha256=$2
+        FOR KEY SHARE`,
+      tid, command,
+    );
+    const raced = racedRows[0];
+    if (!raced
+        || Number(raced.allocation_id) !== Number(allocationId)
+        || Number(raced.pharmacy_order_id) !== Number(pharmacyOrderId)
+        || Number(raced.invoice_id) !== Number(invoiceId)
+        || Number(raced.invoice_item_id) !== Number(invoiceItemId)
+        || Number(raced.billing_payment_id) !== Number(billingPaymentId)
+        || Number(raced.source_authority_version) !== Number(orderVersion)
+        || raced.source_authority_sha256 !== String(orderItemsSha256)
+        || Math.abs(Number(raced.reversed_amount) - amount) > 0.001
+        || raced.reason !== reversalReason
+        || String(raced.reversed_by) !== String(actor.uid)) {
+      throw AppError.unprocessable(
+        'The allocation reversal command is already bound to different authority',
+        'PHARMACY_PAYMENT_ALLOCATION_REVERSAL_COMMAND_MISMATCH',
+      );
+    }
+    return { ...raced, replayed: true };
+  }
+  return { ...rows[0], replayed: false };
+}
+
+// Reads (and locks) the physical stock evidence for an order. Split out from
+// the assertion below so a caller that must express the same precondition as a
+// GOVERNED OUTCOME rather than a throw — the duplicate-line reconciliation
+// CANCEL_ORDER path, where a throw would roll back the case status, the BLOCKED
+// evidence row, and the task stamp along with it — can read the identical
+// locked evidence BEFORE it mutates anything. Both callers therefore fail
+// closed on exactly the same rows, under exactly the same locks.
+async function lockPharmacyStockMovementEvidenceTx(tx, { tenantId, orderId }) {
+  const stockRows = await tx.$queryRawUnsafe(
+    `SELECT id FROM pharmacy_stock_movements
+      WHERE tenant_id=$1::uuid AND metadata->>'order_id'=$2
+      ORDER BY id FOR UPDATE`,
+    tenantId,
+    String(orderId),
+  );
+  return stockRows.map((row) => Number(row.id));
+}
+
+// Terminal funding compensation is forbidden once physical stock evidence
+// exists for the order: the money plane may not be unwound behind a movement
+// that already left the shelf. The guard lives here — not only in
+// compensateTerminalPharmacyFundingAuthorityTx — so that every entry point that
+// invalidates terminal funding authority (funding materialize, TPA decision,
+// reconciliation, and the compensation command itself) fails closed on the same
+// evidence with the same error code.
+async function assertNoPharmacyStockMovementEvidenceTx(tx, { tenantId, orderId }) {
+  const movementIds = await lockPharmacyStockMovementEvidenceTx(tx, { tenantId, orderId });
+  if (movementIds.length) {
+    throw AppError.conflict(
+      'Terminal funding compensation is forbidden after stock movement evidence exists',
+      'PHARMACY_TERMINAL_FUNDING_STOCK_EXISTS',
+    );
+  }
+}
+
+// Fail-closed probe for the ONE state in which terminal funding compensation is
+// structurally unreachable: an order with no active resolvable patient.
+// compensateTerminalPharmacyFundingAuthorityTx resolves the order's funding
+// patient first (resolvePharmacyFundingPatientUidTx) and throws when none
+// resolves, and its own order lookup JOINs users on pharmacy_orders.patient_id,
+// so no caller can ever compensate such an order. Migration 753 manufactures
+// exactly that state — an order filed ORDER_PATIENT_TENANT_MISMATCH has its
+// patient_id set to NULL (753:1610-1631). This proves the money plane is
+// already empty so the caller may close its governed recovery instead of
+// deadlocking on a compensation that can never succeed. It is NOT a bypass:
+// any surviving live funding authority still refuses, and an order that DOES
+// resolve a patient must go through the full compensation command.
+export async function assertNoLivePharmacyOrderFundingAuthorityTx(tx, {
+  tenantId,
+  orderId,
+}) {
+  const tid = requireTenantId(tenantId);
+  const exactOrderId = Number(orderId);
+  if (!Number.isInteger(exactOrderId) || exactOrderId <= 0) {
+    throw AppError.badRequest(
+      'A live-funding-authority probe requires an exact pharmacy order',
+      'PHARMACY_TERMINAL_FUNDING_AUTHORITY_REQUIRED',
+    );
+  }
+  const activeLines = await tx.$queryRawUnsafe(
+    `SELECT item.id
+       FROM billing_invoice_items item
+      WHERE item.tenant_id=$1::uuid AND item.source_ref_type='pharmacy_order'
+        AND item.source_ref_id=$2::bigint AND item.source_ref_active=TRUE
+      ORDER BY item.id
+      FOR UPDATE OF item`,
+    tid,
+    exactOrderId,
+  );
+  const activeReservations = await tx.$queryRawUnsafe(
+    `SELECT id FROM pharmacy_cap_reservations
+      WHERE tenant_id=$1::uuid AND pharmacy_order_id=$2::int AND status='ACTIVE'
+      ORDER BY id FOR UPDATE`,
+    tid,
+    exactOrderId,
+  );
+  const openAllocations = await tx.$queryRawUnsafe(
+    `SELECT allocation.id
+       FROM pharmacy_payment_allocations allocation
+       LEFT JOIN pharmacy_payment_allocation_reversals reversal
+         ON reversal.tenant_id=allocation.tenant_id
+        AND reversal.allocation_id=allocation.id
+      WHERE allocation.tenant_id=$1::uuid AND allocation.pharmacy_order_id=$2::int
+      GROUP BY allocation.id
+     HAVING allocation.allocated_amount
+            - COALESCE(SUM(reversal.reversed_amount),0) > 0.001
+      ORDER BY allocation.id`,
+    tid,
+    exactOrderId,
+  );
+  if (activeLines.length || activeReservations.length || openAllocations.length) {
+    throw AppError.conflict(
+      'The order carries live funding authority that only terminal compensation may unwind, and compensation needs the order patient repaired first',
+      'PHARMACY_TERMINAL_FUNDING_PATIENT_AUTHORITY_UNRESOLVED',
+      {
+        pharmacy_order_id: exactOrderId,
+        active_invoice_item_ids: activeLines.map((line) => Number(line.id)),
+        active_cap_reservation_ids: activeReservations.map((row) => Number(row.id)),
+        open_allocation_ids: openAllocations.map((row) => Number(row.id)),
+        next_action: 'resolve_order_patient_tenant_mismatch_recovery_then_retry',
+      },
+    );
+  }
+  return {
+    pharmacyOrderId: exactOrderId,
+    liveFundingAuthority: false,
+  };
+}
+
+async function invalidateTerminalPharmacyFundingAuthorityTx(tx, {
+  authority,
+  order,
+  actorRole,
+}) {
+  const terminalStatus = String(order.status || '').toUpperCase();
+  if (!['CANCELLED', 'UNAVAILABLE', 'REJECTED'].includes(terminalStatus)) {
+    return { releasedCapReservation: null, reversedAllocationIds: [] };
+  }
+  await assertNoPharmacyStockMovementEvidenceTx(tx, {
+    tenantId: authority.tenantId,
+    orderId: authority.orderId,
+  });
+  const reservationRows = await tx.$queryRawUnsafe(
+    `SELECT admission_id FROM pharmacy_cap_reservations
+      WHERE tenant_id=$1::uuid AND pharmacy_order_id=$2::int AND status='ACTIVE'
+      FOR UPDATE`,
+    authority.tenantId,
+    authority.orderId,
+  );
+  const releaseCommand = pharmacyFundingHash('TERMINAL_CAP_RELEASE', {
+    tenant_id: authority.tenantId,
+    pharmacy_order_id: authority.orderId,
+    terminal_status: terminalStatus,
+  });
+  const releasedCapReservation = reservationRows.length
+    ? await releasePharmacyCapReservationTx(tx, {
+      tenantId: authority.tenantId,
+      facilityId: authority.facilityId,
+      admissionId: Number(reservationRows[0].admission_id),
+      orderId: authority.orderId,
+      actorUid: authority.actorUid,
+      actorRole,
+      commandKeySha256: releaseCommand,
+      reason: `terminal_order_${terminalStatus.toLowerCase()}`,
+    })
+    : null;
+  const allocations = await tx.$queryRawUnsafe(
+    `SELECT allocation.*,
+            (allocation.allocated_amount
+             - COALESCE(SUM(reversal.reversed_amount),0))::numeric AS remaining_amount
+       FROM pharmacy_payment_allocations allocation
+       LEFT JOIN pharmacy_payment_allocation_reversals reversal
+         ON reversal.tenant_id=allocation.tenant_id
+        AND reversal.allocation_id=allocation.id
+      WHERE allocation.tenant_id=$1::uuid
+        AND allocation.pharmacy_order_id=$2::int
+      GROUP BY allocation.id
+     HAVING allocation.allocated_amount
+            - COALESCE(SUM(reversal.reversed_amount),0) > 0.001
+      ORDER BY allocation.id`,
+    authority.tenantId,
+    authority.orderId,
+  );
+  const reversedAllocationIds = [];
+  for (const allocation of allocations) {
+    const reversalCommand = pharmacyFundingHash('TERMINAL_ALLOCATION_REVERSAL', {
+      tenant_id: authority.tenantId,
+      pharmacy_order_id: authority.orderId,
+      allocation_id: Number(allocation.id),
+      terminal_status: terminalStatus,
+    });
+    const reversal = await reversePharmacyPaymentAllocationTx(tx, {
+      tenantId: authority.tenantId,
+      allocationId: Number(allocation.id),
+      pharmacyOrderId: authority.orderId,
+      invoiceId: Number(allocation.invoice_id),
+      invoiceItemId: Number(allocation.invoice_item_id),
+      billingPaymentId: Number(allocation.billing_payment_id),
+      orderVersion: Number(allocation.source_authority_version),
+      orderItemsSha256: String(allocation.source_authority_sha256),
+      reversedAmount: Number(allocation.remaining_amount),
+      actorUid: authority.actorUid,
+      reason: `terminal_order_${terminalStatus.toLowerCase()}`,
+      commandKeySha256: reversalCommand,
+    });
+    reversedAllocationIds.push(Number(reversal.allocation_id));
+  }
+  const invalidatedFundingEvent = await invalidateCurrentPharmacyFundingAuthorityStateTx(tx, {
+    authority: {
+      ...authority,
+      orderVersion: Number(order.inventory_authority_version),
+      orderItemsSha256: clinicalOrderItemsSha256(order.items_list),
+    },
+    reason: `terminal_order_${terminalStatus.toLowerCase()}`,
+    actorRole,
+  });
+  return {
+    releasedCapReservation,
+    reversedAllocationIds,
+    invalidatedFundingEventId: invalidatedFundingEvent == null
+      ? null : Number(invalidatedFundingEvent.id),
+  };
+}
+
+export async function compensateTerminalPharmacyFundingAuthorityTx(tx, {
+  tenantId,
+  orderId,
+  actorUid,
+  actorRole = null,
+}) {
+  const tid = requireTenantId(tenantId);
+  const exactOrderId = Number(orderId);
+  const actor = String(actorUid || '').trim();
+  if (!Number.isInteger(exactOrderId) || exactOrderId <= 0 || !actor) {
+    throw AppError.badRequest(
+      'Terminal funding compensation requires an exact order and actor',
+      'PHARMACY_TERMINAL_FUNDING_AUTHORITY_REQUIRED',
+    );
+  }
+  const patientUid = await resolvePharmacyFundingPatientUidTx(tx, {
+    tenantId: tid,
+    orderId: exactOrderId,
+  });
+  await lockPharmacyFundingAuthorityTx(tx, { tenantId: tid, patientUid });
+  const durableActor = await assertPharmacyFundingActorTx(tx, {
+    tenantId: tid,
+    actorUid: actor,
+  }, new Set([
+    'PHARMACY_STAFF', 'PHARMACIST', 'PHARMACY_INCHARGE',
+    'FINANCE_INCHARGE', 'BILLING_INCHARGE', 'INSURANCE_COORDINATOR',
+    'ADMIN', 'SUPER_ADMIN',
+  ]));
+  if (actorRole && durableActor.role !== String(actorRole).trim().toUpperCase()) {
+    throw AppError.forbidden(
+      'The supplied terminal actor role is stale relative to the tenant identity',
+      'PHARMACY_FUNDING_ACTOR_FORBIDDEN',
+    );
+  }
+  const orderRows = await tx.$queryRawUnsafe(
+    `SELECT pharmacy_order.id,pharmacy_order.facility_id,pharmacy_order.status,
+            pharmacy_order.total_amount,pharmacy_order.inventory_authority_version,
+            pharmacy_order.items_list,pharmacy_order.funding_admission_id,
+            patient.uid AS patient_uid
+       FROM pharmacy_orders pharmacy_order
+       JOIN users patient
+         ON patient.tenant_id=pharmacy_order.tenant_id
+        AND patient.id=pharmacy_order.patient_id AND patient.uid=$3::uuid
+        AND patient.role='PATIENT' AND patient.is_active=TRUE
+        AND patient.status='active' AND patient.is_deleted=FALSE
+        AND patient.merged_into_uid IS NULL
+      WHERE pharmacy_order.tenant_id=$1::uuid AND pharmacy_order.id=$2::int
+      FOR UPDATE OF pharmacy_order`,
+    tid,
+    exactOrderId,
+    patientUid,
+  );
+  if (orderRows.length !== 1) throw AppError.notFound('Pharmacy order not found');
+  const order = orderRows[0];
+  const terminalStatus = String(order.status || '').toUpperCase();
+  if (!['CANCELLED', 'UNAVAILABLE', 'REJECTED'].includes(terminalStatus)) {
+    throw AppError.conflict(
+      'Funding compensation must run after the exact order enters a cancellative terminal state',
+      'PHARMACY_TERMINAL_FUNDING_ORDER_NOT_TERMINAL',
+    );
+  }
+  // Re-asserted here (invalidateTerminalPharmacyFundingAuthorityTx below runs the
+  // same guard) so the stock-evidence conflict keeps precedence over the line and
+  // finance-reversal conflicts raised in between.
+  await assertNoPharmacyStockMovementEvidenceTx(tx, {
+    tenantId: tid,
+    orderId: exactOrderId,
+  });
+  const lineRows = await tx.$queryRawUnsafe(
+    `SELECT item.id,item.invoice_id,item.quantity,item.unit_price,item.line_subtotal,
+            item.cgst_amount,item.sgst_amount,item.igst_amount,item.line_total,
+            item.source_authority_version,item.source_authority_sha256,
+            invoice.status AS invoice_status,invoice.patient_uid,invoice.admission_id,
+            invoice.subtotal AS invoice_subtotal,
+            invoice.cgst_amount AS invoice_cgst_amount,
+            invoice.sgst_amount AS invoice_sgst_amount,
+            invoice.igst_amount AS invoice_igst_amount,
+            invoice.total_amount AS invoice_total_amount,
+            invoice.amount_paid AS invoice_amount_paid,
+            invoice.amount_due AS invoice_amount_due
+       FROM billing_invoice_items item
+       JOIN billing_invoices invoice
+         ON invoice.tenant_id=item.tenant_id AND invoice.id=item.invoice_id
+      WHERE item.tenant_id=$1::uuid AND item.source_ref_type='pharmacy_order'
+        AND item.source_ref_id=$2::bigint AND item.source_ref_active=TRUE
+      ORDER BY item.id
+      FOR UPDATE OF item,invoice`,
+    tid,
+    exactOrderId,
+  );
+  if (lineRows.length > 1) {
+    throw AppError.conflict(
+      'Terminal funding compensation requires duplicate-line reconciliation first',
+      'PHARMACY_FUNDING_LINE_AMBIGUOUS',
+    );
+  }
+  if (lineRows.length === 1) {
+    const line = lineRows[0];
+    const orderItemsSha256 = clinicalOrderItemsSha256(order.items_list);
+    if (String(line.patient_uid) !== String(order.patient_uid)
+        || (line.admission_id == null ? null : Number(line.admission_id))
+          !== (order.funding_admission_id == null ? null : Number(order.funding_admission_id))
+        || Number(line.source_authority_version) !== Number(order.inventory_authority_version)
+        || String(line.source_authority_sha256 || '') !== orderItemsSha256
+        || Math.abs(Number(line.line_total || 0) - Number(order.total_amount || 0)) > 0.001) {
+      throw AppError.conflict(
+        'Terminal funding compensation requires the one active line to match the current patient, admission, order version, item hash, and amount',
+        'PHARMACY_TERMINAL_FUNDING_LINE_AUTHORITY_STALE',
+      );
+    }
+    const paymentRows = await tx.$queryRawUnsafe(
+      `SELECT id FROM billing_payments
+        WHERE tenant_id=$1::uuid AND invoice_id=$2::int AND reversed=FALSE
+        ORDER BY id FOR UPDATE`,
+      tid,
+      Number(line.invoice_id),
+    );
+    if (line.invoice_status !== 'DRAFT' || paymentRows.length) {
+      throw AppError.conflict(
+        'Finalized, paid, or shared invoices require governed credit/refund completion before terminal order compensation',
+        'PHARMACY_TERMINAL_FUNDING_FINANCE_REVERSAL_REQUIRED',
+        {
+          invoice_id: Number(line.invoice_id),
+          invoice_item_id: Number(line.id),
+          next_action: 'complete_governed_credit_refund_then_retry_terminal_order',
+        },
+      );
+    }
+  }
+  const invalidatedAuthority = await invalidateTerminalPharmacyFundingAuthorityTx(tx, {
+    authority: {
+      tenantId: tid,
+      facilityId: Number(order.facility_id),
+      orderId: exactOrderId,
+      actorUid: actor,
+    },
+    order,
+    actorRole: durableActor.role,
+  });
+  await tx.$executeRawUnsafe(
+    `UPDATE tpa_claim_line_decisions decision
+        SET invalidated_at=NOW(),invalidated_by=$3::uuid
+       FROM billing_invoice_items item
+      WHERE decision.tenant_id=$1::uuid AND item.tenant_id=decision.tenant_id
+        AND item.id=decision.invoice_item_id
+        AND item.source_ref_type='pharmacy_order'
+        AND item.source_ref_id=$2::bigint AND decision.invalidated_at IS NULL`,
+    tid,
+    exactOrderId,
+    actor,
+  );
+  const closedTasks = await tx.$queryRawUnsafe(
+    `UPDATE tasks
+        SET status='cancelled',cancelled_at=NOW(),updated_at=NOW(),
+            cancellation_reason='Pharmacy order terminal funding compensation',
+            metadata=metadata || $3::jsonb
+      WHERE tenant_id=$1::uuid AND related_resource_id=$2
+        AND related_resource_type IN ('pharmacy_tpa_line_decision','pharmacy_posted_payment')
+        AND status IN (${ACTIVE_TASK_STATUSES})
+      RETURNING id`,
+    tid,
+    String(exactOrderId),
+    JSON.stringify({
+      domain_evidence: {
+        contract: 'pharmacy_terminal_funding_compensation_v1',
+        terminal_order_status: terminalStatus,
+        actor_uid: actor,
+        actor_role: durableActor.role,
+      },
+    }),
+  );
+  let voidedInvoiceId = null;
+  let deactivatedInvoiceItemId = null;
+  let recomputedInvoice = null;
+  let monetaryCompensation = null;
+  if (lineRows.length === 1) {
+    const line = lineRows[0];
+    const deactivatedRows = await tx.$queryRawUnsafe(
+      `UPDATE billing_invoice_items
+          SET source_ref_active=FALSE,source_ref_deactivated_at=NOW(),
+              source_ref_deactivated_by=$3::uuid,
+              unit_price=0,line_subtotal=0,cgst_amount=0,sgst_amount=0,
+              igst_amount=0,line_total=0,
+              notes=CONCAT_WS(E'\n',NULLIF(notes,''),$4)
+        WHERE tenant_id=$1::uuid AND id=$2::int AND source_ref_active=TRUE
+        RETURNING id`,
+      tid,
+      Number(line.id),
+      actor,
+      `Terminal pharmacy funding compensation for ${terminalStatus} order ${exactOrderId}`,
+    );
+    if (deactivatedRows.length !== 1) {
+      throw AppError.conflict(
+        'The exact pharmacy invoice line changed before terminal monetary compensation',
+        'PHARMACY_TERMINAL_FUNDING_LINE_AUTHORITY_STALE',
+      );
+    }
+    monetaryCompensation = {
+      invoiceItemId: Number(line.id),
+      invoiceId: Number(line.invoice_id),
+      priorQuantity: Number(line.quantity),
+      priorUnitPrice: Number(line.unit_price),
+      priorLineSubtotal: Number(line.line_subtotal),
+      priorCgstAmount: Number(line.cgst_amount),
+      priorSgstAmount: Number(line.sgst_amount),
+      priorIgstAmount: Number(line.igst_amount),
+      priorLineTotal: Number(line.line_total),
+      priorInvoiceSubtotal: Number(line.invoice_subtotal),
+      priorInvoiceCgstAmount: Number(line.invoice_cgst_amount),
+      priorInvoiceSgstAmount: Number(line.invoice_sgst_amount),
+      priorInvoiceIgstAmount: Number(line.invoice_igst_amount),
+      priorInvoiceTotalAmount: Number(line.invoice_total_amount),
+      priorInvoiceAmountPaid: Number(line.invoice_amount_paid),
+      priorInvoiceAmountDue: Number(line.invoice_amount_due),
+      resultingLineTotal: 0,
+    };
+    recomputedInvoice = {
+      invoiceId: Number(line.invoice_id),
+      ...await recomputeInvoiceTotals(Number(line.invoice_id), tx, { emitTpaAlert: false }),
+    };
+    const remainingRows = await tx.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS active_count FROM billing_invoice_items
+        WHERE tenant_id=$1::uuid AND invoice_id=$2::int AND source_ref_active=TRUE`,
+      tid,
+      Number(line.invoice_id),
+    );
+    if (Number(remainingRows[0]?.active_count || 0) === 0) {
+      const voided = await tx.$queryRawUnsafe(
+        `UPDATE billing_invoices
+            SET status='VOID',voided_at=NOW(),voided_by=$3::uuid,
+                void_reason=$4,updated_at=NOW()
+          WHERE tenant_id=$1::uuid AND id=$2::int AND status='DRAFT'
+          RETURNING id`,
+        tid,
+        Number(line.invoice_id),
+        actor,
+        `Pharmacy order ${exactOrderId} ${terminalStatus.toLowerCase()}`,
+      );
+      if (voided.length !== 1) {
+        throw AppError.conflict(
+          'The exact draft pharmacy invoice could not be voided atomically',
+          'PHARMACY_TERMINAL_FUNDING_INVOICE_STALE',
+        );
+      }
+      voidedInvoiceId = Number(voided[0].id);
+    }
+    deactivatedInvoiceItemId = Number(line.id);
+  }
+  return {
+    status: 'compensated',
+    pharmacyOrderId: exactOrderId,
+    terminalOrderStatus: terminalStatus,
+    closedTaskIds: closedTasks.map((task) => Number(task.id)),
+    deactivatedInvoiceItemId,
+    voidedInvoiceId,
+    recomputedInvoice,
+    monetaryCompensation,
+    ...invalidatedAuthority,
+  };
+}
+
+async function allocatePostedPharmacyPaymentsTx(tx, {
+  authority,
+  invoiceId,
+  invoiceItemId,
+  amountRequired,
+  paymentId = null,
+  commandKeySha256,
+}) {
+  await tx.$queryRawUnsafe(
+    `SELECT id FROM billing_invoices
+      WHERE tenant_id=$1::uuid AND id=$2::int
+      FOR UPDATE`,
+    authority.tenantId,
+    Number(invoiceId),
+  );
+  const payments = await tx.$queryRawUnsafe(
+    `SELECT payment.id,payment.amount,payment.mode,payment.reference,payment.collected_at
+       FROM billing_payments payment
+      WHERE payment.tenant_id=$1::uuid AND payment.invoice_id=$2::int
+        AND payment.patient_uid=$3::uuid AND payment.reversed=FALSE
+        AND ($4::int IS NULL OR payment.id=$4::int)
+      ORDER BY payment.collected_at,payment.id
+      FOR UPDATE`,
+    authority.tenantId,
+    Number(invoiceId),
+    authority.patientUid,
+    paymentId == null ? null : Number(paymentId),
+  );
+  if (paymentId != null && payments.length !== 1) {
+    throw AppError.conflict(
+      'The supplied payment id is not a posted, unreversed payment for the exact invoice and patient',
+      'PHARMACY_PAYMENT_AUTHORITY_MISMATCH',
+    );
+  }
+  const allocatedRows = payments.length
+    ? await tx.$queryRawUnsafe(
+      `SELECT allocation.billing_payment_id,
+              COALESCE(SUM(
+                allocation.allocated_amount
+                - COALESCE(reversed.reversed_amount,0)
+              ),0)::numeric AS allocated_amount
+         FROM pharmacy_payment_allocations allocation
+         LEFT JOIN (
+           SELECT tenant_id,allocation_id,SUM(reversed_amount)::numeric AS reversed_amount
+             FROM pharmacy_payment_allocation_reversals
+            WHERE tenant_id=$1::uuid
+            GROUP BY tenant_id,allocation_id
+         ) reversed
+           ON reversed.tenant_id=allocation.tenant_id
+          AND reversed.allocation_id=allocation.id
+        WHERE allocation.tenant_id=$1::uuid
+          AND allocation.billing_payment_id=ANY($2::int[])
+        GROUP BY allocation.billing_payment_id`,
+      authority.tenantId,
+      payments.map((payment) => Number(payment.id)),
+    )
+    : [];
+  const allocatedByPayment = new Map(allocatedRows.map((row) => [
+    Number(row.billing_payment_id), Number(row.allocated_amount || 0),
+  ]));
+  const existing = await loadPharmacyPaymentAllocationsTx(tx, {
+    tenantId: authority.tenantId,
+    invoiceId,
+    invoiceItemId,
+    orderId: authority.orderId,
+    orderVersion: authority.orderVersion,
+    orderItemsSha256: authority.orderItemsSha256,
+    patientUid: authority.patientUid,
+  });
+  const exactPaymentIds = new Set(existing.rows.map((row) => Number(row.payment_id)));
+  let remaining = Math.max(0, toFixed2(Number(amountRequired) - existing.amount));
+  for (const payment of payments) {
+    if (remaining <= 0.001) break;
+    if (exactPaymentIds.has(Number(payment.id))) continue;
+    const available = Math.max(
+      0,
+      toFixed2(Number(payment.amount || 0) - (allocatedByPayment.get(Number(payment.id)) || 0)),
+    );
+    const amount = Math.min(remaining, available);
+    if (amount <= 0.001) continue;
+    await tx.$queryRawUnsafe(
+      `INSERT INTO pharmacy_payment_allocations
+        (tenant_id,pharmacy_order_id,invoice_id,invoice_item_id,billing_payment_id,
+         source_authority_version,source_authority_sha256,allocated_amount,
+         allocation_command_sha256,allocated_by,evidence)
+       VALUES ($1::uuid,$2::int,$3::int,$4::int,$5::int,$6::int,$7,$8::numeric,
+               $9,$10::uuid,$11::jsonb)
+       RETURNING id`,
+      authority.tenantId, authority.orderId, Number(invoiceId), Number(invoiceItemId),
+      Number(payment.id), authority.orderVersion, authority.orderItemsSha256, amount,
+      String(commandKeySha256), authority.actorUid,
+      JSON.stringify({
+        contract: 'pharmacy_payment_allocation_v1',
+        payment_amount: Number(payment.amount),
+        payment_previously_allocated: allocatedByPayment.get(Number(payment.id)) || 0,
+      }),
+    );
+    remaining = Math.max(0, toFixed2(remaining - amount));
+  }
+  return loadPharmacyPaymentAllocationsTx(tx, {
+    tenantId: authority.tenantId,
+    invoiceId,
+    invoiceItemId,
+    orderId: authority.orderId,
+    orderVersion: authority.orderVersion,
+    orderItemsSha256: authority.orderItemsSha256,
+    patientUid: authority.patientUid,
+  });
+}
+
+async function claimPharmacyFundingCommandTx(tx, {
+  authority,
+  commandKeySha256,
+  commandType,
+  task,
+  invoiceItemId,
+  tpaClaimId = null,
+  requestSha256,
+}) {
+  const taskResourceType = String(task.related_resource_type || '');
+  const taskResourceId = String(task.related_resource_id || '');
+  await tx.$executeRawUnsafe(
+    `INSERT INTO pharmacy_funding_commands
+      (tenant_id,command_key_sha256,command_type,task_id,task_resource_type,
+       task_resource_id,pharmacy_order_id,invoice_item_id,tpa_claim_id,
+       request_sha256,status,created_by)
+     VALUES ($1::uuid,$2,$3,$4::int,$5,$6,$7::int,$8::int,$9::int,$10,
+             'IN_PROGRESS',$11::uuid)
+     ON CONFLICT (tenant_id,command_key_sha256) DO NOTHING`,
+    authority.tenantId,
+    String(commandKeySha256),
+    String(commandType),
+    Number(task.id),
+    taskResourceType,
+    taskResourceId,
+    authority.orderId,
+    Number(invoiceItemId),
+    tpaClaimId == null ? null : Number(tpaClaimId),
+    String(requestSha256),
+    authority.actorUid,
+  );
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT * FROM pharmacy_funding_commands
+      WHERE tenant_id=$1::uuid AND command_key_sha256=$2
+      FOR UPDATE`,
+    authority.tenantId,
+    String(commandKeySha256),
+  );
+  const receipt = rows[0];
+  const mismatched = !receipt
+    || receipt.command_type !== String(commandType)
+    || Number(receipt.task_id) !== Number(task.id)
+    || receipt.task_resource_type !== taskResourceType
+    || receipt.task_resource_id !== taskResourceId
+    || Number(receipt.pharmacy_order_id) !== authority.orderId
+    || Number(receipt.invoice_item_id) !== Number(invoiceItemId)
+    || (receipt.tpa_claim_id == null ? null : Number(receipt.tpa_claim_id))
+      !== (tpaClaimId == null ? null : Number(tpaClaimId))
+    || receipt.request_sha256 !== String(requestSha256);
+  if (mismatched) {
+    throw AppError.unprocessable(
+      'The idempotency key is already bound to a different funding request or target',
+      'PHARMACY_FUNDING_COMMAND_MISMATCH',
+    );
+  }
+  return receipt;
+}
+
+async function completePharmacyFundingCommandTx(tx, {
+  tenantId,
+  commandKeySha256,
+  responseBody,
+}) {
+  const rows = await tx.$queryRawUnsafe(
+    `UPDATE pharmacy_funding_commands
+        SET status='COMPLETE',response_body=$3::jsonb,completed_at=NOW()
+      WHERE tenant_id=$1::uuid AND command_key_sha256=$2
+        AND status='IN_PROGRESS'
+      RETURNING *`,
+    requireTenantId(tenantId),
+    String(commandKeySha256),
+    JSON.stringify(responseBody),
+  );
+  if (!rows.length) {
+    throw AppError.conflict(
+      'The funding command could not be completed from its claimed state',
+      'PHARMACY_FUNDING_COMMAND_STATE_CONFLICT',
+    );
+  }
+  return rows[0];
+}
+
+export async function materializePharmacyFundingTaskTx(tx, rawArgs) {
+  const authority = normalizePharmacyFundingAuthority(rawArgs);
+  const canonicalPatientUid = await resolvePharmacyFundingPatientUidTx(tx, {
+    tenantId: authority.tenantId,
+    orderId: authority.orderId,
+    patientId: authority.patientId,
+    patientUid: authority.patientUid,
+  });
+  await lockPharmacyFundingAuthorityTx(tx, {
+    tenantId: authority.tenantId,
+    patientUid: canonicalPatientUid,
+  });
+  const actor = await assertPharmacyFundingActorTx(
+    tx,
+    authority,
+    PHARMACY_FUNDING_MATERIALIZE_ROLES,
+  );
+  const orderRows = await tx.$queryRawUnsafe(
+    `SELECT po.id,po.patient_id,po.uid,po.patient_name,po.patient_phone,po.order_number,
+            po.facility_id,po.total_amount,po.inventory_authority_version,po.status,
+            po.items_list,po.payment_mode,po.payment_metadata,
+            po.funding_admission_id,po.funding_admission_order_version,
+            po.funding_admission_items_sha256,
+            patient.uid AS patient_uid
+       FROM pharmacy_orders po
+       JOIN users patient
+         ON patient.tenant_id=po.tenant_id AND patient.id=po.patient_id
+        AND patient.role='PATIENT' AND patient.is_active=TRUE
+        AND patient.status='active' AND patient.is_deleted=FALSE
+        AND patient.merged_into_uid IS NULL
+      WHERE po.tenant_id=$1::uuid AND po.id=$2::int AND po.facility_id=$3::int
+        AND ($4::int IS NULL OR patient.id=$4::int)
+        AND ($5::uuid IS NULL OR patient.uid=$5::uuid)
+        AND (po.uid IS NULL OR po.uid=patient.uid)
+      FOR UPDATE`,
+    authority.tenantId,
+    authority.orderId,
+    authority.facilityId,
+    authority.patientId,
+    authority.patientUid,
+  );
+  if (!orderRows.length) {
+    throw AppError.conflict(
+      'The pharmacy order does not belong to the exact patient, tenant, and facility',
+      'PHARMACY_FUNDING_ORDER_SCOPE_MISMATCH',
+    );
+  }
+  const order = orderRows[0];
+  if (authority.tpaClaimId != null && !PHARMACY_TPA_DECISION_ROLES.has(actor.role)) {
+    throw AppError.forbidden(
+      'Only an insurance or finance authority may select an exact TPA claim',
+      'PHARMACY_FUNDING_TPA_SELECTION_FORBIDDEN',
+    );
+  }
+  if (PHARMACY_FUNDING_FACILITY_GRANT_ROLES.has(actor.role)) {
+    const facilityGrantRows = await tx.$queryRawUnsafe(
+      `SELECT id,authority_version
+         FROM pharmacy_staff_facility_grants
+        WHERE tenant_id=$1::uuid AND staff_uid=$2::uuid AND facility_id=$3::int
+          AND status='active' AND revoked_at IS NULL
+        FOR KEY SHARE`,
+      authority.tenantId,
+      authority.actorUid,
+      authority.facilityId,
+    );
+    if (facilityGrantRows.length !== 1) {
+      throw AppError.forbidden(
+        'The funding actor has no active grant for the order facility',
+        'PHARMACY_FUNDING_FACILITY_GRANT_REQUIRED',
+      );
+    }
+  }
+  authority.patientId = Number(order.patient_id);
+  authority.patientUid = String(order.patient_uid);
+  if (authority.patientUid !== canonicalPatientUid) {
+    throw AppError.conflict(
+      'The pharmacy order patient changed while funding authority was acquired',
+      'PHARMACY_FUNDING_PATIENT_IDENTITY_MISMATCH',
+    );
+  }
+  const canonicalItemsSha256 = clinicalOrderItemsSha256(order.items_list);
+  const durablePaymentMode = String(
+    order.payment_mode || order.payment_metadata?.payment_mode || '',
+  ).trim().toLowerCase();
+  if (Number(order.inventory_authority_version) !== authority.orderVersion
+      || Math.abs(Number(order.total_amount || 0) - authority.authoritativeAmount) > 0.001
+      || canonicalItemsSha256 !== authority.orderItemsSha256
+      || !durablePaymentMode
+      || durablePaymentMode !== authority.paymentMode) {
+    throw AppError.conflict(
+      'The pharmacy funding tuple is stale relative to the authoritative order',
+      'PHARMACY_FUNDING_ORDER_AUTHORITY_STALE',
+      {
+        current_order_version: Number(order.inventory_authority_version),
+        current_total_amount: Number(order.total_amount || 0),
+        current_order_items_sha256: canonicalItemsSha256,
+        current_payment_mode: durablePaymentMode || null,
+      },
+    );
+  }
+  const tpaMode = PHARMACY_TPA_PAYMENT_MODES.has(authority.paymentMode);
+  const preIssueStatuses = new Set([
+    'PENDING', 'CONFIRMED', 'PREPARING', 'READY', 'DISPATCHED', 'PARTIALLY_DISPENSED',
+  ]);
+  const orderStatus = String(order.status).toUpperCase();
+  if (!preIssueStatuses.has(orderStatus)) {
+    if (!['CANCELLED', 'UNAVAILABLE', 'REJECTED', 'DISPENSED', 'DELIVERED'].includes(orderStatus)) {
+      throw AppError.conflict(
+        `Pharmacy funding cannot mutate an order in ${orderStatus} state`,
+        'PHARMACY_FUNDING_ORDER_NOT_ACTIONABLE',
+      );
+    }
+    const authorityCancelled = ['CANCELLED', 'UNAVAILABLE', 'REJECTED'].includes(orderStatus);
+    await tx.$executeRawUnsafe(
+      `UPDATE tasks
+          SET status=CASE WHEN $4::boolean THEN 'cancelled' ELSE 'completed' END,
+              cancelled_at=CASE WHEN $4::boolean THEN NOW() ELSE cancelled_at END,
+              completed_at=CASE WHEN $4::boolean THEN completed_at ELSE NOW() END,
+              updated_at=NOW(),
+              cancellation_reason=CASE WHEN $4::boolean
+                THEN 'Pharmacy order left pre-issue funding states'
+                ELSE cancellation_reason END,
+              metadata=metadata || $3::jsonb
+        WHERE tenant_id=$1::uuid AND related_resource_id=$2
+          AND related_resource_type IN ('pharmacy_tpa_line_decision','pharmacy_posted_payment')
+          AND status IN (${ACTIVE_TASK_STATUSES})`,
+      authority.tenantId,
+      String(authority.orderId),
+      JSON.stringify({
+        domain_evidence: {
+          terminal_order_status: orderStatus,
+          invalidated_by: authority.actorUid,
+        },
+      }),
+      authorityCancelled,
+    );
+    if (authorityCancelled) {
+      await tx.$executeRawUnsafe(
+        `UPDATE tpa_claim_line_decisions decision
+            SET invalidated_at=NOW(),invalidated_by=$3::uuid
+           FROM billing_invoice_items item
+          WHERE decision.tenant_id=$1::uuid AND item.tenant_id=decision.tenant_id
+            AND item.id=decision.invoice_item_id
+            AND item.source_ref_type='pharmacy_order' AND item.source_ref_id=$2::bigint
+            AND decision.invalidated_at IS NULL`,
+        authority.tenantId,
+        authority.orderId,
+        authority.actorUid,
+      );
+    }
+    const invalidatedAuthority = authorityCancelled
+      ? await invalidateTerminalPharmacyFundingAuthorityTx(tx, {
+        authority,
+        order,
+        actorRole: actor.role,
+      })
+      : { releasedCapReservation: null, reversedAllocationIds: [] };
+    return {
+      status: authorityCancelled ? 'invalidated' : 'closed',
+      admissionId: null,
+      invoiceId: null,
+      invoiceItemId: null,
+      tpaClaimId: null,
+      task: null,
+      decision: null,
+      postedPayments: [],
+      fundingRecovery: null,
+      invalidatedAuthority,
+      authority,
+    };
+  }
+  const admissionRows = await tx.$queryRawUnsafe(
+    `SELECT id,patient_uid,status
+       FROM admissions
+      WHERE tenant_id=$1::uuid AND patient_uid=$2::uuid AND status='admitted'
+        AND ($3::int IS NULL OR id=$3::int)
+        AND $4::boolean
+      ORDER BY admitted_at DESC NULLS LAST,id DESC
+      FOR UPDATE`,
+    authority.tenantId,
+    authority.patientUid,
+    order.funding_admission_id == null ? null : Number(order.funding_admission_id),
+    tpaMode || order.funding_admission_id != null,
+  );
+  if (admissionRows.length > 1 || (tpaMode && admissionRows.length !== 1)) {
+    throw AppError.conflict(
+      admissionRows.length > 1
+        ? 'More than one active admission exists for the pharmacy patient'
+        : 'No active admission owns this pharmacy funding workflow',
+      admissionRows.length > 1
+        ? 'PHARMACY_FUNDING_ADMISSION_AMBIGUOUS'
+        : 'PHARMACY_FUNDING_ADMISSION_REQUIRED',
+    );
+  }
+  const admissionId = admissionRows.length ? Number(admissionRows[0].id) : null;
+  if (order.funding_admission_id != null && admissionId == null) {
+    throw AppError.conflict(
+      'The order funding admission binding is no longer active for the patient',
+      'PHARMACY_FUNDING_ADMISSION_AUTHORITY_STALE',
+    );
+  }
+  if (order.funding_admission_id != null
+      && (Number(order.funding_admission_order_version) !== authority.orderVersion
+        || String(order.funding_admission_items_sha256) !== authority.orderItemsSha256)) {
+    throw AppError.conflict(
+      'The order admission binding belongs to a different order authority version',
+      'PHARMACY_FUNDING_ADMISSION_AUTHORITY_STALE',
+    );
+  }
+  if (admissionId != null) {
+    await lockPharmacyFundingAdmissionTx(tx, {
+      tenantId: authority.tenantId,
+      admissionId,
+      patientUid: authority.patientUid,
+    });
+    if (order.funding_admission_id == null) {
+      await tx.$executeRawUnsafe(
+        `UPDATE pharmacy_orders
+            SET funding_admission_id=$3::int,
+                funding_admission_order_version=$4::int,
+                funding_admission_items_sha256=$5,
+                updated_at=NOW()
+          WHERE tenant_id=$1::uuid AND id=$2::int
+            AND funding_admission_id IS NULL`,
+        authority.tenantId,
+        authority.orderId,
+        admissionId,
+        authority.orderVersion,
+        authority.orderItemsSha256,
+      );
+    }
+  }
+  const claim = await resolveExactPharmacyClaimTx(tx, authority, admissionId);
+  if (claim != null && claim.invoice_id == null) {
+    throw AppError.conflict(
+      'The exact TPA claim must already own its patient/admission invoice before pharmacy funding can materialize a line',
+      'PHARMACY_TPA_CLAIM_INVOICE_REQUIRED',
+      { tpa_claim_id: Number(claim.id), next_action: 'bind_claim_to_exact_invoice' },
+    );
+  }
+
+  const sourceLines = await tx.$queryRawUnsafe(
+    `SELECT item.*,invoice.status AS invoice_status,invoice.patient_uid,
+            invoice.admission_id,invoice.tenant_id AS invoice_tenant_id
+       FROM billing_invoice_items item
+       JOIN billing_invoices invoice
+         ON invoice.tenant_id=item.tenant_id AND invoice.id=item.invoice_id
+      WHERE item.tenant_id=$1::uuid AND item.source_ref_type='pharmacy_order'
+        AND item.source_ref_id=$2::bigint AND item.source_ref_active=TRUE
+      FOR UPDATE OF item,invoice`,
+    authority.tenantId,
+    authority.orderId,
+  );
+  if (sourceLines.length > 1) {
+    const reconciliationRows = await tx.$queryRawUnsafe(
+      `SELECT reconciliation.id AS case_id,reconciliation.status,
+              reconciliation.snapshot_sha256,reconciliation.task_id,
+              task.assigned_to_role
+         FROM pharmacy_funding_reconciliation_cases reconciliation
+         JOIN tasks task
+           ON task.tenant_id=reconciliation.tenant_id
+          AND task.id=reconciliation.task_id
+          AND task.related_resource_type=reconciliation.task_resource_type
+          AND task.related_resource_id=reconciliation.task_resource_id
+        WHERE reconciliation.tenant_id=$1::uuid
+          AND reconciliation.pharmacy_order_id=$2::int
+          AND reconciliation.status<>'RESOLVED'
+        FOR UPDATE OF reconciliation,task`,
+      authority.tenantId,
+      authority.orderId,
+    );
+    throw AppError.conflict(
+      'More than one active billing line exists; finance reconciliation must resolve exact evidence first',
+      'PHARMACY_FUNDING_LINE_AMBIGUOUS',
+      {
+        funding_reconciliation: reconciliationRows.length ? {
+          ...reconciliationRows[0],
+          deep_link: `/billing-desk?funding_reconciliation_case_id=${Number(reconciliationRows[0].case_id)}`,
+        } : null,
+        next_action: reconciliationRows.length
+          ? 'open_exact_pharmacy_funding_reconciliation'
+          : 'run_migration_753_duplicate_worklist_backfill',
+        funding_recovery: reconciliationRows.length ? {
+          task_id: String(reconciliationRows[0].task_id),
+          status: String(reconciliationRows[0].status).toLowerCase(),
+          owner_role: reconciliationRows[0].assigned_to_role,
+          deep_link: `/billing-desk?funding_reconciliation_case_id=${Number(reconciliationRows[0].case_id)}`,
+        } : null,
+      },
+    );
+  }
+  let line = sourceLines[0] || null;
+  let invoice;
+  if (line) {
+    if (String(line.patient_uid) !== authority.patientUid
+        || (line.admission_id == null ? null : Number(line.admission_id)) !== admissionId
+        || line.invoice_status !== 'DRAFT'
+        || (claim?.invoice_id && Number(line.invoice_id) !== Number(claim.invoice_id))) {
+      throw AppError.conflict(
+        'The active pharmacy billing line is not an editable invoice owned by the exact patient/admission/claim',
+        'PHARMACY_FUNDING_LINE_OWNERSHIP_MISMATCH',
+      );
+    }
+    invoice = { id: Number(line.invoice_id), status: line.invoice_status };
+  } else {
+    const invoiceRows = claim?.invoice_id
+      ? await tx.$queryRawUnsafe(
+        `SELECT * FROM billing_invoices
+          WHERE tenant_id=$1::uuid AND id=$2::int AND patient_uid=$3::uuid
+            AND admission_id=$4::int
+          FOR UPDATE`,
+        authority.tenantId, Number(claim.invoice_id), authority.patientUid, admissionId,
+      )
+      : [];
+    invoice = invoiceRows[0] || await createDraftInvoice({
+      patient_uid: authority.patientUid,
+      patient_name: order.patient_name,
+      patient_phone: order.patient_phone,
+      admission_id: admissionId,
+      invoice_type: 'PHARMACY',
+      department: 'Pharmacy',
+      notes: `Funding authority for pharmacy order ${authority.orderId}`,
+      created_by: authority.actorUid,
+      tenantId: authority.tenantId,
+    }, { db: tx });
+    if (invoice.status !== 'DRAFT') {
+      throw AppError.conflict(
+        'The TPA claim invoice is no longer editable',
+        'PHARMACY_FUNDING_INVOICE_NOT_DRAFT',
+      );
+    }
+  }
+
+  const authorityChanged = line && (
+    Number(line.source_authority_version || 0) !== authority.orderVersion
+    || String(line.source_authority_sha256 || '') !== authority.orderItemsSha256
+    || Math.abs(Number(line.line_total || 0) - authority.authoritativeAmount) > 0.001
+  );
+  if (authorityChanged) {
+    await tx.$executeRawUnsafe(
+      `UPDATE tpa_claim_line_decisions
+          SET invalidated_at=NOW(), invalidated_by=$3::uuid
+        WHERE tenant_id=$1::uuid AND invoice_item_id=$2::int
+          AND invalidated_at IS NULL`,
+      authority.tenantId,
+      Number(line.id),
+      authority.actorUid,
+    );
+  }
+  if (line) {
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE billing_invoice_items
+          SET description=$3,quantity=1,unit_price=$4::numeric,gst_rate=0,
+              line_subtotal=$4::numeric,cgst_amount=0,sgst_amount=0,igst_amount=0,
+              line_total=$4::numeric,source_authority_version=$5::int,
+              source_authority_sha256=$6,
+              tpa_decision=CASE WHEN $7::boolean THEN 'pending' ELSE tpa_decision END,
+              tpa_non_payable_reason=CASE WHEN $7::boolean THEN NULL ELSE tpa_non_payable_reason END,
+              tpa_decided_at=CASE WHEN $7::boolean THEN NULL ELSE tpa_decided_at END,
+              tpa_decided_by=CASE WHEN $7::boolean THEN NULL ELSE tpa_decided_by END
+        WHERE tenant_id=$1::uuid AND id=$2::int
+        RETURNING *`,
+      authority.tenantId, Number(line.id),
+      `Pharmacy order ${authority.orderId}`, authority.authoritativeAmount,
+      authority.orderVersion, authority.orderItemsSha256, Boolean(authorityChanged),
+    );
+    line = rows[0];
+  } else {
+    const rows = await tx.$queryRawUnsafe(
+      `INSERT INTO billing_invoice_items
+        (invoice_id,description,category,quantity,unit_price,gst_rate,line_subtotal,
+         cgst_amount,sgst_amount,igst_amount,line_total,notes,source_ref_type,
+         source_ref_id,tenant_id,source_ref_active,tpa_decision,
+         source_authority_version,source_authority_sha256)
+       VALUES ($1::int,$2,'pharmacy',1,$3::numeric,0,$3::numeric,0,0,0,$3::numeric,
+               $4,'pharmacy_order',$5::bigint,$6::uuid,TRUE,'pending',$7::int,$8)
+       RETURNING *`,
+      Number(invoice.id), `Pharmacy order ${authority.orderId}`,
+      authority.authoritativeAmount, order.order_number || null,
+      authority.orderId, authority.tenantId, authority.orderVersion,
+      authority.orderItemsSha256,
+    );
+    line = rows[0];
+  }
+  await recomputeInvoiceTotals(Number(invoice.id), tx, { emitTpaAlert: false });
+
+  const lineEventCommand = pharmacyFundingHash('LINE_MATERIALIZED', {
+    tenant_id: authority.tenantId,
+    order_id: authority.orderId,
+    order_version: authority.orderVersion,
+    order_items_sha256: authority.orderItemsSha256,
+    invoice_item_id: Number(line.id),
+  });
+  await tx.$executeRawUnsafe(
+    `INSERT INTO pharmacy_funding_decision_events
+      (tenant_id,facility_id,pharmacy_order_id,admission_id,event_type,
+       source_authority_version,source_authority_sha256,invoice_id,invoice_item_id,
+       tpa_claim_id,amount,command_key_sha256,evidence,recorded_by)
+     VALUES ($1::uuid,$2::int,$3::int,$4::int,'LINE_MATERIALIZED',$5::int,$6,
+             $7::int,$8::int,$9::int,$10::numeric,$11,$12::jsonb,$13::uuid)
+     ON CONFLICT (tenant_id,event_type,command_key_sha256) DO NOTHING`,
+    authority.tenantId, authority.facilityId, authority.orderId, admissionId,
+    authority.orderVersion, authority.orderItemsSha256, Number(invoice.id), Number(line.id),
+    claim == null ? null : Number(claim.id), authority.authoritativeAmount,
+    lineEventCommand, JSON.stringify({ authority_changed: Boolean(authorityChanged) }),
+    authority.actorUid,
+  );
+
+  const allocations = await loadPharmacyPaymentAllocationsTx(tx, {
+    tenantId: authority.tenantId,
+    invoiceId: Number(invoice.id),
+    invoiceItemId: Number(line.id),
+    orderId: authority.orderId,
+    orderVersion: authority.orderVersion,
+    orderItemsSha256: authority.orderItemsSha256,
+    patientUid: authority.patientUid,
+  });
+  let decision = null;
+  if (claim) {
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT * FROM tpa_claim_line_decisions
+        WHERE tenant_id=$1::uuid AND claim_id=$2::int AND invoice_item_id=$3::int
+          AND invalidated_at IS NULL AND source_authority_version=$4::int
+          AND source_authority_sha256=$5
+        FOR UPDATE`,
+      authority.tenantId, Number(claim.id), Number(line.id),
+      authority.orderVersion, authority.orderItemsSha256,
+    );
+    decision = rows[0] || null;
+  }
+  const decisionRecorded = tpaMode && claim
+    && ['approved', 'partially_approved', 'paid'].includes(claim.status)
+    && decision;
+  const approvedTpaAmount = decisionRecorded
+    ? Math.max(0, toFixed2(Number(decision.approved_amount || 0)))
+    : 0;
+  const totalAuthority = toFixed2(approvedTpaAmount + allocations.amount);
+  const outstanding = Math.max(
+    0,
+    toFixed2(authority.authoritativeAmount - totalAuthority),
+  );
+  let task = null;
+  if (tpaMode && !decisionRecorded) {
+    const stage = !claim
+      ? 'claim_selection'
+      : !['approved', 'partially_approved', 'paid'].includes(claim.status)
+        ? 'claim_approval'
+        : 'line_decision';
+    task = await upsertPharmacyFundingTaskTx(tx, {
+      authority, invoiceId: Number(invoice.id), invoiceItemId: Number(line.id),
+      admissionId, taskType: 'tpa_line_decision', stage,
+      assignedRole: 'INSURANCE_COORDINATOR',
+      tpaClaimId: claim == null ? null : Number(claim.id),
+      amountOutstanding: authority.authoritativeAmount,
+    });
+  } else if (outstanding > 0.001) {
+    task = await upsertPharmacyFundingTaskTx(tx, {
+      authority, invoiceId: Number(invoice.id), invoiceItemId: Number(line.id),
+      admissionId, taskType: 'posted_payment',
+      stage: tpaMode ? 'patient_responsibility_payment' : 'payment_posting',
+      assignedRole: 'FINANCE_INCHARGE',
+      tpaClaimId: claim == null ? null : Number(claim.id),
+      amountOutstanding: outstanding,
+    });
+  }
+  const status = (tpaMode ? decisionRecorded : true) && outstanding <= 0.001
+    ? 'ready'
+    : 'blocked';
+  return {
+    status,
+    admissionId,
+    invoiceId: Number(invoice.id),
+    invoiceItemId: Number(line.id),
+    tpaClaimId: claim == null ? null : Number(claim.id),
+    task,
+    decision,
+    claimStatus: claim?.status ?? null,
+    approvedTpaAmount,
+    allocatedPaymentAmount: allocations.amount,
+    paymentAllocations: allocations.rows,
+    postedPayments: allocations.rows,
+    fundingRecovery: status === 'blocked' ? {
+      task_id: task?.id == null ? null : String(task.id),
+      status: String(task?.status || 'open').toLowerCase(),
+      task_type: task?.metadata?.task_type ?? (tpaMode ? 'tpa_line_decision' : 'posted_payment'),
+      owner_role: task?.assigned_to_role ?? (tpaMode ? 'INSURANCE_COORDINATOR' : 'FINANCE_INCHARGE'),
+      pharmacy_order_id: authority.orderId,
+      invoice_id: Number(invoice.id),
+      invoice_item_id: Number(line.id),
+      tpa_claim_id: claim == null ? null : Number(claim.id),
+      order_version: authority.orderVersion,
+      order_items_sha256: authority.orderItemsSha256,
+      amount_outstanding: outstanding,
+      deep_link: pharmacyFundingDeepLink({
+        orderId: authority.orderId,
+        invoiceItemId: Number(line.id),
+        tpaClaimId: claim == null ? null : Number(claim.id),
+      }),
+    } : null,
+    authority,
+  };
+}
+
+export async function materializePharmacyFundingAuthority({
+  tenantId,
+  orderId,
+  actorUid,
+  actorRole = null,
+  tpaClaimId = null,
+}) {
+  const tid = requireTenantId(tenantId);
+  const exactOrderId = Number(orderId);
+  if (!Number.isInteger(exactOrderId) || exactOrderId <= 0 || !String(actorUid || '').trim()) {
+    throw AppError.badRequest(
+      'An exact pharmacy order and authenticated actor are required',
+      'PHARMACY_FUNDING_MATERIALIZATION_AUTHORITY_REQUIRED',
+    );
+  }
+  return setTenantTx(tid, async (tx) => {
+    const orderRows = await tx.$queryRawUnsafe(
+      `SELECT pharmacy_order.id,pharmacy_order.patient_id,pharmacy_order.facility_id,
+              pharmacy_order.total_amount,pharmacy_order.inventory_authority_version,
+              pharmacy_order.items_list,pharmacy_order.payment_mode,
+              pharmacy_order.payment_metadata,patient.uid AS patient_uid
+         FROM pharmacy_orders pharmacy_order
+         JOIN users patient
+           ON patient.tenant_id=pharmacy_order.tenant_id
+          AND patient.id=pharmacy_order.patient_id
+          AND patient.role='PATIENT' AND patient.is_active=TRUE
+          AND patient.status='active' AND patient.is_deleted=FALSE
+          AND patient.merged_into_uid IS NULL
+        WHERE pharmacy_order.tenant_id=$1::uuid AND pharmacy_order.id=$2::int
+          AND (pharmacy_order.uid IS NULL OR pharmacy_order.uid=patient.uid)`,
+      tid,
+      exactOrderId,
+    );
+    if (orderRows.length !== 1) throw AppError.notFound('Pharmacy order not found');
+    const order = orderRows[0];
+    const paymentMode = String(
+      order.payment_mode || order.payment_metadata?.payment_mode || '',
+    ).trim().toLowerCase();
+    return resolvePostedPharmacyFundingTx(tx, {
+      tenantId: tid,
+      facilityId: Number(order.facility_id),
+      orderId: exactOrderId,
+      patientId: Number(order.patient_id),
+      patientUid: String(order.patient_uid),
+      authoritativeAmount: Number(order.total_amount || 0),
+      orderVersion: Number(order.inventory_authority_version),
+      orderItemsSha256: clinicalOrderItemsSha256(order.items_list),
+      paymentMode,
+      tpaClaimId,
+      tpaReference: order.payment_metadata?.tpa_reference,
+      actorUid: String(actorUid),
+      actorRole,
+    });
+  });
+}
+
+export async function resolvePostedPharmacyFundingTx(tx, rawArgs) {
+  const result = await materializePharmacyFundingTaskTx(tx, rawArgs);
+  const authority = result.authority;
+  if (['invalidated', 'closed'].includes(result.status)) {
+    return {
+      status: result.status,
+      collectedAmount: 0,
+      fundedAmount: 0,
+      fundingSource: null,
+      fundingReference: null,
+      fundingTpaClaimId: null,
+      invoiceId: null,
+      invoiceItemId: null,
+      paymentIds: [],
+      task: null,
+      fundingRecovery: null,
+      authorityEvidence: null,
+    };
+  }
+  const allocations = await loadPharmacyPaymentAllocationsTx(tx, {
+    tenantId: authority.tenantId,
+    invoiceId: result.invoiceId,
+    invoiceItemId: result.invoiceItemId,
+    orderId: authority.orderId,
+    orderVersion: authority.orderVersion,
+    orderItemsSha256: authority.orderItemsSha256,
+    patientUid: authority.patientUid,
+  });
+  const tpaMode = PHARMACY_TPA_PAYMENT_MODES.has(authority.paymentMode);
+  const decisionAmount = tpaMode ? Number(result.approvedTpaAmount || 0) : 0;
+  const totalAuthority = toFixed2(decisionAmount + allocations.amount);
+  const funded = result.status === 'ready'
+    && totalAuthority + 0.001 >= authority.authoritativeAmount;
+  if (!funded) {
+    return {
+      status: 'blocked',
+      collectedAmount: allocations.amount,
+      fundedAmount: 0,
+      fundingSource: null,
+      fundingReference: null,
+      fundingTpaClaimId: result.tpaClaimId,
+      invoiceId: result.invoiceId,
+      invoiceItemId: result.invoiceItemId,
+      paymentIds: allocations.rows.map((row) => Number(row.payment_id)),
+      task: result.task,
+      fundingRecovery: result.fundingRecovery,
+      authorityEvidence: null,
+    };
+  }
+  const paymentIds = allocations.rows.map((row) => Number(row.payment_id));
+  const fundingSource = tpaMode && allocations.amount > 0.001
+    ? 'mixed'
+    : tpaMode ? 'tpa_claim' : 'billing_payment';
+  const fundingReference = [
+    tpaMode ? `tpa:${result.tpaClaimId}` : null,
+    paymentIds.length ? `payments:${paymentIds.join(',')}` : null,
+  ].filter(Boolean).join(';');
+  const evidence = {
+    contract: 'pharmacy_funding_authority_v1',
+    pharmacy_order_id: authority.orderId,
+    invoice_id: result.invoiceId,
+    invoice_item_id: result.invoiceItemId,
+    tpa_claim_id: result.tpaClaimId,
+    payment_ids: paymentIds,
+    payment_allocation_ids: allocations.rows.map((row) => Number(row.allocation_id)),
+    order_version: authority.orderVersion,
+    order_items_sha256: authority.orderItemsSha256,
+    authoritative_amount: authority.authoritativeAmount,
+    allocated_payment_amount: allocations.amount,
+    approved_tpa_amount: tpaMode ? decisionAmount : 0,
+    combined_authority_amount: totalAuthority,
+  };
+  const task = await completePharmacyFundingTaskTx(tx, {
+    tenantId: authority.tenantId,
+    taskType: 'posted_payment',
+    orderId: authority.orderId,
+    evidence,
+  });
+  const authorityEvent = await appendPharmacyFundingAuthorityStateTx(tx, {
+    authority,
+    eventType: 'FUNDING_RESOLVED',
+    admissionId: result.admissionId,
+    invoiceId: result.invoiceId,
+    invoiceItemId: result.invoiceItemId,
+    tpaClaimId: result.tpaClaimId,
+    billingPaymentId: allocations.rows.length === 1
+      ? Number(allocations.rows[0].payment_id) : null,
+    taskId: task?.id ?? null,
+    amount: authority.authoritativeAmount,
+    evidence,
+  });
+  return {
+    status: 'funded',
+    collectedAmount: allocations.amount,
+    fundedAmount: authority.authoritativeAmount,
+    fundingSource,
+    fundingReference,
+    fundingTpaClaimId: result.tpaClaimId,
+    invoiceId: result.invoiceId,
+    invoiceItemId: result.invoiceItemId,
+    paymentIds,
+    task,
+    fundingRecovery: null,
+    authorityEvidence: authorityEvent.evidence,
+  };
+}
+
+export async function retryPharmacyFundingTask({
+  tenantId,
+  taskId,
+  actorUid,
+  paymentId = null,
+  commandKeySha256,
+}) {
+  const tid = requireTenantId(tenantId);
+  const command = String(commandKeySha256 || '').trim().toLowerCase();
+  if (!SHA256_PATTERN.test(command)) {
+    throw AppError.badRequest(
+      'A durable retry command identity is required',
+      'PHARMACY_FUNDING_RETRY_COMMAND_REQUIRED',
+    );
+  }
+  return setTenantTx(tid, async (tx) => {
+    const taskPreRead = await tx.$queryRawUnsafe(
+      `SELECT *
+         FROM tasks
+        WHERE tenant_id=$1::uuid AND id=$2::int
+          AND related_resource_type='pharmacy_posted_payment'`,
+      tid, Number(taskId),
+    );
+    if (!taskPreRead.length) throw AppError.notFound('Posted-payment recovery task not found');
+    const orderId = Number(taskPreRead[0].related_resource_id);
+    const patientUid = await resolvePharmacyFundingPatientUidTx(tx, {
+      tenantId: tid,
+      orderId,
+    });
+    await lockPharmacyFundingAuthorityTx(tx, { tenantId: tid, patientUid });
+    const orderRows = await tx.$queryRawUnsafe(
+      `SELECT po.id,po.patient_id,po.facility_id,po.payment_mode,po.payment_metadata,
+              po.total_amount,po.inventory_authority_version,po.items_list,po.status,
+              po.funding_admission_id,po.funding_admission_order_version,
+              po.funding_admission_items_sha256,
+              patient.uid AS patient_uid
+         FROM pharmacy_orders po
+         JOIN users patient
+           ON patient.tenant_id=po.tenant_id AND patient.id=po.patient_id
+          AND patient.role='PATIENT' AND patient.is_active=TRUE
+          AND patient.status='active' AND patient.is_deleted=FALSE
+          AND patient.merged_into_uid IS NULL
+        WHERE po.tenant_id=$1::uuid AND po.id=$2::int
+        FOR UPDATE OF po`,
+      tid,
+      orderId,
+    );
+    if (!orderRows.length) throw AppError.notFound('Pharmacy order not found');
+    const order = orderRows[0];
+    if (String(order.patient_uid) !== patientUid) {
+      throw AppError.conflict(
+        'The pharmacy order patient changed while retry authority was acquired',
+        'PHARMACY_FUNDING_PATIENT_IDENTITY_MISMATCH',
+      );
+    }
+    const taskSnapshot = taskPreRead[0];
+    if (taskSnapshot.assigned_to_role !== 'FINANCE_INCHARGE'
+        || taskSnapshot.metadata?.contract !== 'pharmacy_funding_task_v1'
+        || taskSnapshot.metadata?.task_type !== 'posted_payment') {
+      throw AppError.conflict(
+        'The task is not an exact finance-owned posted-payment recovery',
+        'PHARMACY_PAYMENT_TASK_AUTHORITY_MISMATCH',
+      );
+    }
+    const durablePaymentMode = String(
+      order.payment_mode || order.payment_metadata?.payment_mode || '',
+    ).trim().toLowerCase();
+    const canonicalItemsSha256 = clinicalOrderItemsSha256(order.items_list);
+    if (Number(taskSnapshot.metadata?.pharmacy_order_id) !== Number(order.id)
+        || Number(taskSnapshot.metadata?.authoritative_amount) !== Number(order.total_amount)
+        || Number(taskSnapshot.metadata?.order_version) !== Number(order.inventory_authority_version)
+        || String(taskSnapshot.metadata?.order_items_sha256) !== canonicalItemsSha256
+        || !durablePaymentMode) {
+      throw AppError.conflict(
+        'The payment recovery task is stale relative to the authoritative order',
+        'PHARMACY_PAYMENT_TASK_AUTHORITY_STALE',
+      );
+    }
+    const authority = normalizePharmacyFundingAuthority({
+      tenantId: tid,
+      facilityId: Number(order.facility_id),
+      orderId: Number(order.id),
+      patientId: Number(order.patient_id),
+      patientUid: String(order.patient_uid),
+      authoritativeAmount: Number(taskSnapshot.metadata.authoritative_amount),
+      orderVersion: Number(taskSnapshot.metadata.order_version),
+      orderItemsSha256: String(taskSnapshot.metadata.order_items_sha256),
+      paymentMode: durablePaymentMode,
+      tpaClaimId: taskSnapshot.metadata.tpa_claim_id,
+      paymentId,
+      actorUid: String(actorUid),
+    });
+    const taskAdmissionId = taskSnapshot.metadata.admission_id == null
+      ? null
+      : Number(taskSnapshot.metadata.admission_id);
+    const boundAdmissionId = order.funding_admission_id == null
+      ? null
+      : Number(order.funding_admission_id);
+    if (taskAdmissionId !== boundAdmissionId
+        || (boundAdmissionId != null
+          && (Number(order.funding_admission_order_version) !== authority.orderVersion
+            || String(order.funding_admission_items_sha256) !== authority.orderItemsSha256))) {
+      throw AppError.conflict(
+        'The payment recovery task no longer matches the governed order admission binding',
+        'PHARMACY_PAYMENT_TASK_AUTHORITY_STALE',
+      );
+    }
+    if (taskAdmissionId != null) {
+      await lockPharmacyFundingAdmissionTx(tx, {
+        tenantId: tid,
+        admissionId: taskAdmissionId,
+        patientUid,
+      });
+    }
+    const lineRows = await tx.$queryRawUnsafe(
+      `SELECT item.id AS invoice_item_id,item.invoice_id,item.line_total,
+              invoice.status AS invoice_status
+         FROM billing_invoices invoice
+         JOIN billing_invoice_items item
+           ON item.tenant_id=invoice.tenant_id AND item.invoice_id=invoice.id
+        WHERE invoice.tenant_id=$1::uuid AND invoice.id=$2::int
+          AND invoice.patient_uid=$3::uuid
+          AND invoice.admission_id IS NOT DISTINCT FROM $4::int
+          AND item.id=$5::int AND item.source_ref_type='pharmacy_order'
+          AND item.source_ref_id=$6::bigint AND item.source_ref_active=TRUE
+          AND item.source_authority_version=$7::int
+          AND item.source_authority_sha256=$8
+        FOR UPDATE OF invoice,item`,
+      tid,
+      Number(taskSnapshot.metadata.invoice_id),
+      patientUid,
+      taskAdmissionId,
+      Number(taskSnapshot.metadata.invoice_item_id),
+      orderId,
+      authority.orderVersion,
+      authority.orderItemsSha256,
+    );
+    if (lineRows.length !== 1
+        || lineRows[0].invoice_status !== 'DRAFT'
+        || Math.abs(Number(lineRows[0].line_total) - authority.authoritativeAmount) > 0.001) {
+      throw AppError.conflict(
+        'The payment recovery task no longer owns the exact editable pharmacy invoice line',
+        'PHARMACY_PAYMENT_TASK_AUTHORITY_STALE',
+      );
+    }
+    if (taskSnapshot.metadata.tpa_claim_id != null) {
+      const claimRows = await tx.$queryRawUnsafe(
+        `SELECT id FROM tpa_claims
+          WHERE tenant_id=$1::uuid AND id=$2::int AND patient_uid=$3::uuid
+            AND admission_id=$4::int AND invoice_id=$5::int
+          FOR UPDATE`,
+        tid,
+        Number(taskSnapshot.metadata.tpa_claim_id),
+        patientUid,
+        taskAdmissionId,
+        Number(taskSnapshot.metadata.invoice_id),
+      );
+      if (claimRows.length !== 1) {
+        throw AppError.conflict(
+          'The payment recovery task no longer matches the exact TPA claim authority',
+          'PHARMACY_PAYMENT_TASK_AUTHORITY_STALE',
+        );
+      }
+    }
+    const taskRows = await tx.$queryRawUnsafe(
+      `SELECT * FROM tasks
+        WHERE tenant_id=$1::uuid AND id=$2::int
+          AND related_resource_type='pharmacy_posted_payment'
+          AND related_resource_id=$3
+        FOR UPDATE`,
+      tid, Number(taskId), String(orderId),
+    );
+    if (!taskRows.length) throw AppError.notFound('Posted-payment recovery task not found');
+    const task = taskRows[0];
+    if (task.assigned_to_role !== 'FINANCE_INCHARGE'
+        || task.metadata?.contract !== 'pharmacy_funding_task_v1'
+        || task.metadata?.task_type !== 'posted_payment'
+        || Number(task.metadata?.invoice_id) !== Number(taskSnapshot.metadata.invoice_id)
+        || Number(task.metadata?.invoice_item_id) !== Number(taskSnapshot.metadata.invoice_item_id)
+        || (task.metadata?.tpa_claim_id == null ? null : Number(task.metadata.tpa_claim_id))
+          !== (taskSnapshot.metadata.tpa_claim_id == null
+            ? null
+            : Number(taskSnapshot.metadata.tpa_claim_id))
+        || Number(task.metadata?.order_version) !== authority.orderVersion
+        || String(task.metadata?.order_items_sha256) !== authority.orderItemsSha256) {
+      throw AppError.conflict(
+        'The task is not the exact finance-owned posted-payment recovery authority',
+        'PHARMACY_PAYMENT_TASK_AUTHORITY_MISMATCH',
+      );
+    }
+    await assertPharmacyFundingActorTx(tx, authority, new Set([
+      'FINANCE_INCHARGE', 'BILLING_INCHARGE', 'ADMIN', 'SUPER_ADMIN',
+    ]));
+    const requestSha256 = pharmacyFundingHash('POSTED_PAYMENT_RETRY_REQUEST', {
+      task_id: Number(taskId),
+      order_id: authority.orderId,
+      invoice_item_id: Number(task.metadata.invoice_item_id),
+      payment_id: paymentId == null ? null : Number(paymentId),
+      order_version: authority.orderVersion,
+      order_items_sha256: authority.orderItemsSha256,
+      actor_uid: authority.actorUid,
+    });
+    const receipt = await claimPharmacyFundingCommandTx(tx, {
+      authority,
+      commandKeySha256: command,
+      commandType: 'POSTED_PAYMENT_RETRY',
+      task,
+      invoiceItemId: Number(task.metadata.invoice_item_id),
+      tpaClaimId: task.metadata.tpa_claim_id,
+      requestSha256,
+    });
+    if (receipt.status === 'COMPLETE') {
+      return { ...receipt.response_body, replayed: true };
+    }
+    if (!['open', 'in_progress', 'blocked', 'overdue'].includes(task.status)) {
+      throw AppError.conflict(
+        'The posted-payment recovery task is no longer actionable',
+        'PHARMACY_PAYMENT_TASK_ALREADY_COMPLETED',
+      );
+    }
+    const materialized = await materializePharmacyFundingTaskTx(tx, authority);
+    if (['invalidated', 'closed'].includes(materialized.status)) {
+      const response = {
+        status: materialized.status,
+        collectedAmount: 0,
+        fundedAmount: 0,
+        fundingSource: null,
+        fundingReference: null,
+        fundingTpaClaimId: null,
+        invoiceId: null,
+        invoiceItemId: null,
+        paymentIds: [],
+        task: null,
+        fundingRecovery: null,
+        authorityEvidence: null,
+        invalidatedAuthority: materialized.invalidatedAuthority,
+        replayed: false,
+        retryCommandSha256: command,
+        requestSha256,
+      };
+      await completePharmacyFundingCommandTx(tx, {
+        tenantId: tid,
+        commandKeySha256: command,
+        responseBody: response,
+      });
+      return response;
+    }
+    if (Number(materialized.invoiceItemId) !== Number(task.metadata.invoice_item_id)
+        || (materialized.task && Number(materialized.task.id) !== Number(task.id))) {
+      throw AppError.conflict(
+        'The retry task no longer owns the exact draft invoice line',
+        'PHARMACY_PAYMENT_TASK_AUTHORITY_STALE',
+      );
+    }
+    const amountRequired = PHARMACY_TPA_PAYMENT_MODES.has(authority.paymentMode)
+      ? Math.max(0, toFixed2(authority.authoritativeAmount - materialized.approvedTpaAmount))
+      : authority.authoritativeAmount;
+    await allocatePostedPharmacyPaymentsTx(tx, {
+      authority,
+      invoiceId: materialized.invoiceId,
+      invoiceItemId: materialized.invoiceItemId,
+      amountRequired,
+      paymentId,
+      commandKeySha256: command,
+    });
+    const result = await resolvePostedPharmacyFundingTx(tx, authority);
+    const response = {
+      ...result,
+      replayed: false,
+      retryCommandSha256: command,
+      requestSha256,
+    };
+    await completePharmacyFundingCommandTx(tx, {
+      tenantId: tid,
+      commandKeySha256: command,
+      responseBody: response,
+    });
+    return response;
+  });
+}
+
+export async function getPharmacyFundingRecovery({
+  tenantId,
+  orderId,
+  invoiceItemId,
+  tpaClaimId = null,
+}) {
+  const tid = requireTenantId(tenantId);
+  return setTenantTx(tid, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT task.id AS task_id,task.status AS task_status,
+              task.assigned_to_role,task.related_resource_type,task.metadata,
+              item.id AS invoice_item_id,item.invoice_id,item.line_total,
+              invoice.patient_uid,invoice.status AS invoice_status,
+              item.source_authority_version,item.source_authority_sha256,
+              pharmacy_order.inventory_authority_version AS order_version,
+              pharmacy_order.items_list AS order_items_list,
+              pharmacy_order.funding_admission_id,
+              claim.id AS authoritative_claim_id,
+              decision.id AS decision_id,decision.claim_id,
+              decision.approved_amount,decision.non_payable_amount,
+              decision.reason_code,decision.reason_text,decision.recorded_at
+         FROM billing_invoice_items item
+         JOIN billing_invoices invoice
+           ON invoice.tenant_id=item.tenant_id AND invoice.id=item.invoice_id
+         JOIN pharmacy_orders pharmacy_order
+           ON pharmacy_order.tenant_id=item.tenant_id
+          AND pharmacy_order.id=$2::int
+          AND item.source_ref_id=pharmacy_order.id::bigint
+         JOIN users patient
+           ON patient.tenant_id=invoice.tenant_id AND patient.uid=invoice.patient_uid
+          AND patient.id=pharmacy_order.patient_id
+          AND (pharmacy_order.uid IS NULL OR pharmacy_order.uid=patient.uid)
+          AND patient.role='PATIENT' AND patient.is_active=TRUE
+          AND patient.status='active' AND patient.is_deleted=FALSE
+          AND patient.merged_into_uid IS NULL
+         LEFT JOIN tpa_claims claim
+           ON claim.tenant_id=item.tenant_id AND claim.id=$4::int
+          AND claim.invoice_id=invoice.id
+          AND claim.patient_uid=invoice.patient_uid
+          AND claim.admission_id=invoice.admission_id
+         LEFT JOIN tasks task
+           ON task.tenant_id=item.tenant_id
+          AND task.related_resource_id=$2
+          AND task.related_resource_type IN ('pharmacy_tpa_line_decision','pharmacy_posted_payment')
+          AND task.status IN (${ACTIVE_TASK_STATUSES})
+         LEFT JOIN tpa_claim_line_decisions decision
+           ON decision.tenant_id=item.tenant_id AND decision.invoice_item_id=item.id
+          AND decision.invalidated_at IS NULL
+          AND ($4::int IS NULL OR decision.claim_id=$4::int)
+        WHERE item.tenant_id=$1::uuid AND item.id=$3::int
+          AND item.source_ref_type='pharmacy_order' AND item.source_ref_id=$2::bigint
+          AND item.source_ref_active=TRUE
+          AND item.source_authority_version=pharmacy_order.inventory_authority_version
+          AND (
+            (pharmacy_order.funding_admission_id IS NULL AND invoice.admission_id IS NULL
+             AND $4::int IS NULL)
+            OR
+            (pharmacy_order.funding_admission_id=invoice.admission_id
+             AND pharmacy_order.funding_admission_order_version=pharmacy_order.inventory_authority_version
+             AND pharmacy_order.funding_admission_items_sha256=item.source_authority_sha256)
+          )
+          AND ($4::int IS NULL OR claim.id IS NOT NULL)
+        ORDER BY task.id DESC NULLS LAST
+        LIMIT 1`,
+      tid,
+      String(Number(orderId)),
+      Number(invoiceItemId),
+      tpaClaimId == null ? null : Number(tpaClaimId),
+    );
+    if (!rows.length
+        || String(rows[0].source_authority_sha256 || '')
+          !== clinicalOrderItemsSha256(rows[0].order_items_list)) {
+      throw AppError.notFound('Pharmacy funding recovery not found');
+    }
+    return rows[0];
+  });
+}
+
+export async function getPharmacyFundingReconciliationCase({ tenantId, caseId }) {
+  const tid = requireTenantId(tenantId);
+  const reconciliationId = Number(caseId);
+  if (!Number.isInteger(reconciliationId) || reconciliationId <= 0) {
+    throw AppError.badRequest(
+      'A positive pharmacy funding reconciliation case id is required',
+      'PHARMACY_FUNDING_RECONCILIATION_CASE_REQUIRED',
+    );
+  }
+  return setTenantTx(tid, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT reconciliation.*,task.status AS task_status,
+              task.assigned_to_role,task.metadata AS task_metadata,
+              current_snapshot.snapshot AS current_snapshot,
+              current_snapshot.snapshot_sha256 AS current_snapshot_sha256,
+              current_snapshot.active_line_count
+         FROM pharmacy_funding_reconciliation_cases reconciliation
+         JOIN tasks task
+           ON task.tenant_id=reconciliation.tenant_id
+          AND task.id=reconciliation.task_id
+          AND task.related_resource_type=reconciliation.task_resource_type
+          AND task.related_resource_id=reconciliation.task_resource_id
+         CROSS JOIN LATERAL public.pharmacy_funding_duplicate_line_snapshot_753(
+           reconciliation.tenant_id,reconciliation.pharmacy_order_id
+         ) current_snapshot
+        WHERE reconciliation.tenant_id=$1::uuid AND reconciliation.id=$2::bigint`,
+      tid,
+      reconciliationId,
+    );
+    if (!rows.length) throw AppError.notFound('Pharmacy funding reconciliation case not found');
+    return rows[0];
+  });
+}
+
+function exactDuplicateLineResolutionState(snapshot, keeperInvoiceItemId) {
+  const lines = Array.isArray(snapshot?.lines) ? snapshot.lines : [];
+  const activeLines = lines.filter((line) => line.source_ref_active === true);
+  const keeper = activeLines.find(
+    (line) => Number(line.invoice_item_id) === Number(keeperInvoiceItemId),
+  );
+  const hasPostedPayments = lines.some(
+    (line) => Array.isArray(line.payments) && line.payments.some(
+      (payment) => payment.reversed !== true && Number(payment.amount || 0) > 0.001,
+    ),
+  );
+  const hasAllocations = lines.some(
+    (line) => Array.isArray(line.allocations) && line.allocations.some(
+      (allocation) => (
+        Number(allocation.allocated_amount || 0) - Number(allocation.reversed_amount || 0) > 0.001
+      )),
+  );
+  const allDraft = lines.every((line) => line.invoice_status === 'DRAFT');
+  const sameInvoice = new Set(activeLines.map((line) => Number(line.invoice_id))).size === 1;
+  const comparable = (line) => JSON.stringify({
+    description: line.description,
+    category: line.category,
+    quantity: String(line.quantity),
+    unit_price: String(line.unit_price),
+    line_total: String(line.line_total),
+    source_authority_version: line.source_authority_version == null
+      ? null : Number(line.source_authority_version),
+    source_authority_sha256: line.source_authority_sha256 || null,
+  });
+  const identical = activeLines.length > 1
+    && new Set(activeLines.map(comparable)).size === 1;
+  return {
+    lines,
+    activeLines,
+    keeper,
+    hasPostedPayments,
+    hasAllocations,
+    allDraft,
+    sameInvoice,
+    identical,
+  };
+}
+
+async function claimPharmacyFundingReconciliationEventTx(tx, {
+  tenantId,
+  caseId,
+  pharmacyOrderId,
+  eventType,
+  snapshotSha256,
+  proposalSha256,
+  commandKeySha256,
+  requestSha256,
+  actorUid,
+  evidence,
+}) {
+  await tx.$executeRawUnsafe(
+    `INSERT INTO pharmacy_funding_reconciliation_events
+      (tenant_id,case_id,pharmacy_order_id,event_type,snapshot_sha256,
+       proposal_sha256,command_key_sha256,request_sha256,actor_uid,evidence)
+     VALUES ($1::uuid,$2::bigint,$3::int,$4,$5,$6,$7,$8,$9::uuid,$10::jsonb)
+     ON CONFLICT (tenant_id,command_key_sha256) DO NOTHING`,
+    tenantId, Number(caseId), Number(pharmacyOrderId), eventType,
+    snapshotSha256, proposalSha256, commandKeySha256, requestSha256,
+    actorUid, JSON.stringify(evidence),
+  );
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT * FROM pharmacy_funding_reconciliation_events
+      WHERE tenant_id=$1::uuid AND command_key_sha256=$2
+      FOR UPDATE`,
+    tenantId,
+    commandKeySha256,
+  );
+  const receipt = rows[0];
+  if (!receipt
+      || Number(receipt.case_id) !== Number(caseId)
+      || Number(receipt.pharmacy_order_id) !== Number(pharmacyOrderId)
+      || receipt.event_type !== eventType
+      || String(receipt.snapshot_sha256) !== snapshotSha256
+      || (receipt.proposal_sha256 == null ? null : String(receipt.proposal_sha256))
+        !== (proposalSha256 == null ? null : proposalSha256)
+      || receipt.request_sha256 !== requestSha256
+      || String(receipt.actor_uid) !== actorUid) {
+    throw AppError.unprocessable(
+      'The reconciliation command is already bound to different evidence or actor',
+      'PHARMACY_FUNDING_RECONCILIATION_COMMAND_MISMATCH',
+    );
+  }
+  return receipt;
+}
+
+export async function recordPharmacyFundingReconciliationDecision({
+  tenantId,
+  caseId,
+  keeperInvoiceItemId,
+  resolutionPath,
+  expectedSnapshotSha256,
+  actorUid,
+  commandKeySha256,
+}) {
+  const tid = requireTenantId(tenantId);
+  const reconciliationId = Number(caseId);
+  const keeperId = Number(keeperInvoiceItemId);
+  const path = String(resolutionPath || '').trim().toUpperCase();
+  const expectedHash = String(expectedSnapshotSha256 || '').trim().toLowerCase();
+  const command = String(commandKeySha256 || '').trim().toLowerCase();
+  const actor = String(actorUid || '').trim();
+  if (!Number.isInteger(reconciliationId) || reconciliationId <= 0
+      || !Number.isInteger(keeperId) || keeperId <= 0
+      || !PHARMACY_RECONCILIATION_PATHS.has(path)
+      || !SHA256_PATTERN.test(expectedHash) || !SHA256_PATTERN.test(command) || !actor) {
+    throw AppError.badRequest(
+      'Exact reconciliation case, keeper, path, snapshot, actor, and command are required',
+      'PHARMACY_FUNDING_RECONCILIATION_DECISION_INVALID',
+    );
+  }
+  return setTenantTx(tid, async (tx) => {
+    const preRead = await tx.$queryRawUnsafe(
+      `SELECT reconciliation.pharmacy_order_id,reconciliation.patient_uid
+         FROM pharmacy_funding_reconciliation_cases reconciliation
+        WHERE reconciliation.tenant_id=$1::uuid AND reconciliation.id=$2::bigint`,
+      tid,
+      reconciliationId,
+    );
+    if (!preRead.length) throw AppError.notFound('Pharmacy funding reconciliation case not found');
+    const patientUid = await resolvePharmacyFundingPatientUidTx(tx, {
+      tenantId: tid,
+      orderId: Number(preRead[0].pharmacy_order_id),
+      patientUid: String(preRead[0].patient_uid),
+    });
+    await lockPharmacyFundingAuthorityTx(tx, { tenantId: tid, patientUid });
+    const orderRows = await tx.$queryRawUnsafe(
+      `SELECT pharmacy_order.*
+         FROM pharmacy_orders pharmacy_order
+         JOIN users patient
+           ON patient.tenant_id=pharmacy_order.tenant_id
+          AND patient.id=pharmacy_order.patient_id AND patient.uid=$3::uuid
+          AND patient.role='PATIENT' AND patient.is_active=TRUE
+          AND patient.status='active' AND patient.is_deleted=FALSE
+          AND patient.merged_into_uid IS NULL
+        WHERE pharmacy_order.tenant_id=$1::uuid AND pharmacy_order.id=$2::int
+        FOR UPDATE OF pharmacy_order`,
+      tid,
+      Number(preRead[0].pharmacy_order_id),
+      patientUid,
+    );
+    if (!orderRows.length) {
+      throw AppError.conflict(
+        'The reconciliation order no longer belongs to its active tenant patient',
+        'PHARMACY_FUNDING_RECONCILIATION_AUTHORITY_STALE',
+      );
+    }
+    const order = orderRows[0];
+    if (order.funding_admission_id != null) {
+      await lockPharmacyFundingAdmissionTx(tx, {
+        tenantId: tid,
+        admissionId: Number(order.funding_admission_id),
+        patientUid,
+      });
+    }
+    const lineRows = await tx.$queryRawUnsafe(
+      `SELECT item.id,item.invoice_id,item.quantity,item.unit_price,
+              item.line_subtotal,item.cgst_amount,item.sgst_amount,
+              item.igst_amount,item.line_total,item.source_ref_active,
+              invoice.status AS invoice_status
+         FROM billing_invoice_items item
+         JOIN billing_invoices invoice
+           ON invoice.tenant_id=item.tenant_id AND invoice.id=item.invoice_id
+        WHERE item.tenant_id=$1::uuid AND item.source_ref_type='pharmacy_order'
+          AND item.source_ref_id=$2::bigint
+        ORDER BY item.id
+        FOR UPDATE OF invoice,item`,
+      tid,
+      Number(order.id),
+    );
+    const invoiceIds = [...new Set(lineRows.map((line) => Number(line.invoice_id)))];
+    if (invoiceIds.length) {
+      await tx.$queryRawUnsafe(
+        `SELECT id FROM billing_payments
+          WHERE tenant_id=$1::uuid AND invoice_id=ANY($2::int[])
+          ORDER BY id FOR UPDATE`,
+        tid,
+        invoiceIds,
+      );
+      await tx.$queryRawUnsafe(
+        `SELECT id FROM pharmacy_payment_allocations
+          WHERE tenant_id=$1::uuid AND invoice_item_id=ANY($2::int[])
+          ORDER BY id FOR UPDATE`,
+        tid,
+        lineRows.map((line) => Number(line.id)),
+      );
+    }
+    const caseRows = await tx.$queryRawUnsafe(
+      `SELECT reconciliation.*,task.status AS task_status,
+              task.assigned_to_role,task.metadata AS task_metadata
+         FROM pharmacy_funding_reconciliation_cases reconciliation
+         JOIN tasks task
+           ON task.tenant_id=reconciliation.tenant_id
+          AND task.id=reconciliation.task_id
+          AND task.related_resource_type=reconciliation.task_resource_type
+          AND task.related_resource_id=reconciliation.task_resource_id
+        WHERE reconciliation.tenant_id=$1::uuid AND reconciliation.id=$2::bigint
+          AND reconciliation.pharmacy_order_id=$3::int
+        FOR UPDATE OF task,reconciliation`,
+      tid,
+      reconciliationId,
+      Number(order.id),
+    );
+    if (!caseRows.length) throw AppError.notFound('Pharmacy funding reconciliation case not found');
+    const reconciliation = caseRows[0];
+    const actorRows = await tx.$queryRawUnsafe(
+      `SELECT uid,UPPER(role) AS role FROM users
+        WHERE tenant_id=$1::uuid AND uid=$2::uuid
+          AND is_active=TRUE AND status='active' AND is_deleted=FALSE
+          AND merged_into_uid IS NULL
+        FOR KEY SHARE`,
+      tid,
+      actor,
+    );
+    if (!actorRows.length || !PHARMACY_RECONCILIATION_ROLES.has(actorRows[0].role)
+        || reconciliation.assigned_to_role !== 'FINANCE_INCHARGE') {
+      throw AppError.forbidden(
+        'Duplicate pharmacy-line reconciliation requires a finance owner',
+        'PHARMACY_FUNDING_RECONCILIATION_ACTOR_FORBIDDEN',
+      );
+    }
+    const proposalSha256 = pharmacyFundingHash('PHARMACY_FUNDING_RECONCILIATION_PROPOSAL', {
+      case_id: reconciliationId,
+      pharmacy_order_id: Number(order.id),
+      keeper_invoice_item_id: keeperId,
+      resolution_path: path,
+      snapshot_sha256: expectedHash,
+    });
+    const requestSha256 = pharmacyFundingHash('PHARMACY_FUNDING_RECONCILIATION_REQUEST', {
+      proposal_sha256: proposalSha256,
+      actor_uid: actor,
+    });
+    const existingReceipts = await tx.$queryRawUnsafe(
+      `SELECT * FROM pharmacy_funding_reconciliation_events
+        WHERE tenant_id=$1::uuid AND command_key_sha256=$2
+        FOR UPDATE`,
+      tid,
+      command,
+    );
+    if (existingReceipts.length) {
+      const receipt = existingReceipts[0];
+      if (Number(receipt.case_id) !== reconciliationId
+          || Number(receipt.pharmacy_order_id) !== Number(order.id)
+          || String(receipt.snapshot_sha256) !== expectedHash
+          || String(receipt.proposal_sha256 || '') !== proposalSha256
+          || receipt.request_sha256 !== requestSha256
+          || String(receipt.actor_uid) !== actor) {
+        throw AppError.unprocessable(
+          'The reconciliation command is already bound to a different request',
+          'PHARMACY_FUNDING_RECONCILIATION_COMMAND_MISMATCH',
+        );
+      }
+      const replayBody = reconciliation.status === 'RESOLVED' && reconciliation.outcome
+        ? reconciliation.outcome
+        : receipt.evidence?.response || reconciliation.outcome;
+      return { ...replayBody, replayed: true };
+    }
+    if (reconciliation.status === 'RESOLVED') {
+      return { ...(reconciliation.outcome || {}), status: 'resolved', replayed: true };
+    }
+    const snapshots = await tx.$queryRawUnsafe(
+      `SELECT * FROM public.pharmacy_funding_duplicate_line_snapshot_753($1::uuid,$2::int)`,
+      tid,
+      Number(order.id),
+    );
+    const current = snapshots[0];
+    if (!current || String(current.snapshot_sha256) !== expectedHash) {
+      throw AppError.conflict(
+        'Duplicate line, invoice, payment, allocation, or stock evidence changed',
+        'PHARMACY_FUNDING_RECONCILIATION_SNAPSHOT_STALE',
+        { current_snapshot_sha256: current?.snapshot_sha256 || null },
+      );
+    }
+    if (['OPEN', 'BLOCKED'].includes(reconciliation.status)) {
+      const response = {
+        status: 'pending_second_approval',
+        replayed: false,
+        caseId: reconciliationId,
+        taskId: Number(reconciliation.task_id),
+        proposalSha256,
+        snapshotSha256: expectedHash,
+        resolutionPath: path,
+        keeperInvoiceItemId: keeperId,
+      };
+      const receipt = await claimPharmacyFundingReconciliationEventTx(tx, {
+        tenantId: tid,
+        caseId: reconciliationId,
+        pharmacyOrderId: Number(order.id),
+        eventType: 'PROPOSED',
+        snapshotSha256: expectedHash,
+        proposalSha256,
+        commandKeySha256: command,
+        requestSha256,
+        actorUid: actor,
+        evidence: { contract: 'pharmacy_funding_reconciliation_proposal_v1', response },
+      });
+      if (receipt.evidence?.response?.proposalSha256 === proposalSha256
+          && String(reconciliation.proposal_sha256 || '') === proposalSha256) {
+        return { ...receipt.evidence.response, replayed: true };
+      }
+      await tx.$executeRawUnsafe(
+        `UPDATE pharmacy_funding_reconciliation_cases
+            SET status='PENDING_APPROVAL',snapshot_sha256=$3,snapshot=$4::jsonb,
+                resolution_path=$5,keeper_invoice_item_id=$6::int,
+                proposal_sha256=$7,proposed_by=$8::uuid,proposed_at=NOW(),
+                approved_by=NULL,resolved_at=NULL,outcome=NULL,updated_at=NOW()
+          WHERE tenant_id=$1::uuid AND id=$2::bigint`,
+        tid, reconciliationId, expectedHash, JSON.stringify(current.snapshot), path,
+        keeperId, proposalSha256, actor,
+      );
+      return response;
+    }
+    if (reconciliation.status !== 'PENDING_APPROVAL'
+        || String(reconciliation.proposal_sha256) !== proposalSha256
+        || reconciliation.resolution_path !== path
+        || Number(reconciliation.keeper_invoice_item_id) !== keeperId) {
+      throw AppError.conflict(
+        'The second approval does not match the exact pending proposal',
+        'PHARMACY_FUNDING_RECONCILIATION_PROPOSAL_MISMATCH',
+      );
+    }
+    if (String(reconciliation.proposed_by) === actor) {
+      throw AppError.forbidden(
+        'A distinct finance owner must approve this reconciliation proposal',
+        'PHARMACY_FUNDING_RECONCILIATION_SECOND_ACTOR_REQUIRED',
+      );
+    }
+    const state = exactDuplicateLineResolutionState(current.snapshot, keeperId);
+    const terminalStatus = String(order.status || '').toUpperCase();
+    const currentItemsSha256 = clinicalOrderItemsSha256(order.items_list);
+    const exactAdmissionId = order.funding_admission_id == null
+      ? null : Number(order.funding_admission_id);
+    const keeperMatchesCurrentAuthority = state.keeper != null
+      && String(state.keeper.patient_uid) === patientUid
+      && (state.keeper.admission_id == null ? null : Number(state.keeper.admission_id))
+        === exactAdmissionId
+      && Number(state.keeper.source_authority_version)
+        === Number(order.inventory_authority_version)
+      && String(state.keeper.source_authority_sha256 || '') === currentItemsSha256
+      && Math.abs(Number(state.keeper.line_total || 0) - Number(order.total_amount || 0)) <= 0.001
+      && Number(current.snapshot.order_version) === Number(order.inventory_authority_version)
+      && (current.snapshot.funding_admission_id == null
+        ? null : Number(current.snapshot.funding_admission_id)) === exactAdmissionId
+      && (exactAdmissionId == null
+        ? current.snapshot.funding_admission_order_version == null
+          && current.snapshot.funding_admission_items_sha256 == null
+        : Number(current.snapshot.funding_admission_order_version)
+            === Number(order.inventory_authority_version)
+          && String(current.snapshot.funding_admission_items_sha256 || '')
+            === currentItemsSha256);
+    let blockReason = null;
+    let deactivatedIds = [];
+    let voidedInvoiceIds = [];
+    let monetaryCompensations = [];
+    let recomputedInvoices = [];
+    let invalidatedTpaDecisionIds = [];
+    let terminalCompensation = null;
+    if (!state.keeper) blockReason = 'KEEPER_NOT_ACTIVE';
+    if (state.keeper && !keeperMatchesCurrentAuthority) {
+      blockReason = 'KEEPER_DOES_NOT_MATCH_CURRENT_ORDER_AUTHORITY';
+    }
+    if (path === 'SAFE_DEACTIVATE_DUPLICATES'
+        && (!state.sameInvoice || !state.identical)) {
+      blockReason = 'SAFE_RECONCILIATION_REQUIRES_IDENTICAL_SAME_INVOICE_LINES';
+    }
+    if (['SAFE_DEACTIVATE_DUPLICATES', 'KEEP_CURRENT_AUTHORITY'].includes(path)
+        && (!state.allDraft || state.hasPostedPayments || state.hasAllocations)) {
+      blockReason = 'ISSUED_PAYMENT_OR_ALLOCATION_LINKED_LINES_REQUIRE_REBILL_OR_CANCEL';
+    }
+    if (path === 'REBILL'
+        && (state.activeLines.length !== 1 || !state.allDraft
+          || state.hasPostedPayments || state.hasAllocations)) {
+      blockReason = 'REBILL_CORRECTION_IS_NOT_ONE_UNPAID_DRAFT_AUTHORITY';
+    }
+    if (path === 'CANCEL_ORDER'
+        && !['CANCELLED', 'UNAVAILABLE', 'REJECTED'].includes(terminalStatus)) {
+      blockReason = 'ORDER_IS_NOT_TERMINAL_CANCELLED';
+    }
+    if (path === 'CANCEL_ORDER' && !blockReason) {
+      // Every precondition on this path is evaluated BEFORE the mutation and
+      // recorded as a governed outcome, never thrown: a throw rolls the
+      // transaction back, so the case keeps its prior status with no BLOCKED
+      // evidence row and no task metadata, and the operator gets a bare 409
+      // with nothing to act on. Stock evidence is read first because
+      // compensateTerminalPharmacyFundingAuthorityTx gives it precedence over
+      // the line and finance-reversal conflicts, and because it is the one
+      // condition here that no later finance action can clear.
+      const stockMovementIds = await lockPharmacyStockMovementEvidenceTx(tx, {
+        tenantId: tid,
+        orderId: Number(order.id),
+      });
+      if (stockMovementIds.length) {
+        blockReason = 'STOCK_MOVEMENT_EVIDENCE_FORBIDS_TERMINAL_FUNDING_COMPENSATION';
+      } else if (!state.allDraft || state.hasPostedPayments) {
+        blockReason = 'FINALIZED_OR_PAID_INVOICE_REQUIRES_GOVERNED_REVERSAL';
+      } else if (invoiceIds.length) {
+        const lockedInvoices = await tx.$queryRawUnsafe(
+          `SELECT id,status
+             FROM billing_invoices
+            WHERE tenant_id=$1::uuid AND id=ANY($2::int[])
+            ORDER BY id
+            FOR UPDATE`,
+          tid,
+          invoiceIds,
+        );
+        const invoiceSafetyRows = await tx.$queryRawUnsafe(
+          `SELECT invoice.id,invoice.status,
+                  COUNT(item.id) FILTER (
+                    WHERE item.source_ref_active=TRUE
+                      AND NOT (item.source_ref_type='pharmacy_order'
+                               AND item.source_ref_id=$3::bigint)
+                  )::int AS unrelated_active_items
+             FROM billing_invoices invoice
+             LEFT JOIN billing_invoice_items item
+               ON item.tenant_id=invoice.tenant_id AND item.invoice_id=invoice.id
+            WHERE invoice.tenant_id=$1::uuid AND invoice.id=ANY($2::int[])
+            GROUP BY invoice.id,invoice.status
+            ORDER BY invoice.id`,
+          tid,
+          invoiceIds,
+          Number(order.id),
+        );
+        if (lockedInvoices.length !== invoiceIds.length
+            || lockedInvoices.some((invoice) => invoice.status !== 'DRAFT')
+            || invoiceSafetyRows.length !== lockedInvoices.length
+            || invoiceSafetyRows.some((invoice) => invoice.status !== 'DRAFT'
+              || Number(invoice.unrelated_active_items) > 0)) {
+          blockReason = 'INVOICE_CONTAINS_FINALIZED_OR_UNRELATED_ACTIVE_AUTHORITY';
+        }
+      }
+      if (!blockReason) {
+        terminalCompensation = await invalidateTerminalPharmacyFundingAuthorityTx(tx, {
+          authority: {
+            tenantId: tid, facilityId: Number(order.facility_id), orderId: Number(order.id),
+            actorUid: actor,
+          },
+          order,
+          actorRole: actorRows[0].role,
+        });
+      }
+    }
+    if (blockReason) {
+      const response = {
+        status: 'blocked', replayed: false, caseId: reconciliationId,
+        taskId: Number(reconciliation.task_id), proposalSha256,
+        snapshotSha256: expectedHash, blockReason,
+        terminalCompensation,
+      };
+      await claimPharmacyFundingReconciliationEventTx(tx, {
+        tenantId: tid, caseId: reconciliationId, pharmacyOrderId: Number(order.id),
+        eventType: 'BLOCKED', snapshotSha256: expectedHash, proposalSha256,
+        commandKeySha256: command, requestSha256, actorUid: actor,
+        evidence: { contract: 'pharmacy_funding_reconciliation_blocked_v1', response },
+      });
+      await tx.$executeRawUnsafe(
+        `UPDATE pharmacy_funding_reconciliation_cases
+            SET status='BLOCKED',outcome=$3::jsonb,updated_at=NOW()
+          WHERE tenant_id=$1::uuid AND id=$2::bigint`,
+        tid, reconciliationId, JSON.stringify(response),
+      );
+      await tx.$executeRawUnsafe(
+        `UPDATE tasks SET status='blocked',metadata=metadata || $3::jsonb,updated_at=NOW()
+          WHERE tenant_id=$1::uuid AND id=$2::int`,
+        tid, Number(reconciliation.task_id),
+        JSON.stringify({ reconciliation_block_reason: blockReason }),
+      );
+      return response;
+    }
+    const response = {
+      status: 'resolved', replayed: false, caseId: reconciliationId,
+      taskId: Number(reconciliation.task_id), proposalSha256,
+      snapshotSha256: expectedHash, resolutionPath: path,
+      keeperInvoiceItemId: keeperId,
+    };
+    const approvalReceipt = await claimPharmacyFundingReconciliationEventTx(tx, {
+      tenantId: tid, caseId: reconciliationId, pharmacyOrderId: Number(order.id),
+      eventType: 'APPROVED', snapshotSha256: expectedHash, proposalSha256,
+      commandKeySha256: command, requestSha256, actorUid: actor,
+      evidence: { contract: 'pharmacy_funding_reconciliation_approval_v1', response },
+    });
+    if (approvalReceipt.evidence?.response?.status === 'resolved'
+        && reconciliation.status === 'RESOLVED') {
+      return { ...approvalReceipt.evidence.response, replayed: true };
+    }
+    if (['SAFE_DEACTIVATE_DUPLICATES', 'KEEP_CURRENT_AUTHORITY', 'CANCEL_ORDER', 'REBILL']
+      .includes(path)) {
+      const retainKeeper = path !== 'CANCEL_ORDER';
+      const rebillCompensableLines = path === 'REBILL'
+        ? lineRows.filter((line) => !line.source_ref_active
+          && Number(line.id) !== keeperId
+          && [line.unit_price, line.line_subtotal, line.cgst_amount, line.sgst_amount,
+            line.igst_amount, line.line_total].some((amount) => Math.abs(Number(amount || 0)) > 0.001))
+        : [];
+      const rows = path === 'REBILL'
+        ? await tx.$queryRawUnsafe(
+          `UPDATE billing_invoice_items
+              SET source_ref_reconciliation_case_id=COALESCE(source_ref_reconciliation_case_id,$3::bigint),
+                  unit_price=0,line_subtotal=0,cgst_amount=0,sgst_amount=0,
+                  igst_amount=0,line_total=0,
+                  notes=CONCAT_WS(E'\n',NULLIF(notes,''),$5)
+            WHERE tenant_id=$1::uuid AND source_ref_type='pharmacy_order'
+              AND source_ref_id=$2::bigint AND source_ref_active=FALSE
+              AND id<>$4::int
+              AND (unit_price<>0 OR line_subtotal<>0 OR cgst_amount<>0
+                   OR sgst_amount<>0 OR igst_amount<>0 OR line_total<>0)
+            RETURNING id,invoice_id,line_total`,
+          tid,
+          Number(order.id),
+          reconciliationId,
+          keeperId,
+          `Governed rebill monetary compensation; reconciliation case ${reconciliationId}`,
+        )
+        : await tx.$queryRawUnsafe(
+          `UPDATE billing_invoice_items
+              SET source_ref_active=FALSE,
+                  source_ref_reconciliation_case_id=$3::bigint,
+                  source_ref_deactivated_at=NOW(),source_ref_deactivated_by=$4::uuid,
+                  unit_price=0,line_subtotal=0,cgst_amount=0,sgst_amount=0,
+                  igst_amount=0,line_total=0,
+                  notes=CONCAT_WS(E'\n',NULLIF(notes,''),$7)
+            WHERE tenant_id=$1::uuid AND source_ref_type='pharmacy_order'
+              AND source_ref_id=$2::bigint AND source_ref_active=TRUE
+              AND ($5::boolean=FALSE OR id<>$6::int)
+            RETURNING id,invoice_id,line_total`,
+          tid, Number(order.id), reconciliationId, actor, retainKeeper, keeperId,
+          `Governed duplicate-line monetary compensation; reconciliation case ${reconciliationId}`,
+        );
+      deactivatedIds = rows.map((row) => Number(row.id));
+      const deactivatedSet = new Set(deactivatedIds);
+      monetaryCompensations = lineRows
+        .filter((line) => deactivatedSet.has(Number(line.id)))
+        .map((line) => ({
+          invoiceItemId: Number(line.id),
+          invoiceId: Number(line.invoice_id),
+          priorQuantity: Number(line.quantity),
+          priorUnitPrice: Number(line.unit_price),
+          priorLineSubtotal: Number(line.line_subtotal),
+          priorCgstAmount: Number(line.cgst_amount),
+          priorSgstAmount: Number(line.sgst_amount),
+          priorIgstAmount: Number(line.igst_amount),
+          priorLineTotal: Number(line.line_total),
+          resultingLineTotal: 0,
+        }));
+      const expectedDeactivated = path === 'REBILL'
+        ? rebillCompensableLines.length
+        : retainKeeper ? state.activeLines.length - 1 : state.activeLines.length;
+      if (deactivatedIds.length !== expectedDeactivated) {
+        throw AppError.conflict(
+          'The duplicate line set changed before governed deactivation',
+          'PHARMACY_FUNDING_RECONCILIATION_AUTHORITY_STALE',
+        );
+      }
+      const zeroRows = await tx.$queryRawUnsafe(
+        `SELECT id FROM billing_invoice_items
+          WHERE tenant_id=$1::uuid AND id=ANY($2::int[])
+            AND source_ref_active=FALSE
+            AND unit_price=0 AND line_subtotal=0 AND cgst_amount=0
+            AND sgst_amount=0 AND igst_amount=0 AND line_total=0
+          ORDER BY id`,
+        tid,
+        deactivatedIds,
+      );
+      if (zeroRows.length !== deactivatedIds.length) {
+        throw AppError.conflict(
+          'Governed duplicate lines did not reach a zero-billable monetary state',
+          'PHARMACY_FUNDING_RECONCILIATION_MONETARY_COMPENSATION_FAILED',
+        );
+      }
+      if (deactivatedIds.length) {
+        const invalidatedDecisionRows = await tx.$queryRawUnsafe(
+          `UPDATE tpa_claim_line_decisions
+              SET invalidated_at=NOW(),invalidated_by=$3::uuid
+            WHERE tenant_id=$1::uuid AND invoice_item_id=ANY($2::int[])
+              AND invalidated_at IS NULL
+            RETURNING id`,
+          tid,
+          deactivatedIds,
+          actor,
+        );
+        invalidatedTpaDecisionIds = invalidatedDecisionRows
+          .map((decision) => Number(decision.id));
+      }
+      for (const invoiceId of invoiceIds) {
+        const totals = await recomputeInvoiceTotals(invoiceId, tx, { emitTpaAlert: false });
+        recomputedInvoices.push({ invoiceId, ...totals });
+      }
+    }
+    if (path === 'CANCEL_ORDER') {
+      const voidRows = await tx.$queryRawUnsafe(
+        `UPDATE billing_invoices
+            SET status='VOID',voided_at=NOW(),voided_by=$3::uuid,
+                void_reason=$4,updated_at=NOW()
+          WHERE tenant_id=$1::uuid AND id=ANY($2::int[]) AND status='DRAFT'
+          RETURNING id`,
+        tid,
+        invoiceIds,
+        actor,
+        `Terminal pharmacy order ${Number(order.id)} duplicate-line reconciliation`,
+      );
+      voidedInvoiceIds = voidRows.map((invoice) => Number(invoice.id));
+      if (voidedInvoiceIds.length !== invoiceIds.length) {
+        throw AppError.conflict(
+          'The exact draft invoice set changed before terminal void compensation',
+          'PHARMACY_FUNDING_RECONCILIATION_AUTHORITY_STALE',
+        );
+      }
+    } else if (invoiceIds.length) {
+      const voidRows = await tx.$queryRawUnsafe(
+        `UPDATE billing_invoices invoice
+            SET status='VOID',voided_at=NOW(),voided_by=$3::uuid,
+                void_reason=$4,updated_at=NOW()
+          WHERE invoice.tenant_id=$1::uuid AND invoice.id=ANY($2::int[])
+            AND invoice.status='DRAFT'
+            AND NOT EXISTS (
+              SELECT 1 FROM billing_invoice_items item
+               WHERE item.tenant_id=invoice.tenant_id AND item.invoice_id=invoice.id
+                 AND item.source_ref_active=TRUE
+            )
+          RETURNING invoice.id`,
+        tid,
+        invoiceIds,
+        actor,
+        `Empty draft after pharmacy funding reconciliation case ${reconciliationId}`,
+      );
+      voidedInvoiceIds = voidRows.map((invoice) => Number(invoice.id));
+    }
+    const activeAfterRows = await tx.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS active_count
+         FROM billing_invoice_items
+        WHERE tenant_id=$1::uuid AND source_ref_type='pharmacy_order'
+          AND source_ref_id=$2::bigint AND source_ref_active=TRUE`,
+      tid,
+      Number(order.id),
+    );
+    const expectedActiveAfter = path === 'CANCEL_ORDER' ? 0 : 1;
+    if (['SAFE_DEACTIVATE_DUPLICATES', 'KEEP_CURRENT_AUTHORITY', 'CANCEL_ORDER', 'REBILL']
+      .includes(path)
+        && Number(activeAfterRows[0]?.active_count) !== expectedActiveAfter) {
+      throw AppError.conflict(
+        'The governed duplicate-line disposition did not leave the required active authority count',
+        'PHARMACY_FUNDING_RECONCILIATION_AUTHORITY_STALE',
+      );
+    }
+    const outcome = {
+      ...response,
+      deactivatedInvoiceItemIds: deactivatedIds,
+      voidedInvoiceIds,
+      monetaryCompensations,
+      recomputedInvoices,
+      invalidatedTpaDecisionIds,
+      terminalCompensation,
+    };
+    await tx.$executeRawUnsafe(
+      `UPDATE pharmacy_funding_reconciliation_cases
+          SET status='RESOLVED',approved_by=$3::uuid,resolved_at=NOW(),
+              outcome=$4::jsonb,updated_at=NOW()
+        WHERE tenant_id=$1::uuid AND id=$2::bigint`,
+      tid, reconciliationId, actor, JSON.stringify(outcome),
+    );
+    await tx.$executeRawUnsafe(
+      `UPDATE tasks SET status='completed',completed_at=NOW(),updated_at=NOW(),
+              metadata=metadata || $3::jsonb
+        WHERE tenant_id=$1::uuid AND id=$2::int
+          AND related_resource_type='pharmacy_funding_reconciliation'`,
+      tid, Number(reconciliation.task_id),
+      JSON.stringify({ reconciliation_outcome: outcome }),
+    );
+    const resolvedCommand = pharmacyFundingHash('PHARMACY_FUNDING_RECONCILIATION_RESOLVED', {
+      command_key_sha256: command,
+      proposal_sha256: proposalSha256,
+    });
+    await tx.$executeRawUnsafe(
+      `INSERT INTO pharmacy_funding_reconciliation_events
+        (tenant_id,case_id,pharmacy_order_id,event_type,snapshot_sha256,
+         proposal_sha256,command_key_sha256,request_sha256,actor_uid,evidence)
+       VALUES ($1::uuid,$2::bigint,$3::int,'RESOLVED',$4,$5,$6,$7,$8::uuid,$9::jsonb)`,
+      tid, reconciliationId, Number(order.id), expectedHash, proposalSha256,
+      resolvedCommand, requestSha256, actor,
+      JSON.stringify({ contract: 'pharmacy_funding_reconciliation_resolved_v1', outcome }),
+    );
+    return outcome;
+  });
+}
+
+export async function recordPharmacyFundingLineDecision({
+  tenantId,
+  taskId,
+  orderId,
+  invoiceItemId,
+  tpaClaimId,
+  orderVersion,
+  orderItemsSha256,
+  approvedAmount,
+  nonPayableAmount,
+  reasonCode,
+  reasonText = null,
+  actorUid,
+  commandKeySha256,
+}) {
+  const tid = requireTenantId(tenantId);
+  const approved = Number(approvedAmount);
+  const nonPayable = Number(nonPayableAmount);
+  const command = String(commandKeySha256 || '').trim().toLowerCase();
+  if (!Number.isFinite(approved) || approved < 0 || !Number.isFinite(nonPayable) || nonPayable < 0
+      || !Number.isInteger(Number(taskId)) || Number(taskId) <= 0
+      || !Number.isInteger(Number(orderId)) || Number(orderId) <= 0
+      || !Number.isInteger(Number(invoiceItemId)) || Number(invoiceItemId) <= 0
+      || !Number.isInteger(Number(tpaClaimId)) || Number(tpaClaimId) <= 0
+      || !Number.isInteger(Number(orderVersion)) || Number(orderVersion) <= 0
+      || !SHA256_PATTERN.test(String(orderItemsSha256 || '').trim().toLowerCase())
+      || !SHA256_PATTERN.test(command) || !PHARMACY_TPA_REASON_CODES.has(String(reasonCode))) {
+    throw AppError.badRequest(
+      'Valid approved/non-payable amounts and idempotency hash are required',
+      'PHARMACY_TPA_LINE_DECISION_INVALID',
+    );
+  }
+  return setTenantTx(tid, async (tx) => {
+    const canonicalPatientUid = await resolvePharmacyFundingPatientUidTx(tx, {
+      tenantId: tid,
+      orderId: Number(orderId),
+    });
+    await lockPharmacyFundingAuthorityTx(tx, {
+      tenantId: tid,
+      patientUid: canonicalPatientUid,
+    });
+    const orderRows = await tx.$queryRawUnsafe(
+      `SELECT pharmacy_order.*,patient.uid AS patient_uid
+         FROM pharmacy_orders pharmacy_order
+         JOIN users patient
+           ON patient.tenant_id=pharmacy_order.tenant_id
+          AND patient.id=pharmacy_order.patient_id
+          AND patient.role='PATIENT' AND patient.is_active=TRUE
+          AND patient.status='active' AND patient.is_deleted=FALSE
+          AND patient.merged_into_uid IS NULL
+        WHERE pharmacy_order.tenant_id=$1::uuid AND pharmacy_order.id=$2::int
+        FOR UPDATE OF pharmacy_order`,
+      tid, Number(orderId),
+    );
+    if (!orderRows.length || String(orderRows[0].patient_uid) !== canonicalPatientUid) {
+      throw AppError.conflict(
+        'The pharmacy order no longer belongs to one active tenant patient',
+        'PHARMACY_FUNDING_ORDER_SCOPE_MISMATCH',
+      );
+    }
+    const order = orderRows[0];
+    const durablePaymentMode = String(
+      order.payment_mode || order.payment_metadata?.payment_mode || '',
+    ).trim().toLowerCase();
+    const canonicalItemsSha256 = clinicalOrderItemsSha256(order.items_list);
+    const authority = normalizePharmacyFundingAuthority({
+      tenantId: tid,
+      facilityId: Number(order.facility_id),
+      orderId: Number(order.id),
+      patientId: Number(order.patient_id),
+      patientUid: canonicalPatientUid,
+      authoritativeAmount: Number(order.total_amount),
+      orderVersion: Number(orderVersion),
+      orderItemsSha256: String(orderItemsSha256).trim().toLowerCase(),
+      paymentMode: durablePaymentMode,
+      tpaClaimId: Number(tpaClaimId),
+      tpaReference: order.payment_metadata?.tpa_reference,
+      actorUid: String(actorUid),
+    });
+    if (!PHARMACY_TPA_PAYMENT_MODES.has(durablePaymentMode)
+        || Number(order.inventory_authority_version) !== authority.orderVersion
+        || canonicalItemsSha256 !== authority.orderItemsSha256) {
+      throw AppError.conflict(
+        'The line decision does not match the current TPA order authority',
+        'PHARMACY_TPA_LINE_AUTHORITY_STALE',
+      );
+    }
+    const actor = await assertPharmacyFundingActorTx(
+      tx,
+      authority,
+      PHARMACY_TPA_DECISION_ROLES,
+    );
+    const preIssueStatuses = new Set([
+      'PENDING', 'CONFIRMED', 'PREPARING', 'READY', 'DISPATCHED', 'PARTIALLY_DISPENSED',
+    ]);
+    const orderStatus = String(order.status).toUpperCase();
+    const orderActionable = preIssueStatuses.has(orderStatus);
+    if (!orderActionable
+        && !['CANCELLED', 'UNAVAILABLE', 'REJECTED', 'DISPENSED', 'DELIVERED'].includes(orderStatus)) {
+      throw AppError.conflict(
+        `Pharmacy funding cannot mutate an order in ${orderStatus} state`,
+        'PHARMACY_FUNDING_ORDER_NOT_ACTIONABLE',
+      );
+    }
+    if (order.funding_admission_id == null) {
+      throw AppError.conflict(
+        'TPA line decisions require an exact governed order-to-admission binding',
+        'PHARMACY_FUNDING_ADMISSION_REQUIRED',
+      );
+    }
+    await lockPharmacyFundingAdmissionTx(tx, {
+      tenantId: tid,
+      admissionId: Number(order.funding_admission_id),
+      patientUid: canonicalPatientUid,
+    });
+    const lineRows = await tx.$queryRawUnsafe(
+      `SELECT item.*,invoice.patient_uid,invoice.admission_id,
+              invoice.status AS invoice_status
+         FROM billing_invoice_items item
+         JOIN billing_invoices invoice
+           ON invoice.tenant_id=item.tenant_id AND invoice.id=item.invoice_id
+        WHERE item.tenant_id=$1::uuid AND item.id=$2::int
+          AND item.source_ref_type='pharmacy_order' AND item.source_ref_id=$3::bigint
+          AND item.source_ref_active=TRUE
+        FOR UPDATE OF invoice,item`,
+      tid, Number(invoiceItemId), Number(orderId),
+    );
+    if (!lineRows.length) throw AppError.notFound('Pharmacy invoice item not found');
+    const line = lineRows[0];
+    if (line.invoice_status !== 'DRAFT'
+        || String(line.patient_uid) !== canonicalPatientUid
+        || Number(line.admission_id) !== Number(order.funding_admission_id)
+        || Number(line.source_authority_version) !== Number(orderVersion)
+        || String(line.source_authority_sha256) !== authority.orderItemsSha256
+        || Math.abs(Number(line.line_total) - approved - nonPayable) > 0.001) {
+      throw AppError.conflict(
+        'The line decision is not balanced to the current draft order authority',
+        'PHARMACY_TPA_LINE_AUTHORITY_STALE',
+      );
+    }
+    const claimRows = await tx.$queryRawUnsafe(
+      `SELECT * FROM tpa_claims
+        WHERE tenant_id=$1::uuid AND id=$2::int AND invoice_id=$3::int
+          AND admission_id=$4::int AND patient_uid=$5::uuid
+          AND status IN ('approved','partially_approved','paid')
+        FOR UPDATE`,
+      tid, Number(tpaClaimId), Number(line.invoice_id),
+      Number(line.admission_id), String(line.patient_uid),
+    );
+    if (!claimRows.length) {
+      throw AppError.conflict(
+        'The exact approved claim no longer owns this invoice and admission',
+        'PHARMACY_TPA_CLAIM_AUTHORITY_STALE',
+      );
+    }
+    const taskRows = await tx.$queryRawUnsafe(
+      `SELECT * FROM tasks
+        WHERE tenant_id=$1::uuid AND id=$2::int
+          AND related_resource_type='pharmacy_tpa_line_decision'
+          AND related_resource_id=$3
+        FOR UPDATE`,
+      tid, Number(taskId), String(Number(orderId)),
+    );
+    if (!taskRows.length) {
+      throw AppError.notFound('Exact pharmacy TPA line-decision task not found');
+    }
+    const task = taskRows[0];
+    if (task.assigned_to_role !== 'INSURANCE_COORDINATOR'
+        || task.metadata?.contract !== 'pharmacy_funding_task_v1'
+        || task.metadata?.task_type !== 'tpa_line_decision'
+        || Number(task.metadata?.invoice_id) !== Number(line.invoice_id)
+        || Number(task.metadata?.invoice_item_id) !== Number(invoiceItemId)
+        || Number(task.metadata?.tpa_claim_id) !== Number(tpaClaimId)
+        || Number(task.metadata?.order_version) !== Number(orderVersion)
+        || String(task.metadata?.order_items_sha256) !== authority.orderItemsSha256) {
+      throw AppError.conflict(
+        'Task ownership or exact line authority changed; reload the funding recovery task',
+        'PHARMACY_TPA_TASK_AUTHORITY_STALE',
+      );
+    }
+    const requestSha256 = pharmacyFundingHash('TPA_LINE_DECISION_REQUEST', {
+      task_id: Number(taskId),
+      pharmacy_order_id: Number(orderId),
+      invoice_item_id: Number(invoiceItemId),
+      tpa_claim_id: Number(tpaClaimId),
+      order_version: Number(orderVersion),
+      order_items_sha256: authority.orderItemsSha256,
+      approved_amount: toFixed2(approved),
+      non_payable_amount: toFixed2(nonPayable),
+      reason_code: String(reasonCode),
+      reason_text: reasonText == null ? null : String(reasonText),
+      actor_uid: authority.actorUid,
+    });
+    const receipt = await claimPharmacyFundingCommandTx(tx, {
+      authority,
+      commandKeySha256: command,
+      commandType: 'TPA_LINE_DECISION',
+      task,
+      invoiceItemId: Number(invoiceItemId),
+      tpaClaimId: Number(tpaClaimId),
+      requestSha256,
+    });
+    if (receipt.status === 'COMPLETE') {
+      return { ...receipt.response_body, replayed: true };
+    }
+    if (!['open', 'in_progress', 'blocked', 'overdue'].includes(task.status)) {
+      throw AppError.conflict(
+        'The TPA task was completed or cancelled by a different command',
+        'PHARMACY_TPA_TASK_ALREADY_COMPLETED',
+      );
+    }
+    if (!orderActionable) {
+      const authorityCancelled = ['CANCELLED', 'UNAVAILABLE', 'REJECTED'].includes(orderStatus);
+      await tx.$executeRawUnsafe(
+        `UPDATE tasks
+            SET status=CASE WHEN $3::boolean THEN 'cancelled' ELSE 'completed' END,
+                cancelled_at=CASE WHEN $3::boolean THEN NOW() ELSE cancelled_at END,
+                completed_at=CASE WHEN $3::boolean THEN completed_at ELSE NOW() END,
+                updated_at=NOW(),
+                cancellation_reason=CASE WHEN $3::boolean
+                  THEN 'Pharmacy order left pre-issue funding states'
+                  ELSE cancellation_reason END
+          WHERE tenant_id=$1::uuid AND related_resource_id=$2
+            AND related_resource_type IN ('pharmacy_tpa_line_decision','pharmacy_posted_payment')
+            AND status IN (${ACTIVE_TASK_STATUSES})`,
+        tid, String(Number(orderId)), authorityCancelled,
+      );
+      if (authorityCancelled) {
+        await tx.$executeRawUnsafe(
+          `UPDATE tpa_claim_line_decisions decision
+              SET invalidated_at=NOW(),invalidated_by=$3::uuid
+             FROM billing_invoice_items item
+            WHERE decision.tenant_id=$1::uuid AND item.tenant_id=decision.tenant_id
+              AND item.id=decision.invoice_item_id
+              AND item.source_ref_type='pharmacy_order'
+              AND item.source_ref_id=$2::bigint AND decision.invalidated_at IS NULL`,
+          tid, Number(orderId), authority.actorUid,
+        );
+      }
+      const invalidatedAuthority = authorityCancelled
+        ? await invalidateTerminalPharmacyFundingAuthorityTx(tx, {
+          authority,
+          order,
+          actorRole: actor.role,
+        })
+        : { releasedCapReservation: null, reversedAllocationIds: [] };
+      const response = {
+        replayed: false,
+        status: authorityCancelled ? 'invalidated' : 'closed',
+        decision: null,
+        task: null,
+        invalidatedAuthority,
+      };
+      await completePharmacyFundingCommandTx(tx, {
+        tenantId: tid,
+        commandKeySha256: command,
+        responseBody: response,
+      });
+      return response;
+    }
+    await tx.$executeRawUnsafe(
+      `UPDATE tpa_claim_line_decisions
+          SET invalidated_at=NOW(),invalidated_by=$4::uuid
+        WHERE tenant_id=$1::uuid AND invoice_item_id=$2::int
+          AND claim_id<>$3::int AND invalidated_at IS NULL`,
+      tid,
+      Number(invoiceItemId),
+      Number(tpaClaimId),
+      authority.actorUid,
+    );
+    const totals = await tx.$queryRawUnsafe(
+      `SELECT COALESCE(SUM(approved_amount),0)::numeric AS approved
+         FROM tpa_claim_line_decisions
+        WHERE tenant_id=$1::uuid AND claim_id=$2::int AND invoice_item_id<>$3::int
+          AND invalidated_at IS NULL`,
+      tid, Number(tpaClaimId), Number(invoiceItemId),
+    );
+    if (Number(totals[0].approved) + approved > Number(claimRows[0].approved_amount || 0) + 0.001) {
+      throw AppError.conflict(
+        'Line approvals would exceed the authoritative claim approval',
+        'PHARMACY_TPA_APPROVAL_INCONSISTENT',
+      );
+    }
+    const decisions = await tx.$queryRawUnsafe(
+      `INSERT INTO tpa_claim_line_decisions
+        (tenant_id,claim_id,invoice_item_id,reason_code,reason_text,approved_amount,
+         non_payable_amount,recorded_by,recorded_at,source_authority_version,
+         source_authority_sha256,invalidated_at,invalidated_by)
+       VALUES ($1::uuid,$2::int,$3::int,$4,$5,$6::numeric,$7::numeric,$8::uuid,
+               NOW(),$9::int,$10,NULL,NULL)
+       ON CONFLICT (claim_id,invoice_item_id)
+       DO UPDATE SET reason_code=EXCLUDED.reason_code,reason_text=EXCLUDED.reason_text,
+                     approved_amount=EXCLUDED.approved_amount,
+                     non_payable_amount=EXCLUDED.non_payable_amount,
+                     recorded_by=EXCLUDED.recorded_by,recorded_at=NOW(),
+                     source_authority_version=EXCLUDED.source_authority_version,
+                     source_authority_sha256=EXCLUDED.source_authority_sha256,
+                     invalidated_at=NULL,invalidated_by=NULL
+       RETURNING *`,
+      tid, Number(tpaClaimId), Number(invoiceItemId), String(reasonCode),
+      reasonText == null ? null : String(reasonText), approved, nonPayable,
+      authority.actorUid, Number(orderVersion), String(orderItemsSha256),
+    );
+    const billingDecision = nonPayable <= 0.001
+      ? 'payable'
+      : approved <= 0.001 ? 'non_payable' : 'partial';
+    await tx.$executeRawUnsafe(
+      `UPDATE billing_invoice_items
+          SET tpa_decision=$3,tpa_non_payable_reason=$4,
+              tpa_decided_at=NOW(),tpa_decided_by=$5::uuid
+        WHERE tenant_id=$1::uuid AND id=$2::int`,
+      tid, Number(invoiceItemId), billingDecision,
+      nonPayable > 0.001 ? String(reasonCode) : null, authority.actorUid,
+    );
+    const allocations = await loadPharmacyPaymentAllocationsTx(tx, {
+      tenantId: tid,
+      invoiceId: Number(line.invoice_id),
+      invoiceItemId: Number(invoiceItemId),
+      orderId: Number(orderId),
+      orderVersion: Number(orderVersion),
+      orderItemsSha256: authority.orderItemsSha256,
+      patientUid: canonicalPatientUid,
+    });
+    const outstanding = Math.max(
+      0,
+      toFixed2(Number(line.line_total) - approved - allocations.amount),
+    );
+    const evidence = {
+      contract: 'pharmacy_tpa_line_decision_v1', task_id: Number(taskId),
+      pharmacy_order_id: Number(orderId), invoice_item_id: Number(invoiceItemId),
+      tpa_claim_id: Number(tpaClaimId), order_version: Number(orderVersion),
+      order_items_sha256: String(orderItemsSha256), approved_amount: approved,
+      non_payable_amount: nonPayable, decision_id: Number(decisions[0].id),
+      command_key_sha256: command,
+      request_sha256: requestSha256,
+      actor_uid: authority.actorUid,
+      actor_role: actor.role,
+      assigned_role: task.assigned_to_role,
+      payment_allocation_ids: allocations.rows.map((row) => Number(row.allocation_id)),
+      allocated_payment_amount: allocations.amount,
+      amount_outstanding: outstanding,
+    };
+    const completedTask = await completePharmacyFundingTaskTx(tx, {
+      tenantId: tid,
+      taskType: 'tpa_line_decision',
+      orderId,
+      taskId: Number(taskId),
+      evidence,
+    });
+    if (!completedTask) {
+      throw AppError.conflict(
+        'The exact insurance task could not be completed',
+        'PHARMACY_TPA_TASK_AUTHORITY_STALE',
+      );
+    }
+    const nextTask = outstanding > 0.001
+      ? await upsertPharmacyFundingTaskTx(tx, {
+        authority,
+        invoiceId: Number(line.invoice_id),
+        invoiceItemId: Number(invoiceItemId),
+        admissionId: Number(line.admission_id),
+        taskType: 'posted_payment',
+        stage: 'patient_responsibility_payment',
+        assignedRole: 'FINANCE_INCHARGE',
+        tpaClaimId: Number(tpaClaimId),
+        amountOutstanding: outstanding,
+      })
+      : null;
+    await tx.$queryRawUnsafe(
+      `INSERT INTO pharmacy_funding_decision_events
+        (tenant_id,facility_id,pharmacy_order_id,admission_id,event_type,
+         source_authority_version,source_authority_sha256,invoice_id,invoice_item_id,
+         tpa_claim_id,task_id,amount,command_key_sha256,evidence,recorded_by)
+       VALUES ($1::uuid,$2::int,$3::int,$4::int,'TPA_DECISION_RECORDED',$5::int,$6,
+               $7::int,$8::int,$9::int,$10::int,$11::numeric,$12,$13::jsonb,$14::uuid)
+       RETURNING id`,
+      tid, Number(order.facility_id), Number(orderId), Number(line.admission_id),
+      Number(orderVersion), String(orderItemsSha256), Number(line.invoice_id),
+      Number(invoiceItemId), Number(tpaClaimId), Number(taskId), approved,
+      command, JSON.stringify(evidence), authority.actorUid,
+    );
+    const fundingAuthorityResult = outstanding > 0.001
+      ? await invalidateCurrentPharmacyFundingAuthorityStateTx(tx, {
+        authority,
+        reason: 'tpa_line_decision_changed',
+        actorRole: actor.role,
+        commandKeySha256: command,
+      })
+      : await resolvePostedPharmacyFundingTx(tx, authority);
+    const fundingAuthority = outstanding > 0.001
+      ? {
+        status: 'invalidated',
+        eventId: fundingAuthorityResult == null ? null : Number(fundingAuthorityResult.id),
+        authorityEvidence: fundingAuthorityResult?.evidence || null,
+      }
+      : fundingAuthorityResult;
+    const response = {
+      replayed: false,
+      status: outstanding > 0.001 ? 'patient_responsibility_pending' : 'funded',
+      decision: decisions[0],
+      task: completedTask,
+      nextTask,
+      evidence,
+      fundingAuthority,
+    };
+    await completePharmacyFundingCommandTx(tx, {
+      tenantId: tid,
+      commandKeySha256: command,
+      responseBody: response,
+    });
+    return response;
+  });
 }
 
 // ─── Wave-5 batch-3 — TPA decision UI helpers ────────────────────────

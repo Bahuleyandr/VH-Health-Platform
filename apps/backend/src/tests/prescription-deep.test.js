@@ -9,6 +9,37 @@ const DOCTOR_UID = 'a5555555-5555-4555-8555-555555555a02';
 const STAFF_UID = 'a5555555-5555-4555-8555-555555555a03';
 const PEDIATRIC_PARACETAMOL_NAME = 'Paracetamol Syrup 125mg/5ml Test';
 
+async function seedInventoryV2ForCatalog(catalogId, quantity) {
+  const catalogs = await prisma.$queryRawUnsafe(
+    `SELECT tenant_id, name FROM pharmacy_catalog WHERE id=$1::int`,
+    Number(catalogId),
+  );
+  const catalog = catalogs[0];
+  const items = await prisma.$queryRawUnsafe(
+    `INSERT INTO pharmacy_inventory_items
+       (tenant_id, sku_code, display_name, catalog_id)
+     VALUES ($1::uuid, $2, $3, $4::int)
+     RETURNING id`,
+    catalog.tenant_id,
+    `PRESCRIPTION-DEEP-${catalogId}`,
+    catalog.name,
+    Number(catalogId),
+  );
+  const itemId = Number(items[0].id);
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO pharmacy_inventory_batches
+       (tenant_id, inventory_item_id, batch_number, expiry_date,
+        received_quantity, remaining_quantity, status)
+     VALUES ($1::uuid, $2::int, $3, (NOW()+INTERVAL '1 year')::date,
+        $4::numeric, $4::numeric, 'in_stock')`,
+    catalog.tenant_id,
+    itemId,
+    `PRESCRIPTION-DEEP-BATCH-${catalogId}`,
+    quantity,
+  );
+  return itemId;
+}
+
 function staffAs(id) {
   const token = generateTestToken('NURSING_STAFF', {
     uid: STAFF_UID,
@@ -42,6 +73,21 @@ function clientAs(role, uid, id) {
 }
 
 async function cleanupFixtures(patientId, doctorId) {
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM pharmacy_stock_movements
+      WHERE inventory_item_id IN (
+        SELECT id FROM pharmacy_inventory_items WHERE sku_code LIKE 'PRESCRIPTION-DEEP-%'
+      )`,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM pharmacy_inventory_batches
+      WHERE inventory_item_id IN (
+        SELECT id FROM pharmacy_inventory_items WHERE sku_code LIKE 'PRESCRIPTION-DEEP-%'
+      )`,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM pharmacy_inventory_items WHERE sku_code LIKE 'PRESCRIPTION-DEEP-%'`,
+  ).catch(() => {});
   const existingUsers = await prisma
     .$queryRawUnsafe(
       `SELECT id, uid::text AS uid
@@ -497,6 +543,8 @@ describe('E-prescriptions — deep integration', () => {
       mapped.body.data.id
     );
     expect(Number(orderRows[0].total_amount)).toBe(35);
+    expect(orderRows[0].items_list[0].order_line_index).toBe(0);
+    expect(orderRows[0].items_list[0].prescription_line_index).toBe(0);
     expect(orderRows[0].items_list[0].catalog_id).toBe(catalogRows[0].id);
     expect(orderRows[0].items_list[0].catalog_name).toBe(PEDIATRIC_PARACETAMOL_NAME);
     expect(orderRows[0].items_list[0].substitution).toMatchObject({
@@ -517,14 +565,22 @@ describe('E-prescriptions — deep integration', () => {
       .send({ decision: 'verified' });
     expect(verified.statusCode).toBe(200);
 
-    const unpaid = await pharmacy.post(`/api/v1/pharmacy/orders/${mapped.body.data.id}/dispense-counter`).send({});
+    const unpaid = await pharmacy
+      .post(`/api/v1/pharmacy/orders/${mapped.body.data.id}/dispense-counter`)
+      .set('Idempotency-Key', `pediatric-unpaid-${mapped.body.data.id}`)
+      .send({});
     expect(unpaid.statusCode).toBe(400);
     expect(unpaid.body.details?.code).toBe('COUNTER_PAYMENT_REQUIRED');
 
-    const paid = await pharmacy.post(`/api/v1/pharmacy/orders/${mapped.body.data.id}/dispense-counter`).send({
-      payment_mode: 'cash',
-      amount_collected: 35,
-    });
+    await seedInventoryV2ForCatalog(catalogRows[0].id, 50);
+
+    const paid = await pharmacy
+      .post(`/api/v1/pharmacy/orders/${mapped.body.data.id}/dispense-counter`)
+      .set('Idempotency-Key', `pediatric-paid-${mapped.body.data.id}`)
+      .send({
+        payment_mode: 'cash',
+        amount_collected: 35,
+      });
     expect(paid.statusCode).toBe(200);
     expect(paid.body.data.payment_status).toBe('paid');
 
@@ -731,9 +787,12 @@ describe('E-prescriptions — deep integration', () => {
       .send({ decision: 'override', override_reason: 'Test fixture: quantity-guard scenario, dose reviewed' });
     expect(verified.statusCode).toBe(200);
 
+    await seedInventoryV2ForCatalog(catalogId, 100);
+
     // (3a) Dispensing a quantity that mismatches the ordered 9 is blocked.
     const overDispense = await pharmacy
       .post(`/api/v1/pharmacy/orders/${orderId}/dispense-counter`)
+      .set('Idempotency-Key', `quantity-over-${orderId}`)
       .send({
         payment_mode: 'cash', amount_collected: 144,
         dispensed_items: [{ catalog_id: catalogId, name: 'Paracetamol', dispensed_qty: 12, price: 12 }],
@@ -747,6 +806,7 @@ describe('E-prescriptions — deep integration', () => {
     // (3b) The exact ordered quantity dispenses cleanly.
     const matched = await pharmacy
       .post(`/api/v1/pharmacy/orders/${orderId}/dispense-counter`)
+      .set('Idempotency-Key', `quantity-match-${orderId}`)
       .send({
         payment_mode: 'cash', amount_collected: 108,
         dispensed_items: [{ catalog_id: catalogId, name: 'Paracetamol', dispensed_qty: 9, price: 12 }],
@@ -814,9 +874,12 @@ describe('E-prescriptions — deep integration', () => {
       .send({ decision: 'override', override_reason: 'Test fixture: ack-mismatch scenario, dose reviewed' });
     expect(verified.statusCode).toBe(200);
 
+    await seedInventoryV2ForCatalog(catalogId, 100);
+
     // Unacknowledged short-supply with no partial intent is blocked.
     const blocked = await pharmacy
       .post(`/api/v1/pharmacy/orders/${orderId}/dispense-counter`)
+      .set('Idempotency-Key', `quantity-blocked-${orderId}`)
       .send({
         payment_mode: 'cash', amount_collected: 90,
         dispensed_items: [{ catalog_id: catalogId, name: 'Amoxicillin', dispensed_qty: 9, price: 10 }],
@@ -827,6 +890,7 @@ describe('E-prescriptions — deep integration', () => {
     // Acknowledged → proceeds.
     const acked = await pharmacy
       .post(`/api/v1/pharmacy/orders/${orderId}/dispense-counter`)
+      .set('Idempotency-Key', `quantity-acked-${orderId}`)
       .send({
         payment_mode: 'cash', amount_collected: 90,
         quantity_mismatch_acknowledged: true,

@@ -101,6 +101,131 @@ class BillingApiService {
     return _dataFrom(response);
   }
 
+  static Future<Map<String, dynamic>> getPharmacyFundingRecovery({
+    required int pharmacyOrderId,
+    required int invoiceItemId,
+    int? tpaClaimId,
+  }) async {
+    final response = await ApiClient.get(
+      '/billing/v2/pharmacy-funding/recovery',
+      queryParameters: {
+        'pharmacy_order_id': '$pharmacyOrderId',
+        'invoice_item_id': '$invoiceItemId',
+        if (tpaClaimId != null) 'tpa_claim_id': '$tpaClaimId',
+      },
+    );
+    return _dataFrom(response);
+  }
+
+  static Future<Map<String, dynamic>> materializePharmacyFundingAuthority({
+    required int pharmacyOrderId,
+    int? tpaClaimId,
+  }) async {
+    final response = await ApiClient.post(
+      '/billing/v2/pharmacy-funding/orders/$pharmacyOrderId/materialize',
+      body: {if (tpaClaimId != null) 'tpa_claim_id': tpaClaimId},
+    );
+    return _dataFrom(response);
+  }
+
+  static Future<Map<String, dynamic>> recordPharmacyFundingLineDecision({
+    required int taskId,
+    required int pharmacyOrderId,
+    required int invoiceItemId,
+    required int tpaClaimId,
+    required int orderVersion,
+    required String orderItemsSha256,
+    required num approvedAmount,
+    required num nonPayableAmount,
+    required String reasonCode,
+    String? reasonText,
+    required String idempotencyKey,
+  }) async {
+    final response = await ApiClient.post(
+      '/billing/v2/pharmacy-funding/tasks/$taskId/decision',
+      idempotencyKey: idempotencyKey,
+      body: {
+        'pharmacy_order_id': pharmacyOrderId,
+        'invoice_item_id': invoiceItemId,
+        'tpa_claim_id': tpaClaimId,
+        'order_version': orderVersion,
+        'order_items_sha256': orderItemsSha256.trim(),
+        'approved_amount': approvedAmount,
+        'non_payable_amount': nonPayableAmount,
+        'reason_code': reasonCode.trim(),
+        if (reasonText != null && reasonText.trim().isNotEmpty)
+          'reason_text': reasonText.trim(),
+      },
+    );
+    return _dataFrom(response);
+  }
+
+  static Future<Map<String, dynamic>> retryPharmacyFundingTask({
+    required int taskId,
+    int? paymentId,
+    required String idempotencyKey,
+  }) async {
+    final response = await ApiClient.post(
+      '/billing/v2/pharmacy-funding/tasks/$taskId/retry',
+      idempotencyKey: idempotencyKey,
+      body: {if (paymentId != null) 'payment_id': paymentId},
+    );
+    return _dataFrom(response);
+  }
+
+  static Future<Map<String, dynamic>> getPharmacyFundingReconciliationCase(
+    int caseId,
+  ) async {
+    final response = await ApiClient.get(
+      '/billing/v2/pharmacy-funding/reconciliations/$caseId',
+    );
+    return _dataFrom(response);
+  }
+
+  static Future<Map<String, dynamic>> recordPharmacyFundingReconciliationDecision({
+    required int caseId,
+    required int keeperInvoiceItemId,
+    required String resolutionPath,
+    required String expectedSnapshotSha256,
+    required String idempotencyKey,
+  }) async {
+    final response = await ApiClient.post(
+      '/billing/v2/pharmacy-funding/reconciliations/$caseId/decision',
+      idempotencyKey: idempotencyKey,
+      body: {
+        'keeper_invoice_item_id': keeperInvoiceItemId,
+        'resolution_path': resolutionPath.trim().toUpperCase(),
+        'expected_snapshot_sha256': expectedSnapshotSha256.trim().toLowerCase(),
+      },
+    );
+    return _dataFrom(response);
+  }
+
+  static Future<Map<String, dynamic>> getAcceptedNhcxProjectionRecovery(
+    int messageId,
+  ) async {
+    final response = await ApiClient.get(
+      '/insurance/nhcx/projections/$messageId',
+    );
+    return _dataFrom(response);
+  }
+
+  static Future<Map<String, dynamic>> retryAcceptedNhcxProjection({
+    required int messageId,
+    required String expectedTransportResponseSha256,
+    required String idempotencyKey,
+  }) async {
+    final response = await ApiClient.post(
+      '/insurance/nhcx/projections/$messageId/retry',
+      idempotencyKey: idempotencyKey,
+      body: {
+        'expected_transport_response_sha256':
+            expectedTransportResponseSha256.trim().toLowerCase(),
+      },
+    );
+    return _dataFrom(response);
+  }
+
   /// POST /billing/v2/payments.
   ///
   /// Mounted with `requireIdempotencyKey({ required: true, scope:

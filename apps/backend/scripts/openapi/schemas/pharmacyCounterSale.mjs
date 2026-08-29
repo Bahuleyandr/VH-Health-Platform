@@ -37,6 +37,8 @@ const witnessErrorResponses = ({ idempotent = false } = {}) => ({
 });
 
 const bearerSecurity = [{ ApiKeyAuth: [], BearerAuth: [] }];
+// Same idiom as scripts/openapi/schemas/pharmacy.mjs — facilities are int4.
+const positiveInt32 = { type: 'integer', minimum: 1, maximum: 2147483647 };
 const idempotencyKeyParameter = {
   name: 'Idempotency-Key',
   in: 'header',
@@ -62,6 +64,11 @@ const positiveSignedInt64IdSchema = (description =
 const approvalIdPathSchema = positiveSignedInt64IdSchema();
 
 const counterSaleIntentProperties = {
+  facility_id: {
+    ...positiveInt32,
+    description:
+      'Exact dispensing facility for this sale. It is a REQUEST, not authority: the server proves the authenticated seller holds an ACTIVE pharmacy grant for it before any stock, price, or custody evidence is read or written, and rejects the sale otherwise.'
+  },
   lines: {
     type: 'array',
     minItems: 1,
@@ -89,8 +96,7 @@ const counterSaleIntentProperties = {
     description:
       'Original external receipt, instrument, or provider reference. Required for CARD, UPI, NETBANKING, CHEQUE, DD, and WALLET so any later refund can bind to the original payment; optional for CASH.'
   },
-  notes: { type: 'string', nullable: true },
-  sold_by_name: { type: 'string', nullable: true }
+  notes: { type: 'string', nullable: true }
 };
 
 const counterSalePaymentReferenceOneOf = [
@@ -123,17 +129,38 @@ export const schemas = {
     required: ['inventory_item_id', 'quantity'],
     properties: {
       inventory_item_id: { type: 'integer' },
-      quantity: { type: 'number', minimum: 0.0001 }
+      quantity: { type: 'number', minimum: 0.0001 },
+      prescription_line_index: {
+        type: 'integer',
+        minimum: 0,
+        nullable: true,
+        description:
+          'Zero-based line on the signed e-prescription this controlled line dispenses against. Required for every Schedule H/H1/X or narcotic line. A line carries no prescription_id of its own: the prescription is the sale-level rx.prescription_id, and the server stamps that anchor alongside this index on the stored line. Sending an index without rx.prescription_id is rejected.'
+      }
     }
   },
 
   PharmacyCounterSaleRxInput: {
     type: 'object',
     description:
-      'Prescription reference — REQUIRED (doctor_name plus reference or upload_id) when any line is Schedule H/H1/X or narcotic.',
+      'Signed e-prescription anchor — REQUIRED, together with a registered patient_uid and an exact prescription_line_index on every controlled line, when any line is Schedule H/H1/X or narcotic. Free-text prescriber fields are recorded as paper-trail snapshots only and never satisfy the schedule gate.',
     properties: {
-      doctor_name: { type: 'string', nullable: true },
-      reference: { type: 'string', nullable: true, description: 'Rx number / free reference.' },
+      prescription_id: {
+        ...positiveInt32,
+        nullable: true,
+        description:
+          'Exact signed e-prescription this sale dispenses against. This is the only accepted prescription authority for a controlled line.'
+      },
+      doctor_name: {
+        type: 'string',
+        nullable: true,
+        description: 'Non-authoritative prescriber snapshot kept on the sale header.'
+      },
+      reference: {
+        type: 'string',
+        nullable: true,
+        description: 'Non-authoritative Rx number / free reference kept on the sale header.'
+      },
       upload_id: {
         type: 'integer',
         nullable: true,
@@ -144,10 +171,37 @@ export const schemas = {
     }
   },
 
+  PharmacyCounterSaleFacilityGrant: {
+    type: 'object',
+    required: ['facility_id'],
+    properties: {
+      facility_id: positiveInt32,
+      facility_code: { type: 'string', nullable: true },
+      display_name: { type: 'string', nullable: true },
+      grant_id: {
+        type: 'string',
+        pattern: '^[1-9][0-9]*$',
+        description: 'Canonical pharmacy_staff_facility_grants id serialized as text.'
+      },
+      authority_version: { type: 'integer' }
+    }
+  },
+
+  PharmacyCounterSaleFacilityGrantList: {
+    type: 'object',
+    required: ['facilities'],
+    properties: {
+      facilities: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/PharmacyCounterSaleFacilityGrant' }
+      }
+    }
+  },
+
   PharmacyCounterSaleCreateRequest: {
     type: 'object',
     additionalProperties: false,
-    required: ['lines', 'payment_mode'],
+    required: ['facility_id', 'lines', 'payment_mode'],
     oneOf: counterSalePaymentReferenceOneOf,
     properties: {
       ...counterSaleIntentProperties,
@@ -164,7 +218,7 @@ export const schemas = {
   PharmacyCounterSaleWitnessApprovalRequest: {
     type: 'object',
     additionalProperties: false,
-    required: ['lines', 'payment_mode'],
+    required: ['facility_id', 'lines', 'payment_mode'],
     oneOf: counterSalePaymentReferenceOneOf,
     properties: { ...counterSaleIntentProperties },
     description:
@@ -499,6 +553,11 @@ export const schemas = {
     properties: {
       id: positiveSignedInt64IdSchema('Canonical counter-sale BIGSERIAL id serialized as text.'),
       tenant_id: { type: 'string', format: 'uuid' },
+      facility_id: {
+        ...positiveInt32,
+        description:
+          'Facility that owns this sale. Reads are scoped to it: a by-id read resolves this value from the stored row and proves the caller holds an active grant on THAT facility.'
+      },
       patient_uid: { type: 'string', format: 'uuid', nullable: true },
       customer_name: { type: 'string', nullable: true },
       customer_phone: { type: 'string', nullable: true },
@@ -788,6 +847,7 @@ export const schemas = {
     type: 'object',
     properties: {
       id: { type: 'integer' },
+      facility_id: positiveInt32,
       sku_code: { type: 'string' },
       display_name: { type: 'string' },
       generic_name: { type: 'string', nullable: true },
@@ -841,6 +901,9 @@ export const schemas = {
   PharmacyCounterSaleResponse: envelope('PharmacyCounterSale'),
   PharmacyCounterSaleListResponse: envelope('PharmacyCounterSaleList'),
   PharmacyCounterSaleSellableItemsResponse: envelope('PharmacyCounterSaleSellableItemList'),
+  PharmacyCounterSaleFacilityGrantsResponse: envelope(
+    'PharmacyCounterSaleFacilityGrantList'
+  ),
   PharmacyCounterSaleWitnessApprovalResponse: envelope('PharmacyCounterSaleWitnessApproval'),
   PharmacyInventoryWitnessApprovalResponse: envelope('PharmacyCounterSaleWitnessApproval'),
   PharmacyInventoryControlledDispenseResponse: envelope(
@@ -849,33 +912,98 @@ export const schemas = {
   PharmacyInventoryMovementResponse: envelope('PharmacyInventoryMovementResult')
 };
 
+const counterSaleItemsQueryParameters = [
+  {
+    name: 'facility_id',
+    in: 'query',
+    required: true,
+    description:
+      'Exact dispensing facility to search. Proved against the caller’s active pharmacy grant before any stock is read.',
+    schema: positiveInt32
+  },
+  {
+    name: 'q',
+    in: 'query',
+    required: false,
+    schema: { type: 'string' }
+  },
+  {
+    name: 'limit',
+    in: 'query',
+    required: false,
+    schema: { type: 'integer', minimum: 1, maximum: 100 }
+  }
+];
+
+const counterSaleListQueryParameters = [
+  {
+    name: 'facility_id',
+    in: 'query',
+    required: false,
+    description:
+      'Narrows the list to one granted facility. Omitting it lists every facility the caller holds an active grant for — never the whole tenant.',
+    schema: positiveInt32
+  },
+  {
+    name: 'status',
+    in: 'query',
+    required: false,
+    schema: {
+      type: 'string',
+      enum: ['IN_PROGRESS', 'COMPLETED', 'VOID_PENDING_REFUND', 'VOIDED', 'FAILED']
+    }
+  },
+  {
+    name: 'date',
+    in: 'query',
+    required: false,
+    description: 'IST calendar date of the sale.',
+    schema: { type: 'string', format: 'date' }
+  },
+  {
+    name: 'limit',
+    in: 'query',
+    required: false,
+    schema: { type: 'integer', minimum: 1, maximum: 200 }
+  }
+];
+
 const DESCRIPTIONS = {
+  facilities:
+    'Lists the authenticated actor’s OWN active pharmacy facility grants (facility identity plus grant id and authority version). The counter picker is fed from this so the client never names its own authority scope; a revoked grant simply stops appearing. Nothing here widens access — every counter-sale call re-proves the grant.',
   items:
-    'POS pick list: active drug-master items with total usable stock and the FEFO head batch (number, expiry, MRP-derived unit price — what the next unit actually sells at). Expired, quarantined and depleted batches are excluded.',
+    'POS pick list for one granted facility: active drug-master items with total usable stock and the FEFO head batch (number, expiry, MRP-derived unit price — what the next unit actually sells at). Expired, quarantined and depleted batches are excluded. facility_id is required and is proved against the caller’s active pharmacy grant before any row is read, so another facility’s stock is never returned.',
   create:
     'Sells a walk-in counter sale end-to-end under one required stable Idempotency-Key: FEFO batch allocation, atomic stock decrement, schedule-class and witness enforcement, billingV2 PHARMACY invoice, and pay-at-counter collection. Every non-CASH mode requires the bounded original external receipt or instrument reference; legacy evidence is never fabricated. CASH requires the seller’s open cash-drawer session. Equivalent requests through the pharmacy alias and canonical pharmacy-orders mount share one durable mutation identity.',
   requestWitnessApproval:
-    'Seller creates a short-lived pending witness approval bound to the authenticated seller and the exact prospective sale payload.',
+    'Seller creates a short-lived pending witness approval bound to the authenticated seller and the exact prospective sale payload. facility_id is a request, not authority: the seller’s ACTIVE grant on it is proved before any inventory row is read, so this surface cannot be used to probe another facility’s catalogue.',
   approveWitnessApproval:
     'A separately authenticated eligible pharmacy, medical, or nursing witness approves the unchanged sale payload. The seller may then submit the returned one-time approval id; self-witness, administrative/nonclinical witnesses, tenant mismatch, expiry, replay, and payload changes fail closed.',
-  list: 'Lists tenant-scoped counter sales newest first, including durable void request/refund status and server-derived void readiness. VOID_PENDING_REFUND remains unavailable for resale or restock while finance approval, payout evidence, rejection review, or pharmacy reconciliation is outstanding.',
+  list: 'Lists counter sales newest first for the facilities the caller holds an ACTIVE pharmacy grant for — tenant scope alone is not custody authority — including durable void request/refund status and server-derived void readiness. VOID_PENDING_REFUND remains unavailable for resale or restock while finance approval, payout evidence, rejection review, or pharmacy reconciliation is outstanding.',
   detail:
-    'Returns one tenant-scoped sale with line and exact FEFO allocation evidence plus its latest durable void/refund presentation fields. A legacy non-CASH sale lacking the original payment reference is reported as fail-closed rather than made refund-ready.',
+    'Returns one sale with line and exact FEFO allocation evidence plus its latest durable void/refund presentation fields. The sale’s OWN facility is resolved from the stored row and the caller’s active grant is proved against THAT facility, so a guessed id belonging to another facility fails closed; a sale with no authoritative facility assignment also fails closed rather than inferring custody. A legacy non-CASH sale lacking the original payment reference is reported as fail-closed rather than made refund-ready.',
   void:
-    'Starts, but does not complete, a same-day void for medicine explicitly confirmed never handed over. The server creates one tenant-bound full-amount PENDING refund tied to the exact sale, invoice, patient, mode, payment and command identity, parks the sale in VOID_PENDING_REFUND, and returns 202 with finance and pharmacy action links plus a staged task/SLA. Pharmacy cannot approve or pay the refund. No stock or controlled-register return occurs until the separately authorized billing/gateway workflow has durably reached PAID with the required manual, processed-gateway, or offline-electronic evidence. Patient-returned medicine fails closed into the governed return/quarantine workflow.',
+    'Starts, but does not complete, a same-day void for medicine explicitly confirmed never handed over. The server creates one tenant-bound full-amount PENDING refund tied to the exact sale, invoice, patient, mode, payment and command identity, parks the sale in VOID_PENDING_REFUND, and returns 202 with finance and pharmacy action links plus a staged task/SLA. The void role roster is not custody: the sale’s OWN facility is resolved from the stored row and the caller’s ACTIVE grant on THAT facility is proved first, exactly as the void-status read proves it. Pharmacy cannot approve or pay the refund. No stock or controlled-register return occurs until the separately authorized billing/gateway workflow has durably reached PAID with the required manual, processed-gateway, or offline-electronic evidence. Patient-returned medicine fails closed into the governed return/quarantine workflow.',
   voidStatus:
-    'Reads the authoritative tenant-scoped counter-sale void obligation, exact refund status, staged task/SLA, reconciliation state, and strict local Staff action targets. NOT_REQUESTED is returned with null obligation/refund/actions when no request exists; rejected refunds remain REFUND_REJECTED_REVIEW with stock and sale locked.',
+    'Reads the authoritative tenant-scoped counter-sale void obligation, exact refund status, staged task/SLA, reconciliation state, and strict local Staff action targets. The caller must hold an ACTIVE pharmacy grant on the sale’s own facility — the identical test every void mutation applies. NOT_REQUESTED is returned with null obligation/refund/actions when no request exists; rejected refunds remain REFUND_REJECTED_REVIEW with stock and sale locked.',
   reconcileVoid:
-    'Idempotently rechecks the exact bound refund and advances the staged task. It returns pending while approval, payout, or rail evidence is incomplete; a rejected refund enters explicit custody review without reopening or restocking. Only a durably PAID exact full refund with valid CASH drawer/voucher, processed gateway, or governed offline-electronic evidence can atomically restock every exact allocation, write controlled-register returns, complete task/SLA evidence, and mark the sale VOIDED. Retries after crashes are safe.',
+    'Idempotently rechecks the exact bound refund and advances the staged task. A caller-driven reconcile requires the caller’s ACTIVE grant on the sale’s own facility, the same test the void-status read applies; the scheduled tenant sweep runs as the system actor. It returns pending while approval, payout, or rail evidence is incomplete; a rejected refund enters explicit custody review without reopening or restocking. Only a durably PAID exact full refund with valid CASH drawer/voucher, processed gateway, or governed offline-electronic evidence can atomically restock every exact allocation, write controlled-register returns, complete task/SLA evidence, and mark the sale VOIDED. Retries after crashes are safe.',
   resolveRejectedVoid:
-    'Closes a rejected-refund custody review only after an authorized pharmacy incharge or admin explicitly confirms customer handover with a reason. It verifies that no stock return occurred, closes the task/SLA with domain evidence, and restores the sale to COMPLETED without restocking. It never converts a rejected refund into a payout or silently reopens the sale.'
+    'Closes a rejected-refund custody review only after a pharmacy incharge or admin holding an ACTIVE grant on the sale’s own facility explicitly confirms customer handover with a reason. It verifies that no stock return occurred, closes the task/SLA with domain evidence, and restores the sale to COMPLETED without restocking. It never converts a rejected refund into a payout or silently reopens the sale.'
 };
 
 function ops(prefix) {
   return {
+    [`GET ${prefix}/counter-sales/facilities`]: {
+      description: DESCRIPTIONS.facilities,
+      response: 'PharmacyCounterSaleFacilityGrantsResponse',
+      security: bearerSecurity
+    },
     [`GET ${prefix}/counter-sales/items`]: {
       description: DESCRIPTIONS.items,
-      response: 'PharmacyCounterSaleSellableItemsResponse'
+      response: 'PharmacyCounterSaleSellableItemsResponse',
+      security: bearerSecurity,
+      parameters: counterSaleItemsQueryParameters
     },
     [`POST ${prefix}/counter-sales`]: {
       description: DESCRIPTIONS.create,
@@ -960,7 +1088,9 @@ function ops(prefix) {
     },
     [`GET ${prefix}/counter-sales`]: {
       description: DESCRIPTIONS.list,
-      response: 'PharmacyCounterSaleListResponse'
+      response: 'PharmacyCounterSaleListResponse',
+      security: bearerSecurity,
+      parameters: counterSaleListQueryParameters
     },
     [`GET ${prefix}/counter-sales/{id}`]: {
       description: DESCRIPTIONS.detail,

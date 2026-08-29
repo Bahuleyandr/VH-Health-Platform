@@ -32,6 +32,11 @@ import {
 } from '../ipd/ipdSupportService.js';
 import { createClaim as createTpaClaim, createPreauth } from '../insurance/claimsService.js';
 import {
+  lockPharmacyFundingAdmissionTx,
+  lockPharmacyFundingAuthorityTx,
+  resolvePharmacyFundingPatientUidTx,
+} from '../pharmacy/pharmacyCapService.js';
+import {
   ensureHospitalNumber,
   getHospitalNumberMap,
 } from '../patient/patientIdentifierService.js';
@@ -2763,28 +2768,53 @@ async function markForDischarge(admissionId, requestedBy, requestedByRole = null
           where: { parent_claim_id: parent.id, stage: 'final' },
         });
         const finalNumber = `${parent.claim_number}-F${existingFinal + 1}`;
-        finalClaim = await prisma.insurance_claims.create({
-          data: {
-            tenant_id: phase1.tenant_id,
-            claim_number: finalNumber,
-            patient_uid: parent.patient_uid,
-            invoice_id: parent.invoice_id,
-            insurance_provider: parent.insurance_provider,
-            policy_number: parent.policy_number,
-            claim_amount: 0, // placeholder — TPA desk updates with consolidated bill total
-            status: 'submitted',
-            stage: 'final',
-            parent_claim_id: parent.id,
-            documents: {
-              final: {
-                opened_by: requestedBy,
-                opened_at: phase1.now.toISOString(),
-                trigger: 'discharge_initiated',
+        finalClaim = await setTenantTx(requireTenantId(phase1.tenant_id), async (tx) => {
+          const patientUid = await resolvePharmacyFundingPatientUidTx(tx, {
+            tenantId: phase1.tenant_id,
+            patientUid: String(parent.patient_uid),
+            admissionId: Number(admissionId),
+          });
+          await lockPharmacyFundingAuthorityTx(tx, {
+            tenantId: phase1.tenant_id,
+            patientUid,
+          });
+          await lockPharmacyFundingAdmissionTx(tx, {
+            tenantId: phase1.tenant_id,
+            patientUid,
+            admissionId: Number(admissionId),
+          });
+          const lockedParentRows = await tx.$queryRawUnsafe(
+            `SELECT id FROM insurance_claims
+              WHERE tenant_id=$1::uuid AND id=$2::int AND patient_uid=$3::uuid
+              FOR UPDATE`,
+            phase1.tenant_id,
+            Number(parent.id),
+            patientUid,
+          );
+          if (!lockedParentRows.length) throw AppError.notFound('Parent insurance claim not found');
+          return tx.insurance_claims.create({
+            data: {
+              tenant_id: phase1.tenant_id,
+              claim_number: finalNumber,
+              patient_uid: patientUid,
+              invoice_id: parent.invoice_id,
+              insurance_provider: parent.insurance_provider,
+              policy_number: parent.policy_number,
+              claim_amount: 0, // placeholder — TPA desk updates with consolidated bill total
+              status: 'submitted',
+              stage: 'final',
+              parent_claim_id: parent.id,
+              documents: {
+                final: {
+                  opened_by: requestedBy,
+                  opened_at: phase1.now.toISOString(),
+                  trigger: 'discharge_initiated',
+                },
               },
+              submitted_at: phase1.now,
+              updated_at: phase1.now,
             },
-            submitted_at: phase1.now,
-            updated_at: phase1.now,
-          },
+          });
         });
       } else {
         logger.warn(

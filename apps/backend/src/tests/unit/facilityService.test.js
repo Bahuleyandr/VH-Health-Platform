@@ -35,6 +35,25 @@ const {
 } = await import('../../services/facility/facilityService.js');
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
+const ACTOR = '00000000-0000-4000-8000-000000000002';
+
+const NO_SHUTDOWN_BLOCKERS = {
+  default_facility_assignment: 0,
+  open_pharmacy_orders: 0,
+  active_inventory_items: 0,
+  active_inventory_batches: 0,
+  nonterminal_purchase_orders: 0,
+  nonterminal_goods_receipts: 0,
+  active_ward_allocations: 0,
+  open_ward_indents: 0,
+  active_staff_grants: 0,
+  // Cath facility shutdown blockers (migration 753 authority contract).
+  open_cath_cases: 0,
+  unreconciled_cath_usage: 0,
+  open_cath_inventory_tasks: 0,
+  open_cath_inventory_slas: 0,
+  open_cath_authority_recoveries: 0,
+};
 
 beforeEach(() => {
   queryUnsafeMock.mockReset();
@@ -71,26 +90,278 @@ describe('upsertFacility', () => {
   });
 
   it('demotes other defaults when isDefault=true', async () => {
-    queryUnsafeMock.mockResolvedValueOnce([]); // demote
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, is_default: true }]);
+    queryUnsafeMock.mockResolvedValueOnce([]); // advisory lock
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 2, facility_code: 'OLD', status: 'active', is_default: true,
+    }]); // row locks
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 2 }]); // demote
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 1, facility_code: 'MAIN', status: 'active', is_default: true,
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 10 }]); // audit evidence
     const row = await upsertFacility({
       tenantId: TENANT, facilityCode: 'MAIN', displayName: 'Main Hospital',
-      isDefault: true,
+      isDefault: true, createdBy: ACTOR,
     });
     expect(row.is_default).toBe(true);
-    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/SET is_default = false/);
+    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/pg_advisory_xact_lock/);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/ORDER BY id[\s\S]*FOR UPDATE/);
+    expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/SET is_default=false/);
+    expect(queryUnsafeMock.mock.calls[4][0]).toMatch(/INSERT INTO audit_logs/);
+    expect(JSON.parse(queryUnsafeMock.mock.calls[4][5]).demoted_default_facility_ids).toEqual([2]);
   });
 
   it('updates an existing facility when id provided', async () => {
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 7, status: 'paused' }]);
+    queryUnsafeMock.mockResolvedValueOnce([]); // advisory lock
+    queryUnsafeMock.mockResolvedValueOnce([
+      { id: 7, facility_code: 'X', status: 'active', is_default: false },
+      { id: 8, facility_code: 'MAIN', status: 'active', is_default: true },
+    ]); // row locks
+    queryUnsafeMock.mockResolvedValueOnce([NO_SHUTDOWN_BLOCKERS]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 7, facility_code: 'X', status: 'paused', is_default: false,
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 11 }]); // audit evidence
     const row = await upsertFacility({
       tenantId: TENANT, id: 7, facilityCode: 'X', displayName: 'X', status: 'paused',
+      createdBy: ACTOR,
     });
     expect(row.status).toBe('paused');
-    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/UPDATE facilities/);
+    expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/FROM pharmacy_orders/);
+    expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/FROM ward_indents/);
+    expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/FROM pharmacy_staff_facility_grants/);
+    expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/FROM cath_lab_cases cath_case/);
+    expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/FROM cath_case_consumable_usage usage/);
+    expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/cath_inventory_shortfall_v1/);
+    expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/open_cath_authority_recoveries/);
+    expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/case_facility_id/);
+    expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/encounter_facility_id/);
+    expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/catalog_facility_id/);
+    expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/batch_facility_id/);
+    expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/inventory_item_facility_id/);
+    expect(queryUnsafeMock.mock.calls[3][0]).toMatch(/UPDATE facilities/);
+    const auditEvidence = JSON.parse(queryUnsafeMock.mock.calls[4][5]);
+    expect(auditEvidence.before).toEqual({ status: 'active', is_default: false });
+    expect(auditEvidence.after).toEqual({ status: 'paused', is_default: false });
+    expect(auditEvidence.shutdown_evidence.total_blocker_count).toBe(0);
+  });
+
+  it('rejects a paused or archived tenant default before opening a transaction', async () => {
+    await expect(upsertFacility({
+      tenantId: TENANT,
+      facilityCode: 'X',
+      displayName: 'X',
+      status: 'archived',
+      isDefault: true,
+    })).rejects.toMatchObject({ code: 'FACILITY_DEFAULT_MUST_BE_ACTIVE' });
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('fails closed with exact counts and recovery actions before deactivation', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]); // advisory lock
+    queryUnsafeMock.mockResolvedValueOnce([
+      { id: 7, facility_code: 'X', status: 'active', is_default: false },
+      { id: 8, facility_code: 'MAIN', status: 'active', is_default: true },
+    ]); // row locks
+    queryUnsafeMock.mockResolvedValueOnce([{
+      ...NO_SHUTDOWN_BLOCKERS,
+      open_pharmacy_orders: 3,
+      active_inventory_batches: 2,
+      active_staff_grants: 1,
+    }]);
+
+    await expect(upsertFacility({
+      tenantId: TENANT,
+      id: 7,
+      facilityCode: 'X',
+      displayName: 'X',
+      status: 'archived',
+      createdBy: ACTOR,
+    })).rejects.toMatchObject({
+      code: 'FACILITY_DEACTIVATION_BLOCKED',
+      details: {
+        facility_id: 7,
+        requested_status: 'archived',
+        total_blocker_count: 6,
+        blockers: {
+          open_pharmacy_orders: 3,
+          active_inventory_batches: 2,
+          active_staff_grants: 1,
+        },
+        recovery_actions: [
+          {
+            blocker: 'open_pharmacy_orders',
+            count: 3,
+            action: 'COMPLETE_CANCEL_OR_REASSIGN_PHARMACY_ORDERS',
+          },
+          {
+            blocker: 'active_inventory_batches',
+            count: 2,
+            action: 'TRANSFER_EXHAUST_OR_QUARANTINE_INVENTORY_BATCHES',
+          },
+          {
+            blocker: 'active_staff_grants',
+            count: 1,
+            action: 'REVOKE_PHARMACY_FACILITY_GRANTS',
+          },
+        ],
+      },
+    });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('requires an atomic default switch before deactivating the current default', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]); // advisory lock
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 7, facility_code: 'X', status: 'active', is_default: true,
+    }]); // row locks
+    queryUnsafeMock.mockResolvedValueOnce([NO_SHUTDOWN_BLOCKERS]);
+
+    await expect(upsertFacility({
+      tenantId: TENANT,
+      id: 7,
+      facilityCode: 'X',
+      displayName: 'X',
+      status: 'paused',
+      isDefault: false,
+      createdBy: ACTOR,
+    })).rejects.toMatchObject({
+      code: 'FACILITY_DEACTIVATION_BLOCKED',
+      details: {
+        total_blocker_count: 1,
+        blockers: { default_facility_assignment: 1 },
+        recovery_actions: [{
+          blocker: 'default_facility_assignment',
+          count: 1,
+          action: 'ASSIGN_ANOTHER_ACTIVE_DEFAULT_FACILITY',
+        }],
+      },
+    });
+  });
+
+  it('fails closed on exact Cath facility workflow blockers', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]); // advisory lock
+    queryUnsafeMock.mockResolvedValueOnce([
+      { id: 7, facility_code: 'X', status: 'active', is_default: false },
+      { id: 8, facility_code: 'MAIN', status: 'active', is_default: true },
+    ]); // row locks
+    queryUnsafeMock.mockResolvedValueOnce([{
+      ...NO_SHUTDOWN_BLOCKERS,
+      unreconciled_cath_usage: 2,
+      open_cath_inventory_tasks: 1,
+      open_cath_inventory_slas: 1,
+      open_cath_authority_recoveries: 3,
+    }]);
+
+    await expect(upsertFacility({
+      tenantId: TENANT,
+      id: 7,
+      facilityCode: 'X',
+      displayName: 'X',
+      status: 'paused',
+      createdBy: ACTOR,
+    })).rejects.toMatchObject({
+      code: 'FACILITY_DEACTIVATION_BLOCKED',
+      details: {
+        total_blocker_count: 7,
+        blockers: {
+          unreconciled_cath_usage: 2,
+          open_cath_inventory_tasks: 1,
+          open_cath_inventory_slas: 1,
+          open_cath_authority_recoveries: 3,
+        },
+        recovery_actions: [
+          {
+            blocker: 'unreconciled_cath_usage',
+            count: 2,
+            action: 'RECONCILE_OR_GOVERN_CATH_CONSUMABLE_USAGE',
+          },
+          {
+            blocker: 'open_cath_inventory_tasks',
+            count: 1,
+            action: 'COMPLETE_CATH_INVENTORY_TASKS',
+          },
+          {
+            blocker: 'open_cath_inventory_slas',
+            count: 1,
+            action: 'CLOSE_CATH_INVENTORY_SLAS_WITH_DOMAIN_EVIDENCE',
+          },
+          {
+            blocker: 'open_cath_authority_recoveries',
+            count: 3,
+            action: 'RESOLVE_CATH_AUTHORITY_RECOVERY_WORKLIST',
+          },
+        ],
+      },
+    });
+  });
+
+  it('preserves the current default when is_default is omitted', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]); // advisory lock
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 7, facility_code: 'X', status: 'active', is_default: true,
+    }]); // row locks
+    queryUnsafeMock.mockResolvedValueOnce([]); // no other default to demote
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 7, facility_code: 'X', status: 'active', is_default: true,
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 14 }]); // audit evidence
+
+    const row = await upsertFacility({
+      tenantId: TENANT,
+      id: 7,
+      facilityCode: 'X',
+      displayName: 'Renamed',
+      status: 'active',
+      createdBy: ACTOR,
+    });
+
+    expect(row.is_default).toBe(true);
+    expect(queryUnsafeMock.mock.calls[3][16]).toBe(true);
+  });
+
+  it('rejects direct demotion of the active default without a replacement', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]); // advisory lock
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 7, facility_code: 'X', status: 'active', is_default: true,
+    }]); // row locks
+
+    await expect(upsertFacility({
+      tenantId: TENANT,
+      id: 7,
+      facilityCode: 'X',
+      displayName: 'X',
+      status: 'active',
+      isDefault: false,
+      createdBy: ACTOR,
+    })).rejects.toMatchObject({
+      code: 'FACILITY_DEFAULT_REPLACEMENT_REQUIRED',
+      details: { recovery_action: 'ASSIGN_ANOTHER_ACTIVE_DEFAULT_FACILITY' },
+    });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails closed when a non-default write would preserve a tenant with no active default', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]); // advisory lock
+    queryUnsafeMock.mockResolvedValueOnce([]); // row locks
+
+    await expect(upsertFacility({
+      tenantId: TENANT,
+      facilityCode: 'X',
+      displayName: 'X',
+      isDefault: false,
+      createdBy: ACTOR,
+    })).rejects.toMatchObject({
+      code: 'FACILITY_ACTIVE_DEFAULT_REQUIRED',
+      details: { recovery_action: 'ASSIGN_ONE_ACTIVE_DEFAULT_FACILITY' },
+    });
   });
 
   it('throws conflict on duplicate facility_code', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]); // advisory lock
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 8, facility_code: 'MAIN', status: 'active', is_default: true,
+    }]); // row locks
     queryUnsafeMock.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'));
     await expect(upsertFacility({
       tenantId: TENANT, facilityCode: 'X', displayName: 'X',
@@ -114,6 +385,7 @@ describe('listFacilities + getDefaultFacility', () => {
   it('getDefaultFacility returns null when none', async () => {
     queryUnsafeMock.mockResolvedValueOnce([]);
     expect(await getDefaultFacility({ tenantId: TENANT })).toBeNull();
+    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/status='active'[\s\S]*is_default = true/);
   });
 });
 
@@ -128,8 +400,14 @@ describe('seedDefaultFacilityForTenant', () => {
   it('creates a default from tenant.name when none exists', async () => {
     queryUnsafeMock.mockResolvedValueOnce([]); // getDefaultFacility -> none
     queryUnsafeMock.mockResolvedValueOnce([{ name: 'Apollo Hospital' }]); // tenant lookup
+    queryUnsafeMock.mockResolvedValueOnce([]); // advisory lock
+    queryUnsafeMock.mockResolvedValueOnce([]); // row locks
     queryUnsafeMock.mockResolvedValueOnce([]); // demote
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 5, is_default: true, display_name: 'Apollo Hospital' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 5, facility_code: 'DEFAULT', status: 'active',
+      is_default: true, display_name: 'Apollo Hospital',
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 12 }]); // audit evidence
     const row = await seedDefaultFacilityForTenant({ tenantId: TENANT });
     expect(row.display_name).toBe('Apollo Hospital');
   });
@@ -137,8 +415,14 @@ describe('seedDefaultFacilityForTenant', () => {
   it('falls back to "Default Facility" when tenant lookup empty', async () => {
     queryUnsafeMock.mockResolvedValueOnce([]); // no default
     queryUnsafeMock.mockResolvedValueOnce([]); // no tenant
+    queryUnsafeMock.mockResolvedValueOnce([]); // advisory lock
+    queryUnsafeMock.mockResolvedValueOnce([]); // row locks
     queryUnsafeMock.mockResolvedValueOnce([]); // demote
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 6, display_name: 'Default Facility' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 6, facility_code: 'DEFAULT', status: 'active',
+      is_default: true, display_name: 'Default Facility',
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 13 }]); // audit evidence
     const row = await seedDefaultFacilityForTenant({ tenantId: TENANT });
     expect(row.display_name).toBe('Default Facility');
   });

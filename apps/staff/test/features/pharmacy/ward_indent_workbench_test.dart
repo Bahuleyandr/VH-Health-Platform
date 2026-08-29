@@ -474,12 +474,9 @@ void main() {
     expect(gateway.inventoryCandidateCalls, 1);
     expect(gateway.witnessApprovalCalls, 1);
     expect(gateway.lastWitnessEmployeeId, 'WIT-2');
-    expect(gateway.dispenseCalls, 1);
-    expect(gateway.lastDispense?['reference_id'], 'ward-indent:73:item:701');
-    expect(gateway.lastDispense?['witness_approval_id'], 'approval-1');
     expect(gateway.lastAction, WardIndentAction.controlledHandoff);
     expect(gateway.lastPayload?['item_evidence'], [
-      {'item_id': 701, 'movement_id': 801, 'register_id': 901},
+      {'item_id': 701, 'witness_approval_id': 'approval-1'},
     ]);
     expect(find.text('Approved'), findsWidgets);
   });
@@ -521,7 +518,7 @@ void main() {
     await tester.tap(find.text('Confirm'));
     await tester.pumpAndSettle();
 
-    expect(gateway.dispenseCalls, 0);
+    expect(gateway.witnessRequestCalls, 0);
     expect(gateway.mutateCalls, 0);
     expect(
       find.textContaining('Multiple controlled-drug evidence candidates'),
@@ -807,28 +804,11 @@ void main() {
       await tester.tap(find.text('Confirm'));
       await tester.pumpAndSettle();
 
-      expect(gateway.movementCalls, 1);
-      expect(gateway.lastMovement, {
-        'inventory_item_id': 501,
-        'inventory_batch_id': 601,
-        'catalog_id': 101,
-        'movement_kind': 'return',
-        'quantity': 2.0,
-        'reference_type': 'ward_indent_return',
-        'reference_id': 'ward-indent:73:item:701',
-        'patient_uid': '00000000-0000-4000-8000-000000000073',
-        'expected_batch_number': 'B-1',
-        'expected_lot_number': 'L-1',
-        'expected_expiry_date': '2027-08-27',
-        'notes': 'Ward indent WARD-73 return allocation 9001',
-      });
       expect(gateway.lastAction, WardIndentAction.reconcile);
       expect(gateway.lastPayload?['allocation_returns'], [
         {'allocation_id': '9001', 'quantity': 2.0},
       ]);
-      expect(gateway.lastPayload?['controlled_return_evidence'], [
-        {'item_id': 701, 'movement_id': 811, 'register_id': 911},
-      ]);
+      expect(gateway.lastPayload?.containsKey('controlled_return_evidence'), isFalse);
     },
   );
 
@@ -1044,19 +1024,15 @@ class _FakeWardIndentGateway implements WardIndentGateway {
   final List<_ListRequest> listRequests = [];
   int _listCall = 0;
   int mutateCalls = 0;
-  int dispenseCalls = 0;
   int witnessRequestCalls = 0;
   int witnessApprovalCalls = 0;
   int inventoryCandidateCalls = 0;
-  int movementCalls = 0;
   int? lastMutationVersion;
   String? lastIdempotencyKey;
   final List<String> idempotencyKeys = [];
   final List<int> mutationVersions = [];
   WardIndentAction? lastAction;
   Map<String, dynamic>? lastPayload;
-  Map<String, dynamic>? lastDispense;
-  Map<String, dynamic>? lastMovement;
   String? lastWitnessEmployeeId;
   int? lastInventoryCatalogId;
 
@@ -1160,8 +1136,10 @@ class _FakeWardIndentGateway implements WardIndentGateway {
   }
 
   @override
-  Future<Map<String, dynamic>> requestControlledDispenseWitnessApproval({
-    required Map<String, dynamic> dispense,
+  Future<Map<String, dynamic>> requestWardControlledWitnessApproval({
+    required int indentId,
+    required int itemId,
+    required Object allocationId,
     required String idempotencyKey,
   }) async {
     witnessRequestCalls += 1;
@@ -1169,9 +1147,11 @@ class _FakeWardIndentGateway implements WardIndentGateway {
   }
 
   @override
-  Future<Map<String, dynamic>> approveControlledDispenseWitnessApproval({
+  Future<Map<String, dynamic>> approveWardControlledWitnessApproval({
+    required int indentId,
     required String approvalId,
-    required Map<String, dynamic> dispense,
+    required int itemId,
+    required Object allocationId,
     required String employeeId,
     required String password,
     required String idempotencyKey,
@@ -1181,31 +1161,6 @@ class _FakeWardIndentGateway implements WardIndentGateway {
     return const {'status': 'approved'};
   }
 
-  @override
-  Future<Map<String, dynamic>> dispenseControlledInventory({
-    required Map<String, dynamic> dispense,
-    required String idempotencyKey,
-  }) async {
-    dispenseCalls += 1;
-    lastDispense = Map<String, dynamic>.from(dispense);
-    return const {
-      'movement': {'id': 801},
-      'register_entry': {'id': 901},
-    };
-  }
-
-  @override
-  Future<Map<String, dynamic>> recordInventoryMovement({
-    required Map<String, dynamic> movement,
-    required String idempotencyKey,
-  }) async {
-    movementCalls += 1;
-    lastMovement = Map<String, dynamic>.from(movement);
-    return const {
-      'movement': {'id': 811},
-      'register_entry': {'id': 911},
-    };
-  }
 }
 
 class _ListRequest {

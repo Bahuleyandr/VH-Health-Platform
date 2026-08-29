@@ -11,6 +11,7 @@ import {
 } from '../../services/clinical/cathLabService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { error, relayAppError, success } from '../../utils/responseHelper.js';
+import { cathCaseGuard } from './cathLabAccessGuards.js';
 
 const router = Router({ mergeParams: true });
 
@@ -83,10 +84,12 @@ const requireCathInventoryMutation = requireExactRole(
   'A pharmacy operator role is required to reconcile Cath inventory',
   'CATH_INVENTORY_RECONCILIATION_PHARMACY_ROLE_REQUIRED'
 );
+const guardCathCase = cathCaseGuard('caseId');
 
 router.get(
   '/',
   requireCathInventoryRead,
+  guardCathCase,
   async (req, res) => {
     try {
       const reconciliation = await getCathConsumableInventoryReconciliation(
@@ -108,6 +111,7 @@ router.get(
 router.post(
   '/',
   requireCathInventoryMutation,
+  guardCathCase,
   enforceStaffClinicalWriteDevicePosture,
   requireEmptyBody,
   requireIdempotencyKey({

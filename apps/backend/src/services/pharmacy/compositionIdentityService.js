@@ -103,7 +103,11 @@ function toPositiveInt(value) {
  * @param {Array<number|string>} catalogIds  pharmacy_catalog ids
  * @returns {Promise<Map<number, object>>} keyed by catalog_id (number). Never throws.
  */
-export async function resolveCompositionIdentitiesByCatalogIds(tenantId, catalogIds) {
+export async function resolveCompositionIdentitiesByCatalogIds(
+  tenantId,
+  catalogIds,
+  { db = prisma } = {},
+) {
   const result = new Map();
 
   if (!tenantId) return result;
@@ -128,7 +132,7 @@ export async function resolveCompositionIdentitiesByCatalogIds(tenantId, catalog
      WHERE pc.tenant_id = $1::uuid AND pc.is_active AND pc.id IN (${inList})`;
 
   try {
-    const rows = await prisma.$queryRawUnsafe(sql, tenantId, ...ids);
+    const rows = await db.$queryRawUnsafe(sql, tenantId, ...ids);
     for (const row of rows) {
       const catalogId = Number(row.catalog_id);
       result.set(catalogId, {
@@ -187,7 +191,7 @@ export async function resolveCompositionIdentitiesByCatalogIds(tenantId, catalog
  * @param {Array<object>} meds
  * @returns {Promise<Array<object>>} never throws
  */
-export async function enrichMedicationsWithComposition(tenantId, meds) {
+export async function enrichMedicationsWithComposition(tenantId, meds, { db = prisma } = {}) {
   if (!Array.isArray(meds) || meds.length === 0) return [];
 
   // Collect catalog ids (accept catalog_id or catalogId), coerce to positive int.
@@ -197,7 +201,7 @@ export async function enrichMedicationsWithComposition(tenantId, meds) {
     if (catalogId !== null) ids.push(catalogId);
   }
 
-  const identities = await resolveCompositionIdentitiesByCatalogIds(tenantId, ids);
+  const identities = await resolveCompositionIdentitiesByCatalogIds(tenantId, ids, { db });
 
   return meds.map((med) => {
     // Strip forged canonical/derived-only fields from EVERY med (never trusted),

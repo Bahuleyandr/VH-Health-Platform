@@ -10,6 +10,8 @@ import {
   verifyOrder,
   getPackLabel,
 } from '../../services/pharmacy/pharmacistVerificationService.js';
+import { createDispenseCommandIdentity } from '../../services/pharmacy/pharmacyOrderInventoryService.js';
+import { pharmacyCommandRequestSha256 } from '../../services/pharmacy/pharmacyOrderCommandReceiptService.js';
 
 function handleFailure(res, err, context) {
   return relayAppError(res, err, `Failed to ${context}`);
@@ -21,12 +23,30 @@ export const verifyPharmacyOrder = async (req, res) => {
     if (!Number.isInteger(orderId) || orderId <= 0) {
       return error(res, 'Invalid order id', HTTP_STATUS.BAD_REQUEST);
     }
-    const result = await verifyOrder(orderId, {
+    const requestPayload = {
       decision: req.body?.decision || 'verified',
-      overrideReason: req.body?.override_reason || null,
+      override_reason: req.body?.override_reason || null,
+      rejection_reason: req.body?.rejection_reason || null,
+      manual_allergy_review_completed: req.body?.manual_allergy_review_completed === true,
       notes: req.body?.notes || null,
+    };
+    const commandKeySha256 = createDispenseCommandIdentity({
+      tenantId: req.tenantId,
+      actorUid: req.user?.uid,
+      scope: `verify:${orderId}`,
+      idempotencyKey: req.idempotencyClaim?.requestKey || req.get?.('idempotency-key'),
+    });
+    const result = await verifyOrder(orderId, {
+      tenantId: req.tenantId,
+      decision: requestPayload.decision,
+      overrideReason: requestPayload.override_reason,
+      rejectionReason: requestPayload.rejection_reason,
+      manualAllergyReviewCompleted: requestPayload.manual_allergy_review_completed,
+      notes: requestPayload.notes,
       actorUid: req.user?.uid || null,
       actorRole: req.user?.role || null,
+      commandKeySha256,
+      requestSha256: pharmacyCommandRequestSha256(requestPayload),
     });
     return success(res, result, `Order verification ${result.order.clinical_verification_status}`);
   } catch (err) {
@@ -40,7 +60,7 @@ export const getPharmacyPackLabel = async (req, res) => {
     if (!Number.isInteger(orderId) || orderId <= 0) {
       return error(res, 'Invalid order id', HTTP_STATUS.BAD_REQUEST);
     }
-    const label = await getPackLabel(orderId);
+    const label = await getPackLabel(orderId, req.tenantId);
     return success(res, label, 'Med-pack label payload');
   } catch (err) {
     return handleFailure(res, err, 'build pack label');

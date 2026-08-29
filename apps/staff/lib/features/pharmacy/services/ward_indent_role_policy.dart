@@ -7,6 +7,7 @@ enum WardIndentAction {
   shortSupply,
   proposeSubstitution,
   approveSubstitution,
+  applyApprovedSubstitution,
   rejectSubstitution,
   approve,
   reject,
@@ -26,6 +27,7 @@ extension WardIndentActionContract on WardIndentAction {
     WardIndentAction.shortSupply => 'short-supply',
     WardIndentAction.proposeSubstitution => 'substitutions',
     WardIndentAction.approveSubstitution => 'substitutions/approve',
+    WardIndentAction.applyApprovedSubstitution => 'substitutions/apply',
     WardIndentAction.rejectSubstitution => 'substitutions/reject',
     WardIndentAction.approve => 'approve',
     WardIndentAction.reject => 'reject',
@@ -82,6 +84,10 @@ abstract final class WardIndentRolePolicy {
           });
           break;
         case WardIndentStatus.substitutionPending:
+          if (indent.items.any((item) => item.substitutionStatus == 'approved') &&
+              !indent.items.any((item) => item.substitutionStatus == 'pending')) {
+            actions.add(WardIndentAction.applyApprovedSubstitution);
+          }
           actions.add(WardIndentAction.reject);
           break;
         case WardIndentStatus.controlledHandoffRequired:

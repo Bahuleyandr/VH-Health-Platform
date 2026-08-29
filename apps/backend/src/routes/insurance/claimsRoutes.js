@@ -3,11 +3,14 @@
 // Sprint 5 — TPA pre-auth + cashless claim + reimbursement workflow.
 // Mounted at /api/v1/insurance/*.
 
+import { createHash } from 'node:crypto';
 import { Router } from 'express';
 import * as claims from '../../services/insurance/claimsService.js';
 import * as capsService from '../../services/insurance/claimCapsService.js';
 import * as packages from '../../services/insurance/packagesService.js';
+import * as nhcxOutbound from '../../services/nhcx/nhcxOutboundDispatcherService.js';
 import { ENHANCEMENT_JUSTIFICATION_TEMPLATE } from '../../services/insurance/clinicalJustificationTemplate.js';
+import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
@@ -35,6 +38,19 @@ function requireStaffOrAdmin(req, res, next) {
     return error(res, 'Staff or admin role required', 403);
   }
   next();
+}
+
+function requireNHCXProjectionOwner(req, res, next) {
+  const role = String(req.user?.role || '').toUpperCase();
+  if (!['INSURANCE_COORDINATOR', 'CLAIMS_MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role)) {
+    return error(res, 'Insurance coordinator role required', 403);
+  }
+  next();
+}
+
+function commandKeySha256Of(req) {
+  const key = req.idempotencyClaim?.requestKey || req.get('idempotency-key') || '';
+  return createHash('sha256').update(String(key)).digest('hex');
 }
 
 // ── Policies ─────────────────────────────────────────────────────────
@@ -186,6 +202,35 @@ router.post('/claims/:id/payment', requireStaffOrAdmin, wrap(async (req) =>
     recorded_by: req.user?.uid,
   }),
 ));
+
+router.get(
+  '/nhcx/projections/:messageId',
+  requireNHCXProjectionOwner,
+  wrap(async (req) => nhcxOutbound.getAcceptedNHCXProjectionRecovery({
+    tenantId: tenantOf(req),
+    messageId: req.params.messageId,
+    actorUid: req.user?.uid,
+  })),
+);
+
+router.post(
+  '/nhcx/projections/:messageId/retry',
+  requireNHCXProjectionOwner,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'nhcx_accepted_projection_retry',
+    durableDomainReceipt: true,
+    requestPathForIdempotency: (req) =>
+      `/api/v1/insurance/nhcx/projections/${req.params.messageId}/retry`,
+  }),
+  wrap(async (req) => nhcxOutbound.retryAcceptedNHCXProjection({
+    tenantId: tenantOf(req),
+    messageId: req.params.messageId,
+    expectedTransportResponseSha256: req.body?.expected_transport_response_sha256,
+    actorUid: req.user?.uid,
+    commandKeySha256: commandKeySha256Of(req),
+  })),
+);
 
 // ── A11 — per-category claim caps (migration 178) ───────────────────
 // Replaces the unstructured documents.caps jsonb merged in batch 9.

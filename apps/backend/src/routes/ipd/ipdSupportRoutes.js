@@ -601,7 +601,6 @@ router.post(
       indentId: requireIntParam(req.params.indentId, 'indentId'),
       reconciledBy: req.user?.uid,
       reason: req.body?.reason,
-      controlledReturnEvidence: req.body?.controlled_return_evidence ?? null,
       itemReconciliations: req.body?.item_reconciliations ?? null,
       allocationReturns: req.body?.allocation_returns ?? null,
       ...wardIndentMutationContext(req),

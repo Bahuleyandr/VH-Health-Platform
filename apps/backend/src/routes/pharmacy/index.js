@@ -2,6 +2,7 @@ import express from 'express';
 import { wrapRoutesWithValidation, wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as pharmacyOrderController from '../../controllers/pharmacy/pharmacyOrderController.js';
 import logger from '../../logging/logger.js';
+import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import adminRoutes from './adminRoutes.js';
 import inventoryRoutes from './inventoryRoutes.js';
 import inventoryV2Routes from './inventoryV2Routes.js';
@@ -31,6 +32,39 @@ const guardDispenseByBodyOrder = pharmacyOrderGuard(
 // it), so an unresolvable subject refuses instead of falling through.
 const guardSubstitutionPatient = pharmacyOrderGuard(selectPatientFromBodyUid, {
   requirePatientContext: true,
+});
+const canonicalOrderDispenseBody = (req) => {
+  const body = { ...(req.body || {}) };
+  delete body.order_id;
+  delete body.orderId;
+  delete body.id;
+  return body;
+};
+const bodyOrderDispenseIdempotency = requireIdempotencyKey({
+  required: true,
+  durableDomainReceipt: true,
+  scope: 'pharmacy-order-dispense',
+  retainOnServerError: true,
+  requestPathForIdempotency: (req) => {
+    const id = req.body?.order_id ?? req.body?.orderId ?? req.body?.id;
+    return `/api/v1/pharmacy-orders/orders/${id}/dispense`;
+  },
+  requestBodyForIdempotency: canonicalOrderDispenseBody,
+});
+const substitutionDispenseIdempotency = requireIdempotencyKey({
+  required: true,
+  durableDomainReceipt: true,
+  scope: 'pharmacy-dispense-substitution',
+  retainOnServerError: true,
+  requestPathForIdempotency: '/api/v1/pharmacy-orders/dispense-substitution',
+});
+const catalogRemovalIdempotency = requireIdempotencyKey({
+  required: true,
+  durableDomainReceipt: true,
+  scope: 'pharmacy-catalog-remove',
+  retainOnServerError: true,
+  requestPathForIdempotency: (req) => `/api/v1/pharmacy-orders/catalog/${req.params.id}`,
+  requestBodyForIdempotency: () => ({}),
 });
 
 function dispenseByBodyOrderId(req, res) {
@@ -91,8 +125,12 @@ router.use('/search', medicationRoutes);
 // the canonical counter-dispense controller.
 wrapAutoRBAC(router, 'pharmacyLifecycleRoutes', {
   post: [
-    ['/dispense', [guardDispenseByBodyOrder], dispenseByBodyOrderId],
-    ['/dispense-substitution', [...dispenseSubstitutionValidator, guardSubstitutionPatient], pharmacyOrderController.dispenseSubstitution]
+    ['/dispense', [guardDispenseByBodyOrder, bodyOrderDispenseIdempotency], dispenseByBodyOrderId],
+    ['/dispense-substitution', [
+      ...dispenseSubstitutionValidator,
+      guardSubstitutionPatient,
+      substitutionDispenseIdempotency,
+    ], pharmacyOrderController.dispenseSubstitution]
   ]
 });
 
@@ -111,7 +149,7 @@ wrapAutoRBAC(router, 'pharmacyCatalogAdminRoutes', {
     ['/catalog', [], pharmacyOrderController.upsertCatalog]
   ],
   delete: [
-    ['/catalog/:id', [], pharmacyOrderController.removeCatalog]
+    ['/catalog/:id', [catalogRemovalIdempotency], pharmacyOrderController.removeCatalog]
   ]
 });
 

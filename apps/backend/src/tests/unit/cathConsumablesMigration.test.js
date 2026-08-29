@@ -6,6 +6,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const migrationPath = (name) => path.resolve(__dirname, '../../migrations', name);
 const seederPath = path.resolve(__dirname, '../../../scripts/seed-comprehensive-test-data.mjs');
+const prismaSchemaPath = path.resolve(__dirname, '../../../prisma/schema.prisma');
 
 const sql = {};
 
@@ -14,7 +15,12 @@ beforeAll(() => {
   sql.usage = fs.readFileSync(migrationPath('564_cath_case_consumable_usage.sql'), 'utf8');
   sql.links = fs.readFileSync(migrationPath('565_cath_implant_inventory_links.sql'), 'utf8');
   sql.billing = fs.readFileSync(migrationPath('566_cath_consumables_billing_hook.sql'), 'utf8');
+  sql.authority = fs.readFileSync(
+    migrationPath('753_pharmacy_order_inventory_authority.sql'),
+    'utf8',
+  );
   sql.seeder = fs.readFileSync(seederPath, 'utf8');
+  sql.schema = fs.readFileSync(prismaSchemaPath, 'utf8');
 });
 
 describe('NL-13 P1d cath consumables migrations 563-566', () => {
@@ -120,6 +126,155 @@ describe('NL-13 P1d cath consumables migrations 563-566', () => {
         new RegExp(`FOREIGN KEY \\(tenant_id, ${column}\\)[\\s\\S]*REFERENCES ${table} \\(tenant_id, id\\)`, 'i'),
       );
     }
+  });
+
+  test('facility authority binds Cath catalog, usage, item, and batch identities exactly', () => {
+    expect(sql.authority).toMatch(
+      /ALTER TABLE cath_consumable_catalog[\s\S]*ADD COLUMN IF NOT EXISTS facility_id INTEGER/i,
+    );
+    expect(sql.authority).toMatch(
+      /ALTER TABLE cath_case_consumable_usage[\s\S]*ADD COLUMN IF NOT EXISTS facility_id INTEGER[\s\S]*ADD COLUMN IF NOT EXISTS inventory_item_id INTEGER/i,
+    );
+    expect(sql.authority).toMatch(
+      /FOREIGN KEY \(tenant_id, facility_id, inventory_item_id\)[\s\S]*REFERENCES pharmacy_inventory_items \(tenant_id, facility_id, id\)/i,
+    );
+    expect(sql.authority).toMatch(
+      /FOREIGN KEY \(tenant_id, facility_id, catalog_item_id, inventory_item_id\)[\s\S]*REFERENCES cath_consumable_catalog \(tenant_id, facility_id, id, inventory_item_id\)/i,
+    );
+    expect(sql.authority).toMatch(
+      /FOREIGN KEY \(tenant_id, facility_id, inventory_batch_id, inventory_item_id\)[\s\S]*REFERENCES pharmacy_inventory_batches \(tenant_id, facility_id, id, inventory_item_id\)/i,
+    );
+    expect(sql.authority).toMatch(
+      /chk_cath_catalog_active_facility_mapping_753[\s\S]*status <> 'active'[\s\S]*facility_id IS NOT NULL[\s\S]*inventory_item_id IS NOT NULL[\s\S]*NOT VALID/i,
+    );
+    expect(sql.authority).toMatch(
+      /chk_cath_usage_exact_inventory_authority_753[\s\S]*facility_id IS NOT NULL[\s\S]*inventory_item_id IS NOT NULL[\s\S]*inventory_batch_id IS NOT NULL[\s\S]*NOT VALID/i,
+    );
+    expect(sql.authority).toMatch(
+      /cath_consumable_usage_inventory_status_check[\s\S]*'not_applicable'/i,
+    );
+  });
+
+  test('pins each Cath case to its exact facility and keeps Prisma index parity', () => {
+    expect(sql.authority).toMatch(
+      /ALTER TABLE cath_lab_cases[\s\S]*ADD COLUMN IF NOT EXISTS facility_id INTEGER/i,
+    );
+    expect(sql.authority).toMatch(
+      /UPDATE cath_lab_cases cath_case[\s\S]*encounter\.metadata->>'facility_id'/i,
+    );
+    expect(sql.authority).toMatch(
+      /'CATH_CASE_FACILITY_UNRESOLVED'[\s\S]*'facility_status', facility\.status[\s\S]*'encounter_facility_id'/i,
+    );
+    expect(sql.authority).toMatch(
+      /cath_case\.encounter_id IS NOT NULL[\s\S]*encounter\.id IS NULL[\s\S]*cath_case\.facility_id IS DISTINCT FROM[\s\S]*encounter\.metadata->>'facility_id'/i,
+    );
+    expect(sql.authority).toMatch(
+      /FOREIGN KEY \(tenant_id, case_id, patient_uid, facility_id\)[\s\S]*REFERENCES cath_lab_cases \(tenant_id, id, patient_uid, facility_id\)/i,
+    );
+    expect(sql.authority).toMatch(
+      /chk_cath_lab_case_facility_required_753[\s\S]*CHECK \(facility_id IS NOT NULL\) NOT VALID/i,
+    );
+    expect(sql.authority).toContain('ux_cath_lab_cases_usage_facility_753');
+    expect(sql.schema).toMatch(
+      /model cath_lab_cases \{[\s\S]*facility_id\s+Int\?[\s\S]*@@unique\(\[tenant_id, id, patient_uid, facility_id\], map: "ux_cath_lab_cases_usage_facility_753"\)/i,
+    );
+    expect(sql.authority).toContain('ux_pharmacy_batches_facility_item_id_cath_753');
+    expect(sql.schema).toContain(
+      '@@unique([tenant_id, facility_id, id, inventory_item_id], map: "ux_pharmacy_batches_facility_item_id_cath_753")',
+    );
+  });
+
+  test('database guards make Cath facility, grant, event, task, and outbox identity immutable', () => {
+    for (const trigger of [
+      'trg_cath_case_authority_identity_753',
+      'trg_cath_catalog_authority_identity_753',
+      'trg_cath_usage_authority_identity_753',
+      'trg_cath_task_authority_identity_753',
+      'trg_cath_sla_authority_identity_753',
+      'trg_cath_outbox_authority_identity_753',
+      'trg_cath_movement_authority_identity_753',
+      'trg_cath_usage_authority_contract_753',
+    ]) {
+      expect(sql.authority).toContain(trigger);
+    }
+    expect(sql.authority).toContain('cath_inventory_authority_assert_contract_753');
+    for (const tag of [
+      'cath_authority_identity_guard_753',
+      'cath_authority_recovery_receipt_constraint_753',
+      'cath_inventory_authority_assert_contract_753',
+      'cath_inventory_authority_constraint_753',
+      'cath_inventory_authority_runtime_privileges_753',
+    ]) {
+      expect(sql.authority).toContain(`END;\n$${tag}$;`);
+    }
+    expect(sql.authority).toContain('clinical_timeline_events timeline');
+    expect(sql.authority).toContain('trg_cath_case_recovery_receipt_753');
+    expect(sql.authority).toContain('trg_cath_catalog_recovery_receipt_753');
+    expect(sql.authority).toContain(
+      'Cath authority identity repair lacks its exact governed recovery receipt',
+    );
+    expect(sql.authority).toContain('clinical_audit_events audit');
+    expect(sql.authority).toContain("recipient_facility_grant_id");
+    expect(sql.authority).toContain("actor_facility_grant_id");
+    expect(sql.authority).toContain("inventory_batch_id");
+    expect(sql.authority).toContain('movement_total > usage_record.quantity');
+    expect(sql.authority).toContain(
+      'usage_record.inventory_movement_id IS DISTINCT FROM final_movement_id',
+    );
+    expect(sql.authority).toMatch(
+      /inventory_decrement_status='not_applicable'[\s\S]*EXISTS \([\s\S]*FROM public\.pharmacy_stock_movements movement/i,
+    );
+    expect(sql.authority).toMatch(
+      /inventory_decrement_status='not_applicable'[\s\S]*facility_id IS NULL[\s\S]*inventory_item_id IS NULL[\s\S]*inventory_batch_id IS NULL/i,
+    );
+    expect(sql.authority).toContain("app.pharmacy_recovery_command_key_sha256");
+    expect(sql.authority).toMatch(
+      /DEFERRABLE INITIALLY DEFERRED FOR EACH ROW[\s\S]*cath_inventory_authority_constraint_753/i,
+    );
+  });
+
+  test('legacy Cath authority gaps are worklisted without default-facility inference', () => {
+    expect(sql.authority).toContain("'cath_consumable_catalog'");
+    expect(sql.authority).toContain("'cath_consumable_usage'");
+    expect(sql.authority).toContain("'cath_lab_case'");
+    expect(sql.authority).toContain("'CATH_CATALOG_FACILITY_UNRESOLVED'");
+    expect(sql.authority).toContain("'CATH_USAGE_AUTHORITY_UNRESOLVED'");
+    expect(sql.authority).toContain("'CATH_CASE_FACILITY_UNRESOLVED'");
+    const cathBlock = sql.authority.slice(
+      sql.authority.indexOf('-- Cath consumable custody is pinned'),
+      sql.authority.indexOf('COMMENT ON COLUMN pharmacy_orders.facility_id'),
+    );
+    expect(cathBlock).not.toMatch(/is_default\s*=\s*TRUE/i);
+    expect(cathBlock).not.toMatch(
+      /UPDATE cath_consumable_catalog[\s\S]*SET facility_id\s*=\s*item\.facility_id/i,
+    );
+    expect(cathBlock).not.toMatch(
+      /UPDATE cath_case_consumable_usage[\s\S]*SET facility_id\s*=\s*catalog\.facility_id/i,
+    );
+    expect(cathBlock).not.toContain('exact_case_usage_facility');
+    expect(cathBlock).toMatch(
+      /LEFT JOIN pharmacy_inventory_batches batch[\s\S]*batch\.facility_id IS DISTINCT FROM usage\.facility_id[\s\S]*batch\.inventory_item_id IS DISTINCT FROM usage\.inventory_item_id/i,
+    );
+    expect(cathBlock).toContain("'case_facility_id', cath_case.facility_id");
+    expect(cathBlock).toContain("'encounter_facility_id', CASE");
+    expect(cathBlock).toMatch(
+      /LEFT JOIN patient_encounters case_encounter[\s\S]*cath_case\.facility_id IS DISTINCT FROM[\s\S]*case_encounter\.metadata->>'facility_id'/i,
+    );
+    expect(cathBlock).toMatch(
+      /batch\.batch_number IS DISTINCT FROM usage\.batch_number[\s\S]*batch\.lot_number IS DISTINCT FROM usage\.lot_number[\s\S]*batch\.expiry_date IS DISTINCT FROM usage\.expiry_date/i,
+    );
+    expect(cathBlock).toMatch(
+      /inventory_decrement_status IN[\s\S]*NOT EXISTS \([\s\S]*FROM tasks task[\s\S]*NOT EXISTS \([\s\S]*FROM workflow_sla_instances sla[\s\S]*NOT EXISTS \([\s\S]*FROM notification_outbox outbox/i,
+    );
+    expect(cathBlock).toMatch(
+      /EXISTS \([\s\S]*FROM pharmacy_stock_movements movement[\s\S]*actor_facility_grant_id[\s\S]*FROM pharmacy_staff_facility_grants movement_grant/i,
+    );
+    expect(cathBlock).toMatch(
+      /NOT EXISTS \([\s\S]*FROM clinical_timeline_events timeline[\s\S]*NOT EXISTS \([\s\S]*FROM clinical_audit_events audit/i,
+    );
+    expect(cathBlock).toMatch(
+      /delivery_coverage'[\s\S]*recipient_facility_grant_id[\s\S]*FROM pharmacy_staff_facility_grants recipient_grant/i,
+    );
   });
 
   test('inventory and billing emissions are idempotent by originating usage/log', () => {

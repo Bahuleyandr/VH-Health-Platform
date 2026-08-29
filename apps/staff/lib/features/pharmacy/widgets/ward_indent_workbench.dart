@@ -313,9 +313,13 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
         return;
       case WardIndentAction.approveSubstitution:
         if (!await _confirm(actionLabel)) return;
+        await _mutate(action, const {});
+        return;
+      case WardIndentAction.applyApprovedSubstitution:
+        if (!await _confirm(actionLabel)) return;
         final substitutionTargets = {
           for (final item in indent.items)
-            if (item.substitutionStatus == 'pending')
+            if (item.substitutionStatus == 'approved')
               item.id: item.proposedQuantity ?? item.quantityRequested,
         };
         final substitutionSelections = await _collectInventorySelections(
@@ -463,7 +467,8 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
         final target = targetQuantities[line.id] ?? 0;
         if (target <= 0) continue;
         List<WardIndentInventoryItem> candidates;
-        if (useProposedCatalog && line.substitutionStatus == 'pending') {
+        if (useProposedCatalog &&
+            const {'pending', 'approved'}.contains(line.substitutionStatus)) {
           final proposedCatalogId = line.proposedCatalogId;
           if (proposedCatalogId == null) {
             throw StateError(
@@ -650,14 +655,8 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
     if (reconciliations == null) return null;
     final allocationReturns = _buildAllocationReturns(indent);
     if (allocationReturns == null) return null;
-    final evidence = await _recordControlledReturnEvidence(
-      indent,
-      allocationReturns,
-    );
-    if (evidence == null) return null;
     return {
       'reason': reason,
-      'controlled_return_evidence': evidence,
       'allocation_returns': [
         for (final entry in allocationReturns)
           {'allocation_id': entry.allocation.id, 'quantity': entry.quantity},
@@ -710,87 +709,6 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
       }
     }
     return result;
-  }
-
-  Future<List<Map<String, dynamic>>?> _recordControlledReturnEvidence(
-    WardIndent indent,
-    List<_AllocationReturnPlan> allocationReturns,
-  ) async {
-    final controlled = allocationReturns
-        .where((entry) => entry.item.isControlled)
-        .toList(growable: false);
-    if (controlled.isEmpty) return const [];
-    if (!OnlineOnlyActionGuard.require(context)) return null;
-    final strings = AppStrings.of(context);
-    final result = <Map<String, dynamic>>[];
-    setState(() => _mutating = true);
-    try {
-      for (final entry in controlled) {
-        final referenceId = entry.item.controlledReferenceId;
-        if (referenceId == null || referenceId.isEmpty) {
-          throw StateError(
-            strings.format('ward_indent.controlled.reference_missing', {
-              'item': entry.item.name,
-            }),
-          );
-        }
-        final allocation = entry.allocation;
-        final movementPayload = <String, dynamic>{
-          'inventory_item_id': allocation.inventoryItemId,
-          'inventory_batch_id': allocation.inventoryBatchId,
-          if (entry.item.catalogId != null) 'catalog_id': entry.item.catalogId,
-          'movement_kind': 'return',
-          'quantity': entry.quantity,
-          'reference_type': 'ward_indent_return',
-          'reference_id': referenceId,
-          if (indent.patientUid != null) 'patient_uid': indent.patientUid,
-          if (allocation.batchNumber != null)
-            'expected_batch_number': allocation.batchNumber,
-          if (allocation.lotNumber != null)
-            'expected_lot_number': allocation.lotNumber,
-          if (allocation.expiryDate != null)
-            'expected_expiry_date': allocation.expiryDate!
-                .toIso8601String()
-                .substring(0, 10),
-          'notes':
-              'Ward indent ${indent.indentNumber} return allocation '
-              '${allocation.id}',
-        };
-        final attemptScope = _attemptScope(
-          indent.id,
-          'controlled-return:${allocation.id}',
-        );
-        final response = await widget.gateway.recordInventoryMovement(
-          movement: movementPayload,
-          idempotencyKey: _attempts.keyFor(attemptScope, movementPayload),
-        );
-        final movementRecord = response['movement'];
-        final register = response['register_entry'];
-        final movementId = movementRecord is Map
-            ? int.tryParse('${movementRecord['id']}')
-            : null;
-        final registerId = register is Map
-            ? int.tryParse('${register['id']}')
-            : null;
-        if (movementId == null || registerId == null) {
-          throw StateError(
-            strings.lookup('ward_indent.reconcile.return_evidence_missing'),
-          );
-        }
-        _attempts.complete(attemptScope);
-        result.add({
-          'item_id': entry.item.id,
-          'movement_id': movementId,
-          'register_id': registerId,
-        });
-      }
-      return result;
-    } catch (error) {
-      if (mounted) _setActionError(_errorText(error));
-      return null;
-    } finally {
-      if (mounted) setState(() => _mutating = false);
-    }
   }
 
   Future<List<Map<String, dynamic>>?> _askVarianceReconciliations(
@@ -899,10 +817,8 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
     try {
       var current = initial;
       _throwOnAmbiguousRecovery(current);
+      final evidence = <Map<String, dynamic>>[];
       for (final line in current.items.where((item) => item.isControlled)) {
-        final existing = _recoveryFor(current, line.id);
-        if (existing?.isRecoverable == true) continue;
-
         final allocation = exactControlledIssueAllocation(current, line);
         if (allocation == null) {
           throw StateError(
@@ -926,35 +842,25 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
           );
         }
         final inventoryItem = exactInventory.single;
-        final exactBatch = inventoryItem.batches
-            .where((batch) => batch.id == allocation.inventoryBatchId)
-            .toList(growable: false);
-        if (exactBatch.length != 1) {
-          throw StateError(
-            strings.format('ward_indent.controlled.no_usable_batch', {
-              'item': line.name,
-            }),
-          );
-        }
-        final dispense = <String, dynamic>{
-          'inventory_item_id': allocation.inventoryItemId,
-          'inventory_batch_id': allocation.inventoryBatchId,
-          'quantity': allocation.issueAvailableQuantity,
-          if (current.patientUid != null) 'patient_uid': current.patientUid,
-          'prescription_number': current.indentNumber,
-          'reference_id': line.controlledReferenceId,
-          'notes':
-              'Ward indent ${current.indentNumber} allocation ${allocation.id}',
-        };
+        final itemEvidence = <String, dynamic>{'item_id': line.id};
         if (inventoryItem.requiresWitness) {
           final witnessRequestScope = _attemptScope(
             current.id,
             'controlled-witness-request:${line.id}',
           );
+          final witnessRequestPayload = {
+            'item_id': line.id,
+            'allocation_id': '${allocation.id}',
+          };
           final requested = await widget.gateway
-              .requestControlledDispenseWitnessApproval(
-                dispense: dispense,
-                idempotencyKey: _attempts.keyFor(witnessRequestScope, dispense),
+              .requestWardControlledWitnessApproval(
+                indentId: current.id,
+                itemId: line.id,
+                allocationId: allocation.id,
+                idempotencyKey: _attempts.keyFor(
+                  witnessRequestScope,
+                  witnessRequestPayload,
+                ),
               );
           final approvalId =
               requested['id']?.toString() ??
@@ -972,13 +878,16 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
             'controlled-witness-approve:$approvalId',
           );
           final witnessApprovalPayload = <String, dynamic>{
-            'dispense': dispense,
+            'item_id': line.id,
+            'allocation_id': '${allocation.id}',
             'employeeId': credentials.employeeId.trim().toUpperCase(),
             'password': credentials.password,
           };
-          await widget.gateway.approveControlledDispenseWitnessApproval(
+          await widget.gateway.approveWardControlledWitnessApproval(
+            indentId: current.id,
             approvalId: approvalId,
-            dispense: dispense,
+            itemId: line.id,
+            allocationId: allocation.id,
             employeeId: witnessApprovalPayload['employeeId'] as String,
             password: witnessApprovalPayload['password'] as String,
             idempotencyKey: _attempts.keyFor(
@@ -987,45 +896,11 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
             ),
           );
           _attempts.complete(witnessApprovalScope);
-          dispense['witness_approval_id'] = approvalId;
+          itemEvidence['witness_approval_id'] = approvalId;
         }
-        final controlledDispenseScope = _attemptScope(
-          current.id,
-          'controlled-dispense:${allocation.id}',
-        );
-        await widget.gateway.dispenseControlledInventory(
-          dispense: dispense,
-          idempotencyKey: _attempts.keyFor(controlledDispenseScope, dispense),
-        );
-        _attempts.complete(controlledDispenseScope);
-        current = await widget.gateway.getIndent(current.id);
-        if (mounted) {
-          setState(() {
-            _selected = current;
-            _indents = _replaceOrAdd(_indents, current);
-          });
-        }
-        _throwOnAmbiguousRecovery(current);
+        evidence.add(itemEvidence);
       }
 
-      current = await widget.gateway.getIndent(current.id);
-      _throwOnAmbiguousRecovery(current);
-      final evidence = <Map<String, dynamic>>[];
-      for (final line in current.items.where((item) => item.isControlled)) {
-        final recovery = _recoveryFor(current, line.id);
-        if (recovery == null || !recovery.isRecoverable) {
-          throw StateError(
-            strings.format('ward_indent.controlled.recovery_pending', {
-              'item': line.name,
-            }),
-          );
-        }
-        evidence.add({
-          'item_id': line.id,
-          'movement_id': recovery.movementId,
-          'register_id': recovery.registerId,
-        });
-      }
       final handoffPayload = {'item_evidence': evidence};
       final handoffScope = _attemptScope(
         current.id,
@@ -2016,6 +1891,7 @@ String _actionLabel(AppStrings s, WardIndentAction action) {
     WardIndentAction.shortSupply => 'short_supply',
     WardIndentAction.proposeSubstitution => 'propose_substitution',
     WardIndentAction.approveSubstitution => 'approve_substitution',
+    WardIndentAction.applyApprovedSubstitution => 'apply_substitution',
     WardIndentAction.rejectSubstitution => 'reject_substitution',
     WardIndentAction.controlledHandoff => 'controlled_handoff',
     WardIndentAction.requestReturn => 'request_return',

@@ -4,12 +4,43 @@
 // blockers → override-with-reason, rejected orders frozen), med-pack
 // barcode + label, the scan-first MAR policy (bare administer 409s,
 // override audited), exact ward-batch identity, and wristband printing.
+//
+// FIXTURE AUTHORITY (migration 753). Every pharmacy row this suite seeds now
+// has to satisfy the facility-custody contract the migration declares, and
+// every pharmacy call has to arrive with the authority the routes now demand:
+//
+//   • pharmacy_orders — chk_pharmacy_orders_facility_progression_753 refuses a
+//     non-terminal order with a NULL facility_id, so the fixture orders name
+//     this suite's own facility. authority_origin is also stamped
+//     ('patient_manual', matching zero linked e_prescriptions): a NULL origin
+//     fails closed in pharmacistVerificationService's linkage gate, which is
+//     the deliberate migration-753 behaviour, not something to seed around.
+//   • pharmacy_inventory_items / _batches — batches are facility-scoped to
+//     their item (fk_pharmacy_batches_item_facility_753) and in_stock stock
+//     needs an exact active storage location
+//     (chk_pharmacy_batches_usable_storage_supply_753 plus
+//     trg_pharmacy_batch_storage_authority_supply_753).
+//   • wards — createWardIndent now refuses a ward with no active facility
+//     (WARD_INDENT_FACILITY_REQUIRED), and reserve/approve/issue each assert a
+//     pharmacy_staff_facility_grants row for the acting pharmacist.
+//   • the /verify, /preparing and /dispense-counter routes require an
+//     Idempotency-Key (orderDispenseIdempotency, required: true), and the
+//     acting pharmacist must be a real users + staff row holding an active
+//     facility grant — so the pharmacy calls act as B1TEST Pharmacist
+//     (PHARMACY_INCHARGE, which is also the only role allowed to break-glass
+//     override) rather than the shared harness identity.
+//
+// The delivery/counter split below is a contract change, not a convenience:
+// markPreparing refuses a counter order (PHARMACY_ORDER_WRONG_DELIVERY_FLOW)
+// and markCounterDispensed refuses a delivery one, so the preparing cases and
+// the counter-dispense case need their own fixture orders. No case was
+// dropped.
 
 import request from 'supertest';
 import { createHash } from 'node:crypto';
 import { jest } from '@jest/globals';
 import app from '../app.js';
-import prisma from '../lib/prisma.js';
+import prisma, { setTenantTx } from '../lib/prisma.js';
 import { authClient, API_KEY, generateTestToken } from './testClient.js';
 import { __resetDrugKbCache } from '../services/clinical/drugKnowledgeBaseService.js';
 import { renderWristbandAllergyStrip } from '../routes/clinical/bcmaRoutes.js';
@@ -33,6 +64,10 @@ const DOCTOR_UID = 'b1b1b1b1-1111-4111-8111-b1b1b1b1fd02';
 const PHARMACIST_UID = 'b1b1b1b1-1111-4111-8111-b1b1b1b1fd03';
 const RUN = `${process.pid}-${Date.now()}`;
 const BATCH_BARCODE = `B1-BATCH-${RUN}`;
+// Non-default facility (`is_default=FALSE`) so it never collides with
+// uq_facility_default, a partial UNIQUE on (tenant_id) WHERE is_default.
+const FACILITY_CODE = `B1TEST-FACILITY-${RUN}`;
+const STORAGE_LOCATION_CODE = `B1TEST-STORE-${RUN}`;
 // MAR routes sit behind the patient-access guard: the acting staff member
 // must exist in users and hold a care relationship (admission context).
 const nurseClient = () => {
@@ -56,9 +91,29 @@ function doctorPostWithKey(path, key) {
     .set('Idempotency-Key', key);
 }
 
+// The pharmacy lifecycle routes resolve facility custody from the ACTING
+// staff member (assertPharmacyFacilityGrant needs a live users row, an active
+// staff row and an active grant whose role matches the JWT), so the pharmacy
+// calls cannot use the shared harness identity any more.
+const pharmacistClient = () => {
+  const token = generateTestToken('PHARMACY_INCHARGE', { uid: PHARMACIST_UID });
+  return {
+    get: (path) => request(app).get(path).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
+    post: (path) => request(app).post(path).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
+  };
+};
+
+// Every order-lifecycle POST now runs through requireIdempotencyKey({
+// required: true }), and the key is scoped to path + canonical body — so each
+// call in this suite carries its OWN key rather than replaying a neighbour's.
+function pharmacistPostWithKey(path, key) {
+  return pharmacistClient().post(path).set('Idempotency-Key', key);
+}
+
 let patientId;
 let patientUid;
-let cleanOrderId; // order with benign items
+let cleanOrderId; // delivery order with benign items — verify → preparing
+let counterOrderId; // counter order — the counter-dispense verification gate
 let riskyOrderId; // order whose items trip a KB contraindication
 let maId; // scheduled MAR row for scan-policy tests
 let clinicalOrderId;
@@ -68,8 +123,47 @@ let wardIndentStateVersion;
 let catalogId;
 let inventoryItemId;
 let inventoryBatchId;
+let facilityId;
+let storageLocationId;
 
 async function cleanup() {
+  // These three tables need BOTH escapes at once, which is why they cannot ride
+  // along in the plain replica transaction below:
+  //   • tenant context — each carries a RESTRICTIVE tenant_context_required RLS
+  //     policy, and app_current_tenant_id_uuid() is NULL outside setTenantTx, so
+  //     an untenanted delete matches nothing. session_replication_role='replica'
+  //     suppresses triggers and FK actions but never row-level security.
+  //   • replica role — pharmacy_order_command_receipts and the grant events are
+  //     append-only through BEFORE DELETE triggers, and the receipts' FK to
+  //     pharmacy_orders is ON DELETE CASCADE, so leaving them behind would make
+  //     the pharmacy_orders delete further down raise 23514 and silently strand
+  //     every fixture order (and with it the facility, ON DELETE RESTRICT).
+  await setTenantTx(DEFAULT_TENANT_ID, async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+    await tx.$executeRawUnsafe(
+      `DELETE FROM pharmacy_order_command_receipts
+        WHERE tenant_id = $1::uuid
+          AND pharmacy_order_id IN (
+            SELECT id FROM pharmacy_orders
+             WHERE tenant_id = $1::uuid AND patient_name = 'B1TEST Patient'
+          )`,
+      DEFAULT_TENANT_ID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM pharmacy_staff_facility_grant_events
+        WHERE tenant_id = $1::uuid
+          AND grant_id IN (
+            SELECT id FROM pharmacy_staff_facility_grants
+             WHERE tenant_id = $1::uuid AND grant_source = 'b1_test_fixture'
+          )`,
+      DEFAULT_TENANT_ID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM pharmacy_staff_facility_grants
+        WHERE tenant_id = $1::uuid AND grant_source = 'b1_test_fixture'`,
+      DEFAULT_TENANT_ID,
+    );
+  }).catch(() => {});
   await prisma.$transaction(async (tx) => {
     await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
     await tx.$executeRawUnsafe(
@@ -101,10 +195,13 @@ async function cleanup() {
       DEFAULT_TENANT_ID,
     ).catch(() => {});
     await tx.$executeRawUnsafe(
+      // 'b1-%', not 'b1-mar-%': the pharmacy order lifecycle now requires an
+      // Idempotency-Key on every verify / preparing / counter-dispense call, so
+      // this suite's keys are no longer only the MAR ones.
       `DELETE FROM idempotency_keys
         WHERE tenant_id = $1::uuid
           AND user_uid IN ($2::uuid, $3::uuid, $4::uuid)
-          AND request_key LIKE 'b1-mar-%'`,
+          AND request_key LIKE 'b1-%'`,
       DEFAULT_TENANT_ID,
       NURSE_UID,
       DOCTOR_UID,
@@ -403,6 +500,20 @@ async function cleanup() {
   await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, NURSE_UID).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, DOCTOR_UID).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PHARMACIST_UID).catch(() => {});
+  // Facility custody LAST, and only ever this suite's own codes: every 753
+  // facility foreign key (orders, wards, inventory items, batches, locations)
+  // is ON DELETE RESTRICT, so the facility can only go once every dependant
+  // above has gone.
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM facility_locations
+      WHERE tenant_id = $1::uuid AND location_code LIKE 'B1TEST-STORE-%'`,
+    DEFAULT_TENANT_ID,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM facilities
+      WHERE tenant_id = $1::uuid AND facility_code LIKE 'B1TEST-FACILITY-%'`,
+    DEFAULT_TENANT_ID,
+  ).catch(() => {});
 }
 
 async function createMarAdministration({
@@ -445,22 +556,53 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
     patientId = Number(p[0].id);
     patientUid = p[0].uid;
 
+    // Facility custody comes FIRST: every pharmacy fixture below (orders,
+    // inventory item, batch, ward) is bound to it by a migration-753 composite
+    // (tenant_id, facility_id, …) foreign key or CHECK.
+    const facility = await prisma.$queryRawUnsafe(
+      `INSERT INTO facilities (tenant_id, facility_code, display_name, status, is_default)
+       VALUES ($1::uuid, $2::text, 'B1TEST BCMA Facility', 'active', FALSE)
+       RETURNING id`,
+      DEFAULT_TENANT_ID, FACILITY_CODE,
+    );
+    facilityId = Number(facility[0].id);
+    const storageLocation = await prisma.$queryRawUnsafe(
+      `INSERT INTO facility_locations
+         (tenant_id, facility_id, location_code, display_name, status)
+       VALUES ($1::uuid, $2::int, $3::text, 'B1TEST BCMA Store', 'active')
+       RETURNING id`,
+      DEFAULT_TENANT_ID, facilityId, STORAGE_LOCATION_CODE,
+    );
+    storageLocationId = Number(storageLocation[0].id);
+
+    // The clean order walks the DELIVERY lifecycle (verify → preparing);
+    // markPreparing refuses a counter order outright, so the counter gate gets
+    // its own fixture below.
     const clean = await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_orders (patient_id, patient_name, phone, order_note, status, delivery_type, items_list, total_amount, updated_at)
-       VALUES ($1, 'B1TEST Patient', $2, 'B1TEST order', 'CONFIRMED', 'counter',
+      `INSERT INTO pharmacy_orders (tenant_id, facility_id, authority_origin, patient_id, patient_name, phone, order_note, status, delivery_type, items_list, total_amount, updated_at)
+       VALUES ($3::uuid, $4::int, 'patient_manual', $1, 'B1TEST Patient', $2, 'B1TEST order', 'CONFIRMED', 'delivery',
                '[{"name":"B1TEST Paracetamol 500mg","dose":"500mg","frequency":"TDS","qty":10,"price":2}]'::jsonb, 20, NOW())
        RETURNING id`,
-      patientId, PHONE,
+      patientId, PHONE, DEFAULT_TENANT_ID, facilityId,
     );
     cleanOrderId = Number(clean[0].id);
 
+    const counter = await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_orders (tenant_id, facility_id, authority_origin, patient_id, patient_name, phone, order_note, status, delivery_type, items_list, total_amount, updated_at)
+       VALUES ($3::uuid, $4::int, 'patient_manual', $1, 'B1TEST Patient', $2, 'B1TEST order', 'CONFIRMED', 'counter',
+               '[{"name":"B1TEST Paracetamol 500mg","dose":"500mg","frequency":"TDS","qty":10,"price":2}]'::jsonb, 20, NOW())
+       RETURNING id`,
+      patientId, PHONE, DEFAULT_TENANT_ID, facilityId,
+    );
+    counterOrderId = Number(counter[0].id);
+
     const risky = await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_orders (patient_id, patient_name, phone, order_note, status, delivery_type, items_list, total_amount, updated_at)
-       VALUES ($1, 'B1TEST Patient', $2, 'B1TEST order', 'CONFIRMED', 'counter',
+      `INSERT INTO pharmacy_orders (tenant_id, facility_id, authority_origin, patient_id, patient_name, phone, order_note, status, delivery_type, items_list, total_amount, updated_at)
+       VALUES ($3::uuid, $4::int, 'patient_manual', $1, 'B1TEST Patient', $2, 'B1TEST order', 'CONFIRMED', 'counter',
                '[{"name":"Tab Sildenafil 50mg","dose":"50mg","frequency":"OD","qty":4,"price":50},
                  {"name":"Sorbitrate (isosorbide) 10mg","dose":"10mg","frequency":"BD","qty":10,"price":5}]'::jsonb, 250, NOW())
        RETURNING id`,
-      patientId, PHONE,
+      patientId, PHONE, DEFAULT_TENANT_ID, facilityId,
     );
     riskyOrderId = Number(risky[0].id);
 
@@ -490,12 +632,30 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
          (tenant_id, user_id, employee_id, name, designation, skills,
           certifications, is_active, archived, created_at, updated_at)
        VALUES ($1::uuid, $2::uuid, $3::text, 'B1TEST Prescriber', 'Doctor',
+               '{}'::text[], '{}'::text[], TRUE, FALSE, NOW(), NOW()),
+              ($1::uuid, $4::uuid, $5::text, 'B1TEST Pharmacist', 'Pharmacist',
                '{}'::text[], '{}'::text[], TRUE, FALSE, NOW(), NOW())
        ON CONFLICT DO NOTHING`,
       DEFAULT_TENANT_ID,
       DOCTOR_UID,
       `B1-DOC-${RUN}`,
+      PHARMACIST_UID,
+      `B1-PHARM-${RUN}`,
     );
+    // assertPharmacyFacilityGrant demands a live staff row AND exactly one
+    // active grant for the exact facility — the pharmacy order lifecycle, the
+    // counter-dispense staging and the ward-indent reserve/approve/issue
+    // transitions all run through it. grant_reason has a 10..500 char CHECK.
+    await setTenantTx(DEFAULT_TENANT_ID, (tx) => tx.$executeRawUnsafe(
+      `INSERT INTO pharmacy_staff_facility_grants
+         (tenant_id, facility_id, staff_uid, status, grant_source,
+          grant_reason, granted_by)
+       VALUES ($1::uuid, $2::int, $3::uuid, 'active', 'b1_test_fixture',
+               'B1TEST BCMA closed-loop pharmacy facility authority fixture', $3::uuid)`,
+      DEFAULT_TENANT_ID,
+      facilityId,
+      PHARMACIST_UID,
+    ));
 
     // Active admission — gives the MAR access guard an admission-context
     // care relationship for this patient (BCMA is an inpatient loop).
@@ -519,23 +679,33 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
       `B1TEST MAR Catalog ${RUN}`,
     ))[0];
     catalogId = Number(catalog.id);
+    // facility_id is not decoration: reserveWardIndentInventoryTx resolves the
+    // Inventory V2 mapping through the INDENT's facility, and
+    // fk_pharmacy_batches_item_facility_753 binds the batch to
+    // (tenant_id, facility_id, inventory_item_id).
     const inventoryItem = (await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_inventory_items
-         (tenant_id, sku_code, display_name, catalog_id, form, strength,
+         (tenant_id, facility_id, sku_code, display_name, catalog_id, form, strength,
           unit_label, schedule_class, is_narcotic, status, metadata)
-       VALUES ($1::uuid, $2::text, 'B1TEST Paracetamol 500mg', $3::int,
+       VALUES ($1::uuid, $4::int, $2::text, 'B1TEST Paracetamol 500mg', $3::int,
                'tablet', '500 mg', 'tablet', 'OTC', FALSE, 'active', '{}'::jsonb)
        RETURNING id`,
       DEFAULT_TENANT_ID,
       `B1-MAR-SKU-${RUN}`,
       Number(catalog.id),
+      facilityId,
     ))[0];
     inventoryItemId = Number(inventoryItem.id);
+    // in_stock stock needs an EXACT active storage location:
+    // chk_pharmacy_batches_usable_storage_supply_753 plus the
+    // trg_pharmacy_batch_storage_authority_supply_753 BEFORE-INSERT trigger,
+    // which also re-checks that the location is active in this facility.
     const batch = (await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_inventory_batches
-         (tenant_id, inventory_item_id, batch_number, lot_number, expiry_date,
+         (tenant_id, inventory_item_id, facility_id, storage_location_id,
+          batch_number, lot_number, expiry_date,
           received_quantity, remaining_quantity, status, metadata)
-       VALUES ($1::uuid, $2::int, $3::text, $4::text,
+       VALUES ($1::uuid, $2::int, $6::int, $7::int, $3::text, $4::text,
                (CURRENT_DATE + INTERVAL '365 days')::date,
                 20, 20, 'in_stock', jsonb_build_object('barcode', $5::text))
        RETURNING id`,
@@ -544,14 +714,20 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
       `B1-MAR-BATCH-${RUN}`,
       `B1-MAR-LOT-${RUN}`,
       BATCH_BARCODE,
+      facilityId,
+      storageLocationId,
     ))[0];
     inventoryBatchId = Number(batch.id);
+    // createWardIndent refuses a pharmacy indent whose ward has no active
+    // facility (WARD_INDENT_FACILITY_REQUIRED), and pins that facility onto
+    // the indent — which is what the reserve/approve/issue grant checks read.
     const ward = (await prisma.$queryRawUnsafe(
-      `INSERT INTO wards (tenant_id, name, total_beds, created_at, updated_at)
-       VALUES ($1::uuid, $2::text, 10, NOW(), NOW())
+      `INSERT INTO wards (tenant_id, facility_id, name, total_beds, created_at, updated_at)
+       VALUES ($1::uuid, $3::int, $2::text, 10, NOW(), NOW())
        RETURNING id`,
       DEFAULT_TENANT_ID,
       `B1TEST MAR Ward ${RUN}`,
+      facilityId,
     ))[0];
     const order = (await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_orders
@@ -599,9 +775,13 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
       wardIndentId,
     );
     wardIndentItemId = Number(indentItem.id);
+    // reserve / approve / issue each run assertPharmacyFacilityGrant against
+    // the indent's pinned facility. Passing actorRole makes that check strict
+    // (the DB role must equal the claimed one) instead of role-agnostic.
     const reserved = await reserveWardIndent({
       indentId: wardIndentId,
       reservedBy: PHARMACIST_UID,
+      actorRole: 'PHARMACY_INCHARGE',
       expectedVersion: indent.state_version,
       commandKey: `b1-mar-reserve-${RUN}`,
       tenantId: DEFAULT_TENANT_ID,
@@ -609,6 +789,7 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
     const approved = await approveWardIndent({
       indentId: wardIndentId,
       approvedBy: PHARMACIST_UID,
+      actorRole: 'PHARMACY_INCHARGE',
       expectedVersion: reserved.state_version,
       commandKey: `b1-mar-approve-${RUN}`,
       tenantId: DEFAULT_TENANT_ID,
@@ -616,6 +797,7 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
     const issued = await issueWardIndent({
       indentId: wardIndentId,
       issuedBy: PHARMACIST_UID,
+      actorRole: 'PHARMACY_INCHARGE',
       expectedVersion: approved.state_version,
       commandKey: `b1-mar-issue-${RUN}`,
       tenantId: DEFAULT_TENANT_ID,
@@ -650,21 +832,33 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
   });
 
   test('PREPARING is blocked until pharmacist verification clears', async () => {
-    const res = await authClient('PHARMACY_STAFF').post(`/api/v1/pharmacy/orders/${cleanOrderId}/preparing`);
+    const res = await pharmacistPostWithKey(
+      `/api/v1/pharmacy/orders/${cleanOrderId}/preparing`,
+      `b1-preparing-blocked-${cleanOrderId}`,
+    );
     expect(res.status).toBe(409);
+    // The verification gate, not the delivery-flow gate: cleanOrderId IS a
+    // delivery order, so PHARMACY_ORDER_WRONG_DELIVERY_FLOW cannot fire here.
+    expect(res.body.code).toBe('PHARMACY_VERIFICATION_REQUIRED');
   });
 
   test('counter dispense is blocked until verification clears', async () => {
-    const res = await authClient('PHARMACY_STAFF')
-      .post(`/api/v1/pharmacy/orders/${cleanOrderId}/dispense-counter`)
+    const res = await pharmacistClient()
+      .post(`/api/v1/pharmacy/orders/${counterOrderId}/dispense-counter`)
+      .set('Idempotency-Key', `b1-counter-blocked-${counterOrderId}`)
       .send({ payment_mode: 'cash', amount_collected: 20 });
     expect(res.status).toBe(409);
+    // stageCounterFundingAuthority asserts cleared verification BEFORE any
+    // funding is materialized, so this must be the verification refusal and
+    // never PHARMACY_COUNTER_FUNDING_REQUIRED.
+    expect(res.body.code).toBe('PHARMACY_VERIFICATION_REQUIRED');
   });
 
   test('clean order verifies; preparing then proceeds; safety event lands on the timeline', async () => {
-    const verify = await authClient('PHARMACY_STAFF')
-      .post(`/api/v1/pharmacy/orders/${cleanOrderId}/verify`)
-      .send({ decision: 'verified', notes: 'B1TEST reviewed against allergies/KB' });
+    const verify = await pharmacistPostWithKey(
+      `/api/v1/pharmacy/orders/${cleanOrderId}/verify`,
+      `b1-verify-clean-${cleanOrderId}`,
+    ).send({ decision: 'verified', notes: 'B1TEST reviewed against allergies/KB' });
     expect(verify.status).toBe(200);
     expect(verify.body.data.order.clinical_verification_status).toBe('verified');
     expect(verify.body.data.safety.blockers).toHaveLength(0);
@@ -677,28 +871,34 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
     );
     expect(timeline.length).toBeGreaterThanOrEqual(1);
 
-    const preparing = await authClient('PHARMACY_STAFF').post(`/api/v1/pharmacy/orders/${cleanOrderId}/preparing`);
+    const preparing = await pharmacistPostWithKey(
+      `/api/v1/pharmacy/orders/${cleanOrderId}/preparing`,
+      `b1-preparing-cleared-${cleanOrderId}`,
+    );
     expect(preparing.status).toBe(200);
   });
 
   test('risky order: verify refused with blockers; override requires a reason and records reviews', async () => {
-    const verify = await authClient('PHARMACY_STAFF')
-      .post(`/api/v1/pharmacy/orders/${riskyOrderId}/verify`)
-      .send({ decision: 'verified' });
+    const verify = await pharmacistPostWithKey(
+      `/api/v1/pharmacy/orders/${riskyOrderId}/verify`,
+      `b1-verify-risky-${riskyOrderId}`,
+    ).send({ decision: 'verified' });
     expect(verify.status).toBe(409);
     expect(verify.body.details.blockers.length).toBeGreaterThanOrEqual(1);
 
-    const badOverride = await authClient('PHARMACY_STAFF')
-      .post(`/api/v1/pharmacy/orders/${riskyOrderId}/verify`)
-      .send({ decision: 'override', override_reason: 'short' });
+    const badOverride = await pharmacistPostWithKey(
+      `/api/v1/pharmacy/orders/${riskyOrderId}/verify`,
+      `b1-override-short-${riskyOrderId}`,
+    ).send({ decision: 'override', override_reason: 'short' });
     expect(badOverride.status).toBe(400);
 
-    const override = await authClient('PHARMACY_STAFF')
-      .post(`/api/v1/pharmacy/orders/${riskyOrderId}/verify`)
-      .send({
-        decision: 'override',
-        override_reason: 'B1TEST cardiologist confirmed nitrate stopped 48h ago',
-      });
+    const override = await pharmacistPostWithKey(
+      `/api/v1/pharmacy/orders/${riskyOrderId}/verify`,
+      `b1-override-reasoned-${riskyOrderId}`,
+    ).send({
+      decision: 'override',
+      override_reason: 'B1TEST cardiologist confirmed nitrate stopped 48h ago',
+    });
     expect(override.status).toBe(200);
     expect(override.body.data.order.clinical_verification_status).toBe('override');
 
@@ -1513,20 +1713,31 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
   });
 
   test('rejected orders cannot progress', async () => {
+    // A delivery order, so the 409 below can only be the verification freeze
+    // and never markPreparing's counter/delivery flow guard.
     const blocked = await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_orders (patient_id, patient_name, phone, order_note, status, delivery_type, items_list, total_amount, updated_at)
-       VALUES ($1, 'B1TEST Patient', $2, 'B1TEST order', 'CONFIRMED', 'counter',
+      `INSERT INTO pharmacy_orders (tenant_id, facility_id, authority_origin, patient_id, patient_name, phone, order_note, status, delivery_type, items_list, total_amount, updated_at)
+       VALUES ($3::uuid, $4::int, 'patient_manual', $1, 'B1TEST Patient', $2, 'B1TEST order', 'CONFIRMED', 'delivery',
                '[{"name":"B1TEST Cetirizine 10mg","dose":"10mg","qty":5,"price":1}]'::jsonb, 5, NOW())
        RETURNING id`,
-      patientId, PHONE,
+      patientId, PHONE, DEFAULT_TENANT_ID, facilityId,
     );
     const rejectId = Number(blocked[0].id);
-    const reject = await authClient('PHARMACY_STAFF')
-      .post(`/api/v1/pharmacy/orders/${rejectId}/verify`)
-      .send({ decision: 'rejected', notes: 'B1TEST illegible strength — back to prescriber' });
+    const reject = await pharmacistPostWithKey(
+      `/api/v1/pharmacy/orders/${rejectId}/verify`,
+      `b1-verify-rejected-${rejectId}`,
+    ).send({ decision: 'rejected', notes: 'B1TEST illegible strength — back to prescriber' });
     expect(reject.status).toBe(200);
+    // chk_pharmacy_orders_rejected_hold_753 only tolerates a rejected
+    // verification on a held/terminal order, so the reject must have parked the
+    // order on ON_HOLD rather than leaving it CONFIRMED.
+    expect(reject.body.data.order.status).toBe('ON_HOLD');
 
-    const preparing = await authClient('PHARMACY_STAFF').post(`/api/v1/pharmacy/orders/${rejectId}/preparing`);
+    const preparing = await pharmacistPostWithKey(
+      `/api/v1/pharmacy/orders/${rejectId}/preparing`,
+      `b1-preparing-rejected-${rejectId}`,
+    );
     expect(preparing.status).toBe(409);
+    expect(preparing.body.code).toBe('PHARMACY_VERIFICATION_REQUIRED');
   });
 });

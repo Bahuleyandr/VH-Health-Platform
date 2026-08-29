@@ -17,6 +17,7 @@ const RECONCILIATION_FIELDS = [
   'patient_uid',
   'item_name',
   'catalog_item_id',
+  'facility_id',
   'inventory_item_id',
   'inventory_batch_id',
   'batch_number',
@@ -132,6 +133,12 @@ describe('Cath inventory reconciliation OpenAPI source', () => {
         expect.objectContaining({ type: 'string', pattern: '^[1-9][0-9]*$' }),
       ]));
     }
+    // facility_id is deliberately NOT a BIGINT_WIRE identifier:
+    // cathInventoryReconciliationView emits `Number(record.facility_id)`, and
+    // facilities.id is int4, so the wire value is a JSON number and never the
+    // decimal-string half of the bigint union.
+    expect(properties.facility_id).toEqual({ type: 'integer', minimum: 1 });
+    expect(properties.facility_id).not.toHaveProperty('oneOf');
     expect(properties.inventory_batch_id).toMatchObject({
       nullable: true,
       oneOf: expect.arrayContaining([

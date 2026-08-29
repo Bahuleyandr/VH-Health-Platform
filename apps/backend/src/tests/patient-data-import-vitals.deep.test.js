@@ -20,7 +20,7 @@ import { jest } from '@jest/globals';
 
 import prisma, { setTenantTx } from '../lib/prisma.js';
 import {
-  importFhirBundle,
+  importFhirBundle as importFhirBundleWithAuthority,
   importFhirVitalObservation,
   reconcilePendingFhirVitalEffects,
 } from '../services/import/patientDataImport.js';
@@ -38,6 +38,17 @@ const PATIENT = '00000000-0000-4000-8000-0000000f4151';
 const IMPORTER = '00000000-0000-4000-8000-0000000f4152';
 const MERGED_PATIENT_ALIAS = '00000000-0000-4000-8000-0000000f4153';
 const MERGE_RACE_PATIENT = '00000000-0000-4000-8000-0000000f4154';
+
+function importFhirBundle(bundle, importedBy, options = {}) {
+  const patientReference = (bundle.entry || [])
+    .map(({ resource }) => resource?.subject?.reference || resource?.patient?.reference)
+    .find(Boolean);
+  const patientUid = String(patientReference || '').replace('Patient/', '') || PATIENT;
+  return importFhirBundleWithAuthority(bundle, importedBy, {
+    ...options,
+    authority: { patientUid },
+  });
+}
 
 async function exec(sql, ...p) {
   return prisma.$executeRawUnsafe(sql, ...p);

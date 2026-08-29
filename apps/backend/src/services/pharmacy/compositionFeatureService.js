@@ -23,11 +23,11 @@ const enabledCache = new Map(); // tenant_id (string) -> { value: boolean, fetch
  * @param {string|null|undefined} tenantId
  * @returns {Promise<boolean>}
  */
-export async function isCompositionSearchEnabled(tenantId) {
+export async function isCompositionSearchEnabled(tenantId, { db = prisma, bypassCache = false } = {}) {
   if (!tenantId) return false;
   const key = String(tenantId);
 
-  const cached = enabledCache.get(key);
+  const cached = bypassCache ? null : enabledCache.get(key);
   if (cached && Date.now() - cached.fetchedAt <= REFRESH_INTERVAL_MS) {
     return cached.value;
   }
@@ -35,12 +35,12 @@ export async function isCompositionSearchEnabled(tenantId) {
   try {
     // Scope by tenant_id so the read is correct under any ambient RLS GUC and
     // can never touch another tenant's cache entry.
-    const rows = await prisma.$queryRawUnsafe(
+    const rows = await db.$queryRawUnsafe(
       `SELECT enabled FROM composition_search_settings WHERE tenant_id = $1::uuid`,
       tenantId,
     );
     const value = rows[0]?.enabled === true;
-    enabledCache.set(key, { value, fetchedAt: Date.now() });
+    if (!bypassCache) enabledCache.set(key, { value, fetchedAt: Date.now() });
     return value;
   } catch (err) {
     // Table missing (staggered deploy) or transient DB error — fail closed and

@@ -532,13 +532,22 @@ class CathLabApiService {
         .toList();
   }
 
+  /// GET /cath-lab/consumables/catalog.
+  ///
+  /// The read is case-scoped: `cathLabRoutes.js` guards it with
+  /// `cathCaseQueryGuard('case_id')` and the service pins the facility from
+  /// that case, so [caseId] is required — without it the call is a hard
+  /// failure, not an unfiltered search. Pass the ACTIVE case, never a
+  /// remembered one: the facility the operator is allowed to see comes from it.
   static Future<List<CathConsumableCatalogItem>> searchConsumableCatalog({
+    required int caseId,
     String? query,
     String? scan,
   }) async {
     final response = await ApiClient.get(
       '/cath-lab/consumables/catalog',
       queryParameters: {
+        'case_id': '$caseId',
         if (query != null && query.trim().isNotEmpty) 'q': query.trim(),
         if (scan != null && scan.trim().isNotEmpty) 'scan': scan.trim(),
       },
@@ -553,11 +562,17 @@ class CathLabApiService {
         .toList(growable: false);
   }
 
+  /// GET /cath-lab/consumables/catalog/:id/batches.
+  ///
+  /// Case-scoped for the same reason as [searchConsumableCatalog]: the batch
+  /// list is facility-pinned through the case, so [caseId] is required.
   static Future<List<CathInventoryBatch>> fetchConsumableBatches(
-    int catalogItemId,
-  ) async {
+    int catalogItemId, {
+    required int caseId,
+  }) async {
     final response = await ApiClient.get(
       '/cath-lab/consumables/catalog/$catalogItemId/batches',
+      queryParameters: {'case_id': '$caseId'},
     );
     final data = _successfulData(
       response,

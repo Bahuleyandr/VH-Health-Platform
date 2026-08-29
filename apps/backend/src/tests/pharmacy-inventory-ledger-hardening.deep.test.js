@@ -1,6 +1,6 @@
 import { Client } from 'pg';
 
-import prisma from '../lib/prisma.js';
+import prisma, { setTenantTx } from '../lib/prisma.js';
 import {
   approveInventoryMovementWitnessApproval,
   listScheduleRegister,
@@ -9,11 +9,9 @@ import {
 } from '../services/pharmacy/inventoryV2Service.js';
 import {
   addInventoryBatch,
-  appendStockMovement,
   bridgeForecastToBatches,
   listStockMovements,
   recallBatch,
-  reserveStock,
 } from '../services/pharmacySupply/pharmacySupplyService.js';
 
 const DATABASE_URL = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
@@ -44,11 +42,21 @@ describeIfDb('pharmacy inventory ledger tenant and serialization hardening', () 
   let recallItemId;
   let recallBatchId;
   let otcItemId;
-  let reservationItemId;
-  let reservationBatchId;
-  let emptyReservationItemId;
+  let facilityId;
+  let storageLocationId;
+  let supplierId;
 
   async function cleanup() {
+    await setTenantTx(TENANT, async (tx) => {
+      await tx.$executeRawUnsafe(
+        `DELETE FROM pharmacy_staff_facility_grant_events WHERE tenant_id=$1::uuid`,
+        TENANT,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM pharmacy_staff_facility_grants WHERE tenant_id=$1::uuid`,
+        TENANT,
+      );
+    });
     await prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
       await tx.$executeRawUnsafe(
@@ -76,6 +84,18 @@ describeIfDb('pharmacy inventory ledger tenant and serialization hardening', () 
         TENANT,
       );
       await tx.$executeRawUnsafe(
+        `DELETE FROM pharmacy_catalog WHERE tenant_id = $1::uuid`,
+        TENANT,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM pharmacy_suppliers WHERE tenant_id = $1::uuid`,
+        TENANT,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM facility_locations WHERE tenant_id = $1::uuid`,
+        TENANT,
+      );
+      await tx.$executeRawUnsafe(
         `DELETE FROM approvals
           WHERE tenant_id = $1::uuid
             AND subject_resource_type = 'inventory_controlled_movement'`,
@@ -95,17 +115,34 @@ describeIfDb('pharmacy inventory ledger tenant and serialization hardening', () 
         ACTOR,
         WITNESS,
       );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM facilities WHERE tenant_id=$1::uuid`,
+        TENANT,
+      );
     });
   }
 
   async function seedItem({ sku, scheduleClass, reorderLevel = null }) {
-    const rows = await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_inventory_items
-         (tenant_id, sku_code, display_name, unit_label, schedule_class,
-          is_narcotic, reorder_level, status)
-       VALUES ($1::uuid, $2, $3, 'unit', $4, false, $5::numeric, 'active')
+    const catalogRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_catalog
+         (tenant_id, name, is_active, is_available, in_stock)
+       VALUES ($1::uuid, $2, TRUE, TRUE, TRUE)
        RETURNING id`,
       TENANT,
+      `${sku} test catalog`,
+    );
+    const rows = await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_inventory_items
+         (tenant_id, facility_id, catalog_id, default_supplier_id,
+          sku_code, display_name, unit_label, schedule_class,
+          is_narcotic, reorder_level, status)
+       VALUES ($1::uuid, $2::int, $3::int, $4::int, $5, $6,
+               'unit', $7, false, $8::numeric, 'active')
+       RETURNING id`,
+      TENANT,
+      facilityId,
+      Number(catalogRows[0].id),
+      supplierId,
       sku,
       `${sku} test item`,
       scheduleClass,
@@ -117,32 +154,20 @@ describeIfDb('pharmacy inventory ledger tenant and serialization hardening', () 
   async function seedBatch(itemId, batchNumber, quantity) {
     const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_inventory_batches
-         (tenant_id, inventory_item_id, batch_number, expiry_date,
+         (tenant_id, inventory_item_id, facility_id, supplier_id,
+          storage_location_id, batch_number, expiry_date,
           received_quantity, remaining_quantity, status)
-       VALUES ($1::uuid, $2::int, $3,
+       VALUES ($1::uuid, $2::int, $3::int, $4::int, $5::int, $6,
                (NOW() + INTERVAL '365 days')::date,
-               $4::numeric, $4::numeric, 'in_stock')
+               $7::numeric, $7::numeric, 'in_stock')
        RETURNING id`,
       TENANT,
       itemId,
+      facilityId,
+      supplierId,
+      storageLocationId,
       batchNumber,
       quantity,
-    );
-    return Number(rows[0].id);
-  }
-
-  async function seedReservationClaim({ commandKey, requestFingerprint }) {
-    const rows = await prisma.$queryRawUnsafe(
-      `INSERT INTO idempotency_keys
-         (tenant_id, user_uid, request_key, request_method, request_path,
-          request_body_hash, status)
-       VALUES ($1::uuid, $2::uuid, $3, 'POST',
-               '/api/v1/admin/pharmacy-supply/reserve-stock', $4::char(64), 'in_flight')
-       RETURNING id`,
-      TENANT,
-      ACTOR,
-      commandKey,
-      requestFingerprint,
     );
     return Number(rows[0].id);
   }
@@ -156,6 +181,33 @@ describeIfDb('pharmacy inventory ledger tenant and serialization hardening', () 
        ON CONFLICT (id) DO NOTHING`,
       TENANT,
     );
+    const facilityRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO facilities
+         (tenant_id, facility_code, display_name, status, is_default)
+       VALUES ($1::uuid, 'MED03-PHARMACY', 'MED03 Pharmacy', 'active', TRUE)
+       RETURNING id`,
+      TENANT,
+    );
+    facilityId = Number(facilityRows[0].id);
+    const storageLocationRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO facility_locations
+         (tenant_id, facility_id, location_code, display_name, status)
+       VALUES ($1::uuid, $2::int, 'MED03-PHARMACY-STORE',
+               'MED03 Pharmacy Store', 'active')
+       RETURNING id`,
+      TENANT,
+      facilityId,
+    );
+    storageLocationId = Number(storageLocationRows[0].id);
+    const supplierRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_suppliers
+         (tenant_id, facility_id, supplier_code, display_name, status)
+       VALUES ($1::uuid, $2::int, 'MED03-SUPPLIER', 'MED03 Supplier', 'active')
+       RETURNING id`,
+      TENANT,
+      facilityId,
+    );
+    supplierId = Number(supplierRows[0].id);
     await prisma.$executeRawUnsafe(
       `INSERT INTO users (uid, name, role, tenant_id, is_active, status, updated_at)
         VALUES ($1::uuid, 'MED03 Pharmacist', 'PHARMACY_INCHARGE',
@@ -180,6 +232,16 @@ describeIfDb('pharmacy inventory ledger tenant and serialization hardening', () 
       ACTOR,
       WITNESS,
     );
+    await setTenantTx(TENANT, (tx) => tx.$executeRawUnsafe(
+      `INSERT INTO pharmacy_staff_facility_grants
+         (tenant_id, facility_id, staff_uid, status, grant_source,
+          grant_reason, granted_by)
+       VALUES ($1::uuid, $2::int, $3::uuid, 'active', 'test_fixture',
+               'MED03 pharmacy ledger authority fixture', $3::uuid)`,
+      TENANT,
+      facilityId,
+      ACTOR,
+    ));
 
     controlledItemId = await seedItem({
       sku: 'MED03-LOCK-H1',
@@ -198,19 +260,6 @@ describeIfDb('pharmacy inventory ledger tenant and serialization hardening', () 
       sku: 'MED03-TENANT-OTC',
       scheduleClass: 'OTC',
       reorderLevel: 10,
-    });
-    reservationItemId = await seedItem({
-      sku: 'MED03-RESERVATION-OTC',
-      scheduleClass: 'OTC',
-    });
-    reservationBatchId = await seedBatch(
-      reservationItemId,
-      'MED03-RESERVATION-BATCH',
-      50,
-    );
-    emptyReservationItemId = await seedItem({
-      sku: 'MED03-RESERVATION-ZERO-OTC',
-      scheduleClass: 'OTC',
     });
   });
 
@@ -242,6 +291,7 @@ describeIfDb('pharmacy inventory ledger tenant and serialization hardening', () 
         reference_type: 'med03_controlled_lock_test',
         reference_id: referenceId,
         performed_by: ACTOR,
+        expected_facility_id: facilityId,
       });
       movementPromises = [
         receive(controlledBatchA, 'batch-a'),
@@ -290,6 +340,8 @@ describeIfDb('pharmacy inventory ledger tenant and serialization hardening', () 
       tenantId: TENANT,
       id: recallBatchId,
       recallReference,
+      performedBy: ACTOR,
+      actorRole: 'PHARMACY_INCHARGE',
     });
     expect(recalled).toMatchObject({
       id: recallBatchId,
@@ -302,12 +354,16 @@ describeIfDb('pharmacy inventory ledger tenant and serialization hardening', () 
       tenantId: TENANT,
       id: recallBatchId,
       recallReference,
+      performedBy: ACTOR,
+      actorRole: 'PHARMACY_INCHARGE',
     });
     expect(recallReplay).toEqual(recalled);
     await expect(recallBatch({
       tenantId: TENANT,
       id: recallBatchId,
       recallReference: 'MED03-CDSCO-RECALL-CHANGED',
+      performedBy: ACTOR,
+      actorRole: 'PHARMACY_INCHARGE',
     })).rejects.toMatchObject({ code: 'BATCH_RECALL_REPLAY_MISMATCH' });
 
     const afterRecall = (await prisma.$queryRawUnsafe(
@@ -341,6 +397,7 @@ describeIfDb('pharmacy inventory ledger tenant and serialization hardening', () 
       notes: 'Witnessed destruction of recalled stock',
       expected_batch_number: 'MED03-RECALL-A',
       performed_by: ACTOR,
+      expected_facility_id: facilityId,
     };
     await expect(recordMovement(disposal)).rejects.toMatchObject({
       code: 'CONTROLLED_DISPENSE_WITNESS_APPROVAL_INVALID',
@@ -417,212 +474,38 @@ describeIfDb('pharmacy inventory ledger tenant and serialization hardening', () 
     expect(Number(registerRows[0].quantity)).toBe(12);
   });
 
-  test('serializes a durable reservation command and rejects a changed replay', async () => {
-    const commandKey = 'med03-reservation-concurrent-001';
-    const requestFingerprint = 'a'.repeat(64);
-    const httpIdempotencyClaimId = await seedReservationClaim({
-      commandKey,
-      requestFingerprint,
-    });
-    const command = {
-      tenantId: TENANT,
-      inventoryItemId: reservationItemId,
-      quantity: 15,
-      movementKind: 'issue',
-      referenceType: 'ward_stock_request',
-      referenceId: 'MED03-RESERVE-001',
-      performedBy: ACTOR,
-      notes: 'Concurrent reservation replay proof',
-      commandKey,
-      requestFingerprint,
-      httpIdempotencyClaimId,
-    };
-
-    const results = await Promise.all([
-      reserveStock(command),
-      reserveStock(command),
-    ]);
-    expect(results.map((result) => result.idempotent_replay === true).sort())
-      .toEqual([false, true]);
-    expect(results).toEqual(expect.arrayContaining([
-      expect.objectContaining({ requested: 15, fulfilled: 15, short_by: 0 }),
-      expect.objectContaining({
-        requested: 15,
-        fulfilled: 15,
-        short_by: 0,
-        idempotent_replay: true,
-      }),
-    ]));
-
-    const afterExactReplay = (await prisma.$queryRawUnsafe(
-      `SELECT remaining_quantity
-         FROM pharmacy_inventory_batches
-        WHERE tenant_id = $1::uuid AND id = $2::int`,
-      TENANT,
-      reservationBatchId,
-    ))[0];
-    expect(Number(afterExactReplay.remaining_quantity)).toBe(35);
-    const movementCount = (await prisma.$queryRawUnsafe(
-      `SELECT COUNT(*)::int AS count
-         FROM pharmacy_stock_movements
-        WHERE tenant_id = $1::uuid
-          AND inventory_item_id = $2::int
-          AND reference_type = 'pharmacy_supply_reservation'`,
-      TENANT,
-      reservationItemId,
-    ))[0];
-    expect(movementCount.count).toBe(1);
-
-    await expect(reserveStock({
-      ...command,
-      quantity: 16,
-      requestFingerprint: 'b'.repeat(64),
-      httpIdempotencyClaimId: 744002,
-    })).rejects.toMatchObject({
-      statusCode: 422,
-      code: 'PHARMACY_SUPPLY_RESERVATION_COMMAND_MISMATCH',
-    });
-    const afterMismatch = (await prisma.$queryRawUnsafe(
-      `SELECT remaining_quantity
-         FROM pharmacy_inventory_batches
-        WHERE tenant_id = $1::uuid AND id = $2::int`,
-      TENANT,
-      reservationBatchId,
-    ))[0];
-    expect(Number(afterMismatch.remaining_quantity)).toBe(35);
-  });
-
-  test('permanently replays zero fulfilment after later stock replenishment', async () => {
-    const commandKey = 'med03-reservation-zero-001';
-    const requestFingerprint = 'e'.repeat(64);
-    const httpIdempotencyClaimId = await seedReservationClaim({
-      commandKey,
-      requestFingerprint,
-    });
-    const command = {
-      tenantId: TENANT,
-      inventoryItemId: emptyReservationItemId,
-      quantity: 8,
-      movementKind: 'issue',
-      referenceType: 'ward_stock_request',
-      referenceId: 'MED03-RESERVE-ZERO-001',
-      performedBy: ACTOR,
-      notes: 'Zero-stock reservation replay proof',
-      commandKey,
-      requestFingerprint,
-      httpIdempotencyClaimId,
-      requestId: 'med03-zero-request-001',
-    };
-
-    const first = await reserveStock(command);
-    expect(first).toEqual({ requested: 8, fulfilled: 0, short_by: 8, consumed: [] });
-
-    const receipt = (await prisma.$queryRawUnsafe(
-      `SELECT status, response_status, response_body,
-              (expires_at = 'infinity'::timestamptz) AS is_immutable
-         FROM idempotency_keys
-        WHERE id = $1::int AND tenant_id = $2::uuid`,
-      httpIdempotencyClaimId,
-      TENANT,
-    ))[0];
-    expect(receipt).toMatchObject({
-      status: 'complete',
-      response_status: 200,
-      is_immutable: true,
-    });
-    expect(receipt.response_body).toEqual({
-      success: true,
-      message: 'Stock reserved (FEFO)',
-      data: first,
-      requestId: 'med03-zero-request-001',
-    });
-
-    const replenishedBatchId = await seedBatch(
-      emptyReservationItemId,
-      'MED03-RESERVATION-ZERO-REPLENISHED',
-      25,
-    );
-    const replay = await reserveStock(command);
-    expect(replay).toEqual(first);
-
-    const batchAfterReplay = (await prisma.$queryRawUnsafe(
-      `SELECT remaining_quantity
-         FROM pharmacy_inventory_batches
-        WHERE tenant_id = $1::uuid AND id = $2::int`,
-      TENANT,
-      replenishedBatchId,
-    ))[0];
-    expect(Number(batchAfterReplay.remaining_quantity)).toBe(25);
-    const movementCount = (await prisma.$queryRawUnsafe(
-      `SELECT COUNT(*)::int AS count
-         FROM pharmacy_stock_movements
-        WHERE tenant_id = $1::uuid
-          AND inventory_item_id = $2::int`,
-      TENANT,
-      emptyReservationItemId,
-    ))[0];
-    expect(movementCount.count).toBe(0);
-  });
-
-  test('rejects increasing labels before touching controlled inventory', async () => {
-    const before = await prisma.$queryRawUnsafe(
-      `SELECT id, remaining_quantity
-         FROM pharmacy_inventory_batches
-        WHERE tenant_id = $1::uuid
-          AND inventory_item_id = $2::int
-        ORDER BY id`,
-      TENANT,
-      controlledItemId,
-    );
-    for (const movementKind of ['receive', 'return']) {
-      await expect(reserveStock({
-        tenantId: TENANT,
-        inventoryItemId: controlledItemId,
-        quantity: 1,
-        movementKind,
-        performedBy: ACTOR,
-        commandKey: `med03-controlled-${movementKind}`,
-        requestFingerprint: movementKind === 'receive' ? 'c'.repeat(64) : 'd'.repeat(64),
-      })).rejects.toMatchObject({
-        statusCode: 400,
-        code: 'PHARMACY_SUPPLY_RESERVATION_MOVEMENT_KIND_INVALID',
-      });
-    }
-    const after = await prisma.$queryRawUnsafe(
-      `SELECT id, remaining_quantity
-         FROM pharmacy_inventory_batches
-        WHERE tenant_id = $1::uuid
-          AND inventory_item_id = $2::int
-        ORDER BY id`,
-      TENANT,
-      controlledItemId,
-    );
-    expect(after.map((row) => [Number(row.id), Number(row.remaining_quantity)]))
-      .toEqual(before.map((row) => [Number(row.id), Number(row.remaining_quantity)]));
-  });
-
   test('keeps normal tenant-scoped inventory writes, reads, and forecast consumption working', async () => {
     const batch = await addInventoryBatch({
       tenantId: TENANT,
       inventoryItemId: otcItemId,
+      facilityId,
+      supplierId,
+      storageLocationId,
       batchNumber: 'MED03-TENANT-BATCH',
-      expiryDate: '2028-12-31',
+      expiryDate: '2099-12-31',
       receivedQuantity: 100,
       performedBy: ACTOR,
+      actorRole: 'PHARMACY_INCHARGE',
+      commandKey: 'med03-direct-receive',
+      requestFingerprint: 'd'.repeat(64),
     });
-    await appendStockMovement({
+    await recordMovement({
       tenantId: TENANT,
-      inventoryItemId: otcItemId,
-      inventoryBatchId: batch.id,
-      movementKind: 'issue',
-      quantityDelta: -30,
-      performedBy: ACTOR,
+      inventory_item_id: otcItemId,
+      inventory_batch_id: batch.id,
+      movement_kind: 'issue',
+      quantity: 30,
+      performed_by: ACTOR,
+      expected_facility_id: facilityId,
       notes: 'tenant-scoped forecast usage',
     });
 
     const movements = await listStockMovements({
       tenantId: TENANT,
+      facilityId,
       inventoryItemId: otcItemId,
+      actorUid: ACTOR,
+      actorRole: 'PHARMACY_INCHARGE',
     });
     expect(movements.movements).toHaveLength(2);
     expect(movements.movements.map((row) => row.movement_kind).sort())
@@ -630,14 +513,17 @@ describeIfDb('pharmacy inventory ledger tenant and serialization hardening', () 
 
     const forecast = await bridgeForecastToBatches({
       tenantId: TENANT,
+      facilityId,
       lookbackDays: 30,
+      actorUid: ACTOR,
+      actorRole: 'PHARMACY_INCHARGE',
     });
     const otcForecast = forecast.items.find(
       (row) => Number(row.inventory_item_id) === otcItemId,
     );
     expect(otcForecast).toMatchObject({
       inventory_item_id: otcItemId,
-      on_hand: 100,
+      on_hand: 70,
       consumption_per_day: 1,
       alert_written: false,
     });

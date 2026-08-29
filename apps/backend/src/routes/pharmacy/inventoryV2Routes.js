@@ -13,8 +13,14 @@ import {
   PHARMACIST,
   PHARMACY_STAFF,
   STORES_PURCHASE_INCHARGE,
+  SUPER_ADMIN,
   hasRole,
 } from '../../utils/roles.js';
+import {
+  grantPharmacyFacilityAuthority,
+  listPharmacyFacilityGrants,
+  revokePharmacyFacilityAuthority,
+} from '../../services/pharmacy/pharmacyFacilityAuthorityService.js';
 import { StaffAuthService } from '../../services/auth/staffAuthService.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
@@ -57,10 +63,8 @@ export const PHARMACY_INVENTORY_ADMIN_ROLES = [
 ];
 
 export const PHARMACY_CONTROLLED_DISPENSE_ROLES = [
-  ADMIN,
   PHARMACY_STAFF,
   PHARMACY_INCHARGE,
-  PHARMACIST,
 ];
 
 export const PHARMACY_CONTROLLED_DISPENSE_WITNESS_ROLES = [
@@ -109,6 +113,13 @@ function requireInventoryAdmin(req, res, next) {
   )(req, res, next);
 }
 
+function requireFacilityGrantAdmin(req, res, next) {
+  return requireInventoryRole(
+    [ADMIN, SUPER_ADMIN],
+    'Tenant administrator role required for pharmacy facility grants',
+  )(req, res, next);
+}
+
 function requireControlledDispense(req, res, next) {
   return requireInventoryRole(
     PHARMACY_CONTROLLED_DISPENSE_ROLES,
@@ -123,7 +134,7 @@ function requireControlledDispenseApprovalHost(req, res, next) {
   )(req, res, next);
 }
 
-async function resolveWitnessActor(req, tenantId) {
+export async function resolveWitnessActor(req, tenantId) {
   const employeeId = req.body?.employeeId;
   const password = req.body?.password;
   if (employeeId == null && password == null) {
@@ -181,26 +192,153 @@ function movementWitnessApprovalIdempotencyBody(req) {
 // ── Drug master / items ───────────────────────────────────────────────
 router.get('/items', requireInventoryRead, wrap(async (req) => inv.listItems({
   tenantId: inv.tenantOf(req),
+  actorUid: req.user?.uid,
+  actorRole: req.user?.role,
   search: req.query.q,
   schedule: req.query.schedule,
   status: req.query.status,
   catalogId: req.query.catalog_id,
+  facilityId: req.query.facility_id,
   limit: req.query.limit,
 })));
 
 router.post('/items', requireInventoryAdmin, wrap(async (req) => inv.createItem({
   tenantId: inv.tenantOf(req),
   item: req.body,
+  actorUid: req.user?.uid,
+  actorRole: req.user?.role,
 })));
+
+router.get('/facility-grants', requireFacilityGrantAdmin, wrap(async (req) => (
+  listPharmacyFacilityGrants({
+    tenantId: inv.tenantOf(req),
+    actorUid: req.user?.uid,
+    actorRole: req.user?.role,
+    facilityId: req.query.facility_id,
+    staffUid: req.query.staff_uid,
+    status: req.query.status,
+    limit: req.query.limit,
+  })
+)));
+
+router.post('/facility-grants', requireFacilityGrantAdmin,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'pharmacy_facility_grant_create',
+    retainOnServerError: true,
+    durableDomainReceipt: true,
+    requestPathForIdempotency: inventoryV2IdempotencyPath('/facility-grants'),
+  }),
+  wrap(async (req) => grantPharmacyFacilityAuthority({
+    tenantId: inv.tenantOf(req),
+    facilityId: req.body?.facility_id,
+    staffUid: req.body?.staff_uid,
+    actorUid: req.user?.uid,
+    actorRole: req.user?.role,
+    reason: req.body?.reason,
+    recoveryId: req.body?.recovery_id,
+    commandKey: req.idempotencyClaim?.requestKey || req.get('idempotency-key'),
+  })));
+
+router.post('/facility-grants/:id/revoke', requireFacilityGrantAdmin,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'pharmacy_facility_grant_revoke',
+    retainOnServerError: true,
+    durableDomainReceipt: true,
+    requestPathForIdempotency: (req) => inventoryV2IdempotencyPath(
+      `/facility-grants/${encodeURIComponent(String(req.params.id))}/revoke`,
+    ),
+  }),
+  wrap(async (req) => revokePharmacyFacilityAuthority({
+    tenantId: inv.tenantOf(req),
+    grantId: req.params.id,
+    actorUid: req.user?.uid,
+    actorRole: req.user?.role,
+    reason: req.body?.reason,
+    commandKey: req.idempotencyClaim?.requestKey || req.get('idempotency-key'),
+  })));
 
 // ── Batches ───────────────────────────────────────────────────────────
 router.get('/batches', requireInventoryRead, wrap(async (req) => inv.listBatches({
   tenantId: inv.tenantOf(req),
+  actorUid: req.user?.uid,
+  actorRole: req.user?.role,
   item_id: req.query.item_id,
+  facility_id: req.query.facility_id,
   expiring_in_days: req.query.expiring_in_days,
   status: req.query.status,
   limit: req.query.limit,
 })));
+
+router.get('/authority-recovery', requireInventoryAdmin, wrap(async (req) => (
+  inv.listAuthorityRecovery({
+    tenantId: inv.tenantOf(req),
+    status: req.query.status,
+    entityType: req.query.entity_type,
+    facilityId: req.query.facility_id,
+    actorUid: req.user?.uid,
+    actorRole: req.user?.role,
+    limit: req.query.limit,
+  })
+)));
+
+router.post('/authority-recovery/:id/resolve', requireInventoryAdmin,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'pharmacy_inventory_authority_recovery',
+    retainOnServerError: true,
+    durableDomainReceipt: true,
+    requestPathForIdempotency: (req) => inventoryV2IdempotencyPath(
+      `/authority-recovery/${encodeURIComponent(String(req.params.id))}/resolve`,
+    ),
+  }),
+  wrap(async (req) => inv.resolveAuthorityRecovery({
+    tenantId: inv.tenantOf(req),
+    recoveryId: req.params.id,
+    resolution: req.body?.resolution || {},
+    actorUid: req.user?.uid,
+    actorRole: req.user?.role,
+    requestId: req.id || null,
+    commandKey: req.idempotencyClaim?.requestKey || req.get('idempotency-key'),
+    requestFingerprint: req.idempotencyClaim?.requestBodyHash || null,
+    note: req.body?.resolution_note,
+  })));
+
+router.get('/ward-allocation-authority-recovery', requireInventoryAdmin, wrap(async (req) => (
+  inv.listWardAllocationAuthorityRecovery({
+    tenantId: inv.tenantOf(req),
+    facilityId: req.query.facility_id,
+    actorUid: req.user?.uid,
+    actorRole: req.user?.role,
+    status: req.query.status,
+    limit: req.query.limit,
+  })
+)));
+
+router.post('/ward-allocation-authority-recovery/:id/resolve', requireInventoryAdmin,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'pharmacy_ward_allocation_authority_recovery',
+    retainOnServerError: true,
+    durableDomainReceipt: true,
+    requestPathForIdempotency: (req) => inventoryV2IdempotencyPath(
+      `/ward-allocation-authority-recovery/${encodeURIComponent(
+        String(req.params.id),
+      )}/resolve`,
+    ),
+  }),
+  wrap(async (req) => inv.resolveWardAllocationAuthorityRecovery({
+    tenantId: inv.tenantOf(req),
+    recoveryId: req.params.id,
+    resolution: req.body?.resolution || {},
+    actorUid: req.user?.uid,
+    actorRole: req.user?.role,
+    requestId: req.id || null,
+    commandKey: req.idempotencyClaim?.requestKey || req.get('idempotency-key'),
+    requestFingerprint: req.idempotencyClaim?.requestBodyHash || null,
+    note: req.body?.resolution_note,
+  })));
 
 // ── Stock movements ───────────────────────────────────────────────────
 router.post('/movements', requireInventoryMaintain,
@@ -208,6 +346,7 @@ router.post('/movements', requireInventoryMaintain,
     required: true,
     scope: 'pharmacy_inventory_movement',
     retainOnServerError: true,
+    durableDomainReceipt: true,
     requestPathForIdempotency: inventoryV2IdempotencyPath('/movements'),
   }),
   wrap(async (req) => inv.recordMovement({
@@ -215,6 +354,8 @@ router.post('/movements', requireInventoryMaintain,
     tenantId: inv.tenantOf(req),
     performed_by: req.user?.uid,
     performed_by_name: req.user?.name || null,
+    commandKey: req.idempotencyClaim?.requestKey || req.get('idempotency-key'),
+    requestFingerprint: req.idempotencyClaim?.requestBodyHash || null,
   })));
 
 // ── Schedule H/H1/X register ──────────────────────────────────────────
@@ -295,6 +436,7 @@ router.post('/controlled-dispense', requireControlledDispense,
     required: true,
     scope: 'pharmacy_inventory_controlled_dispense',
     retainOnServerError: true,
+    durableDomainReceipt: true,
     requestPathForIdempotency: inventoryV2IdempotencyPath('/controlled-dispense'),
   }),
   wrap(async (req) => inv.dispenseControlled({
@@ -302,10 +444,16 @@ router.post('/controlled-dispense', requireControlledDispense,
     tenantId: inv.tenantOf(req),
     performed_by: req.user?.uid,
     performed_by_name: req.user?.name || null,
+    require_prescription_authority: true,
+    commandKey: req.idempotencyClaim?.requestKey || req.get('idempotency-key'),
+    requestFingerprint: req.idempotencyClaim?.requestBodyHash || null,
   })));
 
 router.get('/schedule-register', requireInventoryRead, wrap(async (req) => inv.listScheduleRegister({
   tenantId: inv.tenantOf(req),
+  actorUid: req.user?.uid,
+  actorRole: req.user?.role,
+  facility_id: req.query.facility_id,
   schedule_class: req.query.schedule_class,
   item_id: req.query.item_id,
   date_from: req.query.date_from,
@@ -315,11 +463,19 @@ router.get('/schedule-register', requireInventoryRead, wrap(async (req) => inv.l
 
 // ── Expiry scan ───────────────────────────────────────────────────────
 router.post('/run-expiry-scan', requireInventoryAdmin, wrap(async (req) =>
-  inv.runExpiryScan({ tenantId: inv.tenantOf(req) }),
+  inv.runExpiryScan({
+    tenantId: inv.tenantOf(req),
+    facilityId: req.body?.facility_id ?? req.query?.facility_id,
+    actorUid: req.user?.uid,
+    actorRole: req.user?.role,
+  }),
 ));
 
 router.get('/expiry-alerts', requireInventoryRead, wrap(async (req) => inv.listExpiryAlerts({
   tenantId: inv.tenantOf(req),
+  facilityId: req.query.facility_id,
+  actorUid: req.user?.uid,
+  actorRole: req.user?.role,
   bucket: req.query.bucket,
   limit: req.query.limit,
 })));

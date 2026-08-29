@@ -158,9 +158,13 @@ describeIfDb('NL-13 P1b cath reporting deep integration', () => {
     templateId = templateRows[0].id;
     const caseRows = await prisma.$queryRawUnsafe(
       `INSERT INTO cath_lab_cases
-         (tenant_id, patient_uid, requested_procedure, status,
+         (tenant_id, patient_uid, facility_id, requested_procedure, status,
           actual_start_at, actual_end_at, created_by, updated_by)
-       VALUES ($1::uuid, $2::uuid, 'PTCA', 'completed',
+       VALUES ($1::uuid, $2::uuid,
+               (SELECT id FROM facilities
+                 WHERE tenant_id=$1::uuid AND status='active'
+                 ORDER BY is_default DESC, id LIMIT 1),
+               'PTCA', 'completed',
                NOW() - INTERVAL '60 minutes', NOW() - INTERVAL '30 minutes',
                $3::uuid, $3::uuid)
        RETURNING id`,
@@ -356,6 +360,12 @@ describeIfDb('NL-13 P1b cath reporting deep integration', () => {
       TENANT_B,
     );
     await prisma.$queryRawUnsafe(
+      `INSERT INTO facilities
+         (tenant_id, facility_code, display_name, status, is_default)
+       VALUES ($1::uuid, 'CATH-RLS-B', 'Cath Report RLS B', 'active', TRUE)`,
+      TENANT_B,
+    );
+    await prisma.$queryRawUnsafe(
       `INSERT INTO users (tenant_id, uid, phone, name, role, is_active, updated_at)
        VALUES ($1::uuid, $2::uuid, '9011998011', 'Cath Report Patient B', 'PATIENT', TRUE, NOW())`,
       TENANT_B,
@@ -371,8 +381,13 @@ describeIfDb('NL-13 P1b cath reporting deep integration', () => {
       TENANT_B,
     );
     const caseRows = await prisma.$queryRawUnsafe(
-      `INSERT INTO cath_lab_cases (tenant_id, patient_uid, requested_procedure, status)
-       VALUES ($1::uuid, $2::uuid, 'RLS test', 'scheduled')
+      `INSERT INTO cath_lab_cases
+         (tenant_id, patient_uid, facility_id, requested_procedure, status)
+       VALUES ($1::uuid, $2::uuid,
+               (SELECT id FROM facilities
+                 WHERE tenant_id=$1::uuid AND status='active'
+                 ORDER BY is_default DESC, id LIMIT 1),
+               'RLS test', 'scheduled')
        RETURNING id`,
       TENANT_B,
       PATIENT_B,
