@@ -439,6 +439,158 @@ class ControlledHandoffRecovery {
   }
 }
 
+class WardIndentRequestAdmissionContext {
+  const WardIndentRequestAdmissionContext({
+    required this.id,
+    required this.status,
+    this.patientUid,
+    this.patientName,
+    this.hospitalId,
+    this.encounterId,
+    this.wardId,
+    this.wardName,
+  });
+
+  final int id;
+  final String status;
+  final String? patientUid;
+  final String? patientName;
+  final String? hospitalId;
+  final String? encounterId;
+  final int? wardId;
+  final String? wardName;
+
+  factory WardIndentRequestAdmissionContext.fromJson(
+    Map<String, dynamic> json,
+  ) {
+    return WardIndentRequestAdmissionContext(
+      id: _int(json['id']) ?? 0,
+      status: (_string(json['status']) ?? '').toLowerCase(),
+      patientUid: _string(json['patient_uid']),
+      patientName: _string(json['patient_name']),
+      hospitalId: _string(json['hospital_id']),
+      encounterId: _string(json['encounter_id']),
+      wardId: _int(json['ward_id']),
+      wardName: _string(json['ward_name']),
+    );
+  }
+}
+
+class WardIndentEligibleOrder {
+  const WardIndentEligibleOrder({
+    required this.clinicalOrderId,
+    required this.catalogId,
+    required this.itemLabel,
+    required this.quantity,
+    required this.unit,
+    required this.status,
+    this.orderNumber,
+    this.priority,
+    this.route,
+    this.dose,
+    this.frequency,
+    this.schedule = const [],
+  });
+
+  final int clinicalOrderId;
+  final int catalogId;
+  final String itemLabel;
+  final double quantity;
+  final String unit;
+  final String status;
+  final String? orderNumber;
+  final String? priority;
+  final String? route;
+  final String? dose;
+  final String? frequency;
+  final List<String> schedule;
+
+  factory WardIndentEligibleOrder.fromJson(Map<String, dynamic> json) {
+    return WardIndentEligibleOrder(
+      clinicalOrderId: _int(json['clinical_order_id']) ?? 0,
+      catalogId: _int(json['catalog_id']) ?? 0,
+      itemLabel: _string(json['item_label']) ?? '',
+      quantity: _double(json['quantity']),
+      unit: _string(json['unit']) ?? '',
+      status: (_string(json['status']) ?? '').toLowerCase(),
+      orderNumber: _string(json['order_number']),
+      priority: _string(json['priority']),
+      route: _string(json['route']),
+      dose: _string(json['dose']),
+      frequency: _string(json['frequency']),
+      schedule: json['schedule'] is List
+          ? (json['schedule'] as List)
+                .map(_string)
+                .whereType<String>()
+                .toList(growable: false)
+          : const [],
+    );
+  }
+}
+
+class WardIndentRecoveryProjection {
+  const WardIndentRecoveryProjection({
+    required this.admission,
+    required this.eligibleOrders,
+    required this.onlineOnly,
+  });
+
+  final WardIndentRequestAdmissionContext admission;
+  final List<WardIndentEligibleOrder> eligibleOrders;
+  final bool onlineOnly;
+
+  bool get hasEligibleOrders => eligibleOrders.isNotEmpty;
+
+  factory WardIndentRecoveryProjection.fromDrugChart(
+    Map<String, dynamic> chart,
+  ) {
+    final projection = _map(chart['ward_indent_request']);
+    return WardIndentRecoveryProjection(
+      admission: WardIndentRequestAdmissionContext.fromJson(
+        _map(projection['admission']),
+      ),
+      eligibleOrders: _maps(projection['eligible_orders'])
+          .map(WardIndentEligibleOrder.fromJson)
+          .where(
+            (order) =>
+                order.clinicalOrderId > 0 &&
+                order.catalogId > 0 &&
+                order.itemLabel.isNotEmpty &&
+                order.quantity > 0 &&
+                order.unit.isNotEmpty,
+          )
+          .toList(growable: false),
+      onlineOnly: projection['online_only'] != false,
+    );
+  }
+}
+
+class WardIndentOrderBoundCommand {
+  WardIndentOrderBoundCommand({
+    required this.admissionId,
+    required this.order,
+    String? notes,
+  }) : notes = _string(notes);
+
+  final int admissionId;
+  final WardIndentEligibleOrder order;
+  final String? notes;
+
+  Map<String, dynamic> toRequestBody() => {
+    'admission_id': admissionId,
+    'indent_type': 'pharmacy',
+    'items': [
+      {
+        'clinical_order_id': order.clinicalOrderId,
+        'pharmacy_catalog_id': order.catalogId,
+        'quantity_requested': order.quantity,
+        'unit': order.unit,
+      },
+    ],
+    if (notes != null) 'notes': notes,
+  };
+}
+
 WardIndentStatus _wardIndentStatus(Object? value) {
   final wire = value?.toString().trim().toLowerCase();
   return WardIndentStatus.values.firstWhere(

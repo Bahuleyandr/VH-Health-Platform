@@ -9,6 +9,7 @@ import '../../../l10n/app_strings.dart';
 import '../models/ward_indent_models.dart';
 import '../services/ward_indent_gateway.dart';
 import '../services/ward_indent_role_policy.dart';
+import 'ward_indent_request_sheet.dart';
 
 enum WardIndentWorklistFilter { open, terminal, owned, overdue }
 
@@ -22,6 +23,7 @@ class WardIndentWorkbench extends StatefulWidget {
     required this.role,
     this.initialIndentId,
     this.gateway = const ApiWardIndentGateway(),
+    this.requesterGateway,
     this.attempts,
   });
 
@@ -29,6 +31,7 @@ class WardIndentWorkbench extends StatefulWidget {
   final StaffRole role;
   final int? initialIndentId;
   final WardIndentGateway gateway;
+  final WardIndentRequesterGateway? requesterGateway;
   final IdempotencyAttemptRegistry? attempts;
 
   @override
@@ -207,6 +210,29 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
         _detailLoading = false;
       });
     }
+  }
+
+  WardIndentRequesterGateway get _requesterGateway {
+    final explicit = widget.requesterGateway;
+    if (explicit != null) return explicit;
+    final gateway = widget.gateway;
+    return gateway is WardIndentRequesterGateway
+        ? gateway
+        : const ApiWardIndentGateway();
+  }
+
+  Future<void> _openOrderBoundRequest() async {
+    final created = await showModalBottomSheet<WardIndent>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => WardIndentRequestSheet(
+        gateway: _requesterGateway,
+        initialAdmissionId: _selected?.admissionId,
+        attempts: _attempts,
+      ),
+    );
+    if (created != null && mounted) _acceptMutation(created);
   }
 
   Future<WardIndent?> _refreshSelected() async {
@@ -1194,6 +1220,24 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
                       .toList(growable: false),
                 ),
               ),
+              if (WardIndentRoleContract.canRequest(
+                rawRole: widget.rawRole,
+                role: widget.role,
+              ))
+                OnlineOnlyActionState(
+                  builder: (context, isOnline, offlineMessage) => Tooltip(
+                    message: isOnline ? '' : offlineMessage,
+                    child: FilledButton.tonalIcon(
+                      key: const Key('ward-indent-request-open'),
+                      onPressed: isOnline && !_mutating && !_loadingMore
+                          ? _openOrderBoundRequest
+                          : null,
+                      icon: const Icon(Icons.add_shopping_cart),
+                      label: Text(s.lookup('ward_indent.request.action')),
+                    ),
+                  ),
+                ),
+              const SizedBox(width: 8),
               IconButton(
                 key: const Key('ward-indent-refresh'),
                 tooltip: s.actionRefresh,

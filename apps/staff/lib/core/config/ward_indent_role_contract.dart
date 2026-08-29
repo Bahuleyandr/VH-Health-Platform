@@ -98,6 +98,10 @@ abstract final class WardIndentRoleContract {
     return readRoleCodes.contains(canonicalRoleCode(rawRole, role));
   }
 
+  static bool canRequest({required String rawRole, required StaffRole role}) {
+    return requestRoleCodes.contains(canonicalRoleCode(rawRole, role));
+  }
+
   static String canonicalRoleCode(String rawRole, StaffRole role) {
     final normalized = rawRole.trim().toUpperCase();
     if (canonicalStaffRoleCodes.contains(normalized)) return normalized;

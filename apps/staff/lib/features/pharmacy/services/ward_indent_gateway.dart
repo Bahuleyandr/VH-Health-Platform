@@ -156,7 +156,50 @@ abstract interface class WardIndentGateway {
 
 }
 
-class ApiWardIndentGateway implements WardIndentGateway {
+class WardIndentRequestConflict implements Exception {
+  const WardIndentRequestConflict({
+    required this.code,
+    required this.message,
+    this.details,
+  });
+
+  final String? code;
+  final String message;
+  final Map<String, dynamic>? details;
+
+  int? get winningIndentId => _positiveInt(
+    details?['ward_indent_id'] ?? details?['existing_ward_indent_id'],
+  );
+
+  int? get expectedCatalogId => _positiveInt(details?['expected_catalog_id']);
+
+  double? get expectedQuantity =>
+      _positiveDouble(details?['expected_quantity']);
+
+  String? get expectedUnit {
+    final value = details?['expected_unit']?.toString().trim() ?? '';
+    return value.isEmpty ? null : value;
+  }
+
+  @override
+  String toString() => message;
+}
+
+abstract interface class WardIndentRequesterGateway {
+  Future<WardIndent> getIndent(int id);
+
+  Future<WardIndentRecoveryProjection> loadOrderBoundProjection(
+    int admissionId,
+  );
+
+  Future<WardIndent> createOrderBoundRequest(
+    WardIndentOrderBoundCommand command, {
+    required String idempotencyKey,
+  });
+}
+
+class ApiWardIndentGateway
+    implements WardIndentGateway, WardIndentRequesterGateway {
   const ApiWardIndentGateway();
 
   @override
@@ -185,6 +228,40 @@ class ApiWardIndentGateway implements WardIndentGateway {
   @override
   Future<WardIndent> getIndent(int id) async {
     return WardIndent.fromJson(await PharmacyApiService.getWardIndent(id));
+  }
+
+  @override
+  Future<WardIndentRecoveryProjection> loadOrderBoundProjection(
+    int admissionId,
+  ) async {
+    final chart = await MedicalApiService.getInpatientDrugChart(admissionId);
+    return WardIndentRecoveryProjection.fromDrugChart(chart);
+  }
+
+  @override
+  Future<WardIndent> createOrderBoundRequest(
+    WardIndentOrderBoundCommand command, {
+    required String idempotencyKey,
+  }) async {
+    final body = command.toRequestBody();
+    try {
+      final result = await PharmacyApiService.createWardIndent(
+        admissionId: command.admissionId,
+        items: List<Map<String, dynamic>>.from(body['items'] as List),
+        notes: command.notes,
+        idempotencyKey: idempotencyKey,
+      );
+      return WardIndent.fromJson(result);
+    } on PharmacyApiException catch (error) {
+      if (error.statusCode == 409) {
+        throw WardIndentRequestConflict(
+          code: error.code,
+          message: error.message,
+          details: error.details,
+        );
+      }
+      rethrow;
+    }
   }
 
   @override
@@ -276,6 +353,18 @@ class ApiWardIndentGateway implements WardIndentGateway {
     );
   }
 
+}
+
+int? _positiveInt(Object? value) {
+  final parsed = value is int ? value : int.tryParse(value?.toString() ?? '');
+  return parsed != null && parsed > 0 ? parsed : null;
+}
+
+double? _positiveDouble(Object? value) {
+  final parsed = value is num
+      ? value.toDouble()
+      : double.tryParse(value?.toString() ?? '');
+  return parsed != null && parsed.isFinite && parsed > 0 ? parsed : null;
 }
 
 int? _int(Object? value) {

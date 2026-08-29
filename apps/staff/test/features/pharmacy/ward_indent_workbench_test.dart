@@ -155,6 +155,26 @@ void main() {
     expect(find.byKey(const Key('ward-indent-action-cancel')), findsOneWidget);
     expect(find.byKey(const Key('ward-indent-action-issue')), findsNothing);
     expect(find.byKey(const Key('ward-indent-action-receive')), findsNothing);
+    expect(find.byKey(const Key('ward-indent-request-open')), findsOneWidget);
+  });
+
+  testWidgets('stores-only actor cannot open the clinical request flow', (
+    tester,
+  ) async {
+    final requested = _indent(id: 73, number: 'WARD-73');
+    final gateway = _FakeWardIndentGateway(
+      listRows: [requested],
+      initialDetail: requested,
+    );
+
+    await _pumpWorkbench(
+      tester,
+      gateway: gateway,
+      rawRole: 'STORES_PURCHASE_INCHARGE',
+      initialIndentId: 73,
+    );
+
+    expect(find.byKey(const Key('ward-indent-request-open')), findsNothing);
   });
 
   testWidgets('all mutation controls are disabled while offline', (
@@ -181,6 +201,10 @@ void main() {
       find.byKey(const Key('ward-indent-action-reserve')),
     );
     expect(reserve.onPressed, isNull);
+    final request = tester.widget<FilledButton>(
+      find.byKey(const Key('ward-indent-request-open')),
+    );
+    expect(request.onPressed, isNull);
     expect(
       find.text(
         'Reconnect to continue. This action cannot be completed offline.',

@@ -1,18 +1,18 @@
 # CLAUDE.md — VHHealth Staff App
 
 ## Project Overview
-Flutter mobile app for hospital staff — a full clinical EMR covering MAR/BCMA closed-loop medication administration, CPOE order composer, structured e-prescribing, IPD ward management, maternity, operating theatre, blood bank, clinical-AI decision support, beds/housekeeping, payroll self-service, and the traditional HR functions (attendance, leave, profile). The app has **328 Dart source files under `lib/`** across **56 feature modules**.
+Flutter mobile app for hospital staff — a full clinical EMR covering MAR/BCMA closed-loop medication administration, CPOE order composer, structured e-prescribing, IPD ward management, maternity, operating theatre, blood bank, clinical-AI decision support, beds/housekeeping, payroll self-service, and the traditional HR functions (attendance, leave, profile). The app has **343 Dart source files under `lib/`** across **56 feature modules**.
 
 Both numbers are counted, not estimated — re-derive them from `apps/staff/`
 before editing this file, and update the module list below in the same pass:
 
 ```bash
-find lib -name '*.dart' | wc -l                       # 328 source files
+find lib -name '*.dart' | wc -l                       # 343 source files
 find lib/features -mindepth 1 -maxdepth 1 -type d | wc -l   # 56 feature modules
 find lib/features -mindepth 1 -maxdepth 1 -type d | sed 's|lib/features/||' | sort
 ```
 
-(Counted 2026-08-25. One of the 328 is generated; the rest are hand-written.)
+(Counted 2026-08-28. One of the 343 is generated; the rest are hand-written.)
 
 ## Tech Stack
 - **Framework**: Flutter 3.8.1+, Dart (null-safe)
@@ -38,7 +38,7 @@ lib/
     theme/app_theme.dart             # Material 3 blue/teal theme
     widgets/
       staff_scaffold.dart            # Bottom nav scaffold wrapper
-  features/                          # 56 feature modules (201 of the 328 lib/ Dart files)
+  features/                          # 56 feature modules (212 of the 343 lib/ Dart files)
     auth/                            # Employee ID + password/PIN login plus tenant-enabled OIDC SSO
     dashboard/                       # Home: check-in status, stats, feature grid
     attendance/                      # Check in/out + history
