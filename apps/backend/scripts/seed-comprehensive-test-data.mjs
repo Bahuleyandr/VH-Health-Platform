@@ -528,8 +528,13 @@ function semanticValue(column, table, index, ctx, maxLength) {
   )
     return 1;
   if (name.includes('number')) return text(`VH-${String(index).padStart(5, '0')}`);
-  if (name.includes('key')) return text(`${SEED_TAG}_${tablePrefix}_${index}`);
+  // sha256 BEFORE key: a column named *_key_sha256 (command_key_sha256,
+  // idempotency_key_sha256, signing_public_key_sha256, ...) is a DIGEST, not a key
+  // string. With the old order the 'key' branch won and returned vh_seed_<table>_<n>,
+  // which fails every ~ '^[0-9a-f]{64}$' CHECK. 12 such columns exist; the older ones
+  // simply had no format CHECK to catch it until migration 753 added one.
   if (name.includes('sha256')) return text('0'.repeat(64));
+  if (name.includes('key')) return text(`${SEED_TAG}_${tablePrefix}_${index}`);
   if (name.includes('hash')) return text(`hash_${tablePrefix}_${index}`);
   if (name.includes('url')) return text(`https://example.test/${tablePrefix}/${index}`);
   if (name.includes('name') || name.includes('title') || name.includes('label'))
