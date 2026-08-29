@@ -45,6 +45,8 @@ export async function executeCiMigrationFile({
   sql,
   baseline = false,
   selfManaged = false,
+  forceTransactional = false,
+  beforeTransaction = null,
 }) {
   const directives = parseMigrationDirectives(sql);
   const timeout = safeMigrationStatementTimeout(directives.statementTimeout);
@@ -73,6 +75,39 @@ export async function executeCiMigrationFile({
       await client.query("SET lock_timeout = '15s'").catch(() => {});
     }
     return { mode: 'no-transaction', directives };
+  }
+
+  if (forceTransactional) {
+    await client.query('BEGIN');
+    try {
+      await client.query("SET LOCAL lock_timeout = '15s'");
+      await client.query(`SET LOCAL statement_timeout = '${timeout}'`);
+      const preflight = beforeTransaction ? await beforeTransaction(client) : null;
+      if (preflight?.skipMigration === true) {
+        await client.query('COMMIT');
+        return { mode: 'concurrent-already-applied', directives };
+      }
+      const statements = splitStatements(sql);
+      for (let index = 0; index < statements.length; index += 1) {
+        const statement = statements[index];
+        if (isTransactionBoundaryStatement(statement)) continue;
+        try {
+          await client.query(statement);
+        } catch (err) {
+          err.migrationStatementIndex = index + 1;
+          err.migrationStatementPreview = stripLeadingComments(statement)
+            .replace(/\s+/g, ' ')
+            .slice(0, 180);
+          throw err;
+        }
+      }
+      await trackMigration(client, file, sql);
+      await client.query('COMMIT');
+    } catch (err) {
+      await rollbackBestEffort(client);
+      throw err;
+    }
+    return { mode: 'transactional-gated', directives };
   }
 
   if (baseline || selfManaged) {

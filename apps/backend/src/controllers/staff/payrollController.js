@@ -1,6 +1,6 @@
 // src/controllers/staff/payrollController.js
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import {
   executePayrollRun,
@@ -10,7 +10,18 @@ import {
   signPayrollRun,
   generateAnnualTaxSummary,
   calculateArrears,
+  SalaryArrearsCommandError,
 } from '../../services/staff/payrollService.js';
+import {
+  approveBulkSalaryRevisionJob,
+  BulkSalaryRevisionError,
+  createBulkSalaryRevisionJob,
+  hrSignBulkSalaryRevisionJob,
+} from '../../services/staff/bulkSalaryRevisionService.js';
+import {
+  SalaryRevisionCommandError,
+  salaryRevisionCommandFromRequest,
+} from '../../services/staff/salaryRevisionCommandService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { escapeCsvField } from '../../utils/csv.js';
 import { logAudit } from '../../utils/logAudit.js';
@@ -1059,11 +1070,73 @@ export const getAllAdvances = async (req, res) => {
 export const calculateRevisionArrears = async (req, res) => {
   try {
     const { revisionId } = req.params;
-    const result = await calculateArrears(parseInt(revisionId));
+    const result = await calculateArrears(
+      parseInt(revisionId),
+      resolveTenantOrThrow(req),
+      {
+        actorUid: req.user?.uid,
+        commandKey: req.idempotencyClaim?.requestKey || req.get('idempotency-key'),
+        requestBodySha256: req.idempotencyClaim?.requestBodyHash,
+        httpIdempotencyClaimId: req.idempotencyClaim?.id,
+        requestId: req.id,
+      },
+    );
     success(res, result, result.message || `Arrears calculated: ₹${result.arrears_amount}`);
   } catch (err) {
     logger.error('Calculate Arrears Error:', err);
-    error(res, 'Failed to calculate arrears', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    error(
+      res,
+      err instanceof SalaryArrearsCommandError
+        ? err.message
+        : 'Failed to calculate arrears',
+      err instanceof SalaryArrearsCommandError
+        ? err.statusCode
+        : HTTP_STATUS.INTERNAL_SERVER_ERROR,
+    );
+  }
+};
+
+export const processRevisionArrearsWorkItem = async (req, res) => {
+  try {
+    const workItemId = Number(req.params.workItemId);
+    if (!Number.isSafeInteger(workItemId) || workItemId <= 0) {
+      return error(res, 'Invalid salary arrears work item id', HTTP_STATUS.BAD_REQUEST);
+    }
+    const tenantId = resolveTenantOrThrow(req);
+    const work = await setTenant(tenantId, tx => tx.$queryRawUnsafe(
+      `SELECT id, revision_id, staff_uid, effective_on, status
+         FROM salary_revision_arrears_work_items
+        WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+      tenantId,
+      workItemId,
+    ));
+    if (work.length !== 1) {
+      return error(res, 'Salary arrears work item not found', HTTP_STATUS.NOT_FOUND);
+    }
+    const result = await calculateArrears(
+      Number(work[0].revision_id),
+      tenantId,
+      {
+        actorUid: req.user?.uid,
+        commandKey: req.idempotencyClaim?.requestKey || req.get('idempotency-key'),
+        requestBodySha256: req.idempotencyClaim?.requestBodyHash,
+        httpIdempotencyClaimId: req.idempotencyClaim?.id,
+        requestId: req.id,
+        workItemId,
+      },
+    );
+    success(res, result, result.message || `Arrears calculated: ₹${result.arrears_amount}`);
+  } catch (err) {
+    logger.error('Process Salary Arrears Work Item Error:', err);
+    error(
+      res,
+      err instanceof SalaryArrearsCommandError
+        ? err.message
+        : 'Failed to process salary arrears work item',
+      err instanceof SalaryArrearsCommandError
+        ? err.statusCode
+        : HTTP_STATUS.INTERNAL_SERVER_ERROR,
+    );
   }
 };
 
@@ -1878,157 +1951,111 @@ export const getComplianceCalendar = async (req, res) => {
 
 export const createBulkRevision = async (req, res) => {
   try {
-    const { description, revision_type, target_type, target_value, increment_type, increment_value, bonus_amount, effective_from } = req.body;
-    if (!description||!revision_type||!target_type||!effective_from) return error(res,'description,revision_type,target_type,effective_from required',HTTP_STATUS.BAD_REQUEST);
-    let countQuery=`SELECT COUNT(*) as cnt FROM users u JOIN staff_salary ss ON ss.staff_uid=u.uid WHERE u.is_active=true`;
-    const params=[];
-    if (target_type==='department') { countQuery+=` AND ss.department=$1`; params.push(target_value); }
-    else if (target_type==='role') { countQuery+=` AND u.role=$1`; params.push(target_value); }
-    else if (target_type==='designation') { countQuery+=` AND ss.designation=$1`; params.push(target_value); }
-    const countResult=await prisma.$queryRawUnsafe(countQuery,...params);
-    const staffCount=parseInt(countResult[0].cnt);
-    if (staffCount===0) return error(res,`No active staff found for ${target_type}=${target_value}`,HTTP_STATUS.BAD_REQUEST);
-    const job = await prisma.bulk_revision_jobs.create({
-      data: {
-        description,
-        revision_type,
-        target_type,
-        target_value,
-        increment_type,
-        increment_value,
-        bonus_amount,
-        effective_from: new Date(effective_from),
-        staff_count: staffCount,
-        status: 'draft',
-        created_by: req.user?.uid,
-      },
-      select: {
-        id: true,
-        description: true,
-        revision_type: true,
-        target_type: true,
-        target_value: true,
-        increment_type: true,
-        increment_value: true,
-        bonus_amount: true,
-        effective_from: true,
-        staff_count: true,
-        status: true,
-        created_by: true,
-        created_at: true,
-      },
+    const tenantId = resolveTenantOrThrow(req);
+    const command = salaryRevisionCommandFromRequest(req, 'bulk_revision_create', 'create');
+    const job = await createBulkSalaryRevisionJob({
+      tenantId,
+      actorUid: req.user?.uid,
+      input: req.body,
+      command,
     });
-    success(res, job, `Bulk revision draft created. Will affect ${staffCount} staff.`);
-  } catch (err) { logger.error('CreateBulkRev:', err); error(res,'Failed to create bulk revision',HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+    success(res, job, `Bulk revision draft created. Will affect ${job.staff_count} staff.`);
+  } catch (err) {
+    logger.error('CreateBulkRev:', err);
+    error(
+      res,
+      err instanceof BulkSalaryRevisionError || err instanceof SalaryRevisionCommandError
+        ? err.message
+        : 'Failed to create bulk revision',
+      err instanceof BulkSalaryRevisionError || err instanceof SalaryRevisionCommandError
+        ? err.statusCode
+        : HTTP_STATUS.INTERNAL_SERVER_ERROR,
+    );
+  }
+};
+
+export const hrSignBulkRevision = async (req, res) => {
+  try {
+    const command = salaryRevisionCommandFromRequest(req, 'bulk_revision_hr_sign', req.params.id);
+    const result = await hrSignBulkSalaryRevisionJob({
+      tenantId: resolveTenantOrThrow(req),
+      jobId: req.params.id,
+      hrUid: req.user?.uid,
+      command,
+    });
+    success(res, result, 'Bulk revision HR signature applied — awaiting Admin countersign');
+  } catch (err) {
+    logger.error('HrSignBulkRev:', err);
+    error(
+      res,
+      err instanceof BulkSalaryRevisionError || err instanceof SalaryRevisionCommandError
+        ? err.message
+        : 'Failed to HR-sign bulk revision',
+      err instanceof BulkSalaryRevisionError || err instanceof SalaryRevisionCommandError
+        ? err.statusCode
+        : HTTP_STATUS.INTERNAL_SERVER_ERROR,
+    );
+  }
 };
 
 export const approveBulkRevision = async (req, res) => {
   try {
-    const { id } = req.params; const adminUid=req.user?.uid;
-    const j = await prisma.bulk_revision_jobs.findUnique({
-      where: { id: Number(id) },
-      select: {
-        id: true,
-        status: true,
-        target_type: true,
-        target_value: true,
-        revision_type: true,
-        increment_type: true,
-        increment_value: true,
-        bonus_amount: true,
-        effective_from: true,
-        description: true,
-        staff_count: true,
-      },
+    const command = salaryRevisionCommandFromRequest(req, 'bulk_revision_approve', req.params.id);
+    const approved = await approveBulkSalaryRevisionJob({
+      tenantId: resolveTenantOrThrow(req),
+      jobId: req.params.id,
+      adminUid: req.user?.uid,
+      command,
     });
-    if (!j) return error(res,'Not found',HTTP_STATUS.NOT_FOUND);
-    if (j.status !== 'draft') return error(res,'Already processed',HTTP_STATUS.BAD_REQUEST);
-
-    await prisma.bulk_revision_jobs.update({
-      where: { id: Number(id) },
-      data: { status: 'approved', approved_by: adminUid, approved_at: new Date() },
-      select: { id: true },
-    });
-
-    setImmediate(async () => {
-      try {
-        // Staff targeting — still raw because the dynamic WHERE on users/
-        // staff_salary with varying filter columns is awkward in ORM form,
-        // and this is a read. Writes below are all typed.
-        let staffQuery = `SELECT u.uid,ss.basic_salary FROM users u JOIN staff_salary ss ON ss.staff_uid=u.uid WHERE u.is_active=true`;
-        const params = [];
-        if (j.target_type === 'department') { staffQuery += ` AND ss.department=$1`; params.push(j.target_value); }
-        else if (j.target_type === 'role') { staffQuery += ` AND u.role=$1`; params.push(j.target_value); }
-        else if (j.target_type === 'designation') { staffQuery += ` AND ss.designation=$1`; params.push(j.target_value); }
-        const staffList = await prisma.$queryRawUnsafe(staffQuery, ...params);
-
-        let processed = 0;
-        for (const s of staffList) {
-          try {
-            let proposed_basic = parseFloat(s.basic_salary);
-            if (j.revision_type === 'increment') {
-              proposed_basic = j.increment_type === 'percentage'
-                ? proposed_basic * (1 + parseFloat(j.increment_value) / 100)
-                : proposed_basic + parseFloat(j.increment_value);
-            }
-            const now = new Date();
-            const revisionNumbers = await prisma.$queryRawUnsafe(
-              `SELECT 'REV-' || TO_CHAR(NOW(), 'YYYY') || '-'
-                    || LPAD(nextval('revision_number_seq')::TEXT, 4, '0') AS revision_number`,
-            );
-            await prisma.salary_revisions.create({
-              data: {
-                staff_uid: s.uid,
-                revision_number: revisionNumbers[0].revision_number,
-                revision_type: j.revision_type,
-                current_basic: s.basic_salary,
-                proposed_basic: j.revision_type === 'increment'
-                  ? Math.round(proposed_basic * 100) / 100
-                  : s.basic_salary,
-                bonus_amount: j.bonus_amount || 0,
-                effective_from: new Date(j.effective_from),
-                reason: j.description,
-                status: 'applied',
-                hr_signed_by: adminUid,
-                hr_signed_at: now,
-                admin_signed_by: adminUid,
-                admin_signed_at: now,
-                applied_at: now,
-              },
-              select: { id: true },
-            });
-            if (j.revision_type === 'increment') {
-              await prisma.staff_salary.update({
-                where: { staff_uid: s.uid },
-                data: { basic_salary: Math.round(proposed_basic * 100) / 100, updated_at: now },
-                select: { id: true },
-              });
-            }
-            processed++;
-          } catch (e) { logger.warn(`Bulk rev failed ${s.uid}: ${e.message}`); }
-        }
-        await prisma.bulk_revision_jobs.update({
-          where: { id: Number(id) },
-          data: { status: 'completed', processed_count: processed, completed_at: new Date() },
-          select: { id: true },
-        });
-      } catch (e) {
-        await prisma.bulk_revision_jobs.update({
-          where: { id: Number(id) },
-          data: { status: 'failed', error_log: e.message },
-          select: { id: true },
-        });
-      }
-    });
-
-    success(res, { id, status: 'processing', staff_count: j.staff_count }, 'Bulk revision approved and processing');
-  } catch (err) { logger.error('ApproveBulkRev:', err); error(res,'Failed to approve bulk revision',HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+    success(
+      res,
+      { id: approved.id, status: approved.status, staff_count: approved.staff_count },
+      'Bulk revision approved and queued for durable processing',
+    );
+  } catch (err) {
+    logger.error('ApproveBulkRev:', err);
+    error(
+      res,
+      err instanceof BulkSalaryRevisionError || err instanceof SalaryRevisionCommandError
+        ? err.message
+        : 'Failed to approve bulk revision',
+      err instanceof BulkSalaryRevisionError || err instanceof SalaryRevisionCommandError
+        ? err.statusCode
+        : HTTP_STATUS.INTERNAL_SERVER_ERROR,
+    );
+  }
 };
 
 export const getBulkRevisions = async (req, res) => {
   try {
-    const result=await prisma.$queryRawUnsafe(
-      `SELECT b.*,u.name as created_by_name FROM bulk_revision_jobs b LEFT JOIN users u ON b.created_by=u.uid ORDER BY b.created_at DESC`);
+    const tenantId = resolveTenantOrThrow(req);
+    const result=await setTenant(tenantId, (tx) => tx.$queryRawUnsafe(
+      `SELECT b.*, u.name AS created_by_name,
+              COALESCE(item_outcomes.items, '[]'::jsonb) AS item_outcomes
+         FROM bulk_revision_jobs b
+         LEFT JOIN users u
+           ON b.created_by = u.uid
+          AND u.tenant_id = b.tenant_id
+         LEFT JOIN LATERAL (
+           SELECT jsonb_agg(
+                    jsonb_build_object(
+                      'staff_uid', item.staff_uid,
+                      'status', item.status,
+                      'attempt_count', item.attempt_count,
+                      'revision_id', item.revision_id,
+                      'outcome', item.outcome,
+                      'last_error', item.last_error,
+                      'finalized_at', item.finalized_at
+                    ) ORDER BY item.id
+                  ) AS items
+             FROM bulk_revision_job_items item
+            WHERE item.tenant_id = b.tenant_id
+              AND item.job_id = b.id
+         ) item_outcomes ON true
+        WHERE b.tenant_id = $1::uuid
+        ORDER BY b.created_at DESC`,
+      tenantId,
+    ));
     success(res,result,'Bulk revisions fetched');
   } catch (_err) { error(res,'Failed',HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };

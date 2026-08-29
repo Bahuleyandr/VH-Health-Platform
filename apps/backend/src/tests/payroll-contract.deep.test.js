@@ -17,8 +17,7 @@
 //     → NUMBERS.
 //   • ComparisonPayslip money fields are parseFloat'd in JS → NUMBERS, but its
 //     lop_days/overtime_hours are emitted raw from the Decimal column → STRINGS.
-//   • applyRevision.revision_id / approveBulkRevision.id are the raw
-//     req.params.id STRING (not the int column).
+//   • applyRevision.revision_id is the raw req.params.id STRING (not the int column).
 //
 // DISTINCT-SCHEMA coverage: the 47 typed ops collapse onto ~40 distinct response
 // schemas (e.g. the 2 run-sign ops share PayrollRunResponse; hr-sign / admin-sign
@@ -45,6 +44,7 @@ import {
 import {
   deliverNotificationOutboxRow,
 } from '../utils/notifications/notificationOutboxDelivery.js';
+import { processBulkSalaryRevisionJobs } from '../services/staff/bulkSalaryRevisionService.js';
 
 // executePayrollRun loads the tenant KEK before it writes a payslip, so the
 // suite must provision one. A fresh database has none — without this the run
@@ -67,6 +67,8 @@ const FY = '2098-99';
 // concurrent shard cannot collide on (tenant, user, key, path), and reused
 // deliberately inside the suite to exercise the replay path.
 const PAYROLL_RUN_IDEMPOTENCY_KEY = 'payroll-contract-deep:run:2099-07';
+let requestSequence = 0;
+const CURRENT_MONTH_START = new Date().toISOString().slice(0, 8) + '01';
 
 // Unique uid / phone / employee_id prefixes so this suite never collides.
 // (Hex-only v4 UUIDs — 'pay…' literals are not valid UUIDs and 22P02 the cast.)
@@ -102,7 +104,10 @@ function mkClient(role, uid, phone) {
   return {
     uid,
     get: (p) => request(app).get(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
-    post: (p) => request(app).post(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
+    post: (p) => request(app).post(p)
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', `payroll-contract-${uid.slice(-4)}-${++requestSequence}`),
   };
 }
 
@@ -224,6 +229,13 @@ async function cleanup() {
   const PS_SET = `SELECT id FROM payslips WHERE staff_uid = ANY($1::uuid[]) OR payroll_run_id IN (SELECT id FROM payroll_runs WHERE tenant_id = $2::uuid AND month = ${RUN_MONTH} AND year = ${RUN_YEAR})`;
   // Child rows first (FK + tidy). Each guarded so a missing table never aborts.
   const stmts = [
+    `DELETE FROM bulk_revision_job_items WHERE job_id IN (SELECT id FROM bulk_revision_jobs WHERE description = 'PAYROLL_CONTRACT_DEEP_TEST bulk')`,
+    `DELETE FROM salary_revision_activation_events WHERE revision_id IN (SELECT id FROM salary_revisions WHERE staff_uid = ANY($1::uuid[]))`,
+    `DELETE FROM salary_revision_arrears_work_items WHERE staff_uid = ANY($1::uuid[])`,
+    `DELETE FROM salary_revision_activation_jobs WHERE revision_id IN (SELECT id FROM salary_revisions WHERE staff_uid = ANY($1::uuid[]))`,
+    `DELETE FROM salary_revision_command_receipts WHERE actor_uid = ANY($1::uuid[])`,
+    `DELETE FROM salary_arrears_command_receipts WHERE actor_uid = ANY($1::uuid[])`,
+    `DELETE FROM salary_revision_payables WHERE staff_uid = ANY($1::uuid[])`,
     `DELETE FROM payslip_query_replies WHERE query_id IN (SELECT id FROM payslip_queries WHERE staff_uid = ANY($1::uuid[]) OR payslip_id IN (${PS_SET}))`,
     `DELETE FROM payslip_queries WHERE staff_uid = ANY($1::uuid[]) OR payslip_id IN (${PS_SET})`,
     `DELETE FROM advance_deductions WHERE staff_uid = ANY($1::uuid[]) OR payslip_id IN (${PS_SET})`,
@@ -579,6 +591,12 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
     expect(typeof propose.body.data.proposed_basic).toBe('string'); // Decimal-string
     revisionId = propose.body.data.id;
 
+    const revisionTenant = await prisma.$queryRawUnsafe(
+      `SELECT tenant_id FROM salary_revisions WHERE id = $1::int`,
+      Number(revisionId),
+    );
+    expect(String(revisionTenant[0]?.tenant_id)).toBe(TENANT_ID);
+
     // GET /payroll/revisions → SalaryRevisionsResponse (list, has rejected_by_name).
     // Scope to our staff_uid (the controller supports the filter) so the contract
     // assertion validates only rows THIS suite created. The shared QA cluster
@@ -620,6 +638,15 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
     assertResponse('POST', `${ADMIN_BASE}/payroll/revisions/{id}/apply`, apply.body);
     expect(typeof apply.body.data.revision_id).toBe('string'); // raw-param string trap
     expect(apply.body.data.staff_uid).toBe(STAFF_UID);
+    expect(apply.body.data).toMatchObject({
+      status: 'scheduled',
+      effective_from: '2099-08-01',
+    });
+    expect((await prisma.$queryRawUnsafe(
+      `SELECT status FROM salary_revisions WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT_ID,
+      Number(revisionId),
+    ))[0].status).toBe('approved');
 
     // Separate propose → reject to cover SalaryRevisionSignResponse via reject.
     const propose2 = await admin.post(`${ADMIN_BASE}/payroll/revisions/propose`).send({
@@ -636,29 +663,73 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
     assertResponse('POST', `${ADMIN_BASE}/payroll/revisions/{id}/reject`, reject.body);
     expect(reject.body.data.status).toBe('rejected');
 
-    // ── arrears: a backdated, APPLIED revision with a basic change is required
-    // (calculateArrears: status='applied' AND applied_at > effective_from).
-    // Seed it directly (effective_from in the past, applied_at now) so the
-    // arrears path computes a real row → ArrearsResultResponse with a nested
-    // SalaryArrearsRow (string amount) AND a top-level number arrears_amount.
-    const seeded = await prisma.$queryRawUnsafe(
-      `INSERT INTO salary_revisions
-         (staff_uid, revision_number, revision_type, current_basic, proposed_basic,
-          effective_from, reason, status, applied_at)
-       VALUES ($1::uuid, $2, 'increment', 40000, 45000,
-          (CURRENT_DATE - INTERVAL '3 months')::date, 'Contract deep-test arrears base',
-          'applied', NOW())
-       RETURNING id`,
-      STAFF_UID, `ARR-DEEP-${Date.now()}`,
+    // ── arrears: create a fully signed, backdated revision through the mounted
+    // workflow. The generated arrears row must retain the full immutable
+    // component/statutory evidence, not a scalar-only legacy fixture.
+    const arrearsDate = new Date();
+    arrearsDate.setUTCDate(1);
+    arrearsDate.setUTCMonth(arrearsDate.getUTCMonth() - 3);
+    const arrearsPropose = await admin.post(`${ADMIN_BASE}/payroll/revisions/propose`).send({
+      staff_uid: STAFF_UID,
+      revision_type: 'increment',
+      proposed_basic: 45000,
+      effective_from: arrearsDate.toISOString().slice(0, 10),
+      reason: 'Contract deep-test arrears base',
+    });
+    expect(arrearsPropose.statusCode).toBe(200);
+    arrearsRevisionId = arrearsPropose.body.data.id;
+    expect((await hr
+      .post(`${ADMIN_BASE}/payroll/revisions/${arrearsRevisionId}/hr-sign`)
+      .send({ comment: 'HR arrears approval' })).statusCode).toBe(200);
+    expect((await admin
+      .post(`${ADMIN_BASE}/payroll/revisions/${arrearsRevisionId}/admin-sign`)
+      .send({ comment: 'Admin arrears approval' })).statusCode).toBe(200);
+    expect((await admin
+      .post(`${ADMIN_BASE}/payroll/revisions/${arrearsRevisionId}/apply`)
+      .send({})).statusCode).toBe(200);
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO payslips (
+         tenant_id, staff_uid, month, year, total_working_days,
+         days_present, days_absent, days_leave, basic_earned, hra_earned,
+         da_earned, special_allowance_earned, transport_allowance_earned,
+         medical_allowance_earned, overtime_pay, gross_salary, pf_employee,
+         esi_employee, professional_tax, tds, total_deductions, net_salary, status
+       )
+       SELECT $1::uuid, $2::uuid, EXTRACT(MONTH FROM month_start)::int,
+              EXTRACT(YEAR FROM month_start)::int, 26, 26, 0, 0,
+              40000, 16000, 4000, 5000, 1600, 1250, 0, 67850,
+              4800, 0, 200, 1000, 6000, 61850, 'issued'
+         FROM generate_series(
+           date_trunc('month', CURRENT_DATE) - INTERVAL '3 months',
+           date_trunc('month', CURRENT_DATE) - INTERVAL '1 month',
+           INTERVAL '1 month'
+         ) AS month_start
+       ON CONFLICT (tenant_id, staff_uid, month, year)
+         WHERE status IS DISTINCT FROM 'superseded'
+       DO UPDATE SET total_working_days = 26, days_present = 26,
+                     days_absent = 0, days_leave = 0, basic_earned = 40000,
+                     hra_earned = 16000, da_earned = 4000,
+                     special_allowance_earned = 5000,
+                     transport_allowance_earned = 1600,
+                     medical_allowance_earned = 1250, overtime_pay = 0,
+                     gross_salary = 67850, pf_employee = 4800, esi_employee = 0,
+                     professional_tax = 200, tds = 1000, total_deductions = 6000,
+                     net_salary = 61850, status = 'issued'`,
+      TENANT_ID,
+      STAFF_UID,
     );
-    arrearsRevisionId = seeded[0].id;
-    const arrears = await admin.post(`${ADMIN_BASE}/payroll/revisions/${arrearsRevisionId}/arrears`).send({});
+    const arrears = await admin
+      .post(`${ADMIN_BASE}/payroll/revisions/${arrearsRevisionId}/arrears`)
+      .set('Idempotency-Key', `payroll-contract-deep:arrears:${arrearsRevisionId}`)
+      .send({});
     expect(arrears.statusCode).toBe(200);
     assertResponse('POST', `${ADMIN_BASE}/payroll/revisions/{revisionId}/arrears`, arrears.body);
     expect(typeof arrears.body.data.arrears_amount).toBe('number'); // top-level JS number
     if (arrears.body.data.result) {
       // nested row's arrears_amount is a Decimal-from-column STRING (the trap)
       expect(typeof arrears.body.data.result.arrears_amount).toBe('string');
+      expect(Array.isArray(arrears.body.data.result.period_breakdown)).toBe(true);
+      expect(typeof arrears.body.data.result.net_adjustment).toBe('string');
     }
 
     // GET /payroll/annual-review → AnnualReviewStatusResponse. years_of_service
@@ -683,7 +754,7 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
       target_type: 'department',
       target_value: 'PAYROLL_CONTRACT_DEEP_TEST',
       bonus_amount: 1000,
-      effective_from: '2099-10-01',
+      effective_from: CURRENT_MONTH_START,
     });
     expect(bulkCreate.statusCode).toBe(200);
     assertResponse('POST', `${ADMIN_BASE}/payroll/bulk-revisions/create`, bulkCreate.body);
@@ -691,14 +762,18 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
     expect(bulkCreate.body.data.staff_count).toBeGreaterThanOrEqual(1);
     bulkRevisionId = bulkCreate.body.data.id;
 
-    // POST /payroll/bulk-revisions/{id}/approve → ApproveBulkRevisionResponse.
-    // TRAPS: id is the raw req.params.id STRING; status is the HTTP-only literal
-    // 'processing' (not a DB enum value).
+    const bulkHrSign = await hr
+      .post(`${ADMIN_BASE}/payroll/bulk-revisions/${bulkRevisionId}/hr-sign`)
+      .send({});
+    expect(bulkHrSign.statusCode).toBe(200);
+    assertResponse('POST', `${ADMIN_BASE}/payroll/bulk-revisions/{id}/hr-sign`, bulkHrSign.body);
+
+    // POST /payroll/bulk-revisions/{id}/approve durably queues the frozen cohort.
     const bulkApprove = await admin.post(`${ADMIN_BASE}/payroll/bulk-revisions/${bulkRevisionId}/approve`).send({});
     expect(bulkApprove.statusCode).toBe(200);
     assertResponse('POST', `${ADMIN_BASE}/payroll/bulk-revisions/{id}/approve`, bulkApprove.body);
-    expect(typeof bulkApprove.body.data.id).toBe('string'); // raw-param string trap
-    expect(bulkApprove.body.data.status).toBe('processing'); // synthetic HTTP status
+    expect(bulkApprove.body.data.status).toBe('queued');
+    await processBulkSalaryRevisionJobs({ tenantId: TENANT_ID, jobId: bulkRevisionId });
     const bulkJob = await waitForBulkRevisionJob(bulkRevisionId);
     expect(bulkJob.status).toBe('completed');
     expect(Number(bulkJob.staff_count)).toBe(2);

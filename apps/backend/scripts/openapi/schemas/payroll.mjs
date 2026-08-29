@@ -37,12 +37,21 @@ const PAYSLIP_STATUS = ['draft', 'issued', 'viewed', 'downloaded'];
 const REVISION_STATUS = ['pending_hr', 'pending_admin', 'approved', 'applied', 'rejected'];
 // salary_revisions.revision_type (validated in proposeRevision)
 const REVISION_TYPE = ['increment', 'bonus', 'deduction_change', 'component_change'];
-// bulk_revision_jobs.status DB lifecycle: draft -> approved -> completed | failed.
-// (approveBulkRevision's HTTP response reports a SYNTHETIC 'processing' that is
-// NOT a DB value — typed as a free string there, not against this enum.)
-const BULK_REVISION_STATUS = ['draft', 'approved', 'completed', 'failed'];
-// salary_arrears.status: pending (default) -> paid
-const ARREARS_STATUS = ['pending', 'paid'];
+// bulk_revision_jobs.status DB lifecycle: dual-signature draft -> pending_admin
+// -> queued -> processing -> completed, or reconciliation_required on a
+// terminal per-staff discrepancy. approved/failed remain readable legacy values.
+const BULK_REVISION_STATUS = [
+  'draft',
+  'pending_admin',
+  'queued',
+  'processing',
+  'completed',
+  'reconciliation_required',
+  'approved',
+  'failed',
+];
+// salary_arrears reconciliation rows are hidden from ordinary tenant APIs.
+const ARREARS_STATUS = ['pending', 'paid', 'reconciliation_required'];
 
 // ---- PASS B enums (separations + queries-compliance). Same null-free rule:
 // nullable status fields keep a null-free enum + nullable:true. ----
@@ -533,6 +542,15 @@ export const schemas = {
       hr_signed_by_name: { type: 'string', nullable: true },
       admin_signed_by_name: { type: 'string', nullable: true },
       rejected_by_name: { type: 'string', nullable: true },
+      activation_status: {
+        type: 'string', nullable: true,
+        enum: ['queued', 'processing', 'applied', 'reconciliation_required'],
+      },
+      activation_attempt_count: { type: 'integer', nullable: true },
+      activation_next_attempt_at: { type: 'string', format: 'date-time', nullable: true },
+      activation_outcome: { type: 'object', additionalProperties: true, nullable: true },
+      activation_source_type: { type: 'string', nullable: true },
+      activation_event_created_at: { type: 'string', format: 'date-time', nullable: true },
     },
   },
   SalaryRevisionsResponse: listEnvelope('SalaryRevisionListItem'),
@@ -559,6 +577,15 @@ export const schemas = {
       proposed_by_name: { type: 'string', nullable: true },
       hr_signed_by_name: { type: 'string', nullable: true },
       admin_signed_by_name: { type: 'string', nullable: true },
+      activation_status: {
+        type: 'string', nullable: true,
+        enum: ['queued', 'processing', 'applied', 'reconciliation_required'],
+      },
+      activation_attempt_count: { type: 'integer', nullable: true },
+      activation_next_attempt_at: { type: 'string', format: 'date-time', nullable: true },
+      activation_outcome: { type: 'object', additionalProperties: true, nullable: true },
+      activation_source_type: { type: 'string', nullable: true },
+      activation_event_created_at: { type: 'string', format: 'date-time', nullable: true },
     },
   },
   SalaryRevisionDetailResponse: envelope('SalaryRevisionDetail'),
@@ -602,14 +629,16 @@ export const schemas = {
   },
   SalaryRevisionSignResponse: envelope('SalaryRevisionSignResult'),
 
-  // ---- applyRevision { revision_id, staff_uid }. TRAP: revision_id is the raw
-  // req.params.id STRING (NOT the int column). STRICT. ----
+  // ---- applyRevision { revision_id, staff_uid } and the durable scheduled
+  // activation acknowledgement. revision_id is the raw req.params.id STRING. ----
   ApplyRevisionResult: {
     type: 'object', additionalProperties: false,
     required: ['revision_id', 'staff_uid'],
     properties: {
       revision_id: { type: 'string' },
       staff_uid: { type: 'string', format: 'uuid' },
+      status: { type: 'string', enum: ['scheduled'] },
+      effective_from: { type: 'string', format: 'date' },
     },
   },
   ApplyRevisionResponse: envelope('ApplyRevisionResult'),
@@ -659,6 +688,17 @@ export const schemas = {
       to_month: { type: 'integer' },
       to_year: { type: 'integer' },
       arrears_amount: { type: MT },
+      period_breakdown: {
+        type: 'array',
+        items: { type: 'object', additionalProperties: true },
+      },
+      gross_adjustment: { type: MT },
+      pf_adjustment: { type: MT },
+      esi_adjustment: { type: MT },
+      professional_tax_adjustment: { type: MT },
+      tds_adjustment: { type: MT },
+      deduction_adjustment: { type: MT },
+      net_adjustment: { type: MT },
       status: { type: 'string', nullable: true, enum: ARREARS_STATUS },
       calculated_at: { type: 'string', format: 'date-time', nullable: true },
     },
@@ -667,6 +707,7 @@ export const schemas = {
     type: 'object', additionalProperties: true,
     required: ['arrears_amount'],
     properties: {
+      revision_id: { type: 'integer' },
       arrears_amount: { type: 'number' },
       message: { type: 'string' },
       months: { type: 'integer' },
@@ -692,7 +733,10 @@ export const schemas = {
       effective_from: { type: 'string', format: 'date-time' },
       staff_count: { type: 'integer', nullable: true },
       processed_count: { type: 'integer', nullable: true },
+      failed_count: { type: 'integer' },
       status: { type: 'string', nullable: true, enum: BULK_REVISION_STATUS },
+      hr_signed_by: { type: 'string', format: 'uuid', nullable: true },
+      hr_signed_at: { type: 'string', format: 'date-time', nullable: true },
       approved_by: { type: 'string', format: 'uuid', nullable: true },
       approved_at: { type: 'string', format: 'date-time', nullable: true },
       completed_at: { type: 'string', format: 'date-time', nullable: true },
@@ -700,7 +744,10 @@ export const schemas = {
       created_by: { type: 'string', format: 'uuid', nullable: true },
       created_at: { type: 'string', format: 'date-time' },
       updated_at: { type: 'string', format: 'date-time' },
+      last_processed_at: { type: 'string', format: 'date-time', nullable: true },
+      cohort_manifest_sha256: { type: 'string', nullable: true, pattern: '^[0-9a-f]{64}$' },
       created_by_name: { type: 'string', nullable: true },
+      item_outcomes: { type: 'array', items: { type: 'object', additionalProperties: true } },
     },
   },
   BulkRevisionsResponse: listEnvelope('BulkRevisionJobListItem'),
@@ -722,22 +769,39 @@ export const schemas = {
       bonus_amount: { type: MT, nullable: true },
       effective_from: { type: 'string', format: 'date-time' },
       staff_count: { type: 'integer' },
+      cohort_manifest_sha256: { type: 'string', pattern: '^[0-9a-f]{64}$' },
+      terms_manifest_sha256: { type: 'string', pattern: '^[0-9a-f]{64}$' },
       status: { type: 'string', nullable: true, enum: BULK_REVISION_STATUS },
       created_by: { type: 'string', format: 'uuid', nullable: true },
+      created_by_role: { type: 'string' },
+      creator_authority_checked_at: { type: 'string', format: 'date-time' },
+      creator_authority_source: { type: 'string', enum: ['users_active_row'] },
       created_at: { type: 'string', format: 'date-time' },
     },
   },
   BulkRevisionJobResponse: envelope('BulkRevisionJob'),
 
-  // ---- approveBulkRevision synthetic object. TRAPS: id is raw req.params.id
-  // STRING (not int); status is the HTTP-only literal 'processing' (NOT a DB
-  // enum value) → typed as a free string, not against BULK_REVISION_STATUS. ----
+  BulkRevisionHrSignResult: {
+    type: 'object', additionalProperties: false,
+    required: ['id', 'status', 'staff_count', 'hr_signed_by', 'hr_signed_at'],
+    properties: {
+      id: { type: 'integer' },
+      status: { type: 'string', enum: ['pending_admin'] },
+      staff_count: { type: 'integer' },
+      hr_signed_by: { type: 'string', format: 'uuid' },
+      hr_signed_at: { type: 'string', format: 'date-time' },
+      hr_signature_sha256: { type: 'string', pattern: '^[0-9a-f]{64}$' },
+    },
+  },
+  BulkRevisionHrSignResponse: envelope('BulkRevisionHrSignResult'),
+
+  // ---- approveBulkRevision returns the persisted durable queue state. ----
   ApproveBulkRevisionResult: {
     type: 'object', additionalProperties: false,
     required: ['id', 'status', 'staff_count'],
     properties: {
-      id: { type: 'string' },
-      status: { type: 'string', example: 'processing' },
+      id: { type: 'integer' },
+      status: { type: 'string', enum: ['queued'] },
       staff_count: { type: 'integer' },
     },
   },
@@ -764,9 +828,9 @@ export const schemas = {
     properties: { comment: { type: 'string' } },
   },
   RevisionRejectRequest: {
-    type: 'object', additionalProperties: true,
-    description: 'Reverse-engineered from salaryRevisionController.rejectRevision; not validator-backed.',
-    properties: { reason: { type: 'string' } },
+    type: 'object', additionalProperties: false,
+    required: ['reason'],
+    properties: { reason: { type: 'string', minLength: 1, maxLength: 2000 } },
   },
   CreateBulkRevisionRequest: {
     type: 'object', additionalProperties: true,
@@ -782,6 +846,117 @@ export const schemas = {
       effective_from: { type: 'string', format: 'date' },
     },
   },
+
+  BonusPayableReconciliationItem: {
+    type: 'object', additionalProperties: true,
+    required: ['id', 'revision_id', 'staff_uid', 'amount', 'status'],
+    properties: {
+      id: { type: 'string' },
+      revision_id: { type: 'integer' },
+      staff_uid: { type: 'string', format: 'uuid' },
+      amount: { type: MT },
+      status: { type: 'string', enum: ['reconciliation_required'] },
+      reconciliation_reason: { type: 'string', nullable: true },
+      reconciliation_evidence: { type: 'object', additionalProperties: true, nullable: true },
+      reconciliation_decision: {
+        type: 'string', nullable: true,
+        enum: ['confirmed_unpaid', 'confirmed_settled'],
+      },
+      reconciliation_hr_by: { type: 'string', format: 'uuid', nullable: true },
+      reconciliation_hr_at: { type: 'string', format: 'date-time', nullable: true },
+      reconciliation_hr_evidence: { type: 'object', additionalProperties: true, nullable: true },
+      revision_number: { type: 'string', nullable: true },
+      applied_at: { type: 'string', format: 'date-time', nullable: true },
+      staff_name: { type: 'string', nullable: true },
+    },
+  },
+  BonusPayableReconciliationWorklistResponse: listEnvelope('BonusPayableReconciliationItem'),
+  BonusPayableReconciliationRequest: {
+    type: 'object', additionalProperties: false,
+    required: ['decision', 'evidence'],
+    properties: {
+      decision: { type: 'string', enum: ['confirmed_unpaid', 'confirmed_settled'] },
+      evidence: { type: 'object', additionalProperties: true, minProperties: 1 },
+    },
+  },
+  BonusPayableReconciliationResult: {
+    type: 'object', additionalProperties: true,
+    required: ['id', 'revision_id', 'staff_uid', 'amount', 'status'],
+    properties: {
+      id: { type: 'string' },
+      revision_id: { type: 'integer' },
+      staff_uid: { type: 'string', format: 'uuid' },
+      amount: { type: MT },
+      status: { type: 'string' },
+    },
+  },
+  BonusPayableReconciliationResponse: envelope('BonusPayableReconciliationResult'),
+
+  PayrollReconciliationItem: {
+    type: 'object', additionalProperties: false,
+    required: [
+      'entity_type', 'entity_id', 'status', 'created_at', 'allowed_actions',
+    ],
+    properties: {
+      entity_type: { type: 'string' },
+      entity_id: { type: 'string' },
+      observed_tenant_id: { type: 'string', format: 'uuid', nullable: true },
+      status: { type: 'string' },
+      reason: { type: 'string', nullable: true },
+      evidence: { type: 'object', additionalProperties: true, nullable: true },
+      created_at: { type: 'string', format: 'date-time' },
+      revision_id: { type: 'string', nullable: true },
+      staff_uid: { type: 'string', format: 'uuid', nullable: true },
+      effective_on: { type: 'string', format: 'date', nullable: true },
+      next_attempt_at: { type: 'string', format: 'date-time', nullable: true },
+      allowed_actions: { type: 'array', items: { type: 'string', enum: ['exclude', 'retry'] } },
+      pending_resolution_id: { type: 'string', format: 'uuid', nullable: true },
+      pending_resolution_action: { type: 'string', enum: ['exclude', 'retry'], nullable: true },
+      hr_attested_by: { type: 'string', format: 'uuid', nullable: true },
+      hr_attested_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+  PayrollReconciliationWorklist: {
+    type: 'object', additionalProperties: false,
+    required: ['items', 'open_count'],
+    properties: {
+      items: { type: 'array', items: { $ref: '#/components/schemas/PayrollReconciliationItem' } },
+      open_count: { type: 'integer' },
+    },
+  },
+  PayrollReconciliationWorklistResponse: envelope('PayrollReconciliationWorklist'),
+  PayrollReconciliationAttestRequest: {
+    type: 'object', additionalProperties: false,
+    required: ['action', 'evidence'],
+    properties: {
+      action: { type: 'string', enum: ['exclude', 'retry'] },
+      evidence: { type: 'object', additionalProperties: true, minProperties: 1 },
+    },
+  },
+  PayrollReconciliationResolveRequest: {
+    type: 'object', additionalProperties: false,
+    required: ['evidence'],
+    properties: {
+      evidence: { type: 'object', additionalProperties: true, minProperties: 1 },
+    },
+  },
+  PayrollReconciliationResult: {
+    type: 'object', additionalProperties: false,
+    required: ['id', 'entity_type', 'entity_id', 'action', 'status', 'resolution_generation'],
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+      entity_type: { type: 'string' },
+      entity_id: { type: 'string' },
+      action: { type: 'string', enum: ['exclude', 'retry'] },
+      status: { type: 'string', enum: ['pending_admin', 'resolved'] },
+      resolution_generation: { type: 'integer' },
+      hr_attested_by: { type: 'string', format: 'uuid', nullable: true },
+      hr_attested_at: { type: 'string', format: 'date-time', nullable: true },
+      admin_resolved_by: { type: 'string', format: 'uuid', nullable: true },
+      admin_resolved_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+  PayrollReconciliationResponse: envelope('PayrollReconciliationResult'),
 
   // =====================================================================
   // SUB-DOMAIN: separations  (advances / fnf / gratuity / leave-encashment)
@@ -1749,15 +1924,78 @@ export const operations = {
   'GET /api/v1/staff/admin/payroll/revisions': { response: 'SalaryRevisionsResponse' },
   'GET /api/v1/staff/admin/payroll/revisions/{id}': { response: 'SalaryRevisionDetailResponse' },
   'GET /api/v1/staff/admin/payroll/annual-review': { response: 'AnnualReviewStatusResponse' },
-  'POST /api/v1/staff/admin/payroll/revisions/propose': { request: 'ProposeRevisionRequest', response: 'SalaryRevisionProposeResponse' },
-  'POST /api/v1/staff/admin/payroll/revisions/{id}/hr-sign': { request: 'RevisionSignRequest', response: 'SalaryRevisionSignResponse' },
-  'POST /api/v1/staff/admin/payroll/revisions/{id}/admin-sign': { request: 'RevisionSignRequest', response: 'SalaryRevisionSignResponse' },
-  'POST /api/v1/staff/admin/payroll/revisions/{id}/apply': { response: 'ApplyRevisionResponse' },
-  'POST /api/v1/staff/admin/payroll/revisions/{id}/reject': { request: 'RevisionRejectRequest', response: 'SalaryRevisionSignResponse' },
-  'POST /api/v1/staff/admin/payroll/revisions/{revisionId}/arrears': { response: 'ArrearsResultResponse' },
+  'POST /api/v1/staff/admin/payroll/revisions/propose': {
+    parameters: [idempotencyKeyParameter],
+    request: 'ProposeRevisionRequest',
+    response: 'SalaryRevisionProposeResponse',
+  },
+  'POST /api/v1/staff/admin/payroll/revisions/{id}/hr-sign': {
+    parameters: [idempotencyKeyParameter],
+    request: 'RevisionSignRequest',
+    response: 'SalaryRevisionSignResponse',
+  },
+  'POST /api/v1/staff/admin/payroll/revisions/{id}/admin-sign': {
+    parameters: [idempotencyKeyParameter],
+    request: 'RevisionSignRequest',
+    response: 'SalaryRevisionSignResponse',
+  },
+  'POST /api/v1/staff/admin/payroll/revisions/{id}/apply': {
+    parameters: [idempotencyKeyParameter],
+    response: 'ApplyRevisionResponse',
+  },
+  'POST /api/v1/staff/admin/payroll/revisions/{id}/reject': {
+    parameters: [idempotencyKeyParameter],
+    request: 'RevisionRejectRequest',
+    response: 'SalaryRevisionSignResponse',
+  },
+  'POST /api/v1/staff/admin/payroll/revisions/{revisionId}/arrears': {
+    parameters: [idempotencyKeyParameter],
+    response: 'ArrearsResultResponse',
+  },
+  'POST /api/v1/staff/admin/payroll/revision-arrears-work/{workItemId}/process': {
+    parameters: [idempotencyKeyParameter],
+    response: 'ArrearsResultResponse',
+  },
+  'GET /api/v1/staff/admin/payroll/revision-payables/reconciliation': {
+    response: 'BonusPayableReconciliationWorklistResponse',
+  },
+  'POST /api/v1/staff/admin/payroll/revision-payables/{id}/hr-attest': {
+    parameters: [idempotencyKeyParameter],
+    request: 'BonusPayableReconciliationRequest',
+    response: 'BonusPayableReconciliationResponse',
+  },
+  'POST /api/v1/staff/admin/payroll/revision-payables/{id}/admin-resolve': {
+    parameters: [idempotencyKeyParameter],
+    request: 'BonusPayableReconciliationRequest',
+    response: 'BonusPayableReconciliationResponse',
+  },
+  'GET /api/v1/staff/admin/payroll/reconciliation/worklist': {
+    response: 'PayrollReconciliationWorklistResponse',
+  },
+  'POST /api/v1/staff/admin/payroll/reconciliation/{entityType}/{entityId}/hr-attest': {
+    parameters: [idempotencyKeyParameter],
+    request: 'PayrollReconciliationAttestRequest',
+    response: 'PayrollReconciliationResponse',
+  },
+  'POST /api/v1/staff/admin/payroll/reconciliation/{entityType}/{entityId}/admin-resolve': {
+    parameters: [idempotencyKeyParameter],
+    request: 'PayrollReconciliationResolveRequest',
+    response: 'PayrollReconciliationResponse',
+  },
   'GET /api/v1/staff/admin/payroll/bulk-revisions': { response: 'BulkRevisionsResponse' },
-  'POST /api/v1/staff/admin/payroll/bulk-revisions/create': { request: 'CreateBulkRevisionRequest', response: 'BulkRevisionJobResponse' },
-  'POST /api/v1/staff/admin/payroll/bulk-revisions/{id}/approve': { response: 'ApproveBulkRevisionResponse' },
+  'POST /api/v1/staff/admin/payroll/bulk-revisions/create': {
+    parameters: [idempotencyKeyParameter],
+    request: 'CreateBulkRevisionRequest',
+    response: 'BulkRevisionJobResponse',
+  },
+  'POST /api/v1/staff/admin/payroll/bulk-revisions/{id}/hr-sign': {
+    parameters: [idempotencyKeyParameter],
+    response: 'BulkRevisionHrSignResponse',
+  },
+  'POST /api/v1/staff/admin/payroll/bulk-revisions/{id}/approve': {
+    parameters: [idempotencyKeyParameter],
+    response: 'ApproveBulkRevisionResponse',
+  },
 
   // ---- separations ----
   'GET /api/v1/staff/admin/payroll/advances': { response: 'PayrollAdvancesResponse' },

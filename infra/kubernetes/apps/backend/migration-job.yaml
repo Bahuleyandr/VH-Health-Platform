@@ -33,7 +33,10 @@
 #      SUPERUSER at initdb — before this Job. The step is kept as a defensive
 #      guard for non-CNPG / pre-existing DBs (e.g. the dalekdefender overlay and
 #      local QA, where it runs as a superuser DSN).
-#   2. `node scripts/ci-setup-db.mjs` — tracker-driven, idempotent. Applies
+#   2. `node scripts/payroll-revision-754-preflight.mjs --report-only` — emits
+#      the read-only reconciliation inventory. Acceptance is enforced again on
+#      the migration connection while source and authority tables are locked.
+#   3. `node scripts/ci-setup-db.mjs` — tracker-driven, idempotent. Applies
 #      every file in `src/migrations/*.sql` exactly once per DB via the
 #      `_migrations` table; auto-detects a pre-existing baseline schema
 #      (probes for users + appointments + admissions) and records
@@ -73,7 +76,7 @@
 # prisma CLI to regenerate it). scripts/backend-image-command-contract.test.mjs
 # pins this for every backend-image workload.
 #
-# Step 3 fails closed when no runtime role is configured. A hand-run copy of
+# Step 4 fails closed when no runtime role is configured. A hand-run copy of
 # this Job on a single-DSN environment (dalekdefender rig, local QA — no
 # configmap, no vhhealth_runtime login role in the DB) may set
 # RUNTIME_ROLE_GRANTS_OPTIONAL=true to turn exactly that configuration-absent
@@ -243,6 +246,8 @@ spec:
               set -euo pipefail
               echo ">> db:ensure-pgvector (CREATE EXTENSION IF NOT EXISTS vector)"
               node scripts/ensure-pgvector-extension.mjs
+              echo ">> migration 754 payroll-revision reconciliation preflight"
+              node scripts/payroll-revision-754-preflight.mjs --report-only
               echo ">> ci-setup-db.mjs (apply raw src/migrations/*.sql, tracker-driven)"
               node scripts/ci-setup-db.mjs --skip-seeds
               echo ">> ensure runtime-role grants (owner-only bootstrap)"
@@ -253,6 +258,16 @@ spec:
               value: "production"
             - name: CI_DB_SKIP_SEEDS
               value: "1"
+            - name: PAYROLL_754_ACCEPTED_MANIFEST_SHA256
+              valueFrom:
+                configMapKeyRef:
+                  name: vhhealth-payroll-revision-754-acceptance
+                  key: PAYROLL_754_ACCEPTED_MANIFEST_SHA256
+            - name: PAYROLL_754_ACCEPTED_BY
+              valueFrom:
+                configMapKeyRef:
+                  name: vhhealth-payroll-revision-754-acceptance
+                  key: PAYROLL_754_ACCEPTED_BY
             # Override DATABASE_URL with the superuser/owner DSN for migrations
             # ONLY (INF-4/INF-8). Takes precedence over the envFrom value below.
             # The Deployment keeps the vhhealth_runtime DATABASE_URL; this Job

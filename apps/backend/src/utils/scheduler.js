@@ -1760,6 +1760,40 @@ export async function runAllScheduledTasksNow() {
 if (process.env.NODE_ENV !== 'test') {
   // ─── Payroll Crons ───────────────────────────────────────────────────────────
 
+  registerCron('* * * * *', withJobLock('salary-revision-workflow-worker', async () => {
+    const { parkInactiveTenantPayrollRevisionWork } = await import(
+      '../services/staff/salaryRevisionReconciliationService.js'
+    );
+    const { processBulkSalaryRevisionJobs } = await import(
+      '../services/staff/bulkSalaryRevisionService.js'
+    );
+    const { processDueSalaryRevisionActivations } = await import(
+      '../services/staff/salaryRevisionActivationService.js'
+    );
+    const { processPendingSalaryRevisionArrearsWork } = await import(
+      '../services/staff/payrollService.js'
+    );
+    await parkInactiveTenantPayrollRevisionWork();
+    const workflowFailures = [];
+    for (const [jobName, job] of [
+      ['bulk-salary-revision-worker', processBulkSalaryRevisionJobs],
+      ['salary-revision-activation-worker', processDueSalaryRevisionActivations],
+      ['salary-revision-arrears-worker', processPendingSalaryRevisionArrearsWork],
+    ]) {
+      try {
+        await runForEachTenant(jobName, tenantId => job({ tenantId }));
+      } catch (err) {
+        workflowFailures.push(err);
+      }
+    }
+    if (workflowFailures.length > 0) {
+      throw new AggregateError(
+        workflowFailures,
+        'One or more salary revision workflow stages failed',
+      );
+    }
+  }));
+
   if (process.env.ENABLE_AUTOMATED_PAYROLL_CRONS === 'true') {
     // These financially mutating jobs are disabled by default. When explicitly
     // enabled, every read/write runs once per tenant with an explicit tenant_id.

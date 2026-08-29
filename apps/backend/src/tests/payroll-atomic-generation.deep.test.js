@@ -27,7 +27,10 @@ const STAFF = 'f1690001-0001-4000-8000-000000000001';
 const OTHER_STAFF = 'f1690001-0001-4000-8000-000000000002';
 const HR = 'f1690002-0002-4000-8000-000000000001';
 const ADMIN = 'f1690003-0003-4000-8000-000000000001';
+const OTHER_HR = 'f1690002-0002-4000-8000-000000000002';
+const OTHER_ADMIN = 'f1690003-0003-4000-8000-000000000002';
 const YEAR = 2096;
+let arrearsRevisionSequence = 0;
 
 process.env.FIELD_ENCRYPTION_MASTER_KEK ||= 'fin-001-v3-test-only-master-kek-material';
 
@@ -106,6 +109,8 @@ async function seedPayrollIdentity() {
   ]);
   await seedTenant(OTHER_TENANT, 'fin-v3-other', [
     { uid: OTHER_STAFF, phone: '9690000004', name: 'FIN v3 Other', role: 'GENERAL_STAFF' },
+    { uid: OTHER_HR, phone: '9690000005', name: 'FIN v3 Other HR', role: 'HR_STAFF' },
+    { uid: OTHER_ADMIN, phone: '9690000006', name: 'FIN v3 Other Admin', role: 'ADMIN' },
   ]);
   await prisma.$executeRawUnsafe(
     `INSERT INTO staff
@@ -136,6 +141,116 @@ async function approveRun(runId) {
       WHERE tenant_id = $1::uuid AND id = $2`,
     TENANT, runId, HR, ADMIN,
   ));
+}
+
+async function createAppliedArrearsRevisionTx(tx, {
+  tenantId = TENANT,
+  staffUid = STAFF,
+  hrUid = HR,
+  adminUid = ADMIN,
+  label,
+}) {
+  arrearsRevisionSequence += 1;
+  const [revision] = await tx.$queryRawUnsafe(
+    `INSERT INTO salary_revisions (
+       tenant_id, revision_number, staff_uid, revision_type, salary_baseline,
+       current_basic, proposed_basic, current_gross, proposed_gross,
+       increment_amount, increment_pct, effective_from, reason, status,
+       proposed_by, proposed_at, terms_manifest_sha256,
+       hr_signed_by, hr_signed_at, hr_signer_role,
+       hr_authority_checked_at, hr_authority_source, hr_signature_sha256,
+       admin_signed_by, admin_signed_at, admin_signer_role,
+       admin_authority_checked_at, admin_authority_source,
+       admin_signature_sha256, signature_hash, applied_at,
+       tenant_reconciliation_required, tenant_reconciliation_evidence
+     )
+     SELECT $1::uuid, $2, $3::uuid, 'increment',
+       '{"basic_salary":26000,"hra_pct":40,"da_pct":10,
+         "special_allowance":2000,"transport_allowance":1600,
+         "medical_allowance":1250,"tds_monthly":0,
+         "pf_employee_pct":12,"esi_applicable":false}'::jsonb,
+       26000, 26200, 43850, 44150, 200, 0.77,
+       (date_trunc('month', CURRENT_DATE) - INTERVAL '1 month')::date,
+       $4, 'applied', $5::uuid, evidence.signed_at, repeat('a', 64),
+       $5::uuid, evidence.signed_at, 'HR_STAFF', evidence.signed_at,
+       'users_active_row', repeat('b', 64),
+       $6::uuid, evidence.signed_at, 'ADMIN', evidence.signed_at,
+       'users_active_row', repeat('c', 64), repeat('c', 64),
+       evidence.signed_at, false, '{}'::jsonb
+       FROM (SELECT clock_timestamp() AS signed_at) evidence
+     RETURNING id`,
+    tenantId,
+    `REV-FINV3-${arrearsRevisionSequence}`,
+    staffUid,
+    label,
+    HR,
+    ADMIN,
+  );
+  return Number(revision.id);
+}
+
+async function createPendingSalaryArrearTx(tx, {
+  tenantId = TENANT,
+  staffUid = STAFF,
+  revisionId,
+  month,
+  year,
+  amount,
+}) {
+  const gross = Number(amount);
+  const basic = Math.round((gross / 1.5) * 100) / 100;
+  const hra = Math.round(basic * 0.4 * 100) / 100;
+  const da = Math.round((gross - basic - hra) * 100) / 100;
+  const pf = Math.round(basic * 0.12 * 100) / 100;
+  const net = Math.round((gross - pf) * 100) / 100;
+  const periodBreakdown = [{
+    month,
+    year,
+    payslip_id: 1,
+    payslip_evidence_sha256: 'd'.repeat(64),
+    attendance_factor: 1,
+    basic_adjustment: basic,
+    hra_adjustment: hra,
+    da_adjustment: da,
+    special_allowance_adjustment: 0,
+    transport_allowance_adjustment: 0,
+    medical_allowance_adjustment: 0,
+    gross_adjustment: gross,
+    pf_adjustment: pf,
+    esi_adjustment: 0,
+    professional_tax_adjustment: 0,
+    tds_adjustment: 0,
+    deduction_adjustment: pf,
+    net_adjustment: net,
+    pf_basis_policy: 'uncapped_basic_earned',
+    pf_rate_pct: 12,
+    esi_applicable: false,
+    esi_policy: 'signed_salary_baseline',
+    tds_policy: 'unchanged_signed_monthly_deduction',
+    tds_monthly_baseline: 0,
+  }];
+  const [arrear] = await tx.$queryRawUnsafe(
+    `INSERT INTO salary_arrears (
+       tenant_id, staff_uid, revision_id, from_month, from_year, to_month, to_year,
+       arrears_amount, period_breakdown, gross_adjustment, pf_adjustment,
+       esi_adjustment, professional_tax_adjustment, tds_adjustment,
+       deduction_adjustment, net_adjustment, status
+     ) VALUES (
+       $1::uuid, $2::uuid, $3::int, $4::int, $5::int, $4::int, $5::int,
+       $6::numeric, $7::jsonb, $6::numeric, $8::numeric, 0, 0, 0,
+       $8::numeric, $9::numeric, 'pending'
+     ) RETURNING id`,
+    tenantId,
+    staffUid,
+    revisionId,
+    month,
+    year,
+    gross,
+    JSON.stringify(periodBreakdown),
+    pf,
+    net,
+  );
+  return arrear;
 }
 
 async function acknowledgeInappOutbox(outboxId) {
@@ -377,14 +492,12 @@ describe('durable payroll attempts and document delivery', () => {
          RETURNING id`,
         TENANT, STAFF, YEAR,
       );
-      const [arrear] = await tx.$queryRawUnsafe(
-        `INSERT INTO salary_arrears
-           (tenant_id, staff_uid, from_month, from_year, to_month, to_year,
-            arrears_amount, status)
-         VALUES ($1::uuid, $2::uuid, 10, $3, 10, $3, 300, 'pending')
-         RETURNING id`,
-        TENANT, STAFF, YEAR,
-      );
+      const revisionId = await createAppliedArrearsRevisionTx(tx, {
+        label: 'FIN v3 stale-recovery arrears',
+      });
+      const arrear = await createPendingSalaryArrearTx(tx, {
+        revisionId, month: 10, year: YEAR, amount: 300,
+      });
       return { advanceId: Number(advance.id), arrearId: Number(arrear.id) };
     });
     const oldDocuments = inMemoryDocuments();
@@ -741,14 +854,12 @@ describe('durable payroll attempts and document delivery', () => {
          RETURNING id`,
         TENANT, STAFF, YEAR,
       );
-      const [arrear] = await tx.$queryRawUnsafe(
-        `INSERT INTO salary_arrears
-           (tenant_id, staff_uid, from_month, from_year, to_month, to_year,
-            arrears_amount, status)
-         VALUES ($1::uuid, $2::uuid, 12, $3, 12, $3, 300, 'pending')
-         RETURNING id`,
-        TENANT, STAFF, YEAR,
-      );
+      const revisionId = await createAppliedArrearsRevisionTx(tx, {
+        label: 'FIN v3 atomic-retry arrears',
+      });
+      const arrear = await createPendingSalaryArrearTx(tx, {
+        revisionId, month: 12, year: YEAR, amount: 300,
+      });
       return { advanceId: Number(advance.id), arrearId: Number(arrear.id) };
     });
 
@@ -828,6 +939,105 @@ describe('durable payroll attempts and document delivery', () => {
     expect(state.arrear.payslip_id).not.toBeNull();
   }, 60000);
 
+  test('quarantined and foreign coherent arrears never enter or mutate the tenant payroll plan', async () => {
+    const run = await beginPayrollRun({
+      tenantId: TENANT,
+      month: 6,
+      year: YEAR,
+      generatedBy: HR,
+    });
+    const fixtures = await setTenantTx(TENANT, async (tx) => {
+      const revisionId = await createAppliedArrearsRevisionTx(tx, {
+        label: 'FIN v3 coherent arrears control',
+      });
+      const valid = await createPendingSalaryArrearTx(tx, {
+        revisionId, month: 6, year: YEAR, amount: 200,
+      });
+      return { revisionId, validId: Number(valid.id) };
+    });
+    const [quarantined] = await setTenantTx(null, tx => tx.$queryRawUnsafe(
+      `INSERT INTO salary_arrears (
+         tenant_id, staff_uid, revision_id, from_month, from_year,
+         to_month, to_year, arrears_amount, status,
+         tenant_reconciliation_required, tenant_reconciliation_reason,
+         tenant_reconciliation_evidence
+       )
+       VALUES (
+         NULL, $1::uuid, NULL, 6, $2, 6, $2, 9000,
+         'reconciliation_required', true, 'parent_revision_quarantined',
+         '{"fixture":"quarantined_parent"}'::jsonb
+       )
+       RETURNING id`,
+      STAFF,
+      YEAR,
+    ), { superAdmin: true });
+    const foreign = await setTenantTx(OTHER_TENANT, async (tx) => {
+      const revisionId = await createAppliedArrearsRevisionTx(tx, {
+        tenantId: OTHER_TENANT,
+        staffUid: OTHER_STAFF,
+        hrUid: OTHER_HR,
+        adminUid: OTHER_ADMIN,
+        label: 'FIN v3 foreign coherent arrears',
+      });
+      const arrear = await createPendingSalaryArrearTx(tx, {
+        tenantId: OTHER_TENANT,
+        staffUid: OTHER_STAFF,
+        revisionId,
+        month: 6,
+        year: YEAR,
+        amount: 7000,
+      });
+      return { revisionId, arrearId: Number(arrear.id) };
+    });
+
+    const generated = await generatePayslipForStaff({
+      tenantId: TENANT,
+      payrollRunId: run.id,
+      attemptStartedAt: run.attempt_started_at,
+      attemptToken: run.attempt_token,
+      staffUid: STAFF,
+      month: 6,
+      year: YEAR,
+    });
+    expect(generated.calculation.arrears_amount).toBe(200);
+    expect(generated.calculation._pending_arrear_ids).toEqual([fixtures.validId]);
+    await ensurePayslipDocumentReady({
+      tenantId: TENANT,
+      payrollRunId: run.id,
+      attemptToken: run.attempt_token,
+      staffUid: STAFF,
+      calculation: generated.calculation,
+      payslip: generated.payslip,
+      staff: run.staff[0],
+      ...inMemoryDocuments(),
+    });
+    const evidence = await setTenantTx(null, async (tx) => {
+      const [valid] = await tx.$queryRawUnsafe(
+        `SELECT status, payslip_id FROM salary_arrears WHERE id = $1::int`,
+        fixtures.validId,
+      );
+      const [quarantine] = await tx.$queryRawUnsafe(
+        `SELECT tenant_id, status, payslip_id, tenant_reconciliation_required
+           FROM salary_arrears WHERE id = $1::int`,
+        quarantined.id,
+      );
+      const [foreignRow] = await tx.$queryRawUnsafe(
+        `SELECT status, payslip_id FROM salary_arrears WHERE id = $1::int`,
+        foreign.arrearId,
+      );
+      return { valid, quarantine, foreignRow };
+    }, { superAdmin: true });
+    expect(evidence.valid.status).toBe('paid');
+    expect(evidence.valid.payslip_id).not.toBeNull();
+    expect(evidence.quarantine).toMatchObject({
+      tenant_id: null,
+      status: 'reconciliation_required',
+      payslip_id: null,
+      tenant_reconciliation_required: true,
+    });
+    expect(evidence.foreignRow).toEqual({ status: 'pending', payslip_id: null });
+  }, 60000);
+
   test('arrears failure rolls back every money effect and stale recovery replaces the uploaded draft', async () => {
     const run = await beginPayrollRun({
       tenantId: TENANT,
@@ -846,13 +1056,12 @@ describe('durable payroll attempts and document delivery', () => {
          RETURNING id`,
         TENANT, STAFF, YEAR,
       );
-      await tx.$executeRawUnsafe(
-        `INSERT INTO salary_arrears
-           (tenant_id, staff_uid, from_month, from_year, to_month, to_year,
-            arrears_amount, status)
-         VALUES ($1::uuid, $2::uuid, 7, $3, 7, $3, 300, 'pending')`,
-        TENANT, STAFF, YEAR,
-      );
+      const revisionId = await createAppliedArrearsRevisionTx(tx, {
+        label: 'FIN v3 rollback arrears',
+      });
+      await createPendingSalaryArrearTx(tx, {
+        revisionId, month: 7, year: YEAR, amount: 300,
+      });
       return { advanceId: Number(advance.id) };
     });
     const generated = await generatePayslipForStaff({

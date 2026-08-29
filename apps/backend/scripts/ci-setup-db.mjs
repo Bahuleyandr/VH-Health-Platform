@@ -44,6 +44,12 @@ import {
 } from './lib/migrationChecksum.mjs';
 import { parseMigrationDirectives } from './lib/migrationDirectives.mjs';
 import { assertCiSetupSeedPolicy } from './lib/testDataSeedGuard.mjs';
+import {
+  assertPayrollRevision754Acceptance,
+  buildPayrollRevision754Receipt,
+  collectPayrollRevision754Manifest,
+  lockPayrollRevision754Tables,
+} from './payroll-revision-754-preflight.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..');
@@ -69,6 +75,8 @@ const SKIP_MIGRATIONS = new Set([
 // identify a pre-existing canonical schema that must have a verified tracker.
 const BASELINE_CANONICAL_TABLES = ['users', 'appointments', 'admissions'];
 const BASELINE_FILE = '000_baseline.sql';
+const PAYROLL_REVISION_RECONCILIATION_MIGRATION =
+  '754_salary_revision_tenant_reconciliation.sql';
 
 const client = new pg.Client({ connectionString: DATABASE_URL });
 await client.connect();
@@ -260,6 +268,7 @@ for (const file of files) {
   // their own top-level transaction or the executor's transaction wrapper.
   const selfManaged = file === BASELINE_FILE || fileStartsWithBegin(sql);
   const directives = parseMigrationDirectives(sql);
+  const payrollReconciliationGate = file === PAYROLL_REVISION_RECONCILIATION_MIGRATION;
   try {
     const result = await executeCiMigrationFile({
       client,
@@ -267,6 +276,30 @@ for (const file of files) {
       sql,
       baseline: file === BASELINE_FILE,
       selfManaged: selfManaged && file !== BASELINE_FILE,
+      forceTransactional: payrollReconciliationGate,
+      beforeTransaction: payrollReconciliationGate
+        ? async (transactionClient) => {
+          await lockPayrollRevision754Tables(transactionClient);
+          const concurrentlyApplied = await transactionClient.query(
+            'SELECT 1 FROM public._migrations WHERE name = $1 LIMIT 1',
+            [PAYROLL_REVISION_RECONCILIATION_MIGRATION],
+          );
+          if (concurrentlyApplied.rowCount === 1) {
+            logger.info('  → migration 754 was committed by a concurrent migration runner');
+            return { skipMigration: true };
+          }
+          const receipt = assertPayrollRevision754Acceptance(
+            buildPayrollRevision754Receipt(
+              await collectPayrollRevision754Manifest(transactionClient),
+            ),
+          );
+          logger.info(
+            `  → migration 754 accepted payroll manifest ${receipt.manifest_sha256} `
+            + `(${receipt.cardinality.total} row(s), owner ${receipt.accepted_by || 'not-required'})`,
+          );
+          return null;
+        }
+        : null,
     });
     const timeoutNote = directives.statementTimeout
       ? `, statement_timeout=${directives.statementTimeout}`
