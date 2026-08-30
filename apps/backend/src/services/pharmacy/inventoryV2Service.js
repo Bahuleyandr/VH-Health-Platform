@@ -241,6 +241,16 @@ function tenantOf(req) {
   return requireTenantId(req?.tenantId || req?.user?.tenantId || req?.tenant?.id);
 }
 
+// The catalog label is VARCHAR while the legacy inventory duplicate is INT4;
+// copy it only when the representation is lossless and keep catalog_id authoritative.
+function inventoryPackSizeFromCatalog(value) {
+  if (value == null) return null;
+  const text = String(value).trim();
+  if (!/^[1-9][0-9]*$/.test(text)) return null;
+  const parsed = Number(text);
+  return Number.isSafeInteger(parsed) && parsed <= PG_INT4_MAX ? parsed : null;
+}
+
 // ── Drug master / items ───────────────────────────────────────────────
 
 export async function listItems({
@@ -307,8 +317,8 @@ export async function listItems({
 }
 
 export async function createItem({ tenantId, item, actorUid, actorRole }) {
-  if (!item.sku_code || !item.display_name) {
-    throw AppError.badRequest('sku_code + display_name are required');
+  if (!item?.sku_code) {
+    throw AppError.badRequest('sku_code is required');
   }
   if (item.schedule_class && !ALLOWED_SCHEDULES.includes(item.schedule_class)) {
     throw AppError.badRequest(`Invalid schedule_class. Allowed: ${ALLOWED_SCHEDULES.filter(Boolean).join(', ')}`);
@@ -332,7 +342,14 @@ export async function createItem({ tenantId, item, actorUid, actorRole }) {
       forUpdate: true,
     });
     const authority = await tx.$queryRawUnsafe(
-      `SELECT f.id AS facility_id, pc.id AS catalog_id
+      `SELECT f.id AS facility_id, pc.id AS catalog_id,
+              pc.composition_id,
+              pc.name AS display_name,
+              pc.generic_name,
+              pc.manufacturer,
+              pc.form,
+              pc.strength,
+              pc.pack_size AS catalog_pack_size
          FROM facilities f
          JOIN pharmacy_catalog pc
            ON pc.tenant_id=f.tenant_id
@@ -352,34 +369,54 @@ export async function createItem({ tenantId, item, actorUid, actorRole }) {
         'PHARMACY_INVENTORY_AUTHORITY_INVALID',
       );
     }
+    const catalog = authority[0];
+    const compositionId = Number(catalog.composition_id);
+    if (!Number.isSafeInteger(compositionId) || compositionId <= 0) {
+      throw AppError.conflict(
+        'The selected catalog item has no authoritative composition identity',
+        'PHARMACY_CATALOG_COMPOSITION_REQUIRED',
+        {
+          catalog_id: catalogId,
+          next_action: 'REVIEW_CATALOG_COMPOSITION',
+        },
+      );
+    }
+    const catalogPackSizeLabel = catalog.catalog_pack_size == null
+      ? null
+      : String(catalog.catalog_pack_size).trim() || null;
     const rows = await tx.$queryRawUnsafe(
       `INSERT INTO pharmacy_inventory_items
-       (tenant_id, facility_id, catalog_id, sku_code, display_name, generic_name, brand_name,
-        manufacturer, form, strength, unit_label, pack_size, hsn_code,
+       (tenant_id, facility_id, catalog_id, composition_id,
+        sku_code, display_name, generic_name, brand_name,
+        manufacturer, form, strength, unit_label, pack_size,
         schedule_class, is_narcotic, is_cold_chain, reorder_level,
         reorder_quantity)
-     VALUES ($1::uuid, $2::int, $3::int, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+     VALUES ($1::uuid, $2::int, $3::int, $4::int, $5, $6, $7, $8, $9,
+             $10, $11, $12, $13::int, $14, $15, $16, $17, $18)
      RETURNING *`,
     tenantId,
     facilityId,
     catalogId,
+    compositionId,
     item.sku_code,
-    item.display_name,
-    item.generic_name || null,
-    item.brand_name || null,
-    item.manufacturer || null,
-    item.form || null,
-    item.strength || null,
+    catalog.display_name,
+    catalog.generic_name ?? null,
+    catalog.display_name,
+    catalog.manufacturer ?? null,
+    catalog.form ?? null,
+    catalog.strength ?? null,
     item.unit_label || 'each',
-    item.pack_size || null,
-    item.hsn_code || null,
+    inventoryPackSizeFromCatalog(catalogPackSizeLabel),
     item.schedule_class || null,
     isNarcotic,
     Boolean(item.is_cold_chain),
-    item.reorder_level || null,
-    item.reorder_quantity || null,
+    item.reorder_level ?? null,
+    item.reorder_quantity ?? null,
     );
-    return rows[0];
+    return {
+      ...rows[0],
+      pack_size_label: catalogPackSizeLabel,
+    };
   });
 }
 

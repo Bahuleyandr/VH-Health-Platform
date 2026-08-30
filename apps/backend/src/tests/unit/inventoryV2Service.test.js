@@ -24,6 +24,7 @@ jest.unstable_mockModule('../../services/pharmacy/pharmacyFacilityAuthorityServi
 }));
 
 const {
+  createItem,
   listItems,
   listBatches,
   listScheduleRegister,
@@ -156,6 +157,171 @@ describe('inventoryV2Service facility-scoped reads', () => {
       200,
     ]);
   });
+});
+
+describe('inventoryV2Service.createItem catalog authority', () => {
+  const canonicalCatalog = {
+    facility_id: FACILITY,
+    catalog_id: 17,
+    composition_id: 91,
+    display_name: 'Canonical Morphine 10 mg tablet',
+    generic_name: 'Morphine',
+    manufacturer: 'Canonical Pharma',
+    form: 'tablet',
+    strength: '10 mg',
+    catalog_pack_size: '10',
+  };
+
+  test('persists only the locked catalog identity despite malicious caller identity', async () => {
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([canonicalCatalog])
+      .mockResolvedValueOnce([{ id: 501, catalog_id: 17, composition_id: 91 }]);
+
+    const result = await createItem({
+      tenantId: TENANT,
+      actorUid: ACTOR,
+      actorRole: ACTOR_ROLE,
+      item: {
+        facility_id: FACILITY,
+        catalog_id: 17,
+        sku_code: 'MORPH-10',
+        display_name: 'Forged medicine',
+        generic_name: 'Forged generic',
+        brand_name: 'Forged brand',
+        manufacturer: 'Forged manufacturer',
+        form: 'syrup',
+        strength: '999 mg',
+        pack_size: '500 ml bag',
+        hsn_code: 'FORGED-HSN',
+        composition_id: 999,
+        unit_label: 'tablet',
+        schedule_class: 'X',
+        is_narcotic: false,
+        is_cold_chain: true,
+        reorder_level: 0,
+        reorder_quantity: 20,
+      },
+    });
+
+    expect(assertPharmacyFacilityGrantMock).toHaveBeenCalledWith(txMock, {
+      tenantId: TENANT,
+      facilityId: FACILITY,
+      actorUid: ACTOR,
+      actorRole: ACTOR_ROLE,
+      forUpdate: true,
+    });
+    const authoritySql = queryRawUnsafeMock.mock.calls[0][0];
+    expect(authoritySql).toMatch(/pc\.tenant_id=f\.tenant_id/);
+    expect(authoritySql).toMatch(/f\.tenant_id=\$1::uuid/);
+    expect(authoritySql).toMatch(/pc\.id=\$3::int/);
+    expect(authoritySql).toMatch(/pc\.is_active=TRUE/);
+    expect(authoritySql).toMatch(/pc\.composition_id/);
+    expect(authoritySql).toMatch(/pc\.name AS display_name/);
+    expect(authoritySql).toMatch(/FOR UPDATE OF f, pc/);
+    expect(queryRawUnsafeMock.mock.calls[0].slice(1)).toEqual([
+      TENANT,
+      FACILITY,
+      17,
+    ]);
+
+    const insertSql = queryRawUnsafeMock.mock.calls[1][0];
+    expect(insertSql).toMatch(/catalog_id, composition_id/);
+    expect(insertSql).not.toMatch(/hsn_code/);
+    expect(queryRawUnsafeMock.mock.calls[1].slice(1)).toEqual([
+      TENANT,
+      FACILITY,
+      17,
+      91,
+      'MORPH-10',
+      'Canonical Morphine 10 mg tablet',
+      'Morphine',
+      'Canonical Morphine 10 mg tablet',
+      'Canonical Pharma',
+      'tablet',
+      '10 mg',
+      'tablet',
+      10,
+      'X',
+      true,
+      true,
+      0,
+      20,
+    ]);
+    expect(result).toEqual({
+      id: 501,
+      catalog_id: 17,
+      composition_id: 91,
+      pack_size_label: '10',
+    });
+  });
+
+  test('keeps labeled catalog pack identity linked without inventing an integer count', async () => {
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{ ...canonicalCatalog, catalog_pack_size: '500 ml bag' }])
+      .mockResolvedValueOnce([{ id: 502, catalog_id: 17, composition_id: 91, pack_size: null }]);
+
+    const result = await createItem({
+      tenantId: TENANT,
+      actorUid: ACTOR,
+      actorRole: ACTOR_ROLE,
+      item: {
+        facility_id: FACILITY,
+        catalog_id: 17,
+        sku_code: 'MORPH-BAG',
+      },
+    });
+
+    expect(queryRawUnsafeMock.mock.calls[1][13]).toBeNull();
+    expect(result.pack_size_label).toBe('500 ml bag');
+  });
+
+  test('fails closed when the selected catalog has no composition identity', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{
+      ...canonicalCatalog,
+      composition_id: null,
+    }]);
+
+    await expect(createItem({
+      tenantId: TENANT,
+      actorUid: ACTOR,
+      actorRole: ACTOR_ROLE,
+      item: {
+        facility_id: FACILITY,
+        catalog_id: 17,
+        sku_code: 'MORPH-NO-COMPOSITION',
+      },
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'PHARMACY_CATALOG_COMPOSITION_REQUIRED',
+      details: {
+        catalog_id: 17,
+        next_action: 'REVIEW_CATALOG_COMPOSITION',
+      },
+    });
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
+  test.each(['inactive', 'cross-tenant'])(
+    'fails closed when the catalog authority is %s',
+    async () => {
+      queryRawUnsafeMock.mockResolvedValueOnce([]);
+
+      await expect(createItem({
+        tenantId: TENANT,
+        actorUid: ACTOR,
+        actorRole: ACTOR_ROLE,
+        item: {
+          facility_id: FACILITY,
+          catalog_id: 17,
+          sku_code: 'MORPH-NO-AUTHORITY',
+        },
+      })).rejects.toMatchObject({
+        statusCode: 400,
+        code: 'PHARMACY_INVENTORY_AUTHORITY_INVALID',
+      });
+      expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
+    },
+  );
 });
 
 describe('inventoryV2Service.recordMovement', () => {
