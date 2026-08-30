@@ -126,6 +126,8 @@ describe('inventoryV2Service facility-scoped reads', () => {
 
   test('binds the statutory register to the exact granted facility', async () => {
     queryRawUnsafeMock.mockResolvedValueOnce([]);
+    const dateFrom = '2026-08-01T00:00:00.000Z';
+    const dateTo = '2026-08-31T23:59:59.999Z';
 
     await listScheduleRegister({
       tenantId: TENANT,
@@ -133,6 +135,8 @@ describe('inventoryV2Service facility-scoped reads', () => {
       actorRole: ACTOR_ROLE,
       facility_id: FACILITY,
       schedule_class: 'H1',
+      date_from: dateFrom,
+      date_to: dateTo,
     });
 
     expect(assertPharmacyFacilityGrantMock).toHaveBeenCalledWith(txMock, {
@@ -149,13 +153,75 @@ describe('inventoryV2Service facility-scoped reads', () => {
     expect(sql).toContain('batch.tenant_id=register.tenant_id');
     expect(sql).toContain('batch.inventory_item_id=register.inventory_item_id');
     expect(sql).toContain('batch.facility_id=register.facility_id');
+    expect(sql).toContain('register.created_at >= $4::timestamptz');
+    expect(sql).toContain('register.created_at <= $5::timestamptz');
     expect(sql).not.toContain('SELECT register.*');
     expect(queryRawUnsafeMock.mock.calls[0].slice(1)).toEqual([
       TENANT,
       FACILITY,
       'H1',
+      dateFrom,
+      dateTo,
       200,
     ]);
+  });
+
+  test.each(['OTC', 'h1', '', 'H1 '])(
+    'rejects non-statutory or non-canonical schedule_class %j before querying',
+    async (scheduleClass) => {
+      await expect(listScheduleRegister({
+        tenantId: TENANT,
+        actorUid: ACTOR,
+        actorRole: ACTOR_ROLE,
+        facility_id: FACILITY,
+        schedule_class: scheduleClass,
+      })).rejects.toMatchObject({
+        statusCode: 400,
+        code: 'PHARMACY_SCHEDULE_REGISTER_FILTER_INVALID',
+        details: { field: 'schedule_class' },
+      });
+      expect(setTenantTxMock).not.toHaveBeenCalled();
+      expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+    },
+  );
+
+  test.each([
+    ['date_from', '2026-08-30T00:00:00.000Zsuffix'],
+    ['date_from', '2026-02-30T00:00:00.000Z'],
+    ['date_to', '2026-08-30T00:00:00Z'],
+    ['date_to', '2026-08-30T05:30:00.000+05:30'],
+    ['date_to', 1724976000000],
+  ])('rejects non-canonical %s before PostgreSQL casts it', async (field, value) => {
+    await expect(listScheduleRegister({
+      tenantId: TENANT,
+      actorUid: ACTOR,
+      actorRole: ACTOR_ROLE,
+      facility_id: FACILITY,
+      [field]: value,
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'PHARMACY_SCHEDULE_REGISTER_FILTER_INVALID',
+      details: { field },
+    });
+    expect(setTenantTxMock).not.toHaveBeenCalled();
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  test('rejects a reversed statutory-register date range before querying', async () => {
+    await expect(listScheduleRegister({
+      tenantId: TENANT,
+      actorUid: ACTOR,
+      actorRole: ACTOR_ROLE,
+      facility_id: FACILITY,
+      date_from: '2026-09-01T00:00:00.000Z',
+      date_to: '2026-08-31T23:59:59.999Z',
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'PHARMACY_SCHEDULE_REGISTER_FILTER_INVALID',
+      details: { field: 'date_range' },
+    });
+    expect(setTenantTxMock).not.toHaveBeenCalled();
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
   });
 });
 

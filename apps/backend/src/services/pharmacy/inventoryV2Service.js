@@ -2969,6 +2969,40 @@ export async function dispenseControlled(params) {
   );
 }
 
+function normalizeScheduleRegisterClass(value) {
+  if (value == null) return null;
+  if (typeof value !== 'string' || !CONTROLLED_SCHEDULES.includes(value)) {
+    throw AppError.badRequest(
+      `schedule_class must be one of: ${CONTROLLED_SCHEDULES.join(', ')}`,
+      'PHARMACY_SCHEDULE_REGISTER_FILTER_INVALID',
+      { field: 'schedule_class' },
+    );
+  }
+  return value;
+}
+
+function normalizeScheduleRegisterTimestamp(value, field) {
+  if (value == null) return null;
+  if (typeof value !== 'string'
+    || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)
+    || value.startsWith('0000-')) {
+    throw AppError.badRequest(
+      `${field} must be a canonical ISO-8601 UTC timestamp`,
+      'PHARMACY_SCHEDULE_REGISTER_FILTER_INVALID',
+      { field },
+    );
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString() !== value) {
+    throw AppError.badRequest(
+      `${field} must be a canonical ISO-8601 UTC timestamp`,
+      'PHARMACY_SCHEDULE_REGISTER_FILTER_INVALID',
+      { field },
+    );
+  }
+  return value;
+}
+
 export async function listScheduleRegister({
   tenantId, actorUid, actorRole, facility_id,
   schedule_class, item_id, date_from, date_to, limit = 200,
@@ -2978,16 +3012,26 @@ export async function listScheduleRegister({
   if (!Number.isSafeInteger(facilityId) || facilityId <= 0) {
     throw AppError.badRequest('facility_id must be a positive integer', 'PHARMACY_FACILITY_REQUIRED');
   }
+  const scheduleClass = normalizeScheduleRegisterClass(schedule_class);
+  const dateFrom = normalizeScheduleRegisterTimestamp(date_from, 'date_from');
+  const dateTo = normalizeScheduleRegisterTimestamp(date_to, 'date_to');
+  if (dateFrom && dateTo && dateFrom > dateTo) {
+    throw AppError.badRequest(
+      'date_from must be earlier than or equal to date_to',
+      'PHARMACY_SCHEDULE_REGISTER_FILTER_INVALID',
+      { field: 'date_range' },
+    );
+  }
   const params = [tid, facilityId];
   const where = [
     'register.tenant_id = $1::uuid',
     'register.facility_id = $2::int',
   ];
-  if (schedule_class) {
-    params.push(schedule_class);
+  if (scheduleClass) {
+    params.push(scheduleClass);
     where.push(`register.schedule_class = $${params.length}`);
   }
-  if (item_id) {
+  if (item_id != null) {
     const itemId = Number(item_id);
     if (!Number.isSafeInteger(itemId) || itemId <= 0) {
       throw AppError.badRequest('item_id must be a positive integer');
@@ -2995,8 +3039,8 @@ export async function listScheduleRegister({
     params.push(itemId);
     where.push(`register.inventory_item_id = $${params.length}::int`);
   }
-  if (date_from) { params.push(date_from); where.push(`register.created_at >= $${params.length}::timestamptz`); }
-  if (date_to) { params.push(date_to); where.push(`register.created_at <= $${params.length}::timestamptz`); }
+  if (dateFrom) { params.push(dateFrom); where.push(`register.created_at >= $${params.length}::timestamptz`); }
+  if (dateTo) { params.push(dateTo); where.push(`register.created_at <= $${params.length}::timestamptz`); }
   params.push(boundedInteger(limit, { fallback: 200, min: 1, max: 500 }));
   return setTenantTx(tid, async (tx) => {
     await assertPharmacyFacilityGrant(tx, {

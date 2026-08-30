@@ -613,6 +613,101 @@ describeIfDb('pharmacy inventory ledger tenant and serialization hardening', () 
     );
     expect(otcRegisterRows).toHaveLength(0);
 
+    const otherFacilityId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO facilities
+         (tenant_id, facility_code, display_name, status, is_default)
+       VALUES ($1::uuid, 'MED03-OTHER-PHARMACY', 'MED03 Other Pharmacy', 'active', FALSE)
+       RETURNING id`,
+      TENANT,
+    ))[0].id);
+    await setTenantTx(TENANT, (tx) => tx.$executeRawUnsafe(
+      `INSERT INTO pharmacy_staff_facility_grants
+         (tenant_id, facility_id, staff_uid, status, grant_source,
+          grant_reason, granted_by)
+       VALUES ($1::uuid, $2::int, $3::uuid, 'active', 'test_fixture',
+               'Cross-facility register exclusion fixture', $3::uuid)`,
+      TENANT,
+      otherFacilityId,
+      ACTOR,
+    ));
+    const otherSupplierId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_suppliers
+         (tenant_id, facility_id, supplier_code, display_name, status)
+       VALUES ($1::uuid, $2::int, 'MED03-OTHER-SUPPLIER', 'MED03 Other Supplier', 'active')
+       RETURNING id`,
+      TENANT,
+      otherFacilityId,
+    ))[0].id);
+    const otherLocationId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO facility_locations
+         (tenant_id, facility_id, location_code, display_name, status)
+       VALUES ($1::uuid, $2::int, 'MED03-OTHER-STORE', 'MED03 Other Store', 'active')
+       RETURNING id`,
+      TENANT,
+      otherFacilityId,
+    ))[0].id);
+    const otherCatalogId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_catalog
+         (tenant_id, name, is_active, is_available, in_stock)
+       VALUES ($1::uuid, 'MED03 other H1 catalog', TRUE, TRUE, TRUE)
+       RETURNING id`,
+      TENANT,
+    ))[0].id);
+    const otherItemId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_inventory_items
+         (tenant_id, facility_id, catalog_id, default_supplier_id,
+          sku_code, display_name, unit_label, schedule_class, is_narcotic, status)
+       VALUES ($1::uuid, $2::int, $3::int, $4::int,
+               'MED03-OTHER-H1', 'MED03 Other H1 Item', 'unit', 'H1', FALSE, 'active')
+       RETURNING id`,
+      TENANT,
+      otherFacilityId,
+      otherCatalogId,
+      otherSupplierId,
+    ))[0].id);
+    const otherBatchId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_inventory_batches
+         (tenant_id, inventory_item_id, facility_id, supplier_id,
+          storage_location_id, batch_number, expiry_date,
+          received_quantity, remaining_quantity, status)
+       VALUES ($1::uuid, $2::int, $3::int, $4::int, $5::int,
+               'MED03-OTHER-BATCH', (NOW() + INTERVAL '365 days')::date,
+               9, 9, 'in_stock')
+       RETURNING id`,
+      TENANT,
+      otherItemId,
+      otherFacilityId,
+      otherSupplierId,
+      otherLocationId,
+    ))[0].id);
+    await appendStockMovement({
+      tenantId: TENANT,
+      facilityId: otherFacilityId,
+      inventoryItemId: otherItemId,
+      inventoryBatchId: otherBatchId,
+      movementKind: 'receive',
+      quantityDelta: 1,
+      referenceType: 'med03_cross_facility_register_test',
+      referenceId: 'other-facility',
+      performedBy: ACTOR,
+      actorRole: 'PHARMACY_INCHARGE',
+      commandKey: 'med03-cross-facility-register-test',
+      requestFingerprint: '9'.repeat(64),
+    });
+    const otherRegisterRows = await prisma.$queryRawUnsafe(
+      `SELECT facility_id, inventory_item_id, inventory_batch_id
+         FROM pharmacy_schedule_register
+        WHERE tenant_id=$1::uuid
+          AND facility_id=$2::int
+          AND inventory_item_id=$3::int
+          AND inventory_batch_id=$4::int`,
+      TENANT,
+      otherFacilityId,
+      otherItemId,
+      otherBatchId,
+    );
+    expect(otherRegisterRows).toHaveLength(1);
+
     const registerRows = await listScheduleRegister({
       tenantId: TENANT,
       facility_id: facilityId,
@@ -624,5 +719,15 @@ describeIfDb('pharmacy inventory ledger tenant and serialization hardening', () 
     expect(registerRows).toHaveLength(2);
     expect(registerRows.map((row) => Number(row.running_balance)).sort((a, b) => a - b))
       .toEqual([25, 30]);
+    expect(new Set(registerRows.map((row) => Number(row.facility_id))))
+      .toEqual(new Set([facilityId]));
+    expect(new Set(registerRows.map((row) => Number(row.inventory_item_id))))
+      .toEqual(new Set([controlledItemId]));
+    expect(new Set(registerRows.map((row) => Number(row.inventory_batch_id))))
+      .toEqual(new Set([controlledBatchA, controlledBatchB]));
+    expect(registerRows.every((row) => row.sku_code === 'MED03-LOCK-H1')).toBe(true);
+    expect(registerRows.some((row) => Number(row.facility_id) === otherFacilityId)).toBe(false);
+    expect(registerRows.some((row) => Number(row.inventory_item_id) === otherItemId)).toBe(false);
+    expect(registerRows.some((row) => Number(row.inventory_batch_id) === otherBatchId)).toBe(false);
   });
 });
