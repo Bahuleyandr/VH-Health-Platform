@@ -154,15 +154,29 @@ describe('H1 — list endpoints scope to requested patient/admission (no PHI ble
     admissionA = Number(admissionARow.id);
     admissionB = Number(admissionBRow.id);
 
+    const facilities = await prisma.$queryRawUnsafe(
+      `SELECT id
+         FROM facilities
+        WHERE tenant_id = $1::uuid
+          AND facility_code = 'SEED-MAIN'
+          AND status = 'active'
+        LIMIT 1`,
+      TENANT,
+    );
+    if (!facilities[0]?.id) {
+      throw new Error('H1 pharmacy list fixture requires the active SEED-MAIN facility');
+    }
+    const facilityId = Number(facilities[0].id);
+
     // Two ward indents for admission/patient A, one for admission/patient B.
     const wi = await prisma.$transaction(async (tx) => {
       const rows = await tx.$queryRawUnsafe(
         `INSERT INTO ward_indents
            (tenant_id, indent_number, ward_id, status, requested_by, requested_at,
-            admission_id, encounter_id, patient_uid, updated_at)
-         VALUES ($1::uuid, $2, $5, 'requested', $6::uuid, NOW(), $7, $11::uuid, $3::uuid, NOW()),
-                ($1::uuid, $8, $5, 'requested', $6::uuid, NOW(), $7, $11::uuid, $3::uuid, NOW()),
-                ($1::uuid, $9, $5, 'requested', $6::uuid, NOW(), $10, $12::uuid, $4::uuid, NOW())
+            admission_id, encounter_id, patient_uid, facility_id, updated_at)
+         VALUES ($1::uuid, $2, $5, 'requested', $6::uuid, NOW(), $7, $11::uuid, $3::uuid, $13::int, NOW()),
+                ($1::uuid, $8, $5, 'requested', $6::uuid, NOW(), $7, $11::uuid, $3::uuid, $13::int, NOW()),
+                ($1::uuid, $9, $5, 'requested', $6::uuid, NOW(), $10, $12::uuid, $4::uuid, $13::int, NOW())
          RETURNING id, state_version, status, owner_role_codes`,
         TENANT,
         `WI-H1-A1-${RUN}`,
@@ -176,6 +190,7 @@ describe('H1 — list endpoints scope to requested patient/admission (no PHI ble
         admissionB,
         admissionARow.encounter_id,
         admissionBRow.encounter_id,
+        facilityId,
       );
       for (const row of rows) {
         await tx.$executeRawUnsafe(

@@ -94,7 +94,9 @@ function normalizeBigInts(value) {
       : value.toString();
   }
   if (Array.isArray(value)) return value.map(normalizeBigInts);
-  if (value && typeof value === 'object' && !(value instanceof Date)) {
+  if (value === null || typeof value !== 'object') return value;
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype === Object.prototype || prototype === null) {
     return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, normalizeBigInts(child)]));
   }
   return value;

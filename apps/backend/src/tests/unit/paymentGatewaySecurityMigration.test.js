@@ -110,4 +110,11 @@ describe('payment gateway security migration contracts', () => {
     const dueIndex = sql.match(/CREATE INDEX IF NOT EXISTS idx_pg_refund_recovery_due[\s\S]*?;/i)?.[0];
     expect(dueIndex).not.toContain('blocked_authority');
   });
+
+  it('seeds the refund recovery SLA as a global rule in 752', () => {
+    const sql = migration('752_payment_gateway_refund_recovery.sql');
+    expect(sql).toMatch(
+      /INSERT INTO workflow_sla_rules\s*\(\s*tenant_id,\s*rule_code,[\s\S]*?\)\s*VALUES\s*\(\s*NULL::uuid,\s*'payment_gateway_refund_recovery'/i,
+    );
+  });
 });

@@ -1139,10 +1139,11 @@ CREATE CONSTRAINT TRIGGER trg_pg_refund_task_sla_contract
   FOR EACH ROW EXECUTE FUNCTION payment_gateway_refund_task_sla_constraint();
 
 INSERT INTO workflow_sla_rules
-  (rule_code, title, trigger_event_type, target_minutes, severity,
+  (tenant_id, rule_code, title, trigger_event_type, target_minutes, severity,
    owner_role_codes, escalation_role_codes, metadata)
 VALUES
   (
+    NULL::uuid,
     'payment_gateway_refund_recovery',
     'Payment gateway refund provider confirmation',
     'billing.gateway_refund.pending',
