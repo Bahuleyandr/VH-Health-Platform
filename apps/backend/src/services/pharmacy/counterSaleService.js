@@ -3125,6 +3125,11 @@ export async function reconcileCounterSaleVoid({
 
     for (const allocation of allocations) {
       if (allocation.return_movement_id) continue;
+      const controlled = SCHEDULED_CLASSES.includes(allocation.schedule_class)
+        || allocation.is_narcotic === true;
+      if (controlled) {
+        await lockControlledRegisterItemTx(tx, tenant, allocation.inventory_item_id);
+      }
       const { movement } = await recordMovementTx(tx, {
         tenantId: tenant,
         inventory_item_id: allocation.inventory_item_id,
@@ -3155,37 +3160,37 @@ export async function reconcileCounterSaleVoid({
         );
       }
 
-      const controlled = SCHEDULED_CLASSES.includes(allocation.schedule_class)
-        || allocation.is_narcotic === true;
       if (controlled) {
-        await lockControlledRegisterItemTx(tx, tenant, allocation.inventory_item_id);
         const balance = await tx.$queryRawUnsafe(
           `SELECT COALESCE(SUM(remaining_quantity), 0)::numeric AS balance
              FROM pharmacy_inventory_batches
             WHERE tenant_id = $1::uuid
               AND inventory_item_id = $2::int
-              AND status = 'in_stock'`,
-          tenant, Number(allocation.inventory_item_id),
+              AND facility_id = $3::int
+              AND status IN ('in_stock', 'reserved', 'expired', 'recalled', 'quarantined')`,
+          tenant, Number(allocation.inventory_item_id), Number(sale.facility_id),
         );
         await tx.$executeRawUnsafe(
           `INSERT INTO pharmacy_schedule_register
-             (tenant_id, inventory_item_id, inventory_batch_id, schedule_class,
+             (tenant_id, facility_id, inventory_item_id, inventory_batch_id, schedule_class,
               movement_kind, quantity, unit_label, running_balance,
               patient_uid, patient_name, patient_phone,
               prescription_number, prescriber_name,
               performed_by, performed_by_name, reference_movement_id, notes)
-           SELECT $1::uuid, $2::int, $3::int,
-                  COALESCE($4, CASE WHEN $5 THEN 'X' ELSE 'H1' END),
-                  'return', $6::numeric, item.unit_label, $7::numeric,
-                  $8::uuid, $9, $10, $11, $12, $13::uuid, $14, $15::int, $16
+           SELECT $1::uuid, $2::int, $3::int, $4::int,
+                  CASE WHEN $5 THEN 'X' ELSE COALESCE($6, 'H1') END,
+                  'return', $7::numeric, item.unit_label, $8::numeric,
+                  $9::uuid, $10, $11, $12, $13, $14::uuid, $15, $16::int, $17
              FROM pharmacy_inventory_items item
             WHERE item.tenant_id = $1::uuid
-              AND item.id = $2::int`,
+              AND item.id = $3::int
+              AND item.facility_id = $2::int`,
           tenant,
+          Number(sale.facility_id),
           Number(allocation.inventory_item_id),
           Number(allocation.inventory_batch_id),
-          allocation.schedule_class || null,
           allocation.is_narcotic === true,
+          allocation.schedule_class || null,
           Number(allocation.quantity),
           Number(balance[0].balance),
           sale.patient_uid || null,

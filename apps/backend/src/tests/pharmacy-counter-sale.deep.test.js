@@ -905,6 +905,14 @@ describe('walk-in counter sale — FEFO + billing + drawer', () => {
     );
     expect(movements).toHaveLength(2);
     expect(movements.every((m) => m.movement_kind === 'issue')).toBe(true);
+    const scheduleRegisterCount = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count
+         FROM pharmacy_schedule_register
+        WHERE tenant_id = $1::uuid AND inventory_item_id = $2::int`,
+      TENANT,
+      otcItem,
+    );
+    expect(Number(scheduleRegisterCount[0].count)).toBe(0);
     const invoiceItems = await prisma.$queryRawUnsafe(
       `SELECT source_ref_type, source_ref_id, category FROM billing_invoice_items
         WHERE invoice_id = $1::int`,
@@ -1891,12 +1899,25 @@ describe('schedule-class enforcement', () => {
     expect(voided.sale.status).toBe('VOIDED');
     expect((await remaining(h1Batch)).qty).toBe(60);
     const returns = await prisma.$queryRawUnsafe(
-      `SELECT movement_kind, quantity FROM pharmacy_schedule_register
+      `SELECT facility_id, schedule_class, movement_kind, quantity, running_balance
+         FROM pharmacy_schedule_register
         WHERE tenant_id = $1::uuid AND inventory_item_id = $2::int AND movement_kind = 'return'`,
       TENANT, h1Item,
     );
     expect(returns).toHaveLength(1);
+    expect(Number(returns[0].facility_id)).toBe(facilityId);
+    expect(returns[0].schedule_class).toBe('H1');
     expect(Number(returns[0].quantity)).toBe(2);
+    const physicalCustody = await prisma.$queryRawUnsafe(
+      `SELECT COALESCE(SUM(remaining_quantity), 0)::numeric AS balance
+         FROM pharmacy_inventory_batches
+        WHERE tenant_id = $1::uuid
+          AND facility_id = $2::int
+          AND inventory_item_id = $3::int
+          AND status IN ('in_stock', 'reserved', 'expired', 'recalled', 'quarantined')`,
+      TENANT, facilityId, h1Item,
+    );
+    expect(Number(returns[0].running_balance)).toBe(Number(physicalCustody[0].balance));
   });
 
   test('Schedule X requires a witness; witnessed dispense lands in the register', async () => {
