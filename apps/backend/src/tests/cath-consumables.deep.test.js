@@ -1106,7 +1106,7 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
           AND id = $2::uuid`,
       TENANT_A,
       contract.sla_id,
-    )).rejects.toThrow(/Cath inventory shortfall|workflow SLA/i);
+    )).rejects.toThrow(/Cath inventory SLA source authority is immutable/i);
 
     await expect(executeWithImmediateConstraints(
       `UPDATE notification_outbox
@@ -1766,7 +1766,7 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
     });
     await expect(recordConsumableUsage(caseAId, {
       tenantId: TENANT_A,
-      catalog_item_id: wasteCatalog.id,
+      catalog_item_id: unmappedCatalog.id,
       quantity: 1,
     }, actor)).rejects.toMatchObject({
       statusCode: 400,

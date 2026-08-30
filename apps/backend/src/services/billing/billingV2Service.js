@@ -7877,10 +7877,29 @@ export async function recordPharmacyFundingLineDecision({
   commandKeySha256,
 }) {
   const tid = requireTenantId(tenantId);
-  const approved = Number(approvedAmount);
-  const nonPayable = Number(nonPayableAmount);
+  const parsedApproved = Number(approvedAmount);
+  const parsedNonPayable = Number(nonPayableAmount);
   const command = String(commandKeySha256 || '').trim().toLowerCase();
-  if (!Number.isFinite(approved) || approved < 0 || !Number.isFinite(nonPayable) || nonPayable < 0
+  let amountsHaveExactPaisePrecision = true;
+  let approvedPaise;
+  let nonPayablePaise;
+  try {
+    if (parsedApproved > 0) requireValidAmount(approvedAmount, 'approvedAmount');
+    if (parsedNonPayable > 0) requireValidAmount(nonPayableAmount, 'nonPayableAmount');
+    approvedPaise = toPaise(
+      typeof approvedAmount === 'number' ? approvedAmount : String(approvedAmount).trim(),
+    );
+    nonPayablePaise = toPaise(
+      typeof nonPayableAmount === 'number' ? nonPayableAmount : String(nonPayableAmount).trim(),
+    );
+  } catch {
+    amountsHaveExactPaisePrecision = false;
+  }
+  if (!amountsHaveExactPaisePrecision
+      || !Number.isFinite(parsedApproved) || parsedApproved < 0
+      || !Number.isFinite(parsedNonPayable) || parsedNonPayable < 0
+      || (parsedApproved !== 0 && approvedPaise === 0)
+      || (parsedNonPayable !== 0 && nonPayablePaise === 0)
       || !Number.isInteger(Number(taskId)) || Number(taskId) <= 0
       || !Number.isInteger(Number(orderId)) || Number(orderId) <= 0
       || !Number.isInteger(Number(invoiceItemId)) || Number(invoiceItemId) <= 0
@@ -7893,6 +7912,8 @@ export async function recordPharmacyFundingLineDecision({
       'PHARMACY_TPA_LINE_DECISION_INVALID',
     );
   }
+  const approved = approvedPaise / 100;
+  const nonPayable = nonPayablePaise / 100;
   return setTenantTx(tid, async (tx) => {
     const canonicalPatientUid = await resolvePharmacyFundingPatientUidTx(tx, {
       tenantId: tid,
@@ -8162,7 +8183,7 @@ export async function recordPharmacyFundingLineDecision({
        RETURNING *`,
       tid, Number(tpaClaimId), Number(invoiceItemId), String(reasonCode),
       reasonText == null ? null : String(reasonText), approved, nonPayable,
-      authority.actorUid, Number(orderVersion), String(orderItemsSha256),
+      authority.actorUid, Number(orderVersion), authority.orderItemsSha256,
     );
     const billingDecision = nonPayable <= 0.001
       ? 'payable'
@@ -8192,7 +8213,7 @@ export async function recordPharmacyFundingLineDecision({
       contract: 'pharmacy_tpa_line_decision_v1', task_id: Number(taskId),
       pharmacy_order_id: Number(orderId), invoice_item_id: Number(invoiceItemId),
       tpa_claim_id: Number(tpaClaimId), order_version: Number(orderVersion),
-      order_items_sha256: String(orderItemsSha256), approved_amount: approved,
+      order_items_sha256: authority.orderItemsSha256, approved_amount: approved,
       non_payable_amount: nonPayable, decision_id: Number(decisions[0].id),
       command_key_sha256: command,
       request_sha256: requestSha256,
@@ -8238,7 +8259,7 @@ export async function recordPharmacyFundingLineDecision({
                $7::int,$8::int,$9::int,$10::int,$11::numeric,$12,$13::jsonb,$14::uuid)
        RETURNING id`,
       tid, Number(order.facility_id), Number(orderId), Number(line.admission_id),
-      Number(orderVersion), String(orderItemsSha256), Number(line.invoice_id),
+      Number(orderVersion), authority.orderItemsSha256, Number(line.invoice_id),
       Number(invoiceItemId), Number(tpaClaimId), Number(taskId), approved,
       command, JSON.stringify(evidence), authority.actorUid,
     );

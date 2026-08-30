@@ -50,6 +50,8 @@ const MAX_LIST_LIMIT = 200;
 const TEXT_MAX = 8000;
 const SHORT_MAX = 255;
 const HANDLER_ID_PATTERN = /^[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)*\.v[1-9][0-9]*$/;
+const DURABLE_TIMESTAMP_BINDING_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/;
 const REGISTERED_CONDITION_COMPLETION_BINDINGS = Object.freeze({
   'op.recovery_action.v1': Object.freeze({
     evidenceResourceType: 'op_visit_closure_evidence',
@@ -459,6 +461,16 @@ function parseDurableTimestamp(value) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function durableTimestampBinding(value) {
+  const instant = parseDurableTimestamp(value);
+  if (!instant) return null;
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (DURABLE_TIMESTAMP_BINDING_PATTERN.test(text)) return text;
+  }
+  return instant.toISOString();
+}
+
 function normalizeStrictPositiveId(value, label) {
   const text = typeof value === 'number'
     ? (Number.isSafeInteger(value) ? String(value) : '')
@@ -828,10 +840,11 @@ async function completeLinkedSla({
   ) || (semantics === 'domain_evidence' && completionTrigger === 'domain_evidence');
   if (!triggerAllowed) return null;
   const completionMarker = completionTrigger === 'acknowledgement' ? 'task_ack' : completionTrigger;
-  const completionInstant = completionTrigger === 'acknowledgement'
-    ? (parseDurableTimestamp(completedAt) || parseDurableTimestamp(taskRow?.metadata?.acknowledged_at))
-    : (parseDurableTimestamp(completedAt) || new Date());
-  if (!completionInstant) {
+  const completionTimestamp = completionTrigger === 'acknowledgement'
+    ? (durableTimestampBinding(completedAt)
+      || durableTimestampBinding(taskRow?.metadata?.acknowledged_at))
+    : (durableTimestampBinding(completedAt) || new Date().toISOString());
+  if (!completionTimestamp) {
     throw AppError.conflict(
       'A durable acknowledgement receipt is required to complete the linked SLA',
       'TASK_ACKNOWLEDGEMENT_RECEIPT_REQUIRED',
@@ -842,13 +855,13 @@ async function completeLinkedSla({
     const rows = await client.$queryRawUnsafe(
       `UPDATE workflow_sla_instances
               SET status = CASE
-                WHEN due_at IS NOT NULL AND to_timestamp($7::double precision / 1000.0) > due_at
+                WHEN due_at IS NOT NULL AND $7::text::timestamptz > due_at
                   THEN CASE WHEN status = 'escalated' THEN 'escalated' ELSE 'breached' END
                 ELSE 'completed'
               END,
-              completed_at = to_timestamp($7::double precision / 1000.0),
+              completed_at = $7::text::timestamptz,
               breached_at = CASE
-                WHEN due_at IS NOT NULL AND to_timestamp($7::double precision / 1000.0) > due_at THEN due_at
+                WHEN due_at IS NOT NULL AND $7::text::timestamptz > due_at THEN due_at
                 ELSE NULL
               END,
               metadata = COALESCE(metadata, '{}'::jsonb)
@@ -877,7 +890,7 @@ async function completeLinkedSla({
       completionMarker,
       completedBy ? String(completedBy) : null,
       evidence ? JSON.stringify(evidence) : null,
-      completionInstant.getTime(),
+      completionTimestamp,
       ackContractVersion,
     );
     return rows[0] || null;
@@ -3728,8 +3741,10 @@ const DOMAIN_EVIDENCE_VALIDATORS = Object.freeze({
       `SELECT usage.id,
               usage.quantity::numeric(14,4)::text AS documented_quantity,
               evidence.id AS evidence_id,
-              (EXTRACT(EPOCH FROM evidence.created_at) * 1000)::double precision
-                AS evidence_created_at_epoch_ms
+              to_char(
+                evidence.created_at AT TIME ZONE 'UTC',
+                'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+              ) AS evidence_created_at
          FROM cath_case_consumable_usage usage
          JOIN cath_lab_cases cath_case
            ON cath_case.tenant_id = usage.tenant_id
@@ -3814,7 +3829,7 @@ const DOMAIN_EVIDENCE_VALIDATORS = Object.freeze({
       actorUid,
     );
     if (!rows[0]) return null;
-    const recordedAt = new Date(rows[0].evidence_created_at_epoch_ms).toISOString();
+    const recordedAt = rows[0].evidence_created_at;
     return {
       kind: 'cath_consumable_inventory_reconciled',
       resource_type: 'pharmacy_stock_movement',

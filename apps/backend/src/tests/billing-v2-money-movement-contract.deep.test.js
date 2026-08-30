@@ -79,7 +79,9 @@ describe('V2 billing money-movement contract', () => {
     assertResponse('POST', '/api/v1/billing/v2/payments', pay.body);
     const paymentId = pay.body.data.id;
 
-    const rev = await admin.post(`/api/v1/billing/v2/payments/${paymentId}/reverse`).send({ reason: 'test reversal' });
+    const rev = await admin.post(`/api/v1/billing/v2/payments/${paymentId}/reverse`)
+      .set('Idempotency-Key', idem('reverse'))
+      .send({ reason: 'test reversal' });
     expect(rev.statusCode).toBe(200);
     assertResponse('POST', '/api/v1/billing/v2/payments/{id}/reverse', rev.body);
   });

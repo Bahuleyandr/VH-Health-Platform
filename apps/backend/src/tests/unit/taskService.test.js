@@ -1048,8 +1048,8 @@ describe('acknowledgeTask', () => {
 
     const acknowledgedAt = new Date(queryUnsafeMock.mock.calls[1][12]).toISOString();
     const slaCall = queryUnsafeMock.mock.calls[3];
-    expect(slaCall[0]).toMatch(/to_timestamp\(\$7::double precision \/ 1000\.0\) > due_at/);
-    expect(slaCall[0]).toMatch(/completed_at = to_timestamp\(\$7::double precision \/ 1000\.0\)/);
+    expect(slaCall[0]).toMatch(/\$7::text::timestamptz > due_at/);
+    expect(slaCall[0]).toMatch(/completed_at = \$7::text::timestamptz/);
     expect(slaCall[0]).toMatch(/breached_at = CASE[\s\S]+THEN due_at[\s\S]+ELSE NULL/);
     expect(slaCall[0]).not.toMatch(/NOW\(\) > due_at/);
     expect(new Date(slaCall[7]).toISOString()).toBe(acknowledgedAt);
@@ -1153,8 +1153,8 @@ describe('acknowledgeTask', () => {
     ]);
     const slaCall = queryUnsafeMock.mock.calls[3];
     expect(slaCall[0]).toMatch(/completed_at IS NULL/);
-    expect(slaCall[0]).toMatch(/to_timestamp\(\$7::double precision \/ 1000\.0\) > due_at/);
-    expect(slaCall[0]).toMatch(/completed_at = to_timestamp\(\$7::double precision \/ 1000\.0\)/);
+    expect(slaCall[0]).toMatch(/\$7::text::timestamptz > due_at/);
+    expect(slaCall[0]).toMatch(/completed_at = \$7::text::timestamptz/);
     expect(slaCall[0]).toMatch(/THEN due_at[\s\S]+ELSE NULL/);
     expect(new Date(slaCall[7]).toISOString()).toBe(receipt);
     expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE tasks/i.test(sql))).toBe(false);
@@ -2396,7 +2396,7 @@ describe('completeTaskFromDomainEvidence', () => {
     const slaSql = txQuery.mock.calls[6][0];
     expect(slaSql).toMatch(/completed_at IS NULL/);
     expect(slaSql).toMatch(/completion_evidence/);
-    expect(slaSql).toMatch(/to_timestamp\(\$7::double precision \/ 1000\.0\) > due_at/);
+    expect(slaSql).toMatch(/\$7::text::timestamptz > due_at/);
     expect(new Date(txQuery.mock.calls[6][7]).toISOString()).toBe('2026-07-19T06:00:00.001Z');
     expect(JSON.parse(txQuery.mock.calls[6][6])).toMatchObject({
       occurred_at: '2026-07-19T03:00:00.000Z',

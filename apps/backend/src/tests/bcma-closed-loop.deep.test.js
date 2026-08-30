@@ -54,6 +54,7 @@ import {
   receiveWardIndent,
   reserveWardIndent,
 } from '../services/ipd/ipdSupportService.js';
+import { bindMedicationOrderCatalogAuthority } from '../services/ipd/wardIndentWorkflowService.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -65,6 +66,7 @@ const DOCTOR_UID = 'b1b1b1b1-1111-4111-8111-b1b1b1b1fd02';
 const PHARMACIST_UID = 'b1b1b1b1-1111-4111-8111-b1b1b1b1fd03';
 const RUN = `${process.pid}-${Date.now()}`;
 const BATCH_BARCODE = `B1-BATCH-${RUN}`;
+const COMPOSITION_KEY = `b1test_mar_${RUN}`;
 // Non-default facility (`is_default=FALSE`) so it never collides with
 // uq_facility_default, a partial UNIQUE on (tenant_id) WHERE is_default.
 const FACILITY_CODE = `B1TEST-FACILITY-${RUN}`;
@@ -467,6 +469,10 @@ async function cleanup() {
       DEFAULT_TENANT_ID,
     ).catch(() => {});
     await tx.$executeRawUnsafe(
+      `DELETE FROM drug_compositions WHERE composition_key = $1::text`,
+      COMPOSITION_KEY,
+    ).catch(() => {});
+    await tx.$executeRawUnsafe(
       `DELETE FROM admissions
         WHERE tenant_id = $1::uuid AND ward LIKE 'B1TEST MAR Ward%'`,
       DEFAULT_TENANT_ID,
@@ -668,15 +674,34 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
       PHARMACIST_UID,
     ));
 
+    const composition = (await prisma.$queryRawUnsafe(
+      `INSERT INTO drug_compositions
+         (composition_key, display_label, active_ingredients, source)
+       VALUES ($1::text, 'B1TEST paracetamol composition',
+               ARRAY['paracetamol']::text[], 'parsed')
+       RETURNING id`,
+      COMPOSITION_KEY,
+    ))[0];
     const catalog = (await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_catalog
-         (tenant_id, name, strength, strength_key, form, form_key, route,
+         (tenant_id, name, generic_name, composition_id,
+          composition_confidence, composition_source,
+          strength, strength_key, strength_components,
+          form, form_key, release_key, route,
           is_active, is_available, in_stock, stock_quantity, updated_at)
-       VALUES ($1::uuid, $2::text, '500 mg', '500mg', 'tablet', 'tablet',
-               'oral', TRUE, TRUE, TRUE, 50, NOW())
-       RETURNING id`,
+       VALUES ($1::uuid, $2::text, 'paracetamol', $3::int,
+               'high', 'test_fixture',
+               '500 mg', '500mg', $4::jsonb,
+               'tablet', 'tablet', 'immediate', 'oral',
+               TRUE, TRUE, TRUE, 50, NOW())
+       RETURNING id, name, generic_name, composition_id,
+                 composition_confidence, composition_source,
+                 strength, strength_key, strength_components,
+                 form, form_key, release_key, route`,
       DEFAULT_TENANT_ID,
       `B1TEST MAR Catalog ${RUN}`,
+      Number(composition.id),
+      JSON.stringify([{ ingredient: 'paracetamol', value: 500, unit: 'mg' }]),
     ))[0];
     catalogId = Number(catalog.id);
     // facility_id is not decoration: reserveWardIndentInventoryTx resolves the
@@ -760,31 +785,31 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
       NURSE_UID,
       DOCTOR_UID,
     ))[0];
+    const clinicalOrderDetails = bindMedicationOrderCatalogAuthority({
+      catalog_id: Number(catalog.id),
+      dose: '500mg',
+      route: 'oral',
+      strength: '500 mg',
+      strength_key: '500mg',
+      form: 'tablet',
+      form_key: 'tablet',
+      quantity_requested: 20,
+      unit: 'tablet',
+    }, catalog, { phase: 'create' });
     const order = (await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_orders
          (tenant_id, order_number, patient_uid, encounter_id, order_type, status,
-          ordered_by, route, details, updated_at)
+           ordered_by, route, details, updated_at)
        VALUES ($1::uuid, $2::text, $3::uuid, $4::uuid,
-               'medication', 'ordered', $5::uuid,
-               'oral', jsonb_build_object(
-                 'catalog_id', $6::int,
-                 'medication_name', 'B1TEST Paracetamol 500mg',
-                 'dose', '500mg',
-                 'route', 'oral',
-                 'strength', '500 mg',
-                 'strength_key', '500mg',
-                 'form', 'tablet',
-                 'form_key', 'tablet',
-                 'quantity_requested', 20,
-                 'unit', 'tablet'
-               ), NOW())
+                'medication', 'ordered', $5::uuid,
+                'oral', $6::jsonb, NOW())
        RETURNING id`,
       DEFAULT_TENANT_ID,
       `B1-MAR-ORDER-${RUN}`,
       patientUid,
       encounterId,
       DOCTOR_UID,
-      Number(catalog.id),
+      JSON.stringify(clinicalOrderDetails),
     ))[0];
     clinicalOrderId = Number(order.id);
     await verifyOrder(clinicalOrderId, PHARMACIST_UID, {
