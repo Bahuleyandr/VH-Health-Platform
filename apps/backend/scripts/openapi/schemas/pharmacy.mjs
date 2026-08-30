@@ -1888,17 +1888,51 @@ export const schemas = {
         type: 'array',
         minItems: 1,
         items: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['item_id'],
-          properties: {
-            item_id: positiveInt32,
-            witness_approval_id: {
-              type: 'string',
-              pattern: '^[1-9][0-9]*$',
-              nullable: true,
+          oneOf: [
+            {
+              type: 'object',
+              additionalProperties: false,
+              required: ['item_id'],
+              properties: { item_id: positiveInt32 },
             },
-          },
+            {
+              type: 'object',
+              additionalProperties: false,
+              required: ['item_id', 'witness_approval_id'],
+              properties: {
+                item_id: positiveInt32,
+                witness_approval_id: {
+                  type: 'string',
+                  pattern: '^[1-9][0-9]*$',
+                },
+              },
+            },
+            {
+              type: 'object',
+              additionalProperties: false,
+              required: ['item_id', 'historical_recovery'],
+              properties: {
+                item_id: positiveInt32,
+                historical_recovery: {
+                  type: 'object',
+                  additionalProperties: false,
+                  required: ['movement_id', 'register_id', 'reason'],
+                  properties: {
+                    movement_id: positiveInt32,
+                    register_id: positiveInt32,
+                    reason: {
+                      type: 'string',
+                      minLength: 1,
+                      maxLength: 2000,
+                      pattern: '\\S',
+                      description:
+                        'Trimmed nonblank pharmacy-in-charge reason recorded in the immutable recovery receipt.',
+                    },
+                  },
+                },
+              },
+            },
+          ],
         },
       },
     },
@@ -2110,7 +2144,7 @@ const OPS = [
   }],
   ['POST /ward-indents/{id}/controlled-handoff', {
     description:
-      'Atomically consumes exact witness approvals when required, validates the active clinical-order prescriber and signed catalog identity, decrements the locked allocation batch, writes the statutory register, links custody evidence, and advances the indent.',
+      'Fresh handoffs atomically consume exact witness approvals when required, validate the active clinical-order prescriber and signed catalog identity, decrement the locked allocation batch, write the statutory register, link custody evidence, and advance the indent. An explicit pharmacy-in-charge historical recovery instead links one fully classified existing immutable movement/register evidence pair to the exact allocation without a second inventory decrement and writes an immutable recovery receipt.',
     pathParameters: { id: pharmacyOrderIdPathSchema },
     parameters: [substitutionIdempotencyKeyParameter],
     request: 'PharmacyWardControlledHandoffRequest',

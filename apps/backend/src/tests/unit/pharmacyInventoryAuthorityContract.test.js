@@ -600,6 +600,67 @@ describe('pharmacy dispense inventory authority contract', () => {
     }
   });
 
+  test('handwritten OpenAPI makes ward historical recovery explicit and exclusive', () => {
+    const request = pharmacyOpenApiSchemas.PharmacyWardControlledHandoffRequest;
+    const evidenceItems = request.properties.item_evidence.items;
+    expect(Object.keys(evidenceItems)).toEqual(['oneOf']);
+    expect(evidenceItems.oneOf).toHaveLength(3);
+
+    const [itemOnly, witnessed, historical] = evidenceItems.oneOf;
+    expect(itemOnly).toMatchObject({
+      type: 'object',
+      additionalProperties: false,
+      required: ['item_id'],
+    });
+    expect(Object.keys(itemOnly.properties)).toEqual(['item_id']);
+    expect(witnessed).toMatchObject({
+      type: 'object',
+      additionalProperties: false,
+      required: ['item_id', 'witness_approval_id'],
+    });
+    expect(Object.keys(witnessed.properties)).toEqual(['item_id', 'witness_approval_id']);
+    expect(historical).toMatchObject({
+      type: 'object',
+      additionalProperties: false,
+      required: ['item_id', 'historical_recovery'],
+    });
+    expect(Object.keys(historical.properties)).toEqual(['item_id', 'historical_recovery']);
+    for (const variant of evidenceItems.oneOf) {
+      expect(variant.properties).not.toHaveProperty('movement_id');
+      expect(variant.properties).not.toHaveProperty('register_id');
+    }
+
+    const recovery = historical.properties.historical_recovery;
+    expect(recovery).toMatchObject({
+      type: 'object',
+      additionalProperties: false,
+      required: ['movement_id', 'register_id', 'reason'],
+    });
+    expect(Object.keys(recovery.properties)).toEqual(['movement_id', 'register_id', 'reason']);
+    const positiveInt32Contract = {
+      type: 'integer',
+      minimum: 1,
+      maximum: 2147483647,
+    };
+    expect(recovery.properties.movement_id).toEqual(positiveInt32Contract);
+    expect(recovery.properties.register_id).toEqual(positiveInt32Contract);
+    expect(recovery.properties.reason).toMatchObject({
+      type: 'string',
+      minLength: 1,
+      maxLength: 2000,
+      pattern: '\\S',
+    });
+
+    for (const prefix of ['/api/v1/pharmacy-orders', '/api/v1/pharmacy']) {
+      const operation = pharmacyOpenApiOperations[
+        `POST ${prefix}/ward-indents/{id}/controlled-handoff`
+      ];
+      expect(operation.description).toMatch(
+        /existing immutable movement\/register evidence pair[\s\S]*without a second inventory decrement/,
+      );
+    }
+  });
+
   test('verification gate preserves the typed clinical code', () => {
     const gate = between(controller, 'async function verificationGateBlocked', 'async function emitPharmacyOrderEventInTx');
     expect(gate).toMatch(/relayAppError\(res, gateErr, 'Pharmacy verification gate failed'\)/);
