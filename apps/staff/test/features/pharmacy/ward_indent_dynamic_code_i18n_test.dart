@@ -21,6 +21,7 @@ void main() {
     'ward_indent.controlled.recovery_status.available',
     'ward_indent.controlled.recovery_status.missing',
     'ward_indent.controlled.recovery_status.ambiguous',
+    'ward_indent.controlled.recovery_status.corrupt',
   ];
 
   test('dynamic ward-indent codes use localized display labels', () {
@@ -30,6 +31,7 @@ void main() {
       (WardIndentCodeKind.slaStatus, 'breached'),
       (WardIndentCodeKind.slaRule, 'ward_indent_substitution_authorization'),
       (WardIndentCodeKind.recovery, 'ambiguous'),
+      (WardIndentCodeKind.recovery, 'corrupt'),
       (WardIndentCodeKind.event, 'controlled_handoff_recorded'),
       (WardIndentCodeKind.substitution, 'pending'),
       (WardIndentCodeKind.fulfilment, 'partially_received'),
@@ -40,6 +42,14 @@ void main() {
       expect(localized, isNot(sample.$2), reason: '${sample.$1} ${sample.$2}');
       expect(localized, isNot(contains('_')));
     }
+    expect(
+      localizedWardIndentCode(
+        strings,
+        WardIndentCodeKind.recovery,
+        'corrupt',
+      ),
+      'Custody evidence conflict',
+    );
     expect(
       localizedWardIndentCode(
         strings,

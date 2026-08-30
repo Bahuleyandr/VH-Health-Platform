@@ -507,15 +507,20 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
               }),
             );
           }
+          final facilityId = indent.facilityId;
+          if (facilityId == null || facilityId <= 0) {
+            throw StateError(
+              strings.lookup('pharmacy.disposal.facility_required'),
+            );
+          }
           candidates =
               (await widget.gateway.listInventoryItems(
+                    facilityId: facilityId,
                     catalogId: proposedCatalogId,
                   ))
                   .where((candidate) {
                     return candidate.catalogId == proposedCatalogId &&
-                        (candidate.facilityId == null ||
-                            indent.facilityId == null ||
-                            candidate.facilityId == indent.facilityId);
+                        candidate.facilityId == facilityId;
                   })
                   .toList(growable: false);
         } else {
@@ -846,9 +851,52 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
     });
     try {
       var current = initial;
-      _throwOnAmbiguousRecovery(current);
+      _throwOnBlockedControlledRecovery(current);
+      final roleCode = WardIndentRoleContract.canonicalRoleCode(
+        widget.rawRole,
+        widget.role,
+      );
       final evidence = <Map<String, dynamic>>[];
       for (final line in current.items.where((item) => item.isControlled)) {
+        final recoveries = current.controlledRecovery
+            .where((recovery) => recovery.itemId == line.id)
+            .toList(growable: false);
+        if (recoveries.length > 1) {
+          throw StateError(
+            strings.lookup('ward_indent.controlled.ambiguous_recovery'),
+          );
+        }
+        if (recoveries.isEmpty) {
+          throw StateError(
+            strings.lookup('ward_indent.controlled.ambiguous_recovery'),
+          );
+        }
+        final recovery = recoveries.single;
+        if (recovery.status != 'missing') {
+          final isExactHistorical =
+              recovery.isRecoverable &&
+              recovery.movementId! > 0 &&
+              recovery.registerId! > 0;
+          if (!isExactHistorical || roleCode != 'PHARMACY_INCHARGE') {
+            throw StateError(
+              strings.format('ward_indent.controlled.recovery_pending', {
+                'item': line.name,
+              }),
+            );
+          }
+          final reason = await _askHistoricalRecoveryReason(line, recovery);
+          if (reason == null) return;
+          evidence.add({
+            'item_id': line.id,
+            'historical_recovery': {
+              'movement_id': recovery.movementId,
+              'register_id': recovery.registerId,
+              'reason': reason,
+            },
+          });
+          continue;
+        }
+
         final allocation = exactControlledIssueAllocation(current, line);
         if (allocation == null) {
           throw StateError(
@@ -969,16 +1017,109 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
     }
   }
 
-  void _throwOnAmbiguousRecovery(WardIndent indent) {
-    final ambiguous = indent.controlledRecovery.where(
-      (recovery) => recovery.status == 'ambiguous',
+  void _throwOnBlockedControlledRecovery(WardIndent indent) {
+    final controlledItemIds = indent.items
+        .where((item) => item.isControlled)
+        .map((item) => item.id)
+        .toSet();
+    final hasUnknownItem = indent.controlledRecovery.any(
+      (recovery) => !controlledItemIds.contains(recovery.itemId),
     );
-    if (ambiguous.isNotEmpty) {
+    final hasDuplicateItem = controlledItemIds.any(
+      (itemId) =>
+          indent.controlledRecovery
+              .where((recovery) => recovery.itemId == itemId)
+              .length >
+          1,
+    );
+    final hasMissingItem = controlledItemIds.any(
+      (itemId) => !indent.controlledRecovery.any(
+        (recovery) => recovery.itemId == itemId,
+      ),
+    );
+    final hasCorruptEvidence = indent.controlledRecovery.any((recovery) {
+      final isFresh =
+          recovery.status == 'missing' &&
+          recovery.candidateCount == 0 &&
+          recovery.movementId == null &&
+          recovery.registerId == null;
+      final isExactHistorical =
+          recovery.isRecoverable &&
+          recovery.movementId! > 0 &&
+          recovery.registerId! > 0;
+      return !isFresh && !isExactHistorical;
+    });
+    if (hasUnknownItem ||
+        hasDuplicateItem ||
+        hasMissingItem ||
+        hasCorruptEvidence) {
       throw StateError(
         AppStrings.of(context)
             .lookup('ward_indent.controlled.ambiguous_recovery'),
       );
     }
+  }
+
+  Future<String?> _askHistoricalRecoveryReason(
+    WardIndentItem line,
+    ControlledHandoffRecovery recovery,
+  ) async {
+    final controller = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final strings = AppStrings.of(context);
+          final reason = controller.text.trim();
+          return AlertDialog(
+            title: Text(
+              strings.lookup('ward_indent.controlled.recovery_title'),
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(line.name),
+                const SizedBox(height: 8),
+                Text(
+                  '${strings.lookup('ward_indent.reconcile.movement_id')}: '
+                  '${recovery.movementId}',
+                ),
+                Text(
+                  '${strings.lookup('ward_indent.reconcile.register_id')}: '
+                  '${recovery.registerId}',
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  key: Key('ward-indent-historical-recovery-reason-${line.id}'),
+                  controller: controller,
+                  autofocus: true,
+                  onChanged: (_) => setDialogState(() {}),
+                  decoration: InputDecoration(
+                    labelText: strings.lookup('ward_indent.reason.label'),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: Text(strings.actionCancel),
+              ),
+              FilledButton(
+                key: Key('ward-indent-historical-recovery-confirm-${line.id}'),
+                onPressed: reason.isEmpty
+                    ? null
+                    : () => Navigator.pop(dialogContext, reason),
+                child: Text(strings.actionConfirm),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    controller.dispose();
+    return result;
   }
 
   Future<_WitnessCredentials?> _askWitnessCredentials(String itemName) async {
@@ -1893,6 +2034,7 @@ const _wardIndentRecoveryStatuses = <String>{
   'available',
   'missing',
   'ambiguous',
+  'corrupt',
 };
 
 @visibleForTesting

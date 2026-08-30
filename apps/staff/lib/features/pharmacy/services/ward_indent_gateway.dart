@@ -126,9 +126,15 @@ abstract interface class WardIndentGateway {
     required String idempotencyKey,
   });
 
-  Future<List<WardIndentInventoryItem>> listInventoryItems({int? catalogId});
+  Future<List<WardIndentInventoryItem>> listInventoryItems({
+    required int facilityId,
+    int? catalogId,
+  });
 
-  Future<List<WardIndentInventoryBatch>> listInventoryBatches(int itemId);
+  Future<List<WardIndentInventoryBatch>> listInventoryBatches(
+    int itemId, {
+    required int facilityId,
+  });
 
   Future<List<WardIndentInventoryItem>> listInventoryCandidates(
     int indentId,
@@ -282,20 +288,26 @@ class ApiWardIndentGateway
 
   @override
   Future<List<WardIndentInventoryItem>> listInventoryItems({
+    required int facilityId,
     int? catalogId,
   }) async {
     final rows = await PharmacyApiService.getInventoryItems(
       status: 'active',
       catalogId: catalogId,
+      facilityId: facilityId,
     );
     return rows.map(WardIndentInventoryItem.fromJson).toList(growable: false);
   }
 
   @override
   Future<List<WardIndentInventoryBatch>> listInventoryBatches(
-    int itemId,
-  ) async {
-    final rows = await PharmacyApiService.getInventoryBatches(itemId: itemId);
+    int itemId, {
+    required int facilityId,
+  }) async {
+    final rows = await PharmacyApiService.getInventoryBatches(
+      itemId: itemId,
+      facilityId: facilityId,
+    );
     return rows.map(WardIndentInventoryBatch.fromJson).toList(growable: false);
   }
 

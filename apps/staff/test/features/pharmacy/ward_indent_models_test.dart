@@ -141,30 +141,34 @@ void main() {
       'items': const [],
     });
 
-    WardIndent controlledIndent({required bool recoverable}) =>
-        WardIndent.fromJson({
-          'id': 73,
-          'status': 'controlled_handoff_required',
-          'state_version': 4,
-          'items': [
-            {
-              'id': 91,
-              'item_name': 'Morphine 10 mg',
-              'controlled_reference_id': 'ward-indent:73:item:91',
-            },
-          ],
-          'workflow': {
-            'pending_controlled_handoff_evidence': [
-              {
-                'item_id': 91,
-                'status': recoverable ? 'available' : 'missing',
-                'candidate_count': recoverable ? 1 : 0,
-                if (recoverable) 'movement_id': 701,
-                if (recoverable) 'register_id': 801,
-              },
-            ],
+    WardIndent controlledIndent({
+      required bool recoverable,
+      String? recoveryStatus,
+    }) => WardIndent.fromJson({
+      'id': 73,
+      'status': 'controlled_handoff_required',
+      'state_version': 4,
+      'items': [
+        {
+          'id': 91,
+          'item_name': 'Morphine 10 mg',
+          'controlled_reference_id': 'ward-indent:73:item:91',
+        },
+      ],
+      'workflow': {
+        'pending_controlled_handoff_evidence': [
+          {
+            'item_id': 91,
+            'status': recoveryStatus ?? (recoverable ? 'available' : 'missing'),
+            'candidate_count': recoverable
+                ? 1
+                : (recoveryStatus == null ? 0 : 2),
+            if (recoverable) 'movement_id': 701,
+            if (recoverable) 'register_id': 801,
           },
-        });
+        ],
+      },
+    });
 
     test(
       'pharmacy supply roles own reserve through issue, not ward receipt',
@@ -272,32 +276,63 @@ void main() {
     );
 
     test(
-      'stores can record exact controlled recovery but cannot start dispensing',
+      'controlled handoff is restricted to canonical pharmacy operators',
       () {
+        for (final denied in [
+          ('SUPER_ADMIN', StaffRole.superAdmin),
+          ('ADMIN', StaffRole.admin),
+          ('PHARMACIST', StaffRole.pharmacy),
+          ('STORES_PURCHASE_INCHARGE', StaffRole.storesPurchaseIncharge),
+        ]) {
+          for (final recoverable in [false, true]) {
+            expect(
+              WardIndentRolePolicy.actionsFor(
+                controlledIndent(recoverable: recoverable),
+                rawRole: denied.$1,
+                role: denied.$2,
+              ),
+              isNot(contains(WardIndentAction.controlledHandoff)),
+            );
+          }
+        }
+
         expect(
           WardIndentRolePolicy.actionsFor(
             controlledIndent(recoverable: false),
-            rawRole: 'STORES_PURCHASE_INCHARGE',
-            role: StaffRole.storesPurchaseIncharge,
+            rawRole: 'PHARMACY_STAFF',
+            role: StaffRole.pharmacy,
+          ),
+          contains(WardIndentAction.controlledHandoff),
+        );
+        expect(
+          WardIndentRolePolicy.actionsFor(
+            controlledIndent(recoverable: true),
+            rawRole: 'PHARMACY_STAFF',
+            role: StaffRole.pharmacy,
           ),
           isNot(contains(WardIndentAction.controlledHandoff)),
         );
         expect(
           WardIndentRolePolicy.actionsFor(
             controlledIndent(recoverable: true),
-            rawRole: 'STORES_PURCHASE_INCHARGE',
-            role: StaffRole.storesPurchaseIncharge,
+            rawRole: 'PHARMACY_INCHARGE',
+            role: StaffRole.pharmacyIncharge,
           ),
           contains(WardIndentAction.controlledHandoff),
         );
-        expect(
-          WardIndentRolePolicy.actionsFor(
-            controlledIndent(recoverable: false),
-            rawRole: 'PHARMACIST',
-            role: StaffRole.pharmacy,
-          ),
-          contains(WardIndentAction.controlledHandoff),
-        );
+        for (final recoveryStatus in ['ambiguous', 'corrupt']) {
+          expect(
+            WardIndentRolePolicy.actionsFor(
+              controlledIndent(
+                recoverable: false,
+                recoveryStatus: recoveryStatus,
+              ),
+              rawRole: 'PHARMACY_INCHARGE',
+              role: StaffRole.pharmacyIncharge,
+            ),
+            isNot(contains(WardIndentAction.controlledHandoff)),
+          );
+        }
       },
     );
 

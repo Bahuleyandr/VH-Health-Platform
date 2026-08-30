@@ -61,11 +61,8 @@ abstract final class WardIndentRoleContract {
   };
 
   static const controlledDispenseRoleCodes = {
-    'SUPER_ADMIN',
-    'ADMIN',
     'PHARMACY_STAFF',
     'PHARMACY_INCHARGE',
-    'PHARMACIST',
   };
 
   static const substitutionDecisionRoleCodes = {
