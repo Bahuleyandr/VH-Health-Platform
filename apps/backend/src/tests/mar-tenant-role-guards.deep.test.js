@@ -20,6 +20,7 @@ describeIfDb('MAR due-list tenant and clinical-role closure', () => {
   const nursingInchargeA = randomUUID();
   const ipInchargeA = randomUUID();
   const doctorA = randomUUID();
+  const doctorB = randomUUID();
   const patientA = randomUUID();
   const patientB = randomUUID();
   const run = `${process.pid}-${Date.now()}`;
@@ -66,7 +67,8 @@ describeIfDb('MAR due-list tenant and clinical-role closure', () => {
          ($1::uuid, $6::uuid, 'MAR IP Incharge A', 'IP_INCHARGE', TRUE, 'active', NOW()),
          ($1::uuid, $7::uuid, 'MAR Doctor A', 'DOCTOR', TRUE, 'active', NOW()),
          ($8::uuid, $9::uuid, 'MAR Nurse B', 'NURSING_STAFF', TRUE, 'active', NOW()),
-         ($8::uuid, $10::uuid, 'MAR Patient B', 'PATIENT', TRUE, 'active', NOW())
+         ($8::uuid, $10::uuid, 'MAR Patient B', 'PATIENT', TRUE, 'active', NOW()),
+         ($8::uuid, $11::uuid, 'MAR Doctor B', 'DOCTOR', TRUE, 'active', NOW())
        RETURNING id, uid::text`,
       tenantA,
       nurseA,
@@ -78,6 +80,7 @@ describeIfDb('MAR due-list tenant and clinical-role closure', () => {
       tenantB,
       nurseB,
       patientB,
+      doctorB,
     );
     nurseAId = Number(users.find((row) => row.uid === nurseA).id);
     pharmacyInchargeAId = Number(users.find((row) => row.uid === pharmacyInchargeA).id);
@@ -98,15 +101,30 @@ describeIfDb('MAR due-list tenant and clinical-role closure', () => {
     const clinicalOrderAId = Number((await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_orders
          (tenant_id, order_number, patient_uid, order_type, status,
-          ordered_by, details, route, updated_at)
-       VALUES ($1::uuid, $2::text, $3::uuid, 'medication', 'ordered',
-               $4::uuid, $5::jsonb, 'oral', NOW())
+          ordered_by, verified_by, verified_at, details, route, updated_at)
+       VALUES ($1::uuid, $2::text, $3::uuid, 'medication', 'verified',
+               $4::uuid, $5::uuid, NOW(), $6::jsonb, 'oral', NOW())
        RETURNING id`,
       tenantA,
       `MAR-ROLE-${run}`.slice(0, 80),
       patientA,
       doctorA,
+      nurseA,
       JSON.stringify({ medication_name: `MAR-TENANT-A-DUE-${run}`, dose: '1 tablet', route: 'oral' }),
+    ))[0].id);
+    const clinicalOrderBId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO clinical_orders
+         (tenant_id, order_number, patient_uid, order_type, status,
+          ordered_by, verified_by, verified_at, details, route, updated_at)
+       VALUES ($1::uuid, $2::text, $3::uuid, 'medication', 'verified',
+               $4::uuid, $5::uuid, NOW(), $6::jsonb, 'oral', NOW())
+       RETURNING id`,
+      tenantB,
+      `MAR-ROLE-B-${run}`.slice(0, 80),
+      patientB,
+      doctorB,
+      nurseB,
+      JSON.stringify({ medication_name: `MAR-TENANT-B-DUE-${run}`, dose: '1 tablet', route: 'oral' }),
     ))[0].id);
     const administrations = await prisma.$queryRawUnsafe(
       `INSERT INTO medication_administrations
@@ -118,9 +136,9 @@ describeIfDb('MAR due-list tenant and clinical-role closure', () => {
          ($1::uuid, $2::uuid, $4::text, '1 tablet', 'oral',
           NOW() + INTERVAL '30 minutes', 'scheduled', $5::integer),
          ($6::uuid, $7::uuid, $8::text, '1 tablet', 'oral',
-          NOW() - INTERVAL '30 minutes', 'scheduled', NULL),
+          NOW() - INTERVAL '30 minutes', 'scheduled', $10::integer),
          ($6::uuid, $7::uuid, $9::text, '1 tablet', 'oral',
-          NOW() + INTERVAL '30 minutes', 'scheduled', NULL)
+          NOW() + INTERVAL '30 minutes', 'scheduled', $10::integer)
        RETURNING id, tenant_id::text, medication_name`,
       tenantA,
       patientA,
@@ -131,6 +149,7 @@ describeIfDb('MAR due-list tenant and clinical-role closure', () => {
       patientB,
       `MAR-TENANT-B-OVERDUE-${run}`,
       `MAR-TENANT-B-DUE-${run}`,
+      clinicalOrderBId,
     );
     medicationAdministrationAId = Number(administrations.find(
       (row) => row.medication_name === `MAR-TENANT-A-OVERDUE-${run}`,

@@ -415,6 +415,22 @@ describe('pharmacy dispense inventory authority contract', () => {
   });
 
   test('ward controlled issue and return use typed exact-allocation composers', () => {
+    const movementRecorder = between(
+      inventoryV2,
+      'export async function recordMovementTx',
+      'export async function requestControlledDispenseWitnessApproval',
+    );
+    const controlledIssue = between(
+      inventoryV2,
+      'export async function dispenseWardControlledAllocationTx',
+      'export async function returnWardControlledAllocationTx',
+    );
+    const controlledReturn = between(
+      inventoryV2,
+      'export async function returnWardControlledAllocationTx',
+      'export async function dispenseControlled',
+    );
+
     expect(wardRoutes).toMatch(/controlled-handoff\/witness-approvals/);
     expect(wardRoutes).toMatch(/controlled-handoff\/witness-approvals\/:approvalId\/approve/);
     expect(wardWorkflow).toMatch(/dispenseWardControlledAllocationTx\(tx/);
@@ -422,8 +438,17 @@ describe('pharmacy dispense inventory authority contract', () => {
     expect(wardWorkflow).not.toMatch(/validateControlledEvidence/);
     expect(wardClosure).toMatch(/returnWardControlledAllocationTx\(tx/);
     expect(wardClosure).toMatch(/sourceRegisterId/);
-    expect(inventoryV2).toMatch(/reference_type: 'ward_indent_controlled_allocation'/);
-    expect(inventoryV2).toMatch(/reference_type: 'ward_indent_return_allocation'/);
+    expect(controlledIssue).toMatch(
+      /reference_type: 'controlled_dispense',\s*reference_id: String\(referenceId\)/,
+    );
+    expect(controlledIssue).toMatch(/allocation_id: String\(allocationId\)/);
+    expect(controlledReturn).toMatch(
+      /reference_type: 'ward_indent_return',\s*reference_id: `ward-indent-return:\$\{indentId\}:item:\$\{wardItemId\}`/,
+    );
+    expect(controlledReturn).toMatch(/allocation_id: String\(allocationId\)/);
+    expect(movementRecorder).toMatch(
+      /facility_authority !== WARD_INVENTORY_RETURN_AUTHORITY[\s\S]*else if \(\s*movement_kind !== 'return'\s*\|\| !\['ward_indent_return_allocation', 'ward_indent_return'\]\.includes\(reference_type\)\s*\)/,
+    );
     expect(inventoryV2).toMatch(/clinical_order\.status IN \('ordered', 'verified', 'in_progress'\)/);
     expect(inventoryV2).toMatch(/signedCatalogId !== Number\(catalogId\)/);
   });

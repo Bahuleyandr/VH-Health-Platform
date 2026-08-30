@@ -437,8 +437,10 @@ export async function recordMovementTx(tx, {
       actorUid: performed_by,
       forUpdate: true,
     });
-  } else if (movement_kind !== 'return'
-    || reference_type !== 'ward_indent_return_allocation') {
+  } else if (
+    movement_kind !== 'return'
+    || !['ward_indent_return_allocation', 'ward_indent_return'].includes(reference_type)
+  ) {
     throw AppError.forbidden(
       'Ward return authority is valid only for the governed ward allocation return workflow',
       'INVENTORY_FACILITY_AUTHORITY_INVALID',
@@ -1400,8 +1402,8 @@ export async function dispenseWardControlledAllocationTx(tx, {
     inventory_batch_id: Number(inventoryBatchId),
     movement_kind: 'issue',
     quantity: Number(quantity),
-    reference_type: 'ward_indent_controlled_allocation',
-    reference_id: String(allocationId),
+    reference_type: 'controlled_dispense',
+    reference_id: String(referenceId),
     notes: `Controlled ward indent ${indentId} item ${wardItemId}`,
     performed_by: performer.uid,
     expected_facility_id: Number(facilityId),
@@ -1410,6 +1412,7 @@ export async function dispenseWardControlledAllocationTx(tx, {
     metadata: {
       ward_indent_id: Number(indentId),
       ward_indent_item_id: Number(wardItemId),
+      allocation_id: String(allocationId),
       clinical_order_id: exactClinicalOrderId,
       command_key: commandKey || null,
     },
@@ -1533,8 +1536,8 @@ export async function returnWardControlledAllocationTx(tx, {
     inventory_batch_id: Number(inventoryBatchId),
     movement_kind: 'return',
     quantity: Number(quantity),
-    reference_type: 'ward_indent_return_allocation',
-    reference_id: String(allocationId),
+    reference_type: 'ward_indent_return',
+    reference_id: `ward-indent-return:${indentId}:item:${wardItemId}`,
     notes: `Controlled ward return indent ${indentId} item ${wardItemId}`,
     performed_by: String(authority.actor_uid),
     expected_facility_id: Number(facilityId),
@@ -1542,6 +1545,7 @@ export async function returnWardControlledAllocationTx(tx, {
     metadata: {
       ward_indent_id: Number(indentId),
       ward_indent_item_id: Number(wardItemId),
+      allocation_id: String(allocationId),
       source_register_id: Number(sourceRegisterId),
       command_key: commandKey || null,
     },

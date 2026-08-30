@@ -812,28 +812,39 @@ UPDATE salary_revisions revision
 SET tenant_id = NULL,
     tenant_reconciliation_required = TRUE,
     tenant_reconciliation_reason = classification.quarantine_reason,
-    tenant_reconciliation_evidence = revision.tenant_reconciliation_evidence
-      || jsonb_strip_nulls(jsonb_build_object(
-           'migration', '754_salary_revision_tenant_reconciliation',
-           'action', 'quarantined',
-           'observed_tenant_id', classification.observed_tenant_id,
-           'candidate_tenant_ids', to_jsonb(classification.candidate_tenant_ids),
-           'identity_tenants', jsonb_build_object(
-             'staff_uid', classification.staff_uid,
-             'staff_tenant_id', classification.staff_tenant_id,
-             'proposed_by', classification.proposed_by,
-             'proposed_tenant_id', classification.proposed_tenant_id,
-             'hr_signed_by', classification.hr_signed_by,
-             'hr_tenant_id', classification.hr_tenant_id,
-             'admin_signed_by', classification.admin_signed_by,
-             'admin_tenant_id', classification.admin_tenant_id,
-             'rejected_by', classification.rejected_by,
-             'rejected_tenant_id', classification.rejected_tenant_id
-           ),
-           'collision_count', classification.collision_count,
-           'dependent_arrears_collision', classification.dependent_arrears_collision,
-           'dependent_tenant_conflict', classification.dependent_tenant_conflict
-         )),
+    tenant_reconciliation_evidence = CASE
+      WHEN classification.existing_reconciliation_required
+        AND classification.existing_reconciliation_reason IS NOT DISTINCT FROM classification.quarantine_reason
+        AND classification.observed_tenant_id IS NULL
+        AND revision.tenant_reconciliation_evidence @> jsonb_build_object(
+          'migration', '754_salary_revision_tenant_reconciliation',
+          'action', 'quarantined'
+        )
+        AND revision.tenant_reconciled_at IS NULL
+        THEN revision.tenant_reconciliation_evidence
+      ELSE revision.tenant_reconciliation_evidence
+        || jsonb_strip_nulls(jsonb_build_object(
+             'migration', '754_salary_revision_tenant_reconciliation',
+             'action', 'quarantined',
+             'observed_tenant_id', classification.observed_tenant_id,
+             'candidate_tenant_ids', to_jsonb(classification.candidate_tenant_ids),
+             'identity_tenants', jsonb_build_object(
+               'staff_uid', classification.staff_uid,
+               'staff_tenant_id', classification.staff_tenant_id,
+               'proposed_by', classification.proposed_by,
+               'proposed_tenant_id', classification.proposed_tenant_id,
+               'hr_signed_by', classification.hr_signed_by,
+               'hr_tenant_id', classification.hr_tenant_id,
+               'admin_signed_by', classification.admin_signed_by,
+               'admin_tenant_id', classification.admin_tenant_id,
+               'rejected_by', classification.rejected_by,
+               'rejected_tenant_id', classification.rejected_tenant_id
+             ),
+             'collision_count', classification.collision_count,
+             'dependent_arrears_collision', classification.dependent_arrears_collision,
+             'dependent_tenant_conflict', classification.dependent_tenant_conflict
+           ))
+    END,
     tenant_reconciled_at = NULL
 FROM salary_revision_754_classification classification
 WHERE revision.id = classification.id

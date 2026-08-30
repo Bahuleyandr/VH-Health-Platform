@@ -456,9 +456,21 @@ describeIfDb('migration 754 salary-revision tenant reconciliation behavior', () 
 
     await expectPgFailure(
       () => client.query(
-        `INSERT INTO salary_revisions (revision_number, staff_uid)
-         VALUES ('NO-TENANT', $1::uuid)`,
-        [staffA],
+        `INSERT INTO salary_revisions (
+           revision_number, staff_uid, proposed_by, revision_type,
+           current_basic, proposed_basic, current_gross, proposed_gross,
+           increment_amount, increment_pct, effective_from, reason, salary_baseline,
+           tenant_reconciliation_required, tenant_reconciliation_evidence
+         ) VALUES (
+           'NO-TENANT', $1::uuid, $2::uuid, 'increment',
+           40000, 41000, 60000, 61500, 1000, 2.5, '2099-01-01',
+           'post-migration missing-tenant fixture',
+           '{"basic_salary":40000,"hra_pct":40,"da_pct":10,"special_allowance":0,
+             "transport_allowance":0,"medical_allowance":0,"tds_monthly":0,
+             "pf_employee_pct":12,"esi_applicable":true}'::jsonb,
+           false, '{}'::jsonb
+         )`,
+        [staffA, proposerA],
       ),
       '23514',
       'chk_salary_revisions_tenant_reconciliation',
