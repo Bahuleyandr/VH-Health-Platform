@@ -384,6 +384,40 @@ describe('authoritative pharmacy ward-indent router', () => {
         historical_recovery: { movement_id: 801, register_id: 901, reason: ' ' },
       },
     ])).toThrow(/reason is required/);
+    const maximumReason = 'r'.repeat(2000);
+    expect(normalizeWardControlledHandoffEvidence([
+      {
+        item_id: 71,
+        historical_recovery: {
+          movement_id: 801,
+          register_id: 901,
+          reason: maximumReason,
+        },
+      },
+    ])[0].historical_recovery.reason).toBe(maximumReason);
+    let overlongReasonError = null;
+    try {
+      normalizeWardControlledHandoffEvidence([
+        {
+          item_id: 71,
+          historical_recovery: {
+            movement_id: 801,
+            register_id: 901,
+            reason: 'r'.repeat(2001),
+          },
+        },
+      ]);
+    } catch (error) {
+      overlongReasonError = error;
+    }
+    expect(overlongReasonError).toMatchObject({
+      statusCode: 400,
+      code: 'WARD_INDENT_CONTROLLED_RECOVERY_REASON_TOO_LONG',
+      details: {
+        field: 'item_evidence[0].historical_recovery.reason',
+        max_length: 2000,
+      },
+    });
     expect(() => normalizeWardControlledHandoffEvidence([
       {
         item_id: 71,

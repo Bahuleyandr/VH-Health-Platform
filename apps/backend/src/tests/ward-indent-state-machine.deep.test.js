@@ -2979,6 +2979,44 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
     };
     await expect(recordWardIndentControlledHandoff({
       ...freshHandoffInput,
+      commandKey: `historical-unique-overlong-recovery-${RUN}`,
+      itemEvidence: [{
+        item_id: line.id,
+        historical_recovery: {
+          ...historicalRecovery,
+          reason: 'r'.repeat(2001),
+        },
+      }],
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'WARD_INDENT_CONTROLLED_RECOVERY_REASON_TOO_LONG',
+      details: {
+        field: 'historical_recovery.reason',
+        max_length: 2000,
+      },
+    });
+    const afterOverlongReason = await getWardIndent(indent.id, { tenantId: TENANT });
+    expect(afterOverlongReason).toMatchObject({
+      status: 'controlled_handoff_required',
+      state_version: approval.state_version,
+    });
+    expect(afterOverlongReason.items[0]).toMatchObject({
+      controlled_movement_id: null,
+      controlled_register_id: null,
+      quantity_issued: 0,
+    });
+    expect(afterOverlongReason.workflow.events.filter(
+      event => event.action === 'controlled_handoff_recorded'
+    )).toHaveLength(0);
+    expect(Number((await prisma.$queryRawUnsafe(
+      `SELECT remaining_quantity
+         FROM pharmacy_inventory_batches
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT,
+      controlled.batchId,
+    ))[0].remaining_quantity)).toBe(stockBefore - 1);
+    await expect(recordWardIndentControlledHandoff({
+      ...freshHandoffInput,
       recordedBy: ADMIN,
       actorRole: 'ADMIN',
       commandKey: `historical-unique-admin-recovery-${RUN}`,
@@ -2991,7 +3029,7 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
       },
     });
 
-    const handoff = await recordWardIndentControlledHandoff({
+    const historicalHandoffInput = {
       indentId: indent.id,
       recordedBy: PHARMACIST,
       itemEvidence: [{ item_id: line.id, historical_recovery: historicalRecovery }],
@@ -2999,7 +3037,8 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
       commandKey: `historical-unique-handoff-${RUN}`,
       tenantId: TENANT,
       actorRole: 'PHARMACY_INCHARGE',
-    });
+    };
+    const handoff = await recordWardIndentControlledHandoff(historicalHandoffInput);
     expect(handoff).toMatchObject({ status: 'approved', state_version: 4 });
     expect(handoff.workflow.pending_controlled_handoff_evidence).toEqual([]);
     expect(handoff.items.find(item => Number(item.id) === Number(line.id))).toMatchObject({
@@ -3008,6 +3047,18 @@ describeIfDb('MED-01 authoritative ward-indent state machine', () => {
       quantity_issued: 1,
       fulfilment_status: 'controlled_handoff_recorded',
     });
+    const replayedHandoff = await recordWardIndentControlledHandoff(historicalHandoffInput);
+    expect(replayedHandoff).toMatchObject({ status: 'approved', state_version: 4 });
+    expect(replayedHandoff.items.find(
+      item => Number(item.id) === Number(line.id)
+    )).toMatchObject({
+      controlled_movement_id: historicalEvidence.movementId,
+      controlled_register_id: historicalEvidence.registerId,
+      quantity_issued: 1,
+    });
+    expect(replayedHandoff.workflow.events.filter(
+      event => event.action === 'controlled_handoff_recorded'
+    )).toHaveLength(1);
     const handoffEvent = handoff.workflow.events.find(
       event => event.action === 'controlled_handoff_recorded'
     );

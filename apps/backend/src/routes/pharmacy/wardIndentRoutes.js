@@ -29,6 +29,7 @@ import { relayAppError } from '../../utils/responseHelper.js';
 
 const router = express.Router();
 const CANONICAL_BASE = '/api/v1/pharmacy-orders/ward-indents';
+const WARD_CONTROLLED_RECOVERY_REASON_MAX_LENGTH = 2000;
 const REQUEST_ROLES = [...new Set([...IP_FLOW_ROUTE_ROLES, ...PHARMACY_ROUTE_ROLES])];
 const READ_ROLES = [...new Set([...REQUEST_ROLES, ...PHARMACY_SUPPLY_ROUTE_ROLES])];
 const SUPPLY_ROLES = [...new Set([...PHARMACY_ROUTE_ROLES, ...PHARMACY_SUPPLY_ROUTE_ROLES])];
@@ -203,6 +204,16 @@ export function normalizeWardControlledHandoffEvidence(rawEvidence) {
         `item_evidence[${index}].historical_recovery.reason is required`,
         'WARD_INDENT_CONTROLLED_EVIDENCE_INVALID',
         { field: `item_evidence[${index}].historical_recovery.reason` },
+      );
+    }
+    if (reason.length > WARD_CONTROLLED_RECOVERY_REASON_MAX_LENGTH) {
+      throw AppError.badRequest(
+        `item_evidence[${index}].historical_recovery.reason must not exceed ${WARD_CONTROLLED_RECOVERY_REASON_MAX_LENGTH} characters`,
+        'WARD_INDENT_CONTROLLED_RECOVERY_REASON_TOO_LONG',
+        {
+          field: `item_evidence[${index}].historical_recovery.reason`,
+          max_length: WARD_CONTROLLED_RECOVERY_REASON_MAX_LENGTH,
+        },
       );
     }
     return {

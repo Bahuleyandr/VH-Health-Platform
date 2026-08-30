@@ -140,6 +140,7 @@ const ISO_INSTANT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[
 const PG_INT4_MAX = 2147483647;
 const WARD_CONTROLLED_RECOVERY_CONTRACT = 'ward_controlled_handoff_recovery_v1';
 const WARD_CONTROLLED_RECOVERY_ROLE = ROLES.PHARMACY_INCHARGE;
+const WARD_CONTROLLED_RECOVERY_REASON_MAX_LENGTH = 2000;
 const ACTIVE_WARD_ALLOCATION_STATUSES = new Set(['reserved', 'partially_issued']);
 
 function tenantOf(value) {
@@ -680,10 +681,24 @@ function historicalControlledRecoverySelection(entry) {
       { unsupported_fields: extraFields.sort() },
     );
   }
+  const reason = String(recovery.reason || '').trim();
+  if (!reason) {
+    throw AppError.badRequest('historical_recovery.reason is required');
+  }
+  if (reason.length > WARD_CONTROLLED_RECOVERY_REASON_MAX_LENGTH) {
+    throw AppError.badRequest(
+      `historical_recovery.reason must not exceed ${WARD_CONTROLLED_RECOVERY_REASON_MAX_LENGTH} characters`,
+      'WARD_INDENT_CONTROLLED_RECOVERY_REASON_TOO_LONG',
+      {
+        field: 'historical_recovery.reason',
+        max_length: WARD_CONTROLLED_RECOVERY_REASON_MAX_LENGTH,
+      },
+    );
+  }
   return {
     movement_id: positiveInt(recovery.movement_id, 'historical_recovery.movement_id'),
     register_id: positiveInt(recovery.register_id, 'historical_recovery.register_id'),
-    reason: reasonText(recovery.reason, 'historical_recovery.reason'),
+    reason,
   };
 }
 
