@@ -6442,6 +6442,8 @@ class AppStrings {
       'ward_indent.controlled.recovery_status.missing': 'Evidence missing',
       'ward_indent.controlled.recovery_status.ambiguous':
           'Multiple evidence records',
+      'ward_indent.controlled.recovery_status.corrupt':
+          'Custody evidence conflict',
       'ward_indent.status.approved': 'Approved',
       'ward_indent.status.cancelled': 'Cancelled',
       'ward_indent.status.closed': 'Closed',
@@ -9739,6 +9741,49 @@ class AppStrings {
           "Inventory & Purchase Oversight",
       's4.lib.pharmacy.inventory_item_added': "Inventory item added",
       's4.lib.pharmacy.inventory_items': "Inventory items",
+      'pharmacy.disposal.title': 'Record inventory disposal',
+      'pharmacy.disposal.open': 'Dispose exact batch',
+      'pharmacy.disposal.facility': 'Pharmacy facility',
+      'pharmacy.disposal.facility_hint':
+          'Only facilities from your active server-proved grants are listed.',
+      'pharmacy.disposal.facility_required': 'Select a facility from your active pharmacy grants before continuing.',
+      'pharmacy.disposal.role_required': 'Only active pharmacy staff or the pharmacy incharge may record a disposal.',
+      'pharmacy.disposal.item_authority_missing': 'The inventory item identity is unavailable. No disposal can be recorded.',
+      'pharmacy.disposal.authority_hint': 'The server revalidates the active facility grant, item, catalogue, supplier, storage location, batch, and stock under lock.',
+      'pharmacy.disposal.batch': 'Exact inventory batch',
+      'pharmacy.disposal.batch_option':
+          'Batch {batch} · lot {lot} · {status} · remaining {quantity}',
+      'pharmacy.disposal.batch_required': 'Select one exact eligible batch.',
+      'pharmacy.disposal.batch_constraints': 'Supplier {supplier} · status {status} · expiry {expiry} · remaining {quantity}. Only in-stock, expired, recalled, or quarantined batches can be disposed.',
+      'pharmacy.disposal.no_eligible_batches': 'No eligible batch is available in this facility. No inventory movement was recorded.',
+      'pharmacy.disposal.quantity': 'Disposal quantity',
+      'pharmacy.disposal.quantity_hint':
+          'Positive quantity, at most four decimal places.',
+      'pharmacy.disposal.quantity_invalid': 'Enter a positive quantity up to 9,999,999,999.9999 with at most four decimal places.',
+      'pharmacy.disposal.quantity_exceeds_stock': 'The disposal quantity exceeds the authoritative remaining batch quantity of {quantity}.',
+      'pharmacy.disposal.reason_code': 'Governed reason code',
+      'pharmacy.disposal.reason_hint': 'For example: damaged',
+      'pharmacy.disposal.reason_required':
+          'A governed disposal reason code is required.',
+      'pharmacy.disposal.method': 'Physical disposition method',
+      'pharmacy.disposal.method_hint': 'For example: authorized_incineration',
+      'pharmacy.disposal.method_required':
+          'The physical disposition method is required.',
+      'pharmacy.disposal.controlled_warning': 'Schedule X or narcotic disposal requires an independently authenticated, one-time witness approval. Schedule H/H1/X custody is written to the statutory register.',
+      'pharmacy.disposal.witness_title': 'Independent disposal witness',
+      'pharmacy.disposal.witness_hint': 'A second eligible staff member must authenticate. The current operator cannot witness their own disposal.',
+      'pharmacy.disposal.witness_employee_id': 'Witness employee ID',
+      'pharmacy.disposal.witness_password': 'Witness password',
+      'pharmacy.disposal.witness_approve': 'Authenticate and approve',
+      'pharmacy.disposal.witness_required': 'This controlled disposal cannot proceed without an exact, unexpired witness approval.',
+      'pharmacy.disposal.witness_approved_by': 'Witness approved by {name}',
+      'pharmacy.disposal.witness_staff': 'independent staff witness',
+      'pharmacy.disposal.witness_pending':
+          'Independent witness approval is not complete.',
+      'pharmacy.disposal.witness_replace': 'Replace witness approval',
+      'pharmacy.disposal.witness_request': 'Request and approve witness',
+      'pharmacy.disposal.submit': 'Record immutable disposal',
+      'pharmacy.disposal.completed': 'The exact batch disposal and required statutory evidence were recorded.',
       's4.lib.pharmacy.manufacturer': "Manufacturer",
       's4.lib.pharmacy.mark_urgent': "Mark urgent",
       's4.lib.pharmacy.medicine_names_dose_quantity_or_rx_note':
@@ -14142,6 +14187,8 @@ class AppStrings {
       'ward_indent.controlled.recovery_status.missing': 'साक्ष्य अनुपलब्ध',
       'ward_indent.controlled.recovery_status.ambiguous':
           'एक से अधिक साक्ष्य रिकॉर्ड',
+      'ward_indent.controlled.recovery_status.corrupt':
+          'अभिरक्षा साक्ष्य में टकराव',
       'ward_indent.status.approved': 'स्वीकृत',
       'ward_indent.status.cancelled': 'रद्द',
       'ward_indent.status.closed': 'बंद',
@@ -17085,6 +17132,51 @@ class AppStrings {
           "इन्वेंटरी एवं खरीद निरीक्षण",
       's4.lib.pharmacy.inventory_item_added': "इन्वेंटरी आइटम जोड़ा गया",
       's4.lib.pharmacy.inventory_items': "इन्वेंटरी आइटम",
+      'pharmacy.disposal.title': 'इन्वेंटरी निपटान दर्ज करें',
+      'pharmacy.disposal.open': 'सटीक बैच का निपटान करें',
+      'pharmacy.disposal.facility': 'फार्मेसी सुविधा',
+      'pharmacy.disposal.facility_hint':
+          'केवल आपके सक्रिय सर्वर-सत्यापित अनुदान वाली सुविधाएँ सूचीबद्ध हैं।',
+      'pharmacy.disposal.facility_required':
+          'आगे बढ़ने से पहले अपने सक्रिय फार्मेसी अनुदान से एक सुविधा चुनें।',
+      'pharmacy.disposal.role_required': 'केवल सक्रिय फार्मेसी कर्मचारी या फार्मेसी प्रभारी ही निपटान दर्ज कर सकते हैं।',
+      'pharmacy.disposal.item_authority_missing': 'इन्वेंटरी आइटम की पहचान उपलब्ध नहीं है। कोई निपटान दर्ज नहीं किया जा सकता।',
+      'pharmacy.disposal.authority_hint': 'सर्वर लॉक के अंतर्गत सक्रिय सुविधा अनुदान, आइटम, कैटलॉग, आपूर्तिकर्ता, भंडारण स्थान, बैच और स्टॉक को फिर सत्यापित करता है।',
+      'pharmacy.disposal.batch': 'सटीक इन्वेंटरी बैच',
+      'pharmacy.disposal.batch_option':
+          'बैच {batch} · लॉट {lot} · {status} · शेष {quantity}',
+      'pharmacy.disposal.batch_required': 'एक सटीक पात्र बैच चुनें।',
+      'pharmacy.disposal.batch_constraints': 'आपूर्तिकर्ता {supplier} · स्थिति {status} · समाप्ति {expiry} · शेष {quantity}। केवल स्टॉक में, समाप्त, वापस बुलाए या क्वारंटीन बैच का निपटान हो सकता है।',
+      'pharmacy.disposal.no_eligible_batches': 'इस सुविधा में कोई पात्र बैच उपलब्ध नहीं है। कोई इन्वेंटरी गतिविधि दर्ज नहीं हुई।',
+      'pharmacy.disposal.quantity': 'निपटान मात्रा',
+      'pharmacy.disposal.quantity_hint':
+          'धनात्मक मात्रा, अधिकतम चार दशमलव स्थान।',
+      'pharmacy.disposal.quantity_invalid': 'अधिकतम चार दशमलव स्थानों के साथ 9,999,999,999.9999 तक धनात्मक मात्रा दर्ज करें।',
+      'pharmacy.disposal.quantity_exceeds_stock':
+          'निपटान मात्रा बैच की प्रामाणिक शेष मात्रा {quantity} से अधिक है।',
+      'pharmacy.disposal.reason_code': 'नियंत्रित कारण कोड',
+      'pharmacy.disposal.reason_hint': 'उदाहरण: damaged',
+      'pharmacy.disposal.reason_required':
+          'नियंत्रित निपटान कारण कोड आवश्यक है।',
+      'pharmacy.disposal.method': 'भौतिक निपटान विधि',
+      'pharmacy.disposal.method_hint': 'उदाहरण: authorized_incineration',
+      'pharmacy.disposal.method_required': 'भौतिक निपटान विधि आवश्यक है।',
+      'pharmacy.disposal.controlled_warning': 'शेड्यूल X या नारकोटिक निपटान के लिए स्वतंत्र रूप से प्रमाणित एक-बार गवाह स्वीकृति आवश्यक है। शेड्यूल H/H1/X अभिरक्षा वैधानिक रजिस्टर में दर्ज होगी।',
+      'pharmacy.disposal.witness_title': 'स्वतंत्र निपटान गवाह',
+      'pharmacy.disposal.witness_hint': 'दूसरे पात्र कर्मचारी को प्रमाणित करना होगा। वर्तमान ऑपरेटर अपने निपटान का गवाह नहीं हो सकता।',
+      'pharmacy.disposal.witness_employee_id': 'गवाह कर्मचारी आईडी',
+      'pharmacy.disposal.witness_password': 'गवाह पासवर्ड',
+      'pharmacy.disposal.witness_approve': 'प्रमाणित कर स्वीकृत करें',
+      'pharmacy.disposal.witness_required': 'सटीक, असमाप्त गवाह स्वीकृति के बिना यह नियंत्रित निपटान आगे नहीं बढ़ सकता।',
+      'pharmacy.disposal.witness_approved_by': '{name} ने गवाह स्वीकृति दी',
+      'pharmacy.disposal.witness_staff': 'स्वतंत्र कर्मचारी गवाह',
+      'pharmacy.disposal.witness_pending':
+          'स्वतंत्र गवाह स्वीकृति पूरी नहीं है।',
+      'pharmacy.disposal.witness_replace': 'गवाह स्वीकृति बदलें',
+      'pharmacy.disposal.witness_request': 'गवाह का अनुरोध और स्वीकृति',
+      'pharmacy.disposal.submit': 'अपरिवर्तनीय निपटान दर्ज करें',
+      'pharmacy.disposal.completed':
+          'सटीक बैच निपटान और आवश्यक वैधानिक साक्ष्य दर्ज किए गए।',
       's4.lib.pharmacy.manufacturer': "उत्पादक",
       's4.lib.pharmacy.mark_urgent': "अत्यावश्यक चिह्नित करें",
       's4.lib.pharmacy.medicine_names_dose_quantity_or_rx_note':
@@ -22980,6 +23072,8 @@ class AppStrings {
       'ward_indent.controlled.recovery_status.available': 'ஆதாரம் உள்ளது',
       'ward_indent.controlled.recovery_status.missing': 'ஆதாரம் இல்லை',
       'ward_indent.controlled.recovery_status.ambiguous': 'பல ஆதாரப் பதிவுகள்',
+      'ward_indent.controlled.recovery_status.corrupt':
+          'காப்புச் சான்று முரண்பாடு',
       'ward_indent.status.approved': 'அங்கீகரிக்கப்பட்டது',
       'ward_indent.status.cancelled': 'ரத்து செய்யப்பட்டது',
       'ward_indent.status.closed': 'மூடப்பட்டது',
@@ -25786,6 +25880,50 @@ class AppStrings {
           "சரக்கு & கொள்முதல் மேற்பார்வை",
       's4.lib.pharmacy.inventory_item_added': "சரக்கு உருப்படி சேர்க்கப்பட்டது",
       's4.lib.pharmacy.inventory_items': "சரக்கு பொருட்கள்",
+      'pharmacy.disposal.title': 'சரக்கு அகற்றலைப் பதிவு செய்க',
+      'pharmacy.disposal.open': 'சரியான தொகுதியை அகற்றுக',
+      'pharmacy.disposal.facility': 'மருந்தக வசதி',
+      'pharmacy.disposal.facility_hint': 'சேவையகம் உறுதிப்படுத்திய உங்கள் செயலில் உள்ள அனுமதி வசதிகள் மட்டும் பட்டியலிடப்படும்.',
+      'pharmacy.disposal.facility_required': 'தொடர்வதற்கு முன் செயலில் உள்ள மருந்தக அனுமதியிலிருந்து ஒரு வசதியைத் தேர்ந்தெடுக்கவும்.',
+      'pharmacy.disposal.role_required': 'செயலில் உள்ள மருந்தகப் பணியாளர் அல்லது மருந்தகப் பொறுப்பாளர் மட்டுமே அகற்றலைப் பதிவு செய்யலாம்.',
+      'pharmacy.disposal.item_authority_missing': 'சரக்கு பொருள் அடையாளம் கிடைக்கவில்லை. அகற்றலைப் பதிவு செய்ய முடியாது.',
+      'pharmacy.disposal.authority_hint': 'செயலில் உள்ள வசதி அனுமதி, பொருள், பட்டியல், வழங்குநர், சேமிப்பு இடம், தொகுதி மற்றும் இருப்பை சேவையகம் பூட்டின் கீழ் மீண்டும் சரிபார்க்கும்.',
+      'pharmacy.disposal.batch': 'சரியான சரக்கு தொகுதி',
+      'pharmacy.disposal.batch_option':
+          'தொகுதி {batch} · லாட் {lot} · {status} · மீதி {quantity}',
+      'pharmacy.disposal.batch_required':
+          'தகுதியான ஒரு சரியான தொகுதியைத் தேர்ந்தெடுக்கவும்.',
+      'pharmacy.disposal.batch_constraints': 'வழங்குநர் {supplier} · நிலை {status} · காலாவதி {expiry} · மீதி {quantity}. இருப்பில், காலாவதியான, திரும்பப்பெற்ற அல்லது தனிமைப்படுத்தப்பட்ட தொகுதிகள் மட்டுமே அகற்றப்படலாம்.',
+      'pharmacy.disposal.no_eligible_batches': 'இந்த வசதியில் தகுதியான தொகுதி இல்லை. சரக்கு நகர்வு எதுவும் பதிவு செய்யப்படவில்லை.',
+      'pharmacy.disposal.quantity': 'அகற்றல் அளவு',
+      'pharmacy.disposal.quantity_hint':
+          'நேர்மறை அளவு, அதிகபட்சம் நான்கு தசம இடங்கள்.',
+      'pharmacy.disposal.quantity_invalid': 'அதிகபட்சம் நான்கு தசம இடங்களுடன் 9,999,999,999.9999 வரை நேர்மறை அளவை உள்ளிடவும்.',
+      'pharmacy.disposal.quantity_exceeds_stock': 'அகற்றல் அளவு தொகுதியின் அதிகாரப்பூர்வ மீதியான {quantity}-ஐ விட அதிகமாக உள்ளது.',
+      'pharmacy.disposal.reason_code': 'நிர்வகிக்கப்பட்ட காரணக் குறியீடு',
+      'pharmacy.disposal.reason_hint': 'எடுத்துக்காட்டு: damaged',
+      'pharmacy.disposal.reason_required':
+          'நிர்வகிக்கப்பட்ட அகற்றல் காரணக் குறியீடு தேவை.',
+      'pharmacy.disposal.method': 'உடல் அகற்றல் முறை',
+      'pharmacy.disposal.method_hint':
+          'எடுத்துக்காட்டு: authorized_incineration',
+      'pharmacy.disposal.method_required': 'உடல் அகற்றல் முறை தேவை.',
+      'pharmacy.disposal.controlled_warning': 'அட்டவணை X அல்லது போதைப்பொருள் அகற்றலுக்கு தனியாக அங்கீகரிக்கப்பட்ட ஒருமுறை சாட்சி ஒப்புதல் தேவை. H/H1/X காவல் சட்டப்பூர்வ பதிவேட்டில் எழுதப்படும்.',
+      'pharmacy.disposal.witness_title': 'சுயாதீன அகற்றல் சாட்சி',
+      'pharmacy.disposal.witness_hint': 'இரண்டாவது தகுதியான பணியாளர் அங்கீகரிக்க வேண்டும். தற்போதைய இயக்குநர் தமது அகற்றலுக்குச் சாட்சியாக இருக்க முடியாது.',
+      'pharmacy.disposal.witness_employee_id': 'சாட்சி பணியாளர் ஐடி',
+      'pharmacy.disposal.witness_password': 'சாட்சி கடவுச்சொல்',
+      'pharmacy.disposal.witness_approve': 'அங்கீகரித்து ஒப்புதலளிக்கவும்',
+      'pharmacy.disposal.witness_required': 'சரியான, காலாவதியாகாத சாட்சி ஒப்புதல் இல்லாமல் இந்தக் கட்டுப்படுத்தப்பட்ட அகற்றல் தொடர முடியாது.',
+      'pharmacy.disposal.witness_approved_by':
+          '{name} சாட்சி ஒப்புதல் அளித்தார்',
+      'pharmacy.disposal.witness_staff': 'சுயாதீன பணியாளர் சாட்சி',
+      'pharmacy.disposal.witness_pending':
+          'சுயாதீன சாட்சி ஒப்புதல் முழுமையில்லை.',
+      'pharmacy.disposal.witness_replace': 'சாட்சி ஒப்புதலை மாற்றவும்',
+      'pharmacy.disposal.witness_request': 'சாட்சியைக் கோரி ஒப்புதல் பெறுக',
+      'pharmacy.disposal.submit': 'மாற்றமுடியாத அகற்றலைப் பதிவு செய்க',
+      'pharmacy.disposal.completed': 'சரியான தொகுதி அகற்றலும் தேவையான சட்டப்பூர்வ ஆதாரமும் பதிவு செய்யப்பட்டன.',
       's4.lib.pharmacy.manufacturer': "உற்பத்தியாளர்",
       's4.lib.pharmacy.mark_urgent': "அவசரமாகக் குறிக்கவும்",
       's4.lib.pharmacy.medicine_names_dose_quantity_or_rx_note':
@@ -31723,6 +31861,8 @@ class AppStrings {
       'ward_indent.controlled.recovery_status.missing': 'ఆధారం లేదు',
       'ward_indent.controlled.recovery_status.ambiguous':
           'అనేక ఆధార రికార్డులు',
+      'ward_indent.controlled.recovery_status.corrupt':
+          'కస్టడీ ఆధారాల వైరుధ్యం',
       'ward_indent.status.approved': 'ఆమోదించబడింది',
       'ward_indent.status.cancelled': 'రద్దు చేయబడింది',
       'ward_indent.status.closed': 'మూసివేయబడింది',
@@ -34507,6 +34647,50 @@ class AppStrings {
           "ఇన్వెంటరీ & కొనుగోలు పర్యవేక్షణ",
       's4.lib.pharmacy.inventory_item_added': "ఇన్వెంటరీ అంశం జోడించబడింది",
       's4.lib.pharmacy.inventory_items': "ఇన్వెంటరీ అంశాలు",
+      'pharmacy.disposal.title': 'ఇన్వెంటరీ తొలగింపును నమోదు చేయండి',
+      'pharmacy.disposal.open': 'ఖచ్చితమైన బ్యాచ్‌ను తొలగించండి',
+      'pharmacy.disposal.facility': 'ఫార్మసీ సదుపాయం',
+      'pharmacy.disposal.facility_hint': 'సర్వర్ నిర్ధారించిన మీ క్రియాశీల అనుమతులలోని సదుపాయాలు మాత్రమే చూపబడతాయి.',
+      'pharmacy.disposal.facility_required': 'కొనసాగించే ముందు మీ క్రియాశీల ఫార్మసీ అనుమతుల నుండి ఒక సదుపాయాన్ని ఎంచుకోండి.',
+      'pharmacy.disposal.role_required': 'క్రియాశీల ఫార్మసీ సిబ్బంది లేదా ఫార్మసీ ఇన్‌చార్జ్ మాత్రమే తొలగింపును నమోదు చేయగలరు.',
+      'pharmacy.disposal.item_authority_missing':
+          'ఇన్వెంటరీ అంశం గుర్తింపు అందుబాటులో లేదు. తొలగింపును నమోదు చేయలేము.',
+      'pharmacy.disposal.authority_hint': 'క్రియాశీల సదుపాయ అనుమతి, అంశం, కేటలాగ్, సరఫరాదారు, నిల్వ ప్రదేశం, బ్యాచ్ మరియు స్టాక్‌ను సర్వర్ లాక్ కింద మళ్లీ నిర్ధారిస్తుంది.',
+      'pharmacy.disposal.batch': 'ఖచ్చితమైన ఇన్వెంటరీ బ్యాచ్',
+      'pharmacy.disposal.batch_option':
+          'బ్యాచ్ {batch} · లాట్ {lot} · {status} · మిగిలినది {quantity}',
+      'pharmacy.disposal.batch_required':
+          'అర్హమైన ఒక ఖచ్చితమైన బ్యాచ్‌ను ఎంచుకోండి.',
+      'pharmacy.disposal.batch_constraints': 'సరఫరాదారు {supplier} · స్థితి {status} · గడువు {expiry} · మిగిలినది {quantity}. స్టాక్‌లో, గడువు ముగిసిన, రీకాల్ చేసిన లేదా క్వారంటైన్ చేసిన బ్యాచ్‌లు మాత్రమే తొలగించవచ్చు.',
+      'pharmacy.disposal.no_eligible_batches':
+          'ఈ సదుపాయంలో అర్హమైన బ్యాచ్ లేదు. ఇన్వెంటరీ కదలిక నమోదు కాలేదు.',
+      'pharmacy.disposal.quantity': 'తొలగింపు పరిమాణం',
+      'pharmacy.disposal.quantity_hint':
+          'ధనాత్మక పరిమాణం, గరిష్ఠంగా నాలుగు దశాంశ స్థానాలు.',
+      'pharmacy.disposal.quantity_invalid': 'గరిష్ఠంగా నాలుగు దశాంశ స్థానాలతో 9,999,999,999.9999 వరకు ధనాత్మక పరిమాణాన్ని నమోదు చేయండి.',
+      'pharmacy.disposal.quantity_exceeds_stock': 'తొలగింపు పరిమాణం బ్యాచ్‌లోని ప్రామాణిక మిగిలిన {quantity} కంటే ఎక్కువగా ఉంది.',
+      'pharmacy.disposal.reason_code': 'నియంత్రిత కారణ కోడ్',
+      'pharmacy.disposal.reason_hint': 'ఉదాహరణ: damaged',
+      'pharmacy.disposal.reason_required':
+          'నియంత్రిత తొలగింపు కారణ కోడ్ అవసరం.',
+      'pharmacy.disposal.method': 'భౌతిక తొలగింపు విధానం',
+      'pharmacy.disposal.method_hint': 'ఉదాహరణ: authorized_incineration',
+      'pharmacy.disposal.method_required': 'భౌతిక తొలగింపు విధానం అవసరం.',
+      'pharmacy.disposal.controlled_warning': 'షెడ్యూల్ X లేదా నార్కోటిక్ తొలగింపుకు స్వతంత్రంగా ధృవీకరించిన ఒక్కసారి సాక్షి ఆమోదం అవసరం. H/H1/X కస్టడీ చట్టబద్ధ రిజిస్టర్‌లో నమోదు అవుతుంది.',
+      'pharmacy.disposal.witness_title': 'స్వతంత్ర తొలగింపు సాక్షి',
+      'pharmacy.disposal.witness_hint': 'రెండవ అర్హ సిబ్బంది ధృవీకరించాలి. ప్రస్తుత ఆపరేటర్ తమ తొలగింపుకు సాక్షిగా ఉండలేరు.',
+      'pharmacy.disposal.witness_employee_id': 'సాక్షి ఉద్యోగి ఐడి',
+      'pharmacy.disposal.witness_password': 'సాక్షి పాస్‌వర్డ్',
+      'pharmacy.disposal.witness_approve': 'ధృవీకరించి ఆమోదించండి',
+      'pharmacy.disposal.witness_required': 'ఖచ్చితమైన, గడువు తీరని సాక్షి ఆమోదం లేకుండా ఈ నియంత్రిత తొలగింపు కొనసాగదు.',
+      'pharmacy.disposal.witness_approved_by': '{name} సాక్షిగా ఆమోదించారు',
+      'pharmacy.disposal.witness_staff': 'స్వతంత్ర సిబ్బంది సాక్షి',
+      'pharmacy.disposal.witness_pending':
+          'స్వతంత్ర సాక్షి ఆమోదం పూర్తి కాలేదు.',
+      'pharmacy.disposal.witness_replace': 'సాక్షి ఆమోదాన్ని మార్చండి',
+      'pharmacy.disposal.witness_request': 'సాక్షిని అభ్యర్థించి ఆమోదించండి',
+      'pharmacy.disposal.submit': 'మార్చలేని తొలగింపును నమోదు చేయండి',
+      'pharmacy.disposal.completed': 'ఖచ్చితమైన బ్యాచ్ తొలగింపు మరియు అవసరమైన చట్టబద్ధ ఆధారం నమోదు అయ్యాయి.',
       's4.lib.pharmacy.manufacturer': "తయారీదారు",
       's4.lib.pharmacy.mark_urgent': "అత్యవసరమని గుర్తించండి",
       's4.lib.pharmacy.medicine_names_dose_quantity_or_rx_note':
@@ -36894,6 +37078,49 @@ class AppStrings {
     'ml': {
       // REVIEW: MED-03 Malayalam technical parity only; a Malayalam-fluent
       // clinician-linguist must approve this wording before activation.
+      'pharmacy.disposal.title': 'ഇൻവെന്ററി നിർമാർജനം രേഖപ്പെടുത്തുക',
+      'pharmacy.disposal.open': 'കൃത്യമായ ബാച്ച് നിർമാർജനം ചെയ്യുക',
+      'pharmacy.disposal.facility': 'ഫാർമസി ഫെസിലിറ്റി',
+      'pharmacy.disposal.facility_hint': 'സെർവർ സ്ഥിരീകരിച്ച നിങ്ങളുടെ സജീവ ഗ്രാന്റുകളിലെ ഫെസിലിറ്റികൾ മാത്രം പട്ടികപ്പെടുത്തുന്നു.',
+      'pharmacy.disposal.facility_required': 'തുടരുന്നതിന് മുമ്പ് നിങ്ങളുടെ സജീവ ഫാർമസി ഗ്രാന്റിൽ നിന്ന് ഒരു ഫെസിലിറ്റി തിരഞ്ഞെടുക്കുക.',
+      'pharmacy.disposal.role_required': 'സജീവ ഫാർമസി സ്റ്റാഫിനോ ഫാർമസി ഇൻചാർജിനോ മാത്രമേ നിർമാർജനം രേഖപ്പെടുത്താനാകൂ.',
+      'pharmacy.disposal.item_authority_missing': 'ഇൻവെന്ററി ഇനത്തിന്റെ തിരിച്ചറിയൽ ലഭ്യമല്ല. നിർമാർജനം രേഖപ്പെടുത്താനാകില്ല.',
+      'pharmacy.disposal.authority_hint': 'സജീവ ഫെസിലിറ്റി ഗ്രാന്റ്, ഇനം, കാറ്റലോഗ്, വിതരണക്കാരൻ, സംഭരണ സ്ഥലം, ബാച്ച്, സ്റ്റോക്ക് എന്നിവ സെർവർ ലോക്കിനുള്ളിൽ വീണ്ടും സ്ഥിരീകരിക്കുന്നു.',
+      'pharmacy.disposal.batch': 'കൃത്യമായ ഇൻവെന്ററി ബാച്ച്',
+      'pharmacy.disposal.batch_option':
+          'ബാച്ച് {batch} · ലോട്ട് {lot} · {status} · ശേഷിക്കുന്നത് {quantity}',
+      'pharmacy.disposal.batch_required':
+          'യോഗ്യമായ ഒരു കൃത്യമായ ബാച്ച് തിരഞ്ഞെടുക്കുക.',
+      'pharmacy.disposal.batch_constraints': 'വിതരണക്കാരൻ {supplier} · നില {status} · കാലാവധി {expiry} · ശേഷിക്കുന്നത് {quantity}. സ്റ്റോക്കിലുള്ള, കാലാവധി കഴിഞ്ഞ, തിരിച്ചുവിളിച്ച, അല്ലെങ്കിൽ ക്വാറന്റൈൻ ചെയ്ത ബാച്ചുകൾ മാത്രം നിർമാർജനം ചെയ്യാം.',
+      'pharmacy.disposal.no_eligible_batches': 'ഈ ഫെസിലിറ്റിയിൽ യോഗ്യമായ ബാച്ചില്ല. ഇൻവെന്ററി നീക്കം ഒന്നും രേഖപ്പെടുത്തിയിട്ടില്ല.',
+      'pharmacy.disposal.quantity': 'നിർമാർജന അളവ്',
+      'pharmacy.disposal.quantity_hint':
+          'പോസിറ്റീവ് അളവ്, പരമാവധി നാല് ദശാംശ സ്ഥാനങ്ങൾ.',
+      'pharmacy.disposal.quantity_invalid': 'പരമാവധി നാല് ദശാംശ സ്ഥാനങ്ങളോടെ 9,999,999,999.9999 വരെയുള്ള പോസിറ്റീവ് അളവ് നൽകുക.',
+      'pharmacy.disposal.quantity_exceeds_stock': 'നിർമാർജന അളവ് ബാച്ചിലെ ആധികാരിക ശേഷിക്കുന്ന {quantity}-നെ കവിയുന്നു.',
+      'pharmacy.disposal.reason_code': 'നിയന്ത്രിത കാരണ കോഡ്',
+      'pharmacy.disposal.reason_hint': 'ഉദാഹരണം: damaged',
+      'pharmacy.disposal.reason_required':
+          'നിയന്ത്രിത നിർമാർജന കാരണ കോഡ് ആവശ്യമാണ്.',
+      'pharmacy.disposal.method': 'ഭൗതിക നിർമാർജന രീതി',
+      'pharmacy.disposal.method_hint': 'ഉദാഹരണം: authorized_incineration',
+      'pharmacy.disposal.method_required': 'ഭൗതിക നിർമാർജന രീതി ആവശ്യമാണ്.',
+      'pharmacy.disposal.controlled_warning': 'ഷെഡ്യൂൾ X അല്ലെങ്കിൽ നാർക്കോട്ടിക് നിർമാർജനത്തിന് സ്വതന്ത്രമായി പ്രാമാണീകരിച്ച ഒറ്റത്തവണ സാക്ഷി അംഗീകാരം വേണം. H/H1/X കസ്റ്റഡി നിയമപരമായ രജിസ്റ്ററിൽ രേഖപ്പെടുത്തും.',
+      'pharmacy.disposal.witness_title': 'സ്വതന്ത്ര നിർമാർജന സാക്ഷി',
+      'pharmacy.disposal.witness_hint': 'യോഗ്യനായ രണ്ടാമത്തെ സ്റ്റാഫ് അംഗം പ്രാമാണീകരിക്കണം. നിലവിലെ ഓപ്പറേറ്റർ സ്വന്തം നിർമാർജനത്തിന് സാക്ഷിയാകാനാവില്ല.',
+      'pharmacy.disposal.witness_employee_id': 'സാക്ഷി ജീവനക്കാരന്റെ ഐഡി',
+      'pharmacy.disposal.witness_password': 'സാക്ഷിയുടെ പാസ്‌വേഡ്',
+      'pharmacy.disposal.witness_approve': 'പ്രാമാണീകരിച്ച് അംഗീകരിക്കുക',
+      'pharmacy.disposal.witness_required': 'കൃത്യവും കാലാവധി കഴിയാത്തതുമായ സാക്ഷി അംഗീകാരമില്ലാതെ ഈ നിയന്ത്രിത നിർമാർജനം തുടരാനാവില്ല.',
+      'pharmacy.disposal.witness_approved_by': '{name} സാക്ഷിയായി അംഗീകരിച്ചു',
+      'pharmacy.disposal.witness_staff': 'സ്വതന്ത്ര സ്റ്റാഫ് സാക്ഷി',
+      'pharmacy.disposal.witness_pending':
+          'സ്വതന്ത്ര സാക്ഷി അംഗീകാരം പൂർത്തിയായിട്ടില്ല.',
+      'pharmacy.disposal.witness_replace': 'സാക്ഷി അംഗീകാരം മാറ്റുക',
+      'pharmacy.disposal.witness_request':
+          'സാക്ഷിയെ അഭ്യർത്ഥിച്ച് അംഗീകരിക്കുക',
+      'pharmacy.disposal.submit': 'മാറ്റാനാവാത്ത നിർമാർജനം രേഖപ്പെടുത്തുക',
+      'pharmacy.disposal.completed': 'കൃത്യമായ ബാച്ച് നിർമാർജനവും ആവശ്യമായ നിയമപരമായ തെളിവും രേഖപ്പെടുത്തി.',
       'med03.pharmacy.prescription_items_locked': 'പ്രിസ്ക്രിപ്ഷൻ ഇനങ്ങൾ ആധികാരികമായി ലിങ്ക് ചെയ്ത പ്രിസ്ക്രിപ്ഷനിലേക്ക് ലോക്ക് ചെയ്തിരിക്കുന്നു.',
       'med03.pharmacy.select_authoritative_catalog': 'ആധികാരിക കാറ്റലോഗ് ഇനങ്ങൾ തിരഞ്ഞെടുക്കുക. പേരും വിലയും കൈമുറയായി നൽകാനാവില്ല.',
       'med03.pharmacy.catalog_medicine': 'കാറ്റലോഗ് മരുന്ന്',
@@ -37082,6 +37309,8 @@ class AppStrings {
       'ward_indent.controlled.recovery_status.missing': 'തെളിവ് ലഭ്യമല്ല',
       'ward_indent.controlled.recovery_status.ambiguous':
           'ഒന്നിലധികം തെളിവ് രേഖകൾ',
+      'ward_indent.controlled.recovery_status.corrupt':
+          'കസ്റ്റഡി തെളിവ് വൈരുദ്ധ്യം',
       'due_meds.actions.release': 'ഹോൾഡിലുള്ള ഡോസ് റിലീസ് ചെയ്യുക',
       'due_meds.actions.release_title': 'ഹോൾഡിലുള്ള ഈ ഡോസ് റിലീസ് ചെയ്യണോ?',
       'due_meds.actions.release_body': 'മരുന്ന് നിർദേശിക്കുന്ന ഡോക്ടർ ക്ലിനിക്കൽ അവലോകനം രേഖപ്പെടുത്തണം. റിലീസ് ഡോസിനെ ഷെഡ്യൂൾ ചെയ്ത നിലയിലാക്കും; മരുന്ന് നൽകിയതായി രേഖപ്പെടുത്തില്ല.',

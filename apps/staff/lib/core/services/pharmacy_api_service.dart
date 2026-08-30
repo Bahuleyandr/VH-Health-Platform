@@ -249,6 +249,7 @@ class PharmacyApiService {
     String? schedule,
     String? status,
     int? catalogId,
+    int? facilityId,
   }) async {
     final resp = await _get(
       '/pharmacy/inventory/v2/items',
@@ -258,6 +259,7 @@ class PharmacyApiService {
           'schedule': schedule.trim(),
         if (status != null && status.trim().isNotEmpty) 'status': status.trim(),
         if (catalogId != null) 'catalog_id': '$catalogId',
+        if (facilityId != null) 'facility_id': '$facilityId',
       },
     );
     return _listFrom(resp, const [
@@ -270,11 +272,16 @@ class PharmacyApiService {
   /// item. Ward dispensing uses this instead of choosing stock by drug name.
   static Future<List<Map<String, dynamic>>> getInventoryBatches({
     required int itemId,
+    int? facilityId,
     String status = 'in_stock',
   }) async {
     final resp = await _get(
       '/pharmacy/inventory/v2/batches',
-      query: {'item_id': '$itemId', 'status': status},
+      query: {
+        'item_id': '$itemId',
+        'status': status,
+        if (facilityId != null) 'facility_id': '$facilityId',
+      },
     );
     return _listFrom(resp, const [
       'batches',
@@ -282,34 +289,85 @@ class PharmacyApiService {
     ]).whereType<Map>().map((row) => Map<String, dynamic>.from(row)).toList();
   }
 
-  /// Starts the independently authenticated witness ceremony for a Schedule
-  /// X or narcotic ward dispense. [dispense] must be reused byte-for-byte by
-  /// the approval and final dispense calls.
-  static Future<Map<String, dynamic>> requestControlledDispenseWitnessApproval({
-    required Map<String, dynamic> dispense,
+  /// Starts the independently authenticated witness ceremony for one exact
+  /// Schedule X or narcotic pharmacy-order allocation. The backend derives
+  /// the patient, prescription, facility and catalog authority from [orderId].
+  static Future<Map<String, dynamic>> requestOrderControlledWitnessApproval({
+    required int orderId,
+    required Map<String, dynamic> selection,
     required String idempotencyKey,
   }) async {
     return _postWithTypedError(
-      '/pharmacy/inventory/v2/controlled-dispense/witness-approvals',
-      dispense,
+      '/pharmacy-orders/orders/$orderId/'
+      'controlled-dispense/witness-approvals',
+      selection,
       idempotencyKey: idempotencyKey,
     );
   }
 
-  /// Authenticates a second staff member without replacing the dispenser's
-  /// session, then approves the exact controlled-dispense payload.
-  static Future<Map<String, dynamic>> approveControlledDispenseWitnessApproval({
+  /// Creates one immutable, typed disposal for an exact Inventory V2 batch.
+  /// Facility custody is selected only from the actor's server-proved grants;
+  /// the backend derives and revalidates the grant, supplier, catalogue,
+  /// storage, performer, movement and statutory-register authority.
+  static Future<Map<String, dynamic>> disposeInventoryBatch({
+    required Map<String, dynamic> disposal,
+    required String idempotencyKey,
+  }) async {
+    return _postWithTypedError(
+      '/pharmacy/inventory/v2/disposals',
+      disposal,
+      idempotencyKey: idempotencyKey,
+    );
+  }
+
+  /// Starts the independent witness ceremony required only for Schedule X or
+  /// narcotic disposal. The request is bound to the exact unchanged intent.
+  static Future<Map<String, dynamic>> requestInventoryDisposalWitnessApproval({
+    required Map<String, dynamic> disposal,
+    required String idempotencyKey,
+  }) async {
+    return _postWithTypedError(
+      '/pharmacy/inventory/v2/disposals/witness-approvals',
+      disposal,
+      idempotencyKey: idempotencyKey,
+    );
+  }
+
+  /// Authenticates an independent staff witness without replacing the current
+  /// disposal operator's session, then approves the unchanged disposal intent.
+  static Future<Map<String, dynamic>> approveInventoryDisposalWitnessApproval({
     required String approvalId,
-    required Map<String, dynamic> dispense,
+    required Map<String, dynamic> disposal,
     required String employeeId,
     required String password,
     required String idempotencyKey,
   }) async {
     return _postWithTypedError(
-      '/pharmacy/inventory/v2/controlled-dispense/witness-approvals/'
-      '$approvalId/approve',
+      '/pharmacy/inventory/v2/disposals/witness-approvals/$approvalId/approve',
       {
-        'dispense': dispense,
+        'disposal': disposal,
+        'employeeId': employeeId.trim().toUpperCase(),
+        'password': password,
+      },
+      idempotencyKey: idempotencyKey,
+    );
+  }
+
+  /// Authenticates a second staff member without replacing the dispenser's
+  /// session, then approves the unchanged server-derived order allocation.
+  static Future<Map<String, dynamic>> approveOrderControlledWitnessApproval({
+    required int orderId,
+    required String approvalId,
+    required Map<String, dynamic> selection,
+    required String employeeId,
+    required String password,
+    required String idempotencyKey,
+  }) async {
+    return _postWithTypedError(
+      '/pharmacy-orders/orders/$orderId/'
+      'controlled-dispense/witness-approvals/$approvalId/approve',
+      {
+        'selection': selection,
         'employeeId': employeeId.trim().toUpperCase(),
         'password': password,
       },
@@ -349,33 +407,6 @@ class PharmacyApiService {
         'employeeId': employeeId.trim().toUpperCase(),
         'password': password,
       },
-      idempotencyKey: idempotencyKey,
-    );
-  }
-
-  /// Commits one controlled stock decrement and its statutory register row in
-  /// the backend's single tenant transaction.
-  static Future<Map<String, dynamic>> dispenseControlledInventory({
-    required Map<String, dynamic> dispense,
-    required String idempotencyKey,
-  }) async {
-    return _post(
-      '/pharmacy/inventory/v2/controlled-dispense',
-      dispense,
-      idempotencyKey: idempotencyKey,
-    );
-  }
-
-  /// Records an Inventory V2 movement. Controlled returns are committed with
-  /// their statutory schedule-register row by the backend in the same tenant
-  /// transaction.
-  static Future<Map<String, dynamic>> recordInventoryMovement({
-    required Map<String, dynamic> movement,
-    required String idempotencyKey,
-  }) {
-    return _post(
-      '/pharmacy/inventory/v2/movements',
-      movement,
       idempotencyKey: idempotencyKey,
     );
   }
@@ -422,11 +453,13 @@ class PharmacyApiService {
   /// GET /pharmacy/inventory/v2/expiry-alerts — cached expiry buckets.
   static Future<List<Map<String, dynamic>>> getExpiryAlerts({
     String? bucket,
+    int? facilityId,
   }) async {
     final resp = await _get(
       '/pharmacy/inventory/v2/expiry-alerts',
       query: {
         if (bucket != null && bucket.trim().isNotEmpty) 'bucket': bucket.trim(),
+        if (facilityId != null) 'facility_id': '$facilityId',
       },
     );
     return _listFrom(resp, const [
@@ -437,8 +470,10 @@ class PharmacyApiService {
   }
 
   /// POST /pharmacy/inventory/v2/run-expiry-scan.
-  static Future<Map<String, dynamic>> runExpiryScan() async {
-    return _post('/pharmacy/inventory/v2/run-expiry-scan', {});
+  static Future<Map<String, dynamic>> runExpiryScan({int? facilityId}) async {
+    return _post('/pharmacy/inventory/v2/run-expiry-scan', {
+      'facility_id': ?facilityId,
+    });
   }
 
   // ─── Pharmacy Orders ──────────────────────────────────────────────────────

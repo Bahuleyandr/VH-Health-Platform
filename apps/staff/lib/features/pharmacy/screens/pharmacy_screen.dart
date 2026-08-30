@@ -17,6 +17,7 @@ import '../../../l10n/app_strings.dart';
 import '../models/pharmacy_funding_recovery.dart';
 import '../services/ward_indent_role_policy.dart';
 import '../widgets/dispense_substitution_sheet.dart';
+import '../widgets/inventory_disposal_sheet.dart';
 import '../widgets/ward_indent_workbench.dart';
 
 class PharmacyScreen extends StatefulWidget {
@@ -34,6 +35,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
   List<Map<String, dynamic>> _catalog = [];
   List<Map<String, dynamic>> _inventoryItems = [];
   List<Map<String, dynamic>> _expiryAlerts = [];
+  List<Map<String, dynamic>> _inventoryFacilities = [];
+  int? _selectedInventoryFacilityId;
   bool _loading = true;
   bool _catalogLoading = false;
   bool _inventoryLoading = false;
@@ -91,6 +94,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
       _role == StaffRole.storesPurchaseIncharge ||
       _role.isAdminTier;
 
+  bool get _canDisposeInventory =>
+      _role == StaffRole.pharmacy || _role == StaffRole.pharmacyIncharge;
+
   bool get _canViewWardIndents =>
       WardIndentRolePolicy.canRead(rawRole: _rawRole, role: _role);
 
@@ -105,9 +111,60 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
     });
     await Future.wait([
       _loadCatalog(),
-      if (_canViewInventory) _loadInventory(),
+      if (_canViewInventory) _loadInventoryScope(),
       if (_canWorkPharmacyOrders) _loadOrders(),
     ]);
+  }
+
+  static int? _grantedFacilityId(Map<String, dynamic> grant) {
+    final raw = grant['facility_id'];
+    final value = raw is num
+        ? raw.toInt()
+        : int.tryParse(raw?.toString().trim() ?? '');
+    return value != null && value > 0 ? value : null;
+  }
+
+  int? get _inventoryFacilityId {
+    final selected = _selectedInventoryFacilityId;
+    if (selected == null) return null;
+    return _inventoryFacilities.any(
+          (grant) => _grantedFacilityId(grant) == selected,
+        )
+        ? selected
+        : null;
+  }
+
+  Future<void> _loadInventoryScope() async {
+    setState(() {
+      _inventoryLoading = true;
+      _inventoryError = null;
+    });
+    try {
+      final facilities = await PharmacyApiService.getCounterSaleFacilities();
+      if (!mounted) return;
+      final ids = facilities
+          .map(_grantedFacilityId)
+          .whereType<int>()
+          .toList(growable: false);
+      setState(() {
+        _inventoryFacilities = facilities;
+        if (_selectedInventoryFacilityId != null &&
+            !ids.contains(_selectedInventoryFacilityId)) {
+          _selectedInventoryFacilityId = null;
+        }
+        if (_selectedInventoryFacilityId == null && ids.length == 1) {
+          _selectedInventoryFacilityId = ids.first;
+        }
+        _inventoryLoading = false;
+      });
+      await _loadInventory();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _inventoryLoading = false;
+        _inventoryError = error.toString().replaceFirst('Exception: ', '');
+      });
+    }
   }
 
   Future<void> _loadOrders() async {
@@ -170,6 +227,16 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
 
   Future<void> _loadInventory({String? search}) async {
     if (!_canViewInventory) return;
+    final facilityId = _inventoryFacilityId;
+    if (facilityId == null) {
+      setState(() {
+        _inventoryLoading = false;
+        _inventoryError = null;
+        _inventoryItems = [];
+        _expiryAlerts = [];
+      });
+      return;
+    }
     setState(() {
       _inventoryLoading = true;
       _inventoryError = null;
@@ -178,8 +245,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
       final results = await Future.wait([
         PharmacyApiService.getInventoryItems(
           search: search ?? _inventorySearchCtrl.text,
+          facilityId: facilityId,
         ),
-        PharmacyApiService.getExpiryAlerts(),
+        PharmacyApiService.getExpiryAlerts(facilityId: facilityId),
       ]);
       if (mounted) {
         setState(() {
@@ -972,14 +1040,92 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
     amountController.dispose();
     tpaReferenceController.dispose();
     if (payload == null) return;
+    final orderId = (order['id'] as num).toInt();
+    final allocations = _controlledDeliveryAllocations.putIfAbsent(
+      orderId,
+      () => <Map<String, dynamic>>[],
+    );
+    final rawOrderLines = order['items_list'];
+    final orderLineCount = rawOrderLines is List ? rawOrderLines.length : 0;
+    final maximumDispenseAttempts = (orderLineCount * 2) + 1;
+    final seenRecoverySteps = <String>{};
     try {
-      await PharmacyApiService.markPharmacyCounterDispensed(
-        (order['id'] as num).toInt(),
-        payload,
+      for (
+        var dispenseAttempt = 0;
+        dispenseAttempt < maximumDispenseAttempts;
+        dispenseAttempt++
+      ) {
+        try {
+          await PharmacyApiService.markPharmacyCounterDispensed(orderId, {
+            ...payload,
+            if (allocations.isNotEmpty) 'dispensed_items': allocations,
+          });
+          _controlledDeliveryAllocations.remove(orderId);
+          _clearControlledDeliveryWitnessState(orderId);
+          _snack(s.lookup('med03.pharmacy.counter_dispense_complete'));
+          unawaited(_loadOrders());
+          return;
+        } on PharmacyApiException catch (error) {
+          if (error.code != 'PHARMACY_ORDER_CONTROLLED_ALLOCATION_REQUIRED' &&
+              error.code != 'PHARMACY_ORDER_INVENTORY_ITEM_AMBIGUOUS') {
+            rethrow;
+          }
+          final recoveryLineIndex = _deliveryRecoveryLineIndex(error);
+          if (recoveryLineIndex == null ||
+              recoveryLineIndex >= orderLineCount) {
+            throw StateError(
+              'Controlled counter recovery line identity is invalid',
+            );
+          }
+          final recoveryStep = '${error.code}:$recoveryLineIndex';
+          if (!seenRecoverySteps.add(recoveryStep)) {
+            throw StateError(
+              'Controlled counter recovery made no authoritative progress',
+            );
+          }
+          final allocation = switch (error.code) {
+            'PHARMACY_ORDER_CONTROLLED_ALLOCATION_REQUIRED' =>
+              await _collectControlledDeliveryAllocation(
+                orderId: orderId,
+                error: error,
+              ),
+            'PHARMACY_ORDER_INVENTORY_ITEM_AMBIGUOUS' =>
+              await _collectAmbiguousInventoryItemSelection(error),
+            _ => throw error,
+          };
+          if (allocation == null) {
+            _controlledDeliveryAllocations.remove(orderId);
+            _clearControlledDeliveryWitnessState(orderId);
+            return;
+          }
+          final matchingAllocations = allocations.where(
+            (item) =>
+                item['order_line_index'] == allocation['order_line_index'],
+          );
+          final priorAllocation = matchingAllocations.isEmpty
+              ? null
+              : matchingAllocations.first;
+          allocations.removeWhere(
+            (item) =>
+                item['order_line_index'] == allocation['order_line_index'],
+          );
+          allocations.add(allocation);
+          if (priorAllocation != null &&
+              _sameControlledDeliveryAllocation(priorAllocation, allocation)) {
+            throw StateError(
+              'Controlled counter recovery made no authoritative progress',
+            );
+          }
+        }
+      }
+      throw StateError(
+        'Controlled counter recovery exceeded its order-derived evidence bound',
       );
-      _snack(s.lookup('med03.pharmacy.counter_dispense_complete'));
-      unawaited(_loadOrders());
     } on PharmacyApiException catch (error) {
+      if (error.statusCode >= 400 && error.statusCode < 500) {
+        _controlledDeliveryAllocations.remove(orderId);
+        _clearControlledDeliveryWitnessState(orderId);
+      }
       final nextAction = error.details?['next_action']?.toString();
       final fundingTask = _fundingRecovery(error);
       final fundingRecovery = _requiresFundingRecovery(error);
@@ -1006,6 +1152,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
             : null,
       );
     } catch (e) {
+      _controlledDeliveryAllocations.remove(orderId);
+      _clearControlledDeliveryWitnessState(orderId);
       _snack(e.toString(), isError: true);
     }
   }
@@ -1621,9 +1769,11 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
         ? Map<String, dynamic>.from(rawAllocations.first as Map)
         : null;
     final quantity = _number(allocationTemplate?['quantity']);
+    final facilityId = _positiveInt(details?['facility_id']);
     if (catalogId == null ||
         inventoryItemId == null ||
         orderLineIndex == null ||
+        facilityId == null ||
         quantity == null ||
         quantity <= 0) {
       throw StateError(
@@ -1633,6 +1783,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
 
     final batches = await PharmacyApiService.getInventoryBatches(
       itemId: inventoryItemId,
+      facilityId: facilityId,
     );
     if (!mounted) return null;
     final selection = await _selectControlledDeliveryBatches(
@@ -1643,21 +1794,14 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
     if (selection == null) return null;
 
     final witnessRequired = recovery['witness_required'] == true;
-    final rawWitnessTemplate = recovery['witness_payload_template'];
-    final witnessTemplate = rawWitnessTemplate is Map
-        ? Map<String, dynamic>.from(rawWitnessTemplate)
-        : null;
-    if (witnessRequired && witnessTemplate == null) {
-      throw StateError('Controlled delivery witness authority is unavailable');
-    }
     final inventoryAllocations = <Map<String, dynamic>>[];
     for (final batchAllocation in selection.allocations) {
       final witnessApprovalId = witnessRequired
           ? await _controlledDeliveryWitnessApproval(
               orderId: orderId,
+              orderLineIndex: orderLineIndex,
               inventoryItemId: inventoryItemId,
               allocation: batchAllocation,
-              witnessTemplate: witnessTemplate!,
               employeeId: selection.employeeId!,
               password: selection.password!,
             )
@@ -1665,7 +1809,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
       inventoryAllocations.add({
         'inventory_batch_id': batchAllocation.batchId,
         'quantity': batchAllocation.quantity,
-        if (witnessApprovalId != null) 'witness_approval_id': witnessApprovalId,
+        'witness_approval_id': ?witnessApprovalId,
       });
     }
 
@@ -1680,27 +1824,33 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
 
   Future<String> _controlledDeliveryWitnessApproval({
     required int orderId,
+    required int orderLineIndex,
     required int inventoryItemId,
     required _ControlledDeliveryBatchAllocation allocation,
-    required Map<String, dynamic> witnessTemplate,
     required String employeeId,
     required String password,
   }) async {
     final allocationScope =
-        'witness:$orderId:$inventoryItemId:${allocation.batchId}:${allocation.quantity}';
+        'witness:$orderId:$orderLineIndex:$inventoryItemId:'
+        '${allocation.batchId}:${allocation.quantity}';
     final alreadyApproved =
         _controlledDeliveryApprovedWitnesses[allocationScope];
     if (alreadyApproved != null) return alreadyApproved;
 
-    final witnessPayload = Map<String, dynamic>.from(witnessTemplate)
-      ..['inventory_batch_id'] = allocation.batchId
-      ..['quantity'] = allocation.quantity;
+    final witnessSelection = <String, dynamic>{
+      'order_line_index': orderLineIndex,
+      'inventory_item_id': inventoryItemId,
+      'inventory_batch_id': allocation.batchId,
+      'quantity': allocation.quantity,
+    };
     final requestScope =
-        'request:$orderId:$inventoryItemId:${allocation.batchId}:${allocation.quantity}';
+        'request:$orderId:$orderLineIndex:$inventoryItemId:'
+        '${allocation.batchId}:${allocation.quantity}';
     final requestAttempt = _controlledDeliveryWitnessAttempts.putIfAbsent(
       requestScope,
       () => IdempotencyAttempt(
-        'pharmacy-delivery-witness-request-$orderId-$inventoryItemId',
+        'pharmacy-delivery-witness-request-$orderId-$orderLineIndex-'
+        '$inventoryItemId',
       ),
     );
     var approvalId = _controlledDeliveryPendingApprovals[requestScope];
@@ -1708,9 +1858,10 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
       late final Map<String, dynamic> pending;
       try {
         pending =
-            await PharmacyApiService.requestControlledDispenseWitnessApproval(
-              dispense: witnessPayload,
-              idempotencyKey: requestAttempt.keyFor(witnessPayload),
+            await PharmacyApiService.requestOrderControlledWitnessApproval(
+              orderId: orderId,
+              selection: witnessSelection,
+              idempotencyKey: requestAttempt.keyFor(witnessSelection),
             );
         requestAttempt.reset();
         _controlledDeliveryWitnessAttempts.remove(requestScope);
@@ -1739,13 +1890,14 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
     );
     final approvalIdentity = {
       'approvalId': resolvedApprovalId,
-      'dispense': witnessPayload,
+      'selection': witnessSelection,
       'employeeId': employeeId,
     };
     try {
-      await PharmacyApiService.approveControlledDispenseWitnessApproval(
+      await PharmacyApiService.approveOrderControlledWitnessApproval(
+        orderId: orderId,
         approvalId: resolvedApprovalId,
-        dispense: witnessPayload,
+        selection: witnessSelection,
         employeeId: employeeId,
         password: password,
         idempotencyKey: approvalAttempt.keyFor(approvalIdentity),
@@ -2404,13 +2556,54 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
     }
     final completedMessage = AppStrings.of(context)
         .lookup('s4.lib.pharmacy.expiry_scan_completed');
+    final facilityId = _inventoryFacilityId;
+    if (facilityId == null) {
+      _snack(
+        AppStrings.of(context).lookup('pharmacy.disposal.facility_required'),
+        isError: true,
+      );
+      return;
+    }
     try {
-      await PharmacyApiService.runExpiryScan();
+      await PharmacyApiService.runExpiryScan(facilityId: facilityId);
       _snack(completedMessage);
       await _loadInventory();
     } catch (e) {
       _snack(e.toString().replaceFirst('Exception: ', ''), isError: true);
     }
+  }
+
+  Future<void> _openInventoryDisposal(Map<String, dynamic> item) async {
+    if (!_canDisposeInventory) {
+      _snack(
+        AppStrings.of(context).lookup('pharmacy.disposal.role_required'),
+        isError: true,
+      );
+      return;
+    }
+    final facilityId = _inventoryFacilityId;
+    if (facilityId == null) {
+      _snack(
+        AppStrings.of(context).lookup('pharmacy.disposal.facility_required'),
+        isError: true,
+      );
+      return;
+    }
+    final completed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppTheme.cardSurface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => InventoryDisposalSheet(
+        item: item,
+        facilityId: facilityId,
+      ),
+    );
+    if (completed != true || !mounted) return;
+    _snack(AppStrings.of(context).lookup('pharmacy.disposal.completed'));
+    await _loadInventory();
   }
 
   Future<void> _openInventoryItemEditor() async {
@@ -3149,6 +3342,61 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
+                  DropdownButtonFormField<int>(
+                    key: ValueKey(
+                      'pharmacy-inventory-facility-${_inventoryFacilityId ?? 0}-'
+                      '${_inventoryFacilities.length}',
+                    ),
+                    initialValue: _inventoryFacilityId,
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      labelText: AppStrings.of(context).lookup(
+                        'pharmacy.disposal.facility',
+                      ),
+                      helperText: AppStrings.of(context).lookup(
+                        'pharmacy.disposal.facility_hint',
+                      ),
+                    ),
+                    items: _inventoryFacilities
+                        .map((grant) {
+                          final facilityId = _grantedFacilityId(grant);
+                          if (facilityId == null) return null;
+                          final name =
+                              grant['display_name']?.toString().trim() ?? '';
+                          final code =
+                              grant['facility_code']?.toString().trim() ?? '';
+                          final label = [
+                            name.isEmpty ? '#$facilityId' : name,
+                            if (code.isNotEmpty) '($code)',
+                          ].join(' ');
+                          return DropdownMenuItem<int>(
+                            value: facilityId,
+                            child: Text(label),
+                          );
+                        })
+                        .whereType<DropdownMenuItem<int>>()
+                        .toList(growable: false),
+                    onChanged: _inventoryLoading
+                        ? null
+                        : (facilityId) {
+                            setState(() {
+                              _selectedInventoryFacilityId = facilityId;
+                              _inventoryItems = [];
+                              _expiryAlerts = [];
+                            });
+                            _loadInventory();
+                    },
+                  ),
+                  if (_inventoryFacilities.isEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      AppStrings.of(context).lookup(
+                        'pharmacy.disposal.facility_required',
+                      ),
+                      style: const TextStyle(color: AppTheme.errorRed),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
                   Row(
                     children: [
                       Expanded(
@@ -3329,6 +3577,17 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
               ),
             ),
             _buildStatusChip(status),
+            if (_canDisposeInventory) ...[
+              const SizedBox(width: 8),
+              IconButton.filledTonal(
+                key: ValueKey('inventory-disposal-open-${item['id']}'),
+                tooltip: s.lookup('pharmacy.disposal.open'),
+                onPressed: _inventoryFacilityId == null
+                    ? null
+                    : () => _openInventoryDisposal(item),
+                icon: const Icon(Icons.delete_sweep_outlined),
+              ),
+            ],
           ],
         ),
       ),

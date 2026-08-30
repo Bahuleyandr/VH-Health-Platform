@@ -88,7 +88,7 @@ void main() {
   };
 
   http.Response ok(Object data, {Map<String, dynamic>? meta}) => http.Response(
-    jsonEncode({'success': true, 'data': data, if (meta != null) 'meta': meta}),
+    jsonEncode({'success': true, 'data': data, 'meta': ?meta}),
     200,
     headers: {'content-type': 'application/json'},
   );
@@ -97,12 +97,15 @@ void main() {
     WidgetTester tester, {
     required String role,
     required List<Map<String, dynamic>> orders,
+    Future<http.Response?> Function(http.Request request)? onRequest,
   }) async {
     await tester.binding.setSurfaceSize(const Size(1200, 2200));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     FlutterSecureStorage.setMockInitialValues({'staff_role': role});
     VHHttpClient.setClientForTesting(
       MockClient((request) async {
+        final override = onRequest == null ? null : await onRequest(request);
+        if (override != null) return override;
         final path = request.url.path;
         if (path.endsWith('/pharmacy-orders/orders/queue')) {
           return ok({'orders': orders});
@@ -282,6 +285,295 @@ void main() {
       expect(find.text('Mark Delivered'), findsOneWidget);
       expect(find.text('Mark unavailable'), findsWidgets);
       expect(find.text('Cancel'), findsWidgets);
+    },
+  );
+
+  testWidgets(
+    'controlled counter dispense closes through exact allocation and independent witness',
+    (tester) async {
+      var dispenseCalls = 0;
+      var witnessRequestCalls = 0;
+      var witnessApprovalCalls = 0;
+      Map<String, dynamic>? completedPayload;
+      await pumpQueue(
+        tester,
+        role: 'PHARMACY_STAFF',
+        orders: [order(id: 201, verification: 'verified')],
+        onRequest: (request) async {
+          final path = request.url.path;
+          if (path.endsWith('/orders/201/dispense-counter')) {
+            dispenseCalls += 1;
+            if (dispenseCalls == 1) {
+              return http.Response(
+                jsonEncode({
+                  'success': false,
+                  'code': 'PHARMACY_ORDER_CONTROLLED_ALLOCATION_REQUIRED',
+                  'message': 'Exact controlled allocation required',
+                  'details': {
+                    'facility_id': 8,
+                    'order_line_index': 0,
+                    'recovery_action': {
+                      'witness_required': true,
+                      'request_shape': {
+                        'dispensed_items': [
+                          {
+                            'order_line_index': 0,
+                            'catalog_id': 17,
+                            'inventory_item_id': 71,
+                            'inventory_allocations': [
+                              {
+                                'inventory_batch_id': 'required',
+                                'quantity': 1,
+                                'witness_approval_id': 'required',
+                              },
+                            ],
+                          },
+                        ],
+                      },
+                    },
+                  },
+                }),
+                409,
+                headers: {'content-type': 'application/json'},
+              );
+            }
+            completedPayload = Map<String, dynamic>.from(
+              jsonDecode(request.body) as Map,
+            );
+            return ok({'status': 'DISPENSED'});
+          }
+          if (path.endsWith('/pharmacy/inventory/v2/batches')) {
+            expect(request.url.queryParameters['facility_id'], '8');
+            return ok({
+              'batches': [
+                {
+                  'id': 501,
+                  'inventory_item_id': 71,
+                  'facility_id': 8,
+                  'batch_number': 'SX-501',
+                  'lot_number': 'LOT-501',
+                  'expiry_date': '2027-08-30',
+                  'remaining_quantity': 3,
+                  'status': 'in_stock',
+                  'schedule_class': 'X',
+                  'is_narcotic': true,
+                },
+              ],
+            });
+          }
+          if (path.endsWith('/controlled-dispense/witness-approvals')) {
+            witnessRequestCalls += 1;
+            return ok({'id': '91'});
+          }
+          if (path.endsWith(
+            '/controlled-dispense/witness-approvals/91/approve',
+          )) {
+            witnessApprovalCalls += 1;
+            final body = Map<String, dynamic>.from(
+              jsonDecode(request.body) as Map,
+            );
+            expect(body['employeeId'], 'NURSE-002');
+            expect(body['password'], 'witness-secret');
+            return ok({
+              'id': '91',
+              'witness': {'name': 'Independent Nurse'},
+            });
+          }
+          return null;
+        },
+      );
+
+      await tester.tap(find.text('Complete counter dispense'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('pharmacy-counter-complete-submit')),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('pharmacy-delivery-controlled-batch-501')),
+        findsOneWidget,
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('pharmacy-delivery-witness-employee-id')),
+        'NURSE-002',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('pharmacy-delivery-witness-password')),
+        'witness-secret',
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('pharmacy-delivery-controlled-confirm')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(dispenseCalls, 2);
+      expect(witnessRequestCalls, 1);
+      expect(witnessApprovalCalls, 1);
+      final lines = completedPayload!['dispensed_items'] as List;
+      final line = Map<String, dynamic>.from(lines.single as Map);
+      final batch = Map<String, dynamic>.from(
+        (line['inventory_allocations'] as List).single as Map,
+      );
+      expect(line['inventory_item_id'], 71);
+      expect(batch, {
+        'inventory_batch_id': 501,
+        'quantity': 1,
+        'witness_approval_id': '91',
+      });
+    },
+  );
+
+  testWidgets(
+    'controlled counter recovery cancellation records no witness or stock mutation',
+    (tester) async {
+      var dispenseCalls = 0;
+      var witnessCalls = 0;
+      await pumpQueue(
+        tester,
+        role: 'PHARMACY_STAFF',
+        orders: [order(id: 202, verification: 'verified')],
+        onRequest: (request) async {
+          final path = request.url.path;
+          if (path.endsWith('/orders/202/dispense-counter')) {
+            dispenseCalls += 1;
+            return http.Response(
+              jsonEncode({
+                'success': false,
+                'code': 'PHARMACY_ORDER_CONTROLLED_ALLOCATION_REQUIRED',
+                'message': 'Exact controlled allocation required',
+                'details': {
+                  'facility_id': 8,
+                  'order_line_index': 0,
+                  'recovery_action': {
+                    'witness_required': true,
+                    'request_shape': {
+                      'dispensed_items': [
+                        {
+                          'order_line_index': 0,
+                          'catalog_id': 17,
+                          'inventory_item_id': 71,
+                          'inventory_allocations': [
+                            {
+                              'inventory_batch_id': 'required',
+                              'quantity': 1,
+                              'witness_approval_id': 'required',
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  },
+                },
+              }),
+              409,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          if (path.endsWith('/pharmacy/inventory/v2/batches')) {
+            return ok({
+              'batches': [
+                {
+                  'id': 502,
+                  'expiry_date': '2027-08-30',
+                  'remaining_quantity': 2,
+                  'batch_number': 'SX-502',
+                },
+              ],
+            });
+          }
+          if (path.contains('witness-approvals')) witnessCalls += 1;
+          return null;
+        },
+      );
+
+      await tester.tap(find.text('Complete counter dispense'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('pharmacy-counter-complete-submit')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cancel').last);
+      await tester.pumpAndSettle();
+
+      expect(dispenseCalls, 1);
+      expect(witnessCalls, 0);
+      expect(find.text('Counter dispense complete'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'controlled counter recovery fails closed when batch authority is refused',
+    (tester) async {
+      var dispenseCalls = 0;
+      var witnessCalls = 0;
+      await pumpQueue(
+        tester,
+        role: 'PHARMACY_STAFF',
+        orders: [order(id: 203, verification: 'verified')],
+        onRequest: (request) async {
+          final path = request.url.path;
+          if (path.endsWith('/orders/203/dispense-counter')) {
+            dispenseCalls += 1;
+            return http.Response(
+              jsonEncode({
+                'success': false,
+                'code': 'PHARMACY_ORDER_CONTROLLED_ALLOCATION_REQUIRED',
+                'message': 'Exact controlled allocation required',
+                'details': {
+                  'facility_id': 8,
+                  'order_line_index': 0,
+                  'recovery_action': {
+                    'witness_required': true,
+                    'request_shape': {
+                      'dispensed_items': [
+                        {
+                          'order_line_index': 0,
+                          'catalog_id': 17,
+                          'inventory_item_id': 71,
+                          'inventory_allocations': [
+                            {
+                              'inventory_batch_id': 'required',
+                              'quantity': 1,
+                              'witness_approval_id': 'required',
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  },
+                },
+              }),
+              409,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          if (path.endsWith('/pharmacy/inventory/v2/batches')) {
+            return http.Response(
+              jsonEncode({
+                'success': false,
+                'code': 'PHARMACY_FACILITY_GRANT_REQUIRED',
+                'message': 'The active facility grant was revoked',
+              }),
+              403,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          if (path.contains('witness-approvals')) witnessCalls += 1;
+          return null;
+        },
+      );
+
+      await tester.tap(find.text('Complete counter dispense'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('pharmacy-counter-complete-submit')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(dispenseCalls, 1);
+      expect(witnessCalls, 0);
+      expect(find.textContaining('facility grant was revoked'), findsOneWidget);
+      expect(find.text('Counter dispense complete'), findsNothing);
     },
   );
 }

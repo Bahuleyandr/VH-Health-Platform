@@ -847,14 +847,6 @@ void main() {
   });
 
   test('controlled ward handoff transports exact witnessed evidence', () async {
-    final dispense = <String, dynamic>{
-      'inventory_item_id': 17,
-      'inventory_batch_id': 27,
-      'quantity': 2.0,
-      'patient_uid': '11111111-1111-4111-8111-111111111111',
-      'prescription_number': 'WI-2026-0073',
-      'reference_id': 'ward-indent:73:item:91',
-    };
     var call = 0;
     VHHttpClient.setClientForTesting(
       MockClient((request) async {
@@ -864,15 +856,16 @@ void main() {
           expect(
             request.url.path,
             endsWith(
-              '/pharmacy/inventory/v2/controlled-dispense/witness-approvals',
+              '/pharmacy-orders/ward-indents/73/'
+              'controlled-handoff/witness-approvals',
             ),
           );
           expect(request.headers['Idempotency-Key'], 'ward-witness-request:91');
-          expect(body, dispense);
+          expect(body, {'item_id': 91, 'allocation_id': 'allocation-91'});
           return http.Response(
             jsonEncode({
               'success': true,
-              'data': {'id': 'approval-91', 'status': 'pending'},
+              'data': {'id': '91', 'status': 'pending'},
             }),
             200,
             headers: {'content-type': 'application/json'},
@@ -882,45 +875,26 @@ void main() {
           expect(
             request.url.path,
             endsWith(
-              '/pharmacy/inventory/v2/controlled-dispense/witness-approvals/approval-91/approve',
+              '/pharmacy-orders/ward-indents/73/'
+              'controlled-handoff/witness-approvals/91/approve',
             ),
           );
           expect(request.headers['Idempotency-Key'], 'ward-witness-approve:91');
           expect(body, {
-            'dispense': dispense,
+            'item_id': 91,
+            'allocation_id': 'allocation-91',
             'employeeId': 'NURSE-002',
             'password': 'witness-secret',
           });
           return http.Response(
             jsonEncode({
               'success': true,
-              'data': {'id': 'approval-91', 'status': 'approved'},
+              'data': {'id': '91', 'status': 'approved'},
             }),
             200,
             headers: {'content-type': 'application/json'},
           );
         }
-        if (call == 3) {
-          expect(
-            request.url.path,
-            endsWith('/pharmacy/inventory/v2/controlled-dispense'),
-          );
-          expect(request.headers['Idempotency-Key'], 'ward-dispense:91');
-          expect(body['witness_approval_id'], 'approval-91');
-          expect(body['reference_id'], 'ward-indent:73:item:91');
-          return http.Response(
-            jsonEncode({
-              'success': true,
-              'data': {
-                'movement': {'id': 701},
-                'register_entry': {'id': 801},
-              },
-            }),
-            200,
-            headers: {'content-type': 'application/json'},
-          );
-        }
-
         expect(
           request.url.path,
           endsWith('/pharmacy-orders/ward-indents/73/controlled-handoff'),
@@ -929,7 +903,7 @@ void main() {
         expect(body, {
           'expected_version': 4,
           'item_evidence': [
-            {'item_id': 91, 'movement_id': 701, 'register_id': 801},
+            {'item_id': 91, 'witness_approval_id': '91'},
           ],
         });
         return http.Response(
@@ -943,20 +917,20 @@ void main() {
       }),
     );
 
-    await PharmacyApiService.requestControlledDispenseWitnessApproval(
-      dispense: dispense,
+    await PharmacyApiService.requestWardControlledWitnessApproval(
+      indentId: 73,
+      itemId: 91,
+      allocationId: 'allocation-91',
       idempotencyKey: 'ward-witness-request:91',
     );
-    await PharmacyApiService.approveControlledDispenseWitnessApproval(
-      approvalId: 'approval-91',
-      dispense: dispense,
+    await PharmacyApiService.approveWardControlledWitnessApproval(
+      indentId: 73,
+      approvalId: '91',
+      itemId: 91,
+      allocationId: 'allocation-91',
       employeeId: 'nurse-002',
       password: 'witness-secret',
       idempotencyKey: 'ward-witness-approve:91',
-    );
-    final evidence = await PharmacyApiService.dispenseControlledInventory(
-      dispense: {...dispense, 'witness_approval_id': 'approval-91'},
-      idempotencyKey: 'ward-dispense:91',
     );
     await PharmacyApiService.mutateWardIndent(
       73,
@@ -964,17 +938,89 @@ void main() {
       expectedVersion: 4,
       payload: {
         'item_evidence': [
-          {
-            'item_id': 91,
-            'movement_id': evidence['movement']['id'],
-            'register_id': evidence['register_entry']['id'],
-          },
+          {'item_id': 91, 'witness_approval_id': '91'},
         ],
       },
       idempotencyKey: 'ward-handoff:73',
     );
 
-    expect(call, 4);
+    expect(call, 3);
+  });
+
+  test('order controlled witness sends selectors only to order scope', () async {
+    final selection = <String, dynamic>{
+      'order_line_index': 0,
+      'inventory_item_id': 17,
+      'inventory_batch_id': 27,
+      'quantity': 2.0,
+    };
+    var call = 0;
+    VHHttpClient.setClientForTesting(
+      MockClient((request) async {
+        call++;
+        final body = Map<String, dynamic>.from(jsonDecode(request.body) as Map);
+        if (call == 1) {
+          expect(
+            request.url.path,
+            endsWith(
+              '/pharmacy-orders/orders/73/'
+              'controlled-dispense/witness-approvals',
+            ),
+          );
+          expect(request.headers['Idempotency-Key'], 'order-witness-request:73');
+          expect(body, selection);
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'data': {'id': '91', 'status': 'pending'},
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        expect(
+          request.url.path,
+          endsWith(
+            '/pharmacy-orders/orders/73/'
+            'controlled-dispense/witness-approvals/91/approve',
+          ),
+        );
+        expect(request.headers['Idempotency-Key'], 'order-witness-approve:73');
+        expect(body, {
+          'selection': selection,
+          'employeeId': 'NURSE-002',
+          'password': 'witness-secret',
+        });
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'data': {'id': '91', 'status': 'approved'},
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    );
+
+    final requested =
+        await PharmacyApiService.requestOrderControlledWitnessApproval(
+          orderId: 73,
+          selection: selection,
+          idempotencyKey: 'order-witness-request:73',
+        );
+    final approved =
+        await PharmacyApiService.approveOrderControlledWitnessApproval(
+          orderId: 73,
+          approvalId: '91',
+          selection: selection,
+          employeeId: 'nurse-002',
+          password: 'witness-secret',
+          idempotencyKey: 'order-witness-approve:73',
+        );
+
+    expect(requested, {'id': '91', 'status': 'pending'});
+    expect(approved, {'id': '91', 'status': 'approved'});
+    expect(call, 2);
   });
 
   test(
@@ -1019,17 +1065,129 @@ void main() {
     },
   );
 
-  test('controlled return records exact movement evidence contract', () async {
+  test('order controlled witness preserves typed server refusal', () async {
     late http.Request captured;
     VHHttpClient.setClientForTesting(
       MockClient((request) async {
         captured = request;
         return http.Response(
           jsonEncode({
+            'success': false,
+            'message': 'The exact batch is no longer usable',
+            'code': 'INVENTORY_BATCH_UNAVAILABLE',
+            'details': {'inventory_batch_id': 601},
+          }),
+          409,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    );
+    const selection = <String, dynamic>{
+      'order_line_index': 0,
+      'inventory_item_id': 501,
+      'inventory_batch_id': 601,
+      'quantity': 2,
+    };
+
+    await expectLater(
+      PharmacyApiService.requestOrderControlledWitnessApproval(
+        orderId: 73,
+        selection: selection,
+        idempotencyKey: 'order-witness-stale-batch:73',
+      ),
+      throwsA(
+        isA<PharmacyApiException>()
+            .having((error) => error.statusCode, 'statusCode', 409)
+            .having(
+              (error) => error.code,
+              'code',
+              'INVENTORY_BATCH_UNAVAILABLE',
+            )
+            .having((error) => error.details, 'details', {
+              'inventory_batch_id': 601,
+            }),
+      ),
+    );
+
+    expect(captured.method, 'POST');
+    expect(
+      captured.url.path,
+      endsWith(
+        '/pharmacy-orders/orders/73/'
+        'controlled-dispense/witness-approvals',
+      ),
+    );
+    expect(
+      captured.headers['Idempotency-Key'],
+      'order-witness-stale-batch:73',
+    );
+    expect(jsonDecode(captured.body), selection);
+  });
+
+  test('typed inventory disposal transports only the exact governed intent', () async {
+    const disposal = <String, dynamic>{
+      'facility_id': 8,
+      'inventory_item_id': 501,
+      'inventory_batch_id': 601,
+      'quantity': 2.5,
+      'reason_code': 'damaged',
+      'disposition_method': 'authorized_incineration',
+    };
+    var call = 0;
+    VHHttpClient.setClientForTesting(
+      MockClient((request) async {
+        call += 1;
+        final body = Map<String, dynamic>.from(jsonDecode(request.body) as Map);
+        if (call == 1) {
+          expect(
+            request.url.path,
+            endsWith('/pharmacy/inventory/v2/disposals/witness-approvals'),
+          );
+          expect(request.headers['Idempotency-Key'], 'disposal-witness-request');
+          expect(body, disposal);
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'data': {'id': '91', 'status': 'pending'},
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        if (call == 2) {
+          expect(
+            request.url.path,
+            endsWith(
+              '/pharmacy/inventory/v2/disposals/'
+              'witness-approvals/91/approve',
+            ),
+          );
+          expect(request.headers['Idempotency-Key'], 'disposal-witness-approve');
+          expect(body, {
+            'disposal': disposal,
+            'employeeId': 'NURSE-002',
+            'password': 'witness-secret',
+          });
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'data': {'id': '91', 'status': 'approved'},
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        expect(
+          request.url.path,
+          endsWith('/pharmacy/inventory/v2/disposals'),
+        );
+        expect(request.headers['Idempotency-Key'], 'disposal-command');
+        expect(body, {...disposal, 'witness_approval_id': '91'});
+        return http.Response(
+          jsonEncode({
             'success': true,
             'data': {
-              'movement': {'id': 811},
-              'register_entry': {'id': 911, 'movement_kind': 'return'},
+              'disposal': {'movement_id': 701, 'witness_approval_id': '91'},
             },
           }),
           200,
@@ -1037,28 +1195,56 @@ void main() {
         );
       }),
     );
-    const movement = <String, dynamic>{
-      'inventory_item_id': 501,
-      'inventory_batch_id': 601,
-      'catalog_id': 17,
-      'movement_kind': 'return',
-      'quantity': 2,
-      'reference_type': 'ward_indent_return',
-      'reference_id': 'ward-indent:73:item:91',
-      'patient_uid': '11111111-1111-4111-8111-111111111111',
-    };
 
-    final result = await PharmacyApiService.recordInventoryMovement(
-      movement: movement,
-      idempotencyKey: 'ward-indent-return:test',
+    await PharmacyApiService.requestInventoryDisposalWitnessApproval(
+      disposal: disposal,
+      idempotencyKey: 'disposal-witness-request',
+    );
+    await PharmacyApiService.approveInventoryDisposalWitnessApproval(
+      approvalId: '91',
+      disposal: disposal,
+      employeeId: 'nurse-002',
+      password: 'witness-secret',
+      idempotencyKey: 'disposal-witness-approve',
+    );
+    await PharmacyApiService.disposeInventoryBatch(
+      disposal: {...disposal, 'witness_approval_id': '91'},
+      idempotencyKey: 'disposal-command',
     );
 
-    expect(result['movement']['id'], 811);
-    expect(result['register_entry']['movement_kind'], 'return');
-    expect(captured.method, 'POST');
-    expect(captured.url.path, endsWith('/pharmacy/inventory/v2/movements'));
-    expect(captured.headers['Idempotency-Key'], 'ward-indent-return:test');
-    expect(jsonDecode(captured.body), movement);
+    expect(call, 3);
+  });
+
+  test('inventory reads carry the selected server-proved facility scope', () async {
+    var call = 0;
+    VHHttpClient.setClientForTesting(
+      MockClient((request) async {
+        call += 1;
+        expect(request.url.queryParameters['facility_id'], '8');
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'data': call == 1
+                ? {'items': <Object>[]}
+                : call == 2
+                ? {'batches': <Object>[]}
+                : {'alerts': <Object>[]},
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    );
+
+    await PharmacyApiService.getInventoryItems(facilityId: 8);
+    await PharmacyApiService.getInventoryBatches(
+      itemId: 501,
+      facilityId: 8,
+      status: 'expired',
+    );
+    await PharmacyApiService.getExpiryAlerts(facilityId: 8);
+
+    expect(call, 3);
   });
 
   test('counter-sale item search is scoped to the explicit facility', () async {

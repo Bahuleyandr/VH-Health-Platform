@@ -44,10 +44,15 @@ void main() {
       expect(completion, isNot(contains('dispensed_items')));
       expect(completion, isNot(contains('payment_mode')));
       expect(source, contains('getInventoryBatches'));
-      expect(source, contains('requestControlledDispenseWitnessApproval'));
-      expect(source, contains('approveControlledDispenseWitnessApproval'));
+      expect(source, contains('requestOrderControlledWitnessApproval'));
+      expect(source, contains('approveOrderControlledWitnessApproval'));
+      expect(source, contains("'witness:\$orderId:\$orderLineIndex:"));
       expect(source, contains("'witness_approval_id'"));
       expect(source, isNot(contains('dispenseControlledInventory')));
+      expect(
+        source,
+        isNot(contains('requestControlledDispenseWitnessApproval')),
+      );
       expect(source, isNot(contains('_stopLocationSharing')));
     },
   );
