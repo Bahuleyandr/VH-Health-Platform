@@ -447,6 +447,7 @@ async function getMetadata() {
       FROM pg_constraint
      WHERE contype = 'c'
        AND connamespace = 'public'::regnamespace
+     ORDER BY conrelid::regclass::text, conname
   `);
 
   const columnsByTable = new Map();
@@ -659,6 +660,19 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
   // or RELEASED with a named releaser, timestamp and reason. The walker fills
   // released_by because it is an FK, producing an 'active' row that also claims
   // a releaser — neither branch. A seeded reservation is simply still held.
+  // mig 753: chk_pharmacy_funding_event_generation_753 splits on event_type —
+  // FUNDING_RESOLVED and AUTHORITY_INVALIDATED carry an authority_generation
+  // and, past generation 1, a supersedes_event_id; every other kind must carry
+  // NEITHER. checkedValue() would pick whichever literal happens to come first
+  // across two different CHECK definitions that both mention event_type, so
+  // this table's validity depended on pg_constraint row order: it passed on one
+  // database and failed on another with the same schema. Pin the plain,
+  // lineage-free event kind so the row is correct either way.
+  pharmacy_funding_decision_events: {
+    event_type: 'LINE_MATERIALIZED',
+    authority_generation: null,
+    supersedes_event_id: null
+  },
   pharmacy_cap_reservations: {
     // mig 753 binds (tenant_id, pharmacy_order_id, admission_id) to
     // pharmacy_orders(tenant_id, id, funding_admission_id), and admission_id is
