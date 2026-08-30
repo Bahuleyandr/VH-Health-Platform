@@ -50,7 +50,7 @@ const A = client('ADMIN', { uid: ADMIN_UID, id: 990778, deviceType: 'desktop' })
 const D = client('DOCTOR', { uid: DOCTOR_UID, id: 990779, deviceType: 'desktop' });
 const N = client('IP_STAFF_NURSE', { uid: NURSE_UID, id: 990780, deviceType: 'desktop' });
 const P = client('PHARMACIST', { uid: PHARMACIST_UID, id: 990781, deviceType: 'desktop' });
-const P_AS_LEAD = client('PHARMACY_INCHARGE', {
+const P_WITH_SPOOFED_LEAD_ROLE = client('PHARMACY_INCHARGE', {
   uid: PHARMACIST_UID,
   id: 990781,
   deviceType: 'desktop',
@@ -315,9 +315,9 @@ describe('EMR contract — clinical lifecycle (live assertResponse)', () => {
     expect((await P.put(`/api/v1/emr/orders/${medicationOrderId}/verify`)
       .set('Idempotency-Key', pharmacistVerifyKey)
       .send({ changed: true })).statusCode).toBe(422);
-    expect((await P_AS_LEAD.put(`/api/v1/emr/orders/${medicationOrderId}/verify`)
+    expect((await P_WITH_SPOOFED_LEAD_ROLE.put(`/api/v1/emr/orders/${medicationOrderId}/verify`)
       .set('Idempotency-Key', pharmacistVerifyKey)
-      .send({})).statusCode).toBe(422);
+      .send({})).statusCode).toBe(403);
 
     const nursing = await A.post('/api/v1/emr/orders')
       .set('Idempotency-Key', `emr-contract-nursing-${Date.now()}`)

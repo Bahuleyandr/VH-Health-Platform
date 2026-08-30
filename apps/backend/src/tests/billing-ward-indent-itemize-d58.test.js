@@ -8,7 +8,6 @@
 
 import prisma from '../lib/prisma.js';
 import { itemizeAdmissionInvoice } from '../services/billing/billingV2Service.js';
-import { deleteWithAuditBypass } from './helpers/auditBypass.js';
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const PATIENT_UID = 'd5800000-0000-4000-8000-000000000001';
@@ -24,40 +23,69 @@ let indentId;
 let facilityId;
 
 async function cleanup() {
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM billing_invoices WHERE patient_uid = $1::uuid`,
-    PATIENT_UID,
-  ).catch(() => {});
-  await deleteWithAuditBypass(
-    prisma,
-    `DELETE FROM ward_indent_events event
-      USING ward_indents indent
-      WHERE event.tenant_id = indent.tenant_id
-        AND event.ward_indent_id = indent.id
-        AND indent.tenant_id = $1::uuid
-        AND indent.patient_uid = $2::uuid`,
-    TENANT,
-    PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM ward_indents WHERE patient_uid = $1::uuid`,
-    PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM facilities
-      WHERE tenant_id = $1::uuid AND facility_code = $2::text`,
-    TENANT,
-    FACILITY_CODE,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM admissions WHERE patient_uid = $1::uuid`,
-    PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM users WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
-    TENANT,
-    PATIENT_UID,
-  ).catch(() => {});
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+    await tx.$executeRawUnsafe(
+      `DELETE FROM billing_invoice_items item
+        USING billing_invoices invoice
+        WHERE item.tenant_id = invoice.tenant_id
+          AND item.invoice_id = invoice.id
+          AND invoice.tenant_id = $1::uuid
+          AND invoice.patient_uid = $2::uuid`,
+      TENANT,
+      PATIENT_UID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM billing_invoices
+        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
+      TENANT,
+      PATIENT_UID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM ward_indent_events event
+        USING ward_indents indent
+        WHERE event.tenant_id = indent.tenant_id
+          AND event.ward_indent_id = indent.id
+          AND indent.tenant_id = $1::uuid
+          AND indent.patient_uid = $2::uuid`,
+      TENANT,
+      PATIENT_UID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM ward_indent_items item
+        USING ward_indents indent
+        WHERE item.tenant_id = indent.tenant_id
+          AND item.ward_indent_id = indent.id
+          AND indent.tenant_id = $1::uuid
+          AND indent.patient_uid = $2::uuid`,
+      TENANT,
+      PATIENT_UID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM ward_indents
+        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
+      TENANT,
+      PATIENT_UID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM facilities
+        WHERE tenant_id = $1::uuid
+          AND facility_code LIKE 'D58-PHARMACY-%'
+          AND display_name = 'D58 Ward Pharmacy'`,
+      TENANT,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM admissions
+        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
+      TENANT,
+      PATIENT_UID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM users WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+      TENANT,
+      PATIENT_UID,
+    );
+  });
 }
 
 describe('billing admission itemizer — issued ward indent charges (D58)', () => {

@@ -518,7 +518,7 @@ d('CPOE CDS fail-closed on exception (MEDIUM §4)', () => {
         ordered_by: ORDERER_UID,
         tenantId: TENANT_ID,
       });
-      const beforeArgs = JSON.parse(JSON.stringify(validatePrescriptionSafetySpy.mock.calls.at(-1)));
+      const beforeCall = validatePrescriptionSafetySpy.mock.calls.at(-1);
 
       await prisma.$executeRawUnsafe(
         `UPDATE drug_kb_sources
@@ -535,9 +535,35 @@ d('CPOE CDS fail-closed on exception (MEDIUM §4)', () => {
         ordered_by: ORDERER_UID,
         tenantId: TENANT_ID,
       });
-      const afterArgs = JSON.parse(JSON.stringify(validatePrescriptionSafetySpy.mock.calls.at(-1)));
+      const afterCall = validatePrescriptionSafetySpy.mock.calls.at(-1);
+      const expectedInputs = {
+        patientId,
+        medications: [{
+          name: CATALOG_NAME,
+          medication_name: CATALOG_NAME,
+          dose: '1g',
+          dosage: '1g',
+          route: 'IV',
+          strength: '1g',
+          concentration: null,
+          catalog_id: catalogId,
+        }],
+        tenantId: TENANT_ID,
+      };
+      const serializableInputs = (call) => ({
+        patientId: call[0],
+        medications: call[1],
+        tenantId: call[2]?.tenantId,
+      });
 
-      expect(afterArgs).toEqual(beforeArgs);
+      expect(serializableInputs(beforeCall)).toEqual(expectedInputs);
+      expect(serializableInputs(afterCall)).toEqual(expectedInputs);
+      for (const call of [beforeCall, afterCall]) {
+        expect(call[2]?.db).toEqual(expect.objectContaining({
+          users: expect.objectContaining({ findUnique: expect.any(Function) }),
+          $queryRawUnsafe: expect.any(Function),
+        }));
+      }
     } finally {
       await prisma.$executeRawUnsafe(
         `UPDATE drug_kb_sources
@@ -621,10 +647,6 @@ d('CPOE CDS fail-closed on exception (MEDIUM §4)', () => {
     for (const mismatch of [
       {
         actorUid: SECOND_VERIFIER_UID,
-        options,
-      },
-      {
-        actorUid: VERIFIER_UID,
         options: { ...options, actorRole: 'PHARMACY_INCHARGE' },
       },
       {
@@ -639,6 +661,16 @@ d('CPOE CDS fail-closed on exception (MEDIUM §4)', () => {
         code: 'CLINICAL_ORDER_VERIFY_IDEMPOTENCY_CONFLICT',
       });
     }
+
+    await expect(
+      verifyOrder(orderId, VERIFIER_UID, {
+        ...options,
+        actorRole: 'PHARMACY_INCHARGE',
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'CLINICAL_ORDER_VERIFY_ACTOR_ROLE_CHANGED',
+    });
   });
 
   test('one verification command key cannot be rebound to another order', async () => {
