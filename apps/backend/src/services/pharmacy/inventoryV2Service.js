@@ -3020,13 +3020,22 @@ function scheduleRegisterPublicId(value, field, { nullable = false } = {}) {
   return normalized;
 }
 
-function scheduleRegisterPublicDecimal(value, field) {
+function scheduleRegisterPublicDecimal(value, field, { minimum, maximum }) {
   const normalized = Number(value);
   if (value == null || (typeof value === 'string' && value.trim() === '')
-      || !Number.isFinite(normalized)) {
+      || !Number.isFinite(normalized)
+      || normalized < minimum
+      || normalized > maximum) {
     scheduleRegisterRowConflict(field);
   }
   return normalized;
+}
+
+function scheduleRegisterPublicClass(value) {
+  if (!['H', 'H1', 'X'].includes(value)) {
+    scheduleRegisterRowConflict('schedule_class');
+  }
+  return value;
 }
 
 function scheduleRegisterPublicTimestamp(value, field) {
@@ -3131,7 +3140,7 @@ function serializeScheduleRegisterEntry(entry, { tenantId, facilityId: expectedF
     inventory_item_id: inventoryItemId,
     inventory_batch_id: inventoryBatchId,
     created_at: scheduleRegisterPublicTimestamp(entry.created_at, 'created_at'),
-    schedule_class: entry.schedule_class,
+    schedule_class: scheduleRegisterPublicClass(entry.schedule_class),
     movement_kind: entry.movement_kind,
     sku_code: entry.sku_code,
     display_name: entry.display_name,
@@ -3141,9 +3150,15 @@ function serializeScheduleRegisterEntry(entry, { tenantId, facilityId: expectedF
     form: entry.form ?? null,
     batch_number: entry.batch_number ?? null,
     expiry_date: scheduleRegisterPublicDate(entry.expiry_date, 'expiry_date'),
-    quantity: scheduleRegisterPublicDecimal(entry.quantity, 'quantity'),
+    quantity: scheduleRegisterPublicDecimal(entry.quantity, 'quantity', {
+      minimum: 0.0001,
+      maximum: 9999999999.9999,
+    }),
     unit_label: entry.unit_label ?? null,
-    running_balance: scheduleRegisterPublicDecimal(entry.running_balance, 'running_balance'),
+    running_balance: scheduleRegisterPublicDecimal(entry.running_balance, 'running_balance', {
+      minimum: 0,
+      maximum: 9999999999.9999,
+    }),
     patient_uid: entry.patient_uid ?? null,
     patient_name: entry.patient_name ?? null,
     patient_phone: entry.patient_phone ?? null,

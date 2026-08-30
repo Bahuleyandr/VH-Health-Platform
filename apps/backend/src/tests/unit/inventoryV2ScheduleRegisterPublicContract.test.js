@@ -244,7 +244,17 @@ describe('inventory V2 statutory-register public contract', () => {
     ['inventory item ID', { inventory_item_id: '2147483648' }, 'inventory_item_id'],
     ['inventory batch ID', { inventory_batch_id: '2147483648' }, 'inventory_batch_id'],
     ['quantity', { quantity: 'not-a-decimal' }, 'quantity'],
+    ['zero quantity', { quantity: '0.0000' }, 'quantity'],
+    ['negative quantity', { quantity: '-0.0001' }, 'quantity'],
+    ['quantity above NUMERIC(14,4)', { quantity: '10000000000.0000' }, 'quantity'],
     ['running balance', { running_balance: '' }, 'running_balance'],
+    ['negative running balance', { running_balance: '-0.0001' }, 'running_balance'],
+    [
+      'running balance above NUMERIC(14,4)',
+      { running_balance: '10000000000.0000' },
+      'running_balance',
+    ],
+    ['schedule class', { schedule_class: 'NARCOTIC' }, 'schedule_class'],
     ['created timestamp', { created_at: 'not-a-timestamp' }, 'created_at'],
     ['expiry date', { expiry_date: '2027-02-30' }, 'expiry_date'],
   ])('fails closed on corrupt statutory-register %s', async (_label, mutation, field) => {
