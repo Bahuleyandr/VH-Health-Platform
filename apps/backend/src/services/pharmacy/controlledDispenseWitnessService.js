@@ -62,6 +62,8 @@ const FACILITY_BOUND_APPROVAL_SCOPES = new Set([
 const WITNESS_EVIDENCE = Symbol('controlled-dispense-witness-evidence');
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PG_INT4_MAX = 2147483647;
+const PG_INT8_MAX = 9223372036854775807n;
+const PUBLIC_APPROVAL_STATUSES = new Set(['pending', 'approved']);
 const TRANSIENT_PAYLOAD_KEYS = new Set([
   'witness',
   'witness_uid',
@@ -84,18 +86,13 @@ function requireUuid(value, label) {
 
 function requireApprovalId(value) {
   const parsed = String(value ?? '').trim();
-  if (!/^[1-9][0-9]{0,18}$/.test(parsed) || BigInt(parsed) > 9223372036854775807n) {
+  if (!/^[1-9][0-9]{0,18}$/.test(parsed) || BigInt(parsed) > PG_INT8_MAX) {
     throw AppError.badRequest(
       'witness_approval_id must be a positive integer',
       'CONTROLLED_DISPENSE_WITNESS_APPROVAL_INVALID',
     );
   }
   return parsed;
-}
-
-function serializeApprovalId(row) {
-  if (!row || row.id == null) return row;
-  return { ...row, id: String(row.id) };
 }
 
 function requireScope(value) {
@@ -131,6 +128,103 @@ function approvalPayload(payload = {}) {
       !TRANSIENT_PAYLOAD_KEYS.has(key) && value !== undefined
     )),
   );
+}
+
+function publicApprovalPayload(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw AppError.internal(
+      'Controlled-dispense witness approval has no canonical public payload',
+      'CONTROLLED_DISPENSE_WITNESS_APPROVAL_INVALID',
+    );
+  }
+  return JSON.parse(stableJson(approvalPayload(payload)));
+}
+
+function publicApprovalExpiry(row, fallback = null) {
+  const value = row?.expires_at ?? fallback;
+  const expiresAt = value instanceof Date ? value : new Date(value);
+  if (!value || Number.isNaN(expiresAt.getTime())) {
+    throw AppError.internal(
+      'Controlled-dispense witness approval has no canonical expiry',
+      'CONTROLLED_DISPENSE_WITNESS_APPROVAL_INVALID',
+    );
+  }
+  return expiresAt.toISOString();
+}
+
+function publicWitnessEvidence(scope, witness) {
+  const uid = requireUuid(witness?.uid, 'witness.uid');
+  const name = String(witness?.name || '').trim();
+  const role = normalizeRole(witness?.role);
+  if (!name || !role || !WITNESS_ROLE_SET.has(role)) {
+    throw AppError.conflict(
+      'Witness approval evidence is incomplete',
+      'CONTROLLED_DISPENSE_WITNESS_APPROVAL_INVALID',
+    );
+  }
+  const result = { uid, name, role };
+  if (!FACILITY_BOUND_APPROVAL_SCOPES.has(scope)) return Object.freeze(result);
+  const facilityGrantId = String(witness?.facility_grant_id || '').trim();
+  if (!FACILITY_BOUND_WITNESS_ROLE_SET.has(role)
+      || !/^[1-9][0-9]{0,18}$/.test(facilityGrantId)
+      || BigInt(facilityGrantId) > PG_INT8_MAX) {
+    throw AppError.conflict(
+      'Facility-bound witness approval has no exact pharmacy grant evidence',
+      'CONTROLLED_DISPENSE_WITNESS_APPROVAL_INVALID',
+    );
+  }
+  return Object.freeze({ ...result, facility_grant_id: facilityGrantId });
+}
+
+export function serializeControlledDispenseWitnessApproval(row, {
+  scope,
+  payload,
+  requestedBy,
+  expiresAt = null,
+  witness = null,
+} = {}) {
+  const metadata = approvalMetadata(row);
+  const normalizedScope = requireScope(scope ?? metadata.scope);
+  const requesterUid = requireUuid(
+    requestedBy ?? metadata.requested_by,
+    'requested_by',
+  );
+  const canonicalPayload = publicApprovalPayload(payload);
+  const payloadFingerprint = controlledDispenseApprovalFingerprint({
+    scope: normalizedScope,
+    payload: canonicalPayload,
+    requestedBy: requesterUid,
+  });
+  const storedFingerprint = String(
+    metadata.payload_hash ?? row?.subject_resource_id ?? '',
+  ).trim().toLowerCase();
+  if (storedFingerprint && storedFingerprint !== payloadFingerprint) {
+    throw AppError.conflict(
+      'Witness approval public evidence does not match its immutable fingerprint',
+      'CONTROLLED_DISPENSE_WITNESS_APPROVAL_MISMATCH',
+    );
+  }
+  const status = String(row?.status || '').trim().toLowerCase();
+  if (!PUBLIC_APPROVAL_STATUSES.has(status)) {
+    throw AppError.conflict(
+      'Witness approval has no public pending or approved state',
+      'CONTROLLED_DISPENSE_WITNESS_APPROVAL_INVALID',
+    );
+  }
+  const result = {
+    id: requireApprovalId(row?.id),
+    contract: APPROVAL_CONTRACT,
+    scope: normalizedScope,
+    status,
+    requested_by: requesterUid,
+    payload: canonicalPayload,
+    payload_fingerprint: payloadFingerprint,
+    expires_at: publicApprovalExpiry(row, expiresAt),
+  };
+  if (status === 'approved') {
+    result.witness = publicWitnessEvidence(normalizedScope, witness);
+  }
+  return Object.freeze(result);
 }
 
 export function controlledDispenseApprovalFingerprint({ scope, payload, requestedBy }) {
@@ -325,9 +419,10 @@ export async function createControlledDispenseWitnessApproval({
 }) {
   const requestedByUid = requireUuid(requestedBy, 'requested_by');
   const normalizedScope = requireScope(scope);
+  const canonicalPayload = publicApprovalPayload(payload);
   const payloadHash = controlledDispenseApprovalFingerprint({
     scope: normalizedScope,
-    payload,
+    payload: canonicalPayload,
     requestedBy: requestedByUid,
   });
   const ttlMinutes = SECURITY_CONFIG.controlledDispenseWitness.approvalTtlMinutes;
@@ -348,7 +443,12 @@ export async function createControlledDispenseWitnessApproval({
     },
     tx,
   }));
-  return serializeApprovalId(approval);
+  return serializeControlledDispenseWitnessApproval(approval, {
+    scope: normalizedScope,
+    payload: canonicalPayload,
+    requestedBy: requestedByUid,
+    expiresAt,
+  });
 }
 
 export async function preflightControlledDispenseWitnessApproval({
@@ -395,7 +495,11 @@ export async function preflightControlledDispenseWitnessApproval({
       requireApproved: false,
       requirePending: true,
     });
-    return Object.freeze({ approval_id: String(row.id) });
+    return serializeControlledDispenseWitnessApproval(row, {
+      scope: expectedScope,
+      payload: canonicalPayload,
+      requestedBy: storedRequester,
+    });
   };
   return db ? run(db) : setTenantTx(tenantId, run);
 }
@@ -494,7 +598,12 @@ export async function approveControlledDispenseWitnessApproval({
         witness.role,
       );
     }
-    return { ...serializeApprovalId(approved), witness };
+    return serializeControlledDispenseWitnessApproval(approved, {
+      scope: expectedScope,
+      payload: canonicalPayload,
+      requestedBy: storedRequester,
+      witness,
+    });
   });
 }
 

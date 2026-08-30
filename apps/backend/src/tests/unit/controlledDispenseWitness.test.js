@@ -49,6 +49,21 @@ const PATIENT = '33333333-3333-4333-8333-333333333333';
 const PRESCRIBER = '44444444-4444-4444-8444-444444444444';
 const FACILITY_A = 11;
 const FACILITY_B = 12;
+const MAX_INT8_ID = '9223372036854775807';
+const PUBLIC_PENDING_APPROVAL_KEYS = [
+  'contract',
+  'expires_at',
+  'id',
+  'payload',
+  'payload_fingerprint',
+  'requested_by',
+  'scope',
+  'status',
+].sort();
+const PUBLIC_APPROVED_APPROVAL_KEYS = [
+  ...PUBLIC_PENDING_APPROVAL_KEYS,
+  'witness',
+].sort();
 const PAYLOAD = {
   inventory_item_id: 5,
   inventory_batch_id: 9,
@@ -175,7 +190,14 @@ describe('controlled-dispense witness roster', () => {
 
 describe('independent witness approval', () => {
   test('creates a short-lived approval bound to the seller and exact payload hash', async () => {
-    createApprovalMock.mockResolvedValueOnce({ id: 71n, status: 'pending' });
+    createApprovalMock.mockResolvedValueOnce({
+      id: 71n,
+      status: 'pending',
+      expires_at: new Date(Date.now() + 60_000),
+      tenant_id: TENANT,
+      task_id: 912,
+      metadata: { internal_workflow_state: true },
+    });
     const created = await createControlledDispenseWitnessApproval({
       tenantId: TENANT,
       scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventory,
@@ -183,25 +205,48 @@ describe('independent witness approval', () => {
       requestedBy: DISPENSER,
     });
     expect(created.id).toBe('71');
+    expect(Object.keys(created).sort()).toEqual(PUBLIC_PENDING_APPROVAL_KEYS);
+    expect(created).toMatchObject({
+      contract: 'controlled_dispense_witness_v1',
+      scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventory,
+      status: 'pending',
+      requested_by: DISPENSER,
+      payload: PAYLOAD,
+      payload_fingerprint: controlledDispenseApprovalFingerprint({
+        scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventory,
+        payload: PAYLOAD,
+        requestedBy: DISPENSER,
+      }),
+    });
+    expect(created.witness).toBeUndefined();
+    expect(created.metadata).toBeUndefined();
+    expect(created.task_id).toBeUndefined();
+    expect(created.tenant_id).toBeUndefined();
     expect(createApprovalMock).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: TENANT,
       approvalKind: 'controlled_dispense_witness',
       createdBy: DISPENSER,
       requiredApprovers: 1,
-      metadata: expect.objectContaining({ requested_by: DISPENSER }),
+      metadata: expect.objectContaining({
+        requested_by: DISPENSER,
+      }),
       tx: txMock,
     }));
     const call = createApprovalMock.mock.calls[0][0];
+    expect(call.metadata).not.toHaveProperty('payload');
     expect(call.subjectResourceId).toBe(call.metadata.payload_hash);
     expect(call.expiresAt.getTime()).toBeGreaterThan(Date.now());
   });
 
   test('only the authenticated second actor can approve the exact payload', async () => {
-    const pending = approvalRow({ status: 'pending', approved_by: [], decided_by: null });
+    const pending = approvalRow(
+      { status: 'pending', approved_by: [], decided_by: null },
+      { scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.counterSale },
+    );
     queryRawUnsafeMock
       .mockResolvedValueOnce([pending])
       .mockResolvedValueOnce([{
-        uid: WITNESS, name: 'Canonical Witness', role: 'PHARMACY_STAFF',
+        uid: WITNESS, name: 'Canonical Clinical Witness', role: 'DOCTOR',
       }]);
     recordApprovalDecisionMock.mockResolvedValueOnce({ ...pending, id: 71n, status: 'approved' });
     const approved = await approveControlledDispenseWitnessApproval({
@@ -211,9 +256,18 @@ describe('independent witness approval', () => {
       payload: PAYLOAD,
     });
     expect(approved.id).toBe('71');
+    expect(Object.keys(approved).sort()).toEqual(PUBLIC_APPROVED_APPROVAL_KEYS);
+    expect(Object.keys(approved.witness).sort()).toEqual(['name', 'role', 'uid']);
+    expect(approved.witness).toEqual({
+      uid: WITNESS,
+      name: 'Canonical Clinical Witness',
+      role: 'DOCTOR',
+    });
+    expect(approved.metadata).toBeUndefined();
+    expect(approved.approved_by).toBeUndefined();
     expect(recordApprovalDecisionMock).toHaveBeenCalledWith(expect.objectContaining({
       actorUid: WITNESS,
-      actorRoles: ['PHARMACY_STAFF'],
+      actorRoles: ['DOCTOR'],
       decision: 'approve',
       tx: txMock,
     }));
@@ -283,7 +337,7 @@ describe('independent witness approval', () => {
           staff_id: 19,
         }];
       }
-      if (/FROM pharmacy_staff_facility_grants/i.test(sql)) return [{ id: '91' }];
+      if (/FROM pharmacy_staff_facility_grants/i.test(sql)) return [{ id: MAX_INT8_ID }];
       return [];
     });
     recordApprovalDecisionMock.mockResolvedValueOnce({ ...pending, id: 71n, status: 'approved' });
@@ -298,15 +352,19 @@ describe('independent witness approval', () => {
     expect(approved.witness).toMatchObject({
       uid: WITNESS,
       role: 'PHARMACY_STAFF',
-      facility_grant_id: '91',
+      facility_grant_id: MAX_INT8_ID,
     });
+    expect(Object.keys(approved).sort()).toEqual(PUBLIC_APPROVED_APPROVAL_KEYS);
+    expect(Object.keys(approved.witness).sort()).toEqual([
+      'facility_grant_id', 'name', 'role', 'uid',
+    ]);
     const grantEvidenceWrite = queryRawUnsafeMock.mock.calls.find(([sql]) => (
       /witness_facility_grant_id/i.test(sql) && /UPDATE approvals/i.test(sql)
     ));
     expect(grantEvidenceWrite[0]).toContain("'approved_witness_name'");
     expect(grantEvidenceWrite[0]).toContain("'approved_witness_role'");
     expect(grantEvidenceWrite.slice(1)).toEqual([
-      TENANT, 71, '91', 'Canonical Witness', 'PHARMACY_STAFF',
+      TENANT, 71, MAX_INT8_ID, 'Canonical Witness', 'PHARMACY_STAFF',
     ]);
   });
 
@@ -315,13 +373,24 @@ describe('independent witness approval', () => {
     queryRawUnsafeMock.mockResolvedValueOnce([pending]);
     const resolvePayload = jest.fn(async () => PAYLOAD);
 
-    await expect(preflightControlledDispenseWitnessApproval({
+    const preflight = await preflightControlledDispenseWitnessApproval({
       tenantId: TENANT,
       approvalId: 71,
       scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventory,
       requesterUid: DISPENSER,
       resolvePayload,
-    })).resolves.toEqual({ approval_id: '71' });
+    });
+
+    expect(Object.keys(preflight).sort()).toEqual(PUBLIC_PENDING_APPROVAL_KEYS);
+    expect(preflight).toMatchObject({
+      id: '71',
+      contract: 'controlled_dispense_witness_v1',
+      scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventory,
+      status: 'pending',
+      requested_by: DISPENSER,
+      payload: PAYLOAD,
+    });
+    expect(preflight.witness).toBeUndefined();
 
     expect(resolvePayload).toHaveBeenCalledWith(expect.objectContaining({
       tx: txMock,
