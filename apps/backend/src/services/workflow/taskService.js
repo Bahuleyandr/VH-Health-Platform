@@ -2011,7 +2011,11 @@ function isPendingResultTrackingTask(taskRow) {
 
 function isSubstitutionFundingApprovalTask(taskRow) {
   return taskRow?.task_kind === 'review'
-    && ['pharmacy_tpa_line_decision', 'pharmacy_posted_payment'].includes(
+    && [
+      'pharmacy_tpa_line_decision',
+      'pharmacy_posted_payment',
+      'pharmacy_patient_advance',
+    ].includes(
       taskRow?.related_resource_type,
     )
     && taskRow?.metadata?.contract === SUBSTITUTION_FUNDING_TASK_CONTRACT

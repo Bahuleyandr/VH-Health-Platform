@@ -447,7 +447,9 @@ export async function resolveAuthoritativeCounterFundingTx(tx, {
           AND item.id=(task.metadata->>'invoice_item_id')::int
         WHERE task.tenant_id=$1::uuid
           AND task.related_resource_id=$2
-          AND task.related_resource_type IN ('pharmacy_tpa_line_decision','pharmacy_posted_payment')
+          AND task.related_resource_type IN
+            ('pharmacy_tpa_line_decision','pharmacy_posted_payment',
+             'pharmacy_patient_advance')
           AND task.status IN ('open','in_progress','blocked','overdue')
         ORDER BY task.id DESC
         LIMIT 2
@@ -457,7 +459,7 @@ export async function resolveAuthoritativeCounterFundingTx(tx, {
     );
     const recovery = recoveryRows.length === 1 ? recoveryRows[0] : null;
     throw AppError.conflict(
-      'No durable posted-payment and TPA authority resolves the exact pharmacy order version',
+      'No durable posted-payment, patient-advance, or TPA authority resolves the exact pharmacy order version',
       'COUNTER_FUNDING_POSTED_AUTHORITY_REQUIRED',
       {
         next_action: recovery ? 'open_exact_pharmacy_funding_task' : 'materialize_pharmacy_funding',
