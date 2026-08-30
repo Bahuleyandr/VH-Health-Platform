@@ -1049,7 +1049,7 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
     expect(label.status).toBe(200);
     cleanPackBarcode = label.body.data.pack_barcode;
     expect(cleanPackBarcode).toMatch(/^VHMP-\d+-[0-9A-F]{8}$/);
-    expect(label.body.data.items[0].name).toContain('B1TEST Paracetamol');
+    expect(label.body.data.items[0].name).toBe(CATALOG_NAMES.paracetamol);
 
     const again = await authClient('PHARMACY_STAFF').get(`/api/v1/pharmacy/orders/${cleanOrderId}/pack-label`);
     expect(again.body.data.pack_barcode).toBe(cleanPackBarcode);

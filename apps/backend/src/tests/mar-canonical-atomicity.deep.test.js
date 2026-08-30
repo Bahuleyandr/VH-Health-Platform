@@ -33,7 +33,10 @@ const prisma = prismaModule.default;
 const { setTenantTx } = prismaModule;
 const marService = await import('../services/clinical/marService.js');
 const orderEntryService = await import('../services/emr/orderEntryService.js');
-const { seedReceivedMedicationSupply } = await import('./helpers/medicationEvidenceFixture.js');
+const {
+  seedMedicationFacilityAuthority,
+  seedReceivedMedicationSupply,
+} = await import('./helpers/medicationEvidenceFixture.js');
 
 const TENANT_ID = randomUUID();
 const PATIENT_UID = randomUUID();
@@ -98,6 +101,8 @@ async function cleanupAll() {
     await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
     for (const table of [
       'idempotency_keys',
+      'pharmacy_staff_facility_grant_events',
+      'pharmacy_staff_facility_grants',
       'task_comments',
       'tasks',
       'notification_outbox',
@@ -130,6 +135,9 @@ async function cleanupAll() {
       'admissions',
       'beds',
       'wards',
+      'facility_locations',
+      'facilities',
+      'staff',
       'audit_logs',
       'users',
     ]) {
@@ -183,6 +191,13 @@ d('MAR canonical atomicity — schedule/missed/held (audit §3)', () => {
       ADMIN_UID,
       TENANT_ID,
     );
+    const authority = await seedMedicationFacilityAuthority({
+      prisma,
+      tenantId: TENANT_ID,
+      pharmacistUid: PHARMACIST_UID,
+      grantAdminUid: ADMIN_UID,
+      run: `atomic-${RUN}`,
+    });
     const supply = await seedReceivedMedicationSupply({
       prisma,
       tenantId: TENANT_ID,
@@ -191,6 +206,8 @@ d('MAR canonical atomicity — schedule/missed/held (audit §3)', () => {
       prescriberUid: DOCTOR_UID,
       pharmacistUid: PHARMACIST_UID,
       receiverUid: NURSE_UID,
+      facilityId: authority.facilityId,
+      storageLocationId: authority.storageLocationId,
       run: `atomic-${RUN}`,
       medications: [{
         key: 'atomic',

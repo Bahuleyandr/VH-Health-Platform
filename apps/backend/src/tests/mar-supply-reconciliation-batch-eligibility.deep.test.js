@@ -5,7 +5,10 @@ import {
   consumeMarSupplyTx,
   reconcileMarSupplyOverride,
 } from '../services/clinical/marSupplyService.js';
-import { seedReceivedMedicationSupply } from './helpers/medicationEvidenceFixture.js';
+import {
+  seedMedicationFacilityAuthority,
+  seedReceivedMedicationSupply,
+} from './helpers/medicationEvidenceFixture.js';
 
 const databaseConfigured = Boolean(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const describeIfDb = databaseConfigured ? describe : describe.skip;
@@ -14,6 +17,7 @@ const TENANT_ID = randomUUID();
 const PATIENT_UID = randomUUID();
 const NURSE_UID = randomUUID();
 const PHARMACIST_UID = randomUUID();
+const ADMIN_UID = randomUUID();
 const RUN = `${process.pid}-${Date.now()}`;
 
 let product;
@@ -27,6 +31,8 @@ async function cleanup() {
     await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
     for (const table of [
       'idempotency_keys',
+      'pharmacy_staff_facility_grant_events',
+      'pharmacy_staff_facility_grants',
       'mar_supply_reconciliation_command_receipts',
       'mar_supply_reconciliation_links',
       'mar_supply_consumptions',
@@ -60,6 +66,8 @@ async function cleanup() {
       'admissions',
       'beds',
       'wards',
+      'facility_locations',
+      'facilities',
       'staff',
       'audit_logs',
       'users',
@@ -139,7 +147,20 @@ describeIfDb('MAR supply reconciliation batch eligibility — database boundary'
       `+91962${String(Date.now() % 10_000_000).padStart(7, '0')}`,
       `+91963${String(Date.now() % 10_000_000).padStart(7, '0')}`,
     );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, tenant_id, name, role, is_active, status, updated_at)
+       VALUES ($1::uuid, $2::uuid, 'MAR Grant Admin', 'ADMIN', TRUE, 'active', NOW())`,
+      ADMIN_UID,
+      TENANT_ID,
+    );
 
+    const authority = await seedMedicationFacilityAuthority({
+      prisma,
+      tenantId: TENANT_ID,
+      pharmacistUid: PHARMACIST_UID,
+      grantAdminUid: ADMIN_UID,
+      run: `eligibility-${RUN}`,
+    });
     const supply = await seedReceivedMedicationSupply({
       prisma,
       tenantId: TENANT_ID,
@@ -147,6 +168,8 @@ describeIfDb('MAR supply reconciliation batch eligibility — database boundary'
       requesterUid: NURSE_UID,
       pharmacistUid: PHARMACIST_UID,
       receiverUid: NURSE_UID,
+      facilityId: authority.facilityId,
+      storageLocationId: authority.storageLocationId,
       run: `eligibility-${RUN}`,
       medications: [{
         key: 'eligibility',

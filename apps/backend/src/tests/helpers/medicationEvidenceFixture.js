@@ -9,9 +9,57 @@ import {
 } from '../../services/ipd/ipdSupportService.js';
 import { verifyOrder } from '../../services/emr/orderEntryService.js';
 import { bindMedicationOrderCatalogAuthority } from '../../services/ipd/wardIndentWorkflowService.js';
+import { grantPharmacyFacilityAuthority } from '../../services/pharmacy/pharmacyFacilityAuthorityService.js';
 
 function compact(value) {
   return String(value).trim().toLowerCase().replace(/\s+/g, '');
+}
+
+export async function seedMedicationFacilityAuthority({
+  prisma,
+  tenantId,
+  pharmacistUid,
+  grantAdminUid,
+  run,
+}) {
+  const facilityId = Number((await prisma.$queryRawUnsafe(
+    `INSERT INTO facilities (tenant_id, facility_code, display_name, status, is_default)
+     VALUES ($1::uuid, $2::text, $3::text, 'active', FALSE)
+     RETURNING id`,
+    tenantId,
+    `MAR-FIX-FACILITY-${run}`.slice(0, 80),
+    `MAR fixture facility ${run}`.slice(0, 255),
+  ))[0].id);
+  const storageLocationId = Number((await prisma.$queryRawUnsafe(
+    `INSERT INTO facility_locations
+       (tenant_id, facility_id, location_code, display_name, location_kind, status)
+     VALUES ($1::uuid, $2::int, $3::text, $4::text, 'pharmacy', 'active')
+     RETURNING id`,
+    tenantId,
+    facilityId,
+    `MAR-FIX-STORE-${run}`.slice(0, 120),
+    `MAR fixture store ${run}`.slice(0, 255),
+  ))[0].id);
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO staff
+       (tenant_id, user_id, employee_id, name, designation, skills,
+        certifications, is_active, archived, created_at, updated_at)
+     VALUES ($1::uuid, $2::uuid, $3::text, 'MAR fixture pharmacist', 'Pharmacist',
+             '{}'::text[], '{}'::text[], TRUE, FALSE, NOW(), NOW())`,
+    tenantId,
+    pharmacistUid,
+    `MAR-PHARM-${run}`.slice(0, 50),
+  );
+  await grantPharmacyFacilityAuthority({
+    tenantId,
+    facilityId,
+    staffUid: pharmacistUid,
+    actorUid: grantAdminUid,
+    actorRole: 'ADMIN',
+    reason: 'Explicit MAR test fixture pharmacy facility authority',
+    commandKey: `mar-fixture-facility-grant-${run}`,
+  });
+  return { facilityId, storageLocationId };
 }
 
 export async function seedReceivedMedicationSupply({
@@ -22,15 +70,18 @@ export async function seedReceivedMedicationSupply({
   prescriberUid = requesterUid,
   pharmacistUid,
   receiverUid,
+  facilityId,
+  storageLocationId,
   run,
   medications,
 }) {
   const wardId = Number((await prisma.$queryRawUnsafe(
-    `INSERT INTO wards (tenant_id, name, total_beds, created_at, updated_at)
-     VALUES ($1::uuid, $2::text, 10, NOW(), NOW())
+    `INSERT INTO wards (tenant_id, facility_id, name, total_beds, created_at, updated_at)
+     VALUES ($1::uuid, $3::int, $2::text, 10, NOW(), NOW())
      RETURNING id`,
     tenantId,
     `MAR fixture ward ${run}`,
+    facilityId,
   ))[0].id);
   const encounterId = randomUUID();
   const bedNumber = `MAR-${run}`.slice(0, 20);
@@ -110,9 +161,9 @@ export async function seedReceivedMedicationSupply({
     const catalogId = Number(catalog.id);
     const inventoryItemId = Number((await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_inventory_items
-         (tenant_id, sku_code, display_name, catalog_id, strength, form,
+         (tenant_id, facility_id, sku_code, display_name, catalog_id, strength, form,
           unit_label, schedule_class, is_narcotic)
-       VALUES ($1::uuid, $2::text, $3::text, $4::int, $5::text, $6::text,
+       VALUES ($1::uuid, $7::int, $2::text, $3::text, $4::int, $5::text, $6::text,
                'each', 'OTC', FALSE)
        RETURNING id`,
       tenantId,
@@ -121,19 +172,24 @@ export async function seedReceivedMedicationSupply({
       catalogId,
       medication.strength,
       medication.form,
+      facilityId,
     ))[0].id);
     const batchNumber = (medication.batchNumber || `MAR-BATCH-${run}-${index}`).slice(0, 100);
     const inventoryBatchId = Number((await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_inventory_batches
-         (tenant_id, inventory_item_id, batch_number, expiry_date,
+         (tenant_id, inventory_item_id, facility_id, storage_location_id,
+          batch_number, expiry_date,
           received_quantity, remaining_quantity, status)
-       VALUES ($1::uuid, $2::int, $3::text, (NOW() + INTERVAL '365 days')::date,
+       VALUES ($1::uuid, $2::int, $5::int, $6::int,
+               $3::text, (NOW() + INTERVAL '365 days')::date,
                $4::numeric, $4::numeric, 'in_stock')
        RETURNING id`,
       tenantId,
       inventoryItemId,
       batchNumber,
       quantity,
+      facilityId,
+      storageLocationId,
     ))[0].id);
     const orderDetails = bindMedicationOrderCatalogAuthority({
       catalog_id: catalogId,
@@ -198,6 +254,7 @@ export async function seedReceivedMedicationSupply({
   const reserved = await reserveWardIndent({
     indentId: indent.id,
     reservedBy: pharmacistUid,
+    actorRole: 'PHARMACY_INCHARGE',
     expectedVersion: indent.state_version,
     commandKey: `mar-fixture-reserve-${run}`,
     tenantId,
@@ -205,6 +262,7 @@ export async function seedReceivedMedicationSupply({
   const approved = await approveWardIndent({
     indentId: indent.id,
     approvedBy: pharmacistUid,
+    actorRole: 'PHARMACY_INCHARGE',
     expectedVersion: reserved.state_version,
     commandKey: `mar-fixture-approve-${run}`,
     tenantId,
@@ -212,6 +270,7 @@ export async function seedReceivedMedicationSupply({
   const issued = await issueWardIndent({
     indentId: indent.id,
     issuedBy: pharmacistUid,
+    actorRole: 'PHARMACY_INCHARGE',
     expectedVersion: approved.state_version,
     commandKey: `mar-fixture-issue-${run}`,
     tenantId,
@@ -229,6 +288,8 @@ export async function seedReceivedMedicationSupply({
     bedId,
     admissionId,
     encounterId,
+    facilityId,
+    storageLocationId,
     indentId: Number(indent.id),
     received,
     products,

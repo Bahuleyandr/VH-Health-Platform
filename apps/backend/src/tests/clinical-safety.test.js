@@ -4,13 +4,17 @@ import prisma from '../lib/prisma.js';
 import { administerWithScan, evaluate5Rights } from '../services/clinical/marFiveRightsService.js';
 import { getPatientMAR, recordAdministration, scheduleMedications } from '../services/clinical/marService.js';
 import { acknowledgeAlert, checkOrder } from '../services/emr/cdsEngine.js';
-import { seedReceivedMedicationSupply } from './helpers/medicationEvidenceFixture.js';
+import {
+  seedMedicationFacilityAuthority,
+  seedReceivedMedicationSupply,
+} from './helpers/medicationEvidenceFixture.js';
 
 const TENANT_ID = randomUUID();
 const PATIENT_UID = randomUUID();
 const OTHER_PATIENT_UID = randomUUID();
 const CLINICIAN_UID = randomUUID();
 const PHARMACIST_UID = randomUUID();
+const ADMIN_UID = randomUUID();
 const RUN = `${process.pid}-${Date.now()}-${randomUUID().slice(0, 8)}`;
 
 let supply;
@@ -20,6 +24,8 @@ async function cleanupFixtures() {
     await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
     for (const table of [
       'idempotency_keys',
+      'pharmacy_staff_facility_grant_events',
+      'pharmacy_staff_facility_grants',
       'task_comments',
       'tasks',
       'notification_outbox',
@@ -54,6 +60,9 @@ async function cleanupFixtures() {
       'admissions',
       'beds',
       'wards',
+      'facility_locations',
+      'facilities',
+      'staff',
       'audit_logs',
       'users',
     ]) {
@@ -115,6 +124,19 @@ describe('Clinical safety controls', () => {
       PHARMACIST_UID,
       TENANT_ID,
     );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, tenant_id, name, role, is_active, status, updated_at)
+       VALUES ($1::uuid, $2::uuid, 'Clinical Safety Grant Admin', 'ADMIN', TRUE, 'active', NOW())`,
+      ADMIN_UID,
+      TENANT_ID,
+    );
+    const authority = await seedMedicationFacilityAuthority({
+      prisma,
+      tenantId: TENANT_ID,
+      pharmacistUid: PHARMACIST_UID,
+      grantAdminUid: ADMIN_UID,
+      run: `safety-${RUN}`,
+    });
     supply = await seedReceivedMedicationSupply({
       prisma,
       tenantId: TENANT_ID,
@@ -122,6 +144,8 @@ describe('Clinical safety controls', () => {
       requesterUid: CLINICIAN_UID,
       pharmacistUid: PHARMACIST_UID,
       receiverUid: CLINICIAN_UID,
+      facilityId: authority.facilityId,
+      storageLocationId: authority.storageLocationId,
       run: `safety-${RUN}`,
       medications: [
         {

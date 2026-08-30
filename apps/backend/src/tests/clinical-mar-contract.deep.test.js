@@ -24,7 +24,10 @@ const prisma = (await import('../lib/prisma.js')).default;
 const marService = await import('../services/clinical/marService.js');
 const marFiveRights = await import('../services/clinical/marFiveRightsService.js');
 const { assertData } = await import('./helpers/assertSchema.js');
-const { seedReceivedMedicationSupply } = await import('./helpers/medicationEvidenceFixture.js');
+const {
+  seedMedicationFacilityAuthority,
+  seedReceivedMedicationSupply,
+} = await import('./helpers/medicationEvidenceFixture.js');
 
 // The wire format Express produces (Date -> ISO string, BigInt -> number).
 const wire = (o) => JSON.parse(JSON.stringify(o));
@@ -33,9 +36,11 @@ const TENANT_ID = randomUUID();
 const PATIENT_UID = randomUUID();
 const NURSE_UID = randomUUID();
 const PHARMACIST_UID = randomUUID();
+const ADMIN_UID = randomUUID();
 const PATIENT_PHONE = `+9197${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}`;
 const NURSE_PHONE = `+9197${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}`;
 const PHARMACIST_PHONE = `+9197${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}`;
+const ADMIN_PHONE = `+9197${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}`;
 const RUN = `${process.pid}-${Date.now()}`;
 const MEDICATION_NAME = `MAR Contract Medicine ${RUN}`;
 
@@ -81,6 +86,8 @@ async function cleanup() {
     await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
     for (const table of [
       'idempotency_keys',
+      'pharmacy_staff_facility_grant_events',
+      'pharmacy_staff_facility_grants',
       'task_comments',
       'tasks',
       'notification_outbox',
@@ -113,6 +120,9 @@ async function cleanup() {
       'admissions',
       'beds',
       'wards',
+      'facility_locations',
+      'facilities',
+      'staff',
       'audit_logs',
       'users',
     ]) {
@@ -145,7 +155,19 @@ d('Canonical clinical MAR contract (/api/v1/clinical/mar/*)', () => {
        VALUES ($1::uuid, $2, 'MAR Pharmacist', 'PHARMACY_INCHARGE', true, $3::uuid, NOW())`,
       PHARMACIST_UID, PHARMACIST_PHONE, TENANT_ID,
     );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, updated_at)
+       VALUES ($1::uuid, $2, 'MAR Grant Admin', 'ADMIN', true, $3::uuid, NOW())`,
+      ADMIN_UID, ADMIN_PHONE, TENANT_ID,
+    );
 
+    const authority = await seedMedicationFacilityAuthority({
+      prisma,
+      tenantId: TENANT_ID,
+      pharmacistUid: PHARMACIST_UID,
+      grantAdminUid: ADMIN_UID,
+      run: `contract-${RUN}`,
+    });
     const supply = await seedReceivedMedicationSupply({
       prisma,
       tenantId: TENANT_ID,
@@ -153,6 +175,8 @@ d('Canonical clinical MAR contract (/api/v1/clinical/mar/*)', () => {
       requesterUid: NURSE_UID,
       pharmacistUid: PHARMACIST_UID,
       receiverUid: NURSE_UID,
+      facilityId: authority.facilityId,
+      storageLocationId: authority.storageLocationId,
       run: `contract-${RUN}`,
       medications: [{
         key: 'contract',
