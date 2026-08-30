@@ -128,15 +128,18 @@ function normalizeEnum(value, allowed, label, { required = false } = {}) {
 // it must honour the same statutory invariant (inventoryV2Service.js:640-649
 // and the 2026-08-25 reaudit BC-H1 fix): a controlled substance never moves
 // without its pharmacy_schedule_register row, controlled DECREMENTS only ever
-// happen on the witnessed inventory-v2 paths, and a controlled issue is a
-// patient dispense that belongs to /controlled-dispense. Until 2026-08-27 this
-// router was the last register-bypass door (Sol-verification finding N1):
+// happen in a typed custody workflow, and a controlled issue belongs to a
+// governed pharmacy-order, counter-sale, or ward medication flow. Until
+// 2026-08-27 this router was the last register-bypass door (finding N1):
 // /pharmacy-supply/stock-movements, the retired reserve-stock flow, and the
 // GRN receive flow moved Schedule X stock with no schedule check, witness, or
 // register row.
 // ---------------------------------------------------------------------------
 
 const CONTROLLED_SCHEDULES = ['H', 'H1', 'X'];
+const CONTROLLED_CUSTODY_BATCH_STATUSES = Object.freeze([
+  'in_stock', 'reserved', 'expired', 'recalled', 'quarantined',
+]);
 const SUPPLY_DECREASING_MOVEMENTS = new Set([
   'issue', 'transfer_out', 'adjust_decrease', 'dispose', 'expire', 'recall',
 ]);
@@ -145,7 +148,7 @@ const SUPPLY_INCREASING_MOVEMENTS = new Set([
 ]);
 // Custody events this router is allowed to record for controlled stock, mapped
 // onto the register's own vocabulary (migration 150). Decrements are absent on
-// purpose — they carry the witness ceremony and live on inventory-v2 only.
+// purpose — typed issue and disposal workflows own their witness ceremony.
 const SUPPLY_REGISTER_KIND_BY_MOVEMENT = Object.freeze({
   receive: 'receive',
   transfer_in: 'receive',
@@ -153,8 +156,14 @@ const SUPPLY_REGISTER_KIND_BY_MOVEMENT = Object.freeze({
   adjust_increase: 'adjust',
 });
 
+function canonicalControlledScheduleClass(item) {
+  if (item?.is_narcotic === true) return 'X';
+  const scheduleClass = String(item?.schedule_class || '').trim().toUpperCase();
+  return CONTROLLED_SCHEDULES.includes(scheduleClass) ? scheduleClass : null;
+}
+
 function isControlledSupplyItem(item) {
-  return CONTROLLED_SCHEDULES.includes(item?.schedule_class) || item?.is_narcotic === true;
+  return canonicalControlledScheduleClass(item) !== null;
 }
 
 async function loadSupplyMovementItem(db, tenantId, inventoryItemId) {
@@ -171,12 +180,24 @@ async function loadSupplyMovementItem(db, tenantId, inventoryItemId) {
 function refuseControlledSupplyDecrement(movementKind) {
   if (movementKind === 'issue') {
     throw AppError.conflict(
-      'Controlled substances cannot be issued through the pharmacy-supply endpoints; use POST /api/v1/pharmacy/inventory/v2/controlled-dispense',
+      'Controlled substances cannot be issued through pharmacy-supply; use the governed pharmacy-order, counter-sale, or ward medication workflow',
       'CONTROLLED_MOVEMENT_REQUIRES_DISPENSE_PATH',
     );
   }
+  if (movementKind === 'dispose' || movementKind === 'expire') {
+    throw AppError.conflict(
+      'Controlled-substance disposal requires POST /api/v1/pharmacy/inventory/v2/disposals',
+      'CONTROLLED_MOVEMENT_REQUIRES_REGISTER_PATH',
+    );
+  }
+  if (movementKind === 'recall') {
+    throw AppError.conflict(
+      'A controlled batch recall is a status-only quarantine action; use the governed batch recall workflow',
+      'CONTROLLED_MOVEMENT_REQUIRES_REGISTER_PATH',
+    );
+  }
   throw AppError.conflict(
-    `Controlled-substance '${movementKind}' movements need the witnessed register path; use POST /api/v1/pharmacy/inventory/v2/movements`,
+    `No governed typed workflow is available for controlled-substance '${movementKind}' custody; stock remains unchanged`,
     'CONTROLLED_MOVEMENT_REQUIRES_REGISTER_PATH',
   );
 }
@@ -191,48 +212,153 @@ function requireControlledPerformer(performerUid) {
   return performerUid;
 }
 
-/**
- * Same-transaction statutory register append for the custody events this
- * router may record on controlled stock (receipts, returns, upward
- * adjustments). Mirrors inventoryV2Service's register INSERT:
- * running balance is read inside the same tx so it reflects the movement that
- * was just written.
- */
+async function loadSupplyCustodyBalanceTx(tx, tenantId, facilityId, inventoryItemId, delta = 0) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT COALESCE(SUM(remaining_quantity), 0)::text AS current_balance,
+            (COALESCE(SUM(remaining_quantity), 0) + $4::numeric)::text AS running_balance
+       FROM pharmacy_inventory_batches
+      WHERE tenant_id=$1::uuid
+        AND facility_id=$2::int
+        AND inventory_item_id=$3::int
+        AND status = ANY($5::text[])`,
+    tenantId,
+    Number(facilityId),
+    Number(inventoryItemId),
+    Number(delta),
+    [...CONTROLLED_CUSTODY_BATCH_STATUSES],
+  );
+  const currentBalance = Number(rows[0]?.current_balance);
+  const runningBalance = Number(rows[0]?.running_balance);
+  if (!Number.isFinite(currentBalance) || currentBalance < 0
+    || !Number.isFinite(runningBalance) || runningBalance < 0) {
+    throw AppError.conflict(
+      'Controlled-substance custody balance could not be proven',
+      'PHARMACY_CONTROLLED_REGISTER_EVIDENCE_INVALID',
+    );
+  }
+  return {
+    current_balance: String(rows[0].current_balance),
+    running_balance: String(rows[0].running_balance),
+  };
+}
+
+async function prepareControlledSupplyRegisterTx(tx, {
+  tenantId,
+  item,
+  inventoryItemId,
+  facilityId,
+  movementKind,
+  quantityDelta,
+} = {}) {
+  const scheduleClass = canonicalControlledScheduleClass(item);
+  const registerKind = SUPPLY_REGISTER_KIND_BY_MOVEMENT[movementKind];
+  const quantity = Math.abs(Number(quantityDelta));
+  if (!scheduleClass || !registerKind || !Number.isFinite(quantity) || quantity <= 0) {
+    throw AppError.conflict(
+      'Controlled-substance register command evidence is invalid',
+      'PHARMACY_CONTROLLED_REGISTER_EVIDENCE_INVALID',
+    );
+  }
+  await lockControlledRegisterItemTx(tx, tenantId, inventoryItemId);
+  const balance = await loadSupplyCustodyBalanceTx(
+    tx,
+    tenantId,
+    facilityId,
+    inventoryItemId,
+    quantity,
+  );
+  return Object.freeze({
+    facility_id: Number(facilityId),
+    schedule_class: scheduleClass,
+    movement_kind: registerKind,
+    quantity,
+    unit_label: item?.unit_label || null,
+    running_balance: balance.running_balance,
+  });
+}
+
 async function appendControlledSupplyRegisterTx(tx, {
   tenantId, item, inventoryItemId, inventoryBatchId, movementKind,
   quantity, performedBy, referenceMovementId = null, notes = null,
+  registerEvidence,
 }) {
   const registerKind = SUPPLY_REGISTER_KIND_BY_MOVEMENT[movementKind];
   if (!registerKind) refuseControlledSupplyDecrement(movementKind);
-  await lockControlledRegisterItemTx(tx, tenantId, inventoryItemId);
-  const balance = await tx.$queryRawUnsafe(
-    `SELECT COALESCE(SUM(remaining_quantity), 0)::numeric AS bal
-       FROM pharmacy_inventory_batches
-      WHERE inventory_item_id = $1::int AND tenant_id = $2::uuid AND status = 'in_stock'`,
-    Number(inventoryItemId),
+  const facilityId = Number(registerEvidence?.facility_id);
+  const scheduleClass = canonicalControlledScheduleClass(item);
+  const expectedBalance = Number(registerEvidence?.running_balance);
+  const expectedQuantity = Math.abs(Number(quantity));
+  const batchId = Number(inventoryBatchId);
+  const movementId = Number(referenceMovementId);
+  if (!Number.isSafeInteger(facilityId) || facilityId <= 0
+    || !scheduleClass || registerEvidence?.schedule_class !== scheduleClass
+    || registerEvidence?.movement_kind !== registerKind
+    || Number(registerEvidence?.quantity) !== expectedQuantity
+    || (registerEvidence?.unit_label ?? null) !== (item?.unit_label || null)
+    || !Number.isFinite(expectedBalance) || expectedBalance < 0
+    || !Number.isSafeInteger(batchId) || batchId <= 0
+    || !Number.isSafeInteger(movementId) || movementId <= 0) {
+    throw AppError.conflict(
+      'Controlled-substance register command evidence is invalid',
+      'PHARMACY_CONTROLLED_REGISTER_EVIDENCE_INVALID',
+    );
+  }
+  const actualBalance = await loadSupplyCustodyBalanceTx(
+    tx,
     tenantId,
+    facilityId,
+    inventoryItemId,
   );
+  if (Number(actualBalance.current_balance) !== expectedBalance) {
+    throw AppError.conflict(
+      'Controlled-substance register balance does not match physical facility custody',
+      'PHARMACY_CONTROLLED_REGISTER_EVIDENCE_INVALID',
+    );
+  }
   const rows = await tx.$queryRawUnsafe(
     `INSERT INTO pharmacy_schedule_register
-       (tenant_id, inventory_item_id, inventory_batch_id, schedule_class,
-        movement_kind, quantity, unit_label, running_balance,
-        performed_by, reference_movement_id, notes)
-     VALUES ($1::uuid, $2::int, $3, $4, $5, $6::numeric, $7, $8::numeric,
-             $9::uuid, $10::int, $11)
-     RETURNING id`,
+       (tenant_id, facility_id, inventory_item_id, inventory_batch_id, schedule_class,
+         movement_kind, quantity, unit_label, running_balance,
+         performed_by, reference_movement_id, notes)
+     VALUES ($1::uuid, $2::int, $3::int, $4::int, $5, $6, $7::numeric, $8, $9::numeric,
+             $10::uuid, $11::int, $12)
+     RETURNING id, tenant_id, facility_id, inventory_item_id, inventory_batch_id,
+               schedule_class, movement_kind, quantity::text AS quantity, unit_label,
+               running_balance::text AS running_balance, performed_by,
+               reference_movement_id, notes`,
     tenantId,
+    facilityId,
     Number(inventoryItemId),
-    inventoryBatchId ? Number(inventoryBatchId) : null,
-    item.schedule_class || (item.is_narcotic ? 'X' : 'H1'),
+    batchId,
+    scheduleClass,
     registerKind,
-    Math.abs(Number(quantity)),
+    expectedQuantity,
     item.unit_label || null,
-    Number(balance[0].bal),
+    registerEvidence.running_balance,
     String(performedBy),
-    referenceMovementId ? Number(referenceMovementId) : null,
+    movementId,
     notes,
   );
-  return rows[0];
+  const register = rows[0];
+  if (!register
+    || String(register.tenant_id) !== String(tenantId)
+    || Number(register.facility_id) !== facilityId
+    || Number(register.inventory_item_id) !== Number(inventoryItemId)
+    || Number(register.inventory_batch_id) !== batchId
+    || String(register.schedule_class) !== scheduleClass
+    || String(register.movement_kind) !== registerKind
+    || Number(register.quantity) !== expectedQuantity
+    || (register.unit_label ?? null) !== (item.unit_label || null)
+    || Number(register.running_balance) !== expectedBalance
+    || String(register.performed_by) !== String(performedBy)
+    || Number(register.reference_movement_id) !== movementId
+    || (register.notes ?? null) !== (notes ?? null)) {
+    throw AppError.conflict(
+      'Controlled-substance register row does not match its command evidence',
+      'PHARMACY_CONTROLLED_REGISTER_EVIDENCE_INVALID',
+    );
+  }
+  return register;
 }
 
 function normalizeBoolean(value, fallback = null) {
@@ -300,11 +426,26 @@ function normalizeTimestamp(value, label) {
 
 function normalizeBigInt(value, label, { min = null, max = null } = {}) {
   if (value === null || value === undefined || value === '') return null;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) throw AppError.badRequest(`${label} must be numeric`);
-  if (min !== null && parsed < min) throw AppError.badRequest(`${label} must be >= ${min}`);
-  if (max !== null && parsed > max) throw AppError.badRequest(`${label} must be <= ${max}`);
-  return Math.round(parsed);
+  if ((typeof value === 'number' && !Number.isFinite(value))
+    || !['number', 'string', 'bigint'].includes(typeof value)) {
+    throw AppError.badRequest(`${label} must be numeric`);
+  }
+  const lexical = String(value);
+  if (!/^-?\d+$/.test(lexical)) {
+    throw AppError.badRequest(`${label} must be an integer number of minor units`);
+  }
+  const parsed = BigInt(lexical);
+  if (min !== null && parsed < BigInt(min)) {
+    throw AppError.badRequest(`${label} must be >= ${min}`);
+  }
+  if (max !== null && parsed > BigInt(max)) {
+    throw AppError.badRequest(`${label} must be <= ${max}`);
+  }
+  const compatible = Number(parsed);
+  if (!Number.isSafeInteger(compatible)) {
+    throw AppError.badRequest(`${label} must be an integer number of minor units`);
+  }
+  return compatible;
 }
 
 function normalizeQuantity(value, label, { min = 0, max = 1_000_000_000, required = false } = {}) {
@@ -312,17 +453,61 @@ function normalizeQuantity(value, label, { min = 0, max = 1_000_000_000, require
     if (required) throw AppError.badRequest(`${label} is required`);
     return null;
   }
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) throw AppError.badRequest(`${label} must be numeric`);
-  if (parsed < min) throw AppError.badRequest(`${label} must be >= ${min}`);
-  if (parsed > max) throw AppError.badRequest(`${label} must be <= ${max}`);
-  const scaled = parsed * 10_000;
-  const nearest = Math.round(scaled);
-  const tolerance = Number.EPSILON * Math.max(1, Math.abs(scaled)) * 8;
-  if (!Number.isSafeInteger(nearest) || Math.abs(scaled - nearest) > tolerance) {
-    throw AppError.badRequest(`${label} must have at most 4 decimal places`);
+  if ((typeof value === 'number' && !Number.isFinite(value))
+    || !['number', 'string', 'bigint'].includes(typeof value)) {
+    throw AppError.badRequest(`${label} must be numeric`);
   }
-  return nearest / 10_000;
+  const scaled = decimal4ToScaled(value);
+  if (scaled === null) {
+    throw AppError.badRequest(`${label} must be a plain decimal with at most 4 decimal places`);
+  }
+  const minScaled = decimal4ToScaled(min);
+  const maxScaled = decimal4ToScaled(max);
+  if (minScaled === null || maxScaled === null) {
+    throw new TypeError(`${label} has invalid validation bounds`);
+  }
+  if (scaled < minScaled) throw AppError.badRequest(`${label} must be >= ${min}`);
+  if (scaled > maxScaled) throw AppError.badRequest(`${label} must be <= ${max}`);
+  const compatibleScaled = Number(scaled);
+  if (!Number.isSafeInteger(compatibleScaled)) {
+    throw AppError.badRequest(`${label} is outside the supported quantity range`);
+  }
+  return compatibleScaled / Number(NUMERIC_14_4_SCALE);
+}
+
+const NUMERIC_14_4_SCALE = 10_000n;
+const NUMERIC_14_4_MAX_SCALED = 99_999_999_999_999n;
+
+function decimal4ToScaled(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const match = /^([+-]?)(\d+)(?:\.(\d{1,4}))?$/.exec(String(value));
+  if (!match) return null;
+  const whole = BigInt(match[2]);
+  const fraction = BigInt((match[3] || '').padEnd(4, '0') || '0');
+  const absolute = (whole * NUMERIC_14_4_SCALE) + fraction;
+  return match[1] === '-' && absolute !== 0n ? -absolute : absolute;
+}
+
+function numeric14_4ToScaled(value) {
+  const scaled = decimal4ToScaled(value);
+  if (scaled === null || scaled < -NUMERIC_14_4_MAX_SCALED
+    || scaled > NUMERIC_14_4_MAX_SCALED) return null;
+  return scaled;
+}
+
+function scaledNumeric14_4ToCanonical(value) {
+  if (typeof value !== 'bigint' || value < -NUMERIC_14_4_MAX_SCALED
+    || value > NUMERIC_14_4_MAX_SCALED) return null;
+  const negative = value < 0n;
+  const absolute = negative ? -value : value;
+  const whole = absolute / NUMERIC_14_4_SCALE;
+  const fraction = String(absolute % NUMERIC_14_4_SCALE).padStart(4, '0');
+  return `${negative ? '-' : ''}${whole}.${fraction}`;
+}
+
+function canonicalNumeric14_4(value) {
+  const scaled = numeric14_4ToScaled(value);
+  return scaled === null ? null : scaledNumeric14_4ToCanonical(scaled);
 }
 
 function normalizeInt(value, label, { min = null, max = null } = {}) {
@@ -373,6 +558,193 @@ function storedReceiptFacilityId(value, receiptCode) {
     );
   }
   return facilityId;
+}
+
+function selectAliasedFields(tableAlias, resultPrefix, fields) {
+  return fields
+    .map((field) => `${tableAlias}.${field} AS ${resultPrefix}_${field}`)
+    .join(', ');
+}
+
+const CONTROLLED_REGISTER_REPLAY_SELECT = `
+  register_evidence.count AS controlled_register_count,
+  register_evidence.id AS controlled_register_id,
+  register_evidence.facility_id AS controlled_register_facility_id,
+  register_evidence.inventory_item_id AS controlled_register_inventory_item_id,
+  register_evidence.inventory_batch_id AS controlled_register_inventory_batch_id,
+  register_evidence.schedule_class AS controlled_register_schedule_class,
+  register_evidence.movement_kind AS controlled_register_movement_kind,
+  register_evidence.quantity AS controlled_register_quantity,
+  register_evidence.unit_label AS controlled_register_unit_label,
+  register_evidence.running_balance AS controlled_register_running_balance,
+  register_evidence.performed_by AS controlled_register_performed_by`;
+
+const CONTROLLED_REGISTER_REPLAY_JOIN = `
+  LEFT JOIN LATERAL (
+    SELECT COUNT(*)::int AS count,
+           MIN(register.id)::int AS id,
+           MIN(register.facility_id)::int AS facility_id,
+           MIN(register.inventory_item_id)::int AS inventory_item_id,
+           MIN(register.inventory_batch_id)::int AS inventory_batch_id,
+           MIN(register.schedule_class) AS schedule_class,
+           MIN(register.movement_kind) AS movement_kind,
+           MIN(register.quantity)::text AS quantity,
+           MIN(register.unit_label) AS unit_label,
+           MIN(register.running_balance)::text AS running_balance,
+           MIN(register.performed_by::text) AS performed_by
+      FROM pharmacy_schedule_register register
+     WHERE register.tenant_id=movement.tenant_id
+       AND register.reference_movement_id=movement.id
+  ) register_evidence ON TRUE`;
+
+function extractAliasedFields(row, resultPrefix, fields) {
+  if (!row || row[`${resultPrefix}_id`] === null || row[`${resultPrefix}_id`] === undefined) {
+    return null;
+  }
+  return Object.fromEntries(fields
+    .filter((field) => Object.hasOwn(row, `${resultPrefix}_${field}`))
+    .map((field) => [field, row[`${resultPrefix}_${field}`]]));
+}
+
+function dateOnly(value) {
+  if (value === null || value === undefined || value === '') return null;
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return String(value).slice(0, 10);
+}
+
+function intentValueMatches(stored, authoritative) {
+  if (authoritative === null) return stored === null;
+  if (authoritative === undefined) return false;
+  if (typeof authoritative === 'number') {
+    if (stored === null || stored === undefined || stored === '') return false;
+    return Number.isFinite(Number(stored)) && Number(stored) === authoritative;
+  }
+  if (typeof authoritative === 'boolean') return stored === authoritative;
+  return stored !== null
+    && stored !== undefined
+    && String(stored) === String(authoritative);
+}
+
+function intentMatches(intent, authoritative) {
+  return intent && typeof intent === 'object' && !Array.isArray(intent)
+    && Object.entries(authoritative)
+      .every(([key, value]) => intentValueMatches(intent[key], value));
+}
+
+function requireReplayMetadata(row, {
+  contract,
+  commandKeySha256,
+  requestField,
+  requestFingerprint,
+  conflictMessage,
+  conflictCode,
+  incompleteMessage,
+  incompleteCode,
+} = {}) {
+  const metadata = row?.movement_metadata;
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)
+    || metadata[requestField] !== requestFingerprint) {
+    throw AppError.conflict(conflictMessage, conflictCode);
+  }
+  if (metadata.contract !== contract
+    || metadata.command_key_sha256 !== commandKeySha256
+    || !metadata.intent
+    || typeof metadata.intent !== 'object'
+    || Array.isArray(metadata.intent)) {
+    throw AppError.conflict(incompleteMessage, incompleteCode);
+  }
+  const facilityId = storedReceiptFacilityId(metadata.facility_id, incompleteCode);
+  if (!intentValueMatches(metadata.intent.facility_id, facilityId)) {
+    throw AppError.conflict(incompleteMessage, incompleteCode);
+  }
+  return { metadata, intent: metadata.intent, facilityId };
+}
+
+function requireControlledRegisterEvidence(row, intent, {
+  facilityId,
+  inventoryItemId,
+  inventoryBatchId,
+  movementKind,
+  quantity,
+  performedBy,
+} = {}, incompleteMessage, incompleteCode) {
+  const itemFacilityId = Number(row?.lineage_item_facility_id);
+  const itemId = Number(row?.lineage_item_id);
+  const item = {
+    schedule_class: row?.lineage_item_schedule_class,
+    is_narcotic: row?.lineage_item_is_narcotic === true,
+  };
+  const scheduleClass = canonicalControlledScheduleClass(item);
+  const controlled = scheduleClass !== null;
+  const evidence = intent?.register_evidence;
+  const count = Number(row?.controlled_register_count);
+  if (!Number.isSafeInteger(itemId) || itemId !== Number(inventoryItemId)
+    || !Number.isSafeInteger(itemFacilityId) || itemFacilityId !== Number(facilityId)
+    || intent?.controlled !== controlled) {
+    throw AppError.conflict(incompleteMessage, incompleteCode);
+  }
+  if (!controlled) {
+    if (count !== 0 || evidence !== null) {
+      throw AppError.conflict(incompleteMessage, incompleteCode);
+    }
+    return false;
+  }
+  const registerKind = SUPPLY_REGISTER_KIND_BY_MOVEMENT[movementKind];
+  const signedQuantityScaled = numeric14_4ToScaled(quantity);
+  const expectedQuantityScaled = signedQuantityScaled === null
+    ? null
+    : (signedQuantityScaled < 0n ? -signedQuantityScaled : signedQuantityScaled);
+  const evidenceQuantityScaled = numeric14_4ToScaled(evidence?.quantity);
+  const registerQuantityScaled = numeric14_4ToScaled(row?.controlled_register_quantity);
+  const runningBalance = Number(evidence?.running_balance);
+  if (!registerKind
+    || !evidence || typeof evidence !== 'object' || Array.isArray(evidence)
+    || expectedQuantityScaled === null || expectedQuantityScaled <= 0n
+    || evidenceQuantityScaled === null || evidenceQuantityScaled !== expectedQuantityScaled
+    || registerQuantityScaled === null || registerQuantityScaled !== expectedQuantityScaled
+    || !Number.isFinite(runningBalance) || runningBalance < 0
+    || !intentMatches(evidence, {
+      facility_id: Number(facilityId),
+      schedule_class: scheduleClass,
+      movement_kind: registerKind,
+      unit_label: evidence.unit_label ?? null,
+    })
+    || count !== 1
+    || !Number.isSafeInteger(Number(row?.controlled_register_id))
+    || Number(row.controlled_register_id) <= 0
+    || Number(row?.controlled_register_facility_id) !== Number(facilityId)
+    || Number(row?.controlled_register_inventory_item_id) !== Number(inventoryItemId)
+    || Number(row?.controlled_register_inventory_batch_id) !== Number(inventoryBatchId)
+    || String(row?.controlled_register_schedule_class) !== scheduleClass
+    || String(row?.controlled_register_movement_kind) !== registerKind
+    || (row?.controlled_register_unit_label ?? null) !== (evidence.unit_label ?? null)
+    || Number(row?.controlled_register_running_balance) !== runningBalance
+    || String(row?.controlled_register_performed_by) !== String(performedBy)) {
+    throw AppError.conflict(incompleteMessage, incompleteCode);
+  }
+  return true;
+}
+
+function immutableResponseSnapshot(value) {
+  return JSON.parse(JSON.stringify(value, (_key, current) => (
+    typeof current === 'bigint' ? current.toString() : current
+  )));
+}
+
+function requireResponsePayload(metadata, incompleteMessage, incompleteCode) {
+  const snapshot = metadata?.response_payload;
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+    throw AppError.conflict(incompleteMessage, incompleteCode);
+  }
+  return snapshot;
+}
+
+function requireMovementResponse(metadata, incompleteMessage, incompleteCode) {
+  const response = metadata?.response;
+  if (!response || typeof response !== 'object' || Array.isArray(response)) {
+    throw AppError.conflict(incompleteMessage, incompleteCode);
+  }
+  return response;
 }
 
 // ---------------------------------------------------------------------------
@@ -750,15 +1122,25 @@ export async function listInventoryItems({
 // Inventory batches + receive flow (with stock-movement ledger entry)
 // ---------------------------------------------------------------------------
 
-const BATCH_RETURNING = `id, tenant_id, inventory_item_id, facility_id,
-  batch_number, lot_number, manufacture_date, expiry_date,
-  received_quantity, remaining_quantity, unit_cost_minor, mrp_minor,
-  supplier_id, goods_receipt_id, storage_location_id, status,
-  recall_reference, metadata, created_at, updated_at`;
+const BATCH_FIELDS = Object.freeze([
+  'id', 'tenant_id', 'inventory_item_id', 'facility_id',
+  'batch_number', 'lot_number', 'manufacture_date', 'expiry_date',
+  'received_quantity', 'remaining_quantity', 'unit_cost_minor', 'mrp_minor',
+  'supplier_id', 'goods_receipt_id', 'storage_location_id', 'status',
+  'recall_reference', 'metadata', 'created_at', 'updated_at',
+]);
+const BATCH_RETURNING = BATCH_FIELDS.join(', ');
+
+const MOVEMENT_FIELDS = Object.freeze([
+  'id', 'tenant_id', 'inventory_item_id', 'inventory_batch_id',
+  'movement_kind', 'quantity_delta', 'reference_type', 'reference_id',
+  'performed_by', 'notes', 'metadata', 'created_at',
+]);
 
 /**
- * Add a new batch (call from a GRN flow). Inserts the batch + writes
- * a 'receive' stock_movement row in one transaction.
+ * Add a new direct-supply batch. Inserts the batch + writes a 'receive'
+ * stock_movement row in one transaction. GRN-linked receipts are rejected in
+ * favour of receivePurchaseOrderLine(), which closes the PO/GRN lineage.
  */
 export async function addInventoryBatch({
   tenantId = null,
@@ -797,6 +1179,14 @@ export async function addInventoryBatch({
     );
   }
   const qty = normalizeQuantity(receivedQuantity, 'received_quantity', { min: 0.0001, required: true });
+  const cost = normalizeBigInt(unitCostMinor, 'unit_cost_minor', {
+    min: 0,
+    max: 1_000_000_000_000,
+  });
+  const mrp = normalizeBigInt(mrpMinor, 'mrp_minor', {
+    min: 0,
+    max: 1_000_000_000_000,
+  });
   if (goodsReceiptId != null) {
     throw AppError.conflict(
       'GRN-linked stock must use the governed purchase-order receive-line workflow',
@@ -819,8 +1209,24 @@ export async function addInventoryBatch({
         `pharmacy-direct-receive:${tid}:${commandKeySha256}`,
       );
       const replays = await tx.$queryRawUnsafe(
-        `SELECT movement.metadata
+        `SELECT ${selectAliasedFields('movement', 'movement', MOVEMENT_FIELDS)},
+                ${selectAliasedFields('batch', 'batch', BATCH_FIELDS)},
+                item.id AS lineage_item_id,
+                item.facility_id AS lineage_item_facility_id,
+                item.schedule_class AS lineage_item_schedule_class,
+                item.is_narcotic AS lineage_item_is_narcotic,
+                item.unit_label AS lineage_item_unit_label,
+                ${CONTROLLED_REGISTER_REPLAY_SELECT}
            FROM pharmacy_stock_movements movement
+           LEFT JOIN pharmacy_inventory_batches batch
+             ON batch.tenant_id=movement.tenant_id
+            AND batch.id=movement.inventory_batch_id
+            AND batch.inventory_item_id=movement.inventory_item_id
+           LEFT JOIN pharmacy_inventory_items item
+             ON item.tenant_id=movement.tenant_id
+            AND item.id=movement.inventory_item_id
+            AND item.facility_id=batch.facility_id
+           ${CONTROLLED_REGISTER_REPLAY_JOIN}
           WHERE movement.tenant_id=$1::uuid
             AND movement.metadata->>'contract'='pharmacy_inventory_direct_receive_v1'
             AND movement.metadata->>'command_key_sha256'=$2
@@ -830,17 +1236,99 @@ export async function addInventoryBatch({
         commandKeySha256,
       );
       if (replays.length) {
-        if (replays.length !== 1
-          || replays[0].metadata?.request_fingerprint !== requestFingerprint
-          || !replays[0].metadata?.response_payload) {
+        if (replays.length !== 1) {
           throw AppError.conflict(
             'Direct stock receipt idempotency evidence conflicts with this request',
             'PHARMACY_STOCK_RECEIPT_IDEMPOTENCY_CONFLICT',
           );
         }
-        const replayPayload = replays[0].metadata.response_payload;
-        const replayFacilityId = storedReceiptFacilityId(
-          replayPayload.facility_id,
+        const replayRow = replays[0];
+        const incompleteMessage = 'The direct stock receipt committed without complete immutable lineage and requires recovery';
+        const { metadata: replayMetadata, intent, facilityId: replayFacilityId } = requireReplayMetadata(replayRow, {
+          contract: 'pharmacy_inventory_direct_receive_v1',
+          commandKeySha256,
+          requestField: 'request_fingerprint',
+          requestFingerprint,
+          conflictMessage: 'Direct stock receipt idempotency evidence conflicts with this request',
+          conflictCode: 'PHARMACY_STOCK_RECEIPT_IDEMPOTENCY_CONFLICT',
+          incompleteMessage,
+          incompleteCode: 'PHARMACY_STOCK_RECEIPT_INCOMPLETE',
+        });
+        const movement = extractAliasedFields(replayRow, 'movement', MOVEMENT_FIELDS);
+        const replayBatch = extractAliasedFields(replayRow, 'batch', BATCH_FIELDS);
+        const responseSnapshot = requireResponsePayload(
+          replayMetadata,
+          incompleteMessage,
+          'PHARMACY_STOCK_RECEIPT_INCOMPLETE',
+        );
+        const replayControlled = isControlledSupplyItem({
+          schedule_class: replayRow.lineage_item_schedule_class,
+          is_narcotic: replayRow.lineage_item_is_narcotic === true,
+        });
+        if (!movement || !replayBatch || !intentMatches(intent, {
+          facility_id: replayFacilityId,
+          inventory_item_id: Number(movement.inventory_item_id),
+          inventory_batch_id: Number(movement.inventory_batch_id),
+          movement_kind: String(movement.movement_kind),
+          quantity_delta: Number(movement.quantity_delta),
+          reference_type: movement.reference_type ?? null,
+          reference_id: movement.reference_id ?? null,
+          performed_by: movement.performed_by ?? null,
+          supplier_id: Number(replayBatch.supplier_id),
+          storage_location_id: Number(replayBatch.storage_location_id),
+          goods_receipt_id: replayBatch.goods_receipt_id ?? null,
+          batch_number: String(replayBatch.batch_number),
+          lot_number: replayBatch.lot_number ?? null,
+          manufacture_date: dateOnly(replayBatch.manufacture_date),
+          expiry_date: dateOnly(replayBatch.expiry_date),
+          received_quantity: Number(replayBatch.received_quantity),
+          unit_cost_minor: replayBatch.unit_cost_minor == null
+            ? null
+            : Number(replayBatch.unit_cost_minor),
+          mrp_minor: replayBatch.mrp_minor == null ? null : Number(replayBatch.mrp_minor),
+          controlled: replayControlled,
+        })
+          || Number(replayBatch.facility_id) !== replayFacilityId
+          || Number(replayBatch.inventory_item_id) !== Number(movement.inventory_item_id)
+          || Number(replayBatch.id) !== Number(movement.inventory_batch_id)
+          || String(movement.movement_kind) !== 'receive'
+          || Number(movement.quantity_delta) <= 0
+          || String(movement.reference_type) !== 'direct_supply_receipt'
+          || String(movement.reference_id) !== String(replayBatch.id)
+          || !intentMatches(responseSnapshot, {
+            id: Number(replayBatch.id),
+            tenant_id: String(replayBatch.tenant_id),
+            inventory_item_id: Number(replayBatch.inventory_item_id),
+            facility_id: replayFacilityId,
+            batch_number: String(replayBatch.batch_number),
+            lot_number: replayBatch.lot_number ?? null,
+            received_quantity: Number(replayBatch.received_quantity),
+            remaining_quantity: Number(replayBatch.received_quantity),
+            unit_cost_minor: replayBatch.unit_cost_minor == null
+              ? null
+              : Number(replayBatch.unit_cost_minor),
+            mrp_minor: replayBatch.mrp_minor == null ? null : Number(replayBatch.mrp_minor),
+            supplier_id: Number(replayBatch.supplier_id),
+            goods_receipt_id: null,
+            storage_location_id: Number(replayBatch.storage_location_id),
+            status: 'in_stock',
+          })
+          || dateOnly(responseSnapshot.manufacture_date) !== dateOnly(replayBatch.manufacture_date)
+          || dateOnly(responseSnapshot.expiry_date) !== dateOnly(replayBatch.expiry_date)) {
+          throw AppError.conflict(incompleteMessage, 'PHARMACY_STOCK_RECEIPT_INCOMPLETE');
+        }
+        requireControlledRegisterEvidence(
+          replayRow,
+          intent,
+          {
+            facilityId: replayFacilityId,
+            inventoryItemId: Number(movement.inventory_item_id),
+            inventoryBatchId: Number(movement.inventory_batch_id),
+            movementKind: String(movement.movement_kind),
+            quantity: Number(movement.quantity_delta),
+            performedBy: movement.performed_by,
+          },
+          incompleteMessage,
           'PHARMACY_STOCK_RECEIPT_INCOMPLETE',
         );
         await assertSupplyFacilityGrantTx(tx, {
@@ -849,7 +1337,7 @@ export async function addInventoryBatch({
           actorUid: performerUid,
           actorRole,
         });
-        return replayPayload;
+        return responseSnapshot;
       }
       await assertSupplyFacilityGrantTx(tx, {
         tenantId: tid,
@@ -919,14 +1407,28 @@ export async function addInventoryBatch({
         cleanBatch, safeText(lotNumber, 120),
         cleanManufacture,
         cleanExpiry, qty,
-        normalizeBigInt(unitCostMinor, 'unit_cost_minor', { min: 0, max: 1_000_000_000_000 }),
-        normalizeBigInt(mrpMinor, 'mrp_minor', { min: 0, max: 1_000_000_000_000 }),
+        cost,
+        mrp,
         exactSupplierId,
         goodsReceiptId ? normalizeId(goodsReceiptId, 'goods_receipt_id') : null,
         exactStorageLocationId,
         JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
       );
       const insertedBatch = insertRows[0];
+      const responseSnapshot = immutableResponseSnapshot({
+        ...insertedBatch,
+        remaining_quantity: insertedBatch.received_quantity,
+      });
+      const registerEvidence = controlled
+        ? await prepareControlledSupplyRegisterTx(tx, {
+          tenantId: tid,
+          item: controlledItem,
+          inventoryItemId: itemId,
+          facilityId: exactFacilityId,
+          movementKind: 'receive',
+          quantityDelta: qty,
+        })
+        : null;
       const { movement } = await recordMovementTx(tx, {
         tenantId: tid,
         inventory_item_id: itemId,
@@ -942,6 +1444,30 @@ export async function addInventoryBatch({
           contract: 'pharmacy_inventory_direct_receive_v1',
           command_key_sha256: commandKeySha256,
           request_fingerprint: requestFingerprint,
+          facility_id: exactFacilityId,
+          intent: {
+            facility_id: exactFacilityId,
+            inventory_item_id: itemId,
+            inventory_batch_id: Number(insertedBatch.id),
+            movement_kind: 'receive',
+            quantity_delta: qty,
+            reference_type: 'direct_supply_receipt',
+            reference_id: String(insertedBatch.id),
+            performed_by: performerUid,
+            supplier_id: exactSupplierId,
+            storage_location_id: exactStorageLocationId,
+            goods_receipt_id: null,
+            batch_number: cleanBatch,
+            lot_number: safeText(lotNumber, 120),
+            manufacture_date: cleanManufacture,
+            expiry_date: cleanExpiry,
+            received_quantity: qty,
+            unit_cost_minor: cost,
+            mrp_minor: mrp,
+            controlled,
+            register_evidence: registerEvidence,
+          },
+          response_payload: responseSnapshot,
         },
       });
       const refreshedRows = await tx.$queryRawUnsafe(
@@ -962,6 +1488,12 @@ export async function addInventoryBatch({
           'PHARMACY_STOCK_RECEIPT_INCOMPLETE',
         );
       }
+      if (Number(batch.remaining_quantity) !== qty || batch.status !== 'in_stock') {
+        throw AppError.conflict(
+          'Direct receipt batch balance does not match its immutable command response',
+          'PHARMACY_STOCK_RECEIPT_INCOMPLETE',
+        );
+      }
       if (controlled) {
         await appendControlledSupplyRegisterTx(tx, {
           tenantId: tid,
@@ -973,22 +1505,10 @@ export async function addInventoryBatch({
           performedBy: performerUid,
           referenceMovementId: movement?.id || null,
           notes: `Batch ${batch.batch_number} received`,
+          registerEvidence,
         });
       }
-      await tx.$executeRawUnsafe(
-        `UPDATE pharmacy_stock_movements
-            SET metadata=COALESCE(metadata, '{}'::jsonb) || $3::jsonb
-          WHERE tenant_id=$1::uuid AND id=$2::int`,
-        tid,
-        Number(movement.id),
-        JSON.stringify({
-          contract: 'pharmacy_inventory_direct_receive_v1',
-          command_key_sha256: commandKeySha256,
-          request_fingerprint: requestFingerprint,
-          response_payload: batch,
-        }),
-      );
-      return batch;
+      return responseSnapshot;
     });
   } catch (err) {
     if (isUniqueViolation(err)) throw AppError.conflict('batch_number already exists for this item');
@@ -1052,7 +1572,6 @@ export async function listBatches({
                ON supplier.tenant_id=pharmacy_inventory_batches.tenant_id
               AND supplier.id=pharmacy_inventory_batches.supplier_id
               AND supplier.facility_id=pharmacy_inventory_batches.facility_id
-              AND supplier.status='active'
             WHERE item.tenant_id=pharmacy_inventory_batches.tenant_id
               AND item.id=pharmacy_inventory_batches.inventory_item_id
               AND item.facility_id=pharmacy_inventory_batches.facility_id
@@ -1101,7 +1620,6 @@ export async function recallBatch({
            ON supplier.tenant_id=batch.tenant_id
           AND supplier.id=batch.supplier_id
           AND supplier.facility_id=batch.facility_id
-          AND supplier.status='active'
         WHERE batch.tenant_id=$1::uuid AND batch.id=$2::int
           AND EXISTS (
             SELECT 1 FROM facility_locations location
@@ -1116,7 +1634,7 @@ export async function recallBatch({
     );
     if (!authorityRows[0]) {
       throw AppError.conflict(
-        'Batch authority is inactive or no longer forms one facility/catalog lineage',
+        'Batch authority no longer forms one active item/catalog/facility/storage lineage with its exact supplier',
         'PHARMACY_BATCH_AUTHORITY_INVALID',
       );
     }
@@ -1159,10 +1677,25 @@ export async function recallBatch({
 // Purchase orders + items
 // ---------------------------------------------------------------------------
 
-const PO_RETURNING = `id, tenant_id, facility_id, po_number, supplier_id, status,
-  ordered_at, expected_at, received_at, total_amount_minor, currency,
-  notes, approved_by, approved_at, cancellation_reason,
-  metadata, created_by, created_at, updated_at`;
+const PO_FIELDS = Object.freeze([
+  'id', 'tenant_id', 'facility_id', 'po_number', 'supplier_id', 'status',
+  'ordered_at', 'expected_at', 'received_at', 'total_amount_minor', 'currency',
+  'notes', 'approved_by', 'approved_at', 'cancellation_reason',
+  'metadata', 'created_by', 'created_at', 'updated_at',
+]);
+const PO_RETURNING = PO_FIELDS.join(', ');
+
+const GRN_ITEM_RESPONSE_FIELDS = Object.freeze([
+  'id', 'tenant_id', 'goods_receipt_id', 'inventory_item_id',
+  'inventory_batch_id', 'purchase_order_item_id', 'received_quantity',
+  'unit_cost_minor', 'qc_status', 'qc_notes', 'metadata', 'created_at', 'updated_at',
+]);
+const GRN_RESPONSE_FIELDS = Object.freeze([
+  'id', 'status', 'facility_id', 'supplier_id', 'purchase_order_id', 'updated_at',
+]);
+const PO_ITEM_RESPONSE_FIELDS = Object.freeze([
+  'id', 'purchase_order_id', 'ordered_quantity', 'received_quantity',
+]);
 
 export async function createPurchaseOrder({
   tenantId = null, facilityId = null,
@@ -1740,7 +2273,6 @@ export async function recordGoodsReceiptItemQc({
            ON supplier.tenant_id=grn.tenant_id
           AND supplier.id=grn.supplier_id
           AND supplier.facility_id=grn.facility_id
-          AND supplier.status='active'
          JOIN pharmacy_goods_receipt_items line
            ON line.tenant_id=grn.tenant_id
           AND line.goods_receipt_id=grn.id
@@ -1775,7 +2307,7 @@ export async function recordGoodsReceiptItemQc({
     const authority = authorityRows[0];
     if (!authority) {
       throw AppError.conflict(
-        'The goods receipt line must retain one active receipt, item, batch, storage, facility, and supplier authority chain',
+        'The goods receipt line must retain its exact supplier and one active item, batch, storage, and facility authority chain',
         'PHARMACY_GRN_QC_AUTHORITY_INVALID',
       );
     }
@@ -1920,7 +2452,6 @@ export async function transitionGoodsReceipt({
            ON supplier.tenant_id=grn.tenant_id
           AND supplier.id=grn.supplier_id
           AND supplier.facility_id=grn.facility_id
-          AND supplier.status='active'
         WHERE grn.tenant_id=$1::uuid AND grn.id=$2::int
           AND COALESCE(grn.metadata->>'authority_recovery_required', 'false') <> 'true'
         FOR UPDATE OF grn, po, facility, supplier`,
@@ -1930,7 +2461,7 @@ export async function transitionGoodsReceipt({
     const receipt = receiptRows[0];
     if (!receipt) {
       throw AppError.conflict(
-        'The goods receipt must retain one active purchase order, facility, and supplier authority chain',
+        'The goods receipt must retain its exact purchase-order, facility, and supplier lineage',
         'PHARMACY_GRN_AUTHORITY_INVALID',
       );
     }
@@ -2059,16 +2590,14 @@ export async function appendStockMovement({
   const tid = resolveTenantId({ tenantId });
   const itemId = normalizeId(inventoryItemId, 'inventory_item_id');
   const cleanKind = normalizeEnum(movementKind, MOVEMENT_KINDS, 'movement_kind', { required: true });
-  const rawDelta = Number(quantityDelta);
-  if (!Number.isFinite(rawDelta) || rawDelta === 0) {
-    throw AppError.badRequest('quantity_delta must be a non-zero number');
-  }
-  const magnitude = normalizeQuantity(Math.abs(rawDelta), 'quantity_delta', {
-    min: 0.0001,
+  const delta = normalizeQuantity(quantityDelta, 'quantity_delta', {
+    min: -1_000_000_000,
     max: 1_000_000_000,
     required: true,
   });
-  const delta = rawDelta < 0 ? -magnitude : magnitude;
+  if (delta === 0) {
+    throw AppError.badRequest('quantity_delta must be a non-zero number');
+  }
   if (SUPPLY_DECREASING_MOVEMENTS.has(cleanKind) && delta >= 0) {
     throw AppError.badRequest(
       `${cleanKind} requires a negative quantity_delta`,
@@ -2115,6 +2644,10 @@ export async function appendStockMovement({
     keySha256: createHash('sha256').update(cleanCommandKey).digest('hex'),
     requestSha256: cleanRequestFingerprint,
   };
+  const cleanReferenceType = safeText(referenceType, 60);
+  const cleanReferenceId = safeText(referenceId, 120);
+  const cleanNotes = safeText(notes);
+  const movementMetadata = normalizeJsonObject(metadata, 'metadata');
 
   try {
     return await setTenantTx(tid, async (tx) => {
@@ -2123,8 +2656,26 @@ export async function appendStockMovement({
         `pharmacy_supply_stock_movement_v1:${tid}:${durableCommand.keySha256}`,
       );
       const prior = await tx.$queryRawUnsafe(
-          `SELECT movement.metadata
+          `SELECT ${selectAliasedFields('movement', 'movement', MOVEMENT_FIELDS)},
+                  batch.id AS lineage_batch_id,
+                  batch.inventory_item_id AS lineage_inventory_item_id,
+                  batch.facility_id AS lineage_facility_id,
+                  item.id AS lineage_item_id,
+                  item.facility_id AS lineage_item_facility_id,
+                  item.schedule_class AS lineage_item_schedule_class,
+                  item.is_narcotic AS lineage_item_is_narcotic,
+                  item.unit_label AS lineage_item_unit_label,
+                  ${CONTROLLED_REGISTER_REPLAY_SELECT}
              FROM pharmacy_stock_movements movement
+             LEFT JOIN pharmacy_inventory_batches batch
+               ON batch.tenant_id=movement.tenant_id
+               AND batch.id=movement.inventory_batch_id
+               AND batch.inventory_item_id=movement.inventory_item_id
+             LEFT JOIN pharmacy_inventory_items item
+               ON item.tenant_id=movement.tenant_id
+              AND item.id=movement.inventory_item_id
+              AND item.facility_id=batch.facility_id
+             ${CONTROLLED_REGISTER_REPLAY_JOIN}
             WHERE movement.tenant_id=$1::uuid
               AND movement.metadata->>'contract'='pharmacy_supply_stock_movement_v1'
               AND movement.metadata->>'command_key_sha256'=$2
@@ -2134,22 +2685,78 @@ export async function appendStockMovement({
           durableCommand.keySha256,
       );
       if (prior.length) {
-        const priorMetadata = prior[0].metadata || {};
-        if (prior.length !== 1
-          || priorMetadata.request_sha256 !== durableCommand.requestSha256) {
+        if (prior.length !== 1) {
           throw AppError.conflict(
             'Idempotency-Key was already used for a different stock movement',
             'INVENTORY_COMMAND_REPLAY_CONFLICT',
           );
         }
-        if (!priorMetadata.response || typeof priorMetadata.response !== 'object') {
+        const replayRow = prior[0];
+        const incompleteMessage = 'The stock movement committed without complete immutable lineage and requires recovery';
+        const { metadata: replayMetadata, intent, facilityId: replayFacilityId } = requireReplayMetadata(replayRow, {
+          contract: 'pharmacy_supply_stock_movement_v1',
+          commandKeySha256: durableCommand.keySha256,
+          requestField: 'request_sha256',
+          requestFingerprint: durableCommand.requestSha256,
+          conflictMessage: 'Idempotency-Key was already used for a different stock movement',
+          conflictCode: 'INVENTORY_COMMAND_REPLAY_CONFLICT',
+          incompleteMessage,
+          incompleteCode: 'INVENTORY_COMMAND_RECEIPT_INCOMPLETE',
+        });
+        const replayMovement = extractAliasedFields(replayRow, 'movement', MOVEMENT_FIELDS);
+        const movementResponse = requireMovementResponse(
+          replayMetadata,
+          incompleteMessage,
+          'INVENTORY_COMMAND_RECEIPT_INCOMPLETE',
+        );
+        const replayControlled = isControlledSupplyItem({
+          schedule_class: replayRow.lineage_item_schedule_class,
+          is_narcotic: replayRow.lineage_item_is_narcotic === true,
+        });
+        if (!replayMovement || !intentMatches(intent, {
+          facility_id: replayFacilityId,
+          inventory_item_id: Number(replayMovement.inventory_item_id),
+          inventory_batch_id: Number(replayMovement.inventory_batch_id),
+          movement_kind: String(replayMovement.movement_kind),
+          quantity_delta: Number(replayMovement.quantity_delta),
+          reference_type: replayMovement.reference_type ?? null,
+          reference_id: replayMovement.reference_id ?? null,
+          performed_by: replayMovement.performed_by ?? null,
+          notes: replayMovement.notes ?? null,
+          controlled: replayControlled,
+        })
+          || !intentMatches(movementResponse, {
+            contract: 'pharmacy_supply_stock_movement_v1',
+            facility_id: replayFacilityId,
+            inventory_item_id: Number(replayMovement.inventory_item_id),
+            inventory_batch_id: Number(replayMovement.inventory_batch_id),
+            movement_kind: String(replayMovement.movement_kind),
+            quantity_delta: Number(replayMovement.quantity_delta),
+            reference_type: replayMovement.reference_type ?? null,
+            reference_id: replayMovement.reference_id ?? null,
+            performed_by: replayMovement.performed_by ?? null,
+            notes: replayMovement.notes ?? null,
+          })
+          || Number(replayRow.lineage_batch_id) !== Number(replayMovement.inventory_batch_id)
+          || Number(replayRow.lineage_inventory_item_id) !== Number(replayMovement.inventory_item_id)
+          || Number(replayRow.lineage_facility_id) !== replayFacilityId) {
           throw AppError.conflict(
-            'The stock movement committed without a complete replay receipt and requires recovery',
+            incompleteMessage,
             'INVENTORY_COMMAND_RECEIPT_INCOMPLETE',
           );
         }
-        const replayFacilityId = storedReceiptFacilityId(
-          priorMetadata.response.facility_id,
+        requireControlledRegisterEvidence(
+          replayRow,
+          intent,
+          {
+            facilityId: replayFacilityId,
+            inventoryItemId: Number(replayMovement.inventory_item_id),
+            inventoryBatchId: Number(replayMovement.inventory_batch_id),
+            movementKind: String(replayMovement.movement_kind),
+            quantity: Number(replayMovement.quantity_delta),
+            performedBy: replayMovement.performed_by,
+          },
+          incompleteMessage,
           'INVENTORY_COMMAND_RECEIPT_INCOMPLETE',
         );
         await assertSupplyFacilityGrantTx(tx, {
@@ -2158,7 +2765,10 @@ export async function appendStockMovement({
           actorUid: performedBy,
           actorRole,
         });
-        return priorMetadata.response;
+        return {
+          ...replayMovement,
+          facility_id: replayFacilityId,
+        };
       }
       const ledgerRows = await tx.$queryRawUnsafe(
         `SELECT item.id, item.facility_id, item.status, item.schedule_class,
@@ -2219,22 +2829,59 @@ export async function appendStockMovement({
       const performerUid = controlled
         ? requireControlledPerformer(maybeUuid(performedBy, 'performed_by'))
         : maybeUuid(performedBy, 'performed_by');
+      const registerEvidence = controlled
+        ? await prepareControlledSupplyRegisterTx(tx, {
+          tenantId: tid,
+          item: ledgerItem,
+          inventoryItemId: itemId,
+          facilityId: Number(ledgerItem.facility_id),
+          movementKind: cleanKind,
+          quantityDelta: delta,
+        })
+        : null;
+      const movementResponse = immutableResponseSnapshot({
+        contract: 'pharmacy_supply_stock_movement_v1',
+        facility_id: Number(ledgerItem.facility_id),
+        inventory_item_id: itemId,
+        inventory_batch_id: batchId,
+        movement_kind: cleanKind,
+        quantity_delta: delta,
+        reference_type: cleanReferenceType,
+        reference_id: cleanReferenceId,
+        performed_by: performerUid,
+        notes: cleanNotes,
+      });
       const { movement } = await recordMovementTx(tx, {
         tenantId: tid,
         inventory_item_id: itemId,
         inventory_batch_id: batchId,
         movement_kind: cleanKind,
         quantity: Math.abs(delta),
-        reference_type: safeText(referenceType, 60),
-        reference_id: safeText(referenceId, 120),
+        reference_type: cleanReferenceType,
+        reference_id: cleanReferenceId,
         performed_by: performerUid,
-        notes: safeText(notes),
+        notes: cleanNotes,
         expected_facility_id: Number(ledgerItem.facility_id),
         metadata: {
-          ...normalizeJsonObject(metadata, 'metadata'),
+          ...movementMetadata,
           contract: 'pharmacy_supply_stock_movement_v1',
           command_key_sha256: durableCommand.keySha256,
           request_sha256: durableCommand.requestSha256,
+          facility_id: Number(ledgerItem.facility_id),
+          intent: {
+            facility_id: Number(ledgerItem.facility_id),
+            inventory_item_id: itemId,
+            inventory_batch_id: batchId,
+            movement_kind: cleanKind,
+            quantity_delta: delta,
+            reference_type: cleanReferenceType,
+            reference_id: cleanReferenceId,
+            performed_by: performerUid,
+            notes: cleanNotes,
+            controlled,
+            register_evidence: registerEvidence,
+          },
+          response: movementResponse,
         },
         require_usable_batch: ['issue', 'transfer_out', 'adjust_decrease'].includes(cleanKind),
       });
@@ -2248,21 +2895,14 @@ export async function appendStockMovement({
           quantity: delta,
           performedBy: performerUid,
           referenceMovementId: movement?.id || null,
-          notes: safeText(notes),
+          notes: cleanNotes,
+          registerEvidence,
         });
       }
       const response = {
         ...movement,
         facility_id: Number(ledgerItem.facility_id),
       };
-      await tx.$executeRawUnsafe(
-        `UPDATE pharmacy_stock_movements
-            SET metadata=COALESCE(metadata, '{}'::jsonb) || $1::jsonb
-          WHERE tenant_id=$2::uuid AND id=$3::int`,
-        JSON.stringify({ response }),
-        tid,
-        Number(movement.id),
-      );
       return response;
     });
   } catch (err) {
@@ -2328,7 +2968,6 @@ export async function listStockMovements({
            ON supplier.tenant_id=batch.tenant_id
           AND supplier.id=batch.supplier_id
           AND supplier.facility_id=batch.facility_id
-          AND supplier.status='active'
         WHERE ${filters.join(' AND ')}
           AND EXISTS (
             SELECT 1 FROM facility_locations location
@@ -2389,7 +3028,6 @@ export async function computeExpiryAlerts({
            ON supplier.tenant_id=batch.tenant_id
           AND supplier.id=batch.supplier_id
           AND supplier.facility_id=batch.facility_id
-          AND supplier.status='active'
         WHERE batch.tenant_id=$1::uuid AND batch.facility_id=$2::int
           AND batch.status IN ('in_stock', 'reserved')
           AND batch.expiry_date <= CURRENT_DATE + ($3::int * INTERVAL '1 day')
@@ -2469,7 +3107,6 @@ export async function acknowledgeExpiryAlert({
            ON supplier.tenant_id=batch.tenant_id
           AND supplier.id=batch.supplier_id
           AND supplier.facility_id=batch.facility_id
-          AND supplier.status='active'
         WHERE alert.tenant_id=$1::uuid AND alert.id=$2::int
           AND alert.status='open'
           AND EXISTS (
@@ -2557,7 +3194,6 @@ export async function listExpiryAlerts({
            ON supplier.tenant_id=batch.tenant_id
           AND supplier.id=batch.supplier_id
           AND supplier.facility_id=batch.facility_id
-          AND supplier.status='active'
         WHERE ${filters.join(' AND ')}
           AND EXISTS (
             SELECT 1 FROM facility_locations location
@@ -2731,15 +3367,15 @@ export async function listSubstitutes({
 
 /**
  * Atomic GRN-line orchestration. In one prisma.$transaction:
- *   1. INSERT pharmacy_inventory_batches (status='in_stock', remaining=0)
+ *   1. INSERT pharmacy_inventory_batches (status='quarantined', remaining=0)
  *   2. UPDATE pharmacy_purchase_order_items.received_quantity by +received,
  *      conditional on (received + delta) <= ordered (refuses over-receive
  *      with 409; the chk_po_received_lte_ordered DB CHECK is the backstop)
  *   3. INSERT pharmacy_goods_receipt_items linking GRN + PO line + batch
- *   4. Apply the receive through the canonical movement writer, which updates
- *      the batch balance and appends pharmacy_stock_movements atomically
- *   5. Recompute parent PO progress and transition status to
+ *   4. Recompute parent PO progress and transition status to
  *      'fully_received' (sum_received >= sum_ordered) or 'partially_received'.
+ *   5. Persist that complete response projection in the initial append-only
+ *      movement, which also updates the batch balance atomically.
  *
  * Any failure rolls the whole receipt back.
  */
@@ -2796,9 +3432,50 @@ export async function receivePurchaseOrderLine({
       `pharmacy-grn-receive:${tid}:${commandKeySha256}`,
     );
     const replays = await tx.$queryRawUnsafe(
-      `SELECT movement.metadata
+      `SELECT ${selectAliasedFields('movement', 'movement', MOVEMENT_FIELDS)},
+              ${selectAliasedFields('batch', 'batch', BATCH_FIELDS)},
+              ${selectAliasedFields('grn_line', 'grn_line', GRN_ITEM_RESPONSE_FIELDS)},
+              ${selectAliasedFields('grn', 'grn', GRN_RESPONSE_FIELDS)},
+              ${selectAliasedFields('po_line', 'po_line', PO_ITEM_RESPONSE_FIELDS)},
+              ${selectAliasedFields('po', 'po', PO_FIELDS)},
+              item.id AS lineage_item_id,
+              item.facility_id AS lineage_item_facility_id,
+              item.schedule_class AS lineage_item_schedule_class,
+              item.is_narcotic AS lineage_item_is_narcotic,
+              item.unit_label AS lineage_item_unit_label,
+              ${CONTROLLED_REGISTER_REPLAY_SELECT}
          FROM pharmacy_stock_movements movement
-        WHERE movement.tenant_id=$1::uuid
+         LEFT JOIN pharmacy_inventory_batches batch
+           ON batch.tenant_id=movement.tenant_id
+           AND batch.id=movement.inventory_batch_id
+           AND batch.inventory_item_id=movement.inventory_item_id
+         LEFT JOIN pharmacy_inventory_items item
+           ON item.tenant_id=movement.tenant_id
+          AND item.id=movement.inventory_item_id
+          AND item.facility_id=batch.facility_id
+         ${CONTROLLED_REGISTER_REPLAY_JOIN}
+         LEFT JOIN pharmacy_goods_receipt_items grn_line
+           ON grn_line.tenant_id=movement.tenant_id
+          AND grn_line.id::text=movement.metadata#>>'{intent,goods_receipt_item_id}'
+          AND grn_line.goods_receipt_id::text=movement.metadata#>>'{intent,goods_receipt_id}'
+          AND grn_line.inventory_item_id=movement.inventory_item_id
+          AND grn_line.inventory_batch_id=movement.inventory_batch_id
+          AND grn_line.purchase_order_item_id::text=movement.metadata#>>'{intent,purchase_order_item_id}'
+         LEFT JOIN pharmacy_goods_receipts grn
+           ON grn.tenant_id=grn_line.tenant_id
+          AND grn.id=grn_line.goods_receipt_id
+          AND grn.id::text=movement.reference_id
+         LEFT JOIN pharmacy_purchase_order_items po_line
+           ON po_line.tenant_id=grn_line.tenant_id
+          AND po_line.id=grn_line.purchase_order_item_id
+          AND po_line.inventory_item_id=movement.inventory_item_id
+         LEFT JOIN pharmacy_purchase_orders po
+           ON po.tenant_id=po_line.tenant_id
+          AND po.id=po_line.purchase_order_id
+          AND po.id=grn.purchase_order_id
+          AND po.facility_id=batch.facility_id
+          AND po.supplier_id=batch.supplier_id
+         WHERE movement.tenant_id=$1::uuid
           AND movement.metadata->>'contract'='pharmacy_grn_receive_line_v1'
           AND movement.metadata->>'command_key_sha256'=$2
         ORDER BY movement.id
@@ -2807,17 +3484,223 @@ export async function receivePurchaseOrderLine({
       commandKeySha256,
     );
     if (replays.length) {
-      if (replays.length !== 1
-        || replays[0].metadata?.request_fingerprint !== requestFingerprint
-        || !replays[0].metadata?.response_payload) {
+      if (replays.length !== 1) {
         throw AppError.conflict(
           'GRN receipt idempotency evidence conflicts with this request',
           'PHARMACY_GRN_RECEIPT_IDEMPOTENCY_CONFLICT',
         );
       }
-      const replayPayload = replays[0].metadata.response_payload;
-      const replayFacilityId = storedReceiptFacilityId(
-        replayPayload.goods_receipt?.facility_id ?? replayPayload.batch?.facility_id,
+      const replayRow = replays[0];
+      const incompleteMessage = 'The GRN receipt committed without complete immutable lineage and requires recovery';
+      const { metadata: replayMetadata, intent, facilityId: replayFacilityId } = requireReplayMetadata(replayRow, {
+        contract: 'pharmacy_grn_receive_line_v1',
+        commandKeySha256,
+        requestField: 'request_fingerprint',
+        requestFingerprint,
+        conflictMessage: 'GRN receipt idempotency evidence conflicts with this request',
+        conflictCode: 'PHARMACY_GRN_RECEIPT_IDEMPOTENCY_CONFLICT',
+        incompleteMessage,
+        incompleteCode: 'PHARMACY_GRN_RECEIPT_INCOMPLETE',
+      });
+      const replayMovement = extractAliasedFields(replayRow, 'movement', MOVEMENT_FIELDS);
+      const replayBatch = extractAliasedFields(replayRow, 'batch', BATCH_FIELDS);
+      const replayGrnLine = extractAliasedFields(
+        replayRow,
+        'grn_line',
+        GRN_ITEM_RESPONSE_FIELDS,
+      );
+      const replayGrn = extractAliasedFields(replayRow, 'grn', GRN_RESPONSE_FIELDS);
+      const replayPoLine = extractAliasedFields(replayRow, 'po_line', PO_ITEM_RESPONSE_FIELDS);
+      const replayPo = extractAliasedFields(replayRow, 'po', PO_FIELDS);
+      const responseSnapshot = requireResponsePayload(
+        replayMetadata,
+        incompleteMessage,
+        'PHARMACY_GRN_RECEIPT_INCOMPLETE',
+      );
+      const snapshotBatch = responseSnapshot.batch;
+      const snapshotGrnLine = responseSnapshot.goods_receipt_item;
+      const snapshotGrn = responseSnapshot.goods_receipt;
+      const snapshotPoLine = responseSnapshot.purchase_order_item;
+      const snapshotPo = responseSnapshot.purchase_order;
+      const movementQuantityScaled = numeric14_4ToScaled(replayMovement?.quantity_delta);
+      const intentQuantityScaled = numeric14_4ToScaled(intent.quantity_delta);
+      const intentReceivedQuantityScaled = numeric14_4ToScaled(intent.received_quantity);
+      const batchReceivedQuantityScaled = numeric14_4ToScaled(replayBatch?.received_quantity);
+      const grnLineReceivedQuantityScaled = numeric14_4ToScaled(replayGrnLine?.received_quantity);
+      const snapshotBatchReceivedScaled = numeric14_4ToScaled(snapshotBatch?.received_quantity);
+      const snapshotBatchRemainingScaled = numeric14_4ToScaled(snapshotBatch?.remaining_quantity);
+      const snapshotGrnLineReceivedScaled = numeric14_4ToScaled(snapshotGrnLine?.received_quantity);
+      const poLineReceivedBeforeScaled = numeric14_4ToScaled(intent.po_line_received_before);
+      const totalReceivedBeforeScaled = numeric14_4ToScaled(intent.total_received_before);
+      const commandTotalOrderedScaled = numeric14_4ToScaled(intent.total_ordered);
+      const currentPoLineOrderedScaled = numeric14_4ToScaled(replayPoLine?.ordered_quantity);
+      const currentPoLineReceivedScaled = numeric14_4ToScaled(replayPoLine?.received_quantity);
+      const snapshotPoLineOrderedScaled = numeric14_4ToScaled(snapshotPoLine?.ordered_quantity);
+      const snapshotPoLineReceivedScaled = numeric14_4ToScaled(snapshotPoLine?.received_quantity);
+      const snapshotTotalOrderedScaled = numeric14_4ToScaled(responseSnapshot.total_ordered);
+      const snapshotTotalReceivedScaled = numeric14_4ToScaled(responseSnapshot.total_received);
+      const commandLineReceivedScaled = poLineReceivedBeforeScaled !== null
+        && movementQuantityScaled !== null
+        ? poLineReceivedBeforeScaled + movementQuantityScaled
+        : null;
+      const commandTotalReceivedScaled = totalReceivedBeforeScaled !== null
+        && movementQuantityScaled !== null
+        ? totalReceivedBeforeScaled + movementQuantityScaled
+        : null;
+      const commandParentStatus = commandTotalOrderedScaled !== null
+        && commandTotalReceivedScaled !== null
+        && commandTotalReceivedScaled >= commandTotalOrderedScaled
+        ? 'fully_received'
+        : 'partially_received';
+      const replayControlled = isControlledSupplyItem({
+        schedule_class: replayRow.lineage_item_schedule_class,
+        is_narcotic: replayRow.lineage_item_is_narcotic === true,
+      });
+      if (!replayMovement || !replayBatch || !replayGrnLine || !replayGrn
+        || !replayPoLine || !replayPo || !intentMatches(intent, {
+          facility_id: replayFacilityId,
+          inventory_item_id: Number(replayMovement.inventory_item_id),
+          inventory_batch_id: Number(replayMovement.inventory_batch_id),
+          movement_kind: String(replayMovement.movement_kind),
+          reference_type: replayMovement.reference_type ?? null,
+          reference_id: replayMovement.reference_id ?? null,
+          performed_by: replayMovement.performed_by ?? null,
+          purchase_order_id: Number(replayPo.id),
+          purchase_order_item_id: Number(replayPoLine.id),
+          goods_receipt_id: Number(replayGrn.id),
+          goods_receipt_item_id: Number(replayGrnLine.id),
+          supplier_id: Number(replayGrn.supplier_id),
+          storage_location_id: Number(replayBatch.storage_location_id),
+          batch_number: String(replayBatch.batch_number),
+          lot_number: replayBatch.lot_number ?? null,
+          manufacture_date: dateOnly(replayBatch.manufacture_date),
+          expiry_date: dateOnly(replayBatch.expiry_date),
+          unit_cost_minor: replayGrnLine.unit_cost_minor == null
+            ? null
+            : Number(replayGrnLine.unit_cost_minor),
+          controlled: replayControlled,
+        })
+        || Number(replayBatch.facility_id) !== replayFacilityId
+        || Number(replayBatch.id) !== Number(replayMovement.inventory_batch_id)
+        || Number(replayBatch.inventory_item_id) !== Number(replayMovement.inventory_item_id)
+        || Number(replayBatch.goods_receipt_id) !== Number(replayGrn.id)
+        || (replayBatch.unit_cost_minor == null
+          ? replayGrnLine.unit_cost_minor != null
+          : Number(replayBatch.unit_cost_minor) !== Number(replayGrnLine.unit_cost_minor))
+        || Number(replayGrn.facility_id) !== replayFacilityId
+        || Number(replayGrn.purchase_order_id) !== Number(replayPo.id)
+        || Number(replayGrn.supplier_id) !== Number(replayPo.supplier_id)
+        || Number(replayGrnLine.goods_receipt_id) !== Number(replayGrn.id)
+        || Number(replayGrnLine.inventory_item_id) !== Number(replayMovement.inventory_item_id)
+        || Number(replayGrnLine.inventory_batch_id) !== Number(replayBatch.id)
+        || Number(replayGrnLine.purchase_order_item_id) !== Number(replayPoLine.id)
+        || Number(replayPoLine.purchase_order_id) !== Number(replayPo.id)
+        || Number(replayPo.facility_id) !== replayFacilityId
+        || String(replayMovement.movement_kind) !== 'receive'
+        || String(replayMovement.reference_type) !== 'goods_receipt'
+        || String(replayMovement.reference_id) !== String(replayGrn.id)
+        || !snapshotBatch || typeof snapshotBatch !== 'object' || Array.isArray(snapshotBatch)
+        || !snapshotGrnLine || typeof snapshotGrnLine !== 'object' || Array.isArray(snapshotGrnLine)
+        || !snapshotGrn || typeof snapshotGrn !== 'object' || Array.isArray(snapshotGrn)
+        || !snapshotPoLine || typeof snapshotPoLine !== 'object' || Array.isArray(snapshotPoLine)
+        || !snapshotPo || typeof snapshotPo !== 'object' || Array.isArray(snapshotPo)
+        || !intentMatches(snapshotBatch, {
+          id: Number(replayBatch.id),
+          tenant_id: String(replayBatch.tenant_id),
+          inventory_item_id: Number(replayBatch.inventory_item_id),
+          facility_id: replayFacilityId,
+          batch_number: String(replayBatch.batch_number),
+          lot_number: replayBatch.lot_number ?? null,
+          unit_cost_minor: replayBatch.unit_cost_minor == null
+            ? null
+            : Number(replayBatch.unit_cost_minor),
+          mrp_minor: null,
+          supplier_id: Number(replayBatch.supplier_id),
+          goods_receipt_id: Number(replayGrn.id),
+          storage_location_id: Number(replayBatch.storage_location_id),
+          status: 'quarantined',
+        })
+        || dateOnly(snapshotBatch.manufacture_date) !== dateOnly(replayBatch.manufacture_date)
+        || dateOnly(snapshotBatch.expiry_date) !== dateOnly(replayBatch.expiry_date)
+        || !intentMatches(snapshotGrnLine, {
+          id: Number(replayGrnLine.id),
+          tenant_id: String(replayGrnLine.tenant_id),
+          goods_receipt_id: Number(replayGrn.id),
+          inventory_item_id: Number(replayMovement.inventory_item_id),
+          inventory_batch_id: Number(replayBatch.id),
+          purchase_order_item_id: Number(replayPoLine.id),
+          unit_cost_minor: replayGrnLine.unit_cost_minor == null
+            ? null
+            : Number(replayGrnLine.unit_cost_minor),
+          qc_status: 'pending',
+          qc_notes: null,
+        })
+        || !intentMatches(snapshotGrn, {
+          id: Number(replayGrn.id),
+          facility_id: replayFacilityId,
+          supplier_id: Number(replayGrn.supplier_id),
+          purchase_order_id: Number(replayPo.id),
+          status: 'qc_pending',
+        })
+        || !intentMatches(snapshotPoLine, {
+          id: Number(replayPoLine.id),
+          purchase_order_id: Number(replayPo.id),
+        })
+        || !intentMatches(snapshotPo, {
+          id: Number(replayPo.id),
+          tenant_id: String(replayPo.tenant_id),
+          facility_id: replayFacilityId,
+          supplier_id: Number(replayPo.supplier_id),
+          status: commandParentStatus,
+        })
+        || movementQuantityScaled === null || movementQuantityScaled <= 0n
+        || intentQuantityScaled === null || intentQuantityScaled !== movementQuantityScaled
+        || intentReceivedQuantityScaled === null
+        || intentReceivedQuantityScaled !== movementQuantityScaled
+        || batchReceivedQuantityScaled === null
+        || batchReceivedQuantityScaled !== movementQuantityScaled
+        || grnLineReceivedQuantityScaled === null
+        || grnLineReceivedQuantityScaled !== movementQuantityScaled
+        || snapshotBatchReceivedScaled === null
+        || snapshotBatchReceivedScaled !== movementQuantityScaled
+        || snapshotBatchRemainingScaled === null
+        || snapshotBatchRemainingScaled !== movementQuantityScaled
+        || snapshotGrnLineReceivedScaled === null
+        || snapshotGrnLineReceivedScaled !== movementQuantityScaled
+        || poLineReceivedBeforeScaled === null || poLineReceivedBeforeScaled < 0n
+        || totalReceivedBeforeScaled === null || totalReceivedBeforeScaled < 0n
+        || commandTotalOrderedScaled === null || commandTotalOrderedScaled <= 0n
+        || currentPoLineOrderedScaled === null || currentPoLineOrderedScaled <= 0n
+        || currentPoLineReceivedScaled === null || currentPoLineReceivedScaled < 0n
+        || snapshotPoLineOrderedScaled === null
+        || snapshotPoLineOrderedScaled !== currentPoLineOrderedScaled
+        || snapshotPoLineReceivedScaled === null
+        || snapshotPoLineReceivedScaled !== commandLineReceivedScaled
+        || snapshotPoLineReceivedScaled > snapshotPoLineOrderedScaled
+        || currentPoLineReceivedScaled < snapshotPoLineReceivedScaled
+        || totalReceivedBeforeScaled < poLineReceivedBeforeScaled
+        || snapshotTotalOrderedScaled === null
+        || snapshotTotalOrderedScaled !== commandTotalOrderedScaled
+        || snapshotTotalReceivedScaled === null
+        || snapshotTotalReceivedScaled !== commandTotalReceivedScaled
+        || snapshotTotalReceivedScaled <= 0n
+        || snapshotTotalReceivedScaled > snapshotTotalOrderedScaled
+        || snapshotTotalOrderedScaled < snapshotPoLineOrderedScaled
+        || snapshotTotalReceivedScaled < snapshotPoLineReceivedScaled) {
+        throw AppError.conflict(incompleteMessage, 'PHARMACY_GRN_RECEIPT_INCOMPLETE');
+      }
+      requireControlledRegisterEvidence(
+        replayRow,
+        intent,
+        {
+          facilityId: replayFacilityId,
+          inventoryItemId: Number(replayMovement.inventory_item_id),
+          inventoryBatchId: Number(replayMovement.inventory_batch_id),
+          movementKind: String(replayMovement.movement_kind),
+          quantity: replayMovement.quantity_delta,
+          performedBy: replayMovement.performed_by,
+        },
+        incompleteMessage,
         'PHARMACY_GRN_RECEIPT_INCOMPLETE',
       );
       await assertSupplyFacilityGrantTx(tx, {
@@ -2826,7 +3709,7 @@ export async function receivePurchaseOrderLine({
         actorUid: performerUid,
         actorRole,
       });
-      return replayPayload;
+      return responseSnapshot;
     }
     const lines = await tx.$queryRawUnsafe(
       `SELECT poi.id, poi.purchase_order_id, poi.inventory_item_id,
@@ -2951,43 +3834,6 @@ export async function receivePurchaseOrderLine({
       tid, grnId, itemId, batch.id, poiId, qty, cost,
     );
 
-    // 5. Append the receive ledger entry through the canonical custody writer.
-    const { movement: receiveMovement } = await recordMovementTx(tx, {
-      tenantId: tid,
-      inventory_item_id: itemId,
-      inventory_batch_id: batch.id,
-      movement_kind: 'receive',
-      quantity: qty,
-      reference_type: 'goods_receipt',
-      reference_id: String(grnId),
-      performed_by: performerUid,
-      notes: `Received via GRN ${grnId}, batch ${cleanBatch}`,
-      expected_facility_id: facilityId,
-      metadata: {
-        contract: 'pharmacy_grn_receive_line_v1',
-        command_key_sha256: commandKeySha256,
-        request_fingerprint: requestFingerprint,
-      },
-    });
-    const refreshedBatchRows = await tx.$queryRawUnsafe(
-      `SELECT ${BATCH_RETURNING}
-         FROM pharmacy_inventory_batches
-        WHERE tenant_id=$1::uuid AND id=$2::int
-          AND inventory_item_id=$3::int AND facility_id=$4::int
-        FOR UPDATE`,
-      tid,
-      Number(batch.id),
-      itemId,
-      facilityId,
-    );
-    batch = refreshedBatchRows[0];
-    if (!batch) {
-      throw AppError.conflict(
-        'GRN receipt batch could not be reloaded after the stock movement',
-        'PHARMACY_GRN_RECEIPT_INCOMPLETE',
-      );
-    }
-
     const receiptRows = await tx.$queryRawUnsafe(
       `UPDATE pharmacy_goods_receipts
           SET status='qc_pending', updated_at=NOW()
@@ -3004,7 +3850,174 @@ export async function receivePurchaseOrderLine({
       );
     }
 
-    // 5b. Controlled stock: same-tx statutory register receipt row.
+    // 5. Recompute PO progress and auto-transition the parent header.
+    const aggRows = await tx.$queryRawUnsafe(
+       `SELECT
+          COALESCE(SUM(ordered_quantity), 0)::numeric AS total_ordered,
+          COALESCE(SUM(received_quantity), 0)::numeric AS total_received,
+          (COALESCE(SUM(received_quantity), 0) - $3::numeric)::numeric AS total_received_before,
+          COUNT(*) FILTER (WHERE received_quantity > 0)::int AS partial_count
+        FROM pharmacy_purchase_order_items
+        WHERE purchase_order_id = $1 AND tenant_id = $2::uuid`,
+      parentPoId, tid, qty,
+    );
+    const quantityScaled = numeric14_4ToScaled(qty);
+    const poLineReceivedBeforeScaled = numeric14_4ToScaled(lines[0].received_quantity);
+    const poLineOrderedScaled = numeric14_4ToScaled(updated[0].ordered_quantity);
+    const poLineReceivedScaled = numeric14_4ToScaled(updated[0].received_quantity);
+    const totalOrderedScaled = numeric14_4ToScaled(aggRows[0]?.total_ordered);
+    const totalReceivedScaled = numeric14_4ToScaled(aggRows[0]?.total_received);
+    const totalReceivedBeforeScaled = numeric14_4ToScaled(aggRows[0]?.total_received_before);
+    if (quantityScaled === null || quantityScaled <= 0n
+      || poLineReceivedBeforeScaled === null || poLineReceivedBeforeScaled < 0n
+      || poLineOrderedScaled === null || poLineOrderedScaled <= 0n
+      || poLineReceivedScaled === null || poLineReceivedScaled < 0n
+      || totalOrderedScaled === null || totalOrderedScaled <= 0n
+      || totalReceivedScaled === null || totalReceivedScaled <= 0n
+      || totalReceivedBeforeScaled === null || totalReceivedBeforeScaled < 0n
+      || poLineReceivedScaled !== poLineReceivedBeforeScaled + quantityScaled
+      || totalReceivedScaled !== totalReceivedBeforeScaled + quantityScaled
+      || poLineReceivedScaled > poLineOrderedScaled
+      || totalReceivedBeforeScaled < poLineReceivedBeforeScaled
+      || totalReceivedScaled > totalOrderedScaled
+      || totalOrderedScaled < poLineOrderedScaled
+      || totalReceivedScaled < poLineReceivedScaled) {
+      throw AppError.conflict(
+        'The purchase order receipt arithmetic cannot be proven',
+        'PHARMACY_GRN_RECEIPT_INCOMPLETE',
+      );
+    }
+    const totalOrdered = Number(aggRows[0].total_ordered);
+    const totalReceived = Number(aggRows[0].total_received);
+    const partialCount = Number(aggRows[0]?.partial_count || 0);
+
+    let parentStatus = null;
+    if (totalReceivedScaled >= totalOrderedScaled) {
+      parentStatus = 'fully_received';
+    } else if (partialCount > 0) {
+      parentStatus = 'partially_received';
+    }
+
+    if (!parentStatus) {
+      throw AppError.conflict(
+        'The purchase order receipt totals cannot produce a valid receipt state',
+        'PHARMACY_GRN_RECEIPT_INCOMPLETE',
+      );
+    }
+    const parentRows = await tx.$queryRawUnsafe(
+      `UPDATE pharmacy_purchase_orders
+       SET status = $1,
+           received_at = CASE WHEN $1 = 'fully_received' THEN NOW() ELSE received_at END,
+           updated_at = NOW()
+       WHERE id = $2 AND tenant_id = $3::uuid
+       RETURNING ${PO_RETURNING}`,
+      parentStatus, parentPoId, tid,
+    );
+    const parent = parentRows[0];
+    if (!parent) {
+      throw AppError.conflict(
+        'The purchase order header could not be projected for this receipt',
+        'PHARMACY_GRN_RECEIPT_INCOMPLETE',
+      );
+    }
+
+    const responseSnapshot = immutableResponseSnapshot({
+      batch: {
+        ...batch,
+        remaining_quantity: batch.received_quantity,
+      },
+      goods_receipt_item: grnItemRows[0],
+      goods_receipt: receiptRows[0],
+      purchase_order_item: updated[0],
+      purchase_order: parent,
+      total_ordered: totalOrdered,
+      total_received: totalReceived,
+    });
+    const quantityCanonical = scaledNumeric14_4ToCanonical(quantityScaled);
+    const poLineReceivedBefore = scaledNumeric14_4ToCanonical(poLineReceivedBeforeScaled);
+    const totalOrderedCanonical = scaledNumeric14_4ToCanonical(totalOrderedScaled);
+    const totalReceivedBefore = scaledNumeric14_4ToCanonical(totalReceivedBeforeScaled);
+    const registerEvidence = controlledReceipt
+      ? await prepareControlledSupplyRegisterTx(tx, {
+        tenantId: tid,
+        item: receivedItem,
+        inventoryItemId: itemId,
+        facilityId,
+        movementKind: 'receive',
+        quantityDelta: qty,
+      })
+      : null;
+
+    // 6. Append the receive ledger entry once, with its complete immutable
+    // command response. The append-only movement is the durable replay receipt.
+    const { movement: receiveMovement } = await recordMovementTx(tx, {
+      tenantId: tid,
+      inventory_item_id: itemId,
+      inventory_batch_id: batch.id,
+      movement_kind: 'receive',
+      quantity: qty,
+      reference_type: 'goods_receipt',
+      reference_id: String(grnId),
+      performed_by: performerUid,
+      notes: `Received via GRN ${grnId}, batch ${cleanBatch}`,
+      expected_facility_id: facilityId,
+      metadata: {
+        contract: 'pharmacy_grn_receive_line_v1',
+        command_key_sha256: commandKeySha256,
+        request_fingerprint: requestFingerprint,
+        facility_id: facilityId,
+        intent: {
+          facility_id: facilityId,
+          inventory_item_id: itemId,
+          inventory_batch_id: Number(batch.id),
+          movement_kind: 'receive',
+          quantity_delta: quantityCanonical,
+          reference_type: 'goods_receipt',
+          reference_id: String(grnId),
+          performed_by: performerUid,
+          purchase_order_id: parentPoId,
+          purchase_order_item_id: poiId,
+          goods_receipt_id: grnId,
+          goods_receipt_item_id: Number(grnItemRows[0].id),
+          supplier_id: authoritativeSupplierId,
+          storage_location_id: exactStorageLocationId,
+          batch_number: cleanBatch,
+          lot_number: cleanLot,
+          manufacture_date: cleanManufacture,
+          expiry_date: cleanExpiry,
+          received_quantity: quantityCanonical,
+          unit_cost_minor: cost,
+          po_line_received_before: poLineReceivedBefore,
+          total_ordered: totalOrderedCanonical,
+          total_received_before: totalReceivedBefore,
+          controlled: controlledReceipt,
+          register_evidence: registerEvidence,
+        },
+        response_payload: responseSnapshot,
+      },
+    });
+    const refreshedBatchRows = await tx.$queryRawUnsafe(
+      `SELECT ${BATCH_RETURNING}
+         FROM pharmacy_inventory_batches
+        WHERE tenant_id=$1::uuid AND id=$2::int
+          AND inventory_item_id=$3::int AND facility_id=$4::int
+        FOR UPDATE`,
+      tid,
+      Number(batch.id),
+      itemId,
+      facilityId,
+    );
+    const refreshedBatch = refreshedBatchRows[0];
+    if (!refreshedBatch
+      || numeric14_4ToScaled(refreshedBatch.remaining_quantity) !== quantityScaled
+      || String(refreshedBatch.status) !== String(responseSnapshot.batch.status)) {
+      throw AppError.conflict(
+        'GRN receipt batch balance does not match its immutable command response',
+        'PHARMACY_GRN_RECEIPT_INCOMPLETE',
+      );
+    }
+
+    // 6b. Controlled stock: same-tx statutory register receipt row.
     if (controlledReceipt) {
       await appendControlledSupplyRegisterTx(tx, {
         tenantId: tid,
@@ -3016,67 +4029,11 @@ export async function receivePurchaseOrderLine({
         performedBy: performerUid,
         referenceMovementId: receiveMovement?.id || null,
         notes: `Received via GRN ${grnId}, batch ${cleanBatch}`,
+        registerEvidence,
       });
     }
 
-    // 6. Recompute PO progress and auto-transition the parent header.
-    const aggRows = await tx.$queryRawUnsafe(
-      `SELECT
-         COALESCE(SUM(ordered_quantity), 0)::numeric AS total_ordered,
-         COALESCE(SUM(received_quantity), 0)::numeric AS total_received,
-         COUNT(*) FILTER (WHERE received_quantity > 0)::int AS partial_count
-       FROM pharmacy_purchase_order_items
-       WHERE purchase_order_id = $1 AND tenant_id = $2::uuid`,
-      parentPoId, tid,
-    );
-    const totalOrdered = Number(aggRows[0]?.total_ordered || 0);
-    const totalReceived = Number(aggRows[0]?.total_received || 0);
-    const partialCount = Number(aggRows[0]?.partial_count || 0);
-
-    let parentStatus = null;
-    if (totalOrdered > 0 && totalReceived >= totalOrdered) {
-      parentStatus = 'fully_received';
-    } else if (partialCount > 0) {
-      parentStatus = 'partially_received';
-    }
-
-    let parent = null;
-    if (parentStatus) {
-      const parentRows = await tx.$queryRawUnsafe(
-        `UPDATE pharmacy_purchase_orders
-         SET status = $1,
-             received_at = CASE WHEN $1 = 'fully_received' THEN NOW() ELSE received_at END,
-             updated_at = NOW()
-         WHERE id = $2 AND tenant_id = $3::uuid
-         RETURNING ${PO_RETURNING}`,
-        parentStatus, parentPoId, tid,
-      );
-      parent = parentRows[0] || null;
-    }
-
-    const responsePayload = {
-      batch,
-      goods_receipt_item: grnItemRows[0],
-      goods_receipt: receiptRows[0],
-      purchase_order_item: updated[0],
-      purchase_order: parent,
-      total_ordered: totalOrdered,
-      total_received: totalReceived,
-    };
-    await tx.$executeRawUnsafe(
-      `UPDATE pharmacy_stock_movements
-          SET metadata=COALESCE(metadata, '{}'::jsonb) || $3::jsonb
-        WHERE tenant_id=$1::uuid AND id=$2::int`,
-      tid,
-      Number(receiveMovement.id),
-      JSON.stringify({
-        contract: 'pharmacy_grn_receive_line_v1',
-        command_key_sha256: commandKeySha256,
-        request_fingerprint: requestFingerprint,
-        response_payload: responsePayload,
-      }),
-    );
-    return responsePayload;
+    return responseSnapshot;
   });
 }
 
@@ -3225,9 +4182,15 @@ export const __testing__ = {
   PO_STATUSES,
   EXPIRY_SEVERITIES,
   CONTROLLED_SCHEDULES,
+  CONTROLLED_CUSTODY_BATCH_STATUSES,
   SUPPLY_DECREASING_MOVEMENTS,
   SUPPLY_REGISTER_KIND_BY_MOVEMENT,
+  canonicalControlledScheduleClass,
   isControlledSupplyItem,
+  normalizeBigInt,
+  normalizeQuantity,
+  numeric14_4ToScaled,
+  canonicalNumeric14_4,
 };
 
 export default {

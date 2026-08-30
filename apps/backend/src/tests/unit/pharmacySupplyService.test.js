@@ -7,6 +7,8 @@
  */
 
 import { jest } from '@jest/globals';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
 const queryUnsafeMock = jest.fn();
 const executeUnsafeMock = jest.fn();
@@ -45,6 +47,46 @@ const SUPPLIER = 21;
 const CATALOG = 31;
 const ACTOR_ROLE = 'PHARMACIST';
 const REQUEST_FINGERPRINT = 'a'.repeat(64);
+const SERVICE_SOURCE = readFileSync(
+  new URL('../../services/pharmacySupply/pharmacySupplyService.js', import.meta.url),
+  'utf8',
+);
+
+const sha256 = (value) => createHash('sha256').update(String(value)).digest('hex');
+const aliasFields = (prefix, values) => Object.fromEntries(
+  Object.entries(values).map(([key, value]) => [`${prefix}_${key}`, value]),
+);
+const exportedFunctionSource = (name) => {
+  const start = SERVICE_SOURCE.indexOf(`export async function ${name}`);
+  const next = SERVICE_SOURCE.indexOf('\nexport async function ', start + 1);
+  return SERVICE_SOURCE.slice(start, next === -1 ? undefined : next);
+};
+const controlledRegisterRow = ({
+  id,
+  inventoryItemId,
+  inventoryBatchId,
+  scheduleClass,
+  movementKind,
+  quantity,
+  runningBalance,
+  unitLabel,
+  referenceMovementId,
+  notes = null,
+}) => ({
+  id,
+  tenant_id: TENANT,
+  facility_id: FACILITY,
+  inventory_item_id: inventoryItemId,
+  inventory_batch_id: inventoryBatchId,
+  schedule_class: scheduleClass,
+  movement_kind: movementKind,
+  quantity: String(quantity),
+  unit_label: unitLabel,
+  running_balance: String(runningBalance),
+  performed_by: USER,
+  reference_movement_id: referenceMovementId,
+  notes,
+});
 
 const actor = Object.freeze({ actorUid: USER, actorRole: ACTOR_ROLE });
 const upsertSupplier = (options = {}) => supply.upsertSupplier({
@@ -195,6 +237,100 @@ beforeEach(() => {
     $queryRawUnsafe: queryUnsafeMock,
     $executeRawUnsafe: executeUnsafeMock,
   }));
+});
+
+describe('append-only pharmacy stock command receipts', () => {
+  it('never updates or deletes immutable stock movements after insertion', () => {
+    expect(SERVICE_SOURCE).not.toMatch(/\bUPDATE\s+pharmacy_stock_movements\b/i);
+    expect(SERVICE_SOURCE).not.toMatch(/\bDELETE\s+FROM\s+pharmacy_stock_movements\b/i);
+    expect(SERVICE_SOURCE).not.toMatch(/response_snapshot/);
+    expect(SERVICE_SOURCE.match(/response_payload: responseSnapshot/g)).toHaveLength(2);
+    expect(SERVICE_SOURCE).toMatch(/response: movementResponse/);
+  });
+
+  it('reconstructs receipts through exact canonical lineage joins', () => {
+    expect(SERVICE_SOURCE).toMatch(/LEFT JOIN pharmacy_inventory_batches batch/);
+    expect(SERVICE_SOURCE).toMatch(/FROM pharmacy_schedule_register register/);
+    expect(SERVICE_SOURCE).toMatch(/LEFT JOIN pharmacy_goods_receipt_items grn_line/);
+    expect(SERVICE_SOURCE).toMatch(/LEFT JOIN pharmacy_goods_receipts grn/);
+    expect(SERVICE_SOURCE).toMatch(/LEFT JOIN pharmacy_purchase_order_items po_line/);
+    expect(SERVICE_SOURCE).toMatch(/LEFT JOIN pharmacy_purchase_orders po/);
+    expect(SERVICE_SOURCE).toMatch(/register\.facility_id/);
+    expect(SERVICE_SOURCE).toMatch(/register\.running_balance/);
+    expect(SERVICE_SOURCE).toMatch(/intentMatches\(responseSnapshot,[\s\S]*unit_cost_minor:[\s\S]*mrp_minor:/);
+    expect(SERVICE_SOURCE).toMatch(/qc_status: 'pending',[\s\S]*qc_notes: null/);
+    expect(SERVICE_SOURCE).toMatch(/po_line_received_before:[\s\S]*total_received_before:/);
+  });
+
+  it('keeps safety and closure queries available for paused, blacklisted, and archived suppliers', () => {
+    for (const operation of [
+      'listBatches',
+      'recallBatch',
+      'recordGoodsReceiptItemQc',
+      'transitionGoodsReceipt',
+      'listStockMovements',
+      'computeExpiryAlerts',
+      'acknowledgeExpiryAlert',
+      'listExpiryAlerts',
+    ]) {
+      expect(exportedFunctionSource(operation)).toMatch(/JOIN pharmacy_suppliers supplier/);
+      expect(exportedFunctionSource(operation)).not.toMatch(/supplier\.status/);
+    }
+    for (const operation of [
+      'addInventoryBatch',
+      'createPurchaseOrder',
+      'createGoodsReceipt',
+      'receivePurchaseOrderLine',
+    ]) {
+      expect(exportedFunctionSource(operation)).toMatch(/supplier\.status='active'/);
+    }
+  });
+
+  it('uses exact scaled NUMERIC(14,4) arithmetic for decimal GRN replay evidence', () => {
+    const tenth = __testing__.normalizeQuantity(0.1, 'received_quantity', {
+      min: 0.0001,
+      required: true,
+    });
+    const fifth = __testing__.normalizeQuantity(0.2, 'received_quantity', {
+      min: 0.0001,
+      required: true,
+    });
+    expect(0.1 + 0.2).not.toBe(0.3);
+    expect(
+      __testing__.numeric14_4ToScaled(tenth)
+        + __testing__.numeric14_4ToScaled(fifth),
+    ).toBe(__testing__.numeric14_4ToScaled('0.3000'));
+    expect(__testing__.canonicalNumeric14_4(0.3)).toBe('0.3000');
+    expect(__testing__.normalizeQuantity('-0.1000', 'quantity_delta', {
+      min: -1_000_000_000,
+      max: 1_000_000_000,
+      required: true,
+    })).toBe(-0.1);
+    const receiveSource = exportedFunctionSource('receivePurchaseOrderLine');
+    expect(receiveSource).toMatch(/movementQuantityScaled = numeric14_4ToScaled/);
+    expect(receiveSource).toMatch(/commandLineReceivedScaled/);
+    expect(receiveSource).not.toMatch(/commandLineReceived = poLineReceivedBefore \+ movementQuantity/);
+    const appendSource = exportedFunctionSource('appendStockMovement');
+    expect(appendSource).not.toMatch(/Number\(quantityDelta\)/);
+    expect(appendSource).not.toMatch(/Math\.abs\(rawDelta\)/);
+  });
+
+  it('parses minor units lexically before returning a safe SQL-compatible number', () => {
+    expect(__testing__.normalizeBigInt('1000000000000', 'unit_cost_minor', {
+      min: 0,
+      max: 1_000_000_000_000,
+    })).toBe(1_000_000_000_000);
+    for (const invalid of [
+      '999999999999.9999999999999999',
+      '1e3',
+      ' 100 ',
+    ]) {
+      expect(() => __testing__.normalizeBigInt(invalid, 'unit_cost_minor', {
+        min: 0,
+        max: 1_000_000_000_000,
+      })).toThrow('unit_cost_minor must be an integer number of minor units');
+    }
+  });
 });
 
 describe('facility custody authority and immutable supply lineage', () => {
@@ -379,9 +515,8 @@ describe('facility custody authority and immutable supply lineage', () => {
   it('detects cross-facility direct-receipt key reuse instead of creating a second lineage', async () => {
     queryUnsafeMock.mockResolvedValueOnce([{ lock_acquired: null }]);
     queryUnsafeMock.mockResolvedValueOnce([{
-      metadata: {
+      movement_metadata: {
         request_fingerprint: 'b'.repeat(64),
-        response_payload: { id: 51, facility_id: FACILITY + 1 },
       },
     }]);
 
@@ -401,14 +536,81 @@ describe('facility custody authority and immutable supply lineage', () => {
       .toBe(false);
   });
 
-  it('replays an immutable direct receipt after authorizing its stored facility without mutable item joins', async () => {
-    const stored = { id: 51, facility_id: FACILITY, status: 'in_stock' };
+  it('reconstructs a direct-receipt replay from its exact movement and batch lineage', async () => {
+    const stored = {
+      id: 51,
+      tenant_id: TENANT,
+      inventory_item_id: 7,
+      facility_id: FACILITY,
+      batch_number: 'DIRECT-REPLAY',
+      lot_number: null,
+      manufacture_date: null,
+      expiry_date: '2099-01-01',
+      received_quantity: 5,
+      remaining_quantity: 5,
+      unit_cost_minor: 123,
+      mrp_minor: 150,
+      supplier_id: SUPPLIER,
+      goods_receipt_id: null,
+      storage_location_id: 51,
+      status: 'in_stock',
+    };
+    const movement = {
+      id: 81,
+      tenant_id: TENANT,
+      inventory_item_id: 7,
+      inventory_batch_id: 51,
+      movement_kind: 'receive',
+      quantity_delta: 5,
+      reference_type: 'direct_supply_receipt',
+      reference_id: '51',
+      performed_by: USER,
+      notes: 'Batch DIRECT-REPLAY received',
+    };
+    const metadata = {
+      contract: 'pharmacy_inventory_direct_receive_v1',
+      command_key_sha256: sha256('direct-receive-test'),
+      request_fingerprint: REQUEST_FINGERPRINT,
+      facility_id: FACILITY,
+      intent: {
+        facility_id: FACILITY,
+        inventory_item_id: 7,
+        inventory_batch_id: 51,
+        movement_kind: 'receive',
+        quantity_delta: 5,
+        reference_type: 'direct_supply_receipt',
+        reference_id: '51',
+        performed_by: USER,
+        supplier_id: SUPPLIER,
+        storage_location_id: 51,
+        goods_receipt_id: null,
+        batch_number: 'DIRECT-REPLAY',
+        lot_number: null,
+        manufacture_date: null,
+        expiry_date: '2099-01-01',
+        received_quantity: 5,
+        unit_cost_minor: 123,
+        mrp_minor: 150,
+        controlled: false,
+        register_evidence: null,
+      },
+      response_payload: stored,
+    };
+    const currentBatch = {
+      ...stored,
+      remaining_quantity: 2,
+      status: 'in_stock',
+    };
     queryUnsafeMock.mockResolvedValueOnce([{ lock_acquired: null }]);
     queryUnsafeMock.mockResolvedValueOnce([{
-      metadata: {
-        request_fingerprint: REQUEST_FINGERPRINT,
-        response_payload: stored,
-      },
+      ...aliasFields('movement', { ...movement, metadata }),
+      ...aliasFields('batch', currentBatch),
+      lineage_item_id: 7,
+      lineage_item_facility_id: FACILITY,
+      lineage_item_schedule_class: 'OTC',
+      lineage_item_is_narcotic: false,
+      lineage_item_unit_label: 'tab',
+      controlled_register_count: 0,
     }]);
 
     await expect(addInventoryBatch({
@@ -417,6 +619,8 @@ describe('facility custody authority and immutable supply lineage', () => {
       batchNumber: 'DIRECT-REPLAY',
       expiryDate: '2099-01-01',
       receivedQuantity: 5,
+      unitCostMinor: 123,
+      mrpMinor: 150,
     })).resolves.toEqual(stored);
 
     expect(facilityGrantMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
@@ -424,20 +628,138 @@ describe('facility custody authority and immutable supply lineage', () => {
       actorUid: USER,
     }));
     expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
-    expect(queryUnsafeMock.mock.calls[1][0]).not.toMatch(/JOIN pharmacy_inventory_items/);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/LEFT JOIN pharmacy_inventory_batches batch/);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/pharmacy_schedule_register register/);
   });
 
-  it('replays an immutable GRN receipt after authorizing its stored facility without mutable PO joins', async () => {
+  it('reconstructs a GRN replay from its exact movement, batch, register, GRN, and PO lineage', async () => {
     const stored = {
-      batch: { id: 52, facility_id: FACILITY },
-      goods_receipt: { id: 22, facility_id: FACILITY, status: 'qc_pending' },
+      batch: {
+        id: 52,
+        tenant_id: TENANT,
+        inventory_item_id: 7,
+        facility_id: FACILITY,
+        batch_number: 'GRN-REPLAY',
+        lot_number: null,
+        manufacture_date: null,
+        expiry_date: '2099-01-01',
+        received_quantity: '0.3000',
+        remaining_quantity: '0.3000',
+        unit_cost_minor: null,
+        mrp_minor: null,
+        supplier_id: SUPPLIER,
+        goods_receipt_id: 22,
+        storage_location_id: 51,
+        status: 'quarantined',
+      },
+      goods_receipt_item: {
+        id: 100,
+        tenant_id: TENANT,
+        goods_receipt_id: 22,
+        inventory_item_id: 7,
+        inventory_batch_id: 52,
+        purchase_order_item_id: 5,
+        received_quantity: '0.3000',
+        unit_cost_minor: null,
+        qc_status: 'pending',
+        qc_notes: null,
+      },
+      goods_receipt: {
+        id: 22,
+        facility_id: FACILITY,
+        supplier_id: SUPPLIER,
+        purchase_order_id: 10,
+        status: 'qc_pending',
+      },
+      purchase_order_item: {
+        id: 5,
+        purchase_order_id: 10,
+        ordered_quantity: '1.0000',
+        received_quantity: '0.3000',
+      },
+      purchase_order: {
+        id: 10,
+        tenant_id: TENANT,
+        facility_id: FACILITY,
+        supplier_id: SUPPLIER,
+        status: 'partially_received',
+      },
+      total_ordered: 1,
+      total_received: 0.3,
+    };
+    const movement = {
+      id: 82,
+      tenant_id: TENANT,
+      inventory_item_id: 7,
+      inventory_batch_id: 52,
+      movement_kind: 'receive',
+      quantity_delta: '0.3000',
+      reference_type: 'goods_receipt',
+      reference_id: '22',
+      performed_by: USER,
+      notes: 'Received via GRN 22, batch GRN-REPLAY',
+    };
+    const metadata = {
+      contract: 'pharmacy_grn_receive_line_v1',
+      command_key_sha256: sha256('grn-receive-test'),
+      request_fingerprint: REQUEST_FINGERPRINT,
+      facility_id: FACILITY,
+      intent: {
+        facility_id: FACILITY,
+        inventory_item_id: 7,
+        inventory_batch_id: 52,
+        movement_kind: 'receive',
+        quantity_delta: '0.3000',
+        reference_type: 'goods_receipt',
+        reference_id: '22',
+        performed_by: USER,
+        purchase_order_id: 10,
+        purchase_order_item_id: 5,
+        goods_receipt_id: 22,
+        goods_receipt_item_id: 100,
+        supplier_id: SUPPLIER,
+        storage_location_id: 51,
+        batch_number: 'GRN-REPLAY',
+        lot_number: null,
+        manufacture_date: null,
+        expiry_date: '2099-01-01',
+        received_quantity: '0.3000',
+        unit_cost_minor: null,
+        po_line_received_before: '0.0000',
+        total_ordered: '1.0000',
+        total_received_before: '0.0000',
+        controlled: false,
+        register_evidence: null,
+      },
+      response_payload: stored,
+    };
+    const currentBatch = {
+      ...stored.batch,
+      remaining_quantity: '0.1000',
+      status: 'in_stock',
+    };
+    const currentPoLine = {
+      ...stored.purchase_order_item,
+      received_quantity: '0.6000',
+    };
+    const currentPo = {
+      ...stored.purchase_order,
+      status: 'fully_received',
     };
     queryUnsafeMock.mockResolvedValueOnce([{ lock_acquired: null }]);
     queryUnsafeMock.mockResolvedValueOnce([{
-      metadata: {
-        request_fingerprint: REQUEST_FINGERPRINT,
-        response_payload: stored,
-      },
+      ...aliasFields('movement', { ...movement, metadata }),
+      ...aliasFields('batch', currentBatch),
+      ...aliasFields('grn_line', stored.goods_receipt_item),
+      ...aliasFields('grn', stored.goods_receipt),
+      ...aliasFields('po_line', currentPoLine),
+      ...aliasFields('po', currentPo),
+      lineage_item_id: 7,
+      lineage_item_facility_id: FACILITY,
+      lineage_item_schedule_class: 'OTC',
+      lineage_item_is_narcotic: false,
+      lineage_item_unit_label: 'tab',
+      controlled_register_count: 0,
     }]);
 
     await expect(receivePurchaseOrderLine({
@@ -446,7 +768,7 @@ describe('facility custody authority and immutable supply lineage', () => {
       goodsReceiptId: 22,
       batchNumber: 'GRN-REPLAY',
       expiryDate: '2099-01-01',
-      receivedQuantity: 5,
+      receivedQuantity: 0.3,
     })).resolves.toEqual(stored);
 
     expect(facilityGrantMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
@@ -454,7 +776,10 @@ describe('facility custody authority and immutable supply lineage', () => {
       actorUid: USER,
     }));
     expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
-    expect(queryUnsafeMock.mock.calls[1][0]).not.toMatch(/JOIN pharmacy_purchase_orders/);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/LEFT JOIN pharmacy_goods_receipt_items grn_line/);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/LEFT JOIN pharmacy_purchase_orders po/);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/pharmacy_schedule_register register/);
+    expect(queryUnsafeMock.mock.calls[1][0]).not.toMatch(/SUM\(total_line\.received_quantity\)/);
   });
 
   it('rejects an expired GRN batch before any receipt lineage is mutated', async () => {
@@ -760,6 +1085,50 @@ describe('addInventoryBatch', () => {
     expect(transactionMock).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['unitCostMinor', 100.5, 'unit_cost_minor'],
+    ['mrpMinor', 200.25, 'mrp_minor'],
+  ])('rejects fractional %s instead of rounding minor units', async (field, value, label) => {
+    await expect(addInventoryBatch({
+      tenantId: TENANT,
+      inventoryItemId: 1,
+      batchNumber: 'B-FRACTIONAL-MINOR',
+      expiryDate: '2099-01-01',
+      receivedQuantity: 1,
+      [field]: value,
+    })).rejects.toThrow(`${label} must be an integer number of minor units`);
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['999999999999.9999999999999999', 'unit_cost_minor'],
+    ['1e3', 'unit_cost_minor'],
+    [' 100 ', 'unit_cost_minor'],
+  ])('rejects non-integer lexical minor-unit input %s', async (value, label) => {
+    await expect(addInventoryBatch({
+      tenantId: TENANT,
+      inventoryItemId: 1,
+      batchNumber: 'B-LEXICAL-MINOR',
+      expiryDate: '2099-01-01',
+      receivedQuantity: 1,
+      unitCostMinor: value,
+    })).rejects.toThrow(`${label} must be an integer number of minor units`);
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a high-magnitude fifth decimal before quantity conversion can round it', async () => {
+    await expect(addInventoryBatch({
+      tenantId: TENANT,
+      inventoryItemId: 1,
+      batchNumber: 'B-FIFTH-DECIMAL',
+      expiryDate: '2099-01-01',
+      receivedQuantity: '999999999.99999',
+    })).rejects.toThrow(
+      'received_quantity must be a plain decimal with at most 4 decimal places',
+    );
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
   it('inserts batch + appends receive movement', async () => {
     queryUnsafeMock.mockResolvedValueOnce([{ lock_acquired: null }]);
     queryUnsafeMock.mockResolvedValueOnce([]);
@@ -798,6 +1167,34 @@ describe('addInventoryBatch', () => {
     expect(batch.id).toBe(1);
     expect(transactionMock).toHaveBeenCalledTimes(1);
     expect(queryUnsafeMock.mock.calls[5][0]).toMatch(/INSERT INTO pharmacy_stock_movements/);
+    const insertedMetadata = JSON.parse(queryUnsafeMock.mock.calls[5].at(-1));
+    expect(insertedMetadata).toMatchObject({
+      contract: 'pharmacy_inventory_direct_receive_v1',
+      request_fingerprint: REQUEST_FINGERPRINT,
+      facility_id: FACILITY,
+      intent: {
+        facility_id: FACILITY,
+        inventory_item_id: 5,
+        inventory_batch_id: 1,
+        movement_kind: 'receive',
+        quantity_delta: 100,
+        supplier_id: SUPPLIER,
+        storage_location_id: 51,
+        controlled: false,
+        register_evidence: null,
+      },
+      response_payload: {
+        id: 1,
+        inventory_item_id: 5,
+        facility_id: FACILITY,
+        batch_number: 'B1',
+        received_quantity: 100,
+        remaining_quantity: 100,
+        status: 'in_stock',
+      },
+    });
+    expect(executeUnsafeMock.mock.calls.some(([sql]) => /UPDATE pharmacy_stock_movements/.test(sql)))
+      .toBe(false);
   });
 
   it('throws conflict on duplicate (item, batch)', async () => {
@@ -1127,10 +1524,12 @@ describe('appendStockMovement', () => {
   it('rejects non-numeric quantity_delta', async () => {
     await expect(appendStockMovement({
       tenantId: TENANT, inventoryItemId: 1, movementKind: 'issue', quantityDelta: 'lots',
-    })).rejects.toThrow(/quantity_delta must be a non-zero number/);
+    })).rejects.toThrow(
+      'quantity_delta must be a plain decimal with at most 4 decimal places',
+    );
   });
 
-  it.each([1.00001, 1_000_000_000.0001])(
+  it.each([1.00001, '999999999.99999', 1_000_000_000.0001])(
     'rejects movement quantity %s outside ledger precision or range',
     async (quantityDelta) => {
       await expect(appendStockMovement({
@@ -1174,12 +1573,10 @@ describe('appendStockMovement', () => {
     queryUnsafeMock.mockResolvedValueOnce([{ lock_acquired: null }]);
     queryUnsafeMock.mockResolvedValueOnce([
       {
-        facility_id: FACILITY,
-        metadata: { request_sha256: REQUEST_FINGERPRINT, response: { id: 1 } },
+        movement_metadata: { request_sha256: REQUEST_FINGERPRINT },
       },
       {
-        facility_id: FACILITY,
-        metadata: { request_sha256: REQUEST_FINGERPRINT, response: { id: 2 } },
+        movement_metadata: { request_sha256: REQUEST_FINGERPRINT },
       },
     ]);
 
@@ -1199,11 +1596,63 @@ describe('appendStockMovement', () => {
       .toBe(false);
   });
 
-  it('replays an immutable movement after authorizing its stored facility without mutable batch joins', async () => {
-    const stored = { id: 81, facility_id: FACILITY, movement_kind: 'adjust_increase' };
+  it('reconstructs a movement replay from the immutable movement and its exact batch lineage', async () => {
+    const metadata = {
+      contract: 'pharmacy_supply_stock_movement_v1',
+      command_key_sha256: sha256('stock-movement-test'),
+      request_sha256: REQUEST_FINGERPRINT,
+      facility_id: FACILITY,
+      intent: {
+        facility_id: FACILITY,
+        inventory_item_id: 5,
+        inventory_batch_id: 51,
+        movement_kind: 'adjust_increase',
+        quantity_delta: 2,
+        reference_type: null,
+        reference_id: null,
+        performed_by: USER,
+        notes: null,
+        controlled: false,
+        register_evidence: null,
+      },
+      response: {
+        contract: 'pharmacy_supply_stock_movement_v1',
+        facility_id: FACILITY,
+        inventory_item_id: 5,
+        inventory_batch_id: 51,
+        movement_kind: 'adjust_increase',
+        quantity_delta: 2,
+        reference_type: null,
+        reference_id: null,
+        performed_by: USER,
+        notes: null,
+      },
+    };
+    const storedMovement = {
+      id: 81,
+      tenant_id: TENANT,
+      inventory_item_id: 5,
+      inventory_batch_id: 51,
+      movement_kind: 'adjust_increase',
+      quantity_delta: 2,
+      reference_type: null,
+      reference_id: null,
+      performed_by: USER,
+      notes: null,
+      metadata,
+    };
     queryUnsafeMock.mockResolvedValueOnce([{ lock_acquired: null }]);
     queryUnsafeMock.mockResolvedValueOnce([{
-      metadata: { request_sha256: REQUEST_FINGERPRINT, response: stored },
+      ...aliasFields('movement', storedMovement),
+      lineage_batch_id: 51,
+      lineage_inventory_item_id: 5,
+      lineage_facility_id: FACILITY,
+      lineage_item_id: 5,
+      lineage_item_facility_id: FACILITY,
+      lineage_item_schedule_class: 'OTC',
+      lineage_item_is_narcotic: false,
+      lineage_item_unit_label: 'tab',
+      controlled_register_count: 0,
     }]);
 
     await expect(appendStockMovement({
@@ -1212,14 +1661,41 @@ describe('appendStockMovement', () => {
       inventoryBatchId: 51,
       movementKind: 'adjust_increase',
       quantityDelta: 2,
-    })).resolves.toEqual(stored);
+    })).resolves.toEqual({ ...storedMovement, facility_id: FACILITY });
 
     expect(facilityGrantMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       facilityId: FACILITY,
       actorUid: USER,
     }));
     expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
-    expect(queryUnsafeMock.mock.calls[1][0]).not.toMatch(/JOIN pharmacy_inventory_batches/);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/LEFT JOIN pharmacy_inventory_batches batch/);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/pharmacy_schedule_register register/);
+  });
+
+  it('fails closed when a matching movement receipt lacks immutable reconstruction intent', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ lock_acquired: null }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      movement_metadata: {
+        contract: 'pharmacy_supply_stock_movement_v1',
+        command_key_sha256: sha256('stock-movement-test'),
+        request_sha256: REQUEST_FINGERPRINT,
+        facility_id: FACILITY,
+      },
+    }]);
+
+    await expect(appendStockMovement({
+      tenantId: TENANT,
+      inventoryItemId: 5,
+      inventoryBatchId: 51,
+      movementKind: 'adjust_increase',
+      quantityDelta: 2,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'INVENTORY_COMMAND_RECEIPT_INCOMPLETE',
+    });
+
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => /INSERT INTO pharmacy_stock_movements/.test(sql)))
+      .toBe(false);
   });
 
   it('locks the exact batch, writes the movement, and projects its balance', async () => {
@@ -1253,8 +1729,34 @@ describe('appendStockMovement', () => {
     expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/pharmacy_inventory_items[\s\S]*FOR UPDATE/);
     expect(queryUnsafeMock.mock.calls[3][0]).toMatch(/FOR UPDATE/);
     expect(queryUnsafeMock.mock.calls[4][0]).toMatch(/INSERT INTO pharmacy_stock_movements/);
-    expect(executeUnsafeMock).toHaveBeenCalledTimes(2);
+    const insertedMetadata = JSON.parse(queryUnsafeMock.mock.calls[4].at(-1));
+    expect(insertedMetadata).toMatchObject({
+      contract: 'pharmacy_supply_stock_movement_v1',
+      request_sha256: REQUEST_FINGERPRINT,
+      facility_id: FACILITY,
+      intent: {
+        facility_id: FACILITY,
+        inventory_item_id: 5,
+        inventory_batch_id: 51,
+        movement_kind: 'adjust_increase',
+        quantity_delta: 2,
+        controlled: false,
+        register_evidence: null,
+      },
+      response: {
+        contract: 'pharmacy_supply_stock_movement_v1',
+        facility_id: FACILITY,
+        inventory_item_id: 5,
+        inventory_batch_id: 51,
+        movement_kind: 'adjust_increase',
+        quantity_delta: 2,
+        notes: 'count correction',
+      },
+    });
+    expect(executeUnsafeMock).toHaveBeenCalledTimes(1);
     expect(executeUnsafeMock.mock.calls[0][0]).toMatch(/UPDATE pharmacy_inventory_batches/);
+    expect(executeUnsafeMock.mock.calls.some(([sql]) => /UPDATE pharmacy_stock_movements/.test(sql)))
+      .toBe(false);
   });
 });
 
@@ -1416,6 +1918,18 @@ describe('receivePurchaseOrderLine', () => {
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 100, goods_receipt_id: 22, inventory_item_id: 7,
       inventory_batch_id: 50, purchase_order_item_id: 5, received_quantity: 50,
+      tenant_id: TENANT, unit_cost_minor: 50000, qc_status: 'pending', qc_notes: null,
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 22, status: 'qc_pending', facility_id: FACILITY,
+      supplier_id: SUPPLIER, purchase_order_id: 10,
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      total_ordered: 100, total_received: 50, total_received_before: 0, partial_count: 1,
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 10, tenant_id: TENANT, facility_id: FACILITY,
+      supplier_id: SUPPLIER, status: 'partially_received',
     }]);
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 50, inventory_item_id: 7, facility_id: FACILITY,
@@ -1427,14 +1941,6 @@ describe('receivePurchaseOrderLine', () => {
       id: 50, batch_number: 'B1', inventory_item_id: 7,
       facility_id: FACILITY, received_quantity: 50, remaining_quantity: 50, status: 'quarantined',
     }]);
-    queryUnsafeMock.mockResolvedValueOnce([{
-      id: 22, status: 'qc_pending', facility_id: FACILITY,
-      supplier_id: SUPPLIER, purchase_order_id: 10,
-    }]);
-    queryUnsafeMock.mockResolvedValueOnce([{
-      total_ordered: 100, total_received: 50, partial_count: 1,
-    }]);
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 10, status: 'partially_received' }]);
 
     const result = await receivePurchaseOrderLine({
       tenantId: TENANT,
@@ -1458,7 +1964,42 @@ describe('receivePurchaseOrderLine', () => {
     expect(queryUnsafeMock.mock.calls[4][12]).toBe(51);
     expect(queryUnsafeMock.mock.calls[5][0]).toMatch(/UPDATE pharmacy_purchase_order_items/);
     expect(queryUnsafeMock.mock.calls[6][0]).toMatch(/INSERT INTO pharmacy_goods_receipt_items/);
-    expect(queryUnsafeMock.mock.calls[8][0]).toMatch(/INSERT INTO pharmacy_stock_movements/);
+    expect(queryUnsafeMock.mock.calls[11][0]).toMatch(/INSERT INTO pharmacy_stock_movements/);
+    const insertedMetadata = JSON.parse(queryUnsafeMock.mock.calls[11].at(-1));
+    expect(insertedMetadata).toMatchObject({
+      contract: 'pharmacy_grn_receive_line_v1',
+      request_fingerprint: REQUEST_FINGERPRINT,
+      facility_id: FACILITY,
+      intent: {
+        facility_id: FACILITY,
+        inventory_item_id: 7,
+        inventory_batch_id: 50,
+        movement_kind: 'receive',
+        quantity_delta: 50,
+        purchase_order_id: 10,
+        purchase_order_item_id: 5,
+        goods_receipt_id: 22,
+        goods_receipt_item_id: 100,
+        supplier_id: SUPPLIER,
+        storage_location_id: 51,
+        po_line_received_before: '0.0000',
+        total_ordered: '100.0000',
+        total_received_before: '0.0000',
+        controlled: false,
+        register_evidence: null,
+      },
+      response_payload: {
+        batch: { id: 50, remaining_quantity: 50, status: 'quarantined' },
+        goods_receipt_item: { id: 100, qc_status: 'pending', qc_notes: null },
+        goods_receipt: { id: 22, status: 'qc_pending' },
+        purchase_order_item: { id: 5, received_quantity: 50 },
+        purchase_order: { id: 10, status: 'partially_received' },
+        total_ordered: 100,
+        total_received: 50,
+      },
+    });
+    expect(executeUnsafeMock.mock.calls.some(([sql]) => /UPDATE pharmacy_stock_movements/.test(sql)))
+      .toBe(false);
   });
 
   it('refuses to over-receive (received_quantity + delta > ordered → 409)', async () => {
@@ -1504,15 +2045,27 @@ describe('receivePurchaseOrderLine', () => {
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 52, batch_number: 'B3', inventory_item_id: 7,
       facility_id: FACILITY, received_quantity: 20, remaining_quantity: 0,
+      status: 'quarantined',
     }]);
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 5, purchase_order_id: 10, ordered_quantity: 100, received_quantity: 100,
     }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 101 }]);
     queryUnsafeMock.mockResolvedValueOnce([{
+      id: 22, status: 'qc_pending', facility_id: FACILITY,
+      supplier_id: SUPPLIER, purchase_order_id: 10,
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      total_ordered: 100, total_received: 100, total_received_before: 80, partial_count: 1,
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 10, tenant_id: TENANT, facility_id: FACILITY,
+      supplier_id: SUPPLIER, status: 'fully_received',
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
       id: 52, inventory_item_id: 7, facility_id: FACILITY,
       batch_number: 'B3', expiry_date: '2027-01-01', remaining_quantity: 0,
-      status: 'in_stock', is_expired: false,
+      status: 'quarantined', is_expired: false,
     }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 904, movement_kind: 'receive' }]);
     queryUnsafeMock.mockResolvedValueOnce([{
@@ -1520,14 +2073,6 @@ describe('receivePurchaseOrderLine', () => {
       facility_id: FACILITY, received_quantity: 20, remaining_quantity: 20,
       status: 'quarantined',
     }]);
-    queryUnsafeMock.mockResolvedValueOnce([{
-      id: 22, status: 'qc_pending', facility_id: FACILITY,
-      supplier_id: SUPPLIER, purchase_order_id: 10,
-    }]);
-    queryUnsafeMock.mockResolvedValueOnce([{
-      total_ordered: 100, total_received: 100, partial_count: 1,
-    }]);
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 10, status: 'fully_received' }]);
 
     const result = await receivePurchaseOrderLine({
       tenantId: TENANT,
@@ -1539,7 +2084,7 @@ describe('receivePurchaseOrderLine', () => {
     });
 
     expect(result.purchase_order.status).toBe('fully_received');
-    const parentUpdateArgs = queryUnsafeMock.mock.calls.at(-1);
+    const parentUpdateArgs = queryUnsafeMock.mock.calls[9];
     expect(parentUpdateArgs[0]).toMatch(/UPDATE pharmacy_purchase_orders/);
     expect(parentUpdateArgs[1]).toBe('fully_received');
   });
@@ -1554,7 +2099,7 @@ describe('receivePurchaseOrderLine', () => {
 describe('controlled-substance discipline (N1)', () => {
   const CONTROLLED_ITEM = {
     id: 7, facility_id: FACILITY, status: 'active',
-    schedule_class: 'X', is_narcotic: true, unit_label: 'amp',
+    schedule_class: 'OTC', is_narcotic: true, unit_label: 'amp',
   };
   const H1_ITEM = {
     id: 7, facility_id: FACILITY, status: 'active',
@@ -1570,6 +2115,12 @@ describe('controlled-substance discipline (N1)', () => {
     expect(__testing__.isControlledSupplyItem({ schedule_class: 'H' })).toBe(true);
     expect(__testing__.isControlledSupplyItem({ schedule_class: null, is_narcotic: true })).toBe(true);
     expect(__testing__.isControlledSupplyItem({ schedule_class: 'OTC', is_narcotic: false })).toBe(false);
+    expect(__testing__.canonicalControlledScheduleClass({
+      schedule_class: 'OTC', is_narcotic: true,
+    })).toBe('X');
+    expect(__testing__.CONTROLLED_CUSTODY_BATCH_STATUSES).toEqual([
+      'in_stock', 'reserved', 'expired', 'recalled', 'quarantined',
+    ]);
   });
 
   it('appendStockMovement refuses every untyped decrement before touching custody state (409)', async () => {
@@ -1609,6 +2160,10 @@ describe('controlled-substance discipline (N1)', () => {
     queryUnsafeMock.mockResolvedValueOnce([{ lock_acquired: null }]);
     queryUnsafeMock.mockResolvedValueOnce([]);
     queryUnsafeMock.mockResolvedValueOnce([H1_ITEM]); // classification
+    queryUnsafeMock.mockResolvedValueOnce([{ lock_acquired: null }]); // item register lock
+    queryUnsafeMock.mockResolvedValueOnce([{
+      current_balance: '30', running_balance: '40',
+    }]); // command-time custody balance
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 71,
       inventory_item_id: 7,
@@ -1623,9 +2178,20 @@ describe('controlled-substance discipline (N1)', () => {
       id: 900, tenant_id: TENANT, inventory_item_id: 7, inventory_batch_id: 71,
       movement_kind: 'receive', quantity_delta: 10,
     }]); // movement INSERT
-    queryUnsafeMock.mockResolvedValueOnce([{ lock_acquired: null }]); // item register lock
-    queryUnsafeMock.mockResolvedValueOnce([{ bal: '40' }]); // in-tx running balance
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 77 }]); // register INSERT
+    queryUnsafeMock.mockResolvedValueOnce([{
+      current_balance: '40', running_balance: '40',
+    }]); // post-movement physical custody
+    queryUnsafeMock.mockResolvedValueOnce([controlledRegisterRow({
+      id: 77,
+      inventoryItemId: 7,
+      inventoryBatchId: 71,
+      scheduleClass: 'H1',
+      movementKind: 'receive',
+      quantity: 10,
+      runningBalance: 40,
+      unitLabel: 'tab',
+      referenceMovementId: 900,
+    })]);
 
     const result = await appendStockMovement({
       tenantId: TENANT, inventoryItemId: 7, inventoryBatchId: 71, movementKind: 'receive',
@@ -1635,20 +2201,31 @@ describe('controlled-substance discipline (N1)', () => {
     expect(result.id).toBe(900);
     expect(transactionMock).toHaveBeenCalledTimes(1);
     expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/pharmacy_inventory_items[\s\S]*FOR UPDATE/);
-    expect(queryUnsafeMock.mock.calls[3][0]).toMatch(/FOR UPDATE/);
-    expect(queryUnsafeMock.mock.calls[4][0]).toMatch(/INSERT INTO pharmacy_stock_movements/);
-    expect(queryUnsafeMock.mock.calls[5][0]).toMatch(/pg_advisory_xact_lock/);
-    expect(queryUnsafeMock.mock.calls[5][1])
+    expect(queryUnsafeMock.mock.calls[3][0]).toMatch(/pg_advisory_xact_lock/);
+    expect(queryUnsafeMock.mock.calls[3][1])
       .toBe(`pharmacy-controlled-register:${TENANT}:7`);
-    expect(queryUnsafeMock.mock.calls[6][0]).toMatch(/SUM\(remaining_quantity\)/);
-    const registerArgs = queryUnsafeMock.mock.calls[7];
+    expect(queryUnsafeMock.mock.calls[4][0]).toMatch(/status = ANY/);
+    expect(queryUnsafeMock.mock.calls[5][0]).toMatch(/FOR UPDATE/);
+    expect(queryUnsafeMock.mock.calls[6][0]).toMatch(/INSERT INTO pharmacy_stock_movements/);
+    const insertedMetadata = JSON.parse(queryUnsafeMock.mock.calls[6].at(-1));
+    expect(insertedMetadata.intent.register_evidence).toEqual({
+      facility_id: FACILITY,
+      schedule_class: 'H1',
+      movement_kind: 'receive',
+      quantity: 10,
+      unit_label: 'tab',
+      running_balance: '40',
+    });
+    expect(queryUnsafeMock.mock.calls[7][0]).toMatch(/status = ANY/);
+    const registerArgs = queryUnsafeMock.mock.calls[8];
     expect(registerArgs[0]).toMatch(/INSERT INTO pharmacy_schedule_register/);
-    expect(registerArgs[4]).toBe('H1');        // schedule snapshot
-    expect(registerArgs[5]).toBe('receive');   // register kind
-    expect(registerArgs[6]).toBe(10);          // quantity (abs)
-    expect(registerArgs[8]).toBe(40);          // running balance from the same tx
-    expect(registerArgs[9]).toBe(USER);        // named performer
-    expect(registerArgs[10]).toBe(900);        // reference_movement_id
+    expect(registerArgs[2]).toBe(FACILITY);
+    expect(registerArgs[5]).toBe('H1');
+    expect(registerArgs[6]).toBe('receive');
+    expect(registerArgs[7]).toBe(10);
+    expect(registerArgs[9]).toBe('40');
+    expect(registerArgs[10]).toBe(USER);
+    expect(registerArgs[11]).toBe(900);
   });
 
   it('addInventoryBatch requires a canonical actor for a controlled receipt (403)', async () => {
@@ -1671,6 +2248,10 @@ describe('controlled-substance discipline (N1)', () => {
       id: 60, batch_number: 'CX1', inventory_item_id: 7,
       facility_id: FACILITY, received_quantity: 10, remaining_quantity: 0, status: 'in_stock',
     }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ lock_acquired: null }]); // item register lock
+    queryUnsafeMock.mockResolvedValueOnce([{
+      current_balance: '0', running_balance: '10',
+    }]); // command-time custody balance
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 60, inventory_item_id: 7, facility_id: FACILITY,
       batch_number: 'CX1', expiry_date: '2027-06-30', remaining_quantity: 0,
@@ -1682,9 +2263,21 @@ describe('controlled-substance discipline (N1)', () => {
       facility_id: FACILITY, received_quantity: 10, remaining_quantity: 10,
       status: 'in_stock',
     }]);
-    queryUnsafeMock.mockResolvedValueOnce([{ lock_acquired: null }]); // item register lock
-    queryUnsafeMock.mockResolvedValueOnce([{ bal: '10' }]); // running balance
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 78 }]); // register INSERT
+    queryUnsafeMock.mockResolvedValueOnce([{
+      current_balance: '10', running_balance: '10',
+    }]); // post-movement physical custody
+    queryUnsafeMock.mockResolvedValueOnce([controlledRegisterRow({
+      id: 78,
+      inventoryItemId: 7,
+      inventoryBatchId: 60,
+      scheduleClass: 'X',
+      movementKind: 'receive',
+      quantity: 10,
+      runningBalance: 10,
+      unitLabel: 'amp',
+      referenceMovementId: 901,
+      notes: 'Batch CX1 received',
+    })]);
 
     const batch = await addInventoryBatch({
       tenantId: TENANT, inventoryItemId: 7, batchNumber: 'CX1',
@@ -1694,10 +2287,17 @@ describe('controlled-substance discipline (N1)', () => {
     expect(batch.id).toBe(60);
     expect(transactionMock).toHaveBeenCalledTimes(1);
     expect(queryUnsafeMock.mock.calls[3][0]).toMatch(/INSERT INTO pharmacy_inventory_batches/);
-    expect(queryUnsafeMock.mock.calls[5][0]).toMatch(/INSERT INTO pharmacy_stock_movements/);
-    expect(queryUnsafeMock.mock.calls[7][0]).toMatch(/pg_advisory_xact_lock/);
-    expect(queryUnsafeMock.mock.calls[9][0]).toMatch(/INSERT INTO pharmacy_schedule_register/);
-    expect(queryUnsafeMock.mock.calls[9][4]).toBe('X'); // schedule snapshot
+    expect(queryUnsafeMock.mock.calls[4][0]).toMatch(/pg_advisory_xact_lock/);
+    expect(queryUnsafeMock.mock.calls[6][0]).toMatch(/FOR UPDATE/);
+    expect(queryUnsafeMock.mock.calls[7][0]).toMatch(/INSERT INTO pharmacy_stock_movements/);
+    const insertedMetadata = JSON.parse(queryUnsafeMock.mock.calls[7].at(-1));
+    expect(insertedMetadata.intent.register_evidence).toMatchObject({
+      facility_id: FACILITY,
+      schedule_class: 'X',
+      running_balance: '10',
+    });
+    expect(queryUnsafeMock.mock.calls[10][0]).toMatch(/INSERT INTO pharmacy_schedule_register/);
+    expect(queryUnsafeMock.mock.calls[10][5]).toBe('X');
   });
 
   it('receivePurchaseOrderLine requires a canonical actor for a controlled GRN receipt (403)', async () => {
@@ -1727,7 +2327,26 @@ describe('controlled-substance discipline (N1)', () => {
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 5, purchase_order_id: 10, ordered_quantity: 100, received_quantity: 50,
     }]); // PO line bump
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 100, inventory_batch_id: 50 }]); // GRN item
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 100, tenant_id: TENANT, goods_receipt_id: 22, inventory_item_id: 7,
+      inventory_batch_id: 50, purchase_order_item_id: 5, received_quantity: 50,
+      unit_cost_minor: null, qc_status: 'pending', qc_notes: null,
+    }]); // GRN item
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 22, status: 'qc_pending', facility_id: FACILITY,
+      supplier_id: SUPPLIER, purchase_order_id: 10,
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      total_ordered: 100, total_received: 50, total_received_before: 0, partial_count: 1,
+    }]); // aggregate
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 10, tenant_id: TENANT, facility_id: FACILITY,
+      supplier_id: SUPPLIER, status: 'partially_received',
+    }]); // parent PO
+    queryUnsafeMock.mockResolvedValueOnce([{ lock_acquired: null }]); // item register lock
+    queryUnsafeMock.mockResolvedValueOnce([{
+      current_balance: '0', running_balance: '50',
+    }]); // quarantined receipt enters physical custody
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 50, inventory_item_id: 7, facility_id: FACILITY,
       batch_number: 'CX2', expiry_date: '2027-01-01', remaining_quantity: 0,
@@ -1740,16 +2359,20 @@ describe('controlled-substance discipline (N1)', () => {
       status: 'quarantined',
     }]);
     queryUnsafeMock.mockResolvedValueOnce([{
-      id: 22, status: 'qc_pending', facility_id: FACILITY,
-      supplier_id: SUPPLIER, purchase_order_id: 10,
-    }]);
-    queryUnsafeMock.mockResolvedValueOnce([{ lock_acquired: null }]); // item register lock
-    queryUnsafeMock.mockResolvedValueOnce([{ bal: '50' }]); // running balance
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 80 }]); // register INSERT
-    queryUnsafeMock.mockResolvedValueOnce([{
-      total_ordered: 100, total_received: 50, partial_count: 1,
-    }]); // aggregate
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 10, status: 'partially_received' }]); // parent PO
+      current_balance: '50', running_balance: '50',
+    }]); // post-movement physical custody
+    queryUnsafeMock.mockResolvedValueOnce([controlledRegisterRow({
+      id: 80,
+      inventoryItemId: 7,
+      inventoryBatchId: 50,
+      scheduleClass: 'X',
+      movementKind: 'receive',
+      quantity: 50,
+      runningBalance: 50,
+      unitLabel: 'amp',
+      referenceMovementId: 903,
+      notes: 'Received via GRN 22, batch CX2',
+    })]);
 
     const result = await receivePurchaseOrderLine({
       tenantId: TENANT, purchaseOrderItemId: 5, goodsReceiptId: 22,
@@ -1759,14 +2382,28 @@ describe('controlled-substance discipline (N1)', () => {
 
     expect(result.batch.id).toBe(50);
     expect(result.purchase_order.status).toBe('partially_received');
-    expect(queryUnsafeMock.mock.calls[8][0]).toMatch(/INSERT INTO pharmacy_stock_movements/);
-    expect(queryUnsafeMock.mock.calls[11][0]).toMatch(/pg_advisory_xact_lock/);
-    const registerArgs = queryUnsafeMock.mock.calls[13];
+    expect(queryUnsafeMock.mock.calls[10][0]).toMatch(/pg_advisory_xact_lock/);
+    expect(queryUnsafeMock.mock.calls[12][0]).toMatch(/FOR UPDATE/);
+    expect(queryUnsafeMock.mock.calls[13][0]).toMatch(/INSERT INTO pharmacy_stock_movements/);
+    const insertedMetadata = JSON.parse(queryUnsafeMock.mock.calls[13].at(-1));
+    expect(insertedMetadata.intent).toMatchObject({
+      po_line_received_before: '0.0000',
+      total_ordered: '100.0000',
+      total_received_before: '0.0000',
+      register_evidence: {
+        facility_id: FACILITY,
+        schedule_class: 'X',
+        running_balance: '50',
+      },
+    });
+    const registerArgs = queryUnsafeMock.mock.calls[16];
     expect(registerArgs[0]).toMatch(/INSERT INTO pharmacy_schedule_register/);
-    expect(registerArgs[5]).toBe('receive');
-    expect(registerArgs[6]).toBe(50);
-    expect(registerArgs[9]).toBe(USER);
-    expect(registerArgs[10]).toBe(903);
+    expect(registerArgs[2]).toBe(FACILITY);
+    expect(registerArgs[5]).toBe('X');
+    expect(registerArgs[6]).toBe('receive');
+    expect(registerArgs[7]).toBe(50);
+    expect(registerArgs[10]).toBe(USER);
+    expect(registerArgs[11]).toBe(903);
   });
 });
 
