@@ -712,9 +712,9 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
     // markPreparing refuses a counter order outright, so the counter gate gets
     // its own fixture below.
     const clean = await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_orders (tenant_id, facility_id, authority_origin, patient_id, patient_name, phone, order_note, status, delivery_type, items_list, total_amount, updated_at)
+      `INSERT INTO pharmacy_orders (tenant_id, facility_id, authority_origin, patient_id, patient_name, phone, order_note, status, delivery_type, items_list, dispensed_medications, total_amount, updated_at)
        VALUES ($3::uuid, $4::int, 'patient_manual', $1, 'B1TEST Patient', $2, 'B1TEST order', 'CONFIRMED', 'delivery',
-               $5::jsonb, 20, NOW())
+               $5::jsonb, '[]'::jsonb, 20, NOW())
        RETURNING id`,
       patientId,
       PHONE,
@@ -732,9 +732,9 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
     cleanOrderId = Number(clean[0].id);
 
     const counter = await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_orders (tenant_id, facility_id, authority_origin, patient_id, patient_name, phone, order_note, status, delivery_type, items_list, total_amount, updated_at)
+      `INSERT INTO pharmacy_orders (tenant_id, facility_id, authority_origin, patient_id, patient_name, phone, order_note, status, delivery_type, items_list, dispensed_medications, total_amount, updated_at)
        VALUES ($3::uuid, $4::int, 'patient_manual', $1, 'B1TEST Patient', $2, 'B1TEST order', 'CONFIRMED', 'counter',
-               $5::jsonb, 20, NOW())
+               $5::jsonb, '[]'::jsonb, 20, NOW())
        RETURNING id`,
       patientId,
       PHONE,
@@ -1048,9 +1048,9 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
     // of beforeAll prevents patient-wide active-therapy reconciliation from
     // treating the future risky order as evidence against the clean order.
     const risky = await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_orders (tenant_id, facility_id, authority_origin, patient_id, patient_name, phone, order_note, status, delivery_type, items_list, total_amount, updated_at)
+      `INSERT INTO pharmacy_orders (tenant_id, facility_id, authority_origin, patient_id, patient_name, phone, order_note, status, delivery_type, items_list, dispensed_medications, total_amount, updated_at)
        VALUES ($3::uuid, $4::int, 'patient_manual', $1, 'B1TEST Patient', $2, 'B1TEST order', 'CONFIRMED', 'counter',
-               $5::jsonb, 250, NOW())
+               $5::jsonb, '[]'::jsonb, 250, NOW())
        RETURNING id`,
       patientId,
       PHONE,
@@ -1915,9 +1915,9 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
     // A delivery order, so the 409 below can only be the verification freeze
     // and never markPreparing's counter/delivery flow guard.
     const blocked = await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_orders (tenant_id, facility_id, authority_origin, patient_id, patient_name, phone, order_note, status, delivery_type, items_list, total_amount, updated_at)
+      `INSERT INTO pharmacy_orders (tenant_id, facility_id, authority_origin, patient_id, patient_name, phone, order_note, status, delivery_type, items_list, dispensed_medications, total_amount, updated_at)
        VALUES ($3::uuid, $4::int, 'patient_manual', $1, 'B1TEST Patient', $2, 'B1TEST order', 'CONFIRMED', 'delivery',
-               $5::jsonb, 5, NOW())
+               $5::jsonb, '[]'::jsonb, 5, NOW())
        RETURNING id`,
       patientId,
       PHONE,

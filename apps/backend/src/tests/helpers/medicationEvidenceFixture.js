@@ -69,7 +69,7 @@ export async function seedReceivedMedicationSupply({
        (composition_key, display_label, active_ingredients, source)
      VALUES
        ('mar_medication_evidence_fixture_v1', 'MAR medication evidence fixture',
-        ARRAY['fixture_ingredient']::text[], 'test_fixture')
+        ARRAY['fixture_ingredient']::text[], 'curated')
      ON CONFLICT (composition_key) DO UPDATE
        SET display_label = EXCLUDED.display_label
      RETURNING id`,
