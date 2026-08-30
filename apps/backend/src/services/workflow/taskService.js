@@ -149,6 +149,7 @@ const PENDING_RESULT_TASK_SETTLEMENT_AUTHORITY = Symbol(
 const GENERIC_RUNTIME_DENIED_APPROVAL_KINDS = new Set([
   'care_pathway_definition_governance',
   'credential_privilege_grant',
+  'pharmacy_substitution_funding_reauthorisation',
 ]);
 const COVERING_TRANSFER_TASK_CONTRACT = 'covering_clinician_transfer_review_v1';
 const OP_INPATIENT_TRANSFER_TASK_CONTRACT = 'op_to_inpatient_transfer_review_v1';
@@ -160,6 +161,7 @@ const CLINICAL_ALERT_DELIVERY_RECOVERY_TASK_CONTRACT =
   'clinical_alert_delivery_recovery_v1';
 const MAR_MEDICATION_EXCEPTION_TASK_CONTRACT = 'mar_medication_exception_v1';
 const CATH_INVENTORY_SHORTFALL_TASK_CONTRACT = 'cath_inventory_shortfall_v1';
+const SUBSTITUTION_FUNDING_TASK_CONTRACT = 'pharmacy_substitution_funding_task_v1';
 const MAR_MEDICATION_EXCEPTION_EXACT_PRESCRIBER_ROLES = new Set([
   'DOCTOR',
   'DUTY_DOCTOR',
@@ -2007,7 +2009,22 @@ function isPendingResultTrackingTask(taskRow) {
   return taskRow?.related_resource_type === 'discharge_pending_result_handoff';
 }
 
+function isSubstitutionFundingApprovalTask(taskRow) {
+  return taskRow?.task_kind === 'review'
+    && ['pharmacy_tpa_line_decision', 'pharmacy_posted_payment'].includes(
+      taskRow?.related_resource_type,
+    )
+    && taskRow?.metadata?.contract === SUBSTITUTION_FUNDING_TASK_CONTRACT
+    && taskRow?.metadata?.stage === 'substitution_reauthorisation';
+}
+
 function assertGenericTaskMutationAllowed(taskRow, authority = null) {
+  if (isSubstitutionFundingApprovalTask(taskRow)) {
+    throw AppError.conflict(
+      'Substitution funding tasks must be actioned through the funding reauthorisation workflow',
+      'SUBSTITUTION_FUNDING_TASK_WORKFLOW_REQUIRED',
+    );
+  }
   if (
     isCoveringTransferReviewTask(taskRow)
     && authority !== COVERING_TRANSFER_TASK_AUTHORITY
@@ -4753,6 +4770,7 @@ async function claimTaskForCurrentActorTx({
   marMedicationExceptionClaimAuthority = null,
 } = {}) {
   const current = await getTaskForUpdate({ tenantId, id: taskId, db });
+  assertGenericTaskMutationAllowed(current);
   assertMarMedicationExceptionClaimAuthority(
     current,
     marMedicationExceptionClaimAuthority,
@@ -5758,6 +5776,7 @@ async function acknowledgeTaskInternal({
 
   // Pre-read for a clean, intention-revealing error before attempting the write.
   let current = await getTask({ tenantId: tid, id: taskId, tx });
+  assertGenericTaskMutationAllowed(current);
 
   if (
     isClinicalAlertDeliveryRecoveryContractBoundTask(current)
