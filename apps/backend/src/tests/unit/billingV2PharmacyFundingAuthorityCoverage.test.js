@@ -309,12 +309,47 @@ function validLine(overrides = {}) {
 }
 
 function reversePaymentPreludeRoutes({ fundedOrders = [], allocations = [allocationRow()] } = {}) {
+  const fundingAuthorities = [...new Map(allocations.map((allocation) => {
+    const row = {
+      pharmacy_order_id: Number(allocation.pharmacy_order_id),
+      source_authority_version: Number(allocation.source_authority_version),
+      source_authority_sha256: String(allocation.source_authority_sha256),
+    };
+    return [[
+      row.pharmacy_order_id,
+      row.source_authority_version,
+      row.source_authority_sha256,
+    ].join(':'), row];
+  })).values()].sort((left, right) => (
+    left.pharmacy_order_id - right.pharmacy_order_id
+      || left.source_authority_version - right.source_authority_version
+      || left.source_authority_sha256.localeCompare(right.source_authority_sha256)
+  ));
   return [
+    route(['pg_advisory_xact_lock_shared', 'patient-merge-tenant'], [{ locked: 1 }]),
     route(['SELECT payment.patient_uid', 'has_pharmacy_allocations'], [{
       patient_uid: PATIENT,
+      invoice_id: 21,
       has_pharmacy_allocations: true,
     }]),
+    route(['WITH RECURSIVE patient_chain', 'FROM users patient'], [{
+      uid: PATIENT, merged_into_uid: null, depth: 0, cycle: false,
+    }]),
+    route([
+      'SELECT DISTINCT allocation.pharmacy_order_id',
+      'allocation.source_authority_sha256',
+    ], fundingAuthorities),
+    ...fundingAuthorities.map((authorityRow) => route(
+      (sql, params) => sql.includes('vh:pharmacy_funding_event_chain')
+        && Number(params[1]) === authorityRow.pharmacy_order_id
+        && Number(params[2]) === authorityRow.source_authority_version
+        && String(params[3]) === authorityRow.source_authority_sha256,
+      [{ lock_acquired: null }],
+    )),
     route(['FROM pharmacy_orders pharmacy_order', 'billing_payment_id=$2::int'], fundedOrders),
+    route(['SELECT id, patient_uid, status', 'FROM billing_invoices', 'FOR UPDATE'], [{
+      id: 21, patient_uid: PATIENT, status: 'ISSUED',
+    }]),
     route(['SELECT payment.id,payment.invoice_id', 'immutable_drawer_close'], [{
       id: 41,
       invoice_id: 21,
@@ -325,11 +360,21 @@ function reversePaymentPreludeRoutes({ fundedOrders = [], allocations = [allocat
       immutable_drawer_close: false,
     }]),
     route([
-      'SELECT allocation.*',
+      'SELECT allocation.id, allocation.tenant_id',
       'allocation.billing_payment_id=$2::int',
-      'remaining_amount',
+      'FOR UPDATE OF allocation',
     ], allocations),
   ];
+}
+
+function paymentResidualFundingCapacityRoute() {
+  return route([
+    'AS source_amount',
+    'AS active_refunds',
+    'AS pharmacy_allocations',
+  ], [{
+    source_amount: '100', active_refunds: '0', pharmacy_allocations: '0',
+  }]);
 }
 
 function paymentInvoiceRecomputeRoutes() {
@@ -1031,10 +1076,7 @@ describe('allocated reversePayment funding closure', () => {
       code: 'BILLING_PAYMENT_REVERSAL_COMMAND_REQUIRED',
     });
 
-    expect(resolvePharmacyFundingPatientUidTxMock).toHaveBeenCalledWith(mockPrisma, {
-      tenantId: TENANT,
-      patientUid: PATIENT,
-    });
+    expect(resolvePharmacyFundingPatientUidTxMock).not.toHaveBeenCalled();
     expect(lockPharmacyFundingAuthorityTxMock).toHaveBeenCalledWith(mockPrisma, {
       tenantId: TENANT,
       patientUid: PATIENT,
@@ -1048,7 +1090,7 @@ describe('allocated reversePayment funding closure', () => {
     const router = sqlRouter({
       queries: reversePaymentPreludeRoutes({
         fundedOrders: [{ id: 71, status: 'READY', has_stock_movement: true }],
-      }).slice(0, 2),
+      }).slice(0, 6),
     });
     usePrismaRouter(router);
 
@@ -1081,6 +1123,7 @@ describe('allocated reversePayment funding closure', () => {
       queries: [
         ...reversePaymentPreludeRoutes(),
         ...reversalRoutes,
+        paymentResidualFundingCapacityRoute(),
         route(['UPDATE billing_payments', 'reversed = true'], [{
           id: 41, invoice_id: null, reversed: true,
         }]),
@@ -1132,6 +1175,7 @@ describe('allocated reversePayment funding closure', () => {
       queries: [
         ...reversePaymentPreludeRoutes(),
         ...allocationReversalRoutes({ inserted: [childReversal] }),
+        paymentResidualFundingCapacityRoute(),
         route(['UPDATE billing_payments', 'reversed = true'], [{
           id: 41, invoice_id: 21, reversed: true,
         }]),
@@ -1208,6 +1252,7 @@ describe('allocated reversePayment funding closure', () => {
       queries: [
         ...reversePaymentPreludeRoutes(),
         ...allocationReversalRoutes({ inserted: [childReversal] }),
+        paymentResidualFundingCapacityRoute(),
         route(['UPDATE billing_payments', 'reversed = true'], [{
           id: 41, invoice_id: 21, reversed: true,
         }]),

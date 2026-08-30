@@ -53,7 +53,9 @@ describe('billing v2 tenant/object authorization', () => {
   });
 
   it('denies payment collection when the invoice is outside the tenant', async () => {
-    queryRawUnsafeMock.mockResolvedValueOnce([]);
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{ locked: 1 }])
+      .mockResolvedValueOnce([]);
 
     await expect(
       collectPayment({
@@ -64,7 +66,7 @@ describe('billing v2 tenant/object authorization', () => {
       }),
     ).rejects.toMatchObject({ statusCode: 404 });
 
-    const [sql, ...params] = queryRawUnsafeMock.mock.calls[0];
+    const [sql, ...params] = queryRawUnsafeMock.mock.calls[1];
     expect(sql).toContain('FROM billing_invoices');
     expect(sql).toContain('tenant_id = $2::uuid');
     expect(params).toEqual([3, OTHER_TENANT]);
@@ -73,7 +75,14 @@ describe('billing v2 tenant/object authorization', () => {
 
   it('records an allowed same-tenant invoice payment with the tenant_id stamped on the payment row', async () => {
     queryRawUnsafeMock
+      .mockResolvedValueOnce([{ locked: 1 }])
+      .mockResolvedValueOnce([{ id: 3, patient_uid: PATIENT_A }])
       .mockResolvedValueOnce([{
+        uid: PATIENT_A, merged_into_uid: null, depth: 0, cycle: false,
+      }])
+      .mockResolvedValueOnce([{ lock_acquired: null }])
+      .mockResolvedValueOnce([{
+        id: 3,
         patient_uid: PATIENT_A,
         status: 'ISSUED',
         amount_due: '100',
@@ -97,7 +106,7 @@ describe('billing v2 tenant/object authorization', () => {
     });
 
     expect(payment.id).toBe(9);
-    const [insertSql, ...insertParams] = queryRawUnsafeMock.mock.calls[1];
+    const [insertSql, ...insertParams] = queryRawUnsafeMock.mock.calls[5];
     expect(insertSql).toContain('billing_payments');
     expect(insertSql).toContain('tenant_id');
     expect(insertParams.at(-1)).toBe(TENANT);
@@ -105,6 +114,7 @@ describe('billing v2 tenant/object authorization', () => {
 
   it('denies settling an advance against an invoice for a different patient', async () => {
     queryRawUnsafeMock
+      .mockResolvedValueOnce([{ locked: 1 }])
       .mockResolvedValueOnce([{
         id: 4,
         patient_uid: PATIENT_A,
@@ -114,6 +124,12 @@ describe('billing v2 tenant/object authorization', () => {
       .mockResolvedValueOnce([{
         patient_uid: PATIENT_B,
         amount_due: '500',
+      }])
+      .mockResolvedValueOnce([{
+        uid: PATIENT_A, merged_into_uid: null, depth: 0, cycle: false,
+      }])
+      .mockResolvedValueOnce([{
+        uid: PATIENT_B, merged_into_uid: null, depth: 0, cycle: false,
       }]);
 
     await expect(

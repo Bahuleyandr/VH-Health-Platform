@@ -88,8 +88,21 @@ describe('refund creation durable idempotency', () => {
       approval_status: 'PENDING',
     };
     queryMock
-      .mockResolvedValueOnce([{ patient_uid: PATIENT, amount_paid: '25.00' }])
-      .mockResolvedValueOnce([{ gross_paid: '25.00', active_refunds: '0.00' }])
+      .mockResolvedValueOnce([{ locked: 1 }])
+      .mockResolvedValueOnce([{ id: 17, patient_uid: PATIENT }])
+      .mockResolvedValueOnce([{
+        uid: PATIENT, merged_into_uid: null, depth: 0, cycle: false,
+      }])
+      .mockResolvedValueOnce([{ lock_acquired: null }])
+      .mockResolvedValueOnce([{
+        uid: PATIENT, merged_into_uid: null, depth: 0, cycle: false,
+      }])
+      .mockResolvedValueOnce([{
+        id: 17, patient_uid: PATIENT, amount_paid: '25.00',
+      }])
+      .mockResolvedValueOnce([{
+        source_amount: '25.00', active_refunds: '0.00', pharmacy_allocations: '0.00',
+      }])
       .mockResolvedValueOnce([refund])
       .mockResolvedValueOnce([{ id: 801 }])
       .mockResolvedValueOnce([{
@@ -111,7 +124,7 @@ describe('refund creation durable idempotency', () => {
 
     expect(result).toEqual(refund);
     expect(setTenantTxMock).toHaveBeenCalledWith(TENANT, expect.any(Function));
-    const audit = queryMock.mock.calls[3];
+    const audit = queryMock.mock.calls[8];
     expect(audit[3]).toBe('FRONT_OFFICE_BILLING_REFUND_RAISED');
     expect(JSON.parse(audit[7])).toEqual(expect.objectContaining({
       request_id: 'req-refund-raise-17',
@@ -120,7 +133,7 @@ describe('refund creation durable idempotency', () => {
       patient_uid: PATIENT,
       approval_status: 'PENDING',
     }));
-    const finalise = queryMock.mock.calls[4];
+    const finalise = queryMock.mock.calls[9];
     expect(finalise[0]).toContain("expires_at = 'infinity'::timestamptz");
     expect(finalise.slice(1, 6)).toEqual([
       901,

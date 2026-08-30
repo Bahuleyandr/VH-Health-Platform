@@ -18,6 +18,7 @@ import { AppError } from '../../utils/AppError.js';
 import { istDateString } from '../../utils/dateUtils.js';
 import { boundedInteger } from '../../utils/pagination.js';
 import { toPaise } from '../../utils/money.js';
+import { lockTenantPatientMergeStability } from '../../utils/patientMergeStabilityLock.js';
 import {
   postInvoiceIssueEntry, postPaymentEntry,
   postAdvanceCollectEntry, postAdvanceSettleEntry, postPaymentReversalEntry,
@@ -70,6 +71,14 @@ const INVOICE_DETAIL_COLUMNS = `
   igst_amount, discount_amount, discount_reason, discount_approved_by,
   total_amount, credit_note_amount, amount_paid, amount_due, status, notes, created_by,
   issued_at, voided_at, voided_by, void_reason, tenant_id, created_at, updated_at
+`;
+const REFUND_PUBLIC_COLUMNS = `
+  id, patient_uid, invoice_id, advance_id, amount, reason, mode, reference,
+  approval_status, raised_by, raised_at, approved_by, approved_at,
+  rejected_by, rejected_at, rejection_reason, paid_at, paid_by, tenant_id,
+  payout_rail, payout_rail_claimed_at, gateway_refund_id,
+  cash_drawer_session_id, counter_sale_void_request_id,
+  offline_electronic_evidence_id, created_at, updated_at
 `;
 
 // Mirrors VALID_CATEGORIES in claimCapsService — the bucket set TPA caps
@@ -731,6 +740,199 @@ async function lockBillingInvoice(tx, invoiceId, tenantId, columns = '*') {
     ...params,
   );
   return rows[0] || null;
+}
+
+const BILLING_ADVANCE_FUNDING_COLUMNS = `
+  id, patient_uid, admission_id, amount, balance, mode, reference,
+  status, tenant_id, collected_by, collected_at,
+  ipd_advance_deposit_id, ipd_advance_deposit_collected_at,
+  ipd_advance_deposit_payment_method, updated_at
+`;
+
+async function lockBillingAdvance(
+  tx,
+  advanceId,
+  tenantId,
+  columns = BILLING_ADVANCE_FUNDING_COLUMNS,
+) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT ${columns}
+       FROM billing_advances
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int
+      FOR UPDATE`,
+    requireTenantId(tenantId),
+    Number(advanceId),
+  );
+  return rows[0] || null;
+}
+
+const BILLING_FUNDING_PATIENT_MERGE_MAX_DEPTH = 16;
+
+async function resolveBillingFundingPatientIdentityTx(tx, { tenantId, patientUid }) {
+  const tenant = requireTenantId(tenantId);
+  const storedPatientUid = String(patientUid || '').trim().toLowerCase();
+  if (!UUID_PATTERN.test(storedPatientUid)) {
+    throw AppError.conflict(
+      'Billing funding history does not reference a valid tenant patient',
+      'BILLING_FUNDING_PATIENT_IDENTITY_INVALID',
+    );
+  }
+  const rows = await tx.$queryRawUnsafe(
+    `WITH RECURSIVE patient_chain AS (
+       SELECT patient.uid,
+              patient.merged_into_uid,
+              ARRAY[patient.uid]::uuid[] AS path,
+              0 AS depth,
+              FALSE AS cycle
+         FROM users patient
+        WHERE patient.tenant_id = $1::uuid
+          AND patient.uid = $2::uuid
+          AND patient.role = 'PATIENT'
+       UNION ALL
+       SELECT successor.uid,
+              successor.merged_into_uid,
+              chain.path || successor.uid,
+              chain.depth + 1,
+              successor.uid = ANY(chain.path) AS cycle
+         FROM patient_chain chain
+         JOIN users successor
+           ON successor.tenant_id = $1::uuid
+          AND successor.uid = chain.merged_into_uid
+          AND successor.role = 'PATIENT'
+        WHERE chain.merged_into_uid IS NOT NULL
+          AND chain.depth < $3::int
+          AND chain.cycle = FALSE
+     )
+     SELECT uid::text AS uid,
+            merged_into_uid::text AS merged_into_uid,
+            depth,
+            cycle
+       FROM patient_chain
+      ORDER BY depth`,
+    tenant,
+    storedPatientUid,
+    BILLING_FUNDING_PATIENT_MERGE_MAX_DEPTH,
+  );
+  const terminal = rows[rows.length - 1];
+  const terminalRows = rows.filter((row) => row.merged_into_uid == null);
+  if (!rows.length
+      || rows.some((row) => row.cycle === true)
+      || terminalRows.length !== 1
+      || terminalRows[0].uid !== terminal?.uid
+      || terminal?.merged_into_uid != null) {
+    throw AppError.conflict(
+      'Billing funding patient merge history does not resolve to one terminal tenant patient',
+      'BILLING_FUNDING_PATIENT_MERGE_CHAIN_INVALID',
+    );
+  }
+  return {
+    storedPatientUid: String(rows[0].uid),
+    fundingPatientUid: String(terminal.uid),
+  };
+}
+
+async function lockBillingPatientFundingAfterMergeTx(tx, { tenantId, patientUid }) {
+  const tenant = requireTenantId(tenantId);
+  const identity = await resolveBillingFundingPatientIdentityTx(tx, {
+    tenantId: tenant,
+    patientUid,
+  });
+  await lockPharmacyFundingAuthorityTx(tx, {
+    tenantId: tenant,
+    patientUid: identity.fundingPatientUid,
+  });
+  return identity;
+}
+
+async function assertBillingFundingPatientMatchTx(tx, {
+  tenantId,
+  requestedPatientUid,
+  parentIdentity,
+  message,
+  code,
+}) {
+  if (!requestedPatientUid) return;
+  const requestedIdentity = await resolveBillingFundingPatientIdentityTx(tx, {
+    tenantId,
+    patientUid: requestedPatientUid,
+  });
+  if (requestedIdentity.fundingPatientUid !== parentIdentity.fundingPatientUid) {
+    throw AppError.forbidden(message, code);
+  }
+}
+
+export async function lockBillingRefundFundingAuthorityTx(tx, {
+  tenantId,
+  refundId,
+  mergeStabilityHeld = false,
+}) {
+  const tenant = requireTenantId(tenantId);
+  const id = Number(refundId);
+  if (!mergeStabilityHeld) await lockTenantPatientMergeStability(tx, tenant);
+  const candidates = await tx.$queryRawUnsafe(
+    `SELECT id, patient_uid, invoice_id, advance_id, approval_status
+       FROM billing_refunds
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int
+      LIMIT 1`,
+    tenant,
+    id,
+  );
+  const candidate = candidates[0];
+  if (!candidate) throw AppError.notFound('Refund not found');
+
+  const identity = await lockBillingPatientFundingAfterMergeTx(tx, {
+    tenantId: tenant,
+    patientUid: candidate.patient_uid,
+  });
+  let parent;
+  if (candidate.invoice_id != null) {
+    parent = await lockBillingInvoice(
+      tx,
+      candidate.invoice_id,
+      tenant,
+      'id, patient_uid, status, total_amount, credit_note_amount, amount_paid, amount_due',
+    );
+  } else if (candidate.advance_id != null) {
+    parent = await lockBillingAdvance(tx, candidate.advance_id, tenant);
+  }
+  if (!parent
+      || String(parent.patient_uid).toLowerCase()
+        !== String(candidate.patient_uid).toLowerCase()) {
+    throw AppError.conflict(
+      'Refund and its parent no longer share the exact stored patient identity',
+      'BILLING_REFUND_PARENT_AUTHORITY_MISMATCH',
+    );
+  }
+
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT ${REFUND_PUBLIC_COLUMNS}
+       FROM billing_refunds
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int
+        AND patient_uid = $3::uuid
+        AND invoice_id IS NOT DISTINCT FROM $4::int
+        AND advance_id IS NOT DISTINCT FROM $5::int
+      FOR UPDATE`,
+    tenant,
+    id,
+    String(candidate.patient_uid),
+    candidate.invoice_id == null ? null : Number(candidate.invoice_id),
+    candidate.advance_id == null ? null : Number(candidate.advance_id),
+  );
+  if (!rows[0]) {
+    throw AppError.conflict(
+      'Refund funding authority changed concurrently',
+      'BILLING_REFUND_FUNDING_AUTHORITY_CHANGED',
+    );
+  }
+  return {
+    refund: rows[0],
+    parent,
+    storedPatientUid: String(candidate.patient_uid),
+    fundingPatientUid: identity.fundingPatientUid,
+  };
 }
 
 async function assertPatientInTenant(patientUid, tenantId, db = prisma) {
@@ -2202,18 +2404,36 @@ function isUniqueViolation(err) {
 async function collectPaymentTx(tx, {
   invoice_id, patient_uid, amount, mode, reference,
   denominations, collected_by, shift, notes, tenantId, normalizedMode,
-}) {
+}, { mergeStabilityHeld = false } = {}) {
+  const tenant = requireTenantId(normalizeTenantId(tenantId));
+  if (!mergeStabilityHeld) await lockTenantPatientMergeStability(tx, tenant);
   let resolvedPatientUid = patient_uid;
   if (invoice_id) {
-    // Lock the invoice row first — the balance check below must see a state no
-    // concurrent payment/settlement can change until this tx commits.
+    const invoiceCandidate = await findBillingInvoice(
+      invoice_id,
+      tenant,
+      'id, patient_uid',
+      tx,
+    );
+    if (!invoiceCandidate) throw AppError.notFound('Invoice not found');
+    await lockBillingPatientFundingAfterMergeTx(tx, {
+      tenantId: tenant,
+      patientUid: invoiceCandidate.patient_uid,
+    });
     const inv = await lockBillingInvoice(
       tx,
       invoice_id,
-      tenantId,
+      tenant,
       'patient_uid, status, total_amount, amount_paid, amount_due',
     );
     if (!inv) throw AppError.notFound('Invoice not found');
+    if (String(inv.patient_uid).toLowerCase()
+        !== String(invoiceCandidate.patient_uid).toLowerCase()) {
+      throw AppError.conflict(
+        'Invoice patient identity changed after funding serialization',
+        'BILLING_PAYMENT_INVOICE_AUTHORITY_CHANGED',
+      );
+    }
     if (inv.status === 'VOID' || inv.status === 'DRAFT') {
       throw AppError.badRequest(`Cannot collect against ${inv.status} invoice`);
     }
@@ -2224,11 +2444,18 @@ async function collectPaymentTx(tx, {
       );
     }
     if (normalizedMode === 'INSURANCE') {
-      await assertInsurancePaymentHasClaimAnchor(invoice_id, tenantId, tx);
+      await assertInsurancePaymentHasClaimAnchor(invoice_id, tenant, tx);
     }
   }
   if (!resolvedPatientUid) throw AppError.badRequest('patient_uid is required when invoice_id is omitted');
-  if (!invoice_id) await assertPatientInTenant(resolvedPatientUid, tenantId, tx);
+  if (!invoice_id) {
+    const patientUid = await resolvePharmacyFundingPatientUidTx(tx, {
+      tenantId: tenant,
+      patientUid: resolvedPatientUid,
+    });
+    await lockPharmacyFundingAuthorityTx(tx, { tenantId: tenant, patientUid });
+    resolvedPatientUid = patientUid;
+  }
 
   let rows;
   try {
@@ -2247,7 +2474,7 @@ async function collectPaymentTx(tx, {
       collected_by ? String(collected_by) : null,
       shift || null,
       notes || null,
-      requireTenantId(normalizeTenantId(tenantId)),
+      tenant,
     );
   } catch (err) {
     if (isUniqueViolation(err)) {
@@ -2270,7 +2497,7 @@ async function collectPaymentTx(tx, {
 export async function collectPayment({
   invoice_id, patient_uid, amount, mode, reference,
   denominations, collected_by, shift, notes, tenantId,
-}, { tx = null } = {}) {
+}, { tx = null, mergeStabilityHeld = false } = {}) {
   // ── Phase 0 — preflight (no row mutation; safe outside the tx) ──────────
   if (!VALID_PAYMENT_MODES.includes(mode)) {
     throw AppError.badRequest(`Invalid mode. Allowed: ${VALID_PAYMENT_MODES.join(', ')}`);
@@ -2305,7 +2532,7 @@ export async function collectPayment({
   // Reuse the caller's transaction when given (e.g. markPaymentLinkPaid) so we
   // never nest setTenantTx — Postgres cannot nest transactions. That caller is
   // responsible for its own ledger posting (wired in a later phase).
-  if (tx) return collectPaymentTx(tx, args);
+  if (tx) return collectPaymentTx(tx, args, { mergeStabilityHeld });
   // Phase 4: the per-tenant ledger mode decides HOW we post.
   //  - enforce (sameTx):  post INSIDE the payment tx so a ledger failure rolls
   //    back the payment (authoritative).
@@ -2333,6 +2560,58 @@ export async function collectPayment({
   return payment;
 }
 
+function paymentFundingAdvisoryTuple(row) {
+  return [
+    Number(row.pharmacy_order_id),
+    Number(row.source_authority_version),
+    String(row.source_authority_sha256 || ''),
+  ];
+}
+
+function paymentFundingAdvisoryKey(row) {
+  return paymentFundingAdvisoryTuple(row).join(':');
+}
+
+async function lockPaymentFundingEventAdvisoriesTx(tx, { tenantId, paymentId }) {
+  const tenant = requireTenantId(tenantId);
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT DISTINCT allocation.pharmacy_order_id,
+                     allocation.source_authority_version,
+                     allocation.source_authority_sha256
+       FROM pharmacy_payment_allocations allocation
+      WHERE allocation.tenant_id = $1::uuid
+        AND allocation.billing_payment_id = $2::int
+      ORDER BY allocation.pharmacy_order_id,
+               allocation.source_authority_version,
+               allocation.source_authority_sha256`,
+    tenant,
+    Number(paymentId),
+  );
+  for (const row of rows) {
+    const [orderId, orderVersion, orderItemsSha256] = paymentFundingAdvisoryTuple(row);
+    if (!Number.isInteger(orderId) || orderId <= 0
+        || !Number.isInteger(orderVersion) || orderVersion <= 0
+        || !SHA256_PATTERN.test(orderItemsSha256)) {
+      throw AppError.conflict(
+        'Payment allocation funding identity is incomplete',
+        'PHARMACY_PAYMENT_ALLOCATION_AUTHORITY_INVALID',
+      );
+    }
+    await tx.$queryRawUnsafe(
+      `SELECT pg_advisory_xact_lock(hashtextextended(
+         'vh:pharmacy_funding_event_chain:' || $1::uuid::text || ':'
+           || $2::int::text || ':' || $3::int::text || ':' || $4,
+         753
+       ))::text AS lock_acquired`,
+      tenant,
+      orderId,
+      orderVersion,
+      orderItemsSha256,
+    );
+  }
+  return rows;
+}
+
 export async function reversePayment(paymentId, {
   reversed_by,
   reason,
@@ -2346,8 +2625,9 @@ export async function reversePayment(paymentId, {
   let reversed;
   try {
     reversed = await setTenantTx(tenant, async (tx) => {
+      await lockTenantPatientMergeStability(tx, tenant);
       const paymentPreRead = await tx.$queryRawUnsafe(
-        `SELECT payment.patient_uid,
+        `SELECT payment.patient_uid, payment.invoice_id,
                 EXISTS (
                   SELECT 1 FROM pharmacy_payment_allocations allocation
                    WHERE allocation.tenant_id=payment.tenant_id
@@ -2358,15 +2638,18 @@ export async function reversePayment(paymentId, {
         tenant, Number(paymentId),
       );
       if (!paymentPreRead.length) throw AppError.notFound('Payment not found');
-      const patientUid = paymentPreRead[0].has_pharmacy_allocations
-        ? await resolvePharmacyFundingPatientUidTx(tx, {
+      const invoiceLinked = paymentPreRead[0].invoice_id != null;
+      const fundingSensitive = invoiceLinked || paymentPreRead[0].has_pharmacy_allocations;
+      const paymentFundingIdentity = await lockBillingPatientFundingAfterMergeTx(tx, {
+        tenantId: tenant,
+        patientUid: paymentPreRead[0].patient_uid,
+      });
+      const fundingAdvisories = fundingSensitive
+        ? await lockPaymentFundingEventAdvisoriesTx(tx, {
           tenantId: tenant,
-          patientUid: String(paymentPreRead[0].patient_uid),
+          paymentId,
         })
-        : String(paymentPreRead[0].patient_uid);
-      if (paymentPreRead[0].has_pharmacy_allocations) {
-        await lockPharmacyFundingAuthorityTx(tx, { tenantId: tenant, patientUid });
-      }
+        : [];
       const fundedOrderRows = await tx.$queryRawUnsafe(
         `SELECT pharmacy_order.id,pharmacy_order.status,
                 EXISTS (
@@ -2376,12 +2659,24 @@ export async function reversePayment(paymentId, {
                 ) AS has_stock_movement
            FROM pharmacy_orders pharmacy_order
           WHERE pharmacy_order.tenant_id=$1::uuid
-            AND pharmacy_order.id IN (
-              SELECT allocation.pharmacy_order_id
-                FROM pharmacy_payment_allocations allocation
-               WHERE allocation.tenant_id=$1::uuid
-                 AND allocation.billing_payment_id=$2::int
-            )
+             AND pharmacy_order.id IN (
+               SELECT net.pharmacy_order_id
+                 FROM (
+                   SELECT allocation.id,allocation.pharmacy_order_id,
+                          allocation.allocated_amount
+                            - COALESCE(SUM(reversal.reversed_amount),0) AS remaining_amount
+                     FROM pharmacy_payment_allocations allocation
+                     LEFT JOIN pharmacy_payment_allocation_reversals reversal
+                       ON reversal.tenant_id=allocation.tenant_id
+                      AND reversal.allocation_id=allocation.id
+                    WHERE allocation.tenant_id=$1::uuid
+                      AND allocation.billing_payment_id=$2::int
+                    GROUP BY allocation.id,allocation.pharmacy_order_id,
+                             allocation.allocated_amount
+                 ) net
+                GROUP BY net.pharmacy_order_id
+               HAVING SUM(net.remaining_amount) > 0.001
+             )
           ORDER BY pharmacy_order.id
           FOR UPDATE OF pharmacy_order`,
         tenant, Number(paymentId),
@@ -2397,6 +2692,22 @@ export async function reversePayment(paymentId, {
           'PHARMACY_PAYMENT_ALLOCATION_REVERSAL_ORDER_NOT_ACTIONABLE',
           { pharmacy_order_id: Number(unsafeOrder.id), order_status: unsafeOrder.status },
         );
+      }
+      if (invoiceLinked) {
+        const invoice = await lockBillingInvoice(
+          tx,
+          paymentPreRead[0].invoice_id,
+          tenant,
+          'id, patient_uid, status',
+        );
+        if (!invoice) throw AppError.notFound('Invoice not found');
+        if (String(invoice.patient_uid).toLowerCase()
+            !== String(paymentPreRead[0].patient_uid).toLowerCase()) {
+          throw AppError.conflict(
+            'Payment and invoice no longer share the exact stored patient identity',
+            'BILLING_PAYMENT_REVERSAL_AUTHORITY_CHANGED',
+          );
+        }
       }
       const paymentRows = await tx.$queryRawUnsafe(
         `SELECT payment.id,payment.invoice_id,payment.patient_uid,payment.amount,
@@ -2422,6 +2733,16 @@ export async function reversePayment(paymentId, {
       if (!paymentRows.length || paymentRows[0].reversed) {
         throw AppError.notFound('Payment not found or already reversed');
       }
+      if (String(paymentRows[0].patient_uid).toLowerCase()
+          !== String(paymentPreRead[0].patient_uid).toLowerCase()
+          || (paymentRows[0].invoice_id == null ? null : Number(paymentRows[0].invoice_id))
+            !== (paymentPreRead[0].invoice_id == null
+              ? null : Number(paymentPreRead[0].invoice_id))) {
+        throw AppError.conflict(
+          'Payment funding authority changed concurrently',
+          'BILLING_PAYMENT_REVERSAL_AUTHORITY_CHANGED',
+        );
+      }
       if (String(paymentRows[0].mode || '').trim().toUpperCase() === 'CASH'
           && paymentRows[0].immutable_drawer_close === true) {
         throw AppError.conflict(
@@ -2429,21 +2750,40 @@ export async function reversePayment(paymentId, {
           'BILLING_CASH_PAYMENT_CLOSED_DRAWER_REVERSAL_FORBIDDEN',
         );
       }
-      const allocations = await tx.$queryRawUnsafe(
-        `SELECT allocation.*,
+      const allocationRows = await tx.$queryRawUnsafe(
+        `SELECT allocation.id, allocation.tenant_id,
+                allocation.pharmacy_order_id, allocation.invoice_id,
+                allocation.invoice_item_id, allocation.billing_payment_id,
+                allocation.source_authority_version,
+                allocation.source_authority_sha256,
+                allocation.allocated_amount,
                 (allocation.allocated_amount
-                  - COALESCE(SUM(reversal.reversed_amount),0))::numeric AS remaining_amount
+                  - COALESCE((
+                    SELECT SUM(reversal.reversed_amount)
+                      FROM pharmacy_payment_allocation_reversals reversal
+                     WHERE reversal.tenant_id=allocation.tenant_id
+                       AND reversal.allocation_id=allocation.id
+                  ),0))::numeric AS remaining_amount
            FROM pharmacy_payment_allocations allocation
-           LEFT JOIN pharmacy_payment_allocation_reversals reversal
-             ON reversal.tenant_id=allocation.tenant_id
-            AND reversal.allocation_id=allocation.id
           WHERE allocation.tenant_id=$1::uuid
             AND allocation.billing_payment_id=$2::int
-          GROUP BY allocation.id
-         HAVING allocation.allocated_amount
-                - COALESCE(SUM(reversal.reversed_amount),0) > 0.001
-          ORDER BY allocation.pharmacy_order_id,allocation.id`,
+          ORDER BY allocation.pharmacy_order_id,allocation.id
+          FOR UPDATE OF allocation`,
         tenant, Number(paymentId),
+      );
+      if (fundingSensitive) {
+        const advisoryKeys = new Set(fundingAdvisories.map(paymentFundingAdvisoryKey));
+        const lockedKeys = new Set(allocationRows.map(paymentFundingAdvisoryKey));
+        if (advisoryKeys.size !== lockedKeys.size
+            || [...lockedKeys].some((key) => !advisoryKeys.has(key))) {
+          throw AppError.conflict(
+            'Payment allocation authority changed after funding serialization',
+            'BILLING_PAYMENT_REVERSAL_AUTHORITY_CHANGED',
+          );
+        }
+      }
+      const allocations = allocationRows.filter(
+        (allocation) => Number(allocation.remaining_amount) > 0.001,
       );
       if (allocations.length && !SHA256_PATTERN.test(reversalCommand)) {
         throw AppError.badRequest(
@@ -2470,7 +2810,28 @@ export async function reversePayment(paymentId, {
           actorUid: String(reversed_by),
           reason,
           commandKeySha256: allocationCommand,
+          storedPaymentPatientUid: String(paymentRows[0].patient_uid),
+          fundingPaymentPatientUid: paymentFundingIdentity.fundingPatientUid,
         });
+      }
+      if (paymentRows[0].invoice_id != null) {
+        const residualHeadroom = await calculateInvoiceRefundHeadroomTx(
+          tx,
+          paymentRows[0].invoice_id,
+        );
+        if (toPaise(paymentRows[0].amount) > toPaise(residualHeadroom.refundable)) {
+          throw AppError.conflict(
+            'Payment reversal would leave active refund or pharmacy funding above residual receipts',
+            'BILLING_PAYMENT_REVERSAL_FUNDING_COMMITMENT_CONFLICT',
+            {
+              payment_amount: Number(paymentRows[0].amount),
+              gross_paid: residualHeadroom.gross_paid,
+              active_refunds: residualHeadroom.active_refunds,
+              active_pharmacy_allocations: residualHeadroom.active_pharmacy_allocations,
+              residual_headroom: residualHeadroom.refundable,
+            },
+          );
+        }
       }
       // Flip the reversal flag first (guarded by reversed = false so a double
       // reverse is a no-op), then recompute the parent invoice under a FOR UPDATE
@@ -2668,10 +3029,8 @@ export async function collectAdvance({ patient_uid, admission_id, amount, mode, 
   }
   requireValidAmount(amount);
   const tenant = requireTenantId(normalizeTenantId(tenantId));
-  if (tenantId) await assertPatientInTenant(patient_uid, tenant);
   const wiring = await resolveLedgerWiring(tenant);
-  // The advance INSERT, runnable on a plain client (shadow) or a tx (enforce).
-  const insertAdvance = (db) => db.$queryRawUnsafe(
+  const insertAdvance = (tx) => tx.$queryRawUnsafe(
     `INSERT INTO billing_advances
       (patient_uid, admission_id, amount, balance, mode, reference, collected_by, notes, tenant_id)
      VALUES ($1::uuid, $2, $3::numeric, $3::numeric, $4, $5, $6::uuid, $7, $8::uuid)
@@ -2681,20 +3040,23 @@ export async function collectAdvance({ patient_uid, admission_id, amount, mode, 
     Number(amount), mode, reference || null,
     collected_by ? String(collected_by) : null, notes || null, tenant,
   );
-  let advance;
-  if (wiring.sameTx) {
-    // Enforce: INSERT + ledger post in one tx so a ledger failure rolls back the advance.
-    advance = await setTenantTx(tenant, async (tx) => {
-      const r = await insertAdvance(tx);
-      await postAdvanceCollectEntry({ advance: r[0], tenantId: tenant, tx });
-      // Phase 4-3: derive the advance balance from the ledger (PATIENT_ADVANCE).
-      await deriveAdvanceBalanceFromLedgerTx(tx, Number(r[0].id));
-      return r[0];
+  const advance = await setTenantTx(tenant, async (tx) => {
+    await lockTenantPatientMergeStability(tx, tenant);
+    const patientUid = await resolvePharmacyFundingPatientUidTx(tx, {
+      tenantId: tenant,
+      patientUid: patient_uid,
     });
-  } else {
-    const rows = await insertAdvance(prisma);
-    advance = rows[0];
-  }
+    await lockPharmacyFundingAuthorityTx(tx, { tenantId: tenant, patientUid });
+    const rows = await insertAdvance(tx);
+    if (wiring.sameTx) {
+      // Enforce: INSERT + ledger post in one tx so a ledger failure rolls back the advance.
+      const [row] = rows;
+      await postAdvanceCollectEntry({ advance: row, tenantId: tenant, tx });
+      // Phase 4-3: derive the advance balance from the ledger (PATIENT_ADVANCE).
+      await deriveAdvanceBalanceFromLedgerTx(tx, Number(row.id));
+    }
+    return rows[0];
+  });
   // Shadow: post-commit best-effort ADVANCE_COLLECT (debit CASH|BANK / credit
   // PATIENT_ADVANCE) — the advance is already recorded. Off: skip.
   if (wiring.postCommit) {
@@ -2722,37 +3084,93 @@ export async function listAdvances({ tenantId, patient_uid, admission_id, status
 
 export async function settleAdvance({ tenantId, advance_id, invoice_id, amount, settled_by }) {
   requireValidAmount(amount);
-  const wiring = await resolveLedgerWiring(requireTenantId(tenantId));
+  const tenant = requireTenantId(tenantId);
+  const wiring = await resolveLedgerWiring(tenant);
   let settledPatientUid = null;
-  const settlement = await setTenantTx(requireTenantId(tenantId), async (tx) => {
-    // Lock the advance row FOR UPDATE before reading its balance — without the
-    // lock two concurrent settlements both read the same balance and both
-    // succeed (the classic lost update that overdraws the advance).
-    const advParams = [Number(advance_id)];
-    const advTenantSql = appendTenantPredicate(advParams, tenantId);
-    const adv = await tx.$queryRawUnsafe(
-      `SELECT * FROM billing_advances WHERE id = $1::int${advTenantSql} FOR UPDATE`,
-      ...advParams,
+  const settlement = await setTenantTx(tenant, async (tx) => {
+    await lockTenantPatientMergeStability(tx, tenant);
+    // These are discovery reads only. The canonical funding advisory below is
+    // acquired before either parent row is locked, and both rows are then
+    // re-read authoritatively in invoice-before-advance order.
+    const advanceCandidates = await tx.$queryRawUnsafe(
+      `SELECT id, patient_uid
+         FROM billing_advances
+        WHERE tenant_id = $1::uuid
+          AND id = $2::int
+        LIMIT 1`,
+      tenant,
+      Number(advance_id),
     );
-    if (!adv.length) throw AppError.notFound('Advance not found');
-    if (adv[0].status !== 'ACTIVE') throw AppError.badRequest(`Advance is ${adv[0].status}`);
-    if (toPaise(amount) > toPaise(adv[0].balance)) {
-      throw AppError.badRequest(`Amount exceeds advance balance ${adv[0].balance}`);
-    }
-
-    // Lock the invoice too so its amount_due check + bump is consistent against
-    // any concurrent payment on the same invoice.
-    const inv = await lockBillingInvoice(
-      tx,
-      invoice_id,
-      tenantId,
-      'amount_due, patient_uid',
+    if (!advanceCandidates[0]) throw AppError.notFound('Advance not found');
+    const invoiceCandidates = await tx.$queryRawUnsafe(
+      `SELECT id, patient_uid
+         FROM billing_invoices
+        WHERE tenant_id = $1::uuid
+          AND id = $2::int
+        LIMIT 1`,
+      tenant,
+      Number(invoice_id),
     );
-    if (!inv) throw AppError.notFound('Invoice not found');
-    if (String(inv.patient_uid).toLowerCase() !== String(adv[0].patient_uid).toLowerCase()) {
+    if (!invoiceCandidates[0]) throw AppError.notFound('Invoice not found');
+    const advanceIdentity = await resolveBillingFundingPatientIdentityTx(tx, {
+      tenantId: tenant,
+      patientUid: advanceCandidates[0].patient_uid,
+    });
+    const invoiceIdentity = await resolveBillingFundingPatientIdentityTx(tx, {
+      tenantId: tenant,
+      patientUid: invoiceCandidates[0].patient_uid,
+    });
+    if (invoiceIdentity.fundingPatientUid !== advanceIdentity.fundingPatientUid) {
       throw AppError.forbidden(
         'Advance and invoice must belong to the same patient',
         'BILLING_ADVANCE_INVOICE_PATIENT_MISMATCH',
+      );
+    }
+    await lockPharmacyFundingAuthorityTx(tx, {
+      tenantId: tenant,
+      patientUid: invoiceIdentity.fundingPatientUid,
+    });
+    const inv = await lockBillingInvoice(
+      tx,
+      invoice_id,
+      tenant,
+      'id, amount_due, patient_uid, status',
+    );
+    if (!inv) throw AppError.notFound('Invoice not found');
+    if (String(inv.patient_uid).toLowerCase() !== invoiceIdentity.storedPatientUid) {
+      throw AppError.forbidden(
+        'Advance and invoice must belong to the same patient',
+        'BILLING_ADVANCE_INVOICE_PATIENT_MISMATCH',
+      );
+    }
+    if (['DRAFT', 'VOID'].includes(String(inv.status).toUpperCase())) {
+      throw AppError.conflict(
+        `Cannot settle an advance against a ${inv.status} invoice`,
+        'BILLING_ADVANCE_INVOICE_NOT_SETTLEABLE',
+      );
+    }
+
+    const adv = await lockBillingAdvance(tx, advance_id, tenant);
+    if (!adv) throw AppError.notFound('Advance not found');
+    if (String(adv.patient_uid).toLowerCase() !== advanceIdentity.storedPatientUid) {
+      throw AppError.forbidden(
+        'Advance and invoice must belong to the same patient',
+        'BILLING_ADVANCE_INVOICE_PATIENT_MISMATCH',
+      );
+    }
+    if (adv.status !== 'ACTIVE') throw AppError.badRequest(`Advance is ${adv.status}`);
+    const fundingHeadroom = await calculateAdvanceFundingHeadroomTx(tx, advance_id);
+    if (toPaise(amount) > toPaise(fundingHeadroom.available)) {
+      throw AppError.badRequest(
+        `Amount exceeds uncommitted advance funding ${fundingHeadroom.available}`,
+        'BILLING_ADVANCE_INSUFFICIENT_BALANCE',
+        {
+          advance_balance: fundingHeadroom.currentBalance,
+          settlements: fundingHeadroom.settlements,
+          active_refunds: fundingHeadroom.activeRefunds,
+          active_pharmacy_allocations: fundingHeadroom.pharmacyAllocations,
+          available: fundingHeadroom.available,
+        },
       );
     }
     settledPatientUid = inv.patient_uid; // captured for the post-commit ledger entry
@@ -2784,7 +3202,7 @@ export async function settleAdvance({ tenantId, advance_id, invoice_id, amount, 
     );
     if (!dec.length) {
       throw AppError.badRequest(
-        `Amount exceeds advance balance ${adv[0].balance}`,
+        `Amount exceeds advance balance ${adv.balance}`,
         'BILLING_ADVANCE_INSUFFICIENT_BALANCE',
       );
     }
@@ -2801,7 +3219,7 @@ export async function settleAdvance({ tenantId, advance_id, invoice_id, amount, 
     );
     // Phase 4 enforce: post ADVANCE_SETTLE INSIDE the tx so a ledger failure rolls back.
     if (wiring.sameTx) {
-      await postAdvanceSettleEntry({ settlement: settlementRow[0], patientUid: settledPatientUid, tenantId: requireTenantId(tenantId), tx });
+      await postAdvanceSettleEntry({ settlement: settlementRow[0], patientUid: settledPatientUid, tenantId: tenant, tx });
       // Phase 4-3: the post moved PATIENT_ADVANCE and PATIENT_AR; derive both
       // cache columns from the ledger.
       await deriveAdvanceBalanceFromLedgerTx(tx, Number(advance_id));
@@ -2813,7 +3231,7 @@ export async function settleAdvance({ tenantId, advance_id, invoice_id, amount, 
   // credit PATIENT_AR). Off: skip.
   if (wiring.postCommit) {
     try {
-      await postAdvanceSettleEntry({ settlement, patientUid: settledPatientUid, tenantId: requireTenantId(tenantId) });
+      await postAdvanceSettleEntry({ settlement, patientUid: settledPatientUid, tenantId: tenant });
     } catch (ledgerErr) {
       logger.error('Ledger ADVANCE_SETTLE post failed (non-blocking)', { settlement_id: settlement?.id, error: ledgerErr.message });
     }
@@ -2825,55 +3243,145 @@ export async function settleAdvance({ tenantId, advance_id, invoice_id, amount, 
 // Refunds
 // ───────────────────────────────────────────────────────────────────────
 
+async function calculateNetBillingFundingCapacityTx(tx, {
+  invoiceId = null,
+  advanceId = null,
+  excludeRefundId = null,
+}) {
+  const isInvoice = invoiceId != null;
+  if (isInvoice === (advanceId != null)) {
+    throw new TypeError('Exactly one billing funding source is required');
+  }
+  const sourceId = Number(isInvoice ? invoiceId : advanceId);
+  const excludedRefund = excludeRefundId == null ? null : Number(excludeRefundId);
+  const rows = isInvoice
+    ? await tx.$queryRawUnsafe(
+      `SELECT (
+                SELECT COALESCE(SUM(payment.amount),0)::numeric
+                  FROM billing_payments payment
+                 WHERE payment.invoice_id=$1::int AND payment.reversed=FALSE
+              ) + (
+                SELECT COALESCE(SUM(settlement.amount),0)::numeric
+                  FROM billing_advance_settlements settlement
+                 WHERE settlement.invoice_id=$1::int
+              ) AS source_amount,
+              (
+                SELECT COALESCE(SUM(refund.amount),0)::numeric
+                  FROM billing_refunds refund
+                 WHERE refund.invoice_id=$1::int
+                   AND refund.approval_status<>'REJECTED'
+                   AND ($2::int IS NULL OR refund.id<>$2::int)
+              ) AS active_refunds,
+              (
+                SELECT COALESCE(SUM(
+                  GREATEST(allocation.allocated_amount
+                    - COALESCE(reversal.reversed_amount,0),0)
+                ),0)::numeric
+                  FROM pharmacy_payment_allocations allocation
+                  LEFT JOIN (
+                    SELECT allocation_id,SUM(reversed_amount)::numeric AS reversed_amount
+                      FROM pharmacy_payment_allocation_reversals
+                     GROUP BY allocation_id
+                  ) reversal ON reversal.allocation_id=allocation.id
+                 WHERE allocation.invoice_id=$1::int
+              ) + (
+                SELECT COALESCE(SUM(
+                  GREATEST(allocation.allocated_amount
+                    - COALESCE(reversal.reversed_amount,0),0)
+                ),0)::numeric
+                  FROM pharmacy_advance_allocations allocation
+                  LEFT JOIN (
+                    SELECT allocation_id,SUM(reversed_amount)::numeric AS reversed_amount
+                      FROM pharmacy_advance_allocation_reversals
+                     GROUP BY allocation_id
+                  ) reversal ON reversal.allocation_id=allocation.id
+                 WHERE allocation.invoice_id=$1::int
+              ) AS pharmacy_allocations`,
+      sourceId,
+      excludedRefund,
+    )
+    : await tx.$queryRawUnsafe(
+      `SELECT advance.amount::numeric AS source_amount,
+              advance.balance::numeric AS current_balance,
+              (
+                SELECT COALESCE(SUM(settlement.amount),0)::numeric
+                  FROM billing_advance_settlements settlement
+                 WHERE settlement.advance_id=$1::int
+              ) AS settlements,
+              (
+                SELECT COALESCE(SUM(refund.amount),0)::numeric
+                  FROM billing_refunds refund
+                 WHERE refund.advance_id=$1::int
+                   AND refund.approval_status<>'REJECTED'
+                   AND ($2::int IS NULL OR refund.id<>$2::int)
+              ) AS active_refunds,
+              (
+                SELECT COALESCE(SUM(
+                  GREATEST(allocation.allocated_amount
+                    - COALESCE(reversal.reversed_amount,0),0)
+                ),0)::numeric
+                  FROM pharmacy_advance_allocations allocation
+                  LEFT JOIN (
+                    SELECT allocation_id,SUM(reversed_amount)::numeric AS reversed_amount
+                      FROM pharmacy_advance_allocation_reversals
+                     GROUP BY allocation_id
+                  ) reversal ON reversal.allocation_id=allocation.id
+                 WHERE allocation.billing_advance_id=$1::int
+              ) AS pharmacy_allocations
+         FROM billing_advances advance
+        WHERE advance.id=$1::int`,
+      sourceId,
+      excludedRefund,
+    );
+  const sourceAmount = toFixed2(Number(rows[0]?.source_amount || 0));
+  const currentBalance = isInvoice
+    ? sourceAmount
+    : toFixed2(Number(rows[0]?.current_balance || 0));
+  const settlements = toFixed2(Number(rows[0]?.settlements || 0));
+  const activeRefunds = toFixed2(Number(rows[0]?.active_refunds || 0));
+  const pharmacyAllocations = toFixed2(Number(rows[0]?.pharmacy_allocations || 0));
+  const nonPharmacyAvailable = isInvoice
+    ? toFixed2(Math.max(0, sourceAmount - activeRefunds))
+    : toFixed2(Math.max(
+      0,
+      Math.min(currentBalance, sourceAmount - settlements - activeRefunds),
+    ));
+  return {
+    sourceAmount,
+    currentBalance,
+    settlements,
+    activeRefunds,
+    pharmacyAllocations,
+    available: toFixed2(Math.max(0, nonPharmacyAvailable - pharmacyAllocations)),
+  };
+}
+
 export async function calculateInvoiceRefundHeadroomTx(
   tx,
   invoiceId,
   { excludeRefundId = null } = {},
 ) {
-  const params = [Number(invoiceId)];
-  let exclude = '';
-  if (excludeRefundId != null) {
-    params.push(Number(excludeRefundId));
-    exclude = ` AND refund.id <> $${params.length}::int`;
-  }
-  const rows = await tx.$queryRawUnsafe(
-    `SELECT (
-              SELECT COALESCE(SUM(payment.amount), 0)::numeric
-                FROM billing_payments payment
-               WHERE payment.invoice_id = $1::int
-                 AND payment.reversed = FALSE
-            ) + (
-              SELECT COALESCE(SUM(settlement.amount), 0)::numeric
-                FROM billing_advance_settlements settlement
-               WHERE settlement.invoice_id = $1::int
-            ) AS gross_paid,
-            (
-              SELECT COALESCE(SUM(refund.amount), 0)::numeric
-                FROM billing_refunds refund
-               WHERE refund.invoice_id = $1::int
-                 AND refund.approval_status <> 'REJECTED'${exclude}
-            ) AS active_refunds`,
-    ...params,
-  );
-  const grossPaid = toFixed2(Number(rows[0]?.gross_paid || 0));
-  const activeRefunds = toFixed2(Number(rows[0]?.active_refunds || 0));
+  const capacity = await calculateNetBillingFundingCapacityTx(tx, {
+    invoiceId,
+    excludeRefundId,
+  });
   return {
-    gross_paid: grossPaid,
-    active_refunds: activeRefunds,
-    refundable: toFixed2(Math.max(0, grossPaid - activeRefunds)),
+    gross_paid: capacity.sourceAmount,
+    active_refunds: capacity.activeRefunds,
+    active_pharmacy_allocations: capacity.pharmacyAllocations,
+    refundable: capacity.available,
   };
 }
 
-async function sumAdvanceRefundReservationsTx(tx, advanceId, approvalStatuses) {
-  const rows = await tx.$queryRawUnsafe(
-    `SELECT COALESCE(SUM(amount), 0)::numeric AS total
-       FROM billing_refunds
-      WHERE advance_id = $1::int
-        AND approval_status = ANY($2::text[])`,
-    Number(advanceId),
-    approvalStatuses,
-  );
-  return toFixed2(Number(rows[0]?.total || 0));
+async function calculateAdvanceFundingHeadroomTx(
+  tx,
+  advanceId,
+  { excludeRefundId = null } = {},
+) {
+  return calculateNetBillingFundingCapacityTx(tx, {
+    advanceId,
+    excludeRefundId,
+  });
 }
 
 async function loadAppliedCreditNoteForRefundTx(tx, refundId, tenantId) {
@@ -2903,6 +3411,9 @@ async function loadAppliedCreditNoteForRefundTx(tx, refundId, tenantId) {
 export async function raiseRefund({
   patient_uid, invoice_id, advance_id, amount, reason, mode, raised_by, tenantId,
   commandKey, requestFingerprint, httpIdempotencyClaimId, requestId, auditContext,
+  expectedIdempotencyBody = null,
+  idempotencyPath = REFUND_RAISE_IDEMPOTENCY_PATH,
+  validateParentSourceTx = null,
 }) {
   if (!reason) throw AppError.badRequest('reason is required');
   if (!VALID_REFUND_MODES.includes(mode)) {
@@ -2912,6 +3423,12 @@ export async function raiseRefund({
   if ((!invoice_id && !advance_id) || (invoice_id && advance_id)) {
     throw AppError.badRequest('Refund must reference exactly one of invoice_id or advance_id');
   }
+  if (validateParentSourceTx != null && typeof validateParentSourceTx !== 'function') {
+    throw new TypeError('validateParentSourceTx must be a function');
+  }
+  if (validateParentSourceTx && !advance_id) {
+    throw new TypeError('validateParentSourceTx requires an advance refund parent');
+  }
   const tenant = requireTenantId(normalizeTenantId(tenantId));
   const refundAmount = toFixed2(amount);
   const command = normalizeRefundMutationCommand({
@@ -2920,7 +3437,7 @@ export async function raiseRefund({
     requestFingerprint,
     httpIdempotencyClaimId,
     requestId,
-    expectedBody: refundRaiseIdempotencyBody({
+    expectedBody: expectedIdempotencyBody ?? refundRaiseIdempotencyBody({
       patient_uid,
       invoice_id,
       advance_id,
@@ -2928,7 +3445,7 @@ export async function raiseRefund({
       reason,
       mode,
     }),
-    path: REFUND_RAISE_IDEMPOTENCY_PATH,
+    path: String(idempotencyPath || REFUND_RAISE_IDEMPOTENCY_PATH),
     invalidCode: 'BILLING_REFUND_RAISE_IDEMPOTENCY_INVALID',
     mismatchCode: 'BILLING_REFUND_RAISE_COMMAND_MISMATCH',
     label: 'Refund creation',
@@ -2940,21 +3457,44 @@ export async function raiseRefund({
     missingCode: 'BILLING_REFUND_RAISE_AUDIT_CONTEXT_MISSING',
     label: 'Refund creation',
   });
-  const wiring = await resolveLedgerWiring(tenant);
   return setTenantTx(requireTenantId(tenantId), async (tx) => {
+    await lockTenantPatientMergeStability(tx, tenant);
     let resolvedPatientUid = patient_uid;
     if (invoice_id) {
-      // Lock the invoice + sum prior refunds so the bound check below can't be
-      // raced by a second concurrent refund on the same invoice.
-      const invoice = await lockBillingInvoice(tx, invoice_id, tenantId, 'patient_uid, amount_paid');
+      const invoiceCandidate = await findBillingInvoice(
+        invoice_id,
+        tenant,
+        'id, patient_uid',
+        tx,
+      );
+      if (!invoiceCandidate) throw AppError.notFound('Invoice not found');
+      const invoiceIdentity = await lockBillingPatientFundingAfterMergeTx(tx, {
+        tenantId: tenant,
+        patientUid: invoiceCandidate.patient_uid,
+      });
+      await assertBillingFundingPatientMatchTx(tx, {
+        tenantId: tenant,
+        requestedPatientUid: resolvedPatientUid,
+        parentIdentity: invoiceIdentity,
+        message: 'Refund patient_uid must resolve to the invoice funding patient',
+        code: 'BILLING_REFUND_PATIENT_MISMATCH',
+      });
+      resolvedPatientUid = String(invoiceCandidate.patient_uid);
+      // Parent-before-refund is the global money-mutation order. The funding
+      // advisory above also serializes this reservation against pharmacy use.
+      const invoice = await lockBillingInvoice(
+        tx,
+        invoice_id,
+        tenant,
+        'id, patient_uid, amount_paid',
+      );
       if (!invoice) throw AppError.notFound('Invoice not found');
-      if (resolvedPatientUid && String(resolvedPatientUid).toLowerCase() !== String(invoice.patient_uid).toLowerCase()) {
-        throw AppError.forbidden(
-          'Refund patient_uid must match the invoice patient',
-          'BILLING_REFUND_PATIENT_MISMATCH',
+      if (String(invoice.patient_uid).toLowerCase() !== resolvedPatientUid.toLowerCase()) {
+        throw AppError.conflict(
+          'Invoice funding authority changed concurrently',
+          'BILLING_REFUND_PARENT_AUTHORITY_MISMATCH',
         );
       }
-      resolvedPatientUid = invoice.patient_uid;
       // Gross receipts are immutable payment evidence. Using them avoids
       // subtracting prior refunds twice after the invoice cache is reduced.
       const headroom = await calculateInvoiceRefundHeadroomTx(tx, invoice_id);
@@ -2962,53 +3502,71 @@ export async function raiseRefund({
       if (refundAmount > refundable + 0.005) {
         throw AppError.badRequest(
           `Refund amount ${refundAmount} exceeds refundable balance ${Math.max(0, refundable)} `
-            + `(gross receipts ${headroom.gross_paid} less active refunds ${headroom.active_refunds}).`,
+            + `(gross receipts ${headroom.gross_paid} less active refunds `
+            + `${headroom.active_refunds} and pharmacy allocations `
+            + `${headroom.active_pharmacy_allocations}).`,
           'BILLING_REFUND_EXCEEDS_PAID',
           {
             amount_paid: Number(invoice.amount_paid || 0),
             gross_paid: headroom.gross_paid,
             prior_refunds: headroom.active_refunds,
+            active_pharmacy_allocations: headroom.active_pharmacy_allocations,
             refundable: Math.max(0, refundable),
           },
         );
       }
     }
     if (advance_id) {
-      const advParams = [Number(advance_id)];
-      const advTenantSql = appendTenantPredicate(advParams, tenantId);
-      const advances = await tx.$queryRawUnsafe(
-        `SELECT patient_uid, balance FROM billing_advances WHERE id = $1::int${advTenantSql} FOR UPDATE`,
-        ...advParams,
+      const advanceCandidates = await tx.$queryRawUnsafe(
+        `SELECT id, patient_uid
+           FROM billing_advances
+          WHERE tenant_id = $1::uuid
+            AND id = $2::int
+          LIMIT 1`,
+        tenant,
+        Number(advance_id),
       );
-      if (!advances.length) throw AppError.notFound('Advance not found');
-      if (resolvedPatientUid && String(resolvedPatientUid).toLowerCase() !== String(advances[0].patient_uid).toLowerCase()) {
-        throw AppError.forbidden(
-          'Refund patient_uid must match the advance patient',
-          'BILLING_REFUND_PATIENT_MISMATCH',
+      if (!advanceCandidates[0]) throw AppError.notFound('Advance not found');
+      const advanceIdentity = await lockBillingPatientFundingAfterMergeTx(tx, {
+        tenantId: tenant,
+        patientUid: advanceCandidates[0].patient_uid,
+      });
+      await assertBillingFundingPatientMatchTx(tx, {
+        tenantId: tenant,
+        requestedPatientUid: resolvedPatientUid,
+        parentIdentity: advanceIdentity,
+        message: 'Refund patient_uid must resolve to the advance funding patient',
+        code: 'BILLING_REFUND_PATIENT_MISMATCH',
+      });
+      resolvedPatientUid = String(advanceCandidates[0].patient_uid);
+      const advance = await lockBillingAdvance(tx, advance_id, tenant);
+      if (!advance) throw AppError.notFound('Advance not found');
+      if (String(advance.patient_uid).toLowerCase() !== resolvedPatientUid.toLowerCase()) {
+        throw AppError.conflict(
+          'Advance funding authority changed concurrently',
+          'BILLING_REFUND_PARENT_AUTHORITY_MISMATCH',
         );
       }
-      resolvedPatientUid = advances[0].patient_uid;
-      // In enforce mode approval has already reduced the cached balance; in
-      // shadow/off it is reduced at payout. Reserve only obligations that the
-      // current cache has not yet realized.
-      const reservationStatuses = wiring.sameTx
-        ? ['PENDING']
-        : ['PENDING', 'APPROVED'];
-      const reservedRefunds = await sumAdvanceRefundReservationsTx(
-        tx,
-        advance_id,
-        reservationStatuses,
-      );
-      const refundable = toFixed2(
-        Math.max(0, Number(advances[0].balance || 0) - reservedRefunds),
-      );
+      if (validateParentSourceTx) {
+        await validateParentSourceTx({
+          tx,
+          tenantId: tenant,
+          advance,
+          storedPatientUid: resolvedPatientUid,
+          fundingPatientUid: advanceIdentity.fundingPatientUid,
+        });
+      }
+      const headroom = await calculateAdvanceFundingHeadroomTx(tx, advance_id);
+      const refundable = headroom.available;
       if (refundAmount > refundable + 0.005) {
         throw AppError.badRequest(
           `Refund amount ${refundAmount} exceeds refundable advance balance ${refundable}.`,
           'BILLING_REFUND_EXCEEDS_ADVANCE_BALANCE',
           {
-            advance_balance: Number(advances[0].balance || 0),
-            reserved_refunds: reservedRefunds,
+            advance_balance: headroom.currentBalance,
+            settlements: headroom.settlements,
+            reserved_refunds: headroom.activeRefunds,
+            active_pharmacy_allocations: headroom.pharmacyAllocations,
             refundable,
           },
         );
@@ -3066,20 +3624,30 @@ export async function approveRefund(refundId, {
     approvedBy: approved_by,
     command,
   });
-  const params = [approved_by ? String(approved_by) : null, id];
-  const tenantSql = appendTenantPredicate(params, tenant);
   const wiring = await resolveLedgerWiring(tenant);
-  // The PENDING→APPROVED UPDATE, runnable on a plain client (shadow) or a tx (enforce).
-  const doApprove = (db) => db.$queryRawUnsafe(
-    `UPDATE billing_refunds
-        SET approval_status = 'APPROVED', approved_by = $1::uuid, approved_at = NOW(), updated_at = NOW()
-      WHERE id = $2::int AND approval_status = 'PENDING'${tenantSql}
-      RETURNING *`,
-    ...params,
-  );
   let linkedCreditNote = null;
   const refund = await setTenantTx(tenant, async (tx) => {
-    const rows = await doApprove(tx);
+    const locked = await lockBillingRefundFundingAuthorityTx(tx, {
+      tenantId: tenant,
+      refundId: id,
+    });
+    if (locked.refund.approval_status !== 'PENDING') {
+      throw AppError.notFound('Refund not found or not pending');
+    }
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE billing_refunds
+          SET approval_status = 'APPROVED', approved_by = $1::uuid,
+              approved_at = NOW(), updated_at = NOW()
+        WHERE tenant_id = $2::uuid
+          AND id = $3::int
+          AND patient_uid = $4::uuid
+          AND approval_status = 'PENDING'
+        RETURNING ${REFUND_PUBLIC_COLUMNS}`,
+      approved_by ? String(approved_by) : null,
+      tenant,
+      id,
+      locked.storedPatientUid,
+    );
     if (!rows.length) throw AppError.notFound('Refund not found or not pending');
     linkedCreditNote = await loadAppliedCreditNoteForRefundTx(tx, rows[0].id, tenant);
     if (linkedCreditNote) {
@@ -3169,15 +3737,11 @@ export async function rejectRefund(refundId, {
     label: 'Refund rejection',
   });
   return setTenantTx(tenant, async (tx) => {
-    const locked = await tx.$queryRawUnsafe(
-      `SELECT id, approval_status
-         FROM billing_refunds
-        WHERE tenant_id = $1::uuid AND id = $2::int
-        FOR UPDATE`,
-      tenant,
-      id,
-    );
-    if (!locked[0] || locked[0].approval_status !== 'PENDING') {
+    const locked = await lockBillingRefundFundingAuthorityTx(tx, {
+      tenantId: tenant,
+      refundId: id,
+    });
+    if (locked.refund.approval_status !== 'PENDING') {
       throw AppError.notFound('Refund not found or not pending');
     }
     if (await loadAppliedCreditNoteForRefundTx(tx, id, tenant)) {
@@ -3192,12 +3756,14 @@ export async function rejectRefund(refundId, {
               rejected_at = NOW(), rejection_reason = $2, updated_at = NOW()
         WHERE tenant_id = $3::uuid
           AND id = $4::int
+          AND patient_uid = $5::uuid
           AND approval_status = 'PENDING'
-        RETURNING *`,
+        RETURNING ${REFUND_PUBLIC_COLUMNS}`,
       rejected_by ? String(rejected_by) : null,
       reason,
       tenant,
       id,
+      locked.storedPatientUid,
     );
     if (!rows.length) throw AppError.notFound('Refund not found or not pending');
     await insertRefundMutationAuditTx(tx, {
@@ -3288,6 +3854,192 @@ function translateRefundPayoutConstraintError(err) {
   return err;
 }
 
+async function discoverOfflineElectronicRefundSourceBeforeFundingTx(tx, {
+  tenant,
+  refund,
+  evidence,
+}) {
+  const mode = String(refund.mode || '').trim().toUpperCase();
+  if (!OFFLINE_ELECTRONIC_REFUND_MODES.includes(mode)) {
+    throw AppError.conflict(
+      'Offline-electronic evidence is only valid for electronic refund modes',
+      'BILLING_REFUND_OFFLINE_ELECTRONIC_MODE_MISMATCH',
+    );
+  }
+  const originalReference = normalizeRefundPayoutReference(
+    evidence?.original_payment_reference,
+    {
+      label: 'original_payment_reference',
+      requiredCode: 'BILLING_REFUND_ORIGINAL_PAYMENT_REFERENCE_REQUIRED',
+    },
+  );
+  const providerName = normalizeRefundPayoutReference(evidence?.provider_name, {
+    label: 'provider_name',
+    requiredCode: 'BILLING_REFUND_PROVIDER_REQUIRED',
+    maxLength: 120,
+  });
+  const providerRefundReference = normalizeRefundPayoutReference(
+    evidence?.provider_refund_reference,
+    {
+      label: 'provider_refund_reference',
+      requiredCode: 'BILLING_REFUND_PROVIDER_REFUND_REFERENCE_REQUIRED',
+    },
+  );
+  const providerRefundedAt = normalizeProviderRefundedAt(evidence?.provider_refunded_at);
+  let paymentCandidate = null;
+  if (refund.invoice_id != null) {
+    const paymentRows = await tx.$queryRawUnsafe(
+      `SELECT id,invoice_id,patient_uid,amount,mode,reference,reversed
+         FROM billing_payments
+        WHERE tenant_id=$1::uuid AND invoice_id=$2::int AND patient_uid=$3::uuid
+          AND UPPER(mode)=$4 AND reference=$5 AND reversed=FALSE
+          AND amount >= $6::numeric - 0.005
+        ORDER BY id
+        LIMIT 2`,
+      tenant,
+      Number(refund.invoice_id),
+      String(refund.patient_uid),
+      mode,
+      originalReference,
+      Number(refund.amount),
+    );
+    if (paymentRows.length !== 1) {
+      throw AppError.unprocessable(
+        'original_payment_reference does not identify one exact eligible payment',
+        'BILLING_REFUND_ORIGINAL_PAYMENT_REFERENCE_MISMATCH',
+      );
+    }
+    [paymentCandidate] = paymentRows;
+    const gatewayOrders = await tx.$queryRawUnsafe(
+      `SELECT id,provider
+         FROM payment_gateway_orders
+        WHERE tenant_id=$1::uuid AND billing_payment_id=$2::int AND status='paid'
+        ORDER BY id
+        FOR UPDATE`,
+      tenant,
+      Number(paymentCandidate.id),
+    );
+    if (gatewayOrders.length) {
+      throw AppError.conflict(
+        'This collection has integrated gateway evidence; use the gateway refund rail',
+        'BILLING_REFUND_GATEWAY_CAPTURE_AUTHORITATIVE',
+      );
+    }
+  }
+  return {
+    refundSnapshot: refund,
+    mode,
+    originalReference,
+    providerName,
+    providerRefundReference,
+    providerRefundedAt,
+    paymentCandidate,
+  };
+}
+
+async function lockOfflineElectronicPaymentAfterFundingTx(tx, {
+  tenant,
+  refund,
+  paymentCandidate,
+  originalReference,
+}) {
+  const paymentRows = await tx.$queryRawUnsafe(
+    `SELECT id,invoice_id,patient_uid,amount,mode,reference,reversed
+       FROM billing_payments
+      WHERE tenant_id=$1::uuid AND id=$2::int
+        AND invoice_id=$3::int AND patient_uid=$4::uuid
+        AND UPPER(mode)=$5 AND reference=$6 AND reversed=FALSE
+        AND amount >= $7::numeric - 0.005
+      FOR UPDATE`,
+    tenant,
+    Number(paymentCandidate?.id),
+    Number(refund.invoice_id),
+    String(refund.patient_uid),
+    String(refund.mode).trim().toUpperCase(),
+    originalReference,
+    Number(refund.amount),
+  );
+  const payment = paymentRows[0];
+  if (paymentRows.length !== 1
+      || !paymentCandidate
+      || Number(payment.id) !== Number(paymentCandidate.id)
+      || Number(payment.invoice_id) !== Number(paymentCandidate.invoice_id)
+      || String(payment.patient_uid).toLowerCase()
+        !== String(paymentCandidate.patient_uid).toLowerCase()
+      || String(payment.mode).trim().toUpperCase()
+        !== String(paymentCandidate.mode).trim().toUpperCase()
+      || String(payment.reference) !== String(paymentCandidate.reference)
+      || payment.reversed !== false
+      || toPaise(payment.amount) !== toPaise(paymentCandidate.amount)) {
+    throw AppError.conflict(
+      'Offline-electronic payment authority changed during funding serialization',
+      'BILLING_REFUND_FUNDING_AUTHORITY_CHANGED',
+    );
+  }
+  return payment;
+}
+
+async function lockOfflineElectronicAdvanceSourceTx(tx, {
+  tenant,
+  refund,
+  advance,
+  originalReference,
+}) {
+  if (!advance
+      || Number(advance.id) !== Number(refund.advance_id)
+      || String(advance.patient_uid).toLowerCase() !== String(refund.patient_uid).toLowerCase()
+      || String(advance.mode).trim().toUpperCase()
+        !== String(refund.mode).trim().toUpperCase()
+      || toPaise(advance.amount) < toPaise(refund.amount)) {
+    throw AppError.unprocessable(
+      'original_payment_reference does not match the refund advance collection',
+      'BILLING_REFUND_ORIGINAL_PAYMENT_REFERENCE_MISMATCH',
+    );
+  }
+  if (advance.ipd_advance_deposit_id == null) {
+    if (String(advance.reference || '') !== originalReference) {
+      throw AppError.unprocessable(
+        'original_payment_reference does not match the refund advance collection',
+        'BILLING_REFUND_ORIGINAL_PAYMENT_REFERENCE_MISMATCH',
+      );
+    }
+    return Number(advance.id);
+  }
+  const sourceRows = await tx.$queryRawUnsafe(
+    `SELECT deposit.id,deposit.payment_reference
+       FROM advance_deposits deposit
+      WHERE deposit.tenant_id=$1::uuid
+        AND deposit.id=$2::int
+        AND deposit.patient_uid=$3::uuid
+        AND deposit.admission_id IS NOT DISTINCT FROM $4::int
+        AND deposit.amount=$5::numeric
+        AND LOWER(BTRIM(deposit.payment_method))=LOWER(BTRIM($6))
+        AND deposit.payment_method=$7
+        AND deposit.collected_by IS NOT DISTINCT FROM $8::uuid
+        AND deposit.collected_at=$9::timestamptz
+        AND deposit.is_refund=FALSE
+        AND deposit.parent_deposit_id IS NULL
+      FOR UPDATE`,
+    tenant,
+    Number(advance.ipd_advance_deposit_id),
+    String(advance.patient_uid),
+    advance.admission_id == null ? null : Number(advance.admission_id),
+    Number(advance.amount),
+    String(advance.mode),
+    String(advance.ipd_advance_deposit_payment_method),
+    advance.collected_by == null ? null : String(advance.collected_by),
+    advance.ipd_advance_deposit_collected_at,
+  );
+  if (sourceRows.length !== 1
+      || String(sourceRows[0].payment_reference || '') !== originalReference) {
+    throw AppError.unprocessable(
+      'original_payment_reference does not match the bound IPD advance deposit',
+      'BILLING_REFUND_ORIGINAL_PAYMENT_REFERENCE_MISMATCH',
+    );
+  }
+  return Number(advance.id);
+}
+
 async function settleRefundPaid(refundId, {
   paid_by, reference, tenantId, payoutRail, gatewayRefundId = null,
   providerRefundId = null, cashDrawerSessionId = null,
@@ -3300,8 +4052,38 @@ async function settleRefundPaid(refundId, {
   let refund;
   try {
     refund = await setTenantTx(tenant, async (tx) => {
+      await lockTenantPatientMergeStability(tx, tenant);
       let lockedGatewayEvidence = null;
+      let lockedOfflineSource = null;
+      if (payoutRail === 'offline_electronic') {
+        const refundRows = await tx.$queryRawUnsafe(
+          `SELECT ${REFUND_PUBLIC_COLUMNS}
+             FROM billing_refunds
+            WHERE tenant_id=$1::uuid AND id=$2::int
+            LIMIT 1`,
+          tenant,
+          id,
+        );
+        if (!refundRows.length || refundRows[0].approval_status !== 'APPROVED') {
+          throw AppError.notFound('Refund not found or not approved');
+        }
+        lockedOfflineSource = await discoverOfflineElectronicRefundSourceBeforeFundingTx(tx, {
+          tenant,
+          refund: refundRows[0],
+          evidence: offlineElectronicEvidence || {},
+        });
+      }
       if (payoutRail === 'gateway') {
+        const refundExists = await tx.$queryRawUnsafe(
+          `SELECT id
+             FROM billing_refunds
+            WHERE tenant_id = $1::uuid
+              AND id = $2::int
+            LIMIT 1`,
+          tenant,
+          id,
+        );
+        if (!refundExists.length) throw AppError.notFound('Refund not found or not approved');
         // The recovery lease fence is asserted here, under FOR UPDATE: a
         // recovery worker may only settle a leg that is still leased to its
         // exact claim token. The row stays locked for the remainder of this
@@ -3336,17 +4118,13 @@ async function settleRefundPaid(refundId, {
         }
         [lockedGatewayEvidence] = evidenceRows;
       }
-      const lockedRows = await tx.$queryRawUnsafe(
-        `SELECT *
-           FROM billing_refunds
-          WHERE tenant_id = $1::uuid
-            AND id = $2::int
-          FOR UPDATE`,
-        tenant,
-        id,
-      );
-      const lockedRefund = lockedRows[0];
-      if (!lockedRefund || lockedRefund.approval_status !== 'APPROVED') {
+      const fundingContext = await lockBillingRefundFundingAuthorityTx(tx, {
+        tenantId: tenant,
+        refundId: id,
+        mergeStabilityHeld: true,
+      });
+      const lockedRefund = fundingContext.refund;
+      if (lockedRefund.approval_status !== 'APPROVED') {
         throw AppError.notFound('Refund not found or not approved');
       }
 
@@ -3471,104 +4249,46 @@ async function settleRefundPaid(refundId, {
           );
         }
       } else if (payoutRail === 'offline_electronic') {
-        if (!OFFLINE_ELECTRONIC_REFUND_MODES.includes(mode)) {
+        const snapshot = lockedOfflineSource?.refundSnapshot;
+        if (!snapshot
+            || Number(snapshot.id) !== Number(lockedRefund.id)
+            || (snapshot.invoice_id == null ? null : Number(snapshot.invoice_id))
+              !== (lockedRefund.invoice_id == null ? null : Number(lockedRefund.invoice_id))
+            || (snapshot.advance_id == null ? null : Number(snapshot.advance_id))
+              !== (lockedRefund.advance_id == null ? null : Number(lockedRefund.advance_id))
+            || String(snapshot.patient_uid).toLowerCase()
+              !== String(lockedRefund.patient_uid).toLowerCase()
+            || String(snapshot.mode).toUpperCase() !== mode
+            || toPaise(snapshot.amount) !== toPaise(lockedRefund.amount)) {
           throw AppError.conflict(
-            'Offline-electronic evidence is only valid for electronic refund modes',
-            'BILLING_REFUND_OFFLINE_ELECTRONIC_MODE_MISMATCH',
+            'Offline-electronic source authority changed during settlement',
+            'BILLING_REFUND_FUNDING_AUTHORITY_CHANGED',
           );
         }
-        const evidence = offlineElectronicEvidence || {};
-        const originalReference = normalizeRefundPayoutReference(
-          evidence.original_payment_reference,
-          {
-            label: 'original_payment_reference',
-            requiredCode: 'BILLING_REFUND_ORIGINAL_PAYMENT_REFERENCE_REQUIRED',
-          },
-        );
-        const providerName = normalizeRefundPayoutReference(evidence.provider_name, {
-          label: 'provider_name',
-          requiredCode: 'BILLING_REFUND_PROVIDER_REQUIRED',
-          maxLength: 120,
-        });
-        const providerRefundReference = normalizeRefundPayoutReference(
-          evidence.provider_refund_reference,
-          {
-            label: 'provider_refund_reference',
-            requiredCode: 'BILLING_REFUND_PROVIDER_REFUND_REFERENCE_REQUIRED',
-          },
-        );
-        const providerRefundedAt = normalizeProviderRefundedAt(evidence.provider_refunded_at);
+        const {
+          originalReference,
+          providerName,
+          providerRefundReference,
+          providerRefundedAt,
+          paymentCandidate,
+        } = lockedOfflineSource;
         let originalPaymentId = null;
         let originalAdvanceId = null;
         if (lockedRefund.invoice_id) {
-          const paymentRows = await tx.$queryRawUnsafe(
-            `SELECT id, amount, mode, reference
-               FROM billing_payments
-              WHERE tenant_id = $1::uuid
-                AND invoice_id = $2::int
-                AND patient_uid = $3::uuid
-                AND UPPER(mode) = $4
-                AND reference = $5
-                AND reversed = FALSE
-                AND amount >= $6::numeric - 0.005
-              ORDER BY id
-              LIMIT 2
-              FOR UPDATE`,
+          const originalPayment = await lockOfflineElectronicPaymentAfterFundingTx(tx, {
             tenant,
-            Number(lockedRefund.invoice_id),
-            String(lockedRefund.patient_uid),
-            mode,
+            refund: lockedRefund,
+            paymentCandidate,
             originalReference,
-            Number(lockedRefund.amount),
-          );
-          if (paymentRows.length !== 1) {
-            throw AppError.unprocessable(
-              'original_payment_reference does not identify one exact eligible payment',
-              'BILLING_REFUND_ORIGINAL_PAYMENT_REFERENCE_MISMATCH',
-            );
-          }
-          originalPaymentId = Number(paymentRows[0].id);
-          const gatewayOrders = await tx.$queryRawUnsafe(
-            `SELECT id, provider
-               FROM payment_gateway_orders
-              WHERE tenant_id = $1::uuid
-                AND billing_payment_id = $2::int
-                AND status = 'paid'
-              FOR UPDATE`,
-            tenant,
-            originalPaymentId,
-          );
-          if (gatewayOrders.length) {
-            throw AppError.conflict(
-              'This collection has integrated gateway evidence; use the gateway refund rail',
-              'BILLING_REFUND_GATEWAY_CAPTURE_AUTHORITATIVE',
-            );
-          }
+          });
+          originalPaymentId = Number(originalPayment.id);
         } else {
-          const advanceRows = await tx.$queryRawUnsafe(
-            `SELECT id, amount, mode, reference
-               FROM billing_advances
-              WHERE tenant_id = $1::uuid
-                AND id = $2::int
-                AND patient_uid = $3::uuid
-                AND UPPER(mode) = $4
-                AND reference = $5
-                AND amount >= $6::numeric - 0.005
-              FOR UPDATE`,
+          originalAdvanceId = await lockOfflineElectronicAdvanceSourceTx(tx, {
             tenant,
-            Number(lockedRefund.advance_id),
-            String(lockedRefund.patient_uid),
-            mode,
+            refund: lockedRefund,
+            advance: fundingContext.parent,
             originalReference,
-            Number(lockedRefund.amount),
-          );
-          if (advanceRows.length !== 1) {
-            throw AppError.unprocessable(
-              'original_payment_reference does not match the refund advance collection',
-              'BILLING_REFUND_ORIGINAL_PAYMENT_REFERENCE_MISMATCH',
-            );
-          }
-          originalAdvanceId = Number(advanceRows[0].id);
+          });
         }
         const evidenceRows = await tx.$queryRawUnsafe(
           `INSERT INTO billing_refund_offline_electronic_evidence
@@ -3695,12 +4415,13 @@ async function settleRefundPaid(refundId, {
                 updated_at = NOW()
           WHERE tenant_id = $7::uuid
             AND id = $8::int
+            AND patient_uid = $9::uuid
             AND approval_status = 'APPROVED'
             AND (
               ($3 = 'gateway' AND payout_rail = 'gateway' AND gateway_refund_id = $4::int)
               OR ($3 <> 'gateway' AND (payout_rail IS NULL OR payout_rail = $3))
             )
-          RETURNING *`,
+          RETURNING ${REFUND_PUBLIC_COLUMNS}`,
         payoutRail === 'gateway' ? null : normalizedPaidBy,
         normalizedReference,
         payoutRail,
@@ -3709,6 +4430,7 @@ async function settleRefundPaid(refundId, {
         offlineEvidenceId,
         tenant,
         id,
+        fundingContext.storedPatientUid,
       );
       if (!rows.length) {
         throw AppError.conflict(
@@ -3738,12 +4460,7 @@ async function settleRefundPaid(refundId, {
       }
 
       if (!wiring.sameTx && paidRefund.invoice_id) {
-        const inv = await lockBillingInvoice(
-          tx,
-          paidRefund.invoice_id,
-          tenant,
-          'amount_paid, total_amount, credit_note_amount',
-        );
+        const inv = fundingContext.parent;
         if (inv) {
           await tx.$executeRawUnsafe(
             `UPDATE billing_invoices
@@ -4000,15 +4717,6 @@ export async function markGatewayRefundPaid(refundId, {
     recoveryClaimToken: recovery_claim_token,
   });
 }
-
-const REFUND_PUBLIC_COLUMNS = `
-  id, patient_uid, invoice_id, advance_id, amount, reason, mode, reference,
-  approval_status, raised_by, raised_at, approved_by, approved_at,
-  rejected_by, rejected_at, rejection_reason, paid_at, paid_by, tenant_id,
-  payout_rail, payout_rail_claimed_at, gateway_refund_id,
-  cash_drawer_session_id, counter_sale_void_request_id,
-  offline_electronic_evidence_id, created_at, updated_at
-`;
 
 function normalizeRefundId(value) {
   if (typeof value === 'number' && !Number.isSafeInteger(value)) {
@@ -4844,6 +5552,9 @@ export async function itemizeAdmissionInvoice(invoiceId, {
 }
 
 const PHARMACY_TPA_PAYMENT_MODES = new Set(['insurance', 'corporate_tpa', 'tpa']);
+const PHARMACY_PATIENT_PAYMENT_RAILS = Object.freeze([
+  'CASH', 'CARD', 'UPI', 'NETBANKING', 'CHEQUE', 'DD', 'WALLET',
+]);
 const PHARMACY_TPA_DECISION_ROLES = new Set([
   'INSURANCE_COORDINATOR', 'CLAIMS_MANAGER',
   // Existing claim-update policy explicitly permits this operational fallback.
@@ -5297,6 +6008,8 @@ export async function reversePharmacyPaymentAllocationTx(tx, {
   actorUid,
   reason,
   commandKeySha256,
+  storedPaymentPatientUid = null,
+  fundingPaymentPatientUid = null,
 }) {
   const tid = requireTenantId(tenantId);
   const command = String(commandKeySha256 || '').trim().toLowerCase();
@@ -5322,6 +6035,27 @@ export async function reversePharmacyPaymentAllocationTx(tx, {
     orderId: Number(pharmacyOrderId),
   });
   await lockPharmacyFundingAuthorityTx(tx, { tenantId: tid, patientUid });
+  const exactPaymentPatientUid = storedPaymentPatientUid == null
+    ? patientUid
+    : String(storedPaymentPatientUid).trim().toLowerCase();
+  if (!UUID_PATTERN.test(exactPaymentPatientUid)) {
+    throw AppError.conflict(
+      'The allocation reversal payment patient identity is invalid',
+      'PHARMACY_PAYMENT_ALLOCATION_REVERSAL_TARGET_MISMATCH',
+    );
+  }
+  if (storedPaymentPatientUid != null) {
+    const exactFundingPaymentPatientUid = String(
+      fundingPaymentPatientUid || '',
+    ).trim().toLowerCase();
+    if (!UUID_PATTERN.test(exactFundingPaymentPatientUid)
+        || exactFundingPaymentPatientUid !== patientUid) {
+      throw AppError.conflict(
+        'The allocation payment and pharmacy order no longer share funding authority',
+        'PHARMACY_PAYMENT_ALLOCATION_REVERSAL_TARGET_MISMATCH',
+      );
+    }
+  }
   const orderRows = await tx.$queryRawUnsafe(
     `SELECT id,status FROM pharmacy_orders
       WHERE tenant_id=$1::uuid AND id=$2::int
@@ -5360,7 +6094,7 @@ export async function reversePharmacyPaymentAllocationTx(tx, {
       FOR UPDATE OF allocation`,
     tid, Number(allocationId), Number(pharmacyOrderId), Number(invoiceId),
     Number(invoiceItemId), Number(billingPaymentId), Number(orderVersion),
-    String(orderItemsSha256), patientUid,
+    String(orderItemsSha256), exactPaymentPatientUid,
   );
   if (!allocationRows.length) {
     throw AppError.conflict(
@@ -5943,12 +6677,14 @@ async function allocatePostedPharmacyPaymentsTx(tx, {
       WHERE payment.tenant_id=$1::uuid AND payment.invoice_id=$2::int
         AND payment.patient_uid=$3::uuid AND payment.reversed=FALSE
         AND ($4::int IS NULL OR payment.id=$4::int)
+        AND UPPER(payment.mode)=ANY($5::text[])
       ORDER BY payment.collected_at,payment.id
       FOR UPDATE`,
     authority.tenantId,
     Number(invoiceId),
     authority.patientUid,
     paymentId == null ? null : Number(paymentId),
+    PHARMACY_PATIENT_PAYMENT_RAILS,
   );
   if (paymentId != null && payments.length !== 1) {
     throw AppError.conflict(
@@ -5992,15 +6728,17 @@ async function allocatePostedPharmacyPaymentsTx(tx, {
     patientUid: authority.patientUid,
   });
   const exactPaymentIds = new Set(existing.rows.map((row) => Number(row.payment_id)));
+  const sharedFundingHeadroom = await calculateInvoiceRefundHeadroomTx(tx, invoiceId);
+  let uncommittedInvoiceFunding = sharedFundingHeadroom.refundable;
   let remaining = Math.max(0, toFixed2(Number(amountRequired) - existing.amount));
   for (const payment of payments) {
-    if (remaining <= 0.001) break;
+    if (remaining <= 0.001 || uncommittedInvoiceFunding <= 0.001) break;
     if (exactPaymentIds.has(Number(payment.id))) continue;
     const available = Math.max(
       0,
       toFixed2(Number(payment.amount || 0) - (allocatedByPayment.get(Number(payment.id)) || 0)),
     );
-    const amount = Math.min(remaining, available);
+    const amount = Math.min(remaining, available, uncommittedInvoiceFunding);
     if (amount <= 0.001) continue;
     await tx.$queryRawUnsafe(
       `INSERT INTO pharmacy_payment_allocations
@@ -6020,6 +6758,10 @@ async function allocatePostedPharmacyPaymentsTx(tx, {
       }),
     );
     remaining = Math.max(0, toFixed2(remaining - amount));
+    uncommittedInvoiceFunding = Math.max(
+      0,
+      toFixed2(uncommittedInvoiceFunding - amount),
+    );
   }
   return loadPharmacyPaymentAllocationsTx(tx, {
     tenantId: authority.tenantId,
@@ -6047,9 +6789,9 @@ async function claimPharmacyFundingCommandTx(tx, {
     `INSERT INTO pharmacy_funding_commands
       (tenant_id,command_key_sha256,command_type,task_id,task_resource_type,
        task_resource_id,pharmacy_order_id,invoice_item_id,tpa_claim_id,
-       request_sha256,status,created_by)
+       request_sha256,created_by)
      VALUES ($1::uuid,$2,$3,$4::int,$5,$6,$7::int,$8::int,$9::int,$10,
-             'IN_PROGRESS',$11::uuid)
+             $11::uuid)
      ON CONFLICT (tenant_id,command_key_sha256) DO NOTHING`,
     authority.tenantId,
     String(commandKeySha256),
@@ -6097,7 +6839,7 @@ async function completePharmacyFundingCommandTx(tx, {
 }) {
   const rows = await tx.$queryRawUnsafe(
     `UPDATE pharmacy_funding_commands
-        SET status='COMPLETE',response_body=$3::jsonb,completed_at=NOW()
+        SET status='COMPLETE',response_body=$3::jsonb
       WHERE tenant_id=$1::uuid AND command_key_sha256=$2
         AND status='IN_PROGRESS'
       RETURNING *`,
@@ -6796,6 +7538,7 @@ export async function retryPharmacyFundingTask({
     );
   }
   return setTenantTx(tid, async (tx) => {
+    await lockTenantPatientMergeStability(tx, tid);
     const taskPreRead = await tx.$queryRawUnsafe(
       `SELECT *
          FROM tasks

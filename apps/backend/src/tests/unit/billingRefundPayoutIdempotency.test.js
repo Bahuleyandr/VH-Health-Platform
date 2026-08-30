@@ -80,7 +80,7 @@ function approvedRefund(overrides = {}) {
     id: 51,
     tenant_id: TENANT,
     patient_uid: PATIENT,
-    invoice_id: null,
+    invoice_id: 17,
     advance_id: null,
     amount: '250.00',
     mode: 'CHEQUE',
@@ -90,6 +90,60 @@ function approvedRefund(overrides = {}) {
     payout_rail: null,
     ...overrides,
   };
+}
+
+function mockPayoutAuthorityPrefix(refund = approvedRefund()) {
+  return queryMock
+    .mockResolvedValueOnce([{ locked: 1 }])
+    .mockResolvedValueOnce([{
+      id: refund.id,
+      patient_uid: refund.patient_uid,
+      invoice_id: refund.invoice_id,
+      advance_id: refund.advance_id,
+      approval_status: refund.approval_status,
+    }])
+    .mockResolvedValueOnce([{
+      uid: refund.patient_uid, merged_into_uid: null, depth: 0, cycle: false,
+    }])
+    .mockResolvedValueOnce([{ lock_acquired: null }])
+    .mockResolvedValueOnce([{
+      id: 17,
+      patient_uid: refund.patient_uid,
+      status: 'PAID',
+      total_amount: '250.00',
+      credit_note_amount: '0.00',
+      amount_paid: '250.00',
+      amount_due: '0.00',
+    }])
+    .mockResolvedValueOnce([refund]);
+}
+
+function mockGatewayAuthorityPrefix({ refund, gatewayEvidence }) {
+  return queryMock
+    .mockResolvedValueOnce([{ locked: 1 }])
+    .mockResolvedValueOnce([{ id: refund.id }])
+    .mockResolvedValueOnce([gatewayEvidence])
+    .mockResolvedValueOnce([{
+      id: refund.id,
+      patient_uid: refund.patient_uid,
+      invoice_id: refund.invoice_id,
+      advance_id: refund.advance_id,
+      approval_status: refund.approval_status,
+    }])
+    .mockResolvedValueOnce([{
+      uid: refund.patient_uid, merged_into_uid: null, depth: 0, cycle: false,
+    }])
+    .mockResolvedValueOnce([{ lock_acquired: null }])
+    .mockResolvedValueOnce([{
+      id: 17,
+      patient_uid: refund.patient_uid,
+      status: 'PAID',
+      total_amount: '250.00',
+      credit_note_amount: '0.00',
+      amount_paid: '250.00',
+      amount_due: '0.00',
+    }])
+    .mockResolvedValueOnce([refund]);
 }
 
 beforeEach(() => {
@@ -123,8 +177,7 @@ describe('refund payout durable idempotency and audit', () => {
       reference: body.reference,
       payout_rail: 'manual',
     });
-    queryMock
-      .mockResolvedValueOnce([approvedRefund()])
+    mockPayoutAuthorityPrefix()
       .mockResolvedValueOnce([paid])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: 701 }])
@@ -138,10 +191,10 @@ describe('refund payout durable idempotency and audit', () => {
       auditContext: AUDIT_CONTEXT,
     })).resolves.toEqual(paid);
 
-    const audit = queryMock.mock.calls[3];
+    const audit = queryMock.mock.calls[8];
     expect(audit[0]).toContain('INSERT INTO audit_logs');
     expect(audit.slice(1, 4)).toEqual([PAYER, 'FINANCE_INCHARGE', 'FRONT_OFFICE_BILLING_REFUND_PAID']);
-    const finalise = queryMock.mock.calls[4];
+    const finalise = queryMock.mock.calls[9];
     expect(finalise[0]).toContain("expires_at = 'infinity'::timestamptz");
     expect(finalise.at(-1)).toBe(billing.REFUND_MANUAL_PAYOUT_IDEMPOTENCY_PATH);
     expect(JSON.parse(finalise[6])).toEqual({
@@ -154,8 +207,7 @@ describe('refund payout durable idempotency and audit', () => {
 
   it('rolls back before permanent finalization when strict payout audit fails', async () => {
     const body = { reference: 'CHEQUE-51-AUDIT-FAIL' };
-    queryMock
-      .mockResolvedValueOnce([approvedRefund()])
+    mockPayoutAuthorityPrefix()
       .mockResolvedValueOnce([approvedRefund({
         approval_status: 'PAID', paid_by: PAYER, reference: body.reference, payout_rail: 'manual',
       })])
@@ -191,8 +243,7 @@ describe('refund payout durable idempotency and audit', () => {
     });
 
     const body = { reference: 'CHEQUE-CONCURRENT' };
-    queryMock
-      .mockResolvedValueOnce([approvedRefund()])
+    mockPayoutAuthorityPrefix()
       .mockResolvedValueOnce([approvedRefund({
         approval_status: 'PAID', paid_by: PAYER, reference: body.reference, payout_rail: 'manual',
       })])
@@ -212,14 +263,14 @@ describe('refund payout durable idempotency and audit', () => {
   });
 
   it('fails closed on same approver/payer and manual electronic bypass', async () => {
-    queryMock.mockResolvedValueOnce([approvedRefund({ approved_by: PAYER })]);
+    mockPayoutAuthorityPrefix(approvedRefund({ approved_by: PAYER }));
     await expect(billing.markRefundPaid('51', {
       tenantId: TENANT, paid_by: PAYER, reference: 'CHEQUE-SAME-ACTOR',
     })).rejects.toMatchObject({
       code: 'BILLING_REFUND_PAYER_MUST_DIFFER_FROM_APPROVER',
     });
 
-    queryMock.mockResolvedValueOnce([approvedRefund({ mode: 'UPI' })]);
+    mockPayoutAuthorityPrefix(approvedRefund({ mode: 'UPI' }));
     await expect(billing.markRefundPaid('51', {
       tenantId: TENANT, paid_by: PAYER, reference: 'UPI-MANUAL-BYPASS',
     })).rejects.toMatchObject({
@@ -237,8 +288,7 @@ describe('refund payout durable idempotency and audit', () => {
       reference: 'CASH-VOUCHER-51',
       cash_drawer_session_id: '81',
     };
-    queryMock
-      .mockResolvedValueOnce([cash])
+    mockPayoutAuthorityPrefix(cash)
       .mockResolvedValueOnce([{
         id: '81', cashier_uid: PAYER, shift: 'MORNING',
         opened_at: '2026-08-28T08:00:00.000Z', opening_float: '500.00', status: 'open',
@@ -261,8 +311,7 @@ describe('refund payout durable idempotency and audit', () => {
     }));
 
     queryMock.mockReset();
-    queryMock
-      .mockResolvedValueOnce([cash])
+    mockPayoutAuthorityPrefix(cash)
       .mockResolvedValueOnce([]);
     await expect(billing.markRefundPaid('51', {
       tenantId: TENANT,
@@ -283,9 +332,48 @@ describe('refund payout durable idempotency and audit', () => {
       provider_refunded_at: new Date(Date.now() - 60_000).toISOString(),
     };
     queryMock
+      .mockResolvedValueOnce([{ locked: 1 }])
       .mockResolvedValueOnce([upi])
-      .mockResolvedValueOnce([{ id: 33, amount: '250.00', mode: 'UPI', reference: 'UPI-COLLECT-17' }])
+      .mockResolvedValueOnce([{
+        id: 33,
+        invoice_id: 17,
+        patient_uid: PATIENT,
+        amount: '250.00',
+        mode: 'UPI',
+        reference: 'UPI-COLLECT-17',
+        reversed: false,
+      }])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        id: upi.id,
+        patient_uid: upi.patient_uid,
+        invoice_id: upi.invoice_id,
+        advance_id: upi.advance_id,
+        approval_status: upi.approval_status,
+      }])
+      .mockResolvedValueOnce([{
+        uid: PATIENT, merged_into_uid: null, depth: 0, cycle: false,
+      }])
+      .mockResolvedValueOnce([{ lock_acquired: null }])
+      .mockResolvedValueOnce([{
+        id: 17,
+        patient_uid: PATIENT,
+        status: 'PAID',
+        total_amount: '250.00',
+        credit_note_amount: '0.00',
+        amount_paid: '250.00',
+        amount_due: '0.00',
+      }])
+      .mockResolvedValueOnce([upi])
+      .mockResolvedValueOnce([{
+        id: 33,
+        invoice_id: 17,
+        patient_uid: PATIENT,
+        amount: '250.00',
+        mode: 'UPI',
+        reference: 'UPI-COLLECT-17',
+        reversed: false,
+      }])
       .mockResolvedValueOnce([{ id: '91' }])
       .mockResolvedValueOnce([{
         ...upi,
@@ -295,7 +383,6 @@ describe('refund payout durable idempotency and audit', () => {
         reference: 'UPI-REFUND-51',
         offline_electronic_evidence_id: '91',
       }])
-      .mockResolvedValueOnce([{ amount_paid: '250', total_amount: '250', credit_note_amount: '0' }])
       .mockResolvedValueOnce([]);
 
     await expect(billing.markOfflineElectronicRefundPaid('51', {
@@ -306,14 +393,23 @@ describe('refund payout durable idempotency and audit', () => {
       payout_rail: 'offline_electronic',
       offline_electronic_evidence_id: '91',
     }));
-    expect(queryMock.mock.calls[3][0]).toContain(
+    expect(queryMock.mock.calls[10][0]).toContain(
       'INSERT INTO billing_refund_offline_electronic_evidence',
     );
 
     queryMock.mockReset();
     queryMock
+      .mockResolvedValueOnce([{ locked: 1 }])
       .mockResolvedValueOnce([upi])
-      .mockResolvedValueOnce([{ id: 33, amount: '250.00', mode: 'UPI', reference: 'UPI-COLLECT-17' }])
+      .mockResolvedValueOnce([{
+        id: 33,
+        invoice_id: 17,
+        patient_uid: PATIENT,
+        amount: '250.00',
+        mode: 'UPI',
+        reference: 'UPI-COLLECT-17',
+        reversed: false,
+      }])
       .mockResolvedValueOnce([{ id: 44, provider: 'razorpay' }]);
     await expect(billing.markOfflineElectronicRefundPaid('51', {
       tenantId: TENANT,
@@ -335,16 +431,17 @@ describe('refund payout durable idempotency and audit', () => {
       paid_by: null,
       reference: providerRefundId,
     };
-    queryMock
-      .mockResolvedValueOnce([{
+    mockGatewayAuthorityPrefix({
+      refund: gatewayRefund,
+      gatewayEvidence: {
         id: 73,
         initiated_by: PAYER,
         initiated_at: '2026-08-28T09:00:00.000Z',
         status: 'pending',
         provider_refund_id: null,
         processed_at: null,
-      }])
-      .mockResolvedValueOnce([gatewayRefund])
+      },
+    })
       .mockResolvedValueOnce([{
         id: 73,
         status: 'processed',
@@ -363,8 +460,8 @@ describe('refund payout durable idempotency and audit', () => {
       gateway_authority_transitioned: true,
     });
 
-    expect(queryMock.mock.calls[2][0]).toContain("SET status = 'processed'");
-    expect(queryMock.mock.calls[3][0]).toContain("SET approval_status = 'PAID'");
+    expect(queryMock.mock.calls[8][0]).toContain("SET status = 'processed'");
+    expect(queryMock.mock.calls[9][0]).toContain("SET approval_status = 'PAID'");
     expect(setTenantTxMock).toHaveBeenCalledTimes(1);
   });
 
@@ -379,6 +476,8 @@ describe('refund payout durable idempotency and audit', () => {
     expect(queryMock).not.toHaveBeenCalled();
 
     queryMock
+      .mockResolvedValueOnce([{ locked: 1 }])
+      .mockResolvedValueOnce([{ id: 51 }])
       .mockResolvedValueOnce([]);
     await expect(billing.markGatewayRefundPaid('51', {
       tenantId: TENANT,
@@ -391,18 +490,20 @@ describe('refund payout durable idempotency and audit', () => {
 
   it('does not finalize after a post-receipt billing failure in the atomic transaction', async () => {
     const providerRefundId = 'rfnd_rollback_51';
-    queryMock
-      .mockResolvedValueOnce([{
+    const gatewayRefund = approvedRefund({
+      mode: 'UPI', payout_rail: 'gateway', gateway_refund_id: 74,
+    });
+    mockGatewayAuthorityPrefix({
+      refund: gatewayRefund,
+      gatewayEvidence: {
         id: 74,
         initiated_by: PAYER,
         initiated_at: '2026-08-28T09:00:00.000Z',
         status: 'pending',
         provider_refund_id: null,
         processed_at: null,
-      }])
-      .mockResolvedValueOnce([approvedRefund({
-        mode: 'UPI', payout_rail: 'gateway', gateway_refund_id: 74,
-      })])
+      },
+    })
       .mockResolvedValueOnce([{
         id: 74,
         status: 'processed',
@@ -434,8 +535,10 @@ describe('refund rejection durable idempotency and audit', () => {
       rejected_by: PAYER,
       rejection_reason: reason,
     });
-    queryMock
-      .mockResolvedValueOnce([{ id: 51, approval_status: 'PENDING' }])
+    const pending = approvedRefund({
+      approval_status: 'PENDING', approved_by: null, approved_at: null,
+    });
+    mockPayoutAuthorityPrefix(pending)
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([rejected])
       .mockResolvedValueOnce([{ id: 801 }])
@@ -452,12 +555,12 @@ describe('refund rejection durable idempotency and audit', () => {
       auditContext: AUDIT_CONTEXT,
     })).resolves.toEqual(rejected);
 
-    expect(queryMock.mock.calls[3].slice(1, 4)).toEqual([
+    expect(queryMock.mock.calls[8].slice(1, 4)).toEqual([
       PAYER,
       'FINANCE_INCHARGE',
       'FRONT_OFFICE_BILLING_REFUND_REJECTED',
     ]);
-    expect(queryMock.mock.calls[4][0]).toContain("expires_at = 'infinity'::timestamptz");
-    expect(queryMock.mock.calls[4].at(-1)).toBe(billing.REFUND_REJECTION_IDEMPOTENCY_PATH);
+    expect(queryMock.mock.calls[9][0]).toContain("expires_at = 'infinity'::timestamptz");
+    expect(queryMock.mock.calls[9].at(-1)).toBe(billing.REFUND_REJECTION_IDEMPOTENCY_PATH);
   });
 });

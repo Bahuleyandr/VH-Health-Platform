@@ -21,6 +21,19 @@ jest.unstable_mockModule('../../services/billing/ledger/ledgerAuthoritativeMode.
 
 const { collectPayment, reversePayment } = await import('../../services/billing/billingV2Service.js');
 
+const PATIENT = '11111111-1111-4111-8111-111111111111';
+
+function mockCollectPaymentPrefix(invoice) {
+  return mockPrisma.$queryRawUnsafe
+    .mockResolvedValueOnce([{ locked: 1 }])
+    .mockResolvedValueOnce([{ id: 3, patient_uid: PATIENT }])
+    .mockResolvedValueOnce([{
+      uid: PATIENT, merged_into_uid: null, depth: 0, cycle: false,
+    }])
+    .mockResolvedValueOnce([{ lock_acquired: null }])
+    .mockResolvedValueOnce([{ id: 3, patient_uid: PATIENT, ...invoice }]);
+}
+
 describe('billing v2 payment invoice totals', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -29,12 +42,10 @@ describe('billing v2 payment invoice totals', () => {
   });
 
   it('keeps advance settlements in amount_paid when collecting the balance payment', async () => {
-    mockPrisma.$queryRawUnsafe
-      .mockResolvedValueOnce([{
-        patient_uid: '11111111-1111-4111-8111-111111111111',
-        status: 'PARTIAL',
-        amount_due: '2300',
-      }])
+    mockCollectPaymentPrefix({
+      status: 'PARTIAL',
+      amount_due: '2300',
+    })
       .mockResolvedValueOnce([{ id: 9, invoice_id: 3, amount: '2300' }])
       .mockResolvedValueOnce([{ paid: '17300' }])
       .mockResolvedValueOnce([{ total_amount: '17300' }])
@@ -52,7 +63,7 @@ describe('billing v2 payment invoice totals', () => {
       shift: 'GENERAL',
     });
 
-    const paidAggregateSql = mockPrisma.$queryRawUnsafe.mock.calls[2][0];
+    const paidAggregateSql = mockPrisma.$queryRawUnsafe.mock.calls[6][0];
     expect(paidAggregateSql).toContain('billing_payments');
     expect(paidAggregateSql).toContain('billing_advance_settlements');
     expect(mockPrisma.$executeRawUnsafe).toHaveBeenCalledWith(
@@ -62,15 +73,33 @@ describe('billing v2 payment invoice totals', () => {
 
   it('keeps advance settlements in amount_paid when reversing a later payment', async () => {
     mockPrisma.$queryRawUnsafe
+      .mockResolvedValueOnce([{ locked: 1 }])
       .mockResolvedValueOnce([{
-        patient_uid: '11111111-1111-4111-8111-111111111111',
+        id: 9,
+        patient_uid: PATIENT,
+        invoice_id: 3,
         has_pharmacy_allocations: false,
       }])
-      .mockResolvedValueOnce([]) // funded pharmacy orders
       .mockResolvedValueOnce([{
-        id: 9, reversed: false, mode: 'CASH', immutable_drawer_close: false,
+        uid: PATIENT, merged_into_uid: null, depth: 0, cycle: false,
+      }])
+      .mockResolvedValueOnce([{ lock_acquired: null }])
+      .mockResolvedValueOnce([]) // payment-allocation funding advisories
+      .mockResolvedValueOnce([]) // funded pharmacy orders
+      .mockResolvedValueOnce([{ id: 3, patient_uid: PATIENT, status: 'PARTIAL' }])
+      .mockResolvedValueOnce([{
+        id: 9,
+        invoice_id: 3,
+        patient_uid: PATIENT,
+        amount: '2300',
+        reversed: false,
+        mode: 'CASH',
+        immutable_drawer_close: false,
       }])
       .mockResolvedValueOnce([]) // active pharmacy allocations
+      .mockResolvedValueOnce([{
+        source_amount: '17300', active_refunds: '0', pharmacy_allocations: '0',
+      }])
       .mockResolvedValueOnce([{ id: 9, invoice_id: 3, amount: '2300' }]) // UPDATE payment RETURNING
       .mockResolvedValueOnce([{ id: 3 }]) // lockBillingInvoice (SELECT ... FOR UPDATE)
       .mockResolvedValueOnce([{ paid: '15000' }]) // recompute aggregate
@@ -79,7 +108,7 @@ describe('billing v2 payment invoice totals', () => {
 
     await reversePayment(9, { reason: 'cash entry voided' });
 
-    const paidAggregateSql = mockPrisma.$queryRawUnsafe.mock.calls[6][0];
+    const paidAggregateSql = mockPrisma.$queryRawUnsafe.mock.calls[12][0];
     expect(paidAggregateSql).toContain('billing_payments');
     expect(paidAggregateSql).toContain('billing_advance_settlements');
     expect(mockPrisma.$executeRawUnsafe).toHaveBeenCalledWith(
@@ -90,7 +119,7 @@ describe('billing v2 payment invoice totals', () => {
   it('rejects INSURANCE payment when no invoice is linked', async () => {
     await expect(
       collectPayment({
-        patient_uid: '11111111-1111-4111-8111-111111111111',
+        patient_uid: PATIENT,
         amount: 5000,
         mode: 'INSURANCE',
         reference: 'TPA-UTR-UNATTRIBUTED',
@@ -103,12 +132,10 @@ describe('billing v2 payment invoice totals', () => {
   });
 
   it('rejects INSURANCE payment when the invoice has no submitted cashless TPA claim', async () => {
-    mockPrisma.$queryRawUnsafe
-      .mockResolvedValueOnce([{
-        patient_uid: '11111111-1111-4111-8111-111111111111',
-        status: 'ISSUED',
-        amount_due: '5000',
-      }])
+    mockCollectPaymentPrefix({
+      status: 'ISSUED',
+      amount_due: '5000',
+    })
       .mockResolvedValueOnce([]);
 
     await expect(
@@ -125,12 +152,10 @@ describe('billing v2 payment invoice totals', () => {
   });
 
   it('rejects INSURANCE payment when the linked cashless claim has no preauth', async () => {
-    mockPrisma.$queryRawUnsafe
-      .mockResolvedValueOnce([{
-        patient_uid: '11111111-1111-4111-8111-111111111111',
-        status: 'ISSUED',
-        amount_due: '5000',
-      }])
+    mockCollectPaymentPrefix({
+      status: 'ISSUED',
+      amount_due: '5000',
+    })
       .mockResolvedValueOnce([{
         id: 44,
         claim_number: 'CL-TEST-NO-PREAUTH',
@@ -152,12 +177,10 @@ describe('billing v2 payment invoice totals', () => {
   });
 
   it('accepts INSURANCE payment when the invoice is anchored to a preauth-linked final claim', async () => {
-    mockPrisma.$queryRawUnsafe
-      .mockResolvedValueOnce([{
-        patient_uid: '11111111-1111-4111-8111-111111111111',
-        status: 'PARTIAL',
-        amount_due: '5000',
-      }])
+    mockCollectPaymentPrefix({
+      status: 'PARTIAL',
+      amount_due: '5000',
+    })
       .mockResolvedValueOnce([{
         id: 45,
         claim_number: 'CL-TEST-PAID',
@@ -176,7 +199,7 @@ describe('billing v2 payment invoice totals', () => {
       reference: 'TPA-UTR-OK',
     });
 
-    const claimAnchorSql = mockPrisma.$queryRawUnsafe.mock.calls[1][0];
+    const claimAnchorSql = mockPrisma.$queryRawUnsafe.mock.calls[5][0];
     expect(claimAnchorSql).toContain('FROM tpa_claims');
     expect(mockPrisma.$executeRawUnsafe).toHaveBeenCalledWith(
       expect.stringContaining('UPDATE billing_invoices'), 17300, 0, 'PAID', 3,

@@ -46,6 +46,7 @@ const markGatewayRefundPaid = jest.fn(async () => ({
   gateway_authority_transitioned: true,
 }));
 const deriveInvoicePaymentStateFromLedgerTx = jest.fn(async () => {});
+const lockBillingRefundFundingAuthorityTx = jest.fn();
 const getPaymentGatewaySettings = jest.fn(async () => ({ enabled: true }));
 const resolveLedgerWiring = jest.fn(async () => ({ mode: 'shadow', sameTx: false, postCommit: true, skip: false }));
 const postPaymentEntry = jest.fn(async () => ({ entryId: 1 }));
@@ -54,6 +55,7 @@ const ensureGatewayRefundRecoveryObligationTx = jest.fn(async () => ({ row: {} }
 const projectGatewayRefundRecoveryTerminal = jest.fn(async () => ({}));
 const requeueGatewayRefundAuthorityBlockedTx = jest.fn(async () => []);
 const notificationQueue = jest.fn(async () => ({ id: 901 }));
+const lockTenantPatientMergeStability = jest.fn(async () => {});
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: queryRawUnsafe, $executeRawUnsafe: executeRawUnsafe },
@@ -65,6 +67,7 @@ jest.unstable_mockModule('../../services/billing/billingV2Service.js', () => ({
   collectPayment,
   markGatewayRefundPaid,
   deriveInvoicePaymentStateFromLedgerTx,
+  lockBillingRefundFundingAuthorityTx,
 }));
 jest.unstable_mockModule('../../services/tenant/tenantSettingsService.js', () => ({
   getPaymentGatewaySettings,
@@ -93,6 +96,9 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 jest.unstable_mockModule('../../utils/notifications/notificationOutbox.js', () => ({
   notificationOutbox: { queue: notificationQueue },
 }));
+jest.unstable_mockModule('../../utils/patientMergeStabilityLock.js', () => ({
+  lockTenantPatientMergeStability,
+}));
 
 const gateway = await import('../../services/billing/paymentGatewayService.js');
 const { getCurrentTenantId } = await import('../../lib/tenantContext.js');
@@ -105,6 +111,15 @@ const enabledConfig = {
 };
 
 const ISSUED_INVOICE = { id: 12, patient_uid: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', status: 'ISSUED', amount_due: '500.00' };
+const LOCKED_GATEWAY_PAYMENT = {
+  id: 77,
+  invoice_id: 12,
+  patient_uid: ISSUED_INVOICE.patient_uid,
+  amount: '500.00',
+  mode: 'UPI',
+  reference: 'pay_dry_9',
+  reversed: false,
+};
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -127,6 +142,29 @@ beforeEach(() => {
   markGatewayRefundPaid.mockReset().mockResolvedValue({
     id: 9,
     gateway_authority_transitioned: true,
+  });
+  lockBillingRefundFundingAuthorityTx.mockReset().mockImplementation(async (
+    fundingTx,
+    { tenantId, refundId },
+  ) => {
+    const rows = await fundingTx.$queryRawUnsafe(
+      `SELECT *
+         FROM billing_refunds
+        WHERE tenant_id = $1::uuid AND id = $2::int
+        FOR UPDATE`,
+      tenantId,
+      Number(refundId),
+    );
+    const refund = rows[0];
+    return {
+      refund,
+      parent: {
+        id: refund?.invoice_id ?? refund?.advance_id,
+        patient_uid: refund?.patient_uid,
+      },
+      storedPatientUid: refund?.patient_uid,
+      fundingPatientUid: refund?.patient_uid,
+    };
   });
   ensureGatewayRefundRecoveryObligation.mockReset().mockResolvedValue({});
   ensureGatewayRefundRecoveryObligationTx.mockReset().mockResolvedValue({ row: {} });
@@ -709,14 +747,14 @@ describe('capture booking (payment.captured)', () => {
 
     expect(result.outcome).toBe('captured');
     expect(result.billingPaymentId).toBe(77);
-    // collectPayment joined OUR tx (second positional arg { tx }).
+    // collectPayment joins the merge-stable gateway transaction.
     expect(collectPayment).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: TENANT,
       invoice_id: 12,
       amount: 500,
       mode: 'UPI',
       reference: 'pay_dry_9',
-    }), { tx });
+    }), { tx, mergeStabilityHeld: true });
     // Order flip in the same tx carries the booked billing_payments id.
     const flip = txExecuteRawUnsafe.mock.calls.find(([sql]) => sql.includes("status = 'paid'"));
     expect(flip).toBeTruthy();
@@ -990,7 +1028,7 @@ describe('refund initiation (double-execution guard)', () => {
         code: 'BILLING_REFUND_PAYER_MUST_DIFFER_FROM_APPROVER',
       });
       expect(txQueryRawUnsafe).toHaveBeenCalledTimes(1);
-      expect(txQueryRawUnsafe.mock.calls[0][0]).toContain('FOR UPDATE');
+      expect(txQueryRawUnsafe.mock.calls[0][0]).not.toContain('FOR UPDATE');
       expect(txQueryRawUnsafe.mock.calls[0][0]).toContain('approved_by');
       expect(createRefundSpy).not.toHaveBeenCalled();
       expect(txQueryRawUnsafe.mock.calls.some(([sql]) => (
@@ -1004,17 +1042,43 @@ describe('refund initiation (double-execution guard)', () => {
   it('short-circuits to the existing live execution leg WITHOUT re-calling the provider or inserting', async () => {
     queryRawUnsafe.mockResolvedValueOnce([enabledConfig]); // gate: enabled config
     txQueryRawUnsafe
-      .mockResolvedValueOnce([{ // billing_refunds FOR UPDATE
+      .mockResolvedValueOnce([{ // billing_refunds discovery
         id: 9, invoice_id: 12, advance_id: null, amount: '150.00',
         patient_uid: ISSUED_INVOICE.patient_uid, mode: 'UPI',
         reason: null, approval_status: 'APPROVED',
         ...approvedRefundAuthority,
       }])
-      .mockResolvedValueOnce([{ // existing live execution leg
+      .mockResolvedValueOnce([{ // unlocked existing live execution discovery
         id: 6, tenant_id: TENANT, provider: 'dry_run', status: 'pending',
         billing_refund_id: 9, gateway_order_id: 21, amount: '150.00',
         provider_refund_id: 'rfnd_dry_pgr-9',
         ...storedInitiatorAuthority,
+      }])
+      .mockResolvedValueOnce([{ // paid gateway order + config preflight
+        id: 21, provider: 'dry_run', environment: 'sandbox',
+        provider_payment_id: 'pay_dry_9', amount: '500.00', invoice_id: 12,
+        patient_uid: ISSUED_INVOICE.patient_uid, billing_payment_id: 77,
+        config_provider: 'dry_run', config_environment: 'sandbox',
+      }])
+      .mockResolvedValueOnce([{ lock_acquired: '1' }])
+      .mockResolvedValueOnce([{
+        id: 6, tenant_id: TENANT, provider: 'dry_run', status: 'pending',
+        billing_refund_id: 9, gateway_order_id: 21, amount: '150.00',
+        provider_refund_id: 'rfnd_dry_pgr-9',
+        ...storedInitiatorAuthority,
+      }])
+      .mockResolvedValueOnce([{
+        id: 6, tenant_id: TENANT, provider: 'dry_run', status: 'pending',
+        billing_refund_id: 9, gateway_order_id: 21, amount: '150.00',
+        provider_refund_id: 'rfnd_dry_pgr-9',
+        ...storedInitiatorAuthority,
+      }])
+      .mockResolvedValueOnce([{
+        id: 9, invoice_id: 12, advance_id: null, amount: '150.00',
+        patient_uid: ISSUED_INVOICE.patient_uid, mode: 'UPI',
+        reason: null, approval_status: 'APPROVED', payout_rail: 'gateway',
+        gateway_refund_id: 6,
+        ...approvedRefundAuthority,
       }]);
 
     const result = await gateway.initiateGatewayRefund({
@@ -1025,7 +1089,11 @@ describe('refund initiation (double-execution guard)', () => {
     expect(result.id).toBe(6);
     // A completed provider leg never re-enters provider execution.
     expect(setTenantTx).toHaveBeenCalledTimes(1);
-    expect(txQueryRawUnsafe.mock.calls[0][0]).toContain('FOR UPDATE');
+    expect(txQueryRawUnsafe.mock.calls[0][0]).not.toContain('FOR UPDATE');
+    const gatewayLock = txQueryRawUnsafe.mock.calls.find(([sql]) => (
+      sql.includes('FROM payment_gateway_refunds') && sql.includes('FOR UPDATE')
+    ));
+    expect(gatewayLock).toBeDefined();
     const insertCall = txQueryRawUnsafe.mock.calls.find(([sql]) => sql.includes('INSERT INTO payment_gateway_refunds'));
     expect(insertCall).toBeUndefined();
   });
@@ -1033,21 +1101,29 @@ describe('refund initiation (double-execution guard)', () => {
   it('commits a durable intent before provider execution, then records provider evidence separately', async () => {
     queryRawUnsafe.mockResolvedValueOnce([enabledConfig]);
     txQueryRawUnsafe
-      .mockResolvedValueOnce([{ // billing_refunds FOR UPDATE
+      .mockResolvedValueOnce([{ // billing_refunds discovery
         id: 9, invoice_id: 12, advance_id: null, amount: '150.00',
         patient_uid: ISSUED_INVOICE.patient_uid, mode: 'UPI',
         reason: 'dup charge', approval_status: 'APPROVED',
         ...approvedRefundAuthority,
       }])
       .mockResolvedValueOnce([]) // no live execution leg
-      .mockResolvedValueOnce([{ // exact paid gateway order + payment + config
+      .mockResolvedValueOnce([{ // paid gateway order + config preflight
         id: 21, provider: 'dry_run', environment: 'sandbox',
         provider_payment_id: 'pay_dry_9', amount: '500.00', invoice_id: 12,
         patient_uid: ISSUED_INVOICE.patient_uid, billing_payment_id: 77,
-        payment_invoice_id: 12, payment_patient_uid: ISSUED_INVOICE.patient_uid,
-        payment_mode: 'UPI', config_provider: 'dry_run', config_environment: 'sandbox',
+        config_provider: 'dry_run', config_environment: 'sandbox',
         key_id: null, key_secret_ciphertext: null,
       }])
+      .mockResolvedValueOnce([{ lock_acquired: '1' }])
+      .mockResolvedValueOnce([]) // no serialized execution after the creation lock
+      .mockResolvedValueOnce([{
+        id: 9, invoice_id: 12, advance_id: null, amount: '150.00',
+        patient_uid: ISSUED_INVOICE.patient_uid, mode: 'UPI',
+        reason: 'dup charge', approval_status: 'APPROVED',
+        ...approvedRefundAuthority,
+      }])
+      .mockResolvedValueOnce([LOCKED_GATEWAY_PAYMENT])
       .mockResolvedValueOnce([{ refunded_amount: '0' }])
       .mockImplementationOnce(async (sql, ...params) => {
         expect(sql).toContain('INSERT INTO payment_gateway_refunds');
@@ -1095,8 +1171,89 @@ describe('refund initiation (double-execution guard)', () => {
     ));
     expect(sourceLookup[0]).toContain('bp.reversed = false');
     expect(sourceLookup[0]).toContain('pc.enabled = true');
+    expect(sourceLookup[0]).not.toContain('payment_invoice_id');
+    expect(sourceLookup[0]).not.toContain('payment_patient_uid');
+    expect(sourceLookup[0]).not.toContain('payment_mode');
     expect(sourceLookup.slice(1)).toEqual([21, TENANT]);
+    const paymentLockIndex = txQueryRawUnsafe.mock.calls.findIndex(([sql]) => (
+      sql.includes('FROM billing_payments') && sql.includes('FOR UPDATE')
+    ));
+    expect(paymentLockIndex).toBeGreaterThanOrEqual(0);
+    expect(txQueryRawUnsafe.mock.calls[paymentLockIndex][0]).toContain('reversed = FALSE');
+    expect(txQueryRawUnsafe.mock.calls[paymentLockIndex].slice(1)).toEqual([
+      TENANT, 77, 12, ISSUED_INVOICE.patient_uid, 'UPI',
+    ]);
+    expect(lockBillingRefundFundingAuthorityTx.mock.invocationCallOrder[0])
+      .toBeLessThan(txQueryRawUnsafe.mock.invocationCallOrder[paymentLockIndex]);
     expect(setTenantTx).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects when reversal invalidates the payment after gateway preflight but before intent creation', async () => {
+    const { default: dryRunAdapter } = await import(
+      '../../services/billing/gatewayProviders/dryRunAdapter.js'
+    );
+    const createRefundSpy = jest.spyOn(dryRunAdapter, 'createRefund');
+    queryRawUnsafe.mockResolvedValueOnce([enabledConfig]);
+    txQueryRawUnsafe
+      .mockResolvedValueOnce([{
+        id: 9, invoice_id: 12, advance_id: null, amount: '150.00',
+        patient_uid: ISSUED_INVOICE.patient_uid, mode: 'UPI',
+        reason: 'reversal race', approval_status: 'APPROVED',
+        ...approvedRefundAuthority,
+      }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        id: 21, provider: 'dry_run', environment: 'sandbox',
+        provider_payment_id: 'pay_dry_9', amount: '500.00', invoice_id: 12,
+        patient_uid: ISSUED_INVOICE.patient_uid, billing_payment_id: 77,
+        config_provider: 'dry_run', config_environment: 'sandbox',
+      }])
+      .mockResolvedValueOnce([{ lock_acquired: '1' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        id: 9, invoice_id: 12, advance_id: null, amount: '150.00',
+        patient_uid: ISSUED_INVOICE.patient_uid, mode: 'UPI',
+        reason: 'reversal race', approval_status: 'APPROVED',
+        ...approvedRefundAuthority,
+      }])
+      .mockResolvedValueOnce([]); // reversePayment committed before this exact row lock
+
+    try {
+      await expect(gateway.initiateGatewayRefund({
+        tenantId: TENANT, billing_refund_id: 9, gateway_order_id: 21,
+        initiated_by: REFUND_INITIATOR,
+      })).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'PAYMENT_GATEWAY_REFUND_SOURCE_MISMATCH',
+      });
+
+      const paymentLockIndex = txQueryRawUnsafe.mock.calls.findIndex(([sql]) => (
+        sql.includes('FROM billing_payments') && sql.includes('FOR UPDATE')
+      ));
+      const fundingRowLockIndex = txQueryRawUnsafe.mock.calls.findIndex(([sql]) => (
+        sql.includes('FROM billing_refunds') && sql.includes('FOR UPDATE')
+      ));
+      expect(fundingRowLockIndex).toBeGreaterThanOrEqual(0);
+      expect(paymentLockIndex).toBeGreaterThan(fundingRowLockIndex);
+      expect(txQueryRawUnsafe.mock.calls[paymentLockIndex][0]).toContain(
+        'tenant_id = $1::uuid AND id = $2::int',
+      );
+      expect(txQueryRawUnsafe.mock.calls[paymentLockIndex][0]).toContain(
+        'invoice_id = $3::int AND patient_uid = $4::uuid',
+      );
+      expect(txQueryRawUnsafe.mock.calls[paymentLockIndex][0]).toContain(
+        'UPPER(mode) = UPPER($5) AND reversed = FALSE',
+      );
+      expect(txQueryRawUnsafe.mock.calls[paymentLockIndex].slice(1)).toEqual([
+        TENANT, 77, 12, ISSUED_INVOICE.patient_uid, 'UPI',
+      ]);
+      expect(createRefundSpy).not.toHaveBeenCalled();
+      expect(txQueryRawUnsafe.mock.calls.some(([sql]) => (
+        sql.includes('INSERT INTO payment_gateway_refunds')
+      ))).toBe(false);
+    } finally {
+      createRefundSpy.mockRestore();
+    }
   });
 
   it('parks an irreversible provider response whose payment, amount, or currency do not match the intent', async () => {
@@ -1124,22 +1281,28 @@ describe('refund initiation (double-execution guard)', () => {
       initiated_by: REFUND_INITIATOR, initiated_at: REFUND_INITIATED_AT,
     };
     txQueryRawUnsafe.mockImplementation(async (sql, ...params) => {
-      if (sql.includes('FROM billing_refunds') && sql.includes('FOR UPDATE')) return [{
+      if (sql.includes('FROM billing_refunds')) return [{
         id: 9, invoice_id: 12, advance_id: null, amount: '150.00',
         patient_uid: ISSUED_INVOICE.patient_uid, mode: 'UPI',
         reason: 'duplicate charge', approval_status: 'APPROVED',
         ...approvedRefundAuthority,
       }];
       if (sql.includes('FROM payment_gateway_refunds refund')) return [];
+      if (sql.includes('vh:payment_gateway_refund_creation:')) {
+        return [{ lock_acquired: '1' }];
+      }
+      if (sql.includes('FROM payment_gateway_refunds execution')) return [];
       if (sql.includes('FROM payment_gateway_orders o')) return [{
         id: 21, provider: 'razorpay', environment: 'sandbox',
         provider_config_id: 3,
         provider_payment_id: 'pay_R9', amount: '500.00', invoice_id: 12,
         patient_uid: ISSUED_INVOICE.patient_uid, billing_payment_id: 77,
-        payment_invoice_id: 12, payment_patient_uid: ISSUED_INVOICE.patient_uid,
-        payment_mode: 'UPI', config_provider: 'razorpay', config_environment: 'sandbox',
+        config_provider: 'razorpay', config_environment: 'sandbox',
         key_id: 'rzp_test', key_secret_ciphertext: 'test-key-secret',
       }];
+      if (sql.includes('FROM billing_payments')) {
+        return [{ ...LOCKED_GATEWAY_PAYMENT, reference: 'pay_R9' }];
+      }
       if (sql.includes('SELECT COALESCE(SUM(amount)')) return [{ refunded_amount: '0' }];
       if (sql.includes('INSERT INTO payment_gateway_refunds')) {
         return [{ ...intentRow, provider_idempotency_key: params[6] }];
@@ -1190,9 +1353,17 @@ describe('refund initiation (double-execution guard)', () => {
         id: 21, provider: 'dry_run', environment: 'sandbox',
         provider_payment_id: 'pay_dry_9', amount: '500.00', invoice_id: 12,
         patient_uid: ISSUED_INVOICE.patient_uid, billing_payment_id: 77,
-        payment_invoice_id: 12, payment_patient_uid: ISSUED_INVOICE.patient_uid,
-        payment_mode: 'UPI', config_provider: 'dry_run', config_environment: 'sandbox',
-      }]);
+        config_provider: 'dry_run', config_environment: 'sandbox',
+      }])
+      .mockResolvedValueOnce([{ lock_acquired: '1' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        id: 9, invoice_id: 12, advance_id: null, amount: '150.00',
+        patient_uid: ISSUED_INVOICE.patient_uid, mode: 'CASH',
+        reason: 'dup charge', approval_status: 'APPROVED',
+        ...approvedRefundAuthority,
+      }])
+      .mockResolvedValueOnce([]); // exact locked payment no longer matches the refund mode
     await expect(gateway.initiateGatewayRefund({
       tenantId: TENANT, billing_refund_id: 9, gateway_order_id: 21,
       initiated_by: REFUND_INITIATOR,
@@ -1215,9 +1386,17 @@ describe('refund initiation (double-execution guard)', () => {
         id: 21, provider: 'dry_run', environment: 'sandbox',
         provider_payment_id: 'pay_dry_9', amount: '100.00', invoice_id: 12,
         patient_uid: ISSUED_INVOICE.patient_uid, billing_payment_id: 77,
-        payment_invoice_id: 12, payment_patient_uid: ISSUED_INVOICE.patient_uid,
-        payment_mode: 'UPI', config_provider: 'dry_run', config_environment: 'sandbox',
+        config_provider: 'dry_run', config_environment: 'sandbox',
       }])
+      .mockResolvedValueOnce([{ lock_acquired: '1' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        id: 9, invoice_id: 12, advance_id: null, amount: '0.02',
+        patient_uid: ISSUED_INVOICE.patient_uid, mode: 'UPI',
+        reason: 'one paisa over', approval_status: 'APPROVED',
+        ...approvedRefundAuthority,
+      }])
+      .mockResolvedValueOnce([{ ...LOCKED_GATEWAY_PAYMENT, amount: '100.00' }])
       .mockResolvedValueOnce([{ refunded_amount: '99.99' }]);
 
     await expect(gateway.initiateGatewayRefund({
@@ -1251,10 +1430,31 @@ describe('refund initiation (double-execution guard)', () => {
       .mockResolvedValueOnce([{
         id: 21, provider: 'razorpay', environment: 'sandbox', provider_payment_id: 'pay_R9',
         amount: '500.00', invoice_id: 12, patient_uid: ISSUED_INVOICE.patient_uid,
-        payment_invoice_id: 12, payment_patient_uid: ISSUED_INVOICE.patient_uid,
-        payment_mode: 'UPI', config_provider: 'razorpay', config_environment: 'sandbox',
+        billing_payment_id: 77,
+        config_provider: 'razorpay', config_environment: 'sandbox',
         key_id: 'rzp_test', key_secret_ciphertext: null,
-      }]);
+      }])
+      .mockResolvedValueOnce([{ lock_acquired: '1' }])
+      .mockResolvedValueOnce([{
+        id: 8, provider: 'razorpay', environment: 'sandbox', status: 'initiated',
+        billing_refund_id: 9, gateway_order_id: 21, amount: '40.00',
+        provider_payment_id: 'pay_R9', provider_idempotency_key: 'pgr-persisted-replay-key',
+        ...storedInitiatorAuthority,
+      }])
+      .mockResolvedValueOnce([{
+        id: 8, provider: 'razorpay', environment: 'sandbox', status: 'initiated',
+        billing_refund_id: 9, gateway_order_id: 21, amount: '40.00',
+        provider_payment_id: 'pay_R9', provider_idempotency_key: 'pgr-persisted-replay-key',
+        ...storedInitiatorAuthority,
+      }])
+      .mockResolvedValueOnce([{
+        id: 9, invoice_id: 12, advance_id: null,
+        patient_uid: ISSUED_INVOICE.patient_uid,
+        amount: '50.00', reason: 'partial', mode: 'UPI', approval_status: 'APPROVED',
+        payout_rail: 'gateway', gateway_refund_id: 8,
+        ...approvedRefundAuthority,
+      }])
+      .mockResolvedValueOnce([{ ...LOCKED_GATEWAY_PAYMENT, reference: 'pay_R9' }]);
     ensureGatewayRefundRecoveryObligation.mockResolvedValueOnce({
       id: 8,
       provider: 'razorpay',
@@ -1350,10 +1550,18 @@ describe('refund initiation (double-execution guard)', () => {
         provider_config_id: 3,
         provider_payment_id: 'pay_R9', amount: '500.00', invoice_id: 12,
         patient_uid: ISSUED_INVOICE.patient_uid, billing_payment_id: 77,
-        payment_invoice_id: 12, payment_patient_uid: ISSUED_INVOICE.patient_uid,
-        payment_mode: 'UPI', config_provider: 'razorpay', config_environment: 'sandbox',
+        config_provider: 'razorpay', config_environment: 'sandbox',
         key_id: 'rzp_test', key_secret_ciphertext: 'test-key-secret',
       }])
+      .mockResolvedValueOnce([{ lock_acquired: '1' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        id: 9, invoice_id: 12, advance_id: null, amount: '150.00',
+        patient_uid: ISSUED_INVOICE.patient_uid, mode: 'UPI',
+        reason: 'immediate provider processing', approval_status: 'APPROVED',
+        ...approvedRefundAuthority,
+      }])
+      .mockResolvedValueOnce([{ ...LOCKED_GATEWAY_PAYMENT, reference: 'pay_R9' }])
       .mockResolvedValueOnce([{ refunded_amount: '0' }])
       .mockResolvedValueOnce([intentRow])
       .mockResolvedValueOnce([{
@@ -1442,10 +1650,18 @@ describe('refund initiation (double-execution guard)', () => {
         id: 21, provider: 'razorpay', environment: 'sandbox', provider_config_id: 3,
         provider_payment_id: 'pay_R9', amount: '500.00', invoice_id: 12,
         patient_uid: ISSUED_INVOICE.patient_uid, billing_payment_id: 77,
-        payment_invoice_id: 12, payment_patient_uid: ISSUED_INVOICE.patient_uid,
-        payment_mode: 'UPI', config_provider: 'razorpay', config_environment: 'sandbox',
+        config_provider: 'razorpay', config_environment: 'sandbox',
         key_id: 'rzp_test', key_secret_ciphertext: 'test-key-secret',
       }])
+      .mockResolvedValueOnce([{ lock_acquired: '1' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        id: 9, invoice_id: 12, advance_id: null, amount: '150.00',
+        patient_uid: ISSUED_INVOICE.patient_uid, mode: 'UPI',
+        reason: 'provider success without correlation', approval_status: 'APPROVED',
+        ...approvedRefundAuthority,
+      }])
+      .mockResolvedValueOnce([{ ...LOCKED_GATEWAY_PAYMENT, reference: 'pay_R9' }])
       .mockResolvedValueOnce([{ refunded_amount: '0' }])
       .mockResolvedValueOnce([intentRow]);
 

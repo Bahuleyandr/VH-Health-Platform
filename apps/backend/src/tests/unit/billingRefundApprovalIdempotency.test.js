@@ -68,6 +68,46 @@ function fingerprint(refundId) {
     .digest('hex');
 }
 
+function pendingRefund(overrides = {}) {
+  return {
+    id: 31,
+    tenant_id: TENANT,
+    patient_uid: SUBJECT,
+    invoice_id: 17,
+    advance_id: null,
+    amount: '25.00',
+    approval_status: 'PENDING',
+    approved_by: null,
+    ...overrides,
+  };
+}
+
+function mockRefundAuthorityPrefix(refund = pendingRefund()) {
+  return queryMock
+    .mockResolvedValueOnce([{ locked: 1 }])
+    .mockResolvedValueOnce([{
+      id: refund.id,
+      patient_uid: refund.patient_uid,
+      invoice_id: refund.invoice_id,
+      advance_id: refund.advance_id,
+      approval_status: refund.approval_status,
+    }])
+    .mockResolvedValueOnce([{
+      uid: refund.patient_uid, merged_into_uid: null, depth: 0, cycle: false,
+    }])
+    .mockResolvedValueOnce([{ lock_acquired: null }])
+    .mockResolvedValueOnce([{
+      id: 17,
+      patient_uid: refund.patient_uid,
+      status: 'PAID',
+      total_amount: '25.00',
+      credit_note_amount: '0.00',
+      amount_paid: '25.00',
+      amount_due: '0.00',
+    }])
+    .mockResolvedValueOnce([refund]);
+}
+
 beforeEach(() => {
   queryMock.mockReset();
   setTenantTxMock.mockClear();
@@ -95,7 +135,7 @@ describe('refund approval durable idempotency', () => {
       approval_status: 'APPROVED',
       approved_by: ACTOR,
     };
-    queryMock
+    mockRefundAuthorityPrefix()
       .mockResolvedValueOnce([refund])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: 801 }])
@@ -117,7 +157,7 @@ describe('refund approval durable idempotency', () => {
 
     expect(result).toEqual(refund);
     expect(setTenantTxMock).toHaveBeenCalledWith(TENANT, expect.any(Function));
-    const audit = queryMock.mock.calls[2];
+    const audit = queryMock.mock.calls[8];
     expect(audit[0]).toContain('FRONT_OFFICE_BILLING_REFUND_APPROVED');
     expect(audit[0]).toContain("'billing_refund'");
     expect(audit.slice(1)).toEqual([
@@ -142,7 +182,7 @@ describe('refund approval durable idempotency', () => {
       approval_status: 'APPROVED',
       source: 'billing_v2',
     }));
-    const finalise = queryMock.mock.calls[3];
+    const finalise = queryMock.mock.calls[9];
     expect(finalise[0]).toContain("expires_at = 'infinity'::timestamptz");
     expect(finalise[0]).toContain("request_method = 'POST'");
     expect(finalise.slice(1, 6)).toEqual([
@@ -171,7 +211,7 @@ describe('refund approval durable idempotency', () => {
       approval_status: 'APPROVED',
       approved_by: ACTOR,
     };
-    queryMock
+    mockRefundAuthorityPrefix()
       .mockResolvedValueOnce([refund])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: 802 }]);
@@ -182,7 +222,7 @@ describe('refund approval durable idempotency', () => {
       auditContext: DELEGATED_AUDIT_CONTEXT,
     })).resolves.toEqual(refund);
 
-    expect(queryMock.mock.calls[2].slice(1)).toEqual([
+    expect(queryMock.mock.calls[8].slice(1)).toEqual([
       ACTOR,
       'SUPER_ADMIN',
       '31',
@@ -252,8 +292,10 @@ describe('refund approval durable idempotency', () => {
   });
 
   it('rolls the approval transaction back when the concurrent claim no longer matches', async () => {
-    queryMock
-      .mockResolvedValueOnce([{ id: 31, approval_status: 'APPROVED' }])
+    mockRefundAuthorityPrefix()
+      .mockResolvedValueOnce([pendingRefund({
+        approval_status: 'APPROVED', approved_by: ACTOR,
+      })])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: 802 }])
       .mockResolvedValueOnce([]);
@@ -273,14 +315,10 @@ describe('refund approval durable idempotency', () => {
   });
 
   it('fails before permanent finalization when the strict audit insert fails', async () => {
-    queryMock
-      .mockResolvedValueOnce([{
-        id: 31,
-        patient_uid: SUBJECT,
-        invoice_id: 17,
-        advance_id: null,
-        approval_status: 'APPROVED',
-      }])
+    mockRefundAuthorityPrefix()
+      .mockResolvedValueOnce([pendingRefund({
+        approval_status: 'APPROVED', approved_by: ACTOR,
+      })])
       .mockResolvedValueOnce([])
       .mockRejectedValueOnce(new Error('audit unavailable'));
 
@@ -294,8 +332,8 @@ describe('refund approval durable idempotency', () => {
       auditContext: AUDIT_CONTEXT,
     })).rejects.toThrow('audit unavailable');
 
-    expect(queryMock).toHaveBeenCalledTimes(3);
-    expect(queryMock.mock.calls[2][0]).toContain(
+    expect(queryMock).toHaveBeenCalledTimes(9);
+    expect(queryMock.mock.calls[8][0]).toContain(
       'FRONT_OFFICE_BILLING_REFUND_APPROVED',
     );
     expect(queryMock.mock.calls.some(([sql]) => (

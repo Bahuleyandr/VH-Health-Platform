@@ -34,6 +34,7 @@ import {
   collectPayment,
   markGatewayRefundPaid,
   deriveInvoicePaymentStateFromLedgerTx,
+  lockBillingRefundFundingAuthorityTx,
 } from './billingV2Service.js';
 import { postPaymentEntry } from './ledger/ledgerPostings.js';
 import { resolveLedgerWiring } from './ledger/ledgerAuthoritativeMode.js';
@@ -41,6 +42,7 @@ import { resolveAdapter, GATEWAY_PROVIDERS } from './gatewayProviders/index.js';
 import { sha256Hex } from './gatewayProviders/webhookSignature.js';
 import { runInTenantContext } from '../../lib/tenantContext.js';
 import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
+import { lockTenantPatientMergeStability } from '../../utils/patientMergeStabilityLock.js';
 
 export const PAYMENT_GATEWAY_DISABLED = 'PAYMENT_GATEWAY_DISABLED';
 
@@ -1155,6 +1157,7 @@ export async function handleCaptureEvent({ tenantId, config, payload }) {
   let result;
   try {
     result = await setTenantTx(tenant, async (tx) => {
+      await lockTenantPatientMergeStability(tx, tenant);
       const orderRows = await tx.$queryRawUnsafe(
         `SELECT * FROM payment_gateway_orders
           WHERE tenant_id = $1::uuid AND provider = $2 AND environment = $3
@@ -1231,7 +1234,7 @@ export async function handleCaptureEvent({ tenantId, config, payload }) {
         // (tenant_id, reference, mode) unique is the durable replay backstop.
         reference: String(providerPaymentId),
         notes: `Gateway ${config.provider} order ${order.receipt || order.provider_order_id}`,
-      }, { tx });
+      }, { tx, mergeStabilityHeld: true });
 
       await tx.$executeRawUnsafe(
         `UPDATE payment_gateway_orders
@@ -1445,7 +1448,12 @@ function normalizeRefundReconciliationInput({
   };
 }
 
-async function lockGatewayRefundAuthorityTx(tx, { tenant, id }) {
+async function lockGatewayRefundAuthorityTx(tx, {
+  tenant,
+  id,
+  mergeStabilityHeld = false,
+}) {
+  if (!mergeStabilityHeld) await lockTenantPatientMergeStability(tx, tenant);
   const executionRows = await tx.$queryRawUnsafe(
     `SELECT *
        FROM payment_gateway_refunds
@@ -1461,20 +1469,23 @@ async function lockGatewayRefundAuthorityTx(tx, { tenant, id }) {
       'PAYMENT_GATEWAY_REFUND_AUTHORITY_MISSING',
     );
   }
-  const authorityRows = await tx.$queryRawUnsafe(
-    `SELECT id, approval_status, payout_rail, gateway_refund_id, reference
-       FROM billing_refunds
-      WHERE id = $1::int AND tenant_id = $2::uuid
-      FOR UPDATE`,
-    Number(execution.billing_refund_id), tenant,
-  );
-  if (!authorityRows.length) {
-    throw AppError.conflict(
-      'Gateway refund reconciliation has no linked billing authority',
-      'PAYMENT_GATEWAY_REFUND_AUTHORITY_MISSING',
-    );
+  let fundingContext;
+  try {
+    fundingContext = await lockBillingRefundFundingAuthorityTx(tx, {
+      tenantId: tenant,
+      refundId: Number(execution.billing_refund_id),
+      mergeStabilityHeld: true,
+    });
+  } catch (err) {
+    if (err instanceof AppError && err.statusCode === 404) {
+      throw AppError.conflict(
+        'Gateway refund reconciliation has no linked billing authority',
+        'PAYMENT_GATEWAY_REFUND_AUTHORITY_MISSING',
+      );
+    }
+    throw err;
   }
-  return { execution, authority: authorityRows[0] };
+  return { execution, authority: fundingContext.refund };
 }
 
 function exactProcessedAuthority(authority, execution, providerRefundId) {
@@ -2252,6 +2263,63 @@ export async function listGatewayRefundCandidates({ tenantId, billing_refund_id 
   }, { readOnly: true });
 }
 
+function assertGatewayRefundInitiationAuthority(refund, initiator, initiatorTenantValid) {
+  if (String(refund.approval_status).toUpperCase() !== 'APPROVED') {
+    throw AppError.badRequest(
+      `Refund must be APPROVED before gateway execution (is ${refund.approval_status})`,
+      'PAYMENT_GATEWAY_REFUND_NOT_APPROVED',
+    );
+  }
+  if (!refund.approved_by || !refund.approved_at) {
+    throw AppError.conflict(
+      'Gateway refund execution requires attributable billing approval',
+      'PAYMENT_GATEWAY_REFUND_APPROVAL_AUTHORITY_REQUIRED',
+    );
+  }
+  if (String(refund.approved_by).toLowerCase() === initiator.toLowerCase()) {
+    throw AppError.conflict(
+      'Gateway refund initiator must differ from the approval actor',
+      'BILLING_REFUND_PAYER_MUST_DIFFER_FROM_APPROVER',
+    );
+  }
+  if (initiatorTenantValid !== true) {
+    throw AppError.forbidden(
+      'Gateway refund initiator is not a same-tenant user',
+      'PAYMENT_GATEWAY_REFUND_INITIATOR_TENANT_MISMATCH',
+    );
+  }
+  if (refund.payout_rail === 'manual') {
+    throw AppError.conflict(
+      'This approved refund is already claimed for manual payout',
+      'PAYMENT_GATEWAY_REFUND_PAYOUT_RAIL_CONFLICT',
+    );
+  }
+  if (refund.invoice_id == null) {
+    throw AppError.badRequest(
+      'Only invoice-linked refunds can be executed through the gateway',
+      'PAYMENT_GATEWAY_REFUND_NOT_GATEWAY_COLLECTED',
+    );
+  }
+}
+
+function assertStoredGatewayRefundInitiator(existing, refund, storedInitiatorTenantValid) {
+  if (!existing) return;
+  const existingInitiator = String(existing.initiated_by || '').trim();
+  const existingInitiatedAt = new Date(existing.initiated_at).getTime();
+  const approvedAt = new Date(refund.approved_at).getTime();
+  if (!UUID_PATTERN.test(existingInitiator)
+      || storedInitiatorTenantValid !== true
+      || existingInitiator.toLowerCase() === String(refund.approved_by).toLowerCase()
+      || !Number.isFinite(existingInitiatedAt)
+      || !Number.isFinite(approvedAt)
+      || existingInitiatedAt <= approvedAt) {
+    throw AppError.conflict(
+      'Stored gateway refund execution lacks independent post-approval authority',
+      'PAYMENT_GATEWAY_REFUND_INITIATOR_AUTHORITY_INVALID',
+    );
+  }
+}
+
 export async function initiateGatewayRefund({
   tenantId, billing_refund_id, gateway_order_id, initiated_by,
 }) {
@@ -2279,6 +2347,7 @@ export async function initiateGatewayRefund({
   // Phase 1 commits the exact approved refund, payment source, payer, mode,
   // provider config and retry key before any irreversible provider request.
   const intent = await setTenantTx(tenant, async (tx) => {
+    await lockTenantPatientMergeStability(tx, tenant);
     const refundRows = await tx.$queryRawUnsafe(
       `SELECT id, invoice_id, advance_id, patient_uid::text, amount, reason,
               mode, approval_status, raised_by, approved_by, approved_at,
@@ -2290,47 +2359,13 @@ export async function initiateGatewayRefund({
               ) AS initiator_tenant_valid
          FROM billing_refunds
         WHERE id = $1::int AND tenant_id = $2::uuid
-        FOR UPDATE`,
+        LIMIT 1`,
       Number(billing_refund_id), tenant, initiator,
     );
     if (!refundRows.length) throw AppError.notFound('Billing refund not found');
-    const refund = refundRows[0];
-    if (String(refund.approval_status).toUpperCase() !== 'APPROVED') {
-      throw AppError.badRequest(
-        `Refund must be APPROVED before gateway execution (is ${refund.approval_status})`,
-        'PAYMENT_GATEWAY_REFUND_NOT_APPROVED',
-      );
-    }
-    if (!refund.approved_by || !refund.approved_at) {
-      throw AppError.conflict(
-        'Gateway refund execution requires attributable billing approval',
-        'PAYMENT_GATEWAY_REFUND_APPROVAL_AUTHORITY_REQUIRED',
-      );
-    }
-    if (String(refund.approved_by).toLowerCase() === initiator.toLowerCase()) {
-      throw AppError.conflict(
-        'Gateway refund initiator must differ from the approval actor',
-        'BILLING_REFUND_PAYER_MUST_DIFFER_FROM_APPROVER',
-      );
-    }
-    if (refund.initiator_tenant_valid !== true) {
-      throw AppError.forbidden(
-        'Gateway refund initiator is not a same-tenant user',
-        'PAYMENT_GATEWAY_REFUND_INITIATOR_TENANT_MISMATCH',
-      );
-    }
-    if (refund.payout_rail === 'manual') {
-      throw AppError.conflict(
-        'This approved refund is already claimed for manual payout',
-        'PAYMENT_GATEWAY_REFUND_PAYOUT_RAIL_CONFLICT',
-      );
-    }
-    if (refund.invoice_id == null) {
-      throw AppError.badRequest(
-        'Only invoice-linked refunds can be executed through the gateway',
-        'PAYMENT_GATEWAY_REFUND_NOT_GATEWAY_COLLECTED',
-      );
-    }
+    let refund = refundRows[0];
+    const initiatorTenantValid = refund.initiator_tenant_valid === true;
+    assertGatewayRefundInitiationAuthority(refund, initiator, initiatorTenantValid);
 
     const existingRows = await tx.$queryRawUnsafe(
       `SELECT refund.*,
@@ -2346,49 +2381,24 @@ export async function initiateGatewayRefund({
         LIMIT 1`,
       tenant, Number(refund.id),
     );
-    const existing = existingRows[0] || null;
-    if (existing) {
-      const existingInitiator = String(existing.initiated_by || '').trim();
-      const existingInitiatedAt = new Date(existing.initiated_at).getTime();
-      const approvedAt = new Date(refund.approved_at).getTime();
-      if (!UUID_PATTERN.test(existingInitiator)
-          || existing.stored_initiator_tenant_valid !== true
-          || existingInitiator.toLowerCase() === String(refund.approved_by).toLowerCase()
-          || !Number.isFinite(existingInitiatedAt)
-          || !Number.isFinite(approvedAt)
-          || existingInitiatedAt <= approvedAt) {
-        throw AppError.conflict(
-          'Stored gateway refund execution lacks independent post-approval authority',
-          'PAYMENT_GATEWAY_REFUND_INITIATOR_AUTHORITY_INVALID',
-        );
-      }
-    }
-    if (existing && Number(existing.gateway_order_id) !== Number(gateway_order_id)) {
+    const existingCandidate = existingRows[0] || null;
+    assertStoredGatewayRefundInitiator(
+      existingCandidate,
+      refund,
+      existingCandidate?.stored_initiator_tenant_valid === true,
+    );
+    if (existingCandidate
+        && Number(existingCandidate.gateway_order_id) !== Number(gateway_order_id)) {
       throw AppError.conflict(
         'This approved refund is already bound to a different gateway payment',
         'PAYMENT_GATEWAY_REFUND_SOURCE_MISMATCH',
       );
-    }
-    if (existing && existing.status !== 'initiated') {
-      await claimGatewayPayoutRailTx(tx, {
-        tenant,
-        billingRefundId: refund.id,
-        gatewayRefundId: existing.id,
-      });
-      const obligation = await ensureGatewayRefundRecoveryObligationTx({
-        tx,
-        tenantId: tenant,
-        gatewayRefundId: existing.id,
-      });
-      return { row: { ...existing, ...obligation.row }, replay: true, callProvider: false };
     }
 
     const orderRows = await tx.$queryRawUnsafe(
       `SELECT o.id, o.provider, o.environment, o.provider_config_id,
               o.provider_payment_id,
               o.amount, o.invoice_id, o.patient_uid::text, o.billing_payment_id,
-              bp.invoice_id AS payment_invoice_id,
-              bp.patient_uid::text AS payment_patient_uid, bp.mode AS payment_mode,
               pc.provider AS config_provider, pc.environment AS config_environment,
               pc.key_id, pc.key_secret_ciphertext,
               pc.webhook_credential_version
@@ -2410,14 +2420,100 @@ export async function initiateGatewayRefund({
       );
     }
     const order = orderRows[0];
+    await tx.$queryRawUnsafe(
+      `SELECT pg_advisory_xact_lock(hashtextextended(
+         'vh:payment_gateway_refund_creation:' || $1::uuid::text || ':' || $2::int::text,
+         0
+       ))::text AS lock_acquired`,
+      tenant,
+      Number(refund.id),
+    );
+    const serializedExistingRows = await tx.$queryRawUnsafe(
+      `SELECT execution.*,
+              EXISTS (
+                SELECT 1 FROM users actor
+                 WHERE actor.tenant_id = execution.tenant_id
+                   AND actor.uid = execution.initiated_by
+              ) AS stored_initiator_tenant_valid
+         FROM payment_gateway_refunds execution
+        WHERE execution.tenant_id = $1::uuid
+          AND execution.billing_refund_id = $2::int
+          AND execution.status IN (
+            'initiated', 'pending', 'requires_reconciliation', 'processed'
+          )
+        ORDER BY execution.id DESC
+        LIMIT 1`,
+      tenant,
+      Number(refund.id),
+    );
+    let existing = serializedExistingRows[0] || null;
+    if (existing && Number(existing.gateway_order_id) !== Number(gateway_order_id)) {
+      throw AppError.conflict(
+        'This approved refund is already bound to a different gateway payment',
+        'PAYMENT_GATEWAY_REFUND_SOURCE_MISMATCH',
+      );
+    }
+    const storedInitiatorTenantValid = existing?.stored_initiator_tenant_valid === true;
+    if (existing) {
+      const locked = await lockGatewayRefundAuthorityTx(tx, {
+        tenant,
+        id: existing.id,
+        mergeStabilityHeld: true,
+      });
+      existing = locked.execution;
+      refund = locked.authority;
+    } else {
+      const fundingContext = await lockBillingRefundFundingAuthorityTx(tx, {
+        tenantId: tenant,
+        refundId: refund.id,
+        mergeStabilityHeld: true,
+      });
+      refund = fundingContext.refund;
+    }
+    assertGatewayRefundInitiationAuthority(refund, initiator, initiatorTenantValid);
+    assertStoredGatewayRefundInitiator(existing, refund, storedInitiatorTenantValid);
+    if (existing && existing.status !== 'initiated') {
+      await claimGatewayPayoutRailTx(tx, {
+        tenant,
+        billingRefundId: refund.id,
+        gatewayRefundId: existing.id,
+      });
+      const obligation = await ensureGatewayRefundRecoveryObligationTx({
+        tx,
+        tenantId: tenant,
+        gatewayRefundId: existing.id,
+      });
+      return { row: { ...existing, ...obligation.row }, replay: true, callProvider: false };
+    }
+    const paymentRows = await tx.$queryRawUnsafe(
+      `SELECT id, invoice_id, patient_uid::text, amount, mode, reference, reversed
+         FROM billing_payments
+        WHERE tenant_id = $1::uuid AND id = $2::int
+          AND invoice_id = $3::int AND patient_uid = $4::uuid
+          AND UPPER(mode) = UPPER($5) AND reversed = FALSE
+        FOR UPDATE`,
+      tenant,
+      Number(order.billing_payment_id),
+      Number(refund.invoice_id),
+      String(refund.patient_uid),
+      String(refund.mode),
+    );
+    if (paymentRows.length !== 1) {
+      throw AppError.conflict(
+        'The selected gateway payment changed during refund serialization',
+        'PAYMENT_GATEWAY_REFUND_SOURCE_MISMATCH',
+      );
+    }
+    const payment = paymentRows[0];
     const sameInvoice = Number(order.invoice_id) === Number(refund.invoice_id)
-      && Number(order.payment_invoice_id) === Number(refund.invoice_id);
+      && Number(payment.invoice_id) === Number(refund.invoice_id);
     const samePatient = String(order.patient_uid).toLowerCase() === String(refund.patient_uid).toLowerCase()
-      && String(order.payment_patient_uid).toLowerCase() === String(refund.patient_uid).toLowerCase();
-    const sameMode = String(order.payment_mode).toUpperCase() === String(refund.mode).toUpperCase();
+      && String(payment.patient_uid).toLowerCase() === String(refund.patient_uid).toLowerCase();
+    const sameMode = String(payment.mode).toUpperCase() === String(refund.mode).toUpperCase();
+    const sameAmount = toPaise(payment.amount) === toPaise(order.amount);
     const sameProvider = order.provider === order.config_provider
       && order.environment === order.config_environment;
-    if (!sameInvoice || !samePatient || !sameMode || !sameProvider) {
+    if (!sameInvoice || !samePatient || !sameMode || !sameAmount || !sameProvider) {
       throw AppError.badRequest(
         'The approved refund does not match the selected payment source, payer, mode, or provider',
         'PAYMENT_GATEWAY_REFUND_SOURCE_MISMATCH',
