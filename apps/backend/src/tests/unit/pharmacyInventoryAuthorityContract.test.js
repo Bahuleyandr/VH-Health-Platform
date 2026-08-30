@@ -3,6 +3,9 @@ import {
   operations as pharmacyOpenApiOperations,
   schemas as pharmacyOpenApiSchemas,
 } from '../../../scripts/openapi/schemas/pharmacy.mjs';
+import {
+  schemas as pharmacyCounterSaleOpenApiSchemas,
+} from '../../../scripts/openapi/schemas/pharmacyCounterSale.mjs';
 
 function source(relativePath) {
   return readFileSync(new URL(`../../${relativePath}`, import.meta.url), 'utf8');
@@ -597,6 +600,78 @@ describe('pharmacy dispense inventory authority contract', () => {
       expect(pharmacyOpenApiOperations[
         `POST ${prefix}/ward-indents/{id}/substitutions/apply`
       ].request).toBe('PharmacyWardApplySubstitutionRequest');
+    }
+  });
+
+  test('handwritten OpenAPI returns canonical ward witness approvals', () => {
+    expect(pharmacyOpenApiSchemas).not.toHaveProperty('PharmacyWardControlledWitnessResult');
+    expect(JSON.stringify(pharmacyOpenApiSchemas)).not.toContain('witness_payload');
+    expect(
+      pharmacyOpenApiSchemas.PharmacyWardControlledWitnessResponse.properties.data,
+    ).toEqual({
+      $ref: '#/components/schemas/PharmacyCounterSaleWitnessApproval',
+    });
+
+    const decision = pharmacyOpenApiSchemas.PharmacyWardControlledWitnessDecisionRequest;
+    expect(decision.oneOf).toEqual([
+      { required: ['employeeId', 'password'] },
+      {
+        not: {
+          anyOf: [
+            { required: ['employeeId'] },
+            { required: ['password'] },
+          ],
+        },
+      },
+    ]);
+    expect(decision.properties.employeeId).toEqual({
+      type: 'string',
+      pattern: '^[A-Z0-9-]{3,20}$',
+    });
+    expect(decision.properties.password).toEqual({
+      type: 'string',
+      format: 'password',
+      minLength: 6,
+      maxLength: 100,
+      writeOnly: true,
+    });
+
+    const canonicalApproval =
+      pharmacyCounterSaleOpenApiSchemas.PharmacyCounterSaleWitnessApproval;
+    expect(canonicalApproval.oneOf).toHaveLength(2);
+    for (const variant of canonicalApproval.oneOf) {
+      expect(variant.properties.scope.enum).toContain('ward_indent_controlled_handoff');
+    }
+    const approved = canonicalApproval.oneOf.find(
+      (variant) => variant.properties.status.enum[0] === 'approved',
+    );
+    expect(approved.properties.witness).toEqual({
+      $ref: '#/components/schemas/PharmacyClinicalControlledWitnessIdentity',
+    });
+    const clinicalWitness =
+      pharmacyCounterSaleOpenApiSchemas.PharmacyClinicalControlledWitnessIdentity;
+    expect(clinicalWitness.properties).not.toHaveProperty('facility_grant_id');
+    expect(clinicalWitness.properties.role.enum).toEqual(expect.arrayContaining([
+      'DOCTOR',
+      'DUTY_DOCTOR',
+      'NURSING_STAFF',
+      'NURSING_INCHARGE',
+      'IP_STAFF_NURSE',
+      'OP_STAFF_NURSE',
+    ]));
+
+    for (const prefix of ['/api/v1/pharmacy-orders', '/api/v1/pharmacy']) {
+      const requestOperation = pharmacyOpenApiOperations[
+        `POST ${prefix}/ward-indents/{id}/controlled-handoff/witness-approvals`
+      ];
+      const approvalOperation = pharmacyOpenApiOperations[
+        `POST ${prefix}/ward-indents/{id}/controlled-handoff/witness-approvals/{approvalId}/approve`
+      ];
+      expect(requestOperation.response).toBe('PharmacyWardControlledWitnessResponse');
+      expect(approvalOperation.response).toBe('PharmacyWardControlledWitnessResponse');
+      expect(requestOperation.responseStatus).toBe(201);
+      expect(approvalOperation.responseStatus ?? 200).toBe(200);
+      expect(approvalOperation).not.toHaveProperty('responseStatus');
     }
   });
 

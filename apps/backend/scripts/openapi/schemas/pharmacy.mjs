@@ -2079,41 +2079,31 @@ export const schemas = {
     properties: {
       item_id: positiveInt32,
       allocation_id: { type: 'string', pattern: '^[1-9][0-9]*$' },
-      employeeId: { type: 'string', minLength: 1, maxLength: 100, nullable: true },
-      password: { type: 'string', minLength: 1, maxLength: 256, nullable: true, writeOnly: true },
-    },
-  },
-  PharmacyWardControlledWitnessResult: {
-    type: 'object',
-    additionalProperties: true,
-    required: ['id', 'witness_payload'],
-    properties: {
-      id: { type: 'string', pattern: '^[1-9][0-9]*$' },
-      status: { type: 'string', nullable: true },
-      witness_payload: {
-        type: 'object',
-        additionalProperties: false,
-        required: [
-          'ward_indent_id', 'ward_indent_item_id', 'allocation_id',
-          'inventory_item_id', 'inventory_batch_id', 'quantity', 'patient_uid',
-          'clinical_order_id', 'catalog_id', 'reference_id',
-        ],
-        properties: {
-          ward_indent_id: positiveInt32,
-          ward_indent_item_id: positiveInt32,
-          allocation_id: { type: 'string', pattern: '^[1-9][0-9]*$' },
-          inventory_item_id: positiveInt32,
-          inventory_batch_id: positiveInt32,
-          quantity: { type: 'number', minimum: 0, exclusiveMinimum: true },
-          patient_uid: { type: 'string', format: 'uuid' },
-          clinical_order_id: positiveInt32,
-          catalog_id: positiveInt32,
-          reference_id: { type: 'string', minLength: 1 },
-        },
+      employeeId: {
+        type: 'string',
+        pattern: '^[A-Z0-9-]{3,20}$',
+      },
+      password: {
+        type: 'string',
+        format: 'password',
+        minLength: 6,
+        maxLength: 100,
+        writeOnly: true,
       },
     },
+    oneOf: [
+      { required: ['employeeId', 'password'] },
+      {
+        not: {
+          anyOf: [
+            { required: ['employeeId'] },
+            { required: ['password'] },
+          ],
+        },
+      },
+    ],
   },
-  PharmacyWardControlledWitnessResponse: envelope('PharmacyWardControlledWitnessResult'),
+  PharmacyWardControlledWitnessResponse: envelope('PharmacyCounterSaleWitnessApproval'),
   PharmacyWardControlledHandoffRequest: {
     type: 'object',
     additionalProperties: false,
@@ -2364,6 +2354,7 @@ const OPS = [
     parameters: [substitutionIdempotencyKeyParameter],
     request: 'PharmacyWardControlledWitnessRequest',
     response: 'PharmacyWardControlledWitnessResponse',
+    responseStatus: 201,
     additionalResponses: substitutionWitnessErrorResponses({ idempotent: true }),
   }],
   ['POST /ward-indents/{id}/controlled-handoff/witness-approvals/{approvalId}/approve', {
