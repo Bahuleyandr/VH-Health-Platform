@@ -58,7 +58,7 @@ void main() {
                     required idempotencyKey,
                   }) async {
                     expect(approvalId, '91');
-                    expect(employeeId, 'NURSE-002');
+                    expect(employeeId, 'PHARM-002');
                     expect(password, 'witness-secret');
                     expect(
                       idempotencyKey,
@@ -68,7 +68,7 @@ void main() {
                     return {
                       'id': approvalId,
                       'status': 'approved',
-                      'witness': {'name': 'Independent Nurse'},
+                      'witness': {'name': 'Independent Pharmacy Staff'},
                     };
                   },
               disposeBatch:
@@ -115,9 +115,15 @@ void main() {
         find.byKey(const ValueKey('inventory-disposal-request-witness')),
       );
       await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'Use a second active PHARMACY_STAFF or PHARMACY_INCHARGE operator who holds an ACTIVE grant for this exact selected facility. They must authenticate independently; the current operator cannot witness their own disposal.',
+        ),
+        findsOneWidget,
+      );
       await tester.enterText(
         find.byKey(const ValueKey('inventory-disposal-witness-employee-id')),
-        'nurse-002',
+        'pharm-002',
       );
       await tester.enterText(
         find.byKey(const ValueKey('inventory-disposal-witness-password')),
@@ -165,6 +171,7 @@ void main() {
         'pharmacy.disposal.method',
         'pharmacy.disposal.controlled_warning',
         'pharmacy.disposal.witness_title',
+        'pharmacy.disposal.witness_hint',
         'pharmacy.disposal.witness_required',
         'pharmacy.disposal.submit',
         'pharmacy.disposal.completed',
@@ -181,4 +188,30 @@ void main() {
       }
     },
   );
+
+  test('facility-bound custody copy retains exact pharmacy roles and active grant state', () {
+    const keys = [
+      'pharmacy.order.controlled_witness_custody_hint',
+      'pharmacy.disposal.witness_hint',
+    ];
+    final english = AppStrings.forLocale(const Locale('en'));
+
+    for (final locale in AppStrings.supportedLocales) {
+      final strings = AppStrings.forLocale(locale);
+      for (final key in keys) {
+        final message = strings.lookup(key);
+        expect(message, contains('PHARMACY_STAFF'));
+        expect(message, contains('PHARMACY_INCHARGE'));
+        expect(message, contains('ACTIVE'));
+        if (locale.languageCode != 'en') {
+          expect(
+            message,
+            isNot(english.lookup(key)),
+            reason:
+                '${locale.languageCode} must not silently fall back to English for $key',
+          );
+        }
+      }
+    }
+  });
 }

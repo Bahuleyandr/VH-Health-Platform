@@ -372,11 +372,11 @@ void main() {
             final body = Map<String, dynamic>.from(
               jsonDecode(request.body) as Map,
             );
-            expect(body['employeeId'], 'NURSE-002');
+            expect(body['employeeId'], 'PHARM-002');
             expect(body['password'], 'witness-secret');
             return ok({
               'id': '91',
-              'witness': {'name': 'Independent Nurse'},
+              'witness': {'name': 'Independent Pharmacy Staff'},
             });
           }
           return null;
@@ -393,9 +393,15 @@ void main() {
         find.byKey(const ValueKey('pharmacy-delivery-controlled-batch-501')),
         findsOneWidget,
       );
+      expect(
+        find.text(
+          'Controlled order custody requires a second active PHARMACY_STAFF or PHARMACY_INCHARGE operator with an ACTIVE grant for this exact selected facility. They must authenticate independently; the current operator cannot approve their own custody action.',
+        ),
+        findsOneWidget,
+      );
       await tester.enterText(
         find.byKey(const ValueKey('pharmacy-delivery-witness-employee-id')),
-        'NURSE-002',
+        'PHARM-002',
       );
       await tester.enterText(
         find.byKey(const ValueKey('pharmacy-delivery-witness-password')),

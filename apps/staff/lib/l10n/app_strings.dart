@@ -9771,7 +9771,7 @@ class AppStrings {
           'The physical disposition method is required.',
       'pharmacy.disposal.controlled_warning': 'Schedule X or narcotic disposal requires an independently authenticated, one-time witness approval. Schedule H/H1/X custody is written to the statutory register.',
       'pharmacy.disposal.witness_title': 'Independent disposal witness',
-      'pharmacy.disposal.witness_hint': 'A second eligible staff member must authenticate. The current operator cannot witness their own disposal.',
+      'pharmacy.disposal.witness_hint': 'Use a second active PHARMACY_STAFF or PHARMACY_INCHARGE operator who holds an ACTIVE grant for this exact selected facility. They must authenticate independently; the current operator cannot witness their own disposal.',
       'pharmacy.disposal.witness_employee_id': 'Witness employee ID',
       'pharmacy.disposal.witness_password': 'Witness password',
       'pharmacy.disposal.witness_approve': 'Authenticate and approve',
@@ -9784,8 +9784,8 @@ class AppStrings {
       'pharmacy.disposal.witness_request': 'Request and approve witness',
       'pharmacy.disposal.submit': 'Record immutable disposal',
       'pharmacy.disposal.completed': 'The exact batch disposal and required statutory evidence were recorded.',
-      'pharmacy.inventory.composition_review_required':
-          'Catalog item {catalogId} has no authoritative composition identity. No inventory item was created. A governed catalog-composition review must be completed before you retry.',
+      'pharmacy.order.controlled_witness_custody_hint': 'Controlled order custody requires a second active PHARMACY_STAFF or PHARMACY_INCHARGE operator with an ACTIVE grant for this exact selected facility. They must authenticate independently; the current operator cannot approve their own custody action.',
+      'pharmacy.inventory.composition_review_required': 'Catalog item {catalogId} has no authoritative composition identity. No inventory item was created. A governed catalog-composition review must be completed before you retry.',
       's4.lib.pharmacy.manufacturer': "Manufacturer",
       's4.lib.pharmacy.mark_urgent': "Mark urgent",
       's4.lib.pharmacy.medicine_names_dose_quantity_or_rx_note':
@@ -17165,7 +17165,8 @@ class AppStrings {
       'pharmacy.disposal.method_required': 'भौतिक निपटान विधि आवश्यक है।',
       'pharmacy.disposal.controlled_warning': 'शेड्यूल X या नारकोटिक निपटान के लिए स्वतंत्र रूप से प्रमाणित एक-बार गवाह स्वीकृति आवश्यक है। शेड्यूल H/H1/X अभिरक्षा वैधानिक रजिस्टर में दर्ज होगी।',
       'pharmacy.disposal.witness_title': 'स्वतंत्र निपटान गवाह',
-      'pharmacy.disposal.witness_hint': 'दूसरे पात्र कर्मचारी को प्रमाणित करना होगा। वर्तमान ऑपरेटर अपने निपटान का गवाह नहीं हो सकता।',
+      // REVIEW: technical parity only; requires Hindi linguistic review.
+      'pharmacy.disposal.witness_hint': 'ऐसे दूसरे सक्रिय PHARMACY_STAFF या PHARMACY_INCHARGE ऑपरेटर का उपयोग करें जिसके पास चुनी गई इसी सुविधा के लिए ACTIVE ग्रांट हो। उसे स्वतंत्र रूप से प्रमाणित करना होगा; वर्तमान ऑपरेटर अपने निपटान का गवाह नहीं हो सकता।',
       'pharmacy.disposal.witness_employee_id': 'गवाह कर्मचारी आईडी',
       'pharmacy.disposal.witness_password': 'गवाह पासवर्ड',
       'pharmacy.disposal.witness_approve': 'प्रमाणित कर स्वीकृत करें',
@@ -17179,9 +17180,10 @@ class AppStrings {
       'pharmacy.disposal.submit': 'अपरिवर्तनीय निपटान दर्ज करें',
       'pharmacy.disposal.completed':
           'सटीक बैच निपटान और आवश्यक वैधानिक साक्ष्य दर्ज किए गए।',
+      // REVIEW: facility-bound pharmacy custody technical parity only; requires Hindi linguistic review.
+      'pharmacy.order.controlled_witness_custody_hint': 'नियंत्रित ऑर्डर अभिरक्षा के लिए दूसरा सक्रिय PHARMACY_STAFF या PHARMACY_INCHARGE ऑपरेटर आवश्यक है, जिसके पास चुनी गई इसी सुविधा के लिए ACTIVE ग्रांट हो। उसे स्वतंत्र रूप से प्रमाणित करना होगा; वर्तमान ऑपरेटर अपनी अभिरक्षा कार्रवाई को स्वयं स्वीकृत नहीं कर सकता।',
       // REVIEW: technical parity only; requires Hindi linguistic review.
-      'pharmacy.inventory.composition_review_required':
-          'कैटलॉग आइटम {catalogId} की कोई आधिकारिक संरचना पहचान नहीं है। कोई इन्वेंट्री आइटम नहीं बनाया गया। दोबारा प्रयास करने से पहले नियंत्रित कैटलॉग-संरचना समीक्षा पूरी होनी चाहिए।',
+      'pharmacy.inventory.composition_review_required': 'कैटलॉग आइटम {catalogId} की कोई आधिकारिक संरचना पहचान नहीं है। कोई इन्वेंट्री आइटम नहीं बनाया गया। दोबारा प्रयास करने से पहले नियंत्रित कैटलॉग-संरचना समीक्षा पूरी होनी चाहिए।',
       's4.lib.pharmacy.manufacturer': "उत्पादक",
       's4.lib.pharmacy.mark_urgent': "अत्यावश्यक चिह्नित करें",
       's4.lib.pharmacy.medicine_names_dose_quantity_or_rx_note':
@@ -25915,7 +25917,8 @@ class AppStrings {
       'pharmacy.disposal.method_required': 'உடல் அகற்றல் முறை தேவை.',
       'pharmacy.disposal.controlled_warning': 'அட்டவணை X அல்லது போதைப்பொருள் அகற்றலுக்கு தனியாக அங்கீகரிக்கப்பட்ட ஒருமுறை சாட்சி ஒப்புதல் தேவை. H/H1/X காவல் சட்டப்பூர்வ பதிவேட்டில் எழுதப்படும்.',
       'pharmacy.disposal.witness_title': 'சுயாதீன அகற்றல் சாட்சி',
-      'pharmacy.disposal.witness_hint': 'இரண்டாவது தகுதியான பணியாளர் அங்கீகரிக்க வேண்டும். தற்போதைய இயக்குநர் தமது அகற்றலுக்குச் சாட்சியாக இருக்க முடியாது.',
+      // REVIEW: technical parity only; requires Tamil linguistic review.
+      'pharmacy.disposal.witness_hint': 'தேர்ந்தெடுக்கப்பட்ட இதே வசதிக்கான ACTIVE அனுமதி கொண்ட இரண்டாவது செயலில் உள்ள PHARMACY_STAFF அல்லது PHARMACY_INCHARGE இயக்குநரைப் பயன்படுத்தவும். அவர் தனியாக அங்கீகரிக்க வேண்டும்; தற்போதைய இயக்குநர் தமது அகற்றலுக்குச் சாட்சியாக இருக்க முடியாது.',
       'pharmacy.disposal.witness_employee_id': 'சாட்சி பணியாளர் ஐடி',
       'pharmacy.disposal.witness_password': 'சாட்சி கடவுச்சொல்',
       'pharmacy.disposal.witness_approve': 'அங்கீகரித்து ஒப்புதலளிக்கவும்',
@@ -25929,9 +25932,10 @@ class AppStrings {
       'pharmacy.disposal.witness_request': 'சாட்சியைக் கோரி ஒப்புதல் பெறுக',
       'pharmacy.disposal.submit': 'மாற்றமுடியாத அகற்றலைப் பதிவு செய்க',
       'pharmacy.disposal.completed': 'சரியான தொகுதி அகற்றலும் தேவையான சட்டப்பூர்வ ஆதாரமும் பதிவு செய்யப்பட்டன.',
+      // REVIEW: facility-bound pharmacy custody technical parity only; requires Tamil linguistic review.
+      'pharmacy.order.controlled_witness_custody_hint': 'கட்டுப்படுத்தப்பட்ட ஆர்டர் கஸ்டடிக்கு, தேர்ந்தெடுக்கப்பட்ட இதே வசதிக்கான ACTIVE அனுமதி கொண்ட இரண்டாவது செயலில் உள்ள PHARMACY_STAFF அல்லது PHARMACY_INCHARGE இயக்குநர் தேவை. அவர் தனியாக அங்கீகரிக்க வேண்டும்; தற்போதைய இயக்குநர் தமது கஸ்டடி நடவடிக்கையைத் தாமே ஒப்புதல் அளிக்க முடியாது.',
       // REVIEW: technical parity only; requires Tamil linguistic review.
-      'pharmacy.inventory.composition_review_required':
-          'பட்டியல் உருப்படி {catalogId}-க்கு அதிகாரப்பூர்வ கலவை அடையாளம் இல்லை. எந்த சரக்கு உருப்படியும் உருவாக்கப்படவில்லை. மீண்டும் முயற்சிப்பதற்கு முன் நிர்வகிக்கப்பட்ட பட்டியல்-கலவை மதிப்பாய்வு நிறைவடைய வேண்டும்.',
+      'pharmacy.inventory.composition_review_required': 'பட்டியல் உருப்படி {catalogId}-க்கு அதிகாரப்பூர்வ கலவை அடையாளம் இல்லை. எந்த சரக்கு உருப்படியும் உருவாக்கப்படவில்லை. மீண்டும் முயற்சிப்பதற்கு முன் நிர்வகிக்கப்பட்ட பட்டியல்-கலவை மதிப்பாய்வு நிறைவடைய வேண்டும்.',
       's4.lib.pharmacy.manufacturer': "உற்பத்தியாளர்",
       's4.lib.pharmacy.mark_urgent': "அவசரமாகக் குறிக்கவும்",
       's4.lib.pharmacy.medicine_names_dose_quantity_or_rx_note':
@@ -34686,7 +34690,8 @@ class AppStrings {
       'pharmacy.disposal.method_required': 'భౌతిక తొలగింపు విధానం అవసరం.',
       'pharmacy.disposal.controlled_warning': 'షెడ్యూల్ X లేదా నార్కోటిక్ తొలగింపుకు స్వతంత్రంగా ధృవీకరించిన ఒక్కసారి సాక్షి ఆమోదం అవసరం. H/H1/X కస్టడీ చట్టబద్ధ రిజిస్టర్‌లో నమోదు అవుతుంది.',
       'pharmacy.disposal.witness_title': 'స్వతంత్ర తొలగింపు సాక్షి',
-      'pharmacy.disposal.witness_hint': 'రెండవ అర్హ సిబ్బంది ధృవీకరించాలి. ప్రస్తుత ఆపరేటర్ తమ తొలగింపుకు సాక్షిగా ఉండలేరు.',
+      // REVIEW: technical parity only; requires Telugu linguistic review.
+      'pharmacy.disposal.witness_hint': 'ఎంచుకున్న ఇదే సదుపాయానికి ACTIVE గ్రాంట్ ఉన్న రెండవ క్రియాశీల PHARMACY_STAFF లేదా PHARMACY_INCHARGE ఆపరేటర్‌ను ఉపయోగించండి. వారు స్వతంత్రంగా ధృవీకరించాలి; ప్రస్తుత ఆపరేటర్ తమ తొలగింపుకు సాక్షిగా ఉండలేరు.',
       'pharmacy.disposal.witness_employee_id': 'సాక్షి ఉద్యోగి ఐడి',
       'pharmacy.disposal.witness_password': 'సాక్షి పాస్‌వర్డ్',
       'pharmacy.disposal.witness_approve': 'ధృవీకరించి ఆమోదించండి',
@@ -34699,9 +34704,10 @@ class AppStrings {
       'pharmacy.disposal.witness_request': 'సాక్షిని అభ్యర్థించి ఆమోదించండి',
       'pharmacy.disposal.submit': 'మార్చలేని తొలగింపును నమోదు చేయండి',
       'pharmacy.disposal.completed': 'ఖచ్చితమైన బ్యాచ్ తొలగింపు మరియు అవసరమైన చట్టబద్ధ ఆధారం నమోదు అయ్యాయి.',
+      // REVIEW: facility-bound pharmacy custody technical parity only; requires Telugu linguistic review.
+      'pharmacy.order.controlled_witness_custody_hint': 'నియంత్రిత ఆర్డర్ కస్టడీకి, ఎంచుకున్న ఇదే సదుపాయానికి ACTIVE గ్రాంట్ ఉన్న రెండవ క్రియాశీల PHARMACY_STAFF లేదా PHARMACY_INCHARGE ఆపరేటర్ అవసరం. వారు స్వతంత్రంగా ధృవీకరించాలి; ప్రస్తుత ఆపరేటర్ తమ కస్టడీ చర్యను తామే ఆమోదించలేరు.',
       // REVIEW: technical parity only; requires Telugu linguistic review.
-      'pharmacy.inventory.composition_review_required':
-          'కేటలాగ్ అంశం {catalogId}కు అధికారిక కాంపోజిషన్ గుర్తింపు లేదు. ఇన్వెంటరీ అంశం సృష్టించబడలేదు. మళ్లీ ప్రయత్నించే ముందు నియంత్రిత కేటలాగ్-కాంపోజిషన్ సమీక్ష పూర్తి కావాలి.',
+      'pharmacy.inventory.composition_review_required': 'కేటలాగ్ అంశం {catalogId}కు అధికారిక కాంపోజిషన్ గుర్తింపు లేదు. ఇన్వెంటరీ అంశం సృష్టించబడలేదు. మళ్లీ ప్రయత్నించే ముందు నియంత్రిత కేటలాగ్-కాంపోజిషన్ సమీక్ష పూర్తి కావాలి.',
       's4.lib.pharmacy.manufacturer': "తయారీదారు",
       's4.lib.pharmacy.mark_urgent': "అత్యవసరమని గుర్తించండి",
       's4.lib.pharmacy.medicine_names_dose_quantity_or_rx_note':
@@ -37118,7 +37124,8 @@ class AppStrings {
       'pharmacy.disposal.method_required': 'ഭൗതിക നിർമാർജന രീതി ആവശ്യമാണ്.',
       'pharmacy.disposal.controlled_warning': 'ഷെഡ്യൂൾ X അല്ലെങ്കിൽ നാർക്കോട്ടിക് നിർമാർജനത്തിന് സ്വതന്ത്രമായി പ്രാമാണീകരിച്ച ഒറ്റത്തവണ സാക്ഷി അംഗീകാരം വേണം. H/H1/X കസ്റ്റഡി നിയമപരമായ രജിസ്റ്ററിൽ രേഖപ്പെടുത്തും.',
       'pharmacy.disposal.witness_title': 'സ്വതന്ത്ര നിർമാർജന സാക്ഷി',
-      'pharmacy.disposal.witness_hint': 'യോഗ്യനായ രണ്ടാമത്തെ സ്റ്റാഫ് അംഗം പ്രാമാണീകരിക്കണം. നിലവിലെ ഓപ്പറേറ്റർ സ്വന്തം നിർമാർജനത്തിന് സാക്ഷിയാകാനാവില്ല.',
+      // REVIEW: Malayalam technical parity only; human linguistic review remains required.
+      'pharmacy.disposal.witness_hint': 'തിരഞ്ഞെടുത്ത ഇതേ ഫെസിലിറ്റിക്കായി ACTIVE ഗ്രാന്റുള്ള രണ്ടാമത്തെ സജീവ PHARMACY_STAFF അല്ലെങ്കിൽ PHARMACY_INCHARGE ഓപ്പറേറ്ററെ ഉപയോഗിക്കുക. അവർ സ്വതന്ത്രമായി പ്രാമാണീകരിക്കണം; നിലവിലെ ഓപ്പറേറ്റർക്ക് സ്വന്തം നിർമാർജനത്തിന് സാക്ഷിയാകാനാവില്ല.',
       'pharmacy.disposal.witness_employee_id': 'സാക്ഷി ജീവനക്കാരന്റെ ഐഡി',
       'pharmacy.disposal.witness_password': 'സാക്ഷിയുടെ പാസ്‌വേഡ്',
       'pharmacy.disposal.witness_approve': 'പ്രാമാണീകരിച്ച് അംഗീകരിക്കുക',
@@ -37132,9 +37139,11 @@ class AppStrings {
           'സാക്ഷിയെ അഭ്യർത്ഥിച്ച് അംഗീകരിക്കുക',
       'pharmacy.disposal.submit': 'മാറ്റാനാവാത്ത നിർമാർജനം രേഖപ്പെടുത്തുക',
       'pharmacy.disposal.completed': 'കൃത്യമായ ബാച്ച് നിർമാർജനവും ആവശ്യമായ നിയമപരമായ തെളിവും രേഖപ്പെടുത്തി.',
+      // REVIEW: Malayalam facility-bound pharmacy custody technical parity only;
+      // human linguistic review remains required.
+      'pharmacy.order.controlled_witness_custody_hint': 'നിയന്ത്രിത ഓർഡർ കസ്റ്റഡിക്ക്, തിരഞ്ഞെടുത്ത ഇതേ ഫെസിലിറ്റിക്കായി ACTIVE ഗ്രാന്റുള്ള രണ്ടാമത്തെ സജീവ PHARMACY_STAFF അല്ലെങ്കിൽ PHARMACY_INCHARGE ഓപ്പറേറ്റർ ആവശ്യമാണ്. അവർ സ്വതന്ത്രമായി പ്രാമാണീകരിക്കണം; നിലവിലെ ഓപ്പറേറ്റർക്ക് സ്വന്തം കസ്റ്റഡി നടപടി സ്വയം അംഗീകരിക്കാനാവില്ല.',
       // REVIEW: Malayalam technical parity only; human linguistic review remains required.
-      'pharmacy.inventory.composition_review_required':
-          'കാറ്റലോഗ് ഇനം {catalogId}-ന് ആധികാരിക കോമ്പോസിഷൻ തിരിച്ചറിയൽ ഇല്ല. ഇൻവെന്ററി ഇനം സൃഷ്ടിച്ചിട്ടില്ല. വീണ്ടും ശ്രമിക്കുന്നതിന് മുമ്പ് നിയന്ത്രിത കാറ്റലോഗ്-കോമ്പോസിഷൻ അവലോകനം പൂർത്തിയാകണം.',
+      'pharmacy.inventory.composition_review_required': 'കാറ്റലോഗ് ഇനം {catalogId}-ന് ആധികാരിക കോമ്പോസിഷൻ തിരിച്ചറിയൽ ഇല്ല. ഇൻവെന്ററി ഇനം സൃഷ്ടിച്ചിട്ടില്ല. വീണ്ടും ശ്രമിക്കുന്നതിന് മുമ്പ് നിയന്ത്രിത കാറ്റലോഗ്-കോമ്പോസിഷൻ അവലോകനം പൂർത്തിയാകണം.',
       'med03.pharmacy.prescription_items_locked': 'പ്രിസ്ക്രിപ്ഷൻ ഇനങ്ങൾ ആധികാരികമായി ലിങ്ക് ചെയ്ത പ്രിസ്ക്രിപ്ഷനിലേക്ക് ലോക്ക് ചെയ്തിരിക്കുന്നു.',
       'med03.pharmacy.select_authoritative_catalog': 'ആധികാരിക കാറ്റലോഗ് ഇനങ്ങൾ തിരഞ്ഞെടുക്കുക. പേരും വിലയും കൈമുറയായി നൽകാനാവില്ല.',
       'med03.pharmacy.catalog_medicine': 'കാറ്റലോഗ് മരുന്ന്',

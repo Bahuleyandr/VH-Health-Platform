@@ -1954,7 +1954,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                 if (witnessRequired) ...[
                   const SizedBox(height: 12),
                   Text(
-                    strings.lookup('s4.lib.counter_sale.witness_review_hint'),
+                    strings.lookup(
+                      'pharmacy.order.controlled_witness_custody_hint',
+                    ),
                   ),
                   const SizedBox(height: 8),
                   TextField(
@@ -2596,10 +2598,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (_) => InventoryDisposalSheet(
-        item: item,
-        facilityId: facilityId,
-      ),
+      builder: (_) =>
+          InventoryDisposalSheet(item: item, facilityId: facilityId),
     );
     if (completed != true || !mounted) return;
     _snack(AppStrings.of(context).lookup('pharmacy.disposal.completed'));
@@ -3346,12 +3346,10 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                     initialValue: _inventoryFacilityId,
                     isExpanded: true,
                     decoration: InputDecoration(
-                      labelText: AppStrings.of(context).lookup(
-                        'pharmacy.disposal.facility',
-                      ),
-                      helperText: AppStrings.of(context).lookup(
-                        'pharmacy.disposal.facility_hint',
-                      ),
+                      labelText: AppStrings.of(context)
+                          .lookup('pharmacy.disposal.facility'),
+                      helperText: AppStrings.of(context)
+                          .lookup('pharmacy.disposal.facility_hint'),
                     ),
                     items: _inventoryFacilities
                         .map((grant) {
@@ -3381,14 +3379,13 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                               _expiryAlerts = [];
                             });
                             _loadInventory();
-                    },
+                          },
                   ),
                   if (_inventoryFacilities.isEmpty) ...[
                     const SizedBox(height: 6),
                     Text(
-                      AppStrings.of(context).lookup(
-                        'pharmacy.disposal.facility_required',
-                      ),
+                      AppStrings.of(context)
+                          .lookup('pharmacy.disposal.facility_required'),
                       style: const TextStyle(color: AppTheme.errorRed),
                     ),
                   ],
