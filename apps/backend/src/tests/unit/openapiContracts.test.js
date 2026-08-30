@@ -800,11 +800,25 @@ describe('OpenAPI contract overlays (static gate)', () => {
     expect(manualLine.properties.inventory_item_id).toEqual({
       type: 'integer', minimum: 1, maximum: 2147483647,
     });
+    expect(manualLine.properties.quantity).toEqual({
+      type: 'number', minimum: 0.0001,
+      maximum: 9999999999.9999, multipleOf: 0.0001,
+    });
+    expect(spec.components.schemas.PharmacyOrderInventoryAllocation.properties.quantity)
+      .toEqual({
+        type: 'number', minimum: 0.0001,
+        maximum: 9999999999.9999, multipleOf: 0.0001,
+      });
     for (const quantityName of [
       'dispensed_quantity', 'dispensed_qty', 'qty', 'quantity', 'dispensed_quantity_ml',
     ]) {
       expect(counterLine.properties[quantityName]).toMatchObject({
-        type: 'number', exclusiveMinimum: 0,
+        type: 'number', minimum: 0, exclusiveMinimum: true,
+      });
+    }
+    for (const quantityName of ['dispensed_quantity', 'dispensed_qty', 'qty', 'quantity']) {
+      expect(counterLine.properties[quantityName]).toMatchObject({
+        maximum: 9999999999.9999, multipleOf: 0.0001,
       });
     }
     for (const request of [counterRequest, bodyCounterRequest]) {
@@ -965,11 +979,11 @@ describe('OpenAPI contract overlays (static gate)', () => {
     expect(pharmacy.schemas.PharmacySupplyStockMovementRequest.properties.movement_kind.enum)
       .toEqual(positiveSupplyMovements);
     expect(pharmacy.schemas.PharmacySupplyStockMovementRequest.properties.quantity_delta)
-      .toEqual({ type: 'number', exclusiveMinimum: 0 });
+      .toEqual({ type: 'number', minimum: 0, exclusiveMinimum: true });
     expect(pharmacy.schemas.PharmacySupplyStockMovementResult.properties.movement_kind.enum)
       .toEqual(positiveSupplyMovements);
     expect(pharmacy.schemas.PharmacySupplyStockMovementResult.properties.quantity_delta)
-      .toEqual({ type: 'number', exclusiveMinimum: 0 });
+      .toEqual({ type: 'number', minimum: 0, exclusiveMinimum: true });
     expect(pharmacy.schemas.PharmacySupplyGoodsReceiptLineQcRequest.properties.qc_status.enum)
       .toEqual(['passed', 'failed']);
     expect(pharmacy.schemas.PharmacySupplyGoodsReceiptTransitionRequest.properties.action.enum)

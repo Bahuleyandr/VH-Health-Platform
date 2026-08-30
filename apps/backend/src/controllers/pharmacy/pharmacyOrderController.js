@@ -306,6 +306,25 @@ export function canonicalSubstitutionQuantity(value) {
   return Number(scaledQuantity) / 10_000;
 }
 
+function manualConfirmationLineError(index) {
+  return AppError.unprocessable(
+    `items_list[${index}] requires stable order_line_index, catalog_id, and positive quantity`,
+    'PHARMACY_ORDER_CATALOG_RESOLUTION_REQUIRED',
+    { order_line_index: index, recovery_action: 'select_catalog_item' },
+  );
+}
+
+export function canonicalManualConfirmationQuantity(value, index) {
+  try {
+    return canonicalSubstitutionQuantity(value);
+  } catch (quantityError) {
+    if (quantityError?.code !== 'PHARMACY_DISPENSE_QUANTITY_INVALID') {
+      throw quantityError;
+    }
+    throw manualConfirmationLineError(index);
+  }
+}
+
 function emitPharmacyOrderEventInTx(tx, req, eventType, order, extra = {}) {
   return emitPharmacyOrderEvent({
     db: tx,
@@ -1214,19 +1233,17 @@ async function resolveManualConfirmationLinesTx(tx, {
     const inventoryItemId = line?.inventory_item_id == null
       ? null
       : Number(line.inventory_item_id);
-    const quantity = Number(line?.quantity ?? line?.qty);
+    const quantity = canonicalManualConfirmationQuantity(
+      line?.quantity ?? line?.qty,
+      index,
+    );
     if (Number(line?.order_line_index) !== index
       || !Number.isSafeInteger(catalogId) || catalogId <= 0
       || catalogId > PG_INT4_MAX
       || (inventoryItemId != null
         && (!Number.isSafeInteger(inventoryItemId) || inventoryItemId <= 0
-          || inventoryItemId > PG_INT4_MAX))
-      || !Number.isFinite(quantity) || quantity <= 0) {
-      throw AppError.unprocessable(
-        `items_list[${index}] requires stable order_line_index, catalog_id, and positive quantity`,
-        'PHARMACY_ORDER_CATALOG_RESOLUTION_REQUIRED',
-        { order_line_index: index, recovery_action: 'select_catalog_item' },
-      );
+          || inventoryItemId > PG_INT4_MAX))) {
+      throw manualConfirmationLineError(index);
     }
     return {
       index,

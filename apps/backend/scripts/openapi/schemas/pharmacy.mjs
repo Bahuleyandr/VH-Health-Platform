@@ -427,7 +427,9 @@ export const schemas = {
       order_line_index: { type: 'integer', minimum: 0 },
       catalog_id: positiveInt32,
       inventory_item_id: positiveInt32,
-      quantity: { type: 'number', minimum: 0, exclusiveMinimum: true },
+      quantity: {
+        type: 'number', minimum: 0.0001, maximum: 9999999999.9999, multipleOf: 0.0001,
+      },
     },
   },
   PharmacyOrderConfirmationRequest: {
@@ -1089,7 +1091,9 @@ export const schemas = {
     properties: {
       inventory_batch_id: { type: 'integer', minimum: 1 },
       batch_id: { type: 'integer', minimum: 1 },
-      quantity: { type: 'number', minimum: 0, exclusiveMinimum: true },
+      quantity: {
+        type: 'number', minimum: 0.0001, maximum: 9999999999.9999, multipleOf: 0.0001,
+      },
       witness_approval_id: {
         oneOf: [
           { type: 'integer', minimum: 1 },
@@ -1225,10 +1229,22 @@ export const schemas = {
       name: { type: 'string', minLength: 1 },
       medication_name: { type: 'string', minLength: 1 },
       drug_name: { type: 'string', minLength: 1 },
-      dispensed_quantity: { type: 'number', minimum: 0, exclusiveMinimum: true },
-      dispensed_qty: { type: 'number', minimum: 0, exclusiveMinimum: true },
-      qty: { type: 'number', minimum: 0, exclusiveMinimum: true },
-      quantity: { type: 'number', minimum: 0, exclusiveMinimum: true },
+      dispensed_quantity: {
+        type: 'number', minimum: 0, exclusiveMinimum: true,
+        maximum: 9999999999.9999, multipleOf: 0.0001,
+      },
+      dispensed_qty: {
+        type: 'number', minimum: 0, exclusiveMinimum: true,
+        maximum: 9999999999.9999, multipleOf: 0.0001,
+      },
+      qty: {
+        type: 'number', minimum: 0, exclusiveMinimum: true,
+        maximum: 9999999999.9999, multipleOf: 0.0001,
+      },
+      quantity: {
+        type: 'number', minimum: 0, exclusiveMinimum: true,
+        maximum: 9999999999.9999, multipleOf: 0.0001,
+      },
       dispensed_quantity_ml: { type: 'number', minimum: 0, exclusiveMinimum: true },
       prescribed_dose: { type: 'string', nullable: true },
       child_weight_kg: { type: 'number', minimum: 0, nullable: true },
