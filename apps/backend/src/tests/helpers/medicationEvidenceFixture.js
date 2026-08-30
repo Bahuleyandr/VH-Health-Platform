@@ -92,7 +92,7 @@ export async function seedReceivedMedicationSupply({
        VALUES ($1::uuid, $2::text, $2::text, TRUE, $3::numeric, 1.00, 1.00,
                 $4::int, 'high', 'test_fixture',
                 $5::text, $6::text, $7::jsonb,
-                $8::text, $9::text, 'immediate_release', $10::text, NOW())
+                $8::text, $9::text, 'ir', $10::text, NOW())
        RETURNING id, name, generic_name, composition_id, composition_confidence,
                  composition_source, strength, strength_key, strength_components,
                  form, form_key, release_key, route`,

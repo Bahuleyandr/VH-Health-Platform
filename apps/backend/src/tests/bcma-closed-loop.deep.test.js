@@ -138,6 +138,7 @@ let catalogId;
 let sildenafilCatalogId;
 let isosorbideCatalogId;
 let cetirizineCatalogId;
+let cleanPackBarcode;
 let inventoryItemId;
 let inventoryBatchId;
 let facilityId;
@@ -1043,6 +1044,17 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
     expect(preparing.status).toBe(200);
   });
 
+  test('pack label issues a stable VHMP barcode after verification', async () => {
+    const label = await authClient('PHARMACY_STAFF').get(`/api/v1/pharmacy/orders/${cleanOrderId}/pack-label`);
+    expect(label.status).toBe(200);
+    cleanPackBarcode = label.body.data.pack_barcode;
+    expect(cleanPackBarcode).toMatch(/^VHMP-\d+-[0-9A-F]{8}$/);
+    expect(label.body.data.items[0].name).toContain('B1TEST Paracetamol');
+
+    const again = await authClient('PHARMACY_STAFF').get(`/api/v1/pharmacy/orders/${cleanOrderId}/pack-label`);
+    expect(again.body.data.pack_barcode).toBe(cleanPackBarcode);
+  });
+
   test('risky order: verify refused with blockers; override requires a reason and records reviews', async () => {
     // Create the contraindicated pair only for this scenario. Keeping it out
     // of beforeAll prevents patient-wide active-therapy reconciliation from
@@ -1108,16 +1120,6 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
     );
     expect(reviews.length).toBeGreaterThanOrEqual(1);
     expect(reviews.some((r) => r.status === 'overridden')).toBe(true);
-  });
-
-  test('pack label issues a stable VHMP barcode after verification', async () => {
-    const label = await authClient('PHARMACY_STAFF').get(`/api/v1/pharmacy/orders/${cleanOrderId}/pack-label`);
-    expect(label.status).toBe(200);
-    expect(label.body.data.pack_barcode).toMatch(/^VHMP-\d+-[0-9A-F]{8}$/);
-    expect(label.body.data.items[0].name).toContain('B1TEST Paracetamol');
-
-    const again = await authClient('PHARMACY_STAFF').get(`/api/v1/pharmacy/orders/${cleanOrderId}/pack-label`);
-    expect(again.body.data.pack_barcode).toBe(label.body.data.pack_barcode);
   });
 
   test('MAR: bare administer 409s under scan-first policy; override is persisted + audited', async () => {
@@ -1416,8 +1418,8 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
 
   test('5-rights rejects product-pack evidence and accepts the exact eligible ward batch', async () => {
     const verifyMaId = await createMarAdministration();
-    const labelRes = await authClient('PHARMACY_STAFF').get(`/api/v1/pharmacy/orders/${cleanOrderId}/pack-label`);
-    const packBarcode = labelRes.body.data.pack_barcode;
+    const packBarcode = cleanPackBarcode;
+    expect(packBarcode).toMatch(/^VHMP-\d+-[0-9A-F]{8}$/);
 
     const productOnly = await nurseClient()
       .post('/api/v1/clinical/mar/verify')
