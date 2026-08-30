@@ -92,6 +92,8 @@ describe('claimIdempotencyKey', () => {
       requestMethod: 'POST', requestPath: '/billing/invoice', requestBodyHash: 'abc',
     });
     expect(out.state).toBe('replay');
+    expect(out.id).toBe(1);
+    expect(out.persisted_status).toBe('complete');
     expect(out.response_status).toBe(201);
     expect(out.response_body.id).toBe(99);
   });

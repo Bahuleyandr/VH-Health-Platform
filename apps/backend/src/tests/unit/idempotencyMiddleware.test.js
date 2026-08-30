@@ -47,6 +47,12 @@ function makeReqRes(overrides = {}) {
 }
 
 describe('requireIdempotencyKey', () => {
+  it('requires a durable domain receipt before completed replays may re-enter a handler', () => {
+    expect(() => requireIdempotencyKey({
+      revalidateCompletedReplay: true,
+    })).toThrow(/durable domain receipt/i);
+  });
+
   it('returns 400 when header missing and required:true', async () => {
     const mw = requireIdempotencyKey({ required: true, scope: 'invoice' });
     const { req, res } = makeReqRes();
@@ -88,6 +94,61 @@ describe('requireIdempotencyKey', () => {
     expect(next).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(201);
     expect(res.body).toEqual({ ok: true, id: 42 });
+  });
+
+  it('re-enters a durable handler for a completed replay that requires current authority', async () => {
+    queryUnsafeMock.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'));
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 17,
+      status: 'complete',
+      response_status: 200,
+      response_body: { idempotent_replay: false },
+      request_body_hash: hashRequestBody({ x: 1 }),
+    }]);
+    const mw = requireIdempotencyKey({
+      required: true,
+      scope: 'pharmacy_inventory_disposal',
+      durableDomainReceipt: true,
+      revalidateCompletedReplay: true,
+    });
+    const { req, res } = makeReqRes({ headers: { 'idempotency-key': 'disposal-key' } });
+    const next = jest.fn();
+
+    await mw(req, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.body).toBeNull();
+    expect(req.idempotencyClaim).toEqual(expect.objectContaining({
+      id: 17,
+      requestKey: 'disposal-key',
+      scope: 'pharmacy_inventory_disposal',
+      completedReplay: true,
+    }));
+  });
+
+  it('keeps cached failure semantics when successful receipt revalidation is enabled', async () => {
+    queryUnsafeMock.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'));
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 18,
+      status: 'failed',
+      response_status: 409,
+      response_body: { code: 'DISPOSAL_AUTHORITY_INVALID' },
+      request_body_hash: hashRequestBody({ x: 1 }),
+    }]);
+    const mw = requireIdempotencyKey({
+      required: true,
+      scope: 'pharmacy_inventory_disposal',
+      durableDomainReceipt: true,
+      revalidateCompletedReplay: true,
+    });
+    const { req, res } = makeReqRes({ headers: { 'idempotency-key': 'failed-disposal-key' } });
+    const next = jest.fn();
+
+    await mw(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toEqual({ code: 'DISPOSAL_AUTHORITY_INVALID' });
   });
 
   it('returns 409 when in_flight', async () => {
@@ -157,14 +218,14 @@ describe('requireIdempotencyKey', () => {
     queryUnsafeMock
       .mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'))
       .mockResolvedValueOnce([row]);
-    const canonicalPath = '/api/v1/pharmacy-orders/inventory/v2/movements';
+    const canonicalPath = '/api/v1/pharmacy-orders/inventory/v2/disposals';
     const mw = requireIdempotencyKey({
       required: true,
-      scope: 'pharmacy_inventory_movement',
+      scope: 'pharmacy_inventory_disposal',
       requestPathForIdempotency: canonicalPath,
     });
     const { req, res } = makeReqRes({
-      originalUrl: '/api/v1/pharmacy/inventory/v2/movements?source=alias',
+      originalUrl: '/api/v1/pharmacy/inventory/v2/disposals?source=alias',
       headers: { 'idempotency-key': 'cross-alias-key' },
       body: { x: 1 },
     });
@@ -185,18 +246,18 @@ describe('requireIdempotencyKey', () => {
       .mockResolvedValueOnce([{ id: 72, status: 'in_flight' }]);
     const mw = requireIdempotencyKey({
       required: true,
-      scope: 'pharmacy_inventory_movement_witness_approval',
+      scope: 'pharmacy_inventory_disposal_witness_approval',
       requestPathForIdempotency: (req) => (
-        `/api/v1/pharmacy-orders/inventory/v2/movements/witness-approvals/${req.params.id}/approve`
+        `/api/v1/pharmacy-orders/inventory/v2/disposals/witness-approvals/${req.params.id}/approve`
       ),
     });
     const first = makeReqRes({
-      originalUrl: '/api/v1/pharmacy/inventory/v2/movements/witness-approvals/71/approve',
+      originalUrl: '/api/v1/pharmacy/inventory/v2/disposals/witness-approvals/71/approve',
       params: { id: '71' },
       headers: { 'idempotency-key': 'approval-key' },
     });
     const second = makeReqRes({
-      originalUrl: '/api/v1/pharmacy-orders/inventory/v2/movements/witness-approvals/72/approve',
+      originalUrl: '/api/v1/pharmacy-orders/inventory/v2/disposals/witness-approvals/72/approve',
       params: { id: '72' },
       headers: { 'idempotency-key': 'approval-key' },
     });
@@ -209,10 +270,10 @@ describe('requireIdempotencyKey', () => {
     expect(firstNext).toHaveBeenCalledTimes(1);
     expect(secondNext).toHaveBeenCalledTimes(1);
     expect(queryUnsafeMock.mock.calls[0][5]).toBe(
-      '/api/v1/pharmacy-orders/inventory/v2/movements/witness-approvals/71/approve',
+      '/api/v1/pharmacy-orders/inventory/v2/disposals/witness-approvals/71/approve',
     );
     expect(queryUnsafeMock.mock.calls[1][5]).toBe(
-      '/api/v1/pharmacy-orders/inventory/v2/movements/witness-approvals/72/approve',
+      '/api/v1/pharmacy-orders/inventory/v2/disposals/witness-approvals/72/approve',
     );
   });
 

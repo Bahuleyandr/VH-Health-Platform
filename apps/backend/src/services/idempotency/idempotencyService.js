@@ -48,7 +48,8 @@ export function isValidIdempotencyKey(key) {
  *
  * Returns:
  *   { state: 'claimed' }                                   — first time, caller proceeds
- *   { state: 'replay', response_status, response_body }    — already complete + unexpired
+ *   { state: 'replay', persisted_status, response_status,
+ *     response_body }                                      — already final + unexpired
  *   { state: 'in_flight' }                                 — concurrent retry — 409
  *   { state: 'mismatch' }                                  — same key reused with different body
  */
@@ -107,6 +108,8 @@ export async function claimIdempotencyKey({
     }
     return {
       state: 'replay',
+      id: existing.id,
+      persisted_status: existing.status,
       response_status: existing.response_status,
       response_body: existing.response_body,
     };

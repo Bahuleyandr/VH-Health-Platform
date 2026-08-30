@@ -83,12 +83,21 @@ export function requireIdempotencyKey({
   // reconcile against the receipt that already exists instead of being told
   // 409 with no way to observe the committed effect.
   durableDomainReceipt = false,
+  // ★ Some durable receipts deliberately revalidate current authority on every
+  // successful replay. When enabled, a completed claim re-enters the handler
+  // with `completedReplay: true` instead of serving the cached response. The
+  // handler must require the existing domain receipt and must never create a
+  // new effect on that path. Failed claims retain normal cached semantics.
+  revalidateCompletedReplay = false,
   // ★ Application error codes whose 4xx is a *recoverable* conflict rather
   // than a deterministic outcome. The claim is released so the exact same
   // logical command may resume once the named obligation goes terminal,
   // instead of the key being poisoned with a cached 409.
   releaseOnResponseCodes = [],
 } = {}) {
+  if (revalidateCompletedReplay && !durableDomainReceipt) {
+    throw new TypeError('Completed replay revalidation requires a durable domain receipt');
+  }
   const retryableResponseCodes = new Set(
     (Array.isArray(releaseOnResponseCodes) ? releaseOnResponseCodes : [])
       .map((code) => String(code || '').trim())
@@ -134,6 +143,16 @@ export function requireIdempotencyKey({
     }
 
     if (claim.state === 'replay') {
+      if (revalidateCompletedReplay && claim.persisted_status === 'complete') {
+        req.idempotencyClaim = {
+          id: claim.id || null,
+          requestKey: headerValue,
+          requestBodyHash,
+          scope,
+          completedReplay: true,
+        };
+        return next();
+      }
       if (continuityReceiptRequired) {
         return error(res, 'Clinical continuity replay requires manual review', 409, {
           code: 'CONTINUITY_REPLAY_RECEIPT_MISSING_NEEDS_REVIEW',
