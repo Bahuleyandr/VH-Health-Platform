@@ -87,6 +87,8 @@ jest.unstable_mockModule('../../controllers/pharmacy/wardIndentController.js', (
 const guards = await import('../../routes/pharmacy/wardIndentPatientGuards.js');
 const {
   default: router,
+  normalizeWardControlledHandoffEvidence,
+  WARD_INDENT_CONTROLLED_HANDOFF_ROLES,
   WARD_INDENT_HOST_ROLES,
 } = await import('../../routes/pharmacy/wardIndentRoutes.js');
 const ipdAliasSource = readFileSync(
@@ -332,6 +334,65 @@ describe('authoritative pharmacy ward-indent router', () => {
     ]);
   });
 
+  test('controlled handoff and witness ceremony admit only canonical pharmacy operators', () => {
+    expect(WARD_INDENT_CONTROLLED_HANDOFF_ROLES).toEqual([
+      'PHARMACY_STAFF',
+      'PHARMACY_INCHARGE',
+    ]);
+    for (const path of [
+      '/:id/controlled-handoff',
+      '/:id/controlled-handoff/witness-approvals',
+      '/:id/controlled-handoff/witness-approvals/:approvalId/approve',
+    ]) {
+      const roles = metadata(path, 'post', '__roles')[0];
+      expect(roles).toEqual(WARD_INDENT_CONTROLLED_HANDOFF_ROLES);
+      expect(roles).not.toEqual(expect.arrayContaining([
+        'SUPER_ADMIN',
+        'ADMIN',
+        'PHARMACIST',
+        'STORES_PURCHASE_INCHARGE',
+      ]));
+    }
+  });
+
+  test('controlled handoff accepts only nested exact historical recovery evidence', () => {
+    expect(normalizeWardControlledHandoffEvidence([
+      {
+        item_id: '71',
+        historical_recovery: {
+          movement_id: '801',
+          register_id: 901,
+          reason: '  Verified against the signed ward register  ',
+        },
+      },
+    ])).toEqual([
+      {
+        item_id: 71,
+        historical_recovery: {
+          movement_id: 801,
+          register_id: 901,
+          reason: 'Verified against the signed ward register',
+        },
+      },
+    ]);
+    expect(() => normalizeWardControlledHandoffEvidence([
+      { item_id: 71, movement_id: 801, register_id: 901 },
+    ])).toThrow(/movement_id is not permitted/);
+    expect(() => normalizeWardControlledHandoffEvidence([
+      {
+        item_id: 71,
+        historical_recovery: { movement_id: 801, register_id: 901, reason: ' ' },
+      },
+    ])).toThrow(/reason is required/);
+    expect(() => normalizeWardControlledHandoffEvidence([
+      {
+        item_id: 71,
+        witness_approval_id: 'approval-1',
+        historical_recovery: { movement_id: 801, register_id: 901, reason: 'verified' },
+      },
+    ])).toThrow(/mutually exclusive/);
+  });
+
   test('supply-chain staff can read worklists without gaining request authority', () => {
     expect(metadata('/', 'get', '__roles')[0]).toContain('STORES_PURCHASE_INCHARGE');
     expect(metadata('/:id', 'get', '__roles')[0]).toContain('STORES_PURCHASE_INCHARGE');
@@ -424,6 +485,12 @@ describe('IPD compatibility alias', () => {
     );
     expect(actionBlock('reconcile')).toContain(
       'allocationReturns: req.body?.allocation_returns ?? null',
+    );
+    expect(actionBlock('controlled-handoff')).toContain(
+      'requireRole(...WARD_INDENT_CONTROLLED_HANDOFF_ROLES)',
+    );
+    expect(actionBlock('controlled-handoff')).toContain(
+      'wardControlledHandoffEvidenceGuard',
     );
   });
 

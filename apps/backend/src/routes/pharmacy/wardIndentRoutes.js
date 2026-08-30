@@ -18,6 +18,7 @@ import { enforceStaffClinicalWriteDevicePosture } from '../../middleware/rejectM
 import { requireRole } from '../../middleware/rbacMiddleware.js';
 import { sanitizeAllBodyStrings } from '../../middleware/sanitizeMiddleware.js';
 import { DOCTOR_TIERS } from '../../utils/roleHelpers.js';
+import { AppError } from '../../utils/AppError.js';
 import {
   wardIndentCreateGuard,
   wardIndentListGuard,
@@ -31,6 +32,10 @@ const CANONICAL_BASE = '/api/v1/pharmacy-orders/ward-indents';
 const REQUEST_ROLES = [...new Set([...IP_FLOW_ROUTE_ROLES, ...PHARMACY_ROUTE_ROLES])];
 const READ_ROLES = [...new Set([...REQUEST_ROLES, ...PHARMACY_SUPPLY_ROUTE_ROLES])];
 const SUPPLY_ROLES = [...new Set([...PHARMACY_ROUTE_ROLES, ...PHARMACY_SUPPLY_ROUTE_ROLES])];
+export const WARD_INDENT_CONTROLLED_HANDOFF_ROLES = [
+  'PHARMACY_STAFF',
+  'PHARMACY_INCHARGE',
+];
 const SUBSTITUTION_DECISION_ROLES = [...DOCTOR_TIERS];
 const WARD_RECEIPT_ROLES = [
   'NURSING_STAFF',
@@ -84,6 +89,153 @@ function wardWitnessApprovalIdempotencyBody(req) {
       ? null
       : String(req.body.employeeId).trim().toUpperCase(),
   };
+}
+
+function positiveInt4(raw, fieldName) {
+  const text = typeof raw === 'number' ? String(raw) : String(raw ?? '').trim();
+  const value = Number(text);
+  if (!/^[1-9][0-9]*$/.test(text) || !Number.isSafeInteger(value) || value > 2147483647) {
+    throw AppError.badRequest(
+      `${fieldName} must be a positive integer`,
+      'WARD_INDENT_CONTROLLED_EVIDENCE_INVALID',
+      { field: fieldName },
+    );
+  }
+  return value;
+}
+
+export function normalizeWardControlledHandoffEvidence(rawEvidence) {
+  if (!Array.isArray(rawEvidence) || rawEvidence.length === 0) {
+    throw AppError.badRequest(
+      'item_evidence must be a non-empty array',
+      'WARD_INDENT_CONTROLLED_EVIDENCE_INVALID',
+      { field: 'item_evidence' },
+    );
+  }
+
+  const itemIds = new Set();
+  return rawEvidence.map((raw, index) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw AppError.badRequest(
+        `item_evidence[${index}] must be an object`,
+        'WARD_INDENT_CONTROLLED_EVIDENCE_INVALID',
+        { field: `item_evidence[${index}]` },
+      );
+    }
+
+    const allowedKeys = new Set(['item_id', 'witness_approval_id', 'historical_recovery']);
+    const unknownKey = Object.keys(raw).find((key) => !allowedKeys.has(key));
+    if (unknownKey) {
+      throw AppError.badRequest(
+        `item_evidence[${index}].${unknownKey} is not permitted`,
+        'WARD_INDENT_CONTROLLED_EVIDENCE_INVALID',
+        { field: `item_evidence[${index}].${unknownKey}` },
+      );
+    }
+
+    const itemId = positiveInt4(raw.item_id, `item_evidence[${index}].item_id`);
+    if (itemIds.has(itemId)) {
+      throw AppError.badRequest(
+        'item_evidence must contain each item exactly once',
+        'WARD_INDENT_CONTROLLED_EVIDENCE_INVALID',
+        { field: `item_evidence[${index}].item_id` },
+      );
+    }
+    itemIds.add(itemId);
+
+    if (raw.witness_approval_id != null && typeof raw.witness_approval_id !== 'string') {
+      throw AppError.badRequest(
+        `item_evidence[${index}].witness_approval_id must be a string`,
+        'WARD_INDENT_CONTROLLED_EVIDENCE_INVALID',
+        { field: `item_evidence[${index}].witness_approval_id` },
+      );
+    }
+    const witnessApprovalId = raw.witness_approval_id?.trim() || null;
+    const historical = raw.historical_recovery;
+    if (witnessApprovalId && historical != null) {
+      throw AppError.badRequest(
+        'Witness approval and historical recovery evidence are mutually exclusive',
+        'WARD_INDENT_CONTROLLED_EVIDENCE_INVALID',
+        { field: `item_evidence[${index}]` },
+      );
+    }
+    if (raw.witness_approval_id != null && !witnessApprovalId) {
+      throw AppError.badRequest(
+        `item_evidence[${index}].witness_approval_id must be non-empty`,
+        'WARD_INDENT_CONTROLLED_EVIDENCE_INVALID',
+        { field: `item_evidence[${index}].witness_approval_id` },
+      );
+    }
+
+    if (historical == null) {
+      return {
+        item_id: itemId,
+        ...(witnessApprovalId ? { witness_approval_id: witnessApprovalId } : {}),
+      };
+    }
+    if (typeof historical !== 'object' || Array.isArray(historical)) {
+      throw AppError.badRequest(
+        `item_evidence[${index}].historical_recovery must be an object`,
+        'WARD_INDENT_CONTROLLED_EVIDENCE_INVALID',
+        { field: `item_evidence[${index}].historical_recovery` },
+      );
+    }
+    const allowedHistoricalKeys = new Set(['movement_id', 'register_id', 'reason']);
+    const unknownHistoricalKey = Object.keys(historical)
+      .find((key) => !allowedHistoricalKeys.has(key));
+    if (unknownHistoricalKey) {
+      throw AppError.badRequest(
+        `item_evidence[${index}].historical_recovery.${unknownHistoricalKey} is not permitted`,
+        'WARD_INDENT_CONTROLLED_EVIDENCE_INVALID',
+        { field: `item_evidence[${index}].historical_recovery.${unknownHistoricalKey}` },
+      );
+    }
+    if (historical.reason != null && typeof historical.reason !== 'string') {
+      throw AppError.badRequest(
+        `item_evidence[${index}].historical_recovery.reason must be a string`,
+        'WARD_INDENT_CONTROLLED_EVIDENCE_INVALID',
+        { field: `item_evidence[${index}].historical_recovery.reason` },
+      );
+    }
+    const reason = historical.reason?.trim() || '';
+    if (!reason) {
+      throw AppError.badRequest(
+        `item_evidence[${index}].historical_recovery.reason is required`,
+        'WARD_INDENT_CONTROLLED_EVIDENCE_INVALID',
+        { field: `item_evidence[${index}].historical_recovery.reason` },
+      );
+    }
+    return {
+      item_id: itemId,
+      historical_recovery: {
+        movement_id: positiveInt4(
+          historical.movement_id,
+          `item_evidence[${index}].historical_recovery.movement_id`,
+        ),
+        register_id: positiveInt4(
+          historical.register_id,
+          `item_evidence[${index}].historical_recovery.register_id`,
+        ),
+        reason,
+      },
+    };
+  });
+}
+
+export function wardControlledHandoffEvidenceGuard(req, _res, next) {
+  try {
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+      throw AppError.badRequest(
+        'Request body must be an object',
+        'WARD_INDENT_CONTROLLED_EVIDENCE_INVALID',
+        { field: 'body' },
+      );
+    }
+    req.body.item_evidence = normalizeWardControlledHandoffEvidence(req.body.item_evidence);
+    return next();
+  } catch (err) {
+    return next(err);
+  }
 }
 
 async function resolveWardWitnessActor(req, res, next) {
@@ -180,14 +332,15 @@ router.post(
 );
 router.post(
   '/:id/controlled-handoff',
-  requireRole(...SUPPLY_ROLES),
+  requireRole(...WARD_INDENT_CONTROLLED_HANDOFF_ROLES),
   guardIndentRow,
+  wardControlledHandoffEvidenceGuard,
   mutationGuard('controlled_handoff', canonicalActionPath('controlled-handoff')),
   ctl.recordControlledHandoff,
 );
 router.post(
   '/:id/controlled-handoff/witness-approvals',
-  requireRole(...SUPPLY_ROLES),
+  requireRole(...WARD_INDENT_CONTROLLED_HANDOFF_ROLES),
   guardIndentRow,
   mutationGuard(
     'controlled_handoff_witness_request',
@@ -197,7 +350,7 @@ router.post(
 );
 router.post(
   '/:id/controlled-handoff/witness-approvals/:approvalId/approve',
-  requireRole(...SUPPLY_ROLES),
+  requireRole(...WARD_INDENT_CONTROLLED_HANDOFF_ROLES),
   guardIndentRow,
   enforceStaffClinicalWriteDevicePosture,
   requireIdempotencyKey({

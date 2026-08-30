@@ -42,6 +42,10 @@ import {
   wardIndentListGuard,
   wardIndentRowGuard,
 } from '../pharmacy/wardIndentPatientGuards.js';
+import {
+  WARD_INDENT_CONTROLLED_HANDOFF_ROLES,
+  wardControlledHandoffEvidenceGuard,
+} from '../pharmacy/wardIndentRoutes.js';
 
 const router = express.Router();
 
@@ -511,8 +515,9 @@ router.post(
 
 router.post(
   '/ward-indents/:indentId/controlled-handoff',
-  requireRole(...WARD_INDENT_SUPPLY_ROLES),
+  requireRole(...WARD_INDENT_CONTROLLED_HANDOFF_ROLES),
   guardWardIndentRow,
+  wardControlledHandoffEvidenceGuard,
   wardIndentIdempotency('controlled_handoff', 'controlled-handoff'),
   wrapAsync(async (req, res) => {
     const indent = await ipdSupportService.recordWardIndentControlledHandoff({

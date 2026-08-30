@@ -11,6 +11,7 @@ import {
 } from '../pharmacy/inventoryV2Service.js';
 import {
   approveControlledDispenseWitnessApproval,
+  CONTROLLED_DISPENSE_WITNESS_ROLES,
   CONTROLLED_DISPENSE_APPROVAL_SCOPES,
   createControlledDispenseWitnessApproval,
 } from '../pharmacy/controlledDispenseWitnessService.js';
@@ -132,6 +133,9 @@ const WARD_INDENT_WORKLISTS = new Set(['open', 'terminal', 'owned', 'overdue']);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ISO_INSTANT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/;
 const PG_INT4_MAX = 2147483647;
+const WARD_CONTROLLED_RECOVERY_CONTRACT = 'ward_controlled_handoff_recovery_v1';
+const WARD_CONTROLLED_RECOVERY_ROLE = ROLES.PHARMACY_INCHARGE;
+const ACTIVE_WARD_ALLOCATION_STATUSES = new Set(['reserved', 'partially_issued']);
 
 function tenantOf(value) {
   return requireTenantId(value);
@@ -256,64 +260,461 @@ async function loadPendingControlledHandoffEvidence(tx, indent) {
   if (!pending.length) return [];
 
   const references = pending.map((item) => item.controlled_reference_id);
-  const rows = await tx.$queryRawUnsafe(
-    `SELECT movement.reference_id,
-            movement.id AS movement_id,
-            movement.quantity_delta,
-            register_entry.id AS register_id,
-            register_entry.quantity AS register_quantity,
-            inventory.catalog_id
+  const movements = await tx.$queryRawUnsafe(
+    `SELECT movement.reference_id, movement.id AS movement_id,
+            movement.inventory_item_id, movement.inventory_batch_id,
+            movement.movement_kind, movement.quantity_delta,
+            movement.reference_type, movement.performed_by,
+            inventory.catalog_id, inventory.schedule_class, inventory.is_narcotic,
+            UPPER(performer.role) AS performer_role,
+            (
+              performer.uid IS NOT NULL
+              AND performer.is_active = TRUE
+              AND performer.status = 'active'
+              AND COALESCE(performer.is_deleted, FALSE) = FALSE
+              AND performer_staff.id IS NOT NULL
+              AND performer_staff.is_active = TRUE
+              AND COALESCE(performer_staff.archived, FALSE) = FALSE
+              AND performer_staff.archived_at IS NULL
+              AND NULLIF(BTRIM(performer_staff.name), '') IS NOT NULL
+            ) AS performer_active
        FROM pharmacy_stock_movements movement
-       JOIN pharmacy_schedule_register register_entry
-         ON register_entry.tenant_id = movement.tenant_id
-        AND register_entry.reference_movement_id = movement.id
-       JOIN pharmacy_inventory_items inventory
+       LEFT JOIN pharmacy_inventory_items inventory
          ON inventory.tenant_id = movement.tenant_id
         AND inventory.id = movement.inventory_item_id
+       LEFT JOIN users performer
+         ON performer.tenant_id = movement.tenant_id
+        AND performer.uid = movement.performed_by
+       LEFT JOIN staff performer_staff
+         ON performer_staff.tenant_id = performer.tenant_id
+        AND performer_staff.user_id = performer.uid
       WHERE movement.tenant_id = $1::uuid
-        AND movement.reference_type = 'controlled_dispense'
-        AND movement.movement_kind = 'issue'
         AND movement.reference_id = ANY($2::text[])
-        AND register_entry.movement_kind = 'dispense'
-        AND register_entry.patient_uid IS NOT DISTINCT FROM $3::uuid
-        AND NOT EXISTS (
-          SELECT 1
-            FROM ward_indent_items claimed
-           WHERE claimed.tenant_id = movement.tenant_id
-             AND (
-               claimed.controlled_movement_id = movement.id
-               OR claimed.controlled_register_id = register_entry.id
-             )
-        )
       ORDER BY movement.id`,
     indent.tenant_id,
     references,
-    indent.patient_uid || null,
   );
+
+  if (!movements.length) {
+    const referenceCounts = new Map();
+    for (const reference of references) {
+      referenceCounts.set(reference, Number(referenceCounts.get(reference) || 0) + 1);
+    }
+    return pending.map((item) => {
+      if (Number(referenceCounts.get(item.controlled_reference_id)) > 1) {
+        return {
+          item_id: Number(item.id),
+          reference_id: item.controlled_reference_id,
+          status: 'corrupt',
+          candidate_count: 0,
+          same_reference_movement_count: 0,
+          evidence: [],
+          issues: ['WARD_ITEM_REFERENCE_COLLISION'],
+        };
+      }
+      return {
+        item_id: Number(item.id),
+        reference_id: item.controlled_reference_id,
+        status: 'missing',
+        candidate_count: 0,
+        same_reference_movement_count: 0,
+      };
+    });
+  }
+
+  const movementIds = movements.map((row) => Number(row.movement_id));
+  const registers = await tx.$queryRawUnsafe(
+    `SELECT register_entry.id AS register_id,
+            register_entry.reference_movement_id AS movement_id,
+            register_entry.inventory_item_id, register_entry.inventory_batch_id,
+            register_entry.schedule_class, register_entry.movement_kind,
+            register_entry.quantity, register_entry.patient_uid,
+            register_entry.performed_by, register_entry.witness_uid,
+            register_entry.witness_name, UPPER(witness.role) AS witness_role,
+            (
+              witness.uid IS NOT NULL
+              AND witness.is_active = TRUE
+              AND witness.status = 'active'
+              AND COALESCE(witness.is_deleted, FALSE) = FALSE
+              AND witness_staff.id IS NOT NULL
+              AND witness_staff.is_active = TRUE
+              AND COALESCE(witness_staff.archived, FALSE) = FALSE
+            ) AS witness_active
+       FROM pharmacy_schedule_register register_entry
+       LEFT JOIN users witness
+         ON witness.tenant_id = register_entry.tenant_id
+        AND witness.uid = register_entry.witness_uid
+       LEFT JOIN staff witness_staff
+         ON witness_staff.tenant_id = witness.tenant_id
+        AND witness_staff.user_id = witness.uid
+      WHERE register_entry.tenant_id = $1::uuid
+        AND register_entry.reference_movement_id = ANY($2::int[])
+      ORDER BY register_entry.reference_movement_id, register_entry.id`,
+    indent.tenant_id,
+    movementIds,
+  );
+  const registerIds = registers.map((row) => Number(row.register_id));
+  const claims = await tx.$queryRawUnsafe(
+    `SELECT claimed.id AS ward_indent_item_id, claimed.ward_indent_id,
+            claimed.controlled_movement_id, claimed.controlled_register_id,
+            claimed.controlled_return_movement_id, claimed.controlled_return_register_id
+       FROM ward_indent_items claimed
+      WHERE claimed.tenant_id = $1::uuid
+        AND (
+          claimed.controlled_movement_id = ANY($2::int[])
+          OR claimed.controlled_return_movement_id = ANY($2::int[])
+          OR ($3::int[] <> '{}'::int[] AND claimed.controlled_register_id = ANY($3::int[]))
+          OR ($3::int[] <> '{}'::int[] AND claimed.controlled_return_register_id = ANY($3::int[]))
+        )
+      ORDER BY claimed.id`,
+    indent.tenant_id,
+    movementIds,
+    registerIds,
+  );
+  const links = await tx.$queryRawUnsafe(
+    `SELECT movement_link.id::text AS movement_link_id,
+            movement_link.ward_indent_id, movement_link.allocation_id::text AS allocation_id,
+            movement_link.stock_movement_id, movement_link.controlled_register_id,
+            movement_link.movement_purpose
+       FROM ward_indent_inventory_movement_links movement_link
+      WHERE movement_link.tenant_id = $1::uuid
+        AND (
+          movement_link.stock_movement_id = ANY($2::int[])
+          OR ($3::int[] <> '{}'::int[] AND movement_link.controlled_register_id = ANY($3::int[]))
+        )
+      ORDER BY movement_link.id`,
+    indent.tenant_id,
+    movementIds,
+    registerIds,
+  );
+  const allocations = await tx.$queryRawUnsafe(
+    `SELECT allocation.id::text AS allocation_id,
+            allocation.ward_indent_item_id, allocation.inventory_item_id,
+            allocation.inventory_batch_id, allocation.reserved_quantity,
+            allocation.issued_quantity, allocation.authority_released_quantity,
+            allocation.status
+       FROM ward_indent_inventory_allocations allocation
+      WHERE allocation.tenant_id = $1::uuid
+        AND allocation.ward_indent_id = $2::int
+        AND allocation.ward_indent_item_id = ANY($3::int[])
+      ORDER BY allocation.ward_indent_item_id, allocation.id`,
+    indent.tenant_id,
+    Number(indent.id),
+    pending.map((item) => Number(item.id)),
+  );
+
+  const registersByMovement = new Map();
+  for (const register of registers) {
+    const movementId = Number(register.movement_id);
+    if (!registersByMovement.has(movementId)) registersByMovement.set(movementId, []);
+    registersByMovement.get(movementId).push(register);
+  }
+  const referenceCounts = new Map();
+  for (const reference of references) {
+    referenceCounts.set(reference, Number(referenceCounts.get(reference) || 0) + 1);
+  }
 
   return pending.map((item) => {
     const approvedQuantity = Number(item.quantity_approved || 0);
-    const candidates = rows.filter((row) => (
-      row.reference_id === item.controlled_reference_id
-      && Number(row.catalog_id) === Number(item.pharmacy_catalog_id)
-      && Number(row.quantity_delta) === -Math.abs(approvedQuantity)
-      && Number(row.register_quantity) === Math.abs(approvedQuantity)
-    ));
-    if (candidates.length !== 1) {
+    const sameReference = movements.filter(
+      (row) => row.reference_id === item.controlled_reference_id,
+    );
+    if (!sameReference.length) {
       return {
         item_id: Number(item.id),
-        status: candidates.length > 1 ? 'ambiguous' : 'missing',
-        candidate_count: candidates.length,
+        reference_id: item.controlled_reference_id,
+        status: Number(referenceCounts.get(item.controlled_reference_id)) > 1
+          ? 'corrupt'
+          : 'missing',
+        candidate_count: 0,
+        same_reference_movement_count: 0,
+        ...(Number(referenceCounts.get(item.controlled_reference_id)) > 1
+          ? { evidence: [], issues: ['WARD_ITEM_REFERENCE_COLLISION'] }
+          : {}),
       };
     }
+
+    const evidence = sameReference.map((movement) => {
+      const movementId = Number(movement.movement_id);
+      const movementRegisters = registersByMovement.get(movementId) || [];
+      const register = movementRegisters.length === 1 ? movementRegisters[0] : null;
+      const movementRegisterIds = movementRegisters.map((row) => Number(row.register_id));
+      const movementClaims = claims.filter((claim) => (
+        Number(claim.controlled_movement_id) === movementId
+        || Number(claim.controlled_return_movement_id) === movementId
+        || movementRegisterIds.includes(Number(claim.controlled_register_id))
+        || movementRegisterIds.includes(Number(claim.controlled_return_register_id))
+      ));
+      const movementLinks = links.filter((link) => (
+        Number(link.stock_movement_id) === movementId
+        || movementRegisterIds.includes(Number(link.controlled_register_id))
+      ));
+      const exactAllocations = allocations.filter((allocation) => {
+        const outstanding = Number(allocation.reserved_quantity)
+          - Number(allocation.issued_quantity || 0)
+          - Number(allocation.authority_released_quantity || 0);
+        return Number(allocation.ward_indent_item_id) === Number(item.id)
+          && Number(allocation.inventory_item_id) === Number(movement.inventory_item_id)
+          && Number(allocation.inventory_batch_id) === Number(movement.inventory_batch_id)
+          && ACTIVE_WARD_ALLOCATION_STATUSES.has(String(allocation.status))
+          && outstanding > 0
+          && Math.abs(outstanding - approvedQuantity) < 1e-9;
+      });
+      const issues = new Set();
+      if (movement.reference_type !== 'controlled_dispense') {
+        issues.add('MOVEMENT_REFERENCE_TYPE_MISMATCH');
+      }
+      if (movement.movement_kind !== 'issue' || Number(movement.quantity_delta) >= 0) {
+        issues.add('MOVEMENT_KIND_MISMATCH');
+      }
+      if (Number(movement.quantity_delta) !== -Math.abs(approvedQuantity)) {
+        issues.add('MOVEMENT_QUANTITY_MISMATCH');
+      }
+      if (movement.catalog_id == null || item.pharmacy_catalog_id == null
+        || Number(movement.catalog_id) !== Number(item.pharmacy_catalog_id)) {
+        issues.add('MOVEMENT_CATALOG_MISMATCH');
+      }
+      if (movement.inventory_batch_id == null || exactAllocations.length !== 1) {
+        issues.add('MOVEMENT_ALLOCATION_LINEAGE_MISMATCH');
+      }
+      if (!movement.performed_by) {
+        issues.add('MOVEMENT_PERFORMER_MISSING');
+      } else if (movement.performer_active !== true
+        || !['PHARMACY_STAFF', 'PHARMACY_INCHARGE'].includes(movement.performer_role)) {
+        issues.add('MOVEMENT_PERFORMER_AUTHORITY_MISMATCH');
+      }
+      if (!['H', 'H1', 'X'].includes(movement.schedule_class)
+        && movement.is_narcotic !== true) {
+        issues.add('MOVEMENT_CONTROLLED_CLASSIFICATION_MISMATCH');
+      }
+      if (movementRegisters.length !== 1) issues.add('REGISTER_CARDINALITY_MISMATCH');
+      if (register) {
+        if (Number(register.inventory_item_id) !== Number(movement.inventory_item_id)
+          || Number(register.inventory_batch_id) !== Number(movement.inventory_batch_id)) {
+          issues.add('REGISTER_BATCH_LINEAGE_MISMATCH');
+        }
+        if (register.movement_kind !== 'dispense') issues.add('REGISTER_KIND_MISMATCH');
+        if (Number(register.quantity) !== Math.abs(approvedQuantity)) {
+          issues.add('REGISTER_QUANTITY_MISMATCH');
+        }
+        if (String(register.patient_uid || '') !== String(indent.patient_uid || '')) {
+          issues.add('REGISTER_PATIENT_MISMATCH');
+        }
+        if (String(register.performed_by || '') !== String(movement.performed_by || '')) {
+          issues.add('REGISTER_PERFORMER_MISMATCH');
+        }
+        const expectedSchedule = movement.schedule_class
+          || (movement.is_narcotic === true ? 'X' : 'H1');
+        if (String(register.schedule_class || '') !== String(expectedSchedule || '')) {
+          issues.add('REGISTER_SCHEDULE_MISMATCH');
+        }
+        const needsWitness = movement.schedule_class === 'X' || movement.is_narcotic === true;
+        if (needsWitness && (
+          !register.witness_uid
+          || !String(register.witness_name || '').trim()
+          || String(register.witness_uid) === String(register.performed_by)
+          || register.witness_active !== true
+          || !CONTROLLED_DISPENSE_WITNESS_ROLES.includes(register.witness_role)
+        )) {
+          issues.add('REGISTER_WITNESS_MISMATCH');
+        }
+      }
+      if (movementClaims.length) issues.add('EVIDENCE_ALREADY_CLAIMED');
+      if (movementLinks.length) issues.add('EVIDENCE_MOVEMENT_LINK_COLLISION');
+      if (sameReference.length > 1) issues.add('SAME_REFERENCE_MOVEMENT_COLLISION');
+      if (Number(referenceCounts.get(item.controlled_reference_id)) > 1) {
+        issues.add('WARD_ITEM_REFERENCE_COLLISION');
+      }
+      return {
+        movement_id: movementId,
+        register_ids: movementRegisterIds,
+        inventory_item_id: Number(movement.inventory_item_id),
+        inventory_batch_id: movement.inventory_batch_id == null
+          ? null
+          : Number(movement.inventory_batch_id),
+        catalog_id: movement.catalog_id == null ? null : Number(movement.catalog_id),
+        reference_type: movement.reference_type,
+        reference_id: movement.reference_id,
+        movement_kind: movement.movement_kind,
+        quantity_delta: Number(movement.quantity_delta),
+        performed_by: movement.performed_by || null,
+        performer_role: movement.performer_role || null,
+        performer_active: movement.performer_active === true,
+        schedule_class: movement.schedule_class || null,
+        is_narcotic: movement.is_narcotic === true,
+        allocation_ids: exactAllocations.map((allocation) => allocation.allocation_id),
+        claimed_ward_indent_items: movementClaims.map((claim) => ({
+          ward_indent_id: Number(claim.ward_indent_id),
+          ward_indent_item_id: Number(claim.ward_indent_item_id),
+        })),
+        movement_links: movementLinks.map((link) => ({
+          movement_link_id: link.movement_link_id,
+          ward_indent_id: Number(link.ward_indent_id),
+          allocation_id: link.allocation_id,
+          controlled_register_id: link.controlled_register_id == null
+            ? null
+            : Number(link.controlled_register_id),
+          movement_purpose: link.movement_purpose,
+        })),
+        registers: movementRegisters.map((row) => ({
+          register_id: Number(row.register_id),
+          inventory_item_id: Number(row.inventory_item_id),
+          inventory_batch_id: row.inventory_batch_id == null
+            ? null
+            : Number(row.inventory_batch_id),
+          schedule_class: row.schedule_class,
+          movement_kind: row.movement_kind,
+          quantity: Number(row.quantity),
+          patient_uid: row.patient_uid || null,
+          performed_by: row.performed_by || null,
+          witness_uid: row.witness_uid || null,
+          witness_name: row.witness_name || null,
+          witness_role: row.witness_role || null,
+          witness_active: row.witness_active === true,
+        })),
+        issues: [...issues].sort(),
+      };
+    });
+    const collisionIssues = new Set([
+      'SAME_REFERENCE_MOVEMENT_COLLISION',
+      'WARD_ITEM_REFERENCE_COLLISION',
+    ]);
+    const individuallyValid = evidence.filter((candidate) => (
+      candidate.issues.every((issue) => collisionIssues.has(issue))
+    ));
+    const valid = evidence.filter((candidate) => candidate.issues.length === 0);
+    if (sameReference.length !== 1 || valid.length !== 1) {
+      return {
+        item_id: Number(item.id),
+        reference_id: item.controlled_reference_id,
+        status: 'corrupt',
+        candidate_count: individuallyValid.length,
+        same_reference_movement_count: sameReference.length,
+        evidence,
+      };
+    }
+    const selected = valid[0];
     return {
       item_id: Number(item.id),
+      reference_id: item.controlled_reference_id,
       status: 'available',
       candidate_count: 1,
-      movement_id: Number(candidates[0].movement_id),
-      register_id: Number(candidates[0].register_id),
+      same_reference_movement_count: 1,
+      movement_id: selected.movement_id,
+      register_id: selected.register_ids[0],
+      allocation_id: selected.allocation_ids[0],
+      evidence,
     };
   });
+}
+
+function historicalControlledRecoverySelection(entry) {
+  const suppliedLegacyIdentity = ['movement_id', 'register_id'].some((field) => (
+    Object.prototype.hasOwnProperty.call(entry || {}, field)
+  ));
+  if (suppliedLegacyIdentity) {
+    throw AppError.badRequest(
+      'Historical controlled custody must use the explicit historical_recovery selection',
+      'WARD_INDENT_CONTROLLED_RECOVERY_SELECTION_INVALID',
+    );
+  }
+  if (entry?.historical_recovery == null) return null;
+  if (typeof entry.historical_recovery !== 'object'
+    || Array.isArray(entry.historical_recovery)) {
+    throw AppError.badRequest(
+      'historical_recovery must bind one movement, one register, and a reason',
+      'WARD_INDENT_CONTROLLED_RECOVERY_SELECTION_INVALID',
+    );
+  }
+  const recovery = entry.historical_recovery;
+  const extraFields = Object.keys(recovery).filter(
+    (field) => !['movement_id', 'register_id', 'reason'].includes(field),
+  );
+  if (extraFields.length) {
+    throw AppError.badRequest(
+      'historical_recovery contains unsupported authority fields',
+      'WARD_INDENT_CONTROLLED_RECOVERY_SELECTION_INVALID',
+      { unsupported_fields: extraFields.sort() },
+    );
+  }
+  return {
+    movement_id: positiveInt(recovery.movement_id, 'historical_recovery.movement_id'),
+    register_id: positiveInt(recovery.register_id, 'historical_recovery.register_id'),
+    reason: reasonText(recovery.reason, 'historical_recovery.reason'),
+  };
+}
+
+async function assertWardControlledRecoverySupervisorTx(tx, {
+  indent,
+  actorUid,
+  actorRole,
+}) {
+  const grant = await assertPharmacyFacilityGrant(tx, {
+    tenantId: indent.tenant_id,
+    facilityId: Number(indent.facility_id),
+    actorUid,
+    actorRole,
+    forUpdate: true,
+  });
+  if (grant.actor_role !== WARD_CONTROLLED_RECOVERY_ROLE) {
+    throw AppError.forbidden(
+      'Historical controlled custody recovery requires the pharmacy in-charge',
+      'WARD_INDENT_CONTROLLED_RECOVERY_SUPERVISOR_REQUIRED',
+      { required_role: WARD_CONTROLLED_RECOVERY_ROLE },
+    );
+  }
+  return grant;
+}
+
+function controlledRecoveryReceipt({
+  indent,
+  item,
+  allocation,
+  candidate,
+  selection,
+  supervisor,
+  commandKey,
+}) {
+  const register = candidate.evidence[0].registers[0];
+  const receipt = {
+    contract: WARD_CONTROLLED_RECOVERY_CONTRACT,
+    disposition: 'historical_exact_pair_linked',
+    ward_indent_id: Number(indent.id),
+    ward_indent_item_id: Number(item.id),
+    allocation_id: String(allocation.id),
+    movement_id: selection.movement_id,
+    register_id: selection.register_id,
+    reference_id: item.controlled_reference_id,
+    facility_id: Number(indent.facility_id),
+    inventory_item_id: Number(allocation.inventory_item_id),
+    inventory_batch_id: Number(allocation.inventory_batch_id),
+    catalog_id: Number(item.pharmacy_catalog_id),
+    clinical_order_id: Number(item.clinical_order_id),
+    quantity: Number(item.quantity_approved),
+    patient_uid: String(indent.patient_uid),
+    movement_performed_by: candidate.evidence[0].performed_by,
+    movement_performer_role: candidate.evidence[0].performer_role,
+    register_performed_by: register.performed_by,
+    schedule_class: candidate.evidence[0].schedule_class,
+    is_narcotic: candidate.evidence[0].is_narcotic,
+    register_schedule_class: register.schedule_class,
+    witness_uid: register.witness_uid,
+    witness_name: register.witness_name,
+    recovered_by: supervisor.actor_uid,
+    recovered_by_role: supervisor.actor_role,
+    recovered_by_name: supervisor.actor_name,
+    facility_grant_id: supervisor.grant_id,
+    recovery_reason: selection.reason,
+    recovery_command_key: wardIndentCommandKey(
+      indent.id,
+      'controlled_handoff_recorded',
+      commandKey,
+    ),
+  };
+  return {
+    ...receipt,
+    receipt_sha256: createHash('sha256').update(JSON.stringify(receipt)).digest('hex'),
+  };
 }
 
 function assertState(current, allowed, action) {
@@ -2392,10 +2793,25 @@ export async function recordWardIndentControlledHandoff({
         throw AppError.badRequest('item_evidence must be a non-empty array');
       }
       const evidenceByItem = new Map();
+      const recoveryByItem = new Map();
       for (const entry of itemEvidence) {
         const itemId = positiveInt(entry?.item_id, 'item_id');
         if (evidenceByItem.has(itemId)) throw AppError.badRequest(`Duplicate item evidence ${itemId}`);
         evidenceByItem.set(itemId, entry);
+        const recovery = historicalControlledRecoverySelection(entry);
+        if (recovery && entry.witness_approval_id != null) {
+          throw AppError.badRequest(
+            'Historical recovery cannot consume a new witness approval',
+            'WARD_INDENT_CONTROLLED_RECOVERY_SELECTION_INVALID',
+          );
+        }
+        if (recovery) recoveryByItem.set(itemId, recovery);
+      }
+      if (recoveryByItem.size && !String(commandKey || '').trim()) {
+        throw AppError.badRequest(
+          'Historical controlled custody recovery requires an idempotent command key',
+          'WARD_INDENT_CONTROLLED_RECOVERY_COMMAND_REQUIRED',
+        );
       }
       const controlled = current.items.filter((item) => item.controlled_reference_id);
       if (!controlled.length) throw AppError.conflict('Ward indent has no controlled lines');
@@ -2405,11 +2821,68 @@ export async function recordWardIndentControlledHandoff({
           throw AppError.badRequest(`Item evidence ${itemId} is not a controlled line on this indent`);
         }
       }
+      const pendingEvidence = await loadPendingControlledHandoffEvidence(tx, current);
+      const pendingEvidenceByItem = new Map(
+        pendingEvidence.map((candidate) => [Number(candidate.item_id), candidate]),
+      );
+      const corruptEvidence = pendingEvidence.filter(
+        (candidate) => candidate.status === 'corrupt',
+      );
+      if (corruptEvidence.length) {
+        throw AppError.conflict(
+          'Controlled custody evidence conflicts with the ward allocation; external reconciliation is required',
+          'WARD_INDENT_CONTROLLED_CUSTODY_RECONCILIATION_REQUIRED',
+          {
+            reconciliation_gate: 'external_controlled_custody_reconciliation_required',
+            items: corruptEvidence,
+          },
+        );
+      }
+      const unselectedRecovery = pendingEvidence.filter((candidate) => (
+        candidate.status === 'available'
+        && !recoveryByItem.has(Number(candidate.item_id))
+      ));
+      if (unselectedRecovery.length) {
+        throw AppError.conflict(
+          'Historical controlled custody requires an explicit pharmacy in-charge selection',
+          'WARD_INDENT_CONTROLLED_RECOVERY_SELECTION_REQUIRED',
+          { items: unselectedRecovery },
+        );
+      }
+      for (const [itemId, selection] of recoveryByItem) {
+        const candidate = pendingEvidenceByItem.get(itemId);
+        if (candidate?.status !== 'available'
+          || candidate.movement_id !== selection.movement_id
+          || candidate.register_id !== selection.register_id) {
+          throw AppError.conflict(
+            'Historical controlled custody selection does not identify the one recoverable pair',
+            'WARD_INDENT_CONTROLLED_RECOVERY_SELECTION_INVALID',
+            {
+              item_id: itemId,
+              selected_movement_id: selection.movement_id,
+              selected_register_id: selection.register_id,
+              evidence: candidate || null,
+            },
+          );
+        }
+      }
       const closure = await loadWardIndentMedicationClosureTx(
         tx,
         current.tenant_id,
         current.id,
       );
+      let recoverySupervisor = null;
+      if (recoveryByItem.size) {
+        recoverySupervisor = await assertWardControlledRecoverySupervisorTx(tx, {
+          indent: current,
+          actorUid: recordedBy,
+          actorRole,
+        });
+        await assertWardIndentMedicationBindingAtIssueTx(tx, current);
+      }
+      let recoveredControlledItemCount = 0;
+      let createdControlledItemCount = 0;
+      const recoveryReceipts = [];
       for (const item of controlled) {
         const evidence = evidenceByItem.get(Number(item.id));
         if (!evidence) throw AppError.badRequest(`Controlled evidence is required for item ${item.id}`);
@@ -2437,39 +2910,74 @@ export async function recordWardIndentControlledHandoff({
             'WARD_INDENT_EXACT_RESERVATION_MISMATCH',
           );
         }
-        const controlledResult = await dispenseWardControlledAllocationTx(tx, {
-          tenantId: current.tenant_id,
-          facilityId: Number(current.facility_id),
-          indentId: Number(current.id),
-          wardItemId: Number(item.id),
-          allocationId: allocation.id,
-          inventoryItemId: Number(allocation.inventory_item_id),
-          inventoryBatchId: Number(allocation.inventory_batch_id),
-          quantity: outstanding,
-          patientUid: current.patient_uid,
-          clinicalOrderId: item.clinical_order_id,
-          catalogId: item.pharmacy_catalog_id,
-          referenceId: item.controlled_reference_id,
-          performedBy: recordedBy,
-          witnessApprovalId: evidence.witness_approval_id || null,
-          commandKey,
-          wardAuthority: WARD_CONTROLLED_HANDOFF_AUTHORITY,
-        });
+        const pendingCandidate = pendingEvidenceByItem.get(Number(item.id));
+        const recoverySelection = recoveryByItem.get(Number(item.id));
+        let movementId;
+        let registerId;
+        if (pendingCandidate?.status === 'available') {
+          if (String(pendingCandidate.allocation_id) !== String(allocation.id)) {
+            throw AppError.conflict(
+              'Historical controlled custody no longer matches the locked allocation',
+              'WARD_INDENT_CONTROLLED_RECOVERY_SELECTION_INVALID',
+              {
+                item_id: Number(item.id),
+                selected_allocation_id: pendingCandidate.allocation_id,
+                locked_allocation_id: String(allocation.id),
+              },
+            );
+          }
+          movementId = Number(pendingCandidate.movement_id);
+          registerId = Number(pendingCandidate.register_id);
+          recoveredControlledItemCount += 1;
+        } else {
+          const controlledResult = await dispenseWardControlledAllocationTx(tx, {
+            tenantId: current.tenant_id,
+            facilityId: Number(current.facility_id),
+            indentId: Number(current.id),
+            wardItemId: Number(item.id),
+            allocationId: allocation.id,
+            inventoryItemId: Number(allocation.inventory_item_id),
+            inventoryBatchId: Number(allocation.inventory_batch_id),
+            quantity: outstanding,
+            patientUid: current.patient_uid,
+            clinicalOrderId: item.clinical_order_id,
+            catalogId: item.pharmacy_catalog_id,
+            referenceId: item.controlled_reference_id,
+            performedBy: recordedBy,
+            witnessApprovalId: evidence.witness_approval_id || null,
+            commandKey,
+            wardAuthority: WARD_CONTROLLED_HANDOFF_AUTHORITY,
+          });
+          movementId = Number(controlledResult.movement.id);
+          registerId = Number(controlledResult.register_entry.id);
+          createdControlledItemCount += 1;
+        }
         await linkControlledWardIndentMovementTx(tx, {
           indent: current,
           wardItem: item,
-          movementId: controlledResult.movement.id,
-          controlledRegisterId: controlledResult.register_entry.id,
+          movementId,
+          controlledRegisterId: registerId,
           purpose: 'issue',
           actor: recordedBy,
           commandKey,
           stateVersion: Number(current.state_version) + 1,
         });
+        if (recoverySelection) {
+          recoveryReceipts.push(controlledRecoveryReceipt({
+            indent: current,
+            item,
+            allocation,
+            candidate: pendingCandidate,
+            selection: recoverySelection,
+            supervisor: recoverySupervisor,
+            commandKey,
+          }));
+        }
         await tx.ward_indent_items.update({
           where: { id: item.id },
           data: {
-            controlled_movement_id: controlledResult.movement.id,
-            controlled_register_id: controlledResult.register_entry.id,
+            controlled_movement_id: movementId,
+            controlled_register_id: registerId,
             quantity_issued: Number(item.quantity_approved),
             fulfilment_status: 'controlled_handoff_recorded',
             updated_at: new Date(),
@@ -2478,7 +2986,12 @@ export async function recordWardIndentControlledHandoff({
       }
       return {
         toStatus: 'approved',
-        details: { controlled_item_count: controlled.length },
+        details: {
+          controlled_item_count: controlled.length,
+          recovered_controlled_item_count: recoveredControlledItemCount,
+          created_controlled_item_count: createdControlledItemCount,
+          controlled_recovery_receipts: recoveryReceipts,
+        },
       };
     },
   });
