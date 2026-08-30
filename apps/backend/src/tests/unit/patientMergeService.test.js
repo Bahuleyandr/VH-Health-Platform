@@ -19,7 +19,7 @@ const setTenantTxMock = jest.fn();
 const reassignIdentifiersMock = jest.fn();
 const recordTimelineEventMock = jest.fn();
 const recordClinicalAuditEventMock = jest.fn();
-const lockTenantPatientMergeStabilityMock = jest.fn();
+const lockTenantPatientMergeExecutionExclusiveMock = jest.fn();
 const persistRevokeAllUserTokensMock = jest.fn();
 const publishRevokeAllUserTokensMock = jest.fn();
 const loggerWarnMock = jest.fn();
@@ -60,7 +60,7 @@ jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   publishRevokeAllUserTokens: publishRevokeAllUserTokensMock,
 }));
 jest.unstable_mockModule('../../utils/patientMergeStabilityLock.js', () => ({
-  lockTenantPatientMergeStability: lockTenantPatientMergeStabilityMock,
+  lockTenantPatientMergeExecutionExclusive: lockTenantPatientMergeExecutionExclusiveMock,
   PATIENT_MERGE_STABILITY_TIMEOUT_MS: 300_000,
 }));
 
@@ -136,7 +136,7 @@ beforeEach(() => {
   reassignIdentifiersMock.mockReset();
   recordTimelineEventMock.mockReset();
   recordClinicalAuditEventMock.mockReset();
-  lockTenantPatientMergeStabilityMock.mockReset();
+  lockTenantPatientMergeExecutionExclusiveMock.mockReset();
   persistRevokeAllUserTokensMock.mockReset();
   publishRevokeAllUserTokensMock.mockReset();
   loggerWarnMock.mockReset();
@@ -452,7 +452,10 @@ describe('executeMerge', () => {
       expect.any(Object),
       { tenantId: TENANT, primaryUid: PRIMARY, secondaryUid: SECONDARY, mergeRequestId: 9 },
     );
-    expect(lockTenantPatientMergeStabilityMock).toHaveBeenCalledWith(__prismaTxMock, TENANT);
+    expect(lockTenantPatientMergeExecutionExclusiveMock)
+      .toHaveBeenCalledWith(__prismaTxMock, TENANT);
+    expect(lockTenantPatientMergeExecutionExclusiveMock.mock.invocationCallOrder[0])
+      .toBeLessThan(queryUnsafeMock.mock.invocationCallOrder[0]);
     expect(setTenantTxMock).toHaveBeenCalledWith(
       TENANT,
       expect.any(Function),

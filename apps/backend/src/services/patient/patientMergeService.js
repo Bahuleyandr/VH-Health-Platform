@@ -83,7 +83,7 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import {
-  lockTenantPatientMergeStability,
+  lockTenantPatientMergeExecutionExclusive,
   PATIENT_MERGE_STABILITY_TIMEOUT_MS,
 } from '../../utils/patientMergeStabilityLock.js';
 import {
@@ -1146,6 +1146,8 @@ export async function executeMerge({
   let secondaryRevocationForPublication = null;
   try {
     updated = await setTenantTx(requireTenantId(tid), async (tx) => {
+      await lockTenantPatientMergeExecutionExclusive(tx, tid);
+
       const existingRows = await tx.$queryRawUnsafe(
         `SELECT id, status, candidate_id, primary_uid, secondary_uid, approver_uid,
                 continuity_disposition
@@ -1166,8 +1168,6 @@ export async function executeMerge({
       }
       const primary = existing.primary_uid;
       const secondary = existing.secondary_uid;
-
-      await lockTenantPatientMergeStability(tx, tid);
 
       // Lock both patient rows and re-validate under the lock: both must
       // still be live PATIENT records and neither already merged away.
