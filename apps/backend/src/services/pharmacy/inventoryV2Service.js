@@ -343,7 +343,7 @@ export async function createItem({ tenantId, item, actorUid, actorRole }) {
     });
     const authority = await tx.$queryRawUnsafe(
       `SELECT f.id AS facility_id, pc.id AS catalog_id,
-              pc.composition_id,
+              pc.composition_id, pc.composition_confidence,
               pc.name AS display_name,
               pc.generic_name,
               pc.manufacturer,
@@ -371,12 +371,15 @@ export async function createItem({ tenantId, item, actorUid, actorRole }) {
     }
     const catalog = authority[0];
     const compositionId = Number(catalog.composition_id);
-    if (!Number.isSafeInteger(compositionId) || compositionId <= 0) {
+    if (!Number.isSafeInteger(compositionId)
+      || compositionId <= 0
+      || catalog.composition_confidence !== 'high') {
       throw AppError.conflict(
-        'The selected catalog item has no authoritative composition identity',
+        'The selected catalog item has no high-confidence authoritative composition identity',
         'PHARMACY_CATALOG_COMPOSITION_REQUIRED',
         {
           catalog_id: catalogId,
+          composition_confidence: catalog.composition_confidence ?? null,
           next_action: 'REVIEW_CATALOG_COMPOSITION',
         },
       );

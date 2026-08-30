@@ -164,6 +164,7 @@ describe('inventoryV2Service.createItem catalog authority', () => {
     facility_id: FACILITY,
     catalog_id: 17,
     composition_id: 91,
+    composition_confidence: 'high',
     display_name: 'Canonical Morphine 10 mg tablet',
     generic_name: 'Morphine',
     manufacturer: 'Canonical Pharma',
@@ -216,6 +217,7 @@ describe('inventoryV2Service.createItem catalog authority', () => {
     expect(authoritySql).toMatch(/pc\.id=\$3::int/);
     expect(authoritySql).toMatch(/pc\.is_active=TRUE/);
     expect(authoritySql).toMatch(/pc\.composition_id/);
+    expect(authoritySql).toMatch(/pc\.composition_confidence/);
     expect(authoritySql).toMatch(/pc\.name AS display_name/);
     expect(authoritySql).toMatch(/FOR UPDATE OF f, pc/);
     expect(queryRawUnsafeMock.mock.calls[0].slice(1)).toEqual([
@@ -300,6 +302,39 @@ describe('inventoryV2Service.createItem catalog authority', () => {
     });
     expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
   });
+
+  test.each(['medium', 'low'])(
+    'fails closed when the catalog composition confidence is %s despite a linked identity',
+    async (compositionConfidence) => {
+      queryRawUnsafeMock.mockResolvedValueOnce([{
+        ...canonicalCatalog,
+        composition_confidence: compositionConfidence,
+      }]);
+
+      await expect(createItem({
+        tenantId: TENANT,
+        actorUid: ACTOR,
+        actorRole: ACTOR_ROLE,
+        item: {
+          facility_id: FACILITY,
+          catalog_id: 17,
+          sku_code: `MORPH-${compositionConfidence.toUpperCase()}`,
+        },
+      })).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'PHARMACY_CATALOG_COMPOSITION_REQUIRED',
+        details: {
+          catalog_id: 17,
+          composition_confidence: compositionConfidence,
+          next_action: 'REVIEW_CATALOG_COMPOSITION',
+        },
+      });
+      expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
+      expect(queryRawUnsafeMock.mock.calls[0][0]).not.toMatch(
+        /INSERT INTO pharmacy_inventory_items/,
+      );
+    },
+  );
 
   test.each(['inactive', 'cross-tenant'])(
     'fails closed when the catalog authority is %s',
