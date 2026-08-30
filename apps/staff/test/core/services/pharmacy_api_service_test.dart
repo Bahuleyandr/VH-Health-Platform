@@ -230,6 +230,148 @@ void main() {
   });
 
   test(
+    'inventory item creation carries exact facility and catalog authority',
+    () async {
+      var requests = 0;
+      VHHttpClient.setClientForTesting(
+        MockClient((request) async {
+          requests += 1;
+          expect(request.method, 'POST');
+          expect(request.url.path, endsWith('/pharmacy/inventory/v2/items'));
+          expect(jsonDecode(request.body), {
+            'facility_id': 8,
+            'catalog_id': 17,
+            'sku_code': 'MORPH-10',
+            'display_name': 'Morphine 10 mg tablet',
+            'generic_name': 'Morphine',
+            'brand_name': null,
+            'manufacturer': 'Canonical Pharma',
+            'form': 'tablet',
+            'strength': '10 mg',
+            'unit_label': 'tablet',
+            'pack_size': '10 tablets',
+            'schedule_class': 'X',
+            'is_narcotic': true,
+            'is_cold_chain': false,
+            'reorder_level': 5,
+            'reorder_quantity': 20,
+          });
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'data': {'id': 501},
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      final created = await PharmacyApiService.createInventoryItem(
+        facilityId: 8,
+        catalogId: 17,
+        skuCode: '  MORPH-10  ',
+        displayName: '  Morphine 10 mg tablet  ',
+        genericName: ' Morphine ',
+        manufacturer: ' Canonical Pharma ',
+        form: ' tablet ',
+        strength: ' 10 mg ',
+        unitLabel: ' tablet ',
+        packSize: ' 10 tablets ',
+        scheduleClass: ' X ',
+        isNarcotic: true,
+        reorderLevel: 5,
+        reorderQuantity: 20,
+      );
+
+      expect(created['id'], 501);
+      expect(requests, 1);
+    },
+  );
+
+  test(
+    'inventory item creation preserves composition-curation recovery details',
+    () async {
+      var requests = 0;
+      VHHttpClient.setClientForTesting(
+        MockClient((request) async {
+          requests += 1;
+          return http.Response(
+            jsonEncode({
+              'success': false,
+              'message':
+                  'The selected catalog item has no authoritative composition identity',
+              'code': 'PHARMACY_CATALOG_COMPOSITION_REQUIRED',
+              'details': {
+                'catalog_id': 17,
+                'next_action': 'REVIEW_CATALOG_COMPOSITION',
+              },
+            }),
+            409,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      await expectLater(
+        PharmacyApiService.createInventoryItem(
+          facilityId: 8,
+          catalogId: 17,
+          skuCode: 'MORPH-10',
+          displayName: 'Morphine 10 mg tablet',
+        ),
+        throwsA(
+          isA<PharmacyApiException>()
+              .having((error) => error.statusCode, 'statusCode', 409)
+              .having(
+                (error) => error.code,
+                'code',
+                'PHARMACY_CATALOG_COMPOSITION_REQUIRED',
+              )
+              .having((error) => error.details, 'details', {
+                'catalog_id': 17,
+                'next_action': 'REVIEW_CATALOG_COMPOSITION',
+              }),
+        ),
+      );
+      expect(requests, 1);
+    },
+  );
+
+  test(
+    'inventory item creation rejects missing authority before transport',
+    () async {
+      var requests = 0;
+      VHHttpClient.setClientForTesting(
+        MockClient((request) async {
+          requests += 1;
+          return http.Response('{}', 500);
+        }),
+      );
+
+      Future<Map<String, dynamic>> create({
+        required int facilityId,
+        required int catalogId,
+      }) => PharmacyApiService.createInventoryItem(
+        facilityId: facilityId,
+        catalogId: catalogId,
+        skuCode: 'MORPH-10',
+        displayName: 'Morphine 10 mg tablet',
+      );
+
+      await expectLater(
+        create(facilityId: 0, catalogId: 17),
+        throwsA(isA<ArgumentError>()),
+      );
+      await expectLater(
+        create(facilityId: 8, catalogId: 0),
+        throwsA(isA<ArgumentError>()),
+      );
+      expect(requests, 0);
+    },
+  );
+
+  test(
     'substitution dispense transports origin linkage and caller command key',
     () async {
       VHHttpClient.setClientForTesting(

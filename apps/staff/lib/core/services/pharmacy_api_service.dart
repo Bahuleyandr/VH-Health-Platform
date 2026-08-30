@@ -413,6 +413,8 @@ class PharmacyApiService {
 
   /// POST /pharmacy/inventory/v2/items — Stores/Purchase or Pharmacy Incharge.
   static Future<Map<String, dynamic>> createInventoryItem({
+    required int facilityId,
+    required int catalogId,
     required String skuCode,
     required String displayName,
     String? genericName,
@@ -428,7 +430,23 @@ class PharmacyApiService {
     num? reorderLevel,
     num? reorderQuantity,
   }) async {
-    return _post('/pharmacy/inventory/v2/items', {
+    if (facilityId <= 0) {
+      throw ArgumentError.value(
+        facilityId,
+        'facilityId',
+        'A positive authorized facility ID is required',
+      );
+    }
+    if (catalogId <= 0) {
+      throw ArgumentError.value(
+        catalogId,
+        'catalogId',
+        'A positive authoritative catalog ID is required',
+      );
+    }
+    return _postWithTypedError('/pharmacy/inventory/v2/items', {
+      'facility_id': facilityId,
+      'catalog_id': catalogId,
       'sku_code': skuCode.trim(),
       'display_name': displayName.trim(),
       'generic_name': genericName?.trim(),

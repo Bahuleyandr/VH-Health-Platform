@@ -9784,6 +9784,8 @@ class AppStrings {
       'pharmacy.disposal.witness_request': 'Request and approve witness',
       'pharmacy.disposal.submit': 'Record immutable disposal',
       'pharmacy.disposal.completed': 'The exact batch disposal and required statutory evidence were recorded.',
+      'pharmacy.inventory.composition_review_required':
+          'Catalog item {catalogId} has no authoritative composition identity. No inventory item was created. A governed catalog-composition review must be completed before you retry.',
       's4.lib.pharmacy.manufacturer': "Manufacturer",
       's4.lib.pharmacy.mark_urgent': "Mark urgent",
       's4.lib.pharmacy.medicine_names_dose_quantity_or_rx_note':
@@ -17177,6 +17179,9 @@ class AppStrings {
       'pharmacy.disposal.submit': 'अपरिवर्तनीय निपटान दर्ज करें',
       'pharmacy.disposal.completed':
           'सटीक बैच निपटान और आवश्यक वैधानिक साक्ष्य दर्ज किए गए।',
+      // REVIEW: technical parity only; requires Hindi linguistic review.
+      'pharmacy.inventory.composition_review_required':
+          'कैटलॉग आइटम {catalogId} की कोई आधिकारिक संरचना पहचान नहीं है। कोई इन्वेंट्री आइटम नहीं बनाया गया। दोबारा प्रयास करने से पहले नियंत्रित कैटलॉग-संरचना समीक्षा पूरी होनी चाहिए।',
       's4.lib.pharmacy.manufacturer': "उत्पादक",
       's4.lib.pharmacy.mark_urgent': "अत्यावश्यक चिह्नित करें",
       's4.lib.pharmacy.medicine_names_dose_quantity_or_rx_note':
@@ -25924,6 +25929,9 @@ class AppStrings {
       'pharmacy.disposal.witness_request': 'சாட்சியைக் கோரி ஒப்புதல் பெறுக',
       'pharmacy.disposal.submit': 'மாற்றமுடியாத அகற்றலைப் பதிவு செய்க',
       'pharmacy.disposal.completed': 'சரியான தொகுதி அகற்றலும் தேவையான சட்டப்பூர்வ ஆதாரமும் பதிவு செய்யப்பட்டன.',
+      // REVIEW: technical parity only; requires Tamil linguistic review.
+      'pharmacy.inventory.composition_review_required':
+          'பட்டியல் உருப்படி {catalogId}-க்கு அதிகாரப்பூர்வ கலவை அடையாளம் இல்லை. எந்த சரக்கு உருப்படியும் உருவாக்கப்படவில்லை. மீண்டும் முயற்சிப்பதற்கு முன் நிர்வகிக்கப்பட்ட பட்டியல்-கலவை மதிப்பாய்வு நிறைவடைய வேண்டும்.',
       's4.lib.pharmacy.manufacturer': "உற்பத்தியாளர்",
       's4.lib.pharmacy.mark_urgent': "அவசரமாகக் குறிக்கவும்",
       's4.lib.pharmacy.medicine_names_dose_quantity_or_rx_note':
@@ -34691,6 +34699,9 @@ class AppStrings {
       'pharmacy.disposal.witness_request': 'సాక్షిని అభ్యర్థించి ఆమోదించండి',
       'pharmacy.disposal.submit': 'మార్చలేని తొలగింపును నమోదు చేయండి',
       'pharmacy.disposal.completed': 'ఖచ్చితమైన బ్యాచ్ తొలగింపు మరియు అవసరమైన చట్టబద్ధ ఆధారం నమోదు అయ్యాయి.',
+      // REVIEW: technical parity only; requires Telugu linguistic review.
+      'pharmacy.inventory.composition_review_required':
+          'కేటలాగ్ అంశం {catalogId}కు అధికారిక కాంపోజిషన్ గుర్తింపు లేదు. ఇన్వెంటరీ అంశం సృష్టించబడలేదు. మళ్లీ ప్రయత్నించే ముందు నియంత్రిత కేటలాగ్-కాంపోజిషన్ సమీక్ష పూర్తి కావాలి.',
       's4.lib.pharmacy.manufacturer': "తయారీదారు",
       's4.lib.pharmacy.mark_urgent': "అత్యవసరమని గుర్తించండి",
       's4.lib.pharmacy.medicine_names_dose_quantity_or_rx_note':
@@ -37121,6 +37132,9 @@ class AppStrings {
           'സാക്ഷിയെ അഭ്യർത്ഥിച്ച് അംഗീകരിക്കുക',
       'pharmacy.disposal.submit': 'മാറ്റാനാവാത്ത നിർമാർജനം രേഖപ്പെടുത്തുക',
       'pharmacy.disposal.completed': 'കൃത്യമായ ബാച്ച് നിർമാർജനവും ആവശ്യമായ നിയമപരമായ തെളിവും രേഖപ്പെടുത്തി.',
+      // REVIEW: Malayalam technical parity only; human linguistic review remains required.
+      'pharmacy.inventory.composition_review_required':
+          'കാറ്റലോഗ് ഇനം {catalogId}-ന് ആധികാരിക കോമ്പോസിഷൻ തിരിച്ചറിയൽ ഇല്ല. ഇൻവെന്ററി ഇനം സൃഷ്ടിച്ചിട്ടില്ല. വീണ്ടും ശ്രമിക്കുന്നതിന് മുമ്പ് നിയന്ത്രിത കാറ്റലോഗ്-കോമ്പോസിഷൻ അവലോകനം പൂർത്തിയാകണം.',
       'med03.pharmacy.prescription_items_locked': 'പ്രിസ്ക്രിപ്ഷൻ ഇനങ്ങൾ ആധികാരികമായി ലിങ്ക് ചെയ്ത പ്രിസ്ക്രിപ്ഷനിലേക്ക് ലോക്ക് ചെയ്തിരിക്കുന്നു.',
       'med03.pharmacy.select_authoritative_catalog': 'ആധികാരിക കാറ്റലോഗ് ഇനങ്ങൾ തിരഞ്ഞെടുക്കുക. പേരും വിലയും കൈമുറയായി നൽകാനാവില്ല.',
       'med03.pharmacy.catalog_medicine': 'കാറ്റലോഗ് മരുന്ന്',

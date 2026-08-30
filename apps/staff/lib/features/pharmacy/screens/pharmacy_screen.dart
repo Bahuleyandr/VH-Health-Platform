@@ -2616,20 +2616,39 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
       return;
     }
 
+    final facilityId = _inventoryFacilityId;
+    if (facilityId == null) {
+      _snack(
+        AppStrings.of(context).lookup('pharmacy.disposal.facility_required'),
+        isError: true,
+      );
+      return;
+    }
+    final catalogOptions = _catalog
+        .where(
+          (item) =>
+              _positiveInt(item['id']) != null &&
+              (item['name']?.toString().trim().isNotEmpty ?? false),
+        )
+        .map(Map<String, dynamic>.from)
+        .toList(growable: false);
+    if (catalogOptions.isEmpty) {
+      _snack(
+        AppStrings.of(context)
+            .lookup('s4.lib.drug_chart.catalog_selection_required'),
+        isError: true,
+      );
+      return;
+    }
+
     final formKey = GlobalKey<FormState>();
     final inventoryItemAddedMessage = AppStrings.of(context)
         .lookup('s4.lib.pharmacy.inventory_item_added');
     final skuCtrl = TextEditingController();
-    final displayCtrl = TextEditingController();
-    final genericCtrl = TextEditingController();
-    final brandCtrl = TextEditingController();
-    final manufacturerCtrl = TextEditingController();
-    final formCtrl = TextEditingController();
-    final strengthCtrl = TextEditingController();
     final unitCtrl = TextEditingController(text: 'each');
-    final packCtrl = TextEditingController();
     final reorderLevelCtrl = TextEditingController();
     final reorderQtyCtrl = TextEditingController();
+    int? selectedCatalogId;
     String? scheduleClass;
     var isColdChain = false;
     var isNarcotic = false;
@@ -2647,18 +2666,31 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
           builder: (ctx, setSheetState) {
             Future<void> submit() async {
               if (!formKey.currentState!.validate()) return;
+              final catalog = catalogOptions
+                  .cast<Map<String, dynamic>?>()
+                  .firstWhere(
+                    (item) => _positiveInt(item?['id']) == selectedCatalogId,
+                    orElse: () => null,
+                  );
+              if (catalog == null) return;
+              String? catalogText(String key) {
+                final value = catalog[key]?.toString().trim();
+                return value == null || value.isEmpty ? null : value;
+              }
+
               setSheetState(() => submitting = true);
               try {
                 await PharmacyApiService.createInventoryItem(
+                  facilityId: facilityId,
+                  catalogId: selectedCatalogId!,
                   skuCode: skuCtrl.text,
-                  displayName: displayCtrl.text,
-                  genericName: genericCtrl.text,
-                  brandName: brandCtrl.text,
-                  manufacturer: manufacturerCtrl.text,
-                  form: formCtrl.text,
-                  strength: strengthCtrl.text,
+                  displayName: catalogText('name')!,
+                  genericName: catalogText('generic_name'),
+                  manufacturer: catalogText('manufacturer'),
+                  form: catalogText('form'),
+                  strength: catalogText('strength'),
                   unitLabel: unitCtrl.text,
-                  packSize: packCtrl.text,
+                  packSize: catalogText('pack_size'),
                   scheduleClass: scheduleClass,
                   isNarcotic: isNarcotic,
                   isColdChain: isColdChain,
@@ -2670,9 +2702,22 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
               } catch (e) {
                 if (!ctx.mounted) return;
                 setSheetState(() => submitting = false);
+                final details = e is PharmacyApiException ? e.details : null;
+                final errorCatalogId = _positiveInt(details?['catalog_id']);
+                final nextAction = details?['next_action']?.toString().trim();
+                final message =
+                    e is PharmacyApiException &&
+                        e.code == 'PHARMACY_CATALOG_COMPOSITION_REQUIRED' &&
+                        nextAction == 'REVIEW_CATALOG_COMPOSITION' &&
+                        errorCatalogId == selectedCatalogId
+                    ? AppStrings.of(ctx).format(
+                        'pharmacy.inventory.composition_review_required',
+                        {'catalogId': errorCatalogId},
+                      )
+                    : e.toString().replaceFirst('Exception: ', '');
                 ScaffoldMessenger.of(ctx).showSnackBar(
                   SnackBar(
-                    content: Text(e.toString().replaceFirst('Exception: ', '')),
+                    content: Text(message),
                     backgroundColor: AppTheme.errorRed,
                   ),
                 );
@@ -2716,10 +2761,59 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                         ],
                       ),
                       const SizedBox(height: 16),
+                      DropdownButtonFormField<int>(
+                        key: const ValueKey('pharmacy-inventory-catalog'),
+                        initialValue: selectedCatalogId,
+                        isExpanded: true,
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(context)
+                              .lookup('med03.pharmacy.catalog_medicine'),
+                        ),
+                        items: catalogOptions
+                            .map(
+                              (item) => DropdownMenuItem<int>(
+                                value: _positiveInt(item['id'])!,
+                                child: Text(
+                                  [
+                                        item['name']?.toString().trim(),
+                                        item['strength']?.toString().trim(),
+                                        item['form']?.toString().trim(),
+                                      ]
+                                      .whereType<String>()
+                                      .where((value) => value.isNotEmpty)
+                                      .join(' · '),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            )
+                            .toList(growable: false),
+                        validator: (value) => value == null
+                            ? AppStrings.of(context).lookup(
+                                's4.lib.drug_chart.catalog_selection_required',
+                              )
+                            : null,
+                        onChanged: submitting
+                            ? null
+                            : (value) => setSheetState(
+                                () => selectedCatalogId = value,
+                              ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        AppStrings.of(
+                          context,
+                        ).lookup('med03.pharmacy.select_authoritative_catalog'),
+                        style: TextStyle(
+                          color: AppTheme.textSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
                       Row(
                         children: [
                           Expanded(
                             child: TextFormField(
+                              key: const ValueKey('pharmacy-inventory-sku'),
                               controller: skuCtrl,
                               decoration: InputDecoration(
                                 labelText: AppStrings.of(context)
@@ -2732,88 +2826,6 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                                   ? AppStrings.of(context)
                                         .lookup('s4.lib.pharmacy.sku_required')
                                   : null,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            flex: 2,
-                            child: TextFormField(
-                              controller: displayCtrl,
-                              decoration: InputDecoration(
-                                labelText: AppStrings.of(context)
-                                    .lookup('s4.lib.pharmacy.display_name'),
-                                hintText: AppStrings.of(context).lookup(
-                                  's4.lib.pharmacy.paracetamol_650_mg_tablet',
-                                ),
-                              ),
-                              validator: (value) =>
-                                  (value?.trim().isEmpty ?? true)
-                                  ? AppStrings.of(context).lookup(
-                                      's4.lib.pharmacy.display_name_required',
-                                    )
-                                  : null,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: genericCtrl,
-                              decoration: InputDecoration(
-                                labelText: AppStrings.of(context)
-                                    .lookup('s4.lib.pharmacy.generic_name'),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: TextFormField(
-                              controller: brandCtrl,
-                              decoration: InputDecoration(
-                                labelText: AppStrings.of(context)
-                                    .lookup('s4.lib.pharmacy.brand_name'),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: TextFormField(
-                              controller: manufacturerCtrl,
-                              decoration: InputDecoration(
-                                labelText: AppStrings.of(context)
-                                    .lookup('s4.lib.pharmacy.manufacturer'),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: formCtrl,
-                              decoration: InputDecoration(
-                                labelText: AppStrings.of(context)
-                                    .lookup('s4.lib.pharmacy.form'),
-                                hintText: AppStrings.of(context)
-                                    .lookup('s4.lib.pharmacy.tablet_hint'),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: TextFormField(
-                              controller: strengthCtrl,
-                              decoration: InputDecoration(
-                                labelText: AppStrings.of(context)
-                                    .lookup('s4.lib.pharmacy.strength'),
-                                hintText: AppStrings.of(context)
-                                    .lookup('s4.lib.pharmacy.650_mg'),
-                              ),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -2833,18 +2845,6 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                       const SizedBox(height: 12),
                       Row(
                         children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: packCtrl,
-                              decoration: InputDecoration(
-                                labelText: AppStrings.of(context)
-                                    .lookup('s4.lib.pharmacy.pack_size'),
-                                hintText: AppStrings.of(context)
-                                    .lookup('s4.lib.pharmacy.10_tablets_strip'),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
                           Expanded(
                             child: DropdownButtonFormField<String?>(
                               initialValue: scheduleClass,
@@ -2931,6 +2931,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
+                          key: const ValueKey(
+                            'pharmacy-inventory-create-submit',
+                          ),
                           onPressed: submitting ? null : submit,
                           icon: submitting
                               ? const SizedBox(
@@ -2965,14 +2968,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
       }
     } finally {
       skuCtrl.dispose();
-      displayCtrl.dispose();
-      genericCtrl.dispose();
-      brandCtrl.dispose();
-      manufacturerCtrl.dispose();
-      formCtrl.dispose();
-      strengthCtrl.dispose();
       unitCtrl.dispose();
-      packCtrl.dispose();
       reorderLevelCtrl.dispose();
       reorderQtyCtrl.dispose();
     }
