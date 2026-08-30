@@ -15,6 +15,7 @@ import {
   CONTROLLED_DISPENSE_APPROVAL_SCOPES,
   createControlledDispenseWitnessApproval,
 } from '../pharmacy/controlledDispenseWitnessService.js';
+import { pharmacyCommandRequestSha256 } from '../pharmacy/pharmacyOrderCommandReceiptService.js';
 import {
   cancelWorkflowSla,
   completeWorkflowSla,
@@ -49,6 +50,10 @@ const PHARMACY_OWNERS = [
   ROLES.PHARMACY_STAFF,
   ROLES.PHARMACY_INCHARGE,
   'PHARMACIST',
+];
+const CONTROLLED_HANDOFF_OWNERS = [
+  ROLES.PHARMACY_STAFF,
+  ROLES.PHARMACY_INCHARGE,
 ];
 const SUBSTITUTION_OWNERS = [...DOCTOR_TIERS];
 const WARD_OWNERS = [
@@ -86,7 +91,7 @@ export const WARD_INDENT_STATE_CONTRACT = Object.freeze({
     slaRuleCode: 'ward_indent_substitution_authorization',
   },
   controlled_handoff_required: {
-    ownerRoles: PHARMACY_OWNERS,
+    ownerRoles: CONTROLLED_HANDOFF_OWNERS,
     slaRuleCode: 'ward_indent_controlled_handoff',
   },
   approved: {
@@ -252,20 +257,51 @@ async function lockWardIndent(tx, indentId, tenantId) {
 async function loadPendingControlledHandoffEvidence(tx, indent) {
   if (indent.status !== 'controlled_handoff_required') return [];
 
-  const pending = indent.items.filter((item) => (
-    item.controlled_reference_id
-    && !item.controlled_movement_id
-    && !item.controlled_register_id
-  ));
-  if (!pending.length) return [];
+  const controlled = indent.items.filter((item) => item.controlled_reference_id);
+  if (!controlled.length) return [];
+  const withPendingPrelinkCorruption = (item, classification) => {
+    if (item.controlled_movement_id == null && item.controlled_register_id == null) {
+      return classification;
+    }
+    const issue = 'WARD_ITEM_PRELINKED_IN_PENDING_STATE';
+    const linkedIdentity = {
+      controlled_movement_id: item.controlled_movement_id == null
+        ? null
+        : Number(item.controlled_movement_id),
+      controlled_register_id: item.controlled_register_id == null
+        ? null
+        : Number(item.controlled_register_id),
+    };
+    const evidence = classification.evidence?.length
+      ? classification.evidence.map((candidate) => ({
+        ...candidate,
+        ...linkedIdentity,
+        issues: [...new Set([...(candidate.issues || []), issue])].sort(),
+      }))
+      : [{ ...linkedIdentity, issues: [issue] }];
+    return {
+      ...classification,
+      ...linkedIdentity,
+      status: 'corrupt',
+      evidence,
+      issues: [...new Set([...(classification.issues || []), issue])].sort(),
+    };
+  };
+  const pending = controlled;
 
   const references = pending.map((item) => item.controlled_reference_id);
+  const referenceCounts = new Map();
+  for (const item of controlled) {
+    const reference = item.controlled_reference_id;
+    referenceCounts.set(reference, Number(referenceCounts.get(reference) || 0) + 1);
+  }
   const movements = await tx.$queryRawUnsafe(
     `SELECT movement.reference_id, movement.id AS movement_id,
             movement.inventory_item_id, movement.inventory_batch_id,
             movement.movement_kind, movement.quantity_delta,
             movement.reference_type, movement.performed_by,
-            inventory.catalog_id, inventory.schedule_class, inventory.is_narcotic,
+            inventory.catalog_id, inventory.facility_id AS inventory_facility_id,
+            inventory.schedule_class, inventory.is_narcotic,
             UPPER(performer.role) AS performer_role,
             (
               performer.uid IS NOT NULL
@@ -296,13 +332,9 @@ async function loadPendingControlledHandoffEvidence(tx, indent) {
   );
 
   if (!movements.length) {
-    const referenceCounts = new Map();
-    for (const reference of references) {
-      referenceCounts.set(reference, Number(referenceCounts.get(reference) || 0) + 1);
-    }
     return pending.map((item) => {
       if (Number(referenceCounts.get(item.controlled_reference_id)) > 1) {
-        return {
+        return withPendingPrelinkCorruption(item, {
           item_id: Number(item.id),
           reference_id: item.controlled_reference_id,
           status: 'corrupt',
@@ -310,15 +342,15 @@ async function loadPendingControlledHandoffEvidence(tx, indent) {
           same_reference_movement_count: 0,
           evidence: [],
           issues: ['WARD_ITEM_REFERENCE_COLLISION'],
-        };
+        });
       }
-      return {
+      return withPendingPrelinkCorruption(item, {
         item_id: Number(item.id),
         reference_id: item.controlled_reference_id,
         status: 'missing',
         candidate_count: 0,
         same_reference_movement_count: 0,
-      };
+      });
     });
   }
 
@@ -326,7 +358,8 @@ async function loadPendingControlledHandoffEvidence(tx, indent) {
   const registers = await tx.$queryRawUnsafe(
     `SELECT register_entry.id AS register_id,
             register_entry.reference_movement_id AS movement_id,
-            register_entry.inventory_item_id, register_entry.inventory_batch_id,
+            register_entry.facility_id, register_entry.inventory_item_id,
+            register_entry.inventory_batch_id,
             register_entry.schedule_class, register_entry.movement_kind,
             register_entry.quantity, register_entry.patient_uid,
             register_entry.performed_by, register_entry.witness_uid,
@@ -409,12 +442,7 @@ async function loadPendingControlledHandoffEvidence(tx, indent) {
     if (!registersByMovement.has(movementId)) registersByMovement.set(movementId, []);
     registersByMovement.get(movementId).push(register);
   }
-  const referenceCounts = new Map();
-  for (const reference of references) {
-    referenceCounts.set(reference, Number(referenceCounts.get(reference) || 0) + 1);
-  }
-
-  return pending.map((item) => {
+  const classifiedEvidence = pending.map((item) => {
     const approvedQuantity = Number(item.quantity_approved || 0);
     const sameReference = movements.filter(
       (row) => row.reference_id === item.controlled_reference_id,
@@ -474,6 +502,10 @@ async function loadPendingControlledHandoffEvidence(tx, indent) {
         || Number(movement.catalog_id) !== Number(item.pharmacy_catalog_id)) {
         issues.add('MOVEMENT_CATALOG_MISMATCH');
       }
+      if (movement.inventory_facility_id == null
+        || Number(movement.inventory_facility_id) !== Number(indent.facility_id)) {
+        issues.add('MOVEMENT_FACILITY_MISMATCH');
+      }
       if (movement.inventory_batch_id == null || exactAllocations.length !== 1) {
         issues.add('MOVEMENT_ALLOCATION_LINEAGE_MISMATCH');
       }
@@ -489,6 +521,10 @@ async function loadPendingControlledHandoffEvidence(tx, indent) {
       }
       if (movementRegisters.length !== 1) issues.add('REGISTER_CARDINALITY_MISMATCH');
       if (register) {
+        if (register.facility_id == null
+          || Number(register.facility_id) !== Number(indent.facility_id)) {
+          issues.add('REGISTER_FACILITY_MISMATCH');
+        }
         if (Number(register.inventory_item_id) !== Number(movement.inventory_item_id)
           || Number(register.inventory_batch_id) !== Number(movement.inventory_batch_id)) {
           issues.add('REGISTER_BATCH_LINEAGE_MISMATCH');
@@ -533,6 +569,9 @@ async function loadPendingControlledHandoffEvidence(tx, indent) {
           ? null
           : Number(movement.inventory_batch_id),
         catalog_id: movement.catalog_id == null ? null : Number(movement.catalog_id),
+        facility_id: movement.inventory_facility_id == null
+          ? null
+          : Number(movement.inventory_facility_id),
         reference_type: movement.reference_type,
         reference_id: movement.reference_id,
         movement_kind: movement.movement_kind,
@@ -558,6 +597,7 @@ async function loadPendingControlledHandoffEvidence(tx, indent) {
         })),
         registers: movementRegisters.map((row) => ({
           register_id: Number(row.register_id),
+          facility_id: row.facility_id == null ? null : Number(row.facility_id),
           inventory_item_id: Number(row.inventory_item_id),
           inventory_batch_id: row.inventory_batch_id == null
             ? null
@@ -606,6 +646,9 @@ async function loadPendingControlledHandoffEvidence(tx, indent) {
       evidence,
     };
   });
+  return classifiedEvidence.map((classification, index) => (
+    withPendingPrelinkCorruption(pending[index], classification)
+  ));
 }
 
 function historicalControlledRecoverySelection(entry) {
@@ -713,7 +756,7 @@ function controlledRecoveryReceipt({
   };
   return {
     ...receipt,
-    receipt_sha256: createHash('sha256').update(JSON.stringify(receipt)).digest('hex'),
+    receipt_sha256: pharmacyCommandRequestSha256(receipt),
   };
 }
 
@@ -990,6 +1033,7 @@ async function applyTransitionTx(
     reason = null,
     commandKey = null,
     facilityGrantRequired = false,
+    facilityGrantRoles = null,
     actorRole = null,
     mutate,
     lockedCurrent = null
@@ -1014,13 +1058,21 @@ async function applyTransitionTx(
         'WARD_INDENT_FACILITY_REQUIRED'
       );
     }
-    await assertPharmacyFacilityGrant(tx, {
+    const grant = await assertPharmacyFacilityGrant(tx, {
       tenantId: tid,
       facilityId: Number(current.facility_id),
       actorUid: cleanActorUid,
       actorRole,
       forUpdate: true
     });
+    if (Array.isArray(facilityGrantRoles)
+      && !facilityGrantRoles.includes(grant.actor_role)) {
+      throw AppError.forbidden(
+        'Ward indent transition requires an exact pharmacy custody role',
+        'WARD_INDENT_PHARMACY_CUSTODY_ROLE_REQUIRED',
+        { required_roles: [...facilityGrantRoles] },
+      );
+    }
   }
   const replay = await loadCommandReplay(tx, {
     tenantId: tid,
@@ -2782,6 +2834,7 @@ export async function recordWardIndentControlledHandoff({
     actorUid: recordedBy,
     actorRole,
     facilityGrantRequired: true,
+    facilityGrantRoles: CONTROLLED_HANDOFF_OWNERS,
     expectedVersion,
     commandKey,
     action: 'controlled_handoff_recorded',

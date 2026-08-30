@@ -393,6 +393,18 @@ describe('authoritative pharmacy ward-indent router', () => {
     ])).toThrow(/mutually exclusive/);
   });
 
+  test('controlled handoff keeps workflow ownership and service custody fail-closed', () => {
+    expect(workflowSource).toMatch(
+      /controlled_handoff_required:\s*\{\s*ownerRoles:\s*CONTROLLED_HANDOFF_OWNERS/,
+    );
+    expect(workflowSource).toMatch(
+      /recordWardIndentControlledHandoff[\s\S]*?facilityGrantRoles:\s*CONTROLLED_HANDOFF_OWNERS/,
+    );
+    expect(workflowSource).toContain('WARD_ITEM_PRELINKED_IN_PENDING_STATE');
+    expect(workflowSource).toContain('MOVEMENT_FACILITY_MISMATCH');
+    expect(workflowSource).toContain('REGISTER_FACILITY_MISMATCH');
+  });
+
   test('supply-chain staff can read worklists without gaining request authority', () => {
     expect(metadata('/', 'get', '__roles')[0]).toContain('STORES_PURCHASE_INCHARGE');
     expect(metadata('/:id', 'get', '__roles')[0]).toContain('STORES_PURCHASE_INCHARGE');
