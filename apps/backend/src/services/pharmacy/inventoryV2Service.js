@@ -10,9 +10,8 @@
 //
 //   - browse + create items (drug master)
 //   - browse batches by item, by expiry, by status
-//   - record stock movements (receive / issue / transfer / dispose etc)
-//     with auto-decrement of the chosen batch's remaining_quantity
-//   - dispense narcotic / Schedule X drugs with witnessed register entry
+//   - governed transaction-scoped stock composers for typed workflows
+//   - typed batch disposal with controlled-stock witness/register evidence
 //   - daily expiry scan that caches into pharmacy_expiry_scan_cache
 //   - regulatory Schedule H / H1 / X register query
 //
@@ -30,8 +29,12 @@ import { isDoctor } from '../../utils/roleHelpers.js';
 import {
   CONTROLLED_DISPENSE_APPROVAL_SCOPES,
   CONTROLLED_DISPENSE_WITNESS_ROLES,
+  FACILITY_BOUND_CONTROLLED_DISPENSE_WITNESS_ROLES,
+  approveControlledDispenseWitnessApproval,
   consumeControlledDispenseWitnessApproval,
+  createControlledDispenseWitnessApproval,
   isControlledDispenseWitnessEvidence,
+  preflightControlledDispenseWitnessApproval,
 } from './controlledDispenseWitnessService.js';
 import { assertPharmacyFacilityGrant } from './pharmacyFacilityAuthorityService.js';
 import {
@@ -39,7 +42,10 @@ import {
   compensateTerminalPharmacyFundingAuthorityTx,
 } from '../billing/billingV2Service.js';
 
-export { CONTROLLED_DISPENSE_WITNESS_ROLES };
+export {
+  CONTROLLED_DISPENSE_WITNESS_ROLES,
+  FACILITY_BOUND_CONTROLLED_DISPENSE_WITNESS_ROLES,
+};
 export const CONTROLLED_SUBSTITUTION_AUTHORITY = Symbol('controlled-substitution-authority');
 export const WARD_INVENTORY_RETURN_AUTHORITY = Symbol('ward-inventory-return-authority');
 export const WARD_CONTROLLED_HANDOFF_AUTHORITY = Symbol('ward-controlled-handoff-authority');
@@ -62,17 +68,119 @@ const CONTROLLED_BATCH_POLICY_BY_MOVEMENT = Object.freeze({
 const CONTROLLED_MOVEMENT_BATCH_CONTRACT =
   'controlled_movement_exact_batch_policy_v1';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PG_INT4_MAX = 2147483647;
+const INVENTORY_DISPOSAL_MAX_SCALED_QUANTITY = 99_999_999_999_999n;
+const INVENTORY_DISPOSAL_CONTRACT = 'pharmacy_inventory_disposal_v1';
+const INVENTORY_DISPOSAL_REFERENCE = 'inventory_batch_disposal';
+const INVENTORY_DISPOSAL_STATES = new Set([
+  'in_stock', 'expired', 'recalled', 'quarantined',
+]);
+const INVENTORY_DISPOSAL_PERFORMER_ROLES = new Set([
+  'PHARMACY_STAFF', 'PHARMACY_INCHARGE',
+]);
+const INVENTORY_DISPOSAL_IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9_\-:.]{1,200}$/;
+const INVENTORY_DISPOSAL_FORBIDDEN_FIELDS = Object.freeze([
+  'movement_kind',
+  'reference_type',
+  'reference_id',
+  'performed_by_name',
+  'performer_role',
+  'facility_grant_id',
+  'witness_uid',
+  'witness_name',
+  'witness_role',
+  'witness_facility_grant_id',
+  'schedule_class',
+  'is_narcotic',
+  'catalog_id',
+  'supplier_id',
+  'storage_location_id',
+  'authoritative_catalog_id',
+  'authoritative_batch_id',
+  'authoritative_supplier_id',
+  'authoritative_storage_location_id',
+  'batch_number',
+  'lot_number',
+  'expiry_date',
+  'batch_status',
+  'item_status',
+  'remaining_quantity',
+  'unit_label',
+  'source_batch_status',
+  'resulting_batch_status',
+  'remaining_quantity_before',
+  'remaining_quantity_after',
+  'controlled_item',
+  'register_required',
+  'witness_required',
+  'controlled_authority',
+  'facility_authority',
+  'batch_policy',
+  'batch_safety_contract',
+  'contract',
+  'metadata',
+  'receipt',
+]);
+const INVENTORY_DISPOSAL_RECEIPT_INTENT_FIELDS = Object.freeze([
+  'authority_reference',
+  'disposition_method',
+  'expected_batch_number',
+  'expected_expiry_date',
+  'expected_lot_number',
+  'facility_id',
+  'inventory_batch_id',
+  'inventory_item_id',
+  'notes',
+  'quantity',
+  'reason_code',
+  'witness_approval_id',
+]);
 
 // Schedule H / H1 / X are the register-tracked controlled classes (migration
 // 150); Schedule X and any narcotic-flagged item additionally demand a witness
 // on every decrement. Kept in lockstep with counterSaleService's SCHEDULED_CLASSES.
 const CONTROLLED_SCHEDULES = ['H', 'H1', 'X'];
+const CONTROLLED_CUSTODY_BATCH_STATUSES = Object.freeze([
+  'in_stock', 'reserved', 'expired', 'recalled', 'quarantined',
+]);
 const CONTROLLED_DISPENSE_ROLES = new Set([
   'PHARMACY_STAFF', 'PHARMACY_INCHARGE',
 ]);
 
 function isControlledItem(item) {
   return CONTROLLED_SCHEDULES.includes(item?.schedule_class) || item?.is_narcotic === true;
+}
+
+function canonicalControlledSchedule(item) {
+  if (item?.is_narcotic === true) return 'X';
+  const scheduleClass = String(item?.schedule_class || '').trim().toUpperCase();
+  if (!CONTROLLED_SCHEDULES.includes(scheduleClass)) {
+    throw AppError.conflict(
+      'Controlled inventory has no canonical statutory schedule class',
+      'CONTROLLED_INVENTORY_SCHEDULE_INVALID',
+    );
+  }
+  return scheduleClass;
+}
+
+async function controlledCustodyBalanceTx(tx, {
+  tenantId,
+  facilityId,
+  inventoryItemId,
+}) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT COALESCE(SUM(remaining_quantity), 0)::text AS balance
+       FROM pharmacy_inventory_batches
+      WHERE tenant_id=$1::uuid
+        AND facility_id=$2::int
+        AND inventory_item_id=$3::int
+        AND status = ANY($4::text[])`,
+    tenantId,
+    Number(facilityId),
+    Number(inventoryItemId),
+    [...CONTROLLED_CUSTODY_BATCH_STATUSES],
+  );
+  return rows[0]?.balance || '0';
 }
 
 function refuseGenericRecallMovement(movementKind) {
@@ -92,7 +200,7 @@ export async function lockControlledRegisterItemTx(tx, tenantId, inventoryItemId
   );
 }
 
-async function resolveControlledPerformerTx(db, tenantId, actorUid) {
+async function resolveControlledPerformerTx(db, tenantId, actorUid, { lock = true } = {}) {
   if (!actorUid || !UUID_RE.test(String(actorUid))) {
     throw AppError.forbidden(
       'Controlled inventory requires an authenticated active pharmacy staff performer',
@@ -114,7 +222,7 @@ async function resolveControlledPerformerTx(db, tenantId, actorUid) {
         AND u.status='active'
         AND COALESCE(u.is_deleted, FALSE)=FALSE
       LIMIT 1
-      FOR KEY SHARE OF u, staff`,
+      ${lock ? 'FOR KEY SHARE OF u, staff' : ''}`,
     tenantId,
     String(actorUid),
   );
@@ -374,7 +482,7 @@ function replayedMovementResult(movement, { movementKind, delta, increasing, dec
 
 export async function recordMovement() {
   throw new AppError(
-    'Generic inventory movements are retired; use the typed purchase receipt, transfer, return, cycle-count, or dispensing workflow',
+    'Generic inventory movements are retired; use a governed receipt, return, dispense, or disposal workflow',
     410,
     'INVENTORY_GENERIC_MOVEMENT_RETIRED',
   );
@@ -387,8 +495,8 @@ export async function recordMovement() {
  * its own setTenantTx. Callers that must commit the movement atomically with
  * other writes in the same unit (e.g. dispenseControlled's statutory register
  * INSERT) open one setTenantTx themselves and call this directly. The public
- * recordMovement() wrapper above preserves the original single-movement
- * behaviour for every other caller.
+ * recordMovement() wrapper above is deliberately tombstoned; only governed
+ * typed composers may invoke this transaction-scoped primitive.
  *
  * Exported for same-transaction composers (counterSaleService's walk-in POS
  * finalize/void) that must commit several movements atomically with their own
@@ -927,8 +1035,7 @@ async function resolveControlledDispenseAuthority(db, params, {
  * same unit (the walk-in POS finalize, which pairs it with sale evidence and
  * the invoice payment) open one setTenantTx themselves and call this directly
  * — there is deliberately no second controlled-dispense mechanism. The public
- * dispenseControlled() wrapper below preserves the original single-dispense
- * behaviour for every other caller.
+ * standalone dispenseControlled() wrapper remains a 410 tombstone.
  *
  * `reference_id` optionally overrides the movement's reference (defaults to
  * the prescription number) so composers can point the movement at their own
@@ -994,6 +1101,1134 @@ export async function approveInventoryMovementWitnessApproval() {
     410,
     'INVENTORY_GENERIC_MOVEMENT_RETIRED',
   );
+}
+
+function assertNoInventoryDisposalCallerAuthority(params = {}) {
+  const forbidden = INVENTORY_DISPOSAL_FORBIDDEN_FIELDS.filter((field) => (
+    Object.prototype.hasOwnProperty.call(params, field)
+    && params[field] !== undefined
+    && params[field] !== null
+    && params[field] !== ''
+  ));
+  if (forbidden.length) {
+    throw AppError.badRequest(
+      'Inventory disposal identity, authority, movement, and lineage are server-derived',
+      'INVENTORY_DISPOSAL_CALLER_AUTHORITY_REJECTED',
+      { forbidden_fields: forbidden },
+    );
+  }
+}
+
+function inventoryDisposalId(value, label) {
+  const id = Number(value);
+  if (!Number.isSafeInteger(id) || id <= 0 || id > PG_INT4_MAX) {
+    throw AppError.badRequest(
+      `${label} must be a positive integer`,
+      'INVENTORY_DISPOSAL_INPUT_INVALID',
+      { field: label },
+    );
+  }
+  return id;
+}
+
+function inventoryDisposalBigintId(value) {
+  if (typeof value === 'number' && !Number.isSafeInteger(value)) return null;
+  const id = String(value ?? '').trim();
+  if (!/^[1-9][0-9]{0,18}$/.test(id) || BigInt(id) > 9223372036854775807n) {
+    return null;
+  }
+  return id;
+}
+
+function inventoryDisposalUuid(value, label) {
+  const uid = String(value || '').trim().toLowerCase();
+  if (!UUID_RE.test(uid)) {
+    throw AppError.badRequest(
+      `${label} must be a UUID`,
+      'INVENTORY_DISPOSAL_INPUT_INVALID',
+      { field: label },
+    );
+  }
+  return uid;
+}
+
+function inventoryDisposalScaledDecimal(value, {
+  allowNegative = false,
+  allowZero = false,
+} = {}) {
+  if (value == null || ['boolean', 'symbol', 'function'].includes(typeof value)) return null;
+  let raw;
+  try {
+    raw = String(value);
+  } catch {
+    return null;
+  }
+  if (raw !== raw.trim()) return null;
+  const match = raw.match(
+    allowNegative
+      ? /^(-?)(0|[1-9][0-9]{0,9})(?:\.([0-9]{1,4}))?$/
+      : /^(0|[1-9][0-9]{0,9})(?:\.([0-9]{1,4}))?$/,
+  );
+  if (!match) return null;
+  const negative = allowNegative && match[1] === '-';
+  const integerPart = allowNegative ? match[2] : match[1];
+  const fractionalPart = (allowNegative ? match[3] : match[2]) || '';
+  const absoluteScaled = BigInt(integerPart) * 10_000n
+    + BigInt(fractionalPart.padEnd(4, '0') || '0');
+  if (absoluteScaled > INVENTORY_DISPOSAL_MAX_SCALED_QUANTITY
+      || (!allowZero && absoluteScaled === 0n)) {
+    return null;
+  }
+  return {
+    number: Number(raw),
+    scaled: negative ? -absoluteScaled : absoluteScaled,
+  };
+}
+
+function inventoryDisposalQuantity(value) {
+  const quantity = inventoryDisposalScaledDecimal(value);
+  if (!quantity) {
+    throw AppError.badRequest(
+      'quantity must be positive, fit NUMERIC(14,4), and have at most four decimal places',
+      'INVENTORY_DISPOSAL_INPUT_INVALID',
+      { field: 'quantity' },
+    );
+  }
+  return quantity.number;
+}
+
+function inventoryDisposalText(value, label, max, { required = false } = {}) {
+  const text = value == null ? '' : String(value).trim();
+  if ((!text && required) || text.length > max || text.includes('\u0000')) {
+    throw AppError.badRequest(
+      `${label} must be ${required ? `1-${max}` : `at most ${max}`} characters`,
+      'INVENTORY_DISPOSAL_INPUT_INVALID',
+      { field: label },
+    );
+  }
+  return text || null;
+}
+
+function inventoryDisposalDate(value) {
+  if (value == null || value === '') return null;
+  const date = value instanceof Date
+    ? value.toISOString().slice(0, 10)
+    : String(value).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw AppError.badRequest(
+      'expected_expiry_date must use YYYY-MM-DD',
+      'INVENTORY_DISPOSAL_INPUT_INVALID',
+      { field: 'expected_expiry_date' },
+    );
+  }
+  const parsed = new Date(`${date}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) {
+    throw AppError.badRequest(
+      'expected_expiry_date must be a valid calendar date',
+      'INVENTORY_DISPOSAL_INPUT_INVALID',
+      { field: 'expected_expiry_date' },
+    );
+  }
+  return date;
+}
+
+function normalizeInventoryDisposalIntent(params = {}) {
+  assertNoInventoryDisposalCallerAuthority(params);
+  return {
+    facilityId: inventoryDisposalId(params.facility_id, 'facility_id'),
+    inventoryItemId: inventoryDisposalId(params.inventory_item_id, 'inventory_item_id'),
+    inventoryBatchId: inventoryDisposalId(params.inventory_batch_id, 'inventory_batch_id'),
+    quantity: inventoryDisposalQuantity(params.quantity),
+    reasonCode: inventoryDisposalText(params.reason_code, 'reason_code', 80, { required: true }),
+    dispositionMethod: inventoryDisposalText(
+      params.disposition_method,
+      'disposition_method',
+      80,
+      { required: true },
+    ),
+    authorityReference: inventoryDisposalText(
+      params.authority_reference,
+      'authority_reference',
+      255,
+    ),
+    expectedBatchNumber: inventoryDisposalText(
+      params.expected_batch_number,
+      'expected_batch_number',
+      120,
+    ),
+    expectedLotNumber: inventoryDisposalText(
+      params.expected_lot_number,
+      'expected_lot_number',
+      120,
+    ),
+    expectedExpiryDate: inventoryDisposalDate(params.expected_expiry_date),
+    notes: inventoryDisposalText(params.notes, 'notes', 2000),
+    witnessApprovalId: params.witness_approval_id == null
+      ? null
+      : String(params.witness_approval_id).trim(),
+  };
+}
+
+function inventoryDisposalRequestIntent(intent) {
+  return {
+    facility_id: intent.facilityId,
+    inventory_item_id: intent.inventoryItemId,
+    inventory_batch_id: intent.inventoryBatchId,
+    quantity: intent.quantity,
+    reason_code: intent.reasonCode,
+    disposition_method: intent.dispositionMethod,
+    authority_reference: intent.authorityReference,
+    expected_batch_number: intent.expectedBatchNumber,
+    expected_lot_number: intent.expectedLotNumber,
+    expected_expiry_date: intent.expectedExpiryDate,
+    notes: intent.notes,
+    witness_approval_id: intent.witnessApprovalId,
+  };
+}
+
+function stableInventoryDisposalJson(value) {
+  if (value == null || typeof value !== 'object') return JSON.stringify(value);
+  if (value instanceof Date) return JSON.stringify(value.toISOString());
+  if (Array.isArray(value)) {
+    return `[${value.map(stableInventoryDisposalJson).join(',')}]`;
+  }
+  return `{${Object.keys(value).sort().filter((key) => value[key] !== undefined)
+    .map((key) => (
+      `${JSON.stringify(key)}:${stableInventoryDisposalJson(value[key])}`
+    )).join(',')}}`;
+}
+
+function inventoryDisposalSha256(value) {
+  return createHash('sha256').update(String(value), 'utf8').digest('hex');
+}
+
+function inventoryDisposalCommand(commandKey, requestFingerprint) {
+  const key = String(commandKey || '').trim();
+  const requestSha256 = String(requestFingerprint || '').trim().toLowerCase();
+  if (!INVENTORY_DISPOSAL_IDEMPOTENCY_KEY_RE.test(key)
+    || !/^[0-9a-f]{64}$/.test(requestSha256)) {
+    throw AppError.conflict(
+      'Inventory disposal requires durable idempotency authority',
+      'INVENTORY_DISPOSAL_IDEMPOTENCY_REQUIRED',
+    );
+  }
+  return {
+    keySha256: inventoryDisposalSha256(key),
+    requestSha256,
+  };
+}
+
+function inventoryDisposalIntentSha256(tenantId, intent, performedBy) {
+  return inventoryDisposalSha256(stableInventoryDisposalJson({
+    contract: INVENTORY_DISPOSAL_CONTRACT,
+    tenant_id: tenantId,
+    performed_by: performedBy,
+    intent: inventoryDisposalRequestIntent(intent),
+  }));
+}
+
+function inventoryDisposalBatchExpiry(batch) {
+  return batch.expiry_date instanceof Date
+    ? batch.expiry_date.toISOString().slice(0, 10)
+    : String(batch.expiry_date || '').slice(0, 10);
+}
+
+function assertInventoryDisposalLineage(intent, batch) {
+  const expiryDate = inventoryDisposalBatchExpiry(batch);
+  if ((intent.expectedBatchNumber
+      && intent.expectedBatchNumber !== String(batch.batch_number || '').trim())
+    || (intent.expectedLotNumber
+      && intent.expectedLotNumber !== String(batch.lot_number || '').trim())
+    || (intent.expectedExpiryDate && intent.expectedExpiryDate !== expiryDate)) {
+    throw AppError.badRequest(
+      'Inventory batch lineage does not match the documented batch, lot, or expiry',
+      'INVENTORY_BATCH_LINEAGE_MISMATCH',
+    );
+  }
+}
+
+async function loadInventoryDisposalChainTx(tx, tenantId, intent, { lock = false } = {}) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT item.id, item.catalog_id, item.facility_id, item.schedule_class,
+            item.is_narcotic, item.unit_label, item.status AS item_status,
+            catalog.id AS authoritative_catalog_id,
+            batch.id AS authoritative_batch_id, batch.batch_number, batch.lot_number,
+            batch.expiry_date, batch.remaining_quantity::text AS remaining_quantity,
+            batch.status AS batch_status, batch.supplier_id, batch.storage_location_id,
+            supplier.id AS authoritative_supplier_id,
+            location.id AS authoritative_storage_location_id
+       FROM pharmacy_inventory_items item
+       JOIN tenants tenant
+         ON tenant.id=item.tenant_id
+        AND LOWER(COALESCE(tenant.status, ''))='active'
+       JOIN pharmacy_catalog catalog
+         ON catalog.tenant_id=item.tenant_id
+        AND catalog.id=item.catalog_id
+        AND catalog.is_active=TRUE
+       JOIN facilities facility
+         ON facility.tenant_id=item.tenant_id
+        AND facility.id=item.facility_id
+        AND facility.status='active'
+       JOIN pharmacy_inventory_batches batch
+         ON batch.tenant_id=item.tenant_id
+        AND batch.id=$4::int
+        AND batch.inventory_item_id=item.id
+        AND batch.facility_id=item.facility_id
+        AND batch.status IN ('in_stock', 'expired', 'recalled', 'quarantined')
+       JOIN pharmacy_suppliers supplier
+         ON supplier.tenant_id=batch.tenant_id
+        AND supplier.id=batch.supplier_id
+        AND supplier.facility_id=batch.facility_id
+       JOIN facility_locations location
+         ON location.tenant_id=batch.tenant_id
+        AND location.facility_id=batch.facility_id
+        AND location.id=batch.storage_location_id
+        AND location.status='active'
+      WHERE item.tenant_id=$1::uuid
+        AND item.facility_id=$2::int
+        AND item.id=$3::int
+        AND item.status='active'
+      ${lock
+    ? 'FOR UPDATE OF item, catalog, facility, batch, supplier, location FOR SHARE OF tenant'
+    : ''}`,
+    tenantId,
+    intent.facilityId,
+    intent.inventoryItemId,
+    intent.inventoryBatchId,
+  );
+  const chain = rows[0];
+  if (!chain || !INVENTORY_DISPOSAL_STATES.has(String(chain.batch_status))) {
+    throw AppError.conflict(
+      'The active tenant, facility, catalog, item, batch, and storage location must retain one exact supplier lineage for disposal',
+      'INVENTORY_DISPOSAL_AUTHORITY_INVALID',
+    );
+  }
+  assertInventoryDisposalLineage(intent, chain);
+  const remainingQuantity = inventoryDisposalScaledDecimal(
+    chain.remaining_quantity,
+    { allowZero: true },
+  );
+  const requestedQuantity = inventoryDisposalScaledDecimal(intent.quantity);
+  if (!remainingQuantity
+    || !requestedQuantity
+    || remainingQuantity.scaled < requestedQuantity.scaled) {
+    throw AppError.badRequest(
+      `Insufficient stock. Available: ${chain.remaining_quantity}`,
+      'INVENTORY_INSUFFICIENT_STOCK',
+    );
+  }
+  return chain;
+}
+
+function inventoryDisposalPerformerFromGrant(grant) {
+  const canonicalName = String(grant?.actor_name || '').trim();
+  const canonicalRole = String(grant?.actor_role || '').trim().toUpperCase();
+  const canonicalUid = String(grant?.actor_uid || '').trim().toLowerCase();
+  const grantId = inventoryDisposalBigintId(grant?.grant_id);
+  if (!canonicalName
+      || !UUID_RE.test(canonicalUid)
+      || !grantId
+      || !INVENTORY_DISPOSAL_PERFORMER_ROLES.has(canonicalRole)) {
+    throw AppError.forbidden(
+      'Inventory disposal requires an active pharmacy staff or pharmacy-incharge performer',
+      'INVENTORY_DISPOSAL_PERFORMER_IDENTITY_REQUIRED',
+    );
+  }
+  return {
+    uid: canonicalUid,
+    name: canonicalName,
+    role: canonicalRole,
+    grant_id: grantId,
+  };
+}
+
+async function canonicalInventoryDisposalPerformerTx(
+  tx,
+  tenantId,
+  chain,
+  grant,
+  { lockIdentity = true } = {},
+) {
+  const grantedPerformer = inventoryDisposalPerformerFromGrant(grant);
+  if (!isControlledItem(chain)) return grantedPerformer;
+  const performer = await resolveControlledPerformerTx(
+    tx,
+    tenantId,
+    grant.actor_uid,
+    { lock: lockIdentity },
+  );
+  return {
+    uid: String(performer.uid).toLowerCase(),
+    name: String(performer.name).trim(),
+    role: String(performer.role).trim().toUpperCase(),
+    grant_id: grantedPerformer.grant_id,
+  };
+}
+
+function inventoryDisposalNeedsWitness(chain) {
+  return chain.schedule_class === 'X' || chain.is_narcotic === true;
+}
+
+function inventoryDisposalWitnessPayload(intent, chain, performer) {
+  return {
+    contract: INVENTORY_DISPOSAL_CONTRACT,
+    facility_id: intent.facilityId,
+    facility_grant_id: performer.grant_id,
+    performer_role: performer.role,
+    inventory_item_id: intent.inventoryItemId,
+    inventory_batch_id: intent.inventoryBatchId,
+    catalog_id: Number(chain.catalog_id),
+    supplier_id: Number(chain.supplier_id),
+    storage_location_id: Number(chain.storage_location_id),
+    batch_number: String(chain.batch_number || '').trim(),
+    lot_number: chain.lot_number == null ? null : String(chain.lot_number).trim(),
+    expiry_date: inventoryDisposalBatchExpiry(chain),
+    source_batch_status: String(chain.batch_status),
+    quantity: intent.quantity,
+    reason_code: intent.reasonCode,
+    disposition_method: intent.dispositionMethod,
+    authority_reference: intent.authorityReference,
+    notes: intent.notes,
+  };
+}
+
+function inventoryDisposalLedgerNotes(intent) {
+  const evidence = [
+    `reason=${intent.reasonCode}`,
+    `method=${intent.dispositionMethod}`,
+  ];
+  if (intent.authorityReference) evidence.push(`authority_reference=${intent.authorityReference}`);
+  if (intent.notes) evidence.push(intent.notes);
+  return `Inventory batch disposal: ${evidence.join('; ')}`;
+}
+
+function inventoryDisposalNumbersMatch(left, right) {
+  const normalizedLeft = inventoryDisposalScaledDecimal(left, {
+    allowNegative: true,
+    allowZero: true,
+  });
+  const normalizedRight = inventoryDisposalScaledDecimal(right, {
+    allowNegative: true,
+    allowZero: true,
+  });
+  return normalizedLeft != null
+    && normalizedRight != null
+    && normalizedLeft.scaled === normalizedRight.scaled;
+}
+
+function inventoryDisposalReceiptTextIsValid(value, max, { required = false } = {}) {
+  if (value === null) return !required;
+  return typeof value === 'string'
+    && value === value.trim()
+    && (!required || value.length > 0)
+    && value.length <= max
+    && !value.includes('\u0000');
+}
+
+function inventoryDisposalReceiptDateIsValid(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function inventoryDisposalReceiptQuantityIsValid(value, { allowZero = false } = {}) {
+  return typeof value === 'number'
+    && inventoryDisposalScaledDecimal(value, { allowZero }) != null;
+}
+
+function inventoryDisposalReceiptInt4IsValid(value) {
+  return Number.isSafeInteger(value) && value > 0 && value <= PG_INT4_MAX;
+}
+
+function inventoryDisposalReceiptIntentIsComplete(metadata, receipt, movement) {
+  const intent = metadata.intent;
+  if (!intent || typeof intent !== 'object' || Array.isArray(intent)
+      || Object.keys(intent).sort().join('|')
+        !== INVENTORY_DISPOSAL_RECEIPT_INTENT_FIELDS.join('|')) {
+    return false;
+  }
+  const tenantId = String(movement.tenant_id || '').trim().toLowerCase();
+  const performerUid = String(receipt.performed_by || '').trim().toLowerCase();
+  const intentSha256 = inventoryDisposalSha256(stableInventoryDisposalJson({
+    contract: INVENTORY_DISPOSAL_CONTRACT,
+    tenant_id: tenantId,
+    performed_by: performerUid,
+    intent,
+  }));
+  return UUID_RE.test(tenantId)
+    && intentSha256 === metadata.intent_sha256
+    && metadata.facility_id === receipt.facility_id
+    && metadata.witness_approval_id === receipt.witness_approval_id
+    && intent.facility_id === receipt.facility_id
+    && intent.inventory_item_id === receipt.inventory_item_id
+    && intent.inventory_batch_id === receipt.inventory_batch_id
+    && inventoryDisposalNumbersMatch(intent.quantity, receipt.quantity)
+    && intent.reason_code === receipt.reason_code
+    && intent.disposition_method === receipt.disposition_method
+    && intent.authority_reference === receipt.authority_reference
+    && intent.witness_approval_id === receipt.witness_approval_id
+    && inventoryDisposalReceiptTextIsValid(intent.expected_batch_number, 120)
+    && inventoryDisposalReceiptTextIsValid(intent.expected_lot_number, 120)
+    && inventoryDisposalReceiptTextIsValid(intent.notes, 2000)
+    && (intent.expected_expiry_date === null
+      || inventoryDisposalReceiptDateIsValid(intent.expected_expiry_date))
+    && (intent.expected_batch_number === null
+      || intent.expected_batch_number === receipt.batch_number)
+    && (intent.expected_lot_number === null
+      || intent.expected_lot_number === receipt.lot_number)
+    && (intent.expected_expiry_date === null
+      || intent.expected_expiry_date === receipt.expiry_date);
+}
+
+function inventoryDisposalReceiptIsSemanticallyComplete(receipt, metadata, movement) {
+  const sourceStatus = String(receipt.source_batch_status || '');
+  const remainingBefore = receipt.remaining_quantity_before;
+  const remainingAfter = receipt.remaining_quantity_after;
+  const quantityEvidence = inventoryDisposalScaledDecimal(receipt.quantity);
+  const beforeEvidence = inventoryDisposalScaledDecimal(remainingBefore);
+  const afterEvidence = inventoryDisposalScaledDecimal(remainingAfter, { allowZero: true });
+  const scheduleClass = receipt.schedule_class;
+  const scheduleIsValid = ALLOWED_SCHEDULES.includes(scheduleClass);
+  const controlledItem = scheduleIsValid
+    && (CONTROLLED_SCHEDULES.includes(scheduleClass) || receipt.is_narcotic === true);
+  const witnessRequired = scheduleIsValid
+    && (scheduleClass === 'X' || receipt.is_narcotic === true);
+  const witnessComplete = witnessRequired
+    ? inventoryDisposalBigintId(receipt.witness_approval_id)
+        === receipt.witness_approval_id
+      && UUID_RE.test(String(receipt.witness_uid || ''))
+      && inventoryDisposalReceiptTextIsValid(receipt.witness_name, 255, { required: true })
+      && FACILITY_BOUND_CONTROLLED_DISPENSE_WITNESS_ROLES.includes(receipt.witness_role)
+      && inventoryDisposalBigintId(receipt.witness_facility_grant_id)
+        === receipt.witness_facility_grant_id
+    : receipt.witness_approval_id === null
+      && receipt.witness_uid === null
+      && receipt.witness_name === null
+      && receipt.witness_role === null
+      && receipt.witness_facility_grant_id === null;
+  const expectedResultStatus = afterEvidence?.scaled === 0n
+    ? 'disposed'
+    : sourceStatus;
+  return inventoryDisposalReceiptInt4IsValid(receipt.facility_id)
+    && inventoryDisposalReceiptInt4IsValid(receipt.inventory_item_id)
+    && inventoryDisposalReceiptInt4IsValid(receipt.inventory_batch_id)
+    && inventoryDisposalReceiptInt4IsValid(receipt.catalog_id)
+    && inventoryDisposalReceiptInt4IsValid(receipt.supplier_id)
+    && inventoryDisposalReceiptInt4IsValid(receipt.storage_location_id)
+    && inventoryDisposalBigintId(receipt.facility_grant_id) === receipt.facility_grant_id
+    && UUID_RE.test(String(receipt.performed_by || ''))
+    && inventoryDisposalReceiptTextIsValid(receipt.performed_by_name, 255, { required: true })
+    && INVENTORY_DISPOSAL_PERFORMER_ROLES.has(receipt.performer_role)
+    && inventoryDisposalReceiptTextIsValid(receipt.batch_number, 120, { required: true })
+    && inventoryDisposalReceiptTextIsValid(receipt.lot_number, 120)
+    && inventoryDisposalReceiptDateIsValid(receipt.expiry_date)
+    && inventoryDisposalReceiptQuantityIsValid(receipt.quantity)
+    && inventoryDisposalReceiptQuantityIsValid(remainingBefore)
+    && inventoryDisposalReceiptQuantityIsValid(remainingAfter, { allowZero: true })
+    && quantityEvidence != null
+    && beforeEvidence != null
+    && afterEvidence != null
+    && beforeEvidence.scaled >= quantityEvidence.scaled
+    && beforeEvidence.scaled - quantityEvidence.scaled === afterEvidence.scaled
+    && INVENTORY_DISPOSAL_STATES.has(sourceStatus)
+    && receipt.resulting_batch_status === expectedResultStatus
+    && inventoryDisposalReceiptTextIsValid(receipt.reason_code, 80, { required: true })
+    && inventoryDisposalReceiptTextIsValid(
+      receipt.disposition_method,
+      80,
+      { required: true },
+    )
+    && inventoryDisposalReceiptTextIsValid(receipt.authority_reference, 255)
+    && scheduleIsValid
+    && typeof receipt.is_narcotic === 'boolean'
+    && typeof receipt.controlled_item === 'boolean'
+    && receipt.controlled_item === controlledItem
+    && typeof receipt.register_required === 'boolean'
+    && receipt.register_required === controlledItem
+    && typeof receipt.witness_required === 'boolean'
+    && receipt.witness_required === witnessRequired
+    && witnessComplete
+    && inventoryDisposalReceiptIntentIsComplete(metadata, receipt, movement);
+}
+
+async function loadInventoryDisposalMovementsByCommandTx(tx, tenantId, commandKeySha256) {
+  return tx.$queryRawUnsafe(
+    `SELECT movement.*
+       FROM pharmacy_stock_movements movement
+      WHERE movement.tenant_id=$1::uuid
+        AND movement.metadata->>'contract'=$2
+        AND movement.metadata->>'command_key_sha256'=$3
+      ORDER BY movement.id
+      LIMIT 2`,
+    tenantId,
+    INVENTORY_DISPOSAL_CONTRACT,
+    commandKeySha256,
+  );
+}
+
+function inventoryDisposalReceiptFromMovement(movement, {
+  command,
+  intentSha256,
+  performedBy,
+}) {
+  const metadata = movement?.metadata && typeof movement.metadata === 'object'
+    && !Array.isArray(movement.metadata)
+    ? movement.metadata
+    : {};
+  const receipt = metadata.receipt && typeof metadata.receipt === 'object'
+    && !Array.isArray(metadata.receipt)
+    ? metadata.receipt
+    : null;
+  const structurallyComplete = receipt
+    && receipt.contract === INVENTORY_DISPOSAL_CONTRACT
+    && metadata.contract === INVENTORY_DISPOSAL_CONTRACT
+    && metadata.command_key_sha256 === command.keySha256
+    && receipt.command_key_sha256 === command.keySha256
+    && /^[0-9a-f]{64}$/.test(String(metadata.request_sha256 || ''))
+    && /^[0-9a-f]{64}$/.test(String(metadata.intent_sha256 || ''))
+    && metadata.request_sha256 === receipt.request_sha256
+    && metadata.intent_sha256 === receipt.intent_sha256
+    && inventoryDisposalReceiptIsSemanticallyComplete(receipt, metadata, movement)
+    && Number.isSafeInteger(Number(receipt.facility_id))
+    && Number(receipt.facility_id) > 0
+    && Number(receipt.inventory_item_id) === Number(movement.inventory_item_id)
+    && Number(receipt.inventory_batch_id) === Number(movement.inventory_batch_id)
+    && movement.movement_kind === 'dispose'
+    && movement.reference_type === INVENTORY_DISPOSAL_REFERENCE
+    && String(movement.reference_id) === String(receipt.inventory_batch_id)
+    && inventoryDisposalNumbersMatch(
+      movement.quantity_delta,
+      -Number(receipt.quantity),
+    )
+    && String(movement.performed_by || '').toLowerCase()
+      === String(receipt.performed_by || '').toLowerCase()
+    && metadata.witness_approval_id === receipt.witness_approval_id;
+  if (!structurallyComplete) {
+    throw AppError.conflict(
+      'Inventory disposal committed without one complete immutable replay receipt',
+      'INVENTORY_DISPOSAL_RECEIPT_CONFLICT',
+    );
+  }
+  if (metadata.request_sha256 !== command.requestSha256
+    || metadata.intent_sha256 !== intentSha256
+    || String(receipt.performed_by || '').toLowerCase() !== performedBy) {
+    throw AppError.conflict(
+      'Idempotency-Key was already used for a different inventory disposal intent',
+      'INVENTORY_DISPOSAL_IDEMPOTENCY_MISMATCH',
+    );
+  }
+  return receipt;
+}
+
+async function loadInventoryDisposalRegisterTx(tx, tenantId, movementId) {
+  return tx.$queryRawUnsafe(
+    `SELECT *
+       FROM pharmacy_schedule_register
+      WHERE tenant_id=$1::uuid
+        AND reference_movement_id=$2::int
+      ORDER BY id
+      LIMIT 2`,
+    tenantId,
+    Number(movementId),
+  );
+}
+
+function assertInventoryDisposalRegisterReceipt(receipt, movement, registers) {
+  const registerRequired = receipt.register_required === true;
+  if ((registerRequired && registers.length !== 1)
+    || (!registerRequired && registers.length !== 0)) {
+    throw AppError.conflict(
+      'Inventory disposal statutory-register evidence conflicts with its immutable receipt',
+      'INVENTORY_DISPOSAL_RECEIPT_CONFLICT',
+    );
+  }
+  const register = registers[0] || null;
+  const expectedScheduleClass = receipt.schedule_class
+    || (receipt.is_narcotic === true ? 'X' : 'H1');
+  if (register && (
+    Number(register.facility_id) !== Number(receipt.facility_id)
+    || Number(register.inventory_item_id) !== Number(receipt.inventory_item_id)
+    || Number(register.inventory_batch_id) !== Number(receipt.inventory_batch_id)
+    || register.movement_kind !== 'dispose'
+    || register.schedule_class !== expectedScheduleClass
+    || !inventoryDisposalNumbersMatch(register.quantity, receipt.quantity)
+    || String(register.performed_by || '').toLowerCase()
+      !== String(receipt.performed_by || '').toLowerCase()
+    || String(register.performed_by_name || '') !== String(receipt.performed_by_name || '')
+    || String(register.witness_uid || '').toLowerCase()
+      !== String(receipt.witness_uid || '').toLowerCase()
+    || String(register.witness_name || '') !== String(receipt.witness_name || '')
+    || Number(register.reference_movement_id) !== Number(movement.id)
+  )) {
+    throw AppError.conflict(
+      'Inventory disposal statutory-register evidence does not match its stock movement',
+      'INVENTORY_DISPOSAL_RECEIPT_CONFLICT',
+    );
+  }
+  return register;
+}
+
+function inventoryDisposalResult(movement, register, receipt, { replay }) {
+  return {
+    disposal: {
+      contract: INVENTORY_DISPOSAL_CONTRACT,
+      facility_id: Number(receipt.facility_id),
+      inventory_item_id: Number(receipt.inventory_item_id),
+      inventory_batch_id: Number(receipt.inventory_batch_id),
+      quantity: Number(receipt.quantity),
+      reason_code: receipt.reason_code,
+      disposition_method: receipt.disposition_method,
+      authority_reference: receipt.authority_reference || null,
+      source_batch_status: receipt.source_batch_status,
+      resulting_batch_status: receipt.resulting_batch_status,
+      movement_id: Number(movement.id),
+      schedule_register_id: register ? Number(register.id) : null,
+      witness_approval_id: receipt.witness_approval_id || null,
+      performed_by: receipt.performed_by,
+      facility_grant_id: receipt.facility_grant_id,
+      witness_uid: receipt.witness_uid || null,
+      witness_facility_grant_id: receipt.witness_facility_grant_id || null,
+      command_key_sha256: receipt.command_key_sha256,
+      request_sha256: receipt.request_sha256,
+      completed_at: movement.created_at,
+    },
+    movement,
+    register_entry: register,
+    idempotent_replay: replay,
+  };
+}
+
+async function appendInventoryDisposalRegisterTx(tx, {
+  tenantId,
+  intent,
+  chain,
+  performer,
+  witness,
+  movement,
+}) {
+  const balance = await controlledCustodyBalanceTx(tx, {
+    tenantId,
+    facilityId: intent.facilityId,
+    inventoryItemId: intent.inventoryItemId,
+  });
+  const scheduleClass = canonicalControlledSchedule(chain);
+  const rows = await tx.$queryRawUnsafe(
+    `INSERT INTO pharmacy_schedule_register
+       (tenant_id, facility_id, inventory_item_id, inventory_batch_id,
+        schedule_class, movement_kind, quantity, unit_label, running_balance,
+        performed_by, performed_by_name, witness_uid, witness_name,
+        reference_movement_id, notes)
+     VALUES ($1::uuid, $2::int, $3::int, $4::int,
+             $5, 'dispose', $6::numeric, $7, $8::numeric,
+             $9::uuid, $10, $11::uuid, $12, $13::int, $14)
+     RETURNING *`,
+    tenantId,
+    intent.facilityId,
+    intent.inventoryItemId,
+    intent.inventoryBatchId,
+    scheduleClass,
+    intent.quantity,
+    chain.unit_label || null,
+    balance,
+    performer.uid,
+    performer.name,
+    witness?.uid || null,
+    witness?.name || null,
+    Number(movement.id),
+    inventoryDisposalLedgerNotes(intent),
+  );
+  if (!rows[0]) {
+    throw AppError.internal(
+      'Inventory disposal statutory register could not be written',
+      'INVENTORY_DISPOSAL_REGISTER_WRITE_FAILED',
+    );
+  }
+  return rows[0];
+}
+
+async function appendInventoryDisposalAuditTx(tx, {
+  tenantId,
+  performer,
+  movement,
+  register,
+  receipt,
+}) {
+  await tx.$executeRawUnsafe(
+    `INSERT INTO audit_logs
+       (uid, role, action, resource, resource_id, metadata, tenant_id)
+     VALUES ($1::uuid, $2, 'PHARMACY_INVENTORY_DISPOSED',
+             'pharmacy_stock_movements', $3, $4::jsonb, $5::uuid)`,
+    performer.uid,
+    performer.role,
+    String(movement.id),
+    JSON.stringify({
+      ...receipt,
+      movement_id: Number(movement.id),
+      schedule_register_id: register ? Number(register.id) : null,
+    }),
+    tenantId,
+  );
+}
+
+async function assertActiveInventoryDisposalTenantTx(tx, tenantId) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT id
+       FROM tenants
+      WHERE id=$1::uuid
+        AND LOWER(COALESCE(status, ''))='active'
+      FOR SHARE`,
+    tenantId,
+  );
+  if (!rows[0]) {
+    throw AppError.conflict(
+      'Inventory disposal requires an active tenant',
+      'INVENTORY_DISPOSAL_AUTHORITY_INVALID',
+    );
+  }
+}
+
+function assertInventoryDisposalWitnessRequest(intent) {
+  if (intent.witnessApprovalId != null) {
+    throw AppError.badRequest(
+      'A witness approval request cannot supply its own approval identity',
+      'INVENTORY_DISPOSAL_CALLER_AUTHORITY_REJECTED',
+      { forbidden_fields: ['witness_approval_id'] },
+    );
+  }
+}
+
+async function resolveInventoryDisposalWitnessPayloadTx(tx, {
+  tenantId,
+  intent,
+  requestedBy,
+  requestedByRole = null,
+  scope,
+  lockAuthority = false,
+}) {
+  if (scope !== CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventoryDisposal) {
+    throw AppError.conflict(
+      'Witness approval does not match an inventory disposal',
+      'CONTROLLED_DISPENSE_WITNESS_APPROVAL_MISMATCH',
+    );
+  }
+  const canonicalRequester = inventoryDisposalUuid(requestedBy, 'requested_by');
+  await assertActiveInventoryDisposalTenantTx(tx, tenantId);
+  const grant = await assertPharmacyFacilityGrant(tx, {
+    tenantId,
+    facilityId: intent.facilityId,
+    actorUid: canonicalRequester,
+    actorRole: requestedByRole,
+    forUpdate: lockAuthority,
+  });
+  const chain = await loadInventoryDisposalChainTx(
+    tx,
+    tenantId,
+    intent,
+    { lock: lockAuthority },
+  );
+  const performer = await canonicalInventoryDisposalPerformerTx(
+    tx,
+    tenantId,
+    chain,
+    grant,
+    { lockIdentity: lockAuthority },
+  );
+  if (!inventoryDisposalNeedsWitness(chain)) {
+    throw AppError.badRequest(
+      'An independent witness approval is only available for Schedule X or narcotic disposal',
+      'INVENTORY_DISPOSAL_WITNESS_NOT_REQUIRED',
+    );
+  }
+  return inventoryDisposalWitnessPayload(intent, chain, performer);
+}
+
+export async function requestInventoryDisposalWitnessApproval(params = {}) {
+  const tenantId = inventoryDisposalUuid(requireTenantId(params.tenantId), 'tenantId');
+  const requestedBy = inventoryDisposalUuid(params.requested_by, 'requested_by');
+  const intent = normalizeInventoryDisposalIntent(params);
+  assertInventoryDisposalWitnessRequest(intent);
+  const payload = await setTenantTx(tenantId, (tx) => (
+    resolveInventoryDisposalWitnessPayloadTx(tx, {
+      tenantId,
+      intent,
+      requestedBy,
+      requestedByRole: params.actorRole || null,
+      scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventoryDisposal,
+      lockAuthority: false,
+    })
+  ));
+  return createControlledDispenseWitnessApproval({
+    tenantId,
+    scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventoryDisposal,
+    payload,
+    requestedBy,
+  });
+}
+
+export async function preflightInventoryDisposalWitnessApproval(params = {}) {
+  const tenantId = inventoryDisposalUuid(requireTenantId(params.tenantId), 'tenantId');
+  const intent = normalizeInventoryDisposalIntent(params.disposal || {});
+  assertInventoryDisposalWitnessRequest(intent);
+  const requesterUid = params.requesterUid == null
+    ? null
+    : inventoryDisposalUuid(params.requesterUid, 'requesterUid');
+  return preflightControlledDispenseWitnessApproval({
+    tenantId,
+    approvalId: params.approvalId,
+    scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventoryDisposal,
+    requesterUid,
+    resolvePayload: ({ tx, requestedBy, scope }) => (
+      resolveInventoryDisposalWitnessPayloadTx(tx, {
+        tenantId,
+        intent,
+        requestedBy,
+        scope,
+        lockAuthority: false,
+      })
+    ),
+  });
+}
+
+export async function approveInventoryDisposalWitnessApproval(params = {}) {
+  const tenantId = inventoryDisposalUuid(requireTenantId(params.tenantId), 'tenantId');
+  const intent = normalizeInventoryDisposalIntent(params.disposal || {});
+  assertInventoryDisposalWitnessRequest(intent);
+  const requesterUid = params.requesterUid == null
+    ? null
+    : inventoryDisposalUuid(params.requesterUid, 'requesterUid');
+  return approveControlledDispenseWitnessApproval({
+    tenantId,
+    approvalId: params.approvalId,
+    actorUid: params.actorUid,
+    scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventoryDisposal,
+    requesterUid,
+    resolvePayload: ({ tx, requestedBy, scope }) => (
+      resolveInventoryDisposalWitnessPayloadTx(tx, {
+        tenantId,
+        intent,
+        requestedBy,
+        scope,
+        lockAuthority: true,
+      })
+    ),
+  });
+}
+
+export async function disposeInventoryBatch(params = {}) {
+  const tenantId = inventoryDisposalUuid(requireTenantId(params.tenantId), 'tenantId');
+  const performedBy = inventoryDisposalUuid(params.performed_by, 'performed_by');
+  const intent = normalizeInventoryDisposalIntent(params);
+  const command = inventoryDisposalCommand(params.commandKey, params.requestFingerprint);
+  const intentSha256 = inventoryDisposalIntentSha256(tenantId, intent, performedBy);
+  const requireExistingReceipt = params.requireExistingReceipt === true;
+
+  return setTenantTx(tenantId, async (tx) => {
+    await tx.$queryRawUnsafe(
+      `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))::text AS lock_acquired`,
+      `${INVENTORY_DISPOSAL_CONTRACT}:${tenantId}:${command.keySha256}`,
+    );
+    await assertActiveInventoryDisposalTenantTx(tx, tenantId);
+    const priorMovements = await loadInventoryDisposalMovementsByCommandTx(
+      tx,
+      tenantId,
+      command.keySha256,
+    );
+    if (priorMovements.length > 1) {
+      throw AppError.conflict(
+        'Multiple inventory disposal movements carry one command identity',
+        'INVENTORY_DISPOSAL_RECEIPT_CONFLICT',
+      );
+    }
+    if (!priorMovements[0] && requireExistingReceipt) {
+      throw AppError.conflict(
+        'Completed inventory disposal replay has no immutable domain receipt',
+        'INVENTORY_DISPOSAL_COMPLETED_REPLAY_RECEIPT_REQUIRED',
+      );
+    }
+    if (priorMovements[0]) {
+      const movement = priorMovements[0];
+      const receipt = inventoryDisposalReceiptFromMovement(movement, {
+        command,
+        intentSha256,
+        performedBy,
+      });
+      const grant = await assertPharmacyFacilityGrant(tx, {
+        tenantId,
+        facilityId: Number(receipt.facility_id),
+        actorUid: performedBy,
+        actorRole: params.actorRole || null,
+        forUpdate: true,
+      });
+      inventoryDisposalPerformerFromGrant(grant);
+      if (receipt.controlled_item === true) {
+        await resolveControlledPerformerTx(tx, tenantId, performedBy);
+      }
+      const registers = await loadInventoryDisposalRegisterTx(tx, tenantId, movement.id);
+      const register = assertInventoryDisposalRegisterReceipt(receipt, movement, registers);
+      return inventoryDisposalResult(movement, register, receipt, { replay: true });
+    }
+
+    const grant = await assertPharmacyFacilityGrant(tx, {
+      tenantId,
+      facilityId: intent.facilityId,
+      actorUid: performedBy,
+      actorRole: params.actorRole || null,
+      forUpdate: true,
+    });
+    const chain = await loadInventoryDisposalChainTx(tx, tenantId, intent, { lock: true });
+    const performer = await canonicalInventoryDisposalPerformerTx(
+      tx,
+      tenantId,
+      chain,
+      grant,
+    );
+    const controlledItem = isControlledItem(chain);
+    const statutorySchedule = controlledItem
+      ? canonicalControlledSchedule(chain)
+      : chain.schedule_class || null;
+    const witnessRequired = inventoryDisposalNeedsWitness(chain);
+    if (!witnessRequired && intent.witnessApprovalId != null) {
+      throw AppError.badRequest(
+        'This inventory disposal does not require witness approval evidence',
+        'INVENTORY_DISPOSAL_WITNESS_NOT_REQUIRED',
+      );
+    }
+    const witnessPayload = inventoryDisposalWitnessPayload(intent, chain, performer);
+    const witness = witnessRequired
+      ? await consumeControlledDispenseWitnessApproval({
+        tx,
+        tenantId,
+        approvalId: intent.witnessApprovalId,
+        scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventoryDisposal,
+        payload: witnessPayload,
+        requestedBy: performer.uid,
+      })
+      : null;
+
+    const remainingEvidence = inventoryDisposalScaledDecimal(
+      chain.remaining_quantity,
+      { allowZero: true },
+    );
+    const quantityEvidence = inventoryDisposalScaledDecimal(intent.quantity);
+    if (!remainingEvidence
+      || !quantityEvidence
+      || remainingEvidence.scaled < quantityEvidence.scaled) {
+      throw AppError.badRequest(
+        `Insufficient stock. Available: ${chain.remaining_quantity}`,
+        'INVENTORY_INSUFFICIENT_STOCK',
+      );
+    }
+    const remainingBefore = remainingEvidence.number;
+    const remainingAfterScaled = remainingEvidence.scaled - quantityEvidence.scaled;
+    const remainingAfter = Number(remainingAfterScaled) / 10_000;
+    const sourceBatchStatus = String(chain.batch_status);
+    const resultingBatchStatus = remainingAfterScaled === 0n ? 'disposed' : sourceBatchStatus;
+    const receipt = {
+      contract: INVENTORY_DISPOSAL_CONTRACT,
+      command_key_sha256: command.keySha256,
+      request_sha256: command.requestSha256,
+      intent_sha256: intentSha256,
+      facility_id: intent.facilityId,
+      inventory_item_id: intent.inventoryItemId,
+      inventory_batch_id: intent.inventoryBatchId,
+      catalog_id: Number(chain.catalog_id),
+      supplier_id: Number(chain.supplier_id),
+      storage_location_id: Number(chain.storage_location_id),
+      batch_number: String(chain.batch_number || '').trim(),
+      lot_number: chain.lot_number == null ? null : String(chain.lot_number).trim(),
+      expiry_date: inventoryDisposalBatchExpiry(chain),
+      quantity: intent.quantity,
+      reason_code: intent.reasonCode,
+      disposition_method: intent.dispositionMethod,
+      authority_reference: intent.authorityReference,
+      source_batch_status: sourceBatchStatus,
+      resulting_batch_status: resultingBatchStatus,
+      remaining_quantity_before: remainingBefore,
+      remaining_quantity_after: remainingAfter,
+      schedule_class: statutorySchedule,
+      is_narcotic: chain.is_narcotic === true,
+      controlled_item: controlledItem,
+      register_required: controlledItem,
+      witness_required: witnessRequired,
+      witness_approval_id: witnessRequired ? intent.witnessApprovalId : null,
+      performed_by: performer.uid,
+      performed_by_name: performer.name,
+      performer_role: performer.role,
+      facility_grant_id: performer.grant_id,
+      witness_uid: witness?.uid || null,
+      witness_name: witness?.name || null,
+      witness_role: witness?.role || null,
+      witness_facility_grant_id: witness?.facility_grant_id || null,
+    };
+    await lockControlledRegisterItemTx(tx, tenantId, intent.inventoryItemId);
+    const { movement } = await recordMovementTx(tx, {
+      tenantId,
+      inventory_item_id: intent.inventoryItemId,
+      inventory_batch_id: intent.inventoryBatchId,
+      movement_kind: 'dispose',
+      quantity: intent.quantity,
+      reference_type: INVENTORY_DISPOSAL_REFERENCE,
+      reference_id: String(intent.inventoryBatchId),
+      notes: inventoryDisposalLedgerNotes(intent),
+      performed_by: performer.uid,
+      expected_facility_id: intent.facilityId,
+      expected_batch_number: String(chain.batch_number || '').trim(),
+      expected_lot_number: chain.lot_number == null ? null : String(chain.lot_number).trim(),
+      expected_expiry_date: inventoryDisposalBatchExpiry(chain),
+      controlled_batch_policy: 'disposable',
+      controlled_authority: CONTROLLED_MOVEMENT_AUTHORITY,
+      metadata: {
+        contract: INVENTORY_DISPOSAL_CONTRACT,
+        command_key_sha256: command.keySha256,
+        request_sha256: command.requestSha256,
+        intent_sha256: intentSha256,
+        facility_id: intent.facilityId,
+        witness_approval_id: receipt.witness_approval_id,
+        intent: inventoryDisposalRequestIntent(intent),
+        receipt,
+      },
+    });
+    const batchRows = await tx.$queryRawUnsafe(
+      `UPDATE pharmacy_inventory_batches
+          SET status=CASE WHEN remaining_quantity=0 THEN 'disposed' ELSE status END,
+              updated_at=NOW()
+        WHERE tenant_id=$1::uuid
+          AND facility_id=$2::int
+          AND inventory_item_id=$3::int
+          AND id=$4::int
+        RETURNING remaining_quantity::text AS remaining_quantity, status`,
+      tenantId,
+      intent.facilityId,
+      intent.inventoryItemId,
+      intent.inventoryBatchId,
+    );
+    if (batchRows.length !== 1
+      || !inventoryDisposalNumbersMatch(batchRows[0].remaining_quantity, remainingAfter)
+      || batchRows[0].status !== resultingBatchStatus) {
+      throw AppError.conflict(
+        'Inventory disposal batch projection does not match its immutable movement receipt',
+        'INVENTORY_DISPOSAL_RECEIPT_CONFLICT',
+      );
+    }
+    const register = controlledItem
+      ? await appendInventoryDisposalRegisterTx(tx, {
+        tenantId,
+        intent,
+        chain,
+        performer,
+        witness,
+        movement,
+      })
+      : null;
+    await appendInventoryDisposalAuditTx(tx, {
+      tenantId,
+      performer,
+      movement,
+      register,
+      receipt,
+    });
+    return inventoryDisposalResult(movement, register, receipt, { replay: false });
+  });
 }
 
 export async function dispenseControlledTx(tx, {
@@ -1093,6 +2328,7 @@ export async function dispenseControlledTx(tx, {
   }
 
   {
+    await lockControlledRegisterItemTx(tx, tenantId, inventory_item_id);
     // Record the underlying stock movement (decrements batch) inside the tx.
     const { movement } = await recordMovementTx(tx, {
       tenantId,
@@ -1116,17 +2352,15 @@ export async function dispenseControlledTx(tx, {
       controlled_authority: CONTROLLED_MOVEMENT_AUTHORITY,
     });
 
-    await lockControlledRegisterItemTx(tx, tenantId, inventory_item_id);
-    const balance = await tx.$queryRawUnsafe(
-      `SELECT COALESCE(SUM(remaining_quantity), 0)::numeric AS bal
-         FROM pharmacy_inventory_batches
-        WHERE inventory_item_id = $1::int AND tenant_id = $2::uuid AND status = 'in_stock'`,
-      Number(inventory_item_id), tenantId,
-    );
+    const balance = await controlledCustodyBalanceTx(tx, {
+      tenantId,
+      facilityId: Number(item.facility_id),
+      inventoryItemId: Number(inventory_item_id),
+    });
 
     const reg = await tx.$queryRawUnsafe(
       `INSERT INTO pharmacy_schedule_register
-         (tenant_id, inventory_item_id, inventory_batch_id, schedule_class,
+         (tenant_id, facility_id, inventory_item_id, inventory_batch_id, schedule_class,
           movement_kind, quantity, unit_label, running_balance,
           patient_uid, patient_name, patient_phone,
           prescription_id, prescription_number,
@@ -1134,17 +2368,18 @@ export async function dispenseControlledTx(tx, {
           patient_id_proof_type, patient_id_proof_last4,
           performed_by, performed_by_name, witness_uid, witness_name,
           reference_movement_id, notes)
-       VALUES ($1::uuid, $2::int, $3, $4, 'dispense', $5::numeric, $6, $7::numeric,
-               $8::uuid, $9, $10, $11, $12, $13::uuid, $14, $15, $16, $17,
-               $18::uuid, $19, $20::uuid, $21, $22::int, $23)
+       VALUES ($1::uuid, $2::int, $3::int, $4, $5, 'dispense', $6::numeric, $7,
+               $8::numeric, $9::uuid, $10, $11, $12, $13, $14::uuid, $15, $16,
+               $17, $18, $19::uuid, $20, $21::uuid, $22, $23::int, $24)
        RETURNING *`,
       tenantId,
+      Number(item.facility_id),
       Number(inventory_item_id),
       controlledBatchId,
-      item.schedule_class || (item.is_narcotic ? 'X' : 'H1'),
+      canonicalControlledSchedule(item),
       Number(quantity),
       item.unit_label,
-      Number(balance[0].bal),
+      balance,
       patient_uid ? String(patient_uid) : null,
       patient_name ? String(patient_name).trim().slice(0, 255) : null,
       patient_phone ? String(patient_phone).trim().slice(0, 20) : null,
@@ -1396,6 +2631,7 @@ export async function dispenseWardControlledAllocationTx(tx, {
       requestedBy: performer.uid,
     })
     : null;
+  await lockControlledRegisterItemTx(tx, tenantId, Number(inventoryItemId));
   const { movement } = await recordMovementTx(tx, {
     tenantId,
     inventory_item_id: Number(inventoryItemId),
@@ -1417,36 +2653,32 @@ export async function dispenseWardControlledAllocationTx(tx, {
       command_key: commandKey || null,
     },
   });
-  await lockControlledRegisterItemTx(tx, tenantId, Number(inventoryItemId));
-  const balance = await tx.$queryRawUnsafe(
-    `SELECT COALESCE(SUM(remaining_quantity), 0)::numeric AS bal
-       FROM pharmacy_inventory_batches
-      WHERE tenant_id=$1::uuid AND inventory_item_id=$2::int AND facility_id=$3::int
-        AND status='in_stock'`,
+  const balance = await controlledCustodyBalanceTx(tx, {
     tenantId,
-    Number(inventoryItemId),
-    Number(facilityId),
-  );
+    facilityId: Number(facilityId),
+    inventoryItemId: Number(inventoryItemId),
+  });
   const registerRows = await tx.$queryRawUnsafe(
     `INSERT INTO pharmacy_schedule_register
-       (tenant_id, inventory_item_id, inventory_batch_id, schedule_class,
+       (tenant_id, facility_id, inventory_item_id, inventory_batch_id, schedule_class,
         movement_kind, quantity, unit_label, running_balance,
         patient_uid, patient_name, patient_phone,
         prescription_id, prescription_number,
         prescriber_uid, prescriber_name, prescriber_registration,
         performed_by, performed_by_name, witness_uid, witness_name,
         reference_movement_id, notes)
-     VALUES ($1::uuid, $2::int, $3::int, $4, 'dispense', $5::numeric, $6, $7::numeric,
-             $8::uuid, $9, $10, NULL, $11, $12::uuid, $13, $14,
-             $15::uuid, $16, $17::uuid, $18, $19::int, $20)
+     VALUES ($1::uuid, $2::int, $3::int, $4::int, $5, 'dispense', $6::numeric,
+             $7, $8::numeric, $9::uuid, $10, $11, NULL, $12, $13::uuid, $14,
+             $15, $16::uuid, $17, $18::uuid, $19, $20::int, $21)
      RETURNING *`,
     tenantId,
+    Number(facilityId),
     Number(inventoryItemId),
     Number(inventoryBatchId),
-    item.schedule_class || (item.is_narcotic ? 'X' : 'H1'),
+    canonicalControlledSchedule(item),
     Number(quantity),
     item.unit_label,
-    Number(balance[0]?.bal || 0),
+    balance,
     String(clinical.patient_uid),
     clinical.patient_name || null,
     clinical.patient_phone || null,
@@ -1489,9 +2721,19 @@ export async function returnWardControlledAllocationTx(tx, {
             source.patient_uid, source.patient_name, source.patient_phone,
             source.prescription_id, source.prescription_number,
             source.prescriber_uid, source.prescriber_name, source.prescriber_registration,
+            item.is_narcotic AS item_is_narcotic,
             actor.uid AS actor_uid,
             COALESCE(NULLIF(BTRIM(actor_staff.name), ''), actor.name) AS actor_name
        FROM pharmacy_schedule_register source
+       JOIN pharmacy_inventory_items item
+         ON item.tenant_id=source.tenant_id
+        AND item.id=source.inventory_item_id
+        AND item.facility_id=$5::int
+        AND item.status='active'
+       JOIN facilities facility
+         ON facility.tenant_id=item.tenant_id
+        AND facility.id=item.facility_id
+        AND facility.status='active'
        JOIN users actor
          ON actor.tenant_id=source.tenant_id
         AND actor.uid=$6::uuid
@@ -1507,15 +2749,9 @@ export async function returnWardControlledAllocationTx(tx, {
         AND source.id=$2::int
         AND source.inventory_item_id=$3::int
         AND source.inventory_batch_id=$4::int
+        AND source.facility_id=$5::int
         AND source.movement_kind='dispense'
-        AND EXISTS (
-          SELECT 1
-            FROM pharmacy_inventory_items item
-           WHERE item.tenant_id=source.tenant_id
-             AND item.id=source.inventory_item_id
-             AND item.facility_id=$5::int
-        )
-      FOR UPDATE OF source, actor, actor_staff`,
+      FOR UPDATE OF source, item, facility, actor, actor_staff`,
     tenantId,
     Number(sourceRegisterId),
     Number(inventoryItemId),
@@ -1530,6 +2766,7 @@ export async function returnWardControlledAllocationTx(tx, {
       'WARD_INDENT_CONTROLLED_RETURN_LINEAGE_INVALID',
     );
   }
+  await lockControlledRegisterItemTx(tx, tenantId, Number(inventoryItemId));
   const { movement } = await recordMovementTx(tx, {
     tenantId,
     inventory_item_id: Number(inventoryItemId),
@@ -1550,35 +2787,34 @@ export async function returnWardControlledAllocationTx(tx, {
       command_key: commandKey || null,
     },
   });
-  await lockControlledRegisterItemTx(tx, tenantId, Number(inventoryItemId));
-  const balance = await tx.$queryRawUnsafe(
-    `SELECT COALESCE(SUM(remaining_quantity), 0)::numeric AS bal
-       FROM pharmacy_inventory_batches
-      WHERE tenant_id=$1::uuid AND inventory_item_id=$2::int AND facility_id=$3::int
-        AND status='in_stock'`,
+  const balance = await controlledCustodyBalanceTx(tx, {
     tenantId,
-    Number(inventoryItemId),
-    Number(facilityId),
-  );
+    facilityId: Number(facilityId),
+    inventoryItemId: Number(inventoryItemId),
+  });
   const registerRows = await tx.$queryRawUnsafe(
     `INSERT INTO pharmacy_schedule_register
-       (tenant_id, inventory_item_id, inventory_batch_id, schedule_class,
+       (tenant_id, facility_id, inventory_item_id, inventory_batch_id, schedule_class,
         movement_kind, quantity, unit_label, running_balance,
         patient_uid, patient_name, patient_phone,
         prescription_id, prescription_number,
         prescriber_uid, prescriber_name, prescriber_registration,
         performed_by, performed_by_name, reference_movement_id, notes)
-     VALUES ($1::uuid, $2::int, $3::int, $4, 'return', $5::numeric, $6, $7::numeric,
-             $8::uuid, $9, $10, $11::int, $12, $13::uuid, $14, $15,
-             $16::uuid, $17, $18::int, $19)
+     VALUES ($1::uuid, $2::int, $3::int, $4::int, $5, 'return', $6::numeric,
+             $7, $8::numeric, $9::uuid, $10, $11, $12::int, $13, $14::uuid,
+             $15, $16, $17::uuid, $18, $19::int, $20)
      RETURNING *`,
     tenantId,
+    Number(facilityId),
     Number(inventoryItemId),
     Number(inventoryBatchId),
-    authority.schedule_class,
+    canonicalControlledSchedule({
+      schedule_class: authority.schedule_class,
+      is_narcotic: authority.item_is_narcotic === true,
+    }),
     Number(quantity),
     authority.unit_label,
-    Number(balance[0]?.bal || 0),
+    balance,
     authority.patient_uid || null,
     authority.patient_name || null,
     authority.patient_phone || null,
@@ -1614,7 +2850,10 @@ export async function listScheduleRegister({
     throw AppError.badRequest('facility_id must be a positive integer', 'PHARMACY_FACILITY_REQUIRED');
   }
   const params = [tid, facilityId];
-  const where = [`register.tenant_id = $1::uuid`, 'item.facility_id=$2::int'];
+  const where = [
+    'register.tenant_id = $1::uuid',
+    'register.facility_id = $2::int',
+  ];
   if (schedule_class) {
     params.push(schedule_class);
     where.push(`register.schedule_class = $${params.length}`);
@@ -1638,11 +2877,51 @@ export async function listScheduleRegister({
       actorRole,
     });
     return tx.$queryRawUnsafe(
-      `SELECT register.*
-         FROM pharmacy_schedule_register_full register
+      `SELECT register.id,
+              register.tenant_id,
+              register.facility_id,
+              register.inventory_item_id,
+              register.inventory_batch_id,
+              register.created_at,
+              register.schedule_class,
+              register.movement_kind,
+              item.sku_code,
+              item.display_name,
+              item.generic_name,
+              item.brand_name,
+              item.strength,
+              item.form,
+              batch.batch_number,
+              batch.expiry_date,
+              register.quantity,
+              register.unit_label,
+              register.running_balance,
+              register.patient_uid,
+              register.patient_name,
+              register.patient_phone,
+              register.prescription_id,
+              register.prescription_number,
+              register.prescriber_uid,
+              register.prescriber_name,
+              register.prescriber_registration,
+              register.patient_id_proof_type,
+              register.patient_id_proof_last4,
+              register.performed_by,
+              register.performed_by_name,
+              register.witness_uid,
+              register.witness_name,
+              register.reference_movement_id,
+              register.notes
+         FROM pharmacy_schedule_register register
          JOIN pharmacy_inventory_items item
            ON item.tenant_id=register.tenant_id
           AND item.id=register.inventory_item_id
+          AND item.facility_id=register.facility_id
+         LEFT JOIN pharmacy_inventory_batches batch
+           ON batch.tenant_id=register.tenant_id
+          AND batch.id=register.inventory_batch_id
+          AND batch.inventory_item_id=register.inventory_item_id
+          AND batch.facility_id=register.facility_id
         WHERE ${where.join(' AND ')}
         ORDER BY register.created_at DESC
         LIMIT $${params.length}::int`,

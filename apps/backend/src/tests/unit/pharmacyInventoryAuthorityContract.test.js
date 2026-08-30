@@ -17,6 +17,7 @@ describe('pharmacy dispense inventory authority contract', () => {
   const prescriptionController = source('controllers/prescription/ePrescriptionController.js');
   const inventoryComposer = source('services/pharmacy/pharmacyOrderInventoryService.js');
   const inventoryV2 = source('services/pharmacy/inventoryV2Service.js');
+  const controlledWitness = source('services/pharmacy/controlledDispenseWitnessService.js');
   const wardWorkflow = source('services/ipd/wardIndentWorkflowService.js');
   const wardClosure = source('services/ipd/wardIndentMedicationClosureService.js');
   const wardRoutes = source('routes/pharmacy/wardIndentRoutes.js');
@@ -55,6 +56,120 @@ describe('pharmacy dispense inventory authority contract', () => {
     expect(delivery).toMatch(/applyOrderPrescriptionProjectionTx/);
     expect(delivery).not.toMatch(/pharmacy_order_id IS NULL/);
     expect(counter).not.toMatch(/pharmacy_order_id IS NULL/);
+  });
+
+  test('order-controlled witness is server-derived and consumed only by the order composer', () => {
+    const quantityGuard = between(
+      inventoryComposer,
+      'function positiveQuantity',
+      'function numericId',
+    );
+    const resolver = between(
+      inventoryComposer,
+      'async function resolveOrderControlledWitnessContextTx',
+      'export async function requestOrderControlledWitnessApproval',
+    );
+    const allocator = between(
+      inventoryComposer,
+      'export async function allocateOrderInventoryTx',
+      'export async function applyOrderPrescriptionProjectionTx',
+    );
+    const counterAuthority = between(
+      inventoryComposer,
+      'export async function resolveCounterDispenseAuthorityTx',
+      'function prescriptionCatalogCandidates',
+    );
+    const approvalRoute = between(
+      orderRoutes,
+      "scope: 'pharmacy_order_inventory_witness_approval'",
+      '// ── New lifecycle routes',
+    );
+    expect(controlledWitness).toMatch(
+      /pharmacyOrder:\s*'pharmacy_order_inventory_dispense'/,
+    );
+    expect(orderRoutes).toMatch(
+      /\/:id\/controlled-dispense\/witness-approvals'/,
+    );
+    expect(orderRoutes).toMatch(
+      /\/:id\/controlled-dispense\/witness-approvals\/:approvalId\/approve'/,
+    );
+    expect(orderRoutes).toMatch(/authenticateOrderControlledWitness/);
+    expect(approvalRoute.indexOf('await preflightOrderControlledWitnessApproval'))
+      .toBeLessThan(approvalRoute.indexOf('await authenticateOrderControlledWitness'));
+    expect(orderRoutes).toMatch(/delete req\.body\.password/);
+    expect(inventoryComposer).toMatch(/ORDER_CONTROLLED_WITNESS_SELECTOR_KEYS/);
+    expect(quantityGuard).toMatch(/\^\(0\|\[1-9\]\[0-9\]\{0,9\}\)/);
+    expect(quantityGuard).toMatch(/BigInt\(match\[1\]\) \* 10_000n/);
+    expect(quantityGuard).toMatch(/scaledQuantity > 99_999_999_999_999n/);
+    expect(quantityGuard).toMatch(/return Number\(scaledQuantity\) \/ 10_000/);
+    expect(counterAuthority).toMatch(/nonNegativeMedicationQuantity\(/);
+    expect(allocator).toMatch(/nonNegativeMedicationQuantity\(/);
+    expect(inventoryComposer).toMatch(/PHARMACY_ORDER_WITNESS_CALLER_AUTHORITY_FORBIDDEN/);
+    expect(resolver).toMatch(/patient\.is_active=TRUE/);
+    expect(resolver).toMatch(/facility\.status='active'/);
+    expect(resolver).toMatch(/assertPharmacyFacilityGrant\(tx/);
+    expect(resolver.indexOf('requesterGrant = await assertPharmacyFacilityGrant'))
+      .toBeLessThan(resolver.indexOf('const orderRows = await tx.$queryRawUnsafe'));
+    expect(resolver).toMatch(/assertVerificationClearedTx\(tx/);
+    expect(inventoryComposer).toMatch(/prescription\.lifecycle_status/);
+    expect(inventoryComposer).toMatch(/prescriber\.id=prescription\.doctor_id/);
+    expect(inventoryComposer).toMatch(/prescription\.signed_by=prescription\.doctor_uid/);
+    expect(inventoryComposer).toMatch(/prescription\.locked_by=prescription\.doctor_uid/);
+    expect(inventoryComposer).toMatch(/requester_facility_grant_id/);
+    expect(inventoryComposer).toMatch(/prescriber_uid/);
+    expect(inventoryComposer).toMatch(/prescription_signed_at/);
+    expect(inventoryComposer).toMatch(/prescription_locked_at/);
+    expect(resolver).toMatch(/orderQuantityEvidence\(orderLine\)/);
+    expect(resolver).toMatch(/item\.status='active'/);
+    expect(resolver).toMatch(/batch\.status AS batch_status/);
+    expect(resolver).toMatch(/inventoryRow\.schedule_class !== 'X'/);
+    expect(inventoryComposer).toMatch(/resolvePayload: async \(\{ tx \}\)/);
+    expect(inventoryComposer).toMatch(/order_remaining_quantity/);
+    expect(allocator).toMatch(/consumeControlledDispenseWitnessApproval\(/);
+    expect(allocator).toMatch(/assertPharmacyFacilityGrant\(tx,[\s\S]*forUpdate: true/);
+    expect(allocator).toMatch(/loadOrderControlledWitnessPrescriptionTx\(tx,[\s\S]*lockAuthority: true/);
+    expect(allocator).toMatch(/scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES\.pharmacyOrder/);
+    expect(allocator).toMatch(
+      /!needsWitness && allocations\?\.some\([\s\S]*CONTROLLED_DISPENSE_WITNESS_NOT_REQUIRED/,
+    );
+    expect(allocator).toMatch(/witness_evidence: witnessEvidence/);
+    expect(allocator).not.toMatch(/witness_approval_id: allocation\.witness_approval_id/);
+    expect(allocator).toMatch(/witness_approval_id: String\(allocation\.witness_approval_id\)/);
+    expect(allocator).toMatch(
+      /witness_approval_scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES\.pharmacyOrder/,
+    );
+    expect(allocator).toMatch(/witness_approval_contract: ORDER_CONTROLLED_WITNESS_CONTRACT/);
+    expect(allocator).toMatch(/metadata\.witness_facility_grant_id/);
+    expect(allocator).toMatch(/witness_facility_grant_id: controlled && needsWitness/);
+    expect(controlledWitness).toMatch(/witness_facility_grant_id/);
+    expect(inventoryV2).toMatch(/witness_facility_grant_id: witness\?\.facility_grant_id/);
+    expect(allocator).toMatch(/witness_approval_id: controlled && needsWitness/);
+    expect(inventoryComposer).toMatch(
+      /\/api\/v1\/pharmacy-orders\/orders\/\$\{Number\(order\.id\)\}\/controlled-dispense\/witness-approvals/,
+    );
+    expect(pharmacyOpenApiSchemas.PharmacyOrderControlledWitnessSelection)
+      .toMatchObject({
+        additionalProperties: false,
+        required: [
+          'order_line_index', 'inventory_item_id', 'inventory_batch_id', 'quantity',
+        ],
+      });
+    expect(pharmacyOpenApiSchemas.PharmacyOrderControlledWitnessSelection.properties.quantity)
+      .toMatchObject({ maximum: 9999999999.9999, multipleOf: 0.0001 });
+    expect(pharmacyOpenApiSchemas.PharmacyOrderInventoryAllocation.properties.quantity)
+      .toMatchObject({ maximum: 9999999999.9999, multipleOf: 0.0001 });
+    for (const alias of ['dispensed_quantity', 'dispensed_qty', 'qty', 'quantity']) {
+      expect(pharmacyOpenApiSchemas.PharmacyCounterDispenseLine.properties[alias])
+        .toMatchObject({ maximum: 9999999999.9999, multipleOf: 0.0001 });
+    }
+    for (const prefix of ['/api/v1/pharmacy-orders', '/api/v1/pharmacy']) {
+      expect(pharmacyOpenApiOperations[
+        `POST ${prefix}/orders/{id}/controlled-dispense/witness-approvals`
+      ].request).toBe('PharmacyOrderControlledWitnessSelection');
+      expect(pharmacyOpenApiOperations[
+        `POST ${prefix}/orders/{id}/controlled-dispense/witness-approvals/{approvalId}/approve`
+      ].request).toBe('PharmacyOrderControlledWitnessDecisionRequest');
+    }
   });
 
   test('counter rejects caller line and price authority before movement or billing', () => {

@@ -2,13 +2,14 @@ import { Client } from 'pg';
 
 import prisma, { setTenantTx } from '../lib/prisma.js';
 import {
-  approveInventoryMovementWitnessApproval,
+  approveInventoryDisposalWitnessApproval,
+  disposeInventoryBatch,
   listScheduleRegister,
-  recordMovement,
-  requestControlledMovementWitnessApproval,
+  requestInventoryDisposalWitnessApproval,
 } from '../services/pharmacy/inventoryV2Service.js';
 import {
   addInventoryBatch,
+  appendStockMovement,
   bridgeForecastToBatches,
   listStockMovements,
   recallBatch,
@@ -64,6 +65,12 @@ describeIfDb('pharmacy inventory ledger tenant and serialization hardening', () 
         TENANT,
       );
       await tx.$executeRawUnsafe(
+        `DELETE FROM audit_logs
+          WHERE tenant_id = $1::uuid
+            AND action = 'PHARMACY_INVENTORY_DISPOSED'`,
+        TENANT,
+      );
+      await tx.$executeRawUnsafe(
         `DELETE FROM clinical_ai_inventory_alerts WHERE tenant_id = $1::uuid`,
         TENANT,
       );
@@ -98,7 +105,10 @@ describeIfDb('pharmacy inventory ledger tenant and serialization hardening', () 
       await tx.$executeRawUnsafe(
         `DELETE FROM approvals
           WHERE tenant_id = $1::uuid
-            AND subject_resource_type = 'inventory_controlled_movement'`,
+            AND subject_resource_type IN (
+              'inventory_controlled_movement',
+              'pharmacy_inventory_controlled_disposal'
+            )`,
         TENANT,
       );
       await tx.$executeRawUnsafe(
@@ -282,20 +292,22 @@ describeIfDb('pharmacy inventory ledger tenant and serialization hardening', () 
         [`pharmacy-controlled-register:${TENANT}:${controlledItemId}`],
       );
 
-      const receive = (batchId, referenceId) => recordMovement({
+      const receive = (batchId, referenceId, fingerprintCharacter) => appendStockMovement({
         tenantId: TENANT,
-        inventory_item_id: controlledItemId,
-        inventory_batch_id: batchId,
-        movement_kind: 'receive',
-        quantity: 5,
-        reference_type: 'med03_controlled_lock_test',
-        reference_id: referenceId,
-        performed_by: ACTOR,
-        expected_facility_id: facilityId,
+        inventoryItemId: controlledItemId,
+        inventoryBatchId: batchId,
+        movementKind: 'receive',
+        quantityDelta: 5,
+        referenceType: 'med03_controlled_lock_test',
+        referenceId,
+        performedBy: ACTOR,
+        actorRole: 'PHARMACY_INCHARGE',
+        commandKey: `med03-controlled-lock-${referenceId}`,
+        requestFingerprint: fingerprintCharacter.repeat(64),
       });
       movementPromises = [
-        receive(controlledBatchA, 'batch-a'),
-        receive(controlledBatchB, 'batch-b'),
+        receive(controlledBatchA, 'batch-a', 'a'),
+        receive(controlledBatchB, 'batch-b', 'b'),
       ];
       const movements = Promise.all(movementPromises);
       movements.catch(() => {});
@@ -336,6 +348,19 @@ describeIfDb('pharmacy inventory ledger tenant and serialization hardening', () 
 
   test('recall is status-only and witnessed disposal decrements exactly once', async () => {
     const recallReference = 'MED03-CDSCO-RECALL-001';
+    await expect(appendStockMovement({
+      tenantId: TENANT,
+      inventoryItemId: recallItemId,
+      inventoryBatchId: recallBatchId,
+      movementKind: 'recall',
+      quantityDelta: -12,
+      performedBy: ACTOR,
+      actorRole: 'PHARMACY_INCHARGE',
+    })).rejects.toMatchObject({
+      code: 'INVENTORY_RECALL_REQUIRES_BATCH_RECALL_PATH',
+      statusCode: 409,
+    });
+
     const recalled = await recallBatch({
       tenantId: TENANT,
       id: recallBatchId,
@@ -386,20 +411,26 @@ describeIfDb('pharmacy inventory ledger tenant and serialization hardening', () 
     ))[0];
     expect(recallEvidence).toMatchObject({ movement_count: 0, register_count: 0 });
 
-    const disposal = {
+    const disposalIntent = {
       tenantId: TENANT,
+      facility_id: facilityId,
       inventory_item_id: recallItemId,
       inventory_batch_id: recallBatchId,
-      movement_kind: 'dispose',
       quantity: 12,
-      reference_type: 'batch_recall_disposal',
-      reference_id: recallReference,
+      reason_code: 'regulatory_recall',
+      disposition_method: 'witnessed_destruction',
+      authority_reference: recallReference,
       notes: 'Witnessed destruction of recalled stock',
       expected_batch_number: 'MED03-RECALL-A',
-      performed_by: ACTOR,
-      expected_facility_id: facilityId,
     };
-    await expect(recordMovement(disposal)).rejects.toMatchObject({
+    const disposal = {
+      ...disposalIntent,
+      performed_by: ACTOR,
+      actorRole: 'PHARMACY_INCHARGE',
+      commandKey: 'med03-recalled-batch-disposal',
+      requestFingerprint: 'c'.repeat(64),
+    };
+    await expect(disposeInventoryBatch(disposal)).rejects.toMatchObject({
       code: 'CONTROLLED_DISPENSE_WITNESS_APPROVAL_INVALID',
     });
 
@@ -413,30 +444,72 @@ describeIfDb('pharmacy inventory ledger tenant and serialization hardening', () 
     expect(afterMissingApproval.status).toBe('recalled');
     expect(Number(afterMissingApproval.remaining_quantity)).toBe(12);
 
-    const approval = await requestControlledMovementWitnessApproval({
-      ...disposal,
+    const approval = await requestInventoryDisposalWitnessApproval({
+      ...disposalIntent,
       requested_by: ACTOR,
+      actorRole: 'PHARMACY_INCHARGE',
     });
-    await approveInventoryMovementWitnessApproval({
+    const approved = await approveInventoryDisposalWitnessApproval({
       tenantId: TENANT,
       approvalId: approval.id,
       actorUid: WITNESS,
       requesterUid: ACTOR,
-      movement: disposal,
+      disposal: disposalIntent,
     });
-    const disposed = await recordMovement({
+    expect(approved.witness).toMatchObject({
+      uid: WITNESS,
+      name: 'MED03 Disposal Witness',
+      role: 'PHARMACY_STAFF',
+    });
+
+    const disposed = await disposeInventoryBatch({
       ...disposal,
       witness_approval_id: approval.id,
+    });
+    expect(disposed).toMatchObject({
+      idempotent_replay: false,
+      disposal: {
+        contract: 'pharmacy_inventory_disposal_v1',
+        facility_id: facilityId,
+        inventory_item_id: recallItemId,
+        inventory_batch_id: recallBatchId,
+        quantity: 12,
+        reason_code: 'regulatory_recall',
+        disposition_method: 'witnessed_destruction',
+        authority_reference: recallReference,
+        source_batch_status: 'recalled',
+        resulting_batch_status: 'disposed',
+        witness_approval_id: String(approval.id),
+        performed_by: ACTOR,
+        witness_uid: WITNESS,
+      },
     });
     expect(disposed.register_entry).toMatchObject({
       movement_kind: 'dispose',
       witness_uid: WITNESS,
     });
 
-    await expect(recordMovement({
+    const replay = await disposeInventoryBatch({
       ...disposal,
       witness_approval_id: approval.id,
-    })).rejects.toMatchObject({ code: 'CONTROLLED_DISPENSE_WITNESS_APPROVAL_CONSUMED' });
+    });
+    expect(replay).toMatchObject({
+      idempotent_replay: true,
+      disposal: {
+        movement_id: disposed.disposal.movement_id,
+        schedule_register_id: disposed.disposal.schedule_register_id,
+        witness_approval_id: String(approval.id),
+        witness_uid: WITNESS,
+      },
+    });
+    await expect(disposeInventoryBatch({
+      ...disposal,
+      witness_approval_id: approval.id,
+      requestFingerprint: 'e'.repeat(64),
+    })).rejects.toMatchObject({
+      code: 'INVENTORY_DISPOSAL_IDEMPOTENCY_MISMATCH',
+      statusCode: 409,
+    });
 
     const finalBatch = (await prisma.$queryRawUnsafe(
       `SELECT status, remaining_quantity
@@ -445,7 +518,7 @@ describeIfDb('pharmacy inventory ledger tenant and serialization hardening', () 
       TENANT,
       recallBatchId,
     ))[0];
-    expect(finalBatch.status).toBe('depleted');
+    expect(finalBatch.status).toBe('disposed');
     expect(Number(finalBatch.remaining_quantity)).toBe(0);
     const movementRows = await prisma.$queryRawUnsafe(
       `SELECT movement_kind, quantity_delta
@@ -474,8 +547,8 @@ describeIfDb('pharmacy inventory ledger tenant and serialization hardening', () 
     expect(Number(registerRows[0].quantity)).toBe(12);
   });
 
-  test('keeps normal tenant-scoped inventory writes, reads, and forecast consumption working', async () => {
-    const batch = await addInventoryBatch({
+  test('keeps governed tenant-scoped receipt, durable replay, reads, and forecast projection working', async () => {
+    const receipt = {
       tenantId: TENANT,
       inventoryItemId: otcItemId,
       facilityId,
@@ -488,17 +561,16 @@ describeIfDb('pharmacy inventory ledger tenant and serialization hardening', () 
       actorRole: 'PHARMACY_INCHARGE',
       commandKey: 'med03-direct-receive',
       requestFingerprint: 'd'.repeat(64),
-    });
-    await recordMovement({
-      tenantId: TENANT,
+    };
+    const batch = await addInventoryBatch(receipt);
+    const replayedBatch = await addInventoryBatch(receipt);
+    expect(Number(replayedBatch.id)).toBe(Number(batch.id));
+    expect(replayedBatch).toMatchObject({
+      batch_number: 'MED03-TENANT-BATCH',
+      facility_id: facilityId,
       inventory_item_id: otcItemId,
-      inventory_batch_id: batch.id,
-      movement_kind: 'issue',
-      quantity: 30,
-      performed_by: ACTOR,
-      expected_facility_id: facilityId,
-      notes: 'tenant-scoped forecast usage',
     });
+    expect(Number(replayedBatch.remaining_quantity)).toBe(100);
 
     const movements = await listStockMovements({
       tenantId: TENANT,
@@ -507,9 +579,12 @@ describeIfDb('pharmacy inventory ledger tenant and serialization hardening', () 
       actorUid: ACTOR,
       actorRole: 'PHARMACY_INCHARGE',
     });
-    expect(movements.movements).toHaveLength(2);
-    expect(movements.movements.map((row) => row.movement_kind).sort())
-      .toEqual(['issue', 'receive']);
+    expect(movements.movements).toHaveLength(1);
+    expect(movements.movements[0]).toMatchObject({
+      movement_kind: 'receive',
+      inventory_item_id: otcItemId,
+    });
+    expect(Number(movements.movements[0].quantity_delta)).toBe(100);
 
     const forecast = await bridgeForecastToBatches({
       tenantId: TENANT,
@@ -523,13 +598,26 @@ describeIfDb('pharmacy inventory ledger tenant and serialization hardening', () 
     );
     expect(otcForecast).toMatchObject({
       inventory_item_id: otcItemId,
-      on_hand: 70,
-      consumption_per_day: 1,
+      on_hand: 100,
+      consumption_per_day: 0,
+      days_to_reorder: null,
       alert_written: false,
     });
 
+    const otcRegisterRows = await prisma.$queryRawUnsafe(
+      `SELECT id
+         FROM pharmacy_schedule_register
+        WHERE tenant_id = $1::uuid AND inventory_item_id = $2::int`,
+      TENANT,
+      otcItemId,
+    );
+    expect(otcRegisterRows).toHaveLength(0);
+
     const registerRows = await listScheduleRegister({
       tenantId: TENANT,
+      facility_id: facilityId,
+      actorUid: ACTOR,
+      actorRole: 'PHARMACY_INCHARGE',
       schedule_class: 'H1',
       limit: 20,
     });

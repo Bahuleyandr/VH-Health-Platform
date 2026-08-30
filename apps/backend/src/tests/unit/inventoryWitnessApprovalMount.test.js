@@ -2,11 +2,15 @@ import { authClient } from '../testClient.js';
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const RUN_KEY = `inventory-witness-mount-${process.pid}-${Date.now()}`;
-const APPROVE_PATHS = [
+const DISPOSAL_APPROVE_PATHS = [
+  '/api/v1/pharmacy/inventory/v2/disposals/witness-approvals/not-an-id/approve',
+  '/api/v1/pharmacy-orders/inventory/v2/disposals/witness-approvals/not-an-id/approve',
+];
+const RETIRED_DISPENSE_APPROVE_PATHS = [
   '/api/v1/pharmacy/inventory/v2/controlled-dispense/witness-approvals/not-an-id/approve',
   '/api/v1/pharmacy-orders/inventory/v2/controlled-dispense/witness-approvals/not-an-id/approve',
 ];
-const MOVEMENT_APPROVE_PATHS = [
+const RETIRED_MOVEMENT_APPROVE_PATHS = [
   '/api/v1/pharmacy/inventory/v2/movements/witness-approvals/not-an-id/approve',
   '/api/v1/pharmacy-orders/inventory/v2/movements/witness-approvals/not-an-id/approve',
 ];
@@ -15,59 +19,85 @@ function client(role) {
   return authClient(role, { tenant_id: TENANT });
 }
 
-describe('inventory controlled-dispense witness app mount', () => {
-  it.each(APPROVE_PATHS)('lets a declared clinical witness role reach %s', async (path) => {
+describe('typed inventory-disposal witness app mount', () => {
+  it.each(DISPOSAL_APPROVE_PATHS)('denies a clinical role at facility-bound route %s', async (path) => {
     const response = await client('DOCTOR').post(path)
       .set('Idempotency-Key', `${RUN_KEY}-${path.includes('pharmacy-orders') ? 'orders' : 'alias'}`)
       .send({
-      dispense: { inventory_item_id: 17, quantity: 1 },
-    });
-    expect(response.statusCode).toBe(400);
-    expect(response.body.code).toBe('INVENTORY_BATCH_REQUIRED');
+        disposal: { inventory_item_id: 17, quantity: 1 },
+      });
+    expect(response.statusCode).toBe(403);
   });
 
-  it.each(MOVEMENT_APPROVE_PATHS)(
-    'lets a declared clinical witness role reach generic movement approval %s',
-    async (path) => {
-      const response = await client('DOCTOR').post(path)
-        .set('Idempotency-Key', `${RUN_KEY}-movement-${path.includes('pharmacy-orders') ? 'orders' : 'alias'}`)
-        .send({
-          movement: {
-            inventory_item_id: 17,
-            movement_kind: 'dispose',
-            quantity: 1,
-          },
-        });
+  it.each(['PHARMACY_STAFF', 'PHARMACY_INCHARGE'])(
+    'lets disposal operator %s host the approval route for password step-up',
+    async (role) => {
+      const response = await client(role).post(DISPOSAL_APPROVE_PATHS[0])
+        .set('Idempotency-Key', `${RUN_KEY}-operator-${role.toLowerCase()}`)
+        .send({ disposal: { inventory_item_id: 17, quantity: 1 } });
       expect(response.statusCode).toBe(400);
-      expect(response.body.code).toBe('INVENTORY_BATCH_REQUIRED');
+      expect(response.body.code).toBe('INVENTORY_DISPOSAL_INPUT_INVALID');
     },
   );
 
-  it('requires an idempotency key after the clinical witness reaches the approval route', async () => {
-    const response = await client('DOCTOR').post(APPROVE_PATHS[0]).send({
-      dispense: { inventory_item_id: 17, quantity: 1 },
+  it.each(RETIRED_MOVEMENT_APPROVE_PATHS)(
+    'keeps the generic movement approval tombstone reachable at %s',
+    async (path) => {
+      const response = await client('DOCTOR').post(path).send({});
+      expect(response.statusCode).toBe(410);
+      expect(response.body.code).toBe('INVENTORY_GENERIC_MOVEMENT_RETIRED');
+    },
+  );
+
+  it.each(RETIRED_DISPENSE_APPROVE_PATHS)(
+    'keeps the standalone controlled-dispense approval tombstone reachable at %s',
+    async (path) => {
+      const response = await client('DOCTOR').post(path).send({});
+      expect(response.statusCode).toBe(410);
+      expect(response.body.code).toBe('INVENTORY_STANDALONE_CONTROLLED_DISPENSE_RETIRED');
+    },
+  );
+
+  it('requires an idempotency key after a pharmacy witness reaches the approval route', async () => {
+    const response = await client('PHARMACY_STAFF').post(DISPOSAL_APPROVE_PATHS[0]).send({
+      disposal: { inventory_item_id: 17, quantity: 1 },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.body.message).toMatch(/Idempotency-Key/);
+  });
+
+  it('requires an idempotency key for final typed disposal', async () => {
+    const path = '/api/v1/pharmacy/inventory/v2/disposals';
+    const response = await client('PHARMACY_STAFF').post(path).send({
+      facility_id: 3,
+      inventory_item_id: 17,
+      inventory_batch_id: 29,
+      quantity: 1,
+      reason_code: 'damaged',
+      disposition_method: 'authorized_incineration',
     });
     expect(response.statusCode).toBe(400);
     expect(response.body.message).toMatch(/Idempotency-Key/);
   });
 
   it.each([
-    '/api/v1/pharmacy/inventory/v2/movements',
-    '/api/v1/pharmacy/inventory/v2/controlled-dispense',
-  ])('requires an idempotency key for final stock mutation %s', async (path) => {
-    const response = await client('PHARMACY_STAFF').post(path).send({
-      inventory_item_id: 17,
-      inventory_batch_id: 29,
-      movement_kind: 'dispose',
-      quantity: 1,
-    });
-    expect(response.statusCode).toBe(400);
-    expect(response.body.message).toMatch(/Idempotency-Key/);
+    ['/api/v1/pharmacy/inventory/v2/movements', 'INVENTORY_GENERIC_MOVEMENT_RETIRED'],
+    [
+      '/api/v1/pharmacy/inventory/v2/controlled-dispense',
+      'INVENTORY_STANDALONE_CONTROLLED_DISPENSE_RETIRED',
+    ],
+  ])('publishes retired final mutation %s as 410 without idempotency preconditions', async (
+    path,
+    code,
+  ) => {
+    const response = await client('PHARMACY_STAFF').post(path).send({});
+    expect(response.statusCode).toBe(410);
+    expect(response.body.code).toBe(code);
   });
 
   it('denies an unrelated role before the approval router', async () => {
-    const response = await client('RECEPTIONIST').post(APPROVE_PATHS[0]).send({
-      dispense: { inventory_item_id: 17, quantity: 1 },
+    const response = await client('RECEPTIONIST').post(DISPOSAL_APPROVE_PATHS[0]).send({
+      disposal: { inventory_item_id: 17, quantity: 1 },
     });
     expect(response.statusCode).toBe(403);
   });

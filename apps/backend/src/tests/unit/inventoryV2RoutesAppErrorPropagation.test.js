@@ -33,6 +33,10 @@ jest.unstable_mockModule('../../services/pharmacy/inventoryV2Service.js', () => 
     'OP_STAFF_NURSE',
     'OP_INCHARGE',
   ],
+  FACILITY_BOUND_CONTROLLED_DISPENSE_WITNESS_ROLES: [
+    'PHARMACY_STAFF',
+    'PHARMACY_INCHARGE',
+  ],
   tenantOf: () => '00000000-0000-4000-8000-000000000001',
   listItems: listItemsMock,
 }));

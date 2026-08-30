@@ -140,9 +140,15 @@ describe('inventoryV2Service facility-scoped reads', () => {
       actorUid: ACTOR,
       actorRole: ACTOR_ROLE,
     });
-    expect(queryRawUnsafeMock.mock.calls[0][0])
-      .toContain('FROM pharmacy_schedule_register_full register');
-    expect(queryRawUnsafeMock.mock.calls[0][0]).toContain('item.facility_id=$2::int');
+    const sql = queryRawUnsafeMock.mock.calls[0][0];
+    expect(sql).toContain('FROM pharmacy_schedule_register register');
+    expect(sql).toContain('register.facility_id = $2::int');
+    expect(sql).toContain('item.tenant_id=register.tenant_id');
+    expect(sql).toContain('item.facility_id=register.facility_id');
+    expect(sql).toContain('batch.tenant_id=register.tenant_id');
+    expect(sql).toContain('batch.inventory_item_id=register.inventory_item_id');
+    expect(sql).toContain('batch.facility_id=register.facility_id');
+    expect(sql).not.toContain('SELECT register.*');
     expect(queryRawUnsafeMock.mock.calls[0].slice(1)).toEqual([
       TENANT,
       FACILITY,
