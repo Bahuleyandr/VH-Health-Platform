@@ -4876,7 +4876,7 @@ async function currentPharmacyFundingAuthorityEventTx(tx, authority) {
        'vh:pharmacy_funding_event_chain:' || $1::uuid::text || ':'
          || $2::int::text || ':' || $3::int::text || ':' || $4,
        753
-     ))`,
+     ))::text AS lock_acquired`,
     authority.tenantId,
     authority.orderId,
     authority.orderVersion,

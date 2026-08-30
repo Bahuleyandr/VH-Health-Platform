@@ -73,7 +73,7 @@ function assertReceiptMatches(receipt, command) {
 
 export async function findSalaryRevisionCommandReplayTx(tx, tenantId, command) {
   await tx.$queryRawUnsafe(
-    `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+    `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS lock_acquired`,
     `${tenantId}:${command.actorUid}:${command.commandScope}:${command.commandKey}`,
   );
   const rows = await tx.$queryRawUnsafe(

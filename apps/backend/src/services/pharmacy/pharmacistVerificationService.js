@@ -72,7 +72,7 @@ export async function lockPharmacyCatalogAuthorityTx(tx, tenantId) {
   await tx.$queryRawUnsafe(
     `SELECT pg_advisory_xact_lock(
        hashtextextended('vh:pharmacy_catalog_authority:' || $1::text, 753)
-     )`,
+     )::text AS lock_acquired`,
     tid,
   );
 }

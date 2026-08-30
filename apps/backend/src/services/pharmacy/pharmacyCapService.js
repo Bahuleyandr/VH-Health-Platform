@@ -152,7 +152,7 @@ export async function lockPharmacyFundingAuthorityTx(tx, { tenantId, patientUid 
          'vh:pharmacy_funding_authority:' || $1::uuid::text || ':' || $2::uuid::text,
          753
        )
-     )`,
+     )::text AS lock_acquired`,
     tid,
     uid,
   );
@@ -376,7 +376,7 @@ export async function resolveAuthoritativeCounterFundingTx(tx, {
        'vh:pharmacy_funding_event_chain:' || $1::uuid::text || ':'
          || $2::int::text || ':' || $3::int::text || ':' || $4,
        753
-     ))`,
+     ))::text AS lock_acquired`,
     tid,
     exactOrderId,
     exactVersion,

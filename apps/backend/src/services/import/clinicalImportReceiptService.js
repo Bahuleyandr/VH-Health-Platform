@@ -188,7 +188,7 @@ export async function lockClinicalImportDocumentReceiptTx(tx, expected) {
   await tx.$queryRawUnsafe(
     `SELECT pg_advisory_xact_lock(
        hashtextextended('vh:clinical_import:' || $1::uuid::text || ':' || $2, 755)
-     )`,
+     )::text AS lock_acquired`,
     expected.tenantId,
     expected.sourceIdentitySha256,
   );
