@@ -32,6 +32,15 @@ function positiveId(value) {
     : null;
 }
 
+function positiveBigintId(value) {
+  const parsed = String(value ?? '').trim();
+  if (!/^[1-9][0-9]{0,18}$/.test(parsed)
+      || BigInt(parsed) > PG_INT8_MAX) {
+    return null;
+  }
+  return parsed;
+}
+
 // ★ Exported because this Set is the SINGLE canonical definition of "a role that
 // may hold pharmacy facility custody". assertPharmacyFacilityGrant (:249) tests
 // the actor's canonical DB role against it before it will accept any grant, so
@@ -287,7 +296,7 @@ export async function assertPharmacyFacilityGrant(db, {
     );
   }
   const grants = await db.$queryRawUnsafe(
-    `SELECT id, granted_at
+    `SELECT id::text AS id, granted_at
        FROM pharmacy_staff_facility_grants
        WHERE tenant_id=$1::uuid AND staff_uid=$2::uuid AND facility_id=$3::int
          AND status='active' AND revoked_at IS NULL
@@ -297,14 +306,15 @@ export async function assertPharmacyFacilityGrant(db, {
     uid,
     fid,
   );
-  if (grants.length === 1 && actor.staff_id != null) {
+  const grantId = grants.length === 1 ? positiveBigintId(grants[0].id) : null;
+  if (grantId && actor.staff_id != null) {
     return {
       actor_id: Number(actor.id),
       actor_uid: uid,
       actor_role: canonicalRole,
       actor_name: actor.staff_name || actor.user_name || null,
       facility_id: fid,
-      grant_id: Number(grants[0].id),
+      grant_id: grantId,
       admin_bypass: false,
     };
   }

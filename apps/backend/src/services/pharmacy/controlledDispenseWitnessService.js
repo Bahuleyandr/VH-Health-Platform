@@ -18,6 +18,7 @@ import {
   normalizeRole,
 } from '../../utils/roles.js';
 import { createApproval, recordApprovalDecision } from '../workflow/taskService.js';
+import { assertPharmacyFacilityGrant } from './pharmacyFacilityAuthorityService.js';
 
 export const CONTROLLED_DISPENSE_WITNESS_ROLES = [
   PHARMACY_STAFF,
@@ -33,9 +34,16 @@ export const CONTROLLED_DISPENSE_WITNESS_ROLES = [
   OP_INCHARGE,
 ];
 
+export const FACILITY_BOUND_CONTROLLED_DISPENSE_WITNESS_ROLES = [
+  PHARMACY_STAFF,
+  PHARMACY_INCHARGE,
+];
+
 export const CONTROLLED_DISPENSE_APPROVAL_SCOPES = Object.freeze({
   inventory: 'inventory_controlled_dispense',
   inventoryMovement: 'inventory_controlled_movement',
+  inventoryDisposal: 'pharmacy_inventory_controlled_disposal',
+  pharmacyOrder: 'pharmacy_order_inventory_dispense',
   counterSale: 'pharmacy_counter_sale',
   dispenseSubstitution: 'pharmacy_dispense_substitution',
   wardIndent: 'ward_indent_controlled_handoff',
@@ -44,8 +52,16 @@ export const CONTROLLED_DISPENSE_APPROVAL_SCOPES = Object.freeze({
 const APPROVAL_KIND = 'controlled_dispense_witness';
 const APPROVAL_CONTRACT = 'controlled_dispense_witness_v1';
 const WITNESS_ROLE_SET = new Set(CONTROLLED_DISPENSE_WITNESS_ROLES);
+const FACILITY_BOUND_WITNESS_ROLE_SET = new Set(
+  FACILITY_BOUND_CONTROLLED_DISPENSE_WITNESS_ROLES,
+);
+const FACILITY_BOUND_APPROVAL_SCOPES = new Set([
+  CONTROLLED_DISPENSE_APPROVAL_SCOPES.inventoryDisposal,
+  CONTROLLED_DISPENSE_APPROVAL_SCOPES.pharmacyOrder,
+]);
 const WITNESS_EVIDENCE = Symbol('controlled-dispense-witness-evidence');
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const PG_INT4_MAX = 2147483647;
 const TRANSIENT_PAYLOAD_KEYS = new Set([
   'witness',
   'witness_uid',
@@ -89,6 +105,18 @@ function requireScope(value) {
   return value;
 }
 
+function approvalFacilityId(scope, payload) {
+  if (!FACILITY_BOUND_APPROVAL_SCOPES.has(scope)) return null;
+  const facilityId = Number(payload?.facility_id);
+  if (!Number.isSafeInteger(facilityId) || facilityId <= 0 || facilityId > PG_INT4_MAX) {
+    throw AppError.conflict(
+      'Witness approval has no exact server-authoritative pharmacy facility',
+      'CONTROLLED_DISPENSE_WITNESS_APPROVAL_MISMATCH',
+    );
+  }
+  return facilityId;
+}
+
 function stableJson(value) {
   if (value == null || typeof value !== 'object') return JSON.stringify(value);
   if (value instanceof Date) return JSON.stringify(value.toISOString());
@@ -115,7 +143,7 @@ export function controlledDispenseApprovalFingerprint({ scope, payload, requeste
 }
 
 export async function assertControlledDispenseWitness(db, {
-  tenantId, witnessUid, performedBy,
+  tenantId, witnessUid, performedBy, facilityId = null, lockFacilityAuthority = false,
 }) {
   const uid = requireUuid(witnessUid, 'witness.uid');
   const dispenser = requireUuid(performedBy, 'performed_by');
@@ -147,7 +175,7 @@ export async function assertControlledDispenseWitness(db, {
   );
   if (!rows[0]) {
     throw AppError.badRequest(
-      'Witness is not an active staff member of this facility',
+      'Witness is not an active staff member of this tenant',
       'CONTROLLED_DISPENSE_WITNESS_NOT_FOUND',
     );
   }
@@ -159,6 +187,16 @@ export async function assertControlledDispenseWitness(db, {
       { witness_role: rows[0].role || null },
     );
   }
+  if (facilityId != null && !FACILITY_BOUND_WITNESS_ROLE_SET.has(role)) {
+    throw AppError.badRequest(
+      'Facility-bound pharmacy custody must be witnessed by a pharmacy operator',
+      'CONTROLLED_DISPENSE_WITNESS_ROLE_INELIGIBLE',
+      {
+        witness_role: rows[0].role || null,
+        allowed_roles: FACILITY_BOUND_CONTROLLED_DISPENSE_WITNESS_ROLES,
+      },
+    );
+  }
   const name = String(rows[0].name || '').trim();
   if (!name) {
     throw AppError.badRequest(
@@ -166,7 +204,23 @@ export async function assertControlledDispenseWitness(db, {
       'CONTROLLED_DISPENSE_WITNESS_NAME_MISSING',
     );
   }
-  return { uid, name, role };
+  let facilityGrantId = null;
+  if (facilityId != null) {
+    const grant = await assertPharmacyFacilityGrant(db, {
+      tenantId,
+      facilityId,
+      actorUid: uid,
+      actorRole: role,
+      forUpdate: lockFacilityAuthority,
+    });
+    facilityGrantId = String(grant.grant_id);
+  }
+  return {
+    uid,
+    name,
+    role,
+    ...(facilityGrantId == null ? {} : { facility_grant_id: facilityGrantId }),
+  };
 }
 
 function approvalMetadata(row) {
@@ -210,7 +264,13 @@ async function loadApproval(db, tenantId, approvalId, { lock = false } = {}) {
   return rows[0];
 }
 
-function assertApprovalContract(row, { scope, payload, requestedBy, requireApproved }) {
+function assertApprovalContract(row, {
+  scope,
+  payload,
+  requestedBy,
+  requireApproved,
+  requirePending = false,
+}) {
   const metadata = approvalMetadata(row);
   const normalizedScope = requireScope(scope);
   const expectedFingerprint = payload === undefined
@@ -232,10 +292,16 @@ function assertApprovalContract(row, { scope, payload, requestedBy, requireAppro
     );
   }
   const approvalExpiry = epochMsOrNull(row.expires_at_epoch_ms);
-  if (approvalExpiry != null && approvalExpiry <= Date.now()) {
+  if (approvalExpiry == null || approvalExpiry <= Date.now()) {
     throw AppError.conflict(
       'Witness approval has expired',
       'CONTROLLED_DISPENSE_WITNESS_APPROVAL_EXPIRED',
+    );
+  }
+  if (requirePending && row.status !== 'pending') {
+    throw AppError.conflict(
+      'Witness approval is not pending and cannot accept a credential decision',
+      'CONTROLLED_DISPENSE_WITNESS_APPROVAL_NOT_PENDING',
     );
   }
   if (requireApproved && row.status !== 'approved') {
@@ -285,31 +351,122 @@ export async function createControlledDispenseWitnessApproval({
   return serializeApprovalId(approval);
 }
 
-export async function approveControlledDispenseWitnessApproval({
-  tenantId, approvalId, actorUid, payload, requesterUid = null,
+export async function preflightControlledDispenseWitnessApproval({
+  db = null,
+  tenantId,
+  approvalId,
+  scope,
+  payload,
+  requesterUid = null,
+  resolvePayload = null,
 }) {
-  return setTenantTx(tenantId, async (tx) => {
-    const row = await loadApproval(tx, tenantId, approvalId, { lock: true });
+  const expectedScope = requireScope(scope);
+  const run = async (tx) => {
+    const row = await loadApproval(tx, tenantId, approvalId);
     const metadata = approvalMetadata(row);
+    const storedRequester = requireUuid(metadata.requested_by, 'requested_by');
+    assertApprovalContract(row, {
+      scope: expectedScope,
+      payload: undefined,
+      requestedBy: storedRequester,
+      requireApproved: false,
+      requirePending: true,
+    });
     if (
       requesterUid
-      && String(metadata.requested_by || '').toLowerCase() !== String(requesterUid).toLowerCase()
+      && String(storedRequester || '').toLowerCase() !== String(requesterUid).toLowerCase()
     ) {
       throw AppError.conflict(
         'Witness approval belongs to a different dispensing staff member',
         'CONTROLLED_DISPENSE_WITNESS_APPROVAL_REQUESTER_MISMATCH',
       );
     }
+    const canonicalPayload = typeof resolvePayload === 'function'
+      ? await resolvePayload({
+        tx,
+        requestedBy: storedRequester,
+        scope: expectedScope,
+      })
+      : payload;
     assertApprovalContract(row, {
-      scope: metadata.scope,
-      payload,
-      requestedBy: metadata.requested_by,
+      scope: expectedScope,
+      payload: canonicalPayload,
+      requestedBy: storedRequester,
       requireApproved: false,
+      requirePending: true,
     });
+    return Object.freeze({ approval_id: String(row.id) });
+  };
+  return db ? run(db) : setTenantTx(tenantId, run);
+}
+
+export async function approveControlledDispenseWitnessApproval({
+  tenantId,
+  approvalId,
+  actorUid,
+  scope = null,
+  payload,
+  requesterUid = null,
+  resolvePayload = null,
+}) {
+  return setTenantTx(tenantId, async (tx) => {
+    const resolvesCanonicalPayload = typeof resolvePayload === 'function';
+    const initialRow = await loadApproval(tx, tenantId, approvalId, {
+      lock: !resolvesCanonicalPayload,
+    });
+    const initialMetadata = approvalMetadata(initialRow);
+    const storedRequester = requireUuid(initialMetadata.requested_by, 'requested_by');
+    const expectedScope = scope == null ? initialMetadata.scope : requireScope(scope);
+    assertApprovalContract(initialRow, {
+      scope: expectedScope,
+      payload: undefined,
+      requestedBy: storedRequester,
+      requireApproved: false,
+      requirePending: true,
+    });
+    if (
+      requesterUid
+      && storedRequester !== String(requesterUid).toLowerCase()
+    ) {
+      throw AppError.conflict(
+        'Witness approval belongs to a different dispensing staff member',
+        'CONTROLLED_DISPENSE_WITNESS_APPROVAL_REQUESTER_MISMATCH',
+      );
+    }
+    const canonicalPayload = resolvesCanonicalPayload
+      ? await resolvePayload({
+        tx,
+        requestedBy: storedRequester,
+        scope: expectedScope,
+      })
+      : payload;
+    const row = resolvesCanonicalPayload
+      ? await loadApproval(tx, tenantId, approvalId, { lock: true })
+      : initialRow;
+    const lockedRequester = requireUuid(
+      approvalMetadata(row).requested_by,
+      'requested_by',
+    );
+    if (lockedRequester !== storedRequester) {
+      throw AppError.conflict(
+        'Witness approval requester changed during the approval ceremony',
+        'CONTROLLED_DISPENSE_WITNESS_APPROVAL_MISMATCH',
+      );
+    }
+    assertApprovalContract(row, {
+      scope: expectedScope,
+      payload: canonicalPayload,
+      requestedBy: storedRequester,
+      requireApproved: false,
+      requirePending: true,
+    });
+    const facilityId = approvalFacilityId(expectedScope, canonicalPayload);
     const witness = await assertControlledDispenseWitness(tx, {
       tenantId,
       witnessUid: actorUid,
-      performedBy: metadata.requested_by,
+      performedBy: storedRequester,
+      facilityId,
+      lockFacilityAuthority: facilityId != null,
     });
     const approved = await recordApprovalDecision({
       tenantId,
@@ -319,8 +476,46 @@ export async function approveControlledDispenseWitnessApproval({
       decision: 'approve',
       tx,
     });
+    if (facilityId != null) {
+      await tx.$queryRawUnsafe(
+        `UPDATE approvals
+            SET metadata = metadata || jsonb_build_object(
+                  'witness_facility_grant_id', $3::text,
+                  'approved_witness_name', $4::text,
+                  'approved_witness_role', $5::text
+                ),
+                updated_at = NOW()
+          WHERE tenant_id = $1::uuid
+            AND id = $2::bigint`,
+        tenantId,
+        row.id,
+        witness.facility_grant_id,
+        witness.name,
+        witness.role,
+      );
+    }
     return { ...serializeApprovalId(approved), witness };
   });
+}
+
+function assertWitnessFacilityGrantEvidence(row, witness, facilityId) {
+  if (facilityId == null) return;
+  const metadata = approvalMetadata(row);
+  const storedGrantId = String(metadata.witness_facility_grant_id || '').trim();
+  const approvedName = String(metadata.approved_witness_name || '').trim();
+  const approvedRole = normalizeRole(metadata.approved_witness_role);
+  if (!/^[1-9][0-9]{0,18}$/.test(storedGrantId)
+      || BigInt(storedGrantId) > 9223372036854775807n
+      || storedGrantId !== String(witness.facility_grant_id || '')
+      || !approvedName
+      || !FACILITY_BOUND_WITNESS_ROLE_SET.has(approvedRole)
+      || approvedName !== witness.name
+      || approvedRole !== witness.role) {
+    throw AppError.conflict(
+      'Witness pharmacy facility authority changed after approval',
+      'CONTROLLED_DISPENSE_WITNESS_FACILITY_GRANT_MISMATCH',
+    );
+  }
 }
 
 function approvedWitnessUid(row) {
@@ -340,11 +535,15 @@ export async function assertApprovedControlledDispenseWitness({
 }) {
   const row = await loadApproval(db, tenantId, approvalId);
   assertApprovalContract(row, { scope, payload, requestedBy, requireApproved: true });
-  return assertControlledDispenseWitness(db, {
+  const facilityId = approvalFacilityId(scope, payload);
+  const witness = await assertControlledDispenseWitness(db, {
     tenantId,
     witnessUid: approvedWitnessUid(row),
     performedBy: requestedBy,
+    facilityId,
   });
+  assertWitnessFacilityGrantEvidence(row, witness, facilityId);
+  return witness;
 }
 
 export async function consumeControlledDispenseWitnessApproval({
@@ -358,18 +557,23 @@ export async function consumeControlledDispenseWitnessApproval({
   }
   const row = await loadApproval(tx, tenantId, approvalId, { lock: true });
   assertApprovalContract(row, { scope, payload, requestedBy, requireApproved: true });
+  const facilityId = approvalFacilityId(scope, payload);
   const witness = await assertControlledDispenseWitness(tx, {
     tenantId,
     witnessUid: approvedWitnessUid(row),
     performedBy: requestedBy,
+    facilityId,
+    lockFacilityAuthority: facilityId != null,
   });
+  assertWitnessFacilityGrantEvidence(row, witness, facilityId);
   await tx.$queryRawUnsafe(
     `UPDATE approvals
         SET metadata = metadata || jsonb_build_object(
               'consumed_at', NOW()::text,
               'consumed_by', $3::text,
               'canonical_witness_name', $4::text,
-              'canonical_witness_role', $5::text
+              'canonical_witness_role', $5::text,
+              'witness_facility_grant_id', $6::text
             ),
             updated_at = NOW()
       WHERE tenant_id = $1::uuid
@@ -379,6 +583,7 @@ export async function consumeControlledDispenseWitnessApproval({
     requestedBy,
     witness.name,
     witness.role,
+    witness.facility_grant_id || null,
   );
   return Object.freeze({ ...witness, [WITNESS_EVIDENCE]: true });
 }

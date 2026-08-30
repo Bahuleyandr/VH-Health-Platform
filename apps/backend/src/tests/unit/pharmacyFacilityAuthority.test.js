@@ -50,7 +50,10 @@ describe('pharmacy facility custody authority', () => {
         staff_id: 12,
         staff_name: 'Pharmacist',
       }])
-      .mockResolvedValueOnce([{ id: 44, granted_at: new Date().toISOString() }]);
+      .mockResolvedValueOnce([{
+        id: '9223372036854775807',
+        granted_at: new Date().toISOString(),
+      }]);
 
     await expect(assertPharmacyFacilityGrant(
       { $queryRawUnsafe: query },
@@ -64,13 +67,14 @@ describe('pharmacy facility custody authority', () => {
     )).resolves.toMatchObject({
       actor_uid: actorUid,
       facility_id: 7,
-      grant_id: 44,
+      grant_id: '9223372036854775807',
     });
 
     expect(query.mock.calls[0][0]).toMatch(/FOR UPDATE OF actor/);
     expect(query.mock.calls[0][0]).not.toMatch(/FOR KEY SHARE/);
     expect(query.mock.calls[1][0]).toMatch(/FOR UPDATE/);
     expect(query.mock.calls[1][0]).not.toMatch(/FOR KEY SHARE/);
+    expect(query.mock.calls[1][0]).toMatch(/id::text AS id/);
   });
 
   test.each([
