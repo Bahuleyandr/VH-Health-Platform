@@ -104,6 +104,10 @@ const workflowSource = readFileSync(
   new URL('../../services/ipd/wardIndentWorkflowService.js', import.meta.url),
   'utf8',
 );
+const controlledWitnessSource = readFileSync(
+  new URL('../../services/pharmacy/controlledDispenseWitnessService.js', import.meta.url),
+  'utf8',
+);
 
 function route(path, method) {
   return router.stack.find((layer) => layer.route?.path === path && layer.route.methods?.[method]);
@@ -437,6 +441,61 @@ describe('authoritative pharmacy ward-indent router', () => {
     expect(workflowSource).toContain('WARD_ITEM_PRELINKED_IN_PENDING_STATE');
     expect(workflowSource).toContain('MOVEMENT_FACILITY_MISMATCH');
     expect(workflowSource).toContain('REGISTER_FACILITY_MISMATCH');
+  });
+
+  test('ward witness endpoints return the canonical approval without narrowing clinical witnesses', () => {
+    const payloadStart = workflowSource.indexOf(
+      'async function loadWardControlledWitnessPayloadTx',
+    );
+    const requestStart = workflowSource.indexOf(
+      'export async function requestWardIndentControlledWitnessApproval',
+    );
+    const approveStart = workflowSource.indexOf(
+      'export async function approveWardIndentControlledWitnessApproval',
+    );
+    const handoffStart = workflowSource.indexOf(
+      'export async function recordWardIndentControlledHandoff',
+    );
+    const payloadLoader = workflowSource.slice(payloadStart, requestStart);
+    const request = workflowSource.slice(requestStart, approveStart);
+    const approval = workflowSource.slice(approveStart, handoffStart);
+    const serializerStart = controlledWitnessSource.indexOf(
+      'export function serializeControlledDispenseWitnessApproval',
+    );
+    const serializerEnd = controlledWitnessSource.indexOf(
+      'export function controlledDispenseApprovalFingerprint',
+      serializerStart,
+    );
+    const serializer = controlledWitnessSource.slice(serializerStart, serializerEnd);
+    const facilityScopesStart = controlledWitnessSource.indexOf(
+      'const FACILITY_BOUND_APPROVAL_SCOPES',
+    );
+    const facilityScopesEnd = controlledWitnessSource.indexOf(
+      'const WITNESS_EVIDENCE',
+      facilityScopesStart,
+    );
+    const facilityBoundScopes = controlledWitnessSource.slice(
+      facilityScopesStart,
+      facilityScopesEnd,
+    );
+
+    expect(request).toContain('const approval = await createControlledDispenseWitnessApproval({');
+    expect(request).toContain('scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.wardIndent');
+    expect(request).toContain('return approval;');
+    expect(approval).toContain('const approval = await approveControlledDispenseWitnessApproval({');
+    expect(approval).toContain('actorUid: witnessUid');
+    expect(approval).toContain('return approval;');
+    expect(request).not.toContain('witness_payload');
+    expect(approval).not.toContain('witness_payload');
+
+    expect(payloadLoader).toContain('actorUid: requestedBy');
+    expect(payloadLoader).not.toContain('witnessUid');
+    expect(approval).not.toContain('assertPharmacyFacilityGrant');
+    expect(workflowSource).toContain('CONTROLLED_DISPENSE_WITNESS_ROLES.includes');
+    expect(serializer).toContain('payload: canonicalPayload');
+    expect(facilityBoundScopes).not.toContain('CONTROLLED_DISPENSE_APPROVAL_SCOPES.wardIndent');
+    expect(controlledWitnessSource).toContain('DOCTOR,');
+    expect(controlledWitnessSource).toContain('NURSING_STAFF,');
   });
 
   test('supply-chain staff can read worklists without gaining request authority', () => {

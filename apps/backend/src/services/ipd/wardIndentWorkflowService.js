@@ -2802,7 +2802,7 @@ export async function requestWardIndentControlledWitnessApproval({
     payload,
     requestedBy,
   });
-  return { ...approval, witness_payload: payload };
+  return approval;
 }
 
 export async function approveWardIndentControlledWitnessApproval({
@@ -2831,7 +2831,7 @@ export async function approveWardIndentControlledWitnessApproval({
     payload,
     requesterUid,
   });
-  return { ...approval, witness_payload: payload };
+  return approval;
 }
 
 export async function recordWardIndentControlledHandoff({
