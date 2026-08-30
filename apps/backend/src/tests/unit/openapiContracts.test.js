@@ -402,6 +402,274 @@ describe('OpenAPI contract overlays (static gate)', () => {
       .toBe(false);
   });
 
+  it('keeps facility-bound witness approvals strict and separate from clinical witnesses', () => {
+    const pendingKeys = [
+      'contract',
+      'expires_at',
+      'id',
+      'payload',
+      'payload_fingerprint',
+      'requested_by',
+      'scope',
+      'status',
+    ];
+    const approvedKeys = [...pendingKeys, 'witness'].sort();
+    const clinicalScopes = [
+      'pharmacy_counter_sale',
+      'pharmacy_dispense_substitution',
+      'ward_indent_controlled_handoff',
+    ];
+    const clinicalRoles = [
+      'PHARMACY_STAFF',
+      'PHARMACY_INCHARGE',
+      'DOCTOR',
+      'DUTY_DOCTOR',
+      'MEDICAL_SUPERINTENDENT',
+      'NURSING_STAFF',
+      'NURSING_INCHARGE',
+      'IP_STAFF_NURSE',
+      'IP_INCHARGE',
+      'OP_STAFF_NURSE',
+      'OP_INCHARGE',
+    ];
+    const exactApproval = (schema, scopes, payloadSchema, witnessSchema) => {
+      expect(schema.oneOf).toHaveLength(2);
+      const pending = schema.oneOf.find(({ properties }) => (
+        properties.status.enum[0] === 'pending'
+      ));
+      const approved = schema.oneOf.find(({ properties }) => (
+        properties.status.enum[0] === 'approved'
+      ));
+
+      expect(pending.additionalProperties).toBe(false);
+      expect(Object.keys(pending.properties).sort()).toEqual(pendingKeys);
+      expect([...pending.required].sort()).toEqual(pendingKeys);
+      expect(pending.properties.witness).toBeUndefined();
+      expect(pending.properties.status).toEqual({ type: 'string', enum: ['pending'] });
+      expect(approved.additionalProperties).toBe(false);
+      expect(Object.keys(approved.properties).sort()).toEqual(approvedKeys);
+      expect([...approved.required].sort()).toEqual(approvedKeys);
+      expect(approved.properties.status).toEqual({ type: 'string', enum: ['approved'] });
+      expect(pending.properties.contract).toEqual({
+        type: 'string', enum: ['controlled_dispense_witness_v1'],
+      });
+      expect(pending.properties.id).toMatchObject({
+        type: 'string',
+        pattern: '^[1-9][0-9]{0,18}$',
+        minLength: 1,
+        maxLength: 19,
+        'x-maximum': '9223372036854775807',
+      });
+      expect(pending.properties.scope).toEqual({ type: 'string', enum: scopes });
+      expect(pending.properties.requested_by).toEqual({ type: 'string', format: 'uuid' });
+      expect(pending.properties.payload).toEqual(payloadSchema);
+      expect(pending.properties.payload_fingerprint).toEqual({
+        type: 'string', pattern: '^[a-f0-9]{64}$',
+      });
+      expect(pending.properties.expires_at).toEqual({ type: 'string', format: 'date-time' });
+      expect(approved.properties.witness).toEqual(witnessSchema);
+    };
+
+    const clinicalWitness =
+      pharmacyCounterSale.schemas.PharmacyClinicalControlledWitnessIdentity;
+    const facilityWitness =
+      pharmacyCounterSale.schemas.PharmacyFacilityBoundControlledWitnessIdentity;
+    expect(clinicalWitness.additionalProperties).toBe(false);
+    expect([...clinicalWitness.required].sort()).toEqual(['name', 'role', 'uid']);
+    expect(Object.keys(clinicalWitness.properties).sort()).toEqual(['name', 'role', 'uid']);
+    expect(clinicalWitness.properties.uid).toEqual({ type: 'string', format: 'uuid' });
+    expect(clinicalWitness.properties.name).toEqual({ type: 'string', minLength: 1 });
+    expect(clinicalWitness.properties.role.enum).toEqual(clinicalRoles);
+    expect(clinicalWitness.properties.facility_grant_id).toBeUndefined();
+    expect(facilityWitness.additionalProperties).toBe(false);
+    expect([...facilityWitness.required].sort()).toEqual([
+      'facility_grant_id', 'name', 'role', 'uid',
+    ]);
+    expect(Object.keys(facilityWitness.properties).sort()).toEqual([
+      'facility_grant_id', 'name', 'role', 'uid',
+    ]);
+    expect(facilityWitness.properties.uid).toEqual({ type: 'string', format: 'uuid' });
+    expect(facilityWitness.properties.name).toEqual({ type: 'string', minLength: 1 });
+    expect(facilityWitness.properties.role.enum).toEqual([
+      'PHARMACY_STAFF', 'PHARMACY_INCHARGE',
+    ]);
+    expect(facilityWitness.properties.facility_grant_id).toMatchObject({
+      type: 'string',
+      pattern: '^[1-9][0-9]{0,18}$',
+      minLength: 1,
+      maxLength: 19,
+      'x-maximum': '9223372036854775807',
+    });
+
+    exactApproval(
+      pharmacyCounterSale.schemas.PharmacyCounterSaleWitnessApproval,
+      clinicalScopes,
+      { type: 'object', additionalProperties: true },
+      { $ref: '#/components/schemas/PharmacyClinicalControlledWitnessIdentity' },
+    );
+    exactApproval(
+      pharmacyCounterSale.schemas.PharmacyInventoryDisposalWitnessApproval,
+      ['pharmacy_inventory_controlled_disposal'],
+      { $ref: '#/components/schemas/PharmacyInventoryDisposalWitnessPayload' },
+      { $ref: '#/components/schemas/PharmacyFacilityBoundControlledWitnessIdentity' },
+    );
+    exactApproval(
+      pharmacy.schemas.PharmacyOrderControlledWitnessApproval,
+      ['pharmacy_order_inventory_dispense'],
+      { $ref: '#/components/schemas/PharmacyOrderControlledWitnessPayload' },
+      { $ref: '#/components/schemas/PharmacyFacilityBoundControlledWitnessIdentity' },
+    );
+
+    expect(pharmacyCounterSale.schemas.PharmacyCounterSaleWitnessApprovalResponse
+      .properties.data).toEqual({
+      $ref: '#/components/schemas/PharmacyCounterSaleWitnessApproval',
+    });
+    expect(pharmacy.schemas.PharmacySubstitutionWitnessApprovalResponse.properties.data)
+      .toEqual({ $ref: '#/components/schemas/PharmacyCounterSaleWitnessApproval' });
+    expect(pharmacyCounterSale.schemas.PharmacyInventoryDisposalWitnessApprovalResponse
+      .properties.data).toEqual({
+      $ref: '#/components/schemas/PharmacyInventoryDisposalWitnessApproval',
+    });
+    expect(pharmacy.schemas.PharmacyOrderControlledWitnessResponse.properties.data).toEqual({
+      $ref: '#/components/schemas/PharmacyOrderControlledWitnessApproval',
+    });
+
+    const orderPayload = pharmacy.schemas.PharmacyOrderControlledWitnessPayload;
+    const orderPayloadKeys = [
+      'batch_number',
+      'batch_safety_contract',
+      'contract',
+      'expiry_date',
+      'facility_id',
+      'inventory_batch_id',
+      'inventory_item_id',
+      'lot_number',
+      'operation',
+      'order_catalog_id',
+      'order_dispensed_quantity',
+      'order_id',
+      'order_inventory_authority_version',
+      'order_line_index',
+      'order_ordered_quantity',
+      'order_remaining_quantity',
+      'order_status',
+      'patient_uid',
+      'prescriber_uid',
+      'prescriber_user_id',
+      'prescription_catalog_id',
+      'prescription_dispensed_quantity',
+      'prescription_id',
+      'prescription_lifecycle_status',
+      'prescription_line_index',
+      'prescription_locked_at',
+      'prescription_locked_by',
+      'prescription_number',
+      'prescription_ordered_quantity',
+      'prescription_remaining_quantity',
+      'prescription_revision',
+      'prescription_signed_at',
+      'prescription_signed_by',
+      'prescription_status',
+      'quantity',
+      'requester_facility_grant_id',
+      'requester_facility_role',
+    ].sort();
+    expect(orderPayload.additionalProperties).toBe(false);
+    expect(Object.keys(orderPayload.properties).sort()).toEqual(orderPayloadKeys);
+    expect([...orderPayload.required].sort()).toEqual(orderPayloadKeys);
+
+    const disposalPayload =
+      pharmacyCounterSale.schemas.PharmacyInventoryDisposalWitnessPayload;
+    const disposalPayloadKeys = [
+      'authority_reference',
+      'batch_number',
+      'catalog_id',
+      'contract',
+      'disposition_method',
+      'expiry_date',
+      'facility_grant_id',
+      'facility_id',
+      'inventory_batch_id',
+      'inventory_item_id',
+      'lot_number',
+      'notes',
+      'performer_role',
+      'quantity',
+      'reason_code',
+      'source_batch_status',
+      'storage_location_id',
+      'supplier_id',
+    ];
+    expect(disposalPayload.additionalProperties).toBe(false);
+    expect(Object.keys(disposalPayload.properties).sort()).toEqual(disposalPayloadKeys);
+    expect([...disposalPayload.required].sort()).toEqual(disposalPayloadKeys);
+    expect(disposalPayload.properties.performer_role.enum).toEqual([
+      'PHARMACY_STAFF', 'PHARMACY_INCHARGE',
+    ]);
+    expect(disposalPayload.properties.facility_grant_id).toMatchObject({
+      type: 'string',
+      pattern: '^[1-9][0-9]{0,18}$',
+      minLength: 1,
+      maxLength: 19,
+      'x-maximum': '9223372036854775807',
+    });
+
+    const approvalIdSchema = expect.objectContaining({
+      type: 'string',
+      pattern: '^[1-9][0-9]{0,18}$',
+      minLength: 1,
+      maxLength: 19,
+      'x-maximum': '9223372036854775807',
+    });
+    const orderIdSchema = { type: 'integer', minimum: 1, maximum: 2147483647 };
+    for (const prefix of ['/api/v1/pharmacy-orders', '/api/v1/pharmacy']) {
+      const orderRequest = pharmacy.operations[
+        `POST ${prefix}/orders/{id}/controlled-dispense/witness-approvals`
+      ];
+      const orderApprove = pharmacy.operations[
+        `POST ${prefix}/orders/{id}/controlled-dispense/witness-approvals/{approvalId}/approve`
+      ];
+      const disposalRequest = pharmacyCounterSale.operations[
+        `POST ${prefix}/inventory/v2/disposals/witness-approvals`
+      ];
+      const disposalApprove = pharmacyCounterSale.operations[
+        `POST ${prefix}/inventory/v2/disposals/witness-approvals/{id}/approve`
+      ];
+      const clinicalApprove = pharmacyCounterSale.operations[
+        `POST ${prefix}/counter-sales/witness-approvals/{id}/approve`
+      ];
+
+      expect(orderRequest).toMatchObject({
+        request: 'PharmacyOrderControlledWitnessSelection',
+        response: 'PharmacyOrderControlledWitnessResponse',
+      });
+      expect(orderApprove).toMatchObject({
+        request: 'PharmacyOrderControlledWitnessDecisionRequest',
+        response: 'PharmacyOrderControlledWitnessResponse',
+      });
+      expect(orderRequest.pathParameters.id).toEqual(orderIdSchema);
+      expect(orderApprove.pathParameters.id).toEqual(orderIdSchema);
+      expect(orderApprove.pathParameters.approvalId).toEqual(approvalIdSchema);
+      expect(disposalRequest).toMatchObject({
+        request: 'PharmacyInventoryDisposalWitnessApprovalRequest',
+        response: 'PharmacyInventoryDisposalWitnessApprovalResponse',
+      });
+      expect(disposalApprove).toMatchObject({
+        request: 'PharmacyInventoryDisposalWitnessApprovalDecisionRequest',
+        response: 'PharmacyInventoryDisposalWitnessApprovalResponse',
+      });
+      expect(disposalApprove.pathParameters.id).toEqual(approvalIdSchema);
+      for (const operation of [orderRequest, orderApprove, disposalRequest, disposalApprove]) {
+        expect(operation.description).toMatch(/ACTIVE grant/);
+        expect(operation.description).toMatch(/pharmacy operator|PHARMACY_STAFF/);
+        expect(operation.description).toMatch(/exact (?:order |disposal )?facility/);
+        expect(operation.description).not.toMatch(/medical or nursing|clinical witness/i);
+      }
+      expect(clinicalApprove.description).toMatch(/pharmacy, medical, or nursing witness/);
+      expect(clinicalApprove.response).toBe('PharmacyCounterSaleWitnessApprovalResponse');
+    }
+  });
+
   it('publishes the tenant/facility pharmacy order authority contract end to end', () => {
     const idempotencyHeader = expect.objectContaining({
       name: 'Idempotency-Key',

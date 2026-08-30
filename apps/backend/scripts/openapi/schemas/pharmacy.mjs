@@ -32,6 +32,63 @@ const nonNegativeMoney = {
     { type: 'string', pattern: '^\\d+(?:\\.\\d+)?$' },
   ],
 };
+const positiveSignedInt64String = {
+  type: 'string',
+  pattern: '^[1-9][0-9]{0,18}$',
+  minLength: 1,
+  maxLength: 19,
+  'x-maximum': '9223372036854775807',
+};
+const pharmacyFacilityBoundApprovalIdPathSchema = {
+  ...positiveSignedInt64String,
+  description: 'Canonical witness approval id serialized as text.',
+};
+const facilityBoundWitnessApprovalSchema = ({ scope, payloadSchema }) => {
+  const publicProperties = {
+    id: pharmacyFacilityBoundApprovalIdPathSchema,
+    contract: { type: 'string', enum: ['controlled_dispense_witness_v1'] },
+    scope: { type: 'string', enum: [scope] },
+    requested_by: { type: 'string', format: 'uuid' },
+    payload: payloadSchema,
+    payload_fingerprint: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+    expires_at: { type: 'string', format: 'date-time' },
+  };
+  const required = [
+    'id',
+    'contract',
+    'scope',
+    'status',
+    'requested_by',
+    'payload',
+    'payload_fingerprint',
+    'expires_at',
+  ];
+  return {
+    oneOf: [
+      {
+        type: 'object',
+        additionalProperties: false,
+        required,
+        properties: {
+          ...publicProperties,
+          status: { type: 'string', enum: ['pending'] },
+        },
+      },
+      {
+        type: 'object',
+        additionalProperties: false,
+        required: [...required, 'witness'],
+        properties: {
+          ...publicProperties,
+          status: { type: 'string', enum: ['approved'] },
+          witness: {
+            $ref: '#/components/schemas/PharmacyFacilityBoundControlledWitnessIdentity',
+          },
+        },
+      },
+    ],
+  };
+};
 
 export const schemas = {
   // =========================================================================
@@ -1721,8 +1778,171 @@ export const schemas = {
     ],
   },
 
-  // Approval rows share the counter-sale/inventory witness approval shape.
+  // Counter sale and substitution retain the broad clinical witness roster.
   PharmacySubstitutionWitnessApprovalResponse: envelope('PharmacyCounterSaleWitnessApproval'),
+
+  PharmacyOrderControlledWitnessPayload: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'contract',
+      'order_id',
+      'order_line_index',
+      'order_inventory_authority_version',
+      'order_status',
+      'operation',
+      'facility_id',
+      'requester_facility_grant_id',
+      'requester_facility_role',
+      'order_catalog_id',
+      'order_ordered_quantity',
+      'order_dispensed_quantity',
+      'order_remaining_quantity',
+      'inventory_item_id',
+      'inventory_batch_id',
+      'batch_number',
+      'lot_number',
+      'expiry_date',
+      'batch_safety_contract',
+      'quantity',
+      'patient_uid',
+      'prescription_id',
+      'prescription_number',
+      'prescription_revision',
+      'prescription_status',
+      'prescription_lifecycle_status',
+      'prescriber_user_id',
+      'prescriber_uid',
+      'prescription_signed_at',
+      'prescription_signed_by',
+      'prescription_locked_at',
+      'prescription_locked_by',
+      'prescription_line_index',
+      'prescription_catalog_id',
+      'prescription_ordered_quantity',
+      'prescription_dispensed_quantity',
+      'prescription_remaining_quantity',
+    ],
+    properties: {
+      contract: {
+        type: 'string',
+        enum: ['pharmacy_order_inventory_dispense_witness_v1'],
+      },
+      order_id: positiveInt32,
+      order_line_index: { type: 'integer', minimum: 0 },
+      order_inventory_authority_version: { type: 'integer', minimum: 1 },
+      order_status: {
+        type: 'string',
+        enum: ['PENDING', 'CONFIRMED', 'PREPARING', 'PARTIALLY_DISPENSED'],
+      },
+      operation: { type: 'string', enum: ['counter', 'delivery'] },
+      facility_id: positiveInt32,
+      requester_facility_grant_id: {
+        ...positiveSignedInt64String,
+        description: 'ACTIVE facility grant of the authenticated dispensing operator.',
+      },
+      requester_facility_role: {
+        type: 'string',
+        enum: ['PHARMACY_STAFF', 'PHARMACY_INCHARGE'],
+      },
+      order_catalog_id: positiveInt32,
+      order_ordered_quantity: {
+        type: 'number', minimum: 0.0001, maximum: 9999999999.9999, multipleOf: 0.0001,
+      },
+      order_dispensed_quantity: {
+        type: 'number', minimum: 0, maximum: 9999999999.9999, multipleOf: 0.0001,
+      },
+      order_remaining_quantity: {
+        type: 'number', minimum: 0, maximum: 9999999999.9999, multipleOf: 0.0001,
+      },
+      inventory_item_id: positiveInt32,
+      inventory_batch_id: positiveInt32,
+      batch_number: { type: 'string', minLength: 1, maxLength: 120, nullable: true },
+      lot_number: { type: 'string', minLength: 1, maxLength: 120, nullable: true },
+      expiry_date: { type: 'string', format: 'date' },
+      batch_safety_contract: {
+        type: 'string',
+        enum: ['usable_in_stock_nonexpired_sufficient_stock_v1'],
+      },
+      quantity: {
+        type: 'number', minimum: 0.0001, maximum: 9999999999.9999, multipleOf: 0.0001,
+      },
+      patient_uid: { type: 'string', format: 'uuid' },
+      prescription_id: positiveInt32,
+      prescription_number: { type: 'string', minLength: 1, nullable: true },
+      prescription_revision: { type: 'integer', minimum: 1 },
+      prescription_status: { type: 'string', enum: ['active', 'pharmacy_linked'] },
+      prescription_lifecycle_status: { type: 'string', enum: ['signed'] },
+      prescriber_user_id: positiveInt32,
+      prescriber_uid: { type: 'string', format: 'uuid' },
+      prescription_signed_at: { type: 'string', format: 'date-time' },
+      prescription_signed_by: { type: 'string', format: 'uuid' },
+      prescription_locked_at: { type: 'string', format: 'date-time' },
+      prescription_locked_by: { type: 'string', format: 'uuid' },
+      prescription_line_index: { type: 'integer', minimum: 0 },
+      prescription_catalog_id: positiveInt32,
+      prescription_ordered_quantity: {
+        type: 'number', minimum: 0.0001, maximum: 9999999999.9999, multipleOf: 0.0001,
+      },
+      prescription_dispensed_quantity: {
+        type: 'number', minimum: 0, maximum: 9999999999.9999, multipleOf: 0.0001,
+      },
+      prescription_remaining_quantity: {
+        type: 'number', minimum: 0, maximum: 9999999999.9999, multipleOf: 0.0001,
+      },
+    },
+  },
+
+  PharmacyOrderControlledWitnessApproval: facilityBoundWitnessApprovalSchema({
+    scope: 'pharmacy_order_inventory_dispense',
+    payloadSchema: { $ref: '#/components/schemas/PharmacyOrderControlledWitnessPayload' },
+  }),
+
+  PharmacyOrderControlledWitnessSelection: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'order_line_index', 'inventory_item_id', 'inventory_batch_id', 'quantity',
+    ],
+    description:
+      'Exact order-line and batch selectors. Patient, facility, prescription, catalog, performer and witness authority are server-derived and are not accepted from the caller.',
+    properties: {
+      order_line_index: { type: 'integer', minimum: 0 },
+      inventory_item_id: positiveInt32,
+      inventory_batch_id: positiveInt32,
+      quantity: {
+        type: 'number', minimum: 0.0001, maximum: 9999999999.9999, multipleOf: 0.0001,
+      },
+    },
+  },
+
+  PharmacyOrderControlledWitnessDecisionRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['selection', 'employeeId', 'password'],
+    properties: {
+      selection: {
+        $ref: '#/components/schemas/PharmacyOrderControlledWitnessSelection',
+      },
+      employeeId: {
+        type: 'string',
+        pattern: '^[A-Z0-9-]{3,20}$',
+        description:
+          'Employee ID of the second active pharmacy operator holding an ACTIVE grant for the exact order facility, authenticated without replacing the dispensing pharmacist session.',
+      },
+      password: {
+        type: 'string',
+        format: 'password',
+        minLength: 6,
+        maxLength: 100,
+        writeOnly: true,
+        description:
+          'Independent witness password. It is deleted from the request body after authentication and never enters the idempotency fingerprint.',
+      },
+    },
+  },
+
+  PharmacyOrderControlledWitnessResponse: envelope('PharmacyOrderControlledWitnessApproval'),
 
   PharmacySupplyStockMovementErrorResponse: {
     type: 'object',
@@ -2255,6 +2475,37 @@ const OPS = [
     request: 'PharmacyOrderDispatchRequest',
     response: 'PharmacyOrderMutationResponse',
     additionalResponses: pharmacyOrderIdempotentErrorResponses,
+  }],
+  ['POST /orders/{id}/controlled-dispense/witness-approvals', {
+    description:
+      'Creates a short-lived one-time witness request for an exact Schedule X or narcotic order allocation. The server resolves and fingerprints the active tenant patient, signed prescription line and remainder, facility grant, active performer, catalog-linked item and usable batch. Only a second active pharmacy operator holding an ACTIVE grant for this exact order facility may approve it. The retired standalone Inventory V2 dispense is not reopened. Idempotency-Key is required.',
+    pathParameters: { id: pharmacyOrderIdPathSchema },
+    parameters: [substitutionIdempotencyKeyParameter],
+    request: 'PharmacyOrderControlledWitnessSelection',
+    response: 'PharmacyOrderControlledWitnessResponse',
+    additionalResponses: {
+      ...pharmacyOrderIdempotentErrorResponses,
+      429: pharmacyOrderDispenseErrorResponse(
+        'The witness credential attempt was rate limited or locked.',
+      ),
+    },
+  }],
+  ['POST /orders/{id}/controlled-dispense/witness-approvals/{approvalId}/approve', {
+    description:
+      'Authenticates a second active PHARMACY_STAFF or PHARMACY_INCHARGE operator holding an ACTIVE grant for the exact order facility and approves the unchanged server-derived allocation. Self-witness, grant drift, expiry, replay, and payload drift fail closed. Final order dispense revalidates and consumes the approval atomically with stock and statutory register writes. Idempotency-Key is required.',
+    pathParameters: {
+      id: pharmacyOrderIdPathSchema,
+      approvalId: pharmacyFacilityBoundApprovalIdPathSchema,
+    },
+    parameters: [substitutionIdempotencyKeyParameter],
+    request: 'PharmacyOrderControlledWitnessDecisionRequest',
+    response: 'PharmacyOrderControlledWitnessResponse',
+    additionalResponses: {
+      ...pharmacyOrderIdempotentErrorResponses,
+      429: pharmacyOrderDispenseErrorResponse(
+        'The witness credential attempt was rate limited or locked.',
+      ),
+    },
   }],
   ['GET /orders/{id}/delivery-assignees', {
     description:
