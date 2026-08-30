@@ -22,6 +22,7 @@ const sendEmailMock = jest.fn();
 const sendWhatsAppMock = jest.fn();
 const queuePatientSmsMock = jest.fn();
 const collectPaymentMock = jest.fn();
+const lockTenantPatientMergeStabilityMock = jest.fn();
 const loggerWarnMock = jest.fn();
 const getTenantSettingsMock = jest.fn();
 
@@ -52,6 +53,10 @@ jest.unstable_mockModule('../../utils/notifications/sendWhatsAppNotification.js'
 
 jest.unstable_mockModule('../../utils/notifications/smsOutbox.js', () => ({
   queuePatientSms: queuePatientSmsMock,
+}));
+
+jest.unstable_mockModule('../../utils/patientMergeStabilityLock.js', () => ({
+  lockTenantPatientMergeStability: lockTenantPatientMergeStabilityMock,
 }));
 
 jest.unstable_mockModule('../../services/billing/billingV2Service.js', () => ({
@@ -583,7 +588,12 @@ describe('markPaymentLinkPaid', () => {
       mode: 'CARD',
       reference: 'REF-9',
       collected_by: PATIENT_B,
-    }), expect.anything()); // 2nd arg: { tx } — collectPayment now runs in the caller's setTenantTx
+    }), { tx: __prismaDefaultMock, mergeStabilityHeld: true });
+    expect(lockTenantPatientMergeStabilityMock)
+      .toHaveBeenCalledWith(__prismaDefaultMock, TENANT);
+    expect(lockTenantPatientMergeStabilityMock).toHaveBeenCalledTimes(1);
+    expect(lockTenantPatientMergeStabilityMock.mock.invocationCallOrder[0])
+      .toBeLessThan(queryRawUnsafeMock.mock.invocationCallOrder[0]);
     // status flip persisted with linked_payment_id
     const upd = executeRawUnsafeMock.mock.calls[0];
     expect(upd[0]).toContain("status = 'paid'");

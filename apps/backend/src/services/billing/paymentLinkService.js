@@ -13,6 +13,7 @@ import { sendEmail } from '../../utils/notifications/sendEmailNotification.js';
 import { sendWhatsApp } from '../../utils/notifications/sendWhatsAppNotification.js';
 import { AppError } from '../../utils/AppError.js';
 import { boundedInteger } from '../../utils/pagination.js';
+import { lockTenantPatientMergeStability } from '../../utils/patientMergeStabilityLock.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { getTenantSettings } from '../tenant/tenantSettingsService.js';
 import { collectPayment, deriveInvoicePaymentStateFromLedgerTx } from './billingV2Service.js';
@@ -639,8 +640,11 @@ export async function markPaymentLinkPaid({
   // additionally backstopped by migration 317's unique (tenant_id, reference,
   // mode) index, so even two links re-presenting the same gateway reference
   // collapse to one payment row.
-  const wiring = await resolveLedgerWiring(requireTenantId(tenantId));
-  const payment = await setTenantTx(requireTenantId(tenantId), async (tx) => {
+  const tenant = requireTenantId(tenantId);
+  const wiring = await resolveLedgerWiring(tenant);
+  const payment = await setTenantTx(tenant, async (tx) => {
+    await lockTenantPatientMergeStability(tx, tenant);
+
     const linkRows = await tx.$queryRawUnsafe(
       `SELECT id, invoice_id, patient_uid, amount, upi_transaction_ref, status
          FROM billing_payment_links
@@ -664,7 +668,7 @@ export async function markPaymentLinkPaid({
       reference: paid_reference || link.upi_transaction_ref,
       collected_by: performed_by,
       notes: `Payment link ${link_token}`,
-    }, { tx });
+    }, { tx, mergeStabilityHeld: true });
 
     await tx.$executeRawUnsafe(
       `UPDATE billing_payment_links

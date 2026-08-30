@@ -1324,7 +1324,7 @@ export async function createCounterSale({
         shift: drawer ? drawer.shift : null,
         notes: `Pharmacy counter sale #${sale.id}`,
         tenantId: tenant,
-      }, { tx });
+      }, { tx, mergeStabilityHeld: true });
 
       if (wiring.sameTx) {
         await postPaymentEntry({ payment, tenantId: tenant, tx });
