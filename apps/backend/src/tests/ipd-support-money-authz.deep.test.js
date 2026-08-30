@@ -23,9 +23,12 @@ const app = (await import('../app.js')).default;
 const prisma = (await import('../lib/prisma.js')).default;
 const ipdSupportService = (await import('../services/ipd/ipdSupportService.js')).default;
 const { verifyOrder } = await import('../services/emr/orderEntryService.js');
-const { dispenseControlled } = await import('../services/pharmacy/inventoryV2Service.js');
+const { bindMedicationOrderCatalogAuthority } = await import(
+  '../services/ipd/wardIndentWorkflowService.js'
+);
 const { API_KEY, generateTestToken } = await import('./testClient.js');
 const { deleteWithAuditBypass } = await import('./helpers/auditBypass.js');
+const { seedMedicationFacilityAuthority } = await import('./helpers/medicationEvidenceFixture.js');
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const SUFFIX = String(Date.now() % 100000).padStart(5, '0');
@@ -36,14 +39,21 @@ const RECEPTIONIST_UID = randomUUID();
 const NURSE_UID = randomUUID();
 const PHARMACY_UID = randomUUID();
 const ADMISSION_OFFICER_UID = randomUUID();
+const ADMIN_UID = randomUUID();
+const PRESCRIBER_UID = randomUUID();
 
 const WARD_NAME = `BM-WARD-${SUFFIX}`;
 const INVENTORY_SKU_PREFIX = `BM-INV-${SUFFIX}`;
 const CATALOG_NAME_PREFIX = `BM-CATALOG-${SUFFIX}`;
+const AUTHORITY_RUN = `ipd-money-${SUFFIX}-${PHARMACY_UID.slice(0, 8)}`;
+const FACILITY_CODE = `MAR-FIX-FACILITY-${AUTHORITY_RUN}`.slice(0, 80);
+const CEFTRIAXONE_COMPOSITION_KEY = `bm-ceftriaxone-${AUTHORITY_RUN}`.slice(0, 255);
 
 let wardId;
 let admissionId;
 let encounterId;
+let facilityId;
+let storageLocationId;
 let gauzeCatalog;
 let ceftriaxoneCatalog;
 let bedsheetCatalog;
@@ -86,47 +96,97 @@ async function seedClassifiedCatalog({
   sku,
   scheduleClass = null,
   withBatch = false,
+  facilityId: catalogFacilityId,
+  storageLocationId: catalogStorageLocationId,
+  medicationIdentity = null,
 }) {
+  const identity = medicationIdentity || {};
   const catalogRows = await prisma.$queryRawUnsafe(
     `INSERT INTO pharmacy_catalog
        (name, category, requires_prescription, is_active, tenant_id,
+        generic_name, composition_id, composition_source, composition_confidence,
+        strength, strength_key, strength_components, form, form_key, release_key, route,
         stock_quantity, updated_at)
-     VALUES ($1, $3::text, $4::boolean, TRUE, $2::uuid, 100, NOW())
-     RETURNING id`,
+     VALUES ($1, $3::text, $4::boolean, TRUE, $2::uuid,
+             $5::text, $6::int, $7::text, $8::text,
+             $9::text, $10::text, $11::jsonb, $12::text, $13::text, $14::text, $15::text,
+             100, NOW())
+     RETURNING id, name, generic_name, composition_id, composition_source,
+               composition_confidence, strength, strength_key, strength_components,
+               form, form_key, release_key, route, is_active`,
     name,
     TENANT,
     scheduleClass ? 'medication' : 'ward_supply',
     Boolean(scheduleClass),
+    identity.genericName || null,
+    identity.compositionId || null,
+    identity.compositionSource || null,
+    identity.compositionConfidence || null,
+    identity.strength || null,
+    identity.strengthKey || null,
+    medicationIdentity ? JSON.stringify(identity.strengthComponents) : null,
+    identity.form || null,
+    identity.formKey || null,
+    identity.releaseKey || null,
+    identity.route || null,
   );
-  const catalogId = Number(catalogRows[0].id);
+  const catalog = { ...catalogRows[0], id: Number(catalogRows[0].id) };
+  const catalogId = catalog.id;
   const inventoryRows = await prisma.$queryRawUnsafe(
     `INSERT INTO pharmacy_inventory_items
-       (tenant_id, sku_code, display_name, catalog_id, schedule_class, is_narcotic)
-     VALUES ($1::uuid, $2, $3, $4, $5, FALSE)
+       (tenant_id, facility_id, sku_code, display_name, catalog_id, schedule_class, is_narcotic)
+     VALUES ($1::uuid, $6::int, $2, $3, $4, $5, FALSE)
      RETURNING id`,
-    TENANT, sku, name, catalogId, scheduleClass,
+    TENANT, sku, name, catalogId, scheduleClass, catalogFacilityId,
   );
   const inventoryItemId = Number(inventoryRows[0].id);
   let batchId = null;
   if (withBatch) {
     const batchRows = await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_inventory_batches
-         (tenant_id, inventory_item_id, batch_number, expiry_date,
-          received_quantity, remaining_quantity, status)
-       VALUES ($1::uuid, $2::int, $3, (NOW() + INTERVAL '365 days')::date,
-               100, 100, 'in_stock')
+         (tenant_id, inventory_item_id, facility_id, storage_location_id,
+          batch_number, expiry_date, received_quantity, remaining_quantity, status)
+       VALUES ($1::uuid, $2::int, $4::int, $5::int,
+               $3, (NOW() + INTERVAL '365 days')::date, 100, 100, 'in_stock')
        RETURNING id`,
       TENANT,
       inventoryItemId,
       `${sku}-BATCH`,
+      catalogFacilityId,
+      catalogStorageLocationId,
     );
     batchId = Number(batchRows[0].id);
   }
-  return { catalogId, inventoryItemId, batchId };
+  return { ...catalog, catalogId, inventoryItemId, batchId };
 }
 
 async function cleanup() {
+  let fixtureInvoiceItemIds = [];
+  let fixtureInvoiceIds = [];
   await prisma.$transaction(async (tx) => {
+    const fixtureBillingRows = await tx.$queryRawUnsafe(
+      `SELECT invoice_item.id AS invoice_item_id, invoice_item.invoice_id
+         FROM billing_invoice_items invoice_item
+         JOIN billing_invoices invoice
+           ON invoice.tenant_id = invoice_item.tenant_id
+          AND invoice.id = invoice_item.invoice_id
+         JOIN ward_indent_items indent_item
+           ON indent_item.tenant_id = invoice_item.tenant_id
+          AND indent_item.id = invoice_item.source_ref_id
+         JOIN ward_indents indent
+           ON indent.tenant_id = indent_item.tenant_id
+          AND indent.id = indent_item.ward_indent_id
+        WHERE invoice_item.tenant_id = $1::uuid
+          AND invoice_item.source_ref_type = 'ward_indent_item'
+          AND (indent.patient_uid = $2::uuid OR indent.ward_name = $3::text)
+        ORDER BY invoice_item.id
+        FOR UPDATE OF invoice_item, invoice`,
+      TENANT,
+      PATIENT_UID,
+      WARD_NAME,
+    );
+    fixtureInvoiceItemIds = fixtureBillingRows.map((row) => Number(row.invoice_item_id));
+    fixtureInvoiceIds = [...new Set(fixtureBillingRows.map((row) => Number(row.invoice_id)))];
     await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
     await tx.$executeRawUnsafe(
       `DELETE FROM ward_indent_inventory_receipt_events
@@ -174,6 +234,48 @@ async function cleanup() {
          SELECT id FROM ward_indents WHERE patient_uid = $1::uuid OR ward_name = $2)`,
       PATIENT_UID, WARD_NAME,
     );
+    const fixtureOutboxRows = await tx.$queryRawUnsafe(
+      `SELECT outbox.id
+         FROM notification_outbox outbox
+        WHERE outbox.tenant_id = $1::uuid
+          AND outbox.payload->>'ward_indent_id' IN (
+            SELECT indent.id::text
+              FROM ward_indents indent
+             WHERE indent.tenant_id = $1::uuid
+               AND (indent.patient_uid = $2::uuid OR indent.ward_name = $3::text)
+          )
+        ORDER BY outbox.id
+        FOR UPDATE OF outbox`,
+      TENANT,
+      PATIENT_UID,
+      WARD_NAME,
+    );
+    const fixtureOutboxIds = fixtureOutboxRows.map((row) => Number(row.id));
+    if (fixtureOutboxIds.length > 0) {
+      await tx.$executeRawUnsafe(
+        `DELETE FROM notification_provider_receipts
+          WHERE tenant_id = $1::uuid
+            AND notification_outbox_id = ANY($2::int[])`,
+        TENANT,
+        fixtureOutboxIds,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM notification_delivery_attempts
+          WHERE tenant_id = $1::uuid
+            AND notification_outbox_id = ANY($2::int[])`,
+        TENANT,
+        fixtureOutboxIds,
+      );
+      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'origin'");
+      await tx.$executeRawUnsafe(
+        `DELETE FROM notification_outbox
+          WHERE tenant_id = $1::uuid
+            AND id = ANY($2::int[])`,
+        TENANT,
+        fixtureOutboxIds,
+      );
+      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
+    }
     await tx.$executeRawUnsafe(
       `DELETE FROM task_comments
         WHERE task_id IN (
@@ -231,6 +333,36 @@ async function cleanup() {
     );
     await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'origin'");
   });
+  if (fixtureInvoiceIds.length > 0) {
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `DELETE FROM billing_invoice_items
+          WHERE tenant_id = $1::uuid
+            AND source_ref_type = 'ward_indent_item'
+            AND id = ANY($2::int[])`,
+        TENANT,
+        fixtureInvoiceItemIds,
+      );
+      const deletedInvoices = await tx.$executeRawUnsafe(
+        `DELETE FROM billing_invoices invoice
+          WHERE invoice.tenant_id = $1::uuid
+            AND invoice.patient_uid = $2::uuid
+            AND invoice.id = ANY($3::int[])
+            AND NOT EXISTS (
+              SELECT 1
+                FROM billing_invoice_items invoice_item
+               WHERE invoice_item.tenant_id = invoice.tenant_id
+                 AND invoice_item.invoice_id = invoice.id
+            )`,
+        TENANT,
+        PATIENT_UID,
+        fixtureInvoiceIds,
+      );
+      if (Number(deletedInvoices) !== fixtureInvoiceIds.length) {
+        throw new Error('Fixture ward-indent invoices retain unexpected billing projections');
+      }
+    });
+  }
   await prisma.$executeRawUnsafe(
     `DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid`, PATIENT_UID,
   ).catch(() => {});
@@ -278,22 +410,78 @@ async function cleanup() {
            WHERE tenant_id = $1::uuid AND sku_code LIKE $2
         )`,
     TENANT, `${INVENTORY_SKU_PREFIX}-%`,
-  ).catch(() => {});
+  );
   await prisma.$executeRawUnsafe(
     `DELETE FROM pharmacy_inventory_items
       WHERE tenant_id = $1::uuid AND sku_code LIKE $2`,
     TENANT, `${INVENTORY_SKU_PREFIX}-%`,
-  ).catch(() => {});
+  );
   await prisma.$executeRawUnsafe(
     `DELETE FROM pharmacy_catalog
       WHERE tenant_id = $1::uuid AND name LIKE $2`,
     TENANT, `${CATALOG_NAME_PREFIX} %`,
-  ).catch(() => {});
-  for (const uid of [
-    PATIENT_UID, BILLING_UID, RECEPTIONIST_UID, NURSE_UID, PHARMACY_UID, ADMISSION_OFFICER_UID,
-  ]) {
-    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, uid).catch(() => {});
-  }
+  );
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM drug_compositions WHERE composition_key = $1::text`,
+    CEFTRIAXONE_COMPOSITION_KEY,
+  );
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
+    await tx.$executeRawUnsafe(
+      `DELETE FROM pharmacy_staff_facility_grant_events
+        WHERE tenant_id = $1::uuid
+          AND grant_id IN (
+            SELECT id FROM pharmacy_staff_facility_grants
+             WHERE tenant_id = $1::uuid AND staff_uid = $2::uuid
+          )`,
+      TENANT,
+      PHARMACY_UID,
+    );
+    await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'origin'");
+    await tx.$executeRawUnsafe(
+      `DELETE FROM pharmacy_staff_facility_grants
+        WHERE tenant_id = $1::uuid AND staff_uid = $2::uuid`,
+      TENANT,
+      PHARMACY_UID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM staff
+        WHERE tenant_id = $1::uuid AND user_id = ANY($2::uuid[])`,
+      TENANT,
+      [PHARMACY_UID, PRESCRIBER_UID],
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM facility_locations
+        WHERE tenant_id = $1::uuid
+          AND facility_id IN (
+            SELECT id FROM facilities
+             WHERE tenant_id = $1::uuid AND facility_code = $2::text
+          )`,
+      TENANT,
+      FACILITY_CODE,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM facilities
+        WHERE tenant_id = $1::uuid AND facility_code = $2::text`,
+      TENANT,
+      FACILITY_CODE,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM users
+        WHERE tenant_id = $1::uuid AND uid = ANY($2::uuid[])`,
+      TENANT,
+      [
+        PATIENT_UID,
+        BILLING_UID,
+        RECEPTIONIST_UID,
+        NURSE_UID,
+        PHARMACY_UID,
+        ADMISSION_OFFICER_UID,
+        ADMIN_UID,
+        PRESCRIBER_UID,
+      ],
+    );
+  });
 }
 
 d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonicals (deep)', () => {
@@ -305,9 +493,35 @@ d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonica
     await seedUser({ uid: NURSE_UID, role: 'IP_STAFF_NURSE', name: 'BM Nurse' });
     await seedUser({ uid: PHARMACY_UID, role: 'PHARMACY_STAFF', name: 'BM Pharmacist' });
     await seedUser({ uid: ADMISSION_OFFICER_UID, role: 'ADMISSION_OFFICER', name: 'BM Admission Officer' });
+    await seedUser({ uid: ADMIN_UID, role: 'ADMIN', name: 'BM Facility Grant Admin' });
+    await seedUser({ uid: PRESCRIBER_UID, role: 'DOCTOR', name: 'BM Prescriber' });
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO staff
+         (tenant_id, user_id, employee_id, name, designation, skills,
+          certifications, is_active, archived, created_at, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3::text, 'BM Prescriber', 'Doctor',
+               '{}'::text[], '{}'::text[], TRUE, FALSE, NOW(), NOW())`,
+      TENANT,
+      PRESCRIBER_UID,
+      `BM-DOCTOR-${SUFFIX}`,
+    );
+
+    const authority = await seedMedicationFacilityAuthority({
+      prisma,
+      tenantId: TENANT,
+      pharmacistUid: PHARMACY_UID,
+      grantAdminUid: ADMIN_UID,
+      run: AUTHORITY_RUN,
+    });
+    facilityId = authority.facilityId;
+    storageLocationId = authority.storageLocationId;
 
     const wardRows = await prisma.$queryRawUnsafe(
-      `INSERT INTO wards (name, floor, total_beds) VALUES ($1, 1, 2) RETURNING id`,
+      `INSERT INTO wards (tenant_id, facility_id, name, floor, total_beds)
+       VALUES ($1::uuid, $2::int, $3, 1, 2)
+       RETURNING id`,
+      TENANT,
+      facilityId,
       WARD_NAME,
     );
     wardId = wardRows[0].id;
@@ -343,22 +557,49 @@ d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonica
     );
     admissionId = admissionRows[0].id;
 
+    const ceftriaxoneCompositionId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO drug_compositions
+         (composition_key, display_label, active_ingredients, source)
+       VALUES ($1::text, 'Ceftriaxone', ARRAY['ceftriaxone']::text[], 'curated')
+       RETURNING id`,
+      CEFTRIAXONE_COMPOSITION_KEY,
+    ))[0].id);
+
     // Every positive line must have a same-tenant inventory classification.
     gauzeCatalog = await seedClassifiedCatalog({
       name: `${CATALOG_NAME_PREFIX} Gauze roll`,
       sku: `${INVENTORY_SKU_PREFIX}-GAUZE`,
       withBatch: true,
+      facilityId,
+      storageLocationId,
     });
     ceftriaxoneCatalog = await seedClassifiedCatalog({
       name: `${CATALOG_NAME_PREFIX} Ceftriaxone 1g`,
       sku: `${INVENTORY_SKU_PREFIX}-CEFTRIAXONE`,
       scheduleClass: 'H',
       withBatch: true,
+      facilityId,
+      storageLocationId,
+      medicationIdentity: {
+        genericName: 'Ceftriaxone',
+        compositionId: ceftriaxoneCompositionId,
+        compositionSource: 'test_fixture',
+        compositionConfidence: 'high',
+        strength: '1 g',
+        strengthKey: '1g',
+        strengthComponents: [{ ingredient: 'ceftriaxone', value: '1', unit: 'g' }],
+        form: 'powder for injection',
+        formKey: 'powder_for_injection',
+        releaseKey: 'ir',
+        route: 'IV',
+      },
     });
     bedsheetCatalog = await seedClassifiedCatalog({
       name: `${CATALOG_NAME_PREFIX} Bedsheet`,
       sku: `${INVENTORY_SKU_PREFIX}-BEDSHEET`,
       withBatch: true,
+      facilityId,
+      storageLocationId,
     });
   }, 120_000);
 
@@ -489,12 +730,14 @@ d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonica
     await ipdSupportService.reserveWardIndent({
       indentId: indent.id,
       reservedBy: PHARMACY_UID,
+      actorRole: 'PHARMACY_STAFF',
       commandKey: `bm5-authz-reserve-${SUFFIX}`,
       tenantId: TENANT,
     });
     await ipdSupportService.approveWardIndent({
       indentId: indent.id,
       approvedBy: PHARMACY_UID,
+      actorRole: 'PHARMACY_STAFF',
       commandKey: `bm5-authz-approve-${SUFFIX}`,
       tenantId: TENANT,
     });
@@ -542,22 +785,32 @@ d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonica
   // ── B-M5: ward-indent issue writes canonical timeline + audit rows ────────
 
   it('requires preverified clinical-order evidence and writes one ward-issue timeline + audit row', async () => {
+    const orderDetails = bindMedicationOrderCatalogAuthority({
+      medication_name: ceftriaxoneCatalog.name,
+      catalog_id: ceftriaxoneCatalog.catalogId,
+      dose: '1 g',
+      route: ceftriaxoneCatalog.route,
+      strength: ceftriaxoneCatalog.strength,
+      strength_key: ceftriaxoneCatalog.strength_key,
+      form: ceftriaxoneCatalog.form,
+      form_key: ceftriaxoneCatalog.form_key,
+      release_key: ceftriaxoneCatalog.release_key,
+      quantity_requested: 2,
+      unit: 'vial',
+    }, ceftriaxoneCatalog, { phase: 'create' });
     const orderRows = await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_orders
-         (order_number, encounter_id, patient_uid, order_type, status, ordered_by, details, tenant_id)
+         (order_number, encounter_id, patient_uid, order_type, status, ordered_by,
+          details, route, tenant_id)
        VALUES ($1, $2::uuid, $3::uuid, 'medication', 'ordered', $4::uuid,
-               jsonb_build_object(
-                 'medication_name', 'Ceftriaxone 1g',
-                 'catalog_id', $5::int,
-                 'quantity_requested', 2,
-                 'unit', 'vial'
-               ), $6::uuid)
+               $5::jsonb, $6::text, $7::uuid)
        RETURNING id`,
       `ORD-BM5-${SUFFIX}`,
       encounterId,
       PATIENT_UID,
-      NURSE_UID,
-      ceftriaxoneCatalog.catalogId,
+      PRESCRIBER_UID,
+      JSON.stringify(orderDetails),
+      ceftriaxoneCatalog.route,
       TENANT,
     );
     const clinicalOrderId = orderRows[0].id;
@@ -582,49 +835,30 @@ d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonica
     await ipdSupportService.reserveWardIndent({
       indentId: indent.id,
       reservedBy: PHARMACY_UID,
+      actorRole: 'PHARMACY_STAFF',
       commandKey: `bm5-patient-reserve-${SUFFIX}`,
       tenantId: TENANT,
     });
     const approval = await ipdSupportService.approveWardIndent({
       indentId: indent.id,
       approvedBy: PHARMACY_UID,
+      actorRole: 'PHARMACY_STAFF',
       commandKey: `bm5-patient-approve-${SUFFIX}`,
       tenantId: TENANT,
     });
     expect(approval.status).toBe('controlled_handoff_required');
     const line = approval.items[0];
-    const dispense = await dispenseControlled({
-      tenantId: TENANT,
-      inventory_item_id: ceftriaxoneCatalog.inventoryItemId,
-      inventory_batch_id: ceftriaxoneCatalog.batchId,
-      quantity: 2,
-      patient_uid: PATIENT_UID,
-      patient_name: 'BM Patient',
-      performed_by: PHARMACY_UID,
-      performed_by_name: 'BM Pharmacist',
-      reference_id: line.controlled_reference_id,
-    });
     await ipdSupportService.recordWardIndentControlledHandoff({
       indentId: indent.id,
       recordedBy: PHARMACY_UID,
+      actorRole: 'PHARMACY_STAFF',
       itemEvidence: [{
         item_id: line.id,
-        movement_id: dispense.movement.id,
-        register_id: dispense.register_entry.id,
       }],
       commandKey: `bm5-patient-handoff-${SUFFIX}`,
       tenantId: TENANT,
     });
-    await expect(ipdSupportService.issueWardIndent({
-      indentId: indent.id,
-      issuedBy: PHARMACY_UID,
-      commandKey: `bm5-patient-premature-issue-${SUFFIX}`,
-      tenantId: TENANT,
-    })).rejects.toMatchObject({
-      code: 'MEDICATION_ORDER_VERIFICATION_REQUIRED',
-      statusCode: 409,
-    });
-    const preVerificationEffects = (await prisma.$queryRawUnsafe(
+    const loadIssueEffects = async () => (await prisma.$queryRawUnsafe(
       `SELECT
          (SELECT COUNT(*)::int
             FROM ward_indent_inventory_movement_links movement_link
@@ -645,15 +879,29 @@ d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonica
       TENANT,
       Number(indent.id),
     ))[0];
-    expect(preVerificationEffects).toEqual({ issue_movements: 0, billing_lines: 0 });
+    const handoffEffects = await loadIssueEffects();
+    expect(handoffEffects).toEqual({ issue_movements: 1, billing_lines: 0 });
+    await expect(ipdSupportService.issueWardIndent({
+      indentId: indent.id,
+      issuedBy: PHARMACY_UID,
+      actorRole: 'PHARMACY_STAFF',
+      commandKey: `bm5-patient-premature-issue-${SUFFIX}`,
+      tenantId: TENANT,
+    })).rejects.toMatchObject({
+      code: 'MEDICATION_ORDER_VERIFICATION_REQUIRED',
+      statusCode: 409,
+    });
+    const preVerificationEffects = await loadIssueEffects();
+    expect(preVerificationEffects).toEqual(handoffEffects);
     await verifyOrder(clinicalOrderId, PHARMACY_UID, {
       tenantId: TENANT,
-      actorRole: 'PHARMACY_INCHARGE',
+      actorRole: 'PHARMACY_STAFF',
       idempotencyKey: `bm5-patient-verify-${SUFFIX}`,
     });
     const issued = await ipdSupportService.issueWardIndent({
       indentId: indent.id,
       issuedBy: PHARMACY_UID,
+      actorRole: 'PHARMACY_STAFF',
       commandKey: `bm5-patient-issue-${SUFFIX}`,
       tenantId: TENANT,
     });
@@ -707,18 +955,21 @@ d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonica
     await ipdSupportService.reserveWardIndent({
       indentId: indent.id,
       reservedBy: PHARMACY_UID,
+      actorRole: 'PHARMACY_STAFF',
       commandKey: `bm5-stock-reserve-${SUFFIX}`,
       tenantId: TENANT,
     });
     await ipdSupportService.approveWardIndent({
       indentId: indent.id,
       approvedBy: PHARMACY_UID,
+      actorRole: 'PHARMACY_STAFF',
       commandKey: `bm5-stock-approve-${SUFFIX}`,
       tenantId: TENANT,
     });
     const issued = await ipdSupportService.issueWardIndent({
       indentId: indent.id,
       issuedBy: PHARMACY_UID,
+      actorRole: 'PHARMACY_STAFF',
       commandKey: `bm5-stock-issue-${SUFFIX}`,
       tenantId: TENANT,
     });

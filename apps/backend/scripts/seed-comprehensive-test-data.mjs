@@ -390,6 +390,23 @@ async function firstTenantValue(table, column) {
   return row?.[column] ?? null;
 }
 
+async function medicationSeedFacilityRefs() {
+  const result = await client.query(
+    `SELECT facility.id AS facility_id,
+            location.id AS storage_location_id
+       FROM facilities facility
+       JOIN facility_locations location
+         ON location.tenant_id = facility.tenant_id
+        AND location.facility_id = facility.id
+      WHERE facility.tenant_id = $1::uuid
+        AND facility.facility_code = 'SEED-MAIN'
+        AND location.location_code = 'SEED-PHARMACY-STORE'
+      LIMIT 1`,
+    [DEFAULT_TENANT_ID]
+  );
+  return result.rows[0] || null;
+}
+
 async function getMetadata() {
   const columns = await client.query(`
     SELECT c.table_name,
@@ -1808,21 +1825,20 @@ async function seedCoreData() {
   // facility (chk_pharmacy_orders_facility_progression_753): an order that can
   // still progress must name the facility its dispense custody belongs to.
   // The seeded order is PENDING, so it needs a real facility rather than the
-  // NULL the rest of the core seed uses.
-  let seedFacilityId = await firstTenantValue('facilities', 'id');
-  if (seedFacilityId === null) {
-    const seededFacility = await client.query(
-      `INSERT INTO facilities
-         (tenant_id, facility_code, display_name, timezone, status, is_default)
-       VALUES ($1::uuid, 'SEED-MAIN', 'Seed Main Facility', 'Asia/Kolkata',
-               'active', TRUE)
-       ON CONFLICT (tenant_id, facility_code) DO UPDATE
-         SET display_name = EXCLUDED.display_name
-       RETURNING id`,
-      [DEFAULT_TENANT_ID]
-    );
-    seedFacilityId = seededFacility.rows[0].id;
-  }
+  // NULL the rest of the core seed uses. Keep it non-default: the downstream
+  // medication fixtures carry this facility and its storage location explicitly.
+  const seededFacility = await client.query(
+    `INSERT INTO facilities
+       (tenant_id, facility_code, display_name, timezone, status, is_default)
+     VALUES ($1::uuid, 'SEED-MAIN', 'Seed Main Facility', 'Asia/Kolkata',
+             'active', FALSE)
+     ON CONFLICT (tenant_id, facility_code) DO UPDATE
+       SET display_name = EXCLUDED.display_name,
+           is_default = FALSE
+     RETURNING id`,
+    [DEFAULT_TENANT_ID]
+  );
+  const seedFacilityId = seededFacility.rows[0].id;
   await client.query(
     `INSERT INTO facility_locations
        (tenant_id, facility_id, location_code, display_name,
@@ -2184,6 +2200,7 @@ async function getCoreRefs() {
   const doctorRow = doctor.rows[0];
   const staffRow = staff.rows[0];
   const secondStaffRow = secondStaff.rows[0] || staffRow;
+  const medicationFacility = await medicationSeedFacilityRefs();
 
   return {
     tenantId: DEFAULT_TENANT_ID,
@@ -2216,8 +2233,8 @@ async function getCoreRefs() {
       : null,
     departmentId: await firstTenantValue('departments', 'id'),
     wardId: await firstTenantValue('wards', 'id'),
-    facilityId: await firstTenantValue('facilities', 'id'),
-    storageLocationId: await firstTenantValue('facility_locations', 'id'),
+    facilityId: medicationFacility?.facility_id ?? null,
+    storageLocationId: medicationFacility?.storage_location_id ?? null,
     bedId: await firstTenantValue('beds', 'id'),
     appointmentId: await firstTenantValue('appointments', 'id'),
     admissionId: await firstTenantValue('admissions', 'id'),
