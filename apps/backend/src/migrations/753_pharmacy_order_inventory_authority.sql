@@ -3639,7 +3639,8 @@ ALTER TABLE cath_case_consumable_usage
   ADD CONSTRAINT fk_cath_usage_case_facility_753
     FOREIGN KEY (tenant_id, case_id, patient_uid, facility_id)
     REFERENCES cath_lab_cases (tenant_id, id, patient_uid, facility_id)
-    ON UPDATE RESTRICT ON DELETE RESTRICT NOT VALID,
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+    DEFERRABLE INITIALLY IMMEDIATE NOT VALID,
   ADD CONSTRAINT fk_cath_usage_facility_catalog_item_753
     FOREIGN KEY (tenant_id, facility_id, catalog_item_id, inventory_item_id)
     REFERENCES cath_consumable_catalog (tenant_id, facility_id, id, inventory_item_id)
@@ -4922,7 +4923,8 @@ CREATE TABLE IF NOT EXISTS pharmacy_funding_reconciliation_cases (
   CONSTRAINT fk_pharmacy_funding_reconciliation_patient_753
     FOREIGN KEY (tenant_id,patient_uid)
     REFERENCES users (tenant_id,uid)
-    ON UPDATE RESTRICT ON DELETE RESTRICT,
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+    DEFERRABLE INITIALLY IMMEDIATE,
   CONSTRAINT fk_pharmacy_funding_reconciliation_facility_753
     FOREIGN KEY (tenant_id,facility_id)
     REFERENCES facilities (tenant_id,id)
@@ -5216,37 +5218,45 @@ ALTER TABLE insurance_preauth
   ADD CONSTRAINT fk_insurance_preauth_policy_authority_753
     FOREIGN KEY (tenant_id,policy_id,patient_uid)
     REFERENCES insurance_policies (tenant_id,id,patient_uid)
-    ON UPDATE RESTRICT ON DELETE RESTRICT NOT VALID,
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+    DEFERRABLE INITIALLY IMMEDIATE NOT VALID,
   ADD CONSTRAINT fk_insurance_preauth_admission_authority_753
     FOREIGN KEY (tenant_id,admission_id,patient_uid)
     REFERENCES admissions (tenant_id,id,patient_uid)
-    ON UPDATE RESTRICT ON DELETE RESTRICT NOT VALID,
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+    DEFERRABLE INITIALLY IMMEDIATE NOT VALID,
   ADD CONSTRAINT fk_insurance_preauth_parent_authority_753
     FOREIGN KEY (tenant_id,parent_preauth_id,patient_uid,policy_id)
     REFERENCES insurance_preauth (tenant_id,id,patient_uid,policy_id)
-    ON UPDATE RESTRICT ON DELETE RESTRICT NOT VALID;
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+    DEFERRABLE INITIALLY IMMEDIATE NOT VALID;
 
 ALTER TABLE tpa_claims
   ADD CONSTRAINT fk_tpa_claim_policy_authority_753
     FOREIGN KEY (tenant_id,policy_id,patient_uid)
     REFERENCES insurance_policies (tenant_id,id,patient_uid)
-    ON UPDATE RESTRICT ON DELETE RESTRICT NOT VALID,
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+    DEFERRABLE INITIALLY IMMEDIATE NOT VALID,
   ADD CONSTRAINT fk_tpa_claim_preauth_authority_753
     FOREIGN KEY (tenant_id,preauth_id,patient_uid,policy_id)
     REFERENCES insurance_preauth (tenant_id,id,patient_uid,policy_id)
-    ON UPDATE RESTRICT ON DELETE RESTRICT NOT VALID,
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+    DEFERRABLE INITIALLY IMMEDIATE NOT VALID,
   ADD CONSTRAINT fk_tpa_claim_admission_authority_753
     FOREIGN KEY (tenant_id,admission_id,patient_uid)
     REFERENCES admissions (tenant_id,id,patient_uid)
-    ON UPDATE RESTRICT ON DELETE RESTRICT NOT VALID,
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+    DEFERRABLE INITIALLY IMMEDIATE NOT VALID,
   ADD CONSTRAINT fk_tpa_claim_parent_authority_753
     FOREIGN KEY (tenant_id,parent_claim_id,patient_uid,policy_id)
     REFERENCES tpa_claims (tenant_id,id,patient_uid,policy_id)
-    ON UPDATE RESTRICT ON DELETE RESTRICT NOT VALID,
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+    DEFERRABLE INITIALLY IMMEDIATE NOT VALID,
   ADD CONSTRAINT fk_tpa_claim_invoice_authority_753
     FOREIGN KEY (tenant_id,invoice_id,patient_uid)
     REFERENCES billing_invoices (tenant_id,id,patient_uid)
-    ON UPDATE RESTRICT ON DELETE RESTRICT NOT VALID;
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+    DEFERRABLE INITIALLY IMMEDIATE NOT VALID;
 
 CREATE OR REPLACE FUNCTION public.enforce_insurance_preauth_authority_753()
 RETURNS TRIGGER

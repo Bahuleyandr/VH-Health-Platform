@@ -138,8 +138,8 @@ BEGIN
              'medical_allowance_adjustment', 'gross_adjustment', 'pf_adjustment',
              'esi_adjustment', 'professional_tax_adjustment', 'tds_adjustment',
              'deduction_adjustment', 'net_adjustment'
-           ]) AS required_key
-           WHERE jsonb_typeof(line->required_key) IS DISTINCT FROM 'number'
+           ]) AS numeric_key(key_name)
+           WHERE jsonb_typeof(line -> numeric_key.key_name) IS DISTINCT FROM 'number'
        )
     THEN
       RETURN FALSE;

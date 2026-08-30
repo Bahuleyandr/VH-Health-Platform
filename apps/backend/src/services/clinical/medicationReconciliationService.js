@@ -807,7 +807,9 @@ export async function completeReconciliation(recId, context = {}) {
   let safety = { safe: true, warnings: [], blockers: [] };
   if (keptForScreen.length > 0 && rec.patient_id != null) {
     try {
-      safety = await validatePrescriptionSafety(rec.patient_id, keptForScreen);
+      safety = await validatePrescriptionSafety(rec.patient_id, keptForScreen, {
+        tenantId: rec.tenant_id,
+      });
     } catch (err) {
       logger.error('Med-rec safety screen failed (blocking completion):', err.message);
       safety = {

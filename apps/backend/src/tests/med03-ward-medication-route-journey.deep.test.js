@@ -5,6 +5,8 @@ import request from 'supertest';
 
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
+import { bindMedicationOrderCatalogAuthority } from '../services/ipd/wardIndentWorkflowService.js';
+import { seedMedicationFacilityAuthority } from './helpers/medicationEvidenceFixture.js';
 import { API_KEY, generateTestToken } from './testClient.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
@@ -23,10 +25,13 @@ describeIfDb('MED-03 ward medication registered-route journey', () => {
   const financeOwnerUid = randomUUID();
   const adminUid = randomUUID();
   const run = `${process.pid}-${Date.now()}`;
+  const compositionKey = `med03-route-paracetamol-${tenantId}`;
   const wardBase = '/api/v1/pharmacy-orders/ward-indents';
   const billingBase = '/api/v1/billing/v2';
   const actorIds = {};
   let wardId;
+  let facilityId;
+  let storageLocationId;
   let admissionId;
   let encounterId;
   let catalogId;
@@ -121,90 +126,140 @@ describeIfDb('MED-03 ward medication registered-route journey', () => {
     );
     for (const user of users) actorIds[user.role] = Number(user.id);
 
+    const authority = await seedMedicationFacilityAuthority({
+      prisma,
+      tenantId,
+      pharmacistUid,
+      grantAdminUid: adminUid,
+      run: `route-${run}`,
+    });
+    facilityId = authority.facilityId;
+    storageLocationId = authority.storageLocationId;
     wardId = Number((await prisma.$queryRawUnsafe(
-      `INSERT INTO wards (tenant_id, name, total_beds, created_at, updated_at)
-       VALUES ($1::uuid, $2::text, 12, NOW(), NOW())
+      `INSERT INTO wards
+         (tenant_id, name, facility_id, total_beds, created_at, updated_at)
+       VALUES ($1::uuid, $2::text, $3::int, 12, NOW(), NOW())
        RETURNING id`,
       tenantId,
       `MED03 Route Ward ${run}`,
+      facilityId,
     ))[0].id);
 
+    const bedNumber = `M3R-${run.slice(-16)}`;
+    const bedId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO beds
+         (tenant_id, ward_id, ward_name, bed_number, status, patient_uid,
+          created_at, updated_at)
+       VALUES ($1::uuid, $2::int, $3::text, $4::text, 'occupied', $5::uuid,
+               NOW(), NOW())
+       RETURNING id`,
+      tenantId,
+      wardId,
+      `MED03 Route Ward ${run}`,
+      bedNumber,
+      patientUid,
+    ))[0].id);
     const admissions = await prisma.$queryRawUnsafe(
       `INSERT INTO admissions
-         (tenant_id, patient_uid, status, admitted_at, ward, bed_number,
+         (tenant_id, patient_uid, bed_id, status, admitted_at, ward, bed_number,
           created_by, attending_doctor, created_at, updated_at)
-       VALUES ($1::uuid, $2::uuid, 'admitted', NOW(), $3::text, $4::text,
-               $5::uuid, $6::uuid, NOW(), NOW())
+       VALUES ($1::uuid, $2::uuid, $3::int, 'admitted', NOW(), $4::text, $5::text,
+               $6::uuid, $7::uuid, NOW(), NOW())
        RETURNING id, encounter_id`,
       tenantId,
       patientUid,
+      bedId,
       `MED03 Route Ward ${run}`,
-      `MED03-${run}`,
+      bedNumber,
       requesterUid,
       doctorUid,
     );
     admissionId = Number(admissions[0].id);
     encounterId = String(admissions[0].encounter_id);
 
-    catalogId = Number((await prisma.$queryRawUnsafe(
+    const compositionId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO drug_compositions
+         (composition_key, display_label, active_ingredients, source)
+       VALUES ($1::text, 'MED-03 route fixture paracetamol',
+               ARRAY['paracetamol']::text[], 'curated')
+       RETURNING id`,
+      compositionKey,
+    ))[0].id);
+    const catalog = (await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_catalog
          (tenant_id, name, generic_name, is_active, stock_quantity,
-          unit_price, price, strength, strength_key, form, form_key, route,
-          updated_at)
+          unit_price, price, composition_id, composition_confidence,
+          composition_source, strength, strength_key, strength_components,
+          form, form_key, release_key, route, updated_at)
        VALUES ($1::uuid, $2::text, 'Paracetamol', TRUE, 20,
-               12.50, 12.50, '500 mg', '500mg', 'tablet', 'tablet', 'oral',
-               NOW())
-       RETURNING id`,
+               12.50, 12.50, $3::int, 'high', 'test_fixture',
+               '500 mg', '500mg', $4::jsonb,
+               'tablet', 'tablet', 'ir', 'oral', NOW())
+       RETURNING id, name, generic_name, composition_id,
+                 composition_confidence, composition_source,
+                 strength, strength_key, strength_components,
+                 form, form_key, release_key, route`,
       tenantId,
       `MED03 Route Paracetamol ${run}`,
-    ))[0].id);
+      compositionId,
+      JSON.stringify([{ ingredient: 'paracetamol', value: '500', unit: 'mg' }]),
+    ))[0];
+    catalogId = Number(catalog.id);
     inventoryItemId = Number((await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_inventory_items
          (tenant_id, sku_code, display_name, catalog_id, strength, form,
-          unit_label, schedule_class, is_narcotic, status)
+          unit_label, schedule_class, is_narcotic, status, facility_id)
        VALUES ($1::uuid, $2::text, $3::text, $4::int, '500 mg', 'tablet',
-               'unit', 'OTC', FALSE, 'active')
+               'unit', 'OTC', FALSE, 'active', $5::int)
        RETURNING id`,
       tenantId,
       `MED03-ROUTE-${run}`,
       `MED03 Route Paracetamol ${run}`,
       catalogId,
+      facilityId,
     ))[0].id);
     batchId = Number((await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_inventory_batches
          (tenant_id, inventory_item_id, batch_number, expiry_date,
-          received_quantity, remaining_quantity, status)
+          received_quantity, remaining_quantity, status, facility_id,
+          storage_location_id)
        VALUES ($1::uuid, $2::int, $3::text,
-               (NOW() + INTERVAL '365 days')::date, 20, 20, 'in_stock')
+               (NOW() + INTERVAL '365 days')::date, 20, 20, 'in_stock',
+               $4::int, $5::int)
        RETURNING id`,
       tenantId,
       inventoryItemId,
       `MED03-ROUTE-BATCH-${run}`,
+      facilityId,
+      storageLocationId,
     ))[0].id);
+    const clinicalOrderDetails = bindMedicationOrderCatalogAuthority({
+      catalog_id: catalogId,
+      medication_name: catalog.name,
+      dose: '500 mg',
+      route: catalog.route,
+      strength: catalog.strength,
+      strength_key: catalog.strength_key,
+      form: catalog.form,
+      form_key: catalog.form_key,
+      release_key: catalog.release_key,
+      quantity_requested: 2,
+      unit: 'unit',
+    }, catalog, { phase: 'create' });
     clinicalOrderId = Number((await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_orders
          (tenant_id, order_number, encounter_id, patient_uid, order_type,
           status, ordered_by, details, route, updated_at)
        VALUES ($1::uuid, $2::text, $3::uuid, $4::uuid, 'medication',
-               'ordered', $5::uuid, $6::jsonb, 'oral', NOW())
+               'ordered', $5::uuid, $6::jsonb, $7::text, NOW())
        RETURNING id`,
       tenantId,
       `MED03-ROUTE-ORDER-${run}`,
       encounterId,
       patientUid,
       doctorUid,
-      JSON.stringify({
-        catalog_id: catalogId,
-        medication_name: `MED03 Route Paracetamol ${run}`,
-        dose: '500 mg',
-        strength: '500 mg',
-        strength_key: '500mg',
-        form: 'tablet',
-        form_key: 'tablet',
-        route: 'oral',
-        quantity: 2,
-        unit: 'unit',
-      }),
+      JSON.stringify(clinicalOrderDetails),
+      catalog.route,
     ))[0].id);
   });
 
@@ -241,6 +296,10 @@ describeIfDb('MED-03 ward medication registered-route journey', () => {
            END LOOP;
          END
          $cleanup$`,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM drug_compositions WHERE composition_key = $1::text`,
+        compositionKey,
       );
       await tx.$executeRawUnsafe(
         `DELETE FROM tenants WHERE id = $1::uuid`,

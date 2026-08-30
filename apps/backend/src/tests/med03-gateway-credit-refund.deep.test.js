@@ -18,7 +18,9 @@ import {
   reserveWardIndent,
 } from '../services/ipd/ipdSupportService.js';
 import { verifyOrder } from '../services/emr/orderEntryService.js';
+import { bindMedicationOrderCatalogAuthority } from '../services/ipd/wardIndentWorkflowService.js';
 import { toPaise } from '../utils/money.js';
+import { seedMedicationFacilityAuthority } from './helpers/medicationEvidenceFixture.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const describeIfDb = databaseUrl ? describe : describe.skip;
@@ -31,11 +33,16 @@ describeIfDb('MED-03 gateway ward-credit refund closure', () => {
   const billingOwner = randomUUID();
   const admin = randomUUID();
   const patient = randomUUID();
+  const doctor = randomUUID();
   const run = `${process.pid}-${Date.now()}`;
+  const compositionKey = `med03-gateway-paracetamol-${tenantId}`;
   const previousGatewayEnabled = process.env.PAYMENT_GATEWAY_ENABLED;
   const previousLedgerMode = process.env.LEDGER_AUTHORITATIVE_MODE;
   let wardId;
+  let facilityId;
+  let storageLocationId;
   let catalogId;
+  let catalog;
   let admissionId;
   let encounterId;
   let config;
@@ -63,28 +70,41 @@ describeIfDb('MED-03 gateway ward-credit refund closure', () => {
     await prisma.$executeRawUnsafe(
       `INSERT INTO users (uid, tenant_id, name, role, is_active, status, updated_at)
        VALUES
-         ($1::uuid, $7::uuid, 'Request Nurse', 'IP_STAFF_NURSE', TRUE, 'active', NOW()),
-         ($2::uuid, $7::uuid, 'Pharmacist', 'PHARMACY_INCHARGE', TRUE, 'active', NOW()),
-         ($3::uuid, $7::uuid, 'Receipt Nurse', 'NURSING_INCHARGE', TRUE, 'active', NOW()),
-         ($4::uuid, $7::uuid, 'Billing Owner', 'BILLING_INCHARGE', TRUE, 'active', NOW()),
-         ($5::uuid, $7::uuid, 'Admin Approver', 'ADMIN', TRUE, 'active', NOW()),
-         ($6::uuid, $7::uuid, 'Patient', 'PATIENT', TRUE, 'active', NOW())`,
+         ($1::uuid, $8::uuid, 'Request Nurse', 'IP_STAFF_NURSE', TRUE, 'active', NOW()),
+         ($2::uuid, $8::uuid, 'Pharmacist', 'PHARMACY_INCHARGE', TRUE, 'active', NOW()),
+         ($3::uuid, $8::uuid, 'Receipt Nurse', 'NURSING_INCHARGE', TRUE, 'active', NOW()),
+         ($4::uuid, $8::uuid, 'Billing Owner', 'BILLING_INCHARGE', TRUE, 'active', NOW()),
+         ($5::uuid, $8::uuid, 'Admin Approver', 'ADMIN', TRUE, 'active', NOW()),
+         ($6::uuid, $8::uuid, 'Patient', 'PATIENT', TRUE, 'active', NOW()),
+         ($7::uuid, $8::uuid, 'Prescribing Doctor', 'DOCTOR', TRUE, 'active', NOW())`,
       requester,
       pharmacist,
       receiver,
       billingOwner,
       admin,
       patient,
+      doctor,
       tenantId,
     );
+    const authority = await seedMedicationFacilityAuthority({
+      prisma,
+      tenantId,
+      pharmacistUid: pharmacist,
+      grantAdminUid: admin,
+      run: `gateway-${run}`,
+    });
+    facilityId = authority.facilityId;
+    storageLocationId = authority.storageLocationId;
     wardId = Number((await prisma.$queryRawUnsafe(
-      `INSERT INTO wards (tenant_id, name, total_beds, created_at, updated_at)
-       VALUES ($1::uuid, $2::text, 10, NOW(), NOW()) RETURNING id`,
+      `INSERT INTO wards
+         (tenant_id, name, facility_id, total_beds, created_at, updated_at)
+       VALUES ($1::uuid, $2::text, $3::int, 10, NOW(), NOW()) RETURNING id`,
       tenantId,
       `MED-03 Gateway Credit Ward ${run}`,
+      facilityId,
     ))[0].id);
     encounterId = randomUUID();
-    const bedNumber = `MED03-GATEWAY-${run}`.slice(0, 50);
+    const bedNumber = `M3G-${run.slice(-16)}`;
     const bedId = Number((await prisma.$queryRawUnsafe(
       `INSERT INTO beds
          (tenant_id, ward_id, ward_name, bed_number, status, patient_uid,
@@ -113,36 +133,58 @@ describeIfDb('MED-03 gateway ward-credit refund closure', () => {
       `MED-03 Gateway Credit Ward ${run}`,
       requester,
     ))[0].id);
-    catalogId = Number((await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_catalog
-         (tenant_id, name, is_active, stock_quantity, unit_price, price,
-          strength, strength_key, form, form_key, route, updated_at)
-       VALUES ($1::uuid, $2::text, TRUE, 20, 12.50, 12.50,
-               '500 mg', '500mg', 'tablet', 'tablet', 'oral', NOW())
+    const compositionId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO drug_compositions
+         (composition_key, display_label, active_ingredients, source)
+       VALUES ($1::text, 'MED-03 gateway fixture paracetamol',
+               ARRAY['paracetamol']::text[], 'curated')
        RETURNING id`,
+      compositionKey,
+    ))[0].id);
+    catalog = (await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_catalog
+         (tenant_id, name, generic_name, is_active, stock_quantity,
+          unit_price, price, composition_id, composition_confidence,
+          composition_source, strength, strength_key, strength_components,
+          form, form_key, release_key, route, updated_at)
+       VALUES ($1::uuid, $2::text, 'Paracetamol', TRUE, 20,
+               12.50, 12.50, $3::int, 'high', 'test_fixture',
+               '500 mg', '500mg', $4::jsonb,
+               'tablet', 'tablet', 'ir', 'oral', NOW())
+       RETURNING id, name, generic_name, composition_id,
+                 composition_confidence, composition_source,
+                 strength, strength_key, strength_components,
+                 form, form_key, release_key, route`,
       tenantId,
       `MED-03 Gateway Credit Medicine ${run}`,
-    ))[0].id);
+      compositionId,
+      JSON.stringify([{ ingredient: 'paracetamol', value: '500', unit: 'mg' }]),
+    ))[0];
+    catalogId = Number(catalog.id);
     const inventoryItemId = Number((await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_inventory_items
          (tenant_id, sku_code, display_name, catalog_id, strength, form,
-          unit_label, schedule_class, is_narcotic)
+          unit_label, schedule_class, is_narcotic, facility_id)
        VALUES ($1::uuid, $2::text, $3::text, $4::int, '500 mg', 'tablet',
-               'tablet', 'OTC', FALSE) RETURNING id`,
+               'tablet', 'OTC', FALSE, $5::int) RETURNING id`,
       tenantId,
       `MED03-GATEWAY-CREDIT-${run}`,
       `MED-03 Gateway Credit Medicine ${run}`,
       catalogId,
+      facilityId,
     ))[0].id);
     await prisma.$executeRawUnsafe(
       `INSERT INTO pharmacy_inventory_batches
          (tenant_id, inventory_item_id, batch_number, expiry_date,
-          received_quantity, remaining_quantity, status)
+          received_quantity, remaining_quantity, status, facility_id,
+          storage_location_id)
        VALUES ($1::uuid, $2::int, $3::text, (NOW() + INTERVAL '365 days')::date,
-               20, 20, 'in_stock')`,
+               20, 20, 'in_stock', $4::int, $5::int)`,
       tenantId,
       inventoryItemId,
       `MED03-GATEWAY-CREDIT-BATCH-${run}`,
+      facilityId,
+      storageLocationId,
     );
     config = await gateway.upsertGatewayConfig({
       tenantId,
@@ -163,6 +205,8 @@ describeIfDb('MED-03 gateway ward-credit refund closure', () => {
         }
         for (const table of [
           'idempotency_keys',
+          'pharmacy_staff_facility_grant_events',
+          'pharmacy_staff_facility_grants',
           'task_comments',
           'tasks',
           'notification_outbox',
@@ -175,6 +219,7 @@ describeIfDb('MED-03 gateway ward-credit refund closure', () => {
           'billing_credit_notes',
           'billing_refunds',
           'ward_indent_financial_events',
+          'ward_indent_inventory_receipt_events',
           'ward_indent_inventory_movement_links',
           'ward_indent_inventory_allocations',
           'ward_indent_events',
@@ -183,6 +228,7 @@ describeIfDb('MED-03 gateway ward-credit refund closure', () => {
           'billing_payments',
           'billing_invoice_items',
           'billing_invoices',
+          'billing_invoice_counter',
           'pharmacy_stock_movements',
           'pharmacy_inventory_batches',
           'pharmacy_inventory_items',
@@ -194,10 +240,18 @@ describeIfDb('MED-03 gateway ward-credit refund closure', () => {
           'admissions',
           'beds',
           'wards',
+          'facility_locations',
+          'facilities',
+          'staff',
+          'pharmacy_patient_safety_versions',
           'users',
         ]) {
           await tx.$executeRawUnsafe(`DELETE FROM ${table} WHERE tenant_id = $1::uuid`, tenantId);
         }
+        await tx.$executeRawUnsafe(
+          `DELETE FROM drug_compositions WHERE composition_key = $1::text`,
+          compositionKey,
+        );
         await tx.$executeRawUnsafe(`DELETE FROM tenants WHERE id = $1::uuid`, tenantId);
       });
     } finally {
@@ -210,24 +264,33 @@ describeIfDb('MED-03 gateway ward-credit refund closure', () => {
   });
 
   test('settles a paid ward credit through one exact gateway refund across concurrent replay', async () => {
+    const orderDetails = bindMedicationOrderCatalogAuthority({
+      catalog_id: catalogId,
+      medication_name: catalog.name,
+      dose: '500 mg',
+      route: catalog.route,
+      strength: catalog.strength,
+      strength_key: catalog.strength_key,
+      form: catalog.form,
+      form_key: catalog.form_key,
+      release_key: catalog.release_key,
+      quantity_requested: 2,
+      unit: 'tablet',
+    }, catalog, { phase: 'create' });
     const order = (await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_orders
          (tenant_id, order_number, patient_uid, encounter_id, order_type, status,
-          ordered_by, details, updated_at)
+          ordered_by, details, route, updated_at)
        VALUES ($1::uuid, $2::text, $3::uuid, $4::uuid, 'medication', 'ordered',
-               $5::uuid,
-               jsonb_build_object(
-                 'catalog_id', $6::int,
-                 'quantity_requested', 2,
-                 'unit', 'tablet'
-               ), NOW())
+               $5::uuid, $6::jsonb, $7::text, NOW())
        RETURNING id`,
       tenantId,
       `MED03-GATEWAY-ORDER-${run}`.slice(0, 80),
       patient,
       encounterId,
-      requester,
-      catalogId,
+      doctor,
+      JSON.stringify(orderDetails),
+      catalog.route,
     ))[0];
     await verifyOrder(Number(order.id), pharmacist, {
       tenantId,
@@ -253,6 +316,7 @@ describeIfDb('MED-03 gateway ward-credit refund closure', () => {
     const reserved = await reserveWardIndent({
       indentId: created.id,
       reservedBy: pharmacist,
+      actorRole: 'PHARMACY_INCHARGE',
       expectedVersion: 1,
       commandKey: `reserve-${run}`,
       tenantId,
@@ -260,6 +324,7 @@ describeIfDb('MED-03 gateway ward-credit refund closure', () => {
     const approved = await approveWardIndent({
       indentId: created.id,
       approvedBy: pharmacist,
+      actorRole: 'PHARMACY_INCHARGE',
       expectedVersion: reserved.state_version,
       commandKey: `approve-${run}`,
       tenantId,
@@ -267,6 +332,7 @@ describeIfDb('MED-03 gateway ward-credit refund closure', () => {
     const issued = await issueWardIndent({
       indentId: created.id,
       issuedBy: pharmacist,
+      actorRole: 'PHARMACY_INCHARGE',
       expectedVersion: approved.state_version,
       commandKey: `issue-${run}`,
       tenantId,
@@ -325,6 +391,7 @@ describeIfDb('MED-03 gateway ward-credit refund closure', () => {
     await reconcileWardIndent({
       indentId: created.id,
       reconciledBy: pharmacist,
+      actorRole: 'PHARMACY_INCHARGE',
       reason: 'Gateway-paid stock returned to the exact batch',
       expectedVersion: returnPending.state_version,
       commandKey: `reconcile-${run}`,

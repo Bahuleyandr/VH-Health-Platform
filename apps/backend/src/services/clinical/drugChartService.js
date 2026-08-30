@@ -74,6 +74,7 @@ function medicationPayloadFromOrder(order) {
   const details = parseDetails(order.details);
   const name = medicationName(details) || 'Medication not named';
   return {
+    catalog_id: positiveCatalogId(details),
     name,
     medication_name: name,
     dose: cleanText(details.dose || details.dosage),
@@ -174,7 +175,7 @@ function mapIssue(issue, severity) {
   };
 }
 
-async function buildSafetyByOrder({ patientId, orders }) {
+async function buildSafetyByOrder({ tenantId, patientId, orders }) {
   const output = new Map();
   if (!patientId) {
     for (const order of orders) {
@@ -207,7 +208,10 @@ async function buildSafetyByOrder({ patientId, orders }) {
     const warnings = [];
     const blockers = [];
     if (med.name && med.name !== 'Medication not named') {
-      const patientSafety = await validatePrescriptionSafety(patientId, [med]);
+      const patientSafety = await validatePrescriptionSafety(patientId, [med], {
+        tenantId,
+        excludeClinicalOrderId: order.id,
+      });
       warnings.push(...(patientSafety.warnings || []).map((issue) => mapIssue(issue, 'warning')));
       blockers.push(...(patientSafety.blockers || []).map((issue) => mapIssue(issue, 'blocker')));
 
@@ -511,6 +515,7 @@ export async function getAdmissionDrugChart({ admissionId, tenantId = null, user
   ]);
 
   const safetyByOrder = await buildSafetyByOrder({
+    tenantId,
     patientId: admission.patient_id,
     orders,
   });

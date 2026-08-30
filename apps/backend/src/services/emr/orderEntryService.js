@@ -784,9 +784,10 @@ async function generateOrderNumbersTx(tx, count) {
  * @param {string} patientUid
  * @param {string} orderType
  * @param {object} details
- * @param {string|null} [tenantId] threaded to validatePrescriptionSafety so the
- *   gated + guarded composition allergy / same-composition duplicate screen can
- *   run for IPD medication orders when the tenant flag is enabled.
+ * @param {string|null} [tenantId] explicit safety authority; a missing tenant
+ *   fails closed rather than producing a partial medication-safety verdict.
+ * @param {object} [db] caller-owned Prisma client or transaction. Its lifecycle
+ *   remains with the caller; this helper does not commit or roll it back.
  */
 async function runCDSChecks(patientUid, orderType, details, tenantId = null, db = prisma) {
   const result = { safe: true, warnings: [], blockers: [] };
@@ -826,10 +827,9 @@ async function runCDSChecks(patientUid, orderType, details, tenantId = null, db 
 
       // Check patient-specific hazards for the new drug first. This preserves
       // the existing hard-block behavior for allergies and paediatric dosing.
-      // tenantId is threaded so the gated composition allergy / same-composition
-      // duplicate screen (which reads this patient's active e-Rx + IPD orders)
-      // can run when the per-tenant flag is enabled; omitting it (legacy path)
-      // degrades cleanly to the deterministic checks only.
+      // tenantId scopes active-therapy authority and the gated composition
+      // screen. Missing tenant authority fails closed in the prescription
+      // safety checker instead of returning a partial deterministic verdict.
       const safetyResult = await validatePrescriptionSafety(patientRow.id, [
         newMedication,
       ], { tenantId, db });

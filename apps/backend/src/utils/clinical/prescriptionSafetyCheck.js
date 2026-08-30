@@ -827,15 +827,20 @@ function activeTherapyBlocker(type, row, message, extra = {}) {
 
 /**
  * Canonical patient-global active-therapy snapshot for pharmacist safety.
- * Every query uses the caller's tenant transaction. Source rows are reduced
- * to stable lineage, catalog, composition, timing and KB-key authority before
- * the snapshot is hashed.
+ * Missing tenant or patient authority fails closed before any query. Tenant-
+ * owned sources and catalog rows use explicit tenant predicates; governed
+ * compositions are reached through those catalog identities. Queries use the
+ * supplied db handle or the shared Prisma client by default, and this function
+ * never opens, owns, commits or rolls back a caller transaction. Source rows
+ * are reduced to stable lineage, catalog, composition, timing and KB-key
+ * authority before the snapshot is hashed.
  */
 export async function loadActiveTherapySnapshot(patientId, {
   tenantId = null,
   db = prisma,
   excludePrescriptionId = null,
   excludePharmacyOrderId = null,
+  excludeClinicalOrderId = null,
 } = {}) {
   const blockers = [];
   const numericPatientId = activeTherapyPositiveInt(patientId);
@@ -982,6 +987,7 @@ export async function loadActiveTherapySnapshot(patientId, {
               )
          FROM clinical_orders clinical
         WHERE clinical.tenant_id=$1::uuid AND clinical.patient_uid=$3::uuid
+          AND ($6::int IS NULL OR clinical.id IS DISTINCT FROM $6::int)
           AND clinical.order_type='medication'
           AND COALESCE(clinical.start_date, clinical.created_at) <= NOW()
           AND (clinical.end_date IS NULL OR clinical.end_date >= NOW())
@@ -1010,6 +1016,7 @@ export async function loadActiveTherapySnapshot(patientId, {
           AND clinical.patient_uid=administration.patient_uid
           AND clinical.order_type='medication'
         WHERE administration.tenant_id=$1::uuid AND administration.patient_uid=$3::uuid
+          AND ($6::int IS NULL OR administration.clinical_order_id IS DISTINCT FROM $6::int)
           AND LOWER(COALESCE(administration.status, 'scheduled')) IN
               ('scheduled', 'due', 'held', 'administered')
           AND (
@@ -1086,6 +1093,7 @@ export async function loadActiveTherapySnapshot(patientId, {
     patientUid,
     excludePrescriptionId == null ? null : Number(excludePrescriptionId),
     excludePharmacyOrderId == null ? null : Number(excludePharmacyOrderId),
+    excludeClinicalOrderId == null ? null : Number(excludeClinicalOrderId),
   );
 
   const specialtyRows = await db.$queryRawUnsafe(
@@ -1435,13 +1443,28 @@ export async function loadActiveTherapySnapshot(patientId, {
  * Validate a prescription against patient allergies and active medications.
  * Call before saving any new prescription.
  * @param {number} patientId
- * @param {Array} medications - [{ medication_id, name, ... }]
+ * @param {Array<object>} medications medication entries. A catalog_id, when
+ *   supplied, must be the server-authoritative tenant catalog identity; a
+ *   client-supplied composition_id is never trusted.
  * @param {object} [options]
- * @param {string|null} [options.tenantId] tenant uuid; when present AND the
- *   per-tenant composition-search flag is enabled, an additional (guarded)
- *   composition allergy + same-composition duplicate screen runs. Omitting it
- *   (legacy 2-arg callers) degrades cleanly to no composition checks.
- * @returns {{ safe: boolean, warnings: Array, blockers: Array }}
+ * @param {string|null} [options.tenantId] explicit tenant uuid. Missing tenant
+ *   authority fails closed; when composition search is enabled, the same id
+ *   also scopes the guarded composition-allergy and duplicate screen.
+ * @param {object} [options.db] caller-owned Prisma client or transaction. This
+ *   function neither opens nor commits/rolls back the supplied handle.
+ * @param {number|null} [options.excludePrescriptionId] current e-prescription
+ *   to exclude from active-therapy and composition duplicate evidence.
+ * @param {number|null} [options.excludePharmacyOrderId] current pharmacy order
+ *   to exclude from active-therapy evidence.
+ * @param {number|null} [options.excludeClinicalOrderId] current clinical order
+ *   to exclude together with MAR evidence linked to that order.
+ * @param {number|null} [options.knowledgeRevision] required authoritative
+ *   drug-knowledge revision for this safety decision.
+ * @param {boolean} [options.requireActiveTherapyAuthority=false] require strict
+ *   active-therapy drug identity and knowledge-base authority.
+ * @returns {Promise<{safe: boolean, warnings: Array, blockers: Array,
+ *   active_therapy_evidence: Array, active_therapy_sha256: string|null}>}
+ *   safety verdict plus the canonical active-therapy evidence and its hash.
  */
 export async function validatePrescriptionSafety(patientId, medications, options = {}) {
   const warnings = [];
@@ -1594,6 +1617,7 @@ export async function validatePrescriptionSafety(patientId, medications, options
       db,
       excludePrescriptionId: options.excludePrescriptionId,
       excludePharmacyOrderId: options.excludePharmacyOrderId,
+      excludeClinicalOrderId: options.excludeClinicalOrderId,
     });
     activeTherapyEvidence = activeTherapy.evidence;
     activeTherapySha256 = activeTherapy.sha256;
@@ -1619,9 +1643,10 @@ export async function validatePrescriptionSafety(patientId, medications, options
     //     derived ONLY from each med's tenant-scoped catalog_id — a
     //     client-sent composition_id is never trusted (enrich strips it).
     //
-    //     GATING: does nothing unless a truthy tenantId is supplied AND the
-    //     per-tenant composition-search flag is enabled. Legacy 2-arg callers
-    //     (no options.tenantId) and disabled tenants skip this entirely.
+    //     GATING: this composition layer runs only with a truthy tenantId AND
+    //     the per-tenant composition-search flag enabled. A missing tenant has
+    //     already failed closed in the active-therapy authority snapshot; it
+    //     is never treated as a legacy safe verdict.
     //
     //     When enabled, composition screening is required evidence. Any lookup
     //     fault reaches the outer fail-closed blocker rather than presenting
@@ -1694,7 +1719,11 @@ export async function validatePrescriptionSafety(patientId, medications, options
           // Resolve patient_uid once — clinical_orders are keyed by UUID, not
           // the integer id.
           const uidRows = await db.$queryRawUnsafe(
-            `SELECT uid FROM users WHERE id = $1 LIMIT 1`,
+            `SELECT uid
+               FROM users
+              WHERE tenant_id = $1::uuid AND id = $2::int
+              LIMIT 1`,
+            tenantId,
             patientId,
           );
           const patientUid = uidRows[0]?.uid || null;
@@ -1705,10 +1734,14 @@ export async function validatePrescriptionSafety(patientId, medications, options
             `SELECT med.value->>'catalog_id' AS catalog_id, med.value->>'name' AS name
                FROM e_prescriptions ep
                LEFT JOIN LATERAL jsonb_array_elements(COALESCE(ep.medications, '[]'::jsonb)) AS med(value) ON TRUE
-              WHERE ep.patient_id = $1
+              WHERE ep.tenant_id = $1::uuid
+                AND ep.patient_id = $2::int
+                AND ep.id IS DISTINCT FROM $3::int
                 AND LOWER(COALESCE(ep.status, 'active')) IN ('active', 'pharmacy_linked')
                 AND (ep.follow_up_date IS NULL OR ep.follow_up_date >= CURRENT_DATE)`,
+            tenantId,
             patientId,
+            options.excludePrescriptionId == null ? null : Number(options.excludePrescriptionId),
           );
 
           // Active IPD (clinical_orders) medication catalog ids.
@@ -1717,10 +1750,14 @@ export async function validatePrescriptionSafety(patientId, medications, options
             ipdRows = await db.$queryRawUnsafe(
               `SELECT co.details->>'catalog_id' AS catalog_id, co.details->>'medication_name' AS name
                  FROM clinical_orders co
-                WHERE co.patient_uid = $1::uuid
+                WHERE co.tenant_id = $1::uuid
+                  AND co.patient_uid = $2::uuid
+                  AND co.id IS DISTINCT FROM $3::int
                   AND co.order_type = 'medication'
                   AND COALESCE(co.status, 'ordered') !~* '(cancelled|canceled|discontinued|stopped|on[\\s_-]?hold|suspended|completed)'`,
+              tenantId,
               patientUid,
+              options.excludeClinicalOrderId == null ? null : Number(options.excludeClinicalOrderId),
             );
           }
 

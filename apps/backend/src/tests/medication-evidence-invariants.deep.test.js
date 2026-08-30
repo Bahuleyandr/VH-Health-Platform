@@ -9,6 +9,8 @@ import {
   receiveWardIndent,
   reserveWardIndent,
 } from '../services/ipd/ipdSupportService.js';
+import { bindMedicationOrderCatalogAuthority } from '../services/ipd/wardIndentWorkflowService.js';
+import { seedMedicationFacilityAuthority } from './helpers/medicationEvidenceFixture.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const describeIfDb = databaseUrl ? describe : describe.skip;
@@ -72,8 +74,13 @@ describeIfDb('MED-03 medication evidence invariants', () => {
   const pharmacist = randomUUID();
   const receiver = randomUUID();
   const patient = randomUUID();
+  const admin = randomUUID();
+  const doctor = randomUUID();
   const run = `${process.pid}-${Date.now()}`;
+  const compositionKey = `med03-evidence-paracetamol-${tenantId}`;
   let wardId;
+  let facilityId;
+  let storageLocationId;
   let admissionId;
   let encounterId;
   let catalogId;
@@ -106,24 +113,40 @@ describeIfDb('MED-03 medication evidence invariants', () => {
     await prisma.$executeRawUnsafe(
       `INSERT INTO users (uid, tenant_id, name, role, is_active, status, updated_at)
        VALUES
-         ($1::uuid, $5::uuid, 'Request Nurse', 'IP_STAFF_NURSE', TRUE, 'active', NOW()),
-         ($2::uuid, $5::uuid, 'Pharmacist', 'PHARMACY_INCHARGE', TRUE, 'active', NOW()),
-         ($3::uuid, $5::uuid, 'Receipt Nurse', 'NURSING_INCHARGE', TRUE, 'active', NOW()),
-         ($4::uuid, $5::uuid, 'Patient', 'PATIENT', TRUE, 'active', NOW())`,
+         ($1::uuid, $7::uuid, 'Request Nurse', 'IP_STAFF_NURSE', TRUE, 'active', NOW()),
+         ($2::uuid, $7::uuid, 'Pharmacist', 'PHARMACY_INCHARGE', TRUE, 'active', NOW()),
+         ($3::uuid, $7::uuid, 'Receipt Nurse', 'NURSING_INCHARGE', TRUE, 'active', NOW()),
+         ($4::uuid, $7::uuid, 'Patient', 'PATIENT', TRUE, 'active', NOW()),
+         ($5::uuid, $7::uuid, 'Grant Admin', 'ADMIN', TRUE, 'active', NOW()),
+         ($6::uuid, $7::uuid, 'Prescribing Doctor', 'DOCTOR', TRUE, 'active', NOW())`,
       requester,
       pharmacist,
       receiver,
       patient,
+      admin,
+      doctor,
       tenantId,
     );
+    const authority = await seedMedicationFacilityAuthority({
+      prisma,
+      tenantId,
+      pharmacistUid: pharmacist,
+      grantAdminUid: admin,
+      run: `evidence-${run}`,
+    });
+    facilityId = authority.facilityId;
+    storageLocationId = authority.storageLocationId;
     wardId = Number((await prisma.$queryRawUnsafe(
-      `INSERT INTO wards (tenant_id, name, total_beds, created_at, updated_at)
-       VALUES ($1::uuid, $2::text, 10, NOW(), NOW())
+      `INSERT INTO wards
+         (tenant_id, name, facility_id, total_beds, created_at, updated_at)
+       VALUES ($1::uuid, $2::text, $3::int, 10, NOW(), NOW())
        RETURNING id`,
       tenantId,
       `MED-03 Evidence Ward ${run}`,
+      facilityId,
     ))[0].id);
     encounterId = randomUUID();
+    const bedNumber = `M3E-${run.slice(-16)}`;
     const bedId = Number((await prisma.$queryRawUnsafe(
       `INSERT INTO beds
          (tenant_id, ward_id, ward_name, bed_number, status, patient_uid,
@@ -134,7 +157,7 @@ describeIfDb('MED-03 medication evidence invariants', () => {
       tenantId,
       wardId,
       `MED-03 Evidence Ward ${run}`,
-      `MED03-EVIDENCE-${run}`.slice(0, 50),
+      bedNumber,
       patient,
     ))[0].id);
     admissionId = Number((await prisma.$queryRawUnsafe(
@@ -148,58 +171,93 @@ describeIfDb('MED-03 medication evidence invariants', () => {
       patient,
       encounterId,
       bedId,
-      `MED03-EVIDENCE-${run}`.slice(0, 50),
+      bedNumber,
       `MED-03 Evidence Ward ${run}`,
       requester,
     ))[0].id);
-    catalogId = Number((await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_catalog
-         (tenant_id, name, is_active, stock_quantity, unit_price, price, updated_at)
-       VALUES ($1::uuid, $2::text, TRUE, 10, 12.50, 12.50, NOW())
+    const compositionId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO drug_compositions
+         (composition_key, display_label, active_ingredients, source)
+       VALUES ($1::text, 'MED-03 evidence fixture paracetamol',
+               ARRAY['paracetamol']::text[], 'curated')
        RETURNING id`,
+      compositionKey,
+    ))[0].id);
+    const catalog = (await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_catalog
+         (tenant_id, name, generic_name, is_active, stock_quantity,
+          unit_price, price, composition_id, composition_confidence,
+          composition_source, strength, strength_key, strength_components,
+          form, form_key, release_key, route, updated_at)
+       VALUES ($1::uuid, $2::text, 'Paracetamol', TRUE, 10,
+               12.50, 12.50, $3::int, 'high', 'test_fixture',
+               '500 mg', '500mg', $4::jsonb,
+               'tablet', 'tablet', 'ir', 'oral', NOW())
+       RETURNING id, name, generic_name, composition_id,
+                 composition_confidence, composition_source,
+                 strength, strength_key, strength_components,
+                 form, form_key, release_key, route`,
       tenantId,
       `MED-03 Evidence Medicine ${run}`,
-    ))[0].id);
+      compositionId,
+      JSON.stringify([{ ingredient: 'paracetamol', value: '500', unit: 'mg' }]),
+    ))[0];
+    catalogId = Number(catalog.id);
     const inventoryItemId = Number((await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_inventory_items
-         (tenant_id, sku_code, display_name, catalog_id, unit_label,
-          schedule_class, is_narcotic)
-       VALUES ($1::uuid, $2::text, $3::text, $4::int, 'each', 'OTC', FALSE)
+         (tenant_id, sku_code, display_name, catalog_id, strength, form,
+          unit_label, schedule_class, is_narcotic, facility_id)
+       VALUES ($1::uuid, $2::text, $3::text, $4::int, '500 mg', 'tablet',
+               'each', 'OTC', FALSE, $5::int)
        RETURNING id`,
       tenantId,
       `MED03-EVIDENCE-${run}`,
       `MED-03 Evidence Medicine ${run}`,
       catalogId,
+      facilityId,
     ))[0].id);
     await prisma.$executeRawUnsafe(
       `INSERT INTO pharmacy_inventory_batches
          (tenant_id, inventory_item_id, batch_number, expiry_date,
-          received_quantity, remaining_quantity, status)
+          received_quantity, remaining_quantity, status, facility_id,
+          storage_location_id)
        VALUES ($1::uuid, $2::int, $3::text,
-               (NOW() + INTERVAL '365 days')::date, 10, 10, 'in_stock')`,
+               (NOW() + INTERVAL '365 days')::date, 10, 10, 'in_stock',
+               $4::int, $5::int)`,
       tenantId,
       inventoryItemId,
       `MED03-EVIDENCE-BATCH-${run}`,
+      facilityId,
+      storageLocationId,
     );
+    const clinicalOrderDetails = bindMedicationOrderCatalogAuthority({
+      catalog_id: catalogId,
+      medication_name: catalog.name,
+      dose: '500 mg',
+      route: catalog.route,
+      strength: catalog.strength,
+      strength_key: catalog.strength_key,
+      form: catalog.form,
+      form_key: catalog.form_key,
+      release_key: catalog.release_key,
+      quantity_requested: 2,
+      unit: 'each',
+    }, catalog, { phase: 'create' });
     clinicalOrderId = Number((await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_orders
          (tenant_id, order_number, patient_uid, encounter_id, order_type, status,
-          ordered_by, verified_by, verified_at, details, updated_at)
+          ordered_by, verified_by, verified_at, details, route, updated_at)
        VALUES ($1::uuid, $2::text, $3::uuid, $4::uuid, 'medication', 'verified',
-               $5::uuid, $6::uuid, NOW(), $7::jsonb, NOW())
+               $5::uuid, $6::uuid, NOW(), $7::jsonb, $8::text, NOW())
        RETURNING id`,
       tenantId,
       `MED03-EVIDENCE-ORDER-${run}`,
       patient,
       encounterId,
-      requester,
+      doctor,
       pharmacist,
-      JSON.stringify({
-        medication_name: `MED-03 Evidence Medicine ${run}`,
-        catalog_id: catalogId,
-        quantity_requested: 2,
-        unit: 'each',
-      }),
+      JSON.stringify(clinicalOrderDetails),
+      catalog.route,
     ))[0].id);
 
     indent = await createWardIndent({
@@ -221,6 +279,7 @@ describeIfDb('MED-03 medication evidence invariants', () => {
     const reserved = await reserveWardIndent({
       indentId: indent.id,
       reservedBy: pharmacist,
+      actorRole: 'PHARMACY_INCHARGE',
       expectedVersion: 1,
       commandKey: `evidence-reserve-${run}`,
       tenantId,
@@ -228,6 +287,7 @@ describeIfDb('MED-03 medication evidence invariants', () => {
     const approved = await approveWardIndent({
       indentId: indent.id,
       approvedBy: pharmacist,
+      actorRole: 'PHARMACY_INCHARGE',
       expectedVersion: reserved.state_version,
       commandKey: `evidence-approve-${run}`,
       tenantId,
@@ -235,6 +295,7 @@ describeIfDb('MED-03 medication evidence invariants', () => {
     issued = await issueWardIndent({
       indentId: indent.id,
       issuedBy: pharmacist,
+      actorRole: 'PHARMACY_INCHARGE',
       expectedVersion: approved.state_version,
       commandKey: `evidence-issue-${run}`,
       tenantId,
@@ -246,6 +307,8 @@ describeIfDb('MED-03 medication evidence invariants', () => {
       await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
       for (const table of [
         'idempotency_keys',
+        'pharmacy_staff_facility_grant_events',
+        'pharmacy_staff_facility_grants',
         'task_comments',
         'tasks',
         'notification_outbox',
@@ -274,7 +337,11 @@ describeIfDb('MED-03 medication evidence invariants', () => {
         'admissions',
         'beds',
         'wards',
+        'facility_locations',
+        'facilities',
+        'staff',
         'audit_logs',
+        'pharmacy_patient_safety_versions',
         'users',
       ]) {
         await tx.$executeRawUnsafe(
@@ -282,6 +349,10 @@ describeIfDb('MED-03 medication evidence invariants', () => {
           tenantId,
         );
       }
+      await tx.$executeRawUnsafe(
+        `DELETE FROM drug_compositions WHERE composition_key = $1::text`,
+        compositionKey,
+      );
       await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'origin'`);
       await tx.$executeRawUnsafe(
         `DELETE FROM tenants WHERE id = $1::uuid`,

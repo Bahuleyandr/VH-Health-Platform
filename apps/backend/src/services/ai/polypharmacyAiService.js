@@ -60,7 +60,7 @@ export async function reviewPolypharmacy({ patientId, patientUid, medications, a
   }
 
   // 1. Rule layer — existing, authoritative.
-  const rules = await validatePrescriptionSafety(patientId || null, medications);
+  const rules = await validatePrescriptionSafety(patientId || null, medications, { tenantId });
   const ruleFindings = [
     ...(rules.blockers || []).map((item) => ({
       severity: 'critical',

@@ -397,6 +397,86 @@ describe('duplicate active-medication detection', () => {
   });
 });
 
+describe('composition duplicate exclusion authority', () => {
+  it('excludes the current order and eRx amendment while retaining a different active IPD order', async () => {
+    queryRawUnsafeMock.mockReset().mockImplementation(async (statement) => {
+      if (/SELECT id, uid, NOW\(\) AS snapshot_at/.test(statement)) {
+        return [{ id: 106, uid: PATIENT_UID, snapshot_at: SNAPSHOT_AT }];
+      }
+      if (/SELECT inventory\.id/.test(statement) && /FOR KEY SHARE OF inventory/.test(statement)) {
+        return [];
+      }
+      if (/WITH latest_reconciliation/.test(statement)) return [];
+      if (/FROM chemo_administrations/.test(statement)) return [];
+      if (/SELECT uid[\s\S]*tenant_id = \$1::uuid AND id = \$2::int/.test(statement)) {
+        return [{ uid: PATIENT_UID }];
+      }
+      if (/^\s*SELECT med\.value->>'catalog_id'/.test(statement)) {
+        return [];
+      }
+      if (/FROM clinical_orders co/.test(statement) && /co\.details->>'catalog_id'/.test(statement)) {
+        return [{ catalog_id: '22', name: 'Other active brand' }];
+      }
+      return [];
+    });
+    isCompositionSearchEnabledMock.mockResolvedValue(true);
+    enrichMedicationsWithCompositionMock.mockResolvedValue([{
+      name: 'Current order brand',
+      catalog_id: 11,
+      composition_id: 7,
+      composition_confidence: 'high',
+      active_ingredients: [],
+    }]);
+    resolveCompositionIdentitiesByCatalogIdsMock.mockResolvedValue(new Map([
+      [22, {
+        name: 'Other active brand',
+        composition_id: 7,
+        composition_confidence: 'high',
+      }],
+    ]));
+
+    const result = await validatePrescriptionSafety(106, [{
+      name: 'Current order brand',
+      catalog_id: 11,
+    }], {
+      excludeClinicalOrderId: 82,
+      excludePrescriptionId: 41,
+    });
+
+    expect(result.warnings).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'DUPLICATE_COMPOSITION',
+        duplicate_of: 'Other active brand',
+        source: 'inpatient_order',
+      }),
+    ]));
+
+    const uidCall = queryRawUnsafeMock.mock.calls.find(([statement]) => (
+      /SELECT uid[\s\S]*tenant_id = \$1::uuid AND id = \$2::int/.test(statement)
+    ));
+    expect(uidCall).toBeDefined();
+    expect(uidCall.slice(1)).toEqual([TENANT_ID, 106]);
+
+    const eRxCall = queryRawUnsafeMock.mock.calls.find(([statement]) => (
+      /^\s*SELECT med\.value->>'catalog_id'/.test(statement)
+    ));
+    expect(eRxCall).toBeDefined();
+    expect(eRxCall[0]).toMatch(/ep\.tenant_id = \$1::uuid/);
+    expect(eRxCall[0]).toMatch(/ep\.patient_id = \$2::int/);
+    expect(eRxCall[0]).toMatch(/ep\.id IS DISTINCT FROM \$3::int/);
+    expect(eRxCall.slice(1)).toEqual([TENANT_ID, 106, 41]);
+
+    const ipdCall = queryRawUnsafeMock.mock.calls.find(([statement]) => (
+      /FROM clinical_orders co/.test(statement) && /co\.details->>'catalog_id'/.test(statement)
+    ));
+    expect(ipdCall).toBeDefined();
+    expect(ipdCall[0]).toMatch(/co\.tenant_id = \$1::uuid/);
+    expect(ipdCall[0]).toMatch(/co\.patient_uid = \$2::uuid/);
+    expect(ipdCall[0]).toMatch(/co\.id IS DISTINCT FROM \$3::int/);
+    expect(ipdCall.slice(1)).toEqual([TENANT_ID, PATIENT_UID, 82]);
+  });
+});
+
 // ---- 3. Paediatric weight-based dose checks ------------------------------
 
 describe('paediatric weight-based dose blockers', () => {

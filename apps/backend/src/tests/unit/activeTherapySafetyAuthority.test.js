@@ -322,6 +322,75 @@ describe('canonical active-therapy authority', () => {
     expect(sourceSql).toMatch(/drug_compositions[\s\S]*FOR KEY SHARE/);
   });
 
+  test('excludes only the current clinical order and its linked MAR evidence', async () => {
+    const { db } = authorityDb([sourceRow({
+      source: 'clinical_order',
+      source_id: '83',
+      source_revision: '12',
+      lineage_id: 'clinical_order:83',
+      line_index: 'warfarin 5 mg',
+      lifecycle_status: 'clinical_order',
+    })]);
+
+    const snapshot = await loadActiveTherapySnapshot(91, {
+      tenantId: TENANT,
+      db,
+      excludePrescriptionId: '41',
+      excludePharmacyOrderId: '71',
+      excludeClinicalOrderId: '82',
+    });
+
+    expect(snapshot.evidence).toEqual([
+      expect.objectContaining({ source: 'clinical_order', source_id: '83' }),
+    ]);
+    const sourceCall = db.$queryRawUnsafe.mock.calls.find(([statement]) => (
+      /WITH latest_reconciliation/.test(statement)
+    ));
+    expect(sourceCall).toBeDefined();
+    expect(sourceCall[0]).toMatch(
+      /\(\$6::int IS NULL OR clinical\.id IS DISTINCT FROM \$6::int\)/,
+    );
+    expect(sourceCall[0]).toMatch(
+      /\(\$6::int IS NULL OR administration\.clinical_order_id IS DISTINCT FROM \$6::int\)/,
+    );
+    expect(sourceCall.slice(1)).toEqual([TENANT, 91, PATIENT_UID, 41, 71, 82]);
+  });
+
+  test('retains unlinked MAR evidence when no clinical-order exclusion is requested', async () => {
+    const { db } = authorityDb([sourceRow({
+      source: 'mar_administration',
+      source_id: '91',
+      source_revision: '4',
+      lineage_id: 'mar_administration:91',
+      line_index: 'warfarin 5 mg',
+      source_status: 'scheduled',
+      lifecycle_status: 'mar',
+      effective_start: '2026-08-29T07:00:00.000Z',
+      effective_end: null,
+    })]);
+
+    const snapshot = await loadActiveTherapySnapshot(91, { tenantId: TENANT, db });
+
+    expect(snapshot.evidence).toEqual([
+      expect.objectContaining({
+        source: 'mar_administration',
+        source_id: '91',
+        lineage_id: 'mar_administration:91',
+      }),
+    ]);
+    const sourceCall = db.$queryRawUnsafe.mock.calls.find(([statement]) => (
+      /WITH latest_reconciliation/.test(statement)
+    ));
+    expect(sourceCall).toBeDefined();
+    expect(sourceCall[0]).toMatch(
+      /\(\$6::int IS NULL OR clinical\.id IS DISTINCT FROM \$6::int\)/,
+    );
+    expect(sourceCall[0]).toMatch(
+      /\(\$6::int IS NULL OR administration\.clinical_order_id IS DISTINCT FROM \$6::int\)/,
+    );
+    expect(sourceCall.slice(1)).toEqual([TENANT, 91, PATIENT_UID, null, null, null]);
+  });
+
   test('migration 753 invalidates the full active-therapy source matrix', () => {
     for (const source of [
       'e_prescriptions', 'pharmacy_orders', 'clinical_orders',
