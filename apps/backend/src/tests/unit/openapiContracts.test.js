@@ -912,6 +912,209 @@ describe('OpenAPI contract overlays (static gate)', () => {
     }
   });
 
+  it('publishes the exact statutory schedule-register read contract', () => {
+    const entryKeys = [
+      'id',
+      'facility_id',
+      'inventory_item_id',
+      'inventory_batch_id',
+      'created_at',
+      'schedule_class',
+      'movement_kind',
+      'sku_code',
+      'display_name',
+      'generic_name',
+      'brand_name',
+      'strength',
+      'form',
+      'batch_number',
+      'expiry_date',
+      'quantity',
+      'unit_label',
+      'running_balance',
+      'patient_uid',
+      'patient_name',
+      'patient_phone',
+      'prescription_id',
+      'prescription_number',
+      'prescriber_uid',
+      'prescriber_name',
+      'prescriber_registration',
+      'patient_id_proof_type',
+      'patient_id_proof_last4',
+      'performed_by',
+      'performed_by_name',
+      'witness_uid',
+      'witness_name',
+      'reference_movement_id',
+      'notes',
+    ];
+    const nullableKeys = [
+      'inventory_batch_id',
+      'generic_name',
+      'brand_name',
+      'strength',
+      'form',
+      'batch_number',
+      'expiry_date',
+      'unit_label',
+      'patient_uid',
+      'patient_name',
+      'patient_phone',
+      'prescription_id',
+      'prescription_number',
+      'prescriber_uid',
+      'prescriber_name',
+      'prescriber_registration',
+      'patient_id_proof_type',
+      'patient_id_proof_last4',
+      'performed_by_name',
+      'witness_uid',
+      'witness_name',
+      'reference_movement_id',
+      'notes',
+    ];
+    const positiveInt32 = { type: 'integer', minimum: 1, maximum: 2147483647 };
+    const nullableInt32 = { ...positiveInt32, nullable: true };
+    const nullableUuid = { type: 'string', format: 'uuid', nullable: true };
+    const nullableString = maxLength => ({ type: 'string', maxLength, nullable: true });
+    const expectedProperties = {
+      id: positiveInt32,
+      facility_id: positiveInt32,
+      inventory_item_id: positiveInt32,
+      inventory_batch_id: nullableInt32,
+      created_at: { type: 'string', format: 'date-time' },
+      schedule_class: { type: 'string', enum: ['H', 'H1', 'X'] },
+      movement_kind: { type: 'string', maxLength: 40 },
+      sku_code: { type: 'string', maxLength: 120 },
+      display_name: { type: 'string', maxLength: 255 },
+      generic_name: nullableString(255),
+      brand_name: nullableString(255),
+      strength: nullableString(80),
+      form: nullableString(80),
+      batch_number: nullableString(120),
+      expiry_date: { type: 'string', format: 'date', nullable: true },
+      quantity: {
+        type: 'number',
+        minimum: 0.0001,
+        maximum: 9999999999.9999,
+        multipleOf: 0.0001,
+      },
+      unit_label: nullableString(40),
+      running_balance: {
+        type: 'number',
+        minimum: 0,
+        maximum: 9999999999.9999,
+        multipleOf: 0.0001,
+      },
+      patient_uid: nullableUuid,
+      patient_name: nullableString(255),
+      patient_phone: nullableString(20),
+      prescription_id: nullableInt32,
+      prescription_number: nullableString(80),
+      prescriber_uid: nullableUuid,
+      prescriber_name: nullableString(255),
+      prescriber_registration: nullableString(80),
+      patient_id_proof_type: nullableString(40),
+      patient_id_proof_last4: nullableString(4),
+      performed_by: { type: 'string', format: 'uuid' },
+      performed_by_name: nullableString(255),
+      witness_uid: nullableUuid,
+      witness_name: nullableString(255),
+      reference_movement_id: nullableInt32,
+      notes: { type: 'string', nullable: true },
+    };
+    const entry = pharmacyCounterSale.schemas.PharmacyInventoryScheduleRegisterEntry;
+    expect(entry).toEqual({
+      type: 'object',
+      additionalProperties: false,
+      required: entryKeys,
+      properties: expectedProperties,
+    });
+    expect(Object.entries(entry.properties)
+      .filter(([, property]) => property.nullable === true)
+      .map(([key]) => key)
+      .sort()).toEqual([...nullableKeys].sort());
+    expect(spec.components.schemas.PharmacyInventoryScheduleRegisterEntry).toEqual(entry);
+
+    const response = pharmacyCounterSale.schemas.PharmacyInventoryScheduleRegisterResponse;
+    expect(response).toEqual({
+      type: 'object',
+      required: ['success', 'data'],
+      properties: {
+        success: { type: 'boolean', example: true },
+        message: { type: 'string' },
+        data: {
+          type: 'array',
+          items: { $ref: '#/components/schemas/PharmacyInventoryScheduleRegisterEntry' },
+        },
+        meta: { type: 'object', additionalProperties: true },
+        requestId: { type: 'string', nullable: true },
+      },
+    });
+    expect(spec.components.schemas.PharmacyInventoryScheduleRegisterResponse).toEqual(response);
+
+    const canonicalUtcTimestamp = {
+      type: 'string',
+      format: 'date-time',
+      pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$',
+    };
+    const expectedParameters = [
+      {
+        name: 'facility_id',
+        in: 'query',
+        required: true,
+        schema: positiveInt32,
+      },
+      {
+        name: 'schedule_class',
+        in: 'query',
+        required: false,
+        schema: { type: 'string', enum: ['H', 'H1', 'X'] },
+      },
+      {
+        name: 'item_id',
+        in: 'query',
+        required: false,
+        schema: positiveInt32,
+      },
+      {
+        name: 'date_from',
+        in: 'query',
+        required: false,
+        schema: canonicalUtcTimestamp,
+      },
+      {
+        name: 'date_to',
+        in: 'query',
+        required: false,
+        schema: canonicalUtcTimestamp,
+      },
+      {
+        name: 'limit',
+        in: 'query',
+        required: false,
+        schema: { type: 'integer', minimum: 1, maximum: 500, default: 200 },
+      },
+    ];
+    for (const prefix of ['/api/v1/pharmacy', '/api/v1/pharmacy-orders']) {
+      const path = `${prefix}/inventory/v2/schedule-register`;
+      const sourceOperation = pharmacyCounterSale.operations[`GET ${path}`];
+      const generatedOperation = spec.paths[path]?.get;
+      expect(sourceOperation).toMatchObject({
+        response: 'PharmacyInventoryScheduleRegisterResponse',
+        security: [{ ApiKeyAuth: [], BearerAuth: [] }],
+      });
+      expect(sourceOperation.parameters).toEqual(expectedParameters);
+      expect(generatedOperation?.security).toEqual([{ ApiKeyAuth: [], BearerAuth: [] }]);
+      expect(generatedOperation?.responses?.['200']?.content?.['application/json']?.schema)
+        .toEqual({
+          $ref: '#/components/schemas/PharmacyInventoryScheduleRegisterResponse',
+        });
+      expect(generatedOperation?.parameters).toEqual(expectedParameters);
+    }
+  });
+
   it('publishes the tenant/facility pharmacy order authority contract end to end', () => {
     const idempotencyHeader = expect.objectContaining({
       name: 'Idempotency-Key',

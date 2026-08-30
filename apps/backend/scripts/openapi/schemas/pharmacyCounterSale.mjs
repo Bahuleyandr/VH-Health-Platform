@@ -3,7 +3,7 @@
 // /api/v1/pharmacy-orders/counter-sales/* (and the /api/v1/pharmacy alias).
 // FEFO batch dispensing + schedule-class enforcement + billingV2 PHARMACY
 // invoice with pay-at-counter, tied to the cashier's open cash-drawer session.
-import { envelope } from './_helpers.mjs';
+import { envelope, listEnvelope } from './_helpers.mjs';
 
 const witnessErrorResponse = description => ({
   description,
@@ -719,6 +719,93 @@ export const schemas = {
     }
   },
 
+  PharmacyInventoryScheduleRegisterEntry: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'id',
+      'facility_id',
+      'inventory_item_id',
+      'inventory_batch_id',
+      'created_at',
+      'schedule_class',
+      'movement_kind',
+      'sku_code',
+      'display_name',
+      'generic_name',
+      'brand_name',
+      'strength',
+      'form',
+      'batch_number',
+      'expiry_date',
+      'quantity',
+      'unit_label',
+      'running_balance',
+      'patient_uid',
+      'patient_name',
+      'patient_phone',
+      'prescription_id',
+      'prescription_number',
+      'prescriber_uid',
+      'prescriber_name',
+      'prescriber_registration',
+      'patient_id_proof_type',
+      'patient_id_proof_last4',
+      'performed_by',
+      'performed_by_name',
+      'witness_uid',
+      'witness_name',
+      'reference_movement_id',
+      'notes'
+    ],
+    properties: {
+      id: positiveInt32,
+      facility_id: positiveInt32,
+      inventory_item_id: positiveInt32,
+      inventory_batch_id: { ...positiveInt32, nullable: true },
+      created_at: { type: 'string', format: 'date-time' },
+      schedule_class: { type: 'string', enum: ['H', 'H1', 'X'] },
+      movement_kind: { type: 'string', maxLength: 40 },
+      sku_code: { type: 'string', maxLength: 120 },
+      display_name: { type: 'string', maxLength: 255 },
+      generic_name: { type: 'string', maxLength: 255, nullable: true },
+      brand_name: { type: 'string', maxLength: 255, nullable: true },
+      strength: { type: 'string', maxLength: 80, nullable: true },
+      form: { type: 'string', maxLength: 80, nullable: true },
+      batch_number: { type: 'string', maxLength: 120, nullable: true },
+      expiry_date: { type: 'string', format: 'date', nullable: true },
+      quantity: {
+        type: 'number',
+        minimum: 0.0001,
+        maximum: 9999999999.9999,
+        multipleOf: 0.0001
+      },
+      unit_label: { type: 'string', maxLength: 40, nullable: true },
+      running_balance: {
+        type: 'number',
+        minimum: 0,
+        maximum: 9999999999.9999,
+        multipleOf: 0.0001
+      },
+      patient_uid: { type: 'string', format: 'uuid', nullable: true },
+      patient_name: { type: 'string', maxLength: 255, nullable: true },
+      patient_phone: { type: 'string', maxLength: 20, nullable: true },
+      prescription_id: { ...positiveInt32, nullable: true },
+      prescription_number: { type: 'string', maxLength: 80, nullable: true },
+      prescriber_uid: { type: 'string', format: 'uuid', nullable: true },
+      prescriber_name: { type: 'string', maxLength: 255, nullable: true },
+      prescriber_registration: { type: 'string', maxLength: 80, nullable: true },
+      patient_id_proof_type: { type: 'string', maxLength: 40, nullable: true },
+      patient_id_proof_last4: { type: 'string', maxLength: 4, nullable: true },
+      performed_by: { type: 'string', format: 'uuid' },
+      performed_by_name: { type: 'string', maxLength: 255, nullable: true },
+      witness_uid: { type: 'string', format: 'uuid', nullable: true },
+      witness_name: { type: 'string', maxLength: 255, nullable: true },
+      reference_movement_id: { ...positiveInt32, nullable: true },
+      notes: { type: 'string', nullable: true }
+    }
+  },
+
   PharmacyInventoryGenericMovementRetiredResponse: {
     type: 'object',
     additionalProperties: false,
@@ -1159,7 +1246,10 @@ export const schemas = {
   PharmacyInventoryDisposalWitnessApprovalResponse: envelope(
     'PharmacyInventoryDisposalWitnessApproval'
   ),
-  PharmacyInventoryDisposalResponse: envelope('PharmacyInventoryDisposalResult')
+  PharmacyInventoryDisposalResponse: envelope('PharmacyInventoryDisposalResult'),
+  PharmacyInventoryScheduleRegisterResponse: listEnvelope(
+    'PharmacyInventoryScheduleRegisterEntry'
+  )
 };
 
 const counterSaleItemsQueryParameters = [
@@ -1215,6 +1305,51 @@ const counterSaleListQueryParameters = [
     in: 'query',
     required: false,
     schema: { type: 'integer', minimum: 1, maximum: 200 }
+  }
+];
+
+const canonicalUtcTimestamp = {
+  type: 'string',
+  format: 'date-time',
+  pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$'
+};
+
+const scheduleRegisterQueryParameters = [
+  {
+    name: 'facility_id',
+    in: 'query',
+    required: true,
+    schema: positiveInt32
+  },
+  {
+    name: 'schedule_class',
+    in: 'query',
+    required: false,
+    schema: { type: 'string', enum: ['H', 'H1', 'X'] }
+  },
+  {
+    name: 'item_id',
+    in: 'query',
+    required: false,
+    schema: positiveInt32
+  },
+  {
+    name: 'date_from',
+    in: 'query',
+    required: false,
+    schema: canonicalUtcTimestamp
+  },
+  {
+    name: 'date_to',
+    in: 'query',
+    required: false,
+    schema: canonicalUtcTimestamp
+  },
+  {
+    name: 'limit',
+    in: 'query',
+    required: false,
+    schema: { type: 'integer', minimum: 1, maximum: 500, default: 200 }
   }
 ];
 
@@ -1357,6 +1492,13 @@ function ops(prefix) {
       responseDescription: 'Standalone controlled dispensing is retired.',
       security: bearerSecurity,
       pathParameters: { id: approvalIdPathSchema }
+    },
+    [`GET ${prefix}/inventory/v2/schedule-register`]: {
+      description:
+        'Lists append-only Schedule H, H1, and X register entries newest first for one exact facility after proving the authenticated pharmacy actor holds an ACTIVE grant on that facility. Current item and batch lineage is revalidated for every historical row; corrupt or truncated statutory evidence fails closed rather than being omitted or rewritten.',
+      response: 'PharmacyInventoryScheduleRegisterResponse',
+      security: bearerSecurity,
+      parameters: scheduleRegisterQueryParameters
     },
     [`GET ${prefix}/counter-sales`]: {
       description: DESCRIPTIONS.list,
