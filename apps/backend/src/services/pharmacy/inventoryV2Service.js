@@ -3003,14 +3003,185 @@ function normalizeScheduleRegisterTimestamp(value, field) {
   return value;
 }
 
+function scheduleRegisterRowConflict(field) {
+  throw AppError.conflict(
+    'Statutory schedule-register evidence is not safely serializable',
+    'PHARMACY_SCHEDULE_REGISTER_ROW_INVALID',
+    { field },
+  );
+}
+
+function scheduleRegisterPublicId(value, field, { nullable = false } = {}) {
+  if (value == null && nullable) return null;
+  const normalized = Number(value);
+  if (!Number.isSafeInteger(normalized) || normalized <= 0 || normalized > PG_INT4_MAX) {
+    scheduleRegisterRowConflict(field);
+  }
+  return normalized;
+}
+
+function scheduleRegisterPublicDecimal(value, field) {
+  const normalized = Number(value);
+  if (value == null || (typeof value === 'string' && value.trim() === '')
+      || !Number.isFinite(normalized)) {
+    scheduleRegisterRowConflict(field);
+  }
+  return normalized;
+}
+
+function scheduleRegisterPublicTimestamp(value, field) {
+  if (!(value instanceof Date) && typeof value !== 'string') {
+    scheduleRegisterRowConflict(field);
+  }
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(parsed.getTime())) scheduleRegisterRowConflict(field);
+  return parsed.toISOString();
+}
+
+function scheduleRegisterPublicDate(value, field) {
+  if (value == null) return null;
+  const date = value instanceof Date
+    ? (Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10))
+    : value;
+  if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    scheduleRegisterRowConflict(field);
+  }
+  const parsed = new Date(`${date}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) {
+    scheduleRegisterRowConflict(field);
+  }
+  return date;
+}
+
+function scheduleRegisterTenantMatches(value, expected) {
+  return typeof value === 'string'
+    && value.toLowerCase() === String(expected).toLowerCase();
+}
+
+function assertScheduleRegisterItemEvidence(entry, {
+  tenantId,
+  facilityId,
+  inventoryItemId,
+}) {
+  const currentItemId = scheduleRegisterPublicId(entry.current_item_id, 'current_item_id');
+  const currentItemFacilityId = scheduleRegisterPublicId(
+    entry.current_item_facility_id,
+    'current_item_facility_id',
+  );
+  if (!scheduleRegisterTenantMatches(entry.current_item_tenant_id, tenantId)
+      || currentItemId !== inventoryItemId
+      || currentItemFacilityId !== facilityId) {
+    scheduleRegisterRowConflict('inventory_item_authority');
+  }
+}
+
+function assertScheduleRegisterBatchEvidence(entry, {
+  tenantId,
+  facilityId,
+  inventoryItemId,
+  inventoryBatchId,
+}) {
+  if (inventoryBatchId == null) return;
+  const currentBatchId = scheduleRegisterPublicId(entry.current_batch_id, 'current_batch_id');
+  const currentBatchItemId = scheduleRegisterPublicId(
+    entry.current_batch_inventory_item_id,
+    'current_batch_inventory_item_id',
+  );
+  const currentBatchFacilityId = scheduleRegisterPublicId(
+    entry.current_batch_facility_id,
+    'current_batch_facility_id',
+  );
+  if (!scheduleRegisterTenantMatches(entry.current_batch_tenant_id, tenantId)
+      || currentBatchId !== inventoryBatchId
+      || currentBatchItemId !== inventoryItemId
+      || currentBatchFacilityId !== facilityId) {
+    scheduleRegisterRowConflict('inventory_batch_authority');
+  }
+}
+
+function serializeScheduleRegisterEntry(entry, { tenantId, facilityId: expectedFacilityId }) {
+  if (!scheduleRegisterTenantMatches(entry.tenant_id, tenantId)) {
+    scheduleRegisterRowConflict('tenant_id');
+  }
+  const facilityId = scheduleRegisterPublicId(entry.facility_id, 'facility_id');
+  if (facilityId !== expectedFacilityId) scheduleRegisterRowConflict('facility_id');
+  const inventoryItemId = scheduleRegisterPublicId(
+    entry.inventory_item_id,
+    'inventory_item_id',
+  );
+  const inventoryBatchId = scheduleRegisterPublicId(
+    entry.inventory_batch_id,
+    'inventory_batch_id',
+    { nullable: true },
+  );
+  assertScheduleRegisterItemEvidence(entry, {
+    tenantId,
+    facilityId,
+    inventoryItemId,
+  });
+  assertScheduleRegisterBatchEvidence(entry, {
+    tenantId,
+    facilityId,
+    inventoryItemId,
+    inventoryBatchId,
+  });
+  return {
+    id: scheduleRegisterPublicId(entry.id, 'id'),
+    facility_id: facilityId,
+    inventory_item_id: inventoryItemId,
+    inventory_batch_id: inventoryBatchId,
+    created_at: scheduleRegisterPublicTimestamp(entry.created_at, 'created_at'),
+    schedule_class: entry.schedule_class,
+    movement_kind: entry.movement_kind,
+    sku_code: entry.sku_code,
+    display_name: entry.display_name,
+    generic_name: entry.generic_name ?? null,
+    brand_name: entry.brand_name ?? null,
+    strength: entry.strength ?? null,
+    form: entry.form ?? null,
+    batch_number: entry.batch_number ?? null,
+    expiry_date: scheduleRegisterPublicDate(entry.expiry_date, 'expiry_date'),
+    quantity: scheduleRegisterPublicDecimal(entry.quantity, 'quantity'),
+    unit_label: entry.unit_label ?? null,
+    running_balance: scheduleRegisterPublicDecimal(entry.running_balance, 'running_balance'),
+    patient_uid: entry.patient_uid ?? null,
+    patient_name: entry.patient_name ?? null,
+    patient_phone: entry.patient_phone ?? null,
+    prescription_id: scheduleRegisterPublicId(
+      entry.prescription_id,
+      'prescription_id',
+      { nullable: true },
+    ),
+    prescription_number: entry.prescription_number ?? null,
+    prescriber_uid: entry.prescriber_uid ?? null,
+    prescriber_name: entry.prescriber_name ?? null,
+    prescriber_registration: entry.prescriber_registration ?? null,
+    patient_id_proof_type: entry.patient_id_proof_type ?? null,
+    patient_id_proof_last4: entry.patient_id_proof_last4 ?? null,
+    performed_by: entry.performed_by,
+    performed_by_name: entry.performed_by_name ?? null,
+    witness_uid: entry.witness_uid ?? null,
+    witness_name: entry.witness_name ?? null,
+    reference_movement_id: scheduleRegisterPublicId(
+      entry.reference_movement_id,
+      'reference_movement_id',
+      { nullable: true },
+    ),
+    notes: entry.notes ?? null,
+  };
+}
+
 export async function listScheduleRegister({
   tenantId, actorUid, actorRole, facility_id,
   schedule_class, item_id, date_from, date_to, limit = 200,
 }) {
   const tid = requireTenantId(tenantId);
   const facilityId = Number(facility_id);
-  if (!Number.isSafeInteger(facilityId) || facilityId <= 0) {
-    throw AppError.badRequest('facility_id must be a positive integer', 'PHARMACY_FACILITY_REQUIRED');
+  if (!Number.isSafeInteger(facilityId) || facilityId <= 0 || facilityId > PG_INT4_MAX) {
+    throw AppError.badRequest(
+      'facility_id must be a positive PostgreSQL integer',
+      'PHARMACY_FACILITY_REQUIRED',
+    );
   }
   const scheduleClass = normalizeScheduleRegisterClass(schedule_class);
   const dateFrom = normalizeScheduleRegisterTimestamp(date_from, 'date_from');
@@ -3033,8 +3204,12 @@ export async function listScheduleRegister({
   }
   if (item_id != null) {
     const itemId = Number(item_id);
-    if (!Number.isSafeInteger(itemId) || itemId <= 0) {
-      throw AppError.badRequest('item_id must be a positive integer');
+    if (!Number.isSafeInteger(itemId) || itemId <= 0 || itemId > PG_INT4_MAX) {
+      throw AppError.badRequest(
+        'item_id must be a positive PostgreSQL integer',
+        'PHARMACY_SCHEDULE_REGISTER_FILTER_INVALID',
+        { field: 'item_id' },
+      );
     }
     params.push(itemId);
     where.push(`register.inventory_item_id = $${params.length}::int`);
@@ -3049,7 +3224,7 @@ export async function listScheduleRegister({
       actorUid,
       actorRole,
     });
-    return tx.$queryRawUnsafe(
+    const rows = await tx.$queryRawUnsafe(
       `SELECT register.id,
               register.tenant_id,
               register.facility_id,
@@ -3058,12 +3233,19 @@ export async function listScheduleRegister({
               register.created_at,
               register.schedule_class,
               register.movement_kind,
+              item.id AS current_item_id,
+              item.tenant_id AS current_item_tenant_id,
+              item.facility_id AS current_item_facility_id,
               item.sku_code,
               item.display_name,
               item.generic_name,
               item.brand_name,
               item.strength,
               item.form,
+              batch.id AS current_batch_id,
+              batch.tenant_id AS current_batch_tenant_id,
+              batch.inventory_item_id AS current_batch_inventory_item_id,
+              batch.facility_id AS current_batch_facility_id,
               batch.batch_number,
               batch.expiry_date,
               register.quantity,
@@ -3086,7 +3268,7 @@ export async function listScheduleRegister({
               register.reference_movement_id,
               register.notes
          FROM pharmacy_schedule_register register
-         JOIN pharmacy_inventory_items item
+         LEFT JOIN pharmacy_inventory_items item
            ON item.tenant_id=register.tenant_id
           AND item.id=register.inventory_item_id
           AND item.facility_id=register.facility_id
@@ -3096,10 +3278,14 @@ export async function listScheduleRegister({
           AND batch.inventory_item_id=register.inventory_item_id
           AND batch.facility_id=register.facility_id
         WHERE ${where.join(' AND ')}
-        ORDER BY register.created_at DESC
+        ORDER BY register.created_at DESC, register.id DESC
         LIMIT $${params.length}::int`,
       ...params,
     );
+    return rows.map((row) => serializeScheduleRegisterEntry(row, {
+      tenantId: tid,
+      facilityId,
+    }));
   });
 }
 
