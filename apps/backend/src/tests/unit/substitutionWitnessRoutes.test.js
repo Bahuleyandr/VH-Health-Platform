@@ -120,11 +120,17 @@ test('substitution witness endpoints require idempotency claims and exclude the 
 test('request + approve bind to the authenticated actor/tenant, never body fields', async () => {
   const requestResponse = await request(app)
     .post('/dispense-substitution/witness-approvals')
-    .send({ tenantId: 'caller-tenant', requested_by: 'caller-actor', inventory_item_id: 5 });
+    .send({
+      tenantId: 'caller-tenant',
+      requested_by: 'caller-actor',
+      requested_role: 'ADMIN',
+      inventory_item_id: 5,
+    });
   expect(requestResponse.statusCode).toBe(200);
   expect(requestApprovalMock).toHaveBeenCalledWith(expect.objectContaining({
     tenantId: TENANT,
     requested_by: ACTOR,
+    requested_role: 'PHARMACY_STAFF',
     inventory_item_id: 5,
   }));
 

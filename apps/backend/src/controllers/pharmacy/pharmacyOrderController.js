@@ -267,6 +267,45 @@ function positiveQuantity(value, label = 'quantity') {
   return quantity;
 }
 
+const SUBSTITUTION_MAX_SCALED_QUANTITY = 99_999_999_999_999n;
+
+export function canonicalSubstitutionQuantity(value) {
+  if (value == null || ['boolean', 'symbol', 'function'].includes(typeof value)) {
+    throw AppError.badRequest(
+      'quantity must be positive, fit NUMERIC(14,4), and have at most four decimal places',
+      'PHARMACY_DISPENSE_QUANTITY_INVALID',
+    );
+  }
+  let quantityText;
+  try {
+    quantityText = String(value);
+  } catch {
+    throw AppError.badRequest(
+      'quantity must be positive, fit NUMERIC(14,4), and have at most four decimal places',
+      'PHARMACY_DISPENSE_QUANTITY_INVALID',
+    );
+  }
+  if (quantityText !== quantityText.trim()) {
+    throw AppError.badRequest(
+      'quantity must be positive, fit NUMERIC(14,4), and have at most four decimal places',
+      'PHARMACY_DISPENSE_QUANTITY_INVALID',
+    );
+  }
+  const match = /^(0|[1-9][0-9]{0,9})(?:\.([0-9]{1,4}))?$/.exec(quantityText);
+  const scaledQuantity = match
+    ? (BigInt(match[1]) * 10_000n) + BigInt((match[2] || '').padEnd(4, '0'))
+    : null;
+  if (scaledQuantity == null
+      || scaledQuantity <= 0n
+      || scaledQuantity > SUBSTITUTION_MAX_SCALED_QUANTITY) {
+    throw AppError.badRequest(
+      'quantity must be positive, fit NUMERIC(14,4), and have at most four decimal places',
+      'PHARMACY_DISPENSE_QUANTITY_INVALID',
+    );
+  }
+  return Number(scaledQuantity) / 10_000;
+}
+
 function emitPharmacyOrderEventInTx(tx, req, eventType, order, extra = {}) {
   return emitPharmacyOrderEvent({
     db: tx,
@@ -4847,7 +4886,7 @@ const SUBSTITUTION_CONTROLLED_SCHEDULE_CLASSES = ['H', 'H1', 'X'];
  * classification. The schedule check keys off the CONCRETE inventory item
  * being decremented — never a client-supplied brand string.
  */
-async function resolveSubstitutionPhase0(tenantId, body = {}, db = prisma) {
+export async function resolveSubstitutionPhase0(tenantId, body = {}, db = prisma) {
   if (Object.hasOwn(body, 'performed_by_name')) {
     throw AppError.badRequest(
       'performed_by_name is derived from the authenticated roster identity',
@@ -4860,7 +4899,7 @@ async function resolveSubstitutionPhase0(tenantId, body = {}, db = prisma) {
     reason,
   } = body;
 
-  const qty = Number(quantity);
+  const qty = canonicalSubstitutionQuantity(quantity);
   const origId = Number(original_catalog_id);
   const finalId = Number(final_catalog_id);
   const itemId = Number(inventory_item_id);
@@ -4883,7 +4922,6 @@ async function resolveSubstitutionPhase0(tenantId, body = {}, db = prisma) {
     || orderLineIndex > PG_INT4_MAX
     || !Number.isSafeInteger(prescriptionLineIndex) || prescriptionLineIndex < 0
     || prescriptionLineIndex > PG_INT4_MAX
-    || !Number.isFinite(qty) || qty <= 0
     || !Number.isInteger(origId) || origId <= 0 || origId > PG_INT4_MAX
     || !Number.isInteger(finalId) || finalId <= 0 || finalId > PG_INT4_MAX
   ) {
@@ -4996,7 +5034,11 @@ async function resolveSubstitutionPhase0(tenantId, body = {}, db = prisma) {
     );
   }
 
-  const ids = await resolveCompositionIdentitiesByCatalogIds(tenantId, [origId, finalId]);
+  const ids = await resolveCompositionIdentitiesByCatalogIds(
+    tenantId,
+    [origId, finalId],
+    { db },
+  );
   const orig = ids.get(origId);
   const sub = ids.get(finalId);
   if (!orig || !sub) throw AppError.badRequest('Unresolvable catalog id', 'CATALOG_ID_UNRESOLVED');
@@ -5074,52 +5116,67 @@ async function resolveSubstitutionPhase0(tenantId, body = {}, db = prisma) {
  * same equivalence gate as the dispense runs first so an approval can never
  * exist for an inequivalent swap.
  */
-export async function requestSubstitutionWitnessApproval({ tenantId, requested_by, ...body }) {
+export async function requestSubstitutionWitnessApproval({
+  tenantId,
+  requested_by,
+  requested_role,
+  ...body
+}) {
   if (Object.hasOwn(body, 'witness_approval_id')) {
     throw AppError.badRequest(
       'witness_approval_id is not accepted before witness approval',
       'CONTROLLED_DISPENSE_WITNESS_APPROVAL_PRESELECTED',
     );
   }
-  const ctx = await resolveSubstitutionPhase0(tenantId, body);
-  if (!ctx.needsWitness) {
-    throw AppError.badRequest(
-      'A witness approval is only available for Schedule X / narcotic substitution',
-      'CONTROLLED_DISPENSE_WITNESS_NOT_REQUIRED',
+  const ctx = await setTenantTx(tenantId, async (tx) => {
+    const resolved = await resolveSubstitutionPhase0(tenantId, body, tx);
+    if (!resolved.needsWitness) {
+      throw AppError.badRequest(
+        'A witness approval is only available for Schedule X / narcotic substitution',
+        'CONTROLLED_DISPENSE_WITNESS_NOT_REQUIRED',
+      );
+    }
+    await assertPharmacyFacilityGrant(tx, {
+      tenantId,
+      facilityId: resolved.facilityId,
+      actorUid: requested_by,
+      actorRole: requested_role,
+      forUpdate: true,
+    });
+    // Advisory usable-batch check (the dispense revalidates under FOR UPDATE).
+    const batches = await tx.$queryRawUnsafe(
+      `SELECT id, remaining_quantity, status,
+              (expiry_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date) AS is_expired
+         FROM pharmacy_inventory_batches
+        WHERE id = $1::int AND tenant_id = $2::uuid AND inventory_item_id = $3::int
+          AND facility_id = $4::int`,
+      resolved.batchId, tenantId, resolved.itemId, resolved.facilityId,
     );
-  }
-  // Advisory usable-batch check (the dispense revalidates under FOR UPDATE).
-  const batches = await prisma.$queryRawUnsafe(
-    `SELECT id, remaining_quantity, status,
-            (expiry_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date) AS is_expired
-       FROM pharmacy_inventory_batches
-      WHERE id = $1::int AND tenant_id = $2::uuid AND inventory_item_id = $3::int
-        AND facility_id = $4::int`,
-    ctx.batchId, tenantId, ctx.itemId, ctx.facilityId,
-  );
-  if (!batches.length) throw AppError.notFound('Inventory batch not found');
-  if (batches[0].status !== 'in_stock') {
-    throw AppError.badRequest(
-      `Batch not available for issue (status: ${batches[0].status})`,
-      'INVENTORY_BATCH_UNAVAILABLE',
-    );
-  }
-  if (batches[0].is_expired) {
-    throw AppError.badRequest('Batch is expired and cannot be issued', 'INVENTORY_BATCH_EXPIRED');
-  }
-  if (Number(batches[0].remaining_quantity) < ctx.qty) {
-    throw AppError.badRequest(
-      `Insufficient stock. Available: ${batches[0].remaining_quantity}`,
-      'INVENTORY_INSUFFICIENT_STOCK',
-    );
-  }
+    if (!batches.length) throw AppError.notFound('Inventory batch not found');
+    if (batches[0].status !== 'in_stock') {
+      throw AppError.badRequest(
+        `Batch not available for issue (status: ${batches[0].status})`,
+        'INVENTORY_BATCH_UNAVAILABLE',
+      );
+    }
+    if (batches[0].is_expired) {
+      throw AppError.badRequest('Batch is expired and cannot be issued', 'INVENTORY_BATCH_EXPIRED');
+    }
+    if (Number(batches[0].remaining_quantity) < resolved.qty) {
+      throw AppError.badRequest(
+        `Insufficient stock. Available: ${batches[0].remaining_quantity}`,
+        'INVENTORY_INSUFFICIENT_STOCK',
+      );
+    }
+    return resolved;
+  });
   const {
     CONTROLLED_DISPENSE_APPROVAL_SCOPES, createControlledDispenseWitnessApproval,
   } = await import('../../services/pharmacy/controlledDispenseWitnessService.js');
   return createControlledDispenseWitnessApproval({
     tenantId,
     scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.dispenseSubstitution,
-    payload: substitutionWitnessPayload(body),
+    payload: substitutionWitnessPayload({ ...body, quantity: ctx.qty }),
     requestedBy: requested_by,
   });
 }

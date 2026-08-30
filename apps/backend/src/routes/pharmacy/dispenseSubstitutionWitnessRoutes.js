@@ -28,6 +28,7 @@ import {
   PHARMACY_INCHARGE,
   PHARMACY_STAFF,
   hasRole,
+  normalizeRole,
 } from '../../utils/roles.js';
 import { CONTROLLED_DISPENSE_WITNESS_ROLES } from '../../services/pharmacy/controlledDispenseWitnessService.js';
 import { StaffAuthService } from '../../services/auth/staffAuthService.js';
@@ -141,6 +142,7 @@ router.post('/', requireDispense, guardSubstitutionWitnessPatient, requireIdempo
   ...req.body,
   tenantId: req.tenantId,
   requested_by: req.user?.uid,
+  requested_role: normalizeRole(req.user?.role),
 })));
 
 pharmacySubstitutionWitnessApprovalRoutes.post('/', requireApprovalHost, requireIdempotencyKey({
