@@ -21,6 +21,7 @@ import { Router } from 'express';
 import {
   requestSubstitutionWitnessApproval,
   approveSubstitutionWitnessApproval,
+  preflightSubstitutionWitnessApproval,
 } from '../../controllers/pharmacy/pharmacyOrderController.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
@@ -153,16 +154,28 @@ pharmacySubstitutionWitnessApprovalRoutes.post('/', requireApprovalHost, require
   requestPathForIdempotency: (req) =>
     `${SUBSTITUTION_WITNESS_CANONICAL_PATH}/${req.params.id}/approve`,
 }), wrap(async (req) => {
-  const tenantId = req.tenantId;
-  const actor = await resolveWitnessActor(req, tenantId);
-  return approveSubstitutionWitnessApproval({
-    approvalId: req.params.id,
-    ...actor,
-    substitution: {
+  try {
+    const tenantId = req.tenantId;
+    const substitution = {
       ...(req.body.substitution || {}),
       tenantId,
-    },
-  });
+    };
+    const usesStaffPassword = Object.hasOwn(req.body || {}, 'employeeId')
+      || Object.hasOwn(req.body || {}, 'password');
+    await preflightSubstitutionWitnessApproval({
+      approvalId: req.params.id,
+      requesterUid: usesStaffPassword ? req.user?.uid : null,
+      substitution,
+    });
+    const actor = await resolveWitnessActor(req, tenantId);
+    return approveSubstitutionWitnessApproval({
+      approvalId: req.params.id,
+      ...actor,
+      substitution,
+    });
+  } finally {
+    if (req.body && Object.hasOwn(req.body, 'password')) delete req.body.password;
+  }
 }));
 
 export default router;

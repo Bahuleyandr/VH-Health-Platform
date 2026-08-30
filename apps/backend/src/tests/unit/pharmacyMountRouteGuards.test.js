@@ -130,6 +130,7 @@ const pharmacyOrderControllerMock = {
   removeCatalog: handlerMock('removeCatalog'),
   dispenseSubstitution: handlerMock('dispenseSubstitution'),
   requestSubstitutionWitnessApproval: jest.fn(async (input) => input),
+  preflightSubstitutionWitnessApproval: jest.fn(async (input) => input),
   approveSubstitutionWitnessApproval: jest.fn(async (input) => input),
 };
 jest.unstable_mockModule('../../controllers/pharmacy/pharmacyOrderController.js', () => pharmacyOrderControllerMock);
@@ -150,6 +151,7 @@ const getCounterSaleMock = jest.fn(async () => ({ id: 7 }));
 jest.unstable_mockModule('../../services/pharmacy/counterSaleService.js', () => ({
   searchSellableItems: jest.fn(async () => []),
   requestCounterSaleWitnessApproval: jest.fn(async (input) => input),
+  preflightCounterSaleWitnessApproval: jest.fn(async (input) => input),
   approveCounterSaleWitnessApproval: jest.fn(async (input) => input),
   createCounterSale: jest.fn(async (input) => input),
   listCounterSales: jest.fn(async () => []),
@@ -161,6 +163,11 @@ jest.unstable_mockModule('../../services/pharmacy/inventoryV2Service.js', () => 
 }));
 jest.unstable_mockModule('../../services/auth/staffAuthService.js', () => ({
   StaffAuthService: { authenticateControlledDispenseWitness: jest.fn() },
+}));
+jest.unstable_mockModule('../../services/pharmacy/pharmacyOrderInventoryService.js', () => ({
+  requestOrderControlledWitnessApproval: jest.fn(async (input) => input),
+  preflightOrderControlledWitnessApproval: jest.fn(async (input) => input),
+  approveOrderControlledWitnessApproval: jest.fn(async (input) => input),
 }));
 jest.unstable_mockModule('../../services/pharmacy/controlledDispenseWitnessService.js', () => ({
   CONTROLLED_DISPENSE_WITNESS_ROLES: ['DOCTOR'],
@@ -334,6 +341,8 @@ describe('router middleware chains carry the per-route guards', () => {
     ['get', '/:id'], ['get', '/:id/label'], ['get', '/:id/receipt'], ['get', '/:id/pack-label'],
     ['post', '/:id/confirm'], ['post', '/:id/verify'], ['post', '/:id/assign-facility'],
     ['post', '/:id/resolve-line-identities'], ['post', '/:id/preparing'],
+    ['post', '/:id/controlled-dispense/witness-approvals'],
+    ['post', '/:id/controlled-dispense/witness-approvals/:approvalId/approve'],
     ['post', '/:id/dispatch'], ['post', '/:id/dispense-counter'],
     ['post', '/:id/dispense'], ['post', '/:id/unavailable'], ['post', '/:id/cancel'],
   ];

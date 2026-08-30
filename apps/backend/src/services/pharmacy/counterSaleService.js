@@ -61,6 +61,7 @@ import {
   assertApprovedControlledDispenseWitness,
   consumeControlledDispenseWitnessApproval,
   createControlledDispenseWitnessApproval,
+  preflightControlledDispenseWitnessApproval,
 } from './controlledDispenseWitnessService.js';
 import {
   createDraftInvoice, addInvoiceItem, issueInvoiceTx, voidInvoice,
@@ -724,6 +725,18 @@ export async function requestCounterSaleWitnessApproval(params) {
   });
 }
 
+export async function preflightCounterSaleWitnessApproval(params) {
+  const sale = params?.sale || {};
+  validateCounterSaleWitnessRequest(sale);
+  return preflightControlledDispenseWitnessApproval({
+    tenantId: sale.tenantId,
+    approvalId: params.approvalId,
+    scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.counterSale,
+    payload: counterSaleWitnessPayload(sale),
+    requesterUid: params.requesterUid,
+  });
+}
+
 /**
  * A separately authenticated witness approves the UNCHANGED sale payload.
  *
@@ -737,12 +750,13 @@ export async function requestCounterSaleWitnessApproval(params) {
  * success split into a cross-facility catalogue oracle for any pharmacist
  * granted at some OTHER facility.
  *
- * The stored approval fingerprint stands in its place. Everything before the
- * call below is decidable from the request body alone; the first thing that
- * touches the database is approveControlledDispenseWitnessApproval, which
- * loads and locks the approval row, proves the requester, and refuses unless
- * the payload rebuilt from this request body hashes byte-for-byte to the
- * fingerprint stored at mint time (assertApprovalContract). Those bytes are
+ * The stored approval fingerprint stands in its place. The route first calls
+ * preflightCounterSaleWitnessApproval, which loads the pending approval and
+ * proves its requester and exact body-local fingerprint before any password
+ * authentication. After authentication, approveControlledDispenseWitnessApproval
+ * repeats that proof under the approval-row lock and refuses unless the payload
+ * rebuilt from this request body hashes byte-for-byte to the fingerprint stored
+ * at mint time (assertApprovalContract). Those bytes are
  * the whole authority: a match proves they already passed the grant assert,
  * the item read and the schedule / needs-a-witness gates inside
  * requestCounterSaleWitnessApproval, which is the only path that can mint an
@@ -759,6 +773,7 @@ export async function approveCounterSaleWitnessApproval(params) {
     tenantId: sale.tenantId,
     approvalId: params.approvalId,
     actorUid: params.actorUid,
+    scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.counterSale,
     payload: counterSaleWitnessPayload(sale),
     requesterUid: params.requesterUid,
   });

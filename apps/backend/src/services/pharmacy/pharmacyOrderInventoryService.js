@@ -16,6 +16,13 @@ import {
   recordMovementTx,
 } from './inventoryV2Service.js';
 import {
+  CONTROLLED_DISPENSE_APPROVAL_SCOPES,
+  approveControlledDispenseWitnessApproval,
+  consumeControlledDispenseWitnessApproval,
+  createControlledDispenseWitnessApproval,
+  preflightControlledDispenseWitnessApproval,
+} from './controlledDispenseWitnessService.js';
+import {
   assertPharmacyFacilityGrant,
   requireOrderFacility,
 } from './pharmacyFacilityAuthorityService.js';
@@ -62,18 +69,299 @@ const DELIVERY_ALLOCATION_KEYS = new Set([
   'quantity',
   'witness_approval_id',
 ]);
+const ORDER_CONTROLLED_WITNESS_SELECTOR_KEYS = new Set([
+  'order_line_index',
+  'inventory_item_id',
+  'inventory_batch_id',
+  'quantity',
+]);
+const ORDER_CONTROLLED_WITNESS_BATCH_CONTRACT =
+  'usable_in_stock_nonexpired_sufficient_stock_v1';
+const ORDER_CONTROLLED_WITNESS_CONTRACT =
+  'pharmacy_order_inventory_dispense_witness_v1';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PG_INT8_MAX = 9223372036854775807n;
 
 function positiveQuantity(value, label = 'quantity') {
-  const quantity = Number(value);
-  if (!Number.isFinite(quantity) || quantity <= 0) {
-    throw AppError.badRequest(`${label} must be greater than 0`, 'PHARMACY_DISPENSE_QUANTITY_INVALID');
+  const quantityText = String(value ?? '').trim();
+  const match = /^(0|[1-9][0-9]{0,9})(?:\.([0-9]{1,4}))?$/.exec(quantityText);
+  const scaledQuantity = match
+    ? (BigInt(match[1]) * 10_000n) + BigInt((match[2] || '').padEnd(4, '0'))
+    : null;
+  if (scaledQuantity == null
+      || scaledQuantity <= 0n
+      || scaledQuantity > 99_999_999_999_999n) {
+    throw AppError.badRequest(
+      `${label} must be positive, fit NUMERIC(14,4), and have at most four decimal places`,
+      'PHARMACY_DISPENSE_QUANTITY_INVALID',
+    );
   }
-  return quantity;
+  return Number(scaledQuantity) / 10_000;
+}
+
+function nonNegativeMedicationQuantity(value, label) {
+  const quantityText = String(value ?? '').trim();
+  if (/^0(?:\.0{1,4})?$/.test(quantityText)) return 0;
+  return positiveQuantity(value, label);
+}
+
+function canonicalAuthorityQuantity(value, {
+  label,
+  allowZero = false,
+  message,
+  code,
+}) {
+  try {
+    return allowZero
+      ? nonNegativeMedicationQuantity(value, label)
+      : positiveQuantity(value, label);
+  } catch (error) {
+    if (error?.code !== 'PHARMACY_DISPENSE_QUANTITY_INVALID') throw error;
+    throw AppError.conflict(message, code);
+  }
 }
 
 function numericId(value) {
   const id = Number(value);
   return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+function boundedInt4Id(value) {
+  const id = numericId(value);
+  return id && id <= 2147483647 ? id : null;
+}
+
+function boundedOrderLineIndex(value) {
+  if (value == null || value === '') {
+    throw AppError.badRequest(
+      'order_line_index must identify an authoritative order line',
+      'PHARMACY_ORDER_WITNESS_SELECTOR_INVALID',
+    );
+  }
+  const index = Number(value);
+  if (!Number.isSafeInteger(index) || index < 0) {
+    throw AppError.badRequest(
+      'order_line_index must identify an authoritative order line',
+      'PHARMACY_ORDER_WITNESS_SELECTOR_INVALID',
+    );
+  }
+  return index;
+}
+
+export function orderControlledWitnessSelector(value = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw AppError.badRequest(
+      'Controlled order witness selection must be an object',
+      'PHARMACY_ORDER_WITNESS_SELECTOR_INVALID',
+    );
+  }
+  const forbiddenFields = Object.keys(value)
+    .filter((key) => !ORDER_CONTROLLED_WITNESS_SELECTOR_KEYS.has(key));
+  if (forbiddenFields.length) {
+    throw AppError.badRequest(
+      'Controlled order witness requests accept only exact line, item, batch, and quantity selectors',
+      'PHARMACY_ORDER_WITNESS_CALLER_AUTHORITY_FORBIDDEN',
+      { forbidden_fields: forbiddenFields.sort() },
+    );
+  }
+  const inventoryItemId = boundedInt4Id(value.inventory_item_id);
+  const inventoryBatchId = boundedInt4Id(value.inventory_batch_id);
+  if (!inventoryItemId || !inventoryBatchId) {
+    throw AppError.badRequest(
+      'inventory_item_id and inventory_batch_id are required',
+      'PHARMACY_ORDER_WITNESS_SELECTOR_INVALID',
+    );
+  }
+  return {
+    order_line_index: boundedOrderLineIndex(value.order_line_index),
+    inventory_item_id: inventoryItemId,
+    inventory_batch_id: inventoryBatchId,
+    quantity: positiveQuantity(value.quantity),
+  };
+}
+
+function normalizedDate(value) {
+  if (!value) return null;
+  return value instanceof Date
+    ? value.toISOString().slice(0, 10)
+    : String(value).slice(0, 10);
+}
+
+function canonicalWitnessTimestamp(value, field) {
+  const timestamp = value instanceof Date ? value : new Date(value);
+  if (!value || Number.isNaN(timestamp.getTime())) {
+    throw AppError.conflict(
+      `The signed prescription has no canonical ${field} evidence`,
+      'PHARMACY_ORDER_WITNESS_PRESCRIPTION_AUTHORITY_INVALID',
+    );
+  }
+  return timestamp.toISOString();
+}
+
+function canonicalWitnessUuid(value, field) {
+  const uid = String(value || '').trim().toLowerCase();
+  if (!UUID_RE.test(uid)) {
+    throw AppError.conflict(
+      `The signed prescription has no canonical ${field} evidence`,
+      'PHARMACY_ORDER_WITNESS_PRESCRIPTION_AUTHORITY_INVALID',
+    );
+  }
+  return uid;
+}
+
+function prescriptionQuantityEvidence(line = {}) {
+  const conflict = {
+    message: 'Prescription fulfilment evidence is inconsistent',
+    code: 'PHARMACY_ORDER_WITNESS_PRESCRIPTION_EVIDENCE_CONFLICT',
+  };
+  const orderedQuantity = canonicalAuthorityQuantity(
+    line.ordered_quantity ?? line.quantity ?? line.qty,
+    { ...conflict, label: 'prescription ordered quantity' },
+  );
+  const dispensedQuantity = canonicalAuthorityQuantity(
+    line.dispensed_quantity ?? 0,
+    { ...conflict, label: 'prescription dispensed quantity', allowZero: true },
+  );
+  const derivedRemaining = Number((orderedQuantity - dispensedQuantity).toFixed(4));
+  const remainingQuantity = canonicalAuthorityQuantity(
+    line.remaining_quantity == null ? derivedRemaining : line.remaining_quantity,
+    { ...conflict, label: 'prescription remaining quantity', allowZero: true },
+  );
+  if (Math.abs(derivedRemaining - remainingQuantity) > 0.000001) {
+    throw AppError.conflict(
+      conflict.message,
+      conflict.code,
+    );
+  }
+  return { orderedQuantity, dispensedQuantity, remainingQuantity };
+}
+
+function orderQuantityEvidence(line = {}) {
+  const conflict = {
+    message: 'Order inventory fulfilment evidence is inconsistent',
+    code: 'PHARMACY_ORDER_WITNESS_ORDER_EVIDENCE_CONFLICT',
+  };
+  const orderedQuantity = canonicalAuthorityQuantity(
+    line.ordered_qty ?? line.quantity ?? line.qty,
+    { ...conflict, label: 'order ordered quantity' },
+  );
+  const dispensedQuantity = canonicalAuthorityQuantity(
+    line.inventory_dispensed_quantity ?? 0,
+    { ...conflict, label: 'order dispensed quantity', allowZero: true },
+  );
+  const remainingQuantity = Number((orderedQuantity - dispensedQuantity).toFixed(4));
+  const recordedRemainingQuantity = canonicalAuthorityQuantity(
+    line.inventory_remaining_quantity == null
+      ? remainingQuantity
+      : line.inventory_remaining_quantity,
+    { ...conflict, label: 'order remaining quantity', allowZero: true },
+  );
+  if (Math.abs(recordedRemainingQuantity - remainingQuantity) > 0.000001) {
+    throw AppError.conflict(
+      conflict.message,
+      conflict.code,
+    );
+  }
+  return { orderedQuantity, dispensedQuantity, remainingQuantity };
+}
+
+export function pharmacyOrderControlledWitnessPayload({
+  order,
+  orderLine,
+  orderLineIndex,
+  requesterGrant,
+  inventoryItem,
+  inventoryBatch,
+  quantity,
+  patientUid,
+  prescription,
+  prescriptionLineIndex,
+  prescriptionLine,
+}) {
+  const orderQuantity = orderQuantityEvidence(orderLine);
+  const prescriptionQuantity = prescriptionQuantityEvidence(prescriptionLine);
+  const requesterGrantId = String(requesterGrant?.grant_id || '').trim();
+  if (!/^[1-9][0-9]{0,18}$/.test(requesterGrantId)
+      || BigInt(requesterGrantId) > PG_INT8_MAX
+      || Number(requesterGrant?.facility_id) !== Number(order?.facility_id)) {
+    throw AppError.conflict(
+      'The order witness request has no exact requester pharmacy grant',
+      'PHARMACY_ORDER_WITNESS_FACILITY_AUTHORITY_INVALID',
+    );
+  }
+  const requesterFacilityRole = String(requesterGrant?.actor_role || '').trim().toUpperCase();
+  if (!MEDICATION_ISSUE_ROLES.has(requesterFacilityRole)) {
+    throw AppError.conflict(
+      'The order witness requester has no current pharmacy custody role',
+      'PHARMACY_ORDER_WITNESS_FACILITY_AUTHORITY_INVALID',
+    );
+  }
+  const prescriberUid = canonicalWitnessUuid(prescription?.doctor_uid, 'prescriber UID');
+  const signedBy = canonicalWitnessUuid(prescription?.signed_by, 'signer UID');
+  const lockedBy = canonicalWitnessUuid(prescription?.locked_by, 'locker UID');
+  const prescriberUserId = boundedInt4Id(prescription?.doctor_id);
+  const prescriptionStatus = String(prescription?.status || 'active').trim().toLowerCase();
+  const prescriptionLifecycle = String(prescription?.lifecycle_status || '')
+    .trim().toLowerCase();
+  if (!prescriberUserId
+      || !DISPENSABLE_PRESCRIPTION_STATUSES.includes(prescriptionStatus)
+      || prescriptionLifecycle !== 'signed'
+      || signedBy !== prescriberUid
+      || lockedBy !== prescriberUid) {
+    throw AppError.conflict(
+      'The prescription signer and locker must match its exact active prescriber identity',
+      'PHARMACY_ORDER_WITNESS_PRESCRIPTION_AUTHORITY_INVALID',
+    );
+  }
+  return {
+    contract: ORDER_CONTROLLED_WITNESS_CONTRACT,
+    order_id: Number(order.id),
+    order_line_index: Number(orderLineIndex),
+    order_inventory_authority_version: Number(order.inventory_authority_version),
+    order_status: String(order.status || '').toUpperCase(),
+    operation: String(order.delivery_type || '').toLowerCase() === 'delivery'
+      ? 'delivery'
+      : 'counter',
+    facility_id: Number(order.facility_id),
+    requester_facility_grant_id: requesterGrantId,
+    requester_facility_role: requesterFacilityRole,
+    order_catalog_id: Number(orderLine.catalog_id),
+    order_ordered_quantity: orderQuantity.orderedQuantity,
+    order_dispensed_quantity: orderQuantity.dispensedQuantity,
+    order_remaining_quantity: orderQuantity.remainingQuantity,
+    inventory_item_id: Number(inventoryItem.id),
+    inventory_batch_id: Number(inventoryBatch.id),
+    batch_number: inventoryBatch.batch_number || null,
+    lot_number: inventoryBatch.lot_number || null,
+    expiry_date: normalizedDate(inventoryBatch.expiry_date),
+    batch_safety_contract: ORDER_CONTROLLED_WITNESS_BATCH_CONTRACT,
+    quantity: Number(quantity),
+    patient_uid: String(patientUid),
+    prescription_id: Number(prescription.id),
+    prescription_number: prescription.prescription_number == null
+      ? null
+      : String(prescription.prescription_number),
+    prescription_revision: Number(prescription.revision),
+    prescription_status: prescriptionStatus,
+    prescription_lifecycle_status: prescriptionLifecycle,
+    prescriber_user_id: prescriberUserId,
+    prescriber_uid: prescriberUid,
+    prescription_signed_at: canonicalWitnessTimestamp(
+      prescription.signed_at,
+      'signature timestamp',
+    ),
+    prescription_signed_by: signedBy,
+    prescription_locked_at: canonicalWitnessTimestamp(
+      prescription.locked_at,
+      'locking timestamp',
+    ),
+    prescription_locked_by: lockedBy,
+    prescription_line_index: Number(prescriptionLineIndex),
+    prescription_catalog_id: Number(prescriptionLine.catalog_id),
+    prescription_ordered_quantity: prescriptionQuantity.orderedQuantity,
+    prescription_dispensed_quantity: prescriptionQuantity.dispensedQuantity,
+    prescription_remaining_quantity: prescriptionQuantity.remainingQuantity,
+  };
 }
 
 function controlledInventoryItem(item) {
@@ -356,6 +644,393 @@ export function substitutionWitnessPayload(body = {}) {
   };
 }
 
+async function loadOrderControlledWitnessPrescriptionTx(tx, {
+  tenantId,
+  orderId,
+  patientId,
+  patientUid,
+  lockAuthority = false,
+}) {
+  const prescriptions = await tx.$queryRawUnsafe(
+    `SELECT prescription.id, prescription.prescription_number,
+            prescription.patient_id, prescription.patient_uid,
+            prescription.doctor_id, prescription.doctor_uid,
+            prescription.status, prescription.medications,
+            COALESCE(prescription.revision, 1)::int AS revision,
+            prescription.lifecycle_status, prescription.signed_at,
+            prescription.signed_by, prescription.locked_at, prescription.locked_by
+       FROM e_prescriptions prescription
+       JOIN users prescriber
+         ON prescriber.tenant_id=prescription.tenant_id
+        AND prescriber.id=prescription.doctor_id
+        AND prescriber.uid=prescription.doctor_uid
+        AND prescriber.role='DOCTOR'
+        AND prescriber.is_active=TRUE
+        AND prescriber.status='active'
+        AND prescriber.is_deleted=FALSE
+        AND prescriber.merged_into_uid IS NULL
+      WHERE prescription.tenant_id=$1::uuid
+        AND prescription.pharmacy_order_id=$2::int
+        AND prescription.patient_id=$3::int
+        AND prescription.patient_uid=$4::uuid
+        AND COALESCE(LOWER(prescription.status), 'active') IN ('active', 'pharmacy_linked')
+        AND LOWER(COALESCE(prescription.lifecycle_status, 'draft'))='signed'
+        AND prescription.signed_at IS NOT NULL
+        AND prescription.locked_at IS NOT NULL
+        AND prescription.signed_by=prescription.doctor_uid
+        AND prescription.locked_by=prescription.doctor_uid
+      ORDER BY prescription.id
+      LIMIT 2
+      ${lockAuthority ? 'FOR UPDATE OF prescription, prescriber' : ''}`,
+    tenantId,
+    Number(orderId),
+    Number(patientId),
+    String(patientUid),
+  );
+  if (prescriptions.length !== 1) {
+    throw AppError.conflict(
+      'Controlled order witnessing requires one active, fully signed and locked prescription for the exact tenant patient and prescriber',
+      'PHARMACY_ORDER_WITNESS_PRESCRIPTION_AUTHORITY_INVALID',
+    );
+  }
+  return prescriptions[0];
+}
+
+async function resolveOrderControlledWitnessContextTx(tx, {
+  tenantId,
+  orderId,
+  selection,
+  actorUid,
+  actorRole,
+  lockAuthority = false,
+}) {
+  const id = boundedInt4Id(orderId);
+  if (!id) {
+    throw AppError.badRequest(
+      'order_id must be a positive integer',
+      'PHARMACY_ORDER_WITNESS_SELECTOR_INVALID',
+    );
+  }
+  const selector = orderControlledWitnessSelector(selection);
+  let requesterGrant = null;
+  let lockedFacilityId = null;
+  if (lockAuthority) {
+    const facilityRows = await tx.$queryRawUnsafe(
+      `SELECT facility_id
+         FROM pharmacy_orders
+        WHERE tenant_id=$1::uuid AND id=$2::int
+        LIMIT 2`,
+      tenantId,
+      id,
+    );
+    if (facilityRows.length !== 1) {
+      throw AppError.notFound('Order not found');
+    }
+    lockedFacilityId = Number(facilityRows[0].facility_id);
+    requesterGrant = await assertPharmacyFacilityGrant(tx, {
+      tenantId,
+      facilityId: lockedFacilityId,
+      actorUid,
+      actorRole,
+      forUpdate: true,
+    });
+  }
+  const orderRows = await tx.$queryRawUnsafe(
+    `SELECT pharmacy_order.id, pharmacy_order.patient_id,
+            pharmacy_order.facility_id, pharmacy_order.delivery_type,
+            UPPER(pharmacy_order.status) AS status, pharmacy_order.items_list,
+            pharmacy_order.inventory_authority_version,
+            patient.uid AS patient_uid
+       FROM pharmacy_orders pharmacy_order
+       JOIN facilities facility
+         ON facility.tenant_id=pharmacy_order.tenant_id
+        AND facility.id=pharmacy_order.facility_id
+        AND facility.status='active'
+       JOIN users patient
+         ON patient.tenant_id=pharmacy_order.tenant_id
+        AND patient.id=pharmacy_order.patient_id
+        AND patient.role='PATIENT'
+        AND patient.is_active=TRUE
+        AND patient.status='active'
+        AND patient.is_deleted=FALSE
+        AND patient.merged_into_uid IS NULL
+      WHERE pharmacy_order.tenant_id=$1::uuid
+        AND pharmacy_order.id=$2::int
+      LIMIT 2
+      ${lockAuthority ? 'FOR UPDATE OF pharmacy_order, facility, patient' : ''}`,
+    tenantId,
+    id,
+  );
+  if (orderRows.length !== 1) {
+    throw AppError.notFound('Order not found');
+  }
+  const order = orderRows[0];
+  if (lockAuthority && Number(order.facility_id) !== lockedFacilityId) {
+    throw AppError.conflict(
+      'Order pharmacy facility changed during witness approval',
+      'PHARMACY_ORDER_WITNESS_FACILITY_AUTHORITY_CHANGED',
+    );
+  }
+  const deliveryType = String(order.delivery_type || '').toLowerCase();
+  const allowedStatuses = deliveryType === 'delivery'
+    ? new Set(['CONFIRMED', 'PREPARING', 'READY'])
+    : deliveryType === 'counter'
+      ? new Set(['PENDING', 'CONFIRMED'])
+      : null;
+  if (!allowedStatuses || !allowedStatuses.has(order.status)) {
+    throw AppError.conflict(
+      `Order cannot request controlled witness approval from status ${order.status || 'unknown'}`,
+      'PHARMACY_ORDER_WITNESS_ORDER_STATE_INVALID',
+    );
+  }
+  if (!requesterGrant) {
+    requesterGrant = await assertPharmacyFacilityGrant(tx, {
+      tenantId,
+      facilityId: Number(order.facility_id),
+      actorUid,
+      actorRole,
+      forUpdate: false,
+    });
+  }
+  await resolveAuthenticatedPerformerNameTx(tx, {
+    tenantId,
+    actorUid,
+    codePrefix: 'PHARMACY_ORDER_WITNESS',
+  });
+  await assertVerificationClearedTx(tx, { orderId: id, tenantId });
+
+  const orderLines = Array.isArray(order.items_list) ? order.items_list : [];
+  const orderLine = orderLines[selector.order_line_index];
+  if (!orderLine || typeof orderLine !== 'object' || Array.isArray(orderLine)) {
+    throw AppError.conflict(
+      'The selected order line is no longer authoritative',
+      'PHARMACY_ORDER_WITNESS_LINE_INVALID',
+    );
+  }
+  const orderCatalogId = boundedInt4Id(orderLine.catalog_id);
+  if (!orderCatalogId) {
+    throw AppError.conflict(
+      'The selected order line has no authoritative catalog identity',
+      'PHARMACY_ORDER_WITNESS_LINE_INVALID',
+    );
+  }
+  const authoritativeItemId = orderLine.inventory_item_id == null
+    ? null
+    : boundedInt4Id(orderLine.inventory_item_id);
+  if (authoritativeItemId !== selector.inventory_item_id) {
+    throw AppError.conflict(
+      'The selected inventory item does not match the authoritative order line',
+      'PHARMACY_ORDER_WITNESS_ITEM_MISMATCH',
+    );
+  }
+  const orderQuantity = orderQuantityEvidence(orderLine);
+  if (selector.quantity - orderQuantity.remainingQuantity > 0.000001) {
+    throw AppError.conflict(
+      'The selected quantity exceeds the authoritative order remainder',
+      'PHARMACY_ORDER_WITNESS_QUANTITY_EXCEEDS_REMAINDER',
+      { remaining_quantity: orderQuantity.remainingQuantity },
+    );
+  }
+
+  const prescription = await loadOrderControlledWitnessPrescriptionTx(tx, {
+    tenantId,
+    orderId: id,
+    patientId: Number(order.patient_id),
+    patientUid: String(order.patient_uid),
+    lockAuthority,
+  });
+  const prescriptionLineIndex = boundedOrderLineIndex(orderLine.prescription_line_index);
+  const prescriptionLines = Array.isArray(prescription.medications)
+    ? prescription.medications
+    : [];
+  const prescriptionLine = prescriptionLines[prescriptionLineIndex];
+  if (!prescriptionLine || Number(prescriptionLine.catalog_id) !== orderCatalogId) {
+    throw AppError.conflict(
+      'The order line does not match the exact signed prescription line',
+      'PHARMACY_ORDER_WITNESS_PRESCRIPTION_LINE_INVALID',
+    );
+  }
+  const prescriptionQuantity = prescriptionQuantityEvidence(prescriptionLine);
+  if (selector.quantity - prescriptionQuantity.remainingQuantity > 0.000001) {
+    throw AppError.conflict(
+      'The selected quantity exceeds the signed prescription remainder',
+      'PHARMACY_ORDER_WITNESS_QUANTITY_EXCEEDS_REMAINDER',
+      { remaining_quantity: prescriptionQuantity.remainingQuantity },
+    );
+  }
+
+  const inventoryRows = await tx.$queryRawUnsafe(
+    `SELECT item.id, item.catalog_id, item.facility_id,
+            item.schedule_class, item.is_narcotic,
+            batch.id AS batch_id, batch.batch_number, batch.lot_number,
+            batch.expiry_date, batch.remaining_quantity, batch.status AS batch_status,
+            (batch.expiry_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date) AS is_expired
+       FROM pharmacy_inventory_items item
+       JOIN facilities facility
+         ON facility.tenant_id=item.tenant_id
+        AND facility.id=item.facility_id
+        AND facility.status='active'
+       JOIN pharmacy_inventory_batches batch
+         ON batch.tenant_id=item.tenant_id
+        AND batch.inventory_item_id=item.id
+        AND batch.facility_id=item.facility_id
+      WHERE item.tenant_id=$1::uuid
+        AND item.id=$2::int
+        AND item.facility_id=$3::int
+        AND item.status='active'
+        AND batch.id=$4::int
+      LIMIT 2
+      ${lockAuthority ? 'FOR UPDATE OF item, facility, batch' : ''}`,
+    tenantId,
+    selector.inventory_item_id,
+    Number(order.facility_id),
+    selector.inventory_batch_id,
+  );
+  if (inventoryRows.length !== 1) {
+    throw AppError.notFound('Inventory item or batch not found');
+  }
+  const inventoryRow = inventoryRows[0];
+  if (Number(inventoryRow.catalog_id) !== orderCatalogId) {
+    throw AppError.conflict(
+      'The selected inventory item does not match the signed prescription catalog line',
+      'PHARMACY_ORDER_WITNESS_ITEM_MISMATCH',
+    );
+  }
+  if (inventoryRow.schedule_class !== 'X' && inventoryRow.is_narcotic !== true) {
+    throw AppError.badRequest(
+      'A witness approval is available only for Schedule X or narcotic order stock',
+      'CONTROLLED_DISPENSE_WITNESS_NOT_REQUIRED',
+    );
+  }
+  if (inventoryRow.batch_status !== 'in_stock') {
+    throw AppError.badRequest(
+      `Inventory batch is not available for issue (status: ${inventoryRow.batch_status})`,
+      'INVENTORY_BATCH_UNAVAILABLE',
+    );
+  }
+  if (!inventoryRow.expiry_date || inventoryRow.is_expired) {
+    throw AppError.badRequest(
+      'Inventory batch expiry is missing or elapsed and cannot be issued',
+      'INVENTORY_BATCH_EXPIRED',
+    );
+  }
+  const availableQuantity = Number(inventoryRow.remaining_quantity);
+  if (!Number.isFinite(availableQuantity) || availableQuantity < 0
+      || selector.quantity - availableQuantity > 0.000001) {
+    throw AppError.badRequest(
+      `Insufficient stock. Available: ${inventoryRow.remaining_quantity}`,
+      'INVENTORY_INSUFFICIENT_STOCK',
+    );
+  }
+  const inventoryItem = {
+    id: Number(inventoryRow.id),
+    catalog_id: Number(inventoryRow.catalog_id),
+    facility_id: Number(inventoryRow.facility_id),
+    schedule_class: inventoryRow.schedule_class,
+    is_narcotic: inventoryRow.is_narcotic === true,
+  };
+  const inventoryBatch = {
+    id: Number(inventoryRow.batch_id),
+    batch_number: inventoryRow.batch_number || null,
+    lot_number: inventoryRow.lot_number || null,
+    expiry_date: inventoryRow.expiry_date,
+  };
+  return {
+    selector,
+    payload: pharmacyOrderControlledWitnessPayload({
+      order,
+      orderLine,
+      orderLineIndex: selector.order_line_index,
+      requesterGrant,
+      inventoryItem,
+      inventoryBatch,
+      quantity: selector.quantity,
+      patientUid: order.patient_uid,
+      prescription,
+      prescriptionLineIndex,
+      prescriptionLine,
+    }),
+  };
+}
+
+export async function requestOrderControlledWitnessApproval({
+  tenantId,
+  orderId,
+  selection,
+  requestedBy,
+  requestedByRole,
+}) {
+  const context = await setTenantTx(tenantId, (tx) => resolveOrderControlledWitnessContextTx(tx, {
+    tenantId,
+    orderId,
+    selection,
+    actorUid: requestedBy,
+    actorRole: requestedByRole,
+  }));
+  return createControlledDispenseWitnessApproval({
+    tenantId,
+    scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.pharmacyOrder,
+    payload: context.payload,
+    requestedBy,
+  });
+}
+
+export async function preflightOrderControlledWitnessApproval({
+  tenantId,
+  orderId,
+  approvalId,
+  selection,
+  requestedBy,
+  requestedByRole,
+}) {
+  return preflightControlledDispenseWitnessApproval({
+    tenantId,
+    approvalId,
+    scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.pharmacyOrder,
+    requesterUid: requestedBy,
+    resolvePayload: async ({ tx }) => {
+      const context = await resolveOrderControlledWitnessContextTx(tx, {
+        tenantId,
+        orderId,
+        selection,
+        actorUid: requestedBy,
+        actorRole: requestedByRole,
+        lockAuthority: false,
+      });
+      return context.payload;
+    },
+  });
+}
+
+export async function approveOrderControlledWitnessApproval({
+  tenantId,
+  orderId,
+  approvalId,
+  selection,
+  requestedBy,
+  requestedByRole,
+  witnessUid,
+}) {
+  return approveControlledDispenseWitnessApproval({
+    tenantId,
+    approvalId,
+    actorUid: witnessUid,
+    scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.pharmacyOrder,
+    requesterUid: requestedBy,
+    resolvePayload: async ({ tx }) => {
+      const context = await resolveOrderControlledWitnessContextTx(tx, {
+        tenantId,
+        orderId,
+        selection,
+        actorUid: requestedBy,
+        actorRole: requestedByRole,
+        lockAuthority: true,
+      });
+      return context.payload;
+    },
+  });
+}
+
 async function resolveOrderInventoryItemsTx(tx, {
   tenantId,
   facilityId,
@@ -528,15 +1203,12 @@ export async function resolveCounterDispenseAuthorityTx(tx, {
       line.ordered_qty ?? line.quantity ?? line.qty,
       `items_list[${index}].quantity`,
     );
-    const intendedQuantity = completeRemainder
-      ? orderedQuantity
-      : Number(line.dispensed_qty ?? line.qty ?? line.quantity);
-    if (!Number.isFinite(intendedQuantity) || intendedQuantity < 0) {
-      throw AppError.badRequest(
-        `items_list[${index}].dispensed_quantity must be non-negative`,
-        'PHARMACY_DISPENSE_QUANTITY_INVALID',
-      );
-    }
+    const intendedQuantity = nonNegativeMedicationQuantity(
+      completeRemainder
+        ? orderedQuantity
+        : line.dispensed_qty ?? line.qty ?? line.quantity,
+      `items_list[${index}].dispensed_quantity`,
+    );
     if (intendedQuantity - orderedQuantity > 0.000001) {
       throw AppError.conflict(
         `Order item ${index + 1} exceeds its authoritative ordered quantity`,
@@ -730,6 +1402,7 @@ export async function allocateOrderInventoryTx(tx, {
   order,
   lines,
   actorUid,
+  actorRole = null,
   commandKeySha256,
   operation,
   completeRemainder = false,
@@ -782,7 +1455,7 @@ export async function allocateOrderInventoryTx(tx, {
       'PHARMACY_ORDER_PRESCRIPTION_LINK_AMBIGUOUS',
     );
   }
-  const prescription = prescriptions[0] || null;
+  let prescription = prescriptions[0] || null;
   if (prescription && (
     !patient
     || prescription.patient_id == null
@@ -824,7 +1497,7 @@ export async function allocateOrderInventoryTx(tx, {
       );
     }
   }
-  const prescriptionMedications = Array.isArray(prescription?.medications)
+  let prescriptionMedications = Array.isArray(prescription?.medications)
     ? prescription.medications.map((medication) => ({ ...medication }))
     : [];
   const prescriptionLineIndexes = prescription
@@ -843,15 +1516,12 @@ export async function allocateOrderInventoryTx(tx, {
       line.ordered_qty ?? line.quantity ?? line.qty,
       `items_list[${index}].quantity`,
     );
-    const intendedQuantity = operation === 'delivery' || completeRemainder
-      ? orderedQuantity
-      : Number(line.dispensed_qty ?? line.qty ?? line.quantity);
-    if (!Number.isFinite(intendedQuantity) || intendedQuantity < 0) {
-      throw AppError.badRequest(
-        `items_list[${index}].dispensed_quantity must be non-negative`,
-        'PHARMACY_DISPENSE_QUANTITY_INVALID',
-      );
-    }
+    const intendedQuantity = nonNegativeMedicationQuantity(
+      operation === 'delivery' || completeRemainder
+        ? orderedQuantity
+        : line.dispensed_qty ?? line.qty ?? line.quantity,
+      `items_list[${index}].dispensed_quantity`,
+    );
     if (intendedQuantity - orderedQuantity > 0.000001) {
       throw AppError.conflict(
         `Order item ${index + 1} exceeds its authoritative ordered quantity`,
@@ -889,6 +1559,14 @@ export async function allocateOrderInventoryTx(tx, {
     const allocations = quantity > 0.000001
       ? exactRequestedAllocations(line, quantity)
       : [];
+    if (!needsWitness && allocations?.some(
+      (allocation) => allocation.witness_approval_id != null,
+    )) {
+      throw AppError.badRequest(
+        `Order item ${index + 1} does not require a controlled-dispense witness approval`,
+        'CONTROLLED_DISPENSE_WITNESS_NOT_REQUIRED',
+      );
+    }
     if (controlled && quantity > 0.000001 && !allocations) {
       throw AppError.conflict(
         `Controlled order item ${index + 1} requires exact batch allocation and statutory custody evidence`,
@@ -911,18 +1589,13 @@ export async function allocateOrderInventoryTx(tx, {
             retry_endpoint: `/api/v1/pharmacy-orders/orders/${Number(order.id)}/${operation === 'delivery' ? 'dispatch' : 'dispense'}`,
             batch_lookup_endpoint: `/api/v1/pharmacy/inventory/v2/batches?item_id=${Number(inventoryItem.id)}&facility_id=${facilityId}&status=in_stock`,
             witness_required: needsWitness,
-            witness_request_endpoint: '/api/v1/pharmacy/inventory/v2/controlled-dispense/witness-approvals',
-            witness_approve_endpoint_template: '/api/v1/pharmacy/inventory/v2/controlled-dispense/witness-approvals/{approval_id}/approve',
+            witness_request_endpoint: `/api/v1/pharmacy-orders/orders/${Number(order.id)}/controlled-dispense/witness-approvals`,
+            witness_approve_endpoint_template: `/api/v1/pharmacy-orders/orders/${Number(order.id)}/controlled-dispense/witness-approvals/{approval_id}/approve`,
             witness_payload_template: {
+              order_line_index: index,
               inventory_item_id: Number(inventoryItem.id),
               inventory_batch_id: 'selected_inventory_batch_id',
               quantity,
-              patient_uid: patient?.uid || null,
-              patient_name: patient?.name || order.patient_name || null,
-              patient_phone: patient?.phone || order.patient_phone || null,
-              prescription_id: prescription?.id || null,
-              prescription_number: prescription?.prescription_number || null,
-              prescriber_uid: prescription?.doctor_uid || null,
             },
             request_shape: {
               dispensed_items: [{
@@ -955,9 +1628,45 @@ export async function allocateOrderInventoryTx(tx, {
       unitPrice,
       cumulativeBillableTotal,
       controlled,
+      needsWitness,
       allocations,
     };
   });
+  let requesterGrant = null;
+  if (lineContexts.some(({ needsWitness, quantity }) => needsWitness && quantity > 0.000001)) {
+    if (!prescription || !patient || !UUID_RE.test(String(patient.uid || ''))) {
+      throw AppError.conflict(
+        'Controlled order witnessing requires an exact active patient and signed prescription',
+        'PHARMACY_ORDER_WITNESS_PRESCRIPTION_AUTHORITY_INVALID',
+      );
+    }
+    requesterGrant = await assertPharmacyFacilityGrant(tx, {
+      tenantId,
+      facilityId,
+      actorUid,
+      actorRole,
+      forUpdate: true,
+    });
+    const controlledPrescription = await loadOrderControlledWitnessPrescriptionTx(tx, {
+      tenantId,
+      orderId: Number(order.id),
+      patientId: Number(order.patient_id),
+      patientUid: String(patient?.uid || ''),
+      lockAuthority: true,
+    });
+    if (!prescription
+      || Number(controlledPrescription.id) !== Number(prescription.id)
+      || Number(controlledPrescription.revision) !== Number(prescription.revision)) {
+      throw AppError.conflict(
+        'The exact signed prescription authority changed before controlled stock consumption',
+        'PHARMACY_ORDER_WITNESS_PRESCRIPTION_AUTHORITY_INVALID',
+      );
+    }
+    prescription = controlledPrescription;
+    prescriptionMedications = Array.isArray(prescription.medications)
+      ? prescription.medications.map((medication) => ({ ...medication }))
+      : [];
+  }
   const exactBatchIds = [...new Set(lineContexts
     .flatMap(({ allocations }) => (allocations || [])
       .map(({ inventory_batch_id: batchId }) => batchId)))]
@@ -1050,6 +1759,7 @@ export async function allocateOrderInventoryTx(tx, {
       unitPrice,
       cumulativeBillableTotal,
       controlled,
+      needsWitness,
     } = context;
     line.order_line_index = index;
     if (context.prescriptionLineIndex != null) {
@@ -1074,6 +1784,7 @@ export async function allocateOrderInventoryTx(tx, {
     const lineEvidence = [];
     for (let allocationIndex = 0; allocationIndex < allocations.length; allocationIndex += 1) {
       const allocation = allocations[allocationIndex];
+      const batch = lockedBatchById.get(Number(allocation.inventory_batch_id)) || allocation;
       const referenceId = `${order.id}:${index}:${commandKeySha256}:${allocationIndex}`;
       const metadata = {
         contract: 'pharmacy_order_inventory_allocation_v1',
@@ -1086,7 +1797,42 @@ export async function allocateOrderInventoryTx(tx, {
         allocation_quantity: allocation.quantity,
         unit_price: unitPrice,
         billable_subtotal: Number((unitPrice * allocation.quantity).toFixed(2)),
+        ...(controlled && needsWitness ? {
+          witness_approval_id: String(allocation.witness_approval_id),
+          witness_approval_scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.pharmacyOrder,
+          witness_approval_contract: ORDER_CONTROLLED_WITNESS_CONTRACT,
+        } : {}),
       };
+      let witnessEvidence = null;
+      if (controlled && needsWitness) {
+        if (!prescription || context.prescriptionLineIndex == null) {
+          throw AppError.conflict(
+            'Controlled order witnessing requires an exact signed prescription line',
+            'PHARMACY_ORDER_WITNESS_PRESCRIPTION_AUTHORITY_INVALID',
+          );
+        }
+        witnessEvidence = await consumeControlledDispenseWitnessApproval({
+          tx,
+          tenantId,
+          approvalId: allocation.witness_approval_id,
+          scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.pharmacyOrder,
+          payload: pharmacyOrderControlledWitnessPayload({
+            order,
+            orderLine: line,
+            orderLineIndex: index,
+            requesterGrant,
+            inventoryItem,
+            inventoryBatch: batch,
+            quantity: allocation.quantity,
+            patientUid: patient?.uid,
+            prescription,
+            prescriptionLineIndex: context.prescriptionLineIndex,
+            prescriptionLine: prescriptionMedications[context.prescriptionLineIndex],
+          }),
+          requestedBy: actorUid,
+        });
+        metadata.witness_facility_grant_id = String(witnessEvidence.facility_grant_id);
+      }
       const result = controlled
         ? await dispenseControlledTx(tx, {
           tenantId,
@@ -1102,7 +1848,7 @@ export async function allocateOrderInventoryTx(tx, {
           prescriber_uid: prescription?.doctor_uid || null,
           performed_by: actorUid,
           performed_by_name: resolvedActorName,
-          witness_approval_id: allocation.witness_approval_id,
+          witness_evidence: witnessEvidence,
           notes: `Pharmacy order ${order.order_number || order.id}`,
           reference_id: referenceId,
           movement_metadata: metadata,
@@ -1122,7 +1868,6 @@ export async function allocateOrderInventoryTx(tx, {
           require_usable_batch: true,
           expected_facility_id: facilityId,
         });
-      const batch = lockedBatchById.get(Number(allocation.inventory_batch_id)) || allocation;
       const entry = {
         inventory_item_id: Number(inventoryItem.id),
         inventory_batch_id: Number(allocation.inventory_batch_id),
@@ -1135,6 +1880,12 @@ export async function allocateOrderInventoryTx(tx, {
         movement_id: Number(result.movement.id),
         register_entry_id: result.register_entry?.id != null
           ? Number(result.register_entry.id)
+          : null,
+        witness_approval_id: controlled && needsWitness
+          ? String(allocation.witness_approval_id)
+          : null,
+        witness_facility_grant_id: controlled && needsWitness
+          ? String(witnessEvidence.facility_grant_id)
           : null,
       };
       lineEvidence.push(entry);

@@ -2,10 +2,173 @@ import { jest } from '@jest/globals';
 
 import {
   authoritativeSubstitutionAllowed,
+  orderControlledWitnessSelector,
+  pharmacyOrderControlledWitnessPayload,
   resolveCounterDispenseAuthorityTx,
   resolvePrescriptionLineIndexes,
   substitutionWitnessPayload,
 } from '../../services/pharmacy/pharmacyOrderInventoryService.js';
+import {
+  CONTROLLED_DISPENSE_APPROVAL_SCOPES,
+  controlledDispenseApprovalFingerprint,
+} from '../../services/pharmacy/controlledDispenseWitnessService.js';
+
+describe('order controlled-witness quantity contract', () => {
+  const baseSelection = {
+    order_line_index: 0,
+    inventory_item_id: 17,
+    inventory_batch_id: 27,
+  };
+
+  test('accepts the NUMERIC(14,4) ceiling without changing the selected quantity', () => {
+    expect(orderControlledWitnessSelector({
+      ...baseSelection,
+      quantity: 9_999_999_999.9999,
+    })).toEqual({
+      ...baseSelection,
+      quantity: 9_999_999_999.9999,
+    });
+  });
+
+  test.each([1.00001, 9_999_999_999.99991, 10_000_000_000])(
+    'rejects an allocation quantity that the ledger cannot represent exactly: %s',
+    (quantity) => {
+      let error;
+      try {
+        orderControlledWitnessSelector({ ...baseSelection, quantity });
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error).toMatchObject({
+        statusCode: 400,
+        code: 'PHARMACY_DISPENSE_QUANTITY_INVALID',
+      });
+    },
+  );
+
+  test.each([
+    [
+      'order evidence',
+      { inventory_dispensed_quantity: '0.00001' },
+      {},
+      'PHARMACY_ORDER_WITNESS_ORDER_EVIDENCE_CONFLICT',
+    ],
+    [
+      'prescription evidence',
+      {},
+      { remaining_quantity: '1.99999' },
+      'PHARMACY_ORDER_WITNESS_PRESCRIPTION_EVIDENCE_CONFLICT',
+    ],
+  ])('rejects malformed stored %s as an authority conflict', (
+    _label,
+    orderLineOverride,
+    prescriptionLineOverride,
+    code,
+  ) => {
+    let error;
+    try {
+      pharmacyOrderControlledWitnessPayload({
+        order: {
+          id: 73,
+          inventory_authority_version: 4,
+          status: 'PENDING',
+          delivery_type: 'counter',
+          facility_id: 7,
+        },
+        orderLine: {
+          catalog_id: 17,
+          ordered_qty: 2,
+          inventory_dispensed_quantity: 0,
+          inventory_remaining_quantity: 2,
+          ...orderLineOverride,
+        },
+        orderLineIndex: 0,
+        inventoryItem: { id: 81 },
+        inventoryBatch: { id: 91, expiry_date: '2027-08-30' },
+        quantity: 1,
+        patientUid: '11111111-1111-4111-8111-111111111111',
+        prescription: { id: 101, revision: 3 },
+        prescriptionLineIndex: 0,
+        prescriptionLine: {
+          catalog_id: 17,
+          quantity: 2,
+          dispensed_quantity: 0,
+          remaining_quantity: 2,
+          ...prescriptionLineOverride,
+        },
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toMatchObject({ statusCode: 409, code });
+  });
+
+  test('fingerprint changes when a revoked grant is replaced or signing evidence drifts', () => {
+    const buildPayload = ({ grantId = '501', signedAt = '2026-08-30T10:00:00.000Z' } = {}) => (
+      pharmacyOrderControlledWitnessPayload({
+        order: {
+          id: 73,
+          inventory_authority_version: 4,
+          status: 'PENDING',
+          delivery_type: 'counter',
+          facility_id: 7,
+        },
+        orderLine: {
+          catalog_id: 17,
+          ordered_qty: 2,
+          inventory_dispensed_quantity: 0,
+          inventory_remaining_quantity: 2,
+        },
+        orderLineIndex: 0,
+        requesterGrant: {
+          grant_id: grantId,
+          actor_role: 'PHARMACY_STAFF',
+          facility_id: 7,
+        },
+        inventoryItem: { id: 81 },
+        inventoryBatch: { id: 91, expiry_date: '2027-08-30' },
+        quantity: 1,
+        patientUid: '11111111-1111-4111-8111-111111111111',
+        prescription: {
+          id: 101,
+          revision: 3,
+          status: 'pharmacy_linked',
+          lifecycle_status: 'signed',
+          doctor_id: 31,
+          doctor_uid: '22222222-2222-4222-8222-222222222222',
+          signed_at: signedAt,
+          signed_by: '22222222-2222-4222-8222-222222222222',
+          locked_at: '2026-08-30T10:00:01.000Z',
+          locked_by: '22222222-2222-4222-8222-222222222222',
+        },
+        prescriptionLineIndex: 0,
+        prescriptionLine: {
+          catalog_id: 17,
+          quantity: 2,
+          dispensed_quantity: 0,
+          remaining_quantity: 2,
+        },
+      })
+    );
+    const fingerprint = (payload) => controlledDispenseApprovalFingerprint({
+      scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.pharmacyOrder,
+      payload,
+      requestedBy: '33333333-3333-4333-8333-333333333333',
+    });
+    const original = buildPayload();
+
+    expect(original).toMatchObject({
+      requester_facility_grant_id: '501',
+      prescriber_user_id: 31,
+      prescriber_uid: '22222222-2222-4222-8222-222222222222',
+      prescription_signed_at: '2026-08-30T10:00:00.000Z',
+      prescription_locked_at: '2026-08-30T10:00:01.000Z',
+    });
+    expect(fingerprint(buildPayload({ grantId: '502' }))).not.toBe(fingerprint(original));
+    expect(fingerprint(buildPayload({ signedAt: '2026-08-30T10:05:00.000Z' })))
+      .not.toBe(fingerprint(original));
+  });
+});
 
 describe('pharmacy order prescription line identity', () => {
   const duplicatePrescriptionLines = [
@@ -154,6 +317,36 @@ describe('authoritative prescription catalog equivalence', () => {
 });
 
 describe('counter inventory facility custody', () => {
+  test('rejects a high-magnitude fifth decimal before pricing or stock allocation', async () => {
+    const query = jest.fn()
+      .mockResolvedValueOnce([{ id: 17, unit_price: '12.50' }])
+      .mockResolvedValueOnce([{
+        id: 81,
+        catalog_id: 17,
+        facility_id: 7,
+        display_name: 'Drug A',
+        status: 'active',
+      }]);
+
+    await expect(resolveCounterDispenseAuthorityTx(
+      { $queryRawUnsafe: query },
+      {
+        tenantId: '00000000-0000-4000-8000-000000000001',
+        facilityId: 7,
+        lines: [{
+          order_line_index: 0,
+          catalog_id: 17,
+          ordered_qty: 9_999_999_999.9999,
+          dispensed_qty: 9_999_999_999.99991,
+        }],
+        completeRemainder: false,
+      },
+    )).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'PHARMACY_DISPENSE_QUANTITY_INVALID',
+    });
+  });
+
   test('resolves catalog pricing and Inventory V2 identity under the exact tenant facility', async () => {
     const query = jest.fn()
       .mockResolvedValueOnce([{ id: 17, unit_price: '12.50' }])

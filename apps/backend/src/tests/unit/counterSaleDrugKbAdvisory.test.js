@@ -41,6 +41,7 @@ jest.unstable_mockModule('../../services/pharmacy/controlledDispenseWitnessServi
   assertApprovedControlledDispenseWitness: jest.fn(),
   consumeControlledDispenseWitnessApproval: jest.fn(),
   createControlledDispenseWitnessApproval: jest.fn(),
+  preflightControlledDispenseWitnessApproval: jest.fn(),
 }));
 jest.unstable_mockModule('../../services/billing/billingV2Service.js', () => ({
   createDraftInvoice: jest.fn(),

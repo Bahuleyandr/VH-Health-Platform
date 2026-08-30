@@ -208,16 +208,28 @@ pharmacyCounterSaleWitnessApprovalRoutes.post('/', requireApprovalHost, requireI
   requestBodyForIdempotency: witnessApprovalIdempotencyBody,
   requestPathForIdempotency: counterSaleWitnessApprovalPath,
 }), wrap(async (req) => {
-  const tenantId = tenantOf(req);
-  const actor = await resolveWitnessActor(req, tenantId);
-  return counterSales.approveCounterSaleWitnessApproval({
-    approvalId: req.params.id,
-    ...actor,
-    sale: {
+  try {
+    const tenantId = tenantOf(req);
+    const sale = {
       ...(req.body.sale || {}),
       tenantId,
-    },
-  });
+    };
+    const usesStaffPassword = Object.hasOwn(req.body || {}, 'employeeId')
+      || Object.hasOwn(req.body || {}, 'password');
+    await counterSales.preflightCounterSaleWitnessApproval({
+      approvalId: req.params.id,
+      requesterUid: usesStaffPassword ? req.user?.uid : null,
+      sale,
+    });
+    const actor = await resolveWitnessActor(req, tenantId);
+    return counterSales.approveCounterSaleWitnessApproval({
+      approvalId: req.params.id,
+      ...actor,
+      sale,
+    });
+  } finally {
+    if (req.body && Object.hasOwn(req.body, 'password')) delete req.body.password;
+  }
 }));
 
 // Sell: FEFO dispense + schedule enforcement + PHARMACY invoice + payment.

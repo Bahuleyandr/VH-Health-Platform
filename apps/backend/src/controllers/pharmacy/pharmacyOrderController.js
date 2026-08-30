@@ -1984,6 +1984,7 @@ export const dispatchOrder = async (req, res) => {
         order: lockedOrder,
         lines: Array.isArray(lockedOrder.items_list) ? lockedOrder.items_list : [],
         actorUid: facilityActor.actor_uid,
+        actorRole: facilityActor.actor_role,
         commandKeySha256: command.commandKeySha256,
         operation: 'delivery',
       });
@@ -3798,6 +3799,7 @@ export const markCounterDispensed = async (req, res) => {
         order,
         lines: authoritativeLines,
         actorUid: req.user?.uid || null,
+        actorRole: req.user?.role || req.user?.rawRole || null,
         commandKeySha256,
         operation: 'counter',
         completeRemainder: !Array.isArray(dispensed_items) || dispensed_items.length === 0,
@@ -5181,6 +5183,57 @@ export async function requestSubstitutionWitnessApproval({
   });
 }
 
+async function resolveSubstitutionWitnessApprovalPayloadTx({
+  tx,
+  tenantId,
+  body,
+  scope,
+  expectedScope,
+}) {
+  if (scope !== expectedScope) {
+    throw AppError.conflict(
+      'Witness approval does not match a dispense substitution',
+      'CONTROLLED_DISPENSE_WITNESS_APPROVAL_MISMATCH',
+    );
+  }
+  const ctx = await resolveSubstitutionPhase0(tenantId, body, tx);
+  if (!ctx.needsWitness) {
+    throw AppError.badRequest(
+      'A witness approval is only available for Schedule X / narcotic substitution',
+      'CONTROLLED_DISPENSE_WITNESS_NOT_REQUIRED',
+    );
+  }
+  return substitutionWitnessPayload({ ...body, quantity: ctx.qty });
+}
+
+export async function preflightSubstitutionWitnessApproval({
+  approvalId,
+  requesterUid = null,
+  substitution,
+}) {
+  const { tenantId, ...body } = substitution || {};
+  const {
+    CONTROLLED_DISPENSE_APPROVAL_SCOPES,
+    preflightControlledDispenseWitnessApproval,
+  } = await import('../../services/pharmacy/controlledDispenseWitnessService.js');
+  const scope = CONTROLLED_DISPENSE_APPROVAL_SCOPES.dispenseSubstitution;
+  return preflightControlledDispenseWitnessApproval({
+    tenantId,
+    approvalId,
+    scope,
+    requesterUid,
+    resolvePayload: ({ tx, scope: approvalScope }) => (
+      resolveSubstitutionWitnessApprovalPayloadTx({
+        tx,
+        tenantId,
+        body,
+        scope: approvalScope,
+        expectedScope: scope,
+      })
+    ),
+  });
+}
+
 /**
  * POST /pharmacy-orders/dispense-substitution/witness-approvals/:id/approve
  *
@@ -5192,22 +5245,26 @@ export async function approveSubstitutionWitnessApproval({
   approvalId, actorUid, requesterUid = null, substitution,
 }) {
   const { tenantId, ...body } = substitution || {};
-  const ctx = await resolveSubstitutionPhase0(tenantId, body);
-  if (!ctx.needsWitness) {
-    throw AppError.badRequest(
-      'A witness approval is only available for Schedule X / narcotic substitution',
-      'CONTROLLED_DISPENSE_WITNESS_NOT_REQUIRED',
-    );
-  }
   const {
+    CONTROLLED_DISPENSE_APPROVAL_SCOPES,
     approveControlledDispenseWitnessApproval,
   } = await import('../../services/pharmacy/controlledDispenseWitnessService.js');
+  const scope = CONTROLLED_DISPENSE_APPROVAL_SCOPES.dispenseSubstitution;
   return approveControlledDispenseWitnessApproval({
     tenantId,
     approvalId,
     actorUid,
-    payload: substitutionWitnessPayload(body),
+    scope,
     requesterUid,
+    resolvePayload: ({ tx, scope: approvalScope }) => (
+      resolveSubstitutionWitnessApprovalPayloadTx({
+        tx,
+        tenantId,
+        body,
+        scope: approvalScope,
+        expectedScope: scope,
+      })
+    ),
   });
 }
 

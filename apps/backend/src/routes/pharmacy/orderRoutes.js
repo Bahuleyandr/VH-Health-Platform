@@ -10,6 +10,8 @@ import { requireRole } from '../../middleware/rbacMiddleware.js';
 import { PG_INT4_MAX } from '../../middleware/routePatientAccessGuards.js';
 import { validateFileContent, validatePatientUpload } from '../../middleware/uploadMiddleware.js';
 import { prescriptionAttachmentFileFilter } from '../../utils/prescriptionAttachmentFilter.js';
+import { success, relayAppError } from '../../utils/responseHelper.js';
+import { PHARMACY_INCHARGE, PHARMACY_STAFF } from '../../utils/roles.js';
 import {
   pharmacyOrderGuard,
   selectOrderPatient,
@@ -17,6 +19,12 @@ import {
 import { uidParamValidation } from '../../validators/pharmacy/orderValidators.js';
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
+import { StaffAuthService } from '../../services/auth/staffAuthService.js';
+import {
+  approveOrderControlledWitnessApproval,
+  preflightOrderControlledWitnessApproval,
+  requestOrderControlledWitnessApproval,
+} from '../../services/pharmacy/pharmacyOrderInventoryService.js';
 
 const router = express.Router();
 
@@ -73,12 +81,137 @@ const orderDispenseIdempotency = (action) => requireIdempotencyKey({
 });
 const counterDispenseIdempotency = orderDispenseIdempotency('dispense');
 
+const ORDER_CONTROLLED_WITNESS_ROLES = [PHARMACY_STAFF, PHARMACY_INCHARGE];
+const ORDER_CONTROLLED_WITNESS_APPROVAL_BODY_KEYS = new Set([
+  'selection', 'employeeId', 'password',
+]);
+const orderControlledWitnessPath = (req, suffix = '') => (
+  `/api/v1/pharmacy-orders/orders/${req.params.id}`
+  + `/controlled-dispense/witness-approvals${suffix}`
+);
+const orderWitnessApprovalIdempotencyBody = (req) => ({
+  credentialMode: 'staff_password',
+  employeeId: String(req.body?.employeeId || '').trim().toUpperCase() || null,
+  selection: req.body?.selection || {},
+});
+
+function wrapOrderControlledWitness(handler) {
+  return async (req, res) => {
+    try {
+      return success(res, await handler(req));
+    } catch (err) {
+      return relayAppError(res, err, 'Order controlled-dispense witness error');
+    }
+  };
+}
+
+async function authenticateOrderControlledWitness(req) {
+  const forbiddenFields = Object.keys(req.body || {})
+    .filter((key) => !ORDER_CONTROLLED_WITNESS_APPROVAL_BODY_KEYS.has(key));
+  const employeeId = req.body?.employeeId;
+  const password = req.body?.password;
+  try {
+    if (forbiddenFields.length) {
+      throw AppError.badRequest(
+        'Order witness approval accepts only selection and witness credentials',
+        'PHARMACY_ORDER_WITNESS_CALLER_AUTHORITY_FORBIDDEN',
+        { forbidden_fields: forbiddenFields.sort() },
+      );
+    }
+    if (!employeeId || !password) {
+      throw AppError.badRequest(
+        'Witness employee ID and password are required together',
+        'CONTROLLED_DISPENSE_WITNESS_CREDENTIALS_REQUIRED',
+      );
+    }
+    const witness = await StaffAuthService.authenticateControlledDispenseWitness({
+      employeeId,
+      password,
+      req,
+      tenantId: req.tenantId,
+    });
+    if (String(witness.tenantId).toLowerCase() !== String(req.tenantId).toLowerCase()) {
+      throw AppError.forbidden(
+        'Witness authentication tenant mismatch',
+        'CONTROLLED_DISPENSE_WITNESS_TENANT_MISMATCH',
+      );
+    }
+    return witness.uid;
+  } finally {
+    if (req.body && Object.hasOwn(req.body, 'password')) delete req.body.password;
+  }
+}
+
 // Multer for prescription photo upload
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
   fileFilter: prescriptionAttachmentFileFilter
 });
+
+// The public Inventory V2 standalone controlled-dispense surface remains
+// retired. These two order-scoped commands accept selectors only; the service
+// derives the patient, prescription, facility, catalog and custody fingerprint
+// from current server-side pharmacy-order authority. Approval always authenticates a
+// second staff identity without replacing the dispensing pharmacist's session.
+router.post(
+  '/:id/controlled-dispense/witness-approvals',
+  requireRole(...ORDER_CONTROLLED_WITNESS_ROLES),
+  guardOrderByIdParam,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'pharmacy_order_inventory_witness_request',
+    retainOnServerError: true,
+    requestPathForIdempotency: (req) => orderControlledWitnessPath(req),
+  }),
+  wrapOrderControlledWitness((req) => requestOrderControlledWitnessApproval({
+    tenantId: req.tenantId,
+    orderId: req.params.id,
+    selection: req.body || {},
+    requestedBy: req.user?.uid,
+    requestedByRole: req.user?.role || req.user?.rawRole || null,
+  })),
+);
+
+router.post(
+  '/:id/controlled-dispense/witness-approvals/:approvalId/approve',
+  requireRole(...ORDER_CONTROLLED_WITNESS_ROLES),
+  guardOrderByIdParam,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'pharmacy_order_inventory_witness_approval',
+    retainOnServerError: true,
+    requestBodyForIdempotency: orderWitnessApprovalIdempotencyBody,
+    requestPathForIdempotency: (req) => orderControlledWitnessPath(
+      req,
+      `/${req.params.approvalId}/approve`,
+    ),
+  }),
+  wrapOrderControlledWitness(async (req) => {
+    try {
+      await preflightOrderControlledWitnessApproval({
+        tenantId: req.tenantId,
+        orderId: req.params.id,
+        approvalId: req.params.approvalId,
+        selection: req.body?.selection || {},
+        requestedBy: req.user?.uid,
+        requestedByRole: req.user?.role || req.user?.rawRole || null,
+      });
+      const witnessUid = await authenticateOrderControlledWitness(req);
+      return approveOrderControlledWitnessApproval({
+        tenantId: req.tenantId,
+        orderId: req.params.id,
+        approvalId: req.params.approvalId,
+        selection: req.body?.selection || {},
+        requestedBy: req.user?.uid,
+        requestedByRole: req.user?.role || req.user?.rawRole || null,
+        witnessUid,
+      });
+    } finally {
+      if (req.body && Object.hasOwn(req.body, 'password')) delete req.body.password;
+    }
+  }),
+);
 
 // ── New lifecycle routes (static paths BEFORE :id) ──────────────────────────
 
