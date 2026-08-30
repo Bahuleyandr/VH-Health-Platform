@@ -6,17 +6,28 @@
 //
 // Two layers:
 //  - checkAntithromboticInteractions is a pure function — tested directly.
-//  - validatePrescriptionSafety hits prisma for allergy / duplicate /
-//    paediatric lookups, all through prisma.$queryRawUnsafe. The prisma
-//    module is mocked (jest.unstable_mockModule — the established pattern
-//    for this repo's unit/ project, since the real @prisma/client can't
-//    be loaded under Jest's ESM require here). The stub resolves [] for
-//    every call, disabling every DB-backed check so only the new pure
-//    antithrombotic logic contributes to the result.
+//  - validatePrescriptionSafety hits prisma for active-therapy and clinical
+//    context lookups. The prisma module is mocked (jest.unstable_mockModule —
+//    the established pattern for this repo's unit/ project, since the real
+//    @prisma/client can't be loaded under Jest's ESM require here). The stub
+//    resolves a governed empty active-therapy snapshot and routes the remaining
+//    lookups so only each test's intended safety rule contributes.
 
 import { jest } from '@jest/globals';
 
 const queryRawUnsafeMock = jest.fn();
+const getUnifiedActiveAllergiesMock = jest.fn();
+const getUnifiedActiveAllergiesDetailedMock = jest.fn(async (...args) => ({
+  allergies: await getUnifiedActiveAllergiesMock(...args),
+  sourcesFailed: [],
+  patientResolved: true,
+}));
+const evaluateDrugKbMock = jest.fn();
+const isCompositionSearchEnabledMock = jest.fn();
+
+const TENANT_ID = '00000000-0000-4000-8000-000000000001';
+const PATIENT_UID = '11111111-1111-4111-8111-111111111111';
+const SNAPSHOT_AT = '2026-08-30T08:00:00.000Z';
 
 const __prismaDefaultMock = { $queryRawUnsafe: queryRawUnsafeMock };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
@@ -27,9 +38,61 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   pickTenantClient: () => __prismaDefaultMock,
 }));
 
-const { validatePrescriptionSafety, checkAntithromboticInteractions } = await import(
+jest.unstable_mockModule('../../services/clinical/allergySourceService.js', () => ({
+  getUnifiedActiveAllergies: getUnifiedActiveAllergiesMock,
+  getUnifiedActiveAllergiesDetailed: getUnifiedActiveAllergiesDetailedMock,
+  SEVERE_BLOCK_RANK: 4,
+  rankSeverity: (value) => {
+    if (value == null) return 0;
+    const key = String(value).trim().toUpperCase();
+    if (!key || ['UNKNOWN', 'UNSPECIFIED', 'NONE', 'N/A', 'NA', 'NULL', 'NIL'].includes(key)) return 0;
+    return ({
+      LIFE_THREATENING: 5,
+      ANAPHYLAXIS: 5,
+      CONTRAINDICATED: 4,
+      SEVERE: 4,
+      HIGH: 3,
+      MODERATE: 2,
+      MILD: 1,
+    })[key] ?? 4;
+  },
+}));
+
+jest.unstable_mockModule('../../services/clinical/drugKnowledgeBaseService.js', () => ({
+  evaluateDrugKb: evaluateDrugKbMock,
+}));
+
+jest.unstable_mockModule('../../services/pharmacy/compositionFeatureService.js', () => ({
+  isCompositionSearchEnabled: isCompositionSearchEnabledMock,
+}));
+
+const { validatePrescriptionSafety: validatePrescriptionSafetyImpl, checkAntithromboticInteractions } = await import(
   '../../utils/clinical/prescriptionSafetyCheck.js'
 );
+
+function queueRaw(...sequence) {
+  const queued = [...sequence];
+  const nextQueued = () => (queued.length > 0 ? queued.shift() : []);
+
+  queryRawUnsafeMock.mockReset().mockImplementation(async (statement) => {
+    if (/SELECT id, uid, NOW\(\) AS snapshot_at/.test(statement)) {
+      return [{ id: 106, uid: PATIENT_UID, snapshot_at: SNAPSHOT_AT }];
+    }
+    if (/SELECT inventory\.id/.test(statement) && /FOR KEY SHARE OF inventory/.test(statement)) {
+      return [];
+    }
+    if (/WITH latest_reconciliation/.test(statement)) return nextQueued();
+    if (/FROM chemo_administrations/.test(statement)) return [];
+    return nextQueued();
+  });
+}
+
+function validatePrescriptionSafety(patientId, medications, options = {}) {
+  return validatePrescriptionSafetyImpl(patientId, medications, {
+    tenantId: TENANT_ID,
+    ...options,
+  });
+}
 
 describe('checkAntithromboticInteractions — pure interaction rules', () => {
   it('flags dual antiplatelet + anticoagulant ("triple therapy") as a HIGH blocker', () => {
@@ -124,11 +187,11 @@ describe('checkAntithromboticInteractions — pure interaction rules', () => {
 
 describe('validatePrescriptionSafety — antithrombotic wiring (prisma stubbed)', () => {
   beforeEach(() => {
-    // Structured allergies, the note-allergen scan, duplicate actives,
-    // and the paediatric age/weight lookup all read through
-    // $queryRawUnsafe — resolving [] disables them all so only the pure
-    // antithrombotic check contributes to the result.
-    queryRawUnsafeMock.mockReset().mockResolvedValue([]);
+    getUnifiedActiveAllergiesMock.mockReset().mockResolvedValue([]);
+    getUnifiedActiveAllergiesDetailedMock.mockClear();
+    evaluateDrugKbMock.mockReset().mockResolvedValue({ kbAvailable: true, findings: [] });
+    isCompositionSearchEnabledMock.mockReset().mockResolvedValue(false);
+    queueRaw();
   });
 
   it('blocks the finding scenario: aspirin + clopidogrel + enoxaparin is no longer safe:true', async () => {
@@ -178,19 +241,19 @@ describe('validatePrescriptionSafety — antithrombotic wiring (prisma stubbed)'
   });
 
   it('blocks high-risk pregnancy medication when active pregnancy is recorded', async () => {
-    queryRawUnsafeMock.mockReset()
-      .mockResolvedValueOnce([]) // structured allergies
-      .mockResolvedValueOnce([]) // unstructured note scan
-      .mockResolvedValueOnce([]) // duplicate active prescriptions
-      .mockResolvedValueOnce([{ age_years: 30 }]) // paediatric context
-      .mockResolvedValueOnce([{
+    queueRaw(
+      [], // unstructured note scan
+      [], // governed active-therapy source rows
+      [{ age_years: 30 }], // paediatric context
+      [{
         gender: 'female',
         is_pregnant: true,
         pregnancy_lmp_date: '2026-02-01',
         age_years: 30,
         has_ongoing_pregnancy: true,
-      }])
-      .mockResolvedValueOnce([{ labs: [] }]); // renal context
+      }],
+      [{ labs: [] }], // renal context
+    );
 
     const result = await validatePrescriptionSafety(106, [
       { medication_name: 'Warfarin 5mg', frequency: 'OD', days: 7 },
@@ -208,17 +271,17 @@ describe('validatePrescriptionSafety — antithrombotic wiring (prisma stubbed)'
   });
 
   it('blocks high-risk renal drugs when severe renal impairment evidence exists', async () => {
-    queryRawUnsafeMock.mockReset()
-      .mockResolvedValueOnce([]) // structured allergies
-      .mockResolvedValueOnce([]) // unstructured note scan
-      .mockResolvedValueOnce([]) // duplicate active prescriptions
-      .mockResolvedValueOnce([{ age_years: 70 }]) // paediatric context
-      .mockResolvedValueOnce([{ gender: 'male', is_pregnant: false, age_years: 70, has_ongoing_pregnancy: false }])
-      .mockResolvedValueOnce([{
+    queueRaw(
+      [], // unstructured note scan
+      [], // governed active-therapy source rows
+      [{ age_years: 70 }], // paediatric context
+      [{ gender: 'male', is_pregnant: false, age_years: 70, has_ongoing_pregnancy: false }],
+      [{
         labs: [
           { test_name: 'eGFR', test_code: 'EGFR', value_numeric: '22', unit: 'mL/min' },
         ],
-      }]);
+      }],
+    );
 
     const result = await validatePrescriptionSafety(106, [
       { medication_name: 'Gentamicin injection', frequency: 'OD', days: 3 },
@@ -237,7 +300,7 @@ describe('validatePrescriptionSafety — antithrombotic wiring (prisma stubbed)'
   });
 
   it('warns on reserve antibiotic stewardship and missing duration without hard-blocking', async () => {
-    queryRawUnsafeMock.mockReset().mockResolvedValue([]);
+    queueRaw();
 
     const result = await validatePrescriptionSafety(106, [
       { medication_name: 'Meropenem injection', frequency: 'TDS' },

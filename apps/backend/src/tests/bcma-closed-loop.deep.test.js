@@ -66,7 +66,18 @@ const DOCTOR_UID = 'b1b1b1b1-1111-4111-8111-b1b1b1b1fd02';
 const PHARMACIST_UID = 'b1b1b1b1-1111-4111-8111-b1b1b1b1fd03';
 const RUN = `${process.pid}-${Date.now()}`;
 const BATCH_BARCODE = `B1-BATCH-${RUN}`;
-const COMPOSITION_KEY = `b1test_mar_${RUN}`;
+const COMPOSITION_KEYS = Object.freeze({
+  paracetamol: `b1test_mar_paracetamol_${RUN}`,
+  sildenafil: `b1test_mar_sildenafil_${RUN}`,
+  isosorbide: `b1test_mar_isosorbide_${RUN}`,
+  cetirizine: `b1test_mar_cetirizine_${RUN}`,
+});
+const CATALOG_NAMES = Object.freeze({
+  paracetamol: `B1TEST MAR Catalog Paracetamol ${RUN}`,
+  sildenafil: `B1TEST MAR Catalog Sildenafil ${RUN}`,
+  isosorbide: `B1TEST MAR Catalog Isosorbide ${RUN}`,
+  cetirizine: `B1TEST MAR Catalog Cetirizine ${RUN}`,
+});
 // Non-default facility (`is_default=FALSE`) so it never collides with
 // uq_facility_default, a partial UNIQUE on (tenant_id) WHERE is_default.
 const FACILITY_CODE = `B1TEST-FACILITY-${RUN}`;
@@ -124,10 +135,58 @@ let wardIndentId;
 let wardIndentItemId;
 let wardIndentStateVersion;
 let catalogId;
+let sildenafilCatalogId;
+let isosorbideCatalogId;
+let cetirizineCatalogId;
 let inventoryItemId;
 let inventoryBatchId;
 let facilityId;
 let storageLocationId;
+
+async function createGovernedClinicalProduct({
+  compositionKey,
+  compositionLabel,
+  ingredient,
+  catalogName,
+  genericName,
+  strength,
+  strengthKey,
+  strengthValue,
+}) {
+  const composition = (await prisma.$queryRawUnsafe(
+    `INSERT INTO drug_compositions
+       (composition_key, display_label, active_ingredients, source)
+     VALUES ($1::text, $2::text, ARRAY[$3::text], 'parsed')
+     RETURNING id`,
+    compositionKey,
+    compositionLabel,
+    ingredient,
+  ))[0];
+  return (await prisma.$queryRawUnsafe(
+    `INSERT INTO pharmacy_catalog
+       (tenant_id, name, generic_name, composition_id,
+        composition_confidence, composition_source,
+        strength, strength_key, strength_components,
+        form, form_key, release_key, route,
+        is_active, is_available, in_stock, stock_quantity, updated_at)
+     VALUES ($1::uuid, $2::text, $3::text, $4::int,
+             'high', 'test_fixture',
+             $5::text, $6::text, $7::jsonb,
+             'tablet', 'tablet', 'immediate', 'oral',
+             TRUE, TRUE, TRUE, 50, NOW())
+     RETURNING id, name, generic_name, composition_id,
+               composition_confidence, composition_source,
+               strength, strength_key, strength_components,
+               form, form_key, release_key, route`,
+    DEFAULT_TENANT_ID,
+    catalogName,
+    genericName,
+    Number(composition.id),
+    strength,
+    strengthKey,
+    JSON.stringify([{ ingredient, value: strengthValue, unit: 'mg' }]),
+  ))[0];
+}
 
 async function cleanup() {
   // These three tables need BOTH escapes at once, which is why they cannot ride
@@ -464,15 +523,6 @@ async function cleanup() {
       DEFAULT_TENANT_ID,
     ).catch(() => {});
     await tx.$executeRawUnsafe(
-      `DELETE FROM pharmacy_catalog
-        WHERE tenant_id = $1::uuid AND name LIKE 'B1TEST MAR Catalog%'`,
-      DEFAULT_TENANT_ID,
-    ).catch(() => {});
-    await tx.$executeRawUnsafe(
-      `DELETE FROM drug_compositions WHERE composition_key = $1::text`,
-      COMPOSITION_KEY,
-    ).catch(() => {});
-    await tx.$executeRawUnsafe(
       `DELETE FROM admissions
         WHERE tenant_id = $1::uuid AND ward LIKE 'B1TEST MAR Ward%'`,
       DEFAULT_TENANT_ID,
@@ -499,6 +549,24 @@ async function cleanup() {
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM pharmacy_orders WHERE patient_name = 'B1TEST Patient'`,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM pharmacy_catalog
+      WHERE tenant_id = $1::uuid
+        AND name IN ($2::text, $3::text, $4::text, $5::text)`,
+    DEFAULT_TENANT_ID,
+    CATALOG_NAMES.paracetamol,
+    CATALOG_NAMES.sildenafil,
+    CATALOG_NAMES.isosorbide,
+    CATALOG_NAMES.cetirizine,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM drug_compositions
+      WHERE composition_key IN ($1::text, $2::text, $3::text, $4::text)`,
+    COMPOSITION_KEYS.paracetamol,
+    COMPOSITION_KEYS.sildenafil,
+    COMPOSITION_KEYS.isosorbide,
+    COMPOSITION_KEYS.cetirizine,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM admissions WHERE ward = 'B1TEST Ward'`,
@@ -592,36 +660,96 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
     );
     storageLocationId = Number(storageLocation[0].id);
 
+    // Verification resolves every order line through a positive same-tenant
+    // catalog id, then locks its governed non-empty composition. Seed that
+    // authority before any pharmacy order so no line ever exists as free text.
+    const catalog = await createGovernedClinicalProduct({
+      compositionKey: COMPOSITION_KEYS.paracetamol,
+      compositionLabel: 'B1TEST paracetamol composition',
+      ingredient: 'paracetamol',
+      catalogName: CATALOG_NAMES.paracetamol,
+      genericName: 'paracetamol',
+      strength: '500 mg',
+      strengthKey: '500mg',
+      strengthValue: 500,
+    });
+    const sildenafilCatalog = await createGovernedClinicalProduct({
+      compositionKey: COMPOSITION_KEYS.sildenafil,
+      compositionLabel: 'B1TEST sildenafil composition',
+      ingredient: 'sildenafil',
+      catalogName: CATALOG_NAMES.sildenafil,
+      genericName: 'sildenafil',
+      strength: '50 mg',
+      strengthKey: '50mg',
+      strengthValue: 50,
+    });
+    const isosorbideCatalog = await createGovernedClinicalProduct({
+      compositionKey: COMPOSITION_KEYS.isosorbide,
+      compositionLabel: 'B1TEST isosorbide composition',
+      ingredient: 'isosorbide',
+      catalogName: CATALOG_NAMES.isosorbide,
+      genericName: 'isosorbide',
+      strength: '10 mg',
+      strengthKey: '10mg',
+      strengthValue: 10,
+    });
+    const cetirizineCatalog = await createGovernedClinicalProduct({
+      compositionKey: COMPOSITION_KEYS.cetirizine,
+      compositionLabel: 'B1TEST cetirizine composition',
+      ingredient: 'cetirizine',
+      catalogName: CATALOG_NAMES.cetirizine,
+      genericName: 'cetirizine',
+      strength: '10 mg',
+      strengthKey: '10mg',
+      strengthValue: 10,
+    });
+    catalogId = Number(catalog.id);
+    sildenafilCatalogId = Number(sildenafilCatalog.id);
+    isosorbideCatalogId = Number(isosorbideCatalog.id);
+    cetirizineCatalogId = Number(cetirizineCatalog.id);
+
     // The clean order walks the DELIVERY lifecycle (verify → preparing);
     // markPreparing refuses a counter order outright, so the counter gate gets
     // its own fixture below.
     const clean = await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_orders (tenant_id, facility_id, authority_origin, patient_id, patient_name, phone, order_note, status, delivery_type, items_list, total_amount, updated_at)
        VALUES ($3::uuid, $4::int, 'patient_manual', $1, 'B1TEST Patient', $2, 'B1TEST order', 'CONFIRMED', 'delivery',
-               '[{"name":"B1TEST Paracetamol 500mg","dose":"500mg","frequency":"TDS","qty":10,"price":2}]'::jsonb, 20, NOW())
+               $5::jsonb, 20, NOW())
        RETURNING id`,
-      patientId, PHONE, DEFAULT_TENANT_ID, facilityId,
+      patientId,
+      PHONE,
+      DEFAULT_TENANT_ID,
+      facilityId,
+      JSON.stringify([{
+        catalog_id: Number(catalog.id),
+        name: 'B1TEST Paracetamol 500mg',
+        dose: '500mg',
+        frequency: 'TDS',
+        qty: 10,
+        price: 2,
+      }]),
     );
     cleanOrderId = Number(clean[0].id);
 
     const counter = await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_orders (tenant_id, facility_id, authority_origin, patient_id, patient_name, phone, order_note, status, delivery_type, items_list, total_amount, updated_at)
        VALUES ($3::uuid, $4::int, 'patient_manual', $1, 'B1TEST Patient', $2, 'B1TEST order', 'CONFIRMED', 'counter',
-               '[{"name":"B1TEST Paracetamol 500mg","dose":"500mg","frequency":"TDS","qty":10,"price":2}]'::jsonb, 20, NOW())
+               $5::jsonb, 20, NOW())
        RETURNING id`,
-      patientId, PHONE, DEFAULT_TENANT_ID, facilityId,
+      patientId,
+      PHONE,
+      DEFAULT_TENANT_ID,
+      facilityId,
+      JSON.stringify([{
+        catalog_id: Number(catalog.id),
+        name: 'B1TEST Paracetamol 500mg',
+        dose: '500mg',
+        frequency: 'TDS',
+        qty: 10,
+        price: 2,
+      }]),
     );
     counterOrderId = Number(counter[0].id);
-
-    const risky = await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_orders (tenant_id, facility_id, authority_origin, patient_id, patient_name, phone, order_note, status, delivery_type, items_list, total_amount, updated_at)
-       VALUES ($3::uuid, $4::int, 'patient_manual', $1, 'B1TEST Patient', $2, 'B1TEST order', 'CONFIRMED', 'counter',
-               '[{"name":"Tab Sildenafil 50mg","dose":"50mg","frequency":"OD","qty":4,"price":50},
-                 {"name":"Sorbitrate (isosorbide) 10mg","dose":"10mg","frequency":"BD","qty":10,"price":5}]'::jsonb, 250, NOW())
-       RETURNING id`,
-      patientId, PHONE, DEFAULT_TENANT_ID, facilityId,
-    );
-    riskyOrderId = Number(risky[0].id);
 
     // Acting nurse must exist in users for the access-decision layer.
     await prisma.$executeRawUnsafe(
@@ -674,36 +802,6 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
       PHARMACIST_UID,
     ));
 
-    const composition = (await prisma.$queryRawUnsafe(
-      `INSERT INTO drug_compositions
-         (composition_key, display_label, active_ingredients, source)
-       VALUES ($1::text, 'B1TEST paracetamol composition',
-               ARRAY['paracetamol']::text[], 'parsed')
-       RETURNING id`,
-      COMPOSITION_KEY,
-    ))[0];
-    const catalog = (await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_catalog
-         (tenant_id, name, generic_name, composition_id,
-          composition_confidence, composition_source,
-          strength, strength_key, strength_components,
-          form, form_key, release_key, route,
-          is_active, is_available, in_stock, stock_quantity, updated_at)
-       VALUES ($1::uuid, $2::text, 'paracetamol', $3::int,
-               'high', 'test_fixture',
-               '500 mg', '500mg', $4::jsonb,
-               'tablet', 'tablet', 'immediate', 'oral',
-               TRUE, TRUE, TRUE, 50, NOW())
-       RETURNING id, name, generic_name, composition_id,
-                 composition_confidence, composition_source,
-                 strength, strength_key, strength_components,
-                 form, form_key, release_key, route`,
-      DEFAULT_TENANT_ID,
-      `B1TEST MAR Catalog ${RUN}`,
-      Number(composition.id),
-      JSON.stringify([{ ingredient: 'paracetamol', value: 500, unit: 'mg' }]),
-    ))[0];
-    catalogId = Number(catalog.id);
     // facility_id is not decoration: reserveWardIndentInventoryTx resolves the
     // Inventory V2 mapping through the INDENT's facility, and
     // fk_pharmacy_batches_item_facility_753 binds the batch to
@@ -946,11 +1044,45 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
   });
 
   test('risky order: verify refused with blockers; override requires a reason and records reviews', async () => {
+    // Create the contraindicated pair only for this scenario. Keeping it out
+    // of beforeAll prevents patient-wide active-therapy reconciliation from
+    // treating the future risky order as evidence against the clean order.
+    const risky = await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_orders (tenant_id, facility_id, authority_origin, patient_id, patient_name, phone, order_note, status, delivery_type, items_list, total_amount, updated_at)
+       VALUES ($3::uuid, $4::int, 'patient_manual', $1, 'B1TEST Patient', $2, 'B1TEST order', 'CONFIRMED', 'counter',
+               $5::jsonb, 250, NOW())
+       RETURNING id`,
+      patientId,
+      PHONE,
+      DEFAULT_TENANT_ID,
+      facilityId,
+      JSON.stringify([
+        {
+          catalog_id: sildenafilCatalogId,
+          name: 'Tab Sildenafil 50mg',
+          dose: '50mg',
+          frequency: 'OD',
+          qty: 4,
+          price: 50,
+        },
+        {
+          catalog_id: isosorbideCatalogId,
+          name: 'Sorbitrate (isosorbide) 10mg',
+          dose: '10mg',
+          frequency: 'BD',
+          qty: 10,
+          price: 5,
+        },
+      ]),
+    );
+    riskyOrderId = Number(risky[0].id);
+
     const verify = await pharmacistPostWithKey(
       `/api/v1/pharmacy/orders/${riskyOrderId}/verify`,
       `b1-verify-risky-${riskyOrderId}`,
     ).send({ decision: 'verified' });
     expect(verify.status).toBe(409);
+    expect(verify.body.code).toBe('PHARMACY_VERIFY_BLOCKERS_PRESENT');
     expect(verify.body.details.blockers.length).toBeGreaterThanOrEqual(1);
 
     const badOverride = await pharmacistPostWithKey(
@@ -1785,9 +1917,19 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
     const blocked = await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_orders (tenant_id, facility_id, authority_origin, patient_id, patient_name, phone, order_note, status, delivery_type, items_list, total_amount, updated_at)
        VALUES ($3::uuid, $4::int, 'patient_manual', $1, 'B1TEST Patient', $2, 'B1TEST order', 'CONFIRMED', 'delivery',
-               '[{"name":"B1TEST Cetirizine 10mg","dose":"10mg","qty":5,"price":1}]'::jsonb, 5, NOW())
+               $5::jsonb, 5, NOW())
        RETURNING id`,
-      patientId, PHONE, DEFAULT_TENANT_ID, facilityId,
+      patientId,
+      PHONE,
+      DEFAULT_TENANT_ID,
+      facilityId,
+      JSON.stringify([{
+        catalog_id: cetirizineCatalogId,
+        name: 'B1TEST Cetirizine 10mg',
+        dose: '10mg',
+        qty: 5,
+        price: 1,
+      }]),
     );
     const rejectId = Number(blocked[0].id);
     const reject = await pharmacistPostWithKey(

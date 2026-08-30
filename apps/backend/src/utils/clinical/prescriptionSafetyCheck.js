@@ -1022,7 +1022,7 @@ export async function loadActiveTherapySnapshot(patientId, {
           )
        UNION ALL
        SELECT 'chronic_medication', patient.id::text,
-              EXTRACT(EPOCH FROM COALESCE(patient.chronic_medications_updated_at, patient.created_at))::bigint::text,
+              EXTRACT(EPOCH FROM COALESCE(patient.chronic_medications_updated_at, patient.registered_at))::bigint::text,
               'chronic:' || patient.id::text || ':' || (med.ordinality - 1)::text,
               (med.ordinality - 1)::text,
               COALESCE(NULLIF(TRIM(med.value->>'name'), ''), NULLIF(TRIM(med.value->>'medication_name'), '')),

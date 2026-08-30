@@ -33,7 +33,7 @@ export async function seedReceivedMedicationSupply({
     `MAR fixture ward ${run}`,
   ))[0].id);
   const encounterId = randomUUID();
-  const bedNumber = `MAR-${run}`.slice(0, 50);
+  const bedNumber = `MAR-${run}`.slice(0, 20);
   const bedId = Number((await prisma.$queryRawUnsafe(
     `INSERT INTO beds
        (tenant_id, ward_id, ward_name, bed_number, status, patient_uid,
