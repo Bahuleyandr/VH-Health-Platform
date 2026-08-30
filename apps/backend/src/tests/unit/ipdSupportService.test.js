@@ -24,6 +24,17 @@ const sendStaffNotificationsMock = jest.fn();
 const txWardFindFirstMock = jest.fn();
 const loadWardIndentCatalogClassificationsTxMock = jest.fn();
 const loadMedicationCatalogAuthorityTxMock = jest.fn();
+const deriveAdvanceBalanceFromLedgerTxMock = jest.fn();
+const raiseBillingRefundMock = jest.fn();
+
+function captureThrown(fn) {
+  try {
+    fn();
+  } catch (err) {
+    return err;
+  }
+  throw new Error('Expected function to throw');
+}
 
 const __prismaDefaultMock = {
   attendant_passes: {
@@ -56,6 +67,20 @@ jest.unstable_mockModule('../../services/notification/staffNotificationService.j
 jest.unstable_mockModule('../../services/billing/ledger/ledgerAuthoritativeMode.js', () => ({
   resolveLedgerWiring: async () => ({ mode: 'shadow', sameTx: false, postCommit: true, skip: false }),
   resolveLedgerModeForTenant: async () => 'shadow',
+}));
+
+jest.unstable_mockModule('../../services/billing/billingV2Service.js', () => ({
+  deriveAdvanceBalanceFromLedgerTx: deriveAdvanceBalanceFromLedgerTxMock,
+  raiseRefund: raiseBillingRefundMock,
+}));
+
+jest.unstable_mockModule('../../utils/patientMergeStabilityLock.js', () => ({
+  lockTenantPatientMergeStability: jest.fn(),
+}));
+
+jest.unstable_mockModule('../../services/pharmacy/pharmacyCapService.js', () => ({
+  lockPharmacyFundingAuthorityTx: jest.fn(),
+  resolvePharmacyFundingPatientUidTx: jest.fn(async (_tx, { patientUid }) => patientUid),
 }));
 
 const initializeWardIndentWorkflowTxMock = jest.fn(async (_tx, { indent }) => indent);
@@ -108,6 +133,8 @@ beforeEach(() => {
   txWardFindFirstMock.mockReset();
   loadWardIndentCatalogClassificationsTxMock.mockReset();
   loadMedicationCatalogAuthorityTxMock.mockReset();
+  deriveAdvanceBalanceFromLedgerTxMock.mockReset();
+  raiseBillingRefundMock.mockReset();
   sendStaffNotificationsMock.mockReset();
   initializeWardIndentWorkflowTxMock.mockClear();
   findWardIndentCreateReplayTxMock.mockClear();
@@ -146,6 +173,217 @@ beforeEach(() => {
   }));
 });
 
+describe('ipdSupportService IPD advance refund request normalization', () => {
+  it('normalizes exact NUMERIC(10,2), mode, reason, body, and dynamic path', () => {
+    const command = ipdSupportService.normalizeIpdAdvanceRefundRequest({
+      parentDepositId: '42',
+      refundAmount: '123.4',
+      paymentMethod: ' cAsH ',
+      paymentReference: '   ',
+      notes: '  duplicate collection  ',
+    });
+
+    expect(command).toEqual({
+      parentDepositId: 42,
+      amount: '123.40',
+      amountPaise: 12340,
+      reason: 'duplicate collection',
+      mode: 'CASH',
+      idempotencyPath: '/api/v1/ipd/advance-deposits/42/refund',
+      idempotencyBody: {
+        action: 'raise_ipd_advance_refund',
+        parent_deposit_id: '42',
+        amount: '123.40',
+        reason: 'duplicate collection',
+        mode: 'CASH',
+      },
+    });
+  });
+
+  it.each(['card', 'UPI', 'online', 'bank_transfer'])(
+    'fails closed for %s until the canonical electronic payout evidence path is used',
+    (paymentMethod) => {
+      const err = captureThrown(() => ipdSupportService.normalizeIpdAdvanceRefundRequest({
+        parentDepositId: 42,
+        refundAmount: '1.00',
+        paymentMethod,
+      }));
+      expect(err).toMatchObject({
+        statusCode: 409,
+        code: 'IPD_ADVANCE_REFUND_MODE_RECONCILIATION_REQUIRED',
+      });
+    },
+  );
+
+  it('rejects caller text masquerading as payout evidence', () => {
+    const err = captureThrown(() => ipdSupportService.normalizeIpdAdvanceRefundRequest({
+      parentDepositId: 42,
+      refundAmount: '1.00',
+      paymentMethod: 'cheque',
+      paymentReference: 'CHEQUE-ALREADY-PAID',
+    }));
+    expect(err).toMatchObject({
+      statusCode: 400,
+      code: 'IPD_ADVANCE_REFUND_PAYOUT_REFERENCE_FORBIDDEN',
+    });
+  });
+
+  it.each(['1.001', '1e2', '-1', '0', '100000000.00'])(
+    'rejects non-canonical refund amount %s',
+    (refundAmount) => {
+      expect(() => ipdSupportService.normalizeIpdAdvanceRefundRequest({
+        parentDepositId: 42,
+        refundAmount,
+        paymentMethod: 'cash',
+      })).toThrow();
+    },
+  );
+
+  it('delegates a source-bound request to the governed billing refund service', async () => {
+    const patientUid = '22222222-2222-4222-8222-222222222222';
+    const actorUid = '33333333-3333-4333-8333-333333333333';
+    queryRawUnsafeMock.mockResolvedValueOnce([{
+      id: 42,
+      amount: '100.00',
+      admission_id: 7,
+      patient_uid: patientUid,
+      is_refund: false,
+      parent_deposit_id: null,
+      purpose: 'admission_advance',
+      receipt_number: 'RCT-202608-0001',
+      payment_method: 'cash',
+      payment_reference: null,
+      collected_by: actorUid,
+      collected_at: new Date('2026-08-30T12:00:00.000Z'),
+      advance_id: 91,
+    }]);
+    raiseBillingRefundMock.mockResolvedValueOnce({
+      id: 5,
+      advance_id: 91,
+      amount: '10.00',
+      approval_status: 'PENDING',
+    });
+
+    const refund = await ipdSupportService.refundAdvanceDeposit({
+      parentDepositId: 42,
+      refundAmount: '10',
+      paymentMethod: 'cash',
+      notes: ' duplicate ',
+      refundedBy: actorUid,
+      tenantId: DEFAULT_TENANT_ID,
+    });
+
+    expect(refund).toMatchObject({ id: 5, approval_status: 'PENDING' });
+    expect(raiseBillingRefundMock).toHaveBeenCalledWith(expect.objectContaining({
+      patient_uid: patientUid,
+      advance_id: 91,
+      amount: '10.00',
+      reason: 'duplicate',
+      mode: 'CASH',
+      expectedIdempotencyBody: {
+        action: 'raise_ipd_advance_refund',
+        parent_deposit_id: '42',
+        amount: '10.00',
+        reason: 'duplicate',
+        mode: 'CASH',
+      },
+      idempotencyPath: '/api/v1/ipd/advance-deposits/42/refund',
+      validateParentSourceTx: expect.any(Function),
+    }));
+  });
+
+  it('revalidates that the requested cash rail matches the bound source rail', async () => {
+    const patientUid = '22222222-2222-4222-8222-222222222222';
+    const actorUid = '33333333-3333-4333-8333-333333333333';
+    const collectedAt = new Date('2026-08-30T12:00:00.000Z');
+    queryRawUnsafeMock.mockResolvedValueOnce([{
+      id: 42,
+      amount: '100.00',
+      admission_id: 7,
+      patient_uid: patientUid,
+      is_refund: false,
+      parent_deposit_id: null,
+      purpose: 'admission_advance',
+      receipt_number: 'RCT-202608-0002',
+      payment_method: 'card',
+      payment_reference: 'CARD-ORIGIN-123',
+      collected_by: actorUid,
+      collected_at: collectedAt,
+      advance_id: 91,
+    }]);
+    raiseBillingRefundMock.mockResolvedValueOnce({
+      id: 6,
+      advance_id: 91,
+      amount: '10.00',
+      approval_status: 'PENDING',
+    });
+
+    await ipdSupportService.refundAdvanceDeposit({
+      parentDepositId: 42,
+      refundAmount: '10.00',
+      paymentMethod: 'cash',
+      refundedBy: actorUid,
+      tenantId: DEFAULT_TENANT_ID,
+    });
+
+    const { validateParentSourceTx } = raiseBillingRefundMock.mock.calls[0][0];
+    const tx = {
+      $queryRawUnsafe: jest.fn().mockResolvedValueOnce([{
+        source_id: 42,
+        source_amount: '100.00',
+        source_admission_id: 7,
+        source_patient_uid: patientUid,
+        source_is_refund: false,
+        source_parent_deposit_id: null,
+        source_receipt_number: 'RCT-202608-0002',
+        source_payment_method: 'card',
+        source_payment_reference: 'CARD-ORIGIN-123',
+        source_purpose: 'admission_advance',
+        source_collected_by: actorUid,
+        source_collected_at: collectedAt,
+      }]),
+    };
+    await expect(validateParentSourceTx({
+      tx,
+      tenantId: DEFAULT_TENANT_ID,
+      advance: { id: 91 },
+      storedPatientUid: patientUid,
+      fundingPatientUid: patientUid,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'IPD_ADVANCE_REFUND_MODE_RECONCILIATION_REQUIRED',
+    });
+  });
+
+  it('lists the governed refund lifecycle without payout evidence', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{
+      id: 7,
+      parent_deposit_id: 42,
+      advance_id: 91,
+      amount: '10.00',
+      mode: 'CASH',
+      approval_status: 'PENDING',
+    }]);
+
+    const refunds = await ipdSupportService.listAdmissionAdvanceRefundRequests(7, {
+      tenantId: DEFAULT_TENANT_ID,
+    });
+
+    expect(refunds).toEqual([expect.objectContaining({
+      id: 7,
+      parent_deposit_id: 42,
+      approval_status: 'PENDING',
+    })]);
+    const sql = queryRawUnsafeMock.mock.calls[0][0];
+    expect(sql).toContain('mirror.ipd_advance_deposit_id AS parent_deposit_id');
+    expect(sql).toContain('mirror.admission_id = $2::int');
+    expect(sql).toContain('refund.approval_status');
+    expect(sql).not.toContain('refund.reference');
+    expect(sql).not.toContain('refund.payout_rail');
+    expect(sql).not.toContain('refund.gateway_refund_id');
+  });
+});
+
 describe('ipdSupportService.listAdmissionPasses', () => {
   it('queries attendant_passes (snake_case Prisma model) by admission_id, ordered by pass_index', async () => {
     attendantPassesFindMany.mockResolvedValueOnce([
@@ -172,47 +410,86 @@ describe('ipdSupportService.listAdmissionPasses', () => {
 });
 
 describe('ipdSupportService.getAdmissionDepositBalance — deferred-advance mirror (H D61)', () => {
-  it('sums advance_deposits AND deferred (pre-admit) billing_advances', async () => {
-    advanceDepositsAggregate.mockResolvedValueOnce({ _sum: { amount: '5000' } });
-    queryRawUnsafeMock.mockResolvedValueOnce([{ total: '2500' }]);
+  it('uses a settled mirror balance once and retains unmirrored legacy roots', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{ total: '7500' }]);
 
     const balance = await ipdSupportService.getAdmissionDepositBalance(42);
 
-    // 5,000 from advance_deposits + 2,500 deferred billing_advances = 7,500.
-    // Previously returned only 5,000 (or 0 if the deposit was deferred-only),
-    // forcing the discharge cashier to ask for re-payment.
     expect(balance).toBe(7500);
-    expect(advanceDepositsAggregate).toHaveBeenCalledWith({
-      where: { admission_id: 42, tenant_id: DEFAULT_TENANT_ID },
-      _sum: { amount: true },
-    });
-    // The billing_advances mirror probe must scope by admission_id OR
-    // (admission_id IS NULL AND patient_uid match AND collected_at <=
-    // admission.admitted_at) — preserving deferred deposits.
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
     const sql = queryRawUnsafeMock.mock.calls[0][0];
-    expect(sql).toMatch(/FROM billing_advances/);
-    expect(sql).toMatch(/ba\.tenant_id = \$2::uuid/);
-    expect(sql).toMatch(/admission_id IS NULL/);
-    expect(sql).toMatch(/ba\.patient_uid = a\.patient_uid/);
+    expect(sql).toMatch(/root_state\.mirror_count = 0/);
+    expect(sql).toMatch(/SUM\(advance\.balance\)/);
+    expect(sql).toMatch(/advance\.tenant_id = \$2::uuid/);
+    expect(sql).toMatch(/advance\.admission_id IS NULL/);
+    expect(sql).toMatch(/WITH RECURSIVE admission_scope/);
+    expect(sql).toMatch(/patient_uid_family\(uid\)/);
+    expect(sql).toMatch(/predecessor\.merged_into_uid = family\.uid/);
+    expect(sql).toMatch(/family\.uid = deposit\.patient_uid/);
+    expect(sql).toMatch(/family\.uid = advance\.patient_uid/);
+    expect(sql).not.toMatch(/deposit\.patient_uid = admission\.patient_uid/);
+    expect(sql).not.toMatch(/advance\.patient_uid = admission\.patient_uid/);
+    expect(sql).toMatch(/mirror\.ipd_advance_deposit_id = root\.id/);
+    expect(sql).toMatch(/mirror\.patient_uid = root\.patient_uid/);
+    expect(sql).toMatch(/mirror\.reference = 'IPD\/' \|\| root\.receipt_number/);
+    expect(sql).toMatch(/mirror\.amount = root\.amount/);
+    expect(sql).toMatch(/mirror\.ipd_advance_deposit_collected_at/);
+    expect(sql).toMatch(/DATE_TRUNC\('milliseconds', mirror\.collected_at\)/);
+    expect(sql).toMatch(/refund\.patient_uid IS DISTINCT FROM root\.patient_uid/);
+    expect(sql).toMatch(/patient_matches_admission/);
   });
 
-  it('returns just the advance_deposits total when the deferred mirror is empty', async () => {
-    advanceDepositsAggregate.mockResolvedValueOnce({ _sum: { amount: '3000' } });
-    queryRawUnsafeMock.mockResolvedValueOnce([{ total: '0' }]);
+  it('returns the statement total when no independent advance remains', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{ total: '3000' }]);
     expect(await ipdSupportService.getAdmissionDepositBalance(42)).toBe(3000);
   });
 
-  it('falls back to advance_deposits-only when the deferred mirror query throws', async () => {
-    advanceDepositsAggregate.mockResolvedValueOnce({ _sum: { amount: '1000' } });
+  it('fails closed when a receipt has ambiguous mirror evidence', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{
+      total: '100',
+      invalid_mirror_roots: 1,
+    }]);
+    await expect(ipdSupportService.getAdmissionDepositBalance(42))
+      .rejects.toMatchObject({
+        statusCode: 409,
+        code: 'IPD_ADVANCE_BALANCE_EVIDENCE_INVALID',
+      });
+  });
+
+  it.each([
+    ['unauditable legacy deposit', { invalid_root_shapes: 1 }, { root_shapes: 1 }],
+    ['unknown independent advance mode', { invalid_advance_rows: 1 }, { advance_rows: 1 }],
+  ])('fails closed for %s evidence', async (_label, evidence, expectedDetails) => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{ total: '100', ...evidence }]);
+    await expect(ipdSupportService.getAdmissionDepositBalance(42))
+      .rejects.toMatchObject({
+        statusCode: 409,
+        code: 'IPD_ADVANCE_BALANCE_EVIDENCE_INVALID',
+        details: expect.objectContaining(expectedDetails),
+      });
+  });
+
+  it('fails closed when the admission patient identity is not terminal', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{
+      total: '100',
+      invalid_patient_identity_rows: 1,
+    }]);
+    await expect(ipdSupportService.getAdmissionDepositBalance(42))
+      .rejects.toMatchObject({
+        statusCode: 409,
+        code: 'IPD_ADVANCE_BALANCE_EVIDENCE_INVALID',
+        details: expect.objectContaining({ patient_identity_rows: 1 }),
+      });
+  });
+
+  it('fails closed rather than returning a partial money balance when the statement fails', async () => {
     queryRawUnsafeMock.mockRejectedValueOnce(new Error('table missing'));
-    // Must never throw — the cashier needs a number even if the mirror
-    // is unavailable on under-migrated tenants.
-    expect(await ipdSupportService.getAdmissionDepositBalance(42)).toBe(1000);
+    await expect(ipdSupportService.getAdmissionDepositBalance(42))
+      .rejects.toThrow('table missing');
   });
 
   it('returns 0 when admissionId is missing (no DB hit)', async () => {
     expect(await ipdSupportService.getAdmissionDepositBalance(null)).toBe(0);
-    expect(advanceDepositsAggregate).not.toHaveBeenCalled();
     expect(queryRawUnsafeMock).not.toHaveBeenCalled();
   });
 });

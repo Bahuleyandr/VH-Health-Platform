@@ -1,13 +1,12 @@
 // Phase-3 deep-review fixes — IPD support money/authz/canonical paths,
 // proven against a real DB:
 //
-//   1. (B-M3) refundAdvanceDeposit locks the parent deposit FOR UPDATE and
-//      recomputes the refunded total in-tx: an over-refund — including the
-//      one produced by two concurrent refunds racing the same balance —
-//      is rejected 409 DEPOSIT_REFUND_EXCEEDS_BALANCE, never double-paid
-//      and never a generic 500.
+//   1. (B-M3) refundAdvanceDeposit revalidates the bound IPD source inside the
+//      canonical billing transaction and creates only a PENDING refund request.
+//      The billing funding lock serializes concurrent reservations so an
+//      over-refund is rejected before any approval or payout can occur.
 //   2. (B-M4) /api/v1/ipd operations carry per-route requireRole guards:
-//      refund payout is finance/cashier-only, ward-indent issue is
+//      refund request is billing/finance-only, ward-indent issue is
 //      pharmacy-only, pass revoke is admission/ward-leadership-only.
 //   3. (B-M5) issuing a patient-linked ward indent requires durable order
 //      verification evidence, then writes exactly one clinical timeline row
@@ -81,11 +80,15 @@ async function seedUser({ uid, role, name }) {
   );
 }
 
-async function seedDeposit(amount) {
+async function seedDeposit(amount, {
+  paymentMethod = 'cash',
+  paymentReference = null,
+} = {}) {
   return ipdSupportService.collectAdvanceDeposit({
     admissionId,
     amount,
-    paymentMethod: 'cash',
+    paymentMethod,
+    paymentReference,
     collectedBy: BILLING_UID,
     tenantId: TENANT,
   });
@@ -383,11 +386,116 @@ async function cleanup() {
   await prisma.$executeRawUnsafe(
     `DELETE FROM clinical_orders WHERE patient_uid = $1::uuid`, PATIENT_UID,
   ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM billing_advances WHERE patient_uid = $1::uuid`, PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM advance_deposits WHERE patient_uid = $1::uuid`, PATIENT_UID,
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
+    const fixtureAdvances = await tx.$queryRawUnsafe(
+      `SELECT id
+         FROM billing_advances
+        WHERE tenant_id = $1::uuid
+          AND patient_uid = $2::uuid`,
+      TENANT,
+      PATIENT_UID,
+    );
+    const fixtureAdvanceIds = fixtureAdvances.map((row) => Number(row.id));
+    if (fixtureAdvanceIds.length) {
+      const fixtureEntries = await tx.$queryRawUnsafe(
+        `SELECT DISTINCT entry_id::text AS id
+           FROM ledger_postings
+          WHERE tenant_id = $1::uuid
+            AND advance_id = ANY($2::int[])`,
+        TENANT,
+        fixtureAdvanceIds,
+      );
+      const fixtureEntryIds = fixtureEntries.map((row) => String(row.id));
+      if (fixtureEntryIds.length) {
+        await tx.$executeRawUnsafe(
+          `CREATE TEMP TABLE ipd_support_fixture_ledger_deltas
+             ON COMMIT DROP AS
+           SELECT posting.tenant_id, posting.account_id,
+                  posting.patient_uid, posting.invoice_id, posting.advance_id,
+                  SUM(
+                    posting.amount_paise * ledger_account_normal_side(account.type)
+                  )::bigint AS balance_paise
+             FROM ledger_postings posting
+             JOIN ledger_accounts account ON account.id = posting.account_id
+            WHERE posting.tenant_id = $1::uuid
+              AND posting.entry_id = ANY($2::bigint[])
+            GROUP BY posting.tenant_id, posting.account_id,
+                     posting.patient_uid, posting.invoice_id, posting.advance_id`,
+          TENANT,
+          fixtureEntryIds,
+        );
+        await tx.$executeRawUnsafe(
+          `DELETE FROM ledger_postings
+            WHERE tenant_id = $1::uuid
+              AND entry_id = ANY($2::bigint[])`,
+          TENANT,
+          fixtureEntryIds,
+        );
+        await tx.$executeRawUnsafe(
+          `DELETE FROM ledger_entries
+            WHERE tenant_id = $1::uuid
+              AND id = ANY($2::bigint[])`,
+          TENANT,
+          fixtureEntryIds,
+        );
+        await tx.$executeRawUnsafe(
+          `UPDATE ledger_balances balance
+              SET balance_paise = balance.balance_paise - delta.balance_paise,
+                  updated_at = NOW()
+             FROM ipd_support_fixture_ledger_deltas delta
+            WHERE balance.tenant_id = delta.tenant_id
+              AND balance.account_id = delta.account_id
+              AND balance.patient_uid IS NOT DISTINCT FROM delta.patient_uid
+              AND balance.invoice_id IS NOT DISTINCT FROM delta.invoice_id
+              AND balance.advance_id IS NOT DISTINCT FROM delta.advance_id`,
+        );
+        await tx.$executeRawUnsafe(
+          `DELETE FROM ledger_balances balance
+            USING ipd_support_fixture_ledger_deltas delta
+            WHERE balance.tenant_id = delta.tenant_id
+              AND balance.account_id = delta.account_id
+              AND balance.patient_uid IS NOT DISTINCT FROM delta.patient_uid
+              AND balance.invoice_id IS NOT DISTINCT FROM delta.invoice_id
+              AND balance.advance_id IS NOT DISTINCT FROM delta.advance_id
+              AND NOT EXISTS (
+                SELECT 1
+                  FROM ledger_postings posting
+                 WHERE posting.tenant_id = delta.tenant_id
+                   AND posting.account_id = delta.account_id
+                   AND posting.patient_uid IS NOT DISTINCT FROM delta.patient_uid
+                   AND posting.invoice_id IS NOT DISTINCT FROM delta.invoice_id
+                   AND posting.advance_id IS NOT DISTINCT FROM delta.advance_id
+              )`,
+        );
+      }
+    }
+    await tx.$executeRawUnsafe(
+      `DELETE FROM billing_refunds WHERE patient_uid = $1::uuid`, PATIENT_UID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM billing_advances WHERE patient_uid = $1::uuid`, PATIENT_UID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM advance_deposits WHERE patient_uid = $1::uuid`, PATIENT_UID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM idempotency_keys
+        WHERE tenant_id = $1::uuid
+          AND user_uid = ANY($2::uuid[])`,
+      TENANT,
+      [BILLING_UID, RECEPTIONIST_UID],
+    );
+    await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'origin'");
+  });
+  await deleteWithAuditBypass(
+    prisma,
+    `DELETE FROM audit_logs
+      WHERE tenant_id = $1::uuid
+        AND resource = 'billing_refund'
+        AND metadata->>'patient_uid' = $2::text`,
+    TENANT,
+    PATIENT_UID,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM attendant_passes WHERE patient_uid = $1::uuid`, PATIENT_UID,
@@ -608,9 +716,9 @@ d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonica
     await prisma.$disconnect().catch(() => {});
   }, 120_000);
 
-  // ── B-M3: over-refund guard is race-safe and 409s ─────────────────────────
+  // ── B-M3: governed refund reservations are race-safe ──────────────────────
 
-  it('rejects a sequential over-refund with 409 DEPOSIT_REFUND_EXCEEDS_BALANCE', async () => {
+  it('rejects a sequential over-refund after reserving only one PENDING request', async () => {
     const deposit = await seedDeposit(100);
 
     const first = await ipdSupportService.refundAdvanceDeposit({
@@ -620,8 +728,9 @@ d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonica
       refundedBy: BILLING_UID,
       tenantId: TENANT,
     });
-    expect(Number(first.amount)).toBe(-60);
-    expect(first.is_refund).toBe(true);
+    expect(Number(first.amount)).toBe(60);
+    expect(first.approval_status).toBe('PENDING');
+    expect(first.advance_id).not.toBeNull();
 
     await expect(
       ipdSupportService.refundAdvanceDeposit({
@@ -632,20 +741,128 @@ d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonica
         tenantId: TENANT,
       }),
     ).rejects.toMatchObject({
-      statusCode: 409,
-      code: 'DEPOSIT_REFUND_EXCEEDS_BALANCE',
+      statusCode: 400,
+      code: 'BILLING_REFUND_EXCEEDS_ADVANCE_BALANCE',
     });
 
-    // Only the one refund row exists.
     const refunds = await prisma.$queryRawUnsafe(
-      `SELECT COUNT(*)::int AS n FROM advance_deposits
-        WHERE parent_deposit_id = $1::int AND is_refund = true`,
-      deposit.id,
+      `SELECT COUNT(*)::int AS n, COALESCE(SUM(amount), 0)::numeric AS total
+         FROM billing_refunds
+        WHERE tenant_id = $1::uuid
+          AND advance_id = $2::int
+          AND approval_status IN ('PENDING', 'APPROVED')`,
+      TENANT,
+      first.advance_id,
     );
     expect(refunds[0].n).toBe(1);
+    expect(Number(refunds[0].total)).toBe(60);
+    const directRefunds = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n
+         FROM advance_deposits
+        WHERE tenant_id = $1::uuid
+          AND parent_deposit_id = $2::int
+          AND is_refund = TRUE`,
+      TENANT,
+      deposit.id,
+    );
+    expect(directRefunds[0].n).toBe(0);
   }, 60_000);
 
-  it('serializes two concurrent refunds on the same deposit — one pays, one 409s, never both', async () => {
+  it('rejects a CASH request against a source-bound electronic collection rail', async () => {
+    const deposit = await seedDeposit(100, {
+      paymentMethod: 'card',
+      paymentReference: `CARD-${randomUUID()}`,
+    });
+
+    await expect(
+      ipdSupportService.refundAdvanceDeposit({
+        parentDepositId: deposit.id,
+        refundAmount: 10,
+        paymentMethod: 'cash',
+        refundedBy: BILLING_UID,
+        tenantId: TENANT,
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'IPD_ADVANCE_REFUND_MODE_RECONCILIATION_REQUIRED',
+    });
+
+    const refunds = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n
+         FROM billing_refunds
+        WHERE tenant_id = $1::uuid
+          AND advance_id = (
+            SELECT id
+              FROM billing_advances
+             WHERE tenant_id = $1::uuid
+               AND ipd_advance_deposit_id = $2::int
+          )`,
+      TENANT,
+      deposit.id,
+    );
+    expect(refunds[0].n).toBe(0);
+  }, 60_000);
+
+  it('fails the admission balance read closed on unauditable legacy money evidence', async () => {
+    const receipt = `RCT-BAD-${randomUUID()}`.slice(0, 40);
+    const invalidRootRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO advance_deposits
+         (admission_id, patient_uid, receipt_number, amount, payment_method,
+          payment_reference, collected_by, tenant_id)
+       VALUES ($1::int, $2::uuid, $3, 10.00, 'card', NULL, $4::uuid, $5::uuid)
+       RETURNING id`,
+      admissionId,
+      PATIENT_UID,
+      receipt,
+      BILLING_UID,
+      TENANT,
+    );
+    try {
+      await expect(
+        ipdSupportService.getAdmissionDepositBalance(admissionId, { tenantId: TENANT }),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'IPD_ADVANCE_BALANCE_EVIDENCE_INVALID',
+        details: expect.objectContaining({ root_shapes: 1 }),
+      });
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM advance_deposits WHERE tenant_id = $1::uuid AND id = $2::int`,
+        TENANT,
+        invalidRootRows[0].id,
+      );
+    }
+
+    const invalidAdvanceRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO billing_advances
+         (patient_uid, admission_id, amount, balance, mode, reference,
+          collected_by, tenant_id)
+       VALUES ($1::uuid, $2::int, 10.00, 10.00, 'BARTER', $3, $4::uuid, $5::uuid)
+       RETURNING id`,
+      PATIENT_UID,
+      admissionId,
+      `INVALID-${randomUUID()}`,
+      BILLING_UID,
+      TENANT,
+    );
+    try {
+      await expect(
+        ipdSupportService.getAdmissionDepositBalance(admissionId, { tenantId: TENANT }),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'IPD_ADVANCE_BALANCE_EVIDENCE_INVALID',
+        details: expect.objectContaining({ advance_rows: 1 }),
+      });
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM billing_advances WHERE tenant_id = $1::uuid AND id = $2::int`,
+        TENANT,
+        invalidAdvanceRows[0].id,
+      );
+    }
+  }, 60_000);
+
+  it('serializes two concurrent requests on one deposit and reserves capacity once', async () => {
     const deposit = await seedDeposit(100);
 
     const results = await Promise.allSettled([
@@ -670,24 +887,28 @@ d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonica
     expect(fulfilled).toHaveLength(1);
     expect(rejected).toHaveLength(1);
     expect(rejected[0].reason).toMatchObject({
-      statusCode: 409,
-      code: 'DEPOSIT_REFUND_EXCEEDS_BALANCE',
+      statusCode: 400,
+      code: 'BILLING_REFUND_EXCEEDS_ADVANCE_BALANCE',
     });
 
-    // Exactly one payout committed — the deposit was not double-refunded.
+    const refund = fulfilled[0].value;
+    expect(refund.approval_status).toBe('PENDING');
     const agg = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*)::int AS n, COALESCE(SUM(amount), 0)::numeric AS total
-         FROM advance_deposits
-        WHERE parent_deposit_id = $1::int AND is_refund = true`,
-      deposit.id,
+         FROM billing_refunds
+        WHERE tenant_id = $1::uuid
+          AND advance_id = $2::int
+          AND approval_status IN ('PENDING', 'APPROVED')`,
+      TENANT,
+      refund.advance_id,
     );
     expect(agg[0].n).toBe(1);
-    expect(Number(agg[0].total)).toBe(-80);
+    expect(Number(agg[0].total)).toBe(80);
   }, 60_000);
 
   // ── B-M4: per-route authz on the /api/v1/ipd surface ──────────────────────
 
-  it('refund payout: RECEPTIONIST (mount union, non-finance) gets 403; BILLING_STAFF passes and refunds', async () => {
+  it('refund request: RECEPTIONIST gets 403; BILLING_STAFF creates one replayable PENDING request', async () => {
     const deposit = await seedDeposit(40);
 
     const denied = await client('RECEPTIONIST', RECEPTIONIST_UID)
@@ -695,11 +916,50 @@ d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonica
       .send({ refund_amount: 10, payment_method: 'cash' });
     expect(denied.statusCode).toBe(403);
 
-    const allowed = await client('BILLING_STAFF', BILLING_UID)
+    const missingKey = await client('BILLING_STAFF', BILLING_UID)
       .post(`/api/v1/ipd/advance-deposits/${deposit.id}/refund`)
       .send({ refund_amount: 10, payment_method: 'cash' });
-    expect(allowed.statusCode).toBe(201);
-    expect(Number(allowed.body.data.refund.amount)).toBe(-10);
+    expect(missingKey.statusCode).toBe(400);
+    expect(missingKey.body.message).toMatch(/Idempotency-Key header is required/i);
+
+    const idempotencyKey = `ipd-refund-${randomUUID()}`;
+    const allowed = await client('BILLING_STAFF', BILLING_UID)
+      .post(`/api/v1/ipd/advance-deposits/${deposit.id}/refund`)
+      .set('Idempotency-Key', idempotencyKey)
+      .send({ refund_amount: 10, payment_method: 'cash' });
+    expect(allowed.statusCode).toBe(200);
+    expect(Number(allowed.body.data.amount)).toBe(10);
+    expect(allowed.body.data.approval_status).toBe('PENDING');
+    expect(allowed.body.data.advance_id).not.toBeNull();
+
+    const replay = await client('BILLING_STAFF', BILLING_UID)
+      .post(`/api/v1/ipd/advance-deposits/${deposit.id}/refund`)
+      .set('Idempotency-Key', idempotencyKey)
+      .send({ refund_amount: 10, payment_method: 'cash' });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.body).toEqual(allowed.body);
+
+    const deniedLifecycle = await client('RECEPTIONIST', RECEPTIONIST_UID)
+      .get(`/api/v1/ipd/admissions/${admissionId}/advance-deposits`);
+    expect(deniedLifecycle.statusCode).toBe(200);
+    expect(deniedLifecycle.body.data.refund_requests).toBeNull();
+
+    const lifecycle = await client('BILLING_STAFF', BILLING_UID)
+      .get(`/api/v1/ipd/admissions/${admissionId}/advance-deposits`);
+    expect(lifecycle.statusCode).toBe(200);
+    const visibleRefunds = lifecycle.body.data.refund_requests.filter(
+      (refundRequest) => refundRequest.parent_deposit_id === deposit.id,
+    );
+    expect(visibleRefunds).toHaveLength(1);
+    expect(visibleRefunds[0]).toMatchObject({
+      id: allowed.body.data.id,
+      parent_deposit_id: deposit.id,
+      advance_id: allowed.body.data.advance_id,
+      approval_status: 'PENDING',
+    });
+    expect(visibleRefunds[0]).not.toHaveProperty('reference');
+    expect(visibleRefunds[0]).not.toHaveProperty('payout_rail');
+    expect(visibleRefunds[0]).not.toHaveProperty('gateway_refund_id');
   }, 60_000);
 
   it('deposit collection: IP_STAFF_NURSE gets 403; RECEPTIONIST passes', async () => {
@@ -708,10 +968,55 @@ d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonica
       .send({ amount: 10, payment_method: 'cash' });
     expect(denied.statusCode).toBe(403);
 
-    const allowed = await client('RECEPTIONIST', RECEPTIONIST_UID)
+    const missingKey = await client('RECEPTIONIST', RECEPTIONIST_UID)
       .post(`/api/v1/ipd/admissions/${admissionId}/advance-deposits`)
       .send({ amount: 10, payment_method: 'cash' });
+    expect(missingKey.statusCode).toBe(400);
+    expect(missingKey.body.message).toMatch(/Idempotency-Key header is required/i);
+
+    const allowed = await client('RECEPTIONIST', RECEPTIONIST_UID)
+      .post(`/api/v1/ipd/admissions/${admissionId}/advance-deposits`)
+      .set('Idempotency-Key', `ipd-collect-${randomUUID()}`)
+      .send({ amount: 10, payment_method: 'cash' });
     expect(allowed.statusCode).toBe(201);
+  }, 60_000);
+
+  it('deposit collection canonicalizes an accepted admission path alias before claiming idempotency', async () => {
+    const countDeposits = async () => {
+      const [row] = await prisma.$queryRawUnsafe(
+        `SELECT COUNT(*)::int AS count
+           FROM advance_deposits
+          WHERE tenant_id = $1::uuid
+            AND admission_id = $2::int`,
+        TENANT,
+        admissionId,
+      );
+      return Number(row.count);
+    };
+    const before = await countDeposits();
+    const idempotencyKey = `ipd-collect-alias-${randomUUID()}`;
+    const body = { amount: 10, payment_method: 'cash' };
+
+    const leadingZero = await client('RECEPTIONIST', RECEPTIONIST_UID)
+      .post(`/api/v1/ipd/admissions/00${admissionId}/advance-deposits`)
+      .set('Idempotency-Key', idempotencyKey)
+      .send(body);
+    expect(leadingZero.statusCode).toBe(400);
+    expect(await countDeposits()).toBe(before);
+
+    const aliased = await client('RECEPTIONIST', RECEPTIONIST_UID)
+      .post(`/api/v1/ipd/admissions/%20${admissionId}%20/advance-deposits`)
+      .set('Idempotency-Key', idempotencyKey)
+      .send(body);
+    expect(aliased.statusCode).toBe(201);
+
+    const replay = await client('RECEPTIONIST', RECEPTIONIST_UID)
+      .post(`/api/v1/ipd/admissions/${admissionId}/advance-deposits`)
+      .set('Idempotency-Key', idempotencyKey)
+      .send(body);
+    expect(replay.statusCode).toBe(201);
+    expect(replay.body).toEqual(aliased.body);
+    expect(await countDeposits()).toBe(before + 1);
   }, 60_000);
 
   it('ward-indent issue: RECEPTIONIST and IP_STAFF_NURSE get 403; PHARMACY_STAFF passes', async () => {

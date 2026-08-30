@@ -13,8 +13,16 @@ import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { sendStaffNotifications } from '../notification/staffNotificationService.js';
 import { resolveLedgerWiring } from '../billing/ledger/ledgerAuthoritativeMode.js';
-import { postAdvanceRefundEntry } from '../billing/ledger/ledgerPostings.js';
-import { deriveAdvanceBalanceFromLedgerTx } from '../billing/billingV2Service.js';
+import { postAdvanceCollectEntry } from '../billing/ledger/ledgerPostings.js';
+import {
+  deriveAdvanceBalanceFromLedgerTx,
+  raiseRefund as raiseBillingRefund,
+} from '../billing/billingV2Service.js';
+import { lockTenantPatientMergeStability } from '../../utils/patientMergeStabilityLock.js';
+import {
+  lockPharmacyFundingAuthorityTx,
+  resolvePharmacyFundingPatientUidTx,
+} from '../pharmacy/pharmacyCapService.js';
 import {
   applyApprovedWardIndentSubstitution,
   approveWardIndentControlledWitnessApproval,
@@ -77,14 +85,21 @@ export {
 // purpose discriminates further. Finding:
 //   2026-05-09-emergency-walk-in-admission-advance-deposit-no-deferred-mode
 //
-// Stage-4-C — 'corporate_tpa' is the IRDAI cashless-advance mode for
-// corporate-policy IPD patients. Without it the clerk had to record TPA
-// pre-authorised advances as `bank_transfer`, corrupting reconciliation
-// against the TPA's settlement file (the same `corporate_tpa` value is
-// already accepted by the pharmacy counter, see pharmacyOrderController).
-// Finding:
-//   2026-05-09-dynamic-acute-abdomen-admission-no-tpa-payment-method
+// `corporate_tpa` remains in the historical row vocabulary, but this patient-
+// money collection path rejects it. Cashless payer authority must not create a
+// patient advance or an ADVANCE_COLLECT ledger movement.
 const VALID_PAYMENT_METHODS = new Set(['cash', 'card', 'upi', 'cheque', 'online', 'bank_transfer', 'deferred', 'corporate_tpa']);
+const REFERENCE_REQUIRED_PAYMENT_METHODS = new Set(['card', 'upi', 'cheque', 'online', 'bank_transfer']);
+const IPD_REFUND_MODE_BY_INPUT = new Map([
+  ['cash', 'CASH'],
+  ['cheque', 'CHEQUE'],
+]);
+const IPD_REFUND_RECONCILIATION_MODES = new Set([
+  'card',
+  'upi',
+  'online',
+  'bank_transfer',
+]);
 const VALID_DEPOSIT_PURPOSES = new Set([
   'admission_advance', 'package_advance', 'attendant_deposit', 'security_deposit',
   // Wave-4B-1 — emergency-deferred path for unidentified/RTA admits.
@@ -96,6 +111,150 @@ const VALID_DEPOSIT_PURPOSES = new Set([
 const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
 function isUuid(s) {
   return typeof s === 'string' && UUID_RE.test(s);
+}
+
+const NUMERIC_10_2_MAX_PAISE = 9_999_999_999;
+
+function exactMoneyPaise(value, label, {
+  allowZero = false,
+  precision = 10,
+} = {}) {
+  if (typeof value !== 'string' && typeof value !== 'number') {
+    throw AppError.badRequest(`${label} must be a plain decimal fitting NUMERIC(${precision},2)`);
+  }
+  const text = String(value).trim();
+  const wholeDigits = precision - 2;
+  const match = new RegExp(`^(\\d{1,${wholeDigits}})(?:\\.(\\d{1,2}))?$`).exec(text);
+  if (!match) {
+    throw AppError.badRequest(
+      `${label} must be a plain decimal fitting NUMERIC(${precision},2) with at most 2 decimal places`,
+    );
+  }
+  const whole = BigInt(match[1]);
+  const fraction = BigInt(String(match[2] || '').padEnd(2, '0'));
+  const paiseBigInt = whole * 100n + fraction;
+  const paise = Number(paiseBigInt);
+  if (!Number.isSafeInteger(paise) || (!allowZero && paise <= 0)) {
+    throw AppError.badRequest(`${label} must be ${allowZero ? 'zero or positive' : 'positive'}`);
+  }
+  return {
+    paise,
+    amount: `${whole}.${String(fraction).padStart(2, '0')}`,
+  };
+}
+
+function exactNumeric10_2(value, label, { allowZero = false } = {}) {
+  const parsed = exactMoneyPaise(value, label, { allowZero, precision: 10 });
+  if (parsed.paise > NUMERIC_10_2_MAX_PAISE) {
+    throw AppError.badRequest(`${label} must fit NUMERIC(10,2)`);
+  }
+  return parsed;
+}
+
+function normalizePaymentReference(value, paymentMethod, { deferred = false } = {}) {
+  if (value != null && typeof value !== 'string') {
+    throw AppError.badRequest('payment_reference must be a string');
+  }
+  const reference = String(value ?? '').trim();
+  if (reference.length > 255) {
+    throw AppError.badRequest('payment_reference must not exceed 255 characters');
+  }
+  if (deferred && reference) {
+    throw AppError.badRequest('deferred deposits cannot carry a payment_reference');
+  }
+  if (REFERENCE_REQUIRED_PAYMENT_METHODS.has(paymentMethod) && !reference) {
+    throw AppError.badRequest(`payment_reference is required for ${paymentMethod}`);
+  }
+  return reference || null;
+}
+
+function normalizeAdvanceNotes(value) {
+  if (value == null) return null;
+  if (typeof value !== 'string') {
+    throw AppError.badRequest('notes must be a string');
+  }
+  if ([...value].length > 500) {
+    throw AppError.badRequest('notes must not exceed 500 characters');
+  }
+  return value;
+}
+
+function sameUuid(left, right) {
+  return String(left || '').toLowerCase() === String(right || '').toLowerCase();
+}
+
+const PG_INT4_MAX = 2_147_483_647;
+const IPD_ADVANCE_REFUND_DEFAULT_REASON = 'IPD advance deposit refund request';
+
+export function normalizeIpdAdvanceRefundRequest({
+  parentDepositId,
+  refundAmount,
+  paymentMethod,
+  paymentReference = null,
+  notes = null,
+} = {}) {
+  const depositIdText = typeof parentDepositId === 'number'
+    ? String(parentDepositId)
+    : String(parentDepositId ?? '').trim();
+  const normalizedParentDepositId = Number(depositIdText);
+  if (!/^[1-9][0-9]*$/.test(depositIdText)
+      || !Number.isInteger(normalizedParentDepositId)
+      || normalizedParentDepositId > PG_INT4_MAX) {
+    throw AppError.badRequest('parentDepositId must be a positive integer');
+  }
+
+  const normalizedAmount = exactNumeric10_2(refundAmount, 'refundAmount');
+  const inputMode = typeof paymentMethod === 'string'
+    ? paymentMethod.trim().toLowerCase()
+    : '';
+  if (IPD_REFUND_RECONCILIATION_MODES.has(inputMode)) {
+    throw AppError.conflict(
+      `${inputMode} IPD advance refunds require canonical electronic payout evidence reconciliation`,
+      'IPD_ADVANCE_REFUND_MODE_RECONCILIATION_REQUIRED',
+      { payment_method: inputMode },
+    );
+  }
+  if (['deferred', 'corporate_tpa'].includes(inputMode)) {
+    throw AppError.conflict(
+      `${inputMode} is not a collected patient-money refund rail`,
+      'IPD_ADVANCE_REFUND_NON_PAYOUT_MODE',
+      { payment_method: inputMode },
+    );
+  }
+  const mode = IPD_REFUND_MODE_BY_INPUT.get(inputMode);
+  if (!mode) {
+    throw AppError.badRequest(
+      'Invalid refund payment_method. Allowed on the IPD request surface: cash, cheque',
+      'IPD_ADVANCE_REFUND_MODE_INVALID',
+    );
+  }
+
+  if (paymentReference != null
+      && (typeof paymentReference !== 'string' || paymentReference.trim())) {
+    throw AppError.badRequest(
+      'payment_reference is payout evidence and must be recorded only by the governed finance payout workflow',
+      'IPD_ADVANCE_REFUND_PAYOUT_REFERENCE_FORBIDDEN',
+    );
+  }
+  const normalizedNotes = normalizeAdvanceNotes(notes);
+  const reason = String(normalizedNotes ?? '').trim() || IPD_ADVANCE_REFUND_DEFAULT_REASON;
+  const idempotencyPath = `/api/v1/ipd/advance-deposits/${normalizedParentDepositId}/refund`;
+  const idempotencyBody = {
+    action: 'raise_ipd_advance_refund',
+    parent_deposit_id: String(normalizedParentDepositId),
+    amount: normalizedAmount.amount,
+    reason,
+    mode,
+  };
+  return {
+    parentDepositId: normalizedParentDepositId,
+    amount: normalizedAmount.amount,
+    amountPaise: normalizedAmount.paise,
+    reason,
+    mode,
+    idempotencyPath,
+    idempotencyBody,
+  };
 }
 
 const VALID_INDENT_TYPES = new Set(['pharmacy', 'consumables', 'linen', 'sterile_supplies']);
@@ -152,6 +311,416 @@ async function findAdmissionForTenant(client, admissionId, tenantId) {
   });
   if (!admission) throw AppError.notFound('Admission not found');
   return admission;
+}
+
+async function lockCanonicalIpdFundingAdmissionTx(tx, {
+  tenantId,
+  admissionId,
+  patientUid,
+  requireBillingOpen = false,
+}) {
+  const tid = tenantOr(tenantId);
+  await lockTenantPatientMergeStability(tx, tid);
+  const canonicalPatientUid = await resolvePharmacyFundingPatientUidTx(tx, {
+    tenantId: tid,
+    admissionId: Number(admissionId),
+    patientUid: String(patientUid),
+  });
+  await lockPharmacyFundingAuthorityTx(tx, {
+    tenantId: tid,
+    patientUid: canonicalPatientUid,
+  });
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT id, patient_uid, status, billing_closed_at, tenant_id
+       FROM admissions
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int
+        AND patient_uid = $3::uuid
+      FOR UPDATE`,
+    tid,
+    Number(admissionId),
+    canonicalPatientUid,
+  );
+  const admission = rows[0];
+  if (!admission) {
+    throw AppError.conflict(
+      'Admission funding authority changed before the money mutation could lock it',
+      'IPD_ADVANCE_ADMISSION_AUTHORITY_CHANGED',
+    );
+  }
+  if (requireBillingOpen && admission.billing_closed_at) {
+    const closedAt = admission.billing_closed_at instanceof Date
+      ? admission.billing_closed_at.toISOString()
+      : String(admission.billing_closed_at);
+    throw AppError.conflict(
+      `Admission billing is closed (since ${closedAt}). Cannot collect new advance deposit.`,
+      'IPD_ADVANCE_BILLING_CLOSED',
+    );
+  }
+  return { admission, canonicalPatientUid };
+}
+
+function storedMoneyPaise(value, label, { precision = 12 } = {}) {
+  try {
+    const serialized = typeof value === 'string' || typeof value === 'number'
+      ? value
+      : value?.toString?.();
+    return exactMoneyPaise(serialized, label, { allowZero: true, precision }).paise;
+  } catch {
+    throw AppError.conflict(
+      `${label} is not canonical two-decimal money evidence`,
+      'IPD_ADVANCE_STORED_MONEY_INVALID',
+    );
+  }
+}
+
+function assertExactIpdAdvanceMirror(parent, mirror) {
+  const mismatches = [];
+  const parentAmountPaise = storedMoneyPaise(
+    parent.amount,
+    'parent deposit amount',
+    { precision: 10 },
+  );
+  const mirrorAmountPaise = storedMoneyPaise(mirror.amount, 'billing advance amount');
+  const mirrorBalancePaise = storedMoneyPaise(mirror.balance, 'billing advance balance');
+  if (Number(parent.id) !== Number(mirror.ipd_advance_deposit_id)) {
+    mismatches.push('ipd_advance_deposit_id');
+  }
+  if (!sameUuid(parent.patient_uid, mirror.patient_uid)) mismatches.push('patient_uid');
+  if (Number(parent.admission_id) !== Number(mirror.admission_id)) mismatches.push('admission_id');
+  if (parentAmountPaise !== mirrorAmountPaise) mismatches.push('amount');
+  if (String(parent.payment_method) !== String(mirror.ipd_advance_deposit_payment_method)) {
+    mismatches.push('ipd_advance_deposit_payment_method');
+  }
+  if (String(parent.payment_method).trim().toUpperCase()
+      !== String(mirror.mode).trim().toUpperCase()) {
+    mismatches.push('payment_method');
+  }
+  if (String(mirror.reference) !== `IPD/${String(parent.receipt_number)}`) {
+    mismatches.push('reference');
+  }
+  if (!sameUuid(parent.collected_by, mirror.collected_by)) mismatches.push('collected_by');
+  if (mirror.source_collected_at_matches !== true) mismatches.push('source_collected_at');
+  if (mirror.mirror_collected_at_matches !== true) mismatches.push('collected_at');
+  if (mirrorBalancePaise < 0 || mirrorBalancePaise > mirrorAmountPaise) mismatches.push('balance');
+  if (mismatches.length) {
+    throw AppError.conflict(
+      'The IPD deposit and billing advance mirror no longer carry identical provenance',
+      'IPD_ADVANCE_MIRROR_PROVENANCE_MISMATCH',
+      { fields: mismatches },
+    );
+  }
+  const status = String(mirror.status).toUpperCase();
+  const statusMatchesBalance = mirrorBalancePaise === 0
+    ? ['EXHAUSTED', 'REFUNDED'].includes(status)
+    : ['ACTIVE', 'REFUND_DUE'].includes(status);
+  if (!statusMatchesBalance) {
+    throw AppError.conflict(
+      `The billing advance mirror is ${mirror.status || 'unclassified'} and is not coherent funding evidence`,
+      'IPD_ADVANCE_MIRROR_STATUS_INVALID',
+    );
+  }
+}
+
+async function lockExactIpdAdvanceMirrorTx(tx, {
+  tenantId,
+  parent,
+}) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT mirror.id, mirror.patient_uid, mirror.admission_id,
+            mirror.amount, mirror.balance, mirror.mode, mirror.reference,
+            mirror.collected_by, mirror.status, mirror.tenant_id,
+            mirror.collected_at, mirror.ipd_advance_deposit_id,
+            mirror.ipd_advance_deposit_payment_method,
+            mirror.ipd_advance_deposit_collected_at, mirror.updated_at,
+            mirror.ipd_advance_deposit_collected_at
+              IS NOT DISTINCT FROM source.collected_at AS source_collected_at_matches,
+            mirror.collected_at
+              IS NOT DISTINCT FROM source.collected_at AS mirror_collected_at_matches
+       FROM billing_advances mirror
+       JOIN advance_deposits source
+         ON source.tenant_id = mirror.tenant_id
+        AND source.id = mirror.ipd_advance_deposit_id
+      WHERE mirror.tenant_id = $1::uuid
+        AND mirror.ipd_advance_deposit_id = $2::int
+      ORDER BY mirror.id
+      LIMIT 2
+      FOR UPDATE OF mirror, source`,
+    tenantOr(tenantId),
+    Number(parent.id),
+  );
+  if (rows.length !== 1) {
+    throw AppError.conflict(
+      rows.length === 0
+        ? 'The IPD deposit has no billing advance mirror'
+        : 'The IPD deposit has more than one billing advance mirror',
+      rows.length === 0
+        ? 'IPD_ADVANCE_MIRROR_MISSING'
+        : 'IPD_ADVANCE_MIRROR_AMBIGUOUS',
+      { parent_deposit_id: Number(parent.id), mirror_count: rows.length },
+    );
+  }
+  assertExactIpdAdvanceMirror(parent, rows[0]);
+  return rows[0];
+}
+
+function assertRefundableIpdDepositSource(source) {
+  if (source.is_refund !== false || source.parent_deposit_id != null) {
+    throw AppError.badRequest('Cannot refund a refund row — request against the original deposit');
+  }
+  const amountPaise = storedMoneyPaise(source.amount, 'IPD deposit amount', { precision: 10 });
+  if (amountPaise <= 0) {
+    throw AppError.conflict(
+      'The original deposit is not positive collected patient money',
+      'IPD_ADVANCE_PARENT_NOT_PATIENT_MONEY',
+    );
+  }
+  const paymentMethod = String(source.payment_method || '').trim().toLowerCase();
+  if (['deferred', 'corporate_tpa'].includes(paymentMethod)) {
+    throw AppError.conflict(
+      'The original deposit is not proven collected patient money and requires finance reconciliation',
+      'IPD_ADVANCE_PARENT_NOT_PATIENT_MONEY',
+      { payment_method: paymentMethod },
+    );
+  }
+  if (!VALID_PAYMENT_METHODS.has(paymentMethod)) {
+    throw AppError.conflict(
+      'The original deposit payment method is not eligible patient-money evidence',
+      'IPD_ADVANCE_PARENT_NOT_PATIENT_MONEY',
+      { payment_method: paymentMethod },
+    );
+  }
+  if (!isUuid(String(source.collected_by || ''))) {
+    throw AppError.conflict(
+      'The original deposit has no valid collector provenance',
+      'IPD_ADVANCE_PARENT_COLLECTOR_INVALID',
+    );
+  }
+  if (!String(source.receipt_number || '').trim()) {
+    throw AppError.conflict(
+      'The original deposit has no receipt provenance',
+      'IPD_ADVANCE_PARENT_RECEIPT_MISSING',
+    );
+  }
+  return { amountPaise, paymentMethod };
+}
+
+async function loadIpdAdvanceRefundCandidate(parentDepositId, tenantId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT source.id, source.amount, source.admission_id, source.patient_uid,
+            source.is_refund, source.parent_deposit_id, source.purpose,
+            source.receipt_number, source.payment_method, source.payment_reference,
+            source.collected_by, source.collected_at,
+            mirror.id AS advance_id
+       FROM advance_deposits source
+       LEFT JOIN billing_advances mirror
+         ON mirror.tenant_id = source.tenant_id
+        AND mirror.ipd_advance_deposit_id = source.id
+      WHERE source.tenant_id = $1::uuid
+        AND source.id = $2::int
+      ORDER BY mirror.id
+      LIMIT 2`,
+    tenantOr(tenantId),
+    Number(parentDepositId),
+  );
+  const candidate = rows[0];
+  if (!candidate) throw AppError.notFound('Parent deposit not found');
+  if (rows.length !== 1) {
+    throw AppError.conflict(
+      'The IPD deposit has more than one billing advance mirror',
+      'IPD_ADVANCE_MIRROR_AMBIGUOUS',
+      { parent_deposit_id: Number(parentDepositId), mirror_count: rows.length },
+    );
+  }
+  assertRefundableIpdDepositSource(candidate);
+  if (candidate.advance_id == null) {
+    throw AppError.conflict(
+      'The IPD deposit is not bound to one canonical billing advance',
+      'IPD_ADVANCE_MIRROR_MISSING',
+      { parent_deposit_id: Number(parentDepositId) },
+    );
+  }
+  return candidate;
+}
+
+async function validateIpdAdvanceRefundParentSourceTx({
+  tx,
+  tenantId,
+  advance,
+  storedPatientUid,
+  fundingPatientUid,
+}, { candidate, command }) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT source.id AS source_id,
+            source.amount AS source_amount,
+            source.admission_id AS source_admission_id,
+            source.patient_uid AS source_patient_uid,
+            source.is_refund AS source_is_refund,
+            source.parent_deposit_id AS source_parent_deposit_id,
+            source.receipt_number AS source_receipt_number,
+            source.payment_method AS source_payment_method,
+            source.payment_reference AS source_payment_reference,
+            source.purpose AS source_purpose,
+            source.collected_by AS source_collected_by,
+            source.collected_at AS source_collected_at,
+            admission.patient_uid AS admission_patient_uid,
+            admission.billing_closed_at,
+            mirror.id AS mirror_id,
+            mirror.patient_uid AS mirror_patient_uid,
+            mirror.admission_id AS mirror_admission_id,
+            mirror.amount AS mirror_amount,
+            mirror.balance AS mirror_balance,
+            mirror.mode AS mirror_mode,
+            mirror.reference AS mirror_reference,
+            mirror.collected_by AS mirror_collected_by,
+            mirror.collected_at AS mirror_collected_at,
+            mirror.status AS mirror_status,
+            mirror.ipd_advance_deposit_id AS mirror_source_id,
+            mirror.ipd_advance_deposit_payment_method AS mirror_source_payment_method,
+            mirror.ipd_advance_deposit_collected_at AS mirror_source_collected_at,
+            mirror.ipd_advance_deposit_collected_at
+              IS NOT DISTINCT FROM source.collected_at AS source_collected_at_matches,
+            DATE_TRUNC('milliseconds', mirror.collected_at)
+              IS NOT DISTINCT FROM DATE_TRUNC('milliseconds', source.collected_at)
+              AS mirror_collected_at_matches
+       FROM billing_advances mirror
+       JOIN advance_deposits source
+         ON source.tenant_id = mirror.tenant_id
+        AND source.id = mirror.ipd_advance_deposit_id
+       JOIN admissions admission
+         ON admission.tenant_id = source.tenant_id
+        AND admission.id = source.admission_id
+      WHERE mirror.tenant_id = $1::uuid
+        AND mirror.id = $2::int
+        AND source.id = $3::int
+      FOR UPDATE OF source, admission`,
+    tenantOr(tenantId),
+    Number(advance.id),
+    Number(candidate.id),
+  );
+  const source = rows[0];
+  if (rows.length !== 1) {
+    throw AppError.conflict(
+      'The bound IPD deposit, admission, or advance changed before the refund request locked it',
+      'IPD_ADVANCE_PARENT_CHANGED',
+    );
+  }
+  const sourceEvidence = assertRefundableIpdDepositSource({
+    ...source,
+    id: source.source_id,
+    amount: source.source_amount,
+    admission_id: source.source_admission_id,
+    patient_uid: source.source_patient_uid,
+    is_refund: source.source_is_refund,
+    parent_deposit_id: source.source_parent_deposit_id,
+    receipt_number: source.source_receipt_number,
+    payment_method: source.source_payment_method,
+  });
+  const sourceRefundMode = IPD_REFUND_MODE_BY_INPUT.get(sourceEvidence.paymentMethod);
+  if (!sourceRefundMode || sourceRefundMode !== command.mode) {
+    throw AppError.conflict(
+      'The requested refund mode does not match the bound IPD collection rail and requires finance reconciliation',
+      'IPD_ADVANCE_REFUND_MODE_RECONCILIATION_REQUIRED',
+      {
+        source_payment_method: sourceEvidence.paymentMethod,
+        requested_mode: command.mode,
+      },
+    );
+  }
+
+  const sourceAmountPaise = storedMoneyPaise(
+    source.source_amount,
+    'bound IPD deposit amount',
+    { precision: 10 },
+  );
+  const mirrorAmountPaise = storedMoneyPaise(source.mirror_amount, 'bound billing advance amount');
+  const mirrorBalancePaise = storedMoneyPaise(source.mirror_balance, 'bound billing advance balance');
+  const mismatches = [];
+  if (Number(source.source_id) !== Number(candidate.id)
+      || Number(source.mirror_source_id) !== Number(candidate.id)
+      || Number(advance.ipd_advance_deposit_id) !== Number(candidate.id)) {
+    mismatches.push('ipd_advance_deposit_id');
+  }
+  if (Number(source.mirror_id) !== Number(candidate.advance_id)
+      || Number(advance.id) !== Number(candidate.advance_id)) {
+    mismatches.push('advance_id');
+  }
+  if (!sameUuid(source.source_patient_uid, storedPatientUid)
+      || !sameUuid(source.mirror_patient_uid, storedPatientUid)
+      || !sameUuid(advance.patient_uid, storedPatientUid)
+      || !sameUuid(source.source_patient_uid, candidate.patient_uid)) {
+    mismatches.push('stored_patient_uid');
+  }
+  if (!sameUuid(source.admission_patient_uid, fundingPatientUid)) {
+    mismatches.push('funding_patient_uid');
+  }
+  if (Number(source.source_admission_id) !== Number(source.mirror_admission_id)
+      || Number(source.source_admission_id) !== Number(advance.admission_id)
+      || Number(source.source_admission_id) !== Number(candidate.admission_id)) {
+    mismatches.push('admission_id');
+  }
+  if (sourceAmountPaise !== mirrorAmountPaise
+      || sourceAmountPaise !== storedMoneyPaise(candidate.amount, 'candidate IPD deposit amount', { precision: 10 })
+      || mirrorAmountPaise !== storedMoneyPaise(advance.amount, 'locked billing advance amount')) {
+    mismatches.push('amount');
+  }
+  if (String(source.source_payment_method)
+        !== String(source.mirror_source_payment_method)
+      || String(source.source_payment_method)
+        !== String(advance.ipd_advance_deposit_payment_method)
+      || String(source.source_payment_method) !== String(candidate.payment_method)
+      || String(source.source_payment_method).trim().toUpperCase()
+        !== String(source.mirror_mode).trim().toUpperCase()
+      || String(source.source_payment_method).trim().toUpperCase()
+        !== String(advance.mode).trim().toUpperCase()) {
+    mismatches.push('payment_method');
+  }
+  if (!sameUuid(source.source_collected_by, source.mirror_collected_by)
+      || !sameUuid(source.source_collected_by, advance.collected_by)
+      || !sameUuid(source.source_collected_by, candidate.collected_by)) {
+    mismatches.push('collected_by');
+  }
+  if (String(source.source_receipt_number) !== String(candidate.receipt_number)
+      || String(source.mirror_reference) !== `IPD/${String(source.source_receipt_number)}`
+      || String(advance.reference) !== String(source.mirror_reference)) {
+    mismatches.push('reference');
+  }
+  if (source.source_payment_reference !== candidate.payment_reference) {
+    mismatches.push('payment_reference');
+  }
+  if (source.source_purpose !== candidate.purpose) mismatches.push('purpose');
+  if (source.source_collected_at_matches !== true) mismatches.push('source_collected_at');
+  if (source.mirror_collected_at_matches !== true) mismatches.push('collected_at');
+  if (source.billing_closed_at != null) {
+    const closedAtMillis = source.billing_closed_at instanceof Date
+      ? source.billing_closed_at.getTime()
+      : Date.parse(String(source.billing_closed_at));
+    if (!Number.isFinite(closedAtMillis)) mismatches.push('billing_closed_at');
+  }
+  if (mirrorBalancePaise < 0
+      || mirrorBalancePaise > mirrorAmountPaise
+      || mirrorBalancePaise !== storedMoneyPaise(
+        advance.balance,
+        'locked billing advance balance',
+      )) {
+    mismatches.push('balance');
+  }
+  const status = String(source.mirror_status || '').trim().toUpperCase();
+  const statusMatchesBalance = mirrorBalancePaise === 0
+    ? ['EXHAUSTED', 'REFUNDED'].includes(status)
+    : ['ACTIVE', 'REFUND_DUE'].includes(status);
+  if (!statusMatchesBalance || status !== String(advance.status || '').trim().toUpperCase()) {
+    mismatches.push('status');
+  }
+  if (mismatches.length) {
+    throw AppError.conflict(
+      'The IPD deposit and billing advance no longer carry exact refund source provenance',
+      'IPD_ADVANCE_MIRROR_PROVENANCE_MISMATCH',
+      { fields: [...new Set(mismatches)] },
+    );
+  }
+  // A closed bill still permits this remediation request. Approval and payout
+  // remain separate governed billing actions.
 }
 
 const ATTENDANT_PASS_COUNT_PER_ADMISSION = 2;
@@ -307,25 +876,30 @@ export async function collectAdvanceDeposit({
   if (!VALID_PAYMENT_METHODS.has(paymentMethod)) {
     throw AppError.badRequest(`Invalid payment_method: ${paymentMethod}. Must be one of: ${[...VALID_PAYMENT_METHODS].join(', ')}`);
   }
+  if (paymentMethod === 'corporate_tpa') {
+    throw AppError.conflict(
+      'corporate_tpa is third-party funding authority, not collected patient advance money',
+      'IPD_ADVANCE_NON_PATIENT_FUNDING_MODE',
+    );
+  }
   if (!VALID_DEPOSIT_PURPOSES.has(purpose)) {
     throw AppError.badRequest(`Invalid purpose: ${purpose}. Must be one of: ${[...VALID_DEPOSIT_PURPOSES].join(', ')}`);
   }
 
-  // Wave-4B-1 — deferred admits (unidentified patient, RTA brought in by
-  // traffic police, mass-casualty events) record amount=0. Cashless
-  // collection happens in the next 24h via a sibling deposit row. Any
-  // non-deferred mode still requires a positive amount.
-  const isDeferred = paymentMethod === 'deferred' || purpose === 'emergency_deferred';
-  const num = Number(amount);
-  if (!Number.isFinite(num)) {
-    throw AppError.badRequest('amount must be a number');
+  const isDeferred = paymentMethod === 'deferred';
+  if (purpose === 'emergency_deferred' && !isDeferred) {
+    throw AppError.badRequest('emergency_deferred purpose requires payment_method deferred');
   }
-  if (!isDeferred && num <= 0) {
-    throw AppError.badRequest('amount must be a positive number');
+  const normalizedAmount = exactNumeric10_2(amount, 'amount', { allowZero: isDeferred });
+  if (isDeferred && normalizedAmount.paise !== 0) {
+    throw AppError.badRequest('deferred deposits must carry an exact zero amount');
   }
-  if (isDeferred && num < 0) {
-    throw AppError.badRequest('deferred deposits cannot carry a negative amount');
-  }
+  const normalizedPaymentReference = normalizePaymentReference(
+    paymentReference,
+    paymentMethod,
+    { deferred: isDeferred },
+  );
+  const normalizedNotes = normalizeAdvanceNotes(notes);
 
   if (!collectedBy) throw AppError.badRequest('collectedBy is required');
   if (!isUuid(collectedBy)) {
@@ -341,11 +915,7 @@ export async function collectAdvanceDeposit({
   // which the global handler dropped through as a generic 500. Pulling
   // the 404 out of the tx makes the failure mode actionable.
   const admission = await findAdmissionForTenant(prisma, admissionId, tid);
-  if (admission.billing_closed_at) {
-    throw AppError.badRequest(
-      `Admission billing is closed (since ${admission.billing_closed_at.toISOString()}). Cannot collect new advance deposit.`,
-    );
-  }
+  const wiring = await resolveLedgerWiring(tid);
 
   // Retry once on receipt_number unique-conflict — `nextReceiptNumber`
   // picks max+1 inside a tx but two concurrent collectors can both pick
@@ -353,18 +923,24 @@ export async function collectAdvanceDeposit({
   // for typical throughput.
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      return await setTenantTx(tid, async (tx) => {
+      const result = await setTenantTx(tid, async (tx) => {
+        const locked = await lockCanonicalIpdFundingAdmissionTx(tx, {
+          tenantId: tid,
+          admissionId: admission.id,
+          patientUid: admission.patient_uid,
+          requireBillingOpen: true,
+        });
         const receiptNumber = await nextReceiptNumber(tx);
         const deposit = await tx.advance_deposits.create({
           data: {
-            admission_id: admissionId,
-            patient_uid: admission.patient_uid,
+            admission_id: locked.admission.id,
+            patient_uid: locked.canonicalPatientUid,
             receipt_number: receiptNumber,
-            amount: num,
+            amount: normalizedAmount.amount,
             payment_method: paymentMethod,
-            payment_reference: paymentReference ?? null,
+            payment_reference: normalizedPaymentReference,
             purpose,
-            notes,
+            notes: normalizedNotes,
             collected_by: collectedBy,
             tenant_id: tid,
           },
@@ -372,27 +948,85 @@ export async function collectAdvanceDeposit({
 
         // F-2 — bridge the IPD deposit to billing_advances so the cashier
         // can settle it against the eventual invoice via billingV2's
-        // settleAdvance flow. Reference column carries `IPD/<receipt>` so
-        // the refund path can find this row again. Finding:
+        // settleAdvance flow. The immutable source columns carry provenance;
+        // `IPD/<receipt>` is only the human-facing mirror locator. Finding:
         //   2026-05-10-inpatient-admission-billing-advance-deposit-not-netted
         // Deferred-mode (amount=0) rows skip the mirror — there's nothing
         // to settle yet; the deferred row will be reconciled when the
         // real payment comes in via a sibling deposit.
-        if (num > 0) {
-          await tx.$executeRawUnsafe(
+        let advance = null;
+        if (normalizedAmount.paise > 0) {
+          const advanceRows = await tx.$queryRawUnsafe(
             `INSERT INTO billing_advances
-               (patient_uid, admission_id, amount, balance, mode, reference, collected_by, notes, tenant_id)
-             VALUES ($1::uuid, $2::int, $3::numeric, $3::numeric, $4, $5, $6::uuid, $7, $8::uuid)`,
-            admission.patient_uid, admissionId, num, paymentMethod,
-            `IPD/${receiptNumber}`, collectedBy, notes ?? null, tid,
+               (patient_uid, admission_id, amount, balance, mode, reference,
+                 collected_by, notes, tenant_id, collected_at,
+                 ipd_advance_deposit_id, ipd_advance_deposit_payment_method,
+                 ipd_advance_deposit_collected_at)
+             SELECT source.patient_uid, source.admission_id,
+                    source.amount, source.amount, source.payment_method,
+                    'IPD/' || source.receipt_number,
+                    source.collected_by, source.notes, source.tenant_id,
+                    source.collected_at, source.id, source.payment_method,
+                    source.collected_at
+               FROM advance_deposits source
+              WHERE source.tenant_id = $1::uuid
+                AND source.id = $2::int
+                AND source.is_refund = FALSE
+                AND source.parent_deposit_id IS NULL
+                AND source.amount > 0
+             RETURNING id, patient_uid, admission_id, amount, balance, mode,
+                       reference, collected_by, status, tenant_id, collected_at,
+                       ipd_advance_deposit_id, ipd_advance_deposit_payment_method,
+                       ipd_advance_deposit_collected_at, updated_at`,
+            tid,
+            Number(deposit.id),
           );
+          if (advanceRows.length !== 1) {
+            throw AppError.internal(
+              'IPD advance mirror creation did not return exactly one row',
+              'IPD_ADVANCE_MIRROR_CREATE_FAILED',
+            );
+          }
+          const insertedAdvance = advanceRows[0];
+          advance = await lockExactIpdAdvanceMirrorTx(tx, {
+            tenantId: tid,
+            parent: deposit,
+          });
+          if (Number(advance.id) !== Number(insertedAdvance.id)) {
+            throw AppError.conflict(
+              'The created IPD billing mirror is not the unique receipt mirror',
+              'IPD_ADVANCE_MIRROR_CREATE_AMBIGUOUS',
+            );
+          }
+          if (wiring.sameTx) {
+            await postAdvanceCollectEntry({ advance, tenantId: tid, tx });
+            const derived = await deriveAdvanceBalanceFromLedgerTx(tx, Number(advance.id));
+            if (storedMoneyPaise(derived.balance, 'derived billing advance balance')
+                !== normalizedAmount.paise) {
+              throw AppError.conflict(
+                'The ledger did not reproduce the collected IPD advance amount',
+                'IPD_ADVANCE_LEDGER_COLLECT_MISMATCH',
+              );
+            }
+          }
         }
 
-        return deposit;
+        return { deposit, advance };
       });
+      if (wiring.postCommit && result.advance) {
+        try {
+          await postAdvanceCollectEntry({ advance: result.advance, tenantId: tid });
+        } catch (ledgerErr) {
+          logger.error('Ledger ADVANCE_COLLECT post failed (non-blocking)', {
+            advance_id: result.advance.id,
+            error: ledgerErr.message,
+          });
+        }
+      }
+      return result.deposit;
     } catch (err) {
       // Prisma P2002 = unique constraint violation. Retry once for receipt_number.
-      if (err?.code === 'P2002' && attempt === 0) {
+      if (isDatabaseUniqueConflict(err) && attempt === 0) {
         logger.warn(`collectAdvanceDeposit: receipt_number conflict on admission ${admissionId}, retrying`);
         continue;
       }
@@ -404,159 +1038,89 @@ export async function collectAdvanceDeposit({
 }
 
 /**
- * Refund (full or partial) an existing deposit. Models the refund as a
- * sibling negative-amount row pointing at the parent — keeps the audit
- * trail clean and supports multiple partial refunds.
+ * Raise a PENDING billing refund request against the exact IPD advance mirror.
+ * Approval and payout stay on the separately authorised billing workflows.
  */
 export async function refundAdvanceDeposit({
-  parentDepositId, refundAmount, paymentMethod, paymentReference,
-  notes = null, refundedBy, tenantId = null,
+  parentDepositId,
+  refundAmount,
+  paymentMethod,
+  paymentReference,
+  notes = null,
+  refundedBy,
+  tenantId = null,
+  commandKey = null,
+  requestFingerprint = null,
+  httpIdempotencyClaimId = null,
+  requestId = null,
+  auditContext = null,
+  idempotencyPath = null,
 }) {
   const tid = tenantOr(tenantId);
-  if (!parentDepositId) throw AppError.badRequest('parentDepositId is required');
-  const num = Number(refundAmount);
-  if (!Number.isFinite(num) || num <= 0) {
-    throw AppError.badRequest('refundAmount must be a positive number');
-  }
-  if (!VALID_PAYMENT_METHODS.has(paymentMethod)) {
-    throw AppError.badRequest(`Invalid payment_method: ${paymentMethod}`);
-  }
+  const command = normalizeIpdAdvanceRefundRequest({
+    parentDepositId,
+    refundAmount,
+    paymentMethod,
+    paymentReference,
+    notes,
+  });
   if (!refundedBy) throw AppError.badRequest('refundedBy is required');
-
-  const wiring = await resolveLedgerWiring(tid);
-  // Retry once on receipt_number unique-conflict — mirrors
-  // collectAdvanceDeposit: `nextReceiptNumber` picks max+1 inside the tx,
-  // so a refund racing a concurrent collector (different parent rows, no
-  // shared lock) can still collide on the monthly counter. Without the
-  // retry that accidental collision surfaced as an opaque 500.
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      return await setTenantTx(tid, async (tx) => {
-        // B-M3 — lock the parent deposit row FOR UPDATE before reading the
-        // refunded total. Without the lock, two concurrent refunds both read
-        // the same "already refunded" sum, both pass the over-refund check,
-        // and both pay out (the deposit balance check was purely
-        // read-then-write). Same row-lock discipline as billingV2Service's
-        // debitAdvance (`SELECT … FROM billing_advances … FOR UPDATE`): every
-        // refund against a parent serializes on the parent row, so the
-        // in-tx recompute below always sees the winner's committed refund.
-        const parentRows = await tx.$queryRawUnsafe(
-          `SELECT id, amount, admission_id, patient_uid, is_refund, purpose, receipt_number
-             FROM advance_deposits
-            WHERE id = $1::int AND tenant_id = $2::uuid
-              FOR UPDATE`,
-          parentDepositId, tid,
-        );
-        const parent = parentRows[0];
-        if (!parent) throw AppError.notFound('Parent deposit not found');
-        if (parent.is_refund) {
-          throw AppError.badRequest('Cannot refund a refund row — refund the original deposit');
-        }
-        // Recompute existing refunds against this parent AFTER the lock —
-        // this sum is now serialized against every other refund of the same
-        // parent deposit.
-        const existingRefunds = await tx.advance_deposits.aggregate({
-          where: { parent_deposit_id: parentDepositId, is_refund: true, tenant_id: tid },
-          _sum: { amount: true },
-        });
-        const alreadyRefunded = Math.abs(Number(existingRefunds._sum.amount ?? 0));
-        const parentAmount = Number(parent.amount);
-        if (alreadyRefunded + num > parentAmount) {
-          // 409, not 400: the request may have been valid when the client
-          // composed it — a concurrent refund consumed the balance first.
-          // Conflict semantics tell the client to re-read the deposit state
-          // and retry with an adjusted amount (same convention as the MAR
-          // state-conflict guard).
-          throw AppError.conflict(
-            `Refund total would exceed deposit (${parentAmount}; already refunded ${alreadyRefunded}; this refund ${num})`,
-            'DEPOSIT_REFUND_EXCEEDS_BALANCE',
-            {
-              parent_deposit_id: parent.id,
-              deposit_amount: parentAmount,
-              already_refunded: alreadyRefunded,
-              requested_refund: num,
-              refundable_remaining: Math.max(parentAmount - alreadyRefunded, 0),
-            },
-          );
-        }
-
-        const receiptNumber = await nextReceiptNumber(tx);
-        const refund = await tx.advance_deposits.create({
-          data: {
-            admission_id: parent.admission_id,
-            patient_uid: parent.patient_uid,
-            receipt_number: receiptNumber,
-            amount: -num,                       // negative for the refund row
-            parent_deposit_id: parent.id,
-            payment_method: paymentMethod,
-            payment_reference: paymentReference ?? null,
-            purpose: parent.purpose,
-            is_refund: true,
-            notes,
-            collected_by: refundedBy,
-            tenant_id: tid,
-          },
-        });
-
-        // F-2 — propagate the refund debit to the mirrored billing_advances
-        // row (linked via reference `IPD/<parent receipt>`). Caps at 0 so
-        // billing_advances.balance never goes negative — a refund against
-        // an already-settled advance won't reverse the settlement here;
-        // that needs an explicit billingV2 raiseRefund call.
-        // (parent.receipt_number comes from the FOR UPDATE lock read above.)
-        const parentReceipt = parent.receipt_number;
-        if (parentReceipt) {
-          const ref = `IPD/${parentReceipt}`;
-          if (wiring.sameTx) {
-            // Phase 4-6 (enforce): post the advance refund to the ledger and DERIVE the
-            // mirrored billing_advances balance from it — no rogue direct write. Capped
-            // at the (ledger-derived) balance, mirroring the legacy GREATEST(...,0), so
-            // the no-negative constraint can't reject a partial over-refund. (Shadow
-            // keeps the byte-identical legacy decrement below; flipping a tenant to
-            // enforce backfills pre-flip IPD-refund deltas like the opening cutover.)
-            const advRows = await tx.$queryRawUnsafe(
-              `SELECT id, patient_uid, balance FROM billing_advances WHERE reference = $1 AND tenant_id = $2::uuid`,
-              ref, tid,
-            );
-            const adv = advRows[0];
-            const refundable = adv ? Math.min(num, Number(adv.balance)) : 0;
-            if (adv && refundable > 0) {
-              await postAdvanceRefundEntry({
-                advance: { id: adv.id, patient_uid: adv.patient_uid },
-                amount: refundable, mode: paymentMethod,
-                idempotencyKey: `ipd-advance-refund-${refund.id}`,
-                tenantId: tid, tx,
-              });
-              await deriveAdvanceBalanceFromLedgerTx(tx, adv.id, { exhaustedStatus: 'EXHAUSTED' });
-            }
-          } else {
-            // Shadow/off: legacy direct decrement of the mirrored row (capped at 0) —
-            // unchanged from before this phase.
-            await tx.$executeRawUnsafe(
-              `UPDATE billing_advances
-                  SET balance = GREATEST(balance - $1::numeric, 0::numeric),
-                      status = CASE WHEN GREATEST(balance - $1::numeric, 0::numeric) <= 0.005
-                                    THEN 'EXHAUSTED' ELSE status END,
-                      updated_at = NOW()
-                WHERE reference = $2 AND tenant_id = $3::uuid`,
-              num, ref, tid,
-            );
-          }
-        }
-
-        return refund;
-      });
-    } catch (err) {
-      // Prisma P2002 = unique constraint violation. Retry once for receipt_number.
-      if (err?.code === 'P2002' && attempt === 0) {
-        logger.warn(`refundAdvanceDeposit: receipt_number conflict on parent deposit ${parentDepositId}, retrying`);
-        continue;
-      }
-      throw err;
-    }
+  if (!isUuid(refundedBy)) throw AppError.badRequest('refundedBy must be a UUID');
+  if (idempotencyPath != null && String(idempotencyPath) !== command.idempotencyPath) {
+    throw AppError.badRequest(
+      'IPD advance refund idempotency path does not match the deposit command',
+      'IPD_ADVANCE_REFUND_IDEMPOTENCY_PATH_INVALID',
+    );
   }
-  // Unreachable — the loop either returns or rethrows.
-  throw AppError.badRequest('Failed to allocate receipt number after retry');
+
+  const candidate = await loadIpdAdvanceRefundCandidate(command.parentDepositId, tid);
+  return raiseBillingRefund({
+    patient_uid: String(candidate.patient_uid),
+    advance_id: Number(candidate.advance_id),
+    amount: command.amount,
+    reason: command.reason,
+    mode: command.mode,
+    raised_by: refundedBy,
+    tenantId: tid,
+    commandKey,
+    requestFingerprint,
+    httpIdempotencyClaimId,
+    requestId,
+    auditContext,
+    expectedIdempotencyBody: command.idempotencyBody,
+    idempotencyPath: command.idempotencyPath,
+    validateParentSourceTx: (context) => validateIpdAdvanceRefundParentSourceTx(
+      context,
+      { candidate, command },
+    ),
+  });
+}
+
+export async function listAdmissionAdvanceRefundRequests(
+  admissionId,
+  { tenantId = null } = {},
+) {
+  const tid = tenantOr(tenantId);
+  return prisma.$queryRawUnsafe(
+    `SELECT refund.id,
+            mirror.ipd_advance_deposit_id AS parent_deposit_id,
+            refund.advance_id, refund.amount, refund.reason, refund.mode,
+            refund.approval_status, refund.raised_by, refund.raised_at,
+            refund.approved_by, refund.approved_at,
+            refund.rejected_by, refund.rejected_at, refund.rejection_reason,
+            refund.paid_by, refund.paid_at,
+            refund.created_at, refund.updated_at
+       FROM billing_refunds refund
+       JOIN billing_advances mirror
+         ON mirror.tenant_id = refund.tenant_id
+        AND mirror.id = refund.advance_id
+      WHERE refund.tenant_id = $1::uuid
+        AND mirror.admission_id = $2::int
+        AND mirror.ipd_advance_deposit_id IS NOT NULL
+      ORDER BY COALESCE(refund.raised_at, refund.created_at) DESC, refund.id DESC`,
+    tid,
+    Number(admissionId),
+  );
 }
 
 /**
@@ -571,58 +1135,262 @@ export async function refundAdvanceDeposit({
  * `advance_deposits` (admission-linked only) and showed zero. The
  * discharge cashier then asked the patient to pay AGAIN.
  *
- * Sum surfaces both:
- *   (a) `advance_deposits` rows linked to this admission.
- *   (b) `billing_advances` rows linked to this admission directly OR
- *       to the same patient but unlinked (admission_id IS NULL),
- *       collected on/before the admitted_at timestamp.
+ * One statement surfaces both without counting the same receipt twice:
+ *   (a) an exact IPD mirror contributes its current billing advance balance,
+ *       so settlements and governed refunds remain visible;
+ *   (b) an unmirrored legacy IPD root contributes its net deposit/refund chain;
+ *   (c) independently-created billing advances contribute their balance once.
  * Finding 2026-05-22-..._ac0e6a1e.
  */
 export async function getAdmissionDepositBalance(admissionId, { tenantId = null } = {}) {
   if (!admissionId) return 0;
   const tid = tenantOr(tenantId);
-
-  // Advance-deposits is the canonical admission-linked surface
-  // (receipt_number + parent_deposit_id chains for refunds).
-  const adAgg = await prisma.advance_deposits.aggregate({
-    where: { admission_id: admissionId, tenant_id: tid },
-    _sum: { amount: true },
-  });
-  const advanceDepositsTotal = Number(adAgg._sum.amount ?? 0);
-
-  // billing_advances may carry a deferred (pre-admission) deposit on
-  // the same patient. Mirror it in if the deposit window precedes the
-  // admit. Falls back to a 0 contribution if the admission row or the
-  // table is missing — net of (admission-linked + pre-admit-deferred).
-  let billingAdvancesTotal = 0;
-  try {
-    const baRows = await prisma.$queryRawUnsafe(
-      `SELECT COALESCE(SUM(ba.amount), 0)::numeric AS total
-         FROM billing_advances ba
-         JOIN admissions a ON a.id = $1::int
-                           AND a.tenant_id = $2::uuid
-        WHERE COALESCE(ba.status, 'ACTIVE') <> 'CANCELLED'
-          AND ba.tenant_id = $2::uuid
-          AND (
-            ba.admission_id = $1::int
-            OR (
-              ba.admission_id IS NULL
-              AND ba.patient_uid = a.patient_uid
-              AND ba.collected_at <= COALESCE(a.admitted_at, a.created_at)
-            )
-          )`,
-      Number(admissionId), tid,
+  const rows = await prisma.$queryRawUnsafe(
+    `WITH RECURSIVE admission_scope AS (
+       SELECT id, patient_uid, admitted_at, created_at
+         FROM admissions
+        WHERE tenant_id = $2::uuid
+          AND id = $1::int
+     ),
+     patient_uid_family(uid) AS (
+       SELECT admission.patient_uid
+         FROM admission_scope admission
+       UNION
+       SELECT predecessor.uid
+         FROM users predecessor
+         JOIN patient_uid_family family
+           ON predecessor.merged_into_uid = family.uid
+        WHERE predecessor.tenant_id = $2::uuid
+          AND predecessor.role = 'PATIENT'
+     ),
+     patient_uid_family_state AS (
+       SELECT COUNT(*) FILTER (
+                WHERE admission.id IS NOT NULL
+                  AND (
+                    patient.uid IS NULL
+                    OR patient.role <> 'PATIENT'
+                    OR patient.merged_into_uid IS NOT NULL
+                  )
+              )::int AS invalid_rows
+         FROM admission_scope admission
+         LEFT JOIN users patient
+           ON patient.tenant_id = $2::uuid
+          AND patient.uid = admission.patient_uid
+     ),
+     ipd_roots AS (
+       SELECT deposit.id, deposit.admission_id, deposit.patient_uid,
+               deposit.receipt_number, deposit.amount, deposit.parent_deposit_id,
+               deposit.payment_method, deposit.payment_reference,
+               deposit.purpose, deposit.collected_by, deposit.collected_at,
+              EXISTS (
+                SELECT 1
+                  FROM patient_uid_family family
+                 WHERE family.uid = deposit.patient_uid
+              ) AS patient_matches_admission
+         FROM advance_deposits deposit
+         JOIN admission_scope admission ON admission.id = deposit.admission_id
+        WHERE deposit.tenant_id = $2::uuid
+          AND deposit.is_refund = FALSE
+     ),
+     ipd_refund_summary AS (
+       SELECT refund.parent_deposit_id,
+              COALESCE(SUM(refund.amount), 0)::numeric AS refund_total,
+              COUNT(*) FILTER (
+                WHERE refund.amount >= 0
+                   OR refund.admission_id IS DISTINCT FROM root.admission_id
+                   OR refund.patient_uid IS DISTINCT FROM root.patient_uid
+                   OR refund.purpose IS DISTINCT FROM root.purpose
+              )::int AS invalid_rows
+         FROM advance_deposits refund
+         JOIN ipd_roots root ON root.id = refund.parent_deposit_id
+        WHERE refund.tenant_id = $2::uuid
+          AND refund.is_refund = TRUE
+        GROUP BY refund.parent_deposit_id
+     ),
+     ipd_root_state AS (
+       SELECT root.id,
+              root.amount + COALESCE(refund.refund_total, 0) AS net_amount,
+              COALESCE(refund.invalid_rows, 0)::int AS invalid_refund_rows,
+              root.patient_matches_admission,
+               root.parent_deposit_id,
+               root.payment_method,
+               root.receipt_number,
+               root.payment_reference,
+               root.amount,
+              COUNT(mirror.id)::int AS mirror_count,
+              COUNT(mirror.id) FILTER (
+                WHERE mirror.ipd_advance_deposit_id = root.id
+                  AND mirror.admission_id = root.admission_id
+                  AND mirror.patient_uid = root.patient_uid
+                  AND mirror.amount = root.amount
+                  AND mirror.ipd_advance_deposit_payment_method
+                    IS NOT DISTINCT FROM root.payment_method
+                  AND UPPER(BTRIM(mirror.mode))
+                    IS NOT DISTINCT FROM UPPER(BTRIM(root.payment_method))
+                  AND mirror.reference = 'IPD/' || root.receipt_number
+                  AND mirror.collected_by IS NOT DISTINCT FROM root.collected_by
+                  AND mirror.ipd_advance_deposit_collected_at
+                    IS NOT DISTINCT FROM root.collected_at
+                  AND DATE_TRUNC('milliseconds', mirror.collected_at)
+                    IS NOT DISTINCT FROM DATE_TRUNC('milliseconds', root.collected_at)
+                  AND mirror.balance >= 0
+                  AND mirror.balance <= mirror.amount
+                  AND (
+                    (mirror.balance > 0
+                      AND UPPER(BTRIM(mirror.status)) IN ('ACTIVE', 'REFUND_DUE'))
+                    OR
+                    (mirror.balance = 0
+                      AND UPPER(BTRIM(mirror.status)) IN ('EXHAUSTED', 'REFUNDED'))
+                  )
+              )::int AS exact_mirror_count
+         FROM ipd_roots root
+         LEFT JOIN ipd_refund_summary refund ON refund.parent_deposit_id = root.id
+         LEFT JOIN billing_advances mirror
+           ON mirror.tenant_id = $2::uuid
+          AND mirror.ipd_advance_deposit_id = root.id
+         GROUP BY root.id, root.admission_id, root.patient_uid, root.amount,
+                  root.parent_deposit_id, root.payment_method,
+                  root.receipt_number, root.payment_reference,
+                  root.collected_by, root.collected_at,
+                 root.patient_matches_admission,
+                 refund.refund_total, refund.invalid_rows
+     ),
+     ipd_deposit_total AS (
+       SELECT COALESCE(SUM(
+                CASE WHEN root_state.mirror_count = 0
+                     THEN root_state.net_amount ELSE 0 END
+              ), 0)::numeric AS total,
+              COUNT(*) FILTER (
+                WHERE root_state.mirror_count > 1
+                   OR (root_state.mirror_count = 1
+                     AND root_state.exact_mirror_count <> 1)
+              )::int AS invalid_mirror_roots,
+              COALESCE(SUM(root_state.invalid_refund_rows), 0)::int AS invalid_refund_rows,
+              COUNT(*) FILTER (WHERE root_state.net_amount < 0)::int AS negative_roots,
+              COUNT(*) FILTER (
+                WHERE root_state.patient_matches_admission IS NOT TRUE
+              )::int AS wrong_patient_roots,
+              COUNT(*) FILTER (
+                 WHERE root_state.parent_deposit_id IS NOT NULL
+                    OR root_state.amount < 0
+                    OR NULLIF(BTRIM(root_state.receipt_number), '') IS NULL
+                    OR (
+                      LOWER(BTRIM(root_state.payment_method)) IN (
+                        'card', 'upi', 'cheque', 'online', 'bank_transfer'
+                      )
+                      AND NULLIF(BTRIM(root_state.payment_reference), '') IS NULL
+                    )
+                    OR LOWER(BTRIM(root_state.payment_method)) = 'corporate_tpa'
+                   OR (
+                     root_state.amount = 0
+                     AND LOWER(BTRIM(root_state.payment_method)) <> 'deferred'
+                   )
+                   OR (
+                     root_state.amount > 0
+                     AND LOWER(BTRIM(root_state.payment_method)) = 'deferred'
+                   )
+                   OR LOWER(BTRIM(root_state.payment_method)) NOT IN (
+                     'cash', 'card', 'upi', 'cheque', 'online', 'bank_transfer', 'deferred'
+                   )
+              )::int AS invalid_root_shapes
+         FROM ipd_root_state root_state
+     ),
+     orphan_refund_total AS (
+       SELECT COUNT(*)::int AS invalid_rows
+         FROM advance_deposits refund
+         JOIN admission_scope admission ON admission.id = refund.admission_id
+        WHERE refund.tenant_id = $2::uuid
+          AND refund.is_refund = TRUE
+          AND NOT EXISTS (
+            SELECT 1 FROM ipd_roots root
+             WHERE root.id = refund.parent_deposit_id
+          )
+     ),
+     billing_advance_total AS (
+       SELECT COALESCE(SUM(advance.balance), 0)::numeric AS total,
+              COUNT(*) FILTER (
+                WHERE advance.balance < 0
+                   OR advance.balance > advance.amount
+                   OR advance.amount <= 0
+                    OR (
+                      advance.admission_id = admission.id
+                      AND NOT EXISTS (
+                        SELECT 1
+                          FROM patient_uid_family family
+                         WHERE family.uid = advance.patient_uid
+                      )
+                    )
+                    OR LOWER(BTRIM(advance.mode)) IN ('deferred', 'corporate_tpa')
+                    OR (
+                      advance.ipd_advance_deposit_id IS NULL
+                      AND UPPER(BTRIM(advance.mode)) NOT IN (
+                        'CASH', 'CARD', 'UPI', 'NETBANKING', 'CHEQUE', 'DD',
+                        'WALLET', 'INSURANCE'
+                      )
+                    )
+                   OR (
+                     advance.balance > 0
+                     AND UPPER(BTRIM(advance.status)) NOT IN ('ACTIVE', 'REFUND_DUE')
+                   )
+                   OR (
+                     advance.balance = 0
+                     AND UPPER(BTRIM(advance.status)) NOT IN ('EXHAUSTED', 'REFUNDED')
+                   )
+              )::int AS invalid_rows
+         FROM billing_advances advance
+         JOIN admission_scope admission
+           ON advance.admission_id = admission.id
+           OR (
+             advance.admission_id IS NULL
+             AND EXISTS (
+               SELECT 1
+                 FROM patient_uid_family family
+                WHERE family.uid = advance.patient_uid
+             )
+             AND advance.collected_at <= COALESCE(admission.admitted_at, admission.created_at)
+           )
+        WHERE advance.tenant_id = $2::uuid
+          AND COALESCE(advance.status, 'ACTIVE') <> 'CANCELLED'
+     )
+     SELECT (ipd.total + advance.total)::numeric AS total,
+            ipd.invalid_mirror_roots,
+            ipd.invalid_refund_rows,
+            ipd.negative_roots,
+            ipd.wrong_patient_roots,
+            ipd.invalid_root_shapes,
+            orphan.invalid_rows AS orphan_refund_rows,
+            advance.invalid_rows AS invalid_advance_rows,
+            patient_identity.invalid_rows AS invalid_patient_identity_rows
+       FROM ipd_deposit_total ipd
+       CROSS JOIN orphan_refund_total orphan
+       CROSS JOIN billing_advance_total advance
+       CROSS JOIN patient_uid_family_state patient_identity`,
+    Number(admissionId),
+    tid,
+  );
+  const evidence = rows[0] || {};
+  const invalidEvidence = {
+    mirror_roots: Number(evidence.invalid_mirror_roots || 0),
+    refund_rows: Number(evidence.invalid_refund_rows || 0),
+    negative_roots: Number(evidence.negative_roots || 0),
+    wrong_patient_roots: Number(evidence.wrong_patient_roots || 0),
+    root_shapes: Number(evidence.invalid_root_shapes || 0),
+    orphan_refunds: Number(evidence.orphan_refund_rows || 0),
+    advance_rows: Number(evidence.invalid_advance_rows || 0),
+    patient_identity_rows: Number(evidence.invalid_patient_identity_rows || 0),
+  };
+  if (Object.values(invalidEvidence).some((count) => count !== 0)) {
+    throw AppError.conflict(
+      'Admission advance balance evidence is ambiguous or internally inconsistent',
+      'IPD_ADVANCE_BALANCE_EVIDENCE_INVALID',
+      invalidEvidence,
     );
-    billingAdvancesTotal = Number(baRows[0]?.total ?? 0);
-  } catch (err) {
-    // Under-migrated tenants or transient query failure — log and fall
-    // back to the canonical advance_deposits-only total. Never fail
-    // closed on a balance lookup; the cashier needs a number even if
-    // the deferred-mirror table is missing.
-    logger.warn(`getAdmissionDepositBalance: billing_advances mirror lookup failed for admission=${admissionId}: ${err.message}`);
   }
-
-  return advanceDepositsTotal + billingAdvancesTotal;
+  return storedMoneyPaise(
+    evidence.total ?? 0,
+    'admission deposit balance',
+    { precision: 14 },
+  ) / 100;
 }
 
 export async function listAdmissionDeposits(admissionId, { tenantId = null } = {}) {
@@ -1658,8 +2426,10 @@ async function notifyPharmacyStaffOfWardIndent({ indent, order, medicationName, 
 
 export default {
   // deposits
+  normalizeIpdAdvanceRefundRequest,
   collectAdvanceDeposit,
   refundAdvanceDeposit,
+  listAdmissionAdvanceRefundRequests,
   getAdmissionDepositBalance,
   listAdmissionDeposits,
   // passes
