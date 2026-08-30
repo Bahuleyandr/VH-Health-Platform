@@ -24,8 +24,18 @@
 // transaction run otherwise. Self-isolating fixtures.
 
 import { jest } from '@jest/globals';
+import { createHash } from 'node:crypto';
 
 const safetyControl = { throwError: null };
+const emptyActiveTherapySha256 = createHash('sha256')
+  .update(JSON.stringify({ evidence: [], blockers: [] }))
+  .digest('hex');
+const loadActiveTherapySnapshotSpy = jest.fn(async () => ({
+  medications: [],
+  evidence: [],
+  blockers: [],
+  sha256: emptyActiveTherapySha256,
+}));
 const validatePrescriptionSafetySpy = jest.fn(async () => {
   if (safetyControl.throwError) throw safetyControl.throwError;
   return { safe: true, warnings: [], blockers: [] };
@@ -36,6 +46,7 @@ const validatePrescriptionSafetySpy = jest.fn(async () => {
 const checkAntithromboticInteractionsSpy = jest.fn(() => ({ warnings: [], blockers: [] }));
 
 jest.unstable_mockModule('../utils/clinical/prescriptionSafetyCheck.js', () => ({
+  loadActiveTherapySnapshot: loadActiveTherapySnapshotSpy,
   validatePrescriptionSafety: validatePrescriptionSafetySpy,
   checkAntithromboticInteractions: checkAntithromboticInteractionsSpy,
 }));
@@ -288,6 +299,7 @@ d('CPOE CDS fail-closed on exception (MEDIUM §4)', () => {
 
   beforeEach(() => {
     safetyControl.throwError = null;
+    loadActiveTherapySnapshotSpy.mockClear();
     validatePrescriptionSafetySpy.mockClear();
     checkAntithromboticInteractionsSpy.mockClear();
   });

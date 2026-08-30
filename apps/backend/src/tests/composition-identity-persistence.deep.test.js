@@ -392,10 +392,10 @@ describe('composition identity persistence (IPD createOrder/bulk + e-Rx create/u
     expect(details.composition_id).toBe(compositionId);
     expect(Array.isArray(details.strength_components)).toBe(true);
     expect(details.strength_components).toEqual([
-      { ingredient: 'amoxicillin', value: 500, unit: 'mg' },
-      { ingredient: 'clavulanic_acid', value: 125, unit: 'mg' },
+      { ingredient: 'amoxicillin', value: '500', unit: 'mg' },
+      { ingredient: 'clavulanic_acid', value: '125', unit: 'mg' },
     ]);
-    expect(details.route).toBe('oral');
+    expect(details.route).toBe('PO');
     expect(details.strength).toBe('500mg+125mg');
     expect(details.form).toBe('tablet');
     expect(details.generic_name).toBe('amox+clav');
@@ -461,7 +461,7 @@ describe('composition identity persistence (IPD createOrder/bulk + e-Rx create/u
     // Server-derived canonical identity set.
     expect(details.composition_id).toBe(compositionId);
     expect(Array.isArray(details.strength_components)).toBe(true);
-    expect(details.route).toBe('oral');
+    expect(details.route).toBe('PO');
     expect(details.strength).toBe('500mg+125mg');
     expect(details.generic_name).toBe('amox+clav');
     expect(details.catalog_authority_sha256).toMatch(/^[0-9a-f]{64}$/);

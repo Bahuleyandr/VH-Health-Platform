@@ -16,10 +16,12 @@ const STAFF_UID = 'd5800000-0000-4000-8000-000000000002';
 const ENCOUNTER_ID = 'd5800000-0000-4000-8000-000000000003';
 const RECEIVER_UID = 'd5800000-0000-4000-8000-000000000004';
 const RUN_SUFFIX = String(Date.now() % 100000).padStart(5, '0');
+const FACILITY_CODE = `D58-PHARMACY-${RUN_SUFFIX}`;
 
 let admissionId;
 let invoiceId;
 let indentId;
+let facilityId;
 
 async function cleanup() {
   await prisma.$executeRawUnsafe(
@@ -42,6 +44,12 @@ async function cleanup() {
     PATIENT_UID,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
+    `DELETE FROM facilities
+      WHERE tenant_id = $1::uuid AND facility_code = $2::text`,
+    TENANT,
+    FACILITY_CODE,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
     `DELETE FROM admissions WHERE patient_uid = $1::uuid`,
     PATIENT_UID,
   ).catch(() => {});
@@ -62,6 +70,16 @@ describe('billing admission itemizer — issued ward indent charges (D58)', () =
       PATIENT_UID,
       TENANT,
     );
+
+    const facilityRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO facilities
+         (tenant_id, facility_code, display_name, status, is_default)
+       VALUES ($1::uuid, $2::text, 'D58 Ward Pharmacy', 'active', FALSE)
+       RETURNING id`,
+      TENANT,
+      FACILITY_CODE,
+    );
+    facilityId = Number(facilityRows[0].id);
 
     const admissionRows = await prisma.$queryRawUnsafe(
       `INSERT INTO admissions
@@ -92,10 +110,10 @@ describe('billing admission itemizer — issued ward indent charges (D58)', () =
         `INSERT INTO ward_indents
            (indent_number, ward_name, admission_id, encounter_id, patient_uid,
             indent_type, status, requested_by, approved_by, approved_at,
-            issued_by, issued_at, tenant_id)
+            issued_by, issued_at, tenant_id, facility_id, facility_authority_version)
          VALUES ($1, 'D58 Medical Ward', $2::int, $3::uuid, $4::uuid,
                  'pharmacy', 'issued', $5::uuid, $5::uuid, NOW() - INTERVAL '30 minutes',
-                 $5::uuid, NOW() - INTERVAL '20 minutes', $6::uuid)
+                 $5::uuid, NOW() - INTERVAL '20 minutes', $6::uuid, $7::int, 1)
          RETURNING id, state_version, status, owner_role_codes`,
         `WI-D58-${RUN_SUFFIX}`,
         admissionId,
@@ -103,6 +121,7 @@ describe('billing admission itemizer — issued ward indent charges (D58)', () =
         PATIENT_UID,
         STAFF_UID,
         TENANT,
+        facilityId,
       );
       const row = indentRows[0];
       await tx.$executeRawUnsafe(
