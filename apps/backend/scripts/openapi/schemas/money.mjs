@@ -833,6 +833,13 @@ export const schemas = {
       created_at: { type: 'string', format: 'date-time', nullable: true },
       source_ref_type: { type: 'string', nullable: true },
       source_ref_id: { ...BIGINT_WIRE, nullable: true },
+      source_authority_version: { type: 'integer', minimum: 1, nullable: true },
+      source_authority_sha256: {
+        type: 'string', pattern: '^[0-9a-f]{64}$', nullable: true,
+      },
+      source_ref_reconciliation_case_id: { ...BIGINT_WIRE, nullable: true },
+      source_ref_deactivated_at: { type: 'string', format: 'date-time', nullable: true },
+      source_ref_deactivated_by: { type: 'string', format: 'uuid', nullable: true },
       tpa_decision: { type: 'string', nullable: true },
       tpa_non_payable_reason: { type: 'string', nullable: true },
       tpa_decided_at: { type: 'string', format: 'date-time', nullable: true },

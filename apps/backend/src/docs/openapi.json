@@ -32094,6 +32094,41 @@
             ],
             "nullable": true
           },
+          "source_authority_version": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "source_authority_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "nullable": true
+          },
+          "source_ref_reconciliation_case_id": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$",
+                "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+              }
+            ],
+            "nullable": true
+          },
+          "source_ref_deactivated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "source_ref_deactivated_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
           "tpa_decision": {
             "type": "string",
             "nullable": true

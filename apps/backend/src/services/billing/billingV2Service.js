@@ -667,6 +667,9 @@ function normalizeBillingItemForResponse(item) {
   const normalized = {
     ...item,
     source_ref_id: normalizeBigIntForResponse(item.source_ref_id),
+    source_ref_reconciliation_case_id: normalizeBigIntForResponse(
+      item.source_ref_reconciliation_case_id,
+    ),
   };
   delete normalized.source_ref_active;
   return normalized;

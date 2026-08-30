@@ -549,6 +549,7 @@ describe('billing v2 front-office audit logging', () => {
     const staffApp = makeApp();
     const reverseResponse = await request(adminApp)
       .post('/payments/90/reverse')
+      .set('Idempotency-Key', `fo-test-reverse-90-${Date.now()}-${Math.random()}`)
       .send({ reason: 'Wrong invoice' });
     const advanceResponse = await request(staffApp)
       .post('/advances')

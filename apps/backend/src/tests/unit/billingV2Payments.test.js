@@ -24,7 +24,8 @@ const { collectPayment, reversePayment } = await import('../../services/billing/
 describe('billing v2 payment invoice totals', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockPrisma.$executeRawUnsafe.mockResolvedValue(1);
+    mockPrisma.$queryRawUnsafe.mockReset();
+    mockPrisma.$executeRawUnsafe.mockReset().mockResolvedValue(1);
   });
 
   it('keeps advance settlements in amount_paid when collecting the balance payment', async () => {
@@ -62,8 +63,14 @@ describe('billing v2 payment invoice totals', () => {
   it('keeps advance settlements in amount_paid when reversing a later payment', async () => {
     mockPrisma.$queryRawUnsafe
       .mockResolvedValueOnce([{
+        patient_uid: '11111111-1111-4111-8111-111111111111',
+        has_pharmacy_allocations: false,
+      }])
+      .mockResolvedValueOnce([]) // funded pharmacy orders
+      .mockResolvedValueOnce([{
         id: 9, reversed: false, mode: 'CASH', immutable_drawer_close: false,
       }])
+      .mockResolvedValueOnce([]) // active pharmacy allocations
       .mockResolvedValueOnce([{ id: 9, invoice_id: 3, amount: '2300' }]) // UPDATE payment RETURNING
       .mockResolvedValueOnce([{ id: 3 }]) // lockBillingInvoice (SELECT ... FOR UPDATE)
       .mockResolvedValueOnce([{ paid: '15000' }]) // recompute aggregate
@@ -72,8 +79,7 @@ describe('billing v2 payment invoice totals', () => {
 
     await reversePayment(9, { reason: 'cash entry voided' });
 
-    // The preflight is calls[0], payment UPDATE calls[1], and invoice lock calls[2].
-    const paidAggregateSql = mockPrisma.$queryRawUnsafe.mock.calls[3][0];
+    const paidAggregateSql = mockPrisma.$queryRawUnsafe.mock.calls[6][0];
     expect(paidAggregateSql).toContain('billing_payments');
     expect(paidAggregateSql).toContain('billing_advance_settlements');
     expect(mockPrisma.$executeRawUnsafe).toHaveBeenCalledWith(

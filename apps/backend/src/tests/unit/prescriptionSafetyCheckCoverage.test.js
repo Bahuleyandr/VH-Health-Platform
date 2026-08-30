@@ -27,6 +27,11 @@ import { jest } from '@jest/globals';
 
 const queryRawUnsafeMock = jest.fn();
 const getUnifiedActiveAllergiesMock = jest.fn();
+const getUnifiedActiveAllergiesDetailedMock = jest.fn(async (...args) => ({
+  allergies: await getUnifiedActiveAllergiesMock(...args),
+  sourcesFailed: [],
+  patientResolved: true,
+}));
 const evaluateDrugKbMock = jest.fn();
 const isCompositionSearchEnabledMock = jest.fn();
 const enrichMedicationsWithCompositionMock = jest.fn();
@@ -43,6 +48,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 
 jest.unstable_mockModule('../../services/clinical/allergySourceService.js', () => ({
   getUnifiedActiveAllergies: getUnifiedActiveAllergiesMock,
+  getUnifiedActiveAllergiesDetailed: getUnifiedActiveAllergiesDetailedMock,
   // Mirror the real fail-safe ranking the consumer now uses to decide
   // blocker-vs-warning: canonical-severe and present-but-unparseable rank >= 4
   // (block); explicit no-claim sentinels (UNKNOWN/null) rank 0 (warn).
@@ -104,6 +110,7 @@ function queueRaw(...sequence) {
 }
 
 beforeEach(() => {
+  getUnifiedActiveAllergiesDetailedMock.mockClear();
   noAllergies();
   defaultKb();
   isCompositionSearchEnabledMock.mockReset().mockResolvedValue(false);

@@ -31,9 +31,22 @@ CREATE TABLE IF NOT EXISTS cath_consumables_billing_settings (
     )
 );
 
-ALTER TABLE billing_invoice_items
-  ALTER COLUMN source_ref_id TYPE BIGINT
-  USING source_ref_id::bigint;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+      FROM pg_attribute
+     WHERE attrelid = 'billing_invoice_items'::regclass
+       AND attname = 'source_ref_id'
+       AND NOT attisdropped
+       AND atttypid <> 'bigint'::regtype
+  ) THEN
+    ALTER TABLE billing_invoice_items
+      ALTER COLUMN source_ref_id TYPE BIGINT
+      USING source_ref_id::bigint;
+  END IF;
+END
+$$;
 
 ALTER TABLE billing_invoice_items
   ADD COLUMN IF NOT EXISTS source_ref_active BOOLEAN NOT NULL DEFAULT TRUE;

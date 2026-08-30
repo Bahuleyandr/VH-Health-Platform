@@ -157,6 +157,7 @@ Future<void> _prepareOtcSale(WidgetTester tester) async {
     find.byKey(const ValueKey('counter-sale-customer-name')),
     'Walk-in Customer',
   );
+  await tester.pump();
   await tester.ensureVisible(find.byKey(const ValueKey('counter-sale-sell')));
 }
 
@@ -301,6 +302,7 @@ void main() {
       find.byKey(const ValueKey('counter-sale-customer-name')),
       'Walk-in Customer',
     );
+    await tester.pump();
     await tester.ensureVisible(find.byKey(const ValueKey('counter-sale-sell')));
     await tester.tap(find.byKey(const ValueKey('counter-sale-sell')));
     await tester.pumpAndSettle();

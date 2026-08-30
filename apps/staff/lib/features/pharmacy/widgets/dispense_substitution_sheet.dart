@@ -984,6 +984,7 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
                     (_dispensing ||
                         _chosen == null ||
                         _selectedBatch == null ||
+                        _currentSubstitutionPayload() == null ||
                         (_needsWitness && !_hasCurrentWitnessApproval))
                     ? null
                     : _dispense,

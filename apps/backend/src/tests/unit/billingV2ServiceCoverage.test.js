@@ -463,7 +463,12 @@ describe('addInvoiceItem', () => {
 
   it('preserves BIGINT source references beyond JavaScript safe-integer range', async () => {
     mockSuccessfulAdd({
-      item: { id: 100, line_total: '118', source_ref_id: 9_007_199_254_740_993n },
+      item: {
+        id: 100,
+        line_total: '118',
+        source_ref_id: 9_007_199_254_740_993n,
+        source_ref_reconciliation_case_id: 9_007_199_254_740_994n,
+      },
     });
     const item = await svc.addInvoiceItem(1, {
       tenantId: TENANT,
@@ -476,6 +481,7 @@ describe('addInvoiceItem', () => {
     expect(queryMock.mock.calls[1].at(-2)).toBe('9007199254740993');
     expect(queryMock.mock.calls[1].at(-1)).toBe(TENANT);
     expect(item.source_ref_id).toBe('9007199254740993');
+    expect(item.source_ref_reconciliation_case_id).toBe('9007199254740994');
     expect(() => JSON.stringify(item)).not.toThrow();
   });
 
@@ -1263,15 +1269,20 @@ describe('reversePayment additional branches', () => {
   });
 
   it('throws notFound when payment missing / already reversed', async () => {
-    queryMock.mockResolvedValueOnce([]); // UPDATE ... RETURNING -> none
+    queryMock.mockResolvedValueOnce([]); // payment pre-read -> none
     await expect(svc.reversePayment(1, { reason: 'x' })).rejects.toMatchObject({ statusCode: 404 });
   });
 
   it('reverses a standalone payment (no invoice attached)', async () => {
     queryMock
       .mockResolvedValueOnce([{
+        patient_uid: PATIENT, has_pharmacy_allocations: false,
+      }])
+      .mockResolvedValueOnce([]) // funded pharmacy orders
+      .mockResolvedValueOnce([{
         id: 5, reversed: false, mode: 'UPI', immutable_drawer_close: false,
       }])
+      .mockResolvedValueOnce([]) // active pharmacy allocations
       .mockResolvedValueOnce([{ id: 5, invoice_id: null }]); // UPDATE RETURNING
     const r = await svc.reversePayment(5, { reason: 'x', reversed_by: PATIENT, tenantId: TENANT });
     expect(r).toMatchObject({ id: 5 });
@@ -1282,8 +1293,13 @@ describe('reversePayment additional branches', () => {
   it('reverses a payment attached to an invoice and recomputes payment state', async () => {
     queryMock
       .mockResolvedValueOnce([{
+        patient_uid: PATIENT, has_pharmacy_allocations: false,
+      }])
+      .mockResolvedValueOnce([]) // funded pharmacy orders
+      .mockResolvedValueOnce([{
         id: 6, reversed: false, mode: 'CASH', immutable_drawer_close: false,
       }])
+      .mockResolvedValueOnce([]) // active pharmacy allocations
       .mockResolvedValueOnce([{ id: 6, invoice_id: 9 }]) // UPDATE RETURNING (has invoice)
       .mockResolvedValueOnce([{ id: 9 }]) // lockBillingInvoice (SELECT ... FOR UPDATE)
       // recomputeInvoicePaymentStateTx:
@@ -1300,9 +1316,14 @@ describe('reversePayment additional branches', () => {
   });
 
   it('forbids reversing CASH that belongs to an immutable closed drawer', async () => {
-    queryMock.mockResolvedValueOnce([{
-      id: 7, reversed: false, mode: 'CASH', immutable_drawer_close: true,
-    }]);
+    queryMock
+      .mockResolvedValueOnce([{
+        patient_uid: PATIENT, has_pharmacy_allocations: false,
+      }])
+      .mockResolvedValueOnce([]) // funded pharmacy orders
+      .mockResolvedValueOnce([{
+        id: 7, reversed: false, mode: 'CASH', immutable_drawer_close: true,
+      }]);
 
     await expect(svc.reversePayment(7, {
       reason: 'entry correction', reversed_by: PATIENT, tenantId: TENANT,
@@ -1310,15 +1331,20 @@ describe('reversePayment additional branches', () => {
       statusCode: 409,
       code: 'BILLING_CASH_PAYMENT_CLOSED_DRAWER_REVERSAL_FORBIDDEN',
     });
-    expect(queryMock).toHaveBeenCalledTimes(1);
-    expect(queryMock.mock.calls[0][0]).toContain("drawer.status IN ('closed', 'reviewed')");
+    expect(queryMock).toHaveBeenCalledTimes(3);
+    expect(queryMock.mock.calls[2][0]).toContain("drawer.status IN ('closed', 'reviewed')");
   });
 
   it('translates a racing database drawer-close guard into the stable service error', async () => {
     queryMock
       .mockResolvedValueOnce([{
+        patient_uid: PATIENT, has_pharmacy_allocations: false,
+      }])
+      .mockResolvedValueOnce([]) // funded pharmacy orders
+      .mockResolvedValueOnce([{
         id: 8, reversed: false, mode: 'CASH', immutable_drawer_close: false,
       }])
+      .mockResolvedValueOnce([]) // active pharmacy allocations
       .mockRejectedValueOnce(Object.assign(new Error('immutable closed drawer'), {
         code: '23514',
         constraint: 'billing_cash_payment_reversal_guard_747',
@@ -3096,18 +3122,27 @@ describe('itemizeAdmissionInvoice', () => {
   });
 
   it('rejects a non-DRAFT invoice', async () => {
-    routeQueries([['id, status, admission_id', [{ id: 1, status: 'ISSUED', admission_id: ADMISSION }]]]);
+    routeQueries([['id, status, admission_id', [{
+      id: 1, status: 'ISSUED', admission_id: ADMISSION,
+      patient_uid: PATIENT, tenant_id: TENANT,
+    }]]]);
     await expect(svc.itemizeAdmissionInvoice(1)).rejects.toMatchObject({ statusCode: 400 });
   });
 
   it('rejects an invoice with no admission_id', async () => {
-    routeQueries([['id, status, admission_id', [{ id: 1, status: 'DRAFT', admission_id: null }]]]);
+    routeQueries([['id, status, admission_id', [{
+      id: 1, status: 'DRAFT', admission_id: null,
+      patient_uid: PATIENT, tenant_id: TENANT,
+    }]]]);
     await expect(svc.itemizeAdmissionInvoice(1)).rejects.toMatchObject({ statusCode: 400 });
   });
 
   it('throws notFound when the admission row is missing', async () => {
     routeQueries([
-      ['id, status, admission_id', [{ id: 1, status: 'DRAFT', admission_id: ADMISSION }]],
+      ['id, status, admission_id', [{
+        id: 1, status: 'DRAFT', admission_id: ADMISSION,
+        patient_uid: PATIENT, tenant_id: TENANT,
+      }]],
       ['FROM admissions a', []], // fetchAdmissionForItemizing -> none
     ]);
     await expect(svc.itemizeAdmissionInvoice(1)).rejects.toMatchObject({ statusCode: 404 });
@@ -3116,10 +3151,14 @@ describe('itemizeAdmissionInvoice', () => {
   it('itemizes package + pharmacy + ward indent + lab and stamps tpa_decision', async () => {
     routeQueries([
       // Phase 0 invoice pre-flight (itemizer's findBillingInvoice)
-      ['id, status, admission_id', [{ id: 1, status: 'DRAFT', admission_id: ADMISSION }]],
+      ['id, status, admission_id', [{
+        id: 1, status: 'DRAFT', admission_id: ADMISSION,
+        patient_uid: PATIENT, tenant_id: TENANT,
+      }]],
       // fetchAdmissionForItemizing
       ['FROM admissions a', [{
         id: ADMISSION,
+        tenant_id: TENANT,
         patient_uid: PATIENT,
         encounter_id: null,
         admitted_at: '2026-06-01T00:00:00Z',
@@ -3207,7 +3246,10 @@ describe('itemizeAdmissionInvoice', () => {
       notes: 'W1 - Old item x 1',
     };
     routeQueries(itemizerCommonRoutes([
-      ['id, status, admission_id', [{ id: 1, status: 'DRAFT', admission_id: ADMISSION }]],
+      ['id, status, admission_id', [{
+        id: 1, status: 'DRAFT', admission_id: ADMISSION,
+        patient_uid: PATIENT, tenant_id: TENANT,
+      }]],
       ['FROM admissions a', [{
         id: ADMISSION, tenant_id: TENANT, patient_uid: PATIENT, encounter_id: null,
         admitted_at: '2026-06-01T00:00:00Z', discharged_at: null,
@@ -3297,7 +3339,10 @@ describe('itemizeAdmissionInvoice', () => {
       tenant_id: TENANT,
     };
     const routes = [
-      ['id, status, admission_id', [{ id: 1, status: 'DRAFT', admission_id: ADMISSION }]],
+      ['id, status, admission_id', [{
+        id: 1, status: 'DRAFT', admission_id: ADMISSION,
+        patient_uid: PATIENT, tenant_id: TENANT,
+      }]],
       ['FROM admissions a', [{
         id: ADMISSION, tenant_id: TENANT, patient_uid: PATIENT, encounter_id: null,
         admitted_at: '2026-06-01T00:00:00Z', discharged_at: null,
@@ -3326,9 +3371,12 @@ describe('itemizeAdmissionInvoice', () => {
 
   it('falls back to package_price_minor when estimated cost is null', async () => {
     routeQueries(itemizerCommonRoutes([
-      ['id, status, admission_id', [{ id: 1, status: 'DRAFT', admission_id: ADMISSION }]],
+      ['id, status, admission_id', [{
+        id: 1, status: 'DRAFT', admission_id: ADMISSION,
+        patient_uid: PATIENT, tenant_id: TENANT,
+      }]],
       ['FROM admissions a', [{
-        id: ADMISSION, patient_uid: PATIENT, encounter_id: null,
+        id: ADMISSION, tenant_id: TENANT, patient_uid: PATIENT, encounter_id: null,
         admitted_at: '2026-06-01T00:00:00Z', discharged_at: null,
         ward: 'W1', bed_id: null, package_id: 12, package_code: 'PKG-1',
         package_estimated_cost_minor: null, package_price_minor: '3000000', package_name: 'Pkg',
@@ -3345,9 +3393,12 @@ describe('itemizeAdmissionInvoice', () => {
 
   it('skips the package line when admission has no package_id', async () => {
     routeQueries([
-      ['id, status, admission_id', [{ id: 1, status: 'DRAFT', admission_id: ADMISSION }]],
+      ['id, status, admission_id', [{
+        id: 1, status: 'DRAFT', admission_id: ADMISSION,
+        patient_uid: PATIENT, tenant_id: TENANT,
+      }]],
       ['FROM admissions a', [{
-        id: ADMISSION, patient_uid: PATIENT, encounter_id: null,
+        id: ADMISSION, tenant_id: TENANT, patient_uid: PATIENT, encounter_id: null,
         admitted_at: '2026-06-01T00:00:00Z', discharged_at: null,
         ward: 'W1', bed_id: null, package_id: null, package_code: null,
         package_estimated_cost_minor: null, package_price_minor: null, package_name: null,
@@ -3365,9 +3416,12 @@ describe('itemizeAdmissionInvoice', () => {
 
   it('honours selective emit flags (lab only)', async () => {
     routeQueries([
-      ['id, status, admission_id', [{ id: 1, status: 'DRAFT', admission_id: ADMISSION }]],
+      ['id, status, admission_id', [{
+        id: 1, status: 'DRAFT', admission_id: ADMISSION,
+        patient_uid: PATIENT, tenant_id: TENANT,
+      }]],
       ['FROM admissions a', [{
-        id: ADMISSION, patient_uid: PATIENT, encounter_id: null,
+        id: ADMISSION, tenant_id: TENANT, patient_uid: PATIENT, encounter_id: null,
         admitted_at: '2026-06-01T00:00:00Z', discharged_at: '2026-06-05T00:00:00Z',
         ward: 'W1', bed_id: null, package_id: null, package_code: null,
         package_estimated_cost_minor: null, package_price_minor: null, package_name: null,

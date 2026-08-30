@@ -60,6 +60,8 @@ let lowStockBatchId;
 let tenantBBatchId;
 let facilityAId;
 let facilityBId;
+let storageLocationAId;
+let storageLocationBId;
 let mappedCatalog;
 let wasteCatalog;
 let unmappedCatalog;
@@ -241,6 +243,14 @@ async function cleanup() {
     await tx.$executeRawUnsafe(
       `DELETE FROM pharmacy_inventory_items
         WHERE sku_code LIKE 'NL13-P1D-%'`,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM pharmacy_catalog
+        WHERE name LIKE 'NL13 P1d Cath Inventory %'`,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM facility_locations
+        WHERE location_code IN ('NL13-P1D-PHARMACY-A', 'NL13-P1D-PHARMACY-B')`,
     );
     await tx.$executeRawUnsafe(
       `DELETE FROM cath_consumables_billing_settings
@@ -473,6 +483,22 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
     );
     facilityAId = facilities.find((row) => row.tenant_id === TENANT_A).id;
     facilityBId = facilities.find((row) => row.tenant_id === TENANT_B).id;
+    const storageLocations = await prisma.$queryRawUnsafe(
+      `INSERT INTO facility_locations
+         (tenant_id, facility_id, location_code, display_name, location_kind, status)
+       VALUES
+         ($1::uuid, $3::int, 'NL13-P1D-PHARMACY-A',
+          'NL13 P1d Pharmacy Storage A', 'pharmacy', 'active'),
+         ($2::uuid, $4::int, 'NL13-P1D-PHARMACY-B',
+          'NL13 P1d Pharmacy Storage B', 'pharmacy', 'active')
+       RETURNING id, tenant_id`,
+      TENANT_A,
+      TENANT_B,
+      facilityAId,
+      facilityBId,
+    );
+    storageLocationAId = storageLocations.find((row) => row.tenant_id === TENANT_A).id;
+    storageLocationBId = storageLocations.find((row) => row.tenant_id === TENANT_B).id;
     await createCathCatalogAuthority({
       tenantId: TENANT_A,
       facilityId: facilityAId,
@@ -497,19 +523,52 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
       IMPLANT_CODE,
       TENANT_A,
     );
+    const inventoryCatalog = await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_catalog
+         (tenant_id, name, generic_name, category, is_active, is_available,
+          in_stock, stock_quantity, updated_at)
+       VALUES
+         ($1::uuid, 'NL13 P1d Cath Inventory Stent', 'Synthetic coronary stent',
+          'implant', TRUE, TRUE, TRUE, 5, NOW()),
+         ($1::uuid, 'NL13 P1d Cath Inventory Balloon', 'Synthetic angioplasty balloon',
+          'implant', TRUE, TRUE, TRUE, 2, NOW()),
+         ($1::uuid, 'NL13 P1d Cath Inventory Wire', 'Synthetic guidewire',
+          'implant', TRUE, TRUE, TRUE, 1, NOW()),
+         ($2::uuid, 'NL13 P1d Cath Inventory Tenant B', 'Synthetic catheter',
+          'implant', TRUE, TRUE, TRUE, 2, NOW())
+       RETURNING id, name`,
+      TENANT_A,
+      TENANT_B,
+    );
+    const implantCatalogId = inventoryCatalog.find(
+      (row) => row.name === 'NL13 P1d Cath Inventory Stent',
+    ).id;
+    const wasteCatalogId = inventoryCatalog.find(
+      (row) => row.name === 'NL13 P1d Cath Inventory Balloon',
+    ).id;
+    const lowStockCatalogId = inventoryCatalog.find(
+      (row) => row.name === 'NL13 P1d Cath Inventory Wire',
+    ).id;
+    const tenantBCatalogId = inventoryCatalog.find(
+      (row) => row.name === 'NL13 P1d Cath Inventory Tenant B',
+    ).id;
     const inventoryItems = await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_inventory_items
-         (tenant_id, facility_id, sku_code, display_name, unit_label, status)
+         (tenant_id, facility_id, catalog_id, sku_code, display_name, unit_label, status)
        VALUES
-         ($1::uuid, $3::int, 'NL13-P1D-STENT', 'Deep test coronary stent', 'each', 'active'),
-         ($1::uuid, $3::int, 'NL13-P1D-BALLOON', 'Deep test balloon', 'each', 'active'),
-         ($1::uuid, $3::int, 'NL13-P1D-WIRE', 'Deep test guidewire', 'each', 'active'),
-         ($2::uuid, $4::int, 'NL13-P1D-TENANT-B', 'Tenant B inventory item', 'each', 'active')
+         ($1::uuid, $3::int, $5::int, 'NL13-P1D-STENT', 'Deep test coronary stent', 'each', 'active'),
+         ($1::uuid, $3::int, $6::int, 'NL13-P1D-BALLOON', 'Deep test balloon', 'each', 'active'),
+         ($1::uuid, $3::int, $7::int, 'NL13-P1D-WIRE', 'Deep test guidewire', 'each', 'active'),
+         ($2::uuid, $4::int, $8::int, 'NL13-P1D-TENANT-B', 'Tenant B inventory item', 'each', 'active')
        RETURNING id, sku_code`,
       TENANT_A,
       TENANT_B,
       facilityAId,
       facilityBId,
+      implantCatalogId,
+      wasteCatalogId,
+      lowStockCatalogId,
+      tenantBCatalogId,
     );
     implantItemId = inventoryItems.find((row) => row.sku_code === 'NL13-P1D-STENT').id;
     wasteItemId = inventoryItems.find((row) => row.sku_code === 'NL13-P1D-BALLOON').id;
@@ -518,12 +577,12 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
     const batches = await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_inventory_batches
          (tenant_id, facility_id, inventory_item_id, batch_number, lot_number, expiry_date,
-          received_quantity, remaining_quantity, status)
+          received_quantity, remaining_quantity, storage_location_id, status)
        VALUES
-         ($1::uuid, $5::int, $2::int, 'NL13-P1D-STENT-B1', 'LOT-STENT-B1', '2028-12-31', 5, 5, 'in_stock'),
-         ($1::uuid, $5::int, $3::int, 'NL13-P1D-BALLOON-B1', 'LOT-BALLOON-B1', '2028-12-31', 2, 2, 'in_stock'),
-         ($1::uuid, $5::int, $4::int, 'NL13-P1D-WIRE-B1', 'LOT-WIRE-B1', '2028-12-31', 0.5, 0.5, 'in_stock'),
-         ($6::uuid, $7::int, $8::int, 'NL13-P1D-TENANT-B-B1', 'LOT-TENANT-B-B1', '2028-12-31', 2, 2, 'in_stock')
+         ($1::uuid, $5::int, $2::int, 'NL13-P1D-STENT-B1', 'LOT-STENT-B1', '2028-12-31', 5, 5, $9::int, 'in_stock'),
+         ($1::uuid, $5::int, $3::int, 'NL13-P1D-BALLOON-B1', 'LOT-BALLOON-B1', '2028-12-31', 2, 2, $9::int, 'in_stock'),
+         ($1::uuid, $5::int, $4::int, 'NL13-P1D-WIRE-B1', 'LOT-WIRE-B1', '2028-12-31', 0.5, 0.5, $9::int, 'in_stock'),
+         ($6::uuid, $7::int, $8::int, 'NL13-P1D-TENANT-B-B1', 'LOT-TENANT-B-B1', '2028-12-31', 2, 2, $10::int, 'in_stock')
        RETURNING id, batch_number`,
       TENANT_A,
       implantItemId,
@@ -533,6 +592,8 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
       TENANT_B,
       facilityBId,
       tenantBItemId,
+      storageLocationAId,
+      storageLocationBId,
     );
     implantBatchId = batches.find((row) => row.batch_number === 'NL13-P1D-STENT-B1').id;
     wasteBatchId = batches.find((row) => row.batch_number === 'NL13-P1D-BALLOON-B1').id;
@@ -1717,13 +1778,14 @@ describeIfDb('NL-13 P1d cath consumables deep integration', () => {
     const [batch] = await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_inventory_batches
          (tenant_id, facility_id, inventory_item_id, batch_number, lot_number, expiry_date,
-          received_quantity, remaining_quantity, status)
+          received_quantity, remaining_quantity, storage_location_id, status)
        VALUES ($1::uuid, $2::int, $3::int, 'NL13-P1D-REPLAY-BILLING',
-               'LOT-REPLAY-BILLING', '2030-01-31', 2, 2, 'in_stock')
+               'LOT-REPLAY-BILLING', '2030-01-31', 2, 2, $4::int, 'in_stock')
        RETURNING id`,
       TENANT_A,
       facilityAId,
       implantItemId,
+      storageLocationAId,
     );
     const input = {
       tenantId: TENANT_A,

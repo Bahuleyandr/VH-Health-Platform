@@ -730,7 +730,7 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
       facilityId,
     ))[0];
     const encounterId = randomUUID();
-    const bedNumber = `B1-MAR-${RUN}`.slice(0, 50);
+    const bedNumber = `B1-MAR-${RUN}`.slice(0, 20);
     const bed = (await prisma.$queryRawUnsafe(
       `INSERT INTO beds
          (tenant_id, ward_id, ward_name, bed_number, status, patient_uid,

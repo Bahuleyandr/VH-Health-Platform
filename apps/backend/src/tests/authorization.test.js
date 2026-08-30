@@ -158,10 +158,13 @@ describe('Pharmacy Order Authorization', () => {
     });
   });
 
-  describe('POST /api/v1/pharmacy-orders/orders/ (legacy) — RBAC blocks patients', () => {
-    it('should reject a PATIENT placing an order via the legacy endpoint', async () => {
-      const res = await authRequest('post', '/api/v1/pharmacy-orders/orders/', patientAToken)
-        .send({ phone: '0987654321', order_note: 'test order' });
+  describe('POST /api/v1/pharmacy-orders/orders/:id/confirm — RBAC blocks patients', () => {
+    it('should reject a PATIENT confirming a pharmacy order', async () => {
+      const res = await authRequest(
+        'post',
+        '/api/v1/pharmacy-orders/orders/1/confirm',
+        patientAToken,
+      );
 
       expect(res.statusCode).toBe(403);
     });
