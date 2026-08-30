@@ -147,18 +147,32 @@ const fakeTx = {
     if (/INSERT INTO pharmacy_schedule_register/i.test(sql)) {
       const register = {
         id: 555,
+        tenant_id: TENANT,
         facility_id: args[1],
         inventory_item_id: args[2],
         inventory_batch_id: args[3],
         schedule_class: args[4],
         movement_kind: 'dispose',
         quantity: args[5],
+        unit_label: args[6],
         running_balance: args[7],
+        patient_uid: null,
+        patient_name: null,
+        patient_phone: null,
+        prescription_id: null,
+        prescription_number: null,
+        prescriber_uid: null,
+        prescriber_name: null,
+        prescriber_registration: null,
+        patient_id_proof_type: null,
+        patient_id_proof_last4: null,
         performed_by: args[8],
         performed_by_name: args[9],
         witness_uid: args[10],
         witness_name: args[11],
         reference_movement_id: args[12],
+        notes: args[13],
+        created_at: new Date('2026-08-30T10:00:01.000Z'),
       };
       registerRows = [register];
       return [register];
@@ -245,6 +259,70 @@ const disposeCommand = {
   commandKey: 'inventory-disposal-unit-7',
   requestFingerprint: 'a'.repeat(64),
 };
+
+const DISPOSAL_PUBLIC_KEYS = [
+  'authority_reference',
+  'command_key_sha256',
+  'completed_at',
+  'contract',
+  'disposition_method',
+  'facility_grant_id',
+  'facility_id',
+  'inventory_batch_id',
+  'inventory_item_id',
+  'movement_id',
+  'performed_by',
+  'quantity',
+  'reason_code',
+  'request_sha256',
+  'resulting_batch_status',
+  'schedule_register_id',
+  'source_batch_status',
+  'witness_approval_id',
+  'witness_facility_grant_id',
+  'witness_uid',
+];
+const DISPOSAL_MOVEMENT_PUBLIC_KEYS = [
+  'created_at',
+  'facility_id',
+  'id',
+  'inventory_batch_id',
+  'inventory_item_id',
+  'movement_kind',
+  'notes',
+  'performed_by',
+  'quantity_delta',
+  'reference_id',
+  'reference_type',
+];
+const DISPOSAL_REGISTER_PUBLIC_KEYS = [
+  'created_at',
+  'facility_id',
+  'id',
+  'inventory_batch_id',
+  'inventory_item_id',
+  'movement_kind',
+  'notes',
+  'patient_id_proof_last4',
+  'patient_id_proof_type',
+  'patient_name',
+  'patient_phone',
+  'patient_uid',
+  'performed_by',
+  'performed_by_name',
+  'prescriber_name',
+  'prescriber_registration',
+  'prescriber_uid',
+  'prescription_id',
+  'prescription_number',
+  'quantity',
+  'reference_movement_id',
+  'running_balance',
+  'schedule_class',
+  'unit_label',
+  'witness_name',
+  'witness_uid',
+];
 
 beforeEach(() => {
   calls.queries = [];
@@ -504,7 +582,7 @@ describe('typed inventory disposal workflow', () => {
       7,
       ['in_stock', 'reserved', 'expired', 'recalled', 'quarantined'],
     ]);
-    expect(result.register_entry.running_balance).toBe('35');
+    expect(result.register_entry.running_balance).toBe(35);
     expect(balanceRead.args[3]).not.toEqual(expect.arrayContaining(['depleted', 'disposed']));
   });
 
@@ -562,19 +640,69 @@ describe('typed inventory disposal workflow', () => {
     expect(auditInserts()).toHaveLength(1);
   });
 
+  test('serializes disposal, movement, and statutory evidence to exact public keys', async () => {
+    setChain({ schedule_class: 'X', is_narcotic: true, unit_label: 'amp' });
+    const first = await disposeInventoryBatch({
+      ...disposeCommand,
+      witness_approval_id: '71',
+    });
+    const replay = await disposeInventoryBatch({
+      ...disposeCommand,
+      witness_approval_id: '71',
+    });
+
+    for (const result of [first, replay]) {
+      expect(Object.keys(result.disposal).sort()).toEqual(DISPOSAL_PUBLIC_KEYS);
+      expect(Object.keys(result.movement).sort()).toEqual(DISPOSAL_MOVEMENT_PUBLIC_KEYS);
+      expect(Object.keys(result.register_entry).sort()).toEqual(DISPOSAL_REGISTER_PUBLIC_KEYS);
+      expect(result.movement).toMatchObject({
+        facility_id: FACILITY_ID,
+        inventory_item_id: 7,
+        inventory_batch_id: 11,
+        movement_kind: 'dispose',
+        quantity_delta: -5,
+        reference_type: 'inventory_batch_disposal',
+        reference_id: '11',
+        performed_by: PERFORMER,
+        created_at: '2026-08-30T10:00:00.000Z',
+      });
+      expect(result.movement).not.toHaveProperty('tenant_id');
+      expect(result.movement).not.toHaveProperty('metadata');
+      expect(result.register_entry).toMatchObject({
+        facility_id: FACILITY_ID,
+        inventory_item_id: 7,
+        inventory_batch_id: 11,
+        unit_label: 'amp',
+        patient_uid: null,
+        patient_name: null,
+        patient_phone: null,
+        witness_uid: WITNESS,
+        created_at: '2026-08-30T10:00:01.000Z',
+      });
+      expect(result.register_entry).not.toHaveProperty('tenant_id');
+    }
+    expect(replay.idempotent_replay).toBe(true);
+  });
+
   test('non-controlled disposal writes no controlled-substance register row', async () => {
     setChain({ schedule_class: 'OTC', is_narcotic: false });
-    const result = await disposeInventoryBatch(disposeCommand);
+    const result = await disposeInventoryBatch({
+      ...disposeCommand,
+      authority_reference: null,
+    });
 
     expect(result).toMatchObject({
       idempotent_replay: false,
       disposal: {
+        authority_reference: null,
         schedule_register_id: null,
         witness_approval_id: null,
         witness_uid: null,
+        witness_facility_grant_id: null,
       },
       register_entry: null,
     });
+    expect(Object.keys(result.disposal).sort()).toEqual(DISPOSAL_PUBLIC_KEYS);
     expect(movementInserts()).toHaveLength(1);
     expect(registerInserts()).toHaveLength(0);
     expect(auditInserts()).toHaveLength(1);

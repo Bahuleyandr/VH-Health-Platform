@@ -1693,7 +1693,11 @@ function inventoryDisposalReceiptIsSemanticallyComplete(receipt, metadata, movem
 
 async function loadInventoryDisposalMovementsByCommandTx(tx, tenantId, commandKeySha256) {
   return tx.$queryRawUnsafe(
-    `SELECT movement.*
+    `SELECT movement.id, movement.tenant_id, movement.inventory_item_id,
+            movement.inventory_batch_id, movement.movement_kind,
+            movement.quantity_delta, movement.reference_type,
+            movement.reference_id, movement.performed_by, movement.notes,
+            movement.metadata, movement.created_at
        FROM pharmacy_stock_movements movement
       WHERE movement.tenant_id=$1::uuid
         AND movement.metadata->>'contract'=$2
@@ -1762,7 +1766,14 @@ function inventoryDisposalReceiptFromMovement(movement, {
 
 async function loadInventoryDisposalRegisterTx(tx, tenantId, movementId) {
   return tx.$queryRawUnsafe(
-    `SELECT *
+    `SELECT id, tenant_id, facility_id, inventory_item_id,
+            inventory_batch_id, schedule_class, movement_kind, quantity,
+            unit_label, running_balance, patient_uid, patient_name,
+            patient_phone, prescription_id, prescription_number,
+            prescriber_uid, prescriber_name, prescriber_registration,
+            patient_id_proof_type, patient_id_proof_last4, performed_by,
+            performed_by_name, witness_uid, witness_name,
+            reference_movement_id, notes, created_at
        FROM pharmacy_schedule_register
       WHERE tenant_id=$1::uuid
         AND reference_movement_id=$2::int
@@ -1808,6 +1819,77 @@ function assertInventoryDisposalRegisterReceipt(receipt, movement, registers) {
   return register;
 }
 
+function inventoryDisposalPublicTimestamp(value, field) {
+  if (!(value instanceof Date) && typeof value !== 'string') {
+    throw AppError.conflict(
+      `Inventory disposal ${field} is not a valid timestamp`,
+      'INVENTORY_DISPOSAL_RECEIPT_CONFLICT',
+    );
+  }
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw AppError.conflict(
+      `Inventory disposal ${field} is not a valid timestamp`,
+      'INVENTORY_DISPOSAL_RECEIPT_CONFLICT',
+    );
+  }
+  return parsed.toISOString();
+}
+
+function serializeInventoryDisposalMovement(movement, facilityId) {
+  return {
+    id: Number(movement.id),
+    facility_id: Number(facilityId),
+    inventory_item_id: Number(movement.inventory_item_id),
+    inventory_batch_id: movement.inventory_batch_id == null
+      ? null
+      : Number(movement.inventory_batch_id),
+    movement_kind: movement.movement_kind,
+    quantity_delta: Number(movement.quantity_delta),
+    reference_type: movement.reference_type ?? null,
+    reference_id: movement.reference_id ?? null,
+    performed_by: movement.performed_by ?? null,
+    notes: movement.notes ?? null,
+    created_at: inventoryDisposalPublicTimestamp(movement.created_at, 'movement created_at'),
+  };
+}
+
+function serializeInventoryDisposalRegister(register) {
+  if (!register) return null;
+  return {
+    id: Number(register.id),
+    facility_id: Number(register.facility_id),
+    inventory_item_id: Number(register.inventory_item_id),
+    inventory_batch_id: register.inventory_batch_id == null
+      ? null
+      : Number(register.inventory_batch_id),
+    schedule_class: register.schedule_class,
+    movement_kind: register.movement_kind,
+    quantity: Number(register.quantity),
+    unit_label: register.unit_label ?? null,
+    running_balance: Number(register.running_balance),
+    patient_uid: register.patient_uid ?? null,
+    patient_name: register.patient_name ?? null,
+    patient_phone: register.patient_phone ?? null,
+    prescription_id: register.prescription_id == null ? null : Number(register.prescription_id),
+    prescription_number: register.prescription_number ?? null,
+    prescriber_uid: register.prescriber_uid ?? null,
+    prescriber_name: register.prescriber_name ?? null,
+    prescriber_registration: register.prescriber_registration ?? null,
+    patient_id_proof_type: register.patient_id_proof_type ?? null,
+    patient_id_proof_last4: register.patient_id_proof_last4 ?? null,
+    performed_by: register.performed_by,
+    performed_by_name: register.performed_by_name ?? null,
+    witness_uid: register.witness_uid ?? null,
+    witness_name: register.witness_name ?? null,
+    reference_movement_id: register.reference_movement_id == null
+      ? null
+      : Number(register.reference_movement_id),
+    notes: register.notes ?? null,
+    created_at: inventoryDisposalPublicTimestamp(register.created_at, 'register created_at'),
+  };
+}
+
 function inventoryDisposalResult(movement, register, receipt, { replay }) {
   return {
     disposal: {
@@ -1818,22 +1900,22 @@ function inventoryDisposalResult(movement, register, receipt, { replay }) {
       quantity: Number(receipt.quantity),
       reason_code: receipt.reason_code,
       disposition_method: receipt.disposition_method,
-      authority_reference: receipt.authority_reference || null,
+      authority_reference: receipt.authority_reference ?? null,
       source_batch_status: receipt.source_batch_status,
       resulting_batch_status: receipt.resulting_batch_status,
       movement_id: Number(movement.id),
       schedule_register_id: register ? Number(register.id) : null,
-      witness_approval_id: receipt.witness_approval_id || null,
+      witness_approval_id: receipt.witness_approval_id ?? null,
       performed_by: receipt.performed_by,
       facility_grant_id: receipt.facility_grant_id,
-      witness_uid: receipt.witness_uid || null,
-      witness_facility_grant_id: receipt.witness_facility_grant_id || null,
+      witness_uid: receipt.witness_uid ?? null,
+      witness_facility_grant_id: receipt.witness_facility_grant_id ?? null,
       command_key_sha256: receipt.command_key_sha256,
       request_sha256: receipt.request_sha256,
-      completed_at: movement.created_at,
+      completed_at: inventoryDisposalPublicTimestamp(movement.created_at, 'completed_at'),
     },
-    movement,
-    register_entry: register,
+    movement: serializeInventoryDisposalMovement(movement, receipt.facility_id),
+    register_entry: serializeInventoryDisposalRegister(register),
     idempotent_replay: replay,
   };
 }
@@ -1861,7 +1943,14 @@ async function appendInventoryDisposalRegisterTx(tx, {
      VALUES ($1::uuid, $2::int, $3::int, $4::int,
              $5, 'dispose', $6::numeric, $7, $8::numeric,
              $9::uuid, $10, $11::uuid, $12, $13::int, $14)
-     RETURNING *`,
+     RETURNING id, tenant_id, facility_id, inventory_item_id,
+               inventory_batch_id, schedule_class, movement_kind, quantity,
+               unit_label, running_balance, patient_uid, patient_name,
+               patient_phone, prescription_id, prescription_number,
+               prescriber_uid, prescriber_name, prescriber_registration,
+               patient_id_proof_type, patient_id_proof_last4, performed_by,
+               performed_by_name, witness_uid, witness_name,
+               reference_movement_id, notes, created_at`,
     tenantId,
     intent.facilityId,
     intent.inventoryItemId,
