@@ -243,6 +243,7 @@ describeIfDb('MED-03 ward medication registered-route journey', () => {
       form: catalog.form,
       form_key: catalog.form_key,
       release_key: catalog.release_key,
+      supply_quantity_per_dose: 1,
       quantity_requested: 2,
       unit: 'unit',
     }, catalog, { phase: 'create' });
@@ -314,6 +315,7 @@ describeIfDb('MED-03 ward medication registered-route journey', () => {
     const pharmacyQueue = client('PHARMACY_STAFF', pharmacyQueueUid, actorIds.PHARMACY_STAFF);
     const pharmacist = client('PHARMACY_INCHARGE', pharmacistUid, actorIds.PHARMACY_INCHARGE);
     const receiver = client('NURSING_INCHARGE', receiverUid, actorIds.NURSING_INCHARGE);
+    const doctor = client('DOCTOR', doctorUid, actorIds.DOCTOR);
     const billingOwner = client('BILLING_INCHARGE', billingOwnerUid, actorIds.BILLING_INCHARGE);
     const financeOwner = client('FINANCE_INCHARGE', financeOwnerUid, actorIds.FINANCE_INCHARGE);
     const admin = client('ADMIN', adminUid, actorIds.ADMIN);
@@ -396,6 +398,22 @@ describeIfDb('MED-03 ward medication registered-route journey', () => {
       .send(verifyBody);
     expect(verifiedOrderReplay.status).toBe(200);
     expect(verifiedOrderReplay.body).toEqual(verifiedOrder.body);
+    const marScheduling = await doctor
+      .post(
+        `/api/v1/emr/orders/${clinicalOrderId}/retry-mar-scheduling`,
+        `med03-route-mar-schedule-${run}`,
+      )
+      .send({});
+    expect(marScheduling.status).toBe(200);
+    expect(marScheduling.body.data).toMatchObject({
+      order_id: clinicalOrderId,
+      status: 'scheduled',
+      scheduled_dose_count: 1,
+    });
+    expect(marScheduling.body.data.scheduled_dose_ids).toHaveLength(1);
+    const marId = Number(marScheduling.body.data.scheduled_dose_ids[0]);
+    expect(Number.isSafeInteger(marId)).toBe(true);
+    expect(marId).toBeGreaterThan(0);
     const verificationEvidence = await prisma.$queryRawUnsafe(
       `SELECT timeline.event_type, timeline.event_status,
               timeline.actor_uid::text, timeline.actor_role, timeline.payload,
@@ -714,6 +732,49 @@ describeIfDb('MED-03 ward medication registered-route journey', () => {
       'received',
       5,
     );
+    const administered = await receiver
+      .post(
+        `/api/v1/clinical/mar/${marId}/administer-with-scan`,
+        `med03-route-mar-administer-${run}`,
+      )
+      .send({
+        scanned_patient_uid: patientUid,
+        scanned_barcode: `MED03-ROUTE-BATCH-${run}`,
+      });
+    expect(administered.status).toBe(200);
+    expect(administered.body.data).toMatchObject({
+      id: marId,
+      status: 'administered',
+      all_rights_passed: true,
+      supply_state: {
+        status: 'matched',
+        quantity: 1,
+      },
+    });
+    const supplyConsumptions = await prisma.$queryRawUnsafe(
+      `SELECT medication_administration_id, clinical_order_id,
+              ward_indent_item_id, inventory_allocation_id,
+              inventory_batch_id, quantity, evidence_status,
+              administration_mode, recorded_by::text
+         FROM mar_supply_consumptions
+        WHERE tenant_id = $1::uuid
+          AND medication_administration_id = $2::int
+        ORDER BY id`,
+      tenantId,
+      marId,
+    );
+    expect(supplyConsumptions).toHaveLength(1);
+    expect(supplyConsumptions[0]).toMatchObject({
+      medication_administration_id: marId,
+      clinical_order_id: clinicalOrderId,
+      ward_indent_item_id: indentItemId,
+      inventory_batch_id: batchId,
+      evidence_status: 'matched',
+      administration_mode: 'online_barcode_scan',
+      recorded_by: receiverUid,
+    });
+    expect(String(supplyConsumptions[0].inventory_allocation_id)).toBe(allocationId);
+    expect(Number(supplyConsumptions[0].quantity)).toBe(1);
     const returnPending = expectState(
       await receiver
         .post(`${wardBase}/${indentId}/returns`, `med03-route-return-${run}`)
@@ -763,7 +824,7 @@ describeIfDb('MED-03 ward medication registered-route journey', () => {
     expect(Number(closureRows[0].reserved_quantity)).toBe(2);
     expect(Number(closureRows[0].issued_quantity)).toBe(2);
     expect(Number(closureRows[0].received_quantity)).toBe(2);
-    expect(Number(closureRows[0].consumed_quantity)).toBe(0);
+    expect(Number(closureRows[0].consumed_quantity)).toBe(1);
     expect(Number(closureRows[0].returned_quantity)).toBe(1);
 
     const movements = await prisma.$queryRawUnsafe(

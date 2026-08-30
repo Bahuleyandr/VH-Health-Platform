@@ -256,11 +256,31 @@ describeIfDb('migration 754 salary-revision tenant reconciliation behavior', () 
           OR tenant_id = app_current_tenant_id_uuid()
         );
       CREATE POLICY tenant_isolation ON salary_arrears
-        USING (tenant_id = app_current_tenant_id_uuid())
-        WITH CHECK (tenant_id = app_current_tenant_id_uuid());
+        USING (
+          current_setting('app.current_tenant_id', true) IS NULL
+          OR current_setting('app.current_tenant_id', true) = ''
+          OR current_setting('app.current_tenant_id', true) = 'bypass'
+          OR tenant_id = app_current_tenant_id_uuid()
+        )
+        WITH CHECK (
+          current_setting('app.current_tenant_id', true) IS NULL
+          OR current_setting('app.current_tenant_id', true) = ''
+          OR current_setting('app.current_tenant_id', true) = 'bypass'
+          OR tenant_id = app_current_tenant_id_uuid()
+        );
       CREATE POLICY tenant_isolation ON annual_review_reminders
-        USING (tenant_id = app_current_tenant_id_uuid())
-        WITH CHECK (tenant_id = app_current_tenant_id_uuid());
+        USING (
+          current_setting('app.current_tenant_id', true) IS NULL
+          OR current_setting('app.current_tenant_id', true) = ''
+          OR current_setting('app.current_tenant_id', true) = 'bypass'
+          OR tenant_id = app_current_tenant_id_uuid()
+        )
+        WITH CHECK (
+          current_setting('app.current_tenant_id', true) IS NULL
+          OR current_setting('app.current_tenant_id', true) = ''
+          OR current_setting('app.current_tenant_id', true) = 'bypass'
+          OR tenant_id = app_current_tenant_id_uuid()
+        );
     `);
     await client.query(
       `INSERT INTO users (uid, tenant_id) VALUES
