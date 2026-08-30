@@ -513,214 +513,236 @@ export const schemas = {
     ]
   },
 
-  PharmacyInventoryWitnessApprovalRequest: {
+  PharmacyInventoryDisposalRequest: {
     type: 'object',
     additionalProperties: false,
-    required: ['inventory_item_id', 'inventory_batch_id', 'quantity'],
+    required: inventoryDisposalRequiredFields,
     properties: {
-      inventory_item_id: { type: 'integer', minimum: 1 },
-      inventory_batch_id: { type: 'integer', minimum: 1 },
-      quantity: { type: 'number', minimum: 0.0001 },
-      patient_uid: { type: 'string', format: 'uuid', nullable: true },
-      patient_name: { type: 'string', nullable: true },
-      patient_phone: { type: 'string', nullable: true },
-      prescription_id: { type: 'integer', minimum: 1, nullable: true },
-      prescription_number: { type: 'string', nullable: true },
-      prescriber_uid: { type: 'string', format: 'uuid', nullable: true },
-      prescriber_name: { type: 'string', nullable: true },
-      prescriber_registration: { type: 'string', nullable: true },
-      patient_id_proof_type: { type: 'string', nullable: true },
-      patient_id_proof_last4: { type: 'string', nullable: true }
-    }
-  },
-
-  PharmacyInventoryWitnessApprovalDecisionRequest: {
-    type: 'object',
-    additionalProperties: false,
-    required: ['dispense'],
-    properties: {
-      dispense: { $ref: '#/components/schemas/PharmacyInventoryWitnessApprovalRequest' },
-      employeeId: {
-        type: 'string',
-        pattern: '^[A-Z0-9-]{3,20}$',
-        description:
-          'Witness employee ID for an in-session password step-up. Supply with password; otherwise the authenticated bearer is the witness.'
-      },
-      password: {
-        type: 'string',
-        format: 'password',
-        minLength: 6,
-        maxLength: 100,
-        writeOnly: true,
-        description:
-          'Witness password for the one-request step-up. Supply with employeeId; it is never returned or persisted.'
-      }
-    },
-    oneOf: [
-      { required: ['employeeId', 'password'] },
-      {
-        not: {
-          anyOf: [{ required: ['employeeId'] }, { required: ['password'] }]
-        }
-      }
-    ]
-  },
-
-  PharmacyInventoryControlledDispenseRequest: {
-    type: 'object',
-    additionalProperties: false,
-    required: ['inventory_item_id', 'inventory_batch_id', 'quantity'],
-    properties: {
-      inventory_item_id: { type: 'integer', minimum: 1 },
-      inventory_batch_id: { type: 'integer', minimum: 1 },
-      quantity: { type: 'number', minimum: 0.0001 },
-      patient_uid: { type: 'string', format: 'uuid', nullable: true },
-      patient_name: { type: 'string', nullable: true },
-      patient_phone: { type: 'string', nullable: true },
-      prescription_id: { type: 'integer', minimum: 1, nullable: true },
-      prescription_number: { type: 'string', nullable: true },
-      prescriber_uid: { type: 'string', format: 'uuid', nullable: true },
-      prescriber_name: { type: 'string', nullable: true },
-      prescriber_registration: { type: 'string', nullable: true },
-      patient_id_proof_type: { type: 'string', nullable: true },
-      patient_id_proof_last4: { type: 'string', nullable: true },
+      ...inventoryDisposalIntentProperties,
       witness_approval_id: {
-        type: 'string',
-        pattern: '^[1-9][0-9]*$',
-        nullable: true,
-        description:
-          'Approved, unexpired one-time approval bound to this exact dispense. Required for Schedule X / narcotic items.'
-      },
-      notes: { type: 'string', nullable: true },
-      reference_id: { type: 'string', nullable: true }
-    }
-  },
-
-  PharmacyInventoryMovementRequest: {
-    type: 'object',
-    additionalProperties: false,
-    required: ['inventory_item_id', 'movement_kind', 'quantity'],
-    properties: {
-      inventory_item_id: { type: 'integer', minimum: 1 },
-      inventory_batch_id: {
-        type: 'integer',
-        minimum: 1,
-        nullable: true,
-        description:
-          'Required for every controlled-stock decrement and validated against the authenticated tenant and item.'
-      },
-      movement_kind: {
-        type: 'string',
-        enum: [
-          'receive',
-          'issue',
-          'transfer_out',
-          'transfer_in',
-          'return',
-          'adjust_increase',
-          'adjust_decrease',
-          'dispose',
-          'expire'
-        ]
-      },
-      quantity: { type: 'number', minimum: 0.0001 },
-      reference_type: { type: 'string', nullable: true },
-      reference_id: { type: 'string', nullable: true },
-      notes: { type: 'string', nullable: true },
-      expected_batch_number: { type: 'string', nullable: true },
-      expected_lot_number: { type: 'string', nullable: true },
-      expected_expiry_date: { type: 'string', format: 'date', nullable: true },
-      witness_approval_id: {
-        type: 'string',
-        pattern: '^[1-9][0-9]*$',
-        nullable: true,
-        description:
-          'Approved, unexpired one-time approval bound to this exact movement. Required for Schedule X / narcotic decrements; witness_uid and witness_name are never accepted.'
+        ...positiveSignedInt64IdSchema(
+          'Approved, unexpired one-time approval bound to this exact disposal.'
+        ),
+        nullable: true
       }
-    }
-  },
-
-  PharmacyInventoryMovementWitnessApprovalRequest: {
-    type: 'object',
-    additionalProperties: false,
-    required: ['inventory_item_id', 'inventory_batch_id', 'movement_kind', 'quantity'],
-    properties: {
-      inventory_item_id: { type: 'integer', minimum: 1 },
-      inventory_batch_id: { type: 'integer', minimum: 1 },
-      movement_kind: {
-        type: 'string',
-        enum: ['transfer_out', 'adjust_decrease', 'dispose', 'expire']
-      },
-      quantity: { type: 'number', minimum: 0.0001 },
-      reference_type: { type: 'string', nullable: true },
-      reference_id: { type: 'string', nullable: true },
-      notes: { type: 'string', nullable: true },
-      expected_batch_number: { type: 'string', nullable: true },
-      expected_lot_number: { type: 'string', nullable: true },
-      expected_expiry_date: { type: 'string', format: 'date', nullable: true }
     },
     description:
-      'Exact prospective Schedule X / narcotic decrement bound to a distinct generic-movement approval scope. Caller-selected witness identity and witness_approval_id are not accepted.'
+      'One typed batch-disposal command. Movement kind, performer, witness identity, and facility authority are server-derived. Schedule X or narcotic stock requires an independently approved one-time witness approval.'
   },
 
-  PharmacyInventoryMovementWitnessApprovalDecisionRequest: {
+  PharmacyInventoryDisposalEvidence: {
     type: 'object',
     additionalProperties: false,
-    required: ['movement'],
+    required: [
+      'contract',
+      'facility_id',
+      'inventory_item_id',
+      'inventory_batch_id',
+      'quantity',
+      'reason_code',
+      'disposition_method',
+      'authority_reference',
+      'source_batch_status',
+      'resulting_batch_status',
+      'movement_id',
+      'schedule_register_id',
+      'witness_approval_id',
+      'performed_by',
+      'facility_grant_id',
+      'witness_uid',
+      'witness_facility_grant_id',
+      'command_key_sha256',
+      'request_sha256',
+      'completed_at'
+    ],
     properties: {
-      movement: {
-        $ref: '#/components/schemas/PharmacyInventoryMovementWitnessApprovalRequest'
-      },
-      employeeId: {
+      contract: { type: 'string', enum: ['pharmacy_inventory_disposal_v1'] },
+      facility_id: positiveInt32,
+      inventory_item_id: positiveInt32,
+      inventory_batch_id: positiveInt32,
+      quantity: inventoryDisposalIntentProperties.quantity,
+      reason_code: inventoryDisposalIntentProperties.reason_code,
+      disposition_method: inventoryDisposalIntentProperties.disposition_method,
+      authority_reference: inventoryDisposalIntentProperties.authority_reference,
+      source_batch_status: {
         type: 'string',
-        pattern: '^[A-Z0-9-]{3,20}$',
-        description:
-          'Witness employee ID for an in-session password step-up. Supply with password; otherwise the authenticated bearer is the witness.'
+        enum: ['in_stock', 'expired', 'recalled', 'quarantined']
       },
-      password: {
+      resulting_batch_status: {
         type: 'string',
-        format: 'password',
-        minLength: 6,
-        maxLength: 100,
-        writeOnly: true,
-        description:
-          'Witness password for the one-request step-up. Supply with employeeId; it is never returned or persisted.'
-      }
-    },
-    oneOf: [
-      { required: ['employeeId', 'password'] },
-      {
-        not: {
-          anyOf: [{ required: ['employeeId'] }, { required: ['password'] }]
-        }
-      }
-    ]
-  },
-
-  PharmacyInventoryMovementResult: {
-    type: 'object',
-    additionalProperties: false,
-    required: ['movement'],
-    properties: {
-      movement: { type: 'object', additionalProperties: true },
-      register_entry: {
-        type: 'object',
-        additionalProperties: true,
-        nullable: true,
-        description: 'Present for controlled-stock custody movements.'
+        enum: ['in_stock', 'expired', 'recalled', 'quarantined', 'disposed']
       },
-      increasing: { type: 'boolean' },
-      decreasing: { type: 'boolean' }
+      movement_id: positiveInt32,
+      schedule_register_id: { ...positiveInt32, nullable: true },
+      witness_approval_id: {
+        ...positiveSignedInt64IdSchema(),
+        nullable: true
+      },
+      performed_by: { type: 'string', format: 'uuid' },
+      facility_grant_id: positiveSignedInt64IdSchema(
+        'Canonical pharmacy facility-grant BIGINT id serialized as decimal text.'
+      ),
+      witness_uid: { type: 'string', format: 'uuid', nullable: true },
+      witness_facility_grant_id: {
+        ...positiveSignedInt64IdSchema(
+          'Canonical witness facility-grant BIGINT id serialized as decimal text.'
+        ),
+        nullable: true
+      },
+      command_key_sha256: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+      request_sha256: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+      completed_at: { type: 'string', format: 'date-time' }
     }
   },
 
-  PharmacyInventoryControlledDispenseResult: {
+  PharmacyInventoryDisposalMovement: {
     type: 'object',
     additionalProperties: false,
-    required: ['register_entry', 'movement'],
+    required: [
+      'id',
+      'facility_id',
+      'inventory_item_id',
+      'inventory_batch_id',
+      'movement_kind',
+      'quantity_delta',
+      'reference_type',
+      'reference_id',
+      'performed_by',
+      'notes',
+      'created_at'
+    ],
     properties: {
-      register_entry: { type: 'object', additionalProperties: true },
-      movement: { type: 'object', additionalProperties: true }
+      id: positiveInt32,
+      facility_id: positiveInt32,
+      inventory_item_id: positiveInt32,
+      inventory_batch_id: positiveInt32,
+      movement_kind: { type: 'string', enum: ['dispose'] },
+      quantity_delta: {
+        type: 'number',
+        minimum: -9999999999.9999,
+        maximum: -0.0001,
+        multipleOf: 0.0001
+      },
+      reference_type: { type: 'string', enum: ['inventory_batch_disposal'] },
+      reference_id: {
+        type: 'string',
+        pattern: '^[1-9][0-9]{0,9}$',
+        minLength: 1,
+        maxLength: 10,
+        'x-maximum': '2147483647'
+      },
+      performed_by: { type: 'string', format: 'uuid' },
+      notes: { type: 'string', minLength: 1 },
+      created_at: { type: 'string', format: 'date-time' }
+    }
+  },
+
+  PharmacyInventoryDisposalRegisterEntry: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'id',
+      'facility_id',
+      'inventory_item_id',
+      'inventory_batch_id',
+      'schedule_class',
+      'movement_kind',
+      'quantity',
+      'unit_label',
+      'running_balance',
+      'patient_uid',
+      'patient_name',
+      'patient_phone',
+      'prescription_id',
+      'prescription_number',
+      'prescriber_uid',
+      'prescriber_name',
+      'prescriber_registration',
+      'patient_id_proof_type',
+      'patient_id_proof_last4',
+      'performed_by',
+      'performed_by_name',
+      'witness_uid',
+      'witness_name',
+      'reference_movement_id',
+      'notes',
+      'created_at'
+    ],
+    properties: {
+      id: positiveInt32,
+      facility_id: positiveInt32,
+      inventory_item_id: positiveInt32,
+      inventory_batch_id: positiveInt32,
+      schedule_class: { type: 'string', enum: ['H', 'H1', 'X'] },
+      movement_kind: { type: 'string', enum: ['dispose'] },
+      quantity: inventoryDisposalIntentProperties.quantity,
+      unit_label: { type: 'string', minLength: 1, maxLength: 40, nullable: true },
+      running_balance: {
+        type: 'number',
+        minimum: 0,
+        maximum: 9999999999.9999,
+        multipleOf: 0.0001
+      },
+      patient_uid: { type: 'string', format: 'uuid', nullable: true },
+      patient_name: { type: 'string', maxLength: 255, nullable: true },
+      patient_phone: { type: 'string', maxLength: 20, nullable: true },
+      prescription_id: { ...positiveInt32, nullable: true },
+      prescription_number: { type: 'string', maxLength: 80, nullable: true },
+      prescriber_uid: { type: 'string', format: 'uuid', nullable: true },
+      prescriber_name: { type: 'string', maxLength: 255, nullable: true },
+      prescriber_registration: { type: 'string', maxLength: 80, nullable: true },
+      patient_id_proof_type: { type: 'string', maxLength: 40, nullable: true },
+      patient_id_proof_last4: { type: 'string', maxLength: 4, nullable: true },
+      performed_by: { type: 'string', format: 'uuid' },
+      performed_by_name: { type: 'string', minLength: 1, maxLength: 255 },
+      witness_uid: { type: 'string', format: 'uuid', nullable: true },
+      witness_name: { type: 'string', maxLength: 255, nullable: true },
+      reference_movement_id: positiveInt32,
+      notes: { type: 'string', minLength: 1 },
+      created_at: { type: 'string', format: 'date-time' }
+    }
+  },
+
+  PharmacyInventoryDisposalResult: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['disposal', 'movement', 'register_entry', 'idempotent_replay'],
+    properties: {
+      disposal: { $ref: '#/components/schemas/PharmacyInventoryDisposalEvidence' },
+      movement: { $ref: '#/components/schemas/PharmacyInventoryDisposalMovement' },
+      register_entry: {
+        allOf: [{ $ref: '#/components/schemas/PharmacyInventoryDisposalRegisterEntry' }],
+        nullable: true,
+        description: 'Present for Schedule H, H1, X, or narcotic stock.'
+      },
+      idempotent_replay: { type: 'boolean' }
+    }
+  },
+
+  PharmacyInventoryGenericMovementRetiredResponse: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['success', 'message', 'code'],
+    properties: {
+      success: { type: 'boolean', enum: [false] },
+      message: { type: 'string' },
+      code: { type: 'string', enum: ['INVENTORY_GENERIC_MOVEMENT_RETIRED'] },
+      requestId: { type: 'string', nullable: true }
+    }
+  },
+
+  PharmacyInventoryStandaloneControlledDispenseRetiredResponse: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['success', 'message', 'code'],
+    properties: {
+      success: { type: 'boolean', enum: [false] },
+      message: { type: 'string' },
+      code: {
+        type: 'string',
+        enum: ['INVENTORY_STANDALONE_CONTROLLED_DISPENSE_RETIRED']
+      },
+      requestId: { type: 'string', nullable: true }
     }
   },
 
@@ -1137,11 +1159,7 @@ export const schemas = {
   PharmacyInventoryDisposalWitnessApprovalResponse: envelope(
     'PharmacyInventoryDisposalWitnessApproval'
   ),
-  PharmacyInventoryWitnessApprovalResponse: envelope('PharmacyCounterSaleWitnessApproval'),
-  PharmacyInventoryControlledDispenseResponse: envelope(
-    'PharmacyInventoryControlledDispenseResult'
-  ),
-  PharmacyInventoryMovementResponse: envelope('PharmacyInventoryMovementResult')
+  PharmacyInventoryDisposalResponse: envelope('PharmacyInventoryDisposalResult')
 };
 
 const counterSaleItemsQueryParameters = [
@@ -1262,11 +1280,11 @@ function ops(prefix) {
       parameters: [idempotencyKeyParameter],
       additionalResponses: witnessErrorResponses({ idempotent: true })
     },
-    [`POST ${prefix}/inventory/v2/controlled-dispense`]: {
+    [`POST ${prefix}/inventory/v2/disposals`]: {
       description:
-        'Atomically decrements one concrete in-stock, non-expired batch with sufficient stock and writes the statutory register entry. Batch safety is always server-enforced and cannot be disabled by the caller. Schedule X / narcotic items require a matching approved one-time witness_approval_id; performed_by is always the authenticated bearer.',
-      request: 'PharmacyInventoryControlledDispenseRequest',
-      response: 'PharmacyInventoryControlledDispenseResponse',
+        'Disposes a positive quantity from one exact batch under fixed server-side disposal semantics. The authenticated operator must be active PHARMACY_STAFF or PHARMACY_INCHARGE and hold an ACTIVE grant for the batch facility; item, catalogue, location, batch, and facility lineage are revalidated under lock. Schedule H/H1/X and narcotic custody is recorded in the statutory register, while Schedule X or narcotic disposal additionally consumes an independently approved one-time witness approval. Equivalent pharmacy and pharmacy-orders aliases share one durable idempotency identity.',
+      request: 'PharmacyInventoryDisposalRequest',
+      response: 'PharmacyInventoryDisposalResponse',
       security: bearerSecurity,
       parameters: [idempotencyKeyParameter],
       additionalResponses: witnessErrorResponses({ idempotent: true })
@@ -1290,34 +1308,55 @@ function ops(prefix) {
       parameters: [idempotencyKeyParameter],
       additionalResponses: witnessErrorResponses({ idempotent: true })
     },
+    [`POST ${prefix}/inventory/v2/controlled-dispense`]: {
+      description:
+        'Retired standalone controlled-dispense tombstone. Controlled dispensing must use the verified pharmacy-order or governed counter-sale workflow.',
+      response: 'PharmacyInventoryStandaloneControlledDispenseRetiredResponse',
+      responseStatus: 410,
+      responseDescription: 'Standalone controlled dispensing is retired.',
+      security: bearerSecurity,
+    },
+    [`POST ${prefix}/inventory/v2/movements`]: {
+      description:
+        'Retired generic inventory-movement tombstone. Use the governed receipt, return, dispense, or disposal workflow.',
+      response: 'PharmacyInventoryGenericMovementRetiredResponse',
+      responseStatus: 410,
+      responseDescription: 'Generic inventory movements are retired.',
+      security: bearerSecurity,
+    },
+    [`POST ${prefix}/inventory/v2/movements/witness-approvals`]: {
+      description:
+        'Retired generic movement-witness tombstone. Witness approval is available only inside a typed inventory workflow.',
+      response: 'PharmacyInventoryGenericMovementRetiredResponse',
+      responseStatus: 410,
+      responseDescription: 'Generic movement witness approvals are retired.',
+      security: bearerSecurity,
+    },
     [`POST ${prefix}/inventory/v2/movements/witness-approvals/{id}/approve`]: {
       description:
-        'A separately authenticated eligible pharmacy, medical, or nursing witness approves the unchanged generic controlled-stock decrement; self-witness, tenant mismatch, expiry, replay, scope mismatch, and payload changes fail closed.',
-      request: 'PharmacyInventoryMovementWitnessApprovalDecisionRequest',
-      response: 'PharmacyInventoryWitnessApprovalResponse',
+        'Retired generic movement-witness approval tombstone. Witness approval is available only inside a typed inventory workflow.',
+      response: 'PharmacyInventoryGenericMovementRetiredResponse',
+      responseStatus: 410,
+      responseDescription: 'Generic movement witness approvals are retired.',
       security: bearerSecurity,
-      pathParameters: { id: approvalIdPathSchema },
-      parameters: [idempotencyKeyParameter],
-      additionalResponses: witnessErrorResponses({ idempotent: true })
+      pathParameters: { id: approvalIdPathSchema }
     },
     [`POST ${prefix}/inventory/v2/controlled-dispense/witness-approvals`]: {
       description:
-        'Dispensing staff creates a short-lived pending witness approval bound to the authenticated dispenser and exact prospective inventory dispense payload.',
-      request: 'PharmacyInventoryWitnessApprovalRequest',
-      response: 'PharmacyInventoryWitnessApprovalResponse',
+        'Retired standalone controlled-dispense witness tombstone. Use the verified pharmacy-order or governed counter-sale witness workflow.',
+      response: 'PharmacyInventoryStandaloneControlledDispenseRetiredResponse',
+      responseStatus: 410,
+      responseDescription: 'Standalone controlled dispensing is retired.',
       security: bearerSecurity,
-      parameters: [idempotencyKeyParameter],
-      additionalResponses: witnessErrorResponses({ idempotent: true })
     },
     [`POST ${prefix}/inventory/v2/controlled-dispense/witness-approvals/{id}/approve`]: {
       description:
-        'A separately authenticated eligible pharmacy, medical, or nursing witness approves the unchanged inventory dispense payload; self-witness, tenant mismatch, expiry, replay, and payload changes fail closed.',
-      request: 'PharmacyInventoryWitnessApprovalDecisionRequest',
-      response: 'PharmacyInventoryWitnessApprovalResponse',
+        'Retired standalone controlled-dispense witness approval tombstone. Use the verified pharmacy-order or governed counter-sale witness workflow.',
+      response: 'PharmacyInventoryStandaloneControlledDispenseRetiredResponse',
+      responseStatus: 410,
+      responseDescription: 'Standalone controlled dispensing is retired.',
       security: bearerSecurity,
-      pathParameters: { id: approvalIdPathSchema },
-      parameters: [idempotencyKeyParameter],
-      additionalResponses: witnessErrorResponses({ idempotent: true })
+      pathParameters: { id: approvalIdPathSchema }
     },
     [`GET ${prefix}/counter-sales`]: {
       description: DESCRIPTIONS.list,

@@ -172,208 +172,257 @@ describe('OpenAPI contract overlays (static gate)', () => {
       .toMatchObject({ readOnly: true });
   });
 
-  it('documents the counter-sale witness approval handshake and final approval id', () => {
+  it('documents counter-sale and typed inventory-disposal witness handshakes', () => {
     const createSchema = spec.components.schemas.PharmacyCounterSaleCreateRequest;
     const counterDecision =
       spec.components.schemas.PharmacyCounterSaleWitnessApprovalDecisionRequest;
-    const inventoryDispense =
-      spec.components.schemas.PharmacyInventoryControlledDispenseRequest;
-    const inventoryMovement =
-      spec.components.schemas.PharmacyInventoryMovementRequest;
-    const movementApprovalRequest =
-      spec.components.schemas.PharmacyInventoryMovementWitnessApprovalRequest;
+    const disposal = spec.components.schemas.PharmacyInventoryDisposalRequest;
+    const disposalRequest =
+      spec.components.schemas.PharmacyInventoryDisposalWitnessApprovalRequest;
+    const disposalDecision =
+      spec.components.schemas.PharmacyInventoryDisposalWitnessApprovalDecisionRequest;
+    const requiredDisposalFields = [
+      'facility_id',
+      'inventory_item_id',
+      'inventory_batch_id',
+      'quantity',
+      'reason_code',
+      'disposition_method',
+    ];
+
     expect(createSchema.properties.witness).toBeUndefined();
-    expect(createSchema.properties.witness_approval_id).toEqual(expect.objectContaining({
-      type: 'string',
-      pattern: '^[1-9][0-9]*$',
-    }));
-    const counterRequest = spec.components.schemas.PharmacyCounterSaleWitnessApprovalRequest;
-    expect(counterRequest.properties.witness_approval_id).toBeUndefined();
-    expect(counterDecision.additionalProperties).toBe(false);
-    expect(counterDecision.oneOf).toEqual([
-      { required: ['employeeId', 'password'] },
-      {
-        not: {
-          anyOf: [
-            { required: ['employeeId'] },
-            { required: ['password'] },
-          ],
-        },
-      },
-    ]);
-    expect(inventoryDispense.required).toEqual([
-      'inventory_item_id', 'inventory_batch_id', 'quantity',
-    ]);
-    expect(inventoryDispense.properties.witness).toBeUndefined();
-    expect(inventoryDispense.properties.witness_approval_id).toEqual(expect.objectContaining({
-      type: 'string',
-      pattern: '^[1-9][0-9]*$',
-    }));
-    expect(inventoryDispense.properties.require_usable_batch).toBeUndefined();
-    expect(inventoryDispense.properties.performed_by_name).toBeUndefined();
-    const inventoryRequest = spec.components.schemas.PharmacyInventoryWitnessApprovalRequest;
-    expect(inventoryRequest.required).toEqual([
-      'inventory_item_id', 'inventory_batch_id', 'quantity',
-    ]);
-    expect(inventoryMovement.properties.witness_uid).toBeUndefined();
-    expect(inventoryMovement.properties.witness_name).toBeUndefined();
-    expect(inventoryMovement.properties.performed_by).toBeUndefined();
-    expect(inventoryMovement.properties.performed_by_name).toBeUndefined();
-    expect(inventoryMovement.properties.require_usable_batch).toBeUndefined();
-    expect(inventoryMovement.properties.witness_approval_id).toMatchObject({
-      type: 'string',
-      pattern: '^[1-9][0-9]*$',
+    expect(createSchema.properties.witness_approval_id).toMatchObject({
+      type: 'string', pattern: '^[1-9][0-9]*$',
     });
-    expect(movementApprovalRequest.required).toEqual([
-      'inventory_item_id', 'inventory_batch_id', 'movement_kind', 'quantity',
-    ]);
-    expect(movementApprovalRequest.properties.movement_kind.enum).toEqual([
-      'transfer_out', 'adjust_decrease', 'dispose', 'expire',
-    ]);
-    expect(movementApprovalRequest.properties.witness_uid).toBeUndefined();
-    expect(movementApprovalRequest.properties.witness_name).toBeUndefined();
+    expect(counterDecision.additionalProperties).toBe(false);
+    expect(disposal.required).toEqual(requiredDisposalFields);
+    expect(disposalRequest.required).toEqual(requiredDisposalFields);
+    for (const quantity of [
+      disposal.properties.quantity,
+      disposalRequest.properties.quantity,
+      spec.components.schemas.PharmacyInventoryDisposalEvidence.properties.quantity,
+    ]) {
+      expect(quantity).toMatchObject({
+        type: 'number',
+        minimum: 0.0001,
+        maximum: 9999999999.9999,
+        multipleOf: 0.0001,
+      });
+    }
+    expect(disposal.properties.witness_approval_id).toMatchObject({
+      type: 'string', pattern: '^[1-9][0-9]{0,18}$',
+    });
+    expect(disposalRequest.properties.witness_approval_id).toBeUndefined();
+    for (const forbidden of [
+      'movement_kind',
+      'performed_by',
+      'performed_by_name',
+      'witness_uid',
+      'witness_name',
+      'facility_authority',
+    ]) {
+      expect(disposal.properties[forbidden]).toBeUndefined();
+      expect(disposalRequest.properties[forbidden]).toBeUndefined();
+    }
+    expect(disposalDecision.additionalProperties).toBe(false);
+    expect(disposalDecision.properties.password).toMatchObject({
+      format: 'password', writeOnly: true,
+    });
+    expect(disposalDecision.oneOf).toEqual(counterDecision.oneOf);
+    expect(spec.components.schemas.PharmacyInventoryDisposalEvidence.properties.contract)
+      .toEqual({ type: 'string', enum: ['pharmacy_inventory_disposal_v1'] });
+    const disposalEvidence = spec.components.schemas.PharmacyInventoryDisposalEvidence;
+    expect(disposalEvidence.required).toContain('facility_grant_id');
+    expect(disposalEvidence.properties.facility_grant_id).toMatchObject({
+      type: 'string',
+      pattern: '^[1-9][0-9]{0,18}$',
+      minLength: 1,
+      maxLength: 19,
+      'x-maximum': '9223372036854775807',
+    });
+
+    const bearerSecurity = [{ ApiKeyAuth: [], BearerAuth: [] }];
+    const idempotencyHeader = expect.objectContaining({
+      name: 'Idempotency-Key', in: 'header', required: true,
+    });
+    const approvalId = expect.objectContaining({
+      name: 'id',
+      in: 'path',
+      required: true,
+      schema: expect.objectContaining({
+        type: 'string',
+        pattern: '^[1-9][0-9]{0,18}$',
+        minLength: 1,
+        maxLength: 19,
+        'x-maximum': '9223372036854775807',
+      }),
+    });
 
     for (const prefix of ['/api/v1/pharmacy-orders', '/api/v1/pharmacy']) {
-      const bearerSecurity = [{ ApiKeyAuth: [], BearerAuth: [] }];
       const finalSale = spec.paths[`${prefix}/counter-sales`]?.post;
-      const requestApproval = spec.paths[`${prefix}/counter-sales/witness-approvals`]?.post;
-      const approve = spec.paths[`${prefix}/counter-sales/witness-approvals/{id}/approve`]?.post;
-      const finalDispense = spec.paths[`${prefix}/inventory/v2/controlled-dispense`]?.post;
-      const finalMovement = spec.paths[`${prefix}/inventory/v2/movements`]?.post;
-      expect(finalSale?.security).toEqual(bearerSecurity);
-      expect(requestApproval?.requestBody?.content?.['application/json']?.schema).toEqual({
+      const saleRequest = spec.paths[`${prefix}/counter-sales/witness-approvals`]?.post;
+      const saleApprove =
+        spec.paths[`${prefix}/counter-sales/witness-approvals/{id}/approve`]?.post;
+      const finalDisposal = spec.paths[`${prefix}/inventory/v2/disposals`]?.post;
+      const disposalWitnessRequest =
+        spec.paths[`${prefix}/inventory/v2/disposals/witness-approvals`]?.post;
+      const disposalWitnessApprove =
+        spec.paths[`${prefix}/inventory/v2/disposals/witness-approvals/{id}/approve`]?.post;
+
+      expect(saleRequest?.requestBody?.content?.['application/json']?.schema).toEqual({
         $ref: '#/components/schemas/PharmacyCounterSaleWitnessApprovalRequest',
       });
-      expect(approve?.requestBody?.content?.['application/json']?.schema).toEqual({
+      expect(saleApprove?.requestBody?.content?.['application/json']?.schema).toEqual({
         $ref: '#/components/schemas/PharmacyCounterSaleWitnessApprovalDecisionRequest',
       });
-      expect(approve?.parameters).toEqual(expect.arrayContaining([
-        expect.objectContaining({
-          name: 'id',
-          in: 'path',
-          required: true,
-          schema: expect.objectContaining({
-            type: 'string',
-            pattern: '^[1-9][0-9]{0,18}$',
-            minLength: 1,
-            maxLength: 19,
-            'x-maximum': '9223372036854775807',
-          }),
-        }),
-      ]));
-      expect(finalDispense?.security).toEqual(bearerSecurity);
-      expect(finalDispense?.requestBody?.content?.['application/json']?.schema).toEqual({
-        $ref: '#/components/schemas/PharmacyInventoryControlledDispenseRequest',
+      expect(finalDisposal?.requestBody?.content?.['application/json']?.schema).toEqual({
+        $ref: '#/components/schemas/PharmacyInventoryDisposalRequest',
       });
-      expect(finalDispense?.responses?.['200']?.content?.['application/json']?.schema).toEqual({
-        $ref: '#/components/schemas/PharmacyInventoryControlledDispenseResponse',
+      expect(finalDisposal?.responses?.['200']?.content?.['application/json']?.schema).toEqual({
+        $ref: '#/components/schemas/PharmacyInventoryDisposalResponse',
       });
-      const inventoryRequest = spec.paths[
-        `${prefix}/inventory/v2/controlled-dispense/witness-approvals`
-      ]?.post;
-      const inventoryApprove = spec.paths[
-        `${prefix}/inventory/v2/controlled-dispense/witness-approvals/{id}/approve`
-      ]?.post;
-      const movementRequest = spec.paths[
-        `${prefix}/inventory/v2/movements/witness-approvals`
-      ]?.post;
-      const movementApprove = spec.paths[
-        `${prefix}/inventory/v2/movements/witness-approvals/{id}/approve`
-      ]?.post;
-      expect(inventoryRequest?.requestBody?.content?.['application/json']?.schema).toEqual({
-        $ref: '#/components/schemas/PharmacyInventoryWitnessApprovalRequest',
+      expect(disposalWitnessRequest?.requestBody?.content?.['application/json']?.schema).toEqual({
+        $ref: '#/components/schemas/PharmacyInventoryDisposalWitnessApprovalRequest',
       });
-      expect(inventoryApprove?.requestBody?.content?.['application/json']?.schema).toEqual({
-        $ref: '#/components/schemas/PharmacyInventoryWitnessApprovalDecisionRequest',
+      expect(disposalWitnessApprove?.requestBody?.content?.['application/json']?.schema).toEqual({
+        $ref: '#/components/schemas/PharmacyInventoryDisposalWitnessApprovalDecisionRequest',
       });
-      expect(inventoryApprove?.parameters).toEqual(expect.arrayContaining([
-        expect.objectContaining({
-          name: 'id',
-          in: 'path',
-          required: true,
-          schema: expect.objectContaining({
-            type: 'string',
-            pattern: '^[1-9][0-9]{0,18}$',
-            minLength: 1,
-            maxLength: 19,
-            'x-maximum': '9223372036854775807',
-          }),
-        }),
-      ]));
-      expect(finalMovement?.requestBody?.content?.['application/json']?.schema).toEqual({
-        $ref: '#/components/schemas/PharmacyInventoryMovementRequest',
-      });
-      expect(movementRequest?.requestBody?.content?.['application/json']?.schema).toEqual({
-        $ref: '#/components/schemas/PharmacyInventoryMovementWitnessApprovalRequest',
-      });
-      expect(movementApprove?.requestBody?.content?.['application/json']?.schema).toEqual({
-        $ref: '#/components/schemas/PharmacyInventoryMovementWitnessApprovalDecisionRequest',
-      });
-      expect(movementApprove?.parameters).toEqual(expect.arrayContaining([
-        expect.objectContaining({
-          name: 'id',
-          in: 'path',
-          required: true,
-          schema: expect.objectContaining({
-            type: 'string',
-            pattern: '^[1-9][0-9]{0,18}$',
-            minLength: 1,
-            maxLength: 19,
-            'x-maximum': '9223372036854775807',
-          }),
-        }),
-      ]));
+      expect(saleApprove?.parameters).toEqual(expect.arrayContaining([approvalId]));
+      expect(disposalWitnessApprove?.parameters).toEqual(expect.arrayContaining([approvalId]));
+
       for (const operation of [
         finalSale,
-        requestApproval,
-        approve,
-        finalDispense,
-        inventoryRequest,
-        inventoryApprove,
-        finalMovement,
-        movementRequest,
-        movementApprove,
+        saleRequest,
+        saleApprove,
+        finalDisposal,
+        disposalWitnessRequest,
+        disposalWitnessApprove,
       ]) {
         expect(operation?.security).toEqual(bearerSecurity);
-        for (const status of ['400', '401', '403', '404', '409', '429', '500']) {
+        expect(operation?.parameters).toEqual(expect.arrayContaining([idempotencyHeader]));
+        for (const status of ['400', '401', '403', '404', '409', '429', '500', '422', '503']) {
           expect(operation?.responses?.[status]?.content?.['application/json']?.schema).toEqual({
             $ref: '#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse',
           });
         }
       }
-      for (const operation of [
-        finalSale,
-        requestApproval,
-        approve,
-        finalDispense,
-        inventoryRequest,
-        inventoryApprove,
-        finalMovement,
-        movementRequest,
-        movementApprove,
-      ]) {
-        expect(operation?.parameters).toEqual(expect.arrayContaining([
-          expect.objectContaining({
-            name: 'Idempotency-Key',
-            in: 'header',
-            required: true,
-          }),
-        ]));
-        for (const status of ['422', '503']) {
-          expect(operation?.responses?.[status]?.content?.['application/json']?.schema).toEqual({
-            $ref: '#/components/schemas/PharmacyControlledDispenseWitnessErrorResponse',
-          });
-        }
-      }
-      for (const operation of [
-        inventoryRequest,
-        inventoryApprove,
-        movementRequest,
-        movementApprove,
-      ]) {
+      for (const operation of [disposalWitnessRequest, disposalWitnessApprove]) {
         expect(operation?.responses?.['200']?.content?.['application/json']?.schema).toEqual({
-          $ref: '#/components/schemas/PharmacyInventoryWitnessApprovalResponse',
+          $ref: '#/components/schemas/PharmacyInventoryDisposalWitnessApprovalResponse',
         });
+      }
+    }
+  });
+
+  it('publishes exact tombstones for retired generic inventory mutations', () => {
+    const bearerSecurity = [{ ApiKeyAuth: [], BearerAuth: [] }];
+    const approvalIdSchema = {
+      type: 'string',
+      pattern: '^[1-9][0-9]{0,18}$',
+      minLength: 1,
+      maxLength: 19,
+      'x-maximum': '9223372036854775807',
+      description: 'Canonical positive signed 64-bit decimal string (1..9223372036854775807).',
+    };
+    const genericResponseRef =
+      '#/components/schemas/PharmacyInventoryGenericMovementRetiredResponse';
+    const controlledResponseRef =
+      '#/components/schemas/PharmacyInventoryStandaloneControlledDispenseRetiredResponse';
+    const tombstones = [
+      ['inventory/v2/movements', genericResponseRef, false],
+      ['inventory/v2/movements/witness-approvals', genericResponseRef, false],
+      ['inventory/v2/movements/witness-approvals/{id}/approve', genericResponseRef, true],
+      ['inventory/v2/controlled-dispense', controlledResponseRef, false],
+      ['inventory/v2/controlled-dispense/witness-approvals', controlledResponseRef, false],
+      [
+        'inventory/v2/controlled-dispense/witness-approvals/{id}/approve',
+        controlledResponseRef,
+        true,
+      ],
+    ];
+    const orphanComponents = [
+      'PharmacyInventoryWitnessApprovalRequest',
+      'PharmacyInventoryWitnessApprovalDecisionRequest',
+      'PharmacyInventoryControlledDispenseRequest',
+      'PharmacyInventoryMovementRequest',
+      'PharmacyInventoryMovementWitnessApprovalRequest',
+      'PharmacyInventoryMovementWitnessApprovalDecisionRequest',
+      'PharmacyInventoryMovementResult',
+      'PharmacyInventoryControlledDispenseResult',
+      'PharmacyInventoryWitnessApprovalResponse',
+      'PharmacyInventoryControlledDispenseResponse',
+      'PharmacyInventoryMovementResponse',
+    ];
+
+    const tombstoneSchemas = [
+      [
+        'PharmacyInventoryGenericMovementRetiredResponse',
+        'INVENTORY_GENERIC_MOVEMENT_RETIRED',
+      ],
+      [
+        'PharmacyInventoryStandaloneControlledDispenseRetiredResponse',
+        'INVENTORY_STANDALONE_CONTROLLED_DISPENSE_RETIRED',
+      ],
+    ];
+    for (const [component, code] of tombstoneSchemas) {
+      const expectedSchema = {
+        type: 'object',
+        additionalProperties: false,
+        required: ['success', 'message', 'code'],
+        properties: {
+          success: { type: 'boolean', enum: [false] },
+          message: { type: 'string' },
+          code: { type: 'string', enum: [code] },
+          requestId: { type: 'string', nullable: true },
+        },
+      };
+      for (const schema of [
+        pharmacyCounterSale.schemas[component],
+        spec.components.schemas[component],
+      ]) {
+        expect(schema).toEqual(expectedSchema);
+      }
+    }
+    for (const component of orphanComponents) {
+      expect(pharmacyCounterSale.schemas[component]).toBeUndefined();
+      expect(spec.components.schemas[component]).toBeUndefined();
+    }
+
+    for (const prefix of ['/api/v1/pharmacy', '/api/v1/pharmacy-orders']) {
+      for (const [suffix, responseRef, hasApprovalId] of tombstones) {
+        const path = `${prefix}/${suffix}`;
+        const sourceOperation = pharmacyCounterSale.operations[`POST ${path}`];
+        const generatedOperation = spec.paths[path]?.post;
+
+        expect(sourceOperation.response).toBe(responseRef.split('/').at(-1));
+        expect(sourceOperation.responseStatus).toBe(410);
+        expect(sourceOperation.security).toEqual(bearerSecurity);
+        expect(sourceOperation.request).toBeUndefined();
+        expect(sourceOperation.requestBody).toBeUndefined();
+        expect(sourceOperation.parameters).toBeUndefined();
+        expect(sourceOperation.additionalResponses).toBeUndefined();
+        if (hasApprovalId) {
+          expect(sourceOperation.pathParameters).toEqual({ id: approvalIdSchema });
+        } else {
+          expect(sourceOperation.pathParameters).toBeUndefined();
+        }
+
+        expect(generatedOperation?.security).toEqual(bearerSecurity);
+        expect(generatedOperation?.requestBody).toBeUndefined();
+        expect(Object.keys(generatedOperation?.responses || {})).toEqual(['410']);
+        expect(generatedOperation?.responses?.['200']).toBeUndefined();
+        expect(generatedOperation?.responses?.['410']?.content?.['application/json']?.schema)
+          .toEqual({ $ref: responseRef });
+        if (hasApprovalId) {
+          expect(generatedOperation?.parameters).toEqual([{
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: approvalIdSchema,
+          }]);
+        } else {
+          expect(generatedOperation?.parameters).toBeUndefined();
+        }
       }
     }
   });
@@ -667,6 +716,199 @@ describe('OpenAPI contract overlays (static gate)', () => {
       }
       expect(clinicalApprove.description).toMatch(/pharmacy, medical, or nursing witness/);
       expect(clinicalApprove.response).toBe('PharmacyCounterSaleWitnessApprovalResponse');
+    }
+  });
+
+  it('publishes exact typed inventory-disposal execution receipts', () => {
+    const expectExactSchema = (schema, keys, nullableKeys) => {
+      expect(schema.additionalProperties).toBe(false);
+      expect(Object.keys(schema.properties).sort()).toEqual([...keys].sort());
+      expect([...schema.required].sort()).toEqual([...keys].sort());
+      expect(Object.entries(schema.properties)
+        .filter(([, property]) => property.nullable === true)
+        .map(([key]) => key)
+        .sort()).toEqual([...nullableKeys].sort());
+    };
+    const evidenceKeys = [
+      'contract',
+      'facility_id',
+      'inventory_item_id',
+      'inventory_batch_id',
+      'quantity',
+      'reason_code',
+      'disposition_method',
+      'authority_reference',
+      'source_batch_status',
+      'resulting_batch_status',
+      'movement_id',
+      'schedule_register_id',
+      'witness_approval_id',
+      'performed_by',
+      'facility_grant_id',
+      'witness_uid',
+      'witness_facility_grant_id',
+      'command_key_sha256',
+      'request_sha256',
+      'completed_at',
+    ];
+    const movementKeys = [
+      'id',
+      'facility_id',
+      'inventory_item_id',
+      'inventory_batch_id',
+      'movement_kind',
+      'quantity_delta',
+      'reference_type',
+      'reference_id',
+      'performed_by',
+      'notes',
+      'created_at',
+    ];
+    const registerKeys = [
+      'id',
+      'facility_id',
+      'inventory_item_id',
+      'inventory_batch_id',
+      'schedule_class',
+      'movement_kind',
+      'quantity',
+      'unit_label',
+      'running_balance',
+      'patient_uid',
+      'patient_name',
+      'patient_phone',
+      'prescription_id',
+      'prescription_number',
+      'prescriber_uid',
+      'prescriber_name',
+      'prescriber_registration',
+      'patient_id_proof_type',
+      'patient_id_proof_last4',
+      'performed_by',
+      'performed_by_name',
+      'witness_uid',
+      'witness_name',
+      'reference_movement_id',
+      'notes',
+      'created_at',
+    ];
+
+    const evidence = pharmacyCounterSale.schemas.PharmacyInventoryDisposalEvidence;
+    const movement = pharmacyCounterSale.schemas.PharmacyInventoryDisposalMovement;
+    const register = pharmacyCounterSale.schemas.PharmacyInventoryDisposalRegisterEntry;
+    expectExactSchema(evidence, evidenceKeys, [
+      'authority_reference',
+      'schedule_register_id',
+      'witness_approval_id',
+      'witness_uid',
+      'witness_facility_grant_id',
+    ]);
+    expectExactSchema(movement, movementKeys, []);
+    expectExactSchema(register, registerKeys, [
+      'unit_label',
+      'patient_uid',
+      'patient_name',
+      'patient_phone',
+      'prescription_id',
+      'prescription_number',
+      'prescriber_uid',
+      'prescriber_name',
+      'prescriber_registration',
+      'patient_id_proof_type',
+      'patient_id_proof_last4',
+      'witness_uid',
+      'witness_name',
+    ]);
+
+    const int32IdSchemas = [
+      [pharmacyCounterSale.schemas.PharmacyInventoryDisposalRequest, [
+        'facility_id', 'inventory_item_id', 'inventory_batch_id',
+      ]],
+      [evidence, [
+        'facility_id', 'inventory_item_id', 'inventory_batch_id',
+        'movement_id', 'schedule_register_id',
+      ]],
+      [movement, ['id', 'facility_id', 'inventory_item_id', 'inventory_batch_id']],
+      [register, [
+        'id', 'facility_id', 'inventory_item_id', 'inventory_batch_id',
+        'prescription_id', 'reference_movement_id',
+      ]],
+    ];
+    for (const [schema, propertyNames] of int32IdSchemas) {
+      for (const propertyName of propertyNames) {
+        expect(schema.properties[propertyName]).toMatchObject({
+          type: 'integer',
+          minimum: 1,
+          maximum: 2147483647,
+        });
+      }
+    }
+
+    expect(evidence.properties.quantity).toMatchObject({
+      minimum: 0.0001,
+      maximum: 9999999999.9999,
+      multipleOf: 0.0001,
+    });
+    expect(evidence.properties.reason_code).toMatchObject({ minLength: 1, maxLength: 80 });
+    expect(evidence.properties.disposition_method).toMatchObject({
+      minLength: 1, maxLength: 80,
+    });
+    expect(evidence.properties.authority_reference).toMatchObject({
+      minLength: 1, maxLength: 255, nullable: true,
+    });
+    expect(evidence.properties.resulting_batch_status.enum).toEqual([
+      'in_stock', 'expired', 'recalled', 'quarantined', 'disposed',
+    ]);
+    expect(evidence.properties.witness_facility_grant_id).toMatchObject({
+      type: 'string',
+      pattern: '^[1-9][0-9]{0,18}$',
+      minLength: 1,
+      maxLength: 19,
+      'x-maximum': '9223372036854775807',
+      nullable: true,
+    });
+    expect(movement.properties.movement_kind.enum).toEqual(['dispose']);
+    expect(movement.properties.reference_type).toEqual({
+      type: 'string', enum: ['inventory_batch_disposal'],
+    });
+    expect(movement.properties.reference_id).toMatchObject({
+      type: 'string',
+      pattern: '^[1-9][0-9]{0,9}$',
+      minLength: 1,
+      maxLength: 10,
+      'x-maximum': '2147483647',
+    });
+    expect(register.properties.schedule_class.enum).toEqual(['H', 'H1', 'X']);
+    expect(register.properties.movement_kind.enum).toEqual(['dispose']);
+
+    const result = pharmacyCounterSale.schemas.PharmacyInventoryDisposalResult;
+    expectExactSchema(result, [
+      'disposal', 'movement', 'register_entry', 'idempotent_replay',
+    ], ['register_entry']);
+    expect(result.properties.disposal).toEqual({
+      $ref: '#/components/schemas/PharmacyInventoryDisposalEvidence',
+    });
+    expect(result.properties.movement).toEqual({
+      $ref: '#/components/schemas/PharmacyInventoryDisposalMovement',
+    });
+    expect(result.properties.register_entry).toMatchObject({
+      allOf: [{ $ref: '#/components/schemas/PharmacyInventoryDisposalRegisterEntry' }],
+      nullable: true,
+    });
+    expect(pharmacyCounterSale.schemas.PharmacyInventoryDisposalResponse.properties.data)
+      .toEqual({ $ref: '#/components/schemas/PharmacyInventoryDisposalResult' });
+
+    for (const prefix of ['/api/v1/pharmacy', '/api/v1/pharmacy-orders']) {
+      const path = `${prefix}/inventory/v2/disposals`;
+      expect(pharmacyCounterSale.operations[`POST ${path}`]).toMatchObject({
+        request: 'PharmacyInventoryDisposalRequest',
+        response: 'PharmacyInventoryDisposalResponse',
+      });
+      expect(spec.paths[path]?.post?.requestBody?.content?.['application/json']?.schema).toEqual({
+        $ref: '#/components/schemas/PharmacyInventoryDisposalRequest',
+      });
+      expect(spec.paths[path]?.post?.responses?.['200']?.content?.['application/json']?.schema)
+        .toEqual({ $ref: '#/components/schemas/PharmacyInventoryDisposalResponse' });
     }
   });
 
