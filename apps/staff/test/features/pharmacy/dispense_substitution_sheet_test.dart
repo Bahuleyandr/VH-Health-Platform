@@ -183,9 +183,12 @@ void main() {
       // Ambiguous timeout and 5xx retries retain the exact command key. A
       // correctable 4xx rotates it before the subsequent retry.
       for (var retry = 0; retry < 3; retry++) {
-        await tester.tap(
-          find.widgetWithText(FilledButton, 'Dispense substitute'),
-        );
+        // Every failure adds an error line - and the 409 adds a recovery
+        // summary on top - which pushes the action out of the clipped sheet,
+        // so an un-scrolled tap would silently miss and lose that retry.
+        await tester.ensureVisible(dispenseBtn);
+        await tester.pumpAndSettle();
+        await tester.tap(dispenseBtn);
         await tester.pumpAndSettle();
         if (retry == 1) {
           expect(find.textContaining('Funding task TPA-7'), findsOneWidget);
@@ -555,6 +558,7 @@ void main() {
 
       final dispense = find.widgetWithText(FilledButton, 'Dispense substitute');
       await tester.ensureVisible(dispense);
+      await tester.pumpAndSettle();
       await tester.tap(dispense);
       await tester.pumpAndSettle();
       expect(find.textContaining('Funding task'), findsNothing);
@@ -563,6 +567,10 @@ void main() {
         findsNothing,
       );
 
+      // The unmaterialized-authority error line grew the sheet past its
+      // clipped height; scroll the action back before the second attempt.
+      await tester.ensureVisible(dispense);
+      await tester.pumpAndSettle();
       await tester.tap(dispense);
       await tester.pumpAndSettle();
       expect(find.textContaining('Funding task 82'), findsOneWidget);

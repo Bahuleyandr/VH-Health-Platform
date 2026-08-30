@@ -590,23 +590,32 @@ void main() {
     });
   });
 
+  // Stock is bound when the supply side APPLIES an already-approved
+  // substitution: substitutions/approve is the prescriber's decision and
+  // carries no inventory, while substitutions/apply is the supply-role write
+  // that resolves the proposed catalog. Driving the prescriber's action here
+  // would assert a doctor picking pharmacy inventory, which both the role
+  // policy and the backend route refuse.
   testWidgets(
-    'substitution approval accepts global stock for a facility indent',
+    'applying an approved substitution accepts global stock for a facility '
+    'indent',
     (tester) async {
-      final pending = _indent(
+      final approved = _indent(
         id: 73,
         number: 'WARD-73',
         status: 'substitution_pending',
-        ownerRoles: const ['DOCTOR'],
-        substitutionStatus: 'pending',
+        ownerRoles: const ['PHARMACY_STAFF'],
+        substitutionStatus: 'approved',
         proposedName: 'Composition-safe alternate',
         proposedCatalogId: 102,
         proposedQuantity: 2,
         facilityId: 8,
       );
       final gateway = _FakeWardIndentGateway(
-        listRows: [pending],
-        initialDetail: pending,
+        listRows: [approved],
+        initialDetail: approved,
+        // No facility_id on the candidate: unscoped central stock, which a
+        // facility-bound indent must still be allowed to consume.
         inventoryItems: const [
           WardIndentInventoryItem(
             id: 992,
@@ -621,11 +630,11 @@ void main() {
       await _pumpWorkbench(
         tester,
         gateway: gateway,
-        rawRole: 'DOCTOR',
+        rawRole: 'PHARMACY_STAFF',
         initialIndentId: 73,
       );
       final action = find.byKey(
-        const Key('ward-indent-action-approveSubstitution'),
+        const Key('ward-indent-action-applyApprovedSubstitution'),
       );
       await tester.ensureVisible(action);
       await tester.tap(action);
@@ -634,7 +643,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(gateway.lastInventoryCatalogId, 102);
-      expect(gateway.lastAction, WardIndentAction.approveSubstitution);
+      expect(gateway.lastAction, WardIndentAction.applyApprovedSubstitution);
       expect(gateway.lastPayload, {
         'inventory_selections': [
           {'item_id': 701, 'inventory_item_id': 992},

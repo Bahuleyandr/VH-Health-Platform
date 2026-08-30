@@ -26,7 +26,14 @@ Map<String, dynamic> _item({
   };
 }
 
+/// One granted facility is not a choice: the screen binds it on load, so the
+/// default harness needs no facility interaction at all.
+Future<List<Map<String, dynamic>>> _oneGrant() async => [
+  {'facility_id': 8, 'display_name': 'VH Main', 'facility_code': 'VH-MAIN'},
+];
+
 Widget _screen({
+  CounterSaleFacilityLister? listFacilities,
   CounterSaleItemSearcher? searchItems,
   CounterSaleCreator? createSale,
   CounterSaleWitnessApprovalRequester? requestWitnessApproval,
@@ -41,6 +48,7 @@ Widget _screen({
 }) {
   return MaterialApp(
     home: CounterSaleScreen(
+      listFacilities: listFacilities ?? _oneGrant,
       searchItems:
           searchItems ??
           ({required int facilityId, String? search}) async => [_item()],
@@ -93,11 +101,22 @@ void _useTallViewport(WidgetTester tester) {
   addTearDown(tester.view.reset);
 }
 
-Future<void> _addFirstResult(WidgetTester tester) async {
-  await tester.enterText(
-    find.byKey(const ValueKey('counter-sale-facility-id')),
-    '8',
+/// The facility is a dropdown over server-proved grants, so it cannot be typed.
+/// `DropdownButtonFormField` no longer exposes its items; its inner
+/// `DropdownButton` routes onChanged back through the field, so drive that.
+Future<void> _pickGrantedFacility(WidgetTester tester, int facilityId) async {
+  final dropdown = tester.widget<DropdownButton<int>>(
+    find.descendant(
+      of: find.byKey(const ValueKey('counter-sale-facility-id')),
+      matching: find.byType(DropdownButton<int>),
+    ),
   );
+  dropdown.onChanged!(facilityId);
+  await tester.pumpAndSettle();
+}
+
+Future<void> _addFirstResult(WidgetTester tester) async {
+  // Facility 8 is the sole grant `_oneGrant` returns, so it is already bound.
   await tester.enterText(
     find.byKey(const ValueKey('counter-sale-search')),
     'para',
@@ -168,10 +187,6 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(
-      find.byKey(const ValueKey('counter-sale-facility-id')),
-      '8',
-    );
-    await tester.enterText(
       find.byKey(const ValueKey('counter-sale-search')),
       'para',
     );
@@ -193,6 +208,20 @@ void main() {
     int? searchedFacilityId;
     await tester.pumpWidget(
       _screen(
+        // Two grants: with a choice to make, nothing is bound on load, so the
+        // unselected state this test asserts is reachable.
+        listFacilities: () async => [
+          {
+            'facility_id': 8,
+            'display_name': 'VH Main',
+            'facility_code': 'VH-MAIN',
+          },
+          {
+            'facility_id': 9,
+            'display_name': 'VH Annexe',
+            'facility_code': 'VH-ANNEXE',
+          },
+        ],
         searchItems: ({required int facilityId, String? search}) async {
           calls += 1;
           searchedFacilityId = facilityId;
@@ -216,10 +245,7 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.enterText(
-      find.byKey(const ValueKey('counter-sale-facility-id')),
-      '8',
-    );
+    await _pickGrantedFacility(tester, 8);
     await tester.enterText(
       find.byKey(const ValueKey('counter-sale-search')),
       'para',

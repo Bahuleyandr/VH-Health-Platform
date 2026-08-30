@@ -627,7 +627,15 @@ void main() {
         }),
       );
 
+      // One caller-visible command attempt is more than one request on the
+      // wire: VHHttpClient retries a 5xx twice before surfacing it. Snapshot
+      // per attempt so the identity assertions compare the two *commands*
+      // rather than the transport's own retries.
+      final commandKeys = <String?>[];
+      final commandBodies = <String>[];
       for (var retry = 0; retry < 2; retry++) {
+        keys.clear();
+        bodies.clear();
         await expectLater(
           PharmacyApiService.completePharmacyDelivery(
             94,
@@ -635,11 +643,19 @@ void main() {
           ),
           throwsA(isA<PharmacyApiException>()),
         );
+        // A transport retry must never rotate the key or edit the payload.
+        expect(keys.toSet(), hasLength(1));
+        expect(bodies.toSet(), hasLength(1));
+        commandKeys.add(keys.first);
+        commandBodies.add(bodies.first);
       }
 
-      expect(keys, hasLength(2));
-      expect(keys.first, keys.last);
-      expect(bodies.first, bodies.last);
+      expect(commandKeys, hasLength(2));
+      // Reuse only means something if a key was sent at all: two absent
+      // headers would satisfy the equality below without any identity.
+      expect(commandKeys.first, isNotNull);
+      expect(commandKeys.first, commandKeys.last);
+      expect(commandBodies.first, commandBodies.last);
     },
   );
 

@@ -9879,6 +9879,7 @@ class AppStrings {
       'med03.pharmacy.recovery.open_exact_pharmacy_funding_task':
           "Open the existing exact funding task; do not attest payment here.",
       'med03.pharmacy.cancellation_reason_help': "Required: 3 to 500 characters. This reason is retained with the order history.",
+      'med03.pharmacy.delivery_assignee_required': "No eligible delivery assignee is available for this order. A facility administrator must assign delivery duty before dispatch.",
       'med03.pharmacy.delivery_type_counter': "Counter dispense",
       'med03.pharmacy.status_dispensed': "Dispensed",
       'med03.pharmacy.inventory_status.active': "Active",
@@ -18985,6 +18986,7 @@ class AppStrings {
           'मौजूदा सटीक फंडिंग कार्य खोलें; यहाँ भुगतान की स्वयं पुष्टि न करें।',
       'med03.pharmacy.cancellation_reason_help':
           'आवश्यक: 3 से 500 अक्षर। यह कारण ऑर्डर इतिहास में सुरक्षित रहेगा।',
+      'med03.pharmacy.delivery_assignee_required': 'इस ऑर्डर के लिए कोई योग्य डिलीवरी कर्मचारी उपलब्ध नहीं है। भेजने से पहले सुविधा प्रशासक को डिलीवरी ड्यूटी सौंपनी होगी।',
       'med03.pharmacy.delivery_type_counter': 'काउंटर वितरण',
       'med03.pharmacy.status_dispensed': 'वितरित',
       'med03.pharmacy.inventory_status.active': 'सक्रिय',
@@ -27731,6 +27733,7 @@ class AppStrings {
       'med03.pharmacy.recovery.materialize_pharmacy_funding': 'பூட்டப்பட்ட ஆர்டர் மற்றும் விலைப்பட்டியல் அதிகாரத்திலிருந்து துல்லிய நிதிப் பணியை உருவாக்கவும்.',
       'med03.pharmacy.recovery.open_exact_pharmacy_funding_task': 'ஏற்கனவே உள்ள துல்லிய நிதிப் பணியைத் திறக்கவும்; இங்கே கட்டணத்தைச் சுயமாக உறுதிப்படுத்த வேண்டாம்.',
       'med03.pharmacy.cancellation_reason_help': 'தேவை: 3 முதல் 500 எழுத்துகள். இந்தக் காரணம் ஆர்டர் வரலாற்றில் சேமிக்கப்படும்.',
+      'med03.pharmacy.delivery_assignee_required': 'இந்த ஆர்டருக்குத் தகுதியான விநியோகப் பணியாளர் யாரும் இல்லை. அனுப்புவதற்கு முன் வசதி நிர்வாகி விநியோகப் பணியை ஒதுக்க வேண்டும்.',
       'med03.pharmacy.delivery_type_counter': 'கவுண்டர் வழங்கல்',
       'med03.pharmacy.status_dispensed': 'வழங்கப்பட்டது',
       'med03.pharmacy.inventory_status.active': 'செயலில்',
@@ -36428,6 +36431,7 @@ class AppStrings {
       'med03.pharmacy.recovery.open_exact_pharmacy_funding_task': 'ఇప్పటికే ఉన్న ఖచ్చితమైన నిధుల పనిని తెరవండి; ఇక్కడ చెల్లింపును స్వయంగా ధృవీకరించవద్దు.',
       'med03.pharmacy.cancellation_reason_help':
           'అవసరం: 3 నుండి 500 అక్షరాలు. ఈ కారణం ఆర్డర్ చరిత్రలో నిల్వ ఉంటుంది.',
+      'med03.pharmacy.delivery_assignee_required': 'ఈ ఆర్డర్‌కు అర్హత ఉన్న డెలివరీ సిబ్బంది ఎవరూ అందుబాటులో లేరు. పంపడానికి ముందు ఫెసిలిటీ నిర్వాహకుడు డెలివరీ విధిని కేటాయించాలి.',
       'med03.pharmacy.delivery_type_counter': 'కౌంటర్ పంపిణీ',
       'med03.pharmacy.status_dispensed': 'పంపిణీ పూర్తైంది',
       'med03.pharmacy.inventory_status.active': 'క్రియాశీలం',
@@ -36964,6 +36968,7 @@ class AppStrings {
       'med03.pharmacy.recovery.materialize_pharmacy_funding': 'ലോക്ക് ചെയ്ത ഓർഡറും ഇൻവോയ്സ് അധികാരവും ഉപയോഗിച്ച് കൃത്യമായ ധനസഹായ ടാസ്ക് സൃഷ്ടിക്കുക.',
       'med03.pharmacy.recovery.open_exact_pharmacy_funding_task': 'നിലവിലുള്ള കൃത്യമായ ധനസഹായ ടാസ്ക് തുറക്കുക; ഇവിടെ പണമടവ് സ്വയം സാക്ഷ്യപ്പെടുത്തരുത്.',
       'med03.pharmacy.cancellation_reason_help': 'ആവശ്യമാണ്: 3 മുതൽ 500 വരെ അക്ഷരങ്ങൾ. ഈ കാരണം ഓർഡർ ചരിത്രത്തിൽ സൂക്ഷിക്കും.',
+      'med03.pharmacy.delivery_assignee_required': 'ഈ ഓർഡറിന് യോഗ്യതയുള്ള ഡെലിവറി ജീവനക്കാരൻ ലഭ്യമല്ല. അയയ്ക്കുന്നതിന് മുമ്പ് ഫെസിലിറ്റി അഡ്മിനിസ്ട്രേറ്റർ ഡെലിവറി ചുമതല നൽകണം.',
       'med03.pharmacy.delivery_type_counter': 'കൗണ്ടർ വിതരണം',
       'med03.pharmacy.status_dispensed': 'വിതരണം ചെയ്തു',
       'med03.pharmacy.inventory_status.active': 'സജീവം',
@@ -39135,6 +39140,62 @@ class AppStrings {
           'പൂജ്യത്തേക്കാൾ കൂടുതലുള്ള ഘടനാബദ്ധമായ ഡോസ് അളവ് നൽകുക.',
       'mar_scan.supply.override_error': 'അർത്ഥവത്തായ വിതരണ ഓവർറൈഡ് കാരണം രേഖപ്പെടുത്തുക (കുറഞ്ഞത് 15 അക്ഷരങ്ങൾ).',
       'mar_scan.supply.hard_stop_error': 'വിതരണ തെളിവ് അപൂർണ്ണമോ വ്യക്തമല്ലാത്തതോ ആണ്. മരുന്ന് നൽകുന്നതിന് മുമ്പ് റീകൺസൈൽ ചെയ്യുക.',
+      // REVIEW: MED-03 ml technical parity for the counter-sale workflow; Malayalam-fluent pharmacy review is required before activation.
+      's4.lib.counter_sale.title': 'കൗണ്ടർ വിൽപ്പന',
+      's4.lib.counter_sale.open': 'കൗണ്ടർ വിൽപ്പന',
+      's4.lib.counter_sale.sell_tab': 'വിൽക്കുക',
+      's4.lib.counter_sale.recent_tab': 'സമീപകാല വിൽപ്പനകൾ',
+      's4.lib.counter_sale.search_hint': 'ഇനങ്ങൾ തിരയുക (പേര് / SKU / ജനറിക്)',
+      's4.lib.counter_sale.in_stock': 'സ്റ്റോക്കിൽ {count}',
+      's4.lib.counter_sale.out_of_stock': 'സ്റ്റോക്കില്ല',
+      's4.lib.counter_sale.batch_line': 'ബാച്ച് {batch} · കാലാവധി {expiry}',
+      's4.lib.counter_sale.cart_empty':
+          'കാർട്ട് ശൂന്യമാണ് — വിൽക്കാനുള്ള ഇനങ്ങൾ തിരഞ്ഞ് ചേർക്കുക',
+      's4.lib.counter_sale.quantity': 'അളവ്',
+      's4.lib.counter_sale.walk_in': 'നേരിട്ടെത്തിയ ഉപഭോക്താവ്',
+      's4.lib.counter_sale.registered_patient': 'രജിസ്റ്റർ ചെയ്ത രോഗി',
+      's4.lib.counter_sale.customer_name': 'ഉപഭോക്താവിന്റെ പേര്',
+      's4.lib.counter_sale.customer_phone': 'ഉപഭോക്താവിന്റെ ഫോൺ (ഐച്ഛികം)',
+      's4.lib.counter_sale.patient_uid': 'രോഗിയുടെ UID',
+      's4.lib.counter_sale.rx_section':
+          'കുറിപ്പടി (Schedule H/H1/X-ന് നിർബന്ധം)',
+      's4.lib.counter_sale.witness_section':
+          'സാക്ഷി (Schedule X / നാർക്കോട്ടിക്കിന് നിർബന്ധം)',
+      's4.lib.counter_sale.witness_two_person_hint': 'ഈ കൃത്യമായ വിൽപ്പനയ്ക്ക് അംഗീകാരം അഭ്യർത്ഥിക്കുക, തുടർന്ന് അവലോകനം ചെയ്ത് സൈൻ ഇൻ ചെയ്യാൻ യോഗ്യതയുള്ള രണ്ടാമത്തെ ജീവനക്കാരന് ഉപകരണം കൈമാറുക.',
+      's4.lib.counter_sale.witness_request': 'സാക്ഷി അംഗീകാരം അഭ്യർത്ഥിക്കുക',
+      's4.lib.counter_sale.witness_approve': 'അവലോകനം ചെയ്ത് അംഗീകരിക്കുക',
+      's4.lib.counter_sale.witness_auth_title': 'സ്വതന്ത്ര സാക്ഷിയുടെ സൈൻ-ഇൻ',
+      's4.lib.counter_sale.witness_review_hint': 'നിങ്ങളുടെ സ്വന്തം ജീവനക്കാരൻ ക്രെഡൻഷ്യലുകൾ നൽകുന്നതിന് മുമ്പ് ഈ മരുന്നുകളും അളവുകളും സ്ഥിരീകരിക്കുക:',
+      's4.lib.counter_sale.witness_employee_id': 'സാക്ഷിയുടെ ജീവനക്കാരൻ ID',
+      's4.lib.counter_sale.witness_password': 'സാക്ഷിയുടെ പാസ്‌വേഡ്',
+      's4.lib.counter_sale.witness_not_requested':
+          'അംഗീകാരം അഭ്യർത്ഥിച്ചിട്ടില്ല',
+      's4.lib.counter_sale.witness_pending':
+          'സാക്ഷിയുടെ സൈൻ-ഇൻ കാത്തിരിക്കുന്നു',
+      's4.lib.counter_sale.witness_approved': 'സാക്ഷി അംഗീകാരം രേഖപ്പെടുത്തി',
+      's4.lib.counter_sale.witness_approved_by': '{name} അംഗീകരിച്ചു',
+      's4.lib.counter_sale.witness_canonical_staff':
+          'സ്ഥിരീകരിച്ച ജീവനക്കാരൻ സാക്ഷി',
+      's4.lib.counter_sale.witness_required': 'ഈ വിൽപ്പന സമർപ്പിക്കുന്നതിന് മുമ്പ് അംഗീകരിച്ച രണ്ടാമത്തെ ജീവനക്കാരൻ സാക്ഷി നിർബന്ധമാണ്.',
+      's4.lib.counter_sale.witness_expired': 'സാക്ഷി അംഗീകാരത്തിന്റെ കാലാവധി കഴിഞ്ഞു. പുതിയ അംഗീകാരം അഭ്യർത്ഥിക്കുക.',
+      's4.lib.counter_sale.witness_used':
+          'ആ സാക്ഷി അംഗീകാരം ഇതിനകം ഉപയോഗിച്ചു. പുതിയ അംഗീകാരം അഭ്യർത്ഥിക്കുക.',
+      's4.lib.counter_sale.witness_self':
+          'വിൽപ്പനക്കാരന് സ്വന്തം നിയന്ത്രിത വിതരണത്തിന് സാക്ഷിയാകാനാവില്ല.',
+      's4.lib.counter_sale.witness_role': 'നിയന്ത്രിത മരുന്ന് വിതരണത്തിന് സാക്ഷിയാകാൻ ഈ ജീവനക്കാരൻ അക്കൗണ്ടിന് യോഗ്യതയില്ല.',
+      's4.lib.counter_sale.witness_changed':
+          'വിൽപ്പന മാറിയതിനാൽ അതിന്റെ സാക്ഷി അംഗീകാരം അസാധുവായി.',
+      's4.lib.counter_sale.witness_auth_failed': 'സാക്ഷിയുടെ പ്രാമാണീകരണമോ അംഗീകാരമോ പരാജയപ്പെട്ടു. ക്രെഡൻഷ്യലുകൾ പരിശോധിച്ച് വീണ്ടും അഭ്യർത്ഥിക്കുക.',
+      's4.lib.counter_sale.payment_mode': 'പണമടവ് രീതി',
+      's4.lib.counter_sale.payment_reference': 'പേയ്മെന്റ് റഫറൻസ് (txn id)',
+      's4.lib.counter_sale.cash_drawer_hint': 'പണമായുള്ള വിൽപ്പനയ്ക്ക് നിങ്ങളുടെ തുറന്ന ക്യാഷ്-ഡ്രോയർ സെഷൻ ആവശ്യമാണ്',
+      's4.lib.counter_sale.estimated_total':
+          'കണക്കാക്കിയ ആകെ തുക (വിൽപ്പന സമയത്തെ സെർവർ വിലകൾ)',
+      's4.lib.counter_sale.sell': 'വിറ്റ് പണം സ്വീകരിക്കുക',
+      's4.lib.counter_sale.sold': 'വിൽപ്പന പൂർത്തിയായി — ഇൻവോയ്സ് {invoice}',
+      's4.lib.counter_sale.void_action': 'റദ്ദാക്കുക',
+      's4.lib.counter_sale.void_reason': 'റദ്ദാക്കാനുള്ള കാരണം',
+      's4.lib.counter_sale.no_recent': 'ഇന്ന് ഇതുവരെ കൗണ്ടർ വിൽപ്പനകളില്ല',
       // REVIEW: MED-03 ml technical parity; Malayalam-fluent pharmacy and finance review is required before activation.
       's4.lib.counter_sale.facility_id': 'വിതരണ കേന്ദ്രം',
       's4.lib.counter_sale.facility_hint': 'നിങ്ങൾക്ക് സജീവമായ ഫാർമസി അനുമതിയുള്ള കേന്ദ്രങ്ങളിൽ ഒന്ന് തിരഞ്ഞെടുക്കുക. കാർട്ടിൽ ഇനങ്ങളുള്ളപ്പോൾ ഇത് മാറ്റാനാകില്ല.',

@@ -6,7 +6,9 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:provider/provider.dart';
 import 'package:vhhealth_core/services/http_client.dart';
+import 'package:vhhealth_staff/core/providers/theme_provider.dart';
 import 'package:vhhealth_staff/features/reception/screens/billing_desk_screen.dart';
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
@@ -81,16 +83,21 @@ void main() {
 
     await tester.binding.setSurfaceSize(const Size(1200, 1800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
+    // Every StaffScaffold app bar carries the theme toggle, so a screen under
+    // test needs the same ThemeProvider the running app supplies from main().
     await tester.pumpWidget(
-      MaterialApp(
-        locale: const Locale('en'),
-        supportedLocales: AppStrings.supportedLocales,
-        localizationsDelegates: const [
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        home: const BillingDeskScreen(prefillNhcxProjectionMessageId: 42),
+      ChangeNotifierProvider<ThemeProvider>(
+        create: (_) => ThemeProvider(),
+        child: const MaterialApp(
+          locale: Locale('en'),
+          supportedLocales: AppStrings.supportedLocales,
+          localizationsDelegates: [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          home: BillingDeskScreen(prefillNhcxProjectionMessageId: 42),
+        ),
       ),
     );
     await tester.pumpAndSettle();

@@ -470,7 +470,11 @@ void main() {
     );
     await tester.tap(find.byKey(const Key('drug-chart-supply-unit')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('tablet').last);
+    // The unit menu shows the localized label ("Tablet"); only the order
+    // payload carries the canonical 'tablet' asserted at the end of the test.
+    final tabletUnitLabel = AppStrings.forLocale(const Locale('en'))
+        .medicationWardSupplyUnit('tablet');
+    await tester.tap(find.text(tabletUnitLabel).last);
     await tester.pumpAndSettle();
     final saveButton = find.widgetWithText(FilledButton, 'Save');
     await _pumpUntilFound(tester, saveButton);

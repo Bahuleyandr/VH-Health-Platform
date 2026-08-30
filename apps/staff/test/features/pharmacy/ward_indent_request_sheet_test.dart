@@ -220,6 +220,10 @@ void main() {
       find.byKey(const Key('ward-indent-request-admission-id')),
       '74',
     );
+    // enterText schedules no frame of its own: onChanged drops the projection
+    // synchronously, but the context card only leaves the tree on the next
+    // build, so the widget assertions below need that frame pumped first.
+    await tester.pump();
     expect(attempts.current('ward-indent-order-bound-request'), isNull);
     expect(find.byKey(const Key('ward-indent-request-context')), findsNothing);
     expect(find.byKey(const Key('ward-indent-request-submit')), findsNothing);

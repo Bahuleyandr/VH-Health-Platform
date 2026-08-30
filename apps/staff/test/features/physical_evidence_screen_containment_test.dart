@@ -309,7 +309,11 @@ void main() {
       await tester.enterText(supplyQuantity, '14');
       await tester.tap(supplyUnit);
       await pumpUiTransition(tester);
-      await tester.tap(find.text('tablet').last);
+      // The unit dropdown renders the localized label, never the canonical
+      // wire code, so the option has to be looked up through AppStrings.
+      await tester.tap(
+        find.text(strings.medicationWardSupplyUnit('tablet')).last,
+      );
       await pumpUiTransition(tester);
       final save = find.widgetWithText(FilledButton, strings.actionSave);
       await tester.ensureVisible(save);

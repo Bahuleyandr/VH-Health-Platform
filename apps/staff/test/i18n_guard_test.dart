@@ -1399,6 +1399,9 @@ void main() {
     final allowedPrefixes = [
       'action.',
       'lab_bookings.',
+      // The MED-03 lane moved most of this screen's copy into med03.*; without
+      // this prefix the guard would police only the rump left behind.
+      'med03.',
       'patient_records.',
       'pharmacy.',
       'reception_counter.',
@@ -1427,9 +1430,18 @@ void main() {
     keys.addAll(
       _appStringPrefixedTokensFrom(file.readAsStringSync(), allowedPrefixes),
     );
+    // 'reception_counter.patient.phone' was the canary until the legacy
+    // create-pharmacy-order dialog that borrowed it was removed with the
+    // retired POST /pharmacy-orders/orders endpoint. These two carry the same
+    // proof for copy the screen still renders: the first is borrowed from
+    // another feature and resolved by a lookup that opens on the line above,
+    // the second has its key literal alone on the line below `lookup(`.
     expect(
       keys,
-      contains('reception_counter.patient.phone'),
+      containsAll(const [
+        'vitals_chart.category',
+        'med03.pharmacy.recovery.select_exact_tpa_claim_allocation',
+      ]),
       reason:
           'The Pharmacy guard must include reused multiline lookup keys, not '
           'only same-line labels.',
@@ -2116,11 +2128,18 @@ Set<String> _appStringCallKeysFrom(String source, List<String> prefixes) {
 Set<String> _appStringPrefixedTokensFrom(String source, List<String> prefixes) {
   final keys = <String>{};
   final prefixPattern = prefixes.map(RegExp.escape).join('|');
-  final regex = RegExp('(?:$prefixPattern)[A-Za-z0-9_.-]+');
+  // Anchored on a key boundary: unanchored, 'pharmacy.' also matches inside
+  // 'med03.pharmacy.quantity' and invents a key no locale map can ever hold,
+  // so the parity check fails on copy that is in fact fully translated. A
+  // token that runs straight into a '$' is the static head of an interpolated
+  // key rather than a key, which is why the sibling helpers skip those too.
+  final regex = RegExp(
+    '(?:^|[^A-Za-z0-9_.-])((?:$prefixPattern)[A-Za-z0-9_.-]+)',
+    multiLine: true,
+  );
   for (final match in regex.allMatches(source)) {
-    final key = match.group(0)!;
-    if (key.contains(r'$')) continue;
-    keys.add(key);
+    if (match.end < source.length && source[match.end] == r'$') continue;
+    keys.add(match.group(1)!);
   }
   return keys;
 }

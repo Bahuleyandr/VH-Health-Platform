@@ -177,7 +177,10 @@ void main() {
       find.byKey(const Key('mar-handoff-reason')),
       'On-call ownership changed.',
     );
-    await tester.tap(find.byKey(const Key('mar-handoff-confirmation')));
+    await _tapVisible(
+      tester,
+      find.byKey(const Key('mar-handoff-confirmation')),
+    );
     await _tapVisible(tester, find.byKey(const Key('mar-handoff-submit')));
     await tester.pumpAndSettle();
 
@@ -258,7 +261,10 @@ void main() {
         find.byKey(const Key('mar-handoff-reason')),
         'Coverage changed during the shift.',
       );
-      await tester.tap(find.byKey(const Key('mar-handoff-confirmation')));
+      await _tapVisible(
+        tester,
+        find.byKey(const Key('mar-handoff-confirmation')),
+      );
       await _tapVisible(tester, find.byKey(const Key('mar-handoff-submit')));
       await tester.pumpAndSettle();
 
@@ -279,7 +285,10 @@ void main() {
         isFalse,
       );
 
-      await tester.tap(find.byKey(const Key('mar-handoff-confirmation')));
+      await _tapVisible(
+        tester,
+        find.byKey(const Key('mar-handoff-confirmation')),
+      );
       await _tapVisible(tester, find.byKey(const Key('mar-handoff-submit')));
       await tester.pumpAndSettle();
 
@@ -860,6 +869,10 @@ void main() {
   });
 }
 
+// The MAR-handoff and post-discharge cross-sign sheets are scrolling forms:
+// at the 800x600 default test viewport their attestation and submit controls
+// sit below the fold, so a raw tap() derives an offset outside the render
+// tree and silently misses.
 Future<void> _tapVisible(WidgetTester tester, Finder finder) async {
   await tester.ensureVisible(finder);
   await tester.pump();
