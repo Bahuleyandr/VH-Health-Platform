@@ -55,7 +55,8 @@ const ensureGatewayRefundRecoveryObligationTx = jest.fn(async () => ({ row: {} }
 const projectGatewayRefundRecoveryTerminal = jest.fn(async () => ({}));
 const requeueGatewayRefundAuthorityBlockedTx = jest.fn(async () => []);
 const notificationQueue = jest.fn(async () => ({ id: 901 }));
-const lockTenantPatientMergeStability = jest.fn(async () => {});
+const MERGE_STABILITY_LEASE = Object.freeze({ test: 'gateway-merge-stability' });
+const lockTenantPatientMergeStability = jest.fn(async () => MERGE_STABILITY_LEASE);
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: queryRawUnsafe, $executeRawUnsafe: executeRawUnsafe },
@@ -754,7 +755,7 @@ describe('capture booking (payment.captured)', () => {
       amount: 500,
       mode: 'UPI',
       reference: 'pay_dry_9',
-    }), { tx, mergeStabilityHeld: true });
+    }), { tx, mergeStabilityLease: MERGE_STABILITY_LEASE });
     // Order flip in the same tx carries the booked billing_payments id.
     const flip = txExecuteRawUnsafe.mock.calls.find(([sql]) => sql.includes("status = 'paid'"));
     expect(flip).toBeTruthy();

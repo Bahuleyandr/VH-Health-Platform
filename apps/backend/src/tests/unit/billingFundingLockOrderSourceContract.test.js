@@ -362,7 +362,7 @@ describe('billing patient-funding lock source contract', () => {
       'FROM payment_gateway_orders',
       'FOR UPDATE',
       'collectPayment({',
-      'mergeStabilityHeld: true',
+      '}, { tx, mergeStabilityLease })',
     ]);
 
     const initiation = sliceBetween(

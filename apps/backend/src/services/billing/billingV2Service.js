@@ -18,7 +18,10 @@ import { AppError } from '../../utils/AppError.js';
 import { istDateString } from '../../utils/dateUtils.js';
 import { boundedInteger } from '../../utils/pagination.js';
 import { toPaise } from '../../utils/money.js';
-import { lockTenantPatientMergeStability } from '../../utils/patientMergeStabilityLock.js';
+import {
+  assertTenantPatientMergeStabilityLease,
+  lockTenantPatientMergeStability,
+} from '../../utils/patientMergeStabilityLock.js';
 import {
   postInvoiceIssueEntry, postPaymentEntry,
   postAdvanceCollectEntry, postAdvanceSettleEntry, postPaymentReversalEntry,
@@ -2404,9 +2407,13 @@ function isUniqueViolation(err) {
 async function collectPaymentTx(tx, {
   invoice_id, patient_uid, amount, mode, reference,
   denominations, collected_by, shift, notes, tenantId, normalizedMode,
-}, { mergeStabilityHeld = false } = {}) {
+}, { mergeStabilityLease = null } = {}) {
   const tenant = requireTenantId(normalizeTenantId(tenantId));
-  if (!mergeStabilityHeld) await lockTenantPatientMergeStability(tx, tenant);
+  if (mergeStabilityLease) {
+    assertTenantPatientMergeStabilityLease(mergeStabilityLease, { tx, tenantId: tenant });
+  } else {
+    await lockTenantPatientMergeStability(tx, tenant);
+  }
   let resolvedPatientUid = patient_uid;
   if (invoice_id) {
     const invoiceCandidate = await findBillingInvoice(
@@ -2497,7 +2504,10 @@ async function collectPaymentTx(tx, {
 export async function collectPayment({
   invoice_id, patient_uid, amount, mode, reference,
   denominations, collected_by, shift, notes, tenantId,
-}, { tx = null, mergeStabilityHeld = false } = {}) {
+}, { tx = null, mergeStabilityLease = null } = {}) {
+  if (tx) {
+    assertTenantPatientMergeStabilityLease(mergeStabilityLease, { tx, tenantId });
+  }
   // ── Phase 0 — preflight (no row mutation; safe outside the tx) ──────────
   if (!VALID_PAYMENT_MODES.includes(mode)) {
     throw AppError.badRequest(`Invalid mode. Allowed: ${VALID_PAYMENT_MODES.join(', ')}`);
@@ -2529,10 +2539,11 @@ export async function collectPayment({
     invoice_id, patient_uid, amount, mode, reference,
     denominations, collected_by, shift, notes, tenantId, normalizedMode,
   };
-  // Reuse the caller's transaction when given (e.g. markPaymentLinkPaid) so we
-  // never nest setTenantTx — Postgres cannot nest transactions. That caller is
-  // responsible for its own ledger posting (wired in a later phase).
-  if (tx) return collectPaymentTx(tx, args, { mergeStabilityHeld });
+  // Reuse a caller transaction only with the opaque lease returned when that
+  // exact transaction acquired tenant merge stability before any domain lock.
+  // This preserves the global lock order without a forgeable "already held"
+  // flag. The caller remains responsible for its own ledger posting.
+  if (tx) return collectPaymentTx(tx, args, { mergeStabilityLease });
   // Phase 4: the per-tenant ledger mode decides HOW we post.
   //  - enforce (sameTx):  post INSIDE the payment tx so a ledger failure rolls
   //    back the payment (authoritative).

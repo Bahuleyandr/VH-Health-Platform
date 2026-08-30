@@ -1157,7 +1157,7 @@ export async function handleCaptureEvent({ tenantId, config, payload }) {
   let result;
   try {
     result = await setTenantTx(tenant, async (tx) => {
-      await lockTenantPatientMergeStability(tx, tenant);
+      const mergeStabilityLease = await lockTenantPatientMergeStability(tx, tenant);
       const orderRows = await tx.$queryRawUnsafe(
         `SELECT * FROM payment_gateway_orders
           WHERE tenant_id = $1::uuid AND provider = $2 AND environment = $3
@@ -1234,7 +1234,7 @@ export async function handleCaptureEvent({ tenantId, config, payload }) {
         // (tenant_id, reference, mode) unique is the durable replay backstop.
         reference: String(providerPaymentId),
         notes: `Gateway ${config.provider} order ${order.receipt || order.provider_order_id}`,
-      }, { tx, mergeStabilityHeld: true });
+      }, { tx, mergeStabilityLease });
 
       await tx.$executeRawUnsafe(
         `UPDATE payment_gateway_orders

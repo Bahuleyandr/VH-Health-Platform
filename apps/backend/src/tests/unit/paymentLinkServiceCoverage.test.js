@@ -22,7 +22,8 @@ const sendEmailMock = jest.fn();
 const sendWhatsAppMock = jest.fn();
 const queuePatientSmsMock = jest.fn();
 const collectPaymentMock = jest.fn();
-const lockTenantPatientMergeStabilityMock = jest.fn();
+const MERGE_STABILITY_LEASE = Object.freeze({ test: 'payment-link-merge-stability' });
+const lockTenantPatientMergeStabilityMock = jest.fn(async () => MERGE_STABILITY_LEASE);
 const loggerWarnMock = jest.fn();
 const getTenantSettingsMock = jest.fn();
 
@@ -588,7 +589,7 @@ describe('markPaymentLinkPaid', () => {
       mode: 'CARD',
       reference: 'REF-9',
       collected_by: PATIENT_B,
-    }), { tx: __prismaDefaultMock, mergeStabilityHeld: true });
+    }), { tx: __prismaDefaultMock, mergeStabilityLease: MERGE_STABILITY_LEASE });
     expect(lockTenantPatientMergeStabilityMock)
       .toHaveBeenCalledWith(__prismaDefaultMock, TENANT);
     expect(lockTenantPatientMergeStabilityMock).toHaveBeenCalledTimes(1);

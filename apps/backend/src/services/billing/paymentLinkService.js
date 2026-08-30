@@ -643,7 +643,7 @@ export async function markPaymentLinkPaid({
   const tenant = requireTenantId(tenantId);
   const wiring = await resolveLedgerWiring(tenant);
   const payment = await setTenantTx(tenant, async (tx) => {
-    await lockTenantPatientMergeStability(tx, tenant);
+    const mergeStabilityLease = await lockTenantPatientMergeStability(tx, tenant);
 
     const linkRows = await tx.$queryRawUnsafe(
       `SELECT id, invoice_id, patient_uid, amount, upi_transaction_ref, status
@@ -668,7 +668,7 @@ export async function markPaymentLinkPaid({
       reference: paid_reference || link.upi_transaction_ref,
       collected_by: performed_by,
       notes: `Payment link ${link_token}`,
-    }, { tx, mergeStabilityHeld: true });
+    }, { tx, mergeStabilityLease });
 
     await tx.$executeRawUnsafe(
       `UPDATE billing_payment_links

@@ -234,6 +234,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 }));
 
 jest.unstable_mockModule('../../utils/patientMergeStabilityLock.js', () => ({
+  assertTenantPatientMergeStabilityLease: jest.fn(),
   lockTenantPatientMergeStability: jest.fn(async () => {}),
 }));
 

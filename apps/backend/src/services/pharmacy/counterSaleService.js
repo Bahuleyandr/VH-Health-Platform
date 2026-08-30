@@ -1174,7 +1174,7 @@ export async function createCounterSale({
   try {
     const wiring = await resolveLedgerWiring(tenant);
     const result = await setTenantTx(tenant, async (tx) => {
-      await lockTenantPatientMergeStability(tx, tenant);
+      const mergeStabilityLease = await lockTenantPatientMergeStability(tx, tenant);
       await assertPharmacyFacilityGrant(tx, {
         tenantId: tenant,
         facilityId,
@@ -1324,7 +1324,7 @@ export async function createCounterSale({
         shift: drawer ? drawer.shift : null,
         notes: `Pharmacy counter sale #${sale.id}`,
         tenantId: tenant,
-      }, { tx, mergeStabilityHeld: true });
+      }, { tx, mergeStabilityLease });
 
       if (wiring.sameTx) {
         await postPaymentEntry({ payment, tenantId: tenant, tx });
