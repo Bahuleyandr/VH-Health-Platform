@@ -1,5 +1,6 @@
 import {
   approvedSubstitutionFundingReceiptContract,
+  consumeApprovedSubstitutionFundingReauthorisationTx,
   normalizeSubstitutionFundingSelector,
   substitutionFundingNumericTesting,
   substitutionFundingApprovalCommandKey,
@@ -130,4 +131,10 @@ test('does not accept caller-forged approved receipts or opaque consumption evid
   expectErrorCode(() => substitutionFundingReauthorisationEvidenceSnapshot({
     snapshot: { approval_id: 73 },
   }), 'SUBSTITUTION_FUNDING_EVIDENCE_INVALID');
+});
+
+test('keeps substitution funding consumption inert without a canonical mutation receipt', async () => {
+  await expect(consumeApprovedSubstitutionFundingReauthorisationTx()).rejects.toMatchObject({
+    code: 'SUBSTITUTION_FUNDING_ORDER_MUTATION_UNWIRED',
+  });
 });

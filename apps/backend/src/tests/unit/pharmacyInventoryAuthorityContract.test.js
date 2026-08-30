@@ -244,6 +244,65 @@ describe('pharmacy dispense inventory authority contract', () => {
     expect(controller).toMatch(/PHARMACY_TERMINAL_PARTIAL_DISPENSE_COMPENSATION_REQUIRED/);
   });
 
+  test('generic funding callers barrier substitution authority before domain locks', () => {
+    const dispatch = between(
+      controller,
+      'export const dispatchOrder',
+      'export const markDelivered',
+    );
+    const dispatchStaging = between(
+      dispatch,
+      'const stagedOrder = await setTenantTx',
+      'const fundingPreparation = await materializePharmacyFundingAuthority',
+    );
+    const dispatchFinal = dispatch.slice(
+      dispatch.indexOf('const result = await setTenantTx'),
+    );
+    const counterStaging = between(
+      controller,
+      'async function stageCounterFundingAuthority',
+      'export const markCounterDispensed',
+    );
+    const counter = between(
+      controller,
+      'export const markCounterDispensed',
+      'export const markUnavailable',
+    );
+    const counterFinal = counter.slice(counter.indexOf('const result = await setTenantTx'));
+    const substitution = inventoryComposer.slice(
+      inventoryComposer.indexOf('export async function dispenseSubstitutionCommand'),
+    );
+
+    for (const handler of [
+      dispatchStaging,
+      dispatchFinal,
+      counterStaging,
+      counterFinal,
+      substitution,
+    ]) {
+      expect(handler).toMatch(
+        /await lockTenantPatientMergeStability\(tx,[^;]+;\s+(?:const substitutionFundingAuthorityLease\s*=\s*)?await lockCounterFundingSubstitutionAuthorityTx\(tx/,
+      );
+      expect(handler.indexOf('lockTenantPatientMergeStability'))
+        .toBeLessThan(handler.indexOf('lockCounterFundingSubstitutionAuthorityTx'));
+      expect(handler.indexOf('lockCounterFundingSubstitutionAuthorityTx'))
+        .toBeLessThan(handler.indexOf('assertPharmacyFacilityGrant'));
+      expect(handler.indexOf('lockCounterFundingSubstitutionAuthorityTx'))
+        .toBeLessThan(handler.indexOf('tx.$queryRawUnsafe'));
+      expect(handler).not.toMatch(/lockOrderFundingAuthorityTx/);
+    }
+
+    expect(dispatchFinal).toMatch(
+      /const substitutionFundingAuthorityLease[\s\S]*resolveAuthoritativeCounterFundingTx\(tx,[\s\S]*substitutionFundingAuthorityLease,/,
+    );
+    expect(counterFinal).toMatch(
+      /const substitutionFundingAuthorityLease[\s\S]*resolveAuthoritativeCounterFundingTx\(tx,[\s\S]*substitutionFundingAuthorityLease,/,
+    );
+    expect(substitution).toMatch(
+      /const substitutionFundingAuthorityLease[\s\S]*resolveAuthoritativeCounterFundingTx\(tx,[\s\S]*substitutionFundingAuthorityLease,/,
+    );
+  });
+
   test('committed delivery and substitution never become retained barcode 5xx responses', () => {
     const delivery = between(controller, 'export const markDelivered', 'const COUNTER_PAYMENT_MODES');
     const substitution = between(

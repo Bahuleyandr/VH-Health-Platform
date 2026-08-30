@@ -21,6 +21,8 @@ const execMock = jest.fn();
 let invoiceDiscovery = null;
 let advanceDiscovery = null;
 let settleAdvanceCapacity = null;
+let settleAdvanceAdmission = null;
+let settleAdvanceLockedInvoiceOverride = null;
 let refundAuthority = null;
 let offlineRefundSnapshot = null;
 let offlinePaymentCandidate = null;
@@ -30,6 +32,8 @@ function clearQueryAdapterState() {
   invoiceDiscovery = null;
   advanceDiscovery = null;
   settleAdvanceCapacity = null;
+  settleAdvanceAdmission = null;
+  settleAdvanceLockedInvoiceOverride = null;
   refundAuthority = null;
   offlineRefundSnapshot = null;
   offlinePaymentCandidate = null;
@@ -83,12 +87,22 @@ const queryRawUnsafe = jest.fn(async (sql, ...params) => {
     invoiceDiscovery = rows?.[0]
       ? { id: Number(invoiceId), ...rows[0] }
       : null;
-    if (advanceDiscovery && invoiceDiscovery) settleAdvanceCapacity = advanceDiscovery;
+    if (advanceDiscovery && invoiceDiscovery) {
+      settleAdvanceCapacity = advanceDiscovery;
+      settleAdvanceAdmission = invoiceDiscovery.admission_id == null
+        ? null
+        : {
+          id: Number(invoiceDiscovery.admission_id),
+          patient_uid: invoiceDiscovery.patient_uid,
+        };
+    }
     return rows;
   }
   if (text.includes('FROM billing_invoices') && text.includes('FOR UPDATE')
       && invoiceDiscovery && Number(params[0]) === Number(invoiceDiscovery.id)) {
-    const row = invoiceDiscovery;
+    const row = settleAdvanceLockedInvoiceOverride
+      ? { ...invoiceDiscovery, ...settleAdvanceLockedInvoiceOverride }
+      : invoiceDiscovery;
     invoiceDiscovery = null;
     return [row];
   }
@@ -97,6 +111,16 @@ const queryRawUnsafe = jest.fn(async (sql, ...params) => {
     const row = advanceDiscovery;
     advanceDiscovery = null;
     return [row];
+  }
+  if (text.includes('FROM admissions') && !text.includes('FOR UPDATE')
+      && settleAdvanceAdmission
+      && Number(params[1]) === settleAdvanceAdmission.id) {
+    return [{ ...settleAdvanceAdmission, status: 'ADMITTED' }];
+  }
+  if (text.includes('FROM admissions') && text.includes('FOR UPDATE')
+      && settleAdvanceAdmission
+      && Number(params[1]) === settleAdvanceAdmission.id) {
+    return [{ ...settleAdvanceAdmission, status: 'ADMITTED' }];
   }
   if (settleAdvanceCapacity
       && text.includes('FROM billing_advances advance')
@@ -1686,15 +1710,42 @@ describe('advances', () => {
     ).rejects.toMatchObject({ statusCode: 403, code: 'BILLING_ADVANCE_INVOICE_PATIENT_MISMATCH' });
   });
 
+  it('settleAdvance fails closed when invoice admission authority changes before lock', async () => {
+    queryMock
+      .mockResolvedValueOnce([{
+        id: 1, status: 'ACTIVE', amount: '1000', balance: '1000',
+        patient_uid: PATIENT, admission_id: 17,
+      }])
+      .mockResolvedValueOnce([{
+        id: 2, status: 'ISSUED', amount_due: '500',
+        patient_uid: PATIENT, admission_id: 17,
+      }]);
+    settleAdvanceLockedInvoiceOverride = { admission_id: 18 };
+
+    await expect(svc.settleAdvance({
+      tenantId: TENANT,
+      advance_id: 1,
+      invoice_id: 2,
+      amount: 100,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'BILLING_ADVANCE_SETTLEMENT_AUTHORITY_CHANGED',
+    });
+
+    expect(queryMock.mock.calls.some(([sql]) => (
+      String(sql).includes('INSERT INTO billing_advance_settlements')
+    ))).toBe(false);
+  });
+
   it('settles a predecessor advance against its merged survivor invoice', async () => {
     patientFundingTerminalByStoredUid.set(PREDECESSOR_PATIENT, PATIENT);
     queryMock
       .mockResolvedValueOnce([{
-        id: 1, status: 'ACTIVE', amount: '300', balance: '300',
+        id: 1, status: 'ACTIVE', amount: '300', balance: '300', admission_id: 17,
         patient_uid: PREDECESSOR_PATIENT,
       }])
       .mockResolvedValueOnce([{
-        id: 2, status: 'ISSUED', amount_due: '300', patient_uid: PATIENT,
+        id: 2, status: 'ISSUED', amount_due: '300', admission_id: 17, patient_uid: PATIENT,
       }])
       .mockResolvedValueOnce([{ id: 73, advance_id: 1, invoice_id: 2, amount: '300' }])
       .mockResolvedValueOnce([{ id: 1 }]);
@@ -1711,6 +1762,18 @@ describe('advances', () => {
       String(sql).includes('vh:pharmacy_funding_authority:')
     ));
     expect(fundingLock?.slice(1)).toEqual([TENANT, PATIENT]);
+    const invoiceLock = queryRawUnsafe.mock.calls.findIndex(([sql]) => (
+      String(sql).includes('FROM billing_invoices') && String(sql).includes('FOR UPDATE')
+    ));
+    const admissionLock = queryRawUnsafe.mock.calls.findIndex(([sql]) => (
+      String(sql).includes('FROM admissions') && String(sql).includes('FOR UPDATE')
+    ));
+    const advanceLock = queryRawUnsafe.mock.calls.findIndex(([sql]) => (
+      String(sql).includes('FROM billing_advances') && String(sql).includes('FOR UPDATE')
+    ));
+    expect(invoiceLock).toBeGreaterThanOrEqual(0);
+    expect(admissionLock).toBeGreaterThan(invoiceLock);
+    expect(advanceLock).toBeGreaterThan(admissionLock);
   });
 
   it('settleAdvance rejects amount exceeding invoice due', async () => {

@@ -40,6 +40,17 @@ const CAP_RELEASE_ROLES = new Set([
   'INSURANCE_COORDINATOR', 'CLAIMS_MANAGER',
   'ADMIN', 'SUPER_ADMIN',
 ]);
+const SUBSTITUTION_FUNDING_APPROVAL_CONTRACT =
+  'pharmacy_substitution_funding_reauthorisation_v1';
+const SUBSTITUTION_FUNDING_TASK_CONTRACT = 'pharmacy_substitution_funding_task_v1';
+const SUBSTITUTION_FUNDING_TASK_STAGE = 'substitution_reauthorisation';
+const SUBSTITUTION_FUNDING_RESOURCE_TYPES = [
+  'pharmacy_tpa_line_decision',
+  'pharmacy_posted_payment',
+  'pharmacy_patient_advance',
+];
+const COUNTER_FUNDING_SUBSTITUTION_LEASE = Symbol('counterFundingSubstitutionLease');
+const consumedCounterFundingSubstitutionLeases = new WeakSet();
 
 function canonicalCapEvidence(value) {
   if (value instanceof Date) return value.toISOString();
@@ -157,6 +168,246 @@ export async function lockPharmacyFundingAuthorityTx(tx, { tenantId, patientUid 
     uid,
   );
   return { tenantId: tid, patientUid: uid };
+}
+
+function substitutionFundingMetadata(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function normalizeSubstitutionFundingReceiptId(value) {
+  if (value == null) return null;
+  const id = String(value).trim();
+  try {
+    if (!/^[1-9][0-9]*$/.test(id) || BigInt(id) > 9_223_372_036_854_775_807n) {
+      throw new RangeError();
+    }
+  } catch {
+    throw AppError.badRequest(
+      'substitutionFundingApprovalReceiptId must be a positive PostgreSQL bigint',
+      'PHARMACY_SUBSTITUTION_FUNDING_AUTHORITY_REQUIRED',
+    );
+  }
+  return id;
+}
+
+function normalizeSubstitutionFundingGovernanceApprovalId(value) {
+  if (value == null) return null;
+  const id = Number(value);
+  if (!Number.isInteger(id) || id <= 0 || id > 2_147_483_647) {
+    throw AppError.badRequest(
+      'substitutionFundingGovernanceApprovalId must be a positive PostgreSQL int4',
+      'PHARMACY_SUBSTITUTION_FUNDING_AUTHORITY_REQUIRED',
+    );
+  }
+  return id;
+}
+
+function exactSubstitutionApprovalTask({ approval, task, orderId }) {
+  if (!approval || !task) return false;
+  const approvalMetadata = substitutionFundingMetadata(approval.metadata);
+  const taskMetadata = substitutionFundingMetadata(task.metadata);
+  const proposalSha256 = String(approvalMetadata.proposal_sha256 || '');
+  const proposerUid = String(approvalMetadata.proposer_uid || '').toLowerCase();
+  return approval.approval_kind === 'pharmacy_substitution_funding_reauthorisation'
+    && approval.subject_resource_type === 'pharmacy_substitution_funding_proposal'
+    && approval.subject_resource_id === proposalSha256
+    && approvalMetadata.contract === SUBSTITUTION_FUNDING_APPROVAL_CONTRACT
+    && approvalMetadata.stage === SUBSTITUTION_FUNDING_TASK_STAGE
+    && Number(approvalMetadata.pharmacy_order_id) === orderId
+    && Number(approval.task_id) === Number(task.id)
+    && Number(approvalMetadata.task_id) === Number(task.id)
+    && approvalMetadata.task_resource_type === task.related_resource_type
+    && task.related_resource_id === String(orderId)
+    && taskMetadata.contract === SUBSTITUTION_FUNDING_TASK_CONTRACT
+    && taskMetadata.stage === SUBSTITUTION_FUNDING_TASK_STAGE
+    && Number(taskMetadata.pharmacy_order_id) === orderId
+    && Number(taskMetadata.approval_id) === Number(approval.id)
+    && taskMetadata.proposal_sha256 === proposalSha256
+    && proposerUid.length > 0
+    && String(approval.created_by || '').toLowerCase() === proposerUid
+    && String(task.created_by || '').toLowerCase() === proposerUid
+    && String(taskMetadata.proposer_uid || '').toLowerCase() === proposerUid;
+}
+
+function substitutionFundingConflict({ orderId, commandRows, approvalRows, taskRows }) {
+  return AppError.conflict(
+    'A governed substitution funding workflow already owns this pharmacy order',
+    'PHARMACY_SUBSTITUTION_FUNDING_AUTHORITY_CONFLICT',
+    {
+      pharmacy_order_id: orderId,
+      task_ids: taskRows.map((row) => Number(row.id)),
+      approval_ids: approvalRows.map((row) => Number(row.id)),
+      command_receipt_ids: commandRows.map((row) => String(row.id)),
+      next_action: 'complete_or_govern_release_of_substitution_funding_authority',
+    },
+  );
+}
+
+export async function lockCounterFundingSubstitutionAuthorityTx(tx, {
+  tenantId,
+  orderId,
+  patientId = null,
+  patientUid = null,
+  substitutionFundingApprovalReceiptId = null,
+  substitutionFundingGovernanceApprovalId = null,
+}) {
+  const tid = requireTenantId(tenantId);
+  const exactOrderId = Number(orderId);
+  if (!Number.isInteger(exactOrderId) || exactOrderId <= 0) {
+    throw AppError.badRequest(
+      'orderId must be a positive integer',
+      'PHARMACY_SUBSTITUTION_FUNDING_AUTHORITY_REQUIRED',
+    );
+  }
+  const exactReceiptId = normalizeSubstitutionFundingReceiptId(
+    substitutionFundingApprovalReceiptId,
+  );
+  const exactApprovalId = normalizeSubstitutionFundingGovernanceApprovalId(
+    substitutionFundingGovernanceApprovalId,
+  );
+  if (exactReceiptId != null && exactApprovalId != null) {
+    throw AppError.badRequest(
+      'Only one exact substitution funding owner may cross the workflow barrier',
+      'PHARMACY_SUBSTITUTION_FUNDING_AUTHORITY_REQUIRED',
+    );
+  }
+  const canonicalPatientUid = await resolvePharmacyFundingPatientUidTx(tx, {
+    tenantId: tid,
+    orderId: exactOrderId,
+    patientId,
+    patientUid,
+  });
+  await lockPharmacyFundingAuthorityTx(tx, {
+    tenantId: tid,
+    patientUid: canonicalPatientUid,
+  });
+  await tx.$queryRawUnsafe(
+    `SELECT pg_advisory_xact_lock(hashtextextended($1::text,753))::text AS lock_acquired`,
+    `vh:substitution-funding:order:${tid}:${exactOrderId}`,
+  );
+  const commandRows = await tx.$queryRawUnsafe(
+    `SELECT id::text AS id,status,task_id,task_resource_type,task_resource_id,
+            pharmacy_order_id,governance_approval_id,proposal_sha256,
+            proposer_uid::text AS proposer_uid
+       FROM pharmacy_funding_commands
+      WHERE tenant_id=$1::uuid AND pharmacy_order_id=$2::int
+        AND command_type='SUBSTITUTION_FUNDING_APPROVAL'
+        AND status IN ('IN_PROGRESS','COMPLETE')
+      ORDER BY id
+      FOR UPDATE`,
+    tid,
+    exactOrderId,
+  );
+  for (const command of commandRows) {
+    await tx.$queryRawUnsafe(
+      `SELECT pg_advisory_xact_lock(
+         hashtextextended('vh:pharmacy_advance_approval:' || $1::text || ':' || $2::text,0)
+       )::text AS lock_acquired`,
+      tid,
+      String(command.id),
+    );
+  }
+  const approvalRows = await tx.$queryRawUnsafe(
+    `SELECT id,approval_kind,subject_resource_type,subject_resource_id,status,
+            task_id,created_by::text AS created_by,metadata
+       FROM approvals
+      WHERE tenant_id=$1::uuid
+        AND approval_kind='pharmacy_substitution_funding_reauthorisation'
+        AND metadata->>'contract'=$3
+        AND metadata->>'pharmacy_order_id'=$2
+        AND status IN ('pending','approved')
+      ORDER BY id
+      FOR UPDATE`,
+    tid,
+    String(exactOrderId),
+    SUBSTITUTION_FUNDING_APPROVAL_CONTRACT,
+  );
+  const taskRows = await tx.$queryRawUnsafe(
+    `SELECT id,related_resource_type,related_resource_id,status,created_by::text AS created_by,
+            metadata
+       FROM tasks
+      WHERE tenant_id=$1::uuid AND related_resource_id=$2
+        AND related_resource_type=ANY($3::text[])
+        AND status IN ('open','in_progress','blocked','overdue')
+        AND metadata->>'contract'=$4
+      ORDER BY id
+      FOR UPDATE`,
+    tid,
+    String(exactOrderId),
+    SUBSTITUTION_FUNDING_RESOURCE_TYPES,
+    SUBSTITUTION_FUNDING_TASK_CONTRACT,
+  );
+  const approval = approvalRows[0] || null;
+  const task = taskRows[0] || null;
+  const approvalMetadata = substitutionFundingMetadata(approval?.metadata);
+  const exactPair = approvalRows.length === 1
+    && taskRows.length === 1
+    && exactSubstitutionApprovalTask({ approval, task, orderId: exactOrderId });
+  const exactReceiptOwner = exactReceiptId != null
+    && commandRows.length === 1
+    && exactPair
+    && String(commandRows[0].id) === exactReceiptId
+    && Number(commandRows[0].pharmacy_order_id) === exactOrderId
+    && Number(commandRows[0].governance_approval_id) === Number(approval.id)
+    && Number(commandRows[0].task_id) === Number(task.id)
+    && commandRows[0].task_resource_type === task.related_resource_type
+    && commandRows[0].task_resource_id === String(exactOrderId)
+    && commandRows[0].proposal_sha256 === approvalMetadata.proposal_sha256
+    && String(commandRows[0].proposer_uid || '').toLowerCase()
+      === String(approval.created_by || '').toLowerCase();
+  const exactPendingOwner = exactApprovalId != null
+    && commandRows.length === 0
+    && exactPair
+    && Number(approval.id) === exactApprovalId
+    && approval.status === 'pending';
+  const hasWorkflowAuthority = commandRows.length > 0
+    || approvalRows.length > 0
+    || taskRows.length > 0;
+  if ((hasWorkflowAuthority || exactReceiptId != null || exactApprovalId != null)
+      && !exactReceiptOwner && !exactPendingOwner) {
+    throw substitutionFundingConflict({
+      orderId: exactOrderId,
+      commandRows,
+      approvalRows,
+      taskRows,
+    });
+  }
+  const authorityMode = exactReceiptOwner
+    ? 'approval_receipt'
+    : exactPendingOwner ? 'governance_approval' : 'generic';
+  return Object.freeze({
+    [COUNTER_FUNDING_SUBSTITUTION_LEASE]: tx,
+    tenantId: tid,
+    orderId: exactOrderId,
+    patientUid: canonicalPatientUid,
+    authorityMode,
+    approvalReceiptId: exactReceiptId,
+    governanceApprovalId: exactApprovalId,
+  });
+}
+
+function consumeCounterFundingSubstitutionAuthorityLease(tx, {
+  tenantId,
+  orderId,
+  lease,
+}) {
+  const validMode = lease?.authorityMode === 'generic'
+    ? lease.approvalReceiptId == null && lease.governanceApprovalId == null
+    : lease?.authorityMode === 'approval_receipt'
+      ? lease.approvalReceiptId != null && lease.governanceApprovalId == null
+      : lease?.authorityMode === 'governance_approval'
+        && lease.approvalReceiptId == null && lease.governanceApprovalId != null;
+  if (!lease || lease[COUNTER_FUNDING_SUBSTITUTION_LEASE] !== tx
+      || lease.tenantId !== tenantId || lease.orderId !== orderId
+      || !lease.patientUid || !validMode
+      || consumedCounterFundingSubstitutionLeases.has(lease)) {
+    throw AppError.conflict(
+      'Counter funding requires a fresh transaction-bound substitution workflow lease',
+      'PHARMACY_SUBSTITUTION_FUNDING_LEASE_REQUIRED',
+    );
+  }
+  consumedCounterFundingSubstitutionLeases.add(lease);
+  return lease;
 }
 
 export async function lockPharmacyFundingAdmissionTx(tx, {
@@ -346,6 +597,7 @@ export async function resolveAuthoritativeCounterFundingTx(tx, {
   totalAmount,
   orderVersion,
   orderItemsSha256,
+  substitutionFundingAuthorityLease = null,
 }) {
   const tid = requireTenantId(tenantId);
   const exactOrderId = Number(orderId);
@@ -365,11 +617,22 @@ export async function resolveAuthoritativeCounterFundingTx(tx, {
       'COUNTER_FUNDING_AUTHORITY_REQUIRED',
     );
   }
+  const substitutionLease = consumeCounterFundingSubstitutionAuthorityLease(tx, {
+    tenantId: tid,
+    orderId: exactOrderId,
+    lease: substitutionFundingAuthorityLease,
+  });
   const patientUid = await resolvePharmacyFundingPatientUidTx(tx, {
     tenantId: tid,
     orderId: exactOrderId,
     patientId: exactPatientId,
   });
+  if (patientUid !== substitutionLease.patientUid) {
+    throw AppError.conflict(
+      'The counter-funding patient changed after the substitution workflow barrier',
+      'PHARMACY_SUBSTITUTION_FUNDING_LEASE_STALE',
+    );
+  }
   await lockPharmacyFundingAuthorityTx(tx, { tenantId: tid, patientUid });
   await tx.$queryRawUnsafe(
     `SELECT pg_advisory_xact_lock(hashtextextended(
@@ -382,6 +645,21 @@ export async function resolveAuthoritativeCounterFundingTx(tx, {
     exactVersion,
     exactItemsSha256,
   );
+  const lockedOrderRows = await tx.$queryRawUnsafe(
+    `SELECT id,patient_id,status
+       FROM pharmacy_orders
+      WHERE tenant_id=$1::uuid AND id=$2::int AND patient_id=$3::int
+      FOR UPDATE`,
+    tid,
+    exactOrderId,
+    exactPatientId,
+  );
+  if (lockedOrderRows.length !== 1) {
+    throw AppError.conflict(
+      'The exact pharmacy order changed before funding authority was locked',
+      'COUNTER_FUNDING_AUTHORITY_STALE',
+    );
+  }
   const rows = await tx.$queryRawUnsafe(
     `SELECT event.id AS funding_event_id,event.admission_id,event.invoice_id,
             event.invoice_item_id,event.tpa_claim_id,event.task_id,event.amount,
@@ -427,8 +705,8 @@ export async function resolveAuthoritativeCounterFundingTx(tx, {
         AND invoice.patient_uid=patient.uid
         AND invoice.admission_id IS NOT DISTINCT FROM event.admission_id
         AND pharmacy_order.funding_admission_id IS NOT DISTINCT FROM event.admission_id
-      ORDER BY event.recorded_at DESC,event.id DESC
-      FOR UPDATE OF pharmacy_order,item,invoice`,
+       ORDER BY event.recorded_at DESC,event.id DESC
+       `,
     tid,
     exactOrderId,
     exactPatientId,
@@ -448,14 +726,23 @@ export async function resolveAuthoritativeCounterFundingTx(tx, {
         WHERE task.tenant_id=$1::uuid
           AND task.related_resource_id=$2
           AND task.related_resource_type IN
-            ('pharmacy_tpa_line_decision','pharmacy_posted_payment',
-             'pharmacy_patient_advance')
+            ('pharmacy_tpa_line_decision','pharmacy_posted_payment')
           AND task.status IN ('open','in_progress','blocked','overdue')
+          AND task.metadata->>'contract'=$3
+          AND task.metadata->>'pharmacy_order_id'=$2
+          AND (
+            (task.related_resource_type='pharmacy_tpa_line_decision'
+              AND task.metadata->>'task_type'='tpa_line_decision')
+            OR
+            (task.related_resource_type='pharmacy_posted_payment'
+              AND task.metadata->>'task_type'='posted_payment')
+          )
         ORDER BY task.id DESC
         LIMIT 2
         FOR UPDATE OF task`,
       tid,
       String(exactOrderId),
+      'pharmacy_funding_task_v1',
     );
     const recovery = recoveryRows.length === 1 ? recoveryRows[0] : null;
     throw AppError.conflict(
@@ -477,6 +764,52 @@ export async function resolveAuthoritativeCounterFundingTx(tx, {
           deep_link: recovery.metadata?.action_url,
         } : null,
       },
+    );
+  }
+  const invoiceIds = [...new Set(orderRows.map((row) => Number(row.invoice_id)))]
+    .sort((left, right) => left - right);
+  const itemIds = [...new Set(orderRows.map((row) => Number(row.invoice_item_id)))]
+    .sort((left, right) => left - right);
+  const lockedInvoices = await tx.$queryRawUnsafe(
+    `SELECT id,status,patient_uid,admission_id
+       FROM billing_invoices
+      WHERE tenant_id=$1::uuid AND id=ANY($2::int[])
+      ORDER BY id
+      FOR UPDATE`,
+    tid,
+    invoiceIds,
+  );
+  const lockedItems = await tx.$queryRawUnsafe(
+    `SELECT id,invoice_id,line_total,source_ref_type,source_ref_id,source_ref_active,
+            source_authority_version,source_authority_sha256
+       FROM billing_invoice_items
+      WHERE tenant_id=$1::uuid AND id=ANY($2::int[])
+      ORDER BY id
+      FOR UPDATE`,
+    tid,
+    itemIds,
+  );
+  const invoiceById = new Map(lockedInvoices.map((invoice) => [Number(invoice.id), invoice]));
+  const itemById = new Map(lockedItems.map((item) => [Number(item.id), item]));
+  if (lockedInvoices.length !== invoiceIds.length || lockedItems.length !== itemIds.length
+      || orderRows.some((row) => {
+        const invoice = invoiceById.get(Number(row.invoice_id));
+        const item = itemById.get(Number(row.invoice_item_id));
+        return !invoice || !item || Number(item.invoice_id) !== Number(invoice.id)
+          || invoice.status !== row.invoice_status
+          || String(invoice.patient_uid) !== String(row.patient_uid)
+          || (invoice.admission_id == null ? null : Number(invoice.admission_id))
+            !== (row.invoice_admission_id == null ? null : Number(row.invoice_admission_id))
+          || item.source_ref_type !== 'pharmacy_order'
+          || Number(item.source_ref_id) !== exactOrderId
+          || item.source_ref_active !== true
+          || Number(item.source_authority_version) !== Number(row.source_authority_version)
+          || String(item.source_authority_sha256) !== String(row.source_authority_sha256)
+          || Math.abs(Number(item.line_total) - Number(row.line_total)) > 0.001;
+      })) {
+    throw AppError.conflict(
+      'The invoice or item changed while counter funding authority was locked',
+      'COUNTER_FUNDING_AUTHORITY_STALE',
     );
   }
   const activeFundingTargets = new Set(orderRows.map((row) => (

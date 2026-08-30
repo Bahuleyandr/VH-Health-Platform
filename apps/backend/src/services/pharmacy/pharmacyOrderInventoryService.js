@@ -6,9 +6,8 @@ import { AppError } from '../../utils/AppError.js';
 import { lockTenantPatientMergeStability } from '../../utils/patientMergeStabilityLock.js';
 import {
   assertPharmacyCapForDispenseTx,
-  lockPharmacyFundingAuthorityTx,
+  lockCounterFundingSubstitutionAuthorityTx,
   resolveAuthoritativeCounterFundingTx,
-  resolvePharmacyFundingPatientUidTx,
 } from './pharmacyCapService.js';
 import {
   CONTROLLED_SUBSTITUTION_AUTHORITY,
@@ -2114,15 +2113,12 @@ export async function dispenseSubstitutionCommand({
   );
   const result = await setTenantTx(tenantId, async (tx) => {
     await lockTenantPatientMergeStability(tx, tenantId);
-    const fundingPatientUid = await resolvePharmacyFundingPatientUidTx(tx, {
-      tenantId,
-      orderId: body?.order_id,
-      patientUid: body?.patient_uid,
-    });
-    await lockPharmacyFundingAuthorityTx(tx, {
-      tenantId,
-      patientUid: fundingPatientUid,
-    });
+    const substitutionFundingAuthorityLease =
+      await lockCounterFundingSubstitutionAuthorityTx(tx, {
+        tenantId,
+        orderId: body?.order_id,
+        patientUid: body?.patient_uid,
+      });
     await assertPharmacyFacilityGrant(tx, {
       tenantId,
       facilityId: body?.facility_id,
@@ -2434,6 +2430,7 @@ export async function dispenseSubstitutionCommand({
       totalAmount: adjustedTotal,
       orderVersion: Number(origin.inventory_authority_version),
       orderItemsSha256: clinicalOrderItemsSha256(origin.items_list),
+      substitutionFundingAuthorityLease,
     });
     const capProbe = await assertPharmacyCapForDispenseTx(tx, {
       tenantId,

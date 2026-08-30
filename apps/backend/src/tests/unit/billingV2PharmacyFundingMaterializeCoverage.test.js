@@ -3,6 +3,7 @@ import { jest } from '@jest/globals';
 const queryMock = jest.fn();
 const executeMock = jest.fn();
 const setTenantTxMock = jest.fn();
+const lockSubstitutionAuthorityMock = jest.fn();
 const lockAuthorityMock = jest.fn();
 const lockAdmissionMock = jest.fn();
 const releaseReservationMock = jest.fn();
@@ -40,6 +41,7 @@ jest.unstable_mockModule('../../services/billing/ledger/ledgerAuthoritativeMode.
 }));
 
 jest.unstable_mockModule('../../services/pharmacy/pharmacyCapService.js', () => ({
+  lockCounterFundingSubstitutionAuthorityTx: lockSubstitutionAuthorityMock,
   lockPharmacyFundingAdmissionTx: lockAdmissionMock,
   lockPharmacyFundingAuthorityTx: lockAuthorityMock,
   releasePharmacyCapReservationTx: releaseReservationMock,
@@ -93,6 +95,22 @@ function line(overrides = {}) {
     patient_uid: PATIENT,
     admission_id: null,
     invoice_tenant_id: TENANT,
+    source_ref_type: 'pharmacy_order',
+    source_ref_id: 41,
+    source_ref_active: true,
+    ...overrides,
+  };
+}
+
+function advanceAllocation(overrides = {}) {
+  return {
+    id: '801',
+    allocated_amount: '100.00',
+    billing_advance_id: 901,
+    invoice_id: 61,
+    invoice_item_id: 71,
+    funding_task_id: 81,
+    funding_approval_receipt_id: null,
     ...overrides,
   };
 }
@@ -210,11 +228,29 @@ function baseState(overrides = {}) {
     decisionRows: [],
     reservationRows: [],
     stockRows: [],
+    substitutionTasks: [],
+    substitutionApprovals: [],
+    substitutionCommands: [],
+    advanceAllocations: [],
+    advanceAllocationReversals: [],
     currentEvents: [],
     aggregate: { subtotal: '100.00', cgst: '0', sgst: '0', igst: '0' },
     invoiceFinancial: { discount_amount: '0', credit_note_amount: '0', amount_paid: '0' },
     invoiceMeta: [{ admission_id: currentOrder.funding_admission_id, patient_uid: PATIENT, tenant_id: TENANT }],
-    invoice: { id: 61, status: 'DRAFT', patient_uid: PATIENT, admission_id: currentOrder.funding_admission_id },
+    invoice: {
+      id: 61,
+      status: 'DRAFT',
+      patient_uid: PATIENT,
+      admission_id: currentOrder.funding_admission_id,
+      tenant_id: TENANT,
+      subtotal: '100.00',
+      cgst_amount: '0',
+      sgst_amount: '0',
+      igst_amount: '0',
+      total_amount: '100.00',
+      amount_paid: '0',
+      amount_due: '100.00',
+    },
     financeTask: financeTask({
       metadata: {
         ...financeTask().metadata,
@@ -243,6 +279,23 @@ function json(value) {
 
 function installSqlRouter(overrides = {}) {
   const state = baseState(overrides);
+  lockSubstitutionAuthorityMock.mockImplementation(async (_tx, { tenantId, orderId }) => {
+    if (state.substitutionTasks.length || state.substitutionApprovals.length
+        || state.substitutionCommands.length) {
+      const error = new Error('A governed substitution funding workflow already owns this order');
+      error.statusCode = 409;
+      error.code = 'PHARMACY_SUBSTITUTION_FUNDING_AUTHORITY_CONFLICT';
+      error.details = {
+        pharmacy_order_id: Number(orderId),
+        task_ids: state.substitutionTasks.map((row) => Number(row.id)),
+        approval_ids: state.substitutionApprovals.map((row) => Number(row.id)),
+        command_receipt_ids: state.substitutionCommands.map((row) => String(row.id)),
+        next_action: 'complete_or_govern_release_of_substitution_funding_authority',
+      };
+      throw error;
+    }
+    return { tenantId, orderId: Number(orderId), patientUid: PATIENT };
+  });
 
   queryMock.mockImplementation(async (rawSql, ...params) => {
     const sql = compactSql(rawSql);
@@ -251,6 +304,9 @@ function installSqlRouter(overrides = {}) {
       return state.actorRows;
     }
     if (sql.includes('SELECT uid FROM users') && sql.includes('tenant_id = $2::uuid')) {
+      return [{ uid: PATIENT }];
+    }
+    if (sql.startsWith('SELECT patient.uid FROM users patient')) {
       return [{ uid: PATIENT }];
     }
     if (sql.includes('FROM pharmacy_staff_facility_grants')) return state.facilityGrantRows;
@@ -274,6 +330,10 @@ function installSqlRouter(overrides = {}) {
     }
 
     if (sql.includes('FROM tpa_claims claim')) return state.claimRows;
+    if (sql.includes('SELECT id,invoice_id,admission_id,patient_uid,status')
+        && sql.includes('FROM tpa_claims')) {
+      return state.claimRows;
+    }
     if (sql.includes('SELECT * FROM tpa_claims')) return state.claimRows;
     if (sql.includes('SELECT id FROM tpa_claims')) {
       return state.claimRows.map((row) => ({ id: row.id }));
@@ -287,6 +347,21 @@ function installSqlRouter(overrides = {}) {
         line_total: item.line_total,
         invoice_status: item.invoice_status,
       }));
+    }
+    if (sql.includes('SELECT item.id,item.invoice_id')
+        && sql.includes("item.source_ref_type='pharmacy_order'")) {
+      return state.sourceLines.map((item) => ({ id: item.id, invoice_id: item.invoice_id }));
+    }
+    if (sql.includes('SELECT id,invoice_id')
+        && sql.includes('FROM billing_invoice_items')
+        && sql.includes("source_ref_type='pharmacy_order'")) {
+      return state.sourceLines.map((item) => ({ id: item.id, invoice_id: item.invoice_id }));
+    }
+    if (sql.includes('FROM billing_invoice_items')
+        && sql.includes('id=ANY($2::int[])')
+        && sql.includes('FOR UPDATE')) {
+      const ids = new Set(params[1].map(Number));
+      return state.sourceLines.filter((item) => ids.has(Number(item.id)));
     }
     if (sql.includes('SELECT item.*,invoice.status AS invoice_status')
         || sql.includes('SELECT item.*,invoice.patient_uid,invoice.admission_id')) {
@@ -341,6 +416,12 @@ function installSqlRouter(overrides = {}) {
         && sql.includes('FROM billing_invoices')) {
       return state.invoiceMeta;
     }
+    if (sql.includes('FROM billing_invoices')
+        && sql.includes('id=ANY($2::int[])')
+        && sql.includes('FOR UPDATE')) {
+      const ids = new Set(params[1].map(Number));
+      return ids.has(Number(state.invoice.id)) ? [state.invoice] : [];
+    }
     if (sql.includes('SELECT id FROM billing_invoices') && sql.includes('FOR UPDATE')) {
       return [{ id: state.invoice.id }];
     }
@@ -366,12 +447,30 @@ function installSqlRouter(overrides = {}) {
     if (sql.includes('SELECT allocation.billing_payment_id')) {
       return state.allocatedByPaymentRows;
     }
+    if (sql.includes('FROM pharmacy_advance_allocations allocation')
+        && sql.includes('allocation.pharmacy_order_id=$2::int')) {
+      return state.advanceAllocations;
+    }
+    if (sql.includes('FROM pharmacy_advance_allocation_reversals')
+        && sql.includes('allocation_id=ANY($2::bigint[])')) {
+      return state.advanceAllocationReversals;
+    }
     if (sql.includes('SELECT allocation.id AS allocation_id')) return state.allocations;
     if (sql.includes('SELECT allocation.*') && sql.includes('remaining_amount')) {
       return state.terminalAllocations;
     }
     if (sql.includes('FROM billing_payments payment') && sql.includes('FOR UPDATE')) {
       return state.payments;
+    }
+    if (sql.includes('FROM billing_payments') && sql.includes('invoice_id=ANY($2::int[])')) {
+      return [];
+    }
+    if (sql.includes('FROM billing_refunds') && sql.includes('invoice_id=ANY($2::int[])')) {
+      return [];
+    }
+    if (sql.includes('FROM billing_advance_settlements')
+        && sql.includes('invoice_id=ANY($2::int[])')) {
+      return [];
     }
     if (sql.startsWith('INSERT INTO pharmacy_payment_allocations')) {
       const inserted = allocation({
@@ -401,6 +500,19 @@ function installSqlRouter(overrides = {}) {
       });
       state.decisionRows = [inserted];
       return [inserted];
+    }
+
+    if (sql.includes('FROM tasks') && sql.includes('related_resource_type=ANY($3::text[])')
+        && sql.includes("metadata->>'contract'=$4")) {
+      return state.substitutionTasks;
+    }
+    if (sql.includes('FROM approvals')
+        && sql.includes("approval_kind='pharmacy_substitution_funding_reauthorisation'")) {
+      return state.substitutionApprovals;
+    }
+    if (sql.includes('FROM pharmacy_funding_commands')
+        && sql.includes("command_type='SUBSTITUTION_FUNDING_APPROVAL'")) {
+      return state.substitutionCommands;
     }
 
     if (sql.startsWith('INSERT INTO tasks')) {
@@ -452,6 +564,10 @@ function installSqlRouter(overrides = {}) {
 
     if (sql.includes('SELECT pg_advisory_xact_lock')
         && sql.includes('vh:pharmacy_funding_event_chain:')) {
+      return [{ lock_acquired: '1' }];
+    }
+    if (sql.includes('SELECT pg_advisory_xact_lock')
+        && sql.includes('hashtextextended($1::text,753)')) {
       return [{ lock_acquired: '1' }];
     }
     if (sql.includes('FROM pharmacy_funding_decision_events event')) {
@@ -583,6 +699,7 @@ beforeEach(() => {
   queryMock.mockReset();
   executeMock.mockReset();
   setTenantTxMock.mockReset();
+  lockSubstitutionAuthorityMock.mockReset();
   lockAuthorityMock.mockReset();
   lockAdmissionMock.mockReset();
   releaseReservationMock.mockReset();
@@ -591,6 +708,11 @@ beforeEach(() => {
 
   setTenantTxMock.mockImplementation(async (_tenantId, fn) => fn(mockTx));
   resolvePatientUidMock.mockResolvedValue(PATIENT);
+  lockAdmissionMock.mockResolvedValue({
+    id: 51,
+    patient_uid: PATIENT,
+    status: 'admitted',
+  });
   orderItemsSha256Mock.mockReturnValue(HASH);
 });
 
@@ -961,7 +1083,12 @@ describe('materialization authority guards', () => {
   });
 
   it('rejects a line owned by a different patient before line mutation', async () => {
-    installSqlRouter({ sourceLines: [line({ patient_uid: '33333333-3333-4333-8333-333333333333' })] });
+    installSqlRouter({
+      invoice: {
+        ...baseState().invoice,
+        patient_uid: '33333333-3333-4333-8333-333333333333',
+      },
+    });
 
     await expect(callExport(
       'materializePharmacyFundingTaskTx', mockTx, authority(),
@@ -971,9 +1098,163 @@ describe('materialization authority guards', () => {
     });
     expect(mutationCalls()).toHaveLength(0);
   });
+
+  it.each([
+    'pharmacy_tpa_line_decision',
+    'pharmacy_posted_payment',
+    'pharmacy_patient_advance',
+  ])('preserves a live %s substitution task instead of overwriting it', async (resourceType) => {
+    const substitutionTask = {
+      id: 811,
+      related_resource_type: resourceType,
+      status: 'open',
+      metadata: { contract: 'pharmacy_substitution_funding_task_v1' },
+    };
+    const state = installSqlRouter({ substitutionTasks: [substitutionTask] });
+
+    await expect(callExport(
+      'materializePharmacyFundingTaskTx', mockTx, authority(),
+    )).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'PHARMACY_SUBSTITUTION_FUNDING_AUTHORITY_CONFLICT',
+      details: {
+        pharmacy_order_id: 41,
+        task_ids: [811],
+        next_action: 'complete_or_govern_release_of_substitution_funding_authority',
+      },
+    });
+
+    expect(state.substitutionTasks).toEqual([substitutionTask]);
+    expect(queryCallsContaining('INSERT INTO tasks')).toHaveLength(0);
+    expect(mutationCalls()).toHaveLength(0);
+  });
+
+  it('fails closed on a net-live patient advance before creating generic authority', async () => {
+    installSqlRouter({ advanceAllocations: [advanceAllocation()] });
+
+    await expect(callExport(
+      'materializePharmacyFundingTaskTx', mockTx, authority(),
+    )).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'PHARMACY_TERMINAL_FUNDING_ADVANCE_RELEASE_REQUIRED',
+      details: {
+        pharmacy_order_id: 41,
+        live_advance_allocation_ids: ['801'],
+        next_action: 'complete_governed_advance_allocation_release_or_conversion',
+      },
+    });
+
+    expect(queryCallsContaining('INSERT INTO tasks')).toHaveLength(0);
+    expect(mutationCalls()).toHaveLength(0);
+  });
+
+  it('locks invoice then item then admission and children before the exact TPA claim', async () => {
+    const tpaOrder = order({
+      payment_mode: 'insurance',
+      funding_admission_id: 51,
+      funding_admission_order_version: 3,
+      funding_admission_items_sha256: HASH,
+    });
+    installSqlRouter({
+      order: tpaOrder,
+      orderRows: [tpaOrder],
+      admissions: [{ id: 51, patient_uid: PATIENT, status: 'admitted' }],
+      claimRows: [claim()],
+      sourceLines: [line({ admission_id: 51 })],
+      actorRows: [{ uid: ACTOR, role: 'INSURANCE_COORDINATOR' }],
+    });
+
+    await callExport('materializePharmacyFundingTaskTx', mockTx, authority({
+      paymentMode: 'insurance',
+      actorRole: 'INSURANCE_COORDINATOR',
+      tpaClaimId: 91,
+    }));
+
+    const invoiceLock = invocationOrder(
+      queryMock,
+      (sql) => sql.includes('FROM billing_invoices')
+        && sql.includes('id=ANY($2::int[])') && sql.includes('FOR UPDATE'),
+    );
+    const itemLock = invocationOrder(
+      queryMock,
+      (sql) => sql.includes('FROM billing_invoice_items')
+        && sql.includes('id=ANY($2::int[])') && sql.includes('FOR UPDATE'),
+    );
+    const admissionLock = lockAdmissionMock.mock.invocationCallOrder[0];
+    const childLock = invocationOrder(
+      queryMock,
+      (sql) => sql.includes('FROM billing_payments')
+        && sql.includes('invoice_id=ANY($2::int[])'),
+    );
+    const claimLock = invocationOrder(
+      queryMock,
+      (sql) => sql.includes('FROM tpa_claims claim') && sql.includes('FOR UPDATE'),
+    );
+    expect(invoiceLock).toBeLessThan(itemLock);
+    expect(itemLock).toBeLessThan(admissionLock);
+    expect(admissionLock).toBeLessThan(childLock);
+    expect(childLock).toBeLessThan(claimLock);
+  });
+
+  it('does not mutate when admission revalidation is lost after invoice locks', async () => {
+    const tpaOrder = order({
+      payment_mode: 'insurance',
+      funding_admission_id: 51,
+      funding_admission_order_version: 3,
+      funding_admission_items_sha256: HASH,
+    });
+    installSqlRouter({
+      order: tpaOrder,
+      orderRows: [tpaOrder],
+      admissions: [{ id: 51, patient_uid: PATIENT, status: 'admitted' }],
+      sourceLines: [line({ admission_id: 51 })],
+      actorRows: [{ uid: ACTOR, role: 'INSURANCE_COORDINATOR' }],
+    });
+    lockAdmissionMock.mockResolvedValueOnce({
+      id: 51,
+      patient_uid: PATIENT,
+      status: 'discharged',
+    });
+
+    await expect(callExport(
+      'materializePharmacyFundingTaskTx',
+      mockTx,
+      authority({ paymentMode: 'insurance', actorRole: 'INSURANCE_COORDINATOR' }),
+    )).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'PHARMACY_FUNDING_ADMISSION_AUTHORITY_STALE',
+    });
+
+    expect(mutationCalls()).toHaveLength(0);
+  });
 });
 
 describe('terminal order funding closure', () => {
+  it('does not close a canonical target while substitution authority owns the order', async () => {
+    const cancelled = order({ status: 'CANCELLED' });
+    installSqlRouter({
+      order: cancelled,
+      orderRows: [cancelled],
+      substitutionTasks: [{
+        id: 812,
+        related_resource_type: 'pharmacy_patient_advance',
+        status: 'open',
+        metadata: { contract: 'pharmacy_substitution_funding_task_v1' },
+      }],
+    });
+
+    await expect(callExport(
+      'materializePharmacyFundingTaskTx', mockTx, authority(),
+    )).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'PHARMACY_SUBSTITUTION_FUNDING_AUTHORITY_CONFLICT',
+      details: { task_ids: [812] },
+    });
+
+    expect(executeCallsContaining('UPDATE tasks')).toHaveLength(0);
+    expect(mutationCalls()).toHaveLength(0);
+  });
+
   it('cancels tasks, invalidates TPA evidence, and reports invalidated for a cancelled order', async () => {
     const cancelled = order({ status: 'CANCELLED' });
     const state = installSqlRouter({ order: cancelled, orderRows: [cancelled] });

@@ -37,6 +37,7 @@ jest.unstable_mockModule('../../controllers/delivery/deliveryTrackingController.
 }));
 jest.unstable_mockModule('../../services/pharmacy/pharmacyCapService.js', () => ({
   assertPharmacyCapForDispenseTx: jest.fn(async () => ({ message: null })),
+  lockCounterFundingSubstitutionAuthorityTx: jest.fn(async () => ({})),
   lockPharmacyFundingAuthorityTx: jest.fn(async () => ({})),
   releasePharmacyCapReservationTx: jest.fn(async () => null),
   resolveAuthoritativeCounterFundingTx: jest.fn(async () => ({

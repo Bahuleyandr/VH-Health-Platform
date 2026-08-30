@@ -15,6 +15,12 @@ const ensurePackBarcode = jest.fn();
 const clinicalOrderItemsSha256 = jest.fn(() => 'items-sha256');
 const assertPharmacyCapForDispenseTx = jest.fn();
 const releasePharmacyCapReservationTx = jest.fn();
+const substitutionFundingAuthorityLease = Object.freeze({
+  kind: 'substitution-funding-authority-test-lease',
+});
+const lockCounterFundingSubstitutionAuthorityTx = jest.fn(
+  async () => substitutionFundingAuthorityLease,
+);
 const resolveAuthoritativeCounterFundingTx = jest.fn();
 const materializePharmacyFundingAuthority = jest.fn();
 const compensateTerminalPharmacyFundingAuthorityTx = jest.fn();
@@ -61,6 +67,7 @@ jest.unstable_mockModule('../../controllers/delivery/deliveryTrackingController.
 
 jest.unstable_mockModule('../../services/pharmacy/pharmacyCapService.js', () => ({
   assertPharmacyCapForDispenseTx,
+  lockCounterFundingSubstitutionAuthorityTx,
   lockPharmacyFundingAuthorityTx: jest.fn(async () => ({})),
   releasePharmacyCapReservationTx,
   resolveAuthoritativeCounterFundingTx,

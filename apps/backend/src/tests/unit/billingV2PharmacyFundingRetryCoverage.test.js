@@ -4,6 +4,7 @@ import { jest } from '@jest/globals';
 const queryMock = jest.fn();
 const executeMock = jest.fn();
 const setTenantTxMock = jest.fn();
+const lockSubstitutionAuthorityMock = jest.fn();
 const resolvePatientUidMock = jest.fn();
 const lockAuthorityMock = jest.fn();
 const lockAdmissionMock = jest.fn();
@@ -44,6 +45,7 @@ jest.unstable_mockModule('../../services/billing/ledger/ledgerAuthoritativeMode.
 }));
 
 jest.unstable_mockModule('../../services/pharmacy/pharmacyCapService.js', () => ({
+  lockCounterFundingSubstitutionAuthorityTx: lockSubstitutionAuthorityMock,
   lockPharmacyFundingAdmissionTx: lockAdmissionMock,
   lockPharmacyFundingAuthorityTx: lockAuthorityMock,
   releasePharmacyCapReservationTx: releaseCapReservationMock,
@@ -134,8 +136,28 @@ function baseSourceLine() {
     patient_uid: PATIENT_UID,
     admission_id: null,
     invoice_tenant_id: TENANT_ID,
+    source_ref_type: 'pharmacy_order',
+    source_ref_id: ORDER_ID,
+    source_ref_active: true,
     source_authority_version: ORDER_VERSION,
     source_authority_sha256: ORDER_ITEMS_SHA256,
+  };
+}
+
+function baseInvoice() {
+  return {
+    id: INVOICE_ID,
+    status: 'DRAFT',
+    patient_uid: PATIENT_UID,
+    admission_id: null,
+    tenant_id: TENANT_ID,
+    subtotal: 100,
+    cgst_amount: 0,
+    sgst_amount: 0,
+    igst_amount: 0,
+    total_amount: 100,
+    amount_paid: 0,
+    amount_due: 100,
   };
 }
 
@@ -175,15 +197,10 @@ function buildState() {
     lockedTaskRows: [structuredClone(task)],
     orderPreRows: [order],
     materializeOrderRows: [structuredClone(order)],
-    retryLineRows: [{
-      invoice_item_id: INVOICE_ITEM_ID,
-      invoice_id: INVOICE_ID,
-      line_total: 100,
-      invoice_status: 'DRAFT',
-    }],
     retryClaimRows: [{ id: 71 }],
     actorRows: [{ uid: ACTOR_UID, role: 'FINANCE_INCHARGE' }],
     admissionRows: [],
+    invoiceRows: [baseInvoice()],
     sourceLineRows: [baseSourceLine()],
     paymentRows: [{
       id: PAYMENT_ID,
@@ -220,6 +237,21 @@ function unhandledSql(kind, sql, params) {
 function routeQuery(sql, ...params) {
   const text = compactSql(sql);
 
+  if (text.startsWith('SELECT patient.uid FROM users patient')) {
+    return [{ uid: PATIENT_UID }];
+  }
+  if (text.includes('FROM pharmacy_funding_commands')
+      && text.includes("command_type='SUBSTITUTION_FUNDING_APPROVAL'")) {
+    return [];
+  }
+  if (text.includes('FROM approvals')
+      && text.includes("approval_kind='pharmacy_substitution_funding_reauthorisation'")) {
+    return [];
+  }
+  if (text.includes('FROM tasks') && text.includes('related_resource_type=ANY($3::text[])')
+      && text.includes("metadata->>'contract'=$4")) {
+    return [];
+  }
   if (text.includes('SELECT * FROM tasks')
       && text.includes("related_resource_type='pharmacy_posted_payment'")) {
     return text.includes('related_resource_id=$3')
@@ -232,10 +264,10 @@ function routeQuery(sql, ...params) {
   if (text.includes('SELECT po.id,po.patient_id,po.uid,po.patient_name')) {
     return state.materializeOrderRows;
   }
-  if (text.includes('SELECT item.id AS invoice_item_id,item.invoice_id,item.line_total')) {
-    return state.retryLineRows;
+  if (text.startsWith('SELECT item.id,item.invoice_id FROM billing_invoice_items item')) {
+    return state.sourceLineRows.map((line) => ({ id: line.id, invoice_id: line.invoice_id }));
   }
-  if (text.startsWith('SELECT id FROM tpa_claims') && text.includes('patient_uid=$3::uuid')) {
+  if (text.startsWith('SELECT id,invoice_id,admission_id,patient_uid,status FROM tpa_claims')) {
     return state.retryClaimRows;
   }
   if (text.startsWith('SELECT uid, UPPER(role) AS role FROM users')) {
@@ -244,8 +276,27 @@ function routeQuery(sql, ...params) {
   if (text.startsWith('SELECT id,patient_uid,status FROM admissions')) {
     return state.admissionRows;
   }
-  if (text.startsWith('SELECT item.*,invoice.status AS invoice_status')) {
+  if (text.includes('FROM billing_invoices') && text.includes('id=ANY($2::int[])')
+      && text.endsWith('FOR UPDATE')) {
+    return state.invoiceRows;
+  }
+  if (text.includes('FROM billing_invoice_items') && text.includes('id=ANY($2::int[])')
+      && text.endsWith('FOR UPDATE')) {
     return state.sourceLineRows;
+  }
+  if (text.includes('FROM billing_payments') && text.includes('invoice_id=ANY($2::int[])')) {
+    return [];
+  }
+  if (text.includes('FROM billing_refunds') && text.includes('invoice_id=ANY($2::int[])')) {
+    return [];
+  }
+  if (text.includes('FROM billing_advance_settlements')
+      && text.includes('invoice_id=ANY($2::int[])')) {
+    return [];
+  }
+  if (text.includes('FROM pharmacy_advance_allocations allocation')
+      && text.includes('allocation.pharmacy_order_id=$2::int')) {
+    return [];
   }
   if (text.startsWith('UPDATE billing_invoice_items SET description=')) {
     recordMutation('query', sql, params);
@@ -303,6 +354,9 @@ function routeQuery(sql, ...params) {
       && text.includes('vh:pharmacy_funding_event_chain:')) {
     return [{ lock_acquired: '' }];
   }
+  if (text.startsWith('SELECT pg_advisory_xact_lock(hashtextextended($1::text,753)')) {
+    return [{ lock_acquired: '' }];
+  }
   if (text.startsWith('SELECT event.* FROM pharmacy_funding_decision_events event')) {
     return state.currentAuthorityRows;
   }
@@ -331,7 +385,11 @@ function routeQuery(sql, ...params) {
     return [state.receipt];
   }
   if (text.startsWith('SELECT task.id AS task_id,task.status AS task_status,')) {
-    return state.recoveryRows;
+    return state.recoveryRows
+      .filter((row) => row.metadata?.contract == null
+        || row.metadata.contract === params[4])
+      .sort((left, right) => Number(right.task_id) - Number(left.task_id))
+      .slice(0, 1);
   }
   if (text.startsWith('SELECT reconciliation.*,task.status AS task_status,')) {
     return state.reconciliationRows;
@@ -404,7 +462,11 @@ beforeEach(() => {
   setTenantTxMock.mockReset().mockImplementation(async (_tenantId, fn) => fn(mockTx));
   resolvePatientUidMock.mockReset().mockResolvedValue(PATIENT_UID);
   lockAuthorityMock.mockReset().mockResolvedValue(undefined);
-  lockAdmissionMock.mockReset().mockResolvedValue(undefined);
+  lockAdmissionMock.mockReset().mockResolvedValue({
+    id: 81,
+    patient_uid: PATIENT_UID,
+    status: 'admitted',
+  });
   releaseCapReservationMock.mockReset().mockResolvedValue(null);
   clinicalOrderItemsSha256Mock.mockReset().mockReturnValue(ORDER_ITEMS_SHA256);
 });
@@ -624,7 +686,7 @@ describe('retryPharmacyFundingTask', () => {
   });
 
   it('fails closed when the exact editable invoice line is stale', async () => {
-    state.retryLineRows = [];
+    state.sourceLineRows = [];
 
     await expect(retryPharmacyFundingTask(retryArgs())).rejects.toMatchObject({
       statusCode: 409,
@@ -640,6 +702,9 @@ describe('retryPharmacyFundingTask', () => {
     state.orderPreRows[0].funding_admission_id = 81;
     state.orderPreRows[0].funding_admission_order_version = ORDER_VERSION;
     state.orderPreRows[0].funding_admission_items_sha256 = ORDER_ITEMS_SHA256;
+    state.admissionRows = [{ id: 81, patient_uid: PATIENT_UID, status: 'admitted' }];
+    state.invoiceRows[0].admission_id = 81;
+    state.sourceLineRows[0].admission_id = 81;
     state.retryClaimRows = [];
 
     await expect(retryPharmacyFundingTask(retryArgs())).rejects.toMatchObject({
@@ -704,6 +769,7 @@ describe('getPharmacyFundingRecovery', () => {
     source_authority_sha256: ORDER_ITEMS_SHA256,
     order_version: ORDER_VERSION,
     order_items_list: [{ medication_id: 51, quantity: 1 }],
+    metadata: { contract: 'pharmacy_funding_task_v1', task_type: 'posted_payment' },
   };
 
   it('returns the exact recovery record when its current order hash matches', async () => {
@@ -723,8 +789,36 @@ describe('getPharmacyFundingRecovery', () => {
       String(ORDER_ID),
       INVOICE_ITEM_ID,
       91,
+      'pharmacy_funding_task_v1',
     ]);
     expect(clinicalOrderItemsSha256Mock).toHaveBeenCalledWith(recoveryRow.order_items_list);
+    expectNoMutation();
+  });
+
+  it('returns canonical recovery even when a newer substitution task shares the order', async () => {
+    state.recoveryRows = [
+      recoveryRow,
+      {
+        ...recoveryRow,
+        task_id: TASK_ID + 100,
+        metadata: {
+          contract: 'pharmacy_substitution_funding_task_v1',
+          task_type: 'patient_advance',
+        },
+      },
+    ];
+
+    const result = await getPharmacyFundingRecovery({
+      tenantId: TENANT_ID,
+      orderId: ORDER_ID,
+      invoiceItemId: INVOICE_ITEM_ID,
+    });
+
+    expect(result).toBe(recoveryRow);
+    const sql = compactSql(queryMock.mock.calls[0][0]);
+    expect(sql).toContain("task.metadata->>'contract'=$5");
+    expect(sql).toContain("task.metadata->>'task_type'='posted_payment'");
+    expect(sql).not.toContain("'pharmacy_patient_advance'");
     expectNoMutation();
   });
 

@@ -3,6 +3,7 @@ import { jest } from '@jest/globals';
 const queryMock = jest.fn();
 const executeMock = jest.fn();
 const setTenantTxMock = jest.fn();
+const lockSubstitutionAuthorityMock = jest.fn();
 const resolvePatientUidMock = jest.fn();
 const lockAuthorityMock = jest.fn();
 const lockAdmissionMock = jest.fn();
@@ -33,6 +34,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 }));
 
 jest.unstable_mockModule('../../services/pharmacy/pharmacyCapService.js', () => ({
+  lockCounterFundingSubstitutionAuthorityTx: lockSubstitutionAuthorityMock,
   lockPharmacyFundingAdmissionTx: lockAdmissionMock,
   lockPharmacyFundingAuthorityTx: lockAuthorityMock,
   releasePharmacyCapReservationTx: releaseCapMock,
@@ -129,6 +131,8 @@ class ReconciliationSqlScenario {
     activeCountOverride = null,
     preReadMissing = false,
     orderMissing = false,
+    advanceAllocations = [],
+    advanceAllocationReversals = [],
   } = {}) {
     this.lines = lines.map((line) => ({ ...line }));
     this.order = {
@@ -173,6 +177,10 @@ class ReconciliationSqlScenario {
     this.activeCountOverride = activeCountOverride;
     this.preReadMissing = preReadMissing;
     this.orderMissing = orderMissing;
+    this.advanceAllocations = advanceAllocations.map((allocation) => ({ ...allocation }));
+    this.advanceAllocationReversals = advanceAllocationReversals.map(
+      (reversal) => ({ ...reversal }),
+    );
     this.receipts = new Map();
     this.eventLog = [];
     this.resolvedEvents = [];
@@ -225,6 +233,8 @@ class ReconciliationSqlScenario {
       sgst_amount: String(line.sgstAmount),
       igst_amount: String(line.igstAmount),
       line_total: String(line.lineTotal),
+      source_ref_type: 'pharmacy_order',
+      source_ref_id: ORDER_ID,
       source_ref_active: line.active,
       invoice_status: line.invoiceStatus,
     }));
@@ -232,6 +242,26 @@ class ReconciliationSqlScenario {
 
   invoiceIds() {
     return [...new Set(this.lines.map((line) => Number(line.invoiceId)))];
+  }
+
+  invoiceRows() {
+    return this.invoiceIds().map((id) => {
+      const line = this.lines.find((candidate) => Number(candidate.invoiceId) === id);
+      return {
+        id,
+        status: this.invoiceStatuses.get(id),
+        patient_uid: line.patientUid,
+        admission_id: line.admissionId,
+        tenant_id: TENANT,
+        subtotal: String(line.lineSubtotal),
+        cgst_amount: String(line.cgstAmount),
+        sgst_amount: String(line.sgstAmount),
+        igst_amount: String(line.igstAmount),
+        total_amount: String(line.lineTotal),
+        amount_paid: '0',
+        amount_due: String(line.lineTotal),
+      };
+    });
   }
 
   seedReceipt(command, receipt) {
@@ -285,17 +315,68 @@ class ReconciliationSqlScenario {
         && normalized.includes('FOR UPDATE OF pharmacy_order')) {
       return this.orderMissing ? [] : [{ ...this.order }];
     }
-    if (normalized.includes('SELECT item.id,item.invoice_id,item.quantity,item.unit_price')
+    if (normalized.includes('FROM pharmacy_funding_commands')
+        && normalized.includes("command_type='SUBSTITUTION_FUNDING_APPROVAL'")) {
+      return [];
+    }
+    if (normalized.includes('FROM approvals')
+        && normalized.includes("approval_kind='pharmacy_substitution_funding_reauthorisation'")) {
+      return [];
+    }
+    if (normalized.includes('FROM tasks')
+        && normalized.includes('related_resource_type=ANY($3::text[])')
+        && normalized.includes("metadata->>'contract'=$4")) {
+      return [];
+    }
+    if (normalized.startsWith('SELECT id,patient_uid,status FROM admissions')) {
+      return this.order.funding_admission_id == null ? [] : [{
+        id: Number(this.order.funding_admission_id),
+        patient_uid: PATIENT,
+        status: 'admitted',
+      }];
+    }
+    if (normalized.includes('SELECT item.id,item.invoice_id')
         && normalized.includes('FROM billing_invoice_items item')) {
+      return this.lineRows().map((line) => ({ id: line.id, invoice_id: line.invoice_id }));
+    }
+    if (normalized.includes('FROM billing_invoices')
+        && normalized.includes('id=ANY($2::int[])')
+        && normalized.includes('ORDER BY id')
+        && normalized.endsWith('FOR UPDATE')) {
+      return this.invoiceRows();
+    }
+    if (normalized.includes('FROM billing_invoice_items')
+        && normalized.includes('id=ANY($2::int[])')
+        && normalized.includes('ORDER BY id')
+        && normalized.endsWith('FOR UPDATE')) {
       return this.lineRows();
     }
     if (normalized.startsWith('SELECT id FROM billing_payments')
         && normalized.includes('invoice_id=ANY')) {
       return [];
     }
+    if (normalized.startsWith('SELECT id FROM billing_refunds')
+        && normalized.includes('invoice_id=ANY')) {
+      return [];
+    }
+    if (normalized.startsWith('SELECT id FROM billing_advance_settlements')
+        && normalized.includes('invoice_id=ANY')) {
+      return [];
+    }
+    if (normalized.startsWith('SELECT claim.id,decision.id AS decision_id')) {
+      return [];
+    }
     if (normalized.startsWith('SELECT id FROM pharmacy_payment_allocations')
         && normalized.includes('invoice_item_id=ANY')) {
       return [];
+    }
+    if (normalized.includes('FROM pharmacy_advance_allocations allocation')
+        && normalized.includes('allocation.pharmacy_order_id=$2::int')) {
+      return this.advanceAllocations.map((allocation) => ({ ...allocation }));
+    }
+    if (normalized.includes('FROM pharmacy_advance_allocation_reversals')
+        && normalized.includes('allocation_id=ANY($2::bigint[])')) {
+      return this.advanceAllocationReversals.map((reversal) => ({ ...reversal }));
     }
     if (normalized.includes('SELECT reconciliation.*,task.status AS task_status')
         && normalized.includes('FOR UPDATE OF task,reconciliation')) {
@@ -698,7 +779,11 @@ beforeEach(() => {
     patientUid == null ? PATIENT : String(patientUid)
   ));
   lockAuthorityMock.mockReset().mockResolvedValue(undefined);
-  lockAdmissionMock.mockReset().mockResolvedValue(undefined);
+  lockAdmissionMock.mockReset().mockResolvedValue({
+    id: 77,
+    patient_uid: PATIENT,
+    status: 'admitted',
+  });
   releaseCapMock.mockReset().mockResolvedValue({ id: 701, status: 'RELEASED' });
   clinicalOrderItemsSha256Mock.mockReset().mockReturnValue(ORDER_ITEMS_SHA256);
 });
@@ -916,7 +1001,7 @@ describe('governed reconciliation blockers', () => {
       scenario: () => new ReconciliationSqlScenario({
         lines: [
           logicalLine({ patientUid: OTHER_PATIENT }),
-          logicalLine({ id: 102 }),
+          logicalLine({ id: 102, invoiceId: 202 }),
         ],
       }),
       reason: 'KEEPER_DOES_NOT_MATCH_CURRENT_ORDER_AUTHORITY',
@@ -973,6 +1058,22 @@ describe('governed reconciliation blockers', () => {
         ],
       }),
       reason: 'ISSUED_PAYMENT_OR_ALLOCATION_LINKED_LINES_REQUIRE_REBILL_OR_CANCEL',
+    },
+    {
+      name: 'live patient advance allocation',
+      path: 'KEEP_CURRENT_AUTHORITY',
+      scenario: () => new ReconciliationSqlScenario({
+        advanceAllocations: [{
+          id: '801',
+          allocated_amount: '25',
+          billing_advance_id: 901,
+          invoice_id: 201,
+          invoice_item_id: KEEPER_ID,
+          funding_task_id: 81,
+          funding_approval_receipt_id: null,
+        }],
+      }),
+      reason: 'LIVE_ADVANCE_ALLOCATION_REQUIRES_GOVERNED_RELEASE_OR_CONVERSION',
     },
     {
       name: 'terminal stock movement evidence',

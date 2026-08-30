@@ -16,6 +16,7 @@ import { lockTenantPatientMergeStability } from '../../utils/patientMergeStabili
 import { calculateETA } from '../delivery/deliveryTrackingController.js';
 import {
   assertPharmacyCapForDispenseTx,
+  lockCounterFundingSubstitutionAuthorityTx,
   lockPharmacyFundingAuthorityTx,
   resolveAuthoritativeCounterFundingTx,
   resolvePharmacyFundingPatientUidTx,
@@ -1749,7 +1750,10 @@ export const dispatchOrder = async (req, res) => {
     const validStatuses = ['CONFIRMED', 'PREPARING', 'READY'];
     const stagedOrder = await setTenantTx(req.tenantId, async (tx) => {
       await lockTenantPatientMergeStability(tx, req.tenantId);
-      await lockOrderFundingAuthorityTx(tx, { tenantId: req.tenantId, orderId });
+      await lockCounterFundingSubstitutionAuthorityTx(tx, {
+        tenantId: req.tenantId,
+        orderId,
+      });
       await assertPharmacyFacilityGrant(tx, {
         tenantId: req.tenantId,
         facilityId: facility.id,
@@ -1880,7 +1884,11 @@ export const dispatchOrder = async (req, res) => {
 
     const result = await setTenantTx(req.tenantId, async (tx) => {
       await lockTenantPatientMergeStability(tx, req.tenantId);
-      await lockOrderFundingAuthorityTx(tx, { tenantId: req.tenantId, orderId });
+      const substitutionFundingAuthorityLease =
+        await lockCounterFundingSubstitutionAuthorityTx(tx, {
+          tenantId: req.tenantId,
+          orderId,
+        });
       const facilityActor = await assertPharmacyFacilityGrant(tx, {
         tenantId: req.tenantId,
         facilityId: facility.id,
@@ -1979,6 +1987,7 @@ export const dispatchOrder = async (req, res) => {
         totalAmount: Number(lockedOrder.total_amount || 0),
         orderVersion: Number(lockedOrder.inventory_authority_version),
         orderItemsSha256: lockedItemsSha256,
+        substitutionFundingAuthorityLease,
       });
       const capProbe = await assertPharmacyCapForDispenseTx(tx, {
         tenantId: req.tenantId,
@@ -3249,7 +3258,10 @@ async function stageCounterFundingAuthority({
   }
   return setTenantTx(req.tenantId, async (tx) => {
     await lockTenantPatientMergeStability(tx, req.tenantId);
-    await lockOrderFundingAuthorityTx(tx, { tenantId: req.tenantId, orderId });
+    await lockCounterFundingSubstitutionAuthorityTx(tx, {
+      tenantId: req.tenantId,
+      orderId,
+    });
     await assertPharmacyFacilityGrant(tx, {
       tenantId: req.tenantId,
       facilityId,
@@ -3663,7 +3675,11 @@ export const markCounterDispensed = async (req, res) => {
 
     const result = await setTenantTx(req.tenantId, async (tx) => {
       await lockTenantPatientMergeStability(tx, req.tenantId);
-      await lockOrderFundingAuthorityTx(tx, { tenantId: req.tenantId, orderId });
+      const substitutionFundingAuthorityLease =
+        await lockCounterFundingSubstitutionAuthorityTx(tx, {
+          tenantId: req.tenantId,
+          orderId,
+        });
       await assertPharmacyFacilityGrant(tx, {
         tenantId: req.tenantId,
         facilityId: facility.id,
@@ -3766,6 +3782,7 @@ export const markCounterDispensed = async (req, res) => {
         totalAmount,
         orderVersion: Number(order.inventory_authority_version),
         orderItemsSha256: currentItemsSha256,
+        substitutionFundingAuthorityLease,
       });
       if (amountCollected != null
           && Math.abs(amountCollected - Number(funding.collectedAmount || 0)) > 0.001) {

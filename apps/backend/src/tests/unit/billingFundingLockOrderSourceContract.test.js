@@ -117,6 +117,8 @@ describe('billing patient-funding lock source contract', () => {
       'lockTenantPatientMergeStability(tx',
       'FROM billing_payments payment',
       'lockBillingPatientFundingAfterMergeTx(tx',
+      'discoverPaymentFundingEventAdvisoriesTx(tx',
+      'assertNoSubstitutionFundingAuthorityTx(tx',
       'lockPaymentFundingEventAdvisoriesTx(tx',
       'const fundedOrderRows',
       'lockBillingInvoice(',
@@ -150,17 +152,23 @@ describe('billing patient-funding lock source contract', () => {
       'lockTenantPatientMergeStability(tx',
       'FROM billing_advances',
       'FROM billing_invoices',
+      'FROM admissions',
       'const advanceIdentity = await resolveBillingFundingPatientIdentityTx',
       'const invoiceIdentity = await resolveBillingFundingPatientIdentityTx',
       'invoiceIdentity.fundingPatientUid !== advanceIdentity.fundingPatientUid',
       'lockPharmacyFundingAuthorityTx(tx',
       'lockBillingInvoice(',
+      'lockPharmacyFundingAdmissionTx(tx',
       'lockBillingAdvance(tx',
       'calculateAdvanceFundingHeadroomTx(tx',
       'INSERT INTO billing_advance_settlements',
     ]);
     expect(settlement).toContain('invoiceIdentity.storedPatientUid');
     expect(settlement).toContain('advanceIdentity.storedPatientUid');
+    expect(settlement).toContain('lockedInvoiceAdmissionId !== discoveredInvoiceAdmissionId');
+    expect(settlement).toContain('lockedAdvanceAdmissionId !== discoveredAdvanceAdmissionId');
+    expect(settlement).toContain('String(lockedAdmission.status) !== String(discoveredAdmission.status)');
+    expect(settlement).toContain('BILLING_ADVANCE_SETTLEMENT_AUTHORITY_CHANGED');
     expect(settlement).toContain('BILLING_ADVANCE_INVOICE_NOT_SETTLEABLE');
   });
 
@@ -251,6 +259,203 @@ describe('billing patient-funding lock source contract', () => {
     expect(completion).toContain("SET status='COMPLETE',response_body=$3::jsonb");
     expect(completion).not.toContain('completed_at=NOW()');
     expect(completion).toContain('RETURNING *');
+  });
+
+  it('takes substitution governance locks before every pharmacy funding domain lock', () => {
+    const blocker = sliceBetween(
+      billing,
+      'async function assertNoSubstitutionFundingAuthorityTx',
+      'async function upsertPharmacyFundingTaskTx',
+    );
+    expectOrdered(blocker, [
+      'if (lock)',
+      'lockCounterFundingSubstitutionAuthorityTx(tx',
+      'FROM pharmacy_funding_commands',
+      'FROM approvals',
+      'FROM tasks',
+    ]);
+    expect(blocker).toContain("command_type='SUBSTITUTION_FUNDING_APPROVAL'");
+    expect(blocker).toContain("approval_kind='pharmacy_substitution_funding_reauthorisation'");
+    expect(blocker).toContain("metadata->>'contract'=$4");
+
+    for (const [start, end, domainMarker] of [
+      [
+        'export async function compensateTerminalPharmacyFundingAuthorityTx',
+        'export async function materializePharmacyFundingTaskTx',
+        'FROM pharmacy_orders pharmacy_order',
+      ],
+      [
+        'export async function materializePharmacyFundingTaskTx',
+        'export async function materializePharmacyFundingAuthority',
+        'FROM pharmacy_orders po',
+      ],
+      [
+        'export async function retryPharmacyFundingTask',
+        'export async function getPharmacyFundingRecovery',
+        'FROM pharmacy_orders po',
+      ],
+      [
+        'export async function recordPharmacyFundingReconciliationDecision',
+        'export async function recordPharmacyFundingLineDecision',
+        'FROM pharmacy_orders pharmacy_order',
+      ],
+      [
+        'export async function recordPharmacyFundingLineDecision',
+        'export async function recordInvoiceItemTpaDecision',
+        'FROM pharmacy_orders pharmacy_order',
+      ],
+    ]) {
+      const mutation = sliceBetween(billing, start, end);
+      expectOrdered(mutation, [
+        'lockPharmacyFundingAuthorityTx(tx',
+        'assertNoSubstitutionFundingAuthorityTx(tx',
+        domainMarker,
+      ]);
+      expect(mutation.match(/assertNoSubstitutionFundingAuthorityTx\(tx/g)).toHaveLength(1);
+    }
+
+    const reversal = sliceBetween(
+      billing,
+      'export async function reversePayment',
+      'export async function collectAdvance',
+    );
+    expectOrdered(reversal, [
+      'lockBillingPatientFundingAfterMergeTx(tx',
+      'discoverPaymentFundingEventAdvisoriesTx(tx',
+      'assertNoSubstitutionFundingAuthorityTx(tx',
+      'lockPaymentFundingEventAdvisoriesTx(tx',
+      'const fundedOrderRows',
+    ]);
+    const discovery = sliceBetween(
+      billing,
+      'async function discoverPaymentFundingEventAdvisoriesTx',
+      'async function lockPaymentFundingEventAdvisoriesTx',
+    );
+    expect(discovery).not.toContain('pg_advisory_xact_lock');
+    expect(reversal).toContain('patientUid: paymentFundingIdentity.fundingPatientUid');
+  });
+
+  it('takes merge stability before patient identity and funding in top-level mutations', () => {
+    const materialize = sliceBetween(
+      billing,
+      'export async function materializePharmacyFundingAuthority',
+      'export async function resolvePostedPharmacyFundingTx',
+    );
+    expectOrdered(materialize, [
+      'lockTenantPatientMergeStability(tx',
+      'FROM pharmacy_orders pharmacy_order',
+      'resolvePostedPharmacyFundingTx(tx',
+    ]);
+
+    for (const [start, end] of [
+      [
+        'export async function recordPharmacyFundingReconciliationDecision',
+        'export async function recordPharmacyFundingLineDecision',
+      ],
+      [
+        'export async function recordPharmacyFundingLineDecision',
+        'export async function recordInvoiceItemTpaDecision',
+      ],
+    ]) {
+      const mutation = sliceBetween(billing, start, end);
+      expectOrdered(mutation, [
+        'lockTenantPatientMergeStability(tx',
+        'resolvePharmacyFundingPatientUidTx(tx',
+        'lockPharmacyFundingAuthorityTx(tx',
+        'assertNoSubstitutionFundingAuthorityTx(tx',
+        'FROM pharmacy_orders pharmacy_order',
+      ]);
+    }
+  });
+
+  it('locks pharmacy invoices then items then admission and child authority deterministically', () => {
+    const paths = [
+      [
+        'export async function compensateTerminalPharmacyFundingAuthorityTx',
+        'export async function materializePharmacyFundingTaskTx',
+        false,
+      ],
+      [
+        'export async function materializePharmacyFundingTaskTx',
+        'export async function materializePharmacyFundingAuthority',
+        true,
+      ],
+      [
+        'export async function retryPharmacyFundingTask',
+        'export async function getPharmacyFundingRecovery',
+        true,
+      ],
+      [
+        'export async function recordPharmacyFundingReconciliationDecision',
+        'export async function recordPharmacyFundingLineDecision',
+        true,
+      ],
+      [
+        'export async function recordPharmacyFundingLineDecision',
+        'export async function recordInvoiceItemTpaDecision',
+        true,
+      ],
+    ];
+    for (const [start, end, requiresDiscovery] of paths) {
+      const mutation = sliceBetween(billing, start, end);
+      expectOrdered(mutation, [
+        'lockPharmacyFundingInvoicesTx(tx',
+        'lockPharmacyFundingInvoiceItemsTx(tx',
+        'lockPharmacyFundingAdmissionTx(tx',
+        'lockPharmacyFundingInvoiceChildrenTx(tx',
+      ]);
+      if (requiresDiscovery) expect(mutation).toContain('FROM admissions');
+      expect(mutation).not.toContain('FOR UPDATE OF item,invoice');
+      expect(mutation).not.toContain('FOR UPDATE OF invoice,item');
+    }
+    expect(billing).not.toContain('FOR UPDATE OF item,invoice');
+    expect(billing).not.toContain('FOR UPDATE OF invoice,item');
+  });
+
+  it('keeps generic task lifecycle and recovery on the canonical contract only', () => {
+    const upsert = sliceBetween(
+      billing,
+      'async function upsertPharmacyFundingTaskTx',
+      'async function completePharmacyFundingTaskTx',
+    );
+    expect(upsert).toContain("WHERE tasks.metadata->>'contract'=$10");
+    expect(upsert).toContain("tasks.metadata->>'task_type'=$11");
+    expect(upsert).toContain('PHARMACY_FUNDING_TASK_CONTRACT_CONFLICT');
+
+    const completion = sliceBetween(
+      billing,
+      'async function completePharmacyFundingTaskTx',
+      'async function resolveExactPharmacyClaimTx',
+    );
+    expect(completion).toContain("metadata->>'contract'=$6");
+    expect(completion).toContain("metadata->>'task_type'=$7");
+    expect(completion).toContain("metadata->>'stage'=ANY($13::text[])");
+
+    const recovery = sliceBetween(
+      billing,
+      'export async function getPharmacyFundingRecovery',
+      'export async function getPharmacyFundingReconciliationCase',
+    );
+    expect(recovery).toContain("task.metadata->>'contract'=$5");
+    expect(recovery).toContain("task.metadata->>'pharmacy_order_id'=$2");
+    expect(recovery).not.toContain("'pharmacy_patient_advance'");
+  });
+
+  it('detects net-live advance allocations and never manufactures a raw release', () => {
+    const guard = sliceBetween(
+      billing,
+      'async function lockNetLivePharmacyAdvanceAllocationsTx',
+      'export async function assertNoLivePharmacyOrderFundingAuthorityTx',
+    );
+    expectOrdered(guard, [
+      'FROM pharmacy_advance_allocations allocation',
+      'FOR UPDATE OF allocation',
+      'FROM pharmacy_advance_allocation_reversals',
+      'ORDER BY allocation_id,id',
+    ]);
+    expect(guard).toContain('PHARMACY_TERMINAL_FUNDING_ADVANCE_RELEASE_REQUIRED');
+    expect(guard).not.toContain('INSERT INTO pharmacy_advance_allocation_reversals');
+    expect(guard).not.toContain('UPDATE pharmacy_advance_allocations');
   });
 
   it('keeps historical payment identity distinct from active order identity on reversal', () => {
@@ -413,6 +618,8 @@ describe('billing patient-funding lock source contract', () => {
     );
     expectOrdered(reversal, [
       'lockBillingPatientFundingAfterMergeTx(tx',
+      'discoverPaymentFundingEventAdvisoriesTx(tx',
+      'assertNoSubstitutionFundingAuthorityTx(tx',
       'lockPaymentFundingEventAdvisoriesTx(tx',
       'FOR UPDATE OF payment',
       'UPDATE billing_payments',

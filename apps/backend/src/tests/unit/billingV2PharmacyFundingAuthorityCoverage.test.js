@@ -4,6 +4,7 @@ import { jest } from '@jest/globals';
 const queryMock = jest.fn();
 const executeMock = jest.fn();
 const setTenantTxMock = jest.fn();
+const lockSubstitutionAuthorityMock = jest.fn();
 const resolveLedgerWiringMock = jest.fn();
 const resolvePharmacyFundingPatientUidTxMock = jest.fn();
 const lockPharmacyFundingAuthorityTxMock = jest.fn();
@@ -40,6 +41,7 @@ jest.unstable_mockModule(
 );
 
 jest.unstable_mockModule('../../services/pharmacy/pharmacyCapService.js', () => ({
+  lockCounterFundingSubstitutionAuthorityTx: lockSubstitutionAuthorityMock,
   lockPharmacyFundingAdmissionTx: lockPharmacyFundingAdmissionTxMock,
   lockPharmacyFundingAuthorityTx: lockPharmacyFundingAuthorityTxMock,
   releasePharmacyCapReservationTx: releasePharmacyCapReservationTxMock,
@@ -304,8 +306,72 @@ function validLine(overrides = {}) {
     invoice_total_amount: '100',
     invoice_amount_paid: '0',
     invoice_amount_due: '100',
+    source_ref_type: 'pharmacy_order',
+    source_ref_id: 71,
+    source_ref_active: true,
     ...overrides,
   };
+}
+
+function validInvoice(overrides = {}) {
+  return {
+    id: 21,
+    status: 'DRAFT',
+    patient_uid: PATIENT,
+    admission_id: null,
+    tenant_id: TENANT,
+    subtotal: '100',
+    cgst_amount: '0',
+    sgst_amount: '0',
+    igst_amount: '0',
+    total_amount: '100',
+    amount_paid: '0',
+    amount_due: '100',
+    ...overrides,
+  };
+}
+
+function advanceAllocationRow(overrides = {}) {
+  return {
+    id: '801',
+    allocated_amount: '100',
+    billing_advance_id: 901,
+    invoice_id: 21,
+    invoice_item_id: 31,
+    funding_task_id: 91,
+    funding_approval_receipt_id: null,
+    ...overrides,
+  };
+}
+
+function noSubstitutionAuthorityRoutes(times = 1) {
+  return [
+    route(['FROM tasks', 'related_resource_type=ANY($3::text[])', "metadata->>'contract'=$4"], [], times),
+    route(['FROM approvals', "approval_kind='pharmacy_substitution_funding_reauthorisation'"], [], times),
+    route(['FROM pharmacy_funding_commands', "command_type='SUBSTITUTION_FUNDING_APPROVAL'"], [], times),
+  ];
+}
+
+function noAdvanceAllocationRoutes(times = 1) {
+  return [route([
+    'FROM pharmacy_advance_allocations allocation',
+    'allocation.pharmacy_order_id=$2::int',
+    'FOR UPDATE OF allocation',
+  ], [], times)];
+}
+
+function fundingDomainLockRoutes({ lines = [validLine()] } = {}) {
+  const invoiceIds = [...new Set(lines.map((line) => Number(line.invoice_id)))];
+  return [
+    route(['SELECT item.id,item.invoice_id', "item.source_ref_type='pharmacy_order'"],
+      lines.map((line) => ({ id: line.id, invoice_id: line.invoice_id }))),
+    route(['FROM billing_invoices', 'id=ANY($2::int[])', 'ORDER BY id', 'FOR UPDATE'],
+      invoiceIds.map((id) => validInvoice({ id }))),
+    route(['FROM billing_invoice_items', 'id=ANY($2::int[])', 'ORDER BY id', 'FOR UPDATE'], lines),
+    route(['FROM billing_payments', 'invoice_id=ANY($2::int[])'], []),
+    route(['FROM billing_refunds', 'invoice_id=ANY($2::int[])'], []),
+    route(['FROM billing_advance_settlements', 'invoice_id=ANY($2::int[])'], []),
+  ];
 }
 
 function reversePaymentPreludeRoutes({ fundedOrders = [], allocations = [allocationRow()] } = {}) {
@@ -346,6 +412,9 @@ function reversePaymentPreludeRoutes({ fundedOrders = [], allocations = [allocat
         && String(params[3]) === authorityRow.source_authority_sha256,
       [{ lock_acquired: null }],
     )),
+    ...(fundingAuthorities.length
+      ? noSubstitutionAuthorityRoutes(fundingAuthorities.length)
+      : []),
     route(['FROM pharmacy_orders pharmacy_order', 'billing_payment_id=$2::int'], fundedOrders),
     route(['SELECT id, patient_uid, status', 'FROM billing_invoices', 'FOR UPDATE'], [{
       id: 21, patient_uid: PATIENT, status: 'ISSUED',
@@ -723,12 +792,14 @@ describe('pharmacy payment allocation reversal authority', () => {
 // The public probe does not acquire the pharmacy-order lock itself. Its callers
 // retain that serialization boundary while it reads all three evidence planes.
 describe('unresolved-patient funding evidence probe under a caller-retained order lock', () => {
-  it('probes all three evidence planes while the caller retains order serialization', async () => {
+  it('probes all four evidence planes while the caller retains order serialization', async () => {
     const router = sqlRouter({
       queries: [
+        ...noSubstitutionAuthorityRoutes(),
         route(['FROM billing_invoice_items item', 'source_ref_active=TRUE'], []),
         route(['FROM pharmacy_cap_reservations', "status='ACTIVE'"], []),
         route(['FROM pharmacy_payment_allocations allocation', 'GROUP BY allocation.id'], []),
+        ...noAdvanceAllocationRoutes(),
       ],
     });
 
@@ -740,9 +811,12 @@ describe('unresolved-patient funding evidence probe under a caller-retained orde
       liveFundingAuthority: false,
     });
 
-    expect(router.query.mock.calls.map((call) => call.slice(1))).toEqual([
-      [TENANT, 71], [TENANT, 71], [TENANT, 71],
+    expect(router.query.mock.calls.slice(-4).map((call) => call.slice(1))).toEqual([
+      [TENANT, 71], [TENANT, 71], [TENANT, 71], [TENANT, 71],
     ]);
+    expect(router.query.mock.calls.slice(0, 3).every(([sql]) => (
+      !sql.includes('FOR UPDATE')
+    ))).toBe(true);
     expect(writeCalls(router)).toEqual([]);
     router.assertDrained();
   });
@@ -765,9 +839,16 @@ describe('unresolved-patient funding evidence probe under a caller-retained orde
   it('reports every surviving authority and does not mutate it', async () => {
     const router = sqlRouter({
       queries: [
+        ...noSubstitutionAuthorityRoutes(),
         route(['FROM billing_invoice_items item', 'source_ref_active=TRUE'], [{ id: '31' }]),
         route(['FROM pharmacy_cap_reservations', "status='ACTIVE'"], [{ id: '81' }]),
         route(['FROM pharmacy_payment_allocations allocation', 'GROUP BY allocation.id'], [{ id: '51' }]),
+        route([
+          'FROM pharmacy_advance_allocations allocation',
+          'allocation.pharmacy_order_id=$2::int',
+          'FOR UPDATE OF allocation',
+        ], [advanceAllocationRow()]),
+        route(['FROM pharmacy_advance_allocation_reversals', 'allocation_id=ANY($2::bigint[])'], []),
       ],
     });
 
@@ -782,6 +863,7 @@ describe('unresolved-patient funding evidence probe under a caller-retained orde
         active_invoice_item_ids: [31],
         active_cap_reservation_ids: [81],
         open_allocation_ids: [51],
+        open_advance_allocation_ids: ['801'],
         next_action: 'resolve_order_patient_tenant_mismatch_recovery_then_retry',
       },
     });
@@ -815,10 +897,9 @@ describe('terminal pharmacy funding compensation', () => {
           'JOIN users patient',
         ], [validOrder()]),
         route('FROM pharmacy_stock_movements', [], 2),
-        route([
-          'FROM billing_invoice_items item',
-          'invoice.subtotal AS invoice_subtotal',
-        ], [validLine()]),
+        ...fundingDomainLockRoutes(),
+        ...noSubstitutionAuthorityRoutes(),
+        ...noAdvanceAllocationRoutes(2),
         route(['SELECT id FROM billing_payments', 'reversed=FALSE'], []),
         route(['SELECT admission_id FROM pharmacy_cap_reservations', "status='ACTIVE'"], [{ admission_id: 44 }]),
         route([
@@ -926,6 +1007,14 @@ describe('terminal pharmacy funding compensation', () => {
       expect.stringContaining('UPDATE billing_invoices'),
       0, 0, 0, 0, 0, 0, 21,
     );
+    const invoiceLockIndex = router.query.mock.calls.findIndex(([sql]) => (
+      sql.includes('FROM billing_invoices') && sql.includes('id=ANY($2::int[])')
+    ));
+    const itemLockIndex = router.query.mock.calls.findIndex(([sql]) => (
+      sql.includes('FROM billing_invoice_items') && sql.includes('id=ANY($2::int[])')
+    ));
+    expect(invoiceLockIndex).toBeGreaterThanOrEqual(0);
+    expect(itemLockIndex).toBeGreaterThan(invoiceLockIndex);
     router.assertDrained();
   });
 
@@ -937,6 +1026,7 @@ describe('terminal pharmacy funding compensation', () => {
           'SELECT pharmacy_order.id,pharmacy_order.facility_id,pharmacy_order.status',
           'JOIN users patient',
         ], [validOrder()]),
+        ...noSubstitutionAuthorityRoutes(),
         route('FROM pharmacy_stock_movements', [{ id: 501 }]),
       ],
     });
@@ -963,10 +1053,11 @@ describe('terminal pharmacy funding compensation', () => {
           'JOIN users patient',
         ], [validOrder()]),
         route('FROM pharmacy_stock_movements', []),
-        route([
-          'FROM billing_invoice_items item',
-          'invoice.subtotal AS invoice_subtotal',
-        ], [validLine({ source_authority_version: 2 })]),
+        ...fundingDomainLockRoutes({
+          lines: [validLine({ source_authority_version: 2 })],
+        }),
+        ...noSubstitutionAuthorityRoutes(),
+        ...noAdvanceAllocationRoutes(),
       ],
     });
 
@@ -992,10 +1083,9 @@ describe('terminal pharmacy funding compensation', () => {
           'JOIN users patient',
         ], [validOrder()]),
         route('FROM pharmacy_stock_movements', []),
-        route([
-          'FROM billing_invoice_items item',
-          'invoice.subtotal AS invoice_subtotal',
-        ], [validLine()]),
+        ...fundingDomainLockRoutes(),
+        ...noSubstitutionAuthorityRoutes(),
+        ...noAdvanceAllocationRoutes(),
         route(['SELECT id FROM billing_payments', 'reversed=FALSE'], [{ id: 41 }]),
       ],
     });
@@ -1017,6 +1107,44 @@ describe('terminal pharmacy funding compensation', () => {
     router.assertDrained();
   });
 
+  it('blocks live patient-advance allocation before cap, payment, task, or invoice mutation', async () => {
+    const router = sqlRouter({
+      queries: [
+        ...noSubstitutionAuthorityRoutes(),
+        route(['SELECT uid, UPPER(role) AS role', 'FROM users'], [{ uid: ACTOR, role: 'ADMIN' }]),
+        route([
+          'SELECT pharmacy_order.id,pharmacy_order.facility_id,pharmacy_order.status',
+          'JOIN users patient',
+        ], [validOrder()]),
+        route('FROM pharmacy_stock_movements', []),
+        ...fundingDomainLockRoutes(),
+        route([
+          'FROM pharmacy_advance_allocations allocation',
+          'allocation.pharmacy_order_id=$2::int',
+          'FOR UPDATE OF allocation',
+        ], [advanceAllocationRow()]),
+        route(['FROM pharmacy_advance_allocation_reversals', 'allocation_id=ANY($2::bigint[])'], []),
+      ],
+    });
+
+    await expect(svc.compensateTerminalPharmacyFundingAuthorityTx(router.tx, {
+      tenantId: TENANT, orderId: 71, actorUid: ACTOR,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'PHARMACY_TERMINAL_FUNDING_ADVANCE_RELEASE_REQUIRED',
+      details: {
+        pharmacy_order_id: 71,
+        live_advance_allocation_ids: ['801'],
+        next_action: 'complete_governed_advance_allocation_release_or_conversion',
+      },
+    });
+
+    expect(writeCalls(router)).toEqual([]);
+    expect(router.execute).not.toHaveBeenCalled();
+    expect(releasePharmacyCapReservationTxMock).not.toHaveBeenCalled();
+    router.assertDrained();
+  });
+
   it('fails closed when the active line loses its compare-and-set race', async () => {
     const router = sqlRouter({
       queries: [
@@ -1026,10 +1154,9 @@ describe('terminal pharmacy funding compensation', () => {
           'JOIN users patient',
         ], [validOrder()]),
         route('FROM pharmacy_stock_movements', [], 2),
-        route([
-          'FROM billing_invoice_items item',
-          'invoice.subtotal AS invoice_subtotal',
-        ], [validLine()]),
+        ...fundingDomainLockRoutes(),
+        ...noSubstitutionAuthorityRoutes(),
+        ...noAdvanceAllocationRoutes(2),
         route(['SELECT id FROM billing_payments', 'reversed=FALSE'], []),
         route(['SELECT admission_id FROM pharmacy_cap_reservations', "status='ACTIVE'"], []),
         route([
@@ -1090,7 +1217,7 @@ describe('allocated reversePayment funding closure', () => {
     const router = sqlRouter({
       queries: reversePaymentPreludeRoutes({
         fundedOrders: [{ id: 71, status: 'READY', has_stock_movement: true }],
-      }).slice(0, 6),
+      }).slice(0, 9),
     });
     usePrismaRouter(router);
 
@@ -1265,16 +1392,22 @@ describe('allocated reversePayment funding closure', () => {
           'FROM pharmacy_payment_allocations allocation',
           'payment.patient_uid=$7::uuid',
         ], remainingFunding, 3),
+        ...noSubstitutionAuthorityRoutes(),
         route(['SELECT uid, UPPER(role) AS role', 'FROM users'], [{ uid: ACTOR, role: 'ADMIN' }]),
         route([
           'FROM pharmacy_orders po',
           'po.facility_id=$3::int',
         ], [validOrder({ status: 'READY' })]),
         route(['SELECT id,patient_uid,status', 'FROM admissions'], []),
-        route([
-          'SELECT item.*,invoice.status AS invoice_status',
-          'source_ref_active=TRUE',
-        ], [validLine()]),
+        route(['SELECT item.id,item.invoice_id', "item.source_ref_type='pharmacy_order'"], [{
+          id: 31, invoice_id: 21,
+        }]),
+        route(['FROM billing_invoices', 'id=ANY($2::int[])', 'FOR UPDATE'], [validInvoice()]),
+        route(['FROM billing_invoice_items', 'id=ANY($2::int[])', 'FOR UPDATE'], [validLine()]),
+        route(['FROM billing_payments', 'invoice_id=ANY($2::int[])'], []),
+        route(['FROM billing_refunds', 'invoice_id=ANY($2::int[])'], []),
+        route(['FROM billing_advance_settlements', 'invoice_id=ANY($2::int[])'], []),
+        ...noAdvanceAllocationRoutes(),
         route(['UPDATE billing_invoice_items', 'source_authority_version=$5::int'], [validLine()]),
         route(['COALESCE(SUM(line_subtotal), 0)', 'FROM billing_invoice_items'], [{
           subtotal: '100', cgst: '0', sgst: '0', igst: '0',
@@ -1323,6 +1456,14 @@ describe('allocated reversePayment funding closure', () => {
       '71',
       expect.any(String),
       null,
+      'pharmacy_funding_task_v1',
+      'posted_payment',
+      21,
+      31,
+      null,
+      3,
+      ITEMS_SHA256,
+      ['payment_posting', 'patient_responsibility_payment', 'payment_reversal_recovery'],
     ]);
     expect(JSON.parse(completion[4])).toMatchObject({
       domain_evidence: {

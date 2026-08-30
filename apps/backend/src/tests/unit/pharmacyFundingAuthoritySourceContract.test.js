@@ -8,8 +8,18 @@ const read = (relativePath) => fs.readFileSync(path.join(sourceRoot, relativePat
 
 const billing = read('services/billing/billingV2Service.js');
 const cap = read('services/pharmacy/pharmacyCapService.js');
+const substitution = read('services/pharmacy/substitutionFundingReauthorisationService.js');
 const migration = read('migrations/753_pharmacy_order_inventory_authority.sql');
 const schema = read('../prisma/schema.prisma');
+
+function expectOrdered(source, markers) {
+  let previous = -1;
+  for (const marker of markers) {
+    const current = source.indexOf(marker);
+    expect(current).toBeGreaterThan(previous);
+    previous = current;
+  }
+}
 
 describe('pharmacy funding authority source contracts', () => {
   it('uses one stable patient-scoped lock before row authority locks', () => {
@@ -132,6 +142,75 @@ describe('pharmacy funding authority source contracts', () => {
     expect(schema).toContain('authority_generation     BigInt?');
     expect(schema).toContain('supersedes_event_id      BigInt?');
     expect(schema).toContain('pharmacy_funding_event_supersession_753');
+  });
+
+  it('gates substitution governance before counter-funding domain rows with a private lease', () => {
+    expect(cap).toContain("SUBSTITUTION_FUNDING_TASK_STAGE = 'substitution_reauthorisation'");
+    expect(substitution).toContain(
+      "SUBSTITUTION_FUNDING_TASK_STAGE = 'substitution_reauthorisation'",
+    );
+    const barrier = cap.slice(
+      cap.indexOf('export async function lockCounterFundingSubstitutionAuthorityTx'),
+      cap.indexOf('function consumeCounterFundingSubstitutionAuthorityLease'),
+    );
+    const resolver = cap.slice(
+      cap.indexOf('export async function resolveAuthoritativeCounterFundingTx'),
+      cap.indexOf('export async function reservePharmacyCapReservationTx'),
+    );
+    expectOrdered(barrier, [
+      'resolvePharmacyFundingPatientUidTx(tx',
+      'lockPharmacyFundingAuthorityTx(tx',
+      'vh:substitution-funding:order:',
+      'FROM pharmacy_funding_commands',
+      'vh:pharmacy_advance_approval:',
+      'FROM approvals',
+      'FROM tasks',
+    ]);
+    expectOrdered(resolver, [
+      'consumeCounterFundingSubstitutionAuthorityLease(tx',
+      'resolvePharmacyFundingPatientUidTx(tx',
+      'lockPharmacyFundingAuthorityTx(tx',
+      'vh:pharmacy_funding_event_chain:',
+      'FROM pharmacy_orders',
+      'FROM billing_invoices',
+      'FROM billing_invoice_items',
+      'lockPharmacyFundingAdmissionTx(tx',
+    ]);
+    expect(barrier).toContain("command_type='SUBSTITUTION_FUNDING_APPROVAL'");
+    expect(barrier).toContain('substitutionFundingApprovalReceiptId = null');
+    expect(barrier).toContain('substitutionFundingGovernanceApprovalId = null');
+    expect(barrier).toContain('commandRows.length === 1');
+    expect(barrier).toContain('approvalRows.length === 1');
+    expect(barrier).toContain('taskRows.length === 1');
+    expect(barrier).toContain('governance_approval_id');
+    expect(barrier).toContain("String(approval.created_by || '').toLowerCase() === proposerUid");
+    expect(barrier).toContain("String(task.created_by || '').toLowerCase() === proposerUid");
+    expect(barrier).toContain("String(taskMetadata.proposer_uid || '').toLowerCase() === proposerUid");
+    expect(barrier).toContain("? 'approval_receipt'");
+    expect(barrier).toContain("? 'governance_approval' : 'generic'");
+    expect(cap).toContain("Symbol('counterFundingSubstitutionLease')");
+    expect(cap).toContain('consumedCounterFundingSubstitutionLeases.has(lease)');
+    expect(resolver).toContain('substitutionFundingAuthorityLease = null');
+    expect(resolver).not.toContain('FROM pharmacy_funding_commands');
+    expect(resolver).not.toContain('FROM approvals');
+    expect(resolver).not.toContain('FOR UPDATE OF pharmacy_order,item,invoice');
+    expect(resolver).not.toContain('FOR UPDATE OF invoice,item');
+  });
+
+  it('never surfaces substitution authority as generic counter-funding recovery', () => {
+    const resolver = cap.slice(
+      cap.indexOf('export async function resolveAuthoritativeCounterFundingTx'),
+      cap.indexOf('export async function reservePharmacyCapReservationTx'),
+    );
+    const recovery = resolver.slice(
+      resolver.indexOf('const recoveryRows'),
+      resolver.indexOf("throw AppError.conflict(\n      'No durable posted-payment"),
+    );
+    expect(recovery).toContain("task.metadata->>'contract'=$3");
+    expect(recovery).toContain("task.metadata->>'task_type'='tpa_line_decision'");
+    expect(recovery).toContain("task.metadata->>'task_type'='posted_payment'");
+    expect(recovery).not.toContain("'pharmacy_patient_advance'");
+    expect(resolver).toContain("'pharmacy_funding_task_v1'");
   });
 
   it('orders exact referenced keys before funding-event foreign keys', () => {

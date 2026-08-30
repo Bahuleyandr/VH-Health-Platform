@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 const queryMock = jest.fn();
 const executeMock = jest.fn();
 const setTenantTxMock = jest.fn();
+const lockSubstitutionAuthorityMock = jest.fn();
 const resolvePatientUidMock = jest.fn();
 const lockAuthorityMock = jest.fn();
 const lockAdmissionMock = jest.fn();
@@ -38,6 +39,7 @@ jest.unstable_mockModule('../../services/billing/ledger/ledgerAuthoritativeMode.
 }));
 
 jest.unstable_mockModule('../../services/pharmacy/pharmacyCapService.js', () => ({
+  lockCounterFundingSubstitutionAuthorityTx: lockSubstitutionAuthorityMock,
   resolvePharmacyFundingPatientUidTx: resolvePatientUidMock,
   lockPharmacyFundingAuthorityTx: lockAuthorityMock,
   lockPharmacyFundingAdmissionTx: lockAdmissionMock,
@@ -93,6 +95,9 @@ const BASE_LINE = Object.freeze({
   invoice_status: 'DRAFT',
   patient_uid: PATIENT,
   admission_id: ADMISSION_ID,
+  source_ref_type: 'pharmacy_order',
+  source_ref_id: ORDER_ID,
+  source_ref_active: true,
   source_authority_version: ORDER_VERSION,
   source_authority_sha256: ORDER_HASH,
   line_total: '100.00',
@@ -197,6 +202,8 @@ function freshScenario() {
     stockMovementRows: [],
     capReservationRows: [],
     terminalAllocationRows: [],
+    advanceAllocationRows: [],
+    advanceAllocationReversalRows: [],
     admissionRows: [{ id: ADMISSION_ID, patient_uid: PATIENT, status: 'admitted' }],
   };
 }
@@ -235,14 +242,74 @@ function routeQuery(sql, params) {
   if (normalized.includes('SELECT pharmacy_order.*,patient.uid AS patient_uid')) {
     return scenario.orderRows;
   }
+  if (normalized.includes('FROM pharmacy_funding_commands')
+      && normalized.includes("command_type='SUBSTITUTION_FUNDING_APPROVAL'")) {
+    return [];
+  }
+  if (normalized.includes('FROM approvals')
+      && normalized.includes("approval_kind='pharmacy_substitution_funding_reauthorisation'")) {
+    return [];
+  }
+  if (normalized.includes('FROM tasks')
+      && normalized.includes('related_resource_type=ANY($3::text[])')
+      && normalized.includes("metadata->>'contract'=$4")) {
+    return [];
+  }
   if (normalized.includes('SELECT uid, UPPER(role) AS role FROM users')) {
     return scenario.actorRows;
   }
-  if (normalized.includes('SELECT item.*,invoice.patient_uid,invoice.admission_id')) {
+  if (normalized.startsWith('SELECT id,invoice_id FROM billing_invoice_items')) {
+    return scenario.lineRows.map((line) => ({ id: line.id, invoice_id: line.invoice_id }));
+  }
+  if (normalized.startsWith('SELECT item.id,item.invoice_id FROM billing_invoice_items item')) {
+    return scenario.lineRows.map((line) => ({ id: line.id, invoice_id: line.invoice_id }));
+  }
+  if (normalized.includes('FROM billing_invoices')
+      && normalized.includes('id=ANY($2::int[])')
+      && normalized.endsWith('FOR UPDATE')) {
+    return scenario.lineRows.length ? [{
+      id: scenario.lineRows[0].invoice_id,
+      status: scenario.lineRows[0].invoice_status,
+      patient_uid: scenario.lineRows[0].patient_uid,
+      admission_id: scenario.lineRows[0].admission_id,
+      tenant_id: TENANT,
+      subtotal: scenario.lineRows[0].line_total,
+      cgst_amount: '0',
+      sgst_amount: '0',
+      igst_amount: '0',
+      total_amount: scenario.lineRows[0].line_total,
+      amount_paid: '0',
+      amount_due: scenario.lineRows[0].line_total,
+    }] : [];
+  }
+  if (normalized.includes('FROM billing_invoice_items')
+      && normalized.includes('id=ANY($2::int[])')
+      && normalized.endsWith('FOR UPDATE')) {
     return scenario.lineRows;
   }
-  if (normalized.startsWith('SELECT * FROM tpa_claims')
-      && normalized.includes("status IN ('approved','partially_approved','paid')")) {
+  if (normalized.includes('FROM billing_payments')
+      && normalized.includes('invoice_id=ANY($2::int[])')) {
+    return [];
+  }
+  if (normalized.includes('FROM billing_refunds')
+      && normalized.includes('invoice_id=ANY($2::int[])')) {
+    return [];
+  }
+  if (normalized.includes('FROM billing_advance_settlements')
+      && normalized.includes('invoice_id=ANY($2::int[])')) {
+    return [];
+  }
+  if (normalized.includes('FROM pharmacy_advance_allocations allocation')
+      && normalized.includes('allocation.pharmacy_order_id=$2::int')) {
+    return scenario.advanceAllocationRows;
+  }
+  if (normalized.includes('FROM pharmacy_advance_allocation_reversals')
+      && normalized.includes('allocation_id=ANY($2::bigint[])')) {
+    return scenario.advanceAllocationReversalRows;
+  }
+  if (normalized.startsWith('SELECT id,invoice_id,admission_id,patient_uid,status FROM tpa_claims')
+      || (normalized.startsWith('SELECT id,invoice_id,admission_id,patient_uid,status,approved_amount')
+        && normalized.includes("status IN ('approved','partially_approved','paid')"))) {
     return scenario.claimRows;
   }
   if (normalized.startsWith('SELECT * FROM tasks')
@@ -375,9 +442,6 @@ function routeQuery(sql, params) {
   }
   if (normalized.startsWith('SELECT claim.id,claim.claim_number')) {
     return scenario.claimRows;
-  }
-  if (normalized.startsWith('SELECT item.*,invoice.status AS invoice_status')) {
-    return scenario.lineRows;
   }
   if (normalized.startsWith('UPDATE billing_invoice_items SET description=')) {
     const line = {
@@ -554,7 +618,11 @@ beforeEach(() => {
   setTenantTxMock.mockImplementation(async (_tenantId, fn) => fn(mockPrisma));
   resolvePatientUidMock.mockResolvedValue(PATIENT);
   lockAuthorityMock.mockResolvedValue(undefined);
-  lockAdmissionMock.mockResolvedValue(undefined);
+  lockAdmissionMock.mockResolvedValue({
+    id: ADMISSION_ID,
+    patient_uid: PATIENT,
+    status: 'admitted',
+  });
   releaseCapReservationMock.mockResolvedValue({ id: '801', status: 'RELEASED' });
   clinicalOrderItemsSha256Mock.mockImplementation(() => scenario.canonicalOrderHash);
 });
@@ -642,11 +710,7 @@ describe('recordPharmacyFundingLineDecision validation and fail-closed guards', 
   it('returns NOT_FOUND when the exact active order invoice line disappeared', async () => {
     scenario.lineRows = [];
     await expectDecisionError({}, 'NOT_FOUND', 404);
-    expect(lockAdmissionMock).toHaveBeenCalledWith(mockPrisma, {
-      tenantId: TENANT,
-      admissionId: ADMISSION_ID,
-      patientUid: PATIENT,
-    });
+    expect(lockAdmissionMock).not.toHaveBeenCalled();
     expect(mutationCalls()).toEqual([]);
   });
 
