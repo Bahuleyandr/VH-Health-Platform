@@ -23,6 +23,7 @@ const RUN = `${process.pid}-${Date.now()}`;
 let product;
 let wardIndentItemId;
 let allocationId;
+let legacyInactiveAllocationId;
 let consumptionId;
 let medicationAdministrationId;
 
@@ -81,17 +82,8 @@ async function cleanup() {
 async function setBatchState({
   batchStatus = 'depleted',
   expired = false,
-  itemStatus = 'active',
 }) {
   await prisma.$transaction(async (tx) => {
-    await tx.$executeRawUnsafe(
-      `UPDATE pharmacy_inventory_items
-          SET status = $3::text, updated_at = NOW()
-        WHERE tenant_id = $1::uuid AND id = $2::int`,
-      TENANT_ID,
-      product.inventoryItemId,
-      itemStatus,
-    );
     await tx.$executeRawUnsafe(
       `UPDATE pharmacy_inventory_batches
           SET status = $3::text,
@@ -109,10 +101,10 @@ async function setBatchState({
   });
 }
 
-async function attemptReconciliation(commandKey) {
+async function attemptReconciliation(commandKey, inventoryAllocationId = allocationId) {
   return reconcileMarSupplyOverride(
     consumptionId,
-    [{ inventory_allocation_id: allocationId, quantity: 1 }],
+    [{ inventory_allocation_id: inventoryAllocationId, quantity: 1 }],
     {
       tenantId: TENANT_ID,
       reconciledBy: PHARMACIST_UID,
@@ -200,6 +192,55 @@ describeIfDb('MAR supply reconciliation batch eligibility — database boundary'
     wardIndentItemId = Number(wardItem.id);
     allocationId = BigInt(allocation.id);
 
+    legacyInactiveAllocationId = await setTenantTx(TENANT_ID, async (tx) => {
+      // This schema-valid legacy-compatible fixture establishes its governed non-active
+      // status before any batch/allocation lineage, so no custody identity is rewritten.
+      const [inventoryItem] = await tx.$queryRawUnsafe(
+        `INSERT INTO pharmacy_inventory_items
+           (tenant_id, facility_id, sku_code, display_name, catalog_id, strength, form,
+            unit_label, schedule_class, is_narcotic, status)
+         VALUES ($1::uuid, $2::int, $3::text, $4::text, $5::int, $6::text, $7::text,
+                 'each', 'OTC', FALSE, 'paused')
+         RETURNING id`,
+        TENANT_ID,
+        authority.facilityId,
+        `MAR-LEGACY-INACTIVE-${RUN}`.slice(0, 80),
+        `MAR legacy inactive medicine ${RUN}`.slice(0, 255),
+        product.catalogId,
+        product.strength,
+        product.form,
+      );
+      const [inventoryBatch] = await tx.$queryRawUnsafe(
+        `INSERT INTO pharmacy_inventory_batches
+           (tenant_id, inventory_item_id, facility_id, storage_location_id,
+            batch_number, expiry_date, received_quantity, remaining_quantity, status)
+         VALUES ($1::uuid, $2::int, $3::int, $4::int, $5::text,
+                 CURRENT_DATE + 365, 1, 1, 'in_stock')
+         RETURNING id`,
+        TENANT_ID,
+        Number(inventoryItem.id),
+        authority.facilityId,
+        authority.storageLocationId,
+        `MAR-LEGACY-INACTIVE-BATCH-${RUN}`.slice(0, 100),
+      );
+      const [legacyAllocation] = await tx.$queryRawUnsafe(
+        `INSERT INTO ward_indent_inventory_allocations
+           (tenant_id, ward_indent_id, ward_indent_item_id, inventory_item_id,
+            inventory_batch_id, status, reserved_quantity, reservation_key, reserved_by)
+         VALUES ($1::uuid, $2::int, $3::int, $4::int, $5::int,
+                 'reserved', 1, $6::text, $7::uuid)
+         RETURNING id`,
+        TENANT_ID,
+        supply.indentId,
+        wardIndentItemId,
+        Number(inventoryItem.id),
+        Number(inventoryBatch.id),
+        `mar-legacy-inactive-allocation-${RUN}`,
+        PHARMACIST_UID,
+      );
+      return BigInt(legacyAllocation.id);
+    });
+
     const [administration] = await prisma.$queryRawUnsafe(
       `INSERT INTO medication_administrations
          (tenant_id, patient_uid, medication_name, dose, route, scheduled_time,
@@ -271,7 +312,6 @@ describeIfDb('MAR supply reconciliation batch eligibility — database boundary'
     ['quarantined', { batchStatus: 'quarantined' }, 'batch_quarantined'],
     ['reserved', { batchStatus: 'reserved' }, 'batch_reserved'],
     ['expired', { expired: true }, 'batch_expired'],
-    ['inactive product', { itemStatus: 'inactive' }, 'inventory_item_inactive'],
   ])('the service rejects %s custody without a partial write', async (_label, state, reason) => {
     await setBatchState(state);
     await expect(attemptReconciliation(
@@ -293,6 +333,32 @@ describeIfDb('MAR supply reconciliation batch eligibility — database boundary'
       TENANT_ID,
       consumptionId,
       allocationId,
+    );
+    expect(counts.link_count).toBe(0);
+    expect(Number(counts.consumed_quantity)).toBe(0);
+  });
+
+  test('the service rejects a schema-valid legacy-compatible paused-item allocation without a partial write', async () => {
+    await expect(attemptReconciliation(
+      `mar-eligibility-inventory_item_inactive-${RUN}`,
+      legacyInactiveAllocationId,
+    )).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'MAR_SUPPLY_RECONCILIATION_BATCH_UNAVAILABLE',
+      details: { reason: 'inventory_item_inactive' },
+    });
+    const [counts] = await prisma.$queryRawUnsafe(
+      `SELECT
+         (SELECT COUNT(*)::int
+            FROM mar_supply_reconciliation_links
+           WHERE tenant_id = $1::uuid
+             AND unmatched_consumption_id = $2::bigint) AS link_count,
+         (SELECT consumed_quantity
+            FROM ward_indent_inventory_allocations
+           WHERE tenant_id = $1::uuid AND id = $3::bigint) AS consumed_quantity`,
+      TENANT_ID,
+      consumptionId,
+      legacyInactiveAllocationId,
     );
     expect(counts.link_count).toBe(0);
     expect(Number(counts.consumed_quantity)).toBe(0);

@@ -69,6 +69,44 @@ describeIfDb('migration 754 salary-revision tenant reconciliation behavior', () 
   const proposerA = randomUUID();
   const staffB = randomUUID();
   const proposerB = randomUUID();
+  const syntheticReconciledAt = new Date('2026-01-01T00:00:00.000Z');
+  const validSalaryBaseline = {
+    basic_salary: 40000,
+    hra_pct: 40,
+    da_pct: 10,
+    special_allowance: 0,
+    transport_allowance: 0,
+    medical_allowance: 0,
+    tds_monthly: 0,
+    pf_employee_pct: 12,
+    esi_applicable: true,
+  };
+  const validArrearsBreakdown = [{
+    month: 1,
+    year: 2025,
+    payslip_id: 1,
+    payslip_evidence_sha256: 'a'.repeat(64),
+    attendance_factor: 1,
+    basic_adjustment: 100,
+    hra_adjustment: 0,
+    da_adjustment: 0,
+    special_allowance_adjustment: 0,
+    transport_allowance_adjustment: 0,
+    medical_allowance_adjustment: 0,
+    gross_adjustment: 100,
+    pf_adjustment: 0,
+    esi_adjustment: 0,
+    professional_tax_adjustment: 0,
+    tds_adjustment: 0,
+    deduction_adjustment: 0,
+    net_adjustment: 100,
+    pf_basis_policy: 'uncapped_basic_earned',
+    pf_rate_pct: 12,
+    esi_applicable: true,
+    esi_policy: 'signed_salary_baseline',
+    tds_policy: 'unchanged_signed_monthly_deduction',
+    tds_monthly_baseline: 0,
+  }];
   let firstPassSnapshot;
   let firstPassArrearsSnapshot;
   let firstPassReminderSnapshot;
@@ -289,6 +327,47 @@ describeIfDb('migration 754 salary-revision tenant reconciliation behavior', () 
 
     await client.query(migrationSql);
     await client.query("SELECT set_config('app.current_tenant_id', 'bypass', false)");
+    // This random, dropped schema uses synthetic drift-bearing migration replay evidence.
+    // It is not real payroll, approval, or signature provenance.
+    const syntheticReplayEvidence = {
+      migration: '754_salary_revision_tenant_reconciliation',
+      action: 'auto_repaired',
+      observed_tenant_id: tenantA,
+      resolved_tenant_id: tenantB,
+    };
+    const resolvedRevisionId = (await client.query(
+      `INSERT INTO salary_revisions (
+         revision_number, tenant_id, staff_uid, proposed_by, revision_type,
+         current_basic, proposed_basic, current_gross, proposed_gross,
+         increment_amount, increment_pct, effective_from, reason, salary_baseline,
+         tenant_reconciliation_required, tenant_reconciliation_reason,
+         tenant_reconciled_at, tenant_reconciliation_evidence
+       ) VALUES (
+         'RESOLVED-B', $1::uuid, $2::uuid, $3::uuid, 'increment',
+         40000, 41000, 60000, 61500, 1000, 2.5, '2099-01-01',
+         'post-migration resolved replay fixture', $4::jsonb,
+         false, NULL, $5::timestamptz, $6::jsonb
+       ) RETURNING id`,
+      [tenantB, staffB, proposerB, JSON.stringify(validSalaryBaseline),
+        syntheticReconciledAt, JSON.stringify(syntheticReplayEvidence)],
+    )).rows[0].id;
+    await client.query(
+      `INSERT INTO salary_arrears (
+         tenant_id, staff_uid, revision_id, period_breakdown,
+         gross_adjustment, pf_adjustment, esi_adjustment,
+         professional_tax_adjustment, tds_adjustment,
+         deduction_adjustment, net_adjustment,
+         tenant_reconciliation_required, tenant_reconciliation_reason,
+         tenant_reconciled_at, tenant_reconciliation_evidence
+       ) VALUES (
+         $1::uuid, $2::uuid, $3::int, $4::jsonb,
+         100, 0, 0, 0, 0, 0, 100,
+         false, NULL, $5::timestamptz, $6::jsonb
+       )`,
+      [tenantB, staffB, resolvedRevisionId, JSON.stringify(validArrearsBreakdown),
+        syntheticReconciledAt,
+        JSON.stringify({ ...syntheticReplayEvidence, resolved_revision_id: resolvedRevisionId })],
+    );
     firstPassSnapshot = (await client.query(
       `SELECT id, revision_number, tenant_id, tenant_reconciliation_required,
               tenant_reconciliation_reason, tenant_reconciliation_evidence,
@@ -332,6 +411,22 @@ describeIfDb('migration 754 salary-revision tenant reconciliation behavior', () 
     expect(secondPass).toEqual(firstPassSnapshot);
 
     const byNumber = (number) => secondPass.filter((row) => row.revision_number === number);
+    const resolvedRevision = byNumber('RESOLVED-B')[0];
+    expect(resolvedRevision).toEqual(
+      firstPassSnapshot.find((row) => row.revision_number === 'RESOLVED-B'),
+    );
+    expect(resolvedRevision).toMatchObject({
+      tenant_id: tenantB,
+      tenant_reconciliation_required: false,
+      tenant_reconciliation_reason: null,
+      tenant_reconciliation_evidence: {
+        migration: '754_salary_revision_tenant_reconciliation',
+        action: 'auto_repaired',
+        observed_tenant_id: tenantA,
+        resolved_tenant_id: tenantB,
+      },
+    });
+    expect(resolvedRevision.tenant_reconciled_at).toEqual(syntheticReconciledAt);
     expect(byNumber('REPAIR-B')[0]).toMatchObject({
       tenant_id: null,
       tenant_reconciliation_required: true,
@@ -350,7 +445,7 @@ describeIfDb('migration 754 salary-revision tenant reconciliation behavior', () 
     expect(byNumber('UNOWNED')[0]).toMatchObject({
       tenant_id: null,
       tenant_reconciliation_required: true,
-      tenant_reconciliation_reason: 'identity_unowned',
+      tenant_reconciliation_reason: 'subject_identity_missing',
     });
     expect(byNumber('COLLISION')).toHaveLength(2);
     expect(byNumber('COLLISION').map((row) => row.tenant_reconciliation_reason).sort()).toEqual([
@@ -383,6 +478,26 @@ describeIfDb('migration 754 salary-revision tenant reconciliation behavior', () 
     )).rows;
     expect(arrears).toEqual(firstPassArrearsSnapshot);
     expect(reminders).toEqual(firstPassReminderSnapshot);
+    const resolvedArrears = arrears.find((row) => row.revision_id === resolvedRevision.id);
+    expect(resolvedArrears).toEqual(
+      firstPassArrearsSnapshot.find((row) => row.revision_id === resolvedRevision.id),
+    );
+    expect(resolvedArrears).toMatchObject({
+      tenant_id: tenantB,
+      staff_uid: staffB,
+      revision_id: resolvedRevision.id,
+      status: 'pending',
+      tenant_reconciliation_required: false,
+      tenant_reconciliation_reason: null,
+      tenant_reconciliation_evidence: {
+        migration: '754_salary_revision_tenant_reconciliation',
+        action: 'auto_repaired',
+        observed_tenant_id: tenantA,
+        resolved_tenant_id: tenantB,
+        resolved_revision_id: resolvedRevision.id,
+      },
+    });
+    expect(resolvedArrears.tenant_reconciled_at).toEqual(syntheticReconciledAt);
     expect(arrears[0]).toMatchObject({
       tenant_id: null,
       staff_uid: staffA,
@@ -549,7 +664,7 @@ describeIfDb('migration 754 salary-revision tenant reconciliation behavior', () 
     const bypassRows = await client.query(
       `SELECT tenant_reconciliation_required FROM ${schemaName}.salary_revisions`,
     );
-    expect(bypassRows.rows).toHaveLength(10);
+    expect(bypassRows.rows).toHaveLength(11);
     expect(bypassRows.rows.filter((row) => row.tenant_reconciliation_required)).toHaveLength(9);
     const bypassArrears = await client.query(
       `SELECT tenant_reconciliation_required FROM ${schemaName}.salary_arrears ORDER BY id`,
@@ -559,7 +674,7 @@ describeIfDb('migration 754 salary-revision tenant reconciliation behavior', () 
          FROM ${schemaName}.annual_review_reminders
         ORDER BY id`,
     );
-    expect(bypassArrears.rows).toHaveLength(3);
+    expect(bypassArrears.rows).toHaveLength(4);
     expect(bypassArrears.rows.filter((row) => row.tenant_reconciliation_required)).toHaveLength(3);
     expect(bypassReminders.rows).toHaveLength(3);
     expect(bypassReminders.rows[0].tenant_reconciliation_required).toBe(true);

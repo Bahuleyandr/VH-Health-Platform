@@ -537,6 +537,8 @@ WITH identity_evidence AS (
     revision.tenant_id AS observed_tenant_id,
     revision.tenant_reconciliation_required AS existing_reconciliation_required,
     revision.tenant_reconciliation_reason AS existing_reconciliation_reason,
+    revision.tenant_reconciliation_evidence AS existing_reconciliation_evidence,
+    revision.tenant_reconciled_at AS existing_reconciled_at,
     revision.status,
     revision.revision_type,
     revision.current_basic,
@@ -656,6 +658,18 @@ WITH identity_evidence AS (
 )
 SELECT
   collisions.*,
+  COALESCE(
+    existing_reconciliation_required = FALSE
+    AND existing_reconciliation_reason IS NULL
+    AND existing_reconciled_at IS NOT NULL
+    AND observed_tenant_id IS NOT DISTINCT FROM candidate_tenant_id
+    AND existing_reconciliation_evidence->>'migration'
+      = '754_salary_revision_tenant_reconciliation'
+    AND existing_reconciliation_evidence->>'resolved_tenant_id'
+      = candidate_tenant_id::text
+    AND existing_reconciliation_evidence->>'action' = 'auto_repaired',
+    FALSE
+  ) AS stable_resolved_outcome,
   CASE
     WHEN existing_reconciliation_required
       AND existing_reconciliation_reason IN (
@@ -877,7 +891,8 @@ SET tenant_id = classification.candidate_tenant_id,
     tenant_reconciled_at = COALESCE(revision.tenant_reconciled_at, NOW())
 FROM salary_revision_754_classification classification
 WHERE revision.id = classification.id
-  AND classification.quarantine_reason IS NULL;
+  AND classification.quarantine_reason IS NULL
+  AND NOT classification.stable_resolved_outcome;
 
 -- Arrears without a parent revision have no authoritative salary-change
 -- identity. Preserve their original coordinates as evidence and detach them
@@ -915,6 +930,26 @@ SELECT
   arrears.payslip_id AS observed_payslip_id,
   payslip.tenant_id AS payslip_tenant_id,
   payslip.staff_uid AS payslip_staff_uid,
+  COALESCE(
+    revision.id IS NOT NULL
+    AND arrears.tenant_id IS NOT DISTINCT FROM revision.tenant_id
+    AND arrears.tenant_reconciliation_required = FALSE
+    AND arrears.tenant_reconciliation_reason IS NULL
+    AND arrears.tenant_reconciled_at IS NOT NULL
+    AND arrears.tenant_reconciliation_evidence->>'migration'
+      = '754_salary_revision_tenant_reconciliation'
+    AND arrears.tenant_reconciliation_evidence->>'resolved_tenant_id'
+      = revision.tenant_id::text
+    AND arrears.tenant_reconciliation_evidence->>'resolved_revision_id'
+      IS NOT DISTINCT FROM arrears.revision_id::text
+    AND arrears.tenant_reconciliation_evidence->>'action' = CASE
+      WHEN arrears.tenant_reconciliation_evidence->>'observed_tenant_id'
+        IS DISTINCT FROM revision.tenant_id::text
+        THEN 'auto_repaired'
+      ELSE 'auto_verified'
+    END,
+    FALSE
+  ) AS stable_resolved_outcome,
   CASE
     WHEN revision.id IS NULL THEN 'revision_missing'
     WHEN revision.tenant_reconciliation_required OR revision.tenant_id IS NULL
@@ -1020,7 +1055,8 @@ SET tenant_id = classification.revision_tenant_id,
     tenant_reconciled_at = COALESCE(arrears.tenant_reconciled_at, NOW())
 FROM salary_arrears_754_classification classification
 WHERE arrears.id = classification.id
-  AND classification.quarantine_reason IS NULL;
+  AND classification.quarantine_reason IS NULL
+  AND NOT classification.stable_resolved_outcome;
 
 DROP TABLE IF EXISTS pg_temp.annual_review_reminders_754_classification;
 CREATE TEMP TABLE annual_review_reminders_754_classification ON COMMIT DROP AS
@@ -1035,6 +1071,45 @@ SELECT
   revision.tenant_reconciliation_required AS revision_reconciliation_required,
   staff_owner.tenant_id AS staff_tenant_id,
   COALESCE(revision.tenant_id, staff_owner.tenant_id) AS resolved_tenant_id,
+  COALESCE(
+    reminder.tenant_id
+      IS NOT DISTINCT FROM COALESCE(revision.tenant_id, staff_owner.tenant_id)
+    AND reminder.tenant_reconciliation_required = FALSE
+    AND reminder.tenant_reconciliation_reason IS NULL
+    AND reminder.tenant_reconciled_at IS NOT NULL
+    AND reminder.tenant_reconciliation_evidence->>'migration'
+      = '754_salary_revision_tenant_reconciliation'
+    AND reminder.tenant_reconciliation_evidence->>'resolved_tenant_id'
+      = COALESCE(revision.tenant_id, staff_owner.tenant_id)::text
+    AND reminder.tenant_reconciliation_evidence->>'resolved_revision_id'
+      IS NOT DISTINCT FROM reminder.revision_id::text
+    AND reminder.tenant_reconciliation_evidence->>'action' = CASE
+      WHEN reminder.tenant_reconciliation_evidence->>'observed_tenant_id'
+        IS DISTINCT FROM COALESCE(revision.tenant_id, staff_owner.tenant_id)::text
+        THEN 'auto_repaired'
+      ELSE 'auto_verified'
+    END,
+    FALSE
+  ) AS stable_resolved_outcome,
+  COALESCE(
+    reminder.tenant_reconciliation_required = TRUE
+    AND reminder.tenant_id IS NULL
+    AND reminder.revision_id IS NULL
+    AND reminder.status = 'reconciliation_required'
+    AND reminder.tenant_reconciliation_reason IN (
+      'revision_missing',
+      'parent_revision_quarantined',
+      'revision_tenant_conflict',
+      'revision_staff_conflict',
+      'staff_identity_unowned',
+      'staff_tenant_conflict'
+    )
+    AND reminder.tenant_reconciled_at IS NULL
+    AND reminder.tenant_reconciliation_evidence->>'migration'
+      = '754_salary_revision_tenant_reconciliation'
+    AND reminder.tenant_reconciliation_evidence->>'action' = 'quarantined',
+    FALSE
+  ) AS stable_quarantine_outcome,
   CASE
     WHEN reminder.staff_uid IS NULL OR staff_owner.tenant_id IS NULL
       THEN 'staff_identity_unowned'
@@ -1078,7 +1153,8 @@ SET tenant_id = NULL,
     tenant_reconciled_at = NULL
 FROM annual_review_reminders_754_classification classification
 WHERE reminder.id = classification.id
-  AND classification.quarantine_reason IS NOT NULL;
+  AND classification.quarantine_reason IS NOT NULL
+  AND NOT classification.stable_quarantine_outcome;
 
 UPDATE annual_review_reminders reminder
 SET tenant_id = classification.resolved_tenant_id,
@@ -1099,7 +1175,9 @@ SET tenant_id = classification.resolved_tenant_id,
     tenant_reconciled_at = COALESCE(reminder.tenant_reconciled_at, NOW())
 FROM annual_review_reminders_754_classification classification
 WHERE reminder.id = classification.id
-  AND classification.quarantine_reason IS NULL;
+  AND classification.quarantine_reason IS NULL
+  AND NOT classification.stable_quarantine_outcome
+  AND NOT classification.stable_resolved_outcome;
 
 ALTER TABLE annual_review_reminders
   DROP CONSTRAINT IF EXISTS fk_annual_review_reminders_staff_tenant;

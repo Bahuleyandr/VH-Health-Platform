@@ -5,6 +5,7 @@ import request from 'supertest';
 
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
+import { verifyOrder } from '../services/emr/orderEntryService.js';
 import {
   acknowledgeTask,
   reassignTask,
@@ -374,6 +375,11 @@ describeIfDb('MAR medication exception closed loop', () => {
       doctorUid,
     );
     clinicalOrderId = Number(orderRows[0].id);
+    await verifyOrder(clinicalOrderId, nurseUid, {
+      tenantId,
+      actorRole: 'NURSING_STAFF',
+      idempotencyKey: `med03-exception-order-verify-${run}`,
+    });
   });
 
   afterAll(async () => {
@@ -674,7 +680,7 @@ describeIfDb('MAR medication exception closed loop', () => {
     ))[0];
     expect(evidence).toMatchObject({
       administration_status: 'missed',
-      order_status: 'ordered',
+      order_status: 'verified',
       exception_status: 'resolved',
       resolution_kind: 'reviewed_no_replacement',
       task_status: 'completed',

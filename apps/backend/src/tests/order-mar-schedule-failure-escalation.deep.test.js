@@ -173,13 +173,28 @@ d('BE-H1 — MAR scheduling failure on a committed medication order escalates du
     await cleanup();
     await seedUser(PATIENT_UID, 'PATIENT', 'MAR Escalation Patient');
     await seedUser(DOCTOR_UID, 'DOCTOR', 'MAR Escalation Doctor');
+    const facilities = await prisma.$queryRawUnsafe(
+      `SELECT id
+         FROM facilities
+        WHERE tenant_id = $1::uuid
+          AND facility_code = 'SEED-MAIN'
+          AND status = 'active'
+        ORDER BY id`,
+      TENANT,
+    );
+    if (facilities.length !== 1) {
+      throw new Error('BE-H1 MAR escalation fixture requires exactly one active SEED-MAIN facility');
+    }
+    const facilityId = Number(facilities[0].id);
     const wardId = Number(
       (
         await prisma.$queryRawUnsafe(
-          `INSERT INTO wards (tenant_id, name, total_beds, created_at, updated_at)
-       VALUES ($1::uuid, $2, 1, NOW(), NOW()) RETURNING id`,
+          `INSERT INTO wards
+         (tenant_id, facility_id, name, total_beds, created_at, updated_at)
+       VALUES ($1::uuid, $3::int, $2, 1, NOW(), NOW()) RETURNING id`,
           TENANT,
-          WARD_NAME
+          WARD_NAME,
+          facilityId,
         )
       )[0].id
     );
