@@ -43,11 +43,7 @@ void main() {
       expect(localized, isNot(contains('_')));
     }
     expect(
-      localizedWardIndentCode(
-        strings,
-        WardIndentCodeKind.recovery,
-        'corrupt',
-      ),
+      localizedWardIndentCode(strings, WardIndentCodeKind.recovery, 'corrupt'),
       'Custody evidence conflict',
     );
     expect(
