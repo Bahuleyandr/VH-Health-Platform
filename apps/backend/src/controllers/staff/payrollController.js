@@ -481,10 +481,14 @@ export const getPayrollRunDetail = async (req, res) => {
 // ─── Admin: Get staff list for salary config search ──────────────────────────
 export const getStaffForPayroll = async (req, res) => {
   try {
+    const tenantId = resolveTenantOrThrow(req);
     const { search, department } = req.query;
-    const conditions = ['u.role NOT IN (\'PATIENT\', \'ADMIN\')'];
-    const params = [];
-    let idx = 1;
+    const conditions = [
+      'u.tenant_id = $1::uuid',
+      'u.role NOT IN (\'PATIENT\', \'ADMIN\')',
+    ];
+    const params = [tenantId];
+    let idx = 2;
 
     if (search) {
       conditions.push(`(u.name ILIKE $${idx} OR u.phone ILIKE $${idx} OR ss.employee_id ILIKE $${idx})`);
@@ -506,8 +510,8 @@ export const getStaffForPayroll = async (req, res) => {
              CASE WHEN ss.id IS NOT NULL THEN true ELSE false END as has_salary_config,
              ss.basic_salary, ss.designation
       FROM users u
-      LEFT JOIN staff s ON s.user_id = u.uid
-      LEFT JOIN staff_salary ss ON ss.staff_uid = u.uid
+      LEFT JOIN staff s ON s.tenant_id = u.tenant_id AND s.user_id = u.uid
+      LEFT JOIN staff_salary ss ON ss.tenant_id = u.tenant_id AND ss.staff_uid = u.uid
       ${where}
       ORDER BY u.name
       LIMIT 50
@@ -526,19 +530,32 @@ export const getStaffForPayroll = async (req, res) => {
 export const getStaffSalaryConfig = async (req, res) => {
   try {
     const { staffUid } = req.params;
+    const tenantId = resolveTenantOrThrow(req);
 
     const config = await prisma.$queryRawUnsafe(`
-      SELECT ss.*, u.name, u.role, u.phone,
+      SELECT ss.id, ss.staff_uid, ss.basic_salary, ss.hra_pct, ss.da_pct,
+             ss.special_allowance, ss.transport_allowance, ss.medical_allowance,
+             ss.pf_employee_pct, ss.pf_employer_pct, ss.esi_applicable,
+             ss.professional_tax, ss.tds_monthly, ss.designation, ss.department,
+             ss.employee_id, ss.date_of_joining, ss.pan_number, ss.pf_uan,
+             ss.bank_account, ss.bank_name, ss.bank_ifsc, ss.effective_from,
+             ss.is_active, ss.notice_period_days, ss.dob, ss.created_at, ss.updated_at,
+             u.name, u.role, u.phone,
              COALESCE(s.department, ss.department) as dept
       FROM staff_salary ss
-      JOIN users u ON ss.staff_uid = u.uid
-      LEFT JOIN staff s ON s.user_id = u.uid
-      WHERE ss.staff_uid = $1::uuid
-    `, staffUid);
+      JOIN users u ON u.tenant_id = ss.tenant_id AND u.uid = ss.staff_uid
+      LEFT JOIN staff s ON s.tenant_id = ss.tenant_id AND s.user_id = u.uid
+      WHERE ss.tenant_id = $2::uuid AND ss.staff_uid = $1::uuid
+    `, staffUid, tenantId);
 
     if (config.length === 0) {
       const user = await prisma.$queryRawUnsafe(
-        'SELECT uid, name, role, phone FROM users WHERE uid = $1::uuid', staffUid);
+        `SELECT uid, name, role, phone
+           FROM users
+          WHERE tenant_id = $2::uuid AND uid = $1::uuid`,
+        staffUid,
+        tenantId,
+      );
       return success(res, user[0] ? { ...user[0], no_config: true } : null, 'No salary config found');
     }
 
@@ -561,6 +578,7 @@ export const getStaffSalaryConfig = async (req, res) => {
 export const upsertStaffSalaryConfig = async (req, res) => {
   try {
     const { staffUid } = req.params;
+    const tenantId = resolveTenantOrThrow(req);
     const {
       basic_salary, hra_pct, da_pct, special_allowance, transport_allowance, medical_allowance,
       pf_employee_pct, esi_applicable, professional_tax, tds_monthly,
@@ -572,7 +590,13 @@ export const upsertStaffSalaryConfig = async (req, res) => {
       return error(res, 'basic_salary is required and must be positive', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const userCheck = await prisma.$queryRawUnsafe('SELECT uid, name FROM users WHERE uid = $1::uuid', staffUid);
+    const userCheck = await prisma.$queryRawUnsafe(
+      `SELECT uid, name
+         FROM users
+        WHERE tenant_id = $2::uuid AND uid = $1::uuid`,
+      staffUid,
+      tenantId,
+    );
     if (userCheck.length === 0) {
       return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
     }
@@ -588,6 +612,7 @@ export const upsertStaffSalaryConfig = async (req, res) => {
 
     const now = new Date();
     const sharedCreate = {
+      tenant_id: tenantId,
       staff_uid: staffUid,
       basic_salary,
       hra_pct: hra_pct ?? 40,
@@ -611,7 +636,12 @@ export const upsertStaffSalaryConfig = async (req, res) => {
       updated_at: now,
     };
     const result = await prisma.staff_salary.upsert({
-      where: { staff_uid: staffUid },
+      where: {
+        tenant_id_staff_uid: {
+          tenant_id: tenantId,
+          staff_uid: staffUid,
+        },
+      },
       create: sharedCreate,
       update: {
         basic_salary,

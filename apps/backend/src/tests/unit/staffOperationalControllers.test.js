@@ -543,10 +543,14 @@ describe('staff operational endpoint drift guards', () => {
     expect(queryRawUnsafe.mock.calls[3]).toEqual([
       expect.stringContaining('ss.staff_uid = $1::uuid'),
       staffUid,
+      DEFAULT_TENANT_ID,
     ]);
+    expect(queryRawUnsafe.mock.calls[3][0]).toContain('ss.tenant_id = $2::uuid');
+    expect(queryRawUnsafe.mock.calls[3][0]).toContain('u.tenant_id = ss.tenant_id');
     expect(queryRawUnsafe.mock.calls[4]).toEqual([
-      expect.stringContaining('users WHERE uid = $1::uuid'),
+      expect.stringContaining('tenant_id = $2::uuid AND uid = $1::uuid'),
       staffUid,
+      DEFAULT_TENANT_ID,
     ]);
     expect(queryRawUnsafe.mock.calls[5]).toEqual([
       expect.stringContaining('sr.id = $1::int'),
