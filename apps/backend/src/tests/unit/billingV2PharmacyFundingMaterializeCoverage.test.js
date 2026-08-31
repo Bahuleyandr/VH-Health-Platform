@@ -416,6 +416,25 @@ function installSqlRouter(overrides = {}) {
         && sql.includes('FROM billing_invoices')) {
       return state.invoiceMeta;
     }
+    if (sql.startsWith('SELECT id,status,patient_uid,admission_id,tenant_id,subtotal')
+        && sql.includes('FROM billing_invoices')
+        && sql.includes('id=ANY($2::int[])')
+        && sql.includes('FOR UPDATE')) {
+      // lockPharmacyFundingInvoicesTx (billingV2Service materialize flow) now serves the
+      // join fields the removed item+invoice JOIN read carried, so the invoice row must
+      // honour line-level admission overrides from the suite's sourceLines fixtures.
+      const ids = new Set(params[1].map(Number));
+      if (!ids.has(Number(state.invoice.id))) return [];
+      const joinedLine = state.sourceLines.find(
+        (item) => Number(item.invoice_id) === Number(state.invoice.id),
+      );
+      return [{
+        ...state.invoice,
+        admission_id: joinedLine === undefined
+          ? state.invoice.admission_id
+          : joinedLine.admission_id,
+      }];
+    }
     if (sql.includes('FROM billing_invoices')
         && sql.includes('id=ANY($2::int[])')
         && sql.includes('FOR UPDATE')) {
@@ -569,6 +588,11 @@ function installSqlRouter(overrides = {}) {
     if (sql.includes('SELECT pg_advisory_xact_lock')
         && sql.includes('hashtextextended($1::text,753)')) {
       return [{ lock_acquired: '1' }];
+    }
+    // patientMergeStabilityLock takes a tenant-wide shared merge-stability lock at the
+    // top of every billingV2Service setTenantTx funding flow.
+    if (sql.includes('FROM pg_advisory_xact_lock_shared(hashtextextended($1::text, 0))')) {
+      return [{ locked: 1 }];
     }
     if (sql.includes('FROM pharmacy_funding_decision_events event')) {
       return state.currentEvents;

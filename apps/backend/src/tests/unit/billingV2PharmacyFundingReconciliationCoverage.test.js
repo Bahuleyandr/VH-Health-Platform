@@ -423,6 +423,10 @@ class ReconciliationSqlScenario {
     if (normalized.startsWith('SELECT pg_advisory_xact_lock(hashtextextended(')) {
       return [{ lock_acquired: null }];
     }
+    // Shared tenant merge-stability lock: patientMergeStabilityLock via billingV2Service setTenantTx flows.
+    if (normalized.startsWith('SELECT 1 AS locked FROM pg_advisory_xact_lock_shared(hashtextextended(')) {
+      return [{ locked: 1 }];
+    }
     if (normalized.includes('FROM pharmacy_funding_decision_events event')) {
       return this.currentFundingEvents.map((event) => ({ ...event }));
     }

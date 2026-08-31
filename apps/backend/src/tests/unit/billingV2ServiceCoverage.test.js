@@ -208,6 +208,11 @@ const queryRawUnsafe = jest.fn(async (sql, ...params) => {
       patient_uid: String(params[2]),
       mode: String(params[3]),
       reference: String(params[4]),
+      // amount defaults to the bound minimum ($6): the post-funding re-lock
+      // (lockOfflineElectronicPaymentAfterFundingTx via billingV2Service
+      // setTenantTx flows) runs toPaise over the candidate, which throws on
+      // undefined. A queued row that carries amount still overrides below.
+      amount: params[5],
       reversed: false,
       ...rows[0],
     } : null;
@@ -2665,7 +2670,10 @@ describe('refunds', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: '901' }])
       .mockResolvedValueOnce([paid])
-      .mockResolvedValueOnce([])
+      // One [] retired: settleRefundPaid (billingV2Service setTenantTx flows)
+      // now re-locks the invoice inside lockBillingRefundFundingAuthorityTx,
+      // which the refundAuthority router branch answers without reading this
+      // queue; the remaining [] is the applied-credit-note probe.
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: 907 }])
       .mockResolvedValueOnce([{ id: 45, status: 'complete' }]);

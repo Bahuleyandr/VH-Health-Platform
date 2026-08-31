@@ -395,6 +395,11 @@ function routeQuery(sql, params) {
   if (normalized.startsWith('SELECT pg_advisory_xact_lock')) {
     return [{ lock_acquired: '' }];
   }
+  // patientMergeStabilityLock (via billingV2Service setTenantTx flows) takes a
+  // tenant-wide shared merge-stability lock before the domain advisory locks.
+  if (normalized.startsWith('SELECT 1 AS locked FROM pg_advisory_xact_lock_shared(')) {
+    return [{ locked: 1 }];
+  }
   if (normalized.startsWith('SELECT event.* FROM pharmacy_funding_decision_events event')) {
     return scenario.currentAuthorityEvent == null ? [] : [scenario.currentAuthorityEvent];
   }

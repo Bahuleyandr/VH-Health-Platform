@@ -357,6 +357,12 @@ function routeQuery(sql, ...params) {
   if (text.startsWith('SELECT pg_advisory_xact_lock(hashtextextended($1::text,753)')) {
     return [{ lock_acquired: '' }];
   }
+  // patientMergeStabilityLock takes a shared tenant-wide merge-stability lock
+  // inside the billingV2Service setTenantTx flows before pharmacy funding work.
+  if (text.startsWith('SELECT 1 AS locked FROM pg_advisory_xact_lock_shared(')
+      && text.includes('hashtextextended($1::text, 0)')) {
+    return [{ locked: 1 }];
+  }
   if (text.startsWith('SELECT event.* FROM pharmacy_funding_decision_events event')) {
     return state.currentAuthorityRows;
   }

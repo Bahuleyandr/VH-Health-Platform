@@ -392,7 +392,13 @@ function reversePaymentPreludeRoutes({ fundedOrders = [], allocations = [allocat
       || left.source_authority_sha256.localeCompare(right.source_authority_sha256)
   ));
   return [
-    route(['pg_advisory_xact_lock_shared', 'patient-merge-tenant'], [{ locked: 1 }]),
+    // patientMergeStabilityLock via billingV2Service setTenantTx flows: the
+    // tenant key travels as $1, so the namespace must be matched in params.
+    route(
+      (sql, params) => sql.includes('pg_advisory_xact_lock_shared')
+        && String(params[0] ?? '').startsWith('vhhealth:patient-merge-tenant:'),
+      [{ locked: 1 }],
+    ),
     route(['SELECT payment.patient_uid', 'has_pharmacy_allocations'], [{
       patient_uid: PATIENT,
       invoice_id: 21,
@@ -412,9 +418,9 @@ function reversePaymentPreludeRoutes({ fundedOrders = [], allocations = [allocat
         && String(params[3]) === authorityRow.source_authority_sha256,
       [{ lock_acquired: null }],
     )),
-    ...(fundingAuthorities.length
-      ? noSubstitutionAuthorityRoutes(fundingAuthorities.length)
-      : []),
+    // assertNoSubstitutionFundingAuthorityTx delegates to the mocked
+    // pharmacyCapService.lockCounterFundingSubstitutionAuthorityTx here, so no
+    // raw substitution-authority reads reach the router in this flow.
     route(['FROM pharmacy_orders pharmacy_order', 'billing_payment_id=$2::int'], fundedOrders),
     route(['SELECT id, patient_uid, status', 'FROM billing_invoices', 'FOR UPDATE'], [{
       id: 21, patient_uid: PATIENT, status: 'ISSUED',
@@ -898,7 +904,6 @@ describe('terminal pharmacy funding compensation', () => {
         ], [validOrder()]),
         route('FROM pharmacy_stock_movements', [], 2),
         ...fundingDomainLockRoutes(),
-        ...noSubstitutionAuthorityRoutes(),
         ...noAdvanceAllocationRoutes(2),
         route(['SELECT id FROM billing_payments', 'reversed=FALSE'], []),
         route(['SELECT admission_id FROM pharmacy_cap_reservations', "status='ACTIVE'"], [{ admission_id: 44 }]),
@@ -1026,7 +1031,6 @@ describe('terminal pharmacy funding compensation', () => {
           'SELECT pharmacy_order.id,pharmacy_order.facility_id,pharmacy_order.status',
           'JOIN users patient',
         ], [validOrder()]),
-        ...noSubstitutionAuthorityRoutes(),
         route('FROM pharmacy_stock_movements', [{ id: 501 }]),
       ],
     });
@@ -1056,7 +1060,6 @@ describe('terminal pharmacy funding compensation', () => {
         ...fundingDomainLockRoutes({
           lines: [validLine({ source_authority_version: 2 })],
         }),
-        ...noSubstitutionAuthorityRoutes(),
         ...noAdvanceAllocationRoutes(),
       ],
     });
@@ -1084,7 +1087,6 @@ describe('terminal pharmacy funding compensation', () => {
         ], [validOrder()]),
         route('FROM pharmacy_stock_movements', []),
         ...fundingDomainLockRoutes(),
-        ...noSubstitutionAuthorityRoutes(),
         ...noAdvanceAllocationRoutes(),
         route(['SELECT id FROM billing_payments', 'reversed=FALSE'], [{ id: 41 }]),
       ],
@@ -1110,7 +1112,6 @@ describe('terminal pharmacy funding compensation', () => {
   it('blocks live patient-advance allocation before cap, payment, task, or invoice mutation', async () => {
     const router = sqlRouter({
       queries: [
-        ...noSubstitutionAuthorityRoutes(),
         route(['SELECT uid, UPPER(role) AS role', 'FROM users'], [{ uid: ACTOR, role: 'ADMIN' }]),
         route([
           'SELECT pharmacy_order.id,pharmacy_order.facility_id,pharmacy_order.status',
@@ -1155,7 +1156,6 @@ describe('terminal pharmacy funding compensation', () => {
         ], [validOrder()]),
         route('FROM pharmacy_stock_movements', [], 2),
         ...fundingDomainLockRoutes(),
-        ...noSubstitutionAuthorityRoutes(),
         ...noAdvanceAllocationRoutes(2),
         route(['SELECT id FROM billing_payments', 'reversed=FALSE'], []),
         route(['SELECT admission_id FROM pharmacy_cap_reservations', "status='ACTIVE'"], []),
@@ -1215,9 +1215,11 @@ describe('allocated reversePayment funding closure', () => {
 
   it('blocks allocated reversal before the payment lock when stock already moved', async () => {
     const router = sqlRouter({
+      // Prelude cut after the funded-orders read: the flow rejects before
+      // the invoice, payment, and allocation locks.
       queries: reversePaymentPreludeRoutes({
         fundedOrders: [{ id: 71, status: 'READY', has_stock_movement: true }],
-      }).slice(0, 9),
+      }).slice(0, 6),
     });
     usePrismaRouter(router);
 
@@ -1392,7 +1394,6 @@ describe('allocated reversePayment funding closure', () => {
           'FROM pharmacy_payment_allocations allocation',
           'payment.patient_uid=$7::uuid',
         ], remainingFunding, 3),
-        ...noSubstitutionAuthorityRoutes(),
         route(['SELECT uid, UPPER(role) AS role', 'FROM users'], [{ uid: ACTOR, role: 'ADMIN' }]),
         route([
           'FROM pharmacy_orders po',
