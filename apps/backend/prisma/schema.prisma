@@ -25918,6 +25918,8 @@ model pharmacy_funding_commands {
   completed_at            DateTime? @db.Timestamptz(6)
 
   @@unique([tenant_id, command_key_sha256], map: "ux_pharmacy_funding_commands_key_753")
+  @@index([tenant_id, invoice_item_id, invoice_id, id], map: "idx_pharmacy_funding_commands_item_753")
+  @@index([tenant_id, task_id, task_resource_type, task_resource_id, id], map: "idx_pharmacy_funding_commands_task_753")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -26104,6 +26106,7 @@ model pharmacy_payment_allocation_reversals {
   reversed_at              DateTime @default(now()) @db.Timestamptz(6)
 
   @@unique([tenant_id, reversal_command_sha256], map: "ux_pharmacy_payment_allocation_reversals_command_753")
+  @@index([tenant_id, allocation_id, reversed_at, id], map: "idx_pharmacy_payment_allocation_reversals_allocation_753")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.

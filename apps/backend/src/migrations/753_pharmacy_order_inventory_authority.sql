@@ -3019,6 +3019,18 @@ CREATE TABLE IF NOT EXISTS pharmacy_payment_allocation_reversals (
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_pharmacy_payment_allocation_reversals_command_753
   ON pharmacy_payment_allocation_reversals (tenant_id,reversal_command_sha256);
+-- Read-path indexes for the funding-command and allocation-reversal lookups the
+-- committed services perform. Lifted verbatim from the same lane that owns the
+-- rest of this migration so the two stay a strict superset/subset pair;
+-- pharmacyFundingAuthoritySourceContract pins all five by name.
+CREATE INDEX IF NOT EXISTS idx_pharmacy_funding_commands_item_753
+  ON pharmacy_funding_commands (tenant_id,invoice_item_id,invoice_id,id);
+CREATE INDEX IF NOT EXISTS idx_pharmacy_funding_commands_task_753
+  ON pharmacy_funding_commands (
+    tenant_id,task_id,task_resource_type,task_resource_id,id
+  );
+CREATE INDEX IF NOT EXISTS idx_pharmacy_payment_allocation_reversals_allocation_753
+  ON pharmacy_payment_allocation_reversals (tenant_id,allocation_id,reversed_at,id);
 
 ALTER TABLE billing_advances
   ADD COLUMN ipd_advance_deposit_id INTEGER,
