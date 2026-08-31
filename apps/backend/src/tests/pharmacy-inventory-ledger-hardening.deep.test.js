@@ -242,15 +242,26 @@ describeIfDb('pharmacy inventory ledger tenant and serialization hardening', () 
       ACTOR,
       WITNESS,
     );
+    // ACTIVE facility grants for BOTH halves of the two-person controlled path.
+    // The grant row IS the custody authority — tenant membership and an active
+    // staff row are not enough, and there is no ADMIN bypass. The witness needs
+    // one of its own because 'pharmacy_inventory_controlled_disposal' is a
+    // facility-bound approval scope: assertControlledDispenseWitness resolves the
+    // disposal's facility_id and runs the WITNESS through
+    // assertPharmacyFacilityGrant too, so an ungranted witness 403s with
+    // PHARMACY_FACILITY_GRANT_REQUIRED before the approval can be recorded.
     await setTenantTx(TENANT, (tx) => tx.$executeRawUnsafe(
       `INSERT INTO pharmacy_staff_facility_grants
          (tenant_id, facility_id, staff_uid, status, grant_source,
           grant_reason, granted_by)
        VALUES ($1::uuid, $2::int, $3::uuid, 'active', 'test_fixture',
-               'MED03 pharmacy ledger authority fixture', $3::uuid)`,
+               'MED03 pharmacy ledger authority fixture', $3::uuid),
+              ($1::uuid, $2::int, $4::uuid, 'active', 'test_fixture',
+               'MED03 disposal witness custody fixture', $3::uuid)`,
       TENANT,
       facilityId,
       ACTOR,
+      WITNESS,
     ));
 
     controlledItemId = await seedItem({
