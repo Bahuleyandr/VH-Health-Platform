@@ -407,6 +407,10 @@ void main() {
         find.byKey(const ValueKey('pharmacy-delivery-witness-password')),
         'witness-secret',
       );
+      // The confirm control stays disabled until the dialog rebuilds with both
+      // credentials, and enterText only schedules that rebuild — tapping in the
+      // same frame hits the still-null onPressed and silently does nothing.
+      await tester.pump();
       await tester.tap(
         find.byKey(const ValueKey('pharmacy-delivery-controlled-confirm')),
       );

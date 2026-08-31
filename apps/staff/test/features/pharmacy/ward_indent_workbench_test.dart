@@ -574,7 +574,12 @@ void main() {
       await tester.tap(action);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Confirm'));
-      await tester.pumpAndSettle();
+      // The workbench stays _mutating for as long as the recovery dialog is
+      // open, and _mutating renders an indeterminate LinearProgressIndicator —
+      // pumpAndSettle can never settle against one. Pump the dialog's entrance
+      // transition by hand instead.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
       final reason = find.byKey(
         const Key('ward-indent-historical-recovery-reason-701'),

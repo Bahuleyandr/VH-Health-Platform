@@ -259,9 +259,17 @@ void main() {
     await tester.pump();
 
     expect(createCalls, 0);
+    // The inventory tab already carries a STANDING banner with this exact
+    // text whenever the operator holds no pharmacy grants, so a bare
+    // find.text would be satisfied by the banner alone even if the tap
+    // silently did nothing. Scope the refusal to the SnackBar the tap
+    // itself raised.
     expect(
-      find.text(
-        'Select a facility from your active pharmacy grants before continuing.',
+      find.descendant(
+        of: find.byType(SnackBar),
+        matching: find.text(
+          'Select a facility from your active pharmacy grants before continuing.',
+        ),
       ),
       findsOneWidget,
     );

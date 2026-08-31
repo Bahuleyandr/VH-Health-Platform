@@ -62,6 +62,13 @@ class _InventoryDisposalSheetState extends State<InventoryDisposalSheet> {
   final _quantityController = TextEditingController();
   final _reasonController = TextEditingController();
   final _dispositionController = TextEditingController();
+  // The witness-credentials dialog's fields belong to the STATE, not to the
+  // dialog route. showDialog completes its future when the dialog is popped,
+  // while the exit transition keeps rebuilding it for a few more frames —
+  // disposing them at the await made every one of those frames throw
+  // "A TextEditingController was used after being disposed".
+  final _witnessEmployeeController = TextEditingController();
+  final _witnessPasswordController = TextEditingController();
   final _witnessRequestAttempt = IdempotencyAttempt(
     'inventory-disposal-witness-request',
   );
@@ -129,6 +136,8 @@ class _InventoryDisposalSheetState extends State<InventoryDisposalSheet> {
     _quantityController.dispose();
     _reasonController.dispose();
     _dispositionController.dispose();
+    _witnessEmployeeController.dispose();
+    _witnessPasswordController.dispose();
     _witnessRequestAttempt.reset();
     _witnessApprovalAttempt.reset();
     _disposalAttempt.reset();
@@ -266,8 +275,8 @@ class _InventoryDisposalSheetState extends State<InventoryDisposalSheet> {
   }
 
   Future<_WitnessCredentials?> _collectWitnessCredentials() async {
-    final employeeController = TextEditingController();
-    final passwordController = TextEditingController();
+    final employeeController = _witnessEmployeeController..clear();
+    final passwordController = _witnessPasswordController..clear();
     final result = await showDialog<_WitnessCredentials>(
       context: context,
       barrierDismissible: false,
@@ -327,8 +336,9 @@ class _InventoryDisposalSheetState extends State<InventoryDisposalSheet> {
         ],
       ),
     );
-    employeeController.dispose();
-    passwordController.dispose();
+    // Cleared, never disposed here — see the field declarations.
+    employeeController.clear();
+    passwordController.clear();
     return result;
   }
 

@@ -47,6 +47,18 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
   String _rawRole = '';
   final TextEditingController _catalogSearchCtrl = TextEditingController();
   final TextEditingController _inventorySearchCtrl = TextEditingController();
+  // The inventory-item editor's fields live for the STATE's lifetime, not the
+  // sheet's. showModalBottomSheet completes its future the moment the sheet is
+  // popped, while the exit transition keeps rebuilding the subtree for a few
+  // more frames — disposing them when the await returned made every one of
+  // those frames throw "A TextEditingController was used after being
+  // disposed", which never settles. Each open resets them instead.
+  final TextEditingController _inventoryItemSkuCtrl = TextEditingController();
+  final TextEditingController _inventoryItemUnitCtrl = TextEditingController();
+  final TextEditingController _inventoryItemReorderLevelCtrl =
+      TextEditingController();
+  final TextEditingController _inventoryItemReorderQtyCtrl =
+      TextEditingController();
   final Map<String, IdempotencyAttempt> _controlledDeliveryWitnessAttempts = {};
   final Map<String, String> _controlledDeliveryPendingApprovals = {};
   final Map<String, String> _controlledDeliveryApprovedWitnesses = {};
@@ -63,6 +75,10 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
   void dispose() {
     _catalogSearchCtrl.dispose();
     _inventorySearchCtrl.dispose();
+    _inventoryItemSkuCtrl.dispose();
+    _inventoryItemUnitCtrl.dispose();
+    _inventoryItemReorderLevelCtrl.dispose();
+    _inventoryItemReorderQtyCtrl.dispose();
     super.dispose();
   }
 
@@ -2644,10 +2660,10 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
     final formKey = GlobalKey<FormState>();
     final inventoryItemAddedMessage = AppStrings.of(context)
         .lookup('s4.lib.pharmacy.inventory_item_added');
-    final skuCtrl = TextEditingController();
-    final unitCtrl = TextEditingController(text: 'each');
-    final reorderLevelCtrl = TextEditingController();
-    final reorderQtyCtrl = TextEditingController();
+    final skuCtrl = _inventoryItemSkuCtrl..clear();
+    final unitCtrl = _inventoryItemUnitCtrl..text = 'each';
+    final reorderLevelCtrl = _inventoryItemReorderLevelCtrl..clear();
+    final reorderQtyCtrl = _inventoryItemReorderQtyCtrl..clear();
     int? selectedCatalogId;
     String? scheduleClass;
     var isColdChain = false;
@@ -2967,10 +2983,11 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
         await _loadInventory();
       }
     } finally {
-      skuCtrl.dispose();
-      unitCtrl.dispose();
-      reorderLevelCtrl.dispose();
-      reorderQtyCtrl.dispose();
+      // Nothing to dispose here on purpose — see the field declarations.
+      _inventoryItemSkuCtrl.clear();
+      _inventoryItemUnitCtrl.clear();
+      _inventoryItemReorderLevelCtrl.clear();
+      _inventoryItemReorderQtyCtrl.clear();
     }
   }
 

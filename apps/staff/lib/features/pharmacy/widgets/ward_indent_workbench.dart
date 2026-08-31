@@ -56,6 +56,13 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
   bool _detailLoading = false;
   bool _mutating = false;
   bool _showNarrowDetail = false;
+  // The historical-recovery reason field belongs to the STATE, not to the
+  // dialog route. showDialog completes its future when the dialog is popped,
+  // while the exit transition keeps rebuilding it for a few more frames —
+  // disposing at the await made every one of those frames throw
+  // "A TextEditingController was used after being disposed".
+  final TextEditingController _historicalRecoveryReasonCtrl =
+      TextEditingController();
   String? _loadError;
   String? _actionError;
   DateTime? _nextBeforeRequestedAt;
@@ -1064,7 +1071,7 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
     WardIndentItem line,
     ControlledHandoffRecovery recovery,
   ) async {
-    final controller = TextEditingController();
+    final controller = _historicalRecoveryReasonCtrl..clear();
     final result = await showDialog<String>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -1118,7 +1125,8 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
         },
       ),
     );
-    controller.dispose();
+    // Cleared, never disposed here — see the field declaration.
+    controller.clear();
     return result;
   }
 
@@ -1322,6 +1330,12 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
         ],
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _historicalRecoveryReasonCtrl.dispose();
+    super.dispose();
   }
 
   @override

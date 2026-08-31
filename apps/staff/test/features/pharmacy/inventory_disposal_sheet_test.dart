@@ -111,10 +111,21 @@ void main() {
             .onPressed,
         isNull,
       );
+      // The sheet is taller than the 800x600 test surface, so the witness
+      // control sits below the fold and a bare tap() misses it.
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('inventory-disposal-request-witness')),
+      );
+      await tester.pump();
       await tester.tap(
         find.byKey(const ValueKey('inventory-disposal-request-witness')),
       );
-      await tester.pumpAndSettle();
+      // The sheet stays _busy for as long as the credentials dialog is open,
+      // and _busy renders an indeterminate CircularProgressIndicator on the
+      // submit control — pumpAndSettle can never settle against one. Pump the
+      // dialog's entrance transition by hand instead.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
       expect(
         find.text(
           'Use a second active PHARMACY_STAFF or PHARMACY_INCHARGE operator who holds an ACTIVE grant for this exact selected facility. They must authenticate independently; the current operator cannot witness their own disposal.',
@@ -132,7 +143,9 @@ void main() {
       await tester.tap(
         find.byKey(const ValueKey('inventory-disposal-witness-approve')),
       );
-      await tester.pumpAndSettle();
+      // Same reason: pump the dialog's exit transition rather than settling.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
 
       expect(requestedWitnessIntent, approvedWitnessIntent);
       expect(
