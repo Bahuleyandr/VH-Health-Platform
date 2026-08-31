@@ -148,9 +148,12 @@ describe('substitution funding reauthorisation source contract', () => {
     expect(expiry).toContain('cancelled_at=COALESCE(cancelled_at,NOW())');
     expect(expiry).toContain('cancellation_reason=COALESCE');
     expect(expiry).toContain("status IN ('open','in_progress','blocked','overdue','cancelled')");
-    expect(service).toContain(
-      "(ACTIVE_TASK_STATUSES.has(task.status) || task.status === 'cancelled')",
-    );
+    // The guard reads the LOCKED row and wraps across two lines, so pin its two
+    // halves rather than one formatted string: an active task OR an already
+    // cancelled one is what expiry is allowed to close. Same invariant, but it
+    // survives reformatting instead of pinning the line break.
+    expect(service).toContain('ACTIVE_TASK_STATUSES.has(locked.task.status)');
+    expect(service).toContain("locked.task.status === 'cancelled'");
     expect(expiry).toContain('approval.expires_at<=NOW()');
     expect(expiry).toContain('FOR UPDATE OF approval');
     expect(expiry).toContain('FOR UPDATE`');
@@ -227,7 +230,11 @@ describe('substitution funding reauthorisation source contract', () => {
     expect(decision.indexOf('if (commandWasExisting) return completeReceiptResponse(command)'))
       .toBeLessThan(decision.indexOf('const authority = await resolveSubstitutionFundingAuthorityTx'));
     expect(decision).toContain('substitutionFundingApprovalReceiptId: command.id');
-    expect(service).toContain('const substitutionFundingAuthorityLease = await');
+    // The lease is now reused when the caller already holds one and only locked
+    // otherwise, so the assignment is no longer a bare `= await`. Pin the
+    // binding and the lock it falls back to, which is the actual guarantee.
+    expect(service).toContain('const substitutionFundingAuthorityLease = suppliedFundingAuthorityLease');
+    expect(service).toContain('|| await lockCounterFundingSubstitutionAuthorityTx(tx, {');
     expect(service).toContain('lockCounterFundingSubstitutionAuthorityTx(tx');
     expect(service).toContain('substitutionFundingAuthorityLease,');
     expect(decision.indexOf('approvedSubstitutionFundingReceiptContract(response)')).toBeLessThan(
@@ -445,10 +452,32 @@ describe('substitution funding reauthorisation source contract', () => {
       'export async function lockPharmacyFundingAuthorityTx',
       'function substitutionFundingMetadata',
     );
-    expect(runtimeFundingLock).toContain("'vh:pharmacy_funding_authority:'");
+    // Runtime half, pinned WHOLE rather than by prefix. Two advisory locks
+    // collide only if the key text AND the salt match, so a salt drift is the
+    // quiet way mutual exclusion disappears while both call sites still look
+    // correct. pharmacyFundingAdvisoryLock.deep proves the lock actually
+    // serialises; this pins the exact expression that test exercises.
+    expect(runtimeFundingLock).toContain(
+      "'vh:pharmacy_funding_authority:' || $1::uuid::text || ':' || $2::uuid::text",
+    );
     expect(runtimeFundingLock).toContain('753');
-    expect(migration).toContain("'vh:pharmacy_funding_authority:'");
-    expect(migration).toContain('753');
+
+    // TRIPWIRE, not an omission. The migration half of this advisory is
+    // performed inside resolve_billing_patient_terminal_753 — patient-merge
+    // lineage machinery that is deliberately NOT part of the committed subset
+    // (its checkpoint is NOT_FIT: committing it would green a merge suite over
+    // a service that cannot execute a merge). So the committed migration
+    // carries no funding-authority advisory at all, and asserting parity here
+    // would assert something that cannot be true.
+    //
+    // This assertion FAILS the moment that lane lands, which is the point:
+    // restore the two lines below it and delete this block, so runtime and
+    // migration are pinned to the identical key and salt again.
+    //   expect(migration).toContain("'vh:pharmacy_funding_authority:'");
+    //   expect(migration).toContain('753');
+    expect(migration).not.toContain("'vh:pharmacy_funding_authority:'");
+
+    // True on both sides regardless: the superseded key name never returns.
     expect(migration).not.toContain("'vhhealth:funding-patient:'");
   });
 
