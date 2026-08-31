@@ -1147,6 +1147,14 @@ export const schemas = {
       tenant_id: { type: 'string', format: 'uuid' },
       created_at: { type: 'string', format: 'date-time' },
       updated_at: { type: 'string', format: 'date-time' },
+      // Migration-753 bridge: an advance collected as an IPD deposit carries its
+      // exact source lineage (all three together, or none — the DB CHECK in the
+      // full lane enforces the pairing; the read path returns them verbatim).
+      ipd_advance_deposit_id: { type: 'integer', nullable: true },
+      ipd_advance_deposit_payment_method: { type: 'string', nullable: true },
+      ipd_advance_deposit_collected_at: {
+        type: 'string', format: 'date-time', nullable: true,
+      },
     },
   },
   AdvanceResponse: envelope('Advance'),

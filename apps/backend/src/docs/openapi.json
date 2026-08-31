@@ -2577,6 +2577,19 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "ipd_advance_deposit_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "ipd_advance_deposit_payment_method": {
+            "type": "string",
+            "nullable": true
+          },
+          "ipd_advance_deposit_collected_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
           }
         }
       },
