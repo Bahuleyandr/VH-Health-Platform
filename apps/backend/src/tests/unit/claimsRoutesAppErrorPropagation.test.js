@@ -16,16 +16,32 @@ import { AppError } from '../../utils/AppError.js';
 
 const upsertPolicyMock = jest.fn();
 
+// `submitClaim` is reached by the (unmocked) NHCX outbound dispatcher, not by
+// the routes under test; it resolves to the submitted claim the real one returns.
 jest.unstable_mockModule('../../services/insurance/claimsService.js', () => ({
   upsertPolicy: upsertPolicyMock,
+  submitClaim: jest.fn(async ({ id }) => ({ id, status: 'submitted' })),
 }));
 
 jest.unstable_mockModule('../../services/insurance/claimCapsService.js', () => ({}));
 
 jest.unstable_mockModule('../../services/insurance/packagesService.js', () => ({}));
 
+// A module stub must mirror EVERY export the router's import graph reaches, or
+// ESM fails the whole graph at load with "does not provide an export named X"
+// and the suite reports 0 tests rather than a readable assertion failure.
+// `requireTenantId` is reachable via the (deliberately unmocked) NHCX outbound
+// dispatcher and `getTenantById`/`updateTenant` via nhcxTenantConfigService; the
+// pass-through keeps the real guard's fail-closed shape visible, and the tenant
+// getters resolve to a row so a caller takes the found branch, not its 404 one.
+const TENANT_ID = '00000000-0000-4000-8000-000000000001';
+const TENANT_ROW = { id: TENANT_ID, slug: 'test-tenant', status: 'ACTIVE', settings: {} };
+
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
-  resolveTenantOrThrow: () => '00000000-0000-4000-8000-000000000001',
+  resolveTenantOrThrow: () => TENANT_ID,
+  requireTenantId: (tenantId) => tenantId || TENANT_ID,
+  getTenantById: jest.fn(async () => ({ ...TENANT_ROW })),
+  updateTenant: jest.fn(async (_tenantId, patch = {}) => ({ ...TENANT_ROW, ...patch })),
 }));
 
 const { default: claimsRoutes } = await import('../../routes/insurance/claimsRoutes.js');

@@ -13,7 +13,14 @@ const validatePrescriptionSafety = jest.fn();
 const recordCanonicalClinicalEvent = jest.fn();
 const isGateEnabled = jest.fn();
 
+// tenantService is left live for requireTenantId, and it binds the default
+// client at module load. Nothing here reaches it, so the stub reads empty.
+const prismaMock = {
+  $queryRawUnsafe: jest.fn(async () => []),
+  $executeRawUnsafe: jest.fn(async () => 0),
+};
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  default: prismaMock,
   setTenantTx,
 }));
 jest.unstable_mockModule('../../utils/patientMergeStabilityLock.js', () => ({
@@ -185,7 +192,10 @@ function primeTransaction({
   progressTable = null,
 } = {}) {
   txQuery.mockImplementation(async (sql) => {
-    if (/FROM e_prescriptions[\s\S]*id=\$2::int/.test(sql)) return preflightRows;
+    // `pharmacy_order_id=$2::int` ends in `id=$2::int`, so an unanchored pattern
+    // also swallows the linked-prescription read below and answers it with the
+    // preflight row. Pin the preflight to its unaliased FROM ... WHERE.
+    if (/FROM e_prescriptions\s+WHERE tenant_id=\$1::uuid AND id=\$2::int/.test(sql)) return preflightRows;
     if (/FROM pharmacy_orders po/.test(sql)) return order;
     if (/FROM e_prescriptions prescription[\s\S]*pharmacy_order_id=\$2::int/.test(sql)) return rx;
     if (/FROM users p/.test(sql)) return patient();
@@ -318,8 +328,16 @@ describe('rejected prescription amendment authority', () => {
     expect(txExecute).toHaveBeenCalledTimes(3);
     expect(txExecute.mock.calls[0][0]).toMatch(/UPDATE e_prescriptions/);
     expect(txExecute.mock.calls[1][0]).toMatch(/UPDATE pharmacy_orders/);
-    expect(txExecute.mock.calls[1][0]).not.toMatch(/clinical_verification_(status|notes|findings)\s*=/);
-    expect(txExecute.mock.calls[1][0]).not.toMatch(/clinically_verified_(by|at|order_version)\s*=/);
+    // The rejected-verification evidence must never be REWRITTEN, but it is
+    // legitimately read back in the compare-and-swap guard. Split the statement
+    // so the negatives bind to the SET half only, and assert the guards on the
+    // WHERE half instead of merely tolerating them.
+    const [orderSetClause, orderWhereClause] = txExecute.mock.calls[1][0].split(/\bWHERE\b/);
+    expect(orderSetClause).not.toMatch(/clinical_verification_(status|notes|findings)\s*=/);
+    expect(orderSetClause).not.toMatch(/clinically_verified_(by|at|order_version)\s*=/);
+    expect(orderWhereClause).toMatch(/clinical_verification_status='rejected'/);
+    expect(orderWhereClause).toMatch(/clinically_verified_order_version=\$10::int/);
+    expect(orderWhereClause).toMatch(/clinical_verification_items_sha256=\$11/);
     expect(txExecute.mock.calls[2][0]).toMatch(/INSERT INTO pharmacy_order_history/);
     const historyEvidence = JSON.parse(txExecute.mock.calls[2][5]);
     expect(historyEvidence).toMatchObject({

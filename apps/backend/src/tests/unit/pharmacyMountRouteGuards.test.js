@@ -6,10 +6,11 @@
  *
  * Pins, with mocked prisma:
  *   (a) selectors resolve the subject from the identifier the handler uses,
- *       with an explicit tenant predicate, and never throw on junk input —
- *       except selectOrderPatient, whose contract is to 404 an order id that
- *       names no row at all (phone is contact data, not ownership authority,
- *       so a resolvable order with no patient_id owner resolves to null);
+ *       with an explicit tenant predicate, and never throw: junk input, an
+ *       unknown or out-of-tenant order, and a resolvable order carrying no
+ *       patient_id owner (phone is contact data, not ownership authority)
+ *       all resolve to null, because patientAccessGuard answers 500
+ *       PATIENT_ACCESS_CHECK_FAILED on any selector throw;
  *   (b) the guarded routes carry the guard (read off the router stacks), and
  *       the routes this train retired are gone from the router;
  *   (c) list/queue/self routes are NOT patient-context-forced;
@@ -221,9 +222,11 @@ deliveryApp.use('/orders/:id/delivery-handoff/reissue', orderRoutesModule.pharma
 deliveryApp.use('/orders/:id/delivery-return/request', orderRoutesModule.pharmacyDeliveryReturnRequestRoutes);
 deliveryApp.use('/orders/:id/delivery-return/complete', orderRoutesModule.pharmacyDeliveryReturnCompletionRoutes);
 // Mirrors app.js's global error handler for the AppError-shaped refusals
-// requireExactDeliveryCustody raises.
+// requireExactDeliveryCustody raises. AppError carries `statusCode`, and
+// errorHandlerMiddleware reads that name only — mirroring `err.status` here
+// answered 500 for every refusal and hid the custody code behind it.
 deliveryApp.use((err, _req, res, _next) => {
-  res.status(err.status || 500).json({ success: false, code: err.code ?? null });
+  res.status(err.statusCode || 500).json({ success: false, code: err.code ?? null });
 });
 
 beforeEach(() => {
@@ -281,11 +284,21 @@ describe('selectors resolve the row the handler serves, tenant-scoped', () => {
     await expect(selector({ params: { id: '73' }, tenantId: TENANT })).resolves.toBeNull();
   });
 
-  test('order selector 404s an order id that names no row in the tenant', async () => {
+  // A miss resolves null and must NOT throw. patientAccessGuard's catch treats
+  // any selector throw as a broken authorization engine and answers 500
+  // PATIENT_ACCESS_CHECK_FAILED without ever reading err.statusCode, so a 404
+  // raised here would turn every unknown order id into a 500 and lose the
+  // guard's decision row entirely. Null lets the guard refuse cleanly (403
+  // PATIENT_CONTEXT_REQUIRED under enforce) with the attempt recorded.
+  test('order selector resolves null — never throws — for an order id that names no row in the tenant', async () => {
     db.orderRow = null;
     const selector = guards.selectOrderPatient((req) => req.params?.id);
-    await expect(selector({ params: { id: '73' }, tenantId: TENANT }))
-      .rejects.toMatchObject({ statusCode: 404, code: 'NOT_FOUND' });
+    await expect(selector({ params: { id: '73' }, tenantId: TENANT })).resolves.toBeNull();
+    // The null is a real miss, not an early bail: the tenant-scoped lookup ran
+    // and bound this id.
+    const call = prismaMock.$queryRawUnsafe.mock.calls.find(([sql]) => sql.includes('FROM pharmacy_orders po'));
+    expect(call).toBeDefined();
+    expect(call.slice(1)).toEqual([TENANT, 73]);
   });
 
   test('order selector returns null (no query, no throw) on junk id or missing tenant', async () => {

@@ -1,12 +1,23 @@
 import { readFileSync } from 'node:fs';
 import { jest } from '@jest/globals';
 
+const prismaDefaultMock = { $queryRawUnsafe: jest.fn() };
+
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: { $queryRawUnsafe: jest.fn() },
+  default: prismaDefaultMock,
   setTenantTx: jest.fn(),
+  // The tx-branding guard is a live fail-closed check in the services this
+  // controller pulls in; recognise only this suite's substitute client, so an
+  // unbranded handle is still rejected the way production does.
+  isTenantTransactionClient: (value) => value === prismaDefaultMock,
 }));
 jest.unstable_mockModule('../../services/pharmacy/compositionIdentityService.js', () => ({
   resolveCompositionIdentitiesByCatalogIds: jest.fn(),
+  // prescriptionSafetyCheck now enriches through this module. Pass the
+  // medications straight back: the real function's job is to strip forged
+  // composition fields and overlay canonical ones, and with no catalog
+  // identities resolvable here that is a no-op on the caller's input.
+  enrichMedicationsWithComposition: jest.fn(async (_tenantId, meds) => meds),
 }));
 jest.unstable_mockModule('../../../scripts/backfill-drug-compositions.mjs', () => ({
   enrichCatalogRowForWrite: jest.fn((row) => row),

@@ -14,9 +14,18 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: txMock,
   setTenantTx: setTenantTxMock,
 }));
+// A module stub must mirror EVERY export this import graph reaches, or ESM
+// fails the whole graph at load with "does not provide an export named X" and
+// the suite reports 0 tests rather than a readable assertion failure. The three
+// obligation exports arrive via ipd/wardIndentObligationService.js, which the
+// dispense path pulls in but never drives here; they resolve to the task rows
+// their callers destructure (`Number(task.id)`, the completed row).
 jest.unstable_mockModule('../../services/workflow/taskService.js', () => ({
   createApproval: createApprovalMock,
   recordApprovalDecision: recordApprovalDecisionMock,
+  createWardMedicationObligationTaskTx: jest.fn(async () => ({ id: 1, status: 'open' })),
+  postTaskComment: jest.fn(async () => ({ id: 1 })),
+  completeTaskFromDomainEvidence: jest.fn(async ({ id }) => ({ id, status: 'completed' })),
 }));
 
 const witnessService = await import(
@@ -868,6 +877,10 @@ describe('dispenseControlledTx wiring', () => {
       .mockResolvedValueOnce([authorityRow()])
       .mockResolvedValueOnce([performerRow()])
       .mockResolvedValueOnce([itemRow()])
+      // lockControlledRegisterItemTx serializes the register before the
+      // movement; its advisory lock consumes a result of its own, and the two
+      // rows after it are the facility-grant actor and the grant itself.
+      .mockResolvedValueOnce([{ lock_acquired: 'true' }])
       .mockResolvedValueOnce([{
         id: 17,
         uid: DISPENSER,

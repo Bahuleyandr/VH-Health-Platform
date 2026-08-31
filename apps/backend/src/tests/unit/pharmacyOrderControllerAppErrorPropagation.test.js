@@ -19,10 +19,32 @@ import { AppError } from '../../utils/AppError.js';
 const prismaQueryMock = jest.fn();
 const assertVerificationClearedMock = jest.fn(async () => {});
 const assertVerificationClearedTxMock = jest.fn(async () => {});
+// Scriptable: the delivery/dispense gates now run INSIDE the tenant
+// transaction, so a test that needs one of them to refuse rejects the
+// transaction itself.
+const setTenantTxMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: prismaQueryMock },
-  setTenantTx: jest.fn(),
+  setTenantTx: setTenantTxMock,
+  // observability/reliabilityMetrics.js imports these statically, so the mock
+  // has to carry them or the whole graph fails to link.
+  setTenant: jest.fn(async (_tenantId, fn) => fn({ $queryRawUnsafe: prismaQueryMock })),
+  // Healthy, closed breaker — callers read `.open` to decide whether the DB is
+  // in fail-fast, and this suite exercises the reachable-DB path.
+  circuitBreakerStatus: jest.fn(() => ({
+    open: false,
+    consecutiveFailures: 0,
+    openedAt: null,
+    resetInMs: 0,
+    byTag: {},
+  })),
+  // Services reached through the controller assert their `tx` is a genuine
+  // tenant-scoped (RLS-active) client and throw *_TX_REQUIRED otherwise. The
+  // real registry is populated by setTenantTx, which is mocked out here, so
+  // it answers true to keep those guards on their intended path — this suite
+  // pins AppError propagation, not tenant-transaction provenance.
+  isTenantTransactionClient: jest.fn(() => true),
 }));
 
 jest.unstable_mockModule('../../utils/r2Storage.js', () => ({
@@ -64,9 +86,49 @@ jest.unstable_mockModule('../../services/pharmacy/pharmacyFacilityAuthorityServi
 jest.unstable_mockModule('../../services/billing/billingV2Service.js', () => ({
   compensateTerminalPharmacyFundingAuthorityTx: jest.fn(async () => ({ status: 'compensated' })),
   materializePharmacyFundingAuthority: jest.fn(async () => ({ status: 'funded' })),
+  // Clear-probe shape: the real assert throws
+  // PHARMACY_TERMINAL_FUNDING_PATIENT_AUTHORITY_UNRESOLVED when the order still
+  // carries live funding, so resolving means "no live authority" — the path
+  // that lets recovery proceed.
+  assertNoLivePharmacyOrderFundingAuthorityTx: jest.fn(async (_tx, { orderId } = {}) => ({
+    pharmacyOrderId: Number(orderId) || null,
+    liveFundingAuthority: false,
+  })),
 }));
 jest.unstable_mockModule('../../services/clinical/allergySourceService.js', () => ({
   getUnifiedActiveAllergies: jest.fn(async () => []),
+  // The detail shape the controller destructures (.allergies/.patientResolved/
+  // .sourcesFailed) to stamp allergy_status. Resolved patient + no failed
+  // source is the 'verified' path, so a mocked order never reports a false
+  // 'unavailable'.
+  getUnifiedActiveAllergiesDetailed: jest.fn(async () => ({
+    allergies: [],
+    sourcesFailed: [],
+    patientResolved: true,
+  })),
+  // The severity pair stays faithful to the real module instead of being
+  // stubbed. prescriptionSafetyCheck gates its hard allergy block on
+  // `rankSeverity(severity) >= SEVERE_BLOCK_RANK`, and the real ranker is
+  // fail-safe: a severity that is present but unparseable ranks as a blocker,
+  // never as a warning. A flat stub would rank everything 0 and silently
+  // disable that block for the whole suite.
+  SEVERE_BLOCK_RANK: 4,
+  rankSeverity: jest.fn((value) => {
+    if (value == null) return 0;
+    const key = String(value).trim().toUpperCase();
+    if (!key || ['UNKNOWN', 'UNSPECIFIED', 'NONE', 'N/A', 'NA', 'NULL', 'NIL'].includes(key)) {
+      return 0;
+    }
+    return {
+      LIFE_THREATENING: 5,
+      ANAPHYLAXIS: 5,
+      CONTRAINDICATED: 4,
+      SEVERE: 4,
+      HIGH: 3,
+      MODERATE: 2,
+      MILD: 1,
+    }[key] ?? 4;
+  }),
 }));
 jest.unstable_mockModule('../../services/clinical/canonicalOperationalBridgeService.js', () => ({
   emitPharmacyOrderEvent: jest.fn(async () => ({})),
@@ -75,6 +137,9 @@ jest.unstable_mockModule('../../services/pharmacy/pharmacistVerificationService.
   assertVerificationCleared: assertVerificationClearedMock,
   assertVerificationClearedTx: assertVerificationClearedTxMock,
   clinicalOrderItemsSha256: jest.fn(() => 'items-sha256'),
+  clinicalCatalogAuthoritySha256Tx: jest.fn(async () => 'catalog-authority-sha256'),
+  // Void advisory-lock helper — the real one only takes pg_advisory_xact_lock.
+  lockPharmacyCatalogAuthorityTx: jest.fn(async () => {}),
   ensurePackBarcode: jest.fn(async () => 'PACK-1'),
   verifyOrder: jest.fn(async () => ({})),
   getPackLabel: jest.fn(async () => ({})),
@@ -140,41 +205,83 @@ jest.unstable_mockModule('../../routes/pharmacy/pharmacyOrderPatientGuards.js', 
   tenantOf: (req) => req.tenantId ?? null,
 }));
 
-const { default: pharmacyOrderRoutes } = await import('../../routes/pharmacy/orderRoutes.js');
+const {
+  default: pharmacyOrderRoutes,
+  pharmacyDeliveryCompletionRoutes,
+} = await import('../../routes/pharmacy/orderRoutes.js');
 
 const app = express();
 app.use(express.json());
+let actorRole = 'PHARMACY_STAFF';
 app.use((req, _res, next) => {
   req.id = 'test-request-id';
   req.tenantId = '00000000-0000-4000-8000-000000000001';
-  req.user = { id: 7, uid: '11111111-1111-4111-8111-111111111111', role: 'PHARMACY_STAFF' };
+  req.user = { id: 7, uid: '11111111-1111-4111-8111-111111111111', role: actorRole };
   next();
 });
+// Delivery completion no longer lives on the orderRoutes barrel — it is its
+// own router mounted by app.js at this exact path, behind a custody predicate.
+// Mount it the way app.js does so the delivery tests below exercise the real
+// chain rather than a path that now 404s.
+app.use('/api/v1/pharmacy/orders/:id/delivered', pharmacyDeliveryCompletionRoutes);
 app.use('/api/v1/pharmacy', pharmacyOrderRoutes);
 
 beforeEach(() => {
+  actorRole = 'PHARMACY_STAFF';
   prismaQueryMock.mockReset();
   assertVerificationClearedMock.mockReset();
   assertVerificationClearedMock.mockResolvedValue(undefined);
+  assertVerificationClearedTxMock.mockReset();
+  assertVerificationClearedTxMock.mockResolvedValue(undefined);
+  setTenantTxMock.mockReset();
 });
 
+// A one-time patient handoff token: markDelivered requires 20-200 characters
+// of handoff proof before it will open the tenant transaction.
+const HANDOFF_TOKEN = 'handoff-token-0123456789abcdef';
+
 describe('dispense verification gate preserves its machine-readable code', () => {
-  test('ordinary pharmacy staff cannot authorise a TPA cap override', async () => {
+  // Delivery completion now consumes ONLY the staged custody package and the
+  // patient handoff proof: cap_override is rejected as a forbidden field for
+  // every caller, rather than being gated to pharmacy-incharge. Driving this
+  // with DELIVERY_STAFF — a role that legitimately holds delivery custody —
+  // makes the refusal provably about the FIELD and not about the actor, which
+  // the previous role-gated 403 could not distinguish.
+  test('no delivery-custody actor may smuggle a TPA cap override into completion', async () => {
+    actorRole = 'DELIVERY_STAFF';
+    prismaQueryMock.mockResolvedValueOnce([{ id: 71 }]); // exact custody row
+
     const response = await request(app)
-      .post('/api/v1/pharmacy/71/delivered')
+      .post('/api/v1/pharmacy/orders/71/delivered')
       .set('Idempotency-Key', 'cap-override-authority-71')
       .send({
+        handoff_token: HANDOFF_TOKEN,
         cap_override: true,
         cap_override_reason: 'Insurer enhancement is approved offline',
       });
 
-    expect(response.statusCode).toBe(403);
-    expect(response.body.code).toBe('TPA_PHARMACY_CAP_OVERRIDE_FORBIDDEN');
+    expect(response.statusCode).toBe(400);
+    expect(response.body.code).toBe('PHARMACY_DELIVERY_CALLER_AUTHORITY_FORBIDDEN');
+    expect(response.body.details).toEqual({
+      forbidden_fields: ['cap_override', 'cap_override_reason'],
+    });
+    // Refused before any gate ran. The single setTenantTx call is the
+    // read-only command-replay probe that precedes the field check; the
+    // mutating delivery transaction is never opened.
     expect(assertVerificationClearedMock).not.toHaveBeenCalled();
+    expect(assertVerificationClearedTxMock).not.toHaveBeenCalled();
+    expect(setTenantTxMock).toHaveBeenCalledTimes(1);
   });
 
+  // markDelivered runs assertVerificationClearedTx INSIDE setTenantTx, so the
+  // gate's refusal reaches the controller as a rejected tenant transaction.
+  // First setTenantTx call is the command-replay lookup (no prior receipt);
+  // the second is the transaction the gate refuses.
   test('PHARMACY_VERIFICATION_REQUIRED is returned at the envelope root', async () => {
-    assertVerificationClearedMock.mockRejectedValueOnce(AppError.conflict(
+    actorRole = 'DELIVERY_STAFF';
+    prismaQueryMock.mockResolvedValueOnce([{ id: 71 }]); // exact custody row
+    setTenantTxMock.mockResolvedValueOnce(null);
+    setTenantTxMock.mockRejectedValueOnce(AppError.conflict(
       'Pharmacist clinical verification is required before dispense',
       'PHARMACY_VERIFICATION_REQUIRED',
       {
@@ -184,9 +291,9 @@ describe('dispense verification gate preserves its machine-readable code', () =>
     ));
 
     const response = await request(app)
-      .post('/api/v1/pharmacy/71/delivered')
+      .post('/api/v1/pharmacy/orders/71/delivered')
       .set('Idempotency-Key', 'verification-gate-71')
-      .send({});
+      .send({ handoff_token: HANDOFF_TOKEN });
 
     expect(response.statusCode).toBe(409);
     expect(response.body.code).toBe('PHARMACY_VERIFICATION_REQUIRED');
@@ -208,6 +315,7 @@ describe('confirmOrder catch relays AppError code + details (predicate kept)', (
 
     const response = await request(app)
       .post('/api/v1/pharmacy/71/confirm')
+      .set('Idempotency-Key', 'confirm-71')
       .send({ items_list: [], total_amount: 0 });
 
     expect(response.statusCode).toBe(409);
@@ -225,6 +333,7 @@ describe('confirmOrder catch relays AppError code + details (predicate kept)', (
 
     const response = await request(app)
       .post('/api/v1/pharmacy/71/confirm')
+      .set('Idempotency-Key', 'confirm-71')
       .send({ items_list: [], total_amount: 0 });
 
     expect(response.statusCode).toBe(500);
@@ -241,6 +350,7 @@ describe('confirmOrder catch relays AppError code + details (predicate kept)', (
 
     const response = await request(app)
       .post('/api/v1/pharmacy/71/confirm')
+      .set('Idempotency-Key', 'confirm-71')
       .send({ items_list: [], total_amount: 0 });
 
     expect(response.statusCode).toBe(400);

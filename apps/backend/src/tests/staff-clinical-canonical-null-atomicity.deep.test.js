@@ -2,8 +2,12 @@
 // timeline INSERT returns no row, recordCanonicalClinicalEvent must reject and
 // the staff-facing clinical detail mutation must roll back with it.
 
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { jest } from '@jest/globals';
+
+const emptyActiveTherapySha256 = createHash('sha256')
+  .update(JSON.stringify({ evidence: [], blockers: [] }))
+  .digest('hex');
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -44,8 +48,22 @@ jest.unstable_mockModule('../lib/prisma.js', () => ({
   },
 }));
 
+// pharmacistVerificationService imports the active-therapy authority from this
+// module, so the substitute has to carry it on both surfaces. Like the safety
+// verdict above it is neutralised rather than exercised: the genuine
+// empty-snapshot digest with no blockers keeps the caller's fail-closed
+// reconciliation gate open, leaving the canonical-null fault the only failure
+// this suite injects.
+const loadActiveTherapySnapshotStub = () => jest.fn(async () => ({
+  medications: [],
+  evidence: [],
+  blockers: [],
+  sha256: emptyActiveTherapySha256,
+}));
+
 jest.unstable_mockModule('../utils/clinical/prescriptionSafetyCheck.js', () => ({
   checkAntithromboticInteractions: jest.fn(() => []),
+  loadActiveTherapySnapshot: loadActiveTherapySnapshotStub(),
   validatePrescriptionSafety: jest.fn(async () => ({
     safe: true,
     blockers: [],
@@ -54,6 +72,7 @@ jest.unstable_mockModule('../utils/clinical/prescriptionSafetyCheck.js', () => (
   })),
   default: {
     checkAntithromboticInteractions: jest.fn(() => []),
+    loadActiveTherapySnapshot: loadActiveTherapySnapshotStub(),
     validatePrescriptionSafety: jest.fn(async () => ({
       safe: true,
       blockers: [],

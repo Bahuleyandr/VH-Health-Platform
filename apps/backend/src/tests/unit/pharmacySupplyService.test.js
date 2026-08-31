@@ -1975,7 +1975,9 @@ describe('receivePurchaseOrderLine', () => {
         inventory_item_id: 7,
         inventory_batch_id: 50,
         movement_kind: 'receive',
-        quantity_delta: 50,
+        // Canonical fixed-scale decimal, like every other quantity in this
+        // intent record — a bare number would accept float drift.
+        quantity_delta: '50.0000',
         purchase_order_id: 10,
         purchase_order_item_id: 5,
         goods_receipt_id: 22,

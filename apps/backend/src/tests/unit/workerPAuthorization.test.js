@@ -83,6 +83,10 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
   completeWorkflowSla: jest.fn(),
   currentCanonicalTransactionRevision: jest.fn(async () => 1),
   recordClinicalAuditEvent: jest.fn(),
+  // Returns the persisted review rows; callers assign and read the array, so
+  // the empty-result shape (what the real one returns with no raw client) is
+  // the safe default.
+  recordMedicationSafetyReviews: jest.fn(async () => []),
   recordCanonicalClinicalEvent: jest.fn(),
   recordTimelineEvent: jest.fn(),
   startWorkflowSla: jest.fn(),
@@ -94,6 +98,28 @@ jest.unstable_mockModule('../../services/clinical/allergySourceService.js', () =
   getUnifiedActiveAllergiesDetailed: jest.fn(async () => ({
     allergies: [], sourcesFailed: [], patientResolved: true,
   })),
+  // prescriptionSafetyCheck imports the severity pair and gates its hard
+  // allergy block on `rankSeverity(severity) >= SEVERE_BLOCK_RANK`. Kept
+  // faithful to the real module rather than stubbed: the real ranker is
+  // fail-safe (a present-but-unparseable severity ranks as a blocker), and a
+  // flat stub would rank everything 0 and silently disable that block.
+  SEVERE_BLOCK_RANK: 4,
+  rankSeverity: jest.fn((value) => {
+    if (value == null) return 0;
+    const key = String(value).trim().toUpperCase();
+    if (!key || ['UNKNOWN', 'UNSPECIFIED', 'NONE', 'N/A', 'NA', 'NULL', 'NIL'].includes(key)) {
+      return 0;
+    }
+    return {
+      LIFE_THREATENING: 5,
+      ANAPHYLAXIS: 5,
+      CONTRAINDICATED: 4,
+      SEVERE: 4,
+      HIGH: 3,
+      MODERATE: 2,
+      MILD: 1,
+    }[key] ?? 4;
+  }),
 }));
 jest.unstable_mockModule('../../services/clinical/marService.js', () => ({
   scheduleMedications: scheduleMedicationsMock,

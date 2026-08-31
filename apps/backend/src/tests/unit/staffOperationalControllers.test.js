@@ -83,6 +83,15 @@ jest.unstable_mockModule('../../services/staff/payrollService.js', () => ({
   issuePayrollRun: jest.fn(),
   recordPayrollFailure: jest.fn(),
   revealPayslipCredential: jest.fn(),
+  // Controller narrows on `err instanceof SalaryArrearsCommandError` to pick the
+  // status code, so this one must stay a real class, not a jest.fn().
+  SalaryArrearsCommandError: class SalaryArrearsCommandError extends Error {
+    constructor(message, statusCode = 409) {
+      super(message);
+      this.name = 'SalaryArrearsCommandError';
+      this.statusCode = statusCode;
+    }
+  },
   savePayslip: jest.fn(),
   signPayrollRun: jest.fn(),
   summarizePayrollRunOutcome: jest.fn(),
@@ -526,8 +535,9 @@ describe('staff operational endpoint drift guards', () => {
     expect(queryRawUnsafe.mock.calls[0][0]).toContain('p.tenant_id = $3::uuid');
     // Both getPayrollRunDetail queries gained the same tenant predicate: a run
     // and its payslips are reachable only from inside the owning tenant, not by
-    // run id alone. Only payrollController.js moved — calls[3]..[7] below come
-    // from controllers unchanged since 9cc8b8903 and keep their old shapes.
+    // run id alone. calls[5] (getRevisionDetail) moved the same way; calls[3],
+    // [4], [6] and [7] come from controllers unchanged since 9cc8b8903 and keep
+    // their old shapes.
     expect(queryRawUnsafe.mock.calls[1]).toEqual([
       expect.stringContaining('p.payroll_run_id = $1::int'),
       1,
@@ -552,10 +562,16 @@ describe('staff operational endpoint drift guards', () => {
       staffUid,
       DEFAULT_TENANT_ID,
     ]);
+    // getRevisionDetail is now tenant-scoped AND refuses rows parked for tenant
+    // reconciliation. Assert both predicates, not just the extra bound value, so
+    // dropping either guard while leaving the parameter in place still fails.
     expect(queryRawUnsafe.mock.calls[5]).toEqual([
       expect.stringContaining('sr.id = $1::int'),
       1,
+      DEFAULT_TENANT_ID,
     ]);
+    expect(queryRawUnsafe.mock.calls[5][0]).toContain('sr.tenant_id = $2::uuid');
+    expect(queryRawUnsafe.mock.calls[5][0]).toContain('sr.tenant_reconciliation_required = false');
     expect(queryRawUnsafe.mock.calls[6]).toEqual([
       expect.stringContaining('ir.id = $1::int'),
       1,

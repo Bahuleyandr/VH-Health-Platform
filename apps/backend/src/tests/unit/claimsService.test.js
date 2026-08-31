@@ -393,6 +393,12 @@ describe('submitPreauth standard document bundle', () => {
 
     prisma.$queryRawUnsafe = async (sql, ...params) => {
       const text = String(sql);
+      // setTenantTx opens by pinning the RLS GUC. Assert it carries this
+      // caller's tenant rather than merely tolerating the statement.
+      if (text.includes("set_config('app.current_tenant_id'")) {
+        expect(params[0]).toBe(tenantId);
+        return [{ set_config: tenantId }];
+      }
       // `getPreauth` now joins insurance_policies + payers to surface
       // `payer_name` (so recordPreauthResponse's PREAUTH_INSURER_MISMATCH
       // guard actually fires). Match on the aliased `FROM insurance_preauth pre`
@@ -433,6 +439,23 @@ describe('submitPreauth standard document bundle', () => {
       }
       if (text.includes('SELECT COUNT(*)::int AS n FROM tpa_claim_documents')) {
         return [{ n: insertedDocTypes.length }];
+      }
+      // Submission now runs inside a tenant-scoped transaction that resolves
+      // the canonical funding patient, advisory-locks patient + admission, and
+      // re-reads the pre-auth FOR UPDATE before the state change (mig 753).
+      if (text.includes('FROM users patient')) return [{ uid: preauth.patient_uid }];
+      if (text.includes('pg_advisory_xact_lock')) return [{ lock_acquired: 'true' }];
+      if (text.includes('FROM admissions') && text.includes('FOR UPDATE')) {
+        return [{
+          id: preauth.admission_id,
+          patient_uid: preauth.patient_uid,
+          status: 'admitted',
+        }];
+      }
+      if (text.includes('SELECT status FROM insurance_preauth')) {
+        // The fixture's own state machine answers here, so the locked re-read
+        // sees 'draft' before the UPDATE and 'submitted' after it.
+        return [{ status: preauth.status }];
       }
       throw new Error(`Unexpected query in submitPreauth unit test: ${text}`);
     };
@@ -601,6 +624,7 @@ describe('recordPreauthResponse tenant scoping (with prisma stub)', () => {
   // stamps the DEFAULT tenant) and the insurance_preauth projection UPDATE
   // must be tenant-scoped.
   const TENANT = '22222222-2222-4222-8222-222222222222';
+  const PATIENT_UID = '33333333-3333-4333-8333-333333333333';
   let originalQueryRaw;
   let originalExecuteRaw;
   let insertCall;
@@ -629,6 +653,30 @@ describe('recordPreauthResponse tenant scoping (with prisma stub)', () => {
           submit_due_at_epoch_ms: null,
         }];
       }
+      // The write now runs inside a tenant-scoped transaction that resolves
+      // the pre-auth's funding identity, advisory-locks it, then re-reads the
+      // row FOR UPDATE and refuses the write if either moved (migration 753).
+      // The fixture carries that authority: one active tenant patient, and a
+      // locked row whose identity matches the pre-lock read.
+      if (/set_config\('app\.current_tenant_id'/i.test(sql)) {
+        expect(params[0]).toBe(TENANT);
+        return [{ set_config: TENANT }];
+      }
+      if (/FROM insurance_preauth\b/i.test(sql) && /FOR UPDATE/i.test(sql)) {
+        expect(params[0]).toBe(TENANT);
+        return [{
+          id: 1, status: 'submitted', admission_id: null, patient_uid: PATIENT_UID,
+        }];
+      }
+      if (/FROM insurance_preauth\b/i.test(sql)) {
+        expect(params[0]).toBe(TENANT);
+        return [{ admission_id: null, patient_uid: PATIENT_UID }];
+      }
+      if (/FROM users patient/i.test(sql)) {
+        expect(params[0]).toBe(TENANT);
+        return [{ uid: PATIENT_UID }];
+      }
+      if (/pg_advisory_xact_lock/i.test(sql)) return [{ lock_acquired: 'true' }];
       return [];
     };
     prisma.$executeRawUnsafe = async (sql, ...params) => {
@@ -966,8 +1014,13 @@ describe('buildClaimWarnings (gatherer, prisma-stubbed)', () => {
       if (text.includes("category = 'room_rent'")) return [{ total: 18000 }];
       throw new Error(`Unexpected query in buildClaimWarnings room test: ${text}`);
     };
+    // The gatherer reads the admission through a tenant-scoped `findFirst`
+    // (cross-tenant fix), so the stub asserts the predicate it is given.
     prisma.admissions = {
-      findUnique: async () => ({ room_category: 'private' }),
+      findFirst: async ({ where }) => {
+        expect(where).toMatchObject({ tenant_id: tenantId, id: 27 });
+        return { room_category: 'private' };
+      },
     };
 
     const out = await buildClaimWarnings({
@@ -1015,6 +1068,12 @@ describe('createClaim attaches non-blocking warnings (does not reject)', () => {
     // claimed≤billed hard guard passes (80000 ≤ 80000); the advisory fires.
     prisma.$queryRawUnsafe = async (sql, ...params) => {
       const text = String(sql);
+      // setTenantTx opens by pinning the RLS GUC. Assert it carries this
+      // caller's tenant rather than merely tolerating the statement.
+      if (text.includes("set_config('app.current_tenant_id'")) {
+        expect(params[0]).toBe(tenantId);
+        return [{ set_config: tenantId }];
+      }
       // Sol Ultra #15 reference binding (policy/preauth belong to patient).
       if (text.includes('SELECT patient_uid FROM insurance_policies WHERE')
         || text.includes('SELECT patient_uid FROM insurance_preauth WHERE')) {
@@ -1043,6 +1102,36 @@ describe('createClaim attaches non-blocking warnings (does not reject)', () => {
       }
       if (text.includes('FROM insurance_preauth_responses')) return [{ raw_response: {} }];
       if (text.includes("category = 'room_rent'")) return [{ total: 0 }];
+      // Claim creation now acquires funding + claim-reference authority inside
+      // the tenant-scoped transaction: canonical patient, advisory lock, then
+      // the policy and pre-auth re-read FOR UPDATE (mig 753). The fixture rows
+      // carry the exact binding the guards demand — same patient, same policy.
+      if (text.includes('FROM users patient')) return [{ uid: patientUid }];
+      if (text.includes('pg_advisory_xact_lock')) return [{ lock_acquired: 'true' }];
+      if (text.includes('FROM insurance_policies') && text.includes('FOR UPDATE')) {
+        return [{
+          id: 1,
+          patient_uid: patientUid,
+          status: 'active',
+          valid_from: null,
+          valid_to: null,
+          sum_insured: 500000,
+          cumulative_used: 0,
+          valid_from_active: true,
+          valid_to_active: true,
+        }];
+      }
+      if (text.includes('FROM insurance_preauth') && text.includes('FOR UPDATE')) {
+        return [{
+          id: 90,
+          patient_uid: patientUid,
+          policy_id: 1,
+          admission_id: null,
+          status: 'approved',
+          sanctioned_amount: 65000,
+          expected_cost: 80000,
+        }];
+      }
       throw new Error(`Unexpected query in createClaim warning test: ${text}`);
     };
     prisma.$executeRawUnsafe = async (sql) => {
@@ -1077,6 +1166,12 @@ describe('createClaim attaches non-blocking warnings (does not reject)', () => {
   it('attaches an empty warnings array when the claim has no linked preauth', async () => {
     prisma.$queryRawUnsafe = async (sql, ...params) => {
       const text = String(sql);
+      // setTenantTx opens by pinning the RLS GUC. Assert it carries this
+      // caller's tenant rather than merely tolerating the statement.
+      if (text.includes("set_config('app.current_tenant_id'")) {
+        expect(params[0]).toBe(tenantId);
+        return [{ set_config: tenantId }];
+      }
       // Sol Ultra #15 reference binding (policy belongs to patient).
       if (text.includes('SELECT patient_uid FROM insurance_policies WHERE')) {
         return [{ patient_uid: patientUid }];
@@ -1090,6 +1185,23 @@ describe('createClaim attaches non-blocking warnings (does not reject)', () => {
           claimed_amount: params[10],
           total_billed: params[7],
           status: 'prepared',
+        }];
+      }
+      // Same mig-753 authority chain as the warning case, minus the pre-auth
+      // lock: an unlinked claim never reaches it.
+      if (text.includes('FROM users patient')) return [{ uid: patientUid }];
+      if (text.includes('pg_advisory_xact_lock')) return [{ lock_acquired: 'true' }];
+      if (text.includes('FROM insurance_policies') && text.includes('FOR UPDATE')) {
+        return [{
+          id: 1,
+          patient_uid: patientUid,
+          status: 'active',
+          valid_from: null,
+          valid_to: null,
+          sum_insured: 500000,
+          cumulative_used: 0,
+          valid_from_active: true,
+          valid_to_active: true,
         }];
       }
       throw new Error(`Unexpected query in createClaim no-preauth test: ${text}`);
