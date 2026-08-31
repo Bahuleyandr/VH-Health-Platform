@@ -2449,7 +2449,9 @@ export const getPrescriptionSafety = async (req, res) => {
           reason: o.reason,
           at: o.created_at
         })),
-        indication: rx[0].diagnosis || null
+        // `rx` is already the single locked row, not the result set — indexing
+        // it threw a TypeError on every successful read of this endpoint.
+        indication: rx.diagnosis || null
       },
       'Prescription safety context'
     );
@@ -3491,7 +3493,12 @@ export const orderPharmacyFromPrescription = async (req, res) => {
         medications: Array.isArray(lockedRx.medications) ? lockedRx.medications : [],
       });
       const lockedPatients = await tx.$queryRawUnsafe(
-        `SELECT id, uid, name,
+        // The identity columns must be qualified to `patient`: the guardian
+        // LEFT JOIN is a self-join on users, so a bare `id`/`uid`/`name` is
+        // ambiguous (42702) and this lock — the last patient-authority check
+        // before the order is written — failed for every placement. Only the
+        // phone may fall back to the guardian's.
+        `SELECT patient.id, patient.uid, patient.name,
                 COALESCE(NULLIF(guardian.phone, ''), NULLIF(patient.guardian_phone, ''), patient.phone) AS phone
            FROM users patient
            LEFT JOIN users guardian

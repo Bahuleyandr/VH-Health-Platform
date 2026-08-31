@@ -59,7 +59,13 @@ function billingV2Module(node) {
 function unwrapExpression(node) {
   let current = node;
   while (current?.type === 'AwaitExpression' || current?.type === 'ChainExpression') {
-    current = current.expression;
+    // ESTree names these operands differently: AwaitExpression carries
+    // `argument`, ChainExpression carries `expression`. Reading `.expression`
+    // off an await yielded undefined, so every awaited callee — notably
+    // `(await import('./billingV2Service.js')).collectPayment(...)` and
+    // `const billing = await import(...)` — resolved to no kind at all and
+    // slipped past discovery entirely instead of being enumerated.
+    current = current.type === 'AwaitExpression' ? current.argument : current.expression;
   }
   if (current?.type === 'SequenceExpression') {
     return unwrapExpression(current.expressions.at(-1));

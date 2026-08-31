@@ -7,7 +7,14 @@ const PATIENT = 'a7410000-0000-4000-8000-000000000005';
 const prismaMock = { $queryRawUnsafe: jest.fn() };
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  // The router's service graph links against more of lib/prisma than the router
+  // itself uses: reliabilityMetrics wants circuitBreakerStatus, and
+  // workflowHumanOwnerService/portalAccessService want isTenantTransactionClient.
+  // Same shapes the other unit suites mock them at — this suite only reads the
+  // middleware stack, so neither is ever invoked here.
+  circuitBreakerStatus: jest.fn(() => ({ open: false, consecutiveFailures: 0 })),
   default: prismaMock,
+  isTenantTransactionClient: () => true,
   prismaReadOnly: prismaMock,
   setTenant: async (_tenantId, fn) => fn(prismaMock),
   setTenantTx: async (_tenantId, fn) => fn(prismaMock),

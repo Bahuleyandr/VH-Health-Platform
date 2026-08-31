@@ -705,8 +705,16 @@ export const adminSignRevision = async (req, res) => {
       const result = await tx.$queryRawUnsafe(`
         UPDATE salary_revisions
            SET admin_signed_by=$1::uuid, admin_signed_at=$2::timestamptz,
-               admin_comment=$3, status='approved', signature_hash=$4,
-               admin_signature_sha256=$4,
+               admin_comment=$3, status='approved',
+               -- One bind, two differently-typed targets: signature_hash is
+               -- VARCHAR(64) and migration 754's admin_signature_sha256 is
+               -- CHAR(64). An untyped $4 gets a type deduced from each target
+               -- in turn and Postgres refuses to plan the statement
+               -- (42P08, "character varying versus character"), so every
+               -- admin countersign 500s. Pin the bind to text once and let the
+               -- assignment cast land it in both columns.
+               signature_hash=$4::text,
+               admin_signature_sha256=$4::text,
                admin_signer_role=$7, admin_authority_checked_at=$2::timestamptz,
                admin_authority_source='users_active_row',
                updated_at=NOW()

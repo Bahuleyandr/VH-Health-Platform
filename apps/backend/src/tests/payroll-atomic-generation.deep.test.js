@@ -183,8 +183,17 @@ async function createAppliedArrearsRevisionTx(tx, {
     `REV-FINV3-${arrearsRevisionSequence}`,
     staffUid,
     label,
-    HR,
-    ADMIN,
+    // The helper's OWN signers, not the home tenant's. Migration 754 gave
+    // salary_revisions composite FKs on (tenant_id, proposed_by) /
+    // (tenant_id, hr_signed_by) / (tenant_id, admin_signed_by) against
+    // users (tenant_id, uid) — fk_salary_revisions_proposer_tenant and
+    // siblings (754:1431-1448). Binding the module-level HR/ADMIN while the
+    // caller asked for a foreign tenant produced exactly the cross-tenant pair
+    // those keys exist to refuse, so the foreign-arrears fixture 23503'd before
+    // it could prove anything. A revision is signed by its own tenant's HR and
+    // admin, here as in production.
+    hrUid,
+    adminUid,
   );
   return Number(revision.id);
 }
@@ -940,9 +949,17 @@ describe('durable payroll attempts and document delivery', () => {
   }, 60000);
 
   test('quarantined and foreign coherent arrears never enter or mutate the tenant payroll plan', async () => {
+    // Every test in this file owns ONE (tenant, month, year) period, because
+    // beginPayrollRun claims a period exclusively: a second claim on a period
+    // an earlier test left processing/approved comes back
+    // { skipped: true, reason } with no attempt_token or attempt_started_at at
+    // all, and the next call then fails on "attemptStartedAt must be a valid
+    // timestamp" rather than on anything this test is about. Month 6 already
+    // belongs to the provider-acknowledged-crash test above; this one takes 4.
+    const PERIOD_MONTH = 4;
     const run = await beginPayrollRun({
       tenantId: TENANT,
-      month: 6,
+      month: PERIOD_MONTH,
       year: YEAR,
       generatedBy: HR,
     });
@@ -951,7 +968,7 @@ describe('durable payroll attempts and document delivery', () => {
         label: 'FIN v3 coherent arrears control',
       });
       const valid = await createPendingSalaryArrearTx(tx, {
-        revisionId, month: 6, year: YEAR, amount: 200,
+        revisionId, month: PERIOD_MONTH, year: YEAR, amount: 200,
       });
       return { revisionId, validId: Number(valid.id) };
     });
@@ -963,13 +980,14 @@ describe('durable payroll attempts and document delivery', () => {
          tenant_reconciliation_evidence
        )
        VALUES (
-         NULL, $1::uuid, NULL, 6, $2, 6, $2, 9000,
+         NULL, $1::uuid, NULL, $3::int, $2, $3::int, $2, 9000,
          'reconciliation_required', true, 'parent_revision_quarantined',
          '{"fixture":"quarantined_parent"}'::jsonb
        )
        RETURNING id`,
       STAFF,
       YEAR,
+      PERIOD_MONTH,
     ), { superAdmin: true });
     const foreign = await setTenantTx(OTHER_TENANT, async (tx) => {
       const revisionId = await createAppliedArrearsRevisionTx(tx, {
@@ -983,7 +1001,7 @@ describe('durable payroll attempts and document delivery', () => {
         tenantId: OTHER_TENANT,
         staffUid: OTHER_STAFF,
         revisionId,
-        month: 6,
+        month: PERIOD_MONTH,
         year: YEAR,
         amount: 7000,
       });
@@ -996,7 +1014,7 @@ describe('durable payroll attempts and document delivery', () => {
       attemptStartedAt: run.attempt_started_at,
       attemptToken: run.attempt_token,
       staffUid: STAFF,
-      month: 6,
+      month: PERIOD_MONTH,
       year: YEAR,
     });
     expect(generated.calculation.arrears_amount).toBe(200);

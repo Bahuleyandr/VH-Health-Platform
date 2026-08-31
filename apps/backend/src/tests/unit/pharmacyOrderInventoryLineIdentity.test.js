@@ -435,36 +435,94 @@ describe('counter inventory facility custody', () => {
 
   test('a no-op partial line preserves its prior positive inventory item identity', async () => {
     const query = jest.fn()
-      .mockResolvedValueOnce([{ id: 17, unit_price: '12.50' }])
-      .mockResolvedValueOnce([]);
+      .mockResolvedValueOnce([
+        { id: 17, unit_price: '12.50' },
+        { id: 18, unit_price: '20.00' },
+      ])
+      // Migration 753 made an evidence-bearing line re-prove its Inventory V2
+      // identity against the live tenant+facility+catalog row; an empty result
+      // is now PHARMACY_ORDER_INVENTORY_EVIDENCE_CONFLICT. The row is returned
+      // DE-LISTED on purpose: that is exactly the case this branch exists for —
+      // a line that already dispensed stock keeps its prior identity instead of
+      // being re-resolved through the active-item path, which would refuse it.
+      .mockResolvedValueOnce([
+        {
+          id: 81,
+          catalog_id: 17,
+          facility_id: 7,
+          display_name: 'Drug A',
+          status: 'inactive',
+        },
+        {
+          id: 82,
+          catalog_id: 18,
+          facility_id: 7,
+          display_name: 'Drug B',
+          status: 'active',
+        },
+      ]);
 
     await expect(resolveCounterDispenseAuthorityTx(
       { $queryRawUnsafe: query },
       {
         tenantId: '00000000-0000-4000-8000-000000000001',
         facilityId: 7,
-        lines: [{
-          order_line_index: 0,
-          catalog_id: 17,
-          inventory_item_id: 81,
-          ordered_qty: 2,
-          dispensed_qty: 1,
-          inventory_dispensed_quantity: 1,
-          inventory_billable_total: 12.5,
-        }],
+        // The command as a whole must now issue a positive incremental
+        // quantity, so the no-op line rides alongside a line that actually
+        // advances. That is the real shape of a partial fill continuing, and
+        // it is what lets the no-op line's identity be observed at all — a
+        // command that dispenses nothing is no longer a dispense.
+        lines: [
+          {
+            order_line_index: 0,
+            catalog_id: 17,
+            inventory_item_id: 81,
+            ordered_qty: 2,
+            dispensed_qty: 1,
+            inventory_dispensed_quantity: 1,
+            inventory_billable_total: 12.5,
+          },
+          {
+            order_line_index: 1,
+            catalog_id: 18,
+            ordered_qty: 1,
+            dispensed_qty: 1,
+          },
+        ],
         completeRemainder: false,
       },
-    )).resolves.toEqual([expect.objectContaining({
-      order_line_index: 0,
-      catalog_id: 17,
-      inventory_item_id: 81,
-      dispensed_qty: 1,
-      inventory_dispensed_quantity: 1,
-      inventory_billable_total: 12.5,
-      line_total: 12.5,
-    })]);
+    )).resolves.toEqual([
+      expect.objectContaining({
+        order_line_index: 0,
+        catalog_id: 17,
+        inventory_item_id: 81,
+        dispensed_qty: 1,
+        inventory_dispensed_quantity: 1,
+        inventory_billable_total: 12.5,
+        line_total: 12.5,
+      }),
+      expect.objectContaining({
+        order_line_index: 1,
+        catalog_id: 18,
+        inventory_item_id: 82,
+        dispensed_qty: 1,
+        price: 20,
+        line_total: 20,
+      }),
+    ]);
 
-    expect(query.mock.calls[1][0]).toMatch(/pharmacy_inventory_items/);
+    // The identity read is bound to this tenant, this facility and this
+    // catalog — pinning all three is stronger than the previous table-name
+    // match, and it is what makes 'stale or cross-authority' detectable.
+    expect(query.mock.calls[1][0]).toMatch(/FROM pharmacy_inventory_items/);
+    expect(query.mock.calls[1][0]).toMatch(/tenant_id = \$1::uuid/);
+    expect(query.mock.calls[1][0]).toMatch(/facility_id = \$2::int/);
+    expect(query.mock.calls[1][0]).toMatch(/catalog_id = ANY\(\$3::int\[\]\)/);
+    expect(query.mock.calls[1].slice(1)).toEqual([
+      '00000000-0000-4000-8000-000000000001',
+      7,
+      [17, 18],
+    ]);
   });
 });
 

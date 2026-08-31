@@ -51,10 +51,15 @@ describe('pharmacy funding authority source contracts', () => {
   });
 
   it('claims and body-binds a line decision command before any decision or task mutation', () => {
+    // There are now two "Wave-5 batch-3" banners in this service; the bare
+    // prefix resolves to the earlier one (the admission invoice auto-itemizer),
+    // which sits ABOVE this function and silently collapsed the slice to ''.
+    // Anchor on the full banner so the ordering below is actually evaluated.
     const decision = billing.slice(
       billing.indexOf('export async function recordPharmacyFundingLineDecision'),
-      billing.indexOf('// ─── Wave-5 batch-3'),
+      billing.indexOf('// ─── Wave-5 batch-3 — TPA decision UI helpers'),
     );
+    expect(decision.length).toBeGreaterThan(0);
     const receipt = decision.indexOf('claimPharmacyFundingCommandTx');
     expect(receipt).toBeGreaterThan(0);
     expect(receipt).toBeLessThan(decision.indexOf('INSERT INTO tpa_claim_line_decisions'));
@@ -96,11 +101,16 @@ describe('pharmacy funding authority source contracts', () => {
   });
 
   it('makes allocation and cap evidence append-only and exactly cross-bound', () => {
-    expect(migration).toContain(
-      'FOREIGN KEY (tenant_id, invoice_item_id, invoice_id)\n    REFERENCES billing_invoice_items (tenant_id, id, invoice_id)',
+    // Bound to the owning constraint name, and matched across whitespace rather
+    // than a literal '\n': core.autocrlf=true checks this LF blob out as CRLF on
+    // Windows, so a '\n'-literal probe fails on every Windows host even when the
+    // committed SQL has not drifted at all — and an unbound probe could be
+    // satisfied by the same column list on a different table entirely.
+    expect(migration).toMatch(
+      /CONSTRAINT fk_pharmacy_payment_allocation_item_753\s*FOREIGN KEY \(tenant_id, invoice_item_id, invoice_id\)\s*REFERENCES billing_invoice_items \(tenant_id, id, invoice_id\)/,
     );
-    expect(migration).toContain(
-      'FOREIGN KEY (tenant_id, billing_payment_id, invoice_id)\n    REFERENCES billing_payments (tenant_id, id, invoice_id)',
+    expect(migration).toMatch(
+      /CONSTRAINT fk_pharmacy_payment_allocation_payment_753\s*FOREIGN KEY \(tenant_id, billing_payment_id, invoice_id\)\s*REFERENCES billing_payments \(tenant_id, id, invoice_id\)/,
     );
     expect(migration).toContain(
       'FOREIGN KEY (tenant_id, reservation_id, pharmacy_order_id, admission_id)',
@@ -111,7 +121,14 @@ describe('pharmacy funding authority source contracts', () => {
     expect(migration).toContain('prevent_new_duplicate_pharmacy_billing_line_753');
     expect(migration).toContain('pharmacy_funding_reconciliation_cases');
     expect(migration).toContain('pharmacy_funding_reconciliation_events');
-    expect(migration).toContain("assigned_to_role,created_by,metadata");
+    // A migration has no acting user and tasks.created_by is nullable, so the
+    // seeded reconciliation task has never carried one — 'created_by' in this
+    // column list could never fire. Pin the provenance the row DOES carry: its
+    // exact column list, the dual-control owner role, and the versioned task
+    // contract that the runtime worklist reader matches on.
+    expect(migration).toContain('related_resource_id,priority,status,assigned_to_role,metadata');
+    expect(migration).toContain("'high','open','FINANCE_INCHARGE',");
+    expect(migration).toContain("'pharmacy_funding_reconciliation_task_v1'");
     expect(migration).toContain("'FINANCE_INCHARGE'");
   });
 
@@ -121,8 +138,13 @@ describe('pharmacy funding authority source contracts', () => {
     expect(migration).toContain('enforce_pharmacy_funding_event_chain_753');
     expect(migration).toContain('ux_pharmacy_funding_events_generation_753');
     expect(migration).toContain('ux_pharmacy_funding_events_supersedes_753');
-    expect(migration).toContain("event_type IN ('FUNDING_RESOLVED','AUTHORITY_INVALIDATED')\n      AND authority_generation IS NOT NULL");
-    expect(migration).toContain("event_type='FUNDING_RESOLVED'\n          AND authority_generation=1");
+    // Whitespace-tolerant for the same core.autocrlf reason as above.
+    expect(migration).toMatch(
+      /event_type IN \('FUNDING_RESOLVED','AUTHORITY_INVALIDATED'\)\s*AND authority_generation IS NOT NULL/,
+    );
+    expect(migration).toMatch(
+      /event_type='FUNDING_RESOLVED'\s*AND authority_generation=1/,
+    );
     expect(migration).toContain('must alternate resolved and invalidated');
     expect(billing).toContain('appendPharmacyFundingAuthorityStateTx');
     const chainReader = billing.slice(
@@ -141,7 +163,14 @@ describe('pharmacy funding authority source contracts', () => {
     );
     expect(schema).toContain('authority_generation     BigInt?');
     expect(schema).toContain('supersedes_event_id      BigInt?');
-    expect(schema).toContain('pharmacy_funding_event_supersession_753');
+    // No named @relation for a 753 table has ever existed in this snapshot —
+    // the repo emulates these raw-SQL relations (migrations 749/750) and keeps
+    // the FK in SQL. The "one supersession-chain head" guarantee is carried by
+    // the partial unique indexes, which the snapshot DOES mirror; pin those on
+    // both sides plus the SQL FK, which is what actually enforces the chain.
+    expect(schema).toContain('map: "ux_pharmacy_funding_events_supersedes_753"');
+    expect(schema).toContain('map: "ux_pharmacy_funding_events_generation_753"');
+    expect(migration).toContain('ADD CONSTRAINT fk_pharmacy_funding_event_supersedes_753');
   });
 
   it('gates substitution governance before counter-funding domain rows with a private lease', () => {
@@ -183,9 +212,32 @@ describe('pharmacy funding authority source contracts', () => {
     expect(barrier).toContain('approvalRows.length === 1');
     expect(barrier).toContain('taskRows.length === 1');
     expect(barrier).toContain('governance_approval_id');
-    expect(barrier).toContain("String(approval.created_by || '').toLowerCase() === proposerUid");
-    expect(barrier).toContain("String(task.created_by || '').toLowerCase() === proposerUid");
-    expect(barrier).toContain("String(taskMetadata.proposer_uid || '').toLowerCase() === proposerUid");
+    // The approval/task identity binding was lifted out of the barrier into the
+    // pure exactSubstitutionApprovalTask predicate, which the barrier calls to
+    // decide the exact pair. It now binds the approval kind, subject resource,
+    // contract, stage, order and both task-id directions on top of the three
+    // proposer identities this used to pin — assert it there.
+    const exactPair = cap.slice(
+      cap.indexOf('function exactSubstitutionApprovalTask'),
+      cap.indexOf('function substitutionFundingConflict'),
+    );
+    expect(exactPair.length).toBeGreaterThan(0);
+    expect(barrier).toContain('exactSubstitutionApprovalTask({ approval, task, orderId');
+    expect(exactPair).toContain(
+      "approval.approval_kind === 'pharmacy_substitution_funding_reauthorisation'",
+    );
+    expect(exactPair).toContain(
+      "approval.subject_resource_type === 'pharmacy_substitution_funding_proposal'",
+    );
+    expect(exactPair).toContain('approval.subject_resource_id === proposalSha256');
+    expect(exactPair).toContain('Number(approval.task_id) === Number(task.id)');
+    expect(exactPair).toContain('Number(taskMetadata.approval_id) === Number(approval.id)');
+    expect(exactPair).toContain('proposerUid.length > 0');
+    expect(exactPair).toContain("String(approval.created_by || '').toLowerCase() === proposerUid");
+    expect(exactPair).toContain("String(task.created_by || '').toLowerCase() === proposerUid");
+    expect(exactPair).toContain(
+      "String(taskMetadata.proposer_uid || '').toLowerCase() === proposerUid",
+    );
     expect(barrier).toContain("? 'approval_receipt'");
     expect(barrier).toContain("? 'governance_approval' : 'generic'");
     expect(cap).toContain("Symbol('counterFundingSubstitutionLease')");
@@ -229,10 +281,19 @@ describe('pharmacy funding authority source contracts', () => {
   });
 
   it('uses the established bypass-aware reconciliation RLS predicate', () => {
+    // The permissive policy on each reconciliation table is named plainly
+    // (`tenant_isolation`), matching every other table in this migration; only
+    // the RESTRICTIVE half carries the table-qualified name. Anchor the slice
+    // on the RLS enablement instead, which is unambiguous, and pin both policy
+    // names so a silently renamed or dropped half is caught.
     const policies = migration.slice(
-      migration.indexOf('CREATE POLICY pharmacy_funding_reconciliation_cases_tenant_isolation'),
+      migration.indexOf(
+        'ALTER TABLE pharmacy_funding_reconciliation_cases ENABLE ROW LEVEL SECURITY',
+      ),
       migration.indexOf('ALTER TABLE nhcx_messages'),
     );
+    expect(policies).toContain('CREATE POLICY pharmacy_funding_reconciliation_cases_tenant_restrictive');
+    expect(policies).toContain('CREATE POLICY pharmacy_funding_reconciliation_events_tenant_restrictive');
     expect(policies.match(/public\.app_current_tenant_id_uuid\(\)/g)).toHaveLength(8);
     expect(policies).toContain("current_setting('app.current_tenant_id', TRUE) = 'bypass'");
     expect(policies).toContain("current_setting('app.current_tenant_id', TRUE) <> 'bypass'");
@@ -257,7 +318,10 @@ describe('pharmacy funding authority source contracts', () => {
     expect(migration).toContain('transport_response_sha256 CHAR(64)');
     expect(migration).toContain('prevent_nhcx_transport_receipt_rewrite_753');
     expect(schema).toContain('transport_response_sha256     String?   @db.Char(64)');
-    expect(schema).toContain('nhcx_projection_task_753');
+    // The projection→task binding is a SQL foreign key plus a scalar in the
+    // relation-emulated snapshot, never a named Prisma relation. Pin both.
+    expect(migration).toContain('ADD CONSTRAINT fk_nhcx_projection_task_753');
+    expect(schema).toContain('projection_task_id            Int?');
   });
 
   it('models NHCX transport and projection authority on nhcx_messages only', () => {
@@ -277,10 +341,16 @@ describe('pharmacy funding authority source contracts', () => {
       expect(nhcxModel).toContain(field);
     }
     expect(nhcxModel).toContain('idx_nhcx_projection_reconciliation_753');
-    expect(schema).toContain(
-      'nhcx_projection_messages nhcx_messages[] @relation("nhcx_projection_task_753")',
+    // No 753 table is modelled with a named Prisma relation in this repo — the
+    // raw-SQL authority tables are relation-emulated (migrations 749/750) and
+    // the snapshot mirrors scalars plus index maps only. Pin that no such
+    // relation has crept in (it would silently change the generated client's
+    // shape) and pin the SQL foreign key that actually binds the projection to
+    // its tenant-scoped task.
+    expect(schema).not.toMatch(/@relation\("[A-Za-z_0-9]*_753"/);
+    expect(migration).toMatch(
+      /ADD CONSTRAINT fk_nhcx_projection_task_753\s*FOREIGN KEY \(tenant_id,projection_task_id\)\s*REFERENCES tasks \(tenant_id,id\)/,
     );
-    expect(schema.match(/@relation\("nhcx_projection_task_753"/g)).toHaveLength(2);
   });
 
   it('keeps the Prisma snapshot aligned with all five durable funding tables and relations', () => {
@@ -293,11 +363,29 @@ describe('pharmacy funding authority source contracts', () => {
     ]) {
       expect(schema).toContain(`model ${model} {`);
     }
-    expect(schema).toContain('pharmacy_funding_commands_task_753');
-    expect(schema).toContain('pharmacy_payment_allocations_invoice_item_753');
-    expect(schema).toContain('pharmacy_payment_allocations_payment_753');
-    expect(schema).toContain('pharmacy_payment_allocation_reversals_exact_753');
-    expect(schema).toContain('pharmacy_cap_reservation_events_reservation_753');
+    // These five names were relation names the snapshot has never carried, and
+    // four of them named no database object at all. The alignment this test is
+    // for is between the snapshot's index/constraint MAPS and the migration
+    // that creates them — assert that on both sides, so a map renamed on either
+    // side is caught instead of a name that could never match.
+    for (const indexMap of [
+      'ux_pharmacy_funding_events_command_753',
+      'ux_pharmacy_funding_events_generation_753',
+      'ux_pharmacy_funding_events_supersedes_753',
+      'ux_pharmacy_funding_commands_key_753',
+      'idx_pharmacy_funding_commands_task_753',
+      'idx_pharmacy_funding_commands_item_753',
+      'ux_pharmacy_payment_allocations_exact_753',
+      'ux_pharmacy_payment_allocations_identity_753',
+      'idx_pharmacy_payment_allocations_payment_753',
+      'ux_pharmacy_payment_allocation_reversals_command_753',
+      'idx_pharmacy_payment_allocation_reversals_allocation_753',
+      'ux_pharmacy_cap_reservation_events_command_753',
+      'idx_pharmacy_cap_reservation_events_order_753',
+    ]) {
+      expect(schema).toContain(`map: "${indexMap}"`);
+      expect(migration).toContain(indexMap);
+    }
     expect(schema).toContain('authority_evidence        Json      @default("{}")');
   });
 });

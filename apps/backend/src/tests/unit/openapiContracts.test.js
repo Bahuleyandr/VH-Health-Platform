@@ -434,12 +434,27 @@ describe('OpenAPI contract overlays (static gate)', () => {
     const validate = ajv.getSchema(
       'openapi.json#/components/schemas/PharmacyCounterSaleWitnessApprovalDecisionRequest',
     );
+    // MED-03 bound the counter sale to an exact dispensing facility, so the
+    // embedded sale payload no longer validates without facility_id. The
+    // credential pair below is only meaningful on a sale the contract accepts,
+    // and the negative case underneath keeps that requirement load-bearing —
+    // a sale that omits its facility must be refused at the contract edge,
+    // not left for the server's grant check to catch.
     const sale = {
+      facility_id: 4,
       lines: [{ inventory_item_id: 17, quantity: 1 }],
       payment_mode: 'CASH',
     };
+    const saleWithoutFacility = { ...sale };
+    delete saleWithoutFacility.facility_id;
 
     expect(validate({ sale })).toBe(true);
+    expect(validate({ sale: saleWithoutFacility })).toBe(false);
+    expect(validate({
+      sale: saleWithoutFacility,
+      employeeId: 'NURSE-002',
+      password: 'witness-secret',
+    })).toBe(false);
     expect(validate({
       sale,
       employeeId: 'NURSE-002',

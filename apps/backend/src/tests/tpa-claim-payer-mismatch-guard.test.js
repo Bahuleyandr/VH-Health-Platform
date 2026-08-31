@@ -46,6 +46,25 @@ async function seedClaim({ policyId, status = 'submitted', tpaRef = null, totalB
 
 describe('TPA claim settlement payer-mismatch guard (df39fefb)', () => {
   beforeAll(async () => {
+    // Migration 753 routes createClaim through lockInsuranceFundingPatientTx
+    // → resolvePharmacyFundingPatientUidTx, which serialises the claim
+    // against the ONE active patient it names. seedClaim's patient_uid
+    // therefore has to be a real registered patient in this tenant
+    // (role='PATIENT', is_active, status='active', not deleted, not merged),
+    // not a bare uuid — otherwise every seedClaim call is refused with 409
+    // PHARMACY_FUNDING_PATIENT_IDENTITY_MISMATCH before the payer guard under
+    // test is ever reached. Register them the way registration would.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, status, tenant_id, updated_at)
+       VALUES ($1::uuid, $2, 'TPA Settlement Mismatch Test Patient', 'PATIENT', true, 'active', $3::uuid, NOW())
+       ON CONFLICT (uid) DO UPDATE
+          SET is_active = true, status = 'active', is_deleted = false,
+              merged_into_uid = NULL, updated_at = NOW()`,
+      PATIENT_UID,
+      `9603${Date.now() % 1000000}`.slice(0, 10),
+      TENANT,
+    );
+
     // Resolve the seeded Star Health payer id from the migration-203 master.
     const starRows = await prisma.$queryRawUnsafe(
       `SELECT id FROM payers WHERE tenant_id = $1::uuid AND payer_code = 'STAR' LIMIT 1`,
@@ -81,8 +100,9 @@ describe('TPA claim settlement payer-mismatch guard (df39fefb)', () => {
     for (const id of [starPolicyId, nakedPolicyId]) {
       if (id) await prisma.$executeRawUnsafe(`DELETE FROM insurance_policies WHERE id = $1::int`, id).catch(() => {});
     }
+    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$disconnect().catch(() => {});
-  });
+  }, 120_000);
 
   it('rejects recordClaimPayment when the settlement reference insurer mismatches the policy payer', async () => {
     // Star Health policy, but the settlement reference is an NIA NEFT ref —

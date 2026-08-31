@@ -22,7 +22,12 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   isTenantTransactionClient: () => true,
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({
-  default: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+  // marService's transitive import chain reaches billingV2Service, which logs
+  // at module scope through logger.debug — the mock has to carry every level
+  // the real default export does or the suite dies at import time.
+  default: {
+    info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn(),
+  },
 }));
 
 const { scheduleMedications } = await import('../../services/clinical/marService.js');

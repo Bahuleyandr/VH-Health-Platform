@@ -6,21 +6,25 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const migrationPath = (name) => path.resolve(__dirname, '../../migrations', name);
 const seederPath = path.resolve(__dirname, '../../../scripts/seed-comprehensive-test-data.mjs');
+const coveragePolicyPath = path.resolve(__dirname, '../../db/seedCoveragePolicy.js');
 const prismaSchemaPath = path.resolve(__dirname, '../../../prisma/schema.prisma');
+
+// These files are committed with LF, but core.autocrlf checks them out as CRLF
+// on Windows. Read the canonical (committed) bytes so an assertion that spells
+// a line break as `\n` means exactly the same thing on every host.
+const readCanonical = (file) => fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
 
 const sql = {};
 
 beforeAll(() => {
-  sql.catalog = fs.readFileSync(migrationPath('563_cath_consumable_catalog.sql'), 'utf8');
-  sql.usage = fs.readFileSync(migrationPath('564_cath_case_consumable_usage.sql'), 'utf8');
-  sql.links = fs.readFileSync(migrationPath('565_cath_implant_inventory_links.sql'), 'utf8');
-  sql.billing = fs.readFileSync(migrationPath('566_cath_consumables_billing_hook.sql'), 'utf8');
-  sql.authority = fs.readFileSync(
-    migrationPath('753_pharmacy_order_inventory_authority.sql'),
-    'utf8',
-  );
-  sql.seeder = fs.readFileSync(seederPath, 'utf8');
-  sql.schema = fs.readFileSync(prismaSchemaPath, 'utf8');
+  sql.catalog = readCanonical(migrationPath('563_cath_consumable_catalog.sql'));
+  sql.usage = readCanonical(migrationPath('564_cath_case_consumable_usage.sql'));
+  sql.links = readCanonical(migrationPath('565_cath_implant_inventory_links.sql'));
+  sql.billing = readCanonical(migrationPath('566_cath_consumables_billing_hook.sql'));
+  sql.authority = readCanonical(migrationPath('753_pharmacy_order_inventory_authority.sql'));
+  sql.seeder = readCanonical(seederPath);
+  sql.coveragePolicy = readCanonical(coveragePolicyPath);
+  sql.schema = readCanonical(prismaSchemaPath);
 });
 
 describe('NL-13 P1d cath consumables migrations 563-566', () => {
@@ -240,10 +244,20 @@ describe('NL-13 P1d cath consumables migrations 563-566', () => {
     expect(sql.authority).toContain("'CATH_CATALOG_FACILITY_UNRESOLVED'");
     expect(sql.authority).toContain("'CATH_USAGE_AUTHORITY_UNRESOLVED'");
     expect(sql.authority).toContain("'CATH_CASE_FACILITY_UNRESOLVED'");
-    const cathBlock = sql.authority.slice(
-      sql.authority.indexOf('-- Cath consumable custody is pinned'),
-      sql.authority.indexOf('COMMENT ON COLUMN pharmacy_orders.facility_id'),
+    // 753 has grown past the Cath DDL: the insurance, MED03 supply and MED03
+    // counter-sale authority blocks now sit between it and the pharmacy_orders
+    // comment this slice used to stop at, so that end marker swept their text
+    // into "the cath block" — counter-sale worklisting legitimately snapshots
+    // candidate default facilities and tripped the no-default-inference guard
+    // below. Stop at the next block header instead, and fail loudly if either
+    // marker moves rather than silently slicing an empty or inverted range.
+    const cathBlockStart = sql.authority.indexOf('-- Cath consumable custody is pinned');
+    const cathBlockEnd = sql.authority.indexOf(
+      '-- Exact insurance authority for pre-auth/claim creation.',
     );
+    expect(cathBlockStart).toBeGreaterThan(-1);
+    expect(cathBlockEnd).toBeGreaterThan(cathBlockStart);
+    const cathBlock = sql.authority.slice(cathBlockStart, cathBlockEnd);
     expect(cathBlock).not.toMatch(/is_default\s*=\s*TRUE/i);
     expect(cathBlock).not.toMatch(
       /UPDATE cath_consumable_catalog[\s\S]*SET facility_id\s*=\s*item\.facility_id/i,
@@ -307,13 +321,33 @@ describe('NL-13 P1d cath consumables migrations 563-566', () => {
     );
   });
 
-  test('the comprehensive seeder overrides conditional cath snapshots and implant origins', () => {
-    expect(sql.seeder).toMatch(/TABLE_COLUMN_SEED_OVERRIDES[\s\S]*cath_case_consumable_usage/i);
-    expect(sql.seeder).toMatch(/cath_case_consumable_usage[\s\S]*batch_tracked:\s*false/i);
-    expect(sql.seeder).toMatch(/cath_case_consumable_usage[\s\S]*is_implant:\s*false/i);
-    expect(sql.seeder).toMatch(/cath_case_consumable_usage[\s\S]*case_id:[\s\S]*cath_lab_cases/i);
-    expect(sql.seeder).toMatch(/cath_case_consumable_usage[\s\S]*patient_uid:[\s\S]*cath_lab_cases/i);
-    expect(sql.seeder).toMatch(/cath_case_consumable_usage[\s\S]*procedure_log_id:\s*null/i);
+  // Migration 753 made a synthesized cath usage row impossible to seed
+  // honestly: cath_inventory_authority_assert_contract_753 requires a
+  // 'cath_inventory_shortfall_v1' owner task, a
+  // 'cath_consumable_inventory_reconciliation' SLA and a
+  // 'cath_inventory_shortfall' outbox entry whose recipient is backed by a real
+  // pharmacy facility grant for every non-terminal usage row, so the generic
+  // walker's pinned non-batch/non-implant snapshot no longer produces a legal
+  // row. The table must still be ACCOUNTED for rather than quietly dropped from
+  // coverage, so the contract moved to the governed intentionally-empty
+  // registry the seeder derives its allow-list from — and the two sides must
+  // not disagree.
+  test('the comprehensive seeder accounts for cath usage and pins implant origins', () => {
+    expect(sql.seeder).toContain(
+      'const INTENTIONALLY_EMPTY_TABLES = new Set(INTENTIONALLY_EMPTY_SEED_TABLES);',
+    );
+    expect(sql.seeder).toContain(
+      "import { INTENTIONALLY_EMPTY_SEED_TABLES } from '../src/db/seedCoveragePolicy.js';",
+    );
+    expect(sql.coveragePolicy).toMatch(
+      /INTENTIONALLY_EMPTY_SEED_TABLES = Object\.freeze\(\[[\s\S]*'cath_case_consumable_usage',/,
+    );
+    expect(sql.coveragePolicy).toMatch(
+      /cath_inventory_shortfall_v1[\s\S]*cath_consumable_inventory_reconciliation[\s\S]*'cath_case_consumable_usage',/,
+    );
+    // A table cannot be both intentionally empty and generically seeded.
+    expect(sql.seeder).not.toMatch(/^\s*cath_case_consumable_usage:\s*\{/m);
+    expect(sql.seeder).toMatch(/TABLE_COLUMN_SEED_OVERRIDES[\s\S]*surgical_implants/i);
     expect(sql.seeder).toMatch(/surgical_implants[\s\S]*cath_case_id:\s*null/i);
     expect(sql.seeder).toMatch(/surgical_implants[\s\S]*cath_usage_id:\s*null/i);
   });

@@ -3905,9 +3905,16 @@ export async function receivePurchaseOrderLine({
       );
     }
     const parentRows = await tx.$queryRawUnsafe(
+      // $1 is both assigned to a varchar column and compared to an untyped
+      // literal, which makes Postgres deduce `character varying` and `text`
+      // for the same parameter (42P08). Pin it to text in both places; the
+      // assignment to the varchar column still casts, and the length check
+      // still applies.
       `UPDATE pharmacy_purchase_orders
-       SET status = $1,
-           received_at = CASE WHEN $1 = 'fully_received' THEN NOW() ELSE received_at END,
+       SET status = $1::text,
+           received_at = CASE
+             WHEN $1::text = 'fully_received' THEN NOW() ELSE received_at
+           END,
            updated_at = NOW()
        WHERE id = $2 AND tenant_id = $3::uuid
        RETURNING ${PO_RETURNING}`,

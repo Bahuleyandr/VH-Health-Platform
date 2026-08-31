@@ -18,6 +18,16 @@ import { clinicalOrderItemsSha256 } from '../../services/pharmacy/pharmacistVeri
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const PATIENT_UID = '11111111-1111-4111-8111-111111111111';
+
+// The per-order substitution gate now binds its lock key as $1 rather than
+// inlining the namespace into the statement, so a SQL substring match no longer
+// finds it. Match the statement shape and check the bound key separately.
+const SUBSTITUTION_ORDER_GATE_SQL =
+  /pg_advisory_xact_lock\(hashtextextended\(\$1::text,\s*753\)\)/;
+const isSubstitutionOrderGate = (sql, params) => (
+  SUBSTITUTION_ORDER_GATE_SQL.test(sql)
+  && String(params?.[0] || '').startsWith('vh:substitution-funding:order:')
+);
 const ACTOR_UID = '22222222-2222-4222-8222-222222222222';
 const ITEMS = [{ catalog_id: 7, quantity: 1, unit_price: 75 }];
 const ITEMS_SHA256 = clinicalOrderItemsSha256(ITEMS);
@@ -239,15 +249,19 @@ describe('resolveAuthoritativeCounterFundingTx', () => {
 
   it('blocks active substitution authority under the workflow gate before domain locks', async () => {
     const calls = [];
+    let gateKey = null;
     const tx = {
-      $queryRawUnsafe: jest.fn(async (sql) => {
+      $queryRawUnsafe: jest.fn(async (sql, ...params) => {
         const normalized = String(sql).replace(/\s+/g, ' ').trim();
         calls.push(normalized);
         if (normalized.startsWith('SELECT patient.uid FROM users patient')) {
           return [{ uid: PATIENT_UID }];
         }
         if (normalized.includes('vh:pharmacy_funding_authority:')) return [{}];
-        if (normalized.includes('vh:substitution-funding:order:')) return [{}];
+        if (isSubstitutionOrderGate(normalized, params)) {
+          gateKey = params[0];
+          return [{}];
+        }
         if (normalized.includes('FROM pharmacy_funding_commands')) return [];
         if (normalized.includes('FROM approvals')) return [];
         if (normalized.includes('related_resource_type=ANY($3::text[])')) {
@@ -276,7 +290,13 @@ describe('resolveAuthoritativeCounterFundingTx', () => {
       },
     });
 
-    const gateIndex = calls.findIndex((sql) => sql.includes('vh:substitution-funding:order:'));
+    // The order gate binds its lock key as $1 instead of inlining it, so the
+    // statement is located by shape and the key is asserted on its own. That is
+    // stronger than the old substring match: it proves the lock is namespaced to
+    // THIS tenant and THIS order, which a SQL-text match never could once the
+    // key moved into a bind.
+    expect(gateKey).toBe(`vh:substitution-funding:order:${TENANT}:71`);
+    const gateIndex = calls.findIndex((sql) => SUBSTITUTION_ORDER_GATE_SQL.test(sql));
     const commandIndex = calls.findIndex((sql) => sql.includes('FROM pharmacy_funding_commands'));
     const approvalIndex = calls.findIndex((sql) => sql.includes('FROM approvals'));
     const taskIndex = calls.findIndex((sql) => sql.includes('FROM tasks'));
@@ -284,7 +304,16 @@ describe('resolveAuthoritativeCounterFundingTx', () => {
     expect(commandIndex).toBeGreaterThan(gateIndex);
     expect(approvalIndex).toBeGreaterThan(commandIndex);
     expect(taskIndex).toBeGreaterThan(approvalIndex);
-    expect(calls.some((sql) => sql.includes('FROM pharmacy_orders'))).toBe(false);
+    // The gate must fire before any DOMAIN read. The patient-identity
+    // resolution that legitimately precedes it now mentions pharmacy_orders
+    // inside an EXISTS — an identity proof, not a funding read — so the
+    // assertion names the counter-funding statements themselves. Adding the
+    // decision-event ledger makes this stricter than the old table match: the
+    // authority chain must not be touched either.
+    expect(calls.some(
+      (sql) => sql.startsWith('SELECT id,patient_id,status FROM pharmacy_orders'),
+    )).toBe(false);
+    expect(calls.some((sql) => sql.includes('FROM pharmacy_funding_decision_events'))).toBe(false);
     expect(calls.some((sql) => sql.includes('FROM billing_invoices'))).toBe(false);
     expect(calls.some((sql) => sql.includes('FROM billing_invoice_items'))).toBe(false);
   });
@@ -305,7 +334,10 @@ describe('resolveAuthoritativeCounterFundingTx', () => {
           return [{ uid: PATIENT_UID }];
         }
         if (normalized.includes('vh:pharmacy_funding_authority:')) return [{}];
-        if (normalized.includes('vh:substitution-funding:order:')) return [{}];
+        if (isSubstitutionOrderGate(normalized, params)) {
+          expect(params[0]).toBe(`vh:substitution-funding:order:${TENANT}:71`);
+          return [{}];
+        }
         if (normalized.includes('FROM pharmacy_funding_commands')) return [];
         if (normalized.includes('FROM approvals')) return [];
         if (normalized.includes('related_resource_type=ANY($3::text[])')) return [];
@@ -427,13 +459,16 @@ describe('resolveAuthoritativeCounterFundingTx', () => {
   it('allows only an exactly cross-bound substitution approval receipt to inspect base funding', async () => {
     const proposalSha256 = 'b'.repeat(64);
     const tx = {
-      $queryRawUnsafe: jest.fn(async (sql) => {
+      $queryRawUnsafe: jest.fn(async (sql, ...params) => {
         const normalized = String(sql).replace(/\s+/g, ' ').trim();
         if (normalized.startsWith('SELECT patient.uid FROM users patient')) {
           return [{ uid: PATIENT_UID }];
         }
         if (normalized.includes('vh:pharmacy_funding_authority:')) return [{}];
-        if (normalized.includes('vh:substitution-funding:order:')) return [{}];
+        if (isSubstitutionOrderGate(normalized, params)) {
+          expect(params[0]).toBe(`vh:substitution-funding:order:${TENANT}:71`);
+          return [{}];
+        }
         if (normalized.includes('vh:pharmacy_advance_approval:')) return [{}];
         if (normalized.includes('FROM pharmacy_funding_commands')) {
           return [{

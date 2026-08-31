@@ -47,6 +47,7 @@ describeIfDb('MED-03 ward-indent notification coverage recovery', () => {
         'ward_indents',
         'pharmacy_catalog',
         'wards',
+        'facilities',
         'users',
       ]) {
         await tx.$executeRawUnsafe(`DELETE FROM ${table} WHERE tenant_id = $1::uuid`, tenantId);
@@ -86,12 +87,25 @@ describeIfDb('MED-03 ward-indent notification coverage recovery', () => {
       OTHER_RECIPIENT,
       OTHER_TENANT,
     );
+    // createWardIndent refuses a ward that is not joined to an ACTIVE facility
+    // (WARD_INDENT_FACILITY_REQUIRED); wards.facility_id carries the composite FK
+    // (tenant_id, facility_id) -> facilities(tenant_id, id), so the facility has to
+    // be seeded under this suite's own tenant.
+    const facilityId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO facilities (tenant_id, facility_code, display_name, status, is_default)
+       VALUES ($1::uuid, $2::text, $3::text, 'active', FALSE)
+       RETURNING id`,
+      TENANT,
+      `MED03-COV-FAC-${RUN}`.slice(0, 80),
+      `MED-03 Coverage Facility ${RUN}`.slice(0, 255),
+    ))[0].id);
     wardId = Number((await prisma.$queryRawUnsafe(
-      `INSERT INTO wards (tenant_id, name, total_beds, created_at, updated_at)
-       VALUES ($1::uuid, $2::text, 10, NOW(), NOW())
+      `INSERT INTO wards (tenant_id, name, facility_id, total_beds, created_at, updated_at)
+       VALUES ($1::uuid, $2::text, $3::int, 10, NOW(), NOW())
        RETURNING id`,
       TENANT,
       `MED-03 Coverage Ward ${RUN}`,
+      facilityId,
     ))[0].id);
     catalogId = Number((await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_catalog

@@ -1,5 +1,7 @@
 import { jest } from '@jest/globals';
 
+import { AppError } from '../../utils/AppError.js';
+
 const IDS = Object.freeze({
   actor: '10000000-0000-4000-8000-000000000001',
   context: '10000000-0000-4000-8000-000000000002',
@@ -103,10 +105,17 @@ const tx = {
     if (sql.includes('SELECT uid::text, upper(role) AS role')) {
       return [{ uid: params[1], role: String(params[2]).toUpperCase() }];
     }
+    // MED-03 CPOE: marService reads the linked clinical order before it touches
+    // the administration row, and then refuses to proceed if the locked row
+    // points at a different order.
+    if (sql.includes('SELECT clinical_order_id') && sql.includes('FROM medication_administrations')) {
+      return [{ clinical_order_id: 77 }];
+    }
     if (sql.includes('FROM medication_administrations') && sql.includes('FOR UPDATE')) {
       if (state.domainConflict) {
         return [{
           id: 42,
+          clinical_order_id: 77,
           patient_uid: IDS.patient,
           status: 'administered',
           administered_at: '2026-07-31T04:00:00.000Z',
@@ -119,6 +128,7 @@ const tx = {
       }
       return [{
         id: 42,
+        clinical_order_id: 77,
         patient_uid: IDS.patient,
         status: state.domainEffects ? 'administered' : 'scheduled',
         administered_at: state.domainEffects ? '2026-07-31T03:00:00.000Z' : null,
@@ -308,6 +318,28 @@ jest.unstable_mockModule('../../services/clinical/marSupplyService.js', () => ({
     evidence_status: 'matched',
     quantity: 1,
   })),
+  // marService now refuses to inspect an administration whose clinical order is
+  // not verified for execution. Keep the double a real precondition rather than
+  // a stub that always agrees: the tenant and the linked order id must both
+  // arrive, exactly as the real assertion demands, so a caller that stopped
+  // passing them still fails here.
+  assertMedicationOrdersExecutionReadyTx: jest.fn(async (tx, { tenantId, clinicalOrderIds } = {}) => {
+    if (!tx?.$queryRawUnsafe) {
+      throw AppError.internal(
+        'Medication-order execution verification requires the caller transaction',
+        'MEDICATION_ORDER_EXECUTION_TRANSACTION_REQUIRED',
+      );
+    }
+    if (String(tenantId || '').trim() !== IDS.tenant) {
+      throw AppError.badRequest('tenantId must be a UUID');
+    }
+    if (!(clinicalOrderIds || []).filter((value) => Number(value) > 0).length) {
+      throw AppError.conflict(
+        'A linked medication order is required before clinical execution',
+        'MEDICATION_ORDER_EXECUTION_ORDER_REQUIRED',
+      );
+    }
+  }),
 }));
 
 const { applyClinicalContinuityPaperBackEntry } = await import(

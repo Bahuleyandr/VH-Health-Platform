@@ -154,7 +154,7 @@ describe('order entry — ecg/radiology/procedure order types', () => {
       order_type: 'nursing', patient_uid: 'p',
       details: { description: 'obs' }, ordered_by: 'd',
       er_visit_id: 'not-a-number',
-    })).rejects.toThrow(/er_visit_id must be an integer/);
+    })).rejects.toThrow(/er_visit_id must be a positive integer emergency_visits id/);
   });
 });
 

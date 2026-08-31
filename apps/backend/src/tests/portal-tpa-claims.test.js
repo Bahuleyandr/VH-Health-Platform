@@ -40,6 +40,21 @@ describe('GET /portal/tpa/claims — patient self-service', () => {
     );
     const userId = userRows[0].id;
 
+    // Migration 753's fk_tpa_claim_admission_authority_753 binds a claim to
+    // its admission on the composite key (tenant_id, admission_id,
+    // patient_uid): a claim can no longer name an admission id that does not
+    // exist for exactly this tenant and patient. Seed the stay the claim and
+    // the room-charge invoice both hang off, so the fixture carries the same
+    // authority a real cashless admission would.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO admissions (id, patient_uid, tenant_id)
+       VALUES ($1::int, $2::uuid, $3::uuid)
+       ON CONFLICT (id) DO NOTHING`,
+      admissionId,
+      PATIENT_UID,
+      TENANT_ID
+    );
+
     const policyRows = await prisma.$queryRawUnsafe(
       `INSERT INTO insurance_policies
          (patient_uid, policy_number, policyholder_name, policy_type,
@@ -111,10 +126,13 @@ describe('GET /portal/tpa/claims — patient self-service', () => {
         .catch(() => {});
     }
     await prisma
+      .$executeRawUnsafe(`DELETE FROM admissions WHERE id = $1::int`, admissionId)
+      .catch(() => {});
+    await prisma
       .$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PATIENT_UID)
       .catch(() => {});
     await prisma.$disconnect().catch(() => {});
-  });
+  }, 120_000);
 
   it('lists the patient TPA claims without 500', async () => {
     const res = await request(app)

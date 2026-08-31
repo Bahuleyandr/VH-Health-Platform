@@ -29,7 +29,7 @@
 // assertResponse + direct-prisma fixtures + cleanup).
 
 import { generateTestToken } from './testClient.js';
-import prisma from '../lib/prisma.js';
+import prisma, { setTenantTx } from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
 import { assertResponse } from './helpers/assertSchema.js';
@@ -142,6 +142,19 @@ async function pendingRunDeliveryCount(payrollRunId) {
        FROM payslip_documents AS document
       WHERE document.tenant_id = $1::uuid
         AND document.payroll_run_id = $2::integer
+        -- Mirror the LIVE document set that issuePayrollRun's own delivery
+        -- gate joins on (payrollService.js:2765). A manual payslip edit bumps
+        -- the revision, marks the previous document superseded and SUPPRESSES
+        -- its notice (payrollService.js:3115, payslip_revision_superseded):
+        -- production deliberately never delivers that one, so an acknowledged
+        -- receipt for it can never arrive. Counting it made this helper
+        -- unsatisfiable by construction -- it could only ever throw, and so
+        -- never actually proved the drain had satisfied the gate. Every state
+        -- the drain IS responsible for still counts, prepared/uploaded
+        -- documents that never reached the outbox included, so a genuinely
+        -- stranded document still fails here instead of surfacing later as an
+        -- unexplained 409.
+        AND document.status IN ('prepared', 'uploaded', 'delivery_queued', 'notification_accepted')
         AND NOT EXISTS (
           SELECT 1
             FROM notification_provider_receipts AS receipt
@@ -221,6 +234,54 @@ async function waitForBulkRevisionJob(id, maxAttempts = 100) {
 
 async function cleanup() {
   const uids = [STAFF_UID, STAFF2_UID, HR_UID, ADMIN_UID];
+  // Four of the tables this fixture writes carry a BEFORE DELETE trigger that
+  // raises unconditionally, so a plain DELETE cannot clear any of them:
+  // salary_revision_command_receipts_append_only (754:2103),
+  // salary_arrears_command_receipts_append_only (754:1842),
+  // salary_revision_activation_event_append_only, and
+  // bulk_revision_signed_cohort_immutable. Left behind they anchor the whole
+  // fixture: the receipts FK their actor as (tenant_id, actor_uid)
+  // (fk_salary_revision_command_receipt_actor), and the activation events chain
+  // through salary_revision_arrears_work_items to salary_arrears to users. The
+  // users delete at the end of this teardown then 23503s, and the NEXT run of
+  // this suite against the same database trips users_uid_key in beforeAll —
+  // every test failing for a reason that has nothing to do with payroll.
+  //
+  // session_replication_role='replica' is the house escape for exactly this
+  // (cf. bcma-closed-loop.deep.test.js:205). It is SET LOCAL, so it is scoped
+  // to this transaction and cannot leak to another suite, and it suppresses
+  // only triggers on THIS connection — no production append-only guarantee is
+  // relaxed anywhere a service can reach. It does not defeat RLS, so the tenant
+  // context still has to be real; setTenantTx supplies it.
+  await setTenantTx(TENANT_ID, async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+    await tx.$executeRawUnsafe(
+      `DELETE FROM bulk_revision_job_items
+        WHERE tenant_id = $1::uuid
+          AND job_id IN (SELECT id FROM bulk_revision_jobs
+                          WHERE tenant_id = $1::uuid
+                            AND description = 'PAYROLL_CONTRACT_DEEP_TEST bulk')`,
+      TENANT_ID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM salary_revision_activation_events
+        WHERE tenant_id = $2::uuid
+          AND revision_id IN (SELECT id FROM salary_revisions
+                               WHERE tenant_id = $2::uuid
+                                 AND staff_uid = ANY($1::uuid[]))`,
+      uids, TENANT_ID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM salary_revision_command_receipts
+        WHERE tenant_id = $2::uuid AND actor_uid = ANY($1::uuid[])`,
+      uids, TENANT_ID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM salary_arrears_command_receipts
+        WHERE tenant_id = $2::uuid AND actor_uid = ANY($1::uuid[])`,
+      uids, TENANT_ID,
+    );
+  }).catch(() => {});
   // The payslip set we must tear down = our staff's payslips PLUS every payslip in
   // OUR run. runPayroll processes every configured staff member in the tenant,
   // and the payslip child rows are not all covered by a staff_uid-scoped delete.
@@ -229,12 +290,11 @@ async function cleanup() {
   const PS_SET = `SELECT id FROM payslips WHERE staff_uid = ANY($1::uuid[]) OR payroll_run_id IN (SELECT id FROM payroll_runs WHERE tenant_id = $2::uuid AND month = ${RUN_MONTH} AND year = ${RUN_YEAR})`;
   // Child rows first (FK + tidy). Each guarded so a missing table never aborts.
   const stmts = [
-    `DELETE FROM bulk_revision_job_items WHERE job_id IN (SELECT id FROM bulk_revision_jobs WHERE description = 'PAYROLL_CONTRACT_DEEP_TEST bulk')`,
-    `DELETE FROM salary_revision_activation_events WHERE revision_id IN (SELECT id FROM salary_revisions WHERE staff_uid = ANY($1::uuid[]))`,
+    // (bulk_revision_job_items, salary_revision_activation_events and the two
+    //  command-receipt ledgers are cleared above, under the replica-role escape
+    //  their BEFORE DELETE triggers require)
     `DELETE FROM salary_revision_arrears_work_items WHERE staff_uid = ANY($1::uuid[])`,
     `DELETE FROM salary_revision_activation_jobs WHERE revision_id IN (SELECT id FROM salary_revisions WHERE staff_uid = ANY($1::uuid[]))`,
-    `DELETE FROM salary_revision_command_receipts WHERE actor_uid = ANY($1::uuid[])`,
-    `DELETE FROM salary_arrears_command_receipts WHERE actor_uid = ANY($1::uuid[])`,
     `DELETE FROM salary_revision_payables WHERE staff_uid = ANY($1::uuid[])`,
     `DELETE FROM payslip_query_replies WHERE query_id IN (SELECT id FROM payslip_queries WHERE staff_uid = ANY($1::uuid[]) OR payslip_id IN (${PS_SET}))`,
     `DELETE FROM payslip_queries WHERE staff_uid = ANY($1::uuid[]) OR payslip_id IN (${PS_SET})`,
@@ -293,12 +353,15 @@ async function cleanup() {
   await prisma.$executeRawUnsafe(
     `DELETE FROM bulk_revision_jobs WHERE description = 'PAYROLL_CONTRACT_DEEP_TEST bulk'`,
   ).catch(() => {});
-  // The POST /payroll/run idempotency claim outlives the payroll rows it
-  // guarded. Left behind, a second run of this suite on the same database would
-  // be answered from the cache with the PREVIOUS run's run_id — a row that this
-  // cleanup just deleted — and every later step would chase a dangling id.
+  // Every idempotency claim this suite mints outlives the rows it guarded: the
+  // stable POST /payroll/run key (payroll-contract-deep:run:...) AND the
+  // per-request keys mkClient stamps (payroll-contract-<uid4>-<n>), whose
+  // counter restarts at 1 in each jest process. Left behind, a second run of
+  // this suite on the same database is answered from the cache with the
+  // PREVIOUS run's ids — rows this cleanup just deleted — and every later step
+  // chases a dangling id. Both families share the prefix, so clear both.
   await prisma.$executeRawUnsafe(
-    `DELETE FROM idempotency_keys WHERE request_key LIKE 'payroll-contract-deep:run:%'`,
+    `DELETE FROM idempotency_keys WHERE request_key LIKE 'payroll-contract-%'`,
   ).catch(() => {});
 }
 
@@ -653,6 +716,14 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
       staff_uid: STAFF_UID,
       revision_type: 'bonus',
       bonus_amount: 5000,
+      // A bonus revision carries its OWN justification on top of the generic
+      // `reason`. Migration 754 made that a stored invariant, not a controller
+      // nicety: chk_salary_revision_financial_shape calls
+      // salary_revision_financial_evidence_valid, whose bonus branch requires
+      // NULLIF(BTRIM(bonus_reason), '') IS NOT NULL (754:479). Omitting it
+      // could only ever produce the 400 the controller raises to mirror that
+      // constraint.
+      bonus_reason: 'Contract deep-test discretionary bonus',
       effective_from: '2099-09-01',
       reason: 'Contract deep-test bonus to reject',
     });
@@ -699,9 +770,22 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
               EXTRACT(YEAR FROM month_start)::int, 26, 26, 0, 0,
               40000, 16000, 4000, 5000, 1600, 1250, 0, 67850,
               4800, 0, 200, 1000, 6000, 61850, 'issued'
+         -- Seed issued evidence for EVERY month the arrears window can reach,
+         -- the application month included. calculateArrears walks
+         -- effective_from forward while d < appliedMonth, and appliedMonth is
+         -- applied_at with only the DAY zeroed (payrollService.js:3902-3907) —
+         -- its time-of-day survives, so a revision applied at any moment after
+         -- 00:00:00 UTC pulls its own month into the window. That month then
+         -- hits the fail-loud gate at payrollService.js:4026, which refuses to
+         -- compute arrears against a month it has no issued payslip for. The
+         -- refusal is correct and stays untouched; the fixture owes it the same
+         -- evidence production would — an issued payslip per arrear month.
+         -- Seeding through the current month is also clock-independent: at
+         -- exactly midnight UTC the window stops a month earlier and the extra
+         -- row is simply unused.
          FROM generate_series(
            date_trunc('month', CURRENT_DATE) - INTERVAL '3 months',
-           date_trunc('month', CURRENT_DATE) - INTERVAL '1 month',
+           date_trunc('month', CURRENT_DATE),
            INTERVAL '1 month'
          ) AS month_start
        ON CONFLICT (tenant_id, staff_uid, month, year)

@@ -25,10 +25,18 @@ const PATIENT_PENI_UID = 'c5a00000-0000-4000-8000-00000000a002'; // penicillin-a
 const DOCTOR_UID = 'c5a00000-0000-4000-8000-00000000a003'; // orderer for the IPD createOrder test
 const ENCOUNTER_ID = 'c5a00000-0000-4000-8000-00000000a005';
 const PATIENT_CLAV_UID = 'c5a00000-0000-4000-8000-00000000a004'; // "clavulanic acid" (multi-word) allergic patient
+// The flag-OFF cases need a patient who genuinely belongs to TENANT_OFF.
+// Screening a TENANT_ON patient id under TENANT_OFF is a cross-tenant identity
+// that the active-therapy snapshot fails closed on
+// (ACTIVE_THERAPY_CONTEXT_UNAVAILABLE), which would short-circuit the whole
+// verdict before the gated composition layer is ever reached — the tests would
+// then pass without proving anything about the flag.
+const PATIENT_OFF_UID = 'c5a00000-0000-4000-8000-00000000a006';
 const PATIENT_PHONE = '+919700000501';
 const PATIENT_PENI_PHONE = '+919700000502';
 const DOCTOR_PHONE = '+919700000503';
 const PATIENT_CLAV_PHONE = '+919700000504';
+const PATIENT_OFF_PHONE = '+919700000506';
 const WARD_NAME = 'PSC Inpatient Ward';
 
 jest.setTimeout(60000);
@@ -53,6 +61,7 @@ describe('validatePrescriptionSafety — composition allergy + same-composition 
   let patientId; // integer users.id for the amoxicillin-allergic patient
   let peniPatientId; // integer users.id for the penicillin-allergic patient
   let clavPatientId; // integer users.id for the "clavulanic acid" (multi-word) allergic patient
+  let offPatientId; // integer users.id for the amoxicillin-allergic patient owned by TENANT_OFF
   let compositionId; // amoxicillin + clavulanic_acid
   let augmentinId; // catalog id (tenant ON, high-confidence, that composition)
   let clavamId; // catalog id (tenant ON, high-confidence, that composition)
@@ -68,10 +77,11 @@ describe('validatePrescriptionSafety — composition allergy + same-composition 
       .catch(() => {});
     await prisma
       .$executeRawUnsafe(
-        `DELETE FROM patient_allergies WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+        `DELETE FROM patient_allergies WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
         PATIENT_UID,
         PATIENT_PENI_UID,
-        PATIENT_CLAV_UID
+        PATIENT_CLAV_UID,
+        PATIENT_OFF_UID
       )
       .catch(() => {});
     await prisma
@@ -109,11 +119,12 @@ describe('validatePrescriptionSafety — composition allergy + same-composition 
       .catch(() => {});
     await prisma
       .$executeRawUnsafe(
-        `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
+        `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid)`,
         PATIENT_UID,
         PATIENT_PENI_UID,
         DOCTOR_UID,
-        PATIENT_CLAV_UID
+        PATIENT_CLAV_UID,
+        PATIENT_OFF_UID
       )
       .catch(() => {});
 
@@ -159,6 +170,24 @@ describe('validatePrescriptionSafety — composition allergy + same-composition 
       `INSERT INTO patient_allergies (patient_id, patient_uid, allergy_name, severity, is_active, tenant_id)
        VALUES ($1, $2::uuid, 'clavulanic acid', 'SEVERE', true, $3::uuid)`,
       clavPatientId, PATIENT_CLAV_UID, TENANT_ON,
+    );
+
+    // Patient D — the same amoxicillin allergy, but owned by TENANT_OFF. The
+    // flag-OFF cases screen this one so the patient authority they pass is
+    // genuinely resolvable in the tenant under test; otherwise the
+    // active-therapy snapshot fails closed on the cross-tenant identity and the
+    // gated composition layer is never reached at all.
+    const p4 = await prisma.$queryRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, updated_at)
+       VALUES ($1::uuid, $2, 'PSC Amoxicillin Patient OFF [test]', 'PATIENT', true, $3::uuid, NOW())
+       RETURNING id`,
+      PATIENT_OFF_UID, PATIENT_OFF_PHONE, TENANT_OFF,
+    );
+    offPatientId = Number(p4[0].id);
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO patient_allergies (patient_id, patient_uid, allergy_name, severity, is_active, tenant_id)
+       VALUES ($1, $2::uuid, 'Amoxicillin', 'SEVERE', true, $3::uuid)`,
+      offPatientId, PATIENT_OFF_UID, TENANT_OFF,
     );
 
     // Doctor — orderer for the createOrder (IPD CDS) path test.
@@ -282,10 +311,11 @@ describe('validatePrescriptionSafety — composition allergy + same-composition 
       .catch(() => {});
     await prisma
       .$executeRawUnsafe(
-        `DELETE FROM patient_allergies WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+        `DELETE FROM patient_allergies WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
         PATIENT_UID,
         PATIENT_PENI_UID,
-        PATIENT_CLAV_UID
+        PATIENT_CLAV_UID,
+        PATIENT_OFF_UID
       )
       .catch(() => {});
     await prisma
@@ -346,11 +376,12 @@ describe('validatePrescriptionSafety — composition allergy + same-composition 
       .catch(() => {});
     await prisma
       .$executeRawUnsafe(
-        `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
+        `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid)`,
         PATIENT_UID,
         PATIENT_PENI_UID,
         DOCTOR_UID,
-        PATIENT_CLAV_UID
+        PATIENT_CLAV_UID,
+        PATIENT_OFF_UID
       )
       .catch(() => {});
     await prisma.$disconnect().catch(() => {});
@@ -554,7 +585,7 @@ describe('validatePrescriptionSafety — composition allergy + same-composition 
   //     pre-existing behaviour independent of the composition flag.)
   it('does NOT run composition checks for a tenant whose flag is disabled', async () => {
     const res = await validatePrescriptionSafety(
-      patientId,
+      offPatientId,
       [{ catalog_id: clavamId, name: 'Clavam 625' }],
       { tenantId: TENANT_OFF },
     );
@@ -572,7 +603,7 @@ describe('validatePrescriptionSafety — composition allergy + same-composition 
   //     block prescribing (Paracetamol brand — no allergy, no KB class hit).
   it('does NOT flag a same-composition duplicate for a disabled tenant, and does not block', async () => {
     const res = await validatePrescriptionSafety(
-      patientId,
+      offPatientId,
       [
         { catalog_id: paracetamolId, name: 'Calpol 500' },
         { catalog_id: paracetamolId, name: 'Calpol 500 (dup)' },
@@ -592,9 +623,15 @@ describe('validatePrescriptionSafety — composition allergy + same-composition 
       PATIENT_UID,
     );
     await prisma.$executeRawUnsafe(
+      // Signed + locked: the active-therapy snapshot only admits an e-Rx whose
+      // lifecycle_status is 'signed'/'imported_history' or that carries a
+      // signed_at, because an unsigned draft is not therapy the patient is on.
+      // DUPLICATE_MEDICATION is derived from that snapshot, so the fixture has
+      // to state the prescription really is active.
       `INSERT INTO e_prescriptions
-         (patient_id, patient_uid, status, medications, medication_name, tenant_id, created_at, updated_at)
-       VALUES ($1, $2::uuid, 'active', $3::jsonb, 'Metformin 500', $4::uuid, NOW(), NOW())`,
+         (patient_id, patient_uid, status, lifecycle_status, signed_at, locked_at,
+          medications, medication_name, tenant_id, created_at, updated_at)
+       VALUES ($1, $2::uuid, 'active', 'signed', NOW(), NOW(), $3::jsonb, 'Metformin 500', $4::uuid, NOW(), NOW())`,
       patientId,
       PATIENT_UID,
       JSON.stringify([{ name: 'Metformin 500' }]),

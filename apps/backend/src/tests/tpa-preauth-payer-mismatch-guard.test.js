@@ -53,6 +53,22 @@ async function seedPreauth({
 
 describe('TPA pre-auth response payer-mismatch guard (28284746 + d961e4cf)', () => {
   beforeAll(async () => {
+    // Migration 753 routes recordPreauthResponse through
+    // lockInsuranceFundingPatientTx → resolvePharmacyFundingPatientUidTx, which
+    // serialises the pre-auth against the ONE active patient it names. The
+    // pre-auth's patient_uid therefore has to be a real registered patient in
+    // this tenant, not a bare uuid — seed it the way registration would.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, status, tenant_id, updated_at)
+       VALUES ($1::uuid, $2, 'TPA Payer Mismatch Test Patient', 'PATIENT', true, 'active', $3::uuid, NOW())
+       ON CONFLICT (uid) DO UPDATE
+          SET is_active = true, status = 'active', is_deleted = false,
+              merged_into_uid = NULL, updated_at = NOW()`,
+      PATIENT_UID,
+      `9887${Date.now() % 1000000}`.slice(0, 10),
+      TENANT,
+    );
+
     const starRows = await prisma.$queryRawUnsafe(
       `SELECT id FROM payers WHERE tenant_id = $1::uuid AND payer_code = 'STAR' LIMIT 1`,
       TENANT,
@@ -89,8 +105,9 @@ describe('TPA pre-auth response payer-mismatch guard (28284746 + d961e4cf)', () 
     for (const id of [starPolicyId, nakedPolicyId]) {
       if (id) await prisma.$executeRawUnsafe(`DELETE FROM insurance_policies WHERE id = $1::int`, id).catch(() => {});
     }
+    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$disconnect().catch(() => {});
-  });
+  }, 120_000);
 
   it('rejects recordPreauthResponse on a parent pre-auth when raw_response.insurer mismatches policy payer (28284746)', async () => {
     const preauthId = await seedPreauth({ policyId: starPolicyId });

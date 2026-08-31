@@ -59,6 +59,10 @@ const facilityAuthoritySource = readFileSync(
   new URL('../../services/pharmacy/pharmacyFacilityAuthorityService.js', import.meta.url),
   'utf8',
 );
+const mergeStabilityLockSource = readFileSync(
+  new URL('../../utils/patientMergeStabilityLock.js', import.meta.url),
+  'utf8',
+);
 
 function expectMarkersInOrder(source, markers) {
   const offsets = markers.map((marker) => source.indexOf(marker));
@@ -197,8 +201,20 @@ describe('pharmacist active-therapy staleness gate', () => {
       db: fixture.db,
       excludePharmacyOrderId: 71,
     }));
+    // Merge stability is a readers-writer lock now (`fix(patient): use readers
+    // writer merge stability locks`): readers take the SHARED mode so unrelated
+    // verifications run concurrently, while the merge itself still takes the
+    // exclusive lock on the SAME key. Asserting both halves is strictly
+    // stronger than the old single exclusive-mode match, which never proved the
+    // two sides actually contend.
     expect(fixture.statements[0]).toMatch(
-      /FROM pg_advisory_xact_lock\(hashtextextended\(\$1::text, 0\)\)/,
+      /FROM pg_advisory_xact_lock_shared\(hashtextextended\(\$1::text, 0\)\)/,
+    );
+    expect(mergeStabilityLockSource).toMatch(
+      /export async function lockTenantPatientMergeExecutionExclusive[\s\S]*FROM pg_advisory_xact_lock\(hashtextextended\(\$1::text, 0\)\)/,
+    );
+    expect(mergeStabilityLockSource).toContain(
+      "const PATIENT_MERGE_LOCK_NAMESPACE = 'vhhealth:patient-merge-tenant:';",
     );
     expect(fixture.db.$queryRawUnsafe.mock.calls[0][1]).toBe(
       `vhhealth:patient-merge-tenant:${TENANT}`,

@@ -46,6 +46,16 @@ function makeReqRes(overrides = {}) {
   return { req, res };
 }
 
+// The claim INSERT is `ON CONFLICT DO NOTHING ... RETURNING id, status`, so a
+// key that already exists comes back as an EMPTY result set — it does not raise
+// a unique violation any more. Mocking the conflict as a rejection instead made
+// claimIdempotencyKey throw, which routes the middleware down its
+// idempotency-store-FAULT branch (fall-through when required:false, 503 when
+// required:true) and never reached the replay / in-flight / mismatch decisions
+// these tests exist to pin. The store-fault branch has its own DELTA-001 tests
+// below, which still reject on purpose.
+const CLAIM_INSERT_CONFLICT = [];
+
 describe('requireIdempotencyKey', () => {
   it('requires a durable domain receipt before completed replays may re-enter a handler', () => {
     expect(() => requireIdempotencyKey({
@@ -82,7 +92,7 @@ describe('requireIdempotencyKey', () => {
   });
 
   it('returns the cached response on replay', async () => {
-    queryUnsafeMock.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'));
+    queryUnsafeMock.mockResolvedValueOnce(CLAIM_INSERT_CONFLICT);
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 1, status: 'complete', response_status: 201,
       response_body: { ok: true, id: 42 }, request_body_hash: null,
@@ -97,7 +107,7 @@ describe('requireIdempotencyKey', () => {
   });
 
   it('re-enters a durable handler for a completed replay that requires current authority', async () => {
-    queryUnsafeMock.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'));
+    queryUnsafeMock.mockResolvedValueOnce(CLAIM_INSERT_CONFLICT);
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 17,
       status: 'complete',
@@ -127,7 +137,7 @@ describe('requireIdempotencyKey', () => {
   });
 
   it('keeps cached failure semantics when successful receipt revalidation is enabled', async () => {
-    queryUnsafeMock.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'));
+    queryUnsafeMock.mockResolvedValueOnce(CLAIM_INSERT_CONFLICT);
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 18,
       status: 'failed',
@@ -152,7 +162,7 @@ describe('requireIdempotencyKey', () => {
   });
 
   it('returns 409 when in_flight', async () => {
-    queryUnsafeMock.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'));
+    queryUnsafeMock.mockResolvedValueOnce(CLAIM_INSERT_CONFLICT);
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 1, status: 'in_flight', request_body_hash: null,
     }]);
@@ -165,7 +175,7 @@ describe('requireIdempotencyKey', () => {
   });
 
   it('returns 422 on body mismatch', async () => {
-    queryUnsafeMock.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'));
+    queryUnsafeMock.mockResolvedValueOnce(CLAIM_INSERT_CONFLICT);
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 1, status: 'complete', response_status: 201,
       response_body: {}, request_body_hash: 'OTHER',
@@ -216,7 +226,7 @@ describe('requireIdempotencyKey', () => {
     },
   ])('collapses an alias onto one canonical claim for $name', async ({ row, statusCode, body }) => {
     queryUnsafeMock
-      .mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'))
+      .mockResolvedValueOnce(CLAIM_INSERT_CONFLICT)
       .mockResolvedValueOnce([row]);
     const canonicalPath = '/api/v1/pharmacy-orders/inventory/v2/disposals';
     const mw = requireIdempotencyKey({
@@ -285,7 +295,7 @@ describe('requireIdempotencyKey', () => {
         reason: action === 'complete' ? null : 'Therapy no longer indicated',
       };
       queryUnsafeMock
-        .mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'))
+        .mockResolvedValueOnce(CLAIM_INSERT_CONFLICT)
         .mockResolvedValueOnce([{
           id: 91,
           status: 'complete',
@@ -327,7 +337,7 @@ describe('requireIdempotencyKey', () => {
 
   it('rejects reuse of a terminal key for a different terminal action', async () => {
     queryUnsafeMock
-      .mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'))
+      .mockResolvedValueOnce(CLAIM_INSERT_CONFLICT)
       .mockResolvedValueOnce([{
         id: 92,
         status: 'complete',

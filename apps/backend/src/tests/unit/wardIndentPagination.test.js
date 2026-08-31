@@ -24,6 +24,12 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
   cancelWorkflowSla: jest.fn(),
   completeWorkflowSla: jest.fn(),
   recordCanonicalClinicalEvent: jest.fn(),
+  // Mocking a module replaces it for every importer in the graph, not just for
+  // wardIndentWorkflowService. pharmacistVerificationService is pulled in via
+  // inventoryV2Service -> billingV2Service -> pharmacyCapService and needs this
+  // export at link time, so the factory has to carry it or the whole suite dies
+  // at module load. Never called on the ward-indent paging path.
+  recordMedicationSafetyReviews: jest.fn(),
   startWorkflowSla: jest.fn(),
 }));
 

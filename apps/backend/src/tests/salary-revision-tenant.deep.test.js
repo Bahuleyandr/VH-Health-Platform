@@ -28,14 +28,26 @@ const STAFF_B = 'c0de0016-00b0-4000-8000-0000000000b1';
 // because an inline array literal is indistinguishable from the mistaken
 // params-array form the raw-param lint rule exists to catch.
 const STAFF_UIDS = [STAFF_A, STAFF_B];
-const ACTOR_UIDS = [ADMIN_A, ADMIN_B, HR_A, HR_B];
 const ADMIN_A = 'c0de0016-00a0-4000-8000-0000000000a2';
 const ADMIN_B = 'c0de0016-00b0-4000-8000-0000000000b2';
 const HR_A = 'c0de0016-00a0-4000-8000-0000000000a3';
 const HR_B = 'c0de0016-00b0-4000-8000-0000000000b3';
+// Declared after the four actor uids, not before them: `const` gives no
+// hoisted value, so listing them earlier threw a temporal-dead-zone
+// ReferenceError and took the whole suite down at module load.
+const ACTOR_UIDS = [ADMIN_A, ADMIN_B, HR_A, HR_B];
 const OWNED_UIDS = [STAFF_A, STAFF_B, ADMIN_A, ADMIN_B, HR_A, HR_B];
 let requestSequence = 0;
 const CURRENT_MONTH_START = new Date().toISOString().slice(0, 8) + '01';
+// Bulk cohorts target the seeded nursing role rather than target_type 'all'.
+// The committed seed already carries an ADMIN ('Test Harness User',
+// 550e8400-…-446655440000) with an active staff_salary row in TENANT_A, and
+// canCreateBulkRevisionForTarget (bulkSalaryRevisionService.js:277-284) lets
+// only a SUPER_ADMIN include an ADMIN target. So an 'all' cohort built by
+// adminA is a CORRECT 403, and even without the guard it would hold two
+// members while every case below asserts a cohort of exactly one. STAFF_A is
+// the only active NURSING_STAFF with an active salary row in TENANT_A.
+const BULK_COHORT = { target_type: 'role', target_value: 'NURSING_STAFF' };
 
 function client(role, uid, tenantId) {
   const token = generateTestToken(role, { uid, tenant_id: tenantId });
@@ -55,69 +67,86 @@ const hrA = client('HR_STAFF', HR_A, TENANT_A);
 const hrB = client('HR_STAFF', HR_B, TENANT_B);
 let quarantinedRevisionId;
 
+// Migration 754 made the salary-revision evidence tables append-only: a
+// BEFORE UPDATE OR DELETE trigger on salary_revision_activation_events,
+// salary_revision_command_receipts and salary_arrears_command_receipts raises
+// 55000, and the new composite FKs then pin the arrears work items, the
+// revisions and finally the fixture users behind those stranded rows. A plain
+// DELETE cascade cannot unwind that, so the old per-statement `.catch(() => {})`
+// swallowed the failure and the NEXT seed died on users_uid_key instead.
+//
+// Same mechanism the migration-589 evidence teardown uses
+// (tests/helpers/diagnosticEvidenceCleanup.js): one transaction with user and
+// constraint triggers disabled. Suites only ever run against a disposable test
+// database; the guard itself is untouched and no production path can reach
+// this. The errors are deliberately no longer swallowed — a teardown that
+// cannot clean up must fail loudly rather than poison the following run.
 async function clean() {
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM salary_revision_activation_events
-      WHERE revision_id IN (
-        SELECT id FROM salary_revisions WHERE staff_uid = ANY($1::uuid[])
-      )`,
-    STAFF_UIDS,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM salary_revision_arrears_work_items WHERE staff_uid = ANY($1::uuid[])`,
-    STAFF_UIDS,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM salary_revision_activation_jobs
-      WHERE revision_id IN (
-        SELECT id FROM salary_revisions WHERE staff_uid = ANY($1::uuid[])
-      )`,
-    STAFF_UIDS,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM salary_revision_command_receipts WHERE actor_uid = ANY($1::uuid[])`,
-    ACTOR_UIDS,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM salary_revision_payables WHERE staff_uid = ANY($1::uuid[])`,
-    STAFF_UIDS,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM bulk_revision_job_items WHERE staff_uid = ANY($1::uuid[])`,
-    STAFF_UIDS,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM bulk_revision_jobs WHERE created_by = ANY($1::uuid[])`,
-    ACTOR_UIDS,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM salary_arrears_command_receipts WHERE actor_uid = ANY($1::uuid[])`,
-    ACTOR_UIDS,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM salary_arrears WHERE staff_uid = ANY($1::uuid[])`,
-    STAFF_UIDS,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM annual_review_reminders WHERE staff_uid = ANY($1::uuid[])`,
-    STAFF_UIDS,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM idempotency_keys WHERE user_uid = ANY($1::uuid[])`,
-    ACTOR_UIDS,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM salary_revisions WHERE staff_uid = ANY($1::uuid[])`,
-    STAFF_UIDS,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM staff_salary WHERE staff_uid = ANY($1::uuid[])`,
-    STAFF_UIDS,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM users WHERE uid = ANY($1::uuid[])`,
-    OWNED_UIDS,
-  ).catch(() => {});
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+    await tx.$executeRawUnsafe(
+      `DELETE FROM salary_revision_activation_events
+        WHERE revision_id IN (
+          SELECT id FROM salary_revisions WHERE staff_uid = ANY($1::uuid[])
+        )`,
+      STAFF_UIDS,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM salary_revision_arrears_work_items WHERE staff_uid = ANY($1::uuid[])`,
+      STAFF_UIDS,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM salary_revision_activation_jobs
+        WHERE revision_id IN (
+          SELECT id FROM salary_revisions WHERE staff_uid = ANY($1::uuid[])
+        )`,
+      STAFF_UIDS,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM salary_revision_command_receipts WHERE actor_uid = ANY($1::uuid[])`,
+      ACTOR_UIDS,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM salary_revision_payables WHERE staff_uid = ANY($1::uuid[])`,
+      STAFF_UIDS,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM bulk_revision_job_items WHERE staff_uid = ANY($1::uuid[])`,
+      STAFF_UIDS,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM bulk_revision_jobs WHERE created_by = ANY($1::uuid[])`,
+      ACTOR_UIDS,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM salary_arrears_command_receipts WHERE actor_uid = ANY($1::uuid[])`,
+      ACTOR_UIDS,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM salary_arrears WHERE staff_uid = ANY($1::uuid[])`,
+      STAFF_UIDS,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM annual_review_reminders WHERE staff_uid = ANY($1::uuid[])`,
+      STAFF_UIDS,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM idempotency_keys WHERE user_uid = ANY($1::uuid[])`,
+      ACTOR_UIDS,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM salary_revisions WHERE staff_uid = ANY($1::uuid[])`,
+      STAFF_UIDS,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM staff_salary WHERE staff_uid = ANY($1::uuid[])`,
+      STAFF_UIDS,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM users WHERE uid = ANY($1::uuid[])`,
+      OWNED_UIDS,
+    );
+  });
 }
 
 async function seedUser(uid, tenantId, phone, role, name) {
@@ -219,9 +248,16 @@ async function seedIssuedPayslipsForRevision(revisionId, monthsBack = 2) {
             $3::numeric, $4::numeric, $5::numeric, $6::numeric, $7::numeric,
             $8::numeric, 0, $9::numeric, $10::numeric, $11::numeric,
             $12::numeric, $13::numeric, $14::numeric, $15::numeric, 'issued'
+       -- Through the application month INCLUSIVE, not the month before it.
+       -- computeArrears walks while (d < appliedMonth), where appliedMonth is
+       -- applied_at with only the DAY forced to 1 (payrollService.js:3902-3908),
+       -- so it keeps the time of day and the application month itself is an
+       -- arrears month for any revision applied after midnight — i.e. always.
+       -- Stopping a month short left that final month without the issued
+       -- payslip the 409 evidence guard (payrollService.js:4026-4031) demands.
        FROM generate_series(
          date_trunc('month', CURRENT_DATE) - make_interval(months => $16::int),
-         date_trunc('month', CURRENT_DATE) - INTERVAL '1 month',
+         date_trunc('month', CURRENT_DATE),
          INTERVAL '1 month'
        ) AS month_start
      ON CONFLICT (tenant_id, staff_uid, month, year)
@@ -364,16 +400,23 @@ d('Salary-revision tenant boundary (CAN-016)', () => {
   });
 
   it('freezes an active salary baseline at proposal and refuses stale or inactive apply targets', async () => {
+    // A bonus proposal must carry bonus_reason as well as bonus_amount
+    // (salaryRevisionController.proposeRevision:288-298). Without it the
+    // request was rejected as malformed at 400 and never reached the guard
+    // this case exists to prove, so assert the 409 reason too — that pins the
+    // refusal to the missing salary baseline rather than to any other conflict.
     const noSalary = await adminA
       .post('/api/v1/staff/admin/payroll/revisions/propose')
       .send({
         staff_uid: HR_A,
         revision_type: 'bonus',
         bonus_amount: 500,
+        bonus_reason: 'CAN-016 baseline probe',
         effective_from: '2099-01-01',
         reason: 'CAN-016 no salary target',
       });
     expect(noSalary.statusCode).toBe(409);
+    expect(noSalary.body.message).toBe('Active tenant-bound staff salary row is required');
 
     await prisma.$executeRawUnsafe(
       `UPDATE users SET is_active = false, updated_at = NOW() WHERE uid = $1::uuid`,
@@ -658,6 +701,14 @@ d('Salary-revision tenant boundary (CAN-016)', () => {
   });
 
   it('records arrears-worker failure, reclaims an expired lease, and completes exactly once', async () => {
+    // Precondition. processPendingSalaryRevisionArrearsWork is TENANT-wide, and
+    // an earlier case here ('freezes an active salary baseline…') applies a
+    // backdated cross-year revision whose arrears work item nothing drains.
+    // Settle the queue first: a settled item is either completed or failed
+    // behind a next_attempt_at backoff, and neither is claimable again. Without
+    // this the claim counts below measure test order rather than this scenario.
+    await processPendingSalaryRevisionArrearsWork({ tenantId: TENANT_A });
+
     const effectiveDate = new Date();
     effectiveDate.setUTCDate(1);
     effectiveDate.setUTCMonth(effectiveDate.getUTCMonth() - 2);
@@ -795,7 +846,7 @@ d('Salary-revision tenant boundary (CAN-016)', () => {
       .send({
         description: 'CAN-016 durable bulk resume',
         revision_type: 'increment',
-        target_type: 'all',
+        ...BULK_COHORT,
         increment_type: 'fixed',
         increment_value: 1000,
         effective_from: effectiveFrom,
@@ -889,7 +940,7 @@ d('Salary-revision tenant boundary (CAN-016)', () => {
       .send({
         description: 'CAN-016 atomic staff rollback',
         revision_type: 'increment',
-        target_type: 'all',
+        ...BULK_COHORT,
         increment_type: 'fixed',
         increment_value: 500,
         effective_from: effectiveFrom,
@@ -1014,7 +1065,7 @@ d('Salary-revision tenant boundary (CAN-016)', () => {
         .send({
           description: 'CAN-016 reminder bulk contender',
           revision_type: 'increment',
-          target_type: 'all',
+          ...BULK_COHORT,
           increment_type: 'fixed',
           increment_value: 100,
           effective_from: CURRENT_MONTH_START,
@@ -1102,7 +1153,7 @@ d('Salary-revision tenant boundary (CAN-016)', () => {
         .send({
           description: 'CAN-016 inactive tenant bulk parking',
           revision_type: 'increment',
-          target_type: 'all',
+          ...BULK_COHORT,
           increment_type: 'fixed',
           increment_value: 100,
           effective_from: CURRENT_MONTH_START,
@@ -1309,6 +1360,11 @@ d('Salary-revision tenant boundary (CAN-016)', () => {
         staff_uid: STAFF_A,
         revision_type: 'bonus',
         bonus_amount: 5000,
+        // Required alongside bonus_amount for a bonus revision
+        // (salaryRevisionController.proposeRevision:288-298); without it this
+        // proposal 400s and the cross-tenant reject denial below never runs
+        // against a real revision.
+        bonus_reason: 'CAN-016 owned reject lifecycle bonus',
         effective_from: '2099-09-01',
         reason: 'CAN-016 owned reject lifecycle',
       });

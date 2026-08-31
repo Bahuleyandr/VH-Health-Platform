@@ -11,19 +11,40 @@ const createApprovalMock = jest.fn(async (input) => ({ id: '71', ...input }));
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: jest.fn() },
   setTenantTx: setTenantTxMock,
+  // documentIntegrityService and the sibling services in the controller's graph
+  // link against these two as well. `isTenantTransactionClient` is a real
+  // predicate, not a stub that always agrees: it recognises exactly the client
+  // setTenantTx hands out here, so a caller passing anything else is still
+  // refused the way production would refuse it.
+  setTenant: async (_tenantId, callback) => callback(txClient),
+  isTenantTransactionClient: (value) => value === txClient,
 }));
 jest.unstable_mockModule('../../services/pharmacy/compositionIdentityService.js', () => ({
   resolveCompositionIdentitiesByCatalogIds: compositionIdentityMock,
+  // prescriptionSafetyCheck, reached through the controller's graph, links
+  // against the enrich helper too. Pass the medications straight back: the real
+  // function strips forged composition fields and overlays canonical ones, and
+  // with no catalog identities resolvable here that is a no-op on its input.
+  enrichMedicationsWithComposition: jest.fn(async (_tenantId, meds) => meds),
 }));
 jest.unstable_mockModule('../../services/pharmacy/controlledDispenseWitnessService.js', () => ({
   CONTROLLED_DISPENSE_APPROVAL_SCOPES: {
     dispenseSubstitution: 'pharmacy_dispense_substitution',
   },
   CONTROLLED_DISPENSE_WITNESS_ROLES: ['PHARMACY_STAFF', 'PHARMACY_INCHARGE'],
+  // Real array, not a jest.fn(): inventoryV2Routes.js:83 SPREADS this constant
+  // at module scope to build its role allowlist, so a mock function makes the
+  // router unloadable. Values mirror the service's own list verbatim.
+  FACILITY_BOUND_CONTROLLED_DISPENSE_WITNESS_ROLES: ['PHARMACY_STAFF', 'PHARMACY_INCHARGE'],
   approveControlledDispenseWitnessApproval: jest.fn(),
   consumeControlledDispenseWitnessApproval: jest.fn(),
   createControlledDispenseWitnessApproval: createApprovalMock,
   isControlledDispenseWitnessEvidence: jest.fn(() => false),
+  assertControlledDispenseWitness: jest.fn(),
+  assertApprovedControlledDispenseWitness: jest.fn(),
+  preflightControlledDispenseWitnessApproval: jest.fn(),
+  serializeControlledDispenseWitnessApproval: jest.fn(),
+  controlledDispenseApprovalFingerprint: jest.fn(),
 }));
 jest.unstable_mockModule('../../../scripts/backfill-drug-compositions.mjs', () => ({
   enrichCatalogRowForWrite: jest.fn(async (row) => row),

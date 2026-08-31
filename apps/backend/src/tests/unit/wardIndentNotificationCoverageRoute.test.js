@@ -19,11 +19,21 @@ const recordClinicalAuditEvent = jest.fn(() => Promise.resolve());
 const logSecurityEvent = jest.fn();
 
 jest.unstable_mockModule('../../services/ipd/wardIndentObligationService.js', () => ({
+  // billingV2Service (reached through the controller's service graph) links
+  // against the credit-note refund obligation helpers, so the factory has to
+  // export them too. Only the coverage sweep is exercised here.
+  advanceBillingCreditNoteRefundPayoutObligationTx: jest.fn(),
+  completeBillingCreditNoteRefundObligationTx: jest.fn(),
   sweepWardIndentNotificationCoverage,
 }));
 
+// Mocking ipdSupportService replaces the whole module for wardIndentController,
+// so this list has to cover every name the controller imports or the router
+// fails to link. Keep it in step with the controller's import block.
 const ipdSupportExports = [
+  'applyApprovedWardIndentSubstitution',
   'approveWardIndent',
+  'approveWardIndentControlledWitnessApproval',
   'approveWardIndentSubstitution',
   'cancelWardIndent',
   'closeWardIndent',
@@ -40,6 +50,7 @@ const ipdSupportExports = [
   'rejectWardIndent',
   'rejectWardIndentSubstitution',
   'reportWardIndentDiscrepancy',
+  'requestWardIndentControlledWitnessApproval',
   'requestWardIndentReturn',
   'reserveWardIndent',
 ];
@@ -48,6 +59,9 @@ jest.unstable_mockModule('../../services/ipd/ipdSupportService.js', () => (
 ));
 
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
+  // ledgerAuthoritativeMode and pathwayMode link against getTenantById; the
+  // route never reaches either, so a bare mock is enough to satisfy the link.
+  getTenantById: jest.fn(),
   requireTenantId: (tenantId) => {
     if (!tenantId) throw new Error('Tenant context required');
     return tenantId;
@@ -59,7 +73,13 @@ jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
 }));
 
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  // pharmacistVerificationService and portalAccessService sit in the router's
+  // import graph and link against these three; only the mobile-posture guard's
+  // recordClinicalAuditEvent is actually invoked by this suite.
+  currentCanonicalTransactionRevision: jest.fn(),
+  recordCanonicalClinicalEvent: jest.fn(),
   recordClinicalAuditEvent,
+  recordMedicationSafetyReviews: jest.fn(),
 }));
 
 jest.unstable_mockModule('../../services/idempotency/idempotencyService.js', () => ({

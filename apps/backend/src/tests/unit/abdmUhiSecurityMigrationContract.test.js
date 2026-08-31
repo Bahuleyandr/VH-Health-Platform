@@ -6,8 +6,13 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const backend = path.resolve(here, '../../..');
 
+// apps/backend/.gitattributes pins *.js/*.json/*.yml to LF but not *.sql or
+// *.prisma, so a Windows checkout hands these files back with CRLF endings.
+// Normalise on read: the digests below are already taken over LF-normalised
+// text, and the line-anchored assertions further down would otherwise trip on
+// a stray \r that is no part of any contract.
 function read(relativePath) {
-  return fs.readFileSync(path.join(backend, relativePath), 'utf8');
+  return fs.readFileSync(path.join(backend, relativePath), 'utf8').replace(/\r\n/g, '\n');
 }
 
 function normalizedSha256(contents) {
@@ -104,13 +109,33 @@ describe('ABDM/UHI security migration contract', () => {
 
   it('keeps Prisma aligned with the migration security fields', () => {
     const schema = read('prisma/schema.prisma');
+    // `prisma db pull` aligns each model's name/type columns on that model's
+    // widest field, so the padding inside a field line moves whenever an
+    // unrelated field is added or removed. Two of these assertions used to
+    // spell that padding out: 'payload_sha256  String' only ever matched
+    // because hl7_outbound_acknowledgements.acknowledgement_payload_sha256
+    // happened to align to two spaces — a different model entirely, so the
+    // check said nothing about abdm_hiu_fetch_pages and survived a re-pull
+    // only by luck. Read the model out and assert the field inside it, with
+    // the @db mapping the migration actually declares.
+    const modelBody = (name) => {
+      const match = new RegExp(`^model ${name} \\{$([\\s\\S]*?)^\\}$`, 'm').exec(schema);
+      expect(match).not.toBeNull();
+      return match[1];
+    };
+
     expect(schema).toMatch(/pages_expected\s+Int\?/);
     expect(schema).toMatch(/next_page_number\s+Int\s+@default\(1\)/);
-    expect(schema).toContain('model abdm_hiu_fetch_pages');
-    expect(schema).toContain('payload_sha256  String');
-    expect(schema).toContain('@@unique([tenant_id, fetch_session_id, page_number]');
-    expect(schema).toContain('counterparty_subscriber_id  String        @db.VarChar(200)');
-    expect(schema).toContain(
+    const fetchPages = modelBody('abdm_hiu_fetch_pages');
+    // CHAR(64) NOT NULL in 707 — a nullable or re-typed digest column would
+    // let an unverified page body through the reconciliation in 714.
+    expect(fetchPages).toMatch(/^\s*payload_sha256\s+String\s+@db\.Char\(64\)\s*$/m);
+    expect(fetchPages).toContain('@@unique([tenant_id, fetch_session_id, page_number]');
+    const uhiTransactions = modelBody('uhi_transactions');
+    expect(uhiTransactions).toMatch(
+      /^\s*counterparty_subscriber_id\s+String\s+@db\.VarChar\(200\)\s*$/m,
+    );
+    expect(uhiTransactions).toContain(
       '@@unique([tenant_id, environment, counterparty_subscriber_id, transaction_id, message_id, action, direction, signature_verified], map: "uq_uhi_txn_leg")',
     );
   });

@@ -70,6 +70,20 @@ async function seedIssuedInvoice({ total, admissionId, status = 'ISSUED', invoic
 
 describe('TPA final-claim invoice basis (interim vs final bill, 7239f4be)', () => {
   beforeAll(async () => {
+    // Migration 753 routes createClaim through lockInsuranceFundingPatientTx →
+    // resolvePharmacyFundingPatientUidTx, which serialises the claim against the
+    // ONE active patient it names. The claim's patient_uid therefore has to be a
+    // real registered patient in this tenant, not a bare uuid — seed it the way
+    // registration would.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, status, tenant_id, updated_at)
+       VALUES ($1::uuid, $2, 'TPA Invoice Basis Test Patient', 'PATIENT', true, 'active', $3::uuid, NOW())
+       ON CONFLICT (uid) DO UPDATE
+          SET is_active = true, status = 'active', is_deleted = false,
+              merged_into_uid = NULL, updated_at = NOW()`,
+      PATIENT_UID, `9885${Date.now() % 1000000}`.slice(0, 10), TENANT,
+    );
+
     const pol = await prisma.$queryRawUnsafe(
       `INSERT INTO insurance_policies
          (patient_uid, policy_number, status, tenant_id)
@@ -94,8 +108,9 @@ describe('TPA final-claim invoice basis (interim vs final bill, 7239f4be)', () =
     if (policyId) {
       await prisma.$executeRawUnsafe(`DELETE FROM insurance_policies WHERE id = $1::int`, policyId).catch(() => {});
     }
+    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$disconnect().catch(() => {});
-  });
+  }, 120_000);
 
   it('rejects createClaim when the final cashless claim is anchored to an interim invoice and a larger final invoice exists', async () => {
     const admissionId = await seedAdmission();
@@ -172,21 +187,25 @@ describe('TPA final-claim invoice basis (interim vs final bill, 7239f4be)', () =
   it('rejects at submitClaim too when a prepared final claim is still anchored to the interim invoice', async () => {
     const admissionId = await seedAdmission();
     const interimId = await seedIssuedInvoice({ total: 76000, admissionId });
-    const finalId = await seedIssuedInvoice({ total: 80000, admissionId });
 
-    // Create the claim against the FINAL bill so createClaim passes, then
-    // re-point it at the interim invoice (simulating a stale linkage) and
-    // exercise the submit-time guard.
+    // How a claim actually goes stale in the ward: the coordinator prepares the
+    // claim mid-stay, when the interim bill IS the largest live invoice for the
+    // admission — createClaim has nothing to reject. The full final bill is
+    // issued afterwards, at discharge, and only then is the claim's anchor
+    // stale. That ordering is also the only way to reach this state now:
+    // migration 753's trg_tpa_claim_authority_753 makes invoice_id and
+    // total_billed immutable after insert (55000), so the old fixture's direct
+    // UPDATE re-point could no longer stand in for it.
     const claim = await claims.createClaim({
       tenantId: TENANT, policy_id: policyId, patient_uid: PATIENT_UID,
-      admission_id: admissionId, invoice_id: finalId, claim_type: 'cashless',
-      stage: 'final', total_billed: 80000,
+      admission_id: admissionId, invoice_id: interimId, claim_type: 'cashless',
+      stage: 'final', total_billed: 76000,
     });
     createdClaimIds.push(claim.id);
-    await prisma.$executeRawUnsafe(
-      `UPDATE tpa_claims SET invoice_id = $1::int, total_billed = 76000 WHERE id = $2::int`,
-      interimId, claim.id,
-    );
+    expect(Number(claim.total_billed)).toBe(76000);
+
+    // Discharge-time final bill lands, stranding the claim on the interim one.
+    await seedIssuedInvoice({ total: 80000, admissionId });
 
     await expect(
       claims.submitClaim({ tenantId: TENANT, id: claim.id, submitted_by: null }),

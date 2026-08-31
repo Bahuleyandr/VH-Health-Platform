@@ -2127,11 +2127,22 @@ export const schemas = {
     description: 'Each item uses EmrCreateOrderRequest. A batch-level encounter_id is inherited by items that omit it, including the inpatient-medication ward-supply requirement on details.',
     properties: {
       encounter_id: { type: 'string', format: 'uuid', nullable: true },
+      // No base-level `items`: the two oneOf branches are the sole authority on
+      // item shape. Base properties apply IN ADDITION to the selected branch, so
+      // a base `items: EmrCreateOrderRequest` would also demand a per-item
+      // `encounter_id` on medication orders (EmrCreateOrderRequest's medication
+      // variant requires it) — contradicting the batch-level branch, whose whole
+      // purpose is items that INHERIT the batch encounter_id and omit their own
+      // (orderRoutes.js:458-462). That published contract refused a request the
+      // server accepts.
+      // Bounds only, and deliberately no `type: 'array'`/`items` here: both
+      // oneOf branches below declare the array type, the same bounds, and the
+      // item schema, so the effective contract is unchanged — while a Spectral
+      // `array-items` error (never baselined) is avoided without re-introducing
+      // a base item schema.
       orders: {
-        type: 'array',
         minItems: 1,
         maxItems: 50,
-        items: { $ref: '#/components/schemas/EmrCreateOrderRequest' },
       },
     },
     oneOf: [

@@ -745,6 +745,14 @@ export async function cancelGatewayOrder({ tenantId, id, actor = {} }) {
  * Admin list of provider-captured-but-unbookable orders (the manual work
  * queue handleCaptureEvent parks into). Unresolved rows only by default;
  * include_resolved=true also returns rows an operator already stamped.
+ *
+ * The order lane has no provider-status disposition: 752's
+ * reconciliation_disposition projection belongs to payment_gateway_refunds
+ * (an order's provider-failed leg never books money in the first place), and
+ * 715's chk_pg_order_reconciliation_resolution refuses a stamped order whose
+ * status is anything but 'requires_reconciliation'. So the status filter is
+ * the whole predicate here — do not port the refund list's
+ * failed + provider_failed branch onto orders.
  */
 export async function listReconciliationGatewayOrders({
   tenantId, include_resolved = false, limit = 50, offset = 0,
@@ -755,16 +763,8 @@ export async function listReconciliationGatewayOrders({
   const rows = await prisma.$queryRawUnsafe(
     `SELECT ${ORDER_VIEW_COLUMNS}
        FROM payment_gateway_orders
-      WHERE tenant_id = $1::uuid
-        AND (
-          (status = 'requires_reconciliation' AND ($2::boolean OR reconciled_at IS NULL))
-          OR (
-            $2::boolean
-            AND status = 'failed'
-            AND reconciliation_disposition = 'provider_failed'
-            AND reconciled_at IS NOT NULL
-          )
-        )
+      WHERE tenant_id = $1::uuid AND status = 'requires_reconciliation'
+        AND ($2::boolean OR reconciled_at IS NULL)
       ORDER BY captured_at ASC NULLS LAST, id ASC
       LIMIT $3::int OFFSET $4::int`,
     tenant, include_resolved === true, safeLimit, safeOffset,
@@ -1649,6 +1649,32 @@ async function projectRefundRecoveryTerminal(
   });
 }
 
+/**
+ * Follow-up recovery projection for a terminal this webhook just recorded.
+ * A contradictory delivery racing us can supersede that terminal between the
+ * settlement transaction and this bookkeeping write: exact provider `processed`
+ * evidence outranks a recorded failure and reopens the leg
+ * (reopenFailedGatewayRefundForProcessedEvidence), so by the time we project
+ * 'failed' the durable status is already 'processed'. 752's status guard is
+ * right to refuse that projection — the winner owns it — so absorb exactly that
+ * refusal and let every other failure propagate.
+ */
+async function projectSupersedableRefundRecoveryTerminal(
+  tenantId, gatewayRefundId, outcome,
+) {
+  try {
+    return await projectRefundRecoveryTerminal(tenantId, gatewayRefundId, outcome);
+  } catch (err) {
+    if (err?.code !== 'PAYMENT_GATEWAY_REFUND_RECOVERY_STATUS_MISMATCH') throw err;
+    logger.info('gateway refund recovery projection superseded by concurrent terminal evidence', {
+      gateway_refund_id: Number(gatewayRefundId),
+      outcome,
+      actual_status: err?.details?.actual_status || null,
+    });
+    return null;
+  }
+}
+
 export async function listReconciliationGatewayRefunds({
   tenantId, include_resolved = false, limit = 50, offset = 0,
 } = {}) {
@@ -2129,6 +2155,15 @@ function refundEvidenceMismatchReason(mismatches) {
 async function claimGatewayPayoutRailTx(tx, {
   tenant, billingRefundId, gatewayRefundId,
 }) {
+  // Never rewrite a claim this execution already holds. 747's
+  // billing_refund_payout_guard_747 fires on EVERY billing_refunds UPDATE, even
+  // one that changes nothing, and re-runs the reservation check — which only
+  // admits an execution in ('initiated', 'pending', 'processed'). Re-asserting
+  // the identical tuple on replay would therefore make a leg that has
+  // legitimately parked as requires_reconciliation fail its own replay with
+  // 'gateway payout reservation lacks exact independently initiated execution
+  // evidence'. The last WHERE clause skips the already-exact row so the guard
+  // is never handed a no-op; a zero row count is then disambiguated below.
   const claimed = await tx.$executeRawUnsafe(
     `UPDATE billing_refunds AS refund
         SET payout_rail = 'gateway',
@@ -2154,10 +2189,29 @@ async function claimGatewayPayoutRailTx(tx, {
             )
           )
         )
+        AND (
+          refund.payout_rail IS DISTINCT FROM 'gateway'
+          OR refund.payout_rail_claimed_at IS NULL
+          OR refund.gateway_refund_id IS DISTINCT FROM $1::int
+        )
       `,
     Number(gatewayRefundId), Number(billingRefundId), tenant,
   );
-  if (Number(claimed) !== 1) {
+  if (Number(claimed) === 1) return;
+  // Zero rows means either "already exactly ours" (skipped above) or a real
+  // conflict. Only the first is acceptable, and it must be proved, not assumed.
+  const heldRows = await tx.$queryRawUnsafe(
+    `SELECT 1
+       FROM billing_refunds
+      WHERE id = $2::int AND tenant_id = $3::uuid
+        AND approval_status = 'APPROVED'
+        AND payout_rail = 'gateway'
+        AND payout_rail_claimed_at IS NOT NULL
+        AND gateway_refund_id = $1::int
+      LIMIT 1`,
+    Number(gatewayRefundId), Number(billingRefundId), tenant,
+  );
+  if (heldRows?.length !== 1) {
     throw AppError.conflict(
       'The approved refund payout is already owned by another execution rail',
       'PAYMENT_GATEWAY_REFUND_PAYOUT_RAIL_CONFLICT',
@@ -3063,7 +3117,7 @@ export async function handleRefundFailedEvent({
   }
   if (gatewayRefund.status === 'failed') {
     if (!claimToken) {
-      await projectRefundRecoveryTerminal(tenant, gatewayRefund.id, 'failed');
+      await projectSupersedableRefundRecoveryTerminal(tenant, gatewayRefund.id, 'failed');
     }
     return { outcome: 'replay', gatewayRefundId: Number(gatewayRefund.id) };
   }
@@ -3186,7 +3240,40 @@ export async function handleRefundFailedEvent({
               provider_refund_id = COALESCE(provider_refund_id, $1::varchar),
               failed_at = NOW(), failure_code = $2::varchar, failure_reason = $3::text,
               metadata = jsonb_set(
-                COALESCE(metadata, '{}'::jsonb),
+                -- Exact provider failed evidence outranks any operator review
+                -- already recorded against this leg. The processed direction
+                -- (billingV2Service.markGatewayRefundPaid) preserves the
+                -- overruled review under
+                -- provider_evidence_superseded_reconciliations; record it under
+                -- the same append-only key here so one audit surface answers
+                -- "which operator opinion did provider evidence overrule?" for
+                -- BOTH terminal directions, before the review columns are
+                -- cleared as the single unit
+                -- chk_pg_refund_reconciliation_review admits.
+                CASE
+                  WHEN reconciliation_disposition IS NULL AND reconciled_at IS NULL
+                    THEN COALESCE(metadata, '{}'::jsonb)
+                  ELSE jsonb_set(
+                    COALESCE(metadata, '{}'::jsonb),
+                    '{provider_evidence_superseded_reconciliations}',
+                    (
+                      CASE
+                        WHEN jsonb_typeof(metadata->'provider_evidence_superseded_reconciliations') = 'array'
+                          THEN metadata->'provider_evidence_superseded_reconciliations'
+                        ELSE '[]'::jsonb
+                      END
+                    ) || jsonb_build_array(jsonb_strip_nulls(jsonb_build_object(
+                      'reconciled_at', reconciled_at,
+                      'reconciled_by', reconciled_by,
+                      'disposition', reconciliation_disposition,
+                      'evidence', reconciliation_evidence,
+                      'reviewed_by', reconciliation_reviewed_by,
+                      'reviewed_at', reconciliation_reviewed_at,
+                      'superseded_by', 'exact_provider_failed_evidence'
+                    ))),
+                    true
+                  )
+                END,
                 '{provider_terminal_evidence_history}',
                 (
                   CASE
@@ -3232,7 +3319,9 @@ export async function handleRefundFailedEvent({
       : { outcome: 'replay', gatewayRefundId: Number(execution.id) };
   });
   if (!claimToken && terminal.outcome === 'refund_failed_recorded') {
-    await projectRefundRecoveryTerminal(tenant, terminal.gatewayRefundId, 'failed');
+    await projectSupersedableRefundRecoveryTerminal(
+      tenant, terminal.gatewayRefundId, 'failed',
+    );
   }
   return terminal;
 }

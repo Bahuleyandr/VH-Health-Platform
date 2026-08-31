@@ -131,11 +131,19 @@ export async function dispatch({
       return recordLookupFailure(() => rejected('recipient_identifier_missing'));
     }
 
+    // `$1::text` on BOTH arms, then text→uuid for the uid compare. The driver
+    // sends this parameter untyped, so a bare `$1` next to `$1::uuid` resolves
+    // the whole parameter to uuid and `phone = $1` then 42883s
+    // (`operator does not exist: character varying = uuid`) — the lookup could
+    // never succeed for a uuid recipient, and the resulting `uncertain` receipt
+    // paused the tenant's whole in-app channel. Pinning the parameter to text
+    // keeps both comparisons legal while `uid = <uuid>` still uses users_uid_key.
+    // Safe because this arm only runs when UUID_RE already matched.
     const res = UUID_RE.test(identifier)
       ? await prisma.$queryRawUnsafe(
         `SELECT id, uid, phone, email, name, device_token, preferred_channel, tenant_id
          FROM users
-         WHERE uid = $1::uuid OR phone = $1
+         WHERE uid = CAST($1::text AS uuid) OR phone = $1::text
          LIMIT 1`,
         identifier
       )
@@ -453,7 +461,10 @@ export async function dispatchToPatient({ userId, title, body, data = {}, type =
     if (identifier) {
       const rows = UUID_RE.test(identifier)
         ? await prisma.$queryRawUnsafe(
-          `SELECT preferred_channel FROM users WHERE uid = $1::uuid OR phone = $1 LIMIT 1`,
+          // Same untyped-parameter hazard as dispatch()'s lookup above: without
+          // pinning $1 to text the `phone` compare 42883s, and this catch would
+          // silently downgrade every uuid recipient to the 'app' default.
+          `SELECT preferred_channel FROM users WHERE uid = CAST($1::text AS uuid) OR phone = $1::text LIMIT 1`,
           identifier,
         )
         : await prisma.$queryRawUnsafe(

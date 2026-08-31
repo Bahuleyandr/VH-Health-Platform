@@ -35,12 +35,25 @@ describe('pharmacy dispense inventory authority contract', () => {
   const inventoryAuthorityMigration = source('migrations/753_pharmacy_order_inventory_authority.sql');
   const generatedOpenApi = JSON.parse(source('docs/openapi.json'));
 
+  // Stock now leaves inventory when the pack is staged for dispatch, not at
+  // patient handoff — markDelivered consumes only the staged custody package
+  // and the handoff proof. The delivery leg of the dispense pipeline is
+  // therefore dispatchOrder; markDelivered must hold no dispense authority of
+  // its own.
+  const dispatchSlice = () => between(
+    controller, 'export const dispatchOrder', 'export const markDelivered',
+  );
+
   test('legacy delivery and counter dispense delegate stock to Inventory V2 only', () => {
+    const dispatch = dispatchSlice();
     const delivery = between(controller, 'export const markDelivered', 'const COUNTER_PAYMENT_MODES');
     const counter = between(controller, 'export const markCounterDispensed', 'export const markUnavailable');
 
-    expect(delivery).toMatch(/allocateOrderInventoryTx\(tx/);
+    expect(dispatch).toMatch(/allocateOrderInventoryTx\(tx/);
     expect(counter).toMatch(/allocateOrderInventoryTx\(tx/);
+    expect(delivery).not.toMatch(/allocateOrderInventoryTx/);
+    expect(delivery).toMatch(/PHARMACY_DELIVERY_CALLER_AUTHORITY_FORBIDDEN/);
+    expect(dispatch).not.toMatch(/UPDATE\s+pharmacy_catalog/i);
     expect(delivery).not.toMatch(/UPDATE\s+pharmacy_catalog/i);
     expect(counter).not.toMatch(/UPDATE\s+pharmacy_catalog/i);
     expect(inventoryComposer).not.toMatch(/UPDATE\s+pharmacy_catalog/i);
@@ -53,10 +66,12 @@ describe('pharmacy dispense inventory authority contract', () => {
     expect(inventoryComposer).toMatch(/prescription: prescriptionProjection/);
     expect(inventoryComposer).toMatch(/PHARMACY_ORDER_CONTROLLED_ALLOCATION_REQUIRED/);
     expect(inventoryComposer).toMatch(/recovery_action/);
-    expect(delivery).toMatch(/req\.body\?\.dispensed_items/);
-    expect(delivery).toMatch(/applyAuthoritativeDeliveryAllocations/);
-    expect(delivery).not.toMatch(/mergeDispensedItems/);
-    expect(delivery).toMatch(/applyOrderPrescriptionProjectionTx/);
+    expect(dispatch).toMatch(/req\.body\?\.dispensed_items/);
+    expect(dispatch).toMatch(/applyAuthoritativeDeliveryAllocations/);
+    expect(dispatch).not.toMatch(/mergeDispensedItems/);
+    expect(dispatch).toMatch(/applyOrderPrescriptionProjectionTx/);
+    expect(delivery).not.toMatch(/req\.body\?\.dispensed_items/);
+    expect(dispatch).not.toMatch(/pharmacy_order_id IS NULL/);
     expect(delivery).not.toMatch(/pharmacy_order_id IS NULL/);
     expect(counter).not.toMatch(/pharmacy_order_id IS NULL/);
   });
@@ -201,13 +216,17 @@ describe('pharmacy dispense inventory authority contract', () => {
   });
 
   test('TPA cap is enforced from locked authoritative pricing before stock mutation', () => {
+    const dispatch = dispatchSlice();
     const delivery = between(controller, 'export const markDelivered', 'const COUNTER_PAYMENT_MODES');
     const counter = between(controller, 'export const markCounterDispensed', 'export const markUnavailable');
     const substitution = inventoryComposer.slice(
       inventoryComposer.indexOf('export async function dispenseSubstitutionCommand'),
     );
 
-    for (const handler of [delivery, counter]) {
+    // Patient handoff mutates no stock, so it must also assert no cap of its
+    // own — the cap is spent once, where the stock is.
+    expect(delivery).not.toMatch(/assertPharmacyCapForDispenseTx/);
+    for (const handler of [dispatch, counter]) {
       expect(handler).not.toMatch(/probePharmacyCap/);
       expect(handler.indexOf('resolveCounterDispenseAuthorityTx'))
         .toBeLessThan(handler.indexOf('assertPharmacyCapForDispenseTx'));
@@ -228,10 +247,28 @@ describe('pharmacy dispense inventory authority contract', () => {
     expect(controller).toMatch(/TPA pharmacy-cap override by/);
     expect(controller).toMatch(/authorised_by/);
     expect(controller).toMatch(/authorised_role/);
-    expect(capService).toMatch(/JOIN billing_invoice_items invoice_item/);
-    expect(capService).toMatch(/invoice_item\.source_ref_type = 'pharmacy_order'/);
+    // The invoice-item authority the cap reads is aliased `item` on the funding
+    // event join and `it` on the admission spend sum. Both legs stay
+    // tenant-bound and scoped to pharmacy_order source refs.
+    expect(capService).toMatch(/JOIN billing_invoice_items item\b/);
+    expect(capService).toMatch(
+      /ON item\.tenant_id=event\.tenant_id AND item\.id=event\.invoice_item_id/,
+    );
+    expect(capService).toMatch(/AND item\.source_ref_type='pharmacy_order'/);
+    expect(capService).toMatch(/FROM billing_invoice_items it\b/);
+    expect(capService).toMatch(/AND it\.source_ref_type = 'pharmacy_order'/);
     expect(capService).toMatch(/tpa_claim_line_decisions/);
-    expect(capService).toMatch(/COUNTER_FUNDING_ALLOCATION_REQUIRED/);
+    // COUNTER_FUNDING_ALLOCATION_REQUIRED never existed outside this file — it
+    // has been asserted since the contract was written and could never fire.
+    // The counter-funding resolver's real fail-closed vocabulary is the
+    // COUNTER_FUNDING_* family below: a missing exact authority, no durable
+    // posted/advance/TPA authority for the exact order version, a stale one,
+    // and an ambiguous one. Pinning all four is strictly stronger than pinning
+    // one name that no production line ever carried.
+    expect(capService).toMatch(/'COUNTER_FUNDING_AUTHORITY_REQUIRED'/);
+    expect(capService).toMatch(/'COUNTER_FUNDING_POSTED_AUTHORITY_REQUIRED'/);
+    expect(capService).toMatch(/'COUNTER_FUNDING_AUTHORITY_STALE'/);
+    expect(capService).toMatch(/'COUNTER_FUNDING_LINE_AUTHORITY_AMBIGUOUS'/);
     expect(capService).toMatch(/pharmacy_cap_reservations/);
     expect(substitution).toMatch(/resolveAuthoritativeCounterFundingTx\(tx/);
     expect(substitution).toMatch(/requireSubstitutionFundingReauthorisation/);
@@ -304,25 +341,31 @@ describe('pharmacy dispense inventory authority contract', () => {
   });
 
   test('committed delivery and substitution never become retained barcode 5xx responses', () => {
-    const delivery = between(controller, 'export const markDelivered', 'const COUNTER_PAYMENT_MODES');
-    const substitution = between(
-      controller,
-      'export const dispenseSubstitution',
-      'export const getOrderDispensableContext',
-    );
-    const barcode = between(
-      controller,
-      'async function attachPackBarcodeBestEffort',
-      'async function attachSignedUrl',
+    // The pack barcode is no longer fetched from a provider after the dispense
+    // has committed and then best-effort attached. It is derived from the
+    // durable command key and persisted inside the very transaction that moves
+    // the stock, so no post-commit step survives that could turn a committed
+    // dispense into a retained 5xx — a strictly stronger guarantee than a
+    // swallow-and-mark-pending wrapper, and one the response can no longer be
+    // pending on.
+    const dispatch = dispatchSlice();
+    const counter = between(controller, 'export const markCounterDispensed', 'export const markUnavailable');
+    const substitution = inventoryComposer.slice(
+      inventoryComposer.indexOf('export async function dispenseSubstitutionCommand'),
     );
 
-    expect(delivery).toMatch(/await attachPackBarcodeBestEffort\(result, orderId\)/);
-    expect(substitution).toMatch(/await attachPackBarcodeBestEffort/);
-    expect(delivery).not.toMatch(/await ensurePackBarcode/);
-    expect(substitution).not.toMatch(/await ensurePackBarcode/);
-    expect(barcode).toMatch(/pack_barcode_pending = true/);
-    expect(barcode).toMatch(/pack-label/);
-    expect(barcode).not.toMatch(/throw packErr/);
+    for (const [composer, param] of [[dispatch, '$16'], [counter, '$3'], [substitution, '$3']]) {
+      expect(composer).toMatch(
+        new RegExp(`pack_barcode=COALESCE\\(pack_barcode, \\${param}\\)`),
+      );
+      expect(composer).toMatch(/VHMP-\$\{orderId\}-\$\{[a-zA-Z.]*commandKeySha256\.slice\(0, 8\)\.toUpperCase\(\)\}/);
+      expect(composer).not.toMatch(/ensurePackBarcode/);
+      expect(composer).not.toMatch(/attachPackBarcodeBestEffort/);
+    }
+    expect(substitution).toMatch(/PHARMACY_PACK_BARCODE_PERSISTENCE_FAILED/);
+    expect(substitution).toMatch(/pack_barcode_pending: false/);
+    expect(controller).not.toMatch(/attachPackBarcodeBestEffort/);
+    expect(controller).not.toMatch(/pack_barcode_pending = true/);
   });
 
   test('multi-item dispense locks catalog, item, and batch rows in global order', () => {
@@ -437,8 +480,16 @@ describe('pharmacy dispense inventory authority contract', () => {
     }
     expect(pharmacyOpenApiSchemas.PharmacyOrderDeliveryResult.additionalProperties).toBe(false);
     expect(pharmacyOpenApiSchemas.PharmacyCounterDispenseResult.additionalProperties).toBe(false);
+    // `details` is now explicitly nullable — a typed dispense failure that
+    // carries no recovery evidence publishes null rather than omitting the
+    // member. OAS 3.0 cannot put `nullable` beside a `$ref`, so the ref is
+    // wrapped in a single-element allOf. Pin the whole node, nullability
+    // included, rather than only the ref it wraps.
     expect(pharmacyOpenApiSchemas.PharmacyOrderDispenseErrorResponse.properties.details)
-      .toEqual({ $ref: '#/components/schemas/PharmacyOrderDispenseRecoveryDetails' });
+      .toEqual({
+        allOf: [{ $ref: '#/components/schemas/PharmacyOrderDispenseRecoveryDetails' }],
+        nullable: true,
+      });
   });
 
   test('publishes the required idempotency header for both stock-movement aliases', () => {
@@ -460,7 +511,23 @@ describe('pharmacy dispense inventory authority contract', () => {
     expect(appendMovement).toMatch(/PHARMACY_STOCK_MOVEMENT_DIRECTION_INVALID/);
     expect(appendMovement).toMatch(/INVENTORY_BATCH_REQUIRED/);
     expect(appendMovement).toMatch(/await recordMovementTx\(tx/);
-    expect(appendMovement).toMatch(/loadSupplyMovementItem\(tx, tid, itemId, \{ forUpdate: true \}\)/);
+    // loadSupplyMovementItem's optional forUpdate flag is gone: the movement
+    // now resolves and locks its whole authority chain in one statement, which
+    // is strictly more than the single item row that flag used to lock — an
+    // active item on an active facility, an active catalog row, an unexpired
+    // in-stock batch in an ACTIVE storage location, and an active supplier.
+    expect(appendMovement).toMatch(/FOR UPDATE OF item, catalog, facility, batch, supplier/);
+    expect(appendMovement).toMatch(/AND item\.status='active'/);
+    expect(appendMovement).toMatch(/AND catalog\.is_active=TRUE/);
+    expect(appendMovement).toMatch(/AND facility\.status='active'/);
+    expect(appendMovement).toMatch(/AND location\.status='active'/);
+    expect(appendMovement).toMatch(
+      /batch\.expiry_date >= \(NOW\(\) AT TIME ZONE 'Asia\/Kolkata'\)::date/,
+    );
+    expect(appendMovement).toMatch(/AND supplier\.status='active'/);
+    // Every decrement is refused here outright — stock only ever leaves through
+    // a typed custody workflow.
+    expect(appendMovement).toMatch(/INVENTORY_DECREASE_REQUIRES_GOVERNED_WORKFLOW/);
     expect(appendMovement).not.toMatch(/INSERT INTO pharmacy_stock_movements/);
     expect(appendMovement).not.toMatch(/UPDATE pharmacy_inventory_batches/);
     expect(supplyRoutes).toMatch(/router\.post\('\/stock-movements', requireIdempotencyKey\(\{/);
@@ -472,8 +539,27 @@ describe('pharmacy dispense inventory authority contract', () => {
   test('substitution durable identity is checked before mutable clinical preflight', () => {
     const handler = between(controller, 'export const dispenseSubstitution', 'export const getOrderDispensableContext');
 
-    expect(handler.indexOf('findDispenseSubstitutionReplay'))
-      .toBeLessThan(handler.indexOf('resolveSubstitutionPhase0'));
+    const substitutionCommand = inventoryComposer.slice(
+      inventoryComposer.indexOf('export async function dispenseSubstitutionCommand'),
+    );
+    // The durable replay probe moved off the controller and into the command
+    // transaction. It now runs under the per-command advisory lock and strictly
+    // before the mutable clinical context resolver, so a concurrent replay can
+    // no longer race the preflight it exists to short-circuit — strictly
+    // stronger than the un-serialised controller-first ordering this pinned.
+    expect(handler).not.toMatch(/findDispenseSubstitutionReplay/);
+    expect(handler).toMatch(
+      /contextResolver: \(tx\) => resolveSubstitutionPhase0\(tenantId, body, tx\)/,
+    );
+    const commandLock = 'dispense-substitution:${tenantId}:${commandKeySha256}';
+    expect(substitutionCommand).toContain(commandLock);
+    expect(substitutionCommand).toContain('loadSubstitutionCommandEvidence(tx');
+    expect(substitutionCommand).toContain('await contextResolver(tx)');
+    expect(substitutionCommand.indexOf(commandLock))
+      .toBeLessThan(substitutionCommand.indexOf('loadSubstitutionCommandEvidence(tx'));
+    expect(substitutionCommand.indexOf('loadSubstitutionCommandEvidence(tx'))
+      .toBeLessThan(substitutionCommand.indexOf('await contextResolver(tx)'));
+    expect(substitutionCommand).toMatch(/SUBSTITUTION_COMMAND_EVIDENCE_CONFLICT/);
     expect(inventoryComposer).toMatch(/SUBSTITUTION_COMMAND_MISMATCH/);
     expect(inventoryComposer).toMatch(/pg_advisory_xact_lock/);
     expect(inventoryComposer).toMatch(/remaining_quantity/);
@@ -483,17 +569,28 @@ describe('pharmacy dispense inventory authority contract', () => {
     expect(inventoryComposer).toMatch(/FOR UPDATE OF pc/);
     expect(inventoryComposer).toMatch(/SUBSTITUTION_AUTHORITY_CHANGED/);
     expect(inventoryComposer).toMatch(/SUBSTITUTION_PRESCRIPTION_STATUS_INVALID/);
-    expect(inventoryComposer).toMatch(/PHARMACY_VERIFICATION_REQUIRED/);
+    // Clinical verification is no longer a controller preflight that could go
+    // stale between the check and the transaction: the command asserts it with
+    // the same tx it moves stock in, and pharmacistVerificationService owns the
+    // typed refusal.
+    expect(substitutionCommand).toMatch(
+      /await assertVerificationClearedTx\(tx, \{ orderId, tenantId \}\)/,
+    );
+    expect(verificationService).toMatch(/'PHARMACY_VERIFICATION_REQUIRED'/);
     expect(inventoryComposer).toMatch(/resolveAuthenticatedPerformerNameTx/);
     expect(inventoryComposer).not.toMatch(/actorName/);
     expect(inventoryComposer).toMatch(/catalog_id: finalId/);
     expect(inventoryComposer).toMatch(/line_total: cumulativeBillableTotal/);
     expect(inventoryComposer).toMatch(/priorInventoryBillableTotal/);
     expect(inventoryComposer).toMatch(/prescription_revision/);
+    // The substitution result is now built as a named responsePayload so the
+    // same object is both returned and persisted onto the movement row as
+    // replay evidence; the exact line identity it must carry is unchanged.
     expect(inventoryComposer).toMatch(
-      /return \{\s*movement_id:[\s\S]*?order_line_index: orderLineIndex,\s*prescription_line_index: prescriptionLineIndex,/,
+      /const responsePayload = \{\s*movement_id:[\s\S]*?order_line_index: orderLineIndex,\s*prescription_line_index: prescriptionLineIndex,/,
     );
-    expect(handler).toMatch(/verificationGateBlocked/);
+    expect(substitutionCommand).toMatch(/'response_payload', \$3::jsonb/);
+    expect(handler).toMatch(/relayAppError\(res, err, 'Failed to dispense substitution'\)/);
   });
 
   test('patient safety source writes bump the verification fence before they commit', () => {
@@ -796,9 +893,25 @@ describe('pharmacy dispense inventory authority contract', () => {
   });
 
   test('verification gate preserves the typed clinical code', () => {
-    const gate = between(controller, 'async function verificationGateBlocked', 'async function emitPharmacyOrderEventInTx');
-    expect(gate).toMatch(/relayAppError\(res, gateErr, 'Pharmacy verification gate failed'\)/);
-    expect(gate).not.toMatch(/error\(res/);
+    // The controller-side verificationGateBlocked wrapper is gone. A preflight
+    // gate outside the transaction could always go stale between the check and
+    // the stock movement; verification is now asserted with the transaction's
+    // own client on BOTH composing paths, and the typed AppError still reaches
+    // the caller through relayAppError rather than being reshaped by error().
+    expect(controller).not.toMatch(/verificationGateBlocked/);
+    expect(inventoryComposer.match(/await assertVerificationClearedTx\(tx, \{/g))
+      .toHaveLength(2);
+    expect(verificationService).toMatch(
+      /throw AppError\.conflict\([\s\S]*?'PHARMACY_VERIFICATION_REQUIRED',/,
+    );
+    const substitutionHandler = between(
+      controller,
+      'export const dispenseSubstitution',
+      'export const getOrderDispensableContext',
+    );
+    expect(substitutionHandler)
+      .toMatch(/relayAppError\(res, err, 'Failed to dispense substitution'\)/);
+    expect(substitutionHandler).not.toMatch(/error\(res/);
   });
 
   test('counter dispense preserves typed inventory failures', () => {

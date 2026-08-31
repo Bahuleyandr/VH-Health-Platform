@@ -2283,7 +2283,12 @@ describe('supersedeAcknowledgementTaskFromTrustedWorkflow', () => {
     expect(taskUpdates[0][1]).toBe('in_progress');
     expect(taskUpdates[1][1]).toBe('completed');
     expect(taskUpdates[1][0]).toMatch(/completed_at = to_timestamp/);
-    expect(txQuery.mock.calls[6][7]).toBe(taskUpdates[1][2]);
+    // Both writes close on the SAME instant, but they bind it differently: the
+    // task keeps epoch millis (to_timestamp), while the SLA now binds a durable
+    // ISO-8601 UTC string ($7::text::timestamptz) so a session timezone cannot
+    // reinterpret it. Pin the SLA binding to the exact ISO rendering of the
+    // task's own epoch millis — same-instant equality plus the text shape.
+    expect(txQuery.mock.calls[6][7]).toBe(new Date(taskUpdates[1][2]).toISOString());
     expect(txQuery.mock.calls[6][5]).toBe(USER);
   });
 

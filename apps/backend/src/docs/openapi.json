@@ -23323,12 +23323,8 @@
             "nullable": true
           },
           "orders": {
-            "type": "array",
             "minItems": 1,
-            "maxItems": 50,
-            "items": {
-              "$ref": "#/components/schemas/EmrCreateOrderRequest"
-            }
+            "maxItems": 50
           }
         },
         "oneOf": [

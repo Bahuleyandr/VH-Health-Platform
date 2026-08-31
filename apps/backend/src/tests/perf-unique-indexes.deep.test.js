@@ -61,6 +61,20 @@ function sqlState(err) {
   );
 }
 
+// Facility custody per synthetic tenant. Migration 753 holds any pharmacy order
+// that is not already in a terminal status
+// (chk_pharmacy_orders_facility_progression_753: facility_id IS NOT NULL OR
+// status IN CANCELLED/DELIVERED/DISPENSED/UNAVAILABLE), and the fixture inserts
+// land on the PENDING column default — so a live order needs a real facility the
+// way production does. fk_pharmacy_orders_facility_tenant_753 keys the facility
+// on (tenant_id, id), so each tenant earns its OWN facility rather than sharing
+// one. facilities.id is a sequence, so the ids are captured at seed time.
+const FACILITY_CODES = {
+  [TENANT_A]: 'FEE-PERF-FAC-A',
+  [TENANT_B]: 'FEE-PERF-FAC-B',
+};
+const facilityIds = new Map();
+
 async function cleanup() {
   for (const sql of [
     `DELETE FROM e_prescriptions WHERE tenant_id IN ($1::uuid, $2::uuid)`,
@@ -69,6 +83,9 @@ async function cleanup() {
     `DELETE FROM prescriptions WHERE tenant_id IN ($1::uuid, $2::uuid)`,
     `DELETE FROM investigations WHERE tenant_id IN ($1::uuid, $2::uuid)`,
     `DELETE FROM patient_vitals WHERE tenant_id IN ($1::uuid, $2::uuid)`,
+    // After every order/admission child above, so the RESTRICT FKs onto
+    // facilities have nothing left pointing at these rows.
+    `DELETE FROM facilities WHERE tenant_id IN ($1::uuid, $2::uuid)`,
   ]) {
     await prisma.$executeRawUnsafe(sql, TENANT_A, TENANT_B).catch(() => {});
   }
@@ -92,11 +109,15 @@ async function insertEPrescription({ tenantId, number }) {
 }
 
 async function insertPharmacyOrder({ tenantId, number }) {
+  const facilityId = facilityIds.get(tenantId);
+  // Fail loudly rather than binding NULL and re-triggering the 753 facility
+  // guard as a confusing 23514 several lines away from the real cause.
+  expect(facilityId).toBeGreaterThan(0);
   const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO pharmacy_orders (tenant_id, phone, order_note, order_number, updated_at)
-       VALUES ($1::uuid, '+910000000000', 'test', $2, NOW())
+    `INSERT INTO pharmacy_orders (tenant_id, facility_id, phone, order_note, order_number, updated_at)
+       VALUES ($1::uuid, $2::int, '+910000000000', 'test', $3, NOW())
      RETURNING id`,
-    tenantId, number,
+    tenantId, facilityId, number,
   );
   return rows[0].id;
 }
@@ -114,6 +135,17 @@ d('perf + uniqueness indexes (migration 326)', () => {
        ON CONFLICT (id) DO NOTHING`,
       TENANT_A, TENANT_B,
     );
+    // One facility per synthetic tenant so a PENDING pharmacy order can hold
+    // real facility custody (see FACILITY_CODES above).
+    for (const tenantId of [TENANT_A, TENANT_B]) {
+      const rows = await prisma.$queryRawUnsafe(
+        `INSERT INTO facilities (tenant_id, facility_code, display_name)
+           VALUES ($1::uuid, $2, $3)
+         RETURNING id`,
+        tenantId, FACILITY_CODES[tenantId], `Perf Facility ${FACILITY_CODES[tenantId]}`,
+      );
+      facilityIds.set(tenantId, Number(rows[0].id));
+    }
   });
 
   afterAll(async () => {

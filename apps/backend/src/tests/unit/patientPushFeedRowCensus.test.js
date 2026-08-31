@@ -201,7 +201,28 @@ const EMITTERS = Object.freeze({
   'utils/clinical/vitalSignMonitor.js': { dispatch: ['staff'] },
   'services/ai/operationalAlertService.js': { queue: ['staff'] },
   'services/ai/virtualWardService.js': { queue: ['staff'] },
+  // Finance recovery roles (FINANCE_INCHARGE / BILLING_INCHARGE / ADMIN /
+  // SUPER_ADMIN), then the finance-role in-app queue for the same case.
+  'services/billing/gatewayRefundRecoveryService.js': { queue: ['staff', 'staff'] },
+  // GATEWAY_REFUND_RECONCILIATION_ROLES = SUPER_ADMIN / ADMIN.
+  'services/billing/paymentGatewayService.js': { queue: ['staff'] },
   'services/biomed/biomedCmmsService.js': { queue: ['staff'] },
+  // MED-03 753 shortfall notice; its recipient must be backed by a pharmacy
+  // facility grant, so it can only ever be staff.
+  'services/clinical/cathLabService.js': { queue: ['staff'] },
+  // Clinician delivery obligation, then the overdue recovery escalation — both
+  // to the alert's clinical roster.
+  'services/clinical/clinicalAlertDeliveryObligationService.js': { queue: ['staff', 'staff'] },
+  // Prescriber review of a held/missed dose: raised, overdue escalation, and
+  // the administrator reassignment handoff.
+  'services/clinical/marMedicationExceptionService.js': {
+    queue: ['staff', 'staff', 'staff'],
+  },
+  // Ward indent obligations, the credit-note finance review, and the MAR
+  // supply reconciliation notice — all ward / pharmacy / finance staff.
+  'services/ipd/wardIndentObligationService.js': {
+    queue: ['staff', 'staff', 'staff', 'staff', 'staff'],
+  },
   'services/devices/coldChainService.js': { queue: ['staff'] },
   'services/feedback/npsService.js': { queue: ['staff'] },
   'services/insurance/claimsService.js': { queue: ['staff'] },
@@ -235,6 +256,26 @@ const EMITTERS = Object.freeze({
   // collector dispatched, result ready.
   'controllers/investigation/bookingController.js': {
     push: ['staff', 'patient', 'patient', 'patient'],
+  },
+  // MED-03 delivery custody. Site order in file: dispatch (patient handoff,
+  // patient SMS, courier assignment), delivery completed (patient), handoff
+  // reissue (patient handoff, patient SMS, courier assignment), return
+  // requested (patient, return owner), return completed (patient).
+  //
+  // Every `pharmacy_delivery_*` transport type is outside the patient registry,
+  // so resolveChannelsForOutboxRow finds no preference key and falls back to
+  // the legacy ['push'] set — the drain never writes the row for these. The
+  // patient sites therefore owe it themselves, and the handoff ones especially:
+  // the one-time code is in the body the stripped envelope throws away. The
+  // `type: 'sms'` intents are readable text and owe nothing.
+  'controllers/pharmacy/pharmacyOrderController.js': {
+    queue: [
+      'patient', 'patient-readable', 'staff',
+      'patient',
+      'patient', 'patient-readable', 'staff',
+      'patient', 'staff',
+      'patient',
+    ],
   },
   'services/portal/patientPortalService.js': { push: ['patient'] },
   'utils/notifications/InvestigationNotificationJob.js': { push: ['patient'] },

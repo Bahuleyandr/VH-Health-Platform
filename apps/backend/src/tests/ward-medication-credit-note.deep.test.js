@@ -24,6 +24,7 @@ import {
   markRefundPaid,
   rejectRefund,
 } from '../services/billing/billingV2Service.js';
+import { bindMedicationOrderCatalogAuthority } from '../services/ipd/wardIndentWorkflowService.js';
 import { administerWithScan } from '../services/clinical/marFiveRightsService.js';
 import { holdMedication, recordMissed } from '../services/clinical/marService.js';
 import { verifyOrder } from '../services/emr/orderEntryService.js';
@@ -51,6 +52,8 @@ describeIfDb('MED-03 ward medication credit-note closure', () => {
   const run = `${process.pid}-${Date.now()}`;
   let wardId;
   let catalogId;
+  let catalogRow;
+  let compositionId;
   let admissionId;
   let encounterId;
   let facilityId;
@@ -69,7 +72,10 @@ describeIfDb('MED-03 ward medication credit-note closure', () => {
       patient,
       encounterId,
       requester,
-      JSON.stringify({
+      // The issue-time recheck compares details.catalog_authority_sha256 against a
+      // hash recomputed from the live catalog, so the order has to carry the digest
+      // production mints at prescribe time rather than hand-written details.
+      JSON.stringify(bindMedicationOrderCatalogAuthority({
         catalog_id: catalogId,
         dose: '1 unit',
         route: 'oral',
@@ -79,7 +85,7 @@ describeIfDb('MED-03 ward medication credit-note closure', () => {
         form_key: 'tablet',
         quantity_requested: quantity,
         unit: 'tablet',
-      }),
+      }, catalogRow)),
     ))[0];
     await verifyOrder(Number(order.id), pharmacist, {
       tenantId,
@@ -193,7 +199,9 @@ describeIfDb('MED-03 ward medication credit-note closure', () => {
       facilityId,
     ))[0].id);
     encounterId = randomUUID();
-    const bedNumber = `MED03-CREDIT-${run}`.slice(0, 50);
+    // beds.bed_number is VARCHAR(20) (migration 001) while admissions.bed_number is
+    // VARCHAR(50); the same literal goes into both, so it has to fit the narrower one.
+    const bedNumber = `M3C-${run.slice(-16)}`;
     const bedId = Number((await prisma.$queryRawUnsafe(
       `INSERT INTO beds
          (tenant_id, ward_id, ward_name, bed_number, status, patient_uid,
@@ -222,16 +230,38 @@ describeIfDb('MED-03 ward medication credit-note closure', () => {
       `MED-03 Credit Ward ${run}`,
       requester,
     ))[0].id);
-    catalogId = Number((await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_catalog
-         (tenant_id, name, is_active, stock_quantity, unit_price, price,
-          strength, strength_key, form, form_key, route, updated_at)
-       VALUES ($1::uuid, $2::text, TRUE, 20, 12.50, 12.50,
-               '500 mg', '500mg', 'tablet', 'tablet', 'oral', NOW())
+    // A medication ward-indent line must resolve to a catalog carrying COMPLETE
+    // high-confidence clinical product authority: bindMedicationOrderCatalogAuthority
+    // rejects the issue unless composition_id, composition_source,
+    // composition_confidence='high', strength_components, strength, form, route and
+    // release_key are all present. Strength/form/route alone are not enough.
+    compositionId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO drug_compositions
+         (composition_key, display_label, active_ingredients, source)
+       VALUES ($1::text, 'Paracetamol', ARRAY['paracetamol'], 'curated')
        RETURNING id`,
+      `med03-credit-paracetamol-${run}`,
+    ))[0].id);
+    catalogRow = ((await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_catalog
+         (tenant_id, name, generic_name, is_active, stock_quantity, unit_price, price,
+          composition_id, composition_source, composition_confidence,
+          strength, strength_key, strength_components,
+          form, form_key, release_key, route, updated_at)
+       VALUES ($1::uuid, $2::text, 'Paracetamol', TRUE, 20, 12.50, 12.50,
+               $3::int, 'curated', 'high',
+               '500 mg', '500mg',
+               jsonb_build_array(jsonb_build_object(
+                 'ingredient', 'paracetamol', 'value', '500', 'unit', 'mg')),
+               'tablet', 'tablet', 'ir', 'oral', NOW())
+       RETURNING id, name, generic_name, composition_id, composition_source,
+                 composition_confidence, strength, strength_key, strength_components,
+                 form, form_key, release_key, route`,
       tenantId,
       `MED-03 Credit Medicine ${run}`,
-    ))[0].id);
+      compositionId,
+    ))[0]);
+    catalogId = Number(catalogRow.id);
     const inventoryItemId = Number((await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_inventory_items
          (tenant_id, facility_id, sku_code, display_name, catalog_id, strength, form,
@@ -245,6 +275,14 @@ describeIfDb('MED-03 ward medication credit-note closure', () => {
       catalogId,
       facilityId,
     ))[0].id);
+    await prisma.$executeRawUnsafe(
+      `UPDATE pharmacy_inventory_items
+          SET composition_id = $3::int
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      tenantId,
+      inventoryItemId,
+      compositionId,
+    );
     await prisma.$executeRawUnsafe(
       `INSERT INTO pharmacy_inventory_batches
          (tenant_id, inventory_item_id, facility_id, storage_location_id,
@@ -307,6 +345,12 @@ describeIfDb('MED-03 ward medication credit-note closure', () => {
       ]) {
         await tx.$executeRawUnsafe(`DELETE FROM ${table} WHERE tenant_id = $1::uuid`, tenantId);
       }
+      // drug_compositions has no tenant_id, so the per-tenant sweep above cannot
+      // reclaim it; drop this fixture's row by its own composition_key.
+      await tx.$executeRawUnsafe(
+        `DELETE FROM drug_compositions WHERE composition_key = $1::text`,
+        `med03-credit-paracetamol-${run}`,
+      );
       await tx.$executeRawUnsafe(`DELETE FROM tenants WHERE id = $1::uuid`, tenantId);
     });
     if (typeof prisma.$disconnect === 'function') await prisma.$disconnect();
@@ -630,6 +674,18 @@ describeIfDb('MED-03 ward medication credit-note closure', () => {
       },
     });
 
+    // Every test in this suite bills the same admission, and billing deliberately
+    // reuses one draft IP invoice per admission, so the invoice carries whatever
+    // earlier tests credited. Pin the DELTA this credit causes instead: it is the
+    // exact claim (one returned unit at 12.50) and it also proves the four
+    // concurrent applications move the invoice exactly once.
+    const invoiceBeforeApply = (await prisma.$queryRawUnsafe(
+      `SELECT credit_note_amount, amount_due
+         FROM billing_invoices
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      tenantId,
+      Number(charge.invoice_id),
+    ))[0];
     const applicationAttempts = await Promise.all(Array.from({ length: 4 }, () => (
       applyBillingCreditNote(pending[0].id, {
         tenantId,
@@ -683,8 +739,10 @@ describeIfDb('MED-03 ward medication credit-note closure', () => {
       tenantId,
       Number(charge.invoice_id),
     ))[0];
-    expect(Number(invoice.credit_note_amount)).toBe(12.5);
-    expect(Number(invoice.amount_due)).toBe(12.5);
+    expect(Number(invoice.credit_note_amount))
+      .toBe(Number(invoiceBeforeApply.credit_note_amount) + 12.5);
+    expect(Number(invoice.amount_due))
+      .toBe(Number(invoiceBeforeApply.amount_due) - 12.5);
 
     const closeAttempts = await Promise.all(Array.from({ length: 4 }, () => (
       closeWardIndent({
@@ -913,6 +971,43 @@ describeIfDb('MED-03 ward medication credit-note closure', () => {
     expect(pending).toMatchObject({
       invoice_id: Number(charge.invoice_id),
       amount_minor: 1250,
+    });
+    // The stage-1 review task has to be genuinely owned before the refund obligation
+    // re-arms it: the handoff record asserted below carries the prior stage's status,
+    // acknowledgement and role claim, which only exist once billing picks the task up.
+    const reviewTaskRows = await prisma.$queryRawUnsafe(
+      `SELECT id
+         FROM tasks
+        WHERE tenant_id = $1::uuid
+          AND metadata->>'obligation_kind' = 'credit_note_review'
+          AND metadata->>'credit_note_id' = $2::text`,
+      tenantId,
+      String(pending.id),
+    );
+    expect(reviewTaskRows).toHaveLength(1);
+    await claimInboxTask({
+      tenantId,
+      id: Number(reviewTaskRows[0].id),
+      actorUid: billingOwner,
+      actorRoles: ['BILLING_INCHARGE'],
+      actorPrimaryRole: 'BILLING_INCHARGE',
+      actorRawRole: 'BILLING_INCHARGE',
+      idempotencyKey: `refund-credit-review-claim-${run}`,
+    });
+    expect(await acknowledgeTask({
+      tenantId,
+      id: Number(reviewTaskRows[0].id),
+      actorUid: billingOwner,
+      actorRoles: ['BILLING_INCHARGE'],
+      actorPrimaryRole: 'BILLING_INCHARGE',
+      actorRawRole: 'BILLING_INCHARGE',
+    })).toMatchObject({
+      status: 'in_progress',
+      assigned_to_uid: billingOwner,
+      metadata: {
+        acknowledged_by: billingOwner,
+        role_claimed_by: billingOwner,
+      },
     });
     await approveBillingCreditNote(pending.id, {
       tenantId,
@@ -1518,7 +1613,9 @@ describeIfDb('MED-03 ward medication credit-note closure', () => {
       patient,
       encounterId,
       requester,
-      JSON.stringify({
+      // Same prescribe-time binding as createVerifiedMedicationIndent: the issue-time
+      // recheck refuses details that carry no catalog_authority_sha256.
+      JSON.stringify(bindMedicationOrderCatalogAuthority({
         catalog_id: catalogId,
         dose: '1 unit',
         route: 'oral',
@@ -1528,7 +1625,7 @@ describeIfDb('MED-03 ward medication credit-note closure', () => {
         form_key: 'tablet',
         quantity_requested: 2,
         unit: 'tablet',
-      }),
+      }, catalogRow)),
     ))[0];
     const indent = await createWardIndent({
       wardId,

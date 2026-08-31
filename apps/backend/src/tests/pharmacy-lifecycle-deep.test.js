@@ -272,10 +272,37 @@ describe('Rich pharmacy lifecycle — deep integration', () => {
   let courier;
   let admin;
 
+  // The sweep runs against a shared database, so its cost tracks whatever
+  // earlier suites left behind, not this fixture's own row count. Prisma's
+  // default interactive-transaction budget is 5s and the sweep has already
+  // blown it on a warm DB, which failed beforeAll and took all 28 cases with
+  // it. The budget is stated explicitly here (and on the two hooks below) so
+  // the result never depends on the runner's defaults.
   async function cleanup() {
     await setTenantTx(TENANT, async (tx) => {
+      // Three of this fixture's tables are append-only under migration 753 and
+      // its predecessors — trg_pharmacy_order_command_receipts_append_only_753,
+      // trg_pharmacy_staff_facility_grant_events_append_only_753 and
+      // pharmacy_stock_movements_medication_evidence_append_only — so a plain
+      // DELETE raises 23514 'pharmacy order command receipts are append-only'
+      // the moment a previous run has left a receipt behind. afterAll swallows
+      // its cleanup failure, so the damage only surfaced in the NEXT run's
+      // beforeAll, which does not.
+      //
+      // The fixture drops its own rows under session_replication_role='replica'
+      // exactly the way pharmacy-dispensable-context.deep.test.js and
+      // ipd-support-money-authz.deep.test.js do. It is SET LOCAL, so it lasts
+      // only for this transaction and only for this superuser test session —
+      // the append-only guards stay live everywhere else, including for the
+      // product code this suite drives over HTTP.
+      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
       await tx.$executeRawUnsafe(
         `DELETE FROM pharmacy_order_command_receipts WHERE tenant_id=$1::uuid`, TENANT);
+      await tx.$executeRawUnsafe(
+        `DELETE FROM pharmacy_stock_movements WHERE tenant_id=$1::uuid`, TENANT);
+      await tx.$executeRawUnsafe(
+        `DELETE FROM pharmacy_staff_facility_grant_events WHERE tenant_id=$1::uuid`, TENANT);
+      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'origin'");
       await tx.$executeRawUnsafe(
         `DELETE FROM pharmacy_order_history
           WHERE order_id IN (SELECT id FROM pharmacy_orders WHERE tenant_id=$1::uuid)`, TENANT);
@@ -286,15 +313,11 @@ describe('Rich pharmacy lifecycle — deep integration', () => {
       await tx.$executeRawUnsafe(
         `DELETE FROM idempotency_keys WHERE tenant_id=$1::uuid`, TENANT);
       await tx.$executeRawUnsafe(
-        `DELETE FROM pharmacy_stock_movements WHERE tenant_id=$1::uuid`, TENANT);
-      await tx.$executeRawUnsafe(
         `DELETE FROM pharmacy_inventory_batches WHERE tenant_id=$1::uuid`, TENANT);
       await tx.$executeRawUnsafe(
         `DELETE FROM pharmacy_inventory_items WHERE tenant_id=$1::uuid`, TENANT);
       await tx.$executeRawUnsafe(
         `DELETE FROM pharmacy_catalog WHERE tenant_id=$1::uuid`, TENANT);
-      await tx.$executeRawUnsafe(
-        `DELETE FROM pharmacy_staff_facility_grant_events WHERE tenant_id=$1::uuid`, TENANT);
       await tx.$executeRawUnsafe(
         `DELETE FROM pharmacy_staff_facility_grants WHERE tenant_id=$1::uuid`, TENANT);
       await tx.$executeRawUnsafe(
@@ -305,7 +328,7 @@ describe('Rich pharmacy lifecycle — deep integration', () => {
         `DELETE FROM users WHERE tenant_id=$1::uuid`, TENANT);
       await tx.$executeRawUnsafe(
         `DELETE FROM facilities WHERE tenant_id=$1::uuid`, TENANT);
-    });
+    }, { maxWait: 30_000, timeout: 120_000 });
   }
 
   // Every fixture read/write runs inside setTenantTx: facilities,
@@ -515,7 +538,7 @@ describe('Rich pharmacy lifecycle — deep integration', () => {
   afterAll(async () => {
     await cleanup().catch(() => {});
     await prisma.$disconnect().catch(() => {});
-  });
+  }, 120_000);
 
   describe('placeOrder (no file upload)', () => {
     it('rejects placement with neither file nor order_note', async () => {

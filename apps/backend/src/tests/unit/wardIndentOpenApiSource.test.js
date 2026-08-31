@@ -147,8 +147,19 @@ describe('ward-indent OpenAPI source matches the live Staff contract', () => {
   });
 
   it('documents the bounded operator notification-coverage recovery contract', () => {
-    const document = buildDocument([{ method: 'post', path: COVERAGE_RECOVERY_PATH }]);
+    // This is the only ward-indent path mounted under /api/v1/pharmacy-orders,
+    // so the URL's own first segment is not a published tag. The real generator
+    // never tags it from the URL either: it resolves `pharmacy` from the route
+    // module, which is why src/docs/openapi.json publishes this operation under
+    // `pharmacy`. Feed the stub the same srcFile the router registers with so
+    // the harness resolves the tag exactly as generation does.
+    const document = buildDocument([{
+      method: 'post',
+      path: COVERAGE_RECOVERY_PATH,
+      srcFile: 'pharmacy/wardIndentRoutes.js',
+    }]);
     const operation = document.paths[COVERAGE_RECOVERY_PATH].post;
+    expect(operation.tags).toEqual(['pharmacy']);
     expect(operation.parameters).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: 'Idempotency-Key', in: 'header', required: true }),
     ]));

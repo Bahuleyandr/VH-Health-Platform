@@ -200,7 +200,10 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   circuitBreakerStatus: () => ({ state: 'closed' }),
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({
-  default: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+  // `debug` is load-bearing, not decoration: billingV2Service logs at debug on
+  // module load, so a factory without it kills the suite before a single test
+  // runs. Same shape the rest of the unit suites mock the logger with.
+  default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
 }));
 jest.unstable_mockModule(
   '../../services/pharmacy/pharmacyFacilityAuthorityService.js',

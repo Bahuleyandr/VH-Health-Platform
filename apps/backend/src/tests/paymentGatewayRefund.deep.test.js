@@ -572,12 +572,19 @@ d('payment gateway refund execution leg (deep)', () => {
       } } },
     };
 
+    // A lost fence is signalled by OUTCOME, not by throwing: the recovery
+    // worker branches on `applied.outcome === 'lost_fence'`
+    // (gatewayRefundRecoveryService.recoverGatewayRefundNow) to release a stale
+    // worker without stamping the live claim owner's leg, so a throw here would
+    // be handled as an attempt failure instead. toEqual pins the WHOLE result:
+    // no park reason, billing refund id, or recovery projection may leak in
+    // alongside it.
     await expect(gateway.handleRefundProcessedEvent({
       tenantId: TENANT,
       config,
       payload,
       claimToken: staleClaimToken,
-    })).rejects.toMatchObject({ code: 'BILLING_REFUND_GATEWAY_EVIDENCE_INVALID' });
+    })).resolves.toEqual({ outcome: 'lost_fence', gatewayRefundId: Number(leg.id) });
 
     const [authority] = await prisma.$queryRawUnsafe(
       `SELECT approval_status, reference
@@ -588,7 +595,7 @@ d('payment gateway refund execution leg (deep)', () => {
     );
     expect(authority).toMatchObject({ approval_status: 'APPROVED', reference: null });
     const [unchangedLeg] = await prisma.$queryRawUnsafe(
-      `SELECT status, processed_at, recovery_state, recovery_claim_token
+      `SELECT status, processed_at, failure_code, recovery_state, recovery_claim_token
          FROM payment_gateway_refunds
         WHERE id = $1::int AND tenant_id = $2::uuid`,
       Number(leg.id),
@@ -597,6 +604,9 @@ d('payment gateway refund execution leg (deep)', () => {
     expect(unchangedLeg).toMatchObject({
       status: 'pending',
       processed_at: null,
+      // the stale worker must not have stamped a park reason (payout_rail_conflict)
+      // onto a leg the live claim owner still holds
+      failure_code: null,
       recovery_state: 'claimed',
       recovery_claim_token: activeClaimToken,
     });
@@ -1270,22 +1280,58 @@ d('payment gateway refund execution leg (deep)', () => {
     expect(openObligation.task_completed_at).toBeNull();
     expect(openObligation.sla_completed_at).toBeNull();
 
+    // Hand the billing refund to a DIFFERENT payout execution the way 747
+    // actually permits. billing_refund_payout_guard_747 makes a claimed gateway
+    // rail immutable through settlement, so no manual payout can steal it; the
+    // one hand-off it admits is replacement after exact provider failure. The
+    // parked leg records that failure, a replacement execution claims the rail,
+    // and the replacement fails in turn — so when the original leg's processed
+    // evidence finally lands, the money authority is genuinely owned by another
+    // execution.
     await prisma.$executeRawUnsafe(
-      `UPDATE billing_refunds
-          SET approval_status = 'PAID',
-              paid_by = $3::uuid,
-              paid_at = NOW(),
-              reference = $4,
-              payout_rail = 'manual',
-              payout_rail_claimed_at = NOW(),
-              gateway_refund_id = NULL,
+      `UPDATE payment_gateway_refunds
+          SET status = 'failed', failed_at = NOW(),
+              failure_code = 'BAD_REQUEST_ERROR',
+              failure_reason = 'Provider declined the parked execution',
               updated_at = NOW()
+        WHERE id = $1::int AND tenant_id = $2::uuid`,
+      Number(leg.id),
+      TENANT,
+    );
+    const replacement = await gateway.initiateGatewayRefund({
+      tenantId: TENANT,
+      billing_refund_id: refund.id,
+      gateway_order_id: orderId,
+      initiated_by: refundActors.initiator,
+    });
+    expect(Number(replacement.id)).not.toBe(Number(leg.id));
+    const [reclaimed] = await prisma.$queryRawUnsafe(
+      `SELECT approval_status, payout_rail, gateway_refund_id
+         FROM billing_refunds
         WHERE id = $1::int AND tenant_id = $2::uuid`,
       Number(refund.id),
       TENANT,
-      refundActors.payer,
-      `manual-conflict-${randomUUID()}`,
     );
+    expect(reclaimed).toMatchObject({
+      approval_status: 'APPROVED',
+      payout_rail: 'gateway',
+      gateway_refund_id: Number(replacement.id),
+    });
+    await gateway.processWebhookEvent({
+      tenantId: TENANT,
+      config,
+      event: { event_type: 'refund.failed' },
+      payload: { payload: { refund: { entity: {
+        id: replacement.provider_refund_id,
+        payment_id: providerPaymentId,
+        amount: toPaise(85),
+        currency: 'INR',
+        status: 'failed',
+        notes: { billing_refund_id: String(refund.id) },
+        error_code: 'BAD_REQUEST_ERROR',
+        error_description: 'Replacement execution failed at the provider too',
+      } } } },
+    });
 
     const conflict = await gateway.handleRefundProcessedEvent({
       tenantId: TENANT,
@@ -1573,7 +1619,13 @@ d('payment gateway refund execution leg (deep)', () => {
         } } } },
       }),
     ]);
-    expect(outcomes.every(outcome => outcome.status === 'fulfilled')).toBe(true);
+    // Pin BOTH deliveries, in one comparison that names the rejection reason
+    // when it fires: `.every(...)` only ever reported `false`, and a
+    // contradictory terminal race is exactly where a swallowed error hides.
+    expect(outcomes.map((outcome) => (outcome.status === 'fulfilled'
+      ? 'fulfilled'
+      : `rejected:${outcome.reason?.code || outcome.reason?.message}`)))
+      .toEqual(['fulfilled', 'fulfilled']);
 
     const [authority] = await prisma.$queryRawUnsafe(
       `SELECT approval_status, payout_rail, gateway_refund_id, reference
@@ -1904,6 +1956,19 @@ d('payment gateway refund execution leg (deep)', () => {
     });
 
     const invalidLeg = await setTenantTx(TENANT, async (tx) => {
+      // The rail claim itself has real authority: 747's
+      // billing_refund_payout_guard_747 reserves the gateway rail only for a
+      // live execution of the exact amount, initiated by an actor of this
+      // tenant who is not the approver, at or after approval. Note the guard's
+      // clock test is `initiated_at >= approved_at` while both application
+      // authority checks (assertStoredGatewayRefundInitiator and
+      // gatewayRefundRecoveryService's authorityValid) demand a STRICTLY
+      // post-approval initiation. Stamping initiated_at exactly on approved_at
+      // lands in that gap: a historical row the guard still admits but whose
+      // four-eyes evidence the recovery lane must refuse before any provider
+      // I/O. initiated_by/initiated_at are frozen by 752's
+      // payment_gateway_refund_derive_request_fingerprint trigger, so this has
+      // to be right at INSERT.
       const rows = await tx.$queryRawUnsafe(
         `INSERT INTO payment_gateway_refunds
            (tenant_id, provider, environment, gateway_order_id, billing_refund_id,
@@ -1911,11 +1976,13 @@ d('payment gateway refund execution leg (deep)', () => {
             amount, currency, status, reason, initiated_by, initiated_at,
             webhook_credential_version, provider_request_replay_authorized,
             recovery_state, recovery_terminal_at)
-         VALUES
-           ($1::uuid, 'dry_run', 'sandbox', $2::int, $3::int,
-            $4, $5, $6, 45::numeric, 'INR', 'requires_reconciliation',
-            'historical invalid four-eyes row', $7::uuid, NOW(), 1, FALSE,
-            'requires_reconciliation', NOW())
+         SELECT $1::uuid, 'dry_run', 'sandbox', $2::int, $3::int,
+                $4, $5, $6, 45::numeric, 'INR', 'pending',
+                'historical invalid four-eyes row', $7::uuid,
+                authority.approved_at, 1, FALSE,
+                'requires_reconciliation', NOW()
+           FROM billing_refunds authority
+          WHERE authority.tenant_id = $1::uuid AND authority.id = $3::int
          RETURNING *`,
         TENANT,
         Number(orderId),
@@ -1923,7 +1990,7 @@ d('payment gateway refund execution leg (deep)', () => {
         providerPaymentId,
         `rfnd_dry_invalid${randomUUID().replaceAll('-', '')}`,
         `pgr_historical_invalid_${randomUUID().replaceAll('-', '')}`,
-        refundActors.approver,
+        refundActors.initiator,
       );
       await tx.$executeRawUnsafe(
         `UPDATE billing_refunds
@@ -1932,6 +1999,15 @@ d('payment gateway refund execution leg (deep)', () => {
           WHERE tenant_id = $1::uuid AND id = $2::int`,
         TENANT,
         Number(refund.id),
+        Number(rows[0].id),
+      );
+      // The leg parks for reconciliation the way any unresolved execution does;
+      // status is not part of the frozen request identity.
+      await tx.$executeRawUnsafe(
+        `UPDATE payment_gateway_refunds
+            SET status = 'requires_reconciliation', updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND id = $2::int`,
+        TENANT,
         Number(rows[0].id),
       );
       const obligation = await refundRecovery.ensureGatewayRefundRecoveryObligationTx({

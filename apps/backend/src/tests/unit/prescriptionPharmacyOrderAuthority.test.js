@@ -89,9 +89,30 @@ describe('prescription to pharmacy order authority contract', () => {
     expect(handler).toMatch(/authoritativeSubstitutionAllowed\(originalRows\[0\], catRes\[0\]\)/);
     expect(handler).toMatch(/PRESCRIPTION_PHARMACY_CATALOG_NOT_EQUIVALENT/);
     expect(handler).toMatch(/PRESCRIPTION_CATALOG_CANONICALIZATION_REQUIRED/);
-    expect(handler).toMatch(
-      /String\(catRes\[0\]\.name \|\| ''\)\.trim\(\)\.toLowerCase\(\)[\s\S]*String\(medName \|\| ''\)\.trim\(\)\.toLowerCase\(\)/,
+    // The canonicalised name comparison this contract used to pin inline now
+    // lives in authoritativeFreeTextCatalogMatch, and the handler fails closed
+    // on it. Pin the handler→predicate binding plus the predicate itself: a
+    // canonicalised name match is necessary but no longer sufficient — the
+    // generic-name branch must also agree on concentration, liquid/solid form
+    // and route before a caller-selected catalog identity is accepted.
+    expect(handler).toMatch(/!authoritativeFreeTextCatalogMatch\(med, medName, catRes\[0\]\)/);
+    const freeTextMatch = between(
+      controller,
+      'function authoritativeFreeTextCatalogMatch',
+      'function parseConcentrationMl',
     );
+    expect(freeTextMatch).toMatch(
+      /String\(medicationName \|\| ''\)\.trim\(\)\.toLowerCase\(\)[\s\S]*String\(catalog\?\.name \|\| ''\)\.trim\(\)\.toLowerCase\(\)/,
+    );
+    expect(freeTextMatch).toMatch(/if \(!prescribedName \|\| !catalogName\) return false;/);
+    expect(freeTextMatch).toMatch(/genericName !== prescribedName\) return false;/);
+    expect(freeTextMatch).toMatch(
+      /Math\.abs\(prescribedConcentration - catalogConcentration\) > 0\.000001/,
+    );
+    expect(freeTextMatch).toMatch(
+      /prescribedForm == null \|\| catalogForm == null \|\| prescribedForm !== catalogForm/,
+    );
+    expect(freeTextMatch).toMatch(/prescribedRoute === catalogRoute/);
   });
 
   test('rechecks catalog price and clinical identity under the same transaction lock', () => {

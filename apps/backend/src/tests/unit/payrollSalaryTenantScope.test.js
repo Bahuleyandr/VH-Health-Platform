@@ -12,6 +12,13 @@ const prismaMock = {
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: prismaMock,
+  // payrollController imports `setTenant` at module scope for its other
+  // exports (the payslip and arrears paths). The three salary-config handlers
+  // under test go straight through the default client, but the named export
+  // still has to exist or the controller module will not load at all. Route it
+  // to the same mock so any handler that does open a tenant transaction sees
+  // the identical client — matching the sibling payroll suites.
+  setTenant: jest.fn(async (_tenantId, fn) => fn(prismaMock)),
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({
@@ -28,6 +35,15 @@ jest.unstable_mockModule('../../services/staff/payrollService.js', () => ({
   issuePayrollRun: jest.fn(),
   revealPayslipCredential: jest.fn(),
   signPayrollRun: jest.fn(),
+  // Controller narrows on `err instanceof SalaryArrearsCommandError` to pick the
+  // status code, so the mock has to be a real class, not a jest.fn().
+  SalaryArrearsCommandError: class SalaryArrearsCommandError extends Error {
+    constructor(message, statusCode = 409) {
+      super(message);
+      this.name = 'SalaryArrearsCommandError';
+      this.statusCode = statusCode;
+    }
+  },
 }));
 
 jest.unstable_mockModule('../../utils/r2Storage.js', () => ({

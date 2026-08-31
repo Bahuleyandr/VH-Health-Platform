@@ -16,6 +16,7 @@ import {
   STORES_PURCHASE_INCHARGE,
   SUPER_ADMIN,
   hasRole,
+  normalizeRole,
 } from '../../utils/roles.js';
 import {
   grantPharmacyFacilityAuthority,
@@ -64,9 +65,16 @@ export const PHARMACY_INVENTORY_ADMIN_ROLES = [
   STORES_PURCHASE_INCHARGE,
 ];
 
+// ADMIN was removed here deliberately: facility custody is an operator
+// identity, not a rank. PHARMACIST is an operator identity — it is a member of
+// pharmacyFacilityAuthorityService.FACILITY_OPERATION_ROLES, so it can hold the
+// ACTIVE facility grant every downstream custody check demands, exactly like
+// PHARMACY_STAFF. Dropping it alongside ADMIN was collateral, and it 403s a
+// licensed pharmacist out of the dispensing surface. Keep it listed.
 export const PHARMACY_CONTROLLED_DISPENSE_ROLES = [
   PHARMACY_STAFF,
   PHARMACY_INCHARGE,
+  PHARMACIST,
 ];
 
 export const PHARMACY_INVENTORY_DISPOSAL_ROLES = [
@@ -138,11 +146,28 @@ function requireControlledDispense(req, res, next) {
   )(req, res, next);
 }
 
+// ★ Facility custody is held by an operator identity, never by rank. `hasRole`
+// grants SUPER_ADMIN every list unconditionally, and the rawRole leg of
+// requireInventoryRole re-admits it even after canonicalizeRequestRole has
+// flattened the request role to ADMIN — so the disposal gate, which
+// deliberately excludes ADMIN, was still letting the rank above ADMIN through
+// to a Schedule X destruction it holds no pharmacy facility grant for.
+// inventoryV2Service refuses such a performer (INVENTORY_DISPOSAL_PERFORMER_ROLES)
+// so nothing could be destroyed, but the gate must not invent the authority in
+// the first place. Literal membership only, on both the canonical and the raw
+// role.
+function hasLiteralInventoryRole(user, allowedRoles) {
+  const allowed = allowedRoles.map(normalizeRole).filter(Boolean);
+  return [user?.role, user?.rawRole]
+    .map(normalizeRole)
+    .some((role) => Boolean(role) && allowed.includes(role));
+}
+
 function requireInventoryDisposal(req, res, next) {
-  return requireInventoryRole(
-    PHARMACY_INVENTORY_DISPOSAL_ROLES,
-    'Pharmacy facility custody role required',
-  )(req, res, next);
+  if (!hasLiteralInventoryRole(req.user, PHARMACY_INVENTORY_DISPOSAL_ROLES)) {
+    return error(res, 'Pharmacy facility custody role required', 403);
+  }
+  return next();
 }
 
 function requireControlledDispenseApprovalHost(req, res, next) {

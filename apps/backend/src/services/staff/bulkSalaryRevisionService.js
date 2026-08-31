@@ -879,11 +879,16 @@ export async function reconcileBulkRevisionJob({ tenantId, jobId }) {
       status = 'processing';
     }
     const updated = await tx.$queryRawUnsafe(
+      // $3 is bound twice against different types — VARCHAR by the SET target,
+      // TEXT by the CASE comparison — and the driver sends it untyped, so
+      // Postgres deduces both and refuses to plan (42P08, "character varying
+      // versus text"). Pin the bind to text in both places; the assignment cast
+      // still lands it in the VARCHAR column.
       `UPDATE bulk_revision_jobs
-          SET status = $3,
+          SET status = $3::text,
               processed_count = $4::int,
               failed_count = $5::int,
-              completed_at = CASE WHEN $3 = 'completed' THEN clock_timestamp() ELSE NULL END,
+              completed_at = CASE WHEN $3::text = 'completed' THEN clock_timestamp() ELSE NULL END,
               last_processed_at = clock_timestamp(),
               updated_at = clock_timestamp()
         WHERE tenant_id = $1::uuid AND id = $2::int

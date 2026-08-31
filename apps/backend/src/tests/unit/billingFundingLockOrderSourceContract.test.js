@@ -98,8 +98,17 @@ describe('billing patient-funding lock source contract', () => {
       'async function collectPaymentTx',
       'export async function collectPayment',
     );
+    // collectPaymentTx no longer trusts a forgeable `mergeStabilityHeld`
+    // boolean: a caller that already holds tenant merge stability hands back
+    // the opaque lease it got when it took the lock, and every other entry
+    // takes the lock itself. Pin BOTH arms — a lease that is asserted against
+    // this exact tx, and the unconditional acquisition — ahead of any
+    // discovery or money-row lock, so neither path can start the domain
+    // sequence without merge stability first.
     expectOrdered(collection, [
-      'if (!mergeStabilityHeld) await lockTenantPatientMergeStability(tx',
+      'if (mergeStabilityLease) {',
+      'assertTenantPatientMergeStabilityLease(mergeStabilityLease, { tx, tenantId: tenant });',
+      'await lockTenantPatientMergeStability(tx, tenant);',
       'findBillingInvoice(',
       'lockBillingPatientFundingAfterMergeTx(tx',
       'lockBillingInvoice(',
@@ -505,14 +514,43 @@ describe('billing patient-funding lock source contract', () => {
       'async function discoverOfflineElectronicRefundSourceBeforeFundingTx',
       'async function settleRefundPaid',
     );
-    expectOrdered(offline, [
+    // expectOrdered scans from the head of the slice, so a marker repeated
+    // across three helpers can only ever resolve to its first hit. Bind each
+    // marker to the helper it belongs to instead: that is what the rail
+    // actually promises, and it is stricter than a cumulative scan because a
+    // `FOR UPDATE` drifting from one helper into another now fails.
+    const offlineDiscovery = sliceBetween(
+      billing,
+      'async function discoverOfflineElectronicRefundSourceBeforeFundingTx',
+      'async function lockOfflineElectronicPaymentAfterFundingTx',
+    );
+    expectOrdered(offlineDiscovery, [
       'FROM billing_payments',
       'FROM payment_gateway_orders',
       'FOR UPDATE',
+    ]);
+    // Discovery runs BEFORE the funding authority lock. It may only identify
+    // the candidate payment, never lock it — the one row lock it is allowed
+    // to take is the gateway-evidence probe that decides which rail owns the
+    // refund. Counting the occurrences pins that directly.
+    expect(offlineDiscovery.match(/FOR UPDATE/g)).toHaveLength(1);
+
+    const offlinePaymentLock = sliceBetween(
+      billing,
       'async function lockOfflineElectronicPaymentAfterFundingTx',
+      'async function lockOfflineElectronicAdvanceSourceTx',
+    );
+    expectOrdered(offlinePaymentLock, [
       'FROM billing_payments',
       'FOR UPDATE',
+    ]);
+
+    const offlineAdvanceLock = sliceBetween(
+      billing,
       'async function lockOfflineElectronicAdvanceSourceTx',
+      'async function settleRefundPaid',
+    );
+    expectOrdered(offlineAdvanceLock, [
       'FROM advance_deposits',
       'FOR UPDATE',
     ]);

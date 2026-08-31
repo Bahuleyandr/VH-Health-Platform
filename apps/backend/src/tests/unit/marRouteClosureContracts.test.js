@@ -241,8 +241,13 @@ describe('generated CPOE and terminal receipt contract', () => {
       expect(operation.responses['200']).toBeUndefined();
     }
 
+    // The published alias is the codegen-safe single-member `allOf` form, not a
+    // bare `$ref`: generate-openapi.mjs normalizes every bare-$ref top-level
+    // schema that way so swagger_dart_code_generator emits a real class instead
+    // of an `InvalidType`. Semantically identical, and this is what the spec the
+    // Flutter client is built from actually publishes — so pin that exact shape.
     expect(spec.components.schemas.ApplyOrderSetResult).toEqual({
-      $ref: '#/components/schemas/ClinicalOrderCreateResult'
+      allOf: [{ $ref: '#/components/schemas/ClinicalOrderCreateResult' }]
     });
     const createSchema = spec.components.schemas.EmrCreateOrderRequest;
     const inpatientMedication = createSchema.oneOf.find(variant =>

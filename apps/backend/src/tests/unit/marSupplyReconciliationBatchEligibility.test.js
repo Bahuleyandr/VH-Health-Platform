@@ -8,12 +8,50 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {},
   setTenantTx: setTenantTxMock,
 }));
+// Only the MAR supply reconciliation obligations are exercised here, but
+// marSupplyService's service graph reaches billingV2Service and
+// billingCreditNoteService, which link against the ward-indent and credit-note
+// obligation helpers. Mock the module's WHOLE named surface so the graph links
+// no matter which consumer the import order pulls in first.
 jest.unstable_mockModule('../../services/ipd/wardIndentObligationService.js', () => ({
   completeMarSupplyReconciliationObligationTx: jest.fn(),
   materializeMarSupplyReconciliationObligationTx: jest.fn(),
+  completeWardIndentStateObligationTx: jest.fn(),
+  materializeWardIndentStateObligationTx: jest.fn(),
+  reconcileWardIndentNotificationCoverageTx: jest.fn(),
+  sweepWardIndentNotificationCoverage: jest.fn(),
+  materializeBillingCreditNoteObligationTx: jest.fn(),
+  completeBillingCreditNoteObligationTx: jest.fn(),
+  advanceBillingCreditNoteObligationTx: jest.fn(),
+  advanceBillingCreditNoteRefundObligationTx: jest.fn(),
+  advanceBillingCreditNoteRefundPayoutObligationTx: jest.fn(),
+  completeBillingCreditNoteRefundObligationTx: jest.fn(),
 }));
+// marSupplyService reads only CONTROLLED_DISPENSE_WITNESS_ROLES (narrowed here
+// so the witness-role refusal is provable), but the wider graph links against
+// the scope map and the approval helpers. The scope map is a CONSTANT consumers
+// index at module scope, so it carries the real frozen values, not a jest.fn().
 jest.unstable_mockModule('../../services/pharmacy/controlledDispenseWitnessService.js', () => ({
   CONTROLLED_DISPENSE_WITNESS_ROLES: ['DOCTOR', 'NURSING_STAFF'],
+  FACILITY_BOUND_CONTROLLED_DISPENSE_WITNESS_ROLES: ['PHARMACY_STAFF', 'PHARMACY_INCHARGE'],
+  CONTROLLED_DISPENSE_APPROVAL_SCOPES: {
+    inventory: 'inventory_controlled_dispense',
+    inventoryMovement: 'inventory_controlled_movement',
+    inventoryDisposal: 'pharmacy_inventory_controlled_disposal',
+    pharmacyOrder: 'pharmacy_order_inventory_dispense',
+    counterSale: 'pharmacy_counter_sale',
+    dispenseSubstitution: 'pharmacy_dispense_substitution',
+    wardIndent: 'ward_indent_controlled_handoff',
+  },
+  serializeControlledDispenseWitnessApproval: jest.fn(),
+  controlledDispenseApprovalFingerprint: jest.fn(),
+  assertControlledDispenseWitness: jest.fn(),
+  createControlledDispenseWitnessApproval: jest.fn(),
+  preflightControlledDispenseWitnessApproval: jest.fn(),
+  approveControlledDispenseWitnessApproval: jest.fn(),
+  assertApprovedControlledDispenseWitness: jest.fn(),
+  consumeControlledDispenseWitnessApproval: jest.fn(),
+  isControlledDispenseWitnessEvidence: jest.fn(),
 }));
 
 const { reconcileMarSupplyOverride } = await import(

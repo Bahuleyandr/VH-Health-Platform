@@ -64,6 +64,26 @@ async function seedIssuedInvoice({ total, admissionId }) {
 
 describe('TPA claim packet auto-assembly at submit (9746f26c)', () => {
   beforeAll(async () => {
+    // Migration 753 gave createClaim real funding authority: it serialises on
+    // the claim's patient through lockInsuranceFundingPatientTx →
+    // resolvePharmacyFundingPatientUidTx, which demands patient_uid resolve to
+    // exactly ONE `users` row in this tenant that is role='PATIENT',
+    // is_active, status='active', not deleted and not merged. A fabricated uid
+    // with no users row is refused with 409
+    // PHARMACY_FUNDING_PATIENT_IDENTITY_MISMATCH, so register the patient the
+    // way real registration does before hanging an admission, an invoice and a
+    // claim off them.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, status, tenant_id, updated_at)
+       VALUES ($1::uuid, $2, 'TPA Claim Packet Test Patient', 'PATIENT', true, 'active', $3::uuid, NOW())
+       ON CONFLICT (uid) DO UPDATE
+          SET is_active = true, status = 'active', is_deleted = false,
+              merged_into_uid = NULL, updated_at = NOW()`,
+      PATIENT_UID,
+      `9602${Date.now() % 1000000}`.slice(0, 10),
+      TENANT,
+    );
+
     const pol = await prisma.$queryRawUnsafe(
       `INSERT INTO insurance_policies
          (patient_uid, policy_number, status, tenant_id)
@@ -88,8 +108,9 @@ describe('TPA claim packet auto-assembly at submit (9746f26c)', () => {
     if (policyId) {
       await prisma.$executeRawUnsafe(`DELETE FROM insurance_policies WHERE id = $1::int`, policyId).catch(() => {});
     }
+    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$disconnect().catch(() => {});
-  });
+  }, 120_000);
 
   it('auto-assembles discharge_summary + final_bill so a cashless final claim can submit with no pre-attached docs', async () => {
     const admissionId = await seedAdmission();
@@ -111,10 +132,32 @@ describe('TPA claim packet auto-assembly at submit (9746f26c)', () => {
     expect(types).toEqual(['discharge_summary', 'final_bill']);
   });
 
+  it('refuses a cashless FINAL claim with no invoice outright (CLAIM_FINAL_INVOICE_REQUIRED)', async () => {
+    // MED-03 closed the state this suite used to seed for the "absent
+    // backing records" case: a final cashless claim is the exact bill, so
+    // createClaim now demands invoice_id up front rather than letting a
+    // bill-less claim reach the packet gate. Pin that here, so the stage
+    // change in the next case is anchored to a stated product rule instead
+    // of looking like the fixture drifting away from an inconvenient guard.
+    await expect(
+      claims.createClaim({
+        tenantId: TENANT, policy_id: policyId, patient_uid: PATIENT_UID,
+        claim_type: 'cashless', stage: 'final', total_billed: 12000,
+      }),
+    ).rejects.toMatchObject({ statusCode: 400, code: 'CLAIM_FINAL_INVOICE_REQUIRED' });
+  });
+
   it('does NOT fabricate a packet when the backing records are absent (no admission, no invoice)', async () => {
+    // Stage 'enhancement' rather than 'final': a mid-stay cashless
+    // enhancement genuinely has no discharge summary and no final invoice
+    // yet, which is precisely the "backing records absent" shape this case
+    // exists to cover — and unlike a final claim it is still a reachable
+    // state after CLAIM_FINAL_INVOICE_REQUIRED. The assembler skip logic
+    // (`requires: 'admission'` / `requires: 'invoice'`) and the empty-packet
+    // gate are both stage-independent, so the assertion is unchanged.
     const claim = await claims.createClaim({
       tenantId: TENANT, policy_id: policyId, patient_uid: PATIENT_UID,
-      claim_type: 'cashless', stage: 'final', total_billed: 12000,
+      claim_type: 'cashless', stage: 'enhancement', total_billed: 12000,
     });
     createdClaimIds.push(claim.id);
 

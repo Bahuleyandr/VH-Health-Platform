@@ -18,10 +18,13 @@ const RUN_SUFFIX = String(Date.now() % 100000).padStart(5, '0');
 const WARD_NAME = `Pharm-Indent-Ward-${RUN_SUFFIX}`;
 const CATALOG_NAME_PREFIX = `Pharm-Indent-Catalog-${RUN_SUFFIX}`;
 const INVENTORY_SKU_PREFIX = `PHARM-INDENT-${RUN_SUFFIX}`;
+const STORAGE_LOCATION_CODE = `PHARM-INDENT-STORE-${RUN_SUFFIX}`;
 
 let staffToken;
 let nurseToken;
 let wardId;
+let facilityId;
+let storageLocationId;
 let paracetamolCatalogId;
 let salineCatalogId;
 let medicationCatalogId;
@@ -33,6 +36,12 @@ async function seedClassifiedCatalog({
   scheduleClass = null,
   medication = false,
 }) {
+  // Migration 753 binds every ACTIVE inventory item to a tenant facility
+  // (chk_pharmacy_inventory_items_active_authority_753), so the fixture must
+  // stock the tenant's own facility rather than leaving the row unbound.
+  if (!facilityId || !storageLocationId) {
+    throw new Error('seedClassifiedCatalog called before facility custody was resolved');
+  }
   const catalogRows = await prisma.$queryRawUnsafe(
     `INSERT INTO pharmacy_catalog
        (name, category, requires_prescription, is_active, tenant_id,
@@ -45,17 +54,37 @@ async function seedClassifiedCatalog({
     medication,
   );
   const catalogId = Number(catalogRows[0].id);
-  await prisma.$executeRawUnsafe(
+  const inventoryRows = await prisma.$queryRawUnsafe(
     `INSERT INTO pharmacy_inventory_items
-       (tenant_id, sku_code, display_name, catalog_id, schedule_class, is_narcotic)
-     VALUES ($1::uuid, $2, $3, $4, $5, FALSE)`,
-    DEFAULT_TENANT_ID, sku, name, catalogId, scheduleClass,
+       (tenant_id, facility_id, sku_code, display_name, catalog_id,
+        schedule_class, is_narcotic)
+     VALUES ($1::uuid, $6::int, $2, $3, $4, $5, FALSE)
+     RETURNING id`,
+    DEFAULT_TENANT_ID, sku, name, catalogId, scheduleClass, facilityId,
+  );
+  const inventoryItemId = Number(inventoryRows[0].id);
+  // Reservation allocates against exact in-stock batches, and migration 753
+  // requires every usable batch to name both its facility and an active
+  // storage location, so stock the item where the ward can actually draw it.
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO pharmacy_inventory_batches
+       (tenant_id, inventory_item_id, facility_id, storage_location_id,
+        batch_number, expiry_date, received_quantity, remaining_quantity, status)
+     VALUES ($1::uuid, $2::int, $3::int, $4::int, $5::text,
+             (CURRENT_DATE + INTERVAL '365 days')::date, 500, 500, 'in_stock')`,
+    DEFAULT_TENANT_ID, inventoryItemId, facilityId, storageLocationId,
+    `${sku}-BATCH`,
   );
   return catalogId;
 }
 
 async function cleanup() {
   if (createdIndentIds.length) {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM ward_indent_inventory_allocations
+        WHERE ward_indent_id = ANY($1::int[])`,
+      createdIndentIds,
+    ).catch(() => {});
     await deleteWithAuditBypass(
       prisma,
       `DELETE FROM ward_indent_events WHERE ward_indent_id = ANY($1::int[])`,
@@ -89,6 +118,21 @@ async function cleanup() {
     DEFAULT_TENANT_ID, `${CATALOG_NAME_PREFIX} %`,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
+    `DELETE FROM facility_locations
+      WHERE tenant_id = $1::uuid AND location_code = $2`,
+    DEFAULT_TENANT_ID, STORAGE_LOCATION_CODE,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM pharmacy_staff_facility_grants
+      WHERE tenant_id = $1::uuid AND staff_uid IN ($2::uuid, $3::uuid)`,
+    DEFAULT_TENANT_ID, STAFF_UID, NURSE_UID,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM staff
+      WHERE tenant_id = $1::uuid AND user_id IN ($2::uuid, $3::uuid)`,
+    DEFAULT_TENANT_ID, STAFF_UID, NURSE_UID,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
     `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`,
     STAFF_UID,
     NURSE_UID,
@@ -118,12 +162,71 @@ describe('IPD pharmacy ward-indent REST surface', () => {
       `Ward-Indent Nurse-${RUN_SUFFIX}`,
     );
 
+    // Resolve the tenant's own active facility; the inventory rows below are
+    // facility-bound authority under migration 753 and a cross-tenant facility
+    // would be refused by fk_pharmacy_inventory_items_facility_tenant_753.
+    const facilityRows = await prisma.$queryRawUnsafe(
+      `SELECT id FROM facilities
+        WHERE tenant_id = $1::uuid AND status = 'active'
+        ORDER BY is_default DESC, id ASC
+        LIMIT 1`,
+      DEFAULT_TENANT_ID,
+    );
+    if (!facilityRows.length) {
+      throw new Error(`No active facility seeded for tenant ${DEFAULT_TENANT_ID}`);
+    }
+    facilityId = Number(facilityRows[0].id);
+
+    const storageRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO facility_locations
+         (tenant_id, facility_id, location_code, display_name, status)
+       VALUES ($1::uuid, $2::int, $3::text, $4::text, 'active')
+       RETURNING id`,
+      DEFAULT_TENANT_ID,
+      facilityId,
+      STORAGE_LOCATION_CODE,
+      `Ward-Indent Store ${RUN_SUFFIX}`,
+    );
+    storageLocationId = Number(storageRows[0].id);
+
+    // The pharmacy-side transitions (reserve/approve/reject/issue) run through
+    // assertPharmacyFacilityGrant, which demands a staff-backed actor holding
+    // exactly one active grant for the indent's facility. There is no admin
+    // bypass, so the fixture has to establish that custody explicitly.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO staff (tenant_id, user_id, employee_id, name, designation,
+                          is_active, archived, created_at, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3, $4, 'Pharmacy Staff', TRUE, FALSE,
+               NOW(), NOW())
+       ON CONFLICT (tenant_id, user_id) WHERE user_id IS NOT NULL
+       DO UPDATE SET is_active = TRUE, archived = FALSE, updated_at = NOW()`,
+      DEFAULT_TENANT_ID,
+      STAFF_UID,
+      `WI-PHARM-${RUN_SUFFIX}`,
+      `Ward-Indent Pharmacy-${RUN_SUFFIX}`,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO pharmacy_staff_facility_grants
+         (tenant_id, facility_id, staff_uid, status, grant_source,
+          grant_reason, granted_by)
+       VALUES ($1::uuid, $2::int, $3::uuid, 'active', 'test_fixture',
+               'Ward-indent REST suite pharmacy custody fixture', $3::uuid)
+       ON CONFLICT (tenant_id, staff_uid, facility_id)
+         WHERE status = 'active' DO NOTHING`,
+      DEFAULT_TENANT_ID,
+      facilityId,
+      STAFF_UID,
+    );
+
     // Seed a ward so the indent has a real FK target.
+    // A ward-indent's facility authority is the ward's facility, so an
+    // unassigned ward is refused with WARD_INDENT_FACILITY_REQUIRED.
     const wardRows = await prisma.$queryRawUnsafe(
-      `INSERT INTO wards (name, total_beds, created_at, updated_at)
-       VALUES ($1, 10, NOW(), NOW())
+      `INSERT INTO wards (name, total_beds, facility_id, created_at, updated_at)
+       VALUES ($1, 10, $2::int, NOW(), NOW())
        RETURNING id`,
       WARD_NAME,
+      facilityId,
     );
     wardId = wardRows[0].id;
 

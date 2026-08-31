@@ -39,7 +39,7 @@ describe('GET /portal/tpa/claims/:id/documents — patient document list (H D69)
   let claimDocumentId;
   let patientToken;
   let otherToken;
-  const admissionId = 950500 + (Date.now() % 5000);
+  let admissionId;
 
   function expiredStorageToken(key) {
     const secret = process.env.JWT_SECRET || 'test-jwt-secret';
@@ -64,6 +64,23 @@ describe('GET /portal/tpa/claims/:id/documents — patient document list (H D69)
       uid: OTHER_UID,
       id: 9_700_299,
     });
+
+    // Real admission for THIS patient in THIS tenant. Migration 753 binds a
+    // pre-auth and its claim to the admission through the composite authority
+    // key (tenant_id, admission_id, patient_uid) —
+    // fk_insurance_preauth_admission_authority_753 /
+    // fk_tpa_claim_admission_authority_753 — so naming an admission id that
+    // merely exists (or, as before, does not exist at all) is no longer enough:
+    // the admission must genuinely belong to the same tenant AND the same
+    // patient as the insurance rows that point at it.
+    const admissionRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO admissions
+         (patient_uid, tenant_id, status, admission_type, admitted_at)
+       VALUES ($1::uuid, $2::uuid, 'admitted', 'planned', NOW() - INTERVAL '5 days')
+       RETURNING id`,
+      PATIENT_UID, TENANT_ID,
+    );
+    admissionId = admissionRows[0].id;
 
     const policyRows = await prisma.$queryRawUnsafe(
       `INSERT INTO insurance_policies
@@ -136,6 +153,13 @@ describe('GET /portal/tpa/claims/:id/documents — patient document list (H D69)
     if (policyId) {
       await prisma
         .$executeRawUnsafe(`DELETE FROM insurance_policies WHERE id = $1::int`, policyId)
+        .catch(() => {});
+    }
+    if (admissionId) {
+      // Last of the clinical rows: the 753 authority FKs are ON DELETE
+      // RESTRICT, so the pre-auth and the claim have to go first.
+      await prisma
+        .$executeRawUnsafe(`DELETE FROM admissions WHERE id = $1::int`, admissionId)
         .catch(() => {});
     }
     await prisma

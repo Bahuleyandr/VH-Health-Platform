@@ -69,9 +69,19 @@ jest.unstable_mockModule('../../services/billing/ledger/ledgerAuthoritativeMode.
   resolveLedgerModeForTenant: async () => 'shadow',
 }));
 
+// ipdSupportService pulls in the ward-indent medication closure service, which
+// reaches billingV2Service for invoice totals and (through
+// billingCreditNoteService) for refund headroom and ledger payment state; the
+// inventory service reaches it for pharmacy funding authority. Every symbol the
+// loaded graph imports has to exist here or the module never loads.
 jest.unstable_mockModule('../../services/billing/billingV2Service.js', () => ({
+  assertNoLivePharmacyOrderFundingAuthorityTx: jest.fn(),
+  calculateInvoiceRefundHeadroomTx: jest.fn(),
+  compensateTerminalPharmacyFundingAuthorityTx: jest.fn(),
   deriveAdvanceBalanceFromLedgerTx: deriveAdvanceBalanceFromLedgerTxMock,
+  deriveInvoicePaymentStateFromLedgerTx: jest.fn(),
   raiseRefund: raiseBillingRefundMock,
+  recomputeInvoiceTotals: jest.fn(),
 }));
 
 jest.unstable_mockModule('../../utils/patientMergeStabilityLock.js', () => ({
@@ -93,6 +103,9 @@ jest.unstable_mockModule('../../services/ipd/wardIndentWorkflowService.js', () =
   initializeWardIndentWorkflowTx: initializeWardIndentWorkflowTxMock,
   loadMedicationCatalogAuthorityTx: loadMedicationCatalogAuthorityTxMock,
   loadWardIndentCatalogClassificationsTx: loadWardIndentCatalogClassificationsTxMock,
+  applyApprovedWardIndentSubstitution: workflowStub,
+  requestWardIndentControlledWitnessApproval: workflowStub,
+  approveWardIndentControlledWitnessApproval: workflowStub,
   reserveWardIndent: workflowStub,
   markWardIndentShortSupply: workflowStub,
   proposeWardIndentSubstitution: workflowStub,
@@ -585,6 +598,9 @@ describe('ipdSupportService.createWardIndent — medication-order binding', () =
     txQueryRawUnsafeMock
       .mockResolvedValueOnce([ADMISSION])
       .mockResolvedValueOnce([{ uid: PATIENT_UID }])
+      // The ward is now read with the facility joined and locked FOR SHARE,
+      // so it consumes a raw-query slot of its own before the clinical order.
+      .mockResolvedValueOnce([{ name: 'Ward A', facility_id: 1 }])
       .mockResolvedValueOnce([{
         id: 501,
         patient_uid: PATIENT_UID,
@@ -600,7 +616,6 @@ describe('ipdSupportService.createWardIndent — medication-order binding', () =
           unit: 'vial',
         },
       }]);
-    txWardFindFirstMock.mockResolvedValueOnce({ name: 'Ward A' });
 
     await expect(ipdSupportService.createWardIndent({
       admissionId: 42,
@@ -632,6 +647,9 @@ describe('ipdSupportService.createWardIndent — medication-order binding', () =
     txQueryRawUnsafeMock
       .mockResolvedValueOnce([ADMISSION])
       .mockResolvedValueOnce([{ uid: PATIENT_UID }])
+      // The ward is now read with the facility joined and locked FOR SHARE,
+      // so it consumes a raw-query slot of its own before the clinical order.
+      .mockResolvedValueOnce([{ name: 'Ward A', facility_id: 1 }])
       .mockResolvedValueOnce([{
         id: 501,
         patient_uid: PATIENT_UID,
@@ -649,7 +667,6 @@ describe('ipdSupportService.createWardIndent — medication-order binding', () =
       }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ locked: 1 }]);
-    txWardFindFirstMock.mockResolvedValueOnce({ name: 'Ward A' });
     txWardIndentFindFirstMock.mockResolvedValueOnce(null);
     txWardIndentCreateMock.mockImplementationOnce(async ({ data }) => ({
       id: 9001,
@@ -691,6 +708,9 @@ describe('ipdSupportService.createWardIndent — medication-order binding', () =
     txQueryRawUnsafeMock
       .mockResolvedValueOnce([ADMISSION])
       .mockResolvedValueOnce([{ uid: PATIENT_UID }])
+      // The ward is now read with the facility joined and locked FOR SHARE,
+      // so it consumes a raw-query slot of its own before the clinical order.
+      .mockResolvedValueOnce([{ name: 'Ward A', facility_id: 1 }])
       .mockResolvedValueOnce([{
         id: 501,
         patient_uid: PATIENT_UID,
@@ -706,7 +726,6 @@ describe('ipdSupportService.createWardIndent — medication-order binding', () =
           unit: 'vial',
         },
       }]);
-    txWardFindFirstMock.mockResolvedValueOnce({ name: 'Ward A' });
     loadWardIndentCatalogClassificationsTxMock.mockResolvedValueOnce(new Map());
     loadMedicationCatalogAuthorityTxMock.mockRejectedValueOnce(
       Object.assign(new Error('inactive catalog'), {
@@ -722,6 +741,10 @@ describe('ipdSupportService.createWardIndent — medication-order binding', () =
       encounterId: ENCOUNTER_ID,
       indentType: 'pharmacy',
       items: [{
+        // No caller catalog id: the catalog must come from the locked order.
+        // A line still has to identify itself, so item_name carries the
+        // identity the caller does know.
+        item_name: 'Pantoprazole',
         clinical_order_id: 501,
         quantity_requested: 1,
       }],
@@ -764,6 +787,7 @@ describe('ipdSupportService.createWardIndent — medication-order binding', () =
       $queryRawUnsafe: jest.fn()
         .mockResolvedValueOnce([ADMISSION])
         .mockResolvedValueOnce([{ uid: PATIENT_UID }])
+        .mockResolvedValueOnce([{ name: 'Ward A', facility_id: 1 }])
         .mockResolvedValueOnce([clinicalOrder])
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([{ locked: 1 }]),
@@ -781,7 +805,7 @@ describe('ipdSupportService.createWardIndent — medication-order binding', () =
           code: 'P2002',
         })),
       },
-      wards: { findFirst: jest.fn().mockResolvedValueOnce({ name: 'Ward A' }) },
+      wards: { findFirst: jest.fn() },
     };
     const existingTx = {
       $queryRawUnsafe: jest.fn().mockResolvedValueOnce([{
@@ -838,6 +862,9 @@ describe('ipdSupportService.createWardIndentForClinicalMedicationOrder — locke
     patient_uid: ORDER_BASE.patient_uid,
     ward_id: 7,
     ward_name: 'Ward A',
+    // The admission read inner-joins facilities and returns the active
+    // facility id; auto-materialization refuses a ward with no facility.
+    facility_id: 1,
     status: 'admitted',
   };
 

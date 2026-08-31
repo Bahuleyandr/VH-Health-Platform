@@ -41,6 +41,7 @@ import {
   materializePharmacyFundingAuthority,
 } from '../../services/billing/billingV2Service.js';
 import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
+import { recordPatientFeedNotificationWithReceipt } from '../../utils/notifications/patientNotificationFeed.js';
 import { isCompositionSearchEnabled } from '../../services/pharmacy/compositionFeatureService.js';
 import { resolveCompositionIdentitiesByCatalogIds } from '../../services/pharmacy/compositionIdentityService.js';
 import { enrichCatalogRowForWrite } from '../../../scripts/backfill-drug-compositions.mjs';
@@ -222,6 +223,30 @@ function deliveryHandoffSha256(tenantId, orderId, token) {
   return createHash('sha256')
     .update(`${tenantId}:${orderId}:${token}`)
     .digest('hex');
+}
+
+/**
+ * Every delivery-custody notice below is queued under a `pharmacy_delivery_*`
+ * transport type. None of those is a patient-registry type, so
+ * `resolveChannelsForOutboxRow` finds no preference key and falls back to the
+ * legacy `['push']` set — the drain never resolves `inapp`, never routes
+ * through the dispatcher's row-writing branch, and `sendPushNotification`
+ * replaces the whole payload with the privacy-stripped envelope. The readable
+ * message, including the one-time handoff code, exists only if the custody path
+ * writes the inbox row itself, under the ROUTED patient-inbox type for the
+ * order's stage rather than the transport identity.
+ *
+ * A row the helper could not confirm aborts the caller's transaction: a custody
+ * notice the patient can never read is not a delivered notice.
+ */
+function assertDeliveryFeedRowWritten(receipt) {
+  if (!receipt?.written) {
+    throw AppError.internal(
+      'Pharmacy delivery custody notice could not be written to the patient inbox',
+      'PHARMACY_DELIVERY_PATIENT_FEED_ROW_REQUIRED',
+    );
+  }
+  return receipt;
 }
 
 function pharmacyCapOverrideAuthority(req, requested, rawReason) {
@@ -2037,13 +2062,32 @@ export const dispatchOrder = async (req, res) => {
         handoff_token: handoffToken,
         expires_at: new Date(Date.now() + (8 * 60 * 60 * 1000)).toISOString(),
       };
+      const patientNoticeBody = `Your pharmacy order ${lockedOrder.order_number || orderId} is ready for courier handoff. Share the one-time code only after receiving the sealed package: ${handoffToken}`;
+      // `pharmacy_delivery_handoff` is a transport/template identity with no
+      // patient preference key, so resolveChannelsForOutboxRow falls back to
+      // the legacy ['push'] set: the drain sends the privacy-stripped envelope
+      // and never writes an inbox row. The push carries no readable text and no
+      // handoff code, so without this row the patient is buzzed into an empty
+      // inbox and never learns the code. Commit the readable feed row in the
+      // same transaction as the intent, and fail the dispatch if it is not
+      // confirmed — an unreadable handoff is not a dispatched package.
+      assertDeliveryFeedRowWritten(await recordPatientFeedNotificationWithReceipt({
+        client: tx,
+        tenantId: req.tenantId,
+        userId: Number(lockedOrder.patient_id),
+        title: 'Pharmacy order dispatched',
+        body: patientNoticeBody,
+        type: 'pharmacy_dispatched',
+        data: notificationPayload,
+        context: 'pharmacy-delivery-handoff',
+      }));
       const patientNotice = await notificationOutbox.queue({
         tenantId: req.tenantId,
         channel: 'inapp',
         type: 'pharmacy_delivery_handoff',
         recipientId: Number(lockedOrder.patient_id),
         title: 'Pharmacy order dispatched',
-        body: `Your pharmacy order ${lockedOrder.order_number || orderId} is ready for courier handoff. Share the one-time code only after receiving the sealed package: ${handoffToken}`,
+        body: patientNoticeBody,
         data: notificationPayload,
         sourceEventKey: `pharmacy-delivery-handoff:${orderId}:1:inapp`,
         templateVersion: 'pharmacy.delivery_handoff.v1',
@@ -2432,13 +2476,28 @@ export const markDelivered = async (req, res) => {
         JSON.stringify(order.dispense_label),
         order.facility_id,
       );
+      const deliveredNoticeBody = `Pharmacy order ${order.order_number || orderId} was handed over and its one-time code is now closed.`;
+      assertDeliveryFeedRowWritten(await recordPatientFeedNotificationWithReceipt({
+        client: tx,
+        tenantId: req.tenantId,
+        userId: Number(order.patient_id),
+        title: 'Pharmacy delivery completed',
+        body: deliveredNoticeBody,
+        type: 'pharmacy_delivered',
+        data: {
+          pharmacy_order_id: orderId,
+          facility_id: order.facility_id,
+          handoff_generation: order.delivery_handoff_generation,
+        },
+        context: 'pharmacy-delivery-completed',
+      }));
       const patientDeliveryNotice = await notificationOutbox.queue({
         tenantId: req.tenantId,
         channel: 'inapp',
         type: 'pharmacy_delivery_completed',
         recipientId: Number(order.patient_id),
         title: 'Pharmacy delivery completed',
-        body: `Pharmacy order ${order.order_number || orderId} was handed over and its one-time code is now closed.`,
+        body: deliveredNoticeBody,
         data: {
           pharmacy_order_id: orderId,
           facility_id: order.facility_id,
@@ -2669,13 +2728,24 @@ export const reissueDeliveryHandoff = async (req, res) => {
         handoff_token: handoffToken,
         expires_at: new Date(Date.now() + (8 * 60 * 60 * 1000)).toISOString(),
       };
+      const reissueNoticeBody = `The one-time handoff code for pharmacy order ${order.order_number || orderId} has changed. Share the new code only after receiving the sealed package: ${handoffToken}`;
+      assertDeliveryFeedRowWritten(await recordPatientFeedNotificationWithReceipt({
+        client: tx,
+        tenantId: req.tenantId,
+        userId: Number(order.patient_id),
+        title: 'Pharmacy delivery handoff updated',
+        body: reissueNoticeBody,
+        type: 'pharmacy_dispatched',
+        data: patientPayload,
+        context: 'pharmacy-delivery-handoff-reissue',
+      }));
       const patientNotice = await notificationOutbox.queue({
         tenantId: req.tenantId,
         channel: 'inapp',
         type: 'pharmacy_delivery_handoff',
         recipientId: Number(order.patient_id),
         title: 'Pharmacy delivery handoff updated',
-        body: `The one-time handoff code for pharmacy order ${order.order_number || orderId} has changed. Share the new code only after receiving the sealed package: ${handoffToken}`,
+        body: reissueNoticeBody,
         data: patientPayload,
         sourceEventKey: `pharmacy-delivery-handoff:${orderId}:${nextGeneration}:inapp`,
         templateVersion: 'pharmacy.delivery_handoff.v1',
@@ -2906,13 +2976,31 @@ export const requestDeliveryReturn = async (req, res) => {
           'PHARMACY_DELIVERY_RETURN_OWNER_REQUIRED',
         );
       }
+      const returnStartedBody = `Pharmacy order ${order.order_number || orderId} is being returned to the pharmacy. The handoff code can no longer complete delivery.`;
+      // No return-specific patient-inbox type exists; the routed order type is
+      // the honest destination — the notice is a pharmacy-order status update
+      // and taps through to the same /pharmacy surface.
+      assertDeliveryFeedRowWritten(await recordPatientFeedNotificationWithReceipt({
+        client: tx,
+        tenantId: req.tenantId,
+        userId: Number(order.patient_id),
+        title: 'Pharmacy package return started',
+        body: returnStartedBody,
+        type: 'pharmacy_order',
+        data: {
+          pharmacy_order_id: orderId,
+          facility_id: facility.id,
+          handoff_generation: order.delivery_handoff_generation,
+        },
+        context: 'pharmacy-delivery-return-requested',
+      }));
       const patientNotice = await notificationOutbox.queue({
         tenantId: req.tenantId,
         channel: 'inapp',
         type: 'pharmacy_delivery_return_requested',
         recipientId: Number(order.patient_id),
         title: 'Pharmacy package return started',
-        body: `Pharmacy order ${order.order_number || orderId} is being returned to the pharmacy. The handoff code can no longer complete delivery.`,
+        body: returnStartedBody,
         data: {
           pharmacy_order_id: orderId,
           facility_id: facility.id,
@@ -3109,13 +3197,29 @@ export const completeDeliveryReturn = async (req, res) => {
           'PHARMACY_DELIVERY_RETURN_EVENT_REQUIRED',
         );
       }
+      const returnClosedBody = `Pharmacy order ${order.order_number || orderId} was returned to the pharmacy and ${disposition === 'quarantined' ? 'placed in quarantine' : 'closed for pharmacy review'}. Contact the pharmacy for replacement or refund guidance.`;
+      assertDeliveryFeedRowWritten(await recordPatientFeedNotificationWithReceipt({
+        client: tx,
+        tenantId: req.tenantId,
+        userId: Number(order.patient_id),
+        title: 'Pharmacy delivery closed',
+        body: returnClosedBody,
+        type: 'pharmacy_order',
+        data: {
+          pharmacy_order_id: orderId,
+          facility_id: facility.id,
+          custody_disposition: disposition,
+          handoff_generation: order.delivery_handoff_generation,
+        },
+        context: 'pharmacy-delivery-return-completed',
+      }));
       const patientNotice = await notificationOutbox.queue({
         tenantId: req.tenantId,
         channel: 'inapp',
         type: 'pharmacy_delivery_return_completed',
         recipientId: Number(order.patient_id),
         title: 'Pharmacy delivery closed',
-        body: `Pharmacy order ${order.order_number || orderId} was returned to the pharmacy and ${disposition === 'quarantined' ? 'placed in quarantine' : 'closed for pharmacy review'}. Contact the pharmacy for replacement or refund guidance.`,
+        body: returnClosedBody,
         data: {
           pharmacy_order_id: orderId,
           facility_id: facility.id,

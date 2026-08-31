@@ -283,9 +283,18 @@ describe('cath consumable inventory integration', () => {
     expect(queryRawUnsafeMock.mock.calls[1][0]).toContain(
       'FROM pharmacy_inventory_authority_recovery_worklist',
     );
+    // Call 1 is now the MED-03 governed-recovery guard, not the usage lookup
+    // this assertion was originally written against, and it spells its
+    // predicate in the compact house style of the 753 authority lane. Pin the
+    // whole tenant/entity/status predicate rather than the tenant clause
+    // alone, so a guard that stopped scoping by entity or stopped restricting
+    // to OPEN recoveries fails here too.
+    expect(queryRawUnsafeMock.mock.calls[1][0]).toContain('tenant_id=$1::uuid');
     expect(queryRawUnsafeMock.mock.calls[1][0]).toContain(
-      'tenant_id = $1::uuid',
+      "entity_type='cath_consumable_catalog'",
     );
+    expect(queryRawUnsafeMock.mock.calls[1][0]).toContain('entity_id=$2::bigint');
+    expect(queryRawUnsafeMock.mock.calls[1][0]).toContain("status='OPEN'");
     expect(queryRawUnsafeMock.mock.calls[1].slice(1)).toEqual([TENANT, 5]);
     expect(queryRawUnsafeMock).toHaveBeenCalledTimes(2);
   });

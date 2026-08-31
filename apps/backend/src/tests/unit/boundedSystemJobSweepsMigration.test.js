@@ -1,9 +1,15 @@
 import { readFileSync } from 'node:fs';
 
+// apps/backend/.gitattributes pins *.js/*.mjs/*.json/*.yml to LF but not
+// *.sql, so a Windows checkout hands this file back with CRLF endings and the
+// multi-line GRANT/REVOKE assertions below — which spell their newlines as
+// '\n' — miss on every Windows host while passing in CI. Line endings are not
+// part of the grant contract, so normalise them on read and let the
+// assertions keep matching the exact multi-line shape.
 const migration = readFileSync(
   new URL('../../migrations/736_bounded_cross_tenant_expiry_sweeps.sql', import.meta.url),
   'utf8',
-);
+).replace(/\r\n/g, '\n');
 const prismaSource = readFileSync(new URL('../../lib/prisma.js', import.meta.url), 'utf8');
 const serviceSources = [
   '../../services/abdm/abhaEnrolmentService.js',

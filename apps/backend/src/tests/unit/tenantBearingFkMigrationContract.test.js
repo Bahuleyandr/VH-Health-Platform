@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { Client } from 'pg';
 
 // Re-audit I (tenancy sweep) — the tenant-bearing foreign-key invariant.
 //
@@ -11,13 +12,26 @@ import { fileURLToPath } from 'node:url';
 // future table — however wrong — could make them fail. They pinned history,
 // not the invariant.
 //
-// This version derives the census from prisma/schema.prisma, which
-// `prisma db pull` regenerates after every migration and
-// scripts/check-schema-drift.mjs byte-compares against the migrated database.
-// It is therefore a faithful projection of the live DDL — including keys added
-// by an ALTER TABLE in some migration much later than the one that created the
-// table. A new table, or a new ALTER on an old one, is measured the moment it
-// lands.
+// Its second version derived the census from prisma/schema.prisma's
+// `@relation(...)` metadata, on the reasoning that `prisma db pull` makes that
+// file a faithful projection of the live DDL. That reasoning no longer holds.
+// MED-03 moved the datasource to `relationMode = "prisma"` and cut the schema
+// down to a curated 24-relation budget that
+// scripts/check-prisma-relation-budget.mjs now ENFORCES, precisely so a full
+// client generation stays feasible; its own words are "Database foreign keys
+// remain authoritative. Add Prisma relations only with a confirmed runtime
+// consumer". Introspection under that flag reads no foreign keys at all, so
+// the schema went from 2746 relation declarations to 20 and the census went
+// empty — and an empty census makes the violation test below pass on every
+// possible input, the exact failure mode this file exists to prevent.
+//
+// So this version reads the authority the branch itself names: pg_constraint
+// in the migrated database the suite already runs against. That is the DDL,
+// not a projection of it — no datasource flag, introspection setting, or
+// re-pull can blind it, and it also sees keys Prisma never modelled. Applied
+// against the committed migration chain it reproduces the exemption list
+// below exactly: 982 live single-column tenant-bearing keys, 982 exemptions,
+// zero offenders and zero stale entries.
 //
 // THE INVARIANT. A tenant-bearing table that references another tenant-bearing
 // table through a SINGLE-column foreign key lets a row in tenant A name a
@@ -45,8 +59,11 @@ const schemaSource = fs.readFileSync(schemaPath, 'utf8');
 
 // ---------------------------------------------------------------------------
 // schema.prisma parsing. Only the shapes `prisma db pull` actually emits are
-// handled: one model per `model <name> { ... }` block, one field per line, and
-// every `@relation(...)` on a single line.
+// handled: one model per `model <name> { ... }` block, one field per line.
+// This still backs the `@@unique` and tenant-DEFAULT checks further down —
+// those read column and index declarations, which introspection keeps under
+// `relationMode = "prisma"`. The FK census does NOT come from here; see the
+// live catalog section below.
 // ---------------------------------------------------------------------------
 
 function parseModels(source) {
@@ -66,35 +83,109 @@ const TENANT_BEARING = new Set(
   [...MODELS].filter(([, body]) => /^\s*tenant_id\s+\S/m.test(body)).map(([name]) => name),
 );
 
-/**
- * Every relation a model declares on its own side of the key, i.e. the ones
- * carrying `fields: [...]`. Back-references (`other other[]`) carry none and
- * are skipped.
- */
-function relationsOf(modelName) {
-  const body = MODELS.get(modelName);
-  if (!body) return [];
-  const out = [];
-  for (const line of body.split('\n')) {
-    const rel = /@relation\(([^)]*)\)/.exec(line);
-    if (!rel) continue;
-    const args = rel[1];
-    const fields = /fields:\s*\[([^\]]*)\]/.exec(args);
-    if (!fields) continue;
-    const references = /references:\s*\[([^\]]*)\]/.exec(args);
-    const mapped = /map:\s*"([^"]*)"/.exec(args);
-    const tokens = line.trim().split(/\s+/);
-    out.push({
-      target: (tokens[1] || '').replace(/[?[\]]/g, ''),
-      fields: fields[1].split(',').map((s) => s.trim()).filter(Boolean),
-      references: references ? references[1].split(',').map((s) => s.trim()) : [],
-      constraint: mapped ? mapped[1] : null,
-      onDelete: /onDelete:\s*([A-Za-z]+)/.exec(args)?.[1] ?? null,
-      onUpdate: /onUpdate:\s*([A-Za-z]+)/.exec(args)?.[1] ?? null,
-      line: line.trim(),
-    });
+// ---------------------------------------------------------------------------
+// The live foreign-key catalog — the authority for the census.
+// ---------------------------------------------------------------------------
+
+/** pg_constraint.confdeltype / confupdtype, spelled as the DDL spells them. */
+const REFERENTIAL_ACTION = new Map([
+  ['a', 'NO ACTION'],
+  ['r', 'RESTRICT'],
+  ['c', 'CASCADE'],
+  ['n', 'SET NULL'],
+  ['d', 'SET DEFAULT'],
+]);
+
+/** Public-schema tables that carry a tenant_id column. */
+let TENANT_BEARING_TABLES = new Set();
+/** Every public-schema foreign key, described from its child side. */
+let FOREIGN_KEYS = [];
+
+const TENANT_BEARING_TABLES_SQL = `
+  SELECT c.relname AS table_name
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+   WHERE n.nspname = 'public'
+     AND c.relkind IN ('r', 'p')
+     AND EXISTS (
+           SELECT 1
+             FROM pg_attribute a
+            WHERE a.attrelid = c.oid
+              AND a.attname = 'tenant_id'
+              AND a.attnum > 0
+              AND NOT a.attisdropped
+         )
+`;
+
+const FOREIGN_KEYS_SQL = `
+  SELECT child.relname  AS child_table,
+         parent.relname AS parent_table,
+         con.conname    AS constraint_name,
+         con.confdeltype AS on_delete,
+         con.confupdtype AS on_update,
+         (SELECT array_agg(a.attname::text ORDER BY k.ord)
+            FROM unnest(con.conkey) WITH ORDINALITY AS k(attnum, ord)
+            JOIN pg_attribute a
+              ON a.attrelid = con.conrelid AND a.attnum = k.attnum) AS child_columns,
+         (SELECT array_agg(a.attname::text ORDER BY k.ord)
+            FROM unnest(con.confkey) WITH ORDINALITY AS k(attnum, ord)
+            JOIN pg_attribute a
+              ON a.attrelid = con.confrelid AND a.attnum = k.attnum) AS parent_columns
+    FROM pg_constraint con
+    JOIN pg_class child      ON child.oid = con.conrelid
+    JOIN pg_namespace cn     ON cn.oid = child.relnamespace
+    JOIN pg_class parent     ON parent.oid = con.confrelid
+    JOIN pg_namespace pn     ON pn.oid = parent.relnamespace
+   WHERE con.contype = 'f'
+     AND cn.nspname = 'public'
+     AND pn.nspname = 'public'
+   ORDER BY child.relname, con.conname
+`;
+
+beforeAll(async () => {
+  const url = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
+  if (!url) {
+    // Fail closed. Silently skipping would leave the census empty, which is
+    // the one state in which every assertion in this file passes for free.
+    throw new Error(
+      'TEST_DATABASE_URL/DATABASE_URL is unset — the tenant-bearing FK census '
+        + 'is read from pg_constraint and cannot be derived without the migrated database.',
+    );
   }
-  return out;
+  const client = new Client({ connectionString: url });
+  await client.connect();
+  try {
+    const tables = await client.query(TENANT_BEARING_TABLES_SQL);
+    TENANT_BEARING_TABLES = new Set(tables.rows.map((row) => row.table_name));
+
+    const keys = await client.query(FOREIGN_KEYS_SQL);
+    FOREIGN_KEYS = keys.rows.map((row) => {
+      const fields = row.child_columns ?? [];
+      const references = row.parent_columns ?? [];
+      const onDelete = REFERENTIAL_ACTION.get(row.on_delete) ?? row.on_delete;
+      const onUpdate = REFERENTIAL_ACTION.get(row.on_update) ?? row.on_update;
+      return {
+        model: row.child_table,
+        target: row.parent_table,
+        constraint: row.constraint_name,
+        fields,
+        references,
+        onDelete,
+        onUpdate,
+        key: `${row.child_table}.${fields.join('+')}`,
+        line: `CONSTRAINT ${row.constraint_name} FOREIGN KEY (${fields.join(', ')}) `
+          + `REFERENCES ${row.parent_table} (${references.join(', ')}) `
+          + `ON DELETE ${onDelete} ON UPDATE ${onUpdate}`,
+      };
+    });
+  } finally {
+    await client.end();
+  }
+}, 60000);
+
+/** Every foreign key `table` declares on its own side of the key. */
+function foreignKeysOf(table) {
+  return FOREIGN_KEYS.filter((fk) => fk.model === table);
 }
 
 /**
@@ -103,16 +194,12 @@ function relationsOf(modelName) {
  * `tenant_id -> tenants(id)` IS the tenant key, not a cross-tenant hazard.
  */
 function singleColumnTenantBearingFks() {
-  const found = [];
-  for (const model of TENANT_BEARING) {
-    for (const rel of relationsOf(model)) {
-      if (rel.target === 'tenants') continue;
-      if (!TENANT_BEARING.has(rel.target)) continue;
-      if (rel.fields.includes('tenant_id')) continue;
-      found.push({ ...rel, model, key: `${model}.${rel.fields.join('+')}` });
-    }
-  }
-  return found.sort((a, b) => a.key.localeCompare(b.key));
+  return FOREIGN_KEYS.filter((fk) => (
+    TENANT_BEARING_TABLES.has(fk.model)
+      && TENANT_BEARING_TABLES.has(fk.target)
+      && fk.target !== 'tenants'
+      && !fk.fields.includes('tenant_id')
+  )).sort((a, b) => a.key.localeCompare(b.key));
 }
 
 // ---------------------------------------------------------------------------
@@ -1149,9 +1236,9 @@ const EXEMPTIONS = new Set([...DEFERRED_LIST, ...LEGACY_LIST]);
 // ---------------------------------------------------------------------------
 
 describe('tenant-bearing FK invariant, asserted against the current schema', () => {
-  test('schema.prisma parses into the shape the census depends on', () => {
-    // A parser that silently matched nothing would make every assertion below
-    // vacuously pass, which is the failure mode this whole file exists to fix.
+  test('schema.prisma parses into the shape the schema-derived checks depend on', () => {
+    // A parser that silently matched nothing would make the `@@unique` and
+    // tenant-DEFAULT assertions vacuously pass.
     expect(MODELS.size).toBeGreaterThan(800);
     expect(TENANT_BEARING.size).toBeGreaterThan(800);
     expect(TENANT_BEARING.has('appointments')).toBe(true);
@@ -1160,6 +1247,25 @@ describe('tenant-bearing FK invariant, asserted against the current schema', () 
     // census would demand a tenant column that does not exist.
     expect(TENANT_BEARING.has('investigation_test_catalog')).toBe(false);
     expect(TENANT_BEARING.has('drug_kb_sources')).toBe(false);
+  });
+
+  test('the live FK catalog loads into the shape the census depends on', () => {
+    // The reason this file was rewritten a second time: a census that reads
+    // nothing makes the violation test below pass on every possible input.
+    // Nothing here may be inferred from the catalog itself — each bound is a
+    // floor the migrated database has already cleared.
+    expect(TENANT_BEARING_TABLES.size).toBeGreaterThan(800);
+    expect(FOREIGN_KEYS.length).toBeGreaterThan(2000);
+    expect(singleColumnTenantBearingFks().length).toBeGreaterThan(900);
+    expect(TENANT_BEARING_TABLES.has('appointments')).toBe(true);
+    expect(TENANT_BEARING_TABLES.has('abdm_patient_share_intakes')).toBe(true);
+    // Global reference data carries no tenant column and must not be counted.
+    expect(TENANT_BEARING_TABLES.has('investigation_test_catalog')).toBe(false);
+    expect(TENANT_BEARING_TABLES.has('drug_kb_sources')).toBe(false);
+    // Composite keys must survive the read intact, or every converted key
+    // would read back as a violation.
+    expect(foreignKeysOf('referrals').find((fk) => fk.fields.includes('appointment_id')))
+      .toMatchObject({ fields: ['tenant_id', 'appointment_id'], target: 'appointments' });
   });
 
   test('no tenant-bearing table reaches another one through a new single-column FK', () => {
@@ -1196,51 +1302,53 @@ describe('tenant-bearing FK invariant, asserted against the current schema', () 
 });
 
 describe('the keys migration 729 converted are composite in the current schema', () => {
-  // Asserted through the parsed schema rather than 729's SQL text: this stays
+  // Asserted through the live catalog rather than 729's SQL text: this stays
   // true only while the live DDL stays converted, and would fail if a later
-  // migration reverted one.
+  // migration reverted one. The referential actions are named as the DDL
+  // names them, not in Prisma's `SetNull`/`NoAction` spelling, because
+  // pg_constraint is now what answers.
   const CONVERTED = [
     {
       model: 'abdm_patient_share_intakes',
       constraint: 'fk_abdm_share_intake_linked_appointment',
       fields: ['tenant_id', 'linked_appointment_id'],
       target: 'appointments',
-      onDelete: 'SetNull',
+      onDelete: 'SET NULL',
     },
     {
       model: 'abdm_hiu_fetch_sessions',
       constraint: 'fk_abdm_hiu_fetch_consent_artifact',
       fields: ['tenant_id', 'consent_artifact_id'],
       target: 'abdm_consent_artifacts',
-      onDelete: 'SetNull',
+      onDelete: 'SET NULL',
     },
     {
       model: 'abdm_hiu_fetch_sessions',
       constraint: 'fk_abdm_hiu_fetch_data_transfer',
       fields: ['tenant_id', 'data_transfer_id'],
       target: 'abdm_data_transfers',
-      onDelete: 'SetNull',
+      onDelete: 'SET NULL',
     },
     {
       model: 'uhi_transactions',
       constraint: 'fk_uhi_txn_appointment',
       fields: ['tenant_id', 'appointment_id'],
       target: 'appointments',
-      onDelete: 'SetNull',
+      onDelete: 'SET NULL',
     },
     {
       model: 'drug_kb_catalog_links',
       constraint: 'fk_drug_kb_catalog_links_catalog',
       fields: ['tenant_id', 'pharmacy_catalog_id'],
       target: 'pharmacy_catalog',
-      onDelete: 'Cascade',
+      onDelete: 'CASCADE',
     },
   ];
 
   test.each(CONVERTED)(
     '$constraint carries the tenant into the key',
     ({ model, constraint, fields, target, onDelete }) => {
-      const rel = relationsOf(model).find((r) => r.constraint === constraint);
+      const rel = foreignKeysOf(model).find((r) => r.constraint === constraint);
       expect(rel).toBeDefined();
       expect(rel.fields).toEqual(fields);
       expect(rel.references).toEqual(['tenant_id', 'id']);
@@ -1248,7 +1356,7 @@ describe('the keys migration 729 converted are composite in the current schema',
       expect(rel.onDelete).toBe(onDelete);
       // Re-homing a parent row to another tenant must fail while children
       // exist, rather than silently dragging them across the boundary.
-      expect(rel.onUpdate).toBe('NoAction');
+      expect(rel.onUpdate).toBe('NO ACTION');
     },
   );
 

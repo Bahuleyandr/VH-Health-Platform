@@ -24,6 +24,12 @@ jest.unstable_mockModule('../../services/pharmacy/pharmacistVerificationService.
   assertVerificationClearedTx: jest.fn(async () => {}),
   clinicalOrderItemsSha256: jest.fn(() => 'items-sha256'),
   ensurePackBarcode: jest.fn(async () => 'PACK-1'),
+  // pharmacyOrderInventoryService imports both statically for the catalog
+  // authority CAS: a sha256 string it compares, and a void advisory-lock
+  // helper. The lock stub resolves undefined because the real one only takes
+  // pg_advisory_xact_lock and returns nothing.
+  clinicalCatalogAuthoritySha256Tx: jest.fn(async () => 'catalog-authority-sha256'),
+  lockPharmacyCatalogAuthorityTx: jest.fn(async () => {}),
 }));
 
 // pharmacyOrderController shares the routes file — stub its module graph so
@@ -31,6 +37,24 @@ jest.unstable_mockModule('../../services/pharmacy/pharmacistVerificationService.
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: jest.fn(async () => []) },
   setTenantTx: jest.fn(),
+  // Services reached through the routes mount assert their `tx` is a genuine
+  // tenant-scoped (RLS-active) client and throw *_TX_REQUIRED otherwise. The
+  // real registry is populated by setTenantTx, which is stubbed here, so this
+  // answers true to keep those guards on their intended path — the suite pins
+  // AppError propagation, not tenant-transaction provenance.
+  isTenantTransactionClient: jest.fn(() => true),
+  // observability/reliabilityMetrics.js imports these statically, so the mock
+  // has to carry them or the whole graph fails to link.
+  setTenant: jest.fn(async (_tenantId, fn) => fn({ $queryRawUnsafe: jest.fn(async () => []) })),
+  // Healthy, closed breaker — callers read `.open` to decide whether the DB is
+  // in fail-fast, and this suite exercises the reachable-DB path.
+  circuitBreakerStatus: jest.fn(() => ({
+    open: false,
+    consecutiveFailures: 0,
+    openedAt: null,
+    resetInMs: 0,
+    byTag: {},
+  })),
 }));
 jest.unstable_mockModule('../../utils/r2Storage.js', () => ({
   uploadFileToR2: jest.fn(async () => 'key'),
@@ -51,14 +75,97 @@ jest.unstable_mockModule('../../services/pharmacy/pharmacyCapService.js', () => 
     fundingSource: null,
     fundingReference: null,
   })),
+  // The remaining funding-lock exports billingV2Service / admissionService /
+  // claimCapsService import statically. They are stubbed only so the routes
+  // graph links; each keeps the real return shape so a code path that does
+  // reach one is not handed a shape the caller cannot destructure.
+  lockPharmacyFundingAdmissionTx: jest.fn(async (_tx, { admissionId, patientUid }) => ({
+    id: Number(admissionId),
+    patient_uid: patientUid,
+    status: 'active',
+  })),
+  lockPharmacyFundingAuthorityTx: jest.fn(async () => {}),
+  resolvePharmacyFundingPatientUidTx: jest.fn(
+    async () => '11111111-1111-4111-8111-111111111111',
+  ),
 }));
 jest.unstable_mockModule('../../services/pharmacy/pharmacyFacilityAuthorityService.js', () => ({
   requestedPharmacyFacilityId: jest.fn(() => null),
   requireOrderFacility: jest.fn((order) => Number(order.facility_id || 7)),
   resolvePharmacyFacility: jest.fn(async () => ({ id: 7 })),
+  resolveOrderPharmacyFacility: jest.fn(async () => ({
+    id: 7,
+    facility_code: 'PH-7',
+    display_name: 'Test Pharmacy',
+  })),
+  // Migration 752/753 made pharmacy facility custody grant-backed with NO
+  // admin bypass, so every service in the orderRoutes graph now imports this
+  // gate statically. The stub returns the real success tuple (admin_bypass
+  // false included) rather than a bare truthy object, so a caller that reads
+  // the grant sees the shape production hands it.
+  assertPharmacyFacilityGrant: jest.fn(async () => ({
+    actor_id: 1,
+    actor_uid: '11111111-1111-4111-8111-111111111111',
+    actor_role: 'PHARMACY_STAFF',
+    actor_name: 'Test Pharmacist',
+    facility_id: 7,
+    grant_id: 1,
+    admin_bypass: false,
+  })),
+  pharmacyFacilityActorFromRequest: jest.fn((req) => ({
+    actorUid: req?.user?.uid ?? null,
+    actorRole: req?.user?.role ?? null,
+  })),
+  // Kept a real Set, not a jest.fn(): callers do
+  // `FACILITY_OPERATION_ROLES.has(role)` / spread it into a text[] bind, and a
+  // function stub would throw or silently bind an empty role list.
+  FACILITY_OPERATION_ROLES: new Set([
+    'PHARMACY_STAFF',
+    'PHARMACIST',
+    'PHARMACY_INCHARGE',
+    'STORES_PURCHASE_INCHARGE',
+    'DELIVERY_STAFF',
+    'ADMIN',
+    'SUPER_ADMIN',
+  ]),
+  listPharmacyFacilityGrants: jest.fn(async () => []),
+  grantPharmacyFacilityAuthority: jest.fn(async () => ({ id: 1 })),
+  revokePharmacyFacilityAuthority: jest.fn(async () => ({ id: 1 })),
 }));
 jest.unstable_mockModule('../../services/clinical/allergySourceService.js', () => ({
   getUnifiedActiveAllergies: jest.fn(async () => []),
+  // The detail shape pharmacyOrderController destructures (.allergies /
+  // .patientResolved / .sourcesFailed) to stamp allergy_status. A resolved
+  // patient with no failed source is the 'verified' path, so a mocked order
+  // never reports a false 'unavailable'.
+  getUnifiedActiveAllergiesDetailed: jest.fn(async () => ({
+    allergies: [],
+    sourcesFailed: [],
+    patientResolved: true,
+  })),
+  // The severity pair stays faithful to the real module instead of being
+  // stubbed. prescriptionSafetyCheck gates its hard allergy block on
+  // `rankSeverity(severity) >= SEVERE_BLOCK_RANK`, and the real ranker is
+  // fail-safe: a severity that is present but unparseable ranks as a blocker,
+  // never as a warning. A flat stub would rank everything 0 and silently
+  // disable that block for the whole suite.
+  SEVERE_BLOCK_RANK: 4,
+  rankSeverity: jest.fn((value) => {
+    if (value == null) return 0;
+    const key = String(value).trim().toUpperCase();
+    if (!key || ['UNKNOWN', 'UNSPECIFIED', 'NONE', 'N/A', 'NA', 'NULL', 'NIL'].includes(key)) {
+      return 0;
+    }
+    return {
+      LIFE_THREATENING: 5,
+      ANAPHYLAXIS: 5,
+      CONTRAINDICATED: 4,
+      SEVERE: 4,
+      HIGH: 3,
+      MODERATE: 2,
+      MILD: 1,
+    }[key] ?? 4;
+  }),
 }));
 jest.unstable_mockModule('../../services/clinical/canonicalOperationalBridgeService.js', () => ({
   emitPharmacyOrderEvent: jest.fn(async () => ({})),

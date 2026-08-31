@@ -1180,6 +1180,18 @@ function inventoryDisposalBigintId(value) {
   return id;
 }
 
+// ★ `inventoryDisposalBigintId` answers null for everything that is not a
+// canonical positive bigint id string — INCLUDING null itself. That makes the
+// bare `inventoryDisposalBigintId(x) === x` shape test a tautology for x=null,
+// so a replay receipt whose required provenance id had been erased to null
+// verified clean and the disposal replayed as if the evidence were intact.
+// Every id this predicate guards (the performer's pharmacy grant, the witness
+// approval, the witness's own pharmacy grant) is REQUIRED where it is asked
+// about, so presence is part of the shape: test it before the canonical form.
+function inventoryDisposalRequiredBigintId(value) {
+  return value !== null && inventoryDisposalBigintId(value) === value;
+}
+
 function inventoryDisposalUuid(value, label) {
   const uid = String(value || '').trim().toLowerCase();
   if (!UUID_RE.test(uid)) {
@@ -1634,13 +1646,11 @@ function inventoryDisposalReceiptIsSemanticallyComplete(receipt, metadata, movem
   const witnessRequired = scheduleIsValid
     && (scheduleClass === 'X' || receipt.is_narcotic === true);
   const witnessComplete = witnessRequired
-    ? inventoryDisposalBigintId(receipt.witness_approval_id)
-        === receipt.witness_approval_id
+    ? inventoryDisposalRequiredBigintId(receipt.witness_approval_id)
       && UUID_RE.test(String(receipt.witness_uid || ''))
       && inventoryDisposalReceiptTextIsValid(receipt.witness_name, 255, { required: true })
       && FACILITY_BOUND_CONTROLLED_DISPENSE_WITNESS_ROLES.includes(receipt.witness_role)
-      && inventoryDisposalBigintId(receipt.witness_facility_grant_id)
-        === receipt.witness_facility_grant_id
+      && inventoryDisposalRequiredBigintId(receipt.witness_facility_grant_id)
     : receipt.witness_approval_id === null
       && receipt.witness_uid === null
       && receipt.witness_name === null
@@ -1655,7 +1665,7 @@ function inventoryDisposalReceiptIsSemanticallyComplete(receipt, metadata, movem
     && inventoryDisposalReceiptInt4IsValid(receipt.catalog_id)
     && inventoryDisposalReceiptInt4IsValid(receipt.supplier_id)
     && inventoryDisposalReceiptInt4IsValid(receipt.storage_location_id)
-    && inventoryDisposalBigintId(receipt.facility_grant_id) === receipt.facility_grant_id
+    && inventoryDisposalRequiredBigintId(receipt.facility_grant_id)
     && UUID_RE.test(String(receipt.performed_by || ''))
     && inventoryDisposalReceiptTextIsValid(receipt.performed_by_name, 255, { required: true })
     && INVENTORY_DISPOSAL_PERFORMER_ROLES.has(receipt.performer_role)

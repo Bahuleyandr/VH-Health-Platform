@@ -24,6 +24,7 @@ const {
 } = await import('../../services/nhcx/nhcxCommunicationService.js');
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
+const PATIENT_UID = '11111111-1111-4111-8111-111111111111';
 
 function communicationRequestBundle(overrides = {}) {
   return {
@@ -72,7 +73,7 @@ function outboundContext() {
     claim_id: 88,
     preauth_id: 77,
     policy_id: 55,
-    patient_uid: '11111111-1111-4111-8111-111111111111',
+    patient_uid: PATIENT_UID,
     admission_id: 7001,
   };
 }
@@ -88,7 +89,21 @@ describe('NHCX P3 Communication deep seams', () => {
   it('payor query creates correspondence, records envelope audit headers, and moves claim to queried only from allowed status', async () => {
     queryUnsafeMock.mockResolvedValueOnce([outboundContext()]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: '60', inserted: true, status: 'accepted' }]);
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 88, status: 'submitted' }]);
+    // recordInboundCommunicationRequest takes pharmacy funding authority
+    // before it reads the claim it may transition. In order: the claim's
+    // funding identity, the one active tenant patient it resolves to, the
+    // funding advisory, the admission advisory the admission lock re-takes,
+    // and the admission row. The claim row that follows must echo the SAME
+    // patient/admission — the service refuses with
+    // PHARMACY_FUNDING_PATIENT_IDENTITY_MISMATCH if it drifted under the lock.
+    queryUnsafeMock.mockResolvedValueOnce([{ patient_uid: PATIENT_UID, admission_id: 7001 }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ uid: PATIENT_UID }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ lock_acquired: 'true' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ lock_acquired: 'true' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 7001, patient_uid: PATIENT_UID, status: 'admitted' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 88, status: 'submitted', patient_uid: PATIENT_UID, admission_id: 7001,
+    }]);
     executeUnsafeMock.mockResolvedValueOnce(1);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 701, claim_id: 88, direction: 'inbound', channel: 'nhcx' }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: '60', status: 'processed' }]);
@@ -126,7 +141,21 @@ describe('NHCX P3 Communication deep seams', () => {
   it('illegal query transition routes to manual review and does not create correspondence', async () => {
     queryUnsafeMock.mockResolvedValueOnce([outboundContext()]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: '61', inserted: true, status: 'accepted' }]);
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 88, status: 'paid' }]);
+    // recordInboundCommunicationRequest takes pharmacy funding authority
+    // before it reads the claim it may transition. In order: the claim's
+    // funding identity, the one active tenant patient it resolves to, the
+    // funding advisory, the admission advisory the admission lock re-takes,
+    // and the admission row. The claim row that follows must echo the SAME
+    // patient/admission — the service refuses with
+    // PHARMACY_FUNDING_PATIENT_IDENTITY_MISMATCH if it drifted under the lock.
+    queryUnsafeMock.mockResolvedValueOnce([{ patient_uid: PATIENT_UID, admission_id: 7001 }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ uid: PATIENT_UID }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ lock_acquired: 'true' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ lock_acquired: 'true' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 7001, patient_uid: PATIENT_UID, status: 'admitted' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 88, status: 'paid', patient_uid: PATIENT_UID, admission_id: 7001,
+    }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: '61', status: 'manual_review' }]);
 
     const result = await processNHCXCallback(callbackArgs());

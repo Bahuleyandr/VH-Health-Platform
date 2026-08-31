@@ -9,6 +9,19 @@ const SEEDER_PATH = path.resolve(
   '../../../scripts/seed-comprehensive-test-data.mjs',
 );
 
+/**
+ * The seeder is prettier-formatted under apps/backend/.prettierrc, whose
+ * `arrowParens: "avoid"` drops the parentheses around a single parameter —
+ * `ctx => ...`, not `(ctx) => ...`. Binding on one rendering made these
+ * assertions fail the moment the file was formatted, so match either form and
+ * pin the substance instead: the named column, on its own (a `\b` before it
+ * keeps `classification_signed_by` from satisfying a `signed_by` check), taking
+ * the signing doctor's uid and nothing longer.
+ */
+function signedByDoctor(column) {
+  return new RegExp(`\\b${column}: \\(?ctx\\)? => ctx\\.doctor\\.uid(?![\\w.])`);
+}
+
 function overrideBlock(source, table, nextTable) {
   const pattern = new RegExp(
     `\\n  ${table}: \\{([\\s\\S]*?)(?=\\n  ${nextTable}: \\{)`,
@@ -42,8 +55,8 @@ describe('structured Radiology/AP comprehensive seed overrides', () => {
     expect(blocks[key]).toMatch(/result_classification: 'normal'/);
     expect(blocks[key]).toMatch(/classification_basis: JSON\.stringify\(\{ explicit_normal_flag: true, seed: true \}\)/);
     expect(blocks[key]).toMatch(/report_generation_version: 1/);
-    expect(blocks[key]).toContain(`${sourceSignerColumn}: (ctx) => ctx.doctor.uid`);
-    expect(blocks[key]).toMatch(/classification_signed_by: \(ctx\) => ctx\.doctor\.uid/);
+    expect(blocks[key]).toMatch(signedByDoctor(sourceSignerColumn));
+    expect(blocks[key]).toMatch(signedByDoctor('classification_signed_by'));
     expect(blocks[key]).toContain(
       `signoff_idempotency_key: 'seed-${idempotencyPrefix}-signoff-v1'`,
     );
@@ -64,7 +77,7 @@ describe('structured Radiology/AP comprehensive seed overrides', () => {
     expect(blocks[key]).toMatch(/previous_classification: 'normal'/);
     expect(blocks[key]).toMatch(/result_classification: 'normal'/);
     expect(blocks[key]).toMatch(/clinical_significance: 'unchanged'/);
-    expect(blocks[key]).toContain(`${signerColumn}: (ctx) => ctx.doctor.uid`);
+    expect(blocks[key]).toMatch(signedByDoctor(signerColumn));
     expect(blocks[key]).toContain(
       `idempotency_key: 'seed-${idempotencyPrefix}-addendum-v2'`,
     );

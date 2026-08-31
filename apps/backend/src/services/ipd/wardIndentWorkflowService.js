@@ -943,10 +943,34 @@ async function rotateSla(tx, before, after, action) {
         metadata: { med_01: true, terminal_action: action },
       }, { db: tx });
       if (!Array.isArray(cancelled) || cancelled.length === 0) {
-        throw AppError.internal(
-          'Ward indent SLA cancellation was not persisted',
-          'WARD_INDENT_SLA_CANCEL_FAILED',
+        // The previous state's obligation is discharged before the clock is
+        // rotated (completeWardIndentStateObligationTx runs first), and
+        // completing that task from this transition's own evidence already
+        // retires the linked SLA -- as 'completed', which cancelWorkflowSla
+        // deliberately will not touch. So an empty cancel is acceptable only
+        // when the clock really is retired: re-read the exact (rule, source)
+        // identity and fail closed unless it is terminal. A missing clock, or
+        // one still running, would leave the rejected indent owning an SLA
+        // nobody will ever close, which is what this guard exists to prevent.
+        const retired = await tx.$queryRawUnsafe(
+          `SELECT status
+             FROM workflow_sla_instances
+            WHERE tenant_id = $1::uuid
+              AND rule_code = $2::text
+              AND source_table = 'ward_indents'
+              AND source_id = $3::text
+              AND status IN ('completed', 'cancelled')
+            LIMIT 1`,
+          before.tenant_id,
+          previous,
+          activeSlaSourceId(before),
         );
+        if (retired.length === 0) {
+          throw AppError.internal(
+            'Ward indent SLA cancellation was not persisted',
+            'WARD_INDENT_SLA_CANCEL_FAILED',
+          );
+        }
       }
     } else {
       const completed = await completeWorkflowSla({
@@ -2421,10 +2445,18 @@ export async function applyApprovedWardIndentSubstitution({
         );
       }
       const approvedIds = new Set(approved.map((item) => Number(item.id)));
-      const catalogIds = current.items.map((item) => (
+      // The application-phase compatibility recheck below reads BOTH sides of the
+      // swap out of catalogById, so the outgoing product has to be loaded alongside
+      // the proposed one -- exactly as approveWardIndentSubstitution does. Loading
+      // only the proposed catalog left originalCatalog undefined, which the
+      // classification guard reads as "not medication-classified" and refuses.
+      const catalogIds = current.items.flatMap((item) => (
         approvedIds.has(Number(item.id))
-          ? Number(item.proposed_pharmacy_catalog_id)
-          : Number(item.pharmacy_catalog_id)
+          ? [
+            Number(item.original_pharmacy_catalog_id || item.pharmacy_catalog_id),
+            Number(item.proposed_pharmacy_catalog_id),
+          ]
+          : [Number(item.pharmacy_catalog_id)]
       ));
       const catalogById = await loadWardIndentCatalogClassificationsTx(tx, {
         tenantId: current.tenant_id,
