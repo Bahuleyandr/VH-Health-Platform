@@ -454,6 +454,40 @@ describe('durable spool replay (at-least-once to the backend)', () => {
 });
 
 describe('TCP listener end-to-end', () => {
+  it('rolls back listeners already started when a later LIS bind fails', async () => {
+    const blocker = net.createServer();
+    await new Promise((resolve) => blocker.listen(0, '127.0.0.1', resolve));
+    const blockedPort = blocker.address().port;
+
+    const portProbe = net.createServer();
+    await new Promise((resolve) => portProbe.listen(0, '127.0.0.1', resolve));
+    const firstPort = portProbe.address().port;
+    await new Promise((resolve) => portProbe.close(resolve));
+    expect(firstPort).not.toBe(blockedPort);
+
+    const replacement = net.createServer();
+    try {
+      await expect(startLisListeners({
+        listeners: [
+          listenerConfig({ name: 'first', port: firstPort }),
+          listenerConfig({ name: 'blocked', port: blockedPort }),
+        ],
+        runtime: {},
+        socketIdleTimeoutMs: 60_000,
+        openSockets: new Set(),
+        socketWork: new Map(),
+      })).rejects.toMatchObject({ code: 'EADDRINUSE' });
+
+      await expect(new Promise((resolve, reject) => {
+        replacement.once('error', reject);
+        replacement.listen(firstPort, '127.0.0.1', resolve);
+      })).resolves.toBeUndefined();
+    } finally {
+      if (replacement.listening) await new Promise((resolve) => replacement.close(resolve));
+      await new Promise((resolve) => blocker.close(resolve));
+    }
+  });
+
   async function overTcp(listener, runtime, drive) {
     const openSockets = new Set();
     const socketWork = new Map();
