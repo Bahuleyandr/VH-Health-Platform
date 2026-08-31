@@ -718,6 +718,15 @@ export async function cancelGatewayOrder({ tenantId, id, actor = {} }) {
  * Admin list of provider-captured-but-unbookable orders (the manual work
  * queue handleCaptureEvent parks into). Unresolved rows only by default;
  * include_resolved=true also returns rows an operator already stamped.
+ *
+ * The order lane has no provider-status disposition: this migration's
+ * reconciliation_disposition column is added to payment_gateway_refunds ONLY
+ * (an order's provider-failed leg never books money in the first place), and
+ * 715's chk_pg_order_reconciliation_resolution refuses a stamped order whose
+ * status is anything but 'requires_reconciliation'. Selecting that column here
+ * made every call to this admin queue die with 42703. The status filter is the
+ * whole predicate — do not port the refund list's failed + provider_failed
+ * branch onto orders.
  */
 export async function listReconciliationGatewayOrders({
   tenantId, include_resolved = false, limit = 50, offset = 0,
@@ -728,16 +737,8 @@ export async function listReconciliationGatewayOrders({
   const rows = await prisma.$queryRawUnsafe(
     `SELECT ${ORDER_VIEW_COLUMNS}
        FROM payment_gateway_orders
-      WHERE tenant_id = $1::uuid
-        AND (
-          (status = 'requires_reconciliation' AND ($2::boolean OR reconciled_at IS NULL))
-          OR (
-            $2::boolean
-            AND status = 'failed'
-            AND reconciliation_disposition = 'provider_failed'
-            AND reconciled_at IS NOT NULL
-          )
-        )
+      WHERE tenant_id = $1::uuid AND status = 'requires_reconciliation'
+        AND ($2::boolean OR reconciled_at IS NULL)
       ORDER BY captured_at ASC NULLS LAST, id ASC
       LIMIT $3::int OFFSET $4::int`,
     tenant, include_resolved === true, safeLimit, safeOffset,
