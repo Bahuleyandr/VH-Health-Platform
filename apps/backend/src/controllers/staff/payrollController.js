@@ -923,6 +923,7 @@ export const adminSignPayrollRun = async (req, res) => {
 export const getMyTaxSummary = async (req, res) => {
   try {
     const staffUid = req.user?.uid;
+    const tenantId = resolveTenantOrThrow(req);
     const { fy } = req.query;
     const now = new Date();
     const financialYear = fy || (now.getMonth() >= 3
@@ -939,16 +940,23 @@ export const getMyTaxSummary = async (req, res) => {
         total_deductions, total_net, taxable_income, tax_payable,
         months_included, generated_at, pdf_key, status, created_at, updated_at
       FROM annual_tax_summaries
-      WHERE staff_uid=$1::uuid AND financial_year=$2
-    `, staffUid, financialYear);
+      WHERE tenant_id = $3::uuid AND staff_uid=$1::uuid AND financial_year=$2
+    `, staffUid, financialYear, tenantId);
 
     if (summary.length === 0) {
       try {
-        const generated = await generateAnnualTaxSummary(staffUid, financialYear);
+        const generated = await generateAnnualTaxSummary(staffUid, financialYear, tenantId);
         return success(res, generated, 'Annual tax summary generated');
       } catch (generationErr) {
         if (/No payslips found/i.test(String(generationErr?.message || ''))) {
           return error(res, 'No issued payslips found for this financial year', HTTP_STATUS.NOT_FOUND);
+        }
+        if (generationErr?.code === 'ANNUAL_TAX_SUMMARY_TENANT_CONFLICT') {
+          return error(
+            res,
+            'Annual tax summary conflicts with tenant ownership',
+            HTTP_STATUS.CONFLICT,
+          );
         }
         throw generationErr;
       }
@@ -968,17 +976,22 @@ export const getMyTaxSummary = async (req, res) => {
 // Admin: Generate/regenerate annual tax summary for all staff
 export const generateAllTaxSummaries = async (req, res) => {
   try {
+    const tenantId = resolveTenantOrThrow(req);
     const { financial_year } = req.body;
     if (!financial_year) return error(res, 'financial_year required (e.g. 2025-26)', HTTP_STATUS.BAD_REQUEST);
 
     const staffList = await prisma.$queryRawUnsafe(
-      `SELECT DISTINCT staff_uid FROM payslips WHERE status IN ('issued','viewed','downloaded')`
+      `SELECT DISTINCT staff_uid
+         FROM payslips
+        WHERE tenant_id = $1::uuid
+          AND status IN ('issued','viewed','downloaded')`,
+      tenantId
     );
     let generated = 0, failed = 0;
 
     for (const s of staffList) {
       try {
-        await generateAnnualTaxSummary(s.staff_uid, financial_year);
+        await generateAnnualTaxSummary(s.staff_uid, financial_year, tenantId);
         generated++;
       } catch (e) {
         logger.warn(`Tax summary failed for ${s.staff_uid}: ${e.message}`);
@@ -999,6 +1012,7 @@ export const generateAllTaxSummaries = async (req, res) => {
 export const createAdvance = async (req, res) => {
   try {
     const adminUid = req.user?.uid;
+    const tenantId = resolveTenantOrThrow(req);
     const { staff_uid, amount, reason, monthly_deduction, deduction_start_month, deduction_start_year, notes } = req.body;
 
     if (!staff_uid || !amount || !monthly_deduction || !reason) {
@@ -1009,10 +1023,18 @@ export const createAdvance = async (req, res) => {
 
     const result = await prisma.$queryRawUnsafe(`
       INSERT INTO salary_advances (staff_uid, amount, reason, approved_by, approved_at, status,
-        monthly_deduction, months_remaining, deduction_start_month, deduction_start_year, notes)
-      VALUES ($1,$2,$3,$4,NOW(),'approved',$5,$6,$7,$8,$9)
+        monthly_deduction, months_remaining, deduction_start_month, deduction_start_year, notes,
+        tenant_id)
+      SELECT u.uid, $2, $3, $4::uuid, NOW(), 'approved', $5, $6, $7, $8, $9,
+             $10::uuid
+        FROM users AS u
+       WHERE u.tenant_id = $10::uuid AND u.uid = $1::uuid AND u.is_active = true
       RETURNING id, staff_uid, amount, reason, approved_by, approved_at, status, monthly_deduction, months_remaining, total_deducted, deduction_start_month, deduction_start_year, notes, created_at
-    `, staff_uid, amount, reason, adminUid, monthly_deduction, months_remaining, deduction_start_month || new Date().getMonth() + 1, deduction_start_year || new Date().getFullYear(), notes || null);
+    `, staff_uid, amount, reason, adminUid, monthly_deduction, months_remaining, deduction_start_month || new Date().getMonth() + 1, deduction_start_year || new Date().getFullYear(), notes || null, tenantId);
+
+    if (result.length === 0) {
+      return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
+    }
 
     success(res, result[0], `Advance of ₹${amount} approved. ${months_remaining} monthly deductions of ₹${monthly_deduction}`);
   } catch (err) {
@@ -1025,13 +1047,20 @@ export const createAdvance = async (req, res) => {
 export const getMyAdvances = async (req, res) => {
   try {
     const staffUid = req.user?.uid;
+    const tenantId = resolveTenantOrThrow(req);
     const advances = await prisma.$queryRawUnsafe(`
-      SELECT sa.*, u.name as approved_by_name,
+      SELECT sa.id, sa.staff_uid, sa.amount, sa.reason, sa.approved_by,
+             sa.approved_at, sa.status, sa.monthly_deduction,
+             sa.total_deducted, sa.months_remaining,
+             sa.deduction_start_month, sa.deduction_start_year,
+             sa.fully_cleared_at, sa.notes, sa.created_at, sa.updated_at,
+             u.name as approved_by_name,
              (sa.amount - sa.total_deducted) as balance_remaining
       FROM salary_advances sa
-      LEFT JOIN users u ON sa.approved_by = u.uid
-      WHERE sa.staff_uid = $1::uuid ORDER BY sa.created_at DESC
-    `, staffUid);
+      LEFT JOIN users u ON u.tenant_id = sa.tenant_id AND sa.approved_by = u.uid
+      WHERE sa.tenant_id = $2::uuid AND sa.staff_uid = $1::uuid
+      ORDER BY sa.created_at DESC
+    `, staffUid, tenantId);
     success(res, advances, 'Advances fetched');
   } catch (err) {
     logger.error('Get My Advances Error:', err);
@@ -1042,20 +1071,28 @@ export const getMyAdvances = async (req, res) => {
 // Admin: Get all advances
 export const getAllAdvances = async (req, res) => {
   try {
+    const tenantId = resolveTenantOrThrow(req);
     const { status } = req.query;
-    const params = [];
-    let where = '';
+    const params = [tenantId];
+    let statusFilter = '';
     if (status) {
-      where = 'WHERE sa.status = $1';
+      statusFilter = 'AND sa.status = $2';
       params.push(status);
     }
     const advances = await prisma.$queryRawUnsafe(`
-      SELECT sa.*, u.name as staff_name, ss.department,
+      SELECT sa.id, sa.staff_uid, sa.amount, sa.reason, sa.approved_by,
+             sa.approved_at, sa.status, sa.monthly_deduction,
+             sa.total_deducted, sa.months_remaining,
+             sa.deduction_start_month, sa.deduction_start_year,
+             sa.fully_cleared_at, sa.notes, sa.created_at, sa.updated_at,
+             u.name as staff_name, ss.department,
              (sa.amount - sa.total_deducted) as balance_remaining
       FROM salary_advances sa
-      JOIN users u ON sa.staff_uid = u.uid
-      LEFT JOIN staff_salary ss ON ss.staff_uid = u.uid
-      ${where} ORDER BY sa.created_at DESC
+      JOIN users u ON u.tenant_id = sa.tenant_id AND sa.staff_uid = u.uid
+      LEFT JOIN staff_salary ss
+        ON ss.tenant_id = sa.tenant_id AND ss.staff_uid = u.uid
+      WHERE sa.tenant_id = $1::uuid
+      ${statusFilter} ORDER BY sa.created_at DESC
     `, ...params);
     success(res, advances, 'Advances fetched');
   } catch (err) {
@@ -1075,7 +1112,8 @@ export const calculateRevisionArrears = async (req, res) => {
       resolveTenantOrThrow(req),
       {
         actorUid: req.user?.uid,
-        commandKey: req.idempotencyClaim?.requestKey || req.get('idempotency-key'),
+        commandKey: req.idempotencyClaim?.requestKey
+          || (typeof req.get === 'function' ? req.get('idempotency-key') : undefined),
         requestBodySha256: req.idempotencyClaim?.requestBodyHash,
         httpIdempotencyClaimId: req.idempotencyClaim?.id,
         requestId: req.id,
@@ -1084,6 +1122,11 @@ export const calculateRevisionArrears = async (req, res) => {
     success(res, result, result.message || `Arrears calculated: ₹${result.arrears_amount}`);
   } catch (err) {
     logger.error('Calculate Arrears Error:', err);
+    // #941's mapping, kept: the service now raises a typed 404 for a missing
+    // revision, but an AppError raised deeper in still carries only `code`.
+    if (err?.code === 'SALARY_REVISION_NOT_FOUND') {
+      return error(res, err.message, HTTP_STATUS.NOT_FOUND);
+    }
     error(
       res,
       err instanceof SalaryArrearsCommandError
@@ -1118,7 +1161,8 @@ export const processRevisionArrearsWorkItem = async (req, res) => {
       tenantId,
       {
         actorUid: req.user?.uid,
-        commandKey: req.idempotencyClaim?.requestKey || req.get('idempotency-key'),
+        commandKey: req.idempotencyClaim?.requestKey
+          || (typeof req.get === 'function' ? req.get('idempotency-key') : undefined),
         requestBodySha256: req.idempotencyClaim?.requestBodyHash,
         httpIdempotencyClaimId: req.idempotencyClaim?.id,
         requestId: req.id,

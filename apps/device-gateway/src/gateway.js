@@ -7,6 +7,10 @@ import { errorFields, logEvent } from './logger.js';
 import { MllpFrameReader, frameMessage } from './mllpFrameReader.js';
 import { startLisListeners } from './lisTransport.js';
 import {
+  closeListeningServer,
+  rollbackListeningServers,
+} from './listenerLifecycle.js';
+import {
   I09_GATEWAY_SEQUENCE_CONTRACT,
   NdjsonSpool,
   SequencedSpoolStore,
@@ -924,10 +928,7 @@ function listenServer(server, port, host) {
   });
 }
 
-function closeListeningServer(server) {
-  if (!server?.listening) return Promise.resolve();
-  return new Promise((resolve) => server.close(() => resolve()));
-}
+export { closeListeningServer, rollbackListeningServers };
 
 export async function startGateway({
   listeners,
@@ -1095,11 +1096,11 @@ export async function startGateway({
   } catch (err) {
     runtime.stopSupervisedDrains?.();
     lisRuntime?.stopSupervisedDrains?.();
-    await Promise.allSettled([
+    await rollbackListeningServers([
       ...servers,
       metricsServer,
       coldChainServer,
-    ].map(closeListeningServer));
+    ], openSockets);
     throw err;
   }
 }

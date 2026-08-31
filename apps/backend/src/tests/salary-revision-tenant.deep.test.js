@@ -675,6 +675,11 @@ d('Salary-revision tenant boundary (CAN-016)', () => {
       revisionId,
     );
     expect(rowsBeforeDenials).toHaveLength(1);
+    // The stamped row belongs to the acting tenant. This is the invariant the
+    // former payrollTaxArrearsTenantScope unit cases existed for; proving it
+    // here exercises the real auth, idempotency and command chain rather than
+    // a mock's model of the service's internal call order.
+    expect(rowsBeforeDenials[0].tenant_id).toBe(TENANT_A);
 
     const foreign = await adminB
       .post(path)

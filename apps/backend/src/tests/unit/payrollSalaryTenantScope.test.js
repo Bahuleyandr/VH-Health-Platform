@@ -2,6 +2,8 @@ import { jest } from '@jest/globals';
 
 const queryRawUnsafe = jest.fn();
 const salaryUpsert = jest.fn();
+const calculateArrears = jest.fn();
+const generateAnnualTaxSummary = jest.fn();
 
 const prismaMock = {
   $queryRawUnsafe: queryRawUnsafe,
@@ -28,10 +30,10 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 }));
 
 jest.unstable_mockModule('../../services/staff/payrollService.js', () => ({
-  calculateArrears: jest.fn(),
+  calculateArrears,
   editPayslipAndRegenerate: jest.fn(),
   executePayrollRun: jest.fn(),
-  generateAnnualTaxSummary: jest.fn(),
+  generateAnnualTaxSummary,
   issuePayrollRun: jest.fn(),
   revealPayslipCredential: jest.fn(),
   signPayrollRun: jest.fn(),
@@ -51,6 +53,12 @@ jest.unstable_mockModule('../../utils/r2Storage.js', () => ({
 }));
 
 const {
+  calculateRevisionArrears,
+  createAdvance,
+  generateAllTaxSummaries,
+  getAllAdvances,
+  getMyAdvances,
+  getMyTaxSummary,
   getStaffForPayroll,
   getStaffSalaryConfig,
   upsertStaffSalaryConfig,
@@ -194,5 +202,196 @@ describe('payroll salary configuration tenant scope', () => {
     }));
     expect(salaryUpsert.mock.calls[0][0].update).not.toHaveProperty('tenant_id');
     expect(res.status).toHaveBeenCalledWith(200);
+  });
+});
+
+describe('payroll tax, arrears, and advances controller tenant propagation', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('tenant-binds the self tax-summary read and generation call', async () => {
+    queryRawUnsafe.mockResolvedValueOnce([]);
+    generateAnnualTaxSummary.mockResolvedValueOnce({
+      id: 61,
+      staff_uid: STAFF_UID,
+      financial_year: '2026-27',
+    });
+
+    const res = makeRes();
+    await getMyTaxSummary({
+      tenantId: TENANT_ID,
+      user: { uid: STAFF_UID },
+      query: { fy: '2026-27' },
+    }, res);
+
+    expect(queryRawUnsafe).toHaveBeenCalledWith(
+      expect.stringContaining('tenant_id = $3::uuid'),
+      STAFF_UID,
+      '2026-27',
+      TENANT_ID,
+    );
+    expect(generateAnnualTaxSummary).toHaveBeenCalledWith(
+      STAFF_UID,
+      '2026-27',
+      TENANT_ID,
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('returns a conflict when the tenant-bound annual-summary upsert is rejected', async () => {
+    queryRawUnsafe.mockResolvedValueOnce([]);
+    generateAnnualTaxSummary.mockRejectedValueOnce(Object.assign(
+      new Error('Annual tax summary could not be stored for this tenant'),
+      { code: 'ANNUAL_TAX_SUMMARY_TENANT_CONFLICT' },
+    ));
+
+    const res = makeRes();
+    await getMyTaxSummary({
+      tenantId: TENANT_ID,
+      user: { uid: STAFF_UID },
+      query: { fy: '2026-27' },
+    }, res);
+
+    expect(res.status).toHaveBeenCalledWith(409);
+  });
+
+  it('tenant-binds mass summary enumeration and every generation call', async () => {
+    const secondStaffUid = '8e000000-0000-4000-8000-000000000003';
+    queryRawUnsafe.mockResolvedValueOnce([
+      { staff_uid: STAFF_UID },
+      { staff_uid: secondStaffUid },
+    ]);
+    generateAnnualTaxSummary.mockResolvedValue({ id: 61 });
+
+    const res = makeRes();
+    await generateAllTaxSummaries({
+      tenantId: TENANT_ID,
+      body: { financial_year: '2026-27' },
+    }, res);
+
+    expect(queryRawUnsafe).toHaveBeenCalledWith(
+      expect.stringContaining('WHERE tenant_id = $1::uuid'),
+      TENANT_ID,
+    );
+    expect(generateAnnualTaxSummary).toHaveBeenNthCalledWith(
+      1,
+      STAFF_UID,
+      '2026-27',
+      TENANT_ID,
+    );
+    expect(generateAnnualTaxSummary).toHaveBeenNthCalledWith(
+      2,
+      secondStaffUid,
+      '2026-27',
+      TENANT_ID,
+    );
+  });
+
+  it('passes the resolved tenant to arrears calculation', async () => {
+    calculateArrears.mockResolvedValueOnce({ arrears_amount: 5000, months: 1 });
+
+    const res = makeRes();
+    await calculateRevisionArrears({
+      tenantId: TENANT_ID,
+      params: { revisionId: '41' },
+    }, res);
+
+    // The arrears command now takes a third options argument carrying the
+    // idempotency/command evidence. The invariant this test exists for is
+    // unchanged: the RESOLVED tenant is what gets passed, in position two.
+    expect(calculateArrears).toHaveBeenCalledWith(41, TENANT_ID, expect.any(Object));
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('returns not found for a revision outside the resolved tenant', async () => {
+    calculateArrears.mockRejectedValueOnce(Object.assign(
+      new Error('Revision not found or not applied'),
+      { code: 'SALARY_REVISION_NOT_FOUND' },
+    ));
+
+    const res = makeRes();
+    await calculateRevisionArrears({
+      tenantId: TENANT_ID,
+      params: { revisionId: '41' },
+    }, res);
+
+    expect(res.status).toHaveBeenCalledWith(404);
+  });
+
+  it('creates an advance only from a staff identity in the resolved tenant', async () => {
+    queryRawUnsafe.mockResolvedValueOnce([{
+      id: 71,
+      staff_uid: STAFF_UID,
+      amount: '10000.00',
+      monthly_deduction: '1000.00',
+    }]);
+
+    const res = makeRes();
+    await createAdvance({
+      tenantId: TENANT_ID,
+      user: { uid: '8e000000-0000-4000-8000-000000000004' },
+      body: {
+        staff_uid: STAFF_UID,
+        amount: 10000,
+        monthly_deduction: 1000,
+        reason: 'Emergency advance',
+      },
+    }, res);
+
+    const [sql, ...params] = queryRawUnsafe.mock.calls[0];
+    expect(sql).toContain('tenant_id)');
+    expect(sql).toContain('WHERE u.tenant_id = $10::uuid AND u.uid = $1::uuid');
+    expect(params[0]).toBe(STAFF_UID);
+    expect(params[9]).toBe(TENANT_ID);
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('rejects an advance when the staff identity is absent from the resolved tenant', async () => {
+    queryRawUnsafe.mockResolvedValueOnce([]);
+
+    const res = makeRes();
+    await createAdvance({
+      tenantId: TENANT_ID,
+      user: { uid: '8e000000-0000-4000-8000-000000000004' },
+      body: {
+        staff_uid: STAFF_UID,
+        amount: 10000,
+        monthly_deduction: 1000,
+        reason: 'Emergency advance',
+      },
+    }, res);
+
+    expect(queryRawUnsafe.mock.calls[0][0]).toContain(
+      'WHERE u.tenant_id = $10::uuid AND u.uid = $1::uuid',
+    );
+    expect(res.status).toHaveBeenCalledWith(404);
+  });
+
+  it('tenant-binds self and administrative advance listings', async () => {
+    queryRawUnsafe.mockResolvedValue([]);
+
+    const selfRes = makeRes();
+    await getMyAdvances({
+      tenantId: TENANT_ID,
+      user: { uid: STAFF_UID },
+      query: {},
+    }, selfRes);
+    const [selfSql, ...selfParams] = queryRawUnsafe.mock.calls[0];
+    expect(selfSql).toContain('WHERE sa.tenant_id = $2::uuid AND sa.staff_uid = $1::uuid');
+    expect(selfSql).toContain('u.tenant_id = sa.tenant_id');
+    expect(selfSql).not.toContain('SELECT sa.*');
+    expect(selfParams).toEqual([STAFF_UID, TENANT_ID]);
+
+    const adminRes = makeRes();
+    await getAllAdvances({
+      tenantId: TENANT_ID,
+      query: { status: 'approved' },
+    }, adminRes);
+    const [adminSql, ...adminParams] = queryRawUnsafe.mock.calls[1];
+    expect(adminSql).toContain('WHERE sa.tenant_id = $1::uuid');
+    expect(adminSql).toContain('ss.tenant_id = sa.tenant_id');
+    expect(adminSql).not.toContain('SELECT sa.*');
+    expect(adminParams).toEqual([TENANT_ID, 'approved']);
   });
 });
