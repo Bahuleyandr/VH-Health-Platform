@@ -6430,3 +6430,66 @@ COMMENT ON TABLE pharmacy_funding_commands IS
   'Durable exact request/target claim checked before pharmacy funding decision mutation.';
 
 COMMIT;
+
+-- Schema bridge: tenant isolation for the two bridged allocation ledgers.
+-- Lifted verbatim from the full lane (both the permissive tenant_isolation
+-- and the restrictive explicit_tenant_context policies); the repo phi gate
+-- requires a tenant_isolation policy on every tenant_id-bearing table.
+ALTER TABLE pharmacy_advance_allocations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pharmacy_advance_allocations FORCE ROW LEVEL SECURITY;
+ALTER TABLE pharmacy_advance_allocation_reversals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pharmacy_advance_allocation_reversals FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS tenant_isolation ON pharmacy_advance_allocations;
+CREATE POLICY tenant_isolation ON pharmacy_advance_allocations
+  AS PERMISSIVE
+  USING (
+    current_setting('app.current_tenant_id',TRUE) IN ('','bypass')
+    OR current_setting('app.current_tenant_id',TRUE) IS NULL
+    OR tenant_id=public.app_current_tenant_id_uuid()
+  )
+  WITH CHECK (
+    current_setting('app.current_tenant_id',TRUE) IN ('','bypass')
+    OR current_setting('app.current_tenant_id',TRUE) IS NULL
+    OR tenant_id=public.app_current_tenant_id_uuid()
+  );
+DROP POLICY IF EXISTS explicit_tenant_context ON pharmacy_advance_allocations;
+CREATE POLICY explicit_tenant_context ON pharmacy_advance_allocations
+  AS RESTRICTIVE
+  USING (
+    current_setting('app.current_tenant_id',TRUE) IS NOT NULL
+    AND current_setting('app.current_tenant_id',TRUE) NOT IN ('','bypass')
+    AND tenant_id=public.app_current_tenant_id_uuid()
+  )
+  WITH CHECK (
+    current_setting('app.current_tenant_id',TRUE) IS NOT NULL
+    AND current_setting('app.current_tenant_id',TRUE) NOT IN ('','bypass')
+    AND tenant_id=public.app_current_tenant_id_uuid()
+  );
+
+DROP POLICY IF EXISTS tenant_isolation ON pharmacy_advance_allocation_reversals;
+CREATE POLICY tenant_isolation ON pharmacy_advance_allocation_reversals
+  AS PERMISSIVE
+  USING (
+    current_setting('app.current_tenant_id',TRUE) IN ('','bypass')
+    OR current_setting('app.current_tenant_id',TRUE) IS NULL
+    OR tenant_id=public.app_current_tenant_id_uuid()
+  )
+  WITH CHECK (
+    current_setting('app.current_tenant_id',TRUE) IN ('','bypass')
+    OR current_setting('app.current_tenant_id',TRUE) IS NULL
+    OR tenant_id=public.app_current_tenant_id_uuid()
+  );
+DROP POLICY IF EXISTS explicit_tenant_context ON pharmacy_advance_allocation_reversals;
+CREATE POLICY explicit_tenant_context ON pharmacy_advance_allocation_reversals
+  AS RESTRICTIVE
+  USING (
+    current_setting('app.current_tenant_id',TRUE) IS NOT NULL
+    AND current_setting('app.current_tenant_id',TRUE) NOT IN ('','bypass')
+    AND tenant_id=public.app_current_tenant_id_uuid()
+  )
+  WITH CHECK (
+    current_setting('app.current_tenant_id',TRUE) IS NOT NULL
+    AND current_setting('app.current_tenant_id',TRUE) NOT IN ('','bypass')
+    AND tenant_id=public.app_current_tenant_id_uuid()
+  );

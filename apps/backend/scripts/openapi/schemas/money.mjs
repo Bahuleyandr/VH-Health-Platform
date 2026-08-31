@@ -886,6 +886,19 @@ export const schemas = {
       settled_at: { type: 'string', format: 'date-time', nullable: true },
       tenant_id: { type: 'string', format: 'uuid' },
       advance_mode: { type: 'string' },
+      // Migration-753 bridge: a settlement converted from a pharmacy advance
+      // allocation carries its exact evidence lineage; legacy settlements
+      // return all four as null.
+      pharmacy_advance_allocation_id: { type: 'integer', nullable: true },
+      pharmacy_advance_allocation_evidence_sha256: {
+        type: 'string', nullable: true,
+      },
+      pharmacy_advance_conversion_command_sha256: {
+        type: 'string', nullable: true,
+      },
+      pharmacy_advance_conversion_evidence_sha256: {
+        type: 'string', nullable: true,
+      },
     },
   },
   TpaPreauth: {

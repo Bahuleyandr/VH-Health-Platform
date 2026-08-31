@@ -2655,6 +2655,22 @@
           },
           "advance_mode": {
             "type": "string"
+          },
+          "pharmacy_advance_allocation_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "pharmacy_advance_allocation_evidence_sha256": {
+            "type": "string",
+            "nullable": true
+          },
+          "pharmacy_advance_conversion_command_sha256": {
+            "type": "string",
+            "nullable": true
+          },
+          "pharmacy_advance_conversion_evidence_sha256": {
+            "type": "string",
+            "nullable": true
           }
         }
       },

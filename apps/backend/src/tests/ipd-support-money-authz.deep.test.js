@@ -335,7 +335,7 @@ async function cleanup() {
       TENANT, `${INVENTORY_SKU_PREFIX}-%`,
     );
     await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'origin'");
-  });
+  }, { timeout: 60_000, maxWait: 20_000 });
   if (fixtureInvoiceIds.length > 0) {
     await prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(
@@ -364,7 +364,7 @@ async function cleanup() {
       if (Number(deletedInvoices) !== fixtureInvoiceIds.length) {
         throw new Error('Fixture ward-indent invoices retain unexpected billing projections');
       }
-    });
+    }, { timeout: 60_000, maxWait: 20_000 });
   }
   await prisma.$executeRawUnsafe(
     `DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid`, PATIENT_UID,
@@ -487,7 +487,7 @@ async function cleanup() {
       [BILLING_UID, RECEPTIONIST_UID],
     );
     await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'origin'");
-  });
+  }, { timeout: 60_000, maxWait: 20_000 });
   await deleteWithAuditBypass(
     prisma,
     `DELETE FROM audit_logs
@@ -589,7 +589,7 @@ async function cleanup() {
         PRESCRIBER_UID,
       ],
     );
-  });
+  }, { timeout: 60_000, maxWait: 20_000 });
 }
 
 d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonicals (deep)', () => {

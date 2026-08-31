@@ -615,6 +615,7 @@ async function validateIpdAdvanceRefundParentSourceTx({
     parent_deposit_id: source.source_parent_deposit_id,
     receipt_number: source.source_receipt_number,
     payment_method: source.source_payment_method,
+    collected_by: source.source_collected_by,
   });
   const sourceRefundMode = IPD_REFUND_MODE_BY_INPUT.get(sourceEvidence.paymentMethod);
   if (!sourceRefundMode || sourceRefundMode !== command.mode) {

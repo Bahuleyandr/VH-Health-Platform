@@ -322,6 +322,12 @@ function installSqlRouter(overrides = {}) {
       return state.orderRows;
     }
 
+    // TPA line-decision admission discovery selects status instead of
+    // filtering on it; serve the same fixture rows.
+    if (sql.startsWith('SELECT id,patient_uid,status')
+        && sql.includes('FROM admissions')) {
+      return state.admissions;
+    }
     if (sql.includes('FROM admissions') && sql.includes("status='admitted'")) {
       return state.admissions;
     }
@@ -626,6 +632,14 @@ function installSqlRouter(overrides = {}) {
       return [event];
     }
 
+    // Posted-payment completion rechecks invoice refund-source headroom
+    // (resolveRefundSourceAuthorityTx, invoice branch); return generous headroom
+    // so the drivers proceed - mirrors the Authority/Retry suites' branch.
+    if (sql.includes('AS source_amount')
+        && sql.includes('AS active_refunds')
+        && sql.includes('AS pharmacy_allocations')) {
+      return [{ source_amount: '1000', active_refunds: '0', pharmacy_allocations: '0' }];
+    }
     if (sql.includes('SELECT id FROM pharmacy_stock_movements')) return state.stockRows;
     if (sql.includes('SELECT admission_id FROM pharmacy_cap_reservations')) {
       return state.reservationRows;

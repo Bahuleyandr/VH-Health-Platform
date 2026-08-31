@@ -359,6 +359,15 @@ function routeQuery(sql, ...params) {
   }
   // patientMergeStabilityLock takes a shared tenant-wide merge-stability lock
   // inside the billingV2Service setTenantTx flows before pharmacy funding work.
+  // Posted-payment completion now rechecks invoice refund-source headroom
+  // (billingV2Service resolveRefundSourceAuthorityTx, invoice branch). Return
+  // generous headroom so the happy paths proceed; the guard tests pin their own
+  // failures elsewhere.
+  if (text.includes('AS source_amount')
+      && text.includes('AS active_refunds')
+      && text.includes('AS pharmacy_allocations')) {
+    return [{ source_amount: '1000', active_refunds: '0', pharmacy_allocations: '0' }];
+  }
   if (text.startsWith('SELECT 1 AS locked FROM pg_advisory_xact_lock_shared(')
       && text.includes('hashtextextended($1::text, 0)')) {
     return [{ locked: 1 }];
