@@ -3269,6 +3269,49 @@ export async function settleAdvance({ tenantId, advance_id, invoice_id, amount, 
         'BILLING_ADVANCE_SETTLEMENT_AUTHORITY_CHANGED',
       );
     }
+    // Admission-scope authority (assert_pharmacy_advance_patient_scope_753).
+    // The settlement lineage trigger rejects an advance whose admission scope
+    // does not govern the invoice's. Reproduce that rule here so the caller
+    // gets a typed error instead of a raw 23514 surfacing as a 500. The
+    // timestamp comparison is done in SQL so it uses the same clock and the
+    // same COALESCE the trigger uses.
+    const invoiceAdmissionId = inv.admission_id == null ? null : Number(inv.admission_id);
+    if (invoiceAdmissionId === null) {
+      if (lockedAdvanceAdmissionId !== null) {
+        throw AppError.forbidden(
+          'Advance is bound to an admission this invoice does not cover',
+          'BILLING_ADVANCE_INVOICE_ADMISSION_MISMATCH',
+        );
+      }
+    } else if (lockedAdvanceAdmissionId !== invoiceAdmissionId) {
+      const scopeRows = await tx.$queryRawUnsafe(
+        `SELECT COALESCE(admitted_at, created_at) IS NOT NULL AS has_start,
+                ($3::timestamptz <= COALESCE(admitted_at, created_at)) AS collected_before
+           FROM admissions
+          WHERE tenant_id = $1::uuid
+            AND id = $2::int`,
+        tenant,
+        invoiceAdmissionId,
+        adv.collected_at ? new Date(adv.collected_at).toISOString() : null,
+      );
+      const scope = scopeRows?.[0] ?? null;
+      if (!scope || scope.has_start !== true) {
+        throw AppError.forbidden(
+          'Invoice admission authority is missing',
+          'BILLING_ADVANCE_INVOICE_ADMISSION_MISMATCH',
+        );
+      }
+      // An admission-less advance may fund an admission invoice only when it
+      // was collected at or before that admission began.
+      const priorToAdmission = lockedAdvanceAdmissionId === null
+        && scope.collected_before === true;
+      if (!priorToAdmission) {
+        throw AppError.forbidden(
+          'Advance is outside the governed patient/admission scope for this invoice',
+          'BILLING_ADVANCE_INVOICE_ADMISSION_MISMATCH',
+        );
+      }
+    }
     if (adv.status !== 'ACTIVE') throw AppError.badRequest(`Advance is ${adv.status}`);
     const fundingHeadroom = await calculateAdvanceFundingHeadroomTx(tx, advance_id);
     if (toPaise(amount) > toPaise(fundingHeadroom.available)) {
