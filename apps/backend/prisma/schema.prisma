@@ -671,6 +671,7 @@ model advance_deposits {
   updated_at        DateTime @default(now()) @db.Timestamptz(6)
 
   @@unique([tenant_id, receipt_number], map: "uniq_advance_deposits_tenant_receipt_number")
+  @@unique([tenant_id, id, patient_uid, admission_id, amount, payment_method, collected_by, collected_at], map: "ux_advance_deposits_ipd_source_753")
   @@index([admission_id])
   @@index([parent_deposit_id])
   @@index([patient_uid])
@@ -1834,10 +1835,20 @@ model billing_advance_settlements {
   pharmacy_advance_allocation_evidence_sha256 String?   @db.Char(64)
   pharmacy_advance_conversion_command_sha256  String?   @db.Char(64)
   pharmacy_advance_conversion_evidence_sha256 String?   @db.Char(64)
+  pharmacy_advance_settlement_receipt_id      BigInt?
 
+  @@unique([tenant_id, id, advance_id, invoice_id, amount], map: "ux_billing_advance_settlements_exact_753")
+  @@unique([tenant_id, pharmacy_advance_allocation_id], map: "ux_billing_advance_settlements_pharmacy_allocation_753", where: raw("(pharmacy_advance_allocation_id IS NOT NULL)"))
+  @@unique([tenant_id, pharmacy_advance_settlement_receipt_id, pharmacy_advance_conversion_command_sha256, pharmacy_advance_allocation_id], map: "ux_billing_advance_settlements_pharmacy_command_753", where: raw("(pharmacy_advance_conversion_command_sha256 IS NOT NULL)"))
+  @@unique([tenant_id, id, advance_id, invoice_id, amount, settled_by, pharmacy_advance_allocation_id, pharmacy_advance_settlement_receipt_id, pharmacy_advance_allocation_evidence_sha256, pharmacy_advance_conversion_command_sha256, pharmacy_advance_conversion_evidence_sha256], map: "ux_billing_advance_settlements_pharmacy_exact_753")
+  @@unique([tenant_id, pharmacy_advance_settlement_receipt_id, pharmacy_advance_allocation_id], map: "ux_billing_advance_settlements_pharmacy_receipt_allocation_753", where: raw("(pharmacy_advance_settlement_receipt_id IS NOT NULL)"))
   @@index([advance_id], map: "idx_advance_settle_advance")
   @@index([invoice_id], map: "idx_advance_settle_invoice")
   @@index([tenant_id], map: "idx_billing_advance_settlements_tenant_id")
+  @@index([tenant_id, advance_id, settled_at, id], map: "idx_billing_advance_settlements_capacity_753")
+  @@index([tenant_id, pharmacy_advance_allocation_id, advance_id, invoice_id, amount, pharmacy_advance_allocation_evidence_sha256, id], map: "idx_billing_advance_settlements_pharmacy_fk_753", where: raw("(pharmacy_advance_allocation_id IS NOT NULL)"))
+  @@index([tenant_id, advance_id, id], map: "idx_billing_advance_settlements_tenant_advance_753")
+  @@index([tenant_id, invoice_id, id], map: "idx_billing_advance_settlements_tenant_invoice_753")
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
@@ -1861,10 +1872,12 @@ model billing_advances {
   ipd_advance_deposit_collected_at   DateTime? @db.Timestamptz(6)
 
   @@unique([tenant_id, id], map: "ux_billing_advances_tenant_id_747")
+  @@unique([tenant_id, ipd_advance_deposit_id], map: "ux_billing_advances_ipd_source_753", where: raw("(ipd_advance_deposit_id IS NOT NULL)"))
   @@index([admission_id], map: "idx_advances_admission", where: raw("(admission_id IS NOT NULL)"))
   @@index([patient_uid], map: "idx_advances_patient")
   @@index([status], map: "idx_advances_status")
   @@index([tenant_id], map: "idx_billing_advances_tenant_id")
+  @@index([tenant_id, ipd_advance_deposit_id, patient_uid, admission_id, amount, ipd_advance_deposit_payment_method, collected_by, ipd_advance_deposit_collected_at, id], map: "idx_billing_advances_ipd_source_fk_753", where: raw("(ipd_advance_deposit_id IS NOT NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -2169,6 +2182,7 @@ model billing_refunds {
   @@index([patient_uid], map: "idx_refunds_patient")
   @@index([raised_at(sort: Desc)], map: "idx_refunds_raised_at")
   @@index([approval_status], map: "idx_refunds_status")
+  @@index([tenant_id, advance_id, approval_status, raised_at, id], map: "idx_billing_refunds_advance_capacity_753", where: raw("((advance_id IS NOT NULL) AND ((approval_status)::text <> 'REJECTED'::text))"))
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
@@ -25758,6 +25772,15 @@ model pharmacy_advance_allocation_reversals {
   reversed_at                   DateTime @default(now()) @db.Timestamptz(6)
   evidence                      Json
   evidence_sha256               String   @default(dbgenerated("encode(digest((evidence)::text, 'sha256'::text), 'hex'::text)")) @db.Char(64)
+
+  @@unique([tenant_id, reversal_command_sha256, allocation_id], map: "ux_pharmacy_advance_allocation_reversals_command_753")
+  @@unique([tenant_id, billing_advance_settlement_id], map: "ux_pharmacy_advance_allocation_reversals_settlement_753", where: raw("(billing_advance_settlement_id IS NOT NULL)"))
+  @@unique([tenant_id, funding_release_receipt_id, allocation_id], map: "ux_pharmacy_advance_reversal_release_receipt_753", where: raw("(funding_release_receipt_id IS NOT NULL)"))
+  @@unique([tenant_id, funding_settlement_receipt_id, allocation_id], map: "ux_pharmacy_advance_reversal_settlement_receipt_753", where: raw("(funding_settlement_receipt_id IS NOT NULL)"))
+  @@index([tenant_id, reversed_by, id], map: "idx_pharmacy_advance_allocation_reversals_actor_753")
+  @@index([tenant_id, allocation_id, reversed_at, id], map: "idx_pharmacy_advance_allocation_reversals_allocation_753")
+  @@index([tenant_id, allocation_id, pharmacy_order_id, invoice_id, invoice_item_id, billing_advance_id, source_authority_version, source_authority_sha256, funding_task_id, funding_approval_receipt_id, allocation_evidence_sha256, id], map: "idx_pharmacy_advance_reversals_exact_fk_753")
+  @@index([tenant_id, billing_advance_settlement_id, billing_advance_id, invoice_id, reversed_amount, reversed_by, allocation_id, funding_settlement_receipt_id, allocation_evidence_sha256, reversal_command_sha256, evidence_sha256, id], map: "idx_pharmacy_advance_reversals_settlement_fk_753", where: raw("(billing_advance_settlement_id IS NOT NULL)"))
 }
 
 model pharmacy_advance_allocations {
@@ -25777,6 +25800,18 @@ model pharmacy_advance_allocations {
   allocated_at                DateTime @default(now()) @db.Timestamptz(6)
   evidence                    Json
   evidence_sha256             String   @default(dbgenerated("encode(digest((evidence)::text, 'sha256'::text), 'hex'::text)")) @db.Char(64)
+
+  @@unique([tenant_id, allocation_command_sha256], map: "ux_pharmacy_advance_allocations_command_753")
+  @@unique([tenant_id, funding_approval_receipt_id, billing_advance_id, invoice_item_id, source_authority_version, source_authority_sha256], map: "ux_pharmacy_advance_allocations_exact_753")
+  @@unique([tenant_id, id, pharmacy_order_id, invoice_id, invoice_item_id, billing_advance_id, source_authority_version, source_authority_sha256, funding_task_id, funding_approval_receipt_id, evidence_sha256], map: "ux_pharmacy_advance_allocations_identity_753")
+  @@unique([tenant_id, id, billing_advance_id, invoice_id, allocated_amount, evidence_sha256], map: "ux_pharmacy_advance_allocations_settlement_753")
+  @@index([tenant_id, allocated_by, id], map: "idx_pharmacy_advance_allocations_actor_753")
+  @@index([tenant_id, funding_approval_receipt_id, funding_task_id, pharmacy_order_id, invoice_item_id, id], map: "idx_pharmacy_advance_allocations_approval_receipt_753")
+  @@index([tenant_id, billing_advance_id, allocated_at, id], map: "idx_pharmacy_advance_allocations_capacity_753")
+  @@index([tenant_id, invoice_id, invoice_item_id, id], map: "idx_pharmacy_advance_allocations_invoice_753")
+  @@index([tenant_id, invoice_item_id, invoice_id, id], map: "idx_pharmacy_advance_allocations_item_753")
+  @@index([tenant_id, pharmacy_order_id, source_authority_version, source_authority_sha256, id], map: "idx_pharmacy_advance_allocations_order_753")
+  @@index([tenant_id, funding_task_id, id], map: "idx_pharmacy_advance_allocations_task_753")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -25892,34 +25927,74 @@ model pharmacy_delivery_location_updates {
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model pharmacy_funding_commands {
-  id                      BigInt    @id @default(autoincrement())
-  tenant_id               String    @db.Uuid
-  command_key_sha256      String    @db.Char(64)
-  command_type            String    @db.VarChar(40)
-  task_id                 Int
-  task_resource_type      String    @db.VarChar(60)
-  task_resource_id        String    @db.VarChar(120)
-  pharmacy_order_id       Int
-  facility_id             Int?
-  invoice_id              Int?
-  invoice_item_id         Int
-  tpa_claim_id            Int?
-  approval_receipt_id     BigInt?
-  consumption_receipt_id  BigInt?
-  governance_approval_id  Int?
-  proposal_sha256         String?   @db.Char(64)
-  proposer_uid            String?   @db.Uuid
-  approved_patient_amount Decimal?  @db.Decimal(12, 2)
-  request_sha256          String    @db.Char(64)
-  status                  String    @default("IN_PROGRESS") @db.VarChar(20)
-  response_body           Json?
-  created_by              String    @db.Uuid
-  created_at              DateTime  @default(now()) @db.Timestamptz(6)
-  completed_at            DateTime? @db.Timestamptz(6)
+  id                             BigInt    @id @default(autoincrement())
+  tenant_id                      String    @db.Uuid
+  command_key_sha256             String    @db.Char(64)
+  command_type                   String    @db.VarChar(40)
+  task_id                        Int
+  task_resource_type             String    @db.VarChar(60)
+  task_resource_id               String    @db.VarChar(120)
+  pharmacy_order_id              Int
+  facility_id                    Int?
+  invoice_id                     Int?
+  invoice_item_id                Int
+  tpa_claim_id                   Int?
+  approval_receipt_id            BigInt?
+  consumption_receipt_id         BigInt?
+  governance_approval_id         Int?
+  proposal_sha256                String?   @db.Char(64)
+  proposer_uid                   String?   @db.Uuid
+  approved_patient_amount        Decimal?  @db.Decimal(12, 2)
+  request_sha256                 String    @db.Char(64)
+  status                         String    @default("IN_PROGRESS") @db.VarChar(20)
+  response_body                  Json?
+  created_by                     String    @db.Uuid
+  created_at                     DateTime  @default(now()) @db.Timestamptz(6)
+  completed_at                   DateTime? @db.Timestamptz(6)
+  reservation_authority          Json?
+  reservation_plan               Json?
+  order_mutation_command_sha256  String?   @db.Char(64)
+  reservation_plan_sha256        String?   @db.Char(64)
+  order_mutation_request_sha256  String?   @db.Char(64)
+  order_mutation_action          String?   @db.VarChar(64)
+  patient_uid                    String?   @db.Uuid
+  completed_transaction_id       BigInt?
+  order_mutation_receipt_id      BigInt?
+  release_source_approval_id     Int?
+  reservation_authority_sha256   String?   @db.Char(64)
+  release_reason                 String?   @db.VarChar(40)
+  order_mutation_evidence_sha256 String?   @db.Char(64)
+  reserved_at                    DateTime? @db.Timestamptz(6)
+  reserved_transaction_id        BigInt?
 
   @@unique([tenant_id, command_key_sha256], map: "ux_pharmacy_funding_commands_key_753")
+  @@unique([tenant_id, approval_receipt_id], map: "ux_pharmacy_advance_release_approval_753", where: raw("((command_type)::text = 'PHARMACY_ADVANCE_RELEASE'::text)"))
+  @@unique([tenant_id, release_source_approval_id], map: "ux_pharmacy_advance_release_source_753", where: raw("(((command_type)::text = 'PHARMACY_ADVANCE_RELEASE'::text) AND (release_source_approval_id IS NOT NULL))"))
+  @@unique([tenant_id, task_id], map: "ux_pharmacy_advance_release_task_753", where: raw("((command_type)::text = 'PHARMACY_ADVANCE_RELEASE'::text)"))
+  @@unique([tenant_id, consumption_receipt_id], map: "ux_pharmacy_advance_settlement_consumption_753", where: raw("((command_type)::text = 'PHARMACY_ADVANCE_SETTLEMENT'::text)"))
+  @@unique([tenant_id, id, approval_receipt_id, consumption_receipt_id, pharmacy_order_id, facility_id, invoice_id, invoice_item_id, created_by], map: "ux_pharmacy_advance_settlement_receipt_identity_753", where: raw("((command_type)::text = 'PHARMACY_ADVANCE_SETTLEMENT'::text)"))
+  @@unique([tenant_id, task_id], map: "ux_pharmacy_advance_settlement_task_753", where: raw("((command_type)::text = 'PHARMACY_ADVANCE_SETTLEMENT'::text)"))
+  @@unique([tenant_id, task_id], map: "ux_pharmacy_funding_approval_task_753", where: raw("((command_type)::text = 'SUBSTITUTION_FUNDING_APPROVAL'::text)"))
+  @@unique([tenant_id, id, invoice_id, created_by], map: "ux_pharmacy_funding_command_invoice_actor_753")
+  @@unique([tenant_id, id, approval_receipt_id, pharmacy_order_id, invoice_id, invoice_item_id, created_by], map: "ux_pharmacy_funding_command_reversal_receipt_753")
+  @@unique([tenant_id, id, task_id, pharmacy_order_id, invoice_item_id, approved_patient_amount], map: "ux_pharmacy_funding_commands_approval_amount_753")
+  @@unique([tenant_id, id, approval_receipt_id, pharmacy_order_id, facility_id, invoice_id, invoice_item_id, governance_approval_id, proposal_sha256, proposer_uid, patient_uid], map: "ux_pharmacy_funding_commands_consumption_identity_753")
+  @@unique([tenant_id, id, pharmacy_order_id, facility_id, invoice_id, invoice_item_id, governance_approval_id, proposal_sha256, proposer_uid, patient_uid], map: "ux_pharmacy_funding_commands_governance_identity_753")
+  @@unique([tenant_id, order_mutation_receipt_id], map: "ux_pharmacy_funding_commands_order_mutation_753", where: raw("(order_mutation_receipt_id IS NOT NULL)"))
+  @@unique([tenant_id, id, task_id, pharmacy_order_id, invoice_item_id, approval_receipt_id, command_key_sha256], map: "ux_pharmacy_funding_commands_pair_identity_753")
+  @@unique([tenant_id, id, task_id, pharmacy_order_id, invoice_item_id], map: "ux_pharmacy_funding_commands_receipt_identity_753")
+  @@unique([tenant_id, id], map: "ux_pharmacy_funding_commands_tenant_id_753")
+  @@unique([tenant_id, approval_receipt_id], map: "ux_pharmacy_funding_consumption_approval_753", where: raw("((command_type)::text = 'SUBSTITUTION_FUNDING_CONSUMPTION'::text)"))
+  @@unique([tenant_id, task_id], map: "ux_pharmacy_funding_consumption_task_753", where: raw("((command_type)::text = 'SUBSTITUTION_FUNDING_CONSUMPTION'::text)"))
   @@index([tenant_id, invoice_item_id, invoice_id, id], map: "idx_pharmacy_funding_commands_item_753")
   @@index([tenant_id, task_id, task_resource_type, task_resource_id, id], map: "idx_pharmacy_funding_commands_task_753")
+  @@index([tenant_id, created_by, id], map: "idx_pharmacy_funding_commands_actor_753")
+  @@index([tenant_id, approval_receipt_id, task_id, pharmacy_order_id, invoice_item_id], map: "idx_pharmacy_funding_commands_approval_receipt_753", where: raw("(approval_receipt_id IS NOT NULL)"))
+  @@index([tenant_id, tpa_claim_id, id], map: "idx_pharmacy_funding_commands_claim_753", where: raw("(tpa_claim_id IS NOT NULL)"))
+  @@index([tenant_id, governance_approval_id, proposal_sha256, proposer_uid, id], map: "idx_pharmacy_funding_commands_governance_753", where: raw("(governance_approval_id IS NOT NULL)"))
+  @@index([tenant_id, invoice_id, invoice_item_id, id], map: "idx_pharmacy_funding_commands_invoice_753", where: raw("(invoice_id IS NOT NULL)"))
+  @@index([tenant_id, pharmacy_order_id, facility_id, id], map: "idx_pharmacy_funding_commands_order_753")
+  @@index([tenant_id, proposer_uid, id], map: "idx_pharmacy_funding_commands_proposer_753", where: raw("(proposer_uid IS NOT NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -26059,17 +26134,20 @@ model pharmacy_inventory_authority_recovery_worklist {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model pharmacy_order_command_receipts {
-  id                 BigInt   @id @default(autoincrement())
-  tenant_id          String   @db.Uuid
-  pharmacy_order_id  Int
-  action             String   @db.VarChar(64)
-  command_key_sha256 String   @db.Char(64)
-  request_sha256     String   @db.Char(64)
-  response_payload   Json
-  response_message   String?  @db.VarChar(255)
-  created_at         DateTime @default(now()) @db.Timestamptz(6)
+  id                       BigInt   @id @default(autoincrement())
+  tenant_id                String   @db.Uuid
+  pharmacy_order_id        Int
+  action                   String   @db.VarChar(64)
+  command_key_sha256       String   @db.Char(64)
+  request_sha256           String   @db.Char(64)
+  response_payload         Json
+  response_message         String?  @db.VarChar(255)
+  created_at               DateTime @default(now()) @db.Timestamptz(6)
+  response_evidence_sha256 String   @default(dbgenerated("encode(digest((response_payload)::text, 'sha256'::text), 'hex'::text)")) @db.Char(64)
+  authority_transaction_id BigInt?
 
   @@unique([tenant_id, pharmacy_order_id, action, command_key_sha256], map: "ux_pharmacy_order_command_receipts_753")
+  @@unique([tenant_id, id, pharmacy_order_id, action, command_key_sha256, request_sha256, response_evidence_sha256], map: "ux_pharmacy_order_command_receipt_evidence_753")
   @@index([tenant_id, pharmacy_order_id, created_at(sort: Desc)], map: "idx_pharmacy_order_command_receipts_order_753")
 }
 
@@ -26388,6 +26466,37 @@ model salary_revision_payables {
   @@unique([tenant_id, id], map: "ux_salary_revision_payables_tenant_id_id")
   @@unique([tenant_id, revision_id], map: "ux_salary_revision_payables_tenant_revision")
   @@index([tenant_id, staff_uid, status, id], map: "idx_salary_revision_payables_staff_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model pharmacy_advance_allocation_consumptions {
+  id                             BigInt   @id @default(autoincrement())
+  tenant_id                      String   @db.Uuid
+  allocation_id                  BigInt
+  pharmacy_order_id              Int
+  invoice_id                     Int
+  invoice_item_id                Int
+  billing_advance_id             Int
+  source_authority_version       Int
+  source_authority_sha256        String   @db.Char(64)
+  funding_task_id                Int
+  funding_approval_receipt_id    BigInt
+  allocation_evidence_sha256     String   @db.Char(64)
+  funding_consumption_receipt_id BigInt
+  consumption_command_sha256     String   @db.Char(64)
+  consumed_by                    String   @db.Uuid
+  consumed_at                    DateTime @default(now()) @db.Timestamptz(6)
+  evidence                       Json
+  evidence_sha256                String   @default(dbgenerated("encode(digest((evidence)::text, 'sha256'::text), 'hex'::text)")) @db.Char(64)
+
+  @@unique([tenant_id, allocation_id], map: "ux_pharmacy_advance_consumptions_allocation_753")
+  @@unique([tenant_id, id, allocation_id, funding_consumption_receipt_id, consumption_command_sha256, evidence_sha256], map: "ux_pharmacy_advance_consumptions_identity_753")
+  @@index([tenant_id, consumed_by, id], map: "idx_pharmacy_advance_consumptions_actor_753")
+  @@index([tenant_id, allocation_id, pharmacy_order_id, invoice_id, invoice_item_id, billing_advance_id, source_authority_version, source_authority_sha256, funding_task_id, funding_approval_receipt_id, allocation_evidence_sha256, id], map: "idx_pharmacy_advance_consumptions_exact_fk_753")
+  @@index([tenant_id, pharmacy_order_id, source_authority_version, source_authority_sha256, id], map: "idx_pharmacy_advance_consumptions_order_753")
+  @@index([tenant_id, funding_consumption_receipt_id, funding_task_id, pharmacy_order_id, invoice_item_id, funding_approval_receipt_id, consumption_command_sha256, allocation_id, id], map: "idx_pharmacy_advance_consumptions_receipt_753")
 }
 
 enum transplant_organ_type {
