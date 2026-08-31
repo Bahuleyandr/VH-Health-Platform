@@ -24,6 +24,8 @@ import {
   reserveWardIndent,
 } from '../services/ipd/ipdSupportService.js';
 import { verifyOrder } from '../services/emr/orderEntryService.js';
+import { bindMedicationOrderCatalogAuthority } from '../services/ipd/wardIndentWorkflowService.js';
+import { seedMedicationFacilityAuthority } from './helpers/medicationEvidenceFixture.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const describeIfDb = databaseUrl ? describe : describe.skip;
@@ -39,9 +41,13 @@ describeIfDb('MED-03 billing safety regressions', () => {
   const otherPatient = randomUUID();
   const issueRacePatient = randomUUID();
   const run = `${process.pid}-${Date.now()}`;
+  const compositionKey = `med03-billing-safety-${tenantId}`;
   let previousLedgerMode;
   let wardId;
+  let facilityId;
+  let storageLocationId;
   let catalogId;
+  let catalog;
   let admissionId;
   let encounterId;
 
@@ -58,6 +64,8 @@ describeIfDb('MED-03 billing safety regressions', () => {
         'ledger_balances',
         'ledger_accounts',
         'idempotency_keys',
+        'pharmacy_staff_facility_grant_events',
+        'pharmacy_staff_facility_grants',
         'task_comments',
         'tasks',
         'notification_outbox',
@@ -89,6 +97,9 @@ describeIfDb('MED-03 billing safety regressions', () => {
         'pharmacy_catalog',
         'beds',
         'wards',
+        'facility_locations',
+        'facilities',
+        'staff',
         'audit_logs',
         'users',
       ]) {
@@ -98,6 +109,12 @@ describeIfDb('MED-03 billing safety regressions', () => {
         );
       }
       await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'origin'`);
+      // drug_compositions is a shared, tenant-less formulary table, so this suite
+      // removes only the composition it keyed to its own tenant id.
+      await tx.$executeRawUnsafe(
+        `DELETE FROM drug_compositions WHERE composition_key = $1::text`,
+        compositionKey,
+      );
       await tx.$executeRawUnsafe(
         `DELETE FROM tenants WHERE id = $1::uuid`,
         tenantId,
@@ -106,24 +123,36 @@ describeIfDb('MED-03 billing safety regressions', () => {
   }
 
   async function createWardCharge(label) {
+    // Bind the prescribed identity to the catalog at prescribe time, exactly as CPOE
+    // does; the issue-time re-bind compares the stored catalog_authority_sha256, so a
+    // hand-rolled details blob would fail closed even with a complete catalog.
+    const orderDetails = bindMedicationOrderCatalogAuthority({
+      catalog_id: catalogId,
+      medication_name: catalog.name,
+      dose: '500 mg',
+      route: catalog.route,
+      strength: catalog.strength,
+      strength_key: catalog.strength_key,
+      form: catalog.form,
+      form_key: catalog.form_key,
+      release_key: catalog.release_key,
+      quantity_requested: 2,
+      unit: 'each',
+    }, catalog, { phase: 'create' });
     const order = (await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_orders
          (tenant_id, order_number, patient_uid, encounter_id, order_type, status,
-          ordered_by, details, updated_at)
+          ordered_by, details, route, updated_at)
        VALUES ($1::uuid, $2::text, $3::uuid, $4::uuid, 'medication', 'ordered',
-               $5::uuid,
-               jsonb_build_object(
-                 'catalog_id', $6::int,
-                 'quantity_requested', 2,
-                 'unit', 'each'
-               ), NOW())
+               $5::uuid, $6::jsonb, $7::text, NOW())
        RETURNING id`,
       tenantId,
       `MED03-BILLING-${label}-${run}`.slice(0, 80),
       patient,
       encounterId,
       requester,
-      catalogId,
+      JSON.stringify(orderDetails),
+      catalog.route,
     ))[0];
     await verifyOrder(Number(order.id), pharmacist, {
       tenantId,
@@ -244,12 +273,16 @@ describeIfDb('MED-03 billing safety regressions', () => {
       `MED03-POLICY-${run}`,
       billingOwner,
     ))[0];
+    // Migration 753's enforce_tpa_claim_authority_753() reads the pre-auth and the
+    // invoice back by (tenant, patient) and refuses either whose admission_id differs
+    // from the claim's. The charged invoice is admission-bound, so the pre-auth and
+    // the claim must name that same admission — a NULL here is a cross-episode claim.
     const preauth = (await prisma.$queryRawUnsafe(
       `INSERT INTO insurance_preauth
-         (tenant_id, policy_id, patient_uid, preauth_number,
+         (tenant_id, policy_id, patient_uid, admission_id, preauth_number,
           primary_diagnosis, expected_cost, status, sanctioned_amount,
           sanctioned_at, created_by)
-       VALUES ($1::uuid, $2::int, $3::uuid, $4::text,
+       VALUES ($1::uuid, $2::int, $3::uuid, $7::int, $4::text,
                'Medication benefit', $5::numeric, 'approved', $5::numeric,
                NOW(), $6::uuid)
        RETURNING id`,
@@ -259,15 +292,16 @@ describeIfDb('MED-03 billing safety regressions', () => {
       `MED03-PREAUTH-${run}`,
       totalAmount,
       billingOwner,
+      admissionId,
     ))[0];
     await prisma.$executeRawUnsafe(
       `INSERT INTO tpa_claims
          (tenant_id, claim_number, policy_id, preauth_id, invoice_id,
-          patient_uid, claim_type, stage, total_billed, claimed_amount,
-          status, submitted_at, submitted_by, created_by)
+          patient_uid, admission_id, claim_type, stage, total_billed,
+          claimed_amount, status, submitted_at, submitted_by, created_by)
        VALUES ($1::uuid, $2::text, $3::int, $4::int, $5::int,
-               $6::uuid, 'cashless', 'final', $7::numeric, $7::numeric,
-               'submitted', NOW(), $8::uuid, $8::uuid)`,
+               $6::uuid, $9::int, 'cashless', 'final', $7::numeric,
+               $7::numeric, 'submitted', NOW(), $8::uuid, $8::uuid)`,
       tenantId,
       `MED03-CLAIM-${run}`,
       Number(policy.id),
@@ -276,6 +310,7 @@ describeIfDb('MED-03 billing safety regressions', () => {
       patient,
       totalAmount,
       billingOwner,
+      admissionId,
     );
   }
 
@@ -317,15 +352,33 @@ describeIfDb('MED-03 billing safety regressions', () => {
       issueRacePatient,
       tenantId,
     );
+    // Migration 753 made pharmacy custody the authority for this whole path: an
+    // active item needs a facility and a catalog, an in-stock batch needs that
+    // facility plus an ACTIVE storage location, and createWardIndent refuses a ward
+    // that is not bound to an active facility. Seed the real chain — facility,
+    // storage location, pharmacist staff row and an ACTIVE grant issued through the
+    // admin command — rather than bare rows.
+    const authority = await seedMedicationFacilityAuthority({
+      prisma,
+      tenantId,
+      pharmacistUid: pharmacist,
+      grantAdminUid: admin,
+      run: `billing-safety-${run}`,
+    });
+    facilityId = authority.facilityId;
+    storageLocationId = authority.storageLocationId;
     wardId = Number((await prisma.$queryRawUnsafe(
-      `INSERT INTO wards (tenant_id, name, total_beds, created_at, updated_at)
-       VALUES ($1::uuid, $2::text, 10, NOW(), NOW())
+      `INSERT INTO wards (tenant_id, name, facility_id, total_beds, created_at, updated_at)
+       VALUES ($1::uuid, $2::text, $3::int, 10, NOW(), NOW())
        RETURNING id`,
       tenantId,
       `MED-03 Billing Safety Ward ${run}`,
+      facilityId,
     ))[0].id);
     encounterId = randomUUID();
-    const bedNumber = `MED03-BILLING-${run}`.slice(0, 50);
+    // beds.bed_number is VARCHAR(20) (migration 001) while admissions.bed_number is
+    // VARCHAR(50); the same literal goes into both, so it has to fit the narrower one.
+    const bedNumber = `M3B-${run.slice(-16)}`;
     const bedId = Number((await prisma.$queryRawUnsafe(
       `INSERT INTO beds
          (tenant_id, ward_id, ward_name, bed_number, status, patient_uid,
@@ -354,34 +407,63 @@ describeIfDb('MED-03 billing safety regressions', () => {
       `MED-03 Billing Safety Ward ${run}`,
       requester,
     ))[0].id);
-    catalogId = Number((await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_catalog
-         (tenant_id, name, is_active, stock_quantity, unit_price, price, updated_at)
-       VALUES ($1::uuid, $2::text, TRUE, 20, 12.50, 12.50, NOW())
+    // A ward-indent medication line carries the prescribing product identity all the
+    // way to issue: assertWardIndentMedicationBindingAtIssueTx re-runs
+    // bindMedicationOrderCatalogAuthority, which requires a high-confidence
+    // composition plus strength/form/route/release on the catalog row. A bare
+    // name-and-price row is no longer a prescribable product.
+    const compositionId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO drug_compositions
+         (composition_key, display_label, active_ingredients, source)
+       VALUES ($1::text, 'MED-03 billing safety fixture paracetamol',
+               ARRAY['paracetamol']::text[], 'curated')
        RETURNING id`,
+      compositionKey,
+    ))[0].id);
+    catalog = (await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_catalog
+         (tenant_id, name, generic_name, is_active, stock_quantity,
+          unit_price, price, composition_id, composition_confidence,
+          composition_source, strength, strength_key, strength_components,
+          form, form_key, release_key, route, updated_at)
+       VALUES ($1::uuid, $2::text, 'Paracetamol', TRUE, 20,
+               12.50, 12.50, $3::int, 'high', 'test_fixture',
+               '500 mg', '500mg', $4::jsonb,
+               'tablet', 'tablet', 'ir', 'oral', NOW())
+       RETURNING id, name, generic_name, composition_id,
+                 composition_confidence, composition_source,
+                 strength, strength_key, strength_components,
+                 form, form_key, release_key, route`,
       tenantId,
       `MED-03 Billing Safety Medicine ${run}`,
-    ))[0].id);
+      compositionId,
+      JSON.stringify([{ ingredient: 'paracetamol', value: '500', unit: 'mg' }]),
+    ))[0];
+    catalogId = Number(catalog.id);
     const inventoryItemId = Number((await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_inventory_items
-         (tenant_id, sku_code, display_name, catalog_id, unit_label,
+         (tenant_id, sku_code, display_name, catalog_id, facility_id, unit_label,
           schedule_class, is_narcotic)
-       VALUES ($1::uuid, $2::text, $3::text, $4::int, 'each', 'OTC', FALSE)
+       VALUES ($1::uuid, $2::text, $3::text, $4::int, $5::int, 'each', 'OTC', FALSE)
        RETURNING id`,
       tenantId,
       `MED03-BILLING-${run}`,
       `MED-03 Billing Safety Medicine ${run}`,
       catalogId,
+      facilityId,
     ))[0].id);
     await prisma.$executeRawUnsafe(
       `INSERT INTO pharmacy_inventory_batches
-         (tenant_id, inventory_item_id, batch_number, expiry_date,
+         (tenant_id, inventory_item_id, facility_id, storage_location_id,
+          batch_number, expiry_date,
           received_quantity, remaining_quantity, status)
-       VALUES ($1::uuid, $2::int, $3::text,
+       VALUES ($1::uuid, $2::int, $4::int, $5::int, $3::text,
                (NOW() + INTERVAL '365 days')::date, 20, 20, 'in_stock')`,
       tenantId,
       inventoryItemId,
       `MED03-BILLING-BATCH-${run}`,
+      facilityId,
+      storageLocationId,
     );
   });
 

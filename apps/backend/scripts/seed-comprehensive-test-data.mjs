@@ -7645,6 +7645,14 @@ async function seedMedicationClosureEvidence(seedFailures = new Map()) {
         canonical_encounter_id: ctx.admissionEncounterId,
         obligation_kind: 'credit_note_review',
         evidence_kind: 'billing_credit_note_decision',
+        // The ownership stanza the real obligation writer emits alongside this
+        // task (wardIndentObligationService.ensureCreditNoteObligation). It is
+        // not decoration: wardMedicationOwnerRoleCodes() in taskService reads
+        // metadata.owner_role_codes to decide which roles may claim a ward
+        // medication obligation, so a seeded task without it is claimable by a
+        // narrower set of roles than the same task in production.
+        owner_role_codes: ['BILLING_INCHARGE', 'FINANCE_INCHARGE'],
+        ownership_stage_version: 1,
         credit_note_id: String(creditNote.id),
         ward_indent_id: Number(indent.id),
         ward_indent_item_id: Number(indentItem.id),

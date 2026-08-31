@@ -25,7 +25,7 @@ import {
   reconcilePendingFhirVitalEffects,
 } from '../services/import/patientDataImport.js';
 import {
-  lockTenantPatientMergeStability,
+  lockTenantPatientMergeExecutionExclusive,
   PATIENT_MERGE_STABILITY_TIMEOUT_MS,
 } from '../utils/patientMergeStabilityLock.js';
 
@@ -1456,7 +1456,20 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
     const observedAt = new Date(Date.now() - 35.5 * 60 * 1000).toISOString();
     const heartRate = heartRateBundle(observedAt, 82, { id: `obs-premerge-hr-${Date.now()}` });
     const height = heightBundle(observedAt, 168, { id: `obs-premerge-height-${Date.now()}` });
-    height.entry[0].resource.subject.reference = `Patient/${MERGE_RACE_PATIENT}`;
+
+    // One import manifest authorises exactly ONE patient. A Bundle that reaches
+    // past its target — here at the merge counterparty — is refused before any
+    // write, so the race below necessarily runs on a single-patient manifest.
+    const crossPatientHeight = heightBundle(observedAt, 168, { id: `obs-premerge-cross-${Date.now()}` });
+    crossPatientHeight.entry[0].resource.subject.reference = `Patient/${MERGE_RACE_PATIENT}`;
+    await expect(importFhirBundle({
+      resourceType: 'Bundle',
+      type: 'collection',
+      entry: [...heartRate.entry, ...crossPatientHeight.entry],
+    }, IMPORTER, { tenantId: TENANT })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'IMPORT_RESOURCE_PATIENT_MISMATCH',
+    });
 
     let mergeAttempt = null;
     let mergeLockAcquired = false;
@@ -1475,7 +1488,10 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
           if (!mergeAttempt) {
             mergeAttempt = setTenantTx(TENANT, async (tx) => {
               signalMergeStarted();
-              await lockTenantPatientMergeStability(tx, TENANT);
+              // A real merge takes the WRITER side of the merge-stability lock
+              // (patientMergeService), which is what an in-flight import — a
+              // reader — must hold it off from.
+              await lockTenantPatientMergeExecutionExclusive(tx, TENANT);
               mergeLockAcquired = true;
               await tx.$executeRawUnsafe(
                 `UPDATE users
@@ -1523,11 +1539,13 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
       PATIENT,
       MERGE_RACE_PATIENT,
     );
-    expect(rows).toHaveLength(2);
-    expect(rows).toEqual(expect.arrayContaining([
-      expect.objectContaining({ patient_uid: PATIENT, heart_rate: expect.anything() }),
-      expect.objectContaining({ patient_uid: MERGE_RACE_PATIENT, height_cm: expect.anything() }),
-    ]));
+    // Both same-time observations landed on the identity the import resolved
+    // under the merge-stability lock, as ONE row. The merge that committed the
+    // instant the import released the lock must not have dragged them across to
+    // the survivor identity — that is the snapshot staying stable.
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toEqual(expect.objectContaining({ patient_uid: PATIENT }));
+    expect([Number(rows[0].heart_rate), Number(rows[0].height_cm)]).toEqual([82, 168]);
   });
 
   it('groups same-time aliases only after resolving them to one active merge survivor', async () => {
@@ -1545,6 +1563,21 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
     heartRate.entry[0].resource.subject.reference = `Patient/${MERGED_PATIENT_ALIAS}`;
     const height = heightBundle(observedAt, 169, { id: `obs-survivor-height-${Date.now()}` });
 
+    // The retired alias and its survivor are two patient references: one
+    // manifest cannot carry both, whatever they resolve to.
+    await expect(importFhirBundle({
+      resourceType: 'Bundle',
+      type: 'collection',
+      entry: [...heartRate.entry, ...height.entry],
+    }, IMPORTER, { tenantId: TENANT })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'IMPORT_RESOURCE_PATIENT_MISMATCH',
+    });
+
+    // A manifest that IS the retired alias still resolves to the one active
+    // merge survivor before grouping: both same-time observations collapse into
+    // a single row keyed by the survivor, and nothing is written under the alias.
+    height.entry[0].resource.subject.reference = `Patient/${MERGED_PATIENT_ALIAS}`;
     const result = await importFhirBundle({
       resourceType: 'Bundle',
       type: 'collection',
@@ -1562,6 +1595,11 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toEqual(expect.objectContaining({ patient_uid: PATIENT }));
     expect([Number(rows[0].heart_rate), Number(rows[0].height_cm)]).toEqual([82, 169]);
+    const aliasRows = await query(
+      `SELECT id FROM vitals_chart WHERE patient_uid = $1::uuid`,
+      MERGED_PATIENT_ALIAS,
+    );
+    expect(aliasRows).toHaveLength(0);
   });
 
   it('rejects duplicate canonical fields in an implicit same-time group atomically', async () => {
