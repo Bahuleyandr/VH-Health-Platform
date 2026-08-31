@@ -580,13 +580,13 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
     // SalaryArrearsRow (string amount) AND a top-level number arrears_amount.
     const seeded = await prisma.$queryRawUnsafe(
       `INSERT INTO salary_revisions
-         (staff_uid, revision_number, revision_type, current_basic, proposed_basic,
+         (tenant_id, staff_uid, revision_number, revision_type, current_basic, proposed_basic,
           effective_from, reason, status, applied_at)
-       VALUES ($1::uuid, $2, 'increment', 40000, 45000,
+       VALUES ($1::uuid, $2::uuid, $3, 'increment', 40000, 45000,
           (CURRENT_DATE - INTERVAL '3 months')::date, 'Contract deep-test arrears base',
           'applied', NOW())
        RETURNING id`,
-      STAFF_UID, `ARR-DEEP-${Date.now()}`,
+      DEFAULT_TENANT_ID, STAFF_UID, `ARR-DEEP-${Date.now()}`,
     );
     arrearsRevisionId = seeded[0].id;
     const arrears = await admin.post(`${ADMIN_BASE}/payroll/revisions/${arrearsRevisionId}/arrears`).send({});
