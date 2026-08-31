@@ -2,6 +2,7 @@ import net from 'node:net';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ACK, AstmFrameReader, NAK } from './astmFrameReader.js';
+import { rollbackListeningServers } from './listenerLifecycle.js';
 import { ack as hl7Ack, extractMeta, messageText } from './hl7.js';
 import { errorFields, logEvent } from './logger.js';
 import { MllpFrameReader, frameMessage } from './mllpFrameReader.js';
@@ -523,69 +524,74 @@ export async function startLisListeners({
   socketWork,
 }) {
   const servers = [];
-  for (const listener of listeners) {
-    const server = net.createServer((socket) => {
-      const remoteIp = normalizeIp(socket.remoteAddress);
-      if (listener.allowed_source_ips.length > 0 && !listener.allowed_source_ips.includes(remoteIp)) {
-        logEvent('warn', 'lis_connection_refused_source_ip', { listener: listener.name });
-        socket.destroy();
-        return;
-      }
-      const labels = { listener: listener.name };
-      lisConnectionsActive.inc(labels);
-      openSockets.add(socket);
-      socket.on('error', (err) => {
-        console.error(`device-gateway: lis socket error listener=${listener.name} remote=${socket.remoteAddress || 'unknown'}: ${err?.code || err?.message || err}`);
-        socket.destroy();
-      });
-      socket.setTimeout(socketIdleTimeoutMs, () => {
-        console.error(`device-gateway: lis socket idle timeout after ${socketIdleTimeoutMs}ms listener=${listener.name} remote=${socket.remoteAddress || 'unknown'}`);
-        socket.destroy();
-      });
-      // Same per-socket sequential processing discipline as the MLLP path:
-      // parsing is synchronous in arrival order, protocol replies are chained
-      // so a fast event can never be answered before a slow earlier one.
-      let pending = Promise.resolve();
-      let onEvent;
-      let reader;
-      if (listener.protocol === 'astm-e1394') {
-        reader = new AstmFrameReader();
-        onEvent = createAstmSession({ socket, listener, runtime });
-      } else {
-        reader = new MllpFrameReader();
-        onEvent = async (message) => {
-          const result = await runtime.acceptHl7Message({ listener, message });
-          if (socket.destroyed || !socket.writable) return;
-          socket.write(frameMessage(result.ack));
-        };
-      }
-      socket.on('data', (chunk) => {
-        let events;
-        try {
-          events = reader.push(chunk);
-        } catch {
+  try {
+    for (const listener of listeners) {
+      const server = net.createServer((socket) => {
+        const remoteIp = normalizeIp(socket.remoteAddress);
+        if (listener.allowed_source_ips.length > 0 && !listener.allowed_source_ips.includes(remoteIp)) {
+          logEvent('warn', 'lis_connection_refused_source_ip', { listener: listener.name });
           socket.destroy();
           return;
         }
-        for (const event of events) {
-          pending = pending.then(() => onEvent(event).catch(() => socket.destroy()));
+        const labels = { listener: listener.name };
+        lisConnectionsActive.inc(labels);
+        openSockets.add(socket);
+        socket.on('error', (err) => {
+          console.error(`device-gateway: lis socket error listener=${listener.name} remote=${socket.remoteAddress || 'unknown'}: ${err?.code || err?.message || err}`);
+          socket.destroy();
+        });
+        socket.setTimeout(socketIdleTimeoutMs, () => {
+          console.error(`device-gateway: lis socket idle timeout after ${socketIdleTimeoutMs}ms listener=${listener.name} remote=${socket.remoteAddress || 'unknown'}`);
+          socket.destroy();
+        });
+        // Same per-socket sequential processing discipline as the MLLP path:
+        // parsing is synchronous in arrival order, protocol replies are chained
+        // so a fast event can never be answered before a slow earlier one.
+        let pending = Promise.resolve();
+        let onEvent;
+        let reader;
+        if (listener.protocol === 'astm-e1394') {
+          reader = new AstmFrameReader();
+          onEvent = createAstmSession({ socket, listener, runtime });
+        } else {
+          reader = new MllpFrameReader();
+          onEvent = async (message) => {
+            const result = await runtime.acceptHl7Message({ listener, message });
+            if (socket.destroyed || !socket.writable) return;
+            socket.write(frameMessage(result.ack));
+          };
         }
-        socketWork.set(socket, pending);
+        socket.on('data', (chunk) => {
+          let events;
+          try {
+            events = reader.push(chunk);
+          } catch {
+            socket.destroy();
+            return;
+          }
+          for (const event of events) {
+            pending = pending.then(() => onEvent(event).catch(() => socket.destroy()));
+          }
+          socketWork.set(socket, pending);
+        });
+        socket.on('close', () => {
+          lisConnectionsActive.dec(labels);
+          openSockets.delete(socket);
+          const work = socketWork.get(socket);
+          if (work) {
+            work.finally(() => {
+              if (socketWork.get(socket) === work) socketWork.delete(socket);
+            });
+          }
+        });
       });
-      socket.on('close', () => {
-        lisConnectionsActive.dec(labels);
-        openSockets.delete(socket);
-        const work = socketWork.get(socket);
-        if (work) {
-          work.finally(() => {
-            if (socketWork.get(socket) === work) socketWork.delete(socket);
-          });
-        }
-      });
-    });
-    guardServer(server, `lis:${listener.name}`);
-    await listenServer(server, listener.port, listener.host);
-    servers.push(server);
+      guardServer(server, `lis:${listener.name}`);
+      await listenServer(server, listener.port, listener.host);
+      servers.push(server);
+    }
+    return servers;
+  } catch (err) {
+    await rollbackListeningServers(servers, openSockets);
+    throw err;
   }
-  return servers;
 }
