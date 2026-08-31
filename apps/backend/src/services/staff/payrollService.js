@@ -1,6 +1,6 @@
 // src/services/staff/payrollService.js
 import crypto from 'node:crypto';
-import { setTenantTx } from '../../lib/prisma.js';
+import { setTenant, setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { decryptField, encryptField, getKeyId } from '../../utils/fieldEncryption.js';
@@ -9,11 +9,32 @@ import { generatePayslipPDF } from '../../utils/payslipPDF.js';
 import { getFileFromR2, uploadFileToR2 } from '../../utils/r2Storage.js';
 import { loadTenantKekIntoProvider } from '../security/tenantKekProvider.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { normalizeRole } from '../../utils/roles.js';
 
 const PAYROLL_ATTEMPT_STALE_HOURS = 4;
 const PAYSLIP_DOCUMENT_PREPARE_STALE_MINUTES = 10;
 export const PAYROLL_RUN_ATTEMPT_LOST = 'PAYROLL_RUN_ATTEMPT_LOST';
 export const PAYROLL_STAFF_IDENTITY_AMBIGUOUS = 'PAYROLL_STAFF_IDENTITY_AMBIGUOUS';
+
+function canonicalJsonForHash(value) {
+  if (Array.isArray(value)) return value.map(canonicalJsonForHash);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.keys(value).sort().map(key => [key, canonicalJsonForHash(value[key])]),
+    );
+  }
+  return value;
+}
+
+function sha256CanonicalJson(value) {
+  return crypto.createHash('sha256')
+    .update(JSON.stringify(canonicalJsonForHash(value)))
+    .digest('hex');
+}
+
+function canonicalTimestamp(value) {
+  return value == null ? null : new Date(value).toISOString();
+}
 
 const PERSISTED_PAYSLIP_DECIMAL_FIELDS = [
   'overtime_hours',
@@ -148,7 +169,14 @@ function calcProfessionalTax(grossMonthly) {
  * Pulls attendance, approved overtime, approved leaves from DB.
  * staffUid = users.uid (UUID)
  */
-async function calculatePayslipTx(client, staffUid, month, year, tenantId) {
+async function calculatePayslipTx(
+  client,
+  staffUid,
+  month,
+  year,
+  tenantId,
+  payrollIdentity = null,
+) {
   const tid = requireTenantId(tenantId);
   // Get salary config
   // FOR UPDATE is the per-staff serialization point for both manual and cron
@@ -273,37 +301,131 @@ async function calculatePayslipTx(client, staffUid, month, year, tenantId) {
   );
   const existingPayslipId = existingPayslipRows[0]?.id ?? null;
 
+  const payrollRunId = payrollIdentity?.payrollRunId == null
+    ? null
+    : Number(payrollIdentity.payrollRunId);
+  const payrollAttemptToken = payrollIdentity?.attemptToken || null;
+  const bonusPayables = await client.$queryRawUnsafe(
+    `SELECT payable.id, payable.revision_id, payable.amount, payable.status,
+            payable.payroll_run_id, payable.claim_attempt_token,
+            payable.payslip_id, revision.revision_number
+       FROM salary_revision_payables payable
+       JOIN salary_revisions revision
+         ON revision.id = payable.revision_id
+        AND revision.tenant_id = payable.tenant_id
+        AND revision.staff_uid = payable.staff_uid
+        AND revision.tenant_reconciliation_required = false
+        AND revision.status = 'applied'
+        AND revision.revision_type = 'bonus'
+      WHERE payable.tenant_id = $1::uuid
+        AND payable.staff_uid = $2::uuid
+        AND (
+          payable.status = 'pending'
+          OR (
+            payable.status = 'claimed'
+            AND payable.payroll_run_id = $3::int
+            AND payable.claim_attempt_token = $4::uuid
+          )
+          OR (payable.status = 'paid' AND payable.payslip_id = $5::int)
+        )
+      ORDER BY payable.id
+      FOR UPDATE OF payable`,
+    tid,
+    staffUid,
+    payrollRunId,
+    payrollAttemptToken,
+    existingPayslipId,
+  );
+  if (payrollRunId != null && payrollAttemptToken) {
+    const pendingPayableIds = bonusPayables
+      .filter(row => row.status === 'pending')
+      .map(row => Number(row.id));
+    if (pendingPayableIds.length > 0) {
+      const claimed = await client.$queryRawUnsafe(
+        `UPDATE salary_revision_payables
+            SET status = 'claimed', payroll_run_id = $3::int,
+                claim_attempt_token = $4::uuid, claimed_at = clock_timestamp(),
+                updated_at = clock_timestamp()
+          WHERE tenant_id = $1::uuid AND staff_uid = $2::uuid
+            AND id = ANY($5::bigint[]) AND status = 'pending'
+          RETURNING id`,
+        tid,
+        staffUid,
+        payrollRunId,
+        payrollAttemptToken,
+        pendingPayableIds,
+      );
+      if (claimed.length !== pendingPayableIds.length) {
+        throw new Error(`Bonus payable changed during payroll claim for staff ${staffUid}`);
+      }
+    }
+  }
+  const bonusAmount = bonusPayables.reduce(
+    (total, row) => total + Number(row.amount),
+    0,
+  );
+
   // Include pending arrears plus arrears already closed into this exact
   // payslip. That makes a retry reproduce the same gross pay while only the
   // pending IDs are eligible for a state transition later in this transaction.
   const arrearsRes = await client.$queryRawUnsafe(`
-    SELECT id, arrears_amount, status, payslip_id
-      FROM salary_arrears
-     WHERE tenant_id = $1::uuid
-       AND staff_uid = $2::uuid
+    SELECT arrears.id, arrears.arrears_amount, arrears.status, arrears.payslip_id,
+           arrears.pf_adjustment, arrears.esi_adjustment,
+           arrears.professional_tax_adjustment, arrears.tds_adjustment,
+           arrears.deduction_adjustment, arrears.net_adjustment,
+           arrears.period_breakdown
+      FROM salary_arrears arrears
+      JOIN salary_revisions revision
+        ON revision.id = arrears.revision_id
+       AND revision.tenant_id = arrears.tenant_id
+       AND revision.staff_uid = arrears.staff_uid
+       AND revision.tenant_reconciliation_required = false
+     WHERE arrears.tenant_id = $1::uuid
+       AND arrears.staff_uid = $2::uuid
+       AND arrears.tenant_reconciliation_required = false
        AND (
-         status = 'pending'
-         OR (status = 'paid' AND payslip_id = $3::integer)
+         arrears.status = 'pending'
+         OR (arrears.status = 'paid' AND arrears.payslip_id = $3::integer)
        )
-     ORDER BY id
-     FOR UPDATE
+     ORDER BY arrears.id
+     FOR UPDATE OF arrears
   `, tid, staffUid, existingPayslipId);
   const arrearsAmount = arrearsRes.reduce(
     (total, row) => total + parseFloat(row.arrears_amount || 0),
     0,
+  );
+  const arrearsPfAdjustment = arrearsRes.reduce(
+    (total, row) => total + Number(row.pf_adjustment || 0), 0,
+  );
+  const arrearsEsiAdjustment = arrearsRes.reduce(
+    (total, row) => total + Number(row.esi_adjustment || 0), 0,
+  );
+  const arrearsProfessionalTaxAdjustment = arrearsRes.reduce(
+    (total, row) => total + Number(row.professional_tax_adjustment || 0), 0,
+  );
+  const arrearsTdsAdjustment = arrearsRes.reduce(
+    (total, row) => total + Number(row.tds_adjustment || 0), 0,
   );
   const pendingArrearIds = arrearsRes
     .filter((row) => row.status === 'pending')
     .map((row) => Number(row.id));
 
   const grossSalary = basicEarned + hraEarned + daEarned + specialEarned +
-    transportEarned + medicalEarned + overtimePay + arrearsAmount;
+    transportEarned + medicalEarned + overtimePay + bonusAmount + arrearsAmount;
 
   // ─── Calculate deductions ────────────────────────────────────────────────
-  const pfEmployee = Math.round(basicEarned * (sal.pf_employee_pct / 100) * 100) / 100;
-  const esiEmployee = calcESI(grossSalary, sal.esi_applicable);
-  const professionalTax = calcProfessionalTax(grossSalary);
-  const tds = parseFloat(sal.tds_monthly || 0);
+  const pfEmployee = Math.round((
+    basicEarned * (sal.pf_employee_pct / 100) + arrearsPfAdjustment
+  ) * 100) / 100;
+  const esiEmployee = Math.round((
+    calcESI(grossSalary - arrearsAmount, sal.esi_applicable) + arrearsEsiAdjustment
+  ) * 100) / 100;
+  const professionalTax = Math.round((
+    calcProfessionalTax(grossSalary - arrearsAmount) + arrearsProfessionalTaxAdjustment
+  ) * 100) / 100;
+  const tds = Math.round((
+    parseFloat(sal.tds_monthly || 0) + arrearsTdsAdjustment
+  ) * 100) / 100;
   const totalDeductions = pfEmployee + esiEmployee + professionalTax + tds;
 
   // ─── FEATURE 5: Explicit LOP calculation ────────────────────────────────
@@ -407,23 +529,32 @@ async function calculatePayslipTx(client, staffUid, month, year, tenantId) {
            sr.current_basic, sr.proposed_basic,
            sr.bonus_amount, sr.increment_pct, sr.effective_from
     FROM salary_revisions sr
+    JOIN users staff_owner
+      ON staff_owner.uid = sr.staff_uid
+     AND staff_owner.tenant_id = sr.tenant_id
     WHERE sr.tenant_id = $1::uuid
       AND sr.staff_uid = $2::uuid
+      AND sr.tenant_reconciliation_required = false
       AND sr.status = 'applied'
+      AND sr.revision_type = 'increment'
       AND EXTRACT(MONTH FROM sr.effective_from::date) = $3
       AND EXTRACT(YEAR FROM sr.effective_from::date) = $4
     LIMIT 1
   `, tid, staffUid, month, year);
 
-  let revisionNote = null;
+  const revisionNotes = [];
   if (revisionCheck.length > 0) {
     const r = revisionCheck[0];
     if (r.revision_type === 'increment' && r.current_basic && r.proposed_basic) {
-      revisionNote = `Increment applied (${r.revision_number}): ₹${Number(r.current_basic).toLocaleString('en-IN')} → ₹${Number(r.proposed_basic).toLocaleString('en-IN')} effective ${new Date(r.effective_from).toLocaleDateString('en-IN')}`;
-    } else if (r.revision_type === 'bonus') {
-      revisionNote = `Bonus paid (${r.revision_number}): ₹${Number(r.bonus_amount).toLocaleString('en-IN')}`;
+      revisionNotes.push(`Increment applied (${r.revision_number}): ₹${Number(r.current_basic).toLocaleString('en-IN')} → ₹${Number(r.proposed_basic).toLocaleString('en-IN')} effective ${new Date(r.effective_from).toLocaleDateString('en-IN')}`);
     }
   }
+  for (const payable of bonusPayables) {
+    revisionNotes.push(
+      `Bonus included (${payable.revision_number}): ₹${Number(payable.amount).toLocaleString('en-IN')}`,
+    );
+  }
+  const revisionNote = revisionNotes.length > 0 ? revisionNotes.join(' | ') : null;
 
   return {
     staff_uid: staffUid,
@@ -441,6 +572,7 @@ async function calculatePayslipTx(client, staffUid, month, year, tenantId) {
     transport_allowance_earned: transportEarned,
     medical_allowance_earned: medicalEarned,
     overtime_pay: overtimePay,
+    bonus_this_month: Math.round(bonusAmount * 100) / 100,
     arrears_amount: arrearsAmount,
     gross_salary: Math.round(grossSalary * 100) / 100,
     pf_employee: pfEmployee,
@@ -460,6 +592,17 @@ async function calculatePayslipTx(client, staffUid, month, year, tenantId) {
     _arrears_to_process: arrearsRes.map(row => ({
       id: Number(row.id),
       amount: Number(row.arrears_amount),
+      pf_adjustment: Number(row.pf_adjustment),
+      esi_adjustment: Number(row.esi_adjustment),
+      professional_tax_adjustment: Number(row.professional_tax_adjustment),
+      tds_adjustment: Number(row.tds_adjustment),
+      deduction_adjustment: Number(row.deduction_adjustment),
+      net_adjustment: Number(row.net_adjustment),
+      period_breakdown_sha256: sha256CanonicalJson(row.period_breakdown),
+    })),
+    _bonus_payables_to_process: bonusPayables.map(row => ({
+      id: Number(row.id),
+      amount: Number(row.amount),
     })),
   };
 }
@@ -491,6 +634,18 @@ async function reversePayrollFinanceEffectsTx(tx, tenantId, payrollRunId, attemp
     throw new Error(`Payroll run ${payrollRunId} has issued financial effects and cannot be recovered`);
   }
   const payslipIds = payslips.map(row => Number(row.id));
+  await tx.$executeRawUnsafe(
+    `UPDATE salary_revision_payables
+        SET status = 'pending', payroll_run_id = NULL,
+            claim_attempt_token = NULL, claimed_at = NULL,
+            updated_at = clock_timestamp()
+      WHERE tenant_id = $1::uuid AND payroll_run_id = $2::int
+        AND claim_attempt_token = $3::uuid AND status = 'claimed'
+        AND payslip_id IS NULL`,
+    tenantId,
+    Number(payrollRunId),
+    attemptToken,
+  );
   if (payslipIds.length === 0) return;
 
   const advances = await tx.$queryRawUnsafe(
@@ -541,13 +696,34 @@ async function reversePayrollFinanceEffectsTx(tx, tenantId, payrollRunId, attemp
     );
   }
   await tx.$executeRawUnsafe(
-    `UPDATE salary_arrears
+    `UPDATE salary_arrears AS arrears
         SET status = 'pending', paid_in_month = NULL, paid_in_year = NULL,
             payslip_id = NULL
+      WHERE arrears.tenant_id = $1::uuid
+        AND arrears.payslip_id = ANY($2::integer[])
+        AND arrears.status = 'paid'
+        AND arrears.tenant_reconciliation_required = false
+        AND EXISTS (
+          SELECT 1
+            FROM salary_revisions revision
+           WHERE revision.id = arrears.revision_id
+             AND revision.tenant_id = arrears.tenant_id
+             AND revision.staff_uid = arrears.staff_uid
+             AND revision.tenant_reconciliation_required = false
+        )`,
+    tenantId, payslipIds,
+  );
+  await tx.$executeRawUnsafe(
+    `UPDATE salary_revision_payables
+        SET status = 'pending', payroll_run_id = NULL,
+            claim_attempt_token = NULL, payslip_id = NULL,
+            claimed_at = NULL, paid_at = NULL,
+            updated_at = clock_timestamp()
       WHERE tenant_id = $1::uuid
         AND payslip_id = ANY($2::integer[])
         AND status = 'paid'`,
-    tenantId, payslipIds,
+    tenantId,
+    payslipIds,
   );
 }
 
@@ -1333,6 +1509,7 @@ async function savePayslipTx(client, payrollRunId, data, tenantId, attemptToken 
     transport_allowance_earned: data.transport_allowance_earned,
     medical_allowance_earned: data.medical_allowance_earned,
     overtime_pay: data.overtime_pay,
+    bonus_this_month: data.bonus_this_month || 0,
     arrears_amount: data.arrears_amount || 0,
     gross_salary: data.gross_salary,
     pf_employee: data.pf_employee,
@@ -1357,7 +1534,8 @@ async function savePayslipTx(client, payrollRunId, data, tenantId, attemptToken 
        total_working_days, days_present, days_absent, days_leave,
        overtime_hours, overtime_rate, basic_earned, hra_earned, da_earned,
        special_allowance_earned, transport_allowance_earned,
-       medical_allowance_earned, overtime_pay, arrears_amount, gross_salary,
+       medical_allowance_earned, overtime_pay, bonus_this_month,
+       arrears_amount, gross_salary,
        pf_employee, esi_employee, professional_tax, tds, total_deductions,
        advance_deduction, lop_days, lop_deduction, net_salary, revision_note
      )
@@ -1368,7 +1546,8 @@ async function savePayslipTx(client, payrollRunId, data, tenantId, attemptToken 
        total_working_days, days_present, days_absent, days_leave,
        overtime_hours, overtime_rate, basic_earned, hra_earned, da_earned,
        special_allowance_earned, transport_allowance_earned,
-       medical_allowance_earned, overtime_pay, arrears_amount, gross_salary,
+       medical_allowance_earned, overtime_pay, bonus_this_month,
+       arrears_amount, gross_salary,
        pf_employee, esi_employee, professional_tax, tds, total_deductions,
        advance_deduction, lop_days, lop_deduction, net_salary, revision_note
        FROM input
@@ -1390,6 +1569,7 @@ async function savePayslipTx(client, payrollRunId, data, tenantId, attemptToken 
        transport_allowance_earned = EXCLUDED.transport_allowance_earned,
        medical_allowance_earned = EXCLUDED.medical_allowance_earned,
        overtime_pay = EXCLUDED.overtime_pay,
+       bonus_this_month = EXCLUDED.bonus_this_month,
        arrears_amount = EXCLUDED.arrears_amount,
        gross_salary = EXCLUDED.gross_salary,
        pf_employee = EXCLUDED.pf_employee,
@@ -1413,7 +1593,8 @@ async function savePayslipTx(client, payrollRunId, data, tenantId, attemptToken 
        total_working_days, days_present, days_absent, days_leave,
        overtime_hours, overtime_rate, basic_earned, hra_earned, da_earned,
        special_allowance_earned, transport_allowance_earned,
-       medical_allowance_earned, overtime_pay, arrears_amount, gross_salary,
+       medical_allowance_earned, overtime_pay, bonus_this_month,
+       arrears_amount, gross_salary,
        pf_employee, esi_employee, professional_tax, tds, total_deductions,
        advance_deduction, lop_days, lop_deduction, net_salary, revision_note,
        status, created_at, updated_at, tenant_id`,
@@ -1551,7 +1732,10 @@ export async function generatePayslipForStaff({
       tid, runId, token, staffUid,
     );
 
-    const calculation = await calculatePayslipTx(tx, staffUid, month, year, tid);
+    const calculation = await calculatePayslipTx(tx, staffUid, month, year, tid, {
+      payrollRunId: runId,
+      attemptToken: token,
+    });
     const payslip = await savePayslipTx(tx, runId, calculation, tid, token);
     const financeEffects = {
       advances: calculation._advances_to_process.map(advance => ({
@@ -1562,6 +1746,17 @@ export async function generatePayslipForStaff({
       arrears: calculation._arrears_to_process.map(arrear => ({
         id: Number(arrear.id),
         amount: Number(arrear.amount),
+        pf_adjustment: Number(arrear.pf_adjustment),
+        esi_adjustment: Number(arrear.esi_adjustment),
+        professional_tax_adjustment: Number(arrear.professional_tax_adjustment),
+        tds_adjustment: Number(arrear.tds_adjustment),
+        deduction_adjustment: Number(arrear.deduction_adjustment),
+        net_adjustment: Number(arrear.net_adjustment),
+        period_breakdown_sha256: arrear.period_breakdown_sha256,
+      })),
+      bonuses: calculation._bonus_payables_to_process.map(payable => ({
+        id: Number(payable.id),
+        amount: Number(payable.amount),
       })),
     };
 
@@ -1698,6 +1893,19 @@ export async function recordPayrollStaffFailure({
         tid, Number(results[0].payslip_id), runId, token,
       );
     }
+    await tx.$executeRawUnsafe(
+      `UPDATE salary_revision_payables
+          SET status = 'pending', payroll_run_id = NULL,
+              claim_attempt_token = NULL, claimed_at = NULL,
+              updated_at = clock_timestamp()
+        WHERE tenant_id = $1::uuid AND staff_uid = $4::uuid
+          AND payroll_run_id = $2::int AND claim_attempt_token = $3::uuid
+          AND status = 'claimed' AND payslip_id IS NULL`,
+      tid,
+      runId,
+      token,
+      staffUid,
+    );
     return tx.$queryRawUnsafe(
       `UPDATE payroll_run_staff_results
           SET outcome = 'failed', failure_reason = $5,
@@ -1767,17 +1975,38 @@ function normalizeFinanceEffects(value) {
   const arrears = effects.arrears.map((arrear) => ({
     id: Number(arrear.id),
     amount: Number(arrear.amount),
+    pfAdjustment: Number(arrear.pf_adjustment),
+    esiAdjustment: Number(arrear.esi_adjustment),
+    professionalTaxAdjustment: Number(arrear.professional_tax_adjustment),
+    tdsAdjustment: Number(arrear.tds_adjustment),
+    deductionAdjustment: Number(arrear.deduction_adjustment),
+    netAdjustment: Number(arrear.net_adjustment),
+    periodBreakdownSha256: arrear.period_breakdown_sha256,
+  }));
+  const bonuses = (effects.bonuses || []).map((bonus) => ({
+    id: Number(bonus.id),
+    amount: Number(bonus.amount),
   }));
   if (advances.some(advance => !Number.isInteger(advance.id) || advance.id <= 0
       || !Number.isFinite(advance.amount) || advance.amount <= 0
       || !Number.isFinite(advance.balanceAfter) || advance.balanceAfter < 0)
       || arrears.some(arrear => !Number.isInteger(arrear.id) || arrear.id <= 0
-        || !Number.isFinite(arrear.amount) || arrear.amount <= 0)
+        || !Number.isFinite(arrear.amount) || arrear.amount <= 0
+        || !Number.isFinite(arrear.pfAdjustment)
+        || !Number.isFinite(arrear.esiAdjustment)
+        || !Number.isFinite(arrear.professionalTaxAdjustment)
+        || !Number.isFinite(arrear.tdsAdjustment)
+        || !Number.isFinite(arrear.deductionAdjustment)
+        || !Number.isFinite(arrear.netAdjustment)
+        || !/^[0-9a-f]{64}$/.test(String(arrear.periodBreakdownSha256 || '')))
+      || bonuses.some(bonus => !Number.isInteger(bonus.id) || bonus.id <= 0
+        || !Number.isFinite(bonus.amount) || bonus.amount <= 0)
       || new Set(advances.map(advance => advance.id)).size !== advances.length
-      || new Set(arrears.map(arrear => arrear.id)).size !== arrears.length) {
+      || new Set(arrears.map(arrear => arrear.id)).size !== arrears.length
+      || new Set(bonuses.map(bonus => bonus.id)).size !== bonuses.length) {
     throw new Error('Payroll finance effect plan contains invalid or duplicate identities');
   }
-  return { advances, arrears };
+  return { advances, arrears, bonuses };
 }
 
 function sameMoney(left, right) {
@@ -1793,12 +2022,17 @@ async function applyPayrollFinanceEffectsTx(tx, {
   financeEffects,
   expectedAdvanceDeduction,
   expectedArrearsAmount,
+  expectedBonusAmount,
+  payrollRunId,
+  attemptToken,
 }) {
   const plan = normalizeFinanceEffects(financeEffects);
   const plannedAdvanceTotal = plan.advances.reduce((sum, row) => sum + row.amount, 0);
   const plannedArrearsTotal = plan.arrears.reduce((sum, row) => sum + row.amount, 0);
+  const plannedBonusTotal = plan.bonuses.reduce((sum, row) => sum + row.amount, 0);
   if (!sameMoney(plannedAdvanceTotal, expectedAdvanceDeduction)
-      || !sameMoney(plannedArrearsTotal, expectedArrearsAmount)) {
+      || !sameMoney(plannedArrearsTotal, expectedArrearsAmount)
+      || !sameMoney(plannedBonusTotal, expectedBonusAmount)) {
     throw new Error(`Payroll finance effect plan no longer matches payslip ${payslipId}`);
   }
 
@@ -1890,12 +2124,23 @@ async function applyPayrollFinanceEffectsTx(tx, {
   if (plan.arrears.length > 0) {
     const arrearIds = plan.arrears.map(row => row.id);
     const rows = await tx.$queryRawUnsafe(
-      `SELECT id, arrears_amount, status, payslip_id
-         FROM salary_arrears
-        WHERE tenant_id = $1::uuid AND staff_uid = $2::uuid
-          AND id = ANY($3::integer[])
-        ORDER BY id
-        FOR UPDATE`,
+      `SELECT arrears.id, arrears.arrears_amount, arrears.status, arrears.payslip_id,
+              arrears.pf_adjustment, arrears.esi_adjustment,
+              arrears.professional_tax_adjustment, arrears.tds_adjustment,
+              arrears.deduction_adjustment, arrears.net_adjustment,
+              arrears.period_breakdown
+         FROM salary_arrears arrears
+         JOIN salary_revisions revision
+           ON revision.id = arrears.revision_id
+          AND revision.tenant_id = arrears.tenant_id
+          AND revision.staff_uid = arrears.staff_uid
+          AND revision.tenant_reconciliation_required = false
+        WHERE arrears.tenant_id = $1::uuid
+          AND arrears.staff_uid = $2::uuid
+          AND arrears.id = ANY($3::integer[])
+          AND arrears.tenant_reconciliation_required = false
+        ORDER BY arrears.id
+        FOR UPDATE OF arrears`,
       tenantId, staffUid, arrearIds,
     );
     if (rows.length !== plan.arrears.length) {
@@ -1905,7 +2150,17 @@ async function applyPayrollFinanceEffectsTx(tx, {
     const pendingIds = [];
     for (const row of rows) {
       const planned = plannedById.get(Number(row.id));
-      if (!planned || !sameMoney(row.arrears_amount, planned.amount)) {
+      if (!planned || !sameMoney(row.arrears_amount, planned.amount)
+          || !sameMoney(row.pf_adjustment, planned.pfAdjustment)
+          || !sameMoney(row.esi_adjustment, planned.esiAdjustment)
+          || !sameMoney(
+            row.professional_tax_adjustment,
+            planned.professionalTaxAdjustment,
+          )
+          || !sameMoney(row.tds_adjustment, planned.tdsAdjustment)
+          || !sameMoney(row.deduction_adjustment, planned.deductionAdjustment)
+          || !sameMoney(row.net_adjustment, planned.netAdjustment)
+          || sha256CanonicalJson(row.period_breakdown) !== planned.periodBreakdownSha256) {
         throw new Error(`Salary arrears ${row.id} changed before document delivery`);
       }
       if (row.status === 'paid' && Number(row.payslip_id) === payslipId) {
@@ -1918,13 +2173,24 @@ async function applyPayrollFinanceEffectsTx(tx, {
     }
     if (pendingIds.length > 0) {
       const closed = await tx.$queryRawUnsafe(
-        `UPDATE salary_arrears
+        `UPDATE salary_arrears AS arrears
             SET status = 'paid', paid_in_month = $4, paid_in_year = $5,
                 payslip_id = $6
-          WHERE tenant_id = $1::uuid AND staff_uid = $2::uuid
-            AND id = ANY($3::integer[]) AND status = 'pending'
-            AND payslip_id IS NULL
-          RETURNING id`,
+          WHERE arrears.tenant_id = $1::uuid
+            AND arrears.staff_uid = $2::uuid
+            AND arrears.id = ANY($3::integer[])
+            AND arrears.status = 'pending'
+            AND arrears.payslip_id IS NULL
+            AND arrears.tenant_reconciliation_required = false
+            AND EXISTS (
+              SELECT 1
+                FROM salary_revisions revision
+               WHERE revision.id = arrears.revision_id
+                 AND revision.tenant_id = arrears.tenant_id
+                 AND revision.staff_uid = arrears.staff_uid
+                 AND revision.tenant_reconciliation_required = false
+            )
+          RETURNING arrears.id`,
         tenantId, staffUid, pendingIds, month, year, payslipId,
       );
       if (closed.length !== pendingIds.length) {
@@ -1933,7 +2199,85 @@ async function applyPayrollFinanceEffectsTx(tx, {
       arrearsClosed = closed.length;
     }
   }
-  return { advancesApplied, advancesReused, arrearsClosed, arrearsReused };
+
+  let bonusesPaid = 0;
+  let bonusesReused = 0;
+  if (plan.bonuses.length > 0) {
+    const bonusIds = plan.bonuses.map(row => row.id);
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT payable.id, payable.amount, payable.status, payable.payroll_run_id,
+              payable.claim_attempt_token, payable.payslip_id
+         FROM salary_revision_payables payable
+         JOIN salary_revisions revision
+           ON revision.id = payable.revision_id
+          AND revision.tenant_id = payable.tenant_id
+          AND revision.staff_uid = payable.staff_uid
+          AND revision.tenant_reconciliation_required = false
+          AND revision.status = 'applied'
+          AND revision.revision_type = 'bonus'
+        WHERE payable.tenant_id = $1::uuid
+          AND payable.staff_uid = $2::uuid
+          AND payable.id = ANY($3::bigint[])
+        ORDER BY payable.id
+        FOR UPDATE OF payable`,
+      tenantId,
+      staffUid,
+      bonusIds,
+    );
+    if (rows.length !== plan.bonuses.length) {
+      throw new Error(`Bonus payables changed before document delivery for staff ${staffUid}`);
+    }
+    const plannedById = new Map(plan.bonuses.map(row => [row.id, row]));
+    const claimedIds = [];
+    for (const row of rows) {
+      const planned = plannedById.get(Number(row.id));
+      if (!planned || !sameMoney(row.amount, planned.amount)) {
+        throw new Error(`Bonus payable ${row.id} changed before document delivery`);
+      }
+      if (row.status === 'paid' && Number(row.payslip_id) === payslipId) {
+        bonusesReused += 1;
+      } else if (
+        row.status === 'claimed'
+        && Number(row.payroll_run_id) === Number(payrollRunId)
+        && row.claim_attempt_token === attemptToken
+        && row.payslip_id == null
+      ) {
+        claimedIds.push(Number(row.id));
+      } else {
+        throw new Error(`Bonus payable ${row.id} belongs to another payroll identity`);
+      }
+    }
+    if (claimedIds.length > 0) {
+      const paid = await tx.$queryRawUnsafe(
+        `UPDATE salary_revision_payables
+            SET status = 'paid', payslip_id = $6::int,
+                paid_at = clock_timestamp(), updated_at = clock_timestamp()
+          WHERE tenant_id = $1::uuid AND staff_uid = $2::uuid
+            AND id = ANY($3::bigint[]) AND status = 'claimed'
+            AND payroll_run_id = $4::int AND claim_attempt_token = $5::uuid
+            AND payslip_id IS NULL
+          RETURNING id`,
+        tenantId,
+        staffUid,
+        claimedIds,
+        Number(payrollRunId),
+        attemptToken,
+        payslipId,
+      );
+      if (paid.length !== claimedIds.length) {
+        throw new Error(`Bonus payables changed during closure for staff ${staffUid}`);
+      }
+      bonusesPaid = paid.length;
+    }
+  }
+  return {
+    advancesApplied,
+    advancesReused,
+    arrearsClosed,
+    arrearsReused,
+    bonusesPaid,
+    bonusesReused,
+  };
 }
 
 /**
@@ -2219,7 +2563,8 @@ export async function ensurePayslipDocumentReady({
       if (currentRuns.length !== 1) throw payrollRunAttemptLost(runId);
       const effectRows = await tx.$queryRawUnsafe(
         `SELECT result.finance_effects, payslip.advance_deduction,
-                payslip.arrears_amount, payslip.month, payslip.year
+                payslip.arrears_amount, payslip.bonus_this_month,
+                payslip.month, payslip.year
            FROM payroll_run_staff_results AS result
            JOIN payslips AS payslip
              ON payslip.tenant_id = result.tenant_id
@@ -2246,6 +2591,9 @@ export async function ensurePayslipDocumentReady({
         financeEffects: effectRows[0].finance_effects,
         expectedAdvanceDeduction: effectRows[0].advance_deduction,
         expectedArrearsAmount: effectRows[0].arrears_amount,
+        expectedBonusAmount: effectRows[0].bonus_this_month,
+        payrollRunId: runId,
+        attemptToken: token,
       });
       // This notice is queued while the run is still `processing` and both
       // approvals are NULL (the FOR UPDATE guard above asserts exactly that).
@@ -2683,7 +3031,7 @@ export async function executePayrollRun({
 const PAYSLIP_EDITABLE_FIELDS = new Set([
   'basic_earned', 'hra_earned', 'da_earned', 'special_allowance_earned',
   'transport_allowance_earned', 'medical_allowance_earned', 'overtime_pay',
-  'bonus_this_month', 'pf_employee', 'esi_employee', 'professional_tax',
+  'pf_employee', 'esi_employee', 'professional_tax',
   'tds', 'other_deductions', 'days_present', 'days_absent', 'days_leave',
   'overtime_hours',
 ]);
@@ -3121,113 +3469,1039 @@ export async function generateAnnualTaxSummary(staffUid, financialYear, tenantId
 /**
  * FEATURE 4: Calculate arrears when a salary revision is backdated.
  */
-export async function calculateArrears(revisionId, tenantId) {
-  const tid = requireTenantId(tenantId);
-  const revisionIdentity = Number(revisionId);
-  if (!Number.isInteger(revisionIdentity) || revisionIdentity <= 0) {
-    throw new Error('revisionId must be a positive integer');
-  }
+const ARREARS_COMMAND_KEY_PATTERN = /^[A-Za-z0-9_:.-]+$/;
+const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 
-  return setTenantTx(tid, async (tx) => {
-    const revision = await tx.$queryRawUnsafe(
-      `SELECT id, staff_uid, revision_type, current_basic, proposed_basic,
-              current_gross, proposed_gross, effective_from, applied_at,
-              status, created_at
-         FROM salary_revisions
-        WHERE tenant_id = $1::uuid AND id = $2 AND status = 'applied'`,
+export class SalaryArrearsCommandError extends Error {
+  constructor(message, statusCode = 409) {
+    super(message);
+    this.name = 'SalaryArrearsCommandError';
+    this.statusCode = statusCode;
+  }
+}
+
+function validateArrearsCommandIdentity(options) {
+  if (!options?.commandKey) {
+    throw new SalaryArrearsCommandError(
+      'Salary arrears requires a durable command identity',
+      400,
+    );
+  }
+  if (
+    !options.actorUid
+    || options.commandKey.length > 200
+    || !ARREARS_COMMAND_KEY_PATTERN.test(options.commandKey)
+    || !SHA256_PATTERN.test(String(options.requestBodySha256 || ''))
+  ) {
+    throw new SalaryArrearsCommandError('Salary arrears command identity is invalid', 400);
+  }
+  return {
+    actorUid: String(options.actorUid),
+    commandKey: options.commandKey,
+    requestBodySha256: options.requestBodySha256,
+    httpIdempotencyClaimId: options.httpIdempotencyClaimId || null,
+    requestId: options.requestId || null,
+  };
+}
+
+function assertArrearsReceiptMatches(receipt, identity, revisionId) {
+  if (
+    Number(receipt.revision_id) !== Number(revisionId)
+    || receipt.actor_uid !== identity.actorUid
+    || receipt.command_key !== identity.commandKey
+    || receipt.request_body_sha256 !== identity.requestBodySha256
+    || receipt.actor_role !== identity.actorRole
+    || receipt.authority_source !== identity.authoritySource
+  ) {
+    throw new SalaryArrearsCommandError(
+      'Idempotency-Key is already bound to a different salary arrears request',
+      422,
+    );
+  }
+  if (!receipt.response_data || typeof receipt.response_data !== 'object') {
+    throw new SalaryArrearsCommandError('Salary arrears command receipt is incomplete');
+  }
+  return receipt.response_data;
+}
+
+async function findArrearsCommandReceiptTx(tx, tenantId, revisionId, identity) {
+  if (!identity) return null;
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT revision_id, actor_uid::text, actor_role, authority_source, command_key,
+            request_body_sha256::text, response_data
+       FROM salary_arrears_command_receipts
+      WHERE tenant_id = $1::uuid
+        AND (
+          (actor_uid = $2::uuid AND command_key = $3)
+          OR revision_id = $4::int
+        )
+      ORDER BY CASE
+        WHEN actor_uid = $2::uuid AND command_key = $3 THEN 0
+        ELSE 1
+      END
+      LIMIT 1`,
+    tenantId,
+    identity.actorUid,
+    identity.commandKey,
+    revisionId,
+  );
+  return rows[0]
+    ? assertArrearsReceiptMatches(rows[0], identity, revisionId)
+    : null;
+}
+
+async function finaliseArrearsCommandTx(
+  tx,
+  { tenantId, revisionId, arrearsId, identity, responseData },
+) {
+  if (!identity) return responseData;
+  const inserted = await tx.$queryRawUnsafe(
+    `INSERT INTO salary_arrears_command_receipts (
+       tenant_id, revision_id, arrears_id, actor_uid, actor_role,
+       authority_checked_at, authority_source, command_key,
+       request_body_sha256, response_data
+     )
+     VALUES ($1::uuid, $2::int, $3::int, $4::uuid, $8, $9::timestamptz,
+             $10, $5, $6::char(64), $7::jsonb)
+     ON CONFLICT DO NOTHING
+     RETURNING revision_id, actor_uid::text, actor_role, authority_source, command_key,
+               request_body_sha256::text, response_data`,
+    tenantId,
+    revisionId,
+    arrearsId,
+    identity.actorUid,
+    identity.commandKey,
+    identity.requestBodySha256,
+    JSON.stringify(responseData),
+    identity.actorRole,
+    identity.authorityCheckedAt,
+    identity.authoritySource,
+  );
+  const committed = inserted[0]
+    ? assertArrearsReceiptMatches(inserted[0], identity, revisionId)
+    : await findArrearsCommandReceiptTx(tx, tenantId, revisionId, identity);
+  if (!committed) {
+    throw new SalaryArrearsCommandError('Salary arrears command receipt changed concurrently');
+  }
+  if (identity.httpIdempotencyClaimId) {
+    const message = committed.message || `Arrears calculated: ₹${committed.arrears_amount}`;
+    const responseBody = {
+      success: true,
+      message,
+      data: committed,
+      ...(identity.requestId ? { requestId: identity.requestId } : {}),
+    };
+    const finalised = await tx.$queryRawUnsafe(
+      `UPDATE idempotency_keys
+          SET status = 'complete',
+              response_status = 200,
+              response_body = $6::jsonb,
+              updated_at = NOW()
+        WHERE id = $1::int
+          AND tenant_id = $2::uuid
+          AND user_uid = $3::uuid
+          AND request_key = $4
+          AND request_body_hash = $5::char(64)
+          AND status = 'in_flight'
+        RETURNING id`,
+      identity.httpIdempotencyClaimId,
+      tenantId,
+      identity.actorUid,
+      identity.commandKey,
+      identity.requestBodySha256,
+      JSON.stringify(responseBody),
+    );
+    if (finalised.length !== 1) {
+      throw new SalaryArrearsCommandError(
+        'HTTP idempotency claim changed before salary arrears commit',
+      );
+    }
+  }
+  return committed;
+}
+
+async function claimSalaryRevisionArrearsWork(revisionId, tenantId, workItemId = null) {
+  return setTenant(tenantId, async (tx) => {
+    const activeTenants = await tx.$queryRawUnsafe(
+      `SELECT id FROM tenants
+        WHERE id = $1::uuid AND LOWER(COALESCE(status, '')) = 'active'
+        FOR SHARE`,
+      tenantId,
+    );
+    if (activeTenants.length !== 1) {
+      throw new SalaryArrearsCommandError('Tenant is not active; arrears work is parked', 409);
+    }
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT id, status, attempt_count, lease_expires_at
+         FROM salary_revision_arrears_work_items
+        WHERE tenant_id = $1::uuid
+          AND revision_id = $2::int
+          AND ($3::bigint IS NULL OR id = $3::bigint)
+        FOR UPDATE`,
+      tenantId,
+      revisionId,
+      workItemId,
+    );
+    if (rows.length === 0) {
+      if (workItemId != null) {
+        throw new SalaryArrearsCommandError('Salary arrears work item not found', 404);
+      }
+      return null;
+    }
+    const work = rows[0];
+    if (work.status === 'completed') return null;
+    if (work.status === 'reconciliation_required') {
+      throw new SalaryArrearsCommandError(
+        'Salary arrears work requires governed reconciliation before retry',
+        409,
+      );
+    }
+    const claimToken = crypto.randomUUID();
+    const claimed = await tx.$queryRawUnsafe(
+      `UPDATE salary_revision_arrears_work_items
+          SET status = 'processing', attempt_count = attempt_count + 1,
+              claim_token = $4::uuid, claimed_at = clock_timestamp(),
+              lease_expires_at = clock_timestamp() + INTERVAL '5 minutes',
+              next_attempt_at = clock_timestamp(), updated_at = clock_timestamp()
+        WHERE tenant_id = $1::uuid AND revision_id = $2::int AND id = $3::bigint
+          AND (
+            (status = 'pending' AND next_attempt_at <= clock_timestamp())
+            OR (status = 'processing' AND lease_expires_at <= clock_timestamp())
+          )
+        RETURNING id, revision_id, staff_uid, attempt_count, claim_token`,
+      tenantId,
+      revisionId,
+      work.id,
+      claimToken,
+    );
+    if (claimed.length !== 1) {
+      throw new SalaryArrearsCommandError('Salary arrears work claim was lost', 409);
+    }
+    return claimed[0];
+  });
+}
+
+async function recordSalaryRevisionArrearsWorkFailure(claim, tenantId, err) {
+  if (!claim) return;
+  const errorHash = sha256CanonicalJson({
+    name: err?.name || 'Error',
+    statusCode: Number(err?.statusCode || 500),
+    code: err?.code || null,
+    message: String(err?.message || 'salary arrears processing failed'),
+  });
+  await setTenant(tenantId, async (tx) => {
+    const failed = await tx.$queryRawUnsafe(
+      `UPDATE salary_revision_arrears_work_items
+          SET status = CASE
+                WHEN attempt_count >= 3 THEN 'reconciliation_required'
+                ELSE 'pending'
+              END,
+              next_attempt_at = CASE
+                WHEN attempt_count >= 3 THEN next_attempt_at
+                ELSE clock_timestamp()
+                  + make_interval(secs => LEAST(900, 30 * power(2, attempt_count - 1))::int)
+              END,
+              claim_token = NULL, claimed_at = NULL, lease_expires_at = NULL,
+              last_error_hash = $5::char(64),
+              outcome = CASE
+                WHEN attempt_count >= 3 THEN jsonb_build_object(
+                  'code', 'arrears_reconciliation_required',
+                  'reason', 'arrears_processing_failed',
+                  'attempt_count', attempt_count,
+                  'error_sha256', $5::text
+                )
+                ELSE '{}'::jsonb
+              END,
+              completed_at = CASE
+                WHEN attempt_count >= 3 THEN clock_timestamp()
+                ELSE NULL
+              END,
+              updated_at = clock_timestamp()
+        WHERE tenant_id = $1::uuid AND id = $2::bigint
+          AND revision_id = $3::int AND claim_token = $4::uuid
+          AND status = 'processing'
+        RETURNING id`,
+      tenantId,
+      claim.id,
+      claim.revision_id,
+      claim.claim_token,
+      errorHash,
+    );
+    if (failed.length !== 1) {
+      logger.error('Salary arrears work failure receipt lost its claim fence', {
+        tenantId,
+        workItemId: String(claim.id),
+      });
+    }
+  });
+}
+
+export async function calculateArrears(revisionId, tenantId, options = {}) {
+  const tid = requireTenantId(tenantId);
+  const commandIdentity = validateArrearsCommandIdentity(options);
+  const workClaim = await claimSalaryRevisionArrearsWork(
+    revisionId,
+    tid,
+    options.workItemId == null ? null : Number(options.workItemId),
+  );
+  let outcome;
+  try {
+    outcome = await setTenant(null, async (client) => {
+    const activeTenants = await client.$queryRawUnsafe(
+      `SELECT id FROM tenants
+        WHERE id = $1::uuid AND LOWER(COALESCE(status, '')) = 'active'
+        FOR SHARE`,
       tid,
-      revisionIdentity
+    );
+    if (activeTenants.length !== 1) {
+      throw new SalaryArrearsCommandError('Tenant is not active; arrears work is parked', 409);
+    }
+    if (workClaim) {
+      const released = await client.$queryRawUnsafe(
+        `UPDATE salary_revision_arrears_work_items
+            SET status = 'pending', claim_token = NULL, claimed_at = NULL,
+                lease_expires_at = NULL, updated_at = clock_timestamp()
+          WHERE tenant_id = $1::uuid AND id = $2::bigint
+            AND revision_id = $3::int AND claim_token = $4::uuid
+            AND status = 'processing'
+          RETURNING id`,
+        tid,
+        workClaim.id,
+        revisionId,
+        workClaim.claim_token,
+      );
+      if (released.length !== 1) {
+        throw new SalaryArrearsCommandError('Salary arrears work claim changed', 409);
+      }
+    }
+    if (options.signedApprovalAuthority === true) {
+      commandIdentity.actorRole = normalizeRole(options.actorRole);
+      commandIdentity.authorityCheckedAt = options.authorityCheckedAt;
+      commandIdentity.authoritySource = 'salary_revision_admin_signature';
+      if (!['ADMIN', 'SUPER_ADMIN'].includes(commandIdentity.actorRole)
+          || !commandIdentity.authorityCheckedAt) {
+        throw new SalaryArrearsCommandError('Signed Admin authority evidence is invalid', 409);
+      }
+    } else {
+      const authority = await client.$queryRawUnsafe(
+        `SELECT role, clock_timestamp() AS authority_checked_at
+         FROM users
+        WHERE tenant_id = $1::uuid
+          AND uid = $2::uuid
+          AND is_active = true
+          AND COALESCE(is_deleted, false) = false
+          AND deleted_at IS NULL
+          AND merged_into_uid IS NULL
+          AND LOWER(COALESCE(status, 'active')) = 'active'
+        FOR SHARE`,
+      tid,
+      commandIdentity.actorUid,
+      );
+      const actorRole = normalizeRole(authority[0]?.role);
+      if (!['ADMIN', 'SUPER_ADMIN'].includes(actorRole)) {
+        throw new SalaryArrearsCommandError('Active Admin authority is required', 403);
+      }
+      commandIdentity.actorRole = actorRole;
+      commandIdentity.authorityCheckedAt = authority[0].authority_checked_at;
+      commandIdentity.authoritySource = 'users_active_row';
+    }
+    const revision = await client.$queryRawUnsafe(
+      `SELECT sr.id, sr.staff_uid, sr.revision_type, sr.current_basic, sr.proposed_basic,
+              sr.current_gross, sr.proposed_gross, sr.effective_from, sr.applied_at,
+              sr.salary_baseline, sr.other_changes, sr.status, sr.created_at,
+              sr.admin_signed_by, sr.admin_signer_role, sr.admin_signed_at,
+              sr.admin_authority_checked_at, sr.admin_authority_source,
+              sr.admin_signature_sha256, sr.signature_hash
+         FROM salary_revisions sr
+         JOIN users staff_owner
+           ON staff_owner.uid = sr.staff_uid
+          AND staff_owner.tenant_id = sr.tenant_id
+        WHERE sr.id = $1::int
+          AND sr.tenant_id = $2::uuid
+          AND sr.tenant_reconciliation_required = false
+          AND sr.status = 'applied'`,
+      revisionId,
+      tid,
     );
     if (revision.length === 0) {
-      throw AppError.notFound(
+      // #941 made this a 404 rather than the bare Error that the controller
+      // could only render as a 500. This lane's own typed error carries the
+      // status, so the fix survives the rewrite instead of being reverted.
+      const notFound = new SalaryArrearsCommandError(
         'Revision not found or not applied',
-        'SALARY_REVISION_NOT_FOUND',
+        404,
       );
+      // Callers and tests match on the code, not the class, so carry both.
+      notFound.code = 'SALARY_REVISION_NOT_FOUND';
+      throw notFound;
     }
 
     const r = revision[0];
-    if (!r.proposed_basic || !r.current_basic) throw new Error('No basic salary change in this revision');
+    if (options.signedApprovalAuthority === true && (
+      r.admin_signed_by !== commandIdentity.actorUid
+      || normalizeRole(r.admin_signer_role) !== commandIdentity.actorRole
+      || canonicalTimestamp(r.admin_authority_checked_at)
+        !== canonicalTimestamp(commandIdentity.authorityCheckedAt)
+      || r.admin_authority_source !== 'users_active_row'
+      || !r.admin_signature_sha256
+      || r.signature_hash !== r.admin_signature_sha256
+    )) {
+      throw new SalaryArrearsCommandError(
+        'Salary revision signed Admin authority does not match the durable work command',
+        409,
+      );
+    }
+    const replay = await findArrearsCommandReceiptTx(
+      client,
+      tid,
+      revisionId,
+      commandIdentity,
+    );
+    if (replay) {
+      return finaliseArrearsCommandTx(client, {
+        tenantId: tid,
+        revisionId,
+        arrearsId: replay.result?.id || null,
+        identity: commandIdentity,
+        responseData: replay,
+      });
+    }
+    if (!['increment', 'component_change'].includes(r.revision_type)
+        || !r.current_basic) {
+      throw new SalaryArrearsCommandError(
+        'Arrears require an applied positive gross increment or component revision',
+        409,
+      );
+    }
 
     const effectiveDate = new Date(r.effective_from);
     const now = new Date();
+    if (effectiveDate.getUTCDate() !== 1) {
+      throw new SalaryArrearsCommandError(
+        'Arrears require a signed first-of-month effective date; daily proration evidence is unavailable',
+        409,
+      );
+    }
 
     // Check if revision was applied after effective_from (backdated)
     if (effectiveDate >= new Date(r.applied_at || now)) {
-      return { arrears_amount: 0, message: 'No backdated arrears — revision applied before or on effective date' };
+      await client.$executeRawUnsafe(
+        `UPDATE salary_revision_arrears_work_items
+            SET status = 'completed',
+                outcome = jsonb_build_object(
+                  'code', 'no_arrears_required',
+                  'result', 'not_required'
+                ),
+                completed_at = clock_timestamp(), updated_at = clock_timestamp()
+          WHERE tenant_id = $1::uuid AND revision_id = $2::int
+            AND status = 'pending'`,
+        tid,
+        revisionId,
+      );
+      return finaliseArrearsCommandTx(client, {
+        tenantId: tid,
+        revisionId,
+        arrearsId: null,
+        identity: commandIdentity,
+        responseData: {
+          revision_id: Number(revisionId),
+          arrears_amount: 0,
+          message: 'No backdated arrears — revision applied before or on effective date',
+        },
+      });
     }
 
     // Months where old salary was paid but new salary should have applied
     const arrearMonths = [];
     const d = new Date(effectiveDate);
-    d.setDate(1);
+    d.setUTCDate(1);
     const appliedMonth = new Date(r.applied_at || now);
-    appliedMonth.setDate(1);
+    appliedMonth.setUTCDate(1);
 
     while (d < appliedMonth) {
-      arrearMonths.push({ month: d.getMonth() + 1, year: d.getFullYear() });
-      d.setMonth(d.getMonth() + 1);
+      arrearMonths.push({ month: d.getUTCMonth() + 1, year: d.getUTCFullYear() });
+      d.setUTCMonth(d.getUTCMonth() + 1);
     }
 
-    if (arrearMonths.length === 0) return { arrears_amount: 0, message: 'No arrear months found' };
+    if (arrearMonths.length === 0) {
+      await client.$executeRawUnsafe(
+        `UPDATE salary_revision_arrears_work_items
+            SET status = 'completed',
+                outcome = jsonb_build_object(
+                  'code', 'no_arrears_required',
+                  'result', 'same_month_no_prior_payroll_period'
+                ),
+                completed_at = clock_timestamp(), updated_at = clock_timestamp()
+          WHERE tenant_id = $1::uuid AND revision_id = $2::int
+            AND status = 'pending'`,
+        tid,
+        revisionId,
+      );
+      return finaliseArrearsCommandTx(client, {
+        tenantId: tid,
+        revisionId,
+        arrearsId: null,
+        identity: commandIdentity,
+        responseData: {
+          revision_id: Number(revisionId),
+          arrears_amount: 0,
+          message: 'No arrear months found',
+        },
+      });
+    }
 
-    const diffBasic = parseFloat(r.proposed_basic) - parseFloat(r.current_basic);
+    const proposedBasic = r.proposed_basic == null
+      ? Number(r.current_basic) : Number(r.proposed_basic);
+    const diffBasic = proposedBasic - Number(r.current_basic);
+    if (r.revision_type === 'increment'
+        && (!Number.isFinite(diffBasic) || diffBasic <= 0)) {
+      throw new SalaryArrearsCommandError(
+        'Arrears require a positive approved basic salary difference',
+        409,
+      );
+    }
+    const baseline = typeof r.salary_baseline === 'string'
+      ? JSON.parse(r.salary_baseline)
+      : r.salary_baseline;
+    const baselineFields = [
+      'basic_salary',
+      'hra_pct',
+      'da_pct',
+      'special_allowance',
+      'transport_allowance',
+      'medical_allowance',
+      'tds_monthly',
+      'pf_employee_pct',
+    ];
+    if (!baseline || typeof baseline !== 'object' || Array.isArray(baseline)
+        || baselineFields.some(field => !Number.isFinite(Number(baseline[field]))
+          || Number(baseline[field]) < 0)
+        || typeof baseline.esi_applicable !== 'boolean'
+        || !sameMoney(baseline.basic_salary, r.current_basic)) {
+      throw new SalaryArrearsCommandError(
+        'The revision does not contain a valid frozen gross salary baseline',
+        409,
+      );
+    }
+    const changes = r.other_changes == null
+      ? {}
+      : (typeof r.other_changes === 'string'
+        ? JSON.parse(r.other_changes) : r.other_changes);
+    if (!changes || typeof changes !== 'object' || Array.isArray(changes)
+        || Object.values(changes).some(value => !Number.isFinite(Number(value))
+          || Number(value) < 0)) {
+      throw new SalaryArrearsCommandError(
+        'The revision component-change evidence is invalid',
+        409,
+      );
+    }
+    const proposedComponents = { ...baseline, ...changes };
+    const fullTimeGross = (basic, components) => Math.round((
+      Number(basic)
+      + Number(basic) * Number(components.hra_pct) / 100
+      + Number(basic) * Number(components.da_pct) / 100
+      + Number(components.special_allowance)
+      + Number(components.transport_allowance)
+      + Number(components.medical_allowance)
+    ) * 100) / 100;
+    const expectedCurrentGross = fullTimeGross(r.current_basic, baseline);
+    const expectedProposedGross = fullTimeGross(proposedBasic, proposedComponents);
+    if (!sameMoney(r.current_gross, expectedCurrentGross)
+        || !sameMoney(r.proposed_gross, expectedProposedGross)
+        || expectedProposedGross <= expectedCurrentGross) {
+      throw new SalaryArrearsCommandError(
+        'The signed gross salary evidence does not match the frozen component baseline',
+        409,
+      );
+    }
     let totalArrears = 0;
+    let totalPfAdjustment = 0;
+    let totalEsiAdjustment = 0;
+    let totalProfessionalTaxAdjustment = 0;
+    let totalTdsAdjustment = 0;
+    let totalDeductionAdjustment = 0;
+    let totalNetAdjustment = 0;
+    const periodBreakdown = [];
 
     for (const { month, year } of arrearMonths) {
-      const payslip = await tx.$queryRawUnsafe(
-        `SELECT id, staff_uid, month, year, payroll_run_id, basic_earned,
-                hra_earned, da_earned, special_allowance_earned,
-                transport_allowance_earned, medical_allowance_earned,
-                overtime_pay, gross_salary, pf_employee, esi_employee,
-                professional_tax, tds, total_deductions, net_salary, status,
-                days_present, total_working_days, created_at
+      const payslip = await client.$queryRawUnsafe(
+        `SELECT id, staff_uid, month, year, payroll_run_id, basic_earned, hra_earned,
+                da_earned, special_allowance_earned, transport_allowance_earned,
+                medical_allowance_earned, overtime_pay, gross_salary, pf_employee,
+                esi_employee, professional_tax, tds, total_deductions, net_salary,
+                status, days_present, days_leave, total_working_days, created_at
            FROM payslips
-          WHERE tenant_id = $1::uuid AND staff_uid = $2::uuid
-            AND month = $3 AND year = $4`,
-        tid, r.staff_uid, month, year
+          WHERE staff_uid=$1::uuid
+            AND tenant_id=$2::uuid
+            AND month=$3
+            AND year=$4
+            AND status IN ('issued', 'viewed', 'downloaded')
+          FOR SHARE`,
+        r.staff_uid, tid, month, year,
       );
-      if (payslip.length > 0) {
-        const p = payslip[0];
-        const attendanceFactor = p.days_present / (p.total_working_days || 26);
-        totalArrears += diffBasic * attendanceFactor;
-      } else {
-        totalArrears += diffBasic;
+      if (payslip.length !== 1) {
+        throw new SalaryArrearsCommandError(
+          `Issued payslip evidence is required for arrears month ${month}/${year}`,
+          409,
+        );
       }
+      const p = payslip[0];
+      const attendanceFactor = Math.min(
+        Number(p.days_present || 0) + Number(p.days_leave || 0),
+        Number(p.total_working_days || 26),
+      ) / Number(p.total_working_days || 26);
+      const expectedOldBasic = Math.round(
+        Number(r.current_basic) * attendanceFactor * 100,
+      ) / 100;
+      const expectedOldHra = Math.round(
+        expectedOldBasic * Number(baseline.hra_pct) / 100 * 100,
+      ) / 100;
+      const expectedOldDa = Math.round(
+        expectedOldBasic * Number(baseline.da_pct) / 100 * 100,
+      ) / 100;
+      const expectedOldSpecial = Math.round(
+        Number(baseline.special_allowance) * attendanceFactor * 100,
+      ) / 100;
+      const expectedOldTransport = Math.round(
+        Number(baseline.transport_allowance) * attendanceFactor * 100,
+      ) / 100;
+      const expectedOldMedical = Math.round(
+        Number(baseline.medical_allowance) * attendanceFactor * 100,
+      ) / 100;
+      if (!sameMoney(p.basic_earned, expectedOldBasic)
+          || !sameMoney(p.hra_earned, expectedOldHra)
+          || !sameMoney(p.da_earned, expectedOldDa)
+          || !sameMoney(p.special_allowance_earned, expectedOldSpecial)
+          || !sameMoney(p.transport_allowance_earned, expectedOldTransport)
+          || !sameMoney(p.medical_allowance_earned, expectedOldMedical)) {
+        throw new SalaryArrearsCommandError(
+          `Payslip ${p.id} does not prove the complete approved prior salary baseline`,
+          409,
+        );
+      }
+      const proposedBasicEarned = Math.round(
+        proposedBasic * attendanceFactor * 100,
+      ) / 100;
+      const proposedHraEarned = Math.round(
+        proposedBasicEarned * Number(proposedComponents.hra_pct) / 100 * 100,
+      ) / 100;
+      const proposedDaEarned = Math.round(
+        proposedBasicEarned * Number(proposedComponents.da_pct) / 100 * 100,
+      ) / 100;
+      const proposedSpecial = Math.round(
+        Number(proposedComponents.special_allowance) * attendanceFactor * 100,
+      ) / 100;
+      const proposedTransport = Math.round(
+        Number(proposedComponents.transport_allowance) * attendanceFactor * 100,
+      ) / 100;
+      const proposedMedical = Math.round(
+        Number(proposedComponents.medical_allowance) * attendanceFactor * 100,
+      ) / 100;
+      const basicAdjustment = Math.round((proposedBasicEarned - expectedOldBasic) * 100) / 100;
+      const hraAdjustment = Math.round((proposedHraEarned - expectedOldHra) * 100) / 100;
+      const daAdjustment = Math.round((proposedDaEarned - expectedOldDa) * 100) / 100;
+      const specialAdjustment = Math.round((proposedSpecial - expectedOldSpecial) * 100) / 100;
+      const transportAdjustment = Math.round((proposedTransport - expectedOldTransport) * 100) / 100;
+      const medicalAdjustment = Math.round((proposedMedical - expectedOldMedical) * 100) / 100;
+      const grossAdjustment = Math.round((
+        basicAdjustment + hraAdjustment + daAdjustment + specialAdjustment
+        + transportAdjustment + medicalAdjustment
+      ) * 100) / 100;
+      if (!Number.isFinite(grossAdjustment) || grossAdjustment <= 0) {
+        throw new SalaryArrearsCommandError(
+          `Payslip ${p.id} does not produce a positive approved gross adjustment`,
+          409,
+        );
+      }
+      const oldGross = Number(p.gross_salary);
+      const oldPf = Number(p.pf_employee);
+      const oldEsi = Number(p.esi_employee);
+      const oldProfessionalTax = Number(p.professional_tax);
+      const oldTds = Number(p.tds);
+      if ([oldGross, oldPf, oldEsi, oldProfessionalTax, oldTds]
+        .some(value => !Number.isFinite(value) || value < 0)) {
+        throw new SalaryArrearsCommandError(
+          `Payslip ${p.id} has invalid statutory deduction evidence`,
+          409,
+        );
+      }
+      const pfRatePct = Number(baseline.pf_employee_pct);
+      const expectedOldPf = Math.round(expectedOldBasic * pfRatePct) / 100;
+      if (!Number.isFinite(pfRatePct) || pfRatePct < 0 || pfRatePct > 100
+          || !sameMoney(expectedOldPf, oldPf)) {
+        throw new SalaryArrearsCommandError(
+          `Payslip ${p.id} PF evidence does not match the signed uncapped basic-rate policy`,
+          409,
+        );
+      }
+      const proposedPf = Math.round(proposedBasicEarned * pfRatePct) / 100;
+      const pfAdjustment = Math.round((proposedPf - oldPf) * 100) / 100;
+      const esiApplicable = baseline.esi_applicable;
+      if (!sameMoney(calcESI(oldGross, esiApplicable), oldEsi)) {
+        throw new SalaryArrearsCommandError(
+          `Payslip ${p.id} ESI evidence does not match the signed applicability policy`,
+          409,
+        );
+      }
+      if (!sameMoney(calcProfessionalTax(oldGross), oldProfessionalTax)) {
+        throw new SalaryArrearsCommandError(
+          `Payslip ${p.id} professional-tax evidence does not match the historical gross`,
+          409,
+        );
+      }
+      const proposedGross = Math.round((oldGross + grossAdjustment) * 100) / 100;
+      const proposedEsi = calcESI(proposedGross, esiApplicable);
+      const proposedProfessionalTax = calcProfessionalTax(proposedGross);
+      const esiAdjustment = Math.round((proposedEsi - oldEsi) * 100) / 100;
+      const professionalTaxAdjustment = Math.round((
+        proposedProfessionalTax - oldProfessionalTax
+      ) * 100) / 100;
+      if (!sameMoney(oldTds, baseline.tds_monthly)) {
+        throw new SalaryArrearsCommandError(
+          `Payslip ${p.id} TDS evidence does not match the signed monthly deduction`,
+          409,
+        );
+      }
+      const tdsAdjustment = 0;
+      const deductionAdjustment = Math.round((
+        pfAdjustment + esiAdjustment + professionalTaxAdjustment + tdsAdjustment
+      ) * 100) / 100;
+      const netAdjustment = Math.round((grossAdjustment - deductionAdjustment) * 100) / 100;
+      const payslipEvidence = {
+        id: Number(p.id),
+        payroll_run_id: Number(p.payroll_run_id),
+        staff_uid: p.staff_uid,
+        month: Number(p.month),
+        year: Number(p.year),
+        basic_earned: Number(p.basic_earned),
+        hra_earned: Number(p.hra_earned),
+        da_earned: Number(p.da_earned),
+        special_allowance_earned: Number(p.special_allowance_earned),
+        transport_allowance_earned: Number(p.transport_allowance_earned),
+        medical_allowance_earned: Number(p.medical_allowance_earned),
+        gross_salary: oldGross,
+        pf_employee: oldPf,
+        esi_employee: oldEsi,
+        professional_tax: oldProfessionalTax,
+        tds: oldTds,
+        days_present: Number(p.days_present),
+        days_leave: Number(p.days_leave),
+        total_working_days: Number(p.total_working_days),
+        status: p.status,
+      };
+      periodBreakdown.push({
+        month,
+        year,
+        payslip_id: Number(p.id),
+        payslip_evidence_sha256: sha256CanonicalJson(payslipEvidence),
+        attendance_factor: Math.round(attendanceFactor * 1000000) / 1000000,
+        basic_adjustment: basicAdjustment,
+        hra_adjustment: hraAdjustment,
+        da_adjustment: daAdjustment,
+        special_allowance_adjustment: specialAdjustment,
+        transport_allowance_adjustment: transportAdjustment,
+        medical_allowance_adjustment: medicalAdjustment,
+        gross_adjustment: grossAdjustment,
+        pf_adjustment: pfAdjustment,
+        esi_adjustment: esiAdjustment,
+        professional_tax_adjustment: professionalTaxAdjustment,
+        tds_adjustment: tdsAdjustment,
+        deduction_adjustment: deductionAdjustment,
+        net_adjustment: netAdjustment,
+        pf_basis_policy: 'uncapped_basic_earned',
+        pf_rate_pct: pfRatePct,
+        esi_applicable: esiApplicable,
+        esi_policy: 'signed_salary_baseline',
+        tds_policy: 'unchanged_signed_monthly_deduction',
+        tds_monthly_baseline: Number(baseline.tds_monthly),
+      });
+      totalArrears += grossAdjustment;
+      totalPfAdjustment += pfAdjustment;
+      totalEsiAdjustment += esiAdjustment;
+      totalProfessionalTaxAdjustment += professionalTaxAdjustment;
+      totalTdsAdjustment += tdsAdjustment;
+      totalDeductionAdjustment += deductionAdjustment;
+      totalNetAdjustment += netAdjustment;
     }
 
     const fromDate = arrearMonths[0];
     const toDate = arrearMonths[arrearMonths.length - 1];
 
-    // salary_arrears has no unique constraint — the old `ON CONFLICT DO NOTHING`
-    // was a defensive no-op that never fired (autoincrement PK). Plain create.
-    const created = await tx.salary_arrears.create({
-      data: {
-        tenant_id: tid,
-        staff_uid: r.staff_uid,
-        revision_id: revisionIdentity,
-        from_month: fromDate.month,
-        from_year: fromDate.year,
-        to_month: toDate.month,
-        to_year: toDate.year,
-        arrears_amount: Math.round(totalArrears * 100) / 100,
-      },
-      select: {
-        id: true,
-        staff_uid: true,
-        revision_id: true,
-        from_month: true,
-        from_year: true,
-        to_month: true,
-        to_year: true,
-        arrears_amount: true,
-        status: true,
-        calculated_at: true,
-      },
-    });
+    const calculatedAmount = Math.round(totalArrears * 100) / 100;
+    const calculatedPfAdjustment = Math.round(totalPfAdjustment * 100) / 100;
+    const calculatedEsiAdjustment = Math.round(totalEsiAdjustment * 100) / 100;
+    const calculatedProfessionalTaxAdjustment = Math.round(
+      totalProfessionalTaxAdjustment * 100,
+    ) / 100;
+    const calculatedTdsAdjustment = Math.round(totalTdsAdjustment * 100) / 100;
+    const calculatedDeductionAdjustment = Math.round(totalDeductionAdjustment * 100) / 100;
+    const calculatedNetAdjustment = Math.round(totalNetAdjustment * 100) / 100;
+    const inserted = await client.$queryRawUnsafe(
+       `INSERT INTO salary_arrears (
+         tenant_id, staff_uid, revision_id, from_month, from_year,
+         to_month, to_year, arrears_amount,
+         period_breakdown, gross_adjustment, pf_adjustment, esi_adjustment,
+         professional_tax_adjustment, tds_adjustment, deduction_adjustment,
+         net_adjustment,
+         tenant_reconciliation_required, tenant_reconciliation_evidence
+       )
+       VALUES (
+         $1::uuid, $2::uuid, $3::int, $4::int, $5::int,
+         $6::int, $7::int, $8::numeric, $9::jsonb, $8::numeric,
+         $10::numeric, $11::numeric, $12::numeric, $13::numeric,
+         $14::numeric, $15::numeric, false, '{}'::jsonb
+       )
+       ON CONFLICT (tenant_id, revision_id) WHERE revision_id IS NOT NULL
+       DO NOTHING
+       RETURNING id, staff_uid, revision_id, from_month, from_year,
+                 to_month, to_year, arrears_amount, period_breakdown,
+                 gross_adjustment, pf_adjustment, esi_adjustment,
+                 professional_tax_adjustment, tds_adjustment,
+                 deduction_adjustment, net_adjustment, status, calculated_at`,
+      tid,
+      r.staff_uid,
+      revisionId,
+      fromDate.month,
+      fromDate.year,
+      toDate.month,
+      toDate.year,
+      calculatedAmount,
+      JSON.stringify(periodBreakdown),
+      calculatedPfAdjustment,
+      calculatedEsiAdjustment,
+      calculatedProfessionalTaxAdjustment,
+      calculatedTdsAdjustment,
+      calculatedDeductionAdjustment,
+      calculatedNetAdjustment,
+    );
+    const result = inserted[0] || (await client.$queryRawUnsafe(
+      `SELECT arrears.id, arrears.staff_uid, arrears.revision_id,
+               arrears.from_month, arrears.from_year, arrears.to_month,
+               arrears.to_year, arrears.arrears_amount, arrears.status,
+               arrears.period_breakdown, arrears.gross_adjustment,
+               arrears.pf_adjustment, arrears.esi_adjustment,
+               arrears.professional_tax_adjustment, arrears.tds_adjustment,
+               arrears.deduction_adjustment, arrears.net_adjustment,
+               arrears.calculated_at
+         FROM salary_arrears arrears
+         JOIN salary_revisions revision
+           ON revision.id = arrears.revision_id
+          AND revision.tenant_id = arrears.tenant_id
+          AND revision.staff_uid = arrears.staff_uid
+          AND revision.tenant_reconciliation_required = false
+        WHERE arrears.tenant_id = $1::uuid
+          AND arrears.revision_id = $2::int
+          AND arrears.tenant_reconciliation_required = false
+        FOR UPDATE OF arrears`,
+      tid,
+      revisionId,
+    ))[0];
+    if (!result) throw new Error('Arrears identity could not be created or recovered');
 
-    return { arrears_amount: Math.round(totalArrears * 100) / 100, months: arrearMonths.length, result: created };
-  }, {
-    maxWait: 10000,
-    timeout: 30000,
-  });
+    const canonical = {
+      staff_uid: r.staff_uid,
+      revision_id: Number(revisionId),
+      from_month: fromDate.month,
+      from_year: fromDate.year,
+      to_month: toDate.month,
+      to_year: toDate.year,
+      arrears_amount: calculatedAmount,
+      period_breakdown_sha256: sha256CanonicalJson(periodBreakdown),
+      gross_adjustment: calculatedAmount,
+      pf_adjustment: calculatedPfAdjustment,
+      esi_adjustment: calculatedEsiAdjustment,
+      professional_tax_adjustment: calculatedProfessionalTaxAdjustment,
+      tds_adjustment: calculatedTdsAdjustment,
+      deduction_adjustment: calculatedDeductionAdjustment,
+      net_adjustment: calculatedNetAdjustment,
+    };
+    const recoveredMatches = result.staff_uid === canonical.staff_uid
+      && Number(result.revision_id) === canonical.revision_id
+      && Number(result.from_month) === canonical.from_month
+      && Number(result.from_year) === canonical.from_year
+      && Number(result.to_month) === canonical.to_month
+      && Number(result.to_year) === canonical.to_year
+      && sameMoney(result.arrears_amount, canonical.arrears_amount)
+      && sha256CanonicalJson(result.period_breakdown) === canonical.period_breakdown_sha256
+      && sameMoney(result.gross_adjustment, canonical.gross_adjustment)
+      && sameMoney(result.pf_adjustment, canonical.pf_adjustment)
+      && sameMoney(result.esi_adjustment, canonical.esi_adjustment)
+      && sameMoney(
+        result.professional_tax_adjustment,
+        canonical.professional_tax_adjustment,
+      )
+      && sameMoney(result.tds_adjustment, canonical.tds_adjustment)
+      && sameMoney(result.deduction_adjustment, canonical.deduction_adjustment)
+      && sameMoney(result.net_adjustment, canonical.net_adjustment);
+    if (!recoveredMatches) {
+      const quarantined = await client.$queryRawUnsafe(
+        `UPDATE salary_arrears arrears
+            SET tenant_id = NULL,
+                revision_id = NULL,
+                status = 'reconciliation_required',
+                tenant_reconciliation_required = true,
+                tenant_reconciliation_reason = 'arrears_command_mismatch',
+                tenant_reconciliation_evidence = arrears.tenant_reconciliation_evidence
+                  || jsonb_build_object(
+                       'action', 'quarantined',
+                       'source', 'calculateArrears',
+                       'observed_tenant_id', $1::uuid,
+                       'observed_revision_id', $2::int,
+                       'canonical_comparison', $4::jsonb
+                     ),
+                tenant_reconciled_at = NULL
+          WHERE arrears.id = $3::int
+            AND arrears.tenant_id = $1::uuid
+            AND arrears.revision_id = $2::int
+            AND arrears.tenant_reconciliation_required = false
+          RETURNING arrears.id`,
+        tid,
+        revisionId,
+        Number(result.id),
+        JSON.stringify({
+          observed: {
+            staff_uid: result.staff_uid,
+            revision_id: Number(result.revision_id),
+            from_month: Number(result.from_month),
+            from_year: Number(result.from_year),
+            to_month: Number(result.to_month),
+            to_year: Number(result.to_year),
+            arrears_amount: Number(result.arrears_amount),
+            period_breakdown_sha256: sha256CanonicalJson(result.period_breakdown),
+            gross_adjustment: Number(result.gross_adjustment),
+            pf_adjustment: Number(result.pf_adjustment),
+            esi_adjustment: Number(result.esi_adjustment),
+            professional_tax_adjustment: Number(result.professional_tax_adjustment),
+            tds_adjustment: Number(result.tds_adjustment),
+            deduction_adjustment: Number(result.deduction_adjustment),
+            net_adjustment: Number(result.net_adjustment),
+          },
+          canonical,
+        }),
+      );
+      if (quarantined.length !== 1) {
+        throw new SalaryArrearsCommandError(
+          'Salary arrears identity changed before reconciliation quarantine',
+        );
+      }
+      await client.$executeRawUnsafe(
+        `UPDATE salary_revision_arrears_work_items
+            SET status = 'reconciliation_required',
+                outcome = jsonb_build_object(
+                  'code', 'arrears_reconciliation_required',
+                  'reason', 'arrears_command_mismatch'
+                ),
+                last_error_hash = $3::char(64),
+                completed_at = clock_timestamp(), updated_at = clock_timestamp()
+          WHERE tenant_id = $1::uuid AND revision_id = $2::int
+            AND status = 'pending'`,
+        tid,
+        revisionId,
+        sha256CanonicalJson({ code: 'arrears_command_mismatch', revision_id: Number(revisionId) }),
+      );
+      return {
+        reconciliationConflict: true,
+      };
+    }
+
+    await client.$executeRawUnsafe(
+      `UPDATE salary_revision_arrears_work_items
+          SET status = 'completed', arrears_id = $3::int,
+              outcome = jsonb_build_object(
+                'code', 'arrears_calculated',
+                'arrears_id', $3::int,
+                'arrears_amount', $4::numeric
+              ),
+              completed_at = clock_timestamp(), updated_at = clock_timestamp()
+        WHERE tenant_id = $1::uuid AND revision_id = $2::int
+          AND status = 'pending'`,
+      tid,
+      revisionId,
+      Number(result.id),
+      calculatedAmount,
+    );
+
+    const responseData = {
+      revision_id: Number(revisionId),
+      arrears_amount: parseFloat(result.arrears_amount),
+      months: arrearMonths.length,
+      result,
+    };
+    return finaliseArrearsCommandTx(client, {
+      tenantId: tid,
+      revisionId,
+      arrearsId: Number(result.id),
+      identity: commandIdentity,
+      responseData,
+    });
+    }, { superAdmin: true });
+  } catch (err) {
+    await recordSalaryRevisionArrearsWorkFailure(workClaim, tid, err);
+    throw err;
+  }
+  if (outcome?.reconciliationConflict) {
+    throw new SalaryArrearsCommandError(
+      'Existing salary arrears evidence differs from the canonical calculation and was quarantined',
+    );
+  }
+  return outcome;
+}
+
+export async function processPendingSalaryRevisionArrearsWork({ tenantId, limit = 25 } = {}) {
+  const tid = requireTenantId(tenantId);
+  const boundedLimit = Math.max(1, Math.min(Number(limit) || 25, 100));
+  const work = await setTenant(tid, tx => tx.$queryRawUnsafe(
+    `SELECT work.id, work.revision_id, revision.admin_signed_by,
+            revision.admin_signer_role, revision.admin_authority_checked_at,
+            revision.admin_signature_sha256
+       FROM salary_revision_arrears_work_items work
+       JOIN salary_revisions revision
+         ON revision.tenant_id = work.tenant_id
+        AND revision.id = work.revision_id
+        AND revision.staff_uid = work.staff_uid
+       JOIN tenants tenant
+         ON tenant.id = work.tenant_id
+        AND LOWER(COALESCE(tenant.status, '')) = 'active'
+      WHERE work.tenant_id = $1::uuid
+        AND (
+          (work.status = 'pending' AND work.next_attempt_at <= clock_timestamp())
+          OR (work.status = 'processing' AND work.lease_expires_at <= clock_timestamp())
+        )
+        AND revision.tenant_reconciliation_required = false
+        AND revision.status = 'applied'
+      ORDER BY work.next_attempt_at, work.id
+      LIMIT $2::int`,
+    tid,
+    boundedLimit,
+  ));
+  const outcomes = [];
+  for (const item of work) {
+    const commandKey = `salary-arrears-work:${item.id}`;
+    const requestBodySha256 = sha256CanonicalJson({
+      tenant_id: tid,
+      work_item_id: String(item.id),
+      revision_id: Number(item.revision_id),
+      admin_signature_sha256: item.admin_signature_sha256,
+    });
+    try {
+      const result = await calculateArrears(Number(item.revision_id), tid, {
+        actorUid: item.admin_signed_by,
+        actorRole: item.admin_signer_role,
+        authorityCheckedAt: item.admin_authority_checked_at,
+        commandKey,
+        requestBodySha256,
+        workItemId: Number(item.id),
+        signedApprovalAuthority: true,
+      });
+      outcomes.push({ work_item_id: String(item.id), outcome: 'completed', result });
+    } catch (err) {
+      logger.error('Salary revision arrears worker item failed', {
+        tenantId: tid,
+        workItemId: String(item.id),
+        error: err?.name || 'Error',
+      });
+      outcomes.push({ work_item_id: String(item.id), outcome: 'failed' });
+    }
+  }
+  return { claimed: work.length, outcomes };
 }

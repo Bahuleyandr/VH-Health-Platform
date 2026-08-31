@@ -6,6 +6,7 @@
 //     (routeRolePolicy.js): hidden for a porter role outside the list,
 //     shown for an ip_flow role inside it on a completed-unverified task.
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -235,6 +236,19 @@ void main() {
   });
 
   group('screen helpers', () {
+    test('delivery staff surface owns pharmacy tracking and token handoff', () {
+      final source = File(
+        'lib/features/transport/screens/transport_tasks_screen.dart',
+      ).readAsStringSync();
+      expect(source, contains('getAssignedPharmacyDeliveries'));
+      expect(source, contains('updatePharmacyDeliveryLocation'));
+      expect(source, contains('stopPharmacyDeliveryTracking'));
+      expect(source, contains('completePharmacyDelivery'));
+      expect(source, contains('requestPharmacyDeliveryReturn'));
+      expect(source, contains('courier-pharmacy-handoff-token'));
+      expect(source, isNot(contains('markPharmacyDelivered')));
+    });
+
     test('zone line falls back label → location text → zone id', () {
       expect(
         transportZoneLine({

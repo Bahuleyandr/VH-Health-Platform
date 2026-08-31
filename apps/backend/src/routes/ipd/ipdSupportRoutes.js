@@ -10,8 +10,8 @@
 // pharmacy + front desk); the per-route requireRole guards below
 // re-narrow each operation to the roles that own it — the same
 // re-narrowing pattern bedManagementRoutes uses under the widened
-// /api/v1/beds mount, and the same segregation-of-duties model as
-// billingV2Routes (money-OUT stricter than money-IN).
+// /api/v1/beds mount. Refund approval and payout remain on billingV2's
+// separately authorised money-OUT routes.
 //
 // We import ipdSupportService as a default-namespace and call its named
 // methods (`ipdSupportService.X`) — both rules below would otherwise
@@ -27,12 +27,12 @@ import { success, error } from '../../utils/responseHelper.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
+import { enforceStaffClinicalWriteDevicePosture } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
 import { sanitizeAllBodyStrings } from '../../middleware/sanitizeMiddleware.js';
 import {
   BILLING_ROUTE_ROLES,
   IP_FLOW_ROUTE_ROLES,
   PHARMACY_ROUTE_ROLES,
-  PHARMACY_SUPPLY_ROUTE_ROLES,
 } from '../../config/routeRolePolicy.js';
 import { DOCTOR_TIERS } from '../../utils/roleHelpers.js';
 import { normalizeRole } from '../../utils/roles.js';
@@ -42,6 +42,10 @@ import {
   wardIndentListGuard,
   wardIndentRowGuard,
 } from '../pharmacy/wardIndentPatientGuards.js';
+import {
+  WARD_INDENT_CONTROLLED_HANDOFF_ROLES,
+  wardControlledHandoffEvidenceGuard,
+} from '../pharmacy/wardIndentRoutes.js';
 
 const router = express.Router();
 
@@ -57,14 +61,12 @@ const DEPOSIT_COLLECT_ROLES = [...new Set([
   'IPD_COUNSELLOR',
 ])];
 
-// Money-OUT (refund payout): finance/cashier roles + admin only —
-// byte-for-byte the BILLING_CASH_OUT_ROLES segregation-of-duties set in
-// billingV2Routes.js ("cash-out paths reachable by non-finance staff").
-// CASHIER is kept for parity with that set even though the current
-// app.js mount union does not include it (harmless if the union widens).
-const DEPOSIT_REFUND_ROLES = [
+// Refund requests reserve advance capacity but do not pay money out.
+// Approval and payout stay on the canonical billing-v2 routes. CASHIER is
+// intentionally absent because the outer /api/v1/ipd mount does not grant it.
+const DEPOSIT_REFUND_REQUEST_ROLES = [
   'ADMIN', 'SUPER_ADMIN',
-  'FINANCE_INCHARGE', 'BILLING_INCHARGE', 'BILLING_STAFF', 'CASHIER',
+  'FINANCE_INCHARGE', 'BILLING_INCHARGE', 'BILLING_STAFF',
 ];
 
 // Attendant passes (replacement issue / revoke): admission-desk and ward
@@ -85,11 +87,9 @@ const WARD_INDENT_REQUEST_ROLES = [...new Set([
 ])];
 const WARD_INDENT_READ_ROLES = [...new Set([
   ...WARD_INDENT_REQUEST_ROLES,
-  ...PHARMACY_SUPPLY_ROUTE_ROLES,
 ])];
 const WARD_INDENT_SUPPLY_ROLES = [...new Set([
   ...PHARMACY_ROUTE_ROLES,
-  ...PHARMACY_SUPPLY_ROUTE_ROLES,
 ])];
 const WARD_INDENT_SUBSTITUTION_DECISION_ROLES = [...DOCTOR_TIERS];
 const WARD_INDENT_RECEIPT_ROLES = [
@@ -100,7 +100,6 @@ const WARD_INDENT_RECEIPT_ROLES = [
   'ICU_NURSE',
   'ICU_INCHARGE',
   'ICU_STAFF',
-  'ER_STAFF',
 ];
 const WARD_INDENT_RECONCILIATION_ROLES = [
   'PHARMACY_INCHARGE',
@@ -109,19 +108,23 @@ const WARD_INDENT_RECONCILIATION_ROLES = [
   'ICU_INCHARGE',
 ];
 const WARD_INDENT_CANONICAL_BASE = '/api/v1/pharmacy-orders/ward-indents';
+const PG_INT4_MAX = 2147483647;
 const guardWardIndentRow = wardIndentRowGuard((req) => req.params.indentId);
 
 function wardIndentIdempotency(scope, action = null) {
-  return requireIdempotencyKey({
-    required: true,
-    scope: `ward_indent_${scope}`,
-    retainOnServerError: true,
-    requestPathForIdempotency: action
-      ? (req) => `${WARD_INDENT_CANONICAL_BASE}/${encodeURIComponent(
-          String(req.params.indentId),
-        )}/${action}`
-      : WARD_INDENT_CANONICAL_BASE,
-  });
+  return [
+    enforceStaffClinicalWriteDevicePosture,
+    requireIdempotencyKey({
+      required: true,
+      scope: `ward_indent_${scope}`,
+      retainOnServerError: true,
+      requestPathForIdempotency: action
+        ? (req) => `${WARD_INDENT_CANONICAL_BASE}/${encodeURIComponent(
+            String(req.params.indentId),
+          )}/${action}`
+        : WARD_INDENT_CANONICAL_BASE,
+    }),
+  ];
 }
 
 function wardIndentMutationContext(req) {
@@ -145,8 +148,9 @@ function actorRoleCodesOf(req) {
 }
 
 function requireIntParam(value, fieldName) {
-  const n = Number.parseInt(value, 10);
-  if (!Number.isInteger(n) || n <= 0) {
+  const text = typeof value === 'number' ? String(value) : String(value ?? '').trim();
+  const n = Number(text);
+  if (!/^[1-9][0-9]*$/.test(text) || !Number.isInteger(n) || n > PG_INT4_MAX) {
     const err = new Error(`${fieldName} must be a positive integer`);
     err.statusCode = HTTP_STATUS.BAD_REQUEST;
     throw err;
@@ -154,16 +158,97 @@ function requireIntParam(value, fieldName) {
   return n;
 }
 
+function commandKeyOf(req) {
+  return req.idempotencyClaim?.requestKey || req.get('idempotency-key');
+}
+
+function boundedAuditText(value, maxLength) {
+  if (value == null) return null;
+  const text = Array.from(String(value))
+    .filter((character) => {
+      const codePoint = character.codePointAt(0);
+      return codePoint >= 32 && codePoint !== 127;
+    })
+    .join('')
+    .trim();
+  return text ? text.slice(0, maxLength) : null;
+}
+
+function refundRequestAuditContextOf(req) {
+  const actorUid = req.acting?.actorUid ?? req.user?.uid;
+  const actorRole = req.acting?.actorRole ?? req.user?.role;
+  return {
+    actorUid: boundedAuditText(actorUid, 36),
+    subjectUid: boundedAuditText(req.user?.uid, 36),
+    actorRole: boundedAuditText(actorRole, 50),
+    actingAsDependent: req.acting != null,
+    requestId: boundedAuditText(req.id, 200),
+    deviceType: boundedAuditText(
+      req.user?.deviceType ?? req.user?.claims?.deviceType,
+      80,
+    ),
+    ipAddress: boundedAuditText(req.ip ?? req.socket?.remoteAddress, 45),
+    userAgent: boundedAuditText(req.get('user-agent'), 500),
+  };
+}
+
+function prepareIpdAdvanceRefundRequest(req, _res, next) {
+  try {
+    const { refund_amount, payment_method, payment_reference, notes } = req.body ?? {};
+    req.ipdAdvanceRefundCommand = ipdSupportService.normalizeIpdAdvanceRefundRequest({
+      parentDepositId: requireIntParam(req.params.depositId, 'depositId'),
+      refundAmount: refund_amount,
+      paymentMethod: payment_method,
+      paymentReference: payment_reference ?? null,
+      notes: notes ?? null,
+    });
+    return next();
+  } catch (err) {
+    return next(err);
+  }
+}
+
+function prepareIpdAdvanceCollection(req, _res, next) {
+  try {
+    const admissionId = requireIntParam(req.params.id, 'admissionId');
+    req.ipdAdvanceCollectionCommand = {
+      admissionId,
+      idempotencyPath: `/api/v1/ipd/admissions/${admissionId}/advance-deposits`,
+    };
+    return next();
+  } catch (err) {
+    return next(err);
+  }
+}
+
+function ipdMoneyIdempotency(
+  scope,
+  requestPathForIdempotency,
+  requestBodyForIdempotency = null,
+) {
+  return requireIdempotencyKey({
+    required: true,
+    scope,
+    retainOnServerError: true,
+    requestPathForIdempotency,
+    ...(requestBodyForIdempotency ? { requestBodyForIdempotency } : {}),
+  });
+}
+
 // ── Advance deposits ─────────────────────────────────────────────────
 
 router.post(
   '/admissions/:id/advance-deposits',
   requireRole(...DEPOSIT_COLLECT_ROLES),
+  prepareIpdAdvanceCollection,
+  ipdMoneyIdempotency(
+    'ipd_advance_deposit_collect',
+    (req) => req.ipdAdvanceCollectionCommand.idempotencyPath,
+  ),
   wrapAsync(async (req, res) => {
-    const admissionId = requireIntParam(req.params.id, 'admissionId');
     const { amount, payment_method, payment_reference, purpose, notes } = req.body ?? {};
     const deposit = await ipdSupportService.collectAdvanceDeposit({
-      admissionId,
+      admissionId: req.ipdAdvanceCollectionCommand.admissionId,
       amount,
       paymentMethod: payment_method,
       paymentReference: payment_reference ?? null,
@@ -180,30 +265,54 @@ router.get(
   '/admissions/:id/advance-deposits',
   wrapAsync(async (req, res) => {
     const admissionId = requireIntParam(req.params.id, 'admissionId');
-    const [deposits, balance] = await Promise.all([
+    const canReadRefundRequests = actorRoleCodesOf(req)
+      .some((role) => DEPOSIT_REFUND_REQUEST_ROLES.includes(role));
+    const [deposits, balance, refundRequests] = await Promise.all([
       ipdSupportService.listAdmissionDeposits(admissionId, { tenantId: tenantOf(req) }),
       ipdSupportService.getAdmissionDepositBalance(admissionId, { tenantId: tenantOf(req) }),
+      canReadRefundRequests
+        ? ipdSupportService.listAdmissionAdvanceRefundRequests(
+            admissionId,
+            { tenantId: tenantOf(req) },
+          )
+        : Promise.resolve(null),
     ]);
-    success(res, { deposits, balance }, 'Advance deposits retrieved');
+    success(
+      res,
+      { deposits, balance, refund_requests: refundRequests },
+      'Advance deposits retrieved',
+    );
   })
 );
 
 router.post(
   '/advance-deposits/:depositId/refund',
-  requireRole(...DEPOSIT_REFUND_ROLES),
+  requireRole(...DEPOSIT_REFUND_REQUEST_ROLES),
+  prepareIpdAdvanceRefundRequest,
+  ipdMoneyIdempotency(
+    'ipd_advance_deposit_refund',
+    (req) => req.ipdAdvanceRefundCommand.idempotencyPath,
+    (req) => req.ipdAdvanceRefundCommand.idempotencyBody,
+  ),
   wrapAsync(async (req, res) => {
-    const parentDepositId = requireIntParam(req.params.depositId, 'depositId');
-    const { refund_amount, payment_method, payment_reference, notes } = req.body ?? {};
+    const command = req.ipdAdvanceRefundCommand;
+    const auditContext = refundRequestAuditContextOf(req);
     const refund = await ipdSupportService.refundAdvanceDeposit({
-      parentDepositId,
-      refundAmount: refund_amount,
-      paymentMethod: payment_method,
-      paymentReference: payment_reference ?? null,
-      notes: notes ?? null,
-      refundedBy: req.user?.uid,
+      parentDepositId: command.parentDepositId,
+      refundAmount: command.amount,
+      paymentMethod: command.mode,
+      paymentReference: null,
+      notes: command.reason,
+      refundedBy: auditContext.actorUid,
       tenantId: tenantOf(req),
+      commandKey: commandKeyOf(req),
+      requestFingerprint: req.idempotencyClaim?.requestBodyHash,
+      httpIdempotencyClaimId: req.idempotencyClaim?.id,
+      requestId: auditContext.requestId,
+      auditContext,
+      idempotencyPath: command.idempotencyPath,
     });
-    success(res, { refund }, `Refund ${refund.receipt_number} processed`, HTTP_STATUS.CREATED);
+    success(res, refund);
   })
 );
 
@@ -371,6 +480,28 @@ router.get(
   }),
 );
 
+router.get(
+  '/ward-indents/:indentId/items/:itemId/inventory-candidates',
+  requireRole(...WARD_INDENT_READ_ROLES),
+  guardWardIndentRow,
+  wrapAsync(async (req, res) => {
+    const indentId = requireIntParam(req.params.indentId, 'indentId');
+    const itemId = requireIntParam(req.params.itemId, 'itemId');
+    const candidates = await ipdSupportService.listWardIndentInventoryCandidates(
+      itemId,
+      {
+        tenantId: tenantOf(req),
+        wardIndentId: indentId,
+      },
+    );
+    return success(
+      res,
+      { item: candidates.item, candidates: candidates.candidates },
+      'Ward indent inventory candidates retrieved',
+    );
+  }),
+);
+
 router.post(
   '/ward-indents/:indentId/reserve',
   requireRole(...WARD_INDENT_SUPPLY_ROLES),
@@ -381,6 +512,7 @@ router.post(
       indentId: requireIntParam(req.params.indentId, 'indentId'),
       reservedBy: req.user?.uid,
       itemQuantitiesReserved: req.body?.item_quantities_reserved ?? req.body?.items ?? null,
+      inventorySelections: req.body?.inventory_selections ?? null,
       ...wardIndentMutationContext(req),
     });
     success(res, { indent }, 'Indent reserved');
@@ -398,6 +530,7 @@ router.post(
       markedBy: req.user?.uid,
       reason: req.body?.reason ?? req.body?.short_supply_reason,
       itemQuantitiesAvailable: req.body?.item_quantities_available ?? req.body?.items ?? null,
+      inventorySelections: req.body?.inventory_selections ?? null,
       ...wardIndentMutationContext(req),
     });
     success(res, { indent }, 'Indent short supply recorded');
@@ -429,6 +562,7 @@ router.post(
     const indent = await ipdSupportService.approveWardIndentSubstitution({
       indentId: requireIntParam(req.params.indentId, 'indentId'),
       decidedBy: req.user?.uid,
+      inventorySelections: req.body?.inventory_selections ?? null,
       ...wardIndentMutationContext(req),
     });
     success(res, { indent }, 'Indent substitution approved');
@@ -484,8 +618,9 @@ router.post(
 
 router.post(
   '/ward-indents/:indentId/controlled-handoff',
-  requireRole(...WARD_INDENT_SUPPLY_ROLES),
+  requireRole(...WARD_INDENT_CONTROLLED_HANDOFF_ROLES),
   guardWardIndentRow,
+  wardControlledHandoffEvidenceGuard,
   wardIndentIdempotency('controlled_handoff', 'controlled-handoff'),
   wrapAsync(async (req, res) => {
     const indent = await ipdSupportService.recordWardIndentControlledHandoff({
@@ -524,6 +659,7 @@ router.post(
       indentId: requireIntParam(req.params.indentId, 'indentId'),
       receivedBy: req.user?.uid,
       itemQuantitiesReceived: req.body?.item_quantities_received ?? req.body?.items ?? null,
+      substitutionAcknowledgements: req.body?.substitution_acknowledgements ?? null,
       ...wardIndentMutationContext(req),
     });
     success(res, { indent }, 'Indent receipt recorded');
@@ -573,8 +709,8 @@ router.post(
       indentId: requireIntParam(req.params.indentId, 'indentId'),
       reconciledBy: req.user?.uid,
       reason: req.body?.reason,
-      controlledReturnEvidence: req.body?.controlled_return_evidence ?? null,
       itemReconciliations: req.body?.item_reconciliations ?? null,
+      allocationReturns: req.body?.allocation_returns ?? null,
       ...wardIndentMutationContext(req),
     });
     success(res, { indent }, 'Indent reconciled');

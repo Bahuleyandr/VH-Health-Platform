@@ -2,11 +2,19 @@ import { readFileSync } from 'node:fs';
 
 import { jest } from '@jest/globals';
 
-import {
+const consumeMarSupplyTxMock = jest.fn();
+const assertMedicationOrdersExecutionReadyTxMock = jest.fn();
+
+jest.unstable_mockModule('../../services/clinical/marSupplyService.js', () => ({
+  assertMedicationOrdersExecutionReadyTx: assertMedicationOrdersExecutionReadyTxMock,
+  consumeMarSupplyTx: consumeMarSupplyTxMock,
+}));
+
+const {
   inspectMedicationAdministrationTx,
   MAR_ADMINISTRATION_MODES,
   recordMedicationAdministrationTx,
-} from '../../services/clinical/marService.js';
+} = await import('../../services/clinical/marService.js');
 
 const IDS = Object.freeze({
   actor: '10000000-0000-4000-8000-000000000001',
@@ -26,6 +34,9 @@ function createTx({
   updateError = null,
 } = {}) {
   const query = jest.fn(async (sql) => {
+    if (sql.includes('SELECT clinical_order_id') && sql.includes('LIMIT 1')) {
+      return [{ clinical_order_id: 91 }];
+    }
     if (sql.includes('FROM medication_administrations') && sql.includes('FOR UPDATE')) {
       return [{
         id: 42,
@@ -37,6 +48,7 @@ function createTx({
         status,
         witness_uid: status === 'administered' ? IDS.checker : null,
         tenant_id: IDS.tenant,
+        clinical_order_id: 91,
       }];
     }
     if (sql.includes('FROM admissions')) {
@@ -88,6 +100,13 @@ function paperInput(overrides = {}) {
 }
 
 describe('shared MAR administration transaction core', () => {
+  beforeEach(() => {
+    assertMedicationOrdersExecutionReadyTxMock.mockReset();
+    assertMedicationOrdersExecutionReadyTxMock.mockResolvedValue([{ id: 91 }]);
+    consumeMarSupplyTxMock.mockReset();
+    consumeMarSupplyTxMock.mockResolvedValue({ status: 'matched', quantity: 1 });
+  });
+
   test('applies a paper fact with exact admission, checker, occurrence, and no electronic override', async () => {
     const tx = createTx();
     const input = paperInput();
@@ -105,11 +124,18 @@ describe('shared MAR administration transaction core', () => {
         override_reason: null,
         patient_scanned_at: null,
         medication_scanned_at: null,
+        supply_state: { status: 'matched', quantity: 1 },
       },
     });
+    expect(consumeMarSupplyTxMock).toHaveBeenCalledWith(tx, expect.objectContaining({
+      tenantId: IDS.tenant,
+      administration: inspection.row,
+      recordedBy: IDS.actor,
+      administrationMode: MAR_ADMINISTRATION_MODES.RETROSPECTIVE_PAPER_BACK_ENTRY,
+    }));
 
     const updateCall = tx.$queryRawUnsafe.mock.calls.find(([sql]) => sql.includes('UPDATE medication_administrations'));
-    expect(updateCall[0]).toContain("lower(status) IN ('scheduled', 'held')");
+    expect(updateCall[0]).toContain("lower(status) = 'scheduled'");
     expect(updateCall[0]).not.toContain("'due'");
     expect(updateCall[0]).not.toContain("'pending'");
     expect(updateCall.slice(1)).toEqual([
@@ -126,6 +152,7 @@ describe('shared MAR administration transaction core', () => {
   test.each([
     ['due', 'MAR_STATE_CONFLICT'],
     ['pending', 'MAR_STATE_CONFLICT'],
+    ['held', 'MAR_HOLD_RELEASE_REQUIRED'],
     ['administered', null],
   ])('does not broaden canonical source state %s', async (status, expectedCode) => {
     const tx = createTx({ status });

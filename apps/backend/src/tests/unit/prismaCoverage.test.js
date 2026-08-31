@@ -1106,6 +1106,89 @@ describe('src/lib/prisma.js coverage completion', () => {
         'REVOKE INSERT, UPDATE, DELETE, TRUNCATE\n          ON TABLE public.clinical_continuity_policy_versions\n          FROM vhhealth_app',
       );
       expect(grantSql).toContain(
+        'REVOKE INSERT, UPDATE, DELETE, TRUNCATE\n          ON TABLE public.clinical_continuity_edge_access_grants\n          FROM vhhealth_app',
+      );
+      expect(grantSql).toContain(
+        'tenant_id, facility_id, location_type, location_identifier,\n          staff_uid, device_id, client_certificate_sha256,',
+      );
+      for (const sequence of [
+        'clinical_continuity_capture_revision_seq',
+        'clinical_continuity_context_revision_seq',
+      ]) {
+        const revoke = `REVOKE ALL PRIVILEGES\n          ON SEQUENCE public.${sequence}`;
+        expect(grantSql).toContain(revoke);
+        expect(grantSql.indexOf(revoke)).toBeGreaterThan(grantSql.indexOf(
+          'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public',
+        ));
+      }
+      expect(grantSql).not.toContain(
+        'GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public',
+      );
+      expect(grantSql).not.toContain(
+        'GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO vhhealth_app',
+      );
+      for (const relation of [
+        'care_pathway_reconciliation_checks',
+        'clinical_continuity_replay_receipts',
+        'clinical_continuity_replay_attempts',
+      ]) {
+        expect(grantSql).toContain(`'${relation}'`);
+      }
+      for (const guardedFunction of [
+        'assert_cc_reconciliation_append_only()',
+        'validate_imaging_study_link_recovery_receipt()',
+        'validate_scim_provisioning_command()',
+        'cc_packet_assert_context(uuid,integer)',
+      ]) {
+        expect(grantSql).toContain(`'${guardedFunction}'`);
+      }
+      expect(grantSql).toContain(
+        "pg_catalog.to_regclass('public.event_consumer_offsets')",
+      );
+      expect(grantSql).toContain(
+        'REVOKE INSERT, UPDATE, DELETE, TRUNCATE\n          ON TABLE public.event_consumer_offsets FROM vhhealth_app',
+      );
+      expect(grantSql).toContain(
+        'GRANT UPDATE (\n          high_water_position, high_water_token, resume_cutoff_position,',
+      );
+      expect(grantSql).toContain(
+        "pg_catalog.to_regclass('public.pathway_projector_inbox')",
+      );
+      const pathwayInboxInsertGrant = grantSql.match(
+        /GRANT INSERT \(\s*([a-z0-9_,\s]+?)\s*\) ON TABLE public\.pathway_projector_inbox TO vhhealth_app/,
+      );
+      expect(pathwayInboxInsertGrant).not.toBeNull();
+      expect(pathwayInboxInsertGrant[1].split(',').map(column => column.trim())).toEqual([
+        'scope_kind',
+        'tenant_id',
+        'consumer_key',
+        'generation',
+        'event_id',
+        'offset_id',
+        'facility_id',
+        'interface_family',
+        'direction',
+        'source_partition',
+        'source_position',
+        'source_token',
+        'predecessor_token',
+        'duplicate_key',
+        'command_fingerprint',
+        'occurred_at',
+        'received_at',
+        'recorded_at',
+        'arrival_class',
+        'effect_disposition',
+        'status',
+        'next_attempt_at',
+        'policy_version',
+        'policy_signature',
+        'retention_policy',
+        'retention_until',
+        'lease_owner',
+        'lease_expires_at',
+      ]);
+      expect(grantSql).toContain(
         "pg_catalog.to_regclass('public.hl7_inbound_recovery_receipts')",
       );
       expect(grantSql).toContain(
@@ -1126,7 +1209,7 @@ describe('src/lib/prisma.js coverage completion', () => {
         'retention_policy, retention_until\n        ) ON TABLE public.hl7_inbound_recovery_receipts TO vhhealth_app',
       );
       const i03InsertGrant = grantSql.match(
-        /GRANT INSERT \(\s*([\s\S]*?)\s*\) ON TABLE public\.hl7_inbound_recovery_receipts TO vhhealth_app/,
+        /GRANT INSERT \(\s*([a-z0-9_,\s]+?)\s*\) ON TABLE public\.hl7_inbound_recovery_receipts TO vhhealth_app/,
       );
       expect(i03InsertGrant).not.toBeNull();
       expect(i03InsertGrant[1].split(',').map(column => column.trim())).toEqual([
@@ -1212,7 +1295,7 @@ describe('src/lib/prisma.js coverage completion', () => {
       expect(grantSql.indexOf(
         'REVOKE ALL PRIVILEGES\n          ON SEQUENCE public.hl7_inbound_recovery_receipts_id_seq',
       )).toBeGreaterThan(grantSql.indexOf(
-        'GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public',
+        'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public',
       ));
       expect(grantSql).toContain(
         'GRANT USAGE, SELECT\n          ON SEQUENCE public.hl7_inbound_recovery_receipts_id_seq\n          TO vhhealth_app',

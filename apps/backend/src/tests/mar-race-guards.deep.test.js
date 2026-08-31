@@ -25,12 +25,18 @@ const d = DB_CONFIGURED ? describe : describe.skip;
 
 const prisma = (await import('../lib/prisma.js')).default;
 const marService = await import('../services/clinical/marService.js');
+const { fingerprintMarTransitionRequest } = await import(
+  '../services/clinical/marTransitionCommandService.js'
+);
 
 const PATIENT_UID = randomUUID();
 const ADMINISTERING_NURSE = randomUUID();
 const SECOND_NURSE = randomUUID();
+const PRESCRIBER = randomUUID();
+const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const SCHED_BASE = '2026-07-02T08:00:00Z';
 const DRUG = `MAR_RACE_${randomUUID().slice(0, 8)}`;
+let clinicalOrderId;
 
 function deferred() {
   let resolve;
@@ -41,9 +47,17 @@ function deferred() {
 
 async function seedScheduledDose(scheduledTime = SCHED_BASE) {
   const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO medication_administrations (patient_uid, medication_name, dose, route, scheduled_time, status)
-     VALUES ($1::uuid, $2, '5 mg', 'oral', $3::timestamptz, 'scheduled') RETURNING id`,
-    PATIENT_UID, DRUG, scheduledTime,
+    `INSERT INTO medication_administrations
+       (tenant_id, patient_uid, medication_name, dose, route, scheduled_time,
+        status, clinical_order_id)
+     VALUES ($1::uuid, $2::uuid, $3, '5 mg', 'oral', $4::timestamptz,
+             'scheduled', $5::int)
+     RETURNING id`,
+    TENANT_ID,
+    PATIENT_UID,
+    DRUG,
+    scheduledTime,
+    clinicalOrderId,
   );
   return rows[0].id;
 }
@@ -74,18 +88,116 @@ async function auditRows(action) {
 }
 
 async function cleanup() {
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid AND source_table = 'medication_administrations'`,
-    PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid AND resource_table = 'medication_administrations'`,
-    PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM medication_administrations WHERE patient_uid = $1::uuid AND medication_name = $2`,
-    PATIENT_UID, DRUG,
-  ).catch(() => {});
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
+    await tx.$executeRawUnsafe("SELECT set_config('app.audit_bypass', 'on', true)");
+    await tx.$executeRawUnsafe(
+      `DELETE FROM notification_outbox
+        WHERE tenant_id = $1::uuid
+          AND payload->>'medication_administration_id' IN (
+            SELECT id::text FROM medication_administrations
+             WHERE tenant_id = $1::uuid
+               AND patient_uid = $2::uuid
+               AND medication_name = $3
+          )`,
+      TENANT_ID,
+      PATIENT_UID,
+      DRUG,
+    );
+    for (const table of [
+      'mar_transition_command_receipts',
+      'mar_administration_command_receipts',
+      'mar_medication_exception_events',
+    ]) {
+      await tx.$executeRawUnsafe(
+        `DELETE FROM ${table}
+          WHERE tenant_id = $1::uuid
+            AND medication_administration_id IN (
+              SELECT id FROM medication_administrations
+               WHERE tenant_id = $1::uuid
+                 AND patient_uid = $2::uuid
+                 AND medication_name = $3
+            )`,
+        TENANT_ID,
+        PATIENT_UID,
+        DRUG,
+      );
+    }
+    await tx.$executeRawUnsafe(
+      `DELETE FROM tasks
+        WHERE tenant_id = $1::uuid
+          AND related_resource_type = 'mar_medication_exception_cases'
+          AND related_resource_id IN (
+            SELECT exception_case.id::text
+              FROM mar_medication_exception_cases exception_case
+              JOIN medication_administrations administration
+                ON administration.tenant_id = exception_case.tenant_id
+               AND administration.id = exception_case.medication_administration_id
+             WHERE exception_case.tenant_id = $1::uuid
+               AND administration.patient_uid = $2::uuid
+               AND administration.medication_name = $3
+          )`,
+      TENANT_ID,
+      PATIENT_UID,
+      DRUG,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM workflow_sla_instances
+        WHERE tenant_id = $1::uuid
+          AND source_table = 'mar_medication_exception_cases'
+          AND source_id IN (
+            SELECT exception_case.id::text
+              FROM mar_medication_exception_cases exception_case
+              JOIN medication_administrations administration
+                ON administration.tenant_id = exception_case.tenant_id
+               AND administration.id = exception_case.medication_administration_id
+             WHERE exception_case.tenant_id = $1::uuid
+               AND administration.patient_uid = $2::uuid
+               AND administration.medication_name = $3
+          )`,
+      TENANT_ID,
+      PATIENT_UID,
+      DRUG,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM mar_medication_exception_cases
+        WHERE tenant_id = $1::uuid
+          AND medication_administration_id IN (
+            SELECT id FROM medication_administrations
+             WHERE tenant_id = $1::uuid
+               AND patient_uid = $2::uuid
+               AND medication_name = $3
+          )`,
+      TENANT_ID,
+      PATIENT_UID,
+      DRUG,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM clinical_timeline_events
+        WHERE tenant_id = $1::uuid
+          AND patient_uid = $2::uuid
+          AND source_table = 'medication_administrations'`,
+      TENANT_ID,
+      PATIENT_UID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM clinical_audit_events
+        WHERE tenant_id = $1::uuid
+          AND patient_uid = $2::uuid
+          AND resource_table = 'medication_administrations'`,
+      TENANT_ID,
+      PATIENT_UID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM medication_administrations
+        WHERE tenant_id = $1::uuid
+          AND patient_uid = $2::uuid
+          AND medication_name = $3`,
+      TENANT_ID,
+      PATIENT_UID,
+      DRUG,
+    );
+  });
 }
 
 /**
@@ -133,9 +245,62 @@ async function administerWhileBlocked(id, raceLoser) {
 }
 
 d('MAR missed/hold race guards — S6-06 (Phase-3 deep review)', () => {
-  beforeAll(cleanup);
+  beforeAll(async () => {
+    await cleanup();
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users
+         (uid, tenant_id, name, role, is_active, status, updated_at)
+       VALUES
+         ($1::uuid, $4::uuid, 'MAR Race Administering Nurse',
+          'NURSING_STAFF', TRUE, 'active', NOW()),
+         ($2::uuid, $4::uuid, 'MAR Race Second Nurse',
+          'NURSING_STAFF', TRUE, 'active', NOW()),
+         ($3::uuid, $4::uuid, 'MAR Race Prescriber',
+          'DOCTOR', TRUE, 'active', NOW()),
+         ($5::uuid, $4::uuid, 'MAR Race Patient',
+          'PATIENT', TRUE, 'active', NOW())`,
+      ADMINISTERING_NURSE,
+      SECOND_NURSE,
+      PRESCRIBER,
+      TENANT_ID,
+      PATIENT_UID,
+    );
+    const [order] = await prisma.$queryRawUnsafe(
+      `INSERT INTO clinical_orders
+         (tenant_id, order_number, patient_uid, order_type, status, ordered_by,
+          route, details, updated_at)
+       VALUES ($1::uuid, $2, $3::uuid, 'medication', 'ordered', $4::uuid,
+               'oral', '{"medication_name":"MAR race guard","dose":"5 mg","route":"oral"}'::jsonb,
+               NOW())
+       RETURNING id`,
+      TENANT_ID,
+      `MAR-RACE-${DRUG}`,
+      PATIENT_UID,
+      PRESCRIBER,
+    );
+    clinicalOrderId = Number(order.id);
+  });
   beforeEach(cleanup);
-  afterAll(async () => { await cleanup(); await prisma.$disconnect().catch(() => {}); });
+  afterAll(async () => {
+    await cleanup();
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_orders
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT_ID,
+      clinicalOrderId,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM users
+        WHERE tenant_id = $4::uuid
+          AND uid IN ($1::uuid, $2::uuid, $3::uuid, $5::uuid)`,
+      ADMINISTERING_NURSE,
+      SECOND_NURSE,
+      PRESCRIBER,
+      TENANT_ID,
+      PATIENT_UID,
+    ).catch(() => {});
+    await prisma.$disconnect().catch(() => {});
+  });
 
   it('recordMissed racing an administration returns 409 and does not overwrite the administered record', async () => {
     const id = await seedScheduledDose();
@@ -207,13 +372,33 @@ d('MAR missed/hold race guards — S6-06 (Phase-3 deep review)', () => {
 
   it('recordMissed and holdMedication still succeed on an uncontended scheduled dose', async () => {
     const missedId = await seedScheduledDose('2026-07-02T10:00:00Z');
-    const missed = await marService.recordMissed(missedId, 'patient NPO', SECOND_NURSE);
+    const missedReason = 'patient NPO';
+    const missed = await marService.recordMissed(
+      missedId,
+      missedReason,
+      SECOND_NURSE,
+      {
+        tenantId: TENANT_ID,
+        commandKey: `mar-race-missed-${DRUG}`,
+        requestFingerprint: fingerprintMarTransitionRequest({ reason: missedReason }),
+      },
+    );
     expect(missed.status).toBe('missed');
     expect((await timelineRows('mar.missed')).length).toBeGreaterThanOrEqual(1);
     expect((await auditRows('mar.missed')).length).toBeGreaterThanOrEqual(1);
 
     const heldId = await seedScheduledDose('2026-07-02T11:00:00Z');
-    const held = await marService.holdMedication(heldId, 'awaiting review', SECOND_NURSE);
+    const holdReason = 'awaiting review';
+    const held = await marService.holdMedication(
+      heldId,
+      holdReason,
+      SECOND_NURSE,
+      {
+        tenantId: TENANT_ID,
+        commandKey: `mar-race-held-${DRUG}`,
+        requestFingerprint: fingerprintMarTransitionRequest({ reason: holdReason }),
+      },
+    );
     expect(held.status).toBe('held');
     expect(held.hold_reason).toBe('awaiting review');
     expect((await timelineRows('mar.held')).length).toBeGreaterThanOrEqual(1);

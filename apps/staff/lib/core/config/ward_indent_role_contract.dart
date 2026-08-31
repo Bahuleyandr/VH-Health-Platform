@@ -61,11 +61,8 @@ abstract final class WardIndentRoleContract {
   };
 
   static const controlledDispenseRoleCodes = {
-    'SUPER_ADMIN',
-    'ADMIN',
     'PHARMACY_STAFF',
     'PHARMACY_INCHARGE',
-    'PHARMACIST',
   };
 
   static const substitutionDecisionRoleCodes = {
@@ -96,6 +93,10 @@ abstract final class WardIndentRoleContract {
 
   static bool canRead({required String rawRole, required StaffRole role}) {
     return readRoleCodes.contains(canonicalRoleCode(rawRole, role));
+  }
+
+  static bool canRequest({required String rawRole, required StaffRole role}) {
+    return requestRoleCodes.contains(canonicalRoleCode(rawRole, role));
   }
 
   static String canonicalRoleCode(String rawRole, StaffRole role) {

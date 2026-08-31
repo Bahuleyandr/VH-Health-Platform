@@ -21,25 +21,61 @@
 // target tenant_id claim, so tenantContextMiddleware resolves req.tenantId to
 // exactly that tenant. SUPER_ADMIN collapses to ADMIN for route RBAC (ADMIN is
 // in pharmacyCatalogRoutes), so the shared catalog-read RBAC is satisfied.
+//
+// The endpoint also resolves pharmacy FACILITY CUSTODY before it reads anything
+// (resolvePharmacyFacility → assertPharmacyFacilityGrant, which has no admin
+// bypass), and availability is summed over batches scoped to that facility. So
+// every tenant a request is made under carries the full chain — one active
+// default facility, an active storage location, a staff identity for the caller,
+// and one ACTIVE pharmacy_staff_facility_grants row issued through the real
+// grant command. See seedFacilityAuthority below.
 
 import request from 'supertest';
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
 import { API_KEY, generateTestToken } from './testClient.js';
 import { setCompositionSearchEnabled } from '../services/pharmacy/compositionFeatureService.js';
+import { grantPharmacyFacilityAuthority } from '../services/pharmacy/pharmacyFacilityAuthorityService.js';
 
 const TENANT_A = '00000000-0000-4000-8000-0000cfa10001';
 const TENANT_B = '00000000-0000-4000-8000-0000cfa10002';
 const TENANT_OFF = '00000000-0000-4000-8000-0000cfa10003';
 
-const SA_UID = 'a7777777-7777-4777-8777-77777777aa01';
+// One actor identity PER TENANT. users.uid carries a global unique index
+// (users_uid_key), so a single uid cannot exist in both tenants, and
+// assertPharmacyFacilityGrant looks the actor up by (tenant_id, uid) — a shared
+// uid would resolve in exactly one tenant and 403 in the other.
+const ACTOR_UID_A = 'a7777777-7777-4777-8777-77777777aa01';
+const ACTOR_UID_OFF = 'a7777777-7777-4777-8777-77777777aa03';
+// The admin that ISSUES a facility grant is a separate identity from the staff
+// member that holds it, which is how grantPharmacyFacilityAuthority is called in
+// production (it authorises the actor as a tenant admin, then locks the target).
+const GRANT_ADMIN_A = 'a7777777-7777-4777-8777-77777777ab01';
+const GRANT_ADMIN_OFF = 'a7777777-7777-4777-8777-77777777ab03';
+const FIXTURE_UIDS = [ACTOR_UID_A, ACTOR_UID_OFF, GRANT_ADMIN_A, GRANT_ADMIN_OFF];
+
+// Facility custody, one per tenant. Migration 753 fails closed on stock rows
+// without it, and the endpoint resolves the tenant's single ACTIVE DEFAULT
+// facility before it reads anything:
+//   chk_pharmacy_inventory_items_active_authority_753   (active item ⇒ facility + catalog)
+//   chk_pharmacy_batches_usable_authority_753           (in_stock batch ⇒ facility)
+//   chk_pharmacy_batches_usable_storage_supply_753      (in_stock batch ⇒ storage location)
+//   enforce_pharmacy_batch_storage_authority_supply_753 (that location must be ACTIVE, same facility)
+const FACILITY_CODE = {
+  [TENANT_A]: 'ALTTEST-FAC-A',
+  [TENANT_B]: 'ALTTEST-FAC-B',
+  [TENANT_OFF]: 'ALTTEST-FAC-OFF',
+};
+const FACILITY_CODES = Object.values(FACILITY_CODE);
+// tenantId -> { facilityId, storageLocationId }, filled in beforeAll.
+const custody = new Map();
 
 const COMBO_KEY = 'alttest+amoxicillin+clavulanic_acid';
 const MONO_KEY = 'alttest+paracetamol';
 
 // SUPER_ADMIN tokens minted per-tenant so req.tenantId resolves deterministically.
-const tokenA = generateTestToken('SUPER_ADMIN', { uid: SA_UID, tenant_id: TENANT_A });
-const tokenOff = generateTestToken('SUPER_ADMIN', { uid: SA_UID, tenant_id: TENANT_OFF });
+const tokenA = generateTestToken('SUPER_ADMIN', { uid: ACTOR_UID_A, tenant_id: TENANT_A });
+const tokenOff = generateTestToken('SUPER_ADMIN', { uid: ACTOR_UID_OFF, tenant_id: TENANT_OFF });
 
 function clientFor(token) {
   return {
@@ -84,6 +120,88 @@ describe('GET /pharmacy-orders/catalog/:id/alternatives — gated composition al
         COMBO_KEY, MONO_KEY,
       )
       .catch(() => {});
+    custody.clear();
+    // Custody teardown, after every row that references a facility is gone.
+    // pharmacy_staff_facility_grant_events is append-only (migration 753's
+    // trg_pharmacy_staff_facility_grant_events_append_only_753), so the fixture
+    // drops its own rows under session_replication_role='replica' exactly the way
+    // pharmacy-dispensable-context.deep.test.js does — the guard stays live
+    // everywhere else, this only exempts the fixture's own teardown.
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
+      await tx.$executeRawUnsafe(
+        `DELETE FROM pharmacy_staff_facility_grant_events
+          WHERE grant_id IN (SELECT id FROM pharmacy_staff_facility_grants WHERE staff_uid = ANY($1::uuid[]))`,
+        FIXTURE_UIDS,
+      );
+      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'origin'");
+      await tx.$executeRawUnsafe(
+        `DELETE FROM pharmacy_staff_facility_grants WHERE staff_uid = ANY($1::uuid[])`,
+        FIXTURE_UIDS,
+      );
+      await tx.$executeRawUnsafe(`DELETE FROM staff WHERE user_id = ANY($1::uuid[])`, FIXTURE_UIDS);
+      await tx.$executeRawUnsafe(
+        `DELETE FROM facility_locations
+          WHERE facility_id IN (SELECT id FROM facilities WHERE facility_code = ANY($1::text[]))`,
+        FACILITY_CODES,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM facilities WHERE facility_code = ANY($1::text[])`,
+        FACILITY_CODES,
+      );
+      await tx.$executeRawUnsafe(`DELETE FROM users WHERE uid = ANY($1::uuid[])`, FIXTURE_UIDS);
+    }).catch(() => {});
+  }
+
+  // One tenant's complete pharmacy custody chain. resolvePharmacyFacility demands
+  // exactly ONE active default facility, and assertPharmacyFacilityGrant has no
+  // admin bypass — the caller needs a users row in a FACILITY_OPERATION_ROLES
+  // role, an active staff row, and exactly one ACTIVE grant. The grant is issued
+  // through the real service command rather than a direct INSERT so the fixture
+  // earns the authority the same way an operator does.
+  async function seedFacilityAuthority(tenantId, label, { actorUid = null, adminUid = null } = {}) {
+    const facilityId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO facilities (tenant_id, facility_code, display_name, status, is_default)
+       VALUES ($1::uuid, $2, $3, 'active', TRUE) RETURNING id`,
+      tenantId, FACILITY_CODE[tenantId], `ALTTEST ${label} facility`,
+    ))[0].id);
+    const storageLocationId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO facility_locations
+         (tenant_id, facility_id, location_code, display_name, location_kind, status)
+       VALUES ($1::uuid, $2::int, $3, $4, 'pharmacy', 'active') RETURNING id`,
+      tenantId, facilityId, `ALTTEST-STORE-${label}`, `ALTTEST ${label} pharmacy store`,
+    ))[0].id);
+    custody.set(tenantId, { facilityId, storageLocationId });
+
+    // Tenant B is only ever a foreign-tenant row in someone else's result set —
+    // no request is ever made under it, so it needs stock custody but no actor.
+    if (!actorUid) return;
+
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO staff
+         (tenant_id, user_id, employee_id, name, designation, skills, certifications,
+          is_active, archived, created_at, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3, $4, 'Pharmacist', '{}'::text[], '{}'::text[],
+               TRUE, FALSE, NOW(), NOW())`,
+      tenantId, actorUid, `ALTTEST-STAFF-${label}`, `ALTTEST ${label} pharmacist`,
+    );
+    await grantPharmacyFacilityAuthority({
+      tenantId,
+      facilityId,
+      staffUid: actorUid,
+      actorUid: adminUid,
+      actorRole: 'ADMIN',
+      reason: 'Catalog-alternatives deep test pharmacy facility custody',
+      commandKey: `alttest-facility-grant-${label}`,
+    });
+  }
+
+  async function seedUser(tenantId, uid, role, name, phone) {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, status, is_deleted, tenant_id, updated_at)
+       VALUES ($1::uuid, $2, $3, $4, TRUE, 'active', FALSE, $5::uuid, NOW())`,
+      uid, phone, name, role, tenantId,
+    );
   }
 
   // Insert a tenant-A/B catalog row and return its numeric id.
@@ -118,18 +236,26 @@ describe('GET /pharmacy-orders/catalog/:id/alternatives — gated composition al
     );
     const catalogId = Number(rows[0].id);
     // Availability is now sourced from real batch stock (mig 586 catalog_id link), not
-    // catalog flags — so mirror stockQuantity into a linked in-stock batch.
+    // catalog flags — so mirror stockQuantity into a linked in-stock batch. Both the
+    // item and the batch carry the tenant's facility (and the batch its active
+    // storage location), because migration 753 refuses active stock without them,
+    // and because the endpoint sums stock scoped to the resolved facility.
     if (stockQuantity > 0 && inStock) {
+      const { facilityId, storageLocationId } = custody.get(tenantId);
       const it = await prisma.$queryRawUnsafe(
-        `INSERT INTO pharmacy_inventory_items (tenant_id, sku_code, display_name, catalog_id, composition_id)
-         VALUES ($1::uuid, $2, $3, $4, $5) RETURNING id`,
-        tenantId, `ALTTEST-SKU-${catalogId}`, name, catalogId, compositionId,
+        `INSERT INTO pharmacy_inventory_items
+           (tenant_id, facility_id, sku_code, display_name, catalog_id, composition_id)
+         VALUES ($1::uuid, $2::int, $3, $4, $5, $6) RETURNING id`,
+        tenantId, facilityId, `ALTTEST-SKU-${catalogId}`, name, catalogId, compositionId,
       );
       await prisma.$executeRawUnsafe(
         `INSERT INTO pharmacy_inventory_batches
-           (tenant_id, inventory_item_id, batch_number, expiry_date, received_quantity, remaining_quantity, status)
-         VALUES ($1::uuid, $2, $3, (NOW() + INTERVAL '365 days')::date, $4, $4, 'in_stock')`,
-        tenantId, Number(it[0].id), `ALTTEST-B-${catalogId}`, stockQuantity,
+           (tenant_id, inventory_item_id, facility_id, storage_location_id, batch_number,
+            expiry_date, received_quantity, remaining_quantity, status)
+         VALUES ($1::uuid, $2, $3::int, $4::int, $5,
+                 (NOW() + INTERVAL '365 days')::date, $6, $6, 'in_stock')`,
+        tenantId, Number(it[0].id), facilityId, storageLocationId,
+        `ALTTEST-B-${catalogId}`, stockQuantity,
       );
     }
     return catalogId;
@@ -151,6 +277,24 @@ describe('GET /pharmacy-orders/catalog/:id/alternatives — gated composition al
         id, slug, `ALTTEST ${slug}`,
       );
     }
+
+    // Actors + the full facility custody chain. The alternatives endpoint
+    // resolves pharmacy facility custody BEFORE it reads the flag or the catalog
+    // row, so tenant OFF needs the chain too — otherwise the flag-OFF case would
+    // be answered by a custody refusal instead of the empty answer it asserts.
+    // The caller's DB role is ADMIN, not SUPER_ADMIN. jwtMiddleware canonicalizes
+    // the presented role through canonicalizeRequestRole (roles.js:223-226), which
+    // maps SUPER_ADMIN → ADMIN, and pharmacyFacilityActorFromRequest reads
+    // req.user.role — so the role assertPharmacyFacilityGrant compares the users
+    // row against is the CANONICAL one the request carries, never the raw claim.
+    // Seeding SUPER_ADMIN here would 403 on the role-parity check.
+    await seedUser(TENANT_A, GRANT_ADMIN_A, 'ADMIN', 'ALTTEST A grant admin', '9000000031');
+    await seedUser(TENANT_A, ACTOR_UID_A, 'ADMIN', 'ALTTEST A pharmacy actor', '9000000032');
+    await seedUser(TENANT_OFF, GRANT_ADMIN_OFF, 'ADMIN', 'ALTTEST OFF grant admin', '9000000033');
+    await seedUser(TENANT_OFF, ACTOR_UID_OFF, 'ADMIN', 'ALTTEST OFF pharmacy actor', '9000000034');
+    await seedFacilityAuthority(TENANT_A, 'a', { actorUid: ACTOR_UID_A, adminUid: GRANT_ADMIN_A });
+    await seedFacilityAuthority(TENANT_B, 'b');
+    await seedFacilityAuthority(TENANT_OFF, 'off', { actorUid: ACTOR_UID_OFF, adminUid: GRANT_ADMIN_OFF });
 
     // Global composition rows: one combo (amox+clav), one mono (paracetamol).
     const comboRow = await prisma.$queryRawUnsafe(
@@ -316,15 +460,23 @@ describe('GET /pharmacy-orders/catalog/:id/alternatives — gated composition al
 
     // Enable the flag for tenant A only (tenant OFF deliberately left disabled).
     await setCompositionSearchEnabled(TENANT_A, true, {
-      actorUid: SA_UID,
+      actorUid: ACTOR_UID_A,
       snapshot: { accepted: true },
     });
-  });
+    // cleanup() sweeps this fixture out of a shared database, and the custody
+    // chain above issues a real grant command. On an isolated clone that is
+    // fast, but a whole shard runs sequentially against ONE database. CI
+    // survives that only because run-ci-jest passes --testTimeout=60000, which
+    // jest applies to hooks too; a plain local `jest` gets the 5s default and
+    // fails the suite with every test still passing. Budget the hook explicitly
+    // so it does not depend on the runner.
+  }, 120_000);
 
   afterAll(async () => {
     await cleanup();
     await prisma.$disconnect().catch(() => {});
-  });
+    // Budgeted for the same reason as beforeAll.
+  }, 120_000);
 
   it('returns grouped, substitutability-tagged, tenant-scoped alternatives (flag ON)', async () => {
     const res = await clientFor(tokenA).get(

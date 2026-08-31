@@ -10,7 +10,10 @@
 //   2. Doctor opens the consult: SCHEDULED/CONFIRMED → IN_PROGRESS.
 //   3. Doctor records growth vitals (weight_kg + height_cm + paeds temperature
 //      route); canonical: vitals.recorded, plus the WHO growth snapshot.
-//   4. Doctor places a WEIGHT-BASED medication order (canonical: order.created).
+//   4. Doctor places a WEIGHT-BASED medication order. An OPD walk-in has no
+//      admission and therefore no ward supply custody, so the MAR-bound CPOE
+//      lane (/emr/orders) must fail closed and the order is written through
+//      the outpatient prescription workflow (canonical: prescription.created).
 //   5. Doctor writes the OP consultation note bound to the visit (auto-creates
 //      the canonical encounter; canonical: note.created).
 //   6. Doctor reviews immunisations: seed the schedule from DOB, read the
@@ -43,8 +46,10 @@ import {
   cleanupJourney,
   uidForUserId,
   CANONICAL_EVENTS,
+  DEFAULT_TENANT,
   prisma,
 } from './_journeyHarness.js';
+import { ensureEncounterForAppointment } from '../../services/clinical/canonicalClinicalPlatformService.js';
 
 const RUN = runSuffix();
 const DOCTOR_UID = `b5000001-0000-4000-8000-${RUN.padStart(12, '0')}`;
@@ -58,6 +63,17 @@ const DOCTOR_PHONE = `+9196603${RUN}`;
 const STRANGER_PHONE = `+9196604${RUN}`;
 const RECEPTIONIST_PHONE = `96605${RUN}`;
 const NURSE_PHONE = `+9196606${RUN}`;
+const CATALOG_NAME = `JPaeds Paracetamol Syrup ${RUN}`;
+
+// The canonical event the OUTPATIENT medication workflow promises. Shaped
+// exactly like the CANONICAL_EVENTS entries the harness ships (an event_type +
+// the detail table the timeline/audit rows key on) and fed to the same
+// assertCanonicalClinicalWrite helper, so this step is held to the identical
+// timeline+audit invariant as the vitals and note steps.
+const CANONICAL_PRESCRIPTION_CREATED = {
+  eventType: 'prescription.created',
+  sourceTable: 'e_prescriptions',
+};
 
 describeJourney('Journey: pediatric-opd', () => {
   let receptionist;
@@ -72,6 +88,8 @@ describeJourney('Journey: pediatric-opd', () => {
   let patientId;
   let patientUid;
   let childDob;
+  let encounterId;
+  let catalogId;
 
   beforeAll(async () => {
     await cleanupJourney({
@@ -80,6 +98,11 @@ describeJourney('Journey: pediatric-opd', () => {
       phones: [PATIENT_PHONE, GUARDIAN_PHONE, RECEPTIONIST_PHONE],
       departments: [DEPARTMENT, `${DEPARTMENT}-other`],
     });
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM pharmacy_catalog WHERE tenant_id = $1::uuid AND name = $2`,
+      DEFAULT_TENANT,
+      CATALOG_NAME,
+    ).catch(() => {});
 
     // ~2 years old: inside the WHO 0-5 growth table (so the percentile snapshot
     // resolves) AND well past every at-birth immunisation dose (so the "due"
@@ -113,7 +136,31 @@ describeJourney('Journey: pediatric-opd', () => {
     doctor = roleClient('DOCTOR', { uid: DOCTOR_UID, id: doctorUserId, phone: DOCTOR_PHONE });
     strangerDoctor = roleClient('DOCTOR', { uid: STRANGER_DOCTOR_UID, id: 0, phone: STRANGER_PHONE });
     nurse = roleClient('NURSING_STAFF', { uid: NURSE_UID, id: nurseId, phone: NURSE_PHONE });
-  });
+
+    const composition = await prisma.$queryRawUnsafe(
+      `INSERT INTO drug_compositions
+         (composition_key, display_label, active_ingredients, source)
+       VALUES ($1, 'Paracetamol', ARRAY['paracetamol']::text[], 'curated')
+       ON CONFLICT (composition_key) DO UPDATE SET display_label = EXCLUDED.display_label
+       RETURNING id`,
+      `journey_paeds_paracetamol_${RUN}`,
+    );
+    const catalog = await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_catalog
+         (tenant_id, name, generic_name, is_active, composition_id,
+          composition_confidence, composition_source, strength, strength_key,
+          strength_components, form, form_key, route, release_key, updated_at)
+       VALUES ($1::uuid, $2, 'paracetamol', TRUE, $3::int,
+               'high', 'curated', '25mg/mL', '25mg/ml', $4::jsonb,
+               'syrup', 'syrup', 'oral', 'ir', NOW())
+       RETURNING id`,
+      DEFAULT_TENANT,
+      CATALOG_NAME,
+      Number(composition[0].id),
+      JSON.stringify([{ ingredient: 'paracetamol', value: 25, unit: 'mg/ml' }]),
+    );
+    catalogId = Number(catalog[0].id);
+  }, 120_000);
 
   afterAll(async () => {
     await cleanupJourney({
@@ -122,8 +169,18 @@ describeJourney('Journey: pediatric-opd', () => {
       phones: [PATIENT_PHONE, GUARDIAN_PHONE, RECEPTIONIST_PHONE],
       departments: [DEPARTMENT, `${DEPARTMENT}-other`],
     });
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM pharmacy_catalog WHERE tenant_id = $1::uuid AND name = $2`,
+      DEFAULT_TENANT,
+      CATALOG_NAME,
+    ).catch(() => {});
     await prisma.$disconnect().catch(() => {});
-  });
+  // A journey shares its shard's database with ~150 other suites, so this
+  // fixture sweep has real work to do by the time it runs. CI survives the
+  // default only because run-ci-jest passes --testTimeout=60000, which jest
+  // applies to hooks too; a plain local `jest` gets 5s and fails the suite
+  // with every test still passing. Budget it explicitly either way.
+  }, 120_000);
 
   describe('Step 1 — receptionist registers the minor walk-in under a guardian', () => {
     it('rejects a non-front-desk role (lab staff) from registering a walk-in', async () => {
@@ -217,6 +274,16 @@ describeJourney('Journey: pediatric-opd', () => {
         patientUid, staffUid: NURSE_UID, staffRole: 'NURSING_STAFF',
         memberName: `Paeds Child ${RUN}`,
       });
+      const encounter = await ensureEncounterForAppointment({
+        tenantId: DEFAULT_TENANT,
+        appointmentId,
+        patientUid,
+        doctorUid: DOCTOR_UID,
+        actorUid: DOCTOR_UID,
+        metadata: { journey: 'pediatric-opd', run: RUN },
+      }, { db: prisma });
+      encounterId = encounter?.id;
+      expect(encounterId).toMatch(/^[0-9a-f-]{36}$/i);
     });
   });
 
@@ -274,9 +341,13 @@ describeJourney('Journey: pediatric-opd', () => {
       const res = await nurse.post('/api/v1/emr/orders').set('Idempotency-Key', `ped-opd-nurse-order-${Date.now()}`).send({
         patient_uid: patientUid,
         order_type: 'medication',
+        encounter_id: encounterId,
         priority: 'routine',
         details: {
-          medication_name: 'Paracetamol syrup',
+          medication_name: CATALOG_NAME,
+          catalog_id: catalogId,
+          quantity_requested: 60,
+          unit: 'mL',
           dose: '180 mg',
           route: 'oral',
           frequency: 'QID',
@@ -286,17 +357,21 @@ describeJourney('Journey: pediatric-opd', () => {
       expect(String(res.body.message || '')).toMatch(/doctor|prescrib/i);
     });
 
-    it('creates a weight-based medication order and writes the canonical order triple', async () => {
-      // Weight-based antipyretic: ~12 mg/kg paracetamol for a 12.4 kg child
-      // = 150 mg/dose — within the 10-15 mg/kg therapeutic band and well under
-      // the platform's paediatric per-dose ceiling (CDS hard-block), so the
-      // order is clinically valid and passes the prescription-safety gate.
-      const res = await doctor.post('/api/v1/emr/orders').set('Idempotency-Key', `ped-opd-doctor-order-${Date.now()}`).send({
+    it('refuses a MAR-bound CPOE medication order on an OP visit with no admission', async () => {
+      // /emr/orders creates MAR-bound (ward-administered) medication orders.
+      // A paeds OPD walk-in has an outpatient encounter and no admission, so
+      // there is no ward supply custody to administer against: the CPOE lane
+      // must fail closed and point the prescriber at the outpatient workflow.
+      const res = await doctor.post('/api/v1/emr/orders').set('Idempotency-Key', `ped-opd-doctor-cpoe-${Date.now()}`).send({
         patient_uid: patientUid,
         order_type: 'medication',
+        encounter_id: encounterId,
         priority: 'routine',
         details: {
-          medication_name: 'Paracetamol syrup',
+          medication_name: CATALOG_NAME,
+          catalog_id: catalogId,
+          quantity_requested: 60,
+          unit: 'mL',
           dose: '150 mg',
           strength_mg_per_ml: 25,
           dose_basis_mg_per_kg: 12,
@@ -307,23 +382,69 @@ describeJourney('Journey: pediatric-opd', () => {
           instructions: 'Weight-based antipyretic ~12 mg/kg/dose; max 4 doses/24h.',
         },
       });
-      expect(res.statusCode).toBe(201);
-      const order = res.body.data?.order || res.body.data;
-      const orderId = order?.id;
-      expect(orderId).toBeTruthy();
+      expect(res.statusCode).toBe(409);
+      expect(res.body.code).toBe('CLINICAL_ORDER_MEDICATION_WARD_SUPPLY_CONTEXT_REQUIRED');
 
+      // The refusal is total: no clinical_orders row, and therefore no
+      // canonical order.created event, may exist for this visit's encounter.
+      const orphaned = await prisma.$queryRawUnsafe(
+        `SELECT COUNT(*)::int AS n FROM clinical_orders
+          WHERE patient_uid = $1::uuid AND order_type = 'medication'`,
+        patientUid);
+      expect(orphaned[0].n).toBe(0);
+    });
+
+    it('creates a weight-based medication order and writes the canonical prescription triple', async () => {
+      // Weight-based antipyretic: ~12 mg/kg paracetamol for a 12.4 kg child
+      // = 150 mg/dose — within the 10-15 mg/kg therapeutic band and well under
+      // the platform's paediatric per-dose ceiling (CDS hard-block), so the
+      // order is clinically valid and passes the prescription-safety gate.
+      const res = await doctor.post('/api/v1/prescriptions/create').set('Idempotency-Key', `ped-opd-doctor-rx-${Date.now()}`).send({
+        patient_id: patientId,
+        doctor_id: doctorUserId,
+        appointment_id: appointmentId,
+        visit_type: 'outpatient',
+        diagnosis: 'Viral fever',
+        clinical_notes: 'Weight-based antipyretic ~12 mg/kg/dose; max 4 doses/24h.',
+        medications: [
+          {
+            name: CATALOG_NAME,
+            catalog_id: catalogId,
+            dosage: '150 mg',
+            route: 'Oral',
+            frequency: 'QID PRN fever',
+            duration: '3 days',
+            instructions: 'Weight-based antipyretic ~12 mg/kg/dose; max 4 doses/24h.',
+            qty: 60,
+          },
+        ],
+      });
+      expect(res.statusCode).toBe(201);
+      const prescriptionId = res.body.data?.id;
+      expect(prescriptionId).toBeTruthy();
+
+      // Same canonical invariant as every other clinical write in this journey:
+      // the detail row carries a timeline event of the exact expected type plus
+      // an audit event keyed to it.
       await assertCanonicalClinicalWrite({
-        event: CANONICAL_EVENTS.orderCreated,
-        sourceId: orderId,
+        event: CANONICAL_PRESCRIPTION_CREATED,
+        sourceId: prescriptionId,
         patientUid,
       });
+
+      // The OP prescription is bound to THIS visit's appointment.
+      const row = await prisma.$queryRawUnsafe(
+        `SELECT appointment_id, visit_type FROM e_prescriptions WHERE id = $1::int`,
+        prescriptionId);
+      expect(Number(row[0].appointment_id)).toBe(appointmentId);
+      expect(row[0].visit_type).toBe('outpatient');
     });
   });
 
   describe('Step 5 — doctor writes the OP consultation note', () => {
     let noteId;
 
-    it('creates an op_consultation note bound to the visit (auto-creates the encounter)', async () => {
+    it('creates an op_consultation note bound to the existing appointment encounter', async () => {
       const res = await doctor.post('/api/v1/emr/notes').send({
         patient_uid: patientUid,
         appointment_id: appointmentId,
@@ -340,8 +461,8 @@ describeJourney('Journey: pediatric-opd', () => {
       noteId = res.body.data.id;
       expect(noteId).toBeTruthy();
 
-      // The OP note auto-creates the canonical encounter (migration 240 +
-      // ensureEncounterForAppointment) — the UUID encounter_id is stamped.
+      // The OP note reuses the canonical appointment encounter created before
+      // the outpatient medication order — the UUID encounter_id is stamped.
       const row = await prisma.$queryRawUnsafe(
         `SELECT appointment_id, encounter_id, note_type FROM clinical_notes WHERE id = $1::int`,
         noteId);
@@ -442,9 +563,12 @@ describeJourney('Journey: pediatric-opd', () => {
       const types = rows.map((r) => r.event_type);
       expect(types).toEqual(expect.arrayContaining([
         'vitals.recorded',
-        'order.created',
+        'prescription.created',
         'note.created',
       ]));
+      // This visit never had ward supply custody, so the MAR-bound CPOE lane
+      // must have left nothing behind on the canonical timeline either.
+      expect(types).not.toContain('order.created');
     });
   });
 });

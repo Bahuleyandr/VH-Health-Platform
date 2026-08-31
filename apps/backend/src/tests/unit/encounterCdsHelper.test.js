@@ -12,6 +12,11 @@ const queryUnsafeMock = jest.fn();
 const getActiveAlertsMock = jest.fn();
 const getProtocolRemindersMock = jest.fn();
 const getUnifiedActiveAllergiesMock = jest.fn(async () => []);
+const getUnifiedActiveAllergiesDetailedMock = jest.fn(async (...args) => ({
+  allergies: await getUnifiedActiveAllergiesMock(...args),
+  sourcesFailed: [],
+  patientResolved: true,
+}));
 
 const __prismaDefaultMock = { $queryRawUnsafe: queryUnsafeMock };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
@@ -38,10 +43,14 @@ jest.unstable_mockModule('../../services/emr/cdsEngine.js', () => ({
 // $queryRawUnsafe sequence mock and dropped the downstream alerts.
 jest.unstable_mockModule('../../services/clinical/allergySourceService.js', () => ({
   getUnifiedActiveAllergies: getUnifiedActiveAllergiesMock,
+  getUnifiedActiveAllergiesDetailed: getUnifiedActiveAllergiesDetailedMock,
   mergeAllergyRows: (rows) => rows,
   rankSeverity: () => 0,
   SEVERE_BLOCK_RANK: 4,
-  default: { getUnifiedActiveAllergies: getUnifiedActiveAllergiesMock },
+  default: {
+    getUnifiedActiveAllergies: getUnifiedActiveAllergiesMock,
+    getUnifiedActiveAllergiesDetailed: getUnifiedActiveAllergiesDetailedMock,
+  },
 }));
 
 const {
@@ -57,6 +66,7 @@ beforeEach(() => {
   getProtocolRemindersMock.mockReset();
   getUnifiedActiveAllergiesMock.mockReset();
   getUnifiedActiveAllergiesMock.mockResolvedValue([]);
+  getUnifiedActiveAllergiesDetailedMock.mockClear();
 });
 
 // ---------------------------------------------------------------------------

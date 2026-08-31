@@ -23,6 +23,11 @@ const PATIENT_RECORD_SUMMARY_MODULE = 'patient_record_summary';
 const PATIENT_UID = 'e3000002-0001-4e30-8e30-e30000020001';
 const DOCTOR_UID = 'e3000002-0002-4e30-8e30-e30000020002';
 const ADMIN_UID = 'e3000002-0003-4e30-8e30-e30000020003';
+const NURSE_UID = 'e3000002-0004-4e30-8e30-e30000020004';
+const PHARMACIST_UID = 'e3000002-0005-4e30-8e30-e30000020005';
+const ICU_INCHARGE_UID = 'e3000002-0006-4e30-8e30-e30000020006';
+const MEDICATION_CATALOG_NAME = `EMRC Paracetamol ${process.pid}`;
+const MEDICATION_COMPOSITION_KEY = `emrc_paracetamol_${process.pid}`;
 
 function client(role, claims) {
   const t = generateTestToken(role, claims);
@@ -43,6 +48,14 @@ const A = client('ADMIN', { uid: ADMIN_UID, id: 990778, deviceType: 'desktop' })
 // admission this test creates), so timeline reads go through the doctor — the
 // realistic caller for a comprehensive clinical view.
 const D = client('DOCTOR', { uid: DOCTOR_UID, id: 990779, deviceType: 'desktop' });
+const N = client('IP_STAFF_NURSE', { uid: NURSE_UID, id: 990780, deviceType: 'desktop' });
+const P = client('PHARMACIST', { uid: PHARMACIST_UID, id: 990781, deviceType: 'desktop' });
+const P_WITH_SPOOFED_LEAD_ROLE = client('PHARMACY_INCHARGE', {
+  uid: PHARMACIST_UID,
+  id: 990781,
+  deviceType: 'desktop',
+});
+const I = client('ICU_INCHARGE', { uid: ICU_INCHARGE_UID, id: 990782, deviceType: 'desktop' });
 
 // Validate status exactly + the full envelope body against its committed schema.
 function check(res, status, schema) {
@@ -52,13 +65,29 @@ function check(res, status, schema) {
 
 async function clean() {
   for (const sql of [
+    `DELETE FROM task_comments WHERE task_id IN
+       (SELECT id FROM tasks WHERE patient_uid = $1::uuid)`,
+    `DELETE FROM notification_outbox WHERE tenant_id = '${TENANT_ID}'::uuid
+       AND payload->>'patient_uid' = $1::text`,
+    `DELETE FROM tasks WHERE patient_uid = $1::uuid`,
+    `DELETE FROM workflow_sla_instances WHERE patient_uid = $1::uuid`,
     `DELETE FROM medication_administrations WHERE patient_uid = $1::uuid`,
     `DELETE FROM intake_output WHERE patient_uid = $1::uuid`,
     `DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`,
     `DELETE FROM news2_scores WHERE patient_uid = $1::uuid`,
     `DELETE FROM clinical_notes WHERE patient_uid = $1::uuid`,
     `DELETE FROM diagnoses WHERE patient_uid = $1::uuid`,
+    `DELETE FROM ward_indent_financial_events WHERE ward_indent_id IN
+       (SELECT id FROM ward_indents WHERE patient_uid = $1::uuid)`,
+    `DELETE FROM ward_indent_events WHERE ward_indent_id IN
+       (SELECT id FROM ward_indents WHERE patient_uid = $1::uuid)`,
+    `DELETE FROM ward_indent_items WHERE ward_indent_id IN
+       (SELECT id FROM ward_indents WHERE patient_uid = $1::uuid)`,
+    `DELETE FROM ward_indents WHERE patient_uid = $1::uuid`,
     `DELETE FROM clinical_orders WHERE patient_uid = $1::uuid`,
+    `DELETE FROM investigation_files WHERE investigation_id IN
+       (SELECT id FROM investigations WHERE patient_uid = $1::uuid)`,
+    `DELETE FROM investigations WHERE patient_uid = $1::uuid`,
     `DELETE FROM bed_transfers WHERE patient_uid = $1::uuid`,
     `DELETE FROM discharge_consults WHERE patient_uid = $1::uuid`,
     `DELETE FROM admissions WHERE patient_uid = $1::uuid`,
@@ -66,8 +95,19 @@ async function clean() {
   ]) await prisma.$executeRawUnsafe(sql, PATIENT_UID).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number = 'EMRC-BED-1'`).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM wards WHERE name = 'EMRC-WARD'`).catch(() => {});
-  await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid,$2::uuid,$3::uuid)`,
-    PATIENT_UID, DOCTOR_UID, ADMIN_UID).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM pharmacy_catalog WHERE tenant_id = $1::uuid AND name = $2::text`,
+    TENANT_ID,
+    MEDICATION_CATALOG_NAME,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM drug_compositions WHERE composition_key = $1`,
+    MEDICATION_COMPOSITION_KEY,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM users WHERE uid IN ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::uuid,$6::uuid)`,
+    PATIENT_UID, DOCTOR_UID, ADMIN_UID, NURSE_UID, PHARMACIST_UID, ICU_INCHARGE_UID,
+  ).catch(() => {});
   // Delete, do not set enabled=false: a false override poisons the shared QA DB
   // by beating the module defaults for later suites.
   await prisma.$executeRawUnsafe(
@@ -87,7 +127,7 @@ async function enablePatientRecordSummaryModule() {
 }
 
 describe('EMR contract — clinical lifecycle (live assertResponse)', () => {
-  let admissionId; let encounterId; let bedId; let noteId; let dxId; let orderId;
+  let admissionId; let encounterId; let bedId; let noteId; let dxId; let orderId; let catalogId;
 
   beforeAll(async () => {
     await clean();
@@ -96,8 +136,11 @@ describe('EMR contract — clinical lifecycle (live assertResponse)', () => {
       `INSERT INTO users (uid, phone, name, role, is_active, updated_at) VALUES
         ($1::uuid,'9300000021','EMRC Patient','PATIENT',true,NOW()),
         ($2::uuid,'9300000022','EMRC Doctor','DOCTOR',true,NOW()),
-        ($3::uuid,'9300000023','EMRC Admin','ADMIN',true,NOW())`,
-      PATIENT_UID, DOCTOR_UID, ADMIN_UID);
+        ($3::uuid,'9300000023','EMRC Admin','ADMIN',true,NOW()),
+        ($4::uuid,'9300000024','EMRC Nurse','IP_STAFF_NURSE',true,NOW()),
+        ($5::uuid,'9300000025','EMRC Pharmacist','PHARMACIST',true,NOW()),
+        ($6::uuid,'9300000026','EMRC ICU Incharge','ICU_INCHARGE',true,NOW())`,
+      PATIENT_UID, DOCTOR_UID, ADMIN_UID, NURSE_UID, PHARMACIST_UID, ICU_INCHARGE_UID);
     await prisma.$executeRawUnsafe(
       `INSERT INTO patient_consents (patient_uid, consent_type, granted, status)
        VALUES ($1::uuid,'treatment',true,'active')`, PATIENT_UID);
@@ -106,7 +149,30 @@ describe('EMR contract — clinical lifecycle (live assertResponse)', () => {
     const b = await prisma.$queryRawUnsafe(
       `INSERT INTO beds (ward_id, ward_name, bed_number, status) VALUES ($1,'EMRC-WARD','EMRC-BED-1','available') RETURNING id`,
       w[0].id);
+    const compositionId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO drug_compositions
+         (composition_key, display_label, active_ingredients, source)
+       VALUES ($1, 'Paracetamol', ARRAY['paracetamol']::text[], 'curated')
+       RETURNING id`,
+      MEDICATION_COMPOSITION_KEY,
+    ))[0].id);
     bedId = b[0].id;
+    catalogId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_catalog
+         (tenant_id, name, category, requires_prescription, is_active,
+          stock_quantity, unit_price, price, generic_name, composition_id,
+          composition_confidence, composition_source, strength, strength_key,
+          strength_components, form, form_key, route, release_key, updated_at)
+       VALUES ($1::uuid, $2::text, 'medication', TRUE, TRUE,
+               100, 2.50, 2.50, 'paracetamol', $3::int,
+               'high', 'curated', '500 mg', '500mg', $4::jsonb,
+               'tablet', 'tablet', 'oral', 'ir', NOW())
+       RETURNING id`,
+      TENANT_ID,
+      MEDICATION_CATALOG_NAME,
+      compositionId,
+      JSON.stringify([{ ingredient: 'paracetamol', value: 500, unit: 'mg' }]),
+    ))[0].id);
   }, 60000);
 
   afterAll(async () => { await clean(); await prisma.$disconnect().catch(() => {}); }, 60000);
@@ -209,8 +275,72 @@ describe('EMR contract — clinical lifecycle (live assertResponse)', () => {
     orderId = ord.body.data.order?.id ?? ord.body.data.id;
     expect(orderId).toBeDefined();
     check(await A.get(`/api/v1/emr/orders/patient/${PATIENT_UID}`), 200, 'EmrClinicalOrderListResponse');
-    check(await A.put(`/api/v1/emr/orders/${orderId}/verify`).send({}), 200, 'EmrClinicalOrderResponse');
-    check(await A.put(`/api/v1/emr/orders/${orderId}/complete`).send({}), 200, 'EmrClinicalOrderResponse');
+    expect((await D.put(`/api/v1/emr/orders/${orderId}/verify`)
+      .set('Idempotency-Key', `emr-contract-doctor-verify-${orderId}`)
+      .send({})).statusCode).toBe(403);
+    expect((await P.put(`/api/v1/emr/orders/${orderId}/verify`)
+      .set('Idempotency-Key', `emr-contract-pharmacy-non-med-${orderId}`)
+      .send({})).statusCode).toBe(403);
+    expect((await N.put(`/api/v1/emr/orders/${orderId}/verify`).send({})).statusCode).toBe(400);
+    check(await N.put(`/api/v1/emr/orders/${orderId}/verify`)
+      .set('Idempotency-Key', `emr-contract-order-verify-${orderId}`)
+      .send({}), 200, 'EmrClinicalOrderResponse');
+    check(await A.put(`/api/v1/emr/orders/${orderId}/complete`)
+      .set('Idempotency-Key', `emr-contract-order-complete-${orderId}`)
+      .send({}), 200, 'EmrClinicalOrderResponse');
+
+    const medication = await D.post('/api/v1/emr/orders')
+      .set('Idempotency-Key', `emr-contract-medication-${Date.now()}`)
+      .send({
+        patient_uid: PATIENT_UID,
+        encounter_id: encounterId,
+        order_type: 'medication',
+        priority: 'routine',
+        details: {
+          medication_name: MEDICATION_CATALOG_NAME,
+          dose: '500mg',
+          route: 'oral',
+          frequency: 'TDS',
+          catalog_id: catalogId,
+          quantity_requested: 6,
+          unit: 'tablet',
+        },
+      });
+    check(medication, 201, 'EmrClinicalOrderCreateResponse');
+    const medicationOrderId = medication.body.data.order?.id ?? medication.body.data.id;
+    const pharmacistVerifyKey = `emr-contract-pharmacist-verify-${medicationOrderId}`;
+    check(await P.put(`/api/v1/emr/orders/${medicationOrderId}/verify`)
+      .set('Idempotency-Key', pharmacistVerifyKey)
+      .send({}), 200, 'EmrClinicalOrderResponse');
+    expect((await P.put(`/api/v1/emr/orders/${medicationOrderId}/verify`)
+      .set('Idempotency-Key', pharmacistVerifyKey)
+      .send({ changed: true })).statusCode).toBe(422);
+    expect((await P_WITH_SPOOFED_LEAD_ROLE.put(`/api/v1/emr/orders/${medicationOrderId}/verify`)
+      .set('Idempotency-Key', pharmacistVerifyKey)
+      .send({})).statusCode).toBe(403);
+
+    const nursing = await A.post('/api/v1/emr/orders')
+      .set('Idempotency-Key', `emr-contract-nursing-${Date.now()}`)
+      .send({
+        patient_uid: PATIENT_UID,
+        encounter_id: encounterId,
+        order_type: 'nursing',
+        priority: 'routine',
+        details: { instruction: 'Reposition every two hours' },
+      });
+    check(nursing, 201, 'EmrClinicalOrderCreateResponse');
+    const nursingOrderId = nursing.body.data.order?.id ?? nursing.body.data.id;
+    check(await I.put(`/api/v1/emr/orders/${nursingOrderId}/verify`)
+      .set('Idempotency-Key', `emr-contract-icu-incharge-verify-${nursingOrderId}`)
+      .send({}), 200, 'EmrClinicalOrderResponse');
+
+    await prisma.admissions.update({
+      where: { id: admissionId },
+      data: { status: 'discharged' },
+    });
+    expect((await P.put(`/api/v1/emr/orders/${medicationOrderId}/verify`)
+      .set('Idempotency-Key', pharmacistVerifyKey)
+      .send({})).statusCode).toBe(403);
     check(await A.get('/api/v1/emr/order-sets'), 200, 'EmrOrderSetListResponse');
   }, 120000);
 });

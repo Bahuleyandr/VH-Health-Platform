@@ -11,7 +11,7 @@ import * as billing from '../services/billing/billingV2Service.js';
 import { getAccountBalancePaise } from '../services/billing/ledger/ledgerService.js';
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
-const cleanup = { invoiceIds: [], advanceIds: [], refundIds: [], patientUids: [] };
+const cleanup = { invoiceIds: [], advanceIds: [], refundIds: [], userUids: [] };
 let prevMode;
 
 beforeAll(() => {
@@ -19,16 +19,18 @@ beforeAll(() => {
   process.env.LEDGER_AUTHORITATIVE_MODE = 'enforce';
 });
 
-async function makePatient() {
+async function makeUser(role = 'PATIENT', name = 'P4 Enforce') {
   const uid = randomUUID();
   const phone = `9${Math.floor(100000000 + Math.random() * 899999999)}`;
   await prisma.$executeRawUnsafe(
-    `INSERT INTO users (uid, phone, name, role, tenant_id, updated_at) VALUES ($1::uuid,$2,'P4 Enforce','PATIENT',$3::uuid,NOW())`,
-    uid, phone, TENANT,
+    `INSERT INTO users (uid, phone, name, role, tenant_id, updated_at)
+     VALUES ($1::uuid, $2, $3, $4, $5::uuid, NOW())`,
+    uid, phone, name, role, TENANT,
   );
-  cleanup.patientUids.push(uid);
+  cleanup.userUids.push(uid);
   return uid;
 }
+const makePatient = () => makeUser();
 async function makeIssuedInvoice(patientUid, total) {
   const inv = await billing.createDraftInvoice({ patient_uid: patientUid, invoice_type: 'OP', tenantId: TENANT });
   await billing.addInvoiceItem(inv.id, { description: 'Consult', quantity: 1, unit_price: total, gst_rate: 0, tenantId: TENANT });
@@ -47,19 +49,19 @@ afterAll(async () => {
       const entryRows = await tx.$queryRawUnsafe(
         `SELECT DISTINCT entry_id AS id FROM ledger_postings
           WHERE invoice_id = ANY($1::int[]) OR patient_uid = ANY($2::uuid[])`,
-        cleanup.invoiceIds, cleanup.patientUids,
+        cleanup.invoiceIds, cleanup.userUids,
       );
       const entryIds = entryRows.map((r) => Number(r.id));
       if (entryIds.length) {
         await tx.$executeRawUnsafe(`DELETE FROM ledger_postings WHERE entry_id = ANY($1::bigint[])`, entryIds);
         await tx.$executeRawUnsafe(`DELETE FROM ledger_entries WHERE id = ANY($1::bigint[])`, entryIds);
       }
+      if (cleanup.refundIds.length) {
+        await tx.$executeRawUnsafe(`DELETE FROM billing_refunds WHERE id = ANY($1::int[])`, cleanup.refundIds);
+      }
     });
     if (cleanup.advanceIds.length) {
       await prisma.$executeRawUnsafe(`DELETE FROM billing_advance_settlements WHERE advance_id = ANY($1::int[])`, cleanup.advanceIds);
-    }
-    if (cleanup.refundIds.length) {
-      await prisma.$executeRawUnsafe(`DELETE FROM billing_refunds WHERE id = ANY($1::int[])`, cleanup.refundIds);
     }
     if (cleanup.invoiceIds.length) {
       await prisma.$executeRawUnsafe(`DELETE FROM billing_payments WHERE invoice_id = ANY($1::int[])`, cleanup.invoiceIds);
@@ -67,7 +69,7 @@ afterAll(async () => {
       await prisma.$executeRawUnsafe(`DELETE FROM billing_invoices WHERE id = ANY($1::int[])`, cleanup.invoiceIds);
     }
     if (cleanup.advanceIds.length) await prisma.$executeRawUnsafe(`DELETE FROM billing_advances WHERE id = ANY($1::int[])`, cleanup.advanceIds);
-    if (cleanup.patientUids.length) await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = ANY($1::uuid[])`, cleanup.patientUids);
+    if (cleanup.userUids.length) await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = ANY($1::uuid[])`, cleanup.userUids);
   } catch { /* best-effort teardown */ }
   if (prevMode === undefined) delete process.env.LEDGER_AUTHORITATIVE_MODE;
   else process.env.LEDGER_AUTHORITATIVE_MODE = prevMode;
@@ -128,22 +130,28 @@ describe('Phase 4 enforce — collectPayment posts the ledger in the same tx', (
 
   it('refund (invoice): receivable restored at APPROVE (ledger timing), derived into amount_due; payout unchanged', async () => {
     const patient = await makePatient();
+    const approver = await makeUser('ADMIN', 'P4 Refund Approver');
+    const payoutActor = await makeUser('CASHIER', 'P4 Refund Payout');
     const invoiceId = await makeIssuedInvoice(patient, 1000); // AR 100000
     await billing.collectPayment({ invoice_id: invoiceId, amount: 500, mode: 'CASH', shift: 'MORNING', collected_by: patient, tenantId: TENANT });
     let invRow = await prisma.$queryRawUnsafe(`SELECT amount_due FROM billing_invoices WHERE id = $1::int`, Number(invoiceId));
     expect(Number(invRow[0].amount_due)).toBe(500); // PATIENT_AR 50000 → ₹500
 
-    const refund = await billing.raiseRefund({ patient_uid: patient, invoice_id: invoiceId, amount: 200, reason: 'overpay', mode: 'CASH', tenantId: TENANT });
+    const refund = await billing.raiseRefund({ patient_uid: patient, invoice_id: invoiceId, amount: 200, reason: 'overpay', mode: 'CHEQUE', tenantId: TENANT });
     cleanup.refundIds.push(refund.id);
 
     // APPROVE: ledger restores PATIENT_AR (+200) → derived amount_due rises to 700 (ledger timing).
-    await billing.approveRefund(refund.id, { tenantId: TENANT });
+    await billing.approveRefund(refund.id, { approved_by: approver, tenantId: TENANT });
     expect(await bal('PATIENT_AR', { patient_uid: patient, invoice_id: invoiceId })).toBe(70000);
     invRow = await prisma.$queryRawUnsafe(`SELECT amount_due FROM billing_invoices WHERE id = $1::int`, Number(invoiceId));
     expect(Number(invRow[0].amount_due)).toBe(700);
 
-    // PAYOUT: REFUND_PAID clears REFUNDS_PAYABLE to cash; amount_due unchanged (no double reduction).
-    await billing.markRefundPaid(refund.id, { tenantId: TENANT });
+    // PAYOUT: REFUND_PAID clears REFUNDS_PAYABLE to the chosen rail; amount_due unchanged (no double reduction).
+    await billing.markRefundPaid(refund.id, {
+      paid_by: payoutActor,
+      reference: `P4-REFUND-${randomUUID()}`,
+      tenantId: TENANT,
+    });
     expect(await bal('REFUNDS_PAYABLE', { patient_uid: patient })).toBe(0);
     invRow = await prisma.$queryRawUnsafe(`SELECT amount_due FROM billing_invoices WHERE id = $1::int`, Number(invoiceId));
     expect(Number(invRow[0].amount_due)).toBe(700);

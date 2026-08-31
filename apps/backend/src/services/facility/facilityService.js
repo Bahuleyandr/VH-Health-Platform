@@ -14,7 +14,7 @@
  * task once tenants populate facilities.
  */
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
@@ -148,6 +148,206 @@ const FACILITY_RETURNING = `id, tenant_id, facility_code, display_name, facility
   status, is_default, geo_lat, geo_lng,
   metadata, created_by, created_at, updated_at`;
 
+const FACILITY_SHUTDOWN_RECOVERY_ACTIONS = Object.freeze({
+  default_facility_assignment: 'ASSIGN_ANOTHER_ACTIVE_DEFAULT_FACILITY',
+  open_pharmacy_orders: 'COMPLETE_CANCEL_OR_REASSIGN_PHARMACY_ORDERS',
+  active_inventory_items: 'TRANSFER_OR_DEACTIVATE_INVENTORY_ITEMS',
+  active_inventory_batches: 'TRANSFER_EXHAUST_OR_QUARANTINE_INVENTORY_BATCHES',
+  nonterminal_purchase_orders: 'CANCEL_CLOSE_OR_REASSIGN_PURCHASE_ORDERS',
+  nonterminal_goods_receipts: 'REJECT_ARCHIVE_OR_REASSIGN_GOODS_RECEIPTS',
+  active_ward_allocations: 'RELEASE_RECEIVE_RETURN_OR_RECONCILE_WARD_ALLOCATIONS',
+  open_ward_indents: 'CANCEL_CLOSE_OR_REASSIGN_WARD_INDENTS',
+  active_staff_grants: 'REVOKE_PHARMACY_FACILITY_GRANTS',
+  // Cath facility shutdown blockers (migration 753 authority contract).
+  open_cath_cases: 'COMPLETE_OR_CANCEL_CATH_CASES',
+  unreconciled_cath_usage: 'RECONCILE_OR_GOVERN_CATH_CONSUMABLE_USAGE',
+  open_cath_inventory_tasks: 'COMPLETE_CATH_INVENTORY_TASKS',
+  open_cath_inventory_slas: 'CLOSE_CATH_INVENTORY_SLAS_WITH_DOMAIN_EVIDENCE',
+  open_cath_authority_recoveries: 'RESOLVE_CATH_AUTHORITY_RECOVERY_WORKLIST',
+});
+
+function shutdownBlockerDetails(row = {}) {
+  const blockers = Object.fromEntries(
+    Object.keys(FACILITY_SHUTDOWN_RECOVERY_ACTIONS).map((key) => [key, Number(row[key] || 0)]),
+  );
+  const recoveryActions = Object.entries(blockers)
+    .filter(([, count]) => count > 0)
+    .map(([blocker, count]) => ({
+      blocker,
+      count,
+      action: FACILITY_SHUTDOWN_RECOVERY_ACTIONS[blocker],
+    }));
+  return {
+    blockers,
+    recovery_actions: recoveryActions,
+    total_blocker_count: recoveryActions.reduce((total, item) => total + item.count, 0),
+  };
+}
+
+async function loadFacilityShutdownBlockersTx(tx, tenantId, facilityId, { isDefault = false } = {}) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT
+       (SELECT COUNT(*)::int
+          FROM pharmacy_orders
+         WHERE tenant_id=$1::uuid AND facility_id=$2::int
+           AND UPPER(status) NOT IN ('DISPENSED','DELIVERED','UNAVAILABLE','CANCELLED'))
+         AS open_pharmacy_orders,
+       (SELECT COUNT(*)::int
+          FROM pharmacy_inventory_items
+         WHERE tenant_id=$1::uuid AND facility_id=$2::int AND status='active')
+         AS active_inventory_items,
+       (SELECT COUNT(*)::int
+          FROM pharmacy_inventory_batches batch
+          JOIN pharmacy_inventory_items item
+            ON item.tenant_id=batch.tenant_id AND item.id=batch.inventory_item_id
+         WHERE batch.tenant_id=$1::uuid
+           AND (batch.facility_id=$2::int OR item.facility_id=$2::int)
+           AND (batch.status IN ('in_stock','reserved') OR batch.remaining_quantity > 0))
+         AS active_inventory_batches,
+       (SELECT COUNT(*)::int
+          FROM pharmacy_purchase_orders
+         WHERE tenant_id=$1::uuid AND facility_id=$2::int
+           AND status NOT IN ('cancelled','closed'))
+         AS nonterminal_purchase_orders,
+       (SELECT COUNT(*)::int
+          FROM pharmacy_goods_receipts
+         WHERE tenant_id=$1::uuid AND facility_id=$2::int
+           AND status NOT IN ('rejected','archived'))
+         AS nonterminal_goods_receipts,
+       (SELECT COUNT(*)::int
+          FROM ward_indent_inventory_allocations allocation
+          JOIN ward_indents indent
+            ON indent.tenant_id=allocation.tenant_id
+           AND indent.id=allocation.ward_indent_id
+         WHERE allocation.tenant_id=$1::uuid AND indent.facility_id=$2::int
+           AND allocation.status IN ('reserved','partially_issued','issued'))
+         AS active_ward_allocations,
+       (SELECT COUNT(*)::int
+          FROM ward_indents
+         WHERE tenant_id=$1::uuid AND facility_id=$2::int
+           AND status NOT IN ('rejected','cancelled','closed'))
+         AS open_ward_indents,
+       (SELECT COUNT(*)::int
+          FROM pharmacy_staff_facility_grants
+         WHERE tenant_id=$1::uuid AND facility_id=$2::int
+           AND status='active' AND revoked_at IS NULL)
+         AS active_staff_grants,
+       -- Cath facility shutdown blockers (migration 753 authority contract).
+       (SELECT COUNT(*)::int
+          FROM cath_lab_cases cath_case
+         WHERE cath_case.tenant_id=$1::uuid AND cath_case.facility_id=$2::int
+           AND cath_case.status NOT IN ('completed','cancelled'))
+         AS open_cath_cases,
+       (SELECT COUNT(*)::int
+          FROM cath_case_consumable_usage usage
+         WHERE usage.tenant_id=$1::uuid AND usage.facility_id=$2::int
+           AND usage.inventory_decrement_status NOT IN ('decremented','not_applicable'))
+         AS unreconciled_cath_usage,
+       (SELECT COUNT(*)::int
+          FROM tasks task
+          JOIN cath_case_consumable_usage usage
+            ON usage.tenant_id=task.tenant_id
+           AND usage.id::text=task.related_resource_id
+         WHERE task.tenant_id=$1::uuid AND usage.facility_id=$2::int
+           AND task.related_resource_type='cath_case_consumable_usage'
+           AND task.metadata->>'task_contract'='cath_inventory_shortfall_v1'
+           AND task.status IN ('open','in_progress','blocked','overdue'))
+         AS open_cath_inventory_tasks,
+       (SELECT COUNT(*)::int
+          FROM workflow_sla_instances sla
+          JOIN cath_case_consumable_usage usage
+            ON usage.tenant_id=sla.tenant_id AND usage.id::text=sla.source_id
+         WHERE sla.tenant_id=$1::uuid AND usage.facility_id=$2::int
+           AND sla.rule_code='cath_consumable_inventory_reconciliation'
+           AND sla.source_table='cath_case_consumable_usage'
+           AND sla.completed_at IS NULL
+           AND sla.status IN ('active','breached','escalated'))
+         AS open_cath_inventory_slas,
+       (SELECT COUNT(*)::int
+          FROM pharmacy_inventory_authority_recovery_worklist recovery
+         WHERE recovery.tenant_id=$1::uuid
+           AND recovery.entity_type IN (
+             'cath_consumable_catalog','cath_consumable_usage','cath_lab_case'
+           )
+           AND recovery.status='OPEN'
+           AND (
+             recovery.facility_id=$2::int
+             OR CASE
+                  WHEN recovery.authority_snapshot->>'facility_id' ~ '^[1-9][0-9]*$'
+                  THEN (recovery.authority_snapshot->>'facility_id')::int=$2::int
+                  ELSE FALSE
+                END
+             OR CASE
+                  WHEN recovery.authority_snapshot->>'case_facility_id' ~ '^[1-9][0-9]*$'
+                  THEN (recovery.authority_snapshot->>'case_facility_id')::int=$2::int
+                  ELSE FALSE
+                END
+             OR CASE
+                  WHEN recovery.authority_snapshot->>'encounter_facility_id' ~ '^[1-9][0-9]*$'
+                  THEN (recovery.authority_snapshot->>'encounter_facility_id')::int=$2::int
+                  ELSE FALSE
+                END
+             OR CASE
+                  WHEN recovery.authority_snapshot->>'catalog_facility_id' ~ '^[1-9][0-9]*$'
+                  THEN (recovery.authority_snapshot->>'catalog_facility_id')::int=$2::int
+                  ELSE FALSE
+                END
+             OR CASE
+                  WHEN recovery.authority_snapshot->>'batch_facility_id' ~ '^[1-9][0-9]*$'
+                  THEN (recovery.authority_snapshot->>'batch_facility_id')::int=$2::int
+                  ELSE FALSE
+                END
+             OR CASE
+                  WHEN recovery.authority_snapshot->>'inventory_item_facility_id' ~ '^[1-9][0-9]*$'
+                  THEN (recovery.authority_snapshot->>'inventory_item_facility_id')::int=$2::int
+                  ELSE FALSE
+                END
+           ))
+         AS open_cath_authority_recoveries`,
+    tenantId,
+    facilityId,
+  );
+  return shutdownBlockerDetails({
+    ...rows[0],
+    default_facility_assignment: isDefault ? 1 : 0,
+  });
+}
+
+async function appendFacilityAuditTx(tx, {
+  tenantId,
+  actorUid,
+  action,
+  facility,
+  priorFacility = null,
+  demotedDefaultFacilityIds = [],
+  shutdownEvidence = null,
+}) {
+  await tx.$queryRawUnsafe(
+    `INSERT INTO audit_logs
+       (tenant_id, uid, action, resource, resource_id, metadata, created_at)
+     VALUES ($1::uuid, $2::uuid, $3, 'facility', $4::text, $5::jsonb, NOW())
+     RETURNING id`,
+    tenantId,
+    actorUid,
+    action,
+    String(facility.id),
+    JSON.stringify({
+      contract: 'facility_lifecycle_v1',
+      facility_code: facility.facility_code,
+      before: priorFacility ? {
+        status: priorFacility.status,
+        is_default: priorFacility.is_default,
+      } : null,
+      after: {
+        status: facility.status,
+        is_default: facility.is_default,
+      },
+      demoted_default_facility_ids: demotedDefaultFacilityIds,
+      shutdown_evidence: shutdownEvidence,
+    }),
+  );
+}
+
 export async function upsertFacility({
   tenantId = null,
   id = null,
@@ -166,7 +366,7 @@ export async function upsertFacility({
   phone = null,
   email = null,
   status = 'active',
-  isDefault = false,
+  isDefault = null,
   geoLat = null,
   geoLng = null,
   metadata = null,
@@ -177,21 +377,15 @@ export async function upsertFacility({
   if (!cleanCode) throw AppError.badRequest('facility_code is required');
   const cleanName = safeText(displayName, SHORT_MAX);
   if (!cleanName) throw AppError.badRequest('display_name is required');
-  const flagDefault = normalizeBoolean(isDefault, false);
-
-  // If setting default, demote others atomically.
-  if (flagDefault) {
-    try {
-      await prisma.$queryRawUnsafe(
-        `UPDATE facilities
-         SET is_default = false, updated_at = NOW()
-         WHERE tenant_id = $1::uuid AND is_default = true AND facility_code <> $2`,
-        tid, cleanCode,
-      );
-    } catch (err) {
-      if (!isMissingSchemaError(err)) throw err;
-    }
+  const requestedDefault = normalizeBoolean(isDefault, null);
+  const cleanStatus = normalizeEnum(status, FACILITY_STATUSES, 'status') || 'active';
+  if (requestedDefault === true && cleanStatus !== 'active') {
+    throw AppError.badRequest(
+      'The tenant default facility must be active',
+      'FACILITY_DEFAULT_MUST_BE_ACTIVE',
+    );
   }
+  const actorUid = maybeUuid(createdBy, 'created_by');
 
   const args = [
     cleanCode, cleanName,
@@ -207,44 +401,151 @@ export async function upsertFacility({
     safeText(timezone, 60) || 'Asia/Kolkata',
     safeText(phone, 40),
     safeText(email, 255),
-    normalizeEnum(status, FACILITY_STATUSES, 'status') || 'active',
-    flagDefault,
+    cleanStatus,
+    requestedDefault ?? false,
     normalizeNumber(geoLat, 'geo_lat', { min: -90, max: 90 }),
     normalizeNumber(geoLng, 'geo_lng', { min: -180, max: 180 }),
     JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
   ];
 
   try {
-    if (id) {
-      const facId = normalizeId(id, 'facility id');
-      const rows = await prisma.$queryRawUnsafe(
-        `UPDATE facilities SET
-           facility_code = $1, display_name = $2, facility_kind = $3,
-           legal_entity_name = $4, registration_number = $5,
-           address_line1 = $6, address_line2 = $7, city = $8, state = $9,
-           country = $10, postal_code = $11, timezone = $12,
-           phone = $13, email = $14, status = $15, is_default = $16,
-           geo_lat = $17, geo_lng = $18, metadata = $19::jsonb,
-           updated_at = NOW()
-         WHERE id = $20 AND tenant_id = $21::uuid
-         RETURNING ${FACILITY_RETURNING}`,
-        ...args, facId, tid,
+    return await setTenantTx(tid, async (tx) => {
+      await tx.$queryRawUnsafe(
+        `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))::text AS lock_acquired`,
+        `facility-lifecycle:${tid}`,
       );
-      if (!rows[0]) throw AppError.notFound('Facility not found');
-      return rows[0];
-    }
-    const rows = await prisma.$queryRawUnsafe(
-      `INSERT INTO facilities
-         (tenant_id, facility_code, display_name, facility_kind,
-          legal_entity_name, registration_number,
-          address_line1, address_line2, city, state, country, postal_code,
-          timezone, phone, email, status, is_default,
-          geo_lat, geo_lng, metadata, created_by)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20::jsonb, $21::uuid)
-       RETURNING ${FACILITY_RETURNING}`,
-      tid, ...args, maybeUuid(createdBy, 'created_by'),
-    );
-    return rows[0];
+      const lockedFacilities = await tx.$queryRawUnsafe(
+        `SELECT id, facility_code, status, is_default
+           FROM facilities
+          WHERE tenant_id=$1::uuid
+          ORDER BY id
+          FOR UPDATE`,
+        tid,
+      );
+      const facId = id ? normalizeId(id, 'facility id') : null;
+      const priorFacility = facId == null
+        ? null
+        : lockedFacilities.find((facility) => Number(facility.id) === facId);
+      if (facId != null && !priorFacility) throw AppError.notFound('Facility not found');
+      const activeDefaults = lockedFacilities.filter((facility) => (
+        facility.status === 'active' && facility.is_default === true
+      ));
+      if (activeDefaults.length > 1) {
+        throw AppError.conflict(
+          'Multiple active default facilities require governed recovery before facility changes',
+          'FACILITY_DEFAULT_AUTHORITY_AMBIGUOUS',
+          {
+            active_default_facility_ids: activeDefaults.map((facility) => Number(facility.id)),
+            recovery_action: 'RETAIN_EXACTLY_ONE_ACTIVE_DEFAULT_FACILITY',
+          },
+        );
+      }
+      const effectiveDefault = requestedDefault ?? (priorFacility?.is_default === true);
+      if (priorFacility?.is_default === true
+          && requestedDefault === false
+          && cleanStatus === 'active') {
+        throw AppError.conflict(
+          'Assign another active facility as default instead of directly demoting the current default',
+          'FACILITY_DEFAULT_REPLACEMENT_REQUIRED',
+          {
+            facility_id: facId,
+            recovery_action: 'ASSIGN_ANOTHER_ACTIVE_DEFAULT_FACILITY',
+          },
+        );
+      }
+      const anotherActiveDefault = activeDefaults.some((facility) => Number(facility.id) !== facId);
+      const targetWillBeActiveDefault = effectiveDefault && cleanStatus === 'active';
+      if (!anotherActiveDefault && !targetWillBeActiveDefault
+          && !(priorFacility?.is_default === true && cleanStatus !== 'active')) {
+        throw AppError.conflict(
+          'Facility changes require exactly one active tenant default',
+          'FACILITY_ACTIVE_DEFAULT_REQUIRED',
+          {
+            facility_id: facId,
+            recovery_action: 'ASSIGN_ONE_ACTIVE_DEFAULT_FACILITY',
+          },
+        );
+      }
+
+      let shutdownEvidence = null;
+      if (facId != null && cleanStatus !== 'active') {
+        shutdownEvidence = await loadFacilityShutdownBlockersTx(tx, tid, facId, {
+          isDefault: priorFacility.is_default === true,
+        });
+        if (shutdownEvidence.total_blocker_count > 0) {
+          throw AppError.conflict(
+            'Facility deactivation is blocked until every owned workflow and custody record is recovered',
+            'FACILITY_DEACTIVATION_BLOCKED',
+            {
+              facility_id: facId,
+              requested_status: cleanStatus,
+              ...shutdownEvidence,
+            },
+          );
+        }
+      }
+
+      let demotedDefaults = [];
+      if (effectiveDefault) {
+        demotedDefaults = await tx.$queryRawUnsafe(
+          `UPDATE facilities
+              SET is_default=false, updated_at=NOW()
+            WHERE tenant_id=$1::uuid AND is_default=TRUE
+              AND ($2::int IS NULL OR id<>$2::int)
+            RETURNING id`,
+          tid,
+          facId,
+        );
+      }
+
+      let facility;
+      const lifecycleArgs = [...args];
+      lifecycleArgs[15] = effectiveDefault;
+      if (facId != null) {
+        const rows = await tx.$queryRawUnsafe(
+          `UPDATE facilities SET
+             facility_code = $1, display_name = $2, facility_kind = $3,
+             legal_entity_name = $4, registration_number = $5,
+             address_line1 = $6, address_line2 = $7, city = $8, state = $9,
+             country = $10, postal_code = $11, timezone = $12,
+             phone = $13, email = $14, status = $15, is_default = $16,
+             geo_lat = $17, geo_lng = $18, metadata = $19::jsonb,
+             updated_at = NOW()
+           WHERE id = $20 AND tenant_id = $21::uuid
+           RETURNING ${FACILITY_RETURNING}`,
+          ...lifecycleArgs, facId, tid,
+        );
+        if (!rows[0]) throw AppError.notFound('Facility not found');
+        facility = rows[0];
+      } else {
+        const rows = await tx.$queryRawUnsafe(
+          `INSERT INTO facilities
+             (tenant_id, facility_code, display_name, facility_kind,
+              legal_entity_name, registration_number,
+              address_line1, address_line2, city, state, country, postal_code,
+              timezone, phone, email, status, is_default,
+              geo_lat, geo_lng, metadata, created_by)
+           VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20::jsonb, $21::uuid)
+           RETURNING ${FACILITY_RETURNING}`,
+          tid, ...lifecycleArgs, actorUid,
+        );
+        facility = rows[0];
+      }
+      await appendFacilityAuditTx(tx, {
+        tenantId: tid,
+        actorUid,
+        action: demotedDefaults.length > 0
+          ? 'FACILITY_DEFAULT_SWITCHED'
+          : (effectiveDefault && priorFacility?.is_default !== true
+            ? 'FACILITY_DEFAULT_ASSIGNED'
+            : (priorFacility ? 'FACILITY_UPDATED' : 'FACILITY_CREATED')),
+        facility,
+        priorFacility,
+        demotedDefaultFacilityIds: demotedDefaults.map((row) => Number(row.id)),
+        shutdownEvidence,
+      });
+      return facility;
+    });
   } catch (err) {
     if (isUniqueViolation(err)) throw AppError.conflict('facility_code already exists for this tenant');
     throw err;
@@ -286,7 +587,7 @@ export async function getDefaultFacility({ tenantId = null } = {}) {
   try {
     const rows = await prisma.$queryRawUnsafe(
       `SELECT ${FACILITY_RETURNING} FROM facilities
-       WHERE tenant_id = $1::uuid AND is_default = true
+       WHERE tenant_id = $1::uuid AND status='active' AND is_default = true
        LIMIT 1`,
       tid,
     );

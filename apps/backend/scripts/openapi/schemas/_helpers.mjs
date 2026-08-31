@@ -11,6 +11,7 @@ export function envelope(payloadSchemaName) {
       success: { type: 'boolean', example: true },
       message: { type: 'string' },
       data: { $ref: `#/components/schemas/${payloadSchemaName}` },
+      requestId: { type: 'string', nullable: true },
     },
   };
 }
@@ -27,6 +28,7 @@ export function listEnvelope(itemSchemaName) {
       message: { type: 'string' },
       data: { type: 'array', items: { $ref: `#/components/schemas/${itemSchemaName}` } },
       meta: { type: 'object', additionalProperties: true },
+      requestId: { type: 'string', nullable: true },
     },
   };
 }
@@ -49,6 +51,7 @@ export function countListEnvelope(arrayKey, itemSchemaName) {
           count: { type: 'integer', example: 5 },
         },
       },
+      requestId: { type: 'string', nullable: true },
     },
   };
 }
@@ -77,6 +80,7 @@ export function paginatedEnvelope(itemSchemaName) {
           },
         },
       },
+      requestId: { type: 'string', nullable: true },
     },
   };
 }

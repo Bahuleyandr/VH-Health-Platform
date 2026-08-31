@@ -30,6 +30,23 @@ describe('Claim caps API supports both insurance_claims and tpa_claims', () => {
   let tpaClaimId;
 
   beforeAll(async () => {
+    // Migration 753 gave the cap write path real funding authority:
+    // setClaimCaps / deleteCap now serialize on the claim's patient through
+    // resolvePharmacyFundingPatientUidTx, which demands that patient_uid
+    // resolve to exactly ONE active PATIENT row in this tenant. A fabricated
+    // uid with no `users` row is refused with 409
+    // PHARMACY_FUNDING_PATIENT_IDENTITY_MISMATCH, so the fixture has to
+    // register the patient the way the real TPA workflow does before it can
+    // hang a policy and a claim off them.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, updated_at, tenant_id)
+       VALUES ($1::uuid, $2, 'Claim Caps Test Patient', 'PATIENT', true, NOW(), $3::uuid)
+       ON CONFLICT (uid) DO UPDATE SET updated_at = NOW()`,
+      PATIENT_UID,
+      `9776${Date.now() % 1000000}`.slice(0, 10),
+      TENANT
+    );
+
     const policyRows = await prisma.$queryRawUnsafe(
       `INSERT INTO insurance_policies
          (patient_uid, policy_number, status, tenant_id)
@@ -70,8 +87,11 @@ describe('Claim caps API supports both insurance_claims and tpa_claims', () => {
         )
         .catch(() => {});
     }
+    await prisma
+      .$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PATIENT_UID)
+      .catch(() => {});
     await prisma.$disconnect().catch(() => {});
-  });
+  }, 120_000);
 
   it('POST caps against a tpa_claims id persists to tpa_claim_id column', async () => {
     const res = await admin

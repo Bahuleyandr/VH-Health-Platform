@@ -1347,6 +1347,9 @@ async function applyRetrospectiveProjectionTx(tx, { tenantId, actionId, normaliz
       expectedAdmissionId: normalized.admission_id,
       expectedEncounterId: normalized.encounter_id,
       mode: MAR_ADMINISTRATION_MODES.RETROSPECTIVE_PAPER_BACK_ENTRY,
+      commandKey: `continuity-paper:${normalized.evidence_hash}`,
+      supplyQuantity: inspection.row?.supply_quantity_per_dose ?? null,
+      supplyOverrideReason: `Authorized downtime paper back-entry ${normalized.evidence_hash.slice(0, 16)}`,
       inspection,
     });
   } else if (actionId === 'lab.specimen_collection.backfill') {

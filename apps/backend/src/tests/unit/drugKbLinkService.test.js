@@ -150,6 +150,52 @@ describe('tier precedence', () => {
   });
 });
 
+describe('strict transaction-pinned resolution', () => {
+  test('uses the supplied transaction and bypasses optional feature gates', async () => {
+    dispatchResolveQueries({
+      links: [{ pharmacy_catalog_id: 1, drug_key: 'warfarin' }],
+    });
+    const db = { $queryRawUnsafe: queryRawUnsafeMock };
+
+    const result = await resolveDrugKeys({
+      tenantId: TENANT,
+      medications: [{ name: 'Brand A', catalog_id: 1 }],
+      db,
+      strict: true,
+    });
+
+    expect(result.resolutions).toEqual([
+      expect.objectContaining({ catalog_id: 1, drug_keys: ['warfarin'], tier: 'explicit_link' }),
+    ]);
+    expect(getDrugKbSettingsMock).not.toHaveBeenCalled();
+    expect(queryRawUnsafeMock).toHaveBeenCalled();
+  });
+
+  test('throws instead of falling back to text for an unresolved catalog identity', async () => {
+    dispatchResolveQueries();
+
+    await expect(resolveDrugKeys({
+      tenantId: TENANT,
+      medications: [{ name: 'Unlinked Brand', catalog_id: 99 }],
+      db: { $queryRawUnsafe: queryRawUnsafeMock },
+      strict: true,
+    })).rejects.toMatchObject({ code: 'DRUG_KB_IDENTITY_UNRESOLVED' });
+  });
+
+  test('rejects an explicit link whose key is absent from the active KB revision', async () => {
+    dispatchResolveQueries({
+      links: [{ pharmacy_catalog_id: 1, drug_key: 'inactive_vendor_key' }],
+    });
+
+    await expect(resolveDrugKeys({
+      tenantId: TENANT,
+      medications: [{ name: 'Brand A', catalog_id: 1 }],
+      db: { $queryRawUnsafe: queryRawUnsafeMock },
+      strict: true,
+    })).rejects.toMatchObject({ code: 'DRUG_KB_IDENTITY_UNRESOLVED' });
+  });
+});
+
 describe('fail-open posture', () => {
   test('DB error → disabled result, warn logged, never throws', async () => {
     process.env.DRUG_KB_DETERMINISTIC_MATCHING = 'true';

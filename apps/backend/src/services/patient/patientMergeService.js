@@ -83,7 +83,7 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import {
-  lockTenantPatientMergeStability,
+  lockTenantPatientMergeExecutionExclusive,
   PATIENT_MERGE_STABILITY_TIMEOUT_MS,
 } from '../../utils/patientMergeStabilityLock.js';
 import {
@@ -118,12 +118,17 @@ const CONTINUITY_DOCTOR_APPROVER_ROLES = new Set([
  *     (reassignIdentifiersForMerge).
  *   - patient_merge_requests / patient_duplicate_candidates: merge
  *     bookkeeping — their uid columns record which records were merged.
+ *   - pharmacy_patient_safety_versions: patient-scoped logical clocks are
+ *     folded explicitly after every safety-source mutation; predecessor
+ *     clock identities stay preserved as merge provenance and are never
+ *     re-pointed.
  */
 const MERGE_SWEEP_EXCLUDED_TABLES = new Set([
   'users',
   'patient_identifiers',
   'patient_merge_requests',
   'patient_duplicate_candidates',
+  'pharmacy_patient_safety_versions',
 ]);
 
 /**
@@ -263,7 +268,12 @@ async function discoverMergeSweepTargets(tx) {
          (a.attname = 'patient_uid' AND a.atttypid = 'uuid'::regtype)
          OR (a.attname = 'patient_id' AND a.atttypid IN ('int4'::regtype, 'int8'::regtype))
        )
-     ORDER BY c.relname, a.attname`,
+     ORDER BY CASE c.relname
+                WHEN 'pharmacy_orders' THEN 0
+                WHEN 'e_prescriptions' THEN 1
+                ELSE 2
+              END,
+              c.relname, a.attname`,
   );
   return rows
     .filter((row) => {
@@ -408,6 +418,83 @@ function normalizeId(value, label = 'id') {
     throw AppError.badRequest(`${label} must be a positive integer`);
   }
   return parsed;
+}
+
+/**
+ * Fold every medication-safety clock represented by a patient merge into a
+ * new survivor clock without moving or rewriting any predecessor row.
+ *
+ * The generic chart sweep and the users deactivation/chain-flattening writes
+ * all run first with migration-753's source triggers enabled. Locking the
+ * resulting clock rows here therefore observes the final pre-merge values.
+ * A missing clock has the schema's effective initial value of 1. The survivor
+ * is then advanced to one greater than every involved clock, so a pharmacist
+ * verification pinned before either chart joined the family can never appear
+ * current after the merge.
+ */
+async function foldPatientSafetyVersionForMerge(tx, {
+  tenantId,
+  survivorPatientId,
+  mergedAwayPatientIds = [],
+}) {
+  const survivorId = normalizeId(survivorPatientId, 'survivor patient id');
+  const involvedPatientIds = [...new Set([
+    survivorId,
+    ...mergedAwayPatientIds.map((patientId) => normalizeId(patientId, 'merged-away patient id')),
+  ])].sort((left, right) => left - right);
+
+  const rows = await tx.$queryRawUnsafe(
+    `WITH involved_patient_ids AS MATERIALIZED (
+       SELECT DISTINCT involved.patient_id::integer AS patient_id
+         FROM unnest($2::integer[]) AS involved(patient_id)
+     ),
+     locked_versions AS MATERIALIZED (
+       SELECT safety.patient_id, safety.version
+         FROM pharmacy_patient_safety_versions AS safety
+         JOIN involved_patient_ids AS involved
+           ON involved.patient_id = safety.patient_id
+        WHERE safety.tenant_id = $1::uuid
+        ORDER BY safety.patient_id
+        FOR UPDATE OF safety
+     ),
+     next_version AS (
+       SELECT GREATEST(
+                1::bigint,
+                COALESCE(MAX(locked.version), 1::bigint)
+              ) + 1::bigint AS version
+         FROM locked_versions AS locked
+     ),
+     folded_survivor AS (
+       INSERT INTO pharmacy_patient_safety_versions
+         (tenant_id, patient_id, version, updated_at)
+       SELECT $1::uuid, $3::integer, next_version.version, clock_timestamp()
+         FROM next_version
+       ON CONFLICT (tenant_id, patient_id) DO UPDATE
+         SET version = GREATEST(
+                         pharmacy_patient_safety_versions.version,
+                         EXCLUDED.version - 1::bigint
+                       ) + 1::bigint,
+             updated_at = clock_timestamp()
+       RETURNING patient_id::text AS patient_id, version::text AS version
+     )
+     SELECT patient_id, version FROM folded_survivor`,
+    tenantId,
+    involvedPatientIds,
+    survivorId,
+  );
+
+  if (
+    !Array.isArray(rows)
+    || rows.length !== 1
+    || Number.parseInt(rows[0].patient_id, 10) !== survivorId
+    || !/^[1-9]\d*$/.test(String(rows[0].version || ''))
+  ) {
+    throw AppError.internal(
+      'Patient medication-safety clock was not folded into the merge survivor',
+      'PATIENT_MERGE_SAFETY_CLOCK_REQUIRED',
+    );
+  }
+  return rows[0];
 }
 
 function maybeUuid(value, label = 'uid') {
@@ -1059,6 +1146,8 @@ export async function executeMerge({
   let secondaryRevocationForPublication = null;
   try {
     updated = await setTenantTx(requireTenantId(tid), async (tx) => {
+      await lockTenantPatientMergeExecutionExclusive(tx, tid);
+
       const existingRows = await tx.$queryRawUnsafe(
         `SELECT id, status, candidate_id, primary_uid, secondary_uid, approver_uid,
                 continuity_disposition
@@ -1079,8 +1168,6 @@ export async function executeMerge({
       }
       const primary = existing.primary_uid;
       const secondary = existing.secondary_uid;
-
-      await lockTenantPatientMergeStability(tx, tid);
 
       // Lock both patient rows and re-validate under the lock: both must
       // still be live PATIENT records and neither already merged away.
@@ -1276,6 +1363,17 @@ export async function executeMerge({
         primary, tid, secondary,
       );
 
+      // Migration-753's medication-safety source triggers stayed active for
+      // the chart sweep, secondary deactivation and every chain-pointer
+      // rewrite above. Fold those final logical clocks only now. The clock
+      // table itself is excluded from the generic patient_id sweep: moving a
+      // predecessor row would erase its verification-staleness provenance.
+      const patientSafetyClock = await foldPatientSafetyVersionForMerge(tx, {
+        tenantId: tid,
+        survivorPatientId: patients.primary.id,
+        mergedAwayPatientIds: [patients.secondary.id, ...secondaryPatientIds],
+      });
+
       const summary = {
         identifiers_retargeted: identifierResult.count,
         total_rows_moved: totalRowsMoved,
@@ -1288,6 +1386,7 @@ export async function executeMerge({
         secondary_tokens_revoked: true,
         secondary_user_id: patients.secondary.id,
         primary_user_id: patients.primary.id,
+        patient_safety_version: patientSafetyClock.version,
       };
 
       // Canonical clinical timeline invariant: the merge is a
@@ -1482,6 +1581,7 @@ export const __testing__ = {
   CONTINUITY_PROPOSER_ROLES,
   CONTINUITY_DOCTOR_APPROVER_ROLES,
   discoverMergeSweepTargets,
+  foldPatientSafetyVersionForMerge,
   findUnsupportedProtectedHistory,
   isUpdateBlockingTriggerSource,
 };

@@ -88,6 +88,14 @@ async function seedDischargeSummary({ admissionId, status }) {
 
 describe('submitClaim — unsigned discharge summary gate (H D9)', () => {
   beforeAll(async () => {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users
+         (tenant_id, uid, phone, name, role, is_active, status, updated_at)
+       VALUES ($1::uuid, $2::uuid, '9011779909',
+               'Cashless Claim D9 Patient', 'PATIENT', TRUE, 'active', NOW())`,
+      TENANT,
+      PATIENT_UID,
+    );
     const pol = await prisma.$queryRawUnsafe(
       `INSERT INTO insurance_policies
          (patient_uid, policy_number, status, tenant_id)
@@ -115,6 +123,11 @@ describe('submitClaim — unsigned discharge summary gate (H D9)', () => {
     if (policyId) {
       await prisma.$executeRawUnsafe(`DELETE FROM insurance_policies WHERE id = $1::int`, policyId).catch(() => {});
     }
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM users WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+      TENANT,
+      PATIENT_UID,
+    ).catch(() => {});
     await prisma.$disconnect().catch(() => {});
   });
 

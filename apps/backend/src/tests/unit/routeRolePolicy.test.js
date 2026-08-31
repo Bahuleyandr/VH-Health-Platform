@@ -124,6 +124,20 @@ describe('routeRolePolicy', () => {
     ]));
   });
 
+  it('admits CASHIER only to the bounded billing-v2 surface', () => {
+    expect(routePolicy.BILLING_V2_ROUTE_ROLES).toContain('CASHIER');
+    for (const unrelatedAudience of [
+      routePolicy.BILLING_ROUTE_ROLES,
+      routePolicy.ADMISSION_SURFACE_ROUTE_ROLES,
+      routePolicy.PATIENT_REGISTRY_WRITE_ROUTE_ROLES,
+      routePolicy.OP_FLOW_ROUTE_ROLES,
+      routePolicy.IP_FLOW_ROUTE_ROLES,
+      routePolicy.CLINICAL_STAFF_ROUTE_ROLES,
+    ]) {
+      expect(unrelatedAudience).not.toContain('CASHIER');
+    }
+  });
+
   it('keeps bed board visibility wider than bed movement and allocation rights', () => {
     expect(routePolicy.BED_PARENT_ROUTE_ROLES).toEqual(expect.arrayContaining([
       'HOUSEKEEPING_STAFF',

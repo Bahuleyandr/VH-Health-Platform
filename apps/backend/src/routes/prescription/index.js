@@ -2,6 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as ePrescriptionController from '../../controllers/prescription/ePrescriptionController.js';
+import * as rejectedPrescriptionAmendmentController from '../../controllers/prescription/rejectedPrescriptionAmendmentController.js';
 import * as pharmacyOrderController from '../../controllers/pharmacy/pharmacyOrderController.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
@@ -56,6 +57,22 @@ function prescriptionGuard(patientSelector, { requirePatientContext = false } = 
   mw.__patientGuard = Object.freeze({
     recordType: 'PRESCRIPTION',
     careTeamModeGoverned: true,
+    requirePatientContext,
+    hasSelector: typeof patientSelector === 'function',
+  });
+  return mw;
+}
+
+// Receipt replay can disclose the rejected prescription after care authority is
+// revoked, so this command cannot inherit the tenant's shadow/off ABAC mode.
+function enforcedPrescriptionGuard(patientSelector, { requirePatientContext = false } = {}) {
+  const mw = patientAccessGuard('PRESCRIPTION', {
+    patientSelector,
+    ...(requirePatientContext ? { requirePatientContext: true } : {}),
+  });
+  mw.__patientGuard = Object.freeze({
+    recordType: 'PRESCRIPTION',
+    careTeamModeGoverned: false,
     requirePatientContext,
     hasSelector: typeof patientSelector === 'function',
   });
@@ -163,6 +180,10 @@ async function selectRxListFilterPatient(req) {
 // subject cannot be resolved; the shared-list guard must never block a list
 // that simply has no patient filter.
 const guardRxById = prescriptionGuard(selectRxPatientByParam('id'), { requirePatientContext: true });
+const guardRejectedRxAmendment = enforcedPrescriptionGuard(
+  selectRxPatientByParam('id'),
+  { requirePatientContext: true },
+);
 const guardRxByAppointment = prescriptionGuard(selectRxPatientByAppointment, { requirePatientContext: true });
 const guardRxCreate = prescriptionGuard(selectRxPatientFromBody, { requirePatientContext: true });
 const guardRxListFilter = prescriptionGuard(selectRxListFilterPatient, { requirePatientContext: false });
@@ -255,6 +276,27 @@ wrapAutoRBAC(router, 'ePrescriptionStaffPdfRoutes', {
   ]
 });
 
+// A rejected pharmacy-linked prescription is immutable through the generic
+// update route. This dedicated command preserves the rejection evidence and
+// advances the exact linked prescription/order versions so the pharmacist must
+// perform a fresh verification before any fulfilment can continue.
+wrapAutoRBAC(router, 'ePrescriptionRejectedAmendmentRoutes', {
+  post: [
+    ['/:id/amend-rejected-pharmacy-order', [
+      rejectMobileClinicalWrite,
+      guardRejectedRxAmendment,
+      requireIdempotencyKey({
+        required: true,
+        scope: 'prescription_amend_rejected_pharmacy_order',
+        retainOnServerError: true,
+        durableDomainReceipt: true,
+        requestPathForIdempotency: (req) =>
+          `/api/v1/prescriptions/${req.params.id}/amend-rejected-pharmacy-order`,
+      }),
+    ], rejectedPrescriptionAmendmentController.amendRejectedPharmacyOrder],
+  ],
+});
+
 // Dynamic /:id routes last. Idempotency on the two write paths that
 // create downstream pharmacy orders (order-pharmacy + refill). The guard runs
 // before requireIdempotencyKey so a denial can never burn a client's
@@ -270,10 +312,22 @@ wrapAutoRBAC(router, 'ePrescriptionDetailRoutes', {
   post: [
     ['/:id/sign', [rejectMobileClinicalWrite, guardRxById], ePrescriptionController.signPrescription],
     ['/:id/order-pharmacy',
-      [rejectMobileClinicalWrite, guardRxById, requireIdempotencyKey({ required: false, scope: 'prescription_order_pharmacy' })],
+      [rejectMobileClinicalWrite, guardRxById, requireIdempotencyKey({
+        required: true,
+        scope: 'prescription_order_pharmacy',
+        retainOnServerError: true,
+        durableDomainReceipt: true,
+        requestPathForIdempotency: (req) => `/api/v1/prescriptions/${req.params.id}/order-pharmacy`,
+      })],
       ePrescriptionController.orderPharmacyFromPrescription],
     ['/:id/refill',
-      [rejectMobileClinicalWrite, guardRxById, requireIdempotencyKey({ required: false, scope: 'prescription_refill' })],
+      [rejectMobileClinicalWrite, guardRxById, requireIdempotencyKey({
+        required: true,
+        scope: 'prescription_refill',
+        retainOnServerError: true,
+        durableDomainReceipt: true,
+        requestPathForIdempotency: (req) => `/api/v1/prescriptions/${req.params.id}/refill`,
+      })],
       ePrescriptionController.orderPharmacyFromPrescription]
   ]
 });

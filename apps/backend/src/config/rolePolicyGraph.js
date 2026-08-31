@@ -198,6 +198,11 @@ export const ROLE_POLICY_CAPABILITY_GROUPS = {
       'CLAIMS_MANAGER',
     ],
   },
+  cashier_operations: {
+    title: 'Cashier operations',
+    description: 'Cash drawer, collection, refund payout, and shift reconciliation without insurance or clinical workflow authority.',
+    roles: ['CASHIER'],
+  },
   notifications_audit: {
     title: 'Notifications and audit',
     description: 'Alerts, acknowledgements, audit explorer, and operational traceability.',
@@ -243,6 +248,7 @@ export const ROLE_POLICY_CAPABILITY_GROUPS = {
       'HOUSEKEEPING_INCHARGE',
       'RECEPTIONIST',
       'RECEPTION_INCHARGE',
+      'CASHIER',
       'BILLING_STAFF',
       'ADMISSION_OFFICER',
       'INSURANCE_COORDINATOR',
@@ -379,6 +385,7 @@ const DISPLAY_TITLE_OVERRIDES = {
   NURSING_STAFF: 'IP Nursing Staff',
   RECEPTIONIST: 'Receptionist',
   RECEPTION_INCHARGE: 'Reception / Admission Incharge',
+  CASHIER: 'Cashier',
   MEDICAL_SUPERINTENDENT: 'Medical Superintendent',
   HR_STAFF: 'HR Staff',
   STORES_PURCHASE_INCHARGE: 'Stores / Purchase Incharge',
@@ -435,6 +442,7 @@ const DEPARTMENT_OVERRIDES = {
   COMPLIANCE_OFFICER: 'Compliance',
   DIALYSIS_TECHNICIAN: 'Dialysis',
   BLOOD_BANK_STAFF: 'Blood Bank',
+  CASHIER: 'Billing',
   BILLING_STAFF: 'Billing',
   BILLING_INCHARGE: 'Billing',
   FINANCE_INCHARGE: 'Finance',
@@ -504,9 +512,10 @@ const STAFF_VISIBILITY_OVERRIDES = {
   HOUSEKEEPING_INCHARGE: ['HOUSEKEEPING_STAFF', 'HOUSEKEEPING_INCHARGE'],
   RECEPTIONIST: ['RECEPTIONIST'],
   RECEPTION_INCHARGE: ['RECEPTIONIST', 'RECEPTION_INCHARGE'],
+  CASHIER: ['CASHIER'],
   BILLING_STAFF: ['BILLING_STAFF'],
-  BILLING_INCHARGE: ['BILLING_STAFF', 'BILLING_INCHARGE'],
-  FINANCE_INCHARGE: ['BILLING_STAFF', 'BILLING_INCHARGE', 'FINANCE_INCHARGE'],
+  BILLING_INCHARGE: ['CASHIER', 'BILLING_STAFF', 'BILLING_INCHARGE'],
+  FINANCE_INCHARGE: ['CASHIER', 'BILLING_STAFF', 'BILLING_INCHARGE', 'FINANCE_INCHARGE'],
   ADMISSION_OFFICER: ['ADMISSION_OFFICER'],
   INSURANCE_COORDINATOR: ['INSURANCE_COORDINATOR'],
   IPD_COUNSELLOR: ['IPD_COUNSELLOR'],
@@ -558,6 +567,7 @@ const MANAGEABLE_ROLE_OVERRIDES = {
     'BIOMEDICAL_STAFF',
     'RECEPTIONIST',
     'RECEPTION_INCHARGE',
+    'CASHIER',
     'BILLING_STAFF',
     'BILLING_INCHARGE',
     'FINANCE_INCHARGE',
@@ -569,8 +579,8 @@ const MANAGEABLE_ROLE_OVERRIDES = {
   ],
   HOUSEKEEPING_INCHARGE: ['HOUSEKEEPING_STAFF'],
   RECEPTION_INCHARGE: ['RECEPTIONIST', 'ADMISSION_OFFICER', 'IPD_COUNSELLOR'],
-  BILLING_INCHARGE: ['BILLING_STAFF', 'INSURANCE_COORDINATOR'],
-  FINANCE_INCHARGE: ['BILLING_STAFF', 'BILLING_INCHARGE', 'INSURANCE_COORDINATOR', 'CLAIMS_MANAGER'],
+  BILLING_INCHARGE: ['CASHIER', 'BILLING_STAFF', 'INSURANCE_COORDINATOR'],
+  FINANCE_INCHARGE: ['CASHIER', 'BILLING_STAFF', 'BILLING_INCHARGE', 'INSURANCE_COORDINATOR', 'CLAIMS_MANAGER'],
   PHARMACY_INCHARGE: ['PHARMACY_STAFF'],
   STORES_PURCHASE_INCHARGE: [],
 };
@@ -600,6 +610,7 @@ const LEGACY_ROLE_HIERARCHY_OVERRIDES = {
     'HR_STAFF',
     'RECEPTIONIST',
     'RECEPTION_INCHARGE',
+    'CASHIER',
     'BILLING_STAFF',
     'BILLING_INCHARGE',
     'FINANCE_INCHARGE',
@@ -999,6 +1010,7 @@ const REPORTING_OVERRIDES = {
   CATH_LAB_INCHARGE: { reports_to: 'CNO', supervises_roles: MANAGEABLE_ROLE_OVERRIDES.CATH_LAB_INCHARGE },
   RECEPTION_INCHARGE: { reports_to: 'ADMIN', supervises_roles: MANAGEABLE_ROLE_OVERRIDES.RECEPTION_INCHARGE },
   HOUSEKEEPING_INCHARGE: { reports_to: 'ADMIN', supervises_roles: MANAGEABLE_ROLE_OVERRIDES.HOUSEKEEPING_INCHARGE },
+  CASHIER: { reports_to: 'BILLING_INCHARGE', supervises_roles: [] },
   BILLING_INCHARGE: { reports_to: 'FINANCE_INCHARGE', supervises_roles: MANAGEABLE_ROLE_OVERRIDES.BILLING_INCHARGE },
   FINANCE_INCHARGE: { reports_to: 'ADMIN', supervises_roles: MANAGEABLE_ROLE_OVERRIDES.FINANCE_INCHARGE },
   PHARMACY_INCHARGE: { reports_to: 'ADMIN', supervises_roles: MANAGEABLE_ROLE_OVERRIDES.PHARMACY_INCHARGE },
@@ -1060,6 +1072,7 @@ const UI_ROLE_FEATURE_GRANTS = {
   CNO: ['organization_hierarchy', 'nursing_roster', 'op_nursing_roster', 'op_nursing_dashboard', 'staff_roster', 'patient_command_board', 'bed_board', 'referrals', 'safety_center'],
   RECEPTIONIST: ['front_office_workbench', 'appointments', 'patient_records', 'billing_desk', 'admissions'],
   RECEPTION_INCHARGE: ['front_office_workbench', 'appointments', 'patient_records', 'billing_desk', 'admissions', 'reception_roster'],
+  CASHIER: ['billing_desk'],
   OP_STAFF_NURSE: ['front_office_workbench', 'op_nursing_dashboard', 'appointments', 'dental_charting', 'patient_records', 'lab_bookings', 'nursing_notes', 'oncology'],
   OP_INCHARGE: ['front_office_workbench', 'op_nursing_dashboard', 'appointments', 'dental_charting', 'patient_records', 'lab_bookings', 'nursing_notes', 'op_nursing_roster', 'oncology'],
   NURSING_STAFF: ['patient_command_board', 'bed_board', 'nursing_notes', 'handover', 'discharge_hub', 'referrals', 'oncology'],
@@ -1496,7 +1509,7 @@ function phiAccessLevelForRole(roleCode) {
   ].includes(roleCode)) {
     return PHI_ACCESS_LEVELS.OPERATIONAL_ONLY;
   }
-  if (['RECEPTIONIST', 'RECEPTION_INCHARGE', 'BILLING_STAFF', 'BILLING_INCHARGE', 'INSURANCE_COORDINATOR'].includes(roleCode)) {
+  if (['RECEPTIONIST', 'RECEPTION_INCHARGE', 'CASHIER', 'BILLING_STAFF', 'BILLING_INCHARGE', 'INSURANCE_COORDINATOR'].includes(roleCode)) {
     return PHI_ACCESS_LEVELS.BASIC_PATIENT_CONTEXT;
   }
   if (roleCode === 'CNO' || roleCode === 'CMO' || roleCode === 'MEDICAL_SUPERINTENDENT') {

@@ -184,9 +184,7 @@ const BREAKER_INFRA_ERROR_MESSAGES = new Set([
  */
 function isIgnoredBreakerError(err) {
   if (!err || typeof err !== 'object') return false;
-  const code = err?.meta?.code ||
-    err?.meta?.driverAdapterError?.cause?.originalCode ||
-    err?.code;
+  const code = extractSqlState(err);
   return typeof code === 'string' && BREAKER_IGNORED_PG_ERROR_CODES.has(code);
 }
 
@@ -196,7 +194,7 @@ function isInfrastructureBreakerError(err) {
   if (BREAKER_INFRA_PRISMA_ERROR_CODES.has(err.code)) return true;
   if (BREAKER_INFRA_NODE_ERROR_CODES.has(err.code)) return true;
 
-  const driverKind = err?.meta?.driverAdapterError?.cause?.kind;
+  const driverKind = err?.meta?.driverAdapterError?.cause?.kind || err?.cause?.kind;
   if (BREAKER_INFRA_DRIVER_KINDS.has(driverKind)) return true;
 
   const sqlState = extractSqlState(err);
@@ -1193,6 +1191,209 @@ export async function ensureTenantRlsRuntimeRoleGrants() {
   }
   const sql = `
 DO $$
+DECLARE
+  med03_relation TEXT;
+  med03_sequence TEXT;
+  med03_trigger_function TEXT;
+  med03_runtime_wrapper_function TEXT;
+  med03_column_list TEXT;
+  runtime_acl_relation TEXT;
+  runtime_acl_sequence TEXT;
+  runtime_acl_function TEXT;
+  runtime_read_only_relations CONSTANT TEXT[] := ARRAY[
+    'clinical_continuity_policy_versions',
+    'clinical_continuity_replay_receipts',
+    'external_recovery_operability_actions',
+    'external_recovery_critical_review_obligations',
+    'external_recovery_critical_review_acknowledgements',
+    'clinical_continuity_incident_packets',
+    'clinical_continuity_incident_contact_sheets',
+    'clinical_continuity_incident_contact_sheet_approvals',
+    'clinical_continuity_incident_packet_allocations',
+    'clinical_continuity_incident_packet_artifacts',
+    'clinical_continuity_incident_packet_custody_events'
+  ];
+  runtime_append_only_relations CONSTANT TEXT[] := ARRAY[
+    'care_pathway_reconciliation_checks',
+    'clinical_continuity_replay_effect_evidence',
+    'clinical_continuity_replay_attempts',
+    'clinical_continuity_incident_declarations',
+    'clinical_continuity_incident_aliases',
+    'clinical_continuity_paper_range_decisions',
+    'clinical_continuity_retrospective_facts',
+    'clinical_continuity_reconciliation_decisions',
+    'clinical_continuity_incident_attestations',
+    'clinical_continuity_patient_merge_decisions',
+    'notification_delivery_attempts',
+    'notification_provider_receipts',
+    'hl7_outbound_transport_attempts',
+    'hl7_outbound_transport_results',
+    'hl7_outbound_acknowledgements',
+    'interop_backend_delivery_receipts',
+    'interop_message_attempts',
+    'imaging_study_link_recovery_receipts',
+    'scim_provisioning_commands',
+    'hl7_inbound_clinical_receipts',
+    'fhir_allergy_intolerance_receipts'
+  ];
+  runtime_mutable_no_delete_relations CONSTANT TEXT[] := ARRAY[
+    'clinical_continuity_incidents',
+    'clinical_continuity_paper_ranges',
+    'clinical_continuity_temporary_identities',
+    'clinical_continuity_paper_items',
+    'clinical_continuity_reconciliation_items',
+    'clinical_continuity_reconciliation_config',
+    'clinical_continuity_device_journal_offsets',
+    'clinical_continuity_incident_interfaces',
+    'notification_delivery_cursors',
+    'hl7_feed_subscriptions',
+    'hl7_outbound_messages',
+    'hl7_outbound_delivery_cursors',
+    'scheduled_job_runs',
+    'scheduled_job_tenant_runs'
+  ];
+  runtime_nextval_sequences CONSTANT TEXT[] := ARRAY[
+    'care_pathway_reconciliation_checks_id_seq',
+    'clinical_continuity_replay_attempts_id_seq',
+    'hl7_feed_subscriptions_id_seq',
+    'hl7_outbound_messages_id_seq',
+    'interop_backend_delivery_receipts_id_seq',
+    'imaging_study_link_recovery_receipts_id_seq',
+    'scim_provisioning_commands_id_seq',
+    'hl7_inbound_clinical_receipts_id_seq',
+    'scheduled_job_runs_id_seq'
+  ];
+  runtime_guard_functions CONSTANT TEXT[] := ARRAY[
+    'care_pathway_reconciliation_block_mutation()',
+    'clinical_continuity_action_registry_guard_version()',
+    'clinical_continuity_action_registry_guard_update()',
+    'clinical_continuity_action_registry_approval_constraint()',
+    'assert_external_recovery_inbox_immutable()',
+    'assert_external_recovery_effect_allowed()',
+    'assert_cc_replay_receipt_mutation()',
+    'assert_cc_replay_append_only()',
+    'assert_cc_reconciliation_append_only()',
+    'assert_cc_reconciliation_projection_mutation()',
+    'assert_cc_incident_packet_mutation()',
+    'assert_cc_incident_alias_acyclic()',
+    'assert_cc_closure_actor_separation()',
+    'notification_outbox_prepare_intent()',
+    'validate_notification_delivery_attempt()',
+    'notification_delivery_evidence_append_only()',
+    'validate_notification_recovery_receipt()',
+    'validate_notification_delivery_cursor()',
+    'validate_notification_outbox_transition()',
+    'validate_hl7_outbound_transport_attempt()',
+    'hl7_outbound_evidence_append_only()',
+    'validate_hl7_outbound_acknowledgement()',
+    'validate_hl7_outbound_cursor()',
+    'validate_hl7_outbound_message_transition()',
+    'validate_hl7_outbound_recovery_provenance()',
+    'interop_delivery_evidence_append_only()',
+    'validate_interop_backend_receipt()',
+    'validate_interop_message_recovery_transition()',
+    'validate_interop_message_recovery_provenance()',
+    'validate_imaging_study_link_recovery_receipt()',
+    'imaging_study_link_receipt_append_only()',
+    'validate_scim_provisioning_command()',
+    'scim_provisioning_command_append_only()',
+    'external_recovery_evidence_owner_only()',
+    'external_recovery_evidence_append_only()',
+    'external_recovery_operability_bound_hash(text[])',
+    'external_recovery_operability_offset_guard()',
+    'external_recovery_critical_review_completion_guard()',
+    'cc_packet_assert_context(uuid,integer)',
+    'cc_packet_active_policy(uuid,integer)',
+    'cc_packet_assert_actor(uuid,uuid,text)',
+    'cc_packet_assert_contact_content(jsonb)',
+    'assert_cc_packet_evidence_append_only()',
+    'assert_cc_packet_allocation_mutation()',
+    'scheduled_job_run_transition_guard()',
+    'scheduled_job_run_finalization_guard()',
+    'scheduled_job_tenant_run_transition_guard()'
+  ];
+  med03_mutable_relations CONSTANT TEXT[] := ARRAY[
+    'ward_indent_inventory_allocations',
+    'billing_credit_notes',
+    'clinical_alert_delivery_obligations',
+    'clinical_alert_delivery_recovery_cases',
+    'mar_medication_exception_cases'
+  ];
+  med03_append_only_relations CONSTANT TEXT[] := ARRAY[
+    'pharmacy_stock_movements',
+    'pharmacy_schedule_register',
+    'ward_indent_events',
+    'ward_indent_inventory_movement_links',
+    'ward_indent_inventory_receipt_events',
+    'mar_supply_consumptions',
+    'mar_administration_command_receipts',
+    'mar_transition_command_receipts',
+    'mar_supply_reconciliation_links',
+    'mar_supply_reconciliation_command_receipts',
+    'ward_indent_financial_events',
+    'billing_credit_note_events',
+    'mar_medication_exception_events'
+  ];
+  med03_trigger_functions CONSTANT TEXT[] := ARRAY[
+    'medication_evidence_append_only_guard',
+    'medication_administration_require_order_context',
+    'controlled_ward_dispense_require_patient',
+    'ward_indent_inventory_allocation_guard',
+    'ward_indent_controlled_patient_guard',
+    'ward_indent_apply_inventory_movement_link',
+    'ward_indent_apply_inventory_receipt_event',
+    'ward_indent_inventory_workflow_event_validate',
+    'ward_indent_inventory_allocation_evidence_validate',
+    'mar_supply_apply_custody_consumption',
+    'mar_administration_command_receipt_validate',
+    'mar_transition_command_receipt_validate',
+    'mar_supply_apply_reconciliation_link',
+    'ward_indent_validate_financial_event_lineage',
+    'billing_credit_note_event_state_validate',
+    'billing_credit_note_require_context',
+    'billing_credit_note_require_lifecycle_event',
+    'ward_medication_tasks_sync_workflow_sla_compat',
+    'clinical_alert_delivery_obligation_guard',
+    'clinical_alert_delivery_recovery_case_guard',
+    'clinical_alert_delivery_recovery_action_guard',
+    'clinical_alert_delivery_recovery_task_sync',
+    'clinical_alert_delivery_recovery_task_case_constraint',
+    'clinical_alert_delivery_recovery_obligation_constraint',
+    'clinical_alert_delivery_recovery_claim_comment_guard',
+    'clinical_alert_delivery_recovery_assignee_viability_guard',
+    'mar_medication_exception_case_guard',
+    'mar_medication_exception_case_receipt_guard',
+    'mar_medication_exception_claim_comment_guard',
+    'mar_medication_exception_assignee_viability_guard',
+    'mar_medication_exception_tasks_sync_workflow_sla_compat',
+    'counter_sale_void_request_guard',
+    'counter_sale_void_refund_guard',
+    'counter_sale_void_sale_guard',
+    'counter_sale_void_stock_return_guard',
+    'counter_sale_void_allocation_return_guard',
+    'counter_sale_void_request_terminal_evidence',
+    'counter_sale_void_task_sync',
+    'counter_sale_void_task_binding_evidence',
+    'billing_refund_offline_electronic_evidence_guard_747',
+    'billing_refund_offline_electronic_binding_guard_747',
+    'billing_refund_payout_guard_747',
+    'cash_drawer_reconciliation_guard_747',
+    'billing_cash_payment_reversal_guard_747',
+    'cath_inventory_shortfall_task_sync',
+    'cath_inventory_shortfall_contract_constraint'
+  ];
+  med03_runtime_wrapper_functions CONSTANT TEXT[] := ARRAY[
+    'care_pathway_assert_task_sla_source_binding(UUID, INTEGER)',
+    'care_pathway_assert_task_sla_source_binding_pre_748(UUID, INTEGER)',
+    'care_pathway_assert_task_sla_source_binding_pre_746(UUID, INTEGER)',
+    'care_pathway_assert_task_sla_source_binding_pre_745(UUID, INTEGER)',
+    'care_pathway_assert_task_sla_completion_receipt(UUID, INTEGER)',
+    'care_pathway_assert_task_sla_completion_receipt_pre_748(UUID, INTEGER)',
+    'care_pathway_assert_task_sla_completion_receipt_pre_746(UUID, INTEGER)',
+    'care_pathway_assert_task_sla_completion_receipt_pre_745(UUID, INTEGER)',
+    'care_pathway_assert_task_sla_completion_receipt_pre_mar_exception(UUID, INTEGER)',
+    'care_pathway_assert_task_sla_completion_receipt_pre_med03(UUID, INTEGER)'
+  ];
 BEGIN
   PERFORM pg_catalog.set_config('search_path', 'pg_catalog, pg_temp', true);
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${role}') THEN
@@ -1208,8 +1409,523 @@ BEGIN
       EXECUTE format('GRANT CONNECT ON DATABASE %I TO ${role}', current_database());
       GRANT USAGE ON SCHEMA public TO ${role};
       GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${role};
-      GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO ${role};
+      GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${role};
       GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO ${role};
+      -- Broad grants are the late-provisioning fallback. Reconstruct every
+      -- migration-defined narrow ACL immediately afterwards so startup cannot
+      -- turn append-only evidence, owner-only mutation, or setval back on.
+      FOREACH runtime_acl_relation IN ARRAY runtime_read_only_relations
+      LOOP
+        IF pg_catalog.to_regclass(pg_catalog.format('public.%I', runtime_acl_relation)) IS NOT NULL THEN
+          EXECUTE pg_catalog.format(
+            'REVOKE ALL PRIVILEGES ON TABLE public.%I FROM %I',
+            runtime_acl_relation,
+            '${role}'
+          );
+          EXECUTE pg_catalog.format(
+            'GRANT SELECT ON TABLE public.%I TO %I',
+            runtime_acl_relation,
+            '${role}'
+          );
+        END IF;
+      END LOOP;
+      FOREACH runtime_acl_relation IN ARRAY runtime_append_only_relations
+      LOOP
+        IF pg_catalog.to_regclass(pg_catalog.format('public.%I', runtime_acl_relation)) IS NOT NULL THEN
+          EXECUTE pg_catalog.format(
+            'REVOKE ALL PRIVILEGES ON TABLE public.%I FROM %I',
+            runtime_acl_relation,
+            '${role}'
+          );
+          EXECUTE pg_catalog.format(
+            'GRANT SELECT, INSERT ON TABLE public.%I TO %I',
+            runtime_acl_relation,
+            '${role}'
+          );
+        END IF;
+      END LOOP;
+      FOREACH runtime_acl_relation IN ARRAY runtime_mutable_no_delete_relations
+      LOOP
+        IF pg_catalog.to_regclass(pg_catalog.format('public.%I', runtime_acl_relation)) IS NOT NULL THEN
+          EXECUTE pg_catalog.format(
+            'REVOKE ALL PRIVILEGES ON TABLE public.%I FROM %I',
+            runtime_acl_relation,
+            '${role}'
+          );
+          EXECUTE pg_catalog.format(
+            'GRANT SELECT, INSERT, UPDATE ON TABLE public.%I TO %I',
+            runtime_acl_relation,
+            '${role}'
+          );
+        END IF;
+      END LOOP;
+      FOREACH runtime_acl_sequence IN ARRAY runtime_nextval_sequences
+      LOOP
+        IF pg_catalog.to_regclass(pg_catalog.format('public.%I', runtime_acl_sequence)) IS NOT NULL THEN
+          EXECUTE pg_catalog.format(
+            'REVOKE ALL PRIVILEGES ON SEQUENCE public.%I FROM %I',
+            runtime_acl_sequence,
+            '${role}'
+          );
+          EXECUTE pg_catalog.format(
+            'GRANT USAGE, SELECT ON SEQUENCE public.%I TO %I',
+            runtime_acl_sequence,
+            '${role}'
+          );
+        END IF;
+      END LOOP;
+      FOREACH runtime_acl_function IN ARRAY runtime_guard_functions
+      LOOP
+        IF pg_catalog.to_regprocedure(
+          pg_catalog.format('public.%s', runtime_acl_function)
+        ) IS NOT NULL THEN
+          EXECUTE pg_catalog.format(
+            'REVOKE ALL PRIVILEGES ON FUNCTION public.%s FROM %I',
+            runtime_acl_function,
+            '${role}'
+          );
+        END IF;
+      END LOOP;
+      IF pg_catalog.to_regclass('public.event_consumer_offsets') IS NOT NULL THEN
+        REVOKE INSERT, UPDATE, DELETE, TRUNCATE
+          ON TABLE public.event_consumer_offsets FROM ${role};
+        GRANT SELECT ON TABLE public.event_consumer_offsets TO ${role};
+        GRANT INSERT (
+          scope_kind, tenant_id, facility_scope, facility_id, interface_family,
+          direction, source_partition, consumer_key, generation, cursor_kind,
+          high_water_position, high_water_token, retained_from_position,
+          retained_from_token, resume_cutoff_position, resume_cutoff_token,
+          recovery_state, reconciliation_reason, policy_version,
+          policy_signature, retention_policy, retention_until,
+          historical_cutoff_event_id, backfill_cursor_event_id,
+          backfill_completed_at, intake_retired_at
+        ) ON TABLE public.event_consumer_offsets TO ${role};
+        GRANT UPDATE (
+          high_water_position, high_water_token, resume_cutoff_position,
+          resume_cutoff_token, recovery_state, reconciliation_reason,
+          intake_retired_at, updated_at
+        ) ON TABLE public.event_consumer_offsets TO ${role};
+      END IF;
+      IF pg_catalog.to_regclass('public.pathway_projector_inbox') IS NOT NULL THEN
+        REVOKE INSERT, UPDATE, DELETE, TRUNCATE
+          ON TABLE public.pathway_projector_inbox FROM ${role};
+        GRANT SELECT ON TABLE public.pathway_projector_inbox TO ${role};
+        GRANT INSERT (
+          scope_kind, tenant_id, consumer_key, generation, event_id, offset_id,
+          facility_id, interface_family, direction, source_partition,
+          source_position, source_token, predecessor_token, duplicate_key,
+          command_fingerprint, occurred_at, received_at, recorded_at,
+          arrival_class, effect_disposition, status, next_attempt_at, policy_version,
+          policy_signature, retention_policy, retention_until,
+          lease_owner, lease_expires_at
+        ) ON TABLE public.pathway_projector_inbox TO ${role};
+        GRANT UPDATE (
+          status, attempts, lease_owner, lease_expires_at, next_attempt_at,
+          last_error, outcome_at, outcome_code, pending_task_id
+        ) ON TABLE public.pathway_projector_inbox TO ${role};
+      END IF;
+      -- MED-03 evidence tables are either lifecycle-controlled or immutable.
+      -- Reapply their narrow ACLs after every broad startup grant so a role
+      -- reconciled after migration 744 cannot regain DELETE/UPDATE/setval.
+      FOREACH med03_relation IN ARRAY med03_mutable_relations
+      LOOP
+        IF pg_catalog.to_regclass(pg_catalog.format('public.%I', med03_relation)) IS NOT NULL THEN
+          EXECUTE pg_catalog.format(
+            'REVOKE ALL PRIVILEGES ON TABLE public.%I FROM %I',
+            med03_relation,
+            '${role}'
+          );
+          EXECUTE pg_catalog.format(
+            'GRANT SELECT, INSERT, UPDATE ON TABLE public.%I TO %I',
+            med03_relation,
+            '${role}'
+          );
+        END IF;
+      END LOOP;
+      IF pg_catalog.to_regclass('public.clinical_alert_delivery_obligations') IS NOT NULL THEN
+        EXECUTE pg_catalog.format(
+          'REVOKE ALL PRIVILEGES ON TABLE public.clinical_alert_delivery_obligations FROM %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT SELECT ON TABLE public.clinical_alert_delivery_obligations TO %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT INSERT (
+             tenant_id, obligation_key, source_table, source_id, source_event_key,
+             failure_kind, patient_uid, encounter_id, origin_actor_uid, failure_code,
+             recipient_policy, notification_intent, supersedes_obligation_id
+           ) ON TABLE public.clinical_alert_delivery_obligations TO %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT UPDATE (
+             status, attempt_count, last_attempted_at, next_attempt_at,
+             last_error_code, completion_notification_outbox_id,
+             completion_notification_outbox_ids, completion_recipient_ids,
+             completion_evidence, completed_at, manual_hold_code,
+             manual_hold_reason, held_at
+           ) ON TABLE public.clinical_alert_delivery_obligations TO %I',
+           '${role}'
+        );
+      END IF;
+      IF pg_catalog.to_regclass('public.clinical_alert_delivery_recovery_cases') IS NOT NULL THEN
+        EXECUTE pg_catalog.format(
+          'REVOKE ALL PRIVILEGES ON TABLE public.clinical_alert_delivery_recovery_cases FROM %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT SELECT ON TABLE public.clinical_alert_delivery_recovery_cases TO %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT INSERT (
+             id, tenant_id, obligation_id, case_kind, status,
+             workflow_sla_instance_id, task_id, due_at
+           ) ON TABLE public.clinical_alert_delivery_recovery_cases TO %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT UPDATE (
+             observation_count, last_observed_at,
+             escalation_attempt_count, last_escalation_attempt_at,
+             last_escalation_error_code, escalated_at,
+             status, resolution_kind, resolution_action_id,
+             replacement_obligation_id, resolved_by_uid,
+             resolution_reason, resolution_evidence, resolved_at
+           ) ON TABLE public.clinical_alert_delivery_recovery_cases TO %I',
+          '${role}'
+        );
+      END IF;
+      IF pg_catalog.to_regclass('public.clinical_alert_delivery_recovery_actions') IS NOT NULL THEN
+        EXECUTE pg_catalog.format(
+          'REVOKE ALL PRIVILEGES ON TABLE public.clinical_alert_delivery_recovery_actions FROM %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT SELECT ON TABLE public.clinical_alert_delivery_recovery_actions TO %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT INSERT (
+             tenant_id, case_id, action_type, actor_uid, operator_reason,
+             idempotency_key, command_sha256, request_id, outcome, response_payload
+           ) ON TABLE public.clinical_alert_delivery_recovery_actions TO %I',
+          '${role}'
+        );
+      END IF;
+      IF pg_catalog.to_regclass('public.pharmacy_counter_sale_void_requests') IS NOT NULL THEN
+        EXECUTE pg_catalog.format(
+          'REVOKE ALL PRIVILEGES ON TABLE public.pharmacy_counter_sale_void_requests FROM %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT SELECT ON TABLE public.pharmacy_counter_sale_void_requests TO %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT INSERT (
+             tenant_id, counter_sale_id, invoice_id, patient_uid, amount,
+             refund_mode, disposition, reason, requested_by, requested_by_name,
+             requested_by_role, command_key, request_fingerprint, status, task_stage
+           ) ON TABLE public.pharmacy_counter_sale_void_requests TO %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT UPDATE (
+             refund_id, status, task_stage, task_id, workflow_sla_instance_id,
+             last_checked_at, reconciled_at, reconciled_by, reconciliation_source,
+             rejection_resolved_at, rejection_resolved_by, rejection_resolution,
+             rejection_resolution_reason, updated_at
+           ) ON TABLE public.pharmacy_counter_sale_void_requests TO %I',
+          '${role}'
+        );
+      END IF;
+      IF pg_catalog.to_regclass('public.billing_refund_offline_electronic_evidence') IS NOT NULL THEN
+        EXECUTE pg_catalog.format(
+          'REVOKE ALL PRIVILEGES ON TABLE public.billing_refund_offline_electronic_evidence FROM %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT SELECT ON TABLE public.billing_refund_offline_electronic_evidence TO %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT INSERT (
+             tenant_id, refund_id, original_payment_id, original_advance_id, mode,
+             amount, provider_name, original_payment_reference,
+             provider_refund_reference, provider_refunded_at, recorded_by
+           ) ON TABLE public.billing_refund_offline_electronic_evidence TO %I',
+          '${role}'
+        );
+      END IF;
+      IF pg_catalog.to_regclass('public.billing_refunds') IS NOT NULL THEN
+        EXECUTE pg_catalog.format(
+          'REVOKE ALL PRIVILEGES ON TABLE public.billing_refunds FROM %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT SELECT ON TABLE public.billing_refunds TO %I',
+          '${role}'
+        );
+        SELECT pg_catalog.string_agg(
+                 pg_catalog.quote_ident(allowed.column_name),
+                 ', ' ORDER BY allowed.ordinality
+               )
+          INTO med03_column_list
+          FROM pg_catalog.unnest(ARRAY[
+            'patient_uid', 'invoice_id', 'advance_id', 'amount', 'reason',
+            'mode', 'approval_status', 'raised_by', 'tenant_id',
+            'counter_sale_void_request_id'
+          ]::TEXT[]) WITH ORDINALITY AS allowed(column_name, ordinality)
+         WHERE EXISTS (
+           SELECT 1
+             FROM pg_catalog.pg_attribute attribute
+            WHERE attribute.attrelid = 'public.billing_refunds'::regclass
+              AND attribute.attname = allowed.column_name
+              AND attribute.attnum > 0
+              AND NOT attribute.attisdropped
+         );
+        IF med03_column_list IS NOT NULL THEN
+          EXECUTE pg_catalog.format(
+            'GRANT INSERT (%s) ON TABLE public.billing_refunds TO %I',
+            med03_column_list,
+            '${role}'
+          );
+        END IF;
+        SELECT pg_catalog.string_agg(
+                 pg_catalog.quote_ident(allowed.column_name),
+                 ', ' ORDER BY allowed.ordinality
+               )
+          INTO med03_column_list
+          FROM pg_catalog.unnest(ARRAY[
+            'reference', 'approval_status', 'approved_by', 'approved_at',
+            'rejected_by', 'rejected_at', 'rejection_reason', 'paid_at',
+            'paid_by', 'updated_at', 'payout_rail', 'payout_rail_claimed_at',
+            'gateway_refund_id', 'cash_drawer_session_id',
+            'offline_electronic_evidence_id'
+          ]::TEXT[]) WITH ORDINALITY AS allowed(column_name, ordinality)
+         WHERE EXISTS (
+           SELECT 1
+             FROM pg_catalog.pg_attribute attribute
+            WHERE attribute.attrelid = 'public.billing_refunds'::regclass
+              AND attribute.attname = allowed.column_name
+              AND attribute.attnum > 0
+              AND NOT attribute.attisdropped
+         );
+        IF med03_column_list IS NOT NULL THEN
+          EXECUTE pg_catalog.format(
+            'GRANT UPDATE (%s) ON TABLE public.billing_refunds TO %I',
+            med03_column_list,
+            '${role}'
+          );
+        END IF;
+      END IF;
+      IF pg_catalog.to_regclass('public.cash_drawer_sessions') IS NOT NULL THEN
+        EXECUTE pg_catalog.format(
+          'REVOKE ALL PRIVILEGES ON TABLE public.cash_drawer_sessions FROM %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT SELECT ON TABLE public.cash_drawer_sessions TO %I',
+          '${role}'
+        );
+        SELECT pg_catalog.string_agg(
+                 pg_catalog.quote_ident(allowed.column_name),
+                 ', ' ORDER BY allowed.ordinality
+               )
+          INTO med03_column_list
+          FROM pg_catalog.unnest(ARRAY[
+            'tenant_id', 'cashier_uid', 'shift', 'opening_float'
+          ]::TEXT[]) WITH ORDINALITY AS allowed(column_name, ordinality)
+         WHERE EXISTS (
+           SELECT 1
+             FROM pg_catalog.pg_attribute attribute
+            WHERE attribute.attrelid = 'public.cash_drawer_sessions'::regclass
+              AND attribute.attname = allowed.column_name
+              AND attribute.attnum > 0
+              AND NOT attribute.attisdropped
+         );
+        IF med03_column_list IS NOT NULL THEN
+          EXECUTE pg_catalog.format(
+            'GRANT INSERT (%s) ON TABLE public.cash_drawer_sessions TO %I',
+            med03_column_list,
+            '${role}'
+          );
+        END IF;
+        SELECT pg_catalog.string_agg(
+                 pg_catalog.quote_ident(allowed.column_name),
+                 ', ' ORDER BY allowed.ordinality
+               )
+          INTO med03_column_list
+          FROM pg_catalog.unnest(ARRAY[
+            'closed_at', 'counted_total', 'counted_denominations',
+            'system_total', 'variance', 'short_count', 'over_count',
+            'requires_review', 'variance_reason', 'status', 'reviewed_by',
+            'reviewed_at', 'review_notes', 'updated_at', 'cash_inflow_total',
+            'cash_refund_total'
+          ]::TEXT[]) WITH ORDINALITY AS allowed(column_name, ordinality)
+         WHERE EXISTS (
+           SELECT 1
+             FROM pg_catalog.pg_attribute attribute
+            WHERE attribute.attrelid = 'public.cash_drawer_sessions'::regclass
+              AND attribute.attname = allowed.column_name
+              AND attribute.attnum > 0
+              AND NOT attribute.attisdropped
+         );
+        IF med03_column_list IS NOT NULL THEN
+          EXECUTE pg_catalog.format(
+            'GRANT UPDATE (%s) ON TABLE public.cash_drawer_sessions TO %I',
+            med03_column_list,
+            '${role}'
+          );
+        END IF;
+      END IF;
+      FOREACH med03_relation IN ARRAY med03_append_only_relations
+      LOOP
+        IF pg_catalog.to_regclass(pg_catalog.format('public.%I', med03_relation)) IS NOT NULL THEN
+          EXECUTE pg_catalog.format(
+            'REVOKE ALL PRIVILEGES ON TABLE public.%I FROM %I',
+            med03_relation,
+            '${role}'
+          );
+          EXECUTE pg_catalog.format(
+            'GRANT SELECT, INSERT ON TABLE public.%I TO %I',
+            med03_relation,
+            '${role}'
+          );
+        END IF;
+      END LOOP;
+      FOREACH med03_relation IN ARRAY (
+        med03_mutable_relations || med03_append_only_relations
+      )
+      LOOP
+        med03_sequence := med03_relation || '_id_seq';
+        IF pg_catalog.to_regclass(pg_catalog.format('public.%I', med03_sequence)) IS NOT NULL THEN
+          EXECUTE pg_catalog.format(
+            'REVOKE ALL PRIVILEGES ON SEQUENCE public.%I FROM %I',
+            med03_sequence,
+            '${role}'
+          );
+          EXECUTE pg_catalog.format(
+            'GRANT USAGE, SELECT ON SEQUENCE public.%I TO %I',
+            med03_sequence,
+            '${role}'
+          );
+        END IF;
+      END LOOP;
+      IF pg_catalog.to_regclass('public.clinical_alert_delivery_recovery_actions_id_seq') IS NOT NULL THEN
+        EXECUTE pg_catalog.format(
+          'REVOKE ALL PRIVILEGES ON SEQUENCE public.clinical_alert_delivery_recovery_actions_id_seq FROM %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT USAGE, SELECT ON SEQUENCE public.clinical_alert_delivery_recovery_actions_id_seq TO %I',
+          '${role}'
+        );
+      END IF;
+      IF pg_catalog.to_regclass('public.pharmacy_counter_sale_void_requests_id_seq') IS NOT NULL THEN
+        EXECUTE pg_catalog.format(
+          'REVOKE ALL PRIVILEGES ON SEQUENCE public.pharmacy_counter_sale_void_requests_id_seq FROM %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT USAGE, SELECT ON SEQUENCE public.pharmacy_counter_sale_void_requests_id_seq TO %I',
+          '${role}'
+        );
+      END IF;
+      IF pg_catalog.to_regclass('public.billing_refund_offline_electronic_evidence_id_seq') IS NOT NULL THEN
+        EXECUTE pg_catalog.format(
+          'REVOKE ALL PRIVILEGES ON SEQUENCE public.billing_refund_offline_electronic_evidence_id_seq FROM %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT USAGE, SELECT ON SEQUENCE public.billing_refund_offline_electronic_evidence_id_seq TO %I',
+          '${role}'
+        );
+      END IF;
+      IF pg_catalog.to_regclass('public.billing_refunds_id_seq') IS NOT NULL THEN
+        EXECUTE pg_catalog.format(
+          'REVOKE ALL PRIVILEGES ON SEQUENCE public.billing_refunds_id_seq FROM %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT USAGE, SELECT ON SEQUENCE public.billing_refunds_id_seq TO %I',
+          '${role}'
+        );
+      END IF;
+      IF pg_catalog.to_regclass('public.cash_drawer_sessions_id_seq') IS NOT NULL THEN
+        EXECUTE pg_catalog.format(
+          'REVOKE ALL PRIVILEGES ON SEQUENCE public.cash_drawer_sessions_id_seq FROM %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT USAGE, SELECT ON SEQUENCE public.cash_drawer_sessions_id_seq TO %I',
+          '${role}'
+        );
+      END IF;
+      FOREACH med03_trigger_function IN ARRAY med03_trigger_functions
+      LOOP
+        IF pg_catalog.to_regprocedure(
+          pg_catalog.format('public.%I()', med03_trigger_function)
+        ) IS NOT NULL THEN
+          EXECUTE pg_catalog.format(
+            'REVOKE ALL PRIVILEGES ON FUNCTION public.%I() FROM %I',
+            med03_trigger_function,
+            '${role}'
+          );
+        END IF;
+      END LOOP;
+      IF pg_catalog.to_regprocedure('public.counter_sale_void_has_paid_evidence(bigint)') IS NOT NULL THEN
+        EXECUTE pg_catalog.format(
+          'REVOKE ALL PRIVILEGES ON FUNCTION public.counter_sale_void_has_paid_evidence(BIGINT) FROM %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT EXECUTE ON FUNCTION public.counter_sale_void_has_paid_evidence(BIGINT) TO %I',
+          '${role}'
+        );
+      END IF;
+      IF pg_catalog.to_regprocedure(
+        'public.mar_supply_batch_unavailable_reason(text,text,date,numeric,timestamp with time zone)'
+      ) IS NOT NULL THEN
+        EXECUTE pg_catalog.format(
+          'REVOKE ALL PRIVILEGES ON FUNCTION public.mar_supply_batch_unavailable_reason(TEXT, TEXT, DATE, NUMERIC, TIMESTAMPTZ) FROM %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT EXECUTE ON FUNCTION public.mar_supply_batch_unavailable_reason(TEXT, TEXT, DATE, NUMERIC, TIMESTAMPTZ) TO %I',
+          '${role}'
+        );
+      END IF;
+      IF pg_catalog.to_regprocedure('public.cath_inventory_shortfall_assert_contract(uuid,bigint)') IS NOT NULL THEN
+        EXECUTE pg_catalog.format(
+          'REVOKE ALL PRIVILEGES ON FUNCTION public.cath_inventory_shortfall_assert_contract(UUID, BIGINT) FROM %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT EXECUTE ON FUNCTION public.cath_inventory_shortfall_assert_contract(UUID, BIGINT) TO %I',
+          '${role}'
+        );
+      END IF;
+      FOREACH med03_runtime_wrapper_function IN ARRAY med03_runtime_wrapper_functions
+      LOOP
+        IF pg_catalog.to_regprocedure(
+          pg_catalog.format('public.%s', med03_runtime_wrapper_function)
+        ) IS NOT NULL THEN
+          EXECUTE pg_catalog.format(
+            'REVOKE ALL PRIVILEGES ON FUNCTION public.%s FROM %I',
+            med03_runtime_wrapper_function,
+            '${role}'
+          );
+          EXECUTE pg_catalog.format(
+            'GRANT EXECUTE ON FUNCTION public.%s TO %I',
+            med03_runtime_wrapper_function,
+            '${role}'
+          );
+        END IF;
+      END LOOP;
       -- Migration 631 intentionally exposes this append-only receipt through
       -- column-scoped INSERT only. Reapply that fence after every broad grant.
       IF pg_catalog.to_regclass('public.hl7_inbound_recovery_receipts') IS NOT NULL THEN
@@ -1410,11 +2126,87 @@ BEGIN
       ALTER DEFAULT PRIVILEGES IN SCHEMA public
         GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${role};
       ALTER DEFAULT PRIVILEGES IN SCHEMA public
-        GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO ${role};
+        GRANT USAGE, SELECT ON SEQUENCES TO ${role};
       ALTER DEFAULT PRIVILEGES IN SCHEMA public
         GRANT EXECUTE ON FUNCTIONS TO ${role};
     EXCEPTION WHEN insufficient_privilege THEN
       RAISE NOTICE 'default-privilege grants for ${role} skipped (insufficient privilege)';
+    END;
+    BEGIN
+      -- Migrations 601/604 keep continuity capture issuance inert while C-D14
+      -- is open. Rebuild their column ACLs after the broad startup grant so a
+      -- later role reconciliation cannot silently reactivate capture authority.
+      IF pg_catalog.to_regclass('public.clinical_continuity_edge_access_grants') IS NOT NULL THEN
+        REVOKE INSERT, UPDATE, DELETE, TRUNCATE
+          ON TABLE public.clinical_continuity_edge_access_grants
+          FROM ${role};
+        GRANT SELECT
+          ON TABLE public.clinical_continuity_edge_access_grants
+          TO ${role};
+        GRANT INSERT (
+          tenant_id, facility_id, location_type, location_identifier,
+          staff_uid, device_id, client_certificate_sha256,
+          valid_from, valid_until, policy_version_id, policy_version,
+          created_by
+        ) ON TABLE public.clinical_continuity_edge_access_grants TO ${role};
+      END IF;
+      IF pg_catalog.to_regclass('public.clinical_continuity_edge_access_revocations') IS NOT NULL THEN
+        REVOKE INSERT, UPDATE, DELETE, TRUNCATE
+          ON TABLE public.clinical_continuity_edge_access_revocations
+          FROM ${role};
+        GRANT SELECT
+          ON TABLE public.clinical_continuity_edge_access_revocations
+          TO ${role};
+        GRANT INSERT (
+          tenant_id, facility_id, grant_id, revoked_by, reason
+        ) ON TABLE public.clinical_continuity_edge_access_revocations TO ${role};
+      END IF;
+      IF pg_catalog.to_regclass('public.clinical_continuity_edge_log_receipts') IS NOT NULL THEN
+        REVOKE INSERT, UPDATE, DELETE, TRUNCATE
+          ON TABLE public.clinical_continuity_edge_log_receipts
+          FROM ${role};
+        GRANT SELECT
+          ON TABLE public.clinical_continuity_edge_log_receipts
+          TO ${role};
+        GRANT INSERT (
+          tenant_id, facility_id, device_id, grant_id,
+          client_certificate_sha256, policy_version_id, policy_version,
+          access_revision, batch_id, previous_batch_sha256, batch_sha256,
+          event_count, first_event_sequence, last_event_sequence,
+          first_event_at, last_event_at, signature_algorithm,
+          signature_sha256, imported_by
+        ) ON TABLE public.clinical_continuity_edge_log_receipts TO ${role};
+      END IF;
+      IF pg_catalog.to_regclass('public.clinical_continuity_edge_access_revision_seq') IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON SEQUENCE public.clinical_continuity_edge_access_revision_seq
+          FROM ${role};
+        GRANT USAGE, SELECT
+          ON SEQUENCE public.clinical_continuity_edge_access_revision_seq
+          TO ${role};
+      END IF;
+      IF pg_catalog.to_regclass('public.clinical_continuity_capture_revision_seq') IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON SEQUENCE public.clinical_continuity_capture_revision_seq
+          FROM ${role};
+      END IF;
+      IF pg_catalog.to_regclass('public.clinical_continuity_context_revision_seq') IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON SEQUENCE public.clinical_continuity_context_revision_seq
+          FROM ${role};
+      END IF;
+      IF pg_catalog.to_regprocedure('public.clinical_continuity_edge_block_mutation()') IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON FUNCTION public.clinical_continuity_edge_block_mutation()
+          FROM ${role};
+      END IF;
+      IF pg_catalog.to_regprocedure('public.clinical_continuity_fixed_device_no_overlap()') IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON FUNCTION public.clinical_continuity_fixed_device_no_overlap()
+          FROM ${role};
+      END IF;
+    EXCEPTION WHEN insufficient_privilege THEN
+      RAISE NOTICE 'continuity capture lock for ${role} skipped (insufficient privilege)';
     END;
     BEGIN
       IF pg_catalog.to_regprocedure(

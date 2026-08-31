@@ -72,6 +72,13 @@ export const CATH_LAB_ROUTE_ROLES = mergeRoles(
   // role-policy graph entry. Keep it explicit at the route boundary.
   ['TECHNICIAN'],
 );
+export const CATH_INVENTORY_RECONCILIATION_ROUTE_ROLES = rolesFrom([
+  'PHARMACIST',
+  'PHARMACY_STAFF',
+  'PHARMACY_INCHARGE',
+  'ADMIN',
+  'SUPER_ADMIN',
+]);
 export const HOUSEKEEPING_ROUTE_ROLES = getRolesForCapabilityGroups('housekeeping');
 export const NOTIFICATION_AUDIT_ROUTE_ROLES = getRolesForCapabilityGroups('notifications_audit');
 
@@ -100,6 +107,19 @@ export const CLINICAL_INBOX_ROUTE_ROLES = mergeRoles(
   PATHWAY_NAMED_CLINICIAN_ROLES,
   rolesFrom(['LAB_STAFF', 'QUALITY_OFFICER']),
 );
+
+// Ward-indent credit notes and gateway refunds raise work items that billing
+// and finance incharges must own and action. Owning a task is NOT the same
+// authority as reading the clinical inbox, which is a PHI surface mounted
+// behind requireRole(...CLINICAL_INBOX_ROUTE_ROLES) + phiAccessLogger(
+// 'CLINICAL_WORKFLOW'). These roles were briefly folded into the inbox
+// audience to make them eligible owners, which silently granted them clinical
+// PHI access as a side effect. Keep the two sets apart so widening task
+// ownership can never widen a PHI route again.
+export const FINANCE_TASK_OWNER_ROLES = rolesFrom([
+  'BILLING_INCHARGE',
+  'FINANCE_INCHARGE',
+]);
 
 export const PHYSIO_ROUTE_ROLES = mergeRoles(
   CLINICAL_STAFF_ROUTE_ROLES,
@@ -476,6 +496,7 @@ export const COLD_CHAIN_ROUTE_ROLES = mergeRoles(
 
 export const BILLING_V2_ROUTE_ROLES = mergeRoles(
   BILLING_ROUTE_ROLES,
+  getRolesForCapabilityGroups('cashier_operations'),
   getRolesForCapabilityGroups(['ip_flow', 'op_flow']),
 );
 

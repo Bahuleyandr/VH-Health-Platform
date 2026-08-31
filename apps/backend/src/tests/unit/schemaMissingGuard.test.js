@@ -23,7 +23,7 @@ afterEach(() => {
 
 describe('M3 — schemaMissingGuard', () => {
   describe('extractSqlState', () => {
-    test('reads err.code / meta.code / driverAdapterError originalCode', () => {
+    test('reads err.code / meta.code / nested and direct driver-adapter originalCode', () => {
       expect(extractSqlState({ code: '42P01' })).toBe('42P01');
       expect(extractSqlState({ meta: { code: '42P01' } })).toBe('42P01');
       expect(
@@ -31,6 +31,19 @@ describe('M3 — schemaMissingGuard', () => {
           meta: { driverAdapterError: { cause: { originalCode: '42P01' } } },
         }),
       ).toBe('42P01');
+      expect(
+        extractSqlState({
+          name: 'DriverAdapterError',
+          cause: { originalCode: '42P01' },
+        }),
+      ).toBe('42P01');
+    });
+
+    test('prefers a Postgres SQLSTATE over Prisma P2010 wrapper code', () => {
+      expect(extractSqlState({
+        code: 'P2010',
+        meta: { code: '42703' },
+      })).toBe('42703');
     });
 
     test('rejects non-SQLSTATE values (e.g. Prisma P-codes used as code)', () => {

@@ -21,15 +21,34 @@
 // carry only a phone; true walk-ins may match no registered patient at all.
 // Counter sales (pharmacy_counter_sales.patient_uid, nullable) are anonymous
 // by design unless a registered patient is attached, and anonymous identities
-// use a synthetic non-PATIENT users row ('PHARMACY_WALKIN'). Order/sale
-// selectors therefore resolve patient_id → phone (orders) or patient_uid
-// (sales) and return null when no REGISTERED PATIENT is the subject; the
-// guards on those routes do NOT force patient context, so a subject-less
-// order or sale keeps working on the role gate alone while every
-// registered-patient row gets a real relationship decision. Routes whose
-// subject is named directly (/uid/:uid, dispense-substitution's
-// body.patient_uid) DO force patient context: there a single subject always
-// exists and an unresolvable one must refuse rather than fall through.
+// use a synthetic non-PATIENT users row ('PHARMACY_WALKIN').
+//
+// selectOrderPatient resolves patient_id ONLY — there is no phone fallback.
+// Phone is contact data, not durable ownership authority, so a legacy
+// phone-only order stays unresolved until governed patient recovery attaches
+// a patient_id to the row. selectCounterSalePatient likewise resolves the
+// sale row patient_uid and returns null when no registered patient is
+// attached.
+//
+// FORCING PATIENT CONTEXT is a per-route decision, not a property of the
+// selector:
+//   * Order-keyed routes in orderRoutes.js — /orders/:id and every action
+//     under it, plus /orders/uid/:uid — DO force it. Each names exactly one
+//     order or one patient, so a subject that will not resolve must refuse
+//     rather than fall through to the handler on the role gate alone.
+//   * Counter sales (counterSaleRoutes.js) do NOT force it: an anonymous
+//     walk-in sale is a legitimate subject-less row and keeps working on the
+//     role gate, while every attached-patient sale still gets a real
+//     relationship decision. The body-order dispense guard in index.js is
+//     unforced for the same reason.
+//   * Body-named subjects the handler itself requires (dispense-substitution
+//     and its witness request, both keyed on body.patient_uid) DO force it.
+//
+// Under care-team mode 'enforce' a forcing guard answers 403
+// PATIENT_CONTEXT_REQUIRED for an unknown or cross-tenant id. That is the
+// intended posture, not a regression: a 404 there would leak cross-tenant
+// row existence. In 'shadow'/'off' the unresolved attempt is recorded and
+// the handler answers for itself.
 //
 // Every selector returns null (never throws) on malformed input, a missing
 // row, an out-of-tenant row, or a subject that is not a PATIENT user.
@@ -76,42 +95,70 @@ export function pharmacyOrderGuard(patientSelector, { requirePatientContext = fa
   return mw;
 }
 
-// Selector: pharmacy_orders id (path param or body field) → the order's
-// patient. patient_id join first; for phone-only legacy rows, the order's
-// stored phone identifies the patient. Tenant-scoped on the order AND the
-// user row; ORDER BY mirrors accessDecisionService#patientByIdOrUid so a
-// multi-match phone converges on the same patient the engine would pick.
+// Selector: pharmacy_orders id (path param or body field) → the order's exact
+// patient_id owner. Phone is contact data, never durable ownership authority.
+// Legacy phone-only orders remain unresolved until governed patient recovery.
+//
+// A missing / out-of-tenant order resolves to null like every other selector
+// in this file and in middleware/routePatientAccessGuards.js. It must NOT
+// throw a 404: patientAccessGuard's catch treats ANY selector throw as a
+// broken authorization engine and answers 500 PATIENT_ACCESS_CHECK_FAILED
+// (middleware/phiAccessMiddleware.js) — it never reads err.statusCode — so a
+// throw here turned every unknown order id into a 500. With null the guard
+// refuses cleanly (403 PATIENT_CONTEXT_REQUIRED under enforce) or records the
+// unresolved attempt and lets the handler answer for itself (shadow/off).
+//
+// What the handler answers on that path is NOT this selector's contract to
+// state, and today it is not a 404. Every pharmacy order action that
+// resolves facility custody first — cancel, confirm, dispatch, dispense,
+// unavailable, detail, label, dispensable — calls
+// resolveOrderPharmacyFacility (services/pharmacy/
+// pharmacyFacilityAuthorityService.js:380-399) AHEAD of its own not-found
+// branch, and an id that names no row has no facility either, so the miss
+// is answered 409 PHARMACY_ORDER_FACILITY_UNRESOLVED. That ordering is the
+// handlers' to fix (it is pinned red by pharmacy-lifecycle-deep.test.js's
+// 'returns 404 for an unknown order id'); this selector only guarantees it
+// does not turn the miss into a 500.
 export function selectOrderPatient(readOrderId) {
   return async (req) => {
     const orderId = positiveInt(readOrderId(req));
     const tenantId = tenantOf(req);
     if (orderId === null || !tenantId) return null;
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT p.id, p.uid
+      `SELECT po.id AS order_id, p.id, p.uid
          FROM pharmacy_orders po
-         JOIN users p
+         LEFT JOIN users p
            ON p.tenant_id = po.tenant_id
           AND p.role = 'PATIENT'
-          AND (
-            (po.patient_id IS NOT NULL AND p.id = po.patient_id)
-            OR (po.patient_id IS NULL AND p.phone = po.phone)
-          )
+          AND p.id = po.patient_id
+          AND p.is_active=TRUE AND p.status='active'
+          AND p.is_deleted=FALSE AND p.merged_into_uid IS NULL
         WHERE po.tenant_id = $1::uuid
           AND po.id = $2::int
-        ORDER BY p.registered_at DESC NULLS LAST, p.id DESC
         LIMIT 1`,
       tenantId,
       orderId,
     );
-    return rows[0] ?? null;
+    // No row (unknown / out-of-tenant order) and a row whose LEFT JOIN found
+    // no live PATIENT owner both resolve to null.
+    const row = rows[0];
+    return row?.id && row?.uid
+      ? { id: row.id, uid: row.uid }
+      : null;
   };
 }
 
-// Selector: a phone in the request body (legacy POST /orders — the handler
-// resolves the target patient purely from body.phone / body.phoneNumber).
-// Matches the stored E.164 form or the digits-only legacy form, exactly like
-// accessDecisionService's phone resolution. An unregistered phone yields null
-// — the walk-in create proceeds on the role gate.
+// Selector: a phone in the request body. Matches the stored E.164 form or
+// the digits-only legacy form, exactly like accessDecisionService's phone
+// resolution; an unregistered phone yields null.
+//
+// NO ROUTE CONSUMES THIS TODAY. It guarded the legacy phone-keyed
+// POST /orders create, which was retired with the rest of the legacy
+// lifecycle (see orderRoutes.js). It is kept — exported and covered by
+// tests/unit/pharmacyMountRouteGuards.test.js — because phone-keyed body
+// creates are the shape any restored legacy surface would take, and
+// re-deriving the E.164/digits match is how that resolution drifts out of
+// step with accessDecisionService's.
 export async function selectPatientByBodyPhone(req) {
   const raw = req.body?.phone ?? req.body?.phoneNumber;
   const tenantId = tenantOf(req);

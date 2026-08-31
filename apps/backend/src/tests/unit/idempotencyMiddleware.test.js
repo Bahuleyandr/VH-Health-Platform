@@ -46,7 +46,23 @@ function makeReqRes(overrides = {}) {
   return { req, res };
 }
 
+// The claim INSERT is `ON CONFLICT DO NOTHING ... RETURNING id, status`, so a
+// key that already exists comes back as an EMPTY result set — it does not raise
+// a unique violation any more. Mocking the conflict as a rejection instead made
+// claimIdempotencyKey throw, which routes the middleware down its
+// idempotency-store-FAULT branch (fall-through when required:false, 503 when
+// required:true) and never reached the replay / in-flight / mismatch decisions
+// these tests exist to pin. The store-fault branch has its own DELTA-001 tests
+// below, which still reject on purpose.
+const CLAIM_INSERT_CONFLICT = [];
+
 describe('requireIdempotencyKey', () => {
+  it('requires a durable domain receipt before completed replays may re-enter a handler', () => {
+    expect(() => requireIdempotencyKey({
+      revalidateCompletedReplay: true,
+    })).toThrow(/durable domain receipt/i);
+  });
+
   it('returns 400 when header missing and required:true', async () => {
     const mw = requireIdempotencyKey({ required: true, scope: 'invoice' });
     const { req, res } = makeReqRes();
@@ -76,7 +92,7 @@ describe('requireIdempotencyKey', () => {
   });
 
   it('returns the cached response on replay', async () => {
-    queryUnsafeMock.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'));
+    queryUnsafeMock.mockResolvedValueOnce(CLAIM_INSERT_CONFLICT);
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 1, status: 'complete', response_status: 201,
       response_body: { ok: true, id: 42 }, request_body_hash: null,
@@ -90,8 +106,63 @@ describe('requireIdempotencyKey', () => {
     expect(res.body).toEqual({ ok: true, id: 42 });
   });
 
+  it('re-enters a durable handler for a completed replay that requires current authority', async () => {
+    queryUnsafeMock.mockResolvedValueOnce(CLAIM_INSERT_CONFLICT);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 17,
+      status: 'complete',
+      response_status: 200,
+      response_body: { idempotent_replay: false },
+      request_body_hash: hashRequestBody({ x: 1 }),
+    }]);
+    const mw = requireIdempotencyKey({
+      required: true,
+      scope: 'pharmacy_inventory_disposal',
+      durableDomainReceipt: true,
+      revalidateCompletedReplay: true,
+    });
+    const { req, res } = makeReqRes({ headers: { 'idempotency-key': 'disposal-key' } });
+    const next = jest.fn();
+
+    await mw(req, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.body).toBeNull();
+    expect(req.idempotencyClaim).toEqual(expect.objectContaining({
+      id: 17,
+      requestKey: 'disposal-key',
+      scope: 'pharmacy_inventory_disposal',
+      completedReplay: true,
+    }));
+  });
+
+  it('keeps cached failure semantics when successful receipt revalidation is enabled', async () => {
+    queryUnsafeMock.mockResolvedValueOnce(CLAIM_INSERT_CONFLICT);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 18,
+      status: 'failed',
+      response_status: 409,
+      response_body: { code: 'DISPOSAL_AUTHORITY_INVALID' },
+      request_body_hash: hashRequestBody({ x: 1 }),
+    }]);
+    const mw = requireIdempotencyKey({
+      required: true,
+      scope: 'pharmacy_inventory_disposal',
+      durableDomainReceipt: true,
+      revalidateCompletedReplay: true,
+    });
+    const { req, res } = makeReqRes({ headers: { 'idempotency-key': 'failed-disposal-key' } });
+    const next = jest.fn();
+
+    await mw(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toEqual({ code: 'DISPOSAL_AUTHORITY_INVALID' });
+  });
+
   it('returns 409 when in_flight', async () => {
-    queryUnsafeMock.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'));
+    queryUnsafeMock.mockResolvedValueOnce(CLAIM_INSERT_CONFLICT);
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 1, status: 'in_flight', request_body_hash: null,
     }]);
@@ -104,7 +175,7 @@ describe('requireIdempotencyKey', () => {
   });
 
   it('returns 422 on body mismatch', async () => {
-    queryUnsafeMock.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'));
+    queryUnsafeMock.mockResolvedValueOnce(CLAIM_INSERT_CONFLICT);
     queryUnsafeMock.mockResolvedValueOnce([{
       id: 1, status: 'complete', response_status: 201,
       response_body: {}, request_body_hash: 'OTHER',
@@ -155,16 +226,16 @@ describe('requireIdempotencyKey', () => {
     },
   ])('collapses an alias onto one canonical claim for $name', async ({ row, statusCode, body }) => {
     queryUnsafeMock
-      .mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'))
+      .mockResolvedValueOnce(CLAIM_INSERT_CONFLICT)
       .mockResolvedValueOnce([row]);
-    const canonicalPath = '/api/v1/pharmacy-orders/inventory/v2/movements';
+    const canonicalPath = '/api/v1/pharmacy-orders/inventory/v2/disposals';
     const mw = requireIdempotencyKey({
       required: true,
-      scope: 'pharmacy_inventory_movement',
+      scope: 'pharmacy_inventory_disposal',
       requestPathForIdempotency: canonicalPath,
     });
     const { req, res } = makeReqRes({
-      originalUrl: '/api/v1/pharmacy/inventory/v2/movements?source=alias',
+      originalUrl: '/api/v1/pharmacy/inventory/v2/disposals?source=alias',
       headers: { 'idempotency-key': 'cross-alias-key' },
       body: { x: 1 },
     });
@@ -185,18 +256,18 @@ describe('requireIdempotencyKey', () => {
       .mockResolvedValueOnce([{ id: 72, status: 'in_flight' }]);
     const mw = requireIdempotencyKey({
       required: true,
-      scope: 'pharmacy_inventory_movement_witness_approval',
+      scope: 'pharmacy_inventory_disposal_witness_approval',
       requestPathForIdempotency: (req) => (
-        `/api/v1/pharmacy-orders/inventory/v2/movements/witness-approvals/${req.params.id}/approve`
+        `/api/v1/pharmacy-orders/inventory/v2/disposals/witness-approvals/${req.params.id}/approve`
       ),
     });
     const first = makeReqRes({
-      originalUrl: '/api/v1/pharmacy/inventory/v2/movements/witness-approvals/71/approve',
+      originalUrl: '/api/v1/pharmacy/inventory/v2/disposals/witness-approvals/71/approve',
       params: { id: '71' },
       headers: { 'idempotency-key': 'approval-key' },
     });
     const second = makeReqRes({
-      originalUrl: '/api/v1/pharmacy-orders/inventory/v2/movements/witness-approvals/72/approve',
+      originalUrl: '/api/v1/pharmacy-orders/inventory/v2/disposals/witness-approvals/72/approve',
       params: { id: '72' },
       headers: { 'idempotency-key': 'approval-key' },
     });
@@ -209,11 +280,128 @@ describe('requireIdempotencyKey', () => {
     expect(firstNext).toHaveBeenCalledTimes(1);
     expect(secondNext).toHaveBeenCalledTimes(1);
     expect(queryUnsafeMock.mock.calls[0][5]).toBe(
-      '/api/v1/pharmacy-orders/inventory/v2/movements/witness-approvals/71/approve',
+      '/api/v1/pharmacy-orders/inventory/v2/disposals/witness-approvals/71/approve',
     );
     expect(queryUnsafeMock.mock.calls[1][5]).toBe(
-      '/api/v1/pharmacy-orders/inventory/v2/movements/witness-approvals/72/approve',
+      '/api/v1/pharmacy-orders/inventory/v2/disposals/witness-approvals/72/approve',
     );
+  });
+
+  it.each(['complete', 'cancel', 'discontinue'])(
+    'replays the committed %s terminal response before the handler can re-run',
+    async (action) => {
+      const terminalBody = {
+        action,
+        reason: action === 'complete' ? null : 'Therapy no longer indicated',
+      };
+      queryUnsafeMock
+        .mockResolvedValueOnce(CLAIM_INSERT_CONFLICT)
+        .mockResolvedValueOnce([{
+          id: 91,
+          status: 'complete',
+          response_status: 200,
+          response_body: { success: true, data: { id: 47, status: `${action}d` } },
+          request_body_hash: hashRequestBody(terminalBody),
+          is_expired: false,
+        }]);
+      const mw = requireIdempotencyKey({
+        required: true,
+        scope: 'clinical_order_terminal',
+        retainOnServerError: true,
+        requestPathForIdempotency: (req) => (
+          `/api/v1/emr/orders/${Number(req.params.id)}/terminal`
+        ),
+        requestBodyForIdempotency: (req) => ({
+          action,
+          reason: String(req.body?.reason || '').trim() || null,
+        }),
+      });
+      const { req, res } = makeReqRes({
+        method: 'PUT',
+        originalUrl: `/emr/orders/47/${action}?client=staff`,
+        params: { id: '47' },
+        headers: { 'idempotency-key': `terminal-${action}-47` },
+        body: { reason: terminalBody.reason },
+      });
+      const next = jest.fn();
+
+      await mw(req, res, next);
+
+      expect(next).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(200);
+      expect(res.body.data).toMatchObject({ id: 47 });
+      expect(queryUnsafeMock.mock.calls[0][5]).toBe('/api/v1/emr/orders/47/terminal');
+      expect(queryUnsafeMock.mock.calls[0][6]).toBe(hashRequestBody(terminalBody));
+    },
+  );
+
+  it('rejects reuse of a terminal key for a different terminal action', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce(CLAIM_INSERT_CONFLICT)
+      .mockResolvedValueOnce([{
+        id: 92,
+        status: 'complete',
+        response_status: 200,
+        response_body: { success: true },
+        request_body_hash: hashRequestBody({ action: 'complete', reason: null }),
+        is_expired: false,
+      }]);
+    const mw = requireIdempotencyKey({
+      required: true,
+      scope: 'clinical_order_terminal',
+      requestPathForIdempotency: (req) => (
+        `/api/v1/emr/orders/${Number(req.params.id)}/terminal`
+      ),
+      requestBodyForIdempotency: () => ({
+        action: 'cancel',
+        reason: 'Entered in error',
+      }),
+    });
+    const { req, res } = makeReqRes({
+      method: 'PUT',
+      originalUrl: '/api/v1/emr/orders/47/cancel',
+      params: { id: '47' },
+      headers: { 'idempotency-key': 'terminal-action-conflict-47' },
+      body: { reason: 'Entered in error' },
+    });
+    const next = jest.fn();
+
+    await mw(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(422);
+  });
+
+  it('releases a recoverable terminal conflict so the same key can resume', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{ id: 93, status: 'in_flight' }])
+      .mockResolvedValueOnce([{ id: 93 }]);
+    const mw = requireIdempotencyKey({
+      required: true,
+      scope: 'clinical_order_terminal',
+      retainOnServerError: true,
+      releaseOnResponseCodes: [
+        'MAR_ORDER_TERMINAL_EXCEPTION_NOTIFICATION_IN_FLIGHT',
+      ],
+    });
+    const { req, res } = makeReqRes({
+      method: 'PUT',
+      headers: { 'idempotency-key': 'terminal-reconcile-47' },
+    });
+    const next = jest.fn(() => {
+      res.status(409).json({
+        success: false,
+        code: 'MAR_ORDER_TERMINAL_EXCEPTION_NOTIFICATION_IN_FLIGHT',
+      });
+    });
+
+    await mw(req, res, next);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/DELETE FROM idempotency_keys/);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/status = 'in_flight'/);
+    expect(queryUnsafeMock.mock.calls[1][1]).toBe(93);
   });
 
   it('proceeds to handler on first claim, captures response, persists complete', async () => {

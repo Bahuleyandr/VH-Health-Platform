@@ -17,6 +17,9 @@ export const ACCESS_POLICY_CODES = Object.freeze({
   PATIENT_BED_WRITE: 'patient.bed.write',
   PATIENT_CLINICAL_WORKFLOW_ACCESS: 'patient.clinical_workflow.access',
   PATIENT_CLINICAL_WORKFLOW_WRITE: 'patient.clinical_workflow.write',
+  PATIENT_CLINICAL_ORDER_VERIFY: 'patient.clinical_order.verify',
+  PATIENT_CLINICAL_ORDER_MAR_RECOVERY: 'patient.clinical_order.mar_recovery',
+  PATIENT_MAR_SUPPLY_RECONCILIATION_WRITE: 'patient.mar_supply_reconciliation.write',
   // Owner decision 2026-08-25 (see docs/ROADMAP.md, "BCMA wristband"). Used by
   // EXACTLY ONE route — GET /api/v1/bcma/wristband/:patientUid. It exists so
   // the administrator grant that decision authorises has a policy code of its
@@ -216,6 +219,33 @@ export const ACCESS_POLICIES = Object.freeze({
       'care_pathway_owner',
       'care_pathway_transfer_recipient',
     ],
+  }),
+  [ACCESS_POLICY_CODES.PATIENT_CLINICAL_ORDER_VERIFY]: policy({
+    code: ACCESS_POLICY_CODES.PATIENT_CLINICAL_ORDER_VERIFY,
+    title: 'Verify an inpatient clinical order',
+    resourceType: 'clinical_order_verification',
+    action: 'UPDATE',
+    requiredPhiLevel: 'patient_relationship_required',
+    capabilityGroups: ['ip_flow', 'pharmacy'],
+    relationshipChecks: ['care_team', 'admission', 'break_glass'],
+  }),
+  [ACCESS_POLICY_CODES.PATIENT_CLINICAL_ORDER_MAR_RECOVERY]: policy({
+    code: ACCESS_POLICY_CODES.PATIENT_CLINICAL_ORDER_MAR_RECOVERY,
+    title: 'Recover an inpatient medication order MAR schedule',
+    resourceType: 'clinical_order_mar_recovery',
+    action: 'UPDATE',
+    requiredPhiLevel: 'patient_relationship_required',
+    capabilityGroups: ['ip_flow'],
+    relationshipChecks: ['admission', 'break_glass'],
+  }),
+  [ACCESS_POLICY_CODES.PATIENT_MAR_SUPPLY_RECONCILIATION_WRITE]: policy({
+    code: ACCESS_POLICY_CODES.PATIENT_MAR_SUPPLY_RECONCILIATION_WRITE,
+    title: 'Reconcile inpatient MAR supply evidence',
+    resourceType: 'mar_supply_reconciliation',
+    action: 'UPDATE',
+    requiredPhiLevel: 'patient_relationship_required',
+    capabilityGroups: ['supply_chain', 'nursing_governance'],
+    relationshipChecks: ['care_team', 'admission', 'break_glass'],
   }),
   // Wristband printing (owner decision 2026-08-25). The gate SURFACE — PHI
   // level, capability groups, relationship chain — is copied from

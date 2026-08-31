@@ -4,14 +4,17 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
 import 'package:vhhealth_core/services/http_client.dart';
 import 'package:vhhealth_staff/core/providers/clinical_inbox_provider.dart';
 import 'package:vhhealth_staff/core/services/clinical_inbox_api_service.dart';
+import 'package:vhhealth_staff/core/widgets/mar_medication_exception_handoff_sheet.dart';
 import 'package:vhhealth_staff/core/widgets/message_unread_badge.dart';
 import 'package:vhhealth_staff/features/clinical_inbox/screens/clinical_inbox_screen.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 void main() {
   setUp(() {
@@ -105,6 +108,364 @@ void main() {
     await provider.acknowledge('1');
     expect(provider.pendingCount, 1);
     expect(api.acknowledgeCalls, 1);
+  });
+
+  test(
+    'provider claims an exact MAR role-queue task before navigation',
+    () async {
+      final task = _task(
+        id: '83',
+        taskKind: 'review',
+        semantics: 'domain_evidence',
+        assignedToRole: 'DOCTOR',
+        relatedResourceType: 'mar_medication_exception_cases',
+        relatedResourceId: '73',
+        metadata: const {
+          'task_contract': 'mar_medication_exception_v1',
+          'exception_case_id': 73,
+          'medication_administration_id': 42,
+          'exception_kind': 'missed',
+          'sla_key': 'mar_medication_exception_review',
+        },
+      );
+      final api = _FakeClinicalInboxApi(tasks: [task]);
+      final provider = ClinicalInboxProvider(api: api);
+      await provider.refresh();
+
+      final claimed = await provider.claimMarMedicationException(task);
+
+      expect(api.marExceptionClaimCalls, 1);
+      expect(api.marExceptionClaimCaseIds, ['73']);
+      expect(api.marExceptionClaimIdempotencyKeys.single, isNotEmpty);
+      expect(claimed.assignedToUid, 'doctor-1');
+      expect(claimed.assignedToRole, isEmpty);
+    },
+  );
+
+  testWidgets('admin sees and completes exact MAR named-prescriber handoff', (
+    tester,
+  ) async {
+    FlutterSecureStorage.setMockInitialValues({'staff_role': 'ADMIN'});
+    final task = _marExceptionTask();
+    final api = _FakeClinicalInboxApi(tasks: [task]);
+    final provider = ClinicalInboxProvider(api: api);
+
+    await tester.pumpWidget(
+      _host(
+        provider,
+        loadActivePrescribers: () async => const [
+          MarPrescriberOption(
+            uid: '22222222-2222-4222-8222-222222222222',
+            name: 'Dr Target',
+            role: 'CONSULTANT',
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final action = find.byKey(const Key('mar-exception-handoff-84'));
+    expect(action, findsOneWidget);
+    expect(find.text('Reassign prescriber'), findsOneWidget);
+    await tester.tap(action);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Dr Target (CONSULTANT)').last);
+    await tester.enterText(
+      find.byKey(const Key('mar-handoff-reason')),
+      'On-call ownership changed.',
+    );
+    await _tapVisible(
+      tester,
+      find.byKey(const Key('mar-handoff-confirmation')),
+    );
+    await _tapVisible(tester, find.byKey(const Key('mar-handoff-submit')));
+    await tester.pumpAndSettle();
+
+    expect(api.marExceptionHandoffCalls, 1);
+    expect(
+      api.lastMarExceptionExpectedPrescriberUid,
+      '11111111-1111-4111-8111-111111111111',
+    );
+    expect(
+      api.lastMarExceptionTargetPrescriberUid,
+      '22222222-2222-4222-8222-222222222222',
+    );
+    expect(api.lastMarExceptionHandoffReason, 'On-call ownership changed.');
+    expect(api.marExceptionHandoffIdempotencyKeys.single, isNotEmpty);
+    expect(
+      find.text('Medication exception reassigned to the selected prescriber.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('prescriber cannot see the admin handoff action', (tester) async {
+    FlutterSecureStorage.setMockInitialValues({'staff_role': 'DOCTOR'});
+    final provider = ClinicalInboxProvider(
+      api: _FakeClinicalInboxApi(tasks: [_marExceptionTask()]),
+    );
+
+    await tester.pumpWidget(
+      _host(provider, loadActivePrescribers: () async => const []),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('mar-exception-handoff-84')), findsNothing);
+    expect(find.text('Reassign prescriber'), findsNothing);
+  });
+
+  testWidgets(
+    'stale MAR owner refreshes binding and requires confirmation again',
+    (tester) async {
+      FlutterSecureStorage.setMockInitialValues({'staff_role': 'SUPER_ADMIN'});
+      final initial = _marExceptionTask();
+      final refreshed = _marExceptionTask(
+        assignedToUid: '33333333-3333-4333-8333-333333333333',
+      );
+      final api = _FakeClinicalInboxApi(
+        tasks: [initial],
+        marExceptionHandoffFailure:
+            const MarMedicationExceptionHandoffException(
+              message: 'Medication exception owner changed',
+              statusCode: 409,
+              code: 'MAR_EXCEPTION_ASSIGNMENT_CONFLICT',
+            ),
+        tasksAfterMarExceptionHandoffFailure: [refreshed],
+      );
+      final provider = ClinicalInboxProvider(api: api);
+      final prescribers = const [
+        MarPrescriberOption(
+          uid: '22222222-2222-4222-8222-222222222222',
+          name: 'Dr Target',
+          role: 'CONSULTANT',
+        ),
+        MarPrescriberOption(
+          uid: '33333333-3333-4333-8333-333333333333',
+          name: 'Dr Concurrent Owner',
+          role: 'DUTY_DOCTOR',
+        ),
+      ];
+
+      await tester.pumpWidget(
+        _host(provider, loadActivePrescribers: () async => prescribers),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('mar-exception-handoff-84')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(DropdownButtonFormField<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Dr Target (CONSULTANT)').last);
+      await tester.enterText(
+        find.byKey(const Key('mar-handoff-reason')),
+        'Coverage changed during the shift.',
+      );
+      await _tapVisible(
+        tester,
+        find.byKey(const Key('mar-handoff-confirmation')),
+      );
+      await _tapVisible(tester, find.byKey(const Key('mar-handoff-submit')));
+      await tester.pumpAndSettle();
+
+      expect(api.marExceptionHandoffCalls, 1);
+      expect(
+        find.text(
+          'Ownership changed while you were reviewing this task. The latest owner is shown; review and confirm again.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('33333333-3333-4333-8333-333333333333'), findsOneWidget);
+      expect(
+        tester
+            .widget<CheckboxListTile>(
+              find.byKey(const Key('mar-handoff-confirmation')),
+            )
+            .value,
+        isFalse,
+      );
+
+      await _tapVisible(
+        tester,
+        find.byKey(const Key('mar-handoff-confirmation')),
+      );
+      await _tapVisible(tester, find.byKey(const Key('mar-handoff-submit')));
+      await tester.pumpAndSettle();
+
+      expect(api.marExceptionHandoffCalls, 2);
+      expect(api.marExceptionHandoffIdempotencyKeys.toSet(), hasLength(2));
+      expect(
+        api.lastMarExceptionExpectedPrescriberUid,
+        '33333333-3333-4333-8333-333333333333',
+      );
+    },
+  );
+
+  test('unchanged MAR handoff retry preserves its command key', () async {
+    final task = _marExceptionTask();
+    final api = _FakeClinicalInboxApi(
+      tasks: [task],
+      marExceptionHandoffFailure: const MarMedicationExceptionHandoffException(
+        message: 'Temporary upstream failure',
+        statusCode: 503,
+      ),
+    );
+    final provider = ClinicalInboxProvider(api: api);
+    await provider.refresh();
+
+    Future<void> submit() => provider.handoffMarMedicationException(
+      task: task,
+      expectedPrescriberUid: task.assignedToUid,
+      targetPrescriberUid: '22222222-2222-4222-8222-222222222222',
+      reason: 'On-call ownership changed.',
+    );
+
+    await expectLater(
+      submit(),
+      throwsA(isA<MarMedicationExceptionHandoffException>()),
+    );
+    await submit();
+
+    expect(api.marExceptionHandoffCalls, 2);
+    expect(api.marExceptionHandoffIdempotencyKeys.toSet(), hasLength(1));
+  });
+
+  test('MAR handoff copy never falls through to English', () {
+    const keys = {
+      'clinical_inbox.mar_handoff.action',
+      'clinical_inbox.mar_handoff.title',
+      'clinical_inbox.mar_handoff.body',
+      'clinical_inbox.mar_handoff.case_id',
+      'clinical_inbox.mar_handoff.current_prescriber',
+      'clinical_inbox.mar_handoff.target_prescriber',
+      'clinical_inbox.mar_handoff.prescriber_required',
+      'clinical_inbox.mar_handoff.prescribers_failed',
+      'clinical_inbox.mar_handoff.no_prescribers',
+      'clinical_inbox.mar_handoff.reason',
+      'clinical_inbox.mar_handoff.reason_hint',
+      'clinical_inbox.mar_handoff.reason_required',
+      'clinical_inbox.mar_handoff.confirmation',
+      'clinical_inbox.mar_handoff.confirmation_required',
+      'clinical_inbox.mar_handoff.submit',
+      'clinical_inbox.mar_handoff.submitting',
+      'clinical_inbox.mar_handoff.succeeded',
+      'clinical_inbox.mar_handoff.failed',
+      'clinical_inbox.mar_handoff.stale_owner',
+      'clinical_inbox.mar_handoff.no_longer_actionable',
+      'clinical_inbox.mar_handoff.requires_connection',
+    };
+    final english = AppStrings.forLocale(const Locale('en'));
+    for (final locale in const ['hi', 'ta', 'te', 'ml']) {
+      final translated = AppStrings.forLocale(Locale(locale));
+      for (final key in keys) {
+        expect(translated.lookup(key), isNot(key), reason: '$locale $key');
+        expect(
+          translated.lookup(key),
+          isNot(english.lookup(key)),
+          reason: '$locale fell through for $key',
+        );
+      }
+    }
+  });
+
+  testWidgets('finance operator opens the exact governed refund workbench', (
+    tester,
+  ) async {
+    FlutterSecureStorage.setMockInitialValues({
+      'staff_role': 'BILLING_INCHARGE',
+    });
+    final provider = ClinicalInboxProvider(
+      api: _FakeClinicalInboxApi(
+        tasks: [_counterSaleVoidTask(stage: 'payout')],
+      ),
+    );
+
+    await tester.pumpWidget(_workflowHost(provider));
+    await tester.pumpAndSettle();
+
+    final open = find.widgetWithText(FilledButton, 'Open workflow');
+    expect(open, findsOneWidget);
+    expect(tester.widget<FilledButton>(open).onPressed, isNotNull);
+    await tester.tap(open);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        '/billing/refunds?refund_id=2147483643&void_request_id=9223372036854775801',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'pharmacy operator opens exact reconciliation from the task detail',
+    (tester) async {
+      FlutterSecureStorage.setMockInitialValues({
+        'staff_role': 'PHARMACY_INCHARGE',
+      });
+      final provider = ClinicalInboxProvider(
+        api: _FakeClinicalInboxApi(
+          tasks: [_counterSaleVoidTask(stage: 'reconciliation')],
+        ),
+      );
+
+      await tester.pumpWidget(_workflowHost(provider));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Reconcile paid counter-sale void'));
+      await tester.pumpAndSettle();
+
+      final open = find.widgetWithText(FilledButton, 'Open workflow');
+      expect(open, findsNWidgets(2));
+      expect(tester.widget<FilledButton>(open.last).onPressed, isNotNull);
+      await tester.tap(open.last);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('/pharmacy?tab=counter-sales&sale_id=9223372036854775802'),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('unauthorized counter-sale task action stays disabled', (
+    tester,
+  ) async {
+    FlutterSecureStorage.setMockInitialValues({'staff_role': 'GENERAL_STAFF'});
+    final provider = ClinicalInboxProvider(
+      api: _FakeClinicalInboxApi(
+        tasks: [_counterSaleVoidTask(stage: 'approval')],
+      ),
+    );
+
+    await tester.pumpWidget(_workflowHost(provider));
+    await tester.pumpAndSettle();
+
+    final open = find.widgetWithText(FilledButton, 'Open workflow');
+    expect(open, findsOneWidget);
+    expect(tester.widget<FilledButton>(open).onPressed, isNull);
+    expect(find.byKey(const Key('workflow-destination')), findsNothing);
+  });
+
+  testWidgets('forged counter-sale deep link never enables navigation', (
+    tester,
+  ) async {
+    FlutterSecureStorage.setMockInitialValues({'staff_role': 'ADMIN'});
+    final provider = ClinicalInboxProvider(
+      api: _FakeClinicalInboxApi(
+        tasks: [
+          _counterSaleVoidTask(
+            stage: 'approval',
+            financeDeepLink: '/billing/refunds?refund_id=7&void_request_id=9223372036854775801',
+          ),
+        ],
+      ),
+    );
+
+    await tester.pumpWidget(_workflowHost(provider));
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(FilledButton, 'Open workflow'), findsNothing);
+    expect(find.byKey(const Key('workflow-destination')), findsNothing);
   });
 
   testWidgets('clinical inbox badge updates from provider count', (
@@ -508,23 +869,154 @@ void main() {
   });
 }
 
+// The MAR-handoff and post-discharge cross-sign sheets are scrolling forms:
+// at the 800x600 default test viewport their attestation and submit controls
+// sit below the fold, so a raw tap() derives an offset outside the render
+// tree and silently misses.
 Future<void> _tapVisible(WidgetTester tester, Finder finder) async {
   await tester.ensureVisible(finder);
   await tester.pump();
   await tester.tap(finder);
 }
 
-Widget _host(ClinicalInboxProvider provider) {
+Widget _host(
+  ClinicalInboxProvider provider, {
+  MarPrescriberLoader loadActivePrescribers = loadActiveMarPrescribers,
+}) {
   return ChangeNotifierProvider.value(
     value: provider,
-    child: const MaterialApp(home: ClinicalInboxScreen()),
+    child: MaterialApp(
+      home: ClinicalInboxScreen(loadActivePrescribers: loadActivePrescribers),
+    ),
   );
+}
+
+Widget _workflowHost(ClinicalInboxProvider provider) {
+  final router = GoRouter(
+    initialLocation: '/clinical-inbox',
+    routes: [
+      GoRoute(
+        path: '/clinical-inbox',
+        builder: (context, state) => const ClinicalInboxScreen(),
+      ),
+      GoRoute(
+        path: '/billing/refunds',
+        builder: (context, state) => Scaffold(
+          body: Text(
+            state.uri.toString(),
+            key: const Key('workflow-destination'),
+          ),
+        ),
+      ),
+      GoRoute(
+        path: '/pharmacy',
+        builder: (context, state) => Scaffold(
+          body: Text(
+            state.uri.toString(),
+            key: const Key('workflow-destination'),
+          ),
+        ),
+      ),
+    ],
+  );
+  return ChangeNotifierProvider.value(
+    value: provider,
+    child: MaterialApp.router(routerConfig: router),
+  );
+}
+
+ClinicalInboxTask _counterSaleVoidTask({
+  required String stage,
+  String? financeDeepLink,
+}) {
+  const taskId = '9223372036854775800';
+  const requestId = '9223372036854775801';
+  const saleId = '9223372036854775802';
+  const refundId = '2147483643';
+  const invoiceId = '9223372036854775804';
+  final assignedRole = switch (stage) {
+    'approval' => 'ADMIN',
+    'payout' => 'BILLING_INCHARGE',
+    'reconciliation' => 'PHARMACY_INCHARGE',
+    'rejected_review' => 'ADMIN',
+    _ => '',
+  };
+  final ownerRoles = switch (stage) {
+    'approval' => const ['ADMIN', 'SUPER_ADMIN'],
+    'payout' => const [
+      'FINANCE_INCHARGE',
+      'BILLING_INCHARGE',
+      'BILLING_STAFF',
+      'CASHIER',
+    ],
+    'reconciliation' => const ['ADMIN', 'PHARMACY_INCHARGE'],
+    'rejected_review' => const ['ADMIN', 'SUPER_ADMIN', 'PHARMACY_INCHARGE'],
+    _ => const <String>[],
+  };
+  return ClinicalInboxTask.fromJson({
+    'id': taskId,
+    'task_kind': 'review',
+    'title': stage == 'reconciliation'
+        ? 'Reconcile paid counter-sale void'
+        : 'Settle counter-sale void refund',
+    'priority': 'high',
+    'status': 'open',
+    'related_resource_type': 'pharmacy_counter_sale_void_requests',
+    'related_resource_id': requestId,
+    'assigned_to_role': assignedRole,
+    'workflow_sla_instance_id': '11111111-1111-4111-8111-111111111111',
+    'sla_completion_semantics': 'domain_evidence',
+    'metadata': {
+      'task_contract': 'counter_sale_void_refund_v1',
+      'evidence_kind': 'counter_sale_void_completed',
+      'counter_sale_void_request_id': requestId,
+      'counter_sale_id': saleId,
+      'refund_id': refundId,
+      'invoice_id': invoiceId,
+      'task_stage': stage,
+      'owner_role_codes': ownerRoles,
+      'finance_deep_link':
+          financeDeepLink ??
+          '/billing/refunds?refund_id=$refundId&void_request_id=$requestId',
+      'pharmacy_deep_link': '/pharmacy?tab=counter-sales&sale_id=$saleId',
+      'sla_key': 'counter_sale_void_refund',
+      'sla_instance_id': '11111111-1111-4111-8111-111111111111',
+    },
+  });
+}
+
+ClinicalInboxTask _marExceptionTask({
+  String assignedToUid = '11111111-1111-4111-8111-111111111111',
+}) {
+  return ClinicalInboxTask.fromJson({
+    'id': '84',
+    'task_kind': 'review',
+    'title': 'Missed medication dose review',
+    'description': 'Governed prescriber disposition required',
+    'patient_uid': '44444444-4444-4444-8444-444444444444',
+    'priority': 'high',
+    'status': 'open',
+    'assigned_to_uid': assignedToUid,
+    'related_resource_type': 'mar_medication_exception_cases',
+    'related_resource_id': '73',
+    'sla_completion_semantics': 'domain_evidence',
+    'due_at': DateTime.now().add(const Duration(minutes: 8)).toIso8601String(),
+    'metadata': const {
+      'task_contract': 'mar_medication_exception_v1',
+      'exception_case_id': '73',
+      'medication_administration_id': '42',
+      'exception_kind': 'missed',
+      'sla_key': 'mar_medication_exception_review',
+      'deep_link': '/mar/due?exception_id=73',
+    },
+  });
 }
 
 ClinicalInboxTask _task({
   required String id,
   String semantics = 'acknowledgement',
   String assignedToUid = '',
+  String? assignedToRole,
   String taskKind = '',
   String status = 'open',
   String relatedResourceType = 'lab_result',
@@ -555,7 +1047,8 @@ ClinicalInboxTask _task({
     relatedResourceType: relatedResourceType,
     relatedResourceId: relatedResourceId ?? 'lr-$id',
     assignedToUid: assignedToUid,
-    assignedToRole: assignedToUid.isEmpty ? 'DUTY_DOCTOR' : '',
+    assignedToRole:
+        assignedToRole ?? (assignedToUid.isEmpty ? 'DUTY_DOCTOR' : ''),
     slaCompletionSemantics: recoveredCriticalAwareness ? 'none' : semantics,
     diagnosticGenerationId:
         diagnosticGenerationId ??
@@ -598,22 +1091,34 @@ ClinicalInboxTask _task({
 
 class _FakeClinicalInboxApi extends ClinicalInboxApi {
   _FakeClinicalInboxApi({
-    required List<ClinicalInboxTask> tasks,
+    required this._tasks,
     this.acknowledgeDelay,
     this.crossSignFailure,
     this.tasksAfterCrossSignFailure,
-  }) : _tasks = tasks;
+    this.marExceptionHandoffFailure,
+    this.tasksAfterMarExceptionHandoffFailure,
+  });
 
   List<ClinicalInboxTask> _tasks;
   final Future<void>? acknowledgeDelay;
   PostDischargeCrossSignException? crossSignFailure;
   final List<ClinicalInboxTask>? tasksAfterCrossSignFailure;
+  MarMedicationExceptionHandoffException? marExceptionHandoffFailure;
+  final List<ClinicalInboxTask>? tasksAfterMarExceptionHandoffFailure;
   int acknowledgeCalls = 0;
   int actionCalls = 0;
   int crossSignCalls = 0;
+  int marExceptionClaimCalls = 0;
+  int marExceptionHandoffCalls = 0;
+  final List<String> marExceptionClaimCaseIds = [];
+  final List<String> marExceptionClaimIdempotencyKeys = [];
+  final List<String> marExceptionHandoffIdempotencyKeys = [];
   final List<String> crossSignIdempotencyKeys = [];
   DiagnosticActionCommand? lastAction;
   PostDischargeCrossSignCommand? lastCrossSign;
+  String? lastMarExceptionExpectedPrescriberUid;
+  String? lastMarExceptionTargetPrescriberUid;
+  String? lastMarExceptionHandoffReason;
 
   @override
   Future<ClinicalInboxResult> listInboxTasks({int limit = 100}) async {
@@ -642,6 +1147,59 @@ class _FakeClinicalInboxApi extends ClinicalInboxApi {
         .copyWith(assignedToUid: 'doctor-1', assignedToRole: '');
     _tasks = [for (final task in _tasks) task.id == id ? updated : task];
     return updated;
+  }
+
+  @override
+  Future<void> claimMarMedicationException({
+    required String caseId,
+    required String idempotencyKey,
+  }) async {
+    marExceptionClaimCalls += 1;
+    marExceptionClaimCaseIds.add(caseId);
+    marExceptionClaimIdempotencyKeys.add(idempotencyKey);
+    final updated = _tasks
+        .firstWhere((task) => task.relatedResourceId == caseId)
+        .copyWith(assignedToUid: 'doctor-1', assignedToRole: '');
+    _tasks = [
+      for (final task in _tasks) task.id == updated.id ? updated : task,
+    ];
+  }
+
+  @override
+  Future<MarMedicationExceptionHandoffReceipt> handoffMarMedicationException({
+    required String caseId,
+    required String expectedPrescriberUid,
+    required String targetPrescriberUid,
+    required String reason,
+    required String idempotencyKey,
+  }) async {
+    marExceptionHandoffCalls += 1;
+    marExceptionHandoffIdempotencyKeys.add(idempotencyKey);
+    lastMarExceptionExpectedPrescriberUid = expectedPrescriberUid;
+    lastMarExceptionTargetPrescriberUid = targetPrescriberUid;
+    lastMarExceptionHandoffReason = reason.trim();
+    final failure = marExceptionHandoffFailure;
+    if (failure != null) {
+      marExceptionHandoffFailure = null;
+      final replacement = tasksAfterMarExceptionHandoffFailure;
+      if (replacement != null) _tasks = replacement;
+      throw failure;
+    }
+    final updated = _tasks
+        .firstWhere((task) => task.relatedResourceId == caseId)
+        .copyWith(assignedToUid: targetPrescriberUid, assignedToRole: '');
+    _tasks = [
+      for (final task in _tasks) task.id == updated.id ? updated : task,
+    ];
+    return MarMedicationExceptionHandoffReceipt(
+      exceptionCaseId: caseId,
+      taskId: updated.id,
+      assignmentHandoffEventId: '91',
+      fromPrescriberUid: expectedPrescriberUid,
+      assignedPrescriberUid: targetPrescriberUid,
+      handedOffAt: DateTime.now(),
+      replayed: false,
+    );
   }
 
   @override

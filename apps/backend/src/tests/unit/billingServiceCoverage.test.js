@@ -82,6 +82,10 @@ const { AppError } = await import('../../utils/AppError.js');
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockPrisma.$queryRawUnsafe.mockReset().mockResolvedValue([]);
+  txClient.$queryRawUnsafe.mockReset().mockResolvedValue([]);
+  txClient.invoices = mockPrisma.invoices;
+  txClient.insurance_claims = mockPrisma.insurance_claims;
   // Safe defaults — individual tests override as needed.
   mockPrisma.invoices.findFirst.mockResolvedValue(null);
   mockPrisma.invoices.findMany.mockResolvedValue([]);
@@ -97,10 +101,8 @@ beforeEach(() => {
   mockPrisma.payment_transactions.create.mockResolvedValue({});
   mockPrisma.payment_transactions.groupBy.mockResolvedValue([]);
   mockPrisma.$queryRaw.mockResolvedValue([]);
-  mockPrisma.$queryRawUnsafe.mockResolvedValue([]);
   txClient.payment_transactions.create.mockResolvedValue({});
   txClient.invoices.update.mockResolvedValue({});
-  txClient.$queryRawUnsafe.mockResolvedValue([]);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -501,6 +503,9 @@ describe('submitInsuranceClaim', () => {
   it('creates a standalone claim (no invoice link) with generated number + tenant', async () => {
     mockPrisma.insurance_claims.findFirst.mockResolvedValueOnce(null); // seq 1
     mockPrisma.insurance_claims.create.mockResolvedValueOnce({ id: 3, claim_number: 'CLM-X' });
+    txClient.$queryRawUnsafe
+      .mockResolvedValueOnce([{ uid: PATIENT_UID }])
+      .mockResolvedValueOnce([]);
 
     const out = await billingService.submitInsuranceClaim({ ...valid, tenant_id: TENANT });
 
@@ -518,6 +523,10 @@ describe('submitInsuranceClaim', () => {
     mockPrisma.invoices.findFirst.mockResolvedValueOnce({ id: 7, patient_uid: PATIENT_UID });
     mockPrisma.insurance_claims.findFirst.mockResolvedValueOnce({ claim_number: `CLM-${ym}-0009` });
     mockPrisma.insurance_claims.create.mockResolvedValueOnce({ id: 4, claim_number: `CLM-${ym}-0010` });
+    txClient.$queryRawUnsafe
+      .mockResolvedValueOnce([{ uid: PATIENT_UID }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 7 }]);
 
     await billingService.submitInsuranceClaim({ ...valid, invoice_id: 7 });
 
@@ -535,6 +544,9 @@ describe('submitInsuranceClaim', () => {
     const ym = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
     mockPrisma.insurance_claims.findFirst.mockResolvedValueOnce({ claim_number: `CLM-${ym}-XX` });
     mockPrisma.insurance_claims.create.mockResolvedValueOnce({ id: 5 });
+    txClient.$queryRawUnsafe
+      .mockResolvedValueOnce([{ uid: PATIENT_UID }])
+      .mockResolvedValueOnce([]);
 
     await billingService.submitInsuranceClaim(valid);
 
@@ -546,6 +558,15 @@ describe('submitInsuranceClaim', () => {
 // updateClaimStatus
 // ─────────────────────────────────────────────────────────────────────────────
 describe('updateClaimStatus', () => {
+  function prepareClaimTransition(existing) {
+    const row = { patient_uid: PATIENT_UID, ...existing };
+    mockPrisma.insurance_claims.findFirst.mockResolvedValueOnce(row);
+    txClient.$queryRawUnsafe
+      .mockResolvedValueOnce([{ uid: PATIENT_UID }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([row]);
+  }
+
   it('rejects a missing claimId', async () => {
     await expect(billingService.updateClaimStatus(null, 'approved'))
       .rejects.toThrow(/Claim ID is required/i);
@@ -557,13 +578,13 @@ describe('updateClaimStatus', () => {
   });
 
   it('404s when the claim is not found', async () => {
-    mockPrisma.insurance_claims.findUnique.mockResolvedValueOnce(null);
+    mockPrisma.insurance_claims.findFirst.mockResolvedValueOnce(null);
     await expect(billingService.updateClaimStatus(1, 'approved'))
       .rejects.toThrow(/Insurance claim not found/i);
   });
 
   it('legacy string 4th arg is treated as rejection_reason; non-review status leaves reviewed_at null', async () => {
-    mockPrisma.insurance_claims.findUnique.mockResolvedValueOnce({ id: 1, documents: null, status: 'submitted' });
+    prepareClaimTransition({ id: 1, documents: null, status: 'submitted' });
     mockPrisma.insurance_claims.update.mockResolvedValueOnce({ id: 1, status: 'under_review' });
 
     await billingService.updateClaimStatus(1, 'under_review', null, 'some note');
@@ -575,7 +596,7 @@ describe('updateClaimStatus', () => {
   });
 
   it('approved status stamps reviewed_at and persists approved_amount', async () => {
-    mockPrisma.insurance_claims.findUnique.mockResolvedValueOnce({ id: 1, documents: null, status: 'submitted' });
+    prepareClaimTransition({ id: 1, documents: null, status: 'submitted' });
     mockPrisma.insurance_claims.update.mockResolvedValueOnce({ id: 1, status: 'approved' });
 
     await billingService.updateClaimStatus(1, 'approved', 4500);
@@ -586,7 +607,7 @@ describe('updateClaimStatus', () => {
   });
 
   it('options object: merges a documents patch object into existing documents', async () => {
-    mockPrisma.insurance_claims.findUnique.mockResolvedValueOnce({
+    prepareClaimTransition({
       id: 1, documents: { existing: true }, status: 'submitted',
     });
     mockPrisma.insurance_claims.update.mockResolvedValueOnce({ id: 1 });
@@ -607,7 +628,7 @@ describe('updateClaimStatus', () => {
   });
 
   it('options object: documents=null explicitly clears the documents jsonb', async () => {
-    mockPrisma.insurance_claims.findUnique.mockResolvedValueOnce({
+    prepareClaimTransition({
       id: 1, documents: { existing: true }, status: 'submitted',
     });
     mockPrisma.insurance_claims.update.mockResolvedValueOnce({ id: 1 });
@@ -618,7 +639,7 @@ describe('updateClaimStatus', () => {
   });
 
   it('options object: a non-object/non-null documents patch replaces wholesale', async () => {
-    mockPrisma.insurance_claims.findUnique.mockResolvedValueOnce({
+    prepareClaimTransition({
       id: 1, documents: { existing: true }, status: 'submitted',
     });
     mockPrisma.insurance_claims.update.mockResolvedValueOnce({ id: 1 });
@@ -629,7 +650,7 @@ describe('updateClaimStatus', () => {
   });
 
   it('paid + payment_reference stamps a payment audit block inside documents (existing docs preserved)', async () => {
-    mockPrisma.insurance_claims.findUnique.mockResolvedValueOnce({
+    prepareClaimTransition({
       id: 1, documents: { existing: true }, status: 'approved',
     });
     mockPrisma.insurance_claims.update.mockResolvedValueOnce({ id: 1, status: 'paid' });
@@ -645,7 +666,7 @@ describe('updateClaimStatus', () => {
   });
 
   it('paid + payment_reference stamps payment even when merged documents is non-object (spreads {})', async () => {
-    mockPrisma.insurance_claims.findUnique.mockResolvedValueOnce({
+    prepareClaimTransition({
       id: 1, documents: null, status: 'approved',
     });
     mockPrisma.insurance_claims.update.mockResolvedValueOnce({ id: 1 });
@@ -671,6 +692,25 @@ describe('createEnhancementClaim', () => {
     policy_number: 'POL-9',
     tenant_id: TENANT,
   };
+
+  function queueEnhancementTx(countRows, insertResult) {
+    txClient.$queryRawUnsafe
+      .mockResolvedValueOnce([{ uid: PATIENT_UID }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: parentRow.id }])
+      .mockResolvedValueOnce(countRows);
+    if (insertResult instanceof Error) {
+      txClient.$queryRawUnsafe.mockRejectedValueOnce(insertResult);
+    } else {
+      txClient.$queryRawUnsafe.mockResolvedValueOnce(insertResult);
+    }
+  }
+
+  function enhancementInsertCall() {
+    return txClient.$queryRawUnsafe.mock.calls.find(
+      ([sql]) => /INSERT INTO insurance_claims/.test(sql),
+    );
+  }
 
   it('rejects a missing parentClaimId', async () => {
     await expect(billingService.createEnhancementClaim({ enhancementAmount: 100 }))
@@ -723,10 +763,10 @@ describe('createEnhancementClaim', () => {
 
   it('creates an enhancement child claim with a free-text justification (documents jsonb populated)', async () => {
     mockPrisma.$queryRawUnsafe.mockResolvedValueOnce([parentRow]); // insurance_claims hit
-    // Inside the tenant tx: count existing enhancements, then INSERT.
-    txClient.$queryRawUnsafe
-      .mockResolvedValueOnce([{ n: 1 }]) // one existing enhancement → suffix E2
-      .mockResolvedValueOnce([{ id: 20, claim_number: 'CLM-202605-0007-E2', stage: 'enhancement' }]);
+    queueEnhancementTx(
+      [{ n: 1 }],
+      [{ id: 20, claim_number: 'CLM-202605-0007-E2', stage: 'enhancement' }],
+    );
 
     const out = await billingService.createEnhancementClaim({
       parentClaimId: 10,
@@ -739,7 +779,7 @@ describe('createEnhancementClaim', () => {
     expect(out).toMatchObject({ id: 20, claim_number: 'CLM-202605-0007-E2' });
 
     // Suffix allocation derives E(n+1) from the count.
-    const insertParams = txClient.$queryRawUnsafe.mock.calls[1];
+    const insertParams = enhancementInsertCall();
     expect(insertParams[1]).toBe('CLM-202605-0007-E2'); // claim_number
     expect(insertParams[2]).toBe(PATIENT_UID);          // patient_uid
     expect(insertParams[3]).toBe(55);                   // invoice_id
@@ -754,13 +794,11 @@ describe('createEnhancementClaim', () => {
   it('defaults the enhancement suffix to E1 when no prior enhancements exist and caps the base number length', async () => {
     const longParent = { ...parentRow, claim_number: 'CLM-202605-0007-VERYLONGSUFFIXxxxxxxx', invoice_id: null };
     mockPrisma.$queryRawUnsafe.mockResolvedValueOnce([longParent]);
-    txClient.$queryRawUnsafe
-      .mockResolvedValueOnce([{}]) // countRows[0].n is undefined → nextSuffix 1
-      .mockResolvedValueOnce([{ id: 21, claim_number: 'capped-E1' }]);
+    queueEnhancementTx([{}], [{ id: 21, claim_number: 'capped-E1' }]);
 
     await billingService.createEnhancementClaim({ parentClaimId: 10, enhancementAmount: 1500 });
 
-    const insertParams = txClient.$queryRawUnsafe.mock.calls[1];
+    const insertParams = enhancementInsertCall();
     const base = 'CLM-202605-0007-VERYLONGSUFFIXxxxxxxx'.slice(0, 26);
     expect(insertParams[1]).toBe(`${base}-E1`); // E1 default + 26-char cap
     expect(insertParams[3]).toBeNull();         // null invoice_id passthrough
@@ -769,9 +807,7 @@ describe('createEnhancementClaim', () => {
 
   it('builds a structured-justification documents block when a template object is passed', async () => {
     mockPrisma.$queryRawUnsafe.mockResolvedValueOnce([parentRow]);
-    txClient.$queryRawUnsafe
-      .mockResolvedValueOnce([{ n: 0 }])
-      .mockResolvedValueOnce([{ id: 22, claim_number: 'CLM-202605-0007-E1' }]);
+    queueEnhancementTx([{ n: 0 }], [{ id: 22, claim_number: 'CLM-202605-0007-E1' }]);
 
     await billingService.createEnhancementClaim({
       parentClaimId: 10,
@@ -782,7 +818,7 @@ describe('createEnhancementClaim', () => {
       },
     });
 
-    const docsJson = JSON.parse(txClient.$queryRawUnsafe.mock.calls[1][8]);
+    const docsJson = JSON.parse(enhancementInsertCall()[8]);
     expect(docsJson.enhancement.justification_format).toBe('structured');
     expect(docsJson.enhancement.justification_structured.clinical_reason).toBe('Sepsis with AKI');
     expect(docsJson.enhancement.template_version).toBe(1);
@@ -791,9 +827,7 @@ describe('createEnhancementClaim', () => {
   it('logs and rethrows a Postgres error raised by the INSERT inside the tx', async () => {
     mockPrisma.$queryRawUnsafe.mockResolvedValueOnce([parentRow]);
     const pgErr = Object.assign(new Error('duplicate key value'), { code: '23505' });
-    txClient.$queryRawUnsafe
-      .mockResolvedValueOnce([{ n: 0 }])
-      .mockRejectedValueOnce(pgErr); // INSERT fails
+    queueEnhancementTx([{ n: 0 }], pgErr);
 
     await expect(
       billingService.createEnhancementClaim({ parentClaimId: 10, enhancementAmount: 999 }),

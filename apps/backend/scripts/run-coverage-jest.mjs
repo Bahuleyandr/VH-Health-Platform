@@ -86,6 +86,18 @@ const COVERAGE_TESTS = [
   'src/tests/unit/billingV2Payments.test.js',
   'src/tests/unit/billingV2AddItemSourceRef.test.js',
   'src/tests/unit/billingV2FrontOfficeAudit.test.js',
+  'src/tests/unit/billingAmountValidation.test.js',
+  'src/tests/unit/billingDailyCollectionIst.test.js',
+  'src/tests/unit/billingRefundRaiseIdempotency.test.js',
+  'src/tests/unit/billingRefundApprovalIdempotency.test.js',
+  'src/tests/unit/billingRefundPayoutIdempotency.test.js',
+  'src/tests/unit/billingTenantAuthorization.test.js',
+  'src/tests/unit/pharmacyFundingEventChain.test.js',
+  'src/tests/unit/billingV2PharmacyFundingAuthorityCoverage.test.js',
+  'src/tests/unit/billingV2PharmacyFundingMaterializeCoverage.test.js',
+  'src/tests/unit/billingV2PharmacyFundingRetryCoverage.test.js',
+  'src/tests/unit/billingV2PharmacyFundingReconciliationCoverage.test.js',
+  'src/tests/unit/billingV2PharmacyFundingLineDecisionCoverage.test.js',
   // ── billing: cashDrawerService ──
   'src/tests/unit/cashDrawerService.test.js',
   'src/tests/unit/cash-payment-requires-shift.test.js',
@@ -103,6 +115,8 @@ const COVERAGE_TESTS = [
   'src/tests/unit/cdsEngineCoverage.test.js',
   // ── prescription: prescriptionSafetyCheck ──
   'src/tests/unit/prescriptionSafetyCheckCoverage.test.js',
+  'src/tests/unit/activeTherapySafetyAuthority.test.js',
+  'src/tests/unit/prescriptionAntithromboticInteraction.test.js',
   // ── RLS: lib/prisma.js + lib/tenantContext.js ──
   'src/tests/unit/prismaCoverage.test.js',
   'src/tests/unit/prismaHardening.test.js',

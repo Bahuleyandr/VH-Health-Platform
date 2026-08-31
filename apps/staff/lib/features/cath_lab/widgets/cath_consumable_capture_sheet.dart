@@ -21,12 +21,18 @@ class CathConsumableCaptureSheet extends StatefulWidget {
   });
 
   final int caseId;
+  // Both loaders take the active [caseId]: the backend pins the facility from
+  // the case, so a catalog or batch read without it cannot be authorised.
   final Future<List<CathConsumableCatalogItem>> Function({
+    required int caseId,
     String? query,
     String? scan,
   })
   searchCatalog;
-  final Future<List<CathInventoryBatch>> Function(int catalogItemId)
+  final Future<List<CathInventoryBatch>> Function(
+    int catalogItemId, {
+    required int caseId,
+  })
   loadBatches;
   final Future<CathCaseConsumableUsage> Function(
     int caseId,
@@ -110,7 +116,11 @@ class _CathConsumableCaptureSheetState
       _error = null;
     });
     try {
-      final items = await widget.searchCatalog(query: query, scan: scan);
+      final items = await widget.searchCatalog(
+        caseId: widget.caseId,
+        query: query,
+        scan: scan,
+      );
       if (!mounted || generation != _searchGeneration) return;
       if (scan != null && items.length == 1) {
         await _selectItem(items.single);
@@ -170,7 +180,7 @@ class _CathConsumableCaptureSheetState
     if (!item.batchTracked) return;
     setState(() => _loadingBatches = true);
     try {
-      final batches = await widget.loadBatches(item.id);
+      final batches = await widget.loadBatches(item.id, caseId: widget.caseId);
       if (!mounted || _selectedItem?.id != item.id) return;
       setState(() => _batches = batches);
     } catch (error) {

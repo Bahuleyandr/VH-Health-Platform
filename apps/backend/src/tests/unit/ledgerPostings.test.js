@@ -16,7 +16,12 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
 
-const { postInvoiceIssueEntry, postPaymentEntry, paymentDebitAccount } = await import('../../services/billing/ledger/ledgerPostings.js');
+const {
+  postInvoiceIssueEntry,
+  postPaymentEntry,
+  postWardMedicationCreditEntry,
+  paymentDebitAccount,
+} = await import('../../services/billing/ledger/ledgerPostings.js');
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const PATIENT = '11111111-1111-4111-8111-111111111111';
@@ -227,6 +232,113 @@ describe('postRefundPaidEntry', () => {
       { accountCode: 'REFUNDS_PAYABLE', amountPaise: 40000, patient_uid: PATIENT },
       { accountCode: 'CASH', amountPaise: -40000 },
     ]));
+  });
+});
+
+describe('postWardMedicationCreditEntry', () => {
+  const baseCreditNote = {
+    id: 71,
+    invoice_id: 42,
+    patient_uid: PATIENT,
+    source_financial_event_id: 901,
+    amount_minor: 1250,
+  };
+
+  it('posts a receivable-only medication credit', async () => {
+    await postWardMedicationCreditEntry({
+      creditNote: {
+        ...baseCreditNote,
+        receivable_credit_minor: 1250,
+        refund_obligation_minor: 0,
+      },
+      tenantId: TENANT,
+    });
+
+    expect(postLedgerEntry.mock.calls.at(-1)[1].lines).toEqual([
+      { accountCode: 'REVENUE', amountPaise: 1250 },
+      { accountCode: 'PATIENT_AR', amountPaise: -1250, patient_uid: PATIENT, invoice_id: 42 },
+    ]);
+  });
+
+  it('posts a refund-only medication credit', async () => {
+    await postWardMedicationCreditEntry({
+      creditNote: {
+        ...baseCreditNote,
+        receivable_credit_minor: 0,
+        refund_obligation_minor: 1250,
+      },
+      tenantId: TENANT,
+    });
+
+    expect(postLedgerEntry.mock.calls.at(-1)[1].lines).toEqual([
+      { accountCode: 'REVENUE', amountPaise: 1250 },
+      { accountCode: 'REFUNDS_PAYABLE', amountPaise: -1250, patient_uid: PATIENT },
+    ]);
+  });
+
+  it('posts the exact receivable/refund mixed split', async () => {
+    await postWardMedicationCreditEntry({
+      creditNote: {
+        ...baseCreditNote,
+        receivable_credit_minor: 900,
+        refund_obligation_minor: 350,
+      },
+      tenantId: TENANT,
+    });
+
+    expect(postLedgerEntry.mock.calls.at(-1)[1].lines).toEqual([
+      { accountCode: 'REVENUE', amountPaise: 1250 },
+      { accountCode: 'PATIENT_AR', amountPaise: -900, patient_uid: PATIENT, invoice_id: 42 },
+      { accountCode: 'REFUNDS_PAYABLE', amountPaise: -350, patient_uid: PATIENT },
+    ]);
+  });
+
+  it('rejects a split that does not equal the credit-note amount', async () => {
+    await expect(postWardMedicationCreditEntry({
+      creditNote: {
+        ...baseCreditNote,
+        receivable_credit_minor: 900,
+        refund_obligation_minor: 300,
+      },
+      tenantId: TENANT,
+    })).rejects.toThrow('Ward medication credit split must equal its credit-note amount');
+    expect(postLedgerEntry).not.toHaveBeenCalled();
+  });
+
+  it('uses the credit-note identity for idempotency and immutable lineage metadata', async () => {
+    await postWardMedicationCreditEntry({
+      creditNote: {
+        ...baseCreditNote,
+        receivable_credit_minor: 1250,
+        refund_obligation_minor: 0,
+      },
+      tenantId: TENANT,
+    });
+
+    expect(postLedgerEntry.mock.calls.at(-1)[1]).toMatchObject({
+      entryType: 'WARD_MEDICATION_CREDIT',
+      idempotencyKey: 'ward-medication-credit-71',
+      metadata: {
+        credit_note_id: '71',
+        source_financial_event_id: '901',
+      },
+    });
+  });
+
+  it('threads the caller transaction instead of opening a new tenant transaction', async () => {
+    const callerTx = { __fakeTx: 'medication-credit-caller' };
+    await postWardMedicationCreditEntry({
+      creditNote: {
+        ...baseCreditNote,
+        receivable_credit_minor: 1250,
+        refund_obligation_minor: 0,
+      },
+      tenantId: TENANT,
+      tx: callerTx,
+    });
+
+    expect(setTenantTx).not.toHaveBeenCalled();
+    expect(postLedgerEntry.mock.calls.at(-1)[0]).toBe(callerTx);
   });
 });
 

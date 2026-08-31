@@ -142,4 +142,23 @@ regexes = [
   # test material, never real credentials.
   '''pgr_persisted_key_1234''',
   '''abcdefghijklmnop1234567890''',
+  # Cash-refund idempotency fixture introduced in PR #940. Range scans retain
+  # the introducing commit even though the working-tree copy is now
+  # low-entropy. This exact value is request-deduplication test data, not an
+  # authentication credential.
+  '''pay-cash-refund-8''',
+  # Idempotency-key fixtures introduced by the PR #940 integration train. Each
+  # is an opaque request-deduplication token passed as an Idempotency-Key
+  # header or named argument in a test; the generic-api-key heuristic trips on
+  # the identifier-ends-in-Key plus high-entropy-value shape. None is a
+  # credential, and none is ever sent to an authenticating party.
+  '''can016-arrears-foreign''',
+  '''verification-gate-71''',
+  '''staff-inpatient-order-attempt-\d+''',
+  '''staff-bulk-order-attempt-\d+''',
+  # Kubernetes configMapKeyRef KEY NAME (not a value) on the migration-754
+  # PreSync Job. The referenced ConfigMap field is deliberately left BLANK so
+  # the acceptance gate fails closed until an operator fills it; the literal
+  # here is the identifier being referenced, never a secret.
+  '''PAYROLL_754_ACCEPTED_BY''',
 ]

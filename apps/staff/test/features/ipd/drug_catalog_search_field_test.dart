@@ -14,6 +14,8 @@ void main() {
         catalogId: null,
         dose: '650 mg',
         doseTimes: const ['morning'],
+        supplyQuantity: '10',
+        supplyUnit: 'tablet',
       ),
       DrugChartDraftValidationFailure.catalogSelectionRequired,
     );
@@ -23,8 +25,57 @@ void main() {
         catalogId: 41,
         dose: '650 mg',
         doseTimes: const ['morning'],
+        supplyQuantity: '10',
+        supplyUnit: 'tablet',
       ),
       isNull,
+    );
+  });
+
+  test('drug-chart save requires explicit ward-supply quantity and unit', () {
+    expect(
+      validateDrugChartDraft(
+        drug: 'Paracetamol 650 mg',
+        catalogId: 41,
+        dose: '650 mg',
+        doseTimes: const ['morning'],
+        supplyQuantity: '',
+        supplyUnit: null,
+      ),
+      DrugChartDraftValidationFailure.supplyQuantityRequired,
+    );
+    expect(
+      validateDrugChartDraft(
+        drug: 'Paracetamol 650 mg',
+        catalogId: 41,
+        dose: '650 mg',
+        doseTimes: const ['morning'],
+        supplyQuantity: '10.123',
+        supplyUnit: 'tablet',
+      ),
+      DrugChartDraftValidationFailure.supplyQuantityInvalid,
+    );
+    expect(
+      validateDrugChartDraft(
+        drug: 'Paracetamol 650 mg',
+        catalogId: 41,
+        dose: '650 mg',
+        doseTimes: const ['morning'],
+        supplyQuantity: '10',
+        supplyUnit: null,
+      ),
+      DrugChartDraftValidationFailure.supplyUnitRequired,
+    );
+    expect(
+      validateDrugChartDraft(
+        drug: 'Paracetamol 650 mg',
+        catalogId: 41,
+        dose: '650 mg',
+        doseTimes: const ['morning'],
+        supplyQuantity: '10',
+        supplyUnit: 'box inferred from pack',
+      ),
+      DrugChartDraftValidationFailure.supplyUnitInvalid,
     );
   });
 

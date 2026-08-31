@@ -4,17 +4,25 @@ import 'package:flutter/foundation.dart';
 import 'package:vhhealth_core/vhhealth_core.dart';
 
 import '../services/clinical_inbox_api_service.dart';
+import '../services/idempotency_attempt_registry.dart';
 
 class ClinicalInboxProvider extends ChangeNotifier {
+  // Keep the public injection seam named `api` while the dependency remains
+  // encapsulated as a private field.
   ClinicalInboxProvider({
     ClinicalInboxApi api = ClinicalInboxApiService.instance,
     this.pollInterval = const Duration(minutes: 2),
+    // ignore: prefer_initializing_formals
   }) : _api = api;
 
   final ClinicalInboxApi _api;
   final Duration pollInterval;
 
   final Set<String> _mutatingIds = <String>{};
+  final IdempotencyAttemptRegistry _claimAttempts =
+      IdempotencyAttemptRegistry();
+  final IdempotencyAttemptRegistry _handoffAttempts =
+      IdempotencyAttemptRegistry();
   final List<StreamSubscription<RealtimeEvent>> _subscriptions = [];
   Timer? _pollTimer;
   List<ClinicalInboxTask> _tasks = const [];
@@ -65,6 +73,8 @@ class ClinicalInboxProvider extends ChangeNotifier {
     }
     _subscriptions.clear();
     _mutatingIds.clear();
+    _claimAttempts.clear();
+    _handoffAttempts.clear();
     _tasks = const [];
     _lastError = null;
     _refreshing = false;
@@ -153,6 +163,110 @@ class ClinicalInboxProvider extends ChangeNotifier {
     } finally {
       if (generation == _sessionGeneration) {
         _mutatingIds.remove(id);
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<ClinicalInboxTask> claimMarMedicationException(
+    ClinicalInboxTask task,
+  ) async {
+    final generation = _sessionGeneration;
+    _requireOnlineMutation();
+    if (!task.isMarMedicationException || !task.isRoleOwned) {
+      throw StateError('This is not an unassigned medication exception task');
+    }
+    if (_mutatingIds.contains(task.id)) {
+      throw StateError('This task is already being updated');
+    }
+    final caseId = task.relatedResourceId;
+    final attemptScope = 'mar-exception-claim:$caseId';
+    final idempotencyKey = _claimAttempts.keyFor(attemptScope, {
+      'exception_case_id': caseId,
+      'task_id': task.id,
+    });
+    _mutatingIds.add(task.id);
+    notifyListeners();
+    try {
+      await _api.claimMarMedicationException(
+        caseId: caseId,
+        idempotencyKey: idempotencyKey,
+      );
+      _claimAttempts.complete(attemptScope);
+      if (generation != _sessionGeneration) return task;
+      await refresh();
+      if (generation != _sessionGeneration) return task;
+      _lastError = null;
+      return _tasks.firstWhere(
+        (candidate) => candidate.id == task.id,
+        orElse: () => task,
+      );
+    } catch (e) {
+      if (generation == _sessionGeneration) _lastError = e.toString();
+      rethrow;
+    } finally {
+      if (generation == _sessionGeneration) {
+        _mutatingIds.remove(task.id);
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<MarMedicationExceptionHandoffReceipt> handoffMarMedicationException({
+    required ClinicalInboxTask task,
+    required String expectedPrescriberUid,
+    required String targetPrescriberUid,
+    required String reason,
+  }) async {
+    final generation = _sessionGeneration;
+    _requireOnlineMutation();
+    if (!task.isMarMedicationException || task.assignedToUid.isEmpty) {
+      throw StateError('This medication exception has no named prescriber');
+    }
+    if (task.assignedToUid != expectedPrescriberUid) {
+      throw StateError('Medication exception ownership is stale');
+    }
+    if (expectedPrescriberUid == targetPrescriberUid) {
+      throw StateError('Select a different prescriber');
+    }
+    if (_mutatingIds.contains(task.id)) {
+      throw StateError('This task is already being updated');
+    }
+    final caseId = task.relatedResourceId;
+    final requestBody = <String, dynamic>{
+      'expected_prescriber_uid': expectedPrescriberUid,
+      'target_prescriber_uid': targetPrescriberUid,
+      'reason': reason.trim(),
+    };
+    final attemptScope = 'mar-exception-handoff:$caseId';
+    final idempotencyKey = _handoffAttempts.keyFor(attemptScope, requestBody);
+    _mutatingIds.add(task.id);
+    notifyListeners();
+    try {
+      final receipt = await _api.handoffMarMedicationException(
+        caseId: caseId,
+        expectedPrescriberUid: expectedPrescriberUid,
+        targetPrescriberUid: targetPrescriberUid,
+        reason: reason,
+        idempotencyKey: idempotencyKey,
+      );
+      _handoffAttempts.complete(attemptScope);
+      if (generation == _sessionGeneration) {
+        await refresh();
+        if (generation == _sessionGeneration) _lastError = null;
+      }
+      return receipt;
+    } catch (e) {
+      if (generation == _sessionGeneration) {
+        _lastError = e.toString();
+        if (e is MarMedicationExceptionHandoffException && e.requiresRefresh) {
+          await refresh();
+        }
+      }
+      rethrow;
+    } finally {
+      if (generation == _sessionGeneration) {
+        _mutatingIds.remove(task.id);
         notifyListeners();
       }
     }

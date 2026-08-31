@@ -80,6 +80,14 @@ class _SmokeClinicalInboxApi extends ClinicalInboxApi {
   }
 
   @override
+  Future<void> claimMarMedicationException({
+    required String caseId,
+    required String idempotencyKey,
+  }) => throw UnsupportedError(
+    'Smoke test has no MAR medication exceptions to claim',
+  );
+
+  @override
   Future<DiagnosticActionReceipt> recordDiagnosticAction(
     DiagnosticActionCommand command,
   ) {
@@ -456,6 +464,18 @@ void main() {
     await tester.tap(catalogSuggestion);
     await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextField, 'Dose'), '75 mg');
+    await tester.enterText(
+      find.byKey(const Key('drug-chart-supply-quantity')),
+      '14',
+    );
+    await tester.tap(find.byKey(const Key('drug-chart-supply-unit')));
+    await tester.pumpAndSettle();
+    // The unit menu shows the localized label ("Tablet"); only the order
+    // payload carries the canonical 'tablet' asserted at the end of the test.
+    final tabletUnitLabel = AppStrings.forLocale(const Locale('en'))
+        .medicationWardSupplyUnit('tablet');
+    await tester.tap(find.text(tabletUnitLabel).last);
+    await tester.pumpAndSettle();
     final saveButton = find.widgetWithText(FilledButton, 'Save');
     await _pumpUntilFound(tester, saveButton);
     await tester.ensureVisible(saveButton);
@@ -468,6 +488,8 @@ void main() {
     expect(details?['medication_name'], 'Aspirin');
     expect(details?['dose'], '75 mg');
     expect(details?['catalog_id'], 41);
+    expect(details?['quantity_requested'], 14);
+    expect(details?['unit'], 'tablet');
   });
 
   testWidgets(

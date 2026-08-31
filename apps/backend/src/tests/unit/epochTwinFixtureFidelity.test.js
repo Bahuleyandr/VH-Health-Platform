@@ -63,6 +63,21 @@ const ALLOWLIST = [
     twin: 'created_at_epoch_ms',
     reason: 'same setExisting helper derives created_at_epoch_ms (the coalesce fallback anchor) 15 lines from the base fixture — just outside the proximity window',
   },
+  {
+    file: 'controlledDispenseWitness.test.js',
+    twin: 'expires_at_epoch_ms',
+    reason: 'the orphan expires_at is the taskService.createApproval echo, whose APPROVAL_RETURNING selects expires_at and no twin, and which the service reads only through publicApprovalExpiry; the approval rows this file fixtures for the twin-selecting SELECTs (approvalRow) do carry expires_at_epoch_ms',
+  },
+  {
+    file: 'taskService.test.js',
+    twin: 'occurred_at_epoch_ms',
+    reason: 'the flagged occurred_at occurrences are an assertion on the persisted completion_evidence JSON plus frozen in-memory SIGNAL/provenance constants — not query rows; the ward_indent_events rows that select this twin are never fixtured here',
+  },
+  {
+    file: 'taskService.test.js',
+    twin: 'recorded_at_epoch_ms',
+    reason: 'the single flagged recorded_at is the same completion_evidence assertion; this twin is selected only from payment_gateway_refunds evidence rows, which this file never fixtures',
+  },
 ];
 
 function walk(dir, out = []) {

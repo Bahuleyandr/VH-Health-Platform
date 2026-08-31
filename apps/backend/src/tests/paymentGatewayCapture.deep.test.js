@@ -5,8 +5,8 @@
 // billing_payments row with reference = provider_payment_id, the order flips
 // paid in the same transaction (694 paid-evidence CHECK), the ledger PAYMENT
 // entry posts same-tx under enforce wiring, replays never double-book, the
-// DB CHECK refuses a paid order without booked money, and an unbookable
-// capture (voided invoice) parks as requires_reconciliation.
+// DB CHECK refuses a paid order without booked money, and a capture that
+// arrives after its invoice was settled parks as requires_reconciliation.
 //
 // dry_run provider throughout — zero live credentials. Self-skips without a DB.
 
@@ -445,7 +445,7 @@ d('payment gateway capture (deep)', () => {
     )).rejects.toThrow();
   });
 
-  it('an unbookable capture (voided invoice) parks as requires_reconciliation — never silent, never paid', async () => {
+  it('a capture received after the invoice was settled parks as requires_reconciliation — never silent, never paid', async () => {
     const patient = await makePatient();
     const invoiceId = await makeIssuedInvoice(patient, 300);
     const order = await gateway.createGatewayOrder({
@@ -453,7 +453,14 @@ d('payment gateway capture (deep)', () => {
     });
     cleanup.orderIds.push(order.orderId);
 
-    await billing.voidInvoice(invoiceId, { reason: 'deep-test void', tenantId: TENANT });
+    await billing.collectPayment({
+      invoice_id: invoiceId,
+      amount: 300,
+      mode: 'CASH',
+      shift: 'GENERAL',
+      collected_by: patient,
+      tenantId: TENANT,
+    });
 
     const providerPaymentId = `pay_dry_${randomUUID().slice(0, 8)}`;
     const result = await gateway.handleCaptureEvent({
@@ -472,7 +479,7 @@ d('payment gateway capture (deep)', () => {
     expect(orderRows[0].status).toBe('requires_reconciliation');
     expect(orderRows[0].provider_payment_id).toBe(providerPaymentId);
     expect(orderRows[0].captured_at).not.toBeNull();
-    expect(orderRows[0].failure_reason).toContain('VOID');
+    expect(orderRows[0].failure_reason).toMatch(/exceeds outstanding due 0/i);
 
     // No money row was forged.
     const payments = await prisma.$queryRawUnsafe(

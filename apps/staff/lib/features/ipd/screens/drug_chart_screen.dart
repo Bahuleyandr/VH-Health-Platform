@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 
 import '../../../core/models/composition_alternatives.dart';
+import '../../../core/platform_info.dart';
+import '../../../core/services/idempotency_attempt_registry.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/services/order_payloads.dart';
 import '../../../core/services/staff_clinical_action_gateway.dart';
@@ -56,6 +58,10 @@ enum DrugChartDraftValidationFailure {
   catalogSelectionRequired,
   doseRequired,
   administrationTimeRequired,
+  supplyQuantityRequired,
+  supplyQuantityInvalid,
+  supplyUnitRequired,
+  supplyUnitInvalid,
 }
 
 DrugChartDraftValidationFailure? validateDrugChartDraft({
@@ -63,6 +69,8 @@ DrugChartDraftValidationFailure? validateDrugChartDraft({
   required int? catalogId,
   required String dose,
   required Iterable<String> doseTimes,
+  required Object? supplyQuantity,
+  required Object? supplyUnit,
 }) {
   if (drug.trim().isEmpty) return DrugChartDraftValidationFailure.drugRequired;
   if (catalogId == null) {
@@ -72,7 +80,65 @@ DrugChartDraftValidationFailure? validateDrugChartDraft({
   if (doseTimes.isEmpty) {
     return DrugChartDraftValidationFailure.administrationTimeRequired;
   }
+  final supplyFailure = validateMedicationWardSupply(
+    quantity: supplyQuantity,
+    unit: supplyUnit,
+  );
+  if (supplyFailure != null) {
+    return switch (supplyFailure) {
+      MedicationWardSupplyValidationFailure.quantityRequired =>
+        DrugChartDraftValidationFailure.supplyQuantityRequired,
+      MedicationWardSupplyValidationFailure.quantityInvalid =>
+        DrugChartDraftValidationFailure.supplyQuantityInvalid,
+      MedicationWardSupplyValidationFailure.unitRequired =>
+        DrugChartDraftValidationFailure.supplyUnitRequired,
+      MedicationWardSupplyValidationFailure.unitInvalid =>
+        DrugChartDraftValidationFailure.supplyUnitInvalid,
+    };
+  }
   return null;
+}
+
+@visibleForTesting
+bool canOpenDrugChartMarScanner(Object? status, {required bool canAdminister}) {
+  return canAdminister && _text(status).toLowerCase() == 'scheduled';
+}
+
+@visibleForTesting
+const Set<AppDeviceMode> drugChartMarHoldReleaseDeviceModes = {
+  AppDeviceMode.mobile,
+  AppDeviceMode.tablet,
+  AppDeviceMode.desktop,
+  AppDeviceMode.web,
+};
+
+@visibleForTesting
+bool canReleaseDrugChartMarHold(
+  Object? status, {
+  required bool canPrescribe,
+  required AppDeviceMode deviceMode,
+}) {
+  return canPrescribe &&
+      drugChartMarHoldReleaseDeviceModes.contains(deviceMode) &&
+      _text(status).toLowerCase() == 'held';
+}
+
+Future<Map<String, dynamic>> submitDrugChartOrderAttempt({
+  required IdempotencyAttemptRegistry attempts,
+  required String scope,
+  required Map<String, dynamic> body,
+  required Future<Map<String, dynamic>> Function(
+    String idempotencyKey,
+    Map<String, dynamic> body,
+  )
+  send,
+}) {
+  return attempts.execute(
+    scope: scope,
+    body: body,
+    send: send,
+    isSuccess: (_) => true,
+  );
 }
 
 class DrugChartScreen extends StatefulWidget {
@@ -94,6 +160,13 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
   Map<String, dynamic>? _chart;
   bool _loading = true;
   String? _error;
+  final Set<int> _releasingHeldAdministrations = <int>{};
+  final IdempotencyAttemptRegistry _holdReleaseAttempts =
+      IdempotencyAttemptRegistry();
+  final IdempotencyAttemptRegistry _terminalOrderAttempts =
+      IdempotencyAttemptRegistry();
+  final IdempotencyAttemptRegistry _orderCreateAttempts =
+      IdempotencyAttemptRegistry();
 
   Map<String, dynamic> get _admission =>
       (_chart?['admission'] as Map?)?.cast<String, dynamic>() ?? const {};
@@ -122,6 +195,9 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
     for (final row in _draftRows) {
       row.dispose();
     }
+    _holdReleaseAttempts.clear();
+    _terminalOrderAttempts.clear();
+    _orderCreateAttempts.clear();
     super.dispose();
   }
 
@@ -144,6 +220,95 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _releaseHeldAdministration(Map<String, dynamic> row) async {
+    final maId = int.tryParse(row['id']?.toString() ?? '');
+    if (maId == null ||
+        !_canPrescribe ||
+        _releasingHeldAdministrations.contains(maId)) {
+      return;
+    }
+    final reason = await _promptHoldReleaseReason();
+    if (reason == null || !mounted) return;
+    final scope = 'mar-releaseHold:$maId';
+    final payload = <String, dynamic>{'reason': reason};
+    final idempotencyKey = _holdReleaseAttempts.keyFor(scope, payload);
+    setState(() => _releasingHeldAdministrations.add(maId));
+    try {
+      await MedicalApiService.releaseHeldMedication(
+        maId: maId,
+        reason: reason,
+        idempotencyKey: idempotencyKey,
+      );
+      _holdReleaseAttempts.complete(scope);
+      if (!mounted) return;
+      _showSnack(
+        AppStrings.of(context).lookup('due_meds.actions.release_success'),
+      );
+      await _load();
+    } catch (error) {
+      if (mounted) {
+        _showSnack(
+          localizedApiErrorFromRaw(AppStrings.of(context), error),
+          isError: true,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _releasingHeldAdministrations.remove(maId));
+      }
+    }
+  }
+
+  Future<String?> _promptHoldReleaseReason() {
+    var reason = '';
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final strings = AppStrings.of(context);
+          final valid = reason.trim().length >= 5;
+          return AlertDialog(
+            title: Text(strings.lookup('due_meds.actions.release_title')),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(strings.lookup('due_meds.actions.release_body')),
+                const SizedBox(height: 16),
+                TextField(
+                  key: const Key('drug-chart-hold-release-reason'),
+                  autofocus: true,
+                  maxLength: 500,
+                  minLines: 2,
+                  maxLines: 4,
+                  decoration: InputDecoration(
+                    labelText: strings.lookup('due_meds.actions.reason_label'),
+                    hintText: strings.lookup('due_meds.actions.reason_hint'),
+                  ),
+                  onChanged: (value) => setDialogState(() => reason = value),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: Text(strings.lookup('due_meds.actions.cancel')),
+              ),
+              FilledButton(
+                key: const Key('drug-chart-hold-release-confirm'),
+                onPressed: valid
+                    ? () => Navigator.pop(dialogContext, reason.trim())
+                    : null,
+                child: Text(strings.lookup('due_meds.actions.confirm_release')),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   void _addDraftRow() {
@@ -170,6 +335,8 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
       catalogId: row.catalogId,
       dose: dose,
       doseTimes: doseTimes,
+      supplyQuantity: row.supplyQuantityCtrl.text,
+      supplyUnit: row.supplyUnit,
     );
     if (validationFailure != null) {
       if (validationFailure ==
@@ -181,20 +348,67 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
         );
         return;
       }
-      final key = switch (validationFailure) {
-        DrugChartDraftValidationFailure.drugRequired =>
+      final message = switch (validationFailure) {
+        DrugChartDraftValidationFailure.drugRequired => s.lookup(
           's4.lib.drug_chart.drug_required',
-        DrugChartDraftValidationFailure.catalogSelectionRequired =>
+        ),
+        DrugChartDraftValidationFailure.catalogSelectionRequired => s.lookup(
           's4.lib.drug_chart.catalog_selection_required',
-        DrugChartDraftValidationFailure.doseRequired =>
+        ),
+        DrugChartDraftValidationFailure.doseRequired => s.lookup(
           's4.lib.drug_chart.dose_required',
-        DrugChartDraftValidationFailure.administrationTimeRequired =>
+        ),
+        DrugChartDraftValidationFailure.administrationTimeRequired => s.lookup(
           's4.lib.drug_chart.administration_time_required',
+        ),
+        DrugChartDraftValidationFailure.supplyQuantityRequired ||
+        DrugChartDraftValidationFailure.supplyQuantityInvalid => s.lookup(
+          'mar_scan.supply.quantity_error',
+        ),
+        DrugChartDraftValidationFailure.supplyUnitRequired ||
+        DrugChartDraftValidationFailure.supplyUnitInvalid =>
+          '${s.lookup('s4.lib.pharmacy.metric_unit')}: ${s.labelRequired}',
       };
-      _showSnack(s.lookup(key), isError: true);
+      _showSnack(message, isError: true);
       return;
     }
 
+    final patientUid = _text(_admission['patient_uid']);
+    final encounterId = _text(_admission['encounter_id']).isEmpty
+        ? null
+        : _text(_admission['encounter_id']);
+    final startDate = row.orderAttemptStartedAt ??= DateTime.now();
+    final orderBody = buildInpatientMedicationOrderBody(
+      patientUid: patientUid,
+      encounterId: encounterId,
+      medicationName: drug,
+      dose: dose,
+      route: row.route,
+      frequency: _frequencyForTimes(doseTimes),
+      quantityRequested: parseMedicationWardSupplyQuantity(
+        row.supplyQuantityCtrl.text,
+      )!,
+      unit: row.supplyUnit!,
+      doseTimes: doseTimes,
+      foodTiming: row.foodTiming.isEmpty ? null : row.foodTiming,
+      instructions: row.notesCtrl.text.trim().isEmpty
+          ? null
+          : row.notesCtrl.text.trim(),
+      catalogId: row.catalogId,
+      originalCatalogId: row.originalCatalogId,
+      compositionId: row.compositionId,
+      compositionLabel: row.compositionLabel,
+      compositionConfidence: row.compositionConfidence,
+      genericName: row.genericName,
+      strength: row.strength,
+      strengthKey: row.strengthKey,
+      form: row.form,
+      formKey: row.formKey,
+      releaseKey: row.releaseKey,
+      doNotSubstitute: row.daw,
+      startDate: startDate,
+    );
+    final attemptScope = 'drug-chart-order:${identityHashCode(row)}';
     setState(() => row.saving = true);
     try {
       if (drugChartSubmissionDisposition(
@@ -202,36 +416,6 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
           ) ==
           DrugChartSubmissionDisposition.attemptLocalDraft) {
         if (!mounted) return;
-        final patientUid = _text(_admission['patient_uid']);
-        final encounterId = _text(_admission['encounter_id']).isEmpty
-            ? null
-            : _text(_admission['encounter_id']);
-        final localBody = buildInpatientMedicationOrderBody(
-          patientUid: patientUid,
-          encounterId: encounterId,
-          medicationName: drug,
-          dose: dose,
-          route: row.route,
-          frequency: _frequencyForTimes(doseTimes),
-          doseTimes: doseTimes,
-          foodTiming: row.foodTiming.isEmpty ? null : row.foodTiming,
-          instructions: row.notesCtrl.text.trim().isEmpty
-              ? null
-              : row.notesCtrl.text.trim(),
-          catalogId: row.catalogId,
-          originalCatalogId: row.originalCatalogId,
-          compositionId: row.compositionId,
-          compositionLabel: row.compositionLabel,
-          compositionConfidence: row.compositionConfidence,
-          genericName: row.genericName,
-          strength: row.strength,
-          strengthKey: row.strengthKey,
-          form: row.form,
-          formKey: row.formKey,
-          releaseKey: row.releaseKey,
-          doNotSubstitute: row.daw,
-          startDate: DateTime.now(),
-        );
         final saved = await StaffClinicalActionGateway.instance.saveLocalDraft(
           callSite: StaffCaptureCallSite.ipDrugChartLocalDraft,
           patientReference: patientUid,
@@ -239,7 +423,7 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
           admissionId: _text(_admission['id']).isEmpty
               ? null
               : _text(_admission['id']),
-          payload: Map<String, Object?>.from(localBody),
+          payload: Map<String, Object?>.from(orderBody),
         );
         if (!mounted) return;
         if (saved.allowed) {
@@ -252,32 +436,12 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
         }
         return;
       }
-      await MedicalApiService.createInpatientMedicationOrder(
-        patientUid: _text(_admission['patient_uid']),
-        encounterId: _text(_admission['encounter_id']).isEmpty
-            ? null
-            : _text(_admission['encounter_id']),
-        medicationName: drug,
-        dose: dose,
-        route: row.route,
-        frequency: _frequencyForTimes(doseTimes),
-        doseTimes: doseTimes,
-        foodTiming: row.foodTiming.isEmpty ? null : row.foodTiming,
-        instructions: row.notesCtrl.text.trim().isEmpty
-            ? null
-            : row.notesCtrl.text.trim(),
-        catalogId: row.catalogId,
-        originalCatalogId: row.originalCatalogId,
-        compositionId: row.compositionId,
-        compositionLabel: row.compositionLabel,
-        compositionConfidence: row.compositionConfidence,
-        genericName: row.genericName,
-        strength: row.strength,
-        strengthKey: row.strengthKey,
-        form: row.form,
-        formKey: row.formKey,
-        releaseKey: row.releaseKey,
-        doNotSubstitute: row.daw,
+      await submitDrugChartOrderAttempt(
+        attempts: _orderCreateAttempts,
+        scope: attemptScope,
+        body: orderBody,
+        send: (key, body) =>
+            MedicalApiService.createEmrOrder(body, idempotencyKey: key),
       );
       if (!mounted) return;
       _removeDraftRow(row);
@@ -330,12 +494,22 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
     );
     reasonCtrl.dispose();
     if (reason == null || reason.isEmpty) return;
+    final orderId = _asInt(order['id']);
+    if (orderId == null || orderId <= 0) return;
+    final attemptScope = 'clinical-order-terminal:discontinue:$orderId';
+    final requestBody = <String, dynamic>{'reason': reason};
+    final idempotencyKey = _terminalOrderAttempts.keyFor(
+      attemptScope,
+      requestBody,
+    );
 
     try {
       await MedicalApiService.discontinueClinicalOrder(
-        orderId: _asInt(order['id']) ?? 0,
+        orderId: orderId,
         reason: reason,
+        idempotencyKey: idempotencyKey,
       );
+      _terminalOrderAttempts.complete(attemptScope);
       if (mounted) unawaited(_load());
     } catch (e) {
       if (!mounted) return;
@@ -415,6 +589,8 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
           onSaveDraft: _saveDraftRow,
           onStopOrder: _stopOrder,
           onAdministrationChanged: _load,
+          onReleaseHold: _releaseHeldAdministration,
+          releasingHoldIds: _releasingHeldAdministrations,
           patientUid: _text(_admission['patient_uid']),
           admissionId: widget.admissionId,
         ),
@@ -554,6 +730,8 @@ class _DrugChartTable extends StatelessWidget {
   final void Function(_DrugChartDraftRow row) onSaveDraft;
   final void Function(Map<String, dynamic> order) onStopOrder;
   final VoidCallback onAdministrationChanged;
+  final ValueChanged<Map<String, dynamic>> onReleaseHold;
+  final Set<int> releasingHoldIds;
   final String? patientUid;
   final int admissionId;
 
@@ -567,6 +745,8 @@ class _DrugChartTable extends StatelessWidget {
     required this.onSaveDraft,
     required this.onStopOrder,
     required this.onAdministrationChanged,
+    required this.onReleaseHold,
+    required this.releasingHoldIds,
     required this.patientUid,
     required this.admissionId,
   });
@@ -582,6 +762,8 @@ class _DrugChartTable extends StatelessWidget {
           canAdminister: canAdminister,
           onStop: () => onStopOrder(order),
           onAdministrationChanged: onAdministrationChanged,
+          onReleaseHold: onReleaseHold,
+          releasingHoldIds: releasingHoldIds,
         ),
       ),
       ...draftRows.map(
@@ -783,6 +965,8 @@ class _DrugChartOrderRow extends StatelessWidget {
   final bool canAdminister;
   final VoidCallback onStop;
   final VoidCallback onAdministrationChanged;
+  final ValueChanged<Map<String, dynamic>> onReleaseHold;
+  final Set<int> releasingHoldIds;
 
   const _DrugChartOrderRow({
     required this.order,
@@ -790,6 +974,8 @@ class _DrugChartOrderRow extends StatelessWidget {
     required this.canAdminister,
     required this.onStop,
     required this.onAdministrationChanged,
+    required this.onReleaseHold,
+    required this.releasingHoldIds,
   });
 
   @override
@@ -882,7 +1068,10 @@ class _DrugChartOrderRow extends StatelessWidget {
               slot: slot,
               order: order,
               canAdminister: canAdminister,
+              canReleaseHold: canPrescribe,
               onAdministrationChanged: onAdministrationChanged,
+              onReleaseHold: onReleaseHold,
+              releasingHoldIds: releasingHoldIds,
             ),
           ),
           _tableTextCell(
@@ -1141,19 +1330,73 @@ class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
             _tableCell(
               width: _drugCol,
               height: _draftRowHeight,
-              child: DrugCatalogSearchField(
-                controller: row.drugCtrl,
-                onAvailabilityChanged: (unavailable) {
-                  row.catalogUnavailable = unavailable;
-                },
-                onTextChanged: (value) => setState(() {
-                  row.clearCatalogIdentity();
-                  _applyDerivedDose(value);
-                }),
-                onSelected: (catalogRow) => setState(() {
-                  row.applyCatalogRow(catalogRow);
-                  row.applyDerivedDose(overwrite: true);
-                }),
+              child: Column(
+                children: [
+                  DrugCatalogSearchField(
+                    controller: row.drugCtrl,
+                    onAvailabilityChanged: (unavailable) {
+                      row.catalogUnavailable = unavailable;
+                    },
+                    onTextChanged: (value) => setState(() {
+                      row.clearCatalogIdentity();
+                      _applyDerivedDose(value);
+                    }),
+                    onSelected: (catalogRow) => setState(() {
+                      row.applyCatalogRow(catalogRow);
+                      row.applyDerivedDose(overwrite: true);
+                    }),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          key: const Key('drug-chart-supply-quantity'),
+                          controller: row.supplyQuantityCtrl,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          textInputAction: TextInputAction.next,
+                          decoration: InputDecoration(
+                            labelText: s.lookup('s4.lib.pharmacy.quantity'),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: InputDecorator(
+                          decoration: InputDecoration(
+                            labelText: s.lookup('s4.lib.pharmacy.metric_unit'),
+                            isDense: true,
+                          ),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              key: const Key('drug-chart-supply-unit'),
+                              value: row.supplyUnit,
+                              isExpanded: true,
+                              isDense: true,
+                              items: medicationWardSupplyUnits
+                                  .map(
+                                    (unit) => DropdownMenuItem(
+                                      value: unit,
+                                      child: Text(
+                                        s.medicationWardSupplyUnit(unit),
+                                      ),
+                                    ),
+                                  )
+                                  .toList(growable: false),
+                              onChanged: row.saving
+                                  ? null
+                                  : (value) =>
+                                        setState(() => row.supplyUnit = value),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
             _tableCell(
@@ -1704,13 +1947,19 @@ class _DoseTimeCell extends StatelessWidget {
   final _DoseSlot slot;
   final Map<String, dynamic> order;
   final bool canAdminister;
+  final bool canReleaseHold;
   final VoidCallback onAdministrationChanged;
+  final ValueChanged<Map<String, dynamic>> onReleaseHold;
+  final Set<int> releasingHoldIds;
 
   const _DoseTimeCell({
     required this.slot,
     required this.order,
     required this.canAdminister,
+    required this.canReleaseHold,
     required this.onAdministrationChanged,
+    required this.onReleaseHold,
+    required this.releasingHoldIds,
   });
 
   @override
@@ -1725,10 +1974,17 @@ class _DoseTimeCell extends StatelessWidget {
         )
         .toList();
     final latest = matched.isEmpty ? null : matched.last;
-    final status = _text(latest?['status'], fallback: 'scheduled');
+    final status = _text(
+      latest?['status'],
+      fallback: 'scheduled',
+    ).toLowerCase();
+    final maId = int.tryParse(latest?['id']?.toString() ?? '');
     final given = latest == null ? null : _dateTime(latest['administered_at']);
-    final due = latest != null && (status == 'scheduled' || status == 'held');
+    final scheduled = latest != null && status == 'scheduled';
+    final held = latest != null && status == 'held';
+    final releasing = maId != null && releasingHoldIds.contains(maId);
     final selected = doseTimes.contains(slot.time) || latest != null;
+    final strings = AppStrings.of(context);
 
     return _tableCell(
       width: _timeCol,
@@ -1740,32 +1996,82 @@ class _DoseTimeCell extends StatelessWidget {
                   Icon(
                     given != null
                         ? Icons.check_circle
-                        : due
+                        : scheduled || held
                         ? Icons.schedule
                         : Icons.radio_button_checked,
                     color: given != null
                         ? AppTheme.successOnSurface
-                        : due
+                        : scheduled || held
                         ? AppTheme.warningOnSurface
                         : AppTheme.primaryBlue,
                     size: 18,
                   ),
-                  if (canAdminister && due && latest['id'] != null)
+                  if (canOpenDrugChartMarScanner(
+                        status,
+                        canAdminister: canAdminister,
+                      ) &&
+                      maId != null)
                     TextButton(
+                      key: Key('drug-chart-mar-scan-$maId'),
                       style: TextButton.styleFrom(
                         padding: EdgeInsets.zero,
                         minimumSize: const Size(48, 28),
                       ),
                       onPressed: () => context
-                          .push('/mar/scan/${latest['id']}')
+                          .push('/mar/scan/$maId')
                           .then((_) => onAdministrationChanged()),
-                      child: Text(AppStrings.of(context).drugChartScan),
+                      child: Text(strings.drugChartScan),
+                    )
+                  else if (held)
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Tooltip(
+                          message: strings.lookup('due_meds.held_review_state'),
+                          child: Text(
+                            strings.dueMedsHeldBadge,
+                            key: Key('drug-chart-held-review-${maId ?? 0}'),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: AppTheme.errorOnSurface,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        if (canReleaseDrugChartMarHold(
+                              status,
+                              canPrescribe: canReleaseHold,
+                              deviceMode: appDeviceModeForContext(context),
+                            ) &&
+                            maId != null)
+                          TextButton(
+                            key: Key('drug-chart-release-hold-$maId'),
+                            style: TextButton.styleFrom(
+                              padding: EdgeInsets.zero,
+                              minimumSize: const Size(48, 28),
+                            ),
+                            onPressed: releasing
+                                ? null
+                                : () => onReleaseHold(latest),
+                            child: releasing
+                                ? const SizedBox.square(
+                                    dimension: 14,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : Text(
+                                    strings.lookup('due_meds.actions.release'),
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(fontSize: 10),
+                                  ),
+                          ),
+                      ],
                     )
                   else
                     Text(
-                      given != null
-                          ? AppStrings.of(context).drugChartGiven
-                          : status,
+                      given != null ? strings.drugChartGiven : status,
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: AppTheme.textSecondary,
@@ -1946,6 +2252,7 @@ class _MiniPill extends StatelessWidget {
 class _DrugChartDraftRow {
   final drugCtrl = TextEditingController();
   final doseCtrl = TextEditingController();
+  final supplyQuantityCtrl = TextEditingController();
   final notesCtrl = TextEditingController();
   final dictationCtrl = TextEditingController();
   final selectedTimes = <String>{'08:00', '20:00'};
@@ -1963,11 +2270,13 @@ class _DrugChartDraftRow {
   String? form;
   String? formKey;
   String? releaseKey;
+  String? supplyUnit;
   String route = 'oral';
   String foodTiming = '';
   bool saving = false;
   bool daw = false;
   bool catalogUnavailable = false;
+  DateTime? orderAttemptStartedAt;
 
   void applyDerivedDose({String? drug, bool overwrite = false}) {
     final derived = _text(strength).isNotEmpty
@@ -1993,6 +2302,8 @@ class _DrugChartDraftRow {
     form = null;
     formKey = null;
     releaseKey = null;
+    supplyQuantityCtrl.clear();
+    supplyUnit = null;
   }
 
   void applyCatalogRow(Map<String, dynamic> row, {int? originalCatalogId}) {
@@ -2013,6 +2324,8 @@ class _DrugChartDraftRow {
     form = _nullableText(_catalogForm(row));
     formKey = _nullableText(row['form_key']);
     releaseKey = _nullableText(row['release_key']);
+    supplyQuantityCtrl.clear();
+    supplyUnit = null;
 
     final catalogRoute = _catalogRoute(row);
     if (catalogRoute != null) route = catalogRoute;
@@ -2021,6 +2334,7 @@ class _DrugChartDraftRow {
   void dispose() {
     drugCtrl.dispose();
     doseCtrl.dispose();
+    supplyQuantityCtrl.dispose();
     notesCtrl.dispose();
     dictationCtrl.dispose();
   }

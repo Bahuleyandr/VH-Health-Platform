@@ -6,13 +6,14 @@
 //   2026-05-09-inpatient-admission-billing-no-cashier-shift-reconciliation
 //   2026-05-10-inpatient-admission-billing-cash-drawer-reconciliation-missing
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 
 const SESSION_RETURNING = `id, tenant_id, cashier_uid, shift,
   opened_at, opening_float,
   closed_at, counted_total, counted_denominations,
-  system_total, variance, short_count, over_count,
+  cash_inflow_total, cash_refund_total, system_total,
+  variance, short_count, over_count,
   requires_review, variance_reason, status,
   reviewed_by, reviewed_at, review_notes,
   created_at, updated_at`;
@@ -112,106 +113,110 @@ export async function closeSession({
   if (!Number.isFinite(sessionId) || sessionId <= 0) {
     throw AppError.badRequest('session id must be a positive integer');
   }
-
-  const [session] = await prisma.$queryRawUnsafe(
-    `SELECT id, cashier_uid, shift, opened_at, opening_float, status
-       FROM cash_drawer_sessions
-      WHERE id = $1 AND tenant_id = $2::uuid`,
-    sessionId, tid,
-  );
-  if (!session) throw AppError.notFound('Cash-drawer session not found');
-  if (String(session.cashier_uid) !== String(actorUid)) {
-    throw AppError.forbidden('Only the cashier who opened the session can close it');
-  }
-  if (session.status !== 'open') {
-    throw AppError.badRequest(
-      `Cannot close a session that is already ${session.status}`,
-      'CASH_DRAWER_SESSION_NOT_OPEN',
-    );
-  }
-
   const countedTotal = sumDenominations(counted_denominations);
-  // Reconciliation window — system_total = every non-reversed CASH payment by
-  // this cashier, this shift, collected at/after the session opened. The lower
-  // bound has NO matching upper bound by design, and that is SOUND (not the
-  // "cross-session double-count" that audit M5 conjectured — verified a false
-  // positive 2026-06-23). The soundness is load-bearing on two invariants:
-  //   1. `uq_cash_drawer_sessions_open` UNIQUE (tenant_id, cashier_uid, shift)
-  //      WHERE status='open' (migration 198) ⇒ at most ONE open session per
-  //      (cashier, shift), so two sessions that could both match a payment are
-  //      strictly SEQUENTIAL — the earlier must close before the later opens.
-  //   2. `billing_payments.collected_at` is insert-time CURRENT_TIMESTAMP
-  //      (collectPaymentTx never sets it) ⇒ a later same-(cashier,shift)
-  //      session's payments have collected_at > the earlier session's close
-  //      time, so they did not exist at the earlier (one-and-only) close; and
-  //      the earlier session's payments are < the later opened_at, excluded
-  //      here by `collected_at >= opened_at`. Hence no payment is summed twice.
-  // If you ever relax invariant 1 (e.g. shared multi-cashier drawers) you MUST
-  // add explicit per-payment session membership (a cash_drawer_session_id stamp)
-  // before trusting this window. Caveat: a CASH payment with NULL collected_by
-  // or NULL shift matches no session and is invisible here (an under-count, the
-  // separate residual the M5 verifiers flagged) — collectPayment requires shift
-  // for CASH; a collected_by audit query can surface any legacy orphans.
-  const [systemRow] = await prisma.$queryRawUnsafe(
-    `SELECT COALESCE(SUM(CASE WHEN reversed THEN 0 ELSE amount END), 0)::numeric AS system_total
-       FROM billing_payments
-      WHERE tenant_id = $1::uuid
-        AND mode = 'CASH'
-        AND collected_by = $2::uuid
-        AND shift = $3
-        AND collected_at >= $4::timestamptz`,
-    tid, actorUid, session.shift, session.opened_at,
-  );
-  const systemTotal = toFixed2(Number(systemRow?.system_total || 0));
-  const expectedCounted = toFixed2(systemTotal + Number(session.opening_float || 0));
-  const variance = toFixed2(countedTotal - expectedCounted);
-  const shortCount = variance < 0;
-  const overCount = variance > 0;
-  const absVariance = Math.abs(variance);
-  const withinTolerance = absVariance <= VARIANCE_TOLERANCE;
-  const newStatus = withinTolerance ? 'reviewed' : 'closed';
-  const requiresReview = !withinTolerance;
-  const reason = variance_reason ? String(variance_reason).slice(0, 500) : null;
-  if (requiresReview && !reason) {
-    throw AppError.badRequest(
-      `variance_reason is required when |variance| > ${VARIANCE_TOLERANCE}`,
-      'CASH_DRAWER_VARIANCE_REASON_REQUIRED',
-      { variance, tolerance: VARIANCE_TOLERANCE },
+  return setTenantTx(tid, async (tx) => {
+    const [session] = await tx.$queryRawUnsafe(
+      `SELECT id, cashier_uid, shift, opened_at, opening_float, status
+         FROM cash_drawer_sessions
+        WHERE id = $1 AND tenant_id = $2::uuid
+        FOR UPDATE`,
+      sessionId,
+      tid,
     );
-  }
+    if (!session) throw AppError.notFound('Cash-drawer session not found');
+    if (String(session.cashier_uid) !== String(actorUid)) {
+      throw AppError.forbidden('Only the cashier who opened the session can close it');
+    }
+    if (session.status !== 'open') {
+      throw AppError.badRequest(
+        `Cannot close a session that is already ${session.status}`,
+        'CASH_DRAWER_SESSION_NOT_OPEN',
+      );
+    }
 
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE cash_drawer_sessions
-        SET closed_at = NOW(),
-            counted_total = $1::numeric,
-            counted_denominations = $2::jsonb,
-            system_total = $3::numeric,
-            variance = $4::numeric,
-            short_count = $5,
-            over_count = $6,
-            requires_review = $7,
-            variance_reason = $8,
-            status = $9,
-            reviewed_at = CASE WHEN $7 = FALSE THEN NOW() ELSE NULL END,
-            reviewed_by = CASE WHEN $7 = FALSE THEN $10::uuid ELSE NULL END,
-            updated_at = NOW()
-      WHERE id = $11 AND tenant_id = $12::uuid AND status = 'open'
-      RETURNING ${SESSION_RETURNING}`,
-    countedTotal,
-    JSON.stringify(counted_denominations || {}),
-    systemTotal,
-    variance,
-    shortCount,
-    overCount,
-    requiresReview,
-    reason,
-    newStatus,
-    actorUid,
-    sessionId,
-    tid,
-  );
-  if (!rows[0]) throw AppError.conflict('Session state changed; reload and retry');
-  return rows[0];
+    const [totals] = await tx.$queryRawUnsafe(
+      `SELECT
+         COALESCE((
+           SELECT SUM(payment.amount)
+             FROM billing_payments payment
+            WHERE payment.tenant_id = $1::uuid
+              AND payment.mode = 'CASH'
+              AND payment.reversed = FALSE
+              AND payment.collected_by = $2::uuid
+              AND payment.shift = $3
+              AND payment.collected_at >= $4::timestamptz
+         ), 0)::numeric AS cash_inflow_total,
+         COALESCE((
+           SELECT SUM(refund.amount)
+             FROM billing_refunds refund
+            WHERE refund.tenant_id = $1::uuid
+              AND refund.cash_drawer_session_id = $5::bigint
+              AND refund.mode = 'CASH'
+              AND refund.approval_status = 'PAID'
+              AND refund.payout_rail = 'manual'
+         ), 0)::numeric AS cash_refund_total`,
+      tid,
+      actorUid,
+      session.shift,
+      session.opened_at,
+      sessionId,
+    );
+    const cashInflowTotal = toFixed2(Number(totals?.cash_inflow_total || 0));
+    const cashRefundTotal = toFixed2(Number(totals?.cash_refund_total || 0));
+    const systemTotal = toFixed2(cashInflowTotal - cashRefundTotal);
+    const expectedCounted = toFixed2(systemTotal + Number(session.opening_float || 0));
+    const variance = toFixed2(countedTotal - expectedCounted);
+    const shortCount = variance < 0;
+    const overCount = variance > 0;
+    const withinTolerance = Math.abs(variance) <= VARIANCE_TOLERANCE;
+    const newStatus = withinTolerance ? 'reviewed' : 'closed';
+    const requiresReview = !withinTolerance;
+    const reason = variance_reason ? String(variance_reason).slice(0, 500) : null;
+    if (requiresReview && !reason) {
+      throw AppError.badRequest(
+        `variance_reason is required when |variance| > ${VARIANCE_TOLERANCE}`,
+        'CASH_DRAWER_VARIANCE_REASON_REQUIRED',
+        { variance, tolerance: VARIANCE_TOLERANCE },
+      );
+    }
+
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE cash_drawer_sessions
+          SET closed_at = NOW(),
+              counted_total = $1::numeric,
+              counted_denominations = $2::jsonb,
+              cash_inflow_total = $3::numeric,
+              cash_refund_total = $4::numeric,
+              system_total = $5::numeric,
+              variance = $6::numeric,
+              short_count = $7,
+              over_count = $8,
+              requires_review = $9,
+              variance_reason = $10,
+              status = $11,
+              reviewed_at = CASE WHEN $9 = FALSE THEN NOW() ELSE NULL END,
+              reviewed_by = CASE WHEN $9 = FALSE THEN $12::uuid ELSE NULL END,
+              updated_at = NOW()
+        WHERE id = $13 AND tenant_id = $14::uuid AND status = 'open'
+        RETURNING ${SESSION_RETURNING}`,
+      countedTotal,
+      JSON.stringify(counted_denominations || {}),
+      cashInflowTotal,
+      cashRefundTotal,
+      systemTotal,
+      variance,
+      shortCount,
+      overCount,
+      requiresReview,
+      reason,
+      newStatus,
+      actorUid,
+      sessionId,
+      tid,
+    );
+    if (!rows[0]) throw AppError.conflict('Session state changed; reload and retry');
+    return rows[0];
+  });
 }
 
 export async function reviewSession({

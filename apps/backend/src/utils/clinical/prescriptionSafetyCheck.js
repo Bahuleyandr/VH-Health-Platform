@@ -1,7 +1,13 @@
+import { createHash } from 'node:crypto';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { getUnifiedActiveAllergies, rankSeverity, SEVERE_BLOCK_RANK } from '../../services/clinical/allergySourceService.js';
+import {
+  getUnifiedActiveAllergiesDetailed,
+  rankSeverity,
+  SEVERE_BLOCK_RANK,
+} from '../../services/clinical/allergySourceService.js';
 import { evaluateDrugKb } from '../../services/clinical/drugKnowledgeBaseService.js';
+import { resolveDrugKeys } from '../../services/clinical/drugKbLinkService.js';
 import { isCompositionSearchEnabled } from '../../services/pharmacy/compositionFeatureService.js';
 import {
   enrichMedicationsWithComposition,
@@ -191,9 +197,9 @@ function medicationConflictsWithAllergen(medName, allergen) {
  * piece is missing — the dose check then silently skips for this patient
  * rather than 500'ing or false-flagging.
  */
-async function loadPaediatricContext(patientId) {
+async function loadPaediatricContext(patientId, db = prisma) {
   if (!patientId) return null;
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await db.$queryRawUnsafe(
       `SELECT
          CASE WHEN birthday IS NOT NULL THEN
            DATE_PART('year', AGE(NOW()::date, birthday))::int
@@ -206,7 +212,7 @@ async function loadPaediatricContext(patientId) {
   // Most recent recorded weight from vitals_chart (joined via patient_uid).
   // This won't fire for patients we never recorded vitals on; that's OK,
   // dose check just skips silently in that case.
-  const weightRows = await prisma.$queryRawUnsafe(
+  const weightRows = await db.$queryRawUnsafe(
       `SELECT vc.weight_kg
          FROM vitals_chart vc
          JOIN users u ON u.uid = vc.patient_uid
@@ -439,9 +445,9 @@ function parseMedicationDays(med) {
   return Number.isInteger(days) && days > 0 ? days : null;
 }
 
-async function loadPregnancyContext(patientId) {
+async function loadPregnancyContext(patientId, db = prisma) {
   if (!patientId) return { activePregnancy: false, possiblePregnancy: false };
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await db.$queryRawUnsafe(
       `SELECT u.gender,
               u.is_pregnant,
               u.pregnancy_lmp_date,
@@ -468,9 +474,9 @@ async function loadPregnancyContext(patientId) {
   };
 }
 
-async function loadRenalContext(patientId) {
+async function loadRenalContext(patientId, db = prisma) {
   if (!patientId) return { evidenceFound: false };
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await db.$queryRawUnsafe(
       `WITH patient AS (
          SELECT id, uid FROM users WHERE id = $1 LIMIT 1
        ),
@@ -747,22 +753,726 @@ export function checkAntithromboticInteractions(medications) {
   return { warnings, blockers };
 }
 
+const ACTIVE_THERAPY_SOURCE_PRIORITY = new Map([
+  ['pharmacy_order', 10],
+  ['clinical_order', 20],
+  ['e_prescription', 30],
+  ['medication_reconciliation', 40],
+  ['legacy_prescription', 45],
+  ['chronic_medication', 50],
+  ['mar_administration', 60],
+  ['counter_sale', 70],
+  ['specialty_therapy', 80],
+  ['medication_reminder', 90],
+]);
+
+function activeTherapyPositiveInt(value) {
+  const n = Number(value);
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
+function activeTherapyName(row) {
+  return String(row?.medication_name || '').trim();
+}
+
+function activeTherapyDate(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function activeTherapyDurationDays(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  const raw = payload.days ?? payload.duration_days ?? payload.duration ?? payload.course_days;
+  const direct = Number(raw);
+  if (Number.isInteger(direct) && direct > 0) return direct;
+  const timingText = [raw, payload.instructions, payload.sig]
+    .filter((value) => value != null)
+    .join(' ');
+  const match = timingText.match(/\b(\d{1,4})\s*(?:day|days|d)\b/i);
+  return match ? Number(match[1]) : null;
+}
+
+function addActiveTherapyDays(value, days) {
+  const parsed = activeTherapyDate(value);
+  if (!parsed || !Number.isInteger(days) || days <= 0) return null;
+  parsed.setUTCDate(parsed.getUTCDate() + days);
+  return parsed;
+}
+
+function activeTherapyPayloadEnd(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  const direct = payload.effective_end ?? payload.end_date ?? payload.endDate ?? payload.course_end;
+  const directDate = activeTherapyDate(direct);
+  if (directDate) return directDate;
+  for (const instruction of payload.dosage_instruction || []) {
+    const boundsEnd = instruction?.timing?.repeat?.boundsPeriod?.end;
+    const parsed = activeTherapyDate(boundsEnd);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
+function activeTherapyBlocker(type, row, message, extra = {}) {
+  return {
+    type,
+    severity: 'HIGH',
+    source: row?.source || null,
+    source_id: row?.source_id == null ? null : String(row.source_id),
+    medication: activeTherapyName(row) || null,
+    message,
+    ...extra,
+  };
+}
+
+/**
+ * Canonical patient-global active-therapy snapshot for pharmacist safety.
+ * Missing tenant or patient authority fails closed before any query. Tenant-
+ * owned sources and catalog rows use explicit tenant predicates; governed
+ * compositions are reached through those catalog identities. Queries use the
+ * supplied db handle or the shared Prisma client by default, and this function
+ * never opens, owns, commits or rolls back a caller transaction. Source rows
+ * are reduced to stable lineage, catalog, composition, timing and KB-key
+ * authority before the snapshot is hashed.
+ */
+export async function loadActiveTherapySnapshot(patientId, {
+  tenantId = null,
+  db = prisma,
+  excludePrescriptionId = null,
+  excludePharmacyOrderId = null,
+  excludeClinicalOrderId = null,
+} = {}) {
+  const blockers = [];
+  const numericPatientId = activeTherapyPositiveInt(patientId);
+  if (!tenantId || !numericPatientId) {
+    blockers.push({
+      type: 'ACTIVE_THERAPY_CONTEXT_UNAVAILABLE',
+      severity: 'HIGH',
+      recovery_action: 'resolve_same_tenant_patient_authority',
+      message: 'Active-therapy screening requires explicit tenant and patient authority.',
+    });
+    const sha256 = createHash('sha256').update(JSON.stringify({ evidence: [], blockers })).digest('hex');
+    return { medications: [], evidence: [], blockers, sha256 };
+  }
+
+  const patientRows = await db.$queryRawUnsafe(
+    `SELECT id, uid, NOW() AS snapshot_at
+       FROM users
+      WHERE tenant_id=$1::uuid AND id=$2::int
+        AND role='PATIENT' AND is_active=TRUE AND status='active'
+        AND is_deleted=FALSE AND merged_into_uid IS NULL
+      LIMIT 2
+      FOR KEY SHARE`,
+    tenantId,
+    numericPatientId,
+  );
+  if (patientRows.length !== 1) {
+    blockers.push({
+      type: 'ACTIVE_THERAPY_CONTEXT_UNAVAILABLE',
+      severity: 'HIGH',
+      recovery_action: 'resolve_same_tenant_patient_authority',
+      message: 'The active same-tenant patient identity could not be resolved uniquely.',
+    });
+    const sha256 = createHash('sha256').update(JSON.stringify({ evidence: [], blockers })).digest('hex');
+    return { medications: [], evidence: [], blockers, sha256 };
+  }
+  const patientUid = String(patientRows[0].uid);
+  const snapshotAt = activeTherapyDate(patientRows[0].snapshot_at);
+
+  // Counter-sale lines carry an inventory item rather than a durable catalog
+  // snapshot. Pin those same-tenant inventory mappings before projecting the
+  // sale so catalog identity cannot change between source and catalog reads.
+  await db.$queryRawUnsafe(
+    `SELECT inventory.id
+       FROM pharmacy_counter_sales sale
+       JOIN pharmacy_counter_sale_lines line
+         ON line.tenant_id=sale.tenant_id AND line.counter_sale_id=sale.id
+       JOIN pharmacy_inventory_items inventory
+         ON inventory.tenant_id=line.tenant_id AND inventory.id=line.inventory_item_id
+      WHERE sale.tenant_id=$1::uuid AND sale.patient_uid=$2::uuid
+        AND sale.status='COMPLETED' AND sale.voided_at IS NULL
+      ORDER BY inventory.id
+      FOR KEY SHARE OF inventory`,
+    tenantId,
+    patientUid,
+  );
+
+  const rawRows = await db.$queryRawUnsafe(
+    `WITH latest_reconciliation AS (
+       SELECT id
+         FROM medication_reconciliations
+        WHERE tenant_id=$1::uuid AND patient_uid=$3::uuid
+          AND (patient_id IS NULL OR patient_id=$2::int)
+          AND status='completed'
+        ORDER BY completed_at DESC NULLS LAST, created_at DESC, id DESC
+        LIMIT 1
+     )
+     SELECT * FROM (
+       SELECT 'e_prescription'::text AS source, ep.id::text AS source_id,
+              COALESCE(ep.revision, 1)::text AS source_revision,
+              CASE WHEN ep.pharmacy_order_id IS NOT NULL
+                THEN 'pharmacy_order:' || ep.pharmacy_order_id::text
+                ELSE 'e_prescription:' || ep.id::text END AS lineage_id,
+              COALESCE((med.ordinality - 1)::text, '0') AS line_index,
+              COALESCE(NULLIF(TRIM(med.value->>'name'), ''),
+                       NULLIF(TRIM(med.value->>'medication_name'), ''),
+                       NULLIF(TRIM(med.value->>'medicine_name'), ''),
+                       NULLIF(TRIM(med.value->>'generic_name'), ''),
+                       CASE WHEN med.ordinality IS NULL
+                         THEN NULLIF(TRIM(ep.medication_name), '')
+                       END) AS medication_name,
+              COALESCE(NULLIF(med.value->>'catalog_id', ''),
+                       NULLIF(med.value->>'original_catalog_id', '')) AS catalog_id,
+              LOWER(COALESCE(ep.status, 'active')) AS source_status,
+              ep.lifecycle_status,
+              COALESCE(ep.signed_at, ep.created_at)::timestamptz AS effective_start,
+              NULL::timestamptz AS effective_end,
+              COALESCE(med.value, '{}'::jsonb) || jsonb_build_object(
+                '_patient_uid_resolved', ep.patient_uid=$3::uuid,
+                '_source_start_authoritative', ep.signed_at IS NOT NULL
+                  OR NULLIF(med.value->>'effective_start', '') IS NOT NULL
+                  OR NULLIF(med.value->>'start_date', '') IS NOT NULL
+                  OR NULLIF(med.value->>'authored_on', '') IS NOT NULL
+              ) AS line_payload
+         FROM e_prescriptions ep
+         LEFT JOIN LATERAL jsonb_array_elements(COALESCE(ep.medications, '[]'::jsonb))
+           WITH ORDINALITY AS med(value, ordinality) ON TRUE
+        WHERE ep.tenant_id=$1::uuid AND ep.patient_id=$2::int
+          AND ep.id IS DISTINCT FROM $4::int
+          AND LOWER(COALESCE(ep.status, 'active')) IN
+              ('active', 'pharmacy_linked', 'fulfilled', 'on-hold', 'on_hold')
+          AND (LOWER(COALESCE(ep.lifecycle_status, 'draft')) IN ('signed', 'imported_history')
+               OR ep.signed_at IS NOT NULL)
+       UNION ALL
+       SELECT 'pharmacy_order', po.id::text, po.inventory_authority_version::text,
+              'pharmacy_order:' || po.id::text,
+              COALESCE(NULLIF(line.value->>'prescription_line_index', ''),
+                       NULLIF(line.value->>'order_line_index', ''),
+                       (line.ordinality - 1)::text),
+              COALESCE(NULLIF(TRIM(line.value->>'name'), ''),
+                       NULLIF(TRIM(line.value->>'medication_name'), ''),
+                       NULLIF(TRIM(line.value->>'medicine_name'), ''),
+                       NULLIF(TRIM(line.value->>'item_name'), '')),
+              COALESCE(NULLIF(line.value->>'catalog_id', ''),
+                       NULLIF(line.value->>'original_catalog_id', '')),
+              CASE WHEN po.status IN ('DISPENSED', 'DELIVERED')
+                THEN 'dispensed' ELSE 'active' END, 'governed_order',
+              COALESCE(po.dispensed_at, po.ordered_at)::timestamptz, NULL::timestamptz,
+              COALESCE(line.value, '{}'::jsonb) || jsonb_build_object(
+                '_source_start_authoritative',
+                po.status NOT IN ('DISPENSED', 'DELIVERED') OR po.dispensed_at IS NOT NULL
+              )
+         FROM pharmacy_orders po
+         CROSS JOIN LATERAL jsonb_array_elements(
+           CASE WHEN po.status IN ('DISPENSED', 'DELIVERED')
+             THEN COALESCE(po.dispensed_medications, po.items_list, '[]'::jsonb)
+             ELSE COALESCE(po.items_list, '[]'::jsonb) END
+         ) WITH ORDINALITY AS line(value, ordinality)
+        WHERE po.tenant_id=$1::uuid AND po.patient_id=$2::int
+          AND po.id IS DISTINCT FROM $5::int
+          AND po.status IN ('PENDING', 'CONFIRMED', 'PREPARING', 'READY', 'DISPATCHED',
+                            'PARTIALLY_DISPENSED', 'ON_HOLD', 'DISPENSED', 'DELIVERED')
+       UNION ALL
+       SELECT 'clinical_order', clinical.id::text,
+              EXTRACT(EPOCH FROM clinical.updated_at)::bigint::text,
+              'clinical_order:' || clinical.id::text,
+              COALESCE(NULLIF(clinical.details->>'line_index', ''),
+                       LOWER(COALESCE(clinical.details->>'medication_name', clinical.details->>'name', ''))),
+              COALESCE(NULLIF(TRIM(clinical.details->>'medication_name'), ''),
+                       NULLIF(TRIM(clinical.details->>'name'), '')),
+              NULLIF(clinical.details->>'catalog_id', ''), clinical.status, 'clinical_order',
+              COALESCE(clinical.start_date, clinical.created_at), clinical.end_date,
+              clinical.details || jsonb_build_object(
+                'route', COALESCE(clinical.details->>'route', clinical.route)
+              )
+         FROM clinical_orders clinical
+        WHERE clinical.tenant_id=$1::uuid AND clinical.patient_uid=$3::uuid
+          AND ($6::int IS NULL OR clinical.id IS DISTINCT FROM $6::int)
+          AND clinical.order_type='medication'
+          AND COALESCE(clinical.start_date, clinical.created_at) <= NOW()
+          AND (clinical.end_date IS NULL OR clinical.end_date >= NOW())
+          AND COALESCE(clinical.status, 'ordered')
+                !~* '(cancelled|canceled|discontinued|stopped|suspended|completed)'
+       UNION ALL
+       SELECT 'mar_administration', administration.id::text,
+              EXTRACT(EPOCH FROM administration.updated_at)::bigint::text,
+              CASE WHEN administration.clinical_order_id IS NOT NULL
+                THEN 'clinical_order:' || administration.clinical_order_id::text
+                ELSE 'mar_administration:' || administration.id::text END,
+              LOWER(administration.medication_name), administration.medication_name,
+              NULLIF(clinical.details->>'catalog_id', ''),
+              CASE WHEN LOWER(COALESCE(administration.status, 'scheduled')) IN ('scheduled', 'due')
+                THEN 'scheduled' ELSE LOWER(administration.status) END, 'mar',
+              COALESCE(administration.administered_at, administration.scheduled_time, administration.created_at),
+              CASE WHEN LOWER(COALESCE(administration.status, 'scheduled'))='administered'
+                THEN COALESCE(administration.administered_at, administration.scheduled_time) + INTERVAL '7 days'
+                ELSE clinical.end_date END,
+              jsonb_build_object('dose', COALESCE(administration.dose, administration.dosage),
+                                 'route', administration.route)
+         FROM medication_administrations administration
+         LEFT JOIN clinical_orders clinical
+           ON clinical.tenant_id=administration.tenant_id
+          AND clinical.id=administration.clinical_order_id
+          AND clinical.patient_uid=administration.patient_uid
+          AND clinical.order_type='medication'
+        WHERE administration.tenant_id=$1::uuid AND administration.patient_uid=$3::uuid
+          AND ($6::int IS NULL OR administration.clinical_order_id IS DISTINCT FROM $6::int)
+          AND LOWER(COALESCE(administration.status, 'scheduled')) IN
+              ('scheduled', 'due', 'held', 'administered')
+          AND (
+            (LOWER(COALESCE(administration.status, 'scheduled')) IN ('scheduled', 'due', 'held')
+             AND administration.scheduled_time BETWEEN NOW() - INTERVAL '24 hours'
+                                                   AND NOW() + INTERVAL '7 days')
+            OR
+            (LOWER(COALESCE(administration.status, 'scheduled')) = 'administered'
+             AND administration.administered_at >= NOW() - INTERVAL '7 days')
+          )
+       UNION ALL
+       SELECT 'chronic_medication', patient.id::text,
+              EXTRACT(EPOCH FROM COALESCE(patient.chronic_medications_updated_at, patient.registered_at))::bigint::text,
+              'chronic:' || patient.id::text || ':' || (med.ordinality - 1)::text,
+              (med.ordinality - 1)::text,
+              COALESCE(NULLIF(TRIM(med.value->>'name'), ''), NULLIF(TRIM(med.value->>'medication_name'), '')),
+              NULLIF(med.value->>'catalog_id', ''), 'active', 'patient_profile',
+              patient.chronic_medications_updated_at, NULL::timestamptz, med.value
+         FROM users patient
+         CROSS JOIN LATERAL jsonb_array_elements(COALESCE(patient.chronic_medications, '[]'::jsonb))
+           WITH ORDINALITY AS med(value, ordinality)
+        WHERE patient.tenant_id=$1::uuid AND patient.id=$2::int AND patient.uid=$3::uuid
+       UNION ALL
+       SELECT 'medication_reconciliation', item.id::text,
+              EXTRACT(EPOCH FROM item.updated_at)::bigint::text,
+              COALESCE(NULLIF(item.source_ref, ''), 'medrec:' || item.id::text),
+              item.id::text, item.medication_name,
+              COALESCE(NULLIF(item.metadata->>'catalog_id', ''), NULLIF(item.metadata->>'catalogId', '')),
+              item.decision, reconciliation.rec_type,
+              reconciliation.completed_at, NULL::timestamptz,
+              item.metadata || jsonb_build_object(
+                'dose', CASE WHEN item.decision='change' THEN COALESCE(item.changed_dose, item.dose) ELSE item.dose END,
+                'frequency', CASE WHEN item.decision='change' THEN COALESCE(item.changed_frequency, item.frequency) ELSE item.frequency END,
+                'route', CASE WHEN item.decision='change' THEN COALESCE(item.changed_route, item.route) ELSE item.route END)
+         FROM latest_reconciliation latest
+         JOIN medication_reconciliations reconciliation ON reconciliation.id=latest.id
+         JOIN medication_reconciliation_items item
+           ON item.reconciliation_id=reconciliation.id AND item.tenant_id=reconciliation.tenant_id
+       WHERE item.decision IN ('continue', 'change', 'new')
+       UNION ALL
+       SELECT 'legacy_prescription', prescription.id::text,
+              EXTRACT(EPOCH FROM prescription.issued_at)::bigint::text,
+              'legacy_prescription:' || prescription.id::text,
+              prescription.id::text, prescription.medication_name,
+              NULL::text, LOWER(COALESCE(prescription.status, 'active')), 'legacy_prescription',
+              prescription.issued_at,
+              CASE WHEN prescription.duration_days IS NOT NULL
+                THEN prescription.issued_at + make_interval(days => prescription.duration_days)
+                ELSE NULL END,
+              jsonb_build_object('dose', prescription.dosage,
+                                 'frequency', prescription.frequency,
+                                 'duration_days', prescription.duration_days)
+         FROM prescriptions prescription
+        WHERE prescription.tenant_id=$1::uuid AND prescription.patient_uid=$3::uuid
+          AND LOWER(COALESCE(prescription.status, 'active')) IN ('active', 'ongoing')
+       UNION ALL
+       SELECT 'counter_sale', line.id::text,
+              EXTRACT(EPOCH FROM sale.updated_at)::bigint::text,
+              'counter_sale:' || sale.id::text || ':' || line.id::text,
+              line.id::text, line.item_name, inventory.catalog_id::text,
+              sale.status, 'registered_counter_sale', sale.updated_at, NULL::timestamptz,
+              jsonb_build_object('quantity', line.quantity, 'inventory_item_id', line.inventory_item_id)
+         FROM pharmacy_counter_sales sale
+         JOIN pharmacy_counter_sale_lines line
+           ON line.tenant_id=sale.tenant_id AND line.counter_sale_id=sale.id
+         JOIN pharmacy_inventory_items inventory
+           ON inventory.tenant_id=line.tenant_id AND inventory.id=line.inventory_item_id
+        WHERE sale.tenant_id=$1::uuid AND sale.patient_uid=$3::uuid
+          AND sale.status='COMPLETED' AND sale.voided_at IS NULL
+     ) therapy
+     WHERE medication_name IS NOT NULL AND BTRIM(medication_name) <> ''`,
+    tenantId,
+    numericPatientId,
+    patientUid,
+    excludePrescriptionId == null ? null : Number(excludePrescriptionId),
+    excludePharmacyOrderId == null ? null : Number(excludePharmacyOrderId),
+    excludeClinicalOrderId == null ? null : Number(excludeClinicalOrderId),
+  );
+
+  const specialtyRows = await db.$queryRawUnsafe(
+    `SELECT * FROM (
+       SELECT 'specialty_therapy'::text AS source,
+              'chemo:' || administration.id::text AS source_id,
+              EXTRACT(EPOCH FROM administration.updated_at)::bigint::text AS source_revision,
+              'chemo:' || administration.id::text AS lineage_id,
+              administration.id::text AS line_index,
+              administration.drug_name AS medication_name,
+              NULL::text AS catalog_id, administration.status AS source_status,
+              'oncology'::text AS lifecycle_status,
+              COALESCE(administration.administered_at, cycle.scheduled_date::timestamptz) AS effective_start,
+              CASE WHEN administration.administered_at IS NOT NULL
+                THEN administration.administered_at + INTERVAL '7 days' ELSE NULL END AS effective_end,
+              jsonb_build_object('dose', administration.final_dose, 'route', administration.route) AS line_payload
+         FROM chemo_administrations administration
+         JOIN chemo_cycles cycle ON cycle.tenant_id=administration.tenant_id AND cycle.id=administration.cycle_id
+         JOIN chemo_treatment_plans plan ON plan.tenant_id=cycle.tenant_id AND plan.id=cycle.plan_id
+        WHERE administration.tenant_id=$1::uuid AND plan.patient_uid=$2::uuid
+          AND administration.status IN ('pending', 'first_verified', 'double_verified', 'administered')
+          AND (administration.status <> 'administered'
+               OR administration.administered_at >= NOW() - INTERVAL '7 days')
+       UNION ALL
+       SELECT 'specialty_therapy', 'dialysis:' || prescription.id::text,
+              EXTRACT(EPOCH FROM prescription.updated_at)::bigint::text,
+              'dialysis:' || prescription.id::text, 'anticoagulant',
+              prescription.anticoag, NULL::text, prescription.status, 'dialysis',
+              prescription.valid_from::timestamptz, prescription.superseded_at,
+              jsonb_build_object('dose', prescription.anticoag_loading,
+                                 'maintenance', prescription.anticoag_maintenance)
+         FROM dialysis_prescriptions prescription
+         JOIN dialysis_patients patient
+           ON patient.tenant_id=prescription.tenant_id AND patient.id=prescription.dialysis_patient_id
+        WHERE prescription.tenant_id=$1::uuid AND patient.patient_uid=$2::uuid
+          AND prescription.status='active' AND prescription.valid_from <= CURRENT_DATE
+          AND BTRIM(prescription.anticoag) <> ''
+          AND LOWER(BTRIM(prescription.anticoag)) NOT IN
+              ('none', 'no anticoagulation', 'saline', 'saline flush')
+       UNION ALL
+       SELECT 'specialty_therapy', 'maternity:' || supplement.id::text,
+              EXTRACT(EPOCH FROM supplement.updated_at)::bigint::text,
+              'maternity:' || supplement.id::text, supplement.id::text,
+              supplement.supplement, NULL::text, 'active', 'maternity',
+              supplement.start_date::timestamptz, supplement.end_date::timestamptz,
+              jsonb_build_object('dose', supplement.dose, 'frequency', supplement.frequency,
+                                 'route', supplement.route)
+         FROM maternity_supplements supplement
+         JOIN maternity_pregnancies pregnancy
+           ON pregnancy.tenant_id=supplement.tenant_id AND pregnancy.id=supplement.pregnancy_id
+        WHERE supplement.tenant_id=$1::uuid AND pregnancy.patient_uid=$2::uuid
+          AND supplement.start_date <= CURRENT_DATE
+          AND (supplement.end_date IS NULL OR supplement.end_date >= CURRENT_DATE)
+       UNION ALL
+       SELECT 'specialty_therapy', 'resuscitation:' || link.id::text,
+              EXTRACT(EPOCH FROM link.updated_at)::bigint::text,
+              'resuscitation:' || link.id::text, link.id::text,
+              link.medication_name, NULL::text, link.reconciliation_status, 'emergency',
+              link.created_at, link.created_at + INTERVAL '7 days',
+              jsonb_build_object('dose', link.dose, 'route', link.route)
+         FROM resuscitation_medication_links link
+        WHERE link.tenant_id=$1::uuid AND link.patient_uid=$2::uuid
+          AND link.mar_administration_id IS NULL
+          AND link.created_at >= NOW() - INTERVAL '7 days'
+       UNION ALL
+       SELECT 'medication_reminder', reminder.id::text,
+              EXTRACT(EPOCH FROM reminder.updated_at)::bigint::text,
+              'medication_reminder:' || reminder.id::text, reminder.id::text,
+              reminder.medication_name, NULL::text,
+              CASE WHEN reminder.is_active THEN 'active' ELSE 'inactive' END,
+              'patient_reported', reminder.start_date::timestamptz,
+              reminder.end_date::timestamptz,
+              jsonb_build_object('dose', reminder.dosage, 'frequency', reminder.frequency)
+         FROM medication_reminders reminder
+        WHERE reminder.tenant_id=$1::uuid AND reminder.patient_uid=$2::uuid
+          AND reminder.is_active=TRUE AND reminder.start_date <= CURRENT_DATE
+          AND (reminder.end_date IS NULL OR reminder.end_date >= CURRENT_DATE)
+     ) specialty`,
+    tenantId,
+    patientUid,
+  );
+  rawRows.push(...specialtyRows);
+
+  // Collapse only duplicate ingestion/linkage representations using their
+  // durable lineage (for example an e-prescription that has become a pharmacy
+  // order). Independent source lineages remain separately hash-visible.
+  const sourcePriority = (row) => ACTIVE_THERAPY_SOURCE_PRIORITY.get(row?.source) ?? 999;
+  const lineageRows = new Map();
+  for (const row of rawRows) {
+    const medicationName = activeTherapyName(row);
+    if (!medicationName) continue;
+    const lineIndex = String(row.line_index || medicationName.toLowerCase());
+    const lineageId = String(row.lineage_id || `${row.source}:${row.source_id}`);
+    const lineageKey = `${lineageId}:${lineIndex}`;
+    const candidate = { ...row, lineage_sources: [String(row.source)] };
+    const current = lineageRows.get(lineageKey);
+    if (!current || sourcePriority(candidate) < sourcePriority(current)) {
+      candidate.lineage_sources = [
+        ...new Set([...(current?.lineage_sources || []), ...candidate.lineage_sources]),
+      ].sort();
+      lineageRows.set(lineageKey, candidate);
+    } else if (!current.lineage_sources.includes(candidate.source)) {
+      current.lineage_sources.push(candidate.source);
+      current.lineage_sources.sort();
+    }
+  }
+
+  // Preserve every independent lineage in the hash. Catalog/name deduplication
+  // happens only in the returned interaction projection after the evidence is
+  // built; otherwise a lower-priority source timing/revision change would not
+  // invalidate verification.
+  const candidateRows = [...lineageRows.values()];
+
+  // Terminal dispensing/import/counter-sale rows are historical exposures, not
+  // indefinitely active medication authority. If the source does not provide a
+  // course duration, verification must stop for reconciliation instead of using
+  // an arbitrary clinical window.
+  for (const row of candidateRows) {
+    const status = String(row.source_status || '').toLowerCase();
+    const lifecycle = String(row.lifecycle_status || '').toLowerCase();
+    if (row.source === 'e_prescription' && row.line_payload?._patient_uid_resolved !== true) {
+      blockers.push({
+        type: 'ACTIVE_THERAPY_PATIENT_AUTHORITY_UNRESOLVED',
+        severity: 'HIGH',
+        source: 'e_prescription',
+        source_id: String(row.source_id),
+        recovery_action: 'repair_prescription_patient_authority',
+        message: 'An active prescription does not carry the canonical same-tenant patient UUID.',
+      });
+      continue;
+    }
+    const requiresFiniteTiming = (
+      (row.source === 'pharmacy_order' && ['dispensed', 'delivered'].includes(status))
+      || (row.source === 'e_prescription' && status === 'fulfilled')
+      || (row.source === 'e_prescription' && lifecycle === 'imported_history')
+      || (row.source === 'e_prescription'
+        && String(row.line_payload?.source || '').toLowerCase() === 'discharge_summary')
+      || row.source === 'counter_sale'
+      || (row.source === 'mar_administration' && status === 'administered')
+      || (row.source === 'specialty_therapy' && status === 'administered')
+      || (row.source === 'specialty_therapy' && lifecycle === 'emergency')
+    );
+    if (!activeTherapyDate(row.effective_end)) {
+      row.effective_end = activeTherapyPayloadEnd(row.line_payload);
+    }
+    if (requiresFiniteTiming && !activeTherapyDate(row.effective_end)) {
+      const requiresStartMarker = row.source === 'e_prescription'
+        || row.source === 'pharmacy_order';
+      if (!requiresStartMarker || row.line_payload?._source_start_authoritative === true) {
+        row.effective_end = addActiveTherapyDays(
+          row.effective_start,
+          activeTherapyDurationDays(row.line_payload),
+        );
+      }
+      if (!row.effective_end) {
+        blockers.push(activeTherapyBlocker(
+          'ACTIVE_THERAPY_TIMING_UNRESOLVED',
+          row,
+          'A historical medication exposure has no authoritative course end; reconcile its timing before verification.',
+          {
+            lineage_id: String(row.lineage_id || `${row.source}:${row.source_id}`),
+            recovery_action: 'complete_medication_reconciliation_timing',
+          },
+        ));
+      }
+    }
+  }
+
+  // Finite courses stop contributing once their authoritative end passes the
+  // database transaction timestamp. Unresolved finite timing remains in scope
+  // with its blocker, so wall-clock expiry can never silently manufacture an
+  // end date.
+  const rows = candidateRows.filter((row) => {
+    const end = activeTherapyDate(row.effective_end);
+    return !end || !snapshotAt || end.getTime() > snapshotAt.getTime();
+  });
+  const authorityRows = rows.filter((row) => (
+    row.source !== 'e_prescription' || row.line_payload?._patient_uid_resolved === true
+  ));
+  const quarantinedEvidence = rows
+    .filter((row) => row.source === 'e_prescription'
+      && row.line_payload?._patient_uid_resolved !== true)
+    .map((row) => ({
+      source: 'e_prescription',
+      source_id: String(row.source_id),
+      source_revision: String(row.source_revision || ''),
+      lineage_id: String(row.lineage_id || `e_prescription:${row.source_id}`),
+      line_index: String(row.line_index || ''),
+      lineage_sources: [...new Set(row.lineage_sources || ['e_prescription'])].sort(),
+      patient_authority_resolved: false,
+    }));
+
+  const catalogIds = [...new Set(authorityRows
+    .map((row) => activeTherapyPositiveInt(row.catalog_id))
+    .filter((value) => value !== null))].sort((a, b) => a - b);
+  const catalogRows = catalogIds.length > 0
+    ? await db.$queryRawUnsafe(
+      `SELECT id, name, generic_name, composition_id, strength, strength_key,
+              form, form_key, release_key, route, updated_at
+         FROM pharmacy_catalog
+        WHERE tenant_id=$1::uuid AND is_active=TRUE
+          AND id=ANY($2::int[])
+        ORDER BY id
+        FOR KEY SHARE`,
+      tenantId,
+      catalogIds,
+    )
+    : [];
+  const catalogById = new Map(catalogRows.map((row) => [Number(row.id), row]));
+  const compositionIds = [...new Set(catalogRows
+    .map((row) => activeTherapyPositiveInt(row.composition_id))
+    .filter((value) => value !== null))].sort((a, b) => a - b);
+  const compositionRows = compositionIds.length > 0
+    ? await db.$queryRawUnsafe(
+      `SELECT id, composition_key, active_ingredients, updated_at
+         FROM drug_compositions
+        WHERE id=ANY($1::int[])
+        ORDER BY id
+        FOR KEY SHARE`,
+      compositionIds,
+    )
+    : [];
+  const compositionById = new Map(compositionRows.map((row) => [Number(row.id), row]));
+
+  const medicationsForKb = [];
+  for (const row of authorityRows) {
+    const catalogId = activeTherapyPositiveInt(row.catalog_id);
+    const catalog = catalogId == null ? null : catalogById.get(catalogId);
+    const compositionId = activeTherapyPositiveInt(catalog?.composition_id);
+    const composition = compositionId == null ? null : compositionById.get(compositionId);
+    if (!catalog || !composition || !Array.isArray(composition.active_ingredients)
+      || composition.active_ingredients.length === 0) {
+      blockers.push(activeTherapyBlocker(
+        'ACTIVE_THERAPY_IDENTITY_UNRESOLVED',
+        row,
+        'The active therapy is not pinned to an active same-tenant catalog item and governed composition.',
+        {
+          catalog_id: catalogId,
+          recovery_action: 'map_therapy_to_tenant_catalog_composition',
+        },
+      ));
+    }
+    medicationsForKb.push({
+      name: String(catalog?.name || activeTherapyName(row)),
+      medication_name: String(catalog?.name || activeTherapyName(row)),
+      catalog_id: catalogId,
+      composition_id: compositionId,
+      composition_key: composition?.composition_key || null,
+      active_ingredients: [...(composition?.active_ingredients || [])].map(String).sort(),
+      dose: row.line_payload?.dose ?? row.line_payload?.dosage ?? catalog?.strength ?? null,
+      route: row.line_payload?.route ?? catalog?.route ?? null,
+      catalog_strength: catalog?.strength ?? null,
+      catalog_strength_key: catalog?.strength_key ?? null,
+      catalog_form: catalog?.form ?? null,
+      catalog_form_key: catalog?.form_key ?? null,
+      catalog_release_key: catalog?.release_key ?? null,
+      source: row.source,
+    });
+  }
+
+  let kbResolutions = medicationsForKb.map(() => null);
+  if (medicationsForKb.length > 0 && medicationsForKb.every((med) => med.catalog_id != null)) {
+    try {
+      const resolved = await resolveDrugKeys({
+        tenantId,
+        medications: medicationsForKb,
+        db,
+        strict: true,
+      });
+      kbResolutions = resolved.resolutions || kbResolutions;
+    } catch (err) {
+      blockers.push({
+        type: 'DRUG_KB_IDENTITY_UNRESOLVED',
+        severity: 'HIGH',
+        catalog_ids: [...new Set(err?.catalogIds || medicationsForKb.map((med) => med.catalog_id))]
+          .filter((value) => value != null)
+          .sort((a, b) => Number(a) - Number(b)),
+        recovery_action: 'curate_or_link_catalog_drug_kb_identity',
+        message: 'One or more active therapies have no deterministic identity in the pinned drug knowledge base.',
+      });
+    }
+  }
+
+  const evidence = authorityRows.map((row, index) => {
+    const medication = medicationsForKb[index];
+    const resolution = kbResolutions[index];
+    return {
+      source: String(row.source),
+      source_id: String(row.source_id),
+      source_revision: String(row.source_revision || ''),
+      lineage_id: String(row.lineage_id || `${row.source}:${row.source_id}`),
+      line_index: String(row.line_index || ''),
+      lineage_sources: [...new Set(row.lineage_sources || [row.source])].sort(),
+      medication_name: medication.medication_name,
+      catalog_id: medication.catalog_id,
+      composition_id: medication.composition_id,
+      composition_key: medication.composition_key,
+      active_ingredients: medication.active_ingredients,
+      dose: medication.dose,
+      route: medication.route,
+      catalog_strength: medication.catalog_strength,
+      catalog_strength_key: medication.catalog_strength_key,
+      catalog_form: medication.catalog_form,
+      catalog_form_key: medication.catalog_form_key,
+      catalog_release_key: medication.catalog_release_key,
+      kb_drug_keys: [...(resolution?.drug_keys || [])].map(String).sort(),
+      kb_resolution_tier: resolution?.tier || null,
+      source_status: row.source_status == null ? null : String(row.source_status),
+      lifecycle_status: row.lifecycle_status == null ? null : String(row.lifecycle_status),
+      patient_authority_resolved: row.source !== 'e_prescription'
+        || row.line_payload?._patient_uid_resolved === true,
+      effective_start: activeTherapyDate(row.effective_start)?.toISOString() || null,
+      effective_end: activeTherapyDate(row.effective_end)?.toISOString() || null,
+    };
+  }).concat(quarantinedEvidence).sort((a, b) => (
+    `${a.source}:${a.source_id}:${a.lineage_id}:${a.line_index}`
+      .localeCompare(`${b.source}:${b.source_id}:${b.lineage_id}:${b.line_index}`)
+  ));
+  const stableBlockers = blockers.map((blocker) => ({ ...blocker })).sort((a, b) => (
+    `${a.type}:${a.source || ''}:${a.source_id || ''}:${a.medication || ''}`
+      .localeCompare(`${b.type}:${b.source || ''}:${b.source_id || ''}:${b.medication || ''}`)
+  ));
+  const sha256 = createHash('sha256')
+    .update(JSON.stringify({ evidence, blockers: stableBlockers }))
+    .digest('hex');
+
+  const interactionMedicationByIdentity = new Map();
+  for (const medication of medicationsForKb) {
+    const identity = medication.catalog_id == null
+      ? `name:${String(medication.medication_name || '').toLowerCase()}`
+      : `catalog:${medication.catalog_id}`;
+    if (!interactionMedicationByIdentity.has(identity)) {
+      interactionMedicationByIdentity.set(identity, medication);
+    }
+  }
+
+  return {
+    medications: [...interactionMedicationByIdentity.values()],
+    evidence,
+    blockers: stableBlockers,
+    sha256,
+    patientUid,
+  };
+}
+
 /**
  * Validate a prescription against patient allergies and active medications.
  * Call before saving any new prescription.
  * @param {number} patientId
- * @param {Array} medications - [{ medication_id, name, ... }]
+ * @param {Array<object>} medications medication entries. A catalog_id, when
+ *   supplied, must be the server-authoritative tenant catalog identity; a
+ *   client-supplied composition_id is never trusted.
  * @param {object} [options]
- * @param {string|null} [options.tenantId] tenant uuid; when present AND the
- *   per-tenant composition-search flag is enabled, an additional (guarded)
- *   composition allergy + same-composition duplicate screen runs. Omitting it
- *   (legacy 2-arg callers) degrades cleanly to no composition checks.
- * @returns {{ safe: boolean, warnings: Array, blockers: Array }}
+ * @param {string|null} [options.tenantId] explicit tenant uuid. Missing tenant
+ *   authority fails closed; when composition search is enabled, the same id
+ *   also scopes the guarded composition-allergy and duplicate screen.
+ * @param {object} [options.db] caller-owned Prisma client or transaction. This
+ *   function neither opens nor commits/rolls back the supplied handle.
+ * @param {number|null} [options.excludePrescriptionId] current e-prescription
+ *   to exclude from active-therapy and composition duplicate evidence.
+ * @param {number|null} [options.excludePharmacyOrderId] current pharmacy order
+ *   to exclude from active-therapy evidence.
+ * @param {number|null} [options.excludeClinicalOrderId] current clinical order
+ *   to exclude together with MAR evidence linked to that order.
+ * @param {number|null} [options.knowledgeRevision] required authoritative
+ *   drug-knowledge revision for this safety decision.
+ * @param {boolean} [options.requireActiveTherapyAuthority=false] require strict
+ *   active-therapy drug identity and knowledge-base authority.
+ * @returns {Promise<{safe: boolean, warnings: Array, blockers: Array,
+ *   active_therapy_evidence: Array, active_therapy_sha256: string|null}>}
+ *   safety verdict plus the canonical active-therapy evidence and its hash.
  */
 export async function validatePrescriptionSafety(patientId, medications, options = {}) {
   const warnings = [];
   const blockers = [];
   const tenantId = options.tenantId ?? null;
+  const db = options.db || prisma;
+  let activeTherapyEvidence = [];
+  let activeTherapySha256 = null;
 
   try {
     // 1. Check patient allergies — ALL stores (roadmap A10). The old query
@@ -770,9 +1480,21 @@ export async function validatePrescriptionSafety(patientId, medications, options
     // patient_allergies rows, the legacy `allergies` import table (written
     // by patientDataImport, previously read only by CCDA/FHIR exporters),
     // the users.allergies profile text, and admission-intake allergies.
-    // getUnifiedActiveAllergies unions all four, dedupes case-insensitively
-    // keeping the highest severity, and never throws.
-    const allergies = await getUnifiedActiveAllergies(prisma, { patientId });
+    // The detailed contract is mandatory here. Any unavailable required
+    // source is itself a blocker; an empty array is safe only when every
+    // source was actually queried for a resolved patient.
+    const allergyContext = await getUnifiedActiveAllergiesDetailed(db, { patientId });
+    const allergies = allergyContext.allergies;
+    if (!allergyContext.patientResolved || allergyContext.sourcesFailed.length > 0) {
+      blockers.push({
+        type: 'SAFETY_CONTEXT_UNAVAILABLE',
+        severity: 'HIGH',
+        sources_failed: allergyContext.sourcesFailed,
+        patient_resolved: allergyContext.patientResolved,
+        manual_allergy_review_required: true,
+        message: 'Required patient allergy sources were unavailable; complete and document a manual allergy review before any override.',
+      });
+    }
 
     if (allergies.length > 0) {
       for (const med of medications) {
@@ -826,29 +1548,33 @@ export async function validatePrescriptionSafety(patientId, medications, options
     // the whole UNION and chokes on the next SELECT (`syntax error at or
     // near "UNION"`). Each side is wrapped in its own scalar subquery so
     // the 50-row cap is per-source.
-    const noteRows = await prisma.$queryRawUnsafe(
+    const noteRows = await db.$queryRawUnsafe(
       `SELECT source, body FROM (
          SELECT 'appointment' AS source,
                 COALESCE(notes, '') || ' ' || COALESCE(reason, '') AS body,
                 created_at
            FROM appointments
           WHERE patient_id = $1::int
+            AND ($2::uuid IS NULL OR tenant_id=$2::uuid)
             AND created_at >= NOW() - INTERVAL '365 days'
           ORDER BY created_at DESC
           LIMIT 50
        ) a
        UNION ALL
        SELECT source, body FROM (
-         SELECT 'clinical_note' AS source, COALESCE(cn.notes, '') AS body
+         SELECT 'clinical_note' AS source,
+                COALESCE(cn.notes, '') || ' ' || COALESCE(cn.content::text, '') AS body
            FROM clinical_notes cn
            JOIN users u ON u.uid = cn.patient_uid
           WHERE u.id = $1::int
+            AND ($2::uuid IS NULL OR cn.tenant_id=$2::uuid)
             AND cn.created_at >= NOW() - INTERVAL '365 days'
             AND COALESCE(cn.status, 'current') NOT IN ('superseded', 'deleted')
           ORDER BY cn.created_at DESC
           LIMIT 50
        ) c`,
       patientId,
+      tenantId,
     );
 
     const noteAllergens = new Set();
@@ -883,21 +1609,21 @@ export async function validatePrescriptionSafety(patientId, medications, options
       }
     }
 
-    // 2. Check for duplicate active prescriptions (same medication)
-    const activeMedsResult = await prisma.$queryRawUnsafe(
-      `SELECT DISTINCT
-          COALESCE(
-            NULLIF(TRIM(ep.medication_name), ''),
-            NULLIF(TRIM(med.value->>'name'), ''),
-            NULLIF(TRIM(med.value->>'medication_name'), '')
-          ) AS medication_name
-       FROM e_prescriptions ep
-       LEFT JOIN LATERAL jsonb_array_elements(COALESCE(ep.medications, '[]'::jsonb)) AS med(value) ON TRUE
-       WHERE ep.patient_id = $1
-         AND LOWER(COALESCE(ep.status, 'active')) IN ('active', 'pharmacy_linked')
-         AND (ep.follow_up_date IS NULL OR ep.follow_up_date >= CURRENT_DATE)`,
-      patientId
-    );
+    // 2. Resolve one patient-global active-therapy authority snapshot in this
+    // transaction. The snapshot itself owns source timing, lineage collapse,
+    // tenant catalog/composition locks, deterministic KB identity and hashing.
+    const activeTherapy = await loadActiveTherapySnapshot(patientId, {
+      tenantId,
+      db,
+      excludePrescriptionId: options.excludePrescriptionId,
+      excludePharmacyOrderId: options.excludePharmacyOrderId,
+      excludeClinicalOrderId: options.excludeClinicalOrderId,
+    });
+    activeTherapyEvidence = activeTherapy.evidence;
+    activeTherapySha256 = activeTherapy.sha256;
+    blockers.push(...activeTherapy.blockers);
+    const activeMedsResult = activeTherapy.evidence;
+    const interactionMedications = [...medications, ...activeTherapy.medications];
 
     for (const med of medications) {
       const medName = (med.name || med.medication_name || '').toLowerCase();
@@ -917,18 +1643,19 @@ export async function validatePrescriptionSafety(patientId, medications, options
     //     derived ONLY from each med's tenant-scoped catalog_id — a
     //     client-sent composition_id is never trusted (enrich strips it).
     //
-    //     GATING: does nothing unless a truthy tenantId is supplied AND the
-    //     per-tenant composition-search flag is enabled. Legacy 2-arg callers
-    //     (no options.tenantId) and disabled tenants skip this entirely.
+    //     GATING: this composition layer runs only with a truthy tenantId AND
+    //     the per-tenant composition-search flag enabled. A missing tenant has
+    //     already failed closed in the active-therapy authority snapshot; it
+    //     is never treated as a legacy safe verdict.
     //
     //     When enabled, composition screening is required evidence. Any lookup
     //     fault reaches the outer fail-closed blocker rather than presenting
     //     the deterministic floor as a complete safety verdict.
-    if (tenantId && await isCompositionSearchEnabled(tenantId)) {
+    if (tenantId && await isCompositionSearchEnabled(tenantId, { db, bypassCache: true })) {
         // -- Composition allergy --
         // enrichMedicationsWithComposition strips any client identity and
         // overlays the server-derived one from catalog_id. Never throws.
-        const enriched = await enrichMedicationsWithComposition(tenantId, medications);
+        const enriched = await enrichMedicationsWithComposition(tenantId, medications, { db });
         for (const med of enriched) {
           if (med.composition_confidence !== 'high') continue;
           if (!Array.isArray(med.active_ingredients)) continue;
@@ -991,34 +1718,46 @@ export async function validatePrescriptionSafety(patientId, medications, options
         if (submitted.length > 0) {
           // Resolve patient_uid once — clinical_orders are keyed by UUID, not
           // the integer id.
-          const uidRows = await prisma.$queryRawUnsafe(
-            `SELECT uid FROM users WHERE id = $1 LIMIT 1`,
+          const uidRows = await db.$queryRawUnsafe(
+            `SELECT uid
+               FROM users
+              WHERE tenant_id = $1::uuid AND id = $2::int
+              LIMIT 1`,
+            tenantId,
             patientId,
           );
           const patientUid = uidRows[0]?.uid || null;
 
           // Active e-Rx catalog ids (same status filter as the name-based
           // duplicate query above). One row per medication line.
-          const eRxRows = await prisma.$queryRawUnsafe(
+          const eRxRows = await db.$queryRawUnsafe(
             `SELECT med.value->>'catalog_id' AS catalog_id, med.value->>'name' AS name
                FROM e_prescriptions ep
                LEFT JOIN LATERAL jsonb_array_elements(COALESCE(ep.medications, '[]'::jsonb)) AS med(value) ON TRUE
-              WHERE ep.patient_id = $1
+              WHERE ep.tenant_id = $1::uuid
+                AND ep.patient_id = $2::int
+                AND ep.id IS DISTINCT FROM $3::int
                 AND LOWER(COALESCE(ep.status, 'active')) IN ('active', 'pharmacy_linked')
                 AND (ep.follow_up_date IS NULL OR ep.follow_up_date >= CURRENT_DATE)`,
+            tenantId,
             patientId,
+            options.excludePrescriptionId == null ? null : Number(options.excludePrescriptionId),
           );
 
           // Active IPD (clinical_orders) medication catalog ids.
           let ipdRows = [];
           if (patientUid) {
-            ipdRows = await prisma.$queryRawUnsafe(
+            ipdRows = await db.$queryRawUnsafe(
               `SELECT co.details->>'catalog_id' AS catalog_id, co.details->>'medication_name' AS name
                  FROM clinical_orders co
-                WHERE co.patient_uid = $1::uuid
+                WHERE co.tenant_id = $1::uuid
+                  AND co.patient_uid = $2::uuid
+                  AND co.id IS DISTINCT FROM $3::int
                   AND co.order_type = 'medication'
                   AND COALESCE(co.status, 'ordered') !~* '(cancelled|canceled|discontinued|stopped|on[\\s_-]?hold|suspended|completed)'`,
+              tenantId,
               patientUid,
+              options.excludeClinicalOrderId == null ? null : Number(options.excludeClinicalOrderId),
             );
           }
 
@@ -1045,6 +1784,7 @@ export async function validatePrescriptionSafety(patientId, medications, options
           const activeIdentities = await resolveCompositionIdentitiesByCatalogIds(
             tenantId,
             activeCatalogIds,
+            { db },
           );
 
           // Build composition_id -> [{ brand, source }] for active meds
@@ -1120,7 +1860,7 @@ export async function validatePrescriptionSafety(patientId, medications, options
     //    to prescription_safety_overrides). Findings:
     //      2026-05-09-pediatric-opd-doctor-paed-dose-warning-not-blocker
     //      2026-05-12-pediatric-opd-doctor-eba299c1
-    const paedCtx = await loadPaediatricContext(patientId);
+    const paedCtx = await loadPaediatricContext(patientId, db);
     if (paedCtx) {
       for (const med of medications) {
         const medName = med.name || med.medication_name || '';
@@ -1184,7 +1924,7 @@ export async function validatePrescriptionSafety(patientId, medications, options
     //    createPrescription); DAPT-alone and anticoagulant+NSAID are
     //    warnings. See finding
     //    2026-05-10-emergency-walk-in-doctor-safety-check-misses-dapt-anticoag-bleeding-risk.
-    const antithrombotic = checkAntithromboticInteractions(medications);
+    const antithrombotic = checkAntithromboticInteractions(interactionMedications);
     warnings.push(...antithrombotic.warnings);
     blockers.push(...antithrombotic.blockers);
 
@@ -1193,7 +1933,7 @@ export async function validatePrescriptionSafety(patientId, medications, options
     // guard for the highest-signal drugs and ACEi/ARB/statin/tetracycline
     // classes. Active pregnancy + high-risk drug blocks until a clinician
     // overrides with reason; reproductive-age unknown status warns.
-    const pregnancyContext = await loadPregnancyContext(patientId);
+    const pregnancyContext = await loadPregnancyContext(patientId, db);
     const pregnancySafety = checkPregnancyMedicationSafety(medications, pregnancyContext);
     warnings.push(...pregnancySafety.warnings);
     blockers.push(...pregnancySafety.blockers);
@@ -1202,7 +1942,7 @@ export async function validatePrescriptionSafety(patientId, medications, options
     // present and severe, high-risk renal drugs block; otherwise they warn.
     // If no recent renal lab exists, renal-risk medicines warn so OPD can
     // order/check KFT instead of assuming safety.
-    const renalContext = await loadRenalContext(patientId);
+    const renalContext = await loadRenalContext(patientId, db);
     const renalSafety = checkRenalMedicationSafety(medications, renalContext);
     warnings.push(...renalSafety.warnings);
     blockers.push(...renalSafety.blockers);
@@ -1226,7 +1966,7 @@ export async function validatePrescriptionSafety(patientId, medications, options
     //    contraindicated/major + same-class allergy hits → blockers
     //    (override-with-reason path unchanged), the rest → warnings.
     try {
-      const patientRows = await prisma.$queryRawUnsafe(
+      const patientRows = await db.$queryRawUnsafe(
         `SELECT uid,
                 CASE WHEN birthday IS NOT NULL THEN DATE_PART('year', AGE(NOW()::date, birthday))::int
                      ELSE NULL END AS age_years
@@ -1236,22 +1976,40 @@ export async function validatePrescriptionSafety(patientId, medications, options
       const patientUid = patientRows[0]?.uid || null;
       let activeProblems = [];
       if (patientUid) {
-        activeProblems = await prisma.$queryRawUnsafe(
+        activeProblems = await db.$queryRawUnsafe(
             `SELECT icd10_code, title FROM patient_problems
               WHERE patient_uid = $1::uuid AND status = 'active'`,
             patientUid,
         );
       }
       const kbResult = await evaluateDrugKb({
-        medications,
+        medications: interactionMedications,
         allergies,
         problems: activeProblems,
+        tenantId,
+        knowledgeRevision: options.knowledgeRevision ?? null,
+        db,
+        strictIdentity: options.requireActiveTherapyAuthority === true,
         patient: {
           ageYears: patientRows[0]?.age_years ?? paedCtx?.ageYears ?? null,
           weightKg: paedCtx?.weightKg ?? null,
           egfr: renalContext?.egfr ?? null,
         },
       });
+      if (kbResult.kbAvailable !== true) {
+        blockers.push({
+          type: 'DRUG_KB_UNAVAILABLE',
+          severity: 'HIGH',
+          message: 'The authoritative medication knowledge base is unavailable; verification cannot complete safely.',
+        });
+      }
+      if (options.requireActiveTherapyAuthority === true && kbResult.identityAvailable !== true) {
+        blockers.push({
+          type: 'DRUG_KB_IDENTITY_UNRESOLVED',
+          severity: 'HIGH',
+          message: 'The proposed and active therapies could not be pinned to deterministic drug knowledge identities.',
+        });
+      }
       for (const finding of kbResult.findings) {
         // The antithrombotic axis (check 4) owns its pairs — skip KB
         // duplicates where every involved drug classifies antithrombotic.
@@ -1313,14 +2071,22 @@ export async function validatePrescriptionSafety(patientId, medications, options
       type: 'SAFETY_CHECK_ERROR',
       message: 'Automated safety check failed — manual review and override required before prescribing.',
     });
-    return { safe: false, warnings, blockers };
+    return {
+      safe: false,
+      warnings,
+      blockers,
+      active_therapy_evidence: activeTherapyEvidence,
+      active_therapy_sha256: activeTherapySha256,
+    };
   }
 
   return {
     safe: blockers.length === 0,
     warnings,
     blockers,
+    active_therapy_evidence: activeTherapyEvidence,
+    active_therapy_sha256: activeTherapySha256,
   };
 }
 
-export default { validatePrescriptionSafety, checkAntithromboticInteractions };
+export default { validatePrescriptionSafety, loadActiveTherapySnapshot, checkAntithromboticInteractions };

@@ -11,7 +11,7 @@
 //     deterministic shared source_event_key, per-recipient dedupe) AND
 //   * write a clinical_audit_events 'failed' row with the deterministic
 //     idempotency key clinical_orders:<id>:<stage>_failed,
-//   * attempt the two INDEPENDENTLY (one failing never skips the other),
+//   * atomically pair a failed MAR-alert obligation with its canonical audit,
 //   * never throw (the committed order must stand).
 //
 // Pure unit — all side-effect channels are injected via the `deps` seam
@@ -53,12 +53,18 @@ const RECIPIENTS = [
 ];
 
 function makeDeps({ queueImpl, auditImpl, resolveImpl } = {}) {
-  return {
+  const deps = {
     notificationOutbox: { queue: jest.fn(queueImpl || (async () => ({ id: 1, status: 'PENDING' }))) },
     resolveClinicalAlertRecipients: jest.fn(resolveImpl || (async () => RECIPIENTS)),
     recordClinicalAuditEvent: jest.fn(auditImpl || (async (input) => ({ id: 99, ...input }))),
     safeCanonical: swallowingSafeCanonical,
   };
+  deps.persistClinicalAlertFailureWithCanonical = jest.fn(async ({ recordCanonical }) => {
+    const obligation = { id: 515 };
+    const canonical = await recordCanonical({}, obligation);
+    return { obligation, canonical };
+  });
+  return deps;
 }
 
 describe('escalateOrderIntegrationFailure (BE-H1)', () => {
@@ -84,7 +90,9 @@ describe('escalateOrderIntegrationFailure (BE-H1)', () => {
       recipientId: RECIPIENTS[0].uid,
       recipientPhone: RECIPIENTS[0].phone,
       tenantId: TENANT,
-      channel: 'clinical_alert',
+      channel: 'push',
+      sourceEventKey: 'clinical_orders:4711:mar_schedule_failed:alert',
+      templateVersion: 'clinical-alert-order-integration-failure.v1',
     });
     expect(deps.notificationOutbox.queue.mock.calls[1][0]).toMatchObject({
       recipientId: RECIPIENTS[1].uid,
@@ -99,6 +107,9 @@ describe('escalateOrderIntegrationFailure (BE-H1)', () => {
       failure_stage: 'mar_schedule',
       error_code: 'MAR_DURATION_EXCEEDS_WINDOW',
       recipient_role: 'DUTY_DOCTOR',
+      recovery_endpoint: '/api/v1/emr/orders/4711/retry-mar-scheduling',
+      deep_link: `/emr/orders/${order.patient_uid}?mar_recovery_order=4711`,
+      requires_doctor_authority: true,
     });
     expect(notification.title).toMatch(/no scheduled mar doses/i);
 
@@ -120,6 +131,7 @@ describe('escalateOrderIntegrationFailure (BE-H1)', () => {
   });
 
   test.each([
+    ['mar_carryover', 'mar_carryover_failed', 'clinical_orders:4711:mar_carryover_failed'],
     ['ward_indent', 'ward_indent_creation_failed', 'clinical_orders:4711:ward_indent_failed'],
     ['integration_dispatch', 'order_integration_dispatch_failed', 'clinical_orders:4711:integration_dispatch_failed'],
   ])('%s failure escalates with its own action + deterministic key', async (stage, action, auditKey) => {
@@ -152,10 +164,13 @@ describe('escalateOrderIntegrationFailure (BE-H1)', () => {
 
     expect(result).toEqual({ alertQueued: false, auditRecorded: true });
     expect(deps.notificationOutbox.queue).not.toHaveBeenCalled();
+    expect(deps.persistClinicalAlertFailureWithCanonical).toHaveBeenCalledTimes(1);
     expect(deps.recordClinicalAuditEvent.mock.calls[0][0].metadata.alert_queued).toBe(false);
+    expect(deps.recordClinicalAuditEvent.mock.calls[0][0].metadata)
+      .toMatchObject({ alert_recovery_obligation_id: 515 });
   });
 
-  test('an outbox failure does NOT skip the audit row (independent attempts, no throw)', async () => {
+  test('an outbox failure persists the recovery obligation with its audit', async () => {
     const deps = makeDeps({
       queueImpl: async () => { throw new Error('outbox down'); },
     });
@@ -168,6 +183,7 @@ describe('escalateOrderIntegrationFailure (BE-H1)', () => {
     });
 
     expect(result).toEqual({ alertQueued: false, auditRecorded: true });
+    expect(deps.persistClinicalAlertFailureWithCanonical).toHaveBeenCalledTimes(1);
     expect(deps.recordClinicalAuditEvent).toHaveBeenCalledTimes(1);
     // alert_queued: false is carried into the audit metadata for triage.
     expect(deps.recordClinicalAuditEvent.mock.calls[0][0].metadata.alert_queued).toBe(false);

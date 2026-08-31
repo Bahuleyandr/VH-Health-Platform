@@ -20,6 +20,10 @@ const migrationJobSource = readFileSync(
   new URL('../../../../../infra/kubernetes/apps/backend/migration-job.yaml', import.meta.url),
   'utf8',
 );
+const payrollRevisionPreflightSource = readFileSync(
+  new URL('../../../scripts/payroll-revision-754-preflight.mjs', import.meta.url),
+  'utf8',
+);
 const backendWorkflowSource = readFileSync(
   new URL('../../../../../.github/workflows/_reusable-backend-lint-test.yml', import.meta.url),
   'utf8',
@@ -389,7 +393,39 @@ describe('test-data seed safety boundary', () => {
   });
 
   test('the production migration Job carries both independent skip controls', () => {
+    expect(migrationJobSource).toContain(
+      'node scripts/payroll-revision-754-preflight.mjs --report-only',
+    );
+    expect(migrationJobSource).not.toContain('npm run payroll:revision-754:preflight');
     expect(migrationJobSource).toContain('node scripts/ci-setup-db.mjs --skip-seeds');
+    expect(runnerSource).toContain('lockPayrollRevision754Tables');
+    expect(runnerSource).toContain('concurrentlyApplied.rowCount === 1');
+    expect(runnerSource).toContain('forceTransactional: payrollReconciliationGate');
+    expect(payrollRevisionPreflightSource).toContain("flag: 'wx', mode: 0o600");
+    expect(payrollRevisionPreflightSource).toContain(
+      'node scripts/payroll-revision-754-preflight.mjs --report-only',
+    );
+    expect(payrollRevisionPreflightSource).toContain(
+      '--export /tmp/payroll-754-manifest.json from the backend working directory',
+    );
+    expect(payrollRevisionPreflightSource).not.toContain(
+      'payroll:revision-754:preflight -- --report-only',
+    );
+    expect(payrollRevisionPreflightSource).toContain('schema_version: 2');
+    expect(payrollRevisionPreflightSource).toContain(
+      'to_jsonb(source_row)::text AS source_json',
+    );
+    expect(payrollRevisionPreflightSource).toContain(
+      'BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY',
+    );
+    const sourceLock = payrollRevisionPreflightSource.indexOf(
+      'LOCK TABLE ${PAYROLL_TABLES.map',
+    );
+    const authorityLock = payrollRevisionPreflightSource.indexOf(
+      'LOCK TABLE ${PAYROLL_AUTHORITY_TABLES',
+    );
+    expect(sourceLock).toBeGreaterThan(-1);
+    expect(authorityLock).toBeGreaterThan(sourceLock);
     expect(migrationJobSource).toMatch(
       /- name: CI_DB_SKIP_SEEDS\s+value: ["']1["']/,
     );

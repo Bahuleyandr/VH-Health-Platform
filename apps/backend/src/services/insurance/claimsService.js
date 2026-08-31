@@ -17,6 +17,11 @@ import { postInsuranceShiftEntry } from '../billing/ledger/ledgerPostings.js';
 import { resolveLedgerWiring } from '../billing/ledger/ledgerAuthoritativeMode.js';
 import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
 import logger from '../../logging/logger.js';
+import {
+  lockPharmacyFundingAdmissionTx,
+  lockPharmacyFundingAuthorityTx,
+  resolvePharmacyFundingPatientUidTx,
+} from '../pharmacy/pharmacyCapService.js';
 
 // WP2 terminology deps are imported lazily inside createPreauth: their static
 // graph reaches terminologyService (prismaReadOnly import), which would force
@@ -40,6 +45,30 @@ const DEFAULT_PREAUTH_SUBMIT_SLA_HOURS = 24;
 function preauthSubmitSlaHours(requestType) {
   const key = String(requestType || '').toLowerCase();
   return PREAUTH_SUBMIT_SLA_HOURS[key] ?? DEFAULT_PREAUTH_SUBMIT_SLA_HOURS;
+}
+
+async function lockInsuranceFundingPatientTx(tx, {
+  tenantId,
+  patientUid,
+  admissionId = null,
+}) {
+  const canonicalPatientUid = await resolvePharmacyFundingPatientUidTx(tx, {
+    tenantId,
+    patientUid: String(patientUid),
+    admissionId: admissionId == null ? null : Number(admissionId),
+  });
+  await lockPharmacyFundingAuthorityTx(tx, {
+    tenantId,
+    patientUid: canonicalPatientUid,
+  });
+  if (admissionId != null) {
+    await lockPharmacyFundingAdmissionTx(tx, {
+      tenantId,
+      admissionId: Number(admissionId),
+      patientUid: canonicalPatientUid,
+    });
+  }
+  return canonicalPatientUid;
 }
 
 // A draft pre-auth is overdue once its submission deadline has passed.
@@ -273,8 +302,8 @@ export async function listPoliciesForPatient({ tenantId, patient_uid }) {
   return prisma.$queryRawUnsafe(
     `SELECT p.*, pa.display_name AS payer_name, t.display_name AS tpa_name
        FROM insurance_policies p
-       LEFT JOIN payers pa ON pa.id = p.payer_id
-       LEFT JOIN tpas t ON t.id = p.tpa_id
+       LEFT JOIN payers pa ON pa.tenant_id = p.tenant_id AND pa.id = p.payer_id
+       LEFT JOIN tpas t ON t.tenant_id = p.tenant_id AND t.id = p.tpa_id
       WHERE p.tenant_id = $1::uuid AND p.patient_uid = $2::uuid
       ORDER BY p.created_at DESC`,
     tenantId, String(patient_uid),
@@ -324,8 +353,21 @@ export async function createPreauth({
   // 2026-05-09-tpa-insurance-claim-admission-preauth-draft-not-auto-submitted
   const slaHours = preauthSubmitSlaHours(request_type);
 
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO insurance_preauth
+  const rows = await setTenantTx(requireTenantId(tenantId), async (tx) => {
+    const canonicalPatientUid = await lockInsuranceFundingPatientTx(tx, {
+      tenantId,
+      patientUid: patient_uid,
+      admissionId: admission_id,
+    });
+    await lockClaimReferenceAuthorityTx(tx, {
+      tenantId,
+      patientUid: canonicalPatientUid,
+      policyId: policy_id,
+      admissionId: admission_id,
+      parentPreauthId: parent_preauth_id,
+    });
+    return tx.$queryRawUnsafe(
+      `INSERT INTO insurance_preauth
        (policy_id, patient_uid, admission_id, preauth_number,
         request_type, parent_preauth_id,
         primary_diagnosis, icd10_codes, proposed_procedure, procedure_codes,
@@ -340,25 +382,26 @@ export async function createPreauth({
              $13::date, $14::int,
              $15::numeric, $16::jsonb, $17, $18::uuid, $19::uuid,
              NOW() + ($20::int * INTERVAL '1 hour'))
-     RETURNING *`,
-    Number(policy_id), String(patient_uid),
-    admission_id ? Number(admission_id) : null,
-    preauth_number, request_type,
-    parent_preauth_id ? Number(parent_preauth_id) : null,
-    primary_diagnosis,
-    icd10_codes || null,
-    proposed_procedure || null,
-    procedure_codes || null,
-    treating_doctor_uid ? String(treating_doctor_uid) : null,
-    treating_doctor_name || null,
-    expected_admission_date || null,
-    expected_los_days ? Number(expected_los_days) : null,
-    Number(expected_cost),
-    JSON.stringify(cost_breakdown || {}),
-    notes || null,
-    created_by ? String(created_by) : null, tenantId,
-    slaHours,
-  );
+       RETURNING *`,
+      Number(policy_id), canonicalPatientUid,
+      admission_id ? Number(admission_id) : null,
+      preauth_number, request_type,
+      parent_preauth_id ? Number(parent_preauth_id) : null,
+      primary_diagnosis,
+      icd10_codes || null,
+      proposed_procedure || null,
+      procedure_codes || null,
+      treating_doctor_uid ? String(treating_doctor_uid) : null,
+      treating_doctor_name || null,
+      expected_admission_date || null,
+      expected_los_days ? Number(expected_los_days) : null,
+      Number(expected_cost),
+      JSON.stringify(cost_breakdown || {}),
+      notes || null,
+      created_by ? String(created_by) : null, tenantId,
+      slaHours,
+    );
+  });
   const created = rows[0];
 
   // Structured coding mirror (best-effort, post-insert): icd10_codes stays
@@ -438,6 +481,7 @@ export async function chainTotalsFor({ tenantId, preauthId }) {
        SELECT p.id, p.parent_preauth_id
          FROM insurance_preauth p
          JOIN root r ON r.parent_preauth_id = p.id
+                    AND p.tenant_id = $2::uuid
      )
      SELECT id FROM root WHERE parent_preauth_id IS NULL LIMIT 1`,
     Number(preauthId), tenantId,
@@ -488,8 +532,10 @@ export async function getPreauth({ tenantId, id }) {
     `SELECT pre.*, pa.display_name AS payer_name,
             (EXTRACT(EPOCH FROM pre.submit_due_at) * 1000)::bigint AS submit_due_at_epoch_ms
        FROM insurance_preauth pre
-       LEFT JOIN insurance_policies pol ON pol.id = pre.policy_id
-       LEFT JOIN payers pa ON pa.id = pol.payer_id
+       LEFT JOIN insurance_policies pol
+         ON pol.tenant_id = pre.tenant_id AND pol.id = pre.policy_id
+       LEFT JOIN payers pa
+         ON pa.tenant_id = pol.tenant_id AND pa.id = pol.payer_id
       WHERE pre.id = $1::int AND pre.tenant_id = $2::uuid`,
     Number(id), tenantId,
   );
@@ -510,10 +556,10 @@ export async function getPreauth({ tenantId, id }) {
             query_text, denial_reason, raw_response, decided_by_tpa_user,
             decided_at
        FROM insurance_preauth_responses
-      WHERE preauth_id = $1::int
+      WHERE tenant_id = $2::uuid AND preauth_id = $1::int
       ORDER BY decided_at DESC, id DESC
       LIMIT 1`,
-    rows[0].id,
+    rows[0].id, tenantId,
   );
   const latest_response = respRows[0] || null;
   const caps = extractPreauthCaps(latest_response?.raw_response);
@@ -682,18 +728,41 @@ export async function submitPreauth({
       'Pre-auth submission requires at least one supporting document (admission note, advice letter, or clinical summary). Attach via POST /api/v1/insurance/documents first.',
     );
   }
-  await prisma.$executeRawUnsafe(
-    `UPDATE insurance_preauth
+  await setTenantTx(requireTenantId(tenantId), async (tx) => {
+    await lockInsuranceFundingPatientTx(tx, {
+      tenantId,
+      patientUid: pre.patient_uid,
+      admissionId: pre.admission_id,
+    });
+    const lockedRows = await tx.$queryRawUnsafe(
+      `SELECT status FROM insurance_preauth
+        WHERE tenant_id=$1::uuid AND id=$2::int AND patient_uid=$3::uuid
+        FOR UPDATE`,
+      tenantId,
+      pre.id,
+      String(pre.patient_uid),
+    );
+    if (!lockedRows.length) throw AppError.notFound('Pre-auth not found');
+    if (lockedRows[0].status !== 'draft') {
+      throw AppError.conflict(
+        `Pre-auth in ${lockedRows[0].status} cannot be submitted`,
+        'PREAUTH_SUBMISSION_STATE_CHANGED',
+      );
+    }
+    await tx.$executeRawUnsafe(
+      `UPDATE insurance_preauth
         SET status = 'submitted', submitted_at = NOW(),
             submitted_by = $1::uuid, submission_channel = $2,
             tpa_reference_id = COALESCE($3, tpa_reference_id),
             updated_at = NOW()
-      WHERE id = $4::int`,
-    submitted_by ? String(submitted_by) : null,
-    submission_channel,
-    tpa_reference_id || null,
-    pre.id,
-  );
+       WHERE tenant_id=$5::uuid AND id = $4::int`,
+      submitted_by ? String(submitted_by) : null,
+      submission_channel,
+      tpa_reference_id || null,
+      pre.id,
+      tenantId,
+    );
+  });
   return getPreauth({ tenantId, id });
 }
 
@@ -859,8 +928,10 @@ async function resolveClaimPolicyPayerName({ tenantId, claimId }) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT pa.display_name AS payer_name
        FROM tpa_claims c
-       JOIN insurance_policies p ON p.id = c.policy_id
-       LEFT JOIN payers pa ON pa.id = p.payer_id
+       JOIN insurance_policies p
+         ON p.tenant_id = c.tenant_id AND p.id = c.policy_id
+       LEFT JOIN payers pa
+         ON pa.tenant_id = p.tenant_id AND pa.id = p.payer_id
       WHERE c.id = $1::int AND c.tenant_id = $2::uuid`,
     Number(claimId), tenantId,
   );
@@ -946,25 +1017,6 @@ export async function recordPreauthResponse({
   // let the migration-336 GUC-reading column DEFAULT fall back to the DEFAULT
   // tenant and silently mis-place the insurer's response. tenantId is already
   // verified above — getPreauth matched the pre-auth row against it.
-  const respRows = await prisma.$queryRawUnsafe(
-    `INSERT INTO insurance_preauth_responses
-       (tenant_id, preauth_id, response_type, sanctioned_amount, validity_until,
-        conditions, query_text, denial_reason, raw_response,
-        decided_by_tpa_user, decided_at, recorded_by)
-     VALUES ($12::uuid, $1::int, $2, $3::numeric, $4::timestamptz, $5, $6, $7,
-             $8::jsonb, $9, $10::timestamptz, $11::uuid)
-     RETURNING *`,
-    Number(preauth_id), response_type,
-    sanctioned_amount ? Number(sanctioned_amount) : null,
-    validity_until || null,
-    conditions || null, query_text || null, denial_reason || null,
-    JSON.stringify(raw_response || {}),
-    decided_by_tpa_user || null,
-    decided_at || new Date().toISOString(),
-    recorded_by ? String(recorded_by) : null,
-    tenantId,
-  );
-
   // Project response onto pre-auth row.
   const newStatus = ({
     approved: 'approved',
@@ -974,25 +1026,101 @@ export async function recordPreauthResponse({
     enhancement_request: 'queried',
   })[response_type] || pre.status;
 
-  await prisma.$executeRawUnsafe(
-    `UPDATE insurance_preauth
-        SET status = $1::varchar,
-            sanctioned_amount = COALESCE($2::numeric, sanctioned_amount),
-            sanctioned_at = CASE WHEN $1::varchar IN ('approved','partially_approved') THEN NOW() ELSE sanctioned_at END,
-            validity_until = COALESCE($3::timestamptz, validity_until),
-            query_text = CASE WHEN $1::varchar = 'queried' THEN $4::text ELSE query_text END,
-            denial_reason = CASE WHEN $1::varchar = 'denied' THEN $5::text ELSE denial_reason END,
-            updated_at = NOW()
-      WHERE id = $6::int
-        AND tenant_id = $7::uuid`,
-    newStatus,
-    sanctioned_amount ? Number(sanctioned_amount) : null,
-    validity_until || null,
-    query_text || null,
-    denial_reason || null,
-    Number(preauth_id),
-    tenantId,
-  );
+  const respRows = await setTenantTx(requireTenantId(tenantId), async (tx) => {
+    const preauthIdentityRows = await tx.$queryRawUnsafe(
+      `SELECT admission_id,patient_uid
+         FROM insurance_preauth
+        WHERE tenant_id=$1::uuid AND id=$2::int`,
+      tenantId,
+      Number(preauth_id),
+    );
+    if (!preauthIdentityRows.length) throw AppError.notFound('Pre-auth not found');
+    const canonicalPatientUid = await resolvePharmacyFundingPatientUidTx(tx, {
+      tenantId,
+      admissionId: preauthIdentityRows[0].admission_id == null
+        ? null : Number(preauthIdentityRows[0].admission_id),
+      patientUid: String(preauthIdentityRows[0].patient_uid),
+    });
+    await lockPharmacyFundingAuthorityTx(tx, {
+      tenantId,
+      patientUid: canonicalPatientUid,
+    });
+    if (preauthIdentityRows[0].admission_id) {
+      await lockPharmacyFundingAdmissionTx(tx, {
+        tenantId,
+        admissionId: Number(preauthIdentityRows[0].admission_id),
+        patientUid: canonicalPatientUid,
+      });
+    }
+    const lockedRows = await tx.$queryRawUnsafe(
+      `SELECT id,status,admission_id,patient_uid
+         FROM insurance_preauth
+        WHERE tenant_id=$1::uuid AND id=$2::int
+        FOR UPDATE`,
+      tenantId,
+      Number(preauth_id),
+    );
+    if (!lockedRows.length) throw AppError.notFound('Pre-auth not found');
+    const locked = lockedRows[0];
+    if (String(locked.patient_uid) !== canonicalPatientUid) {
+      throw AppError.conflict(
+        'The pre-auth patient changed while funding authority was acquired',
+        'PHARMACY_FUNDING_PATIENT_IDENTITY_MISMATCH',
+      );
+    }
+    if (!['submitted', 'queried', 'approved', 'partially_approved'].includes(locked.status)) {
+      throw AppError.conflict(
+        `Cannot record response on ${locked.status} pre-auth`,
+        'PREAUTH_RESPONSE_STATE_CHANGED',
+      );
+    }
+    if ((locked.admission_id == null ? null : Number(locked.admission_id))
+        !== (preauthIdentityRows[0].admission_id == null
+          ? null
+          : Number(preauthIdentityRows[0].admission_id))) {
+      throw AppError.conflict(
+        'The pre-auth admission changed while funding authority was acquired',
+        'PHARMACY_FUNDING_ADMISSION_AUTHORITY_STALE',
+      );
+    }
+    const responseRows = await tx.$queryRawUnsafe(
+      `INSERT INTO insurance_preauth_responses
+         (tenant_id, preauth_id, response_type, sanctioned_amount, validity_until,
+          conditions, query_text, denial_reason, raw_response,
+          decided_by_tpa_user, decided_at, recorded_by)
+       VALUES ($12::uuid, $1::int, $2, $3::numeric, $4::timestamptz, $5, $6, $7,
+               $8::jsonb, $9, $10::timestamptz, $11::uuid)
+       RETURNING *`,
+      Number(preauth_id), response_type,
+      sanctioned_amount ? Number(sanctioned_amount) : null,
+      validity_until || null,
+      conditions || null, query_text || null, denial_reason || null,
+      JSON.stringify(raw_response || {}),
+      decided_by_tpa_user || null,
+      decided_at || new Date().toISOString(),
+      recorded_by ? String(recorded_by) : null,
+      tenantId,
+    );
+    await tx.$executeRawUnsafe(
+      `UPDATE insurance_preauth
+          SET status = $1::varchar,
+              sanctioned_amount = COALESCE($2::numeric, sanctioned_amount),
+              sanctioned_at = CASE WHEN $1::varchar IN ('approved','partially_approved') THEN NOW() ELSE sanctioned_at END,
+              validity_until = COALESCE($3::timestamptz, validity_until),
+              query_text = CASE WHEN $1::varchar = 'queried' THEN $4::text ELSE query_text END,
+              denial_reason = CASE WHEN $1::varchar = 'denied' THEN $5::text ELSE denial_reason END,
+              updated_at = NOW()
+        WHERE id = $6::int AND tenant_id = $7::uuid`,
+      newStatus,
+      sanctioned_amount ? Number(sanctioned_amount) : null,
+      validity_until || null,
+      query_text || null,
+      denial_reason || null,
+      Number(preauth_id),
+      tenantId,
+    );
+    return responseRows;
+  });
 
   // Wave-4B-1 — room-cap detection. If the partial approval text downgrades
   // the approved room category below the current admission room_category,
@@ -1124,9 +1252,12 @@ export async function listPendingPreauths({ tenantId, limit = 100 }) {
              AND pa.submit_due_at < NOW()) AS submit_overdue,
             p.policy_number, py.display_name AS payer_name, t.display_name AS tpa_name
        FROM insurance_preauth pa
-       JOIN insurance_policies p ON p.id = pa.policy_id
-       LEFT JOIN payers py ON py.id = p.payer_id
-       LEFT JOIN tpas t ON t.id = p.tpa_id
+       JOIN insurance_policies p
+         ON p.tenant_id = pa.tenant_id AND p.id = pa.policy_id
+       LEFT JOIN payers py
+         ON py.tenant_id = p.tenant_id AND py.id = p.payer_id
+       LEFT JOIN tpas t
+         ON t.tenant_id = p.tenant_id AND t.id = p.tpa_id
       WHERE pa.tenant_id = $1::uuid
         AND pa.status IN ('draft','submitted','queried')
       ORDER BY (pa.status = 'draft'
@@ -1177,18 +1308,25 @@ function normalizeBigIntForResponse(value) {
   return value.toString();
 }
 
-async function assertFinalCashlessInvoiceLinesTraceable(invoiceId) {
-  const rows = await prisma.$queryRawUnsafe(
+async function assertFinalCashlessInvoiceLinesTraceable(invoiceId, {
+  tenantId,
+  db = prisma,
+  lockedRows = null,
+} = {}) {
+  const rows = lockedRows || await db.$queryRawUnsafe(
     `SELECT id, description, line_total, source_ref_type, source_ref_id
        FROM billing_invoice_items
       WHERE invoice_id = $1::int
+        AND tenant_id = $2::uuid
         AND COALESCE(line_total, 0) > 0
       ORDER BY id`,
     Number(invoiceId),
+    requireTenantId(tenantId),
   );
-  if (!rows.length) return;
+  const billableRows = rows.filter((row) => Number(row.line_total || 0) > 0);
+  if (!billableRows.length) return;
 
-  const untraceable = rows.filter((row) => {
+  const untraceable = billableRows.filter((row) => {
     const sourceType = String(row.source_ref_type || '').trim().toLowerCase();
     if (!sourceType || sourceType === 'manual') return true;
     if (!FINAL_CASHLESS_TRACEABLE_SOURCE_TYPES.has(sourceType)) return true;
@@ -1212,12 +1350,14 @@ async function assertFinalCashlessInvoiceLinesTraceable(invoiceId) {
 
 async function assertIssuedFinalCashlessInvoice({
   tenantId, invoiceId, patientUid, admissionId, totalBilled,
+  db = prisma, forUpdate = false, lockedItemRows = null,
 }) {
   if (!invoiceId) return null;
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await db.$queryRawUnsafe(
     `SELECT id, invoice_number, status, total_amount, patient_uid, admission_id
        FROM billing_invoices
-      WHERE id = $1::int AND tenant_id = $2::uuid`,
+      WHERE id = $1::int AND tenant_id = $2::uuid
+      ${forUpdate ? 'FOR UPDATE' : ''}`,
     Number(invoiceId), tenantId,
   );
   if (!rows.length) throw AppError.notFound('Linked invoice not found');
@@ -1246,7 +1386,7 @@ async function assertIssuedFinalCashlessInvoice({
   // interim total (₹76k). Re-anchor the claim to the larger final invoice.
   // Finding 2026-05-22-tpa-insurance-claim-billing-7239f4be.
   if (invoice.admission_id != null) {
-    const moreComplete = await prisma.$queryRawUnsafe(
+    const moreComplete = await db.$queryRawUnsafe(
       `SELECT id, invoice_number, total_amount
          FROM billing_invoices
         WHERE tenant_id = $1::uuid
@@ -1256,7 +1396,8 @@ async function assertIssuedFinalCashlessInvoice({
           AND status IN ('ISSUED','PARTIAL','PAID')
           AND total_amount > $4::numeric + 0.01
         ORDER BY total_amount DESC
-        LIMIT 1`,
+        LIMIT 1
+        ${forUpdate ? 'FOR UPDATE' : ''}`,
       tenantId,
       Number(invoice.admission_id),
       Number(invoice.id),
@@ -1284,7 +1425,11 @@ async function assertIssuedFinalCashlessInvoice({
       `Final cashless claim total_billed ${Number(totalBilled)} must match issued invoice total_amount ${Number(invoice.total_amount)}`,
     );
   }
-  await assertFinalCashlessInvoiceLinesTraceable(invoice.id);
+  await assertFinalCashlessInvoiceLinesTraceable(invoice.id, {
+    tenantId,
+    db,
+    lockedRows: lockedItemRows,
+  });
   return invoice;
 }
 
@@ -1318,6 +1463,231 @@ async function assertClaimReferencesBelongToPatient({
       throw AppError.forbidden(`${label} belongs to a different patient`, 'CLAIM_REFERENCE_PATIENT_MISMATCH');
     }
   }
+}
+
+function optionalIdEquals(left, right) {
+  return (left == null ? null : Number(left)) === (right == null ? null : Number(right));
+}
+
+async function lockClaimReferenceAuthorityTx(tx, {
+  tenantId,
+  patientUid,
+  policyId,
+  admissionId = null,
+  preauthId = null,
+  parentPreauthId = null,
+  parentClaimId = null,
+}) {
+  const tid = requireTenantId(tenantId);
+  const exactPatientUid = String(patientUid);
+  const policyRows = await tx.$queryRawUnsafe(
+    `SELECT id,patient_uid,status,valid_from,valid_to,sum_insured,cumulative_used,
+            (valid_from IS NULL OR valid_from <= CURRENT_DATE) AS valid_from_active,
+            (valid_to IS NULL OR valid_to >= CURRENT_DATE) AS valid_to_active
+       FROM insurance_policies
+      WHERE tenant_id=$1::uuid AND id=$2::int
+      FOR UPDATE`,
+    tid,
+    Number(policyId),
+  );
+  if (!policyRows.length) {
+    throw AppError.badRequest('policy_id not found in this tenant', 'CLAIM_REFERENCE_INVALID');
+  }
+  const policy = policyRows[0];
+  if (String(policy.patient_uid) !== exactPatientUid) {
+    throw AppError.forbidden(
+      'policy_id belongs to a different patient',
+      'CLAIM_REFERENCE_PATIENT_MISMATCH',
+    );
+  }
+  if (String(policy.status) !== 'active') {
+    throw AppError.conflict(
+      `policy_id is ${policy.status} and cannot authorize a new insurance request`,
+      'CLAIM_POLICY_NOT_ACTIVE',
+    );
+  }
+  const sumInsured = policy.sum_insured == null ? null : Number(policy.sum_insured);
+  const cumulativeUsed = Number(policy.cumulative_used || 0);
+  if (policy.valid_from_active !== true || policy.valid_to_active !== true
+      || (sumInsured != null && sumInsured <= 0)
+      || cumulativeUsed < 0
+      || (sumInsured != null && cumulativeUsed > sumInsured + 0.01)) {
+    throw AppError.conflict(
+      'policy_id no longer carries valid dated financial authority',
+      'CLAIM_POLICY_FINANCIAL_AUTHORITY_INVALID',
+    );
+  }
+
+  if (admissionId != null) {
+    const admissionRows = await tx.$queryRawUnsafe(
+      `SELECT id,patient_uid,status
+         FROM admissions
+        WHERE tenant_id=$1::uuid AND id=$2::int
+        FOR UPDATE`,
+      tid,
+      Number(admissionId),
+    );
+    if (!admissionRows.length) {
+      throw AppError.badRequest('admission_id not found in this tenant', 'CLAIM_REFERENCE_INVALID');
+    }
+    if (String(admissionRows[0].patient_uid) !== exactPatientUid) {
+      throw AppError.forbidden(
+        'admission_id belongs to a different patient',
+        'CLAIM_REFERENCE_PATIENT_MISMATCH',
+      );
+    }
+  }
+
+  const lockPreauth = async (id, label, allowedStatuses) => {
+    if (id == null) return null;
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT id,patient_uid,policy_id,admission_id,status,sanctioned_amount,expected_cost
+         FROM insurance_preauth
+        WHERE tenant_id=$1::uuid AND id=$2::int
+        FOR UPDATE`,
+      tid,
+      Number(id),
+    );
+    if (!rows.length) {
+      throw AppError.badRequest(`${label} not found in this tenant`, 'CLAIM_REFERENCE_INVALID');
+    }
+    const row = rows[0];
+    if (String(row.patient_uid) !== exactPatientUid) {
+      throw AppError.forbidden(
+        `${label} belongs to a different patient`,
+        'CLAIM_REFERENCE_PATIENT_MISMATCH',
+      );
+    }
+    if (Number(row.policy_id) !== Number(policyId)
+        || !optionalIdEquals(row.admission_id, admissionId)) {
+      throw AppError.conflict(
+        `${label} is not bound to the exact policy and admission`,
+        'CLAIM_REFERENCE_AUTHORITY_MISMATCH',
+      );
+    }
+    if (!allowedStatuses.has(String(row.status))) {
+      throw AppError.conflict(
+        `${label} is ${row.status} and cannot authorize this request`,
+        'CLAIM_REFERENCE_STATE_CHANGED',
+      );
+    }
+    if (Number(row.expected_cost) <= 0
+        || (row.sanctioned_amount != null && Number(row.sanctioned_amount) < 0)) {
+      throw AppError.conflict(
+        `${label} has invalid financial authority`,
+        'CLAIM_REFERENCE_AMOUNT_INVALID',
+      );
+    }
+    return row;
+  };
+
+  await lockPreauth(
+    parentPreauthId,
+    'parent_preauth_id',
+    new Set(['draft', 'submitted', 'queried', 'approved', 'partially_approved']),
+  );
+  await lockPreauth(
+    preauthId,
+    'preauth_id',
+    new Set(['submitted', 'queried', 'approved', 'partially_approved']),
+  );
+
+  if (parentClaimId != null) {
+    const parentRows = await tx.$queryRawUnsafe(
+      `SELECT id,patient_uid,policy_id,preauth_id,admission_id,status,
+              total_billed,claimed_amount
+         FROM tpa_claims
+        WHERE tenant_id=$1::uuid AND id=$2::int
+        FOR UPDATE`,
+      tid,
+      Number(parentClaimId),
+    );
+    if (!parentRows.length) {
+      throw AppError.badRequest('parent_claim_id not found in this tenant', 'CLAIM_REFERENCE_INVALID');
+    }
+    const parent = parentRows[0];
+    if (String(parent.patient_uid) !== exactPatientUid) {
+      throw AppError.forbidden(
+        'parent_claim_id belongs to a different patient',
+        'CLAIM_REFERENCE_PATIENT_MISMATCH',
+      );
+    }
+    if (Number(parent.policy_id) !== Number(policyId)
+        || !optionalIdEquals(parent.admission_id, admissionId)
+        || (preauthId != null && !optionalIdEquals(parent.preauth_id, preauthId))) {
+      throw AppError.conflict(
+        'parent_claim_id is not bound to the exact policy, pre-auth, and admission',
+        'CLAIM_REFERENCE_AUTHORITY_MISMATCH',
+      );
+    }
+    if (['cancelled'].includes(String(parent.status))
+        || Number(parent.total_billed) <= 0
+        || Number(parent.claimed_amount) <= 0) {
+      throw AppError.conflict(
+        'parent_claim_id no longer carries valid financial authority',
+        'CLAIM_REFERENCE_STATE_CHANGED',
+      );
+    }
+  }
+}
+
+async function lockClaimInvoiceAuthorityTx(tx, {
+  tenantId,
+  invoiceId,
+  patientUid,
+  admissionId,
+  totalBilled,
+  requireIssuedFinal,
+}) {
+  if (invoiceId == null) return { invoice: null, nonPayableAmount: null };
+  const invoiceRows = await tx.$queryRawUnsafe(
+    `SELECT id,invoice_number,status,total_amount,patient_uid,admission_id
+       FROM billing_invoices
+      WHERE tenant_id=$1::uuid AND id=$2::int
+      FOR UPDATE`,
+    requireTenantId(tenantId),
+    Number(invoiceId),
+  );
+  if (!invoiceRows.length) throw AppError.notFound('Linked invoice not found');
+  const lockedInvoice = invoiceRows[0];
+  if (String(lockedInvoice.patient_uid) !== String(patientUid)
+      || !optionalIdEquals(lockedInvoice.admission_id, admissionId)) {
+    throw AppError.forbidden(
+      'Linked invoice belongs to a different patient or admission',
+      'CLAIM_REFERENCE_PATIENT_MISMATCH',
+    );
+  }
+  const itemRows = await tx.$queryRawUnsafe(
+    `SELECT id,description,line_total,source_ref_type,source_ref_id,tpa_decision
+       FROM billing_invoice_items
+      WHERE tenant_id=$1::uuid AND invoice_id=$2::int
+      ORDER BY id
+      FOR UPDATE`,
+    requireTenantId(tenantId),
+    Number(invoiceId),
+  );
+  let invoice;
+  if (requireIssuedFinal) {
+    invoice = await assertIssuedFinalCashlessInvoice({
+      tenantId,
+      invoiceId,
+      patientUid,
+      admissionId,
+      totalBilled,
+      db: tx,
+      forUpdate: true,
+      lockedItemRows: itemRows,
+    });
+  } else {
+    invoice = lockedInvoice;
+  }
+  const nonPayableAmount = itemRows.reduce(
+    (total, row) => total + (String(row.tpa_decision) === 'non_payable'
+      ? Number(row.line_total || 0)
+      : 0),
+    0,
+  );
+  return { invoice, nonPayableAmount };
 }
 
 export async function createClaim({
@@ -1361,9 +1731,10 @@ export async function createClaim({
       const nonPayableRows = await prisma.$queryRawUnsafe(
         `SELECT COALESCE(SUM(line_total), 0)::numeric AS total
            FROM billing_invoice_items
-          WHERE invoice_id = $1::int
+          WHERE tenant_id = $2::uuid AND invoice_id = $1::int
             AND tpa_decision = 'non_payable'`,
         Number(invoice_id),
+        requireTenantId(tenantId),
       );
       const derived = Number(nonPayableRows[0]?.total ?? 0);
       if (derived > 0) {
@@ -1419,6 +1790,12 @@ export async function createClaim({
     admissionId: admission_id, parentClaimId: parent_claim_id,
   });
   const finalStage = stage || 'final';
+  if (claim_type === 'cashless' && finalStage === 'final' && !invoice_id) {
+    throw AppError.badRequest(
+      'Final cashless claim requires invoice_id for an issued exact bill',
+      'CLAIM_FINAL_INVOICE_REQUIRED',
+    );
+  }
   if (claim_type === 'cashless' && finalStage === 'final' && invoice_id) {
     await assertIssuedFinalCashlessInvoice({
       tenantId,
@@ -1431,8 +1808,55 @@ export async function createClaim({
 
   const claim_number = await nextSeq('tpa_claim_counter', 'CL', tenantId);
 
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO tpa_claims
+  const rows = await setTenantTx(requireTenantId(tenantId), async (tx) => {
+    const canonicalPatientUid = await lockInsuranceFundingPatientTx(tx, {
+      tenantId,
+      patientUid: patient_uid,
+      admissionId: admission_id,
+    });
+    await lockClaimReferenceAuthorityTx(tx, {
+      tenantId,
+      patientUid: canonicalPatientUid,
+      policyId: policy_id,
+      admissionId: admission_id,
+      preauthId: preauth_id,
+      parentClaimId: parent_claim_id,
+    });
+    const invoiceAuthority = await lockClaimInvoiceAuthorityTx(tx, {
+      tenantId,
+      invoiceId: invoice_id,
+      patientUid: canonicalPatientUid,
+      admissionId: admission_id,
+      totalBilled: billedNum,
+      requireIssuedFinal: claim_type === 'cashless' && finalStage === 'final',
+    });
+    const exactNonPayableNum = invoice_id == null
+      ? nonPayableNum
+      : Number(invoiceAuthority.nonPayableAmount || 0);
+    const exactClaimAmt = Number(
+      claimed_amount ?? (billedNum - copayNum - exactNonPayableNum),
+    );
+    if (exactClaimAmt <= 0) throw AppError.badRequest('claimed_amount must be > 0');
+    if (exactClaimAmt > billedNum + 0.01) {
+      throw AppError.badRequest(
+        `claimed_amount ${exactClaimAmt} cannot exceed total_billed ${billedNum}`,
+        'CLAIM_AMOUNT_EXCEEDS_BILLED',
+        { claimed_amount: exactClaimAmt, total_billed: billedNum },
+      );
+    }
+    if (copayNum + exactNonPayableNum > billedNum + 0.01) {
+      throw AppError.badRequest(
+        `patient_copay (${copayNum}) + non_payable_amount (${exactNonPayableNum}) cannot exceed total_billed ${billedNum}`,
+        'CLAIM_PATIENT_SHARE_EXCEEDS_BILLED',
+        {
+          patient_copay: copayNum,
+          non_payable_amount: exactNonPayableNum,
+          total_billed: billedNum,
+        },
+      );
+    }
+    return tx.$queryRawUnsafe(
+      `INSERT INTO tpa_claims
        (claim_number, policy_id, preauth_id, invoice_id, patient_uid,
         admission_id, claim_type, total_billed, patient_copay,
         non_payable_amount, claimed_amount, notes, created_by, tenant_id,
@@ -1441,19 +1865,20 @@ export async function createClaim({
              $8::numeric, $9::numeric, $10::numeric, $11::numeric,
              $12, $13::uuid, $14::uuid,
              $15, $16::int)
-     RETURNING *`,
-    claim_number, Number(policy_id),
-    preauth_id ? Number(preauth_id) : null,
-    invoice_id ? Number(invoice_id) : null,
-    String(patient_uid),
-    admission_id ? Number(admission_id) : null,
-    claim_type, Number(total_billed), Number(patient_copay),
-    nonPayableNum, claimAmt,
-    notes || null,
-    created_by ? String(created_by) : null, tenantId,
-    finalStage,
-    parent_claim_id ? Number(parent_claim_id) : null,
-  );
+       RETURNING *`,
+      claim_number, Number(policy_id),
+      preauth_id ? Number(preauth_id) : null,
+      invoice_id ? Number(invoice_id) : null,
+      canonicalPatientUid,
+      admission_id ? Number(admission_id) : null,
+      claim_type, Number(total_billed), Number(patient_copay),
+      exactNonPayableNum, exactClaimAmt,
+      notes || null,
+      created_by ? String(created_by) : null, tenantId,
+      finalStage,
+      parent_claim_id ? Number(parent_claim_id) : null,
+    );
+  });
   const created = rows[0];
   // Attach the non-blocking advisory warnings (cover-exceeded /
   // room-cap). Additive `warnings` field — always an array, empty when
@@ -1699,14 +2124,15 @@ async function assertRoomCapLiabilityCleared({ tenantId, claim }) {
  * the canonical `room_rent` billing category (billingV2). Returns 0 when
  * no invoice is linked or no room-rent line exists.
  */
-async function roomChargesForInvoice(invoiceId) {
+async function roomChargesForInvoice(tenantId, invoiceId) {
   if (!invoiceId) return 0;
   const rows = await prisma.$queryRawUnsafe(
     `SELECT COALESCE(SUM(line_total), 0)::numeric AS total
        FROM billing_invoice_items
-      WHERE invoice_id = $1::int
+      WHERE tenant_id = $2::uuid AND invoice_id = $1::int
         AND category = 'room_rent'`,
     Number(invoiceId),
+    requireTenantId(tenantId),
   );
   return Number(rows[0]?.total ?? 0);
 }
@@ -1772,22 +2198,23 @@ export async function buildClaimWarnings({ tenantId, claim, logCorrespondence = 
     // pre-auth, plus the billed room charges + admission room category.
     const respRows = await prisma.$queryRawUnsafe(
       `SELECT raw_response
-         FROM insurance_preauth_responses
-        WHERE preauth_id = $1::int
+       FROM insurance_preauth_responses
+        WHERE tenant_id = $2::uuid AND preauth_id = $1::int
         ORDER BY decided_at DESC, id DESC
         LIMIT 1`,
       Number(claim.preauth_id),
+      requireTenantId(tenantId),
     );
     const caps = extractPreauthCaps(respRows[0]?.raw_response);
     const roomCapAmount = roomCapAmountFromCaps(caps);
     const cappedRoomCategory = cappedRoomCategoryFromCaps(caps);
 
     if (roomCapAmount > 0 || cappedRoomCategory) {
-      const roomCharges = await roomChargesForInvoice(claim.invoice_id);
+      const roomCharges = await roomChargesForInvoice(tenantId, claim.invoice_id);
       let admissionRoomCategory = null;
       if (claim.admission_id) {
-        const adm = await prisma.admissions.findUnique({
-          where: { id: Number(claim.admission_id) },
+        const adm = await prisma.admissions.findFirst({
+          where: { tenant_id: requireTenantId(tenantId), id: Number(claim.admission_id) },
           select: { room_category: true },
         });
         admissionRoomCategory = adm?.room_category || null;
@@ -1999,18 +2426,41 @@ export async function submitClaim({
       }
     }
   }
-  await prisma.$executeRawUnsafe(
-    `UPDATE tpa_claims
+  await setTenantTx(requireTenantId(tenantId), async (tx) => {
+    await lockInsuranceFundingPatientTx(tx, {
+      tenantId,
+      patientUid: cl.patient_uid,
+      admissionId: cl.admission_id,
+    });
+    const lockedRows = await tx.$queryRawUnsafe(
+      `SELECT status FROM tpa_claims
+        WHERE tenant_id=$1::uuid AND id=$2::int AND patient_uid=$3::uuid
+        FOR UPDATE`,
+      tenantId,
+      cl.id,
+      String(cl.patient_uid),
+    );
+    if (!lockedRows.length) throw AppError.notFound('Claim not found');
+    if (lockedRows[0].status !== 'prepared') {
+      throw AppError.conflict(
+        `Claim in ${lockedRows[0].status} cannot be submitted`,
+        'CLAIM_SUBMISSION_STATE_CHANGED',
+      );
+    }
+    await tx.$executeRawUnsafe(
+      `UPDATE tpa_claims
         SET status = 'submitted', submitted_at = NOW(),
             submitted_by = $1::uuid, submission_channel = $2,
             tpa_reference_id = COALESCE($3, tpa_reference_id),
             updated_at = NOW()
-      WHERE id = $4::int`,
-    submitted_by ? String(submitted_by) : null,
-    submission_channel,
-    tpa_reference_id || null,
-    cl.id,
-  );
+       WHERE tenant_id=$5::uuid AND id = $4::int`,
+      submitted_by ? String(submitted_by) : null,
+      submission_channel,
+      tpa_reference_id || null,
+      cl.id,
+      tenantId,
+    );
+  });
   return getClaim({ tenantId, id });
 }
 
@@ -2088,6 +2538,11 @@ export async function recordClaimDecision({
     ? { sameTx: false, postCommit: false }
     : await resolveLedgerWiring(tid);
   await setTenantTx(tid, async (tx) => {
+    await lockInsuranceFundingPatientTx(tx, {
+      tenantId: tid,
+      patientUid: cl.patient_uid,
+      admissionId: cl.admission_id,
+    });
     const lockedRows = await tx.$queryRawUnsafe(
       `SELECT id, status FROM tpa_claims WHERE id = $1::int AND tenant_id = $2::uuid LIMIT 1 FOR UPDATE`,
       cl.id, tid,
@@ -2239,6 +2694,11 @@ export async function recordClaimPayment({
   // payable status and both write (distinct-ref last-writer-wins / double-pay).
   const tid = requireTenantId(tenantId);
   await setTenantTx(tid, async (tx) => {
+    await lockInsuranceFundingPatientTx(tx, {
+      tenantId: tid,
+      patientUid: cl.patient_uid,
+      admissionId: cl.admission_id,
+    });
     const lockedRows = await tx.$queryRawUnsafe(
       `SELECT id, status, payment_reference FROM tpa_claims WHERE id = $1::int AND tenant_id = $2::uuid LIMIT 1 FOR UPDATE`,
       cl.id, tid,

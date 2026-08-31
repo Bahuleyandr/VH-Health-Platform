@@ -10,18 +10,24 @@ class WardIndentInventoryItem {
     required this.displayName,
     required this.isNarcotic,
     this.catalogId,
+    this.facilityId,
     this.compositionId,
     this.scheduleClass,
     this.unitLabel,
+    this.unreservedQuantity = 0,
+    this.batches = const [],
   });
 
   final int id;
   final int? catalogId;
+  final int? facilityId;
   final int? compositionId;
   final String displayName;
   final String? scheduleClass;
   final String? unitLabel;
   final bool isNarcotic;
+  final double unreservedQuantity;
+  final List<WardIndentInventoryBatch> batches;
 
   bool get isControlled =>
       const {'H', 'H1', 'X'}.contains(scheduleClass) || isNarcotic;
@@ -31,6 +37,7 @@ class WardIndentInventoryItem {
     return WardIndentInventoryItem(
       id: _int(json['id']) ?? 0,
       catalogId: _int(json['catalog_id']),
+      facilityId: _int(json['facility_id']),
       compositionId: _int(json['composition_id']),
       displayName:
           _string(json['display_name']) ??
@@ -39,6 +46,10 @@ class WardIndentInventoryItem {
       scheduleClass: _string(json['schedule_class'])?.toUpperCase(),
       unitLabel: _string(json['unit_label']),
       isNarcotic: json['is_narcotic'] == true,
+      unreservedQuantity: _double(json['unreserved_quantity']),
+      batches: _maps(json['batches'])
+          .map(WardIndentInventoryBatch.fromJson)
+          .toList(growable: false),
     );
   }
 }
@@ -49,6 +60,9 @@ class WardIndentInventoryBatch {
     required this.inventoryItemId,
     required this.batchNumber,
     required this.remainingQuantity,
+    this.unreservedQuantity = 0,
+    this.lotNumber,
+    this.status,
     this.expiryDate,
   });
 
@@ -56,6 +70,9 @@ class WardIndentInventoryBatch {
   final int inventoryItemId;
   final String batchNumber;
   final double remainingQuantity;
+  final double unreservedQuantity;
+  final String? lotNumber;
+  final String? status;
   final DateTime? expiryDate;
 
   factory WardIndentInventoryBatch.fromJson(Map<String, dynamic> json) {
@@ -67,6 +84,11 @@ class WardIndentInventoryBatch {
           _string(json['lot_number']) ??
           'Batch #${_int(json['id']) ?? 0}',
       remainingQuantity: _double(json['remaining_quantity']),
+      unreservedQuantity:
+          _nullableDouble(json['unreserved_quantity']) ??
+          _double(json['remaining_quantity']),
+      lotNumber: _string(json['lot_number']),
+      status: _string(json['status']),
       expiryDate: DateTime.tryParse(json['expiry_date']?.toString() ?? ''),
     );
   }
@@ -104,32 +126,85 @@ abstract interface class WardIndentGateway {
     required String idempotencyKey,
   });
 
-  Future<List<WardIndentInventoryItem>> listInventoryItems({int? catalogId});
+  Future<List<WardIndentInventoryItem>> listInventoryItems({
+    required int facilityId,
+    int? catalogId,
+  });
 
-  Future<List<WardIndentInventoryBatch>> listInventoryBatches(int itemId);
+  Future<List<WardIndentInventoryBatch>> listInventoryBatches(
+    int itemId, {
+    required int facilityId,
+  });
+
+  Future<List<WardIndentInventoryItem>> listInventoryCandidates(
+    int indentId,
+    int itemId,
+  );
 
   Future<CompositionAlternativesResult> getCatalogAlternatives(int catalogId);
 
-  Future<Map<String, dynamic>> requestControlledDispenseWitnessApproval({
-    required Map<String, dynamic> dispense,
+  Future<Map<String, dynamic>> requestWardControlledWitnessApproval({
+    required int indentId,
+    required int itemId,
+    required Object allocationId,
     required String idempotencyKey,
   });
 
-  Future<Map<String, dynamic>> approveControlledDispenseWitnessApproval({
+  Future<Map<String, dynamic>> approveWardControlledWitnessApproval({
+    required int indentId,
     required String approvalId,
-    required Map<String, dynamic> dispense,
+    required int itemId,
+    required Object allocationId,
     required String employeeId,
     required String password,
     required String idempotencyKey,
   });
+}
 
-  Future<Map<String, dynamic>> dispenseControlledInventory({
-    required Map<String, dynamic> dispense,
+class WardIndentRequestConflict implements Exception {
+  const WardIndentRequestConflict({
+    required this.code,
+    required this.message,
+    this.details,
+  });
+
+  final String? code;
+  final String message;
+  final Map<String, dynamic>? details;
+
+  int? get winningIndentId => _positiveInt(
+    details?['ward_indent_id'] ?? details?['existing_ward_indent_id'],
+  );
+
+  int? get expectedCatalogId => _positiveInt(details?['expected_catalog_id']);
+
+  double? get expectedQuantity =>
+      _positiveDouble(details?['expected_quantity']);
+
+  String? get expectedUnit {
+    final value = details?['expected_unit']?.toString().trim() ?? '';
+    return value.isEmpty ? null : value;
+  }
+
+  @override
+  String toString() => message;
+}
+
+abstract interface class WardIndentRequesterGateway {
+  Future<WardIndent> getIndent(int id);
+
+  Future<WardIndentRecoveryProjection> loadOrderBoundProjection(
+    int admissionId,
+  );
+
+  Future<WardIndent> createOrderBoundRequest(
+    WardIndentOrderBoundCommand command, {
     required String idempotencyKey,
   });
 }
 
-class ApiWardIndentGateway implements WardIndentGateway {
+class ApiWardIndentGateway
+    implements WardIndentGateway, WardIndentRequesterGateway {
   const ApiWardIndentGateway();
 
   @override
@@ -161,6 +236,40 @@ class ApiWardIndentGateway implements WardIndentGateway {
   }
 
   @override
+  Future<WardIndentRecoveryProjection> loadOrderBoundProjection(
+    int admissionId,
+  ) async {
+    final chart = await MedicalApiService.getInpatientDrugChart(admissionId);
+    return WardIndentRecoveryProjection.fromDrugChart(chart);
+  }
+
+  @override
+  Future<WardIndent> createOrderBoundRequest(
+    WardIndentOrderBoundCommand command, {
+    required String idempotencyKey,
+  }) async {
+    final body = command.toRequestBody();
+    try {
+      final result = await PharmacyApiService.createWardIndent(
+        admissionId: command.admissionId,
+        items: List<Map<String, dynamic>>.from(body['items'] as List),
+        notes: command.notes,
+        idempotencyKey: idempotencyKey,
+      );
+      return WardIndent.fromJson(result);
+    } on PharmacyApiException catch (error) {
+      if (error.statusCode == 409) {
+        throw WardIndentRequestConflict(
+          code: error.code,
+          message: error.message,
+          details: error.details,
+        );
+      }
+      rethrow;
+    }
+  }
+
+  @override
   Future<WardIndent> mutateIndent(
     WardIndent indent,
     WardIndentAction action, {
@@ -179,21 +288,39 @@ class ApiWardIndentGateway implements WardIndentGateway {
 
   @override
   Future<List<WardIndentInventoryItem>> listInventoryItems({
+    required int facilityId,
     int? catalogId,
   }) async {
     final rows = await PharmacyApiService.getInventoryItems(
       status: 'active',
       catalogId: catalogId,
+      facilityId: facilityId,
     );
     return rows.map(WardIndentInventoryItem.fromJson).toList(growable: false);
   }
 
   @override
   Future<List<WardIndentInventoryBatch>> listInventoryBatches(
+    int itemId, {
+    required int facilityId,
+  }) async {
+    final rows = await PharmacyApiService.getInventoryBatches(
+      itemId: itemId,
+      facilityId: facilityId,
+    );
+    return rows.map(WardIndentInventoryBatch.fromJson).toList(growable: false);
+  }
+
+  @override
+  Future<List<WardIndentInventoryItem>> listInventoryCandidates(
+    int indentId,
     int itemId,
   ) async {
-    final rows = await PharmacyApiService.getInventoryBatches(itemId: itemId);
-    return rows.map(WardIndentInventoryBatch.fromJson).toList(growable: false);
+    final rows = await PharmacyApiService.getWardIndentInventoryCandidates(
+      indentId,
+      itemId,
+    );
+    return rows.map(WardIndentInventoryItem.fromJson).toList(growable: false);
   }
 
   @override
@@ -202,43 +329,52 @@ class ApiWardIndentGateway implements WardIndentGateway {
   }
 
   @override
-  Future<Map<String, dynamic>> requestControlledDispenseWitnessApproval({
-    required Map<String, dynamic> dispense,
+  Future<Map<String, dynamic>> requestWardControlledWitnessApproval({
+    required int indentId,
+    required int itemId,
+    required Object allocationId,
     required String idempotencyKey,
   }) {
-    return PharmacyApiService.requestControlledDispenseWitnessApproval(
-      dispense: dispense,
+    return PharmacyApiService.requestWardControlledWitnessApproval(
+      indentId: indentId,
+      itemId: itemId,
+      allocationId: allocationId,
       idempotencyKey: idempotencyKey,
     );
   }
 
   @override
-  Future<Map<String, dynamic>> approveControlledDispenseWitnessApproval({
+  Future<Map<String, dynamic>> approveWardControlledWitnessApproval({
+    required int indentId,
     required String approvalId,
-    required Map<String, dynamic> dispense,
+    required int itemId,
+    required Object allocationId,
     required String employeeId,
     required String password,
     required String idempotencyKey,
   }) {
-    return PharmacyApiService.approveControlledDispenseWitnessApproval(
+    return PharmacyApiService.approveWardControlledWitnessApproval(
+      indentId: indentId,
       approvalId: approvalId,
-      dispense: dispense,
+      itemId: itemId,
+      allocationId: allocationId,
       employeeId: employeeId,
       password: password,
       idempotencyKey: idempotencyKey,
     );
   }
+}
 
-  @override
-  Future<Map<String, dynamic>> dispenseControlledInventory({
-    required Map<String, dynamic> dispense,
-    required String idempotencyKey,
-  }) {
-    return PharmacyApiService.dispenseControlledInventory(
-      dispense: dispense,
-      idempotencyKey: idempotencyKey,
-    );
-  }
+int? _positiveInt(Object? value) {
+  final parsed = value is int ? value : int.tryParse(value?.toString() ?? '');
+  return parsed != null && parsed > 0 ? parsed : null;
+}
+
+double? _positiveDouble(Object? value) {
+  final parsed = value is num
+      ? value.toDouble()
+      : double.tryParse(value?.toString() ?? '');
+  return parsed != null && parsed.isFinite && parsed > 0 ? parsed : null;
 }
 
 int? _int(Object? value) {
@@ -252,7 +388,19 @@ double _double(Object? value) {
   return double.tryParse(value?.toString() ?? '') ?? 0;
 }
 
+double? _nullableDouble(Object? value) {
+  if (value is num) return value.toDouble();
+  return double.tryParse(value?.toString() ?? '');
+}
+
 String? _string(Object? value) {
   final text = value?.toString().trim() ?? '';
   return text.isEmpty || text.toLowerCase() == 'null' ? null : text;
 }
+
+List<Map<String, dynamic>> _maps(Object? value) => value is List
+    ? value
+          .whereType<Map>()
+          .map((entry) => Map<String, dynamic>.from(entry))
+          .toList(growable: false)
+    : const [];

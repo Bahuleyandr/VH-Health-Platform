@@ -41,7 +41,24 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 
 const { createNote } = await import('../../services/emr/clinicalNotesService.js');
 const { createOrder } = await import('../../services/emr/orderEntryService.js');
-const { updateAdmissionFasting, createAdmissionFromEr } = await import('../../services/clinical/icuService.js');
+const {
+  buildIcuMarCarryoverReviewPath,
+  carryMedicationOrdersToMar,
+  createAdmissionFromEr,
+  escalateIcuMarCarryoverFailure,
+  updateAdmissionFasting,
+} = await import('../../services/clinical/icuService.js');
+
+test('ICU MAR carryover alerts use the governed Staff recovery route', () => {
+  expect(buildIcuMarCarryoverReviewPath({
+    patientUid: '11111111-1111-4111-8111-111111111111',
+    admissionId: 73,
+  })).toBe('/emr/orders/11111111-1111-4111-8111-111111111111?icu_mar_review=73');
+  expect(() => buildIcuMarCarryoverReviewPath({
+    patientUid: 'not-a-patient',
+    admissionId: 73,
+  })).toThrow(/exact patient and admission identity/i);
+});
 
 describe('clinical notes — admission/er/transfer note types', () => {
   it('rejects an unknown note_type and advertises the new types', async () => {
@@ -137,7 +154,7 @@ describe('order entry — ecg/radiology/procedure order types', () => {
       order_type: 'nursing', patient_uid: 'p',
       details: { description: 'obs' }, ordered_by: 'd',
       er_visit_id: 'not-a-number',
-    })).rejects.toThrow(/er_visit_id must be an integer/);
+    })).rejects.toThrow(/er_visit_id must be a positive integer emergency_visits id/);
   });
 });
 
@@ -150,5 +167,139 @@ describe('icu — fasting PATCH + admit-from-ER guards', () => {
   it('createAdmissionFromEr rejects a non-numeric emergency visit id', async () => {
     await expect(createAdmissionFromEr({ tenantId: 't', emergencyVisitId: 'abc' }))
       .rejects.toThrow(/numeric emergency visit id/);
+  });
+});
+
+describe('icu — ER medication MAR continuation recovery', () => {
+  it('persists the exact ICU alert obligation with canonical failure evidence when queueing fails', async () => {
+    const recordCanonicalClinicalEvent = jest.fn(async () => ({
+      timeline: { id: 'timeline-1' },
+      audit: { id: 'audit-1' },
+    }));
+    const persistClinicalAlertFailureWithCanonical = jest.fn(
+      async ({ obligation, recordCanonical }) => {
+        const stored = { id: 815, ...obligation };
+        const canonical = await recordCanonical({}, stored);
+        return { obligation: stored, canonical };
+      },
+    );
+    const result = await escalateIcuMarCarryoverFailure({
+      admission: { id: 73 },
+      visit: {
+        id: 61,
+        tenant_id: '00000000-0000-4000-8000-000000000001',
+        patient_uid: '11111111-1111-4111-8111-111111111111',
+        encounter_id: '22222222-2222-4222-8222-222222222222',
+      },
+      actorUid: '33333333-3333-4333-8333-333333333333',
+      actorRole: 'DOCTOR',
+      err: Object.assign(new Error('query failed'), { code: 'MAR_QUERY_FAILED' }),
+      deps: {
+        queueClinicalAlertFanout: jest.fn(async () => {
+          throw new Error('outbox unavailable');
+        }),
+        recordCanonicalClinicalEvent,
+        persistClinicalAlertFailureWithCanonical,
+      },
+    });
+
+    expect(result).toEqual({
+      alertQueued: false,
+      canonicalRecorded: true,
+      reviewPath: '/emr/orders/11111111-1111-4111-8111-111111111111?icu_mar_review=73',
+    });
+    expect(persistClinicalAlertFailureWithCanonical).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: '00000000-0000-4000-8000-000000000001',
+        obligation: expect.objectContaining({
+          sourceTable: 'icu_admissions',
+          sourceId: '73',
+          failureKind: 'icu_mar_carryover_query',
+          failureCode: 'MAR_QUERY_FAILED',
+          notificationIntent: expect.objectContaining({
+            channel: 'push',
+            sourceEventKey: 'icu_admissions:73:icu.mar_carryover_failed:alert',
+            templateVersion: 'clinical-alert-icu-mar-carryover-failure.v1',
+          }),
+        }),
+      }),
+    );
+    expect(recordCanonicalClinicalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'icu.mar_carryover_failed',
+        payload: expect.objectContaining({ alert_recovery_obligation_id: 815 }),
+      }),
+      { db: {}, strict: true },
+    );
+  });
+
+  it('continues independent orders and returns a doctor-actionable durable failure receipt', async () => {
+    const orders = [
+      { id: 41, order_number: 'ORD-41', order_type: 'medication' },
+      { id: 42, order_number: 'ORD-42', order_type: 'medication' },
+    ];
+    const schedule = jest.fn(async (order) => {
+      if (order.id === 42) {
+        throw Object.assign(new Error('transient schedule fault'), { code: 'MAR_TRANSIENT' });
+      }
+      return [{ id: 901, clinical_order_id: 41 }];
+    });
+    const escalate = jest.fn(async () => ({
+      alertQueued: true,
+      auditRecorded: true,
+    }));
+
+    const result = await carryMedicationOrdersToMar(orders, {
+      actorUid: '11111111-1111-4111-8111-111111111111',
+      actorRole: 'DOCTOR',
+      deps: {
+        scheduleMedicationOrderOnMar: schedule,
+        escalateOrderIntegrationFailure: escalate,
+      },
+    });
+
+    expect(schedule).toHaveBeenCalledTimes(2);
+    expect(result.medications).toEqual([{ id: 901, clinical_order_id: 41 }]);
+    expect(result.active_order_count).toBe(2);
+    expect(result.failures).toEqual([{
+      order_id: 42,
+      order_number: 'ORD-42',
+      error_code: 'MAR_TRANSIENT',
+      alert_queued: true,
+      audit_recorded: true,
+      recovery_endpoint: '/api/v1/emr/orders/42/retry-mar-scheduling',
+      requires_doctor_authority: true,
+    }]);
+    expect(escalate).toHaveBeenCalledWith(expect.objectContaining({
+      order: orders[1],
+      stage: 'mar_carryover',
+    }));
+  });
+
+  it('does not abandon later orders when the escalation adapter also fails', async () => {
+    const orders = [
+      { id: 51, order_number: 'ORD-51', order_type: 'medication' },
+      { id: 52, order_number: 'ORD-52', order_type: 'medication' },
+    ];
+    const schedule = jest.fn(async (order) => {
+      if (order.id === 51) throw new Error('schedule fault');
+      return [{ id: 902, clinical_order_id: 52 }];
+    });
+    const result = await carryMedicationOrdersToMar(orders, {
+      deps: {
+        scheduleMedicationOrderOnMar: schedule,
+        escalateOrderIntegrationFailure: jest.fn(async () => {
+          throw new Error('escalation fault');
+        }),
+      },
+    });
+
+    expect(schedule).toHaveBeenCalledTimes(2);
+    expect(result.medications).toEqual([{ id: 902, clinical_order_id: 52 }]);
+    expect(result.failures).toEqual([expect.objectContaining({
+      order_id: 51,
+      alert_queued: false,
+      audit_recorded: false,
+    })]);
   });
 });

@@ -9,6 +9,18 @@ describe('production bootstrap and migration-writer ownership', () => {
   const wwwSource = read('../../bin/www.js');
   const jobSource = read('../../../../../infra/kubernetes/apps/backend/migration-job.yaml');
   const configSource = read('../../../../../infra/kubernetes/apps/backend/configmap.yaml');
+  const payrollAcceptanceSource = read(
+    '../../../../../infra/kubernetes/apps/backend/payroll-revision-754-acceptance.yaml',
+  );
+  const backendKustomizationSource = read(
+    '../../../../../infra/kubernetes/apps/backend/kustomization.yaml',
+  );
+  const productionAppsKustomizationSource = read(
+    '../../../../../infra/kubernetes/apps/kustomization.yaml',
+  );
+  const stagingAppsKustomizationSource = read(
+    '../../../../../infra/kubernetes/overlays/staging/apps/kustomization.yaml',
+  );
   const trackerFenceMigration = read('../../migrations/735_migration_tracker_integrity_and_runtime_acl.sql');
   const prismaSource = read('../../lib/prisma.js');
   const runtimeGrantScript = read('../../../scripts/ensure-runtime-role-grants.mjs');
@@ -28,11 +40,44 @@ describe('production bootstrap and migration-writer ownership', () => {
   });
 
   it('makes the owner PreSync job apply migrations and runtime grants in order', () => {
+    const payrollPreflight = jobSource.indexOf(
+      'node scripts/payroll-revision-754-preflight.mjs --report-only',
+    );
     const migrate = jobSource.indexOf('node scripts/ci-setup-db.mjs --skip-seeds');
     const grants = jobSource.indexOf('node scripts/ensure-runtime-role-grants.mjs');
+    expect(payrollPreflight).toBeGreaterThan(-1);
+    expect(migrate).toBeGreaterThan(payrollPreflight);
     expect(migrate).toBeGreaterThan(-1);
     expect(grants).toBeGreaterThan(migrate);
     expect(configSource).toContain('RUN_MIGRATIONS: "false"');
+    expect(backendKustomizationSource).toContain('payroll-revision-754-acceptance.yaml');
+    expect(payrollAcceptanceSource).toContain('argocd.argoproj.io/hook: PreSync');
+    expect(payrollAcceptanceSource).toContain('argocd.argoproj.io/sync-wave: "-2"');
+    expect(payrollAcceptanceSource).toContain(
+      'argocd.argoproj.io/hook-delete-policy: BeforeHookCreation',
+    );
+    expect(jobSource).toContain('argocd.argoproj.io/sync-wave: "-1"');
+    expect(jobSource).toContain('name: vhhealth-payroll-revision-754-acceptance');
+    expect(jobSource).toMatch(
+      /name: PAYROLL_754_ACCEPTED_MANIFEST_SHA256[\s\S]*?configMapKeyRef:[\s\S]*?name: vhhealth-payroll-revision-754-acceptance[\s\S]*?key: PAYROLL_754_ACCEPTED_MANIFEST_SHA256/,
+    );
+    expect(jobSource).toMatch(
+      /name: PAYROLL_754_ACCEPTED_BY[\s\S]*?configMapKeyRef:[\s\S]*?name: vhhealth-payroll-revision-754-acceptance[\s\S]*?key: PAYROLL_754_ACCEPTED_BY/,
+    );
+    expect(payrollAcceptanceSource).toContain(
+      'PAYROLL_754_ACCEPTED_MANIFEST_SHA256: ""',
+    );
+    expect(payrollAcceptanceSource).toContain('PAYROLL_754_ACCEPTED_BY: ""');
+    expect(configSource).not.toContain('PAYROLL_754_ACCEPTED_MANIFEST_SHA256');
+    expect(configSource).not.toContain('PAYROLL_754_ACCEPTED_BY');
+    for (const environmentPatch of [
+      productionAppsKustomizationSource,
+      stagingAppsKustomizationSource,
+    ]) {
+      expect(environmentPatch).toContain('name: vhhealth-payroll-revision-754-acceptance');
+      expect(environmentPatch).toContain('PAYROLL_754_ACCEPTED_MANIFEST_SHA256: ""');
+      expect(environmentPatch).toContain('PAYROLL_754_ACCEPTED_BY: ""');
+    }
   });
 
   it('tolerates a missing runtime role only on explicit opt-in, which the PreSync job never grants', () => {

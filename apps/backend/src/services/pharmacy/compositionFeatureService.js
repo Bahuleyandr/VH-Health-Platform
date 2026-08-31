@@ -20,27 +20,51 @@ const enabledCache = new Map(); // tenant_id (string) -> { value: boolean, fetch
  * Is composition-based drug search enabled for this tenant?
  * Returns false for a falsy tenantId, when no row / enabled=false, or when the
  * query fails (never throws — the caller treats false as "feature off").
+ *
+ * Options use the canonical `{ db, bypassCache }` shape:
+ *  - `db`: the Prisma client to read through. Passing an interactive
+ *    transaction client (`db !== prisma`) means the read sees that
+ *    transaction's uncommitted snapshot, so it must neither be served from nor
+ *    written to the process-wide cache.
+ *  - `bypassCache`: force a fresh read (and suppress the cache write) even on
+ *    the ambient client — used where the flag is required safety evidence
+ *    rather than a search optimisation, so a stale 60s TTL can never decide a
+ *    fail-closed gate.
+ *
  * @param {string|null|undefined} tenantId
+ * @param {{ db?: object, bypassCache?: boolean }} [opts]
  * @returns {Promise<boolean>}
  */
-export async function isCompositionSearchEnabled(tenantId) {
+export async function isCompositionSearchEnabled(
+  tenantId,
+  { db = prisma, bypassCache = false } = {},
+) {
   if (!tenantId) return false;
   const key = String(tenantId);
+  const transactionalRead = db !== prisma;
+  // Either reason alone is sufficient to keep this read off the cache: a
+  // transactional read must not publish an uncommitted value to every other
+  // caller, and an explicit bypassCache caller must not be served a stale one.
+  const skipCache = bypassCache || transactionalRead;
 
-  const cached = enabledCache.get(key);
-  if (cached && Date.now() - cached.fetchedAt <= REFRESH_INTERVAL_MS) {
-    return cached.value;
+  if (!skipCache) {
+    const cached = enabledCache.get(key);
+    if (cached && Date.now() - cached.fetchedAt <= REFRESH_INTERVAL_MS) {
+      return cached.value;
+    }
   }
 
   try {
     // Scope by tenant_id so the read is correct under any ambient RLS GUC and
     // can never touch another tenant's cache entry.
-    const rows = await prisma.$queryRawUnsafe(
+    const rows = await db.$queryRawUnsafe(
       `SELECT enabled FROM composition_search_settings WHERE tenant_id = $1::uuid`,
       tenantId,
     );
     const value = rows[0]?.enabled === true;
-    enabledCache.set(key, { value, fetchedAt: Date.now() });
+    if (!skipCache) {
+      enabledCache.set(key, { value, fetchedAt: Date.now() });
+    }
     return value;
   } catch (err) {
     // Table missing (staggered deploy) or transient DB error — fail closed and

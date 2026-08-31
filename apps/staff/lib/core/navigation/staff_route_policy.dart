@@ -10,6 +10,10 @@ enum StaffRouteGate {
   clinicalCalculators,
   reportAdministration,
   wardIndent,
+  marSupplyReconciliation,
+  cathInventoryReconciliation,
+  platformAdmin,
+  counterSaleRefundFinance,
 }
 
 class StaffRouteMetadata {
@@ -104,13 +108,19 @@ class StaffRoutePolicy {
       anyFeatureIds: {'pharmacy_orders'},
       anyGates: {StaffRouteGate.wardIndent},
       externalEntry: true,
-      externalQueryParameters: {'tab', 'indent_id'},
+      externalQueryParameters: {'tab', 'indent_id', 'sale_id'},
     ),
     // Walk-in counter point-of-sale: same holders as the pharmacy workspace
     // (selling is further gated server-side to dispensing roles).
     StaffRouteMetadata(
       '/pharmacy/counter-sale',
       anyFeatureIds: {'pharmacy_orders'},
+    ),
+    StaffRouteMetadata(
+      '/pharmacy/cath-inventory-reconciliation',
+      anyGates: {StaffRouteGate.cathInventoryReconciliation},
+      externalEntry: true,
+      externalQueryParameters: {'case_id', 'consumable_usage_id'},
     ),
     StaffRouteMetadata('/profile', anyFeatureIds: {'profile'}),
     StaffRouteMetadata('/settings', anyFeatureIds: {'settings'}),
@@ -125,6 +135,28 @@ class StaffRoutePolicy {
       anyFeatureIds: {'front_office_workbench'},
     ),
     StaffRouteMetadata('/billing-desk', anyFeatureIds: {'billing_desk'}),
+    StaffRouteMetadata(
+      '/billing/refunds',
+      anyGates: {StaffRouteGate.counterSaleRefundFinance},
+      externalEntry: true,
+      externalQueryParameters: {'refund_id', 'void_request_id'},
+    ),
+    StaffRouteMetadata(
+      '/billing/gateway-refund-reconciliation',
+      anyGates: {StaffRouteGate.platformAdmin},
+      externalEntry: true,
+      externalQueryParameters: {'refund_id'},
+    ),
+    StaffRouteMetadata(
+      '/billing/credit-notes',
+      anyFeatureIds: {'billing_desk'},
+      externalEntry: true,
+    ),
+    StaffRouteMetadata(
+      '/billing/credit-notes/:id',
+      anyFeatureIds: {'billing_desk'},
+      externalEntry: true,
+    ),
     StaffRouteMetadata('/ward-mode', anyFeatureIds: {'ward_mode'}),
     StaffRouteMetadata('/ed-trauma', anyFeatureIds: {'ed_trauma_workbench'}),
     // Ambulance live tracking: ED workbench holders (live view) plus the
@@ -159,6 +191,12 @@ class StaffRoutePolicy {
       externalEntry: true,
     ),
     StaffRouteMetadata(
+      '/clinical-inbox/recovery',
+      anyGates: {StaffRouteGate.platformAdmin},
+      externalEntry: true,
+      externalQueryParameters: {'case_id'},
+    ),
+    StaffRouteMetadata(
       '/clinical-ai/review/:reviewId',
       anyFeatureIds: {'clinical_ai_review_queue'},
     ),
@@ -177,8 +215,18 @@ class StaffRoutePolicy {
     StaffRouteMetadata('/op-ai-assist', anyFeatureIds: {'op_ai_assist'}),
     StaffRouteMetadata('/vitals', anyGates: _clinical),
     StaffRouteMetadata('/nursing-notes', anyGates: _clinical),
-    StaffRouteMetadata('/mar/due', anyGates: _clinical),
+    StaffRouteMetadata(
+      '/mar/due',
+      anyGates: _clinical,
+      externalEntry: true,
+      externalQueryParameters: {'exception_id'},
+    ),
     StaffRouteMetadata('/mar/scan/:maId', anyGates: _clinical),
+    StaffRouteMetadata(
+      '/mar/reconcile/:maId',
+      anyGates: {StaffRouteGate.marSupplyReconciliation},
+      externalEntry: true,
+    ),
     StaffRouteMetadata(
       '/devices/associate',
       anyFeatureIds: {'device_association'},
@@ -376,7 +424,12 @@ class StaffRoutePolicy {
     StaffRouteMetadata('/emr/case-sheet/:id', anyGates: _clinical),
     StaffRouteMetadata('/emr/notes/:uid', anyGates: _clinical),
     StaffRouteMetadata('/emr/timeline/:uid', anyGates: _clinical),
-    StaffRouteMetadata('/emr/orders/:uid', anyGates: _clinical),
+    StaffRouteMetadata(
+      '/emr/orders/:uid',
+      anyGates: _clinical,
+      externalEntry: true,
+      externalQueryParameters: {'mar_recovery_order', 'icu_mar_review'},
+    ),
     StaffRouteMetadata('/emr/orders/:uid/compose', anyGates: _clinical),
     StaffRouteMetadata('/emr/vitals/:uid', anyGates: _clinical),
     StaffRouteMetadata('/emr/burns/:uid', anyGates: _clinical),
@@ -476,11 +529,86 @@ class StaffRoutePolicy {
     if (uri.path == '/pharmacy' && uri.queryParameters.isNotEmpty) {
       final tab = uri.queryParameters['tab'];
       final rawIndentId = uri.queryParameters['indent_id'];
-      if (tab != 'ward-indents') return null;
-      if (rawIndentId != null) {
-        final indentId = int.tryParse(rawIndentId);
-        if (indentId == null || indentId <= 0) return null;
+      final rawSaleId = uri.queryParameters['sale_id'];
+      if (tab == 'ward-indents') {
+        if (rawSaleId != null) return null;
+        if (rawIndentId != null &&
+            !_isCanonicalPositivePostgresInteger(rawIndentId)) {
+          return null;
+        }
+      } else if (tab == 'counter-sales') {
+        if (rawIndentId != null ||
+            rawSaleId == null ||
+            !_isCanonicalPositiveBigInt(rawSaleId)) {
+          return null;
+        }
+      } else {
+        return null;
       }
+    }
+    if (uri.path == '/billing/refunds') {
+      final refundId = uri.queryParameters['refund_id'];
+      final voidRequestId = uri.queryParameters['void_request_id'];
+      if (refundId == null ||
+          !_isCanonicalPositivePostgresInteger(refundId) ||
+          (voidRequestId != null &&
+              !_isCanonicalPositiveBigInt(voidRequestId))) {
+        return null;
+      }
+    }
+    if (uri.path == '/billing/gateway-refund-reconciliation') {
+      final refundId = uri.queryParameters['refund_id'];
+      if (refundId != null && !_isCanonicalPositivePostgresInteger(refundId)) {
+        return null;
+      }
+    }
+    if (uri.path == '/pharmacy/cath-inventory-reconciliation') {
+      final caseId = uri.queryParameters['case_id'];
+      final usageId = uri.queryParameters['consumable_usage_id'];
+      if (caseId == null ||
+          usageId == null ||
+          !_isCanonicalPositiveBigInt(caseId) ||
+          !_isCanonicalPositiveBigInt(usageId)) {
+        return null;
+      }
+    }
+    if (uri.path.startsWith('/mar/reconcile/')) {
+      final maId = uri.pathSegments.last;
+      if (!_isCanonicalPositivePostgresInteger(maId) ||
+          uri.queryParameters.isNotEmpty) {
+        return null;
+      }
+    }
+    if (uri.path == '/mar/due') {
+      final exceptionId = uri.queryParameters['exception_id'];
+      if (exceptionId != null && !_isCanonicalPositiveBigInt(exceptionId)) {
+        return null;
+      }
+    }
+    if (uri.path == '/clinical-inbox/recovery') {
+      final caseId = uri.queryParameters['case_id'];
+      if (caseId != null && !_isCanonicalPositiveBigInt(caseId)) {
+        return null;
+      }
+    }
+    if (uri.path.startsWith('/emr/orders/')) {
+      final uid = uri.pathSegments.length == 3 ? uri.pathSegments.last : '';
+      if (!_uuidPattern.hasMatch(uid)) return null;
+      final recoveryOrder = uri.queryParameters['mar_recovery_order'];
+      final icuMarReview = uri.queryParameters['icu_mar_review'];
+      if ((recoveryOrder == null) == (icuMarReview == null)) return null;
+      final workflowId = recoveryOrder ?? icuMarReview!;
+      if (!_positiveIntegerPattern.hasMatch(workflowId) ||
+          int.tryParse(workflowId) == null) {
+        return null;
+      }
+    }
+    if (uri.pathSegments.length == 3 &&
+        uri.pathSegments[0] == 'billing' &&
+        uri.pathSegments[1] == 'credit-notes' &&
+        (!_isCanonicalPositiveBigInt(uri.pathSegments[2]) ||
+            uri.queryParameters.isNotEmpty)) {
+      return null;
     }
     return uri.toString();
   }
@@ -514,6 +642,32 @@ class StaffRoutePolicy {
         rawRole: rawRole,
         role: role,
       ),
+      StaffRouteGate.marSupplyReconciliation => const {
+        'ADMIN',
+        'SUPER_ADMIN',
+        'PHARMACY_INCHARGE',
+        'NURSING_INCHARGE',
+        'IP_INCHARGE',
+      }.contains(normalized),
+      StaffRouteGate.cathInventoryReconciliation => const {
+        'PHARMACIST',
+        'PHARMACY_STAFF',
+        'PHARMACY_INCHARGE',
+        'ADMIN',
+        'SUPER_ADMIN',
+      }.contains(normalized),
+      StaffRouteGate.platformAdmin => const {
+        'ADMIN',
+        'SUPER_ADMIN',
+      }.contains(normalized),
+      StaffRouteGate.counterSaleRefundFinance => const {
+        'ADMIN',
+        'SUPER_ADMIN',
+        'FINANCE_INCHARGE',
+        'BILLING_INCHARGE',
+        'BILLING_STAFF',
+        'CASHIER',
+      }.contains(normalized),
     };
   }
 
@@ -539,8 +693,40 @@ class StaffRoutePolicy {
       return route.replaceFirst('/admissions', '/emr/admissions');
     }
     if (route == '/housekeeping') return '/housekeeping-tasks';
+    final uri = Uri.tryParse(route);
+    if (uri != null &&
+        uri.pathSegments.length == 3 &&
+        uri.pathSegments[0] == 'clinical' &&
+        uri.pathSegments[1] == 'mar' &&
+        uri.queryParameters.length == 1 &&
+        uri.queryParameters['supply-reconciliation'] == '1') {
+      final maId = uri.pathSegments[2];
+      if (_isCanonicalPositivePostgresInteger(maId)) {
+        return '/mar/reconcile/$maId';
+      }
+    }
     return route;
   }
+
+  static final RegExp _uuidPattern = RegExp(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+    caseSensitive: false,
+  );
+  static final RegExp _positiveIntegerPattern = RegExp(r'^[1-9][0-9]*$');
+  static const String _maximumSignedBigInt = '9223372036854775807';
+  static const String _maximumPostgresInteger = '2147483647';
+
+  static bool _isCanonicalPositivePostgresInteger(String value) =>
+      _positiveIntegerPattern.hasMatch(value) &&
+      value.length <= _maximumPostgresInteger.length &&
+      (value.length < _maximumPostgresInteger.length ||
+          value.compareTo(_maximumPostgresInteger) <= 0);
+
+  static bool _isCanonicalPositiveBigInt(String value) =>
+      _positiveIntegerPattern.hasMatch(value) &&
+      value.length <= _maximumSignedBigInt.length &&
+      (value.length < _maximumSignedBigInt.length ||
+          value.compareTo(_maximumSignedBigInt) <= 0);
 
   static bool _containsControlCharacter(String value) =>
       value.codeUnits.any((unit) => unit < 0x20 || unit == 0x7f);

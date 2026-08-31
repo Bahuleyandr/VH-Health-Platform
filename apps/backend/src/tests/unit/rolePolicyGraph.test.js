@@ -135,6 +135,38 @@ describe('rolePolicyGraph', () => {
     expect(pickerRoles).not.toContain('SUPER_ADMIN');
   });
 
+  it('models CASHIER as a canonical billing operator with bounded PHI and supervision', () => {
+    const policy = getRolePolicy();
+    const cashier = policy.roles.find((role) => role.role_code === 'CASHIER');
+    const chart = getOrgHierarchyFromPolicy();
+    const billingNode = chart.nodes.find((node) => node.id === 'billing_insurance');
+
+    expect(cashier).toEqual(expect.objectContaining({
+      display_title: 'Cashier',
+      group: 'support',
+      department: 'Billing',
+      assignable_staff: true,
+    }));
+    expect(cashier?.access?.route_capability_groups).toEqual(
+      expect.arrayContaining(['cashier_operations', 'phone_self_service']),
+    );
+    expect(cashier?.access?.route_capability_groups).not.toContain('billing');
+    expect(cashier?.ui?.feature_ids).toEqual(
+      expect.arrayContaining(['billing_desk', 'payroll']),
+    );
+    expect(cashier?.ui?.phone_feature_ids).not.toContain('phone_readonly_chart');
+    expect(cashier?.phi).toEqual(expect.objectContaining({
+      access_level: PHI_ACCESS_LEVELS.BASIC_PATIENT_CONTEXT,
+      requires_patient_relationship: false,
+      can_break_glass: false,
+    }));
+    expect(getRolePickerOptions().map((role) => role.role)).toContain('CASHIER');
+    expect(getManageableRolesFromPolicy('BILLING_INCHARGE')).toContain('CASHIER');
+    expect(getManageableRolesFromPolicy('FINANCE_INCHARGE')).toContain('CASHIER');
+    expect(getStaffVisibilityRoles('CASHIER')).toEqual(['CASHIER']);
+    expect(billingNode?.role_codes).toContain('CASHIER');
+  });
+
   it('models stores/purchase as operational supply-chain authority without PHI access', () => {
     const policy = getRolePolicy();
     const role = policy.roles.find((item) => item.role_code === 'STORES_PURCHASE_INCHARGE');

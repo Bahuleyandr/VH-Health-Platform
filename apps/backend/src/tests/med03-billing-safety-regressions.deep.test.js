@@ -1,0 +1,839 @@
+import { randomUUID } from 'node:crypto';
+import { Client } from 'pg';
+
+import prisma from '../lib/prisma.js';
+import {
+  applyBillingCreditNote,
+  approveBillingCreditNote,
+  listBillingCreditNotes,
+} from '../services/billing/billingCreditNoteService.js';
+import {
+  addInvoiceItem,
+  collectPayment,
+  createDraftInvoice,
+  issueInvoice,
+  removeInvoiceItem,
+} from '../services/billing/billingV2Service.js';
+import {
+  approveWardIndent,
+  createWardIndent,
+  issueWardIndent,
+  receiveWardIndent,
+  reconcileWardIndent,
+  requestWardIndentReturn,
+  reserveWardIndent,
+} from '../services/ipd/ipdSupportService.js';
+import { verifyOrder } from '../services/emr/orderEntryService.js';
+import { bindMedicationOrderCatalogAuthority } from '../services/ipd/wardIndentWorkflowService.js';
+import { seedMedicationFacilityAuthority } from './helpers/medicationEvidenceFixture.js';
+
+const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
+const describeIfDb = databaseUrl ? describe : describe.skip;
+
+describeIfDb('MED-03 billing safety regressions', () => {
+  const tenantId = randomUUID();
+  const requester = randomUUID();
+  const pharmacist = randomUUID();
+  const receiver = randomUUID();
+  const billingOwner = randomUUID();
+  const admin = randomUUID();
+  const patient = randomUUID();
+  const otherPatient = randomUUID();
+  const issueRacePatient = randomUUID();
+  const run = `${process.pid}-${Date.now()}`;
+  const compositionKey = `med03-billing-safety-${tenantId}`;
+  let previousLedgerMode;
+  let wardId;
+  let facilityId;
+  let storageLocationId;
+  let catalogId;
+  let catalog;
+  let admissionId;
+  let encounterId;
+
+  async function cleanupTenant() {
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+      for (const table of [
+        'payment_gateway_webhook_events',
+        'payment_gateway_refunds',
+        'payment_gateway_orders',
+        'payment_gateway_provider_configs',
+        'ledger_postings',
+        'ledger_entries',
+        'ledger_balances',
+        'ledger_accounts',
+        'idempotency_keys',
+        'pharmacy_staff_facility_grant_events',
+        'pharmacy_staff_facility_grants',
+        'task_comments',
+        'tasks',
+        'notification_outbox',
+        'workflow_sla_instances',
+        'billing_credit_note_events',
+        'billing_credit_notes',
+        'billing_refunds',
+        'tpa_claims',
+        'insurance_preauth',
+        'insurance_policies',
+        'ward_indent_financial_events',
+        'ward_indent_inventory_movement_links',
+        'ward_indent_inventory_allocations',
+        'ward_indent_inventory_receipt_events',
+        'ward_indent_events',
+        'clinical_timeline_events',
+        'clinical_audit_events',
+        'billing_payments',
+        'billing_invoice_items',
+        'billing_invoices',
+        'pharmacy_schedule_register',
+        'pharmacy_stock_movements',
+        'pharmacy_inventory_batches',
+        'pharmacy_inventory_items',
+        'ward_indent_items',
+        'ward_indents',
+        'clinical_orders',
+        'admissions',
+        'pharmacy_catalog',
+        'beds',
+        'wards',
+        'facility_locations',
+        'facilities',
+        'staff',
+        'audit_logs',
+        'users',
+      ]) {
+        await tx.$executeRawUnsafe(
+          `DELETE FROM ${table} WHERE tenant_id = $1::uuid`,
+          tenantId,
+        );
+      }
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'origin'`);
+      // drug_compositions is a shared, tenant-less formulary table, so this suite
+      // removes only the composition it keyed to its own tenant id.
+      await tx.$executeRawUnsafe(
+        `DELETE FROM drug_compositions WHERE composition_key = $1::text`,
+        compositionKey,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM tenants WHERE id = $1::uuid`,
+        tenantId,
+      );
+    }, { timeout: 30_000 });
+  }
+
+  async function createWardCharge(label) {
+    // Bind the prescribed identity to the catalog at prescribe time, exactly as CPOE
+    // does; the issue-time re-bind compares the stored catalog_authority_sha256, so a
+    // hand-rolled details blob would fail closed even with a complete catalog.
+    const orderDetails = bindMedicationOrderCatalogAuthority({
+      catalog_id: catalogId,
+      medication_name: catalog.name,
+      dose: '500 mg',
+      route: catalog.route,
+      strength: catalog.strength,
+      strength_key: catalog.strength_key,
+      form: catalog.form,
+      form_key: catalog.form_key,
+      release_key: catalog.release_key,
+      quantity_requested: 2,
+      unit: 'each',
+    }, catalog, { phase: 'create' });
+    const order = (await prisma.$queryRawUnsafe(
+      `INSERT INTO clinical_orders
+         (tenant_id, order_number, patient_uid, encounter_id, order_type, status,
+          ordered_by, details, route, updated_at)
+       VALUES ($1::uuid, $2::text, $3::uuid, $4::uuid, 'medication', 'ordered',
+               $5::uuid, $6::jsonb, $7::text, NOW())
+       RETURNING id`,
+      tenantId,
+      `MED03-BILLING-${label}-${run}`.slice(0, 80),
+      patient,
+      encounterId,
+      requester,
+      JSON.stringify(orderDetails),
+      catalog.route,
+    ))[0];
+    await verifyOrder(Number(order.id), pharmacist, {
+      tenantId,
+      actorRole: 'PHARMACY_INCHARGE',
+      idempotencyKey: `billing-verify-${label}-${run}`,
+    });
+    const indent = await createWardIndent({
+      wardId,
+      admissionId,
+      encounterId,
+      patientUid: patient,
+      indentType: 'consumables',
+      items: [{
+        pharmacy_catalog_id: catalogId,
+        clinical_order_id: Number(order.id),
+        item_name: 'Caller text is not authoritative',
+        quantity_requested: 2,
+      }],
+      requestedBy: requester,
+      commandKey: `${label}-create-${run}`,
+      tenantId,
+    });
+    const reserved = await reserveWardIndent({
+      indentId: indent.id,
+      reservedBy: pharmacist,
+      expectedVersion: 1,
+      commandKey: `${label}-reserve-${run}`,
+      tenantId,
+    });
+    const approved = await approveWardIndent({
+      indentId: indent.id,
+      approvedBy: pharmacist,
+      expectedVersion: reserved.state_version,
+      commandKey: `${label}-approve-indent-${run}`,
+      tenantId,
+    });
+    const issued = await issueWardIndent({
+      indentId: indent.id,
+      issuedBy: pharmacist,
+      expectedVersion: approved.state_version,
+      commandKey: `${label}-issue-indent-${run}`,
+      tenantId,
+    });
+    const chargeRows = await prisma.$queryRawUnsafe(
+      `SELECT invoice_id
+         FROM ward_indent_financial_events
+        WHERE tenant_id = $1::uuid
+          AND ward_indent_id = $2::int
+          AND event_kind = 'charge'`,
+      tenantId,
+      Number(indent.id),
+    );
+    expect(chargeRows).toHaveLength(1);
+    return { indent, issued, invoiceId: Number(chargeRows[0].invoice_id) };
+  }
+
+  async function applyReturnedUnitCredit(label, charge, { refundMode = null } = {}) {
+    const received = await receiveWardIndent({
+      indentId: charge.indent.id,
+      receivedBy: receiver,
+      expectedVersion: charge.issued.state_version,
+      commandKey: `${label}-receive-${run}`,
+      tenantId,
+    });
+    const returnPending = await requestWardIndentReturn({
+      indentId: charge.indent.id,
+      requestedBy: receiver,
+      itemQuantitiesReturned: [{
+        item_id: charge.indent.items[0].id,
+        quantity_returned: 1,
+      }],
+      reason: 'One unused unit returned to its exact batch',
+      expectedVersion: received.state_version,
+      commandKey: `${label}-return-${run}`,
+      tenantId,
+    });
+    await reconcileWardIndent({
+      indentId: charge.indent.id,
+      reconciledBy: pharmacist,
+      reason: 'Exact batch return reconciled',
+      expectedVersion: returnPending.state_version,
+      commandKey: `${label}-reconcile-${run}`,
+      tenantId,
+    });
+
+    const note = (await listBillingCreditNotes({ tenantId }))
+      .find((candidate) => Number(candidate.ward_indent_id) === Number(charge.indent.id));
+    expect(note).toMatchObject({
+      invoice_id: charge.invoiceId,
+      amount_minor: 1250,
+    });
+    if (note.status === 'applied') {
+      return { note, applied: note };
+    }
+    expect(note.status).toBe('pending');
+    await approveBillingCreditNote(note.id, {
+      tenantId,
+      approvedBy: billingOwner,
+      commandKey: `${label}-approve-credit-${run}`,
+    });
+    const applied = await applyBillingCreditNote(note.id, {
+      tenantId,
+      appliedBy: billingOwner,
+      refundMode,
+      commandKey: `${label}-apply-credit-${run}`,
+    });
+    return { note, applied };
+  }
+
+  async function seedFinalCashlessClaim(invoiceId, totalAmount) {
+    const policy = (await prisma.$queryRawUnsafe(
+      `INSERT INTO insurance_policies
+         (tenant_id, patient_uid, policy_number, status, created_by)
+       VALUES ($1::uuid, $2::uuid, $3::text, 'active', $4::uuid)
+       RETURNING id`,
+      tenantId,
+      patient,
+      `MED03-POLICY-${run}`,
+      billingOwner,
+    ))[0];
+    // Migration 753's enforce_tpa_claim_authority_753() reads the pre-auth and the
+    // invoice back by (tenant, patient) and refuses either whose admission_id differs
+    // from the claim's. The charged invoice is admission-bound, so the pre-auth and
+    // the claim must name that same admission — a NULL here is a cross-episode claim.
+    const preauth = (await prisma.$queryRawUnsafe(
+      `INSERT INTO insurance_preauth
+         (tenant_id, policy_id, patient_uid, admission_id, preauth_number,
+          primary_diagnosis, expected_cost, status, sanctioned_amount,
+          sanctioned_at, created_by)
+       VALUES ($1::uuid, $2::int, $3::uuid, $7::int, $4::text,
+               'Medication benefit', $5::numeric, 'approved', $5::numeric,
+               NOW(), $6::uuid)
+       RETURNING id`,
+      tenantId,
+      Number(policy.id),
+      patient,
+      `MED03-PREAUTH-${run}`,
+      totalAmount,
+      billingOwner,
+      admissionId,
+    ))[0];
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tpa_claims
+         (tenant_id, claim_number, policy_id, preauth_id, invoice_id,
+          patient_uid, admission_id, claim_type, stage, total_billed,
+          claimed_amount, status, submitted_at, submitted_by, created_by)
+       VALUES ($1::uuid, $2::text, $3::int, $4::int, $5::int,
+               $6::uuid, $9::int, 'cashless', 'final', $7::numeric,
+               $7::numeric, 'submitted', NOW(), $8::uuid, $8::uuid)`,
+      tenantId,
+      `MED03-CLAIM-${run}`,
+      Number(policy.id),
+      Number(preauth.id),
+      Number(invoiceId),
+      patient,
+      totalAmount,
+      billingOwner,
+      admissionId,
+    );
+  }
+
+  beforeAll(async () => {
+    previousLedgerMode = process.env.LEDGER_AUTHORITATIVE_MODE;
+    process.env.LEDGER_AUTHORITATIVE_MODE = 'enforce';
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name, region, status, created_at, updated_at)
+       VALUES ($1::uuid, $2::text, 'MED-03 Billing Safety', 'IN', 'active', NOW(), NOW())`,
+      tenantId,
+      `med03-billing-safety-${run}`,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO ledger_accounts (tenant_id, code, type, description)
+         SELECT $1::uuid, code, type, description
+           FROM ledger_accounts
+          WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+        ON CONFLICT (tenant_id, code) DO NOTHING`,
+      tenantId,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, tenant_id, name, role, is_active, status, updated_at)
+       VALUES
+          ($1::uuid, $9::uuid, 'Request Nurse', 'IP_STAFF_NURSE', TRUE, 'active', NOW()),
+          ($2::uuid, $9::uuid, 'Pharmacist', 'PHARMACY_INCHARGE', TRUE, 'active', NOW()),
+          ($3::uuid, $9::uuid, 'Receipt Nurse', 'NURSING_INCHARGE', TRUE, 'active', NOW()),
+          ($4::uuid, $9::uuid, 'Billing Owner', 'BILLING_INCHARGE', TRUE, 'active', NOW()),
+          ($5::uuid, $9::uuid, 'Admin Approver', 'ADMIN', TRUE, 'active', NOW()),
+          ($6::uuid, $9::uuid, 'Patient', 'PATIENT', TRUE, 'active', NOW()),
+          ($7::uuid, $9::uuid, 'Other Patient', 'PATIENT', TRUE, 'active', NOW()),
+          ($8::uuid, $9::uuid, 'Issue Race Patient', 'PATIENT', TRUE, 'active', NOW())`,
+      requester,
+      pharmacist,
+      receiver,
+      billingOwner,
+      admin,
+      patient,
+      otherPatient,
+      issueRacePatient,
+      tenantId,
+    );
+    // Migration 753 made pharmacy custody the authority for this whole path: an
+    // active item needs a facility and a catalog, an in-stock batch needs that
+    // facility plus an ACTIVE storage location, and createWardIndent refuses a ward
+    // that is not bound to an active facility. Seed the real chain — facility,
+    // storage location, pharmacist staff row and an ACTIVE grant issued through the
+    // admin command — rather than bare rows.
+    const authority = await seedMedicationFacilityAuthority({
+      prisma,
+      tenantId,
+      pharmacistUid: pharmacist,
+      grantAdminUid: admin,
+      run: `billing-safety-${run}`,
+    });
+    facilityId = authority.facilityId;
+    storageLocationId = authority.storageLocationId;
+    wardId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO wards (tenant_id, name, facility_id, total_beds, created_at, updated_at)
+       VALUES ($1::uuid, $2::text, $3::int, 10, NOW(), NOW())
+       RETURNING id`,
+      tenantId,
+      `MED-03 Billing Safety Ward ${run}`,
+      facilityId,
+    ))[0].id);
+    encounterId = randomUUID();
+    // beds.bed_number is VARCHAR(20) (migration 001) while admissions.bed_number is
+    // VARCHAR(50); the same literal goes into both, so it has to fit the narrower one.
+    const bedNumber = `M3B-${run.slice(-16)}`;
+    const bedId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO beds
+         (tenant_id, ward_id, ward_name, bed_number, status, patient_uid,
+          created_at, updated_at)
+       VALUES ($1::uuid, $2::int, $3::text, $4::text, 'occupied', $5::uuid,
+               NOW(), NOW())
+       RETURNING id`,
+      tenantId,
+      wardId,
+      `MED-03 Billing Safety Ward ${run}`,
+      bedNumber,
+      patient,
+    ))[0].id);
+    admissionId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO admissions
+         (tenant_id, patient_uid, encounter_id, bed_id, bed_number, ward,
+          status, admitted_at, created_by, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::int, $5::text, $6::text,
+               'admitted', NOW(), $7::uuid, NOW())
+       RETURNING id`,
+      tenantId,
+      patient,
+      encounterId,
+      bedId,
+      bedNumber,
+      `MED-03 Billing Safety Ward ${run}`,
+      requester,
+    ))[0].id);
+    // A ward-indent medication line carries the prescribing product identity all the
+    // way to issue: assertWardIndentMedicationBindingAtIssueTx re-runs
+    // bindMedicationOrderCatalogAuthority, which requires a high-confidence
+    // composition plus strength/form/route/release on the catalog row. A bare
+    // name-and-price row is no longer a prescribable product.
+    const compositionId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO drug_compositions
+         (composition_key, display_label, active_ingredients, source)
+       VALUES ($1::text, 'MED-03 billing safety fixture paracetamol',
+               ARRAY['paracetamol']::text[], 'curated')
+       RETURNING id`,
+      compositionKey,
+    ))[0].id);
+    catalog = (await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_catalog
+         (tenant_id, name, generic_name, is_active, stock_quantity,
+          unit_price, price, composition_id, composition_confidence,
+          composition_source, strength, strength_key, strength_components,
+          form, form_key, release_key, route, updated_at)
+       VALUES ($1::uuid, $2::text, 'Paracetamol', TRUE, 20,
+               12.50, 12.50, $3::int, 'high', 'test_fixture',
+               '500 mg', '500mg', $4::jsonb,
+               'tablet', 'tablet', 'ir', 'oral', NOW())
+       RETURNING id, name, generic_name, composition_id,
+                 composition_confidence, composition_source,
+                 strength, strength_key, strength_components,
+                 form, form_key, release_key, route`,
+      tenantId,
+      `MED-03 Billing Safety Medicine ${run}`,
+      compositionId,
+      JSON.stringify([{ ingredient: 'paracetamol', value: '500', unit: 'mg' }]),
+    ))[0];
+    catalogId = Number(catalog.id);
+    const inventoryItemId = Number((await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_inventory_items
+         (tenant_id, sku_code, display_name, catalog_id, facility_id, unit_label,
+          schedule_class, is_narcotic)
+       VALUES ($1::uuid, $2::text, $3::text, $4::int, $5::int, 'each', 'OTC', FALSE)
+       RETURNING id`,
+      tenantId,
+      `MED03-BILLING-${run}`,
+      `MED-03 Billing Safety Medicine ${run}`,
+      catalogId,
+      facilityId,
+    ))[0].id);
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO pharmacy_inventory_batches
+         (tenant_id, inventory_item_id, facility_id, storage_location_id,
+          batch_number, expiry_date,
+          received_quantity, remaining_quantity, status)
+       VALUES ($1::uuid, $2::int, $4::int, $5::int, $3::text,
+               (NOW() + INTERVAL '365 days')::date, 20, 20, 'in_stock')`,
+      tenantId,
+      inventoryItemId,
+      `MED03-BILLING-BATCH-${run}`,
+      facilityId,
+      storageLocationId,
+    );
+  });
+
+  afterAll(async () => {
+    try {
+      await cleanupTenant();
+    } finally {
+      if (previousLedgerMode === undefined) delete process.env.LEDGER_AUTHORITATIVE_MODE;
+      else process.env.LEDGER_AUTHORITATIVE_MODE = previousLedgerMode;
+      await prisma.$disconnect().catch(() => {});
+    }
+  }, 30_000);
+
+  test('insurance medication credits fail before creating an uncloseable refund obligation', async () => {
+    const charge = await createWardCharge('insurance-refund');
+    const invoice = await issueInvoice(charge.invoiceId, { tenantId });
+    await seedFinalCashlessClaim(charge.invoiceId, Number(invoice.total_amount));
+    await collectPayment({
+      invoice_id: charge.invoiceId,
+      amount: Number(invoice.total_amount),
+      mode: 'INSURANCE',
+      reference: `MED03-INSURANCE-SOURCE-${run}`,
+      collected_by: billingOwner,
+      tenantId,
+    });
+    await expect(applyReturnedUnitCredit(
+      'insurance-refund',
+      charge,
+      { refundMode: 'INSURANCE' },
+    )).rejects.toMatchObject({ statusCode: 400 });
+
+    const note = (await listBillingCreditNotes({ tenantId }))
+      .find((candidate) => Number(candidate.ward_indent_id) === Number(charge.indent.id));
+    expect(note).toMatchObject({
+      status: 'approved',
+      refund_id: null,
+      refund_obligation_minor: 0,
+    });
+    expect((await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count
+         FROM billing_refunds
+        WHERE tenant_id = $1::uuid
+          AND invoice_id = $2::int`,
+      tenantId,
+      charge.invoiceId,
+    ))[0].count).toBe(0);
+  }, 60_000);
+
+  test('draft medication credit issues only the net receivable and revenue in enforce mode', async () => {
+    const charge = await createWardCharge('draft-credit');
+    const beforeCredit = (await prisma.$queryRawUnsafe(
+      `SELECT status, total_amount, credit_note_amount, amount_due
+         FROM billing_invoices
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      tenantId,
+      charge.invoiceId,
+    ))[0];
+    expect(beforeCredit.status).toBe('DRAFT');
+    expect(Number(beforeCredit.total_amount)).toBe(25);
+
+    const { note, applied } = await applyReturnedUnitCredit('draft-credit', charge);
+    expect(applied).toMatchObject({
+      status: 'applied',
+      receivable_credit_minor: 1250,
+      refund_obligation_minor: 0,
+      refund_id: null,
+    });
+    expect((await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count
+         FROM ledger_entries
+        WHERE tenant_id = $1::uuid
+          AND idempotency_key IN ($2::text, $3::text)`,
+      tenantId,
+      `ward-medication-credit-${note.id}`,
+      `issue-inv-${charge.invoiceId}`,
+    ))[0].count).toBe(0);
+
+    await issueInvoice(charge.invoiceId, { tenantId });
+    const persisted = (await prisma.$queryRawUnsafe(
+      `SELECT status, total_amount, credit_note_amount, amount_due
+         FROM billing_invoices
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      tenantId,
+      charge.invoiceId,
+    ))[0];
+    expect(persisted.status).toBe('ISSUED');
+    expect(Number(persisted.total_amount)).toBe(25);
+    expect(Number(persisted.credit_note_amount)).toBe(12.5);
+    expect(Number(persisted.amount_due)).toBe(12.5);
+
+    const entries = await prisma.$queryRawUnsafe(
+      `SELECT id, entry_type
+         FROM ledger_entries
+        WHERE tenant_id = $1::uuid AND idempotency_key = $2::text`,
+      tenantId,
+      `issue-inv-${charge.invoiceId}`,
+    );
+    expect(entries).toHaveLength(1);
+    expect(entries[0].entry_type).toBe('INVOICE_ISSUE');
+    const postings = await prisma.$queryRawUnsafe(
+      `SELECT account.code, posting.amount_paise::text,
+              posting.patient_uid::text, posting.invoice_id
+         FROM ledger_postings posting
+         JOIN ledger_accounts account
+           ON account.id = posting.account_id
+        WHERE posting.tenant_id = $1::uuid
+          AND posting.entry_id = $2::bigint
+        ORDER BY account.code`,
+      tenantId,
+      entries[0].id,
+    );
+    expect(postings.map((posting) => ({
+      code: posting.code,
+      amountPaise: Number(posting.amount_paise),
+      patientUid: posting.patient_uid,
+      invoiceId: posting.invoice_id == null ? null : Number(posting.invoice_id),
+    }))).toEqual([
+      {
+        code: 'PATIENT_AR',
+        amountPaise: 1250,
+        patientUid: patient,
+        invoiceId: charge.invoiceId,
+      },
+      {
+        code: 'REVENUE',
+        amountPaise: -1250,
+        patientUid: null,
+        invoiceId: null,
+      },
+    ]);
+    expect(postings.reduce(
+      (sum, posting) => sum + Number(posting.amount_paise),
+      0,
+    )).toBe(0);
+    expect((await prisma.$queryRawUnsafe(
+      `SELECT COALESCE(SUM(posting.amount_paise), 0)::text AS net
+         FROM ledger_postings posting
+         JOIN ledger_accounts account
+           ON account.id = posting.account_id
+        WHERE posting.tenant_id = $1::uuid
+          AND posting.invoice_id = $2::int
+          AND account.code = 'PATIENT_AR'`,
+      tenantId,
+      charge.invoiceId,
+    ))[0].net).toBe('1250');
+    expect((await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count
+         FROM ledger_entries
+        WHERE tenant_id = $1::uuid
+          AND idempotency_key = $2::text`,
+      tenantId,
+      `ward-medication-credit-${note.id}`,
+    ))[0].count).toBe(0);
+  }, 60_000);
+
+  test('a close transaction that wins the admission lock prevents a concurrent item removal', async () => {
+    const admission = { id: admissionId };
+    const invoice = await createDraftInvoice({
+      patient_uid: patient,
+      admission_id: Number(admission.id),
+      invoice_type: 'IP',
+      created_by: billingOwner,
+      tenantId,
+    });
+    const item = await addInvoiceItem(invoice.id, {
+      description: 'Admission-scoped medication charge',
+      quantity: 1,
+      unit_price: 100,
+      gst_rate: 0,
+      tenantId,
+    });
+    const invoiceBefore = (await prisma.$queryRawUnsafe(
+      `SELECT subtotal, total_amount, amount_due
+         FROM billing_invoices
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      tenantId,
+      Number(invoice.id),
+    ))[0];
+
+    let removalOutcomePromise;
+    let observedAdmissionLockWait = false;
+    const blocker = new Client({ connectionString: databaseUrl });
+    await blocker.connect();
+    try {
+      await blocker.query('BEGIN');
+      await blocker.query(
+        `SELECT id
+           FROM admissions
+          WHERE tenant_id = $1::uuid AND id = $2::int
+          FOR UPDATE`,
+        [tenantId, Number(admission.id)],
+      );
+      removalOutcomePromise = removeInvoiceItem(invoice.id, item.id, { tenantId })
+        .then((value) => ({ status: 'fulfilled', value }))
+        .catch((reason) => ({ status: 'rejected', reason }));
+
+      const deadline = Date.now() + 5_000;
+      while (Date.now() < deadline && !observedAdmissionLockWait) {
+        const waiting = await blocker.query(
+          `SELECT EXISTS (
+             SELECT 1
+              FROM pg_stat_activity
+             WHERE datname = current_database()
+               AND pid <> pg_backend_pid()
+                AND pg_backend_pid() = ANY(pg_blocking_pids(pid))
+           ) AS waiting`,
+        );
+        observedAdmissionLockWait = Boolean(waiting.rows[0].waiting);
+        if (!observedAdmissionLockWait) {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+      }
+      await blocker.query(
+        `UPDATE admissions
+            SET billing_closed_at = NOW(), updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND id = $2::int`,
+        [tenantId, Number(admission.id)],
+      );
+      await blocker.query('COMMIT');
+    } finally {
+      await blocker.query('ROLLBACK').catch(() => {});
+      await blocker.end();
+    }
+
+    const removalOutcome = await removalOutcomePromise;
+    expect(observedAdmissionLockWait).toBe(true);
+    expect(removalOutcome.status).toBe('rejected');
+    expect(removalOutcome.reason).toMatchObject({
+      statusCode: 409,
+      code: 'BILLING_CLOSED',
+    });
+    expect((await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count
+         FROM billing_invoice_items
+        WHERE tenant_id = $1::uuid
+          AND invoice_id = $2::int
+          AND id = $3::int`,
+      tenantId,
+      Number(invoice.id),
+      Number(item.id),
+    ))[0].count).toBe(1);
+    expect((await prisma.$queryRawUnsafe(
+      `SELECT subtotal, total_amount, amount_due
+         FROM billing_invoices
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      tenantId,
+      Number(invoice.id),
+    ))[0]).toEqual(invoiceBefore);
+  }, 30_000);
+
+  test('rejects a draft invoice whose admission belongs to another patient', async () => {
+    const admission = (await prisma.$queryRawUnsafe(
+      `INSERT INTO admissions
+         (tenant_id, patient_uid, status, ward, created_by, admitted_at, updated_at)
+       VALUES ($1::uuid, $2::uuid, 'admitted', $3::text, $4::uuid, NOW(), NOW())
+       RETURNING id`,
+      tenantId,
+      otherPatient,
+      `MED-03 Cross Patient Ward ${run}`,
+      requester,
+    ))[0];
+
+    await expect(createDraftInvoice({
+      patient_uid: patient,
+      admission_id: Number(admission.id),
+      invoice_type: 'IP',
+      created_by: billingOwner,
+      tenantId,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'BILLING_ADMISSION_PATIENT_MISMATCH',
+    });
+    expect((await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count
+         FROM billing_invoices
+        WHERE tenant_id = $1::uuid
+          AND admission_id = $2::int`,
+      tenantId,
+      Number(admission.id),
+    ))[0].count).toBe(0);
+  }, 30_000);
+
+  test('a close transaction that wins the admission lock prevents concurrent invoice issue', async () => {
+    const admission = (await prisma.$queryRawUnsafe(
+      `INSERT INTO admissions
+         (tenant_id, patient_uid, status, ward, created_by, admitted_at, updated_at)
+       VALUES ($1::uuid, $2::uuid, 'admitted', $3::text, $4::uuid, NOW(), NOW())
+       RETURNING id`,
+      tenantId,
+      issueRacePatient,
+      `MED-03 Issue Close Race Ward ${run}`,
+      requester,
+    ))[0];
+    const invoice = await createDraftInvoice({
+      patient_uid: issueRacePatient,
+      admission_id: Number(admission.id),
+      invoice_type: 'IP',
+      created_by: billingOwner,
+      tenantId,
+    });
+    await addInvoiceItem(invoice.id, {
+      description: 'Admission-scoped medication charge awaiting issue',
+      quantity: 1,
+      unit_price: 100,
+      gst_rate: 0,
+      tenantId,
+    });
+
+    let issueOutcomePromise;
+    let observedAdmissionLockWait = false;
+    const blocker = new Client({ connectionString: databaseUrl });
+    await blocker.connect();
+    try {
+      await blocker.query('BEGIN');
+      await blocker.query(
+        `SELECT id
+           FROM admissions
+          WHERE tenant_id = $1::uuid AND id = $2::int
+          FOR UPDATE`,
+        [tenantId, Number(admission.id)],
+      );
+      issueOutcomePromise = issueInvoice(invoice.id, { tenantId })
+        .then((value) => ({ status: 'fulfilled', value }))
+        .catch((reason) => ({ status: 'rejected', reason }));
+
+      const deadline = Date.now() + 15_000;
+      while (Date.now() < deadline && !observedAdmissionLockWait) {
+        const waiting = await blocker.query(
+          `SELECT EXISTS (
+             SELECT 1
+              FROM pg_stat_activity
+             WHERE datname = current_database()
+               AND pid <> pg_backend_pid()
+                AND pg_backend_pid() = ANY(pg_blocking_pids(pid))
+           ) AS waiting`,
+        );
+        observedAdmissionLockWait = Boolean(waiting.rows[0].waiting);
+        if (!observedAdmissionLockWait) {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+      }
+      await blocker.query(
+        `UPDATE admissions
+            SET billing_closed_at = NOW(), updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND id = $2::int`,
+        [tenantId, Number(admission.id)],
+      );
+      await blocker.query('COMMIT');
+    } finally {
+      await blocker.query('ROLLBACK').catch(() => {});
+      await blocker.end();
+    }
+
+    const issueOutcome = await issueOutcomePromise;
+    expect(observedAdmissionLockWait).toBe(true);
+    expect(issueOutcome.status).toBe('rejected');
+    expect(issueOutcome.reason).toMatchObject({
+      statusCode: 409,
+      code: 'BILLING_CLOSED',
+    });
+    expect((await prisma.$queryRawUnsafe(
+      `SELECT status, issued_at, invoice_number
+         FROM billing_invoices
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      tenantId,
+      Number(invoice.id),
+    ))[0]).toMatchObject({
+      status: 'DRAFT',
+      issued_at: null,
+      invoice_number: null,
+    });
+  }, 30_000);
+});

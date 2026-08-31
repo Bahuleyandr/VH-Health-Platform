@@ -19,7 +19,7 @@ const setTenantTxMock = jest.fn();
 const reassignIdentifiersMock = jest.fn();
 const recordTimelineEventMock = jest.fn();
 const recordClinicalAuditEventMock = jest.fn();
-const lockTenantPatientMergeStabilityMock = jest.fn();
+const lockTenantPatientMergeExecutionExclusiveMock = jest.fn();
 const persistRevokeAllUserTokensMock = jest.fn();
 const publishRevokeAllUserTokensMock = jest.fn();
 const loggerWarnMock = jest.fn();
@@ -60,7 +60,7 @@ jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   publishRevokeAllUserTokens: publishRevokeAllUserTokensMock,
 }));
 jest.unstable_mockModule('../../utils/patientMergeStabilityLock.js', () => ({
-  lockTenantPatientMergeStability: lockTenantPatientMergeStabilityMock,
+  lockTenantPatientMergeExecutionExclusive: lockTenantPatientMergeExecutionExclusiveMock,
   PATIENT_MERGE_STABILITY_TIMEOUT_MS: 300_000,
 }));
 
@@ -114,6 +114,10 @@ const SWEEP_TARGETS = [
   { table_name: 'investigations', column_name: 'patient_id', is_uuid: false, has_tenant_id: true, can_update: true, update_triggers: [] },
   { table_name: 'investigations', column_name: 'patient_uid', is_uuid: true, has_tenant_id: true, can_update: true, update_triggers: [] },
   {
+    table_name: 'pharmacy_patient_safety_versions', column_name: 'patient_id',
+    is_uuid: false, has_tenant_id: true, can_update: true, update_triggers: [],
+  },
+  {
     table_name: 'clinical_timeline_events', column_name: 'patient_uid', is_uuid: true, has_tenant_id: true, can_update: true,
     update_triggers: [{ proname: 'audit_append_only_guard', prosrc: APPEND_ONLY_GUARD_SRC }],
   },
@@ -132,7 +136,7 @@ beforeEach(() => {
   reassignIdentifiersMock.mockReset();
   recordTimelineEventMock.mockReset();
   recordClinicalAuditEventMock.mockReset();
-  lockTenantPatientMergeStabilityMock.mockReset();
+  lockTenantPatientMergeExecutionExclusiveMock.mockReset();
   persistRevokeAllUserTokensMock.mockReset();
   publishRevokeAllUserTokensMock.mockReset();
   loggerWarnMock.mockReset();
@@ -338,6 +342,10 @@ describe('executeMerge', () => {
     });
   }
 
+  function mockSafetyClockFold(version = '42') {
+    mockNext([{ patient_id: '101', version }]);
+  }
+
   it('rejects empty executor_uid', async () => {
     await expect(executeMerge({ tenantId: TENANT, id: 1 })).rejects.toThrow(/executor_uid/);
   });
@@ -416,6 +424,7 @@ describe('executeMerge', () => {
     mockNext(SWEEP_TARGETS);
     mockNext([{ uid: SECONDARY }]);
     mockNext([{ id: '202' }]);
+    mockSafetyClockFold();
     mockNext([{
       id: 9, status: 'executed', candidate_id: null,
       primary_uid: PRIMARY, secondary_uid: SECONDARY,
@@ -427,6 +436,7 @@ describe('executeMerge', () => {
 
   it('sweeps discovered columns, deactivates the secondary, emits canonical events, marks executed', async () => {
     mockHappyPathUntilSweep();
+    mockSafetyClockFold('57');
     // final UPDATE merge request → executed
     mockNext([{
       id: 9, status: 'executed', candidate_id: 5,
@@ -442,7 +452,10 @@ describe('executeMerge', () => {
       expect.any(Object),
       { tenantId: TENANT, primaryUid: PRIMARY, secondaryUid: SECONDARY, mergeRequestId: 9 },
     );
-    expect(lockTenantPatientMergeStabilityMock).toHaveBeenCalledWith(__prismaTxMock, TENANT);
+    expect(lockTenantPatientMergeExecutionExclusiveMock)
+      .toHaveBeenCalledWith(__prismaTxMock, TENANT);
+    expect(lockTenantPatientMergeExecutionExclusiveMock.mock.invocationCallOrder[0])
+      .toBeLessThan(queryUnsafeMock.mock.invocationCallOrder[0]);
     expect(setTenantTxMock).toHaveBeenCalledWith(
       TENANT,
       expect.any(Function),
@@ -483,9 +496,10 @@ describe('executeMerge', () => {
     expect(deactivateCall[0]).toMatch(/merged_into_uid = \$3::uuid/);
     // Chained merges: stored survivor pointers that named the secondary are
     // re-pointed at the final survivor, tenant-scoped, provenance intact.
-    const chainUsersCall = executeUnsafeMock.mock.calls.find(
+    const chainUsersIndex = executeUnsafeMock.mock.calls.findIndex(
       (call) => /UPDATE users/.test(call[0]) && /WHERE tenant_id = \$2::uuid AND merged_into_uid = \$3::uuid/.test(call[0]),
     );
+    const chainUsersCall = executeUnsafeMock.mock.calls[chainUsersIndex];
     expect(chainUsersCall.slice(1)).toEqual([PRIMARY, TENANT, SECONDARY]);
     expect(chainUsersCall[0]).not.toMatch(/merged_at/);
     const chainIdentifiersCall = executeUnsafeMock.mock.calls.find(
@@ -494,6 +508,26 @@ describe('executeMerge', () => {
     expect(chainIdentifiersCall.slice(1)).toEqual([PRIMARY, TENANT, SECONDARY]);
     expect(chainIdentifiersCall[0]).toMatch(/status = 'merged_into'/);
     expect(chainIdentifiersCall[0]).not.toMatch(/SET[\s\S]*patient_uid/);
+    // Logical clocks are not swept. The helper locks the survivor plus every
+    // merged-away predecessor and advances only the survivor via BIGINT SQL.
+    const safetyFoldIndex = queryUnsafeMock.mock.calls.findIndex(
+      (call) => /WITH involved_patient_ids AS MATERIALIZED/.test(call[0]),
+    );
+    const safetyFoldCall = queryUnsafeMock.mock.calls[safetyFoldIndex];
+    expect(safetyFoldCall.slice(1)).toEqual([TENANT, [101, 202], 101]);
+    expect(safetyFoldCall[0]).toMatch(/FOR UPDATE OF safety/);
+    expect(safetyFoldCall[0]).toMatch(/COALESCE\(MAX\(locked\.version\), 1::bigint\)/);
+    expect(safetyFoldCall[0]).toMatch(/ON CONFLICT \(tenant_id, patient_id\) DO UPDATE/);
+    expect(safetyFoldCall[0]).not.toMatch(/DELETE FROM pharmacy_patient_safety_versions/);
+    expect(safetyFoldCall[0]).not.toMatch(/clinical_verification_safety_version/);
+    expect(safetyFoldCall[0]).not.toMatch(/session_replication_role/);
+    expect(executeSqls.some(
+      (sql) => /UPDATE pharmacy_patient_safety_versions\s+SET patient_id/.test(sql),
+    )).toBe(false);
+    expect(executeUnsafeMock.mock.invocationCallOrder[chainUsersIndex])
+      .toBeLessThan(queryUnsafeMock.mock.invocationCallOrder[safetyFoldIndex]);
+    expect(queryUnsafeMock.mock.invocationCallOrder[safetyFoldIndex])
+      .toBeLessThan(recordTimelineEventMock.mock.invocationCallOrder[0]);
     // Canonical pair emitted inside the tx with insert-once keys.
     expect(recordTimelineEventMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -507,6 +541,7 @@ describe('executeMerge', () => {
       expect.objectContaining({
         action: 'patient.merge.executed',
         idempotencyKey: 'patient_merge_requests:9:executed',
+        afterState: expect.objectContaining({ patient_safety_version: '57' }),
       }),
       { db: expect.any(Object) },
     );
@@ -551,6 +586,7 @@ describe('executeMerge', () => {
       return result;
     });
     mockHappyPathUntilSweep({ candidateId: null });
+    mockSafetyClockFold();
     mockNext([{
       id: 9, status: 'executed', candidate_id: null,
       primary_uid: PRIMARY, secondary_uid: SECONDARY,
@@ -585,6 +621,7 @@ describe('executeMerge', () => {
       .rejects.toThrow('durable store unavailable');
 
     mockHappyPathUntilSweep({ candidateId: null });
+    mockSafetyClockFold();
     mockNext([{
       id: 9, status: 'executed', candidate_id: null,
       primary_uid: PRIMARY, secondary_uid: SECONDARY,
@@ -602,6 +639,7 @@ describe('executeMerge', () => {
 
   it('fails the merge when the canonical timeline emit does not persist', async () => {
     mockHappyPathUntilSweep({ candidateId: null });
+    mockSafetyClockFold();
     recordTimelineEventMock.mockResolvedValueOnce(null);
     await expect(executeMerge({ tenantId: TENANT, id: 9, executorUid: EXECUTOR }))
       .rejects.toMatchObject({ code: 'PATIENT_MERGE_TIMELINE_REQUIRED' });
@@ -611,6 +649,7 @@ describe('executeMerge', () => {
 
   it('fails the merge when the canonical audit emit does not persist', async () => {
     mockHappyPathUntilSweep({ candidateId: null });
+    mockSafetyClockFold();
     recordClinicalAuditEventMock.mockResolvedValueOnce(null);
     await expect(executeMerge({ tenantId: TENANT, id: 9, executorUid: EXECUTOR }))
       .rejects.toMatchObject({ code: 'PATIENT_MERGE_AUDIT_REQUIRED' });
@@ -629,6 +668,50 @@ describe('executeMerge', () => {
       .rejects.toMatchObject({ statusCode: 409, code: 'PATIENT_MERGE_DATA_CONFLICT' });
     expect(persistRevokeAllUserTokensMock).not.toHaveBeenCalled();
     expect(publishRevokeAllUserTokensMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('foldPatientSafetyVersionForMerge', () => {
+  it('deduplicates the resolved chain and returns exactly the survivor fold row', async () => {
+    mockNext([{ patient_id: '101', version: '9007199254740995' }]);
+
+    await expect(__testing__.foldPatientSafetyVersionForMerge(__prismaTxMock, {
+      tenantId: TENANT,
+      survivorPatientId: 101,
+      mergedAwayPatientIds: [303, 202, 303],
+    })).resolves.toEqual({ patient_id: '101', version: '9007199254740995' });
+
+    const call = queryUnsafeMock.mock.calls[0];
+    expect(call.slice(1)).toEqual([TENANT, [101, 202, 303], 101]);
+    expect(call[0]).toMatch(/1::bigint/);
+    expect(call[0]).toMatch(/EXCLUDED\.version - 1::bigint/);
+    expect(call[0]).not.toMatch(/SET\s+patient_id\s*=/);
+  });
+
+  it('fails closed unless the upsert returns exactly one valid survivor row', async () => {
+    mockNext([]);
+    await expect(__testing__.foldPatientSafetyVersionForMerge(__prismaTxMock, {
+      tenantId: TENANT,
+      survivorPatientId: 101,
+      mergedAwayPatientIds: [202],
+    })).rejects.toMatchObject({ code: 'PATIENT_MERGE_SAFETY_CLOCK_REQUIRED' });
+
+    mockNext([
+      { patient_id: '101', version: '8' },
+      { patient_id: '101', version: '9' },
+    ]);
+    await expect(__testing__.foldPatientSafetyVersionForMerge(__prismaTxMock, {
+      tenantId: TENANT,
+      survivorPatientId: 101,
+      mergedAwayPatientIds: [202],
+    })).rejects.toMatchObject({ code: 'PATIENT_MERGE_SAFETY_CLOCK_REQUIRED' });
+
+    mockNext([{ patient_id: '202', version: '8' }]);
+    await expect(__testing__.foldPatientSafetyVersionForMerge(__prismaTxMock, {
+      tenantId: TENANT,
+      survivorPatientId: 101,
+      mergedAwayPatientIds: [202],
+    })).rejects.toMatchObject({ code: 'PATIENT_MERGE_SAFETY_CLOCK_REQUIRED' });
   });
 });
 
@@ -659,6 +742,7 @@ describe('merge sweep exclusions', () => {
   it('never sweeps identity/bookkeeping tables or continuity prefixes', () => {
     expect([...__testing__.MERGE_SWEEP_EXCLUDED_TABLES]).toEqual(expect.arrayContaining([
       'users', 'patient_identifiers', 'patient_merge_requests', 'patient_duplicate_candidates',
+      'pharmacy_patient_safety_versions',
     ]));
     expect(__testing__.MERGE_SWEEP_EXCLUDED_PREFIXES).toEqual(['clinical_continuity_']);
   });

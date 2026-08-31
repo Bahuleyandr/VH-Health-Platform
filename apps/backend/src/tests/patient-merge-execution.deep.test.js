@@ -39,6 +39,9 @@
 //      instead of letting any single actor approve it.
 //  13. ICU code-status history retains immutable original provenance while
 //      current identity joins through its admission to the merge survivor.
+//  14. Medication-safety logical clocks remain on every merged-away record;
+//      the survivor folds all unequal chain clocks to max+1, failed merges
+//      roll the fold back, and a committed retry cannot advance it twice.
 //
 // Requires a reachable Postgres (DATABASE_URL). Skipped if none configured.
 
@@ -54,7 +57,7 @@ import {
   __testing__ as mergeTesting,
 } from '../services/patient/patientMergeService.js';
 import { lookupByIdentifier } from '../services/patient/patientIdentifierService.js';
-import { importFhirBundle } from '../services/import/patientDataImport.js';
+import { importFhirBundle as importFhirBundleWithAuthority } from '../services/import/patientDataImport.js';
 import { reconcileRecordedVitalsEffects } from '../services/emr/vitalsChartService.js';
 import {
   listWorkflowSlaInstances,
@@ -76,6 +79,17 @@ const TENANT = '00000000-0000-4000-8000-000000000001';
 const MARK = `PMERGE-${process.pid}-${Date.now()}`;
 const RUNTIME_ROLE = `vh_p2_merge_${process.pid}_${Date.now().toString(36)}`;
 const PRIOR_RUNTIME_ROLE = process.env.AUTH_TENANT_RLS_RUNTIME_ROLE;
+
+function importFhirBundle(bundle, importedBy, options = {}) {
+  const patientReference = (bundle.entry || [])
+    .map(({ resource }) => resource?.subject?.reference || resource?.patient?.reference)
+    .find(Boolean);
+  const patientUid = String(patientReference || '').replace('Patient/', '');
+  return importFhirBundleWithAuthority(bundle, importedBy, {
+    ...options,
+    authority: { patientUid },
+  });
+}
 
 const REQUESTER = randomUUID();
 const APPROVER = randomUUID();
@@ -107,6 +121,36 @@ async function seedPatient(label) {
   );
   seeded.userUids.push(rows[0].uid);
   return { id: rows[0].id, uid: rows[0].uid, phone };
+}
+
+async function setPatientSafetyVersion(patientId, version) {
+  return setTenantTx(TENANT, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `INSERT INTO pharmacy_patient_safety_versions
+         (tenant_id, patient_id, version, updated_at)
+       VALUES ($1::uuid, $2::integer, $3::bigint, clock_timestamp())
+       ON CONFLICT (tenant_id, patient_id) DO UPDATE
+         SET version = EXCLUDED.version,
+             updated_at = clock_timestamp()
+       RETURNING patient_id::text AS patient_id, version::text AS version`,
+      TENANT,
+      patientId,
+      String(version),
+    );
+    return rows[0];
+  });
+}
+
+async function readPatientSafetyVersions(patientIds) {
+  return setTenantTx(TENANT, (tx) => tx.$queryRawUnsafe(
+    `SELECT patient_id::text AS patient_id, version::text AS version
+       FROM pharmacy_patient_safety_versions
+      WHERE tenant_id = $1::uuid
+        AND patient_id = ANY($2::integer[])
+      ORDER BY patient_id`,
+    TENANT,
+    patientIds,
+  ));
 }
 
 async function seedChart(patient) {
@@ -1205,6 +1249,9 @@ d('patient merge execution (deep)', () => {
        VALUES ($1::uuid, $2::uuid, $3), ($1::uuid, $4::uuid, $5)`,
       TENANT, primary.uid, `${MARK}-ABHA-P`, secondary.uid, `${MARK}-ABHA-S`,
     );
+    await setPatientSafetyVersion(primary.id, 31);
+    await setPatientSafetyVersion(secondary.id, 47);
+    const safetyClocksBefore = await readPatientSafetyVersions([primary.id, secondary.id]);
 
     const request = await approvedMergeRequest(primary, secondary);
     await expect(executeMerge({ tenantId: TENANT, id: request.id, executorUid: EXECUTOR }))
@@ -1239,6 +1286,29 @@ d('patient merge execution (deep)', () => {
       `patient_merge_requests:${request.id}:executed`,
     );
     expect(timeline).toHaveLength(0);
+    expect(await readPatientSafetyVersions([primary.id, secondary.id]))
+      .toEqual(safetyClocksBefore);
+  });
+
+  test('a failed merge transaction rolls back its safety-clock fold', async () => {
+    const primary = await seedPatient('primary-clock-rollback');
+    const secondary = await seedPatient('secondary-clock-rollback');
+    await setPatientSafetyVersion(primary.id, 13);
+    await setPatientSafetyVersion(secondary.id, 29);
+    const clocksBefore = await readPatientSafetyVersions([primary.id, secondary.id]);
+
+    await expect(setTenantTx(TENANT, async (tx) => {
+      const folded = await mergeTesting.foldPatientSafetyVersionForMerge(tx, {
+        tenantId: TENANT,
+        survivorPatientId: primary.id,
+        mergedAwayPatientIds: [secondary.id],
+      });
+      expect(folded).toEqual({ patient_id: String(primary.id), version: '30' });
+      throw new Error(`${MARK}-forced-merge-rollback`);
+    })).rejects.toThrow(`${MARK}-forced-merge-rollback`);
+
+    expect(await readPatientSafetyVersions([primary.id, secondary.id]))
+      .toEqual(clocksBefore);
   });
 
   test('trigger classification against the live schema: core chart sweeps, protected classes are excluded', async () => {
@@ -1282,6 +1352,10 @@ d('patient merge execution (deep)', () => {
     // never sets app.external_recovery_effect_disposition).
     const admissions = byTable.get('admissions.patient_uid');
     expect(admissions.blocking_triggers).toEqual([]);
+
+    // Logical clocks are neither chart data nor mutable FKs. They have a
+    // dedicated max+1 fold and predecessor rows must never enter the sweep.
+    expect(byTable.has('pharmacy_patient_safety_versions.patient_id')).toBe(false);
   });
 
   test('certified protected rows remain on the old uid and their reader returns them for the survivor', async () => {
@@ -1497,10 +1571,20 @@ d('patient merge execution (deep)', () => {
     await seedIdentifier(c.uid, `${MARK}-C-MRN`);
     await seedTimelineEvent(a.uid, 'chain-a-history');
     await seedTimelineEvent(b.uid, 'chain-b-history');
+    await setPatientSafetyVersion(a.id, 41);
+    await setPatientSafetyVersion(b.id, 7);
+    await setPatientSafetyVersion(c.id, 19);
 
     // A → B.
     const first = await approvedMergeRequest(b, a);
     await executeMerge({ tenantId: TENANT, id: first.id, executorUid: EXECUTOR });
+    const afterFirstClockRows = await readPatientSafetyVersions([a.id, b.id, c.id]);
+    const afterFirstClocks = new Map(
+      afterFirstClockRows.map((row) => [Number(row.patient_id), BigInt(row.version)]),
+    );
+    expect(afterFirstClocks.get(a.id)).toBe(42n);
+    expect(afterFirstClocks.get(b.id)).toBe(43n);
+    expect(afterFirstClocks.get(c.id)).toBe(19n);
 
     // B → C.
     const second = await approvedMergeRequest(c, b);
@@ -1508,6 +1592,31 @@ d('patient merge execution (deep)', () => {
     expect(executed.status).toBe('executed');
     expect(executed.execution_summary.chained_users_repointed).toBe(1);
     expect(executed.execution_summary.chained_identifiers_repointed).toBe(1);
+
+    // Every predecessor clock remains on its original patient id. Triggered
+    // deactivation/chain updates advance A and B first, then C folds the
+    // entire unequal family to max+1 without rewriting either predecessor.
+    const committedClockRows = await readPatientSafetyVersions([a.id, b.id, c.id]);
+    expect(committedClockRows).toHaveLength(3);
+    const committedClocks = new Map(
+      committedClockRows.map((row) => [Number(row.patient_id), BigInt(row.version)]),
+    );
+    expect(committedClocks.get(a.id)).toBe(43n);
+    expect(committedClocks.get(b.id)).toBe(44n);
+    expect(committedClocks.get(c.id)).toBe(45n);
+    expect(committedClocks.get(c.id)).toBeGreaterThan(committedClocks.get(a.id));
+    expect(committedClocks.get(c.id)).toBeGreaterThan(committedClocks.get(b.id));
+    expect(executed.execution_summary.patient_safety_version).toBe('45');
+
+    // A committed execution is one-way. Retrying the same request fails
+    // before any safety-source mutation and cannot advance the clock again.
+    await expect(executeMerge({
+      tenantId: TENANT,
+      id: second.id,
+      executorUid: EXECUTOR,
+    })).rejects.toThrow(/must be in 'approved'/);
+    expect(await readPatientSafetyVersions([a.id, b.id, c.id]))
+      .toEqual(committedClockRows);
 
     // users: BOTH deactivated records point at the FINAL survivor; original
     // merge timestamps (provenance) survive the re-point.

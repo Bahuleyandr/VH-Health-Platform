@@ -1,34 +1,78 @@
+import { randomUUID } from 'crypto';
+
 import prisma from '../lib/prisma.js';
 import { administerWithScan, evaluate5Rights } from '../services/clinical/marFiveRightsService.js';
 import { getPatientMAR, recordAdministration, scheduleMedications } from '../services/clinical/marService.js';
 import { acknowledgeAlert, checkOrder } from '../services/emr/cdsEngine.js';
+import {
+  seedMedicationFacilityAuthority,
+  seedReceivedMedicationSupply,
+} from './helpers/medicationEvidenceFixture.js';
 
-const PATIENT_UID = 'a7777777-7777-4777-8777-777777777a01';
-const OTHER_PATIENT_UID = 'a7777777-7777-4777-8777-777777777a02';
-const CLINICIAN_UID = 'a7777777-7777-4777-8777-777777777a03';
+const TENANT_ID = randomUUID();
+const PATIENT_UID = randomUUID();
+const OTHER_PATIENT_UID = randomUUID();
+const CLINICIAN_UID = randomUUID();
+const PHARMACIST_UID = randomUUID();
+const ADMIN_UID = randomUUID();
+const RUN = `${process.pid}-${Date.now()}-${randomUUID().slice(0, 8)}`;
+
+let supply;
 
 async function cleanupFixtures() {
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM cds_alerts WHERE patient_uid IN ($1::uuid, $2::uuid)`,
-    PATIENT_UID,
-    OTHER_PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM medication_administrations WHERE patient_uid IN ($1::uuid, $2::uuid)`,
-    PATIENT_UID,
-    OTHER_PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM patient_allergies WHERE patient_uid IN ($1::uuid, $2::uuid)`,
-    PATIENT_UID,
-    OTHER_PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`,
-    PATIENT_UID,
-    OTHER_PATIENT_UID,
-    CLINICIAN_UID,
-  ).catch(() => {});
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+    for (const table of [
+      'idempotency_keys',
+      'pharmacy_staff_facility_grant_events',
+      'pharmacy_staff_facility_grants',
+      'task_comments',
+      'tasks',
+      'notification_outbox',
+      'workflow_sla_instances',
+      'billing_credit_note_events',
+      'billing_credit_notes',
+      'ward_indent_financial_events',
+      'mar_supply_reconciliation_links',
+      'mar_supply_consumptions',
+      'mar_administration_command_receipts',
+      'mar_transition_command_receipts',
+      'medication_safety_reviews',
+      'medication_administrations',
+      'ward_indent_inventory_receipt_events',
+      'ward_indent_inventory_movement_links',
+      'ward_indent_inventory_allocations',
+      'ward_indent_events',
+      'clinical_timeline_events',
+      'clinical_audit_events',
+      'cds_alerts',
+      'patient_allergies',
+      'billing_invoice_items',
+      'billing_invoices',
+      'pharmacy_schedule_register',
+      'pharmacy_stock_movements',
+      'pharmacy_inventory_batches',
+      'pharmacy_inventory_items',
+      'ward_indent_items',
+      'ward_indents',
+      'clinical_orders',
+      'pharmacy_catalog',
+      'admissions',
+      'beds',
+      'wards',
+      'facility_locations',
+      'facilities',
+      'staff',
+      'audit_logs',
+      'users',
+    ]) {
+      await tx.$executeRawUnsafe(
+        `DELETE FROM ${table} WHERE tenant_id = $1::uuid`,
+        TENANT_ID,
+      );
+    }
+    await tx.$executeRawUnsafe('DELETE FROM tenants WHERE id = $1::uuid', TENANT_ID);
+  }, { timeout: 30_000 });
 }
 
 async function seedMedicationAdministration(overrides = {}) {
@@ -37,36 +81,103 @@ async function seedMedicationAdministration(overrides = {}) {
   // the only remaining overridable path now that patient/drug mismatch is a
   // non-overridable hard-stop (audit F-H1).
   const offset = Number(overrides.scheduledOffsetMinutes || 0);
+  const product = supply.products[overrides.productKey || 'amoxicillin'];
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO medication_administrations (
-       patient_uid, medication_name, dose, route, scheduled_time, status, created_at, updated_at
+       tenant_id, patient_uid, medication_name, dose, route, scheduled_time,
+       status, clinical_order_id, supply_quantity_per_dose, created_at, updated_at
      ) VALUES (
-       $1::uuid, $2, $3, $4, NOW() + ($5 || ' minutes')::interval, 'scheduled', NOW(), NOW()
+       $1::uuid, $2::uuid, $3, $4, $5, NOW() + ($6 || ' minutes')::interval,
+       'scheduled', $7::int, 1, NOW(), NOW()
      )
      RETURNING id`,
+    TENANT_ID,
     overrides.patientUid || PATIENT_UID,
-    overrides.medicationName || 'Amoxicillin 500mg',
-    overrides.dose || '500 mg',
-    overrides.route || 'oral',
+    overrides.medicationName || product.name,
+    overrides.dose || product.dose,
+    overrides.route || product.route,
     String(offset),
+    product.clinicalOrderId,
   );
-  return rows[0].id;
+  return Number(rows[0].id);
 }
 
 describe('Clinical safety controls', () => {
   beforeAll(async () => {
     await cleanupFixtures();
     await prisma.$executeRawUnsafe(
-      `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+      `INSERT INTO tenants (id, slug, name, region, status, created_at, updated_at)
+       VALUES ($1::uuid, $2::text, 'Clinical Safety Tenant', 'IN', 'active', NOW(), NOW())`,
+      TENANT_ID,
+      `clinical-safety-${TENANT_ID.slice(0, 8)}`,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, tenant_id, name, role, is_active, status, updated_at)
        VALUES
-         ($1::uuid, '9000070001', 'Clinical Safety Patient', 'PATIENT', true, NOW()),
-         ($2::uuid, '9000070002', 'Clinical Safety Other Patient', 'PATIENT', true, NOW()),
-         ($3::uuid, '9000070003', 'Clinical Safety Clinician', 'DOCTOR', true, NOW())`,
+         ($1::uuid, $5::uuid, 'Clinical Safety Patient', 'PATIENT', TRUE, 'active', NOW()),
+         ($2::uuid, $5::uuid, 'Clinical Safety Other Patient', 'PATIENT', TRUE, 'active', NOW()),
+         ($3::uuid, $5::uuid, 'Clinical Safety Clinician', 'DOCTOR', TRUE, 'active', NOW()),
+         ($4::uuid, $5::uuid, 'Clinical Safety Pharmacist', 'PHARMACY_INCHARGE', TRUE, 'active', NOW())`,
       PATIENT_UID,
       OTHER_PATIENT_UID,
       CLINICIAN_UID,
+      PHARMACIST_UID,
+      TENANT_ID,
     );
-  });
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, tenant_id, name, role, is_active, status, updated_at)
+       VALUES ($1::uuid, $2::uuid, 'Clinical Safety Grant Admin', 'ADMIN', TRUE, 'active', NOW())`,
+      ADMIN_UID,
+      TENANT_ID,
+    );
+    const authority = await seedMedicationFacilityAuthority({
+      prisma,
+      tenantId: TENANT_ID,
+      pharmacistUid: PHARMACIST_UID,
+      grantAdminUid: ADMIN_UID,
+      run: `safety-${RUN}`,
+    });
+    supply = await seedReceivedMedicationSupply({
+      prisma,
+      tenantId: TENANT_ID,
+      patientUid: PATIENT_UID,
+      requesterUid: CLINICIAN_UID,
+      pharmacistUid: PHARMACIST_UID,
+      receiverUid: CLINICIAN_UID,
+      facilityId: authority.facilityId,
+      storageLocationId: authority.storageLocationId,
+      run: `safety-${RUN}`,
+      medications: [
+        {
+          key: 'amoxicillin',
+          name: 'Amoxicillin 500mg',
+          dose: '500 mg',
+          route: 'oral',
+          strength: '500 mg',
+          form: 'capsule',
+          quantity: 20,
+        },
+        {
+          key: 'aspirin',
+          name: 'Aspirin 325mg',
+          dose: '325 mg',
+          route: 'oral',
+          strength: '325 mg',
+          form: 'tablet',
+          quantity: 20,
+        },
+        {
+          key: 'gtn',
+          name: 'Glyceryl trinitrate',
+          dose: '0.4 mg',
+          route: 'sublingual',
+          strength: '0.4 mg',
+          form: 'tablet',
+          quantity: 10,
+        },
+      ],
+    });
+  }, 60_000);
 
   afterAll(async () => {
     await cleanupFixtures();
@@ -79,7 +190,8 @@ describe('Clinical safety controls', () => {
     const result = await evaluate5Rights({
       ma_id: maId,
       scanned_patient_uid: PATIENT_UID,
-      scanned_barcode: 'amoxicillin',
+      scanned_barcode: supply.products.amoxicillin.batchNumber,
+      tenantId: TENANT_ID,
     });
 
     expect(result.allPassed).toBe(true);
@@ -99,8 +211,9 @@ describe('Clinical safety controls', () => {
       administerWithScan({
         ma_id: maId,
         scanned_patient_uid: OTHER_PATIENT_UID,
-        scanned_barcode: 'amoxicillin',
+        scanned_barcode: supply.products.amoxicillin.batchNumber,
         administeredBy: CLINICIAN_UID,
+        tenantId: TENANT_ID,
       }),
     ).rejects.toMatchObject({
       statusCode: 409,
@@ -117,9 +230,10 @@ describe('Clinical safety controls', () => {
     const updated = await administerWithScan({
       ma_id: maId,
       scanned_patient_uid: PATIENT_UID,
-      scanned_barcode: 'amoxicillin',
+      scanned_barcode: supply.products.amoxicillin.batchNumber,
       administeredBy: CLINICIAN_UID,
       overrideReason: 'Dose given late — patient returned from imaging; documented per policy',
+      tenantId: TENANT_ID,
     });
 
     expect(updated.status).toBe('administered');
@@ -135,9 +249,10 @@ describe('Clinical safety controls', () => {
       administerWithScan({
         ma_id: maId,
         scanned_patient_uid: OTHER_PATIENT_UID, // wristband does not match the order
-        scanned_barcode: 'amoxicillin',
+        scanned_barcode: supply.products.amoxicillin.batchNumber,
         administeredBy: CLINICIAN_UID,
         overrideReason: 'Patient wristband replaced after manual identity verification',
+        tenantId: TENANT_ID,
       }),
     ).rejects.toMatchObject({
       statusCode: 409,
@@ -167,8 +282,9 @@ describe('Clinical safety controls', () => {
         administerWithScan({
           ma_id: maId,
           scanned_patient_uid: OTHER_PATIENT_UID, // wristband does not match the MA's patient
-          scanned_barcode: 'amoxicillin',
+          scanned_barcode: supply.products.amoxicillin.batchNumber,
           administeredBy: CLINICIAN_UID,
+          tenantId: TENANT_ID,
         }),
       ).rejects.toMatchObject({
         statusCode: 409,
@@ -183,8 +299,9 @@ describe('Clinical safety controls', () => {
       const updated = await administerWithScan({
         ma_id: maId,
         scanned_patient_uid: PATIENT_UID,
-        scanned_barcode: 'amoxicillin', // matches medication_name 'Amoxicillin 500mg'
+        scanned_barcode: supply.products.amoxicillin.batchNumber,
         administeredBy: CLINICIAN_UID,
+        tenantId: TENANT_ID,
       });
 
       expect(updated.status).toBe('administered');
@@ -213,9 +330,10 @@ describe('Clinical safety controls', () => {
       const updated = await administerWithScan({
         ma_id: maId,
         scanned_patient_uid: PATIENT_UID,
-        scanned_barcode: 'amoxicillin',
+        scanned_barcode: supply.products.amoxicillin.batchNumber,
         administeredBy: CLINICIAN_UID,
         overrideReason,
+        tenantId: TENANT_ID,
       });
 
       expect(updated.status).toBe('administered');
@@ -245,19 +363,24 @@ describe('Clinical safety controls', () => {
   });
 
   it('deduplicates MAR scheduling when carry-over timestamps differ only by milliseconds', async () => {
+    const aspirin = supply.products.aspirin;
     const [first] = await scheduleMedications(PATIENT_UID, null, [{
       medication_name: 'Aspirin',
       dose: '325 mg',
       route: 'oral',
       scheduled_time: '2026-05-20T20:39:51.578Z',
-    }]);
+      clinical_order_id: aspirin.clinicalOrderId,
+      supply_quantity_per_dose: 1,
+    }], { actorUid: CLINICIAN_UID, actorRole: 'DOCTOR', tenantId: TENANT_ID });
 
     const [second] = await scheduleMedications(PATIENT_UID, null, [{
       medication_name: 'Aspirin',
       dose: '325 mg',
       route: 'oral',
       scheduled_time: '2026-05-20T20:39:51.580Z',
-    }]);
+      clinical_order_id: aspirin.clinicalOrderId,
+      supply_quantity_per_dose: 1,
+    }], { actorUid: CLINICIAN_UID, actorRole: 'DOCTOR', tenantId: TENANT_ID });
 
     expect(second.id).toBe(first.id);
   });
@@ -271,12 +394,15 @@ describe('Clinical safety controls', () => {
   // The dose must materialise as a chartable MAR row with a valid route.
   // Finding: 2026-05-21-emergency-walk-in-nurse-7d2d873a.
   it('materialises a STAT order with a compound "PO chewed" route as a chartable MAR row', async () => {
+    const aspirin = supply.products.aspirin;
     const [row] = await scheduleMedications(PATIENT_UID, null, [{
       medication_name: 'Aspirin 325mg',
       dose: '325mg',
       route: 'PO chewed',
       scheduled_time: '2026-05-21T06:30:00.000Z',
-    }]);
+      clinical_order_id: aspirin.clinicalOrderId,
+      supply_quantity_per_dose: 1,
+    }], { actorUid: CLINICIAN_UID, actorRole: 'DOCTOR', tenantId: TENANT_ID });
 
     // The compound route is canonicalised to the allowlist value 'oral'
     // (the "chewed" modifier is not an enum value) so the row is valid and
@@ -299,6 +425,7 @@ describe('Clinical safety controls', () => {
     // …and succeeds with a documented no-scan override, persisting it.
     const administered = await recordAdministration(row.id, CLINICIAN_UID, null, null, {
       overrideReason: 'BCMA test override — scanner unavailable in ER bay',
+      tenantId: TENANT_ID,
     });
     expect(administered.status).toBe('administered');
     expect(administered.override_reason).toMatch(/scanner unavailable/);
@@ -309,37 +436,51 @@ describe('Clinical safety controls', () => {
   // re-schedules every active ER order) must return the same row, not a
   // second one — otherwise the nurse sees a phantom double aspirin dose.
   it('still dedupes a compound-route STAT order on carry-over re-run', async () => {
+    const aspirin = supply.products.aspirin;
     const [first] = await scheduleMedications(PATIENT_UID, null, [{
       medication_name: 'Aspirin loading',
       dose: '325mg',
       route: 'PO chewed',
       scheduled_time: '2026-05-21T07:00:00.000Z',
-    }]);
+      clinical_order_id: aspirin.clinicalOrderId,
+      supply_quantity_per_dose: 1,
+    }], { actorUid: CLINICIAN_UID, actorRole: 'DOCTOR', tenantId: TENANT_ID });
     const [second] = await scheduleMedications(PATIENT_UID, null, [{
       medication_name: 'Aspirin loading',
       dose: '325mg',
       route: 'PO chewed and crushed',
       scheduled_time: '2026-05-21T07:00:00.300Z',
-    }]);
+      clinical_order_id: aspirin.clinicalOrderId,
+      supply_quantity_per_dose: 1,
+    }], { actorUid: CLINICIAN_UID, actorRole: 'DOCTOR', tenantId: TENANT_ID });
 
     expect(second.id).toBe(first.id);
     expect(second.route).toBe('oral');
   });
 
   it('blocks sibling MAR administration for the same medication slot despite millisecond drift', async () => {
+    const gtn = supply.products.gtn;
     const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO medication_administrations (
-         patient_uid, medication_name, dose, route, scheduled_time, status, created_at, updated_at
+         tenant_id, patient_uid, medication_name, dose, route, scheduled_time,
+         status, clinical_order_id, supply_quantity_per_dose, created_at, updated_at
        ) VALUES
-         ($1::uuid, 'Glyceryl trinitrate', '0.4 mg', 'sublingual', '2026-05-20T20:39:04.386Z'::timestamptz, 'scheduled', NOW(), NOW()),
-         ($1::uuid, 'Glyceryl trinitrate', '0.4 mg', 'sublingual', '2026-05-20T20:39:04.395Z'::timestamptz, 'scheduled', NOW(), NOW())
+         ($1::uuid, $2::uuid, 'Glyceryl trinitrate', '0.4 mg', 'sublingual',
+          '2026-05-20T20:39:04.386Z'::timestamptz, 'scheduled', $3::int, 1, NOW(), NOW()),
+         ($1::uuid, $2::uuid, 'Glyceryl trinitrate', '0.4 mg', 'sublingual',
+          '2026-05-20T20:39:04.395Z'::timestamptz, 'scheduled', $3::int, 1, NOW(), NOW())
        RETURNING id`,
+      TENANT_ID,
       PATIENT_UID,
+      gtn.clinicalOrderId,
     );
     rows.sort((a, b) => a.id - b.id);
 
     // B1 (BCMA): non-scan administration carries a documented override.
-    const noScan = { overrideReason: 'BCMA test override — duplicate-guard scenario' };
+    const noScan = {
+      overrideReason: 'BCMA test override — duplicate-guard scenario',
+      tenantId: TENANT_ID,
+    };
     await recordAdministration(rows[0].id, CLINICIAN_UID, null, null, noScan);
 
     await expect(recordAdministration(rows[1].id, CLINICIAN_UID, null, null, noScan)).rejects.toMatchObject({
@@ -351,8 +492,10 @@ describe('Clinical safety controls', () => {
 
   it('returns an unsafe CDS allergy blocker for a medication allergen match', async () => {
     await prisma.$executeRawUnsafe(
-      `INSERT INTO patient_allergies (patient_uid, allergy_name, severity, reaction, is_active, created_at)
-       VALUES ($1::uuid, 'amoxicillin', 'severe', 'anaphylaxis', true, NOW())`,
+      `INSERT INTO patient_allergies
+         (tenant_id, patient_uid, allergy_name, severity, reaction, is_active, created_at)
+       VALUES ($1::uuid, $2::uuid, 'amoxicillin', 'severe', 'anaphylaxis', true, NOW())`,
+      TENANT_ID,
       PATIENT_UID,
     );
 
@@ -377,11 +520,13 @@ describe('Clinical safety controls', () => {
   it('persists CDS override acknowledgement with the clinical reason', async () => {
     const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO cds_alerts (
-         patient_uid, alert_type, severity, title, description, source_data, created_at
+         tenant_id, patient_uid, alert_type, severity, title, description, source_data, created_at
        ) VALUES (
-         $1::uuid, 'allergy', 'critical', 'Allergy alert', 'Ordered medication matches allergy', '{}'::jsonb, NOW()
+         $1::uuid, $2::uuid, 'allergy', 'critical', 'Allergy alert',
+         'Ordered medication matches allergy', '{}'::jsonb, NOW()
        )
        RETURNING id`,
+      TENANT_ID,
       PATIENT_UID,
     );
 
@@ -389,6 +534,7 @@ describe('Clinical safety controls', () => {
       rows[0].id,
       CLINICIAN_UID,
       'Benefit outweighs risk after consultant review',
+      TENANT_ID,
     );
 
     expect(acknowledged.acknowledged).toBe(true);

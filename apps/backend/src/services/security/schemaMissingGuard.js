@@ -21,9 +21,10 @@ const SCHEMA_MISSING_SQLSTATES = new Set([
 /** Extracts the Postgres SQLSTATE from the places Prisma surfaces it. */
 export function extractSqlState(err) {
   const candidates = [
-    err?.code,
     err?.meta?.code,
     err?.meta?.driverAdapterError?.cause?.originalCode,
+    err?.cause?.originalCode,
+    err?.code,
   ];
   for (const c of candidates) {
     if (typeof c === 'string' && /^[0-9A-Z]{5}$/.test(c)) return c;
@@ -48,6 +49,8 @@ function extractMissingRelation(err) {
     err?.meta?.message,
     err?.meta?.driverAdapterError?.cause?.message,
     err?.meta?.driverAdapterError?.cause?.originalMessage,
+    err?.cause?.message,
+    err?.cause?.originalMessage,
   ];
   for (const candidate of messageCandidates) {
     if (typeof candidate !== 'string') continue;

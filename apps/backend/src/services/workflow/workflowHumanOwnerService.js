@@ -2,6 +2,7 @@ import {
   CLINICAL_INBOX_ROUTE_ROLES,
   CLINICAL_STAFF_ROUTE_ROLES,
   COLD_CHAIN_ROUTE_ROLES,
+  FINANCE_TASK_OWNER_ROLES,
   PATHWAY_NAMED_CLINICIAN_ROLES,
 } from '../../config/routeRolePolicy.js';
 import { isTenantTransactionClient } from '../../lib/prisma.js';
@@ -17,6 +18,7 @@ const PATHWAY_NAMED_CLINICAL_OWNER_ROLE_SET = new Set(PATHWAY_NAMED_CLINICIAN_RO
 const TASK_HUMAN_ROLE_SET = new Set([
   ...CLINICAL_INBOX_ROUTE_ROLES,
   ...COLD_CHAIN_ROUTE_ROLES,
+  ...FINANCE_TASK_OWNER_ROLES,
 ]);
 
 function normalizeRawRole(value) {

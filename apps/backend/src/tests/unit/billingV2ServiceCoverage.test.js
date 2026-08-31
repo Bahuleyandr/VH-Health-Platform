@@ -18,14 +18,238 @@ import { jest } from '@jest/globals';
 
 const queryMock = jest.fn();
 const execMock = jest.fn();
+let invoiceDiscovery = null;
+let advanceDiscovery = null;
+let settleAdvanceCapacity = null;
+let settleAdvanceAdmission = null;
+let settleAdvanceLockedInvoiceOverride = null;
+let refundAuthority = null;
+let offlineRefundSnapshot = null;
+let offlinePaymentCandidate = null;
+const patientFundingTerminalByStoredUid = new Map();
+
+function clearQueryAdapterState() {
+  invoiceDiscovery = null;
+  advanceDiscovery = null;
+  settleAdvanceCapacity = null;
+  settleAdvanceAdmission = null;
+  settleAdvanceLockedInvoiceOverride = null;
+  refundAuthority = null;
+  offlineRefundSnapshot = null;
+  offlinePaymentCandidate = null;
+  patientFundingTerminalByStoredUid.clear();
+}
+
+const queryRawUnsafe = jest.fn(async (sql, ...params) => {
+  const text = String(sql);
+  if (text.includes('WITH RECURSIVE patient_chain')) {
+    const storedUid = String(params[1]);
+    const terminalUid = patientFundingTerminalByStoredUid.get(storedUid) || storedUid;
+    if (terminalUid !== storedUid) {
+      return [{
+        uid: storedUid,
+        merged_into_uid: terminalUid,
+        depth: 0,
+        cycle: false,
+      }, {
+        uid: terminalUid,
+        merged_into_uid: null,
+        depth: 1,
+        cycle: false,
+      }];
+    }
+    return [{
+      uid: storedUid,
+      merged_into_uid: null,
+      depth: 0,
+      cycle: false,
+    }];
+  }
+  if (text.includes('vh:pharmacy_funding_authority:')) {
+    return [{ lock_acquired: '1' }];
+  }
+  if (text.includes('SELECT id, patient_uid')
+      && text.includes('FROM billing_advances')
+      && text.includes('LIMIT 1')
+      && !text.includes('FOR UPDATE')) {
+    const rows = await queryMock(sql, ...params);
+    advanceDiscovery = rows?.[0]
+      ? { id: Number(params[1]), ...rows[0] }
+      : null;
+    return rows;
+  }
+  if (text.includes('SELECT id, patient_uid')
+      && text.includes('FROM billing_invoices')
+      && text.includes('LIMIT 1')
+      && !text.includes('FOR UPDATE')) {
+    const rows = await queryMock(sql, ...params);
+    const invoiceId = text.includes('WHERE id = $1::int') ? params[0] : params[1];
+    invoiceDiscovery = rows?.[0]
+      ? { id: Number(invoiceId), ...rows[0] }
+      : null;
+    if (advanceDiscovery && invoiceDiscovery) {
+      settleAdvanceCapacity = advanceDiscovery;
+      settleAdvanceAdmission = invoiceDiscovery.admission_id == null
+        ? null
+        : {
+          id: Number(invoiceDiscovery.admission_id),
+          patient_uid: invoiceDiscovery.patient_uid,
+        };
+    }
+    return rows;
+  }
+  if (text.includes('FROM billing_invoices') && text.includes('FOR UPDATE')
+      && invoiceDiscovery && Number(params[0]) === Number(invoiceDiscovery.id)) {
+    const row = settleAdvanceLockedInvoiceOverride
+      ? { ...invoiceDiscovery, ...settleAdvanceLockedInvoiceOverride }
+      : invoiceDiscovery;
+    invoiceDiscovery = null;
+    return [row];
+  }
+  if (text.includes('FROM billing_advances') && text.includes('FOR UPDATE')
+      && advanceDiscovery && Number(params[1]) === Number(advanceDiscovery.id)) {
+    const row = advanceDiscovery;
+    advanceDiscovery = null;
+    return [row];
+  }
+  if (text.includes('FROM admissions') && !text.includes('FOR UPDATE')
+      && settleAdvanceAdmission
+      && Number(params[1]) === settleAdvanceAdmission.id) {
+    return [{ ...settleAdvanceAdmission, status: 'ADMITTED' }];
+  }
+  if (text.includes('FROM admissions') && text.includes('FOR UPDATE')
+      && settleAdvanceAdmission
+      && Number(params[1]) === settleAdvanceAdmission.id) {
+    return [{ ...settleAdvanceAdmission, status: 'ADMITTED' }];
+  }
+  if (settleAdvanceCapacity
+      && text.includes('FROM billing_advances advance')
+      && text.includes('AS pharmacy_allocations')) {
+    const amount = settleAdvanceCapacity.amount ?? settleAdvanceCapacity.balance ?? '0';
+    const balance = settleAdvanceCapacity.balance ?? amount;
+    settleAdvanceCapacity = null;
+    return [{
+      source_amount: amount,
+      current_balance: balance,
+      settlements: '0',
+      active_refunds: '0',
+      pharmacy_allocations: '0',
+    }];
+  }
+  if (text.includes('SELECT id, patient_uid, invoice_id, advance_id, approval_status')
+      && text.includes('FROM billing_refunds') && text.includes('LIMIT 1')) {
+    let rows;
+    if (offlineRefundSnapshot
+        && Number(offlineRefundSnapshot.id) === Number(params[1])) {
+      rows = [offlineRefundSnapshot];
+    } else {
+      rows = await queryMock(sql, ...params);
+    }
+    const original = rows?.[0] || null;
+    refundAuthority = original ? {
+      original,
+      candidate: {
+        ...original,
+        patient_uid: original.patient_uid || PATIENT,
+        invoice_id: original.invoice_id ?? (original.advance_id == null ? 1 : null),
+        advance_id: original.advance_id ?? null,
+      },
+      offline: offlineRefundSnapshot != null,
+    } : null;
+    return refundAuthority ? [refundAuthority.candidate] : [];
+  }
+  if (refundAuthority && text.includes('FROM billing_invoices') && text.includes('FOR UPDATE')) {
+    return [{
+      id: Number(refundAuthority.candidate.invoice_id),
+      patient_uid: refundAuthority.candidate.patient_uid,
+      status: 'ISSUED',
+      total_amount: '1000',
+      amount_paid: '1000',
+      amount_due: '0',
+    }];
+  }
+  if (refundAuthority && text.includes('FROM billing_advances') && text.includes('FOR UPDATE')) {
+    if (refundAuthority.offline) {
+      const rows = await queryMock(sql, ...params);
+      return rows?.[0] ? [{
+        patient_uid: refundAuthority.candidate.patient_uid,
+        status: 'ACTIVE',
+        balance: rows[0].amount,
+        ipd_advance_deposit_id: null,
+        ...rows[0],
+      }] : [];
+    }
+    return [{
+      id: Number(refundAuthority.candidate.advance_id),
+      patient_uid: refundAuthority.candidate.patient_uid,
+      amount: '1000',
+      balance: '1000',
+      mode: refundAuthority.original.mode,
+      reference: refundAuthority.original.reference,
+      status: 'ACTIVE',
+    }];
+  }
+  if (refundAuthority && text.includes('FROM billing_refunds')
+      && text.includes('AND patient_uid = $3::uuid') && text.includes('FOR UPDATE')) {
+    const row = {
+      ...refundAuthority.original,
+      patient_uid: refundAuthority.original.patient_uid || PATIENT,
+      invoice_id: refundAuthority.original.invoice_id ?? null,
+      advance_id: refundAuthority.original.advance_id ?? null,
+    };
+    refundAuthority = null;
+    return [row];
+  }
+  if (text.includes('SELECT id,invoice_id,patient_uid,amount,mode,reference,reversed')
+      && text.includes('FROM billing_payments') && text.includes('LIMIT 2')) {
+    const rows = await queryMock(sql, ...params);
+    offlinePaymentCandidate = rows?.[0] ? {
+      invoice_id: Number(params[1]),
+      patient_uid: String(params[2]),
+      mode: String(params[3]),
+      reference: String(params[4]),
+      // amount defaults to the bound minimum ($6): the post-funding re-lock
+      // (lockOfflineElectronicPaymentAfterFundingTx via billingV2Service
+      // setTenantTx flows) runs toPaise over the candidate, which throws on
+      // undefined. A queued row that carries amount still overrides below.
+      amount: params[5],
+      reversed: false,
+      ...rows[0],
+    } : null;
+    return offlinePaymentCandidate ? [offlinePaymentCandidate] : [];
+  }
+  if (offlinePaymentCandidate && text.includes('FROM billing_payments')
+      && text.includes('id=$2::int') && text.includes('FOR UPDATE')) {
+    const row = {
+      reversed: false,
+      invoice_id: params[2],
+      patient_uid: params[3],
+      ...offlinePaymentCandidate,
+    };
+    offlinePaymentCandidate = null;
+    return [row];
+  }
+  if (text.includes('SELECT id') && text.includes('FROM billing_refunds')
+      && text.includes('LIMIT 1') && !text.includes('approval_status')) {
+    return [{ id: Number(params[1]) }];
+  }
+  if (text.includes('id, patient_uid, invoice_id, advance_id, amount')
+      && text.includes('FROM billing_refunds') && text.includes('LIMIT 1')) {
+    const rows = await queryMock(sql, ...params);
+    offlineRefundSnapshot = rows?.[0] || null;
+    return rows;
+  }
+  return queryMock(sql, ...params);
+});
 
 const mockPrisma = {
-  $queryRawUnsafe: queryMock,
+  $queryRawUnsafe: queryRawUnsafe,
   $executeRawUnsafe: execMock,
 };
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: mockPrisma,
+  isTenantTransactionClient: (value) => value === mockPrisma,
   setTenantTx: async (_tenantId, fn) => fn(mockPrisma),
   setTenant: async (_tenantId, fn) => fn(mockPrisma),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(mockPrisma),
@@ -38,18 +262,59 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   },
 }));
 
+jest.unstable_mockModule('../../utils/patientMergeStabilityLock.js', () => ({
+  assertTenantPatientMergeStabilityLease: jest.fn(),
+  lockTenantPatientMergeStability: jest.fn(async () => {}),
+}));
+
 jest.unstable_mockModule('../../services/billing/ledger/ledgerAuthoritativeMode.js', () => ({
   resolveLedgerWiring: async () => ({ mode: 'shadow', sameTx: false, postCommit: true, skip: false }),
   resolveLedgerModeForTenant: async () => 'shadow',
 }));
 
 const svc = await import('../../services/billing/billingV2Service.js');
+const { refundApprovalRequestFingerprint } = await import(
+  '../../services/billing/billingRefundApprovalCommand.js'
+);
+const { hashRequestBody } = await import(
+  '../../services/idempotency/idempotencyService.js'
+);
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const PATIENT = '11111111-1111-4111-8111-111111111111';
+const PREDECESSOR_PATIENT = '33333333-3333-4333-8333-333333333333';
+const APPROVER = '22222222-2222-4222-8222-222222222222';
+const REQUEST_ID = 'refund-coverage-request';
+const RECENT_PROVIDER_REFUNDED_AT = new Date(Date.now() - 60_000).toISOString();
+
+function refundAuditContext(actorUid, overrides = {}) {
+  return {
+    actorUid,
+    subjectUid: actorUid,
+    actorRole: 'FINANCE_INCHARGE',
+    actingAsDependent: false,
+    requestId: REQUEST_ID,
+    deviceType: 'web',
+    ipAddress: '127.0.0.1',
+    userAgent: 'billing-refund-coverage',
+    ...overrides,
+  };
+}
+
+function refundCommand(body, overrides = {}) {
+  return {
+    commandKey: 'refund',
+    requestFingerprint: hashRequestBody(body),
+    httpIdempotencyClaimId: 41,
+    requestId: REQUEST_ID,
+    ...overrides,
+  };
+}
 
 beforeEach(() => {
+  clearQueryAdapterState();
   queryMock.mockReset();
+  queryRawUnsafe.mockClear();
   execMock.mockReset();
   execMock.mockResolvedValue(1);
 });
@@ -59,6 +324,60 @@ beforeEach(() => {
 // ───────────────────────────────────────────────────────────────────────
 
 describe('pure helpers', () => {
+  it('canonicalizes every refund idempotency body without losing null identity', () => {
+    expect(svc.refundManualPayoutIdempotencyBody(7, {
+      cash_drawer_session_id: ' 99 ',
+      reference: null,
+    })).toEqual({
+      action: 'pay_refund_manual',
+      refund_id: '7',
+      cash_drawer_session_id: '99',
+      reference: null,
+    });
+    expect(svc.refundOfflineElectronicPayoutIdempotencyBody(8, {
+      original_payment_reference: ' collection-8 ',
+      provider_name: ' bank ',
+      provider_refund_reference: ' refund-8 ',
+      provider_refunded_at: ' 2026-08-28T08:00:00.000Z ',
+    })).toEqual(expect.objectContaining({
+      original_payment_reference: 'collection-8',
+      provider_name: 'bank',
+      provider_refund_reference: 'refund-8',
+      provider_refunded_at: '2026-08-28T08:00:00.000Z',
+    }));
+    expect(svc.refundRejectionIdempotencyBody(9, {
+      rejection_reason: undefined,
+    }).rejection_reason).toBeNull();
+    expect(svc.refundRaiseIdempotencyBody({
+      patient_uid: ` ${PATIENT} `,
+      invoice_id: 11,
+      amount: 10,
+      reason: ' duplicate ',
+      mode: ' CASH ',
+    })).toEqual({
+      action: 'raise_refund',
+      patient_uid: PATIENT,
+      invoice_id: '11',
+      advance_id: null,
+      amount: '10',
+      reason: 'duplicate',
+      mode: 'CASH',
+    });
+  });
+
+  it.each([
+    '0',
+    '01',
+    '2147483648',
+    '9223372036854775807',
+  ])('rejects non-canonical or overflowing billing refund id %s before SQL', async (id) => {
+    await expect(svc.getRefund(id, { tenantId: TENANT })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'BILLING_REFUND_ID_INVALID',
+    });
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
   it('fiscalYearOf returns same calendar year for Apr-Dec', () => {
     expect(svc.fiscalYearOf(new Date(Date.UTC(2026, 5, 14)))).toBe(2026); // June
     expect(svc.fiscalYearOf(new Date(Date.UTC(2026, 3, 1)))).toBe(2026); // Apr 1
@@ -247,14 +566,20 @@ describe('createDraftInvoice', () => {
   });
 
   it('blocks creation when the admission billing is closed (409 BILLING_CLOSED)', async () => {
-    queryMock.mockResolvedValueOnce([{ billing_closed_at: new Date('2026-01-01T00:00:00Z') }]);
+    queryMock.mockResolvedValueOnce([{
+      patient_uid: PATIENT,
+      billing_closed_at: new Date('2026-01-01T00:00:00Z'),
+    }]);
     await expect(
       svc.createDraftInvoice({ patient_uid: PATIENT, admission_id: 7 }),
     ).rejects.toMatchObject({ statusCode: 409, code: 'BILLING_CLOSED' });
   });
 
   it('handles billing_closed_at that lacks toISOString (string column)', async () => {
-    queryMock.mockResolvedValueOnce([{ billing_closed_at: '2026-01-01 10:00:00' }]);
+    queryMock.mockResolvedValueOnce([{
+      patient_uid: PATIENT,
+      billing_closed_at: '2026-01-01 10:00:00',
+    }]);
     await expect(
       svc.createDraftInvoice({ patient_uid: PATIENT, admission_id: 7 }),
     ).rejects.toMatchObject({ statusCode: 409 });
@@ -262,7 +587,7 @@ describe('createDraftInvoice', () => {
 
   it('with tenantId asserts patient-in-tenant then inserts', async () => {
     queryMock
-      .mockResolvedValueOnce([]) // assertAdmissionBillingOpen (admission open: no row)
+      .mockResolvedValueOnce([{ patient_uid: PATIENT, billing_closed_at: null }])
       .mockResolvedValueOnce([{ uid: PATIENT }]) // assertPatientInTenant
       .mockResolvedValueOnce([{ id: 2, status: 'DRAFT' }]); // INSERT
     const row = await svc.createDraftInvoice({
@@ -270,6 +595,26 @@ describe('createDraftInvoice', () => {
       patient_name: 'Asha', doctor_uid: PATIENT, invoice_type: 'IP',
     });
     expect(row).toMatchObject({ id: 2 });
+    expect(queryMock.mock.calls[0][0]).toContain('tenant_id = $2::uuid');
+    expect(queryMock.mock.calls[0][0]).toContain('FOR SHARE');
+    expect(queryMock.mock.calls[0].slice(1)).toEqual([9, TENANT]);
+  });
+
+  it('rejects an admission owned by another patient before invoice insert', async () => {
+    queryMock.mockResolvedValueOnce([{
+      patient_uid: '22222222-2222-4222-8222-222222222222',
+      billing_closed_at: null,
+    }]);
+    await expect(svc.createDraftInvoice({
+      patient_uid: PATIENT,
+      admission_id: 9,
+      tenantId: TENANT,
+      invoice_type: 'IP',
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'BILLING_ADMISSION_PATIENT_MISMATCH',
+    });
+    expect(queryMock).toHaveBeenCalledTimes(1);
   });
 
   it('with tenantId throws notFound when patient is in another tenant', async () => {
@@ -349,7 +694,12 @@ describe('addInvoiceItem', () => {
 
   it('preserves BIGINT source references beyond JavaScript safe-integer range', async () => {
     mockSuccessfulAdd({
-      item: { id: 100, line_total: '118', source_ref_id: 9_007_199_254_740_993n },
+      item: {
+        id: 100,
+        line_total: '118',
+        source_ref_id: 9_007_199_254_740_993n,
+        source_ref_reconciliation_case_id: 9_007_199_254_740_994n,
+      },
     });
     const item = await svc.addInvoiceItem(1, {
       tenantId: TENANT,
@@ -362,6 +712,7 @@ describe('addInvoiceItem', () => {
     expect(queryMock.mock.calls[1].at(-2)).toBe('9007199254740993');
     expect(queryMock.mock.calls[1].at(-1)).toBe(TENANT);
     expect(item.source_ref_id).toBe('9007199254740993');
+    expect(item.source_ref_reconciliation_case_id).toBe('9007199254740994');
     expect(() => JSON.stringify(item)).not.toThrow();
   });
 
@@ -482,7 +833,7 @@ describe('addInvoiceItem', () => {
       ['SELECT billing_closed_at FROM admissions', []], // billing open
       ['INSERT INTO billing_invoice_items', [{ id: 103 }]],
       ['COALESCE(SUM(line_subtotal)', [{ subtotal: '90000', cgst: '0', sgst: '0', igst: '0' }]],
-      ['SELECT discount_amount, amount_paid FROM billing_invoices', [{ discount_amount: '0', amount_paid: '0' }]],
+      ['SELECT discount_amount, credit_note_amount, amount_paid', [{ discount_amount: '0', credit_note_amount: '0', amount_paid: '0' }]],
       // meta lookup -> has admission + patient -> alert path fires
       ['SELECT admission_id, patient_uid, tenant_id\n       FROM billing_invoices', [{
         admission_id: 77, patient_uid: PATIENT, tenant_id: TENANT,
@@ -516,7 +867,7 @@ describe('addInvoiceItem', () => {
       ['SELECT billing_closed_at FROM admissions', []],
       ['INSERT INTO billing_invoice_items', [{ id: 104 }]],
       ['COALESCE(SUM(line_subtotal)', [{ subtotal: '90000', cgst: '0', sgst: '0', igst: '0' }]],
-      ['SELECT discount_amount, amount_paid FROM billing_invoices', [{ discount_amount: '0', amount_paid: '0' }]],
+      ['SELECT discount_amount, credit_note_amount, amount_paid', [{ discount_amount: '0', credit_note_amount: '0', amount_paid: '0' }]],
       ['SELECT admission_id, patient_uid, tenant_id\n       FROM billing_invoices', [{
         admission_id: 77, patient_uid: PATIENT, tenant_id: TENANT,
       }]],
@@ -543,20 +894,42 @@ describe('removeInvoiceItem', () => {
   });
 
   it('rejects removal from a non-DRAFT invoice', async () => {
-    queryMock.mockResolvedValueOnce([{ status: 'PAID', admission_id: null }]);
+    queryMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([{ status: 'PAID', admission_id: null }]);
     await expect(svc.removeInvoiceItem(1, 2)).rejects.toMatchObject({ statusCode: 400 });
   });
 
   it('deletes the item and recomputes totals', async () => {
     queryMock
-      .mockResolvedValueOnce([{ status: 'DRAFT', admission_id: null }]) // findBillingInvoice
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([{ status: 'DRAFT', admission_id: null }])
       .mockResolvedValueOnce([{ subtotal: '0', cgst: '0', sgst: '0', igst: '0' }]) // aggregates
-      .mockResolvedValueOnce([{ discount_amount: '0', amount_paid: '0' }]) // discount/paid
+      .mockResolvedValueOnce([{ discount_amount: '0', credit_note_amount: '0', amount_paid: '0' }])
       .mockResolvedValueOnce([{ admission_id: null, patient_uid: null, tenant_id: TENANT }]); // meta
     const r = await svc.removeInvoiceItem(1, 2);
     expect(r).toHaveProperty('total');
     expect(execMock).toHaveBeenCalledWith(
-      expect.stringContaining('DELETE FROM billing_invoice_items'), 1, 2,
+      expect.stringContaining('DELETE FROM billing_invoice_items'), 1, 2, TENANT,
+    );
+  });
+
+  it('holds the admission lock and rejects removal after billing close', async () => {
+    queryMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([{ status: 'DRAFT', admission_id: 7 }])
+      .mockResolvedValueOnce([{ billing_closed_at: new Date('2026-08-27T00:00:00Z') }]);
+
+    await expect(svc.removeInvoiceItem(1, 2)).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'BILLING_CLOSED',
+    });
+    expect(queryMock.mock.calls[2][0]).toContain('FOR SHARE');
+    expect(execMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('DELETE FROM billing_invoice_items'),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
     );
   });
 });
@@ -572,13 +945,31 @@ describe('applyDiscount', () => {
   });
 
   it('rejects discounting a VOID invoice', async () => {
-    queryMock.mockResolvedValueOnce([{ status: 'VOID', subtotal: '0' }]);
-    await expect(svc.applyDiscount(1, { amount: 10 })).rejects.toMatchObject({ statusCode: 400 });
+    queryMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([{ status: 'VOID', subtotal: '0' }]);
+    await expect(svc.applyDiscount(1, { amount: 10 })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'BILLING_DISCOUNT_REQUIRES_DRAFT_INVOICE',
+    });
+  });
+
+  it('rejects post-issue discounts that would bypass a ledger credit', async () => {
+    queryMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([{ status: 'ISSUED', subtotal: '1000', admission_id: null }]);
+    await expect(svc.applyDiscount(1, { amount: 10 })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'BILLING_DISCOUNT_REQUIRES_DRAFT_INVOICE',
+    });
+    expect(execMock).not.toHaveBeenCalled();
   });
 
   it('forbids high-value discount without an approver role', async () => {
     queryMock.mockResolvedValueOnce([{
-      status: 'ISSUED', subtotal: '10000', cgst_amount: '0', sgst_amount: '0', igst_amount: '0',
+      tenant_id: TENANT,
+    }]).mockResolvedValueOnce([{
+      status: 'DRAFT', subtotal: '10000', cgst_amount: '0', sgst_amount: '0', igst_amount: '0',
       admission_id: null,
     }]);
     await expect(
@@ -588,12 +979,13 @@ describe('applyDiscount', () => {
 
   it('applies a high-value discount when approver role is allowed', async () => {
     queryMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
       .mockResolvedValueOnce([{
-        status: 'ISSUED', subtotal: '10000', cgst_amount: '0', sgst_amount: '0', igst_amount: '0',
+        status: 'DRAFT', subtotal: '10000', cgst_amount: '0', sgst_amount: '0', igst_amount: '0',
         admission_id: null,
-      }]) // findBillingInvoice
+      }])
       .mockResolvedValueOnce([{ subtotal: '10000', cgst: '0', sgst: '0', igst: '0' }]) // recompute aggregates
-      .mockResolvedValueOnce([{ discount_amount: '5000', amount_paid: '0' }]) // discount/paid
+      .mockResolvedValueOnce([{ discount_amount: '5000', credit_note_amount: '0', amount_paid: '0' }])
       .mockResolvedValueOnce([{ admission_id: null, patient_uid: null, tenant_id: TENANT }]); // meta
     const r = await svc.applyDiscount(1, {
       amount: 5000, reason: 'Camp', approved_by: PATIENT, approved_by_role: 'FINANCE_INCHARGE',
@@ -601,21 +993,43 @@ describe('applyDiscount', () => {
     expect(r).toHaveProperty('discount');
     expect(execMock).toHaveBeenCalledWith(
       expect.stringContaining('SET discount_amount'),
-      5000, 'Camp', PATIENT, 1,
+      5000, 'Camp', PATIENT, 1, TENANT,
     );
   });
 
   it('applies a small discount without approval', async () => {
     queryMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
       .mockResolvedValueOnce([{
-        status: 'ISSUED', subtotal: '1000', cgst_amount: '0', sgst_amount: '0', igst_amount: '0',
+        status: 'DRAFT', subtotal: '1000', cgst_amount: '0', sgst_amount: '0', igst_amount: '0',
         admission_id: null,
       }])
       .mockResolvedValueOnce([{ subtotal: '1000', cgst: '0', sgst: '0', igst: '0' }])
-      .mockResolvedValueOnce([{ discount_amount: '10', amount_paid: '0' }])
+      .mockResolvedValueOnce([{ discount_amount: '10', credit_note_amount: '0', amount_paid: '0' }])
       .mockResolvedValueOnce([{ admission_id: null, patient_uid: null, tenant_id: TENANT }]);
     const r = await svc.applyDiscount(1, { amount: 10 });
     expect(r).toHaveProperty('total');
+  });
+
+  it('holds the admission lock and rejects a discount after billing close', async () => {
+    queryMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([{
+        status: 'DRAFT',
+        subtotal: '1000',
+        cgst_amount: '0',
+        sgst_amount: '0',
+        igst_amount: '0',
+        admission_id: 7,
+      }])
+      .mockResolvedValueOnce([{ billing_closed_at: new Date('2026-08-27T00:00:00Z') }]);
+
+    await expect(svc.applyDiscount(1, { amount: 10 })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'BILLING_CLOSED',
+    });
+    expect(queryMock.mock.calls[2][0]).toContain('FOR SHARE');
+    expect(execMock).not.toHaveBeenCalled();
   });
 });
 
@@ -681,9 +1095,12 @@ describe('voidInvoice', () => {
     await expect(svc.voidInvoice(1, { reason: 'dup' })).rejects.toMatchObject({ statusCode: 400 });
   });
 
-  it('rejects voiding a paid invoice (refund instead)', async () => {
+  it('rejects voiding a paid invoice without a reversal workflow', async () => {
     queryMock.mockResolvedValueOnce([{ status: 'PAID' }]);
-    await expect(svc.voidInvoice(1, { reason: 'dup' })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(svc.voidInvoice(1, { reason: 'dup' })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'BILLING_INVOICE_REVERSAL_WORKFLOW_REQUIRED',
+    });
   });
 
   it('voids a DRAFT invoice, releases source references, and returns it', async () => {
@@ -705,27 +1122,16 @@ describe('voidInvoice', () => {
     );
   });
 
-  it('voids an ISSUED invoice without releasing posted source references', async () => {
-    queryMock
-      .mockResolvedValueOnce([{ status: 'ISSUED', tenant_id: TENANT }]) // findBillingInvoice
-      .mockResolvedValueOnce([{ status: 'ISSUED' }]) // lockBillingInvoice
-      // getInvoice:
-      .mockResolvedValueOnce([{ id: 1, admission_id: null, tenant_id: TENANT, total_amount: '0' }])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([]);
-
+  it('rejects voiding an ISSUED invoice without an auditable reversal workflow', async () => {
+    queryMock.mockResolvedValueOnce([{ status: 'ISSUED', tenant_id: TENANT }]);
     await expect(svc.voidInvoice(1, {
       reason: 'duplicate',
       voided_by: PATIENT,
-    })).resolves.toMatchObject({ id: 1 });
-
-    expect(execMock).toHaveBeenCalledTimes(1);
-    expect(execMock).not.toHaveBeenCalledWith(
-      expect.stringContaining('source_ref_active = FALSE'),
-      expect.anything(),
-      expect.anything(),
-    );
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'BILLING_INVOICE_REVERSAL_WORKFLOW_REQUIRED',
+    });
+    expect(execMock).not.toHaveBeenCalled();
   });
 });
 
@@ -1094,12 +1500,22 @@ describe('reversePayment additional branches', () => {
   });
 
   it('throws notFound when payment missing / already reversed', async () => {
-    queryMock.mockResolvedValueOnce([]); // UPDATE ... RETURNING -> none
+    queryMock.mockResolvedValueOnce([]); // payment pre-read -> none
     await expect(svc.reversePayment(1, { reason: 'x' })).rejects.toMatchObject({ statusCode: 404 });
   });
 
   it('reverses a standalone payment (no invoice attached)', async () => {
-    queryMock.mockResolvedValueOnce([{ id: 5, invoice_id: null }]); // UPDATE RETURNING
+    queryMock
+      .mockResolvedValueOnce([{
+        patient_uid: PATIENT, invoice_id: null, has_pharmacy_allocations: false,
+      }])
+      .mockResolvedValueOnce([]) // funded pharmacy orders
+      .mockResolvedValueOnce([{
+        id: 5, patient_uid: PATIENT, invoice_id: null,
+        reversed: false, mode: 'UPI', immutable_drawer_close: false,
+      }])
+      .mockResolvedValueOnce([]) // active pharmacy allocations
+      .mockResolvedValueOnce([{ id: 5, invoice_id: null }]); // UPDATE RETURNING
     const r = await svc.reversePayment(5, { reason: 'x', reversed_by: PATIENT, tenantId: TENANT });
     expect(r).toMatchObject({ id: 5 });
     // No invoice -> no recompute
@@ -1108,6 +1524,20 @@ describe('reversePayment additional branches', () => {
 
   it('reverses a payment attached to an invoice and recomputes payment state', async () => {
     queryMock
+      .mockResolvedValueOnce([{
+        patient_uid: PATIENT, invoice_id: 9, has_pharmacy_allocations: false,
+      }])
+      .mockResolvedValueOnce([]) // funding-event advisory discovery
+      .mockResolvedValueOnce([]) // funded pharmacy orders
+      .mockResolvedValueOnce([{ id: 9, patient_uid: PATIENT, status: 'ISSUED' }])
+      .mockResolvedValueOnce([{
+        id: 6, patient_uid: PATIENT, invoice_id: 9,
+        amount: '500', reversed: false, mode: 'CASH', immutable_drawer_close: false,
+      }])
+      .mockResolvedValueOnce([]) // active pharmacy allocations
+      .mockResolvedValueOnce([{
+        source_amount: '500', active_refunds: '0', pharmacy_allocations: '0',
+      }])
       .mockResolvedValueOnce([{ id: 6, invoice_id: 9 }]) // UPDATE RETURNING (has invoice)
       .mockResolvedValueOnce([{ id: 9 }]) // lockBillingInvoice (SELECT ... FOR UPDATE)
       // recomputeInvoicePaymentStateTx:
@@ -1121,6 +1551,51 @@ describe('reversePayment additional branches', () => {
     expect(execMock).toHaveBeenCalledWith(
       expect.stringContaining('UPDATE billing_invoices'), 0, 500, 'ISSUED', 9,
     );
+  });
+
+  it('forbids reversing CASH that belongs to an immutable closed drawer', async () => {
+    queryMock
+      .mockResolvedValueOnce([{
+        patient_uid: PATIENT, invoice_id: null, has_pharmacy_allocations: false,
+      }])
+      .mockResolvedValueOnce([]) // funded pharmacy orders
+      .mockResolvedValueOnce([{
+        id: 7, patient_uid: PATIENT, invoice_id: null,
+        reversed: false, mode: 'CASH', immutable_drawer_close: true,
+      }]);
+
+    await expect(svc.reversePayment(7, {
+      reason: 'entry correction', reversed_by: PATIENT, tenantId: TENANT,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'BILLING_CASH_PAYMENT_CLOSED_DRAWER_REVERSAL_FORBIDDEN',
+    });
+    expect(queryMock).toHaveBeenCalledTimes(3);
+    expect(queryMock.mock.calls[2][0]).toContain("drawer.status IN ('closed', 'reviewed')");
+  });
+
+  it('translates a racing database drawer-close guard into the stable service error', async () => {
+    queryMock
+      .mockResolvedValueOnce([{
+        patient_uid: PATIENT, invoice_id: null, has_pharmacy_allocations: false,
+      }])
+      .mockResolvedValueOnce([]) // funded pharmacy orders
+      .mockResolvedValueOnce([{
+        id: 8, patient_uid: PATIENT, invoice_id: null,
+        reversed: false, mode: 'CASH', immutable_drawer_close: false,
+      }])
+      .mockResolvedValueOnce([]) // active pharmacy allocations
+      .mockRejectedValueOnce(Object.assign(new Error('immutable closed drawer'), {
+        code: '23514',
+        constraint: 'billing_cash_payment_reversal_guard_747',
+      }));
+
+    await expect(svc.reversePayment(8, {
+      reason: 'entry correction', reversed_by: PATIENT, tenantId: TENANT,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'BILLING_CASH_PAYMENT_CLOSED_DRAWER_REVERSAL_FORBIDDEN',
+    });
   });
 });
 
@@ -1145,11 +1620,13 @@ describe('advances', () => {
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 
-  it('collectAdvance inserts (no tenant -> default, no patient check)', async () => {
-    queryMock.mockResolvedValueOnce([{ id: 1, balance: '1000' }]);
+  it('collectAdvance requires an active canonical patient even under the default tenant', async () => {
+    queryMock
+      .mockResolvedValueOnce([{ uid: PATIENT }])
+      .mockResolvedValueOnce([{ id: 1, balance: '1000' }]);
     const r = await svc.collectAdvance({ patient_uid: PATIENT, amount: 1000, mode: 'CASH', admission_id: 5 });
     expect(r).toMatchObject({ id: 1 });
-    expect(queryMock).toHaveBeenCalledTimes(1);
+    expect(queryMock).toHaveBeenCalledTimes(2);
   });
 
   it('collectAdvance with tenant asserts patient then inserts', async () => {
@@ -1188,14 +1665,26 @@ describe('advances', () => {
   });
 
   it('settleAdvance rejects a non-ACTIVE advance', async () => {
-    queryMock.mockResolvedValueOnce([{ status: 'EXHAUSTED', balance: '0' }]);
+    queryMock
+      .mockResolvedValueOnce([{
+        id: 1, status: 'EXHAUSTED', amount: '100', balance: '0', patient_uid: PATIENT,
+      }])
+      .mockResolvedValueOnce([{
+        id: 2, status: 'ISSUED', amount_due: '100', patient_uid: PATIENT,
+      }]);
     await expect(
       svc.settleAdvance({ advance_id: 1, invoice_id: 2, amount: 100 }),
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 
   it('settleAdvance rejects amount exceeding advance balance', async () => {
-    queryMock.mockResolvedValueOnce([{ status: 'ACTIVE', balance: '50', patient_uid: PATIENT }]);
+    queryMock
+      .mockResolvedValueOnce([{
+        id: 1, status: 'ACTIVE', amount: '50', balance: '50', patient_uid: PATIENT,
+      }])
+      .mockResolvedValueOnce([{
+        id: 2, status: 'ISSUED', amount_due: '500', patient_uid: PATIENT,
+      }]);
     await expect(
       svc.settleAdvance({ advance_id: 1, invoice_id: 2, amount: 100 }),
     ).rejects.toMatchObject({ statusCode: 400 });
@@ -1203,7 +1692,9 @@ describe('advances', () => {
 
   it('settleAdvance throws notFound when invoice missing', async () => {
     queryMock
-      .mockResolvedValueOnce([{ status: 'ACTIVE', balance: '1000', patient_uid: PATIENT }]) // advance
+      .mockResolvedValueOnce([{
+        id: 1, status: 'ACTIVE', amount: '1000', balance: '1000', patient_uid: PATIENT,
+      }]) // advance
       .mockResolvedValueOnce([]); // invoice
     await expect(
       svc.settleAdvance({ advance_id: 1, invoice_id: 2, amount: 100 }),
@@ -1212,17 +1703,92 @@ describe('advances', () => {
 
   it('settleAdvance forbids cross-patient settlement', async () => {
     queryMock
-      .mockResolvedValueOnce([{ status: 'ACTIVE', balance: '1000', patient_uid: PATIENT }]) // advance
-      .mockResolvedValueOnce([{ amount_due: '500', patient_uid: '99999999-9999-4999-8999-999999999999' }]); // invoice diff patient
+      .mockResolvedValueOnce([{
+        id: 1, status: 'ACTIVE', amount: '1000', balance: '1000', patient_uid: PATIENT,
+      }]) // advance
+      .mockResolvedValueOnce([{
+        id: 2, status: 'ISSUED', amount_due: '500',
+        patient_uid: '99999999-9999-4999-8999-999999999999',
+      }]); // invoice diff patient
     await expect(
       svc.settleAdvance({ advance_id: 1, invoice_id: 2, amount: 100 }),
     ).rejects.toMatchObject({ statusCode: 403, code: 'BILLING_ADVANCE_INVOICE_PATIENT_MISMATCH' });
   });
 
+  it('settleAdvance fails closed when invoice admission authority changes before lock', async () => {
+    queryMock
+      .mockResolvedValueOnce([{
+        id: 1, status: 'ACTIVE', amount: '1000', balance: '1000',
+        patient_uid: PATIENT, admission_id: 17,
+      }])
+      .mockResolvedValueOnce([{
+        id: 2, status: 'ISSUED', amount_due: '500',
+        patient_uid: PATIENT, admission_id: 17,
+      }]);
+    settleAdvanceLockedInvoiceOverride = { admission_id: 18 };
+
+    await expect(svc.settleAdvance({
+      tenantId: TENANT,
+      advance_id: 1,
+      invoice_id: 2,
+      amount: 100,
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'BILLING_ADVANCE_SETTLEMENT_AUTHORITY_CHANGED',
+    });
+
+    expect(queryMock.mock.calls.some(([sql]) => (
+      String(sql).includes('INSERT INTO billing_advance_settlements')
+    ))).toBe(false);
+  });
+
+  it('settles a predecessor advance against its merged survivor invoice', async () => {
+    patientFundingTerminalByStoredUid.set(PREDECESSOR_PATIENT, PATIENT);
+    queryMock
+      .mockResolvedValueOnce([{
+        id: 1, status: 'ACTIVE', amount: '300', balance: '300', admission_id: 17,
+        patient_uid: PREDECESSOR_PATIENT,
+      }])
+      .mockResolvedValueOnce([{
+        id: 2, status: 'ISSUED', amount_due: '300', admission_id: 17, patient_uid: PATIENT,
+      }])
+      .mockResolvedValueOnce([{ id: 73, advance_id: 1, invoice_id: 2, amount: '300' }])
+      .mockResolvedValueOnce([{ id: 1 }]);
+
+    await expect(svc.settleAdvance({
+      tenantId: TENANT,
+      advance_id: 1,
+      invoice_id: 2,
+      amount: 300,
+      settled_by: APPROVER,
+    })).resolves.toMatchObject({ id: 73 });
+
+    const fundingLock = queryRawUnsafe.mock.calls.find(([sql]) => (
+      String(sql).includes('vh:pharmacy_funding_authority:')
+    ));
+    expect(fundingLock?.slice(1)).toEqual([TENANT, PATIENT]);
+    const invoiceLock = queryRawUnsafe.mock.calls.findIndex(([sql]) => (
+      String(sql).includes('FROM billing_invoices') && String(sql).includes('FOR UPDATE')
+    ));
+    const admissionLock = queryRawUnsafe.mock.calls.findIndex(([sql]) => (
+      String(sql).includes('FROM admissions') && String(sql).includes('FOR UPDATE')
+    ));
+    const advanceLock = queryRawUnsafe.mock.calls.findIndex(([sql]) => (
+      String(sql).includes('FROM billing_advances') && String(sql).includes('FOR UPDATE')
+    ));
+    expect(invoiceLock).toBeGreaterThanOrEqual(0);
+    expect(admissionLock).toBeGreaterThan(invoiceLock);
+    expect(advanceLock).toBeGreaterThan(admissionLock);
+  });
+
   it('settleAdvance rejects amount exceeding invoice due', async () => {
     queryMock
-      .mockResolvedValueOnce([{ status: 'ACTIVE', balance: '1000', patient_uid: PATIENT }])
-      .mockResolvedValueOnce([{ amount_due: '50', patient_uid: PATIENT }]);
+      .mockResolvedValueOnce([{
+        id: 1, status: 'ACTIVE', amount: '1000', balance: '1000', patient_uid: PATIENT,
+      }])
+      .mockResolvedValueOnce([{
+        id: 2, status: 'ISSUED', amount_due: '50', patient_uid: PATIENT,
+      }]);
     await expect(
       svc.settleAdvance({ advance_id: 1, invoice_id: 2, amount: 100 }),
     ).rejects.toMatchObject({ statusCode: 400 });
@@ -1230,8 +1796,12 @@ describe('advances', () => {
 
   it('settleAdvance partial -> advance stays ACTIVE (atomic decrement)', async () => {
     queryMock
-      .mockResolvedValueOnce([{ status: 'ACTIVE', balance: '1000', patient_uid: PATIENT }]) // advance FOR UPDATE
-      .mockResolvedValueOnce([{ amount_due: '500', patient_uid: PATIENT }]) // lockBillingInvoice
+      .mockResolvedValueOnce([{
+        id: 1, status: 'ACTIVE', amount: '1000', balance: '1000', patient_uid: PATIENT,
+      }]) // advance discovery + cached lock
+      .mockResolvedValueOnce([{
+        id: 2, status: 'ISSUED', amount_due: '500', patient_uid: PATIENT,
+      }]) // invoice discovery + cached lock
       .mockResolvedValueOnce([{ id: 70, amount: '300' }]) // INSERT settlement
       .mockResolvedValueOnce([{ id: 1 }]); // atomic balance decrement RETURNING id (sufficient -> ACTIVE)
     const r = await svc.settleAdvance({ advance_id: 1, invoice_id: 2, amount: 300, settled_by: PATIENT });
@@ -1253,8 +1823,12 @@ describe('advances', () => {
 
   it('settleAdvance full -> advance EXHAUSTED (atomic decrement)', async () => {
     queryMock
-      .mockResolvedValueOnce([{ status: 'ACTIVE', balance: '300', patient_uid: PATIENT }])
-      .mockResolvedValueOnce([{ amount_due: '500', patient_uid: PATIENT }])
+      .mockResolvedValueOnce([{
+        id: 1, status: 'ACTIVE', amount: '300', balance: '300', patient_uid: PATIENT,
+      }])
+      .mockResolvedValueOnce([{
+        id: 2, status: 'ISSUED', amount_due: '500', patient_uid: PATIENT,
+      }])
       .mockResolvedValueOnce([{ id: 71, amount: '300' }]) // INSERT settlement
       .mockResolvedValueOnce([{ id: 1 }]); // atomic decrement RETURNING id (full -> EXHAUSTED)
     await svc.settleAdvance({ advance_id: 1, invoice_id: 2, amount: 300 });
@@ -1270,8 +1844,12 @@ describe('advances', () => {
     // the early read), but the conditional `WHERE balance >= $amt` decrement
     // affects zero rows -> BILLING_ADVANCE_INSUFFICIENT_BALANCE.
     queryMock
-      .mockResolvedValueOnce([{ status: 'ACTIVE', balance: '300', patient_uid: PATIENT }]) // advance FOR UPDATE
-      .mockResolvedValueOnce([{ amount_due: '500', patient_uid: PATIENT }]) // lockBillingInvoice
+      .mockResolvedValueOnce([{
+        id: 1, status: 'ACTIVE', amount: '300', balance: '300', patient_uid: PATIENT,
+      }]) // advance discovery + cached lock
+      .mockResolvedValueOnce([{
+        id: 2, status: 'ISSUED', amount_due: '500', patient_uid: PATIENT,
+      }]) // invoice discovery + cached lock
       .mockResolvedValueOnce([{ id: 72, amount: '300' }]) // INSERT settlement
       .mockResolvedValueOnce([]); // atomic decrement affects zero rows
     await expect(
@@ -1289,9 +1867,182 @@ describe('advances', () => {
 // ───────────────────────────────────────────────────────────────────────
 
 describe('refunds', () => {
+  const raiseBody = {
+    patient_uid: PATIENT,
+    invoice_id: 1,
+    amount: 10,
+    reason: 'coverage refund',
+    mode: 'CASH',
+  };
+
+  it.each([
+    ['missing actor', { raised_by: null }],
+    ['zero claim', { httpIdempotencyClaimId: 0 }],
+    ['empty key', { commandKey: '' }],
+    ['space-padded key', { commandKey: ' padded ' }],
+    ['invalid key characters', { commandKey: 'not allowed' }],
+    ['overlong key', { commandKey: 'a'.repeat(201) }],
+    ['invalid fingerprint', { requestFingerprint: 'not-a-sha256' }],
+  ])('rejects invalid refund mutation idempotency identity: %s', async (_label, overrides) => {
+    const command = refundCommand(svc.refundRaiseIdempotencyBody(raiseBody), overrides);
+    await expect(svc.raiseRefund({
+      ...raiseBody,
+      raised_by: PATIENT,
+      tenantId: TENANT,
+      ...command,
+      ...overrides,
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'BILLING_REFUND_RAISE_IDEMPOTENCY_INVALID',
+    });
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a mutation idempotency fingerprint bound to another command', async () => {
+    await expect(svc.raiseRefund({
+      ...raiseBody,
+      raised_by: PATIENT,
+      tenantId: TENANT,
+      ...refundCommand(svc.refundRaiseIdempotencyBody(raiseBody), {
+        requestFingerprint: 'a'.repeat(64),
+      }),
+    })).rejects.toMatchObject({
+      statusCode: 422,
+      code: 'BILLING_REFUND_RAISE_COMMAND_MISMATCH',
+    });
+  });
+
+  it('fails closed when an idempotent refund mutation has no audit context', async () => {
+    await expect(svc.raiseRefund({
+      ...raiseBody,
+      raised_by: PATIENT,
+      tenantId: TENANT,
+      ...refundCommand(svc.refundRaiseIdempotencyBody(raiseBody)),
+    })).rejects.toMatchObject({
+      statusCode: 500,
+      code: 'BILLING_REFUND_RAISE_AUDIT_CONTEXT_MISSING',
+    });
+  });
+
+  it.each([
+    ['array', []],
+    ['actor mismatch', refundAuditContext(APPROVER)],
+    ['invalid subject', refundAuditContext(PATIENT, { subjectUid: 'not-a-uuid' })],
+    ['missing acting-as flag', refundAuditContext(PATIENT, { actingAsDependent: undefined })],
+    ['empty actor role', refundAuditContext(PATIENT, { actorRole: '' })],
+    ['overlong actor role', refundAuditContext(PATIENT, { actorRole: 'x'.repeat(51) })],
+    ['empty request id', refundAuditContext(PATIENT, { requestId: '' })],
+    ['overlong request id', refundAuditContext(PATIENT, { requestId: 'x'.repeat(201) })],
+    ['empty device type', refundAuditContext(PATIENT, { deviceType: '' })],
+    ['overlong device type', refundAuditContext(PATIENT, { deviceType: 'x'.repeat(81) })],
+    ['empty IP address', refundAuditContext(PATIENT, { ipAddress: '' })],
+    ['overlong IP address', refundAuditContext(PATIENT, { ipAddress: '1'.repeat(46) })],
+    ['empty user agent', refundAuditContext(PATIENT, { userAgent: '' })],
+    ['overlong user agent', refundAuditContext(PATIENT, { userAgent: 'x'.repeat(501) })],
+    ['unattributed subject', refundAuditContext(PATIENT, { subjectUid: APPROVER })],
+  ])('rejects invalid refund mutation audit context: %s', async (_label, auditContext) => {
+    await expect(svc.raiseRefund({
+      ...raiseBody,
+      raised_by: PATIENT,
+      tenantId: TENANT,
+      auditContext,
+    })).rejects.toMatchObject({
+      statusCode: 500,
+      code: 'BILLING_REFUND_RAISE_AUDIT_CONTEXT_INVALID',
+    });
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects audit context whose request identity differs from its command', async () => {
+    await expect(svc.raiseRefund({
+      ...raiseBody,
+      raised_by: PATIENT,
+      tenantId: TENANT,
+      ...refundCommand(svc.refundRaiseIdempotencyBody(raiseBody)),
+      auditContext: refundAuditContext(PATIENT, { requestId: 'another-request' }),
+    })).rejects.toMatchObject({
+      statusCode: 500,
+      code: 'BILLING_REFUND_RAISE_AUDIT_CONTEXT_INVALID',
+    });
+  });
+
+  it('atomically records audit and finalises idempotency for refund creation', async () => {
+    const created = {
+      id: 82,
+      patient_uid: PATIENT,
+      invoice_id: 1,
+      advance_id: null,
+      approval_status: 'PENDING',
+      amount: '10',
+    };
+    queryMock
+      .mockResolvedValueOnce([{ patient_uid: PATIENT, amount_paid: '50' }])
+      .mockResolvedValueOnce([{
+        source_amount: '50', active_refunds: '0', pharmacy_allocations: '0',
+      }])
+      .mockResolvedValueOnce([created])
+      .mockResolvedValueOnce([{ id: 901 }])
+      .mockResolvedValueOnce([{ id: 41, status: 'complete' }]);
+
+    const result = await svc.raiseRefund({
+      ...raiseBody,
+      raised_by: PATIENT,
+      tenantId: TENANT,
+      ...refundCommand(svc.refundRaiseIdempotencyBody(raiseBody)),
+      auditContext: refundAuditContext(PATIENT),
+    });
+
+    expect(result).toBe(created);
+    expect(queryMock.mock.calls.some(call => /INSERT INTO audit_logs/.test(call[0])))
+      .toBe(true);
+    expect(queryMock.mock.calls.some(call => /UPDATE idempotency_keys/.test(call[0])))
+      .toBe(true);
+  });
+
+  it('fails closed when refund mutation audit persistence returns no receipt', async () => {
+    queryMock
+      .mockResolvedValueOnce([{ patient_uid: PATIENT, amount_paid: '50' }])
+      .mockResolvedValueOnce([{
+        source_amount: '50', active_refunds: '0', pharmacy_allocations: '0',
+      }])
+      .mockResolvedValueOnce([{ id: 83, patient_uid: PATIENT, invoice_id: 1, approval_status: 'PENDING' }])
+      .mockResolvedValueOnce([]);
+    await expect(svc.raiseRefund({
+      ...raiseBody,
+      raised_by: PATIENT,
+      tenantId: TENANT,
+      auditContext: refundAuditContext(PATIENT),
+    })).rejects.toMatchObject({
+      statusCode: 500,
+      code: 'BILLING_REFUND_RAISE_AUDIT_MISSING',
+    });
+  });
+
+  it('rolls back when refund mutation idempotency ownership changes before commit', async () => {
+    queryMock
+      .mockResolvedValueOnce([{ patient_uid: PATIENT, amount_paid: '50' }])
+      .mockResolvedValueOnce([{
+        source_amount: '50', active_refunds: '0', pharmacy_allocations: '0',
+      }])
+      .mockResolvedValueOnce([{ id: 84, patient_uid: PATIENT, invoice_id: 1, approval_status: 'PENDING' }])
+      .mockResolvedValueOnce([{ id: 902 }])
+      .mockResolvedValueOnce([]);
+    await expect(svc.raiseRefund({
+      ...raiseBody,
+      raised_by: PATIENT,
+      tenantId: TENANT,
+      ...refundCommand(svc.refundRaiseIdempotencyBody(raiseBody)),
+      auditContext: refundAuditContext(PATIENT),
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'BILLING_REFUND_RAISE_IDEMPOTENCY_CHANGED',
+    });
+  });
+
   it('raiseRefund rejects missing reason / invalid mode / non-positive amount', async () => {
     await expect(svc.raiseRefund({ amount: 1, mode: 'CASH', invoice_id: 1 })).rejects.toMatchObject({ statusCode: 400 });
     await expect(svc.raiseRefund({ reason: 'r', amount: 1, mode: 'BARTER', invoice_id: 1 })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(svc.raiseRefund({ reason: 'r', amount: 1, mode: 'INSURANCE', invoice_id: 1 })).rejects.toMatchObject({ statusCode: 400 });
     await expect(svc.raiseRefund({ reason: 'r', amount: 0, mode: 'CASH', invoice_id: 1 })).rejects.toMatchObject({ statusCode: 400 });
   });
 
@@ -1316,11 +2067,42 @@ describe('refunds', () => {
     ).rejects.toMatchObject({ statusCode: 403, code: 'BILLING_REFUND_PATIENT_MISMATCH' });
   });
 
+  it('accepts a survivor target while preserving the predecessor invoice UID', async () => {
+    patientFundingTerminalByStoredUid.set(PREDECESSOR_PATIENT, PATIENT);
+    queryMock
+      .mockResolvedValueOnce([{
+        id: 1, patient_uid: PREDECESSOR_PATIENT, amount_paid: '100',
+      }])
+      .mockResolvedValueOnce([{
+        source_amount: '100', active_refunds: '0', pharmacy_allocations: '0',
+      }])
+      .mockResolvedValueOnce([{
+        id: 85, patient_uid: PREDECESSOR_PATIENT, invoice_id: 1,
+        approval_status: 'PENDING', amount: '25',
+      }]);
+
+    await expect(svc.raiseRefund({
+      tenantId: TENANT,
+      patient_uid: PATIENT,
+      reason: 'merged account correction',
+      amount: 25,
+      mode: 'CASH',
+      invoice_id: 1,
+    })).resolves.toMatchObject({ id: 85, patient_uid: PREDECESSOR_PATIENT });
+
+    const insert = queryMock.mock.calls.find(([sql]) => (
+      String(sql).includes('INSERT INTO billing_refunds')
+    ));
+    expect(insert?.[1]).toBe(PREDECESSOR_PATIENT);
+  });
+
   it('raiseRefund (invoice) inserts and resolves patient from invoice', async () => {
     queryMock
       // lockBillingInvoice (patient_uid, amount_paid) — paid 100 so a 100 refund is allowed
       .mockResolvedValueOnce([{ patient_uid: PATIENT, amount_paid: '100' }])
-      .mockResolvedValueOnce([{ total: '0' }]) // sumActiveInvoiceRefunds (no prior refunds)
+      .mockResolvedValueOnce([{
+        source_amount: '100', active_refunds: '0', pharmacy_allocations: '0',
+      }])
       .mockResolvedValueOnce([{ id: 80, amount: '100' }]); // INSERT
     const r = await svc.raiseRefund({ reason: 'overpay', amount: 100, mode: 'CASH', invoice_id: 1 });
     expect(r).toMatchObject({ id: 80 });
@@ -1330,7 +2112,9 @@ describe('refunds', () => {
     // paid 100, prior refunds 40 -> refundable 60; a 100 refund must be rejected.
     queryMock
       .mockResolvedValueOnce([{ patient_uid: PATIENT, amount_paid: '100' }]) // lockBillingInvoice
-      .mockResolvedValueOnce([{ total: '40' }]); // sumActiveInvoiceRefunds (prior non-rejected refunds)
+      .mockResolvedValueOnce([{
+        source_amount: '100', active_refunds: '40', pharmacy_allocations: '0',
+      }]);
     await expect(
       svc.raiseRefund({ reason: 'overpay', amount: 100, mode: 'CASH', invoice_id: 1 }),
     ).rejects.toMatchObject({ statusCode: 400, code: 'BILLING_REFUND_EXCEEDS_PAID' });
@@ -1356,7 +2140,13 @@ describe('refunds', () => {
   it('raiseRefund (advance) inserts and resolves patient from advance', async () => {
     queryMock
       // advance FOR UPDATE (patient_uid, balance) — balance 500 so a 500 refund is allowed
-      .mockResolvedValueOnce([{ patient_uid: PATIENT, balance: '500' }])
+      .mockResolvedValueOnce([{
+        patient_uid: PATIENT, amount: '500', balance: '500', status: 'ACTIVE',
+      }])
+      .mockResolvedValueOnce([{
+        source_amount: '500', current_balance: '500', settlements: '0',
+        active_refunds: '0', pharmacy_allocations: '0',
+      }])
       .mockResolvedValueOnce([{ id: 81 }]); // INSERT
     const r = await svc.raiseRefund({ reason: 'deposit return', amount: 500, mode: 'UPI', advance_id: 2, tenantId: TENANT });
     expect(r).toMatchObject({ id: 81 });
@@ -1364,7 +2154,13 @@ describe('refunds', () => {
 
   it('raiseRefund (advance) rejects a refund exceeding the advance balance', async () => {
     queryMock
-      .mockResolvedValueOnce([{ patient_uid: PATIENT, balance: '300' }]); // advance FOR UPDATE
+      .mockResolvedValueOnce([{
+        patient_uid: PATIENT, amount: '300', balance: '300', status: 'ACTIVE',
+      }])
+      .mockResolvedValueOnce([{
+        source_amount: '300', current_balance: '300', settlements: '0',
+        active_refunds: '0', pharmacy_allocations: '0',
+      }]);
     await expect(
       svc.raiseRefund({ reason: 'deposit return', amount: 500, mode: 'UPI', advance_id: 2 }),
     ).rejects.toMatchObject({ statusCode: 400, code: 'BILLING_REFUND_EXCEEDS_ADVANCE_BALANCE' });
@@ -1378,9 +2174,130 @@ describe('refunds', () => {
   });
 
   it('approveRefund updates a pending refund', async () => {
-    queryMock.mockResolvedValueOnce([{ id: 1, approval_status: 'APPROVED' }]);
+    queryMock
+      .mockResolvedValueOnce([{
+        id: 1, patient_uid: PATIENT, invoice_id: 11, approval_status: 'PENDING',
+      }])
+      .mockResolvedValueOnce([{ id: 1, approval_status: 'APPROVED' }])
+      .mockResolvedValueOnce([]);
     const r = await svc.approveRefund(1, { approved_by: PATIENT, tenantId: TENANT });
     expect(r).toMatchObject({ approval_status: 'APPROVED' });
+  });
+
+  it.each([
+    ['invalid actor', { approved_by: 'not-a-uuid' }, 'BILLING_REFUND_APPROVAL_IDEMPOTENCY_INVALID'],
+    ['invalid claim', { httpIdempotencyClaimId: 0 }, 'BILLING_REFUND_APPROVAL_IDEMPOTENCY_INVALID'],
+    ['invalid key', { commandKey: ' bad key ' }, 'BILLING_REFUND_APPROVAL_IDEMPOTENCY_INVALID'],
+    ['invalid hash', { requestFingerprint: 'bad' }, 'BILLING_REFUND_APPROVAL_IDEMPOTENCY_INVALID'],
+    ['mismatched hash', { requestFingerprint: 'b'.repeat(64) }, 'BILLING_REFUND_APPROVAL_COMMAND_MISMATCH'],
+  ])('approveRefund rejects %s', async (_label, overrides, code) => {
+    await expect(svc.approveRefund(1, {
+      approved_by: APPROVER,
+      tenantId: TENANT,
+      commandKey: 'refund',
+      requestFingerprint: refundApprovalRequestFingerprint(1),
+      httpIdempotencyClaimId: 42,
+      requestId: REQUEST_ID,
+      ...overrides,
+    })).rejects.toMatchObject({ code });
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('approveRefund requires valid audit attribution for an idempotent command', async () => {
+    const command = {
+      commandKey: 'refund',
+      requestFingerprint: refundApprovalRequestFingerprint(1),
+      httpIdempotencyClaimId: 42,
+      requestId: REQUEST_ID,
+    };
+    await expect(svc.approveRefund(1, {
+      approved_by: APPROVER,
+      tenantId: TENANT,
+      ...command,
+    })).rejects.toMatchObject({
+      code: 'BILLING_REFUND_APPROVAL_AUDIT_CONTEXT_MISSING',
+    });
+    await expect(svc.approveRefund(1, {
+      approved_by: APPROVER,
+      tenantId: TENANT,
+      ...command,
+      auditContext: [],
+    })).rejects.toMatchObject({
+      code: 'BILLING_REFUND_APPROVAL_AUDIT_CONTEXT_INVALID',
+    });
+    await expect(svc.approveRefund(1, {
+      approved_by: APPROVER,
+      tenantId: TENANT,
+      ...command,
+      auditContext: refundAuditContext(APPROVER, { requestId: 'wrong-request' }),
+    })).rejects.toMatchObject({
+      code: 'BILLING_REFUND_APPROVAL_AUDIT_CONTEXT_INVALID',
+    });
+  });
+
+  it('atomically persists approval audit and idempotency receipts', async () => {
+    const approved = {
+      id: 1,
+      patient_uid: PATIENT,
+      invoice_id: 11,
+      approval_status: 'APPROVED',
+      approved_by: APPROVER,
+    };
+    queryMock
+      .mockResolvedValueOnce([{
+        id: 1, patient_uid: PATIENT, invoice_id: 11, approval_status: 'PENDING',
+      }])
+      .mockResolvedValueOnce([approved])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 903 }])
+      .mockResolvedValueOnce([{ id: 42, status: 'complete' }]);
+    const result = await svc.approveRefund(1, {
+      approved_by: APPROVER,
+      tenantId: TENANT,
+      commandKey: 'refund',
+      requestFingerprint: refundApprovalRequestFingerprint(1),
+      httpIdempotencyClaimId: 42,
+      requestId: REQUEST_ID,
+      auditContext: refundAuditContext(APPROVER),
+    });
+    expect(result).toBe(approved);
+  });
+
+  it('fails approval when its audit or idempotency receipt is missing', async () => {
+    const approved = { id: 1, patient_uid: PATIENT, approval_status: 'APPROVED' };
+    queryMock
+      .mockResolvedValueOnce([{
+        id: 1, patient_uid: PATIENT, invoice_id: 11, approval_status: 'PENDING',
+      }])
+      .mockResolvedValueOnce([approved])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    await expect(svc.approveRefund(1, {
+      approved_by: APPROVER,
+      tenantId: TENANT,
+      auditContext: refundAuditContext(APPROVER),
+    })).rejects.toMatchObject({ code: 'BILLING_REFUND_APPROVAL_AUDIT_MISSING' });
+
+    queryMock.mockReset();
+    queryMock
+      .mockResolvedValueOnce([{
+        id: 1, patient_uid: PATIENT, invoice_id: 11, approval_status: 'PENDING',
+      }])
+      .mockResolvedValueOnce([approved])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 904 }])
+      .mockResolvedValueOnce([]);
+    await expect(svc.approveRefund(1, {
+      approved_by: APPROVER,
+      tenantId: TENANT,
+      commandKey: 'refund',
+      requestFingerprint: refundApprovalRequestFingerprint(1),
+      httpIdempotencyClaimId: 42,
+      requestId: REQUEST_ID,
+      auditContext: refundAuditContext(APPROVER),
+    })).rejects.toMatchObject({
+      code: 'BILLING_REFUND_APPROVAL_IDEMPOTENCY_CHANGED',
+    });
   });
 
   it('rejectRefund rejects missing rejection_reason', async () => {
@@ -1393,30 +2310,142 @@ describe('refunds', () => {
   });
 
   it('rejectRefund updates a pending refund', async () => {
-    queryMock.mockResolvedValueOnce([{ id: 1, approval_status: 'REJECTED' }]);
+    queryMock
+      .mockResolvedValueOnce([{ id: 1, approval_status: 'PENDING' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 1, approval_status: 'REJECTED' }]);
     const r = await svc.rejectRefund(1, { rejection_reason: 'dup', rejected_by: PATIENT });
     expect(r).toMatchObject({ approval_status: 'REJECTED' });
   });
 
-  it('markRefundPaid throws notFound when not approved', async () => {
+  it('rejectRefund enforces reason bounds and medication-credit obligations', async () => {
+    await expect(svc.rejectRefund(1, {
+      rejection_reason: 'x'.repeat(256),
+      rejected_by: PATIENT,
+      tenantId: TENANT,
+    })).rejects.toMatchObject({
+      code: 'BILLING_REFUND_REJECTION_REASON_INVALID',
+    });
+
     queryMock
+      .mockResolvedValueOnce([{ id: 1, approval_status: 'PENDING' }])
+      .mockResolvedValueOnce([{ id: 91, status: 'applied' }]);
+    await expect(svc.rejectRefund(1, {
+      rejection_reason: 'duplicate',
+      rejected_by: PATIENT,
+      tenantId: TENANT,
+    })).rejects.toMatchObject({
+      code: 'BILLING_CREDIT_NOTE_REFUND_REJECTION_FORBIDDEN',
+    });
+  });
+
+  it('atomically records rejection audit and finalises its command claim', async () => {
+    const rejected = {
+      id: 1,
+      patient_uid: PATIENT,
+      advance_id: 22,
+      approval_status: 'REJECTED',
+    };
+    const body = svc.refundRejectionIdempotencyBody(1, {
+      rejection_reason: 'duplicate',
+    });
+    queryMock
+      .mockResolvedValueOnce([{ id: 1, approval_status: 'PENDING' }])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([]);
-    await expect(svc.markRefundPaid(1, {})).rejects.toMatchObject({ statusCode: 404 });
+      .mockResolvedValueOnce([rejected])
+      .mockResolvedValueOnce([{ id: 905 }])
+      .mockResolvedValueOnce([{ id: 43, status: 'complete' }]);
+    const result = await svc.rejectRefund(1, {
+      rejection_reason: ' duplicate ',
+      rejected_by: PATIENT,
+      tenantId: TENANT,
+      ...refundCommand(body, {
+        commandKey: 'refund',
+        httpIdempotencyClaimId: 43,
+      }),
+      auditContext: refundAuditContext(PATIENT),
+    });
+    expect(result).toBe(rejected);
+  });
+
+  it('markRefundPaid throws notFound when not approved', async () => {
+    queryMock.mockResolvedValueOnce([]);
+    await expect(svc.markRefundPaid(1, { tenantId: TENANT }))
+      .rejects.toMatchObject({ statusCode: 404 });
   });
 
   it('markRefundPaid marks an approved invoice-refund paid (no advance balance update)', async () => {
-    queryMock.mockResolvedValueOnce([{ id: 1, advance_id: null, amount: '100' }]);
-    const r = await svc.markRefundPaid(1, { paid_by: PATIENT, reference: 'NEFT-1' });
+    queryMock
+      .mockResolvedValueOnce([{
+        id: 1,
+        approval_status: 'APPROVED',
+        approved_by: APPROVER,
+        mode: 'CHEQUE',
+        advance_id: null,
+        invoice_id: null,
+        amount: '100',
+      }])
+      .mockResolvedValueOnce([{
+        id: 1,
+        approval_status: 'PAID',
+        mode: 'CHEQUE',
+        advance_id: null,
+        invoice_id: null,
+        amount: '100',
+      }])
+      .mockResolvedValueOnce([]);
+    const r = await svc.markRefundPaid(1, {
+      tenantId: TENANT,
+      paid_by: PATIENT,
+      reference: 'CHEQUE-1',
+    });
     expect(r).toMatchObject({ id: 1 });
     // no advance => no balance update exec
     expect(execMock).not.toHaveBeenCalled();
   });
 
+  it('markRefundPaid rejects insurance refunds without insurer settlement evidence', async () => {
+    queryMock.mockResolvedValueOnce([{
+      id: 9,
+      approval_status: 'APPROVED',
+      approved_by: APPROVER,
+      mode: 'INSURANCE',
+      payout_rail: null,
+      gateway_refund_id: null,
+    }]);
+
+    await expect(
+      svc.markRefundPaid(9, {
+        tenantId: TENANT,
+        paid_by: PATIENT,
+        reference: 'MANUAL-INSURER-CLAIM',
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'BILLING_INSURANCE_REFUND_SETTLEMENT_EVIDENCE_REQUIRED',
+    });
+    expect(queryMock.mock.calls.some((call) => /UPDATE billing_refunds/.test(call[0])))
+      .toBe(false);
+  });
+
   it('markRefundPaid cannot be switched to the gateway rail by untrusted options', async () => {
-    queryMock.mockResolvedValueOnce([{ id: 8, advance_id: null, amount: '100' }]);
+    queryMock
+      .mockResolvedValueOnce([{
+        id: 8,
+        approval_status: 'APPROVED',
+        approved_by: APPROVER,
+        mode: 'DD',
+        advance_id: null,
+        invoice_id: null,
+        amount: '100',
+      }])
+      .mockResolvedValueOnce([{
+        id: 8, approval_status: 'PAID', mode: 'DD', advance_id: null, amount: '100',
+      }])
+      .mockResolvedValueOnce([]);
 
     await svc.markRefundPaid(8, {
+      tenantId: TENANT,
       paid_by: PATIENT,
       reference: 'MANUAL-ATTACK',
       payout_rail: 'gateway',
@@ -1424,12 +2453,317 @@ describe('refunds', () => {
     });
 
     const update = queryMock.mock.calls.find(call => /UPDATE billing_refunds/.test(call[0]));
-    expect(update.slice(1, 6)).toEqual([
+    expect(update.slice(1)).toEqual([
       PATIENT,
       'MANUAL-ATTACK',
-      8,
       'manual',
       null,
+      null,
+      null,
+      TENANT,
+      8,
+      PATIENT,
+    ]);
+  });
+
+  it('markRefundPaid rejects invalid actor, rail, reference, and drawer combinations', async () => {
+    const locked = (overrides = {}) => ({
+      id: 8,
+      approval_status: 'APPROVED',
+      approved_by: APPROVER,
+      mode: 'CHEQUE',
+      payout_rail: null,
+      amount: '50',
+      ...overrides,
+    });
+    const expectFailure = async (refund, options, code, extraRows = []) => {
+      queryMock.mockReset();
+      queryMock.mockResolvedValueOnce([refund]);
+      for (const rows of extraRows) queryMock.mockResolvedValueOnce(rows);
+      await expect(svc.markRefundPaid(8, {
+        tenantId: TENANT,
+        paid_by: PATIENT,
+        reference: 'CHEQUE-8',
+        ...options,
+      })).rejects.toMatchObject({ code });
+    };
+
+    await expectFailure(locked(), { paid_by: 'invalid' }, 'BILLING_REFUND_PAYOUT_ACTOR_REQUIRED');
+    await expectFailure(locked(), { paid_by: APPROVER }, 'BILLING_REFUND_PAYER_MUST_DIFFER_FROM_APPROVER');
+    await expectFailure(locked({ payout_rail: 'offline_electronic' }), {}, 'BILLING_REFUND_PAYOUT_RAIL_CONFLICT');
+    await expectFailure(locked({ mode: 'UPI' }), {}, 'BILLING_REFUND_MANUAL_ELECTRONIC_FORBIDDEN');
+    await expectFailure(locked(), { reference: '' }, 'BILLING_REFUND_PAYOUT_REFERENCE_REQUIRED');
+    await expectFailure(locked(), { reference: 'bad\u0007reference' }, 'BILLING_REFUND_PAYOUT_REFERENCE_REQUIRED');
+    await expectFailure(locked(), { reference: 'x'.repeat(256) }, 'BILLING_REFUND_PAYOUT_REFERENCE_REQUIRED');
+    await expectFailure(locked({ mode: 'CASH' }), {}, 'BILLING_REFUND_CASH_DRAWER_REQUIRED');
+    await expectFailure(locked({ mode: 'CASH' }), { cash_drawer_session_id: 'abc' }, 'BILLING_REFUND_CASH_DRAWER_INVALID');
+    await expectFailure(
+      locked({ mode: 'CASH' }),
+      { cash_drawer_session_id: '10' },
+      'BILLING_REFUND_CASH_DRAWER_NOT_OPEN',
+      [[]],
+    );
+    await expectFailure(
+      locked({ mode: 'CASH' }),
+      { cash_drawer_session_id: '10' },
+      'BILLING_REFUND_CASH_DRAWER_OWNER_MISMATCH',
+      [[{ id: '10', cashier_uid: APPROVER, status: 'open' }]],
+    );
+    await expectFailure(
+      locked({ mode: 'CASH' }),
+      { cash_drawer_session_id: '10' },
+      'BILLING_REFUND_CASH_DRAWER_INSUFFICIENT_FUNDS',
+      [[{
+        id: '10', cashier_uid: PATIENT, status: 'open', shift: 'GENERAL',
+        opened_at: '2026-08-28T08:00:00.000Z', opening_float: '10',
+      }], [{ cash_inflow_total: '5', cash_refund_total: '0' }]],
+    );
+    await expectFailure(
+      locked({ mode: 'DD' }),
+      { cash_drawer_session_id: '10' },
+      'BILLING_REFUND_CASH_DRAWER_MODE_MISMATCH',
+    );
+  });
+
+  it('pays a CASH refund only inside the accountable open drawer and closes its command', async () => {
+    const paid = {
+      id: 8,
+      patient_uid: PATIENT,
+      approval_status: 'PAID',
+      approved_by: APPROVER,
+      mode: 'CASH',
+      payout_rail: 'manual',
+      cash_drawer_session_id: '10',
+      reference: 'CASH-8',
+      amount: '50',
+      invoice_id: null,
+      advance_id: null,
+    };
+    const body = svc.refundManualPayoutIdempotencyBody(8, {
+      cash_drawer_session_id: '10',
+      reference: 'CASH-8',
+    });
+    queryMock
+      .mockResolvedValueOnce([{
+        ...paid,
+        approval_status: 'APPROVED',
+        payout_rail: null,
+        cash_drawer_session_id: null,
+      }])
+      .mockResolvedValueOnce([{
+        id: '10', cashier_uid: PATIENT, status: 'open', shift: 'GENERAL',
+        opened_at: '2026-08-28T08:00:00.000Z', opening_float: '100',
+      }])
+      .mockResolvedValueOnce([{ cash_inflow_total: '200', cash_refund_total: '20' }])
+      .mockResolvedValueOnce([paid])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ cash_inflow_total: '200', cash_refund_total: '70' }])
+      .mockResolvedValueOnce([{ id: 906 }])
+      .mockResolvedValueOnce([{ id: 44, status: 'complete' }]);
+
+    const result = await svc.markRefundPaid(8, {
+      tenantId: TENANT,
+      paid_by: PATIENT,
+      reference: 'CASH-8',
+      cash_drawer_session_id: '10',
+      ...refundCommand(body, {
+        commandKey: 'refund',
+        httpIdempotencyClaimId: 44,
+      }),
+      auditContext: refundAuditContext(PATIENT),
+    });
+
+    expect(result).toMatchObject({
+      cash_inflow_total: 200,
+      cash_refund_total: 70,
+      system_total: 130,
+    });
+  });
+
+  it('markOfflineElectronicRefundPaid validates provenance fields and eligible source modes', async () => {
+    const locked = (overrides = {}) => ({
+      id: 8,
+      patient_uid: PATIENT,
+      invoice_id: 11,
+      advance_id: null,
+      approval_status: 'APPROVED',
+      approved_by: APPROVER,
+      mode: 'UPI',
+      amount: '50',
+      ...overrides,
+    });
+    const base = {
+      tenantId: TENANT,
+      paid_by: PATIENT,
+      original_payment_reference: 'UPI-COLLECTION-8',
+      provider_name: 'Acquirer',
+      provider_refund_reference: 'OFFLINE-REFUND-8',
+      provider_refunded_at: RECENT_PROVIDER_REFUNDED_AT,
+    };
+    const expectFailure = async (refund, overrides, code, extraRows = []) => {
+      queryMock.mockReset();
+      queryMock.mockResolvedValueOnce([refund]);
+      for (const rows of extraRows) queryMock.mockResolvedValueOnce(rows);
+      await expect(svc.markOfflineElectronicRefundPaid(8, {
+        ...base,
+        ...overrides,
+      })).rejects.toMatchObject({ code });
+    };
+
+    await expectFailure(locked({ mode: 'CASH' }), {}, 'BILLING_REFUND_OFFLINE_ELECTRONIC_MODE_MISMATCH');
+    await expectFailure(locked(), { original_payment_reference: '' }, 'BILLING_REFUND_ORIGINAL_PAYMENT_REFERENCE_REQUIRED');
+    await expectFailure(locked(), { provider_name: '' }, 'BILLING_REFUND_PROVIDER_REQUIRED');
+    await expectFailure(locked(), { provider_refund_reference: '' }, 'BILLING_REFUND_PROVIDER_REFUND_REFERENCE_REQUIRED');
+    await expectFailure(locked(), { provider_refunded_at: 'not-a-date' }, 'BILLING_REFUND_PROVIDER_REFUNDED_AT_INVALID');
+    await expectFailure(
+      locked(),
+      { provider_refunded_at: '2999-01-01T00:00:00.000Z' },
+      'BILLING_REFUND_PROVIDER_REFUNDED_AT_FUTURE',
+    );
+    await expectFailure(
+      locked(),
+      {},
+      'BILLING_REFUND_ORIGINAL_PAYMENT_REFERENCE_MISMATCH',
+      [[]],
+    );
+    await expectFailure(
+      locked(),
+      {},
+      'BILLING_REFUND_GATEWAY_CAPTURE_AUTHORITATIVE',
+      [[{ id: 51 }], [{ id: 61, provider: 'dry_run' }]],
+    );
+    await expectFailure(
+      locked({ invoice_id: null, advance_id: 12 }),
+      {},
+      'BILLING_REFUND_ORIGINAL_PAYMENT_REFERENCE_MISMATCH',
+      [[{
+        id: 12, patient_uid: PATIENT, amount: '50', mode: 'UPI',
+        reference: 'DIFFERENT-COLLECTION',
+      }]],
+    );
+  });
+
+  it('settles an offline-electronic invoice refund with exact non-gateway evidence', async () => {
+    const paid = {
+      id: 8,
+      patient_uid: PATIENT,
+      invoice_id: 11,
+      advance_id: null,
+      approval_status: 'PAID',
+      approved_by: APPROVER,
+      mode: 'UPI',
+      amount: '50',
+      payout_rail: 'offline_electronic',
+      offline_electronic_evidence_id: '901',
+      reference: 'OFFLINE-REFUND-8',
+    };
+    const commandBody = {
+      original_payment_reference: 'UPI-COLLECTION-8',
+      provider_name: 'Acquirer',
+      provider_refund_reference: 'OFFLINE-REFUND-8',
+      provider_refunded_at: RECENT_PROVIDER_REFUNDED_AT,
+    };
+    const body = svc.refundOfflineElectronicPayoutIdempotencyBody(8, commandBody);
+    queryMock
+      .mockResolvedValueOnce([{ ...paid, approval_status: 'APPROVED', payout_rail: null }])
+      .mockResolvedValueOnce([{ id: 51, amount: '50', mode: 'UPI', reference: 'UPI-COLLECTION-8' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: '901' }])
+      .mockResolvedValueOnce([paid])
+      // One [] retired: settleRefundPaid (billingV2Service setTenantTx flows)
+      // now re-locks the invoice inside lockBillingRefundFundingAuthorityTx,
+      // which the refundAuthority router branch answers without reading this
+      // queue; the remaining [] is the applied-credit-note probe.
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 907 }])
+      .mockResolvedValueOnce([{ id: 45, status: 'complete' }]);
+
+    const result = await svc.markOfflineElectronicRefundPaid(8, {
+      tenantId: TENANT,
+      paid_by: PATIENT,
+      ...commandBody,
+      ...refundCommand(body, {
+        commandKey: 'refund',
+        httpIdempotencyClaimId: 45,
+      }),
+      auditContext: refundAuditContext(PATIENT),
+    });
+    expect(result).toBe(paid);
+  });
+
+  it('settles an offline-electronic advance refund and atomically decrements the advance', async () => {
+    queryMock
+      .mockResolvedValueOnce([{
+        id: 9,
+        patient_uid: PATIENT,
+        invoice_id: null,
+        advance_id: 12,
+        approval_status: 'APPROVED',
+        approved_by: APPROVER,
+        mode: 'CARD',
+        amount: '30',
+      }])
+      .mockResolvedValueOnce([{ id: 12, amount: '100', mode: 'CARD', reference: 'CARD-12' }])
+      .mockResolvedValueOnce([{ id: '902' }])
+      .mockResolvedValueOnce([{
+        id: 9, patient_uid: PATIENT, advance_id: 12, invoice_id: null,
+        approval_status: 'PAID', mode: 'CARD', amount: '30',
+      }])
+      .mockResolvedValueOnce([{ id: 12 }])
+      .mockResolvedValueOnce([]);
+    const result = await svc.markOfflineElectronicRefundPaid(9, {
+      tenantId: TENANT,
+      paid_by: PATIENT,
+      original_payment_reference: 'CARD-12',
+      provider_name: 'Acquirer',
+      provider_refund_reference: 'OFFLINE-REFUND-9',
+      provider_refunded_at: RECENT_PROVIDER_REFUNDED_AT,
+    });
+    expect(result).toMatchObject({ id: 9, approval_status: 'PAID' });
+    expect(queryMock.mock.calls.some(call => /UPDATE billing_advances/.test(call[0])))
+      .toBe(true);
+  });
+
+  it('uses the immutable IPD deposit reference instead of the mirror locator', async () => {
+    const collectedAt = '2026-08-28T07:30:00.000Z';
+    queryMock
+      .mockResolvedValueOnce([{
+        id: 10, patient_uid: PATIENT, invoice_id: null, advance_id: 13,
+        approval_status: 'APPROVED', approved_by: APPROVER,
+        mode: 'CARD', amount: '30',
+      }])
+      .mockResolvedValueOnce([{
+        id: 13, patient_uid: PATIENT, admission_id: 90,
+        amount: '100', balance: '100', mode: 'CARD', reference: 'IPD/IPD-90-1',
+        collected_by: APPROVER, collected_at: collectedAt,
+        ipd_advance_deposit_id: 501,
+        ipd_advance_deposit_collected_at: collectedAt,
+        ipd_advance_deposit_payment_method: 'card',
+      }])
+      .mockResolvedValueOnce([{ id: 501, payment_reference: 'CARD-PROVIDER-90' }])
+      .mockResolvedValueOnce([{ id: '903' }])
+      .mockResolvedValueOnce([{
+        id: 10, patient_uid: PATIENT, advance_id: 13, invoice_id: null,
+        approval_status: 'PAID', mode: 'CARD', amount: '30',
+      }])
+      .mockResolvedValueOnce([{ id: 13 }])
+      .mockResolvedValueOnce([]);
+
+    await expect(svc.markOfflineElectronicRefundPaid(10, {
+      tenantId: TENANT,
+      paid_by: PATIENT,
+      original_payment_reference: 'CARD-PROVIDER-90',
+      provider_name: 'Acquirer',
+      provider_refund_reference: 'OFFLINE-REFUND-10',
+      provider_refunded_at: RECENT_PROVIDER_REFUNDED_AT,
+    })).resolves.toMatchObject({ id: 10, approval_status: 'PAID' });
+
+    const depositLock = queryMock.mock.calls.find(([sql]) => (
+      String(sql).includes('FROM advance_deposits') && String(sql).includes('FOR UPDATE')
+    ));
+    expect(depositLock).toBeDefined();
+    expect(depositLock?.slice(1)).toEqual([
+      TENANT, 501, PATIENT, 90, 100, 'CARD', 'card', APPROVER, collectedAt,
     ]);
   });
 
@@ -1446,10 +2780,91 @@ describe('refunds', () => {
     });
   });
 
+  it.each([
+    [{ gateway_refund_id: 0, provider_refund_id: 'rfnd-1' }],
+    [{ gateway_refund_id: 1.5, provider_refund_id: 'rfnd-1' }],
+    [{ gateway_refund_id: 1, provider_refund_id: '' }],
+    [{ gateway_refund_id: 1, provider_refund_id: 'x'.repeat(121) }],
+  ])('markGatewayRefundPaid rejects incomplete execution identity %#', async (evidence) => {
+    await expect(svc.markGatewayRefundPaid(8, {
+      tenantId: TENANT,
+      ...evidence,
+    })).rejects.toMatchObject({
+      code: 'BILLING_REFUND_GATEWAY_EXECUTION_REQUIRED',
+    });
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('markGatewayRefundPaid rejects mode, actor, chronology, and atomic evidence conflicts', async () => {
+    const evidence = {
+      id: 77,
+      initiated_by: PATIENT,
+      initiated_at: '2026-08-28T08:05:00.000Z',
+      status: 'pending',
+    };
+    const authority = {
+      id: 8,
+      approval_status: 'APPROVED',
+      approved_by: APPROVER,
+      approved_at: '2026-08-28T08:00:00.000Z',
+      mode: 'UPI',
+      payout_rail: 'gateway',
+      gateway_refund_id: 77,
+    };
+    const expectFailure = async (gateway, refund, processedRows, code) => {
+      queryMock.mockReset();
+      queryMock
+        .mockResolvedValueOnce([gateway])
+        .mockResolvedValueOnce([refund]);
+      if (processedRows !== undefined) queryMock.mockResolvedValueOnce(processedRows);
+      await expect(svc.markGatewayRefundPaid(8, {
+        tenantId: TENANT,
+        gateway_refund_id: 77,
+        provider_refund_id: 'rfnd-77',
+      })).rejects.toMatchObject({ code });
+    };
+
+    await expectFailure(evidence, { ...authority, mode: 'CASH' }, undefined, 'BILLING_REFUND_GATEWAY_MODE_MISMATCH');
+    await expectFailure({ ...evidence, initiated_by: APPROVER }, authority, undefined, 'BILLING_REFUND_PAYER_MUST_DIFFER_FROM_APPROVER');
+    await expectFailure(
+      { ...evidence, initiated_at: '2026-08-28T07:55:00.000Z' },
+      authority,
+      undefined,
+      'BILLING_REFUND_GATEWAY_EVIDENCE_INVALID',
+    );
+    await expectFailure(evidence, authority, [], 'BILLING_REFUND_GATEWAY_EVIDENCE_INVALID');
+    await expectFailure(evidence, authority, [{
+      id: 77, status: 'failed', provider_refund_id: 'rfnd-77', processed_at: null,
+    }], 'BILLING_REFUND_GATEWAY_EVIDENCE_INVALID');
+  });
+
   it('markGatewayRefundPaid binds exact provider evidence before gateway settlement', async () => {
     queryMock
-      .mockResolvedValueOnce([{ id: 77 }])
-      .mockResolvedValueOnce([{ id: 8, advance_id: null, amount: '100' }]);
+      .mockResolvedValueOnce([{
+        id: 77,
+        initiated_by: PATIENT,
+        initiated_at: '2026-08-28T08:05:00.000Z',
+        status: 'pending',
+      }])
+      .mockResolvedValueOnce([{
+        id: 8,
+        approval_status: 'APPROVED',
+        approved_by: APPROVER,
+        approved_at: '2026-08-28T08:00:00.000Z',
+        mode: 'UPI',
+        payout_rail: 'gateway',
+        gateway_refund_id: 77,
+      }])
+      .mockResolvedValueOnce([{
+        id: 77,
+        status: 'processed',
+        provider_refund_id: 'rfnd_verified_77',
+        processed_at: '2026-08-28T08:06:00.000Z',
+      }])
+      .mockResolvedValueOnce([{
+        id: 8, approval_status: 'PAID', mode: 'UPI', advance_id: null, amount: '100',
+      }])
+      .mockResolvedValueOnce([]);
 
     await svc.markGatewayRefundPaid(8, {
       tenantId: TENANT,
@@ -1457,23 +2872,130 @@ describe('refunds', () => {
       provider_refund_id: 'rfnd_verified_77',
     });
 
+    expect(queryMock.mock.calls[0][0]).toContain('payment_gateway_refunds');
     expect(queryMock.mock.calls[0][0]).toContain('FOR UPDATE');
-    expect(execMock.mock.calls[0].slice(1)).toEqual(['rfnd_verified_77', 77, TENANT]);
+    expect(queryMock.mock.calls[1][0]).toContain('billing_refunds');
+    expect(queryMock.mock.calls[1][0]).not.toContain('FOR UPDATE');
+    expect(queryMock.mock.calls[2][0]).toContain("SET status = 'processed'");
+    expect(queryMock.mock.calls[2].slice(1)).toEqual([
+      'rfnd_verified_77', 77, TENANT, 8,
+    ]);
     const settlement = queryMock.mock.calls.find(call => /UPDATE billing_refunds/.test(call[0]));
-    expect(settlement.slice(1, 6)).toEqual([
+    expect(settlement.slice(1)).toEqual([
       null,
       'rfnd_verified_77',
-      8,
       'gateway',
       77,
+      null,
+      null,
+      TENANT,
+      8,
+      PATIENT,
     ]);
+  });
+
+  it('rejects concurrent payout ownership changes and translates duplicate references', async () => {
+    const locked = {
+      id: 8,
+      approval_status: 'APPROVED',
+      approved_by: APPROVER,
+      mode: 'CHEQUE',
+      payout_rail: null,
+      amount: '50',
+    };
+    queryMock
+      .mockResolvedValueOnce([locked])
+      .mockResolvedValueOnce([]);
+    await expect(svc.markRefundPaid(8, {
+      tenantId: TENANT,
+      paid_by: PATIENT,
+      reference: 'CHEQUE-8',
+    })).rejects.toMatchObject({ code: 'BILLING_REFUND_PAYOUT_RAIL_CONFLICT' });
+
+    queryMock.mockReset();
+    queryMock
+      .mockResolvedValueOnce([locked])
+      .mockRejectedValueOnce({
+        meta: { code: '23505', constraint: 'ux_billing_refund_manual_payout_reference' },
+      });
+    await expect(svc.markRefundPaid(8, {
+      tenantId: TENANT,
+      paid_by: PATIENT,
+      reference: 'CHEQUE-8',
+    })).rejects.toMatchObject({ code: 'BILLING_REFUND_PAYOUT_REFERENCE_DUPLICATE' });
+
+    queryMock.mockReset();
+    queryMock
+      .mockResolvedValueOnce([{
+        ...locked, mode: 'UPI', patient_uid: PATIENT, invoice_id: 11,
+      }])
+      .mockResolvedValueOnce([{ id: 51 }])
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce({
+        code: '23505',
+        constraint: 'ux_billing_refund_provider_refund_reference',
+      });
+    await expect(svc.markOfflineElectronicRefundPaid(8, {
+      tenantId: TENANT,
+      paid_by: PATIENT,
+      original_payment_reference: 'UPI-COLLECTION-8',
+      provider_name: 'Acquirer',
+      provider_refund_reference: 'OFFLINE-REFUND-8',
+      provider_refunded_at: RECENT_PROVIDER_REFUNDED_AT,
+    })).rejects.toMatchObject({
+      code: 'BILLING_REFUND_PROVIDER_REFUND_REFERENCE_DUPLICATE',
+    });
+  });
+
+  it('requires a completion actor for a gateway-settled medication credit note', async () => {
+    queryMock
+      .mockResolvedValueOnce([{
+        id: 77, initiated_by: PATIENT, initiated_at: '2026-08-28T08:05:00.000Z',
+      }])
+      .mockResolvedValueOnce([{
+        id: 8, approval_status: 'APPROVED', approved_by: APPROVER,
+        approved_at: '2026-08-28T08:00:00.000Z', mode: 'UPI',
+        payout_rail: 'gateway', gateway_refund_id: 77,
+      }])
+      .mockResolvedValueOnce([{
+        id: 77, status: 'processed', provider_refund_id: 'rfnd-77',
+        processed_at: '2026-08-28T08:06:00.000Z',
+      }])
+      .mockResolvedValueOnce([{
+        id: 8, approval_status: 'PAID', mode: 'UPI', amount: '50',
+        invoice_id: null, advance_id: null,
+      }])
+      .mockResolvedValueOnce([{ id: 301, status: 'applied' }])
+      .mockResolvedValueOnce([]);
+    await expect(svc.markGatewayRefundPaid(8, {
+      tenantId: TENANT,
+      gateway_refund_id: 77,
+      provider_refund_id: 'rfnd-77',
+    })).rejects.toMatchObject({
+      code: 'BILLING_CREDIT_NOTE_REFUND_COMPLETION_ACTOR_MISSING',
+    });
   });
 
   it('markRefundPaid reduces the advance balance when linked to an advance (atomic decrement)', async () => {
     queryMock
-      .mockResolvedValueOnce([{ id: 2, advance_id: 55, amount: '300' }]) // UPDATE refund -> PAID RETURNING
-      .mockResolvedValueOnce([{ id: 55 }]); // atomic advance-balance decrement RETURNING id
-    await svc.markRefundPaid(2, { paid_by: PATIENT });
+      .mockResolvedValueOnce([{
+        id: 2,
+        approval_status: 'APPROVED',
+        approved_by: APPROVER,
+        mode: 'DD',
+        advance_id: 55,
+        amount: '300',
+      }])
+      .mockResolvedValueOnce([{
+        id: 2, approval_status: 'PAID', mode: 'DD', advance_id: 55, amount: '300',
+      }])
+      .mockResolvedValueOnce([{ id: 55 }]) // atomic advance-balance decrement RETURNING id
+      .mockResolvedValueOnce([]); // no linked medication credit note
+    await svc.markRefundPaid(2, {
+      tenantId: TENANT,
+      paid_by: PATIENT,
+      reference: 'DD-2',
+    });
     // The balance reduction is now an atomic guarded UPDATE (queryRaw, not exec):
     // `balance = balance - $amt WHERE balance >= $amt`, params (amount, advance_id).
     const decCall = queryMock.mock.calls.find(
@@ -1485,11 +3007,167 @@ describe('refunds', () => {
 
   it('markRefundPaid rejects when the advance decrement affects zero rows at payout time', async () => {
     queryMock
-      .mockResolvedValueOnce([{ id: 3, advance_id: 55, amount: '300' }]) // UPDATE refund -> PAID RETURNING
+      .mockResolvedValueOnce([{
+        id: 3,
+        approval_status: 'APPROVED',
+        approved_by: APPROVER,
+        mode: 'DD',
+        advance_id: 55,
+        amount: '300',
+      }])
+      .mockResolvedValueOnce([{
+        id: 3, approval_status: 'PAID', mode: 'DD', advance_id: 55, amount: '300',
+      }])
       .mockResolvedValueOnce([]); // decrement affects zero rows (balance drained)
     await expect(
-      svc.markRefundPaid(3, { paid_by: PATIENT }),
+      svc.markRefundPaid(3, {
+        tenantId: TENANT,
+        paid_by: PATIENT,
+        reference: 'DD-3',
+      }),
     ).rejects.toMatchObject({ statusCode: 400, code: 'BILLING_REFUND_EXCEEDS_ADVANCE_BALANCE' });
+  });
+
+  it('calculateInvoiceRefundHeadroomTx handles empty aggregates and exclusion identity', async () => {
+    queryMock.mockResolvedValueOnce([]);
+    await expect(svc.calculateInvoiceRefundHeadroomTx(mockPrisma, 11)).resolves.toEqual({
+      gross_paid: 0,
+      active_refunds: 0,
+      active_pharmacy_allocations: 0,
+      refundable: 0,
+    });
+    queryMock.mockResolvedValueOnce([{
+      source_amount: '250.005', active_refunds: '49.995', pharmacy_allocations: '0',
+    }]);
+    await expect(svc.calculateInvoiceRefundHeadroomTx(mockPrisma, 11, {
+      excludeRefundId: 8,
+    })).resolves.toEqual({
+      gross_paid: 250.01,
+      active_refunds: 50,
+      active_pharmacy_allocations: 0,
+      refundable: 200.01,
+    });
+    expect(queryMock.mock.calls[1][0]).toMatch(/refund\.id\s*<>\s*\$2::int/);
+    expect(queryMock.mock.calls[1].slice(1)).toEqual([11, 8]);
+  });
+
+  it('getRefund reports missing identity before projecting a workflow', async () => {
+    queryMock.mockResolvedValueOnce([]);
+    await expect(svc.getRefund(8, { tenantId: TENANT })).rejects.toMatchObject({
+      code: 'BILLING_REFUND_NOT_FOUND',
+    });
+    queryMock.mockReset();
+    await expect(svc.getRefund(Number.MAX_SAFE_INTEGER + 1, {
+      tenantId: TENANT,
+    })).rejects.toMatchObject({ code: 'BILLING_REFUND_ID_INVALID' });
+  });
+
+  it('getRefund exposes the manual payout rail for an approved cash-like refund', async () => {
+    queryMock.mockResolvedValueOnce([{
+      id: 8,
+      approval_status: 'APPROVED',
+      mode: ' cash ',
+      counter_sale_void_request_id: null,
+      offline_electronic_evidence_id: null,
+    }]);
+    await expect(svc.getRefund(8, { tenantId: TENANT })).resolves.toMatchObject({
+      workflow_status: 'ready_for_payout',
+      allowed_payout_rails: ['manual'],
+      original_payment: null,
+    });
+  });
+
+  it('getRefund distinguishes gateway and offline-electronic invoice candidates', async () => {
+    queryMock
+      .mockResolvedValueOnce([{
+        id: 8, patient_uid: PATIENT, invoice_id: 11, amount: '50',
+        approval_status: 'APPROVED', mode: 'UPI',
+      }])
+      .mockResolvedValueOnce([
+        { id: 51, mode: 'UPI', reference: 'UPI-51', provider_name: 'dry_run', gateway_order_id: 61 },
+        { id: 52, mode: 'UPI', reference: 'UPI-52', provider_name: null, gateway_order_id: null },
+      ]);
+    await expect(svc.getRefund(8, { tenantId: TENANT })).resolves.toMatchObject({
+      allowed_payout_rails: ['gateway', 'offline_electronic'],
+      original_payment: null,
+    });
+
+    queryMock.mockReset();
+    queryMock
+      .mockResolvedValueOnce([{
+        id: 8, patient_uid: PATIENT, invoice_id: 11, amount: '50',
+        approval_status: 'APPROVED', mode: 'CARD',
+      }])
+      .mockResolvedValueOnce([{
+        id: 53, mode: 'CARD', reference: 'CARD-53',
+        provider_name: null, gateway_order_id: null,
+      }]);
+    await expect(svc.getRefund(8, { tenantId: TENANT })).resolves.toMatchObject({
+      allowed_payout_rails: ['offline_electronic'],
+      original_payment: {
+        id: 53, mode: 'CARD', reference: 'CARD-53', provider_name: null,
+      },
+    });
+  });
+
+  it('getRefund projects an eligible advance and retained offline payout evidence', async () => {
+    queryMock
+      .mockResolvedValueOnce([{
+        id: 9, patient_uid: PATIENT, advance_id: 12, invoice_id: null,
+        amount: '30', approval_status: 'APPROVED', mode: 'CARD',
+      }])
+      .mockResolvedValueOnce([{ id: 12, mode: 'CARD', reference: 'CARD-12' }]);
+    await expect(svc.getRefund(9, { tenantId: TENANT })).resolves.toMatchObject({
+      allowed_payout_rails: ['offline_electronic'],
+      original_payment: {
+        id: 12, mode: 'CARD', reference: 'CARD-12', provider_name: null,
+      },
+    });
+
+    queryMock.mockReset();
+    queryMock
+      .mockResolvedValueOnce([{
+        id: 9, approval_status: 'PAID', mode: 'CARD',
+        offline_electronic_evidence_id: '901',
+      }])
+      .mockResolvedValueOnce([{
+        id: '901', original_payment_id: null, original_advance_id: '12',
+        mode: 'CARD', original_payment_reference: 'CARD-12', provider_name: 'Acquirer',
+      }]);
+    await expect(svc.getRefund(9, { tenantId: TENANT })).resolves.toMatchObject({
+      workflow_status: 'paid',
+      original_payment: {
+        id: 12, mode: 'CARD', reference: 'CARD-12', provider_name: 'Acquirer',
+      },
+    });
+  });
+
+  it.each([
+    ['REFUND_REJECTED_REVIEW', 'refund_rejected_review'],
+    ['RECONCILIATION_REQUIRED', 'reconciliation_required'],
+    ['COMPLETED', 'counter_sale_void_completed'],
+  ])('getRefund maps counter-sale void state %s', async (status, workflowStatus) => {
+    queryMock
+      .mockResolvedValueOnce([{
+        id: 8, approval_status: 'PENDING', mode: 'CASH',
+        counter_sale_void_request_id: '71',
+      }])
+      .mockResolvedValueOnce([{ id: '71', status }]);
+    await expect(svc.getRefund(8, { tenantId: TENANT })).resolves.toMatchObject({
+      workflow_status: workflowStatus,
+    });
+  });
+
+  it.each([
+    ['REJECTED', 'rejected'],
+    ['PENDING', 'awaiting_approval'],
+  ])('getRefund maps billing status %s', async (approvalStatus, workflowStatus) => {
+    queryMock.mockResolvedValueOnce([{
+      id: 8, approval_status: approvalStatus, mode: 'CASH',
+    }]);
+    await expect(svc.getRefund(8, { tenantId: TENANT })).resolves.toMatchObject({
+      workflow_status: workflowStatus,
+    });
   });
 
   it('listRefunds applies status + patient filters', async () => {
@@ -1505,6 +3183,34 @@ describe('refunds', () => {
     queryMock.mockResolvedValueOnce([]);
     await svc.listRefunds();
     expect(queryMock.mock.calls[0][0]).not.toContain('WHERE');
+  });
+
+  it('listRefunds validates status and bigint workflow filters', async () => {
+    await expect(svc.listRefunds({ approval_status: 'UNKNOWN' })).rejects.toMatchObject({
+      code: 'BILLING_REFUND_STATUS_FILTER_INVALID',
+    });
+    for (const counter_sale_void_request_id of ['-1', 'abc', '9223372036854775808']) {
+      await expect(svc.listRefunds({
+        counter_sale_void_request_id,
+      })).rejects.toMatchObject({ code: 'BILLING_REFUND_FILTER_INVALID' });
+    }
+  });
+
+  it('listRefunds applies exact refund and counter-sale workflow identities', async () => {
+    queryMock.mockResolvedValueOnce([{ id: 8 }]);
+    await svc.listRefunds({
+      tenantId: TENANT,
+      approval_status: ' approved ',
+      patient_uid: PATIENT,
+      id: '8',
+      counter_sale_void_request_id: '9223372036854775807',
+    });
+    const [sql, ...params] = queryMock.mock.calls[0];
+    expect(sql).toContain('id = $4::int');
+    expect(sql).toContain('counter_sale_void_request_id = $5::bigint');
+    expect(params).toEqual([
+      TENANT, 'APPROVED', PATIENT, 8, '9223372036854775807',
+    ]);
   });
 });
 
@@ -1695,7 +3401,7 @@ describe('maybeEmitTpaCapAlerts via recompute (TPA cap ladder)', () => {
       // recomputeInvoicePaymentState -> paid aggregate (subquery references billing_payments)
       ['SELECT (', [{ paid: '90000' }]],
       // recomputeInvoicePaymentState -> total
-      ['SELECT total_amount FROM billing_invoices', [{ total_amount: '90000' }]],
+      ['SELECT total_amount, credit_note_amount FROM billing_invoices', [{ total_amount: '90000', credit_note_amount: '0' }]],
       // syncUnusedAdmissionAdvancesForInvoice -> invoice lookup (has admission)
       ['FROM billing_invoices\n      WHERE id = $1::int\n      LIMIT 1', [{ id: 9, admission_id: ADMISSION }]],
     ]);
@@ -1857,7 +3563,7 @@ describe('itemizeAdmissionInvoice', () => {
       // recomputeInvoiceTotals -> aggregates
       ['COALESCE(SUM(line_subtotal)', [{ subtotal: '0', cgst: '0', sgst: '0', igst: '0' }]],
       // recomputeInvoiceTotals -> discount/paid read
-      ['SELECT discount_amount, amount_paid FROM billing_invoices', [{ discount_amount: '0', amount_paid: '0' }]],
+      ['SELECT discount_amount, credit_note_amount, amount_paid', [{ discount_amount: '0', credit_note_amount: '0', amount_paid: '0' }]],
       // recomputeInvoiceTotals -> meta lookup (no admission/patient -> no alert)
       ['SELECT admission_id, patient_uid, tenant_id\n       FROM billing_invoices', [{ admission_id: null, patient_uid: null, tenant_id: TENANT }]],
       ...extra,
@@ -1875,18 +3581,27 @@ describe('itemizeAdmissionInvoice', () => {
   });
 
   it('rejects a non-DRAFT invoice', async () => {
-    routeQueries([['id, status, admission_id', [{ id: 1, status: 'ISSUED', admission_id: ADMISSION }]]]);
+    routeQueries([['id, status, admission_id', [{
+      id: 1, status: 'ISSUED', admission_id: ADMISSION,
+      patient_uid: PATIENT, tenant_id: TENANT,
+    }]]]);
     await expect(svc.itemizeAdmissionInvoice(1)).rejects.toMatchObject({ statusCode: 400 });
   });
 
   it('rejects an invoice with no admission_id', async () => {
-    routeQueries([['id, status, admission_id', [{ id: 1, status: 'DRAFT', admission_id: null }]]]);
+    routeQueries([['id, status, admission_id', [{
+      id: 1, status: 'DRAFT', admission_id: null,
+      patient_uid: PATIENT, tenant_id: TENANT,
+    }]]]);
     await expect(svc.itemizeAdmissionInvoice(1)).rejects.toMatchObject({ statusCode: 400 });
   });
 
   it('throws notFound when the admission row is missing', async () => {
     routeQueries([
-      ['id, status, admission_id', [{ id: 1, status: 'DRAFT', admission_id: ADMISSION }]],
+      ['id, status, admission_id', [{
+        id: 1, status: 'DRAFT', admission_id: ADMISSION,
+        patient_uid: PATIENT, tenant_id: TENANT,
+      }]],
       ['FROM admissions a', []], // fetchAdmissionForItemizing -> none
     ]);
     await expect(svc.itemizeAdmissionInvoice(1)).rejects.toMatchObject({ statusCode: 404 });
@@ -1895,10 +3610,14 @@ describe('itemizeAdmissionInvoice', () => {
   it('itemizes package + pharmacy + ward indent + lab and stamps tpa_decision', async () => {
     routeQueries([
       // Phase 0 invoice pre-flight (itemizer's findBillingInvoice)
-      ['id, status, admission_id', [{ id: 1, status: 'DRAFT', admission_id: ADMISSION }]],
+      ['id, status, admission_id', [{
+        id: 1, status: 'DRAFT', admission_id: ADMISSION,
+        patient_uid: PATIENT, tenant_id: TENANT,
+      }]],
       // fetchAdmissionForItemizing
       ['FROM admissions a', [{
         id: ADMISSION,
+        tenant_id: TENANT,
         patient_uid: PATIENT,
         encounter_id: null,
         admitted_at: '2026-06-01T00:00:00Z',
@@ -1942,7 +3661,7 @@ describe('itemizeAdmissionInvoice', () => {
       ['SELECT billing_closed_at FROM admissions', []],
       ['INSERT INTO billing_invoice_items', [{ id: 500 }]],
       ['COALESCE(SUM(line_subtotal)', [{ subtotal: '0', cgst: '0', sgst: '0', igst: '0' }]],
-      ['SELECT discount_amount, amount_paid FROM billing_invoices', [{ discount_amount: '0', amount_paid: '0' }]],
+      ['SELECT discount_amount, credit_note_amount, amount_paid', [{ discount_amount: '0', credit_note_amount: '0', amount_paid: '0' }]],
       ['SELECT admission_id, patient_uid, tenant_id\n       FROM billing_invoices', [{ admission_id: null, patient_uid: null, tenant_id: TENANT }]],
     ]);
 
@@ -1986,7 +3705,10 @@ describe('itemizeAdmissionInvoice', () => {
       notes: 'W1 - Old item x 1',
     };
     routeQueries(itemizerCommonRoutes([
-      ['id, status, admission_id', [{ id: 1, status: 'DRAFT', admission_id: ADMISSION }]],
+      ['id, status, admission_id', [{
+        id: 1, status: 'DRAFT', admission_id: ADMISSION,
+        patient_uid: PATIENT, tenant_id: TENANT,
+      }]],
       ['FROM admissions a', [{
         id: ADMISSION, tenant_id: TENANT, patient_uid: PATIENT, encounter_id: null,
         admitted_at: '2026-06-01T00:00:00Z', discharged_at: null,
@@ -2076,7 +3798,10 @@ describe('itemizeAdmissionInvoice', () => {
       tenant_id: TENANT,
     };
     const routes = [
-      ['id, status, admission_id', [{ id: 1, status: 'DRAFT', admission_id: ADMISSION }]],
+      ['id, status, admission_id', [{
+        id: 1, status: 'DRAFT', admission_id: ADMISSION,
+        patient_uid: PATIENT, tenant_id: TENANT,
+      }]],
       ['FROM admissions a', [{
         id: ADMISSION, tenant_id: TENANT, patient_uid: PATIENT, encounter_id: null,
         admitted_at: '2026-06-01T00:00:00Z', discharged_at: null,
@@ -2105,9 +3830,12 @@ describe('itemizeAdmissionInvoice', () => {
 
   it('falls back to package_price_minor when estimated cost is null', async () => {
     routeQueries(itemizerCommonRoutes([
-      ['id, status, admission_id', [{ id: 1, status: 'DRAFT', admission_id: ADMISSION }]],
+      ['id, status, admission_id', [{
+        id: 1, status: 'DRAFT', admission_id: ADMISSION,
+        patient_uid: PATIENT, tenant_id: TENANT,
+      }]],
       ['FROM admissions a', [{
-        id: ADMISSION, patient_uid: PATIENT, encounter_id: null,
+        id: ADMISSION, tenant_id: TENANT, patient_uid: PATIENT, encounter_id: null,
         admitted_at: '2026-06-01T00:00:00Z', discharged_at: null,
         ward: 'W1', bed_id: null, package_id: 12, package_code: 'PKG-1',
         package_estimated_cost_minor: null, package_price_minor: '3000000', package_name: 'Pkg',
@@ -2124,9 +3852,12 @@ describe('itemizeAdmissionInvoice', () => {
 
   it('skips the package line when admission has no package_id', async () => {
     routeQueries([
-      ['id, status, admission_id', [{ id: 1, status: 'DRAFT', admission_id: ADMISSION }]],
+      ['id, status, admission_id', [{
+        id: 1, status: 'DRAFT', admission_id: ADMISSION,
+        patient_uid: PATIENT, tenant_id: TENANT,
+      }]],
       ['FROM admissions a', [{
-        id: ADMISSION, patient_uid: PATIENT, encounter_id: null,
+        id: ADMISSION, tenant_id: TENANT, patient_uid: PATIENT, encounter_id: null,
         admitted_at: '2026-06-01T00:00:00Z', discharged_at: null,
         ward: 'W1', bed_id: null, package_id: null, package_code: null,
         package_estimated_cost_minor: null, package_price_minor: null, package_name: null,
@@ -2144,9 +3875,12 @@ describe('itemizeAdmissionInvoice', () => {
 
   it('honours selective emit flags (lab only)', async () => {
     routeQueries([
-      ['id, status, admission_id', [{ id: 1, status: 'DRAFT', admission_id: ADMISSION }]],
+      ['id, status, admission_id', [{
+        id: 1, status: 'DRAFT', admission_id: ADMISSION,
+        patient_uid: PATIENT, tenant_id: TENANT,
+      }]],
       ['FROM admissions a', [{
-        id: ADMISSION, patient_uid: PATIENT, encounter_id: null,
+        id: ADMISSION, tenant_id: TENANT, patient_uid: PATIENT, encounter_id: null,
         admitted_at: '2026-06-01T00:00:00Z', discharged_at: '2026-06-05T00:00:00Z',
         ward: 'W1', bed_id: null, package_id: null, package_code: null,
         package_estimated_cost_minor: null, package_price_minor: null, package_name: null,
@@ -2160,7 +3894,7 @@ describe('itemizeAdmissionInvoice', () => {
       ['SELECT billing_closed_at FROM admissions', []],
       ['INSERT INTO billing_invoice_items', [{ id: 500 }]],
       ['COALESCE(SUM(line_subtotal)', [{ subtotal: '300', cgst: '0', sgst: '0', igst: '0' }]],
-      ['SELECT discount_amount, amount_paid FROM billing_invoices', [{ discount_amount: '0', amount_paid: '0' }]],
+      ['SELECT discount_amount, credit_note_amount, amount_paid', [{ discount_amount: '0', credit_note_amount: '0', amount_paid: '0' }]],
       ['SELECT admission_id, patient_uid, tenant_id\n       FROM billing_invoices', [{ admission_id: null, patient_uid: null, tenant_id: TENANT }]],
     ]);
     const res = await svc.itemizeAdmissionInvoice(1, {

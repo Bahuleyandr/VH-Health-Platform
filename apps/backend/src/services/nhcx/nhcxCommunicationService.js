@@ -11,6 +11,11 @@ import crypto from 'node:crypto';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import {
+  lockPharmacyFundingAdmissionTx,
+  lockPharmacyFundingAuthorityTx,
+  resolvePharmacyFundingPatientUidTx,
+} from '../pharmacy/pharmacyCapService.js';
 
 const DEFAULT_ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
 const DEFAULT_ATTACHMENT_TOTAL_MAX_BYTES = 20 * 1024 * 1024;
@@ -304,8 +309,31 @@ export async function recordInboundCommunicationRequest({
   let inserted = null;
   await setTenantTx(tid, async (tx) => {
     if (claimId) {
+      const identityRows = await tx.$queryRawUnsafe(
+        `SELECT patient_uid,admission_id
+           FROM tpa_claims
+          WHERE tenant_id=$1::uuid AND id=$2::int`,
+        tid,
+        claimId,
+      );
+      if (!identityRows.length) throw AppError.notFound('TPA claim not found', 'NHCX_TPA_CLAIM_NOT_FOUND');
+      const patientUid = await resolvePharmacyFundingPatientUidTx(tx, {
+        tenantId: tid,
+        patientUid: String(identityRows[0].patient_uid),
+        admissionId: identityRows[0].admission_id == null
+          ? null
+          : Number(identityRows[0].admission_id),
+      });
+      await lockPharmacyFundingAuthorityTx(tx, { tenantId: tid, patientUid });
+      if (identityRows[0].admission_id != null) {
+        await lockPharmacyFundingAdmissionTx(tx, {
+          tenantId: tid,
+          patientUid,
+          admissionId: Number(identityRows[0].admission_id),
+        });
+      }
       const rows = await tx.$queryRawUnsafe(
-        `SELECT id, status
+        `SELECT id,status,patient_uid,admission_id
            FROM tpa_claims
           WHERE tenant_id = $1::uuid
             AND id = $2::int
@@ -316,6 +344,16 @@ export async function recordInboundCommunicationRequest({
       );
       const claim = rows[0];
       if (!claim) throw AppError.notFound('TPA claim not found', 'NHCX_TPA_CLAIM_NOT_FOUND');
+      if (String(claim.patient_uid) !== patientUid
+          || (claim.admission_id == null ? null : Number(claim.admission_id))
+            !== (identityRows[0].admission_id == null
+              ? null
+              : Number(identityRows[0].admission_id))) {
+        throw AppError.conflict(
+          'The TPA claim patient/admission changed while funding authority was acquired',
+          'PHARMACY_FUNDING_PATIENT_IDENTITY_MISMATCH',
+        );
+      }
       if (!CLAIM_QUERY_ALLOWED_FROM.includes(claim.status)) {
         throw AppError.invalidTransition(claim.status, 'queried', CLAIM_QUERY_ALLOWED_FROM);
       }
@@ -331,8 +369,31 @@ export async function recordInboundCommunicationRequest({
         );
       }
     } else {
+      const identityRows = await tx.$queryRawUnsafe(
+        `SELECT patient_uid,admission_id
+           FROM insurance_preauth
+          WHERE tenant_id=$1::uuid AND id=$2::int`,
+        tid,
+        preauthId,
+      );
+      if (!identityRows.length) throw AppError.notFound('Pre-auth not found', 'NHCX_PREAUTH_NOT_FOUND');
+      const patientUid = await resolvePharmacyFundingPatientUidTx(tx, {
+        tenantId: tid,
+        patientUid: String(identityRows[0].patient_uid),
+        admissionId: identityRows[0].admission_id == null
+          ? null
+          : Number(identityRows[0].admission_id),
+      });
+      await lockPharmacyFundingAuthorityTx(tx, { tenantId: tid, patientUid });
+      if (identityRows[0].admission_id != null) {
+        await lockPharmacyFundingAdmissionTx(tx, {
+          tenantId: tid,
+          patientUid,
+          admissionId: Number(identityRows[0].admission_id),
+        });
+      }
       const rows = await tx.$queryRawUnsafe(
-        `SELECT id, status
+        `SELECT id,status,patient_uid,admission_id
            FROM insurance_preauth
           WHERE tenant_id = $1::uuid
             AND id = $2::int
@@ -343,6 +404,16 @@ export async function recordInboundCommunicationRequest({
       );
       const preauth = rows[0];
       if (!preauth) throw AppError.notFound('Pre-auth not found', 'NHCX_PREAUTH_NOT_FOUND');
+      if (String(preauth.patient_uid) !== patientUid
+          || (preauth.admission_id == null ? null : Number(preauth.admission_id))
+            !== (identityRows[0].admission_id == null
+              ? null
+              : Number(identityRows[0].admission_id))) {
+        throw AppError.conflict(
+          'The pre-auth patient/admission changed while funding authority was acquired',
+          'PHARMACY_FUNDING_PATIENT_IDENTITY_MISMATCH',
+        );
+      }
       if (!PREAUTH_QUERY_ALLOWED_FROM.includes(preauth.status)) {
         throw AppError.invalidTransition(preauth.status, 'queried', PREAUTH_QUERY_ALLOWED_FROM);
       }

@@ -98,6 +98,7 @@ const GATES = [
     allow: new Set([
       'SOCIAL_WORKER',
       'SECURITY',
+      'CASHIER',
       'BILLING_STAFF',
       'BILLING_INCHARGE',
       'FINANCE_INCHARGE',

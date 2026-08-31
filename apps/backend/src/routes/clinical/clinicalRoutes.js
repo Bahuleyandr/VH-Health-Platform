@@ -1,10 +1,11 @@
 // src/routes/clinical/clinicalRoutes.js
 import express from 'express';
-import { param, query, validationResult } from 'express-validator';
+import { body, param, query, validationResult } from 'express-validator';
 import multer from 'multer';
 import * as handoverService from '../../services/clinical/handoverService.js';
 import * as marService from '../../services/clinical/marService.js';
 import * as marFiveRightsService from '../../services/clinical/marFiveRightsService.js';
+import * as marSupplyService from '../../services/clinical/marSupplyService.js';
 import * as drugChartService from '../../services/clinical/drugChartService.js';
 import * as news2Service from '../../services/clinical/news2Service.js';
 import * as voiceSoapService from '../../services/ai/voiceSoapService.js';
@@ -14,12 +15,25 @@ import { scoreDeterioration } from '../../services/ai/deteriorationEarlyWarningS
 import { createAmbientEncounter, listAmbientEncounters } from '../../services/ai/ambientDocumentationService.js';
 import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
+import { enforceStaffClinicalWriteDevicePosture } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
 import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
+import { ADMIN_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
+import { requireRole } from '../../middleware/rbacMiddleware.js';
 import { success, error } from '../../utils/responseHelper.js';
+import { getAuthenticatedActorRoles, isDoctor } from '../../utils/roleHelpers.js';
 import {
-  requiredUUID, requiredString, requiredNumber, optionalString, paramId,
+  requiredUUID, requiredString, optionalString, paramId,
   marScheduleValidator, marAdministerValidator, handoverValidator,
 } from '../../validators/sharedValidators.js';
+import {
+  marAdministerIdempotencyBody,
+  marAdministerWithScanIdempotencyBody,
+    marExceptionClaimIdempotencyBody,
+    marExceptionDispositionIdempotencyBody,
+    marExceptionHandoffIdempotencyBody,
+  marSupplyReconciliationIdempotencyBody,
+  marTransitionIdempotencyBody,
+} from './marIdempotencyProjection.js';
 
 // Dedicated audio uploader — memory-backed, 20MB cap, audio-mime allowlist.
 // Kept separate from the hospital-wide file uploader so voice-note-specific
@@ -42,6 +56,38 @@ const audioUpload = multer({
 });
 
 const router = express.Router();
+const POSTGRES_INTEGER_MAX = 2147483647n;
+const POSTGRES_BIGINT_MAX = 9223372036854775807n;
+const canonicalPositivePostgresInteger = (value) => {
+  const text = String(value ?? '');
+  if (!/^[1-9][0-9]{0,9}$/.test(text) || BigInt(text) > POSTGRES_INTEGER_MAX) {
+    throw new Error('must be a canonical positive PostgreSQL INTEGER');
+  }
+  return true;
+};
+const canonicalMedicationAdministrationIdParam = (name = 'id') => param(name)
+  .custom(canonicalPositivePostgresInteger)
+  .withMessage(`${name} must be a canonical positive PostgreSQL INTEGER`)
+  .toInt();
+const canonicalMedicationAdministrationIdBody = (name = 'ma_id') => body(name)
+  .custom(canonicalPositivePostgresInteger)
+  .withMessage(`${name} must be a canonical positive PostgreSQL INTEGER`)
+  .toInt();
+const canonicalPositiveSignedBigIntWireValue = (value) => {
+  if (typeof value !== 'string'
+      || !/^[1-9][0-9]{0,18}$/.test(value)
+      || BigInt(value) > POSTGRES_BIGINT_MAX) {
+    throw new Error('must be a canonical positive signed-64 decimal string');
+  }
+  return true;
+};
+const canonicalMarExceptionCaseId = (value) => {
+  const text = String(value ?? '').trim();
+  if (!/^[1-9][0-9]{0,18}$/.test(text) || BigInt(text) > POSTGRES_BIGINT_MAX) {
+    throw new Error('must be a canonical positive signed-64 integer');
+  }
+  return true;
+};
 
 const guardClinicalPatientView = patientAccessGuard('CLINICAL_WORKFLOW', {
   policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
@@ -68,6 +114,10 @@ const guardMarResourceWrite = patientAccessGuardForResource('MAR', {
   policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
   resourceType: 'mar',
 });
+const guardMarSupplyReconciliationWrite = patientAccessGuardForResource('MAR', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_MAR_SUPPLY_RECONCILIATION_WRITE,
+  resourceType: 'mar',
+});
 const guardHandoverResourceWrite = patientAccessGuardForResource('NURSE_HANDOVER', {
   policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
   resourceType: 'handover',
@@ -83,6 +133,24 @@ const MEDICATION_ADMINISTRATION_ROLES = new Set([
   'CNO',
   'ICU_NURSE',
   'ICU_INCHARGE',
+  'ICU_STAFF',
+]);
+const MAR_SUPPLY_RECONCILIATION_ROLES = new Set([
+  'ADMIN',
+  'SUPER_ADMIN',
+  'PHARMACY_INCHARGE',
+  'NURSING_INCHARGE',
+  'IP_INCHARGE',
+]);
+const MAR_DUE_LIST_ROLES = new Set([
+  'NURSING_STAFF',
+  'NURSING_INCHARGE',
+  'IP_STAFF_NURSE',
+  'IP_INCHARGE',
+  'CNO',
+  'ICU_NURSE',
+  'ICU_INCHARGE',
+  'ICU_STAFF',
 ]);
 
 const validate = (req, res, next) => {
@@ -95,6 +163,30 @@ function requireMedicationAdministrationRole(req, res, next) {
   const role = String(req.user?.role || '').trim().toUpperCase();
   if (!MEDICATION_ADMINISTRATION_ROLES.has(role)) {
     return error(res, 'Only nursing roles can record inpatient medication administration', 403);
+  }
+  return next();
+}
+
+function requireMarSupplyReconciliationRole(req, res, next) {
+  const role = String(req.user?.role || '').trim().toUpperCase();
+  if (!MAR_SUPPLY_RECONCILIATION_ROLES.has(role)) {
+    return error(res, 'Only pharmacy, nursing, or administrative in-charge roles can reconcile MAR supply evidence', 403);
+  }
+  return next();
+}
+
+function requirePrescriberRole(req, res, next) {
+  const role = String(req.user?.role || '').trim().toUpperCase();
+  if (!isDoctor(role)) {
+    return error(res, 'Only an active prescriber may review a medication exception', 403);
+  }
+  return next();
+}
+
+function requireMarDueListRole(req, res, next) {
+  const role = String(req.user?.role || '').trim().toUpperCase();
+  if (!MAR_DUE_LIST_ROLES.has(role)) {
+    return error(res, 'Only inpatient nursing roles can enumerate due medications', 403);
   }
   return next();
 }
@@ -274,12 +366,17 @@ router.post('/mar/schedule', ...marScheduleValidator, validate, guardClinicalPat
       return success(res, [], 'MAR ready (no medications scheduled yet)', 201);
     }
 
-    const records = await marService.scheduleMedications(patient_uid, prescription_id, meds, {
-      actorUid: req.user?.uid,
-      actorRole: req.user?.role,
-      tenantId: req.tenantId || null,
-    });
-    return success(res, records, 'Medications scheduled', 201);
+    return error(
+      res,
+      'Medication doses must be scheduled by the governed clinical-order workflow',
+      409,
+      {
+        code: 'MAR_SCHEDULE_REQUIRES_CLINICAL_ORDER_WORKFLOW',
+        order_endpoint: '/api/v1/emr/orders',
+        patient_uid,
+        prescription_id: prescription_id || null,
+      },
+    );
   } catch (err) {
     next(err);
   }
@@ -289,10 +386,20 @@ router.post('/mar/schedule', ...marScheduleValidator, validate, guardClinicalPat
  * POST /clinical/mar/:id/administer
  * Record medication administration.
  */
-router.post('/mar/:id/administer', ...marAdministerValidator, validate, requireMedicationAdministrationRole, guardMarResourceWrite, async (req, res, next) => {
+router.post('/mar/:id/administer', canonicalMedicationAdministrationIdParam(), ...marAdministerValidator.slice(1), validate, requireMedicationAdministrationRole, guardMarResourceWrite, requireIdempotencyKey({
+  required: true,
+  scope: 'mar_administer',
+  requestBodyForIdempotency: marAdministerIdempotencyBody,
+}), async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { notes, witness_uid, override_reason } = req.body;
+    const {
+      notes,
+      witness_uid,
+      override_reason,
+      supply_override_reason,
+      supply_quantity,
+    } = req.body;
 
     // B1 — scan-first policy: this non-scan path needs override_reason
     // (≥5 chars) while MAR_REQUIRE_BARCODE_SCAN is on; the service 409s
@@ -306,6 +413,12 @@ router.post('/mar/:id/administer', ...marAdministerValidator, validate, requireM
         overrideReason: override_reason && override_reason.trim().length >= 5
           ? override_reason.trim()
           : null,
+        supplyOverrideReason: supply_override_reason?.trim() || null,
+        supplyQuantity: supply_quantity ?? null,
+        commandKey: req.idempotencyClaim?.requestKey || req.get('idempotency-key'),
+        requestFingerprint: req.idempotencyClaim?.requestBodyHash || null,
+        httpIdempotencyClaimId: req.idempotencyClaim?.id || null,
+        requestId: req.id || null,
         tenantId: req.tenantId,
       }
     );
@@ -322,7 +435,7 @@ router.post('/mar/:id/administer', ...marAdministerValidator, validate, requireM
  * Returns { rights, allPassed, ma, context }. Does not write.
  */
 router.post('/mar/verify',
-  requiredNumber('ma_id'),
+  canonicalMedicationAdministrationIdBody(),
   requiredUUID('scanned_patient_uid'),
   requiredString('scanned_barcode', 100),
   validate,
@@ -334,6 +447,7 @@ router.post('/mar/verify',
         ma_id: parseInt(ma_id, 10),
         scanned_patient_uid,
         scanned_barcode,
+        tenantId: req.tenantId,
       });
       return success(res, result, result.allPassed ? 'All 5 rights passed' : '5-rights check failed');
     } catch (err) {
@@ -350,27 +464,101 @@ router.post('/mar/verify',
  * failing rights so the client can drive the override modal.
  */
 router.post('/mar/:id/administer-with-scan',
-  paramId(),
+  canonicalMedicationAdministrationIdParam(),
   requiredUUID('scanned_patient_uid'),
   requiredString('scanned_barcode', 100),
+  body('witness_uid').optional({ nullable: true }).isUUID().withMessage('witness_uid must be a UUID'),
   optionalString('override_reason', 500),
+  optionalString('supply_override_reason', 500),
+  body('supply_quantity').optional({ nullable: true }).isFloat({ gt: 0 }).toFloat(),
+  body('administered_at')
+    .custom((value) => value == null || value === '')
+    .withMessage('administered_at is accepted only by the governed paper reconciliation workflow'),
   validate,
   requireMedicationAdministrationRole,
   guardMarResourceWrite,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'mar_administer_scan',
+    requestBodyForIdempotency: marAdministerWithScanIdempotencyBody,
+  }),
   async (req, res, next) => {
     try {
       const { id } = req.params;
-      const { scanned_patient_uid, scanned_barcode, override_reason, administered_at } = req.body;
+      const {
+        scanned_patient_uid,
+        scanned_barcode,
+        witness_uid,
+        override_reason,
+        supply_override_reason,
+        supply_quantity,
+      } = req.body;
       const record = await marFiveRightsService.administerWithScan({
         ma_id: parseInt(id, 10),
         scanned_patient_uid,
         scanned_barcode,
         administeredBy: req.user.uid,
+        witnessUid: witness_uid || null,
         overrideReason: override_reason && override_reason.trim().length >= 5 ? override_reason.trim() : null,
+        supplyOverrideReason: supply_override_reason?.trim() || null,
+        supplyQuantity: supply_quantity ?? null,
+        commandKey: req.idempotencyClaim?.requestKey || req.get('idempotency-key'),
+        requestFingerprint: req.idempotencyClaim?.requestBodyHash || null,
+        httpIdempotencyClaimId: req.idempotencyClaim?.id || null,
+        requestId: req.id || null,
         tenantId: req.tenantId,
-        administeredAt: administered_at || null,
       });
       return success(res, record, 'Medication administration recorded');
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get('/mar/:id/supply', canonicalMedicationAdministrationIdParam(), validate, guardMarResourceView, async (req, res, next) => {
+  try {
+    const state = await marSupplyService.getMarSupplyState(parseInt(req.params.id, 10), {
+      tenantId: req.tenantId,
+    });
+    return success(res, state, 'MAR supply state retrieved');
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post(
+  '/mar/:id/supply-overrides/:consumptionId/reconcile',
+  enforceStaffClinicalWriteDevicePosture,
+  canonicalMedicationAdministrationIdParam('id'),
+  param('consumptionId')
+    .custom(canonicalPositiveSignedBigIntWireValue)
+    .withMessage('consumptionId must be a canonical positive signed-64 decimal string'),
+  body('allocations').isArray({ min: 1 }).withMessage('allocations must be a non-empty array'),
+  body('allocations.*.inventory_allocation_id')
+    .custom(canonicalPositiveSignedBigIntWireValue)
+    .withMessage('inventory_allocation_id must be a canonical positive signed-64 decimal string'),
+  body('allocations.*.quantity').isFloat({ gt: 0 }).toFloat(),
+  validate,
+  requireMarSupplyReconciliationRole,
+  guardMarSupplyReconciliationWrite,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'mar_supply_reconcile',
+    requestBodyForIdempotency: marSupplyReconciliationIdempotencyBody,
+  }),
+  async (req, res, next) => {
+    try {
+      const result = await marSupplyService.reconcileMarSupplyOverride(
+        req.params.consumptionId,
+        req.body.allocations,
+        {
+          tenantId: req.tenantId,
+          reconciledBy: req.user.uid,
+          commandKey: req.idempotencyClaim?.requestKey || req.get('idempotency-key'),
+          expectedMedicationAdministrationId: req.params.id,
+        },
+      );
+      return success(res, result, 'MAR supply reconciliation recorded');
     } catch (err) {
       next(err);
     }
@@ -381,7 +569,11 @@ router.post('/mar/:id/administer-with-scan',
  * POST /clinical/mar/:id/miss
  * Record a missed medication dose.
  */
-router.post('/mar/:id/miss', paramId(), requiredString('reason', 500), validate, requireMedicationAdministrationRole, guardMarResourceWrite, async (req, res, next) => {
+router.post('/mar/:id/miss', canonicalMedicationAdministrationIdParam(), requiredString('reason', 500), validate, requireMedicationAdministrationRole, guardMarResourceWrite, requireIdempotencyKey({
+  required: true,
+  scope: 'mar_miss',
+  requestBodyForIdempotency: marTransitionIdempotencyBody,
+}), async (req, res, next) => {
   try {
     const { id } = req.params;
     const { reason } = req.body;
@@ -390,7 +582,18 @@ router.post('/mar/:id/miss', paramId(), requiredString('reason', 500), validate,
       return error(res, 'Reason is required for missed medication', 400);
     }
 
-    const record = await marService.recordMissed(parseInt(id, 10), reason, req.user?.uid);
+    const record = await marService.recordMissed(
+      parseInt(id, 10),
+      reason,
+      req.user.uid,
+      {
+        commandKey: req.idempotencyClaim?.requestKey || req.get('idempotency-key'),
+        requestFingerprint: req.idempotencyClaim?.requestBodyHash || null,
+        httpIdempotencyClaimId: req.idempotencyClaim?.id || null,
+        requestId: req.id || null,
+        tenantId: req.tenantId,
+      },
+    );
     return success(res, record, 'Missed medication recorded');
   } catch (err) {
     next(err);
@@ -401,7 +604,11 @@ router.post('/mar/:id/miss', paramId(), requiredString('reason', 500), validate,
  * POST /clinical/mar/:id/hold
  * Hold a medication with reason.
  */
-router.post('/mar/:id/hold', paramId(), requiredString('reason', 500), validate, requireMedicationAdministrationRole, guardMarResourceWrite, async (req, res, next) => {
+router.post('/mar/:id/hold', canonicalMedicationAdministrationIdParam(), requiredString('reason', 500), validate, requireMedicationAdministrationRole, guardMarResourceWrite, requireIdempotencyKey({
+  required: true,
+  scope: 'mar_hold',
+  requestBodyForIdempotency: marTransitionIdempotencyBody,
+}), async (req, res, next) => {
   try {
     const { id } = req.params;
     const { reason } = req.body;
@@ -410,12 +617,238 @@ router.post('/mar/:id/hold', paramId(), requiredString('reason', 500), validate,
       return error(res, 'Reason is required to hold medication', 400);
     }
 
-    const record = await marService.holdMedication(parseInt(id, 10), reason, req.user.uid);
+    const record = await marService.holdMedication(
+      parseInt(id, 10),
+      reason,
+      req.user.uid,
+      {
+        commandKey: req.idempotencyClaim?.requestKey || req.get('idempotency-key'),
+        requestFingerprint: req.idempotencyClaim?.requestBodyHash || null,
+        httpIdempotencyClaimId: req.idempotencyClaim?.id || null,
+        requestId: req.id || null,
+        tenantId: req.tenantId,
+      },
+    );
     return success(res, record, 'Medication held');
   } catch (err) {
     next(err);
   }
 });
+
+/**
+ * POST /clinical/mar/:id/release-hold
+ * A held dose remains non-administrable until an active prescriber records a
+ * release reason. Original hold attribution remains on the MAR record.
+ */
+router.post(
+  '/mar/:id/release-hold',
+  enforceStaffClinicalWriteDevicePosture,
+  canonicalMedicationAdministrationIdParam(),
+  requiredString('reason', 500),
+  validate,
+  requirePrescriberRole,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'mar_release_hold',
+    requestBodyForIdempotency: marTransitionIdempotencyBody,
+  }),
+  async (req, res, next) => {
+    try {
+      const record = await marService.releaseHeldMedication(
+        parseInt(req.params.id, 10),
+        req.body.reason,
+        req.user.uid,
+        {
+          tenantId: req.tenantId,
+          commandKey: req.idempotencyClaim?.requestKey,
+          requestFingerprint: req.idempotencyClaim?.requestBodyHash,
+          httpIdempotencyClaimId: req.idempotencyClaim?.id,
+          requestId: req.id,
+        },
+      );
+      return success(res, record, 'Medication hold released by prescriber');
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+router.get(
+  '/mar/exceptions',
+  query('case_id')
+    .optional()
+    .custom(canonicalMarExceptionCaseId)
+    .withMessage('case_id must be a canonical positive signed-64 integer'),
+  validate,
+  requirePrescriberRole,
+  async (req, res, next) => {
+    try {
+      const records = await marService.getAssignedMedicationExceptions({
+        tenantId: req.tenantId,
+        actorUid: req.user.uid,
+        caseId: req.query.case_id || null,
+      });
+      return success(res, records, 'Assigned medication exceptions retrieved');
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+router.post(
+  '/mar/exceptions/:caseId/claim',
+  enforceStaffClinicalWriteDevicePosture,
+  param('caseId')
+    .custom(canonicalMarExceptionCaseId)
+    .withMessage('caseId must be a canonical positive signed-64 integer'),
+  body().custom((_value, { req }) => {
+    if (Object.keys(req.body || {}).length !== 0) {
+      throw new Error('Medication exception claim body must be empty');
+    }
+    return true;
+  }),
+  validate,
+  requirePrescriberRole,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'mar_exception_claim',
+    requestBodyForIdempotency: marExceptionClaimIdempotencyBody,
+  }),
+  async (req, res, next) => {
+    try {
+      const result = await marService.claimMedicationException({
+        exceptionCaseId: req.params.caseId,
+        actorUid: req.user.uid,
+        actorRoles: getAuthenticatedActorRoles(req.user),
+        actorPrimaryRole: req.user.role,
+        actorRawRole: req.user.rawRole || req.user.role,
+        tenantId: req.tenantId,
+        commandKey: req.idempotencyClaim?.requestKey,
+        requestFingerprint: req.idempotencyClaim?.requestBodyHash,
+        httpIdempotencyClaimId: req.idempotencyClaim?.id,
+        requestId: req.id,
+      });
+      return success(
+        res,
+        result,
+        result.replayed
+          ? 'Medication exception claim replayed'
+          : 'Medication exception claimed',
+      );
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+router.post(
+  '/mar/exceptions/:caseId/handoff',
+  enforceStaffClinicalWriteDevicePosture,
+  param('caseId')
+    .custom(canonicalMarExceptionCaseId)
+    .withMessage('caseId must be a canonical positive signed-64 integer'),
+  body('expected_prescriber_uid')
+    .isUUID()
+    .withMessage('expected_prescriber_uid must be a UUID'),
+  body('target_prescriber_uid')
+    .isUUID()
+    .withMessage('target_prescriber_uid must be a UUID'),
+  body('reason')
+    .isString()
+    .trim()
+    .isLength({ min: 5, max: 500 })
+    .withMessage('reason must be between 5 and 500 characters'),
+  body().custom((_value, { req }) => {
+    const allowed = new Set([
+      'expected_prescriber_uid',
+      'target_prescriber_uid',
+      'reason',
+    ]);
+    if (Object.keys(req.body || {}).some((field) => !allowed.has(field))) {
+      throw new Error('Medication exception handoff body contains unsupported fields');
+    }
+    return true;
+  }),
+  validate,
+  requireRole(...ADMIN_ROUTE_ROLES),
+  requireIdempotencyKey({
+    required: true,
+    scope: 'mar_exception_handoff',
+    requestBodyForIdempotency: marExceptionHandoffIdempotencyBody,
+  }),
+  async (req, res, next) => {
+    try {
+      const result = await marService.handoffMedicationException({
+        exceptionCaseId: req.params.caseId,
+        expectedPrescriberUid: req.body.expected_prescriber_uid,
+        targetPrescriberUid: req.body.target_prescriber_uid,
+        reason: req.body.reason,
+        actorUid: req.user.uid,
+        tenantId: req.tenantId,
+        commandKey: req.idempotencyClaim?.requestKey,
+        requestFingerprint: req.idempotencyClaim?.requestBodyHash,
+        httpIdempotencyClaimId: req.idempotencyClaim?.id,
+        requestId: req.id,
+      });
+      return success(
+        res,
+        result,
+        result.replayed
+          ? 'Medication exception handoff replayed'
+          : 'Medication exception reassigned to prescriber',
+      );
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+router.post(
+  '/mar/exceptions/:caseId/disposition',
+  enforceStaffClinicalWriteDevicePosture,
+  param('caseId')
+    .custom(canonicalMarExceptionCaseId)
+    .withMessage('caseId must be a canonical positive signed-64 integer'),
+  body('disposition')
+    .isIn(['reviewed_no_replacement', 'replacement_ordered', 'order_stopped'])
+    .withMessage('disposition must be a governed medication-exception disposition'),
+  body('reason')
+    .isString()
+    .trim()
+    .isLength({ min: 5, max: 500 })
+    .withMessage('reason must be between 5 and 500 characters'),
+  body('replacement_clinical_order_id')
+    .optional({ nullable: true })
+    .isInt({ min: 1 })
+    .withMessage('replacement_clinical_order_id must be a positive integer')
+    .toInt(),
+  validate,
+  requirePrescriberRole,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'mar_exception_disposition',
+    requestBodyForIdempotency: marExceptionDispositionIdempotencyBody,
+  }),
+  async (req, res, next) => {
+    try {
+      const result = await marService.recordMedicationExceptionDisposition({
+        exceptionCaseId: req.params.caseId,
+        disposition: req.body.disposition,
+        reason: req.body.reason,
+        replacementClinicalOrderId: req.body.replacement_clinical_order_id ?? null,
+        actorUid: req.user.uid,
+        tenantId: req.tenantId,
+        commandKey: req.idempotencyClaim?.requestKey,
+        requestFingerprint: req.idempotencyClaim?.requestBodyHash,
+        httpIdempotencyClaimId: req.idempotencyClaim?.id,
+        requestId: req.id,
+      });
+      return success(res, result, 'Medication exception disposition recorded');
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
 
 /**
  * GET /clinical/mar/patient/:patientUid
@@ -441,12 +874,15 @@ router.get('/mar/patient/:patientUid',
  * GET /clinical/mar/overdue
  * Get overdue medications, optionally filtered by ward.
  */
-router.get('/mar/overdue', async (req, res, next) => {
+router.get('/mar/overdue', requireMarDueListRole, async (req, res, next) => {
   try {
     const { ward_id } = req.query;
     const wardId = ward_id ? parseInt(ward_id, 10) : null;
 
-    const records = await marService.getOverdueMedications(Number.isFinite(wardId) ? wardId : null);
+    const records = await marService.getOverdueMedications(
+      Number.isFinite(wardId) ? wardId : null,
+      { tenantId: req.tenantId },
+    );
     return success(res, records, 'Overdue medications retrieved');
   } catch (err) {
     next(err);
@@ -460,7 +896,7 @@ router.get('/mar/overdue', async (req, res, next) => {
  * Query params: ward_id?, past_minutes? (default 120), future_minutes? (default 60).
  * Window bounds clamped to the 0..1440-minute (24h) range.
  */
-router.get('/mar/due', async (req, res, next) => {
+router.get('/mar/due', requireMarDueListRole, async (req, res, next) => {
   try {
     const wardIdRaw = req.query.ward_id ? parseInt(req.query.ward_id, 10) : null;
     const pastRaw = req.query.past_minutes ? parseInt(req.query.past_minutes, 10) : 120;
@@ -470,7 +906,12 @@ router.get('/mar/due', async (req, res, next) => {
     const pastMinutes = Math.max(0, Math.min(Number.isFinite(pastRaw) ? pastRaw : 120, 1440));
     const futureMinutes = Math.max(0, Math.min(Number.isFinite(futureRaw) ? futureRaw : 60, 1440));
 
-    const records = await marService.getDueMedications({ wardId, pastMinutes, futureMinutes });
+    const records = await marService.getDueMedications({
+      tenantId: req.tenantId,
+      wardId,
+      pastMinutes,
+      futureMinutes,
+    });
     return success(res, records, 'Due medications retrieved');
   } catch (err) {
     next(err);

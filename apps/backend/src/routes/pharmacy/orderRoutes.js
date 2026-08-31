@@ -5,20 +5,48 @@ import * as orderController from '../../controllers/pharmacy/orderController.js'
 import * as pharmacyOrderController from '../../controllers/pharmacy/pharmacyOrderController.js';
 import * as pharmacyVerificationController from '../../controllers/pharmacy/pharmacyVerificationController.js';
 import { sanitizePharmacyFields } from '../../middleware/sanitizeMiddleware.js';
+import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
+import { requireRole } from '../../middleware/rbacMiddleware.js';
+import { PG_INT4_MAX } from '../../middleware/routePatientAccessGuards.js';
 import { validateFileContent, validatePatientUpload } from '../../middleware/uploadMiddleware.js';
 import { prescriptionAttachmentFileFilter } from '../../utils/prescriptionAttachmentFilter.js';
+import { success, relayAppError } from '../../utils/responseHelper.js';
+import { PHARMACY_INCHARGE, PHARMACY_STAFF } from '../../utils/roles.js';
 import {
   pharmacyOrderGuard,
   selectOrderPatient,
-  selectPatientByBodyPhone,
 } from './pharmacyOrderPatientGuards.js';
+import { uidParamValidation } from '../../validators/pharmacy/orderValidators.js';
+import prisma from '../../lib/prisma.js';
+import { AppError } from '../../utils/AppError.js';
+import { StaffAuthService } from '../../services/auth/staffAuthService.js';
 import {
-  placeOrderValidation,
-  updateOrderStatusValidation,
-  uidParamValidation
-} from '../../validators/pharmacy/orderValidators.js';
+  approveOrderControlledWitnessApproval,
+  preflightOrderControlledWitnessApproval,
+  requestOrderControlledWitnessApproval,
+} from '../../services/pharmacy/pharmacyOrderInventoryService.js';
 
 const router = express.Router();
+
+// ── Delivery custody surfaces ───────────────────────────────────────────────
+// These are mounted in app.js at their own EXACT full paths, each with its own
+// mount-level requireRole — the same shape as the pharmacy witness-approval
+// routers (counterSaleRoutes.js, dispenseSubstitutionWitnessRoutes.js). That is
+// why each router below declares a single '/' route and reads :id through
+// mergeParams: an exact mount strips the whole matched path, and a prefix mount
+// on `/api/v1/pharmacy-orders/orders` would sit over the ENTIRE order lifecycle
+// and re-run the broad mount's rate limiter and phiAccessLogger on every
+// fall-through request.
+export const PHARMACY_DELIVERY_ASSIGNED_ROLES = ['DELIVERY_STAFF'];
+export const PHARMACY_DELIVERY_CUSTODY_ROLES = ['DELIVERY_STAFF', 'PHARMACY_INCHARGE'];
+export const PHARMACY_DELIVERY_INCHARGE_ROLES = ['PHARMACY_INCHARGE'];
+
+export const pharmacyAssignedDeliveryRoutes = express.Router({ mergeParams: true });
+pharmacyAssignedDeliveryRoutes.get(
+  '/',
+  requireRole(...PHARMACY_DELIVERY_ASSIGNED_ROLES),
+  pharmacyOrderController.getAssignedDeliveries,
+);
 
 // Per-route patient access guards (see pharmacyOrderPatientGuards.js for why
 // the mount-level guard never decided these path-keyed routes).
@@ -27,13 +55,92 @@ const router = express.Router();
 // is nullable and legacy rows may be phone-only, so a subject-less order must
 // keep working on the role gate while every registered-patient order gets a
 // real decision. /uid/:uid names its subject directly and DOES force context.
-const guardOrderByIdParam = pharmacyOrderGuard(selectOrderPatient((req) => req.params?.id));
-const guardOrderByOrderIdParam = pharmacyOrderGuard(selectOrderPatient((req) => req.params?.orderId));
-const guardLegacyPlaceByPhone = pharmacyOrderGuard(selectPatientByBodyPhone);
+const guardOrderByIdParam = pharmacyOrderGuard(
+  selectOrderPatient((req) => req.params?.id),
+  { requirePatientContext: true },
+);
 const guardOrdersByPatientUid = pharmacyOrderGuard(
   (req) => (req.params?.uid ? { uid: req.params.uid } : null),
   { requirePatientContext: true },
 );
+const canonicalOrderDispenseBody = (req) => {
+  const body = { ...(req.body || {}) };
+  delete body.order_id;
+  delete body.orderId;
+  delete body.id;
+  return body;
+};
+const orderDispenseIdempotency = (action) => requireIdempotencyKey({
+  required: true,
+  scope: `pharmacy-order-${action}`,
+  retainOnServerError: true,
+  durableDomainReceipt: true,
+  requestPathForIdempotency: (req) =>
+    `/api/v1/pharmacy-orders/orders/${req.params.id}/${action}`,
+  requestBodyForIdempotency: canonicalOrderDispenseBody,
+});
+const counterDispenseIdempotency = orderDispenseIdempotency('dispense');
+
+const ORDER_CONTROLLED_WITNESS_ROLES = [PHARMACY_STAFF, PHARMACY_INCHARGE];
+const ORDER_CONTROLLED_WITNESS_APPROVAL_BODY_KEYS = new Set([
+  'selection', 'employeeId', 'password',
+]);
+const orderControlledWitnessPath = (req, suffix = '') => (
+  `/api/v1/pharmacy-orders/orders/${req.params.id}`
+  + `/controlled-dispense/witness-approvals${suffix}`
+);
+const orderWitnessApprovalIdempotencyBody = (req) => ({
+  credentialMode: 'staff_password',
+  employeeId: String(req.body?.employeeId || '').trim().toUpperCase() || null,
+  selection: req.body?.selection || {},
+});
+
+function wrapOrderControlledWitness(handler) {
+  return async (req, res) => {
+    try {
+      return success(res, await handler(req));
+    } catch (err) {
+      return relayAppError(res, err, 'Order controlled-dispense witness error');
+    }
+  };
+}
+
+async function authenticateOrderControlledWitness(req) {
+  const forbiddenFields = Object.keys(req.body || {})
+    .filter((key) => !ORDER_CONTROLLED_WITNESS_APPROVAL_BODY_KEYS.has(key));
+  const employeeId = req.body?.employeeId;
+  const password = req.body?.password;
+  try {
+    if (forbiddenFields.length) {
+      throw AppError.badRequest(
+        'Order witness approval accepts only selection and witness credentials',
+        'PHARMACY_ORDER_WITNESS_CALLER_AUTHORITY_FORBIDDEN',
+        { forbidden_fields: forbiddenFields.sort() },
+      );
+    }
+    if (!employeeId || !password) {
+      throw AppError.badRequest(
+        'Witness employee ID and password are required together',
+        'CONTROLLED_DISPENSE_WITNESS_CREDENTIALS_REQUIRED',
+      );
+    }
+    const witness = await StaffAuthService.authenticateControlledDispenseWitness({
+      employeeId,
+      password,
+      req,
+      tenantId: req.tenantId,
+    });
+    if (String(witness.tenantId).toLowerCase() !== String(req.tenantId).toLowerCase()) {
+      throw AppError.forbidden(
+        'Witness authentication tenant mismatch',
+        'CONTROLLED_DISPENSE_WITNESS_TENANT_MISMATCH',
+      );
+    }
+    return witness.uid;
+  } finally {
+    if (req.body && Object.hasOwn(req.body, 'password')) delete req.body.password;
+  }
+}
 
 // Multer for prescription photo upload
 const upload = multer({
@@ -41,6 +148,70 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
   fileFilter: prescriptionAttachmentFileFilter
 });
+
+// The public Inventory V2 standalone controlled-dispense surface remains
+// retired. These two order-scoped commands accept selectors only; the service
+// derives the patient, prescription, facility, catalog and custody fingerprint
+// from current server-side pharmacy-order authority. Approval always authenticates a
+// second staff identity without replacing the dispensing pharmacist's session.
+router.post(
+  '/:id/controlled-dispense/witness-approvals',
+  requireRole(...ORDER_CONTROLLED_WITNESS_ROLES),
+  guardOrderByIdParam,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'pharmacy_order_inventory_witness_request',
+    retainOnServerError: true,
+    requestPathForIdempotency: (req) => orderControlledWitnessPath(req),
+  }),
+  wrapOrderControlledWitness((req) => requestOrderControlledWitnessApproval({
+    tenantId: req.tenantId,
+    orderId: req.params.id,
+    selection: req.body || {},
+    requestedBy: req.user?.uid,
+    requestedByRole: req.user?.role || req.user?.rawRole || null,
+  })),
+);
+
+router.post(
+  '/:id/controlled-dispense/witness-approvals/:approvalId/approve',
+  requireRole(...ORDER_CONTROLLED_WITNESS_ROLES),
+  guardOrderByIdParam,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'pharmacy_order_inventory_witness_approval',
+    retainOnServerError: true,
+    requestBodyForIdempotency: orderWitnessApprovalIdempotencyBody,
+    requestPathForIdempotency: (req) => orderControlledWitnessPath(
+      req,
+      `/${req.params.approvalId}/approve`,
+    ),
+  }),
+  wrapOrderControlledWitness(async (req) => {
+    try {
+      await preflightOrderControlledWitnessApproval({
+        tenantId: req.tenantId,
+        orderId: req.params.id,
+        approvalId: req.params.approvalId,
+        selection: req.body?.selection || {},
+        requestedBy: req.user?.uid,
+        requestedByRole: req.user?.role || req.user?.rawRole || null,
+      });
+      const witnessUid = await authenticateOrderControlledWitness(req);
+      return approveOrderControlledWitnessApproval({
+        tenantId: req.tenantId,
+        orderId: req.params.id,
+        approvalId: req.params.approvalId,
+        selection: req.body?.selection || {},
+        requestedBy: req.user?.uid,
+        requestedByRole: req.user?.role || req.user?.rawRole || null,
+        witnessUid,
+      });
+    } finally {
+      if (req.body && Object.hasOwn(req.body, 'password')) delete req.body.password;
+    }
+  }),
+);
 
 // ── New lifecycle routes (static paths BEFORE :id) ──────────────────────────
 
@@ -50,9 +221,7 @@ wrapAutoRBAC(router, 'pharmacyPatientOrderRoutes', {
     ['/place', [upload.single('prescription'), validateFileContent, validatePatientUpload, sanitizePharmacyFields], pharmacyOrderController.placeOrder]
   ],
   get: [
-    ['/my', [], pharmacyOrderController.getMyOrders],
-    ['/queue', [], pharmacyOrderController.getOrderQueue],
-    ['/sla', [], pharmacyOrderController.getPharmacySLADashboard]
+    ['/my', [], pharmacyOrderController.getMyOrders]
   ]
 });
 
@@ -68,9 +237,12 @@ wrapAutoRBAC(router, 'pharmacyLifecycleRoutes', {
     // a staff queue alias rather than falling through to the legacy :phone route.
     // Cross-patient staff queue — no single subject, so no patient guard.
     ['/', [], pharmacyOrderController.getOrderQueue],
+    ['/queue', [], pharmacyOrderController.getOrderQueue],
+    ['/sla', [], pharmacyOrderController.getPharmacySLADashboard],
     ['/:id/detail', [guardOrderByIdParam], pharmacyOrderController.getOrderDetail],
     // Patient + prescribed catalog_id lines behind an order — pharmacist substitution context.
     ['/:id/dispensable', [guardOrderByIdParam], pharmacyOrderController.getOrderDispensableContext],
+    ['/:id/delivery-assignees', [guardOrderByIdParam], pharmacyOrderController.getDeliveryAssignees],
     ['/:id', [guardOrderByIdParam], pharmacyOrderController.getOrderDetail],
     // Dispense label / receipt for printing or in-app display. Available
     // once the order has been DISPENSED or DELIVERED. Wave-3 batch-1.
@@ -80,40 +252,165 @@ wrapAutoRBAC(router, 'pharmacyLifecycleRoutes', {
     ['/:id/pack-label', [guardOrderByIdParam], pharmacyVerificationController.getPharmacyPackLabel]
   ],
   post: [
-    ['/:id/confirm', [guardOrderByIdParam], pharmacyOrderController.confirmOrder],
+    ['/:id/confirm', [guardOrderByIdParam, orderDispenseIdempotency('confirm')], pharmacyOrderController.confirmOrder],
     // B1 — pharmacist clinical verification gate (before PREPARING/dispense).
-    ['/:id/verify', [guardOrderByIdParam], pharmacyVerificationController.verifyPharmacyOrder],
-    ['/:id/preparing', [guardOrderByIdParam], pharmacyOrderController.markPreparing],
-    ['/:id/dispatch', [guardOrderByIdParam], pharmacyOrderController.dispatchOrder],
-    ['/:id/delivered', [guardOrderByIdParam], pharmacyOrderController.markDelivered],
+    ['/:id/verify', [guardOrderByIdParam, orderDispenseIdempotency('verify')], pharmacyVerificationController.verifyPharmacyOrder],
+    ['/:id/assign-facility', [guardOrderByIdParam, orderDispenseIdempotency('assign-facility')], pharmacyOrderController.assignOrderFacility],
+    ['/:id/resolve-line-identities', [guardOrderByIdParam, orderDispenseIdempotency('resolve-line-identities')], pharmacyOrderController.resolveOrderLineIdentities],
+    ['/:id/preparing', [guardOrderByIdParam, orderDispenseIdempotency('preparing')], pharmacyOrderController.markPreparing],
+    ['/:id/dispatch', [guardOrderByIdParam, orderDispenseIdempotency('dispatch')], pharmacyOrderController.dispatchOrder],
     // B-2: counter-dispense — short-circuit lifecycle for walk-in customers.
-    ['/:id/dispense-counter', [guardOrderByIdParam], pharmacyOrderController.markCounterDispensed],
+    ['/:id/dispense-counter', [guardOrderByIdParam, counterDispenseIdempotency], pharmacyOrderController.markCounterDispensed],
     // D57: documented short alias used by the swarm/client contract.
-    ['/:id/dispense', [guardOrderByIdParam], pharmacyOrderController.markCounterDispensed],
-    ['/:id/unavailable', [guardOrderByIdParam], pharmacyOrderController.markUnavailable],
-    ['/:id/cancel', [guardOrderByIdParam], pharmacyOrderController.cancelOrder]
+    ['/:id/dispense', [guardOrderByIdParam, counterDispenseIdempotency], pharmacyOrderController.markCounterDispensed],
+    ['/:id/unavailable', [guardOrderByIdParam, orderDispenseIdempotency('unavailable')], pharmacyOrderController.markUnavailable],
+    ['/:id/cancel', [guardOrderByIdParam, orderDispenseIdempotency('cancel')], pharmacyOrderController.cancelOrder]
   ]
 });
+
+// The id bound is common to ALL FOUR delivery-custody surfaces, so it lives in
+// its own function rather than inside the custody predicate below.
+//
+// An id that cannot name a row is a miss, not an engine failure — same refusal
+// as the empty custody result further down (see the AppError note there).
+//
+// The int4 ceiling is load-bearing, not belt-and-braces. Everything downstream
+// binds this value as `::int` — the custody predicate's `orders.id=$2::int`,
+// findOrderCommandReplay's `pharmacy_order_id=$2::int`, and each command's own
+// order lookup — so an id that is a safe positive integer but above
+// PG_INT4_MAX (e.g. 9999999999) would reach the bind and raise Postgres 22003
+// 'integer out of range': a plain Prisma error with no statusCode, which
+// errorHandlerMiddleware answers 500 with no code. The controllers' own
+// `!Number.isSafeInteger(orderId) || orderId <= 0` test carries no ceiling, so
+// the bound has to hold here, at the route layer, before any controller code
+// runs. Same rule as positiveIntOrNull in
+// middleware/routePatientAccessGuards.js ('an out-of-range value must become
+// null, never a 22003 from the bind') and as this router's own
+// selectOrderPatient id guard.
+function boundDeliveryOrderId(req) {
+  const orderId = Number(req.params?.id);
+  if (!Number.isSafeInteger(orderId) || orderId <= 0 || orderId > PG_INT4_MAX) {
+    throw AppError.notFound(
+      'Delivery custody not found',
+      'PHARMACY_DELIVERY_CUSTODY_NOT_FOUND',
+    );
+  }
+  return orderId;
+}
+
+// The id bound alone, for the two PHARMACY_INCHARGE-only surfaces (handoff
+// reissue, return completion). They deliberately do NOT run the custody
+// predicate below: it demands `delivery_custody_status='in_transit'`, which is
+// the wrong state for return completion (`return_pending`), and
+// unit/pharmacyMountRouteGuards.test.js pins that neither surface ever queries
+// it. The bound is the half they DO share — same check, same refusal, one
+// mechanism.
+function requireBoundDeliveryOrderId(req, _res, next) {
+  try {
+    boundDeliveryOrderId(req);
+    next();
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function requireExactDeliveryCustody(req, _res, next) {
+  try {
+    const orderId = boundDeliveryOrderId(req);
+    const tenantId = req.tenantId || req.user?.tenantId || req.user?.tenant_id;
+    const actorUid = String(req.user?.uid || '').trim();
+    const actorRole = String(req.user?.role || '').trim().toUpperCase();
+    // Missing tenant/actor context is an environment failure, not a miss:
+    // keep failing closed with a 500 rather than reporting "not found".
+    if (!tenantId || !actorUid) {
+      throw new Error('delivery custody context unavailable');
+    }
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT orders.id
+         FROM pharmacy_orders orders
+         JOIN pharmacy_staff_facility_grants facility_grant
+           ON facility_grant.tenant_id=orders.tenant_id
+          AND facility_grant.facility_id=orders.facility_id
+          AND facility_grant.staff_uid=$3::uuid
+          AND facility_grant.status='active'
+          AND facility_grant.revoked_at IS NULL
+        WHERE orders.tenant_id=$1::uuid AND orders.id=$2::int
+          AND orders.status='DISPATCHED'
+          AND orders.delivery_custody_status='in_transit'
+          AND orders.delivery_handoff_consumed_at IS NULL
+          AND (
+            (orders.delivery_assignee_uid=$3::uuid AND $4='DELIVERY_STAFF')
+            OR $4='PHARMACY_INCHARGE'
+          )
+        LIMIT 1`,
+      tenantId,
+      orderId,
+      actorUid,
+      actorRole,
+    );
+    if (!rows[0]) {
+      // AppError, not a hand-stamped Error: errorHandlerMiddleware reads
+      // `err.statusCode` (never `err.status`) and only emits `code` on the
+      // AppError branch, so a plain Error answered 500 with no code here.
+      throw AppError.notFound(
+        'Delivery custody not found',
+        'PHARMACY_DELIVERY_CUSTODY_NOT_FOUND',
+      );
+    }
+    next();
+  } catch (error) {
+    next(error);
+  }
+}
+
+// One router per exact mount path (see the delivery-custody note above the
+// assigned-deliveries router). :id arrives from the app.js mount path through
+// mergeParams, so orderDispenseIdempotency, requireExactDeliveryCustody and the
+// controllers all read req.params.id exactly as before.
+export const pharmacyDeliveryCompletionRoutes = express.Router({ mergeParams: true });
+pharmacyDeliveryCompletionRoutes.post(
+  '/',
+  requireRole(...PHARMACY_DELIVERY_CUSTODY_ROLES),
+  requireExactDeliveryCustody,
+  orderDispenseIdempotency('delivered'),
+  pharmacyOrderController.markDelivered,
+);
+
+export const pharmacyDeliveryHandoffReissueRoutes = express.Router({ mergeParams: true });
+pharmacyDeliveryHandoffReissueRoutes.post(
+  '/',
+  requireRole(...PHARMACY_DELIVERY_INCHARGE_ROLES),
+  requireBoundDeliveryOrderId,
+  orderDispenseIdempotency('delivery-handoff-reissue'),
+  pharmacyOrderController.reissueDeliveryHandoff,
+);
+
+export const pharmacyDeliveryReturnRequestRoutes = express.Router({ mergeParams: true });
+pharmacyDeliveryReturnRequestRoutes.post(
+  '/',
+  requireRole(...PHARMACY_DELIVERY_CUSTODY_ROLES),
+  requireExactDeliveryCustody,
+  orderDispenseIdempotency('delivery-return-request'),
+  pharmacyOrderController.requestDeliveryReturn,
+);
+
+export const pharmacyDeliveryReturnCompletionRoutes = express.Router({ mergeParams: true });
+pharmacyDeliveryReturnCompletionRoutes.post(
+  '/',
+  requireRole(...PHARMACY_DELIVERY_INCHARGE_ROLES),
+  requireBoundDeliveryOrderId,
+  orderDispenseIdempotency('delivery-return-complete'),
+  pharmacyOrderController.completeDeliveryReturn,
+);
 
 // ── Legacy routes (existing) ────────────────────────────────────────────────
 
-// Patient routes. The legacy create resolves its target purely from
-// body.phone — the guard resolves the same phone to the registered patient
-// (an unregistered walk-in phone has no subject and stays role-gated).
+// Read-only legacy patient lookup remains for existing clients. Legacy create
+// and generic status mutation were retired: both bypassed the facility-bound,
+// verified Inventory V2 lifecycle above.
 wrapAutoRBAC(router, 'pharmacyOrderRoutes', {
-  post: [
-    ['/', placeOrderValidation, sanitizePharmacyFields, guardLegacyPlaceByPhone, orderController.placeOrder]
-  ],
-
   get: [
     ['/uid/:uid', uidParamValidation, guardOrdersByPatientUid, orderController.getOrdersByUID]
-  ]
-});
-
-// Pharmacy staff routes
-wrapAutoRBAC(router, 'pharmacyStaffOrderRoutes', {
-  put: [
-    ['/:orderId/status', updateOrderStatusValidation, guardOrderByOrderIdParam, orderController.updateOrderStatus]
   ]
 });
 

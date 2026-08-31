@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { FormEvent } from "react";
 import { fetchAdminAPI, postJSON } from "@/lib/api";
 import {
   ClientTablePagination,
@@ -27,9 +26,29 @@ function formatRelativeMins(mins: number): string {
 }
 
 // Canonical UPPERCASE lifecycle (post-2026-04-14 backend rename).
-const STATUS_FILTERS = ["", "PENDING", "CONFIRMED", "PREPARING", "READY", "DISPATCHED", "DELIVERED", "CANCELLED"];
-type OrderSortKey = "order_number" | "patient_name" | "status" | "total_cost" | "mins_since_placed";
-const ORDER_SORT_KEYS: OrderSortKey[] = ["order_number", "patient_name", "status", "total_cost", "mins_since_placed"];
+const STATUS_FILTERS = [
+  "",
+  "PENDING",
+  "CONFIRMED",
+  "PREPARING",
+  "READY",
+  "DISPATCHED",
+  "DELIVERED",
+  "CANCELLED",
+];
+type OrderSortKey =
+  | "order_number"
+  | "patient_name"
+  | "status"
+  | "total_cost"
+  | "mins_since_placed";
+const ORDER_SORT_KEYS: OrderSortKey[] = [
+  "order_number",
+  "patient_name",
+  "status",
+  "total_cost",
+  "mins_since_placed",
+];
 const PAGE_SIZE_OPTIONS = [10, 50, 100];
 
 export function OrdersTab() {
@@ -43,8 +62,8 @@ export function OrdersTab() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [actionLoading, setActionLoading] = useState<number | null>(null);
-  const [selectedOrder, setSelectedOrder] = useState<PharmacyOrderLifecycle | null>(null);
-  const [showCreateOrder, setShowCreateOrder] = useState(false);
+  const [selectedOrder, setSelectedOrder] =
+    useState<PharmacyOrderLifecycle | null>(null);
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
@@ -58,7 +77,9 @@ export function OrdersTab() {
       setOrders(Array.isArray(data) ? data : []);
     } catch (err) {
       setOrders([]);
-      setError(err instanceof Error ? err.message : "Failed to load pharmacy orders");
+      setError(
+        err instanceof Error ? err.message : "Failed to load pharmacy orders",
+      );
     } finally {
       setLoading(false);
     }
@@ -98,14 +119,23 @@ export function OrdersTab() {
   const pagedOrders = paginateRows(visibleOrders, page, pageSize);
 
   const handleSort = (key: OrderSortKey) => {
-    setSortDirection((current) => (sortKey === key && current === "asc" ? "desc" : "asc"));
+    setSortDirection((current) =>
+      sortKey === key && current === "asc" ? "desc" : "asc",
+    );
     setSortKey(key);
   };
 
-  const doAction = async (orderId: number, action: string, body: Record<string, unknown> = {}) => {
+  const doAction = async (
+    orderId: number,
+    action: string,
+    body: Record<string, unknown> = {},
+  ) => {
     setActionLoading(orderId);
     try {
-      await postJSON(`/api/v1/pharmacy-orders/orders/${orderId}/${action}`, body);
+      await postJSON(
+        `/api/v1/pharmacy-orders/orders/${orderId}/${action}`,
+        body,
+      );
       fetchOrders();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Action failed");
@@ -124,7 +154,13 @@ export function OrdersTab() {
         placeholder="Search order, patient, phone, status"
         countLabel={`${visibleOrders.length} of ${orders.length} orders`}
         savedViewScope="pharmacy-orders"
-        savedViewState={{ search, statusFilter, sortKey, sortDirection, pageSize }}
+        savedViewState={{
+          search,
+          statusFilter,
+          sortKey,
+          sortDirection,
+          pageSize,
+        }}
         onApplySavedView={(view) => {
           setSearch(String(view.search ?? ""));
           setStatusFilter(String(view.statusFilter ?? ""));
@@ -133,17 +169,15 @@ export function OrdersTab() {
           }
           setSortDirection(view.sortDirection === "desc" ? "desc" : "asc");
           const nextPageSize = Number(view.pageSize);
-          if (PAGE_SIZE_OPTIONS.includes(nextPageSize)) setPageSize(nextPageSize);
+          if (PAGE_SIZE_OPTIONS.includes(nextPageSize))
+            setPageSize(nextPageSize);
           setPage(1);
         }}
       >
         <button
-          onClick={() => setShowCreateOrder(true)}
-          className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground hover:bg-primary/90"
+          onClick={fetchOrders}
+          className="rounded-md border border-input px-3 py-2 text-sm text-primary hover:bg-muted"
         >
-          New order
-        </button>
-        <button onClick={fetchOrders} className="rounded-md border border-input px-3 py-2 text-sm text-primary hover:bg-muted">
           Refresh
         </button>
       </ManagedTableToolbar>
@@ -170,247 +204,228 @@ export function OrdersTab() {
       {loading ? (
         <div className="text-center py-8">Loading orders...</div>
       ) : error ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          {error}
+        </div>
       ) : orders.length === 0 ? (
-        <div className="text-center py-8 text-muted-foreground">No orders found</div>
+        <div className="text-center py-8 text-muted-foreground">
+          No orders found
+        </div>
       ) : (
         <>
-        <div className="overflow-x-auto rounded-lg border border-border">
-          <table className="min-w-[980px] w-full text-sm">
-            <thead>
-              <tr className="border-b border-border text-left">
-                <SortableTableHeader label="Order #" sortKey="order_number" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
-                <SortableTableHeader label="Patient" sortKey="patient_name" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
-                <th className="py-2 px-3">Phone</th>
-                <th className="py-2 px-3">Type</th>
-                <SortableTableHeader label="Total" sortKey="total_cost" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
-                <SortableTableHeader label="Status" sortKey="status" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
-                <th className="py-2 px-3">ETA</th>
-                <SortableTableHeader label="Time" sortKey="mins_since_placed" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
-                <th className="py-2 px-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pagedOrders.rows.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="px-3 py-8 text-center text-muted-foreground">
-                    No orders match the current filters
-                  </td>
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <table className="min-w-[980px] w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-left">
+                  <SortableTableHeader
+                    label="Order #"
+                    sortKey="order_number"
+                    activeSort={sortKey}
+                    direction={sortDirection}
+                    onSort={handleSort}
+                    className="px-3 py-2"
+                  />
+                  <SortableTableHeader
+                    label="Patient"
+                    sortKey="patient_name"
+                    activeSort={sortKey}
+                    direction={sortDirection}
+                    onSort={handleSort}
+                    className="px-3 py-2"
+                  />
+                  <th className="py-2 px-3">Phone</th>
+                  <th className="py-2 px-3">Type</th>
+                  <SortableTableHeader
+                    label="Total"
+                    sortKey="total_cost"
+                    activeSort={sortKey}
+                    direction={sortDirection}
+                    onSort={handleSort}
+                    className="px-3 py-2"
+                  />
+                  <SortableTableHeader
+                    label="Status"
+                    sortKey="status"
+                    activeSort={sortKey}
+                    direction={sortDirection}
+                    onSort={handleSort}
+                    className="px-3 py-2"
+                  />
+                  <th className="py-2 px-3">ETA</th>
+                  <SortableTableHeader
+                    label="Time"
+                    sortKey="mins_since_placed"
+                    activeSort={sortKey}
+                    direction={sortDirection}
+                    onSort={handleSort}
+                    className="px-3 py-2"
+                  />
+                  <th className="py-2 px-3">Actions</th>
                 </tr>
-              ) : pagedOrders.rows.map((o) => (
-                <tr
-                  key={o.id}
-                  className={`border-b border-border hover:bg-muted/50 ${
-                    o.sla_breached ? "bg-red-50" : ""
-                  }`}
-                >
-                  <td className="py-2 px-3 font-medium">
-                    <button onClick={() => setSelectedOrder(o)} className="text-primary hover:underline">
-                      {o.order_number || `#${o.id}`}
-                    </button>
-                  </td>
-                  <td className="py-2 px-3">{o.patient_name || <span className="text-muted-foreground">—</span>}</td>
-                  <td className="py-2 px-3">{o.phone || <span className="text-muted-foreground">—</span>}</td>
-                  <td className="py-2 px-3 capitalize">{o.delivery_type}</td>
-                  <td className="py-2 px-3">{o.total_cost ? `₹${o.total_cost}` : "—"}</td>
-                  <td className="py-2 px-3">
-                    <StatusBadge status={o.status} />
-                  </td>
-                  <td className="py-2 px-3 text-xs">
-                    {o.status === "DISPATCHED" && o.estimated_delivery_mins ? (
-                      <span className="flex items-center gap-1">
-                        {o.delivery_tracking_active && <span title="Live tracking">📍</span>}
-                        ~{o.estimated_delivery_mins}m
-                        {o.delivery_distance_km ? <span className="text-muted-foreground ml-1">({o.delivery_distance_km}km)</span> : null}
-                      </span>
-                    ) : "—"}
-                  </td>
-                  <td className="py-2 px-3 text-muted-foreground">
-                    {formatRelativeMins(o.mins_since_placed)}
-                    {o.sla_breached && (
-                      <span className="ml-1 text-red-600 text-xs">⚠ SLA</span>
-                    )}
-                  </td>
-                  <td className="py-2 px-3">
-                    <div className="flex gap-1 flex-wrap">
-                      {isPending(o.status) && (
-                        <ActionButton
-                          label="Confirm"
-                          color="blue"
-                          loading={actionLoading === o.id}
-                          onClick={() => {
-                            const cost = prompt("Total cost (₹):");
-                            if (cost !== null) {
-                              doAction(o.id, "confirm", {
-                                total_cost: Number(cost) || 0,
-                                items_list: [],
-                              });
-                            }
-                          }}
-                        />
-                      )}
-                      {o.status === "CONFIRMED" && (
-                        <ActionButton
-                          label="Prepare"
-                          color="amber"
-                          loading={actionLoading === o.id}
-                          onClick={() => doAction(o.id, "preparing")}
-                        />
-                      )}
-                      {(o.status === "PREPARING" || o.status === "CONFIRMED") && (
-                        <ActionButton
-                          label="Dispatch"
-                          color="teal"
-                          loading={actionLoading === o.id}
-                          onClick={() => {
-                            const person = prompt("Delivery person name:");
-                            const phone = prompt("Delivery person phone:");
-                            if (person !== null) {
-                              doAction(o.id, "dispatch", {
-                                delivery_person: person,
-                                delivery_person_phone: phone || "",
-                              });
-                            }
-                          }}
-                        />
-                      )}
-                      {o.status === "DISPATCHED" && (
-                        <ActionButton
-                          label="Delivered"
-                          color="green"
-                          loading={actionLoading === o.id}
-                          onClick={() => doAction(o.id, "delivered")}
-                        />
-                      )}
-                      {!["DELIVERED", "CANCELLED"].includes(o.status) && (
-                        <ActionButton
-                          label="Cancel"
-                          color="red"
-                          loading={actionLoading === o.id}
-                          onClick={() => {
-                            const reason = prompt("Cancellation reason:");
-                            if (reason !== null) {
-                              doAction(o.id, "cancel", { cancellation_reason: reason });
-                            }
-                          }}
-                        />
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <ClientTablePagination
-          page={pagedOrders.page}
-          pageSize={pageSize}
-          total={visibleOrders.length}
-          onPageChange={setPage}
-          onPageSizeChange={setPageSize}
-          itemLabel="orders"
-        />
+              </thead>
+              <tbody>
+                {pagedOrders.rows.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={9}
+                      className="px-3 py-8 text-center text-muted-foreground"
+                    >
+                      No orders match the current filters
+                    </td>
+                  </tr>
+                ) : (
+                  pagedOrders.rows.map((o) => (
+                    <tr
+                      key={o.id}
+                      className={`border-b border-border hover:bg-muted/50 ${
+                        o.sla_breached ? "bg-red-50" : ""
+                      }`}
+                    >
+                      <td className="py-2 px-3 font-medium">
+                        <button
+                          onClick={() => setSelectedOrder(o)}
+                          className="text-primary hover:underline"
+                        >
+                          {o.order_number || `#${o.id}`}
+                        </button>
+                      </td>
+                      <td className="py-2 px-3">
+                        {o.patient_name || (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="py-2 px-3">
+                        {o.phone || (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="py-2 px-3 capitalize">
+                        {o.delivery_type}
+                      </td>
+                      <td className="py-2 px-3">
+                        {o.total_cost ? `₹${o.total_cost}` : "—"}
+                      </td>
+                      <td className="py-2 px-3">
+                        <StatusBadge status={o.status} />
+                      </td>
+                      <td className="py-2 px-3 text-xs">
+                        {o.status === "DISPATCHED" &&
+                        o.estimated_delivery_mins ? (
+                          <span className="flex items-center gap-1">
+                            {o.delivery_tracking_active && (
+                              <span title="Live tracking">📍</span>
+                            )}
+                            ~{o.estimated_delivery_mins}m
+                            {o.delivery_distance_km ? (
+                              <span className="text-muted-foreground ml-1">
+                                ({o.delivery_distance_km}km)
+                              </span>
+                            ) : null}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td className="py-2 px-3 text-muted-foreground">
+                        {formatRelativeMins(o.mins_since_placed)}
+                        {o.sla_breached && (
+                          <span className="ml-1 text-red-600 text-xs">
+                            ⚠ SLA
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2 px-3">
+                        <div className="flex gap-1 flex-wrap">
+                          {isPending(o.status) && (
+                            <ActionButton
+                              label="Confirm"
+                              color="blue"
+                              loading={actionLoading === o.id}
+                              onClick={() => {
+                                const cost = prompt("Total cost (₹):");
+                                if (cost !== null) {
+                                  doAction(o.id, "confirm", {
+                                    total_cost: Number(cost) || 0,
+                                    items_list: [],
+                                  });
+                                }
+                              }}
+                            />
+                          )}
+                          {o.status === "CONFIRMED" && (
+                            <ActionButton
+                              label="Prepare"
+                              color="amber"
+                              loading={actionLoading === o.id}
+                              onClick={() => doAction(o.id, "preparing")}
+                            />
+                          )}
+                          {(o.status === "PREPARING" ||
+                            o.status === "CONFIRMED") && (
+                            <ActionButton
+                              label="Dispatch"
+                              color="teal"
+                              loading={actionLoading === o.id}
+                              onClick={() => {
+                                const person = prompt("Delivery person name:");
+                                const phone = prompt("Delivery person phone:");
+                                if (person !== null) {
+                                  doAction(o.id, "dispatch", {
+                                    delivery_person: person,
+                                    delivery_person_phone: phone || "",
+                                  });
+                                }
+                              }}
+                            />
+                          )}
+                          {o.status === "DISPATCHED" && (
+                            <ActionButton
+                              label="Delivered"
+                              color="green"
+                              loading={actionLoading === o.id}
+                              onClick={() => doAction(o.id, "delivered")}
+                            />
+                          )}
+                          {!["DELIVERED", "CANCELLED"].includes(o.status) && (
+                            <ActionButton
+                              label="Cancel"
+                              color="red"
+                              loading={actionLoading === o.id}
+                              onClick={() => {
+                                const reason = prompt("Cancellation reason:");
+                                if (reason !== null) {
+                                  doAction(o.id, "cancel", {
+                                    cancellation_reason: reason,
+                                  });
+                                }
+                              }}
+                            />
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+          <ClientTablePagination
+            page={pagedOrders.page}
+            pageSize={pageSize}
+            total={visibleOrders.length}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+            itemLabel="orders"
+          />
         </>
       )}
 
       {selectedOrder && (
-        <OrderDetailModal order={selectedOrder} onClose={() => setSelectedOrder(null)} />
-      )}
-      {showCreateOrder && (
-        <CreatePharmacyOrderModal
-          onClose={() => setShowCreateOrder(false)}
-          onSuccess={() => {
-            setShowCreateOrder(false);
-            fetchOrders();
-          }}
+        <OrderDetailModal
+          order={selectedOrder}
+          onClose={() => setSelectedOrder(null)}
         />
       )}
-    </div>
-  );
-}
-
-function CreatePharmacyOrderModal({
-  onClose,
-  onSuccess,
-}: {
-  onClose: () => void;
-  onSuccess: () => void;
-}) {
-  const [phone, setPhone] = useState("");
-  const [orderNote, setOrderNote] = useState("");
-  const [urgent, setUrgent] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    const digits = phone.replace(/\D/g, "");
-    if (digits.length < 10) {
-      alert("Valid phone number required");
-      return;
-    }
-    if (!orderNote.trim()) {
-      alert("Order note is required");
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      await postJSON("/api/v1/pharmacy-orders/orders", {
-        phone: phone.trim(),
-        order_note: orderNote.trim(),
-        urgent,
-      });
-      onSuccess();
-    } catch (error) {
-      alert(error instanceof Error ? error.message : "Failed to create order");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <form onSubmit={submit} className="w-full max-w-md rounded-xl bg-card p-6 text-card-foreground shadow-xl">
-        <h3 className="mb-4 text-lg font-bold">Create Pharmacy Order</h3>
-        <div className="space-y-3">
-          <div>
-            <label className="text-sm font-medium">Patient phone</label>
-            <input
-              type="tel"
-              value={phone}
-              onChange={(event) => setPhone(event.target.value)}
-              className="mt-1 w-full rounded border bg-background px-3 py-2 text-sm"
-              placeholder="10-digit mobile number"
-            />
-          </div>
-          <div>
-            <label className="text-sm font-medium">Order note</label>
-            <textarea
-              value={orderNote}
-              onChange={(event) => setOrderNote(event.target.value)}
-              className="mt-1 w-full rounded border bg-background px-3 py-2 text-sm"
-              rows={4}
-              placeholder="Medicine names, dose, quantity, or prescription note"
-            />
-          </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={urgent} onChange={(event) => setUrgent(event.target.checked)} />
-            Mark urgent
-          </label>
-        </div>
-        <div className="mt-4 flex gap-3">
-          <button type="button" onClick={onClose} className="flex-1 rounded border px-4 py-2 text-sm hover:bg-muted">
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={submitting}
-            className="flex-1 rounded bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          >
-            {submitting ? "Creating..." : "Create"}
-          </button>
-        </div>
-      </form>
     </div>
   );
 }

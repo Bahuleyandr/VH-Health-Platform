@@ -4,6 +4,7 @@ import request from 'supertest';
 
 const upsertCatalogMock = jest.fn(async (input) => ({ id: 1, tenant_id: input.tenantId }));
 const upsertSettingsMock = jest.fn(async (input) => ({ tenant_id: input.tenantId }));
+const resolveRecoveryMock = jest.fn(async (input) => ({ id: input.recoveryId, status: 'RESOLVED' }));
 const listUnbilledMock = jest.fn(async () => ({
   items: [], count: 0, total: 0, page: 1, limit: 50, total_pages: 0,
 }));
@@ -12,8 +13,24 @@ jest.unstable_mockModule('../../services/clinical/cathLabService.js', () => ({
   getCathConsumablesBillingSettings: jest.fn(),
   listConsumableCatalog: jest.fn(),
   listUnbilledConsumableUsage: listUnbilledMock,
+  resolveCathConsumableAuthorityRecovery: resolveRecoveryMock,
   upsertCathConsumablesBillingSettings: upsertSettingsMock,
   upsertConsumableCatalogItem: upsertCatalogMock,
+}));
+
+jest.unstable_mockModule('../../middleware/idempotencyMiddleware.js', () => ({
+  requireIdempotencyKey: () => (req, res, next) => {
+    const requestKey = req.get('idempotency-key');
+    if (!requestKey) {
+      return res.status(400).json({ success: false, code: 'IDEMPOTENCY_KEY_REQUIRED' });
+    }
+    req.idempotencyClaim = {
+      id: 17,
+      requestKey,
+      requestBodyHash: 'a'.repeat(64),
+    };
+    return next();
+  },
 }));
 
 jest.unstable_mockModule('../../middleware/phiAccessMiddleware.js', () => ({
@@ -43,12 +60,14 @@ beforeEach(() => {
   upsertCatalogMock.mockClear();
   upsertSettingsMock.mockClear();
   listUnbilledMock.mockClear();
+  resolveRecoveryMock.mockClear();
 });
 
 describe('cath consumables admin tenant boundary', () => {
   test('pins catalog writes to the authenticated tenant', async () => {
     const response = await request(app)
       .put('/api/v1/admin/cath-consumables/catalog')
+      .set('Idempotency-Key', 'catalog-command-1')
       .send({ tenantId: OTHER_TENANT, item_name: 'Stent', category: 'stent' });
 
     expect(response.statusCode).toBe(200);
@@ -56,6 +75,33 @@ describe('cath consumables admin tenant boundary', () => {
       expect.objectContaining({ tenantId: TENANT, item_name: 'Stent' }),
       expect.objectContaining({ actorRole: 'ADMIN' }),
     );
+  });
+
+  test('requires durable command evidence and pins governed recovery to the tenant', async () => {
+    const missingKey = await request(app)
+      .post('/api/v1/admin/cath-consumables/authority-recovery/42/resolve')
+      .send({ resolution: { action: 'PRESERVE', facility_id: 4 }, resolution_note: 'Reviewed' });
+    expect(missingKey.statusCode).toBe(400);
+    expect(resolveRecoveryMock).not.toHaveBeenCalled();
+
+    const response = await request(app)
+      .post('/api/v1/admin/cath-consumables/authority-recovery/42/resolve')
+      .set('Idempotency-Key', 'cath-recovery-command-42')
+      .send({
+        tenantId: OTHER_TENANT,
+        resolution: { action: 'PRESERVE', facility_id: 4 },
+        resolution_note: 'Reviewed against source custody',
+      });
+
+    expect(response.statusCode).toBe(200);
+    expect(resolveRecoveryMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: TENANT,
+      recoveryId: '42',
+      commandKey: 'cath-recovery-command-42',
+      requestFingerprint: 'a'.repeat(64),
+      note: 'Reviewed against source custody',
+      resolution: { action: 'PRESERVE', facility_id: 4 },
+    }));
   });
 
   test('pins billing settings writes to the authenticated tenant', async () => {

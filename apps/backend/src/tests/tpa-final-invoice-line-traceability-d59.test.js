@@ -71,6 +71,22 @@ async function seedIssuedInvoice({ admissionId, sourceRefType, sourceRefId }) {
 
 describe('TPA final claim invoice line traceability (D59)', () => {
   beforeAll(async () => {
+    // Migration 753 routes createClaim through lockInsuranceFundingPatientTx →
+    // resolvePharmacyFundingPatientUidTx, which serialises the claim against the
+    // ONE active patient it names. The claim's patient_uid therefore has to be a
+    // real registered patient in this tenant, not a bare uuid — seed it the way
+    // registration would.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, status, tenant_id, updated_at)
+       VALUES ($1::uuid, $2, 'TPA D59 Test Patient', 'PATIENT', true, 'active', $3::uuid, NOW())
+       ON CONFLICT (uid) DO UPDATE
+          SET is_active = true, status = 'active', is_deleted = false,
+              merged_into_uid = NULL, updated_at = NOW()`,
+      PATIENT_UID,
+      `9886${Date.now() % 1000000}`.slice(0, 10),
+      TENANT,
+    );
+
     const pol = await prisma.$queryRawUnsafe(
       `INSERT INTO insurance_policies
          (patient_uid, policy_number, status, tenant_id)
@@ -96,8 +112,9 @@ describe('TPA final claim invoice line traceability (D59)', () => {
     if (policyId) {
       await prisma.$executeRawUnsafe(`DELETE FROM insurance_policies WHERE id = $1::int`, policyId).catch(() => {});
     }
+    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$disconnect().catch(() => {});
-  });
+  }, 120_000);
 
   it('rejects a final cashless claim when billable invoice lines are manual', async () => {
     const admissionId = await seedAdmission();

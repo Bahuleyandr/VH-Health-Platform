@@ -6,6 +6,8 @@ import 'package:vhhealth_core/services/realtime_client.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/services/auth_service.dart';
+import '../../../core/services/location_service.dart';
+import '../../../core/services/pharmacy_api_service.dart';
 import '../../../core/services/transport_api_service.dart';
 import '../../../core/widgets/constrained_content.dart';
 import '../../../core/widgets/logout_action.dart';
@@ -108,6 +110,7 @@ class _TransportTasksScreenState extends State<TransportTasksScreen>
   String _role = '';
   List<Map<String, dynamic>> _myTasks = const [];
   List<Map<String, dynamic>> _openTasks = const [];
+  List<Map<String, dynamic>> _pharmacyDeliveries = const [];
 
   StreamSubscription<dynamic>? _transportEventSub;
 
@@ -157,11 +160,16 @@ class _TransportTasksScreenState extends State<TransportTasksScreen>
       final results = await Future.wait([
         TransportApiService.listMyTasks(),
         TransportApiService.listOpenBoardTasks(),
+        if (_role.trim().toUpperCase() == 'DELIVERY_STAFF')
+          PharmacyApiService.getAssignedPharmacyDeliveries()
+        else
+          Future.value(const <Map<String, dynamic>>[]),
       ]);
       if (!mounted) return;
       setState(() {
         _myTasks = results[0];
         _openTasks = results[1];
+        _pharmacyDeliveries = results[2];
       });
     } catch (e) {
       if (!mounted) return;
@@ -256,6 +264,82 @@ class _TransportTasksScreenState extends State<TransportTasksScreen>
     if (created == true && mounted) await _load();
   }
 
+  int? _pharmacyDeliveryId(Map<String, dynamic> delivery) =>
+      int.tryParse(delivery['id']?.toString() ?? '');
+
+  Future<void> _sharePharmacyDeliveryLocation(
+    Map<String, dynamic> delivery,
+  ) async {
+    final id = _pharmacyDeliveryId(delivery);
+    if (id == null) return;
+    final location = await LocationService.getLocationData();
+    final latitude = location['latitude'];
+    final longitude = location['longitude'];
+    if (latitude is! num || longitude is! num) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(LocationService.getLocationStatusMessage(location)),
+        ),
+      );
+      return;
+    }
+    await _perform(
+      () => PharmacyApiService.updatePharmacyDeliveryLocation(
+        id,
+        latitude: latitude.toDouble(),
+        longitude: longitude.toDouble(),
+        accuracy: (location['accuracy'] as num?)?.toDouble(),
+      ),
+      AppStrings.of(context).labBookingsSharingLocation,
+    );
+  }
+
+  Future<void> _stopPharmacyDeliveryTracking(
+    Map<String, dynamic> delivery,
+  ) async {
+    final id = _pharmacyDeliveryId(delivery);
+    if (id == null) return;
+    await _perform(
+      () => PharmacyApiService.stopPharmacyDeliveryTracking(id),
+      AppStrings.of(context).actionClose,
+    );
+  }
+
+  Future<void> _completePharmacyDelivery(Map<String, dynamic> delivery) async {
+    final id = _pharmacyDeliveryId(delivery);
+    if (id == null) return;
+    final token = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const _PharmacyHandoffTokenDialog(),
+    );
+    if (token == null || !mounted) return;
+    await _perform(
+      () =>
+          PharmacyApiService.completePharmacyDelivery(id, handoffToken: token),
+      AppStrings.of(context).pharmacyOrderDeliveredToast,
+    );
+  }
+
+  Future<void> _requestPharmacyDeliveryReturn(
+    Map<String, dynamic> delivery,
+  ) async {
+    final id = _pharmacyDeliveryId(delivery);
+    if (id == null) return;
+    final reason = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const _PharmacyDeliveryReturnDialog(),
+    );
+    if (reason == null || !mounted) return;
+    await _perform(
+      () =>
+          PharmacyApiService.requestPharmacyDeliveryReturn(id, reason: reason),
+      AppStrings.of(context).pharmacyCancellationReason,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
@@ -292,15 +376,26 @@ class _TransportTasksScreenState extends State<TransportTasksScreen>
           : TabBarView(
               controller: _tabController,
               children: [
-                _buildTaskList(_myTasks, 'No transport tasks assigned to you.'),
+                _buildTaskList(
+                  _myTasks,
+                  'No transport tasks assigned to you.',
+                  includePharmacyDeliveries: true,
+                ),
                 _buildTaskList(_openTasks, 'No open transport tasks.'),
               ],
             ),
     );
   }
 
-  Widget _buildTaskList(List<Map<String, dynamic>> tasks, String emptyMessage) {
+  Widget _buildTaskList(
+    List<Map<String, dynamic>> tasks,
+    String emptyMessage, {
+    bool includePharmacyDeliveries = false,
+  }) {
     final theme = Theme.of(context);
+    final deliveries = includePharmacyDeliveries
+        ? _pharmacyDeliveries
+        : const <Map<String, dynamic>>[];
     return ConstrainedContent(
       child: RefreshIndicator(
         onRefresh: _load,
@@ -308,7 +403,7 @@ class _TransportTasksScreenState extends State<TransportTasksScreen>
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),
           children: [
-            if (tasks.isEmpty)
+            if (deliveries.isEmpty && tasks.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 48),
                 child: Center(
@@ -320,7 +415,18 @@ class _TransportTasksScreenState extends State<TransportTasksScreen>
                   ),
                 ),
               )
-            else
+            else ...[
+              ...deliveries.map(
+                (delivery) => _PharmacyDeliveryCard(
+                  delivery: delivery,
+                  onShareLocation: () =>
+                      _sharePharmacyDeliveryLocation(delivery),
+                  onStopTracking: () => _stopPharmacyDeliveryTracking(delivery),
+                  onComplete: () => _completePharmacyDelivery(delivery),
+                  onRequestReturn: () =>
+                      _requestPharmacyDeliveryReturn(delivery),
+                ),
+              ),
               ...tasks.map(
                 (task) => _TransportTaskCard(
                   task: task,
@@ -333,8 +439,225 @@ class _TransportTasksScreenState extends State<TransportTasksScreen>
                   onCancel: () => _cancel(task),
                 ),
               ),
+            ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _PharmacyHandoffTokenDialog extends StatefulWidget {
+  const _PharmacyHandoffTokenDialog();
+
+  @override
+  State<_PharmacyHandoffTokenDialog> createState() =>
+      _PharmacyHandoffTokenDialogState();
+}
+
+class _PharmacyHandoffTokenDialogState
+    extends State<_PharmacyHandoffTokenDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
+    final token = _controller.text.trim();
+    return AlertDialog(
+      title: Text(s.transportVerifyHandoff),
+      content: TextField(
+        key: const ValueKey('courier-pharmacy-handoff-token'),
+        controller: _controller,
+        autofocus: true,
+        obscureText: true,
+        enableSuggestions: false,
+        autocorrect: false,
+        onChanged: (_) => setState(() {}),
+        decoration: InputDecoration(labelText: s.transportVerifyHandoff),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(s.actionCancel),
+        ),
+        FilledButton(
+          onPressed: token.length >= 20 && token.length <= 200
+              ? () => Navigator.pop(context, token)
+              : null,
+          child: Text(s.pharmacyMarkDeliveredYes),
+        ),
+      ],
+    );
+  }
+}
+
+class _PharmacyDeliveryReturnDialog extends StatefulWidget {
+  const _PharmacyDeliveryReturnDialog();
+
+  @override
+  State<_PharmacyDeliveryReturnDialog> createState() =>
+      _PharmacyDeliveryReturnDialogState();
+}
+
+class _PharmacyDeliveryReturnDialogState
+    extends State<_PharmacyDeliveryReturnDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
+    final reason = _controller.text.trim();
+    return AlertDialog(
+      title: Text(s.pharmacyCancellationReason),
+      content: TextField(
+        key: const ValueKey('courier-pharmacy-return-reason'),
+        controller: _controller,
+        autofocus: true,
+        minLines: 2,
+        maxLines: 4,
+        maxLength: 500,
+        onChanged: (_) => setState(() {}),
+        decoration: InputDecoration(
+          labelText: s.lookup('med03.pharmacy.verification_override_reason'),
+          helperText: s.lookup(
+            'med03.pharmacy.verification_override_reason_help',
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(s.actionCancel),
+        ),
+        FilledButton(
+          onPressed: reason.length >= 10 && reason.length <= 500
+              ? () => Navigator.pop(context, reason)
+              : null,
+          child: Text(s.pharmacyCancellationReason),
+        ),
+      ],
+    );
+  }
+}
+
+class _PharmacyDeliveryCard extends StatelessWidget {
+  const _PharmacyDeliveryCard({
+    required this.delivery,
+    required this.onShareLocation,
+    required this.onStopTracking,
+    required this.onComplete,
+    required this.onRequestReturn,
+  });
+
+  final Map<String, dynamic> delivery;
+  final VoidCallback onShareLocation;
+  final VoidCallback onStopTracking;
+  final VoidCallback onComplete;
+  final VoidCallback onRequestReturn;
+
+  String _text(Object? value, [String fallback = '']) {
+    final text = value?.toString().trim() ?? '';
+    return text.isEmpty ? fallback : text;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final custody = _text(
+      delivery['delivery_custody_status'],
+      'in_transit',
+    ).toLowerCase();
+    final tracking = delivery['delivery_tracking_active'] == true;
+    final orderNumber = _text(
+      delivery['order_number'],
+      '#${_text(delivery['id'])}',
+    );
+    final patientName = _text(delivery['patient_name']);
+    final destination = _text(delivery['delivery_address']);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: scheme.tertiaryContainer.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  orderNumber,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              _Chip(
+                label: custody.replaceAll('_', ' ').toUpperCase(),
+                color: custody == 'return_pending'
+                    ? scheme.error
+                    : scheme.tertiary,
+              ),
+            ],
+          ),
+          if (patientName.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(patientName, style: theme.textTheme.bodyMedium),
+          ],
+          if (destination.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(destination, style: theme.textTheme.bodySmall),
+          ],
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (custody == 'in_transit')
+                FilledButton.tonalIcon(
+                  onPressed: onShareLocation,
+                  icon: const Icon(Icons.my_location, size: 16),
+                  label: Text(s.labBookingsSharingLocation),
+                ),
+              if (custody == 'in_transit' && tracking)
+                TextButton.icon(
+                  onPressed: onStopTracking,
+                  icon: const Icon(Icons.location_off_outlined, size: 16),
+                  label: Text(s.actionClose),
+                ),
+              if (custody == 'in_transit')
+                FilledButton.icon(
+                  onPressed: onComplete,
+                  icon: const Icon(Icons.verified_outlined, size: 16),
+                  label: Text(s.pharmacyMarkDelivered),
+                ),
+              if (custody == 'in_transit')
+                TextButton.icon(
+                  onPressed: onRequestReturn,
+                  icon: const Icon(Icons.assignment_return_outlined, size: 16),
+                  label: Text(s.pharmacyCancellationReason),
+                ),
+            ],
+          ),
+        ],
       ),
     );
   }

@@ -1,12 +1,19 @@
 import { jest } from '@jest/globals';
 
 const queryRawUnsafeMock = jest.fn();
-const txMock = { $queryRawUnsafe: queryRawUnsafeMock };
+const executeRawUnsafeMock = jest.fn();
+const txMock = {
+  $queryRawUnsafe: queryRawUnsafeMock,
+  $executeRawUnsafe: executeRawUnsafeMock,
+};
 const setTenantTxMock = jest.fn(async (_tenantId, callback) => callback(txMock));
 const recordMovementMock = jest.fn();
-const reserveStockMock = jest.fn();
 const addInvoiceItemMock = jest.fn();
 const createDraftInvoiceMock = jest.fn();
+const startWorkflowSlaMock = jest.fn();
+const createCathInventoryShortfallTaskTxMock = jest.fn();
+const queueNotificationMock = jest.fn();
+const assertFacilityGrantMock = jest.fn();
 const loggerMock = {
   error: jest.fn(),
   info: jest.fn(),
@@ -23,6 +30,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   setTenant: setTenantTxMock,
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(txMock),
   pickTenantClient: () => txMock,
+  isTenantTransactionClient: value => value === txMock,
   prismaReadOnly: txMock,
   circuitBreakerStatus: () => ({ open: false, consecutiveFailures: 0 }),
 }));
@@ -51,18 +59,29 @@ jest.unstable_mockModule('../../services/billing/billingV2Service.js', () => ({
 }));
 
 jest.unstable_mockModule('../../services/pharmacy/inventoryV2Service.js', () => ({
-  recordMovement: recordMovementMock,
+  recordMovementTx: recordMovementMock,
 }));
 
-jest.unstable_mockModule('../../services/pharmacySupply/pharmacySupplyService.js', () => ({
-  reserveStock: reserveStockMock,
+jest.unstable_mockModule('../../services/pharmacy/pharmacyFacilityAuthorityService.js', () => ({
+  assertPharmacyFacilityGrant: assertFacilityGrantMock,
+}));
+
+jest.unstable_mockModule('../../services/workflow/taskService.js', () => ({
+  claimInboxTask: jest.fn(),
+  completeTaskFromDomainEvidence: jest.fn(),
+  createCathInventoryShortfallTaskTx: createCathInventoryShortfallTaskTxMock,
+  recoverCathInventoryShortfallTaskAssignmentTx: jest.fn(),
+}));
+
+jest.unstable_mockModule('../../utils/notifications/notificationOutbox.js', () => ({
+  notificationOutbox: { queue: queueNotificationMock },
 }));
 
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
   cancelWorkflowSla: jest.fn(),
   completeWorkflowSla: jest.fn(),
   recordCanonicalClinicalEvent: jest.fn(),
-  startWorkflowSla: jest.fn(),
+  startWorkflowSla: startWorkflowSlaMock,
 }));
 
 // P1f's complication-registry seam joined cathLabService's import graph the
@@ -80,6 +99,7 @@ jest.unstable_mockModule('../../services/staff/credentialingService.js', () => (
 
 const {
   __testing__,
+  getCathConsumableInventoryReconciliation,
   listCatalogBatches,
   listCaseConsumableUsage,
   listConsumableCatalog,
@@ -92,39 +112,63 @@ const {
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const ACTOR = '11111111-1111-4111-8111-111111111111';
 
-function usage(overrides = {}) {
-  return {
-    id: 73,
-    tenant_id: TENANT,
-    case_id: 19,
-    inventory_item_id: 17,
-    inventory_batch_id: 29,
-    quantity: 1,
-    batch_tracked: true,
-    batch_number: 'BATCH-29',
-    lot_number: 'LOT-29',
-    expiry_date: '2028-12-31',
-    used_by: ACTOR,
-    wasted: false,
-    waste_reason: null,
-    inventory_decrement_status: 'pending',
-    ...overrides,
-  };
-}
-
 beforeEach(() => {
   queryRawUnsafeMock.mockReset();
+  executeRawUnsafeMock.mockReset();
+  executeRawUnsafeMock.mockResolvedValue(0);
   setTenantTxMock.mockClear();
   recordMovementMock.mockReset();
-  reserveStockMock.mockReset();
   addInvoiceItemMock.mockReset();
   createDraftInvoiceMock.mockReset();
+  startWorkflowSlaMock.mockReset();
+  startWorkflowSlaMock.mockResolvedValue({ id: 501 });
+  createCathInventoryShortfallTaskTxMock.mockReset();
+  createCathInventoryShortfallTaskTxMock.mockResolvedValue({
+    id: 601,
+    workflow_sla_instance_id: 501,
+  });
+  queueNotificationMock.mockReset();
+  queueNotificationMock.mockResolvedValue({ id: 701 });
+  assertFacilityGrantMock.mockReset();
+  assertFacilityGrantMock.mockResolvedValue({ grant_id: 81 });
   loggerMock.error.mockClear();
   loggerMock.info.mockClear();
   loggerMock.warn.mockClear();
 });
 
 describe('cath consumable inventory integration', () => {
+  test('denies reconciliation GET when the exact case facility grant is absent', async () => {
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{ uid: ACTOR, role: 'PHARMACIST' }])
+      .mockResolvedValueOnce([{
+        usage_id: 73,
+        case_id: 19,
+        facility_id: 4,
+        patient_uid: ACTOR,
+      }]);
+    assertFacilityGrantMock.mockRejectedValueOnce(Object.assign(
+      new Error('facility grant required'),
+      { code: 'PHARMACY_FACILITY_GRANT_REQUIRED', statusCode: 403 },
+    ));
+
+    await expect(getCathConsumableInventoryReconciliation(19, 73, {
+      tenantId: TENANT,
+      actorUid: ACTOR,
+      actorRole: 'PHARMACIST',
+      actorRoles: ['PHARMACIST'],
+    })).rejects.toMatchObject({
+      code: 'PHARMACY_FACILITY_GRANT_REQUIRED',
+      statusCode: 403,
+    });
+    expect(assertFacilityGrantMock).toHaveBeenCalledWith(txMock, expect.objectContaining({
+      tenantId: TENANT,
+      facilityId: 4,
+      actorUid: ACTOR,
+      actorRole: 'PHARMACIST',
+      forUpdate: false,
+    }));
+  });
+
   test('rejects an incomplete canonical event so the usage transaction rolls back', () => {
     expect(() => __testing__.requireCanonicalEvent({
       timeline: { id: '11111111-1111-4111-8111-111111111111' },
@@ -169,11 +213,19 @@ describe('cath consumable inventory integration', () => {
 
   test('validates linked inventory with its tenant field, not a nonexistent case field', async () => {
     queryRawUnsafeMock
-      .mockResolvedValueOnce([{ id: 17, tenant_id: TENANT }])
+      .mockResolvedValueOnce([{
+        id: 17,
+        tenant_id: TENANT,
+        facility_id: 4,
+        inventory_item_status: 'active',
+        facility_status: 'active',
+      }])
+      .mockResolvedValueOnce([{ uid: ACTOR, role: 'ADMIN', name: 'Cath Admin' }])
       .mockResolvedValueOnce([{ id: 5 }])
       .mockResolvedValueOnce([{
         id: 5,
         tenant_id: TENANT,
+        facility_id: 4,
         inventory_item_id: 17,
         item_name: 'Guidewire',
         category: 'guidewire',
@@ -187,9 +239,14 @@ describe('cath consumable inventory integration', () => {
       item_name: 'Guidewire',
       category: 'guidewire',
       inventory_item_id: 17,
-    })).resolves.toMatchObject({ id: 5, inventory_item_id: 17 });
+    }, { actorUid: ACTOR })).resolves.toMatchObject({
+      id: 5,
+      facility_id: 4,
+      inventory_item_id: 17,
+    });
 
-    expect(queryRawUnsafeMock.mock.calls[0][0]).toContain('SELECT id, tenant_id');
+    expect(queryRawUnsafeMock.mock.calls[0][0]).toContain('SELECT item.id, item.tenant_id');
+    expect(queryRawUnsafeMock.mock.calls[0][0]).toContain("facility.status = 'active'");
     expect(queryRawUnsafeMock.mock.calls[0][0]).not.toContain('case_id');
     expect(queryRawUnsafeMock.mock.calls[0].slice(1)).toEqual([17, TENANT]);
   });
@@ -197,7 +254,7 @@ describe('cath consumable inventory integration', () => {
   test.each([
     ['relink', 18],
     ['removal', null],
-  ])('blocks inventory link %s after tenant-scoped usage exists', async (_label, nextInventoryId) => {
+  ])('blocks inventory link %s once catalog authority is pinned', async (_label, nextInventoryId) => {
     queryRawUnsafeMock
       .mockResolvedValueOnce([{
         id: 5,
@@ -212,7 +269,7 @@ describe('cath consumable inventory integration', () => {
         status: 'active',
         metadata: {},
       }])
-      .mockResolvedValueOnce([{ exists: 1 }]);
+      .mockResolvedValueOnce([]); // no governed recovery command is open
 
     await expect(upsertConsumableCatalogItem({
       tenantId: TENANT,
@@ -224,11 +281,20 @@ describe('cath consumable inventory integration', () => {
     });
 
     expect(queryRawUnsafeMock.mock.calls[1][0]).toContain(
-      'FROM cath_case_consumable_usage',
+      'FROM pharmacy_inventory_authority_recovery_worklist',
     );
+    // Call 1 is now the MED-03 governed-recovery guard, not the usage lookup
+    // this assertion was originally written against, and it spells its
+    // predicate in the compact house style of the 753 authority lane. Pin the
+    // whole tenant/entity/status predicate rather than the tenant clause
+    // alone, so a guard that stopped scoping by entity or stopped restricting
+    // to OPEN recoveries fails here too.
+    expect(queryRawUnsafeMock.mock.calls[1][0]).toContain('tenant_id=$1::uuid');
     expect(queryRawUnsafeMock.mock.calls[1][0]).toContain(
-      'tenant_id = $1::uuid',
+      "entity_type='cath_consumable_catalog'",
     );
+    expect(queryRawUnsafeMock.mock.calls[1][0]).toContain('entity_id=$2::bigint');
+    expect(queryRawUnsafeMock.mock.calls[1][0]).toContain("status='OPEN'");
     expect(queryRawUnsafeMock.mock.calls[1].slice(1)).toEqual([TENANT, 5]);
     expect(queryRawUnsafeMock).toHaveBeenCalledTimes(2);
   });
@@ -237,6 +303,7 @@ describe('cath consumable inventory integration', () => {
     const existing = {
       id: 5,
       tenant_id: TENANT,
+      facility_id: 4,
       inventory_item_id: 17,
       item_name: 'Guidewire',
       category: 'guidewire',
@@ -251,7 +318,15 @@ describe('cath consumable inventory integration', () => {
     };
     queryRawUnsafeMock
       .mockResolvedValueOnce([existing])
-      .mockResolvedValueOnce([{ id: 17, tenant_id: TENANT }])
+      .mockResolvedValueOnce([]) // no governed recovery command is open
+      .mockResolvedValueOnce([{
+        id: 17,
+        tenant_id: TENANT,
+        facility_id: 4,
+        inventory_item_status: 'active',
+        facility_status: 'active',
+      }])
+      .mockResolvedValueOnce([{ uid: ACTOR, role: 'ADMIN', name: 'Cath Admin' }])
       .mockResolvedValueOnce([{ id: 5 }])
       .mockResolvedValueOnce([{
         ...existing,
@@ -270,118 +345,11 @@ describe('cath consumable inventory integration', () => {
       billing_item_code: null,
     }, { actorUid: ACTOR });
 
-    const updateArgs = queryRawUnsafeMock.mock.calls[2].slice(1);
-    expect(updateArgs[5]).toBeNull();
+    const updateArgs = queryRawUnsafeMock.mock.calls[4].slice(1);
     expect(updateArgs[6]).toBeNull();
-    expect(updateArgs[9]).toBeNull();
+    expect(updateArgs[7]).toBeNull();
     expect(updateArgs[10]).toBeNull();
-  });
-
-  test('records wasted usage through the existing inventory ledger as dispose', async () => {
-    const persisted = usage({
-      wasted: true,
-      waste_reason: 'Opened during setup',
-      inventory_decrement_status: 'decremented',
-      inventory_movement_id: 91,
-    });
-    recordMovementMock.mockResolvedValueOnce({ movement: { id: 91 } });
-    queryRawUnsafeMock
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([persisted]);
-
-    const result = await __testing__.applyConsumableInventoryDecrement(usage({
-      wasted: true,
-      waste_reason: 'Opened during setup',
-    }));
-
-    expect(recordMovementMock).toHaveBeenCalledWith(expect.objectContaining({
-      tenantId: TENANT,
-      inventory_item_id: 17,
-      inventory_batch_id: 29,
-      movement_kind: 'dispose',
-      quantity: 1,
-      reference_type: 'cath_consumable_usage',
-      reference_id: '73',
-      performed_by: ACTOR,
-      require_usable_batch: true,
-      expected_batch_number: 'BATCH-29',
-      expected_lot_number: 'LOT-29',
-      expected_expiry_date: '2028-12-31',
-    }));
-    expect(recordMovementMock.mock.calls[0][0].notes).toContain('opened but not used');
-    expect(queryRawUnsafeMock.mock.calls[0].slice(1)).toEqual([
-      TENANT, 73, 'decremented', 91, null,
-    ]);
-    expect(result).toMatchObject({
-      inventory_decrement_status: 'decremented',
-      inventory_movement_id: 91,
-    });
-  });
-
-  test('turns insufficient stock into a persisted warning instead of throwing', async () => {
-    const persisted = usage({
-      inventory_decrement_status: 'insufficient_stock',
-      inventory_warning: 'Insufficient stock; clinical usage was saved and inventory requires reconciliation',
-    });
-    recordMovementMock.mockRejectedValueOnce(new Error('Insufficient stock. Available: 0'));
-    queryRawUnsafeMock
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([persisted]);
-
-    await expect(
-      __testing__.applyConsumableInventoryDecrement(usage()),
-    ).resolves.toMatchObject({
-      inventory_decrement_status: 'insufficient_stock',
-      inventory_warning: expect.stringContaining('clinical usage was saved'),
-    });
-
-    expect(queryRawUnsafeMock.mock.calls[0].slice(1)).toEqual([
-      TENANT,
-      73,
-      'insufficient_stock',
-      null,
-      'Insufficient stock; clinical usage was saved and inventory requires reconciliation',
-    ]);
-    expect(loggerMock.warn).toHaveBeenCalledWith(
-      'Cath consumable inventory decrement failed',
-      expect.objectContaining({ usageId: 73, inventoryBatchId: 29 }),
-    );
-  });
-
-  test('never falls back to FEFO for unresolved batch-tracked lineage', async () => {
-    const unresolved = usage({
-      inventory_batch_id: null,
-      inventory_decrement_status: 'error',
-      inventory_warning: 'Documented batch was not found in inventory',
-    });
-
-    await expect(
-      __testing__.applyConsumableInventoryDecrement(unresolved),
-    ).resolves.toEqual(unresolved);
-
-    expect(recordMovementMock).not.toHaveBeenCalled();
-    expect(reserveStockMock).not.toHaveBeenCalled();
-    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
-  });
-
-  test('never falls back to FEFO when an optional-tracking item documents unresolved lineage', async () => {
-    const unresolved = usage({
-      batch_tracked: false,
-      inventory_batch_id: null,
-      batch_number: 'MANUAL-BATCH',
-      lot_number: null,
-      expiry_date: '2028-12-31',
-      inventory_decrement_status: 'error',
-      inventory_warning: 'Documented batch was not found in inventory',
-    });
-
-    await expect(
-      __testing__.applyConsumableInventoryDecrement(unresolved),
-    ).resolves.toEqual(unresolved);
-
-    expect(recordMovementMock).not.toHaveBeenCalled();
-    expect(reserveStockMock).not.toHaveBeenCalled();
-    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+    expect(updateArgs[11]).toBeNull();
   });
 
   test.each([
@@ -397,8 +365,8 @@ describe('cath consumable inventory integration', () => {
     ],
     [
       { status: 'in_stock', is_expired: false, remaining_quantity: 0.5 },
-      'insufficient_stock',
-      /without a stock decrement/i,
+      'pending',
+      /reconciliation will be materialized/i,
     ],
   ])('preflights exact batch availability without blocking documentation', (
     batch,
@@ -469,17 +437,28 @@ describe('cath consumable reporting and wire shaping', () => {
 
   test('uses the Asia/Kolkata clinical date when offering usable batches', async () => {
     const batchQuery = jest.fn()
-      .mockResolvedValueOnce([{ id: 5, inventory_item_id: 17 }])
+      .mockResolvedValueOnce([{ id: 19, patient_uid: ACTOR, facility_id: 4 }])
+      .mockResolvedValueOnce([{
+        id: 5,
+        facility_id: 4,
+        inventory_item_id: 17,
+        status: 'active',
+        inventory_facility_id: 4,
+        inventory_item_status: 'active',
+        inventory_facility_status: 'active',
+      }])
       .mockResolvedValueOnce([]);
 
     await listCatalogBatches(5, {
       tenantId: TENANT,
+      caseId: 19,
       db: { $queryRawUnsafe: batchQuery },
     });
 
-    expect(batchQuery.mock.calls[1][0]).toContain(
+    expect(batchQuery.mock.calls[2][0]).toContain(
       "expiry_date >= (NOW() AT TIME ZONE 'Asia/Kolkata')::date",
     );
+    expect(batchQuery.mock.calls[2].slice(1)).toEqual([TENANT, 17, 4]);
   });
 
   test('catalog search covers billing mappings and inventory display names', async () => {
@@ -488,11 +467,33 @@ describe('cath consumable reporting and wire shaping', () => {
     await listConsumableCatalog({
       tenantId: TENANT,
       q: 'owner code',
+      facilityId: 4,
       db: { $queryRawUnsafe: catalogQuery },
     });
 
     expect(catalogQuery.mock.calls[0][0]).toContain("LOWER(COALESCE(c.billing_item_code, ''))");
     expect(catalogQuery.mock.calls[0][0]).toContain("LOWER(COALESCE(i.display_name, ''))");
+    expect(catalogQuery.mock.calls[0].slice(1, 3)).toEqual([TENANT, 4]);
+  });
+
+  test('case-scoped catalog reads exclude stale or cross-facility inventory mappings', async () => {
+    const catalogQuery = jest.fn()
+      .mockResolvedValueOnce([{ id: 19, patient_uid: ACTOR, facility_id: 4 }])
+      .mockResolvedValueOnce([]);
+
+    await listConsumableCatalog({
+      tenantId: TENANT,
+      caseId: 19,
+      db: { $queryRawUnsafe: catalogQuery },
+    });
+
+    const sql = catalogQuery.mock.calls[1][0];
+    expect(sql).toContain('c.facility_id = $2::int');
+    expect(sql).toContain("c.status = 'active'");
+    expect(sql).toContain("i.status = 'active'");
+    expect(sql).toContain('i.facility_id = c.facility_id');
+    expect(sql).toContain("f.status = 'active'");
+    expect(catalogQuery.mock.calls[1].slice(1, 3)).toEqual([TENANT, 4]);
   });
 
   test('returns tenant-scoped clinician attribution with case usage', async () => {

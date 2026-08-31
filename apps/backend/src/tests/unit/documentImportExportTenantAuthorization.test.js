@@ -67,34 +67,23 @@ describe('document import/export tenant authorization', () => {
     }
   });
 
-  it('rejects imported FHIR resources that reference a patient outside the tenant', async () => {
-    prismaMock.$queryRawUnsafe.mockResolvedValueOnce([]);
-
-    const result = await importFhirBundle({
+  it('keeps external clinical assertions behind the governed promotion gate', async () => {
+    await expect(importFhirBundle({
       resourceType: 'Bundle',
       entry: [{
         resource: {
           resourceType: 'Condition',
           id: 'condition-1',
           subject: { reference: `Patient/${PATIENT_UID}` },
-          code: { text: 'Cross-tenant condition' },
+          code: { text: 'External condition' },
         },
       }],
-    }, IMPORTER_UID, { tenantId: TENANT });
-
-    expect(result.imported).toBe(0);
-    expect(result.errors).toEqual([
-      expect.objectContaining({
-        resource: 'Condition',
-        id: 'condition-1',
-        error: 'Imported resource references a patient outside this tenant',
-      }),
-    ]);
-
-    expect(prismaMock.$queryRawUnsafe).toHaveBeenCalledTimes(1);
-    const [sql, patientUid, tenantId] = prismaMock.$queryRawUnsafe.mock.calls[0];
-    expect(String(sql)).toMatch(/tenant_id/i);
-    expect(patientUid).toBe(PATIENT_UID);
-    expect(tenantId).toBe(TENANT);
+    }, IMPORTER_UID, {
+      tenantId: TENANT,
+      authority: { patientUid: PATIENT_UID },
+    })).rejects.toMatchObject({
+      code: 'IMPORT_CLINICAL_ASSERTION_REVIEW_REQUIRED',
+    });
+    expect(prismaMock.$queryRawUnsafe).not.toHaveBeenCalled();
   });
 });

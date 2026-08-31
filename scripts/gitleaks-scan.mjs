@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-import { existsSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import process from 'node:process';
@@ -86,5 +87,30 @@ if (mode === 'worktree') {
   process.exit(2);
 }
 
-const result = run(gitleaksBin, args);
-process.exit(result.status ?? 1);
+const reportDir = mkdtempSync(join(tmpdir(), 'vh-gitleaks-'));
+const reportPath = join(reportDir, 'report.json');
+
+try {
+  const result = run(gitleaksBin, [
+    ...args,
+    '--report-format',
+    'json',
+    '--report-path',
+    reportPath,
+  ]);
+
+  if (result.status !== 0 && existsSync(reportPath)) {
+    const findings = JSON.parse(readFileSync(reportPath, 'utf8'));
+    const safeFindings = findings.map((finding) => ({
+      ruleId: finding.RuleID,
+      file: finding.File,
+      line: finding.StartLine,
+      commit: finding.Commit || undefined,
+    }));
+    console.error(`Gitleaks safe findings: ${JSON.stringify(safeFindings)}`);
+  }
+
+  process.exitCode = result.status ?? 1;
+} finally {
+  rmSync(reportDir, { recursive: true, force: true });
+}

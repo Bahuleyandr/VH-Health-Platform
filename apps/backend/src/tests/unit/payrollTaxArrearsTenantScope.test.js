@@ -11,6 +11,10 @@ const txMock = {
 };
 const prismaMock = {};
 const setTenantTx = jest.fn(async (_tenantId, fn) => fn(txMock));
+// The arrears lane also scopes reads through setTenant, so the factory below
+// has to export it or the service fails to link. Same shape as setTenantTx:
+// run the callback against the mock client rather than stubbing it away.
+const setTenant = jest.fn(async (_tenantId, fn) => fn(txMock));
 const requireTenantId = jest.fn((tenantId) => {
   if (!tenantId) {
     const error = new Error('Tenant context required');
@@ -20,9 +24,23 @@ const requireTenantId = jest.fn((tenantId) => {
   return tenantId;
 });
 
+// #940 made arrears a durable command: it refuses to run without a command
+// identity, and claims its work item under an ACTIVE-tenant probe before it
+// reads the revision. These fixtures supply both rather than relaxing either.
+const ARREARS_COMMAND = {
+  actorUid: '8f000000-0000-4000-8000-0000000000aa',
+  commandKey: 'tax-arrears-tenant-scope-fixture',
+  requestBodySha256: 'a'.repeat(64),
+};
+
+/** Find a recorded $queryRawUnsafe call by a fragment of its SQL. */
+function callMatching(fragment) {
+  return queryRawUnsafe.mock.calls.find(([sql]) => String(sql).includes(fragment));
+}
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: prismaMock,
   setTenantTx,
+  setTenant,
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({
@@ -117,6 +135,19 @@ describe('payroll annual tax summary tenant scope', () => {
   });
 });
 
+// NOTE — two cases that lived here were MOVED, not dropped:
+//   'rejects a revision identity that is not visible in the resolved tenant'
+//   'reads the revision and every payslip in one tenant transaction ...'
+// They mocked $queryRawUnsafe and asserted the service's internal call ORDER.
+// Arrears is now a durable command (admin-authority probe, command receipt,
+// work-item claim, tenant-active check, revision-type validation) all ahead of
+// the revision read, so that model no longer describes the lane and the cases
+// could only be kept alive by mirroring the implementation.
+// Both invariants are proven in src/tests/salary-revision-tenant.deep.test.js
+// ('applies, replays and denies a cross-tenant arrears command') against a real
+// database over HTTP: a foreign tenant's admin is denied and writes nothing,
+// and the owning admin stamps exactly one salary_arrears row carrying its own
+// tenant_id. That is strictly stronger than the mocks removed here.
 describe('salary arrears tenant scope', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -131,63 +162,4 @@ describe('salary arrears tenant scope', () => {
     expect(queryRawUnsafe).not.toHaveBeenCalled();
   });
 
-  it('rejects a revision identity that is not visible in the resolved tenant', async () => {
-    queryRawUnsafe.mockResolvedValueOnce([]);
-
-    await expect(calculateArrears(41, TENANT_ID)).rejects.toMatchObject({
-      code: 'SALARY_REVISION_NOT_FOUND',
-      statusCode: 404,
-    });
-
-    const [revisionSql, ...revisionParams] = queryRawUnsafe.mock.calls[0];
-    expect(revisionSql).toContain('WHERE tenant_id = $1::uuid AND id = $2');
-    expect(revisionParams).toEqual([TENANT_ID, 41]);
-    expect(salaryArrearsCreate).not.toHaveBeenCalled();
-  });
-
-  it('reads the revision and every payslip in one tenant transaction and stamps the arrears row', async () => {
-    queryRawUnsafe.mockImplementation(async (sql) => {
-      if (sql.includes('FROM salary_revisions')) {
-        return [{
-          id: 41,
-          staff_uid: STAFF_UID,
-          current_basic: '40000.00',
-          proposed_basic: '45000.00',
-          effective_from: new Date('2026-01-01T00:00:00.000Z'),
-          applied_at: new Date('2026-04-15T00:00:00.000Z'),
-          status: 'applied',
-        }];
-      }
-      if (sql.includes('FROM payslips')) return [];
-      throw new Error(`Unexpected query: ${sql}`);
-    });
-    salaryArrearsCreate.mockResolvedValueOnce({
-      id: 51,
-      staff_uid: STAFF_UID,
-      revision_id: 41,
-      arrears_amount: '15000.00',
-      status: 'pending',
-    });
-
-    const result = await calculateArrears(41, TENANT_ID);
-
-    expect(setTenantTx).toHaveBeenCalledTimes(1);
-    expect(setTenantTx.mock.calls[0][0]).toBe(TENANT_ID);
-    const payslipCalls = queryRawUnsafe.mock.calls.filter(([sql]) => sql.includes('FROM payslips'));
-    expect(payslipCalls).toHaveLength(3);
-    for (const [sql, tenantId, staffUid] of payslipCalls) {
-      expect(sql).toContain('WHERE tenant_id = $1::uuid AND staff_uid = $2::uuid');
-      expect(tenantId).toBe(TENANT_ID);
-      expect(staffUid).toBe(STAFF_UID);
-    }
-    expect(salaryArrearsCreate).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        tenant_id: TENANT_ID,
-        staff_uid: STAFF_UID,
-        revision_id: 41,
-        arrears_amount: 15000,
-      }),
-    }));
-    expect(result).toMatchObject({ arrears_amount: 15000, months: 3 });
-  });
 });

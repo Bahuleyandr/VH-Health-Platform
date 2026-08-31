@@ -12,9 +12,23 @@ jest.unstable_mockModule('../../services/staff/payrollService.js', () => ({
   signPayrollRun: jest.fn(),
   generateAnnualTaxSummary: jest.fn(),
   calculateArrears: jest.fn(),
+  // Controller narrows on `err instanceof SalaryArrearsCommandError` to pick the
+  // status code, so the mock has to be a real class, not a jest.fn().
+  SalaryArrearsCommandError: class SalaryArrearsCommandError extends Error {
+    constructor(message, statusCode = 409) {
+      super(message);
+      this.name = 'SalaryArrearsCommandError';
+      this.statusCode = statusCode;
+    }
+  },
 }));
+const prismaMock = { $queryRawUnsafe: jest.fn(), $executeRawUnsafe: jest.fn() };
+// payrollController reaches for setTenant on the arrears work-item paths; hand
+// the callback the same stub client so a tenant-scoped read behaves like a plain
+// one here.
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: { $queryRawUnsafe: jest.fn(), $executeRawUnsafe: jest.fn() },
+  default: prismaMock,
+  setTenant: jest.fn(async (_tenantId, fn) => fn(prismaMock)),
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },

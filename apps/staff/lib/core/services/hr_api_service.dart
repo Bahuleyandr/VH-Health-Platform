@@ -80,6 +80,7 @@ class HrApiService {
   /// so it returned `Cannot GET /api/v1/staff` (404). The actual
   /// listing endpoint is `/staff/list`.
   static Future<List<dynamic>> getStaffList({
+    String? role,
     String? department,
     String? search,
     int page = 1,
@@ -91,6 +92,9 @@ class HrApiService {
       'page': page.toString(),
       'limit': limit.toString(),
     };
+    if (role != null && role.trim().isNotEmpty) {
+      query['role'] = role.trim().toUpperCase();
+    }
     if (department != null && department.trim().isNotEmpty) {
       query['department'] = department.trim();
     }

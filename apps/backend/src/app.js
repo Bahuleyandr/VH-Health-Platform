@@ -71,6 +71,7 @@ import {
   BILLING_V2_ROUTE_ROLES,
   BLOOD_BANK_ROUTE_ROLES,
   BURN_ROUTE_ROLES,
+  CATH_INVENTORY_RECONCILIATION_ROUTE_ROLES,
   CATH_LAB_ROUTE_ROLES,
   CARE_PATHWAY_ROUTE_ROLES,
   COLD_CHAIN_ROUTE_ROLES,
@@ -180,6 +181,19 @@ import engagementRoutes from './routes/engagement/engagementRoutes.js';
 import patientSearchRoutes from './routes/patient/patientSearchRoutes.js';
 import patientFlowRoutes from './routes/patientFlow/kioskCheckinRoutes.js';
 import pharmacyRoutes from './routes/pharmacy/index.js';
+import wardIndentRoutes, {
+  WARD_INDENT_HOST_ROLES,
+} from './routes/pharmacy/wardIndentRoutes.js';
+import {
+  PHARMACY_DELIVERY_ASSIGNED_ROLES,
+  PHARMACY_DELIVERY_CUSTODY_ROLES,
+  PHARMACY_DELIVERY_INCHARGE_ROLES,
+  pharmacyAssignedDeliveryRoutes,
+  pharmacyDeliveryCompletionRoutes,
+  pharmacyDeliveryHandoffReissueRoutes,
+  pharmacyDeliveryReturnCompletionRoutes,
+  pharmacyDeliveryReturnRequestRoutes,
+} from './routes/pharmacy/orderRoutes.js';
 import {
   COUNTER_SALE_APPROVAL_HOST_ROLES,
   pharmacyCounterSaleWitnessApprovalRoutes,
@@ -189,9 +203,11 @@ import {
   pharmacySubstitutionWitnessApprovalRoutes,
 } from './routes/pharmacy/dispenseSubstitutionWitnessRoutes.js';
 import pharmacyInventoryV2Routes, {
+  pharmacyInventoryDisposalWitnessApprovalRoutes,
   pharmacyInventoryMovementWitnessApprovalRoutes,
   pharmacyInventoryWitnessApprovalRoutes,
   PHARMACY_CONTROLLED_DISPENSE_WITNESS_ROLES,
+  PHARMACY_INVENTORY_DISPOSAL_APPROVAL_HOST_ROLES,
 } from './routes/pharmacy/inventoryV2Routes.js';
 import pharmacySupplyRoutes from './routes/admin/pharmacySupplyRoutes.js';
 import prescriptionRoutes from './routes/prescription/index.js';
@@ -307,6 +323,7 @@ import birthNotificationRoutes from './routes/clinical/birthNotificationRoutes.j
 import publicHealthRoutes from './routes/publicHealth/publicHealthRoutes.js';
 import dialysisRoutes from './routes/clinical/dialysisRoutes.js';
 import cathLabRoutes from './routes/clinical/cathLabRoutes.js';
+import cathInventoryReconciliationRoutes from './routes/clinical/cathInventoryReconciliationRoutes.js';
 import radiationOncologyRoutes from './routes/clinical/radiationOncologyRoutes.js';
 import bloodBankRoutes from './routes/bloodbank/bloodBankRoutes.js';
 
@@ -1125,6 +1142,18 @@ app.use(
   pharmacySubstitutionWitnessApprovalRoutes,
 );
 app.use(
+  '/api/v1/pharmacy/inventory/v2/disposals/witness-approvals/:id/approve',
+  patientRateLimiter,
+  requireRole(...PHARMACY_INVENTORY_DISPOSAL_APPROVAL_HOST_ROLES),
+  pharmacyInventoryDisposalWitnessApprovalRoutes,
+);
+app.use(
+  '/api/v1/pharmacy-orders/inventory/v2/disposals/witness-approvals/:id/approve',
+  patientRateLimiter,
+  requireRole(...PHARMACY_INVENTORY_DISPOSAL_APPROVAL_HOST_ROLES),
+  pharmacyInventoryDisposalWitnessApprovalRoutes,
+);
+app.use(
   '/api/v1/pharmacy/inventory/v2/controlled-dispense/witness-approvals/:id/approve',
   patientRateLimiter,
   requireRole(...PHARMACY_CONTROLLED_DISPENSE_WITNESS_ROLES),
@@ -1151,7 +1180,106 @@ app.use(
 app.use('/api/v1/pharmacy/inventory/v2', patientRateLimiter, requireRole(...PHARMACY_INVENTORY_PARENT_ROLES), pharmacyInventoryV2Routes);
 app.use('/api/v1/pharmacy-orders/inventory/v2', patientRateLimiter, requireRole(...PHARMACY_INVENTORY_PARENT_ROLES), pharmacyInventoryV2Routes);
 app.use('/api/v1/pharmacy-supply', adminRateLimiter, requireRole(...PHARMACY_SUPPLY_ROUTE_ROLES), pharmacySupplyRoutes);
+// Ward indents carry narrower per-operation role and patient guards. Mount
+// their exact subtree before the broad pharmacy-order host so emergency
+// receipt and stores/supply roles can reach only the operations explicitly
+// granted inside wardIndentRoutes.
+app.use('/api/v1/pharmacy-orders/ward-indents', patientRateLimiter, requireRole(...WARD_INDENT_HOST_ROLES), phiAccessLogger('PHARMACY_ORDER'), wardIndentRoutes);
+app.use('/api/v1/pharmacy/ward-indents', patientRateLimiter, requireRole(...WARD_INDENT_HOST_ROLES), phiAccessLogger('PHARMACY_ORDER'), wardIndentRoutes);
 
+// Delivery custody sits on EXACT, NON-OVERLAPPING full-path mounts, each
+// carrying its own mount-level requireRole — the same shape as the
+// witness-approval mounts above. A prefix mount on
+// `/api/v1/pharmacy-orders/orders` would sit over the ENTIRE order lifecycle
+// (routes/pharmacy/index.js mounts orderRoutes at `/orders`), so a mount-level
+// role gate there would 403 every non-delivery role out of place/my/queue/sla/
+// confirm/verify/preparing/dispatch/dispense/cancel — and omitting the gate to
+// avoid that lockout is not an option either: it fails the Phase-3 RBAC
+// coverage gate (src/tests/route-role-coverage.test.js), and every unmatched
+// request would fall through to the broad pharmacy-orders mount below and run
+// patientRateLimiter and phiAccessLogger('PHARMACY_ORDER') a SECOND time.
+// phiAccessLogger registers a fresh res.on('finish') per invocation and does
+// not dedupe (middleware/phiAccessMiddleware.js), so the whole lifecycle would
+// write two rows into the PHI trail HIPAA breach detection reads, and the
+// single shared patientRateLimiter instance would double-count.
+// Exact mounts carry no fall-through traffic, so each request is gated, PHI
+// logged, and rate limited exactly once. No client-visible path moves: the
+// staff app calls /pharmacy-orders/orders/{assigned,:id/delivered,
+// :id/delivery-handoff/reissue,:id/delivery-return/*}
+// (apps/staff/lib/core/services/pharmacy_api_service.dart), and the
+// /api/v1/pharmacy alias set is registered because the OpenAPI source keys
+// every pharmacy-order operation under BOTH prefixes
+// (scripts/openapi/schemas/pharmacy.mjs — aliasOps/PREFIXES).
+app.use(
+  '/api/v1/pharmacy-orders/orders/assigned',
+  patientRateLimiter,
+  requireRole(...PHARMACY_DELIVERY_ASSIGNED_ROLES),
+  phiAccessLogger('PHARMACY_ORDER'),
+  pharmacyAssignedDeliveryRoutes,
+);
+app.use(
+  '/api/v1/pharmacy/orders/assigned',
+  patientRateLimiter,
+  requireRole(...PHARMACY_DELIVERY_ASSIGNED_ROLES),
+  phiAccessLogger('PHARMACY_ORDER'),
+  pharmacyAssignedDeliveryRoutes,
+);
+app.use(
+  '/api/v1/pharmacy-orders/orders/:id/delivered',
+  patientRateLimiter,
+  requireRole(...PHARMACY_DELIVERY_CUSTODY_ROLES),
+  phiAccessLogger('PHARMACY_ORDER'),
+  pharmacyDeliveryCompletionRoutes,
+);
+app.use(
+  '/api/v1/pharmacy/orders/:id/delivered',
+  patientRateLimiter,
+  requireRole(...PHARMACY_DELIVERY_CUSTODY_ROLES),
+  phiAccessLogger('PHARMACY_ORDER'),
+  pharmacyDeliveryCompletionRoutes,
+);
+app.use(
+  '/api/v1/pharmacy-orders/orders/:id/delivery-handoff/reissue',
+  patientRateLimiter,
+  requireRole(...PHARMACY_DELIVERY_INCHARGE_ROLES),
+  phiAccessLogger('PHARMACY_ORDER'),
+  pharmacyDeliveryHandoffReissueRoutes,
+);
+app.use(
+  '/api/v1/pharmacy/orders/:id/delivery-handoff/reissue',
+  patientRateLimiter,
+  requireRole(...PHARMACY_DELIVERY_INCHARGE_ROLES),
+  phiAccessLogger('PHARMACY_ORDER'),
+  pharmacyDeliveryHandoffReissueRoutes,
+);
+app.use(
+  '/api/v1/pharmacy-orders/orders/:id/delivery-return/request',
+  patientRateLimiter,
+  requireRole(...PHARMACY_DELIVERY_CUSTODY_ROLES),
+  phiAccessLogger('PHARMACY_ORDER'),
+  pharmacyDeliveryReturnRequestRoutes,
+);
+app.use(
+  '/api/v1/pharmacy/orders/:id/delivery-return/request',
+  patientRateLimiter,
+  requireRole(...PHARMACY_DELIVERY_CUSTODY_ROLES),
+  phiAccessLogger('PHARMACY_ORDER'),
+  pharmacyDeliveryReturnRequestRoutes,
+);
+app.use(
+  '/api/v1/pharmacy-orders/orders/:id/delivery-return/complete',
+  patientRateLimiter,
+  requireRole(...PHARMACY_DELIVERY_INCHARGE_ROLES),
+  phiAccessLogger('PHARMACY_ORDER'),
+  pharmacyDeliveryReturnCompletionRoutes,
+);
+app.use(
+  '/api/v1/pharmacy/orders/:id/delivery-return/complete',
+  patientRateLimiter,
+  requireRole(...PHARMACY_DELIVERY_INCHARGE_ROLES),
+  phiAccessLogger('PHARMACY_ORDER'),
+  pharmacyDeliveryReturnCompletionRoutes,
+);
 // Re-audit M: the PHARMACY_ORDER patient-access guard moved INTO the router
 // (per-route selectors — see routes/pharmacy/pharmacyOrderPatientGuards.js);
 // the mount-level guard never resolved path-keyed subjects. phiAccessLogger
@@ -1441,6 +1569,7 @@ rewriteToMarPrefix.__openapiSkipMount = true;
 app.use(
   '/api/v1/emr/mar',
   requireRole(...CLINICAL_STAFF_ROLES),
+  sanitizeAllBodyStrings,
   patientAccessGuard('CLINICAL_WORKFLOW'),
   phiAccessLogger('CLINICAL_WORKFLOW'),
   rewriteToMarPrefix,
@@ -1449,6 +1578,7 @@ app.use(
 app.use(
   '/api/v1/nursing/mar',
   requireRole(...CLINICAL_STAFF_ROLES),
+  sanitizeAllBodyStrings,
   patientAccessGuard('CLINICAL_WORKFLOW'),
   phiAccessLogger('CLINICAL_WORKFLOW'),
   rewriteToMarPrefix,
@@ -1851,6 +1981,13 @@ app.use('/api/v1/dialysis', requireRole(...DIALYSIS_ROUTE_ROLES), phiAccessLogge
 // Re-audit M: the CLINICAL_WORKFLOW guard moved INTO cathLabRoutes +
 // cathSchedulingRoutes (per-route case/report selectors; catalogs and the day
 // list stay role-gated).
+app.use(
+  '/api/v1/cath-lab/cases/:caseId/consumables/:usageId/inventory-reconcile',
+  requireRole(...CATH_INVENTORY_RECONCILIATION_ROUTE_ROLES),
+  sanitizeAllBodyStrings,
+  phiAccessLogger('CATH_LAB_INVENTORY_RECONCILIATION'),
+  cathInventoryReconciliationRoutes,
+);
 app.use('/api/v1/cath-lab', requireRole(...CATH_LAB_ROUTE_ROLES), sanitizeAllBodyStrings, phiAccessLogger('CATH_LAB'), cathLabRoutes);
 
 // Blood Bank

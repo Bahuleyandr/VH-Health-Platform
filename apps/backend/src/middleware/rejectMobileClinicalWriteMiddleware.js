@@ -64,20 +64,7 @@ function auditDeniedAttempt(req, reason) {
   });
 }
 
-export function rejectMobileClinicalWrite(req, res, next) {
-  // This is a Staff-app phone-mode policy ONLY (clinical writes are desktop/
-  // tablet Staff app). It must not gate non-staff actors — e.g. a PATIENT
-  // booking their own investigation from the mobile patient app, which is not a
-  // staff clinical write. RBAC (wrapAutoRBAC/requireRole) remains the access
-  // authority for who may reach each route; this guard only constrains the Staff
-  // app's device posture. Without this exemption every mobile/patient-app write
-  // 403s (DEVICE_TYPE_MISSING / CLINICAL_WRITE_DESKTOP_ONLY) — see finding
-  // docs/qa-findings/2026-06-17-patient-investigation-booking-mobile-blocked.md.
-  const role = req.user?.role;
-  if (role && !isStaff(role)) {
-    return next();
-  }
-
+export function enforceStaffClinicalWriteDevicePosture(req, res, next) {
   const got = deviceTypeOf(req);
 
   if (!got) {
@@ -110,6 +97,23 @@ export function rejectMobileClinicalWrite(req, res, next) {
   }
 
   return next();
+}
+
+export function rejectMobileClinicalWrite(req, res, next) {
+  // This is a Staff-app phone-mode policy ONLY (clinical writes are desktop/
+  // tablet Staff app). It must not gate non-staff actors — e.g. a PATIENT
+  // booking their own investigation from the mobile patient app, which is not a
+  // staff clinical write. RBAC (wrapAutoRBAC/requireRole) remains the access
+  // authority for who may reach each route; this guard only constrains the Staff
+  // app's device posture. Without this exemption every mobile/patient-app write
+  // 403s (DEVICE_TYPE_MISSING / CLINICAL_WRITE_DESKTOP_ONLY) — see finding
+  // docs/qa-findings/2026-06-17-patient-investigation-booking-mobile-blocked.md.
+  const role = req.user?.role;
+  if (role && !isStaff(role)) {
+    return next();
+  }
+
+  return enforceStaffClinicalWriteDevicePosture(req, res, next);
 }
 
 export default rejectMobileClinicalWrite;

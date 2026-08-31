@@ -86,11 +86,12 @@ function catalogIdOf(med) {
 }
 
 /** Active-source monograph identities: drug_key, atc_code, aliases. TTL-cached. */
-async function loadMonographIdentities() {
-  if (monographCache.rows && Date.now() - monographCache.loadedAt < MONOGRAPH_CACHE_TTL_MS) {
+async function loadMonographIdentities(db = prisma) {
+  if (db === prisma && monographCache.rows
+    && Date.now() - monographCache.loadedAt < MONOGRAPH_CACHE_TTL_MS) {
     return monographCache.rows;
   }
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await db.$queryRawUnsafe(
     `SELECT m.drug_key, m.atc_code, m.aliases
        FROM drug_kb_monographs m
        JOIN drug_kb_sources s ON s.source_key = m.source_key AND s.is_active`,
@@ -100,7 +101,7 @@ async function loadMonographIdentities() {
     atc_code: row.atc_code ? String(row.atc_code).toUpperCase() : null,
     aliases: (row.aliases || []).map((a) => normalizeIngredient(a)).filter(Boolean),
   }));
-  monographCache = { loadedAt: Date.now(), rows: identities };
+  if (db === prisma) monographCache = { loadedAt: Date.now(), rows: identities };
   return identities;
 }
 
@@ -130,25 +131,46 @@ function ingredientIndex(identities) {
  * @returns {Promise<{enabled: boolean, resolutions: Array<{catalog_id: number,
  *        drug_keys: string[], tier: 'explicit_link'|'atc'|'composition'}|null>|null}>}
  *        `resolutions` is parallel to `medications`; null per med means "no
- *        deterministic resolution — use the substring fallback". Never throws.
+ *        deterministic resolution — use the substring fallback". Strict mode
+ *        throws DRUG_KB_IDENTITY_UNRESOLVED instead of returning fallback gaps.
  */
-export async function resolveDrugKeys({ tenantId, medications = [] } = {}) {
+export async function resolveDrugKeys({
+  tenantId,
+  medications = [],
+  db = prisma,
+  strict = false,
+} = {}) {
   const disabled = { enabled: false, resolutions: null };
   try {
-    if (!tenantId || !Array.isArray(medications) || medications.length === 0) return disabled;
-    if (!isDrugKbDeterministicEnvEnabled()) return disabled;
-    const settings = await getDrugKbSettingsLazy(tenantId);
-    if (!settings.deterministicMatching) return disabled;
+    if (!tenantId || !Array.isArray(medications) || medications.length === 0) {
+      if (strict) {
+        const err = new Error('Tenant and medication catalog authority are required');
+        err.code = 'DRUG_KB_IDENTITY_UNRESOLVED';
+        throw err;
+      }
+      return disabled;
+    }
+    if (!strict) {
+      if (!isDrugKbDeterministicEnvEnabled()) return disabled;
+      const settings = await getDrugKbSettingsLazy(tenantId);
+      if (!settings.deterministicMatching) return disabled;
+    }
 
     const catalogIds = [...new Set(medications.map(catalogIdOf).filter((n) => n !== null))];
     if (catalogIds.length === 0) {
+      if (strict) {
+        const err = new Error('Every medication requires tenant catalog authority');
+        err.code = 'DRUG_KB_IDENTITY_UNRESOLVED';
+        err.catalogIds = medications.map(() => null);
+        throw err;
+      }
       return { enabled: true, resolutions: medications.map(() => null) };
     }
 
     const inList = catalogIds.map((_, i) => `$${i + 2}`).join(', ');
 
     // Tier 1 — explicit link rows (manual | vendor_import), live + not vetoed.
-    const linkRows = await prisma.$queryRawUnsafe(
+    const linkRows = await db.$queryRawUnsafe(
       `SELECT pharmacy_catalog_id, drug_key, link_source, confidence
          FROM drug_kb_catalog_links
         WHERE tenant_id = $1::uuid AND is_active
@@ -157,7 +179,7 @@ export async function resolveDrugKeys({ tenantId, medications = [] } = {}) {
       tenantId, ...catalogIds,
     );
 
-    const identities = await loadMonographIdentities();
+    const identities = await loadMonographIdentities(db);
     const knownKeys = new Set(identities.map((m) => m.drug_key));
     const byAtc = new Map();
     for (const mono of identities) {
@@ -169,7 +191,7 @@ export async function resolveDrugKeys({ tenantId, medications = [] } = {}) {
     // Tier 2 — confirmed ATC bindings on the pharmacy item (bindings are
     // global rows keyed by catalog_id; catalog ids are tenant-scoped rows we
     // already filtered above).
-    const atcRows = await prisma.$queryRawUnsafe(
+    const atcRows = await db.$queryRawUnsafe(
       `SELECT catalog_id, UPPER(code) AS atc_code
          FROM terminology_catalog_bindings
         WHERE catalog_type = 'pharmacy_item' AND system_key = 'ATC'
@@ -182,7 +204,7 @@ export async function resolveDrugKeys({ tenantId, medications = [] } = {}) {
     });
 
     // Tier 3 — composition ingredients of the catalog rows.
-    const compositionRows = await prisma.$queryRawUnsafe(
+    const compositionRows = await db.$queryRawUnsafe(
       `SELECT pc.id AS catalog_id, dc.active_ingredients
          FROM pharmacy_catalog pc
          JOIN drug_compositions dc ON dc.id = pc.composition_id
@@ -227,8 +249,11 @@ export async function resolveDrugKeys({ tenantId, medications = [] } = {}) {
       if (catalogId === null) return null;
       const explicit = explicitByCatalog.get(catalogId);
       // An explicit link is authoritative even when its key is not (yet) in
-      // an active KB source — the engine simply finds no facts for it.
+      // an active KB source for legacy/non-strict callers. Pharmacist strict
+      // resolution requires every explicit key to exist in the pinned active
+      // KB revision; otherwise "resolved" would silently mean no facts.
       if (explicit && explicit.size > 0) {
+        if (strict && [...explicit].some((key) => !knownKeys.has(key))) return null;
         return { catalog_id: catalogId, drug_keys: [...explicit], tier: 'explicit_link' };
       }
       const atc = atcByCatalog.get(catalogId);
@@ -243,15 +268,26 @@ export async function resolveDrugKeys({ tenantId, medications = [] } = {}) {
       return null;
     };
 
+    const resolutions = medications.map((med) => {
+      const resolution = resolveOne(catalogIdOf(med));
+      if (!resolution || resolution.drug_keys.length === 0) return null;
+      return resolution;
+    });
+    if (strict && resolutions.some((resolution) => resolution == null)) {
+      const unresolvedCatalogIds = medications
+        .filter((_med, index) => resolutions[index] == null)
+        .map(catalogIdOf);
+      const err = new Error('One or more medications have no deterministic drug knowledge identity');
+      err.code = 'DRUG_KB_IDENTITY_UNRESOLVED';
+      err.catalogIds = unresolvedCatalogIds;
+      throw err;
+    }
     return {
       enabled: true,
-      resolutions: medications.map((med) => {
-        const resolution = resolveOne(catalogIdOf(med));
-        if (!resolution || resolution.drug_keys.length === 0) return null;
-        return resolution;
-      }),
+      resolutions,
     };
   } catch (err) {
+    if (strict) throw err;
     if (isSchemaMissing(err)) {
       logger.warn('drug_kb_catalog_links unavailable — deterministic matching skipped (migrate 722 to enable)', {
         error: err?.message,

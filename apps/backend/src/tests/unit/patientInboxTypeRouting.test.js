@@ -196,6 +196,13 @@ const NOTIFICATION_ROW_WRITERS = Object.freeze({
   'services/notification/adminNotificationService.js': { sites: 4, disposition: 'operator' },
   'services/notification/notificationService.js': { sites: 2, disposition: 'operator' },
   'services/notification/staffNotificationService.js': { sites: 1, disposition: 'staff' },
+  // The three counter-sale void obligations. Every one of them SELECTs its
+  // recipients FROM users — two by staff role (VOID_APPROVAL_ROLES,
+  // VOID_PAYOUT_ROLES / VOID_REJECTION_REVIEW_ROLES) and the outcome notice by
+  // the requesting staff uid. No patient identity can be selected, so these
+  // never reach the patient inbox and their COUNTER_SALE_VOID_* types are read
+  // by the staff app.
+  'services/pharmacy/counterSaleService.js': { sites: 3, disposition: 'staff' },
   'services/portal/patientPortalService.js': {
     sites: 1,
     disposition: 'patient',

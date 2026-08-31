@@ -101,9 +101,17 @@ function toPositiveInt(value) {
  *
  * @param {string} tenantId  tenant uuid (RLS scope)
  * @param {Array<number|string>} catalogIds  pharmacy_catalog ids
+ * @param {object} [options]
+ * @param {object} [options.db]  Prisma client or transaction client. The
+ *   composition API is OPTIONS-OBJECT shaped ({ db }) — pass a tx client here to
+ *   read inside an open transaction; never pass the client positionally.
  * @returns {Promise<Map<number, object>>} keyed by catalog_id (number). Never throws.
  */
-export async function resolveCompositionIdentitiesByCatalogIds(tenantId, catalogIds) {
+export async function resolveCompositionIdentitiesByCatalogIds(
+  tenantId,
+  catalogIds,
+  { db = prisma } = {},
+) {
   const result = new Map();
 
   if (!tenantId) return result;
@@ -128,7 +136,7 @@ export async function resolveCompositionIdentitiesByCatalogIds(tenantId, catalog
      WHERE pc.tenant_id = $1::uuid AND pc.is_active AND pc.id IN (${inList})`;
 
   try {
-    const rows = await prisma.$queryRawUnsafe(sql, tenantId, ...ids);
+    const rows = await db.$queryRawUnsafe(sql, tenantId, ...ids);
     for (const row of rows) {
       const catalogId = Number(row.catalog_id);
       result.set(catalogId, {
@@ -185,9 +193,12 @@ export async function resolveCompositionIdentitiesByCatalogIds(tenantId, catalog
  *
  * @param {string} tenantId
  * @param {Array<object>} meds
+ * @param {object} [options]
+ * @param {object} [options.db]  Prisma client or transaction client ({ db }
+ *   options-object shape — see resolveCompositionIdentitiesByCatalogIds).
  * @returns {Promise<Array<object>>} never throws
  */
-export async function enrichMedicationsWithComposition(tenantId, meds) {
+export async function enrichMedicationsWithComposition(tenantId, meds, { db = prisma } = {}) {
   if (!Array.isArray(meds) || meds.length === 0) return [];
 
   // Collect catalog ids (accept catalog_id or catalogId), coerce to positive int.
@@ -197,7 +208,7 @@ export async function enrichMedicationsWithComposition(tenantId, meds) {
     if (catalogId !== null) ids.push(catalogId);
   }
 
-  const identities = await resolveCompositionIdentitiesByCatalogIds(tenantId, ids);
+  const identities = await resolveCompositionIdentitiesByCatalogIds(tenantId, ids, { db });
 
   return meds.map((med) => {
     // Strip forged canonical/derived-only fields from EVERY med (never trusted),

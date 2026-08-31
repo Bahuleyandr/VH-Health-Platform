@@ -40,6 +40,22 @@ describe('POST /insurance/claims/:id/payment — overpay guard', () => {
     );
     const staffId = staffRows[0].id;
 
+    // Migration 753 routes every insurance money write through
+    // lockInsuranceFundingPatientTx → resolvePharmacyFundingPatientUidTx, which
+    // serialises the settlement against the ONE active patient the claim names.
+    // The claim's patient_uid therefore has to be a real registered patient in
+    // this tenant, not a bare uuid — seed it the way registration would.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, status, tenant_id, updated_at)
+       VALUES ($1::uuid, $2, 'TPA Overpay Test Patient', 'PATIENT', true, 'active', $3::uuid, NOW())
+       ON CONFLICT (uid) DO UPDATE
+          SET is_active = true, status = 'active', is_deleted = false,
+              merged_into_uid = NULL, updated_at = NOW()`,
+      PATIENT_UID,
+      `9888${Date.now() % 1000000}`.slice(0, 10),
+      TENANT_ID
+    );
+
     const policyRows = await prisma.$queryRawUnsafe(
       `INSERT INTO insurance_policies
          (patient_uid, policy_number, status, tenant_id)
@@ -90,11 +106,13 @@ describe('POST /insurance/claims/:id/payment — overpay guard', () => {
         )
         .catch(() => {});
     }
-    await prisma
-      .$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, STAFF_UID)
-      .catch(() => {});
+    for (const uid of [STAFF_UID, PATIENT_UID]) {
+      await prisma
+        .$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, uid)
+        .catch(() => {});
+    }
     await prisma.$disconnect().catch(() => {});
-  });
+  }, 120_000);
 
   it('rejects paid_amount that exceeds claimed_amount', async () => {
     const res = await request(app)

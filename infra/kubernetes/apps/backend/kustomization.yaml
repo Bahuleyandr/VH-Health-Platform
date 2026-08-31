@@ -22,6 +22,7 @@ labels:
 
 resources:
   - configmap.yaml
+  - payroll-revision-754-acceptance.yaml
   - migration-job.yaml
   - deployment.yaml
   - service.yaml

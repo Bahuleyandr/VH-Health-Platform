@@ -419,6 +419,7 @@ router.post(
         justification: justification ?? null,
         clinicalJustification: clinical_justification ?? null,
         actorUid: req.user?.uid ?? null,
+        tenantId: tenantOf(req),
       });
       return success(res, created, 'Enhancement claim opened', 201);
     } catch (err) {

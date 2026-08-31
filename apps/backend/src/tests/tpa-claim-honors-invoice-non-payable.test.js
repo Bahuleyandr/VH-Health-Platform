@@ -62,6 +62,26 @@ async function addInvoiceLine({ invoiceId, lineTotal, tpaDecision }) {
 
 describe('createClaim — invoice non_payable derivation (H D8)', () => {
   beforeAll(async () => {
+    // Migration 753 gave createClaim real funding authority: it now
+    // serialises on the claim's patient through
+    // lockInsuranceFundingPatientTx → resolvePharmacyFundingPatientUidTx,
+    // which demands patient_uid resolve to exactly ONE `users` row in this
+    // tenant that is role='PATIENT', is_active, status='active', not deleted
+    // and not merged. A fabricated uid with no users row is refused with 409
+    // PHARMACY_FUNDING_PATIENT_IDENTITY_MISMATCH, so the fixture has to
+    // register the patient the way real registration does before it can hang
+    // a policy, an invoice and a claim off them.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, status, tenant_id, updated_at)
+       VALUES ($1::uuid, $2, 'Claim Non-Payable Test Patient', 'PATIENT', true, 'active', $3::uuid, NOW())
+       ON CONFLICT (uid) DO UPDATE
+          SET is_active = true, status = 'active', is_deleted = false,
+              merged_into_uid = NULL, updated_at = NOW()`,
+      PATIENT_UID,
+      `9601${Date.now() % 1000000}`.slice(0, 10),
+      TENANT,
+    );
+
     const pol = await prisma.$queryRawUnsafe(
       `INSERT INTO insurance_policies
          (patient_uid, policy_number, status, tenant_id)
@@ -83,8 +103,9 @@ describe('createClaim — invoice non_payable derivation (H D8)', () => {
     if (policyId) {
       await prisma.$executeRawUnsafe(`DELETE FROM insurance_policies WHERE id = $1::int`, policyId).catch(() => {});
     }
+    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$disconnect().catch(() => {});
-  });
+  }, 120_000);
 
   it('derives non_payable_amount from invoice line tpa_decision=non_payable totals', async () => {
     const invoiceId = await seedInvoice({ total: 100000, idx: 'with-np' });

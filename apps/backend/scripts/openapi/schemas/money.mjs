@@ -16,12 +16,51 @@ const BIGINT_WIRE = {
     },
   ],
 };
+const POSITIVE_BIGINT_WIRE = {
+  oneOf: [
+    { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
+    {
+      type: 'string',
+      pattern: '^[1-9][0-9]*$',
+      description: 'Positive decimal string when the identifier exceeds the JavaScript safe-integer range.',
+    },
+  ],
+};
 const billingErrorResponse = description => ({
   description,
   content: {
     'application/json': { schema: { $ref: '#/components/schemas/BillingErrorResponse' } },
   },
 });
+const billingRefundPayoutErrorResponse = description => ({
+  description,
+  content: {
+    'application/json': {
+      schema: { $ref: '#/components/schemas/BillingRefundPayoutErrorResponse' },
+    },
+  },
+});
+const REFUND_PAYOUT_ERROR_CODES = [
+  'BILLING_REFUND_PAYER_MUST_DIFFER_FROM_APPROVER',
+  'BILLING_REFUND_CASH_DRAWER_REQUIRED',
+  'BILLING_REFUND_CASH_DRAWER_NOT_OPEN',
+  'BILLING_REFUND_CASH_DRAWER_OWNER_MISMATCH',
+  'BILLING_REFUND_CASH_DRAWER_INSUFFICIENT_FUNDS',
+  'BILLING_REFUND_MANUAL_ELECTRONIC_FORBIDDEN',
+  'BILLING_REFUND_PAYOUT_REFERENCE_REQUIRED',
+  'BILLING_REFUND_PAYOUT_REFERENCE_DUPLICATE',
+  'BILLING_REFUND_OFFLINE_ELECTRONIC_EVIDENCE_INVALID',
+  'BILLING_REFUND_PAYOUT_RAIL_CONFLICT',
+  'BILLING_INSURANCE_REFUND_SETTLEMENT_EVIDENCE_REQUIRED',
+];
+const REFUND_PAYOUT_RAILS = ['manual', 'gateway', 'offline_electronic'];
+const REFUND_MODES = [
+  'CASH', 'CARD', 'UPI', 'NETBANKING', 'CHEQUE', 'DD', 'WALLET', 'INSURANCE',
+];
+const SETTLEABLE_REFUND_MODES = [
+  'CASH', 'CARD', 'UPI', 'NETBANKING', 'CHEQUE', 'DD', 'WALLET',
+];
+const OFFLINE_ELECTRONIC_REFUND_MODES = ['CARD', 'UPI', 'NETBANKING', 'WALLET'];
 const idempotencyHeader = {
   name: 'Idempotency-Key',
   in: 'header',
@@ -44,6 +83,11 @@ export const schemas = {
       error: { type: 'string' },
       code: { type: 'string' },
     },
+  },
+  BillingRefundPayoutErrorResponse: {
+    allOf: [{ $ref: '#/components/schemas/BillingErrorResponse' }],
+    description: 'Billing error envelope. The extension lists stable refund-payout domain codes; authentication and infrastructure failures can use their platform-wide codes.',
+    'x-stable-error-codes': REFUND_PAYOUT_ERROR_CODES,
   },
   // ---- GL ledger reports (read-only; ledgerReportsService.js) ----
   TrialBalanceAccount: {
@@ -468,7 +512,8 @@ export const schemas = {
   InvoiceV2: {
     type: 'object', additionalProperties: false,
     required: ['id', 'patient_uid', 'invoice_type', 'subtotal', 'cgst_amount', 'sgst_amount',
-      'igst_amount', 'discount_amount', 'total_amount', 'amount_paid', 'amount_due', 'status', 'tenant_id'],
+      'igst_amount', 'discount_amount', 'total_amount', 'credit_note_amount', 'amount_paid',
+      'amount_due', 'status', 'tenant_id'],
     properties: {
       id: { type: 'integer' },
       invoice_number: { type: 'string', nullable: true },
@@ -490,6 +535,7 @@ export const schemas = {
       discount_reason: { type: 'string', nullable: true },
       discount_approved_by: { type: 'string', format: 'uuid', nullable: true },
       total_amount: { type: MT },
+      credit_note_amount: { type: MT },
       amount_paid: { type: MT },
       amount_due: { type: MT },
       status: { type: 'string' },
@@ -506,6 +552,227 @@ export const schemas = {
   },
   InvoiceV2Response: envelope('InvoiceV2'),
 
+  PharmacyFundingRecoveryRecord: {
+    type: 'object',
+    additionalProperties: true,
+    required: [
+      'invoice_item_id', 'invoice_id', 'patient_uid', 'invoice_status', 'line_total',
+      'source_authority_version', 'source_authority_sha256',
+    ],
+    properties: {
+      task_id: { type: 'integer', nullable: true },
+      task_status: { type: 'string', nullable: true },
+      assigned_to_role: {
+        type: 'string', nullable: true,
+        enum: ['INSURANCE_COORDINATOR', 'FINANCE_INCHARGE', null],
+      },
+      related_resource_type: {
+        type: 'string', nullable: true,
+        enum: ['pharmacy_tpa_line_decision', 'pharmacy_posted_payment', null],
+      },
+      metadata: { type: 'object', nullable: true, additionalProperties: true },
+      invoice_item_id: { type: 'integer', minimum: 1 },
+      invoice_id: { type: 'integer', minimum: 1 },
+      patient_uid: { type: 'string', format: 'uuid' },
+      invoice_status: { type: 'string' },
+      line_total: { type: MT },
+      source_authority_version: { type: 'integer', minimum: 1 },
+      source_authority_sha256: { type: 'string', pattern: '^[0-9a-f]{64}$' },
+      decision_id: { type: 'integer', nullable: true },
+      claim_id: { type: 'integer', nullable: true },
+      approved_amount: { type: MT, nullable: true },
+      non_payable_amount: { type: MT, nullable: true },
+      reason_code: { type: 'string', nullable: true },
+      reason_text: { type: 'string', nullable: true },
+      recorded_at: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+  PharmacyFundingRecoveryResponse: envelope('PharmacyFundingRecoveryRecord'),
+  PharmacyFundingMaterializeRequest: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      tpa_claim_id: { type: 'integer', minimum: 1, maximum: 2147483647 },
+    },
+  },
+  PharmacyFundingLineDecisionRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'pharmacy_order_id', 'invoice_item_id', 'tpa_claim_id', 'order_version',
+      'order_items_sha256', 'approved_amount', 'non_payable_amount', 'reason_code',
+    ],
+    properties: {
+      pharmacy_order_id: { type: 'integer', minimum: 1, maximum: 2147483647 },
+      invoice_item_id: { type: 'integer', minimum: 1, maximum: 2147483647 },
+      tpa_claim_id: { type: 'integer', minimum: 1, maximum: 2147483647 },
+      order_version: { type: 'integer', minimum: 1, maximum: 2147483647 },
+      order_items_sha256: { type: 'string', pattern: '^[0-9a-f]{64}$' },
+      approved_amount: { type: 'number', minimum: 0 },
+      non_payable_amount: { type: 'number', minimum: 0 },
+      reason_code: {
+        type: 'string',
+        enum: [
+          'room_upgrade', 'over_cap_pharmacy', 'over_cap_consumables', 'non_listed',
+          'partial_approval', 'co_pay', 'sub_limit', 'pre_existing_waiting', 'other',
+        ],
+      },
+      reason_text: { type: 'string', nullable: true, maxLength: 2000 },
+    },
+  },
+  PharmacyFundingLineDecisionResult: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['replayed'],
+    properties: {
+      replayed: { type: 'boolean' },
+      status: { type: 'string', nullable: true },
+      decision: { type: 'object', nullable: true, additionalProperties: true },
+      task: { type: 'object', nullable: true, additionalProperties: true },
+      nextTask: { type: 'object', nullable: true, additionalProperties: true },
+      evidence: { type: 'object', additionalProperties: true },
+    },
+  },
+  PharmacyFundingLineDecisionResponse: envelope('PharmacyFundingLineDecisionResult'),
+  PharmacyFundingRetryRequest: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      payment_id: { type: 'integer', minimum: 1, maximum: 2147483647 },
+    },
+  },
+  PharmacyFundingResolution: {
+    type: 'object',
+    additionalProperties: true,
+    required: [
+      'status', 'collectedAmount', 'fundedAmount', 'invoiceId', 'invoiceItemId',
+      'paymentIds',
+    ],
+    properties: {
+      status: { type: 'string', enum: ['funded', 'blocked', 'invalidated', 'closed'] },
+      collectedAmount: { type: 'number', minimum: 0 },
+      fundedAmount: { type: 'number', minimum: 0 },
+      fundingSource: {
+        type: 'string', nullable: true,
+        enum: ['billing_payment', 'tpa_claim', 'mixed', null],
+      },
+      fundingReference: { type: 'string', nullable: true },
+      fundingTpaClaimId: { type: 'integer', nullable: true },
+      invoiceId: { type: 'integer', minimum: 1, nullable: true },
+      invoiceItemId: { type: 'integer', minimum: 1, nullable: true },
+      paymentIds: { type: 'array', items: { type: 'integer', minimum: 1 } },
+      task: { type: 'object', nullable: true, additionalProperties: true },
+      fundingRecovery: {
+        nullable: true,
+        allOf: [{ $ref: '#/components/schemas/PharmacyFundingRecoveryTask' }],
+      },
+      authorityEvidence: { type: 'object', nullable: true, additionalProperties: true },
+      invalidatedAuthority: { type: 'object', nullable: true, additionalProperties: true },
+      retryCommandSha256: { type: 'string', pattern: '^[0-9a-f]{64}$' },
+    },
+  },
+  PharmacyFundingResolutionResponse: envelope('PharmacyFundingResolution'),
+  PharmacyFundingReconciliationCase: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'id', 'pharmacy_order_id', 'task_id', 'status', 'snapshot_sha256',
+      'current_snapshot_sha256', 'current_snapshot', 'active_line_count',
+    ],
+    properties: {
+      id: { type: 'integer', minimum: 1 },
+      tenant_id: { type: 'string', format: 'uuid' },
+      facility_id: { type: 'integer', minimum: 1, nullable: true },
+      patient_uid: { type: 'string', format: 'uuid' },
+      pharmacy_order_id: { type: 'integer', minimum: 1 },
+      task_id: { type: 'integer', minimum: 1 },
+      task_resource_type: { type: 'string', enum: ['pharmacy_funding_reconciliation'] },
+      task_resource_id: { type: 'string' },
+      status: {
+        type: 'string', enum: ['OPEN', 'PENDING_APPROVAL', 'BLOCKED', 'RESOLVED'],
+      },
+      snapshot_sha256: { type: 'string', pattern: '^[0-9a-f]{64}$' },
+      snapshot: { type: 'object', additionalProperties: true },
+      current_snapshot_sha256: { type: 'string', pattern: '^[0-9a-f]{64}$' },
+      current_snapshot: { type: 'object', additionalProperties: true },
+      active_line_count: { type: 'integer', minimum: 0 },
+      proposed_by: { type: 'string', format: 'uuid', nullable: true },
+      proposed_at: { type: 'string', format: 'date-time', nullable: true },
+      approved_by: { type: 'string', format: 'uuid', nullable: true },
+      resolved_at: { type: 'string', format: 'date-time', nullable: true },
+      resolution_path: {
+        type: 'string', nullable: true,
+        enum: [
+          'SAFE_DEACTIVATE_DUPLICATES', 'KEEP_CURRENT_AUTHORITY',
+          'CANCEL_ORDER', 'REBILL', null,
+        ],
+      },
+      keeper_invoice_item_id: { type: 'integer', minimum: 1, nullable: true },
+      proposal_sha256: {
+        type: 'string', pattern: '^[0-9a-f]{64}$', nullable: true,
+      },
+      outcome: { type: 'object', nullable: true, additionalProperties: true },
+      created_at: { type: 'string', format: 'date-time' },
+      updated_at: { type: 'string', format: 'date-time' },
+      task_status: { type: 'string' },
+      assigned_to_role: { type: 'string', enum: ['FINANCE_INCHARGE'] },
+      task_metadata: { type: 'object', additionalProperties: true },
+    },
+  },
+  PharmacyFundingReconciliationCaseResponse: envelope(
+    'PharmacyFundingReconciliationCase',
+  ),
+  PharmacyFundingReconciliationDecisionRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'keeper_invoice_item_id', 'resolution_path', 'expected_snapshot_sha256',
+    ],
+    properties: {
+      keeper_invoice_item_id: { type: 'integer', minimum: 1, maximum: 2147483647 },
+      resolution_path: {
+        type: 'string',
+        enum: [
+          'SAFE_DEACTIVATE_DUPLICATES', 'KEEP_CURRENT_AUTHORITY',
+          'CANCEL_ORDER', 'REBILL',
+        ],
+      },
+      expected_snapshot_sha256: { type: 'string', pattern: '^[0-9a-f]{64}$' },
+    },
+  },
+  PharmacyFundingReconciliationDecisionResult: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['status', 'replayed', 'caseId', 'taskId', 'proposalSha256'],
+    properties: {
+      status: {
+        type: 'string', enum: ['pending_second_approval', 'blocked', 'resolved'],
+      },
+      replayed: { type: 'boolean' },
+      caseId: { type: 'integer', minimum: 1 },
+      taskId: { type: 'integer', minimum: 1 },
+      proposalSha256: { type: 'string', pattern: '^[0-9a-f]{64}$' },
+      snapshotSha256: { type: 'string', pattern: '^[0-9a-f]{64}$' },
+      resolutionPath: {
+        type: 'string',
+        enum: [
+          'SAFE_DEACTIVATE_DUPLICATES', 'KEEP_CURRENT_AUTHORITY',
+          'CANCEL_ORDER', 'REBILL',
+        ],
+      },
+      keeperInvoiceItemId: { type: 'integer', minimum: 1 },
+      blockReason: { type: 'string', nullable: true },
+      deactivatedInvoiceItemIds: {
+        type: 'array', items: { type: 'integer', minimum: 1 },
+      },
+      voidedInvoiceIds: { type: 'array', items: { type: 'integer', minimum: 1 } },
+      terminalCompensation: { type: 'object', nullable: true, additionalProperties: true },
+    },
+  },
+  PharmacyFundingReconciliationDecisionResponse: envelope(
+    'PharmacyFundingReconciliationDecisionResult',
+  ),
+
   TpaUtilisation: {
     type: 'object', additionalProperties: false,
     required: ['root_preauth_id', 'root_preauth_number', 'cumulative_approved', 'total_charged', 'remaining', 'utilisation_pct', 'status'],
@@ -521,7 +788,8 @@ export const schemas = {
   },
   InvoiceV2ListItem: {
     type: 'object', additionalProperties: false,
-    required: ['id', 'patient_uid', 'invoice_type', 'total_amount', 'amount_paid', 'amount_due', 'status', 'tenant_id'],
+    required: ['id', 'patient_uid', 'invoice_type', 'total_amount', 'credit_note_amount',
+      'amount_paid', 'amount_due', 'status', 'tenant_id'],
     properties: {
       id: { type: 'integer' },
       invoice_number: { type: 'string', nullable: true },
@@ -529,6 +797,7 @@ export const schemas = {
       patient_name: { type: 'string', nullable: true },
       invoice_type: { type: 'string' },
       total_amount: { type: MT },
+      credit_note_amount: { type: MT },
       amount_paid: { type: MT },
       amount_due: { type: MT },
       status: { type: 'string' },
@@ -564,6 +833,13 @@ export const schemas = {
       created_at: { type: 'string', format: 'date-time', nullable: true },
       source_ref_type: { type: 'string', nullable: true },
       source_ref_id: { ...BIGINT_WIRE, nullable: true },
+      source_authority_version: { type: 'integer', minimum: 1, nullable: true },
+      source_authority_sha256: {
+        type: 'string', pattern: '^[0-9a-f]{64}$', nullable: true,
+      },
+      source_ref_reconciliation_case_id: { ...BIGINT_WIRE, nullable: true },
+      source_ref_deactivated_at: { type: 'string', format: 'date-time', nullable: true },
+      source_ref_deactivated_by: { type: 'string', format: 'uuid', nullable: true },
       tpa_decision: { type: 'string', nullable: true },
       tpa_non_payable_reason: { type: 'string', nullable: true },
       tpa_decided_at: { type: 'string', format: 'date-time', nullable: true },
@@ -610,6 +886,19 @@ export const schemas = {
       settled_at: { type: 'string', format: 'date-time', nullable: true },
       tenant_id: { type: 'string', format: 'uuid' },
       advance_mode: { type: 'string' },
+      // Migration-753 bridge: a settlement converted from a pharmacy advance
+      // allocation carries its exact evidence lineage; legacy settlements
+      // return all four as null.
+      pharmacy_advance_allocation_id: { type: 'integer', nullable: true },
+      pharmacy_advance_allocation_evidence_sha256: {
+        type: 'string', nullable: true,
+      },
+      pharmacy_advance_conversion_command_sha256: {
+        type: 'string', nullable: true,
+      },
+      pharmacy_advance_conversion_evidence_sha256: {
+        type: 'string', nullable: true,
+      },
     },
   },
   TpaPreauth: {
@@ -626,8 +915,8 @@ export const schemas = {
   },
   InvoiceV2Detail: {
     type: 'object', additionalProperties: false,
-    required: ['id', 'patient_uid', 'invoice_type', 'subtotal', 'total_amount', 'amount_paid',
-      'amount_due', 'status', 'tenant_id', 'items', 'payments', 'advance_settlements'],
+    required: ['id', 'patient_uid', 'invoice_type', 'subtotal', 'total_amount', 'credit_note_amount',
+      'amount_paid', 'amount_due', 'status', 'tenant_id', 'items', 'payments', 'advance_settlements'],
     properties: {
       id: { type: 'integer' },
       invoice_number: { type: 'string', nullable: true },
@@ -649,6 +938,7 @@ export const schemas = {
       discount_reason: { type: 'string', nullable: true },
       discount_approved_by: { type: 'string', format: 'uuid', nullable: true },
       total_amount: { type: MT },
+      credit_note_amount: { type: MT },
       amount_paid: { type: MT },
       amount_due: { type: MT },
       status: { type: 'string' },
@@ -673,7 +963,7 @@ export const schemas = {
   // recomputeInvoiceTotals computes these in JS -> JSON numbers (not Decimal strings).
   InvoiceTotals: {
     type: 'object', additionalProperties: false,
-    required: ['subtotal', 'cgst', 'sgst', 'igst', 'discount', 'total', 'paid', 'due'],
+    required: ['subtotal', 'cgst', 'sgst', 'igst', 'discount', 'total', 'credited', 'paid', 'due'],
     properties: {
       subtotal: { type: 'number' },
       cgst: { type: 'number' },
@@ -681,6 +971,7 @@ export const schemas = {
       igst: { type: 'number' },
       discount: { type: 'number' },
       total: { type: 'number' },
+      credited: { type: 'number' },
       paid: { type: 'number' },
       due: { type: 'number' },
     },
@@ -869,6 +1160,14 @@ export const schemas = {
       tenant_id: { type: 'string', format: 'uuid' },
       created_at: { type: 'string', format: 'date-time' },
       updated_at: { type: 'string', format: 'date-time' },
+      // Migration-753 bridge: an advance collected as an IPD deposit carries its
+      // exact source lineage (all three together, or none — the DB CHECK in the
+      // full lane enforces the pairing; the read path returns them verbatim).
+      ipd_advance_deposit_id: { type: 'integer', nullable: true },
+      ipd_advance_deposit_payment_method: { type: 'string', nullable: true },
+      ipd_advance_deposit_collected_at: {
+        type: 'string', format: 'date-time', nullable: true,
+      },
     },
   },
   AdvanceResponse: envelope('Advance'),
@@ -879,13 +1178,13 @@ export const schemas = {
     type: 'object', additionalProperties: false,
     required: ['id', 'patient_uid', 'amount', 'reason', 'mode', 'approval_status', 'raised_at', 'tenant_id', 'created_at', 'updated_at'],
     properties: {
-      id: { type: 'integer' },
+      id: { type: 'integer', minimum: 1 },
       patient_uid: { type: 'string', format: 'uuid' },
-      invoice_id: { type: 'integer', nullable: true },
-      advance_id: { type: 'integer', nullable: true },
+      invoice_id: { type: 'integer', minimum: 1, nullable: true },
+      advance_id: { type: 'integer', minimum: 1, nullable: true },
       amount: { type: MT },
       reason: { type: 'string' },
-      mode: { type: 'string' },
+      mode: { type: 'string', enum: REFUND_MODES },
       reference: { type: 'string', nullable: true },
       approval_status: { type: 'string', enum: ['PENDING', 'APPROVED', 'REJECTED', 'PAID'] },
       raised_by: { type: 'string', format: 'uuid', nullable: true },
@@ -897,9 +1196,24 @@ export const schemas = {
       rejection_reason: { type: 'string', nullable: true },
       paid_at: { type: 'string', format: 'date-time', nullable: true },
       paid_by: { type: 'string', format: 'uuid', nullable: true },
-      payout_rail: { type: 'string', enum: ['manual', 'gateway'], nullable: true },
+      payout_rail: { type: 'string', enum: REFUND_PAYOUT_RAILS, nullable: true },
       payout_rail_claimed_at: { type: 'string', format: 'date-time', nullable: true },
-      gateway_refund_id: { type: 'integer', nullable: true },
+      gateway_refund_id: { type: 'integer', minimum: 1, nullable: true },
+      cash_drawer_session_id: {
+        ...POSITIVE_BIGINT_WIRE,
+        nullable: true,
+        description: 'Exact same-tenant open drawer bound to a paid CASH refund; null for every other mode.',
+      },
+      counter_sale_void_request_id: {
+        ...POSITIVE_BIGINT_WIRE,
+        nullable: true,
+        description: 'Counter-sale void obligation that owns this refund, when applicable.',
+      },
+      offline_electronic_evidence_id: {
+        ...POSITIVE_BIGINT_WIRE,
+        nullable: true,
+        description: 'Immutable evidence record for the offline_electronic payout rail.',
+      },
       tenant_id: { type: 'string', format: 'uuid' },
       created_at: { type: 'string', format: 'date-time' },
       updated_at: { type: 'string', format: 'date-time' },
@@ -907,6 +1221,173 @@ export const schemas = {
   },
   RefundResponse: envelope('Refund'),
   RefundsListResponse: listEnvelope('Refund'),
+
+  OfflineElectronicRefundEvidence: {
+    type: 'object',
+    additionalProperties: false,
+    description: 'Append-only evidence for a refund executed through an offline terminal, acquirer portal, or provider QR workflow rather than the integrated gateway.',
+    oneOf: [
+      { required: ['original_payment_id'] },
+      { required: ['original_advance_id'] },
+    ],
+    required: [
+      'id', 'tenant_id', 'refund_id', 'mode', 'amount',
+      'provider_name', 'original_payment_reference', 'provider_refund_reference',
+      'provider_refunded_at', 'recorded_by', 'recorded_at',
+    ],
+    properties: {
+      id: POSITIVE_BIGINT_WIRE,
+      tenant_id: { type: 'string', format: 'uuid' },
+      refund_id: { type: 'integer', minimum: 1 },
+      original_payment_id: { type: 'integer', minimum: 1 },
+      original_advance_id: { type: 'integer', minimum: 1, nullable: true },
+      mode: { type: 'string', enum: OFFLINE_ELECTRONIC_REFUND_MODES },
+      amount: { type: MT },
+      provider_name: { type: 'string', minLength: 1, maxLength: 120 },
+      original_payment_reference: { type: 'string', minLength: 1, maxLength: 255 },
+      provider_refund_reference: { type: 'string', minLength: 1, maxLength: 255 },
+      provider_refunded_at: { type: 'string', format: 'date-time' },
+      recorded_by: { type: 'string', format: 'uuid' },
+      recorded_at: { type: 'string', format: 'date-time' },
+    },
+  },
+  RefundOriginalPayment: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'mode', 'reference', 'provider_name'],
+    properties: {
+      id: { type: 'integer', minimum: 1 },
+      mode: { type: 'string', enum: OFFLINE_ELECTRONIC_REFUND_MODES },
+      reference: { type: 'string', minLength: 1, maxLength: 255 },
+      provider_name: { type: 'string', minLength: 1, maxLength: 120, nullable: true },
+    },
+  },
+  RefundVoidRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'id', 'counter_sale_id', 'invoice_id', 'refund_id', 'amount', 'refund_mode',
+      'disposition', 'reason', 'status', 'requested_at',
+    ],
+    properties: {
+      id: POSITIVE_BIGINT_WIRE,
+      counter_sale_id: POSITIVE_BIGINT_WIRE,
+      invoice_id: { type: 'integer', minimum: 1 },
+      refund_id: { type: 'integer', minimum: 1 },
+      amount: { type: MT },
+      refund_mode: { type: 'string', enum: REFUND_MODES },
+      disposition: { type: 'string' },
+      reason: { type: 'string' },
+      status: { type: 'string' },
+      requested_at: { type: 'string', format: 'date-time' },
+      last_checked_at: { type: 'string', format: 'date-time', nullable: true },
+      reconciled_at: { type: 'string', format: 'date-time', nullable: true },
+      reconciliation_source: { type: 'string', nullable: true },
+    },
+  },
+  RefundDetail: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['refund', 'workflow_status'],
+    properties: {
+      refund: { $ref: '#/components/schemas/Refund' },
+      void_request: {
+        nullable: true,
+        allOf: [{ $ref: '#/components/schemas/RefundVoidRequest' }],
+      },
+      offline_electronic_evidence: {
+        nullable: true,
+        allOf: [{ $ref: '#/components/schemas/OfflineElectronicRefundEvidence' }],
+      },
+      original_payment: {
+        nullable: true,
+        allOf: [{ $ref: '#/components/schemas/RefundOriginalPayment' }],
+      },
+      workflow_status: {
+        type: 'string',
+        description: 'Staff workflow state derived from refund approval, payout evidence, and any counter-sale void obligation.',
+      },
+      allowed_payout_rails: {
+        type: 'array',
+        uniqueItems: true,
+        items: { type: 'string', enum: REFUND_PAYOUT_RAILS },
+        description: 'Server-derived payout capabilities for this refund. Clients cannot select a rail outside its dedicated payout command.',
+      },
+    },
+  },
+  RefundDetailResponse: envelope('RefundDetail'),
+
+  BillingCreditNoteEvent: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['id', 'credit_note_id', 'event_type', 'actor_uid', 'occurred_at'],
+    properties: {
+      id: BIGINT_WIRE,
+      credit_note_id: BIGINT_WIRE,
+      event_type: { type: 'string', enum: ['raised', 'approved', 'rejected', 'applied'] },
+      actor_uid: { type: 'string', format: 'uuid' },
+      command_key: { type: 'string' },
+      details: { type: 'object', additionalProperties: true },
+      occurred_at: { type: 'string', format: 'date-time' },
+    },
+  },
+  BillingCreditNote: {
+    type: 'object',
+    additionalProperties: true,
+    required: [
+      'id', 'credit_note_number', 'invoice_id', 'patient_uid',
+      'source_financial_event_id', 'amount_minor', 'currency', 'reason',
+      'status', 'raised_by', 'raised_at',
+    ],
+    properties: {
+      id: BIGINT_WIRE,
+      credit_note_number: { type: 'string' },
+      invoice_id: { type: 'integer', minimum: 1 },
+      invoice_number: { type: 'string' },
+      invoice_status: { type: 'string' },
+      patient_uid: { type: 'string', format: 'uuid' },
+      source_financial_event_id: BIGINT_WIRE,
+      amount_minor: BIGINT_WIRE,
+      receivable_credit_minor: BIGINT_WIRE,
+      refund_obligation_minor: BIGINT_WIRE,
+      currency: { type: 'string', minLength: 3, maxLength: 3 },
+      reason: { type: 'string' },
+      status: { type: 'string', enum: ['pending', 'approved', 'rejected', 'applied'] },
+      task_id: { type: 'integer', minimum: 1, nullable: true },
+      refund_id: { type: 'integer', minimum: 1, nullable: true },
+      refund_approval_status: {
+        type: 'string',
+        enum: ['PENDING', 'APPROVED', 'REJECTED', 'PAID'],
+        nullable: true,
+      },
+      refund_payout_rail: {
+        type: 'string',
+        enum: REFUND_PAYOUT_RAILS,
+        nullable: true,
+      },
+      refund: {
+        nullable: true,
+        allOf: [{ $ref: '#/components/schemas/Refund' }],
+      },
+      raised_by: { type: 'string', format: 'uuid' },
+      raised_at: { type: 'string', format: 'date-time' },
+      approved_by: { type: 'string', format: 'uuid', nullable: true },
+      approved_at: { type: 'string', format: 'date-time', nullable: true },
+      rejected_by: { type: 'string', format: 'uuid', nullable: true },
+      rejected_at: { type: 'string', format: 'date-time', nullable: true },
+      rejection_reason: { type: 'string', nullable: true },
+      applied_by: { type: 'string', format: 'uuid', nullable: true },
+      applied_at: { type: 'string', format: 'date-time', nullable: true },
+      ward_indent_id: { type: 'integer', minimum: 1 },
+      ward_indent_item_id: { type: 'integer', minimum: 1 },
+      events: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/BillingCreditNoteEvent' },
+      },
+    },
+  },
+  BillingCreditNoteResponse: envelope('BillingCreditNote'),
+  BillingCreditNotesListResponse: listEnvelope('BillingCreditNote'),
 
   DailyCollectionV2Summary: {
     type: 'object', additionalProperties: false,
@@ -961,7 +1442,8 @@ export const schemas = {
 
   OutstandingBill: {
     type: 'object', additionalProperties: false,
-    required: ['id', 'patient_uid', 'total_amount', 'amount_paid', 'amount_due', 'status', 'days_outstanding'],
+    required: ['id', 'patient_uid', 'total_amount', 'credit_note_amount', 'amount_paid',
+      'amount_due', 'status', 'days_outstanding'],
     properties: {
       id: { type: 'integer' },
       invoice_number: { type: 'string', nullable: true },
@@ -970,6 +1452,7 @@ export const schemas = {
       patient_phone: { type: 'string', nullable: true },
       department: { type: 'string', nullable: true },
       total_amount: { type: MT },
+      credit_note_amount: { type: MT },
       amount_paid: { type: MT },
       amount_due: { type: MT },
       status: { type: 'string' },
@@ -1021,35 +1504,102 @@ export const schemas = {
     },
   },
   RaiseRefundRequest: {
-    type: 'object', additionalProperties: true,
-    description: 'Reverse-engineered from billingV2Service.raiseRefund; not validator-backed.',
+    type: 'object',
+    additionalProperties: false,
+    required: ['amount', 'reason', 'mode'],
+    oneOf: [{ required: ['invoice_id'] }, { required: ['advance_id'] }],
+    description: 'Creates one tenant-scoped refund obligation against exactly one invoice or advance. INSURANCE is rejected until attributable insurer-settlement evidence is implemented. Requires Idempotency-Key.',
     properties: {
       patient_uid: { type: 'string', format: 'uuid' },
       invoice_id: { type: 'integer' },
       advance_id: { type: 'integer' },
       amount: { type: 'number', minimum: 0.01, multipleOf: 0.01 },
       reason: { type: 'string' },
-      mode: { type: 'string' },
+      mode: { type: 'string', enum: SETTLEABLE_REFUND_MODES },
     },
   },
   RejectRefundRequest: {
-    type: 'object', additionalProperties: true,
-    description: 'Reverse-engineered from billingV2Service.rejectRefund; not validator-backed.',
-    properties: { rejection_reason: { type: 'string' } },
+    type: 'object', additionalProperties: false,
+    required: ['rejection_reason'],
+    description: 'Reason retained with the durable refund-rejection command. Requires Idempotency-Key.',
+    properties: {
+      rejection_reason: { type: 'string', minLength: 1, maxLength: 2000 },
+    },
   },
   MarkRefundPaidRequest: {
     type: 'object', additionalProperties: false,
-    description: 'Manual refund settlement only. The public route cannot select the gateway rail or supply provider execution evidence. Requires Idempotency-Key.',
-    properties: { reference: { type: 'string' } },
+    required: ['reference'],
+    description: 'Manual payout evidence. reference is an immutable tenant-unique voucher/reference. cash_drawer_session_id is required for CASH and prohibited for CHEQUE/DD. CARD, UPI, NETBANKING, WALLET, and INSURANCE fail closed on this route. Requires Idempotency-Key.',
+    properties: {
+      reference: {
+        type: 'string',
+        minLength: 1,
+        maxLength: 255,
+        pattern: '^(?=.*\\S)[^\\u0000-\\u001F\\u007F]{1,255}$',
+      },
+      cash_drawer_session_id: {
+        ...POSITIVE_BIGINT_WIRE,
+        description: 'Required only for CASH. It must name the authenticated payout actor\'s exact open same-tenant drawer.',
+      },
+    },
+  },
+  MarkOfflineElectronicRefundPaidRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'original_payment_reference', 'provider_name', 'provider_refund_reference',
+      'provider_refunded_at',
+    ],
+    description: 'Records independently executed CARD, UPI, NETBANKING, or WALLET refund evidence. The server binds the exact unreversed original payment, mode, amount, refund, actor, and immutable provider reference. Requires Idempotency-Key.',
+    properties: {
+      original_payment_reference: {
+        type: 'string',
+        minLength: 1,
+        maxLength: 255,
+        pattern: '^(?=.*\\S)[^\\u0000-\\u001F\\u007F]{1,255}$',
+      },
+      provider_name: {
+        type: 'string',
+        minLength: 1,
+        maxLength: 120,
+        pattern: '^(?=.*\\S)[^\\u0000-\\u001F\\u007F]{1,120}$',
+      },
+      provider_refund_reference: {
+        type: 'string',
+        minLength: 1,
+        maxLength: 255,
+        pattern: '^(?=.*\\S)[^\\u0000-\\u001F\\u007F]{1,255}$',
+      },
+      provider_refunded_at: { type: 'string', format: 'date-time' },
+    },
+  },
+  BillingCreditNoteRejectRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['rejection_reason'],
+    properties: {
+      rejection_reason: { type: 'string', minLength: 1, maxLength: 2000 },
+    },
+  },
+  BillingCreditNoteApplyRequest: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      refund_mode: {
+        type: 'string',
+        enum: SETTLEABLE_REFUND_MODES,
+      },
+    },
   },
 
   // ---- V2 cash-drawer + payment-links (cashDrawerService / paymentLinkService) ----
   CashDrawerSession: {
     type: 'object', additionalProperties: false,
     required: ['id', 'tenant_id', 'cashier_uid', 'shift', 'opened_at', 'opening_float',
-      'short_count', 'over_count', 'requires_review', 'status', 'created_at', 'updated_at'],
+      'cash_inflow_total', 'cash_refund_total', 'system_total', 'short_count', 'over_count',
+      'requires_review', 'status', 'created_at', 'updated_at'],
     properties: {
-      id: { type: 'integer' },
+      id: POSITIVE_BIGINT_WIRE,
       tenant_id: { type: 'string', format: 'uuid' },
       cashier_uid: { type: 'string', format: 'uuid' },
       shift: { type: 'string' },
@@ -1058,7 +1608,21 @@ export const schemas = {
       closed_at: { type: 'string', format: 'date-time', nullable: true },
       counted_total: { type: MT, nullable: true },
       counted_denominations: { type: 'object', additionalProperties: true, nullable: true },
-      system_total: { type: MT, nullable: true },
+      cash_inflow_total: {
+        type: MT,
+        nullable: true,
+        description: 'Non-reversed CASH payments attributed to this exact drawer session.',
+      },
+      cash_refund_total: {
+        type: MT,
+        nullable: true,
+        description: 'PAID CASH refunds attributed to this exact drawer session.',
+      },
+      system_total: {
+        type: MT,
+        nullable: true,
+        description: 'Signed drawer movement: cash_inflow_total minus cash_refund_total. Opening float is added only when comparing with the physical count.',
+      },
       variance: { type: MT, nullable: true },
       short_count: { type: 'boolean' },
       over_count: { type: 'boolean' },
@@ -1600,38 +2164,277 @@ export const operations = {
   'DELETE /api/v1/billing/v2/invoices/{id}/items/{itemId}': { response: 'InvoiceTotalsResponse' },
   'POST /api/v1/billing/v2/invoices/{id}/itemize': { request: 'ItemizeRequest', response: 'ItemizeResultResponse' },
   'POST /api/v1/billing/v2/invoices/{id}/items/{itemId}/tpa-decision': { request: 'TpaDecisionRequest', response: 'TpaDecisionItemResponse' },
+  'POST /api/v1/billing/v2/pharmacy-funding/orders/{orderId}/materialize': {
+    summary: 'Materialize exact pre-issue pharmacy billing and funding authority',
+    description: 'Insurance or finance owners create or reload the one exact draft pharmacy invoice line and sequential typed task before stock issue. The server derives patient, facility, amount, payment mode, order version, and canonical item hash from the locked order. A supplied claim must own the exact admission, patient, and invoice; ambiguity fails closed.',
+    security: authenticatedSecurity,
+    pathParameters: { orderId: { type: 'integer', minimum: 1, maximum: 2147483647 } },
+    request: 'PharmacyFundingMaterializeRequest',
+    requestRequired: false,
+    response: 'PharmacyFundingResolutionResponse',
+    additionalResponses: {
+      400: billingErrorResponse('The order or optional exact claim identifier is malformed.'),
+      403: billingErrorResponse('The actor does not own insurance or finance funding work.'),
+      404: billingErrorResponse('The exact active tenant order does not exist.'),
+      409: billingErrorResponse('Order, patient, admission, claim, invoice, line, or payment authority is stale or ambiguous.'),
+    },
+  },
+  'GET /api/v1/billing/v2/pharmacy-funding/recovery': {
+    summary: 'Load one exact pharmacy funding task and line authority',
+    description: 'Insurance and finance owners only. The required order and line identifiers, plus a claim identifier when supplied, are conjunctive; no latest-row or fuzzy-reference fallback is permitted.',
+    security: authenticatedSecurity,
+    parameters: [
+      { name: 'pharmacy_order_id', in: 'query', required: true, schema: { type: 'integer', minimum: 1, maximum: 2147483647 } },
+      { name: 'invoice_item_id', in: 'query', required: true, schema: { type: 'integer', minimum: 1, maximum: 2147483647 } },
+      { name: 'tpa_claim_id', in: 'query', required: false, schema: { type: 'integer', minimum: 1, maximum: 2147483647 } },
+    ],
+    response: 'PharmacyFundingRecoveryResponse',
+    additionalResponses: {
+      400: billingErrorResponse('Missing or invalid exact identifiers.'),
+      403: billingErrorResponse('The actor does not own insurance or finance funding work.'),
+      404: billingErrorResponse('The exact order/line/claim recovery tuple does not exist.'),
+    },
+  },
+  'POST /api/v1/billing/v2/pharmacy-funding/tasks/{taskId}/decision': {
+    summary: 'Record and close one exact insurance-owned pharmacy line decision',
+    description: 'The task, claim, draft invoice line, order version, and item hash are checked in one transaction. The normally assigned owner is INSURANCE_COORDINATOR; the bounded fallback roles mirror existing claim-update policy. Idempotency-Key is required and exact replay returns durable domain evidence.',
+    security: authenticatedSecurity,
+    parameters: [idempotencyHeader],
+    pathParameters: { taskId: { type: 'integer', minimum: 1, maximum: 2147483647 } },
+    request: 'PharmacyFundingLineDecisionRequest',
+    response: 'PharmacyFundingLineDecisionResponse',
+    additionalResponses: {
+      400: billingErrorResponse('The balanced line decision or command is invalid.'),
+      403: billingErrorResponse('The actor is not an insurance decision owner or permitted fallback.'),
+      409: billingErrorResponse('Task, claim, invoice line, or order authority is stale or already decided differently.'),
+      422: billingErrorResponse('Idempotency-Key was reused for a different decision body.'),
+      503: billingErrorResponse('The idempotency or funding authority store is unavailable.'),
+    },
+  },
+  'POST /api/v1/billing/v2/pharmacy-funding/tasks/{taskId}/retry': {
+    summary: 'Retry durable posted-payment resolution for a finance-owned task',
+    description: 'The server reloads the authoritative amount, order version, item hash, invoice, patient, and append-only payment allocations for the exact line/version. Staff cannot attest a collected amount. A supplied payment_id must belong to the exact invoice and patient and only its unallocated balance can be assigned.',
+    security: authenticatedSecurity,
+    parameters: [idempotencyHeader],
+    pathParameters: { taskId: { type: 'integer', minimum: 1, maximum: 2147483647 } },
+    request: 'PharmacyFundingRetryRequest',
+    requestRequired: false,
+    response: 'PharmacyFundingResolutionResponse',
+    additionalResponses: {
+      403: billingErrorResponse('The actor is not the finance owner or permitted fallback.'),
+      409: billingErrorResponse('The task, payment, order, patient, or line authority is stale.'),
+      422: billingErrorResponse('Idempotency-Key was reused for a different retry body.'),
+      503: billingErrorResponse('The idempotency or funding authority store is unavailable.'),
+    },
+  },
+  'GET /api/v1/billing/v2/pharmacy-funding/reconciliations/{caseId}': {
+    summary: 'Load one exact finance-owned duplicate pharmacy-line case',
+    description: 'Returns the immutable case snapshot and a fresh server-computed hash over exact order, line, invoice, payment, allocation, reversal, and stock evidence. The task is assigned to FINANCE_INCHARGE.',
+    security: authenticatedSecurity,
+    pathParameters: { caseId: { type: 'integer', minimum: 1 } },
+    response: 'PharmacyFundingReconciliationCaseResponse',
+    additionalResponses: {
+      403: billingErrorResponse('The actor is not a finance reconciliation owner.'),
+      404: billingErrorResponse('The exact reconciliation case does not exist.'),
+    },
+  },
+  'POST /api/v1/billing/v2/pharmacy-funding/reconciliations/{caseId}/decision': {
+    summary: 'Propose or independently approve one exact duplicate-line disposition',
+    description: 'Idempotency-Key is required. The first FINANCE_INCHARGE owner records an exact proposal; a distinct finance owner must approve the byte-identical proposal. Automatic deactivation is limited to draft lines with no posted payment or allocation evidence. CANCEL_ORDER first compensates cap/allocation authority, but only exact draft invoices containing no unrelated active lines can be voided and resolved; finalized or paid invoices remain blocked for governed reversal.',
+    security: authenticatedSecurity,
+    parameters: [idempotencyHeader],
+    pathParameters: { caseId: { type: 'integer', minimum: 1 } },
+    request: 'PharmacyFundingReconciliationDecisionRequest',
+    response: 'PharmacyFundingReconciliationDecisionResponse',
+    additionalResponses: {
+      400: billingErrorResponse('The exact disposition tuple is invalid.'),
+      403: billingErrorResponse('The actor is not an active finance owner or is the proposer.'),
+      409: billingErrorResponse('The snapshot, proposal, task, or correction evidence is stale.'),
+      422: billingErrorResponse('Idempotency-Key was reused for different evidence or actor.'),
+      503: billingErrorResponse('The durable reconciliation receipt store is unavailable.'),
+    },
+  },
   'GET /api/v1/billing/v2/invoices/{id}/non-payable': { response: 'NonPayableBreakdownResponse' },
-  'POST /api/v1/billing/v2/invoices/{id}/discount': { request: 'ApplyDiscountRequest', response: 'InvoiceTotalsResponse' },
+  'POST /api/v1/billing/v2/invoices/{id}/discount': {
+    description: 'Applies an authorized discount only while the invoice is DRAFT. Issued, partial, paid, and void invoices require an auditable credit workflow and fail closed.',
+    request: 'ApplyDiscountRequest',
+    response: 'InvoiceTotalsResponse',
+  },
   'POST /api/v1/billing/v2/invoices/{id}/issue': { response: 'InvoiceV2DetailResponse' },
-  'POST /api/v1/billing/v2/invoices/{id}/void': { request: 'VoidInvoiceRequest', response: 'InvoiceV2DetailResponse' },
+  'POST /api/v1/billing/v2/invoices/{id}/void': {
+    description: 'Voids only a DRAFT invoice and releases its source-reference claims. Finalized invoices fail closed until an auditable reversal workflow can unwind ledger, payment, credit, tax, and refund evidence together.',
+    request: 'VoidInvoiceRequest',
+    response: 'InvoiceV2DetailResponse',
+  },
 
   // V2 money movement (payments/advances/refunds/reports)
   'POST /api/v1/billing/v2/payments': { request: 'CollectPaymentRequest', response: 'PaymentV2Response' },
-  'POST /api/v1/billing/v2/payments/{id}/reverse': { request: 'ReversePaymentRequest', response: 'PaymentV2Response' },
+  'POST /api/v1/billing/v2/payments/{id}/reverse': {
+    description: 'Requires Idempotency-Key. Any pharmacy allocation is compensated with exact append-only reversal evidence before the posted payment can be reversed; post-stock pharmacy funding fails closed.',
+    parameters: [idempotencyHeader],
+    request: 'ReversePaymentRequest',
+    response: 'PaymentV2Response',
+  },
   'POST /api/v1/billing/v2/advances': { request: 'CollectAdvanceRequest', response: 'AdvanceResponse' },
   'GET /api/v1/billing/v2/advances': { response: 'AdvancesListResponse' },
   'POST /api/v1/billing/v2/advances/{id}/settle': { request: 'SettleAdvanceRequest', response: 'AdvanceSettlementResponse' },
-  'POST /api/v1/billing/v2/refunds': { request: 'RaiseRefundRequest', response: 'RefundResponse' },
-  'GET /api/v1/billing/v2/refunds': { response: 'RefundsListResponse' },
-  'POST /api/v1/billing/v2/refunds/{id}/approve': { response: 'RefundResponse' },
-  'POST /api/v1/billing/v2/refunds/{id}/reject': { request: 'RejectRefundRequest', response: 'RefundResponse' },
+  'POST /api/v1/billing/v2/refunds': {
+    description: 'Creates one refund obligation with a required durable Idempotency-Key. Exact retries replay the original response; changed payloads fail closed. INSURANCE is unavailable until a governed insurer-evidence settlement command exists.',
+    request: 'RaiseRefundRequest',
+    response: 'RefundResponse',
+    security: authenticatedSecurity,
+    parameters: [idempotencyHeader],
+    additionalResponses: {
+      400: billingErrorResponse('The request is malformed, omits its idempotency key, exceeds refundable headroom, or selects an unsupported mode.'),
+      403: billingErrorResponse('The caller lacks staff or admin refund-creation authority.'),
+      422: billingErrorResponse('The Idempotency-Key was reused with a different refund request.'),
+      503: billingErrorResponse('Durable idempotency infrastructure was unavailable; no refund was created.'),
+    },
+  },
+  'GET /api/v1/billing/v2/refunds': {
+    description: 'Lists tenant-scoped refunds. Staff can select one exact refund or counter-sale void obligation without broad client-side filtering.',
+    response: 'RefundsListResponse',
+    security: authenticatedSecurity,
+    parameters: [
+      { name: 'id', in: 'query', schema: { type: 'integer', minimum: 1 } },
+      {
+        name: 'counter_sale_void_request_id',
+        in: 'query',
+        schema: POSITIVE_BIGINT_WIRE,
+      },
+      {
+        name: 'approval_status',
+        in: 'query',
+        schema: { type: 'string', enum: ['PENDING', 'APPROVED', 'REJECTED', 'PAID'] },
+      },
+      { name: 'patient_uid', in: 'query', schema: { type: 'string', format: 'uuid' } },
+    ],
+  },
+  'GET /api/v1/billing/v2/refunds/{id}': {
+    description: 'Returns the exact refund, any counter-sale void obligation and offline-electronic evidence, the original payment evidence, current workflow state, and server-derived payout capabilities.',
+    response: 'RefundDetailResponse',
+    security: authenticatedSecurity,
+    pathParameters: { id: { type: 'integer', minimum: 1 } },
+    additionalResponses: {
+      400: billingErrorResponse('The refund identifier was malformed.'),
+      401: billingErrorResponse('API-key and bearer authentication are required.'),
+      403: billingErrorResponse('The caller lacks refund-view authority.'),
+      404: billingErrorResponse('The tenant-scoped refund was not found.'),
+    },
+  },
+  'POST /api/v1/billing/v2/refunds/{id}/approve': {
+    description: 'Approves one pending refund without paying it. Idempotency-Key is required and remains permanently bound to the authenticated tenant, actor, and refund; an exact retry returns the original response, while a changed refund command fails closed.',
+    response: 'RefundResponse',
+    pathParameters: { id: { type: 'integer', minimum: 1 } },
+    parameters: [idempotencyHeader],
+    security: authenticatedSecurity,
+    additionalResponses: {
+      400: billingErrorResponse('The refund identifier or Idempotency-Key was malformed.'),
+      401: billingErrorResponse('API-key and bearer authentication are required.'),
+      403: billingErrorResponse('The caller lacks refund-approval authority.'),
+      404: billingErrorResponse('The refund was not found or is no longer pending.'),
+      409: billingErrorResponse('The approval is already in flight or its durable idempotency claim changed before commit.'),
+      422: billingErrorResponse('The Idempotency-Key was reused for a different refund approval command.'),
+      503: billingErrorResponse('Durable idempotency or persistence infrastructure was unavailable; retry is safe.'),
+    },
+  },
+  'POST /api/v1/billing/v2/refunds/{id}/reject': {
+    description: 'Rejects one pending refund. Idempotency-Key is required and remains permanently bound to the authenticated tenant, actor, refund, and exact rejection reason; an exact retry returns the original response.',
+    request: 'RejectRefundRequest',
+    response: 'RefundResponse',
+    pathParameters: { id: { type: 'integer', minimum: 1 } },
+    parameters: [idempotencyHeader],
+    security: authenticatedSecurity,
+    additionalResponses: {
+      400: billingErrorResponse('The refund identifier, rejection reason, or Idempotency-Key was malformed.'),
+      401: billingErrorResponse('API-key and bearer authentication are required.'),
+      403: billingErrorResponse('The caller lacks refund-rejection authority.'),
+      404: billingErrorResponse('The refund was not found or is no longer pending.'),
+      409: billingErrorResponse('The rejection is already in flight or its durable idempotency claim changed before commit.'),
+      422: billingErrorResponse('The Idempotency-Key was reused for a different refund rejection command.'),
+      503: billingErrorResponse('Durable idempotency or persistence infrastructure was unavailable; retry is safe.'),
+    },
+  },
   'POST /api/v1/billing/v2/refunds/{id}/pay': {
     description:
-      'Manually settles an APPROVED billing refund. The authenticated actor and tenant come from the request context; payout_rail and gateway_refund_id are never accepted from this public body. Signed provider refund evidence uses the separate payment-gateway webhook path. Idempotency-Key is required.',
+      'Manually settles an APPROVED refund. CASH requires the authenticated payout actor\'s exact open same-tenant drawer and an immutable unique voucher; CHEQUE/DD require the unique reference without a drawer. The payout actor must differ from approved_by. Electronic and INSURANCE modes fail closed on this route. payout_rail and gateway evidence are never accepted from the body. Idempotency-Key is required.',
+    pathParameters: { id: { type: 'integer', minimum: 1 } },
     parameters: [idempotencyHeader],
     security: authenticatedSecurity,
     request: 'MarkRefundPaidRequest',
     response: 'RefundResponse',
     additionalResponses: {
-      400: billingErrorResponse('The request or Idempotency-Key was malformed, or the payout exceeded available authority.'),
+      400: billingRefundPayoutErrorResponse('Malformed evidence, a missing CASH drawer/reference, or an electronic mode sent to the manual route. Stable codes include BILLING_REFUND_CASH_DRAWER_REQUIRED, BILLING_REFUND_PAYOUT_REFERENCE_REQUIRED, and BILLING_REFUND_MANUAL_ELECTRONIC_FORBIDDEN.'),
       401: billingErrorResponse('API-key and bearer authentication are required.'),
       403: billingErrorResponse('The caller lacks cash-out authority.'),
-      404: billingErrorResponse('The refund was not found or is not approved.'),
-      409: billingErrorResponse('The refund payout is already owned by the gateway rail.'),
+      404: billingRefundPayoutErrorResponse('The tenant-scoped refund or exact CASH drawer was not found.'),
+      409: billingRefundPayoutErrorResponse('The refund is not approved, the approver and payout actor are the same, the drawer is closed or owned by another cashier, funds are insufficient, the reference is duplicate, another rail owns payout, or INSURANCE evidence is unavailable.'),
       422: billingErrorResponse('The Idempotency-Key was reused with a different request body.'),
-      500: billingErrorResponse('The manual settlement, ledger posting, or audit evidence could not be committed.'),
+      500: billingRefundPayoutErrorResponse('The manual settlement, drawer binding, ledger posting, or audit evidence could not be committed atomically.'),
       503: billingErrorResponse('Durable idempotency or persistence infrastructure was unavailable; retry is safe.'),
     },
+  },
+  'POST /api/v1/billing/v2/refunds/{id}/pay/offline-electronic': {
+    description: 'Records an independently executed CARD, UPI, NETBANKING, or WALLET refund. It binds the exact original unreversed offline collection, amount, mode, provider, immutable unique provider refund reference, timestamp, refund, and authenticated payout actor in one transaction. The actor must differ from approved_by. Integrated gateway orders remain on the gateway rail, CASH remains drawer-only, and INSURANCE fails closed. Idempotency-Key is required.',
+    request: 'MarkOfflineElectronicRefundPaidRequest',
+    response: 'RefundResponse',
+    pathParameters: { id: { type: 'integer', minimum: 1 } },
+    parameters: [idempotencyHeader],
+    security: authenticatedSecurity,
+    additionalResponses: {
+      400: billingRefundPayoutErrorResponse('The evidence is malformed, incomplete, forged, or does not match the exact original payment, refund mode, or amount. Stable code: BILLING_REFUND_OFFLINE_ELECTRONIC_EVIDENCE_INVALID.'),
+      401: billingErrorResponse('API-key and bearer authentication are required.'),
+      403: billingErrorResponse('The caller lacks cash-out authority.'),
+      404: billingRefundPayoutErrorResponse('The tenant-scoped refund or exact original payment was not found.'),
+      409: billingRefundPayoutErrorResponse('The refund is not approved, the approver and payout actor are the same, the provider reference is duplicate, another rail owns payout, or an integrated gateway order forbids offline evidence.'),
+      422: billingErrorResponse('The Idempotency-Key was reused with different offline-electronic evidence.'),
+      500: billingRefundPayoutErrorResponse('The electronic evidence, refund settlement, ledger posting, or audit evidence could not be committed atomically.'),
+      503: billingErrorResponse('Durable idempotency or persistence infrastructure was unavailable; retry is safe.'),
+    },
+  },
+  'GET /api/v1/billing/v2/credit-notes': {
+    description: 'Lists tenant-scoped ward-medication credit notes for the finance review worklist. Billing-incharge, finance-incharge, or admin authority is required.',
+    response: 'BillingCreditNotesListResponse',
+    security: authenticatedSecurity,
+    parameters: [
+      {
+        name: 'status',
+        in: 'query',
+        schema: { type: 'string', enum: ['pending', 'approved', 'rejected', 'applied'] },
+      },
+      { name: 'invoice_id', in: 'query', schema: { type: 'integer', minimum: 1 } },
+      { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 200 } },
+    ],
+  },
+  'GET /api/v1/billing/v2/credit-notes/{id}': {
+    description: 'Returns one tenant-scoped medication credit note with original-price lineage, invoice impact, review task, refund obligation, and append-only lifecycle events.',
+    response: 'BillingCreditNoteResponse',
+    security: authenticatedSecurity,
+    pathParameters: { id: POSITIVE_BIGINT_WIRE },
+  },
+  'POST /api/v1/billing/v2/credit-notes/{id}/approve': {
+    description: 'Approves a pending medication credit note without authorizing payout. The exact actor and command are retained in append-only evidence, while the same owned SLA remains open for account application. Idempotency-Key is required.',
+    response: 'BillingCreditNoteResponse',
+    security: authenticatedSecurity,
+    pathParameters: { id: POSITIVE_BIGINT_WIRE },
+    parameters: [idempotencyHeader],
+  },
+  'POST /api/v1/billing/v2/credit-notes/{id}/reject': {
+    description: 'Rejects a pending medication credit note with a mandatory reason and completes the finance review obligation. Idempotency-Key is required.',
+    request: 'BillingCreditNoteRejectRequest',
+    response: 'BillingCreditNoteResponse',
+    security: authenticatedSecurity,
+    pathParameters: { id: POSITIVE_BIGINT_WIRE },
+    parameters: [idempotencyHeader],
+  },
+  'POST /api/v1/billing/v2/credit-notes/{id}/apply': {
+    description: 'Applies an approved medication credit to the invoice. With no money owed, exact application evidence completes the owned SLA. When prior payment creates money owed, it raises a PENDING refund and advances that same SLA through approval and exact payout evidence. This endpoint never pays the refund. Idempotency-Key is required.',
+    request: 'BillingCreditNoteApplyRequest',
+    requestRequired: false,
+    response: 'BillingCreditNoteResponse',
+    security: authenticatedSecurity,
+    pathParameters: { id: POSITIVE_BIGINT_WIRE },
+    parameters: [idempotencyHeader],
   },
   'GET /api/v1/billing/v2/reports/daily-collection': { response: 'DailyCollectionV2Response' },
   'GET /api/v1/billing/v2/reports/outstanding': { response: 'OutstandingResponse' },

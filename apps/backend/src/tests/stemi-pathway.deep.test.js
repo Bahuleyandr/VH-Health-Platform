@@ -194,11 +194,14 @@ async function cleanup() {
       )`,
     TEST_PATIENT_UIDS,
   ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM cath_lab_cases
-      WHERE patient_uid = ANY($1::uuid[])`,
-    TEST_PATIENT_UIDS,
-  ).catch(() => {});
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe("SET LOCAL session_replication_role='replica'");
+    await tx.$executeRawUnsafe(
+      `DELETE FROM cath_lab_cases
+        WHERE patient_uid = ANY($1::uuid[])`,
+      TEST_PATIENT_UIDS,
+    );
+  }).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM clinical_timeline_events
       WHERE patient_uid = ANY($1::uuid[])`,
@@ -252,6 +255,8 @@ async function cleanup() {
 }
 
 d('NL-13 P1c STEMI pathway deep workflow', () => {
+  let facilityAId;
+
   beforeAll(async () => {
     previousSettings = await settingsRow();
     await cleanup();
@@ -285,6 +290,14 @@ d('NL-13 P1c STEMI pathway deep workflow', () => {
       TENANT_B,
       `stemi-deep-${RUN}`,
     );
+    const facilityRows = await prisma.$queryRawUnsafe(
+      `SELECT id FROM facilities
+        WHERE tenant_id=$1::uuid AND status='active'
+        ORDER BY is_default DESC, id
+        LIMIT 1`,
+      TENANT_A,
+    );
+    facilityAId = Number(facilityRows[0].id);
     await prisma.$executeRawUnsafe(
       `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, updated_at)
        VALUES
@@ -327,9 +340,11 @@ d('NL-13 P1c STEMI pathway deep workflow', () => {
           care_team_uids, created_by, updated_by, metadata)
        VALUES
          ($1::uuid, $4::uuid, $5::uuid, 'er', 'open', $7::uuid,
-          ARRAY[$7::uuid]::uuid[], $7::uuid, $7::uuid, '{"test":"stemi_deep"}'::jsonb),
+          ARRAY[$7::uuid]::uuid[], $7::uuid, $7::uuid,
+          jsonb_build_object('test','stemi_deep','facility_id',$10::int)),
          ($2::uuid, $4::uuid, $6::uuid, 'er', 'open', $7::uuid,
-          ARRAY[$7::uuid]::uuid[], $7::uuid, $7::uuid, '{"test":"stemi_deep"}'::jsonb),
+          ARRAY[$7::uuid]::uuid[], $7::uuid, $7::uuid,
+          jsonb_build_object('test','stemi_deep','facility_id',$10::int)),
          ($3::uuid, $8::uuid, $9::uuid, 'er', 'open', NULL,
           ARRAY[]::uuid[], NULL, NULL, '{"test":"stemi_deep"}'::jsonb)`,
       ENCOUNTER_A,
@@ -341,6 +356,7 @@ d('NL-13 P1c STEMI pathway deep workflow', () => {
       DOCTOR_UID,
       TENANT_B,
       PATIENT_B,
+      facilityAId,
     );
     const visits = await prisma.$queryRawUnsafe(
       `INSERT INTO emergency_visits

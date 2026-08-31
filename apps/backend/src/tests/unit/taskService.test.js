@@ -55,6 +55,7 @@ const {
   createCoveringTransferReviewTaskTx,
   createLabThresholdExceptionReviewTaskTx,
   createTask,
+  createWardMedicationObligationTaskTx,
   createWorkflowDefinition,
   getTask,
   listApprovals,
@@ -540,6 +541,72 @@ describe('createCoveringTransferReviewTaskTx', () => {
   });
 });
 
+describe('createWardMedicationObligationTaskTx', () => {
+  const ENCOUNTER_ID = '77777777-7777-4777-8777-777777777777';
+
+  it('keeps the legacy integer encounter column empty and preserves the canonical UUID', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{
+        id: DEFAULT_SLA_ID,
+        rule_code: 'ward_indent_mar_supply_reconciliation',
+        source_table: 'medication_administrations',
+        source_id: '81',
+        due_at: new Date('2026-07-19T06:00:00.000Z'),
+      }])
+      .mockResolvedValueOnce([{ id: 81, status: 'open' }]);
+
+    await expect(createWardMedicationObligationTaskTx({
+      tenantId: TENANT,
+      title: 'Reconcile MAR administration with ward custody',
+      patientUid: USER,
+      encounterId: ENCOUNTER_ID,
+      relatedResourceType: 'medication_administrations',
+      relatedResourceId: '81',
+      assignedToRole: 'PHARMACY_INCHARGE',
+      createdBy: USER,
+      workflowSlaInstanceId: DEFAULT_SLA_ID,
+      stageOccurrenceKey: 'ward-medication:test:mar-reconciliation',
+      metadata: {
+        sla_key: 'ward_indent_mar_supply_reconciliation',
+        obligation_kind: 'mar_supply_reconciliation',
+      },
+      tx: __prismaDefaultMock,
+    })).resolves.toMatchObject({ id: 81, status: 'open' });
+
+    const [sql, ...params] = queryUnsafeMock.mock.calls[1];
+    expect(sql).toMatch(/INSERT INTO tasks/);
+    expect(params[8]).toBeNull();
+    expect(JSON.parse(params[20])).toMatchObject({
+      task_contract: 'ward_medication_obligation_v1',
+      canonical_encounter_id: ENCOUNTER_ID,
+      sla_key: 'ward_indent_mar_supply_reconciliation',
+      obligation_kind: 'mar_supply_reconciliation',
+    });
+  });
+
+  it('fails closed on a non-UUID canonical encounter before reading its SLA', async () => {
+    await expect(createWardMedicationObligationTaskTx({
+      tenantId: TENANT,
+      title: 'Reconcile MAR administration with ward custody',
+      patientUid: USER,
+      encounterId: 17,
+      relatedResourceType: 'medication_administrations',
+      relatedResourceId: '81',
+      assignedToRole: 'PHARMACY_INCHARGE',
+      createdBy: USER,
+      workflowSlaInstanceId: DEFAULT_SLA_ID,
+      stageOccurrenceKey: 'ward-medication:test:mar-reconciliation',
+      metadata: {
+        sla_key: 'ward_indent_mar_supply_reconciliation',
+        obligation_kind: 'mar_supply_reconciliation',
+      },
+      tx: __prismaDefaultMock,
+    })).rejects.toThrow('encounter_id must be a UUID');
+
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+});
+
 // ---------------------------------------------------------------------------
 // acknowledgeTask + listInboxTasks (results-inbox)
 // ---------------------------------------------------------------------------
@@ -590,6 +657,65 @@ describe('claimInboxTask', () => {
     expect(updateCall[4]).toMatch(/^task-claim-v1:[0-9a-f]{64}$/);
     expect(updateCall[8]).toMatch(/^[0-9a-f]{64}$/);
     expect(queryUnsafeMock.mock.calls.flat().join(' ')).not.toContain('claim-key');
+  });
+
+  it('lets any declared ward-medication owner role atomically claim the one task and SLA', async () => {
+    const wardTask = roleTask({
+      assigned_to_role: 'BILLING_INCHARGE',
+      metadata: {
+        task_contract: 'ward_medication_obligation_v1',
+        owner_role_codes: ['BILLING_INCHARGE', 'FINANCE_INCHARGE'],
+      },
+    });
+    queryUnsafeMock
+      .mockResolvedValueOnce([wardTask])
+      .mockResolvedValueOnce([{
+        ...wardTask,
+        assigned_to_uid: USER,
+        assigned_to_role: null,
+      }])
+      .mockResolvedValueOnce([{ id: 1 }]);
+
+    await expect(claimInboxTask(claimInput({
+      actorRoles: ['FINANCE_INCHARGE'],
+      actorPrimaryRole: 'FINANCE_INCHARGE',
+      actorRawRole: 'FINANCE_INCHARGE',
+    }))).resolves.toMatchObject({
+      id: 41,
+      assigned_to_uid: USER,
+      replayed: false,
+    });
+
+    const updateCall = queryUnsafeMock.mock.calls[1];
+    expect(updateCall[0]).toContain('UPPER(BTRIM(assigned_to_role)) = $10::text');
+    expect(updateCall[5]).toBe('BILLING_INCHARGE');
+    expect(JSON.parse(updateCall[9])).toMatchObject({
+      role_claimed_actor_role: 'FINANCE_INCHARGE',
+      role_claimed_actor_raw_role: 'FINANCE_INCHARGE',
+    });
+    expect(updateCall[10]).toBe('BILLING_INCHARGE');
+    const commentMetadata = JSON.parse(queryUnsafeMock.mock.calls[2][6]);
+    expect(commentMetadata).toMatchObject({
+      from_assigned_to_role: 'BILLING_INCHARGE',
+      claim_authority_role: 'FINANCE_INCHARGE',
+    });
+  });
+
+  it('does not treat the ward task contract as authority for an undeclared role', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([roleTask({
+      assigned_to_role: 'BILLING_INCHARGE',
+      metadata: {
+        task_contract: 'ward_medication_obligation_v1',
+        owner_role_codes: ['BILLING_INCHARGE', 'FINANCE_INCHARGE'],
+      },
+    })]);
+
+    await expect(claimInboxTask(claimInput({
+      actorRoles: ['ADMIN'],
+      actorPrimaryRole: 'ADMIN',
+      actorRawRole: 'ADMIN',
+    }))).rejects.toMatchObject({ statusCode: 403, code: 'TASK_CLAIM_FORBIDDEN' });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
   });
 
   it('replays only the exact actor, task, and derived command receipt', async () => {
@@ -922,8 +1048,8 @@ describe('acknowledgeTask', () => {
 
     const acknowledgedAt = new Date(queryUnsafeMock.mock.calls[1][12]).toISOString();
     const slaCall = queryUnsafeMock.mock.calls[3];
-    expect(slaCall[0]).toMatch(/to_timestamp\(\$7::double precision \/ 1000\.0\) > due_at/);
-    expect(slaCall[0]).toMatch(/completed_at = to_timestamp\(\$7::double precision \/ 1000\.0\)/);
+    expect(slaCall[0]).toMatch(/\$7::text::timestamptz > due_at/);
+    expect(slaCall[0]).toMatch(/completed_at = \$7::text::timestamptz/);
     expect(slaCall[0]).toMatch(/breached_at = CASE[\s\S]+THEN due_at[\s\S]+ELSE NULL/);
     expect(slaCall[0]).not.toMatch(/NOW\(\) > due_at/);
     expect(new Date(slaCall[7]).toISOString()).toBe(acknowledgedAt);
@@ -1027,8 +1153,8 @@ describe('acknowledgeTask', () => {
     ]);
     const slaCall = queryUnsafeMock.mock.calls[3];
     expect(slaCall[0]).toMatch(/completed_at IS NULL/);
-    expect(slaCall[0]).toMatch(/to_timestamp\(\$7::double precision \/ 1000\.0\) > due_at/);
-    expect(slaCall[0]).toMatch(/completed_at = to_timestamp\(\$7::double precision \/ 1000\.0\)/);
+    expect(slaCall[0]).toMatch(/\$7::text::timestamptz > due_at/);
+    expect(slaCall[0]).toMatch(/completed_at = \$7::text::timestamptz/);
     expect(slaCall[0]).toMatch(/THEN due_at[\s\S]+ELSE NULL/);
     expect(new Date(slaCall[7]).toISOString()).toBe(receipt);
     expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE tasks/i.test(sql))).toBe(false);
@@ -1772,7 +1898,7 @@ describe('acknowledgeColdChainTaskFromTrustedWorkflow', () => {
 });
 
 describe('listInboxTasks', () => {
-  it('filters by assignee-OR-role and open/in_progress/overdue, ordered by priority then due_at', async () => {
+  it('includes blocked work and every declared ward-medication owner role', async () => {
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1 }, { id: 2 }]);
     const result = await listInboxTasks({
       tenantId: TENANT, assigneeUid: USER, roles: ['DOCTOR', 'DUTY_DOCTOR'],
@@ -1783,8 +1909,11 @@ describe('listInboxTasks', () => {
     expect(sql).toMatch(/assigned_to_uid = /);
     expect(sql).toMatch(/assigned_to_role/);
     expect(sql).toMatch(/assigned_to_uid IS NULL[\s\S]+UPPER\(BTRIM\(assigned_to_role\)\) = \$3::text/);
+    expect(sql).toContain("metadata->>'task_contract' = 'ward_medication_obligation_v1'");
+    expect(sql).toContain('jsonb_array_elements_text(');
+    expect(sql).toContain("THEN metadata->'owner_role_codes'");
     // inbox status set
-    expect(sql).toMatch(/'open', 'in_progress', 'overdue'/);
+    expect(sql).toMatch(/'open', 'in_progress', 'blocked', 'overdue'/);
     // ordering
     expect(sql).toMatch(/CASE inbox\.priority WHEN 'critical' THEN 0/);
     expect(sql).toMatch(/due_at/);
@@ -2154,7 +2283,12 @@ describe('supersedeAcknowledgementTaskFromTrustedWorkflow', () => {
     expect(taskUpdates[0][1]).toBe('in_progress');
     expect(taskUpdates[1][1]).toBe('completed');
     expect(taskUpdates[1][0]).toMatch(/completed_at = to_timestamp/);
-    expect(txQuery.mock.calls[6][7]).toBe(taskUpdates[1][2]);
+    // Both writes close on the SAME instant, but they bind it differently: the
+    // task keeps epoch millis (to_timestamp), while the SLA now binds a durable
+    // ISO-8601 UTC string ($7::text::timestamptz) so a session timezone cannot
+    // reinterpret it. Pin the SLA binding to the exact ISO rendering of the
+    // task's own epoch millis — same-instant equality plus the text shape.
+    expect(txQuery.mock.calls[6][7]).toBe(new Date(taskUpdates[1][2]).toISOString());
     expect(txQuery.mock.calls[6][5]).toBe(USER);
   });
 
@@ -2267,7 +2401,7 @@ describe('completeTaskFromDomainEvidence', () => {
     const slaSql = txQuery.mock.calls[6][0];
     expect(slaSql).toMatch(/completed_at IS NULL/);
     expect(slaSql).toMatch(/completion_evidence/);
-    expect(slaSql).toMatch(/to_timestamp\(\$7::double precision \/ 1000\.0\) > due_at/);
+    expect(slaSql).toMatch(/\$7::text::timestamptz > due_at/);
     expect(new Date(txQuery.mock.calls[6][7]).toISOString()).toBe('2026-07-19T06:00:00.001Z');
     expect(JSON.parse(txQuery.mock.calls[6][6])).toMatchObject({
       occurred_at: '2026-07-19T03:00:00.000Z',

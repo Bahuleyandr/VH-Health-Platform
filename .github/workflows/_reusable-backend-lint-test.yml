@@ -218,6 +218,23 @@ jobs:
       - name: OpenAPI drift check (regenerate live-router spec + diff)
         run: node scripts/check-openapi-drift.mjs
 
+      # The repository's canonical CI is the sole OpenAPI generation authority.
+      # Preserve the exact live-router output even when the drift gate fails so
+      # maintainers can commit that artifact without running the generator on a
+      # workstation.
+      - name: Generate canonical OpenAPI artifact
+        if: always()
+        run: node scripts/generate-openapi.mjs --out="${RUNNER_TEMP}/vh-health-openapi.generated.json"
+
+      - name: Upload canonical OpenAPI artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: canonical-openapi-${{ github.run_id }}
+          path: ${{ runner.temp }}/vh-health-openapi.generated.json
+          retention-days: 7
+          if-no-files-found: error
+
       - name: OpenAPI core-spec sync check (vhhealth_core copy matches canonical)
         run: node scripts/check-core-spec-sync.mjs
 
@@ -574,7 +591,7 @@ jobs:
                 l = $0
                 gsub(/\r/, "", l)
                 if (l ~ /^[[:space:]]*$/) {
-                  # Jest prints a blank line right after the '●' header; skip
+                  # Jest prints a blank line right after the bullet header; skip
                   # leading blanks, but treat a blank AFTER captured content as
                   # the end of this test's assertion block.
                   if (n > 0) capture = 0

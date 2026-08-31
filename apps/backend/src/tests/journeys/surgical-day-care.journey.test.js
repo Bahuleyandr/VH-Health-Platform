@@ -65,6 +65,7 @@ const SURGEON_PHONE = `+9196602${RUN}`;
 const ANESTHETIST_PHONE = `+9196603${RUN}`;
 const NURSE_PHONE = `+9196604${RUN}`;
 const RECEPTIONIST_PHONE = `96605${RUN}`;
+const CATALOG_NAME = `JDayCare Moxifloxacin Eye Drops ${RUN}`;
 
 describeJourney('Journey: surgical-day-care', () => {
   let receptionist;
@@ -81,6 +82,7 @@ describeJourney('Journey: surgical-day-care', () => {
   let admissionId;
   let admissionEncounterId;
   let otScheduleId;
+  let catalogId;
 
   // Inline teardown for the per-journey fixtures the shared cleanupJourney
   // does not own (OT schedule + its child docs, and the day-care discharge
@@ -121,6 +123,11 @@ describeJourney('Journey: surgical-day-care', () => {
       wardNames: [WARD_NAME],
       bedNumbers: [BED_A],
     });
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM pharmacy_catalog WHERE tenant_id = $1::uuid AND name = $2`,
+      DEFAULT_TENANT,
+      CATALOG_NAME,
+    ).catch(() => {});
 
     const adminRow = await seedUser({ uid: ADMIN_UID, phone: `+9196600${RUN}`, name: `Adm Officer ${RUN}`, role: 'ADMIN' });
     const surgeonProfile = await seedDoctor({
@@ -156,6 +163,30 @@ describeJourney('Journey: surgical-day-care', () => {
     nurse = roleClient('NURSING_STAFF', { uid: NURSE_UID, id: nurseRow.id, phone: NURSE_PHONE });
     general = roleClient('GENERAL', { uid: ADMIN_UID, id: adminRow.id });
 
+    const composition = await prisma.$queryRawUnsafe(
+      `INSERT INTO drug_compositions
+         (composition_key, display_label, active_ingredients, source)
+       VALUES ($1, 'Moxifloxacin', ARRAY['moxifloxacin']::text[], 'curated')
+       ON CONFLICT (composition_key) DO UPDATE SET display_label = EXCLUDED.display_label
+       RETURNING id`,
+      `journey_daycare_moxifloxacin_${RUN}`,
+    );
+    const catalog = await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_catalog
+         (tenant_id, name, generic_name, is_active, composition_id,
+          composition_confidence, composition_source, strength, strength_key,
+          strength_components, form, form_key, route, release_key, updated_at)
+       VALUES ($1::uuid, $2, 'moxifloxacin', TRUE, $3::int,
+               'high', 'curated', '0.5%', '0.5percent', $4::jsonb,
+               'eye drops', 'eye drops', 'topical (right eye)', 'ir', NOW())
+       RETURNING id`,
+      DEFAULT_TENANT,
+      CATALOG_NAME,
+      Number(composition[0].id),
+      JSON.stringify([{ ingredient: 'moxifloxacin', value: 0.5, unit: '%' }]),
+    );
+    catalogId = Number(catalog[0].id);
+
     // The OT nurse needs a care-team relationship for the pre-op vitals write;
     // the operating surgeon gets an admission relationship from being the
     // admitting doctor (step 2). Belt-and-braces care-team grant for the
@@ -174,6 +205,11 @@ describeJourney('Journey: surgical-day-care', () => {
       wardNames: [WARD_NAME],
       bedNumbers: [BED_A],
     });
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM pharmacy_catalog WHERE tenant_id = $1::uuid AND name = $2`,
+      DEFAULT_TENANT,
+      CATALOG_NAME,
+    ).catch(() => {});
     await prisma.$disconnect().catch(() => {});
   });
 
@@ -408,9 +444,13 @@ describeJourney('Journey: surgical-day-care', () => {
       const res = await surgeon.post('/api/v1/emr/orders').set('Idempotency-Key', `surgical-daycare-order-mox-${Date.now()}`).send({
         patient_uid: PATIENT_UID,
         order_type: 'medication',
+        encounter_id: admissionEncounterId,
         priority: 'routine',
         details: {
-          drug_name: 'Moxifloxacin 0.5% eye drops',
+          medication_name: CATALOG_NAME,
+          catalog_id: catalogId,
+          quantity_requested: 5,
+          unit: 'drop',
           dose: '1 drop',
           route: 'topical (right eye)',
           frequency: 'QID',

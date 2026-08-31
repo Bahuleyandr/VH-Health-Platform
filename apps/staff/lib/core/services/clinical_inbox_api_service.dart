@@ -18,6 +18,21 @@ abstract class ClinicalInboxApi {
 
   Future<ClinicalInboxTask> claimTask(String id);
 
+  Future<void> claimMarMedicationException({
+    required String caseId,
+    required String idempotencyKey,
+  });
+
+  Future<MarMedicationExceptionHandoffReceipt> handoffMarMedicationException({
+    required String caseId,
+    required String expectedPrescriberUid,
+    required String targetPrescriberUid,
+    required String reason,
+    required String idempotencyKey,
+  }) {
+    throw UnsupportedError('Medication exception handoff is not implemented');
+  }
+
   Future<DiagnosticActionReceipt> recordDiagnosticAction(
     DiagnosticActionCommand command,
   );
@@ -87,6 +102,86 @@ class ClinicalInboxApiService extends ClinicalInboxApi {
   }
 
   @override
+  Future<void> claimMarMedicationException({
+    required String caseId,
+    required String idempotencyKey,
+  }) async {
+    if (!_isCanonicalPositiveBigInt(caseId)) {
+      throw ArgumentError.value(
+        caseId,
+        'caseId',
+        'must be a positive signed-64 decimal',
+      );
+    }
+    final resp = await ApiClient.post(
+      '/clinical/mar/exceptions/$caseId/claim',
+      body: const {},
+      idempotencyKey: idempotencyKey,
+    );
+    if (!resp.isSuccess) {
+      throw Exception(
+        resp.failureMessage('Could not claim medication exception'),
+      );
+    }
+  }
+
+  @override
+  Future<MarMedicationExceptionHandoffReceipt> handoffMarMedicationException({
+    required String caseId,
+    required String expectedPrescriberUid,
+    required String targetPrescriberUid,
+    required String reason,
+    required String idempotencyKey,
+  }) async {
+    if (!_isCanonicalPositiveBigInt(caseId)) {
+      throw ArgumentError.value(
+        caseId,
+        'caseId',
+        'must be a positive signed-64 decimal',
+      );
+    }
+    if (!_uuidPattern.hasMatch(expectedPrescriberUid)) {
+      throw ArgumentError.value(
+        expectedPrescriberUid,
+        'expectedPrescriberUid',
+        'must be a UUID',
+      );
+    }
+    if (!_uuidPattern.hasMatch(targetPrescriberUid)) {
+      throw ArgumentError.value(
+        targetPrescriberUid,
+        'targetPrescriberUid',
+        'must be a UUID',
+      );
+    }
+    final normalizedReason = reason.trim();
+    if (normalizedReason.length < 5 || normalizedReason.length > 500) {
+      throw ArgumentError.value(
+        reason,
+        'reason',
+        'must be between 5 and 500 characters',
+      );
+    }
+    final resp = await ApiClient.post(
+      '/clinical/mar/exceptions/$caseId/handoff',
+      body: {
+        'expected_prescriber_uid': expectedPrescriberUid,
+        'target_prescriber_uid': targetPrescriberUid,
+        'reason': normalizedReason,
+      },
+      idempotencyKey: idempotencyKey,
+    );
+    if (!resp.isSuccess) {
+      throw MarMedicationExceptionHandoffException(
+        message: resp.failureMessage('Could not reassign medication exception'),
+        statusCode: resp.statusCode,
+        code: resp.code,
+      );
+    }
+    return MarMedicationExceptionHandoffReceipt.fromJson(resp.dataAsMap());
+  }
+
+  @override
   Future<DiagnosticActionReceipt> recordDiagnosticAction(
     DiagnosticActionCommand command,
   ) async {
@@ -141,6 +236,57 @@ class ClinicalInboxApiService extends ClinicalInboxApi {
     }
     return DiagnosticActionReceipt.fromJson(resp.dataAsMap());
   }
+}
+
+class MarMedicationExceptionHandoffReceipt {
+  const MarMedicationExceptionHandoffReceipt({
+    required this.exceptionCaseId,
+    required this.taskId,
+    required this.assignmentHandoffEventId,
+    required this.fromPrescriberUid,
+    required this.assignedPrescriberUid,
+    required this.handedOffAt,
+    required this.replayed,
+  });
+
+  final String exceptionCaseId;
+  final String taskId;
+  final String assignmentHandoffEventId;
+  final String fromPrescriberUid;
+  final String assignedPrescriberUid;
+  final DateTime? handedOffAt;
+  final bool replayed;
+
+  factory MarMedicationExceptionHandoffReceipt.fromJson(
+    Map<String, dynamic> json,
+  ) {
+    return MarMedicationExceptionHandoffReceipt(
+      exceptionCaseId: _text(json['exception_case_id']),
+      taskId: _text(json['task_id']),
+      assignmentHandoffEventId: _text(json['assignment_handoff_event_id']),
+      fromPrescriberUid: _text(json['from_prescriber_uid']),
+      assignedPrescriberUid: _text(json['assigned_prescriber_uid']),
+      handedOffAt: _parseDate(json['handed_off_at']),
+      replayed: json['replayed'] == true,
+    );
+  }
+}
+
+class MarMedicationExceptionHandoffException implements Exception {
+  const MarMedicationExceptionHandoffException({
+    required this.message,
+    required this.statusCode,
+    this.code,
+  });
+
+  final String message;
+  final int statusCode;
+  final String? code;
+
+  bool get requiresRefresh => statusCode == 409;
+
+  @override
+  String toString() => message;
 }
 
 class DiagnosticActionCommand {
@@ -353,6 +499,7 @@ class ClinicalInboxTask {
   final String relatedResourceId;
   final String assignedToUid;
   final String assignedToRole;
+  final String workflowSlaInstanceId;
   final String slaCompletionSemantics;
   final String pathwayInstanceId;
   final String pathwayKey;
@@ -399,6 +546,7 @@ class ClinicalInboxTask {
     required this.relatedResourceId,
     this.assignedToUid = '',
     required this.assignedToRole,
+    this.workflowSlaInstanceId = '',
     this.slaCompletionSemantics = 'none',
     this.pathwayInstanceId = '',
     this.pathwayKey = '',
@@ -450,6 +598,7 @@ class ClinicalInboxTask {
       relatedResourceId: _text(json['related_resource_id']),
       assignedToUid: _text(json['assigned_to_uid']),
       assignedToRole: _text(json['assigned_to_role']),
+      workflowSlaInstanceId: _text(json['workflow_sla_instance_id']),
       slaCompletionSemantics: _text(json['sla_completion_semantics'])
           .toLowerCase(),
       pathwayInstanceId: _text(json['pathway_instance_id']),
@@ -519,7 +668,11 @@ class ClinicalInboxTask {
   bool get isActionableStatus =>
       status == 'open' || status == 'in_progress' || status == 'overdue';
 
+  bool get hasCounterSaleVoidRefundContract =>
+      _text(metadata['task_contract']) == 'counter_sale_void_refund_v1';
+
   bool get needsAcknowledgement =>
+      !hasCounterSaleVoidRefundContract &&
       (slaCompletionSemantics == 'acknowledgement' ||
           isRecoveredCriticalAwareness) &&
       (status == 'open' || status == 'overdue');
@@ -532,6 +685,7 @@ class ClinicalInboxTask {
       priority == 'critical';
 
   bool get needsDoctorAction =>
+      !hasCounterSaleVoidRefundContract &&
       slaCompletionSemantics == 'domain_evidence' &&
       isActionableStatus &&
       diagnosticGenerationId.isNotEmpty &&
@@ -553,8 +707,156 @@ class ClinicalInboxTask {
       pendingResultResolutionActionId.isEmpty &&
       diagnosticAuthoritativeActionKind == 'doctor_disposition';
 
+  String get domainEvidenceDeepLink => _text(metadata['deep_link']);
+
+  bool get isClinicalAlertDeliveryRecovery {
+    final caseKind = _text(metadata['case_kind']);
+    return slaCompletionSemantics == 'domain_evidence' &&
+        isActionableStatus &&
+        _text(metadata['task_contract']) ==
+            'clinical_alert_delivery_recovery_v1' &&
+        relatedResourceType == 'clinical_alert_delivery_recovery_cases' &&
+        _positiveIntegerPattern.hasMatch(relatedResourceId) &&
+        _positiveIntegerPattern.hasMatch(_text(metadata['obligation_id'])) &&
+        (caseKind == 'manual_hold' || caseKind == 'recipient_coverage');
+  }
+
+  bool get isMarMedicationException {
+    final caseId = _text(metadata['exception_case_id']);
+    final administrationId = _text(metadata['medication_administration_id']);
+    final exceptionKind = _text(metadata['exception_kind']);
+    return taskKind == 'review' &&
+        slaCompletionSemantics == 'domain_evidence' &&
+        isActionableStatus &&
+        _text(metadata['task_contract']) == 'mar_medication_exception_v1' &&
+        _text(metadata['sla_key']) == 'mar_medication_exception_review' &&
+        relatedResourceType == 'mar_medication_exception_cases' &&
+        _isCanonicalPositiveBigInt(relatedResourceId) &&
+        relatedResourceId == caseId &&
+        _positiveIntegerPattern.hasMatch(administrationId) &&
+        (exceptionKind == 'held' || exceptionKind == 'missed');
+  }
+
+  bool get isCathInventoryShortfall {
+    final usageId = _text(metadata['cath_consumable_usage_id']);
+    final caseId = _text(metadata['cath_case_id']);
+    final inventoryItemId = _text(metadata['inventory_item_id']);
+    final movementKind = _text(metadata['movement_kind']);
+    final expectedRoute =
+        '/pharmacy/cath-inventory-reconciliation?case_id=$caseId'
+        '&consumable_usage_id=$usageId';
+    return taskKind == 'review' &&
+        slaCompletionSemantics == 'domain_evidence' &&
+        isActionableStatus &&
+        _text(metadata['task_contract']) == 'cath_inventory_shortfall_v1' &&
+        relatedResourceType == 'cath_case_consumable_usage' &&
+        _positiveIntegerPattern.hasMatch(relatedResourceId) &&
+        relatedResourceId == usageId &&
+        _positiveIntegerPattern.hasMatch(caseId) &&
+        _positiveIntegerPattern.hasMatch(inventoryItemId) &&
+        (movementKind == 'issue' || movementKind == 'dispose') &&
+        domainEvidenceDeepLink == expectedRoute;
+  }
+
+  bool get isCounterSaleVoidRefund {
+    final taskStage = _text(metadata['task_stage']);
+    final requestId = _text(metadata['counter_sale_void_request_id']);
+    final saleId = _text(metadata['counter_sale_id']);
+    final refundId = _text(metadata['refund_id']);
+    final invoiceId = _text(metadata['invoice_id']);
+    final expectedAssignedRole = switch (taskStage) {
+      'approval' => 'ADMIN',
+      'payout' => 'BILLING_INCHARGE',
+      'reconciliation' => 'PHARMACY_INCHARGE',
+      'rejected_review' => 'ADMIN',
+      _ => '',
+    };
+    final expectedOwnerRoles = switch (taskStage) {
+      'approval' => const {'ADMIN', 'SUPER_ADMIN'},
+      'payout' => const {
+        'FINANCE_INCHARGE',
+        'BILLING_INCHARGE',
+        'BILLING_STAFF',
+        'CASHIER',
+      },
+      'reconciliation' => const {'ADMIN', 'PHARMACY_INCHARGE'},
+      'rejected_review' => const {'ADMIN', 'SUPER_ADMIN', 'PHARMACY_INCHARGE'},
+      _ => const <String>{},
+    };
+    final expectedFinanceRoute =
+        '/billing/refunds?refund_id=$refundId&void_request_id=$requestId';
+    final expectedPharmacyRoute = '/pharmacy?tab=counter-sales&sale_id=$saleId';
+
+    return taskKind == 'review' &&
+        const {'open', 'in_progress', 'blocked', 'overdue'}.contains(status) &&
+        slaCompletionSemantics == 'domain_evidence' &&
+        hasCounterSaleVoidRefundContract &&
+        _text(metadata['evidence_kind']) == 'counter_sale_void_completed' &&
+        _text(metadata['sla_key']) == 'counter_sale_void_refund' &&
+        _uuidPattern.hasMatch(workflowSlaInstanceId) &&
+        _text(metadata['sla_instance_id']) == workflowSlaInstanceId &&
+        relatedResourceType == 'pharmacy_counter_sale_void_requests' &&
+        _isCanonicalPositiveBigInt(id) &&
+        _isCanonicalPositiveBigInt(relatedResourceId) &&
+        requestId == relatedResourceId &&
+        _isCanonicalPositiveBigInt(saleId) &&
+        _isCanonicalPositiveBigInt(refundId) &&
+        _isCanonicalPositiveBigInt(invoiceId) &&
+        assignedToUid.isEmpty &&
+        assignedToRole == expectedAssignedRole &&
+        expectedOwnerRoles.isNotEmpty &&
+        _hasExactRoleCodes(metadata['owner_role_codes'], expectedOwnerRoles) &&
+        _text(metadata['finance_deep_link']) == expectedFinanceRoute &&
+        _text(metadata['pharmacy_deep_link']) == expectedPharmacyRoute;
+  }
+
+  String? counterSaleVoidRouteForRole(String rawRole) {
+    if (!isCounterSaleVoidRefund) return null;
+    final role = rawRole.trim().toUpperCase();
+    final stage = _text(metadata['task_stage']);
+    final permittedRoles = switch (stage) {
+      'approval' => const {'ADMIN', 'SUPER_ADMIN'},
+      'payout' => const {
+        'FINANCE_INCHARGE',
+        'BILLING_INCHARGE',
+        'BILLING_STAFF',
+        'CASHIER',
+      },
+      'reconciliation' => const {'ADMIN', 'PHARMACY_INCHARGE'},
+      'rejected_review' => const {'ADMIN', 'SUPER_ADMIN', 'PHARMACY_INCHARGE'},
+      _ => const <String>{},
+    };
+    if (!permittedRoles.contains(role)) return null;
+    if (stage == 'approval' || stage == 'payout') {
+      return _text(metadata['finance_deep_link']);
+    }
+    return _text(metadata['pharmacy_deep_link']);
+  }
+
+  String get domainEvidenceRoute => isClinicalAlertDeliveryRecovery
+      ? '/clinical-inbox/recovery?case_id=$relatedResourceId'
+      : isMarMedicationException
+      ? '/mar/due?exception_id=$relatedResourceId'
+      : isCathInventoryShortfall
+      ? domainEvidenceDeepLink
+      : domainEvidenceDeepLink;
+
+  bool get needsRoutedDomainEvidence =>
+      isCounterSaleVoidRefund ||
+      (slaCompletionSemantics == 'domain_evidence' &&
+          isActionableStatus &&
+          ((_text(metadata['task_contract']) ==
+                      'ward_medication_obligation_v1' &&
+                  domainEvidenceDeepLink.isNotEmpty) ||
+              isClinicalAlertDeliveryRecovery ||
+              isMarMedicationException ||
+              isCathInventoryShortfall));
+
   bool get needsClinicalAction =>
-      needsAcknowledgement || needsDoctorAction || needsPostDischargeCrossSign;
+      needsAcknowledgement ||
+      needsDoctorAction ||
+      needsPostDischargeCrossSign ||
+      needsRoutedDomainEvidence;
 
   bool get isRoleOwned => assignedToUid.isEmpty && assignedToRole.isNotEmpty;
 
@@ -635,6 +937,7 @@ class ClinicalInboxTask {
       relatedResourceId: relatedResourceId,
       assignedToUid: assignedToUid ?? this.assignedToUid,
       assignedToRole: assignedToRole ?? this.assignedToRole,
+      workflowSlaInstanceId: workflowSlaInstanceId,
       slaCompletionSemantics: slaCompletionSemantics,
       pathwayInstanceId: pathwayInstanceId,
       pathwayKey: pathwayKey,
@@ -700,4 +1003,24 @@ int? _intValue(Object? value) {
   if (value is int) return value;
   if (value is num) return value.toInt();
   return int.tryParse(value?.toString() ?? '');
+}
+
+final RegExp _positiveIntegerPattern = RegExp(r'^[1-9][0-9]*$');
+final RegExp _uuidPattern = RegExp(
+  r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+  caseSensitive: false,
+);
+const String _maximumSignedBigInt = '9223372036854775807';
+
+bool _isCanonicalPositiveBigInt(String value) =>
+    _positiveIntegerPattern.hasMatch(value) &&
+    value.length <= _maximumSignedBigInt.length &&
+    (value.length < _maximumSignedBigInt.length ||
+        value.compareTo(_maximumSignedBigInt) <= 0);
+
+bool _hasExactRoleCodes(Object? value, Set<String> expected) {
+  if (value is! List || value.length != expected.length) return false;
+  if (value.any((role) => role is! String)) return false;
+  final roles = value.cast<String>().toSet();
+  return roles.length == expected.length && roles.containsAll(expected);
 }

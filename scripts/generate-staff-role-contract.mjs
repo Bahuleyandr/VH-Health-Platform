@@ -98,6 +98,7 @@ function readStaffEnumRoleCodes() {
 // deliberately assigned an existing presentation archetype. Authorization
 // never uses this map: generated raw-role route sets below remain authoritative.
 const roleArchetypeOverrides = {
+  CASHIER: 'BILLING_STAFF',
   CONSULTANT: 'DOCTOR',
   JUNIOR_DOCTOR: 'DOCTOR',
   RESIDENT: 'DOCTOR',

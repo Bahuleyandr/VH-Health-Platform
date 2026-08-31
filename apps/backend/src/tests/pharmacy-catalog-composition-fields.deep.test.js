@@ -21,7 +21,13 @@ const NAME_WITH = 'CMPTEST Augmentin 625 Duo';
 const NAME_WITHOUT = 'CMPTEST Plain Paracetamol 500';
 
 describe('GET /pharmacy-orders/catalog — additive composition metadata fields', () => {
-  const staff = authClient('PHARMACY_STAFF');
+  // GET /catalog is now tenant-scoped (the read was previously WHERE
+  // is_active=TRUE with no tenant predicate at all — a cross-tenant catalog
+  // read). tenantContextMiddleware resolves req.tenantId from the token's
+  // tenant_id claim first, so the caller is minted as a PHARMACY_STAFF user OF
+  // this suite's tenant; without the claim it falls back to the platform
+  // default tenant and the fixture rows are correctly invisible.
+  const staff = authClient('PHARMACY_STAFF', { tenant_id: TENANT });
   let compositionId;
   let idWith;
   let idWithout;

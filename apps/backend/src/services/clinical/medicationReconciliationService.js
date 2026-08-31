@@ -321,6 +321,30 @@ export function normalizeMedicationEntry(entry, source, sourceRef = null) {
 }
 
 /**
+ * Carry a source's catalog identity onto a snapshot item.
+ *
+ * A completed reconciliation is itself an active-therapy authority source:
+ * prescriptionSafetyCheck reads medication_reconciliation_items.metadata
+ * ->>'catalog_id' when it rebuilds the patient's active therapy. Items were
+ * being snapshotted with an empty metadata, so every drug a reconciliation
+ * kept came back identity-unresolved and failed the NEXT safety screen closed
+ * (ACTIVE_THERAPY_IDENTITY_UNRESOLVED) — including the next reconciliation.
+ * The identity travels with the drug instead: whatever catalog the source
+ * (home profile entry, e-prescription line, MAR clinical order) was pinned to
+ * is the catalog the reconciled item keeps.
+ *
+ * This carries identity, never trust: the id is only ever read back through a
+ * tenant-scoped `is_active` catalog lookup, so a stale or foreign id still
+ * fails closed exactly as an absent one does.
+ */
+function withSourceCatalogId(item, rawCatalogId) {
+  if (!item) return null;
+  const catalogId = Number(rawCatalogId);
+  if (!Number.isSafeInteger(catalogId) || catalogId <= 0) return item;
+  return { ...item, catalog_id: catalogId };
+}
+
+/**
  * Merge medication lists, deduping case-insensitively by name and keeping
  * the FIRST occurrence (source priority = caller's ordering). Pure —
  * exported for unit tests.
@@ -348,7 +372,7 @@ export async function gatherMedicationSources(patientUid, { tenantId = null } = 
   const patientParams = tenantId ? [patientUid, tenantId] : [patientUid];
   const userTenantFilter = tenantId ? ' AND tenant_id = $2::uuid' : '';
   const prescriptionTenantFilter = tenantId ? ' AND u.tenant_id = $2::uuid AND ep.tenant_id = $2::uuid' : '';
-  const marTenantFilter = tenantId ? ' AND tenant_id = $2::uuid' : '';
+  const marTenantFilter = tenantId ? ' AND administration.tenant_id = $2::uuid' : '';
   const [patientRows, prescriptionRows, marRows] = await Promise.all([
     prisma.$queryRawUnsafe(
       `SELECT id, chronic_medications FROM users WHERE uid = $1::uuid${userTenantFilter} LIMIT 1`,
@@ -360,7 +384,9 @@ export async function gatherMedicationSources(patientUid, { tenantId = null } = 
                        NULLIF(TRIM(med.value->>'medication_name'), '')) AS name,
               COALESCE(med.value->>'dose', med.value->>'dosage') AS dose,
               med.value->>'frequency' AS frequency,
-              med.value->>'route' AS route
+              med.value->>'route' AS route,
+              COALESCE(NULLIF(med.value->>'catalog_id', ''),
+                       NULLIF(med.value->>'original_catalog_id', '')) AS catalog_id
          FROM e_prescriptions ep
          LEFT JOIN LATERAL jsonb_array_elements(COALESCE(ep.medications, '[]'::jsonb)) AS med(value) ON TRUE
          JOIN users u ON u.id = ep.patient_id
@@ -375,13 +401,22 @@ export async function gatherMedicationSources(patientUid, { tenantId = null } = 
       // (already given, with no future scheduled dose in the window) was excluded,
       // so med-rec read it as an omission / missed dose. Reconciliation must
       // reflect what the patient is actually ON — which includes administered doses.
-      `SELECT DISTINCT ON (lower(medication_name)) id, medication_name, dose, route
-         FROM medication_administrations
-        WHERE patient_uid = $1::uuid
+      // The MAR row's drug identity lives on its medication clinical order
+      // (migration 744 pins that link), so read the catalog id from there.
+      `SELECT DISTINCT ON (lower(administration.medication_name))
+              administration.id, administration.medication_name,
+              administration.dose, administration.route,
+              NULLIF(clinical_order.details->>'catalog_id', '') AS catalog_id
+         FROM medication_administrations administration
+         LEFT JOIN clinical_orders clinical_order
+           ON clinical_order.tenant_id = administration.tenant_id
+          AND clinical_order.id = administration.clinical_order_id
+          AND clinical_order.order_type = 'medication'
+        WHERE administration.patient_uid = $1::uuid
           ${marTenantFilter}
-          AND status IN ('scheduled', 'held', 'administered')
-          AND scheduled_time >= NOW() - INTERVAL '7 days'
-        ORDER BY lower(medication_name), scheduled_time DESC`,
+          AND administration.status IN ('scheduled', 'held', 'administered')
+          AND administration.scheduled_time >= NOW() - INTERVAL '7 days'
+        ORDER BY lower(administration.medication_name), administration.scheduled_time DESC`,
       ...patientParams,
     ),
   ]);
@@ -392,13 +427,22 @@ export async function gatherMedicationSources(patientUid, { tenantId = null } = 
 
   return {
     home: chronicList
-      .map((entry) => normalizeMedicationEntry(entry, 'home', 'users.chronic_medications'))
+      .map((entry) => withSourceCatalogId(
+        normalizeMedicationEntry(entry, 'home', 'users.chronic_medications'),
+        entry && typeof entry === 'object' ? (entry.catalog_id ?? entry.catalogId) : null,
+      ))
       .filter(Boolean),
     active_prescriptions: prescriptionRows
-      .map((row) => normalizeMedicationEntry(row, 'active_prescription', `e_prescriptions:${row.id}`))
+      .map((row) => withSourceCatalogId(
+        normalizeMedicationEntry(row, 'active_prescription', `e_prescriptions:${row.id}`),
+        row.catalog_id,
+      ))
       .filter(Boolean),
     inpatient_mar: marRows
-      .map((row) => normalizeMedicationEntry(row, 'inpatient', `medication_administrations:${row.id}`))
+      .map((row) => withSourceCatalogId(
+        normalizeMedicationEntry(row, 'inpatient', `medication_administrations:${row.id}`),
+        row.catalog_id,
+      ))
       .filter(Boolean),
   };
 }
@@ -531,8 +575,8 @@ export async function startReconciliation({
     for (const [index, item] of items.entries()) {
       await tx.$queryRawUnsafe(
         `INSERT INTO medication_reconciliation_items
-           (reconciliation_id, tenant_id, medication_name, dose, frequency, route, source, source_ref, discrepancy_type)
-         VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9)`,
+           (reconciliation_id, tenant_id, medication_name, dose, frequency, route, source, source_ref, discrepancy_type, metadata)
+         VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)`,
         created.id,
         created.tenant_id,
         item.medication_name,
@@ -542,6 +586,7 @@ export async function startReconciliation({
         item.source,
         item.source_ref,
         discrepancyByIndex.get(index) || 'unchanged',
+        JSON.stringify(item.catalog_id ? { catalog_id: item.catalog_id } : {}),
       );
     }
 
@@ -807,7 +852,9 @@ export async function completeReconciliation(recId, context = {}) {
   let safety = { safe: true, warnings: [], blockers: [] };
   if (keptForScreen.length > 0 && rec.patient_id != null) {
     try {
-      safety = await validatePrescriptionSafety(rec.patient_id, keptForScreen);
+      safety = await validatePrescriptionSafety(rec.patient_id, keptForScreen, {
+        tenantId: rec.tenant_id,
+      });
     } catch (err) {
       logger.error('Med-rec safety screen failed (blocking completion):', err.message);
       safety = {

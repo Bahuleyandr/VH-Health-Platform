@@ -9,14 +9,19 @@ import '../models/cath_consumable_models.dart';
 import '../services/cath_lab_api_service.dart';
 import 'cath_consumable_capture_sheet.dart';
 
+// Cath catalog and batch reads are case-scoped on the backend — the case is
+// what pins the facility the operator may see — so both loaders carry the
+// ACTIVE case id rather than letting the sheet search across facilities.
 typedef CathConsumableCatalogLoader =
     Future<List<CathConsumableCatalogItem>> Function({
+      required int caseId,
       String? query,
       String? scan,
     });
 typedef CathConsumableBatchLoader = Future<List<CathInventoryBatch>> Function(
-  int catalogItemId,
-);
+  int catalogItemId, {
+  required int caseId,
+});
 typedef CathCaseConsumableLoader =
     Future<List<CathCaseConsumableUsage>> Function(int caseId);
 typedef CathConsumableCreator = Future<CathCaseConsumableUsage> Function(

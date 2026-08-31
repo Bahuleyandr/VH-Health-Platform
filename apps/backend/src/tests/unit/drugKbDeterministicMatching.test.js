@@ -28,6 +28,11 @@ const {
   evaluateDrugKb,
   __resetDrugKbCache,
 } = await import('../../services/clinical/drugKnowledgeBaseService.js');
+// The engine hands the resolver the db handle it is itself reading the KB
+// through, so a strict-identity caller can resolve inside its own transaction.
+// Bind the mocked client here to pin that the legacy (no-db) caller still gets
+// the module-level client rather than some other handle.
+const { default: mockedPrisma } = await import('../../lib/prisma.js');
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 
@@ -93,7 +98,14 @@ test('tenantId + enabled resolver → deterministic keys find the interaction', 
     ],
   });
   const result = await evaluateDrugKb({ medications: OPAQUE_MEDS, tenantId: TENANT });
-  expect(resolveDrugKeysMock).toHaveBeenCalledWith({ tenantId: TENANT, medications: OPAQUE_MEDS });
+  // strict:false is the load-bearing half here — the gated/fail-open legacy
+  // contract this suite exists to protect is exactly "not strict".
+  expect(resolveDrugKeysMock).toHaveBeenCalledWith({
+    tenantId: TENANT,
+    medications: OPAQUE_MEDS,
+    db: mockedPrisma,
+    strict: false,
+  });
   expect(result.findings).toHaveLength(1);
   expect(result.findings[0]).toMatchObject({
     check: 'interaction',

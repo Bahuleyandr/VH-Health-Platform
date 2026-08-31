@@ -845,7 +845,17 @@ test('the migration Job is parsed into real containers (no vacuous pass)', () =>
     .map(commandWordOf)
     .filter(Boolean)
     .map(parsed => parsed.word);
-  assert.deepEqual(words, ['set', 'echo', 'node', 'echo', 'node', 'echo', 'node', 'echo']);
+  // Four node steps since migration 754: ensure-pgvector, the payroll
+  // reconciliation preflight (--report-only), ci-setup-db, and the
+  // runtime-role grants. The manifest documents them as steps 1-4.
+  assert.deepEqual(words, [
+    'set',
+    'echo', 'node',
+    'echo', 'node',
+    'echo', 'node',
+    'echo', 'node',
+    'echo',
+  ]);
 });
 
 test('every migration Job command exists in the built runtime image', () => {

@@ -102,7 +102,11 @@ describe('reviewPolypharmacy module governance', () => {
     });
 
     expect(getClinicalAiModuleMock).toHaveBeenCalledWith('polypharmacy_ai_review', { tenantId: TENANT_ID });
-    expect(validatePrescriptionSafetyMock).toHaveBeenCalledWith(55, [{ name: 'Aspirin', dose: '75 mg' }]);
+    expect(validatePrescriptionSafetyMock).toHaveBeenCalledWith(
+      55,
+      [{ name: 'Aspirin', dose: '75 mg' }],
+      { tenantId: TENANT_ID },
+    );
     expect(generateClinicalTextMock).toHaveBeenCalledWith(expect.objectContaining({
       taskType: 'polypharmacy_ai_review',
       tenantRegion: 'IN',

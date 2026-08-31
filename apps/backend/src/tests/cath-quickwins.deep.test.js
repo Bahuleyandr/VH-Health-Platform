@@ -140,6 +140,7 @@ async function maintenanceCleanup() {
 describeIfDb('NL-13 P1e cath quick wins deep integration', () => {
   let caseId;
   let procedureLogId;
+  let facilityId;
 
   beforeAll(async () => {
     await maintenanceCleanup();
@@ -152,6 +153,14 @@ describeIfDb('NL-13 P1e cath quick wins deep integration', () => {
       PATIENT_A,
       DOCTOR_A,
     );
+    const facilities = await prisma.$queryRawUnsafe(
+      `SELECT id FROM facilities
+        WHERE tenant_id=$1::uuid AND status='active'
+        ORDER BY is_default DESC, id
+        LIMIT 1`,
+      TENANT_A,
+    );
+    facilityId = facilities[0].id;
     await prisma.$queryRawUnsafe(
       `INSERT INTO tenants (id, slug, name)
        VALUES ($1::uuid, 'cath-qw-rls-b', 'Cath QW RLS Tenant B')
@@ -174,6 +183,7 @@ describeIfDb('NL-13 P1e cath quick wins deep integration', () => {
       {
         tenantId: TENANT_A,
         patient_uid: PATIENT_A,
+        facility_id: facilityId,
         requested_procedure: 'Coronary angiogram +/- PCI',
         urgency: 'routine',
       },
