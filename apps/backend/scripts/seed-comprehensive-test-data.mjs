@@ -690,6 +690,17 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     authority_generation: null,
     supersedes_event_id: null
   },
+  // mig 753 (schema bridge): an advance either carries its FULL IPD deposit
+  // lineage (id + payment method + collected_at, matching an advance_deposits
+  // row via a composite FK, with an IPD/ reference) or none of it. The walker
+  // fills nullable FK columns unconditionally, which would set only the id and
+  // violate chk_billing_advance_ipd_source_binding_753. A generic seeded
+  // advance is not an IPD deposit, so the whole group stays NULL.
+  billing_advances: {
+    ipd_advance_deposit_id: null,
+    ipd_advance_deposit_payment_method: null,
+    ipd_advance_deposit_collected_at: null
+  },
   pharmacy_cap_reservations: {
     // mig 753 binds (tenant_id, pharmacy_order_id, admission_id) to
     // pharmacy_orders(tenant_id, id, funding_admission_id), and admission_id is

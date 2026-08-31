@@ -1823,13 +1823,17 @@ model beds {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model billing_advance_settlements {
-  id         Int       @id @default(autoincrement())
-  advance_id Int
-  invoice_id Int
-  amount     Decimal   @db.Decimal(12, 2)
-  settled_by String?   @db.Uuid
-  settled_at DateTime? @default(now()) @db.Timestamptz(6)
-  tenant_id  String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  id                                          Int       @id @default(autoincrement())
+  advance_id                                  Int
+  invoice_id                                  Int
+  amount                                      Decimal   @db.Decimal(12, 2)
+  settled_by                                  String?   @db.Uuid
+  settled_at                                  DateTime? @default(now()) @db.Timestamptz(6)
+  tenant_id                                   String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  pharmacy_advance_allocation_id              BigInt?
+  pharmacy_advance_allocation_evidence_sha256 String?   @db.Char(64)
+  pharmacy_advance_conversion_command_sha256  String?   @db.Char(64)
+  pharmacy_advance_conversion_evidence_sha256 String?   @db.Char(64)
 
   @@index([advance_id], map: "idx_advance_settle_advance")
   @@index([invoice_id], map: "idx_advance_settle_invoice")
@@ -1838,20 +1842,23 @@ model billing_advance_settlements {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model billing_advances {
-  id           Int       @id @default(autoincrement())
-  patient_uid  String    @db.Uuid
-  admission_id Int?
-  amount       Decimal   @db.Decimal(12, 2)
-  balance      Decimal   @db.Decimal(12, 2)
-  mode         String    @db.VarChar(20)
-  reference    String?   @db.VarChar(255)
-  collected_by String?   @db.Uuid
-  collected_at DateTime? @default(now()) @db.Timestamptz(6)
-  status       String    @default("ACTIVE") @db.VarChar(20)
-  notes        String?   @db.VarChar(500)
-  tenant_id    String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  created_at   DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at   DateTime? @default(now()) @db.Timestamptz(6)
+  id                                 Int       @id @default(autoincrement())
+  patient_uid                        String    @db.Uuid
+  admission_id                       Int?
+  amount                             Decimal   @db.Decimal(12, 2)
+  balance                            Decimal   @db.Decimal(12, 2)
+  mode                               String    @db.VarChar(20)
+  reference                          String?   @db.VarChar(255)
+  collected_by                       String?   @db.Uuid
+  collected_at                       DateTime? @default(now()) @db.Timestamptz(6)
+  status                             String    @default("ACTIVE") @db.VarChar(20)
+  notes                              String?   @db.VarChar(500)
+  tenant_id                          String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  created_at                         DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at                         DateTime? @default(now()) @db.Timestamptz(6)
+  ipd_advance_deposit_id             Int?
+  ipd_advance_deposit_payment_method String?   @db.VarChar(40)
+  ipd_advance_deposit_collected_at   DateTime? @db.Timestamptz(6)
 
   @@unique([tenant_id, id], map: "ux_billing_advances_tenant_id_747")
   @@index([admission_id], map: "idx_advances_admission", where: raw("(admission_id IS NOT NULL)"))
@@ -25728,6 +25735,50 @@ model payroll_reconciliation_resolutions {
   @@index([status, created_at, id], map: "idx_payroll_reconciliation_resolutions_status")
 }
 
+model pharmacy_advance_allocation_reversals {
+  id                            BigInt   @id @default(autoincrement())
+  tenant_id                     String   @db.Uuid
+  allocation_id                 BigInt
+  pharmacy_order_id             Int
+  invoice_id                    Int
+  invoice_item_id               Int
+  billing_advance_id            Int
+  source_authority_version      Int
+  source_authority_sha256       String   @db.Char(64)
+  funding_task_id               Int
+  funding_approval_receipt_id   BigInt
+  allocation_evidence_sha256    String   @db.Char(64)
+  reversed_amount               Decimal  @db.Decimal(12, 2)
+  reversal_command_sha256       String   @db.Char(64)
+  reason                        String   @db.VarChar(40)
+  billing_advance_settlement_id Int?
+  funding_settlement_receipt_id BigInt?
+  funding_release_receipt_id    BigInt?
+  reversed_by                   String   @db.Uuid
+  reversed_at                   DateTime @default(now()) @db.Timestamptz(6)
+  evidence                      Json
+  evidence_sha256               String   @default(dbgenerated("encode(digest((evidence)::text, 'sha256'::text), 'hex'::text)")) @db.Char(64)
+}
+
+model pharmacy_advance_allocations {
+  id                          BigInt   @id @default(autoincrement())
+  tenant_id                   String   @db.Uuid
+  pharmacy_order_id           Int
+  invoice_id                  Int
+  invoice_item_id             Int
+  billing_advance_id          Int
+  source_authority_version    Int
+  source_authority_sha256     String   @db.Char(64)
+  allocated_amount            Decimal  @db.Decimal(12, 2)
+  allocation_command_sha256   String   @db.Char(64)
+  funding_task_id             Int
+  funding_approval_receipt_id BigInt
+  allocated_by                String   @db.Uuid
+  allocated_at                DateTime @default(now()) @db.Timestamptz(6)
+  evidence                    Json
+  evidence_sha256             String   @default(dbgenerated("encode(digest((evidence)::text, 'sha256'::text), 'hex'::text)")) @db.Char(64)
+}
+
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
@@ -25841,22 +25892,30 @@ model pharmacy_delivery_location_updates {
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model pharmacy_funding_commands {
-  id                 BigInt    @id @default(autoincrement())
-  tenant_id          String    @db.Uuid
-  command_key_sha256 String    @db.Char(64)
-  command_type       String    @db.VarChar(40)
-  task_id            Int
-  task_resource_type String    @db.VarChar(60)
-  task_resource_id   String    @db.VarChar(120)
-  pharmacy_order_id  Int
-  invoice_item_id    Int
-  tpa_claim_id       Int?
-  request_sha256     String    @db.Char(64)
-  status             String    @default("IN_PROGRESS") @db.VarChar(20)
-  response_body      Json?
-  created_by         String    @db.Uuid
-  created_at         DateTime  @default(now()) @db.Timestamptz(6)
-  completed_at       DateTime? @db.Timestamptz(6)
+  id                      BigInt    @id @default(autoincrement())
+  tenant_id               String    @db.Uuid
+  command_key_sha256      String    @db.Char(64)
+  command_type            String    @db.VarChar(40)
+  task_id                 Int
+  task_resource_type      String    @db.VarChar(60)
+  task_resource_id        String    @db.VarChar(120)
+  pharmacy_order_id       Int
+  facility_id             Int?
+  invoice_id              Int?
+  invoice_item_id         Int
+  tpa_claim_id            Int?
+  approval_receipt_id     BigInt?
+  consumption_receipt_id  BigInt?
+  governance_approval_id  Int?
+  proposal_sha256         String?   @db.Char(64)
+  proposer_uid            String?   @db.Uuid
+  approved_patient_amount Decimal?  @db.Decimal(12, 2)
+  request_sha256          String    @db.Char(64)
+  status                  String    @default("IN_PROGRESS") @db.VarChar(20)
+  response_body           Json?
+  created_by              String    @db.Uuid
+  created_at              DateTime  @default(now()) @db.Timestamptz(6)
+  completed_at            DateTime? @db.Timestamptz(6)
 
   @@unique([tenant_id, command_key_sha256], map: "ux_pharmacy_funding_commands_key_753")
 }
@@ -26045,7 +26104,6 @@ model pharmacy_payment_allocation_reversals {
   reversed_at              DateTime @default(now()) @db.Timestamptz(6)
 
   @@unique([tenant_id, reversal_command_sha256], map: "ux_pharmacy_payment_allocation_reversals_command_753")
-  @@index([tenant_id, allocation_id, reversed_at, id], map: "idx_pharmacy_payment_allocation_reversals_allocation_753")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.

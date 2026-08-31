@@ -2800,8 +2800,16 @@ CREATE TABLE IF NOT EXISTS pharmacy_funding_commands (
   task_resource_type    VARCHAR(60) NOT NULL,
   task_resource_id      VARCHAR(120) NOT NULL,
   pharmacy_order_id     INTEGER NOT NULL,
+  facility_id           INTEGER,
+  invoice_id            INTEGER,
   invoice_item_id       INTEGER NOT NULL,
   tpa_claim_id          INTEGER,
+  approval_receipt_id   BIGINT,
+  consumption_receipt_id BIGINT,
+  governance_approval_id INTEGER,
+  proposal_sha256       CHAR(64),
+  proposer_uid          UUID,
+  approved_patient_amount NUMERIC(12,2),
   request_sha256        CHAR(64) NOT NULL,
   status                VARCHAR(20) NOT NULL DEFAULT 'IN_PROGRESS',
   response_body         JSONB,
@@ -2818,8 +2826,37 @@ CREATE TABLE IF NOT EXISTS pharmacy_funding_commands (
     (status='COMPLETE' AND completed_at IS NOT NULL AND response_body IS NOT NULL)
   ),
   CONSTRAINT chk_pharmacy_funding_command_task_target_753 CHECK (
-    task_resource_type IN ('pharmacy_tpa_line_decision','pharmacy_posted_payment')
-    AND task_resource_id = pharmacy_order_id::text
+    (
+      (command_type='TPA_LINE_DECISION'
+        AND task_resource_type='pharmacy_tpa_line_decision')
+      OR
+      (command_type='POSTED_PAYMENT_RETRY'
+        AND task_resource_type='pharmacy_posted_payment')
+      OR
+      (command_type IN (
+          'SUBSTITUTION_FUNDING_APPROVAL','SUBSTITUTION_FUNDING_CONSUMPTION'
+        )
+        AND task_resource_type IN (
+          'pharmacy_tpa_line_decision','pharmacy_posted_payment',
+          'pharmacy_patient_advance'
+        ))
+      OR
+      (command_type='PHARMACY_ADVANCE_SETTLEMENT'
+        AND task_resource_type='pharmacy_advance_settlement')
+      OR
+      (command_type='PHARMACY_ADVANCE_RELEASE'
+        AND task_resource_type='pharmacy_advance_release')
+    )
+    AND (
+      (command_type='PHARMACY_ADVANCE_SETTLEMENT'
+        AND task_resource_id=consumption_receipt_id::text)
+      OR
+      (command_type='PHARMACY_ADVANCE_RELEASE'
+        AND task_resource_id=approval_receipt_id::text)
+      OR
+      (command_type NOT IN ('PHARMACY_ADVANCE_SETTLEMENT','PHARMACY_ADVANCE_RELEASE')
+        AND task_resource_id=pharmacy_order_id::text)
+    )
   ),
   CONSTRAINT fk_pharmacy_funding_command_order_753
     FOREIGN KEY (tenant_id, pharmacy_order_id)
@@ -2982,8 +3019,65 @@ CREATE TABLE IF NOT EXISTS pharmacy_payment_allocation_reversals (
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_pharmacy_payment_allocation_reversals_command_753
   ON pharmacy_payment_allocation_reversals (tenant_id,reversal_command_sha256);
-CREATE INDEX IF NOT EXISTS idx_pharmacy_payment_allocation_reversals_allocation_753
-  ON pharmacy_payment_allocation_reversals (tenant_id,allocation_id,reversed_at,id);
+
+ALTER TABLE billing_advances
+  ADD COLUMN ipd_advance_deposit_id INTEGER,
+  ADD COLUMN ipd_advance_deposit_payment_method VARCHAR(40),
+  ADD COLUMN ipd_advance_deposit_collected_at TIMESTAMPTZ;
+
+ALTER TABLE billing_advance_settlements
+  ADD COLUMN pharmacy_advance_allocation_id BIGINT,
+  ADD COLUMN pharmacy_advance_allocation_evidence_sha256 CHAR(64),
+  ADD COLUMN pharmacy_advance_conversion_command_sha256 CHAR(64),
+  ADD COLUMN pharmacy_advance_conversion_evidence_sha256 CHAR(64);
+
+CREATE TABLE IF NOT EXISTS pharmacy_advance_allocations (
+  id                             BIGSERIAL PRIMARY KEY,
+  tenant_id                      UUID NOT NULL,
+  pharmacy_order_id              INTEGER NOT NULL,
+  invoice_id                     INTEGER NOT NULL,
+  invoice_item_id                INTEGER NOT NULL,
+  billing_advance_id             INTEGER NOT NULL,
+  source_authority_version       INTEGER NOT NULL,
+  source_authority_sha256        CHAR(64) NOT NULL,
+  allocated_amount               NUMERIC(12,2) NOT NULL,
+  allocation_command_sha256      CHAR(64) NOT NULL,
+  funding_task_id                INTEGER NOT NULL,
+  funding_approval_receipt_id    BIGINT NOT NULL,
+  allocated_by                   UUID NOT NULL,
+  allocated_at                   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  evidence                       JSONB NOT NULL,
+  evidence_sha256                CHAR(64) GENERATED ALWAYS AS (
+    encode(public.digest(evidence::text,'sha256'),'hex')
+  ) STORED NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS pharmacy_advance_allocation_reversals (
+  id                             BIGSERIAL PRIMARY KEY,
+  tenant_id                      UUID NOT NULL,
+  allocation_id                  BIGINT NOT NULL,
+  pharmacy_order_id              INTEGER NOT NULL,
+  invoice_id                     INTEGER NOT NULL,
+  invoice_item_id                INTEGER NOT NULL,
+  billing_advance_id             INTEGER NOT NULL,
+  source_authority_version       INTEGER NOT NULL,
+  source_authority_sha256        CHAR(64) NOT NULL,
+  funding_task_id                INTEGER NOT NULL,
+  funding_approval_receipt_id    BIGINT NOT NULL,
+  allocation_evidence_sha256     CHAR(64) NOT NULL,
+  reversed_amount                NUMERIC(12,2) NOT NULL,
+  reversal_command_sha256        CHAR(64) NOT NULL,
+  reason                         VARCHAR(40) NOT NULL,
+  billing_advance_settlement_id  INTEGER,
+  funding_settlement_receipt_id  BIGINT,
+  funding_release_receipt_id     BIGINT,
+  reversed_by                    UUID NOT NULL,
+  reversed_at                    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  evidence                       JSONB NOT NULL,
+  evidence_sha256                CHAR(64) GENERATED ALWAYS AS (
+    encode(public.digest(evidence::text,'sha256'),'hex')
+  ) STORED NOT NULL
+);
 
 CREATE OR REPLACE FUNCTION public.enforce_pharmacy_allocation_reversal_balance_753()
 RETURNS TRIGGER

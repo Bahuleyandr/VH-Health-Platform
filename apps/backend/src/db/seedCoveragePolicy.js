@@ -117,6 +117,13 @@ export const INTENTIONALLY_EMPTY_SEED_TABLES = Object.freeze([
   'pharmacy_funding_commands',
   'pharmacy_funding_reconciliation_cases',
   'pharmacy_funding_reconciliation_events',
+  // Pharmacy advance allocations and their reversals are funding-family
+  // evidence ledgers: every row must anchor to an accepted funding-command
+  // receipt (NOT NULL composite FKs into pharmacy_funding_commands, which is
+  // itself intentionally empty above). A seed row would need a fabricated
+  // funding receipt to exist at all, so the same principle applies.
+  'pharmacy_advance_allocations',
+  'pharmacy_advance_allocation_reversals',
   // Migration 753 makes every cath consumable usage that touches real stock
   // entail a governed reconciliation obligation: cath_inventory_authority_
   // assert_contract_753 requires a 'cath_inventory_shortfall_v1' owner task, a
