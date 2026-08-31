@@ -1,5 +1,5 @@
 import prisma from '../lib/prisma.js';
-import { runWithSuperAdmin } from '../lib/tenantContext.js';
+import { runInTenantContext, runWithSuperAdmin } from '../lib/tenantContext.js';
 import logger from '../logging/logger.js';
 import {
   AUTO_REPLAYABLE_RECONCILIATION_REASONS,
@@ -58,7 +58,19 @@ async function runCanaryChecksInner() {
   //     critical limits are facility-, analyzer-, and population-specific
   //     clinical content. See docs/ROADMAP.md.
   try {
-    const rows = await prisma.$queryRawUnsafe(
+    // `facilities` is fail-closed outside a real tenant context, and an empty
+    // result here is reported as healthy coverage rather than as an error — so
+    // ask each tenant inside its own context instead of reading the fleet from
+    // a cross-tenant one. `tenants` is not tenant-scoped and stays readable.
+    const activeTenants = await prisma.$queryRawUnsafe(
+      `SELECT id::text AS id FROM tenants WHERE status = 'active' ORDER BY id`,
+    );
+    if (!activeTenants.length) {
+      throw new Error('no active tenants discovered; coverage cannot be assessed');
+    }
+    const rows = [];
+    for (const activeTenant of activeTenants) {
+      const scoped = await runInTenantContext(activeTenant.id, () => prisma.$queryRawUnsafe(
       `SELECT tenant.id::text AS tenant_id,
               tenant.name AS tenant_name,
               facility.id AS facility_id,
@@ -70,7 +82,8 @@ async function runCanaryChecksInner() {
          JOIN facilities AS facility
            ON facility.tenant_id = catalog.tenant_id
           AND facility.id = catalog.facility_id
-        WHERE tenant.status = 'active'
+        WHERE catalog.tenant_id = $1::uuid
+          AND tenant.status = 'active'
           AND facility.status = 'active'
           AND NOT EXISTS (
             SELECT 1
@@ -83,7 +96,10 @@ async function runCanaryChecksInner() {
                AND (bundle.effective_until IS NULL OR bundle.effective_until > NOW())
           )
         ORDER BY tenant.id, facility.id`,
-    );
+        activeTenant.id,
+      ));
+      rows.push(...scoped);
+    }
     results.lab_threshold_policy_coverage = rows.length
       ? {
         status: 'warn',

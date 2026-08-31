@@ -16,6 +16,9 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 }));
 jest.unstable_mockModule('../../lib/tenantContext.js', () => ({
   runWithSuperAdmin: async fn => fn(),
+  // The coverage probe now asks each tenant inside its own context; the mock
+  // has to provide it or the module fails to load.
+  runInTenantContext: async (_tenantId, fn) => fn(),
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: {
@@ -31,9 +34,11 @@ const { runCanaryChecks } = await import('../../utils/canaryHealthCheck.js');
 function mockQueries({
   stuck = 0, failedDead = 0, reconciliationRequired = 0, terminalDead = 0, criticalAlerts = 0,
   thresholdUncoveredFacilities = [], escalationUnconfiguredTenants = [],
+  activeTenants = [{ id: 'tenant-a' }],
 } = {}) {
   queryRawUnsafeMock.mockImplementation(async (sql) => {
     if (/SELECT 1 AS ok/i.test(sql)) return [{ ok: 1 }];
+    if (/SELECT id::text AS id\s+FROM tenants/i.test(sql)) return activeTenants;
     if (/canary_checks/i.test(sql)) return [];
     if (/FROM notification_outbox/i.test(sql)) {
       return [{
@@ -176,6 +181,18 @@ describe('canary: governed laboratory-policy coverage', () => {
       uncovered_facilities: 1,
       facilities: [{ tenant_id: 'tenant-b', facility_id: 7, catalog_revision: 3 }],
     });
+  });
+
+  it('refuses to report healthy coverage when no tenant is visible', async () => {
+    // An empty facility result reads as `uncovered_facilities: 0`, so once the
+    // facilities join is fail-closed outside a tenant context, going blind and
+    // being fully covered look identical at that line. Discovery returning
+    // nothing must therefore fail the probe, not pass it.
+    mockQueries({ activeTenants: [] });
+    const results = await runCanaryChecks();
+    expect(results.lab_threshold_policy_coverage.status).toBe('fail');
+    expect(results.lab_threshold_policy_coverage.status).not.toBe('ok');
+    expect(results.lab_threshold_policy_coverage.error).toMatch(/no active tenants/i);
   });
 });
 
