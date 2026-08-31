@@ -2698,7 +2698,6 @@ warning	operation-description	["paths","/api/v1/pharmacy-orders/inventory/v2/fac
 warning	operation-description	["paths","/api/v1/pharmacy-orders/inventory/v2/items","get"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/pharmacy-orders/inventory/v2/items","post"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/pharmacy-orders/inventory/v2/run-expiry-scan","post"]	Operation "description" must be present and non-empty string.
-warning	operation-description	["paths","/api/v1/pharmacy-orders/inventory/v2/schedule-register","get"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/pharmacy-orders/inventory/v2/ward-allocation-authority-recovery","get"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/pharmacy-orders/inventory/v2/ward-allocation-authority-recovery/{id}/resolve","post"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/pharmacy-orders/medications","get"]	Operation "description" must be present and non-empty string.
@@ -2778,7 +2777,6 @@ warning	operation-description	["paths","/api/v1/pharmacy/inventory/v2/facility-g
 warning	operation-description	["paths","/api/v1/pharmacy/inventory/v2/items","get"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/pharmacy/inventory/v2/items","post"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/pharmacy/inventory/v2/run-expiry-scan","post"]	Operation "description" must be present and non-empty string.
-warning	operation-description	["paths","/api/v1/pharmacy/inventory/v2/schedule-register","get"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/pharmacy/inventory/v2/ward-allocation-authority-recovery","get"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/pharmacy/inventory/v2/ward-allocation-authority-recovery/{id}/resolve","post"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/pharmacy/medications","get"]	Operation "description" must be present and non-empty string.
@@ -3492,3 +3490,15 @@ warning	operation-description	["paths","/health/ping","get"]	Operation "descript
 warning	operation-description	["paths","/health/ready","get"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/health/version","get"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/metrics","get"]	Operation "description" must be present and non-empty string.
+warning	operation-success-response	["paths","/api/v1/pharmacy-orders/inventory/v2/controlled-dispense","post","responses"]	Operation must have at least one "2xx" or "3xx" response.
+warning	operation-success-response	["paths","/api/v1/pharmacy-orders/inventory/v2/controlled-dispense/witness-approvals","post","responses"]	Operation must have at least one "2xx" or "3xx" response.
+warning	operation-success-response	["paths","/api/v1/pharmacy-orders/inventory/v2/controlled-dispense/witness-approvals/{id}/approve","post","responses"]	Operation must have at least one "2xx" or "3xx" response.
+warning	operation-success-response	["paths","/api/v1/pharmacy-orders/inventory/v2/movements","post","responses"]	Operation must have at least one "2xx" or "3xx" response.
+warning	operation-success-response	["paths","/api/v1/pharmacy-orders/inventory/v2/movements/witness-approvals","post","responses"]	Operation must have at least one "2xx" or "3xx" response.
+warning	operation-success-response	["paths","/api/v1/pharmacy-orders/inventory/v2/movements/witness-approvals/{id}/approve","post","responses"]	Operation must have at least one "2xx" or "3xx" response.
+warning	operation-success-response	["paths","/api/v1/pharmacy/inventory/v2/controlled-dispense","post","responses"]	Operation must have at least one "2xx" or "3xx" response.
+warning	operation-success-response	["paths","/api/v1/pharmacy/inventory/v2/controlled-dispense/witness-approvals","post","responses"]	Operation must have at least one "2xx" or "3xx" response.
+warning	operation-success-response	["paths","/api/v1/pharmacy/inventory/v2/controlled-dispense/witness-approvals/{id}/approve","post","responses"]	Operation must have at least one "2xx" or "3xx" response.
+warning	operation-success-response	["paths","/api/v1/pharmacy/inventory/v2/movements","post","responses"]	Operation must have at least one "2xx" or "3xx" response.
+warning	operation-success-response	["paths","/api/v1/pharmacy/inventory/v2/movements/witness-approvals","post","responses"]	Operation must have at least one "2xx" or "3xx" response.
+warning	operation-success-response	["paths","/api/v1/pharmacy/inventory/v2/movements/witness-approvals/{id}/approve","post","responses"]	Operation must have at least one "2xx" or "3xx" response.
