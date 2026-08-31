@@ -773,6 +773,24 @@ async function lockBillingAdvance(
 
 const BILLING_FUNDING_PATIENT_MERGE_MAX_DEPTH = 16;
 
+// ★ THE ANONYMOUS COUNTER IS A FUNDING IDENTITY, NOT A PATIENT. Walk-in
+// pharmacy sales have no registered patient, but billing_invoices.patient_uid
+// is NOT NULL, so migration 684 anchors them on one per-tenant synthetic
+// 'PHARMACY_WALKIN' users row (counterSaleService.ensureWalkInAnchorUid — no
+// phone, no password, no firebase identity, is_unidentified). That row is
+// deliberately NOT role='PATIENT': pharmacyOrderPatientGuards depends on it
+// resolving to no patient so an anonymous sale stays role-gated instead of
+// minting a bogus care-relationship decision.
+//
+// The merge chain below therefore admits it as a chain SEED only. It is
+// terminal by construction and cannot be otherwise: patientMergeService's
+// loadMergePatients refuses any non-PATIENT row in either merge position, so
+// no merge can ever set the anchor's merged_into_uid, and no row can ever
+// point at it. Nothing downstream is relaxed — the recursive step stays
+// PATIENT-only, and an anchor carrying a pointer still finds no successor and
+// still fails the one-terminal-row check below. Without the seed, every
+// walk-in payment, refund and void 409s on a merge history that by design
+// does not exist.
 async function resolveBillingFundingPatientIdentityTx(tx, { tenantId, patientUid }) {
   const tenant = requireTenantId(tenantId);
   const storedPatientUid = String(patientUid || '').trim().toLowerCase();
@@ -792,7 +810,10 @@ async function resolveBillingFundingPatientIdentityTx(tx, { tenantId, patientUid
          FROM users patient
         WHERE patient.tenant_id = $1::uuid
           AND patient.uid = $2::uuid
-          AND patient.role = 'PATIENT'
+          AND (
+            patient.role = 'PATIENT'
+            OR (patient.role = 'PHARMACY_WALKIN' AND patient.is_unidentified)
+          )
        UNION ALL
        SELECT successor.uid,
               successor.merged_into_uid,

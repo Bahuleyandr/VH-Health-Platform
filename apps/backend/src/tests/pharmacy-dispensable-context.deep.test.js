@@ -159,12 +159,20 @@ describe('pharmacist dispense-substitution read endpoints', () => {
     // excluded: expired (past date) + depleted (remaining 0)
     await prisma.$executeRawUnsafe(`INSERT INTO pharmacy_inventory_batches (tenant_id,inventory_item_id,facility_id,storage_location_id,batch_number,expiry_date,received_quantity,remaining_quantity,status) VALUES ($1::uuid,$2,$3::int,$4::int,'DCTX-EXPIRED',(NOW()-INTERVAL '1 day')::date,20,20,'in_stock')`, TENANT, itemId, facilityId, storageLocationId);
     await prisma.$executeRawUnsafe(`INSERT INTO pharmacy_inventory_batches (tenant_id,inventory_item_id,facility_id,storage_location_id,batch_number,expiry_date,received_quantity,remaining_quantity,status) VALUES ($1::uuid,$2,$3::int,$4::int,'DCTX-DEPLETED',(NOW()+INTERVAL '90 days')::date,10,0,'in_stock')`, TENANT, itemId, facilityId, storageLocationId);
-  });
+    // cleanup() sweeps this fixture out of a shared database. On an isolated
+    // clone it finds nothing and returns instantly, but a whole shard of suites
+    // runs sequentially against ONE database, so by the time this one starts the
+    // sweep has real work to do. CI survives that only because run-ci-jest passes
+    // --testTimeout=60000, which jest applies to hooks as well; a plain local
+    // `jest` run gets the 5s default and fails the suite with every test still
+    // passing. Budget the hook explicitly so it does not depend on the runner.
+  }, 120_000);
 
   afterAll(async () => {
     await cleanup();
     if (typeof prisma.$disconnect === 'function') await prisma.$disconnect();
-  });
+    // Budgeted for the same reason as beforeAll below.
+  }, 120_000);
 
   test('orders/:id/dispensable → patient_uid + prescribed catalog lines', async () => {
     const res = await call(getOrderDispensableContext, TENANT, { id: String(orderId) }, PHARMACIST);

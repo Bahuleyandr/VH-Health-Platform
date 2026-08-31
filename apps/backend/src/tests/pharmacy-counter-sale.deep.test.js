@@ -15,6 +15,7 @@
 // facility, real staff rows, and real ACTIVE grants — the suite would otherwise
 // be asserting a 403 fixture gap rather than the sale contract.
 import prisma, { setTenantTx } from '../lib/prisma.js';
+import { ensureGatewayRefundRecoveryObligationTx } from '../services/billing/gatewayRefundRecoveryService.js';
 import {
   approveCounterSaleWitnessApproval,
   createCounterSale, voidCounterSale, getCounterSale, listCounterSales,
@@ -279,24 +280,56 @@ async function createCounterSaleGatewayExecution({ initiated, source, label }) {
     Number(payments[0].id),
     VOID_PAYER,
   );
-  const executions = await prisma.$queryRawUnsafe(
-    `INSERT INTO payment_gateway_refunds
-       (tenant_id, provider, environment, gateway_order_id, billing_refund_id,
-        provider_payment_id, provider_refund_id, amount, status, reason,
-        initiated_by, provider_idempotency_key, webhook_credential_version)
-     VALUES ($1::uuid, 'dry_run', 'sandbox', $2::int, $3::int,
-             $4, $5, $6::numeric, 'pending', 'counter-sale gateway evidence',
-             $7::uuid, $8, 1)
-     RETURNING id, status, provider_refund_id`,
-    TENANT,
-    Number(orders[0].id),
-    Number(initiated.refund.id),
-    String(payments[0].reference),
-    providerRefundId,
-    Number(initiated.refund.amount),
-    VOID_PAYER,
-    `pgr-pos-${label}-${process.pid}`,
-  );
+  // ★ RECOVERY OBLIGATION. Migration 752 gave every live gateway refund a typed
+  // recovery obligation and enforces it from the resource side with
+  // trg_pg_refund_task_sla_contract (752:1136) — an AFTER INSERT OR UPDATE OR
+  // DELETE CONSTRAINT TRIGGER, DEFERRABLE INITIALLY DEFERRED, so it re-reads the
+  // committed row at COMMIT rather than at statement time. A row whose
+  // recovery_state is non-terminal while recovery_task_id IS NULL raises 23514
+  // 'gateway refund recovery state requires its typed task and SLA obligation'
+  // (752:986-988), and a row that names a task raises again unless that task is
+  // an exact domain_evidence obligation bound to a
+  // 'payment_gateway_refund_recovery' SLA over this very refund
+  // (752:1047-1066). An autocommitted bare INSERT can therefore never satisfy
+  // the contract. The fixture mints the execution and its obligation inside ONE
+  // transaction through ensureGatewayRefundRecoveryObligationTx — the same
+  // helper paymentGatewayService.initiateGatewayRefund calls immediately after
+  // its own INSERT — so the deferred contract is met by real task + SLA rows.
+  const executions = await setTenantTx(TENANT, async (tx) => {
+    const inserted = await tx.$queryRawUnsafe(
+      `INSERT INTO payment_gateway_refunds
+         (tenant_id, provider, environment, gateway_order_id, billing_refund_id,
+          provider_payment_id, provider_refund_id, amount, status, reason,
+          initiated_by, provider_idempotency_key, webhook_credential_version)
+       VALUES ($1::uuid, 'dry_run', 'sandbox', $2::int, $3::int,
+               $4, $5, $6::numeric, 'pending', 'counter-sale gateway evidence',
+               $7::uuid, $8, 1)
+       RETURNING id, status, provider_refund_id`,
+      TENANT,
+      Number(orders[0].id),
+      Number(initiated.refund.id),
+      String(payments[0].reference),
+      providerRefundId,
+      Number(initiated.refund.amount),
+      VOID_PAYER,
+      `pgr-pos-${label}-${process.pid}`,
+    );
+    const obligation = await ensureGatewayRefundRecoveryObligationTx({
+      tx,
+      tenantId: TENANT,
+      gatewayRefundId: Number(inserted[0].id),
+    });
+    // The obligation pass only stamps recovery_* columns; the execution's own
+    // identity must survive it untouched, or the assertions below would be
+    // reading a row the fixture no longer describes.
+    expect(obligation.row).toMatchObject({
+      id: inserted[0].id,
+      status: 'pending',
+      provider_refund_id: providerRefundId,
+    });
+    expect(Number(obligation.row.recovery_task_id)).toBeGreaterThan(0);
+    return inserted;
+  });
   const claimed = await prisma.$executeRawUnsafe(
     `UPDATE billing_refunds AS refund
         SET payout_rail = 'gateway',
@@ -442,6 +475,32 @@ async function cleanup() {
           WHERE tenant_id = $1::uuid
             AND source_table = 'pharmacy_counter_sale_void_requests'`, tid,
       );
+      // The migration-752 recovery obligation minted for each gateway-execution
+      // fixture. Narrowed to this suite's own executions (the 'counter-sale
+      // gateway evidence' reason) and run BEFORE the payment_gateway_refunds
+      // delete below, while those rows can still resolve the ids.
+      await tx.$executeRawUnsafe(
+        `DELETE FROM tasks
+          WHERE tenant_id = $1::uuid
+            AND related_resource_type = 'payment_gateway_refunds'
+            AND related_resource_id IN (
+              SELECT execution.id::text
+                FROM payment_gateway_refunds execution
+               WHERE execution.tenant_id = $1::uuid
+                 AND execution.reason = 'counter-sale gateway evidence'
+            )`, tid,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM workflow_sla_instances
+          WHERE tenant_id = $1::uuid
+            AND source_table = 'payment_gateway_refunds'
+            AND source_id IN (
+              SELECT execution.id::text
+                FROM payment_gateway_refunds execution
+               WHERE execution.tenant_id = $1::uuid
+                 AND execution.reason = 'counter-sale gateway evidence'
+            )`, tid,
+      );
       await tx.$executeRawUnsafe(
         `DELETE FROM audit_logs
           WHERE tenant_id = $1::uuid
@@ -556,6 +615,95 @@ async function cleanup() {
 }
 
 beforeAll(async () => {
+  // ★ RUNTIME-ROLE POSTURE. Three cases below drive `tasks` through
+  // `SET LOCAL ROLE vhhealth_app` to prove the migration-753 restrictive policy
+  // explicit_tenant_context_753 (753:14081-14113) actually fires: the suite's
+  // own connection role is a superuser, which bypasses RLS unconditionally, so
+  // the same statements issued as-is would prove nothing at all.
+  //
+  // On a migration-only database that role holds NO privilege on `tasks`. The
+  // broad `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public`
+  // production relies on is issued by the boot-time bootstrap
+  // (src/lib/prisma.js ensureTenantRlsRuntimeRoleGrants, and
+  // infra/kubernetes/overlays/dalekdefender/rls-runtime-role.sql:27), never by a
+  // migration — so without this pass the three cases die on 42501 `permission
+  // denied for table tasks`, i.e. on a fixture gap rather than on the policy
+  // they exist to prove. Re-asserting the minimum grants a suite needs on the
+  // sealed role it uses is the house idiom (pathwayReconciliationRls.deep.test
+  // .js:84-101, scripts/provision-rls-test-roles.mjs).
+  //
+  // Deliberately narrow: exactly `tasks` + its sequence, exactly the privileges
+  // production already holds on that table, and nothing on the migration-753
+  // deny-first funding family. The full bootstrap is NOT invoked here — it
+  // reconciles that family against a column allowlist and fails closed (V7530)
+  // on any database whose 753 predates the current allowlist.
+  await prisma.$executeRawUnsafe(
+    `DO $$
+     BEGIN
+       IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'vhhealth_app') THEN
+         CREATE ROLE vhhealth_app NOLOGIN;
+       END IF;
+     END
+     $$`,
+  );
+  await prisma.$executeRawUnsafe(
+    `ALTER ROLE vhhealth_app
+       NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION INHERIT`,
+  );
+  await prisma.$executeRawUnsafe('GRANT USAGE ON SCHEMA public TO vhhealth_app');
+  // Writing a task fires ~20 non-SECURITY-DEFINER constraint triggers that read
+  // the pathway, result-tracking, cath, MAR and counter-sale evidence tables as
+  // the CURRENT role, so read access has to cover them. The migration-753
+  // deny-first funding family is excluded verbatim (the same predicate the
+  // bootstrap narrows on), so this pass cannot loosen the ACL that
+  // pharmacy-funding-runtime-acl.deep.test.js pins, and the migration tracker
+  // is left exactly as its own migration set it.
+  await prisma.$executeRawUnsafe(
+    `DO $$
+     DECLARE
+       readable_relation TEXT;
+     BEGIN
+       FOR readable_relation IN
+         SELECT relation.relname
+           FROM pg_catalog.pg_class relation
+           JOIN pg_catalog.pg_namespace namespace
+             ON namespace.oid = relation.relnamespace
+          WHERE namespace.nspname = 'public'
+            AND relation.relkind IN ('r', 'p')
+            AND pg_catalog.left(relation.relname, 17) <> 'pharmacy_advance_'
+            AND relation.relname NOT IN (
+              'pharmacy_order_command_receipts',
+              'pharmacy_funding_commands',
+              'billing_advance_settlements',
+              '_migrations'
+            )
+          ORDER BY relation.relname
+       LOOP
+         EXECUTE pg_catalog.format(
+           'GRANT SELECT ON TABLE public.%I TO vhhealth_app',
+           readable_relation
+         );
+       END LOOP;
+     END
+     $$`,
+  );
+  await prisma.$executeRawUnsafe(
+    'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.tasks TO vhhealth_app',
+  );
+  await prisma.$executeRawUnsafe(
+    'GRANT USAGE, SELECT ON SEQUENCE public.tasks_id_seq TO vhhealth_app',
+  );
+  // The whole point of switching roles is that this role cannot bypass RLS. If
+  // it ever could, the cross-tenant case below would pass vacuously.
+  const runtimeRolePosture = await prisma.$queryRawUnsafe(
+    `SELECT rolsuper, rolbypassrls, rolinherit
+       FROM pg_catalog.pg_roles
+      WHERE rolname = 'vhhealth_app'`,
+  );
+  expect(runtimeRolePosture).toHaveLength(1);
+  expect(runtimeRolePosture[0]).toEqual({
+    rolsuper: false, rolbypassrls: false, rolinherit: true,
+  });
   await cleanup();
   for (const [tid, slug] of [[TENANT, 'pos-test'], [OTHER, 'pos-other']]) {
     await prisma.$executeRawUnsafe(
@@ -1505,12 +1653,41 @@ describe('counter-sale void refund obligation closure', () => {
       source: target,
       label: 'exact',
     });
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM payment_gateway_refunds
-        WHERE tenant_id = $1::uuid AND id = $2::int`,
-      TENANT,
-      Number(forged.id),
-    );
+    // Retiring the forged execution has to retire its recovery obligation with
+    // it, in ONE transaction. trg_pg_refund_task_sla_contract also fires on
+    // DELETE (752:1069-1096) and, at COMMIT, re-asserts
+    // care_pathway_assert_task_sla_source_binding for every task still pointing
+    // at the deleted refund — and that assertion requires the refund row to
+    // EXIST (752:706-711). A bare DELETE therefore orphans the task and raises
+    // 23514 'task and linked SLA source do not describe the same obligation'.
+    // Order is FK-driven: the refund names the task
+    // (fk_payment_gateway_refunds_recovery_task, 752:398), and the task names
+    // the SLA.
+    await setTenantTx(TENANT, async (tx) => {
+      const removed = await tx.$executeRawUnsafe(
+        `DELETE FROM payment_gateway_refunds
+          WHERE tenant_id = $1::uuid AND id = $2::int`,
+        TENANT,
+        Number(forged.id),
+      );
+      expect(Number(removed)).toBe(1);
+      await tx.$executeRawUnsafe(
+        `DELETE FROM tasks
+          WHERE tenant_id = $1::uuid
+            AND related_resource_type = 'payment_gateway_refunds'
+            AND related_resource_id = $2::text`,
+        TENANT,
+        String(forged.id),
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM workflow_sla_instances
+          WHERE tenant_id = $1::uuid
+            AND source_table = 'payment_gateway_refunds'
+            AND source_id = $2::text`,
+        TENANT,
+        String(forged.id),
+      );
+    });
     await markGatewayRefundPaid(initiated.refund.id, {
       tenantId: TENANT,
       gateway_refund_id: Number(exact.id),

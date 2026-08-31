@@ -60,19 +60,29 @@ async function makeIssuedInvoice(patientUid, total) {
   cleanup.invoiceIds.push(inv.id);
   return inv.id;
 }
+// insurance_policies.tenant_id / insurance_preauth.tenant_id DEFAULT to
+// COALESCE(current_setting('app.current_tenant_id', true), <platform default tenant>),
+// and these inserts run on plain `prisma` with that GUC unset — so an omitted
+// column silently lands the row on the DEFAULT tenant while this suite's claim
+// carries TENANT. Migration 753's claim-authority chain then correctly refuses the
+// cross-tenant pair: ux_insurance_preauth_claim_authority_753
+// (tenant_id, id, patient_uid, policy_id), the composite FK
+// fk_tpa_claim_preauth_authority_753, and enforce_tpa_claim_authority_753() raise
+// 23514 'claim pre-auth is not bound to the exact patient policy and admission'.
+// Stamp the suite's own tenant explicitly.
 async function makePolicy(patientUid) {
   const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO insurance_policies (patient_uid, policy_number) VALUES ($1::uuid, $2) RETURNING id`,
-    patientUid, `POL-${Math.floor(Math.random() * 1e9)}`,
+    `INSERT INTO insurance_policies (patient_uid, policy_number, tenant_id) VALUES ($1::uuid, $2, $3::uuid) RETURNING id`,
+    patientUid, `POL-${Math.floor(Math.random() * 1e9)}`, TENANT,
   );
   cleanup.policyIds.push(rows[0].id);
   return rows[0].id;
 }
 async function makePreauth(patientUid, policyId) {
   const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO insurance_preauth (policy_id, patient_uid, preauth_number, primary_diagnosis, expected_cost)
-     VALUES ($1::int, $2::uuid, $3, 'Test dx', 1000) RETURNING id`,
-    policyId, patientUid, `PA-${Math.floor(Math.random() * 1e9)}`,
+    `INSERT INTO insurance_preauth (policy_id, patient_uid, preauth_number, primary_diagnosis, expected_cost, tenant_id)
+     VALUES ($1::int, $2::uuid, $3, 'Test dx', 1000, $4::uuid) RETURNING id`,
+    policyId, patientUid, `PA-${Math.floor(Math.random() * 1e9)}`, TENANT,
   );
   cleanup.preauthIds.push(rows[0].id);
   return rows[0].id;
