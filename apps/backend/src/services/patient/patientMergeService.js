@@ -187,19 +187,40 @@ const MERGE_ADMISSION_DERIVED_PROTECTED_TABLES = new Set([
  * reader-side merged-uid union. Otherwise execution fails closed before any
  * mutation (src/services/clinical/mergedPatientReadUnion.js).
  */
-function isUpdateBlockingTriggerSource(source) {
-  const text = String(source || '')
-    .replace(/--[^\n]*/g, ' ')
-    .replace(/\/\*[\s\S]*?\*\//g, ' ');
-  if (!/RAISE\s+EXCEPTION/i.test(text)) return false;
-  // Rule (b): identity pin on the very column the sweep rewrites.
-  if (/\bOLD\s*\.\s*patient_(uid|id)\b/i.test(text)) return true;
-  // Rule (a): walk IF nesting; a raise whose whole condition stack is free of
-  // row-content / GUC references fires on the default path of any UPDATE.
-  // TG_OP-only conditions stay "transparent" (they may well be true for
-  // UPDATE), and CASE-expression THEN/ELSE tokens are ignored because only
-  // IF/ELSIF open a condition capture and only END IF pops the stack.
+// Signals that a raise is gated on the sanctioned merge path. All four GUCs
+// are required, because schema A already carries functions that name a subset
+// of them on sweep-candidate tables; a partial signal would silently
+// re-classify those.
+const MERGE_PATH_ESCAPE_SIGNALS = [
+  /current_setting\s*\(\s*'app\.patient_merge_execution'/i,
+  /current_setting\s*\(\s*'app\.patient_merge_tenant_id'/i,
+  /current_setting\s*\(\s*'app\.patient_merge_from_uid'/i,
+  /current_setting\s*\(\s*'app\.patient_merge_to_uid'/i,
+];
+
+// Polarity, not just presence. Token presence alone would also match a trigger
+// that raises *because* a merge is in progress, which is the false-safe
+// direction: it would abort a live merge mid-sweep. The shipped triggers raise
+// when the lock is NOT held, so require that negated form and nothing weaker.
+const MERGE_PATH_ESCAPE_LOCK_NEGATED =
+  /\bNOT\s+(?:public\s*\.\s*)?patient_merge_lock_held_753\s*\(/i;
+
+function isMergePathEscapeCondition(condition) {
+  return MERGE_PATH_ESCAPE_LOCK_NEGATED.test(condition)
+    && MERGE_PATH_ESCAPE_SIGNALS.every((signal) => signal.test(condition));
+}
+
+/**
+ * Collect the IF/ELSIF condition stack guarding each RAISE EXCEPTION.
+ *
+ * Extracted from rule (a)'s walker so rules (a) and (c) read the same
+ * structure. TG_OP-only conditions stay "transparent" and CASE-expression
+ * THEN/ELSE tokens are ignored, because only IF/ELSIF open a condition capture
+ * and only END IF pops the stack.
+ */
+function collectRaiseConditionStacks(text) {
   const tokenRe = /\bIF\b|\bELSIF\b|\bTHEN\b|\bELSE\b|\bEND\s+IF\b|\bRAISE\s+EXCEPTION\b/gi;
+  const stacks = [];
   const stack = [];
   let pendingCond = null;
   let match;
@@ -220,10 +241,38 @@ function isUpdateBlockingTriggerSource(source) {
       stack.pop();
     } else if (token === 'RAISE EXCEPTION') {
       if (pendingCond) continue;
-      const exempted = stack.some((cond) => /\bNEW\s*\.|\bOLD\s*\.|current_setting\s*\(/i.test(cond));
-      if (!exempted) return true;
+      stacks.push([...stack]);
     }
     // ELSE: the same condition subject governs the branch; keep the stack.
+  }
+  return stacks;
+}
+
+function isUpdateBlockingTriggerSource(source) {
+  const text = String(source || '')
+    .replace(/--[^\n]*/g, ' ')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ');
+  if (!/RAISE\s+EXCEPTION/i.test(text)) return false;
+  const raiseStacks = collectRaiseConditionStacks(text);
+  // Rule (c): certified merge-path gate. A trigger that raises ONLY when the
+  // sanctioned merge GUCs are absent or the merge lock is not held cannot fire
+  // during the sweep, which sets all of them and holds the lock. Requires every
+  // raise to be so guarded; an empty list (raise present but unattributable)
+  // deliberately does not qualify, so an unparseable body fails closed.
+  if (raiseStacks.length > 0
+    && raiseStacks.every((stack) => stack.some(isMergePathEscapeCondition))) {
+    return false;
+  }
+  // Rule (b): identity pin on the very column the sweep rewrites.
+  if (/\bOLD\s*\.\s*patient_(uid|id)\b/i.test(text)) return true;
+  // Rule (a): walk IF nesting; a raise whose whole condition stack is free of
+  // row-content / GUC references fires on the default path of any UPDATE.
+  // TG_OP-only conditions stay "transparent" (they may well be true for
+  // UPDATE), and CASE-expression THEN/ELSE tokens are ignored because only
+  // IF/ELSIF open a condition capture and only END IF pops the stack.
+  for (const stack of raiseStacks) {
+    const exempted = stack.some((cond) => /\bNEW\s*\.|\bOLD\s*\.|current_setting\s*\(/i.test(cond));
+    if (!exempted) return true;
   }
   return false;
 }
@@ -1584,6 +1633,8 @@ export const __testing__ = {
   foldPatientSafetyVersionForMerge,
   findUnsupportedProtectedHistory,
   isUpdateBlockingTriggerSource,
+  isMergePathEscapeCondition,
+  collectRaiseConditionStacks,
 };
 
 export default {
