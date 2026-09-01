@@ -1090,89 +1090,87 @@ tests:
       - eval_time: 16m
         alertname: PostgresReplicationMetricAbsent
         exp_alerts: []
-  # BackendMigrationJobFailed — the production DB migration Job (ArgoCD PreSync
-  # hook). Every series shape below is copied from a real kube-state-metrics
-  # v2.13.0 scrape of Jobs failed on purpose on the dalekdefender rig under this
-  # exact policy, including the zero-valued sibling `reason` series KSM emits
-  # alongside the non-zero one.
+  # BackendMigrationJobFailed — the ArgoCD PreSync migration hook, the one
+  # outage-relevant Job in this namespace OutageCriticalCronJobFailing cannot
+  # see (its alternation carries a `-.*` CronJob suffix and Prometheus label
+  # regexes are fully anchored, so a fixed-name Job never matches).
   #
-  # Case 1 — the migration exits non-zero and exhausts backoffLimit.
+  # Series shapes are copied from a real kube-state-metrics v2.13.0 scrape of
+  # Jobs failed on purpose on the dalekdefender rig, including the zero-valued
+  # sibling `condition` series KSM emits alongside the live one.
+  #
+  # Case 1 — a failed Job. Both failure modes (BackoffLimitExceeded from a
+  # non-zero exit, DeadlineExceeded from a hang or unstartable pod) produce
+  # this identical series, which is why the rule does not try to tell them
+  # apart and the runbook has the operator count pods instead.
   - interval: 1m
     input_series:
-      - series: 'kube_job_status_failed{namespace="vhhealth",job_name="vhhealth-backend-migrate",reason="BackoffLimitExceeded"}'
+      - series: 'kube_job_failed{namespace="vhhealth",job_name="vhhealth-backend-migrate",condition="true"}'
         values: '1x20'
-      - series: 'kube_job_status_failed{namespace="vhhealth",job_name="vhhealth-backend-migrate",reason="DeadlineExceeded"}'
+      - series: 'kube_job_failed{namespace="vhhealth",job_name="vhhealth-backend-migrate",condition="false"}'
         values: '0x20'
-      - series: 'kube_job_status_failed{namespace="vhhealth",job_name="vhhealth-backend-migrate",reason="Evicted"}'
+      - series: 'kube_job_failed{namespace="vhhealth",job_name="vhhealth-backend-migrate",condition="unknown"}'
         values: '0x20'
     alert_rule_test:
-      # `for: 5m` keeps it quiet through a mid-flight window.
-      - eval_time: 4m
+      # `for: 2m` has not elapsed yet.
+      - eval_time: 1m
         alertname: BackendMigrationJobFailed
         exp_alerts: []
-      - eval_time: 6m
+      - eval_time: 3m
         alertname: BackendMigrationJobFailed
         exp_alerts:
           - exp_labels:
               namespace: vhhealth
               job_name: vhhealth-backend-migrate
-              reason: BackoffLimitExceeded
-              severity: warning
+              severity: critical
               team: backend
             exp_annotations:
-              summary: "Backend DB migration Job failed (BackoffLimitExceeded) — deploy is blocked"
+              summary: "Production DB migration Job failed — deploy blocked and the schema may sit between releases"
               description: |
-                The PreSync migration hook failed, so ArgoCD aborted the sync and the
-                new image did not roll out. The previous version is still serving.
-                Migrations may be PARTIALLY applied: rolling the image back cannot
-                un-apply them, so the remedy is fix-forward, never rollback.
-                Count pods FIRST — that alone tells you which of three failures it is:
+                The PreSync migration hook failed, so ArgoCD aborted the sync and
+                the new Deployment never rolled out. Migrations before the failing
+                one are already committed and tracked, so the database can sit
+                AHEAD of the image still serving; workers verify the tracker
+                against their own image at startup and exit 1 on a mismatch, so
+                the running pods survive only until one restarts. Rolling the
+                image back cannot un-apply migrations — fix forward, never back.
+                Read the evidence BEFORE re-syncing: hook-delete-policy
+                BeforeHookCreation destroys this Job, its pods, and this alert at
+                the start of the next sync. Count pods first — that tells you
+                which failure it is, and describe names the reason:
                   kubectl -n vhhealth get pods -l batch.kubernetes.io/job-name=vhhealth-backend-migrate
+                  kubectl -n vhhealth describe job vhhealth-backend-migrate
               runbook: "docs/RUNBOOK_ONCALL.md#backendmigrationjobfailed"
 
-  # Case 2 — the pod never starts or hangs, and activeDeadlineSeconds kills it.
-  # This is the path that retains ZERO pods, so the alert is the only durable
-  # evidence the run ever happened once ArgoCD's live log stream is gone.
+  # Case 2 — THE MATCHER GUARD. A healthy Job that ran to completion still
+  # exports the whole condition family, with the value on `false`. Drop
+  # `condition="true"` from the rule and `max by` would take the max across
+  # the family, return 1, and page on every successful migration. This case is
+  # what makes that regression impossible to merge.
   - interval: 1m
     input_series:
-      - series: 'kube_job_status_failed{namespace="vhhealth",job_name="vhhealth-backend-migrate",reason="BackoffLimitExceeded"}'
+      - series: 'kube_job_failed{namespace="vhhealth",job_name="vhhealth-backend-migrate",condition="true"}'
         values: '0x20'
-      - series: 'kube_job_status_failed{namespace="vhhealth",job_name="vhhealth-backend-migrate",reason="DeadlineExceeded"}'
+      - series: 'kube_job_failed{namespace="vhhealth",job_name="vhhealth-backend-migrate",condition="false"}'
         values: '1x20'
-      - series: 'kube_job_status_failed{namespace="vhhealth",job_name="vhhealth-backend-migrate",reason="Evicted"}'
+      - series: 'kube_job_failed{namespace="vhhealth",job_name="vhhealth-backend-migrate",condition="unknown"}'
         values: '0x20'
     alert_rule_test:
-      - eval_time: 6m
+      - eval_time: 5m
         alertname: BackendMigrationJobFailed
-        exp_alerts:
-          - exp_labels:
-              namespace: vhhealth
-              job_name: vhhealth-backend-migrate
-              reason: DeadlineExceeded
-              severity: warning
-              team: backend
-            exp_annotations:
-              summary: "Backend DB migration Job failed (DeadlineExceeded) — deploy is blocked"
-              description: |
-                The PreSync migration hook failed, so ArgoCD aborted the sync and the
-                new image did not roll out. The previous version is still serving.
-                Migrations may be PARTIALLY applied: rolling the image back cannot
-                un-apply them, so the remedy is fix-forward, never rollback.
-                Count pods FIRST — that alone tells you which of three failures it is:
-                  kubectl -n vhhealth get pods -l batch.kubernetes.io/job-name=vhhealth-backend-migrate
-              runbook: "docs/RUNBOOK_ONCALL.md#backendmigrationjobfailed"
+        exp_alerts: []
 
-  # Case 3 — the REGRESSION GUARD. One attempt fails, the retry succeeds, and
-  # the Job completes. Measured on the rig: kube-state-metrics emits NO
-  # kube_job_status_failed series at all in this case, only _succeeded, because
-  # it emits that family only once the Job carries a terminal Failed condition.
-  # A `backoffLimit: 2` doing its job must never notify anyone.
+  # Case 3 — THE ABSORBED-RETRY GUARD. One attempt fails, the retry succeeds,
+  # and the Job completes. Measured on the rig: kube-state-metrics emits NO
+  # kube_job_failed family at all here, only _succeeded, because it emits the
+  # failure families only once the Job carries a terminal Failed condition.
+  # `backoffLimit: 2` doing its job must never page anyone.
   - interval: 1m
     input_series:
       - series: 'kube_job_status_succeeded{namespace="vhhealth",job_name="vhhealth-backend-migrate"}'
         values: '1x20'
     alert_rule_test:
-      - eval_time: 6m
+      - eval_time: 5m
         alertname: BackendMigrationJobFailed
         exp_alerts: []
       - eval_time: 19m
