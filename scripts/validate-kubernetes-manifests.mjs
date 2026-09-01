@@ -151,6 +151,35 @@ export function assertNoIngressClassParameters(rendered, target = 'render') {
 // the retention to one Job regardless, so neither setting can accumulate.
 const MIGRATION_JOB_MIN_TTL_SECONDS = 86400;
 
+// Floor, not the current value — raising these is fine, lowering needs review.
+//
+// activeDeadlineSeconds is the one terminal path that still DESTROYS evidence:
+// on DeadlineExceeded the job controller deletes the pod that is still running,
+// under either restartPolicy (verified on the rig). Two hard constraints set
+// the floor, and neither is about taste:
+//   * The wait-owner-bypassrls initContainer has its own 5-minute hard cap
+//     (DEADLINE_MS in migration-job.yaml), and it runs once per attempt. Below
+//     300s the Job can be killed while the gate is still legitimately polling,
+//     so the gate could never even print the "bypassrls not reconciled by CNPG"
+//     message it exists to produce.
+//   * Whatever is left over has to cover the migration itself, and the run that
+//     matters most is a FRESH cluster applying 000_baseline plus every file
+//     after it — minutes, not the <60s of a caught-up re-sync.
+// 900 is the smallest round value leaving a full 10 minutes for the apply after
+// a worst-case gate, so a lower value is not legitimate rather than merely
+// unusual. Lowering it is also a SAFETY change, not only an evidence one: the
+// deadline can kill ci-setup-db.mjs mid-file, and self-managed BEGIN/COMMIT
+// migrations do not all survive that. It should cost a deliberate edit here.
+const MIGRATION_JOB_MIN_ACTIVE_DEADLINE_SECONDS = 900;
+
+// backoffLimit 0 still retains its single pod, so it does not destroy evidence
+// outright — it destroys the ability to COMPARE attempts, which is how an
+// operator separates a deterministic bad migration (every attempt dies the same
+// way) from one transient DB blip. One retry is the minimum that gives two pods
+// to compare; 2 is today's value and anything higher is a deliberate choice for
+// a flaky network, so the floor is 1 rather than a pin at 2.
+const MIGRATION_JOB_MIN_BACKOFF_LIMIT = 1;
+
 // The targets that MUST render this Job. Without them the check below would
 // treat "no Job matched" as "nothing to check" and print [ok] in green — a
 // guard that guards nothing. Mutation-tested: renaming the Job to
@@ -223,6 +252,37 @@ function requireMigrationJobEvidenceContract(target, rendered) {
         `${target} migration Job sets ttlSecondsAfterFinished=${ttl[1]}; at least ` +
           `${MIGRATION_JOB_MIN_TTL_SECONDS} (24h) is required so a failure from an unattended ` +
           'or overnight sync is still readable when an operator returns to it.',
+      );
+    }
+
+    const deadline = job.match(/^\s{2}activeDeadlineSeconds:\s+(\d+)\s*$/m);
+    if (!deadline) {
+      throw new Error(
+        `${target} migration Job has no activeDeadlineSeconds; a hung migration would never be ` +
+          'cut off.',
+      );
+    }
+    if (Number(deadline[1]) < MIGRATION_JOB_MIN_ACTIVE_DEADLINE_SECONDS) {
+      throw new Error(
+        `${target} migration Job sets activeDeadlineSeconds=${deadline[1]}; at least ` +
+          `${MIGRATION_JOB_MIN_ACTIVE_DEADLINE_SECONDS} is required. On DeadlineExceeded the job ` +
+          'controller DELETES the still-running pod under either restartPolicy, so a short ' +
+          'deadline silently converts a retained failure into no evidence at all — and can kill ' +
+          'ci-setup-db.mjs mid-file. The wait-owner-bypassrls initContainer alone may legitimately ' +
+          'take 300s per attempt before any migration runs.',
+      );
+    }
+
+    const backoff = job.match(/^\s{2}backoffLimit:\s+(\d+)\s*$/m);
+    if (!backoff) {
+      throw new Error(`${target} migration Job has no backoffLimit; retries would be unbounded.`);
+    }
+    if (Number(backoff[1]) < MIGRATION_JOB_MIN_BACKOFF_LIMIT) {
+      throw new Error(
+        `${target} migration Job sets backoffLimit=${backoff[1]}; at least ` +
+          `${MIGRATION_JOB_MIN_BACKOFF_LIMIT} is required. With restartPolicy: Never each attempt ` +
+          'is a separate retained pod, so 0 leaves a single attempt and no way to tell a ' +
+          'deterministic migration failure from one transient DB blip.',
       );
     }
   }
