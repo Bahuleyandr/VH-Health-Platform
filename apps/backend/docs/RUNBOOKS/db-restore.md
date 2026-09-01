@@ -177,10 +177,35 @@ approved_sha="$(git rev-parse HEAD)"
 argocd app sync vhhealth-apps --revision "${approved_sha}"
 kubectl -n vhhealth wait --for=condition=complete \
   job/vhhealth-backend-migrate --timeout=900s
-kubectl -n vhhealth logs job/vhhealth-backend-migrate
+# Read ALL attempts, not one. The Job runs restartPolicy: Never, so each of its
+# up-to-3 attempts is a separate retained pod; `logs job/<name>` picks a single
+# arbitrary one ("Found 3 pods, using pod/…") and can show you a pod that is not
+# the one that failed. Select on the controller-set job-name label instead.
+kubectl -n vhhealth logs -l batch.kubernetes.io/job-name=vhhealth-backend-migrate \
+  -c migrate --tail=400 --prefix
 kubectl -n vhhealth rollout restart deployment/vhhealth-backend
 kubectl -n vhhealth rollout status deployment/vhhealth-backend
 ```
+
+If the `wait` above times out, the hook failed: the pods are retained for
+`ttlSecondsAfterFinished` (24h) and the same `logs -l …` command above is what
+shows which migration broke and why. Do not re-sync before reading them — the
+next sync's `hook-delete-policy: BeforeHookCreation` deletes this Job and its
+pods.
+
+If that command answers `container "migrate" ... is waiting to start:
+PodInitializing`, the `wait-owner-bypassrls` init gate is what failed, not a
+migration — `migrate` never ran, so it has no logs. Read the gate instead
+(omitting `-c` does not help; kubectl defaults to `migrate`):
+
+```bash
+kubectl -n vhhealth logs -l batch.kubernetes.io/job-name=vhhealth-backend-migrate \
+  -c wait-owner-bypassrls --tail=400 --prefix
+```
+
+A gate timeout means CNPG has not reconciled `bypassrls` onto the owner role;
+see `docs/GO_LIVE_ACTIVATION_CHECKLIST.md` D1. Do not force the migration
+through.
 
 ### 7. Apply any post-backup migrations
 

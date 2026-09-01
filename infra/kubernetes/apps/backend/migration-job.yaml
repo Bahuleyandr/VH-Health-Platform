@@ -7,6 +7,30 @@
 #     object on the next sync (otherwise a 2nd apply of the same-named Job
 #     errors). No leftover Completed Jobs to reap manually.
 #   - Failure aborts the sync. Fix the migration, re-sync.
+#   - Because the hook is deleted only BEFORE the NEXT hook creation, exactly
+#     ONE migration Job (and its pods) can exist at a time no matter how long
+#     they are retained. That bound is what makes the retention settings below
+#     safe: `restartPolicy` and `ttlSecondsAfterFinished` decide how long the
+#     LAST run's evidence survives, never how much of it accumulates.
+#
+# Reading a FAILED run (see restartPolicy + ttlSecondsAfterFinished below).
+# ArgoCD streams hook pod logs live, so an operator watching a sync sees the
+# migration output in real time. Everything here is about the other case —
+# diagnosing after the fact, which is what an unattended or overnight sync
+# leaves you with. Note there is no alert on this Job (the
+# OutageCriticalCronJobFailing rule in base/monitoring/backend-red-alerts.yaml
+# matches the CronJobs only), so discovery is a human noticing the failed sync.
+# Every attempt is a separate retained pod, so select on the CONTROLLER-set
+# job-name label. Not `logs job/<name>` — that picks ONE arbitrary attempt
+# ("Found 3 pods, using pod/…"), which need not be the one that failed. Not the
+# app label either — it is on the pod template, so it is NOT scoped to a single
+# run: the 582 cutover runbook has an operator create a differently-NAMED Job
+# derived from this one that must keep the same app label (NetworkPolicy and
+# the CNPG pooler select Postgres access on it), and its pods would match too.
+#
+#   kubectl -n vhhealth get pods -l batch.kubernetes.io/job-name=vhhealth-backend-migrate
+#   kubectl -n vhhealth logs -l batch.kubernetes.io/job-name=vhhealth-backend-migrate \
+#     -c migrate --tail=400 --prefix
 #
 # The job does:
 #   1. `node scripts/ensure-pgvector-extension.mjs` — runs `CREATE EXTENSION
@@ -98,8 +122,46 @@ metadata:
 spec:
   backoffLimit: 2
   # 15min hard cap — real migrations take <60s; anything longer is hung.
+  # NOTE this is JOB-scoped, not pod-scoped: the budget covers all attempts
+  # together. On the normal path the gate passes at once and 3 × <60s is far
+  # inside it. The margin is NOT large in the pathological case, though: the
+  # wait-owner-bypassrls initContainer below has its own 5-minute cap and runs
+  # once PER ATTEMPT, so three gate timeouts alone (~900s + back-off) exhaust
+  # the budget before a migration runs. That is unchanged from the OnFailure
+  # era — OnFailure restarts the initContainer in place under the same cap —
+  # and it is bounded evidence, not lost evidence: the earlier attempts' pods
+  # are retained with the gate's own diagnostic. It is also why the guard in
+  # scripts/validate-kubernetes-manifests.mjs floors this value rather than
+  # merely recording it. It is also the ONE terminal path that still discards
+  # evidence: on DeadlineExceeded the Job controller DELETES the pod that is
+  # still running, under either restartPolicy — verified on the rig. A hang is
+  # therefore diagnosed from the Job's DeadlineExceeded condition and ArgoCD's
+  # live stream, not from a retained pod. Earlier attempts that already failed
+  # are retained normally.
   activeDeadlineSeconds: 900
-  ttlSecondsAfterFinished: 3600
+  # 24h, raised from 1h. The TTL controller deletes the Job — and cascades to
+  # its pods — this many seconds after it FINISHES, in either terminal state;
+  # Kubernetes has no way to express a longer TTL for failure specifically, so
+  # the single number has to be justified for both.
+  #
+  # 1h was too short for the case that actually matters. Prod sync is MANUAL
+  # (base/argocd/applications/apps.yaml has no `automated:` block), so a
+  # migration failure is found by a human coming back to it — and an hour does
+  # not survive an overnight or unattended sync. The evidence was reaped before
+  # anyone looked.
+  #
+  # 24h covers any overnight window plus the whole following business day, and
+  # matches what the backup + backup-verification CronJobs already keep. The
+  # cost is bounded to ONE extra terminal Job and its ≤3 terminal pods, because
+  # `hook-delete-policy: BeforeHookCreation` deletes the previous Job at the
+  # start of the next sync regardless of TTL — a longer TTL cannot accumulate
+  # anything, it only defers the no-further-sync backstop.
+  #
+  # Deliberately NOT multi-day: a terminal Failed Job lingering for days is
+  # misleading state, and past about a day the correct move is to re-sync
+  # (ci-setup-db.mjs is tracker-driven and idempotent, so a re-run reproduces
+  # the same failure with fresh logs) rather than read stale ones.
+  ttlSecondsAfterFinished: 86400
   template:
     metadata:
       labels:
@@ -107,7 +169,29 @@ spec:
         app.kubernetes.io/component: migration
         app.kubernetes.io/part-of: vhhealth
     spec:
-      restartPolicy: OnFailure
+      # Never, NOT OnFailure — a diagnosability requirement, not a preference.
+      #
+      # With OnFailure the kubelet restarts the container in the SAME pod, and
+      # the job controller DELETES that pod the instant it exceeds the backoff
+      # limit ("SuccessfulDelete ... Deleted pod" lands about a second after
+      # "BackoffLimitExceeded"). What is left is a Job object reading
+      # `Failed 0/1` and carrying no output at all: not the migration's file
+      # name, not the Postgres error. The one thing an after-the-fact diagnosis
+      # needs is the one thing it could never have. Reproduced on the
+      # dalekdefender rig against this exact policy (OnFailure, backoffLimit 2)
+      # — the marker line the container printed was unrecoverable — and fixed
+      # for the rig's own Job in PR #954.
+      #
+      # With Never each attempt is a NEW pod and failed pods are RETAINED, so
+      # each of the backoffLimit+1 attempts leaves a readable pod — 3 today.
+      # Comparing them is how you tell a deterministic migration failure from
+      # one transient blip, which is why the guard floors backoffLimit too.
+      # Nothing about the
+      # ArgoCD hook contract changes: hook success/failure is assessed from the
+      # Job object's Complete/Failed condition, which is identical under either
+      # policy, so "failure aborts the sync" still holds, sync-wave -1 still
+      # holds, and BeforeHookCreation still clears them at the next sync.
+      restartPolicy: Never
       terminationGracePeriodSeconds: 30
       automountServiceAccountToken: false
       securityContext:
