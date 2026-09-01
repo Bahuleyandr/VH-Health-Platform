@@ -127,7 +127,7 @@ Unless a row says otherwise, run these from the repository root.
 | `update-local-staff-windows-app.ps1` | — | Rebuilds and updates the local Windows Staff app without a reinstall. | Dev-box convenience. |
 | `update-prod-digests.mjs` | ✅ | Rewrites `infra/kubernetes/apps/kustomization.yaml` with verified image digests and writes a verification evidence file. | Supports a dry run that reports without writing evidence. The written digests are what ArgoCD will roll out on the next operator sync. |
 | `validate-cert-pin-set.mjs` | ✅ | Validates the release certificate pin set (including an owner-approved 300s clock skew). | Release security configuration gate; fails with `release security configuration invalid: …`. |
-| `validate-kubernetes-manifests.mjs` | ✅ | kubeconform validation with a **full-GVK allowlist** for repository-owned and operator-installed CRDs. | Deliberately not `-ignore-missing-schemas`: a misspelled custom resource must fail rather than be hidden. |
+| `validate-kubernetes-manifests.mjs` | ✅ | kubeconform validation with a **full-GVK allowlist** for repository-owned and operator-installed CRDs, plus the rendered-manifest contracts (migration-Job failure evidence, ArgoCD PreSync hook phase ordering, migration/runtime role parity). | Deliberately not `-ignore-missing-schemas`: a misspelled custom resource must fail rather than be hidden. The hook phase-ordering check fails a PreSync hook that hard-requires a Sync-phase ConfigMap/Secret of the same Application — that combination is unstartable on a fresh cluster and leaves no logs. Structural reading lives in `lib/rendered-manifest-refs.mjs`; mutation tests in `hook-phase-ordering.test.mjs`. |
 | `validate-patient-minimum-version-trust.mjs` | ✅ | Validates the patient minimum-version policy signing-key trust (current/next key ids and public keys). | Refuses equal current/next key ids and half-supplied key pairs. |
 | `validate-sealed-secrets-bootstrap.mjs` | ✅ | Validates a rendered Sealed Secrets bootstrap YAML. | `node scripts/validate-sealed-secrets-bootstrap.mjs <rendered.yaml>`; also imported by the smoke above. |
 
@@ -137,8 +137,9 @@ Unless a row says otherwise, run these from the repository root.
   call (`canonical-plan.mjs`, `stage-selection.mjs`, `check-client-paths.mjs`,
   `run-affected-backend-tests.mjs`, …). These are invoked by `ci.yml` and
   `local-ci.mjs`, not by an operator. `scripts/ci/README.md` documents them.
-- `scripts/lib/resolve-dev-tool.ps1` and `scripts/security/check-infra-security-controls.mjs`
-  — helper modules called by the entrypoints above.
+- `scripts/lib/resolve-dev-tool.ps1`, `scripts/lib/rendered-manifest-refs.mjs` and
+  `scripts/security/check-infra-security-controls.mjs` — helper modules called by
+  the entrypoints above.
 - Every `scripts/*.test.mjs` — `node --test` unit tests for the scripts beside
   them. Individual workflows run named ones; none is an operator entrypoint.
 

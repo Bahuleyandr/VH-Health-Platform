@@ -12,6 +12,9 @@ describe('production bootstrap and migration-writer ownership', () => {
   const payrollAcceptanceSource = read(
     '../../../../../infra/kubernetes/apps/backend/payroll-revision-754-acceptance.yaml',
   );
+  const migrationConfigSource = read(
+    '../../../../../infra/kubernetes/apps/backend/migration-config.yaml',
+  );
   const backendKustomizationSource = read(
     '../../../../../infra/kubernetes/apps/backend/kustomization.yaml',
   );
@@ -94,7 +97,42 @@ describe('production bootstrap and migration-writer ownership', () => {
     // failing closed if the configmap ever loses AUTH_TENANT_RLS_RUNTIME_ROLE.
     expect(jobSource).not.toMatch(/name:\s*['"]?RUNTIME_ROLE_GRANTS_OPTIONAL/);
     expect(configSource).not.toMatch(/^\s*RUNTIME_ROLE_GRANTS_OPTIONAL:/m);
+    expect(migrationConfigSource).not.toMatch(/^\s*RUNTIME_ROLE_GRANTS_OPTIONAL:/m);
+    // Both ConfigMaps carry the role: the Deployment CONNECTS as it, and the
+    // PreSync Job GRANTS to it. validate-kubernetes-manifests.mjs fails the
+    // render unless the two values are identical.
     expect(configSource).toContain('AUTH_TENANT_RLS_RUNTIME_ROLE');
+    expect(migrationConfigSource).toContain('AUTH_TENANT_RLS_RUNTIME_ROLE');
+  });
+
+  it('feeds the PreSync Job from a PreSync-phase ConfigMap, never the Sync-phase runtime one', () => {
+    // ArgoCD completes every PreSync hook before it applies ANY Sync-phase
+    // resource — sync waves order within a phase, not across phases. The
+    // runtime ConfigMap is a Sync-phase resource, so a hard envFrom on it made
+    // this Job unstartable on a fresh cluster: CreateContainerConfigError is a
+    // Waiting reason, so it never fails, never retains a pod, and is finally
+    // deleted at activeDeadlineSeconds leaving no logs at all.
+    expect(migrationConfigSource).toContain('argocd.argoproj.io/hook: PreSync');
+    expect(migrationConfigSource).toContain('argocd.argoproj.io/sync-wave: "-2"');
+    expect(migrationConfigSource).toContain(
+      'argocd.argoproj.io/hook-delete-policy: BeforeHookCreation',
+    );
+    expect(migrationConfigSource).toContain('name: vhhealth-backend-migration-config');
+    expect(backendKustomizationSource).toContain('migration-config.yaml');
+
+    // The migrate container's envFrom must name the hook-phase ConfigMap...
+    expect(jobSource).toMatch(
+      /envFrom:\s*\n\s*- configMapRef:\s*\n\s*name: vhhealth-backend-migration-config/,
+    );
+    // ...and must not reach for the Sync-phase one under any indentation.
+    expect(jobSource).not.toMatch(
+      /- configMapRef:\s*\n\s*name: vhhealth-backend-config\b/,
+    );
+
+    // The runtime ConfigMap must stay a plain Sync-phase resource: annotating
+    // it as a hook would silence ArgoCD drift detection on the backend's whole
+    // runtime configuration and delete/re-create it on every sync.
+    expect(configSource).not.toContain('argocd.argoproj.io/hook');
   });
 
   it('keeps schema bootstrap authority in the migration runner', () => {
