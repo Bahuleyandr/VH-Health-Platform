@@ -82,11 +82,11 @@ no sync follows. Once it is gone the failure is not reconstructable.
    which picks one arbitrary attempt that need not be the one that failed:
    `kubectl -n vhhealth logs -l batch.kubernetes.io/job-name=vhhealth-backend-migrate -c migrate --tail=400 --prefix`
    and `kubectl -n vhhealth describe job vhhealth-backend-migrate`.
-   Two cases have no retained pod: the older `restartPolicy: OnFailure`, where
-   the controller deletes the pod at BackoffLimitExceeded and the Job reads
-   `Failed 0/1`; and DeadlineExceeded, where the still-running pod is deleted
-   under either policy. In both, the Job's conditions/events plus the ArgoCD
-   sync's live hook stream are the only record.
+   Count the pods FIRST — that alone tells you which of three failures you
+   have, and in two of them the `logs -l …` command answers something other
+   than the diagnosis. `apps/backend/docs/RUNBOOKS/db-restore.md` walks all
+   three (a migration error, an init-gate pod stuck `PodInitializing`, and
+   `DeadlineExceeded` with no pod left at all); do not re-derive them here.
 2. Establish how far the schema advanced — the tracker is the source of truth:
    `kubectl cnpg psql vhhealth-pg -- -c "SELECT name FROM _migrations ORDER BY name DESC LIMIT 5"`.
    Compare against `apps/backend/src/migrations/` for the image being deployed.

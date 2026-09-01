@@ -188,8 +188,10 @@ kubectl -n vhhealth rollout status deployment/vhhealth-backend
 ```
 
 If the `wait` above times out, the hook failed and the sync aborted. Prod sync
-is manual, so this surfaces to whoever triggered it — nothing pages, and nobody
-else is looking. **Start by counting pods, because that alone tells you which of
+is manual, so this surfaces first to whoever triggered it — but it is no longer
+silent: BackendMigrationJobFailed pages about two minutes after the Job goes
+Failed, in all three cases below (see base/monitoring/backend-red-alerts.yaml).
+**Start by counting pods, because that alone tells you which of
 three failures you have, and two of the three make the `logs -l …` command above
 answer something other than the diagnosis:**
 

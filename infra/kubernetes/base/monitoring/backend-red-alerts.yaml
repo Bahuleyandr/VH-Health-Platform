@@ -189,15 +189,20 @@ spec:
         #
         # SERIES. NOT kube_job_status_failed. That series counts FAILED PODS,
         # which is wrong for this Job in both directions:
-        #   · Under `restartPolicy: OnFailure` (today) the Job controller
-        #     DELETES the pod once it exceeds backoffLimit, so a terminally
-        #     failed Job reads `Failed 0/1` and the count never leaves 0. A
-        #     rule on the pod count would ship blind. Reproduced on the
-        #     dalekdefender rig in PR #954.
-        #   · Under `restartPolicy: Never` (PR #955, which retains failed pods
-        #     so their logs survive) the count is CUMULATIVE and a later
-        #     success does not clear it, so a Job that failed once and then
-        #     SUCCEEDED would page for the whole retention window.
+        #   · It reads 0 for TWO of the three real failure modes. The Job runs
+        #     `restartPolicy: Never` (#955), and a pod stuck in a WAITING
+        #     reason is not a pod FAILURE: an init-gate failure
+        #     (wait-owner-bypassrls never lets `migrate` start) and a
+        #     DeadlineExceeded hang both end the Job Failed having produced no
+        #     failed pod at all — the controller deletes the still-running pod.
+        #     Both are written up and reproduced on a kind cluster in
+        #     apps/backend/docs/RUNBOOKS/db-restore.md (#957). The pre-#955
+        #     `restartPolicy: OnFailure` had the same hole for the ordinary
+        #     migration failure too: it read `Failed 0/1` (#954).
+        #   · In the one mode where it IS non-zero, it never clears. The count
+        #     is CUMULATIVE, so a Job that failed once and then SUCCEEDED holds
+        #     it at >=1 for the whole 24h ttlSecondsAfterFinished window — a
+        #     false page on a healthy deploy.
         # kube_job_failed{condition="true"} is the Job object's own Failed
         # condition: set only on a terminal BackoffLimitExceeded or
         # DeadlineExceeded, never set on an eventually-successful retry, and
