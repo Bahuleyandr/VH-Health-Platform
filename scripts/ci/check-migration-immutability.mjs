@@ -155,7 +155,7 @@ export function parseAllowlist(raw) {
       errors.push(`${at}: "approvedOn" must be a YYYY-MM-DD date.`);
     }
 
-    const key = `${file} ${entry.fromChecksum}`;
+    const key = `${file}|${entry.fromChecksum}`;
     if (seen.has(key)) {
       errors.push(`${at}: duplicate entry for ${file} from ${entry.fromChecksum}.`);
     }
@@ -195,11 +195,25 @@ export function evaluateMigrationChanges(changes, allowlist = []) {
   const added = [];
   const violations = [];
   const amended = [];
+  const unchanged = [];
   const matchedKeys = new Set();
 
   for (const change of changes) {
     if (change.status === 'A') {
       added.push(change);
+      continue;
+    }
+
+    // The blob moved but the CHECKSUM did not, so the runtime is indifferent:
+    // a file-mode change, or - the one that would actually bite here - a
+    // line-ending rewrite. '*.sql' is not LF-pinned in .gitattributes, so a
+    // Windows editor can re-commit a migration as CRLF; migrationChecksum()
+    // normalises CRLF before hashing, so that file still matches every
+    // _migrations row on every database. Failing it would be a pure false
+    // positive against a gate whose whole authority is that it mirrors the
+    // runtime check exactly.
+    if (change.fromChecksum !== null && change.fromChecksum === change.toChecksum) {
+      unchanged.push(change);
       continue;
     }
 
@@ -211,7 +225,7 @@ export function evaluateMigrationChanges(changes, allowlist = []) {
     );
 
     if (match) {
-      matchedKeys.add(`${match.file} ${match.fromChecksum}`);
+      matchedKeys.add(`${match.file}|${match.fromChecksum}`);
       amended.push({ ...change, allowlist: match });
     } else {
       violations.push(change);
@@ -222,9 +236,9 @@ export function evaluateMigrationChanges(changes, allowlist = []) {
   // NOT an error: once an amendment merges, its entry stays behind as the
   // permanent audit record and is inert on every later branch. It can only ever
   // re-authorise producing content that is already on main.
-  const inert = allowlist.filter((entry) => !matchedKeys.has(`${entry.file} ${entry.fromChecksum}`));
+  const inert = allowlist.filter((entry) => !matchedKeys.has(`${entry.file}|${entry.fromChecksum}`));
 
-  return { added, amended, violations, inert };
+  return { added, amended, violations, unchanged, inert };
 }
 
 // ---------------------------------------------------------------------------
@@ -419,6 +433,12 @@ export function buildReport(result, { ref, base, considered = [] }) {
       `${result.amended.length} allowlisted amendment(s), ` +
       `${result.violations.length} violation(s).`,
   );
+
+  if (result.unchanged.length > 0) {
+    lines.push(
+      `  ${result.unchanged.length} migration(s) touched with no checksum change (line endings or file mode) — not drift.`,
+    );
+  }
 
   for (const amendment of result.amended) {
     lines.push(

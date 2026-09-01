@@ -200,6 +200,37 @@ test('a migration born on this branch may be edited on this branch', (t) => {
   assert.match(stdout, /1 migration\(s\) added, 0 allowlisted amendment\(s\), 0 violation\(s\)/);
 });
 
+test('a line-ending rewrite is not drift', (t) => {
+  // The blob changes, the checksum does not. '*.sql' is not LF-pinned in
+  // .gitattributes, so a Windows editor can re-commit a migration as CRLF —
+  // and migrationChecksum() normalises CRLF before hashing, so that file still
+  // matches every _migrations row on every database. This gate's authority
+  // rests on mirroring the runtime check exactly, so it must not fail here.
+  const { repo } = seedRepo(t);
+  writeFile(repo, MIGRATION_566, before.replace(/\n/g, '\r\n'));
+  commit(repo, 'chore: an editor rewrote 566 as CRLF');
+
+  const { status, stdout } = runGate(repo);
+  assert.equal(status, 0, 'a CRLF-only rewrite was reported as drift');
+  assert.match(stdout, /1 migration\(s\) touched with no checksum change/);
+  assert.match(stdout, /0 violation\(s\)/);
+});
+
+test('the gate sources are free of NUL bytes', () => {
+  // A stray NUL makes a source file "binary" to grep and to every grep-backed
+  // review or CI gate downstream. Three of them shipped in this file's first
+  // draft, as a template-literal separator, and behaved correctly enough that
+  // all 21 tests passed without noticing.
+  for (const file of [
+    'scripts/ci/check-migration-immutability.mjs',
+    'scripts/ci/check-migration-immutability.test.mjs',
+    'scripts/ci/migration-amendment-allowlist.json',
+  ]) {
+    const bytes = readFileSync(join(repoRoot, file));
+    assert.equal(bytes.indexOf(0), -1, `${file} contains a NUL byte at ${bytes.indexOf(0)}`);
+  }
+});
+
 test('a non-.sql file in the migrations directory is not guarded', (t) => {
   const { repo } = seedRepo(t);
   writeFile(repo, `${MIGRATIONS_DIR}/README.md`, 'notes\n');
