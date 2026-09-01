@@ -5,6 +5,13 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
+#
+# migration-job.yaml is DELIBERATELY not a resource here. It is the rig's
+# stand-in for the production ArgoCD PreSync hook, and its `image:` is a
+# placeholder that the root-owned deploy helper substitutes with the verified
+# digest it is about to pin. Listing it below would make `kubectl apply -k`
+# create a Job that can never pull. Pinned by
+# scripts/dalek-migration-job-manifest.test.mjs.
 resources:
   - namespace.yaml
   - postgres.yaml

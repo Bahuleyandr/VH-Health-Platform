@@ -54,6 +54,10 @@ const BACKEND_MANIFEST_DIR = 'infra/kubernetes/apps/backend';
 const BACKEND_MANIFEST_DIRS = [
   BACKEND_MANIFEST_DIR,
   'infra/kubernetes/optional/analytics-warehouse',
+  // The dalekdefender rig's migration Job is a third copy of the same shape,
+  // rendered by the deploy helper rather than by ArgoCD. Same image, same
+  // entrypoints, same way to break it.
+  'infra/kubernetes/overlays/dalekdefender',
 ];
 const BACKEND_IMAGE_REPO = 'ghcr.io/bahuleyandr/vh-health-platform-backend';
 

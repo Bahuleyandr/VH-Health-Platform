@@ -331,6 +331,32 @@ test('Dalek deploy workflow is strict and verifies the deployed commit', () => {
   assert.match(helper, /deployed commit .* does not match requested commit/);
 });
 
+test('a stale host helper fails the GitHub deploy instead of skipping it green', () => {
+  // The helper owns the whole cluster mutation, migrations included. When the
+  // host copy is stale the run changes NOTHING, so a green conclusion is a lie
+  // — that silent skip left the rig six days stale in August 2026, and it
+  // would now silently disable the PreSync-equivalent migration step too.
+  const workflow = readRepo('.github/workflows/deploy-dalekdefender.yml');
+  const helperStep = workflow.slice(
+    workflow.indexOf('- name: Verify host deploy helper is current'),
+    workflow.indexOf('- name: Pin deployments to verified digests'),
+  );
+
+  assert.ok(helperStep.length > 0, 'the host-helper freshness step is missing');
+  assert.match(helperStep, /::error::Dalekdefender host helper is missing or stale/);
+  assert.match(helperStep, /^\s+exit 1$/m);
+  assert.doesNotMatch(
+    helperStep, /skip=true/,
+    'a stale helper must fail the deploy, not skip the cluster mutation with a warning',
+  );
+
+  const pinStep = workflow.slice(workflow.indexOf('- name: Pin deployments to verified digests'));
+  assert.doesNotMatch(
+    pinStep, /steps\.helper\.outputs\.skip/,
+    'the pin step must not be gated on a helper-skip output that no longer exists',
+  );
+});
+
 test('MinIO capacity and failure claims match the rendered single-pool topology', () => {
   const tenant = readRepo('infra/kubernetes/base/minio/tenant.yaml');
   const hardware = readRepo('docs/HARDWARE_REQUIREMENTS.md');

@@ -89,6 +89,26 @@ describe('ci-setup-db migration failure boundary', () => {
     ]);
   });
 
+  test('names the failing migrations so a muted-logger run is still diagnosable', async () => {
+    const client = { end: jest.fn() };
+    const logger = { error: jest.fn() };
+
+    await expect(
+      assertMigrationBatchSucceeded({
+        errors: 1,
+        failedFiles: ['759_fix_escalation_snapshot_guard_case.sql'],
+        client,
+        logger,
+      }),
+    ).rejects.toThrow(
+      'Migration setup failed: 1 migration(s) failed (759_fix_escalation_snapshot_guard_case.sql); '
+        + 'seeds and RLS test-role provisioning were not run.',
+    );
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('759_fix_escalation_snapshot_guard_case.sql'),
+    );
+  });
+
   test('returns without closing the client when every migration succeeded', async () => {
     const client = { end: jest.fn() };
     const logger = { error: jest.fn() };
@@ -146,7 +166,7 @@ describe('ci-setup-db migration failure boundary', () => {
   test('stops after collecting migration errors and before any seed or role provisioning', () => {
     const migrationLoop = runnerSource.indexOf('for (const file of files)');
     const fatalGuard = runnerSource.indexOf(
-      'await assertMigrationBatchSucceeded({ errors, client, logger })',
+      'await assertMigrationBatchSucceeded({ errors, failedFiles, client, logger })',
       migrationLoop,
     );
     const seedBoundary = runnerSource.indexOf('// Seed minimal lookup data', migrationLoop);

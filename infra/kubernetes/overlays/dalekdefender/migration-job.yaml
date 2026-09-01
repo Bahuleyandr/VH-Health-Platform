@@ -1,0 +1,152 @@
+# Dalekdefender DB migration Job — the rig's equivalent of the production
+# ArgoCD PreSync hook in infra/kubernetes/apps/backend/migration-job.yaml.
+#
+# WHY THIS FILE IS NOT IN kustomization.yaml
+#   The rig runs no ArgoCD, so there is no PreSync hook to attach to. The
+#   ordering guarantee instead comes from the root-owned deploy helper
+#   (vhhealth-gha-deploy.sh): it renders this manifest with the SAME verified
+#   image digest it is about to pin, runs it to completion, and only then
+#   sets the Deployment images. A failed Job aborts the deploy and leaves the
+#   Deployments untouched, so API workers never start against a schema they
+#   cannot prove.
+#   The helper embeds this file verbatim (it runs as root from
+#   /usr/local/sbin and must not read the host's git checkout, which can be
+#   stale). scripts/dalek-migration-job-manifest.test.mjs asserts the embedded
+#   copy is byte-identical to this one, so the two cannot drift.
+#   `image:` below is a placeholder the helper substitutes; applying this file
+#   directly with `kubectl apply -k` would create an unpullable Job, which is
+#   why kustomization.yaml deliberately does not list it.
+#
+# DIFFERENCES FROM THE PRODUCTION JOB, AND WHY
+#   * No `wait-owner-bypassrls` initContainer. That gate exists because CNPG
+#     grants the owner `bypassrls` on the operator's own reconcile loop, which
+#     can race a fresh cluster's PreSync Job. The rig runs a plain
+#     `vhhealth-postgres-0` StatefulSet whose bootstrap role `vhhealth` is a
+#     superuser from initdb (verified: rolsuper=t, rolbypassrls=t), so there is
+#     no reconcile to wait for.
+#   * No DATABASE_URL override. Production splits the owner DSN
+#     (DATABASE_SUPERUSER_URL) from the NOBYPASSRLS runtime DSN; the rig's
+#     `vhhealth-backend` Secret carries a single DATABASE_URL and it is already
+#     the owner/superuser connection, so `envFrom` alone gives migrations the
+#     DDL rights they need.
+#   * No `vhhealth-backend-config` configMapRef — the rig has no such ConfigMap.
+#   * RUNTIME_ROLE_GRANTS_OPTIONAL=true. The rig has no `vhhealth_runtime`
+#     login role (verified: only vhhealth, vhhealth_app, vhhealth_readonly) and
+#     no AUTH_TENANT_RLS_RUNTIME_ROLE in the Secret, which is exactly the
+#     single-DSN configuration the production Job's own comment blesses this
+#     knob for. It turns a configuration-absent skip into a loud exit-0 no-op;
+#     an unsafe role name, a grant error, or a bad posture still fails.
+#
+# IDEMPOTENT AND SAFE TO RE-RUN: ci-setup-db.mjs is tracker-driven. It applies
+# each file in src/migrations/*.sql exactly once per database via `_migrations`
+# and is a no-op when the database is already caught up. Each migration is
+# applied inside a transaction (its own, or the executor's), so a mid-file
+# failure commits nothing and records no tracker row.
+#
+# NO SEEDS: --skip-seeds plus CI_DB_SKIP_SEEDS=1. The rig's identities are
+# provisioned through the approved onboarding path (see README), and the
+# synthetic seed scripts refuse to run under NODE_ENV=production anyway.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vhhealth-backend-migrate
+  namespace: vhhealth
+  labels:
+    app.kubernetes.io/name: vhhealth-backend-migrate
+    app.kubernetes.io/component: migration
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  # One retry, then fail the deploy. A retry rides out a Postgres pod that is
+  # still coming up; a genuinely failing migration must reach the operator
+  # quickly rather than burn the helper's wait budget.
+  backoffLimit: 1
+  # 15min hard cap — real migrations take <60s; anything longer is hung.
+  activeDeadlineSeconds: 900
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vhhealth-backend-migrate
+        app.kubernetes.io/component: migration
+        app.kubernetes.io/part-of: vhhealth
+    spec:
+      # Never, NOT OnFailure — this is a diagnosability requirement, not a
+      # preference. With OnFailure the job controller DELETES the pod the
+      # moment it exceeds the backoff limit ("SuccessfulDelete ... Deleted
+      # pod" immediately after "BackoffLimitExceeded"), so by the time the
+      # deploy helper collects diagnostics there is no pod left and the
+      # operator gets the failure with NO migration output at all — exactly
+      # the output that says WHICH migration broke and why. Observed on the
+      # rig 2026-09-01. With Never each attempt is a fresh pod and failed pods
+      # are retained, so their logs survive for the helper to print.
+      restartPolicy: Never
+      terminationGracePeriodSeconds: 30
+      automountServiceAccountToken: false
+      # The helper refreshes this Secret from the workflow token immediately
+      # before running the Job, so the digest is always pullable here even on
+      # the first deploy of a new image.
+      imagePullSecrets:
+        - name: ghcr-read
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: ghcr.io/bahuleyandr/vh-health-platform-backend:0.0.0-placeholder
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              echo ">> db:ensure-pgvector (CREATE EXTENSION IF NOT EXISTS vector)"
+              node scripts/ensure-pgvector-extension.mjs
+              echo ">> ci-setup-db.mjs (apply raw src/migrations/*.sql, tracker-driven)"
+              node scripts/ci-setup-db.mjs --skip-seeds
+              echo ">> ensure runtime-role grants (owner-only bootstrap)"
+              node scripts/ensure-runtime-role-grants.mjs
+              echo ">> migrations complete"
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: CI_DB_SKIP_SEEDS
+              value: "1"
+            - name: RUNTIME_ROLE_GRANTS_OPTIONAL
+              value: "true"
+          envFrom:
+            - secretRef:
+                name: vhhealth-backend
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            capabilities:
+              drop:
+                - ALL
+          # No volume may mount over /app/node_modules/** — the image bakes the
+          # generated Prisma client at /app/node_modules/.prisma and a mount
+          # REPLACES that directory rather than overlaying it.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: app-tmp
+              mountPath: /app/tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 128Mi
+        - name: app-tmp
+          emptyDir:
+            sizeLimit: 128Mi
