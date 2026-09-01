@@ -8,10 +8,14 @@ import {
   SearchIcon,
 } from "@/components/icons";
 import { usePermissions } from "@/hooks/usePermissions";
+import {
+  visibleNavigationShortcuts,
+  type NavigationShortcut,
+} from "@/lib/dashboardShortcuts";
 import { visibleNavSections } from "@/lib/navConfig";
 import { Dialog, Transition } from "@headlessui/react";
 import { useRouter } from "next/navigation";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 
 interface Command {
@@ -29,13 +33,19 @@ export function CommandPalette() {
   const router = useRouter();
   const { rawRole, role, isSuperAdmin, hasAllPermissions } = usePermissions();
 
+  const visibleSections = useMemo(
+    () =>
+      visibleNavSections({
+        rawRole,
+        role,
+        isSuperAdmin,
+        hasAllPermissions,
+      }),
+    [rawRole, role, isSuperAdmin, hasAllPermissions],
+  );
+
   const commands = useMemo<Command[]>(() => {
-    const navigation = visibleNavSections({
-      rawRole,
-      role,
-      isSuperAdmin,
-      hasAllPermissions,
-    }).flatMap((section) =>
+    const navigation = visibleSections.flatMap((section) =>
       section.items.map((item) => ({
         id: `go-${item.href}`,
         name: item.name,
@@ -77,7 +87,22 @@ export function CommandPalette() {
         keywords: ["reload", "update", "sync"],
       },
     ];
-  }, [rawRole, role, isSuperAdmin, hasAllPermissions, router]);
+  }, [visibleSections, router]);
+
+  const navigationShortcuts = useMemo(
+    () => visibleNavigationShortcuts(visibleSections),
+    [visibleSections],
+  );
+  const navigationShortcutByKey = useMemo(
+    () =>
+      new Map<string, NavigationShortcut>(
+        navigationShortcuts.map((shortcut) => [
+          shortcut.sequenceKey,
+          shortcut,
+        ]),
+      ),
+    [navigationShortcuts],
+  );
 
   // Filter commands based on search
   const filteredCommands = commands.filter((command) => {
@@ -91,21 +116,93 @@ export function CommandPalette() {
     );
   });
 
-  // Keyboard shortcut to open command palette
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const navigationSequenceTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const awaitingNavigationKeyRef = useRef(false);
+
+  // Dashboard-wide shortcuts are registered here because this component is
+  // mounted once in the authenticated layout and already owns role-filtered
+  // navigation.
   useEffect(() => {
+    const clearNavigationSequence = () => {
+      awaitingNavigationKeyRef.current = false;
+      if (navigationSequenceTimerRef.current !== null) {
+        clearTimeout(navigationSequenceTimerRef.current);
+        navigationSequenceTimerRef.current = null;
+      }
+    };
+
+    const startNavigationSequence = () => {
+      clearNavigationSequence();
+      awaitingNavigationKeyRef.current = true;
+      navigationSequenceTimerRef.current = setTimeout(
+        clearNavigationSequence,
+        1000,
+      );
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+      const key = e.key.toLowerCase();
+      const hasCommandModifier = e.metaKey || e.ctrlKey;
+
+      if (hasCommandModifier && (key === "k" || key === "/")) {
         e.preventDefault();
+        clearNavigationSequence();
         setIsOpen(true);
+        if (key === "/") searchInputRef.current?.focus();
+        return;
       }
       if (e.key === "Escape") {
+        clearNavigationSequence();
         setIsOpen(false);
+        return;
+      }
+
+      const target = e.target;
+      const isTyping =
+        target instanceof HTMLElement &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable);
+      const hasOtherModifier = e.metaKey || e.ctrlKey || e.altKey;
+      const hasOpenDialog = document.querySelector(
+        '[role="dialog"][aria-modal="true"]',
+      );
+
+      if (isTyping || hasOtherModifier || hasOpenDialog) {
+        clearNavigationSequence();
+        return;
+      }
+
+      if (awaitingNavigationKeyRef.current) {
+        const shortcut = navigationShortcutByKey.get(key);
+        clearNavigationSequence();
+        if (shortcut) {
+          e.preventDefault();
+          router.push(shortcut.href);
+        }
+        return;
+      }
+
+      if (key === "g") {
+        e.preventDefault();
+        startNavigationSequence();
       }
     };
 
     document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, []);
+    return () => {
+      clearNavigationSequence();
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [navigationShortcutByKey, router]);
+
+  useEffect(() => {
+    if (isOpen) searchInputRef.current?.focus();
+  }, [isOpen]);
 
   // Handle command selection with keyboard
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -159,6 +256,7 @@ export function CommandPalette() {
               <div className="flex items-center border-b px-4">
                 <SearchIcon className="w-5 h-5 text-muted-foreground mr-3" />
                 <input
+                  ref={searchInputRef}
                   type="text"
                   className="w-full border-0 py-4 text-lg placeholder-muted-foreground focus:outline-none focus:ring-0"
                   placeholder="Type a command or search..."
