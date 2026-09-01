@@ -57,19 +57,56 @@ const GRANDFATHERED = new Map([
     'Functions precede the table whose triggers call them and which some of them read back.'],
 ]);
 
-// A bare `SET check_function_bodies ...` at the start of a line. `SET LOCAL` is
-// explicitly allowed — that is the whole point of the rule.
-const SESSION_SET = /^[ \t]*SET[ \t]+check_function_bodies\b/gim;
-const LOCAL_SET = /^[ \t]*SET[ \t]+LOCAL[ \t]+check_function_bodies\b/i;
+/**
+ * The GUCs `ci-setup-db.mjs` pins for the whole migration run
+ * (MIGRATION_SESSION_GUCS there). A migration may relax one for its own content
+ * with `SET LOCAL`; a bare `SET` would outlive it and govern everything after.
+ *
+ * `row_security` is here for the same structural reason as
+ * `check_function_bodies`, but note the safe value is the opposite: the runner
+ * pins it OFF, because for a plain owner of a FORCE-RLS table `off` raises
+ * 42501 on a policy-affected query while `on` silently returns zero rows. A
+ * migration turning it `on` session-wide would convert every later backfill's
+ * loud failure into a silent no-op.
+ */
+const GUARDED_GUCS = ['check_function_bodies', 'row_security', 'client_min_messages'];
+const GUC = GUARDED_GUCS.join('|');
+
+// A bare `SET <guc> ...` at the start of a line. `SET LOCAL` is explicitly
+// allowed — that is the whole point of the rule.
+const SESSION_SET = new RegExp(`^[ \\t]*SET[ \\t]+(?:${GUC})\\b`, 'i');
+const LOCAL_SET = new RegExp(`^[ \\t]*SET[ \\t]+LOCAL[ \\t]+(?:${GUC})\\b`, 'i');
+
+/**
+ * ★ A SET inside a CREATE FUNCTION signature is a per-function ATTRIBUTE, not a
+ * session setting — it applies only while that function runs and is exactly the
+ * right way to write it. Migration 736 has three of them
+ * (`SECURITY DEFINER ... SET row_security = off` on its sweep functions), and
+ * flagging those would be a false positive that makes the gate un-satisfiable.
+ *
+ * The signature runs from `CREATE [OR REPLACE] FUNCTION` to the `AS $tag$` (or
+ * `AS '`) that opens the body, so tracking that span is enough to tell the two
+ * apart — and it does so without relying on a trailing semicolon, which a
+ * session SET could legally put on the following line.
+ */
+const FUNCTION_SIGNATURE_START = /\bCREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\b/i;
+const FUNCTION_BODY_START = /\bAS\s+(?:\$|')/i;
 
 export function findSessionGucLeaks(files) {
   const offenders = [];
   for (const { name, sql } of files) {
     const lines = sql.split(/\r?\n/);
+    let inFunctionSignature = false;
     lines.forEach((line, index) => {
-      SESSION_SET.lastIndex = 0;
+      if (FUNCTION_SIGNATURE_START.test(line)) inFunctionSignature = true;
+      // Read the flag before this line can close the signature, so the `AS $f$`
+      // line itself is still treated as part of the signature.
+      const isFunctionAttribute = inFunctionSignature;
+      if (FUNCTION_BODY_START.test(line)) inFunctionSignature = false;
+
       if (!SESSION_SET.test(line)) return;
       if (LOCAL_SET.test(line)) return;
+      if (isFunctionAttribute) return;
       offenders.push({ name, line: index + 1, text: line.trim() });
     });
   }
@@ -105,7 +142,7 @@ function main() {
     // allowance sit there quietly widening what the gate permits.
     console.error(
       'Stale grandfather entries — these files no longer contain a session-level '
-      + 'SET check_function_bodies, so remove them from GRANDFATHERED:\n'
+      + `SET of ${GUARDED_GUCS.join(' or ')}, so remove them from GRANDFATHERED:\n`
       + staleExemptions.map((n) => `  - ${n}`).join('\n'),
     );
     process.exit(1);
@@ -113,13 +150,16 @@ function main() {
 
   if (violations.length > 0) {
     console.error(
-      'Migrations must not relax check_function_bodies for the whole session.\n\n'
+      `Migrations must not change ${GUARDED_GUCS.join(' or ')} for the whole session.\n\n`
       + violations.map((v) => `  ${v.name}:${v.line}\n    ${v.text}`).join('\n')
-      + '\n\nUse `SET LOCAL check_function_bodies = false` instead. A bare SET is\n'
-      + 'session-scoped, and ci-setup-db.mjs applies every migration through one\n'
-      + 'connection, so it would disable body validation for every migration that\n'
-      + 'follows. That is how 744 and 745 shipped plpgsql bodies that cannot\n'
-      + 'compile while CI stayed green.\n',
+      + '\n\nUse `SET LOCAL` instead. A bare SET is session-scoped, and\n'
+      + 'ci-setup-db.mjs applies every migration through one connection, so it\n'
+      + 'would govern every migration that follows. That is how 744 and 745\n'
+      + 'shipped plpgsql bodies that cannot compile while CI stayed green.\n'
+      + 'For row_security the runner pins OFF deliberately: for a plain owner of a\n'
+      + 'FORCE-RLS table, off raises 42501 on a policy-affected query while on\n'
+      + 'silently returns zero rows, so turning it on would make later backfills\n'
+      + 'fail silently instead of loudly.\n',
     );
     process.exit(1);
   }
@@ -137,4 +177,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   main();
 }
 
-export { GRANDFATHERED, MIGRATIONS_DIR, readMigrations, main };
+export { GRANDFATHERED, GUARDED_GUCS, MIGRATIONS_DIR, readMigrations, main };

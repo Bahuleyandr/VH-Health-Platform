@@ -11,6 +11,7 @@ import {
   assertCiSetupSeedPolicy,
   assertSyntheticSeedTarget,
 } from '../../../scripts/lib/testDataSeedGuard.mjs';
+import { MIGRATION_SESSION_GUCS } from '../../../scripts/lib/migrationSessionGucs.mjs';
 
 const runnerSource = readFileSync(
   new URL('../../../scripts/ci-setup-db.mjs', import.meta.url),
@@ -186,25 +187,40 @@ describe('ci-setup-db migration failure boundary', () => {
     // cannot compile (a bare CASE inside an IF condition eats the IF's THEN)
     // while CI stayed green; plpgsql compiles lazily, so both trigger functions
     // would have raised the first time they fired.
-    const helper = runnerSource.indexOf('async function restoreFunctionBodyChecking()');
-    const setsOn = runnerSource.indexOf("'SET check_function_bodies = on'", helper);
+    // The mechanism was generalised after this test was written: the runner no
+    // longer restores one parameter by name, it pins the whole set it owns from
+    // scripts/lib/migrationSessionGucs.mjs (check_function_bodies = on,
+    // row_security = off, client_min_messages = notice). The invariant this
+    // test exists for is unchanged, so it is re-pointed rather than deleted.
+    //
+    // Assert the VALUE from the shared table rather than a literal in the runner
+    // source: how the SET is spelled is an implementation detail, but what the
+    // session ends up with is the thing that must not regress.
+    expect(MIGRATION_SESSION_GUCS.check_function_bodies).toBe('on');
+
     const migrationLoop = runnerSource.indexOf('for (const file of files)');
     const executorCall = runnerSource.indexOf(
       'const result = await executeCiMigrationFile({',
       migrationLoop,
     );
-    const restoreCall = runnerSource.indexOf(
-      'await restoreFunctionBodyChecking();',
-      executorCall,
-    );
+    const pinCall = runnerSource.indexOf('await pinMigrationSessionGucs(client);', executorCall);
     const appliedAdd = runnerSource.indexOf('applied.add(file);', executorCall);
 
-    expect(helper).toBeGreaterThan(-1);
-    expect(setsOn).toBeGreaterThan(helper);
-    // The restore must sit INSIDE the per-file loop, after the file is applied
-    // and before the next iteration — not once after the whole batch.
-    expect(restoreCall).toBeGreaterThan(executorCall);
-    expect(restoreCall).toBeLessThan(appliedAdd);
+    // Pinned once BEFORE the first migration, so the invariant does not depend
+    // on the baseline's pg_dump preamble happening to supply the right values.
+    const preLoopPin = runnerSource.indexOf('await pinMigrationSessionGucs(client);');
+    expect(preLoopPin).toBeGreaterThan(-1);
+    expect(preLoopPin).toBeLessThan(migrationLoop);
+
+    // And again INSIDE the per-file loop, after the file is applied and before
+    // the next iteration — not once after the whole batch.
+    expect(pinCall).toBeGreaterThan(executorCall);
+    expect(pinCall).toBeLessThan(appliedAdd);
+
+    // A leak that survives to the end of the chain fails the run rather than
+    // being reported only by a unit test that a skipped tier can hide.
+    const postChainAssert = runnerSource.indexOf('await assertMigrationSessionGucs();');
+    expect(postChainAssert).toBeGreaterThan(appliedAdd);
   });
 
   test('only the two known-uncompilable migrations are applied with body checking off', () => {
