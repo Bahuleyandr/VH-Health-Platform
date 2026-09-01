@@ -56,9 +56,10 @@ export const MIGRATION_SESSION_GUCS = Object.freeze({
 // pg_dump sets client_min_messages = warning so a restore is not drowned in
 // "already exists, skipping" chatter, and that leaked to the whole chain — so 48
 // deliberate `RAISE NOTICE` sites across 25 migrations were never heard. Several
-// report things an operator needs, e.g. 272's
+// report things an operator needs, e.g. 237_force_rls_phi_tables.sql:46 raising
 // `Skipping FORCE RLS on %: table does not exist`: a security control quietly not
-// applied because the table was absent.
+// applied because the table was absent. (237 and 272 are the FORCE RLS pair, but
+// only 237 carries that RAISE — 272 reports what it DID apply, not what it skipped.)
 //
 // Measured over a full 732-migration apply at notice level: 3,054 notices, of
 // which ~2,960 are Postgres's own IF [NOT] EXISTS no-ops. Logging all of them

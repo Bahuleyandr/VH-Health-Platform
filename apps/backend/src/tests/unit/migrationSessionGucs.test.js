@@ -115,7 +115,8 @@ describe('idempotency notice filter', () => {
 
   test('keeps deliberate migration diagnostics', () => {
     for (const message of [
-      // 272 — a security control not applied because the table was absent.
+      // 237_force_rls_phi_tables.sql:46 — a security control not applied
+      // because the table was absent, reported and then swallowed.
       'Skipping FORCE RLS on payment_transactions: table does not exist',
       'FORCE ROW LEVEL SECURITY applied to public.users',
       'Tenant-isolated wards (tenant_id + RLS + policy)',
