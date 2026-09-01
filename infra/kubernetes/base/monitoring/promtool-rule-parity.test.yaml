@@ -1090,3 +1090,91 @@ tests:
       - eval_time: 16m
         alertname: PostgresReplicationMetricAbsent
         exp_alerts: []
+  # BackendMigrationJobFailed — the production DB migration Job (ArgoCD PreSync
+  # hook). Every series shape below is copied from a real kube-state-metrics
+  # v2.13.0 scrape of Jobs failed on purpose on the dalekdefender rig under this
+  # exact policy, including the zero-valued sibling `reason` series KSM emits
+  # alongside the non-zero one.
+  #
+  # Case 1 — the migration exits non-zero and exhausts backoffLimit.
+  - interval: 1m
+    input_series:
+      - series: 'kube_job_status_failed{namespace="vhhealth",job_name="vhhealth-backend-migrate",reason="BackoffLimitExceeded"}'
+        values: '1x20'
+      - series: 'kube_job_status_failed{namespace="vhhealth",job_name="vhhealth-backend-migrate",reason="DeadlineExceeded"}'
+        values: '0x20'
+      - series: 'kube_job_status_failed{namespace="vhhealth",job_name="vhhealth-backend-migrate",reason="Evicted"}'
+        values: '0x20'
+    alert_rule_test:
+      # `for: 5m` keeps it quiet through a mid-flight window.
+      - eval_time: 4m
+        alertname: BackendMigrationJobFailed
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: BackendMigrationJobFailed
+        exp_alerts:
+          - exp_labels:
+              namespace: vhhealth
+              job_name: vhhealth-backend-migrate
+              reason: BackoffLimitExceeded
+              severity: warning
+              team: backend
+            exp_annotations:
+              summary: "Backend DB migration Job failed (BackoffLimitExceeded) — deploy is blocked"
+              description: |
+                The PreSync migration hook failed, so ArgoCD aborted the sync and the
+                new image did not roll out. The previous version is still serving.
+                Migrations may be PARTIALLY applied: rolling the image back cannot
+                un-apply them, so the remedy is fix-forward, never rollback.
+                Count pods FIRST — that alone tells you which of three failures it is:
+                  kubectl -n vhhealth get pods -l batch.kubernetes.io/job-name=vhhealth-backend-migrate
+              runbook: "docs/RUNBOOK_ONCALL.md#backendmigrationjobfailed"
+
+  # Case 2 — the pod never starts or hangs, and activeDeadlineSeconds kills it.
+  # This is the path that retains ZERO pods, so the alert is the only durable
+  # evidence the run ever happened once ArgoCD's live log stream is gone.
+  - interval: 1m
+    input_series:
+      - series: 'kube_job_status_failed{namespace="vhhealth",job_name="vhhealth-backend-migrate",reason="BackoffLimitExceeded"}'
+        values: '0x20'
+      - series: 'kube_job_status_failed{namespace="vhhealth",job_name="vhhealth-backend-migrate",reason="DeadlineExceeded"}'
+        values: '1x20'
+      - series: 'kube_job_status_failed{namespace="vhhealth",job_name="vhhealth-backend-migrate",reason="Evicted"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: BackendMigrationJobFailed
+        exp_alerts:
+          - exp_labels:
+              namespace: vhhealth
+              job_name: vhhealth-backend-migrate
+              reason: DeadlineExceeded
+              severity: warning
+              team: backend
+            exp_annotations:
+              summary: "Backend DB migration Job failed (DeadlineExceeded) — deploy is blocked"
+              description: |
+                The PreSync migration hook failed, so ArgoCD aborted the sync and the
+                new image did not roll out. The previous version is still serving.
+                Migrations may be PARTIALLY applied: rolling the image back cannot
+                un-apply them, so the remedy is fix-forward, never rollback.
+                Count pods FIRST — that alone tells you which of three failures it is:
+                  kubectl -n vhhealth get pods -l batch.kubernetes.io/job-name=vhhealth-backend-migrate
+              runbook: "docs/RUNBOOK_ONCALL.md#backendmigrationjobfailed"
+
+  # Case 3 — the REGRESSION GUARD. One attempt fails, the retry succeeds, and
+  # the Job completes. Measured on the rig: kube-state-metrics emits NO
+  # kube_job_status_failed series at all in this case, only _succeeded, because
+  # it emits that family only once the Job carries a terminal Failed condition.
+  # A `backoffLimit: 2` doing its job must never notify anyone.
+  - interval: 1m
+    input_series:
+      - series: 'kube_job_status_succeeded{namespace="vhhealth",job_name="vhhealth-backend-migrate"}'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: BackendMigrationJobFailed
+        exp_alerts: []
+      - eval_time: 19m
+        alertname: BackendMigrationJobFailed
+        exp_alerts: []

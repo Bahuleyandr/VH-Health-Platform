@@ -17,9 +17,15 @@
 # ArgoCD streams hook pod logs live, so an operator watching a sync sees the
 # migration output in real time. Everything here is about the other case —
 # diagnosing after the fact, which is what an unattended or overnight sync
-# leaves you with. Note there is no alert on this Job (the
-# OutageCriticalCronJobFailing rule in base/monitoring/backend-red-alerts.yaml
-# matches the CronJobs only), so discovery is a human noticing the failed sync.
+# leaves you with. The BackendMigrationJobFailed rule in
+# base/monitoring/backend-red-alerts.yaml watches this Job by name, so a
+# failure is recorded rather than depending on a human noticing the failed
+# sync (OutageCriticalCronJobFailing matches the CronJobs only). Alertmanager
+# receiver wiring is still C1.3, so treat that rule as stated intent, not as
+# proof anyone is notified. It reads kube_job_status_failed, which
+# kube-state-metrics emits only once this Job carries a terminal Failed
+# condition — so a transient failure absorbed by backoffLimit below stays
+# silent, and both BackoffLimitExceeded and DeadlineExceeded are covered.
 # Every attempt is a separate retained pod, so select on the CONTROLLER-set
 # job-name label. Not `logs job/<name>` — that picks ONE arbitrary attempt
 # ("Found 3 pods, using pod/…"), which need not be the one that failed. Not the

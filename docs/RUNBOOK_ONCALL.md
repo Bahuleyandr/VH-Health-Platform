@@ -63,6 +63,55 @@ No scrape targets for 2m.
 3. If recovery is not imminent (>10–15m), notify wards to begin the
    downtime procedure with their latest packs.
 
+## BackendMigrationJobFailed
+
+The production DB migration Job (`vhhealth-backend-migrate`, the ArgoCD PreSync
+hook defined in `infra/kubernetes/apps/backend/migration-job.yaml`) reached a
+terminal `Failed` condition. ArgoCD aborted the sync, so the new image never
+rolled out and the previous version is still serving. This is a blocked deploy,
+not an outage — hence `warning`.
+
+**Do not roll back.** A failed migration Job may have applied some migrations
+before it failed, and rolling the image back cannot un-apply them: the older
+image then meets tracker rows it does not recognise and will not boot either.
+Rollback would trade a blocked deploy for an unbootable one. Fix forward.
+
+Count pods first — that alone tells you which of three failures you have, and
+two of the three make the obvious `logs -l …` command answer something other
+than the diagnosis:
+
+```bash
+kubectl -n vhhealth get pods -l batch.kubernetes.io/job-name=vhhealth-backend-migrate
+```
+
+- **`reason="BackoffLimitExceeded"`, one to three pods in `Error`.** Something
+  exited non-zero. Each attempt is a separate retained pod (`restartPolicy:
+  Never`), so read them all rather than `logs job/<name>`, which picks one
+  arbitrary attempt that need not be the one that failed:
+  `kubectl -n vhhealth logs -l batch.kubernetes.io/job-name=vhhealth-backend-migrate -c migrate --tail=400 --prefix`.
+  If `-c migrate` answers `PodInitializing`, the `wait-owner-bypassrls` init
+  gate failed instead and `migrate` never ran — read `-c wait-owner-bypassrls`.
+  Read before re-syncing: the next sync's `hook-delete-policy:
+  BeforeHookCreation` deletes this Job and its pods.
+- **`reason="DeadlineExceeded"`, `No resources found`.** The 900s deadline
+  fired and the controller deleted the pod, so there are no pod logs at all.
+  `kubectl -n vhhealth describe job vhhealth-backend-migrate` is the only
+  surviving evidence. A pod stuck in a *Waiting* reason (`PodInitializing`,
+  `CreateContainerConfigError`) is never a pod *failure*, so it never increments
+  the backoff counter and never becomes a retained failed pod — it sits until
+  the deadline. If ArgoCD streamed the hook logs live during the sync, that
+  stream is the only place the output ever existed; otherwise re-sync and watch.
+
+Full triage, including the recovery-cutover context, is in
+`apps/backend/docs/RUNBOOKS/db-restore.md` step 6.
+
+The alert clears when the Job object goes away — the next sync deletes it
+(`BeforeHookCreation`), or `ttlSecondsAfterFinished` reaps it 24h after it
+finished. So it stays quiet when an operator re-syncs promptly, and the `for: 5m`
+delay means a transient failure that `backoffLimit: 2` absorbs never fires it at
+all: kube-state-metrics emits `kube_job_status_failed` only once the Job carries
+a terminal `Failed` condition.
+
 ## WardDowntimePacksStale
 
 Packs not regenerated in >1h.
