@@ -193,6 +193,20 @@ shows which migration broke and why. Do not re-sync before reading them — the
 next sync's `hook-delete-policy: BeforeHookCreation` deletes this Job and its
 pods.
 
+If that command answers `container "migrate" ... is waiting to start:
+PodInitializing`, the `wait-owner-bypassrls` init gate is what failed, not a
+migration — `migrate` never ran, so it has no logs. Read the gate instead
+(omitting `-c` does not help; kubectl defaults to `migrate`):
+
+```bash
+kubectl -n vhhealth logs -l batch.kubernetes.io/job-name=vhhealth-backend-migrate \
+  -c wait-owner-bypassrls --tail=400 --prefix
+```
+
+A gate timeout means CNPG has not reconciled `bypassrls` onto the owner role;
+see `docs/GO_LIVE_ACTIVATION_CHECKLIST.md` D1. Do not force the migration
+through.
+
 ### 7. Apply any post-backup migrations
 
 The manual `vhhealth-apps` sync above runs the repository's actual

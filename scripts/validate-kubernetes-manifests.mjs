@@ -151,6 +151,31 @@ export function assertNoIngressClassParameters(rendered, target = 'render') {
 // the retention to one Job regardless, so neither setting can accumulate.
 const MIGRATION_JOB_MIN_TTL_SECONDS = 86400;
 
+// The targets that MUST render this Job. Without them the check below would
+// treat "no Job matched" as "nothing to check" and print [ok] in green — a
+// guard that guards nothing. Mutation-tested: renaming the Job to
+// vhhealth-backend-migrate-v2 while restoring restartPolicy: OnFailure passed
+// silently before this set existed. (Nothing else catches that pairing on its
+// own merits: check-prod-digests-pinned happens to fail the rename via its
+// image inventory, which a renamer would update in the same commit, and the
+// 'backend migration Job' render check below matches `-migrate-v2` as a prefix.)
+const TARGETS_RENDERING_MIGRATION_JOB = new Set([
+  'infra/kubernetes/apps',
+  'infra/kubernetes/overlays/staging/apps',
+]);
+
+// ...and a misspelled member of that set would fall straight through to the
+// `return` below, silently restoring the hole it exists to close. Pin the
+// strings to real validated targets, at import time.
+for (const migrationJobTarget of TARGETS_RENDERING_MIGRATION_JOB) {
+  if (!targets.includes(migrationJobTarget)) {
+    throw new Error(
+      `TARGETS_RENDERING_MIGRATION_JOB names "${migrationJobTarget}", which is not a validated ` +
+        'target; the migration Job failure-evidence contract would silently skip it.',
+    );
+  }
+}
+
 function requireMigrationJobEvidenceContract(target, rendered) {
   const migrationJobs = renderedDocuments(rendered).filter(
     (document) =>
@@ -158,7 +183,17 @@ function requireMigrationJobEvidenceContract(target, rendered) {
       /^kind:\s+Job\s*$/m.test(document) &&
       /^\s{2}name:\s+vhhealth-backend-migrate\s*$/m.test(document),
   );
-  if (migrationJobs.length === 0) return;
+  if (migrationJobs.length === 0) {
+    if (TARGETS_RENDERING_MIGRATION_JOB.has(target)) {
+      throw new Error(
+        `${target} no longer renders a Job named vhhealth-backend-migrate, so the failure-evidence ` +
+          'contract (restartPolicy: Never + a >=24h TTL) cannot be checked. The Job was renamed, ' +
+          'removed, or split across YAML documents. Update this guard deliberately rather than ' +
+          'letting it pass on an empty match.',
+      );
+    }
+    return;
+  }
 
   for (const job of migrationJobs) {
     rejectInRendered(target, job, [
