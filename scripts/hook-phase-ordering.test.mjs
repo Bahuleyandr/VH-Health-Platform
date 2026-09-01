@@ -18,6 +18,7 @@ import {
   requireMigrationRuntimeRoleParity,
 } from './validate-kubernetes-manifests.mjs';
 import {
+  BLOCK_SCALAR,
   objectReferencesOf,
   parseRenderedManifests,
   syncPhasesOf,
@@ -220,6 +221,19 @@ test('FAILS when the runtime ConfigMap loses the key entirely', () => {
   assert.throws(
     () => requireMigrationRuntimeRoleParity(APPS_TARGET, mutated),
     /would lose tenant RLS runtime-role enforcement/,
+  );
+});
+
+test('FAILS rather than comparing two block-scalar placeholders as equal', () => {
+  // The parser skips block scalar bodies. If it substituted a plain string,
+  // two block-scalar role values would compare EQUAL and this guard would
+  // report green on a value it never actually read.
+  const mutated = clone();
+  find(mutated, 'ConfigMap', MIGRATION_CONFIG).data.AUTH_TENANT_RLS_RUNTIME_ROLE = BLOCK_SCALAR;
+  find(mutated, 'ConfigMap', RUNTIME_CONFIG).data.AUTH_TENANT_RLS_RUNTIME_ROLE = BLOCK_SCALAR;
+  assert.throws(
+    () => requireMigrationRuntimeRoleParity(APPS_TARGET, mutated),
+    /has no plain-scalar AUTH_TENANT_RLS_RUNTIME_ROLE/,
   );
 });
 

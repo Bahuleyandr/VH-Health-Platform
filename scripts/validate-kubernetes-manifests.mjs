@@ -422,13 +422,13 @@ export function requireMigrationRuntimeRoleParity(target, resources) {
   const migrationRole = migrationConfig.data?.[RUNTIME_ROLE_KEY];
   if (typeof runtimeRole !== 'string' || runtimeRole.trim() === '') {
     throw new Error(
-      `${target}: ${RUNTIME_CONFIG_NAME} has no ${RUNTIME_ROLE_KEY}; the backend would lose tenant ` +
+      `${target}: ${RUNTIME_CONFIG_NAME} has no plain-scalar ${RUNTIME_ROLE_KEY}; the backend would lose tenant ` +
         'RLS runtime-role enforcement.',
     );
   }
   if (typeof migrationRole !== 'string' || migrationRole.trim() === '') {
     throw new Error(
-      `${target}: ${MIGRATION_CONFIG_NAME} has no ${RUNTIME_ROLE_KEY}; the PreSync migration Job ` +
+      `${target}: ${MIGRATION_CONFIG_NAME} has no plain-scalar ${RUNTIME_ROLE_KEY}; the PreSync migration Job ` +
         'would fail closed in ensure-runtime-role-grants.mjs and abort the sync.',
     );
   }

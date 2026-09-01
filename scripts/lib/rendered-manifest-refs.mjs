@@ -22,6 +22,13 @@
 
 const CONTAINER_FIELDS = ['containers', 'initContainers', 'ephemeralContainers'];
 
+// Block scalar bodies are skipped rather than reconstructed — nothing this
+// guard inspects is ever written as one. The value is replaced by this
+// sentinel so a caller that DOES end up comparing such a field compares an
+// obvious placeholder it can reject, instead of silently finding two
+// placeholders equal and reporting green.
+export const BLOCK_SCALAR = Symbol('rendered-manifest-block-scalar');
+
 function stripComment(value) {
   // Only an unquoted ` #` starts a comment; `#` inside a quoted scalar does not.
   let inSingle = false;
@@ -118,7 +125,7 @@ function parseMapping(lines, start, indent) {
     const inline = match[2] === undefined ? '' : match[2];
     if (/^[|>][+-]?\d*\s*$/.test(inline.trim())) {
       index = skipBlockScalar(lines, index + 1, indent);
-      result[key] = '<block scalar>';
+      result[key] = BLOCK_SCALAR;
       continue;
     }
     if (stripComment(inline).trim() !== '') {
@@ -179,7 +186,7 @@ function parseSequence(lines, start, indent) {
     // skipped wholesale, or `name:` lines inside it read as structure.
     if (/^[|>][+-]?\d*\s*$/.test(inline.trim())) {
       index = skipBlockScalar(lines, index + 1, indent);
-      result.push('<block scalar>');
+      result.push(BLOCK_SCALAR);
       continue;
     }
     if (inline.trim() === '') {
