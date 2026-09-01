@@ -69,7 +69,7 @@ const GRANDFATHERED = new Map([
  * migration turning it `on` session-wide would convert every later backfill's
  * loud failure into a silent no-op.
  */
-const GUARDED_GUCS = ['check_function_bodies', 'row_security'];
+const GUARDED_GUCS = ['check_function_bodies', 'row_security', 'client_min_messages'];
 const GUC = GUARDED_GUCS.join('|');
 
 // A bare `SET <guc> ...` at the start of a line. `SET LOCAL` is explicitly

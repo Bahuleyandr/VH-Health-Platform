@@ -109,7 +109,7 @@ test('findSessionGucLeaks reports every occurrence, not just the first', () => {
 });
 
 test('row_security is guarded alongside check_function_bodies', () => {
-  assert.deepEqual(GUARDED_GUCS, ['check_function_bodies', 'row_security']);
+  assert.deepEqual(GUARDED_GUCS, ['check_function_bodies', 'row_security', 'client_min_messages']);
 
   const files = [{ name: BARE, sql: 'BEGIN;\nSET row_security = on;\nCOMMIT;\n' }];
   const { violations } = evaluate(files, new Map());
@@ -172,10 +172,10 @@ test('migration 736 in the real tree is not flagged', () => {
   );
 });
 
-test('the baseline leaks BOTH guarded GUCs, and both are covered', () => {
+test('the baseline leaks EVERY guarded GUC, and all are covered', () => {
   const files = readMigrations();
   const baseline = files.filter((f) => f.name === '000_baseline.sql');
   const found = findSessionGucLeaks(baseline);
   const gucs = found.map((f) => f.text.toLowerCase().match(/set\s+(\w+)/)[1]).sort();
-  assert.deepEqual(gucs, ['check_function_bodies', 'row_security']);
+  assert.deepEqual(gucs, ['check_function_bodies', 'client_min_messages', 'row_security']);
 });

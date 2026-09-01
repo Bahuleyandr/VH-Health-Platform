@@ -45,6 +45,7 @@ import {
 import { parseMigrationDirectives } from './lib/migrationDirectives.mjs';
 import {
   findDriftedGucs,
+  isIdempotencyNotice,
   pinMigrationSessionGucs,
   readMigrationSessionGucs,
 } from './lib/migrationSessionGucs.mjs';
@@ -85,6 +86,23 @@ const PAYROLL_REVISION_RECONCILIATION_MIGRATION =
 
 const client = new pg.Client({ connectionString: DATABASE_URL });
 await client.connect();
+
+// Server NOTICEs are only useful if someone reads them. The runner pins
+// client_min_messages = notice so migrations' own RAISE NOTICE diagnostics are
+// not swallowed, then drops Postgres's IF [NOT] EXISTS no-ops here — roughly
+// 2,960 of the 3,054 a full apply emits — and counts what it dropped. Anything
+// unrecognised is logged, so the filter can only ever be too loud.
+let noticeContext = null;
+let suppressedNotices = 0;
+client.on('notice', (notice) => {
+  const message = String(notice?.message ?? '').trim();
+  if (!message) return;
+  if (isIdempotencyNotice(message)) {
+    suppressedNotices += 1;
+    return;
+  }
+  logger.info(`    · ${noticeContext ? `${noticeContext}: ` : ''}${message}`);
+});
 
 // Own these from the first statement, not from whatever pg_dump preamble the
 // baseline happens to carry. See MIGRATION_SESSION_GUCS below.
@@ -322,6 +340,7 @@ for (const file of files) {
     alreadyApplied++;
     continue;
   }
+  noticeContext = file;
   const sql = readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
   // Apply the file. @no-transaction migrations run statement-by-statement so
   // CREATE INDEX CONCURRENTLY remains legal; they must be idempotent because a
@@ -385,6 +404,13 @@ for (const file of files) {
 logger.info(
   `→ Migrations: ${appliedCount} applied, ${alreadyApplied} already-tracked, ${knownBadSkipped} skipped (known-bad), ${errors} errors\n`
 );
+
+noticeContext = null;
+if (suppressedNotices > 0) {
+  logger.info(
+    `→ Suppressed ${suppressedNotices} idempotent "already exists / does not exist, skipping" notice(s).\n`,
+  );
+}
 
 await assertMigrationBatchSucceeded({ errors, client, logger });
 await assertMigrationSessionGucs();

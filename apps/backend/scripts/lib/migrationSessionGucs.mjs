@@ -13,7 +13,7 @@
 // bodies cannot compile while CI stayed green (a bare CASE inside an IF
 // condition consumes the IF's own THEN). Migration 759 repairs those bodies.
 //
-// ★★ THE TWO GUCS PULL IN OPPOSITE DIRECTIONS, AND THAT IS DELIBERATE.
+// ★★ THE PINNED VALUES DO NOT ALL POINT THE SAME WAY, AND THAT IS DELIBERATE.
 //
 // `check_function_bodies` is pinned ON so a body that cannot compile is rejected
 // at CREATE time rather than at first trigger fire (plpgsql compiles lazily).
@@ -49,7 +49,33 @@ export const MIGRATION_SESSION_GUCS = Object.freeze({
   check_function_bodies: 'on',
   // A policy-affected migration query must error, never silently see fewer rows.
   row_security: 'off',
+  // Migrations RAISE NOTICE deliberately; the baseline's preamble was hiding it.
+  client_min_messages: 'notice',
 });
+
+// pg_dump sets client_min_messages = warning so a restore is not drowned in
+// "already exists, skipping" chatter, and that leaked to the whole chain — so 48
+// deliberate `RAISE NOTICE` sites across 25 migrations were never heard. Several
+// report things an operator needs, e.g. 272's
+// `Skipping FORCE RLS on %: table does not exist`: a security control quietly not
+// applied because the table was absent.
+//
+// Measured over a full 732-migration apply at notice level: 3,054 notices, of
+// which ~2,960 are Postgres's own IF [NOT] EXISTS no-ops. Logging all of them
+// would bury the ~94 that matter, so the runner pins `notice` (nothing is
+// suppressed at the source) and filters on the way out.
+//
+// ★ The filter is FAIL-OPEN: it suppresses only the two exact suffixes Postgres
+// uses for an idempotent no-op, and logs everything it does not recognise. A
+// blanket `, skipping$` rule was measured and rejected — migration 299 raises
+// `schema drift archive: %.% not present, skipping`, which that rule would eat.
+// SQLSTATE cannot be used instead: a deliberate RAISE NOTICE and Postgres's own
+// `does not exist, skipping` both arrive as 00000.
+const IDEMPOTENCY_NOTICE = /(?:already exists|does not exist), skipping$/;
+
+export function isIdempotencyNotice(message) {
+  return IDEMPOTENCY_NOTICE.test(String(message ?? '').trim());
+}
 
 /**
  * Assert ownership of the session. Called once before the first migration — so
