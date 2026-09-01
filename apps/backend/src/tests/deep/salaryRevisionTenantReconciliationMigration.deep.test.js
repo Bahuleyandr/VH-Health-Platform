@@ -123,6 +123,13 @@ describeIfDb('migration 754 salary-revision tenant reconciliation behavior', () 
         SELECT NULLIF(NULLIF(current_setting('app.current_tenant_id', true), ''), 'bypass')::uuid
       $$;
 
+      -- The RLS policies below call this from the reader role, so say so rather
+      -- than relying on the implicit PUBLIC default: the runtime-ACL posture
+      -- deliberately revokes EXECUTE from PUBLIC for new functions, and without
+      -- an explicit grant the fixture's own policy becomes uncallable by its own
+      -- reader. A no-op wherever PUBLIC still holds the default.
+      GRANT EXECUTE ON FUNCTION app_current_tenant_id_uuid() TO ${readerRole};
+
       CREATE TABLE users (
         uid uuid PRIMARY KEY,
         tenant_id uuid NOT NULL,
