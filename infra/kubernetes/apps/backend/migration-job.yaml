@@ -105,8 +105,13 @@
 # configmap, no vhhealth_runtime login role in the DB) may set
 # RUNTIME_ROLE_GRANTS_OPTIONAL=true to turn exactly that configuration-absent
 # skip into a loud exit-0 no-op. This canonical Job deliberately does NOT set
-# it — prod aborts the sync if the configmap ever loses
+# it — prod aborts the sync if migration-config.yaml ever loses
 # AUTH_TENANT_RLS_RUNTIME_ROLE (pinned by startupMigrationReadiness.test.js).
+# That key lives in vhhealth-backend-migration-config rather than the runtime
+# vhhealth-backend-config because only the former exists during the PreSync
+# phase; validate-kubernetes-manifests.mjs fails closed unless the two carry an
+# identical value, so the role this Job GRANTS to and the role the Deployment
+# CONNECTS as cannot drift apart.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -363,9 +368,39 @@ spec:
                 secretKeyRef:
                   name: vhhealth-backend-env
                   key: DATABASE_SUPERUSER_URL
+          # vhhealth-backend-migration-config, NOT vhhealth-backend-config.
+          #
+          # This container runs in the PreSync phase, and ArgoCD completes every
+          # PreSync hook before it applies ANY Sync-phase resource — sync waves
+          # order within a phase, they do not order across phases.
+          # vhhealth-backend-config is a Sync-phase resource (configmap.yaml
+          # carries a sync-wave but no hook annotation), so on a fresh namespace
+          # it does not exist yet, and referencing it here made this Job
+          # UNSTARTABLE in the one way that leaves nothing to read:
+          # CreateContainerConfigError is a WAITING reason, not a pod failure,
+          # so it never increments backoffLimit and never produces a failed pod
+          # for the restartPolicy above to retain; the Job simply runs until
+          # activeDeadlineSeconds, and DeadlineExceeded then deletes the
+          # still-running pod. Zero pods, zero logs — and the Sync phase that
+          # would have created the ConfigMap is itself gated on this hook, so a
+          # retry reproduces it exactly. Reproduced on a kind cluster running
+          # ArgoCD before the fix, and re-run green after it.
+          #
+          # migration-config.yaml carries the same value in the PreSync phase,
+          # narrowed to the only key this Job actually reads. Its header records
+          # the key-by-key argument for that narrowing, and why annotating the
+          # runtime ConfigMap as a hook instead was measured and rejected
+          # (it loses ArgoCD drift detection and deletes/re-creates the
+          # ConfigMap on every sync).
+          #
+          # The Secret is NOT the same case: vhhealth-backend-env is not
+          # rendered by this Application at all. It is applied out of band from
+          # a SealedSecret before the first sync (GO_LIVE_ACTIVATION_CHECKLIST
+          # B1-B3, ahead of the D2 sync that runs this Job), so no phase
+          # ordering within this Application can affect it.
           envFrom:
             - configMapRef:
-                name: vhhealth-backend-config
+                name: vhhealth-backend-migration-config
             - secretRef:
                 name: vhhealth-backend-env
           resources:
