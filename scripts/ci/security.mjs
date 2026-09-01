@@ -192,6 +192,15 @@ function runSemgrepFocused() {
 export async function runSecurityStage() {
   const gitleaksEnv = await ensureGitleaks();
   run('git', ['diff', '--check']);
+
+  // Applied-migration immutability. Deliberately in THIS stage rather than the
+  // backend one: `security` is the only stage selected by every canonical plan,
+  // and a guard whose purpose is to stop unvalidated changes reaching a live
+  // database must not itself be skippable by tier routing. It is also a
+  // git-history check like the range secret scan below, not a source lint, so
+  // it belongs with them. Costs one `git diff --raw` over one directory.
+  run(process.execPath, ['scripts/ci/check-migration-immutability.mjs']);
+
   run(process.execPath, ['scripts/check-forgejo-supply-chain-pins.mjs']);
   run(process.execPath, ['scripts/scan-secrets.mjs']);
   run(process.execPath, ['scripts/gitleaks-scan.mjs', 'worktree'], { env: gitleaksEnv });

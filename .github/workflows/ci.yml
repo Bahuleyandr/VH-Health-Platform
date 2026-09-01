@@ -89,6 +89,13 @@ jobs:
       - name: Semgrep rule regression tests
         run: node --test scripts/ci/semgrep-config.test.mjs
 
+      # The applied-migration immutability gate runs inside `run.mjs
+      # --only=security` below; its own regression suite runs here, in the one
+      # stage every canonical plan selects. Putting it in a selectable stage
+      # would reproduce the defect class it exists to close.
+      - name: Migration immutability gate regression tests
+        run: node --test scripts/ci/check-migration-immutability.test.mjs
+
       - run: node scripts/ci/run.mjs --only=security
 
   quick_backend:
