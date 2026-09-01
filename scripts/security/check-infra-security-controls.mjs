@@ -124,8 +124,25 @@ check('backend generation stays within the Forgejo runner memory budget', () =>
     'RUN NODE_OPTIONS=--max-old-space-size=4096 npx prisma generate',
   ) && backendCi.includes("NODE_OPTIONS: '--max-old-space-size=4096'"));
 
-check('staff web runtime applies Alpine security updates', () =>
-  staffWebDockerfile.includes('RUN apk upgrade --no-cache'));
+// Every runtime image must apply Alpine security updates UNSCOPED.
+//
+// This was previously `staffWebDockerfile.includes('RUN apk upgrade --no-cache')`
+// on staff-web alone, which enforced nothing: the scoped form
+// `RUN apk upgrade --no-cache libcrypto3 libssl3 c-ares` STARTS WITH that exact
+// substring, so a re-narrowed list passed the check. A hand-maintained package
+// list can only ever patch the CVEs someone already looked up, and it leaves the
+// rest of the base image (musl, zlib, busybox, libstdc++, ca-certificates-bundle)
+// permanently unpatchable behind a blocking Trivy gate -- which is how
+// CVE-2026-14456 and CVE-2026-26740 each wedged the deploy.
+//
+// Line-anchored so the only thing permitted after --no-cache is `&&` or the line
+// continuation. A package list fails.
+const UNSCOPED_APK_UPGRADE = /^RUN apk upgrade --no-cache(?:\s+&&)?\s*\\?$/m;
+
+check('runtime images apply Alpine security updates unscoped', () =>
+  UNSCOPED_APK_UPGRADE.test(staffWebDockerfile) &&
+  UNSCOPED_APK_UPGRADE.test(backendDockerfile) &&
+  UNSCOPED_APK_UPGRADE.test(adminDockerfile));
 
 // Dockerfile.web installs the official Flutter linux tarball, which is
 // published for x64 ONLY (no linux-arm64 stable tarball exists in the Flutter
