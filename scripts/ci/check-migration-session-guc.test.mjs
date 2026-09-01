@@ -6,6 +6,7 @@ import {
   findSessionGucLeaks,
   readMigrations,
   GRANDFATHERED,
+  GUARDED_GUCS,
 } from './check-migration-session-guc.mjs';
 
 const BARE = '000_x.sql';
@@ -105,4 +106,76 @@ test('findSessionGucLeaks reports every occurrence, not just the first', () => {
   const found = findSessionGucLeaks([{ name: BARE, sql }]);
   assert.equal(found.length, 2);
   assert.deepEqual(found.map((f) => f.line), [1, 3]);
+});
+
+test('row_security is guarded alongside check_function_bodies', () => {
+  assert.deepEqual(GUARDED_GUCS, ['check_function_bodies', 'row_security']);
+
+  const files = [{ name: BARE, sql: 'BEGIN;\nSET row_security = on;\nCOMMIT;\n' }];
+  const { violations } = evaluate(files, new Map());
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].line, 2);
+});
+
+test('SET LOCAL row_security is allowed', () => {
+  const files = [{ name: LOCAL, sql: 'BEGIN;\nSET LOCAL row_security = off;\nCOMMIT;\n' }];
+  assert.equal(evaluate(files, new Map()).violations.length, 0);
+});
+
+test('a SET inside a CREATE FUNCTION signature is an attribute, not a leak', () => {
+  // Migration 736's real shape. These apply only while the function runs and are
+  // the correct way to write a SECURITY DEFINER sweep; flagging them would make
+  // the gate un-satisfiable without amending an applied migration.
+  const sql = [
+    'CREATE FUNCTION public.sweep_expired()',
+    'RETURNS INTEGER',
+    'LANGUAGE sql',
+    'VOLATILE',
+    'SECURITY DEFINER',
+    'SET search_path = pg_catalog, pg_temp',
+    'SET row_security = off',
+    'AS $sweep$',
+    '  SELECT 1;',
+    '$sweep$;',
+  ].join('\n');
+
+  const { violations, offenders } = evaluate([{ name: '736_x.sql', sql }], new Map());
+  assert.deepEqual(violations, [], 'a function attribute is not a session leak');
+  assert.deepEqual(offenders, [], 'and it is not even reported as an offender');
+});
+
+test('a session SET after a function body has closed is still caught', () => {
+  // The signature tracker must not latch on: once AS $tag$ opens the body, a
+  // later top-level SET is a real leak again.
+  const sql = [
+    'CREATE FUNCTION public.f() RETURNS int LANGUAGE sql',
+    'SET row_security = off',
+    'AS $f$ SELECT 1; $f$;',
+    'SET row_security = on;',
+  ].join('\n');
+
+  const { violations } = evaluate([{ name: '737_x.sql', sql }], new Map());
+  assert.equal(violations.length, 1, 'the post-body SET must still be flagged');
+  assert.equal(violations[0].line, 4);
+});
+
+test('migration 736 in the real tree is not flagged', () => {
+  // The concrete false positive this discriminator exists to avoid.
+  const files = readMigrations();
+  const seven36 = files.find((f) => f.name.startsWith('736_'));
+  assert.ok(seven36, 'expected migration 736 to exist');
+  assert.ok(/^[ \t]*SET[ \t]+row_security/im.test(seven36.sql), 'expected 736 to contain the shape');
+  assert.deepEqual(
+    findSessionGucLeaks([seven36]),
+    [],
+    '736 sets row_security only as a per-function attribute',
+  );
+});
+
+test('the baseline leaks BOTH guarded GUCs, and both are covered', () => {
+  const files = readMigrations();
+  const baseline = files.filter((f) => f.name === '000_baseline.sql');
+  const found = findSessionGucLeaks(baseline);
+  const gucs = found.map((f) => f.text.toLowerCase().match(/set\s+(\w+)/)[1]).sort();
+  assert.deepEqual(gucs, ['check_function_bodies', 'row_security']);
 });

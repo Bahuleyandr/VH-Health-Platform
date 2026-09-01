@@ -43,6 +43,11 @@ import {
   evaluateMigrationChecksums,
 } from './lib/migrationChecksum.mjs';
 import { parseMigrationDirectives } from './lib/migrationDirectives.mjs';
+import {
+  findDriftedGucs,
+  pinMigrationSessionGucs,
+  readMigrationSessionGucs,
+} from './lib/migrationSessionGucs.mjs';
 import { assertCiSetupSeedPolicy } from './lib/testDataSeedGuard.mjs';
 import {
   assertPayrollRevision754Acceptance,
@@ -80,6 +85,10 @@ const PAYROLL_REVISION_RECONCILIATION_MIGRATION =
 
 const client = new pg.Client({ connectionString: DATABASE_URL });
 await client.connect();
+
+// Own these from the first statement, not from whatever pg_dump preamble the
+// baseline happens to carry. See MIGRATION_SESSION_GUCS below.
+await pinMigrationSessionGucs(client);
 
 if (!existsSync(MIGRATIONS_DIR)) {
   logger.error(`Migration directory not found: ${MIGRATIONS_DIR}`);
@@ -257,8 +266,18 @@ function fileStartsWithBegin(sql) {
 // IF's THEN) while CI stayed green, and plpgsql compiles lazily, so those
 // triggers would have raised the first time they fired. Migration 759 repairs the
 // two bodies; this restores the validation that should have caught them.
-async function restoreFunctionBodyChecking() {
-  await client.query('SET check_function_bodies = on');
+// Session parameters the runner owns for the whole chain. The rationale — and
+// why row_security is pinned OFF rather than restored to on — lives in
+// scripts/lib/migrationSessionGucs.mjs; read it before changing either value.
+async function assertMigrationSessionGucs() {
+  const drifted = findDriftedGucs(await readMigrationSessionGucs(client));
+  if (drifted.length > 0) {
+    logger.error(
+      `Migration session GUCs drifted: ${drifted.join(', ')}. A migration issued a `
+      + 'session-level SET that outlived it; use SET LOCAL instead.',
+    );
+    process.exit(1);
+  }
 }
 
 // Two migrations shipped plpgsql bodies that CANNOT compile: a bare CASE inside
@@ -348,7 +367,7 @@ for (const file of files) {
       ? `, statement_timeout=${directives.statementTimeout}`
       : '';
     logger.info(`  ✓ ${file} (${result.mode}${timeoutNote})`);
-    await restoreFunctionBodyChecking();
+    await pinMigrationSessionGucs(client);
     applied.add(file);
     appliedCount++;
   } catch (err) {
@@ -368,6 +387,7 @@ logger.info(
 );
 
 await assertMigrationBatchSucceeded({ errors, client, logger });
+await assertMigrationSessionGucs();
 await assertTrackerChecksumsCurrent();
 
 // Seed minimal lookup data the tests rely on. Skippable (--skip-seeds /
