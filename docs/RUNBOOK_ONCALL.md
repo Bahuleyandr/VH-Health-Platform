@@ -63,6 +63,61 @@ No scrape targets for 2m.
 3. If recovery is not imminent (>10–15m), notify wards to begin the
    downtime procedure with their latest packs.
 
+## BackendMigrationJobFailed
+
+The production DB migration Job (`vhhealth-backend-migrate`, the ArgoCD PreSync
+hook defined in `infra/kubernetes/apps/backend/migration-job.yaml`) reached a
+terminal `Failed` condition. ArgoCD aborted the sync and the new Deployment
+never rolled out.
+
+**This is not a safely-blocked deploy, which is why it pages.** `ci-setup-db.mjs`
+commits one file per transaction, so every migration before the failing one is
+already applied and tracked, and an `@no-transaction` file can be half-applied
+with no tracker row at all. The database can therefore sit **ahead of the image
+still serving traffic**, and `verifyMigrationsCurrent()` fails closed on tracker
+rows the running image does not carry. The surviving pods are one restart — an
+HPA scale-up, a node drain, an eviction — away from refusing to boot.
+
+**Do not roll back.** Rolling the image back cannot un-apply migrations; the
+older image meets tracker rows it does not recognise and will not boot either,
+so rollback trades a blocked deploy for an unbootable one. Fix forward.
+
+**Read the evidence before re-syncing.** `hook-delete-policy: BeforeHookCreation`
+destroys this Job, its pods, and this alert at the start of the next sync.
+
+Count pods first — that alone tells you which of three failures you have, and
+two of the three make the obvious `logs -l …` command answer something other
+than the diagnosis:
+
+```bash
+kubectl -n vhhealth get pods -l batch.kubernetes.io/job-name=vhhealth-backend-migrate
+kubectl -n vhhealth describe job vhhealth-backend-migrate   # names the reason
+```
+
+- **`BackoffLimitExceeded`, one to three pods in `Error`.** Something exited
+  non-zero. Each attempt is a separate retained pod (`restartPolicy: Never`), so
+  read them all rather than `logs job/<name>`, which picks one arbitrary attempt
+  that need not be the one that failed:
+  `kubectl -n vhhealth logs -l batch.kubernetes.io/job-name=vhhealth-backend-migrate -c migrate --tail=400 --prefix`.
+  If `-c migrate` answers `PodInitializing`, the `wait-owner-bypassrls` init gate
+  failed instead and `migrate` never ran — read `-c wait-owner-bypassrls`.
+- **`DeadlineExceeded`, `No resources found`.** The 900s deadline fired and the
+  controller deleted the pod, so there are no pod logs at all — `describe job` is
+  the only surviving evidence. A pod stuck in a *Waiting* reason
+  (`PodInitializing`, `CreateContainerConfigError`) is never a pod *failure*, so
+  it never increments the backoff counter and never becomes a retained failed
+  pod; it sits until the deadline. If ArgoCD streamed the hook logs live during
+  the sync, that stream is the only place the output ever existed.
+
+Full triage, including the recovery-cutover context, is in
+`apps/backend/docs/RUNBOOKS/db-restore.md` step 6.
+
+The alert clears when the Job object goes away — the next sync deletes it, or
+`ttlSecondsAfterFinished` reaps it 24h after it finished. A transient failure
+that `backoffLimit: 2` absorbs never fires it at all: kube-state-metrics emits
+the `kube_job_failed` family only once the Job carries a terminal `Failed`
+condition.
+
 ## WardDowntimePacksStale
 
 Packs not regenerated in >1h.
