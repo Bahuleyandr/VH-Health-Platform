@@ -66,6 +66,46 @@ const infraPatterns = [
   /^scripts\/update-prod-digests\.mjs$/,
   /^scripts\/update-prod-digests\.test\.mjs$/,
 ];
+// Inputs the infra gates READ that are owned by some other stage's tree. Those
+// paths are already `known` below, so the unknown-file full-sweep fallback
+// never fires for them and the infra tier was skipped outright: PR #949 changed
+// only apps/backend/Dockerfile, apps/admin/Dockerfile and
+// apps/staff/Dockerfile.web, and came back green with BOTH `quick_infra` and
+// `full_infra` SKIPPED — while scripts/backend-image-command-contract.test.mjs,
+// the one gate that parses apps/backend/Dockerfile into an image model and
+// validates every infra/kubernetes/apps/backend command against it, is invoked
+// only from scripts/ci/infra.mjs and _reusable-kubernetes-manifests.yml.
+//
+// Deliberately NOT part of the `known` calculation below, exactly like
+// contractsPatterns: this list only ever ADDS the infra stage, so a path that
+// forces a full sweep today keeps forcing one.
+const infraInputPatterns = [
+  // Container build definitions. backend-image-command-contract parses
+  // apps/backend/Dockerfile into the image model it checks every manifest
+  // command against; the admin and staff images the same overlays deploy are
+  // built from theirs, and scripts/ci/forgejo-buildkit-builder.mjs — contract
+  // tested inside this stage — names all three as its build inputs.
+  /^apps\/[^/]+\/Dockerfile(\.[^/]+)?$/,
+  // Everything that same contract resolves *inside* the image: the `npm run`
+  // script table it maps aliases through, the CMD/HEALTHCHECK target, and the
+  // repo file behind every `node <script>` a backend manifest invokes.
+  /^apps\/backend\/package\.json$/,
+  /^apps\/backend\/src\/cluster\.js$/,
+  /^apps\/backend\/scripts\//,
+  // Prose the infra gates hold to the manifests: infra-truthfulness asserts the
+  // MinIO capacity arithmetic against docs/HARDWARE_REQUIREMENTS.md and the
+  // backend-Service anchors against apps/device-gateway/README.md, and
+  // canonical-workflow asserts the `[full-ci]` merge boundary in CLAUDE.md.
+  /^CLAUDE\.md$/,
+  /^docs\/HARDWARE_REQUIREMENTS\.md$/,
+  /^apps\/device-gateway\/README\.md$/,
+  // The non-Kubernetes infra trees these jobs also run: infra/forgejo's
+  // ci-image Dockerfile (supply-chain pins), infra/cloudflare (zero-trust
+  // pack), infra/continuity-edge (`npm test --prefix` in the reusable
+  // workflow). Unknown to every stage today, so they still force a full sweep;
+  // listing them keeps infra selected if that ever stops being true.
+  /^infra\//,
+];
 const securityOnlyPatterns = [
   /^docs\//,
   /^README\.md$/i,
@@ -133,7 +173,9 @@ export function stagesForChangedFiles(files, stageOrder) {
     if (matchesAny(file, flutterPatterns)) selected.add('flutter');
     if (matchesAny(file, fhirPatterns)) selected.add('fhir');
     if (matchesAny(file, gatewayPatterns)) selected.add('gateway');
-    if (matchesAny(file, infraPatterns)) selected.add('infra');
+    if (matchesAny(file, infraPatterns) || matchesAny(file, infraInputPatterns)) {
+      selected.add('infra');
+    }
 
     const known =
       matchesAny(file, backendPatterns) ||
