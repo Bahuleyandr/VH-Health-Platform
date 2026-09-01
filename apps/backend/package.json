@@ -382,6 +382,7 @@
     }
   },
   "overrides": {
+    "mysql2": ">=3.22.0",
     "onnxruntime-node": {
       "adm-zip": "0.6.0"
     },
