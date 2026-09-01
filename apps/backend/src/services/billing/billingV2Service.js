@@ -747,6 +747,17 @@ async function lockBillingInvoice(tx, invoiceId, tenantId, columns = '*') {
   return rows[0] || null;
 }
 
+// The settlement columns the API contract publishes. AdvanceSettlement declares
+// additionalProperties:false, so a `*` projection breaks the contract the moment
+// a migration widens this table — which is exactly what happened when the
+// advance-funding lane added pharmacy_advance_settlement_receipt_id. Name them.
+const BILLING_ADVANCE_SETTLEMENT_PUBLIC_COLUMNS = `
+  id, advance_id, invoice_id, amount, settled_by, settled_at, tenant_id,
+  pharmacy_advance_allocation_id, pharmacy_advance_allocation_evidence_sha256,
+  pharmacy_advance_conversion_command_sha256,
+  pharmacy_advance_conversion_evidence_sha256
+`;
+
 const BILLING_ADVANCE_FUNDING_COLUMNS = `
   id, patient_uid, admission_id, amount, balance, mode, reference,
   status, tenant_id, collected_by, collected_at,
@@ -2231,7 +2242,17 @@ export async function getInvoice(invoiceId, { tenantId } = {}) {
     Number(invoiceId),
   );
   const settlements = await prisma.$queryRawUnsafe(
-    `SELECT s.*, a.mode AS advance_mode
+    `SELECT s.id,
+            s.advance_id,
+            s.invoice_id,
+            s.amount,
+            s.settled_by,
+            s.settled_at,
+            s.tenant_id,
+            s.pharmacy_advance_allocation_id,
+            s.pharmacy_advance_allocation_evidence_sha256,
+            s.pharmacy_advance_conversion_command_sha256,
+            s.pharmacy_advance_conversion_evidence_sha256, a.mode AS advance_mode
        FROM billing_advance_settlements s
        JOIN billing_advances a ON a.id = s.advance_id
       WHERE s.invoice_id = $1::int`,
@@ -3353,7 +3374,7 @@ export async function settleAdvance({ tenantId, advance_id, invoice_id, amount, 
     const settlementRow = await tx.$queryRawUnsafe(
       `INSERT INTO billing_advance_settlements (advance_id, invoice_id, amount, settled_by)
        VALUES ($1::int, $2::int, $3::numeric, $4::uuid)
-       RETURNING *`,
+       RETURNING ${BILLING_ADVANCE_SETTLEMENT_PUBLIC_COLUMNS}`,
       Number(advance_id), Number(invoice_id), Number(amount),
       settled_by ? String(settled_by) : null,
     );
