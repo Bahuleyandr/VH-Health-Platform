@@ -2,7 +2,7 @@
 // Escalation cron — detects stuck orders and alerts admins
 
 import prisma from '../../lib/prisma.js';
-import { runWithSuperAdmin } from '../../lib/tenantContext.js';
+import { getCurrentTenantId } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
 
 // Cap on admins alerted per tenant per sweep. Runaway guard only — a tenant with
@@ -16,22 +16,20 @@ const STUCK_ORDER_ADMIN_CAP = 50;
  *
  * Called by scheduler every 30 minutes.
  *
- * Phase-2 RLS: cross-tenant aggregator. See src/lib/tenantContext.js.
+ * Runs for ONE tenant: the scheduler fans it out with runForEachTenant, which
+ * establishes that tenant's context. See src/lib/tenantContext.js.
  */
-export async function escalateStuckOrders() {
-  return runWithSuperAdmin(async () => escalateStuckOrdersInner());
-}
-
-async function escalateStuckOrdersInner() {
+export async function escalateStuckOrders(tenantId = getCurrentTenantId()) {
+  // The scheduler fans this job out with runForEachTenant, which runs each
+  // tenant inside runInTenantContext. Use that context rather than replacing it
+  // with a cross-tenant one and re-walking the fleet. Re-walking repeated every
+  // tenant's work once per tenant, and a cross-tenant context is fail-closed on
+  // pharmacy_orders and users, so those reads would return no rows silently
+  // instead of erroring.
+  if (!tenantId) {
+    throw new Error('escalateStuckOrders requires a tenant context');
+  }
   logger.info('[Escalation] Checking for stuck orders...');
-
-  // Per-tenant aggregator (audit 2026-06-18 §3): previously this ran once across
-  // ALL tenants under super-admin (RLS off) — admins of every tenant got one
-  // alert mixing every tenant's counts, and a global LIMIT 10 could starve a
-  // tenant's admins. Now each tenant's stuck orders + admin alerts are scoped to
-  // that tenant via an explicit tenant_id filter (defense-in-depth on top of the
-  // super-admin context the scheduler wraps this in).
-  const tenants = await prisma.$queryRawUnsafe('SELECT id FROM tenants');
 
   let sendPushNotification;
   try {
@@ -41,13 +39,7 @@ async function escalateStuckOrdersInner() {
     // Push not available — just log
   }
 
-  const totals = { stuckAppointments: 0, stuckPharmacy: 0, stuckInvestigations: 0 };
-  for (const t of tenants) {
-    const r = await escalateStuckOrdersForTenant(t.id, sendPushNotification);
-    totals.stuckAppointments += r.stuckAppointments;
-    totals.stuckPharmacy += r.stuckPharmacy;
-    totals.stuckInvestigations += r.stuckInvestigations;
-  }
+  const totals = await escalateStuckOrdersForTenant(tenantId, sendPushNotification);
 
   if (totals.stuckAppointments + totals.stuckPharmacy + totals.stuckInvestigations === 0) {
     logger.info('[Escalation] No stuck orders found');

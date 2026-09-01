@@ -432,7 +432,9 @@ async function getMetadata() {
     SELECT child_table.relname AS table_name,
            child_column.attname AS column_name,
            parent_table.relname AS foreign_table_name,
-           parent_column.attname AS foreign_column_name
+           parent_column.attname AS foreign_column_name,
+           fk.conname AS constraint_name,
+           child_column.attnotnull AS child_not_null
       FROM pg_constraint fk
       JOIN pg_class child_table
         ON child_table.oid = fk.conrelid
@@ -478,6 +480,25 @@ async function getMetadata() {
     fkByTableColumn.set(`${row.table_name}.${row.column_name}`, row);
   }
 
+  // PostgreSQL foreign keys are MATCH SIMPLE by default: a composite key is
+  // satisfied whenever ANY of its columns is NULL. So an FK with a nullable
+  // member is optional as a whole, even for the members that are NOT NULL, and
+  // a NOT NULL member must not be treated as a hard dependency on the
+  // referenced table.
+  const optionalFkConstraints = new Set();
+  for (const row of fks.rows) {
+    if (!row.child_not_null) optionalFkConstraints.add(row.constraint_name);
+  }
+  // A COLUMN is optional only when EVERY constraint it belongs to is optional:
+  // a column can participate in more than one foreign key, and the map above
+  // keeps only the last one it saw.
+  const columnHasHardFk = new Set();
+  for (const row of fks.rows) {
+    if (!optionalFkConstraints.has(row.constraint_name)) {
+      columnHasHardFk.add(`${row.table_name}.${row.column_name}`);
+    }
+  }
+
   const checksByTable = new Map();
   const xorPairsByTable = new Map();
   for (const row of checks.rows) {
@@ -489,7 +510,9 @@ async function getMetadata() {
     }
   }
 
-  return { columnsByTable, fkByTableColumn, checksByTable, xorPairsByTable };
+  return {
+    columnsByTable, fkByTableColumn, columnHasHardFk, checksByTable, xorPairsByTable,
+  };
 }
 
 function detectXorPair(definition) {
@@ -652,7 +675,55 @@ function semanticValue(column, table, index, ctx, maxLength) {
 // another column's value. rowForTable also consults this map so a NULLABLE
 // override column is still filled (the generic walk skips nullable non-FK
 // columns). Keep entries minimal and tied to the migration that needs them.
+// mig 753/758: a settlement's advance and invoice must resolve to the same
+// patient and agree on admission scope, or the settlement lineage trigger
+// rejects the row. The generic walker picks each FK independently, so choose
+// the pair with the constraint's own predicate and memoise it for the run.
+let cachedCompatibleSettlementPair;
+async function compatibleSettlementPair() {
+  // Only a POSITIVE result may be cached. The seeder makes several passes and
+  // this table sorts before the tables it depends on, so an empty answer on an
+  // early pass means "not yet", not "never".
+  if (cachedCompatibleSettlementPair) return cachedCompatibleSettlementPair;
+  const { rows } = await client.query(`
+    SELECT adv.id AS advance_id, inv.id AS invoice_id
+      FROM billing_advances adv
+      JOIN billing_invoices inv
+        ON inv.tenant_id = adv.tenant_id
+       AND inv.patient_uid = adv.patient_uid
+      LEFT JOIN admissions adm
+        ON adm.id = inv.admission_id
+     WHERE NOT (
+             (inv.admission_id IS NULL AND adv.admission_id IS NOT NULL)
+          OR (inv.admission_id IS NOT NULL
+              AND adv.admission_id IS DISTINCT FROM inv.admission_id
+              AND NOT (adv.admission_id IS NULL
+                       AND adv.collected_at <= COALESCE(adm.admitted_at, adm.created_at)))
+           )
+     ORDER BY adv.id, inv.id
+     LIMIT 1`);
+  if (rows[0]) cachedCompatibleSettlementPair = rows[0];
+  return rows[0] ?? null;
+}
+
+async function settlementPairColumn(column) {
+  const pair = await compatibleSettlementPair();
+  if (!pair) {
+    throw new Error(
+      'no advance/invoice pair shares a patient and admission scope; '
+      + 'a settlement seeded from an incoherent pair is rejected by its lineage trigger',
+    );
+  }
+  return pair[column];
+}
+
 const TABLE_COLUMN_SEED_OVERRIDES = {
+  billing_advance_settlements: {
+    // Both columns come from one memoised pair, so they cannot disagree.
+    advance_id: () => settlementPairColumn('advance_id'),
+    invoice_id: () => settlementPairColumn('invoice_id'),
+  },
+
   // mig 754: the walker fills hr_signed_by and approved_by from the same FK
   // heuristic, so both land on one staff uid and break the two-person rule
   // (chk_bulk_revision_signer_separation). A seeded job is simply unsigned.
@@ -1507,16 +1578,23 @@ async function rowForTable(table, columns, metadata, ctx, index, relaxed = false
 
     if (fk) {
       const value = await fkValue(fk);
-      if (value === undefined) {
-        if (required) {
-          throw new Error(
-            `Seed dependency ${fk.foreign_table_name}.${fk.foreign_column_name} is empty`
-          );
-        }
+      if (value !== undefined) {
+        row[column.column_name] = value;
         continue;
       }
-      row[column.column_name] = value;
-      continue;
+      // The referenced table has no row to point at. Whether that is fatal
+      // depends on the constraint, not on this column: under MATCH SIMPLE a
+      // composite key with a nullable member is satisfied by leaving that
+      // member NULL, so a NOT NULL member can still be seeded with an ordinary
+      // value and the constraint simply does not apply to the row.
+      const fkIsOptional = !metadata.columnHasHardFk.has(`${table}.${column.column_name}`);
+      if (required && !fkIsOptional) {
+        throw new Error(
+          `Seed dependency ${fk.foreign_table_name}.${fk.foreign_column_name} is empty`
+        );
+      }
+      if (!required) continue;
+      // fall through: generate a plain value for the required column
     }
 
     if (required || relaxed || hasOverride) {

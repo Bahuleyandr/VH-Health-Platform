@@ -124,6 +124,9 @@ export const INTENTIONALLY_EMPTY_SEED_TABLES = Object.freeze([
   // funding receipt to exist at all, so the same principle applies.
   'pharmacy_advance_allocations',
   'pharmacy_advance_allocation_reversals',
+  // Written only by the governed advance-funding flow, never by fixtures —
+  // same as the two sibling allocation tables above it.
+  'pharmacy_advance_allocation_consumptions',
   // Migration 753 makes every cath consumable usage that touches real stock
   // entail a governed reconciliation obligation: cath_inventory_authority_
   // assert_contract_753 requires a 'cath_inventory_shortfall_v1' owner task, a

@@ -246,13 +246,39 @@ describe('W2 schema multi-tenancy (migrations 328-336)', () => {
       expect(rows[0].tenant_id).toBe(TENANT_B);
     });
 
-    it('flag ON + SUPER_ADMIN bypass — sees BOTH tenants', async () => {
+    it('flag ON + SUPER_ADMIN bypass — open only while the table has no restrictive twin', async () => {
+      // A RESTRICTIVE policy ANDs with every permissive one, and the
+      // explicit_tenant_context predicate excludes both '' and the bypass
+      // marker. So the cross-tenant read is open exactly while no such twin
+      // exists on this table, and fail-closed exactly once one does. Assert
+      // that rule rather than either number, so the suite cannot be silently
+      // wrong on one side of the change.
+      const twin = await prisma.$queryRawUnsafe(
+        `SELECT count(*)::int AS n
+           FROM pg_policies
+          WHERE schemaname = 'public'
+            AND tablename = 'departments'
+            AND permissive = 'RESTRICTIVE'
+            AND policyname LIKE 'explicit_tenant_context%'`,
+      );
+      const failClosed = Number(twin[0].n) > 0;
+
       process.env.AUTH_ENFORCE_TENANT_RLS = 'true';
       process.env.AUTH_TENANT_RLS_TEST_ROLE = APP_ROLE;
       const rows = await runWithSuperAdmin(() => prisma.$queryRawUnsafe(
         `SELECT name FROM departments WHERE name LIKE 'W2RLS-Dept-%' ORDER BY name`,
       ));
-      expect(rows).toHaveLength(2);
+      expect(rows).toHaveLength(failClosed ? 0 : 2);
+
+      // Whatever happens to the bypass path, the governed one must be
+      // untouched: a restrictive twin narrows cross-tenant access, never a
+      // tenant's view of its own row. Without this, breaking both would pass.
+      const scoped = await runInTenantContext(TENANT_A, () => prisma.$queryRawUnsafe(
+        `SELECT name, tenant_id::text AS tenant_id
+           FROM departments WHERE name LIKE 'W2RLS-Dept-%' ORDER BY name`,
+      ));
+      expect(scoped).toHaveLength(1);
+      expect(scoped[0].tenant_id).toBe(TENANT_A);
     });
 
     it('flag ON + tenant-A WRITE of a tenant-B row — rejected by WITH CHECK', async () => {
