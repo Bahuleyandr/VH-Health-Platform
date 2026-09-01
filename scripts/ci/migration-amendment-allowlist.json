@@ -1,0 +1,20 @@
+{
+  "//": [
+    "Reviewable opt-out for scripts/ci/check-migration-immutability.mjs. Raw SQL migrations under apps/backend/src/migrations are apply-once; this file is the ONLY way to land an in-place edit to one that already exists on main.",
+    "",
+    "SCOPE. An entry authorises exactly one transition — one file, one fromChecksum, one toChecksum. It is not a permit for the file. A second edit produces a different toChecksum and fails again until a second entry is reviewed and approved. Set toChecksum to null to authorise a deletion.",
+    "",
+    "THE CHECKSUMS ARE THE RUNTIME'S OWN. They are sha256 over the migration body with CRLF normalised to LF, computed by apps/backend/scripts/lib/migrationChecksum.mjs — the same function reconcileMigrationChecksums() uses. The values here are byte-identical to the ones an operator reads out of a MIGRATION_CHECKSUM_DRIFT failure. Run `node scripts/ci/check-migration-immutability.mjs` and it prints a ready-to-paste entry with both digests filled in.",
+    "",
+    "THIS DOES NOT BYPASS THE RUNTIME CHECK, AND MUST NOT. reconcileMigrationChecksums() is fail-closed by design: a database that already applied the old bytes holds the old effect, and no edit to the file can change that. An allowlisted amendment still breaks every long-lived database until an operator explicitly reconciles its _migrations row. That is what runtimeRemediation is for, and it is why the gate prints a warning even when it passes.",
+    "",
+    "ALMOST NOTHING BELONGS HERE. The correct fix for a defective migration is a NEW migration with the next free number — that is the only change which reaches a database that already ran the original. Legitimate entries are things a new migration genuinely cannot express: a correction that must run before the tracker is consulted, or a coordinated repair where every affected database is known and being reconciled by hand.",
+    "",
+    "WORKED EXAMPLE OF WHAT IS NOT LEGITIMATE. On 2026-08-30, commit 03db4c44f edited 566_cath_consumables_billing_hook.sql (shipped 2026-07-12 in #558) to wrap an unconditional ALTER COLUMN in an idempotency guard. Semantically harmless for any database where 566 had already run — and it still moved the checksum from 0a074114… to a39dc0ac… and stopped the dalekdefender rig from booting (deploy run 33480653253). Idempotency does not need to be retrofitted into an applied migration; a migration that already ran does not run again. This gate exists because that edit was green in CI.",
+    "",
+    "FIELDS. file: repo-relative path under apps/backend/src/migrations/. fromChecksum: the digest at the merge-base. toChecksum: the digest on this branch, or null for a deletion. reason: why a new migration cannot do this (min 40 chars). runtimeRemediation: what every already-migrated database must do before the next deploy (min 40 chars). approvedBy: the human who approved it. approvedOn: YYYY-MM-DD. incident: optional link.",
+    "",
+    "Entries are never removed. Once merged, an entry is inert — the file matches main, so there is nothing left to authorise — and it stays as the audit record of a decision someone made."
+  ],
+  "amendments": []
+}

@@ -31,6 +31,18 @@ export function __resetDrugKbCache() {
   kbCache = { loadedAt: 0, kb: null };
 }
 
+export async function loadDrugKbRevision(db = prisma, { forUpdate = false } = {}) {
+  const rows = await db.$queryRawUnsafe(
+    `SELECT version
+       FROM pharmacy_clinical_knowledge_revision
+      WHERE singleton=TRUE
+      ${forUpdate ? 'FOR UPDATE' : ''}`,
+  );
+  if (rows.length !== 1) return null;
+  const version = Number(rows[0].version);
+  return Number.isSafeInteger(version) && version > 0 ? version : null;
+}
+
 function isSchemaMissing(err) {
   const code = err?.meta?.code
     || err?.meta?.driverAdapterError?.cause?.originalCode
@@ -155,45 +167,47 @@ function preferredRows(rows, keyFor) {
   return [...byKey.values()];
 }
 
-async function loadKb() {
-  if (kbCache.kb && Date.now() - kbCache.loadedAt < KB_CACHE_TTL_MS) return kbCache.kb;
+async function loadKb(requiredRevision = null, db = prisma) {
+  if (db === prisma && kbCache.kb
+    && (requiredRevision == null || kbCache.kb.knowledgeRevision === requiredRevision)
+    && Date.now() - kbCache.loadedAt < KB_CACHE_TTL_MS) return kbCache.kb;
   try {
     const [monographRows, interactionRows, groupRows, xreactRows, cautionRows, doseRows, ivPairRows] = await Promise.all([
-      prisma.$queryRawUnsafe(
+      db.$queryRawUnsafe(
         `SELECT m.drug_key, m.display_name, m.drug_class, m.aliases, m.source_key,
                 s.priority AS source_priority, s.is_starter
            FROM drug_kb_monographs m
            JOIN drug_kb_sources s ON s.source_key = m.source_key AND s.is_active
           ORDER BY s.priority DESC, s.is_starter ASC, s.source_key ASC`,
       ),
-      prisma.$queryRawUnsafe(
+      db.$queryRawUnsafe(
         `SELECT i.drug_a_key, i.drug_b_key, i.severity, i.mechanism, i.effect, i.management, i.source_key,
                 s.priority AS source_priority, s.is_starter
            FROM drug_kb_interactions i
            JOIN drug_kb_sources s ON s.source_key = i.source_key AND s.is_active
           ORDER BY s.priority DESC, s.is_starter ASC, s.source_key ASC`,
       ),
-      prisma.$queryRawUnsafe(
+      db.$queryRawUnsafe(
         `SELECT g.group_key, g.member_key, g.source_key, s.priority AS source_priority, s.is_starter
            FROM drug_kb_allergy_groups g
            JOIN drug_kb_sources s ON s.source_key = g.source_key AND s.is_active
           ORDER BY s.priority DESC, s.is_starter ASC, s.source_key ASC`,
       ),
-      prisma.$queryRawUnsafe(
+      db.$queryRawUnsafe(
         `SELECT x.group_key, x.reacts_with_group_key, x.risk, x.note, x.source_key,
                 s.priority AS source_priority, s.is_starter
            FROM drug_kb_allergy_cross_reactivity x
            JOIN drug_kb_sources s ON s.source_key = x.source_key AND s.is_active
           ORDER BY s.priority DESC, s.is_starter ASC, s.source_key ASC`,
       ),
-      prisma.$queryRawUnsafe(
+      db.$queryRawUnsafe(
         `SELECT c.drug_key, c.icd10_prefix, c.condition_label, c.risk, c.note, c.source_key,
                 s.priority AS source_priority, s.is_starter
            FROM drug_kb_condition_cautions c
            JOIN drug_kb_sources s ON s.source_key = c.source_key AND s.is_active
           ORDER BY s.priority DESC, s.is_starter ASC, s.source_key ASC`,
       ),
-      prisma.$queryRawUnsafe(
+      db.$queryRawUnsafe(
         `SELECT d.drug_key, d.route, d.population, d.max_single_dose_mg, d.max_daily_dose_mg,
                 d.max_daily_mg_per_kg, d.min_egfr, d.egfr_max_daily_mg, d.note, d.source_key,
                 s.priority AS source_priority, s.is_starter
@@ -201,7 +215,7 @@ async function loadKb() {
            JOIN drug_kb_sources s ON s.source_key = d.source_key AND s.is_active
           ORDER BY s.priority DESC, s.is_starter ASC, s.source_key ASC`,
       ),
-      prisma.$queryRawUnsafe(
+      db.$queryRawUnsafe(
         `SELECT v.drug_a_key, v.drug_b_key, v.compatibility, v.diluent, v.note, v.source_key,
                 s.priority AS source_priority, s.is_starter
            FROM drug_kb_iv_compatibility v
@@ -268,6 +282,7 @@ async function loadKb() {
     }
 
     const kb = {
+      knowledgeRevision: requiredRevision,
       monographs: monographs.map((m) => ({
         ...m,
         drug_key: m.drug_key.toLowerCase(),
@@ -290,7 +305,7 @@ async function loadKb() {
         iv_compatibility_pairs: ivPairs.length,
       },
     };
-    kbCache = { loadedAt: Date.now(), kb };
+    if (db === prisma) kbCache = { loadedAt: Date.now(), kb };
     return kb;
   } catch (err) {
     if (isSchemaMissing(err)) {
@@ -406,28 +421,55 @@ function allergenGroups(kb, allergenText) {
  */
 export async function evaluateDrugKb({
   medications = [], allergies = [], problems = [], patient = {},
-  tenantId = null, resolvedKeys = null,
+  tenantId = null, resolvedKeys = null, knowledgeRevision = null, db = prisma,
+  strictIdentity = false,
 } = {}) {
-  const kb = await loadKb();
+  const kb = await loadKb(knowledgeRevision, db);
   if (!kb) return { kbAvailable: false, findings: [] };
   const findings = [];
 
-  // Deterministic per-med key resolution (gated + fail-open inside the link
-  // service; any failure degrades to the substring path below).
+  // Pharmacist verification supplies strictIdentity=true. That path resolves
+  // every catalog identity with the caller's transaction and never degrades to
+  // free-text matching. Other callers retain the legacy gated/fail-open path.
   let deterministicKeys = null;
   if (Array.isArray(resolvedKeys)) {
     deterministicKeys = resolvedKeys;
   } else if (tenantId) {
     try {
-      const resolution = await resolveDrugKeys({ tenantId, medications: medications || [] });
+      const resolution = await resolveDrugKeys({
+        tenantId,
+        medications: medications || [],
+        db,
+        strict: strictIdentity,
+      });
       if (resolution?.enabled && Array.isArray(resolution.resolutions)) {
         deterministicKeys = resolution.resolutions.map((r) => (r ? r.drug_keys : null));
       }
     } catch (err) {
+      if (strictIdentity) {
+        return {
+          kbAvailable: true,
+          identityAvailable: false,
+          identityError: err?.code || 'DRUG_KB_IDENTITY_UNRESOLVED',
+          findings: [],
+        };
+      }
       logger.warn('Deterministic drug-key resolution failed — using substring matching', {
         error: err?.message,
       });
     }
+  }
+  if (strictIdentity && (
+    !Array.isArray(deterministicKeys)
+    || deterministicKeys.length !== (medications || []).length
+    || deterministicKeys.some((keys) => !Array.isArray(keys) || keys.length === 0)
+  )) {
+    return {
+      kbAvailable: true,
+      identityAvailable: false,
+      identityError: 'DRUG_KB_IDENTITY_UNRESOLVED',
+      findings: [],
+    };
   }
 
   // Resolve each medication to KB drug keys once: deterministic keys when the
@@ -436,7 +478,7 @@ export async function evaluateDrugKb({
     const pre = deterministicKeys?.[index];
     const keys = Array.isArray(pre) && pre.length > 0
       ? [...new Set(pre.map((k) => String(k || '').toLowerCase().trim()).filter(Boolean))]
-      : matchMonographKeys(kb.monographs, medicationText(med));
+      : (strictIdentity ? [] : matchMonographKeys(kb.monographs, medicationText(med)));
     return {
       med,
       display: medicationDisplay(med),
@@ -650,7 +692,7 @@ export async function evaluateDrugKb({
     }
   }
 
-  return { kbAvailable: true, findings };
+  return { kbAvailable: true, identityAvailable: true, findings };
 }
 
 export default {

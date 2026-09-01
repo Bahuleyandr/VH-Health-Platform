@@ -192,6 +192,23 @@ function runSemgrepFocused() {
 export async function runSecurityStage() {
   const gitleaksEnv = await ensureGitleaks();
   run('git', ['diff', '--check']);
+
+  // Applied-migration immutability. Deliberately in THIS stage rather than the
+  // backend one: `security` is the only stage selected by every canonical plan,
+  // and a guard whose purpose is to stop unvalidated changes reaching a live
+  // database must not itself be skippable by tier routing. It is also a
+  // git-history check like the range secret scan below, not a source lint, so
+  // it belongs with them. Costs one `git diff --raw` over one directory.
+  run(process.execPath, ['scripts/ci/check-migration-immutability.mjs']);
+
+  // Session-scoped GUC leaks in migrations. Same stage and same reasoning as the
+  // immutability gate above: a guard that exists to keep body validation ON for
+  // every migration must not be skippable by tier routing. A bare
+  // `SET check_function_bodies = false` outlives its own file because every
+  // migration is applied through one connection — which is how 744 and 745
+  // shipped plpgsql bodies that cannot compile while CI stayed green.
+  run(process.execPath, ['scripts/ci/check-migration-session-guc.mjs']);
+
   run(process.execPath, ['scripts/check-forgejo-supply-chain-pins.mjs']);
   run(process.execPath, ['scripts/scan-secrets.mjs']);
   run(process.execPath, ['scripts/gitleaks-scan.mjs', 'worktree'], { env: gitleaksEnv });

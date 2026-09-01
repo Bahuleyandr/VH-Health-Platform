@@ -1,5 +1,5 @@
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
@@ -70,7 +70,8 @@ function isPharmacyDeliveryUser(user) {
 
 function isAssignedDeliveryUser(order, user) {
   return (
-    sameId(order?.dispatched_by, user?.id)
+    sameId(order?.delivery_assignee_uid, user?.uid)
+    || sameId(order?.dispatched_by, user?.id)
     || sameId(order?.assigned_collector, user?.id)
     || sameId(order?.phlebotomist_id, user?.id)
     || sameId(order?.collected_by, user?.id)
@@ -91,13 +92,20 @@ export function canReadDeliveryTracking(order, user, orderType) {
       || samePhone(order?.patient_phone, user?.phone)
     );
   }
+  if (orderType === 'pharmacy') {
+    return role === 'DELIVERY_STAFF'
+      && sameId(order?.delivery_assignee_uid, user?.uid);
+  }
   return DELIVERY_ACTOR_ROLES.has(role) && isAssignedDeliveryUser(order, user);
 }
 
 export function canManageDeliveryTracking(order, user, orderType) {
   const role = normalizeRole(user?.role);
+  if (orderType === 'pharmacy') {
+    return role === 'DELIVERY_STAFF'
+      && sameId(order?.delivery_assignee_uid, user?.uid);
+  }
   if (isAdminDeliveryUser(user)) return true;
-  if (orderType === 'pharmacy' && isPharmacyDeliveryUser(user)) return true;
   return DELIVERY_ACTOR_ROLES.has(role) && isAssignedDeliveryUser(order, user);
 }
 
@@ -108,7 +116,9 @@ async function loadDeliveryOrder(orderType, orderId, tenantId) {
              estimated_delivery_mins, delivery_distance_km,
              delivery_tracking_active, delivery_person,
              delivery_person_phone, dispatched_at,
-             uid, patient_id, phone, patient_phone, tenant_id, dispatched_by
+             uid, patient_id, phone, patient_phone, tenant_id, dispatched_by,
+             facility_id, delivery_assignee_uid, delivery_handoff_generation,
+             delivery_custody_status, delivery_handoff_consumed_at
         FROM pharmacy_orders
        WHERE id = $1 AND tenant_id = $2::uuid
        LIMIT 1
@@ -151,6 +161,31 @@ function hasValidLocation(lat, lng) {
     && longitude <= 180;
 }
 
+function optionalFinite(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+async function hasActivePharmacyDeliveryGrant(order, user, tenantId) {
+  if (normalizeRole(user?.role) !== 'DELIVERY_STAFF'
+      || !sameId(order?.delivery_assignee_uid, user?.uid)) return false;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT 1
+       FROM pharmacy_staff_facility_grants facility_grant
+      WHERE facility_grant.tenant_id=$1::uuid
+        AND facility_grant.facility_id=$2::int
+        AND facility_grant.staff_uid=$3::uuid
+        AND facility_grant.status='active'
+        AND facility_grant.revoked_at IS NULL
+      LIMIT 1`,
+    tenantId,
+    Number(order.facility_id),
+    String(user.uid),
+  );
+  return rows.length === 1;
+}
+
 /**
  * POST /delivery/location-update — delivery person sends GPS update
  */
@@ -181,35 +216,100 @@ export const updateDeliveryLocation = async (req, res) => {
       return error(res, 'Delivery tracking access denied', HTTP_STATUS.FORBIDDEN);
     }
 
-    // Verify the delivery person is assigned to this order
-    // Check if someone else is already tracking this order
-    const existingAssignment = await prisma.$queryRawUnsafe(
-      `SELECT DISTINCT delivery_person_id FROM delivery_location_updates
-       WHERE order_type = $1 AND order_id = $2 AND delivery_person_id IS NOT NULL
-       ORDER BY delivery_person_id LIMIT 1`, orderType, order_id);
-    if (existingAssignment.length > 0 &&
-        String(existingAssignment[0].delivery_person_id) !== String(deliveryPersonId)) {
-      // A different delivery person is assigned — only ADMIN can override
-      if (!isAdminDeliveryUser(req.user)) {
-        return error(res, 'Another delivery person is assigned to this order', HTTP_STATUS.FORBIDDEN);
-      }
-    }
-
-    // Save location update
-    await prisma.$queryRawUnsafe(`
-      INSERT INTO delivery_location_updates (order_type, order_id, delivery_person_id, lat, lng, accuracy, speed, heading, battery_level)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-    `, orderType, order_id, deliveryPersonId, lat, lng, accuracy || null, speed || null, heading || null, battery_level || null);
-
-    // Update live location on the order
     if (orderType === 'pharmacy') {
-      if (order.delivery_lat) {
-        const remaining = haversineKm(lat, lng, order.delivery_lat, order.delivery_lng);
-        const eta = estimateMinutes(remaining);
-        await prisma.$queryRawUnsafe(`UPDATE pharmacy_orders SET delivery_lat=$1, delivery_lng=$2, estimated_delivery_mins=$3, delivery_distance_km=$4, delivery_tracking_active=TRUE, updated_at=NOW() WHERE id=$5 AND tenant_id=$6::uuid`,
-          lat, lng, eta, Math.round(remaining * 100) / 100, order_id, tenantOf(req));
+      const tenantId = tenantOf(req);
+      const updated = await setTenantTx(tenantId, async (tx) => {
+        const rows = await tx.$queryRawUnsafe(
+          `SELECT pharmacy_order.id, pharmacy_order.facility_id,
+                  pharmacy_order.delivery_lat, pharmacy_order.delivery_lng,
+                  pharmacy_order.delivery_handoff_generation
+             FROM pharmacy_orders pharmacy_order
+             JOIN pharmacy_staff_facility_grants facility_grant
+               ON facility_grant.tenant_id=pharmacy_order.tenant_id
+              AND facility_grant.facility_id=pharmacy_order.facility_id
+              AND facility_grant.staff_uid=$3::uuid
+              AND facility_grant.status='active'
+              AND facility_grant.revoked_at IS NULL
+            WHERE pharmacy_order.tenant_id=$1::uuid
+              AND pharmacy_order.id=$2::int
+              AND pharmacy_order.delivery_assignee_uid=$3::uuid
+              AND pharmacy_order.status='DISPATCHED'
+              AND pharmacy_order.delivery_custody_status='in_transit'
+              AND pharmacy_order.delivery_handoff_consumed_at IS NULL
+            FOR UPDATE OF pharmacy_order, facility_grant`,
+          tenantId,
+          Number(order_id),
+          String(req.user?.uid || ''),
+        );
+        if (!rows[0]) return false;
+        const lockedOrder = rows[0];
+        const remaining = hasValidLocation(
+          lockedOrder.delivery_lat,
+          lockedOrder.delivery_lng,
+        )
+          ? haversineKm(
+            Number(lat),
+            Number(lng),
+            Number(lockedOrder.delivery_lat),
+            Number(lockedOrder.delivery_lng),
+          )
+          : null;
+        const eta = remaining == null ? null : estimateMinutes(remaining);
+        await tx.$queryRawUnsafe(
+          `INSERT INTO pharmacy_delivery_location_updates
+             (tenant_id, pharmacy_order_id, facility_id, delivery_assignee_uid,
+              handoff_generation, latitude, longitude, accuracy_m, speed_kmh,
+              heading_degrees, battery_level)
+           VALUES ($1::uuid, $2::int, $3::int, $4::uuid, $5::int,
+                   $6::numeric, $7::numeric, $8::numeric, $9::numeric,
+                   $10::numeric, $11::numeric)`,
+          tenantId,
+          Number(order_id),
+          Number(lockedOrder.facility_id),
+          String(req.user.uid),
+          Number(lockedOrder.delivery_handoff_generation),
+          Number(lat),
+          Number(lng),
+          optionalFinite(accuracy),
+          optionalFinite(speed),
+          optionalFinite(heading),
+          optionalFinite(battery_level),
+        );
+        await tx.$queryRawUnsafe(
+          `UPDATE pharmacy_orders
+              SET estimated_delivery_mins=$4::int,
+                  delivery_distance_km=$5::numeric,
+                  delivery_tracking_active=TRUE,
+                  updated_at=NOW()
+            WHERE tenant_id=$1::uuid AND id=$2::int
+              AND delivery_assignee_uid=$3::uuid
+              AND status='DISPATCHED' AND delivery_custody_status='in_transit'`,
+          tenantId,
+          Number(order_id),
+          String(req.user.uid),
+          eta,
+          remaining == null ? null : Math.round(remaining * 100) / 100,
+        );
+        return true;
+      });
+      if (!updated) {
+        return error(res, 'Delivery tracking access denied', HTTP_STATUS.FORBIDDEN);
       }
     } else if (orderType === 'investigation') {
+      const existingAssignment = await prisma.$queryRawUnsafe(
+        `SELECT DISTINCT delivery_person_id FROM delivery_location_updates
+         WHERE order_type = $1 AND order_id = $2 AND delivery_person_id IS NOT NULL
+         ORDER BY delivery_person_id LIMIT 1`, orderType, order_id);
+      if (existingAssignment.length > 0
+          && String(existingAssignment[0].delivery_person_id) !== String(deliveryPersonId)
+          && !isAdminDeliveryUser(req.user)) {
+        return error(res, 'Another delivery person is assigned to this order', HTTP_STATUS.FORBIDDEN);
+      }
+      await prisma.$queryRawUnsafe(`
+        INSERT INTO delivery_location_updates (order_type, order_id, delivery_person_id, lat, lng, accuracy, speed, heading, battery_level)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      `, orderType, order_id, deliveryPersonId, lat, lng,
+      optionalFinite(accuracy), optionalFinite(speed), optionalFinite(heading), optionalFinite(battery_level));
       if (order.delivery_lat) {
         const remaining = haversineKm(lat, lng, order.delivery_lat, order.delivery_lng);
         const eta = estimateMinutes(remaining);
@@ -241,13 +341,28 @@ export const getDeliveryTracking = async (req, res) => {
     if (!canReadDeliveryTracking(orderData, req.user, orderType)) {
       return error(res, 'Delivery tracking access denied', HTTP_STATUS.FORBIDDEN);
     }
+    if (orderType === 'pharmacy'
+        && normalizeRole(req.user?.role) === 'DELIVERY_STAFF'
+        && !await hasActivePharmacyDeliveryGrant(orderData, req.user, tenantOf(req))) {
+      return error(res, 'Delivery tracking access denied', HTTP_STATUS.FORBIDDEN);
+    }
 
-    // Get last 10 location updates for trail
-    const trail = await prisma.$queryRawUnsafe(`
-      SELECT lat, lng, speed, created_at FROM delivery_location_updates
-      WHERE order_type=$1 AND order_id=$2
-      ORDER BY created_at DESC LIMIT 10
-    `, orderType, order_id);
+    const trail = orderType === 'pharmacy'
+      ? await prisma.$queryRawUnsafe(
+        `SELECT latitude AS lat, longitude AS lng, speed_kmh AS speed,
+                accuracy_m AS accuracy, heading_degrees AS heading,
+                handoff_generation, created_at
+           FROM pharmacy_delivery_location_updates
+          WHERE tenant_id=$1::uuid AND pharmacy_order_id=$2::int
+          ORDER BY created_at DESC, id DESC LIMIT 10`,
+        tenantOf(req),
+        Number(order_id),
+      )
+      : await prisma.$queryRawUnsafe(`
+        SELECT lat, lng, speed, created_at FROM delivery_location_updates
+        WHERE order_type=$1 AND order_id=$2
+        ORDER BY created_at DESC LIMIT 10
+      `, orderType, order_id);
 
     success(res, {
       ...orderData,
@@ -281,7 +396,33 @@ export const stopTracking = async (req, res) => {
     }
 
     if (orderType === 'pharmacy') {
-      await prisma.$queryRawUnsafe('UPDATE pharmacy_orders SET delivery_tracking_active=FALSE WHERE id=$1 AND tenant_id=$2::uuid', order_id, tenantOf(req));
+      const tenantId = tenantOf(req);
+      const stopped = await setTenantTx(tenantId, async (tx) => {
+        const rows = await tx.$queryRawUnsafe(
+          `UPDATE pharmacy_orders pharmacy_order
+              SET delivery_tracking_active=FALSE, updated_at=NOW()
+             FROM pharmacy_staff_facility_grants facility_grant
+            WHERE pharmacy_order.tenant_id=$1::uuid
+              AND pharmacy_order.id=$2::int
+              AND pharmacy_order.delivery_assignee_uid=$3::uuid
+              AND pharmacy_order.status='DISPATCHED'
+              AND pharmacy_order.delivery_custody_status='in_transit'
+              AND pharmacy_order.delivery_handoff_consumed_at IS NULL
+              AND facility_grant.tenant_id=pharmacy_order.tenant_id
+              AND facility_grant.facility_id=pharmacy_order.facility_id
+              AND facility_grant.staff_uid=$3::uuid
+              AND facility_grant.status='active'
+              AND facility_grant.revoked_at IS NULL
+          RETURNING pharmacy_order.id`,
+          tenantId,
+          Number(order_id),
+          String(req.user?.uid || ''),
+        );
+        return rows.length === 1;
+      });
+      if (!stopped) {
+        return error(res, 'Delivery tracking access denied', HTTP_STATUS.FORBIDDEN);
+      }
     } else if (orderType === 'investigation') {
       await prisma.$queryRawUnsafe('UPDATE investigation_bookings SET collection_tracking_active=FALSE WHERE id=$1 AND tenant_id=$2::uuid', order_id, tenantOf(req));
     }

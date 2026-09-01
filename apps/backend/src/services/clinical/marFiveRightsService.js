@@ -14,114 +14,102 @@
 //
 // The five rights:
 //   - patient: scanned wristband maps to the MA's patient_uid.
-//   - drug:    scanned barcode matches the MA's medication_name (substring,
-//              case-insensitive — a proper drug DB with NDC lookup is a
-//              known future upgrade, noted in marFiveRightsService.js).
-//   - dose:    MA row has a non-empty dose/dosage.
-//   - route:   MA row has a non-empty route.
+//   - drug:    scan resolves exactly to the tenant/order/ward catalog product
+//              and one eligible inventory batch; free-text names never match.
+//   - dose:    MAR dose matches the committed clinical-order dose.
+//   - route:   MAR route matches the committed clinical-order route.
 //   - time:    MA has a scheduled_time within the acceptable window
 //              (±60 minutes by default). If scheduled_time is null we treat
 //              `time` as a pass (SOS/STAT/unscheduled admins).
 
-import prisma, { setTenantTx } from '../../lib/prisma.js';
+import { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
-import logger from '../../logging/logger.js';
 import {
   recordCanonicalClinicalEvent,
   recordMedicationSafetyReviews,
 } from './canonicalClinicalPlatformService.js';
-import { duplicateAdministrationError } from './marService.js';
+import {
+  duplicateAdministrationError,
+  MAR_ADMINISTRATION_MODES,
+} from './marService.js';
+import {
+  assertMedicationOrdersExecutionReadyTx,
+  consumeMarSupplyTx,
+  evaluateMarScanIdentityTx,
+} from './marSupplyService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import {
+  finaliseMarHttpIdempotencyTx,
+  findMarAdministrationCommandReplayTx,
+  fingerprintMarAdministrationRequest,
+  recordMarAdministrationCommandReceiptTx,
+} from './marAdministrationCommandService.js';
 
 const DEFAULT_WINDOW_MINUTES = 60;
 
-function _norm(s) {
-  return (s ?? '').toString().toLowerCase().trim();
-}
-
-/**
- * Compute the 5-rights result for a medication_administrations row.
- * Does not write anything.
- */
-export async function evaluate5Rights({ ma_id, scanned_patient_uid, scanned_barcode, windowMinutes = DEFAULT_WINDOW_MINUTES, at = null }) {
+async function evaluate5RightsTx(tx, {
+  ma_id,
+  scanned_patient_uid,
+  scanned_barcode,
+  tenantId,
+  windowMinutes = DEFAULT_WINDOW_MINUTES,
+  at = null,
+  lockEvidence = false,
+}) {
   if (!ma_id) throw AppError.badRequest('ma_id is required');
   if (!scanned_patient_uid) throw AppError.badRequest('scanned_patient_uid is required');
   if (!scanned_barcode) throw AppError.badRequest('scanned_barcode is required');
+  const tid = requireTenantId(tenantId);
 
-  // Offline-MAR: when a bedside administration time is supplied (a dose given
-  // offline at T but drained later), the right-time must be evaluated against
-  // that real bedside time T — NOT drain-time NOW() — so an offline dose isn't
-  // spuriously time-rejected. Default (online) path is unchanged: CURRENT_TIMESTAMP.
-  const atExpr = at ? '$2::timestamptz' : "(CURRENT_TIMESTAMP AT TIME ZONE current_setting('TimeZone'))";
-  const params = at ? [ma_id, at] : [ma_id];
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, patient_uid, medication_name, dose, dosage, route,
-            scheduled_time, status, tenant_id,
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT id, patient_uid::text, medication_name, dose, dosage, route,
+            scheduled_time, status, tenant_id::text, clinical_order_id,
+            supply_quantity_per_dose,
             CASE
               WHEN scheduled_time IS NULL THEN NULL
-              ELSE ROUND(
-                EXTRACT(EPOCH FROM (
-                  ${atExpr} - scheduled_time
-                )) / 60
-              )::int
+              ELSE ROUND(EXTRACT(EPOCH FROM (
+                COALESCE($3::timestamptz, CURRENT_TIMESTAMP) - scheduled_time
+              )) / 60)::int
             END AS minutes_from_scheduled
        FROM medication_administrations
-      WHERE id = $1`,
-    ...params,
+      WHERE id = $1::integer
+        AND tenant_id = $2::uuid`,
+    ma_id,
+    tid,
+    at || null,
   );
   if (rows.length === 0) throw AppError.notFound('Medication administration record not found');
   const ma = rows[0];
-
-  if (ma.status !== 'scheduled' && ma.status !== 'held') {
-    throw AppError.conflict(`Cannot verify — status is ${ma.status}`);
+  if (!ma.clinical_order_id) {
+    throw AppError.conflict(
+      'Medication administration is not linked to a verified clinical order',
+      'MEDICATION_ORDER_EXECUTION_ORDER_REQUIRED',
+      { medication_administration_id: Number(ma.id) },
+    );
   }
+  await assertMedicationOrdersExecutionReadyTx(tx, {
+    tenantId: tid,
+    clinicalOrderIds: [ma.clinical_order_id],
+    lock: false,
+  });
 
-  const rightPatient = _norm(ma.patient_uid) === _norm(scanned_patient_uid);
-
-  const medName = ma.medication_name || '';
-  let drugMatchMode = null;
-  let rightDrug =
-    _norm(medName).length > 0 &&
-    (_norm(medName).includes(_norm(scanned_barcode))
-      || _norm(scanned_barcode).includes(_norm(medName)));
-  if (rightDrug) drugMatchMode = 'name';
-
-  // B1 — platform med-pack barcode (pharmacy_orders.pack_barcode, issued at
-  // dispense). An exact pack match for the SAME patient whose item list
-  // carries this medication beats substring name matching. Best-effort:
-  // lookup failure falls back to the name verdict above.
-  if (!rightDrug && /^vhmp-/i.test(String(scanned_barcode || ''))) {
-    try {
-      const packRows = await prisma.$queryRawUnsafe(
-        `SELECT po.id
-           FROM pharmacy_orders po
-           JOIN users u ON u.id = po.patient_id
-          WHERE UPPER(po.pack_barcode) = UPPER($1)
-            AND u.uid = $2::uuid
-            AND EXISTS (
-                  SELECT 1
-                    FROM jsonb_array_elements(COALESCE(po.items_list, '[]'::jsonb)) item
-                   WHERE lower(COALESCE(item->>'name', item->>'medication_name', '')) LIKE '%' || lower($3) || '%'
-                      OR lower($3) LIKE '%' || lower(COALESCE(item->>'name', item->>'medication_name', '~none~')) || '%'
-                )
-          LIMIT 1`,
-        scanned_barcode,
-        ma.patient_uid,
-        medName,
-      );
-      if (packRows.length > 0) {
-        rightDrug = true;
-        drugMatchMode = 'pack_barcode';
-      }
-    } catch (err) {
-      logger.warn('Pack-barcode drug-right lookup failed (falling back to name match)', {
-        error: err?.message || String(err),
-      });
-    }
+  const status = String(ma.status || '').toLowerCase();
+  if (status === 'held') {
+    throw AppError.conflict(
+      'Held medication requires a prescriber-governed release before verification or administration',
+      'MAR_HOLD_RELEASE_REQUIRED',
+    );
   }
+  if (status !== 'scheduled') throw AppError.conflict(`Cannot verify — status is ${ma.status}`);
 
-  const rightDose = Boolean(ma.dose || ma.dosage);
-  const rightRoute = Boolean(ma.route);
+  const rightPatient = String(ma.patient_uid).toLowerCase()
+    === String(scanned_patient_uid).trim().toLowerCase();
+  const identity = await evaluateMarScanIdentityTx(tx, {
+    tenantId: tid,
+    administration: ma,
+    scannedBarcode: scanned_barcode,
+    lock: lockEvidence,
+  });
 
   let rightTime = true;
   let minutesFromScheduled = null;
@@ -129,16 +117,13 @@ export async function evaluate5Rights({ ma_id, scanned_patient_uid, scanned_barc
     minutesFromScheduled = Number(ma.minutes_from_scheduled ?? 0);
     rightTime = Math.abs(minutesFromScheduled) <= windowMinutes;
   }
-
   const rights = {
     patient: rightPatient,
-    drug:    rightDrug,
-    dose:    rightDose,
-    route:   rightRoute,
-    time:    rightTime,
+    drug: identity.rightDrug,
+    dose: identity.rightDose,
+    route: identity.rightRoute,
+    time: rightTime,
   };
-  const allPassed = Object.values(rights).every(Boolean);
-
   return {
     ma: {
       id: ma.id,
@@ -149,15 +134,98 @@ export async function evaluate5Rights({ ma_id, scanned_patient_uid, scanned_barc
       scheduled_time: ma.scheduled_time,
       status: ma.status,
       tenant_id: ma.tenant_id,
+      clinical_order_id: ma.clinical_order_id,
+      supply_quantity_per_dose: ma.supply_quantity_per_dose == null
+        ? null : Number(ma.supply_quantity_per_dose),
     },
     rights,
-    allPassed,
+    allPassed: Object.values(rights).every(Boolean),
     context: {
       minutesFromScheduled,
       windowMinutes,
-      drugMatchMode,
+      ...identity.context,
+      controlled: identity.controlled,
+      scannedInventoryBatchId: identity.scannedInventoryBatchId,
     },
   };
+}
+
+/**
+ * Compute the 5-rights result for a medication_administrations row.
+ * Does not write anything.
+ */
+export async function evaluate5Rights(params) {
+  const tid = requireTenantId(params.tenantId);
+  return setTenantTx(tid, (tx) => evaluate5RightsTx(tx, { ...params, tenantId: tid }), {
+    readOnly: true,
+  });
+}
+
+function assertEvaluationAllowsAdministration(evaluation, overrideReason) {
+  if (!evaluation.rights.patient) {
+    const err = AppError.conflict(
+      'Patient identity mismatch: the scanned wristband does not match this order. Re-scan the correct patient — this cannot be overridden.',
+      'MAR_PATIENT_MISMATCH',
+    );
+    err.details = {
+      rights: evaluation.rights,
+      context: evaluation.context,
+      hardStop: true,
+      failedRight: 'patient',
+    };
+    throw err;
+  }
+  if (!evaluation.rights.drug) {
+    const batchFailure = String(evaluation.context?.identityFailure || '').startsWith('batch_')
+      || String(evaluation.context?.identityFailure || '').includes('expired')
+      || String(evaluation.context?.identityFailure || '').includes('recalled')
+      || String(evaluation.context?.identityFailure || '').includes('quarantined');
+    const err = AppError.conflict(
+      batchFailure
+        ? 'Medication batch is expired, recalled, quarantined, inactive, or otherwise unavailable.'
+        : 'Medication mismatch: the scan must resolve exactly to the ordered catalog product and one eligible ward-custody batch.',
+      batchFailure ? 'MAR_BATCH_UNAVAILABLE' : 'MAR_DRUG_MISMATCH',
+    );
+    err.details = {
+      rights: evaluation.rights,
+      context: evaluation.context,
+      hardStop: true,
+      failedRight: 'drug',
+    };
+    throw err;
+  }
+  if (!evaluation.rights.dose) {
+    const err = AppError.conflict(
+      'Dose mismatch: the MAR dose must exactly match the structured prescriber order and cannot be overridden at bedside.',
+      'MAR_DOSE_MISMATCH',
+    );
+    err.details = {
+      rights: evaluation.rights,
+      context: evaluation.context,
+      hardStop: true,
+      failedRight: 'dose',
+    };
+    throw err;
+  }
+  if (!evaluation.rights.route) {
+    const err = AppError.conflict(
+      'Route mismatch: the MAR route, prescriber order, and catalog route must agree and cannot be overridden at bedside.',
+      'MAR_ROUTE_MISMATCH',
+    );
+    err.details = {
+      rights: evaluation.rights,
+      context: evaluation.context,
+      hardStop: true,
+      failedRight: 'route',
+    };
+    throw err;
+  }
+  if (!evaluation.allPassed && !overrideReason) {
+    const err = AppError.conflict('5-rights check failed');
+    err.details = { rights: evaluation.rights, context: evaluation.context };
+    throw err;
+  }
+  return evaluation.rights.patient && evaluation.rights.drug;
 }
 
 /**
@@ -185,90 +253,108 @@ export async function evaluate5Rights({ ma_id, scanned_patient_uid, scanned_barc
  *   run inside setTenantTx(tenantId) so they are provably tenant-isolated.
  * @param {number} [params.windowMinutes] right-time tolerance
  */
-export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_barcode, administeredBy, overrideReason = null, tenantId = null, windowMinutes = DEFAULT_WINDOW_MINUTES, administeredAt = null }) {
-  // Offline-MAR: an optional bedside administration time (the real time a dose
-  // was given offline). When present it is bounded — a bad client clock must not
-  // corrupt the MAR. Absent → null → the online path falls through to NOW() below.
-  let admAt = null;
-  if (administeredAt) {
-    const t = new Date(administeredAt);
-    if (Number.isNaN(t.getTime())) throw AppError.badRequest('administered_at is not a valid time');
-    const skewMs = Date.now() - t.getTime();
-    // Not in the future (allow 60s clock skew); not older than 12h (a long offline window).
-    if (skewMs < -60_000 || skewMs > 12 * 3600_000) throw AppError.badRequest('administered_at is out of the accepted range');
-    admAt = t.toISOString();
-  }
-  const evaluation = await evaluate5Rights({ ma_id, scanned_patient_uid, scanned_barcode, windowMinutes, at: admAt });
-
-  // Wrong-patient / wrong-drug HARD-STOP (audit 2026-06-22 F-H1). This endpoint
-  // ALWAYS carries a scan (scanned_patient_uid + scanned_barcode are required),
-  // so a patient- or drug-RIGHT failure here means the scan ACTIVELY mismatched
-  // the order — the canonical BCMA never-events (wrong patient, wrong drug).
-  // There is NO clinical justification for "justify and proceed" on an active
-  // identity mismatch, so NO override_reason can authorize it: re-scan the
-  // correct patient/medication. (The genuine "equipment failure / could not
-  // scan" break-glass is the separate non-scan POST /mar/:id/administer route,
-  // which administers the order as written and cannot mis-target a patient.)
-  // Only the SOFT rights (dose/route/time) remain overridable below.
-  if (!evaluation.rights.patient) {
-    const err = AppError.conflict(
-      'Patient identity mismatch: the scanned wristband does not match this order. Re-scan the correct patient — this cannot be overridden.',
-      'MAR_PATIENT_MISMATCH',
+export async function administerWithScan({
+  ma_id,
+  scanned_patient_uid,
+  scanned_barcode,
+  administeredBy,
+  witnessUid = null,
+  overrideReason = null,
+  supplyOverrideReason = null,
+  supplyQuantity = null,
+  commandKey = null,
+  requestFingerprint = null,
+  httpIdempotencyClaimId = null,
+  requestId = null,
+  tenantId = null,
+  windowMinutes = DEFAULT_WINDOW_MINUTES,
+  administeredAt = null,
+}) {
+  if (administeredAt != null && administeredAt !== '') {
+    throw AppError.badRequest(
+      'Online barcode administration cannot accept a retrospective administered_at; use the governed paper reconciliation workflow',
+      'MAR_RETROSPECTIVE_PATH_REQUIRED',
     );
-    err.details = { rights: evaluation.rights, context: evaluation.context, hardStop: true, failedRight: 'patient' };
-    throw err;
   }
-  if (!evaluation.rights.drug) {
-    const err = AppError.conflict(
-      'Medication mismatch: the scanned barcode does not match the ordered medication. Re-scan the correct medication — this cannot be overridden.',
-      'MAR_DRUG_MISMATCH',
-    );
-    err.details = { rights: evaluation.rights, context: evaluation.context, hardStop: true, failedRight: 'drug' };
-    throw err;
-  }
+  const tid = requireTenantId(tenantId);
+  const commandIdentity = commandKey ? {
+    tenantId: tid,
+    medicationAdministrationId: ma_id,
+    actorUid: administeredBy,
+    commandScope: 'mar_administer_scan',
+    commandKey,
+    requestBodySha256: requestFingerprint || fingerprintMarAdministrationRequest({
+      scanned_patient_uid,
+      scanned_barcode,
+      witness_uid: witnessUid,
+      override_reason: overrideReason,
+      supply_override_reason: supplyOverrideReason,
+      supply_quantity: supplyQuantity,
+    }),
+    administrationMode: MAR_ADMINISTRATION_MODES.ONLINE_BARCODE_SCAN,
+  } : null;
 
-  // B4.2 — explicit two-scan gate. With the hard-stop above, reaching here means
-  // both the patient and drug scans matched; this guard is retained as
-  // defence-in-depth (e.g. a future caller path) and fails with its own code
-  // BEFORE the broader 5-rights check, so the client can distinguish "your two
-  // scans don't match" from a dose/route/time mismatch and drive the right modal.
-  const twoScanOk = evaluation.rights.patient && evaluation.rights.drug;
-  if (!twoScanOk && !overrideReason) {
-    const err = AppError.conflict(
-      'Both patient-wristband and medication barcode must scan-match before administration',
-      'MAR_TWO_SCAN_REQUIRED',
-    );
-    err.details = { rights: evaluation.rights, context: evaluation.context };
-    throw err;
-  }
+  const finaliseHttpTx = (tx, responseData) => finaliseMarHttpIdempotencyTx(tx, {
+    claimId: httpIdempotencyClaimId,
+    tenantId: tid,
+    actorUid: administeredBy,
+    commandKey,
+    requestBodySha256: commandIdentity?.requestBodySha256,
+    responseData,
+    requestId,
+  });
 
-  // Existing broader gate: any of the five rights (incl. dose/route/time) may
-  // still fail. Without an override that is also a 409 the client must resolve.
-  if (!evaluation.allPassed && !overrideReason) {
-    // Surface the failing rights so the client can drive the override modal.
-    const err = AppError.conflict('5-rights check failed');
-    err.details = { rights: evaluation.rights, context: evaluation.context };
-    throw err;
+  if (commandIdentity) {
+    const replay = await setTenantTx(tid, async (tx) => {
+      const existing = await findMarAdministrationCommandReplayTx(tx, commandIdentity);
+      if (existing) await finaliseHttpTx(tx, existing);
+      return existing;
+    });
+    if (replay) return replay;
   }
-
   // Prefer the threaded tenant (req.tenantId — the canonical source), fall back
   // to the MA row's tenant_id surfaced by evaluate5Rights, then the single-tenant
   // floor. The UPDATE + canonical audit run inside setTenantTx so the
-  // tenant_isolation policy (migrations 239/304, FORCE) applies to both — a bare
-  // prisma.$queryRawUnsafe leaves the GUC unset and falls through to the policy's
-  // permissive branch (i.e. not provably tenant-scoped).
-  const tid = requireTenantId(tenantId || evaluation.ma?.tenant_id);
-
+  // tenant_isolation policy (migrations 239/304, FORCE) applies to both.
   const record = await setTenantTx(tid, async (tx) => {
-    // Concurrency guard (mirrors marService.recordMedicationAdministrationTx).
-    // evaluate5Rights read the row UNLOCKED and OUTSIDE this tx to compute the
-    // rights verdict; that read is not a safe basis for the state flip. Lock the
-    // target row FOR UPDATE and re-read its status inside the tx so two nurses
-    // scanning the same due dose serialize here — the second blocks until the
-    // first commits, then sees status='administered' and is rejected instead of
-    // silently overwriting the first administration on the single physical row.
+    if (commandIdentity) {
+      const replay = await findMarAdministrationCommandReplayTx(tx, commandIdentity);
+      if (replay) {
+        await finaliseHttpTx(tx, replay);
+        return replay;
+      }
+    }
+    const orderContextRows = await tx.$queryRawUnsafe(
+      `SELECT clinical_order_id
+         FROM medication_administrations
+        WHERE id = $1::integer
+          AND tenant_id = $2::uuid
+        LIMIT 1`,
+      ma_id,
+      tid,
+    );
+    if (!orderContextRows[0]) {
+      throw AppError.notFound('Medication administration record not found');
+    }
+    if (!orderContextRows[0].clinical_order_id) {
+      throw AppError.conflict(
+        'Medication administration is not linked to a verified clinical order',
+        'MEDICATION_ORDER_EXECUTION_ORDER_REQUIRED',
+        { medication_administration_id: Number(ma_id) },
+      );
+    }
+    await assertMedicationOrdersExecutionReadyTx(tx, {
+      tenantId: tid,
+      clinicalOrderIds: [orderContextRows[0].clinical_order_id],
+    });
+
+    // Lock the target only after locking its execution-authority order. This
+    // lock order matches cancellation/discontinuation and makes a concurrent
+    // terminal transition serialize before inventory or administration.
     const lockedRows = await tx.$queryRawUnsafe(
-      `SELECT id, status
+      `SELECT id, patient_uid::text, medication_name, dose, dosage, route,
+              scheduled_time, status, tenant_id::text, clinical_order_id,
+              supply_quantity_per_dose
          FROM medication_administrations
         WHERE id = $1 AND tenant_id = $2::uuid
         FOR UPDATE`,
@@ -277,31 +363,78 @@ export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_b
     );
     const locked = lockedRows[0];
     if (!locked) throw AppError.notFound('Medication administration record not found');
-    if (!['scheduled', 'held'].includes(String(locked.status || '').toLowerCase())) {
+    if (Number(locked.clinical_order_id) !== Number(orderContextRows[0].clinical_order_id)) {
+      throw AppError.conflict(
+        'Medication administration order context changed',
+        'MAR_INSPECTION_CONTEXT_MISMATCH',
+      );
+    }
+    if (String(locked.status || '').toLowerCase() !== 'scheduled') {
+      if (commandIdentity) {
+        const replay = await findMarAdministrationCommandReplayTx(tx, commandIdentity);
+        if (replay) {
+          await finaliseHttpTx(tx, replay);
+          return replay;
+        }
+      }
+      if (String(locked.status || '').toLowerCase() === 'held') {
+        throw AppError.conflict(
+          'Held medication requires a prescriber-governed release before administration',
+          'MAR_HOLD_RELEASE_REQUIRED',
+        );
+      }
       throw AppError.conflict('Medication state changed', 'MAR_ADMINISTRATION_STATE_CONFLICT');
     }
+
+    // Re-run every right after locking the MAR row. Product identity and exact
+    // batch eligibility are therefore checked in the same transaction that
+    // consumes ward custody and records administration; a recall/quarantine or
+    // order correction that committed after the dry-run cannot ride through.
+    const evaluation = await evaluate5RightsTx(tx, {
+      ma_id,
+      scanned_patient_uid,
+      scanned_barcode,
+      tenantId: tid,
+      windowMinutes,
+      lockEvidence: true,
+    });
+    const twoScanOk = assertEvaluationAllowsAdministration(evaluation, overrideReason);
+
+    const supply = await consumeMarSupplyTx(tx, {
+      tenantId: tid,
+      administration: locked,
+      recordedBy: administeredBy,
+      witnessUid,
+      administrationMode: MAR_ADMINISTRATION_MODES.ONLINE_BARCODE_SCAN,
+      commandKey,
+      supplyQuantity,
+      supplyOverrideReason,
+      scannedInventoryBatchId: evaluation.context.scannedInventoryBatchId,
+    });
 
     let rows;
     try {
       rows = await tx.$queryRawUnsafe(
         `UPDATE medication_administrations
            SET status                = 'administered',
-               administered_at       = COALESCE($9::timestamptz, NOW()),
+               administered_at       = NOW(),
                administered_by       = $2::uuid,
+               witness_uid           = $8::uuid,
                scanned_patient_uid   = $3::uuid,
                scanned_barcode       = $4,
                rights_passed         = $5::jsonb,
                all_rights_passed     = $6,
                override_reason       = $7,
-               patient_scanned_at    = COALESCE($9::timestamptz, NOW()),
-               medication_scanned_at = COALESCE($9::timestamptz, NOW())
-         WHERE id = $1 AND tenant_id = $8::uuid
-           AND lower(status) IN ('scheduled', 'held')
+               patient_scanned_at    = NOW(),
+               medication_scanned_at = NOW()
+         WHERE id = $1 AND tenant_id = $9::uuid
+           AND lower(status) = 'scheduled'
          RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time,
                    status, notes, tenant_id, created_at, updated_at,
                    administered_at, administered_by, rights_passed,
-                   all_rights_passed, override_reason,
-                   patient_scanned_at, medication_scanned_at`,
+                   witness_uid, all_rights_passed, override_reason,
+                   patient_scanned_at, medication_scanned_at,
+                   clinical_order_id, supply_quantity_per_dose`,
         ma_id,
         administeredBy,
         scanned_patient_uid,
@@ -309,8 +442,8 @@ export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_b
         JSON.stringify(evaluation.rights),
         evaluation.allPassed,
         overrideReason,
+        witnessUid,
         tid,
-        admAt,
       );
     } catch (err) {
       // A sibling MAR row for the same dose already administered trips the
@@ -328,13 +461,13 @@ export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_b
       throw AppError.conflict('Medication state changed', 'MAR_ADMINISTRATION_STATE_CONFLICT');
     }
 
-    const updated = rows[0];
+    const updated = { ...rows[0], supply_state: supply };
     if (updated?.id && overrideReason && !evaluation.allPassed) {
       // Canonical invariant item 5 (docs/CANONICAL_CLINICAL_TIMELINE.md): an
       // override of a failed medication-safety check must persist
       // medication_safety_reviews rows in the SAME transaction as the detail
-      // write — one blocked finding per failed soft right (only dose/route/time
-      // can reach here; patient/drug mismatches hard-stop above). With the
+      // write — one blocked finding per failed soft right (only time can reach
+      // here; patient/drug/dose/route mismatches hard-stop above). With the
       // override reason present the helper stores them status='overridden'
       // with override_required=true. Skipped entirely when all rights passed
       // (nothing was overridden — mirrors pharmacistVerificationService's
@@ -404,7 +537,10 @@ export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_b
           two_scan_override: !twoScanOk,
           patient_scanned_at: updated.patient_scanned_at || null,
           medication_scanned_at: updated.medication_scanned_at || null,
+          witness_uid: updated.witness_uid || null,
+          scan_identity: evaluation.context,
           scanner_used: true,
+          mar_supply: supply,
         },
         // The audit row's metadata column is sourced from `metadata` (the
         // timeline's payload is separate), so carry the override facts here too
@@ -416,6 +552,8 @@ export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_b
           all_rights_passed: updated.all_rights_passed,
           patient_scanned_at: updated.patient_scanned_at || null,
           medication_scanned_at: updated.medication_scanned_at || null,
+          witness_uid: updated.witness_uid || null,
+          inventory_batch_id: evaluation.context.inventoryBatchId || null,
         },
         beforeState: { status: evaluation.ma?.status || 'scheduled' },
         afterState: {
@@ -427,7 +565,15 @@ export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_b
         auditIdempotencyKey: `medication_administrations:${updated.id}:audit:mar.administered:scan:${updated.administered_at?.toISOString?.() || Date.now()}`,
       }, { db: tx });
     }
-    return updated;
+    let committedResponse = updated;
+    if (commandIdentity) {
+      committedResponse = await recordMarAdministrationCommandReceiptTx(tx, {
+        ...commandIdentity,
+        responseData: updated,
+      });
+      await finaliseHttpTx(tx, committedResponse);
+    }
+    return committedResponse;
   });
 
   return record;

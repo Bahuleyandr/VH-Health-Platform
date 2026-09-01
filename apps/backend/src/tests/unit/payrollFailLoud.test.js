@@ -145,6 +145,10 @@ function installQueryRouter(overrides = {}) {
     if (sql.includes('SELECT id FROM users WHERE tenant_id')) return run('userId', [{ id: 7 }]);
     if (sql.includes('FROM overtime_requests')) return run('overtime', [{ approved_overtime: 0 }]);
     if (sql.includes('FROM payslips')) return [];
+    // Bonus payables are claimed from their own table and joined back to
+    // salary_revisions, so this must be matched on `salary_revision_payables`
+    // before the plain `salary_revisions` increment lookup below.
+    if (sql.includes('FROM salary_revision_payables')) return run('bonusPayables', []);
     if (sql.includes('FROM salary_arrears')) return run('arrears', []);
     if (sql.includes('FROM salary_advances')) return run('advances', []);
     if (sql.includes('FROM salary_revisions')) return run('revisions', []);
@@ -176,6 +180,10 @@ describe('calculatePayslip fails loudly instead of fabricating zeros', () => {
     ['arrears', 'salary_arrears'],
     ['advances', 'salary_advances'],
     ['revisions', 'salary_revisions'],
+    // The bonus-payable claim was added after this packet; it has no catch
+    // either, and a swallowed failure here would pay a payslip that silently
+    // drops every earned bonus, so it belongs to the same contract.
+    ['bonusPayables', 'salary_revision_payables'],
   ])('rejects when the %s query fails (%s)', async (queryName) => {
     installQueryRouter({ [queryName]: DB_DOWN });
 

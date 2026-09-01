@@ -27,6 +27,19 @@ function token() {
   return randomUUID().replaceAll('-', '');
 }
 
+function asPrismaTx(client) {
+  return {
+    async $queryRawUnsafe(sql, ...params) {
+      const result = await client.query(sql, params);
+      return result.rows;
+    },
+    async $executeRawUnsafe(sql, ...params) {
+      const result = await client.query(sql, params);
+      return result.rowCount;
+    },
+  };
+}
+
 function legacyEncryptedField(plaintext) {
   const key = crypto.scryptSync(
     process.env.FIELD_ENCRYPTION_KEY,
@@ -45,6 +58,7 @@ describeIfDb('payment gateway public routes under NOBYPASSRLS', () => {
   let prisma;
   let router;
   let getPublicPaymentLinkView;
+  let ensureGatewayRefundRecoveryObligationTx;
   let tenantId;
   let configId;
   let webhookToken;
@@ -57,6 +71,17 @@ describeIfDb('payment gateway public routes under NOBYPASSRLS', () => {
   let refundOrder;
   let processedRefund;
   let failedRefund;
+
+  const fixture = {
+    billingRefundIds: new Set(),
+    gatewayRefundIds: new Set(),
+    invoiceIds: new Set(),
+    orderIds: new Set(),
+    patientUids: new Set(),
+    recoverySlaIds: new Set(),
+    recoveryTaskIds: new Set(),
+    userUids: new Set(),
+  };
 
   const savedEnv = {
     databaseUrl: process.env.DATABASE_URL,
@@ -84,39 +109,94 @@ describeIfDb('payment gateway public routes under NOBYPASSRLS', () => {
 
   async function insertOrder(client, {
     providerOrderId, status = 'created', paymentLink = null,
+    patientUid = randomUUID(), providerPaymentId = null,
   }) {
     const result = await client.query(
       `INSERT INTO payment_gateway_orders
          (tenant_id, provider, environment, provider_config_id, patient_uid,
-          payment_link_id, amount, currency, receipt, provider_order_id, status,
-          webhook_credential_version)
+          payment_link_id, amount, currency, receipt, provider_order_id,
+          provider_payment_id, status, webhook_credential_version)
        VALUES ($1::uuid, 'dry_run', 'sandbox', $2::int, $3::uuid,
-               $4::int, 500.00, 'INR', $5::text, $6::text, $7::text, 1)
+               $4::int, 500.00, 'INR', $5::text, $6::text,
+               $7::text, $8::text, 1)
        RETURNING id`,
       [
         tenantId,
         configId,
-        randomUUID(),
+        patientUid,
         paymentLink,
         `receipt-${token().slice(0, 20)}`,
         providerOrderId,
+        providerPaymentId,
         status,
       ],
     );
-    return Number(result.rows[0].id);
+    const id = Number(result.rows[0].id);
+    fixture.orderIds.add(id);
+    return id;
   }
 
-  async function insertRefund(client, { gatewayOrderId, suffix }) {
-    const providerPaymentId = `pay_runtime_${suffix}`;
+  async function insertRefund(client, {
+    gatewayOrderId, patientUid, providerPaymentId, suffix,
+  }) {
     const providerRefundId = `rfnd_runtime_${suffix}`;
+    const raisedBy = randomUUID();
+    const approvedBy = randomUUID();
+    const initiatedBy = randomUUID();
+    await client.query(
+      `INSERT INTO users
+         (tenant_id, uid, name, role, is_active, updated_at)
+       VALUES
+         ($1::uuid, $2::uuid, 'Refund requester', 'BILLING_STAFF', true, NOW()),
+         ($1::uuid, $3::uuid, 'Refund approver', 'ADMIN', true, NOW()),
+         ($1::uuid, $4::uuid, 'Refund initiator', 'BILLING_STAFF', true, NOW())`,
+      [tenantId, raisedBy, approvedBy, initiatedBy],
+    );
+    [raisedBy, approvedBy, initiatedBy].forEach(uid => fixture.userUids.add(uid));
+    const invoice = await client.query(
+      `INSERT INTO billing_invoices
+         (patient_uid, invoice_type, status, subtotal, total_amount,
+          amount_paid, amount_due, tenant_id)
+       VALUES ($1::uuid, 'OP', 'PAID', 150.00, 150.00, 150.00, 0,
+               $2::uuid)
+       RETURNING id`,
+      [patientUid, tenantId],
+    );
+    const invoiceId = Number(invoice.rows[0].id);
+    fixture.invoiceIds.add(invoiceId);
+    const billingRefund = await client.query(
+      `INSERT INTO billing_refunds
+         (tenant_id, patient_uid, invoice_id, amount, reason, mode,
+          approval_status, raised_by)
+       VALUES ($1::uuid, $2::uuid, $3::int, 150.00, $4::text, 'UPI',
+               'PENDING', $5::uuid)
+       RETURNING id`,
+      [
+        tenantId,
+        patientUid,
+        invoiceId,
+        `Runtime-role ${suffix}`,
+        raisedBy,
+      ],
+    );
+    const billingRefundId = Number(billingRefund.rows[0].id);
+    fixture.billingRefundIds.add(billingRefundId);
+    await client.query(
+      `UPDATE billing_refunds
+          SET approval_status = 'APPROVED', approved_by = $1::uuid
+        WHERE tenant_id = $2::uuid AND id = $3::int`,
+      [approvedBy, tenantId, billingRefundId],
+    );
     const result = await client.query(
       `INSERT INTO payment_gateway_refunds
          (tenant_id, provider, environment, gateway_order_id,
           provider_payment_id, provider_refund_id, provider_idempotency_key,
-          amount, currency, status, webhook_credential_version)
+          amount, currency, status, webhook_credential_version,
+          billing_refund_id, initiated_by, initiated_at)
        VALUES ($1::uuid, 'dry_run', 'sandbox', $2::int,
                $3::text, $4::text, $5::text,
-               150.00, 'INR', 'pending', 1)
+               150.00, 'INR', 'pending', 1,
+               $6::int, $7::uuid, clock_timestamp())
        RETURNING id`,
       [
         tenantId,
@@ -124,10 +204,33 @@ describeIfDb('payment gateway public routes under NOBYPASSRLS', () => {
         providerPaymentId,
         providerRefundId,
         `pgr_runtime_${suffix}_${token().slice(0, 16)}`,
+        billingRefundId,
+        initiatedBy,
       ],
     );
+    const id = Number(result.rows[0].id);
+    fixture.gatewayRefundIds.add(id);
+    await client.query(
+      `UPDATE billing_refunds
+          SET payout_rail = 'gateway', payout_rail_claimed_at = NOW(),
+              gateway_refund_id = $1::int, updated_at = NOW()
+        WHERE tenant_id = $2::uuid AND id = $3::int`,
+      [id, tenantId, billingRefundId],
+    );
+    const obligation = await ensureGatewayRefundRecoveryObligationTx({
+      tx: asPrismaTx(client),
+      tenantId,
+      gatewayRefundId: id,
+    });
+    if (obligation.row.recovery_task_id != null) {
+      fixture.recoveryTaskIds.add(Number(obligation.row.recovery_task_id));
+    }
+    if (obligation.row.recovery_sla_instance_id != null) {
+      fixture.recoverySlaIds.add(String(obligation.row.recovery_sla_instance_id));
+    }
     return {
-      id: Number(result.rows[0].id),
+      id,
+      billingRefundId,
       providerPaymentId,
       providerRefundId,
     };
@@ -195,6 +298,10 @@ describeIfDb('payment gateway public routes under NOBYPASSRLS', () => {
     delete process.env.AUTH_TENANT_RLS_RUNTIME_ROLE;
     delete process.env.AUTH_TENANT_RLS_TEST_ROLE;
 
+    ({ ensureGatewayRefundRecoveryObligationTx } = await import(
+      '../../services/billing/gatewayRefundRecoveryService.js'
+    ));
+
     tenantId = randomUUID();
     webhookToken = token();
     paymentLinkToken = token();
@@ -229,6 +336,16 @@ describeIfDb('payment gateway public routes under NOBYPASSRLS', () => {
       );
       paymentLinkId = Number(link.rows[0].id);
 
+      const refundPatientUid = randomUUID();
+      await client.query(
+        `INSERT INTO users
+           (tenant_id, uid, name, role, is_active, updated_at)
+         VALUES ($1::uuid, $2::uuid, 'Refund patient', 'PATIENT', true, NOW())`,
+        [tenantId, refundPatientUid],
+      );
+      fixture.patientUids.add(refundPatientUid);
+      fixture.userUids.add(refundPatientUid);
+
       authorizedOrder = await insertOrder(client, {
         providerOrderId: `order_runtime_authorized_${token().slice(0, 12)}`,
       });
@@ -243,16 +360,23 @@ describeIfDb('payment gateway public routes under NOBYPASSRLS', () => {
         providerOrderId: `order_runtime_public_${token().slice(0, 12)}`,
         paymentLink: paymentLinkId,
       });
+      const refundProviderPaymentId = `pay_runtime_${token().slice(0, 16)}`;
       refundOrder = await insertOrder(client, {
         providerOrderId: `order_runtime_refund_${token().slice(0, 12)}`,
+        patientUid: refundPatientUid,
+        providerPaymentId: refundProviderPaymentId,
         status: 'attempted',
       });
       processedRefund = await insertRefund(client, {
         gatewayOrderId: refundOrder,
+        patientUid: refundPatientUid,
+        providerPaymentId: refundProviderPaymentId,
         suffix: `processed_${token().slice(0, 10)}`,
       });
       failedRefund = await insertRefund(client, {
         gatewayOrderId: refundOrder,
+        patientUid: refundPatientUid,
+        providerPaymentId: refundProviderPaymentId,
         suffix: `failed_${token().slice(0, 10)}`,
       });
     });
@@ -263,17 +387,162 @@ describeIfDb('payment gateway public routes under NOBYPASSRLS', () => {
   });
 
   afterAll(async () => {
+    let teardownError = null;
     if (owner && tenantId) {
-      await asOwnerTenant(async (client) => {
-        await client.query('DELETE FROM payment_gateway_webhook_events WHERE tenant_id = $1::uuid', [tenantId]);
-        await client.query('DELETE FROM payment_gateway_refunds WHERE tenant_id = $1::uuid', [tenantId]);
-        await client.query('DELETE FROM payment_gateway_orders WHERE tenant_id = $1::uuid', [tenantId]);
-        await client.query('DELETE FROM payment_gateway_provider_configs WHERE tenant_id = $1::uuid', [tenantId]);
-        await client.query('DELETE FROM billing_payment_links WHERE tenant_id = $1::uuid', [tenantId]);
-      }).catch(() => {});
-      await owner.query('DELETE FROM tenants WHERE id = $1::uuid', [tenantId]).catch(() => {});
+      try {
+        await asOwnerTenant(async (client) => {
+          const billingRefundIds = [...fixture.billingRefundIds];
+          const gatewayRefundIds = [...fixture.gatewayRefundIds];
+          const invoiceIds = [...fixture.invoiceIds];
+          const patientUids = [...fixture.patientUids];
+          const recoverySlaIds = [...fixture.recoverySlaIds];
+          const recoveryTaskIds = [...fixture.recoveryTaskIds];
+          const userUids = [...fixture.userUids];
+
+          await client.query("SELECT set_config('app.audit_bypass', 'on', true)");
+          if (invoiceIds.length || patientUids.length) {
+            const entries = await client.query(
+              `SELECT DISTINCT entry_id AS id
+                 FROM ledger_postings
+                WHERE tenant_id = $1::uuid
+                  AND (invoice_id = ANY($2::int[]) OR patient_uid = ANY($3::uuid[]))`,
+              [tenantId, invoiceIds, patientUids],
+            );
+            const entryIds = entries.rows.map(row => String(row.id));
+            if (entryIds.length) {
+              await client.query(
+                'DELETE FROM ledger_postings WHERE tenant_id = $1::uuid AND entry_id = ANY($2::bigint[])',
+                [tenantId, entryIds],
+              );
+              await client.query(
+                'DELETE FROM ledger_entries WHERE tenant_id = $1::uuid AND id = ANY($2::bigint[])',
+                [tenantId, entryIds],
+              );
+            }
+          }
+          await client.query(
+            'DELETE FROM ledger_balances WHERE tenant_id = $1::uuid',
+            [tenantId],
+          );
+          await client.query(
+            'DELETE FROM ledger_accounts WHERE tenant_id = $1::uuid',
+            [tenantId],
+          );
+          await client.query(
+            'DELETE FROM payment_gateway_webhook_events WHERE tenant_id = $1::uuid',
+            [tenantId],
+          );
+          await client.query(
+            'DELETE FROM notification_outbox WHERE tenant_id = $1::uuid',
+            [tenantId],
+          );
+          await client.query(
+            'DELETE FROM audit_logs WHERE tenant_id = $1::uuid',
+            [tenantId],
+          );
+          if (billingRefundIds.length) {
+            await client.query(
+              `UPDATE billing_refunds
+                  SET approval_status = CASE
+                        WHEN approval_status = 'PAID' THEN 'APPROVED'
+                        ELSE approval_status
+                      END,
+                      paid_by = NULL,
+                      paid_at = NULL,
+                      reference = NULL,
+                      payout_rail = NULL,
+                      payout_rail_claimed_at = NULL,
+                      gateway_refund_id = NULL
+                WHERE tenant_id = $1::uuid AND id = ANY($2::int[])`,
+              [tenantId, billingRefundIds],
+            );
+          }
+          if (gatewayRefundIds.length) {
+            await client.query(
+              `UPDATE payment_gateway_refunds
+                  SET recovery_task_id = NULL,
+                      recovery_sla_instance_id = NULL,
+                      updated_at = NOW()
+                WHERE tenant_id = $1::uuid
+                  AND id = ANY($2::int[])
+                  AND recovery_state IN ('succeeded', 'failed')
+                  AND reconciliation_disposition IS NULL`,
+              [tenantId, gatewayRefundIds],
+            );
+            await client.query(
+              'DELETE FROM payment_gateway_refunds WHERE tenant_id = $1::uuid AND id = ANY($2::int[])',
+              [tenantId, gatewayRefundIds],
+            );
+          }
+          if (recoveryTaskIds.length) {
+            await client.query(
+              'DELETE FROM task_comments WHERE tenant_id = $1::uuid AND task_id = ANY($2::int[])',
+              [tenantId, recoveryTaskIds],
+            );
+            await client.query(
+              'DELETE FROM tasks WHERE tenant_id = $1::uuid AND id = ANY($2::int[])',
+              [tenantId, recoveryTaskIds],
+            );
+          }
+          if (recoverySlaIds.length) {
+            await client.query(
+              'DELETE FROM workflow_sla_instances WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])',
+              [tenantId, recoverySlaIds],
+            );
+          }
+          if (billingRefundIds.length) {
+            await client.query(
+              'DELETE FROM billing_refunds WHERE tenant_id = $1::uuid AND id = ANY($2::int[])',
+              [tenantId, billingRefundIds],
+            );
+          }
+          if (fixture.orderIds.size) {
+            await client.query(
+              'DELETE FROM payment_gateway_orders WHERE tenant_id = $1::uuid AND id = ANY($2::int[])',
+              [tenantId, [...fixture.orderIds]],
+            );
+          }
+          if (configId != null) {
+            await client.query(
+              'DELETE FROM payment_gateway_provider_configs WHERE tenant_id = $1::uuid AND id = $2::int',
+              [tenantId, configId],
+            );
+          }
+          if (paymentLinkId != null) {
+            await client.query(
+              'DELETE FROM billing_payment_links WHERE tenant_id = $1::uuid AND id = $2::int',
+              [tenantId, paymentLinkId],
+            );
+          }
+          if (invoiceIds.length) {
+            await client.query(
+              'DELETE FROM billing_payments WHERE tenant_id = $1::uuid AND invoice_id = ANY($2::int[])',
+              [tenantId, invoiceIds],
+            );
+            await client.query(
+              'DELETE FROM billing_invoice_items WHERE tenant_id = $1::uuid AND invoice_id = ANY($2::int[])',
+              [tenantId, invoiceIds],
+            );
+            await client.query(
+              'DELETE FROM billing_invoices WHERE tenant_id = $1::uuid AND id = ANY($2::int[])',
+              [tenantId, invoiceIds],
+            );
+          }
+          if (userUids.length) {
+            await client.query(
+              'DELETE FROM users WHERE tenant_id = $1::uuid AND uid = ANY($2::uuid[])',
+              [tenantId, userUids],
+            );
+          }
+        });
+        await owner.query('DELETE FROM tenants WHERE id = $1::uuid', [tenantId]);
+      } catch (err) {
+        teardownError = err;
+      }
     }
-    await owner?.end().catch(() => {});
+    await owner?.end().catch((err) => {
+      teardownError ||= err;
+    });
     if (savedEnv.databaseUrl === undefined) delete process.env.DATABASE_URL;
     else process.env.DATABASE_URL = savedEnv.databaseUrl;
     if (savedEnv.enforceRls === undefined) delete process.env.AUTH_ENFORCE_TENANT_RLS;
@@ -284,6 +553,7 @@ describeIfDb('payment gateway public routes under NOBYPASSRLS', () => {
     else process.env.AUTH_TENANT_RLS_RUNTIME_ROLE = savedEnv.runtimeRole;
     if (savedEnv.testRole === undefined) delete process.env.AUTH_TENANT_RLS_TEST_ROLE;
     else process.env.AUTH_TENANT_RLS_TEST_ROLE = savedEnv.testRole;
+    if (teardownError) throw teardownError;
   });
 
   it('runs the actual Prisma connection as a sealed NOBYPASSRLS role', async () => {
@@ -368,7 +638,7 @@ describeIfDb('payment gateway public routes under NOBYPASSRLS', () => {
         amount: 15_000,
         currency: 'INR',
         status: 'processed',
-        notes: { billing_refund_id: '0' },
+        notes: { billing_refund_id: String(processedRefund.billingRefundId) },
       } } },
     }, `evt-refund-processed-${token()}`);
 
@@ -389,7 +659,7 @@ describeIfDb('payment gateway public routes under NOBYPASSRLS', () => {
         amount: 15_000,
         currency: 'INR',
         status: 'failed',
-        notes: { billing_refund_id: '0' },
+        notes: { billing_refund_id: String(failedRefund.billingRefundId) },
         error_code: 'BAD_REQUEST_ERROR',
         error_description: 'provider rejected refund',
       } } },

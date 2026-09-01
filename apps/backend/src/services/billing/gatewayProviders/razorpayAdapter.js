@@ -56,6 +56,17 @@ async function razorpayRequest({ keyId, keySecret, method, path, body, headers =
     const providerCode = parsed?.error?.code || `http_${response.status}`;
     const description = parsed?.error?.description || 'provider rejected the request';
     if (response.status === 409 && headers['X-Refund-Idempotency']) {
+      const normalizedDescription = String(description).trim().toLowerCase();
+      const stillProcessing = /\b(still processing|being processed|request in progress|currently processing)\b/
+        .test(normalizedDescription);
+      if (!stillProcessing) {
+        throw new AppError(
+          'Payment gateway rejected reuse of the refund idempotency identity',
+          409,
+          'PAYMENT_GATEWAY_REFUND_IDEMPOTENCY_CONFLICT',
+          { providerCode },
+        );
+      }
       throw new AppError(
         'Payment gateway refund request is still processing',
         409,
@@ -186,6 +197,28 @@ export async function createRefund({
     currency: refund?.currency,
     // Razorpay refund status vocabulary: pending | processed | failed.
     status: refund?.status,
+    billingRefundId: refund?.notes?.billing_refund_id,
+    raw: refund,
+  };
+}
+
+export async function fetchRefund({ keyId, keySecret, providerRefundId } = {}) {
+  if (!providerRefundId) {
+    throw new AppError('providerRefundId is required', 400, 'PAYMENT_GATEWAY_BAD_REFUND');
+  }
+  const refund = await razorpayRequest({
+    keyId,
+    keySecret,
+    method: 'GET',
+    path: `/refunds/${encodeURIComponent(String(providerRefundId))}`,
+  });
+  return {
+    providerRefundId: refund?.id,
+    providerPaymentId: refund?.payment_id,
+    amountPaise: refund?.amount == null ? null : Number(refund.amount),
+    currency: refund?.currency,
+    status: refund?.status,
+    billingRefundId: refund?.notes?.billing_refund_id,
     raw: refund,
   };
 }
@@ -201,5 +234,6 @@ export default {
   findOrderByReceipt,
   fetchPayment,
   createRefund,
+  fetchRefund,
   verifyWebhookSignature,
 };

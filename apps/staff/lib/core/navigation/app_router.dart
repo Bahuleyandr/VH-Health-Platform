@@ -32,6 +32,9 @@ import '../../features/phone/screens/staff_phone_more_screen.dart';
 import '../../features/phone/screens/staff_query_screen.dart';
 import '../../features/reception/screens/front_office_workbench_screen.dart';
 import '../../features/reception/screens/billing_desk_screen.dart';
+import '../../features/reception/screens/billing_credit_notes_screen.dart';
+import '../../features/reception/screens/counter_sale_refund_screen.dart';
+import '../../features/reception/screens/gateway_refund_reconciliation_screen.dart';
 import '../../features/ward/screens/ward_mode_screen.dart';
 import '../../features/clinical_continuity/screens/continuity_cache_screen.dart';
 import '../../features/clinical_continuity/screens/paper_reconciliation_workbench_screen.dart';
@@ -55,6 +58,7 @@ import '../../features/clinical_ai/screens/clinical_ai_compose_run_detail_screen
 import '../../features/clinical_ai/screens/clinical_ai_voice_notes_screen.dart';
 import '../../features/clinical_ai/screens/op_ai_assist_screen.dart';
 import '../../features/clinical_inbox/screens/clinical_inbox_screen.dart';
+import '../../features/clinical_inbox/screens/clinical_alert_delivery_recovery_screen.dart';
 
 // Nursing
 import '../../features/nursing/screens/vitals_screen.dart';
@@ -62,6 +66,7 @@ import '../../features/nursing/screens/nursing_notes_screen.dart';
 import '../../features/nursing/screens/due_meds_screen.dart';
 import '../../features/nursing/screens/device_association_scan_screen.dart';
 import '../../features/nursing/screens/mar_scan_screen.dart';
+import '../../features/nursing/screens/mar_supply_reconciliation_screen.dart';
 
 // HR
 import '../../features/hr/screens/hr_dashboard_screen.dart';
@@ -133,6 +138,7 @@ import '../../features/transplant/screens/transplant_program_screen.dart';
 
 // Theatre
 import '../../features/cath_lab/screens/cath_lab_screen.dart';
+import '../../features/cath_lab/screens/cath_inventory_reconciliation_screen.dart';
 import '../../features/radiation_oncology/screens/radiation_oncology_screen.dart';
 import '../../features/oncology/screens/oncology_screen.dart';
 import '../../features/theatre/screens/theatre_screen.dart';
@@ -176,6 +182,59 @@ final _rootNavigatorKey = GlobalKey<NavigatorState>();
 // from outside the widget tree.
 GlobalKey<NavigatorState> get rootNavigatorKey => _rootNavigatorKey;
 final _shellNavigatorKey = GlobalKey<NavigatorState>();
+
+@visibleForTesting
+OrdersScreen buildOrdersScreenForRoute({
+  required String patientUid,
+  required Uri uri,
+}) {
+  final query = uri.queryParameters;
+  return OrdersScreen(
+    patientUid: patientUid,
+    patientName: query['name'],
+    encounterId: query['encounter'],
+    marRecoveryOrderId: int.tryParse(query['mar_recovery_order'] ?? ''),
+    icuMarReviewAdmissionId: int.tryParse(query['icu_mar_review'] ?? ''),
+  );
+}
+
+@visibleForTesting
+Widget buildPharmacyScreenForRoute(Uri uri) {
+  final query = uri.queryParameters;
+  final saleId = query['sale_id'];
+  if (query['tab'] == 'counter-sales' &&
+      saleId != null &&
+      RegExp(r'^[1-9][0-9]*$').hasMatch(saleId)) {
+    return CounterSaleScreen(initialSaleId: saleId);
+  }
+  final parsedIndentId = int.tryParse(query['indent_id'] ?? '');
+  return PharmacyScreen(
+    initialTab: query['tab'] == 'ward-indents' ? 'ward-indents' : null,
+    initialIndentId:
+        parsedIndentId != null &&
+            parsedIndentId > 0 &&
+            parsedIndentId <= 2147483647
+        ? parsedIndentId
+        : null,
+  );
+}
+
+@visibleForTesting
+CounterSaleRefundScreen buildCounterSaleRefundScreenForRoute(Uri uri) {
+  return CounterSaleRefundScreen(
+    refundId: uri.queryParameters['refund_id'] ?? '',
+    voidRequestId: uri.queryParameters['void_request_id'] ?? '',
+  );
+}
+
+@visibleForTesting
+CathInventoryReconciliationScreen
+buildCathInventoryReconciliationScreenForRoute(Uri uri) {
+  return CathInventoryReconciliationScreen(
+    caseId: uri.queryParameters['case_id'] ?? '',
+    consumableUsageId: uri.queryParameters['consumable_usage_id'] ?? '',
+  );
+}
 
 final GoRouter appRouter = GoRouter(
   navigatorKey: _rootNavigatorKey,
@@ -418,26 +477,21 @@ final GoRouter appRouter = GoRouter(
         GoRoute(
           path: '/pharmacy',
           name: 'pharmacy',
-          pageBuilder: (context, state) {
-            final query = state.uri.queryParameters;
-            final parsedIndentId = int.tryParse(query['indent_id'] ?? '');
-            return NoTransitionPage(
-              child: PharmacyScreen(
-                initialTab: query['tab'] == 'ward-indents'
-                    ? 'ward-indents'
-                    : null,
-                initialIndentId: parsedIndentId != null && parsedIndentId > 0
-                    ? parsedIndentId
-                    : null,
-              ),
-            );
-          },
+          pageBuilder: (context, state) =>
+              NoTransitionPage(child: buildPharmacyScreenForRoute(state.uri)),
         ),
         GoRoute(
           path: '/pharmacy/counter-sale',
           name: 'pharmacy-counter-sale',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: CounterSaleScreen()),
+        ),
+        GoRoute(
+          path: '/pharmacy/cath-inventory-reconciliation',
+          name: 'pharmacy-cath-inventory-reconciliation',
+          pageBuilder: (context, state) => NoTransitionPage(
+            child: buildCathInventoryReconciliationScreenForRoute(state.uri),
+          ),
         ),
         GoRoute(
           path: '/profile',
@@ -486,6 +540,37 @@ final GoRouter appRouter = GoRouter(
           },
         ),
         GoRoute(
+          path: '/billing/refunds',
+          name: 'billing-counter-sale-refund',
+          pageBuilder: (context, state) => NoTransitionPage(
+            child: buildCounterSaleRefundScreenForRoute(state.uri),
+          ),
+        ),
+        GoRoute(
+          path: '/billing/gateway-refund-reconciliation',
+          name: 'billing-gateway-refund-reconciliation',
+          pageBuilder: (context, state) => NoTransitionPage(
+            child: GatewayRefundReconciliationScreen(
+              initialRefundId: state.uri.queryParameters['refund_id'],
+            ),
+          ),
+        ),
+        GoRoute(
+          path: '/billing/credit-notes/:id',
+          name: 'billing-credit-note-detail',
+          pageBuilder: (context, state) => NoTransitionPage(
+            child: BillingCreditNotesScreen(
+              initialCreditNoteId: state.pathParameters['id'],
+            ),
+          ),
+        ),
+        GoRoute(
+          path: '/billing/credit-notes',
+          name: 'billing-credit-notes',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: BillingCreditNotesScreen()),
+        ),
+        GoRoute(
           path: '/billing-desk',
           name: 'billing-desk',
           pageBuilder: (context, state) {
@@ -495,6 +580,17 @@ final GoRouter appRouter = GoRouter(
                 prefillPatientUid: q['patient_uid'],
                 prefillPatientName: q['name'],
                 prefillPatientPhone: q['phone'],
+                prefillPharmacyOrderId: int.tryParse(
+                  q['pharmacy_order_id'] ?? '',
+                ),
+                prefillInvoiceItemId: int.tryParse(q['invoice_item_id'] ?? ''),
+                prefillTpaClaimId: int.tryParse(q['tpa_claim_id'] ?? ''),
+                prefillFundingReconciliationCaseId: int.tryParse(
+                  q['funding_reconciliation_case_id'] ?? '',
+                ),
+                prefillNhcxProjectionMessageId: int.tryParse(
+                  q['nhcx_projection_message_id'] ?? '',
+                ),
               ),
             );
           },
@@ -611,6 +707,15 @@ final GoRouter appRouter = GoRouter(
               const NoTransitionPage(child: ClinicalInboxScreen()),
         ),
         GoRoute(
+          path: '/clinical-inbox/recovery',
+          name: 'clinical-alert-delivery-recovery',
+          pageBuilder: (context, state) => NoTransitionPage(
+            child: ClinicalAlertDeliveryRecoveryScreen(
+              initialCaseId: state.uri.queryParameters['case_id'],
+            ),
+          ),
+        ),
+        GoRoute(
           path: '/clinical-ai/review/:reviewId',
           name: 'clinical-ai-review',
           pageBuilder: (context, state) {
@@ -703,8 +808,11 @@ final GoRouter appRouter = GoRouter(
         GoRoute(
           path: '/mar/due',
           name: 'mar-due',
-          pageBuilder: (context, state) =>
-              const NoTransitionPage(child: DueMedsScreen()),
+          pageBuilder: (context, state) => NoTransitionPage(
+            child: DueMedsScreen(
+              initialExceptionCaseId: state.uri.queryParameters['exception_id'],
+            ),
+          ),
         ),
         GoRoute(
           path: '/mar/scan/:maId',
@@ -712,6 +820,16 @@ final GoRouter appRouter = GoRouter(
           pageBuilder: (context, state) {
             final maId = int.tryParse(state.pathParameters['maId'] ?? '') ?? 0;
             return NoTransitionPage(child: MarScanScreen(maId: maId));
+          },
+        ),
+        GoRoute(
+          path: '/mar/reconcile/:maId',
+          name: 'mar-supply-reconciliation',
+          pageBuilder: (context, state) {
+            final maId = int.tryParse(state.pathParameters['maId'] ?? '') ?? 0;
+            return NoTransitionPage(
+              child: MarSupplyReconciliationScreen(maId: maId),
+            );
           },
         ),
         GoRoute(
@@ -1322,13 +1440,8 @@ final GoRouter appRouter = GoRouter(
           name: 'emr-orders',
           pageBuilder: (context, state) {
             final uid = state.pathParameters['uid']!;
-            final q = state.uri.queryParameters;
             return NoTransitionPage(
-              child: OrdersScreen(
-                patientUid: uid,
-                patientName: q['name'],
-                encounterId: q['encounter'],
-              ),
+              child: buildOrdersScreenForRoute(patientUid: uid, uri: state.uri),
             );
           },
           routes: [

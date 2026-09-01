@@ -16,6 +16,13 @@ import 'package:flutter/material.dart';
 ///   need a Tamil-fluent clinician's review before production.
 /// - `te` (Telugu) - same as Tamil. Placeholder. ALL clinical-action
 ///   strings need a Telugu-fluent clinician's review.
+/// - `ml` (Malayalam) remains a declared-partial locale overall, but the
+///   MED-03 MAR/supply, ward-indent, and billing/refund safety paths are
+///   translated whenever those workflows change. Their MED-03 key set is
+///   checked explicitly in `test/i18n_guard_test.dart` and the focused feature
+///   tests. This is technical coverage, not human translation approval. The
+///   wording remains fail-closed for Malayalam-fluent clinical, linguistic,
+///   and finance review before activation.
 ///
 /// hi/ta/te are held at structural key parity with `en` by a BLOCKING CI
 /// gate - `node scripts/i18n-verify.mjs --check`, wired into both halves
@@ -99,6 +106,36 @@ class AppStrings {
       result = result.replaceAll('{${entry.key}}', '${entry.value}');
     }
     return result;
+  }
+
+  static const _medicationWardSupplyUnitKeys = <String, String>{
+    'tablet': 'tablet',
+    'capsule': 'capsule',
+    'ampoule': 'ampoule',
+    'vial': 'vial',
+    'bag': 'bag',
+    'prefilled syringe': 'prefilled_syringe',
+    'cartridge': 'cartridge',
+    'mL': 'ml',
+    'dose': 'dose',
+    'patch': 'patch',
+    'actuation': 'actuation',
+    'spray': 'spray',
+    'application': 'application',
+    'bottle': 'bottle',
+    'tube': 'tube',
+    'sachet': 'sachet',
+    'suppository': 'suppository',
+    'drop': 'drop',
+    'kit': 'kit',
+    'each': 'each',
+  };
+
+  String medicationWardSupplyUnit(String canonicalUnit) {
+    final unitKey = _medicationWardSupplyUnitKeys[canonicalUnit];
+    return unitKey == null
+        ? canonicalUnit
+        : _t('medication_supply.unit.$unitKey');
   }
 
   // ────────────────────────────────────────────────────────────────────
@@ -1380,6 +1417,15 @@ class AppStrings {
   // REVIEW: clinical-action confirmation
   String get ordersCancelledToast => _t('orders.cancelled_toast');
   String ordersStopFailed(String e) => '${_t('orders.stop_failed_prefix')} $e';
+  String get ordersMarRecoveryAction => _t('orders.mar_recovery.action');
+  String get ordersMarRecoveryRequired => _t('orders.mar_recovery.required');
+  String ordersMarRecoverySuccess(int count) =>
+      _t('orders.mar_recovery.success').replaceAll('{count}', '$count');
+  String ordersMarRecoveryFailed(String e) =>
+      _t('orders.mar_recovery.failed').replaceAll('{error}', e);
+  String ordersIcuMarReviewBanner(int admissionId) =>
+      _t('orders.icu_mar_review.banner')
+          .replaceAll('{admissionId}', '$admissionId');
 
   // ── CPOE order composer (roadmap E1) ───────────────────────────────
   String get composerTitle => _t('composer.title');
@@ -4407,6 +4453,36 @@ class AppStrings {
       'clinical_inbox.transfer_accepted_recipient': 'Accepted recipient',
       'clinical_inbox.accepting_transfer': 'Accepting transfer...',
       'clinical_inbox.accept_inpatient_transfer': 'Accept inpatient transfer',
+      'clinical_inbox.mar_handoff.action': 'Reassign prescriber',
+      'clinical_inbox.mar_handoff.title': 'Reassign medication exception',
+      'clinical_inbox.mar_handoff.body': 'Choose an active prescriber who will own this open held or missed-dose review. The current owner must still match when you submit.',
+      'clinical_inbox.mar_handoff.case_id': 'Exception case ID',
+      'clinical_inbox.mar_handoff.current_prescriber': 'Current prescriber',
+      'clinical_inbox.mar_handoff.target_prescriber': 'New prescriber',
+      'clinical_inbox.mar_handoff.prescriber_required':
+          'Select an active prescriber',
+      'clinical_inbox.mar_handoff.prescribers_failed':
+          'Active prescribers could not be loaded.',
+      'clinical_inbox.mar_handoff.no_prescribers':
+          'No other active prescriber is available.',
+      'clinical_inbox.mar_handoff.reason': 'Clinical handoff reason',
+      'clinical_inbox.mar_handoff.reason_hint':
+          'Explain why named ownership must change',
+      'clinical_inbox.mar_handoff.reason_required':
+          'Enter at least 5 characters',
+      'clinical_inbox.mar_handoff.confirmation': 'I confirm that the selected prescriber is active and has accepted or is authorized to receive this clinical review obligation.',
+      'clinical_inbox.mar_handoff.confirmation_required':
+          'Confirm the named-owner handoff before submitting.',
+      'clinical_inbox.mar_handoff.submit': 'Confirm reassignment',
+      'clinical_inbox.mar_handoff.submitting': 'Reassigning...',
+      'clinical_inbox.mar_handoff.succeeded':
+          'Medication exception reassigned to the selected prescriber.',
+      'clinical_inbox.mar_handoff.failed':
+          'Could not reassign medication exception: {reason}',
+      'clinical_inbox.mar_handoff.stale_owner': 'Ownership changed while you were reviewing this task. The latest owner is shown; review and confirm again.',
+      'clinical_inbox.mar_handoff.no_longer_actionable': 'This medication exception is no longer available for reassignment. The latest inbox state has been loaded.',
+      'clinical_inbox.mar_handoff.requires_connection':
+          'A connection is required to reassign this medication exception.',
       'clinical_inbox.tier_line': 'Tier {tier}: {action}',
       'clinical_inbox.group.overdue': 'Overdue',
       'clinical_inbox.group.critical': 'Critical',
@@ -5161,6 +5237,13 @@ class AppStrings {
       'orders.discontinued_toast': 'Order discontinued',
       'orders.cancelled_toast': 'Order cancelled',
       'orders.stop_failed_prefix': 'Failed to stop order:',
+      'orders.mar_recovery.action': 'Repair MAR',
+      'orders.mar_recovery.required': 'This medication order has no scheduled MAR doses. A prescribing clinician must repair the schedule or discontinue and replace the order.',
+      'orders.mar_recovery.success': 'MAR schedule reconciled ({count} doses).',
+      'orders.mar_recovery.failed':
+          'MAR schedule could not be repaired: {error}',
+      'orders.mar_recovery.desktop_only': 'This action is unavailable in phone mode. Use a desktop or tablet clinical workstation.',
+      'orders.icu_mar_review.banner': 'ICU medication carryover for admission #{admissionId} needs review. Review the orders and MAR continuity; this notice does not change clinical data.',
       'composer.title': 'New Orders',
       'composer.search_label': 'Search the order catalog',
       'composer.search_hint': 'Search medications & tests...',
@@ -6193,6 +6276,7 @@ class AppStrings {
       'pharmacy.tab.new': 'New',
       'ward_indent.action.approve': 'Approve indent',
       'ward_indent.action.approve_substitution': 'Approve substitution',
+      'ward_indent.action.apply_substitution': 'Apply approved substitution',
       'ward_indent.action.cancel': 'Cancel indent',
       'ward_indent.action.close': 'Close indent',
       'ward_indent.action.completed': '{number} updated',
@@ -6211,6 +6295,60 @@ class AppStrings {
           'No actions are available for your role in this state.',
       'ward_indent.actions.title': 'Available actions',
       'ward_indent.confirm.default': 'Confirm this online workflow transition. The server will recheck your role, the current version, and all clinical and stock rules.',
+      'ward_indent.inventory.none': 'No eligible same-facility inventory candidate is available for {item}.',
+      'ward_indent.inventory.select': 'Select inventory for {item}',
+      'ward_indent.substitution.acknowledge_title':
+          'Acknowledge substituted medication',
+      'ward_indent.substitution.acknowledge_body':
+          'Confirm the substituted medication before receiving: {items}.',
+      'ward_indent.reconcile.exact_allocation_required':
+          'An exact ward allocation is required to return {item}.',
+      'ward_indent.reconcile.return_exceeds_custody':
+          'The requested return for {item} exceeds unconsumed ward custody.',
+      'ward_indent.reconcile.return_evidence_missing': 'The controlled return did not produce both movement and register evidence.',
+      'ward_indent.controlled.reference_missing':
+          'The controlled reference for {item} is missing.',
+      'ward_indent.controlled.exact_allocation_required': 'Exactly one reserved allocation is required before dispensing {item}.',
+      'due_meds.held_review_state': 'Administration blocked — awaiting governed clinical review or release.',
+      'mar_supply.title': 'MAR supply reconciliation',
+      'mar_supply.no_open_override':
+          'No unmatched MAR supply override remains.',
+      'mar_supply.outstanding': 'Outstanding quantity: {quantity}',
+      'mar_supply.help': 'Match the full outstanding dose to the exact ward allocation quantities. The task closes only when the total is exact.',
+      'mar_supply.invalid_quantity':
+          'Allocation {allocation} has an invalid or excessive quantity.',
+      'mar_supply.exact_total_required':
+          'Allocation quantities must total exactly {quantity}.',
+      'mar_supply.completed':
+          'MAR supply evidence reconciled and the task was completed.',
+      'mar_supply.allocation': 'Ward allocation',
+      'mar_supply.batch_available': 'Batch {batch} · Available {quantity}',
+      'mar_supply.batch_ineligible.inventory_item_inactive':
+          'The inventory item is inactive.',
+      'mar_supply.batch_ineligible.batch_reserved':
+          'The batch is reserved and unavailable for reconciliation.',
+      'mar_supply.batch_ineligible.batch_depleted':
+          'The batch has no eligible custody remaining.',
+      'mar_supply.batch_ineligible.batch_expired': 'The batch has expired.',
+      'mar_supply.batch_ineligible.batch_recalled':
+          'The batch was recalled and cannot be used.',
+      'mar_supply.batch_ineligible.batch_quarantined':
+          'The batch is quarantined.',
+      'mar_supply.batch_ineligible.batch_disposed': 'The batch was disposed.',
+      'mar_supply.batch_ineligible.batch_status_missing':
+          'The batch status is missing.',
+      'mar_supply.batch_ineligible.ward_custody_unavailable':
+          'No unconsumed ward custody remains in this batch.',
+      'mar_supply.batch_ineligible.batch_expiry_missing':
+          'The batch expiry date is missing.',
+      'mar_supply.batch_ineligible.unknown':
+          'This batch is not eligible for reconciliation.',
+      'mar_supply.notification_action': 'Reconcile MAR supply',
+      'mar_supply.quantity': 'Quantity from this allocation',
+      'mar_supply.reconcile': 'Reconcile exact supply',
+      'clinical_inbox.open_workflow': 'Open workflow',
+      'clinical_inbox.workflow_link_unavailable':
+          'This task does not contain a safe actionable workflow link.',
       'ward_indent.controlled.ambiguous_recovery': 'Multiple controlled-drug evidence candidates exist. Handoff is blocked for supervisor reconciliation.',
       'ward_indent.controlled.label': 'Controlled',
       'ward_indent.controlled.no_inventory_link': 'No inventory item is linked to {item}. Link the catalog and inventory records before dispensing.',
@@ -6281,6 +6419,31 @@ class AppStrings {
       'ward_indent.select_prompt':
           'Select a ward indent to inspect its workflow.',
       'ward_indent.sla.title': 'Active service-level commitments',
+      'ward_indent.code.unknown': 'Unrecognized workflow state',
+      'ward_indent.sla.status.active': 'Active',
+      'ward_indent.sla.status.breached': 'Breached',
+      'ward_indent.sla.status.escalated': 'Escalated',
+      'ward_indent.sla.rule.ward_indent_pharmacy_response': 'Pharmacy response',
+      'ward_indent.sla.rule.ward_indent_substitution_authorization':
+          'Substitution authorization',
+      'ward_indent.sla.rule.ward_indent_controlled_handoff':
+          'Controlled-drug handoff',
+      'ward_indent.sla.rule.ward_indent_pharmacy_issue': 'Pharmacy issue',
+      'ward_indent.sla.rule.ward_indent_ward_receipt': 'Ward receipt',
+      'ward_indent.sla.rule.ward_indent_reconciliation':
+          'Medication reconciliation',
+      'ward_indent.sla.rule.ward_indent_notification_coverage':
+          'Notification coverage',
+      'ward_indent.sla.rule.ward_indent_credit_note_review':
+          'Credit-note review',
+      'ward_indent.sla.rule.ward_indent_mar_supply_reconciliation':
+          'MAR supply reconciliation',
+      'ward_indent.controlled.recovery_status.available': 'Evidence available',
+      'ward_indent.controlled.recovery_status.missing': 'Evidence missing',
+      'ward_indent.controlled.recovery_status.ambiguous':
+          'Multiple evidence records',
+      'ward_indent.controlled.recovery_status.corrupt':
+          'Custody evidence conflict',
       'ward_indent.status.approved': 'Approved',
       'ward_indent.status.cancelled': 'Cancelled',
       'ward_indent.status.closed': 'Closed',
@@ -6304,6 +6467,29 @@ class AppStrings {
           'Select a composition-safe alternative',
       'ward_indent.substitution.select_line': 'Select the short-supplied line',
       'ward_indent.tab': 'Ward indents',
+      'ward_indent.request.action': 'Request supply',
+      'ward_indent.request.title': 'Order-bound supply recovery',
+      'ward_indent.request.help': 'Use only when the automatic ward indent was not created for an active medication order. Do not prescribe or change the medicine here.',
+      'ward_indent.request.admission_id': 'Admission ID',
+      'ward_indent.request.admission_hint': 'Enter an active admission ID',
+      'ward_indent.request.load': 'Load orders',
+      'ward_indent.request.admission_invalid':
+          'Enter a valid positive admission ID.',
+      'ward_indent.request.context': 'Confirm patient and ward',
+      'ward_indent.request.patient_context':
+          'Patient: {patient} ({hospitalId})',
+      'ward_indent.request.ward_context': 'Admission {admission} - Ward {ward}',
+      'ward_indent.request.none_eligible': 'No active, unlinked medication orders are eligible for a recovery request.',
+      'ward_indent.request.select_order': 'Select the medication order',
+      'ward_indent.request.order_summary': '{order} - {quantity} {unit}; dose {dose}; route {route}; schedule {schedule}; status {status}; priority {priority}',
+      'ward_indent.request.notes': 'Recovery notes (optional)',
+      'ward_indent.request.notes_hint':
+          'Explain why the automatic supply request needs recovery',
+      'ward_indent.request.submit': 'Create ward indent',
+      'ward_indent.request.conflict.admission_inactive': 'The admission is no longer active. The order list was refreshed and no request was sent.',
+      'ward_indent.request.conflict.already_linked': 'This medication order is already linked to a ward indent. The order list was refreshed.',
+      'ward_indent.request.conflict.projection_changed': 'The order-bound supply details changed. Review the refreshed list before trying again.',
+      'ward_indent.request.conflict.canonical_changed': 'Supply changed to catalog {catalog}, quantity {quantity} {unit}. Review the refreshed order before trying again.',
       'pharmacy.tab.active': 'Active',
       'pharmacy.tab.done': 'Done',
       'pharmacy.empty.new': 'No new orders',
@@ -6350,6 +6536,27 @@ class AppStrings {
       'due_meds.filter.all_wards': 'All wards',
       'due_meds.filter.all_routes': 'All routes',
       'due_meds.filter.route_label': 'Route',
+      'due_meds.actions.label': 'Medication actions',
+      'due_meds.actions.miss': 'Mark dose missed',
+      'due_meds.actions.hold': 'Place dose on hold',
+      'due_meds.actions.release': 'Release held dose',
+      'due_meds.actions.miss_title': 'Mark this dose as missed?',
+      'due_meds.actions.hold_title': 'Place this dose on hold?',
+      'due_meds.actions.release_title': 'Release this held dose?',
+      'due_meds.actions.miss_body': 'Use only when the scheduled dose was not given. The clinical reason becomes part of the MAR.',
+      'due_meds.actions.hold_body': 'Use only to pause the scheduled dose pending clinical review. Holding does not record administration.',
+      'due_meds.actions.release_body': 'A prescriber must document the clinical review. Release returns the dose to scheduled state; it does not record administration.',
+      'due_meds.actions.reason_label': 'Clinical reason',
+      'due_meds.actions.reason_hint': 'Enter at least 5 characters',
+      'due_meds.actions.reason_required':
+          'Enter a specific clinical reason (at least 5 characters).',
+      'due_meds.actions.cancel': 'Cancel',
+      'due_meds.actions.confirm_miss': 'Record missed dose',
+      'due_meds.actions.confirm_hold': 'Place on hold',
+      'due_meds.actions.confirm_release': 'Release to scheduled',
+      'due_meds.actions.miss_success': 'Missed dose recorded',
+      'due_meds.actions.hold_success': 'Dose placed on hold',
+      'due_meds.actions.release_success': 'Held dose released to scheduled',
       's4.dynamic.due_meds.ward_fallback': 'Ward {value}',
       'due_meds.unscheduled': 'unscheduled',
       's4.dynamic.due_meds.due_late': '{value} late',
@@ -6505,6 +6712,192 @@ class AppStrings {
       'mar_scan.hardstop.body':
           'Patient- and drug-identity mismatches cannot be overridden. Confirm '
           'you have the correct patient and medication, then scan again.',
+      'medication_supply.unit.tablet': 'Tablet',
+      'medication_supply.unit.capsule': 'Capsule',
+      'medication_supply.unit.ampoule': 'Ampoule',
+      'medication_supply.unit.vial': 'Vial',
+      'medication_supply.unit.bag': 'Bag',
+      'medication_supply.unit.prefilled_syringe': 'Prefilled syringe',
+      'medication_supply.unit.cartridge': 'Cartridge',
+      'medication_supply.unit.ml': 'mL',
+      'medication_supply.unit.dose': 'Dose',
+      'medication_supply.unit.patch': 'Patch',
+      'medication_supply.unit.actuation': 'Actuation',
+      'medication_supply.unit.spray': 'Spray',
+      'medication_supply.unit.application': 'Application',
+      'medication_supply.unit.bottle': 'Bottle',
+      'medication_supply.unit.tube': 'Tube',
+      'medication_supply.unit.sachet': 'Sachet',
+      'medication_supply.unit.suppository': 'Suppository',
+      'medication_supply.unit.drop': 'Drop',
+      'medication_supply.unit.kit': 'Kit',
+      'medication_supply.unit.each': 'Each',
+      'mar_scan.supply.title': 'Ward supply evidence',
+      'mar_scan.supply.status.available': 'Exact ward custody available',
+      'mar_scan.supply.status.quantity_required':
+          'Structured dose quantity required',
+      'mar_scan.supply.status.custody_unavailable': 'Ward custody unavailable',
+      'mar_scan.supply.status.substitution_acknowledgement_required':
+          'Substitution receipt acknowledgement required',
+      'mar_scan.supply.status.order_link_required':
+          'Medication order link required',
+      'mar_scan.supply.status.ward_item_required': 'Ward indent link required',
+      'mar_scan.supply.status.ward_item_ambiguous':
+          'Ward indent link is ambiguous',
+      'mar_scan.supply.status.reconciliation_required':
+          'Supply reconciliation required',
+      'mar_scan.supply.status.batch_unavailable': 'The allocated batch is unavailable; pharmacy must replace or reconcile it',
+      'mar_scan.supply.status.unknown': 'Supply state unavailable',
+      'mar_scan.supply.available_quantity': 'Available quantity: {quantity}',
+      'mar_scan.supply.required_quantity': 'Required dose quantity: {quantity}',
+      'mar_scan.supply.batch_line':
+          '{name} · Batch {batch} · Available {quantity}',
+      'mar_scan.supply.blocked': 'Do not administer until pharmacy and ward supply evidence is corrected.',
+      'mar_scan.supply.quantity_label': 'Structured dose quantity',
+      'mar_scan.supply.override_reason_label':
+          'Supply override reason (required)',
+      'mar_scan.supply.override_warning': 'An override creates a named reconciliation task and immutable evidence.',
+      'mar_scan.supply.quantity_error':
+          'Enter a positive structured dose quantity.',
+      'mar_scan.supply.override_error': 'Document a meaningful supply override reason (at least 15 characters).',
+      'mar_scan.supply.hard_stop_error': 'Supply evidence is incomplete or ambiguous. Reconcile it before administration.',
+      'med03.credit_note.title': 'Medication credit notes',
+      'med03.credit_note.open_queue': 'Credit-note queue',
+      'med03.gateway_refund_reconciliation.title':
+          'Gateway refund reconciliation',
+      'med03.gateway_refund_reconciliation.open_queue':
+          'Open gateway refund recovery',
+      'med03.gateway_refund_reconciliation.queue':
+          'Refunds requiring provider review',
+      'med03.gateway_refund_reconciliation.empty':
+          'No provider refunds currently require reconciliation.',
+      'med03.gateway_refund_reconciliation.select':
+          'Select a parked provider refund to review its evidence.',
+      'med03.gateway_refund_reconciliation.access_denied':
+          'Platform administrator access is required.',
+      'med03.gateway_refund_reconciliation.amount': 'Amount',
+      'med03.gateway_refund_reconciliation.refund': 'Gateway refund',
+      'med03.gateway_refund_reconciliation.billing_refund': 'Billing refund',
+      'med03.gateway_refund_reconciliation.provider_payment':
+          'Provider payment',
+      'med03.gateway_refund_reconciliation.provider_refund': 'Provider refund',
+      'med03.gateway_refund_reconciliation.failure': 'Parked reason',
+      'med03.gateway_refund_reconciliation.disposition': 'Verified outcome',
+      'med03.gateway_refund_reconciliation.disposition.provider_not_refunded':
+          'Provider confirms no refund',
+      'med03.gateway_refund_reconciliation.disposition.manual_settled':
+          'Provider refund settled',
+      'med03.gateway_refund_reconciliation.disposition.unknown':
+          'Unknown outcome',
+      'med03.gateway_refund_reconciliation.evidence':
+          'Provider evidence reference',
+      'med03.gateway_refund_reconciliation.evidence_settled_help':
+          'Enter the exact provider refund identifier.',
+      'med03.gateway_refund_reconciliation.evidence_not_refunded_help':
+          'Enter the attributable provider case or response reference.',
+      'med03.gateway_refund_reconciliation.note': 'Reconciliation note',
+      'med03.gateway_refund_reconciliation.gateway_retry_notice': 'This closes the failed execution but keeps the approved refund on the integrated gateway rail for an exact retry.',
+      'med03.gateway_refund_reconciliation.submit': 'Record verified outcome',
+      'med03.gateway_refund_reconciliation.validation':
+          'Evidence must be 6-120 characters and the note 10-500 characters.',
+      'med03.gateway_refund_reconciliation.confirm_title':
+          'Confirm provider refund outcome',
+      'med03.gateway_refund_reconciliation.confirm_body':
+          'Record this terminal provider outcome: {disposition}.',
+      'med03.gateway_refund_reconciliation.success':
+          'Gateway refund reconciliation recorded.',
+      'med03.gateway_refund_reconciliation.open_authority':
+          'Open billing refund authority',
+      'med03.notification.gateway_refund_reconciliation.title':
+          'Provider refund needs reconciliation',
+      'med03.notification.gateway_refund_reconciliation.body': 'A gateway refund is parked. Verify provider evidence and record the exact outcome.',
+      'med03.notification.gateway_refund_reconciliation.action':
+          'Open refund reconciliation',
+      'med03.credit_note.access_denied': 'Medication credit-note review is restricted to billing, finance, and administrator roles.',
+      'med03.credit_note.queue': 'Review and settlement queue',
+      'med03.credit_note.empty':
+          'No medication credit notes match this filter.',
+      'med03.credit_note.select': 'Select a credit note to review its immutable source and next owned action.',
+      'med03.credit_note.status.all': 'All',
+      'med03.credit_note.status.pending': 'Pending',
+      'med03.credit_note.status.approved': 'Approved',
+      'med03.credit_note.status.applied': 'Applied',
+      'med03.credit_note.status.rejected': 'Rejected',
+      'med03.credit_note.status.paid': 'Paid',
+      'med03.credit_note.status.unknown': 'Unknown status',
+      'med03.credit_note.event.raised': 'Raised',
+      'med03.credit_note.action_completed':
+          'The authoritative billing workflow was updated.',
+      'med03.credit_note.approve_title': 'Approve credit note',
+      'med03.credit_note.approve_body': 'Approval keeps the same owned SLA open until the credit is applied to the patient account.',
+      'med03.credit_note.reject_title': 'Reject credit note',
+      'med03.credit_note.rejection_reason': 'Rejection reason',
+      'med03.credit_note.apply_title': 'Apply approved credit note',
+      'med03.credit_note.refund_mode': 'Original refund mode',
+      'med03.credit_note.refund_mode.cash': 'Cash',
+      'med03.credit_note.refund_mode.card': 'Card',
+      'med03.credit_note.refund_mode.upi': 'UPI',
+      'med03.credit_note.refund_mode.netbanking': 'Net banking',
+      'med03.credit_note.refund_mode.cheque': 'Cheque',
+      'med03.credit_note.refund_mode.dd': 'Demand draft',
+      'med03.credit_note.refund_mode.wallet': 'Wallet',
+      'med03.credit_note.refund_mode.insurance': 'Insurance',
+      'med03.credit_note.refund_mode.unknown': 'Unknown refund mode',
+      'med03.credit_note.notification_action': 'Open credit note',
+      'med03.notification.alert_recovery.overdue_title':
+          'Clinical alert delivery recovery is overdue',
+      'med03.notification.alert_recovery.overdue_body': 'A clinical alert delivery recovery case requires administrator action.',
+      'med03.notification.alert_recovery.manual_hold_body': 'An immutable held clinical alert requires governed source review and supersession.',
+      'med03.notification.alert_recovery.recipient_coverage_body': 'A clinical alert still has no active duty-doctor or doctor-tier recipient.',
+      'med03.notification.mar_exception.title':
+          'Medication dose needs prescriber review',
+      'med03.notification.mar_exception.body': 'A held or missed inpatient medication dose requires a governed clinical disposition.',
+      'med03.notification.mar_exception.overdue_title':
+          'Medication review is overdue',
+      'med03.notification.mar_exception.overdue_body': 'A held or missed dose still requires a governed prescriber disposition.',
+      'med03.notification.mar_exception.handoff_title':
+          'Medication review reassigned',
+      'med03.notification.mar_exception.handoff_body': 'An open medication exception was reassigned to you for prescriber review.',
+      'med03.notification.counter_sale.finance_title':
+          'Counter-sale refund action required',
+      'med03.notification.counter_sale.finance_body': 'Complete the governed refund step. Exact-batch restock stays blocked until payout evidence is complete.',
+      'med03.notification.counter_sale.reconciliation_title':
+          'Counter-sale custody reconciliation required',
+      'med03.notification.counter_sale.reconciliation_body': 'The refund was rejected. The sale and stock remain locked until custody is resolved explicitly.',
+      'med03.notification.counter_sale.completed_title':
+          'Counter-sale void completed',
+      'med03.notification.counter_sale.completed_body':
+          'Paid-refund evidence and exact-batch restock are recorded.',
+      'med03.notification.credit_note_payout.body': 'Settle the approved medication credit refund through its governed payout rail and retain exact evidence.',
+      'med03.credit_note.action_apply': 'Apply credit',
+      'med03.credit_note.apply_body': 'Apply this approved credit to the patient account using the immutable original price.',
+      'med03.credit_note.refund_approve_title': 'Approve patient refund',
+      'med03.credit_note.refund_approve_body': 'Approve the owed refund obligation. This does not pay it; payout remains a separate controlled step.',
+      'med03.credit_note.payout_title': 'Record completed manual payout',
+      'med03.credit_note.payout_reference': 'External payout reference',
+      'med03.credit_note.gateway_title': 'Start provider refund',
+      'med03.credit_note.gateway_body': 'Use the selected exact captured payment. Provider processing and webhook evidence must complete before the refund is marked paid.',
+      'med03.credit_note.invoice': 'Invoice',
+      'med03.credit_note.ward_indent': 'Ward indent',
+      'med03.credit_note.amount': 'Credit amount',
+      'med03.credit_note.account_due': 'Current account due',
+      'med03.credit_note.action_approve': 'Approve',
+      'med03.credit_note.action_reject': 'Reject',
+      'med03.credit_note.application_owned': 'Approval does not close the task. The same SLA remains owned until account application.',
+      'med03.credit_note.refund': 'Patient refund obligation',
+      'med03.credit_note.action_approve_refund': 'Approve refund',
+      'med03.credit_note.refund_pending': 'Administrator approval is required. An applied medication credit refund cannot be rejected as discretionary.',
+      'med03.credit_note.gateway_in_progress': 'Provider payout is in progress. The task remains open until authenticated provider evidence marks the refund paid.',
+      'med03.credit_note.manual_help': 'Complete the external manual payout first, then record its exact reference. Recording does not itself move money.',
+      'med03.credit_note.action_record_payout': 'Record payout evidence',
+      'med03.credit_note.gateway_help': 'Select a matching captured gateway payment. Mismatched payer, invoice, mode, provider, or headroom is rejected by the server.',
+      'med03.credit_note.action_find_payment': 'Find payment source',
+      'med03.credit_note.gateway_candidates_empty': 'No eligible payment source is loaded. Search after approval; if none exists, keep the task open for finance reconciliation.',
+      'med03.credit_note.refundable': 'Refundable',
+      'med03.credit_note.action_start_gateway': 'Start refund',
+      'med03.credit_note.insurance_hold': 'Insurance refund payout requires insurer and hospital authorization outside this screen. The owned task remains open.',
+      'med03.credit_note.refund_paid': 'Payout evidence is recorded and the medication credit-note SLA is complete.',
+      'med03.credit_note.events': 'Immutable lifecycle events',
       // Discharge Summary
       'discharge.title_prefix': 'Discharge —',
       'discharge.save_draft': 'Save Draft',
@@ -7566,6 +7959,146 @@ class AppStrings {
       's4.dynamic.cath_lab.consumables.batch': "Batch/lot {batch}",
       's4.dynamic.cath_lab.consumables.expiry': "Expiry {expiry}",
       's4.dynamic.cath_lab.consumables.serial': "Serial {serial}",
+      'med03.cath_inventory.title': "Cath inventory reconciliation",
+      'med03.cath_inventory.access_denied':
+          "Your role is not authorized to open this Cath inventory workflow.",
+      'med03.cath_inventory.invalid_target':
+          "The Cath case or consumable-usage identifier is invalid.",
+      'med03.cath_inventory.target_mismatch': "The Cath case and consumable-usage identifiers do not match the authoritative reconciliation record.",
+      'med03.cath_inventory.load_failed': "The authoritative Cath inventory reconciliation state could not be loaded. Reconnect and retry.",
+      'med03.cath_inventory.summary':
+          "Authoritative documented usage and inventory state",
+      'med03.cath_inventory.case_id': "Cath case ID",
+      'med03.cath_inventory.usage_id': "Consumable usage ID",
+      'med03.cath_inventory.patient_uid': "Patient identifier",
+      'med03.cath_inventory.item': "Consumable or implant",
+      'med03.cath_inventory.inventory_item_id': "Inventory item ID",
+      'med03.cath_inventory.inventory_batch_id': "Inventory batch ID",
+      'med03.cath_inventory.batch_number': "Documented batch number",
+      'med03.cath_inventory.documented_quantity': "Documented quantity",
+      'med03.cath_inventory.decremented_quantity':
+          "Inventory quantity decremented",
+      'med03.cath_inventory.remaining_quantity': "Batch quantity remaining",
+      'med03.cath_inventory.status': "Inventory reconciliation status",
+      'med03.cath_inventory.task_status': "Task status",
+      'med03.cath_inventory.sla_status': "SLA status",
+      'med03.cath_inventory.due_at': "Due at",
+      'med03.cath_inventory.value_unknown': "Not available",
+      'med03.cath_inventory.status.insufficient_stock':
+          "Documented usage is awaiting inventory reconciliation",
+      'med03.cath_inventory.status.decremented':
+          "Exact inventory decrement completed",
+      'med03.cath_inventory.status.unknown':
+          "Inventory reconciliation status unavailable",
+      'med03.cath_inventory.task_status.open': "Open",
+      'med03.cath_inventory.task_status.in_progress': "In progress",
+      'med03.cath_inventory.task_status.overdue': "Overdue",
+      'med03.cath_inventory.task_status.completed': "Completed",
+      'med03.cath_inventory.task_status.unknown': "Task status unavailable",
+      'med03.cath_inventory.sla_status.active': "Active",
+      'med03.cath_inventory.sla_status.breached': "Breached",
+      'med03.cath_inventory.sla_status.escalated': "Escalated",
+      'med03.cath_inventory.sla_status.completed': "Completed",
+      'med03.cath_inventory.sla_status.cancelled': "Cancelled",
+      'med03.cath_inventory.sla_status.unknown': "SLA status unavailable",
+      'med03.cath_inventory.not_actionable': "This authoritative reconciliation is not currently actionable. Refresh after the inventory record is corrected.",
+      'med03.cath_inventory.coverage_only': "Coverage administrators may review and refresh this evidence. Only pharmacy reconciliation roles can perform the inventory mutation.",
+      'med03.cath_inventory.confirm_title': "Reconcile documented Cath usage?",
+      'med03.cath_inventory.confirm_body': "The server will use only the documented exact batch or eligible FEFO batches. No arbitrary batch or device identifier will be accepted.",
+      'med03.cath_inventory.confirm_action': "Reconcile inventory",
+      'med03.cath_inventory.reconcile_action': "Reconcile documented usage",
+      'med03.cath_inventory.retry_same_attempt':
+          "Retry protected reconciliation",
+      'med03.cath_inventory.reconciling': "Reconciling inventory...",
+      'med03.cath_inventory.completed': "The authoritative record confirms the exact inventory decrement and workflow closure.",
+      'med03.cath_inventory.still_insufficient': "Inventory is still insufficient. The task remains open; replenish or correct stock evidence, then retry.",
+      'med03.cath_inventory.response_unconfirmed': "The reconciliation outcome is not confirmed. Retry unchanged here to reuse the same protected attempt.",
+      'med03.cath_inventory.refresh_action': "Refresh authoritative state",
+      'med03.cath_inventory.warning.insufficient_stock': 'Inventory remains short. Replenish stock or correct its evidence before retrying.',
+      'med03.cath_inventory.warning.batch_expired': 'The exact inventory batch has expired, so no stock decrement was recorded.',
+      'med03.cath_inventory.warning.quantity_invalid': 'The exact inventory batch quantity is invalid, so no stock decrement was recorded.',
+      'med03.cath_inventory.warning.lineage_mismatch': 'The recorded batch, lot, or expiry no longer matches inventory. No stock decrement was recorded.',
+      'med03.cath_inventory.warning.lineage_incomplete': 'The recorded inventory lineage is incomplete. No stock decrement was recorded.',
+      'med03.cath_inventory.warning.controlled_stock': 'Controlled stock must use the statutory dispensing workflow. No Cath inventory movement was recorded.',
+      'med03.cath_inventory.warning.inventory_not_linked': 'This Cath catalog item is not linked to inventory. No stock decrement was recorded.',
+      'med03.cath_inventory.warning.batch_unavailable': 'The exact inventory batch is unavailable or ambiguous. No stock decrement was recorded.',
+      'med03.cath_inventory.warning.unknown': 'The inventory warning is not recognized. Review authoritative stock evidence before acting.',
+      'med03.alert_recovery.title': 'Clinical alert delivery recovery',
+      'med03.alert_recovery.empty':
+          'No open clinical alert delivery recovery cases.',
+      'med03.alert_recovery.load_failed': 'The authoritative clinical alert recovery case could not be loaded. Reconnect and retry.',
+      'med03.alert_recovery.action_failed': 'The clinical alert recovery action was not confirmed. Refresh the authoritative case before retrying.',
+      'med03.alert_recovery.field.case_status': 'Recovery case status',
+      'med03.alert_recovery.field.delivery_status': 'Alert delivery status',
+      'med03.alert_recovery.field.task_status': 'Recovery task status',
+      'med03.alert_recovery.field.sla_status': 'Service-time status',
+      'med03.alert_recovery.field.source': 'Authoritative source',
+      'med03.alert_recovery.field.failure': 'Delivery failure stage',
+      'med03.alert_recovery.field.timing': 'Recovery timing',
+      'med03.alert_recovery.field.last_error': 'Last delivery error',
+      'med03.alert_recovery.field.hold_reason': 'Manual-hold reason',
+      'med03.alert_recovery.field.resolution': 'Recovery resolution',
+      'med03.alert_recovery.timing_value':
+          'Due {due} • Open for {seconds} sec • Escalation attempts {count}',
+      'med03.alert_recovery.case_kind.manual_hold': 'Manual-hold source review',
+      'med03.alert_recovery.case_kind.recipient_coverage':
+          'Clinical recipient coverage recovery',
+      'med03.alert_recovery.case_kind.unknown': 'Unknown recovery case type',
+      'med03.alert_recovery.source.clinical_orders': 'Clinical order',
+      'med03.alert_recovery.source.icu_admissions': 'ICU admission',
+      'med03.alert_recovery.source.unknown': 'Unknown clinical source',
+      'med03.alert_recovery.case_status.open': 'Open',
+      'med03.alert_recovery.case_status.resolved': 'Resolved',
+      'med03.alert_recovery.case_status.unknown':
+          'Unknown recovery case status',
+      'med03.alert_recovery.delivery_status.pending': 'Delivery pending',
+      'med03.alert_recovery.delivery_status.completed': 'Delivery completed',
+      'med03.alert_recovery.delivery_status.manual_hold':
+          'Delivery on manual hold',
+      'med03.alert_recovery.delivery_status.unknown':
+          'Unknown alert delivery status',
+      'med03.alert_recovery.task_status.open': 'Open',
+      'med03.alert_recovery.task_status.in_progress': 'In progress',
+      'med03.alert_recovery.task_status.blocked': 'Blocked',
+      'med03.alert_recovery.task_status.completed': 'Completed',
+      'med03.alert_recovery.task_status.cancelled': 'Cancelled',
+      'med03.alert_recovery.task_status.overdue': 'Overdue',
+      'med03.alert_recovery.task_status.unknown':
+          'Unknown recovery task status',
+      'med03.alert_recovery.sla_status.active': 'Active',
+      'med03.alert_recovery.sla_status.completed': 'Completed',
+      'med03.alert_recovery.sla_status.breached': 'Time limit breached',
+      'med03.alert_recovery.sla_status.escalated': 'Escalated',
+      'med03.alert_recovery.sla_status.cancelled': 'Cancelled',
+      'med03.alert_recovery.sla_status.unknown': 'Unknown service-time status',
+      'med03.alert_recovery.failure.order_mar_schedule':
+          'Medication order MAR scheduling failed',
+      'med03.alert_recovery.failure.order_mar_carryover':
+          'Medication order MAR carryover failed',
+      'med03.alert_recovery.failure.icu_mar_carryover_query':
+          'ICU MAR carryover source lookup failed',
+      'med03.alert_recovery.failure.unknown':
+          'Unknown clinical alert delivery failure',
+      'med03.alert_recovery.resolution.recovered': 'Alert delivery recovered',
+      'med03.alert_recovery.resolution.manual_hold':
+          'Moved to governed manual hold',
+      'med03.alert_recovery.resolution.superseded':
+          'Replaced from the authoritative source',
+      'med03.alert_recovery.resolution.unknown': 'Unknown recovery resolution',
+      'med03.alert_recovery.error.no_active_clinical_recipients':
+          'No active governed clinical recipient is currently available.',
+      'med03.alert_recovery.error.clinical_alert_recovery_queue_failed':
+          'The governed alert queue could not persist delivery evidence.',
+      'med03.alert_recovery.error.clinical_alert_obligation_intent_invalid': 'The stored alert intent is unavailable or invalid. No replacement alert was sent.',
+      'med03.alert_recovery.error.clinical_alert_obligation_policy_invalid': 'The stored recipient policy is not the governed duty-doctor policy. No replacement alert was sent.',
+      'med03.alert_recovery.error.clinical_alert_obligation_source_missing': 'The authoritative source clinical record is unavailable. No replacement alert was sent.',
+      'med03.alert_recovery.error.clinical_alert_obligation_source_mismatch': 'The stored alert does not match its authoritative source. No replacement alert was sent.',
+      'med03.alert_recovery.error.unknown': 'The recovery error is not recognized. Review authoritative evidence before acting.',
+      'med03.notification.clinical_alert_recovery.overdue_title':
+          'Clinical alert delivery recovery is overdue',
+      'med03.notification.clinical_alert_recovery.overdue_body': 'An alert delivery recovery case has exceeded its service time and requires administrator action.',
+      'med03.notification.clinical_alert_recovery.action':
+          'Open alert delivery recovery',
       's4.lib.stroke_pathway.activation': "Activation",
       's4.lib.stroke_pathway.decision.administered': "Administered",
       's4.lib.stroke_pathway.decision.approved': "Approved",
@@ -9208,6 +9741,51 @@ class AppStrings {
           "Inventory & Purchase Oversight",
       's4.lib.pharmacy.inventory_item_added': "Inventory item added",
       's4.lib.pharmacy.inventory_items': "Inventory items",
+      'pharmacy.disposal.title': 'Record inventory disposal',
+      'pharmacy.disposal.open': 'Dispose exact batch',
+      'pharmacy.disposal.facility': 'Pharmacy facility',
+      'pharmacy.disposal.facility_hint':
+          'Only facilities from your active server-proved grants are listed.',
+      'pharmacy.disposal.facility_required': 'Select a facility from your active pharmacy grants before continuing.',
+      'pharmacy.disposal.role_required': 'Only active pharmacy staff or the pharmacy incharge may record a disposal.',
+      'pharmacy.disposal.item_authority_missing': 'The inventory item identity is unavailable. No disposal can be recorded.',
+      'pharmacy.disposal.authority_hint': 'The server revalidates the active facility grant, item, catalogue, supplier, storage location, batch, and stock under lock.',
+      'pharmacy.disposal.batch': 'Exact inventory batch',
+      'pharmacy.disposal.batch_option':
+          'Batch {batch} · lot {lot} · {status} · remaining {quantity}',
+      'pharmacy.disposal.batch_required': 'Select one exact eligible batch.',
+      'pharmacy.disposal.batch_constraints': 'Supplier {supplier} · status {status} · expiry {expiry} · remaining {quantity}. Only in-stock, expired, recalled, or quarantined batches can be disposed.',
+      'pharmacy.disposal.no_eligible_batches': 'No eligible batch is available in this facility. No inventory movement was recorded.',
+      'pharmacy.disposal.quantity': 'Disposal quantity',
+      'pharmacy.disposal.quantity_hint':
+          'Positive quantity, at most four decimal places.',
+      'pharmacy.disposal.quantity_invalid': 'Enter a positive quantity up to 9,999,999,999.9999 with at most four decimal places.',
+      'pharmacy.disposal.quantity_exceeds_stock': 'The disposal quantity exceeds the authoritative remaining batch quantity of {quantity}.',
+      'pharmacy.disposal.reason_code': 'Governed reason code',
+      'pharmacy.disposal.reason_hint': 'For example: damaged',
+      'pharmacy.disposal.reason_required':
+          'A governed disposal reason code is required.',
+      'pharmacy.disposal.method': 'Physical disposition method',
+      'pharmacy.disposal.method_hint': 'For example: authorized_incineration',
+      'pharmacy.disposal.method_required':
+          'The physical disposition method is required.',
+      'pharmacy.disposal.controlled_warning': 'Schedule X or narcotic disposal requires an independently authenticated, one-time witness approval. Schedule H/H1/X custody is written to the statutory register.',
+      'pharmacy.disposal.witness_title': 'Independent disposal witness',
+      'pharmacy.disposal.witness_hint': 'Use a second active PHARMACY_STAFF or PHARMACY_INCHARGE operator who holds an ACTIVE grant for this exact selected facility. They must authenticate independently; the current operator cannot witness their own disposal.',
+      'pharmacy.disposal.witness_employee_id': 'Witness employee ID',
+      'pharmacy.disposal.witness_password': 'Witness password',
+      'pharmacy.disposal.witness_approve': 'Authenticate and approve',
+      'pharmacy.disposal.witness_required': 'This controlled disposal cannot proceed without an exact, unexpired witness approval.',
+      'pharmacy.disposal.witness_approved_by': 'Witness approved by {name}',
+      'pharmacy.disposal.witness_staff': 'independent staff witness',
+      'pharmacy.disposal.witness_pending':
+          'Independent witness approval is not complete.',
+      'pharmacy.disposal.witness_replace': 'Replace witness approval',
+      'pharmacy.disposal.witness_request': 'Request and approve witness',
+      'pharmacy.disposal.submit': 'Record immutable disposal',
+      'pharmacy.disposal.completed': 'The exact batch disposal and required statutory evidence were recorded.',
+      'pharmacy.order.controlled_witness_custody_hint': 'Controlled order custody requires a second active PHARMACY_STAFF or PHARMACY_INCHARGE operator with an ACTIVE grant for this exact selected facility. They must authenticate independently; the current operator cannot approve their own custody action.',
+      'pharmacy.inventory.composition_review_required': 'Catalog item {catalogId} has no authoritative composition identity. No inventory item was created. A governed catalog-composition review must be completed before you retry.',
       's4.lib.pharmacy.manufacturer': "Manufacturer",
       's4.lib.pharmacy.mark_urgent': "Mark urgent",
       's4.lib.pharmacy.medicine_names_dose_quantity_or_rx_note':
@@ -9226,6 +9804,11 @@ class AppStrings {
       's4.lib.counter_sale.open': "Counter sale",
       's4.lib.counter_sale.sell_tab': "Sell",
       's4.lib.counter_sale.recent_tab': "Recent sales",
+      's4.lib.counter_sale.facility_id': "Dispensing facility",
+      's4.lib.counter_sale.facility_hint': "Choose one of the facilities you hold an active pharmacy grant for. It is locked while the cart has items.",
+      's4.lib.counter_sale.facility_required':
+          "Select an exact dispensing facility before searching or selling.",
+      's4.lib.counter_sale.facility_none': "You hold no active pharmacy facility grant. A tenant administrator must grant one before you can search or sell.",
       's4.lib.counter_sale.search_hint': "Search items (name / SKU / generic)",
       's4.lib.counter_sale.in_stock': "{count} in stock",
       's4.lib.counter_sale.out_of_stock': "Out of stock",
@@ -9238,10 +9821,15 @@ class AppStrings {
       's4.lib.counter_sale.customer_name': "Customer name",
       's4.lib.counter_sale.customer_phone': "Customer phone (optional)",
       's4.lib.counter_sale.patient_uid': "Patient UID",
+      's4.lib.counter_sale.scheduled_patient_required':
+          "Scheduled medicines require a registered patient UID.",
       's4.lib.counter_sale.rx_section':
           "Prescription (required for Schedule H/H1/X)",
-      's4.lib.counter_sale.rx_doctor': "Prescribing doctor",
-      's4.lib.counter_sale.rx_reference': "Rx number / reference",
+      's4.lib.counter_sale.rx_prescription_id': "Signed e-prescription ID",
+      's4.lib.counter_sale.rx_line_index':
+          "{medicine} · eRx line index (zero-based)",
+      's4.lib.counter_sale.rx_exact_mapping_hint': "Enter the signed e-prescription ID and map every scheduled medicine to its exact zero-based eRx line.",
+      's4.lib.counter_sale.rx_mapping_required': "Map every scheduled medicine to its exact signed e-prescription line.",
       's4.lib.counter_sale.witness_section':
           "Witness (required for Schedule X / narcotic)",
       's4.lib.counter_sale.witness_two_person_hint': "Request approval for this exact sale, then hand the device to an eligible second staff member to review and sign in.",
@@ -9268,7 +9856,171 @@ class AppStrings {
           "The sale changed, so its witness approval was invalidated.",
       's4.lib.counter_sale.witness_auth_failed': "Witness authentication or approval failed. Check the credentials and request again.",
       's4.lib.counter_sale.payment_mode': "Payment mode",
+      'med03.pharmacy.prescription_items_locked': "Prescription items are locked to the authoritative linked prescription.",
+      'med03.pharmacy.select_authoritative_catalog': "Select authoritative catalog items. Names and prices cannot be entered manually.",
+      'med03.pharmacy.catalog_medicine': "Catalog medicine",
+      'med03.pharmacy.quantity': "Quantity",
+      'med03.pharmacy.add_medicine': "Add medicine",
+      'med03.pharmacy.catalog_quantity_required':
+          "Select a priced catalog item and positive quantity for every line.",
+      'med03.pharmacy.select_inventory_item': "Select the exact inventory item",
+      'med03.pharmacy.inventory_item_fallback': "Inventory item #{id}",
+      'med03.pharmacy.verification_complete':
+          "Pharmacist verification completed",
+      'med03.pharmacy.complete_counter_dispense': "Complete counter dispense",
+      'med03.pharmacy.amount_collected': "Cumulative amount collected",
+      'med03.pharmacy.authoritative_total_rechecked':
+          "The server rechecks the authoritative total before stock moves.",
+      'med03.pharmacy.dispense_remainder': "Dispense remaining quantity",
+      'med03.pharmacy.counter_dispense_complete': "Counter dispense completed",
+      'med03.pharmacy.mark_unavailable': "Mark unavailable",
+      'med03.pharmacy.unavailable_reason': "Unavailable reason",
+      'med03.pharmacy.unavailable_complete': "Order marked unavailable",
+      'med03.pharmacy.facility_admin_required':
+          "An administrator must configure one default pharmacy facility.",
+      'med03.pharmacy.facility_assigned': "Pharmacy facility assigned",
+      'med03.pharmacy.assign_facility': "Assign pharmacy facility",
+      'med03.pharmacy.verify_order': "Verify order",
+      'med03.pharmacy.status_partially_dispensed': "Partially dispensed",
+      'med03.pharmacy.resolve_line_identities': "Resolve prescription lines",
+      'med03.pharmacy.resolve_line_identity_help': "Map each stored order line to the exact signed prescription line. Duplicate medicines must be selected individually.",
+      'med03.pharmacy.save_line_identities': "Save exact mappings",
+      'med03.pharmacy.line_identities_resolved':
+          "Prescription line identities resolved",
+      'med03.pharmacy.line_identity_admin_required': "A pharmacy in-charge must resolve the legacy prescription line identities before this order can continue.",
+      'med03.pharmacy.line_identity_source_missing': "The order or linked prescription has no structured lines to map. Escalate to the prescriber.",
+      'med03.pharmacy.verification_decision': "Verification decision",
+      'med03.pharmacy.verification_verified': "Verified",
+      'med03.pharmacy.verification_override': "Override safety blockers",
+      'med03.pharmacy.verification_rejected': "Reject order",
+      'med03.pharmacy.verification_notes': "Verification notes",
+      'med03.pharmacy.verification_override_reason': "Override reason",
+      'med03.pharmacy.verification_override_reason_help': "At least 10 characters; this is recorded in the clinical audit trail.",
+      'med03.pharmacy.submit_verification': "Submit verification",
+      'med03.pharmacy.tpa_reference': "Approved claim reference",
+      'med03.pharmacy.tpa_reference_exact_help': "Enter the exact approved claim or TPA reference allocated to this pharmacy order.",
+      'med03.pharmacy.next_action': "Next action",
+      'med03.pharmacy.catalog_fallback': "Catalog #{id}",
+      'med03.pharmacy.locked_line_summary': "Line {line} · quantity {quantity}",
+      'med03.pharmacy.order_line_fallback': "Order line {line}",
+      'med03.pharmacy.verification_pharmacist_only': "Only Pharmacy Staff or the Pharmacy Incharge may make a clinical verification decision.",
+      'med03.pharmacy.verification_rejection_reason':
+          "Clinical rejection reason",
+      'med03.pharmacy.verification_override_incharge': "In-charge break-glass override: the reason and manual allergy review evidence are permanently audited.",
+      'med03.pharmacy.verification_manual_allergy_review':
+          "I completed a manual allergy review",
+      'med03.pharmacy.verification_manual_allergy_review_help': "Confirm the patient, active allergies, source records, and unavailable safety sources before overriding.",
+      'med03.pharmacy.payment_mode.cash': "Cash",
+      'med03.pharmacy.payment_mode.card': "Card",
+      'med03.pharmacy.payment_mode.upi': "UPI",
+      'med03.pharmacy.payment_mode.wallet': "Wallet",
+      'med03.pharmacy.payment_mode.insurance': "Insurance",
+      'med03.pharmacy.payment_mode.corporate_tpa': "Corporate / TPA",
+      'med03.pharmacy.payment_mode.none': "No payment due",
+      'med03.pharmacy.recovery.select_exact_tpa_claim_allocation': "Finance must allocate an approved claim line to this exact pharmacy order before stock can be issued.",
+      'med03.pharmacy.recovery.complete_manual_allergy_review':
+          "Complete and record the required manual allergy review.",
+      'med03.pharmacy.recovery.contact_owner': "Hand this blocked order to its named workflow owner and keep stock unchanged.",
+      'med03.pharmacy.recovery.open_billing_desk': "Open billing desk",
+      'med03.pharmacy.recovery.materialize_pharmacy_funding': "Create the exact funding task from the locked order and invoice authority.",
+      'med03.pharmacy.recovery.open_exact_pharmacy_funding_task':
+          "Open the existing exact funding task; do not attest payment here.",
+      'med03.pharmacy.cancellation_reason_help': "Required: 3 to 500 characters. This reason is retained with the order history.",
+      'med03.pharmacy.delivery_assignee_required': "No eligible delivery assignee is available for this order. A facility administrator must assign delivery duty before dispatch.",
+      'med03.pharmacy.delivery_type_counter': "Counter dispense",
+      'med03.pharmacy.status_dispensed': "Dispensed",
+      'med03.pharmacy.inventory_status.active': "Active",
+      'med03.pharmacy.inventory_status.inactive': "Inactive",
+      'med03.pharmacy.inventory_status.quarantined': "Quarantined",
+      'med03.pharmacy.inventory_status.unknown': "Unknown status",
+      'med03.pharmacy.expiry_bucket.expired': "Expired",
+      'med03.pharmacy.expiry_bucket.within_30': "Expires within 30 days",
+      'med03.pharmacy.expiry_bucket.within_60': "Expires in 31–60 days",
+      'med03.pharmacy.expiry_bucket.within_90': "Expires in 61–90 days",
+      'med03.pharmacy.expiry_bucket.beyond_90': "Expires after 90 days",
+      'med03.pharmacy.expiry_bucket.unknown': "Expiry window unavailable",
+      'med03.pharmacy.funding_recovery.task_summary':
+          "Funding task {taskId} · {status} · {owner}",
+      'med03.pharmacy.funding_recovery.status.pending': "Pending allocation",
+      'med03.pharmacy.funding_recovery.status.in_progress':
+          "Allocation in progress",
+      'med03.pharmacy.funding_recovery.status.blocked': "Allocation blocked",
+      'med03.pharmacy.funding_recovery.status.completed':
+          "Allocation completed",
+      'med03.pharmacy.funding_recovery.status.unknown': "Status unavailable",
+      'med03.pharmacy.funding_recovery.owner.finance': "Finance in-charge",
+      'med03.pharmacy.funding_recovery.owner.insurance':
+          "Insurance/claims team",
+      'med03.pharmacy.funding_recovery.owner.billing': "Billing team",
+      'med03.pharmacy.funding_recovery.owner.unknown': "Assigned finance owner",
+      'med03.pharmacy.funding_desk.title': "Pharmacy funding authority",
+      'med03.nhcx.projection.unavailable':
+          'The exact accepted NHCX projection recovery is unavailable.',
+      'med03.nhcx.projection.title': 'Accepted NHCX local projection',
+      'med03.nhcx.projection.help': 'The gateway has already accepted this exact message. Retry applies only the local claim or pre-authorization projection and never resends to NHCX.',
+      'med03.nhcx.projection.summary':
+          'Message #{message} · task #{task} · {status} · {owner}',
+      'med03.nhcx.projection.receipt': 'Immutable gateway receipt: {hash}',
+      'med03.nhcx.projection.retry_local': 'Retry local projection',
+      'med03.nhcx.projection.completed': 'Local projection completed',
+      'med03.pharmacy.funding_desk.unavailable':
+          "Funding recovery is unavailable for this exact order line.",
+      'med03.pharmacy.funding_desk.insurance_help': "Record the insurer decision for this exact draft line. Approved plus non-payable must equal the line total.",
+      'med03.pharmacy.funding_desk.finance_help': "Post the patient payment on the listed invoice, then reconcile here. This screen never accepts a self-reported collected amount.",
+      'med03.pharmacy.funding_desk.approved_amount': "TPA approved amount",
+      'med03.pharmacy.funding_desk.non_payable_amount':
+          "Patient responsibility",
+      'med03.pharmacy.funding_desk.reason_code': "Decision reason",
+      'med03.pharmacy.funding_desk.reason_text': "Decision note",
+      'med03.pharmacy.funding_desk.record_decision':
+          "Record exact line decision",
+      'med03.pharmacy.funding_desk.retry_posted_payment':
+          "Reconcile posted payment",
+      'med03.pharmacy.funding_desk.resolved':
+          "This exact pharmacy line has no active funding task.",
+      'med03.pharmacy.funding_desk.invalid_decision': "Enter valid non-negative amounts and reload any missing task authority.",
+      'med03.pharmacy.funding_reconciliation.unavailable':
+          'Exact duplicate-line reconciliation is unavailable.',
+      'med03.pharmacy.funding_reconciliation.title':
+          'Duplicate pharmacy billing authority',
+      'med03.pharmacy.funding_reconciliation.case_summary':
+          'Case #{case} · Task #{task} · {status} · {owner}',
+      'med03.pharmacy.funding_reconciliation.help': 'The server compares exact line, invoice, posted-payment, allocation, reversal, and stock evidence. A different finance owner must approve the same proposal. This screen cannot alter or attest payment amounts.',
+      'med03.pharmacy.funding_reconciliation.keeper_label':
+          'Line that remains authoritative',
+      'med03.pharmacy.funding_reconciliation.line_option':
+          'Line #{line} · Invoice #{invoice} · {amount}',
+      'med03.pharmacy.funding_reconciliation.path_label':
+          'Governed resolution path',
+      'med03.pharmacy.funding_reconciliation.path.safe':
+          'Safely deactivate exact duplicates',
+      'med03.pharmacy.funding_reconciliation.path.keep':
+          'Keep the selected authority',
+      'med03.pharmacy.funding_reconciliation.path.cancel':
+          'Cancel the terminal order',
+      'med03.pharmacy.funding_reconciliation.path.rebill':
+          'Confirm governed rebilling',
+      'med03.pharmacy.funding_reconciliation.pending_owner':
+          'Proposed by {owner}. A distinct finance owner is required.',
+      'med03.pharmacy.funding_reconciliation.action.approve':
+          'Approve exact proposal as second owner',
+      'med03.pharmacy.funding_reconciliation.action.propose':
+          'Propose exact disposition',
+      'med03.pharmacy.funding_reconciliation.status.open': 'Open',
+      'med03.pharmacy.funding_reconciliation.status.pending':
+          'Pending second approval',
+      'med03.pharmacy.funding_reconciliation.status.blocked': 'Blocked',
+      'med03.pharmacy.funding_reconciliation.status.resolved': 'Resolved',
+      'med03.pharmacy.funding_reconciliation.status.unknown': 'Unknown',
+      'med03.pharmacy.funding_reconciliation.owner.finance': 'Finance owner',
       's4.lib.counter_sale.payment_reference': "Payment reference (txn id)",
+      's4.lib.counter_sale.original_payment_reference':
+          "Original payment reference",
+      's4.lib.counter_sale.original_payment_reference_value':
+          "Original reference {reference}",
+      's4.lib.counter_sale.payment_reference_required':
+          "The original payment reference is required for every non-cash sale.",
+      's4.lib.counter_sale.legacy_payment_reference_missing': "Original electronic payment evidence is missing. This legacy sale is not ready for a void; finance must resolve the payment reference first.",
       's4.lib.counter_sale.cash_drawer_hint':
           "CASH sales need your open cash-drawer session",
       's4.lib.counter_sale.estimated_total':
@@ -9277,7 +10029,203 @@ class AppStrings {
       's4.lib.counter_sale.sold': "Sale completed — invoice {invoice}",
       's4.lib.counter_sale.void_action': "Void",
       's4.lib.counter_sale.void_reason': "Void reason",
-      's4.lib.counter_sale.voided': "Sale voided and refunded",
+      's4.lib.counter_sale.status.in_progress': "In progress",
+      's4.lib.counter_sale.status.completed': "Completed",
+      's4.lib.counter_sale.status.void_pending_refund': "Refund pending",
+      's4.lib.counter_sale.status.voided': "Voided",
+      's4.lib.counter_sale.status.failed': "Failed",
+      's4.lib.counter_sale.status.unknown': "Unknown sale status",
+      's4.lib.counter_sale.workflow_status.not_requested': "Void not requested",
+      's4.lib.counter_sale.workflow_status.awaiting_finance_approval':
+          "Awaiting independent finance approval",
+      's4.lib.counter_sale.workflow_status.awaiting_finance_payout':
+          "Approved; finance payout pending",
+      's4.lib.counter_sale.workflow_status.awaiting_gateway_payout':
+          "Provider refund initiation pending",
+      's4.lib.counter_sale.workflow_status.awaiting_gateway_evidence':
+          "Awaiting authenticated provider evidence",
+      's4.lib.counter_sale.workflow_status.awaiting_payout_evidence':
+          "Awaiting governed payout evidence",
+      's4.lib.counter_sale.workflow_status.ready_to_reconcile':
+          "Refund paid; exact stock reconciliation ready",
+      's4.lib.counter_sale.workflow_status.refund_rejected':
+          "Refund rejected; pharmacy must not restock",
+      's4.lib.counter_sale.workflow_status.refund_rejected_review':
+          "Refund rejected; confirm customer handover or escalate for review",
+      's4.lib.counter_sale.workflow_status.voided':
+          "Refund and exact stock reconciliation complete",
+      's4.lib.counter_sale.workflow_status.cancelled_handover_confirmed': "Void cancelled after customer handover was confirmed; no refund or restock occurred",
+      's4.lib.counter_sale.workflow_status.pending_review':
+          "Void requires finance review",
+      's4.lib.counter_sale.workflow_status.unknown':
+          "Unknown void workflow status",
+      's4.lib.counter_sale.refund_status.pending': "Pending approval",
+      's4.lib.counter_sale.refund_status.approved': "Approved",
+      's4.lib.counter_sale.refund_status.paid': "Paid",
+      's4.lib.counter_sale.refund_status.rejected': "Rejected",
+      's4.lib.counter_sale.refund_status.unknown': "Unknown refund status",
+      's4.lib.counter_sale.void_readiness.ready':
+          "Ready for a same-day protected void request",
+      's4.lib.counter_sale.void_readiness.original_payment_reference_missing': "Original electronic payment evidence is missing. Finance must resolve the payment reference before a void can be requested.",
+      's4.lib.counter_sale.void_readiness.outside_same_day_window': "The same-day void window has closed. Use the governed return or adjustment workflow instead.",
+      's4.lib.counter_sale.void_readiness.pending_refund':
+          "A protected void and refund obligation is already pending.",
+      's4.lib.counter_sale.void_readiness.voided':
+          "This sale is already voided and reconciled.",
+      's4.lib.counter_sale.void_readiness.not_completed':
+          "Only a completed sale can enter the void workflow.",
+      's4.lib.counter_sale.void_readiness.unknown': "Authoritative void readiness is unavailable. Refresh before taking action.",
+      's4.lib.counter_sale.retry_sale': "Retry protected sale",
+      's4.lib.counter_sale.sale_response_unconfirmed': "The sale response was not confirmed. Do not enter it elsewhere; retry here to reuse the same protected attempt.",
+      's4.lib.counter_sale.sale_changed_title': "Start a different sale?",
+      's4.lib.counter_sale.sale_changed_body': "The previous sale outcome is still unknown. Changed details require a new protected attempt and could create a second sale if the first completed. Check recent sales before continuing.",
+      's4.lib.counter_sale.new_attempt_confirm': "Start new attempt",
+      's4.lib.counter_sale.void_nonterminal_hint': "A void request does not immediately refund or restock. Finance must approve and pay the refund before exact batch reconciliation can close the sale.",
+      's4.lib.counter_sale.void_disposition': "Medication custody outcome",
+      's4.lib.counter_sale.disposition.never_handed_over':
+          "Never handed to the patient",
+      's4.lib.counter_sale.disposition.patient_returned':
+          "Returned after patient handling",
+      's4.lib.counter_sale.disposition_required_hint':
+          "Select the exact custody outcome. No option is assumed.",
+      's4.lib.counter_sale.never_handed_over_restock': "Only medication that never left staff custody may follow refund and exact-batch restock.",
+      's4.lib.counter_sale.patient_returned_quarantine': "Patient-handled medication cannot re-enter sellable stock. Stop here and use the quarantine/destruction returns process; this screen does not link that process yet.",
+      's4.lib.counter_sale.patient_returned_blocked': "Patient-handled medication cannot be voided into sellable stock. Use the quarantine/destruction returns process.",
+      's4.lib.counter_sale.void_changed_title':
+          "Replace the uncertain void request?",
+      's4.lib.counter_sale.void_changed_body': "The prior void outcome is unknown. Changing its reason or custody outcome creates a different protected attempt. Check the current sale first.",
+      's4.lib.counter_sale.retry_void': "Retry protected void",
+      's4.lib.counter_sale.void_response_unconfirmed': "The void response was not confirmed. Retry this sale here to reuse the same protected request.",
+      's4.lib.counter_sale.void_pending_refund': "Void requested. Finance approval and payout are pending; stock has not been returned.",
+      's4.lib.counter_sale.void_reconciled':
+          "Refund evidence verified and exact stock reconciliation completed.",
+      's4.lib.counter_sale.void_request_reference': "Void request #{id}",
+      's4.lib.counter_sale.refund_reference': "Refund #{id}: {status}",
+      's4.lib.counter_sale.restock_pending_evidence': "Exact-batch restock remains blocked until paid-refund evidence is verified.",
+      's4.lib.counter_sale.open_finance_workflow': "Open finance workflow",
+      's4.lib.counter_sale.open_reconciliation': "Open reconciliation",
+      's4.lib.counter_sale.reconcile_action': "Check and reconcile",
+      's4.lib.counter_sale.reconcile_still_pending':
+          "Refund evidence is not ready; the void remains pending.",
+      's4.lib.counter_sale.reconcile_response_unconfirmed': "Reconciliation response was not confirmed. Retry here to reuse the same protected check.",
+      's4.lib.counter_sale.handover_resolution_title':
+          "Confirm customer handover",
+      's4.lib.counter_sale.handover_resolution_warning': "Use this only when the medicine was handed to the customer and the rejected refund means the sale must remain completed. This records no refund and performs no restock.",
+      's4.lib.counter_sale.handover_resolution_reason':
+          "Handover confirmation reason",
+      's4.lib.counter_sale.handover_resolution_confirm': "Confirm handover",
+      's4.lib.counter_sale.handover_resolution_changed_title':
+          "Replace the uncertain handover confirmation?",
+      's4.lib.counter_sale.handover_resolution_changed_body': "The prior response is unknown. Changing the reason creates a new protected attempt. Refresh the sale before proceeding.",
+      's4.lib.counter_sale.handover_resolution_action':
+          "Confirm customer handover",
+      's4.lib.counter_sale.handover_resolution_retry':
+          "Retry protected handover confirmation",
+      's4.lib.counter_sale.handover_resolution_completed': "Customer handover confirmed. The void was cancelled; no refund or stock return occurred.",
+      's4.lib.counter_sale.handover_resolution_response_unconfirmed': "The handover confirmation was not authoritatively confirmed. Retry unchanged here to reuse the same protected attempt.",
+      'med03.counter_sale_refund.title': "Counter-sale refund",
+      'med03.counter_sale_refund.access_denied':
+          "You are not authorized to open this refund workflow.",
+      'med03.counter_sale_refund.invalid_target':
+          "The refund target is invalid.",
+      'med03.counter_sale_refund.target_mismatch': "The refund and void-request identifiers do not identify the same authoritative workflow.",
+      'med03.counter_sale_refund.load_failed': "The authoritative refund state could not be loaded. Reconnect and retry.",
+      'med03.counter_sale_refund.summary':
+          "Authoritative refund and reconciliation state",
+      'med03.counter_sale_refund.refund_id': "Refund ID",
+      'med03.counter_sale_refund.void_request_id': "Void request ID",
+      'med03.counter_sale_refund.sale_id': "Counter-sale ID",
+      'med03.counter_sale_refund.amount': "Refund amount",
+      'med03.counter_sale_refund.payment_mode': "Original payment mode",
+      'med03.counter_sale_refund.original_payment_reference':
+          "Original payment reference",
+      'med03.counter_sale_refund.approval_status': "Refund status",
+      'med03.counter_sale_refund.workflow_status': "Workflow status",
+      'med03.counter_sale_refund.disposition': "Medication custody outcome",
+      'med03.counter_sale_refund.reconciliation_status':
+          "Pharmacy reconciliation status",
+      'med03.counter_sale_refund.payout_rail': "Payout rail",
+      'med03.counter_sale_refund.provider': "Provider or acquirer",
+      'med03.counter_sale_refund.provider_refund_reference':
+          "Provider refund reference",
+      'med03.counter_sale_refund.provider_refunded_at': "Provider refund time",
+      'med03.counter_sale_refund.value_unknown': "Not available",
+      'med03.counter_sale_refund.open_reconciliation':
+          "Open pharmacy reconciliation",
+      'med03.counter_sale_refund.approval_title': "Finance approval",
+      'med03.counter_sale_refund.approval_ready':
+          "Review the exact refund and void-request evidence before approval.",
+      'med03.counter_sale_refund.approval_waiting':
+          "An administrator must approve this refund before payout.",
+      'med03.counter_sale_refund.approve_action': "Approve refund",
+      'med03.counter_sale_refund.confirm_title': "Confirm money movement",
+      'med03.counter_sale_refund.approve_confirm': "Approve this exact refund obligation? The payer must be a different person.",
+      'med03.counter_sale_refund.manual_confirm': "Record this cash or manual-instrument payout using the exact voucher evidence?",
+      'med03.counter_sale_refund.offline_electronic_confirm': "Record the external terminal or QR refund evidence for this exact original payment?",
+      'med03.counter_sale_refund.gateway_confirm':
+          "Start the integrated gateway refund for this exact gateway order?",
+      'med03.counter_sale_refund.action_confirmed':
+          "The authoritative refund state confirms this action.",
+      'med03.counter_sale_refund.action_failed': "The refund action failed before an authoritative completion could be confirmed.",
+      'med03.counter_sale_refund.action_response_unconfirmed': "The outcome is not confirmed. Retry the unchanged action here to reuse the same protected attempt.",
+      'med03.counter_sale_refund.retry_same_attempt': "A prior response was ambiguous. Keep the evidence unchanged and retry here to reuse its stable idempotency key.",
+      'med03.counter_sale_refund.changed_attempt_title':
+          "Start a different refund attempt?",
+      'med03.counter_sale_refund.changed_attempt_body': "The earlier outcome is still unknown. Changed evidence requires a new protected attempt and may duplicate a payout if the first action completed.",
+      'med03.counter_sale_refund.changed_attempt_confirm': "Start new attempt",
+      'med03.counter_sale_refund.payer_must_differ': "The payout actor must differ from the person who approved the refund.",
+      'med03.counter_sale_refund.payout_not_authorized':
+          "Your role cannot execute this refund payout.",
+      'med03.counter_sale_refund.payout_in_progress': "The {rail} rail already owns this payout. Refresh for provider or reconciliation evidence; do not start another rail.",
+      'med03.counter_sale_refund.no_authoritative_rail': "No payout rail is currently authorized by the original payment evidence. Resolve the payment evidence before proceeding.",
+      'med03.counter_sale_refund.rail_conflict': "Another payout rail already owns this refund. Refresh the authoritative state.",
+      'med03.counter_sale_refund.cash_drawer': "Open cash-drawer session",
+      'med03.counter_sale_refund.cash_drawer_option': "Drawer {id} · {shift}",
+      'med03.counter_sale_refund.cash_voucher': "Immutable cash refund voucher",
+      'med03.counter_sale_refund.manual_reference':
+          "Immutable payout reference",
+      'med03.counter_sale_refund.record_payout': "Record payout",
+      'med03.counter_sale_refund.drawer_identity_missing': "Your staff identity is unavailable, so an owned open drawer cannot be selected.",
+      'med03.counter_sale_refund.drawer_load_failed':
+          "Open cash-drawer sessions could not be loaded.",
+      'med03.counter_sale_refund.no_open_drawer':
+          "No open cash-drawer session is owned by the current payer.",
+      'med03.counter_sale_refund.cash_drawer_error': "The cash-drawer or voucher evidence was rejected. Refresh the drawer state before retrying.",
+      'med03.counter_sale_refund.original_reference_missing': "The original electronic payment reference is missing or ambiguous. Offline-electronic payout is blocked until finance resolves it.",
+      'med03.counter_sale_refund.timestamp_hint': "ISO 8601 timestamp with time zone, for example 2026-08-28T10:30:00+05:30",
+      'med03.counter_sale_refund.record_offline_electronic':
+          "Record external refund evidence",
+      'med03.counter_sale_refund.electronic_evidence_error': "The original electronic payment evidence does not authorize this payout path.",
+      'med03.counter_sale_refund.provider_evidence_error': "Provider, refund reference, and refund time are required as immutable external evidence.",
+      'med03.counter_sale_refund.load_gateway_candidates':
+          "Load integrated gateway candidates",
+      'med03.counter_sale_refund.gateway_candidates_failed':
+          "Integrated gateway candidates could not be loaded.",
+      'med03.counter_sale_refund.no_gateway_candidates':
+          "No exact paid gateway order is eligible for this refund.",
+      'med03.counter_sale_refund.gateway_candidate': "Gateway order {id}",
+      'med03.counter_sale_refund.start_gateway_refund': "Start gateway refund",
+      'med03.counter_sale_refund.rail.manual':
+          "Cash or manual instrument payout",
+      'med03.counter_sale_refund.rail.offline_electronic':
+          "External terminal or QR refund",
+      'med03.counter_sale_refund.rail.gateway': "Integrated gateway refund",
+      'med03.counter_sale_refund.rail.unknown': "Unknown payout rail",
+      'med03.counter_sale_refund.workflow.awaiting_approval':
+          "Awaiting finance approval",
+      'med03.counter_sale_refund.workflow.ready_for_payout':
+          "Approved and ready for payout",
+      'med03.counter_sale_refund.workflow.paid':
+          "Refund paid; pharmacy reconciliation pending",
+      'med03.counter_sale_refund.workflow.rejected': "Refund rejected",
+      'med03.counter_sale_refund.workflow.refund_rejected_review':
+          "Rejected refund requires governed review",
+      'med03.counter_sale_refund.workflow.reconciliation_required':
+          "Refund paid; pharmacy reconciliation required",
+      'med03.counter_sale_refund.workflow.counter_sale_void_completed':
+          "Refund and counter-sale void completed",
+      'med03.counter_sale_refund.workflow.unknown':
+          "Refund workflow status unavailable",
       's4.lib.counter_sale.no_recent': "No counter sales yet today",
       's4.lib.kitchen.title': "Kitchen",
       's4.lib.kitchen.open': "Kitchen board",
@@ -11166,6 +12114,36 @@ class AppStrings {
           'स्थानांतरण स्वीकार किया जा रहा है...',
       'clinical_inbox.accept_inpatient_transfer':
           'इनपेशेंट स्थानांतरण स्वीकार करें',
+      'clinical_inbox.mar_handoff.action': 'प्रिस्क्राइबर पुनः सौंपें',
+      'clinical_inbox.mar_handoff.title': 'दवा अपवाद पुनः सौंपें',
+      'clinical_inbox.mar_handoff.body': 'उस सक्रिय प्रिस्क्राइबर को चुनें जो रोकी गई या छूटी खुराक की इस खुली समीक्षा की जिम्मेदारी लेगा। सबमिट करते समय वर्तमान जिम्मेदार का मिलान होना आवश्यक है।',
+      'clinical_inbox.mar_handoff.case_id': 'अपवाद केस ID',
+      'clinical_inbox.mar_handoff.current_prescriber': 'वर्तमान प्रिस्क्राइबर',
+      'clinical_inbox.mar_handoff.target_prescriber': 'नया प्रिस्क्राइबर',
+      'clinical_inbox.mar_handoff.prescriber_required':
+          'एक सक्रिय प्रिस्क्राइबर चुनें',
+      'clinical_inbox.mar_handoff.prescribers_failed':
+          'सक्रिय प्रिस्क्राइबर लोड नहीं किए जा सके।',
+      'clinical_inbox.mar_handoff.no_prescribers':
+          'कोई अन्य सक्रिय प्रिस्क्राइबर उपलब्ध नहीं है।',
+      'clinical_inbox.mar_handoff.reason': 'क्लिनिकल हैंडऑफ का कारण',
+      'clinical_inbox.mar_handoff.reason_hint':
+          'बताएं कि नामित जिम्मेदारी क्यों बदलनी है',
+      'clinical_inbox.mar_handoff.reason_required':
+          'कम से कम 5 अक्षर दर्ज करें',
+      'clinical_inbox.mar_handoff.confirmation': 'मैं पुष्टि करता/करती हूँ कि चुना गया प्रिस्क्राइबर सक्रिय है और उसने इस क्लिनिकल समीक्षा की जिम्मेदारी स्वीकार की है या इसे प्राप्त करने के लिए अधिकृत है।',
+      'clinical_inbox.mar_handoff.confirmation_required':
+          'सबमिट करने से पहले नामित जिम्मेदारी का हैंडऑफ पुष्टि करें।',
+      'clinical_inbox.mar_handoff.submit': 'पुनः सौंपना पुष्टि करें',
+      'clinical_inbox.mar_handoff.submitting': 'पुनः सौंपा जा रहा है...',
+      'clinical_inbox.mar_handoff.succeeded':
+          'दवा अपवाद चुने गए प्रिस्क्राइबर को पुनः सौंप दिया गया।',
+      'clinical_inbox.mar_handoff.failed':
+          'दवा अपवाद पुनः नहीं सौंप सके: {reason}',
+      'clinical_inbox.mar_handoff.stale_owner': 'आपकी समीक्षा के दौरान जिम्मेदारी बदल गई। नवीनतम जिम्मेदार दिखाया गया है; फिर से समीक्षा और पुष्टि करें।',
+      'clinical_inbox.mar_handoff.no_longer_actionable': 'यह दवा अपवाद अब पुनः सौंपने के लिए उपलब्ध नहीं है। नवीनतम इनबॉक्स स्थिति लोड की गई है।',
+      'clinical_inbox.mar_handoff.requires_connection':
+          'इस दवा अपवाद को पुनः सौंपने के लिए इंटरनेट कनेक्शन आवश्यक है।',
       'clinical_inbox.cross_sign.review': 'डिस्चार्ज परिणाम की समीक्षा करें',
       'clinical_inbox.cross_sign.title':
           'डिस्चार्ज के बाद के परिणाम पर सह-हस्ताक्षर',
@@ -11962,6 +12940,14 @@ class AppStrings {
       'orders.discontinued_toast': 'आदेश बंद किया गया',
       'orders.cancelled_toast': 'आदेश रद्द किया गया',
       'orders.stop_failed_prefix': 'आदेश रोका नहीं जा सका:',
+      // REVIEW: AI first-pass, clinical safety wording
+      'orders.mar_recovery.action': 'MAR सुधारें',
+      'orders.mar_recovery.required': 'इस दवा आदेश के लिए MAR की कोई खुराक निर्धारित नहीं है। प्रिस्क्राइब करने वाले चिकित्सक को शेड्यूल सुधारना होगा या आदेश बंद करके सही आदेश देना होगा।',
+      'orders.mar_recovery.success':
+          'MAR शेड्यूल का मिलान पूरा हुआ ({count} खुराक)।',
+      'orders.mar_recovery.failed': 'MAR शेड्यूल सुधारा नहीं जा सका: {error}',
+      'orders.mar_recovery.desktop_only': 'यह कार्रवाई फ़ोन मोड में उपलब्ध नहीं है। डेस्कटॉप या टैबलेट क्लिनिकल वर्कस्टेशन का उपयोग करें।',
+      'orders.icu_mar_review.banner': 'ICU भर्ती #{admissionId} के लिए दवा कैरीओवर की समीक्षा आवश्यक है। आदेशों और MAR निरंतरता की समीक्षा करें; यह सूचना किसी क्लिनिकल डेटा को नहीं बदलती।',
       'composer.title': 'नए आदेश',
       'composer.search_label': 'ऑर्डर कैटलॉग खोजें',
       'composer.search_hint': 'दवाएँ और जाँचें खोजें...',
@@ -13033,6 +14019,8 @@ class AppStrings {
       'pharmacy.tab.new': 'नए',
       'ward_indent.action.approve': 'इंडेंट स्वीकृत करें',
       'ward_indent.action.approve_substitution': 'प्रतिस्थापन स्वीकृत करें',
+      'ward_indent.action.apply_substitution':
+          'स्वीकृत प्रतिस्थापन स्टॉक पर लागू करें',
       'ward_indent.action.cancel': 'इंडेंट रद्द करें',
       'ward_indent.action.close': 'इंडेंट बंद करें',
       'ward_indent.action.completed': '{number} अपडेट किया गया',
@@ -13052,6 +14040,63 @@ class AppStrings {
           'इस स्थिति में आपकी भूमिका के लिए कोई कार्रवाई उपलब्ध नहीं है।',
       'ward_indent.actions.title': 'उपलब्ध कार्रवाइयाँ',
       'ward_indent.confirm.default': 'इस ऑनलाइन वर्कफ़्लो परिवर्तन की पुष्टि करें। सर्वर आपकी भूमिका, वर्तमान संस्करण और सभी क्लिनिकल व स्टॉक नियमों की दोबारा जाँच करेगा।',
+      'ward_indent.inventory.none': '{item} के लिए उसी सुविधा में कोई योग्य इन्वेंटरी विकल्प उपलब्ध नहीं है।',
+      'ward_indent.inventory.select': '{item} के लिए इन्वेंटरी चुनें',
+      'ward_indent.substitution.acknowledge_title':
+          'प्रतिस्थापित दवा की पुष्टि करें',
+      'ward_indent.substitution.acknowledge_body':
+          'प्राप्त करने से पहले प्रतिस्थापित दवा की पुष्टि करें: {items}।',
+      'ward_indent.reconcile.exact_allocation_required':
+          '{item} लौटाने के लिए सटीक वार्ड आवंटन आवश्यक है।',
+      'ward_indent.reconcile.return_exceeds_custody':
+          '{item} की वापसी मात्रा वार्ड में बची अप्रयुक्त मात्रा से अधिक है।',
+      'ward_indent.reconcile.return_evidence_missing':
+          'नियंत्रित वापसी से मूवमेंट और रजिस्टर दोनों साक्ष्य नहीं बने।',
+      'ward_indent.controlled.reference_missing':
+          '{item} का नियंत्रित संदर्भ उपलब्ध नहीं है।',
+      'ward_indent.controlled.exact_allocation_required':
+          '{item} वितरित करने से पहले ठीक एक आरक्षित आवंटन आवश्यक है।',
+      'due_meds.held_review_state': 'दवा देना अवरुद्ध है — नियंत्रित क्लिनिकल समीक्षा या रिलीज़ की प्रतीक्षा है।',
+      'mar_supply.title': 'MAR आपूर्ति मिलान',
+      'mar_supply.no_open_override':
+          'कोई बेमेल MAR आपूर्ति ओवरराइड शेष नहीं है।',
+      'mar_supply.outstanding': 'शेष मात्रा: {quantity}',
+      'mar_supply.help': 'पूरी शेष खुराक को वार्ड के सटीक आवंटनों से मिलाएँ। कुल सटीक होने पर ही कार्य बंद होगा।',
+      'mar_supply.invalid_quantity':
+          'आवंटन {allocation} की मात्रा अमान्य या उपलब्ध मात्रा से अधिक है।',
+      'mar_supply.exact_total_required':
+          'आवंटन मात्राओं का कुल ठीक {quantity} होना चाहिए।',
+      'mar_supply.completed':
+          'MAR आपूर्ति साक्ष्य का मिलान हुआ और कार्य पूरा हुआ।',
+      'mar_supply.allocation': 'वार्ड आवंटन',
+      'mar_supply.batch_available': 'बैच {batch} · उपलब्ध {quantity}',
+      'mar_supply.batch_ineligible.inventory_item_inactive':
+          'इन्वेंटरी आइटम निष्क्रिय है।',
+      'mar_supply.batch_ineligible.batch_reserved':
+          'बैच आरक्षित है और मिलान के लिए उपलब्ध नहीं है।',
+      'mar_supply.batch_ineligible.batch_depleted':
+          'इस बैच में कोई पात्र शेष अभिरक्षा मात्रा नहीं है।',
+      'mar_supply.batch_ineligible.batch_expired':
+          'बैच की समय-सीमा समाप्त हो चुकी है।',
+      'mar_supply.batch_ineligible.batch_recalled':
+          'बैच वापस बुलाया गया है और उपयोग नहीं किया जा सकता।',
+      'mar_supply.batch_ineligible.batch_quarantined': 'बैच क्वारंटीन में है।',
+      'mar_supply.batch_ineligible.batch_disposed':
+          'बैच निस्तारित किया जा चुका है।',
+      'mar_supply.batch_ineligible.batch_status_missing':
+          'बैच की स्थिति उपलब्ध नहीं है।',
+      'mar_supply.batch_ineligible.ward_custody_unavailable':
+          'इस बैच में वार्ड की अप्रयुक्त अभिरक्षा मात्रा नहीं बची है।',
+      'mar_supply.batch_ineligible.batch_expiry_missing':
+          'बैच की समाप्ति तिथि उपलब्ध नहीं है।',
+      'mar_supply.batch_ineligible.unknown':
+          'यह बैच मिलान के लिए पात्र नहीं है।',
+      'mar_supply.notification_action': 'MAR आपूर्ति मिलाएँ',
+      'mar_supply.quantity': 'इस आवंटन से मात्रा',
+      'mar_supply.reconcile': 'सटीक आपूर्ति मिलाएँ',
+      'clinical_inbox.open_workflow': 'वर्कफ़्लो खोलें',
+      'clinical_inbox.workflow_link_unavailable':
+          'इस कार्य में सुरक्षित और कार्रवाई योग्य वर्कफ़्लो लिंक नहीं है।',
       'ward_indent.controlled.ambiguous_recovery': 'नियंत्रित दवा साक्ष्य के कई संभावित रिकॉर्ड मिले। पर्यवेक्षक के मिलान तक हस्तांतरण अवरुद्ध है।',
       'ward_indent.controlled.label': 'नियंत्रित',
       'ward_indent.controlled.no_inventory_link': '{item} से कोई इन्वेंटरी आइटम जुड़ा नहीं है। वितरण से पहले कैटलॉग और इन्वेंटरी रिकॉर्ड जोड़ें।',
@@ -13122,6 +14167,30 @@ class AppStrings {
           'प्राप्ति भिन्नताओं का वर्गीकरण करें',
       'ward_indent.select_prompt': 'वर्कफ़्लो देखने के लिए वार्ड इंडेंट चुनें।',
       'ward_indent.sla.title': 'सक्रिय सेवा-स्तर प्रतिबद्धताएँ',
+      'ward_indent.code.unknown': 'अपरिचित वर्कफ़्लो स्थिति',
+      'ward_indent.sla.status.active': 'सक्रिय',
+      'ward_indent.sla.status.breached': 'समय-सीमा उल्लंघित',
+      'ward_indent.sla.status.escalated': 'एस्केलेट किया गया',
+      'ward_indent.sla.rule.ward_indent_pharmacy_response':
+          'फार्मेसी प्रतिक्रिया',
+      'ward_indent.sla.rule.ward_indent_substitution_authorization':
+          'प्रतिस्थापन प्राधिकरण',
+      'ward_indent.sla.rule.ward_indent_controlled_handoff':
+          'नियंत्रित दवा हस्तांतरण',
+      'ward_indent.sla.rule.ward_indent_pharmacy_issue': 'फार्मेसी जारीकरण',
+      'ward_indent.sla.rule.ward_indent_ward_receipt': 'वार्ड प्राप्ति',
+      'ward_indent.sla.rule.ward_indent_reconciliation': 'दवा मिलान',
+      'ward_indent.sla.rule.ward_indent_notification_coverage': 'सूचना कवरेज',
+      'ward_indent.sla.rule.ward_indent_credit_note_review':
+          'क्रेडिट नोट समीक्षा',
+      'ward_indent.sla.rule.ward_indent_mar_supply_reconciliation':
+          'MAR आपूर्ति मिलान',
+      'ward_indent.controlled.recovery_status.available': 'साक्ष्य उपलब्ध',
+      'ward_indent.controlled.recovery_status.missing': 'साक्ष्य अनुपलब्ध',
+      'ward_indent.controlled.recovery_status.ambiguous':
+          'एक से अधिक साक्ष्य रिकॉर्ड',
+      'ward_indent.controlled.recovery_status.corrupt':
+          'अभिरक्षा साक्ष्य में टकराव',
       'ward_indent.status.approved': 'स्वीकृत',
       'ward_indent.status.cancelled': 'रद्द',
       'ward_indent.status.closed': 'बंद',
@@ -13145,6 +14214,28 @@ class AppStrings {
           'संरचना-सुरक्षित विकल्प चुनें',
       'ward_indent.substitution.select_line': 'कम आपूर्ति वाली पंक्ति चुनें',
       'ward_indent.tab': 'वार्ड इंडेंट',
+      'ward_indent.request.action': 'आपूर्ति अनुरोध',
+      'ward_indent.request.title': 'आदेश-बद्ध आपूर्ति पुनर्प्राप्ति',
+      'ward_indent.request.help': 'केवल तब उपयोग करें जब सक्रिय दवा आदेश के लिए स्वचालित वार्ड इंडेंट न बना हो। यहां दवा न लिखें या न बदलें।',
+      'ward_indent.request.admission_id': 'भर्ती आईडी',
+      'ward_indent.request.admission_hint': 'सक्रिय भर्ती आईडी दर्ज करें',
+      'ward_indent.request.load': 'आदेश लोड करें',
+      'ward_indent.request.admission_invalid':
+          'मान्य धनात्मक भर्ती आईडी दर्ज करें।',
+      'ward_indent.request.context': 'मरीज़ और वार्ड की पुष्टि करें',
+      'ward_indent.request.patient_context': 'मरीज़: {patient} ({hospitalId})',
+      'ward_indent.request.ward_context': 'भर्ती {admission} - वार्ड {ward}',
+      'ward_indent.request.none_eligible': 'पुनर्प्राप्ति अनुरोध के लिए कोई सक्रिय, असंबद्ध दवा आदेश पात्र नहीं है।',
+      'ward_indent.request.select_order': 'दवा आदेश चुनें',
+      'ward_indent.request.order_summary': '{order} - {quantity} {unit}; खुराक {dose}; मार्ग {route}; समय-सारणी {schedule}; स्थिति {status}; प्राथमिकता {priority}',
+      'ward_indent.request.notes': 'पुनर्प्राप्ति टिप्पणी (वैकल्पिक)',
+      'ward_indent.request.notes_hint':
+          'बताएं कि स्वचालित आपूर्ति अनुरोध की पुनर्प्राप्ति क्यों आवश्यक है',
+      'ward_indent.request.submit': 'वार्ड इंडेंट बनाएं',
+      'ward_indent.request.conflict.admission_inactive': 'भर्ती अब सक्रिय नहीं है। आदेश सूची ताज़ा की गई और कोई अनुरोध नहीं भेजा गया।',
+      'ward_indent.request.conflict.already_linked': 'यह दवा आदेश पहले से वार्ड इंडेंट से जुड़ा है। आदेश सूची ताज़ा की गई।',
+      'ward_indent.request.conflict.projection_changed': 'आदेश-बद्ध आपूर्ति विवरण बदल गए। पुनः प्रयास से पहले ताज़ा सूची की समीक्षा करें।',
+      'ward_indent.request.conflict.canonical_changed': 'आपूर्ति कैटलॉग {catalog}, मात्रा {quantity} {unit} में बदल गई। पुनः प्रयास से पहले ताज़ा आदेश की समीक्षा करें।',
       'pharmacy.tab.active': 'सक्रिय',
       'pharmacy.tab.done': 'पूर्ण',
       'pharmacy.empty.new': 'कोई नया आदेश नहीं',
@@ -13209,6 +14300,29 @@ class AppStrings {
       'due_meds.filter.all_wards': 'सभी वार्ड',
       'due_meds.filter.all_routes': 'सभी मार्ग',
       'due_meds.filter.route_label': 'मार्ग',
+      // REVIEW: MED-03 hi AI first pass; clinician-linguist approval is required before activation.
+      'due_meds.actions.label': 'दवा की कार्रवाइयाँ',
+      'due_meds.actions.miss': 'खुराक छूटी दर्ज करें',
+      'due_meds.actions.hold': 'खुराक रोकें',
+      'due_meds.actions.release': 'रोकी गई खुराक रिलीज़ करें',
+      'due_meds.actions.miss_title': 'इस खुराक को छूटी हुई दर्ज करें?',
+      'due_meds.actions.hold_title': 'इस खुराक को रोकें?',
+      'due_meds.actions.release_title': 'इस रोकी गई खुराक को रिलीज़ करें?',
+      'due_meds.actions.miss_body': 'केवल तब उपयोग करें जब निर्धारित खुराक नहीं दी गई हो। नैदानिक कारण MAR का हिस्सा बनेगा।',
+      'due_meds.actions.hold_body': 'नैदानिक समीक्षा तक निर्धारित खुराक रोकने के लिए ही उपयोग करें। रोकना दवा दिए जाने का रिकॉर्ड नहीं है।',
+      'due_meds.actions.release_body': 'प्रिस्क्राइबर को नैदानिक समीक्षा दर्ज करनी होगी। रिलीज़ खुराक को फिर से निर्धारित स्थिति में लाती है; यह दवा दिए जाने का रिकॉर्ड नहीं है।',
+      'due_meds.actions.reason_label': 'नैदानिक कारण',
+      'due_meds.actions.reason_hint': 'कम से कम 5 अक्षर दर्ज करें',
+      'due_meds.actions.reason_required':
+          'विशिष्ट नैदानिक कारण दर्ज करें (कम से कम 5 अक्षर)।',
+      'due_meds.actions.cancel': 'रद्द करें',
+      'due_meds.actions.confirm_miss': 'छूटी खुराक दर्ज करें',
+      'due_meds.actions.confirm_hold': 'खुराक रोकें',
+      'due_meds.actions.confirm_release': 'निर्धारित स्थिति में रिलीज़ करें',
+      'due_meds.actions.miss_success': 'छूटी खुराक दर्ज हो गई',
+      'due_meds.actions.hold_success': 'खुराक रोक दी गई',
+      'due_meds.actions.release_success':
+          'रोकी गई खुराक निर्धारित स्थिति में रिलीज़ की गई',
       // REVIEW: hi AI first-pass S4 due-meds display copy.
       's4.dynamic.due_meds.ward_fallback': 'वार्ड {value}',
       'due_meds.unscheduled': 'अनिर्धारित',
@@ -14264,6 +15378,150 @@ class AppStrings {
       's4.dynamic.cath_lab.consumables.batch': "बैच/लॉट {batch}",
       's4.dynamic.cath_lab.consumables.expiry': "समाप्ति {expiry}",
       's4.dynamic.cath_lab.consumables.serial': "सीरियल {serial}",
+      'med03.cath_inventory.title': "कैथ इन्वेंटरी मिलान",
+      'med03.cath_inventory.access_denied': "आपकी भूमिका इस कैथ इन्वेंटरी कार्यप्रवाह को खोलने के लिए अधिकृत नहीं है।",
+      'med03.cath_inventory.invalid_target':
+          "कैथ केस या उपभोग उपयोग पहचानकर्ता अमान्य है।",
+      'med03.cath_inventory.target_mismatch': "कैथ केस और उपभोग उपयोग पहचानकर्ता प्रामाणिक मिलान रिकॉर्ड से मेल नहीं खाते।",
+      'med03.cath_inventory.load_failed': "प्रामाणिक कैथ इन्वेंटरी मिलान स्थिति लोड नहीं हुई। दोबारा कनेक्ट करके प्रयास करें।",
+      'med03.cath_inventory.summary':
+          "प्रामाणिक दर्ज उपयोग और इन्वेंटरी स्थिति",
+      'med03.cath_inventory.case_id': "कैथ केस आईडी",
+      'med03.cath_inventory.usage_id': "उपभोग उपयोग आईडी",
+      'med03.cath_inventory.patient_uid': "रोगी पहचानकर्ता",
+      'med03.cath_inventory.item': "उपभोग्य सामग्री या इम्प्लांट",
+      'med03.cath_inventory.inventory_item_id': "इन्वेंटरी वस्तु आईडी",
+      'med03.cath_inventory.inventory_batch_id': "इन्वेंटरी बैच आईडी",
+      'med03.cath_inventory.batch_number': "दर्ज बैच संख्या",
+      'med03.cath_inventory.documented_quantity': "दर्ज मात्रा",
+      'med03.cath_inventory.decremented_quantity':
+          "इन्वेंटरी से घटाई गई मात्रा",
+      'med03.cath_inventory.remaining_quantity': "बैच में शेष मात्रा",
+      'med03.cath_inventory.status': "इन्वेंटरी मिलान स्थिति",
+      'med03.cath_inventory.task_status': "कार्य स्थिति",
+      'med03.cath_inventory.sla_status': "सेवा-स्तर स्थिति",
+      'med03.cath_inventory.due_at': "नियत समय",
+      'med03.cath_inventory.value_unknown': "उपलब्ध नहीं",
+      'med03.cath_inventory.status.insufficient_stock':
+          "दर्ज उपयोग इन्वेंटरी मिलान की प्रतीक्षा में है",
+      'med03.cath_inventory.status.decremented':
+          "सटीक इन्वेंटरी कटौती पूर्ण हुई",
+      'med03.cath_inventory.status.unknown':
+          "इन्वेंटरी मिलान स्थिति उपलब्ध नहीं है",
+      'med03.cath_inventory.task_status.open': "खुला",
+      'med03.cath_inventory.task_status.in_progress': "कार्य जारी है",
+      'med03.cath_inventory.task_status.overdue': "समय-सीमा पार",
+      'med03.cath_inventory.task_status.completed': "पूर्ण",
+      'med03.cath_inventory.task_status.unknown': "कार्य स्थिति उपलब्ध नहीं है",
+      'med03.cath_inventory.sla_status.active': "सक्रिय",
+      'med03.cath_inventory.sla_status.breached': "समय-सीमा उल्लंघित",
+      'med03.cath_inventory.sla_status.escalated': "उच्च स्तर पर भेजा गया",
+      'med03.cath_inventory.sla_status.completed': "पूर्ण",
+      'med03.cath_inventory.sla_status.cancelled': "रद्द",
+      'med03.cath_inventory.sla_status.unknown':
+          "सेवा-स्तर स्थिति उपलब्ध नहीं है",
+      'med03.cath_inventory.not_actionable': "यह प्रामाणिक मिलान अभी कार्रवाई योग्य नहीं है। इन्वेंटरी रिकॉर्ड सुधरने के बाद रीफ्रेश करें।",
+      'med03.cath_inventory.coverage_only': "कवरेज प्रशासक इस साक्ष्य को देख और रीफ्रेश कर सकते हैं। इन्वेंटरी परिवर्तन केवल फार्मेसी मिलान भूमिकाएँ कर सकती हैं।",
+      'med03.cath_inventory.confirm_title': "दर्ज कैथ उपयोग का मिलान करें?",
+      'med03.cath_inventory.confirm_body': "सर्वर केवल दर्ज सटीक बैच या पात्र FEFO बैच उपयोग करेगा। कोई मनमाना बैच या उपकरण पहचानकर्ता स्वीकार नहीं होगा।",
+      'med03.cath_inventory.confirm_action': "इन्वेंटरी मिलान करें",
+      'med03.cath_inventory.reconcile_action': "दर्ज उपयोग का मिलान करें",
+      'med03.cath_inventory.retry_same_attempt':
+          "सुरक्षित मिलान पुनः प्रयास करें",
+      'med03.cath_inventory.reconciling': "इन्वेंटरी मिलान हो रहा है...",
+      'med03.cath_inventory.completed': "प्रामाणिक रिकॉर्ड सटीक इन्वेंटरी कटौती और कार्यप्रवाह समापन की पुष्टि करता है।",
+      'med03.cath_inventory.still_insufficient': "इन्वेंटरी अभी भी अपर्याप्त है। कार्य खुला रहेगा; स्टॉक भरें या साक्ष्य सुधारें, फिर प्रयास करें।",
+      'med03.cath_inventory.response_unconfirmed': "मिलान परिणाम की पुष्टि नहीं हुई। उसी सुरक्षित प्रयास को पुनः उपयोग करने के लिए बिना बदलाव फिर प्रयास करें।",
+      'med03.cath_inventory.refresh_action': "प्रामाणिक स्थिति रीफ्रेश करें",
+      'med03.cath_inventory.warning.insufficient_stock': 'इन्वेंटरी अभी भी कम है। दोबारा प्रयास से पहले स्टॉक भरें या उसके साक्ष्य को सुधारें।',
+      'med03.cath_inventory.warning.batch_expired': 'सटीक इन्वेंटरी बैच की समय-सीमा समाप्त हो गई है, इसलिए स्टॉक घटाव दर्ज नहीं हुआ।',
+      'med03.cath_inventory.warning.quantity_invalid': 'सटीक इन्वेंटरी बैच की मात्रा अमान्य है, इसलिए स्टॉक घटाव दर्ज नहीं हुआ।',
+      'med03.cath_inventory.warning.lineage_mismatch': 'दर्ज बैच, लॉट या समाप्ति तिथि अब इन्वेंटरी से मेल नहीं खाती। स्टॉक घटाव दर्ज नहीं हुआ।',
+      'med03.cath_inventory.warning.lineage_incomplete':
+          'दर्ज इन्वेंटरी वंशावली अधूरी है। स्टॉक घटाव दर्ज नहीं हुआ।',
+      'med03.cath_inventory.warning.controlled_stock': 'नियंत्रित स्टॉक के लिए वैधानिक वितरण वर्कफ़्लो आवश्यक है। कैथ इन्वेंटरी मूवमेंट दर्ज नहीं हुआ।',
+      'med03.cath_inventory.warning.inventory_not_linked': 'यह कैथ कैटलॉग आइटम इन्वेंटरी से जुड़ा नहीं है। स्टॉक घटाव दर्ज नहीं हुआ।',
+      'med03.cath_inventory.warning.batch_unavailable': 'सटीक इन्वेंटरी बैच अनुपलब्ध या अस्पष्ट है। स्टॉक घटाव दर्ज नहीं हुआ।',
+      'med03.cath_inventory.warning.unknown': 'इन्वेंटरी चेतावनी पहचानी नहीं गई। कार्रवाई से पहले प्रामाणिक स्टॉक साक्ष्य की समीक्षा करें।',
+      'med03.alert_recovery.title': 'क्लिनिकल अलर्ट वितरण पुनर्प्राप्ति',
+      'med03.alert_recovery.empty':
+          'कोई खुला क्लिनिकल अलर्ट वितरण पुनर्प्राप्ति मामला नहीं है।',
+      'med03.alert_recovery.load_failed': 'प्रामाणिक क्लिनिकल अलर्ट पुनर्प्राप्ति मामला लोड नहीं हुआ। फिर कनेक्ट होकर प्रयास करें।',
+      'med03.alert_recovery.action_failed': 'क्लिनिकल अलर्ट पुनर्प्राप्ति कार्रवाई की पुष्टि नहीं हुई। दोबारा प्रयास से पहले प्रामाणिक मामला रीफ्रेश करें।',
+      'med03.alert_recovery.field.case_status': 'पुनर्प्राप्ति मामले की स्थिति',
+      'med03.alert_recovery.field.delivery_status': 'अलर्ट वितरण स्थिति',
+      'med03.alert_recovery.field.task_status': 'पुनर्प्राप्ति कार्य स्थिति',
+      'med03.alert_recovery.field.sla_status': 'सेवा-समय स्थिति',
+      'med03.alert_recovery.field.source': 'प्रामाणिक स्रोत',
+      'med03.alert_recovery.field.failure': 'वितरण विफलता चरण',
+      'med03.alert_recovery.field.timing': 'पुनर्प्राप्ति समय',
+      'med03.alert_recovery.field.last_error': 'अंतिम वितरण त्रुटि',
+      'med03.alert_recovery.field.hold_reason': 'मैनुअल होल्ड का कारण',
+      'med03.alert_recovery.field.resolution': 'पुनर्प्राप्ति समाधान',
+      'med03.alert_recovery.timing_value':
+          'देय {due} • {seconds} सेकंड से खुला • एस्केलेशन प्रयास {count}',
+      'med03.alert_recovery.case_kind.manual_hold':
+          'मैनुअल होल्ड स्रोत समीक्षा',
+      'med03.alert_recovery.case_kind.recipient_coverage':
+          'क्लिनिकल प्राप्तकर्ता कवरेज पुनर्प्राप्ति',
+      'med03.alert_recovery.case_kind.unknown':
+          'अज्ञात पुनर्प्राप्ति मामला प्रकार',
+      'med03.alert_recovery.source.clinical_orders': 'क्लिनिकल आदेश',
+      'med03.alert_recovery.source.icu_admissions': 'आईसीयू भर्ती',
+      'med03.alert_recovery.source.unknown': 'अज्ञात क्लिनिकल स्रोत',
+      'med03.alert_recovery.case_status.open': 'खुला',
+      'med03.alert_recovery.case_status.resolved': 'समाधान हुआ',
+      'med03.alert_recovery.case_status.unknown':
+          'अज्ञात पुनर्प्राप्ति मामला स्थिति',
+      'med03.alert_recovery.delivery_status.pending': 'वितरण लंबित',
+      'med03.alert_recovery.delivery_status.completed': 'वितरण पूरा हुआ',
+      'med03.alert_recovery.delivery_status.manual_hold':
+          'वितरण मैनुअल होल्ड पर है',
+      'med03.alert_recovery.delivery_status.unknown':
+          'अज्ञात अलर्ट वितरण स्थिति',
+      'med03.alert_recovery.task_status.open': 'खुला',
+      'med03.alert_recovery.task_status.in_progress': 'प्रगति में',
+      'med03.alert_recovery.task_status.blocked': 'अवरुद्ध',
+      'med03.alert_recovery.task_status.completed': 'पूरा हुआ',
+      'med03.alert_recovery.task_status.cancelled': 'रद्द',
+      'med03.alert_recovery.task_status.overdue': 'समय-सीमा पार',
+      'med03.alert_recovery.task_status.unknown':
+          'अज्ञात पुनर्प्राप्ति कार्य स्थिति',
+      'med03.alert_recovery.sla_status.active': 'सक्रिय',
+      'med03.alert_recovery.sla_status.completed': 'पूरा हुआ',
+      'med03.alert_recovery.sla_status.breached': 'समय सीमा का उल्लंघन',
+      'med03.alert_recovery.sla_status.escalated': 'एस्केलेट किया गया',
+      'med03.alert_recovery.sla_status.cancelled': 'रद्द',
+      'med03.alert_recovery.sla_status.unknown': 'अज्ञात सेवा-समय स्थिति',
+      'med03.alert_recovery.failure.order_mar_schedule':
+          'दवा आदेश MAR शेड्यूलिंग विफल',
+      'med03.alert_recovery.failure.order_mar_carryover':
+          'दवा आदेश MAR कैरीओवर विफल',
+      'med03.alert_recovery.failure.icu_mar_carryover_query':
+          'आईसीयू MAR कैरीओवर स्रोत खोज विफल',
+      'med03.alert_recovery.failure.unknown':
+          'अज्ञात क्लिनिकल अलर्ट वितरण विफलता',
+      'med03.alert_recovery.resolution.recovered':
+          'अलर्ट वितरण पुनर्प्राप्त हुआ',
+      'med03.alert_recovery.resolution.manual_hold':
+          'नियंत्रित मैनुअल होल्ड में भेजा गया',
+      'med03.alert_recovery.resolution.superseded':
+          'प्रामाणिक स्रोत से प्रतिस्थापित',
+      'med03.alert_recovery.resolution.unknown': 'अज्ञात पुनर्प्राप्ति समाधान',
+      'med03.alert_recovery.error.no_active_clinical_recipients':
+          'अभी कोई सक्रिय नियंत्रित क्लिनिकल प्राप्तकर्ता उपलब्ध नहीं है।',
+      'med03.alert_recovery.error.clinical_alert_recovery_queue_failed':
+          'नियंत्रित अलर्ट कतार वितरण साक्ष्य सहेज नहीं सकी।',
+      'med03.alert_recovery.error.clinical_alert_obligation_intent_invalid': 'संग्रहित अलर्ट इंटेंट अनुपलब्ध या अमान्य है। कोई प्रतिस्थापन अलर्ट नहीं भेजा गया।',
+      'med03.alert_recovery.error.clinical_alert_obligation_policy_invalid': 'संग्रहित प्राप्तकर्ता नीति नियंत्रित ड्यूटी-डॉक्टर नीति नहीं है। कोई प्रतिस्थापन अलर्ट नहीं भेजा गया।',
+      'med03.alert_recovery.error.clinical_alert_obligation_source_missing': 'प्रामाणिक स्रोत क्लिनिकल रिकॉर्ड अनुपलब्ध है। कोई प्रतिस्थापन अलर्ट नहीं भेजा गया।',
+      'med03.alert_recovery.error.clinical_alert_obligation_source_mismatch': 'संग्रहित अलर्ट अपने प्रामाणिक स्रोत से मेल नहीं खाता। कोई प्रतिस्थापन अलर्ट नहीं भेजा गया।',
+      'med03.alert_recovery.error.unknown': 'पुनर्प्राप्ति त्रुटि पहचानी नहीं गई। कार्रवाई से पहले प्रामाणिक साक्ष्य की समीक्षा करें।',
+      'med03.notification.clinical_alert_recovery.overdue_title':
+          'क्लिनिकल अलर्ट वितरण पुनर्प्राप्ति की समय-सीमा पार हो गई',
+      'med03.notification.clinical_alert_recovery.overdue_body': 'एक अलर्ट वितरण पुनर्प्राप्ति मामला सेवा-समय पार कर चुका है और प्रशासक कार्रवाई चाहता है।',
+      'med03.notification.clinical_alert_recovery.action':
+          'अलर्ट वितरण पुनर्प्राप्ति खोलें',
       's4.lib.stroke_pathway.activation': "सक्रियण",
       's4.lib.stroke_pathway.decision.administered': "दिया गया",
       's4.lib.stroke_pathway.decision.approved': "स्वीकृत",
@@ -15876,6 +17134,56 @@ class AppStrings {
           "इन्वेंटरी एवं खरीद निरीक्षण",
       's4.lib.pharmacy.inventory_item_added': "इन्वेंटरी आइटम जोड़ा गया",
       's4.lib.pharmacy.inventory_items': "इन्वेंटरी आइटम",
+      'pharmacy.disposal.title': 'इन्वेंटरी निपटान दर्ज करें',
+      'pharmacy.disposal.open': 'सटीक बैच का निपटान करें',
+      'pharmacy.disposal.facility': 'फार्मेसी सुविधा',
+      'pharmacy.disposal.facility_hint':
+          'केवल आपके सक्रिय सर्वर-सत्यापित अनुदान वाली सुविधाएँ सूचीबद्ध हैं।',
+      'pharmacy.disposal.facility_required':
+          'आगे बढ़ने से पहले अपने सक्रिय फार्मेसी अनुदान से एक सुविधा चुनें।',
+      'pharmacy.disposal.role_required': 'केवल सक्रिय फार्मेसी कर्मचारी या फार्मेसी प्रभारी ही निपटान दर्ज कर सकते हैं।',
+      'pharmacy.disposal.item_authority_missing': 'इन्वेंटरी आइटम की पहचान उपलब्ध नहीं है। कोई निपटान दर्ज नहीं किया जा सकता।',
+      'pharmacy.disposal.authority_hint': 'सर्वर लॉक के अंतर्गत सक्रिय सुविधा अनुदान, आइटम, कैटलॉग, आपूर्तिकर्ता, भंडारण स्थान, बैच और स्टॉक को फिर सत्यापित करता है।',
+      'pharmacy.disposal.batch': 'सटीक इन्वेंटरी बैच',
+      'pharmacy.disposal.batch_option':
+          'बैच {batch} · लॉट {lot} · {status} · शेष {quantity}',
+      'pharmacy.disposal.batch_required': 'एक सटीक पात्र बैच चुनें।',
+      'pharmacy.disposal.batch_constraints': 'आपूर्तिकर्ता {supplier} · स्थिति {status} · समाप्ति {expiry} · शेष {quantity}। केवल स्टॉक में, समाप्त, वापस बुलाए या क्वारंटीन बैच का निपटान हो सकता है।',
+      'pharmacy.disposal.no_eligible_batches': 'इस सुविधा में कोई पात्र बैच उपलब्ध नहीं है। कोई इन्वेंटरी गतिविधि दर्ज नहीं हुई।',
+      'pharmacy.disposal.quantity': 'निपटान मात्रा',
+      'pharmacy.disposal.quantity_hint':
+          'धनात्मक मात्रा, अधिकतम चार दशमलव स्थान।',
+      'pharmacy.disposal.quantity_invalid': 'अधिकतम चार दशमलव स्थानों के साथ 9,999,999,999.9999 तक धनात्मक मात्रा दर्ज करें।',
+      'pharmacy.disposal.quantity_exceeds_stock':
+          'निपटान मात्रा बैच की प्रामाणिक शेष मात्रा {quantity} से अधिक है।',
+      'pharmacy.disposal.reason_code': 'नियंत्रित कारण कोड',
+      'pharmacy.disposal.reason_hint': 'उदाहरण: damaged',
+      'pharmacy.disposal.reason_required':
+          'नियंत्रित निपटान कारण कोड आवश्यक है।',
+      'pharmacy.disposal.method': 'भौतिक निपटान विधि',
+      'pharmacy.disposal.method_hint': 'उदाहरण: authorized_incineration',
+      'pharmacy.disposal.method_required': 'भौतिक निपटान विधि आवश्यक है।',
+      'pharmacy.disposal.controlled_warning': 'शेड्यूल X या नारकोटिक निपटान के लिए स्वतंत्र रूप से प्रमाणित एक-बार गवाह स्वीकृति आवश्यक है। शेड्यूल H/H1/X अभिरक्षा वैधानिक रजिस्टर में दर्ज होगी।',
+      'pharmacy.disposal.witness_title': 'स्वतंत्र निपटान गवाह',
+      // REVIEW: technical parity only; requires Hindi linguistic review.
+      'pharmacy.disposal.witness_hint': 'ऐसे दूसरे सक्रिय PHARMACY_STAFF या PHARMACY_INCHARGE ऑपरेटर का उपयोग करें जिसके पास चुनी गई इसी सुविधा के लिए ACTIVE ग्रांट हो। उसे स्वतंत्र रूप से प्रमाणित करना होगा; वर्तमान ऑपरेटर अपने निपटान का गवाह नहीं हो सकता।',
+      'pharmacy.disposal.witness_employee_id': 'गवाह कर्मचारी आईडी',
+      'pharmacy.disposal.witness_password': 'गवाह पासवर्ड',
+      'pharmacy.disposal.witness_approve': 'प्रमाणित कर स्वीकृत करें',
+      'pharmacy.disposal.witness_required': 'सटीक, असमाप्त गवाह स्वीकृति के बिना यह नियंत्रित निपटान आगे नहीं बढ़ सकता।',
+      'pharmacy.disposal.witness_approved_by': '{name} ने गवाह स्वीकृति दी',
+      'pharmacy.disposal.witness_staff': 'स्वतंत्र कर्मचारी गवाह',
+      'pharmacy.disposal.witness_pending':
+          'स्वतंत्र गवाह स्वीकृति पूरी नहीं है।',
+      'pharmacy.disposal.witness_replace': 'गवाह स्वीकृति बदलें',
+      'pharmacy.disposal.witness_request': 'गवाह का अनुरोध और स्वीकृति',
+      'pharmacy.disposal.submit': 'अपरिवर्तनीय निपटान दर्ज करें',
+      'pharmacy.disposal.completed':
+          'सटीक बैच निपटान और आवश्यक वैधानिक साक्ष्य दर्ज किए गए।',
+      // REVIEW: facility-bound pharmacy custody technical parity only; requires Hindi linguistic review.
+      'pharmacy.order.controlled_witness_custody_hint': 'नियंत्रित ऑर्डर अभिरक्षा के लिए दूसरा सक्रिय PHARMACY_STAFF या PHARMACY_INCHARGE ऑपरेटर आवश्यक है, जिसके पास चुनी गई इसी सुविधा के लिए ACTIVE ग्रांट हो। उसे स्वतंत्र रूप से प्रमाणित करना होगा; वर्तमान ऑपरेटर अपनी अभिरक्षा कार्रवाई को स्वयं स्वीकृत नहीं कर सकता।',
+      // REVIEW: technical parity only; requires Hindi linguistic review.
+      'pharmacy.inventory.composition_review_required': 'कैटलॉग आइटम {catalogId} की कोई आधिकारिक संरचना पहचान नहीं है। कोई इन्वेंट्री आइटम नहीं बनाया गया। दोबारा प्रयास करने से पहले नियंत्रित कैटलॉग-संरचना समीक्षा पूरी होनी चाहिए।',
       's4.lib.pharmacy.manufacturer': "उत्पादक",
       's4.lib.pharmacy.mark_urgent': "अत्यावश्यक चिह्नित करें",
       's4.lib.pharmacy.medicine_names_dose_quantity_or_rx_note':
@@ -17137,6 +18445,195 @@ class AppStrings {
           'स्कैन किया गया बारकोड आदेशित दवा से मेल नहीं खाता (गलत दवा)।',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       'mar_scan.hardstop.body': 'रोगी और दवा की पहचान के मेल न खाने को ओवरराइड नहीं किया जा सकता। पुष्टि करें कि रोगी और दवा सही हैं, फिर दोबारा स्कैन करें।',
+      'medication_supply.unit.tablet': 'गोली',
+      'medication_supply.unit.capsule': 'कैप्सूल',
+      'medication_supply.unit.ampoule': 'एम्प्यूल',
+      'medication_supply.unit.vial': 'शीशी',
+      'medication_supply.unit.bag': 'बैग',
+      'medication_supply.unit.prefilled_syringe': 'पहले से भरी सिरिंज',
+      'medication_supply.unit.cartridge': 'कार्ट्रिज',
+      'medication_supply.unit.ml': 'मिलीलीटर',
+      'medication_supply.unit.dose': 'खुराक',
+      'medication_supply.unit.patch': 'पैच',
+      'medication_supply.unit.actuation': 'एक पफ',
+      'medication_supply.unit.spray': 'स्प्रे',
+      'medication_supply.unit.application': 'लगाना',
+      'medication_supply.unit.bottle': 'बोतल',
+      'medication_supply.unit.tube': 'ट्यूब',
+      'medication_supply.unit.sachet': 'सैशे',
+      'medication_supply.unit.suppository': 'सपोजिटरी',
+      'medication_supply.unit.drop': 'बूंद',
+      'medication_supply.unit.kit': 'किट',
+      'medication_supply.unit.each': 'प्रत्येक',
+      // REVIEW: MED-03 AI first pass - confirm medication custody wording with a Hindi-fluent clinician.
+      'mar_scan.supply.title': 'वार्ड आपूर्ति साक्ष्य',
+      'mar_scan.supply.status.available': 'सटीक वार्ड अभिरक्षा उपलब्ध है',
+      'mar_scan.supply.status.quantity_required':
+          'संरचित डोज़ मात्रा आवश्यक है',
+      'mar_scan.supply.status.custody_unavailable':
+          'वार्ड अभिरक्षा उपलब्ध नहीं है',
+      'mar_scan.supply.status.substitution_acknowledgement_required':
+          'प्रतिस्थापन प्राप्ति की पुष्टि आवश्यक है',
+      'mar_scan.supply.status.order_link_required': 'दवा ऑर्डर लिंक आवश्यक है',
+      'mar_scan.supply.status.ward_item_required':
+          'वार्ड इंडेंट लिंक आवश्यक है',
+      'mar_scan.supply.status.ward_item_ambiguous':
+          'वार्ड इंडेंट लिंक अस्पष्ट है',
+      'mar_scan.supply.status.reconciliation_required':
+          'आपूर्ति मिलान आवश्यक है',
+      'mar_scan.supply.status.batch_unavailable':
+          'आवंटित बैच उपलब्ध नहीं है; फार्मेसी को इसे बदलना या मिलान करना होगा',
+      'mar_scan.supply.status.unknown': 'आपूर्ति स्थिति उपलब्ध नहीं है',
+      'mar_scan.supply.available_quantity': 'उपलब्ध मात्रा: {quantity}',
+      'mar_scan.supply.required_quantity': 'आवश्यक डोज़ मात्रा: {quantity}',
+      'mar_scan.supply.batch_line': '{name} · बैच {batch} · उपलब्ध {quantity}',
+      'mar_scan.supply.blocked':
+          'फार्मेसी और वार्ड आपूर्ति साक्ष्य ठीक होने तक दवा न दें।',
+      'mar_scan.supply.quantity_label': 'संरचित डोज़ मात्रा',
+      'mar_scan.supply.override_reason_label':
+          'आपूर्ति ओवरराइड का कारण (आवश्यक)',
+      'mar_scan.supply.override_warning':
+          'ओवरराइड से नामित मिलान कार्य और अपरिवर्तनीय साक्ष्य बनता है।',
+      'mar_scan.supply.quantity_error': 'धनात्मक संरचित डोज़ मात्रा दर्ज करें।',
+      'mar_scan.supply.override_error':
+          'आपूर्ति ओवरराइड का सार्थक कारण लिखें (कम से कम 15 अक्षर)।',
+      'mar_scan.supply.hard_stop_error':
+          'आपूर्ति साक्ष्य अधूरा या अस्पष्ट है। दवा देने से पहले मिलान करें।',
+      'med03.credit_note.title': 'दवा क्रेडिट नोट',
+      'med03.credit_note.open_queue': 'क्रेडिट-नोट कतार',
+      'med03.gateway_refund_reconciliation.title': 'गेटवे रिफंड मिलान',
+      'med03.gateway_refund_reconciliation.open_queue':
+          'गेटवे रिफंड रिकवरी खोलें',
+      'med03.gateway_refund_reconciliation.queue': 'प्रदाता समीक्षा वाले रिफंड',
+      'med03.gateway_refund_reconciliation.empty':
+          'अभी किसी प्रदाता रिफंड का मिलान आवश्यक नहीं है।',
+      'med03.gateway_refund_reconciliation.select':
+          'साक्ष्य की समीक्षा के लिए रोका गया प्रदाता रिफंड चुनें।',
+      'med03.gateway_refund_reconciliation.access_denied':
+          'प्लेटफ़ॉर्म व्यवस्थापक पहुंच आवश्यक है।',
+      'med03.gateway_refund_reconciliation.amount': 'राशि',
+      'med03.gateway_refund_reconciliation.refund': 'गेटवे रिफंड',
+      'med03.gateway_refund_reconciliation.billing_refund': 'बिलिंग रिफंड',
+      'med03.gateway_refund_reconciliation.provider_payment': 'प्रदाता भुगतान',
+      'med03.gateway_refund_reconciliation.provider_refund': 'प्रदाता रिफंड',
+      'med03.gateway_refund_reconciliation.failure': 'रोकने का कारण',
+      'med03.gateway_refund_reconciliation.disposition': 'सत्यापित परिणाम',
+      'med03.gateway_refund_reconciliation.disposition.provider_not_refunded':
+          'प्रदाता ने रिफंड न होने की पुष्टि की',
+      'med03.gateway_refund_reconciliation.disposition.manual_settled':
+          'प्रदाता रिफंड निपट गया',
+      'med03.gateway_refund_reconciliation.disposition.unknown':
+          'अज्ञात परिणाम',
+      'med03.gateway_refund_reconciliation.evidence': 'प्रदाता साक्ष्य संदर्भ',
+      'med03.gateway_refund_reconciliation.evidence_settled_help':
+          'प्रदाता का सटीक रिफंड पहचानकर्ता दर्ज करें।',
+      'med03.gateway_refund_reconciliation.evidence_not_refunded_help':
+          'प्रदाता केस या उत्तर का उत्तरदायी संदर्भ दर्ज करें।',
+      'med03.gateway_refund_reconciliation.note': 'मिलान टिप्पणी',
+      'med03.gateway_refund_reconciliation.gateway_retry_notice': 'यह विफल निष्पादन बंद करता है, लेकिन सटीक पुनः प्रयास के लिए स्वीकृत रिफंड को एकीकृत गेटवे रेल पर रखता है।',
+      'med03.gateway_refund_reconciliation.submit': 'सत्यापित परिणाम दर्ज करें',
+      'med03.gateway_refund_reconciliation.validation':
+          'साक्ष्य 6-120 और टिप्पणी 10-500 अक्षरों की होनी चाहिए।',
+      'med03.gateway_refund_reconciliation.confirm_title':
+          'प्रदाता रिफंड परिणाम की पुष्टि करें',
+      'med03.gateway_refund_reconciliation.confirm_body':
+          'यह अंतिम प्रदाता परिणाम दर्ज करें: {disposition}।',
+      'med03.gateway_refund_reconciliation.success':
+          'गेटवे रिफंड मिलान दर्ज हो गया।',
+      'med03.gateway_refund_reconciliation.open_authority':
+          'बिलिंग रिफंड प्राधिकरण खोलें',
+      'med03.notification.gateway_refund_reconciliation.title':
+          'प्रदाता रिफंड का मिलान आवश्यक है',
+      'med03.notification.gateway_refund_reconciliation.body': 'एक गेटवे रिफंड रोका गया है। प्रदाता साक्ष्य सत्यापित करें और सटीक परिणाम दर्ज करें।',
+      'med03.notification.gateway_refund_reconciliation.action':
+          'रिफंड मिलान खोलें',
+      'med03.credit_note.access_denied': 'दवा क्रेडिट-नोट समीक्षा केवल बिलिंग, वित्त और प्रशासक भूमिकाओं के लिए है।',
+      'med03.credit_note.queue': 'समीक्षा और निपटान कतार',
+      'med03.credit_note.empty':
+          'इस फ़िल्टर से मेल खाने वाला कोई दवा क्रेडिट नोट नहीं है।',
+      'med03.credit_note.select': 'अपरिवर्तनीय स्रोत और अगली जिम्मेदार कार्रवाई देखने के लिए क्रेडिट नोट चुनें।',
+      'med03.credit_note.status.all': 'सभी',
+      'med03.credit_note.status.pending': 'लंबित',
+      'med03.credit_note.status.approved': 'स्वीकृत',
+      'med03.credit_note.status.applied': 'लागू',
+      'med03.credit_note.status.rejected': 'अस्वीकृत',
+      'med03.credit_note.status.paid': 'भुगतान किया गया',
+      'med03.credit_note.status.unknown': 'अज्ञात स्थिति',
+      'med03.credit_note.event.raised': 'उठाया गया',
+      'med03.credit_note.action_completed':
+          'प्रामाणिक बिलिंग वर्कफ़्लो अपडेट किया गया।',
+      'med03.credit_note.approve_title': 'क्रेडिट नोट स्वीकृत करें',
+      'med03.credit_note.approve_body': 'स्वीकृति के बाद भी वही SLA तब तक खुला रहेगा जब तक क्रेडिट रोगी खाते में लागू नहीं होता।',
+      'med03.credit_note.reject_title': 'क्रेडिट नोट अस्वीकार करें',
+      'med03.credit_note.rejection_reason': 'अस्वीकृति का कारण',
+      'med03.credit_note.apply_title': 'स्वीकृत क्रेडिट नोट लागू करें',
+      'med03.credit_note.refund_mode': 'मूल रिफंड माध्यम',
+      'med03.credit_note.refund_mode.cash': 'नकद',
+      'med03.credit_note.refund_mode.card': 'कार्ड',
+      'med03.credit_note.refund_mode.upi': 'यूपीआई (UPI)',
+      'med03.credit_note.refund_mode.netbanking': 'नेट बैंकिंग',
+      'med03.credit_note.refund_mode.cheque': 'चेक',
+      'med03.credit_note.refund_mode.dd': 'डिमांड ड्राफ्ट',
+      'med03.credit_note.refund_mode.wallet': 'वॉलेट',
+      'med03.credit_note.refund_mode.insurance': 'बीमा',
+      'med03.credit_note.refund_mode.unknown': 'अज्ञात रिफंड माध्यम',
+      'med03.credit_note.notification_action': 'क्रेडिट नोट खोलें',
+      'med03.notification.alert_recovery.overdue_title':
+          'क्लिनिकल अलर्ट डिलीवरी रिकवरी की समय-सीमा बीत गई है',
+      'med03.notification.alert_recovery.overdue_body': 'क्लिनिकल अलर्ट डिलीवरी रिकवरी मामले में प्रशासक की कार्रवाई आवश्यक है।',
+      'med03.notification.alert_recovery.manual_hold_body': 'अपरिवर्तनीय रूप से रोके गए क्लिनिकल अलर्ट के लिए नियंत्रित स्रोत समीक्षा और प्रतिस्थापन आवश्यक है।',
+      'med03.notification.alert_recovery.recipient_coverage_body': 'किसी क्लिनिकल अलर्ट के लिए अभी भी कोई सक्रिय ड्यूटी डॉक्टर या डॉक्टर-स्तर का प्राप्तकर्ता उपलब्ध नहीं है।',
+      'med03.notification.mar_exception.title':
+          'दवा की खुराक के लिए प्रिस्क्राइबर समीक्षा आवश्यक',
+      'med03.notification.mar_exception.body': 'रोकी गई या छूटी हुई इनपेशेंट दवा खुराक के लिए नियंत्रित क्लिनिकल निर्णय आवश्यक है।',
+      'med03.notification.mar_exception.overdue_title':
+          'दवा समीक्षा की समय-सीमा पार हो गई',
+      'med03.notification.mar_exception.overdue_body': 'रोकी गई या छूटी हुई खुराक के लिए अभी भी नियंत्रित प्रिस्क्राइबर निर्णय आवश्यक है।',
+      'med03.notification.mar_exception.handoff_title':
+          'दवा समीक्षा पुनः सौंपी गई',
+      'med03.notification.mar_exception.handoff_body': 'एक खुला दवा अपवाद प्रिस्क्राइबर समीक्षा के लिए आपको पुनः सौंपा गया है।',
+      'med03.notification.counter_sale.finance_title':
+          'काउंटर बिक्री रिफंड कार्रवाई आवश्यक',
+      'med03.notification.counter_sale.finance_body': 'नियंत्रित रिफंड चरण पूरा करें। भुगतान साक्ष्य पूरा होने तक सटीक-बैच स्टॉक वापसी अवरुद्ध रहेगी।',
+      'med03.notification.counter_sale.reconciliation_title':
+          'काउंटर बिक्री कस्टडी मिलान आवश्यक',
+      'med03.notification.counter_sale.reconciliation_body': 'रिफंड अस्वीकृत हुआ। कस्टडी स्पष्ट रूप से हल होने तक बिक्री और स्टॉक लॉक रहेंगे।',
+      'med03.notification.counter_sale.completed_title':
+          'काउंटर बिक्री निरस्तीकरण पूरा हुआ',
+      'med03.notification.counter_sale.completed_body':
+          'भुगतान रिफंड साक्ष्य और सटीक-बैच स्टॉक वापसी दर्ज हैं।',
+      'med03.notification.credit_note_payout.body': 'स्वीकृत दवा क्रेडिट रिफंड को उसके नियंत्रित भुगतान माध्यम से निपटाएँ और सटीक साक्ष्य सुरक्षित रखें।',
+      'med03.credit_note.action_apply': 'क्रेडिट लागू करें',
+      'med03.credit_note.apply_body':
+          'अपरिवर्तनीय मूल कीमत से यह स्वीकृत क्रेडिट रोगी खाते में लागू करें।',
+      'med03.credit_note.refund_approve_title': 'रोगी रिफंड स्वीकृत करें',
+      'med03.credit_note.refund_approve_body': 'देय रिफंड दायित्व स्वीकृत करें। इससे भुगतान नहीं होता; भुगतान अलग नियंत्रित चरण है।',
+      'med03.credit_note.payout_title': 'पूरा हुआ मैनुअल भुगतान दर्ज करें',
+      'med03.credit_note.payout_reference': 'बाहरी भुगतान संदर्भ',
+      'med03.credit_note.gateway_title': 'प्रदाता रिफंड शुरू करें',
+      'med03.credit_note.gateway_body': 'चुने गए सटीक कैप्चर भुगतान का उपयोग करें। रिफंड को भुगतान किया हुआ मानने से पहले प्रदाता प्रसंस्करण और वेबहुक साक्ष्य पूरे होने चाहिए।',
+      'med03.credit_note.invoice': 'चालान',
+      'med03.credit_note.ward_indent': 'वार्ड इंडेंट',
+      'med03.credit_note.amount': 'क्रेडिट राशि',
+      'med03.credit_note.account_due': 'वर्तमान खाते का बकाया',
+      'med03.credit_note.action_approve': 'स्वीकृत करें',
+      'med03.credit_note.action_reject': 'अस्वीकार करें',
+      'med03.credit_note.application_owned': 'स्वीकृति से कार्य बंद नहीं होता। खाते में लागू होने तक वही SLA जिम्मेदारी में रहता है।',
+      'med03.credit_note.refund': 'रोगी रिफंड दायित्व',
+      'med03.credit_note.action_approve_refund': 'रिफंड स्वीकृत करें',
+      'med03.credit_note.refund_pending': 'प्रशासक की स्वीकृति आवश्यक है। लागू दवा क्रेडिट रिफंड को मनमाने ढंग से अस्वीकार नहीं किया जा सकता।',
+      'med03.credit_note.gateway_in_progress': 'प्रदाता भुगतान जारी है। प्रमाणित प्रदाता साक्ष्य रिफंड को भुगतान किया हुआ दर्ज करने तक कार्य खुला रहेगा।',
+      'med03.credit_note.manual_help': 'पहले बाहरी मैनुअल भुगतान पूरा करें, फिर उसका सटीक संदर्भ दर्ज करें। दर्ज करना स्वयं धन नहीं भेजता।',
+      'med03.credit_note.action_record_payout': 'भुगतान साक्ष्य दर्ज करें',
+      'med03.credit_note.gateway_help': 'मेल खाता कैप्चर भुगतान चुनें। रोगी, चालान, माध्यम, प्रदाता या राशि में अंतर सर्वर अस्वीकार करेगा।',
+      'med03.credit_note.action_find_payment': 'भुगतान स्रोत खोजें',
+      'med03.credit_note.gateway_candidates_empty': 'कोई योग्य भुगतान स्रोत लोड नहीं है। स्वीकृति के बाद खोजें; न मिलने पर वित्तीय मिलान के लिए कार्य खुला रखें।',
+      'med03.credit_note.refundable': 'वापसी योग्य',
+      'med03.credit_note.action_start_gateway': 'रिफंड शुरू करें',
+      'med03.credit_note.insurance_hold': 'बीमा रिफंड भुगतान के लिए इस स्क्रीन के बाहर बीमाकर्ता और अस्पताल की अनुमति चाहिए। जिम्मेदार कार्य खुला रहेगा।',
+      'med03.credit_note.refund_paid':
+          'भुगतान साक्ष्य दर्ज है और दवा क्रेडिट-नोट SLA पूरा हो गया है।',
+      'med03.credit_note.events': 'अपरिवर्तनीय जीवनचक्र घटनाएँ',
       'biomed.work_orders.title': 'मेरे कार्य आदेश',
       'biomed.work_orders.started': 'कार्य आदेश शुरू हुआ',
       'biomed.work_orders.completed': 'कार्य आदेश पूरा हुआ',
@@ -17435,6 +18932,11 @@ class AppStrings {
       's4.lib.counter_sale.open': 'काउंटर बिक्री',
       's4.lib.counter_sale.sell_tab': 'बेचें',
       's4.lib.counter_sale.recent_tab': 'हाल की बिक्री',
+      's4.lib.counter_sale.facility_id': 'वितरण सुविधा',
+      's4.lib.counter_sale.facility_hint': 'उन सुविधाओं में से एक चुनें जिनके लिए आपके पास सक्रिय फार्मेसी अनुदान है। कार्ट में आइटम होने पर इसे बदला नहीं जा सकता।',
+      's4.lib.counter_sale.facility_required':
+          'खोजने या बेचने से पहले सटीक वितरण सुविधा चुनें।',
+      's4.lib.counter_sale.facility_none': 'आपके पास कोई सक्रिय फार्मेसी सुविधा अनुदान नहीं है। खोजने या बेचने से पहले टेनेंट प्रशासक को अनुदान देना होगा।',
       's4.lib.counter_sale.search_hint': 'आइटम खोजें (नाम / SKU / जेनेरिक)',
       's4.lib.counter_sale.in_stock': 'स्टॉक में {count}',
       's4.lib.counter_sale.out_of_stock': 'स्टॉक में नहीं',
@@ -17448,13 +18950,18 @@ class AppStrings {
       's4.lib.counter_sale.customer_name': 'ग्राहक का नाम',
       's4.lib.counter_sale.customer_phone': 'ग्राहक का फ़ोन (वैकल्पिक)',
       's4.lib.counter_sale.patient_uid': 'रोगी UID',
+      's4.lib.counter_sale.scheduled_patient_required':
+          'अनुसूचित दवाओं के लिए पंजीकृत रोगी UID आवश्यक है।',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       's4.lib.counter_sale.rx_section':
           'नुस्खा (Schedule H/H1/X के लिए आवश्यक)',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
-      's4.lib.counter_sale.rx_doctor': 'नुस्खा लिखने वाले डॉक्टर',
-      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
-      's4.lib.counter_sale.rx_reference': 'Rx नंबर / संदर्भ',
+      's4.lib.counter_sale.rx_prescription_id':
+          'हस्ताक्षरित ई-प्रिस्क्रिप्शन ID',
+      's4.lib.counter_sale.rx_line_index':
+          '{medicine} · eRx लाइन इंडेक्स (शून्य-आधारित)',
+      's4.lib.counter_sale.rx_exact_mapping_hint': 'हस्ताक्षरित ई-प्रिस्क्रिप्शन ID दर्ज करें और प्रत्येक अनुसूचित दवा को उसकी सटीक शून्य-आधारित eRx लाइन से मैप करें।',
+      's4.lib.counter_sale.rx_mapping_required': 'प्रत्येक अनुसूचित दवा को उसकी सटीक हस्ताक्षरित ई-प्रिस्क्रिप्शन लाइन से मैप करें।',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       's4.lib.counter_sale.witness_section':
           'साक्षी (Schedule X / नारकोटिक के लिए आवश्यक)',
@@ -17504,8 +19011,172 @@ class AppStrings {
       's4.lib.counter_sale.witness_auth_failed': 'साक्षी का प्रमाणीकरण या अनुमोदन विफल। क्रेडेंशियल जाँचें और फिर से अनुरोध करें।',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       's4.lib.counter_sale.payment_mode': 'भुगतान का तरीका',
+      'med03.pharmacy.prescription_items_locked':
+          'प्रिस्क्रिप्शन आइटम आधिकारिक लिंक किए गए प्रिस्क्रिप्शन से लॉक हैं।',
+      'med03.pharmacy.select_authoritative_catalog': 'आधिकारिक कैटलॉग आइटम चुनें। नाम और मूल्य हाथ से दर्ज नहीं किए जा सकते।',
+      'med03.pharmacy.catalog_medicine': 'कैटलॉग दवा',
+      'med03.pharmacy.quantity': 'मात्रा',
+      'med03.pharmacy.add_medicine': 'दवा जोड़ें',
+      'med03.pharmacy.catalog_quantity_required':
+          'हर पंक्ति के लिए मूल्य वाला कैटलॉग आइटम और धनात्मक मात्रा चुनें।',
+      'med03.pharmacy.select_inventory_item': 'सटीक इन्वेंटरी आइटम चुनें',
+      'med03.pharmacy.inventory_item_fallback': 'इन्वेंटरी आइटम #{id}',
+      'med03.pharmacy.verification_complete': 'फार्मासिस्ट सत्यापन पूर्ण हुआ',
+      'med03.pharmacy.complete_counter_dispense': 'काउंटर वितरण पूरा करें',
+      'med03.pharmacy.amount_collected': 'अब तक एकत्र कुल राशि',
+      'med03.pharmacy.authoritative_total_rechecked':
+          'स्टॉक बदलने से पहले सर्वर आधिकारिक कुल की फिर जाँच करता है।',
+      'med03.pharmacy.dispense_remainder': 'शेष मात्रा वितरित करें',
+      'med03.pharmacy.counter_dispense_complete': 'काउंटर वितरण पूर्ण हुआ',
+      'med03.pharmacy.mark_unavailable': 'अनुपलब्ध चिह्नित करें',
+      'med03.pharmacy.unavailable_reason': 'अनुपलब्धता का कारण',
+      'med03.pharmacy.unavailable_complete': 'ऑर्डर अनुपलब्ध चिह्नित हुआ',
+      'med03.pharmacy.facility_admin_required':
+          'प्रशासक को एक डिफ़ॉल्ट फार्मेसी सुविधा कॉन्फ़िगर करनी होगी।',
+      'med03.pharmacy.facility_assigned': 'फार्मेसी सुविधा नियत हुई',
+      'med03.pharmacy.assign_facility': 'फार्मेसी सुविधा नियत करें',
+      'med03.pharmacy.verify_order': 'ऑर्डर सत्यापित करें',
+      'med03.pharmacy.status_partially_dispensed': 'आंशिक रूप से वितरित',
+      'med03.pharmacy.resolve_line_identities':
+          'प्रिस्क्रिप्शन पंक्तियाँ मिलाएँ',
+      'med03.pharmacy.resolve_line_identity_help': 'हर संग्रहीत ऑर्डर पंक्ति को सही हस्ताक्षरित प्रिस्क्रिप्शन पंक्ति से मिलाएँ। समान दवाएँ अलग-अलग चुनें।',
+      'med03.pharmacy.save_line_identities': 'सटीक मिलान सहेजें',
+      'med03.pharmacy.line_identities_resolved':
+          'प्रिस्क्रिप्शन पंक्ति पहचान हल हुई',
+      'med03.pharmacy.line_identity_admin_required': 'ऑर्डर आगे बढ़ने से पहले फार्मेसी प्रभारी को पुरानी प्रिस्क्रिप्शन पंक्ति पहचान हल करनी होगी।',
+      'med03.pharmacy.line_identity_source_missing': 'ऑर्डर या लिंक किए गए प्रिस्क्रिप्शन में मिलान योग्य संरचित पंक्तियाँ नहीं हैं। प्रिस्क्राइबर को भेजें।',
+      'med03.pharmacy.verification_decision': 'सत्यापन निर्णय',
+      'med03.pharmacy.verification_verified': 'सत्यापित',
+      'med03.pharmacy.verification_override': 'सुरक्षा अवरोध ओवरराइड करें',
+      'med03.pharmacy.verification_rejected': 'ऑर्डर अस्वीकार करें',
+      'med03.pharmacy.verification_notes': 'सत्यापन नोट्स',
+      'med03.pharmacy.verification_override_reason': 'ओवरराइड कारण',
+      'med03.pharmacy.verification_override_reason_help':
+          'कम से कम 10 अक्षर; यह क्लिनिकल ऑडिट में दर्ज होगा।',
+      'med03.pharmacy.submit_verification': 'सत्यापन जमा करें',
+      'med03.pharmacy.tpa_reference': 'स्वीकृत दावा संदर्भ',
+      'med03.pharmacy.tpa_reference_exact_help': 'इस फार्मेसी ऑर्डर को आवंटित सटीक स्वीकृत दावा या TPA संदर्भ दर्ज करें।',
+      'med03.pharmacy.next_action': 'अगली कार्रवाई',
+      'med03.pharmacy.catalog_fallback': 'कैटलॉग #{id}',
+      'med03.pharmacy.locked_line_summary': 'पंक्ति {line} · मात्रा {quantity}',
+      'med03.pharmacy.order_line_fallback': 'ऑर्डर पंक्ति {line}',
+      'med03.pharmacy.verification_pharmacist_only': 'केवल फार्मेसी स्टाफ या फार्मेसी प्रभारी ही क्लिनिकल सत्यापन निर्णय ले सकते हैं।',
+      'med03.pharmacy.verification_rejection_reason':
+          'क्लिनिकल अस्वीकृति का कारण',
+      'med03.pharmacy.verification_override_incharge': 'प्रभारी ब्रेक-ग्लास ओवरराइड: कारण और मैन्युअल एलर्जी समीक्षा साक्ष्य स्थायी ऑडिट में दर्ज होंगे।',
+      'med03.pharmacy.verification_manual_allergy_review':
+          'मैंने मैन्युअल एलर्जी समीक्षा पूरी की है',
+      'med03.pharmacy.verification_manual_allergy_review_help': 'ओवरराइड से पहले रोगी, सक्रिय एलर्जी, स्रोत रिकॉर्ड और अनुपलब्ध सुरक्षा स्रोतों की पुष्टि करें।',
+      'med03.pharmacy.payment_mode.cash': 'नकद',
+      'med03.pharmacy.payment_mode.card': 'कार्ड',
+      'med03.pharmacy.payment_mode.upi': 'यूपीआई भुगतान',
+      'med03.pharmacy.payment_mode.wallet': 'वॉलेट',
+      'med03.pharmacy.payment_mode.insurance': 'बीमा',
+      'med03.pharmacy.payment_mode.corporate_tpa': 'कॉर्पोरेट / TPA',
+      'med03.pharmacy.payment_mode.none': 'कोई भुगतान देय नहीं',
+      'med03.pharmacy.recovery.select_exact_tpa_claim_allocation': 'स्टॉक जारी करने से पहले वित्त विभाग को इस सटीक फार्मेसी ऑर्डर के लिए स्वीकृत दावा पंक्ति आवंटित करनी होगी।',
+      'med03.pharmacy.recovery.complete_manual_allergy_review':
+          'आवश्यक मैन्युअल एलर्जी समीक्षा पूरी करके दर्ज करें।',
+      'med03.pharmacy.recovery.contact_owner': 'इस अवरुद्ध ऑर्डर को नामित कार्यप्रवाह उत्तरदायी को सौंपें और स्टॉक अपरिवर्तित रखें।',
+      'med03.pharmacy.recovery.open_billing_desk': 'बिलिंग डेस्क खोलें',
+      'med03.pharmacy.recovery.materialize_pharmacy_funding':
+          'लॉक किए गए ऑर्डर और चालान प्राधिकरण से सटीक फंडिंग कार्य बनाएँ।',
+      'med03.pharmacy.recovery.open_exact_pharmacy_funding_task':
+          'मौजूदा सटीक फंडिंग कार्य खोलें; यहाँ भुगतान की स्वयं पुष्टि न करें।',
+      'med03.pharmacy.cancellation_reason_help':
+          'आवश्यक: 3 से 500 अक्षर। यह कारण ऑर्डर इतिहास में सुरक्षित रहेगा।',
+      'med03.pharmacy.delivery_assignee_required': 'इस ऑर्डर के लिए कोई योग्य डिलीवरी कर्मचारी उपलब्ध नहीं है। भेजने से पहले सुविधा प्रशासक को डिलीवरी ड्यूटी सौंपनी होगी।',
+      'med03.pharmacy.delivery_type_counter': 'काउंटर वितरण',
+      'med03.pharmacy.status_dispensed': 'वितरित',
+      'med03.pharmacy.inventory_status.active': 'सक्रिय',
+      'med03.pharmacy.inventory_status.inactive': 'निष्क्रिय',
+      'med03.pharmacy.inventory_status.quarantined': 'क्वारंटीन में',
+      'med03.pharmacy.inventory_status.unknown': 'अज्ञात स्थिति',
+      'med03.pharmacy.expiry_bucket.expired': 'समाप्त',
+      'med03.pharmacy.expiry_bucket.within_30': '30 दिनों के भीतर समाप्ति',
+      'med03.pharmacy.expiry_bucket.within_60': '31–60 दिनों में समाप्ति',
+      'med03.pharmacy.expiry_bucket.within_90': '61–90 दिनों में समाप्ति',
+      'med03.pharmacy.expiry_bucket.beyond_90': '90 दिनों के बाद समाप्ति',
+      'med03.pharmacy.expiry_bucket.unknown': 'समाप्ति अवधि उपलब्ध नहीं',
+      'med03.pharmacy.funding_recovery.task_summary':
+          'फंडिंग कार्य {taskId} · {status} · {owner}',
+      'med03.pharmacy.funding_recovery.status.pending': 'आवंटन लंबित',
+      'med03.pharmacy.funding_recovery.status.in_progress': 'आवंटन प्रगति पर',
+      'med03.pharmacy.funding_recovery.status.blocked': 'आवंटन अवरुद्ध',
+      'med03.pharmacy.funding_recovery.status.completed': 'आवंटन पूर्ण',
+      'med03.pharmacy.funding_recovery.status.unknown': 'स्थिति उपलब्ध नहीं',
+      'med03.pharmacy.funding_recovery.owner.finance': 'वित्त प्रभारी',
+      'med03.pharmacy.funding_recovery.owner.insurance': 'बीमा/दावा टीम',
+      'med03.pharmacy.funding_recovery.owner.billing': 'बिलिंग टीम',
+      'med03.pharmacy.funding_recovery.owner.unknown':
+          'नियुक्त वित्त उत्तरदायी',
+      'med03.pharmacy.funding_desk.title': 'फार्मेसी फंडिंग प्राधिकरण',
+      'med03.nhcx.projection.unavailable':
+          'सटीक स्वीकृत NHCX स्थानीय प्रोजेक्शन रिकवरी उपलब्ध नहीं है।',
+      'med03.nhcx.projection.title': 'स्वीकृत NHCX स्थानीय प्रोजेक्शन',
+      'med03.nhcx.projection.help': 'गेटवे इस सटीक संदेश को पहले ही स्वीकार कर चुका है। पुनः प्रयास केवल स्थानीय क्लेम या प्री-ऑथराइजेशन प्रोजेक्शन लागू करता है और NHCX को दोबारा नहीं भेजता।',
+      'med03.nhcx.projection.summary':
+          'संदेश #{message} · कार्य #{task} · {status} · {owner}',
+      'med03.nhcx.projection.receipt': 'अपरिवर्तनीय गेटवे रसीद: {hash}',
+      'med03.nhcx.projection.retry_local':
+          'स्थानीय प्रोजेक्शन पुनः प्रयास करें',
+      'med03.nhcx.projection.completed': 'स्थानीय प्रोजेक्शन पूरा हुआ',
+      'med03.pharmacy.funding_desk.unavailable':
+          'इस सटीक ऑर्डर लाइन के लिए फंडिंग रिकवरी उपलब्ध नहीं है।',
+      'med03.pharmacy.funding_desk.insurance_help': 'इस सटीक ड्राफ्ट लाइन के लिए बीमाकर्ता का निर्णय दर्ज करें। स्वीकृत और गैर-देय राशि का योग लाइन कुल के बराबर होना चाहिए।',
+      'med03.pharmacy.funding_desk.finance_help': 'सूचीबद्ध चालान पर रोगी का भुगतान पोस्ट करें, फिर यहाँ मिलान करें। यह स्क्रीन स्वयं बताई गई वसूली राशि स्वीकार नहीं करती।',
+      'med03.pharmacy.funding_desk.approved_amount': 'TPA स्वीकृत राशि',
+      'med03.pharmacy.funding_desk.non_payable_amount': 'रोगी की देयता',
+      'med03.pharmacy.funding_desk.reason_code': 'निर्णय कारण',
+      'med03.pharmacy.funding_desk.reason_text': 'निर्णय टिप्पणी',
+      'med03.pharmacy.funding_desk.record_decision':
+          'सटीक लाइन निर्णय दर्ज करें',
+      'med03.pharmacy.funding_desk.retry_posted_payment':
+          'पोस्ट किए भुगतान का मिलान करें',
+      'med03.pharmacy.funding_desk.resolved':
+          'इस सटीक फार्मेसी लाइन के लिए कोई सक्रिय फंडिंग कार्य नहीं है।',
+      'med03.pharmacy.funding_desk.invalid_decision': 'मान्य गैर-ऋणात्मक राशियाँ दर्ज करें और अनुपलब्ध कार्य प्राधिकरण पुनः लोड करें।',
+      'med03.pharmacy.funding_reconciliation.unavailable':
+          'सटीक डुप्लिकेट-लाइन मिलान उपलब्ध नहीं है।',
+      'med03.pharmacy.funding_reconciliation.title':
+          'डुप्लिकेट फार्मेसी बिलिंग प्राधिकरण',
+      'med03.pharmacy.funding_reconciliation.case_summary':
+          'मामला #{case} · कार्य #{task} · {status} · {owner}',
+      'med03.pharmacy.funding_reconciliation.help': 'सर्वर सटीक लाइन, चालान, पोस्ट किया गया भुगतान, आवंटन, प्रत्यावर्तन और स्टॉक साक्ष्य मिलाता है। उसी प्रस्ताव को किसी दूसरे वित्त स्वामी की मंजूरी चाहिए। यह स्क्रीन भुगतान राशि बदल या स्वयं प्रमाणित नहीं कर सकती।',
+      'med03.pharmacy.funding_reconciliation.keeper_label':
+          'प्राधिकृत रहने वाली लाइन',
+      'med03.pharmacy.funding_reconciliation.line_option':
+          'लाइन #{line} · चालान #{invoice} · {amount}',
+      'med03.pharmacy.funding_reconciliation.path_label': 'नियंत्रित समाधान पथ',
+      'med03.pharmacy.funding_reconciliation.path.safe':
+          'सटीक डुप्लिकेट सुरक्षित रूप से निष्क्रिय करें',
+      'med03.pharmacy.funding_reconciliation.path.keep':
+          'चुना हुआ प्राधिकरण रखें',
+      'med03.pharmacy.funding_reconciliation.path.cancel':
+          'समाप्त ऑर्डर रद्द करें',
+      'med03.pharmacy.funding_reconciliation.path.rebill':
+          'नियंत्रित पुनः बिलिंग की पुष्टि करें',
+      'med03.pharmacy.funding_reconciliation.pending_owner':
+          '{owner} ने प्रस्ताव दिया। अलग वित्त स्वामी आवश्यक है।',
+      'med03.pharmacy.funding_reconciliation.action.approve':
+          'दूसरे स्वामी के रूप में सटीक प्रस्ताव मंजूर करें',
+      'med03.pharmacy.funding_reconciliation.action.propose':
+          'सटीक निपटान प्रस्तावित करें',
+      'med03.pharmacy.funding_reconciliation.status.open': 'खुला',
+      'med03.pharmacy.funding_reconciliation.status.pending':
+          'दूसरी मंजूरी लंबित',
+      'med03.pharmacy.funding_reconciliation.status.blocked': 'अवरुद्ध',
+      'med03.pharmacy.funding_reconciliation.status.resolved': 'समाधान हुआ',
+      'med03.pharmacy.funding_reconciliation.status.unknown': 'अज्ञात',
+      'med03.pharmacy.funding_reconciliation.owner.finance': 'वित्त स्वामी',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       's4.lib.counter_sale.payment_reference': 'भुगतान संदर्भ (txn id)',
+      's4.lib.counter_sale.original_payment_reference': 'मूल भुगतान संदर्भ',
+      's4.lib.counter_sale.original_payment_reference_value':
+          'मूल संदर्भ {reference}',
+      's4.lib.counter_sale.payment_reference_required':
+          'हर गैर-नकद बिक्री के लिए मूल भुगतान संदर्भ आवश्यक है।',
+      's4.lib.counter_sale.legacy_payment_reference_missing': 'मूल इलेक्ट्रॉनिक भुगतान साक्ष्य उपलब्ध नहीं है। यह पुरानी बिक्री अभी रद्द करने के लिए तैयार नहीं है; पहले वित्त को भुगतान संदर्भ हल करना होगा।',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       's4.lib.counter_sale.cash_drawer_hint':
           'नकद बिक्री के लिए आपका खुला कैश-ड्रॉअर सत्र आवश्यक है',
@@ -17521,7 +19192,203 @@ class AppStrings {
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       's4.lib.counter_sale.void_reason': 'रद्द करने का कारण',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
-      's4.lib.counter_sale.voided': 'बिक्री रद्द और धनवापसी की गई',
+      's4.lib.counter_sale.status.in_progress': 'प्रगति में',
+      's4.lib.counter_sale.status.completed': 'पूर्ण',
+      's4.lib.counter_sale.status.void_pending_refund': 'धनवापसी लंबित',
+      's4.lib.counter_sale.status.voided': 'रद्द',
+      's4.lib.counter_sale.status.failed': 'विफल',
+      's4.lib.counter_sale.status.unknown': 'अज्ञात बिक्री स्थिति',
+      's4.lib.counter_sale.workflow_status.not_requested':
+          'रद्द अनुरोध नहीं किया गया',
+      's4.lib.counter_sale.workflow_status.awaiting_finance_approval':
+          'स्वतंत्र वित्त स्वीकृति लंबित',
+      's4.lib.counter_sale.workflow_status.awaiting_finance_payout':
+          'स्वीकृत; वित्त भुगतान लंबित',
+      's4.lib.counter_sale.workflow_status.awaiting_gateway_payout':
+          'प्रदाता धनवापसी शुरू होना लंबित',
+      's4.lib.counter_sale.workflow_status.awaiting_gateway_evidence':
+          'प्रमाणित प्रदाता साक्ष्य लंबित',
+      's4.lib.counter_sale.workflow_status.awaiting_payout_evidence':
+          'नियंत्रित भुगतान साक्ष्य लंबित',
+      's4.lib.counter_sale.workflow_status.ready_to_reconcile':
+          'धनवापसी भुगतान हुआ; सटीक स्टॉक मिलान तैयार',
+      's4.lib.counter_sale.workflow_status.refund_rejected':
+          'धनवापसी अस्वीकृत; फार्मेसी स्टॉक वापस न करे',
+      's4.lib.counter_sale.workflow_status.refund_rejected_review': 'धनवापसी अस्वीकृत; ग्राहक को दवा सौंपने की पुष्टि करें या समीक्षा के लिए भेजें',
+      's4.lib.counter_sale.workflow_status.voided':
+          'धनवापसी और सटीक स्टॉक मिलान पूर्ण',
+      's4.lib.counter_sale.workflow_status.cancelled_handover_confirmed': 'ग्राहक को दवा सौंपने की पुष्टि के बाद रद्द अनुरोध बंद हुआ; न धनवापसी हुई, न स्टॉक वापस आया',
+      's4.lib.counter_sale.workflow_status.pending_review':
+          'रद्द अनुरोध को वित्त समीक्षा चाहिए',
+      's4.lib.counter_sale.workflow_status.unknown':
+          'अज्ञात रद्द कार्यप्रवाह स्थिति',
+      's4.lib.counter_sale.refund_status.pending': 'स्वीकृति लंबित',
+      's4.lib.counter_sale.refund_status.approved': 'स्वीकृत',
+      's4.lib.counter_sale.refund_status.paid': 'भुगतान हुआ',
+      's4.lib.counter_sale.refund_status.rejected': 'अस्वीकृत',
+      's4.lib.counter_sale.refund_status.unknown': 'अज्ञात धनवापसी स्थिति',
+      's4.lib.counter_sale.void_readiness.ready':
+          'उसी दिन सुरक्षित रद्द अनुरोध के लिए तैयार',
+      's4.lib.counter_sale.void_readiness.original_payment_reference_missing': 'मूल इलेक्ट्रॉनिक भुगतान साक्ष्य उपलब्ध नहीं है। रद्द अनुरोध से पहले वित्त को भुगतान संदर्भ हल करना होगा।',
+      's4.lib.counter_sale.void_readiness.outside_same_day_window': 'उसी दिन रद्द करने की अवधि समाप्त हो गई है। नियंत्रित वापसी या समायोजन कार्यप्रवाह उपयोग करें।',
+      's4.lib.counter_sale.void_readiness.pending_refund':
+          'एक सुरक्षित रद्द और धनवापसी दायित्व पहले से लंबित है।',
+      's4.lib.counter_sale.void_readiness.voided':
+          'यह बिक्री पहले ही रद्द और मिलान की जा चुकी है।',
+      's4.lib.counter_sale.void_readiness.not_completed':
+          'केवल पूर्ण बिक्री रद्द कार्यप्रवाह में जा सकती है।',
+      's4.lib.counter_sale.void_readiness.unknown': 'आधिकारिक रद्द-तत्परता उपलब्ध नहीं है। कार्रवाई से पहले रीफ्रेश करें।',
+      's4.lib.counter_sale.retry_sale': 'सुरक्षित बिक्री पुनः प्रयास करें',
+      's4.lib.counter_sale.sale_response_unconfirmed': 'बिक्री की प्रतिक्रिया की पुष्टि नहीं हुई। इसे कहीं और दर्ज न करें; उसी सुरक्षित प्रयास का उपयोग करने के लिए यहीं पुनः प्रयास करें।',
+      's4.lib.counter_sale.sale_changed_title': 'अलग बिक्री शुरू करें?',
+      's4.lib.counter_sale.sale_changed_body': 'पिछली बिक्री का परिणाम अभी अज्ञात है। बदले हुए विवरण के लिए नया सुरक्षित प्रयास बनेगा और पहली बिक्री पूरी हुई हो तो दूसरी बिक्री बन सकती है। पहले हाल की बिक्री जाँचें।',
+      's4.lib.counter_sale.new_attempt_confirm': 'नया प्रयास शुरू करें',
+      's4.lib.counter_sale.void_nonterminal_hint': 'रद्द अनुरोध से तुरंत धनवापसी या स्टॉक वापसी नहीं होती। बिक्री बंद होने से पहले वित्त स्वीकृति, भुगतान और सटीक बैच मिलान आवश्यक है।',
+      's4.lib.counter_sale.void_disposition': 'दवा अभिरक्षा परिणाम',
+      's4.lib.counter_sale.disposition.never_handed_over':
+          'रोगी को कभी नहीं सौंपी गई',
+      's4.lib.counter_sale.disposition.patient_returned':
+          'रोगी द्वारा संभालने के बाद लौटाई गई',
+      's4.lib.counter_sale.disposition_required_hint':
+          'सटीक अभिरक्षा परिणाम चुनें। कोई विकल्प स्वतः नहीं चुना जाता।',
+      's4.lib.counter_sale.never_handed_over_restock': 'केवल वही दवा धनवापसी और सटीक बैच स्टॉक वापसी में जा सकती है जो स्टाफ की अभिरक्षा से बाहर नहीं गई।',
+      's4.lib.counter_sale.patient_returned_quarantine': 'रोगी द्वारा संभाली गई दवा बिक्री योग्य स्टॉक में वापस नहीं जा सकती। यहाँ रुकें और क्वारंटीन/नष्ट करने की वापसी प्रक्रिया उपयोग करें; यह स्क्रीन अभी उस प्रक्रिया से जुड़ी नहीं है।',
+      's4.lib.counter_sale.patient_returned_blocked': 'रोगी द्वारा संभाली गई दवा बिक्री योग्य स्टॉक में रद्द नहीं की जा सकती। क्वारंटीन/नष्ट करने की वापसी प्रक्रिया उपयोग करें।',
+      's4.lib.counter_sale.void_changed_title': 'अनिश्चित रद्द अनुरोध बदलें?',
+      's4.lib.counter_sale.void_changed_body': 'पिछले रद्द अनुरोध का परिणाम अज्ञात है। कारण या अभिरक्षा बदलने से अलग सुरक्षित प्रयास बनेगा। पहले वर्तमान बिक्री जाँचें।',
+      's4.lib.counter_sale.retry_void': 'सुरक्षित रद्द पुनः प्रयास करें',
+      's4.lib.counter_sale.void_response_unconfirmed': 'रद्द प्रतिक्रिया की पुष्टि नहीं हुई। उसी सुरक्षित अनुरोध का उपयोग करने के लिए इसी बिक्री पर पुनः प्रयास करें।',
+      's4.lib.counter_sale.void_pending_refund': 'रद्द अनुरोध दर्ज हुआ। वित्त स्वीकृति और भुगतान लंबित हैं; स्टॉक वापस नहीं किया गया है।',
+      's4.lib.counter_sale.void_reconciled':
+          'धनवापसी साक्ष्य सत्यापित और सटीक स्टॉक मिलान पूर्ण हुआ।',
+      's4.lib.counter_sale.void_request_reference': 'रद्द अनुरोध #{id}',
+      's4.lib.counter_sale.refund_reference': 'धनवापसी #{id}: {status}',
+      's4.lib.counter_sale.restock_pending_evidence': 'भुगतान किए गए धनवापसी साक्ष्य के सत्यापन तक सटीक बैच स्टॉक वापसी अवरुद्ध रहेगी।',
+      's4.lib.counter_sale.open_finance_workflow': 'वित्त कार्यप्रवाह खोलें',
+      's4.lib.counter_sale.open_reconciliation': 'मिलान खोलें',
+      's4.lib.counter_sale.reconcile_action': 'जाँचें और मिलान करें',
+      's4.lib.counter_sale.reconcile_still_pending':
+          'धनवापसी साक्ष्य तैयार नहीं है; रद्द अनुरोध लंबित रहेगा।',
+      's4.lib.counter_sale.reconcile_response_unconfirmed': 'मिलान प्रतिक्रिया की पुष्टि नहीं हुई। उसी सुरक्षित जाँच का उपयोग करने के लिए यहीं पुनः प्रयास करें।',
+      's4.lib.counter_sale.handover_resolution_title':
+          'ग्राहक को दवा सौंपने की पुष्टि करें',
+      's4.lib.counter_sale.handover_resolution_warning': 'इसे केवल तब उपयोग करें जब दवा ग्राहक को सौंपी गई हो और अस्वीकृत धनवापसी के कारण बिक्री पूर्ण रहनी चाहिए। इससे न धनवापसी दर्ज होगी, न स्टॉक वापस आएगा।',
+      's4.lib.counter_sale.handover_resolution_reason':
+          'दवा सौंपने की पुष्टि का कारण',
+      's4.lib.counter_sale.handover_resolution_confirm': 'सौंपना पुष्टि करें',
+      's4.lib.counter_sale.handover_resolution_changed_title':
+          'अनिश्चित सौंपने की पुष्टि बदलें?',
+      's4.lib.counter_sale.handover_resolution_changed_body': 'पिछली प्रतिक्रिया अज्ञात है। कारण बदलने से नया सुरक्षित प्रयास बनेगा। आगे बढ़ने से पहले बिक्री रीफ्रेश करें।',
+      's4.lib.counter_sale.handover_resolution_action':
+          'ग्राहक को दवा सौंपना पुष्टि करें',
+      's4.lib.counter_sale.handover_resolution_retry':
+          'सुरक्षित सौंपने की पुष्टि पुनः प्रयास करें',
+      's4.lib.counter_sale.handover_resolution_completed': 'ग्राहक को दवा सौंपना पुष्टि हुआ। रद्द अनुरोध बंद हुआ; न धनवापसी हुई, न स्टॉक वापस आया।',
+      's4.lib.counter_sale.handover_resolution_response_unconfirmed': 'सौंपने की पुष्टि आधिकारिक रूप से निश्चित नहीं हुई। उसी सुरक्षित प्रयास के लिए बिना बदलाव यहीं पुनः प्रयास करें।',
+      'med03.counter_sale_refund.title': 'काउंटर बिक्री रिफंड',
+      'med03.counter_sale_refund.access_denied':
+          'आप इस रिफंड कार्यप्रवाह को खोलने के लिए अधिकृत नहीं हैं।',
+      'med03.counter_sale_refund.invalid_target': 'रिफंड लक्ष्य अमान्य है।',
+      'med03.counter_sale_refund.target_mismatch': 'रिफंड और वॉइड अनुरोध पहचानकर्ता एक ही प्रामाणिक कार्यप्रवाह से मेल नहीं खाते।',
+      'med03.counter_sale_refund.load_failed': 'प्रामाणिक रिफंड स्थिति लोड नहीं हुई। दोबारा कनेक्ट करके प्रयास करें।',
+      'med03.counter_sale_refund.summary': 'प्रामाणिक रिफंड और मिलान स्थिति',
+      'med03.counter_sale_refund.refund_id': 'रिफंड आईडी',
+      'med03.counter_sale_refund.void_request_id': 'वॉइड अनुरोध आईडी',
+      'med03.counter_sale_refund.sale_id': 'काउंटर बिक्री आईडी',
+      'med03.counter_sale_refund.amount': 'रिफंड राशि',
+      'med03.counter_sale_refund.payment_mode': 'मूल भुगतान माध्यम',
+      'med03.counter_sale_refund.original_payment_reference':
+          'मूल भुगतान संदर्भ',
+      'med03.counter_sale_refund.approval_status': 'रिफंड स्थिति',
+      'med03.counter_sale_refund.workflow_status': 'कार्यप्रवाह स्थिति',
+      'med03.counter_sale_refund.disposition': 'दवा अभिरक्षा परिणाम',
+      'med03.counter_sale_refund.reconciliation_status':
+          'फार्मेसी मिलान स्थिति',
+      'med03.counter_sale_refund.payout_rail': 'भुगतान वापसी मार्ग',
+      'med03.counter_sale_refund.provider': 'प्रदाता या अधिग्रहणकर्ता',
+      'med03.counter_sale_refund.provider_refund_reference':
+          'प्रदाता रिफंड संदर्भ',
+      'med03.counter_sale_refund.provider_refunded_at': 'प्रदाता रिफंड समय',
+      'med03.counter_sale_refund.value_unknown': 'उपलब्ध नहीं',
+      'med03.counter_sale_refund.open_reconciliation': 'फार्मेसी मिलान खोलें',
+      'med03.counter_sale_refund.approval_title': 'वित्त अनुमोदन',
+      'med03.counter_sale_refund.approval_ready':
+          'अनुमोदन से पहले सटीक रिफंड और वॉइड अनुरोध प्रमाण की समीक्षा करें।',
+      'med03.counter_sale_refund.approval_waiting':
+          'भुगतान वापसी से पहले प्रशासक को इस रिफंड को अनुमोदित करना होगा।',
+      'med03.counter_sale_refund.approve_action': 'रिफंड अनुमोदित करें',
+      'med03.counter_sale_refund.confirm_title': 'धन संचलन की पुष्टि करें',
+      'med03.counter_sale_refund.approve_confirm': 'इस सटीक रिफंड दायित्व को अनुमोदित करें? भुगतानकर्ता अलग व्यक्ति होना चाहिए।',
+      'med03.counter_sale_refund.manual_confirm':
+          'सटीक वाउचर प्रमाण के साथ यह नकद या मैनुअल साधन भुगतान दर्ज करें?',
+      'med03.counter_sale_refund.offline_electronic_confirm': 'इस मूल भुगतान के लिए बाहरी टर्मिनल या क्यूआर रिफंड प्रमाण दर्ज करें?',
+      'med03.counter_sale_refund.gateway_confirm':
+          'इस सटीक गेटवे ऑर्डर के लिए एकीकृत गेटवे रिफंड शुरू करें?',
+      'med03.counter_sale_refund.action_confirmed':
+          'प्रामाणिक रिफंड स्थिति इस कार्रवाई की पुष्टि करती है।',
+      'med03.counter_sale_refund.action_failed':
+          'प्रामाणिक पूर्णता की पुष्टि से पहले रिफंड कार्रवाई विफल हुई।',
+      'med03.counter_sale_refund.action_response_unconfirmed': 'परिणाम की पुष्टि नहीं हुई। उसी सुरक्षित प्रयास का उपयोग करने के लिए अपरिवर्तित कार्रवाई यहीं दोहराएँ।',
+      'med03.counter_sale_refund.retry_same_attempt': 'पिछली प्रतिक्रिया अस्पष्ट थी। स्थिर आइडेम्पोटेंसी कुंजी के पुनः उपयोग हेतु प्रमाण अपरिवर्तित रखकर यहीं दोहराएँ।',
+      'med03.counter_sale_refund.changed_attempt_title':
+          'अलग रिफंड प्रयास शुरू करें?',
+      'med03.counter_sale_refund.changed_attempt_body': 'पहला परिणाम अभी अज्ञात है। बदला प्रमाण नया सुरक्षित प्रयास बनाता है और पहले भुगतान के पूरा होने पर दोहरा भुगतान हो सकता है।',
+      'med03.counter_sale_refund.changed_attempt_confirm':
+          'नया प्रयास शुरू करें',
+      'med03.counter_sale_refund.payer_must_differ':
+          'रिफंड भुगतानकर्ता अनुमोदन करने वाले व्यक्ति से अलग होना चाहिए।',
+      'med03.counter_sale_refund.payout_not_authorized':
+          'आपकी भूमिका यह रिफंड भुगतान नहीं कर सकती।',
+      'med03.counter_sale_refund.payout_in_progress': '{rail} मार्ग पहले से इस भुगतान का स्वामी है। प्रदाता या मिलान प्रमाण हेतु ताज़ा करें; दूसरा मार्ग शुरू न करें।',
+      'med03.counter_sale_refund.no_authoritative_rail': 'मूल भुगतान प्रमाण अभी किसी भुगतान मार्ग को अधिकृत नहीं करता। आगे बढ़ने से पहले प्रमाण सुधारें।',
+      'med03.counter_sale_refund.rail_conflict': 'दूसरा भुगतान मार्ग इस रिफंड का स्वामी है। प्रामाणिक स्थिति ताज़ा करें।',
+      'med03.counter_sale_refund.cash_drawer': 'खुला नकद-दराज सत्र',
+      'med03.counter_sale_refund.cash_drawer_option': 'दराज {id} · {shift}',
+      'med03.counter_sale_refund.cash_voucher': 'अपरिवर्तनीय नकद रिफंड वाउचर',
+      'med03.counter_sale_refund.manual_reference': 'अपरिवर्तनीय भुगतान संदर्भ',
+      'med03.counter_sale_refund.record_payout': 'भुगतान दर्ज करें',
+      'med03.counter_sale_refund.drawer_identity_missing': 'आपकी स्टाफ पहचान उपलब्ध नहीं है, इसलिए स्वामित्व वाला खुला दराज नहीं चुना जा सकता।',
+      'med03.counter_sale_refund.drawer_load_failed':
+          'खुले नकद-दराज सत्र लोड नहीं हुए।',
+      'med03.counter_sale_refund.no_open_drawer':
+          'वर्तमान भुगतानकर्ता के स्वामित्व में कोई खुला नकद-दराज नहीं है।',
+      'med03.counter_sale_refund.cash_drawer_error': 'नकद-दराज या वाउचर प्रमाण अस्वीकृत हुआ। दोबारा प्रयास से पहले दराज स्थिति ताज़ा करें।',
+      'med03.counter_sale_refund.original_reference_missing': 'मूल इलेक्ट्रॉनिक भुगतान संदर्भ अनुपलब्ध या अस्पष्ट है। वित्त द्वारा समाधान तक बाहरी इलेक्ट्रॉनिक भुगतान अवरुद्ध है।',
+      'med03.counter_sale_refund.timestamp_hint':
+          'समय क्षेत्र सहित ISO 8601 समय, जैसे 2026-08-28T10:30:00+05:30',
+      'med03.counter_sale_refund.record_offline_electronic':
+          'बाहरी रिफंड प्रमाण दर्ज करें',
+      'med03.counter_sale_refund.electronic_evidence_error':
+          'मूल इलेक्ट्रॉनिक भुगतान प्रमाण इस भुगतान मार्ग को अधिकृत नहीं करता।',
+      'med03.counter_sale_refund.provider_evidence_error': 'प्रदाता, रिफंड संदर्भ और रिफंड समय अपरिवर्तनीय बाहरी प्रमाण के रूप में आवश्यक हैं।',
+      'med03.counter_sale_refund.load_gateway_candidates':
+          'एकीकृत गेटवे विकल्प लोड करें',
+      'med03.counter_sale_refund.gateway_candidates_failed':
+          'एकीकृत गेटवे विकल्प लोड नहीं हुए।',
+      'med03.counter_sale_refund.no_gateway_candidates':
+          'इस रिफंड के लिए कोई सटीक भुगतान किया गया गेटवे ऑर्डर योग्य नहीं है।',
+      'med03.counter_sale_refund.gateway_candidate': 'गेटवे ऑर्डर {id}',
+      'med03.counter_sale_refund.start_gateway_refund': 'गेटवे रिफंड शुरू करें',
+      'med03.counter_sale_refund.rail.manual': 'नकद या मैनुअल साधन भुगतान',
+      'med03.counter_sale_refund.rail.offline_electronic':
+          'बाहरी टर्मिनल या क्यूआर रिफंड',
+      'med03.counter_sale_refund.rail.gateway': 'एकीकृत गेटवे रिफंड',
+      'med03.counter_sale_refund.rail.unknown': 'अज्ञात भुगतान मार्ग',
+      'med03.counter_sale_refund.workflow.awaiting_approval':
+          'वित्त अनुमोदन की प्रतीक्षा',
+      'med03.counter_sale_refund.workflow.ready_for_payout':
+          'अनुमोदित और भुगतान के लिए तैयार',
+      'med03.counter_sale_refund.workflow.paid':
+          'रिफंड भुगतान हो गया; फार्मेसी मिलान लंबित',
+      'med03.counter_sale_refund.workflow.rejected': 'रिफंड अस्वीकृत',
+      'med03.counter_sale_refund.workflow.refund_rejected_review':
+          'अस्वीकृत रिफंड को नियंत्रित समीक्षा चाहिए',
+      'med03.counter_sale_refund.workflow.reconciliation_required':
+          'रिफंड भुगतान हो गया; फार्मेसी मिलान आवश्यक',
+      'med03.counter_sale_refund.workflow.counter_sale_void_completed':
+          'रिफंड और काउंटर बिक्री वॉइड पूर्ण',
+      'med03.counter_sale_refund.workflow.unknown':
+          'रिफंड कार्यप्रवाह स्थिति उपलब्ध नहीं',
       's4.lib.counter_sale.no_recent': 'आज अभी तक कोई काउंटर बिक्री नहीं',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       's4.lib.pharmacy.substitution_witness_required': 'यह Schedule X / नारकोटिक विकल्प वितरित करने से पहले एक अनुमोदित दूसरा स्टाफ साक्षी आवश्यक है।',
@@ -18431,6 +20298,35 @@ class AppStrings {
       'clinical_inbox.accepting_transfer': 'மாற்றம் ஏற்கப்படுகிறது...',
       'clinical_inbox.accept_inpatient_transfer':
           'உள்நோயாளர் மாற்றத்தை ஏற்கவும்',
+      'clinical_inbox.mar_handoff.action': 'பரிந்துரைப்பவரை மறுஒதுக்கவும்',
+      'clinical_inbox.mar_handoff.title': 'மருந்து விதிவிலக்கை மறுஒதுக்கவும்',
+      'clinical_inbox.mar_handoff.body': 'நிறுத்தப்பட்ட அல்லது தவறிய டோஸ் மதிப்பாய்வை ஏற்கும் செயலில் உள்ள பரிந்துரைப்பவரைத் தேர்ந்தெடுக்கவும். சமர்ப்பிக்கும் போது தற்போதைய பொறுப்பாளர் பொருந்த வேண்டும்.',
+      'clinical_inbox.mar_handoff.case_id': 'விதிவிலக்கு வழக்கு ID',
+      'clinical_inbox.mar_handoff.current_prescriber':
+          'தற்போதைய பரிந்துரைப்பவர்',
+      'clinical_inbox.mar_handoff.target_prescriber': 'புதிய பரிந்துரைப்பவர்',
+      'clinical_inbox.mar_handoff.prescriber_required':
+          'செயலில் உள்ள பரிந்துரைப்பவரைத் தேர்ந்தெடுக்கவும்',
+      'clinical_inbox.mar_handoff.prescribers_failed':
+          'செயலில் உள்ள பரிந்துரைப்பவர்களை ஏற்ற முடியவில்லை.',
+      'clinical_inbox.mar_handoff.no_prescribers':
+          'வேறு செயலில் உள்ள பரிந்துரைப்பவர் இல்லை.',
+      'clinical_inbox.mar_handoff.reason': 'மருத்துவ ஒப்படைப்பு காரணம்',
+      'clinical_inbox.mar_handoff.reason_hint':
+          'பெயரிடப்பட்ட பொறுப்பு ஏன் மாற வேண்டும் என்பதை விளக்கவும்',
+      'clinical_inbox.mar_handoff.reason_required':
+          'குறைந்தது 5 எழுத்துகளை உள்ளிடவும்',
+      'clinical_inbox.mar_handoff.confirmation': 'தேர்ந்தெடுக்கப்பட்ட பரிந்துரைப்பவர் செயலில் உள்ளார் என்றும் இந்த மருத்துவ மதிப்பாய்வுப் பொறுப்பை ஏற்றுள்ளார் அல்லது பெற அதிகாரம் உள்ளவர் என்றும் உறுதிப்படுத்துகிறேன்.',
+      'clinical_inbox.mar_handoff.confirmation_required': 'சமர்ப்பிக்கும் முன் பெயரிடப்பட்ட பொறுப்பு ஒப்படைப்பை உறுதிப்படுத்தவும்.',
+      'clinical_inbox.mar_handoff.submit': 'மறுஒதுக்கீட்டை உறுதிப்படுத்தவும்',
+      'clinical_inbox.mar_handoff.submitting': 'மறுஒதுக்கப்படுகிறது...',
+      'clinical_inbox.mar_handoff.succeeded': 'மருந்து விதிவிலக்கு தேர்ந்தெடுக்கப்பட்ட பரிந்துரைப்பவருக்கு மறுஒதுக்கப்பட்டது.',
+      'clinical_inbox.mar_handoff.failed':
+          'மருந்து விதிவிலக்கை மறுஒதுக்க முடியவில்லை: {reason}',
+      'clinical_inbox.mar_handoff.stale_owner': 'நீங்கள் மதிப்பாய்வு செய்தபோது பொறுப்பு மாறியது. சமீபத்திய பொறுப்பாளர் காட்டப்படுகிறார்; மீண்டும் மதிப்பாய்வு செய்து உறுதிப்படுத்தவும்.',
+      'clinical_inbox.mar_handoff.no_longer_actionable': 'இந்த மருந்து விதிவிலக்கு இனி மறுஒதுக்க கிடைக்கவில்லை. சமீபத்திய இன்பாக்ஸ் நிலை ஏற்றப்பட்டது.',
+      'clinical_inbox.mar_handoff.requires_connection':
+          'இந்த மருந்து விதிவிலக்கை மறுஒதுக்க இணைய இணைப்பு தேவை.',
       'clinical_inbox.cross_sign.review': 'டிஸ்சார்ஜ் முடிவை மதிப்பாய்வு செய்',
       'clinical_inbox.cross_sign.title':
           'டிஸ்சார்ஜுக்குப் பிந்தைய முடிவில் இணைக் கையொப்பம்',
@@ -19256,6 +21152,15 @@ class AppStrings {
       'orders.cancelled_toast': 'ஆர்டர் ரத்து செய்யப்பட்டது',
       // REVIEW: AI first-pass
       'orders.stop_failed_prefix': 'ஆர்டரை நிறுத்த முடியவில்லை:',
+      // REVIEW: AI first-pass, clinical safety wording
+      'orders.mar_recovery.action': 'MAR-ஐ சரிசெய்',
+      'orders.mar_recovery.required': 'இந்த மருந்து ஆணைக்கு MAR அளவுகள் திட்டமிடப்படவில்லை. மருந்து பரிந்துரைக்கும் மருத்துவர் அட்டவணையைச் சரிசெய்ய வேண்டும் அல்லது ஆணையை நிறுத்தி சரியான ஆணையை இட வேண்டும்.',
+      'orders.mar_recovery.success':
+          'MAR அட்டவணை ஒத்திசைக்கப்பட்டது ({count} அளவுகள்).',
+      'orders.mar_recovery.failed':
+          'MAR அட்டவணையைச் சரிசெய்ய முடியவில்லை: {error}',
+      'orders.mar_recovery.desktop_only': 'இந்தச் செயல் தொலைபேசி முறையில் கிடைக்காது. டெஸ்க்டாப் அல்லது டேப்லெட் மருத்துவ பணிநிலையத்தைப் பயன்படுத்தவும்.',
+      'orders.icu_mar_review.banner': 'ICU சேர்க்கை #{admissionId}-க்கான மருந்து தொடர்ச்சி மதிப்பாய்வு தேவை. ஆணைகளையும் MAR தொடர்ச்சியையும் மதிப்பாய்வு செய்யவும்; இந்த அறிவிப்பு மருத்துவத் தரவை மாற்றாது.',
       // REVIEW: AI first-pass
       'composer.title': 'புதிய ஆர்டர்கள்',
       // REVIEW: AI first-pass
@@ -19319,11 +21224,13 @@ class AppStrings {
       'composer.duration_days': 'காலம் (நாட்கள்)',
       // REVIEW: AI first-pass
       'composer.study_name': 'ஸ்டடி',
-      'composer.study_hint': 'Chest X-ray PA, CT Brain plain...',
+      'composer.study_hint':
+          'மார்பு எக்ஸ்-ரே PA, கான்ட்ராஸ்ட் இல்லாத CT மூளை...',
       // REVIEW: AI first-pass
       'composer.specialty': 'சிறப்புப் பிரிவு',
-      'composer.specialty_hint': 'Cardiology, Nephrology...',
-      'composer.diet_hint': 'Diabetic diet, NPO, soft diet...',
+      'composer.specialty_hint': 'இதயவியல், சிறுநீரகவியல்...',
+      'composer.diet_hint':
+          'நீரிழிவு உணவு, வாய்வழி எதுவுமில்லை (NPO), மென்மையான உணவு...',
       // REVIEW: AI first-pass
       'order_sets.no_placeable_items':
           'பதிவு செய்யக்கூடிய ஆர்டர் உருப்படிகள் தேர்வு செய்யப்படவில்லை',
@@ -21005,6 +22912,8 @@ class AppStrings {
       'pharmacy.tab.new': 'புதியது',
       'ward_indent.action.approve': 'இன்டென்டை அங்கீகரி',
       'ward_indent.action.approve_substitution': 'மாற்றீட்டை அங்கீகரி',
+      'ward_indent.action.apply_substitution':
+          'அங்கீகரிக்கப்பட்ட மாற்றீட்டை இருப்புக்கு பயன்படுத்து',
       'ward_indent.action.cancel': 'இன்டென்டை ரத்து செய்',
       'ward_indent.action.close': 'இன்டென்டை மூடு',
       'ward_indent.action.completed': '{number} புதுப்பிக்கப்பட்டது',
@@ -21024,6 +22933,59 @@ class AppStrings {
           'இந்த நிலையில் உங்கள் பங்கிற்கு எந்தச் செயலும் கிடைக்கவில்லை.',
       'ward_indent.actions.title': 'கிடைக்கும் செயல்கள்',
       'ward_indent.confirm.default': 'இந்த இணையவழி பணிப்பாய்வு மாற்றத்தை உறுதிப்படுத்தவும். சேவையகம் உங்கள் பங்கு, தற்போதைய பதிப்பு மற்றும் அனைத்து மருத்துவ மற்றும் இருப்பு விதிகளையும் மீண்டும் சரிபார்க்கும்.',
+      'ward_indent.inventory.none':
+          '{item} க்கான தகுதியான அதே நிலைய இருப்பு தேர்வு இல்லை.',
+      'ward_indent.inventory.select':
+          '{item} க்கான இருப்பைத் தேர்ந்தெடுக்கவும்',
+      'ward_indent.substitution.acknowledge_title':
+          'மாற்று மருந்தை உறுதிப்படுத்தவும்',
+      'ward_indent.substitution.acknowledge_body':
+          'பெறுவதற்கு முன் மாற்று மருந்தை உறுதிப்படுத்தவும்: {items}.',
+      'ward_indent.reconcile.exact_allocation_required':
+          '{item} ஐத் திருப்ப exact ward allocation தேவை.',
+      'ward_indent.reconcile.return_exceeds_custody': '{item} திருப்பும் அளவு வார்டில் பயன்படுத்தப்படாமல் உள்ள அளவை மீறுகிறது.',
+      'ward_indent.reconcile.return_evidence_missing': 'கட்டுப்படுத்தப்பட்ட திருப்பல் movement மற்றும் register சான்றுகளை இரண்டையும் உருவாக்கவில்லை.',
+      'ward_indent.controlled.reference_missing':
+          '{item} க்கான கட்டுப்படுத்தப்பட்ட குறிப்பு இல்லை.',
+      'ward_indent.controlled.exact_allocation_required':
+          '{item} ஐ வழங்குவதற்கு முன் ஒரே ஒரு ஒதுக்கப்பட்ட allocation தேவை.',
+      'due_meds.held_review_state': 'மருந்தளித்தல் தடுக்கப்பட்டுள்ளது — கட்டுப்படுத்தப்பட்ட மருத்துவ ஆய்வு அல்லது விடுவிப்புக்காக காத்திருக்கிறது.',
+      'mar_supply.title': 'MAR வழங்கல் ஒப்பிசைவு',
+      'mar_supply.no_open_override':
+          'பொருந்தாத MAR வழங்கல் override எதுவும் இல்லை.',
+      'mar_supply.outstanding': 'மீதமுள்ள அளவு: {quantity}',
+      'mar_supply.help': 'மீதமுள்ள முழு dose ஐ சரியான ward allocation அளவுகளுடன் பொருத்தவும். மொத்தம் சரியாக இருந்தால் மட்டுமே task முடியும்.',
+      'mar_supply.invalid_quantity': 'Allocation {allocation} இன் அளவு தவறானது அல்லது கிடைப்பதை மீறுகிறது.',
+      'mar_supply.exact_total_required':
+          'Allocation அளவுகளின் மொத்தம் சரியாக {quantity} ஆக இருக்க வேண்டும்.',
+      'mar_supply.completed':
+          'MAR வழங்கல் சான்று ஒப்பிசைக்கப்பட்டு task முடிக்கப்பட்டது.',
+      'mar_supply.allocation': 'வார்டு ஒதுக்கீடு',
+      'mar_supply.batch_available': 'Batch {batch} · கிடைக்கும் {quantity}',
+      'mar_supply.batch_ineligible.inventory_item_inactive':
+          'சரக்குப் பொருள் செயலற்றது.',
+      'mar_supply.batch_ineligible.batch_reserved':
+          'தொகுதி ஒதுக்கப்பட்டுள்ளது; ஒப்பிசைவுக்கு கிடைக்கவில்லை.',
+      'mar_supply.batch_ineligible.batch_depleted':
+          'இந்தத் தொகுதியில் தகுதியான மீதமுள்ள கையிருப்பு இல்லை.',
+      'mar_supply.batch_ineligible.batch_expired': 'தொகுதி காலாவதியானது.',
+      'mar_supply.batch_ineligible.batch_recalled':
+          'தொகுதி திரும்பப் பெறப்பட்டது; பயன்படுத்த முடியாது.',
+      'mar_supply.batch_ineligible.batch_quarantined':
+          'தொகுதி தனிமைப்படுத்தப்பட்டுள்ளது.',
+      'mar_supply.batch_ineligible.batch_disposed': 'தொகுதி அகற்றப்பட்டது.',
+      'mar_supply.batch_ineligible.batch_status_missing': 'தொகுதி நிலை இல்லை.',
+      'mar_supply.batch_ineligible.ward_custody_unavailable':
+          'இந்தத் தொகுதியில் பயன்படுத்தாத வார்டு கையிருப்பு இல்லை.',
+      'mar_supply.batch_ineligible.batch_expiry_missing':
+          'தொகுதியின் காலாவதி தேதி இல்லை.',
+      'mar_supply.batch_ineligible.unknown':
+          'இந்தத் தொகுதி ஒப்பிசைவுக்குத் தகுதியற்றது.',
+      'mar_supply.notification_action': 'MAR வழங்கலை ஒப்பிசைக்கவும்',
+      'mar_supply.quantity': 'இந்த allocation இலிருந்து அளவு',
+      'mar_supply.reconcile': 'சரியான வழங்கலை ஒப்பிசைக்கவும்',
+      'clinical_inbox.open_workflow': 'பணிப்பாய்வைத் திறக்கவும்',
+      'clinical_inbox.workflow_link_unavailable': 'இந்த task இல் பாதுகாப்பான செயல்படுத்தக்கூடிய பணிப்பாய்வு இணைப்பு இல்லை.',
       'ward_indent.controlled.ambiguous_recovery': 'கட்டுப்படுத்தப்பட்ட மருந்துச் சான்றுக்கு பல சாத்தியமான பதிவுகள் உள்ளன. மேற்பார்வையாளர் ஒப்பிசைவு செய்யும் வரை ஒப்படைப்பு தடுக்கப்பட்டுள்ளது.',
       'ward_indent.controlled.label': 'கட்டுப்படுத்தப்பட்டது',
       'ward_indent.controlled.no_inventory_link': '{item} உடன் எந்த இருப்புப் பொருளும் இணைக்கப்படவில்லை. வழங்குவதற்கு முன் பட்டியல் மற்றும் இருப்புப் பதிவுகளை இணைக்கவும்.',
@@ -21096,6 +23058,29 @@ class AppStrings {
       'ward_indent.select_prompt':
           'பணிப்பாய்வைப் பார்க்க ஒரு வார்டு இன்டென்டைத் தேர்ந்தெடுக்கவும்.',
       'ward_indent.sla.title': 'செயலில் உள்ள சேவை-நிலை உறுதிப்பாடுகள்',
+      'ward_indent.code.unknown': 'அடையாளம் தெரியாத பணிப்பாய்வு நிலை',
+      'ward_indent.sla.status.active': 'செயலில் உள்ளது',
+      'ward_indent.sla.status.breached': 'காலவரம்பு மீறப்பட்டது',
+      'ward_indent.sla.status.escalated': 'மேல்நிலைக்கு உயர்த்தப்பட்டது',
+      'ward_indent.sla.rule.ward_indent_pharmacy_response': 'மருந்தக பதில்',
+      'ward_indent.sla.rule.ward_indent_substitution_authorization':
+          'மாற்று மருந்து அங்கீகாரம்',
+      'ward_indent.sla.rule.ward_indent_controlled_handoff':
+          'கட்டுப்படுத்தப்பட்ட மருந்து ஒப்படைப்பு',
+      'ward_indent.sla.rule.ward_indent_pharmacy_issue': 'மருந்தக வழங்கல்',
+      'ward_indent.sla.rule.ward_indent_ward_receipt': 'வார்டு பெறுதல்',
+      'ward_indent.sla.rule.ward_indent_reconciliation': 'மருந்து ஒப்பிசைவு',
+      'ward_indent.sla.rule.ward_indent_notification_coverage':
+          'அறிவிப்பு பரவல்',
+      'ward_indent.sla.rule.ward_indent_credit_note_review':
+          'கடன் குறிப்புச் சோதனை',
+      'ward_indent.sla.rule.ward_indent_mar_supply_reconciliation':
+          'MAR வழங்கல் ஒப்பிசைவு',
+      'ward_indent.controlled.recovery_status.available': 'ஆதாரம் உள்ளது',
+      'ward_indent.controlled.recovery_status.missing': 'ஆதாரம் இல்லை',
+      'ward_indent.controlled.recovery_status.ambiguous': 'பல ஆதாரப் பதிவுகள்',
+      'ward_indent.controlled.recovery_status.corrupt':
+          'காப்புச் சான்று முரண்பாடு',
       'ward_indent.status.approved': 'அங்கீகரிக்கப்பட்டது',
       'ward_indent.status.cancelled': 'ரத்து செய்யப்பட்டது',
       'ward_indent.status.closed': 'மூடப்பட்டது',
@@ -21120,6 +23105,30 @@ class AppStrings {
       'ward_indent.substitution.select_line':
           'குறைந்த விநியோக வரியைத் தேர்ந்தெடுக்கவும்',
       'ward_indent.tab': 'வார்டு இன்டென்ட்கள்',
+      'ward_indent.request.action': 'விநியோகத்தைக் கோரவும்',
+      'ward_indent.request.title': 'ஆர்டர்-இணைந்த விநியோக மீட்பு',
+      'ward_indent.request.help': 'செயலில் உள்ள மருந்து ஆர்டருக்கு தானியங்கி வார்டு இன்டென்ட் உருவாகாதபோது மட்டும் பயன்படுத்தவும். இங்கே மருந்தை பரிந்துரைக்கவோ மாற்றவோ வேண்டாம்.',
+      'ward_indent.request.admission_id': 'சேர்க்கை ஐடி',
+      'ward_indent.request.admission_hint':
+          'செயலில் உள்ள சேர்க்கை ஐடியை உள்ளிடவும்',
+      'ward_indent.request.load': 'ஆர்டர்களை ஏற்றவும்',
+      'ward_indent.request.admission_invalid':
+          'செல்லுபடியாகும் நேர்மறை சேர்க்கை ஐடியை உள்ளிடவும்.',
+      'ward_indent.request.context': 'நோயாளி மற்றும் வார்டை உறுதிப்படுத்தவும்',
+      'ward_indent.request.patient_context': 'நோயாளி: {patient} ({hospitalId})',
+      'ward_indent.request.ward_context':
+          'சேர்க்கை {admission} - வார்டு {ward}',
+      'ward_indent.request.none_eligible': 'மீட்பு கோரிக்கைக்கு தகுதியான செயலில் உள்ள, இணைக்கப்படாத மருந்து ஆர்டர்கள் இல்லை.',
+      'ward_indent.request.select_order': 'மருந்து ஆர்டரைத் தேர்ந்தெடுக்கவும்',
+      'ward_indent.request.order_summary': '{order} - {quantity} {unit}; டோஸ் {dose}; வழி {route}; அட்டவணை {schedule}; நிலை {status}; முன்னுரிமை {priority}',
+      'ward_indent.request.notes': 'மீட்பு குறிப்புகள் (விருப்பம்)',
+      'ward_indent.request.notes_hint':
+          'தானியங்கி விநியோகக் கோரிக்கைக்கு ஏன் மீட்பு தேவை என்பதை விளக்கவும்',
+      'ward_indent.request.submit': 'வார்டு இன்டென்ட் உருவாக்கவும்',
+      'ward_indent.request.conflict.admission_inactive': 'சேர்க்கை இனி செயலில் இல்லை. ஆர்டர் பட்டியல் புதுப்பிக்கப்பட்டது; கோரிக்கை அனுப்பப்படவில்லை.',
+      'ward_indent.request.conflict.already_linked': 'இந்த மருந்து ஆர்டர் ஏற்கனவே வார்டு இன்டென்டுடன் இணைக்கப்பட்டுள்ளது. ஆர்டர் பட்டியல் புதுப்பிக்கப்பட்டது.',
+      'ward_indent.request.conflict.projection_changed': 'ஆர்டர்-இணைந்த விநியோக விவரங்கள் மாறியுள்ளன. மீண்டும் முயல்வதற்கு முன் புதுப்பிக்கப்பட்ட பட்டியலைச் சரிபார்க்கவும்.',
+      'ward_indent.request.conflict.canonical_changed': 'விநியோகம் கேட்டலாக் {catalog}, அளவு {quantity} {unit} ஆக மாறியுள்ளது. மீண்டும் முயல்வதற்கு முன் புதுப்பிக்கப்பட்ட ஆர்டரைச் சரிபார்க்கவும்.',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'pharmacy.tab.active': 'செயலில்',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
@@ -21204,6 +23213,29 @@ class AppStrings {
       'due_meds.filter.all_routes': 'அனைத்து வழிகளும்',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'due_meds.filter.route_label': 'வழி',
+      // REVIEW: MED-03 ta AI first pass; clinician-linguist approval is required before activation.
+      'due_meds.actions.label': 'மருந்து செயல்கள்',
+      'due_meds.actions.miss': 'தவறிய மருந்தளவாக பதிவு செய்',
+      'due_meds.actions.hold': 'மருந்தளவை நிறுத்தி வை',
+      'due_meds.actions.release': 'நிறுத்திய மருந்தளவை விடுவி',
+      'due_meds.actions.miss_title': 'இந்த மருந்தளவை தவறியதாக பதிவு செய்யவா?',
+      'due_meds.actions.hold_title': 'இந்த மருந்தளவை நிறுத்தி வைக்கவா?',
+      'due_meds.actions.release_title': 'நிறுத்திய இந்த மருந்தளவை விடுவிக்கவா?',
+      'due_meds.actions.miss_body': 'திட்டமிட்ட மருந்தளவு கொடுக்கப்படாதபோது மட்டும் பயன்படுத்தவும். மருத்துவ காரணம் MAR பதிவின் பகுதியாகும்.',
+      'due_meds.actions.hold_body': 'மருத்துவ மறுபரிசீலனை வரை திட்டமிட்ட மருந்தளவை இடைநிறுத்த மட்டும் பயன்படுத்தவும். இது மருந்து கொடுத்ததாக பதிவு செய்யாது.',
+      'due_meds.actions.release_body': 'மருந்து பரிந்துரைப்பவர் மருத்துவ ஆய்வை பதிவு செய்ய வேண்டும். விடுவித்தல் மருந்தளவை திட்டமிட்ட நிலைக்குத் திருப்பும்; மருந்தளித்ததாக பதிவு செய்யாது.',
+      'due_meds.actions.reason_label': 'மருத்துவ காரணம்',
+      'due_meds.actions.reason_hint': 'குறைந்தது 5 எழுத்துகள் உள்ளிடவும்',
+      'due_meds.actions.reason_required':
+          'குறிப்பிட்ட மருத்துவ காரணத்தை உள்ளிடவும் (குறைந்தது 5 எழுத்துகள்).',
+      'due_meds.actions.cancel': 'ரத்து செய்',
+      'due_meds.actions.confirm_miss': 'தவறிய மருந்தளவை பதிவு செய்',
+      'due_meds.actions.confirm_hold': 'நிறுத்தி வை',
+      'due_meds.actions.confirm_release': 'திட்டமிட்ட நிலைக்கு விடுவி',
+      'due_meds.actions.miss_success': 'தவறிய மருந்தளவு பதிவு செய்யப்பட்டது',
+      'due_meds.actions.hold_success': 'மருந்தளவு நிறுத்தி வைக்கப்பட்டது',
+      'due_meds.actions.release_success':
+          'நிறுத்திய மருந்தளவு திட்டமிட்ட நிலைக்கு விடுவிக்கப்பட்டது',
       // REVIEW: ta AI first-pass S4 due-meds display copy.
       's4.dynamic.due_meds.ward_fallback': 'வார்டு {value}',
       'due_meds.unscheduled': 'அட்டவணையிடப்படாதது',
@@ -22048,6 +24080,147 @@ class AppStrings {
       's4.dynamic.cath_lab.consumables.batch': "தொகுதி/லாட் {batch}",
       's4.dynamic.cath_lab.consumables.expiry': "காலாவதி {expiry}",
       's4.dynamic.cath_lab.consumables.serial': "வரிசை {serial}",
+      'med03.cath_inventory.title': "காத் இருப்புச் சரிசெய்தல்",
+      'med03.cath_inventory.access_denied': "இந்த காத் இருப்பு பணிப்பாய்வைத் திறக்க உங்கள் பங்கிற்கு அனுமதி இல்லை.",
+      'med03.cath_inventory.invalid_target':
+          "காத் வழக்கு அல்லது நுகர்பொருள் பயன்பாட்டு அடையாளம் தவறானது.",
+      'med03.cath_inventory.target_mismatch': "காத் வழக்கு மற்றும் பயன்பாட்டு அடையாளங்கள் அதிகாரப்பூர்வ சரிசெய்தல் பதிவுடன் பொருந்தவில்லை.",
+      'med03.cath_inventory.load_failed': "அதிகாரப்பூர்வ காத் இருப்புச் சரிசெய்தல் நிலையை ஏற்ற முடியவில்லை. மீண்டும் இணைந்து முயலுங்கள்.",
+      'med03.cath_inventory.summary':
+          "அதிகாரப்பூர்வமாகப் பதிவான பயன்பாடு மற்றும் இருப்பு நிலை",
+      'med03.cath_inventory.case_id': "காத் வழக்கு அடையாளம்",
+      'med03.cath_inventory.usage_id': "நுகர்பொருள் பயன்பாட்டு அடையாளம்",
+      'med03.cath_inventory.patient_uid': "நோயாளர் அடையாளம்",
+      'med03.cath_inventory.item': "நுகர்பொருள் அல்லது உட்பொருத்து",
+      'med03.cath_inventory.inventory_item_id': "இருப்பு பொருள் அடையாளம்",
+      'med03.cath_inventory.inventory_batch_id': "இருப்பு தொகுதி அடையாளம்",
+      'med03.cath_inventory.batch_number': "பதிவான தொகுதி எண்",
+      'med03.cath_inventory.documented_quantity': "பதிவான அளவு",
+      'med03.cath_inventory.decremented_quantity':
+          "இருப்பிலிருந்து குறைக்கப்பட்ட அளவு",
+      'med03.cath_inventory.remaining_quantity': "தொகுதியில் மீதமுள்ள அளவு",
+      'med03.cath_inventory.status': "இருப்புச் சரிசெய்தல் நிலை",
+      'med03.cath_inventory.task_status': "பணி நிலை",
+      'med03.cath_inventory.sla_status': "சேவை நேர நிலை",
+      'med03.cath_inventory.due_at': "நிறைவு காலம்",
+      'med03.cath_inventory.value_unknown': "கிடைக்கவில்லை",
+      'med03.cath_inventory.status.insufficient_stock':
+          "பதிவான பயன்பாடு இருப்புச் சரிசெய்தலுக்காக காத்திருக்கிறது",
+      'med03.cath_inventory.status.decremented':
+          "துல்லிய இருப்புக் குறைப்பு முடிந்தது",
+      'med03.cath_inventory.status.unknown':
+          "இருப்புச் சரிசெய்தல் நிலை கிடைக்கவில்லை",
+      'med03.cath_inventory.task_status.open': "திறந்துள்ளது",
+      'med03.cath_inventory.task_status.in_progress': "செயலில் உள்ளது",
+      'med03.cath_inventory.task_status.overdue': "காலம் கடந்தது",
+      'med03.cath_inventory.task_status.completed': "முடிந்தது",
+      'med03.cath_inventory.task_status.unknown': "பணி நிலை கிடைக்கவில்லை",
+      'med03.cath_inventory.sla_status.active': "செயலில்",
+      'med03.cath_inventory.sla_status.breached': "கால வரம்பு மீறப்பட்டது",
+      'med03.cath_inventory.sla_status.escalated':
+          "மேல்நிலைக்கு அனுப்பப்பட்டது",
+      'med03.cath_inventory.sla_status.completed': "முடிந்தது",
+      'med03.cath_inventory.sla_status.cancelled': "ரத்து செய்யப்பட்டது",
+      'med03.cath_inventory.sla_status.unknown': "சேவை நேர நிலை கிடைக்கவில்லை",
+      'med03.cath_inventory.not_actionable': "இந்த அதிகாரப்பூர்வ சரிசெய்தல் தற்போது செயல்படுத்த முடியாது. இருப்புப் பதிவு திருத்தப்பட்ட பின் புதுப்பிக்கவும்.",
+      'med03.cath_inventory.coverage_only': "கவரேஜ் நிர்வாகிகள் இந்த ஆதாரத்தைப் பார்த்துப் புதுப்பிக்கலாம். இருப்பு மாற்றத்தை மருந்தகச் சரிசெய்தல் பங்குகள் மட்டுமே செய்யலாம்.",
+      'med03.cath_inventory.confirm_title':
+          "பதிவான காத் பயன்பாட்டைச் சரிசெய்யவா?",
+      'med03.cath_inventory.confirm_body': "சேவையகம் பதிவான துல்லிய தொகுதி அல்லது தகுதியான FEFO தொகுதிகளை மட்டுமே பயன்படுத்தும். தன்னிச்சையான தொகுதி அல்லது சாதன அடையாளம் ஏற்கப்படாது.",
+      'med03.cath_inventory.confirm_action': "இருப்பைச் சரிசெய்",
+      'med03.cath_inventory.reconcile_action': "பதிவான பயன்பாட்டைச் சரிசெய்",
+      'med03.cath_inventory.retry_same_attempt':
+          "பாதுகாக்கப்பட்ட சரிசெய்தலை மீண்டும் முயல்க",
+      'med03.cath_inventory.reconciling': "இருப்பு சரிசெய்யப்படுகிறது...",
+      'med03.cath_inventory.completed': "துல்லிய இருப்புக் குறைப்பும் பணிப்பாய்வு நிறைவும் அதிகாரப்பூர்வ பதிவில் உறுதிசெய்யப்பட்டன.",
+      'med03.cath_inventory.still_insufficient': "இருப்பு இன்னும் போதவில்லை. பணி திறந்தே இருக்கும்; இருப்பை நிரப்பி அல்லது ஆதாரத்தைத் திருத்தி மீண்டும் முயலுங்கள்.",
+      'med03.cath_inventory.response_unconfirmed': "சரிசெய்தல் முடிவு உறுதியாகவில்லை. அதே பாதுகாக்கப்பட்ட முயற்சியை மீண்டும் பயன்படுத்த மாற்றமின்றி முயலுங்கள்.",
+      'med03.cath_inventory.refresh_action':
+          "அதிகாரப்பூர்வ நிலையைப் புதுப்பிக்கவும்",
+      'med03.cath_inventory.warning.insufficient_stock': 'இருப்பு இன்னும் குறைவாக உள்ளது. மீண்டும் முயல்வதற்கு முன் இருப்பை நிரப்பவும் அல்லது அதன் ஆதாரத்தைத் திருத்தவும்.',
+      'med03.cath_inventory.warning.batch_expired': 'சரியான இன்வெண்டரி பேட்ச் காலாவதியானதால் இருப்புக் கழிவு பதிவு செய்யப்படவில்லை.',
+      'med03.cath_inventory.warning.quantity_invalid': 'சரியான இன்வெண்டரி பேட்ச் அளவு செல்லாததால் இருப்புக் கழிவு பதிவு செய்யப்படவில்லை.',
+      'med03.cath_inventory.warning.lineage_mismatch': 'பதிவான பேட்ச், லாட் அல்லது காலாவதி விவரம் இன்வெண்டரியுடன் பொருந்தவில்லை. இருப்புக் கழிவு பதிவு செய்யப்படவில்லை.',
+      'med03.cath_inventory.warning.lineage_incomplete': 'பதிவான இன்வெண்டரி வழித்தடம் முழுமையில்லை. இருப்புக் கழிவு பதிவு செய்யப்படவில்லை.',
+      'med03.cath_inventory.warning.controlled_stock': 'கட்டுப்படுத்தப்பட்ட இருப்புக்கு சட்டப்பூர்வ விநியோக செயல்முறை அவசியம். கேத் இன்வெண்டரி இயக்கம் பதிவு செய்யப்படவில்லை.',
+      'med03.cath_inventory.warning.inventory_not_linked': 'இந்த கேத் பட்டியல் பொருள் இன்வெண்டரியுடன் இணைக்கப்படவில்லை. இருப்புக் கழிவு பதிவு செய்யப்படவில்லை.',
+      'med03.cath_inventory.warning.batch_unavailable': 'சரியான இன்வெண்டரி பேட்ச் கிடைக்கவில்லை அல்லது தெளிவாக இல்லை. இருப்புக் கழிவு பதிவு செய்யப்படவில்லை.',
+      'med03.cath_inventory.warning.unknown': 'இன்வெண்டரி எச்சரிக்கை அறியப்படவில்லை. செயல்படும் முன் அதிகாரப்பூர்வ இருப்பு ஆதாரத்தைச் சரிபார்க்கவும்.',
+      'med03.alert_recovery.title': 'மருத்துவ எச்சரிக்கை விநியோக மீட்பு',
+      'med03.alert_recovery.empty':
+          'திறந்த மருத்துவ எச்சரிக்கை விநியோக மீட்பு வழக்குகள் இல்லை.',
+      'med03.alert_recovery.load_failed': 'அதிகாரப்பூர்வ மருத்துவ எச்சரிக்கை மீட்பு வழக்கை ஏற்ற முடியவில்லை. மீண்டும் இணைந்து முயலுங்கள்.',
+      'med03.alert_recovery.action_failed': 'மருத்துவ எச்சரிக்கை மீட்பு நடவடிக்கை உறுதிப்படுத்தப்படவில்லை. மீண்டும் முயல்வதற்கு முன் அதிகாரப்பூர்வ வழக்கைப் புதுப்பிக்கவும்.',
+      'med03.alert_recovery.field.case_status': 'மீட்பு வழக்கு நிலை',
+      'med03.alert_recovery.field.delivery_status': 'எச்சரிக்கை விநியோக நிலை',
+      'med03.alert_recovery.field.task_status': 'மீட்பு பணி நிலை',
+      'med03.alert_recovery.field.sla_status': 'சேவை நேர நிலை',
+      'med03.alert_recovery.field.source': 'அதிகாரப்பூர்வ மூலம்',
+      'med03.alert_recovery.field.failure': 'விநியோகத் தோல்வி கட்டம்',
+      'med03.alert_recovery.field.timing': 'மீட்பு நேர விவரம்',
+      'med03.alert_recovery.field.last_error': 'கடைசி விநியோகப் பிழை',
+      'med03.alert_recovery.field.hold_reason': 'கைமுறை நிறுத்தக் காரணம்',
+      'med03.alert_recovery.field.resolution': 'மீட்பு தீர்வு',
+      'med03.alert_recovery.timing_value': 'காலக்கெடு {due} • {seconds} வினாடிகளாக திறந்துள்ளது • உயர்த்தல் முயற்சிகள் {count}',
+      'med03.alert_recovery.case_kind.manual_hold': 'கைமுறை நிறுத்த மூல ஆய்வு',
+      'med03.alert_recovery.case_kind.recipient_coverage':
+          'மருத்துவ பெறுநர் கவரேஜ் மீட்பு',
+      'med03.alert_recovery.case_kind.unknown': 'அறியப்படாத மீட்பு வழக்கு வகை',
+      'med03.alert_recovery.source.clinical_orders': 'மருத்துவ ஆணை',
+      'med03.alert_recovery.source.icu_admissions':
+          'தீவிர சிகிச்சைப் பிரிவு அனுமதி',
+      'med03.alert_recovery.source.unknown': 'அறியப்படாத மருத்துவ மூலம்',
+      'med03.alert_recovery.case_status.open': 'திறந்துள்ளது',
+      'med03.alert_recovery.case_status.resolved': 'தீர்க்கப்பட்டது',
+      'med03.alert_recovery.case_status.unknown':
+          'அறியப்படாத மீட்பு வழக்கு நிலை',
+      'med03.alert_recovery.delivery_status.pending': 'விநியோகம் நிலுவையில்',
+      'med03.alert_recovery.delivery_status.completed': 'விநியோகம் முடிந்தது',
+      'med03.alert_recovery.delivery_status.manual_hold':
+          'விநியோகம் கைமுறை நிறுத்தத்தில் உள்ளது',
+      'med03.alert_recovery.delivery_status.unknown':
+          'அறியப்படாத எச்சரிக்கை விநியோக நிலை',
+      'med03.alert_recovery.task_status.open': 'திறந்துள்ளது',
+      'med03.alert_recovery.task_status.in_progress': 'நடந்து கொண்டிருக்கிறது',
+      'med03.alert_recovery.task_status.blocked': 'தடுக்கப்பட்டது',
+      'med03.alert_recovery.task_status.completed': 'முடிந்தது',
+      'med03.alert_recovery.task_status.cancelled': 'ரத்து செய்யப்பட்டது',
+      'med03.alert_recovery.task_status.overdue': 'காலக்கெடு கடந்தது',
+      'med03.alert_recovery.task_status.unknown': 'அறியப்படாத மீட்பு பணி நிலை',
+      'med03.alert_recovery.sla_status.active': 'செயலில் உள்ளது',
+      'med03.alert_recovery.sla_status.completed': 'முடிந்தது',
+      'med03.alert_recovery.sla_status.breached': 'நேர வரம்பு மீறப்பட்டது',
+      'med03.alert_recovery.sla_status.escalated':
+          'மேல்நிலைக்கு உயர்த்தப்பட்டது',
+      'med03.alert_recovery.sla_status.cancelled': 'ரத்து செய்யப்பட்டது',
+      'med03.alert_recovery.sla_status.unknown': 'அறியப்படாத சேவை நேர நிலை',
+      'med03.alert_recovery.failure.order_mar_schedule':
+          'மருந்து ஆணை MAR அட்டவணையிடல் தோல்வி',
+      'med03.alert_recovery.failure.order_mar_carryover':
+          'மருந்து ஆணை MAR தொடர்ச்சி தோல்வி',
+      'med03.alert_recovery.failure.icu_mar_carryover_query':
+          'தீவிர சிகிச்சை MAR தொடர்ச்சி மூல தேடல் தோல்வி',
+      'med03.alert_recovery.failure.unknown':
+          'அறியப்படாத மருத்துவ எச்சரிக்கை விநியோகத் தோல்வி',
+      'med03.alert_recovery.resolution.recovered':
+          'எச்சரிக்கை விநியோகம் மீட்கப்பட்டது',
+      'med03.alert_recovery.resolution.manual_hold':
+          'நிர்வகிக்கப்பட்ட கைமுறை நிறுத்தத்திற்கு மாற்றப்பட்டது',
+      'med03.alert_recovery.resolution.superseded':
+          'அதிகாரப்பூர்வ மூலத்திலிருந்து மாற்றப்பட்டது',
+      'med03.alert_recovery.resolution.unknown': 'அறியப்படாத மீட்பு தீர்வு',
+      'med03.alert_recovery.error.no_active_clinical_recipients': 'செயலில் உள்ள நிர்வகிக்கப்பட்ட மருத்துவ பெறுநர் தற்போது கிடைக்கவில்லை.',
+      'med03.alert_recovery.error.clinical_alert_recovery_queue_failed': 'நிர்வகிக்கப்பட்ட எச்சரிக்கை வரிசையால் விநியோக ஆதாரத்தைச் சேமிக்க முடியவில்லை.',
+      'med03.alert_recovery.error.clinical_alert_obligation_intent_invalid': 'சேமிக்கப்பட்ட எச்சரிக்கை நோக்கம் கிடைக்கவில்லை அல்லது செல்லாது. மாற்று எச்சரிக்கை அனுப்பப்படவில்லை.',
+      'med03.alert_recovery.error.clinical_alert_obligation_policy_invalid': 'சேமிக்கப்பட்ட பெறுநர் கொள்கை நிர்வகிக்கப்பட்ட பணிமுறை மருத்துவர் கொள்கை அல்ல. மாற்று எச்சரிக்கை அனுப்பப்படவில்லை.',
+      'med03.alert_recovery.error.clinical_alert_obligation_source_missing': 'அதிகாரப்பூர்வ மூல மருத்துவப் பதிவு கிடைக்கவில்லை. மாற்று எச்சரிக்கை அனுப்பப்படவில்லை.',
+      'med03.alert_recovery.error.clinical_alert_obligation_source_mismatch': 'சேமிக்கப்பட்ட எச்சரிக்கை அதன் அதிகாரப்பூர்வ மூலத்துடன் பொருந்தவில்லை. மாற்று எச்சரிக்கை அனுப்பப்படவில்லை.',
+      'med03.alert_recovery.error.unknown': 'மீட்புப் பிழை அறியப்படவில்லை. செயல்படும் முன் அதிகாரப்பூர்வ ஆதாரத்தைச் சரிபார்க்கவும்.',
+      'med03.notification.clinical_alert_recovery.overdue_title':
+          'மருத்துவ எச்சரிக்கை விநியோக மீட்பு காலக்கெடு கடந்தது',
+      'med03.notification.clinical_alert_recovery.overdue_body': 'ஒரு எச்சரிக்கை விநியோக மீட்பு வழக்கு சேவை நேரத்தை கடந்துள்ளது; நிர்வாகி நடவடிக்கை தேவை.',
+      'med03.notification.clinical_alert_recovery.action':
+          'எச்சரிக்கை விநியோக மீட்பைத் திறக்கவும்',
       's4.lib.stroke_pathway.activation': "செயல்படுத்தல்",
       's4.lib.stroke_pathway.decision.administered': "வழங்கப்பட்டது",
       's4.lib.stroke_pathway.decision.approved': "அங்கீகரிக்கப்பட்டது",
@@ -23714,6 +25887,55 @@ class AppStrings {
           "சரக்கு & கொள்முதல் மேற்பார்வை",
       's4.lib.pharmacy.inventory_item_added': "சரக்கு உருப்படி சேர்க்கப்பட்டது",
       's4.lib.pharmacy.inventory_items': "சரக்கு பொருட்கள்",
+      'pharmacy.disposal.title': 'சரக்கு அகற்றலைப் பதிவு செய்க',
+      'pharmacy.disposal.open': 'சரியான தொகுதியை அகற்றுக',
+      'pharmacy.disposal.facility': 'மருந்தக வசதி',
+      'pharmacy.disposal.facility_hint': 'சேவையகம் உறுதிப்படுத்திய உங்கள் செயலில் உள்ள அனுமதி வசதிகள் மட்டும் பட்டியலிடப்படும்.',
+      'pharmacy.disposal.facility_required': 'தொடர்வதற்கு முன் செயலில் உள்ள மருந்தக அனுமதியிலிருந்து ஒரு வசதியைத் தேர்ந்தெடுக்கவும்.',
+      'pharmacy.disposal.role_required': 'செயலில் உள்ள மருந்தகப் பணியாளர் அல்லது மருந்தகப் பொறுப்பாளர் மட்டுமே அகற்றலைப் பதிவு செய்யலாம்.',
+      'pharmacy.disposal.item_authority_missing': 'சரக்கு பொருள் அடையாளம் கிடைக்கவில்லை. அகற்றலைப் பதிவு செய்ய முடியாது.',
+      'pharmacy.disposal.authority_hint': 'செயலில் உள்ள வசதி அனுமதி, பொருள், பட்டியல், வழங்குநர், சேமிப்பு இடம், தொகுதி மற்றும் இருப்பை சேவையகம் பூட்டின் கீழ் மீண்டும் சரிபார்க்கும்.',
+      'pharmacy.disposal.batch': 'சரியான சரக்கு தொகுதி',
+      'pharmacy.disposal.batch_option':
+          'தொகுதி {batch} · லாட் {lot} · {status} · மீதி {quantity}',
+      'pharmacy.disposal.batch_required':
+          'தகுதியான ஒரு சரியான தொகுதியைத் தேர்ந்தெடுக்கவும்.',
+      'pharmacy.disposal.batch_constraints': 'வழங்குநர் {supplier} · நிலை {status} · காலாவதி {expiry} · மீதி {quantity}. இருப்பில், காலாவதியான, திரும்பப்பெற்ற அல்லது தனிமைப்படுத்தப்பட்ட தொகுதிகள் மட்டுமே அகற்றப்படலாம்.',
+      'pharmacy.disposal.no_eligible_batches': 'இந்த வசதியில் தகுதியான தொகுதி இல்லை. சரக்கு நகர்வு எதுவும் பதிவு செய்யப்படவில்லை.',
+      'pharmacy.disposal.quantity': 'அகற்றல் அளவு',
+      'pharmacy.disposal.quantity_hint':
+          'நேர்மறை அளவு, அதிகபட்சம் நான்கு தசம இடங்கள்.',
+      'pharmacy.disposal.quantity_invalid': 'அதிகபட்சம் நான்கு தசம இடங்களுடன் 9,999,999,999.9999 வரை நேர்மறை அளவை உள்ளிடவும்.',
+      'pharmacy.disposal.quantity_exceeds_stock': 'அகற்றல் அளவு தொகுதியின் அதிகாரப்பூர்வ மீதியான {quantity}-ஐ விட அதிகமாக உள்ளது.',
+      'pharmacy.disposal.reason_code': 'நிர்வகிக்கப்பட்ட காரணக் குறியீடு',
+      'pharmacy.disposal.reason_hint': 'எடுத்துக்காட்டு: damaged',
+      'pharmacy.disposal.reason_required':
+          'நிர்வகிக்கப்பட்ட அகற்றல் காரணக் குறியீடு தேவை.',
+      'pharmacy.disposal.method': 'உடல் அகற்றல் முறை',
+      'pharmacy.disposal.method_hint':
+          'எடுத்துக்காட்டு: authorized_incineration',
+      'pharmacy.disposal.method_required': 'உடல் அகற்றல் முறை தேவை.',
+      'pharmacy.disposal.controlled_warning': 'அட்டவணை X அல்லது போதைப்பொருள் அகற்றலுக்கு தனியாக அங்கீகரிக்கப்பட்ட ஒருமுறை சாட்சி ஒப்புதல் தேவை. H/H1/X காவல் சட்டப்பூர்வ பதிவேட்டில் எழுதப்படும்.',
+      'pharmacy.disposal.witness_title': 'சுயாதீன அகற்றல் சாட்சி',
+      // REVIEW: technical parity only; requires Tamil linguistic review.
+      'pharmacy.disposal.witness_hint': 'தேர்ந்தெடுக்கப்பட்ட இதே வசதிக்கான ACTIVE அனுமதி கொண்ட இரண்டாவது செயலில் உள்ள PHARMACY_STAFF அல்லது PHARMACY_INCHARGE இயக்குநரைப் பயன்படுத்தவும். அவர் தனியாக அங்கீகரிக்க வேண்டும்; தற்போதைய இயக்குநர் தமது அகற்றலுக்குச் சாட்சியாக இருக்க முடியாது.',
+      'pharmacy.disposal.witness_employee_id': 'சாட்சி பணியாளர் ஐடி',
+      'pharmacy.disposal.witness_password': 'சாட்சி கடவுச்சொல்',
+      'pharmacy.disposal.witness_approve': 'அங்கீகரித்து ஒப்புதலளிக்கவும்',
+      'pharmacy.disposal.witness_required': 'சரியான, காலாவதியாகாத சாட்சி ஒப்புதல் இல்லாமல் இந்தக் கட்டுப்படுத்தப்பட்ட அகற்றல் தொடர முடியாது.',
+      'pharmacy.disposal.witness_approved_by':
+          '{name} சாட்சி ஒப்புதல் அளித்தார்',
+      'pharmacy.disposal.witness_staff': 'சுயாதீன பணியாளர் சாட்சி',
+      'pharmacy.disposal.witness_pending':
+          'சுயாதீன சாட்சி ஒப்புதல் முழுமையில்லை.',
+      'pharmacy.disposal.witness_replace': 'சாட்சி ஒப்புதலை மாற்றவும்',
+      'pharmacy.disposal.witness_request': 'சாட்சியைக் கோரி ஒப்புதல் பெறுக',
+      'pharmacy.disposal.submit': 'மாற்றமுடியாத அகற்றலைப் பதிவு செய்க',
+      'pharmacy.disposal.completed': 'சரியான தொகுதி அகற்றலும் தேவையான சட்டப்பூர்வ ஆதாரமும் பதிவு செய்யப்பட்டன.',
+      // REVIEW: facility-bound pharmacy custody technical parity only; requires Tamil linguistic review.
+      'pharmacy.order.controlled_witness_custody_hint': 'கட்டுப்படுத்தப்பட்ட ஆர்டர் கஸ்டடிக்கு, தேர்ந்தெடுக்கப்பட்ட இதே வசதிக்கான ACTIVE அனுமதி கொண்ட இரண்டாவது செயலில் உள்ள PHARMACY_STAFF அல்லது PHARMACY_INCHARGE இயக்குநர் தேவை. அவர் தனியாக அங்கீகரிக்க வேண்டும்; தற்போதைய இயக்குநர் தமது கஸ்டடி நடவடிக்கையைத் தாமே ஒப்புதல் அளிக்க முடியாது.',
+      // REVIEW: technical parity only; requires Tamil linguistic review.
+      'pharmacy.inventory.composition_review_required': 'பட்டியல் உருப்படி {catalogId}-க்கு அதிகாரப்பூர்வ கலவை அடையாளம் இல்லை. எந்த சரக்கு உருப்படியும் உருவாக்கப்படவில்லை. மீண்டும் முயற்சிப்பதற்கு முன் நிர்வகிக்கப்பட்ட பட்டியல்-கலவை மதிப்பாய்வு நிறைவடைய வேண்டும்.',
       's4.lib.pharmacy.manufacturer': "உற்பத்தியாளர்",
       's4.lib.pharmacy.mark_urgent': "அவசரமாகக் குறிக்கவும்",
       's4.lib.pharmacy.medicine_names_dose_quantity_or_rx_note':
@@ -25014,6 +27236,194 @@ class AppStrings {
       'mar_scan.hardstop.drug': 'ஸ்கேன் செய்யப்பட்ட பார்கோடு ஆணையிடப்பட்ட மருந்துடன் பொருந்தவில்லை (தவறான மருந்து).',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       'mar_scan.hardstop.body': 'நோயாளர் மற்றும் மருந்து அடையாளப் பொருத்தமின்மையை மீற முடியாது. சரியான நோயாளியும் சரியான மருந்தும் உள்ளதா என உறுதிசெய்து, மீண்டும் ஸ்கேன் செய்யவும்.',
+      'medication_supply.unit.tablet': 'மாத்திரை',
+      'medication_supply.unit.capsule': 'காப்ஸ்யூல்',
+      'medication_supply.unit.ampoule': 'ஆம்பூல்',
+      'medication_supply.unit.vial': 'வயல்',
+      'medication_supply.unit.bag': 'பை',
+      'medication_supply.unit.prefilled_syringe': 'முன்நிரப்பப்பட்ட சிரிஞ்ச்',
+      'medication_supply.unit.cartridge': 'கார்ட்ரிட்ஜ்',
+      'medication_supply.unit.ml': 'மில்லிலிட்டர்',
+      'medication_supply.unit.dose': 'மருந்தளவு',
+      'medication_supply.unit.patch': 'ஒட்டுப் பட்டை',
+      'medication_supply.unit.actuation': 'ஒரு பஃப்',
+      'medication_supply.unit.spray': 'தெளிப்பு',
+      'medication_supply.unit.application': 'தடவல்',
+      'medication_supply.unit.bottle': 'பாட்டில்',
+      'medication_supply.unit.tube': 'குழாய்',
+      'medication_supply.unit.sachet': 'பொட்டலம்',
+      'medication_supply.unit.suppository': 'சப்போசிட்டரி',
+      'medication_supply.unit.drop': 'துளி',
+      'medication_supply.unit.kit': 'தொகுப்பு',
+      'medication_supply.unit.each': 'ஒவ்வொன்று',
+      // REVIEW: MED-03 AI first pass - confirm medication custody wording with a Tamil-fluent clinician.
+      'mar_scan.supply.title': 'வார்டு மருந்து வழங்கல் சான்று',
+      'mar_scan.supply.status.available': 'துல்லியமான வார்டு கையிருப்பு உள்ளது',
+      'mar_scan.supply.status.quantity_required':
+          'கட்டமைக்கப்பட்ட டோஸ் அளவு தேவை',
+      'mar_scan.supply.status.custody_unavailable': 'வார்டு கையிருப்பு இல்லை',
+      'mar_scan.supply.status.substitution_acknowledgement_required':
+          'மாற்று மருந்து பெறுதல் உறுதிப்படுத்தப்பட வேண்டும்',
+      'mar_scan.supply.status.order_link_required': 'மருந்து ஆணை இணைப்பு தேவை',
+      'mar_scan.supply.status.ward_item_required':
+          'வார்டு இண்டென்ட் இணைப்பு தேவை',
+      'mar_scan.supply.status.ward_item_ambiguous':
+          'வார்டு இண்டென்ட் இணைப்பு தெளிவற்றது',
+      'mar_scan.supply.status.reconciliation_required': 'வழங்கல் ஒப்புமை தேவை',
+      'mar_scan.supply.status.batch_unavailable': 'ஒதுக்கப்பட்ட பேட்ச் கிடைக்கவில்லை; மருந்தகம் அதை மாற்றவோ ஒப்பிடவோ வேண்டும்',
+      'mar_scan.supply.status.unknown': 'வழங்கல் நிலை கிடைக்கவில்லை',
+      'mar_scan.supply.available_quantity': 'கிடைக்கும் அளவு: {quantity}',
+      'mar_scan.supply.required_quantity': 'தேவையான டோஸ் அளவு: {quantity}',
+      'mar_scan.supply.batch_line':
+          '{name} · பேட்ச் {batch} · கிடைக்கும் {quantity}',
+      'mar_scan.supply.blocked': 'மருந்தகம் மற்றும் வார்டு வழங்கல் சான்று சரிசெய்யப்படும் வரை மருந்து வழங்க வேண்டாம்.',
+      'mar_scan.supply.quantity_label': 'கட்டமைக்கப்பட்ட டோஸ் அளவு',
+      'mar_scan.supply.override_reason_label': 'வழங்கல் மீறல் காரணம் (தேவை)',
+      'mar_scan.supply.override_warning': 'மீறல் ஒரு பெயரிடப்பட்ட ஒப்புமைப் பணியையும் மாற்ற முடியாத சான்றையும் உருவாக்கும்.',
+      'mar_scan.supply.quantity_error':
+          'பூஜ்ஜியத்தை விட அதிகமான டோஸ் அளவை உள்ளிடவும்.',
+      'mar_scan.supply.override_error': 'பொருள் உள்ள வழங்கல் மீறல் காரணத்தை எழுதவும் (குறைந்தது 15 எழுத்துகள்).',
+      'mar_scan.supply.hard_stop_error': 'வழங்கல் சான்று முழுமையற்றது அல்லது தெளிவற்றது. மருந்து வழங்கும் முன் ஒப்புமை செய்யவும்.',
+      'med03.credit_note.title': 'மருந்து கிரெடிட் நோட்டுகள்',
+      'med03.credit_note.open_queue': 'கிரெடிட்-நோட்டு வரிசை',
+      'med03.gateway_refund_reconciliation.title':
+          'கேட்வே பணத்திருப்பி ஒப்புநோக்கம்',
+      'med03.gateway_refund_reconciliation.open_queue':
+          'கேட்வே பணத்திருப்பி மீட்பைத் திறக்கவும்',
+      'med03.gateway_refund_reconciliation.queue':
+          'வழங்குநர் ஆய்வு தேவைப்படும் பணத்திருப்பிகள்',
+      'med03.gateway_refund_reconciliation.empty':
+          'தற்போது எந்த வழங்குநர் பணத்திருப்பிக்கும் ஒப்புநோக்கம் தேவையில்லை.',
+      'med03.gateway_refund_reconciliation.select': 'ஆதாரத்தை ஆய்வு செய்ய நிறுத்தப்பட்ட வழங்குநர் பணத்திருப்பியைத் தேர்ந்தெடுக்கவும்.',
+      'med03.gateway_refund_reconciliation.access_denied':
+          'தள நிர்வாகி அணுகல் தேவை.',
+      'med03.gateway_refund_reconciliation.amount': 'தொகை',
+      'med03.gateway_refund_reconciliation.refund': 'கேட்வே பணத்திருப்பி',
+      'med03.gateway_refund_reconciliation.billing_refund':
+          'பில்லிங் பணத்திருப்பி',
+      'med03.gateway_refund_reconciliation.provider_payment':
+          'வழங்குநர் கட்டணம்',
+      'med03.gateway_refund_reconciliation.provider_refund':
+          'வழங்குநர் பணத்திருப்பி',
+      'med03.gateway_refund_reconciliation.failure': 'நிறுத்தப்பட்ட காரணம்',
+      'med03.gateway_refund_reconciliation.disposition':
+          'சரிபார்க்கப்பட்ட முடிவு',
+      'med03.gateway_refund_reconciliation.disposition.provider_not_refunded':
+          'பணத்திருப்பி இல்லை என வழங்குநர் உறுதிப்படுத்தினார்',
+      'med03.gateway_refund_reconciliation.disposition.manual_settled':
+          'வழங்குநர் பணத்திருப்பி நிறைவேறியது',
+      'med03.gateway_refund_reconciliation.disposition.unknown':
+          'அறியப்படாத முடிவு',
+      'med03.gateway_refund_reconciliation.evidence':
+          'வழங்குநர் ஆதாரக் குறிப்பு',
+      'med03.gateway_refund_reconciliation.evidence_settled_help':
+          'சரியான வழங்குநர் பணத்திருப்பி அடையாளத்தை உள்ளிடவும்.',
+      'med03.gateway_refund_reconciliation.evidence_not_refunded_help':
+          'கண்டறியக்கூடிய வழங்குநர் வழக்கு அல்லது பதில் குறிப்பை உள்ளிடவும்.',
+      'med03.gateway_refund_reconciliation.note': 'ஒப்புநோக்கக் குறிப்பு',
+      'med03.gateway_refund_reconciliation.gateway_retry_notice': 'இது தோல்வியடைந்த செயல்பாட்டை முடிக்கிறது; ஆனால் சரியான மறுமுயற்சிக்காக அங்கீகரிக்கப்பட்ட பணத்திருப்பியை ஒருங்கிணைந்த கேட்வே வழியில் வைத்திருக்கும்.',
+      'med03.gateway_refund_reconciliation.submit':
+          'சரிபார்க்கப்பட்ட முடிவைப் பதிவு செய்யவும்',
+      'med03.gateway_refund_reconciliation.validation': 'ஆதாரம் 6-120 எழுத்துகளும் குறிப்பு 10-500 எழுத்துகளும் இருக்க வேண்டும்.',
+      'med03.gateway_refund_reconciliation.confirm_title':
+          'வழங்குநர் பணத்திருப்பி முடிவை உறுதிப்படுத்தவும்',
+      'med03.gateway_refund_reconciliation.confirm_body':
+          'இந்த இறுதி வழங்குநர் முடிவைப் பதிவு செய்யவும்: {disposition}.',
+      'med03.gateway_refund_reconciliation.success':
+          'கேட்வே பணத்திருப்பி ஒப்புநோக்கம் பதிவானது.',
+      'med03.gateway_refund_reconciliation.open_authority':
+          'பில்லிங் பணத்திருப்பி அதிகாரத்தைத் திறக்கவும்',
+      'med03.notification.gateway_refund_reconciliation.title':
+          'வழங்குநர் பணத்திருப்பிக்கு ஒப்புநோக்கம் தேவை',
+      'med03.notification.gateway_refund_reconciliation.body': 'ஒரு கேட்வே பணத்திருப்பி நிறுத்தப்பட்டுள்ளது. வழங்குநர் ஆதாரத்தைச் சரிபார்த்து சரியான முடிவைப் பதிவு செய்யவும்.',
+      'med03.notification.gateway_refund_reconciliation.action':
+          'பணத்திருப்பி ஒப்புநோக்கத்தைத் திறக்கவும்',
+      'med03.credit_note.access_denied': 'மருந்து கிரெடிட்-நோட்டு ஆய்வு பில்லிங், நிதி மற்றும் நிர்வாகி பொறுப்புகளுக்கே அனுமதிக்கப்படுகிறது.',
+      'med03.credit_note.queue': 'ஆய்வு மற்றும் தீர்வு வரிசை',
+      'med03.credit_note.empty':
+          'இந்த வடிகட்டிக்கு பொருந்தும் மருந்து கிரெடிட் நோட்டுகள் இல்லை.',
+      'med03.credit_note.select': 'மாற்ற முடியாத மூலம் மற்றும் அடுத்த பொறுப்பு நடவடிக்கையை ஆய்வு செய்ய ஒரு கிரெடிட் நோட்டைத் தேர்ந்தெடுக்கவும்.',
+      'med03.credit_note.status.all': 'அனைத்தும்',
+      'med03.credit_note.status.pending': 'நிலுவை',
+      'med03.credit_note.status.approved': 'அங்கீகரிக்கப்பட்டது',
+      'med03.credit_note.status.applied': 'பயன்படுத்தப்பட்டது',
+      'med03.credit_note.status.rejected': 'நிராகரிக்கப்பட்டது',
+      'med03.credit_note.status.paid': 'செலுத்தப்பட்டது',
+      'med03.credit_note.status.unknown': 'தெரியாத நிலை',
+      'med03.credit_note.event.raised': 'எழுப்பப்பட்டது',
+      'med03.credit_note.action_completed':
+          'அதிகாரப்பூர்வ பில்லிங் பணிப்பாய்வு புதுப்பிக்கப்பட்டது.',
+      'med03.credit_note.approve_title': 'கிரெடிட் நோட்டை அங்கீகரிக்கவும்',
+      'med03.credit_note.approve_body': 'கிரெடிட் நோயாளர் கணக்கில் பயன்படுத்தப்படும் வரை அதே SLA பொறுப்பு திறந்தே இருக்கும்.',
+      'med03.credit_note.reject_title': 'கிரெடிட் நோட்டை நிராகரிக்கவும்',
+      'med03.credit_note.rejection_reason': 'நிராகரிப்பு காரணம்',
+      'med03.credit_note.apply_title':
+          'அங்கீகரிக்கப்பட்ட கிரெடிட் நோட்டை பயன்படுத்து',
+      'med03.credit_note.refund_mode': 'அசல் பணத்திருப்பும் முறை',
+      'med03.credit_note.refund_mode.cash': 'ரொக்கம்',
+      'med03.credit_note.refund_mode.card': 'அட்டை',
+      'med03.credit_note.refund_mode.upi': 'யுபிஐ (UPI)',
+      'med03.credit_note.refund_mode.netbanking': 'இணைய வங்கி',
+      'med03.credit_note.refund_mode.cheque': 'காசோலை',
+      'med03.credit_note.refund_mode.dd': 'கேட்பு வரைவோலை',
+      'med03.credit_note.refund_mode.wallet': 'மின்னணுப் பணப்பை',
+      'med03.credit_note.refund_mode.insurance': 'காப்பீடு',
+      'med03.credit_note.refund_mode.unknown': 'அறியப்படாத பணத்திருப்பும் முறை',
+      'med03.credit_note.notification_action': 'கிரெடிட் நோட்டைத் திறக்கவும்',
+      'med03.notification.alert_recovery.overdue_title':
+          'மருத்துவ எச்சரிக்கை வழங்கல் மீட்பு காலக்கெடுவை கடந்துவிட்டது',
+      'med03.notification.alert_recovery.overdue_body': 'மருத்துவ எச்சரிக்கை வழங்கல் மீட்பு வழக்கிற்கு நிர்வாகி நடவடிக்கை தேவை.',
+      'med03.notification.alert_recovery.manual_hold_body': 'மாற்ற இயலாமல் நிறுத்திவைக்கப்பட்ட மருத்துவ எச்சரிக்கைக்கு நிர்வகிக்கப்பட்ட மூல ஆய்வும் மாற்றுப் பதிவும் தேவை.',
+      'med03.notification.alert_recovery.recipient_coverage_body': 'ஒரு மருத்துவ எச்சரிக்கைக்கு இன்னும் செயலில் உள்ள பணிப்பொறுப்பு மருத்துவர் அல்லது மருத்துவர்-நிலை பெறுநர் இல்லை.',
+      'med03.notification.mar_exception.title':
+          'மருந்து அளவிற்கு பரிந்துரையாளர் மதிப்பாய்வு தேவை',
+      'med03.notification.mar_exception.body': 'நிறுத்தப்பட்ட அல்லது தவறவிட்ட உள்நோயாளர் மருந்து அளவிற்கு கட்டுப்படுத்தப்பட்ட மருத்துவ முடிவு தேவை.',
+      'med03.notification.mar_exception.overdue_title':
+          'மருந்து மதிப்பாய்வு காலக்கெடு கடந்தது',
+      'med03.notification.mar_exception.overdue_body': 'நிறுத்தப்பட்ட அல்லது தவறவிட்ட அளவிற்கு இன்னும் கட்டுப்படுத்தப்பட்ட பரிந்துரையாளர் முடிவு தேவை.',
+      'med03.notification.mar_exception.handoff_title':
+          'மருந்து மதிப்பாய்வு மீண்டும் ஒதுக்கப்பட்டது',
+      'med03.notification.mar_exception.handoff_body': 'திறந்த மருந்து விதிவிலக்கு பரிந்துரையாளர் மதிப்பாய்விற்காக உங்களுக்கு மீண்டும் ஒதுக்கப்பட்டது.',
+      'med03.notification.counter_sale.finance_title':
+          'கவுண்டர் விற்பனை திருப்பிப்பணம் நடவடிக்கை தேவை',
+      'med03.notification.counter_sale.finance_body': 'கட்டுப்படுத்தப்பட்ட திருப்பிப்பணம் படியை முடிக்கவும். பணம் செலுத்தியதற்கான ஆதாரம் நிறைவடையும் வரை சரியான தொகுதி இருப்பு மீள்சேர்த்தல் தடுக்கப்படும்.',
+      'med03.notification.counter_sale.reconciliation_title':
+          'கவுண்டர் விற்பனை பொறுப்பு ஒப்பிசைவு தேவை',
+      'med03.notification.counter_sale.reconciliation_body': 'திருப்பிப்பணம் நிராகரிக்கப்பட்டது. பொறுப்பு தெளிவாகத் தீர்க்கப்படும் வரை விற்பனையும் இருப்பும் பூட்டப்பட்டிருக்கும்.',
+      'med03.notification.counter_sale.completed_title':
+          'கவுண்டர் விற்பனை ரத்து நிறைவடைந்தது',
+      'med03.notification.counter_sale.completed_body': 'செலுத்தப்பட்ட திருப்பிப்பண ஆதாரமும் சரியான தொகுதி இருப்பு மீள்சேர்த்தலும் பதிவாகியுள்ளன.',
+      'med03.notification.credit_note_payout.body': 'அங்கீகரிக்கப்பட்ட மருந்து கிரெடிட் திருப்பிப்பணத்தை அதன் கட்டுப்படுத்தப்பட்ட பணவழி மூலம் முடித்து துல்லியமான ஆதாரத்தைப் பாதுகாக்கவும்.',
+      'med03.credit_note.action_apply': 'கிரெடிட்டைப் பயன்படுத்து',
+      'med03.credit_note.apply_body': 'மாற்ற முடியாத அசல் விலையைப் பயன்படுத்தி இந்த கிரெடிட்டை நோயாளர் கணக்கில் பதிவு செய்யவும்.',
+      'med03.credit_note.refund_approve_title':
+          'நோயாளர் பணத்திருப்பை அங்கீகரிக்கவும்',
+      'med03.credit_note.refund_approve_body': 'செலுத்த வேண்டிய பணத்திருப்பு பொறுப்பை அங்கீகரிக்கவும். இது பணம் செலுத்தாது; செலுத்துதல் தனி கட்டுப்படுத்தப்பட்ட படியாகும்.',
+      'med03.credit_note.payout_title': 'முடிந்த கைமுறை செலுத்தலை பதிவு செய்',
+      'med03.credit_note.payout_reference': 'வெளிப்புற செலுத்தல் குறிப்பு',
+      'med03.credit_note.gateway_title': 'வழங்குநர் பணத்திருப்பை தொடங்கு',
+      'med03.credit_note.gateway_body': 'தேர்ந்தெடுத்த சரியான பெறப்பட்ட கட்டணத்தைப் பயன்படுத்தவும். வழங்குநர் செயலாக்கமும் webhook சான்றும் முடிந்த பிறகே பணத்திருப்பு செலுத்தப்பட்டதாகும்.',
+      'med03.credit_note.invoice': 'விலைப்பட்டியல்',
+      'med03.credit_note.ward_indent': 'வார்டு இண்டென்ட்',
+      'med03.credit_note.amount': 'கிரெடிட் தொகை',
+      'med03.credit_note.account_due': 'தற்போதைய கணக்கு நிலுவை',
+      'med03.credit_note.action_approve': 'அங்கீகரி',
+      'med03.credit_note.action_reject': 'நிராகரி',
+      'med03.credit_note.application_owned': 'அங்கீகாரம் பணியை மூடாது. கணக்கில் பயன்படுத்தப்படும் வரை அதே SLA பொறுப்பு தொடரும்.',
+      'med03.credit_note.refund': 'நோயாளர் பணத்திருப்பு பொறுப்பு',
+      'med03.credit_note.action_approve_refund': 'பணத்திருப்பை அங்கீகரி',
+      'med03.credit_note.refund_pending': 'நிர்வாகி அங்கீகாரம் தேவை. பயன்படுத்தப்பட்ட மருந்து கிரெடிட் பணத்திருப்பை விருப்பப்படி நிராகரிக்க முடியாது.',
+      'med03.credit_note.gateway_in_progress': 'வழங்குநர் செலுத்தல் நடைபெறுகிறது. அங்கீகரிக்கப்பட்ட சான்று பணத்திருப்பை செலுத்தியதாகக் குறிக்கும் வரை பணி திறந்திருக்கும்.',
+      'med03.credit_note.manual_help': 'முதலில் வெளிப்புற கைமுறை செலுத்தலை முடித்து அதன் சரியான குறிப்பை பதிவு செய்யவும். பதிவு செய்தல் பணத்தை நகர்த்தாது.',
+      'med03.credit_note.action_record_payout': 'செலுத்தல் சான்றை பதிவு செய்',
+      'med03.credit_note.gateway_help': 'பொருந்தும் பெறப்பட்ட கட்டணத்தைத் தேர்ந்தெடுக்கவும். நோயாளர், விலைப்பட்டியல், முறை, வழங்குநர் அல்லது தொகை வேறுபாட்டை சேவையகம் நிராகரிக்கும்.',
+      'med03.credit_note.action_find_payment': 'கட்டண மூலத்தை கண்டறி',
+      'med03.credit_note.gateway_candidates_empty': 'தகுதியான கட்டண மூலம் ஏற்றப்படவில்லை. அங்கீகாரத்திற்குப் பின் தேடவும்; இல்லையெனில் நிதி ஒப்புமைக்காக பணியை திறந்தே வைக்கவும்.',
+      'med03.credit_note.refundable': 'திருப்பக்கூடியது',
+      'med03.credit_note.action_start_gateway': 'பணத்திருப்பை தொடங்கு',
+      'med03.credit_note.insurance_hold': 'காப்பீட்டு பணத்திருப்புக்கு இந்த திரைக்கு வெளியே காப்பீட்டாளர் மற்றும் மருத்துவமனை அனுமதி தேவை. பொறுப்பு பணி திறந்திருக்கும்.',
+      'med03.credit_note.refund_paid': 'செலுத்தல் சான்று பதிவு செய்யப்பட்டது; மருந்து கிரெடிட்-நோட்டு SLA முடிந்தது.',
+      'med03.credit_note.events': 'மாற்ற முடியாத வாழ்க்கைச்சுழற்சி நிகழ்வுகள்',
       'biomed.work_orders.title': 'எனது பணி ஆணைகள்',
       'biomed.work_orders.started': 'பணி ஆணை தொடங்கியது',
       'biomed.work_orders.completed': 'பணி ஆணை நிறைவடைந்தது',
@@ -25321,6 +27731,10 @@ class AppStrings {
       's4.lib.counter_sale.open': 'கவுண்டர் விற்பனை',
       's4.lib.counter_sale.sell_tab': 'விற்பனை',
       's4.lib.counter_sale.recent_tab': 'சமீபத்திய விற்பனைகள்',
+      's4.lib.counter_sale.facility_id': 'வழங்கும் வசதி',
+      's4.lib.counter_sale.facility_hint': 'உங்களுக்கு செயலில் உள்ள மருந்தக அனுமதி வழங்கப்பட்டுள்ள வசதிகளில் ஒன்றைத் தேர்ந்தெடுக்கவும். வண்டியில் உருப்படிகள் இருக்கும்போது இதை மாற்ற முடியாது.',
+      's4.lib.counter_sale.facility_required': 'தேடுவதற்கு அல்லது விற்பதற்கு முன் சரியான வழங்கும் வசதியைத் தேர்ந்தெடுக்கவும்.',
+      's4.lib.counter_sale.facility_none': 'உங்களுக்கு செயலில் உள்ள மருந்தக வசதி அனுமதி எதுவும் இல்லை. தேடுவதற்கு அல்லது விற்பதற்கு முன் குத்தகைதாரர் நிர்வாகி ஒன்றை வழங்க வேண்டும்.',
       's4.lib.counter_sale.search_hint':
           'உருப்படிகளைத் தேடு (பெயர் / SKU / பொதுப்பெயர்)',
       's4.lib.counter_sale.in_stock': '{count} கையிருப்பில்',
@@ -25336,13 +27750,18 @@ class AppStrings {
       's4.lib.counter_sale.customer_phone':
           'வாடிக்கையாளர் தொலைபேசி (விருப்பம்)',
       's4.lib.counter_sale.patient_uid': 'நோயாளர் UID',
+      's4.lib.counter_sale.scheduled_patient_required':
+          'அட்டவணை மருந்துகளுக்குப் பதிவு செய்யப்பட்ட நோயாளர் UID தேவை.',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       's4.lib.counter_sale.rx_section':
           'மருந்துச் சீட்டு (Schedule H/H1/X-க்குத் தேவை)',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
-      's4.lib.counter_sale.rx_doctor': 'மருந்து பரிந்துரைத்த மருத்துவர்',
-      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
-      's4.lib.counter_sale.rx_reference': 'Rx எண் / குறிப்பு',
+      's4.lib.counter_sale.rx_prescription_id':
+          'கையொப்பமிட்ட மின் மருந்துச் சீட்டு ID',
+      's4.lib.counter_sale.rx_line_index':
+          '{medicine} · eRx வரிசை குறியீடு (பூஜ்ஜிய அடிப்படை)',
+      's4.lib.counter_sale.rx_exact_mapping_hint': 'கையொப்பமிட்ட மின் மருந்துச் சீட்டு ID-ஐ உள்ளிட்டு, ஒவ்வொரு அட்டவணை மருந்தையும் அதன் சரியான பூஜ்ஜிய அடிப்படை eRx வரியுடன் இணைக்கவும்.',
+      's4.lib.counter_sale.rx_mapping_required': 'ஒவ்வொரு அட்டவணை மருந்தையும் அதன் சரியான கையொப்பமிட்ட மின் மருந்துச் சீட்டு வரியுடன் இணைக்கவும்.',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       's4.lib.counter_sale.witness_section':
           'சாட்சி (Schedule X / போதைப்பொருளுக்குத் தேவை)',
@@ -25392,8 +27811,176 @@ class AppStrings {
       's4.lib.counter_sale.witness_auth_failed': 'சாட்சியின் அங்கீகாரம் அல்லது ஒப்புதல் தோல்வியடைந்தது. சான்றுகளைச் சரிபார்த்து மீண்டும் கோரவும்.',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       's4.lib.counter_sale.payment_mode': 'கட்டண முறை',
+      'med03.pharmacy.prescription_items_locked': 'மருந்துச்சீட்டு பொருட்கள் அதிகாரப்பூர்வமாக இணைக்கப்பட்ட மருந்துச்சீட்டுடன் பூட்டப்பட்டுள்ளன.',
+      'med03.pharmacy.select_authoritative_catalog': 'அதிகாரப்பூர்வ பட்டியல் பொருட்களைத் தேர்ந்தெடுக்கவும். பெயர் மற்றும் விலையை கைமுறையாக உள்ளிட முடியாது.',
+      'med03.pharmacy.catalog_medicine': 'பட்டியல் மருந்து',
+      'med03.pharmacy.quantity': 'அளவு',
+      'med03.pharmacy.add_medicine': 'மருந்தைச் சேர்க்கவும்',
+      'med03.pharmacy.catalog_quantity_required': 'ஒவ்வொரு வரிக்கும் விலையுள்ள பட்டியல் பொருளையும் நேர்மறை அளவையும் தேர்ந்தெடுக்கவும்.',
+      'med03.pharmacy.select_inventory_item':
+          'சரியான இருப்புப் பொருளைத் தேர்ந்தெடுக்கவும்',
+      'med03.pharmacy.inventory_item_fallback': 'இருப்புப் பொருள் #{id}',
+      'med03.pharmacy.verification_complete':
+          'மருந்தாளர் சரிபார்ப்பு முடிந்தது',
+      'med03.pharmacy.complete_counter_dispense':
+          'கவுண்டர் வழங்கலை முடிக்கவும்',
+      'med03.pharmacy.amount_collected': 'இதுவரை வசூலித்த மொத்த தொகை',
+      'med03.pharmacy.authoritative_total_rechecked': 'இருப்பு மாறுவதற்கு முன் சேவையகம் அதிகாரப்பூர்வ மொத்தத்தை மீண்டும் சரிபார்க்கும்.',
+      'med03.pharmacy.dispense_remainder': 'மீதமுள்ள அளவை வழங்கவும்',
+      'med03.pharmacy.counter_dispense_complete': 'கவுண்டர் வழங்கல் முடிந்தது',
+      'med03.pharmacy.mark_unavailable': 'கிடைக்கவில்லை எனக் குறிக்கவும்',
+      'med03.pharmacy.unavailable_reason': 'கிடைக்காததற்கான காரணம்',
+      'med03.pharmacy.unavailable_complete':
+          'ஆர்டர் கிடைக்கவில்லை எனக் குறிக்கப்பட்டது',
+      'med03.pharmacy.facility_admin_required':
+          'நிர்வாகி ஒரு இயல்புநிலை மருந்தக வசதியை அமைக்க வேண்டும்.',
+      'med03.pharmacy.facility_assigned': 'மருந்தக வசதி ஒதுக்கப்பட்டது',
+      'med03.pharmacy.assign_facility': 'மருந்தக வசதியை ஒதுக்கவும்',
+      'med03.pharmacy.verify_order': 'ஆர்டரை சரிபார்க்கவும்',
+      'med03.pharmacy.status_partially_dispensed': 'பகுதியாக வழங்கப்பட்டது',
+      'med03.pharmacy.resolve_line_identities':
+          'மருந்துச்சீட்டு வரிகளை இணைக்கவும்',
+      'med03.pharmacy.resolve_line_identity_help': 'ஒவ்வொரு சேமித்த ஆர்டர் வரியையும் சரியான கையொப்பமிட்ட மருந்துச்சீட்டு வரியுடன் இணைக்கவும். ஒரே மருந்துகளை தனித்தனியாகத் தேர்ந்தெடுக்கவும்.',
+      'med03.pharmacy.save_line_identities': 'சரியான இணைப்புகளைச் சேமிக்கவும்',
+      'med03.pharmacy.line_identities_resolved':
+          'மருந்துச்சீட்டு வரி அடையாளங்கள் தீர்க்கப்பட்டன',
+      'med03.pharmacy.line_identity_admin_required': 'இந்த ஆர்டர் தொடரும் முன் மருந்தகப் பொறுப்பாளர் பழைய மருந்துச்சீட்டு வரி அடையாளங்களைத் தீர்க்க வேண்டும்.',
+      'med03.pharmacy.line_identity_source_missing': 'ஆர்டர் அல்லது இணைக்கப்பட்ட மருந்துச்சீட்டில் இணைக்கக்கூடிய கட்டமைக்கப்பட்ட வரிகள் இல்லை. மருந்து பரிந்துரைப்பவரிடம் உயர்த்தவும்.',
+      'med03.pharmacy.verification_decision': 'சரிபார்ப்பு முடிவு',
+      'med03.pharmacy.verification_verified': 'சரிபார்க்கப்பட்டது',
+      'med03.pharmacy.verification_override': 'பாதுகாப்புத் தடைகளை மீறவும்',
+      'med03.pharmacy.verification_rejected': 'ஆர்டரை நிராகரிக்கவும்',
+      'med03.pharmacy.verification_notes': 'சரிபார்ப்பு குறிப்புகள்',
+      'med03.pharmacy.verification_override_reason': 'மீறல் காரணம்',
+      'med03.pharmacy.verification_override_reason_help': 'குறைந்தது 10 எழுத்துகள்; இது மருத்துவ தணிக்கையில் பதிவு செய்யப்படும்.',
+      'med03.pharmacy.submit_verification': 'சரிபார்ப்பைச் சமர்ப்பிக்கவும்',
+      'med03.pharmacy.tpa_reference': 'அங்கீகரிக்கப்பட்ட கோரிக்கை குறிப்பு',
+      'med03.pharmacy.tpa_reference_exact_help': 'இந்த மருந்தக ஆர்டருக்கு ஒதுக்கப்பட்ட சரியான அங்கீகரிக்கப்பட்ட கோரிக்கை அல்லது TPA குறிப்பை உள்ளிடவும்.',
+      'med03.pharmacy.next_action': 'அடுத்த நடவடிக்கை',
+      'med03.pharmacy.catalog_fallback': 'பட்டியல் #{id}',
+      'med03.pharmacy.locked_line_summary': 'வரி {line} · அளவு {quantity}',
+      'med03.pharmacy.order_line_fallback': 'ஆர்டர் வரி {line}',
+      'med03.pharmacy.verification_pharmacist_only': 'மருந்தக ஊழியர் அல்லது மருந்தகப் பொறுப்பாளர் மட்டுமே மருத்துவச் சரிபார்ப்பு முடிவை எடுக்கலாம்.',
+      'med03.pharmacy.verification_rejection_reason':
+          'மருத்துவ நிராகரிப்புக்கான காரணம்',
+      'med03.pharmacy.verification_override_incharge': 'பொறுப்பாளர் பிரேக்-கிளாஸ் மீறல்: காரணமும் கைமுறை ஒவ்வாமை மதிப்பாய்வு சான்றும் நிரந்தரமாக தணிக்கை செய்யப்படும்.',
+      'med03.pharmacy.verification_manual_allergy_review':
+          'கைமுறை ஒவ்வாமை மதிப்பாய்வை முடித்தேன்',
+      'med03.pharmacy.verification_manual_allergy_review_help': 'மீறுவதற்கு முன் நோயாளர், செயலில் உள்ள ஒவ்வாமைகள், மூலப் பதிவுகள் மற்றும் கிடைக்காத பாதுகாப்பு மூலங்களை உறுதிப்படுத்தவும்.',
+      'med03.pharmacy.payment_mode.cash': 'ரொக்கம்',
+      'med03.pharmacy.payment_mode.card': 'அட்டை',
+      'med03.pharmacy.payment_mode.upi': 'UPI கட்டணம்',
+      'med03.pharmacy.payment_mode.wallet': 'பணப்பை',
+      'med03.pharmacy.payment_mode.insurance': 'காப்பீடு',
+      'med03.pharmacy.payment_mode.corporate_tpa': 'நிறுவனம் / TPA',
+      'med03.pharmacy.payment_mode.none': 'செலுத்த வேண்டியது இல்லை',
+      'med03.pharmacy.recovery.select_exact_tpa_claim_allocation': 'சரக்கை வழங்குவதற்கு முன் இந்தத் துல்லியமான மருந்தக ஆர்டருக்கு அங்கீகரிக்கப்பட்ட கோரிக்கை வரியை நிதிப் பிரிவு ஒதுக்க வேண்டும்.',
+      'med03.pharmacy.recovery.complete_manual_allergy_review':
+          'தேவையான கைமுறை ஒவ்வாமை மதிப்பாய்வை முடித்து பதிவு செய்யவும்.',
+      'med03.pharmacy.recovery.contact_owner': 'தடுக்கப்பட்ட இந்த ஆர்டரை பெயரிடப்பட்ட பணிப்பாய்வு பொறுப்பாளரிடம் ஒப்படைத்து சரக்கை மாற்றாமல் வைத்திருக்கவும்.',
+      'med03.pharmacy.recovery.open_billing_desk':
+          'பில்லிங் மேசையைத் திறக்கவும்',
+      'med03.pharmacy.recovery.materialize_pharmacy_funding': 'பூட்டப்பட்ட ஆர்டர் மற்றும் விலைப்பட்டியல் அதிகாரத்திலிருந்து துல்லிய நிதிப் பணியை உருவாக்கவும்.',
+      'med03.pharmacy.recovery.open_exact_pharmacy_funding_task': 'ஏற்கனவே உள்ள துல்லிய நிதிப் பணியைத் திறக்கவும்; இங்கே கட்டணத்தைச் சுயமாக உறுதிப்படுத்த வேண்டாம்.',
+      'med03.pharmacy.cancellation_reason_help': 'தேவை: 3 முதல் 500 எழுத்துகள். இந்தக் காரணம் ஆர்டர் வரலாற்றில் சேமிக்கப்படும்.',
+      'med03.pharmacy.delivery_assignee_required': 'இந்த ஆர்டருக்குத் தகுதியான விநியோகப் பணியாளர் யாரும் இல்லை. அனுப்புவதற்கு முன் வசதி நிர்வாகி விநியோகப் பணியை ஒதுக்க வேண்டும்.',
+      'med03.pharmacy.delivery_type_counter': 'கவுண்டர் வழங்கல்',
+      'med03.pharmacy.status_dispensed': 'வழங்கப்பட்டது',
+      'med03.pharmacy.inventory_status.active': 'செயலில்',
+      'med03.pharmacy.inventory_status.inactive': 'செயலற்றது',
+      'med03.pharmacy.inventory_status.quarantined': 'தனிமைப்படுத்தப்பட்டது',
+      'med03.pharmacy.inventory_status.unknown': 'தெரியாத நிலை',
+      'med03.pharmacy.expiry_bucket.expired': 'காலாவதியானது',
+      'med03.pharmacy.expiry_bucket.within_30': '30 நாட்களுக்குள் காலாவதி',
+      'med03.pharmacy.expiry_bucket.within_60': '31–60 நாட்களில் காலாவதி',
+      'med03.pharmacy.expiry_bucket.within_90': '61–90 நாட்களில் காலாவதி',
+      'med03.pharmacy.expiry_bucket.beyond_90':
+          '90 நாட்களுக்குப் பிறகு காலாவதி',
+      'med03.pharmacy.expiry_bucket.unknown': 'காலாவதி சாளரம் கிடைக்கவில்லை',
+      'med03.pharmacy.funding_recovery.task_summary':
+          'நிதியுதவி பணி {taskId} · {status} · {owner}',
+      'med03.pharmacy.funding_recovery.status.pending': 'ஒதுக்கீடு நிலுவையில்',
+      'med03.pharmacy.funding_recovery.status.in_progress':
+          'ஒதுக்கீடு நடைபெறுகிறது',
+      'med03.pharmacy.funding_recovery.status.blocked':
+          'ஒதுக்கீடு தடுக்கப்பட்டது',
+      'med03.pharmacy.funding_recovery.status.completed': 'ஒதுக்கீடு முடிந்தது',
+      'med03.pharmacy.funding_recovery.status.unknown': 'நிலை கிடைக்கவில்லை',
+      'med03.pharmacy.funding_recovery.owner.finance': 'நிதிப் பொறுப்பாளர்',
+      'med03.pharmacy.funding_recovery.owner.insurance':
+          'காப்பீடு/கோரிக்கை குழு',
+      'med03.pharmacy.funding_recovery.owner.billing': 'கட்டணக் குழு',
+      'med03.pharmacy.funding_recovery.owner.unknown':
+          'நியமிக்கப்பட்ட நிதிப் பொறுப்பாளர்',
+      'med03.pharmacy.funding_desk.title': 'மருந்தக நிதி அதிகாரம்',
+      'med03.nhcx.projection.unavailable': 'சரியாக ஏற்றுக்கொள்ளப்பட்ட NHCX உள்ளூர் திட்டமிடல் மீட்பு கிடைக்கவில்லை.',
+      'med03.nhcx.projection.title':
+          'ஏற்றுக்கொள்ளப்பட்ட NHCX உள்ளூர் திட்டமிடல்',
+      'med03.nhcx.projection.help': 'இந்தச் சரியான செய்தியை நுழைவாயில் ஏற்கனவே ஏற்றுக்கொண்டது. மீண்டும் முயற்சிப்பது உள்ளூர் கோரிக்கை அல்லது முன் அனுமதி திட்டமிடலை மட்டும் செயல்படுத்தும்; NHCX-க்கு மீண்டும் அனுப்பாது.',
+      'med03.nhcx.projection.summary':
+          'செய்தி #{message} · பணி #{task} · {status} · {owner}',
+      'med03.nhcx.projection.receipt': 'மாற்ற முடியாத நுழைவாயில் ரசீது: {hash}',
+      'med03.nhcx.projection.retry_local':
+          'உள்ளூர் திட்டமிடலை மீண்டும் முயற்சிக்கவும்',
+      'med03.nhcx.projection.completed': 'உள்ளூர் திட்டமிடல் முடிந்தது',
+      'med03.pharmacy.funding_desk.unavailable':
+          'இந்தத் துல்லியமான ஆர்டர் வரிக்கான நிதி மீட்பு கிடைக்கவில்லை.',
+      'med03.pharmacy.funding_desk.insurance_help': 'இந்தத் துல்லியமான வரைவு வரிக்கான காப்பீட்டு முடிவைப் பதிவு செய்யவும். அங்கீகரித்ததும் செலுத்தாததும் சேர்த்து வரி மொத்தமாக இருக்க வேண்டும்.',
+      'med03.pharmacy.funding_desk.finance_help': 'பட்டியலிடப்பட்ட விலைப்பட்டியலில் நோயாளர் கட்டணத்தைப் பதிவு செய்து, பின்னர் இங்கே ஒப்பிடவும். இந்தத் திரை சுயமாகத் தெரிவித்த வசூல் தொகையை ஏற்காது.',
+      'med03.pharmacy.funding_desk.approved_amount': 'TPA அங்கீகரித்த தொகை',
+      'med03.pharmacy.funding_desk.non_payable_amount': 'நோயாளர் பொறுப்பு',
+      'med03.pharmacy.funding_desk.reason_code': 'முடிவு காரணம்',
+      'med03.pharmacy.funding_desk.reason_text': 'முடிவு குறிப்பு',
+      'med03.pharmacy.funding_desk.record_decision':
+          'துல்லிய வரி முடிவைப் பதிவு செய்',
+      'med03.pharmacy.funding_desk.retry_posted_payment':
+          'பதிவிட்ட கட்டணத்தை ஒப்பிடு',
+      'med03.pharmacy.funding_desk.resolved':
+          'இந்தத் துல்லியமான மருந்தக வரிக்கு செயலில் நிதிப் பணி இல்லை.',
+      'med03.pharmacy.funding_desk.invalid_decision': 'செல்லுபடியான எதிர்மறையல்லா தொகைகளை உள்ளிட்டு, காணாத பணி அதிகாரத்தை மீண்டும் ஏற்றவும்.',
+      'med03.pharmacy.funding_reconciliation.unavailable':
+          'துல்லியமான நகல்-வரி ஒப்பீடு கிடைக்கவில்லை.',
+      'med03.pharmacy.funding_reconciliation.title':
+          'நகல் மருந்தக பில்லிங் அதிகாரம்',
+      'med03.pharmacy.funding_reconciliation.case_summary':
+          'வழக்கு #{case} · பணி #{task} · {status} · {owner}',
+      'med03.pharmacy.funding_reconciliation.help': 'சேவையகம் துல்லிய வரி, விலைப்பட்டியல், பதிவிட்ட கட்டணம், ஒதுக்கீடு, மாற்றுப் பதிவு மற்றும் இருப்புச் சான்றை ஒப்பிடுகிறது. அதே முன்மொழிவை வேறு நிதி உரிமையாளர் அங்கீகரிக்க வேண்டும். இந்தத் திரை கட்டணத் தொகையை மாற்றவோ சுயமாகச் சான்றளிக்கவோ முடியாது.',
+      'med03.pharmacy.funding_reconciliation.keeper_label':
+          'அதிகாரப்பூர்வமாக நீடிக்கும் வரி',
+      'med03.pharmacy.funding_reconciliation.line_option':
+          'வரி #{line} · விலைப்பட்டியல் #{invoice} · {amount}',
+      'med03.pharmacy.funding_reconciliation.path_label':
+          'நிர்வகிக்கப்பட்ட தீர்வு வழி',
+      'med03.pharmacy.funding_reconciliation.path.safe':
+          'துல்லிய நகல்களைப் பாதுகாப்பாக செயலிழக்கச் செய்',
+      'med03.pharmacy.funding_reconciliation.path.keep':
+          'தேர்ந்த அதிகாரத்தை வைத்திரு',
+      'med03.pharmacy.funding_reconciliation.path.cancel':
+          'இறுதி ஆர்டரை ரத்து செய்',
+      'med03.pharmacy.funding_reconciliation.path.rebill':
+          'நிர்வகிக்கப்பட்ட மறுபில்லிங்கை உறுதிசெய்',
+      'med03.pharmacy.funding_reconciliation.pending_owner':
+          '{owner} முன்மொழிந்தார். வேறு நிதி உரிமையாளர் தேவை.',
+      'med03.pharmacy.funding_reconciliation.action.approve':
+          'இரண்டாம் உரிமையாளராகத் துல்லிய முன்மொழிவை அங்கீகரி',
+      'med03.pharmacy.funding_reconciliation.action.propose':
+          'துல்லிய தீர்வை முன்மொழி',
+      'med03.pharmacy.funding_reconciliation.status.open': 'திறந்துள்ளது',
+      'med03.pharmacy.funding_reconciliation.status.pending':
+          'இரண்டாம் அங்கீகாரம் நிலுவையில்',
+      'med03.pharmacy.funding_reconciliation.status.blocked': 'தடுக்கப்பட்டது',
+      'med03.pharmacy.funding_reconciliation.status.resolved':
+          'தீர்க்கப்பட்டது',
+      'med03.pharmacy.funding_reconciliation.status.unknown': 'தெரியாது',
+      'med03.pharmacy.funding_reconciliation.owner.finance': 'நிதி உரிமையாளர்',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       's4.lib.counter_sale.payment_reference': 'கட்டணக் குறிப்பு (txn id)',
+      's4.lib.counter_sale.original_payment_reference': 'அசல் கட்டணக் குறிப்பு',
+      's4.lib.counter_sale.original_payment_reference_value':
+          'அசல் குறிப்பு {reference}',
+      's4.lib.counter_sale.payment_reference_required':
+          'ஒவ்வொரு ரொக்கமல்லாத விற்பனைக்கும் அசல் கட்டணக் குறிப்பு தேவை.',
+      's4.lib.counter_sale.legacy_payment_reference_missing': 'அசல் மின்னணு கட்டணச் சான்று இல்லை. இந்தப் பழைய விற்பனை செல்லாததாக்கத் தயாராக இல்லை; நிதிப் பிரிவு முதலில் கட்டணக் குறிப்பைத் தீர்க்க வேண்டும்.',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       's4.lib.counter_sale.cash_drawer_hint':
           'பணப் பரிவர்த்தனைகளுக்கு உங்கள் திறந்த பணப்பெட்டி அமர்வு தேவை',
@@ -25409,8 +27996,207 @@ class AppStrings {
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       's4.lib.counter_sale.void_reason': 'செல்லாததாக்கும் காரணம்',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
-      's4.lib.counter_sale.voided':
-          'விற்பனை செல்லாததாக்கப்பட்டு பணம் திரும்ப வழங்கப்பட்டது',
+      's4.lib.counter_sale.status.in_progress': 'செயல்பாட்டில்',
+      's4.lib.counter_sale.status.completed': 'நிறைவு',
+      's4.lib.counter_sale.status.void_pending_refund':
+          'பணத்திருப்பு நிலுவையில்',
+      's4.lib.counter_sale.status.voided': 'செல்லாததாக்கப்பட்டது',
+      's4.lib.counter_sale.status.failed': 'தோல்வி',
+      's4.lib.counter_sale.status.unknown': 'அறியப்படாத விற்பனை நிலை',
+      's4.lib.counter_sale.workflow_status.not_requested':
+          'செல்லாததாக்க கோரப்படவில்லை',
+      's4.lib.counter_sale.workflow_status.awaiting_finance_approval':
+          'சுயாதீன நிதி ஒப்புதல் நிலுவையில்',
+      's4.lib.counter_sale.workflow_status.awaiting_finance_payout':
+          'ஒப்புதல் பெற்றது; நிதி செலுத்துதல் நிலுவையில்',
+      's4.lib.counter_sale.workflow_status.awaiting_gateway_payout':
+          'வழங்குநர் பணத்திருப்பு தொடக்கம் நிலுவையில்',
+      's4.lib.counter_sale.workflow_status.awaiting_gateway_evidence':
+          'உறுதிப்படுத்தப்பட்ட வழங்குநர் சான்று நிலுவையில்',
+      's4.lib.counter_sale.workflow_status.awaiting_payout_evidence':
+          'நிர்வகிக்கப்பட்ட செலுத்தல் சான்று நிலுவையில்',
+      's4.lib.counter_sale.workflow_status.ready_to_reconcile':
+          'பணத்திருப்பு செலுத்தப்பட்டது; துல்லிய சரக்கு ஒப்பீடு தயாராக உள்ளது',
+      's4.lib.counter_sale.workflow_status.refund_rejected': 'பணத்திருப்பு நிராகரிக்கப்பட்டது; மருந்தகம் சரக்கை மீள்சேர்க்கக்கூடாது',
+      's4.lib.counter_sale.workflow_status.refund_rejected_review': 'பணத்திருப்பு நிராகரிக்கப்பட்டது; வாடிக்கையாளரிடம் ஒப்படைத்ததை உறுதிப்படுத்தவும் அல்லது ஆய்வுக்கு அனுப்பவும்',
+      's4.lib.counter_sale.workflow_status.voided':
+          'பணத்திருப்பும் துல்லிய சரக்கு ஒப்பீடும் நிறைவு',
+      's4.lib.counter_sale.workflow_status.cancelled_handover_confirmed': 'வாடிக்கையாளரிடம் ஒப்படைத்தது உறுதியானதால் செல்லாததாக்கம் ரத்தானது; பணத்திருப்போ சரக்கு மீள்சேர்க்கையோ இல்லை',
+      's4.lib.counter_sale.workflow_status.pending_review':
+          'செல்லாததாக்க நிதி ஆய்வு தேவை',
+      's4.lib.counter_sale.workflow_status.unknown':
+          'அறியப்படாத செல்லாததாக்க பணிப்பாய்வு நிலை',
+      's4.lib.counter_sale.refund_status.pending': 'ஒப்புதல் நிலுவையில்',
+      's4.lib.counter_sale.refund_status.approved': 'ஒப்புதல் பெற்றது',
+      's4.lib.counter_sale.refund_status.paid': 'செலுத்தப்பட்டது',
+      's4.lib.counter_sale.refund_status.rejected': 'நிராகரிக்கப்பட்டது',
+      's4.lib.counter_sale.refund_status.unknown':
+          'அறியப்படாத பணத்திருப்பு நிலை',
+      's4.lib.counter_sale.void_readiness.ready':
+          'அதே நாள் பாதுகாக்கப்பட்ட செல்லாததாக்க கோரிக்கைக்குத் தயார்',
+      's4.lib.counter_sale.void_readiness.original_payment_reference_missing': 'அசல் மின்னணு கட்டணச் சான்று இல்லை. செல்லாததாக்க கோரிக்கைக்கு முன் நிதிப் பிரிவு கட்டணக் குறிப்பைத் தீர்க்க வேண்டும்.',
+      's4.lib.counter_sale.void_readiness.outside_same_day_window': 'அதே நாள் செல்லாததாக்க காலம் முடிந்தது. நிர்வகிக்கப்பட்ட திருப்பல் அல்லது சரிசெய்தல் பணிப்பாய்வைப் பயன்படுத்தவும்.',
+      's4.lib.counter_sale.void_readiness.pending_refund': 'பாதுகாக்கப்பட்ட செல்லாததாக்கமும் பணத்திருப்பு பொறுப்பும் ஏற்கனவே நிலுவையில் உள்ளன.',
+      's4.lib.counter_sale.void_readiness.voided':
+          'இந்த விற்பனை ஏற்கனவே செல்லாததாக்கப்பட்டு ஒப்பிடப்பட்டது.',
+      's4.lib.counter_sale.void_readiness.not_completed':
+          'நிறைவடைந்த விற்பனை மட்டுமே செல்லாததாக்க பணிப்பாய்வில் செல்லலாம்.',
+      's4.lib.counter_sale.void_readiness.unknown': 'அதிகாரப்பூர்வ செல்லாததாக்கத் தயார்நிலை கிடைக்கவில்லை. நடவடிக்கைக்கு முன் புதுப்பிக்கவும்.',
+      's4.lib.counter_sale.retry_sale':
+          'பாதுகாக்கப்பட்ட விற்பனையை மீண்டும் முயற்சி செய்',
+      's4.lib.counter_sale.sale_response_unconfirmed': 'விற்பனை பதில் உறுதிப்படுத்தப்படவில்லை. வேறிடத்தில் பதிவு செய்ய வேண்டாம்; அதே பாதுகாக்கப்பட்ட முயற்சியை பயன்படுத்த இங்கே மீண்டும் முயற்சி செய்யவும்.',
+      's4.lib.counter_sale.sale_changed_title': 'வேறு விற்பனையைத் தொடங்கவா?',
+      's4.lib.counter_sale.sale_changed_body': 'முந்தைய விற்பனையின் முடிவு தெரியவில்லை. மாற்றிய விவரங்களுக்கு புதிய பாதுகாக்கப்பட்ட முயற்சி தேவை; முதல் விற்பனை முடிந்திருந்தால் இரண்டாவது விற்பனை உருவாகலாம். முதலில் சமீபத்திய விற்பனைகளைச் சரிபார்க்கவும்.',
+      's4.lib.counter_sale.new_attempt_confirm': 'புதிய முயற்சியைத் தொடங்கு',
+      's4.lib.counter_sale.void_nonterminal_hint': 'செல்லாததாக்க கோரிக்கை உடனடியாக பணத்தைத் திருப்பவோ சரக்கை மீள்சேர்க்கவோ செய்யாது. நிதி ஒப்புதல், செலுத்துதல் மற்றும் துல்லிய தொகுதி ஒப்பீட்டுக்குப் பிறகே விற்பனை மூடப்படும்.',
+      's4.lib.counter_sale.void_disposition': 'மருந்து காவல் முடிவு',
+      's4.lib.counter_sale.disposition.never_handed_over':
+          'நோயாளியிடம் ஒருபோதும் ஒப்படைக்கப்படவில்லை',
+      's4.lib.counter_sale.disposition.patient_returned':
+          'நோயாளி கையாண்ட பின் திருப்பப்பட்டது',
+      's4.lib.counter_sale.disposition_required_hint': 'துல்லிய காவல் முடிவைத் தேர்ந்தெடுக்கவும். எந்த விருப்பமும் தானாக கருதப்படாது.',
+      's4.lib.counter_sale.never_handed_over_restock': 'பணியாளர் காவலை விட்டு வெளியேறாத மருந்து மட்டுமே பணத்திருப்பு மற்றும் துல்லிய தொகுதி மீள்சேர்க்கைக்கு செல்லலாம்.',
+      's4.lib.counter_sale.patient_returned_quarantine': 'நோயாளி கையாண்ட மருந்தை விற்பனைக்கான சரக்கில் மீண்டும் சேர்க்க முடியாது. இங்கே நிறுத்தி தனிமைப்படுத்தல்/அழிப்பு திருப்பல் செயல்முறையைப் பயன்படுத்தவும்; இந்தத் திரை இன்னும் அதனுடன் இணைக்கப்படவில்லை.',
+      's4.lib.counter_sale.patient_returned_blocked': 'நோயாளி கையாண்ட மருந்தை விற்பனை சரக்கில் செல்லாததாக்க முடியாது. தனிமைப்படுத்தல்/அழிப்பு திருப்பல் செயல்முறையைப் பயன்படுத்தவும்.',
+      's4.lib.counter_sale.void_changed_title':
+          'உறுதியற்ற செல்லாததாக்க கோரிக்கையை மாற்றவா?',
+      's4.lib.counter_sale.void_changed_body': 'முந்தைய கோரிக்கையின் முடிவு தெரியவில்லை. காரணம் அல்லது காவல் முடிவை மாற்றுவது வேறு பாதுகாக்கப்பட்ட முயற்சியை உருவாக்கும். முதலில் தற்போதைய விற்பனையைச் சரிபார்க்கவும்.',
+      's4.lib.counter_sale.retry_void':
+          'பாதுகாக்கப்பட்ட செல்லாததாக்கத்தை மீண்டும் முயற்சி செய்',
+      's4.lib.counter_sale.void_response_unconfirmed': 'செல்லாததாக்க பதில் உறுதிப்படுத்தப்படவில்லை. அதே பாதுகாக்கப்பட்ட கோரிக்கையை பயன்படுத்த இந்த விற்பனையில் மீண்டும் முயற்சி செய்யவும்.',
+      's4.lib.counter_sale.void_pending_refund': 'செல்லாததாக்க கோரப்பட்டது. நிதி ஒப்புதலும் செலுத்துதலும் நிலுவையில் உள்ளன; சரக்கு மீள்சேர்க்கப்படவில்லை.',
+      's4.lib.counter_sale.void_reconciled': 'பணத்திருப்பு சான்று சரிபார்க்கப்பட்டு துல்லிய சரக்கு ஒப்பீடு நிறைவடைந்தது.',
+      's4.lib.counter_sale.void_request_reference':
+          'செல்லாததாக்க கோரிக்கை #{id}',
+      's4.lib.counter_sale.refund_reference': 'பணத்திருப்பு #{id}: {status}',
+      's4.lib.counter_sale.restock_pending_evidence': 'செலுத்தப்பட்ட பணத்திருப்பு சான்று உறுதிப்படும் வரை துல்லிய தொகுதி மீள்சேர்க்கை தடுக்கப்படும்.',
+      's4.lib.counter_sale.open_finance_workflow': 'நிதி பணிப்பாய்வைத் திற',
+      's4.lib.counter_sale.open_reconciliation': 'ஒப்பீட்டைத் திற',
+      's4.lib.counter_sale.reconcile_action': 'சரிபார்த்து ஒப்பிடு',
+      's4.lib.counter_sale.reconcile_still_pending': 'பணத்திருப்பு சான்று தயாராகவில்லை; செல்லாததாக்க கோரிக்கை நிலுவையில் இருக்கும்.',
+      's4.lib.counter_sale.reconcile_response_unconfirmed': 'ஒப்பீட்டு பதில் உறுதிப்படுத்தப்படவில்லை. அதே பாதுகாக்கப்பட்ட சரிபார்ப்பை பயன்படுத்த இங்கே மீண்டும் முயற்சி செய்யவும்.',
+      's4.lib.counter_sale.handover_resolution_title':
+          'வாடிக்கையாளரிடம் ஒப்படைத்ததை உறுதிப்படுத்து',
+      's4.lib.counter_sale.handover_resolution_warning': 'மருந்து வாடிக்கையாளரிடம் ஒப்படைக்கப்பட்டு, நிராகரிக்கப்பட்ட பணத்திருப்பினால் விற்பனை நிறைவாகவே இருக்க வேண்டும் என்றால் மட்டும் இதைப் பயன்படுத்தவும். இது பணத்திருப்பையோ சரக்கு மீள்சேர்க்கையையோ பதிவு செய்யாது.',
+      's4.lib.counter_sale.handover_resolution_reason':
+          'ஒப்படைத்ததை உறுதிப்படுத்தும் காரணம்',
+      's4.lib.counter_sale.handover_resolution_confirm':
+          'ஒப்படைத்ததை உறுதிப்படுத்து',
+      's4.lib.counter_sale.handover_resolution_changed_title':
+          'உறுதியற்ற ஒப்படைப்பு உறுதிப்படுத்தலை மாற்றவா?',
+      's4.lib.counter_sale.handover_resolution_changed_body': 'முந்தைய பதில் தெரியவில்லை. காரணத்தை மாற்றுவது புதிய பாதுகாக்கப்பட்ட முயற்சியை உருவாக்கும். தொடர்வதற்கு முன் விற்பனையைப் புதுப்பிக்கவும்.',
+      's4.lib.counter_sale.handover_resolution_action':
+          'வாடிக்கையாளர் ஒப்படைப்பை உறுதிப்படுத்து',
+      's4.lib.counter_sale.handover_resolution_retry':
+          'பாதுகாக்கப்பட்ட ஒப்படைப்பு உறுதிப்படுத்தலை மீண்டும் முயற்சி செய்',
+      's4.lib.counter_sale.handover_resolution_completed': 'வாடிக்கையாளர் ஒப்படைப்பு உறுதியானது. செல்லாததாக்கம் ரத்தானது; பணத்திருப்போ சரக்கு மீள்சேர்க்கையோ இல்லை.',
+      's4.lib.counter_sale.handover_resolution_response_unconfirmed': 'ஒப்படைப்பு உறுதிப்படுத்தல் அதிகாரப்பூர்வமாக உறுதியாகவில்லை. அதே பாதுகாக்கப்பட்ட முயற்சியைப் பயன்படுத்த மாற்றமின்றி மீண்டும் முயற்சி செய்யவும்.',
+      'med03.counter_sale_refund.title': 'கவுண்டர் விற்பனை பணத்திருப்பி',
+      'med03.counter_sale_refund.access_denied':
+          'இந்த பணத்திருப்பி பணிப்பாய்வைத் திறக்க உங்களுக்கு அனுமதி இல்லை.',
+      'med03.counter_sale_refund.invalid_target':
+          'பணத்திருப்பி இலக்கு செல்லுபடியாகாது.',
+      'med03.counter_sale_refund.target_mismatch': 'பணத்திருப்பி மற்றும் ரத்து கோரிக்கை அடையாளங்கள் ஒரே அதிகாரப்பூர்வ பணிப்பாய்வைச் சுட்டவில்லை.',
+      'med03.counter_sale_refund.load_failed': 'அதிகாரப்பூர்வ பணத்திருப்பி நிலையை ஏற்ற முடியவில்லை. மீண்டும் இணைந்து முயலவும்.',
+      'med03.counter_sale_refund.summary':
+          'அதிகாரப்பூர்வ பணத்திருப்பி மற்றும் ஒப்பீட்டு நிலை',
+      'med03.counter_sale_refund.refund_id': 'பணத்திருப்பி அடையாளம்',
+      'med03.counter_sale_refund.void_request_id': 'ரத்து கோரிக்கை அடையாளம்',
+      'med03.counter_sale_refund.sale_id': 'கவுண்டர் விற்பனை அடையாளம்',
+      'med03.counter_sale_refund.amount': 'பணத்திருப்பி தொகை',
+      'med03.counter_sale_refund.payment_mode': 'அசல் கட்டண முறை',
+      'med03.counter_sale_refund.original_payment_reference':
+          'அசல் கட்டணக் குறிப்பு',
+      'med03.counter_sale_refund.approval_status': 'பணத்திருப்பி நிலை',
+      'med03.counter_sale_refund.workflow_status': 'பணிப்பாய்வு நிலை',
+      'med03.counter_sale_refund.disposition': 'மருந்து காவல் முடிவு',
+      'med03.counter_sale_refund.reconciliation_status':
+          'மருந்தக ஒப்பீட்டு நிலை',
+      'med03.counter_sale_refund.payout_rail': 'பணம் வழங்கும் வழி',
+      'med03.counter_sale_refund.provider': 'வழங்குநர் அல்லது பெறுநர் வங்கி',
+      'med03.counter_sale_refund.provider_refund_reference':
+          'வழங்குநர் பணத்திருப்பி குறிப்பு',
+      'med03.counter_sale_refund.provider_refunded_at':
+          'வழங்குநர் பணத்திருப்பி நேரம்',
+      'med03.counter_sale_refund.value_unknown': 'கிடைக்கவில்லை',
+      'med03.counter_sale_refund.open_reconciliation':
+          'மருந்தக ஒப்பீட்டைத் திறக்கவும்',
+      'med03.counter_sale_refund.approval_title': 'நிதி ஒப்புதல்',
+      'med03.counter_sale_refund.approval_ready': 'ஒப்புதலுக்கு முன் சரியான பணத்திருப்பி மற்றும் ரத்து கோரிக்கை ஆதாரத்தைச் சரிபார்க்கவும்.',
+      'med03.counter_sale_refund.approval_waiting': 'பணம் வழங்குவதற்கு முன் நிர்வாகி இந்த பணத்திருப்பியை ஒப்புதல் அளிக்க வேண்டும்.',
+      'med03.counter_sale_refund.approve_action':
+          'பணத்திருப்பியை ஒப்புதல் அளிக்கவும்',
+      'med03.counter_sale_refund.confirm_title': 'பண நகர்வை உறுதிப்படுத்தவும்',
+      'med03.counter_sale_refund.approve_confirm': 'இந்தத் துல்லியமான பணத்திருப்பி கடமையை ஒப்புதல் அளிக்கவா? பணம் வழங்குபவர் வேறு நபராக இருக்க வேண்டும்.',
+      'med03.counter_sale_refund.manual_confirm': 'சரியான சான்றுடன் இந்த ரொக்கம் அல்லது கைமுறை கருவி பணம் வழங்கலைப் பதிவு செய்யவா?',
+      'med03.counter_sale_refund.offline_electronic_confirm': 'இந்த அசல் கட்டணத்திற்கான வெளிப்புற முனையம் அல்லது கியூஆர் பணத்திருப்பி ஆதாரத்தைப் பதிவு செய்யவா?',
+      'med03.counter_sale_refund.gateway_confirm': 'இந்தச் சரியான கேட்வே ஆர்டருக்கான ஒருங்கிணைந்த கேட்வே பணத்திருப்பியைத் தொடங்கவா?',
+      'med03.counter_sale_refund.action_confirmed':
+          'அதிகாரப்பூர்வ பணத்திருப்பி நிலை இந்தச் செயலை உறுதிப்படுத்துகிறது.',
+      'med03.counter_sale_refund.action_failed': 'அதிகாரப்பூர்வ நிறைவு உறுதியாகுமுன் பணத்திருப்பி செயல் தோல்வியடைந்தது.',
+      'med03.counter_sale_refund.action_response_unconfirmed': 'முடிவு உறுதியாகவில்லை. அதே பாதுகாக்கப்பட்ட முயற்சைப் பயன்படுத்த மாற்றமில்லாத செயலை இங்கே மீண்டும் முயலவும்.',
+      'med03.counter_sale_refund.retry_same_attempt': 'முந்தைய பதில் தெளிவற்றது. நிலையான இடெம்போடென்சி விசையை மீண்டும் பயன்படுத்த ஆதாரத்தை மாற்றாமல் இங்கே முயலவும்.',
+      'med03.counter_sale_refund.changed_attempt_title':
+          'வேறு பணத்திருப்பி முயற்சியைத் தொடங்கவா?',
+      'med03.counter_sale_refund.changed_attempt_body': 'முந்தைய முடிவு இன்னும் தெரியவில்லை. மாற்றப்பட்ட ஆதாரம் புதிய பாதுகாக்கப்பட்ட முயற்சியை உருவாக்கும்; முதல் செயல் முடிந்திருந்தால் இரட்டை பணம் வழங்கல் ஏற்படலாம்.',
+      'med03.counter_sale_refund.changed_attempt_confirm':
+          'புதிய முயற்சியைத் தொடங்கவும்',
+      'med03.counter_sale_refund.payer_must_differ': 'பணம் வழங்குபவர் பணத்திருப்பியை ஒப்புதல் அளித்த நபரிலிருந்து வேறுபட்டிருக்க வேண்டும்.',
+      'med03.counter_sale_refund.payout_not_authorized':
+          'இந்த பணத்திருப்பியை வழங்க உங்கள் பங்கு அனுமதிக்காது.',
+      'med03.counter_sale_refund.payout_in_progress': '{rail} வழி ஏற்கனவே இந்தப் பணம் வழங்கலைக் கொண்டுள்ளது. ஆதாரத்திற்காகப் புதுப்பிக்கவும்; மற்றொரு வழியைத் தொடங்க வேண்டாம்.',
+      'med03.counter_sale_refund.no_authoritative_rail': 'அசல் கட்டண ஆதாரம் தற்போது எந்த பணம் வழங்கும் வழியையும் அனுமதிக்கவில்லை. தொடருமுன் ஆதாரத்தைத் தீர்க்கவும்.',
+      'med03.counter_sale_refund.rail_conflict': 'மற்றொரு பணம் வழங்கும் வழி இந்த பணத்திருப்பியைக் கொண்டுள்ளது. அதிகாரப்பூர்வ நிலையைப் புதுப்பிக்கவும்.',
+      'med03.counter_sale_refund.cash_drawer': 'திறந்த ரொக்கப் பெட்டி அமர்வு',
+      'med03.counter_sale_refund.cash_drawer_option': 'பெட்டி {id} · {shift}',
+      'med03.counter_sale_refund.cash_voucher':
+          'மாற்ற முடியாத ரொக்க பணத்திருப்பி சான்று',
+      'med03.counter_sale_refund.manual_reference':
+          'மாற்ற முடியாத பணம் வழங்கல் குறிப்பு',
+      'med03.counter_sale_refund.record_payout':
+          'பணம் வழங்கலைப் பதிவு செய்யவும்',
+      'med03.counter_sale_refund.drawer_identity_missing': 'உங்கள் பணியாளர் அடையாளம் கிடைக்காததால் உங்களுக்குச் சொந்தமான திறந்த பெட்டியைத் தேர்ந்தெடுக்க முடியாது.',
+      'med03.counter_sale_refund.drawer_load_failed':
+          'திறந்த ரொக்கப் பெட்டி அமர்வுகளை ஏற்ற முடியவில்லை.',
+      'med03.counter_sale_refund.no_open_drawer': 'தற்போதைய பணம் வழங்குபவருக்குச் சொந்தமான திறந்த ரொக்கப் பெட்டி இல்லை.',
+      'med03.counter_sale_refund.cash_drawer_error': 'ரொக்கப் பெட்டி அல்லது சான்று ஆதாரம் நிராகரிக்கப்பட்டது. மீண்டும் முயலுமுன் பெட்டி நிலையைப் புதுப்பிக்கவும்.',
+      'med03.counter_sale_refund.original_reference_missing': 'அசல் மின்னணு கட்டணக் குறிப்பு இல்லை அல்லது தெளிவற்றது. நிதி தீர்க்கும்வரை வெளிப்புற மின்னணு பணம் வழங்கல் தடுக்கப்பட்டுள்ளது.',
+      'med03.counter_sale_refund.timestamp_hint': 'நேர மண்டலத்துடன் ISO 8601 நேரம், எடுத்துக்காட்டு 2026-08-28T10:30:00+05:30',
+      'med03.counter_sale_refund.record_offline_electronic':
+          'வெளிப்புற பணத்திருப்பி ஆதாரத்தைப் பதிவு செய்யவும்',
+      'med03.counter_sale_refund.electronic_evidence_error': 'அசல் மின்னணு கட்டண ஆதாரம் இந்தப் பணம் வழங்கும் வழியை அனுமதிக்கவில்லை.',
+      'med03.counter_sale_refund.provider_evidence_error': 'வழங்குநர், பணத்திருப்பி குறிப்பு மற்றும் நேரம் மாற்ற முடியாத வெளிப்புற ஆதாரமாகத் தேவை.',
+      'med03.counter_sale_refund.load_gateway_candidates':
+          'ஒருங்கிணைந்த கேட்வே விருப்பங்களை ஏற்றவும்',
+      'med03.counter_sale_refund.gateway_candidates_failed':
+          'ஒருங்கிணைந்த கேட்வே விருப்பங்களை ஏற்ற முடியவில்லை.',
+      'med03.counter_sale_refund.no_gateway_candidates': 'இந்த பணத்திருப்பிக்கு சரியாகப் பணம் செலுத்தப்பட்ட தகுதியான கேட்வே ஆர்டர் இல்லை.',
+      'med03.counter_sale_refund.gateway_candidate': 'கேட்வே ஆர்டர் {id}',
+      'med03.counter_sale_refund.start_gateway_refund':
+          'கேட்வே பணத்திருப்பியைத் தொடங்கவும்',
+      'med03.counter_sale_refund.rail.manual':
+          'ரொக்கம் அல்லது கைமுறை கருவி பணம் வழங்கல்',
+      'med03.counter_sale_refund.rail.offline_electronic':
+          'வெளிப்புற முனையம் அல்லது கியூஆர் பணத்திருப்பி',
+      'med03.counter_sale_refund.rail.gateway':
+          'ஒருங்கிணைந்த கேட்வே பணத்திருப்பி',
+      'med03.counter_sale_refund.rail.unknown': 'தெரியாத பணம் வழங்கும் வழி',
+      'med03.counter_sale_refund.workflow.awaiting_approval':
+          'நிதி ஒப்புதலுக்குக் காத்திருக்கிறது',
+      'med03.counter_sale_refund.workflow.ready_for_payout':
+          'ஒப்புதல் கிடைத்து பணம் வழங்கத் தயார்',
+      'med03.counter_sale_refund.workflow.paid':
+          'பணத்திருப்பி வழங்கப்பட்டது; மருந்தக ஒப்பீடு நிலுவையில்',
+      'med03.counter_sale_refund.workflow.rejected':
+          'பணத்திருப்பி நிராகரிக்கப்பட்டது',
+      'med03.counter_sale_refund.workflow.refund_rejected_review':
+          'நிராகரிக்கப்பட்ட பணத்திருப்பிக்கு கட்டுப்படுத்தப்பட்ட ஆய்வு தேவை',
+      'med03.counter_sale_refund.workflow.reconciliation_required':
+          'பணத்திருப்பி வழங்கப்பட்டது; மருந்தக ஒப்பீடு தேவை',
+      'med03.counter_sale_refund.workflow.counter_sale_void_completed':
+          'பணத்திருப்பியும் கவுண்டர் விற்பனை ரத்தும் முடிந்தது',
+      'med03.counter_sale_refund.workflow.unknown':
+          'பணத்திருப்பி பணிப்பாய்வு நிலை கிடைக்கவில்லை',
       's4.lib.counter_sale.no_recent': 'இன்று இதுவரை கவுண்டர் விற்பனை இல்லை',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       's4.lib.pharmacy.substitution_witness_required': 'இந்த Schedule X / போதைப்பொருள் மாற்று மருந்தை வழங்கும் முன் ஒப்புதல் பெற்ற இரண்டாவது பணியாளர் சாட்சி தேவை.',
@@ -26324,6 +29110,37 @@ class AppStrings {
       'clinical_inbox.accepting_transfer': 'బదిలీని అంగీకరిస్తోంది...',
       'clinical_inbox.accept_inpatient_transfer':
           'ఇన్‌పేషెంట్ బదిలీని అంగీకరించండి',
+      'clinical_inbox.mar_handoff.action': 'ప్రిస్క్రైబర్‌ను మళ్లీ కేటాయించండి',
+      'clinical_inbox.mar_handoff.title':
+          'మందుల మినహాయింపును మళ్లీ కేటాయించండి',
+      'clinical_inbox.mar_handoff.body': 'నిలిపిన లేదా మిస్ అయిన డోస్ సమీక్ష బాధ్యత తీసుకునే క్రియాశీల ప్రిస్క్రైబర్‌ను ఎంచుకోండి. సమర్పించేటప్పుడు ప్రస్తుత బాధ్యుడు సరిపోలాలి.',
+      'clinical_inbox.mar_handoff.case_id': 'మినహాయింపు కేసు ID',
+      'clinical_inbox.mar_handoff.current_prescriber': 'ప్రస్తుత ప్రిస్క్రైబర్',
+      'clinical_inbox.mar_handoff.target_prescriber': 'కొత్త ప్రిస్క్రైబర్',
+      'clinical_inbox.mar_handoff.prescriber_required':
+          'క్రియాశీల ప్రిస్క్రైబర్‌ను ఎంచుకోండి',
+      'clinical_inbox.mar_handoff.prescribers_failed':
+          'క్రియాశీల ప్రిస్క్రైబర్‌లను లోడ్ చేయలేకపోయాము.',
+      'clinical_inbox.mar_handoff.no_prescribers':
+          'మరొక క్రియాశీల ప్రిస్క్రైబర్ అందుబాటులో లేరు.',
+      'clinical_inbox.mar_handoff.reason': 'క్లినికల్ హ్యాండాఫ్ కారణం',
+      'clinical_inbox.mar_handoff.reason_hint':
+          'పేరు పెట్టిన బాధ్యత ఎందుకు మారాలో వివరించండి',
+      'clinical_inbox.mar_handoff.reason_required':
+          'కనీసం 5 అక్షరాలు నమోదు చేయండి',
+      'clinical_inbox.mar_handoff.confirmation': 'ఎంచుకున్న ప్రిస్క్రైబర్ క్రియాశీలంగా ఉన్నారని మరియు ఈ క్లినికల్ సమీక్ష బాధ్యతను అంగీకరించారని లేదా స్వీకరించడానికి అధికారం ఉందని నేను నిర్ధారిస్తున్నాను.',
+      'clinical_inbox.mar_handoff.confirmation_required':
+          'సమర్పించే ముందు పేరు పెట్టిన బాధ్యత హ్యాండాఫ్‌ను నిర్ధారించండి.',
+      'clinical_inbox.mar_handoff.submit': 'మళ్లీ కేటాయింపును నిర్ధారించండి',
+      'clinical_inbox.mar_handoff.submitting': 'మళ్లీ కేటాయిస్తోంది...',
+      'clinical_inbox.mar_handoff.succeeded':
+          'మందుల మినహాయింపు ఎంచుకున్న ప్రిస్క్రైబర్‌కు మళ్లీ కేటాయించబడింది.',
+      'clinical_inbox.mar_handoff.failed':
+          'మందుల మినహాయింపును మళ్లీ కేటాయించలేకపోయాము: {reason}',
+      'clinical_inbox.mar_handoff.stale_owner': 'మీ సమీక్షలో ఉన్నప్పుడు బాధ్యత మారింది. తాజా బాధ్యుడు చూపబడ్డారు; మళ్లీ సమీక్షించి నిర్ధారించండి.',
+      'clinical_inbox.mar_handoff.no_longer_actionable': 'ఈ మందుల మినహాయింపు ఇక మళ్లీ కేటాయించడానికి అందుబాటులో లేదు. తాజా ఇన్‌బాక్స్ స్థితి లోడ్ చేయబడింది.',
+      'clinical_inbox.mar_handoff.requires_connection':
+          'ఈ మందుల మినహాయింపును మళ్లీ కేటాయించడానికి కనెక్షన్ అవసరం.',
       'clinical_inbox.cross_sign.review': 'డిశ్చార్జ్ ఫలితాన్ని సమీక్షించండి',
       'clinical_inbox.cross_sign.title': 'డిశ్చార్జ్ అనంతర ఫలితంపై సహ సంతకం',
       'clinical_inbox.cross_sign.generation_id': 'ఖచ్చితమైన జనరేషన్ ID',
@@ -27143,6 +29960,14 @@ class AppStrings {
       'orders.cancelled_toast': 'ఆర్డర్ రద్దు చేయబడింది',
       // REVIEW: AI first-pass
       'orders.stop_failed_prefix': 'ఆర్డర్ ఆపడం విఫలమైంది:',
+      // REVIEW: AI first-pass, clinical safety wording
+      'orders.mar_recovery.action': 'MAR సరిచేయి',
+      'orders.mar_recovery.required': 'ఈ మందుల ఆర్డర్‌కు MAR మోతాదులు షెడ్యూల్ కాలేదు. ప్రిస్క్రైబ్ చేసే వైద్యుడు షెడ్యూల్‌ను సరిచేయాలి లేదా ఆర్డర్‌ను నిలిపి సరైన ఆర్డర్ ఇవ్వాలి.',
+      'orders.mar_recovery.success':
+          'MAR షెడ్యూల్ సమన్వయమైంది ({count} మోతాదులు).',
+      'orders.mar_recovery.failed': 'MAR షెడ్యూల్‌ను సరిచేయలేకపోయాం: {error}',
+      'orders.mar_recovery.desktop_only': 'ఈ చర్య ఫోన్ మోడ్‌లో అందుబాటులో లేదు. డెస్క్‌టాప్ లేదా టాబ్లెట్ క్లినికల్ వర్క్‌స్టేషన్‌ను ఉపయోగించండి.',
+      'orders.icu_mar_review.banner': 'ICU అడ్మిషన్ #{admissionId} కోసం మందుల కొనసాగింపు సమీక్ష అవసరం. ఆర్డర్లు మరియు MAR కొనసాగింపును సమీక్షించండి; ఈ సమాచారం క్లినికల్ డేటాను మార్చదు.',
       // REVIEW: AI first-pass
       'composer.title': 'కొత్త ఆర్డర్లు',
       // REVIEW: AI first-pass
@@ -27206,11 +30031,13 @@ class AppStrings {
       'composer.duration_days': 'వ్యవధి (రోజులు)',
       // REVIEW: AI first-pass
       'composer.study_name': 'స్టడీ',
-      'composer.study_hint': 'Chest X-ray PA, CT Brain plain...',
+      'composer.study_hint':
+          'ఛాతీ ఎక్స్-రే PA, కాంట్రాస్ట్ లేని CT బ్రెయిన్...',
       // REVIEW: AI first-pass
       'composer.specialty': 'ప్రత్యేకత',
-      'composer.specialty_hint': 'Cardiology, Nephrology...',
-      'composer.diet_hint': 'Diabetic diet, NPO, soft diet...',
+      'composer.specialty_hint': 'హృద్రోగ విభాగం, మూత్రపిండాల విభాగం...',
+      'composer.diet_hint':
+          'మధుమేహ ఆహారం, నోటి ద్వారా ఏమీ ఇవ్వకూడదు (NPO), మృదువైన ఆహారం...',
       // REVIEW: AI first-pass
       'order_sets.no_placeable_items': 'నమోదు చేయగల ఆర్డర్ అంశాలు ఎంచుకోబడలేదు',
       // REVIEW: AI first-pass
@@ -28875,6 +31702,8 @@ class AppStrings {
       'pharmacy.tab.new': 'కొత్తది',
       'ward_indent.action.approve': 'ఇండెంట్‌ను ఆమోదించండి',
       'ward_indent.action.approve_substitution': 'ప్రత్యామ్నాయాన్ని ఆమోదించండి',
+      'ward_indent.action.apply_substitution':
+          'ఆమోదించిన ప్రత్యామ్నాయాన్ని స్టాక్‌కు వర్తించండి',
       'ward_indent.action.cancel': 'ఇండెంట్‌ను రద్దు చేయండి',
       'ward_indent.action.close': 'ఇండెంట్‌ను మూసివేయండి',
       'ward_indent.action.completed': '{number} నవీకరించబడింది',
@@ -28896,6 +31725,59 @@ class AppStrings {
           'ఈ స్థితిలో మీ పాత్రకు ఎలాంటి చర్యలు అందుబాటులో లేవు.',
       'ward_indent.actions.title': 'అందుబాటులో ఉన్న చర్యలు',
       'ward_indent.confirm.default': 'ఈ ఆన్‌లైన్ వర్క్‌ఫ్లో మార్పును నిర్ధారించండి. సర్వర్ మీ పాత్ర, ప్రస్తుత సంచిక మరియు అన్ని క్లినికల్, స్టాక్ నియమాలను మళ్లీ తనిఖీ చేస్తుంది.',
+      'ward_indent.inventory.none':
+          '{item} కోసం అదే సదుపాయంలో అర్హమైన ఇన్వెంటరీ ఎంపిక లేదు.',
+      'ward_indent.inventory.select': '{item} కోసం ఇన్వెంటరీని ఎంచుకోండి',
+      'ward_indent.substitution.acknowledge_title':
+          'ప్రత్యామ్నాయ ఔషధాన్ని నిర్ధారించండి',
+      'ward_indent.substitution.acknowledge_body':
+          'స్వీకరించే ముందు ప్రత్యామ్నాయ ఔషధాన్ని నిర్ధారించండి: {items}.',
+      'ward_indent.reconcile.exact_allocation_required':
+          '{item} తిరిగి ఇవ్వడానికి ఖచ్చితమైన వార్డ్ allocation అవసరం.',
+      'ward_indent.reconcile.return_exceeds_custody': '{item} తిరిగి ఇచ్చే పరిమాణం వార్డులో వినియోగించని పరిమాణాన్ని మించుతోంది.',
+      'ward_indent.reconcile.return_evidence_missing': 'నియంత్రిత రిటర్న్ movement మరియు register ఆధారాలు రెండింటినీ సృష్టించలేదు.',
+      'ward_indent.controlled.reference_missing':
+          '{item} కోసం నియంత్రిత reference లేదు.',
+      'ward_indent.controlled.exact_allocation_required':
+          '{item} పంపిణీకి ముందు సరిగ్గా ఒక reserved allocation అవసరం.',
+      'due_meds.held_review_state': 'ఔషధం ఇవ్వడం నిరోధించబడింది — నియంత్రిత క్లినికల్ సమీక్ష లేదా విడుదల కోసం వేచి ఉంది.',
+      'mar_supply.title': 'MAR సరఫరా సమన్వయం',
+      'mar_supply.no_open_override':
+          'సరిపోలని MAR సరఫరా override ఏదీ మిగలలేదు.',
+      'mar_supply.outstanding': 'మిగిలిన పరిమాణం: {quantity}',
+      'mar_supply.help': 'మిగిలిన పూర్తి dose ను ఖచ్చితమైన ward allocation పరిమాణాలతో సరిపోల్చండి. మొత్తం ఖచ్చితంగా ఉన్నప్పుడే task ముగుస్తుంది.',
+      'mar_supply.invalid_quantity':
+          'Allocation {allocation} పరిమాణం చెల్లదు లేదా అందుబాటును మించింది.',
+      'mar_supply.exact_total_required':
+          'Allocation పరిమాణాల మొత్తం ఖచ్చితంగా {quantity} కావాలి.',
+      'mar_supply.completed': 'MAR సరఫరా ఆధారం సమన్వయమై task పూర్తయింది.',
+      'mar_supply.allocation': 'వార్డు కేటాయింపు',
+      'mar_supply.batch_available': 'Batch {batch} · అందుబాటులో {quantity}',
+      'mar_supply.batch_ineligible.inventory_item_inactive':
+          'ఇన్వెంటరీ అంశం నిష్క్రియంగా ఉంది.',
+      'mar_supply.batch_ineligible.batch_reserved':
+          'బ్యాచ్ రిజర్వ్ చేయబడింది; రీకన్సిలియేషన్‌కు అందుబాటులో లేదు.',
+      'mar_supply.batch_ineligible.batch_depleted':
+          'ఈ బ్యాచ్‌లో అర్హమైన మిగిలిన కస్టడీ లేదు.',
+      'mar_supply.batch_ineligible.batch_expired': 'బ్యాచ్ గడువు ముగిసింది.',
+      'mar_supply.batch_ineligible.batch_recalled':
+          'బ్యాచ్ రీకాల్ చేయబడింది; ఉపయోగించలేరు.',
+      'mar_supply.batch_ineligible.batch_quarantined':
+          'బ్యాచ్ క్వారంటైన్‌లో ఉంది.',
+      'mar_supply.batch_ineligible.batch_disposed': 'బ్యాచ్ తొలగించబడింది.',
+      'mar_supply.batch_ineligible.batch_status_missing': 'బ్యాచ్ స్థితి లేదు.',
+      'mar_supply.batch_ineligible.ward_custody_unavailable':
+          'ఈ బ్యాచ్‌లో ఉపయోగించని వార్డు కస్టడీ లేదు.',
+      'mar_supply.batch_ineligible.batch_expiry_missing':
+          'బ్యాచ్ గడువు తేదీ లేదు.',
+      'mar_supply.batch_ineligible.unknown':
+          'ఈ బ్యాచ్ రీకన్సిలియేషన్‌కు అర్హం కాదు.',
+      'mar_supply.notification_action': 'MAR సరఫరాను సమన్వయించండి',
+      'mar_supply.quantity': 'ఈ allocation నుండి పరిమాణం',
+      'mar_supply.reconcile': 'ఖచ్చిత సరఫరాను సమన్వయించండి',
+      'clinical_inbox.open_workflow': 'వర్క్‌ఫ్లో తెరవండి',
+      'clinical_inbox.workflow_link_unavailable':
+          'ఈ task లో సురక్షితమైన, చర్య తీసుకోగల వర్క్‌ఫ్లో లింక్ లేదు.',
       'ward_indent.controlled.ambiguous_recovery': 'నియంత్రిత ఔషధ ఆధారానికి అనేక సంభావ్య రికార్డులు ఉన్నాయి. పర్యవేక్షక సమన్వయం వరకు బదిలీ నిలిపివేయబడింది.',
       'ward_indent.controlled.label': 'నియంత్రిత',
       'ward_indent.controlled.no_inventory_link': '{item} కు ఇన్వెంటరీ వస్తువు అనుసంధానించబడలేదు. పంపిణీకి ముందు కేటలాగ్ మరియు ఇన్వెంటరీ రికార్డులను అనుసంధానించండి.',
@@ -28967,6 +31849,32 @@ class AppStrings {
       'ward_indent.select_prompt':
           'వర్క్‌ఫ్లోను పరిశీలించడానికి వార్డ్ ఇండెంట్‌ను ఎంచుకోండి.',
       'ward_indent.sla.title': 'క్రియాశీల సేవా-స్థాయి నిబద్ధతలు',
+      'ward_indent.code.unknown': 'గుర్తించని వర్క్‌ఫ్లో స్థితి',
+      'ward_indent.sla.status.active': 'క్రియాశీలం',
+      'ward_indent.sla.status.breached': 'గడువు ఉల్లంఘించబడింది',
+      'ward_indent.sla.status.escalated': 'ఎస్కలేట్ చేయబడింది',
+      'ward_indent.sla.rule.ward_indent_pharmacy_response':
+          'ఫార్మసీ ప్రతిస్పందన',
+      'ward_indent.sla.rule.ward_indent_substitution_authorization':
+          'ప్రత్యామ్నాయ అనుమతి',
+      'ward_indent.sla.rule.ward_indent_controlled_handoff':
+          'నియంత్రిత మందు అప్పగింత',
+      'ward_indent.sla.rule.ward_indent_pharmacy_issue': 'ఫార్మసీ జారీ',
+      'ward_indent.sla.rule.ward_indent_ward_receipt': 'వార్డు స్వీకరణ',
+      'ward_indent.sla.rule.ward_indent_reconciliation': 'మందుల సమన్వయం',
+      'ward_indent.sla.rule.ward_indent_notification_coverage':
+          'నోటిఫికేషన్ కవరేజ్',
+      'ward_indent.sla.rule.ward_indent_credit_note_review':
+          'క్రెడిట్ నోట్ సమీక్ష',
+      'ward_indent.sla.rule.ward_indent_mar_supply_reconciliation':
+          'MAR సరఫరా సమన్వయం',
+      'ward_indent.controlled.recovery_status.available':
+          'ఆధారం అందుబాటులో ఉంది',
+      'ward_indent.controlled.recovery_status.missing': 'ఆధారం లేదు',
+      'ward_indent.controlled.recovery_status.ambiguous':
+          'అనేక ఆధార రికార్డులు',
+      'ward_indent.controlled.recovery_status.corrupt':
+          'కస్టడీ ఆధారాల వైరుధ్యం',
       'ward_indent.status.approved': 'ఆమోదించబడింది',
       'ward_indent.status.cancelled': 'రద్దు చేయబడింది',
       'ward_indent.status.closed': 'మూసివేయబడింది',
@@ -28991,6 +31899,30 @@ class AppStrings {
       'ward_indent.substitution.select_line':
           'తక్కువ సరఫరా ఉన్న వరుసను ఎంచుకోండి',
       'ward_indent.tab': 'వార్డ్ ఇండెంట్లు',
+      'ward_indent.request.action': 'సరఫరాను అభ్యర్థించండి',
+      'ward_indent.request.title': 'ఆర్డర్-బౌండ్ సరఫరా పునరుద్ధరణ',
+      'ward_indent.request.help': 'యాక్టివ్ ఔషధ ఆర్డర్‌కు ఆటోమేటిక్ వార్డ్ ఇండెంట్ సృష్టించబడనప్పుడు మాత్రమే ఉపయోగించండి. ఇక్కడ ఔషధాన్ని సూచించవద్దు లేదా మార్చవద్దు.',
+      'ward_indent.request.admission_id': 'అడ్మిషన్ ఐడి',
+      'ward_indent.request.admission_hint':
+          'యాక్టివ్ అడ్మిషన్ ఐడిని నమోదు చేయండి',
+      'ward_indent.request.load': 'ఆర్డర్లను లోడ్ చేయండి',
+      'ward_indent.request.admission_invalid':
+          'చెల్లుబాటు అయ్యే ధనాత్మక అడ్మిషన్ ఐడిని నమోదు చేయండి.',
+      'ward_indent.request.context': 'రోగి మరియు వార్డును నిర్ధారించండి',
+      'ward_indent.request.patient_context': 'రోగి: {patient} ({hospitalId})',
+      'ward_indent.request.ward_context':
+          'అడ్మిషన్ {admission} - వార్డ్ {ward}',
+      'ward_indent.request.none_eligible': 'పునరుద్ధరణ అభ్యర్థనకు అర్హమైన యాక్టివ్, లింక్ కాని ఔషధ ఆర్డర్లు లేవు.',
+      'ward_indent.request.select_order': 'ఔషధ ఆర్డర్‌ను ఎంచుకోండి',
+      'ward_indent.request.order_summary': '{order} - {quantity} {unit}; డోస్ {dose}; మార్గం {route}; షెడ్యూల్ {schedule}; స్థితి {status}; ప్రాధాన్యత {priority}',
+      'ward_indent.request.notes': 'పునరుద్ధరణ గమనికలు (ఐచ్ఛికం)',
+      'ward_indent.request.notes_hint':
+          'ఆటోమేటిక్ సరఫరా అభ్యర్థనకు పునరుద్ధరణ ఎందుకు అవసరమో వివరించండి',
+      'ward_indent.request.submit': 'వార్డ్ ఇండెంట్ సృష్టించండి',
+      'ward_indent.request.conflict.admission_inactive': 'అడ్మిషన్ ఇక యాక్టివ్‌గా లేదు. ఆర్డర్ జాబితా రిఫ్రెష్ అయింది; అభ్యర్థన పంపబడలేదు.',
+      'ward_indent.request.conflict.already_linked': 'ఈ ఔషధ ఆర్డర్ ఇప్పటికే వార్డ్ ఇండెంట్‌కు లింక్ అయింది. ఆర్డర్ జాబితా రిఫ్రెష్ అయింది.',
+      'ward_indent.request.conflict.projection_changed': 'ఆర్డర్-బౌండ్ సరఫరా వివరాలు మారాయి. మళ్లీ ప్రయత్నించే ముందు రిఫ్రెష్ చేసిన జాబితాను సమీక్షించండి.',
+      'ward_indent.request.conflict.canonical_changed': 'సరఫరా కేటలాగ్ {catalog}, పరిమాణం {quantity} {unit}కు మారింది. మళ్లీ ప్రయత్నించే ముందు రిఫ్రెష్ చేసిన ఆర్డర్‌ను సమీక్షించండి.',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'pharmacy.tab.active': 'చురుకుగా',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
@@ -29073,6 +32005,29 @@ class AppStrings {
       'due_meds.filter.all_routes': 'అన్ని మార్గాలు',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'due_meds.filter.route_label': 'మార్గం',
+      // REVIEW: MED-03 te AI first pass; clinician-linguist approval is required before activation.
+      'due_meds.actions.label': 'మందు చర్యలు',
+      'due_meds.actions.miss': 'డోస్ మిస్ అయినట్లు నమోదు చేయండి',
+      'due_meds.actions.hold': 'డోస్‌ను హోల్డ్‌లో ఉంచండి',
+      'due_meds.actions.release': 'హోల్డ్ చేసిన డోస్‌ను విడుదల చేయండి',
+      'due_meds.actions.miss_title': 'ఈ డోస్ మిస్ అయినట్లు నమోదు చేయాలా?',
+      'due_meds.actions.hold_title': 'ఈ డోస్‌ను హోల్డ్‌లో ఉంచాలా?',
+      'due_meds.actions.release_title': 'హోల్డ్ చేసిన ఈ డోస్‌ను విడుదల చేయాలా?',
+      'due_meds.actions.miss_body': 'షెడ్యూల్ చేసిన డోస్ ఇవ్వనప్పుడు మాత్రమే ఉపయోగించండి. వైద్య కారణం MAR రికార్డులో భాగమవుతుంది.',
+      'due_meds.actions.hold_body': 'వైద్య సమీక్ష వరకు షెడ్యూల్ చేసిన డోస్‌ను తాత్కాలికంగా ఆపడానికి మాత్రమే ఉపయోగించండి. ఇది మందు ఇచ్చినట్లు నమోదు చేయదు.',
+      'due_meds.actions.release_body': 'ప్రిస్క్రైబర్ వైద్య సమీక్షను నమోదు చేయాలి. విడుదల డోస్‌ను షెడ్యూల్ స్థితికి తిరిగి తీసుకువస్తుంది; మందు ఇచ్చినట్లు నమోదు చేయదు.',
+      'due_meds.actions.reason_label': 'వైద్య కారణం',
+      'due_meds.actions.reason_hint': 'కనీసం 5 అక్షరాలు నమోదు చేయండి',
+      'due_meds.actions.reason_required':
+          'నిర్దిష్ట వైద్య కారణాన్ని నమోదు చేయండి (కనీసం 5 అక్షరాలు).',
+      'due_meds.actions.cancel': 'రద్దు చేయండి',
+      'due_meds.actions.confirm_miss': 'మిస్ అయిన డోస్‌ను నమోదు చేయండి',
+      'due_meds.actions.confirm_hold': 'హోల్డ్‌లో ఉంచండి',
+      'due_meds.actions.confirm_release': 'షెడ్యూల్ స్థితికి విడుదల చేయండి',
+      'due_meds.actions.miss_success': 'మిస్ అయిన డోస్ నమోదు చేయబడింది',
+      'due_meds.actions.hold_success': 'డోస్ హోల్డ్‌లో ఉంచబడింది',
+      'due_meds.actions.release_success':
+          'హోల్డ్ చేసిన డోస్ షెడ్యూల్ స్థితికి విడుదల చేయబడింది',
       // REVIEW: te AI first-pass S4 due-meds display copy.
       's4.dynamic.due_meds.ward_fallback': 'వార్డు {value}',
       'due_meds.unscheduled': 'షెడ్యూల్ చేయబడలేదు',
@@ -29908,6 +32863,150 @@ class AppStrings {
       's4.dynamic.cath_lab.consumables.batch': "బ్యాచ్/లాట్ {batch}",
       's4.dynamic.cath_lab.consumables.expiry': "గడువు {expiry}",
       's4.dynamic.cath_lab.consumables.serial': "సీరియల్ {serial}",
+      'med03.cath_inventory.title': "క్యాథ్ నిల్వ సమన్వయం",
+      'med03.cath_inventory.access_denied':
+          "ఈ క్యాథ్ నిల్వ వర్క్‌ఫ్లోను తెరవడానికి మీ పాత్రకు అనుమతి లేదు.",
+      'med03.cath_inventory.invalid_target':
+          "క్యాథ్ కేసు లేదా వినియోగ నమోదు గుర్తింపు చెల్లదు.",
+      'med03.cath_inventory.target_mismatch': "క్యాథ్ కేసు మరియు వినియోగ గుర్తింపులు అధికారిక సమన్వయ రికార్డుతో సరిపోలడం లేదు.",
+      'med03.cath_inventory.load_failed': "అధికారిక క్యాథ్ నిల్వ సమన్వయ స్థితిని లోడ్ చేయలేకపోయాం. మళ్లీ కనెక్ట్ చేసి ప్రయత్నించండి.",
+      'med03.cath_inventory.summary':
+          "అధికారికంగా నమోదైన వినియోగం మరియు నిల్వ స్థితి",
+      'med03.cath_inventory.case_id': "క్యాథ్ కేసు గుర్తింపు",
+      'med03.cath_inventory.usage_id': "వినియోగ నమోదు గుర్తింపు",
+      'med03.cath_inventory.patient_uid': "రోగి గుర్తింపు",
+      'med03.cath_inventory.item': "వినియోగ వస్తువు లేదా ఇంప్లాంట్",
+      'med03.cath_inventory.inventory_item_id': "నిల్వ వస్తువు గుర్తింపు",
+      'med03.cath_inventory.inventory_batch_id': "నిల్వ బ్యాచ్ గుర్తింపు",
+      'med03.cath_inventory.batch_number': "నమోదైన బ్యాచ్ సంఖ్య",
+      'med03.cath_inventory.documented_quantity': "నమోదైన పరిమాణం",
+      'med03.cath_inventory.decremented_quantity':
+          "నిల్వ నుంచి తగ్గించిన పరిమాణం",
+      'med03.cath_inventory.remaining_quantity': "బ్యాచ్‌లో మిగిలిన పరిమాణం",
+      'med03.cath_inventory.status': "నిల్వ సమన్వయ స్థితి",
+      'med03.cath_inventory.task_status': "పని స్థితి",
+      'med03.cath_inventory.sla_status': "సేవా-కాల స్థితి",
+      'med03.cath_inventory.due_at': "గడువు సమయం",
+      'med03.cath_inventory.value_unknown': "అందుబాటులో లేదు",
+      'med03.cath_inventory.status.insufficient_stock':
+          "నమోదైన వినియోగం నిల్వ సమన్వయం కోసం వేచి ఉంది",
+      'med03.cath_inventory.status.decremented':
+          "ఖచ్చితమైన నిల్వ తగ్గింపు పూర్తైంది",
+      'med03.cath_inventory.status.unknown':
+          "నిల్వ సమన్వయ స్థితి అందుబాటులో లేదు",
+      'med03.cath_inventory.task_status.open': "తెరిచి ఉంది",
+      'med03.cath_inventory.task_status.in_progress': "పని జరుగుతోంది",
+      'med03.cath_inventory.task_status.overdue': "గడువు దాటింది",
+      'med03.cath_inventory.task_status.completed': "పూర్తైంది",
+      'med03.cath_inventory.task_status.unknown': "పని స్థితి అందుబాటులో లేదు",
+      'med03.cath_inventory.sla_status.active': "క్రియాశీలం",
+      'med03.cath_inventory.sla_status.breached': "కాల పరిమితి ఉల్లంఘించబడింది",
+      'med03.cath_inventory.sla_status.escalated': "ఉన్నత స్థాయికి పంపబడింది",
+      'med03.cath_inventory.sla_status.completed': "పూర్తైంది",
+      'med03.cath_inventory.sla_status.cancelled': "రద్దైంది",
+      'med03.cath_inventory.sla_status.unknown':
+          "సేవా-కాల స్థితి అందుబాటులో లేదు",
+      'med03.cath_inventory.not_actionable': "ఈ అధికారిక సమన్వయంపై ప్రస్తుతం చర్య తీసుకోలేరు. నిల్వ రికార్డు సరిచేసిన తరువాత రిఫ్రెష్ చేయండి.",
+      'med03.cath_inventory.coverage_only': "కవరేజ్ నిర్వాహకులు ఈ ఆధారాన్ని చూసి రిఫ్రెష్ చేయవచ్చు. నిల్వ మార్పును ఫార్మసీ సమన్వయ పాత్రలు మాత్రమే చేయగలవు.",
+      'med03.cath_inventory.confirm_title':
+          "నమోదైన క్యాథ్ వినియోగాన్ని సమన్వయించాలా?",
+      'med03.cath_inventory.confirm_body': "సర్వర్ నమోదైన ఖచ్చితమైన బ్యాచ్ లేదా అర్హమైన FEFO బ్యాచ్‌లను మాత్రమే ఉపయోగిస్తుంది. ఏకపక్ష బ్యాచ్ లేదా పరికర గుర్తింపును అంగీకరించదు.",
+      'med03.cath_inventory.confirm_action': "నిల్వను సమన్వయించండి",
+      'med03.cath_inventory.reconcile_action':
+          "నమోదైన వినియోగాన్ని సమన్వయించండి",
+      'med03.cath_inventory.retry_same_attempt':
+          "రక్షిత సమన్వయాన్ని మళ్లీ ప్రయత్నించండి",
+      'med03.cath_inventory.reconciling': "నిల్వ సమన్వయమవుతోంది...",
+      'med03.cath_inventory.completed': "ఖచ్చితమైన నిల్వ తగ్గింపు మరియు వర్క్‌ఫ్లో ముగింపును అధికారిక రికార్డు నిర్ధారించింది.",
+      'med03.cath_inventory.still_insufficient': "నిల్వ ఇంకా సరిపోదు. పని తెరిచే ఉంటుంది; నిల్వను భర్తీ చేయండి లేదా ఆధారాన్ని సరిచేసి మళ్లీ ప్రయత్నించండి.",
+      'med03.cath_inventory.response_unconfirmed': "సమన్వయ ఫలితం నిర్ధారించబడలేదు. అదే రక్షిత ప్రయత్నాన్ని తిరిగి ఉపయోగించడానికి మార్పులేకుండా మళ్లీ ప్రయత్నించండి.",
+      'med03.cath_inventory.refresh_action':
+          "అధికారిక స్థితిని రిఫ్రెష్ చేయండి",
+      'med03.cath_inventory.warning.insufficient_stock': 'నిల్వ ఇంకా తక్కువగా ఉంది. మళ్లీ ప్రయత్నించే ముందు స్టాక్‌ను భర్తీ చేయండి లేదా దాని ఆధారాన్ని సరిచేయండి.',
+      'med03.cath_inventory.warning.batch_expired': 'ఖచ్చితమైన ఇన్వెంటరీ బ్యాచ్ గడువు ముగిసింది, కాబట్టి స్టాక్ తగ్గింపు నమోదు కాలేదు.',
+      'med03.cath_inventory.warning.quantity_invalid': 'ఖచ్చితమైన ఇన్వెంటరీ బ్యాచ్ పరిమాణం చెల్లదు, కాబట్టి స్టాక్ తగ్గింపు నమోదు కాలేదు.',
+      'med03.cath_inventory.warning.lineage_mismatch': 'నమోదైన బ్యాచ్, లాట్ లేదా గడువు వివరాలు ఇన్వెంటరీతో సరిపోలడం లేదు. స్టాక్ తగ్గింపు నమోదు కాలేదు.',
+      'med03.cath_inventory.warning.lineage_incomplete': 'నమోదైన ఇన్వెంటరీ వంశవృక్షం అసంపూర్ణంగా ఉంది. స్టాక్ తగ్గింపు నమోదు కాలేదు.',
+      'med03.cath_inventory.warning.controlled_stock': 'నియంత్రిత స్టాక్‌కు చట్టబద్ధ డిస్పెన్సింగ్ వర్క్‌ఫ్లో అవసరం. కాథ్ ఇన్వెంటరీ కదలిక నమోదు కాలేదు.',
+      'med03.cath_inventory.warning.inventory_not_linked': 'ఈ కాథ్ క్యాటలాగ్ అంశం ఇన్వెంటరీకి లింక్ కాలేదు. స్టాక్ తగ్గింపు నమోదు కాలేదు.',
+      'med03.cath_inventory.warning.batch_unavailable': 'ఖచ్చితమైన ఇన్వెంటరీ బ్యాచ్ అందుబాటులో లేదు లేదా అస్పష్టంగా ఉంది. స్టాక్ తగ్గింపు నమోదు కాలేదు.',
+      'med03.cath_inventory.warning.unknown': 'ఇన్వెంటరీ హెచ్చరిక గుర్తించబడలేదు. చర్యకు ముందు అధికారిక స్టాక్ ఆధారాన్ని సమీక్షించండి.',
+      'med03.alert_recovery.title': 'క్లినికల్ అలర్ట్ డెలివరీ రికవరీ',
+      'med03.alert_recovery.empty':
+          'తెరిచి ఉన్న క్లినికల్ అలర్ట్ డెలివరీ రికవరీ కేసులు లేవు.',
+      'med03.alert_recovery.load_failed': 'అధికారిక క్లినికల్ అలర్ట్ రికవరీ కేసును లోడ్ చేయలేకపోయాం. మళ్లీ కనెక్ట్ అయి ప్రయత్నించండి.',
+      'med03.alert_recovery.action_failed': 'క్లినికల్ అలర్ట్ రికవరీ చర్య నిర్ధారించబడలేదు. మళ్లీ ప్రయత్నించే ముందు అధికారిక కేసును రిఫ్రెష్ చేయండి.',
+      'med03.alert_recovery.field.case_status': 'రికవరీ కేసు స్థితి',
+      'med03.alert_recovery.field.delivery_status': 'అలర్ట్ డెలివరీ స్థితి',
+      'med03.alert_recovery.field.task_status': 'రికవరీ పని స్థితి',
+      'med03.alert_recovery.field.sla_status': 'సేవా సమయ స్థితి',
+      'med03.alert_recovery.field.source': 'అధికారిక మూలం',
+      'med03.alert_recovery.field.failure': 'డెలివరీ వైఫల్య దశ',
+      'med03.alert_recovery.field.timing': 'రికవరీ సమయం',
+      'med03.alert_recovery.field.last_error': 'చివరి డెలివరీ లోపం',
+      'med03.alert_recovery.field.hold_reason': 'మాన్యువల్ హోల్డ్ కారణం',
+      'med03.alert_recovery.field.resolution': 'రికవరీ పరిష్కారం',
+      'med03.alert_recovery.timing_value': 'గడువు {due} • {seconds} సెకన్లుగా తెరిచి ఉంది • ఎస్కలేషన్ ప్రయత్నాలు {count}',
+      'med03.alert_recovery.case_kind.manual_hold':
+          'మాన్యువల్ హోల్డ్ మూల సమీక్ష',
+      'med03.alert_recovery.case_kind.recipient_coverage':
+          'క్లినికల్ గ్రహీత కవరేజ్ రికవరీ',
+      'med03.alert_recovery.case_kind.unknown': 'తెలియని రికవరీ కేసు రకం',
+      'med03.alert_recovery.source.clinical_orders': 'క్లినికల్ ఆదేశం',
+      'med03.alert_recovery.source.icu_admissions': 'ఐసీయూ అడ్మిషన్',
+      'med03.alert_recovery.source.unknown': 'తెలియని క్లినికల్ మూలం',
+      'med03.alert_recovery.case_status.open': 'తెరిచి ఉంది',
+      'med03.alert_recovery.case_status.resolved': 'పరిష్కరించబడింది',
+      'med03.alert_recovery.case_status.unknown': 'తెలియని రికవరీ కేసు స్థితి',
+      'med03.alert_recovery.delivery_status.pending':
+          'డెలివరీ పెండింగ్‌లో ఉంది',
+      'med03.alert_recovery.delivery_status.completed': 'డెలివరీ పూర్తైంది',
+      'med03.alert_recovery.delivery_status.manual_hold':
+          'డెలివరీ మాన్యువల్ హోల్డ్‌లో ఉంది',
+      'med03.alert_recovery.delivery_status.unknown':
+          'తెలియని అలర్ట్ డెలివరీ స్థితి',
+      'med03.alert_recovery.task_status.open': 'తెరిచి ఉంది',
+      'med03.alert_recovery.task_status.in_progress': 'పురోగతిలో ఉంది',
+      'med03.alert_recovery.task_status.blocked': 'నిరోధించబడింది',
+      'med03.alert_recovery.task_status.completed': 'పూర్తైంది',
+      'med03.alert_recovery.task_status.cancelled': 'రద్దైంది',
+      'med03.alert_recovery.task_status.overdue': 'గడువు దాటింది',
+      'med03.alert_recovery.task_status.unknown': 'తెలియని రికవరీ పని స్థితి',
+      'med03.alert_recovery.sla_status.active': 'సక్రియం',
+      'med03.alert_recovery.sla_status.completed': 'పూర్తైంది',
+      'med03.alert_recovery.sla_status.breached': 'సమయ పరిమితి ఉల్లంఘించబడింది',
+      'med03.alert_recovery.sla_status.escalated': 'ఎస్కలేట్ చేయబడింది',
+      'med03.alert_recovery.sla_status.cancelled': 'రద్దైంది',
+      'med03.alert_recovery.sla_status.unknown': 'తెలియని సేవా సమయ స్థితి',
+      'med03.alert_recovery.failure.order_mar_schedule':
+          'ఔషధ ఆదేశ MAR షెడ్యూలింగ్ విఫలమైంది',
+      'med03.alert_recovery.failure.order_mar_carryover':
+          'ఔషధ ఆదేశ MAR క్యారీఓవర్ విఫలమైంది',
+      'med03.alert_recovery.failure.icu_mar_carryover_query':
+          'ఐసీయూ MAR క్యారీఓవర్ మూల శోధన విఫలమైంది',
+      'med03.alert_recovery.failure.unknown':
+          'తెలియని క్లినికల్ అలర్ట్ డెలివరీ వైఫల్యం',
+      'med03.alert_recovery.resolution.recovered':
+          'అలర్ట్ డెలివరీ పునరుద్ధరించబడింది',
+      'med03.alert_recovery.resolution.manual_hold':
+          'పరిపాలిత మాన్యువల్ హోల్డ్‌కు తరలించబడింది',
+      'med03.alert_recovery.resolution.superseded':
+          'అధికారిక మూలం నుండి భర్తీ చేయబడింది',
+      'med03.alert_recovery.resolution.unknown': 'తెలియని రికవరీ పరిష్కారం',
+      'med03.alert_recovery.error.no_active_clinical_recipients':
+          'సక్రియంగా ఉన్న పరిపాలిత క్లినికల్ గ్రహీత ప్రస్తుతం అందుబాటులో లేరు.',
+      'med03.alert_recovery.error.clinical_alert_recovery_queue_failed':
+          'పరిపాలిత అలర్ట్ క్యూలో డెలివరీ ఆధారం నిల్వ కాలేదు.',
+      'med03.alert_recovery.error.clinical_alert_obligation_intent_invalid': 'నిల్వ చేసిన అలర్ట్ ఉద్దేశ్యం అందుబాటులో లేదు లేదా చెల్లదు. ప్రత్యామ్నాయ అలర్ట్ పంపబడలేదు.',
+      'med03.alert_recovery.error.clinical_alert_obligation_policy_invalid': 'నిల్వ చేసిన గ్రహీత విధానం పరిపాలిత డ్యూటీ-డాక్టర్ విధానం కాదు. ప్రత్యామ్నాయ అలర్ట్ పంపబడలేదు.',
+      'med03.alert_recovery.error.clinical_alert_obligation_source_missing': 'అధికారిక మూల క్లినికల్ రికార్డు అందుబాటులో లేదు. ప్రత్యామ్నాయ అలర్ట్ పంపబడలేదు.',
+      'med03.alert_recovery.error.clinical_alert_obligation_source_mismatch': 'నిల్వ చేసిన అలర్ట్ దాని అధికారిక మూలంతో సరిపోలడం లేదు. ప్రత్యామ్నాయ అలర్ట్ పంపబడలేదు.',
+      'med03.alert_recovery.error.unknown': 'రికవరీ లోపం గుర్తించబడలేదు. చర్యకు ముందు అధికారిక ఆధారాన్ని సమీక్షించండి.',
+      'med03.notification.clinical_alert_recovery.overdue_title':
+          'క్లినికల్ అలర్ట్ డెలివరీ రికవరీ గడువు దాటింది',
+      'med03.notification.clinical_alert_recovery.overdue_body': 'అలర్ట్ డెలివరీ రికవరీ కేసు సేవా సమయాన్ని దాటింది; నిర్వాహక చర్య అవసరం.',
+      'med03.notification.clinical_alert_recovery.action':
+          'అలర్ట్ డెలివరీ రికవరీని తెరవండి',
       's4.lib.stroke_pathway.activation': "సక్రియం",
       's4.lib.stroke_pathway.decision.administered': "ఇచ్చారు",
       's4.lib.stroke_pathway.decision.approved': "ఆమోదించబడింది",
@@ -31560,6 +34659,55 @@ class AppStrings {
           "ఇన్వెంటరీ & కొనుగోలు పర్యవేక్షణ",
       's4.lib.pharmacy.inventory_item_added': "ఇన్వెంటరీ అంశం జోడించబడింది",
       's4.lib.pharmacy.inventory_items': "ఇన్వెంటరీ అంశాలు",
+      'pharmacy.disposal.title': 'ఇన్వెంటరీ తొలగింపును నమోదు చేయండి',
+      'pharmacy.disposal.open': 'ఖచ్చితమైన బ్యాచ్‌ను తొలగించండి',
+      'pharmacy.disposal.facility': 'ఫార్మసీ సదుపాయం',
+      'pharmacy.disposal.facility_hint': 'సర్వర్ నిర్ధారించిన మీ క్రియాశీల అనుమతులలోని సదుపాయాలు మాత్రమే చూపబడతాయి.',
+      'pharmacy.disposal.facility_required': 'కొనసాగించే ముందు మీ క్రియాశీల ఫార్మసీ అనుమతుల నుండి ఒక సదుపాయాన్ని ఎంచుకోండి.',
+      'pharmacy.disposal.role_required': 'క్రియాశీల ఫార్మసీ సిబ్బంది లేదా ఫార్మసీ ఇన్‌చార్జ్ మాత్రమే తొలగింపును నమోదు చేయగలరు.',
+      'pharmacy.disposal.item_authority_missing':
+          'ఇన్వెంటరీ అంశం గుర్తింపు అందుబాటులో లేదు. తొలగింపును నమోదు చేయలేము.',
+      'pharmacy.disposal.authority_hint': 'క్రియాశీల సదుపాయ అనుమతి, అంశం, కేటలాగ్, సరఫరాదారు, నిల్వ ప్రదేశం, బ్యాచ్ మరియు స్టాక్‌ను సర్వర్ లాక్ కింద మళ్లీ నిర్ధారిస్తుంది.',
+      'pharmacy.disposal.batch': 'ఖచ్చితమైన ఇన్వెంటరీ బ్యాచ్',
+      'pharmacy.disposal.batch_option':
+          'బ్యాచ్ {batch} · లాట్ {lot} · {status} · మిగిలినది {quantity}',
+      'pharmacy.disposal.batch_required':
+          'అర్హమైన ఒక ఖచ్చితమైన బ్యాచ్‌ను ఎంచుకోండి.',
+      'pharmacy.disposal.batch_constraints': 'సరఫరాదారు {supplier} · స్థితి {status} · గడువు {expiry} · మిగిలినది {quantity}. స్టాక్‌లో, గడువు ముగిసిన, రీకాల్ చేసిన లేదా క్వారంటైన్ చేసిన బ్యాచ్‌లు మాత్రమే తొలగించవచ్చు.',
+      'pharmacy.disposal.no_eligible_batches':
+          'ఈ సదుపాయంలో అర్హమైన బ్యాచ్ లేదు. ఇన్వెంటరీ కదలిక నమోదు కాలేదు.',
+      'pharmacy.disposal.quantity': 'తొలగింపు పరిమాణం',
+      'pharmacy.disposal.quantity_hint':
+          'ధనాత్మక పరిమాణం, గరిష్ఠంగా నాలుగు దశాంశ స్థానాలు.',
+      'pharmacy.disposal.quantity_invalid': 'గరిష్ఠంగా నాలుగు దశాంశ స్థానాలతో 9,999,999,999.9999 వరకు ధనాత్మక పరిమాణాన్ని నమోదు చేయండి.',
+      'pharmacy.disposal.quantity_exceeds_stock': 'తొలగింపు పరిమాణం బ్యాచ్‌లోని ప్రామాణిక మిగిలిన {quantity} కంటే ఎక్కువగా ఉంది.',
+      'pharmacy.disposal.reason_code': 'నియంత్రిత కారణ కోడ్',
+      'pharmacy.disposal.reason_hint': 'ఉదాహరణ: damaged',
+      'pharmacy.disposal.reason_required':
+          'నియంత్రిత తొలగింపు కారణ కోడ్ అవసరం.',
+      'pharmacy.disposal.method': 'భౌతిక తొలగింపు విధానం',
+      'pharmacy.disposal.method_hint': 'ఉదాహరణ: authorized_incineration',
+      'pharmacy.disposal.method_required': 'భౌతిక తొలగింపు విధానం అవసరం.',
+      'pharmacy.disposal.controlled_warning': 'షెడ్యూల్ X లేదా నార్కోటిక్ తొలగింపుకు స్వతంత్రంగా ధృవీకరించిన ఒక్కసారి సాక్షి ఆమోదం అవసరం. H/H1/X కస్టడీ చట్టబద్ధ రిజిస్టర్‌లో నమోదు అవుతుంది.',
+      'pharmacy.disposal.witness_title': 'స్వతంత్ర తొలగింపు సాక్షి',
+      // REVIEW: technical parity only; requires Telugu linguistic review.
+      'pharmacy.disposal.witness_hint': 'ఎంచుకున్న ఇదే సదుపాయానికి ACTIVE గ్రాంట్ ఉన్న రెండవ క్రియాశీల PHARMACY_STAFF లేదా PHARMACY_INCHARGE ఆపరేటర్‌ను ఉపయోగించండి. వారు స్వతంత్రంగా ధృవీకరించాలి; ప్రస్తుత ఆపరేటర్ తమ తొలగింపుకు సాక్షిగా ఉండలేరు.',
+      'pharmacy.disposal.witness_employee_id': 'సాక్షి ఉద్యోగి ఐడి',
+      'pharmacy.disposal.witness_password': 'సాక్షి పాస్‌వర్డ్',
+      'pharmacy.disposal.witness_approve': 'ధృవీకరించి ఆమోదించండి',
+      'pharmacy.disposal.witness_required': 'ఖచ్చితమైన, గడువు తీరని సాక్షి ఆమోదం లేకుండా ఈ నియంత్రిత తొలగింపు కొనసాగదు.',
+      'pharmacy.disposal.witness_approved_by': '{name} సాక్షిగా ఆమోదించారు',
+      'pharmacy.disposal.witness_staff': 'స్వతంత్ర సిబ్బంది సాక్షి',
+      'pharmacy.disposal.witness_pending':
+          'స్వతంత్ర సాక్షి ఆమోదం పూర్తి కాలేదు.',
+      'pharmacy.disposal.witness_replace': 'సాక్షి ఆమోదాన్ని మార్చండి',
+      'pharmacy.disposal.witness_request': 'సాక్షిని అభ్యర్థించి ఆమోదించండి',
+      'pharmacy.disposal.submit': 'మార్చలేని తొలగింపును నమోదు చేయండి',
+      'pharmacy.disposal.completed': 'ఖచ్చితమైన బ్యాచ్ తొలగింపు మరియు అవసరమైన చట్టబద్ధ ఆధారం నమోదు అయ్యాయి.',
+      // REVIEW: facility-bound pharmacy custody technical parity only; requires Telugu linguistic review.
+      'pharmacy.order.controlled_witness_custody_hint': 'నియంత్రిత ఆర్డర్ కస్టడీకి, ఎంచుకున్న ఇదే సదుపాయానికి ACTIVE గ్రాంట్ ఉన్న రెండవ క్రియాశీల PHARMACY_STAFF లేదా PHARMACY_INCHARGE ఆపరేటర్ అవసరం. వారు స్వతంత్రంగా ధృవీకరించాలి; ప్రస్తుత ఆపరేటర్ తమ కస్టడీ చర్యను తామే ఆమోదించలేరు.',
+      // REVIEW: technical parity only; requires Telugu linguistic review.
+      'pharmacy.inventory.composition_review_required': 'కేటలాగ్ అంశం {catalogId}కు అధికారిక కాంపోజిషన్ గుర్తింపు లేదు. ఇన్వెంటరీ అంశం సృష్టించబడలేదు. మళ్లీ ప్రయత్నించే ముందు నియంత్రిత కేటలాగ్-కాంపోజిషన్ సమీక్ష పూర్తి కావాలి.',
       's4.lib.pharmacy.manufacturer': "తయారీదారు",
       's4.lib.pharmacy.mark_urgent': "అత్యవసరమని గుర్తించండి",
       's4.lib.pharmacy.medicine_names_dose_quantity_or_rx_note':
@@ -32832,6 +35980,200 @@ class AppStrings {
       'mar_scan.hardstop.drug': 'స్కాన్ చేసిన బార్‌కోడ్ ఆర్డర్ చేసిన మందుతో సరిపోలడం లేదు (తప్పు మందు).',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       'mar_scan.hardstop.body': 'రోగి మరియు మందు గుర్తింపు సరిపోలకపోవడాన్ని ఓవర్‌రైడ్ చేయలేరు. సరైన రోగి మరియు సరైన మందు ఉన్నాయని నిర్ధారించుకుని, మళ్లీ స్కాన్ చేయండి.',
+      'medication_supply.unit.tablet': 'మాత్ర',
+      'medication_supply.unit.capsule': 'క్యాప్సూల్',
+      'medication_supply.unit.ampoule': 'ఆంపూల్',
+      'medication_supply.unit.vial': 'వయల్',
+      'medication_supply.unit.bag': 'బ్యాగ్',
+      'medication_supply.unit.prefilled_syringe': 'ముందుగా నింపిన సిరింజ్',
+      'medication_supply.unit.cartridge': 'కార్ట్రిడ్జ్',
+      'medication_supply.unit.ml': 'మిల్లీలీటర్',
+      'medication_supply.unit.dose': 'మోతాదు',
+      'medication_supply.unit.patch': 'ప్యాచ్',
+      'medication_supply.unit.actuation': 'ఒక పఫ్',
+      'medication_supply.unit.spray': 'స్ప్రే',
+      'medication_supply.unit.application': 'పూయడం',
+      'medication_supply.unit.bottle': 'సీసా',
+      'medication_supply.unit.tube': 'ట్యూబ్',
+      'medication_supply.unit.sachet': 'సాచెట్',
+      'medication_supply.unit.suppository': 'సపోజిటరీ',
+      'medication_supply.unit.drop': 'చుక్క',
+      'medication_supply.unit.kit': 'కిట్',
+      'medication_supply.unit.each': 'ఒక్కొక్కటి',
+      // REVIEW: MED-03 AI first pass - confirm medication custody wording with a Telugu-fluent clinician.
+      'mar_scan.supply.title': 'వార్డు మందుల సరఫరా ఆధారం',
+      'mar_scan.supply.status.available':
+          'ఖచ్చితమైన వార్డు కస్టడీ అందుబాటులో ఉంది',
+      'mar_scan.supply.status.quantity_required':
+          'నిర్మిత మోతాదు పరిమాణం అవసరం',
+      'mar_scan.supply.status.custody_unavailable':
+          'వార్డు కస్టడీ అందుబాటులో లేదు',
+      'mar_scan.supply.status.substitution_acknowledgement_required':
+          'ప్రత్యామ్నాయ మందు స్వీకరణ ధృవీకరణ అవసరం',
+      'mar_scan.supply.status.order_link_required': 'మందు ఆర్డర్ లింక్ అవసరం',
+      'mar_scan.supply.status.ward_item_required': 'వార్డు ఇండెంట్ లింక్ అవసరం',
+      'mar_scan.supply.status.ward_item_ambiguous':
+          'వార్డు ఇండెంట్ లింక్ స్పష్టంగా లేదు',
+      'mar_scan.supply.status.reconciliation_required':
+          'సరఫరా సరిపోల్చడం అవసరం',
+      'mar_scan.supply.status.batch_unavailable': 'కేటాయించిన బ్యాచ్ అందుబాటులో లేదు; ఫార్మసీ దానిని మార్చాలి లేదా సమన్వయం చేయాలి',
+      'mar_scan.supply.status.unknown': 'సరఫరా స్థితి అందుబాటులో లేదు',
+      'mar_scan.supply.available_quantity':
+          'అందుబాటులో ఉన్న పరిమాణం: {quantity}',
+      'mar_scan.supply.required_quantity': 'అవసరమైన మోతాదు పరిమాణం: {quantity}',
+      'mar_scan.supply.batch_line':
+          '{name} · బ్యాచ్ {batch} · అందుబాటులో {quantity}',
+      'mar_scan.supply.blocked':
+          'ఫార్మసీ మరియు వార్డు సరఫరా ఆధారం సరిచేసే వరకు మందు ఇవ్వవద్దు.',
+      'mar_scan.supply.quantity_label': 'నిర్మిత మోతాదు పరిమాణం',
+      'mar_scan.supply.override_reason_label': 'సరఫరా ఓవర్‌రైడ్ కారణం (అవసరం)',
+      'mar_scan.supply.override_warning': 'ఓవర్‌రైడ్ పేరుతో కూడిన సరిపోల్చే పనిని మరియు మార్చలేని ఆధారాన్ని సృష్టిస్తుంది.',
+      'mar_scan.supply.quantity_error':
+          'సున్నా కంటే ఎక్కువ నిర్మిత మోతాదు పరిమాణాన్ని నమోదు చేయండి.',
+      'mar_scan.supply.override_error':
+          'అర్థవంతమైన సరఫరా ఓవర్‌రైడ్ కారణాన్ని రాయండి (కనీసం 15 అక్షరాలు).',
+      'mar_scan.supply.hard_stop_error': 'సరఫరా ఆధారం అసంపూర్ణంగా లేదా అస్పష్టంగా ఉంది. మందు ఇచ్చే ముందు సరిపోల్చండి.',
+      'med03.credit_note.title': 'మందుల క్రెడిట్ నోట్లు',
+      'med03.credit_note.open_queue': 'క్రెడిట్-నోట్ క్యూ',
+      'med03.gateway_refund_reconciliation.title': 'గేట్‌వే రీఫండ్ సరిపోలిక',
+      'med03.gateway_refund_reconciliation.open_queue':
+          'గేట్‌వే రీఫండ్ రికవరీ తెరవండి',
+      'med03.gateway_refund_reconciliation.queue':
+          'ప్రొవైడర్ సమీక్ష అవసరమైన రీఫండ్‌లు',
+      'med03.gateway_refund_reconciliation.empty':
+          'ప్రస్తుతం ఏ ప్రొవైడర్ రీఫండ్‌కూ సరిపోలిక అవసరం లేదు.',
+      'med03.gateway_refund_reconciliation.select':
+          'ఆధారాన్ని సమీక్షించడానికి నిలిపిన ప్రొవైడర్ రీఫండ్‌ను ఎంచుకోండి.',
+      'med03.gateway_refund_reconciliation.access_denied':
+          'ప్లాట్‌ఫారమ్ నిర్వాహక ప్రవేశం అవసరం.',
+      'med03.gateway_refund_reconciliation.amount': 'మొత్తం',
+      'med03.gateway_refund_reconciliation.refund': 'గేట్‌వే రీఫండ్',
+      'med03.gateway_refund_reconciliation.billing_refund': 'బిల్లింగ్ రీఫండ్',
+      'med03.gateway_refund_reconciliation.provider_payment':
+          'ప్రొవైడర్ చెల్లింపు',
+      'med03.gateway_refund_reconciliation.provider_refund': 'ప్రొవైడర్ రీఫండ్',
+      'med03.gateway_refund_reconciliation.failure': 'నిలిపిన కారణం',
+      'med03.gateway_refund_reconciliation.disposition': 'ధృవీకరించిన ఫలితం',
+      'med03.gateway_refund_reconciliation.disposition.provider_not_refunded':
+          'రీఫండ్ జరగలేదని ప్రొవైడర్ నిర్ధారించారు',
+      'med03.gateway_refund_reconciliation.disposition.manual_settled':
+          'ప్రొవైడర్ రీఫండ్ పూర్తయింది',
+      'med03.gateway_refund_reconciliation.disposition.unknown':
+          'తెలియని ఫలితం',
+      'med03.gateway_refund_reconciliation.evidence': 'ప్రొవైడర్ ఆధార సూచన',
+      'med03.gateway_refund_reconciliation.evidence_settled_help':
+          'ఖచ్చితమైన ప్రొవైడర్ రీఫండ్ గుర్తింపును నమోదు చేయండి.',
+      'med03.gateway_refund_reconciliation.evidence_not_refunded_help':
+          'గుర్తించదగిన ప్రొవైడర్ కేసు లేదా స్పందన సూచనను నమోదు చేయండి.',
+      'med03.gateway_refund_reconciliation.note': 'సరిపోలిక గమనిక',
+      'med03.gateway_refund_reconciliation.gateway_retry_notice': 'ఇది విఫలమైన అమలును ముగిస్తుంది; కానీ ఖచ్చితమైన పునఃప్రయత్నం కోసం ఆమోదించిన రీఫండ్‌ను సమగ్ర గేట్‌వే మార్గంలో ఉంచుతుంది.',
+      'med03.gateway_refund_reconciliation.submit':
+          'ధృవీకరించిన ఫలితాన్ని నమోదు చేయండి',
+      'med03.gateway_refund_reconciliation.validation':
+          'ఆధారం 6-120 అక్షరాలు, గమనిక 10-500 అక్షరాలు ఉండాలి.',
+      'med03.gateway_refund_reconciliation.confirm_title':
+          'ప్రొవైడర్ రీఫండ్ ఫలితాన్ని నిర్ధారించండి',
+      'med03.gateway_refund_reconciliation.confirm_body':
+          'ఈ తుది ప్రొవైడర్ ఫలితాన్ని నమోదు చేయండి: {disposition}.',
+      'med03.gateway_refund_reconciliation.success':
+          'గేట్‌వే రీఫండ్ సరిపోలిక నమోదైంది.',
+      'med03.gateway_refund_reconciliation.open_authority':
+          'బిల్లింగ్ రీఫండ్ అధికారాన్ని తెరవండి',
+      'med03.notification.gateway_refund_reconciliation.title':
+          'ప్రొవైడర్ రీఫండ్‌కు సరిపోలిక అవసరం',
+      'med03.notification.gateway_refund_reconciliation.body': 'ఒక గేట్‌వే రీఫండ్ నిలిపివేయబడింది. ప్రొవైడర్ ఆధారాన్ని ధృవీకరించి ఖచ్చితమైన ఫలితాన్ని నమోదు చేయండి.',
+      'med03.notification.gateway_refund_reconciliation.action':
+          'రీఫండ్ సరిపోలికను తెరవండి',
+      'med03.credit_note.access_denied': 'మందుల క్రెడిట్-నోట్ సమీక్ష బిల్లింగ్, ఫైనాన్స్ మరియు అడ్మినిస్ట్రేటర్ పాత్రలకు మాత్రమే పరిమితం.',
+      'med03.credit_note.queue': 'సమీక్ష మరియు పరిష్కార క్యూ',
+      'med03.credit_note.empty':
+          'ఈ ఫిల్టర్‌కు సరిపడే మందుల క్రెడిట్ నోట్లు లేవు.',
+      'med03.credit_note.select': 'మార్చలేని మూలం మరియు తదుపరి బాధ్యత చర్యను చూడటానికి క్రెడిట్ నోట్‌ను ఎంచుకోండి.',
+      'med03.credit_note.status.all': 'అన్నీ',
+      'med03.credit_note.status.pending': 'పెండింగ్',
+      'med03.credit_note.status.approved': 'ఆమోదించబడింది',
+      'med03.credit_note.status.applied': 'వర్తింపబడింది',
+      'med03.credit_note.status.rejected': 'తిరస్కరించబడింది',
+      'med03.credit_note.status.paid': 'చెల్లించబడింది',
+      'med03.credit_note.status.unknown': 'తెలియని స్థితి',
+      'med03.credit_note.event.raised': 'లేవనెత్తబడింది',
+      'med03.credit_note.action_completed':
+          'అధికారిక బిల్లింగ్ వర్క్‌ఫ్లో నవీకరించబడింది.',
+      'med03.credit_note.approve_title': 'క్రెడిట్ నోట్‌ను ఆమోదించండి',
+      'med03.credit_note.approve_body':
+          'క్రెడిట్ రోగి ఖాతాకు వర్తించే వరకు అదే SLA బాధ్యత తెరిచి ఉంటుంది.',
+      'med03.credit_note.reject_title': 'క్రెడిట్ నోట్‌ను తిరస్కరించండి',
+      'med03.credit_note.rejection_reason': 'తిరస్కరణ కారణం',
+      'med03.credit_note.apply_title':
+          'ఆమోదించిన క్రెడిట్ నోట్‌ను వర్తింపజేయండి',
+      'med03.credit_note.refund_mode': 'అసలు రీఫండ్ విధానం',
+      'med03.credit_note.refund_mode.cash': 'నగదు',
+      'med03.credit_note.refund_mode.card': 'కార్డు',
+      'med03.credit_note.refund_mode.upi': 'యూపీఐ (UPI)',
+      'med03.credit_note.refund_mode.netbanking': 'నెట్ బ్యాంకింగ్',
+      'med03.credit_note.refund_mode.cheque': 'చెక్కు',
+      'med03.credit_note.refund_mode.dd': 'డిమాండ్ డ్రాఫ్ట్',
+      'med03.credit_note.refund_mode.wallet': 'వాలెట్',
+      'med03.credit_note.refund_mode.insurance': 'బీమా',
+      'med03.credit_note.refund_mode.unknown': 'తెలియని రీఫండ్ విధానం',
+      'med03.credit_note.notification_action': 'క్రెడిట్ నోట్‌ను తెరవండి',
+      'med03.notification.alert_recovery.overdue_title':
+          'క్లినికల్ అలర్ట్ డెలివరీ పునరుద్ధరణ గడువు దాటింది',
+      'med03.notification.alert_recovery.overdue_body':
+          'క్లినికల్ అలర్ట్ డెలివరీ పునరుద్ధరణ కేసుకు నిర్వాహక చర్య అవసరం.',
+      'med03.notification.alert_recovery.manual_hold_body': 'మార్చలేని విధంగా హోల్డ్ చేసిన క్లినికల్ అలర్ట్‌కు నియంత్రిత మూల సమీక్ష మరియు ప్రత్యామ్నాయ నమోదు అవసరం.',
+      'med03.notification.alert_recovery.recipient_coverage_body': 'ఒక క్లినికల్ అలర్ట్‌కు ఇప్పటికీ క్రియాశీల డ్యూటీ డాక్టర్ లేదా డాక్టర్-స్థాయి గ్రహీత లేరు.',
+      'med03.notification.mar_exception.title':
+          'మందు మోతాదుకు ప్రిస్క్రైబర్ సమీక్ష అవసరం',
+      'med03.notification.mar_exception.body': 'నిలిపిన లేదా తప్పిపోయిన ఇన్‌పేషెంట్ మందు మోతాదుకు నియంత్రిత క్లినికల్ నిర్ణయం అవసరం.',
+      'med03.notification.mar_exception.overdue_title':
+          'మందు సమీక్ష గడువు దాటింది',
+      'med03.notification.mar_exception.overdue_body': 'నిలిపిన లేదా తప్పిపోయిన మోతాదుకు ఇంకా నియంత్రిత ప్రిస్క్రైబర్ నిర్ణయం అవసరం.',
+      'med03.notification.mar_exception.handoff_title':
+          'మందు సమీక్ష మళ్లీ కేటాయించబడింది',
+      'med03.notification.mar_exception.handoff_body': 'తెరిచి ఉన్న మందు మినహాయింపు ప్రిస్క్రైబర్ సమీక్ష కోసం మీకు మళ్లీ కేటాయించబడింది.',
+      'med03.notification.counter_sale.finance_title':
+          'కౌంటర్ సేల్ రీఫండ్ చర్య అవసరం',
+      'med03.notification.counter_sale.finance_body': 'నియంత్రిత రీఫండ్ దశను పూర్తి చేయండి. చెల్లింపు ఆధారం పూర్తయ్యే వరకు ఖచ్చితమైన బ్యాచ్ స్టాక్ పునఃచేర్పు నిరోధించబడుతుంది.',
+      'med03.notification.counter_sale.reconciliation_title':
+          'కౌంటర్ సేల్ కస్టడీ సమన్వయం అవసరం',
+      'med03.notification.counter_sale.reconciliation_body': 'రీఫండ్ తిరస్కరించబడింది. కస్టడీ స్పష్టంగా పరిష్కరించే వరకు సేల్ మరియు స్టాక్ లాక్‌లో ఉంటాయి.',
+      'med03.notification.counter_sale.completed_title':
+          'కౌంటర్ సేల్ రద్దు పూర్తయింది',
+      'med03.notification.counter_sale.completed_body': 'చెల్లించిన రీఫండ్ ఆధారం మరియు ఖచ్చితమైన బ్యాచ్ స్టాక్ పునఃచేర్పు నమోదయ్యాయి.',
+      'med03.notification.credit_note_payout.body': 'ఆమోదించిన మందుల క్రెడిట్ రీఫండ్‌ను దాని నియంత్రిత చెల్లింపు మార్గం ద్వారా పూర్తి చేసి ఖచ్చితమైన ఆధారాన్ని ఉంచండి.',
+      'med03.credit_note.action_apply': 'క్రెడిట్ వర్తింపజేయండి',
+      'med03.credit_note.apply_body':
+          'మార్చలేని అసలు ధరతో ఈ క్రెడిట్‌ను రోగి ఖాతాకు వర్తింపజేయండి.',
+      'med03.credit_note.refund_approve_title': 'రోగి రీఫండ్‌ను ఆమోదించండి',
+      'med03.credit_note.refund_approve_body': 'చెల్లించాల్సిన రీఫండ్ బాధ్యతను ఆమోదించండి. ఇది చెల్లింపు కాదు; చెల్లింపు వేరే నియంత్రిత దశ.',
+      'med03.credit_note.payout_title':
+          'పూర్తయిన మాన్యువల్ చెల్లింపును నమోదు చేయండి',
+      'med03.credit_note.payout_reference': 'బాహ్య చెల్లింపు రిఫరెన్స్',
+      'med03.credit_note.gateway_title': 'ప్రొవైడర్ రీఫండ్‌ను ప్రారంభించండి',
+      'med03.credit_note.gateway_body': 'ఎంచుకున్న ఖచ్చితమైన క్యాప్చర్ చేసిన చెల్లింపును ఉపయోగించండి. ప్రొవైడర్ ప్రాసెసింగ్ మరియు webhook ఆధారం పూర్తయ్యాకే రీఫండ్ చెల్లించబడినదిగా గుర్తించబడుతుంది.',
+      'med03.credit_note.invoice': 'ఇన్‌వాయిస్',
+      'med03.credit_note.ward_indent': 'వార్డు ఇండెంట్',
+      'med03.credit_note.amount': 'క్రెడిట్ మొత్తం',
+      'med03.credit_note.account_due': 'ప్రస్తుత ఖాతా బకాయి',
+      'med03.credit_note.action_approve': 'ఆమోదించండి',
+      'med03.credit_note.action_reject': 'తిరస్కరించండి',
+      'med03.credit_note.application_owned': 'ఆమోదం పనిని మూసివేయదు. ఖాతాకు వర్తించే వరకు అదే SLA బాధ్యత కొనసాగుతుంది.',
+      'med03.credit_note.refund': 'రోగి రీఫండ్ బాధ్యత',
+      'med03.credit_note.action_approve_refund': 'రీఫండ్ ఆమోదించండి',
+      'med03.credit_note.refund_pending': 'అడ్మినిస్ట్రేటర్ ఆమోదం అవసరం. వర్తింపబడిన మందుల క్రెడిట్ రీఫండ్‌ను ఇష్టానుసారం తిరస్కరించలేరు.',
+      'med03.credit_note.gateway_in_progress': 'ప్రొవైడర్ చెల్లింపు కొనసాగుతోంది. ధృవీకరించిన ఆధారం రీఫండ్ చెల్లించబడిందని నమోదు చేసే వరకు పని తెరిచి ఉంటుంది.',
+      'med03.credit_note.manual_help': 'ముందుగా బాహ్య మాన్యువల్ చెల్లింపును పూర్తి చేసి ఖచ్చితమైన రిఫరెన్స్ నమోదు చేయండి. నమోదు చేయడం స్వయంగా డబ్బు పంపదు.',
+      'med03.credit_note.action_record_payout': 'చెల్లింపు ఆధారం నమోదు చేయండి',
+      'med03.credit_note.gateway_help': 'సరిపోలే క్యాప్చర్ చెల్లింపును ఎంచుకోండి. రోగి, ఇన్‌వాయిస్, విధానం, ప్రొవైడర్ లేదా మొత్తంలో తేడాను సర్వర్ తిరస్కరిస్తుంది.',
+      'med03.credit_note.action_find_payment': 'చెల్లింపు మూలాన్ని కనుగొనండి',
+      'med03.credit_note.gateway_candidates_empty': 'అర్హమైన చెల్లింపు మూలం లోడ్ కాలేదు. ఆమోదం తర్వాత వెతకండి; లేకపోతే ఫైనాన్స్ సరిపోలిక కోసం పనిని తెరిచి ఉంచండి.',
+      'med03.credit_note.refundable': 'తిరిగి చెల్లించగలది',
+      'med03.credit_note.action_start_gateway': 'రీఫండ్ ప్రారంభించండి',
+      'med03.credit_note.insurance_hold': 'బీమా రీఫండ్ చెల్లింపుకు ఈ స్క్రీన్ వెలుపల బీమాదారు మరియు ఆసుపత్రి అనుమతి అవసరం. బాధ్యత పని తెరిచి ఉంటుంది.',
+      'med03.credit_note.refund_paid':
+          'చెల్లింపు ఆధారం నమోదైంది; మందుల క్రెడిట్-నోట్ SLA పూర్తయింది.',
+      'med03.credit_note.events': 'మార్చలేని జీవనచక్ర సంఘటనలు',
       'biomed.work_orders.title': 'నా వర్క్ ఆర్డర్లు',
       'biomed.work_orders.started': 'వర్క్ ఆర్డర్ ప్రారంభమైంది',
       'biomed.work_orders.completed': 'వర్క్ ఆర్డర్ పూర్తయింది',
@@ -33137,6 +36479,10 @@ class AppStrings {
       's4.lib.counter_sale.open': 'కౌంటర్ అమ్మకం',
       's4.lib.counter_sale.sell_tab': 'విక్రయం',
       's4.lib.counter_sale.recent_tab': 'ఇటీవలి అమ్మకాలు',
+      's4.lib.counter_sale.facility_id': 'పంపిణీ సౌకర్యం',
+      's4.lib.counter_sale.facility_hint': 'మీకు క్రియాశీల ఫార్మసీ మంజూరు ఉన్న సౌకర్యాలలో ఒకదాన్ని ఎంచుకోండి. కార్ట్‌లో వస్తువులు ఉన్నప్పుడు దీన్ని మార్చలేరు.',
+      's4.lib.counter_sale.facility_required': 'వెతకడానికి లేదా విక్రయించడానికి ముందు ఖచ్చితమైన పంపిణీ సౌకర్యాన్ని ఎంచుకోండి.',
+      's4.lib.counter_sale.facility_none': 'మీకు క్రియాశీల ఫార్మసీ సౌకర్య మంజూరు లేదు. వెతకడానికి లేదా విక్రయించడానికి ముందు టెనెంట్ నిర్వాహకుడు ఒకదాన్ని మంజూరు చేయాలి.',
       's4.lib.counter_sale.search_hint':
           'వస్తువులను వెతకండి (పేరు / SKU / జెనరిక్)',
       's4.lib.counter_sale.in_stock': 'స్టాక్‌లో {count}',
@@ -33151,13 +36497,18 @@ class AppStrings {
       's4.lib.counter_sale.customer_name': 'కస్టమర్ పేరు',
       's4.lib.counter_sale.customer_phone': 'కస్టమర్ ఫోన్ (ఐచ్ఛికం)',
       's4.lib.counter_sale.patient_uid': 'రోగి UID',
+      's4.lib.counter_sale.scheduled_patient_required':
+          'షెడ్యూల్ మందులకు నమోదైన రోగి UID తప్పనిసరి.',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       's4.lib.counter_sale.rx_section':
           'ప్రిస్క్రిప్షన్ (Schedule H/H1/X కోసం తప్పనిసరి)',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
-      's4.lib.counter_sale.rx_doctor': 'ప్రిస్క్రిప్షన్ రాసిన డాక్టర్',
-      // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
-      's4.lib.counter_sale.rx_reference': 'Rx నంబర్ / రిఫరెన్స్',
+      's4.lib.counter_sale.rx_prescription_id':
+          'సంతకం చేసిన ఈ-ప్రిస్క్రిప్షన్ ID',
+      's4.lib.counter_sale.rx_line_index':
+          '{medicine} · eRx లైన్ సూచిక (సున్నా ఆధారితం)',
+      's4.lib.counter_sale.rx_exact_mapping_hint': 'సంతకం చేసిన ఈ-ప్రిస్క్రిప్షన్ ID నమోదు చేసి, ప్రతి షెడ్యూల్ మందును దాని ఖచ్చితమైన సున్నా-ఆధారిత eRx లైన్‌కు మ్యాప్ చేయండి.',
+      's4.lib.counter_sale.rx_mapping_required': 'ప్రతి షెడ్యూల్ మందును దాని ఖచ్చితమైన సంతకం చేసిన ఈ-ప్రిస్క్రిప్షన్ లైన్‌కు మ్యాప్ చేయండి.',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       's4.lib.counter_sale.witness_section':
           'సాక్షి (Schedule X / నార్కోటిక్ కోసం తప్పనిసరి)',
@@ -33205,8 +36556,181 @@ class AppStrings {
       's4.lib.counter_sale.witness_auth_failed': 'సాక్షి ప్రామాణీకరణ లేదా ఆమోదం విఫలమైంది. క్రెడెన్షియల్స్‌ను తనిఖీ చేసి మళ్లీ అభ్యర్థించండి.',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       's4.lib.counter_sale.payment_mode': 'చెల్లింపు విధానం',
+      'med03.pharmacy.prescription_items_locked': 'ప్రిస్క్రిప్షన్ అంశాలు అధికారికంగా లింక్ చేసిన ప్రిస్క్రిప్షన్‌కు లాక్ చేయబడ్డాయి.',
+      'med03.pharmacy.select_authoritative_catalog': 'అధికారిక కేటలాగ్ అంశాలను ఎంచుకోండి. పేర్లు, ధరలను చేతితో నమోదు చేయలేరు.',
+      'med03.pharmacy.catalog_medicine': 'కేటలాగ్ ఔషధం',
+      'med03.pharmacy.quantity': 'పరిమాణం',
+      'med03.pharmacy.add_medicine': 'ఔషధాన్ని జోడించండి',
+      'med03.pharmacy.catalog_quantity_required': 'ప్రతి వరుసకు ధర ఉన్న కేటలాగ్ అంశం మరియు ధనాత్మక పరిమాణాన్ని ఎంచుకోండి.',
+      'med03.pharmacy.select_inventory_item':
+          'ఖచ్చితమైన ఇన్వెంటరీ అంశాన్ని ఎంచుకోండి',
+      'med03.pharmacy.inventory_item_fallback': 'ఇన్వెంటరీ అంశం #{id}',
+      'med03.pharmacy.verification_complete': 'ఫార్మసిస్ట్ ధృవీకరణ పూర్తయింది',
+      'med03.pharmacy.complete_counter_dispense':
+          'కౌంటర్ పంపిణీని పూర్తి చేయండి',
+      'med03.pharmacy.amount_collected': 'ఇప్పటివరకు వసూలైన మొత్తం',
+      'med03.pharmacy.authoritative_total_rechecked':
+          'స్టాక్ మారే ముందు సర్వర్ అధికారిక మొత్తాన్ని మళ్లీ తనిఖీ చేస్తుంది.',
+      'med03.pharmacy.dispense_remainder': 'మిగిలిన పరిమాణాన్ని పంపిణీ చేయండి',
+      'med03.pharmacy.counter_dispense_complete': 'కౌంటర్ పంపిణీ పూర్తయింది',
+      'med03.pharmacy.mark_unavailable': 'అందుబాటులో లేదని గుర్తించండి',
+      'med03.pharmacy.unavailable_reason': 'అందుబాటులో లేకపోవడానికి కారణం',
+      'med03.pharmacy.unavailable_complete':
+          'ఆర్డర్ అందుబాటులో లేదని గుర్తించబడింది',
+      'med03.pharmacy.facility_admin_required':
+          'అడ్మినిస్ట్రేటర్ ఒక డిఫాల్ట్ ఫార్మసీ సదుపాయాన్ని కాన్ఫిగర్ చేయాలి.',
+      'med03.pharmacy.facility_assigned': 'ఫార్మసీ సదుపాయం కేటాయించబడింది',
+      'med03.pharmacy.assign_facility': 'ఫార్మసీ సదుపాయాన్ని కేటాయించండి',
+      'med03.pharmacy.verify_order': 'ఆర్డర్‌ను ధృవీకరించండి',
+      'med03.pharmacy.status_partially_dispensed':
+          'పాక్షికంగా పంపిణీ చేయబడింది',
+      'med03.pharmacy.resolve_line_identities':
+          'ప్రిస్క్రిప్షన్ వరుసలను సరిపోల్చండి',
+      'med03.pharmacy.resolve_line_identity_help': 'ప్రతి నిల్వ చేసిన ఆర్డర్ వరుసను ఖచ్చితమైన సంతకం చేసిన ప్రిస్క్రిప్షన్ వరుసతో సరిపోల్చండి. ఒకే ఔషధాలను విడిగా ఎంచుకోండి.',
+      'med03.pharmacy.save_line_identities':
+          'ఖచ్చితమైన సరిపోలికలను సేవ్ చేయండి',
+      'med03.pharmacy.line_identities_resolved':
+          'ప్రిస్క్రిప్షన్ వరుస గుర్తింపులు పరిష్కరించబడ్డాయి',
+      'med03.pharmacy.line_identity_admin_required': 'ఈ ఆర్డర్ కొనసాగడానికి ముందు ఫార్మసీ ఇన్‌చార్జ్ పాత ప్రిస్క్రిప్షన్ వరుస గుర్తింపులను పరిష్కరించాలి.',
+      'med03.pharmacy.line_identity_source_missing': 'ఆర్డర్ లేదా లింక్ చేసిన ప్రిస్క్రిప్షన్‌లో సరిపోల్చగల నిర్మిత వరుసలు లేవు. ప్రిస్క్రైబర్‌కు ఎస్కలేట్ చేయండి.',
+      'med03.pharmacy.verification_decision': 'ధృవీకరణ నిర్ణయం',
+      'med03.pharmacy.verification_verified': 'ధృవీకరించబడింది',
+      'med03.pharmacy.verification_override':
+          'భద్రతా అడ్డంకులను ఓవర్‌రైడ్ చేయండి',
+      'med03.pharmacy.verification_rejected': 'ఆర్డర్‌ను తిరస్కరించండి',
+      'med03.pharmacy.verification_notes': 'ధృవీకరణ గమనికలు',
+      'med03.pharmacy.verification_override_reason': 'ఓవర్‌రైడ్ కారణం',
+      'med03.pharmacy.verification_override_reason_help':
+          'కనీసం 10 అక్షరాలు; ఇది క్లినికల్ ఆడిట్‌లో నమోదు అవుతుంది.',
+      'med03.pharmacy.submit_verification': 'ధృవీకరణను సమర్పించండి',
+      'med03.pharmacy.tpa_reference': 'ఆమోదించిన క్లెయిమ్ సూచన',
+      'med03.pharmacy.tpa_reference_exact_help': 'ఈ ఫార్మసీ ఆర్డర్‌కు కేటాయించిన ఖచ్చితమైన ఆమోదించిన క్లెయిమ్ లేదా TPA సూచనను నమోదు చేయండి.',
+      'med03.pharmacy.next_action': 'తదుపరి చర్య',
+      'med03.pharmacy.catalog_fallback': 'కేటలాగ్ #{id}',
+      'med03.pharmacy.locked_line_summary': 'లైన్ {line} · పరిమాణం {quantity}',
+      'med03.pharmacy.order_line_fallback': 'ఆర్డర్ లైన్ {line}',
+      'med03.pharmacy.verification_pharmacist_only': 'ఫార్మసీ సిబ్బంది లేదా ఫార్మసీ ఇన్‌చార్జ్ మాత్రమే క్లినికల్ ధృవీకరణ నిర్ణయం తీసుకోవచ్చు.',
+      'med03.pharmacy.verification_rejection_reason':
+          'క్లినికల్ తిరస్కరణ కారణం',
+      'med03.pharmacy.verification_override_incharge': 'ఇన్‌చార్జ్ బ్రేక్-గ్లాస్ ఓవర్‌రైడ్: కారణం మరియు మాన్యువల్ అలర్జీ సమీక్ష ఆధారం శాశ్వతంగా ఆడిట్ అవుతాయి.',
+      'med03.pharmacy.verification_manual_allergy_review':
+          'నేను మాన్యువల్ అలర్జీ సమీక్ష పూర్తి చేశాను',
+      'med03.pharmacy.verification_manual_allergy_review_help': 'ఓవర్‌రైడ్‌కు ముందు రోగి, సక్రియ అలర్జీలు, మూల రికార్డులు మరియు అందుబాటులో లేని భద్రతా మూలాలను నిర్ధారించండి.',
+      'med03.pharmacy.payment_mode.cash': 'నగదు',
+      'med03.pharmacy.payment_mode.card': 'కార్డ్',
+      'med03.pharmacy.payment_mode.upi': 'UPI చెల్లింపు',
+      'med03.pharmacy.payment_mode.wallet': 'వాలెట్',
+      'med03.pharmacy.payment_mode.insurance': 'బీమా',
+      'med03.pharmacy.payment_mode.corporate_tpa': 'కార్పొరేట్ / TPA',
+      'med03.pharmacy.payment_mode.none': 'చెల్లింపు బాకీ లేదు',
+      'med03.pharmacy.recovery.select_exact_tpa_claim_allocation': 'స్టాక్ జారీకి ముందు ఈ ఖచ్చితమైన ఫార్మసీ ఆర్డర్‌కు ఆమోదించిన క్లెయిమ్ లైన్‌ను ఫైనాన్స్ కేటాయించాలి.',
+      'med03.pharmacy.recovery.complete_manual_allergy_review':
+          'అవసరమైన మాన్యువల్ అలర్జీ సమీక్షను పూర్తి చేసి నమోదు చేయండి.',
+      'med03.pharmacy.recovery.contact_owner': 'ఈ నిరోధిత ఆర్డర్‌ను పేరున్న వర్క్‌ఫ్లో యజమానికి అప్పగించి స్టాక్‌ను మార్చకుండా ఉంచండి.',
+      'med03.pharmacy.recovery.open_billing_desk': 'బిల్లింగ్ డెస్క్ తెరవండి',
+      'med03.pharmacy.recovery.materialize_pharmacy_funding': 'లాక్ చేసిన ఆర్డర్ మరియు ఇన్వాయిస్ అధికారం నుండి ఖచ్చితమైన నిధుల పనిని సృష్టించండి.',
+      'med03.pharmacy.recovery.open_exact_pharmacy_funding_task': 'ఇప్పటికే ఉన్న ఖచ్చితమైన నిధుల పనిని తెరవండి; ఇక్కడ చెల్లింపును స్వయంగా ధృవీకరించవద్దు.',
+      'med03.pharmacy.cancellation_reason_help':
+          'అవసరం: 3 నుండి 500 అక్షరాలు. ఈ కారణం ఆర్డర్ చరిత్రలో నిల్వ ఉంటుంది.',
+      'med03.pharmacy.delivery_assignee_required': 'ఈ ఆర్డర్‌కు అర్హత ఉన్న డెలివరీ సిబ్బంది ఎవరూ అందుబాటులో లేరు. పంపడానికి ముందు ఫెసిలిటీ నిర్వాహకుడు డెలివరీ విధిని కేటాయించాలి.',
+      'med03.pharmacy.delivery_type_counter': 'కౌంటర్ పంపిణీ',
+      'med03.pharmacy.status_dispensed': 'పంపిణీ పూర్తైంది',
+      'med03.pharmacy.inventory_status.active': 'క్రియాశీలం',
+      'med03.pharmacy.inventory_status.inactive': 'నిష్క్రియ',
+      'med03.pharmacy.inventory_status.quarantined': 'క్వారంటైన్‌లో',
+      'med03.pharmacy.inventory_status.unknown': 'తెలియని స్థితి',
+      'med03.pharmacy.expiry_bucket.expired': 'గడువు ముగిసింది',
+      'med03.pharmacy.expiry_bucket.within_30': '30 రోజులలో గడువు',
+      'med03.pharmacy.expiry_bucket.within_60': '31–60 రోజులలో గడువు',
+      'med03.pharmacy.expiry_bucket.within_90': '61–90 రోజులలో గడువు',
+      'med03.pharmacy.expiry_bucket.beyond_90': '90 రోజుల తర్వాత గడువు',
+      'med03.pharmacy.expiry_bucket.unknown': 'గడువు విండో అందుబాటులో లేదు',
+      'med03.pharmacy.funding_recovery.task_summary':
+          'నిధుల కార్యం {taskId} · {status} · {owner}',
+      'med03.pharmacy.funding_recovery.status.pending': 'కేటాయింపు పెండింగ్‌లో',
+      'med03.pharmacy.funding_recovery.status.in_progress':
+          'కేటాయింపు ప్రక్రియలో ఉంది',
+      'med03.pharmacy.funding_recovery.status.blocked':
+          'కేటాయింపు నిరోధించబడింది',
+      'med03.pharmacy.funding_recovery.status.completed':
+          'కేటాయింపు పూర్తయింది',
+      'med03.pharmacy.funding_recovery.status.unknown':
+          'స్థితి అందుబాటులో లేదు',
+      'med03.pharmacy.funding_recovery.owner.finance': 'ఆర్థిక ఇన్‌ఛార్జ్',
+      'med03.pharmacy.funding_recovery.owner.insurance':
+          'బీమా/క్లెయిమ్స్ బృందం',
+      'med03.pharmacy.funding_recovery.owner.billing': 'బిల్లింగ్ బృందం',
+      'med03.pharmacy.funding_recovery.owner.unknown':
+          'కేటాయించిన ఆర్థిక బాధ్యుడు',
+      'med03.pharmacy.funding_desk.title': 'ఫార్మసీ నిధుల అధికారం',
+      'med03.nhcx.projection.unavailable': 'ఖచ్చితంగా అంగీకరించిన NHCX స్థానిక ప్రొజెక్షన్ రికవరీ అందుబాటులో లేదు.',
+      'med03.nhcx.projection.title': 'అంగీకరించిన NHCX స్థానిక ప్రొజెక్షన్',
+      'med03.nhcx.projection.help': 'గేట్‌వే ఈ ఖచ్చితమైన సందేశాన్ని ఇప్పటికే అంగీకరించింది. మళ్లీ ప్రయత్నించడం స్థానిక క్లెయిమ్ లేదా ప్రీ-ఆథరైజేషన్ ప్రొజెక్షన్‌ను మాత్రమే వర్తింపజేస్తుంది; NHCXకు మళ్లీ పంపదు.',
+      'med03.nhcx.projection.summary':
+          'సందేశం #{message} · పని #{task} · {status} · {owner}',
+      'med03.nhcx.projection.receipt': 'మార్చలేని గేట్‌వే రసీదు: {hash}',
+      'med03.nhcx.projection.retry_local':
+          'స్థానిక ప్రొజెక్షన్‌ను మళ్లీ ప్రయత్నించండి',
+      'med03.nhcx.projection.completed': 'స్థానిక ప్రొజెక్షన్ పూర్తయింది',
+      'med03.pharmacy.funding_desk.unavailable':
+          'ఈ ఖచ్చితమైన ఆర్డర్ లైన్‌కు నిధుల రికవరీ అందుబాటులో లేదు.',
+      'med03.pharmacy.funding_desk.insurance_help': 'ఈ ఖచ్చితమైన డ్రాఫ్ట్ లైన్‌కు బీమా నిర్ణయాన్ని నమోదు చేయండి. ఆమోదిత మరియు చెల్లించని మొత్తం లైన్ మొత్తానికి సమానం కావాలి.',
+      'med03.pharmacy.funding_desk.finance_help': 'జాబితా చేసిన ఇన్వాయిస్‌పై రోగి చెల్లింపును పోస్ట్ చేసి, తర్వాత ఇక్కడ సరిచూడండి. ఈ స్క్రీన్ స్వయంగా తెలిపిన వసూలు మొత్తాన్ని అంగీకరించదు.',
+      'med03.pharmacy.funding_desk.approved_amount': 'TPA ఆమోదిత మొత్తం',
+      'med03.pharmacy.funding_desk.non_payable_amount': 'రోగి బాధ్యత',
+      'med03.pharmacy.funding_desk.reason_code': 'నిర్ణయ కారణం',
+      'med03.pharmacy.funding_desk.reason_text': 'నిర్ణయ గమనిక',
+      'med03.pharmacy.funding_desk.record_decision':
+          'ఖచ్చితమైన లైన్ నిర్ణయాన్ని నమోదు చేయండి',
+      'med03.pharmacy.funding_desk.retry_posted_payment':
+          'పోస్ట్ చేసిన చెల్లింపును సరిచూడండి',
+      'med03.pharmacy.funding_desk.resolved':
+          'ఈ ఖచ్చితమైన ఫార్మసీ లైన్‌కు సక్రియ నిధుల పని లేదు.',
+      'med03.pharmacy.funding_desk.invalid_decision': 'చెల్లుబాటు అయ్యే ప్రతికూలం కాని మొత్తాలను నమోదు చేసి, లేని పని అధికారాన్ని మళ్లీ లోడ్ చేయండి.',
+      'med03.pharmacy.funding_reconciliation.unavailable':
+          'ఖచ్చితమైన నకిలీ-లైన్ సరిచూడటం అందుబాటులో లేదు.',
+      'med03.pharmacy.funding_reconciliation.title':
+          'నకిలీ ఫార్మసీ బిల్లింగ్ అధికారం',
+      'med03.pharmacy.funding_reconciliation.case_summary':
+          'కేసు #{case} · పని #{task} · {status} · {owner}',
+      'med03.pharmacy.funding_reconciliation.help': 'సర్వర్ ఖచ్చితమైన లైన్, ఇన్వాయిస్, పోస్ట్ చేసిన చెల్లింపు, కేటాయింపు, రివర్సల్ మరియు స్టాక్ సాక్ష్యాన్ని సరిపోలుస్తుంది. అదే ప్రతిపాదనను వేరొక ఆర్థిక యజమాని ఆమోదించాలి. ఈ స్క్రీన్ చెల్లింపు మొత్తాలను మార్చదు లేదా స్వయంగా ధృవీకరించదు.',
+      'med03.pharmacy.funding_reconciliation.keeper_label':
+          'అధికారికంగా మిగిలే లైన్',
+      'med03.pharmacy.funding_reconciliation.line_option':
+          'లైన్ #{line} · ఇన్వాయిస్ #{invoice} · {amount}',
+      'med03.pharmacy.funding_reconciliation.path_label':
+          'నియంత్రిత పరిష్కార మార్గం',
+      'med03.pharmacy.funding_reconciliation.path.safe':
+          'ఖచ్చితమైన నకిలీలను సురక్షితంగా నిలిపివేయండి',
+      'med03.pharmacy.funding_reconciliation.path.keep':
+          'ఎంచుకున్న అధికారాన్ని ఉంచండి',
+      'med03.pharmacy.funding_reconciliation.path.cancel':
+          'ముగిసిన ఆర్డర్‌ను రద్దు చేయండి',
+      'med03.pharmacy.funding_reconciliation.path.rebill':
+          'నియంత్రిత రీబిల్లింగ్‌ను నిర్ధారించండి',
+      'med03.pharmacy.funding_reconciliation.pending_owner':
+          '{owner} ప్రతిపాదించారు. వేరొక ఆర్థిక యజమాని అవసరం.',
+      'med03.pharmacy.funding_reconciliation.action.approve':
+          'రెండవ యజమానిగా ఖచ్చితమైన ప్రతిపాదనను ఆమోదించండి',
+      'med03.pharmacy.funding_reconciliation.action.propose':
+          'ఖచ్చితమైన పరిష్కారాన్ని ప్రతిపాదించండి',
+      'med03.pharmacy.funding_reconciliation.status.open': 'తెరిచి ఉంది',
+      'med03.pharmacy.funding_reconciliation.status.pending':
+          'రెండవ ఆమోదం పెండింగ్‌లో ఉంది',
+      'med03.pharmacy.funding_reconciliation.status.blocked': 'నిరోధించబడింది',
+      'med03.pharmacy.funding_reconciliation.status.resolved':
+          'పరిష్కరించబడింది',
+      'med03.pharmacy.funding_reconciliation.status.unknown': 'తెలియదు',
+      'med03.pharmacy.funding_reconciliation.owner.finance': 'ఆర్థిక యజమాని',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       's4.lib.counter_sale.payment_reference': 'చెల్లింపు రిఫరెన్స్ (txn id)',
+      's4.lib.counter_sale.original_payment_reference':
+          'అసలు చెల్లింపు రిఫరెన్స్',
+      's4.lib.counter_sale.original_payment_reference_value':
+          'అసలు రిఫరెన్స్ {reference}',
+      's4.lib.counter_sale.payment_reference_required':
+          'ప్రతి నగదు కాని అమ్మకానికి అసలు చెల్లింపు రిఫరెన్స్ అవసరం.',
+      's4.lib.counter_sale.legacy_payment_reference_missing': 'అసలు ఎలక్ట్రానిక్ చెల్లింపు సాక్ష్యం లేదు. ఈ పాత అమ్మకం రద్దుకు సిద్ధంగా లేదు; ముందుగా ఫైనాన్స్ చెల్లింపు రిఫరెన్స్‌ను పరిష్కరించాలి.',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       's4.lib.counter_sale.cash_drawer_hint':
           'నగదు అమ్మకాలకు మీ ఓపెన్ క్యాష్-డ్రాయర్ సెషన్ అవసరం',
@@ -33222,8 +36746,207 @@ class AppStrings {
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       's4.lib.counter_sale.void_reason': 'రద్దుకు కారణం',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
-      's4.lib.counter_sale.voided':
-          'అమ్మకం రద్దు చేయబడి డబ్బు తిరిగి ఇవ్వబడింది',
+      's4.lib.counter_sale.status.in_progress': 'ప్రక్రియలో ఉంది',
+      's4.lib.counter_sale.status.completed': 'పూర్తయింది',
+      's4.lib.counter_sale.status.void_pending_refund':
+          'రీఫండ్ పెండింగ్‌లో ఉంది',
+      's4.lib.counter_sale.status.voided': 'రద్దయింది',
+      's4.lib.counter_sale.status.failed': 'విఫలమైంది',
+      's4.lib.counter_sale.status.unknown': 'తెలియని అమ్మకపు స్థితి',
+      's4.lib.counter_sale.workflow_status.not_requested':
+          'రద్దు అభ్యర్థించలేదు',
+      's4.lib.counter_sale.workflow_status.awaiting_finance_approval':
+          'స్వతంత్ర ఫైనాన్స్ ఆమోదం కోసం వేచి ఉంది',
+      's4.lib.counter_sale.workflow_status.awaiting_finance_payout':
+          'ఆమోదించబడింది; ఫైనాన్స్ చెల్లింపు పెండింగ్‌లో ఉంది',
+      's4.lib.counter_sale.workflow_status.awaiting_gateway_payout':
+          'ప్రొవైడర్ రీఫండ్ ప్రారంభం పెండింగ్‌లో ఉంది',
+      's4.lib.counter_sale.workflow_status.awaiting_gateway_evidence':
+          'ధృవీకరించిన ప్రొవైడర్ సాక్ష్యం కోసం వేచి ఉంది',
+      's4.lib.counter_sale.workflow_status.awaiting_payout_evidence':
+          'నియంత్రిత చెల్లింపు సాక్ష్యం కోసం వేచి ఉంది',
+      's4.lib.counter_sale.workflow_status.ready_to_reconcile':
+          'రీఫండ్ చెల్లించబడింది; ఖచ్చితమైన స్టాక్ సమన్వయం సిద్ధంగా ఉంది',
+      's4.lib.counter_sale.workflow_status.refund_rejected':
+          'రీఫండ్ తిరస్కరించబడింది; ఫార్మసీ స్టాక్‌ను తిరిగి చేర్చకూడదు',
+      's4.lib.counter_sale.workflow_status.refund_rejected_review': 'రీఫండ్ తిరస్కరించబడింది; కస్టమర్‌కు అప్పగింపును నిర్ధారించండి లేదా సమీక్షకు పంపండి',
+      's4.lib.counter_sale.workflow_status.voided':
+          'రీఫండ్ మరియు ఖచ్చితమైన స్టాక్ సమన్వయం పూర్తయ్యాయి',
+      's4.lib.counter_sale.workflow_status.cancelled_handover_confirmed': 'కస్టమర్‌కు అప్పగింపు నిర్ధారించడంతో రద్దు అభ్యర్థన ముగిసింది; రీఫండ్ లేదా స్టాక్ పునఃచేర్పు జరగలేదు',
+      's4.lib.counter_sale.workflow_status.pending_review':
+          'రద్దుకు ఫైనాన్స్ సమీక్ష అవసరం',
+      's4.lib.counter_sale.workflow_status.unknown':
+          'తెలియని రద్దు వర్క్‌ఫ్లో స్థితి',
+      's4.lib.counter_sale.refund_status.pending': 'ఆమోదం పెండింగ్‌లో ఉంది',
+      's4.lib.counter_sale.refund_status.approved': 'ఆమోదించబడింది',
+      's4.lib.counter_sale.refund_status.paid': 'చెల్లించబడింది',
+      's4.lib.counter_sale.refund_status.rejected': 'తిరస్కరించబడింది',
+      's4.lib.counter_sale.refund_status.unknown': 'తెలియని రీఫండ్ స్థితి',
+      's4.lib.counter_sale.void_readiness.ready':
+          'అదే రోజు రక్షిత రద్దు అభ్యర్థనకు సిద్ధం',
+      's4.lib.counter_sale.void_readiness.original_payment_reference_missing': 'అసలు ఎలక్ట్రానిక్ చెల్లింపు సాక్ష్యం లేదు. రద్దు అభ్యర్థనకు ముందు ఫైనాన్స్ చెల్లింపు రిఫరెన్స్‌ను పరిష్కరించాలి.',
+      's4.lib.counter_sale.void_readiness.outside_same_day_window': 'అదే రోజు రద్దు గడువు ముగిసింది. నియంత్రిత రిటర్న్ లేదా సర్దుబాటు వర్క్‌ఫ్లోను ఉపయోగించండి.',
+      's4.lib.counter_sale.void_readiness.pending_refund':
+          'రక్షిత రద్దు మరియు రీఫండ్ బాధ్యత ఇప్పటికే పెండింగ్‌లో ఉంది.',
+      's4.lib.counter_sale.void_readiness.voided':
+          'ఈ అమ్మకం ఇప్పటికే రద్దు చేసి సమన్వయం చేయబడింది.',
+      's4.lib.counter_sale.void_readiness.not_completed':
+          'పూర్తయిన అమ్మకం మాత్రమే రద్దు వర్క్‌ఫ్లోలోకి వెళ్లగలదు.',
+      's4.lib.counter_sale.void_readiness.unknown': 'అధికారిక రద్దు సిద్ధత అందుబాటులో లేదు. చర్యకు ముందు రిఫ్రెష్ చేయండి.',
+      's4.lib.counter_sale.retry_sale': 'రక్షిత అమ్మకాన్ని మళ్లీ ప్రయత్నించండి',
+      's4.lib.counter_sale.sale_response_unconfirmed': 'అమ్మకపు ప్రతిస్పందన నిర్ధారించబడలేదు. మరెక్కడా నమోదు చేయవద్దు; అదే రక్షిత ప్రయత్నాన్ని ఉపయోగించడానికి ఇక్కడే మళ్లీ ప్రయత్నించండి.',
+      's4.lib.counter_sale.sale_changed_title':
+          'వేరే అమ్మకాన్ని ప్రారంభించాలా?',
+      's4.lib.counter_sale.sale_changed_body': 'మునుపటి అమ్మకపు ఫలితం ఇంకా తెలియదు. మార్చిన వివరాలకు కొత్త రక్షిత ప్రయత్నం అవసరం; మొదటి అమ్మకం పూర్తయితే రెండో అమ్మకం ఏర్పడవచ్చు. ముందుగా ఇటీవలి అమ్మకాలను తనిఖీ చేయండి.',
+      's4.lib.counter_sale.new_attempt_confirm': 'కొత్త ప్రయత్నం ప్రారంభించండి',
+      's4.lib.counter_sale.void_nonterminal_hint': 'రద్దు అభ్యర్థన వెంటనే రీఫండ్ లేదా స్టాక్ పునఃచేర్పు చేయదు. ఫైనాన్స్ ఆమోదం, చెల్లింపు మరియు ఖచ్చితమైన బ్యాచ్ సమన్వయం తర్వాతే అమ్మకం ముగుస్తుంది.',
+      's4.lib.counter_sale.void_disposition': 'మందుల కస్టడీ ఫలితం',
+      's4.lib.counter_sale.disposition.never_handed_over':
+          'రోగికి ఎప్పుడూ అప్పగించలేదు',
+      's4.lib.counter_sale.disposition.patient_returned':
+          'రోగి చేతబట్టిన తర్వాత తిరిగి ఇచ్చారు',
+      's4.lib.counter_sale.disposition_required_hint': 'ఖచ్చితమైన కస్టడీ ఫలితాన్ని ఎంచుకోండి. ఏ ఎంపికా స్వయంగా నిర్ణయించబడదు.',
+      's4.lib.counter_sale.never_handed_over_restock': 'సిబ్బంది కస్టడీని విడిచిపెట్టని మందు మాత్రమే రీఫండ్ మరియు ఖచ్చితమైన బ్యాచ్ స్టాక్ పునఃచేర్పుకు వెళ్లవచ్చు.',
+      's4.lib.counter_sale.patient_returned_quarantine': 'రోగి చేతబట్టిన మందును అమ్మదగిన స్టాక్‌లో తిరిగి చేర్చలేరు. ఇక్కడ ఆపి క్వారంటైన్/నాశనం రిటర్న్స్ ప్రక్రియను ఉపయోగించండి; ఈ స్క్రీన్ ఇంకా ఆ ప్రక్రియకు లింక్ కాలేదు.',
+      's4.lib.counter_sale.patient_returned_blocked': 'రోగి చేతబట్టిన మందును అమ్మదగిన స్టాక్‌లో రద్దు చేయలేరు. క్వారంటైన్/నాశనం రిటర్న్స్ ప్రక్రియను ఉపయోగించండి.',
+      's4.lib.counter_sale.void_changed_title':
+          'అనిశ్చిత రద్దు అభ్యర్థనను మార్చాలా?',
+      's4.lib.counter_sale.void_changed_body': 'మునుపటి రద్దు ఫలితం తెలియదు. కారణం లేదా కస్టడీ ఫలితాన్ని మార్చితే వేరే రక్షిత ప్రయత్నం ఏర్పడుతుంది. ముందుగా ప్రస్తుత అమ్మకాన్ని తనిఖీ చేయండి.',
+      's4.lib.counter_sale.retry_void': 'రక్షిత రద్దును మళ్లీ ప్రయత్నించండి',
+      's4.lib.counter_sale.void_response_unconfirmed': 'రద్దు ప్రతిస్పందన నిర్ధారించబడలేదు. అదే రక్షిత అభ్యర్థనను ఉపయోగించడానికి ఈ అమ్మకంలో మళ్లీ ప్రయత్నించండి.',
+      's4.lib.counter_sale.void_pending_refund': 'రద్దు అభ్యర్థించబడింది. ఫైనాన్స్ ఆమోదం మరియు చెల్లింపు పెండింగ్‌లో ఉన్నాయి; స్టాక్ తిరిగి చేర్చబడలేదు.',
+      's4.lib.counter_sale.void_reconciled': 'రీఫండ్ సాక్ష్యం ధృవీకరించబడింది మరియు ఖచ్చితమైన స్టాక్ సమన్వయం పూర్తయింది.',
+      's4.lib.counter_sale.void_request_reference': 'రద్దు అభ్యర్థన #{id}',
+      's4.lib.counter_sale.refund_reference': 'రీఫండ్ #{id}: {status}',
+      's4.lib.counter_sale.restock_pending_evidence': 'చెల్లించిన రీఫండ్ సాక్ష్యం ధృవీకరించే వరకు ఖచ్చితమైన బ్యాచ్ స్టాక్ పునఃచేర్పు నిరోధించబడుతుంది.',
+      's4.lib.counter_sale.open_finance_workflow':
+          'ఫైనాన్స్ వర్క్‌ఫ్లో తెరవండి',
+      's4.lib.counter_sale.open_reconciliation': 'సమన్వయం తెరవండి',
+      's4.lib.counter_sale.reconcile_action': 'తనిఖీ చేసి సమన్వయం చేయండి',
+      's4.lib.counter_sale.reconcile_still_pending':
+          'రీఫండ్ సాక్ష్యం సిద్ధంగా లేదు; రద్దు పెండింగ్‌లోనే ఉంటుంది.',
+      's4.lib.counter_sale.reconcile_response_unconfirmed': 'సమన్వయ ప్రతిస్పందన నిర్ధారించబడలేదు. అదే రక్షిత తనిఖీని ఉపయోగించడానికి ఇక్కడే మళ్లీ ప్రయత్నించండి.',
+      's4.lib.counter_sale.handover_resolution_title':
+          'కస్టమర్‌కు అప్పగింపును నిర్ధారించండి',
+      's4.lib.counter_sale.handover_resolution_warning': 'మందు కస్టమర్‌కు అప్పగించబడి, తిరస్కరించిన రీఫండ్ వల్ల అమ్మకం పూర్తిగానే ఉండాల్సినప్పుడు మాత్రమే దీనిని ఉపయోగించండి. ఇది రీఫండ్‌ను లేదా స్టాక్ పునఃచేర్పును నమోదు చేయదు.',
+      's4.lib.counter_sale.handover_resolution_reason':
+          'అప్పగింపు నిర్ధారణ కారణం',
+      's4.lib.counter_sale.handover_resolution_confirm':
+          'అప్పగింపును నిర్ధారించండి',
+      's4.lib.counter_sale.handover_resolution_changed_title':
+          'అనిశ్చిత అప్పగింపు నిర్ధారణను మార్చాలా?',
+      's4.lib.counter_sale.handover_resolution_changed_body': 'మునుపటి ప్రతిస్పందన తెలియదు. కారణాన్ని మార్చితే కొత్త రక్షిత ప్రయత్నం ఏర్పడుతుంది. కొనసాగేముందు అమ్మకాన్ని రిఫ్రెష్ చేయండి.',
+      's4.lib.counter_sale.handover_resolution_action':
+          'కస్టమర్ అప్పగింపును నిర్ధారించండి',
+      's4.lib.counter_sale.handover_resolution_retry':
+          'రక్షిత అప్పగింపు నిర్ధారణను మళ్లీ ప్రయత్నించండి',
+      's4.lib.counter_sale.handover_resolution_completed': 'కస్టమర్ అప్పగింపు నిర్ధారించబడింది. రద్దు అభ్యర్థన ముగిసింది; రీఫండ్ లేదా స్టాక్ పునఃచేర్పు జరగలేదు.',
+      's4.lib.counter_sale.handover_resolution_response_unconfirmed': 'అప్పగింపు నిర్ధారణ అధికారికంగా నిర్ధారించబడలేదు. అదే రక్షిత ప్రయత్నాన్ని ఉపయోగించడానికి మార్పులేకుండా మళ్లీ ప్రయత్నించండి.',
+      'med03.counter_sale_refund.title': 'కౌంటర్ విక్రయ రీఫండ్',
+      'med03.counter_sale_refund.access_denied':
+          'ఈ రీఫండ్ పనిప్రవాహాన్ని తెరవడానికి మీకు అనుమతి లేదు.',
+      'med03.counter_sale_refund.invalid_target': 'రీఫండ్ లక్ష్యం చెల్లదు.',
+      'med03.counter_sale_refund.target_mismatch': 'రీఫండ్ మరియు వాయిడ్ అభ్యర్థన గుర్తింపులు ఒకే అధికారిక పనిప్రవాహానికి సరిపోలడం లేదు.',
+      'med03.counter_sale_refund.load_failed': 'అధికారిక రీఫండ్ స్థితిని లోడ్ చేయలేకపోయాం. మళ్లీ కనెక్ట్ చేసి ప్రయత్నించండి.',
+      'med03.counter_sale_refund.summary':
+          'అధికారిక రీఫండ్ మరియు సమన్వయ స్థితి',
+      'med03.counter_sale_refund.refund_id': 'రీఫండ్ ఐడి',
+      'med03.counter_sale_refund.void_request_id': 'వాయిడ్ అభ్యర్థన ఐడి',
+      'med03.counter_sale_refund.sale_id': 'కౌంటర్ విక్రయ ఐడి',
+      'med03.counter_sale_refund.amount': 'రీఫండ్ మొత్తం',
+      'med03.counter_sale_refund.payment_mode': 'అసలు చెల్లింపు విధానం',
+      'med03.counter_sale_refund.original_payment_reference':
+          'అసలు చెల్లింపు రిఫరెన్స్',
+      'med03.counter_sale_refund.approval_status': 'రీఫండ్ స్థితి',
+      'med03.counter_sale_refund.workflow_status': 'పనిప్రవాహ స్థితి',
+      'med03.counter_sale_refund.disposition': 'మందు కస్టడీ ఫలితం',
+      'med03.counter_sale_refund.reconciliation_status':
+          'ఫార్మసీ సమన్వయ స్థితి',
+      'med03.counter_sale_refund.payout_rail': 'చెల్లింపు మార్గం',
+      'med03.counter_sale_refund.provider': 'ప్రొవైడర్ లేదా అక్వైరర్',
+      'med03.counter_sale_refund.provider_refund_reference':
+          'ప్రొవైడర్ రీఫండ్ రిఫరెన్స్',
+      'med03.counter_sale_refund.provider_refunded_at': 'ప్రొవైడర్ రీఫండ్ సమయం',
+      'med03.counter_sale_refund.value_unknown': 'అందుబాటులో లేదు',
+      'med03.counter_sale_refund.open_reconciliation':
+          'ఫార్మసీ సమన్వయాన్ని తెరవండి',
+      'med03.counter_sale_refund.approval_title': 'ఆర్థిక అనుమతి',
+      'med03.counter_sale_refund.approval_ready': 'అనుమతికి ముందు ఖచ్చితమైన రీఫండ్ మరియు వాయిడ్ అభ్యర్థన ఆధారాన్ని పరిశీలించండి.',
+      'med03.counter_sale_refund.approval_waiting':
+          'చెల్లింపుకు ముందు నిర్వాహకుడు ఈ రీఫండ్‌ను అనుమతించాలి.',
+      'med03.counter_sale_refund.approve_action': 'రీఫండ్‌ను అనుమతించండి',
+      'med03.counter_sale_refund.confirm_title': 'డబ్బు కదలికను నిర్ధారించండి',
+      'med03.counter_sale_refund.approve_confirm': 'ఈ ఖచ్చితమైన రీఫండ్ బాధ్యతను అనుమతించాలా? చెల్లింపుదారు వేరే వ్యక్తి కావాలి.',
+      'med03.counter_sale_refund.manual_confirm': 'ఖచ్చితమైన వౌచర్ ఆధారంతో ఈ నగదు లేదా మాన్యువల్ సాధన చెల్లింపును నమోదు చేయాలా?',
+      'med03.counter_sale_refund.offline_electronic_confirm': 'ఈ అసలు చెల్లింపుకు బాహ్య టెర్మినల్ లేదా క్యూఆర్ రీఫండ్ ఆధారాన్ని నమోదు చేయాలా?',
+      'med03.counter_sale_refund.gateway_confirm': 'ఈ ఖచ్చితమైన గేట్‌వే ఆర్డర్‌కు సమీకృత గేట్‌వే రీఫండ్‌ను ప్రారంభించాలా?',
+      'med03.counter_sale_refund.action_confirmed':
+          'అధికారిక రీఫండ్ స్థితి ఈ చర్యను నిర్ధారిస్తోంది.',
+      'med03.counter_sale_refund.action_failed':
+          'అధికారిక పూర్తి నిర్ధారణకు ముందు రీఫండ్ చర్య విఫలమైంది.',
+      'med03.counter_sale_refund.action_response_unconfirmed': 'ఫలితం నిర్ధారించబడలేదు. అదే రక్షిత ప్రయత్నాన్ని ఉపయోగించడానికి మార్పులేని చర్యను ఇక్కడ మళ్లీ ప్రయత్నించండి.',
+      'med03.counter_sale_refund.retry_same_attempt': 'మునుపటి ప్రతిస్పందన అస్పష్టంగా ఉంది. స్థిర ఐడెంపోటెన్సీ కీని మళ్లీ ఉపయోగించేందుకు ఆధారాన్ని మార్చకుండా ప్రయత్నించండి.',
+      'med03.counter_sale_refund.changed_attempt_title':
+          'వేరే రీఫండ్ ప్రయత్నాన్ని ప్రారంభించాలా?',
+      'med03.counter_sale_refund.changed_attempt_body': 'మునుపటి ఫలితం ఇంకా తెలియదు. మార్చిన ఆధారం కొత్త రక్షిత ప్రయత్నాన్ని సృష్టిస్తుంది; మొదటి చర్య పూర్తయితే ద్వంద్వ చెల్లింపు జరగవచ్చు.',
+      'med03.counter_sale_refund.changed_attempt_confirm':
+          'కొత్త ప్రయత్నాన్ని ప్రారంభించండి',
+      'med03.counter_sale_refund.payer_must_differ':
+          'చెల్లింపుదారు రీఫండ్‌ను అనుమతించిన వ్యక్తి కంటే వేరుగా ఉండాలి.',
+      'med03.counter_sale_refund.payout_not_authorized':
+          'ఈ రీఫండ్ చెల్లింపును అమలు చేయడానికి మీ పాత్రకు అనుమతి లేదు.',
+      'med03.counter_sale_refund.payout_in_progress': '{rail} మార్గం ఇప్పటికే ఈ చెల్లింపును కలిగి ఉంది. ఆధారం కోసం రిఫ్రెష్ చేయండి; మరో మార్గాన్ని ప్రారంభించవద్దు.',
+      'med03.counter_sale_refund.no_authoritative_rail': 'అసలు చెల్లింపు ఆధారం ప్రస్తుతం ఏ చెల్లింపు మార్గాన్నీ అనుమతించడం లేదు. ముందుకు వెళ్లే ముందు ఆధారాన్ని పరిష్కరించండి.',
+      'med03.counter_sale_refund.rail_conflict': 'మరొక చెల్లింపు మార్గం ఈ రీఫండ్‌ను కలిగి ఉంది. అధికారిక స్థితిని రిఫ్రెష్ చేయండి.',
+      'med03.counter_sale_refund.cash_drawer': 'తెరిచిన నగదు డ్రాయర్ సెషన్',
+      'med03.counter_sale_refund.cash_drawer_option': 'డ్రాయర్ {id} · {shift}',
+      'med03.counter_sale_refund.cash_voucher': 'మార్చలేని నగదు రీఫండ్ వౌచర్',
+      'med03.counter_sale_refund.manual_reference':
+          'మార్చలేని చెల్లింపు రిఫరెన్స్',
+      'med03.counter_sale_refund.record_payout': 'చెల్లింపును నమోదు చేయండి',
+      'med03.counter_sale_refund.drawer_identity_missing': 'మీ సిబ్బంది గుర్తింపు అందుబాటులో లేదు, కాబట్టి మీకు చెందిన తెరిచిన డ్రాయర్‌ను ఎంచుకోలేరు.',
+      'med03.counter_sale_refund.drawer_load_failed':
+          'తెరిచిన నగదు డ్రాయర్ సెషన్లను లోడ్ చేయలేకపోయాం.',
+      'med03.counter_sale_refund.no_open_drawer':
+          'ప్రస్తుత చెల్లింపుదారునికి చెందిన తెరిచిన నగదు డ్రాయర్ లేదు.',
+      'med03.counter_sale_refund.cash_drawer_error': 'నగదు డ్రాయర్ లేదా వౌచర్ ఆధారం తిరస్కరించబడింది. మళ్లీ ప్రయత్నించే ముందు డ్రాయర్ స్థితిని రిఫ్రెష్ చేయండి.',
+      'med03.counter_sale_refund.original_reference_missing': 'అసలు ఎలక్ట్రానిక్ చెల్లింపు రిఫరెన్స్ లేదు లేదా అస్పష్టంగా ఉంది. ఆర్థిక విభాగం పరిష్కరించే వరకు బాహ్య ఎలక్ట్రానిక్ చెల్లింపు నిలిపివేయబడింది.',
+      'med03.counter_sale_refund.timestamp_hint':
+          'సమయ మండలంతో ISO 8601 సమయం, ఉదాహరణ 2026-08-28T10:30:00+05:30',
+      'med03.counter_sale_refund.record_offline_electronic':
+          'బాహ్య రీఫండ్ ఆధారాన్ని నమోదు చేయండి',
+      'med03.counter_sale_refund.electronic_evidence_error': 'అసలు ఎలక్ట్రానిక్ చెల్లింపు ఆధారం ఈ చెల్లింపు మార్గాన్ని అనుమతించడం లేదు.',
+      'med03.counter_sale_refund.provider_evidence_error': 'ప్రొవైడర్, రీఫండ్ రిఫరెన్స్ మరియు సమయం మార్చలేని బాహ్య ఆధారంగా అవసరం.',
+      'med03.counter_sale_refund.load_gateway_candidates':
+          'సమీకృత గేట్‌వే ఎంపికలను లోడ్ చేయండి',
+      'med03.counter_sale_refund.gateway_candidates_failed':
+          'సమీకృత గేట్‌వే ఎంపికలను లోడ్ చేయలేకపోయాం.',
+      'med03.counter_sale_refund.no_gateway_candidates':
+          'ఈ రీఫండ్‌కు ఖచ్చితంగా చెల్లించిన అర్హ గేట్‌వే ఆర్డర్ లేదు.',
+      'med03.counter_sale_refund.gateway_candidate': 'గేట్‌వే ఆర్డర్ {id}',
+      'med03.counter_sale_refund.start_gateway_refund':
+          'గేట్‌వే రీఫండ్‌ను ప్రారంభించండి',
+      'med03.counter_sale_refund.rail.manual':
+          'నగదు లేదా మాన్యువల్ సాధన చెల్లింపు',
+      'med03.counter_sale_refund.rail.offline_electronic':
+          'బాహ్య టెర్మినల్ లేదా క్యూఆర్ రీఫండ్',
+      'med03.counter_sale_refund.rail.gateway': 'సమీకృత గేట్‌వే రీఫండ్',
+      'med03.counter_sale_refund.rail.unknown': 'తెలియని చెల్లింపు మార్గం',
+      'med03.counter_sale_refund.workflow.awaiting_approval':
+          'ఆర్థిక అనుమతి కోసం వేచి ఉంది',
+      'med03.counter_sale_refund.workflow.ready_for_payout':
+          'అనుమతించబడింది, చెల్లింపుకు సిద్ధం',
+      'med03.counter_sale_refund.workflow.paid':
+          'రీఫండ్ చెల్లించబడింది; ఫార్మసీ సమన్వయం పెండింగ్‌లో ఉంది',
+      'med03.counter_sale_refund.workflow.rejected': 'రీఫండ్ తిరస్కరించబడింది',
+      'med03.counter_sale_refund.workflow.refund_rejected_review':
+          'తిరస్కరించిన రీఫండ్‌కు నియంత్రిత సమీక్ష అవసరం',
+      'med03.counter_sale_refund.workflow.reconciliation_required':
+          'రీఫండ్ చెల్లించబడింది; ఫార్మసీ సమన్వయం అవసరం',
+      'med03.counter_sale_refund.workflow.counter_sale_void_completed':
+          'రీఫండ్ మరియు కౌంటర్ విక్రయ వాయిడ్ పూర్తయ్యాయి',
+      'med03.counter_sale_refund.workflow.unknown':
+          'రీఫండ్ పనిప్రవాహ స్థితి అందుబాటులో లేదు',
       's4.lib.counter_sale.no_recent': 'ఈ రోజు ఇంకా కౌంటర్ అమ్మకాలు లేవు',
       // REVIEW: AI first-pass 2026-08-25 parity fill - confirm clinical wording before production.
       's4.lib.pharmacy.substitution_witness_required': 'ఈ Schedule X / నార్కోటిక్ ప్రత్యామ్నాయాన్ని పంపిణీ చేసే ముందు ఆమోదం పొందిన రెండవ సిబ్బంది సాక్షి తప్పనిసరి.',
@@ -33370,9 +37093,261 @@ class AppStrings {
     // patient app's ml register (transliterated loanwords for clinical/
     // technical terms: ഫാർമസി, അപ്പോയിന്റ്മെന്റ്, ഡോസ്).
     'ml': {
+      // REVIEW: MED-03 Malayalam technical parity only; a Malayalam-fluent
+      // clinician-linguist must approve this wording before activation.
+      'pharmacy.disposal.title': 'ഇൻവെന്ററി നിർമാർജനം രേഖപ്പെടുത്തുക',
+      'pharmacy.disposal.open': 'കൃത്യമായ ബാച്ച് നിർമാർജനം ചെയ്യുക',
+      'pharmacy.disposal.facility': 'ഫാർമസി ഫെസിലിറ്റി',
+      'pharmacy.disposal.facility_hint': 'സെർവർ സ്ഥിരീകരിച്ച നിങ്ങളുടെ സജീവ ഗ്രാന്റുകളിലെ ഫെസിലിറ്റികൾ മാത്രം പട്ടികപ്പെടുത്തുന്നു.',
+      'pharmacy.disposal.facility_required': 'തുടരുന്നതിന് മുമ്പ് നിങ്ങളുടെ സജീവ ഫാർമസി ഗ്രാന്റിൽ നിന്ന് ഒരു ഫെസിലിറ്റി തിരഞ്ഞെടുക്കുക.',
+      'pharmacy.disposal.role_required': 'സജീവ ഫാർമസി സ്റ്റാഫിനോ ഫാർമസി ഇൻചാർജിനോ മാത്രമേ നിർമാർജനം രേഖപ്പെടുത്താനാകൂ.',
+      'pharmacy.disposal.item_authority_missing': 'ഇൻവെന്ററി ഇനത്തിന്റെ തിരിച്ചറിയൽ ലഭ്യമല്ല. നിർമാർജനം രേഖപ്പെടുത്താനാകില്ല.',
+      'pharmacy.disposal.authority_hint': 'സജീവ ഫെസിലിറ്റി ഗ്രാന്റ്, ഇനം, കാറ്റലോഗ്, വിതരണക്കാരൻ, സംഭരണ സ്ഥലം, ബാച്ച്, സ്റ്റോക്ക് എന്നിവ സെർവർ ലോക്കിനുള്ളിൽ വീണ്ടും സ്ഥിരീകരിക്കുന്നു.',
+      'pharmacy.disposal.batch': 'കൃത്യമായ ഇൻവെന്ററി ബാച്ച്',
+      'pharmacy.disposal.batch_option':
+          'ബാച്ച് {batch} · ലോട്ട് {lot} · {status} · ശേഷിക്കുന്നത് {quantity}',
+      'pharmacy.disposal.batch_required':
+          'യോഗ്യമായ ഒരു കൃത്യമായ ബാച്ച് തിരഞ്ഞെടുക്കുക.',
+      'pharmacy.disposal.batch_constraints': 'വിതരണക്കാരൻ {supplier} · നില {status} · കാലാവധി {expiry} · ശേഷിക്കുന്നത് {quantity}. സ്റ്റോക്കിലുള്ള, കാലാവധി കഴിഞ്ഞ, തിരിച്ചുവിളിച്ച, അല്ലെങ്കിൽ ക്വാറന്റൈൻ ചെയ്ത ബാച്ചുകൾ മാത്രം നിർമാർജനം ചെയ്യാം.',
+      'pharmacy.disposal.no_eligible_batches': 'ഈ ഫെസിലിറ്റിയിൽ യോഗ്യമായ ബാച്ചില്ല. ഇൻവെന്ററി നീക്കം ഒന്നും രേഖപ്പെടുത്തിയിട്ടില്ല.',
+      'pharmacy.disposal.quantity': 'നിർമാർജന അളവ്',
+      'pharmacy.disposal.quantity_hint':
+          'പോസിറ്റീവ് അളവ്, പരമാവധി നാല് ദശാംശ സ്ഥാനങ്ങൾ.',
+      'pharmacy.disposal.quantity_invalid': 'പരമാവധി നാല് ദശാംശ സ്ഥാനങ്ങളോടെ 9,999,999,999.9999 വരെയുള്ള പോസിറ്റീവ് അളവ് നൽകുക.',
+      'pharmacy.disposal.quantity_exceeds_stock': 'നിർമാർജന അളവ് ബാച്ചിലെ ആധികാരിക ശേഷിക്കുന്ന {quantity}-നെ കവിയുന്നു.',
+      'pharmacy.disposal.reason_code': 'നിയന്ത്രിത കാരണ കോഡ്',
+      'pharmacy.disposal.reason_hint': 'ഉദാഹരണം: damaged',
+      'pharmacy.disposal.reason_required':
+          'നിയന്ത്രിത നിർമാർജന കാരണ കോഡ് ആവശ്യമാണ്.',
+      'pharmacy.disposal.method': 'ഭൗതിക നിർമാർജന രീതി',
+      'pharmacy.disposal.method_hint': 'ഉദാഹരണം: authorized_incineration',
+      'pharmacy.disposal.method_required': 'ഭൗതിക നിർമാർജന രീതി ആവശ്യമാണ്.',
+      'pharmacy.disposal.controlled_warning': 'ഷെഡ്യൂൾ X അല്ലെങ്കിൽ നാർക്കോട്ടിക് നിർമാർജനത്തിന് സ്വതന്ത്രമായി പ്രാമാണീകരിച്ച ഒറ്റത്തവണ സാക്ഷി അംഗീകാരം വേണം. H/H1/X കസ്റ്റഡി നിയമപരമായ രജിസ്റ്ററിൽ രേഖപ്പെടുത്തും.',
+      'pharmacy.disposal.witness_title': 'സ്വതന്ത്ര നിർമാർജന സാക്ഷി',
+      // REVIEW: Malayalam technical parity only; human linguistic review remains required.
+      'pharmacy.disposal.witness_hint': 'തിരഞ്ഞെടുത്ത ഇതേ ഫെസിലിറ്റിക്കായി ACTIVE ഗ്രാന്റുള്ള രണ്ടാമത്തെ സജീവ PHARMACY_STAFF അല്ലെങ്കിൽ PHARMACY_INCHARGE ഓപ്പറേറ്ററെ ഉപയോഗിക്കുക. അവർ സ്വതന്ത്രമായി പ്രാമാണീകരിക്കണം; നിലവിലെ ഓപ്പറേറ്റർക്ക് സ്വന്തം നിർമാർജനത്തിന് സാക്ഷിയാകാനാവില്ല.',
+      'pharmacy.disposal.witness_employee_id': 'സാക്ഷി ജീവനക്കാരന്റെ ഐഡി',
+      'pharmacy.disposal.witness_password': 'സാക്ഷിയുടെ പാസ്‌വേഡ്',
+      'pharmacy.disposal.witness_approve': 'പ്രാമാണീകരിച്ച് അംഗീകരിക്കുക',
+      'pharmacy.disposal.witness_required': 'കൃത്യവും കാലാവധി കഴിയാത്തതുമായ സാക്ഷി അംഗീകാരമില്ലാതെ ഈ നിയന്ത്രിത നിർമാർജനം തുടരാനാവില്ല.',
+      'pharmacy.disposal.witness_approved_by': '{name} സാക്ഷിയായി അംഗീകരിച്ചു',
+      'pharmacy.disposal.witness_staff': 'സ്വതന്ത്ര സ്റ്റാഫ് സാക്ഷി',
+      'pharmacy.disposal.witness_pending':
+          'സ്വതന്ത്ര സാക്ഷി അംഗീകാരം പൂർത്തിയായിട്ടില്ല.',
+      'pharmacy.disposal.witness_replace': 'സാക്ഷി അംഗീകാരം മാറ്റുക',
+      'pharmacy.disposal.witness_request':
+          'സാക്ഷിയെ അഭ്യർത്ഥിച്ച് അംഗീകരിക്കുക',
+      'pharmacy.disposal.submit': 'മാറ്റാനാവാത്ത നിർമാർജനം രേഖപ്പെടുത്തുക',
+      'pharmacy.disposal.completed': 'കൃത്യമായ ബാച്ച് നിർമാർജനവും ആവശ്യമായ നിയമപരമായ തെളിവും രേഖപ്പെടുത്തി.',
+      // REVIEW: Malayalam facility-bound pharmacy custody technical parity only;
+      // human linguistic review remains required.
+      'pharmacy.order.controlled_witness_custody_hint': 'നിയന്ത്രിത ഓർഡർ കസ്റ്റഡിക്ക്, തിരഞ്ഞെടുത്ത ഇതേ ഫെസിലിറ്റിക്കായി ACTIVE ഗ്രാന്റുള്ള രണ്ടാമത്തെ സജീവ PHARMACY_STAFF അല്ലെങ്കിൽ PHARMACY_INCHARGE ഓപ്പറേറ്റർ ആവശ്യമാണ്. അവർ സ്വതന്ത്രമായി പ്രാമാണീകരിക്കണം; നിലവിലെ ഓപ്പറേറ്റർക്ക് സ്വന്തം കസ്റ്റഡി നടപടി സ്വയം അംഗീകരിക്കാനാവില്ല.',
+      // REVIEW: Malayalam technical parity only; human linguistic review remains required.
+      'pharmacy.inventory.composition_review_required': 'കാറ്റലോഗ് ഇനം {catalogId}-ന് ആധികാരിക കോമ്പോസിഷൻ തിരിച്ചറിയൽ ഇല്ല. ഇൻവെന്ററി ഇനം സൃഷ്ടിച്ചിട്ടില്ല. വീണ്ടും ശ്രമിക്കുന്നതിന് മുമ്പ് നിയന്ത്രിത കാറ്റലോഗ്-കോമ്പോസിഷൻ അവലോകനം പൂർത്തിയാകണം.',
+      'med03.pharmacy.prescription_items_locked': 'പ്രിസ്ക്രിപ്ഷൻ ഇനങ്ങൾ ആധികാരികമായി ലിങ്ക് ചെയ്ത പ്രിസ്ക്രിപ്ഷനിലേക്ക് ലോക്ക് ചെയ്തിരിക്കുന്നു.',
+      'med03.pharmacy.select_authoritative_catalog': 'ആധികാരിക കാറ്റലോഗ് ഇനങ്ങൾ തിരഞ്ഞെടുക്കുക. പേരും വിലയും കൈമുറയായി നൽകാനാവില്ല.',
+      'med03.pharmacy.catalog_medicine': 'കാറ്റലോഗ് മരുന്ന്',
+      'med03.pharmacy.quantity': 'അളവ്',
+      'med03.pharmacy.add_medicine': 'മരുന്ന് ചേർക്കുക',
+      'med03.pharmacy.catalog_quantity_required': 'ഓരോ വരിയിലും വിലയുള്ള കാറ്റലോഗ് ഇനവും പൂജ്യത്തേക്കാൾ വലിയ അളവും തിരഞ്ഞെടുക്കുക.',
+      'med03.pharmacy.select_inventory_item':
+          'കൃത്യമായ ഇൻവെന്ററി ഇനം തിരഞ്ഞെടുക്കുക',
+      'med03.pharmacy.inventory_item_fallback': 'ഇൻവെന്ററി ഇനം #{id}',
+      'med03.pharmacy.verification_complete':
+          'ഫാർമസിസ്റ്റ് പരിശോധന പൂർത്തിയായി',
+      'med03.pharmacy.complete_counter_dispense':
+          'കൗണ്ടർ വിതരണം പൂർത്തിയാക്കുക',
+      'med03.pharmacy.amount_collected': 'ഇതുവരെ ശേഖരിച്ച ആകെ തുക',
+      'med03.pharmacy.authoritative_total_rechecked': 'സ്റ്റോക്ക് മാറുന്നതിന് മുമ്പ് സെർവർ ആധികാരിക ആകെ തുക വീണ്ടും പരിശോധിക്കും.',
+      'med03.pharmacy.dispense_remainder': 'ശേഷിക്കുന്ന അളവ് വിതരണം ചെയ്യുക',
+      'med03.pharmacy.counter_dispense_complete': 'കൗണ്ടർ വിതരണം പൂർത്തിയായി',
+      'med03.pharmacy.mark_unavailable': 'ലഭ്യമല്ലെന്ന് അടയാളപ്പെടുത്തുക',
+      'med03.pharmacy.unavailable_reason': 'ലഭ്യമല്ലാത്തതിന്റെ കാരണം',
+      'med03.pharmacy.unavailable_complete':
+          'ഓർഡർ ലഭ്യമല്ലെന്ന് അടയാളപ്പെടുത്തി',
+      'med03.pharmacy.facility_admin_required':
+          'അഡ്മിനിസ്ട്രേറ്റർ ഒരു ഡിഫോൾട്ട് ഫാർമസി ഫസിലിറ്റി ക്രമീകരിക്കണം.',
+      'med03.pharmacy.facility_assigned': 'ഫാർമസി ഫസിലിറ്റി നിയോഗിച്ചു',
+      'med03.pharmacy.assign_facility': 'ഫാർമസി ഫസിലിറ്റി നിയോഗിക്കുക',
+      'med03.pharmacy.verify_order': 'ഓർഡർ പരിശോധിക്കുക',
+      'med03.pharmacy.status_partially_dispensed': 'ഭാഗികമായി വിതരണം ചെയ്തു',
+      'med03.pharmacy.resolve_line_identities':
+          'പ്രിസ്ക്രിപ്ഷൻ വരികൾ പൊരുത്തപ്പെടുത്തുക',
+      'med03.pharmacy.resolve_line_identity_help': 'സംഭരിച്ച ഓരോ ഓർഡർ വരിയും കൃത്യമായ ഒപ്പിട്ട പ്രിസ്ക്രിപ്ഷൻ വരിയുമായി പൊരുത്തപ്പെടുത്തുക. ഒരേ മരുന്നുകൾ പ്രത്യേകം തിരഞ്ഞെടുക്കുക.',
+      'med03.pharmacy.save_line_identities':
+          'കൃത്യമായ പൊരുത്തങ്ങൾ സംരക്ഷിക്കുക',
+      'med03.pharmacy.line_identities_resolved':
+          'പ്രിസ്ക്രിപ്ഷൻ വരി തിരിച്ചറിയലുകൾ പരിഹരിച്ചു',
+      'med03.pharmacy.line_identity_admin_required': 'ഈ ഓർഡർ തുടരുന്നതിന് മുമ്പ് ഫാർമസി ഇൻചാർജ് പഴയ പ്രിസ്ക്രിപ്ഷൻ വരി തിരിച്ചറിയലുകൾ പരിഹരിക്കണം.',
+      'med03.pharmacy.line_identity_source_missing': 'ഓർഡറിലോ ലിങ്ക് ചെയ്ത പ്രിസ്ക്രിപ്ഷനിലോ പൊരുത്തപ്പെടുത്താവുന്ന ഘടിത വരികളില്ല. പ്രിസ്ക്രൈബറിലേക്ക് എസ്കലേറ്റ് ചെയ്യുക.',
+      'med03.pharmacy.verification_decision': 'പരിശോധന തീരുമാനം',
+      'med03.pharmacy.verification_verified': 'പരിശോധിച്ചു',
+      'med03.pharmacy.verification_override':
+          'സുരക്ഷാ തടസ്സങ്ങൾ ഓവർറൈഡ് ചെയ്യുക',
+      'med03.pharmacy.verification_rejected': 'ഓർഡർ നിരസിക്കുക',
+      'med03.pharmacy.verification_notes': 'പരിശോധന കുറിപ്പുകൾ',
+      'med03.pharmacy.verification_override_reason': 'ഓവർറൈഡ് കാരണം',
+      'med03.pharmacy.verification_override_reason_help':
+          'കുറഞ്ഞത് 10 അക്ഷരങ്ങൾ; ഇത് ക്ലിനിക്കൽ ഓഡിറ്റിൽ രേഖപ്പെടുത്തും.',
+      'med03.pharmacy.submit_verification': 'പരിശോധന സമർപ്പിക്കുക',
+      'med03.pharmacy.tpa_reference': 'അംഗീകരിച്ച ക്ലെയിം റഫറൻസ്',
+      'med03.pharmacy.tpa_reference_exact_help': 'ഈ ഫാർമസി ഓർഡറിന് അനുവദിച്ച കൃത്യമായ അംഗീകരിച്ച ക്ലെയിം അല്ലെങ്കിൽ TPA റഫറൻസ് നൽകുക.',
+      'med03.pharmacy.next_action': 'അടുത്ത നടപടി',
+      'med03.pharmacy.catalog_fallback': 'കാറ്റലോഗ് #{id}',
+      'med03.pharmacy.locked_line_summary': 'വരി {line} · അളവ് {quantity}',
+      'med03.pharmacy.order_line_fallback': 'ഓർഡർ വരി {line}',
+      'med03.pharmacy.verification_pharmacist_only': 'ഫാർമസി സ്റ്റാഫിനോ ഫാർമസി ഇൻചാർജിനോ മാത്രമേ ക്ലിനിക്കൽ പരിശോധനാ തീരുമാനം എടുക്കാനാകൂ.',
+      'med03.pharmacy.verification_rejection_reason':
+          'ക്ലിനിക്കൽ നിരസനത്തിന്റെ കാരണം',
+      'med03.pharmacy.verification_override_incharge': 'ഇൻചാർജ് ബ്രേക്ക്-ഗ്ലാസ് ഓവർറൈഡ്: കാരണവും മാനുവൽ അലർജി പരിശോധനാ തെളിവും സ്ഥിരമായി ഓഡിറ്റ് ചെയ്യും.',
+      'med03.pharmacy.verification_manual_allergy_review':
+          'ഞാൻ മാനുവൽ അലർജി പരിശോധന പൂർത്തിയാക്കി',
+      'med03.pharmacy.verification_manual_allergy_review_help': 'ഓവർറൈഡ് ചെയ്യുന്നതിന് മുമ്പ് രോഗി, സജീവ അലർജികൾ, ഉറവിട രേഖകൾ, ലഭ്യമല്ലാത്ത സുരക്ഷാ ഉറവിടങ്ങൾ എന്നിവ സ്ഥിരീകരിക്കുക.',
+      'med03.pharmacy.payment_mode.cash': 'പണം',
+      'med03.pharmacy.payment_mode.card': 'കാർഡ്',
+      'med03.pharmacy.payment_mode.upi': 'UPI പേയ്‌മെന്റ്',
+      'med03.pharmacy.payment_mode.wallet': 'വാലറ്റ്',
+      'med03.pharmacy.payment_mode.insurance': 'ഇൻഷുറൻസ്',
+      'med03.pharmacy.payment_mode.corporate_tpa': 'കോർപ്പറേറ്റ് / TPA',
+      'med03.pharmacy.payment_mode.none': 'പണമടയ്ക്കേണ്ടതില്ല',
+      'med03.pharmacy.recovery.select_exact_tpa_claim_allocation': 'സ്റ്റോക്ക് നൽകുന്നതിന് മുമ്പ് ഈ കൃത്യമായ ഫാർമസി ഓർഡറിന് അംഗീകരിച്ച ക്ലെയിം വരി ഫിനാൻസ് അനുവദിക്കണം.',
+      'med03.pharmacy.recovery.complete_manual_allergy_review':
+          'ആവശ്യമായ മാനുവൽ അലർജി പരിശോധന പൂർത്തിയാക്കി രേഖപ്പെടുത്തുക.',
+      'med03.pharmacy.recovery.contact_owner': 'തടഞ്ഞ ഈ ഓർഡർ പേരുള്ള വർക്ക്‌ഫ്ലോ ഉടമയ്ക്ക് കൈമാറി സ്റ്റോക്ക് മാറ്റമില്ലാതെ സൂക്ഷിക്കുക.',
+      'med03.pharmacy.recovery.open_billing_desk': 'ബില്ലിംഗ് ഡെസ്ക് തുറക്കുക',
+      'med03.pharmacy.recovery.materialize_pharmacy_funding': 'ലോക്ക് ചെയ്ത ഓർഡറും ഇൻവോയ്സ് അധികാരവും ഉപയോഗിച്ച് കൃത്യമായ ധനസഹായ ടാസ്ക് സൃഷ്ടിക്കുക.',
+      'med03.pharmacy.recovery.open_exact_pharmacy_funding_task': 'നിലവിലുള്ള കൃത്യമായ ധനസഹായ ടാസ്ക് തുറക്കുക; ഇവിടെ പണമടവ് സ്വയം സാക്ഷ്യപ്പെടുത്തരുത്.',
+      'med03.pharmacy.cancellation_reason_help': 'ആവശ്യമാണ്: 3 മുതൽ 500 വരെ അക്ഷരങ്ങൾ. ഈ കാരണം ഓർഡർ ചരിത്രത്തിൽ സൂക്ഷിക്കും.',
+      'med03.pharmacy.delivery_assignee_required': 'ഈ ഓർഡറിന് യോഗ്യതയുള്ള ഡെലിവറി ജീവനക്കാരൻ ലഭ്യമല്ല. അയയ്ക്കുന്നതിന് മുമ്പ് ഫെസിലിറ്റി അഡ്മിനിസ്ട്രേറ്റർ ഡെലിവറി ചുമതല നൽകണം.',
+      'med03.pharmacy.delivery_type_counter': 'കൗണ്ടർ വിതരണം',
+      'med03.pharmacy.status_dispensed': 'വിതരണം ചെയ്തു',
+      'med03.pharmacy.inventory_status.active': 'സജീവം',
+      'med03.pharmacy.inventory_status.inactive': 'നിഷ്‌ക്രിയം',
+      'med03.pharmacy.inventory_status.quarantined': 'ക്വാറന്റൈനിൽ',
+      'med03.pharmacy.inventory_status.unknown': 'അജ്ഞാത നില',
+      'med03.pharmacy.expiry_bucket.expired': 'കാലാവധി കഴിഞ്ഞു',
+      'med03.pharmacy.expiry_bucket.within_30': '30 ദിവസത്തിനുള്ളിൽ കാലാവധി',
+      'med03.pharmacy.expiry_bucket.within_60': '31–60 ദിവസത്തിൽ കാലാവധി',
+      'med03.pharmacy.expiry_bucket.within_90': '61–90 ദിവസത്തിൽ കാലാവധി',
+      'med03.pharmacy.expiry_bucket.beyond_90': '90 ദിവസത്തിന് ശേഷം കാലാവധി',
+      'med03.pharmacy.expiry_bucket.unknown': 'കാലാവധി കാലയളവ് ലഭ്യമല്ല',
+      'med03.pharmacy.funding_recovery.task_summary':
+          'ധനസഹായ ടാസ്ക് {taskId} · {status} · {owner}',
+      'med03.pharmacy.funding_recovery.status.pending':
+          'അനുവദിക്കൽ കാത്തിരിക്കുന്നു',
+      'med03.pharmacy.funding_recovery.status.in_progress':
+          'അനുവദിക്കൽ നടക്കുന്നു',
+      'med03.pharmacy.funding_recovery.status.blocked':
+          'അനുവദിക്കൽ തടസ്സപ്പെട്ടു',
+      'med03.pharmacy.funding_recovery.status.completed':
+          'അനുവദിക്കൽ പൂർത്തിയായി',
+      'med03.pharmacy.funding_recovery.status.unknown': 'നില ലഭ്യമല്ല',
+      'med03.pharmacy.funding_recovery.owner.finance': 'ധനകാര്യ ചുമതലക്കാരൻ',
+      'med03.pharmacy.funding_recovery.owner.insurance': 'ഇൻഷുറൻസ്/ക്ലെയിം ടീം',
+      'med03.pharmacy.funding_recovery.owner.billing': 'ബില്ലിംഗ് ടീം',
+      'med03.pharmacy.funding_recovery.owner.unknown':
+          'നിയുക്ത ധനകാര്യ ഉത്തരവാദി',
+      'med03.pharmacy.funding_desk.title': 'ഫാർമസി ധന അധികാരം',
+      'med03.nhcx.projection.unavailable':
+          'കൃത്യമായി സ്വീകരിച്ച NHCX ലോക്കൽ പ്രൊജക്ഷൻ വീണ്ടെടുക്കൽ ലഭ്യമല്ല.',
+      'med03.nhcx.projection.title': 'സ്വീകരിച്ച NHCX ലോക്കൽ പ്രൊജക്ഷൻ',
+      'med03.nhcx.projection.help': 'ഗേറ്റ്‌വേ ഈ കൃത്യമായ സന്ദേശം ഇതിനകം സ്വീകരിച്ചിട്ടുണ്ട്. വീണ്ടും ശ്രമിക്കുന്നത് ലോക്കൽ ക്ലെയിം അല്ലെങ്കിൽ പ്രീ-ഓതറൈസേഷൻ പ്രൊജക്ഷൻ മാത്രം പ്രയോഗിക്കും; NHCX-ലേക്ക് വീണ്ടും അയയ്ക്കില്ല.',
+      'med03.nhcx.projection.summary':
+          'സന്ദേശം #{message} · ടാസ്ക് #{task} · {status} · {owner}',
+      'med03.nhcx.projection.receipt': 'മാറ്റാനാവാത്ത ഗേറ്റ്‌വേ രസീത്: {hash}',
+      'med03.nhcx.projection.retry_local':
+          'ലോക്കൽ പ്രൊജക്ഷൻ വീണ്ടും ശ്രമിക്കുക',
+      'med03.nhcx.projection.completed': 'ലോക്കൽ പ്രൊജക്ഷൻ പൂർത്തിയായി',
+      'med03.pharmacy.funding_desk.unavailable':
+          'ഈ കൃത്യമായ ഓർഡർ ലൈനിന് ധന വീണ്ടെടുക്കൽ ലഭ്യമല്ല.',
+      'med03.pharmacy.funding_desk.insurance_help': 'ഈ കൃത്യമായ ഡ്രാഫ്റ്റ് ലൈനിന് ഇൻഷുറർ തീരുമാനം രേഖപ്പെടുത്തുക. അംഗീകരിച്ചതും അടയ്ക്കാത്തതും ചേർന്ന് ലൈൻ ആകെ തുകയാകണം.',
+      'med03.pharmacy.funding_desk.finance_help': 'പട്ടികപ്പെടുത്തിയ ഇൻവോയിസിൽ രോഗിയുടെ പണമടവ് പോസ്റ്റ് ചെയ്ത് ഇവിടെ പൊരുത്തപ്പെടുത്തുക. സ്വയം റിപ്പോർട്ട് ചെയ്ത ശേഖരിച്ച തുക ഈ സ്ക്രീൻ സ്വീകരിക്കില്ല.',
+      'med03.pharmacy.funding_desk.approved_amount': 'TPA അംഗീകരിച്ച തുക',
+      'med03.pharmacy.funding_desk.non_payable_amount': 'രോഗിയുടെ ബാധ്യത',
+      'med03.pharmacy.funding_desk.reason_code': 'തീരുമാന കാരണം',
+      'med03.pharmacy.funding_desk.reason_text': 'തീരുമാന കുറിപ്പ്',
+      'med03.pharmacy.funding_desk.record_decision':
+          'കൃത്യമായ ലൈൻ തീരുമാനം രേഖപ്പെടുത്തുക',
+      'med03.pharmacy.funding_desk.retry_posted_payment':
+          'പോസ്റ്റ് ചെയ്ത പണമടവ് പൊരുത്തപ്പെടുത്തുക',
+      'med03.pharmacy.funding_desk.resolved':
+          'ഈ കൃത്യമായ ഫാർമസി ലൈനിന് സജീവ ധന പണി ഇല്ല.',
+      'med03.pharmacy.funding_desk.invalid_decision': 'സാധുവായ നെഗറ്റീവ് അല്ലാത്ത തുകകൾ നൽകി നഷ്ടമായ പണി അധികാരം വീണ്ടും ലോഡ് ചെയ്യുക.',
+      // REVIEW: Malayalam finance/legal wording is technical parity only and must remain fail-closed until human approval.
+      'med03.pharmacy.funding_reconciliation.unavailable':
+          'കൃത്യമായ ഡ്യൂപ്ലിക്കേറ്റ്-ലൈൻ പൊരുത്തപ്പെടുത്തൽ ലഭ്യമല്ല.',
+      'med03.pharmacy.funding_reconciliation.title':
+          'ഡ്യൂപ്ലിക്കേറ്റ് ഫാർമസി ബില്ലിംഗ് അധികാരം',
+      'med03.pharmacy.funding_reconciliation.case_summary':
+          'കേസ് #{case} · പണി #{task} · {status} · {owner}',
+      'med03.pharmacy.funding_reconciliation.help': 'സെർവർ കൃത്യമായ ലൈൻ, ഇൻവോയിസ്, പോസ്റ്റ് ചെയ്ത പണമടവ്, അലോക്കേഷൻ, റിവേഴ്സൽ, സ്റ്റോക്ക് തെളിവുകൾ പൊരുത്തപ്പെടുത്തുന്നു. അതേ നിർദ്ദേശം മറ്റൊരു ധനകാര്യ ഉടമ അംഗീകരിക്കണം. ഈ സ്ക്രീനിന് പണമടവ് തുക മാറ്റാനോ സ്വയം സാക്ഷ്യപ്പെടുത്താനോ കഴിയില്ല.',
+      'med03.pharmacy.funding_reconciliation.keeper_label':
+          'ആധികാരികമായി തുടരുന്ന ലൈൻ',
+      'med03.pharmacy.funding_reconciliation.line_option':
+          'ലൈൻ #{line} · ഇൻവോയിസ് #{invoice} · {amount}',
+      'med03.pharmacy.funding_reconciliation.path_label':
+          'നിയന്ത്രിത പരിഹാര പാത',
+      'med03.pharmacy.funding_reconciliation.path.safe':
+          'കൃത്യമായ ഡ്യൂപ്ലിക്കേറ്റുകൾ സുരക്ഷിതമായി നിർജ്ജീവമാക്കുക',
+      'med03.pharmacy.funding_reconciliation.path.keep':
+          'തിരഞ്ഞെടുത്ത അധികാരം നിലനിർത്തുക',
+      'med03.pharmacy.funding_reconciliation.path.cancel':
+          'അവസാനിച്ച ഓർഡർ റദ്ദാക്കുക',
+      'med03.pharmacy.funding_reconciliation.path.rebill':
+          'നിയന്ത്രിത പുനർബില്ലിംഗ് സ്ഥിരീകരിക്കുക',
+      'med03.pharmacy.funding_reconciliation.pending_owner':
+          '{owner} നിർദ്ദേശിച്ചു. വേറൊരു ധനകാര്യ ഉടമ ആവശ്യമാണ്.',
+      'med03.pharmacy.funding_reconciliation.action.approve':
+          'രണ്ടാം ഉടമയായി കൃത്യമായ നിർദ്ദേശം അംഗീകരിക്കുക',
+      'med03.pharmacy.funding_reconciliation.action.propose':
+          'കൃത്യമായ തീർപ്പ് നിർദ്ദേശിക്കുക',
+      'med03.pharmacy.funding_reconciliation.status.open': 'തുറന്നിരിക്കുന്നു',
+      'med03.pharmacy.funding_reconciliation.status.pending':
+          'രണ്ടാം അംഗീകാരം കാത്തിരിക്കുന്നു',
+      'med03.pharmacy.funding_reconciliation.status.blocked':
+          'തടഞ്ഞിരിക്കുന്നു',
+      'med03.pharmacy.funding_reconciliation.status.resolved': 'പരിഹരിച്ചു',
+      'med03.pharmacy.funding_reconciliation.status.unknown': 'അജ്ഞാതം',
+      'med03.pharmacy.funding_reconciliation.owner.finance': 'ധനകാര്യ ഉടമ',
+      'orders.mar_recovery.desktop_only': 'ഫോൺ മോഡിൽ ഈ നടപടി ലഭ്യമല്ല. ഡെസ്ക്ടോപ്പ് അല്ലെങ്കിൽ ടാബ്ലറ്റ് ക്ലിനിക്കൽ വർക്ക്‌സ്റ്റേഷൻ ഉപയോഗിക്കുക.',
+      'ward_indent.code.unknown': 'തിരിച്ചറിയാത്ത വർക്ക്ഫ്ലോ നില',
+      'ward_indent.sla.status.active': 'സജീവം',
+      'ward_indent.sla.status.breached': 'സമയപരിധി ലംഘിച്ചു',
+      'ward_indent.sla.status.escalated': 'ഉയർന്ന തലത്തിലേക്ക് കൈമാറി',
+      'ward_indent.sla.rule.ward_indent_pharmacy_response': 'ഫാർമസി പ്രതികരണം',
+      'ward_indent.sla.rule.ward_indent_substitution_authorization':
+          'പകരം മരുന്നിന്റെ അനുമതി',
+      'ward_indent.sla.rule.ward_indent_controlled_handoff':
+          'നിയന്ത്രിത മരുന്ന് കൈമാറ്റം',
+      'ward_indent.sla.rule.ward_indent_pharmacy_issue': 'ഫാർമസി നൽകൽ',
+      'ward_indent.sla.rule.ward_indent_ward_receipt': 'വാർഡ് സ്വീകരണം',
+      'ward_indent.sla.rule.ward_indent_reconciliation': 'മരുന്ന് റീകൺസിലിയേഷൻ',
+      'ward_indent.sla.rule.ward_indent_notification_coverage':
+          'അറിയിപ്പ് കവറേജ്',
+      'ward_indent.sla.rule.ward_indent_credit_note_review':
+          'ക്രെഡിറ്റ് നോട്ട് അവലോകനം',
+      'ward_indent.sla.rule.ward_indent_mar_supply_reconciliation':
+          'MAR സപ്ലൈ റീകൺസിലിയേഷൻ',
+      'ward_indent.controlled.recovery_status.available': 'തെളിവ് ലഭ്യമാണ്',
+      'ward_indent.controlled.recovery_status.missing': 'തെളിവ് ലഭ്യമല്ല',
+      'ward_indent.controlled.recovery_status.ambiguous':
+          'ഒന്നിലധികം തെളിവ് രേഖകൾ',
+      'ward_indent.controlled.recovery_status.corrupt':
+          'കസ്റ്റഡി തെളിവ് വൈരുദ്ധ്യം',
+      'due_meds.actions.release': 'ഹോൾഡിലുള്ള ഡോസ് റിലീസ് ചെയ്യുക',
+      'due_meds.actions.release_title': 'ഹോൾഡിലുള്ള ഈ ഡോസ് റിലീസ് ചെയ്യണോ?',
+      'due_meds.actions.release_body': 'മരുന്ന് നിർദേശിക്കുന്ന ഡോക്ടർ ക്ലിനിക്കൽ അവലോകനം രേഖപ്പെടുത്തണം. റിലീസ് ഡോസിനെ ഷെഡ്യൂൾ ചെയ്ത നിലയിലാക്കും; മരുന്ന് നൽകിയതായി രേഖപ്പെടുത്തില്ല.',
+      'due_meds.actions.confirm_release': 'ഷെഡ്യൂൾ നിലയിലേക്ക് റിലീസ് ചെയ്യുക',
+      'due_meds.actions.release_success':
+          'ഹോൾഡിലുള്ള ഡോസ് ഷെഡ്യൂൾ നിലയിലേക്ക് റിലീസ് ചെയ്തു',
+      'med03.credit_note.status.paid': 'പണമടച്ചു',
+      'med03.credit_note.status.unknown': 'അജ്ഞാത നില',
+      'med03.credit_note.event.raised': 'ഉന്നയിച്ചു',
       'action.cancel': 'റദ്ദാക്കുക',
       'ward_indent.action.approve': 'ഇൻഡന്റ് അംഗീകരിക്കുക',
       'ward_indent.action.approve_substitution': 'പകരം മരുന്ന് അംഗീകരിക്കുക',
+      'ward_indent.action.apply_substitution':
+          'അംഗീകരിച്ച പകരം മരുന്ന് സ്റ്റോക്കിൽ പ്രയോഗിക്കുക',
       'ward_indent.action.cancel': 'ഇൻഡന്റ് റദ്ദാക്കുക',
       'ward_indent.action.close': 'ഇൻഡന്റ് അടയ്ക്കുക',
       'ward_indent.action.completed': '{number} പുതുക്കി',
@@ -33392,6 +37367,91 @@ class AppStrings {
           'ഈ നിലയിൽ നിങ്ങളുടെ റോളിന് ലഭ്യമായ നടപടികളില്ല.',
       'ward_indent.actions.title': 'ലഭ്യമായ നടപടികൾ',
       'ward_indent.confirm.default': 'ഈ ഓൺലൈൻ വർക്ക്‌ഫ്ലോ മാറ്റം സ്ഥിരീകരിക്കുക. സെർവർ നിങ്ങളുടെ റോൾ, നിലവിലെ പതിപ്പ്, എല്ലാ ക്ലിനിക്കൽ-സ്റ്റോക്ക് നിയമങ്ങൾ എന്നിവ വീണ്ടും പരിശോധിക്കും.',
+      'ward_indent.inventory.none': '{item} എന്നതിനായി ഇതേ സ്ഥാപനത്തിൽ യോഗ്യമായ ഇൻവെന്ററി തിരഞ്ഞെടുപ്പ് ലഭ്യമല്ല.',
+      'ward_indent.inventory.select':
+          '{item} എന്നതിനുള്ള ഇൻവെന്ററി തിരഞ്ഞെടുക്കുക',
+      'ward_indent.substitution.acknowledge_title':
+          'പകരം മരുന്ന് സ്ഥിരീകരിക്കുക',
+      'ward_indent.substitution.acknowledge_body':
+          'സ്വീകരിക്കുന്നതിന് മുമ്പ് പകരം മരുന്ന് സ്ഥിരീകരിക്കുക: {items}.',
+      'ward_indent.reconcile.exact_allocation_required':
+          '{item} മടക്കാൻ കൃത്യമായ വാർഡ് അലോക്കേഷൻ ആവശ്യമാണ്.',
+      'ward_indent.reconcile.return_exceeds_custody': '{item} എന്നതിന്റെ മടക്ക അളവ് വാർഡിൽ ഉപയോഗിക്കാതെ ശേഷിക്കുന്ന അളവിനെ കവിയുന്നു.',
+      'ward_indent.reconcile.return_evidence_missing': 'നിയന്ത്രിത മടക്കത്തിൽ മൂവ്മെന്റ്, രജിസ്റ്റർ എന്നീ രണ്ട് തെളിവുകളും സൃഷ്ടിക്കപ്പെട്ടില്ല.',
+      'ward_indent.controlled.reference_missing':
+          '{item} എന്നതിനുള്ള നിയന്ത്രിത റഫറൻസ് ലഭ്യമല്ല.',
+      'ward_indent.controlled.exact_allocation_required': '{item} വിതരണം ചെയ്യുന്നതിന് മുമ്പ് കൃത്യമായി ഒരു റിസർവ് ചെയ്ത അലോക്കേഷൻ ആവശ്യമാണ്.',
+      'due_meds.held_review_state': 'മരുന്ന് നൽകൽ തടഞ്ഞിരിക്കുന്നു — നിയന്ത്രിത ക്ലിനിക്കൽ അവലോകനം അല്ലെങ്കിൽ റിലീസ് കാത്തിരിക്കുന്നു.',
+      'mar_supply.title': 'MAR സപ്ലൈ റീകൺസിലിയേഷൻ',
+      'mar_supply.no_open_override':
+          'പൊരുത്തപ്പെടാത്ത MAR സപ്ലൈ ഓവർറൈഡ് ഒന്നും ശേഷിക്കുന്നില്ല.',
+      'mar_supply.outstanding': 'ശേഷിക്കുന്ന അളവ്: {quantity}',
+      'mar_supply.help': 'ശേഷിക്കുന്ന മുഴുവൻ ഡോസും കൃത്യമായ വാർഡ് അലോക്കേഷൻ അളവുകളുമായി പൊരുത്തപ്പെടുത്തുക. മൊത്തം കൃത്യമാകുമ്പോൾ മാത്രമേ ടാസ്ക് അവസാനിക്കൂ.',
+      'mar_supply.invalid_quantity': 'അലോക്കേഷൻ {allocation} എന്നതിന്റെ അളവ് അസാധുവാണ് അല്ലെങ്കിൽ ലഭ്യമായ അളവിനെ കവിയുന്നു.',
+      'mar_supply.exact_total_required':
+          'അലോക്കേഷൻ അളവുകളുടെ മൊത്തം കൃത്യമായി {quantity} ആയിരിക്കണം.',
+      'mar_supply.completed':
+          'MAR സപ്ലൈ തെളിവ് റീകൺസൈൽ ചെയ്തു; ടാസ്ക് പൂർത്തിയായി.',
+      'mar_supply.allocation': 'വാർഡ് അലോക്കേഷൻ',
+      'mar_supply.batch_available': 'ബാച്ച് {batch} · ലഭ്യം {quantity}',
+      // REVIEW: MED-03 ml first pass; Malayalam-fluent clinical and linguistic approval is required before activation.
+      'mar_supply.batch_ineligible.inventory_item_inactive':
+          'ഇൻവെന്ററി ഇനം നിർജ്ജീവമാണ്.',
+      'mar_supply.batch_ineligible.batch_reserved':
+          'ബാച്ച് റിസർവ് ചെയ്തിരിക്കുന്നു; റീകൺസിലിയേഷനായി ലഭ്യമല്ല.',
+      'mar_supply.batch_ineligible.batch_depleted':
+          'ഈ ബാച്ചിൽ യോഗ്യമായ ശേഷിക്കുന്ന കസ്റ്റഡി ഇല്ല.',
+      'mar_supply.batch_ineligible.batch_expired':
+          'ബാച്ചിന്റെ കാലാവധി കഴിഞ്ഞു.',
+      'mar_supply.batch_ineligible.batch_recalled':
+          'ബാച്ച് തിരിച്ചുവിളിച്ചതിനാൽ ഉപയോഗിക്കാനാവില്ല.',
+      'mar_supply.batch_ineligible.batch_quarantined':
+          'ബാച്ച് ക്വാറന്റൈനിലാണ്.',
+      'mar_supply.batch_ineligible.batch_disposed': 'ബാച്ച് നശിപ്പിച്ചു.',
+      'mar_supply.batch_ineligible.batch_status_missing':
+          'ബാച്ച് നില ലഭ്യമല്ല.',
+      'mar_supply.batch_ineligible.ward_custody_unavailable':
+          'ഈ ബാച്ചിൽ ഉപയോഗിക്കാത്ത വാർഡ് കസ്റ്റഡി ശേഷിക്കുന്നില്ല.',
+      'mar_supply.batch_ineligible.batch_expiry_missing':
+          'ബാച്ചിന്റെ കാലാവധി തീയതി ലഭ്യമല്ല.',
+      'mar_supply.batch_ineligible.unknown':
+          'ഈ ബാച്ച് റീകൺസിലിയേഷനായി യോഗ്യമല്ല.',
+      // REVIEW: MED-03 ml first pass; Malayalam-fluent clinical and linguistic approval is required before activation.
+      'mar_supply.notification_action': 'MAR സപ്ലൈ റീകൺസൈൽ ചെയ്യുക',
+      'mar_supply.quantity': 'ഈ അലോക്കേഷനിൽ നിന്നുള്ള അളവ്',
+      'mar_supply.reconcile': 'കൃത്യമായ സപ്ലൈ റീകൺസൈൽ ചെയ്യുക',
+      'clinical_inbox.open_workflow': 'വർക്ക്‌ഫ്ലോ തുറക്കുക',
+      'clinical_inbox.workflow_link_unavailable':
+          'ഈ ടാസ്കിൽ സുരക്ഷിതവും പ്രവർത്തനക്ഷമവുമായ വർക്ക്‌ഫ്ലോ ലിങ്ക് ഇല്ല.',
+      'clinical_inbox.mar_handoff.action': 'പ്രിസ്ക്രൈബറെ പുനഃനിയോഗിക്കുക',
+      'clinical_inbox.mar_handoff.title': 'മരുന്ന് അപവാദം പുനഃനിയോഗിക്കുക',
+      'clinical_inbox.mar_handoff.body': 'ഹോൾഡ് ചെയ്തതോ നഷ്ടമായതോ ആയ ഡോസ് അവലോകനത്തിന്റെ ഉത്തരവാദിത്വം ഏറ്റെടുക്കുന്ന സജീവ പ്രിസ്ക്രൈബറെ തിരഞ്ഞെടുക്കുക. സമർപ്പിക്കുമ്പോൾ നിലവിലെ ഉടമ പൊരുത്തപ്പെടണം.',
+      'clinical_inbox.mar_handoff.case_id': 'അപവാദ കേസ് ID',
+      'clinical_inbox.mar_handoff.current_prescriber': 'നിലവിലെ പ്രിസ്ക്രൈബർ',
+      'clinical_inbox.mar_handoff.target_prescriber': 'പുതിയ പ്രിസ്ക്രൈബർ',
+      'clinical_inbox.mar_handoff.prescriber_required':
+          'സജീവ പ്രിസ്ക്രൈബറെ തിരഞ്ഞെടുക്കുക',
+      'clinical_inbox.mar_handoff.prescribers_failed':
+          'സജീവ പ്രിസ്ക്രൈബർമാരെ ലോഡ് ചെയ്യാനായില്ല.',
+      'clinical_inbox.mar_handoff.no_prescribers':
+          'മറ്റൊരു സജീവ പ്രിസ്ക്രൈബർ ലഭ്യമല്ല.',
+      'clinical_inbox.mar_handoff.reason': 'ക്ലിനിക്കൽ കൈമാറ്റ കാരണം',
+      'clinical_inbox.mar_handoff.reason_hint':
+          'പേരിട്ട ഉത്തരവാദിത്വം മാറ്റേണ്ടതിന്റെ കാരണം വിശദീകരിക്കുക',
+      'clinical_inbox.mar_handoff.reason_required':
+          'കുറഞ്ഞത് 5 അക്ഷരങ്ങൾ നൽകുക',
+      'clinical_inbox.mar_handoff.confirmation': 'തിരഞ്ഞെടുത്ത പ്രിസ്ക്രൈബർ സജീവമാണെന്നും ഈ ക്ലിനിക്കൽ അവലോകന ഉത്തരവാദിത്വം സ്വീകരിച്ചിട്ടുണ്ടെന്നും അല്ലെങ്കിൽ സ്വീകരിക്കാൻ അധികാരമുള്ളയാളാണെന്നും ഞാൻ സ്ഥിരീകരിക്കുന്നു.',
+      'clinical_inbox.mar_handoff.confirmation_required': 'സമർപ്പിക്കുന്നതിന് മുമ്പ് പേരിട്ട ഉത്തരവാദിത്വ കൈമാറ്റം സ്ഥിരീകരിക്കുക.',
+      'clinical_inbox.mar_handoff.submit': 'പുനഃനിയോഗം സ്ഥിരീകരിക്കുക',
+      'clinical_inbox.mar_handoff.submitting': 'പുനഃനിയോഗിക്കുന്നു...',
+      'clinical_inbox.mar_handoff.succeeded':
+          'മരുന്ന് അപവാദം തിരഞ്ഞെടുത്ത പ്രിസ്ക്രൈബർക്ക് പുനഃനിയോഗിച്ചു.',
+      'clinical_inbox.mar_handoff.failed':
+          'മരുന്ന് അപവാദം പുനഃനിയോഗിക്കാനായില്ല: {reason}',
+      'clinical_inbox.mar_handoff.stale_owner': 'നിങ്ങൾ അവലോകനം ചെയ്യുന്നതിനിടെ ഉത്തരവാദിത്വം മാറി. ഏറ്റവും പുതിയ ഉടമയെ കാണിച്ചിരിക്കുന്നു; വീണ്ടും പരിശോധിച്ച് സ്ഥിരീകരിക്കുക.',
+      'clinical_inbox.mar_handoff.no_longer_actionable': 'ഈ മരുന്ന് അപവാദം ഇനി പുനഃനിയോഗിക്കാൻ ലഭ്യമല്ല. ഏറ്റവും പുതിയ ഇൻബോക്സ് നില ലോഡ് ചെയ്തു.',
+      'clinical_inbox.mar_handoff.requires_connection':
+          'ഈ മരുന്ന് അപവാദം പുനഃനിയോഗിക്കാൻ കണക്ഷൻ ആവശ്യമാണ്.',
       'ward_indent.controlled.ambiguous_recovery': 'നിയന്ത്രിത മരുന്ന് തെളിവിന് ഒന്നിലധികം സാധ്യതാ രേഖകളുണ്ട്. സൂപ്പർവൈസർ റീകൺസിലിയേഷൻ വരെ കൈമാറ്റം തടഞ്ഞിരിക്കുന്നു.',
       'ward_indent.controlled.label': 'നിയന്ത്രിതം',
       'ward_indent.controlled.no_inventory_link': '{item} എന്നതിനോട് ഇൻവെന്ററി ഇനം ബന്ധിപ്പിച്ചിട്ടില്ല. വിതരണം ചെയ്യുന്നതിന് മുമ്പ് കാറ്റലോഗ്-ഇൻവെന്ററി രേഖകൾ ബന്ധിപ്പിക്കുക.',
@@ -33488,6 +37548,30 @@ class AppStrings {
       'ward_indent.substitution.select_line':
           'കുറവ് വിതരണമുള്ള വരി തിരഞ്ഞെടുക്കുക',
       'ward_indent.tab': 'വാർഡ് ഇൻഡന്റുകൾ',
+      // REVIEW: MED-03 ml technical parity only; Malayalam-fluent clinical
+      // and linguistic approval is required before activation.
+      'ward_indent.request.action': 'വിതരണം അഭ്യർത്ഥിക്കുക',
+      'ward_indent.request.title': 'ഓർഡറുമായി ബന്ധിപ്പിച്ച വിതരണ വീണ്ടെടുപ്പ്',
+      'ward_indent.request.help': 'സജീവ മരുന്ന് ഓർഡറിന് സ്വയമേവ വാർഡ് ഇൻഡന്റ് സൃഷ്ടിക്കപ്പെടാത്തപ്പോൾ മാത്രം ഉപയോഗിക്കുക. ഇവിടെ മരുന്ന് നിർദേശിക്കുകയോ മാറ്റുകയോ ചെയ്യരുത്.',
+      'ward_indent.request.admission_id': 'അഡ്മിഷൻ ഐഡി',
+      'ward_indent.request.admission_hint': 'സജീവ അഡ്മിഷൻ ഐഡി നൽകുക',
+      'ward_indent.request.load': 'ഓർഡറുകൾ ലോഡ് ചെയ്യുക',
+      'ward_indent.request.admission_invalid':
+          'സാധുവായ പോസിറ്റീവ് അഡ്മിഷൻ ഐഡി നൽകുക.',
+      'ward_indent.request.context': 'രോഗിയെയും വാർഡിനെയും സ്ഥിരീകരിക്കുക',
+      'ward_indent.request.patient_context': 'രോഗി: {patient} ({hospitalId})',
+      'ward_indent.request.ward_context': 'അഡ്മിഷൻ {admission} - വാർഡ് {ward}',
+      'ward_indent.request.none_eligible': 'വീണ്ടെടുപ്പ് അഭ്യർത്ഥനയ്ക്ക് അർഹമായ സജീവവും ബന്ധിപ്പിക്കാത്തതുമായ മരുന്ന് ഓർഡറുകളില്ല.',
+      'ward_indent.request.select_order': 'മരുന്ന് ഓർഡർ തിരഞ്ഞെടുക്കുക',
+      'ward_indent.request.order_summary': '{order} - {quantity} {unit}; ഡോസ് {dose}; റൂട്ട് {route}; ഷെഡ്യൂൾ {schedule}; നില {status}; മുൻഗണന {priority}',
+      'ward_indent.request.notes': 'വീണ്ടെടുപ്പ് കുറിപ്പുകൾ (ഐച്ഛികം)',
+      'ward_indent.request.notes_hint': 'സ്വയമേവയുള്ള വിതരണ അഭ്യർത്ഥനയ്ക്ക് വീണ്ടെടുപ്പ് ആവശ്യമാകുന്നതെന്തെന്ന് വിശദീകരിക്കുക',
+      'ward_indent.request.submit': 'വാർഡ് ഇൻഡന്റ് സൃഷ്ടിക്കുക',
+      'ward_indent.request.conflict.admission_inactive':
+          'അഡ്മിഷൻ ഇനി സജീവമല്ല. ഓർഡർ പട്ടിക പുതുക്കി; അഭ്യർത്ഥന അയച്ചില്ല.',
+      'ward_indent.request.conflict.already_linked': 'ഈ മരുന്ന് ഓർഡർ ഇതിനകം ഒരു വാർഡ് ഇൻഡന്റുമായി ബന്ധിപ്പിച്ചിരിക്കുന്നു. ഓർഡർ പട്ടിക പുതുക്കി.',
+      'ward_indent.request.conflict.projection_changed': 'ഓർഡറുമായി ബന്ധിപ്പിച്ച വിതരണ വിവരങ്ങൾ മാറി. വീണ്ടും ശ്രമിക്കുന്നതിന് മുമ്പ് പുതുക്കിയ പട്ടിക പരിശോധിക്കുക.',
+      'ward_indent.request.conflict.canonical_changed': 'വിതരണം കാറ്റലോഗ് {catalog}, അളവ് {quantity} {unit} ആയി മാറി. വീണ്ടും ശ്രമിക്കുന്നതിന് മുമ്പ് പുതുക്കിയ ഓർഡർ പരിശോധിക്കുക.',
       'continuity.action.open_cache': 'കണ്ടിന്യൂട്ടി കാഷ് തുറക്കുക',
       'continuity.action.print': 'സ്ഥിരീകരിച്ച പാക്ക് പ്രിന്റ് ചെയ്യുക',
       'continuity.action.refresh': 'കണ്ടിന്യൂട്ടി കാഷ് പുതുക്കുക',
@@ -34346,6 +38430,150 @@ class AppStrings {
       's4.dynamic.cath_lab.consumables.batch': 'ബാച്ച്/ലോട്ട് {batch}',
       's4.dynamic.cath_lab.consumables.expiry': 'കാലാവധി {expiry}',
       's4.dynamic.cath_lab.consumables.serial': 'സീരിയൽ {serial}',
+      'med03.cath_inventory.title': 'കാത്ത് ഇൻവെന്ററി പൊരുത്തപ്പെടുത്തൽ',
+      'med03.cath_inventory.access_denied': 'ഈ കാത്ത് ഇൻവെന്ററി പ്രവർത്തനക്രമം തുറക്കാൻ നിങ്ങളുടെ റോളിന് അനുമതിയില്ല.',
+      'med03.cath_inventory.invalid_target':
+          'കാത്ത് കേസ് അല്ലെങ്കിൽ ഉപഭോഗ രേഖയുടെ തിരിച്ചറിയൽ അസാധുവാണ്.',
+      'med03.cath_inventory.target_mismatch': 'കാത്ത് കേസിന്റെയും ഉപഭോഗ രേഖയുടെയും തിരിച്ചറിയലുകൾ ആധികാരിക പൊരുത്തപ്പെടുത്തൽ രേഖയുമായി ചേരുന്നില്ല.',
+      'med03.cath_inventory.load_failed': 'ആധികാരിക കാത്ത് ഇൻവെന്ററി പൊരുത്തപ്പെടുത്തൽ നില ലോഡ് ചെയ്യാനായില്ല. വീണ്ടും കണക്റ്റ് ചെയ്ത് ശ്രമിക്കുക.',
+      'med03.cath_inventory.summary':
+          'ആധികാരികമായി രേഖപ്പെടുത്തിയ ഉപഭോഗവും ഇൻവെന്ററി നിലയും',
+      'med03.cath_inventory.case_id': 'കാത്ത് കേസ് തിരിച്ചറിയൽ',
+      'med03.cath_inventory.usage_id': 'ഉപഭോഗ രേഖ തിരിച്ചറിയൽ',
+      'med03.cath_inventory.patient_uid': 'രോഗിയുടെ തിരിച്ചറിയൽ',
+      'med03.cath_inventory.item': 'ഉപഭോഗ വസ്തു അല്ലെങ്കിൽ ഇംപ്ലാന്റ്',
+      'med03.cath_inventory.inventory_item_id': 'ഇൻവെന്ററി വസ്തു തിരിച്ചറിയൽ',
+      'med03.cath_inventory.inventory_batch_id': 'ഇൻവെന്ററി ബാച്ച് തിരിച്ചറിയൽ',
+      'med03.cath_inventory.batch_number': 'രേഖപ്പെടുത്തിയ ബാച്ച് നമ്പർ',
+      'med03.cath_inventory.documented_quantity': 'രേഖപ്പെടുത്തിയ അളവ്',
+      'med03.cath_inventory.decremented_quantity':
+          'ഇൻവെന്ററിയിൽ നിന്ന് കുറച്ച അളവ്',
+      'med03.cath_inventory.remaining_quantity': 'ബാച്ചിൽ ശേഷിക്കുന്ന അളവ്',
+      'med03.cath_inventory.status': 'ഇൻവെന്ററി പൊരുത്തപ്പെടുത്തൽ നില',
+      'med03.cath_inventory.task_status': 'ചുമതലയുടെ നില',
+      'med03.cath_inventory.sla_status': 'സേവന സമയനില',
+      'med03.cath_inventory.due_at': 'പൂർത്തിയാക്കേണ്ട സമയം',
+      'med03.cath_inventory.value_unknown': 'ലഭ്യമല്ല',
+      'med03.cath_inventory.status.insufficient_stock': 'രേഖപ്പെടുത്തിയ ഉപഭോഗം ഇൻവെന്ററി പൊരുത്തപ്പെടുത്തലിനായി കാത്തിരിക്കുന്നു',
+      'med03.cath_inventory.status.decremented':
+          'കൃത്യമായ ഇൻവെന്ററി കുറവ് പൂർത്തിയായി',
+      'med03.cath_inventory.status.unknown':
+          'ഇൻവെന്ററി പൊരുത്തപ്പെടുത്തൽ നില ലഭ്യമല്ല',
+      'med03.cath_inventory.task_status.open': 'തുറന്നിരിക്കുന്നു',
+      'med03.cath_inventory.task_status.in_progress': 'നടന്നുകൊണ്ടിരിക്കുന്നു',
+      'med03.cath_inventory.task_status.overdue': 'സമയം കഴിഞ്ഞു',
+      'med03.cath_inventory.task_status.completed': 'പൂർത്തിയായി',
+      'med03.cath_inventory.task_status.unknown': 'ചുമതലയുടെ നില ലഭ്യമല്ല',
+      'med03.cath_inventory.sla_status.active': 'സജീവം',
+      'med03.cath_inventory.sla_status.breached': 'സമയപരിധി ലംഘിച്ചു',
+      'med03.cath_inventory.sla_status.escalated': 'ഉയർന്ന തലത്തിലേക്ക് അയച്ചു',
+      'med03.cath_inventory.sla_status.completed': 'പൂർത്തിയായി',
+      'med03.cath_inventory.sla_status.cancelled': 'റദ്ദാക്കി',
+      'med03.cath_inventory.sla_status.unknown': 'സേവന സമയനില ലഭ്യമല്ല',
+      'med03.cath_inventory.not_actionable': 'ഈ ആധികാരിക പൊരുത്തപ്പെടുത്തലിൽ ഇപ്പോൾ നടപടി എടുക്കാനാവില്ല. ഇൻവെന്ററി രേഖ തിരുത്തിയ ശേഷം പുതുക്കുക.',
+      'med03.cath_inventory.coverage_only': 'കവറേജ് അഡ്മിനിസ്ട്രേറ്റർമാർക്ക് ഈ തെളിവ് പരിശോധിച്ച് പുതുക്കാം. ഇൻവെന്ററി മാറ്റം ഫാർമസി പൊരുത്തപ്പെടുത്തൽ റോളുകൾക്ക് മാത്രമേ നടത്താനാകൂ.',
+      'med03.cath_inventory.confirm_title':
+          'രേഖപ്പെടുത്തിയ കാത്ത് ഉപഭോഗം പൊരുത്തപ്പെടുത്തണോ?',
+      'med03.cath_inventory.confirm_body': 'സെർവർ രേഖപ്പെടുത്തിയ കൃത്യമായ ബാച്ച് അല്ലെങ്കിൽ യോഗ്യമായ FEFO ബാച്ചുകൾ മാത്രം ഉപയോഗിക്കും. ഇഷ്ടാനുസൃത ബാച്ച് അല്ലെങ്കിൽ ഉപകരണ തിരിച്ചറിയൽ സ്വീകരിക്കില്ല.',
+      'med03.cath_inventory.confirm_action': 'ഇൻവെന്ററി പൊരുത്തപ്പെടുത്തുക',
+      'med03.cath_inventory.reconcile_action':
+          'രേഖപ്പെടുത്തിയ ഉപഭോഗം പൊരുത്തപ്പെടുത്തുക',
+      'med03.cath_inventory.retry_same_attempt':
+          'സംരക്ഷിത പൊരുത്തപ്പെടുത്തൽ വീണ്ടും ശ്രമിക്കുക',
+      'med03.cath_inventory.reconciling': 'ഇൻവെന്ററി പൊരുത്തപ്പെടുത്തുന്നു...',
+      'med03.cath_inventory.completed': 'കൃത്യമായ ഇൻവെന്ററി കുറവും പ്രവർത്തനക്രമ സമാപനവും ആധികാരിക രേഖ സ്ഥിരീകരിക്കുന്നു.',
+      'med03.cath_inventory.still_insufficient': 'ഇൻവെന്ററി ഇപ്പോഴും അപര്യാപ്തമാണ്. ചുമതല തുറന്നുതന്നെ തുടരും; സ്റ്റോക്ക് നിറയ്ക്കുകയോ തെളിവ് തിരുത്തുകയോ ചെയ്ത ശേഷം വീണ്ടും ശ്രമിക്കുക.',
+      'med03.cath_inventory.response_unconfirmed': 'പൊരുത്തപ്പെടുത്തൽ ഫലം സ്ഥിരീകരിച്ചിട്ടില്ല. അതേ സംരക്ഷിത ശ്രമം വീണ്ടും ഉപയോഗിക്കാൻ മാറ്റമില്ലാതെ ശ്രമിക്കുക.',
+      'med03.cath_inventory.refresh_action': 'ആധികാരിക നില പുതുക്കുക',
+      'med03.cath_inventory.warning.insufficient_stock': 'ഇൻവെന്ററി ഇപ്പോഴും കുറവാണ്. വീണ്ടും ശ്രമിക്കുന്നതിന് മുമ്പ് സ്റ്റോക്ക് നിറയ്ക്കുകയോ അതിന്റെ തെളിവ് തിരുത്തുകയോ ചെയ്യുക.',
+      'med03.cath_inventory.warning.batch_expired': 'കൃത്യമായ ഇൻവെന്ററി ബാച്ചിന്റെ കാലാവധി കഴിഞ്ഞതിനാൽ സ്റ്റോക്ക് കുറവ് രേഖപ്പെടുത്തിയില്ല.',
+      'med03.cath_inventory.warning.quantity_invalid': 'കൃത്യമായ ഇൻവെന്ററി ബാച്ചിന്റെ അളവ് അസാധുവായതിനാൽ സ്റ്റോക്ക് കുറവ് രേഖപ്പെടുത്തിയില്ല.',
+      'med03.cath_inventory.warning.lineage_mismatch': 'രേഖപ്പെടുത്തിയ ബാച്ച്, ലോട്ട് അല്ലെങ്കിൽ കാലാവധി ഇൻവെന്ററിയുമായി പൊരുത്തപ്പെടുന്നില്ല. സ്റ്റോക്ക് കുറവ് രേഖപ്പെടുത്തിയില്ല.',
+      'med03.cath_inventory.warning.lineage_incomplete': 'രേഖപ്പെടുത്തിയ ഇൻവെന്ററി ലിനിയേജ് അപൂർണ്ണമാണ്. സ്റ്റോക്ക് കുറവ് രേഖപ്പെടുത്തിയില്ല.',
+      'med03.cath_inventory.warning.controlled_stock': 'നിയന്ത്രിത സ്റ്റോക്കിന് നിയമാനുസൃത ഡിസ്പെൻസിംഗ് പ്രവർത്തനക്രമം ആവശ്യമാണ്. കാത്ത് ഇൻവെന്ററി നീക്കം രേഖപ്പെടുത്തിയില്ല.',
+      'med03.cath_inventory.warning.inventory_not_linked': 'ഈ കാത്ത് കാറ്റലോഗ് വസ്തു ഇൻവെന്ററിയുമായി ബന്ധിപ്പിച്ചിട്ടില്ല. സ്റ്റോക്ക് കുറവ് രേഖപ്പെടുത്തിയില്ല.',
+      'med03.cath_inventory.warning.batch_unavailable': 'കൃത്യമായ ഇൻവെന്ററി ബാച്ച് ലഭ്യമല്ല അല്ലെങ്കിൽ അവ്യക്തമാണ്. സ്റ്റോക്ക് കുറവ് രേഖപ്പെടുത്തിയില്ല.',
+      'med03.cath_inventory.warning.unknown': 'ഇൻവെന്ററി മുന്നറിയിപ്പ് തിരിച്ചറിയാനായില്ല. നടപടിക്ക് മുമ്പ് ആധികാരിക സ്റ്റോക്ക് തെളിവ് പരിശോധിക്കുക.',
+      'med03.alert_recovery.title': 'ക്ലിനിക്കൽ അലർട്ട് ഡെലിവറി വീണ്ടെടുക്കൽ',
+      'med03.alert_recovery.empty':
+          'തുറന്ന ക്ലിനിക്കൽ അലർട്ട് ഡെലിവറി വീണ്ടെടുക്കൽ കേസുകളില്ല.',
+      'med03.alert_recovery.load_failed': 'ആധികാരിക ക്ലിനിക്കൽ അലർട്ട് വീണ്ടെടുക്കൽ കേസ് ലോഡ് ചെയ്യാനായില്ല. വീണ്ടും കണക്റ്റ് ചെയ്ത് ശ്രമിക്കുക.',
+      'med03.alert_recovery.action_failed': 'ക്ലിനിക്കൽ അലർട്ട് വീണ്ടെടുക്കൽ നടപടി സ്ഥിരീകരിച്ചിട്ടില്ല. വീണ്ടും ശ്രമിക്കുന്നതിന് മുമ്പ് ആധികാരിക കേസ് പുതുക്കുക.',
+      'med03.alert_recovery.field.case_status': 'വീണ്ടെടുക്കൽ കേസിന്റെ നില',
+      'med03.alert_recovery.field.delivery_status': 'അലർട്ട് ഡെലിവറി നില',
+      'med03.alert_recovery.field.task_status': 'വീണ്ടെടുക്കൽ ചുമതലയുടെ നില',
+      'med03.alert_recovery.field.sla_status': 'സേവന സമയനില',
+      'med03.alert_recovery.field.source': 'ആധികാരിക ഉറവിടം',
+      'med03.alert_recovery.field.failure': 'ഡെലിവറി പരാജയ ഘട്ടം',
+      'med03.alert_recovery.field.timing': 'വീണ്ടെടുക്കൽ സമയവിവരം',
+      'med03.alert_recovery.field.last_error': 'അവസാന ഡെലിവറി പിശക്',
+      'med03.alert_recovery.field.hold_reason': 'മാനുവൽ ഹോൾഡ് കാരണം',
+      'med03.alert_recovery.field.resolution': 'വീണ്ടെടുക്കൽ പരിഹാരം',
+      'med03.alert_recovery.timing_value': 'സമയപരിധി {due} • {seconds} സെക്കൻഡായി തുറന്നിരിക്കുന്നു • എസ്കലേഷൻ ശ്രമങ്ങൾ {count}',
+      'med03.alert_recovery.case_kind.manual_hold':
+          'മാനുവൽ ഹോൾഡ് ഉറവിട അവലോകനം',
+      'med03.alert_recovery.case_kind.recipient_coverage':
+          'ക്ലിനിക്കൽ സ്വീകർത്തൃ കവറേജ് വീണ്ടെടുക്കൽ',
+      'med03.alert_recovery.case_kind.unknown':
+          'അറിയാത്ത വീണ്ടെടുക്കൽ കേസ് തരം',
+      'med03.alert_recovery.source.clinical_orders': 'ക്ലിനിക്കൽ ഓർഡർ',
+      'med03.alert_recovery.source.icu_admissions': 'ഐസിയു പ്രവേശനം',
+      'med03.alert_recovery.source.unknown': 'അറിയാത്ത ക്ലിനിക്കൽ ഉറവിടം',
+      'med03.alert_recovery.case_status.open': 'തുറന്നിരിക്കുന്നു',
+      'med03.alert_recovery.case_status.resolved': 'പരിഹരിച്ചു',
+      'med03.alert_recovery.case_status.unknown':
+          'അറിയാത്ത വീണ്ടെടുക്കൽ കേസ് നില',
+      'med03.alert_recovery.delivery_status.pending': 'ഡെലിവറി തീർപ്പാകാനുണ്ട്',
+      'med03.alert_recovery.delivery_status.completed': 'ഡെലിവറി പൂർത്തിയായി',
+      'med03.alert_recovery.delivery_status.manual_hold':
+          'ഡെലിവറി മാനുവൽ ഹോൾഡിലാണ്',
+      'med03.alert_recovery.delivery_status.unknown':
+          'അറിയാത്ത അലർട്ട് ഡെലിവറി നില',
+      'med03.alert_recovery.task_status.open': 'തുറന്നിരിക്കുന്നു',
+      'med03.alert_recovery.task_status.in_progress': 'നടന്നുകൊണ്ടിരിക്കുന്നു',
+      'med03.alert_recovery.task_status.blocked': 'തടഞ്ഞിരിക്കുന്നു',
+      'med03.alert_recovery.task_status.completed': 'പൂർത്തിയായി',
+      'med03.alert_recovery.task_status.cancelled': 'റദ്ദാക്കി',
+      'med03.alert_recovery.task_status.overdue': 'സമയം കഴിഞ്ഞു',
+      'med03.alert_recovery.task_status.unknown':
+          'അറിയാത്ത വീണ്ടെടുക്കൽ ചുമതല നില',
+      'med03.alert_recovery.sla_status.active': 'സജീവം',
+      'med03.alert_recovery.sla_status.completed': 'പൂർത്തിയായി',
+      'med03.alert_recovery.sla_status.breached': 'സമയപരിധി ലംഘിച്ചു',
+      'med03.alert_recovery.sla_status.escalated': 'ഉയർന്ന തലത്തിലേക്ക് അയച്ചു',
+      'med03.alert_recovery.sla_status.cancelled': 'റദ്ദാക്കി',
+      'med03.alert_recovery.sla_status.unknown': 'അറിയാത്ത സേവന സമയനില',
+      'med03.alert_recovery.failure.order_mar_schedule':
+          'മരുന്ന് ഓർഡർ MAR ഷെഡ്യൂളിംഗ് പരാജയപ്പെട്ടു',
+      'med03.alert_recovery.failure.order_mar_carryover':
+          'മരുന്ന് ഓർഡർ MAR കാരിയോവർ പരാജയപ്പെട്ടു',
+      'med03.alert_recovery.failure.icu_mar_carryover_query':
+          'ഐസിയു MAR കാരിയോവർ ഉറവിട തിരച്ചിൽ പരാജയപ്പെട്ടു',
+      'med03.alert_recovery.failure.unknown':
+          'അറിയാത്ത ക്ലിനിക്കൽ അലർട്ട് ഡെലിവറി പരാജയം',
+      'med03.alert_recovery.resolution.recovered':
+          'അലർട്ട് ഡെലിവറി വീണ്ടെടുത്തു',
+      'med03.alert_recovery.resolution.manual_hold':
+          'നിയന്ത്രിത മാനുവൽ ഹോൾഡിലേക്ക് മാറ്റി',
+      'med03.alert_recovery.resolution.superseded':
+          'ആധികാരിക ഉറവിടത്തിൽ നിന്ന് മാറ്റിസ്ഥാപിച്ചു',
+      'med03.alert_recovery.resolution.unknown':
+          'അറിയാത്ത വീണ്ടെടുക്കൽ പരിഹാരം',
+      'med03.alert_recovery.error.no_active_clinical_recipients':
+          'സജീവമായ നിയന്ത്രിത ക്ലിനിക്കൽ സ്വീകർത്താവ് ഇപ്പോൾ ലഭ്യമല്ല.',
+      'med03.alert_recovery.error.clinical_alert_recovery_queue_failed':
+          'നിയന്ത്രിത അലർട്ട് ക്യൂവിന് ഡെലിവറി തെളിവ് സൂക്ഷിക്കാനായില്ല.',
+      'med03.alert_recovery.error.clinical_alert_obligation_intent_invalid': 'സൂക്ഷിച്ച അലർട്ട് ഉദ്ദേശ്യം ലഭ്യമല്ല അല്ലെങ്കിൽ അസാധുവാണ്. പകരം അലർട്ട് അയച്ചിട്ടില്ല.',
+      'med03.alert_recovery.error.clinical_alert_obligation_policy_invalid': 'സൂക്ഷിച്ച സ്വീകർത്തൃ നയം നിയന്ത്രിത ഡ്യൂട്ടി-ഡോക്ടർ നയം അല്ല. പകരം അലർട്ട് അയച്ചിട്ടില്ല.',
+      'med03.alert_recovery.error.clinical_alert_obligation_source_missing':
+          'ആധികാരിക ഉറവിട ക്ലിനിക്കൽ രേഖ ലഭ്യമല്ല. പകരം അലർട്ട് അയച്ചിട്ടില്ല.',
+      'med03.alert_recovery.error.clinical_alert_obligation_source_mismatch': 'സൂക്ഷിച്ച അലർട്ട് അതിന്റെ ആധികാരിക ഉറവിടവുമായി പൊരുത്തപ്പെടുന്നില്ല. പകരം അലർട്ട് അയച്ചിട്ടില്ല.',
+      'med03.alert_recovery.error.unknown': 'വീണ്ടെടുക്കൽ പിശക് തിരിച്ചറിയാനായില്ല. നടപടിക്ക് മുമ്പ് ആധികാരിക തെളിവ് പരിശോധിക്കുക.',
+      'med03.notification.clinical_alert_recovery.overdue_title':
+          'ക്ലിനിക്കൽ അലർട്ട് ഡെലിവറി വീണ്ടെടുക്കൽ സമയപരിധി കഴിഞ്ഞു',
+      'med03.notification.clinical_alert_recovery.overdue_body': 'ഒരു അലർട്ട് ഡെലിവറി വീണ്ടെടുക്കൽ കേസ് സേവന സമയം കടന്നിരിക്കുന്നു; അഡ്മിനിസ്ട്രേറ്റർ നടപടി ആവശ്യമാണ്.',
+      'med03.notification.clinical_alert_recovery.action':
+          'അലർട്ട് ഡെലിവറി വീണ്ടെടുക്കൽ തുറക്കുക',
       'staff_teleconsult.title': 'വീഡിയോ കൺസൾട്ട്',
       'staff_teleconsult.connecting':
           'വീഡിയോ കൺസൾട്ടിലേക്ക് കണക്റ്റ് ചെയ്യുന്നു...',
@@ -34792,6 +39020,26 @@ class AppStrings {
       'orders.discontinued_toast': 'ഓർഡർ നിർത്തി',
       'orders.cancelled_toast': 'ഓർഡർ റദ്ദാക്കി',
       'orders.stop_failed_prefix': 'ഓർഡർ നിർത്താനായില്ല:',
+      // REVIEW: AI first-pass; Malayalam-fluent clinical review required
+      'orders.mar_recovery.action': 'MAR ശരിയാക്കുക',
+      'orders.mar_recovery.required': 'ഈ മരുന്ന് ഓർഡറിന് MAR ഡോസുകൾ ഷെഡ്യൂൾ ചെയ്തിട്ടില്ല. മരുന്ന് നിർദേശിക്കാനുള്ള അധികാരമുള്ള ഡോക്ടർ ഷെഡ്യൂൾ ശരിയാക്കുകയോ ഓർഡർ നിർത്തി ശരിയായ ഓർഡർ നൽകുകയോ വേണം.',
+      'orders.mar_recovery.success':
+          'MAR ഷെഡ്യൂൾ പൊരുത്തപ്പെടുത്തി ({count} ഡോസുകൾ).',
+      'orders.mar_recovery.failed': 'MAR ഷെഡ്യൂൾ ശരിയാക്കാനായില്ല: {error}',
+      'orders.icu_mar_review.banner': 'ICU പ്രവേശനം #{admissionId}-നുള്ള മരുന്ന് തുടർച്ച അവലോകനം ചെയ്യണം. ഓർഡറുകളും MAR തുടർച്ചയും പരിശോധിക്കുക; ഈ അറിയിപ്പ് ക്ലിനിക്കൽ ഡാറ്റ മാറ്റുന്നില്ല.',
+      'admission.required': 'നിർബന്ധമാണ്',
+      'drug_chart.column.drug': 'മരുന്ന്',
+      's4.dynamic.order_sets.duration_days': '× {days} ദിവസം',
+      's4.dynamic.order_sets.via_route': '{route} വഴി',
+      's4.lib.drug_chart.catalog_selection_required': 'സേവ് ചെയ്യുന്നതിന് മുമ്പ് അംഗീകൃത മരുന്ന് കാറ്റലോഗിൽ നിന്ന് ഒരു മരുന്ന് തിരഞ്ഞെടുക്കുക.',
+      's4.lib.drug_chart.catalog_unavailable': 'മരുന്ന് കാറ്റലോഗ് ലഭ്യമല്ല. ഈ ഓർഡർ സൃഷ്ടിക്കുന്നതിന് മുമ്പ് വീണ്ടും ശ്രമിക്കുക.',
+      's4.lib.order_sets.no_order_sets': 'ഓർഡർ സെറ്റുകളൊന്നുമില്ല',
+      's4.lib.order_sets.order_sets': 'ഓർഡർ സെറ്റുകൾ',
+      's4.lib.order_sets.search_pneumonia_sepsis':
+          'തിരയുക (ന്യൂമോണിയ, സെപ്സിസ്, …)',
+      's4.lib.pharmacy.metric_unit': 'യൂണിറ്റ്',
+      's4.lib.pharmacy.quantity': 'അളവ്',
+      's4.lib.prescriptions.type_drug_name': 'മരുന്നിന്റെ പേര് ടൈപ്പ് ചെയ്യുക',
       'composer.title': 'പുതിയ ഓർഡറുകൾ',
       'composer.search_label': 'ഓർഡർ കാറ്റലോഗിൽ തിരയുക',
       'composer.search_hint': 'മരുന്നുകളും പരിശോധനകളും തിരയുക...',
@@ -34825,10 +39073,12 @@ class AppStrings {
       'composer.add_to_basket': 'ബാസ്കറ്റിൽ ചേർക്കുക',
       'composer.duration_days': 'കാലയളവ് (ദിവസം)',
       'composer.study_name': 'സ്റ്റഡി',
-      'composer.study_hint': 'Chest X-ray PA, CT Brain plain...',
+      'composer.study_hint':
+          'ചെസ്റ്റ് എക്സ്-റേ PA, കോൺട്രാസ്റ്റ് ഇല്ലാത്ത CT ബ്രെയിൻ...',
       'composer.specialty': 'സ്പെഷ്യാലിറ്റി',
-      'composer.specialty_hint': 'Cardiology, Nephrology...',
-      'composer.diet_hint': 'Diabetic diet, NPO, soft diet...',
+      'composer.specialty_hint': 'ഹൃദ്രോഗവിഭാഗം, വൃക്കരോഗവിഭാഗം...',
+      'composer.diet_hint':
+          'പ്രമേഹ ഭക്ഷണക്രമം, വായിലൂടെ ഒന്നുമില്ല (NPO), മൃദുവായ ഭക്ഷണം...',
       'order_sets.no_placeable_items':
           'നൽകാവുന്ന ഓർഡർ ഇനങ്ങൾ തിരഞ്ഞെടുത്തിട്ടില്ല',
       'order_sets.apply_failed': 'പ്രയോഗിക്കാനായില്ല',
@@ -34917,6 +39167,30 @@ class AppStrings {
       'due_meds.held_badge': 'നിർത്തിവച്ചു',
       'due_meds.unknown_patient': 'അജ്ഞാത രോഗി',
       'due_meds.unnamed_medication': '(പേരില്ലാത്ത മരുന്ന്)',
+      // REVIEW: MED-03 ml AI first pass; Malayalam-fluent clinician-linguist approval is required before activation.
+      'due_meds.filter.all_wards': 'എല്ലാ വാർഡുകളും',
+      'due_meds.filter.all_routes': 'മരുന്ന് നൽകുന്ന എല്ലാ മാർഗങ്ങളും',
+      'due_meds.filter.route_label': 'മരുന്ന് നൽകുന്ന മാർഗം',
+      's4.dynamic.due_meds.ward_fallback': 'വാർഡ് {value}',
+      'due_meds.unscheduled': 'ഷെഡ്യൂൾ ചെയ്തിട്ടില്ല',
+      's4.dynamic.due_meds.due_late': '{value} വൈകി',
+      's4.dynamic.due_meds.due_in': '{value} കഴിഞ്ഞ്',
+      'due_meds.actions.label': 'മരുന്ന് നടപടികൾ',
+      'due_meds.actions.miss': 'ഡോസ് നൽകാതെ പോയതായി രേഖപ്പെടുത്തുക',
+      'due_meds.actions.hold': 'ഡോസ് നിർത്തിവയ്ക്കുക',
+      'due_meds.actions.miss_title': 'ഈ ഡോസ് നൽകാതെ പോയതായി രേഖപ്പെടുത്തണോ?',
+      'due_meds.actions.hold_title': 'ഈ ഡോസ് നിർത്തിവയ്ക്കണോ?',
+      'due_meds.actions.miss_body': 'ഷെഡ്യൂൾ ചെയ്ത ഡോസ് നൽകാതിരുന്നപ്പോൾ മാത്രം ഉപയോഗിക്കുക. ക്ലിനിക്കൽ കാരണം MAR രേഖയുടെ ഭാഗമാകും.',
+      'due_meds.actions.hold_body': 'ക്ലിനിക്കൽ പുനഃപരിശോധന വരെ ഷെഡ്യൂൾ ചെയ്ത ഡോസ് താൽക്കാലികമായി നിർത്താൻ മാത്രം ഉപയോഗിക്കുക. ഇത് മരുന്ന് നൽകിയതായി രേഖപ്പെടുത്തില്ല.',
+      'due_meds.actions.reason_label': 'ക്ലിനിക്കൽ കാരണം',
+      'due_meds.actions.reason_hint': 'കുറഞ്ഞത് 5 അക്ഷരങ്ങൾ നൽകുക',
+      'due_meds.actions.reason_required':
+          'വ്യക്തമായ ക്ലിനിക്കൽ കാരണം നൽകുക (കുറഞ്ഞത് 5 അക്ഷരങ്ങൾ).',
+      'due_meds.actions.cancel': 'റദ്ദാക്കുക',
+      'due_meds.actions.confirm_miss': 'നൽകാതെ പോയ ഡോസ് രേഖപ്പെടുത്തുക',
+      'due_meds.actions.confirm_hold': 'നിർത്തിവയ്ക്കുക',
+      'due_meds.actions.miss_success': 'നൽകാതെ പോയ ഡോസ് രേഖപ്പെടുത്തി',
+      'due_meds.actions.hold_success': 'ഡോസ് നിർത്തിവച്ചു',
       'mar_scan.title': 'മരുന്ന് നൽകൽ',
       'role.feature.patient_transport': 'രോഗി ഗതാഗതം',
       'role.feature.scheduling_workbench': 'ഷെഡ്യൂളിംഗ്',
@@ -35061,6 +39335,473 @@ class AppStrings {
       'mar_scan.scan_again': 'വീണ്ടും സ്കാൻ ചെയ്യുക',
       'mar_scan.try_again': 'വീണ്ടും ശ്രമിക്കുക',
       'mar_scan.unknown_medication': '(അജ്ഞാത മരുന്ന്)',
+      'mar_scan.hardstop.title': 'മരുന്ന് നൽകാനാകില്ല — വീണ്ടും സ്കാൻ ചെയ്യണം',
+      'mar_scan.hardstop.patient': 'സ്കാൻ ചെയ്ത റിസ്റ്റ്ബാൻഡ് ഈ ഓർഡറിലെ രോഗിയുമായി പൊരുത്തപ്പെടുന്നില്ല.',
+      'mar_scan.hardstop.drug':
+          'സ്കാൻ ചെയ്ത ബാർകോഡ് ഓർഡർ ചെയ്ത മരുന്നുമായി പൊരുത്തപ്പെടുന്നില്ല.',
+      'mar_scan.hardstop.body': 'രോഗിയുടെയോ മരുന്നിന്റെയോ തിരിച്ചറിയൽ പൊരുത്തക്കേട് ഓവർറൈഡ് ചെയ്യാനാകില്ല. ശരിയായ രോഗിയും മരുന്നുമാണെന്ന് ഉറപ്പാക്കി വീണ്ടും സ്കാൻ ചെയ്യുക.',
+      'medication_supply.unit.tablet': 'ഗുളിക',
+      'medication_supply.unit.capsule': 'ക്യാപ്സ്യൂൾ',
+      'medication_supply.unit.ampoule': 'ആംപ്യൂൾ',
+      'medication_supply.unit.vial': 'വയൽ',
+      'medication_supply.unit.bag': 'ബാഗ്',
+      'medication_supply.unit.prefilled_syringe': 'മുൻകൂട്ടി നിറച്ച സിറിഞ്ച്',
+      'medication_supply.unit.cartridge': 'കാർട്രിഡ്ജ്',
+      'medication_supply.unit.ml': 'മില്ലിലിറ്റർ',
+      'medication_supply.unit.dose': 'ഡോസ്',
+      'medication_supply.unit.patch': 'പാച്ച്',
+      'medication_supply.unit.actuation': 'ഒരു പഫ്',
+      'medication_supply.unit.spray': 'സ്പ്രേ',
+      'medication_supply.unit.application': 'പ്രയോഗം',
+      'medication_supply.unit.bottle': 'കുപ്പി',
+      'medication_supply.unit.tube': 'ട്യൂബ്',
+      'medication_supply.unit.sachet': 'സാഷെ',
+      'medication_supply.unit.suppository': 'സപ്പോസിറ്ററി',
+      'medication_supply.unit.drop': 'തുള്ളി',
+      'medication_supply.unit.kit': 'കിറ്റ്',
+      'medication_supply.unit.each': 'ഓരോന്ന്',
+      // REVIEW: MED-03 AI first pass - confirm medication custody wording with a Malayalam-fluent clinician.
+      'mar_scan.supply.title': 'വാർഡ് മരുന്ന് വിതരണ തെളിവ്',
+      'mar_scan.supply.status.available': 'കൃത്യമായ വാർഡ് കസ്റ്റഡി ലഭ്യമാണ്',
+      'mar_scan.supply.status.quantity_required':
+          'ഘടനാബദ്ധമായ ഡോസ് അളവ് ആവശ്യമാണ്',
+      'mar_scan.supply.status.custody_unavailable': 'വാർഡ് കസ്റ്റഡി ലഭ്യമല്ല',
+      'mar_scan.supply.status.substitution_acknowledgement_required':
+          'പകരം മരുന്ന് സ്വീകരിച്ചതിന്റെ സ്ഥിരീകരണം ആവശ്യമാണ്',
+      'mar_scan.supply.status.order_link_required':
+          'മരുന്ന് ഓർഡർ ലിങ്ക് ആവശ്യമാണ്',
+      'mar_scan.supply.status.ward_item_required':
+          'വാർഡ് ഇൻഡന്റ് ലിങ്ക് ആവശ്യമാണ്',
+      'mar_scan.supply.status.ward_item_ambiguous':
+          'വാർഡ് ഇൻഡന്റ് ലിങ്ക് വ്യക്തമല്ല',
+      'mar_scan.supply.status.reconciliation_required':
+          'വിതരണ റീകൺസിലിയേഷൻ ആവശ്യമാണ്',
+      'mar_scan.supply.status.batch_unavailable': 'അനുവദിച്ച ബാച്ച് ലഭ്യമല്ല; ഫാർമസി അത് മാറ്റുകയോ റീകൺസൈൽ ചെയ്യുകയോ വേണം',
+      'mar_scan.supply.status.unknown': 'വിതരണ നില ലഭ്യമല്ല',
+      'mar_scan.supply.available_quantity': 'ലഭ്യമായ അളവ്: {quantity}',
+      'mar_scan.supply.required_quantity': 'ആവശ്യമായ ഡോസ് അളവ്: {quantity}',
+      'mar_scan.supply.batch_line':
+          '{name} · ബാച്ച് {batch} · ലഭ്യം {quantity}',
+      'mar_scan.supply.blocked':
+          'ഫാർമസി-വാർഡ് വിതരണ തെളിവ് ശരിയാക്കുന്നതുവരെ മരുന്ന് നൽകരുത്.',
+      'mar_scan.supply.quantity_label': 'ഘടനാബദ്ധമായ ഡോസ് അളവ്',
+      'mar_scan.supply.override_reason_label':
+          'വിതരണ ഓവർറൈഡിന്റെ കാരണം (നിർബന്ധം)',
+      'mar_scan.supply.override_warning': 'ഓവർറൈഡ് ഒരു പേരിട്ട റീകൺസിലിയേഷൻ ജോലിയും മാറ്റാനാകാത്ത തെളിവും സൃഷ്ടിക്കും.',
+      'mar_scan.supply.quantity_error':
+          'പൂജ്യത്തേക്കാൾ കൂടുതലുള്ള ഘടനാബദ്ധമായ ഡോസ് അളവ് നൽകുക.',
+      'mar_scan.supply.override_error': 'അർത്ഥവത്തായ വിതരണ ഓവർറൈഡ് കാരണം രേഖപ്പെടുത്തുക (കുറഞ്ഞത് 15 അക്ഷരങ്ങൾ).',
+      'mar_scan.supply.hard_stop_error': 'വിതരണ തെളിവ് അപൂർണ്ണമോ വ്യക്തമല്ലാത്തതോ ആണ്. മരുന്ന് നൽകുന്നതിന് മുമ്പ് റീകൺസൈൽ ചെയ്യുക.',
+      // REVIEW: MED-03 ml technical parity for the counter-sale workflow; Malayalam-fluent pharmacy review is required before activation.
+      's4.lib.counter_sale.title': 'കൗണ്ടർ വിൽപ്പന',
+      's4.lib.counter_sale.open': 'കൗണ്ടർ വിൽപ്പന',
+      's4.lib.counter_sale.sell_tab': 'വിൽക്കുക',
+      's4.lib.counter_sale.recent_tab': 'സമീപകാല വിൽപ്പനകൾ',
+      's4.lib.counter_sale.search_hint': 'ഇനങ്ങൾ തിരയുക (പേര് / SKU / ജനറിക്)',
+      's4.lib.counter_sale.in_stock': 'സ്റ്റോക്കിൽ {count}',
+      's4.lib.counter_sale.out_of_stock': 'സ്റ്റോക്കില്ല',
+      's4.lib.counter_sale.batch_line': 'ബാച്ച് {batch} · കാലാവധി {expiry}',
+      's4.lib.counter_sale.cart_empty':
+          'കാർട്ട് ശൂന്യമാണ് — വിൽക്കാനുള്ള ഇനങ്ങൾ തിരഞ്ഞ് ചേർക്കുക',
+      's4.lib.counter_sale.quantity': 'അളവ്',
+      's4.lib.counter_sale.walk_in': 'നേരിട്ടെത്തിയ ഉപഭോക്താവ്',
+      's4.lib.counter_sale.registered_patient': 'രജിസ്റ്റർ ചെയ്ത രോഗി',
+      's4.lib.counter_sale.customer_name': 'ഉപഭോക്താവിന്റെ പേര്',
+      's4.lib.counter_sale.customer_phone': 'ഉപഭോക്താവിന്റെ ഫോൺ (ഐച്ഛികം)',
+      's4.lib.counter_sale.patient_uid': 'രോഗിയുടെ UID',
+      's4.lib.counter_sale.rx_section':
+          'കുറിപ്പടി (Schedule H/H1/X-ന് നിർബന്ധം)',
+      's4.lib.counter_sale.witness_section':
+          'സാക്ഷി (Schedule X / നാർക്കോട്ടിക്കിന് നിർബന്ധം)',
+      's4.lib.counter_sale.witness_two_person_hint': 'ഈ കൃത്യമായ വിൽപ്പനയ്ക്ക് അംഗീകാരം അഭ്യർത്ഥിക്കുക, തുടർന്ന് അവലോകനം ചെയ്ത് സൈൻ ഇൻ ചെയ്യാൻ യോഗ്യതയുള്ള രണ്ടാമത്തെ ജീവനക്കാരന് ഉപകരണം കൈമാറുക.',
+      's4.lib.counter_sale.witness_request': 'സാക്ഷി അംഗീകാരം അഭ്യർത്ഥിക്കുക',
+      's4.lib.counter_sale.witness_approve': 'അവലോകനം ചെയ്ത് അംഗീകരിക്കുക',
+      's4.lib.counter_sale.witness_auth_title': 'സ്വതന്ത്ര സാക്ഷിയുടെ സൈൻ-ഇൻ',
+      's4.lib.counter_sale.witness_review_hint': 'നിങ്ങളുടെ സ്വന്തം ജീവനക്കാരൻ ക്രെഡൻഷ്യലുകൾ നൽകുന്നതിന് മുമ്പ് ഈ മരുന്നുകളും അളവുകളും സ്ഥിരീകരിക്കുക:',
+      's4.lib.counter_sale.witness_employee_id': 'സാക്ഷിയുടെ ജീവനക്കാരൻ ID',
+      's4.lib.counter_sale.witness_password': 'സാക്ഷിയുടെ പാസ്‌വേഡ്',
+      's4.lib.counter_sale.witness_not_requested':
+          'അംഗീകാരം അഭ്യർത്ഥിച്ചിട്ടില്ല',
+      's4.lib.counter_sale.witness_pending':
+          'സാക്ഷിയുടെ സൈൻ-ഇൻ കാത്തിരിക്കുന്നു',
+      's4.lib.counter_sale.witness_approved': 'സാക്ഷി അംഗീകാരം രേഖപ്പെടുത്തി',
+      's4.lib.counter_sale.witness_approved_by': '{name} അംഗീകരിച്ചു',
+      's4.lib.counter_sale.witness_canonical_staff':
+          'സ്ഥിരീകരിച്ച ജീവനക്കാരൻ സാക്ഷി',
+      's4.lib.counter_sale.witness_required': 'ഈ വിൽപ്പന സമർപ്പിക്കുന്നതിന് മുമ്പ് അംഗീകരിച്ച രണ്ടാമത്തെ ജീവനക്കാരൻ സാക്ഷി നിർബന്ധമാണ്.',
+      's4.lib.counter_sale.witness_expired': 'സാക്ഷി അംഗീകാരത്തിന്റെ കാലാവധി കഴിഞ്ഞു. പുതിയ അംഗീകാരം അഭ്യർത്ഥിക്കുക.',
+      's4.lib.counter_sale.witness_used':
+          'ആ സാക്ഷി അംഗീകാരം ഇതിനകം ഉപയോഗിച്ചു. പുതിയ അംഗീകാരം അഭ്യർത്ഥിക്കുക.',
+      's4.lib.counter_sale.witness_self':
+          'വിൽപ്പനക്കാരന് സ്വന്തം നിയന്ത്രിത വിതരണത്തിന് സാക്ഷിയാകാനാവില്ല.',
+      's4.lib.counter_sale.witness_role': 'നിയന്ത്രിത മരുന്ന് വിതരണത്തിന് സാക്ഷിയാകാൻ ഈ ജീവനക്കാരൻ അക്കൗണ്ടിന് യോഗ്യതയില്ല.',
+      's4.lib.counter_sale.witness_changed':
+          'വിൽപ്പന മാറിയതിനാൽ അതിന്റെ സാക്ഷി അംഗീകാരം അസാധുവായി.',
+      's4.lib.counter_sale.witness_auth_failed': 'സാക്ഷിയുടെ പ്രാമാണീകരണമോ അംഗീകാരമോ പരാജയപ്പെട്ടു. ക്രെഡൻഷ്യലുകൾ പരിശോധിച്ച് വീണ്ടും അഭ്യർത്ഥിക്കുക.',
+      's4.lib.counter_sale.payment_mode': 'പണമടവ് രീതി',
+      's4.lib.counter_sale.payment_reference': 'പേയ്മെന്റ് റഫറൻസ് (txn id)',
+      's4.lib.counter_sale.cash_drawer_hint': 'പണമായുള്ള വിൽപ്പനയ്ക്ക് നിങ്ങളുടെ തുറന്ന ക്യാഷ്-ഡ്രോയർ സെഷൻ ആവശ്യമാണ്',
+      's4.lib.counter_sale.estimated_total':
+          'കണക്കാക്കിയ ആകെ തുക (വിൽപ്പന സമയത്തെ സെർവർ വിലകൾ)',
+      's4.lib.counter_sale.sell': 'വിറ്റ് പണം സ്വീകരിക്കുക',
+      's4.lib.counter_sale.sold': 'വിൽപ്പന പൂർത്തിയായി — ഇൻവോയ്സ് {invoice}',
+      's4.lib.counter_sale.void_action': 'റദ്ദാക്കുക',
+      's4.lib.counter_sale.void_reason': 'റദ്ദാക്കാനുള്ള കാരണം',
+      's4.lib.counter_sale.no_recent': 'ഇന്ന് ഇതുവരെ കൗണ്ടർ വിൽപ്പനകളില്ല',
+      // REVIEW: MED-03 ml technical parity; Malayalam-fluent pharmacy and finance review is required before activation.
+      's4.lib.counter_sale.facility_id': 'വിതരണ കേന്ദ്രം',
+      's4.lib.counter_sale.facility_hint': 'നിങ്ങൾക്ക് സജീവമായ ഫാർമസി അനുമതിയുള്ള കേന്ദ്രങ്ങളിൽ ഒന്ന് തിരഞ്ഞെടുക്കുക. കാർട്ടിൽ ഇനങ്ങളുള്ളപ്പോൾ ഇത് മാറ്റാനാകില്ല.',
+      's4.lib.counter_sale.facility_required': 'തിരയുന്നതിനോ വിൽക്കുന്നതിനോ മുമ്പ് കൃത്യമായ വിതരണ കേന്ദ്രം തിരഞ്ഞെടുക്കുക.',
+      's4.lib.counter_sale.facility_none': 'നിങ്ങൾക്ക് സജീവമായ ഫാർമസി കേന്ദ്ര അനുമതിയില്ല. തിരയുന്നതിനോ വിൽക്കുന്നതിനോ മുമ്പ് ടെനന്റ് അഡ്മിനിസ്ട്രേറ്റർ ഒന്ന് അനുവദിക്കണം.',
+      's4.lib.counter_sale.scheduled_patient_required':
+          'ഷെഡ്യൂൾ മരുന്നുകൾക്ക് രജിസ്റ്റർ ചെയ്ത രോഗിയുടെ UID നിർബന്ധമാണ്.',
+      's4.lib.counter_sale.rx_prescription_id': 'ഒപ്പിട്ട ഇ-പ്രിസ്ക്രിപ്ഷൻ ഐഡി',
+      's4.lib.counter_sale.rx_line_index':
+          '{medicine} · eRx വരി സൂചിക (പൂജ്യം അടിസ്ഥാനമാക്കി)',
+      's4.lib.counter_sale.rx_exact_mapping_hint': 'ഒപ്പിട്ട ഇ-പ്രിസ്ക്രിപ്ഷൻ ഐഡി നൽകി ഓരോ ഷെഡ്യൂൾ മരുന്നും അതിന്റെ കൃത്യമായ പൂജ്യം-അടിസ്ഥാന eRx വരിയുമായി മാപ്പ് ചെയ്യുക.',
+      's4.lib.counter_sale.rx_mapping_required': 'ഓരോ ഷെഡ്യൂൾ മരുന്നും അതിന്റെ കൃത്യമായ ഒപ്പിട്ട ഇ-പ്രിസ്ക്രിപ്ഷൻ വരിയുമായി മാപ്പ് ചെയ്യുക.',
+      's4.lib.counter_sale.original_payment_reference':
+          'യഥാർത്ഥ പേയ്മെന്റ് റഫറൻസ്',
+      's4.lib.counter_sale.original_payment_reference_value':
+          'യഥാർത്ഥ റഫറൻസ് {reference}',
+      's4.lib.counter_sale.payment_reference_required': 'പണം അല്ലാത്ത ഓരോ വിൽപ്പനയ്ക്കും യഥാർത്ഥ പേയ്മെന്റ് റഫറൻസ് ആവശ്യമാണ്.',
+      's4.lib.counter_sale.legacy_payment_reference_missing': 'യഥാർത്ഥ ഇലക്ട്രോണിക് പേയ്മെന്റ് തെളിവ് ലഭ്യമല്ല. ഈ പഴയ വിൽപ്പന റദ്ദാക്കാൻ തയ്യാറല്ല; ആദ്യം ഫിനാൻസ് പേയ്മെന്റ് റഫറൻസ് പരിഹരിക്കണം.',
+      's4.lib.counter_sale.status.in_progress': 'പുരോഗതിയിൽ',
+      's4.lib.counter_sale.status.completed': 'പൂർത്തിയായി',
+      's4.lib.counter_sale.status.void_pending_refund':
+          'റീഫണ്ട് തീർപ്പാകാത്തത്',
+      's4.lib.counter_sale.status.voided': 'റദ്ദാക്കി',
+      's4.lib.counter_sale.status.failed': 'പരാജയപ്പെട്ടു',
+      's4.lib.counter_sale.status.unknown': 'അജ്ഞാത വിൽപ്പന നില',
+      's4.lib.counter_sale.workflow_status.not_requested':
+          'റദ്ദാക്കൽ അഭ്യർത്ഥിച്ചിട്ടില്ല',
+      's4.lib.counter_sale.workflow_status.awaiting_finance_approval':
+          'സ്വതന്ത്ര ഫിനാൻസ് അംഗീകാരം കാത്തിരിക്കുന്നു',
+      's4.lib.counter_sale.workflow_status.awaiting_finance_payout':
+          'അംഗീകരിച്ചു; ഫിനാൻസ് പേഔട്ട് തീർപ്പാകാത്തത്',
+      's4.lib.counter_sale.workflow_status.awaiting_gateway_payout':
+          'പ്രൊവൈഡർ റീഫണ്ട് ആരംഭിക്കൽ തീർപ്പാകാത്തത്',
+      's4.lib.counter_sale.workflow_status.awaiting_gateway_evidence':
+          'സ്ഥിരീകരിച്ച പ്രൊവൈഡർ തെളിവ് കാത്തിരിക്കുന്നു',
+      's4.lib.counter_sale.workflow_status.awaiting_payout_evidence':
+          'നിയന്ത്രിത പേഔട്ട് തെളിവ് കാത്തിരിക്കുന്നു',
+      's4.lib.counter_sale.workflow_status.ready_to_reconcile':
+          'റീഫണ്ട് നൽകി; കൃത്യമായ സ്റ്റോക്ക് റീകൺസിലിയേഷൻ തയ്യാറാണ്',
+      's4.lib.counter_sale.workflow_status.refund_rejected':
+          'റീഫണ്ട് നിരസിച്ചു; ഫാർമസി സ്റ്റോക്ക് തിരികെ ചേർക്കരുത്',
+      's4.lib.counter_sale.workflow_status.refund_rejected_review': 'റീഫണ്ട് നിരസിച്ചു; ഉപഭോക്താവിന് കൈമാറിയത് സ്ഥിരീകരിക്കുക അല്ലെങ്കിൽ അവലോകനത്തിലേക്ക് അയയ്ക്കുക',
+      's4.lib.counter_sale.workflow_status.voided':
+          'റീഫണ്ടും കൃത്യമായ സ്റ്റോക്ക് റീകൺസിലിയേഷനും പൂർത്തിയായി',
+      's4.lib.counter_sale.workflow_status.cancelled_handover_confirmed': 'ഉപഭോക്താവിന് കൈമാറിയത് സ്ഥിരീകരിച്ചതിനാൽ റദ്ദാക്കൽ അവസാനിച്ചു; റീഫണ്ടോ സ്റ്റോക്ക് തിരിച്ചുചേർക്കലോ നടന്നില്ല',
+      's4.lib.counter_sale.workflow_status.pending_review':
+          'റദ്ദാക്കലിന് ഫിനാൻസ് അവലോകനം വേണം',
+      's4.lib.counter_sale.workflow_status.unknown':
+          'അജ്ഞാത റദ്ദാക്കൽ വർക്ക്ഫ്ലോ നില',
+      's4.lib.counter_sale.refund_status.pending': 'അംഗീകാരം തീർപ്പാകാത്തത്',
+      's4.lib.counter_sale.refund_status.approved': 'അംഗീകരിച്ചു',
+      's4.lib.counter_sale.refund_status.paid': 'പണം നൽകി',
+      's4.lib.counter_sale.refund_status.rejected': 'നിരസിച്ചു',
+      's4.lib.counter_sale.refund_status.unknown': 'അജ്ഞാത റീഫണ്ട് നില',
+      's4.lib.counter_sale.void_readiness.ready':
+          'അതേ ദിവസത്തെ സംരക്ഷിത റദ്ദാക്കൽ അഭ്യർത്ഥനയ്ക്ക് തയ്യാറാണ്',
+      's4.lib.counter_sale.void_readiness.original_payment_reference_missing': 'യഥാർത്ഥ ഇലക്ട്രോണിക് പേയ്മെന്റ് തെളിവ് ലഭ്യമല്ല. റദ്ദാക്കൽ അഭ്യർത്ഥിക്കുന്നതിന് മുമ്പ് ഫിനാൻസ് പേയ്മെന്റ് റഫറൻസ് പരിഹരിക്കണം.',
+      's4.lib.counter_sale.void_readiness.outside_same_day_window': 'അതേ ദിവസത്തെ റദ്ദാക്കൽ സമയം കഴിഞ്ഞു. നിയന്ത്രിത റിട്ടേൺ അല്ലെങ്കിൽ അഡ്ജസ്റ്റ്മെന്റ് വർക്ക്ഫ്ലോ ഉപയോഗിക്കുക.',
+      's4.lib.counter_sale.void_readiness.pending_refund': 'ഒരു സംരക്ഷിത റദ്ദാക്കലും റീഫണ്ട് ബാധ്യതയും ഇതിനകം തീർപ്പാകാതെ തുടരുന്നു.',
+      's4.lib.counter_sale.void_readiness.voided':
+          'ഈ വിൽപ്പന ഇതിനകം റദ്ദാക്കി റീകൺസൈൽ ചെയ്തു.',
+      's4.lib.counter_sale.void_readiness.not_completed': 'പൂർത്തിയായ വിൽപ്പനയ്ക്ക് മാത്രമേ റദ്ദാക്കൽ വർക്ക്ഫ്ലോയിൽ പ്രവേശിക്കാനാകൂ.',
+      's4.lib.counter_sale.void_readiness.unknown': 'ആധികാരിക റദ്ദാക്കൽ തയ്യാറെടുപ്പ് ലഭ്യമല്ല. നടപടി എടുക്കുന്നതിന് മുമ്പ് പുതുക്കുക.',
+      's4.lib.counter_sale.retry_sale': 'സംരക്ഷിത വിൽപ്പന വീണ്ടും ശ്രമിക്കുക',
+      's4.lib.counter_sale.sale_response_unconfirmed': 'വിൽപ്പന പ്രതികരണം സ്ഥിരീകരിച്ചിട്ടില്ല. മറ്റൊരിടത്ത് രേഖപ്പെടുത്തരുത്; അതേ സംരക്ഷിത ശ്രമം ഉപയോഗിക്കാൻ ഇവിടെ വീണ്ടും ശ്രമിക്കുക.',
+      's4.lib.counter_sale.sale_changed_title': 'മറ്റൊരു വിൽപ്പന ആരംഭിക്കണോ?',
+      's4.lib.counter_sale.sale_changed_body': 'മുമ്പത്തെ വിൽപ്പനയുടെ ഫലം ഇപ്പോഴും അജ്ഞാതമാണ്. മാറ്റിയ വിവരങ്ങൾക്ക് പുതിയ സംരക്ഷിത ശ്രമം വേണം; ആദ്യത്തേത് പൂർത്തിയായിട്ടുണ്ടെങ്കിൽ രണ്ടാമത്തെ വിൽപ്പന ഉണ്ടാകാം. ആദ്യം സമീപകാല വിൽപ്പന പരിശോധിക്കുക.',
+      's4.lib.counter_sale.new_attempt_confirm': 'പുതിയ ശ്രമം ആരംഭിക്കുക',
+      's4.lib.counter_sale.void_nonterminal_hint': 'റദ്ദാക്കൽ അഭ്യർത്ഥന ഉടൻ റീഫണ്ടോ സ്റ്റോക്ക് തിരിച്ചുചേർക്കലോ നടത്തില്ല. ഫിനാൻസ് അംഗീകാരം, പേഔട്ട്, കൃത്യമായ ബാച്ച് റീകൺസിലിയേഷൻ എന്നിവയ്ക്കുശേഷമേ വിൽപ്പന അടയ്ക്കൂ.',
+      's4.lib.counter_sale.void_disposition': 'മരുന്നിന്റെ കസ്റ്റഡി ഫലം',
+      's4.lib.counter_sale.disposition.never_handed_over':
+          'രോഗിക്ക് ഒരിക്കലും കൈമാറിയിട്ടില്ല',
+      's4.lib.counter_sale.disposition.patient_returned':
+          'രോഗി കൈകാര്യം ചെയ്ത ശേഷം തിരികെ നൽകി',
+      's4.lib.counter_sale.disposition_required_hint': 'കൃത്യമായ കസ്റ്റഡി ഫലം തിരഞ്ഞെടുക്കുക. ഒരു ഓപ്ഷനും സ്വയം കരുതുന്നില്ല.',
+      's4.lib.counter_sale.never_handed_over_restock': 'സ്റ്റാഫിന്റെ കസ്റ്റഡിയിൽ നിന്ന് പുറത്തുപോകാത്ത മരുന്ന് മാത്രമേ റീഫണ്ടും കൃത്യമായ ബാച്ച് സ്റ്റോക്ക് തിരിച്ചുചേർക്കലും പിന്തുടരാവൂ.',
+      's4.lib.counter_sale.patient_returned_quarantine': 'രോഗി കൈകാര്യം ചെയ്ത മരുന്ന് വിൽക്കാവുന്ന സ്റ്റോക്കിലേക്ക് മടക്കാനാവില്ല. ഇവിടെ നിർത്തി ക്വാറന്റൈൻ/നശിപ്പിക്കൽ റിട്ടേൺസ് പ്രക്രിയ ഉപയോഗിക്കുക; ഈ സ്ക്രീൻ ഇതുവരെ ആ പ്രക്രിയയുമായി ബന്ധിപ്പിച്ചിട്ടില്ല.',
+      's4.lib.counter_sale.patient_returned_blocked': 'രോഗി കൈകാര്യം ചെയ്ത മരുന്ന് വിൽക്കാവുന്ന സ്റ്റോക്കിലേക്ക് റദ്ദാക്കാനാവില്ല. ക്വാറന്റൈൻ/നശിപ്പിക്കൽ റിട്ടേൺസ് പ്രക്രിയ ഉപയോഗിക്കുക.',
+      's4.lib.counter_sale.void_changed_title':
+          'അനിശ്ചിത റദ്ദാക്കൽ അഭ്യർത്ഥന മാറ്റണോ?',
+      's4.lib.counter_sale.void_changed_body': 'മുമ്പത്തെ റദ്ദാക്കൽ ഫലം അജ്ഞാതമാണ്. കാരണം അല്ലെങ്കിൽ കസ്റ്റഡി ഫലം മാറ്റുന്നത് വേറൊരു സംരക്ഷിത ശ്രമം സൃഷ്ടിക്കും. ആദ്യം നിലവിലെ വിൽപ്പന പരിശോധിക്കുക.',
+      's4.lib.counter_sale.retry_void': 'സംരക്ഷിത റദ്ദാക്കൽ വീണ്ടും ശ്രമിക്കുക',
+      's4.lib.counter_sale.void_response_unconfirmed': 'റദ്ദാക്കൽ പ്രതികരണം സ്ഥിരീകരിച്ചിട്ടില്ല. അതേ സംരക്ഷിത അഭ്യർത്ഥന ഉപയോഗിക്കാൻ ഈ വിൽപ്പനയിൽ വീണ്ടും ശ്രമിക്കുക.',
+      's4.lib.counter_sale.void_pending_refund': 'റദ്ദാക്കൽ അഭ്യർത്ഥിച്ചു. ഫിനാൻസ് അംഗീകാരവും പേഔട്ടും തീർപ്പാകാത്തതാണ്; സ്റ്റോക്ക് തിരിച്ചുചേർത്തിട്ടില്ല.',
+      's4.lib.counter_sale.void_reconciled': 'റീഫണ്ട് തെളിവ് സ്ഥിരീകരിച്ച് കൃത്യമായ സ്റ്റോക്ക് റീകൺസിലിയേഷൻ പൂർത്തിയാക്കി.',
+      's4.lib.counter_sale.void_request_reference': 'റദ്ദാക്കൽ അഭ്യർത്ഥന #{id}',
+      's4.lib.counter_sale.refund_reference': 'റീഫണ്ട് #{id}: {status}',
+      's4.lib.counter_sale.restock_pending_evidence': 'പണം നൽകിയ റീഫണ്ട് തെളിവ് സ്ഥിരീകരിക്കുന്നതുവരെ കൃത്യമായ ബാച്ച് സ്റ്റോക്ക് തിരിച്ചുചേർക്കൽ തടഞ്ഞിരിക്കും.',
+      's4.lib.counter_sale.open_finance_workflow':
+          'ഫിനാൻസ് വർക്ക്ഫ്ലോ തുറക്കുക',
+      's4.lib.counter_sale.open_reconciliation': 'റീകൺസിലിയേഷൻ തുറക്കുക',
+      's4.lib.counter_sale.reconcile_action': 'പരിശോധിച്ച് റീകൺസൈൽ ചെയ്യുക',
+      's4.lib.counter_sale.reconcile_still_pending':
+          'റീഫണ്ട് തെളിവ് തയ്യാറായിട്ടില്ല; റദ്ദാക്കൽ തീർപ്പാകാതെ തുടരും.',
+      's4.lib.counter_sale.reconcile_response_unconfirmed': 'റീകൺസിലിയേഷൻ പ്രതികരണം സ്ഥിരീകരിച്ചിട്ടില്ല. അതേ സംരക്ഷിത പരിശോധന ഉപയോഗിക്കാൻ ഇവിടെ വീണ്ടും ശ്രമിക്കുക.',
+      's4.lib.counter_sale.handover_resolution_title':
+          'ഉപഭോക്താവിന് കൈമാറിയത് സ്ഥിരീകരിക്കുക',
+      's4.lib.counter_sale.handover_resolution_warning': 'മരുന്ന് ഉപഭോക്താവിന് കൈമാറുകയും നിരസിച്ച റീഫണ്ട് കാരണം വിൽപ്പന പൂർത്തിയായ നിലയിൽ തുടരുകയും വേണമെങ്കിൽ മാത്രം ഇത് ഉപയോഗിക്കുക. ഇത് റീഫണ്ടോ സ്റ്റോക്ക് തിരിച്ചുചേർക്കലോ രേഖപ്പെടുത്തില്ല.',
+      's4.lib.counter_sale.handover_resolution_reason':
+          'കൈമാറ്റ സ്ഥിരീകരണ കാരണം',
+      's4.lib.counter_sale.handover_resolution_confirm':
+          'കൈമാറ്റം സ്ഥിരീകരിക്കുക',
+      's4.lib.counter_sale.handover_resolution_changed_title':
+          'അനിശ്ചിത കൈമാറ്റ സ്ഥിരീകരണം മാറ്റണോ?',
+      's4.lib.counter_sale.handover_resolution_changed_body': 'മുമ്പത്തെ പ്രതികരണം അജ്ഞാതമാണ്. കാരണം മാറ്റുന്നത് പുതിയ സംരക്ഷിത ശ്രമം സൃഷ്ടിക്കും. തുടരുന്നതിന് മുമ്പ് വിൽപ്പന പുതുക്കുക.',
+      's4.lib.counter_sale.handover_resolution_action':
+          'ഉപഭോക്തൃ കൈമാറ്റം സ്ഥിരീകരിക്കുക',
+      's4.lib.counter_sale.handover_resolution_retry':
+          'സംരക്ഷിത കൈമാറ്റ സ്ഥിരീകരണം വീണ്ടും ശ്രമിക്കുക',
+      's4.lib.counter_sale.handover_resolution_completed': 'ഉപഭോക്തൃ കൈമാറ്റം സ്ഥിരീകരിച്ചു. റദ്ദാക്കൽ അവസാനിച്ചു; റീഫണ്ടോ സ്റ്റോക്ക് തിരിച്ചുചേർക്കലോ നടന്നില്ല.',
+      's4.lib.counter_sale.handover_resolution_response_unconfirmed': 'കൈമാറ്റ സ്ഥിരീകരണം ആധികാരികമായി ഉറപ്പായിട്ടില്ല. അതേ സംരക്ഷിത ശ്രമം ഉപയോഗിക്കാൻ മാറ്റമില്ലാതെ വീണ്ടും ശ്രമിക്കുക.',
+      'med03.counter_sale_refund.title': 'കൗണ്ടർ വിൽപ്പന റീഫണ്ട്',
+      'med03.counter_sale_refund.access_denied':
+          'ഈ റീഫണ്ട് പ്രവർത്തനക്രമം തുറക്കാൻ നിങ്ങൾക്ക് അനുമതിയില്ല.',
+      'med03.counter_sale_refund.invalid_target': 'റീഫണ്ട് ലക്ഷ്യം സാധുവല്ല.',
+      'med03.counter_sale_refund.target_mismatch': 'റീഫണ്ടും വോയ്ഡ് അഭ്യർത്ഥനയും ഒരേ ആധികാരിക പ്രവർത്തനക്രമവുമായി പൊരുത്തപ്പെടുന്നില്ല.',
+      'med03.counter_sale_refund.load_failed': 'ആധികാരിക റീഫണ്ട് നില ലോഡ് ചെയ്യാനായില്ല. വീണ്ടും കണക്റ്റ് ചെയ്ത് ശ്രമിക്കുക.',
+      'med03.counter_sale_refund.summary': 'ആധികാരിക റീഫണ്ട്, റീകൺസിലിയേഷൻ നില',
+      'med03.counter_sale_refund.refund_id': 'റീഫണ്ട് ഐഡി',
+      'med03.counter_sale_refund.void_request_id': 'വോയ്ഡ് അഭ്യർത്ഥന ഐഡി',
+      'med03.counter_sale_refund.sale_id': 'കൗണ്ടർ വിൽപ്പന ഐഡി',
+      'med03.counter_sale_refund.amount': 'റീഫണ്ട് തുക',
+      'med03.counter_sale_refund.payment_mode': 'യഥാർത്ഥ പേയ്മെന്റ് രീതി',
+      'med03.counter_sale_refund.original_payment_reference':
+          'യഥാർത്ഥ പേയ്മെന്റ് റഫറൻസ്',
+      'med03.counter_sale_refund.approval_status': 'റീഫണ്ട് നില',
+      'med03.counter_sale_refund.workflow_status': 'പ്രവർത്തനക്രമ നില',
+      'med03.counter_sale_refund.disposition': 'മരുന്നിന്റെ കസ്റ്റഡി ഫലം',
+      'med03.counter_sale_refund.reconciliation_status':
+          'ഫാർമസി റീകൺസിലിയേഷൻ നില',
+      'med03.counter_sale_refund.payout_rail': 'പണം നൽകുന്ന മാർഗം',
+      'med03.counter_sale_refund.provider': 'പ്രൊവൈഡർ അല്ലെങ്കിൽ അക്വയറർ',
+      'med03.counter_sale_refund.provider_refund_reference':
+          'പ്രൊവൈഡർ റീഫണ്ട് റഫറൻസ്',
+      'med03.counter_sale_refund.provider_refunded_at': 'പ്രൊവൈഡർ റീഫണ്ട് സമയം',
+      'med03.counter_sale_refund.value_unknown': 'ലഭ്യമല്ല',
+      'med03.counter_sale_refund.open_reconciliation':
+          'ഫാർമസി റീകൺസിലിയേഷൻ തുറക്കുക',
+      'med03.counter_sale_refund.approval_title': 'ധനകാര്യ അംഗീകാരം',
+      'med03.counter_sale_refund.approval_ready': 'അംഗീകരിക്കുന്നതിന് മുമ്പ് കൃത്യമായ റീഫണ്ട്, വോയ്ഡ് അഭ്യർത്ഥന തെളിവുകൾ പരിശോധിക്കുക.',
+      'med03.counter_sale_refund.approval_waiting':
+          'പണം നൽകുന്നതിന് മുമ്പ് അഡ്മിനിസ്ട്രേറ്റർ ഈ റീഫണ്ട് അംഗീകരിക്കണം.',
+      'med03.counter_sale_refund.approve_action': 'റീഫണ്ട് അംഗീകരിക്കുക',
+      'med03.counter_sale_refund.confirm_title':
+          'പണത്തിന്റെ നീക്കം സ്ഥിരീകരിക്കുക',
+      'med03.counter_sale_refund.approve_confirm': 'ഈ കൃത്യമായ റീഫണ്ട് ബാധ്യത അംഗീകരിക്കണോ? പണം നൽകുന്ന വ്യക്തി വേറെയായിരിക്കണം.',
+      'med03.counter_sale_refund.manual_confirm': 'കൃത്യമായ വൗച്ചർ തെളിവോടെ ഈ കാഷ് അല്ലെങ്കിൽ മാനുവൽ ഉപകരണ പണം നൽകൽ രേഖപ്പെടുത്തണോ?',
+      'med03.counter_sale_refund.offline_electronic_confirm': 'ഈ യഥാർത്ഥ പേയ്മെന്റിനുള്ള പുറം ടെർമിനൽ അല്ലെങ്കിൽ ക്യൂആർ റീഫണ്ട് തെളിവ് രേഖപ്പെടുത്തണോ?',
+      'med03.counter_sale_refund.gateway_confirm': 'ഈ കൃത്യമായ ഗേറ്റ്‌വേ ഓർഡറിനുള്ള ഇന്റഗ്രേറ്റഡ് ഗേറ്റ്‌വേ റീഫണ്ട് ആരംഭിക്കണോ?',
+      'med03.counter_sale_refund.action_confirmed':
+          'ആധികാരിക റീഫണ്ട് നില ഈ പ്രവർത്തനം സ്ഥിരീകരിക്കുന്നു.',
+      'med03.counter_sale_refund.action_failed': 'ആധികാരിക പൂർത്തീകരണം സ്ഥിരീകരിക്കുന്നതിന് മുമ്പ് റീഫണ്ട് പ്രവർത്തനം പരാജയപ്പെട്ടു.',
+      'med03.counter_sale_refund.action_response_unconfirmed': 'ഫലം സ്ഥിരീകരിച്ചിട്ടില്ല. അതേ സംരക്ഷിത ശ്രമം ഉപയോഗിക്കാൻ മാറ്റമില്ലാത്ത പ്രവർത്തനം ഇവിടെ വീണ്ടും ശ്രമിക്കുക.',
+      'med03.counter_sale_refund.retry_same_attempt': 'മുൻ പ്രതികരണം അവ്യക്തമായിരുന്നു. സ്ഥിരമായ ഐഡംപോട്ടൻസി കീ വീണ്ടും ഉപയോഗിക്കാൻ തെളിവ് മാറ്റാതെ ഇവിടെ ശ്രമിക്കുക.',
+      'med03.counter_sale_refund.changed_attempt_title':
+          'വ്യത്യസ്ത റീഫണ്ട് ശ്രമം ആരംഭിക്കണോ?',
+      'med03.counter_sale_refund.changed_attempt_body': 'മുൻ ഫലം ഇപ്പോഴും അജ്ഞാതമാണ്. മാറ്റിയ തെളിവിന് പുതിയ സംരക്ഷിത ശ്രമം വേണം; ആദ്യ പ്രവർത്തനം പൂർത്തിയായെങ്കിൽ ഇരട്ട പണം നൽകൽ സംഭവിക്കാം.',
+      'med03.counter_sale_refund.changed_attempt_confirm':
+          'പുതിയ ശ്രമം ആരംഭിക്കുക',
+      'med03.counter_sale_refund.payer_must_differ': 'പണം നൽകുന്നയാൾ റീഫണ്ട് അംഗീകരിച്ച വ്യക്തിയിൽ നിന്ന് വ്യത്യസ്തനായിരിക്കണം.',
+      'med03.counter_sale_refund.payout_not_authorized':
+          'ഈ റീഫണ്ട് നൽകാൻ നിങ്ങളുടെ റോളിന് അനുമതിയില്ല.',
+      'med03.counter_sale_refund.payout_in_progress': '{rail} മാർഗം ഇതിനകം ഈ പണം നൽകലിന്റെ ഉടമയാണ്. തെളിവിനായി പുതുക്കുക; മറ്റൊരു മാർഗം ആരംഭിക്കരുത്.',
+      'med03.counter_sale_refund.no_authoritative_rail': 'യഥാർത്ഥ പേയ്മെന്റ് തെളിവ് ഇപ്പോൾ ഒരു പണം നൽകൽ മാർഗവും അനുവദിക്കുന്നില്ല. തുടരുന്നതിന് മുമ്പ് തെളിവ് പരിഹരിക്കുക.',
+      'med03.counter_sale_refund.rail_conflict': 'മറ്റൊരു പണം നൽകൽ മാർഗം ഈ റീഫണ്ടിന്റെ ഉടമയാണ്. ആധികാരിക നില പുതുക്കുക.',
+      'med03.counter_sale_refund.cash_drawer': 'തുറന്ന കാഷ് ഡ്രോയർ സെഷൻ',
+      'med03.counter_sale_refund.cash_drawer_option': 'ഡ്രോയർ {id} · {shift}',
+      'med03.counter_sale_refund.cash_voucher':
+          'മാറ്റാനാകാത്ത കാഷ് റീഫണ്ട് വൗച്ചർ',
+      'med03.counter_sale_refund.manual_reference':
+          'മാറ്റാനാകാത്ത പണം നൽകൽ റഫറൻസ്',
+      'med03.counter_sale_refund.record_payout': 'പണം നൽകൽ രേഖപ്പെടുത്തുക',
+      'med03.counter_sale_refund.drawer_identity_missing': 'നിങ്ങളുടെ സ്റ്റാഫ് തിരിച്ചറിയൽ ലഭ്യമല്ലാത്തതിനാൽ നിങ്ങളുടെ തുറന്ന ഡ്രോയർ തിരഞ്ഞെടുക്കാനാകില്ല.',
+      'med03.counter_sale_refund.drawer_load_failed':
+          'തുറന്ന കാഷ് ഡ്രോയർ സെഷനുകൾ ലോഡ് ചെയ്യാനായില്ല.',
+      'med03.counter_sale_refund.no_open_drawer':
+          'നിലവിലെ പണം നൽകുന്നയാളുടെ പേരിൽ തുറന്ന കാഷ് ഡ്രോയർ ഇല്ല.',
+      'med03.counter_sale_refund.cash_drawer_error': 'കാഷ് ഡ്രോയർ അല്ലെങ്കിൽ വൗച്ചർ തെളിവ് നിരസിച്ചു. വീണ്ടും ശ്രമിക്കുന്നതിന് മുമ്പ് ഡ്രോയർ നില പുതുക്കുക.',
+      'med03.counter_sale_refund.original_reference_missing': 'യഥാർത്ഥ ഇലക്ട്രോണിക് പേയ്മെന്റ് റഫറൻസ് ഇല്ല അല്ലെങ്കിൽ അവ്യക്തമാണ്. ധനകാര്യ വിഭാഗം പരിഹരിക്കുന്നതുവരെ പുറം ഇലക്ട്രോണിക് പണം നൽകൽ തടഞ്ഞിരിക്കുന്നു.',
+      'med03.counter_sale_refund.timestamp_hint':
+          'സമയമേഖലയോടുകൂടിയ ISO 8601 സമയം, ഉദാഹരണം 2026-08-28T10:30:00+05:30',
+      'med03.counter_sale_refund.record_offline_electronic':
+          'പുറം റീഫണ്ട് തെളിവ് രേഖപ്പെടുത്തുക',
+      'med03.counter_sale_refund.electronic_evidence_error': 'യഥാർത്ഥ ഇലക്ട്രോണിക് പേയ്മെന്റ് തെളിവ് ഈ പണം നൽകൽ മാർഗം അനുവദിക്കുന്നില്ല.',
+      'med03.counter_sale_refund.provider_evidence_error': 'പ്രൊവൈഡർ, റീഫണ്ട് റഫറൻസ്, റീഫണ്ട് സമയം എന്നിവ മാറ്റാനാകാത്ത പുറം തെളിവായി ആവശ്യമാണ്.',
+      'med03.counter_sale_refund.load_gateway_candidates':
+          'ഇന്റഗ്രേറ്റഡ് ഗേറ്റ്‌വേ ഓപ്ഷനുകൾ ലോഡ് ചെയ്യുക',
+      'med03.counter_sale_refund.gateway_candidates_failed':
+          'ഇന്റഗ്രേറ്റഡ് ഗേറ്റ്‌വേ ഓപ്ഷനുകൾ ലോഡ് ചെയ്യാനായില്ല.',
+      'med03.counter_sale_refund.no_gateway_candidates':
+          'ഈ റീഫണ്ടിന് കൃത്യമായി പണം നൽകിയ യോഗ്യമായ ഗേറ്റ്‌വേ ഓർഡർ ഇല്ല.',
+      'med03.counter_sale_refund.gateway_candidate': 'ഗേറ്റ്‌വേ ഓർഡർ {id}',
+      'med03.counter_sale_refund.start_gateway_refund':
+          'ഗേറ്റ്‌വേ റീഫണ്ട് ആരംഭിക്കുക',
+      'med03.counter_sale_refund.rail.manual':
+          'കാഷ് അല്ലെങ്കിൽ മാനുവൽ ഉപകരണ പണം നൽകൽ',
+      'med03.counter_sale_refund.rail.offline_electronic':
+          'പുറം ടെർമിനൽ അല്ലെങ്കിൽ ക്യൂആർ റീഫണ്ട്',
+      'med03.counter_sale_refund.rail.gateway':
+          'ഇന്റഗ്രേറ്റഡ് ഗേറ്റ്‌വേ റീഫണ്ട്',
+      'med03.counter_sale_refund.rail.unknown': 'അജ്ഞാത പണം നൽകൽ മാർഗം',
+      'med03.counter_sale_refund.workflow.awaiting_approval':
+          'ധനകാര്യ അംഗീകാരത്തിനായി കാത്തിരിക്കുന്നു',
+      'med03.counter_sale_refund.workflow.ready_for_payout':
+          'അംഗീകരിച്ചു; പണം നൽകാൻ തയ്യാറാണ്',
+      'med03.counter_sale_refund.workflow.paid':
+          'റീഫണ്ട് നൽകി; ഫാർമസി റീകൺസിലിയേഷൻ ബാക്കി',
+      'med03.counter_sale_refund.workflow.rejected': 'റീഫണ്ട് നിരസിച്ചു',
+      'med03.counter_sale_refund.workflow.refund_rejected_review':
+          'നിരസിച്ച റീഫണ്ടിന് നിയന്ത്രിത അവലോകനം ആവശ്യമാണ്',
+      'med03.counter_sale_refund.workflow.reconciliation_required':
+          'റീഫണ്ട് നൽകി; ഫാർമസി റീകൺസിലിയേഷൻ ആവശ്യമാണ്',
+      'med03.counter_sale_refund.workflow.counter_sale_void_completed':
+          'റീഫണ്ടും കൗണ്ടർ വിൽപ്പന വോയ്ഡും പൂർത്തിയായി',
+      'med03.counter_sale_refund.workflow.unknown':
+          'റീഫണ്ട് പ്രവർത്തനക്രമ നില ലഭ്യമല്ല',
+      // REVIEW: MED-03 ml AI first pass; Malayalam-fluent finance and clinical reviewers must approve this copy before activation.
+      'med03.credit_note.title': 'മരുന്ന് ക്രെഡിറ്റ് നോട്ടുകൾ',
+      'med03.credit_note.open_queue': 'ക്രെഡിറ്റ്-നോട്ട് ക്യൂ',
+      'med03.gateway_refund_reconciliation.title':
+          'ഗേറ്റ്‌വേ റീഫണ്ട് പൊരുത്തപ്പെടുത്തൽ',
+      'med03.gateway_refund_reconciliation.open_queue':
+          'ഗേറ്റ്‌വേ റീഫണ്ട് വീണ്ടെടുപ്പ് തുറക്കുക',
+      'med03.gateway_refund_reconciliation.queue':
+          'ദാതാവിന്റെ പരിശോധന ആവശ്യമായ റീഫണ്ടുകൾ',
+      'med03.gateway_refund_reconciliation.empty':
+          'ഇപ്പോൾ ഒരു ദാതൃ റീഫണ്ടിനും പൊരുത്തപ്പെടുത്തൽ ആവശ്യമില്ല.',
+      'med03.gateway_refund_reconciliation.select':
+          'തെളിവ് പരിശോധിക്കാൻ നിർത്തിവച്ച ദാതൃ റീഫണ്ട് തിരഞ്ഞെടുക്കുക.',
+      'med03.gateway_refund_reconciliation.access_denied':
+          'പ്ലാറ്റ്ഫോം അഡ്മിനിസ്ട്രേറ്റർ പ്രവേശനം ആവശ്യമാണ്.',
+      'med03.gateway_refund_reconciliation.amount': 'തുക',
+      'med03.gateway_refund_reconciliation.refund': 'ഗേറ്റ്‌വേ റീഫണ്ട്',
+      'med03.gateway_refund_reconciliation.billing_refund': 'ബില്ലിംഗ് റീഫണ്ട്',
+      'med03.gateway_refund_reconciliation.provider_payment':
+          'ദാതൃ പേയ്‌മെന്റ്',
+      'med03.gateway_refund_reconciliation.provider_refund': 'ദാതൃ റീഫണ്ട്',
+      'med03.gateway_refund_reconciliation.failure': 'നിർത്തിവച്ച കാരണം',
+      'med03.gateway_refund_reconciliation.disposition': 'സ്ഥിരീകരിച്ച ഫലം',
+      'med03.gateway_refund_reconciliation.disposition.provider_not_refunded':
+          'റീഫണ്ട് നടന്നിട്ടില്ലെന്ന് ദാതാവ് സ്ഥിരീകരിച്ചു',
+      'med03.gateway_refund_reconciliation.disposition.manual_settled':
+          'ദാതൃ റീഫണ്ട് പൂർത്തിയായി',
+      'med03.gateway_refund_reconciliation.disposition.unknown': 'അജ്ഞാത ഫലം',
+      'med03.gateway_refund_reconciliation.evidence': 'ദാതൃ തെളിവ് റഫറൻസ്',
+      'med03.gateway_refund_reconciliation.evidence_settled_help':
+          'കൃത്യമായ ദാതൃ റീഫണ്ട് ഐഡന്റിഫയർ നൽകുക.',
+      'med03.gateway_refund_reconciliation.evidence_not_refunded_help':
+          'തിരിച്ചറിയാവുന്ന ദാതൃ കേസ് അല്ലെങ്കിൽ പ്രതികരണ റഫറൻസ് നൽകുക.',
+      'med03.gateway_refund_reconciliation.note': 'പൊരുത്തപ്പെടുത്തൽ കുറിപ്പ്',
+      'med03.gateway_refund_reconciliation.gateway_retry_notice': 'ഇത് പരാജയപ്പെട്ട നിർവഹണം അവസാനിപ്പിക്കുന്നു; എന്നാൽ കൃത്യമായ പുനഃശ്രമത്തിനായി അംഗീകരിച്ച റീഫണ്ട് സംയോജിത ഗേറ്റ്‌വേ മാർഗത്തിൽ തന്നെ നിലനിർത്തുന്നു.',
+      'med03.gateway_refund_reconciliation.submit':
+          'സ്ഥിരീകരിച്ച ഫലം രേഖപ്പെടുത്തുക',
+      'med03.gateway_refund_reconciliation.validation':
+          'തെളിവ് 6-120 അക്ഷരങ്ങളും കുറിപ്പ് 10-500 അക്ഷരങ്ങളും ആയിരിക്കണം.',
+      'med03.gateway_refund_reconciliation.confirm_title':
+          'ദാതൃ റീഫണ്ട് ഫലം സ്ഥിരീകരിക്കുക',
+      'med03.gateway_refund_reconciliation.confirm_body':
+          'ഈ അന്തിമ ദാതൃ ഫലം രേഖപ്പെടുത്തുക: {disposition}.',
+      'med03.gateway_refund_reconciliation.success':
+          'ഗേറ്റ്‌വേ റീഫണ്ട് പൊരുത്തപ്പെടുത്തൽ രേഖപ്പെടുത്തി.',
+      'med03.gateway_refund_reconciliation.open_authority':
+          'ബില്ലിംഗ് റീഫണ്ട് അധികാരം തുറക്കുക',
+      'med03.notification.gateway_refund_reconciliation.title':
+          'ദാതൃ റീഫണ്ടിന് പൊരുത്തപ്പെടുത്തൽ ആവശ്യമാണ്',
+      'med03.notification.gateway_refund_reconciliation.body': 'ഒരു ഗേറ്റ്‌വേ റീഫണ്ട് നിർത്തിവച്ചിരിക്കുന്നു. ദാതൃ തെളിവ് സ്ഥിരീകരിച്ച് കൃത്യമായ ഫലം രേഖപ്പെടുത്തുക.',
+      'med03.notification.gateway_refund_reconciliation.action':
+          'റീഫണ്ട് പൊരുത്തപ്പെടുത്തൽ തുറക്കുക',
+      'med03.credit_note.access_denied': 'മരുന്ന് ക്രെഡിറ്റ്-നോട്ട് അവലോകനം ബില്ലിംഗ്, ഫിനാൻസ്, അഡ്മിനിസ്ട്രേറ്റർ റോളുകൾക്ക് മാത്രം പരിമിതമാണ്.',
+      'med03.credit_note.queue': 'അവലോകനവും തീർപ്പാക്കലും ഉള്ള ക്യൂ',
+      'med03.credit_note.empty':
+          'ഈ ഫിൽട്ടറുമായി പൊരുത്തപ്പെടുന്ന മരുന്ന് ക്രെഡിറ്റ് നോട്ടുകളില്ല.',
+      'med03.credit_note.select': 'മാറ്റാനാകാത്ത ഉറവിടവും അടുത്ത ഉത്തരവാദിത്ത നടപടിയും പരിശോധിക്കാൻ ഒരു ക്രെഡിറ്റ് നോട്ട് തിരഞ്ഞെടുക്കുക.',
+      'med03.credit_note.status.all': 'എല്ലാം',
+      'med03.credit_note.status.pending': 'തീർപ്പാകാത്തത്',
+      'med03.credit_note.status.approved': 'അംഗീകരിച്ചു',
+      'med03.credit_note.status.applied': 'പ്രയോഗിച്ചു',
+      'med03.credit_note.status.rejected': 'നിരസിച്ചു',
+      'med03.credit_note.action_completed':
+          'ആധികാരിക ബില്ലിംഗ് വർക്ക്ഫ്ലോ പുതുക്കി.',
+      'med03.credit_note.approve_title': 'ക്രെഡിറ്റ് നോട്ട് അംഗീകരിക്കുക',
+      'med03.credit_note.approve_body': 'ക്രെഡിറ്റ് രോഗിയുടെ അക്കൗണ്ടിൽ പ്രയോഗിക്കുന്നതുവരെ അതേ SLA ഉത്തരവാദിത്തം തുറന്ന നിലയിൽ തുടരും.',
+      'med03.credit_note.reject_title': 'ക്രെഡിറ്റ് നോട്ട് നിരസിക്കുക',
+      'med03.credit_note.rejection_reason': 'നിരസിക്കാനുള്ള കാരണം',
+      'med03.credit_note.apply_title':
+          'അംഗീകരിച്ച ക്രെഡിറ്റ് നോട്ട് പ്രയോഗിക്കുക',
+      'med03.credit_note.refund_mode': 'യഥാർത്ഥ റീഫണ്ട് മാർഗം',
+      // REVIEW: MED-03 ml first pass; Malayalam-fluent finance and linguistic approval is required before activation.
+      'med03.credit_note.refund_mode.cash': 'പണം',
+      'med03.credit_note.refund_mode.card': 'കാർഡ്',
+      'med03.credit_note.refund_mode.upi': 'യുപിഐ (UPI)',
+      'med03.credit_note.refund_mode.netbanking': 'നെറ്റ് ബാങ്കിംഗ്',
+      'med03.credit_note.refund_mode.cheque': 'ചെക്ക്',
+      'med03.credit_note.refund_mode.dd': 'ഡിമാൻഡ് ഡ്രാഫ്റ്റ്',
+      'med03.credit_note.refund_mode.wallet': 'വാലറ്റ്',
+      'med03.credit_note.refund_mode.insurance': 'ഇൻഷുറൻസ്',
+      'med03.credit_note.refund_mode.unknown': 'അജ്ഞാത റീഫണ്ട് മാർഗം',
+      'med03.credit_note.notification_action': 'ക്രെഡിറ്റ് നോട്ട് തുറക്കുക',
+      // REVIEW: MED-03 ml AI first pass; Malayalam-fluent clinical, finance,
+      // and linguistic approval is required before activation.
+      'med03.notification.alert_recovery.overdue_title':
+          'ക്ലിനിക്കൽ അലർട്ട് ഡെലിവറി വീണ്ടെടുക്കലിന്റെ സമയപരിധി കഴിഞ്ഞു',
+      'med03.notification.alert_recovery.overdue_body': 'ക്ലിനിക്കൽ അലർട്ട് ഡെലിവറി വീണ്ടെടുക്കൽ കേസിന് അഡ്മിനിസ്ട്രേറ്ററുടെ നടപടി ആവശ്യമാണ്.',
+      'med03.notification.alert_recovery.manual_hold_body': 'മാറ്റാനാവാതെ ഹോൾഡ് ചെയ്തിരിക്കുന്ന ക്ലിനിക്കൽ അലർട്ടിന് നിയന്ത്രിത ഉറവിട അവലോകനവും പകരം രേഖപ്പെടുത്തലും ആവശ്യമാണ്.',
+      'med03.notification.alert_recovery.recipient_coverage_body': 'ഒരു ക്ലിനിക്കൽ അലർട്ടിന് ഇപ്പോഴും സജീവ ഡ്യൂട്ടി ഡോക്ടറോ ഡോക്ടർ-തലത്തിലുള്ള സ്വീകർത്താവോ ഇല്ല.',
+      'med03.notification.mar_exception.title':
+          'മരുന്ന് ഡോസിന് പ്രിസ്ക്രൈബർ അവലോകനം ആവശ്യമാണ്',
+      'med03.notification.mar_exception.body': 'ഹോൾഡ് ചെയ്തതോ നഷ്ടപ്പെട്ടതോ ആയ ഇൻപേഷ്യന്റ് മരുന്ന് ഡോസിന് നിയന്ത്രിത ക്ലിനിക്കൽ തീരുമാനം ആവശ്യമാണ്.',
+      'med03.notification.mar_exception.overdue_title':
+          'മരുന്ന് അവലോകനം സമയപരിധി കഴിഞ്ഞു',
+      'med03.notification.mar_exception.overdue_body': 'ഹോൾഡ് ചെയ്തതോ നഷ്ടപ്പെട്ടതോ ആയ ഡോസിന് ഇപ്പോഴും നിയന്ത്രിത പ്രിസ്ക്രൈബർ തീരുമാനം ആവശ്യമാണ്.',
+      'med03.notification.mar_exception.handoff_title':
+          'മരുന്ന് അവലോകനം വീണ്ടും ഏൽപ്പിച്ചു',
+      'med03.notification.mar_exception.handoff_body': 'തുറന്ന മരുന്ന് എക്സെപ്ഷൻ പ്രിസ്ക്രൈബർ അവലോകനത്തിനായി നിങ്ങൾക്ക് വീണ്ടും ഏൽപ്പിച്ചു.',
+      'med03.notification.counter_sale.finance_title':
+          'കൗണ്ടർ സെയിൽ റീഫണ്ട് നടപടി ആവശ്യമാണ്',
+      'med03.notification.counter_sale.finance_body': 'നിയന്ത്രിത റീഫണ്ട് ഘട്ടം പൂർത്തിയാക്കുക. പേഔട്ട് തെളിവ് പൂർത്തിയാകുന്നതുവരെ കൃത്യമായ ബാച്ച് സ്റ്റോക്ക് തിരിച്ചുചേർക്കൽ തടഞ്ഞിരിക്കും.',
+      'med03.notification.counter_sale.reconciliation_title':
+          'കൗണ്ടർ സെയിൽ കസ്റ്റഡി റീകൺസിലിയേഷൻ ആവശ്യമാണ്',
+      'med03.notification.counter_sale.reconciliation_body': 'റീഫണ്ട് നിരസിച്ചു. കസ്റ്റഡി വ്യക്തമായി പരിഹരിക്കുന്നതുവരെ സെയിലും സ്റ്റോക്കും ലോക്കായിരിക്കും.',
+      'med03.notification.counter_sale.completed_title':
+          'കൗണ്ടർ സെയിൽ വോയ്ഡ് പൂർത്തിയായി',
+      'med03.notification.counter_sale.completed_body': 'പണം നൽകിയ റീഫണ്ട് തെളിവും കൃത്യമായ ബാച്ച് സ്റ്റോക്ക് തിരിച്ചുചേർക്കലും രേഖപ്പെടുത്തി.',
+      'med03.notification.credit_note_payout.body': 'അംഗീകരിച്ച മരുന്ന് ക്രെഡിറ്റ് റീഫണ്ട് അതിന്റെ നിയന്ത്രിത പേഔട്ട് മാർഗത്തിലൂടെ തീർപ്പാക്കി കൃത്യമായ തെളിവ് സൂക്ഷിക്കുക.',
+      'med03.credit_note.action_apply': 'ക്രെഡിറ്റ് പ്രയോഗിക്കുക',
+      'med03.credit_note.apply_body': 'മാറ്റാനാകാത്ത യഥാർത്ഥ വില ഉപയോഗിച്ച് ഈ ക്രെഡിറ്റ് രോഗിയുടെ അക്കൗണ്ടിൽ പ്രയോഗിക്കുക.',
+      'med03.credit_note.refund_approve_title': 'രോഗിയുടെ റീഫണ്ട് അംഗീകരിക്കുക',
+      'med03.credit_note.refund_approve_body': 'നൽകാനുള്ള റീഫണ്ട് ബാധ്യത അംഗീകരിക്കുക. ഇതിലൂടെ പണം നൽകുന്നില്ല; പേഔട്ട് വേറൊരു നിയന്ത്രിത ഘട്ടമാണ്.',
+      'med03.credit_note.payout_title':
+          'പൂർത്തിയായ മാനുവൽ പേഔട്ട് രേഖപ്പെടുത്തുക',
+      'med03.credit_note.payout_reference': 'ബാഹ്യ പേഔട്ട് റഫറൻസ്',
+      'med03.credit_note.gateway_title': 'പ്രൊവൈഡർ റീഫണ്ട് ആരംഭിക്കുക',
+      'med03.credit_note.gateway_body': 'തിരഞ്ഞെടുത്ത കൃത്യമായ ക്യാപ്ചർ ചെയ്ത പേയ്മെന്റ് ഉപയോഗിക്കുക. പ്രൊവൈഡർ പ്രോസസ്സിംഗും webhook തെളിവും പൂർത്തിയായശേഷം മാത്രമേ റീഫണ്ട് നൽകിയതായി അടയാളപ്പെടുത്തൂ.',
+      'med03.credit_note.invoice': 'ഇൻവോയ്സ്',
+      'med03.credit_note.ward_indent': 'വാർഡ് ഇൻഡന്റ്',
+      'med03.credit_note.amount': 'ക്രെഡിറ്റ് തുക',
+      'med03.credit_note.account_due': 'നിലവിലെ അക്കൗണ്ട് കുടിശ്ശിക',
+      'med03.credit_note.action_approve': 'അംഗീകരിക്കുക',
+      'med03.credit_note.action_reject': 'നിരസിക്കുക',
+      'med03.credit_note.application_owned': 'അംഗീകാരം ജോലി അവസാനിപ്പിക്കുന്നില്ല. അക്കൗണ്ടിൽ പ്രയോഗിക്കുന്നതുവരെ അതേ SLA ഉത്തരവാദിത്തം തുടരും.',
+      'med03.credit_note.refund': 'രോഗിയുടെ റീഫണ്ട് ബാധ്യത',
+      'med03.credit_note.action_approve_refund': 'റീഫണ്ട് അംഗീകരിക്കുക',
+      'med03.credit_note.refund_pending': 'അഡ്മിനിസ്ട്രേറ്ററുടെ അംഗീകാരം ആവശ്യമാണ്. പ്രയോഗിച്ച മരുന്ന് ക്രെഡിറ്റ് റീഫണ്ട് വിവേചനാധികാരത്തിൽ നിരസിക്കാനാവില്ല.',
+      'med03.credit_note.gateway_in_progress': 'പ്രൊവൈഡർ പേഔട്ട് പുരോഗമിക്കുന്നു. സ്ഥിരീകരിച്ച തെളിവ് റീഫണ്ട് നൽകിയതായി രേഖപ്പെടുത്തുന്നതുവരെ ജോലി തുറന്നിരിക്കും.',
+      'med03.credit_note.manual_help': 'ആദ്യം ബാഹ്യ മാനുവൽ പേഔട്ട് പൂർത്തിയാക്കി കൃത്യമായ റഫറൻസ് രേഖപ്പെടുത്തുക. രേഖപ്പെടുത്തുന്നത് സ്വയം പണം കൈമാറുന്നില്ല.',
+      'med03.credit_note.action_record_payout': 'പേഔട്ട് തെളിവ് രേഖപ്പെടുത്തുക',
+      'med03.credit_note.gateway_help': 'പൊരുത്തപ്പെടുന്ന ക്യാപ്ചർ ചെയ്ത പേയ്മെന്റ് തിരഞ്ഞെടുക്കുക. രോഗി, ഇൻവോയ്സ്, മാർഗം, പ്രൊവൈഡർ, തുക എന്നിവയിലെ പൊരുത്തക്കേട് സെർവർ നിരസിക്കും.',
+      'med03.credit_note.action_find_payment': 'പേയ്മെന്റ് ഉറവിടം കണ്ടെത്തുക',
+      'med03.credit_note.gateway_candidates_empty': 'യോഗ്യമായ പേയ്മെന്റ് ഉറവിടം ലോഡ് ചെയ്തിട്ടില്ല. അംഗീകാരത്തിന് ശേഷം തിരയുക; ഒന്നുമില്ലെങ്കിൽ ഫിനാൻസ് റീകൺസിലിയേഷനായി ജോലി തുറന്നുവയ്ക്കുക.',
+      'med03.credit_note.refundable': 'റീഫണ്ട് ചെയ്യാവുന്നത്',
+      'med03.credit_note.action_start_gateway': 'റീഫണ്ട് ആരംഭിക്കുക',
+      'med03.credit_note.insurance_hold': 'ഇൻഷുറൻസ് റീഫണ്ട് പേഔട്ടിന് ഈ സ്ക്രീനിന് പുറത്തുള്ള ഇൻഷുറർ-ആശുപത്രി അനുമതി ആവശ്യമാണ്. ഉത്തരവാദിത്ത ജോലി തുറന്നിരിക്കും.',
+      'med03.credit_note.refund_paid': 'പേഔട്ട് തെളിവ് രേഖപ്പെടുത്തി; മരുന്ന് ക്രെഡിറ്റ്-നോട്ട് SLA പൂർത്തിയായി.',
+      'med03.credit_note.events': 'മാറ്റാനാകാത്ത ലൈഫ്‌സൈക്കിൾ സംഭവങ്ങൾ',
       'cds.blocker_title': 'കുറിപ്പടി തടഞ്ഞു',
       'cds.blocker_body':
           'ക്ലിനിക്കൽ ഡിസിഷൻ സപ്പോർട്ട് താഴെപ്പറയുന്ന പ്രശ്നങ്ങൾ കണ്ടെത്തി. ',

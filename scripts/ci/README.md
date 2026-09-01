@@ -16,8 +16,19 @@ node scripts/ci/run.mjs --install --changed-on-branch-push
 
 Stages:
 
-- `security`: whitespace check, service-account secret scan, gitleaks worktree
-  and commit-range scans.
+- `security`: whitespace check, applied-migration immutability guard,
+  service-account secret scan, gitleaks worktree and commit-range scans.
+  `check-migration-immutability.mjs` compares every file under
+  `apps/backend/src/migrations` against its blob at the merge-base with main and
+  fails on a changed or deleted one — new files are fine. It lives in this
+  stage, not `backend`, because `security` is the only stage every canonical
+  plan selects, and a guard against unvalidated changes reaching a live database
+  must not itself be skippable by tier routing. It is also the one migration
+  defect CI is structurally blind to: CI databases are fresh, so the runtime
+  checksum guard in `runMigrations.js` can only ever fire against a long-lived
+  one. Escape hatch: `scripts/ci/migration-amendment-allowlist.json` (read its
+  header first — it authorises one checksum transition, and it does **not**
+  bypass the runtime check).
 - `contracts`: cross-stack contract checks that belong to no single app. Today
   that is `check-client-paths.mjs`, which asserts every API path the clients
   call resolves to an operation the backend actually serves. Dependency-free and

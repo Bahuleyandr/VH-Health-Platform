@@ -9,6 +9,21 @@ describe('production bootstrap and migration-writer ownership', () => {
   const wwwSource = read('../../bin/www.js');
   const jobSource = read('../../../../../infra/kubernetes/apps/backend/migration-job.yaml');
   const configSource = read('../../../../../infra/kubernetes/apps/backend/configmap.yaml');
+  const payrollAcceptanceSource = read(
+    '../../../../../infra/kubernetes/apps/backend/payroll-revision-754-acceptance.yaml',
+  );
+  const migrationConfigSource = read(
+    '../../../../../infra/kubernetes/apps/backend/migration-config.yaml',
+  );
+  const backendKustomizationSource = read(
+    '../../../../../infra/kubernetes/apps/backend/kustomization.yaml',
+  );
+  const productionAppsKustomizationSource = read(
+    '../../../../../infra/kubernetes/apps/kustomization.yaml',
+  );
+  const stagingAppsKustomizationSource = read(
+    '../../../../../infra/kubernetes/overlays/staging/apps/kustomization.yaml',
+  );
   const trackerFenceMigration = read('../../migrations/735_migration_tracker_integrity_and_runtime_acl.sql');
   const prismaSource = read('../../lib/prisma.js');
   const runtimeGrantScript = read('../../../scripts/ensure-runtime-role-grants.mjs');
@@ -28,11 +43,44 @@ describe('production bootstrap and migration-writer ownership', () => {
   });
 
   it('makes the owner PreSync job apply migrations and runtime grants in order', () => {
+    const payrollPreflight = jobSource.indexOf(
+      'node scripts/payroll-revision-754-preflight.mjs --report-only',
+    );
     const migrate = jobSource.indexOf('node scripts/ci-setup-db.mjs --skip-seeds');
     const grants = jobSource.indexOf('node scripts/ensure-runtime-role-grants.mjs');
+    expect(payrollPreflight).toBeGreaterThan(-1);
+    expect(migrate).toBeGreaterThan(payrollPreflight);
     expect(migrate).toBeGreaterThan(-1);
     expect(grants).toBeGreaterThan(migrate);
     expect(configSource).toContain('RUN_MIGRATIONS: "false"');
+    expect(backendKustomizationSource).toContain('payroll-revision-754-acceptance.yaml');
+    expect(payrollAcceptanceSource).toContain('argocd.argoproj.io/hook: PreSync');
+    expect(payrollAcceptanceSource).toContain('argocd.argoproj.io/sync-wave: "-2"');
+    expect(payrollAcceptanceSource).toContain(
+      'argocd.argoproj.io/hook-delete-policy: BeforeHookCreation',
+    );
+    expect(jobSource).toContain('argocd.argoproj.io/sync-wave: "-1"');
+    expect(jobSource).toContain('name: vhhealth-payroll-revision-754-acceptance');
+    expect(jobSource).toMatch(
+      /name: PAYROLL_754_ACCEPTED_MANIFEST_SHA256[\s\S]*?configMapKeyRef:[\s\S]*?name: vhhealth-payroll-revision-754-acceptance[\s\S]*?key: PAYROLL_754_ACCEPTED_MANIFEST_SHA256/,
+    );
+    expect(jobSource).toMatch(
+      /name: PAYROLL_754_ACCEPTED_BY[\s\S]*?configMapKeyRef:[\s\S]*?name: vhhealth-payroll-revision-754-acceptance[\s\S]*?key: PAYROLL_754_ACCEPTED_BY/,
+    );
+    expect(payrollAcceptanceSource).toContain(
+      'PAYROLL_754_ACCEPTED_MANIFEST_SHA256: ""',
+    );
+    expect(payrollAcceptanceSource).toContain('PAYROLL_754_ACCEPTED_BY: ""');
+    expect(configSource).not.toContain('PAYROLL_754_ACCEPTED_MANIFEST_SHA256');
+    expect(configSource).not.toContain('PAYROLL_754_ACCEPTED_BY');
+    for (const environmentPatch of [
+      productionAppsKustomizationSource,
+      stagingAppsKustomizationSource,
+    ]) {
+      expect(environmentPatch).toContain('name: vhhealth-payroll-revision-754-acceptance');
+      expect(environmentPatch).toContain('PAYROLL_754_ACCEPTED_MANIFEST_SHA256: ""');
+      expect(environmentPatch).toContain('PAYROLL_754_ACCEPTED_BY: ""');
+    }
   });
 
   it('tolerates a missing runtime role only on explicit opt-in, which the PreSync job never grants', () => {
@@ -49,7 +97,42 @@ describe('production bootstrap and migration-writer ownership', () => {
     // failing closed if the configmap ever loses AUTH_TENANT_RLS_RUNTIME_ROLE.
     expect(jobSource).not.toMatch(/name:\s*['"]?RUNTIME_ROLE_GRANTS_OPTIONAL/);
     expect(configSource).not.toMatch(/^\s*RUNTIME_ROLE_GRANTS_OPTIONAL:/m);
+    expect(migrationConfigSource).not.toMatch(/^\s*RUNTIME_ROLE_GRANTS_OPTIONAL:/m);
+    // Both ConfigMaps carry the role: the Deployment CONNECTS as it, and the
+    // PreSync Job GRANTS to it. validate-kubernetes-manifests.mjs fails the
+    // render unless the two values are identical.
     expect(configSource).toContain('AUTH_TENANT_RLS_RUNTIME_ROLE');
+    expect(migrationConfigSource).toContain('AUTH_TENANT_RLS_RUNTIME_ROLE');
+  });
+
+  it('feeds the PreSync Job from a PreSync-phase ConfigMap, never the Sync-phase runtime one', () => {
+    // ArgoCD completes every PreSync hook before it applies ANY Sync-phase
+    // resource — sync waves order within a phase, not across phases. The
+    // runtime ConfigMap is a Sync-phase resource, so a hard envFrom on it made
+    // this Job unstartable on a fresh cluster: CreateContainerConfigError is a
+    // Waiting reason, so it never fails, never retains a pod, and is finally
+    // deleted at activeDeadlineSeconds leaving no logs at all.
+    expect(migrationConfigSource).toContain('argocd.argoproj.io/hook: PreSync');
+    expect(migrationConfigSource).toContain('argocd.argoproj.io/sync-wave: "-2"');
+    expect(migrationConfigSource).toContain(
+      'argocd.argoproj.io/hook-delete-policy: BeforeHookCreation',
+    );
+    expect(migrationConfigSource).toContain('name: vhhealth-backend-migration-config');
+    expect(backendKustomizationSource).toContain('migration-config.yaml');
+
+    // The migrate container's envFrom must name the hook-phase ConfigMap...
+    expect(jobSource).toMatch(
+      /envFrom:\s*\n\s*- configMapRef:\s*\n\s*name: vhhealth-backend-migration-config/,
+    );
+    // ...and must not reach for the Sync-phase one under any indentation.
+    expect(jobSource).not.toMatch(
+      /- configMapRef:\s*\n\s*name: vhhealth-backend-config\b/,
+    );
+
+    // The runtime ConfigMap must stay a plain Sync-phase resource: annotating
+    // it as a hook would silence ArgoCD drift detection on the backend's whole
+    // runtime configuration and delete/re-create it on every sync.
+    expect(configSource).not.toContain('argocd.argoproj.io/hook');
   });
 
   it('keeps schema bootstrap authority in the migration runner', () => {

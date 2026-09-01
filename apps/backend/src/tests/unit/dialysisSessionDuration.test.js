@@ -34,6 +34,11 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
   recordCanonicalClinicalEvent,
 }));
 
+jest.unstable_mockModule('../../services/billing/billingV2Service.js', () => ({
+  addInvoiceItem: jest.fn(),
+  createDraftInvoice: jest.fn(),
+}));
+
 const { completeSession } = await import('../../services/clinical/dialysisService.js');
 
 const TENANT = '00000000-0000-4000-8000-000000000001';

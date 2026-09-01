@@ -79,5 +79,21 @@ test('financial crons are disabled by default and fan out fail-closed per tenant
   expect(payroll).toContain('(tenant_id, month, year, status, generated_by, generated_at,');
   expect(payroll).toContain("VALUES ($1::uuid, $2, $3, 'processing', $4::uuid, $5::timestamptz,");
 
-  expect(jobs).toContain('(tenant_id, staff_uid, review_year, reminder_sent_at)');
+  // The reminder INSERT grew the tenant-reconciliation pair, so the old
+  // four-column literal no longer describes any row this cron writes. That is a
+  // deliberate tightening, not drift: chk_annual_review_reminders_tenant_
+  // reconciliation and the RESTRICTIVE annual_review_reminders_reconciled_only
+  // policy both admit a cron-written row only when tenant_reconciliation_
+  // required is FALSE and tenant_id is the caller's own tenant. Pin the whole
+  // written shape — column list, the false/'{}' literals, the tenant predicate
+  // and the conflict target — instead of a four-column prefix, so a row that
+  // stopped declaring itself reconciled, or stopped scoping to one tenant,
+  // fails here too.
+  expect(jobs).toContain('INSERT INTO annual_review_reminders');
+  expect(jobs).toContain('(tenant_id, staff_uid, review_year, reminder_sent_at,');
+  expect(jobs).toContain('tenant_reconciliation_required, tenant_reconciliation_evidence)');
+  expect(jobs).toContain("SELECT ss.tenant_id, ss.staff_uid, $2, NOW(), false, '{}'::jsonb");
+  expect(jobs).toContain('WHERE ss.tenant_id = $1::uuid');
+  expect(jobs).toContain('ON CONFLICT (tenant_id, staff_uid, review_year) DO NOTHING');
+  expect(jobs).toContain('await setTenant(tid, tx => tx.$queryRawUnsafe(');
 });

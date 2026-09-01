@@ -75,6 +75,8 @@ jobs:
           scripts/check-c1-1-manifest-contract.test.mjs
           scripts/c1-1-backup-scripts.test.mjs
           scripts/vhhealth-gha-deploy.test.mjs
+          scripts/dalek-migration-job-manifest.test.mjs
+          scripts/hook-phase-ordering.test.mjs
           scripts/update-prod-digests.test.mjs
           scripts/check-prod-digests-pinned.test.mjs
           scripts/check-prod-helm-image-inventory.test.mjs

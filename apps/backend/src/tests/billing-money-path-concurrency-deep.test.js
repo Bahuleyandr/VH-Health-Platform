@@ -140,7 +140,7 @@ afterAll(async () => {
     // teardown best-effort
   }
   await prisma.$disconnect().catch(() => {});
-});
+}, 30000);
 
 describe('Money-path C-1 fixes (deep)', () => {
   // ── Fix 1 + 4: idempotency / DB uniqueness on payments ────────────────
@@ -265,6 +265,194 @@ describe('Money-path C-1 fixes (deep)', () => {
       await expect(billing.raiseRefund({
         advance_id: advance, amount: 500, reason: 'refund', mode: 'CASH', tenantId: TENANT_A,
       })).rejects.toMatchObject({ code: 'BILLING_REFUND_EXCEEDS_ADVANCE_BALANCE' });
+    });
+
+    it('keeps gross-receipt headroom after an earlier refund is paid', async () => {
+      const patient = await makePatient();
+      const approver = await makePatient();
+      const payoutActor = await makePatient();
+      const invoice = await makeIssuedInvoice(patient, 1000);
+      await billing.collectPayment({
+        invoice_id: invoice,
+        amount: 600,
+        mode: 'UPI',
+        reference: `HEADROOM-PAY-${randomUUID()}`,
+        tenantId: TENANT_A,
+      });
+
+      const first = await billing.raiseRefund({
+        invoice_id: invoice,
+        amount: 200,
+        reason: 'First settled partial refund',
+        mode: 'CHEQUE',
+        raised_by: patient,
+        tenantId: TENANT_A,
+      });
+      await billing.approveRefund(first.id, { approved_by: approver, tenantId: TENANT_A });
+      await billing.markRefundPaid(first.id, {
+        paid_by: payoutActor,
+        reference: `HEADROOM-PAID-${randomUUID()}`,
+        tenantId: TENANT_A,
+      });
+
+      const later = await billing.raiseRefund({
+        invoice_id: invoice,
+        amount: 300,
+        reason: 'Later valid partial refund',
+        mode: 'CASH',
+        raised_by: patient,
+        tenantId: TENANT_A,
+      });
+      await billing.approveRefund(later.id, { approved_by: approver, tenantId: TENANT_A });
+
+      await expect(billing.raiseRefund({
+        invoice_id: invoice,
+        amount: 101,
+        reason: 'Aggregate refund exceeds receipts',
+        mode: 'CASH',
+        raised_by: patient,
+        tenantId: TENANT_A,
+      })).rejects.toMatchObject({
+        code: 'BILLING_REFUND_EXCEEDS_PAID',
+        details: {
+          gross_paid: 600,
+          prior_refunds: 500,
+          refundable: 100,
+        },
+      });
+
+      const persisted = await prisma.$queryRawUnsafe(
+        `SELECT id, amount::double precision AS amount, approval_status
+           FROM billing_refunds
+          WHERE invoice_id = $1::int
+          ORDER BY id`,
+        invoice,
+      );
+      expect(persisted).toEqual([
+        { id: first.id, amount: 200, approval_status: 'PAID' },
+        { id: later.id, amount: 300, approval_status: 'APPROVED' },
+      ]);
+      expect(persisted.reduce((sum, row) => sum + Number(row.amount), 0)).toBe(500);
+    });
+
+    it('reserves sequential advance-refund headroom across pending and approved states', async () => {
+      const patient = await makePatient();
+      const advance = await makeActiveAdvance(patient, 1000);
+      const first = await billing.raiseRefund({
+        advance_id: advance,
+        amount: 400,
+        reason: 'First advance return',
+        mode: 'CASH',
+        raised_by: patient,
+        tenantId: TENANT_A,
+      });
+      const second = await billing.raiseRefund({
+        advance_id: advance,
+        amount: 350,
+        reason: 'Second advance return',
+        mode: 'CASH',
+        raised_by: patient,
+        tenantId: TENANT_A,
+      });
+
+      await expect(billing.raiseRefund({
+        advance_id: advance,
+        amount: 251,
+        reason: 'Pending aggregate exceeds balance',
+        mode: 'CASH',
+        raised_by: patient,
+        tenantId: TENANT_A,
+      })).rejects.toMatchObject({
+        code: 'BILLING_REFUND_EXCEEDS_ADVANCE_BALANCE',
+        details: { reserved_refunds: 750, refundable: 250 },
+      });
+
+      await billing.approveRefund(first.id, { approved_by: patient, tenantId: TENANT_A });
+      const final = await billing.raiseRefund({
+        advance_id: advance,
+        amount: 250,
+        reason: 'Exact remaining advance balance',
+        mode: 'CASH',
+        raised_by: patient,
+        tenantId: TENANT_A,
+      });
+      await expect(billing.raiseRefund({
+        advance_id: advance,
+        amount: 0.01,
+        reason: 'No aggregate headroom remains',
+        mode: 'CASH',
+        raised_by: patient,
+        tenantId: TENANT_A,
+      })).rejects.toMatchObject({
+        code: 'BILLING_REFUND_EXCEEDS_ADVANCE_BALANCE',
+        details: { refundable: 0 },
+      });
+
+      const persisted = await prisma.$queryRawUnsafe(
+        `SELECT id, amount::double precision AS amount, approval_status
+           FROM billing_refunds
+          WHERE advance_id = $1::int
+          ORDER BY id`,
+        advance,
+      );
+      expect(persisted).toEqual([
+        { id: first.id, amount: 400, approval_status: 'APPROVED' },
+        { id: second.id, amount: 350, approval_status: 'PENDING' },
+        { id: final.id, amount: 250, approval_status: 'PENDING' },
+      ]);
+      expect(persisted.reduce((sum, row) => sum + Number(row.amount), 0)).toBe(1000);
+    });
+
+    it('serializes concurrent advance refunds behind an approved reservation', async () => {
+      const patient = await makePatient();
+      const advance = await makeActiveAdvance(patient, 1000);
+      const approved = await billing.raiseRefund({
+        advance_id: advance,
+        amount: 400,
+        reason: 'Approved reservation',
+        mode: 'CASH',
+        raised_by: patient,
+        tenantId: TENANT_A,
+      });
+      await billing.approveRefund(approved.id, { approved_by: patient, tenantId: TENANT_A });
+
+      const results = await Promise.allSettled([
+        billing.raiseRefund({
+          advance_id: advance,
+          amount: 400,
+          reason: 'Concurrent reservation A',
+          mode: 'CASH',
+          raised_by: patient,
+          tenantId: TENANT_A,
+        }),
+        billing.raiseRefund({
+          advance_id: advance,
+          amount: 400,
+          reason: 'Concurrent reservation B',
+          mode: 'CASH',
+          raised_by: patient,
+          tenantId: TENANT_A,
+        }),
+      ]);
+      const fulfilled = results.filter((result) => result.status === 'fulfilled');
+      const rejected = results.filter((result) => result.status === 'rejected');
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      expect(rejected[0].reason).toMatchObject({
+        code: 'BILLING_REFUND_EXCEEDS_ADVANCE_BALANCE',
+        details: { refundable: 200 },
+      });
+
+      const persisted = await prisma.$queryRawUnsafe(
+        `SELECT amount, approval_status
+           FROM billing_refunds
+          WHERE advance_id = $1::int
+          ORDER BY id`,
+        advance,
+      );
+      expect(persisted).toHaveLength(2);
+      expect(persisted.map((row) => row.approval_status)).toEqual(['APPROVED', 'PENDING']);
+      expect(persisted.reduce((sum, row) => sum + Number(row.amount), 0)).toBe(800);
     });
   });
 

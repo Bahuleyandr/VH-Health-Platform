@@ -1,13 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:vhhealth_core/services/idempotency_key.dart';
 
 import '../../../core/config/api_config.dart';
 import '../../../core/config/role_config.dart';
-import '../../../core/services/medical_api_service.dart';
 import '../../../core/services/pharmacy_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
@@ -15,8 +14,10 @@ import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../l10n/app_strings.dart';
+import '../models/pharmacy_funding_recovery.dart';
 import '../services/ward_indent_role_policy.dart';
 import '../widgets/dispense_substitution_sheet.dart';
+import '../widgets/inventory_disposal_sheet.dart';
 import '../widgets/ward_indent_workbench.dart';
 
 class PharmacyScreen extends StatefulWidget {
@@ -34,6 +35,8 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
   List<Map<String, dynamic>> _catalog = [];
   List<Map<String, dynamic>> _inventoryItems = [];
   List<Map<String, dynamic>> _expiryAlerts = [];
+  List<Map<String, dynamic>> _inventoryFacilities = [];
+  int? _selectedInventoryFacilityId;
   bool _loading = true;
   bool _catalogLoading = false;
   bool _inventoryLoading = false;
@@ -44,11 +47,23 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
   String _rawRole = '';
   final TextEditingController _catalogSearchCtrl = TextEditingController();
   final TextEditingController _inventorySearchCtrl = TextEditingController();
-
-  // Delivery tracking
-  Timer? _locationTimer;
-  int? _trackingOrderId;
-  bool _sharingLocation = false;
+  // The inventory-item editor's fields live for the STATE's lifetime, not the
+  // sheet's. showModalBottomSheet completes its future the moment the sheet is
+  // popped, while the exit transition keeps rebuilding the subtree for a few
+  // more frames — disposing them when the await returned made every one of
+  // those frames throw "A TextEditingController was used after being
+  // disposed", which never settles. Each open resets them instead.
+  final TextEditingController _inventoryItemSkuCtrl = TextEditingController();
+  final TextEditingController _inventoryItemUnitCtrl = TextEditingController();
+  final TextEditingController _inventoryItemReorderLevelCtrl =
+      TextEditingController();
+  final TextEditingController _inventoryItemReorderQtyCtrl =
+      TextEditingController();
+  final Map<String, IdempotencyAttempt> _controlledDeliveryWitnessAttempts = {};
+  final Map<String, String> _controlledDeliveryPendingApprovals = {};
+  final Map<String, String> _controlledDeliveryApprovedWitnesses = {};
+  final Map<int, List<Map<String, dynamic>>> _controlledDeliveryAllocations =
+      {};
 
   @override
   void initState() {
@@ -58,9 +73,12 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
 
   @override
   void dispose() {
-    _stopLocationSharing(notify: false);
     _catalogSearchCtrl.dispose();
     _inventorySearchCtrl.dispose();
+    _inventoryItemSkuCtrl.dispose();
+    _inventoryItemUnitCtrl.dispose();
+    _inventoryItemReorderLevelCtrl.dispose();
+    _inventoryItemReorderQtyCtrl.dispose();
     super.dispose();
   }
 
@@ -72,6 +90,15 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
       _role == StaffRole.pharmacyIncharge ||
       _role.isAdminTier;
 
+  bool get _canPerformClinicalVerification =>
+      _role == StaffRole.pharmacy || _role == StaffRole.pharmacyIncharge;
+
+  bool get _canBreakGlassVerification => _role == StaffRole.pharmacyIncharge;
+
+  bool get _canOpenBillingDesk =>
+      RoleFeatures.getFeaturesForRawRole(_rawRole)
+          .any((feature) => feature.id == 'billing_desk');
+
   bool get _canViewInventory =>
       _role == StaffRole.pharmacy ||
       _role == StaffRole.pharmacyIncharge ||
@@ -82,6 +109,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
       _role == StaffRole.pharmacyIncharge ||
       _role == StaffRole.storesPurchaseIncharge ||
       _role.isAdminTier;
+
+  bool get _canDisposeInventory =>
+      _role == StaffRole.pharmacy || _role == StaffRole.pharmacyIncharge;
 
   bool get _canViewWardIndents =>
       WardIndentRolePolicy.canRead(rawRole: _rawRole, role: _role);
@@ -97,62 +127,59 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
     });
     await Future.wait([
       _loadCatalog(),
-      if (_canViewInventory) _loadInventory(),
+      if (_canViewInventory) _loadInventoryScope(),
       if (_canWorkPharmacyOrders) _loadOrders(),
     ]);
   }
 
-  void _startLocationSharing(int orderId) {
-    _stopLocationSharing();
-    _trackingOrderId = orderId;
-    _sharingLocation = true;
-    if (mounted) setState(() {});
+  static int? _grantedFacilityId(Map<String, dynamic> grant) {
+    final raw = grant['facility_id'];
+    final value = raw is num
+        ? raw.toInt()
+        : int.tryParse(raw?.toString().trim() ?? '');
+    return value != null && value > 0 ? value : null;
+  }
 
-    // Send immediately, then every 30s
-    _sendLocation();
-    _locationTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (!_sharingLocation) {
-        _stopLocationSharing();
-        return;
-      }
-      _sendLocation();
+  int? get _inventoryFacilityId {
+    final selected = _selectedInventoryFacilityId;
+    if (selected == null) return null;
+    return _inventoryFacilities.any(
+          (grant) => _grantedFacilityId(grant) == selected,
+        )
+        ? selected
+        : null;
+  }
+
+  Future<void> _loadInventoryScope() async {
+    setState(() {
+      _inventoryLoading = true;
+      _inventoryError = null;
     });
-  }
-
-  void _stopLocationSharing({bool notify = true}) {
-    _locationTimer?.cancel();
-    _locationTimer = null;
-    if (_trackingOrderId != null && _sharingLocation) {
-      MedicalApiService.stopDeliveryTracking(
-        orderType: 'pharmacy',
-        orderId: _trackingOrderId!,
-      ).catchError((_) {});
-    }
-    _trackingOrderId = null;
-    _sharingLocation = false;
-    if (notify && mounted) setState(() {});
-  }
-
-  Future<void> _sendLocation() async {
-    if (_trackingOrderId == null) return;
     try {
-      final pos = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 10),
-        ),
-      );
-      await MedicalApiService.updateDeliveryLocation(
-        orderType: 'pharmacy',
-        orderId: _trackingOrderId!,
-        lat: pos.latitude,
-        lng: pos.longitude,
-        accuracy: pos.accuracy,
-        speed: pos.speed * 3.6, // m/s to km/h
-        heading: pos.heading,
-      );
-    } catch (e) {
-      // silent fail — don't block workflow
+      final facilities = await PharmacyApiService.getCounterSaleFacilities();
+      if (!mounted) return;
+      final ids = facilities
+          .map(_grantedFacilityId)
+          .whereType<int>()
+          .toList(growable: false);
+      setState(() {
+        _inventoryFacilities = facilities;
+        if (_selectedInventoryFacilityId != null &&
+            !ids.contains(_selectedInventoryFacilityId)) {
+          _selectedInventoryFacilityId = null;
+        }
+        if (_selectedInventoryFacilityId == null && ids.length == 1) {
+          _selectedInventoryFacilityId = ids.first;
+        }
+        _inventoryLoading = false;
+      });
+      await _loadInventory();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _inventoryLoading = false;
+        _inventoryError = error.toString().replaceFirst('Exception: ', '');
+      });
     }
   }
 
@@ -216,6 +243,16 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
 
   Future<void> _loadInventory({String? search}) async {
     if (!_canViewInventory) return;
+    final facilityId = _inventoryFacilityId;
+    if (facilityId == null) {
+      setState(() {
+        _inventoryLoading = false;
+        _inventoryError = null;
+        _inventoryItems = [];
+        _expiryAlerts = [];
+      });
+      return;
+    }
     setState(() {
       _inventoryLoading = true;
       _inventoryError = null;
@@ -224,8 +261,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
       final results = await Future.wait([
         PharmacyApiService.getInventoryItems(
           search: search ?? _inventorySearchCtrl.text,
+          facilityId: facilityId,
         ),
-        PharmacyApiService.getExpiryAlerts(),
+        PharmacyApiService.getExpiryAlerts(facilityId: facilityId),
       ]);
       if (mounted) {
         setState(() {
@@ -259,20 +297,36 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
           'PREPARING',
           'READY',
           'DISPATCHED',
+          'PARTIALLY_DISPENSED',
         ].contains(o['status']),
       )
       .toList();
 
   List<dynamic> get _completedOrders => _allOrders
-      .where((o) => ['DELIVERED', 'CANCELLED'].contains(o['status']))
+      .where(
+        (o) => [
+          'DELIVERED',
+          'DISPENSED',
+          'CANCELLED',
+          'UNAVAILABLE',
+        ].contains(o['status']),
+      )
       .toList();
 
-  void _snack(String msg, {bool isError = false}) {
+  void _snack(
+    String msg, {
+    bool isError = false,
+    String? actionLabel,
+    VoidCallback? onAction,
+  }) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg),
         backgroundColor: isError ? AppTheme.errorRed : AppTheme.successGreen,
+        action: actionLabel == null || onAction == null
+            ? null
+            : SnackBarAction(label: actionLabel, onPressed: onAction),
       ),
     );
   }
@@ -281,335 +335,576 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
   // ACTIONS
   // ═══════════════════════════════════════════════════════════════════════════
 
-  Future<void> _createOrder() async {
-    final orderCreatedMessage = AppStrings.of(context)
-        .lookup('s4.lib.pharmacy.order_created');
-    final formKey = GlobalKey<FormState>();
-    final phoneCtrl = TextEditingController();
-    final noteCtrl = TextEditingController();
-    var urgent = false;
-    var submitting = false;
-
-    try {
-      final created = await showModalBottomSheet<bool>(
-        context: context,
-        isScrollControlled: true,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        builder: (ctx) => StatefulBuilder(
-          builder: (ctx, setSheetState) {
-            Future<void> submit() async {
-              if (!formKey.currentState!.validate()) return;
-              setSheetState(() => submitting = true);
-              try {
-                await PharmacyApiService.placePharmacyOrder(
-                  phone: phoneCtrl.text.trim(),
-                  orderNote: noteCtrl.text.trim(),
-                  urgent: urgent,
-                );
-                if (!ctx.mounted) return;
-                Navigator.pop(ctx, true);
-              } catch (e) {
-                if (!ctx.mounted) return;
-                setSheetState(() => submitting = false);
-                ScaffoldMessenger.of(ctx).showSnackBar(
-                  SnackBar(
-                    content: Text(e.toString().replaceFirst('Exception: ', '')),
-                    backgroundColor: AppTheme.errorRed,
-                  ),
-                );
-              }
-            }
-
-            return Padding(
-              padding: EdgeInsets.only(
-                left: 20,
-                right: 20,
-                top: 20,
-                bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
-              ),
-              child: SingleChildScrollView(
-                child: Form(
-                  key: formKey,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Expanded(
-                            child: AppText(
-                              's4.lib.pharmacy.create_pharmacy_order',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.close),
-                            tooltip: AppStrings.of(context)
-                                .lookup('action.close'),
-                            onPressed: submitting
-                                ? null
-                                : () => Navigator.pop(ctx, false),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: phoneCtrl,
-                        keyboardType: TextInputType.phone,
-                        decoration: InputDecoration(
-                          labelText: AppStrings.of(context)
-                              .lookup('reception_counter.patient.phone'),
-                          hintText: AppStrings.of(context)
-                              .lookup('s4.lib.pharmacy.10_digit_mobile_number'),
-                          prefixIcon: const ExcludeSemantics(
-                            child: Icon(Icons.phone_outlined),
-                          ),
-                        ),
-                        validator: (value) {
-                          final digits = (value ?? '').replaceAll(
-                            RegExp(r'\D'),
-                            '',
-                          );
-                          return digits.length < 10
-                              ? AppStrings.of(
-                                  context,
-                                ).lookup('s4.lib.pharmacy.phone_required_valid')
-                              : null;
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: noteCtrl,
-                        decoration: InputDecoration(
-                          labelText: AppStrings.of(context)
-                              .lookup('s4.lib.pharmacy.order_note'),
-                          hintText: AppStrings.of(context).lookup(
-                            's4.lib.pharmacy.medicine_names_dose_quantity_or_rx_note',
-                          ),
-                          prefixIcon: const ExcludeSemantics(
-                            child: Icon(Icons.medication_outlined),
-                          ),
-                          alignLabelWithHint: true,
-                        ),
-                        minLines: 3,
-                        maxLines: 5,
-                        validator: (value) => (value?.trim().isEmpty ?? true)
-                            ? AppStrings.of(context)
-                                  .lookup('s4.lib.pharmacy.order_note_required')
-                            : null,
-                      ),
-                      const SizedBox(height: 8),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        value: urgent,
-                        title: const AppText('s4.lib.pharmacy.mark_urgent'),
-                        onChanged: submitting
-                            ? null
-                            : (value) => setSheetState(() => urgent = value),
-                      ),
-                      const SizedBox(height: 18),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: submitting ? null : submit,
-                          icon: submitting
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : const Icon(Icons.add, color: Colors.white),
-                          label: Text(
-                            AppStrings.of(context).lookup(
-                              submitting
-                                  ? 's4.lib.pharmacy.creating'
-                                  : 's4.lib.pharmacy.create_order',
-                            ),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFE65100),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        ),
-      );
-
-      if (created == true) {
-        _snack(orderCreatedMessage);
-        unawaited(_loadOrders());
-      }
-    } finally {
-      phoneCtrl.dispose();
-      noteCtrl.dispose();
-    }
-  }
-
   Future<void> _confirmOrder(Map<String, dynamic> order) async {
     final s = AppStrings.of(context);
-    final itemsController = TextEditingController();
-    final costController = TextEditingController();
     final notesController = TextEditingController();
+    final existingLines = ((order['items_list'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((line) => Map<String, dynamic>.from(line))
+        .toList(growable: false);
+    final prescriptionBound =
+        _positiveInt(order['prescription_id']) != null ||
+        (_positiveInt(order['linked_prescription_count']) ?? 0) > 0;
+    final manualLines = <_ManualConfirmationLine>[_ManualConfirmationLine()];
 
-    final confirmed = await showModalBottomSheet<bool>(
+    final payload = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(
-          left: 20,
-          right: 20,
-          top: 20,
-          bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
-        ),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    '${s.pharmacyConfirmDialog} ${order['order_number'] ?? ''}',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) => Padding(
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 20,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      '${s.pharmacyConfirmDialog} ${order['order_number'] ?? ''}',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      tooltip: s.actionClose,
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+
+                // Prescription photo
+                if (order['prescription_photo_url'] != null) ...[
+                  const SizedBox(height: 12),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.network(
+                      order['prescription_photo_url'],
+                      height: 180,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => Container(
+                        height: 80,
+                        color: Colors.grey.shade200,
+                        child: Center(
+                          child: Text(AppStrings.of(context).pharmacyNoPreview),
+                        ),
+                      ),
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    tooltip: s.actionClose,
-                    onPressed: () => Navigator.pop(ctx, false),
+                ],
+
+                if (order['order_note'] != null &&
+                    order['order_note'].toString().isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    '${s.pharmacyPatientNotePrefix} ${order['order_note']}',
+                    style: const TextStyle(fontStyle: FontStyle.italic),
                   ),
                 ],
-              ),
 
-              // Prescription photo
-              if (order['prescription_photo_url'] != null) ...[
+                const SizedBox(height: 16),
+                if (prescriptionBound) ...[
+                  Text(
+                    s.lookup('med03.pharmacy.prescription_items_locked'),
+                    style: TextStyle(color: Colors.grey.shade700),
+                  ),
+                  const SizedBox(height: 8),
+                  for (final entry in existingLines.asMap().entries)
+                    ListTile(
+                      key: ValueKey('immutable-rx-line-${entry.key}'),
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.lock_outline),
+                      title: Text(
+                        (entry.value['name'] ??
+                                entry.value['medication_name'] ??
+                                s.format('med03.pharmacy.catalog_fallback', {
+                                  'id': entry.value['catalog_id'],
+                                }))
+                            .toString(),
+                      ),
+                      subtitle: Text(
+                        s.format('med03.pharmacy.locked_line_summary', {
+                          'line': entry.value['order_line_index'],
+                          'quantity':
+                              entry.value['ordered_qty'] ??
+                              entry.value['qty'] ??
+                              entry.value['quantity'],
+                        }),
+                      ),
+                    ),
+                ] else ...[
+                  Text(
+                    s.lookup('med03.pharmacy.select_authoritative_catalog'),
+                    style: TextStyle(color: Colors.grey.shade700),
+                  ),
+                  const SizedBox(height: 8),
+                  for (final entry in manualLines.asMap().entries)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            flex: 3,
+                            child: DropdownButtonFormField<int>(
+                              key: ValueKey('manual-catalog-${entry.key}'),
+                              initialValue: entry.value.catalogId,
+                              isExpanded: true,
+                              decoration: InputDecoration(
+                                labelText: s.lookup(
+                                  'med03.pharmacy.catalog_medicine',
+                                ),
+                                border: OutlineInputBorder(),
+                              ),
+                              items: _catalog
+                                  .where((item) => item['id'] is num)
+                                  .map(
+                                    (item) => DropdownMenuItem<int>(
+                                      value: (item['id'] as num).toInt(),
+                                      child: Text(
+                                        '${item['name'] ?? item['display_name'] ?? item['id']} '
+                                        '· ₹${item['unit_price'] ?? 0}',
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  )
+                                  .toList(growable: false),
+                              onChanged: (value) => setSheetState(
+                                () => entry.value.catalogId = value,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              key: ValueKey('manual-quantity-${entry.key}'),
+                              controller: entry.value.quantityController,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              decoration: InputDecoration(
+                                labelText: s.lookup('med03.pharmacy.quantity'),
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                          ),
+                          if (manualLines.length > 1)
+                            IconButton(
+                              onPressed: () => setSheetState(() {
+                                final removed = manualLines.removeAt(entry.key);
+                                removed.dispose();
+                              }),
+                              icon: const Icon(Icons.remove_circle_outline),
+                            ),
+                        ],
+                      ),
+                    ),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      key: const ValueKey('add-manual-catalog-line'),
+                      onPressed: () => setSheetState(
+                        () => manualLines.add(_ManualConfirmationLine()),
+                      ),
+                      icon: const Icon(Icons.add),
+                      label: Text(s.lookup('med03.pharmacy.add_medicine')),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 12),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.network(
-                    order['prescription_photo_url'],
-                    height: 180,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => Container(
-                      height: 80,
-                      color: Colors.grey.shade200,
-                      child: Center(
-                        child: Text(AppStrings.of(context).pharmacyNoPreview),
+                TextField(
+                  controller: notesController,
+                  decoration: InputDecoration(
+                    labelText: AppStrings.of(context)
+                        .lookup('appt_queue.notes_optional'),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      if (prescriptionBound) {
+                        Navigator.pop(ctx, {
+                          'confirmation_notes': notesController.text.trim(),
+                        });
+                        return;
+                      }
+                      final catalogLines = <Map<String, dynamic>>[];
+                      var total = 0.0;
+                      for (final entry in manualLines.asMap().entries) {
+                        final catalogId = entry.value.catalogId;
+                        final quantity = double.tryParse(
+                          entry.value.quantityController.text.trim(),
+                        );
+                        Map<String, dynamic>? catalog;
+                        for (final candidate in _catalog) {
+                          if (_positiveInt(candidate['id']) == catalogId) {
+                            catalog = candidate;
+                            break;
+                          }
+                        }
+                        final unitPrice = _number(
+                          catalog?['unit_price'] ?? catalog?['price'],
+                        )?.toDouble();
+                        if (catalogId == null ||
+                            quantity == null ||
+                            quantity <= 0 ||
+                            unitPrice == null ||
+                            unitPrice <= 0) {
+                          ScaffoldMessenger.of(ctx).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                s.lookup(
+                                  'med03.pharmacy.catalog_quantity_required',
+                                ),
+                              ),
+                            ),
+                          );
+                          return;
+                        }
+                        catalogLines.add({
+                          'order_line_index': entry.key,
+                          'catalog_id': catalogId,
+                          'quantity': quantity,
+                        });
+                        total += unitPrice * quantity;
+                      }
+                      Navigator.pop(ctx, {
+                        'items_list': catalogLines,
+                        'total_amount': double.parse(total.toStringAsFixed(2)),
+                        'confirmation_notes': notesController.text.trim(),
+                      });
+                    },
+                    icon: const Icon(Icons.check, color: Colors.white),
+                    label: Text(s.pharmacyConfirmOrder),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.primaryBlue,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
                       ),
                     ),
                   ),
                 ),
               ],
-
-              if (order['order_note'] != null &&
-                  order['order_note'].toString().isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Text(
-                  '${s.pharmacyPatientNotePrefix} ${order['order_note']}',
-                  style: const TextStyle(fontStyle: FontStyle.italic),
-                ),
-              ],
-
-              const SizedBox(height: 16),
-              TextField(
-                controller: itemsController,
-                maxLines: 3,
-                decoration: InputDecoration(
-                  labelText: s.pharmacyItemsLabel,
-                  hintText: s.pharmacyItemsHint,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: costController,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  labelText: s.pharmacyTotalCostLabel,
-                  prefixText: '₹ ',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: notesController,
-                decoration: InputDecoration(
-                  labelText: AppStrings.of(context)
-                      .lookup('appt_queue.notes_optional'),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () => Navigator.pop(ctx, true),
-                  icon: const Icon(Icons.check, color: Colors.white),
-                  label: Text(s.pharmacyConfirmOrder),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.primaryBlue,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
     );
-
-    if (confirmed != true) return;
-
-    // Parse items
-    final itemLines = itemsController.text.trim().split('\n');
-    final items = itemLines.where((l) => l.trim().isNotEmpty).map((line) {
-      final parts = line.split(',').map((s) => s.trim()).toList();
-      return {
-        'name': parts.isNotEmpty ? parts[0] : '',
-        'qty': parts.length > 1 ? int.tryParse(parts[1]) ?? 1 : 1,
-        'price': parts.length > 2 ? double.tryParse(parts[2]) ?? 0 : 0,
-      };
-    }).toList();
+    for (final line in manualLines) {
+      line.dispose();
+    }
+    notesController.dispose();
+    if (payload == null) return;
 
     try {
-      await PharmacyApiService.confirmPharmacyOrder(order['id'], {
-        'items_list': items,
-        'total_cost': double.tryParse(costController.text) ?? 0,
-        'confirmation_notes': notesController.text.trim(),
-      });
+      var currentPayload = payload;
+      final lineCount = ((payload['items_list'] as List?) ?? const []).length;
+      final maximumAttempts = lineCount + 1;
+      final recoveredLines = <int>{};
+      for (var attempt = 0; attempt < maximumAttempts; attempt++) {
+        try {
+          await PharmacyApiService.confirmPharmacyOrder(
+            order['id'],
+            currentPayload,
+          );
+          break;
+        } on PharmacyApiException catch (error) {
+          final lineIndex = _nonNegativeInt(error.details?['order_line_index']);
+          if (lineIndex == null || !recoveredLines.add(lineIndex)) rethrow;
+          final recovered = await _recoverManualCatalogSelection(
+            error,
+            currentPayload,
+          );
+          if (recovered == null) rethrow;
+          currentPayload = recovered;
+          if (attempt == maximumAttempts - 1) rethrow;
+        }
+      }
       _snack(s.pharmacyOrderConfirmedToast);
+      unawaited(_loadOrders());
+    } catch (e) {
+      _snack(e.toString(), isError: true);
+    }
+  }
+
+  String _paymentModeLabel(AppStrings strings, String mode) =>
+      strings.lookup('med03.pharmacy.payment_mode.$mode');
+
+  String _expiryBucketLabel(AppStrings strings, Object? rawBucket) {
+    final key = switch (rawBucket?.toString()) {
+      'expired' => 'expired',
+      '0-30' => 'within_30',
+      '31-60' => 'within_60',
+      '61-90' => 'within_90',
+      'beyond-90' => 'beyond_90',
+      _ => 'unknown',
+    };
+    return strings.lookup('med03.pharmacy.expiry_bucket.$key');
+  }
+
+  String _recoveryActionLabel(AppStrings strings, Object? rawAction) {
+    final action = rawAction?.toString();
+    return switch (action) {
+      'select_exact_tpa_claim_allocation' => strings.lookup(
+        'med03.pharmacy.recovery.select_exact_tpa_claim_allocation',
+      ),
+      'materialize_pharmacy_funding' => strings.lookup(
+        'med03.pharmacy.recovery.materialize_pharmacy_funding',
+      ),
+      'open_exact_pharmacy_funding_task' => strings.lookup(
+        'med03.pharmacy.recovery.open_exact_pharmacy_funding_task',
+      ),
+      'complete_manual_allergy_review' => strings.lookup(
+        'med03.pharmacy.recovery.complete_manual_allergy_review',
+      ),
+      _ => strings.lookup('med03.pharmacy.recovery.contact_owner'),
+    };
+  }
+
+  PharmacyFundingRecovery? _fundingRecovery(PharmacyApiException error) =>
+      PharmacyFundingRecovery.from(error.details?['funding_recovery']);
+
+  bool _requiresFundingRecovery(PharmacyApiException error) {
+    final nextAction = error.details?['next_action']?.toString();
+    return error.code == 'PHARMACY_TPA_FUNDING_REQUIRED' ||
+        error.code == 'COUNTER_FUNDING_POSTED_AUTHORITY_REQUIRED' ||
+        nextAction == 'select_exact_tpa_claim_allocation' ||
+        nextAction == 'materialize_pharmacy_funding' ||
+        nextAction == 'open_exact_pharmacy_funding_task';
+  }
+
+  void _openFundingRecovery(PharmacyFundingRecovery recovery) {
+    final deepLink = recovery.deepLink;
+    if (!_canOpenBillingDesk || deepLink == null) return;
+    context.push(deepLink.toString());
+  }
+
+  Future<Map<String, dynamic>?> _recoverManualCatalogSelection(
+    PharmacyApiException error,
+    Map<String, dynamic> payload,
+  ) async {
+    if (error.code != 'PHARMACY_ORDER_CATALOG_RESOLUTION_REQUIRED') return null;
+    final details = error.details;
+    final lineIndex = _nonNegativeInt(details?['order_line_index']);
+    final candidates =
+        ((details?['inventory_item_candidates'] as List?) ?? const [])
+            .whereType<Map>()
+            .map((row) => Map<String, dynamic>.from(row))
+            .where((row) => _positiveInt(row['inventory_item_id']) != null)
+            .toList(growable: false);
+    if (lineIndex == null || lineIndex < 0 || candidates.isEmpty || !mounted)
+      return null;
+    final selected = await showDialog<int>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => SimpleDialog(
+        title: Text(
+          AppStrings.of(context).lookup('med03.pharmacy.select_inventory_item'),
+        ),
+        children: candidates
+            .map((candidate) {
+              final id = _positiveInt(candidate['inventory_item_id'])!;
+              return SimpleDialogOption(
+                onPressed: () => Navigator.pop(ctx, id),
+                child: Text(
+                  candidate['display_name']?.toString() ??
+                      AppStrings.of(context).format(
+                        'med03.pharmacy.inventory_item_fallback',
+                        {'id': id},
+                      ),
+                ),
+              );
+            })
+            .toList(growable: false),
+      ),
+    );
+    if (selected == null) return null;
+    final recovered = Map<String, dynamic>.from(payload);
+    final lines = ((payload['items_list'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((line) => Map<String, dynamic>.from(line))
+        .toList();
+    if (lineIndex >= lines.length) return null;
+    lines[lineIndex]['inventory_item_id'] = selected;
+    recovered['items_list'] = lines;
+    return recovered;
+  }
+
+  bool _verificationCleared(Map<String, dynamic> order) => const {
+    'verified',
+    'override',
+  }.contains(order['clinical_verification_status']?.toString().toLowerCase());
+
+  Future<void> _verifyOrder(Map<String, dynamic> order) async {
+    final s = AppStrings.of(context);
+    if (!_canPerformClinicalVerification) {
+      _snack(
+        s.lookup('med03.pharmacy.verification_pharmacist_only'),
+        isError: true,
+      );
+      return;
+    }
+    var decision = 'verified';
+    var manualAllergyReviewCompleted = false;
+    final notesController = TextEditingController();
+    final overrideController = TextEditingController();
+    final verificationDecisions = [
+      'verified',
+      if (_canBreakGlassVerification) 'override',
+      'rejected',
+    ];
+    final verification = await showDialog<Map<String, dynamic>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text(s.lookup('med03.pharmacy.verify_order')),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DropdownButtonFormField<String>(
+                key: const ValueKey('pharmacy-verification-decision'),
+                initialValue: decision,
+                decoration: InputDecoration(
+                  labelText: s.lookup('med03.pharmacy.verification_decision'),
+                ),
+                items: verificationDecisions
+                    .map(
+                      (value) => DropdownMenuItem(
+                        value: value,
+                        child: Text(
+                          s.lookup('med03.pharmacy.verification_$value'),
+                        ),
+                      ),
+                    )
+                    .toList(growable: false),
+                onChanged: (value) => setDialogState(() {
+                  if (value != null) decision = value;
+                }),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const ValueKey('pharmacy-verification-notes'),
+                controller: notesController,
+                maxLength: decision == 'rejected' ? 500 : 2000,
+                decoration: InputDecoration(
+                  labelText: s.lookup(
+                    decision == 'rejected'
+                        ? 'med03.pharmacy.verification_rejection_reason'
+                        : 'med03.pharmacy.verification_notes',
+                  ),
+                ),
+                onChanged: (_) => setDialogState(() {}),
+              ),
+              if (decision == 'override') ...[
+                const SizedBox(height: 12),
+                Text(
+                  s.lookup('med03.pharmacy.verification_override_incharge'),
+                  style: TextStyle(color: Colors.orange.shade900),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  key: const ValueKey('pharmacy-verification-override-reason'),
+                  controller: overrideController,
+                  minLines: 2,
+                  maxLines: 4,
+                  maxLength: 1000,
+                  decoration: InputDecoration(
+                    labelText: s.lookup(
+                      'med03.pharmacy.verification_override_reason',
+                    ),
+                    helperText: s.lookup(
+                      'med03.pharmacy.verification_override_reason_help',
+                    ),
+                  ),
+                  onChanged: (_) => setDialogState(() {}),
+                ),
+                CheckboxListTile(
+                  key: const ValueKey(
+                    'pharmacy-verification-manual-allergy-review',
+                  ),
+                  contentPadding: EdgeInsets.zero,
+                  value: manualAllergyReviewCompleted,
+                  title: Text(
+                    s.lookup(
+                      'med03.pharmacy.verification_manual_allergy_review',
+                    ),
+                  ),
+                  subtitle: Text(
+                    s.lookup(
+                      'med03.pharmacy.verification_manual_allergy_review_help',
+                    ),
+                  ),
+                  onChanged: (value) => setDialogState(
+                    () => manualAllergyReviewCompleted = value == true,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(s.actionCancel),
+            ),
+            FilledButton(
+              key: const ValueKey('pharmacy-verification-submit'),
+              onPressed:
+                  (decision != 'override' ||
+                          (_canBreakGlassVerification &&
+                              overrideController.text.trim().length >= 10 &&
+                              overrideController.text.trim().length <= 1000 &&
+                              manualAllergyReviewCompleted)) &&
+                      (decision != 'rejected' ||
+                          (notesController.text.trim().length >= 10 &&
+                              notesController.text.trim().length <= 500))
+                  ? () => Navigator.pop(ctx, {
+                      'decision': decision,
+                      'notes': notesController.text.trim(),
+                      'override_reason': overrideController.text.trim(),
+                      'manual_allergy_review_completed':
+                          manualAllergyReviewCompleted,
+                    })
+                  : null,
+              child: Text(s.lookup('med03.pharmacy.submit_verification')),
+            ),
+          ],
+        ),
+      ),
+    );
+    notesController.dispose();
+    overrideController.dispose();
+    if (verification == null) return;
+    try {
+      await PharmacyApiService.verifyPharmacyOrder(
+        (order['id'] as num).toInt(),
+        decision: verification['decision']!,
+        notes: verification['notes'],
+        overrideReason: verification['override_reason'],
+        manualAllergyReviewCompleted:
+            verification['manual_allergy_review_completed'] == true,
+      );
+      _snack(s.lookup('med03.pharmacy.verification_complete'));
       unawaited(_loadOrders());
     } catch (e) {
       _snack(e.toString(), isError: true);
@@ -627,97 +922,1200 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
     }
   }
 
-  Future<void> _dispatchOrder(Map<String, dynamic> order) async {
+  Future<void> _completeCounterDispense(Map<String, dynamic> order) async {
     final s = AppStrings.of(context);
-    final personCtrl = TextEditingController();
-    final phoneCtrl = TextEditingController();
-
-    final confirmed = await showDialog<bool>(
+    final paymentMode =
+        const {
+          'cash',
+          'card',
+          'upi',
+          'wallet',
+          'insurance',
+          'corporate_tpa',
+        }.contains(order['payment_mode']?.toString())
+        ? order['payment_mode'].toString()
+        : '';
+    final collected = _number(order['amount_collected']);
+    final initialAmount = collected ?? 0;
+    final amountController = TextEditingController(
+      text: initialAmount.toString(),
+    );
+    final paymentMetadata = order['payment_metadata'] is Map
+        ? Map<String, dynamic>.from(order['payment_metadata'] as Map)
+        : const <String, dynamic>{};
+    final tpaReferenceController = TextEditingController(
+      text:
+          (paymentMetadata['tpa_reference'] ??
+                  paymentMetadata['approval_reference'] ??
+                  paymentMetadata['funding_reference'] ??
+                  '')
+              .toString(),
+    );
+    final payload = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(s.pharmacyDispatchDialog),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: personCtrl,
-              decoration: InputDecoration(
-                labelText: s.pharmacyDeliveryPersonName,
-                prefixIcon: const ExcludeSemantics(child: Icon(Icons.person)),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text(s.lookup('med03.pharmacy.complete_counter_dispense')),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DropdownButtonFormField<String>(
+                key: const ValueKey('pharmacy-counter-payment-mode'),
+                initialValue: paymentMode.isEmpty ? null : paymentMode,
+                decoration: InputDecoration(
+                  labelText: s.lookup('s4.lib.counter_sale.payment_mode'),
+                ),
+                items:
+                    const [
+                          'cash',
+                          'card',
+                          'upi',
+                          'wallet',
+                          'insurance',
+                          'corporate_tpa',
+                        ]
+                        .map(
+                          (mode) => DropdownMenuItem(
+                            value: mode,
+                            child: Text(_paymentModeLabel(s, mode)),
+                          ),
+                        )
+                        .toList(growable: false),
+                onChanged: null,
               ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const ValueKey('pharmacy-counter-amount-collected'),
+                controller: amountController,
+                readOnly: true,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: InputDecoration(
+                  labelText: s.lookup('med03.pharmacy.amount_collected'),
+                  helperText: s.lookup(
+                    'med03.pharmacy.authoritative_total_rechecked',
+                  ),
+                ),
+              ),
+              if (const {
+                'insurance',
+                'corporate_tpa',
+              }.contains(paymentMode)) ...[
+                const SizedBox(height: 12),
+                TextField(
+                  key: const ValueKey('pharmacy-counter-tpa-reference'),
+                  controller: tpaReferenceController,
+                  readOnly: true,
+                  maxLength: 160,
+                  decoration: InputDecoration(
+                    labelText: s.lookup('med03.pharmacy.tpa_reference'),
+                    helperText: s.lookup(
+                      'med03.pharmacy.tpa_reference_exact_help',
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(s.actionCancel),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: phoneCtrl,
-              keyboardType: TextInputType.phone,
-              decoration: InputDecoration(
-                labelText: s.pharmacyDeliveryPersonPhone,
-                prefixIcon: const ExcludeSemantics(child: Icon(Icons.phone)),
-              ),
+            FilledButton(
+              key: const ValueKey('pharmacy-counter-complete-submit'),
+              onPressed: () {
+                final amount = num.tryParse(amountController.text.trim());
+                if (paymentMode.isEmpty ||
+                    amount == null ||
+                    !amount.isFinite ||
+                    amount < 0) {
+                  return;
+                }
+                final tpaReference = tpaReferenceController.text.trim();
+                if (const {
+                      'insurance',
+                      'corporate_tpa',
+                    }.contains(paymentMode) &&
+                    tpaReference.isEmpty) {
+                  return;
+                }
+                Navigator.pop(ctx, {
+                  'payment_mode': paymentMode,
+                  'amount_collected': amount,
+                  if (tpaReference.isNotEmpty) 'tpa_reference': tpaReference,
+                });
+              },
+              child: Text(s.lookup('med03.pharmacy.dispense_remainder')),
             ),
           ],
         ),
+      ),
+    );
+    amountController.dispose();
+    tpaReferenceController.dispose();
+    if (payload == null) return;
+    final orderId = (order['id'] as num).toInt();
+    final allocations = _controlledDeliveryAllocations.putIfAbsent(
+      orderId,
+      () => <Map<String, dynamic>>[],
+    );
+    final rawOrderLines = order['items_list'];
+    final orderLineCount = rawOrderLines is List ? rawOrderLines.length : 0;
+    final maximumDispenseAttempts = (orderLineCount * 2) + 1;
+    final seenRecoverySteps = <String>{};
+    try {
+      for (
+        var dispenseAttempt = 0;
+        dispenseAttempt < maximumDispenseAttempts;
+        dispenseAttempt++
+      ) {
+        try {
+          await PharmacyApiService.markPharmacyCounterDispensed(orderId, {
+            ...payload,
+            if (allocations.isNotEmpty) 'dispensed_items': allocations,
+          });
+          _controlledDeliveryAllocations.remove(orderId);
+          _clearControlledDeliveryWitnessState(orderId);
+          _snack(s.lookup('med03.pharmacy.counter_dispense_complete'));
+          unawaited(_loadOrders());
+          return;
+        } on PharmacyApiException catch (error) {
+          if (error.code != 'PHARMACY_ORDER_CONTROLLED_ALLOCATION_REQUIRED' &&
+              error.code != 'PHARMACY_ORDER_INVENTORY_ITEM_AMBIGUOUS') {
+            rethrow;
+          }
+          final recoveryLineIndex = _deliveryRecoveryLineIndex(error);
+          if (recoveryLineIndex == null ||
+              recoveryLineIndex >= orderLineCount) {
+            throw StateError(
+              'Controlled counter recovery line identity is invalid',
+            );
+          }
+          final recoveryStep = '${error.code}:$recoveryLineIndex';
+          if (!seenRecoverySteps.add(recoveryStep)) {
+            throw StateError(
+              'Controlled counter recovery made no authoritative progress',
+            );
+          }
+          final allocation = switch (error.code) {
+            'PHARMACY_ORDER_CONTROLLED_ALLOCATION_REQUIRED' =>
+              await _collectControlledDeliveryAllocation(
+                orderId: orderId,
+                error: error,
+              ),
+            'PHARMACY_ORDER_INVENTORY_ITEM_AMBIGUOUS' =>
+              await _collectAmbiguousInventoryItemSelection(error),
+            _ => throw error,
+          };
+          if (allocation == null) {
+            _controlledDeliveryAllocations.remove(orderId);
+            _clearControlledDeliveryWitnessState(orderId);
+            return;
+          }
+          final matchingAllocations = allocations.where(
+            (item) =>
+                item['order_line_index'] == allocation['order_line_index'],
+          );
+          final priorAllocation = matchingAllocations.isEmpty
+              ? null
+              : matchingAllocations.first;
+          allocations.removeWhere(
+            (item) =>
+                item['order_line_index'] == allocation['order_line_index'],
+          );
+          allocations.add(allocation);
+          if (priorAllocation != null &&
+              _sameControlledDeliveryAllocation(priorAllocation, allocation)) {
+            throw StateError(
+              'Controlled counter recovery made no authoritative progress',
+            );
+          }
+        }
+      }
+      throw StateError(
+        'Controlled counter recovery exceeded its order-derived evidence bound',
+      );
+    } on PharmacyApiException catch (error) {
+      if (error.statusCode >= 400 && error.statusCode < 500) {
+        _controlledDeliveryAllocations.remove(orderId);
+        _clearControlledDeliveryWitnessState(orderId);
+      }
+      final nextAction = error.details?['next_action']?.toString();
+      final fundingTask = _fundingRecovery(error);
+      final fundingRecovery = _requiresFundingRecovery(error);
+      _snack(
+        [
+          error.toString(),
+          if (nextAction != null) _recoveryActionLabel(s, nextAction),
+          if (fundingTask != null) fundingTask.summary(s),
+        ].join(' · '),
+        isError: true,
+        actionLabel:
+            fundingRecovery &&
+                fundingTask != null &&
+                fundingTask.deepLink != null &&
+                _canOpenBillingDesk
+            ? s.lookup('med03.pharmacy.recovery.open_billing_desk')
+            : null,
+        onAction:
+            fundingRecovery &&
+                fundingTask != null &&
+                fundingTask.deepLink != null &&
+                _canOpenBillingDesk
+            ? () => _openFundingRecovery(fundingTask)
+            : null,
+      );
+    } catch (e) {
+      _controlledDeliveryAllocations.remove(orderId);
+      _clearControlledDeliveryWitnessState(orderId);
+      _snack(e.toString(), isError: true);
+    }
+  }
+
+  Future<void> _markUnavailable(Map<String, dynamic> order) async {
+    final s = AppStrings.of(context);
+    final reasonController = TextEditingController();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(s.lookup('med03.pharmacy.mark_unavailable')),
+        content: TextField(
+          key: const ValueKey('pharmacy-unavailable-reason'),
+          controller: reasonController,
+          maxLength: 500,
+          decoration: InputDecoration(
+            labelText: s.lookup('med03.pharmacy.unavailable_reason'),
+          ),
+        ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
+            onPressed: () => Navigator.pop(ctx),
             child: Text(s.actionCancel),
           ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(s.pharmacyDispatch),
+          FilledButton(
+            onPressed: () {
+              final value = reasonController.text.trim();
+              if (value.isNotEmpty) Navigator.pop(ctx, value);
+            },
+            child: Text(s.lookup('med03.pharmacy.mark_unavailable')),
           ),
         ],
       ),
     );
-
-    if (confirmed != true) return;
-
+    reasonController.dispose();
+    if (reason == null) return;
     try {
-      await PharmacyApiService.dispatchPharmacyOrder(order['id'], {
-        'delivery_person': personCtrl.text.trim(),
-        'delivery_person_phone': phoneCtrl.text.trim(),
-      });
-      _snack(s.pharmacyOrderDispatchedToast);
-      _startLocationSharing(order['id']);
+      await PharmacyApiService.markPharmacyUnavailable(
+        (order['id'] as num).toInt(),
+        reason: reason,
+      );
+      _snack(s.lookup('med03.pharmacy.unavailable_complete'));
       unawaited(_loadOrders());
     } catch (e) {
       _snack(e.toString(), isError: true);
     }
   }
 
-  Future<void> _markDelivered(Map<String, dynamic> order) async {
+  Future<void> _assignFacility(Map<String, dynamic> order) async {
     final s = AppStrings.of(context);
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(s.pharmacyMarkDeliveredDialog),
-        content: AppText(
-          's4.dynamic.pharmacy.confirm_delivered',
-          values: {'orderNumber': order['order_number'] ?? ''},
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const AppText('action.cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(s.pharmacyMarkDeliveredYes),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
-
+    final facilityId = _positiveInt(order['facility_recovery_target_id']);
+    if (facilityId == null) {
+      _snack(s.lookup('med03.pharmacy.facility_admin_required'), isError: true);
+      return;
+    }
     try {
-      await PharmacyApiService.markPharmacyDelivered(order['id']);
-      _stopLocationSharing();
-      _snack(s.pharmacyOrderDeliveredToast);
+      await PharmacyApiService.assignPharmacyOrderFacility(
+        (order['id'] as num).toInt(),
+        facilityId: facilityId,
+      );
+      _snack(s.lookup('med03.pharmacy.facility_assigned'));
       unawaited(_loadOrders());
     } catch (e) {
       _snack(e.toString(), isError: true);
     }
+  }
+
+  Future<void> _resolveLineIdentities(Map<String, dynamic> order) async {
+    final s = AppStrings.of(context);
+    final orderLines = ((order['items_list'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((line) => Map<String, dynamic>.from(line))
+        .toList(growable: false);
+    final prescriptionLines =
+        ((order['prescription_medications'] as List?) ?? const [])
+            .whereType<Map>()
+            .map((line) => Map<String, dynamic>.from(line))
+            .toList(growable: false);
+    if (orderLines.isEmpty || prescriptionLines.isEmpty) {
+      _snack(
+        s.lookup('med03.pharmacy.line_identity_source_missing'),
+        isError: true,
+      );
+      return;
+    }
+    final selected = List<int?>.filled(orderLines.length, null);
+    final mappings = await showDialog<List<Map<String, dynamic>>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text(s.lookup('med03.pharmacy.resolve_line_identities')),
+          content: SizedBox(
+            width: 520,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(s.lookup('med03.pharmacy.resolve_line_identity_help')),
+                  const SizedBox(height: 12),
+                  for (final entry in orderLines.asMap().entries)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: DropdownButtonFormField<int>(
+                        key: ValueKey('legacy-line-map-${entry.key}'),
+                        initialValue: selected[entry.key],
+                        isExpanded: true,
+                        decoration: InputDecoration(
+                          labelText:
+                              (entry.value['name'] ??
+                                      entry.value['medication_name'] ??
+                                      s.format(
+                                        'med03.pharmacy.order_line_fallback',
+                                        {'line': entry.key + 1},
+                                      ))
+                                  .toString(),
+                          border: const OutlineInputBorder(),
+                        ),
+                        items: prescriptionLines
+                            .asMap()
+                            .entries
+                            .map((rxEntry) {
+                              final line = rxEntry.value;
+                              return DropdownMenuItem<int>(
+                                value: rxEntry.key,
+                                child: Text(
+                                  '${rxEntry.key + 1}. '
+                                  '${line['name'] ?? line['medication_name'] ?? s.format('med03.pharmacy.catalog_fallback', {'id': line['catalog_id']})} '
+                                  '· ${line['dose'] ?? line['strength'] ?? ''}',
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              );
+                            })
+                            .toList(growable: false),
+                        onChanged: (value) =>
+                            setDialogState(() => selected[entry.key] = value),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(s.actionCancel),
+            ),
+            FilledButton(
+              key: const ValueKey('legacy-line-map-submit'),
+              onPressed:
+                  selected.every((value) => value != null) &&
+                      selected.toSet().length == selected.length
+                  ? () => Navigator.pop(
+                      ctx,
+                      selected
+                          .asMap()
+                          .entries
+                          .map(
+                            (entry) => {
+                              'order_line_index': entry.key,
+                              'prescription_line_index': entry.value,
+                            },
+                          )
+                          .toList(growable: false),
+                    )
+                  : null,
+              child: Text(s.lookup('med03.pharmacy.save_line_identities')),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (mappings == null) return;
+    try {
+      await PharmacyApiService.resolvePharmacyOrderLineIdentities(
+        (order['id'] as num).toInt(),
+        lineMappings: mappings,
+      );
+      _snack(s.lookup('med03.pharmacy.line_identities_resolved'));
+      unawaited(_loadOrders());
+    } catch (e) {
+      _snack(e.toString(), isError: true);
+    }
+  }
+
+  Future<void> _dispatchOrder(Map<String, dynamic> order) async {
+    final s = AppStrings.of(context);
+    final orderId = (order['id'] as num).toInt();
+    late final List<Map<String, dynamic>> assignees;
+    try {
+      assignees = await PharmacyApiService.getPharmacyDeliveryAssignees(
+        orderId,
+      );
+    } catch (error) {
+      _snack(error.toString(), isError: true);
+      return;
+    }
+    if (!mounted) return;
+    if (assignees.isEmpty) {
+      _snack(
+        s.lookup('med03.pharmacy.delivery_assignee_required'),
+        isError: true,
+      );
+      return;
+    }
+    String? selectedUid;
+    final deliveryAssigneeUid = await showDialog<String>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text(s.pharmacyDispatchDialog),
+          content: DropdownButtonFormField<String>(
+            key: const ValueKey('pharmacy-delivery-assignee'),
+            initialValue: selectedUid,
+            decoration: InputDecoration(
+              labelText: s.pharmacyDeliveryPersonName,
+              prefixIcon: const ExcludeSemantics(child: Icon(Icons.person)),
+            ),
+            items: assignees
+                .map(
+                  (assignee) => DropdownMenuItem<String>(
+                    value: assignee['uid']?.toString(),
+                    child: Text(
+                      [
+                        assignee['name']?.toString() ?? '',
+                        if ((assignee['phone']?.toString() ?? '').isNotEmpty)
+                          assignee['phone'].toString(),
+                      ].where((part) => part.isNotEmpty).join(' · '),
+                    ),
+                  ),
+                )
+                .toList(growable: false),
+            onChanged: (value) => setDialogState(() => selectedUid = value),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(s.actionCancel),
+            ),
+            ElevatedButton(
+              key: const ValueKey('pharmacy-delivery-dispatch-submit'),
+              onPressed: selectedUid == null
+                  ? null
+                  : () => Navigator.pop(ctx, selectedUid),
+              child: Text(s.pharmacyDispatch),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (deliveryAssigneeUid == null) return;
+
+    final allocations = _controlledDeliveryAllocations.putIfAbsent(
+      orderId,
+      () => <Map<String, dynamic>>[],
+    );
+    final rawOrderLines = order['items_list'];
+    final orderLineCount = rawOrderLines is List ? rawOrderLines.length : 0;
+    final maximumDispatchAttempts = (orderLineCount * 2) + 1;
+    final seenRecoverySteps = <String>{};
+    try {
+      for (
+        var dispatchAttempt = 0;
+        dispatchAttempt < maximumDispatchAttempts;
+        dispatchAttempt++
+      ) {
+        try {
+          await PharmacyApiService.dispatchPharmacyOrder(orderId, {
+            'delivery_assignee_uid': deliveryAssigneeUid,
+            if (allocations.isNotEmpty) 'dispensed_items': allocations,
+          });
+          _controlledDeliveryAllocations.remove(orderId);
+          _clearControlledDeliveryWitnessState(orderId);
+          _snack(s.pharmacyOrderDispatchedToast);
+          unawaited(_loadOrders());
+          return;
+        } on PharmacyApiException catch (error) {
+          if (error.code != 'PHARMACY_ORDER_CONTROLLED_ALLOCATION_REQUIRED' &&
+              error.code != 'PHARMACY_ORDER_INVENTORY_ITEM_AMBIGUOUS') {
+            throw error;
+          }
+          final recoveryLineIndex = _deliveryRecoveryLineIndex(error);
+          if (recoveryLineIndex == null ||
+              recoveryLineIndex >= orderLineCount) {
+            throw StateError(
+              'Controlled delivery recovery line identity is invalid',
+            );
+          }
+          final recoveryStep = '${error.code}:$recoveryLineIndex';
+          if (!seenRecoverySteps.add(recoveryStep)) {
+            throw StateError(
+              'Controlled delivery recovery made no authoritative progress',
+            );
+          }
+          final allocation = switch (error.code) {
+            'PHARMACY_ORDER_CONTROLLED_ALLOCATION_REQUIRED' =>
+              await _collectControlledDeliveryAllocation(
+                orderId: orderId,
+                error: error,
+              ),
+            'PHARMACY_ORDER_INVENTORY_ITEM_AMBIGUOUS' =>
+              await _collectAmbiguousInventoryItemSelection(error),
+            _ => throw error,
+          };
+          if (allocation == null) return;
+          final matchingAllocations = allocations.where(
+            (item) =>
+                item['order_line_index'] == allocation['order_line_index'],
+          );
+          final priorAllocation = matchingAllocations.isEmpty
+              ? null
+              : matchingAllocations.first;
+          allocations.removeWhere(
+            (item) =>
+                item['order_line_index'] == allocation['order_line_index'],
+          );
+          allocations.add(allocation);
+          if (priorAllocation != null &&
+              _sameControlledDeliveryAllocation(priorAllocation, allocation)) {
+            throw StateError(
+              'Controlled delivery recovery made no authoritative progress',
+            );
+          }
+        }
+      }
+      throw StateError(
+        'Controlled delivery recovery exceeded its order-derived evidence bound',
+      );
+    } on PharmacyApiException catch (error) {
+      if (error.statusCode >= 400 && error.statusCode < 500) {
+        _controlledDeliveryAllocations.remove(orderId);
+        _clearControlledDeliveryWitnessState(orderId);
+      }
+      final nextAction = error.details?['next_action']?.toString();
+      final fundingTask = _fundingRecovery(error);
+      final fundingRecovery = _requiresFundingRecovery(error);
+      _snack(
+        [
+          error.toString(),
+          if (nextAction != null) _recoveryActionLabel(s, nextAction),
+          if (fundingTask != null) fundingTask.summary(s),
+        ].join(' · '),
+        isError: true,
+        actionLabel:
+            fundingRecovery &&
+                fundingTask != null &&
+                fundingTask.deepLink != null &&
+                _canOpenBillingDesk
+            ? s.lookup('med03.pharmacy.recovery.open_billing_desk')
+            : null,
+        onAction:
+            fundingRecovery &&
+                fundingTask != null &&
+                fundingTask.deepLink != null &&
+                _canOpenBillingDesk
+            ? () => _openFundingRecovery(fundingTask)
+            : null,
+      );
+    } catch (error) {
+      _controlledDeliveryAllocations.remove(orderId);
+      _clearControlledDeliveryWitnessState(orderId);
+      _snack(error.toString(), isError: true);
+    }
+  }
+
+  Future<void> _markDelivered(Map<String, dynamic> order) async {
+    final s = AppStrings.of(context);
+    final tokenController = TextEditingController();
+    final reasonController = TextEditingController();
+    final requiresBreakGlassReason = _role == StaffRole.pharmacyIncharge;
+    final evidence = await showDialog<Map<String, String>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text(s.pharmacyMarkDeliveredDialog),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AppText(
+                's4.dynamic.pharmacy.confirm_delivered',
+                values: {'orderNumber': order['order_number'] ?? ''},
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const ValueKey('pharmacy-delivery-handoff-token'),
+                controller: tokenController,
+                obscureText: true,
+                enableSuggestions: false,
+                autocorrect: false,
+                onChanged: (_) => setDialogState(() {}),
+                decoration: InputDecoration(
+                  labelText: s.transportVerifyHandoff,
+                ),
+              ),
+              if (requiresBreakGlassReason) ...[
+                const SizedBox(height: 12),
+                TextField(
+                  key: const ValueKey('pharmacy-delivery-break-glass-reason'),
+                  controller: reasonController,
+                  minLines: 2,
+                  maxLines: 4,
+                  maxLength: 500,
+                  onChanged: (_) => setDialogState(() {}),
+                  decoration: InputDecoration(
+                    labelText: s.lookup(
+                      'med03.pharmacy.verification_override_reason',
+                    ),
+                    helperText: s.lookup(
+                      'med03.pharmacy.verification_override_reason_help',
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(s.actionCancel),
+            ),
+            ElevatedButton(
+              key: const ValueKey('pharmacy-delivery-submit'),
+              onPressed:
+                  tokenController.text.trim().length >= 20 &&
+                      tokenController.text.trim().length <= 200 &&
+                      (!requiresBreakGlassReason ||
+                          (reasonController.text.trim().length >= 10 &&
+                              reasonController.text.trim().length <= 500))
+                  ? () => Navigator.pop(ctx, {
+                      'handoff_token': tokenController.text.trim(),
+                      if (requiresBreakGlassReason)
+                        'break_glass_reason': reasonController.text.trim(),
+                    })
+                  : null,
+              child: Text(s.pharmacyMarkDeliveredYes),
+            ),
+          ],
+        ),
+      ),
+    );
+    tokenController.dispose();
+    reasonController.dispose();
+    if (evidence == null) return;
+
+    try {
+      await PharmacyApiService.completePharmacyDelivery(
+        (order['id'] as num).toInt(),
+        handoffToken: evidence['handoff_token']!,
+        breakGlassReason: evidence['break_glass_reason'],
+      );
+      _snack(s.pharmacyOrderDeliveredToast);
+      unawaited(_loadOrders());
+    } catch (error) {
+      _snack(error.toString(), isError: true);
+    }
+  }
+
+  void _clearControlledDeliveryWitnessState(int orderId) {
+    final marker = ':$orderId:';
+    _controlledDeliveryWitnessAttempts.removeWhere(
+      (scope, _) => scope.contains(marker),
+    );
+    _controlledDeliveryPendingApprovals.removeWhere(
+      (scope, _) => scope.contains(marker),
+    );
+    _controlledDeliveryApprovedWitnesses.removeWhere(
+      (scope, _) => scope.contains(marker),
+    );
+  }
+
+  int? _deliveryRecoveryLineIndex(PharmacyApiException error) {
+    final direct = _nonNegativeInt(error.details?['order_line_index']);
+    if (direct != null) return direct;
+    final recovery = error.details?['recovery_action'];
+    final requestShape = recovery is Map ? recovery['request_shape'] : null;
+    final rawItems = requestShape is Map
+        ? requestShape['dispensed_items']
+        : null;
+    if (rawItems is! List || rawItems.length != 1 || rawItems.first is! Map) {
+      return null;
+    }
+    return _nonNegativeInt((rawItems.first as Map)['order_line_index']);
+  }
+
+  bool _sameControlledDeliveryAllocation(
+    Map<String, dynamic> left,
+    Map<String, dynamic> right,
+  ) {
+    if (_nonNegativeInt(left['order_line_index']) !=
+            _nonNegativeInt(right['order_line_index']) ||
+        _positiveInt(left['catalog_id']) != _positiveInt(right['catalog_id']) ||
+        _positiveInt(left['inventory_item_id']) !=
+            _positiveInt(right['inventory_item_id'])) {
+      return false;
+    }
+    final leftAllocations = left['inventory_allocations'];
+    final rightAllocations = right['inventory_allocations'];
+    if (leftAllocations is! List || rightAllocations is! List) {
+      return leftAllocations == null && rightAllocations == null;
+    }
+    if (leftAllocations.length != rightAllocations.length) return false;
+    for (var index = 0; index < leftAllocations.length; index++) {
+      final leftAllocation = leftAllocations[index];
+      final rightAllocation = rightAllocations[index];
+      if (leftAllocation is! Map || rightAllocation is! Map) return false;
+      if (_positiveInt(
+                leftAllocation['inventory_batch_id'] ??
+                    leftAllocation['batch_id'],
+              ) !=
+              _positiveInt(
+                rightAllocation['inventory_batch_id'] ??
+                    rightAllocation['batch_id'],
+              ) ||
+          _number(leftAllocation['quantity']) !=
+              _number(rightAllocation['quantity']) ||
+          leftAllocation['witness_approval_id']?.toString() !=
+              rightAllocation['witness_approval_id']?.toString()) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  Future<Map<String, dynamic>?> _collectAmbiguousInventoryItemSelection(
+    PharmacyApiException error,
+  ) async {
+    final details = error.details;
+    final rawRecovery = details?['recovery_action'];
+    final rawShape = rawRecovery is Map ? rawRecovery['request_shape'] : null;
+    final rawItems = rawShape is Map ? rawShape['dispensed_items'] : null;
+    final requestLine =
+        rawItems is List && rawItems.length == 1 && rawItems.first is Map
+        ? Map<String, dynamic>.from(rawItems.first as Map)
+        : <String, dynamic>{
+            'order_line_index': details?['order_line_index'],
+            'catalog_id': details?['catalog_id'],
+          };
+    final orderLineIndex = _nonNegativeInt(requestLine['order_line_index']);
+    final catalogId = _positiveInt(requestLine['catalog_id']);
+    final rawCandidates = details?['inventory_item_candidates'];
+    final candidates = rawCandidates is List
+        ? rawCandidates
+              .whereType<Map>()
+              .map((candidate) => Map<String, dynamic>.from(candidate))
+              .where(
+                (candidate) =>
+                    _positiveInt(candidate['inventory_item_id']) != null,
+              )
+              .toList(growable: false)
+        : const <Map<String, dynamic>>[];
+    if (orderLineIndex == null || catalogId == null || candidates.isEmpty) {
+      throw StateError('Inventory item selection authority is unavailable');
+    }
+    if (!mounted) return null;
+    final strings = AppStrings.of(context);
+    final selected = await showDialog<Map<String, dynamic>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => SimpleDialog(
+        title: Text(strings.lookup('ward_indent.controlled.select_inventory')),
+        children: [
+          for (final candidate in candidates)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(dialogContext, candidate),
+              child: Text(
+                candidate['display_name']?.toString().trim().isNotEmpty == true
+                    ? candidate['display_name'].toString()
+                    : '#${candidate['inventory_item_id']}',
+              ),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(strings.actionCancel),
+          ),
+        ],
+      ),
+    );
+    final inventoryItemId = _positiveInt(selected?['inventory_item_id']);
+    if (inventoryItemId == null) return null;
+    return {
+      ...requestLine,
+      'order_line_index': orderLineIndex,
+      'catalog_id': catalogId,
+      'inventory_item_id': inventoryItemId,
+    };
+  }
+
+  Future<Map<String, dynamic>?> _collectControlledDeliveryAllocation({
+    required int orderId,
+    required PharmacyApiException error,
+  }) async {
+    final details = error.details;
+    final rawRecovery = details?['recovery_action'];
+    if (rawRecovery is! Map) {
+      throw StateError('Controlled delivery recovery evidence is unavailable');
+    }
+    final recovery = Map<String, dynamic>.from(rawRecovery);
+    final rawShape = recovery['request_shape'];
+    final rawItems = rawShape is Map ? rawShape['dispensed_items'] : null;
+    if (rawItems is! List || rawItems.length != 1 || rawItems.first is! Map) {
+      throw StateError('Controlled delivery recovery shape is invalid');
+    }
+    final requestLine = Map<String, dynamic>.from(rawItems.first as Map);
+    final catalogId = _positiveInt(requestLine['catalog_id']);
+    final inventoryItemId = _positiveInt(requestLine['inventory_item_id']);
+    final orderLineIndex = _nonNegativeInt(requestLine['order_line_index']);
+    final rawAllocations = requestLine['inventory_allocations'];
+    final allocationTemplate =
+        rawAllocations is List &&
+            rawAllocations.length == 1 &&
+            rawAllocations.first is Map
+        ? Map<String, dynamic>.from(rawAllocations.first as Map)
+        : null;
+    final quantity = _number(allocationTemplate?['quantity']);
+    final facilityId = _positiveInt(details?['facility_id']);
+    if (catalogId == null ||
+        inventoryItemId == null ||
+        orderLineIndex == null ||
+        facilityId == null ||
+        quantity == null ||
+        quantity <= 0) {
+      throw StateError(
+        'Controlled delivery allocation authority is incomplete',
+      );
+    }
+
+    final batches = await PharmacyApiService.getInventoryBatches(
+      itemId: inventoryItemId,
+      facilityId: facilityId,
+    );
+    if (!mounted) return null;
+    final selection = await _selectControlledDeliveryBatches(
+      batches: batches,
+      quantity: quantity,
+      witnessRequired: recovery['witness_required'] == true,
+    );
+    if (selection == null) return null;
+
+    final witnessRequired = recovery['witness_required'] == true;
+    final inventoryAllocations = <Map<String, dynamic>>[];
+    for (final batchAllocation in selection.allocations) {
+      final witnessApprovalId = witnessRequired
+          ? await _controlledDeliveryWitnessApproval(
+              orderId: orderId,
+              orderLineIndex: orderLineIndex,
+              inventoryItemId: inventoryItemId,
+              allocation: batchAllocation,
+              employeeId: selection.employeeId!,
+              password: selection.password!,
+            )
+          : null;
+      inventoryAllocations.add({
+        'inventory_batch_id': batchAllocation.batchId,
+        'quantity': batchAllocation.quantity,
+        'witness_approval_id': ?witnessApprovalId,
+      });
+    }
+
+    return {
+      ...requestLine,
+      'order_line_index': orderLineIndex,
+      'catalog_id': catalogId,
+      'inventory_item_id': inventoryItemId,
+      'inventory_allocations': inventoryAllocations,
+    };
+  }
+
+  Future<String> _controlledDeliveryWitnessApproval({
+    required int orderId,
+    required int orderLineIndex,
+    required int inventoryItemId,
+    required _ControlledDeliveryBatchAllocation allocation,
+    required String employeeId,
+    required String password,
+  }) async {
+    final allocationScope =
+        'witness:$orderId:$orderLineIndex:$inventoryItemId:'
+        '${allocation.batchId}:${allocation.quantity}';
+    final alreadyApproved =
+        _controlledDeliveryApprovedWitnesses[allocationScope];
+    if (alreadyApproved != null) return alreadyApproved;
+
+    final witnessSelection = <String, dynamic>{
+      'order_line_index': orderLineIndex,
+      'inventory_item_id': inventoryItemId,
+      'inventory_batch_id': allocation.batchId,
+      'quantity': allocation.quantity,
+    };
+    final requestScope =
+        'request:$orderId:$orderLineIndex:$inventoryItemId:'
+        '${allocation.batchId}:${allocation.quantity}';
+    final requestAttempt = _controlledDeliveryWitnessAttempts.putIfAbsent(
+      requestScope,
+      () => IdempotencyAttempt(
+        'pharmacy-delivery-witness-request-$orderId-$orderLineIndex-'
+        '$inventoryItemId',
+      ),
+    );
+    var approvalId = _controlledDeliveryPendingApprovals[requestScope];
+    if (approvalId == null) {
+      late final Map<String, dynamic> pending;
+      try {
+        pending =
+            await PharmacyApiService.requestOrderControlledWitnessApproval(
+              orderId: orderId,
+              selection: witnessSelection,
+              idempotencyKey: requestAttempt.keyFor(witnessSelection),
+            );
+        requestAttempt.reset();
+        _controlledDeliveryWitnessAttempts.remove(requestScope);
+      } on PharmacyApiException catch (requestError) {
+        if (requestError.statusCode >= 400 && requestError.statusCode < 500) {
+          requestAttempt.reset();
+          _controlledDeliveryWitnessAttempts.remove(requestScope);
+        }
+        rethrow;
+      }
+      approvalId =
+          pending['id']?.toString() ?? pending['approval_id']?.toString();
+      if (approvalId == null ||
+          !RegExp(r'^[1-9][0-9]*$').hasMatch(approvalId)) {
+        throw StateError('Controlled delivery witness approval id is missing');
+      }
+      _controlledDeliveryPendingApprovals[requestScope] = approvalId;
+    }
+    final resolvedApprovalId = approvalId;
+    final approvalScope = 'approve:$orderId:$resolvedApprovalId';
+    final approvalAttempt = _controlledDeliveryWitnessAttempts.putIfAbsent(
+      approvalScope,
+      () => IdempotencyAttempt(
+        'pharmacy-delivery-witness-approve-$orderId-$resolvedApprovalId',
+      ),
+    );
+    final approvalIdentity = {
+      'approvalId': resolvedApprovalId,
+      'selection': witnessSelection,
+      'employeeId': employeeId,
+    };
+    try {
+      await PharmacyApiService.approveOrderControlledWitnessApproval(
+        orderId: orderId,
+        approvalId: resolvedApprovalId,
+        selection: witnessSelection,
+        employeeId: employeeId,
+        password: password,
+        idempotencyKey: approvalAttempt.keyFor(approvalIdentity),
+      );
+      approvalAttempt.reset();
+      _controlledDeliveryWitnessAttempts.remove(approvalScope);
+      _controlledDeliveryPendingApprovals.remove(requestScope);
+      _controlledDeliveryApprovedWitnesses[allocationScope] =
+          resolvedApprovalId;
+    } on PharmacyApiException catch (approvalError) {
+      if (approvalError.statusCode >= 400 && approvalError.statusCode < 500) {
+        approvalAttempt.reset();
+        _controlledDeliveryWitnessAttempts.remove(approvalScope);
+        _controlledDeliveryPendingApprovals.remove(requestScope);
+      }
+      rethrow;
+    }
+    return resolvedApprovalId;
+  }
+
+  Future<_ControlledDeliverySelection?> _selectControlledDeliveryBatches({
+    required List<Map<String, dynamic>> batches,
+    required num quantity,
+    required bool witnessRequired,
+  }) async {
+    final allocations = _planControlledDeliveryBatches(batches, quantity);
+    var employeeId = '';
+    var password = '';
+    final strings = AppStrings.of(context);
+    return showDialog<_ControlledDeliverySelection>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: Text(
+            strings.lookup('s4.lib.pharmacy.controlled_narcotic_item'),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(strings.lookup('ward_indent.controlled.select_batch')),
+                const SizedBox(height: 8),
+                for (final allocation in allocations)
+                  ListTile(
+                    dense: true,
+                    key: ValueKey(
+                      'pharmacy-delivery-controlled-batch-${allocation.batchId}',
+                    ),
+                    title: Text(allocation.label),
+                    trailing: Text('${allocation.quantity}'),
+                  ),
+                if (witnessRequired) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    strings.lookup(
+                      'pharmacy.order.controlled_witness_custody_hint',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    key: const ValueKey(
+                      'pharmacy-delivery-witness-employee-id',
+                    ),
+                    textCapitalization: TextCapitalization.characters,
+                    onChanged: (value) =>
+                        setDialogState(() => employeeId = value),
+                    decoration: InputDecoration(
+                      labelText: strings.lookup(
+                        's4.lib.counter_sale.witness_employee_id',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    key: const ValueKey('pharmacy-delivery-witness-password'),
+                    obscureText: true,
+                    enableSuggestions: false,
+                    autocorrect: false,
+                    onChanged: (value) =>
+                        setDialogState(() => password = value),
+                    decoration: InputDecoration(
+                      labelText: strings.lookup(
+                        's4.lib.counter_sale.witness_password',
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text(strings.actionCancel),
+            ),
+            FilledButton(
+              key: const ValueKey('pharmacy-delivery-controlled-confirm'),
+              onPressed:
+                  witnessRequired &&
+                      (employeeId.trim().isEmpty || password.isEmpty)
+                  ? null
+                  : () => Navigator.pop(
+                      dialogContext,
+                      _ControlledDeliverySelection(
+                        allocations: allocations,
+                        employeeId: witnessRequired
+                            ? employeeId.trim().toUpperCase()
+                            : null,
+                        password: witnessRequired ? password : null,
+                      ),
+                    ),
+              child: Text(strings.actionConfirm),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<_ControlledDeliveryBatchAllocation> _planControlledDeliveryBatches(
+    List<Map<String, dynamic>> batches,
+    num quantity,
+  ) {
+    final usable =
+        batches.where((batch) {
+          final remaining = _number(batch['remaining_quantity']);
+          return _positiveInt(batch['id'] ?? batch['inventory_batch_id']) !=
+                  null &&
+              _isUnexpiredInventoryBatch(batch['expiry_date']) &&
+              remaining != null &&
+              remaining > 0;
+        }).toList()..sort((left, right) {
+          final expiry = '${left['expiry_date']}'.compareTo(
+            '${right['expiry_date']}',
+          );
+          if (expiry != 0) return expiry;
+          return _positiveInt(left['id'] ?? left['inventory_batch_id'])!
+              .compareTo(
+                _positiveInt(right['id'] ?? right['inventory_batch_id'])!,
+              );
+        });
+    var outstanding = quantity.toDouble();
+    final allocations = <_ControlledDeliveryBatchAllocation>[];
+    for (final batch in usable) {
+      if (outstanding <= 0.000001) break;
+      final available = _number(batch['remaining_quantity'])!.toDouble();
+      final taken = available < outstanding ? available : outstanding;
+      if (taken <= 0) continue;
+      final batchId = _positiveInt(batch['id'] ?? batch['inventory_batch_id'])!;
+      final normalizedQuantity = (taken - taken.round()).abs() <= 0.000001
+          ? taken.round()
+          : double.parse(taken.toStringAsFixed(6));
+      allocations.add(
+        _ControlledDeliveryBatchAllocation(
+          batchId: batchId,
+          quantity: normalizedQuantity,
+          label:
+              batch['batch_number']?.toString() ??
+              batch['lot_number']?.toString() ??
+              '#$batchId',
+        ),
+      );
+      outstanding -= taken;
+    }
+    if (outstanding > 0.000001) {
+      throw StateError(
+        'Insufficient exact Inventory V2 batch stock for this delivery',
+      );
+    }
+    return List.unmodifiable(allocations);
+  }
+
+  bool _isUnexpiredInventoryBatch(Object? rawExpiryDate) {
+    final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})')
+        .firstMatch(rawExpiryDate?.toString().trim() ?? '');
+    if (match == null) return false;
+    final year = int.parse(match.group(1)!);
+    final month = int.parse(match.group(2)!);
+    final day = int.parse(match.group(3)!);
+    final expiry = DateTime(year, month, day);
+    if (expiry.year != year || expiry.month != month || expiry.day != day) {
+      return false;
+    }
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    return !expiry.isBefore(today);
+  }
+
+  int? _positiveInt(Object? value) {
+    final parsed = value is num ? value.toInt() : int.tryParse('$value');
+    return parsed != null && parsed > 0 ? parsed : null;
+  }
+
+  int? _nonNegativeInt(Object? value) {
+    final parsed = value is num ? value.toInt() : int.tryParse('$value');
+    return parsed != null && parsed >= 0 ? parsed : null;
+  }
+
+  num? _number(Object? value) {
+    return value is num ? value : num.tryParse('$value');
   }
 
   Future<void> _cancelOrder(Map<String, dynamic> order) async {
@@ -725,48 +2123,61 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
     final reasonCtrl = TextEditingController();
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(s.pharmacyCancelDialog),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AppText(
-              's4.dynamic.pharmacy.cancel_order_confirm',
-              values: {'orderNumber': order['order_number'] ?? ''},
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: reasonCtrl,
-              decoration: InputDecoration(
-                labelText: s.pharmacyCancellationReason,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text(s.pharmacyCancelDialog),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AppText(
+                's4.dynamic.pharmacy.cancel_order_confirm',
+                values: {'orderNumber': order['order_number'] ?? ''},
               ),
-              maxLines: 2,
+              const SizedBox(height: 12),
+              TextField(
+                key: const ValueKey('pharmacy-cancellation-reason'),
+                controller: reasonCtrl,
+                decoration: InputDecoration(
+                  labelText: s.pharmacyCancellationReason,
+                  helperText: s.lookup(
+                    'med03.pharmacy.cancellation_reason_help',
+                  ),
+                ),
+                maxLength: 500,
+                maxLines: 2,
+                onChanged: (_) => setDialogState(() {}),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const AppText('action.cancel'),
+            ),
+            ElevatedButton(
+              key: const ValueKey('pharmacy-cancel-submit'),
+              onPressed: reasonCtrl.text.trim().length >= 3
+                  ? () => Navigator.pop(ctx, true)
+                  : null,
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              child: Text(
+                s.pharmacyCancelDialog,
+                style: const TextStyle(color: Colors.white),
+              ),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const AppText('action.cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: Text(
-              s.pharmacyCancelDialog,
-              style: const TextStyle(color: Colors.white),
-            ),
-          ),
-        ],
       ),
     );
 
+    final cancellationReason = reasonCtrl.text.trim();
+    reasonCtrl.dispose();
     if (confirm != true) return;
 
     try {
       await PharmacyApiService.cancelPharmacyOrder(
         order['id'],
-        reasonCtrl.text.trim(),
+        cancellationReason,
       );
       _snack(s.pharmacyOrderCancelledToast);
       unawaited(_loadOrders());
@@ -1163,13 +2574,52 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
     }
     final completedMessage = AppStrings.of(context)
         .lookup('s4.lib.pharmacy.expiry_scan_completed');
+    final facilityId = _inventoryFacilityId;
+    if (facilityId == null) {
+      _snack(
+        AppStrings.of(context).lookup('pharmacy.disposal.facility_required'),
+        isError: true,
+      );
+      return;
+    }
     try {
-      await PharmacyApiService.runExpiryScan();
+      await PharmacyApiService.runExpiryScan(facilityId: facilityId);
       _snack(completedMessage);
       await _loadInventory();
     } catch (e) {
       _snack(e.toString().replaceFirst('Exception: ', ''), isError: true);
     }
+  }
+
+  Future<void> _openInventoryDisposal(Map<String, dynamic> item) async {
+    if (!_canDisposeInventory) {
+      _snack(
+        AppStrings.of(context).lookup('pharmacy.disposal.role_required'),
+        isError: true,
+      );
+      return;
+    }
+    final facilityId = _inventoryFacilityId;
+    if (facilityId == null) {
+      _snack(
+        AppStrings.of(context).lookup('pharmacy.disposal.facility_required'),
+        isError: true,
+      );
+      return;
+    }
+    final completed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppTheme.cardSurface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) =>
+          InventoryDisposalSheet(item: item, facilityId: facilityId),
+    );
+    if (completed != true || !mounted) return;
+    _snack(AppStrings.of(context).lookup('pharmacy.disposal.completed'));
+    await _loadInventory();
   }
 
   Future<void> _openInventoryItemEditor() async {
@@ -1182,20 +2632,39 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
       return;
     }
 
+    final facilityId = _inventoryFacilityId;
+    if (facilityId == null) {
+      _snack(
+        AppStrings.of(context).lookup('pharmacy.disposal.facility_required'),
+        isError: true,
+      );
+      return;
+    }
+    final catalogOptions = _catalog
+        .where(
+          (item) =>
+              _positiveInt(item['id']) != null &&
+              (item['name']?.toString().trim().isNotEmpty ?? false),
+        )
+        .map(Map<String, dynamic>.from)
+        .toList(growable: false);
+    if (catalogOptions.isEmpty) {
+      _snack(
+        AppStrings.of(context)
+            .lookup('s4.lib.drug_chart.catalog_selection_required'),
+        isError: true,
+      );
+      return;
+    }
+
     final formKey = GlobalKey<FormState>();
     final inventoryItemAddedMessage = AppStrings.of(context)
         .lookup('s4.lib.pharmacy.inventory_item_added');
-    final skuCtrl = TextEditingController();
-    final displayCtrl = TextEditingController();
-    final genericCtrl = TextEditingController();
-    final brandCtrl = TextEditingController();
-    final manufacturerCtrl = TextEditingController();
-    final formCtrl = TextEditingController();
-    final strengthCtrl = TextEditingController();
-    final unitCtrl = TextEditingController(text: 'each');
-    final packCtrl = TextEditingController();
-    final reorderLevelCtrl = TextEditingController();
-    final reorderQtyCtrl = TextEditingController();
+    final skuCtrl = _inventoryItemSkuCtrl..clear();
+    final unitCtrl = _inventoryItemUnitCtrl..text = 'each';
+    final reorderLevelCtrl = _inventoryItemReorderLevelCtrl..clear();
+    final reorderQtyCtrl = _inventoryItemReorderQtyCtrl..clear();
+    int? selectedCatalogId;
     String? scheduleClass;
     var isColdChain = false;
     var isNarcotic = false;
@@ -1213,18 +2682,31 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
           builder: (ctx, setSheetState) {
             Future<void> submit() async {
               if (!formKey.currentState!.validate()) return;
+              final catalog = catalogOptions
+                  .cast<Map<String, dynamic>?>()
+                  .firstWhere(
+                    (item) => _positiveInt(item?['id']) == selectedCatalogId,
+                    orElse: () => null,
+                  );
+              if (catalog == null) return;
+              String? catalogText(String key) {
+                final value = catalog[key]?.toString().trim();
+                return value == null || value.isEmpty ? null : value;
+              }
+
               setSheetState(() => submitting = true);
               try {
                 await PharmacyApiService.createInventoryItem(
+                  facilityId: facilityId,
+                  catalogId: selectedCatalogId!,
                   skuCode: skuCtrl.text,
-                  displayName: displayCtrl.text,
-                  genericName: genericCtrl.text,
-                  brandName: brandCtrl.text,
-                  manufacturer: manufacturerCtrl.text,
-                  form: formCtrl.text,
-                  strength: strengthCtrl.text,
+                  displayName: catalogText('name')!,
+                  genericName: catalogText('generic_name'),
+                  manufacturer: catalogText('manufacturer'),
+                  form: catalogText('form'),
+                  strength: catalogText('strength'),
                   unitLabel: unitCtrl.text,
-                  packSize: packCtrl.text,
+                  packSize: catalogText('pack_size'),
                   scheduleClass: scheduleClass,
                   isNarcotic: isNarcotic,
                   isColdChain: isColdChain,
@@ -1236,9 +2718,22 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
               } catch (e) {
                 if (!ctx.mounted) return;
                 setSheetState(() => submitting = false);
+                final details = e is PharmacyApiException ? e.details : null;
+                final errorCatalogId = _positiveInt(details?['catalog_id']);
+                final nextAction = details?['next_action']?.toString().trim();
+                final message =
+                    e is PharmacyApiException &&
+                        e.code == 'PHARMACY_CATALOG_COMPOSITION_REQUIRED' &&
+                        nextAction == 'REVIEW_CATALOG_COMPOSITION' &&
+                        errorCatalogId == selectedCatalogId
+                    ? AppStrings.of(ctx).format(
+                        'pharmacy.inventory.composition_review_required',
+                        {'catalogId': errorCatalogId},
+                      )
+                    : e.toString().replaceFirst('Exception: ', '');
                 ScaffoldMessenger.of(ctx).showSnackBar(
                   SnackBar(
-                    content: Text(e.toString().replaceFirst('Exception: ', '')),
+                    content: Text(message),
                     backgroundColor: AppTheme.errorRed,
                   ),
                 );
@@ -1282,10 +2777,59 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                         ],
                       ),
                       const SizedBox(height: 16),
+                      DropdownButtonFormField<int>(
+                        key: const ValueKey('pharmacy-inventory-catalog'),
+                        initialValue: selectedCatalogId,
+                        isExpanded: true,
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(context)
+                              .lookup('med03.pharmacy.catalog_medicine'),
+                        ),
+                        items: catalogOptions
+                            .map(
+                              (item) => DropdownMenuItem<int>(
+                                value: _positiveInt(item['id'])!,
+                                child: Text(
+                                  [
+                                        item['name']?.toString().trim(),
+                                        item['strength']?.toString().trim(),
+                                        item['form']?.toString().trim(),
+                                      ]
+                                      .whereType<String>()
+                                      .where((value) => value.isNotEmpty)
+                                      .join(' · '),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            )
+                            .toList(growable: false),
+                        validator: (value) => value == null
+                            ? AppStrings.of(context).lookup(
+                                's4.lib.drug_chart.catalog_selection_required',
+                              )
+                            : null,
+                        onChanged: submitting
+                            ? null
+                            : (value) => setSheetState(
+                                () => selectedCatalogId = value,
+                              ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        AppStrings.of(
+                          context,
+                        ).lookup('med03.pharmacy.select_authoritative_catalog'),
+                        style: TextStyle(
+                          color: AppTheme.textSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
                       Row(
                         children: [
                           Expanded(
                             child: TextFormField(
+                              key: const ValueKey('pharmacy-inventory-sku'),
                               controller: skuCtrl,
                               decoration: InputDecoration(
                                 labelText: AppStrings.of(context)
@@ -1298,88 +2842,6 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                                   ? AppStrings.of(context)
                                         .lookup('s4.lib.pharmacy.sku_required')
                                   : null,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            flex: 2,
-                            child: TextFormField(
-                              controller: displayCtrl,
-                              decoration: InputDecoration(
-                                labelText: AppStrings.of(context)
-                                    .lookup('s4.lib.pharmacy.display_name'),
-                                hintText: AppStrings.of(context).lookup(
-                                  's4.lib.pharmacy.paracetamol_650_mg_tablet',
-                                ),
-                              ),
-                              validator: (value) =>
-                                  (value?.trim().isEmpty ?? true)
-                                  ? AppStrings.of(context).lookup(
-                                      's4.lib.pharmacy.display_name_required',
-                                    )
-                                  : null,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: genericCtrl,
-                              decoration: InputDecoration(
-                                labelText: AppStrings.of(context)
-                                    .lookup('s4.lib.pharmacy.generic_name'),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: TextFormField(
-                              controller: brandCtrl,
-                              decoration: InputDecoration(
-                                labelText: AppStrings.of(context)
-                                    .lookup('s4.lib.pharmacy.brand_name'),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: TextFormField(
-                              controller: manufacturerCtrl,
-                              decoration: InputDecoration(
-                                labelText: AppStrings.of(context)
-                                    .lookup('s4.lib.pharmacy.manufacturer'),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: formCtrl,
-                              decoration: InputDecoration(
-                                labelText: AppStrings.of(context)
-                                    .lookup('s4.lib.pharmacy.form'),
-                                hintText: AppStrings.of(context)
-                                    .lookup('s4.lib.pharmacy.tablet_hint'),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: TextFormField(
-                              controller: strengthCtrl,
-                              decoration: InputDecoration(
-                                labelText: AppStrings.of(context)
-                                    .lookup('s4.lib.pharmacy.strength'),
-                                hintText: AppStrings.of(context)
-                                    .lookup('s4.lib.pharmacy.650_mg'),
-                              ),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -1399,18 +2861,6 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                       const SizedBox(height: 12),
                       Row(
                         children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: packCtrl,
-                              decoration: InputDecoration(
-                                labelText: AppStrings.of(context)
-                                    .lookup('s4.lib.pharmacy.pack_size'),
-                                hintText: AppStrings.of(context)
-                                    .lookup('s4.lib.pharmacy.10_tablets_strip'),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
                           Expanded(
                             child: DropdownButtonFormField<String?>(
                               initialValue: scheduleClass,
@@ -1497,6 +2947,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
+                          key: const ValueKey(
+                            'pharmacy-inventory-create-submit',
+                          ),
                           onPressed: submitting ? null : submit,
                           icon: submitting
                               ? const SizedBox(
@@ -1530,17 +2983,11 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
         await _loadInventory();
       }
     } finally {
-      skuCtrl.dispose();
-      displayCtrl.dispose();
-      genericCtrl.dispose();
-      brandCtrl.dispose();
-      manufacturerCtrl.dispose();
-      formCtrl.dispose();
-      strengthCtrl.dispose();
-      unitCtrl.dispose();
-      packCtrl.dispose();
-      reorderLevelCtrl.dispose();
-      reorderQtyCtrl.dispose();
+      // Nothing to dispose here on purpose — see the field declarations.
+      _inventoryItemSkuCtrl.clear();
+      _inventoryItemUnitCtrl.clear();
+      _inventoryItemReorderLevelCtrl.clear();
+      _inventoryItemReorderQtyCtrl.clear();
     }
   }
 
@@ -1665,18 +3112,6 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                       color: Color(0xFFE65100),
                     ),
                     label: const AppText('s4.lib.counter_sale.open'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.cardSurface,
-                      foregroundColor: const Color(0xFFE65100),
-                      minimumSize: const Size(0, 38),
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  ElevatedButton.icon(
-                    onPressed: _createOrder,
-                    icon: const Icon(Icons.add, color: Color(0xFFE65100)),
-                    label: const AppText('s4.lib.pharmacy.new_order'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.cardSurface,
                       foregroundColor: const Color(0xFFE65100),
@@ -1920,6 +3355,58 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
+                  DropdownButtonFormField<int>(
+                    key: ValueKey(
+                      'pharmacy-inventory-facility-${_inventoryFacilityId ?? 0}-'
+                      '${_inventoryFacilities.length}',
+                    ),
+                    initialValue: _inventoryFacilityId,
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      labelText: AppStrings.of(context)
+                          .lookup('pharmacy.disposal.facility'),
+                      helperText: AppStrings.of(context)
+                          .lookup('pharmacy.disposal.facility_hint'),
+                    ),
+                    items: _inventoryFacilities
+                        .map((grant) {
+                          final facilityId = _grantedFacilityId(grant);
+                          if (facilityId == null) return null;
+                          final name =
+                              grant['display_name']?.toString().trim() ?? '';
+                          final code =
+                              grant['facility_code']?.toString().trim() ?? '';
+                          final label = [
+                            name.isEmpty ? '#$facilityId' : name,
+                            if (code.isNotEmpty) '($code)',
+                          ].join(' ');
+                          return DropdownMenuItem<int>(
+                            value: facilityId,
+                            child: Text(label),
+                          );
+                        })
+                        .whereType<DropdownMenuItem<int>>()
+                        .toList(growable: false),
+                    onChanged: _inventoryLoading
+                        ? null
+                        : (facilityId) {
+                            setState(() {
+                              _selectedInventoryFacilityId = facilityId;
+                              _inventoryItems = [];
+                              _expiryAlerts = [];
+                            });
+                            _loadInventory();
+                          },
+                  ),
+                  if (_inventoryFacilities.isEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      AppStrings.of(context)
+                          .lookup('pharmacy.disposal.facility_required'),
+                      style: const TextStyle(color: AppTheme.errorRed),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
                   Row(
                     children: [
                       Expanded(
@@ -2100,6 +3587,17 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
               ),
             ),
             _buildStatusChip(status),
+            if (_canDisposeInventory) ...[
+              const SizedBox(width: 8),
+              IconButton.filledTonal(
+                key: ValueKey('inventory-disposal-open-${item['id']}'),
+                tooltip: s.lookup('pharmacy.disposal.open'),
+                onPressed: _inventoryFacilityId == null
+                    ? null
+                    : () => _openInventoryDisposal(item),
+                icon: const Icon(Icons.delete_sweep_outlined),
+              ),
+            ],
           ],
         ),
       ),
@@ -2115,7 +3613,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
         item['batch_number']?.toString() ??
         item['lot_number']?.toString() ??
         '-';
-    final bucket = item['bucket']?.toString() ?? '-';
+    final bucket = _expiryBucketLabel(s, item['bucket']);
     final days = item['days_to_expiry']?.toString() ?? '-';
     final qty = item['remaining_quantity']?.toString() ?? '-';
 
@@ -2322,6 +3820,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
     final deliveryType = order['delivery_type'] ?? 'delivery';
     final slaBreach = order['sla_breached'] == true;
     final minsSincePlaced = (order['mins_since_placed'] as num?)?.round() ?? 0;
+    final fundingRecovery = PharmacyFundingRecovery.from(
+      order['funding_recovery'],
+    );
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -2389,7 +3890,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
             Row(
               children: [
                 Icon(
-                  deliveryType == 'pickup'
+                  deliveryType == 'counter'
+                      ? Icons.point_of_sale
+                      : deliveryType == 'pickup'
                       ? Icons.store
                       : Icons.delivery_dining,
                   size: 14,
@@ -2397,7 +3900,9 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
                 ),
                 const SizedBox(width: 4),
                 Text(
-                  deliveryType == 'pickup'
+                  deliveryType == 'counter'
+                      ? s.lookup('med03.pharmacy.delivery_type_counter')
+                      : deliveryType == 'pickup'
                       ? s.pharmacyDeliveryTypePickup
                       : s.pharmacyDeliveryTypeDelivery,
                   style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
@@ -2446,15 +3951,48 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
             ],
 
             // Total cost (for confirmed+)
-            if (order['total_cost'] != null) ...[
+            if (order['total_amount'] != null) ...[
               const SizedBox(height: 6),
               Text(
                 s.format('s4.dynamic.pharmacy.total_amount', {
-                  'amount': order['total_cost'],
+                  'amount': order['total_amount'],
                 }),
                 style: const TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 14,
+                ),
+              ),
+            ],
+
+            if (fundingRecovery != null) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  border: Border.all(color: Colors.orange.shade200),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.account_balance_outlined,
+                      color: Colors.orange.shade900,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(fundingRecovery.summary(s))),
+                    if (_canOpenBillingDesk && fundingRecovery.deepLink != null)
+                      TextButton(
+                        key: ValueKey(
+                          'pharmacy-funding-recovery-${fundingRecovery.taskId}',
+                        ),
+                        onPressed: () => _openFundingRecovery(fundingRecovery),
+                        child: Text(
+                          s.lookup('med03.pharmacy.recovery.open_billing_desk'),
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ],
@@ -2472,26 +4010,92 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
   Widget _buildActions(Map<String, dynamic> order) {
     final s = AppStrings.of(context);
     final status = order['status'];
+    final facilityRecoveryRequired =
+        order['facility_recovery_required'] == true;
+    final lineIdentityRecoveryRequired =
+        order['line_identity_recovery_required'] == true;
+    final recoveryBlocked =
+        facilityRecoveryRequired || lineIdentityRecoveryRequired;
+    final fundingRecovery = PharmacyFundingRecovery.from(
+      order['funding_recovery'],
+    );
+    final stockIssueBlocked =
+        recoveryBlocked || (fundingRecovery?.blocksStockIssue ?? false);
 
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: [
-        if (_isNewStatus(status))
+        if (facilityRecoveryRequired)
+          _ActionBtn(
+            label: s.lookup('med03.pharmacy.assign_facility'),
+            icon: Icons.local_pharmacy_outlined,
+            color: AppTheme.warningAmber,
+            onTap: () => _assignFacility(order),
+          ),
+        if (!facilityRecoveryRequired &&
+            lineIdentityRecoveryRequired &&
+            _canManageFormulary)
+          _ActionBtn(
+            label: s.lookup('med03.pharmacy.resolve_line_identities'),
+            icon: Icons.account_tree_outlined,
+            color: AppTheme.warningAmber,
+            onTap: () => _resolveLineIdentities(order),
+          ),
+        if (!facilityRecoveryRequired &&
+            lineIdentityRecoveryRequired &&
+            !_canManageFormulary)
+          Text(
+            s.lookup('med03.pharmacy.line_identity_admin_required'),
+            style: TextStyle(color: Colors.orange.shade800),
+          ),
+        if (!recoveryBlocked && _isNewStatus(status))
           _ActionBtn(
             label: s.pharmacyViewConfirm,
             icon: Icons.check_circle_outline,
             color: AppTheme.primaryBlue,
             onTap: () => _confirmOrder(order),
           ),
-        if (status == 'CONFIRMED')
+        if (!recoveryBlocked &&
+            status == 'CONFIRMED' &&
+            !_verificationCleared(order) &&
+            _canPerformClinicalVerification)
+          _ActionBtn(
+            label: s.lookup('med03.pharmacy.verify_order'),
+            icon: Icons.fact_check_outlined,
+            color: Colors.indigo,
+            onTap: () => _verifyOrder(order),
+          ),
+        if (!recoveryBlocked &&
+            status == 'CONFIRMED' &&
+            _verificationCleared(order) &&
+            order['delivery_type']?.toString() != 'counter')
           _ActionBtn(
             label: s.pharmacyStartPreparing,
             icon: Icons.medication,
             color: AppTheme.warningAmber,
             onTap: () => _markPreparing(order),
           ),
-        if (status == 'CONFIRMED' || status == 'PREPARING' || status == 'READY')
+        if (!stockIssueBlocked &&
+            _verificationCleared(order) &&
+            order['delivery_type']?.toString() == 'counter' &&
+            (status == 'CONFIRMED' || status == 'PARTIALLY_DISPENSED'))
+          _ActionBtn(
+            label: s.lookup(
+              status == 'PARTIALLY_DISPENSED'
+                  ? 'med03.pharmacy.dispense_remainder'
+                  : 'med03.pharmacy.complete_counter_dispense',
+            ),
+            icon: Icons.point_of_sale,
+            color: AppTheme.successGreen,
+            onTap: () => _completeCounterDispense(order),
+          ),
+        if (!stockIssueBlocked &&
+            _verificationCleared(order) &&
+            (status == 'CONFIRMED' ||
+                status == 'PREPARING' ||
+                status == 'READY' ||
+                status == 'PARTIALLY_DISPENSED'))
           _ActionBtn(
             label: s.lookup('s4.lib.pharmacy.substitute'),
             icon: Icons.swap_horiz,
@@ -2499,52 +4103,46 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
             onTap: () => DispenseSubstitutionSheet.show(
               context,
               orderId: (order['id'] as num).toInt(),
+              canOpenBillingDesk: _canOpenBillingDesk,
               onDispensed: _loadOrders,
             ),
           ),
-        if (status == 'PREPARING' || status == 'READY')
+        if (!recoveryBlocked && (status == 'PREPARING' || status == 'READY'))
           _ActionBtn(
             label: s.pharmacyDispatch,
             icon: Icons.delivery_dining,
             color: Colors.teal,
             onTap: () => _dispatchOrder(order),
           ),
-        if (status == 'DISPATCHED') ...[
-          if (_sharingLocation && _trackingOrderId == order['id'])
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.green.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.green.shade200),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.my_location,
-                    size: 14,
-                    color: Colors.green.shade700,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    s.labBookingsSharingLocation,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.green.shade700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+        if (!stockIssueBlocked &&
+            status == 'DISPATCHED' &&
+            _role == StaffRole.pharmacyIncharge)
           _ActionBtn(
             label: s.pharmacyMarkDelivered,
             icon: Icons.done_all,
             color: AppTheme.successGreen,
             onTap: () => _markDelivered(order),
           ),
-        ],
-        if (!['DELIVERED', 'CANCELLED'].contains(status))
+        if (!recoveryBlocked &&
+            ![
+              'DISPENSED',
+              'DELIVERED',
+              'UNAVAILABLE',
+              'CANCELLED',
+            ].contains(status))
+          _ActionBtn(
+            label: s.lookup('med03.pharmacy.mark_unavailable'),
+            icon: Icons.inventory_2_outlined,
+            color: AppTheme.warningAmber,
+            onTap: () => _markUnavailable(order),
+          ),
+        if (!recoveryBlocked &&
+            ![
+              'DISPENSED',
+              'DELIVERED',
+              'UNAVAILABLE',
+              'CANCELLED',
+            ].contains(status))
           _ActionBtn(
             label: s.actionCancel,
             icon: Icons.cancel_outlined,
@@ -2565,6 +4163,14 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
       'READY' => (Colors.teal, s.pharmacyStatusPreparing),
       'DISPATCHED' => (Colors.teal, s.pharmacyStatusDispatched),
       'DELIVERED' => (AppTheme.successGreen, s.pharmacyStatusDelivered),
+      'PARTIALLY_DISPENSED' => (
+        AppTheme.warningAmber,
+        s.lookup('med03.pharmacy.status_partially_dispensed'),
+      ),
+      'DISPENSED' => (
+        AppTheme.successGreen,
+        s.lookup('med03.pharmacy.status_dispensed'),
+      ),
       'CANCELLED' => (AppTheme.errorRed, s.pharmacyStatusCancelled),
       'AVAILABLE' => (
         AppTheme.successGreen,
@@ -2574,7 +4180,19 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
         AppTheme.warningAmber,
         s.lookup('s4.lib.pharmacy.unavailable'),
       ),
-      _ => (Colors.grey, status),
+      'ACTIVE' => (
+        AppTheme.successGreen,
+        s.lookup('med03.pharmacy.inventory_status.active'),
+      ),
+      'INACTIVE' => (
+        Colors.grey,
+        s.lookup('med03.pharmacy.inventory_status.inactive'),
+      ),
+      'QUARANTINED' => (
+        AppTheme.warningAmber,
+        s.lookup('med03.pharmacy.inventory_status.quarantined'),
+      ),
+      _ => (Colors.grey, s.lookup('med03.pharmacy.inventory_status.unknown')),
     };
 
     return Container(
@@ -2593,6 +4211,39 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
       ),
     );
   }
+}
+
+class _ManualConfirmationLine {
+  int? catalogId;
+  final TextEditingController quantityController = TextEditingController(
+    text: '1',
+  );
+
+  void dispose() => quantityController.dispose();
+}
+
+class _ControlledDeliverySelection {
+  const _ControlledDeliverySelection({
+    required this.allocations,
+    this.employeeId,
+    this.password,
+  });
+
+  final List<_ControlledDeliveryBatchAllocation> allocations;
+  final String? employeeId;
+  final String? password;
+}
+
+class _ControlledDeliveryBatchAllocation {
+  const _ControlledDeliveryBatchAllocation({
+    required this.batchId,
+    required this.quantity,
+    required this.label,
+  });
+
+  final int batchId;
+  final num quantity;
+  final String label;
 }
 
 class _CatalogMetric extends StatelessWidget {

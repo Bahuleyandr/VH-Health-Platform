@@ -7,6 +7,7 @@ enum WardIndentAction {
   shortSupply,
   proposeSubstitution,
   approveSubstitution,
+  applyApprovedSubstitution,
   rejectSubstitution,
   approve,
   reject,
@@ -26,6 +27,7 @@ extension WardIndentActionContract on WardIndentAction {
     WardIndentAction.shortSupply => 'short-supply',
     WardIndentAction.proposeSubstitution => 'substitutions',
     WardIndentAction.approveSubstitution => 'substitutions/approve',
+    WardIndentAction.applyApprovedSubstitution => 'substitutions/apply',
     WardIndentAction.rejectSubstitution => 'substitutions/reject',
     WardIndentAction.approve => 'approve',
     WardIndentAction.reject => 'reject',
@@ -82,13 +84,18 @@ abstract final class WardIndentRolePolicy {
           });
           break;
         case WardIndentStatus.substitutionPending:
+          if (indent.items.any(
+                (item) => item.substitutionStatus == 'approved',
+              ) &&
+              !indent.items.any(
+                (item) => item.substitutionStatus == 'pending',
+              )) {
+            actions.add(WardIndentAction.applyApprovedSubstitution);
+          }
           actions.add(WardIndentAction.reject);
           break;
         case WardIndentStatus.controlledHandoffRequired:
-          if (WardIndentRoleContract.controlledDispenseRoleCodes.contains(
-                roleCode,
-              ) ||
-              _hasCompleteControlledRecovery(indent)) {
+          if (_canPerformControlledHandoff(indent, roleCode)) {
             actions.add(WardIndentAction.controlledHandoff);
           }
           actions.add(WardIndentAction.reject);
@@ -163,13 +170,41 @@ abstract final class WardIndentRolePolicy {
     return actions;
   }
 
-  static bool _hasCompleteControlledRecovery(WardIndent indent) {
-    final controlledItems = indent.items.where((item) => item.isControlled);
-    if (controlledItems.isEmpty) return false;
-    return controlledItems.every((item) {
-      return indent.controlledRecovery.any(
-        (recovery) => recovery.itemId == item.id && recovery.isRecoverable,
-      );
-    });
+  static bool _canPerformControlledHandoff(WardIndent indent, String roleCode) {
+    if (!WardIndentRoleContract.controlledDispenseRoleCodes.contains(
+      roleCode,
+    )) {
+      return false;
+    }
+    final controlledItemIds = indent.items
+        .where((item) => item.isControlled)
+        .map((item) => item.id)
+        .toSet();
+    if (controlledItemIds.isEmpty ||
+        indent.controlledRecovery.any(
+          (recovery) => !controlledItemIds.contains(recovery.itemId),
+        )) {
+      return false;
+    }
+
+    for (final itemId in controlledItemIds) {
+      final recoveries = indent.controlledRecovery
+          .where((recovery) => recovery.itemId == itemId)
+          .toList(growable: false);
+      if (recoveries.length != 1) return false;
+      final recovery = recoveries.single;
+      final isFresh =
+          recovery.status == 'missing' &&
+          recovery.candidateCount == 0 &&
+          recovery.movementId == null &&
+          recovery.registerId == null;
+      if (isFresh) continue;
+      final isExactHistorical =
+          recovery.isRecoverable &&
+          recovery.movementId! > 0 &&
+          recovery.registerId! > 0;
+      if (!isExactHistorical || roleCode != 'PHARMACY_INCHARGE') return false;
+    }
+    return true;
   }
 }

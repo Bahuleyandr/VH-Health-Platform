@@ -37,10 +37,13 @@ const createdAdmissionIds = [];
 const createdSummaryIds = [];
 const createdPaymentIds = [];
 const createdConsentIds = [];
-const CLEANUP_TIMEOUT_MS = 30000;
+const CLEANUP_TIMEOUT_MS = 120000;
 let policyId;
 
-async function seedIssuedInvoice({ total, admissionId, roomRent = 0 }) {
+// admissionId is optional: an OPD-style final bill carries no admission, and
+// the claim that links it must then also carry none (migration 753's
+// enforce_tpa_claim_authority_753 compares the two for exact equality).
+async function seedIssuedInvoice({ total, admissionId = null, roomRent = 0 }) {
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO billing_invoices
        (invoice_number, patient_uid, admission_id, invoice_type,
@@ -131,35 +134,59 @@ async function seedLiabilityConsent({ consentType = 'financial_liability' } = {}
 
 // Seed a preauth (optionally a child enhancement) directly, then record an
 // approval response so the chain has a cumulative sanctioned cover.
+//
+// admissionId is load-bearing since migration 753: a pre-auth and the claim it
+// authorizes must agree on (tenant_id, patient_uid, admission_id). Both
+// enforce_tpa_claim_authority_753 (claim vs pre-auth) and
+// enforce_insurance_preauth_authority_753 (child enhancement vs parent) compare
+// admission_id with IS DISTINCT FROM, so an authorization filed against the
+// stay has to name that stay — leaving it NULL while the claim names an
+// admission is exactly the mismatch the trigger is there to reject.
 async function seedApprovedPreauth({
   expectedCost, sanctioned, parentId = null, requestType = 'planned', rawResponse = null,
+  admissionId = null,
 }) {
   const num = `PA-COVER-${Date.now() % 100000}-${createdPreauthIds.length}`;
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO insurance_preauth
        (policy_id, patient_uid, preauth_number, request_type, parent_preauth_id,
         primary_diagnosis, expected_cost, status, sanctioned_amount, sanctioned_at,
-        tenant_id)
+        admission_id, tenant_id)
      VALUES ($1::int, $2::uuid, $3, $4, $5::int,
              'Acute pancreatitis', $6::numeric, 'approved', $7::numeric, NOW(),
-             $8::uuid)
+             $8::int, $9::uuid)
      RETURNING id`,
     policyId, PATIENT_UID, num, requestType, parentId,
-    expectedCost, sanctioned, TENANT,
+    expectedCost, sanctioned, admissionId, TENANT,
   );
   const preauthId = rows[0].id;
   createdPreauthIds.push(preauthId);
   await prisma.$executeRawUnsafe(
     `INSERT INTO insurance_preauth_responses
-       (preauth_id, response_type, sanctioned_amount, raw_response, decided_at)
-     VALUES ($1::int, 'approved', $2::numeric, $3::jsonb, NOW())`,
-    preauthId, sanctioned, JSON.stringify(rawResponse || {}),
+       (preauth_id, response_type, sanctioned_amount, raw_response, decided_at,
+        tenant_id)
+     VALUES ($1::int, 'approved', $2::numeric, $3::jsonb, NOW(), $4::uuid)`,
+    preauthId, sanctioned, JSON.stringify(rawResponse || {}), TENANT,
   );
   return preauthId;
 }
 
 describe('TPA claim cover-exceeded + room-cap advisories (4600ed9c / b5906e90)', () => {
   beforeAll(async () => {
+    // Migration 753 made every insurance write serialize on the patient's
+    // funding authority: createClaim/submitClaim resolve patient_uid through
+    // resolvePharmacyFundingPatientUidTx, which requires exactly ONE active
+    // PATIENT row in this tenant. Without a registered patient the whole suite
+    // fails with 409 PHARMACY_FUNDING_PATIENT_IDENTITY_MISMATCH.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, updated_at, tenant_id)
+       VALUES ($1::uuid, $2, 'Cover Roomcap Test Patient', 'PATIENT', true, NOW(), $3::uuid)
+       ON CONFLICT (uid) DO UPDATE SET updated_at = NOW()`,
+      PATIENT_UID,
+      `9775${Date.now() % 1000000}`.slice(0, 10),
+      TENANT,
+    );
+
     const pol = await prisma.$queryRawUnsafe(
       `INSERT INTO insurance_policies
          (patient_uid, policy_number, status, tenant_id)
@@ -185,7 +212,14 @@ describe('TPA claim cover-exceeded + room-cap advisories (4600ed9c / b5906e90)',
     for (const id of createdConsentIds) {
       await prisma.$executeRawUnsafe(`DELETE FROM patient_consents WHERE id = $1::int`, id).catch(() => {});
     }
-    for (const id of createdPreauthIds) {
+    // Children before parents. insurance_preauth_parent_preauth_id_fkey is
+    // ON DELETE SET NULL, so removing a parent enhancement chain head first
+    // UPDATEs its child's parent_preauth_id — and
+    // enforce_insurance_preauth_authority_753 rejects that as a mutation of
+    // immutable authority identity (SQLSTATE 55000), leaving the whole chain
+    // (and the policy that follows it) undeleted. Enhancements are always
+    // pushed after their parent, so reverse order deletes leaves first.
+    for (const id of [...createdPreauthIds].reverse()) {
       await prisma.$executeRawUnsafe(`DELETE FROM insurance_preauth_responses WHERE preauth_id = $1::int`, id).catch(() => {});
       await prisma.$executeRawUnsafe(`DELETE FROM insurance_preauth WHERE id = $1::int`, id).catch(() => {});
     }
@@ -199,6 +233,7 @@ describe('TPA claim cover-exceeded + room-cap advisories (4600ed9c / b5906e90)',
     if (policyId) {
       await prisma.$executeRawUnsafe(`DELETE FROM insurance_policies WHERE id = $1::int`, policyId).catch(() => {});
     }
+    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$disconnect().catch(() => {});
   }, CLEANUP_TIMEOUT_MS);
 
@@ -210,9 +245,14 @@ describe('TPA claim cover-exceeded + room-cap advisories (4600ed9c / b5906e90)',
     await seedApprovedPreauth({
       expectedCost: 15000, sanctioned: 15000, parentId: parent, requestType: 'enhancement',
     });
+    // A final cashless claim must be anchored to an issued exact bill
+    // (CLAIM_FINAL_INVOICE_REQUIRED) — the cover advisory is computed on top of
+    // a real bill, not instead of one. ₹80k issued, matching total_billed.
+    const invoiceId = await seedIssuedInvoice({ total: 80000 });
 
     const claim = await claims.createClaim({
       tenantId: TENANT, policy_id: policyId, preauth_id: parent,
+      invoice_id: invoiceId,
       patient_uid: PATIENT_UID, claim_type: 'cashless', stage: 'final',
       total_billed: 80000, claimed_amount: 80000,
     });
@@ -244,9 +284,11 @@ describe('TPA claim cover-exceeded + room-cap advisories (4600ed9c / b5906e90)',
 
   it('attaches NO cover warning when the claim is within the sanctioned cover', async () => {
     const parent = await seedApprovedPreauth({ expectedCost: 80000, sanctioned: 80000 });
+    const invoiceId = await seedIssuedInvoice({ total: 70000 });
 
     const claim = await claims.createClaim({
       tenantId: TENANT, policy_id: policyId, preauth_id: parent,
+      invoice_id: invoiceId,
       patient_uid: PATIENT_UID, claim_type: 'cashless', stage: 'final',
       total_billed: 70000, claimed_amount: 70000,
     });
@@ -276,7 +318,7 @@ describe('TPA claim cover-exceeded + room-cap advisories (4600ed9c / b5906e90)',
     await seedAdmission({ admissionId, roomCategory: 'private' });
 
     const parent = await seedApprovedPreauth({
-      expectedCost: 80000, sanctioned: 80000,
+      expectedCost: 80000, sanctioned: 80000, admissionId,
       rawResponse: { caps: { room_category: { max_category: 'semi_private', max_amount: 13500 } } },
     });
     const invoiceId = await seedIssuedInvoice({ total: 80000, admissionId, roomRent: 18000 });
@@ -303,7 +345,7 @@ describe('TPA claim cover-exceeded + room-cap advisories (4600ed9c / b5906e90)',
     await seedAdmission({ admissionId, roomCategory: 'private' });
     await seedSignedDischargeSummary({ admissionId });
     const parent = await seedApprovedPreauth({
-      expectedCost: 80000, sanctioned: 80000,
+      expectedCost: 80000, sanctioned: 80000, admissionId,
       rawResponse: { caps: { room_category: { max_category: 'semi_private', max_amount: 13500 } } },
     });
     const invoiceId = await seedIssuedInvoice({ total: 80000, admissionId, roomRent: 18000 });
@@ -332,7 +374,7 @@ describe('TPA claim cover-exceeded + room-cap advisories (4600ed9c / b5906e90)',
     await seedAdmission({ admissionId, roomCategory: 'private' });
     await seedSignedDischargeSummary({ admissionId });
     const parent = await seedApprovedPreauth({
-      expectedCost: 80000, sanctioned: 80000,
+      expectedCost: 80000, sanctioned: 80000, admissionId,
       rawResponse: { caps: { room_category: { max_category: 'semi_private', max_amount: 13500 } } },
     });
     const invoiceId = await seedIssuedInvoice({ total: 80000, admissionId, roomRent: 18000 });
@@ -358,7 +400,7 @@ describe('TPA claim cover-exceeded + room-cap advisories (4600ed9c / b5906e90)',
     await seedSignedDischargeSummary({ admissionId });
     await seedLiabilityConsent();
     const parent = await seedApprovedPreauth({
-      expectedCost: 80000, sanctioned: 80000,
+      expectedCost: 80000, sanctioned: 80000, admissionId,
       rawResponse: { caps: { room_category: { max_category: 'semi_private', max_amount: 13500 } } },
     });
     const invoiceId = await seedIssuedInvoice({ total: 80000, admissionId, roomRent: 18000 });

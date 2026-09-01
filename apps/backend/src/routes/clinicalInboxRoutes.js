@@ -1,19 +1,19 @@
 /**
- * Clinical-staff results-inbox routes (design §4.5).
+ * Governed human-owner inbox routes (design §4.5).
  *
  * Mounted at /api/v1/clinical-inbox in app.js, clinical-accountability-gated
  * (requireRole(...CLINICAL_INBOX_ROUTE_ROLES)) + phiAccessLogger.
  *
  * This is a DELIBERATELY MINIMAL 5-endpoint surface — the per-clinician
  * inbox, role-queue claim, acknowledgement, diagnostic disposition, and
- * normal-result reopen — so clinical staff
+ * normal-result reopen — so route-capable task owners
  * get exactly the safety-net endpoints and NOTHING ELSE. The rest of the
  * tasks/workflow/escalation-rules admin surface (getTask by id, listTasks,
  * upsertEscalationRule, transition/assign, workflow CRUD) stays ADMIN-only at
  * /api/v1/admin/workflow (routes/admin/tasksWorkflowRoutes.js).
  *
  * SECURITY: do NOT mount the full admin tasksWorkflowRoutes router here — that
- * would let any clinical-staff role read any task by id (cross-patient PHI:
+ * would let any inbox-capable role read any task by id (cross-patient PHI:
  * patient_uid + critical-result title) and disable escalation rules. Both
  * handlers below are scoped to the caller (uid + roles); a regression test
  * (tests/unit/clinicalInboxRoutes.test.js) asserts only these routes exist.
@@ -62,7 +62,7 @@ function requireIdempotencyKey(req) {
   return key;
 }
 
-// GET /tasks/inbox — the caller's open / in_progress / overdue work (assignee =
+// GET /tasks/inbox — the caller's open / in_progress / blocked / overdue work (assignee =
 // me OR my role), ordered by priority then due_at. Thin wrapper over
 // taskService.listInboxTasks, scoped to req.user.uid + roles.
 router.get('/tasks/inbox', async (req, res, next) => {

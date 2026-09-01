@@ -118,4 +118,34 @@ describe('buildMarEntryFromOrderDetails (H D12)', () => {
     expect(entries[0].notes).toContain('food_timing:before_food');
     expect(entries[0].frequency).toBeUndefined();
   });
+
+  it('honours explicit dose times through day 30 instead of silently truncating at 14', () => {
+    const entries = buildMarEntriesFromOrderDetails({
+      medication_name: 'Pantoprazole',
+      dose: '40mg',
+      route: 'oral',
+      dose_times: ['08:00', '20:00'],
+      duration_days: 30,
+    }, { startDate: '2026-05-23T09:30:00Z' });
+
+    expect(entries).toHaveLength(60);
+  });
+
+  it('rejects explicit dose-time schedules beyond the governed day and dose ceilings', () => {
+    expect(() => buildMarEntriesFromOrderDetails({
+      medication_name: 'Pantoprazole',
+      dose: '40mg',
+      route: 'oral',
+      dose_times: ['08:00', '20:00'],
+      duration_days: 31,
+    })).toThrow(/exceeds the 30-day MAR scheduling window/i);
+
+    expect(() => buildMarEntriesFromOrderDetails({
+      medication_name: 'Infusion',
+      dose: '1 unit',
+      route: 'iv',
+      dose_times: Array.from({ length: 24 }, (_, hour) => `${String(hour).padStart(2, '0')}:00`),
+      duration_days: 16,
+    })).toThrow(/360/i);
+  });
 });

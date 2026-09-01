@@ -1,10 +1,12 @@
 import express from 'express';
 
 import { phiAccessLogger } from '../../middleware/phiAccessMiddleware.js';
+import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import {
   getCathConsumablesBillingSettings,
   listConsumableCatalog,
   listUnbilledConsumableUsage,
+  resolveCathConsumableAuthorityRecovery,
   upsertCathConsumablesBillingSettings,
   upsertConsumableCatalogItem
 } from '../../services/clinical/cathLabService.js';
@@ -14,7 +16,11 @@ const router = express.Router();
 
 const actorContext = req => ({
   actorUid: req.user?.uid || null,
-  actorRole: req.user?.role || req.user?.rawRole || null
+  actorRole: req.user?.role || req.user?.rawRole || null,
+  actorRoles: Array.isArray(req.user?.roles) ? req.user.roles : [],
+  requestId: req.id || null,
+  commandKey: req.idempotencyClaim?.requestKey || req.get?.('idempotency-key') || null,
+  requestFingerprint: req.idempotencyClaim?.requestBodyHash || null
 });
 
 router.get('/catalog', async (req, res, next) => {
@@ -25,6 +31,7 @@ router.get('/catalog', async (req, res, next) => {
       category: req.query.category || null,
       status: req.query.status || null,
       mapped: req.query.mapped ?? null,
+      facilityId: req.query.facility_id,
       limit: req.query.limit || 200
     });
     return success(res, { items, count: items.length }, 'Cath consumable catalog retrieved');
@@ -33,17 +40,48 @@ router.get('/catalog', async (req, res, next) => {
   }
 });
 
-router.put('/catalog', async (req, res, next) => {
-  try {
-    const item = await upsertConsumableCatalogItem(
-      { ...(req.body || {}), tenantId: req.tenantId },
-      actorContext(req)
-    );
-    return success(res, { item }, 'Cath consumable catalog item saved');
-  } catch (err) {
-    return next(err);
+router.put(
+  '/catalog',
+  requireIdempotencyKey({
+    required: true,
+    scope: 'cath_consumable_catalog_upsert'
+  }),
+  async (req, res, next) => {
+    try {
+      const item = await upsertConsumableCatalogItem(
+        { ...(req.body || {}), tenantId: req.tenantId },
+        actorContext(req)
+      );
+      return success(res, { item }, 'Cath consumable catalog item saved');
+    } catch (err) {
+      return next(err);
+    }
   }
-});
+);
+
+router.post(
+  '/authority-recovery/:id/resolve',
+  requireIdempotencyKey({
+    required: true,
+    scope: 'cath_consumable_authority_recovery',
+    retainOnServerError: true,
+    durableDomainReceipt: true
+  }),
+  async (req, res, next) => {
+    try {
+      const recovery = await resolveCathConsumableAuthorityRecovery({
+        tenantId: req.tenantId,
+        recoveryId: req.params.id,
+        resolution: req.body?.resolution || {},
+        note: req.body?.resolution_note,
+        ...actorContext(req)
+      });
+      return success(res, { recovery }, 'Cath consumable authority recovery resolved');
+    } catch (err) {
+      return next(err);
+    }
+  }
+);
 
 router.get('/billing-settings', async (req, res, next) => {
   try {

@@ -49,6 +49,25 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
   completeWorkflowSla: jest.fn(),
   startWorkflowSla: jest.fn(),
   isSchemaMissing: jest.fn(() => false),
+  // Reached via the MAR/order-entry side of the canonical bridge. Its callers
+  // treat a short result as a failed safety-review write and throw, so mirror
+  // the real contract — one row per blocker/warning, or a single `passed` row
+  // when the input carries no findings — rather than a bare undefined.
+  recordMedicationSafetyReviews: jest.fn(async (input = {}) => {
+    const safety = input.safety || {};
+    const blockers = Array.isArray(safety.blockers) ? safety.blockers : [];
+    const warnings = Array.isArray(safety.warnings) ? safety.warnings : [];
+    const findings = [
+      ...blockers.map((issue) => ({ issue, status: 'blocked' })),
+      ...warnings.map((issue) => ({ issue, status: 'warning' })),
+    ];
+    if (findings.length === 0) findings.push({ issue: { type: 'overall' }, status: 'passed' });
+    return findings.map((finding, index) => ({
+      id: index + 1,
+      status: finding.status,
+      finding_code: finding.issue?.type || null,
+    }));
+  }),
 }));
 
 jest.unstable_mockModule('../../services/staff/credentialingService.js', () => ({

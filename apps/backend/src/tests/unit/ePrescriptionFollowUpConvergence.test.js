@@ -1,5 +1,10 @@
 import { jest } from '@jest/globals';
+import { createHash } from 'node:crypto';
 import { AppError } from '../../utils/AppError.js';
+
+const emptyActiveTherapySha256 = createHash('sha256')
+  .update(JSON.stringify({ evidence: [], blockers: [] }))
+  .digest('hex');
 
 const prismaQueryMock = jest.fn();
 const prismaExecuteMock = jest.fn();
@@ -22,6 +27,10 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
     $executeRawUnsafe: prismaExecuteMock,
   },
   setTenantTx: setTenantTxMock,
+  // The tx-branding guard is a live fail-closed check in the services this
+  // controller pulls in; only the suite's own tx stands in for a branded
+  // client, so an unbranded handle is still rejected as production does.
+  isTenantTransactionClient: value => value === tx,
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: {
@@ -33,6 +42,15 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 }));
 jest.unstable_mockModule('../../utils/clinical/prescriptionSafetyCheck.js', () => ({
   validatePrescriptionSafety: validatePrescriptionSafetyMock,
+  // pharmacistVerificationService reaches the active-therapy authority through
+  // this controller's module graph. The genuine empty-snapshot digest with no
+  // blockers is what lets the caller past its fail-closed reconciliation gate.
+  loadActiveTherapySnapshot: jest.fn(async () => ({
+    medications: [],
+    evidence: [],
+    blockers: [],
+    sha256: emptyActiveTherapySha256,
+  })),
 }));
 jest.unstable_mockModule('../../services/pharmacy/compositionIdentityService.js', () => ({
   enrichMedicationsWithComposition: jest.fn(async (_tenantId, medications) => medications),
@@ -45,6 +63,14 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
   ensureEncounterForAppointment: ensureEncounterForAppointmentMock,
   recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
   recordMedicationSafetyReviews: recordMedicationSafetyReviewsMock,
+  // SLA surface reached via canonicalOperationalBridgeService. Return a
+  // materialised instance rather than null — strict callers read a null start
+  // as WORKFLOW_SLA_MATERIALIZATION_FAILED — and never claim the canonical
+  // tables are absent, which is the bridge's swallow-the-error branch.
+  startWorkflowSla: jest.fn(async () => ({ id: 1 })),
+  completeWorkflowSla: jest.fn(async () => ({ id: 1 })),
+  cancelWorkflowSla: jest.fn(async () => []),
+  isSchemaMissing: jest.fn(() => false),
 }));
 jest.unstable_mockModule('../../services/maternity/maternityService.js', () => ({
   maybePropagateAncSupplements: jest.fn(async () => null),
@@ -71,6 +97,10 @@ jest.unstable_mockModule('../../utils/logAudit.js', () => ({
 }));
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   requireTenantId: tenantId => tenantId,
+  // The ledger/pathway/care-team mode resolvers treat a missing tenant row as
+  // an internal failure, so hand back a real row carrying no overrides — each
+  // mode then resolves to its configured default.
+  getTenantById: jest.fn(async tenantId => ({ id: tenantId, settings: {} })),
 }));
 jest.unstable_mockModule(
   '../../services/appointment/opChildResourceEventService.js',

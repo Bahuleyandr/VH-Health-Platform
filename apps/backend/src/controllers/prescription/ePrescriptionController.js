@@ -1,7 +1,7 @@
 // src/controllers/prescription/ePrescriptionController.js
 // E-Prescription system — structured prescription entry, PDF generation, auto-pharmacy order
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import PDFDocument from 'pdfkit';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
@@ -27,8 +27,23 @@ import {
 } from '../../services/prescription/prescriptionPdfHelper.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { logAudit } from '../../utils/logAudit.js';
+import { lockTenantPatientMergeStability } from '../../utils/patientMergeStabilityLock.js';
 import { requireTenantId } from '../../services/tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
+import {
+  requestedPharmacyFacilityId,
+  resolvePharmacyFacility,
+} from '../../services/pharmacy/pharmacyFacilityAuthorityService.js';
+import {
+  authoritativeSubstitutionAllowed,
+  createDispenseCommandIdentity,
+} from '../../services/pharmacy/pharmacyOrderInventoryService.js';
+import {
+  loadPharmacyOrderCommandReceiptTx,
+  pharmacyCommandRequestSha256,
+  storePharmacyOrderCommandReceiptTx,
+} from '../../services/pharmacy/pharmacyOrderCommandReceiptService.js';
+import { lockPharmacyCatalogAuthorityTx } from '../../services/pharmacy/pharmacistVerificationService.js';
 import { publishOpChildResourceLinkedTx } from '../../services/appointment/opChildResourceEventService.js';
 import {
   assertPrivilegeForGate,
@@ -50,11 +65,344 @@ const FREQ_LABELS = {
 // prescription carries 'inpatient' so the pharmacy queue / nursing MAR
 // can split it from OPD scripts; everything else is 'outpatient'.
 const VALID_VISIT_TYPES = ['outpatient', 'inpatient'];
+const VALID_PHARMACY_DELIVERY_TYPES = new Set(['delivery', 'counter']);
 const TERMINAL_PRESCRIPTION_STATUSES = new Set(['fulfilled', 'cancelled', 'canceled']);
 const PRIVILEGED_PRESCRIPTION_ROLES = new Set(['ADMIN', 'SUPER_ADMIN']);
 const CONTROLLED_SUBSTANCE_GATE = 'CONTROLLED_SUBSTANCE_REQUIRE_PRESCRIBE_PRIVILEGE';
 const CONTROLLED_SUBSTANCE_RE =
   /\b(controlled|narcotic|opioid|opiate|psychotropic|ndps|schedule\s*(?:ii|iii|iv|v|2|3|4|5))\b/i;
+const SIGNED_CLINICAL_AUTHORITY_CONTRACT_VERSION = 'prescription-clinical-authority-v1';
+
+function stableClinicalJson(value) {
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map(stableClinicalJson);
+  if (value && typeof value === 'object') {
+    return Object.keys(value).sort().reduce((result, key) => {
+      result[key] = stableClinicalJson(value[key]);
+      return result;
+    }, {});
+  }
+  return value ?? null;
+}
+
+function clinicalSha256(value) {
+  return createHash('sha256')
+    .update(JSON.stringify(stableClinicalJson(value)))
+    .digest('hex');
+}
+
+function stableSignedCatalogProjection(catalog, composition) {
+  return {
+    catalog_id: Number(catalog.id),
+    name: catalog.name || null,
+    generic_name: catalog.generic_name || null,
+    composition_id: catalog.composition_id == null ? null : Number(catalog.composition_id),
+    composition_key: composition?.composition_key || null,
+    composition_label: composition?.display_label || null,
+    active_ingredients: Array.isArray(composition?.active_ingredients)
+      ? [...composition.active_ingredients]
+      : [],
+    strength: catalog.strength || null,
+    strength_key: catalog.strength_key || null,
+    strength_components: catalog.strength_components || null,
+    form: catalog.form || null,
+    form_key: catalog.form_key || null,
+    release_key: catalog.release_key || null,
+    route: catalog.route || null,
+    composition_source: catalog.composition_source || null,
+    composition_confidence: catalog.composition_confidence || null,
+  };
+}
+
+async function lockSignedPrescriptionClinicalAuthorityTx(tx, {
+  tenantId,
+  patientId,
+  patientUid,
+  medications,
+}) {
+  const patientRows = await tx.$queryRawUnsafe(
+    `SELECT id, uid, weight_kg, updated_at
+       FROM users
+      WHERE tenant_id=$1::uuid
+        AND id=$2::int
+        AND uid=$3::uuid
+        AND role='PATIENT'
+        AND is_active=TRUE
+        AND status='active'
+        AND is_deleted=FALSE
+        AND merged_into_uid IS NULL
+      FOR UPDATE`,
+    tenantId,
+    Number(patientId),
+    String(patientUid),
+  );
+  if (!patientRows.length) {
+    throw AppError.conflict(
+      'The prescription patient authority is no longer active',
+      'PRESCRIPTION_PATIENT_AUTHORITY_CHANGED',
+    );
+  }
+
+  const catalogIds = [...new Set((Array.isArray(medications) ? medications : [])
+    .map((medication) => Number(medication?.catalog_id))
+    .filter((catalogId) => Number.isSafeInteger(catalogId) && catalogId > 0))]
+    .sort((a, b) => a - b);
+  const catalogs = catalogIds.length
+    ? await tx.$queryRawUnsafe(
+      `SELECT id, name, generic_name, composition_id, strength, strength_key,
+              strength_components, form, form_key, release_key, route,
+              composition_source, composition_confidence, updated_at
+         FROM pharmacy_catalog
+        WHERE tenant_id=$1::uuid
+          AND id=ANY($2::int[])
+          AND is_active=TRUE
+        ORDER BY id
+        FOR UPDATE`,
+      tenantId,
+      catalogIds,
+    )
+    : [];
+  if (catalogs.length !== catalogIds.length) {
+    throw AppError.conflict(
+      'One or more prescription catalog identities are missing, inactive, or outside this tenant',
+      'PRESCRIPTION_CATALOG_AUTHORITY_UNAVAILABLE',
+      { catalog_ids: catalogIds },
+    );
+  }
+  const compositionIds = [...new Set(catalogs
+    .map((catalog) => Number(catalog.composition_id))
+    .filter((compositionId) => Number.isSafeInteger(compositionId) && compositionId > 0))]
+    .sort((a, b) => a - b);
+  const compositions = compositionIds.length
+    ? await tx.$queryRawUnsafe(
+      `SELECT id, composition_key, display_label, active_ingredients, updated_at
+         FROM drug_compositions
+        WHERE id=ANY($1::int[])
+        ORDER BY id
+        FOR UPDATE`,
+      compositionIds,
+    )
+    : [];
+  if (compositions.length !== compositionIds.length) {
+    throw AppError.conflict(
+      'One or more prescription drug compositions are unavailable',
+      'PRESCRIPTION_COMPOSITION_AUTHORITY_UNAVAILABLE',
+      { composition_ids: compositionIds },
+    );
+  }
+  const compositionById = new Map(compositions.map((row) => [Number(row.id), row]));
+  const catalogById = new Map(catalogs.map((row) => [Number(row.id), row]));
+  const vitalRows = await tx.$queryRawUnsafe(
+    `SELECT id, weight_kg, recorded_at, created_at
+       FROM vitals_chart
+      WHERE tenant_id=$1::uuid
+        AND patient_uid=$2::uuid
+        AND weight_kg IS NOT NULL
+      ORDER BY recorded_at DESC NULLS LAST, id DESC
+      LIMIT 1
+      FOR UPDATE`,
+    tenantId,
+    String(patientUid),
+  );
+  const patient = patientRows[0];
+  const vital = vitalRows[0] || null;
+
+  return (Array.isArray(medications) ? medications : []).map((medication, lineIndex) => {
+    const catalogId = Number(medication?.catalog_id);
+    const catalog = Number.isSafeInteger(catalogId) && catalogId > 0
+      ? catalogById.get(catalogId)
+      : null;
+    const projection = catalog
+      ? stableSignedCatalogProjection(
+        catalog,
+        catalog.composition_id == null
+          ? null
+          : compositionById.get(Number(catalog.composition_id)),
+      )
+      : {
+        catalog_id: null,
+        name: medication?.name || medication?.medication_name || medication?.drug_name || null,
+        generic_name: medication?.generic_name || null,
+        strength: medication?.strength || medication?.dosage || null,
+        route: medication?.route || null,
+      };
+    const signedCatalogAuthority = {
+      contract_version: SIGNED_CLINICAL_AUTHORITY_CONTRACT_VERSION,
+      projection,
+      sha256: clinicalSha256(projection),
+    };
+    const doseText = medication?.dose || medication?.dosage || medication?.strength || '';
+    const instructionText = medication?.instructions || medication?.notes || '';
+    const mgPerKg = parseMgPerKg(doseText, instructionText);
+    let signedPediatricDoseAuthority = null;
+    if (mgPerKg != null) {
+      const explicitWeight = Number(medication?.child_weight_kg);
+      const textWeight = parseWeightKgFromText(doseText, instructionText);
+      const source = Number.isFinite(explicitWeight) && explicitWeight > 0
+        ? {
+          kind: 'prescription_line',
+          source_id: lineIndex,
+          weight_kg: explicitWeight,
+        }
+        : Number.isFinite(textWeight) && textWeight > 0
+          ? {
+            kind: 'prescription_text',
+            source_id: lineIndex,
+            weight_kg: Number(textWeight),
+          }
+          : vital && Number(vital.weight_kg) > 0
+            ? {
+              kind: 'vitals_chart',
+              source_id: Number(vital.id),
+              source_recorded_at: vital.recorded_at || null,
+              source_created_at: vital.created_at || null,
+              weight_kg: Number(vital.weight_kg),
+            }
+            : Number(patient.weight_kg) > 0
+              ? {
+                kind: 'patient_profile',
+                source_id: Number(patient.id),
+                source_updated_at: patient.updated_at || null,
+                weight_kg: Number(patient.weight_kg),
+              }
+              : null;
+      if (!source) {
+        throw AppError.conflict(
+          `Prescription line ${lineIndex + 1} uses mg/kg dosing without a governed patient weight`,
+          'PRESCRIPTION_PEDIATRIC_WEIGHT_AUTHORITY_REQUIRED',
+          { prescription_line_index: lineIndex },
+        );
+      }
+      const payload = {
+        contract_version: SIGNED_CLINICAL_AUTHORITY_CONTRACT_VERSION,
+        ...source,
+        mg_per_kg: mgPerKg,
+        total_mg: Math.round(mgPerKg * Number(source.weight_kg) * 100) / 100,
+      };
+      signedPediatricDoseAuthority = {
+        ...payload,
+        sha256: clinicalSha256(payload),
+      };
+    }
+    return {
+      ...medication,
+      signed_catalog_authority: signedCatalogAuthority,
+      signed_pediatric_dose_authority: signedPediatricDoseAuthority,
+    };
+  });
+}
+
+async function assertSignedPrescriptionClinicalAuthorityTx(tx, {
+  tenantId,
+  patientId,
+  patientUid,
+  medications,
+}) {
+  const recomputed = await lockSignedPrescriptionClinicalAuthorityTx(tx, {
+    tenantId,
+    patientId,
+    patientUid,
+    medications,
+  });
+  for (let index = 0; index < recomputed.length; index += 1) {
+    const signed = medications[index];
+    const current = recomputed[index];
+    if (!signed?.signed_catalog_authority?.sha256
+      || signed.signed_catalog_authority.sha256 !== current.signed_catalog_authority.sha256) {
+      throw AppError.conflict(
+        `Prescription line ${index + 1} catalog clinical identity changed after signing`,
+        'PRESCRIPTION_SIGNED_CATALOG_AUTHORITY_CHANGED',
+        { prescription_line_index: index },
+      );
+    }
+    const signedDose = signed?.signed_pediatric_dose_authority || null;
+    if (signedDose) {
+      const payload = { ...signedDose };
+      delete payload.sha256;
+      if (clinicalSha256(payload) !== signedDose.sha256) {
+        throw AppError.conflict(
+          `Prescription line ${index + 1} pediatric dose authority is invalid`,
+          'PRESCRIPTION_SIGNED_PEDIATRIC_AUTHORITY_INVALID',
+          { prescription_line_index: index },
+        );
+      }
+      let authoritativeSource = null;
+      if (signedDose.kind === 'vitals_chart') {
+        const rows = await tx.$queryRawUnsafe(
+          `SELECT id, weight_kg, recorded_at, created_at
+             FROM vitals_chart
+            WHERE tenant_id=$1::uuid
+              AND patient_uid=$2::uuid
+              AND id=$3::int
+              AND weight_kg IS NOT NULL
+            FOR UPDATE`,
+          tenantId,
+          String(patientUid),
+          Number(signedDose.source_id),
+        );
+        if (rows.length) {
+          authoritativeSource = {
+            kind: 'vitals_chart',
+            source_id: Number(rows[0].id),
+            source_recorded_at: rows[0].recorded_at || null,
+            source_created_at: rows[0].created_at || null,
+            weight_kg: Number(rows[0].weight_kg),
+          };
+        }
+      } else if (signedDose.kind === 'patient_profile') {
+        const rows = await tx.$queryRawUnsafe(
+          `SELECT id, weight_kg, updated_at
+             FROM users
+            WHERE tenant_id=$1::uuid
+              AND id=$2::int
+              AND uid=$3::uuid
+              AND role='PATIENT'
+              AND is_active=TRUE
+              AND status='active'
+              AND is_deleted=FALSE
+              AND merged_into_uid IS NULL
+            FOR UPDATE`,
+          tenantId,
+          Number(patientId),
+          String(patientUid),
+        );
+        if (rows.length && Number(rows[0].weight_kg) > 0) {
+          authoritativeSource = {
+            kind: 'patient_profile',
+            source_id: Number(rows[0].id),
+            source_updated_at: rows[0].updated_at || null,
+            weight_kg: Number(rows[0].weight_kg),
+          };
+        }
+      } else if (signedDose.kind === 'prescription_line'
+        || signedDose.kind === 'prescription_text') {
+        authoritativeSource = {
+          kind: signedDose.kind,
+          source_id: index,
+          weight_kg: Number(signedDose.weight_kg),
+        };
+      }
+      const currentPayload = authoritativeSource && {
+        contract_version: SIGNED_CLINICAL_AUTHORITY_CONTRACT_VERSION,
+        ...authoritativeSource,
+        mg_per_kg: parseMgPerKg(
+          signed?.dose || signed?.dosage || signed?.strength || '',
+          signed?.instructions || signed?.notes || '',
+        ),
+        total_mg: Math.round(
+          Number(signedDose.mg_per_kg) * Number(authoritativeSource.weight_kg) * 100,
+        ) / 100,
+      };
+      if (!currentPayload || clinicalSha256(currentPayload) !== signedDose.sha256) {
+        throw AppError.conflict(
+          `Prescription line ${index + 1} pediatric weight authority changed after signing`,
+          'PRESCRIPTION_SIGNED_PEDIATRIC_AUTHORITY_CHANGED',
+          { prescription_line_index: index },
+        );
+      }
+    }
+  }
+}
 
 // Persisted-only brand-substitution audit for an e-Rx save. Iterates the
 // persisted medications; for each med whose first-selected brand
@@ -320,6 +668,45 @@ function parseConcentrationMgPerMl(...values) {
   return null;
 }
 
+function authoritativeFreeTextCatalogMatch(medication, medicationName, catalog) {
+  const prescribedName = String(medicationName || '').trim().toLowerCase();
+  const catalogName = String(catalog?.name || '').trim().toLowerCase();
+  if (!prescribedName || !catalogName) return false;
+  if (prescribedName === catalogName) return true;
+  const genericName = String(catalog?.generic_name || '').trim().toLowerCase();
+  if (!genericName || genericName !== prescribedName) return false;
+
+  const prescribedConcentration = parseConcentrationMgPerMl(
+    medication?.strength,
+    medication?.dosage,
+    medication?.dose,
+    medication?.instructions,
+    medicationName,
+  );
+  const catalogConcentration = parseConcentrationMgPerMl(
+    catalog?.strength_key,
+    JSON.stringify(catalog?.strength_components || null),
+    catalog?.name,
+  );
+  if (!Number.isFinite(prescribedConcentration)
+    || !Number.isFinite(catalogConcentration)
+    || Math.abs(prescribedConcentration - catalogConcentration) > 0.000001) {
+    return false;
+  }
+  const prescribedForm = isLiquidForm(
+    medication?.form,
+    medication?.dosage_form,
+    medication?.dosage,
+    medication?.strength,
+    medicationName,
+  );
+  const catalogForm = isLiquidForm(catalog?.form_key, catalog?.name);
+  if (prescribedForm == null || catalogForm == null || prescribedForm !== catalogForm) return false;
+  const prescribedRoute = String(medication?.route || '').trim().toLowerCase();
+  const catalogRoute = String(catalog?.route || '').trim().toLowerCase();
+  return !prescribedRoute || !catalogRoute || prescribedRoute === catalogRoute;
+}
+
 // The mL denominator of a "mg/mL" concentration (the `5` in "125mg/5ml").
 // Used to distinguish a concentration's own volume from the prescribed dose
 // volume so the latter is never mistaken for the former on the label.
@@ -414,6 +801,9 @@ function assertPrescriptionEditable(req, rx) {
   if (!rx) return 'Prescription not found';
   if (!isPrescriptionOwner(req, rx))
     return 'Only the prescribing doctor or Admin/SuperAdmin can edit this prescription';
+  if (String(rx.lifecycle_status || '').toLowerCase() === 'imported_history') {
+    return 'Imported medication history is immutable; use the governed correction workflow';
+  }
   if (
     rx.signed_at ||
     rx.locked_at ||
@@ -438,6 +828,9 @@ function assertPrescriptionSignable(req, rx) {
   if (!rx) return 'Prescription not found';
   if (!isPrescriptionOwner(req, rx))
     return 'Only the prescribing doctor or Admin/SuperAdmin can sign this prescription';
+  if (String(rx.lifecycle_status || '').toLowerCase() === 'imported_history') {
+    return 'Imported medication history cannot be signed or converted into a local prescription';
+  }
   if (
     rx.signed_at ||
     rx.locked_at ||
@@ -1661,6 +2054,7 @@ export const updatePrescription = async (req, res) => {
             AND pharmacy_order_id IS NULL
             AND LOWER(COALESCE(status, '')) <> 'pharmacy_linked'
             AND LOWER(COALESCE(status, '')) NOT IN ('fulfilled', 'cancelled', 'canceled')
+            AND LOWER(COALESCE(lifecycle_status, 'draft')) <> 'imported_history'
           RETURNING *`,
         diagnosis || null,
         clinicalNotes || null,
@@ -1805,6 +2199,34 @@ export const signPrescription = async (req, res) => {
     const actorUid = req.user?.uid || null;
     const prescriptionTenantId = requestTenantId;
     const signed = await setTenantTx(prescriptionTenantId, async (tx) => {
+      await lockTenantPatientMergeStability(tx, prescriptionTenantId);
+      await lockPharmacyCatalogAuthorityTx(tx, prescriptionTenantId);
+      const lockedRows = await tx.$queryRawUnsafe(
+        `SELECT *
+           FROM e_prescriptions
+          WHERE id=$1::int AND tenant_id=$2::uuid
+          FOR UPDATE`,
+        id,
+        prescriptionTenantId,
+      );
+      const locked = lockedRows[0];
+      if (!locked) throw AppError.notFound('Prescription not found');
+      const lockedSignError = assertPrescriptionSignable(req, locked);
+      if (lockedSignError) {
+        throw AppError.conflict(lockedSignError, 'PRESCRIPTION_STATE_CHANGED');
+      }
+      const signedMedications = await lockSignedPrescriptionClinicalAuthorityTx(tx, {
+        tenantId: prescriptionTenantId,
+        patientId: locked.patient_id,
+        patientUid: locked.patient_uid,
+        medications: Array.isArray(locked.medications) ? locked.medications : [],
+      });
+      if (!signedMedications.length) {
+        throw AppError.conflict(
+          'A prescription must contain at least one medication before it can be signed',
+          'PRESCRIPTION_MEDICATION_AUTHORITY_REQUIRED',
+        );
+      }
       const result = await tx.$queryRawUnsafe(
         `UPDATE e_prescriptions
             SET signed_at=NOW(),
@@ -1812,17 +2234,20 @@ export const signPrescription = async (req, res) => {
                 locked_at=NOW(),
                 locked_by=$1::uuid,
                 lifecycle_status='signed',
+                medications=$4::jsonb,
                 updated_at=NOW()
           WHERE id=$2
             AND tenant_id=$3::uuid
             AND signed_at IS NULL
             AND locked_at IS NULL
             AND LOWER(COALESCE(lifecycle_status, 'draft')) <> 'signed'
+            AND LOWER(COALESCE(lifecycle_status, 'draft')) <> 'imported_history'
             AND LOWER(COALESCE(status, '')) NOT IN ('fulfilled', 'cancelled', 'canceled')
           RETURNING *`,
         actorUid,
         id,
         prescriptionTenantId,
+        JSON.stringify(signedMedications),
       );
       const saved = result[0];
       if (!saved) {
@@ -1915,14 +2340,39 @@ export const signPrescription = async (req, res) => {
 export const previewSafetyCheck = async (req, res) => {
   try {
     const { patient_id, medications } = req.body;
-    if (!patient_id || !Array.isArray(medications) || medications.length === 0) {
+    const patientId = Number(patient_id);
+    if (
+      !Number.isSafeInteger(patientId) || patientId <= 0 ||
+      !Array.isArray(medications) || medications.length === 0
+    ) {
       return error(res, 'patient_id and medications are required', HTTP_STATUS.BAD_REQUEST);
     }
-    const safety = await validatePrescriptionSafety(patient_id, medications);
+    const tenantId = requireTenantId(
+      req.tenantId ?? req.user?.tenant_id ?? req.user?.tenantId,
+    );
+    const safety = await setTenantTx(tenantId, async (tx) => {
+      const patients = await tx.$queryRawUnsafe(
+        `SELECT id
+           FROM users
+          WHERE tenant_id=$1::uuid AND id=$2::int
+            AND role='PATIENT' AND is_active=TRUE AND status='active'
+            AND is_deleted=FALSE AND merged_into_uid IS NULL
+          LIMIT 2
+          FOR KEY SHARE`,
+        tenantId,
+        patientId,
+      );
+      if (patients.length !== 1) {
+        throw AppError.notFound('Patient not found', 'PATIENT_NOT_FOUND');
+      }
+      return validatePrescriptionSafety(patients[0].id, medications, {
+        tenantId,
+        db: tx,
+      });
+    });
     success(res, safety, safety.safe ? 'Safe to prescribe' : 'Blockers detected');
   } catch (err) {
-    logger.error('Preview safety check error:', err);
-    error(res, 'Failed to run safety check', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to run safety check');
   }
 };
 
@@ -1937,29 +2387,58 @@ export const getPrescriptionSafety = async (req, res) => {
     if (!Number.isInteger(id)) {
       return error(res, 'Invalid prescription id', HTTP_STATUS.BAD_REQUEST);
     }
-    const rx = await prisma.$queryRawUnsafe(
-      'SELECT patient_id, medications, diagnosis FROM e_prescriptions WHERE id = $1',
-      id
+    const tenantId = requireTenantId(
+      req.tenantId ?? req.user?.tenant_id ?? req.user?.tenantId,
     );
-    if (rx.length === 0) return error(res, 'Prescription not found', HTTP_STATUS.NOT_FOUND);
+    const { rx, safety, overrides } = await setTenantTx(tenantId, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
+        `SELECT ep.patient_id, ep.medications, ep.diagnosis, p.uid AS canonical_patient_uid
+           FROM e_prescriptions ep
+           JOIN users p
+             ON p.tenant_id=ep.tenant_id AND p.id=ep.patient_id
+            AND p.role='PATIENT' AND p.is_active=TRUE AND p.status='active'
+            AND p.is_deleted=FALSE AND p.merged_into_uid IS NULL
+          WHERE ep.tenant_id=$1::uuid AND ep.id=$2::int
+          LIMIT 2
+          FOR KEY SHARE OF ep, p`,
+        tenantId,
+        id,
+      );
+      if (rows.length !== 1) {
+        throw AppError.notFound('Prescription not found', 'PRESCRIPTION_NOT_FOUND');
+      }
 
-    // Patient role may only view their own prescription's safety context.
-    if (req.user?.role === 'PATIENT' && String(rx[0].patient_id) !== String(req.user.id)) {
-      return error(res, 'Forbidden', HTTP_STATUS.FORBIDDEN);
-    }
+      if (req.user?.role === 'PATIENT') {
+        const callerId = Number(req.user?.id);
+        const callerUid = req.user?.uid == null ? null : String(req.user.uid);
+        if (
+          (Number.isInteger(callerId) && callerId !== Number(rows[0].patient_id)) ||
+          (callerUid && callerUid !== String(rows[0].canonical_patient_uid))
+        ) {
+          throw AppError.forbidden('Forbidden', 'PRESCRIPTION_PATIENT_MISMATCH');
+        }
+      }
 
-    const meds = Array.isArray(rx[0].medications)
-      ? rx[0].medications
-      : typeof rx[0].medications === 'string'
-        ? JSON.parse(rx[0].medications)
-        : [];
-    const safety = await validatePrescriptionSafety(rx[0].patient_id, meds);
-
-    const overrides = await prisma.$queryRawUnsafe(
-      `SELECT reason, created_at FROM prescription_safety_overrides
-       WHERE prescription_id = $1 ORDER BY created_at DESC`,
-      id
-    );
+      const meds = Array.isArray(rows[0].medications)
+        ? rows[0].medications
+        : typeof rows[0].medications === 'string'
+          ? JSON.parse(rows[0].medications)
+          : [];
+      const checked = await validatePrescriptionSafety(rows[0].patient_id, meds, {
+        tenantId,
+        db: tx,
+        excludePrescriptionId: id,
+      });
+      const overrideRows = await tx.$queryRawUnsafe(
+        `SELECT reason, created_at
+           FROM prescription_safety_overrides
+          WHERE tenant_id=$1::uuid AND prescription_id=$2::int
+          ORDER BY created_at DESC`,
+        tenantId,
+        id,
+      );
+      return { rx: rows[0], safety: checked, overrides: overrideRows };
+    });
 
     success(
       res,
@@ -1970,13 +2449,14 @@ export const getPrescriptionSafety = async (req, res) => {
           reason: o.reason,
           at: o.created_at
         })),
-        indication: rx[0].diagnosis || null
+        // `rx` is already the single locked row, not the result set — indexing
+        // it threw a TypeError on every successful read of this endpoint.
+        indication: rx.diagnosis || null
       },
       'Prescription safety context'
     );
   } catch (err) {
-    logger.error('Get prescription safety error:', err);
-    error(res, 'Failed to fetch safety context', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to fetch safety context');
   }
 };
 
@@ -2290,29 +2770,35 @@ export const orderPharmacyFromPrescription = async (req, res) => {
     // the counter/delivery flow they intended, instead of silently defaulting
     // to delivery. Canonical name is `delivery_type` (matches Wave 1.5 ship).
     const { delivery_address, delivery_phone } = req.body;
-    const delivery_type = req.body.delivery_type ?? req.body.dispense_type ?? 'delivery';
+    const delivery_type = String(
+      req.body.delivery_type ?? req.body.dispense_type ?? 'delivery',
+    ).trim().toLowerCase();
+    if (!VALID_PHARMACY_DELIVERY_TYPES.has(delivery_type)) {
+      return error(
+        res,
+        'delivery_type must be delivery or counter',
+        HTTP_STATUS.BAD_REQUEST,
+        { code: 'PRESCRIPTION_PHARMACY_DELIVERY_TYPE_INVALID' },
+      );
+    }
     const catalogSelections = collectCatalogSelections(req.body);
 
     // Fetch prescription
     const rxResult = await prisma.$queryRawUnsafe(
       `SELECT ep.*, p.name AS patient_name,
-              COALESCE(NULLIF(guardian.phone, ''), NULLIF(p.guardian_phone, ''), p.phone) AS patient_phone,
-              -- Recorded weight drives pediatric (mg/kg → mL) dose derivation
-              -- when the clinician didn't put the weight in the dose text.
-              -- Prefer the most-recent charted vital, fall back to the
-              -- registered weight (users.weight_kg, migration 202).
-              -- Finding: 2026-05-22-pediatric-opd-pharmacy-f346bf82.
-              COALESCE(
-                (SELECT vc.weight_kg FROM vitals_chart vc
-                  WHERE vc.patient_uid = p.uid AND vc.weight_kg IS NOT NULL
-                  ORDER BY vc.recorded_at DESC NULLS LAST LIMIT 1),
-                p.weight_kg
-              ) AS patient_weight_kg
+              COALESCE(NULLIF(guardian.phone, ''), NULLIF(p.guardian_phone, ''), p.phone) AS patient_phone
        FROM e_prescriptions ep
-       JOIN users p ON p.id = ep.patient_id
-       LEFT JOIN users guardian ON guardian.id = p.guardian_user_id
-       WHERE ep.id = $1`,
-      id
+       JOIN users p ON p.id = ep.patient_id AND p.tenant_id=ep.tenant_id
+        AND p.uid=ep.patient_uid
+        AND p.role='PATIENT'
+        AND p.is_active=TRUE
+        AND p.status='active'
+        AND p.is_deleted=FALSE
+        AND p.merged_into_uid IS NULL
+       LEFT JOIN users guardian ON guardian.id = p.guardian_user_id AND guardian.tenant_id=ep.tenant_id
+       WHERE ep.id = $1 AND ep.tenant_id=$2::uuid`,
+      id,
+      requireTenantId(req.tenantId),
     );
     if (rxResult.length === 0) {
       return error(res, 'Prescription not found', HTTP_STATUS.NOT_FOUND);
@@ -2324,10 +2810,142 @@ export const orderPharmacyFromPrescription = async (req, res) => {
     // PHI of — another patient's prescription. Reuse the same relationship helper
     // the read/PDF paths use; staff read-roles pass, a PATIENT must own the row.
     // Return 404 (not 403) so a foreign id is not confirmed to exist.
-    // NOTE: intentionally NOT gating on signed/locked here — walk-in OPD orders
-    // pharmacy from an active (as-yet-unsigned) prescription, a supported flow.
     if (!callerMayAccessPrescription(req, rx.patient_id)) {
       return error(res, 'Prescription not found', HTTP_STATUS.NOT_FOUND);
+    }
+
+    const callerRole = String(req.user?.role || '').trim().toUpperCase();
+    const patientOwnedPlacement = callerRole === 'PATIENT'
+      && String(req.user?.uid || '') === String(rx.patient_uid || '');
+    if (callerRole === 'PATIENT' && !patientOwnedPlacement) {
+      return error(res, 'Prescription not found', HTTP_STATUS.NOT_FOUND);
+    }
+    if (String(rx.lifecycle_status || '').toLowerCase() === 'imported_history') {
+      return error(
+        res,
+        'Imported medication history cannot be converted into a pharmacy order',
+        HTTP_STATUS.CONFLICT,
+        { code: 'PRESCRIPTION_IMPORTED_HISTORY_NOT_ORDERABLE' },
+      );
+    }
+    if (String(rx.lifecycle_status || '').toLowerCase() !== 'signed'
+      || !rx.signed_at || !rx.locked_at) {
+      return error(
+        res,
+        'Prescription must be signed and locked before a pharmacy order can be placed',
+        HTTP_STATUS.CONFLICT,
+        { code: 'PRESCRIPTION_PHARMACY_SIGNED_AUTHORITY_REQUIRED' },
+      );
+    }
+
+    const requestedFacilityId = requestedPharmacyFacilityId(req);
+    const commandAction = isRefill
+      ? 'REFILL_FROM_PRESCRIPTION'
+      : 'CREATE_FROM_PRESCRIPTION';
+    const commandKeySha256 = createDispenseCommandIdentity({
+      tenantId: req.tenantId,
+      actorUid: req.user?.uid,
+      scope: `${commandAction}:${id}`,
+      idempotencyKey: req.idempotencyClaim?.requestKey || req.get?.('idempotency-key'),
+    });
+    const requestSha256 = pharmacyCommandRequestSha256({
+      prescription_id: id,
+      action: commandAction,
+      body: req.body || {},
+    });
+
+    if (req.idempotencyClaim?.recoveringInFlight && rx.pharmacy_order_id) {
+      const replay = await setTenantTx(req.tenantId, async (tx) => {
+        await lockTenantPatientMergeStability(tx, req.tenantId);
+        await lockPharmacyCatalogAuthorityTx(tx, req.tenantId);
+        const rows = await tx.$queryRawUnsafe(
+          `SELECT ep.id, ep.patient_id, ep.patient_uid, ep.pharmacy_order_id,
+                  ep.lifecycle_status, ep.signed_at, ep.locked_at,
+                  po.facility_id, po.patient_id AS order_patient_id
+             FROM e_prescriptions ep
+             JOIN pharmacy_orders po
+               ON po.tenant_id=ep.tenant_id AND po.id=ep.pharmacy_order_id
+             JOIN facilities facility
+               ON facility.tenant_id=po.tenant_id AND facility.id=po.facility_id
+              AND facility.status='active'
+            WHERE ep.tenant_id=$1::uuid AND ep.id=$2::int
+            LIMIT 1
+            FOR UPDATE OF ep, po, facility`,
+          req.tenantId,
+          id,
+        );
+        const current = rows[0];
+        if (!current
+          || Number(current.patient_id) !== Number(current.order_patient_id)
+          || String(current.patient_uid || '') !== String(rx.patient_uid || '')
+          || String(current.lifecycle_status || '').toLowerCase() !== 'signed'
+          || !current.signed_at || !current.locked_at) {
+          throw AppError.conflict(
+            'The prescription, patient, or linked pharmacy order authority changed',
+            'PRESCRIPTION_PHARMACY_ORDER_STATE_CHANGED',
+          );
+        }
+        if (requestedFacilityId != null
+          && Number(current.facility_id) !== Number(requestedFacilityId)) {
+          throw AppError.conflict(
+            'The requested facility does not own the linked pharmacy order',
+            'PHARMACY_ORDER_FACILITY_MISMATCH',
+          );
+        }
+        const facility = await resolvePharmacyFacility(tx, {
+          tenantId: req.tenantId,
+          requestedFacilityId: Number(current.facility_id),
+          forUpdate: true,
+          requireActorGrant: !patientOwnedPlacement,
+          actorUid: req.user?.uid,
+          actorRole: req.user?.role,
+        });
+        if (Number(facility.id) !== Number(current.facility_id)) {
+          throw AppError.conflict(
+            'The linked pharmacy facility authority changed',
+            'PHARMACY_ORDER_FACILITY_MISMATCH',
+          );
+        }
+        if (patientOwnedPlacement) {
+          const patients = await tx.$queryRawUnsafe(
+            `SELECT id, uid
+               FROM users
+              WHERE tenant_id=$1::uuid AND id=$2::int AND uid=$3::uuid
+                AND role='PATIENT' AND is_active=TRUE AND status='active'
+                AND is_deleted=FALSE AND merged_into_uid IS NULL
+              LIMIT 1
+              FOR UPDATE`,
+            req.tenantId,
+            Number(current.patient_id),
+            String(req.user?.uid),
+          );
+          if (!patients.length) {
+            throw AppError.forbidden(
+              'The patient no longer owns this prescription',
+              'PRESCRIPTION_PHARMACY_PATIENT_AUTHORITY_CHANGED',
+            );
+          }
+        }
+        return loadPharmacyOrderCommandReceiptTx(tx, {
+          tenantId: req.tenantId,
+          orderId: Number(current.pharmacy_order_id),
+          action: commandAction,
+          commandKeySha256,
+          requestSha256,
+        });
+      });
+      if (!replay) {
+        throw AppError.conflict(
+          'A linked pharmacy order exists without its durable command receipt; manual reconciliation is required',
+          'PRESCRIPTION_PHARMACY_DOMAIN_RECEIPT_MISSING',
+          { pharmacy_order_id: Number(rx.pharmacy_order_id) },
+        );
+      }
+      return success(
+        res,
+        replay.payload,
+        replay.message || `Pharmacy ${isRefill ? 'refill order' : 'order'} recovered`,
+      );
     }
 
     if (isRefill) {
@@ -2346,6 +2964,13 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       // Refill proceeds — pharmacy_opted stays true on the row (it has
       // already been opted in once); the UPDATE below repoints
       // pharmacy_order_id to the new repeat order.
+    } else if (rx.status !== 'active') {
+      return error(
+        res,
+        'Only an active signed prescription can create its first pharmacy order',
+        HTTP_STATUS.CONFLICT,
+        { code: 'PRESCRIPTION_PHARMACY_ACTIONABLE_STATUS_REQUIRED' },
+      );
     } else if (rx.pharmacy_opted) {
       return error(
         res,
@@ -2396,6 +3021,14 @@ export const orderPharmacyFromPrescription = async (req, res) => {
     const suggestions = {};
 
     for (const [medIndex, med] of medications.entries()) {
+      const reorderableRemainder = med?.reorderable_after_pharmacy_termination === true
+        ? Number(med?.remaining_quantity)
+        : null;
+      if (med?.reorderable_after_pharmacy_termination === false
+        || (reorderableRemainder != null && reorderableRemainder <= 0.000001)) {
+        continue;
+      }
+      const orderLineIndex = itemsList.length;
       const medName = med.base_name || med.medication_name || med.name || med.drug_name || '';
       const medDisplayName = med.display_name || med.displayName || medName;
       let price = 0;
@@ -2404,23 +3037,69 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       let catalogId = selectedCatalogId ?? (med.catalog_id ? Number(med.catalog_id) : null);
       if (Number.isFinite(catalogId)) {
         const catRes = await prisma.$queryRawUnsafe(
-          `SELECT id, name, unit_price
-             FROM pharmacy_catalog
-            WHERE id=$1
-              AND COALESCE(is_active, true) = true`,
-          catalogId
+          `SELECT pc.id AS catalog_id, pc.name, pc.generic_name, pc.unit_price, pc.composition_id,
+                  pc.strength_key, pc.strength_components, pc.form_key,
+                  pc.release_key, pc.route, pc.composition_confidence,
+                  dc.active_ingredients
+             FROM pharmacy_catalog pc
+             LEFT JOIN drug_compositions dc ON dc.id=pc.composition_id
+            WHERE pc.id=$1
+              AND pc.tenant_id=$2::uuid
+              AND COALESCE(pc.is_active, true) = true`,
+          catalogId,
+          req.tenantId,
         );
         if (catRes.length > 0) {
+          const prescribedCatalogId = Number(med.catalog_id);
+          if (selectedCatalogId && Number.isSafeInteger(prescribedCatalogId)
+            && prescribedCatalogId > 0 && prescribedCatalogId !== Number(catalogId)) {
+            const originalRows = await prisma.$queryRawUnsafe(
+              `SELECT pc.id AS catalog_id, pc.name, pc.composition_id,
+                      pc.strength_key, pc.strength_components, pc.form_key,
+                      pc.release_key, pc.route, pc.composition_confidence,
+                      dc.active_ingredients
+                 FROM pharmacy_catalog pc
+                 LEFT JOIN drug_compositions dc ON dc.id=pc.composition_id
+                WHERE pc.id=$1 AND pc.tenant_id=$2::uuid
+                  AND COALESCE(pc.is_active, true)=true`,
+              prescribedCatalogId,
+              req.tenantId,
+            );
+            if (!originalRows.length
+              || !authoritativeSubstitutionAllowed(originalRows[0], catRes[0])) {
+              throw AppError.conflict(
+                'The selected catalog item is not an authoritative same-formulation equivalent of the prescribed item',
+                'PRESCRIPTION_PHARMACY_CATALOG_NOT_EQUIVALENT',
+                { order_line_index: medIndex, prescribed_catalog_id: prescribedCatalogId },
+              );
+            }
+          } else if (selectedCatalogId
+            && (!Number.isSafeInteger(prescribedCatalogId) || prescribedCatalogId <= 0)
+            && !authoritativeFreeTextCatalogMatch(med, medName, catRes[0])) {
+            throw AppError.conflict(
+              'The selected catalog item cannot be proven to match the prescribed formulation and strength',
+              'PRESCRIPTION_CATALOG_CANONICALIZATION_REQUIRED',
+              {
+                order_line_index: medIndex,
+                medication_name: medName || null,
+                recovery_action: 'prescriber_canonicalize_catalog_item',
+              },
+            );
+          }
           price = parseFloat(catRes[0].unit_price) || 0;
           catalogName = catRes[0].name;
+          catalogId = Number(catRes[0].catalog_id);
         } else {
           catalogId = null;
         }
       }
       if (!catalogId && medName) {
         const catRes = await prisma.$queryRawUnsafe(
-          'SELECT id, name, unit_price FROM pharmacy_catalog WHERE name ILIKE $1 LIMIT 1',
-          medName
+          `SELECT id, name, unit_price FROM pharmacy_catalog
+            WHERE tenant_id=$2::uuid AND name ILIKE $1 AND COALESCE(is_active, true)=true
+            ORDER BY id LIMIT 1`,
+          medName,
+          req.tenantId,
         );
         if (catRes.length > 0) {
           catalogId = catRes[0].id;
@@ -2440,18 +3119,23 @@ export const orderPharmacyFromPrescription = async (req, res) => {
           if (firstToken && firstToken.length >= 3) {
             try {
               const altRes = await prisma.$queryRawUnsafe(
-                `SELECT id, name, unit_price, stock_quantity, in_stock
+                `SELECT id, name, generic_name, unit_price, stock_quantity, in_stock,
+                        strength_key, strength_components, form_key, route
                    FROM pharmacy_catalog
                   WHERE name ILIKE $1 || '%'
+                    AND tenant_id=$2::uuid
                     AND COALESCE(is_active, true) = true
                   ORDER BY (COALESCE(stock_quantity, 0) > 0) DESC,
                            COALESCE(stock_quantity, 0) DESC,
                            name ASC
                   LIMIT 6`,
-                firstToken
+                firstToken,
+                req.tenantId,
               );
               if (altRes.length > 0) {
-                suggestions[medName] = altRes.map(r => ({
+                const authoritativeAlternatives = altRes.filter((candidate) =>
+                  authoritativeFreeTextCatalogMatch(med, medName, candidate));
+                if (authoritativeAlternatives.length > 0) suggestions[medName] = authoritativeAlternatives.map(r => ({
                   id: r.id,
                   name: r.name,
                   unit_price: parseFloat(r.unit_price) || 0,
@@ -2486,11 +3170,27 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       // that says "15mg/kg for 12.5kg child" but uses no "weight:" keyword
       // left child_weight_kg null on the label.
       // Finding: 2026-05-22-pediatric-opd-pharmacy-f346bf82.
-      const childWeightKg =
-        med.child_weight_kg != null
+      const mgPerKg = parseMgPerKg(doseText, instructionText);
+      const signedDoseAuthority = med.signed_pediatric_dose_authority || null;
+      if (mgPerKg != null && (!signedDoseAuthority
+        || signedDoseAuthority.contract_version !== SIGNED_CLINICAL_AUTHORITY_CONTRACT_VERSION
+        || !Number.isFinite(Number(signedDoseAuthority.weight_kg))
+        || Number(signedDoseAuthority.weight_kg) <= 0)) {
+        return error(
+          res,
+          `Prescription line ${medIndex + 1} is missing its signed pediatric dose authority`,
+          HTTP_STATUS.CONFLICT,
+          {
+            code: 'PRESCRIPTION_SIGNED_PEDIATRIC_AUTHORITY_REQUIRED',
+            prescription_line_index: medIndex,
+          },
+        );
+      }
+      const childWeightKg = mgPerKg != null
+        ? Number(signedDoseAuthority.weight_kg)
+        : (med.child_weight_kg != null
           ? Number(med.child_weight_kg)
-          : (parseWeightKgFromText(doseText, instructionText) ??
-            (Number(rx.patient_weight_kg) > 0 ? Number(rx.patient_weight_kg) : null));
+          : parseWeightKgFromText(doseText, instructionText));
 
       // Concentration of the liquid AS PRESCRIBED (mg/mL + its mL
       // denominator), parsed from the clinician's own strength / dosage /
@@ -2566,7 +3266,9 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       // we fall back to 1 AND flag the line so the counter UI / dispense guard
       // knows the quantity was guessed, never confirmed.
       // Finding: 2026-05-21-walk-in-opd-pharmacy-1646bc24 (+ 938226ba).
-      const explicitQty = parseIntegerField(med.quantity ?? med.qty);
+      const explicitQty = parseIntegerField(
+        reorderableRemainder != null ? reorderableRemainder : (med.quantity ?? med.qty),
+      );
       let qty;
       let quantitySource;
       let quantityNeedsConfirmation = false;
@@ -2656,7 +3358,20 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       }
       totalCost += lineTotal;
       itemsList.push({
+        order_line_index: orderLineIndex,
+        prescription_line_index: medIndex,
+        prescription_fulfilment_generation: Number(med.fulfilment_generation || 1)
+          + (isRefill ? 1 : 0),
+        prescription_dispensed_baseline: isRefill
+          ? 0
+          : Math.max(0, Number(med.dispensed_quantity || 0)),
         catalog_id: catalogId,
+        original_catalog_id: Number.isSafeInteger(Number(med.catalog_id))
+          && Number(med.catalog_id) > 0
+          ? Number(med.catalog_id)
+          : null,
+        signed_catalog_authority: med.signed_catalog_authority || null,
+        signed_pediatric_dose_authority: signedDoseAuthority,
         name: medName,
         medication_name: medName,
         display_name: medDisplayName,
@@ -2687,10 +3402,24 @@ export const orderPharmacyFromPrescription = async (req, res) => {
         line_total: lineTotal
       });
     }
+    if (!itemsList.length) {
+      return error(
+        res,
+        'Cannot create pharmacy order — the prescription has no reorderable medication remainder.',
+        HTTP_STATUS.CONFLICT,
+        { code: 'PRESCRIPTION_NO_REORDERABLE_REMAINDER' },
+      );
+    }
     totalCost = Number(totalCost.toFixed(2));
 
     if (unmatched.length) {
-      const detail = { code: 'ITEM_NOT_IN_CATALOG', unmatched };
+      const detail = {
+        code: 'ITEM_NOT_IN_CATALOG',
+        unmatched,
+        recovery_action: Object.keys(suggestions).length > 0
+          ? 'select_authoritative_formulation_match'
+          : 'prescriber_canonicalize_catalog_item',
+      };
       if (Object.keys(suggestions).length > 0) {
         detail.suggestions = suggestions;
       }
@@ -2715,7 +3444,6 @@ export const orderPharmacyFromPrescription = async (req, res) => {
     //   3. Status default + downstream state machine are UPPERCASE
     //      (`PENDING`); lowercase `pending` was rejected by transitions in
     //      pharmacyOrderController and broke confirm/dispatch flows.
-    const phone = delivery_phone || rx.patient_phone;
     const orderNumber = `PO-${randomUUID().replace(/-/g, '')}`;
     // Stage-4-C — `patient_phone` is a distinct column from `phone`
     // (delivery-channel identifier) and is what /pharmacy/orders/queue +
@@ -2723,38 +3451,320 @@ export const orderPharmacyFromPrescription = async (req, res) => {
     // ready-call SMS. The previous INSERT only set `phone` + delivery_phone,
     // leaving patient_phone NULL even when the patient row had a number.
     // Finding: 2026-05-09-inpatient-admission-pharmacy-patient-phone-null-in-order
-    const orderResult = await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_orders
-        (phone, patient_id, patient_name, patient_phone, order_note, delivery_type, delivery_address, delivery_phone,
-         items_list, total_amount, status, order_number, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, 'PENDING', $11, NOW())
-       RETURNING id, uid, patient_id, patient_name, patient_phone, status, order_note, total_amount, created_at, updated_at, order_number, delivery_type`,
-      phone,
-      rx.patient_id,
-      rx.patient_name,
-      rx.patient_phone || null,
-      `Auto-order from prescription ${rx.prescription_number}`,
-      delivery_type,
-      delivery_address || null,
-      delivery_phone || phone,
-      JSON.stringify(itemsList),
-      totalCost,
-      orderNumber
-    );
-    const pharmacyOrder = orderResult[0];
-
-    // Link back to prescription. For a refill, repoint pharmacy_order_id
-    // to the new order and re-arm the Rx for the new fulfillment cycle
-    // (status flips back to pharmacy_linked from fulfilled).
-    await prisma.$queryRawUnsafe(
-      `UPDATE e_prescriptions
-       SET pharmacy_order_id = $1, pharmacy_opted = TRUE, pharmacy_opt_type = $2,
-           status = 'pharmacy_linked', updated_at = NOW()
-       WHERE id = $3`,
-      pharmacyOrder.id,
-      delivery_type,
-      id
-    );
+    const pharmacyOrder = await setTenantTx(req.tenantId, async (tx) => {
+      await lockTenantPatientMergeStability(tx, req.tenantId);
+      await lockPharmacyCatalogAuthorityTx(tx, req.tenantId);
+      const lockedRows = await tx.$queryRawUnsafe(
+        `SELECT id, tenant_id, patient_id, patient_uid, status, pharmacy_opted,
+                pharmacy_order_id, lifecycle_status, signed_at, locked_at,
+                COALESCE(revision, 1)::int AS revision, medications
+           FROM e_prescriptions
+          WHERE id=$1::int AND tenant_id=$2::uuid
+          FOR UPDATE`,
+        id,
+        req.tenantId,
+      );
+      if (!lockedRows.length) throw AppError.notFound('Prescription not found');
+      const lockedRx = lockedRows[0];
+      if (lockedRx.patient_id !== rx.patient_id
+        || JSON.stringify(lockedRx.medications) !== JSON.stringify(rx.medications)) {
+        throw AppError.conflict(
+          'Prescription changed while the pharmacy order was being prepared',
+          'PRESCRIPTION_PHARMACY_ORDER_STATE_CHANGED',
+        );
+      }
+      if (String(lockedRx.lifecycle_status || '').toLowerCase() === 'imported_history') {
+        throw AppError.conflict(
+          'Imported medication history cannot be converted into a pharmacy order',
+          'PRESCRIPTION_IMPORTED_HISTORY_NOT_ORDERABLE',
+        );
+      }
+      if (String(lockedRx.lifecycle_status || '').toLowerCase() !== 'signed'
+        || !lockedRx.signed_at || !lockedRx.locked_at) {
+        throw AppError.conflict(
+          'Prescription signing authority changed before the pharmacy order was created',
+          'PRESCRIPTION_PHARMACY_SIGNED_AUTHORITY_REQUIRED',
+        );
+      }
+      await assertSignedPrescriptionClinicalAuthorityTx(tx, {
+        tenantId: req.tenantId,
+        patientId: lockedRx.patient_id,
+        patientUid: lockedRx.patient_uid,
+        medications: Array.isArray(lockedRx.medications) ? lockedRx.medications : [],
+      });
+      const lockedPatients = await tx.$queryRawUnsafe(
+        // The identity columns must be qualified to `patient`: the guardian
+        // LEFT JOIN is a self-join on users, so a bare `id`/`uid`/`name` is
+        // ambiguous (42702) and this lock — the last patient-authority check
+        // before the order is written — failed for every placement. Only the
+        // phone may fall back to the guardian's.
+        `SELECT patient.id, patient.uid, patient.name,
+                COALESCE(NULLIF(guardian.phone, ''), NULLIF(patient.guardian_phone, ''), patient.phone) AS phone
+           FROM users patient
+           LEFT JOIN users guardian
+             ON guardian.tenant_id=patient.tenant_id
+            AND guardian.id=patient.guardian_user_id
+          WHERE patient.tenant_id=$1::uuid
+            AND patient.id=$2::int
+            AND patient.uid=$3::uuid
+            AND patient.role='PATIENT'
+            AND patient.is_active=TRUE
+            AND patient.status='active'
+            AND patient.is_deleted=FALSE
+            AND patient.merged_into_uid IS NULL
+          FOR KEY SHARE OF patient`,
+        req.tenantId,
+        Number(lockedRx.patient_id),
+        String(lockedRx.patient_uid),
+      );
+      if (!lockedPatients.length) {
+        throw AppError.conflict(
+          'The prescription patient authority is no longer active',
+          'PRESCRIPTION_PHARMACY_PATIENT_AUTHORITY_CHANGED',
+        );
+      }
+      const lockedPatient = lockedPatients[0];
+      if (patientOwnedPlacement
+        && String(lockedPatient.uid) !== String(req.user?.uid || '')) {
+        throw AppError.forbidden(
+          'The patient no longer owns this prescription',
+          'PRESCRIPTION_PHARMACY_PATIENT_AUTHORITY_CHANGED',
+        );
+      }
+      const authoritativePhone = delivery_phone || lockedPatient.phone || null;
+      if (isRefill) {
+        if (lockedRx.status !== 'fulfilled' || !lockedRx.pharmacy_order_id) {
+          throw AppError.conflict(
+            'Original pharmacy order is no longer fulfilled',
+            'PRESCRIPTION_REFILL_STATE_CHANGED',
+          );
+        }
+      } else if (lockedRx.status !== 'active') {
+        throw AppError.conflict(
+          'Only an active signed prescription can create its first pharmacy order',
+          'PRESCRIPTION_PHARMACY_ACTIONABLE_STATUS_REQUIRED',
+        );
+      } else if (lockedRx.pharmacy_opted || lockedRx.pharmacy_order_id) {
+        throw AppError.conflict(
+          'Pharmacy order already exists for this prescription',
+          'PRESCRIPTION_PHARMACY_ORDER_ALREADY_EXISTS',
+          { pharmacy_order_id: lockedRx.pharmacy_order_id || null },
+        );
+      }
+      const facility = await resolvePharmacyFacility(tx, {
+        tenantId: req.tenantId,
+        requestedFacilityId,
+        forUpdate: true,
+        requireActorGrant: !patientOwnedPlacement,
+        actorUid: req.user?.uid,
+        actorRole: req.user?.role,
+      });
+      const canonicalActor = patientOwnedPlacement
+        ? {
+          actor_id: Number(lockedPatient.id),
+          actor_uid: String(lockedPatient.uid),
+          actor_role: 'PATIENT',
+          actor_name: lockedPatient.name || null,
+        }
+        : facility.actor_authority;
+      if (!canonicalActor?.actor_id || !canonicalActor?.actor_uid || !canonicalActor?.actor_role) {
+        throw AppError.forbidden(
+          'A canonical invoking actor is required to place a pharmacy order',
+          'PRESCRIPTION_PHARMACY_ACTOR_AUTHORITY_REQUIRED',
+        );
+      }
+      const catalogIds = [...new Set(itemsList.flatMap((line) => [
+        Number(line.catalog_id),
+        Number(line.original_catalog_id),
+      ]).filter((catalogId) => Number.isSafeInteger(catalogId) && catalogId > 0))]
+        .sort((a, b) => a - b);
+      const lockedCatalog = await tx.$queryRawUnsafe(
+        `SELECT id AS catalog_id, name, generic_name, unit_price, composition_id,
+                strength_key, strength_components, form_key, release_key,
+                route, composition_confidence
+           FROM pharmacy_catalog
+          WHERE tenant_id=$1::uuid AND id=ANY($2::int[]) AND is_active=TRUE
+          ORDER BY id FOR UPDATE`,
+        req.tenantId,
+        catalogIds,
+      );
+      const compositionIds = [...new Set(lockedCatalog
+        .map((row) => Number(row.composition_id))
+        .filter((compositionId) => Number.isSafeInteger(compositionId) && compositionId > 0))]
+        .sort((a, b) => a - b);
+      const lockedCompositions = compositionIds.length
+        ? await tx.$queryRawUnsafe(
+          `SELECT id, active_ingredients
+             FROM drug_compositions
+            WHERE id=ANY($1::int[])
+            ORDER BY id FOR UPDATE`,
+          compositionIds,
+        )
+        : [];
+      const activeIngredientsById = new Map(lockedCompositions.map((row) => [
+        Number(row.id),
+        row.active_ingredients,
+      ]));
+      const catalogById = new Map(lockedCatalog.map((row) => [Number(row.catalog_id), {
+        ...row,
+        catalog_id: Number(row.catalog_id),
+        composition_id: row.composition_id == null ? null : Number(row.composition_id),
+        active_ingredients: row.composition_id == null
+          ? null
+          : activeIngredientsById.get(Number(row.composition_id)) ?? null,
+      }]));
+      if (lockedCatalog.length !== catalogIds.length
+        || itemsList.some((line) => {
+          const finalCatalog = catalogById.get(Number(line.catalog_id));
+          const originalCatalogId = Number(line.original_catalog_id);
+          if (!finalCatalog || Number(line.price) !== Number(finalCatalog.unit_price)) return true;
+          if (Number.isSafeInteger(originalCatalogId) && originalCatalogId > 0
+            && originalCatalogId !== Number(line.catalog_id)) {
+            return !authoritativeSubstitutionAllowed(
+              catalogById.get(originalCatalogId),
+              finalCatalog,
+            );
+          }
+          if ((!Number.isSafeInteger(originalCatalogId) || originalCatalogId <= 0)
+            && !authoritativeFreeTextCatalogMatch(line, line.name, finalCatalog)) return true;
+          return false;
+        })) {
+        throw AppError.conflict(
+          'Authoritative pharmacy catalog pricing or clinical identity changed; refresh and retry',
+          'PRESCRIPTION_PHARMACY_CATALOG_CHANGED',
+        );
+      }
+      const orderResult = await tx.$queryRawUnsafe(
+        `INSERT INTO pharmacy_orders
+          (tenant_id, facility_id, phone, patient_id, patient_name, patient_phone,
+           order_note, delivery_type, delivery_address, delivery_phone,
+           items_list, total_amount, status, order_number, prescribed_by, updated_at,
+           authority_origin)
+         VALUES ($1::uuid, $2::int, $3, $4, $5, $6, $7, $8, $9, $10,
+                 $11::jsonb, $12, 'PENDING', $13, $14::uuid, NOW(), 'e_prescription')
+         RETURNING id, uid, tenant_id, facility_id, patient_id, patient_name, patient_phone,
+                   status, order_note, total_amount, created_at, updated_at,
+                   order_number, delivery_type`,
+        req.tenantId,
+        facility.id,
+        authoritativePhone,
+        rx.patient_id,
+        lockedPatient.name,
+        lockedPatient.phone || null,
+        `Auto-order from prescription ${rx.prescription_number}`,
+        delivery_type,
+        delivery_address || null,
+        authoritativePhone,
+        JSON.stringify(itemsList),
+        totalCost,
+        orderNumber,
+        rx.doctor_uid || null,
+      );
+      const created = orderResult[0];
+      const linkedMedications = isRefill
+        ? (Array.isArray(lockedRx.medications) ? lockedRx.medications : []).map((medication) => {
+          const ordered = Number(
+            medication?.ordered_quantity ?? medication?.quantity ?? medication?.qty,
+          );
+          return {
+            ...medication,
+            fulfilment_history: [
+              ...(Array.isArray(medication?.fulfilment_history)
+                ? medication.fulfilment_history
+                : []),
+              {
+                fulfilment_generation: Number(medication?.fulfilment_generation || 1),
+                ordered_quantity: ordered,
+                dispensed_quantity: Number(medication?.dispensed_quantity || 0),
+                remaining_quantity: Number(medication?.remaining_quantity || 0),
+                pharmacy_order_id: lockedRx.pharmacy_order_id,
+                closed_at: new Date().toISOString(),
+              },
+            ],
+            fulfilment_generation: Number(medication?.fulfilment_generation || 1) + 1,
+            ordered_quantity: ordered,
+            dispensed_quantity: 0,
+            remaining_quantity: ordered,
+            fulfilment_status: 'pending',
+            reorderable_after_pharmacy_termination: false,
+          };
+        })
+        : lockedRx.medications;
+      const linked = await tx.$queryRawUnsafe(
+        `UPDATE e_prescriptions
+            SET pharmacy_order_id=$1, pharmacy_opted=TRUE, pharmacy_opt_type=$2,
+                status='pharmacy_linked', medications=$6::jsonb,
+                revision=COALESCE(revision, 1)+1,
+                updated_at=NOW()
+          WHERE id=$3::int AND tenant_id=$4::uuid
+            AND COALESCE(revision, 1)=$5::int
+          RETURNING id`,
+        created.id,
+        delivery_type,
+        id,
+        req.tenantId,
+        Number(lockedRx.revision),
+        JSON.stringify(linkedMedications),
+      );
+      if (!linked.length) {
+        throw AppError.conflict(
+          'Prescription changed before the pharmacy order could be linked',
+          'PRESCRIPTION_PHARMACY_ORDER_STATE_CHANGED',
+        );
+      }
+      await tx.$queryRawUnsafe(
+        `INSERT INTO pharmacy_order_history
+          (tenant_id, order_id, to_status, changed_by, changed_by_role, notes)
+         VALUES ($1::uuid, $2::int, 'PENDING', $3::int, $4, $5)`,
+        req.tenantId,
+        created.id,
+        Number(canonicalActor.actor_id),
+        String(canonicalActor.actor_role),
+        isRefill ? 'Refill order created from prescription' : 'Order created from prescription',
+      );
+      await recordCanonicalClinicalEvent({
+        tenantId: req.tenantId,
+        patientUid: String(lockedPatient.uid),
+        eventType: isRefill
+          ? 'pharmacy.prescription_refill_order_created'
+          : 'pharmacy.prescription_order_created',
+        eventStatus: 'PENDING',
+        sourceTable: 'e_prescriptions',
+        sourceId: id,
+        resourceType: 'pharmacy_order',
+        resourceId: created.id,
+        actorUid: canonicalActor.actor_uid,
+        actorRole: canonicalActor.actor_role,
+        requestId: req.idempotencyClaim?.requestKey || req.id,
+        summary: `${isRefill ? 'Refill order' : 'Pharmacy order'} ${created.order_number} created from signed prescription`,
+        payload: {
+          prescription_id: id,
+          pharmacy_order_id: Number(created.id),
+          facility_id: Number(created.facility_id),
+          prescription_revision: Number(lockedRx.revision) + 1,
+          item_count: itemsList.length,
+          total_amount: totalCost,
+          authority_origin: 'e_prescription',
+        },
+        afterState: {
+          order_status: 'PENDING',
+          prescription_status: 'pharmacy_linked',
+          prescription_revision: Number(lockedRx.revision) + 1,
+        },
+        timelineIdempotencyKey: `pharmacy_orders:${created.id}:${commandAction}:${commandKeySha256}`,
+        auditIdempotencyKey: `pharmacy_orders:${created.id}:audit:${commandAction}:${commandKeySha256}`,
+      }, { db: tx, strict: true });
+      await storePharmacyOrderCommandReceiptTx(tx, {
+        tenantId: req.tenantId,
+        orderId: Number(created.id),
+        action: commandAction,
+        commandKeySha256,
+        requestSha256,
+        payload: created,
+        message: `Pharmacy ${isRefill ? 'refill order' : 'order'} ${created.order_number} created from prescription`,
+      });
+      return created;
+    });
 
     logAudit(
       req,
@@ -2792,7 +3802,7 @@ export const orderPharmacyFromPrescription = async (req, res) => {
     );
   } catch (err) {
     logger.error('Order pharmacy from prescription error:', err);
-    error(res, 'Failed to create pharmacy order', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to create pharmacy order');
   }
 };
 

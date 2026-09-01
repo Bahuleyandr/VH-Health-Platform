@@ -33,8 +33,10 @@ const OTHER_TENANT_ID = '00000000-0000-4000-8000-00000c5a0002'; // holds a catal
 
 const PATIENT_UID = 'c5a00000-0000-4000-8000-00000000d001'; // NO-allergy patient
 const DOCTOR_UID = 'c5a00000-0000-4000-8000-00000000d002';
+const ENCOUNTER_ID = 'c5a00000-0000-4000-8000-00000000d003';
 const PATIENT_PHONE = '+919712000701';
 const DOCTOR_PHONE = '+919712000702';
+const WARD_NAME = 'CSA Inpatient Ward';
 
 jest.setTimeout(60000);
 
@@ -103,28 +105,97 @@ async function readSubstitutionAudits({ resourceTable, resourceId }) {
 }
 
 async function cleanup() {
-  await prisma.$executeRawUnsafe(`DELETE FROM pharmacy_catalog WHERE name LIKE 'CSATEST %'`).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM prescription_safety_overrides WHERE patient_id = $1`, patientId ?? -1,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid`, PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid`, PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM medication_safety_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM e_prescriptions WHERE patient_uid = $1::uuid`, PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM clinical_orders WHERE patient_uid = $1::uuid`, PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, DOCTOR_UID,
-  ).catch(() => {});
+  for (const table of ['tasks', 'workflow_sla_instances']) {
+    await prisma
+      .$executeRawUnsafe(
+        `DELETE FROM ${table} WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
+        TENANT_ID,
+        PATIENT_UID
+      )
+      .catch(() => {});
+  }
+  for (const table of [
+    'ward_indent_inventory_allocations',
+    'ward_indent_events',
+    'ward_indent_items'
+  ]) {
+    await prisma
+      .$executeRawUnsafe(
+        `DELETE FROM ${table}
+        WHERE tenant_id = $1::uuid
+          AND ward_indent_id IN (
+            SELECT id FROM ward_indents
+             WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
+          )`,
+        TENANT_ID,
+        PATIENT_UID
+      )
+      .catch(() => {});
+  }
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM ward_indents WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
+      TENANT_ID,
+      PATIENT_UID
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(`DELETE FROM pharmacy_catalog WHERE name LIKE 'CSATEST %'`)
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM prescription_safety_overrides WHERE patient_id = $1`,
+      patientId ?? -1
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid`,
+      PATIENT_UID
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid`,
+      PATIENT_UID
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM medication_safety_reviews WHERE patient_uid = $1::uuid`,
+      PATIENT_UID
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(`DELETE FROM e_prescriptions WHERE patient_uid = $1::uuid`, PATIENT_UID)
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(`DELETE FROM clinical_orders WHERE patient_uid = $1::uuid`, PATIENT_UID)
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, PATIENT_UID)
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM beds WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
+      TENANT_ID,
+      PATIENT_UID
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM wards WHERE tenant_id = $1::uuid AND name = $2`,
+      TENANT_ID,
+      WARD_NAME
+    )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(
+      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`,
+      PATIENT_UID,
+      DOCTOR_UID
+    )
+    .catch(() => {});
 }
 
 describe('brand-substitution audit (persisted-only, server-resolved)', () => {
@@ -150,6 +221,44 @@ describe('brand-substitution audit (persisted-only, server-resolved)', () => {
       DOCTOR_UID, DOCTOR_PHONE, TENANT_ID,
     );
     doctorId = Number(d[0].id);
+    const wardId = Number(
+      (
+        await prisma.$queryRawUnsafe(
+          `INSERT INTO wards (tenant_id, name, total_beds, created_at, updated_at)
+       VALUES ($1::uuid, $2, 1, NOW(), NOW()) RETURNING id`,
+          TENANT_ID,
+          WARD_NAME
+        )
+      )[0].id
+    );
+    const bedId = Number(
+      (
+        await prisma.$queryRawUnsafe(
+          `INSERT INTO beds
+         (tenant_id, ward_id, ward_name, bed_number, status, patient_uid,
+          created_at, updated_at)
+       VALUES ($1::uuid, $2::int, $3, 'CSA-BED-1', 'occupied', $4::uuid,
+               NOW(), NOW()) RETURNING id`,
+          TENANT_ID,
+          wardId,
+          WARD_NAME,
+          PATIENT_UID
+        )
+      )[0].id
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO admissions
+         (tenant_id, patient_uid, encounter_id, admitting_doctor, attending_doctor,
+          bed_id, bed_number, ward, status, admitted_at, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $4::uuid,
+               $5::int, 'CSA-BED-1', $6, 'admitted', NOW(), NOW())`,
+      TENANT_ID,
+      PATIENT_UID,
+      ENCOUNTER_ID,
+      DOCTOR_UID,
+      bedId,
+      WARD_NAME
+    );
 
     // Composition (amoxicillin + clavulanic acid) shared by both brands.
     const comp = await prisma.$queryRawUnsafe(
@@ -165,17 +274,23 @@ describe('brand-substitution audit (persisted-only, server-resolved)', () => {
     await prisma.$executeRawUnsafe(
       `INSERT INTO pharmacy_catalog
          (name, generic_name, is_active, tenant_id, composition_id, strength, strength_key,
-          form, form_key, route, composition_confidence, composition_source, updated_at)
+          strength_components, form, form_key, release_key, route,
+          composition_confidence, composition_source, updated_at)
        VALUES ('CSATEST Augmentin 625', 'Amox+Clav', TRUE, $1::uuid, $2::int,
-               '500mg+125mg', '625mg', 'Tablet', 'tablet', 'oral', 'high', 'parsed', NOW())`,
+               '500mg+125mg', '625mg',
+               '[{"ingredient":"amoxicillin","value":500,"unit":"mg"},{"ingredient":"clavulanic_acid","value":125,"unit":"mg"}]'::jsonb,
+               'Tablet', 'tablet', 'ir', 'oral', 'high', 'parsed', NOW())`,
       TENANT_ID, compositionId,
     );
     await prisma.$executeRawUnsafe(
       `INSERT INTO pharmacy_catalog
          (name, generic_name, is_active, tenant_id, composition_id, strength, strength_key,
-          form, form_key, route, composition_confidence, composition_source, updated_at)
+          strength_components, form, form_key, release_key, route,
+          composition_confidence, composition_source, updated_at)
        VALUES ('CSATEST Clavam 625', 'Amox+Clav', TRUE, $1::uuid, $2::int,
-               '500mg+125mg', '625mg', 'Tablet', 'tablet', 'oral', 'high', 'parsed', NOW())`,
+               '500mg+125mg', '625mg',
+               '[{"ingredient":"amoxicillin","value":500,"unit":"mg"},{"ingredient":"clavulanic_acid","value":125,"unit":"mg"}]'::jsonb,
+               'Tablet', 'tablet', 'ir', 'oral', 'high', 'parsed', NOW())`,
       TENANT_ID, compositionId,
     );
     originalCatalogId = await catalogId('CSATEST Augmentin 625');
@@ -374,9 +489,9 @@ describe('brand-substitution audit (persisted-only, server-resolved)', () => {
     const result = await createOrder({
       patient_uid: PATIENT_UID,
       order_type: 'medication',
-      encounter_id: null,
+      encounter_id: ENCOUNTER_ID,
       details: {
-        medication_name: 'Clavam 625',
+        medication_name: 'CSATEST Clavam 625',
         catalog_id: finalCatalogId,
         original_catalog_id: originalCatalogId,
         brand_name: 'CLIENT FORGED BRAND',
@@ -384,6 +499,8 @@ describe('brand-substitution audit (persisted-only, server-resolved)', () => {
         dose: '1 tab',
         route: 'oral',
         frequency: 'BD',
+        quantity_requested: 10,
+        unit: 'tablet',
       },
       ordered_by: DOCTOR_UID,
       tenantId: TENANT_ID,
@@ -412,12 +529,14 @@ describe('brand-substitution audit (persisted-only, server-resolved)', () => {
     const result = await createOrder({
       patient_uid: PATIENT_UID,
       order_type: 'medication',
-      encounter_id: null,
+      encounter_id: ENCOUNTER_ID,
       details: {
-        medication_name: 'Clavam 625',
+        medication_name: 'CSATEST Clavam 625',
         catalog_id: finalCatalogId,
         dose: '1 tab',
         route: 'oral',
+        quantity_requested: 10,
+        unit: 'tablet',
       },
       ordered_by: DOCTOR_UID,
       tenantId: TENANT_ID,

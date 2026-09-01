@@ -83,6 +83,15 @@ jest.unstable_mockModule('../../services/staff/payrollService.js', () => ({
   issuePayrollRun: jest.fn(),
   recordPayrollFailure: jest.fn(),
   revealPayslipCredential: jest.fn(),
+  // Controller narrows on `err instanceof SalaryArrearsCommandError` to pick the
+  // status code, so this one must stay a real class, not a jest.fn().
+  SalaryArrearsCommandError: class SalaryArrearsCommandError extends Error {
+    constructor(message, statusCode = 409) {
+      super(message);
+      this.name = 'SalaryArrearsCommandError';
+      this.statusCode = statusCode;
+    }
+  },
   savePayslip: jest.fn(),
   signPayrollRun: jest.fn(),
   summarizePayrollRunOutcome: jest.fn(),
@@ -204,8 +213,9 @@ describe('staff operational endpoint drift guards', () => {
     await getMyAdvances(req, res);
 
     expect(queryRawUnsafe).toHaveBeenCalledWith(
-      expect.stringContaining('WHERE sa.staff_uid = $1::uuid'),
-      staffUid
+      expect.stringContaining('WHERE sa.tenant_id = $2::uuid AND sa.staff_uid = $1::uuid'),
+      staffUid,
+      DEFAULT_TENANT_ID
     );
     expect(res.status).toHaveBeenCalledWith(200);
   });
@@ -236,6 +246,7 @@ describe('staff operational endpoint drift guards', () => {
 
     expect(queryRawUnsafe).toHaveBeenCalledWith(
       expect.any(String),
+      DEFAULT_TENANT_ID,
       'approved'
     );
     expect(res.status).toHaveBeenCalledWith(200);
@@ -265,7 +276,17 @@ describe('staff operational endpoint drift guards', () => {
 
     await getMyTaxSummary(req, res);
 
-    expect(generateAnnualTaxSummary).toHaveBeenCalledWith(staffUid, '2025-26');
+    expect(queryRawUnsafe).toHaveBeenCalledWith(
+      expect.stringContaining('tenant_id = $3::uuid'),
+      staffUid,
+      '2025-26',
+      DEFAULT_TENANT_ID
+    );
+    expect(generateAnnualTaxSummary).toHaveBeenCalledWith(
+      staffUid,
+      '2025-26',
+      DEFAULT_TENANT_ID
+    );
     expect(res.status).toHaveBeenCalledWith(404);
     expect(res.json.mock.calls[0][0]).toMatchObject({
       success: false,
@@ -526,8 +547,9 @@ describe('staff operational endpoint drift guards', () => {
     expect(queryRawUnsafe.mock.calls[0][0]).toContain('p.tenant_id = $3::uuid');
     // Both getPayrollRunDetail queries gained the same tenant predicate: a run
     // and its payslips are reachable only from inside the owning tenant, not by
-    // run id alone. Only payrollController.js moved — calls[3]..[7] below come
-    // from controllers unchanged since 9cc8b8903 and keep their old shapes.
+    // run id alone. calls[5] (getRevisionDetail) moved the same way; calls[3],
+    // [4], [6] and [7] come from controllers unchanged since 9cc8b8903 and keep
+    // their old shapes.
     expect(queryRawUnsafe.mock.calls[1]).toEqual([
       expect.stringContaining('p.payroll_run_id = $1::int'),
       1,
@@ -543,15 +565,25 @@ describe('staff operational endpoint drift guards', () => {
     expect(queryRawUnsafe.mock.calls[3]).toEqual([
       expect.stringContaining('ss.staff_uid = $1::uuid'),
       staffUid,
+      DEFAULT_TENANT_ID,
     ]);
+    expect(queryRawUnsafe.mock.calls[3][0]).toContain('ss.tenant_id = $2::uuid');
+    expect(queryRawUnsafe.mock.calls[3][0]).toContain('u.tenant_id = ss.tenant_id');
     expect(queryRawUnsafe.mock.calls[4]).toEqual([
-      expect.stringContaining('users WHERE uid = $1::uuid'),
+      expect.stringContaining('tenant_id = $2::uuid AND uid = $1::uuid'),
       staffUid,
+      DEFAULT_TENANT_ID,
     ]);
+    // getRevisionDetail is now tenant-scoped AND refuses rows parked for tenant
+    // reconciliation. Assert both predicates, not just the extra bound value, so
+    // dropping either guard while leaving the parameter in place still fails.
     expect(queryRawUnsafe.mock.calls[5]).toEqual([
       expect.stringContaining('sr.id = $1::int'),
       1,
+      DEFAULT_TENANT_ID,
     ]);
+    expect(queryRawUnsafe.mock.calls[5][0]).toContain('sr.tenant_id = $2::uuid');
+    expect(queryRawUnsafe.mock.calls[5][0]).toContain('sr.tenant_reconciliation_required = false');
     expect(queryRawUnsafe.mock.calls[6]).toEqual([
       expect.stringContaining('ir.id = $1::int'),
       1,

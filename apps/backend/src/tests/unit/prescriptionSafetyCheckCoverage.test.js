@@ -10,9 +10,9 @@
 // drug-KB findings → blocker-vs-warning mapping (check 8), and the
 // fail-closed outer catch.
 //
-// Three modules are mocked with jest.unstable_mockModule (the established
-// pattern for this repo's unit/ project — the real @prisma/client can't be
-// loaded under Jest's ESM here):
+// Runtime dependencies are mocked with jest.unstable_mockModule (the
+// established pattern for this repo's unit/ project — the real @prisma/client
+// can't be loaded under Jest's ESM here). The primary safety seams are:
 //   * ../../lib/prisma.js            — drives every $queryRawUnsafe call.
 //   * ../../services/clinical/allergySourceService.js — getUnifiedActiveAllergies,
 //     so allergy severity tiers are deterministic (the real service also
@@ -27,10 +27,20 @@ import { jest } from '@jest/globals';
 
 const queryRawUnsafeMock = jest.fn();
 const getUnifiedActiveAllergiesMock = jest.fn();
+const getUnifiedActiveAllergiesDetailedMock = jest.fn(async (...args) => ({
+  allergies: await getUnifiedActiveAllergiesMock(...args),
+  sourcesFailed: [],
+  patientResolved: true,
+}));
 const evaluateDrugKbMock = jest.fn();
 const isCompositionSearchEnabledMock = jest.fn();
 const enrichMedicationsWithCompositionMock = jest.fn();
 const resolveCompositionIdentitiesByCatalogIdsMock = jest.fn();
+const resolveDrugKeysMock = jest.fn();
+
+const TENANT_ID = '00000000-0000-4000-8000-000000000001';
+const PATIENT_UID = '11111111-1111-4111-8111-111111111111';
+const SNAPSHOT_AT = '2026-08-30T08:00:00.000Z';
 
 const __prismaDefaultMock = { $queryRawUnsafe: queryRawUnsafeMock };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
@@ -43,6 +53,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 
 jest.unstable_mockModule('../../services/clinical/allergySourceService.js', () => ({
   getUnifiedActiveAllergies: getUnifiedActiveAllergiesMock,
+  getUnifiedActiveAllergiesDetailed: getUnifiedActiveAllergiesDetailedMock,
   // Mirror the real fail-safe ranking the consumer now uses to decide
   // blocker-vs-warning: canonical-severe and present-but-unparseable rank >= 4
   // (block); explicit no-claim sentinels (UNKNOWN/null) rank 0 (warn).
@@ -58,6 +69,9 @@ jest.unstable_mockModule('../../services/clinical/allergySourceService.js', () =
 jest.unstable_mockModule('../../services/clinical/drugKnowledgeBaseService.js', () => ({
   evaluateDrugKb: evaluateDrugKbMock,
 }));
+jest.unstable_mockModule('../../services/clinical/drugKbLinkService.js', () => ({
+  resolveDrugKeys: resolveDrugKeysMock,
+}));
 jest.unstable_mockModule('../../services/pharmacy/compositionFeatureService.js', () => ({
   isCompositionSearchEnabled: isCompositionSearchEnabledMock,
 }));
@@ -66,15 +80,16 @@ jest.unstable_mockModule('../../services/pharmacy/compositionIdentityService.js'
   resolveCompositionIdentitiesByCatalogIds: resolveCompositionIdentitiesByCatalogIdsMock,
 }));
 
-const { validatePrescriptionSafety } = await import(
+const { validatePrescriptionSafety: validatePrescriptionSafetyImpl } = await import(
   '../../utils/clinical/prescriptionSafetyCheck.js'
 );
 
 // ---- shared helpers -------------------------------------------------------
 
-// Default: KB contributes nothing (kbAvailable:false). Most tests override.
+// Default: the authoritative KB is available and contributes no findings.
+// Tests that exercise unavailable/error behavior override this explicitly.
 function defaultKb() {
-  evaluateDrugKbMock.mockReset().mockResolvedValue({ kbAvailable: false, findings: [] });
+  evaluateDrugKbMock.mockReset().mockResolvedValue({ kbAvailable: true, findings: [] });
 }
 
 // Default: no structured allergies. Most tests override.
@@ -82,34 +97,120 @@ function noAllergies() {
   getUnifiedActiveAllergiesMock.mockReset().mockResolvedValue([]);
 }
 
-// validatePrescriptionSafety issues, in order:
-//   1. note scan (appointments + clinical_notes)  -> $queryRawUnsafe #1
-//   2. duplicate active prescriptions              -> $queryRawUnsafe #2
+// validatePrescriptionSafety issues, in order. The active-therapy loader now
+// adds authority/lock/source queries between the note scan and the legacy
+// clinical-context queries. queueRaw routes those by SQL so the historical
+// sequence slots below stay stable:
+//   1. note scan (appointments + clinical_notes)  -> queued value #1
+//   2. active-therapy source rows                  -> queued value #2
 //   3. loadPaediatricContext: age query            -> $queryRawUnsafe #3
 //      (and, if age < 12, a second weight query)   -> $queryRawUnsafe #3b
 //   4. loadPregnancyContext                        -> next
 //   5. loadRenalContext                            -> next
 //   6. check 8: patient uid/age query              -> next
 //      (and, if uid present, patient_problems)     -> next
-// Tests that need precise control use mockResolvedValueOnce chaining; tests
-// that only care about one check resolve [] for everything else.
+// Tests that need precise control pass a sequence; anything past it is [].
+// Legacy duplicate rows are upgraded to complete governed snapshot rows so
+// they remain warning-only instead of introducing identity blockers.
 function queueRaw(...sequence) {
-  queryRawUnsafeMock.mockReset();
-  for (const value of sequence) {
-    if (value instanceof Error) queryRawUnsafeMock.mockRejectedValueOnce(value);
-    else queryRawUnsafeMock.mockResolvedValueOnce(value);
-  }
-  // Anything past the explicit sequence resolves to [].
-  queryRawUnsafeMock.mockResolvedValue([]);
+  const queued = [...sequence];
+  let catalogRows = [];
+  let compositionRows = [];
+
+  const nextQueued = () => {
+    const value = queued.length > 0 ? queued.shift() : [];
+    if (value instanceof Error) throw value;
+    return value;
+  };
+
+  queryRawUnsafeMock.mockReset().mockImplementation(async (statement) => {
+    if (/SELECT id, uid, NOW\(\) AS snapshot_at/.test(statement)) {
+      return [{ id: 106, uid: PATIENT_UID, snapshot_at: SNAPSHOT_AT }];
+    }
+    if (/SELECT inventory\.id/.test(statement) && /FOR KEY SHARE OF inventory/.test(statement)) {
+      return [];
+    }
+    if (/WITH latest_reconciliation/.test(statement)) {
+      const rows = nextQueued();
+      catalogRows = [];
+      compositionRows = [];
+      return rows
+        .filter((row) => String(row?.medication_name || '').trim())
+        .map((row, index) => {
+          const catalogId = 1000 + index;
+          const compositionId = 2000 + index;
+          catalogRows.push({
+            id: catalogId,
+            name: row.medication_name,
+            generic_name: row.medication_name,
+            composition_id: compositionId,
+            strength: null,
+            strength_key: null,
+            form: null,
+            form_key: null,
+            release_key: null,
+            route: null,
+            updated_at: SNAPSHOT_AT,
+          });
+          compositionRows.push({
+            id: compositionId,
+            composition_key: `fixture-${compositionId}`,
+            active_ingredients: [String(row.medication_name).toLowerCase()],
+            updated_at: SNAPSHOT_AT,
+          });
+          return {
+            source: 'e_prescription',
+            source_id: String(40 + index),
+            source_revision: '1',
+            lineage_id: `e_prescription:${40 + index}`,
+            line_index: String(index),
+            medication_name: row.medication_name,
+            catalog_id: String(catalogId),
+            source_status: 'active',
+            lifecycle_status: 'signed',
+            effective_start: '2026-08-29T08:00:00.000Z',
+            effective_end: null,
+            line_payload: {
+              _patient_uid_resolved: true,
+              _source_start_authoritative: true,
+            },
+          };
+        });
+    }
+    if (/FROM chemo_administrations/.test(statement)) return [];
+    if (/FROM pharmacy_catalog/.test(statement) && /FOR KEY SHARE/.test(statement)) {
+      return catalogRows;
+    }
+    if (/FROM drug_compositions/.test(statement) && /FOR KEY SHARE/.test(statement)) {
+      return compositionRows;
+    }
+    return nextQueued();
+  });
+}
+
+function validatePrescriptionSafety(patientId, medications, options = {}) {
+  return validatePrescriptionSafetyImpl(patientId, medications, {
+    tenantId: TENANT_ID,
+    ...options,
+  });
 }
 
 beforeEach(() => {
+  getUnifiedActiveAllergiesDetailedMock.mockClear();
   noAllergies();
   defaultKb();
+  resolveDrugKeysMock.mockReset().mockImplementation(async ({ medications }) => ({
+    enabled: true,
+    resolutions: medications.map((medication) => ({
+      catalog_id: medication.catalog_id,
+      drug_keys: [String(medication.medication_name || medication.name).toLowerCase()],
+      tier: 'explicit_link',
+    })),
+  }));
   isCompositionSearchEnabledMock.mockReset().mockResolvedValue(false);
   enrichMedicationsWithCompositionMock.mockReset().mockImplementation(async (_tenantId, medications) => medications);
   resolveCompositionIdentitiesByCatalogIdsMock.mockReset().mockResolvedValue(new Map());
-  queryRawUnsafeMock.mockReset().mockResolvedValue([]);
+  queueRaw();
 });
 
 // ---- 1. Structured allergy severity tiers --------------------------------
@@ -251,11 +352,21 @@ describe('unstructured note allergen scan', () => {
   });
 });
 
+describe('active-therapy authority', () => {
+  it('fails closed when explicit tenant authority is missing', async () => {
+    const result = await validatePrescriptionSafetyImpl(106, [{ name: 'Cetirizine' }]);
+    expect(result.safe).toBe(false);
+    expect(result.blockers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'ACTIVE_THERAPY_CONTEXT_UNAVAILABLE', severity: 'HIGH' }),
+    ]));
+  });
+});
+
 // ---- 2. Duplicate active-medication detection ----------------------------
 
 describe('duplicate active-medication detection', () => {
   it('warns when the medication is already actively prescribed (case-insensitive)', async () => {
-    // #1 note scan = [], #2 duplicate actives = one row matching the new med.
+    // #1 note scan = [], #2 active-therapy snapshot = one matching row.
     queueRaw([], [{ medication_name: 'Amoxicillin 500mg' }]);
     const result = await validatePrescriptionSafety(106, [
       { name: 'amoxicillin 500mg' }, // different case — still a duplicate
@@ -286,15 +397,95 @@ describe('duplicate active-medication detection', () => {
   });
 });
 
+describe('composition duplicate exclusion authority', () => {
+  it('excludes the current order and eRx amendment while retaining a different active IPD order', async () => {
+    queryRawUnsafeMock.mockReset().mockImplementation(async (statement) => {
+      if (/SELECT id, uid, NOW\(\) AS snapshot_at/.test(statement)) {
+        return [{ id: 106, uid: PATIENT_UID, snapshot_at: SNAPSHOT_AT }];
+      }
+      if (/SELECT inventory\.id/.test(statement) && /FOR KEY SHARE OF inventory/.test(statement)) {
+        return [];
+      }
+      if (/WITH latest_reconciliation/.test(statement)) return [];
+      if (/FROM chemo_administrations/.test(statement)) return [];
+      if (/SELECT uid[\s\S]*tenant_id = \$1::uuid AND id = \$2::int/.test(statement)) {
+        return [{ uid: PATIENT_UID }];
+      }
+      if (/^\s*SELECT med\.value->>'catalog_id'/.test(statement)) {
+        return [];
+      }
+      if (/FROM clinical_orders co/.test(statement) && /co\.details->>'catalog_id'/.test(statement)) {
+        return [{ catalog_id: '22', name: 'Other active brand' }];
+      }
+      return [];
+    });
+    isCompositionSearchEnabledMock.mockResolvedValue(true);
+    enrichMedicationsWithCompositionMock.mockResolvedValue([{
+      name: 'Current order brand',
+      catalog_id: 11,
+      composition_id: 7,
+      composition_confidence: 'high',
+      active_ingredients: [],
+    }]);
+    resolveCompositionIdentitiesByCatalogIdsMock.mockResolvedValue(new Map([
+      [22, {
+        name: 'Other active brand',
+        composition_id: 7,
+        composition_confidence: 'high',
+      }],
+    ]));
+
+    const result = await validatePrescriptionSafety(106, [{
+      name: 'Current order brand',
+      catalog_id: 11,
+    }], {
+      excludeClinicalOrderId: 82,
+      excludePrescriptionId: 41,
+    });
+
+    expect(result.warnings).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'DUPLICATE_COMPOSITION',
+        duplicate_of: 'Other active brand',
+        source: 'inpatient_order',
+      }),
+    ]));
+
+    const uidCall = queryRawUnsafeMock.mock.calls.find(([statement]) => (
+      /SELECT uid[\s\S]*tenant_id = \$1::uuid AND id = \$2::int/.test(statement)
+    ));
+    expect(uidCall).toBeDefined();
+    expect(uidCall.slice(1)).toEqual([TENANT_ID, 106]);
+
+    const eRxCall = queryRawUnsafeMock.mock.calls.find(([statement]) => (
+      /^\s*SELECT med\.value->>'catalog_id'/.test(statement)
+    ));
+    expect(eRxCall).toBeDefined();
+    expect(eRxCall[0]).toMatch(/ep\.tenant_id = \$1::uuid/);
+    expect(eRxCall[0]).toMatch(/ep\.patient_id = \$2::int/);
+    expect(eRxCall[0]).toMatch(/ep\.id IS DISTINCT FROM \$3::int/);
+    expect(eRxCall.slice(1)).toEqual([TENANT_ID, 106, 41]);
+
+    const ipdCall = queryRawUnsafeMock.mock.calls.find(([statement]) => (
+      /FROM clinical_orders co/.test(statement) && /co\.details->>'catalog_id'/.test(statement)
+    ));
+    expect(ipdCall).toBeDefined();
+    expect(ipdCall[0]).toMatch(/co\.tenant_id = \$1::uuid/);
+    expect(ipdCall[0]).toMatch(/co\.patient_uid = \$2::uuid/);
+    expect(ipdCall[0]).toMatch(/co\.id IS DISTINCT FROM \$3::int/);
+    expect(ipdCall.slice(1)).toEqual([TENANT_ID, PATIENT_UID, 82]);
+  });
+});
+
 // ---- 3. Paediatric weight-based dose checks ------------------------------
 
 describe('paediatric weight-based dose blockers', () => {
   // loadPaediatricContext order: age query (#3), then weight query (#3b).
-  // So the raw sequence is: [noteScan], [dupActives], [ageRow], [weightRow], ...
+  // Sequence: [noteScan], [activeTherapies], [ageRow], [weightRow], ...
   function paedSequence(ageYears, weightKg, extraTail = []) {
     return [
       [], // note scan
-      [], // duplicate actives
+      [], // active therapies
       [{ age_years: ageYears }], // paediatric age
       [{ weight_kg: weightKg }], // paediatric weight
       ...extraTail,
@@ -429,7 +620,7 @@ describe('paediatric weight-based dose blockers', () => {
 
 describe('required clinical context loaders fail closed', () => {
   it('does not treat a pregnancy-context query failure as no pregnancy', async () => {
-    // #1 note, #2 dup, #3 age(>=12), #4 pregnancy REJECTS, #5 renal.
+    // #1 note, #2 active therapies, #3 age(>=12), #4 pregnancy REJECTS, #5 renal.
     queueRaw([], [], [{ age_years: 40 }], new Error('pregnancy query exploded'), [{ labs: [] }]);
     const result = await validatePrescriptionSafety(106, [{ name: 'Warfarin 5mg' }]);
     expect(result.safe).toBe(false);
@@ -437,7 +628,7 @@ describe('required clinical context loaders fail closed', () => {
   });
 
   it('does not treat a renal-context query failure as no evidence', async () => {
-    // #1 note, #2 dup, #3 age(>=12), #4 pregnancy, #5 renal REJECTS.
+    // #1 note, #2 active therapies, #3 age(>=12), #4 pregnancy, #5 renal REJECTS.
     queueRaw(
       [], [], [{ age_years: 60 }],
       [{ gender: 'male', is_pregnant: false, age_years: 60, has_ongoing_pregnancy: false }],
@@ -732,7 +923,7 @@ describe('drug knowledge base findings classification (check 8)', () => {
     // findings, so we only assert the calls were made without error.
     queueRaw(
       [], // note scan
-      [], // dup actives
+      [], // active therapies
       [{ age_years: 40 }], // paediatric age (>=12, no weight query)
       [{ gender: 'male', is_pregnant: false, age_years: 40, has_ongoing_pregnancy: false }], // pregnancy
       [{ labs: [] }], // renal
@@ -763,6 +954,15 @@ describe('drug knowledge base findings classification (check 8)', () => {
     const result = await validatePrescriptionSafety(106, [{ name: 'Metformin' }]);
     expect(result.safe).toBe(false);
     expect(result.blockers.some((b) => b.type === 'DRUG_KB_CHECK_ERROR')).toBe(true);
+  });
+
+  it('blocks when the authoritative drug knowledge base reports unavailable', async () => {
+    evaluateDrugKbMock.mockReset().mockResolvedValue({ kbAvailable: false, findings: [] });
+    const result = await validatePrescriptionSafety(106, [{ name: 'Amoxicillin' }]);
+    expect(result.safe).toBe(false);
+    expect(result.blockers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'DRUG_KB_UNAVAILABLE', severity: 'HIGH' }),
+    ]));
   });
 
   it('blocks when the drug knowledge base evaluation throws', async () => {
@@ -808,9 +1008,9 @@ describe('outer catch — fail closed on safety-check failure', () => {
     );
   });
 
-  it('fails closed when the duplicate-active-prescription query throws', async () => {
-    // #1 note scan ok ([]), #2 duplicate-actives query rejects → outer catch.
-    queueRaw([], new Error('dup query exploded'));
+  it('fails closed when the active-therapy source query throws', async () => {
+    // #1 note scan ok ([]), #2 active-therapy source query rejects → outer catch.
+    queueRaw([], new Error('active therapy query exploded'));
     const result = await validatePrescriptionSafety(106, [{ name: 'Amoxicillin' }]);
     expect(result.safe).toBe(false);
     expect(result.blockers.some((b) => b.type === 'SAFETY_CHECK_ERROR')).toBe(true);
@@ -828,7 +1028,7 @@ describe('aggregate behaviour', () => {
     ]);
     queueRaw(
       [], // note scan
-      [{ medication_name: 'Paracetamol' }], // dup actives (matches)
+      [{ medication_name: 'Paracetamol' }], // active therapy (matches)
       [{ age_years: 3 }], // paed age
       [{ weight_kg: 10 }], // paed weight
     );
@@ -853,10 +1053,8 @@ describe('aggregate behaviour', () => {
     // checks (pregnancy / renal / antibiotic / paediatric). With no recorded
     // allergies the structured-allergy loop (check 1) is bypassed entirely
     // (allergies.length === 0), so a nameless line is a clean no-op here.
-    // NOTE: the structured-allergy loop itself is NOT name-guarded — see the
-    // bug flagged in this task's report (empty medName matches every allergen
-    // via allergyName.includes('')). We deliberately do not exercise that path
-    // with allergies present.
+    // The structured-allergy loop also skips nameless lines, so this remains a
+    // clean no-op if allergy data is added to the fixture later.
     getUnifiedActiveAllergiesMock.mockResolvedValue([]);
     const result = await validatePrescriptionSafety(106, [{ frequency: 'OD' }]);
     expect(result.blockers).toHaveLength(0);

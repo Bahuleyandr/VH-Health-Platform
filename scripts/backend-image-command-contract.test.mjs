@@ -54,6 +54,10 @@ const BACKEND_MANIFEST_DIR = 'infra/kubernetes/apps/backend';
 const BACKEND_MANIFEST_DIRS = [
   BACKEND_MANIFEST_DIR,
   'infra/kubernetes/optional/analytics-warehouse',
+  // The dalekdefender rig's migration Job is a third copy of the same shape,
+  // rendered by the deploy helper rather than by ArgoCD. Same image, same
+  // entrypoints, same way to break it.
+  'infra/kubernetes/overlays/dalekdefender',
 ];
 const BACKEND_IMAGE_REPO = 'ghcr.io/bahuleyandr/vh-health-platform-backend';
 
@@ -845,7 +849,17 @@ test('the migration Job is parsed into real containers (no vacuous pass)', () =>
     .map(commandWordOf)
     .filter(Boolean)
     .map(parsed => parsed.word);
-  assert.deepEqual(words, ['set', 'echo', 'node', 'echo', 'node', 'echo', 'node', 'echo']);
+  // Four node steps since migration 754: ensure-pgvector, the payroll
+  // reconciliation preflight (--report-only), ci-setup-db, and the
+  // runtime-role grants. The manifest documents them as steps 1-4.
+  assert.deepEqual(words, [
+    'set',
+    'echo', 'node',
+    'echo', 'node',
+    'echo', 'node',
+    'echo', 'node',
+    'echo',
+  ]);
 });
 
 test('every migration Job command exists in the built runtime image', () => {

@@ -134,7 +134,14 @@ jobs:
       JEST_ENFORCE_SKIP_FLOOR: '1'
 
     steps:
+      # fetch-depth: 0 — the applied-migration immutability guard below resolves
+      # a merge-base against main. On the default shallow checkout it fails
+      # closed by design (a guard that silently skips reads as coverage it is
+      # not providing), so this job needs the history. _reusable-backend-quick
+      # and ci.yml's plan and security jobs already check out this way.
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
@@ -178,6 +185,18 @@ jobs:
       - name: Migration number collision guard (no duplicate numeric prefixes)
         run: npm run check:migration-numbers
 
+      # Applied-migration immutability. An in-place edit to a migration that
+      # already ran passes every gate here — CI databases are fresh, so their
+      # `_migrations` rows seed from whatever bytes are on disk and the runtime
+      # checksum can never disagree. It only detonates on a long-lived database
+      # (566 / 03db4c44f, dalekdefender run 33480653253). The evidence exists at
+      # PR time only in git, so this compares migration blobs against their
+      # merge-base with main. The authoritative copy runs in the unconditional
+      # `security` stage of ci.yml — it must not be skippable by tier routing;
+      # this mirror keeps both migration checks failing in the same place.
+      - name: Applied-migration immutability guard (no edits to migrations on main)
+        run: npm run check:migration-immutability
+
       - name: Restore generated Prisma client
         id: prisma-client
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
@@ -217,6 +236,23 @@ jobs:
 
       - name: OpenAPI drift check (regenerate live-router spec + diff)
         run: node scripts/check-openapi-drift.mjs
+
+      # The repository's canonical CI is the sole OpenAPI generation authority.
+      # Preserve the exact live-router output even when the drift gate fails so
+      # maintainers can commit that artifact without running the generator on a
+      # workstation.
+      - name: Generate canonical OpenAPI artifact
+        if: always()
+        run: node scripts/generate-openapi.mjs --out="${RUNNER_TEMP}/vh-health-openapi.generated.json"
+
+      - name: Upload canonical OpenAPI artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: canonical-openapi-${{ github.run_id }}
+          path: ${{ runner.temp }}/vh-health-openapi.generated.json
+          retention-days: 7
+          if-no-files-found: error
 
       - name: OpenAPI core-spec sync check (vhhealth_core copy matches canonical)
         run: node scripts/check-core-spec-sync.mjs
@@ -574,7 +610,7 @@ jobs:
                 l = $0
                 gsub(/\r/, "", l)
                 if (l ~ /^[[:space:]]*$/) {
-                  # Jest prints a blank line right after the '●' header; skip
+                  # Jest prints a blank line right after the bullet header; skip
                   # leading blanks, but treat a blank AFTER captured content as
                   # the end of this test's assertion block.
                   if (n > 0) capture = 0

@@ -1,4 +1,4 @@
-import prisma from '../lib/prisma.js';
+import { setTenant } from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import { requireTenantId } from '../services/tenant/tenantService.js';
 import { executePayrollRun } from '../services/staff/payrollService.js';
@@ -39,10 +39,11 @@ export async function runMonthlyPayrollForTenant(tenantId, now = new Date()) {
 
 export async function runAnnualSalaryReviewForTenant(tenantId, year = new Date().getFullYear()) {
   const tid = requireTenantId(tenantId);
-  const inserted = await prisma.$queryRawUnsafe(
+  const inserted = await setTenant(tid, tx => tx.$queryRawUnsafe(
     `INSERT INTO annual_review_reminders
-       (tenant_id, staff_uid, review_year, reminder_sent_at)
-     SELECT ss.tenant_id, ss.staff_uid, $2, NOW()
+       (tenant_id, staff_uid, review_year, reminder_sent_at,
+        tenant_reconciliation_required, tenant_reconciliation_evidence)
+     SELECT ss.tenant_id, ss.staff_uid, $2, NOW(), false, '{}'::jsonb
        FROM staff_salary ss
       WHERE ss.tenant_id = $1::uuid
         AND ss.is_active = true
@@ -51,8 +52,8 @@ export async function runAnnualSalaryReviewForTenant(tenantId, year = new Date()
      ON CONFLICT (tenant_id, staff_uid, review_year) DO NOTHING
      RETURNING id`,
     tid,
-    year
-  );
+    year,
+  ));
   logger.info(`Annual review reminders for tenant ${tid}: ${inserted.length} created for ${year}`);
   return { year, created: inserted.length };
 }

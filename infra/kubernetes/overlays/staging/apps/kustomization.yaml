@@ -17,6 +17,19 @@ commonAnnotations:
   vhhealth.app/deploy-mode: "manual"
 
 patches:
+  # Staging accepts its own exact legacy manifest. Never inherit the production
+  # acceptance values from the app-tier production patch point.
+  - target:
+      kind: ConfigMap
+      name: vhhealth-payroll-revision-754-acceptance
+    patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: vhhealth-payroll-revision-754-acceptance
+      data:
+        PAYROLL_754_ACCEPTED_MANIFEST_SHA256: ""
+        PAYROLL_754_ACCEPTED_BY: ""
   - target:
       kind: Deployment
       name: vhhealth-backend

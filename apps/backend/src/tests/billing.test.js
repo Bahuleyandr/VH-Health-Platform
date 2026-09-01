@@ -1,6 +1,7 @@
 import { authClient } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import { assertResponse } from './helpers/assertSchema.js';
+import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
 
 describe('Billing API', () => {
   const admin = authClient('ADMIN');
@@ -10,22 +11,75 @@ describe('Billing API', () => {
   // UUIDv4-shaped fixtures so express-validator isUUID() accepts them
   const patientUidA = '11111111-1111-4111-8111-111111111111';
   const patientUidB = '22222222-2222-4222-8222-222222222222';
+  const patientUids = [patientUidA, patientUidB];
+  const paymentTransactionRefs = ['TXN-PART-001', 'TXN-FINAL-001'];
+
+  async function cleanupBillingFixtures() {
+    await prisma.$transaction(async (tx) => {
+      await tx.payment_transactions.deleteMany({
+        where: {
+          tenant_id: DEFAULT_TENANT_ID,
+          OR: [
+            { transaction_ref: { in: paymentTransactionRefs } },
+            {
+              invoices: {
+                tenant_id: DEFAULT_TENANT_ID,
+                patient_uid: { in: patientUids },
+              },
+            },
+          ],
+        },
+      });
+      await tx.insurance_claims.deleteMany({
+        where: {
+          tenant_id: DEFAULT_TENANT_ID,
+          patient_uid: { in: patientUids },
+        },
+      });
+      await tx.invoices.deleteMany({
+        where: {
+          tenant_id: DEFAULT_TENANT_ID,
+          patient_uid: { in: patientUids },
+        },
+      });
+      await tx.users.deleteMany({
+        where: {
+          tenant_id: DEFAULT_TENANT_ID,
+          uid: { in: patientUids },
+        },
+      });
+    });
+  }
 
   // Cleanup inserts between test runs to keep assertions deterministic.
   beforeAll(async () => {
-    await prisma.payment_transactions.deleteMany({
-      where: { invoices: { patient_uid: { in: [patientUidA, patientUidB] } } },
-    }).catch(() => {});
-    await prisma.invoices.deleteMany({
-      where: { patient_uid: { in: [patientUidA, patientUidB] } },
-    }).catch(() => {});
-    await prisma.insurance_claims.deleteMany({
-      where: { patient_uid: { in: [patientUidA, patientUidB] } },
-    }).catch(() => {});
+    await cleanupBillingFixtures();
+
+    const now = new Date();
+    await prisma.users.createMany({
+      data: patientUids.map((uid, index) => ({
+        uid,
+        name: `Billing Fixture Patient ${index + 1}`,
+        role: 'PATIENT',
+        is_active: true,
+        status: 'active',
+        is_deleted: false,
+        deleted_at: null,
+        deleted_reason: null,
+        merged_into_uid: null,
+        merged_at: null,
+        tenant_id: DEFAULT_TENANT_ID,
+        updated_at: now,
+      })),
+    });
   });
 
   afterAll(async () => {
-    await prisma.$disconnect().catch(() => {});
+    try {
+      await cleanupBillingFixtures();
+    } finally {
+      await prisma.$disconnect();
+    }
   });
 
   // ─── Validation guards ────────────────────────────────────────────────

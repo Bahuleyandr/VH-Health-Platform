@@ -85,15 +85,26 @@ Widget _wrapReadOnly(CathConsumableDependencies dependencies) {
   );
 }
 
+// Both loaders assert the ACTIVE case id reaches the API layer: the backend
+// pins the facility from that case, so a catalog or batch read without it can
+// never be authorised.
 Future<List<CathConsumableCatalogItem>> _untrackedSearch({
+  required int caseId,
   String? query,
   String? scan,
-}) async => const [_untrackedItem];
+}) async {
+  expect(caseId, greaterThan(0));
+  return const [_untrackedItem];
+}
 
 Future<List<CathConsumableCatalogItem>> _trackedSearch({
+  required int caseId,
   String? query,
   String? scan,
-}) async => const [_trackedImplant];
+}) async {
+  expect(caseId, greaterThan(0));
+  return const [_trackedImplant];
+}
 
 void main() {
   testWidgets('ready cases open capture in locked wastage-only mode', (
@@ -120,7 +131,7 @@ void main() {
         CathConsumableDependencies(
           loadUsage: (_) async => const [],
           searchCatalog: _untrackedSearch,
-          loadBatches: (_) async => const [],
+          loadBatches: (_, {required caseId}) async => const [],
         ),
         cathCase: readyCase,
       ),
@@ -169,7 +180,7 @@ void main() {
         CathConsumableDependencies(
           loadUsage: (_) async => const [],
           searchCatalog: _untrackedSearch,
-          loadBatches: (_) async => const [],
+          loadBatches: (_, {required caseId}) async => const [],
         ),
       ),
     );
@@ -219,7 +230,10 @@ void main() {
           CathConsumableDependencies(
             loadUsage: (_) async => const [],
             searchCatalog: _trackedSearch,
-            loadBatches: (_) async => [batch],
+            loadBatches: (_, {required caseId}) async {
+              expect(caseId, 42);
+              return [batch];
+            },
             scanCode: () async => 'CATH-DES-30',
             createUsage: (caseId, draft, {required idempotencyKey}) async {
               expect(caseId, 42);
@@ -334,7 +348,7 @@ void main() {
         CathConsumableDependencies(
           loadUsage: (_) async => const [],
           searchCatalog: _trackedSearch,
-          loadBatches: (_) async => const [],
+          loadBatches: (_, {required caseId}) async => const [],
         ),
       ),
     );
@@ -368,10 +382,13 @@ void main() {
     tester,
   ) async {
     String? scannedQuery;
+    int? scannedCaseId;
     Future<List<CathConsumableCatalogItem>> scanSearch({
+      required int caseId,
       String? query,
       String? scan,
     }) async {
+      scannedCaseId = caseId;
       scannedQuery = scan;
       return const [_untrackedItem];
     }
@@ -381,7 +398,7 @@ void main() {
         CathConsumableDependencies(
           loadUsage: (_) async => const [],
           searchCatalog: scanSearch,
-          loadBatches: (_) async => const [],
+          loadBatches: (_, {required caseId}) async => const [],
           scanCode: () async => 'CATH-DX-5F',
         ),
       ),
@@ -393,6 +410,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(scannedQuery, 'CATH-DX-5F');
+    expect(scannedCaseId, 42);
     expect(
       find.byKey(const ValueKey('cath-consumable-selected-item')),
       findsOneWidget,

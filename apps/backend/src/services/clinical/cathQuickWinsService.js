@@ -408,9 +408,9 @@ export async function applyCathOrderSetSlot(caseId, slot, { tenantId } = {}, con
     );
   }
 
-  // Standard CPOE validation/signing applies inside applyOrderSet/createOrder;
-  // orders ride the canonical clinical path there, so no timeline events are
-  // written here (audit-only breadcrumb below).
+  // Standard CPOE validation/signing applies inside applyOrderSet's atomic
+  // bulk transaction; no timeline events are written here (audit-only
+  // breadcrumb below).
   const orders = await applyOrderSet(
     cathCase.patient_uid,
     cathCase.encounter_id || null,
@@ -418,7 +418,6 @@ export async function applyCathOrderSetSlot(caseId, slot, { tenantId } = {}, con
     context.actorUid,
     tid
   );
-  const failed = orders.filter(order => order && order.error).length;
 
   await recordClinicalAuditEvent({
     tenantId: tid,
@@ -436,8 +435,8 @@ export async function applyCathOrderSetSlot(caseId, slot, { tenantId } = {}, con
       order_set_id: deployed.order_set_id,
       order_set_code: deployed.code,
       order_set_version: deployed.version,
-      staged_count: orders.length - failed,
-      failed_count: failed
+      staged_count: orders.length,
+      failed_count: 0
     },
     idempotencyKey: `cath_qw_order_set:${tid}:${cathCase.id}:${cleanSlot}:${deployed.order_set_id}:${Date.now()}`
   });

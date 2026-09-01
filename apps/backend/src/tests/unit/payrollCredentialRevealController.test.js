@@ -4,7 +4,13 @@ const revealPayslipCredentialMock = jest.fn();
 const logAuditMock = jest.fn();
 const loggerErrorMock = jest.fn();
 
-jest.unstable_mockModule('../../lib/prisma.js', () => ({ default: {} }));
+const prismaMock = {};
+// payrollController reaches for setTenant on the arrears work-item paths; the
+// reveal path under test never runs it, but the loader still needs the symbol.
+jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  default: prismaMock,
+  setTenant: jest.fn(async (_tenantId, fn) => fn(prismaMock))
+}));
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: {
     error: loggerErrorMock,
@@ -18,7 +24,16 @@ jest.unstable_mockModule('../../services/staff/payrollService.js', () => ({
   revealPayslipCredential: revealPayslipCredentialMock,
   signPayrollRun: jest.fn(),
   generateAnnualTaxSummary: jest.fn(),
-  calculateArrears: jest.fn()
+  calculateArrears: jest.fn(),
+  // Controller narrows on `err instanceof SalaryArrearsCommandError` to pick the
+  // status code, so the mock has to be a real class, not a jest.fn().
+  SalaryArrearsCommandError: class SalaryArrearsCommandError extends Error {
+    constructor(message, statusCode = 409) {
+      super(message);
+      this.name = 'SalaryArrearsCommandError';
+      this.statusCode = statusCode;
+    }
+  }
 }));
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   resolveTenantOrThrow: req => req.tenantId

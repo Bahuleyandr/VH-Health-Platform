@@ -11,6 +11,7 @@ import {
   assertCiSetupSeedPolicy,
   assertSyntheticSeedTarget,
 } from '../../../scripts/lib/testDataSeedGuard.mjs';
+import { MIGRATION_SESSION_GUCS } from '../../../scripts/lib/migrationSessionGucs.mjs';
 
 const runnerSource = readFileSync(
   new URL('../../../scripts/ci-setup-db.mjs', import.meta.url),
@@ -18,6 +19,10 @@ const runnerSource = readFileSync(
 );
 const migrationJobSource = readFileSync(
   new URL('../../../../../infra/kubernetes/apps/backend/migration-job.yaml', import.meta.url),
+  'utf8',
+);
+const payrollRevisionPreflightSource = readFileSync(
+  new URL('../../../scripts/payroll-revision-754-preflight.mjs', import.meta.url),
   'utf8',
 );
 const backendWorkflowSource = readFileSync(
@@ -84,6 +89,26 @@ describe('ci-setup-db migration failure boundary', () => {
     ]);
   });
 
+  test('names the failing migrations so a muted-logger run is still diagnosable', async () => {
+    const client = { end: jest.fn() };
+    const logger = { error: jest.fn() };
+
+    await expect(
+      assertMigrationBatchSucceeded({
+        errors: 1,
+        failedFiles: ['759_fix_escalation_snapshot_guard_case.sql'],
+        client,
+        logger,
+      }),
+    ).rejects.toThrow(
+      'Migration setup failed: 1 migration(s) failed (759_fix_escalation_snapshot_guard_case.sql); '
+        + 'seeds and RLS test-role provisioning were not run.',
+    );
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('759_fix_escalation_snapshot_guard_case.sql'),
+    );
+  });
+
   test('returns without closing the client when every migration succeeded', async () => {
     const client = { end: jest.fn() };
     const logger = { error: jest.fn() };
@@ -141,7 +166,7 @@ describe('ci-setup-db migration failure boundary', () => {
   test('stops after collecting migration errors and before any seed or role provisioning', () => {
     const migrationLoop = runnerSource.indexOf('for (const file of files)');
     const fatalGuard = runnerSource.indexOf(
-      'await assertMigrationBatchSucceeded({ errors, client, logger })',
+      'await assertMigrationBatchSucceeded({ errors, failedFiles, client, logger })',
       migrationLoop,
     );
     const seedBoundary = runnerSource.indexOf('// Seed minimal lookup data', migrationLoop);
@@ -170,6 +195,86 @@ describe('ci-setup-db migration failure boundary', () => {
     expect(executorCall).toBeGreaterThan(migrationTry);
     expect(errorIncrement).toBeGreaterThan(executorCall);
     expect(failureBreak).toBeGreaterThan(errorIncrement);
+  });
+
+  test('restores plpgsql body checking after every migration so a relaxation cannot leak', () => {
+    // 000_baseline.sql and 758 both issue a SESSION-level
+    // `SET check_function_bodies = false` so they can create functions ahead of
+    // the tables those functions reference. Every migration is applied through
+    // ONE long-lived client, so without an explicit restore that relaxation
+    // outlives the file that asked for it and every later migration is applied
+    // unvalidated. That is exactly how 744 and 745 shipped plpgsql bodies which
+    // cannot compile (a bare CASE inside an IF condition eats the IF's THEN)
+    // while CI stayed green; plpgsql compiles lazily, so both trigger functions
+    // would have raised the first time they fired.
+    // The mechanism was generalised after this test was written: the runner no
+    // longer restores one parameter by name, it pins the whole set it owns from
+    // scripts/lib/migrationSessionGucs.mjs (check_function_bodies = on,
+    // row_security = off, client_min_messages = notice). The invariant this
+    // test exists for is unchanged, so it is re-pointed rather than deleted.
+    //
+    // Assert the VALUE from the shared table rather than a literal in the runner
+    // source: how the SET is spelled is an implementation detail, but what the
+    // session ends up with is the thing that must not regress.
+    expect(MIGRATION_SESSION_GUCS.check_function_bodies).toBe('on');
+
+    const migrationLoop = runnerSource.indexOf('for (const file of files)');
+    const executorCall = runnerSource.indexOf(
+      'const result = await executeCiMigrationFile({',
+      migrationLoop,
+    );
+    const pinCall = runnerSource.indexOf('await pinMigrationSessionGucs(client);', executorCall);
+    const appliedAdd = runnerSource.indexOf('applied.add(file);', executorCall);
+
+    // Pinned once BEFORE the first migration, so the invariant does not depend
+    // on the baseline's pg_dump preamble happening to supply the right values.
+    const preLoopPin = runnerSource.indexOf('await pinMigrationSessionGucs(client);');
+    expect(preLoopPin).toBeGreaterThan(-1);
+    expect(preLoopPin).toBeLessThan(migrationLoop);
+
+    // And again INSIDE the per-file loop, after the file is applied and before
+    // the next iteration — not once after the whole batch.
+    expect(pinCall).toBeGreaterThan(executorCall);
+    expect(pinCall).toBeLessThan(appliedAdd);
+
+    // A leak that survives to the end of the chain fails the run rather than
+    // being reported only by a unit test that a skipped tier can hide.
+    const postChainAssert = runnerSource.indexOf('await assertMigrationSessionGucs();');
+    expect(postChainAssert).toBeGreaterThan(appliedAdd);
+  });
+
+  test('only the two known-uncompilable migrations are applied with body checking off', () => {
+    // 744 and 745 shipped plpgsql bodies that cannot compile. 759 repairs the
+    // functions, but it runs AFTER them, so a fresh database must still replay
+    // 744 and 745 on the way there — they are applied exactly as they always
+    // were, with checking off, and validation is restored immediately after.
+    // Amending them instead would drift their recorded checksum in every
+    // environment that has already applied them.
+    //
+    // Pinned exactly: this set must never grow. A new migration whose bodies do
+    // not compile is a bug to fix before merge, not an entry here.
+    const setStart = runnerSource.indexOf('const BODIES_KNOWN_UNCOMPILABLE = new Set([');
+    expect(setStart).toBeGreaterThan(-1);
+    const setEnd = runnerSource.indexOf(']);', setStart);
+    const listed = runnerSource
+      .slice(setStart, setEnd)
+      .match(/'[^']+\.sql'/g)
+      ?.map((s) => s.slice(1, -1)) ?? [];
+    expect(listed.sort()).toEqual([
+      '744_medication_inventory_billing_mar_closure.sql',
+      '745_clinical_alert_delivery_obligations.sql',
+    ]);
+
+    // The relaxation must be applied BEFORE the file executes, and must be
+    // reachable from inside the loop rather than left defined and unused.
+    const migrationLoop = runnerSource.indexOf('for (const file of files)');
+    const relaxCall = runnerSource.indexOf('await relaxFunctionBodyCheckingFor(file);', migrationLoop);
+    const executorCall = runnerSource.indexOf(
+      'const result = await executeCiMigrationFile({',
+      migrationLoop,
+    );
+    expect(relaxCall).toBeGreaterThan(migrationLoop);
+    expect(relaxCall).toBeLessThan(executorCall);
   });
 
   test('adopts legacy checksums before apply and verifies the exact tracker before seeds', () => {
@@ -389,7 +494,39 @@ describe('test-data seed safety boundary', () => {
   });
 
   test('the production migration Job carries both independent skip controls', () => {
+    expect(migrationJobSource).toContain(
+      'node scripts/payroll-revision-754-preflight.mjs --report-only',
+    );
+    expect(migrationJobSource).not.toContain('npm run payroll:revision-754:preflight');
     expect(migrationJobSource).toContain('node scripts/ci-setup-db.mjs --skip-seeds');
+    expect(runnerSource).toContain('lockPayrollRevision754Tables');
+    expect(runnerSource).toContain('concurrentlyApplied.rowCount === 1');
+    expect(runnerSource).toContain('forceTransactional: payrollReconciliationGate');
+    expect(payrollRevisionPreflightSource).toContain("flag: 'wx', mode: 0o600");
+    expect(payrollRevisionPreflightSource).toContain(
+      'node scripts/payroll-revision-754-preflight.mjs --report-only',
+    );
+    expect(payrollRevisionPreflightSource).toContain(
+      '--export /tmp/payroll-754-manifest.json from the backend working directory',
+    );
+    expect(payrollRevisionPreflightSource).not.toContain(
+      'payroll:revision-754:preflight -- --report-only',
+    );
+    expect(payrollRevisionPreflightSource).toContain('schema_version: 2');
+    expect(payrollRevisionPreflightSource).toContain(
+      'to_jsonb(source_row)::text AS source_json',
+    );
+    expect(payrollRevisionPreflightSource).toContain(
+      'BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY',
+    );
+    const sourceLock = payrollRevisionPreflightSource.indexOf(
+      'LOCK TABLE ${PAYROLL_TABLES.map',
+    );
+    const authorityLock = payrollRevisionPreflightSource.indexOf(
+      'LOCK TABLE ${PAYROLL_AUTHORITY_TABLES',
+    );
+    expect(sourceLock).toBeGreaterThan(-1);
+    expect(authorityLock).toBeGreaterThan(sourceLock);
     expect(migrationJobSource).toMatch(
       /- name: CI_DB_SKIP_SEEDS\s+value: ["']1["']/,
     );

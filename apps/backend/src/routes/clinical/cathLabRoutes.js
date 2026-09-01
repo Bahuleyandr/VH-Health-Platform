@@ -49,6 +49,7 @@ import {
 import {
   cathCaseCreateGuard,
   cathCaseGuard,
+  cathCaseQueryGuard,
   cathReportGuard
 } from './cathLabAccessGuards.js';
 
@@ -59,12 +60,13 @@ const router = Router();
 // see cathLabAccessGuards.js. Deliberately NOT guarded (no single patient
 // subject — role gate only): GET /report-templates,
 // POST /report-templates/:id/supersede (template governance),
-// GET /consumables/catalog, GET /consumables/catalog/:id/batches (catalog),
-// and GET /cases (day list).
+// GET /cases (day list). Cath catalog and batch reads are case-scoped below so
+// their patient authority and pinned facility identity are both enforced.
 const guardCathCaseById = cathCaseGuard('id');
 const guardCathCaseByCaseId = cathCaseGuard('caseId');
 const guardCathReport = cathReportGuard();
 const guardCathCaseCreate = cathCaseCreateGuard();
+const guardCathCatalogCase = cathCaseQueryGuard('case_id');
 
 // NL13-P1f: scheduling strip + case booking + manual complication entries
 // (same /api/v1/cath-lab family; role guards live inside the subrouter).
@@ -144,7 +146,7 @@ router.get('/report-templates', requireReportRead, async (req, res) => {
   }
 });
 
-router.get('/consumables/catalog', requireReportRead, async (req, res) => {
+router.get('/consumables/catalog', requireReportRead, guardCathCatalogCase, async (req, res) => {
   try {
     const items = await listConsumableCatalog({
       tenantId: tenantOf(req),
@@ -152,6 +154,7 @@ router.get('/consumables/catalog', requireReportRead, async (req, res) => {
       scan: req.query.scan || null,
       category: req.query.category || null,
       status: req.query.status || 'active',
+      caseId: req.query.case_id,
       limit: req.query.limit || 100
     });
     return success(res, { items, count: items.length }, 'Cath consumable catalog');
@@ -160,9 +163,12 @@ router.get('/consumables/catalog', requireReportRead, async (req, res) => {
   }
 });
 
-router.get('/consumables/catalog/:id/batches', requireReportRead, async (req, res) => {
+router.get('/consumables/catalog/:id/batches', requireReportRead, guardCathCatalogCase, async (req, res) => {
   try {
-    const batches = await listCatalogBatches(req.params.id, { tenantId: tenantOf(req) });
+    const batches = await listCatalogBatches(req.params.id, {
+      tenantId: tenantOf(req),
+      caseId: req.query.case_id
+    });
     return success(res, { batches, count: batches.length }, 'Cath consumable batches');
   } catch (err) {
     return handleFailure(res, err, 'list consumable batches');

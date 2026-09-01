@@ -1406,8 +1406,20 @@ export async function recordMedicationSafetyReviews(input = {}, options = {}) {
 }
 
 export async function evaluateMedicationSafety(input = {}, options = {}) {
-  const safety = await validatePrescriptionSafety(input.patientId || input.patient_id, input.medications || []);
-  const reviews = await recordMedicationSafetyReviews({ ...input, safety }, options);
+  const db = dbClient(options.db);
+  const tenantId = await resolveCanonicalTenantId(
+    db,
+    input.tenantId || input.tenant_id,
+  );
+  const safety = await validatePrescriptionSafety(
+    input.patientId || input.patient_id,
+    input.medications || [],
+    { tenantId, db },
+  );
+  const reviews = await recordMedicationSafetyReviews(
+    { ...input, tenantId, safety },
+    { ...options, db },
+  );
   return {
     ...safety,
     reviews,

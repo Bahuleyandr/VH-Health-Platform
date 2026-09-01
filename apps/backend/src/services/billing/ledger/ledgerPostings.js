@@ -205,6 +205,52 @@ export async function postRefundPaidEntry({ refund, tenantId, tx = null }) {
   });
 }
 
+/** Post WARD_MEDICATION_CREDIT: reverse earned medication revenue and reduce
+ * the open receivable and/or establish a refund payable. Approval creates the
+ * accounting obligation; a later authorized refund payout uses REFUND_PAID. */
+export async function postWardMedicationCreditEntry({ creditNote, tenantId, tx = null }) {
+  const totalPaise = Number(creditNote.amount_minor);
+  const receivablePaise = Number(creditNote.receivable_credit_minor || 0);
+  const refundPaise = Number(creditNote.refund_obligation_minor || 0);
+  if (!Number.isSafeInteger(totalPaise) || totalPaise <= 0) return null;
+  if (
+    !Number.isSafeInteger(receivablePaise)
+    || !Number.isSafeInteger(refundPaise)
+    || receivablePaise < 0
+    || refundPaise < 0
+    || receivablePaise + refundPaise !== totalPaise
+  ) {
+    throw new TypeError('Ward medication credit split must equal its credit-note amount');
+  }
+  const lines = [
+    { accountCode: 'REVENUE', amountPaise: totalPaise },
+  ];
+  if (receivablePaise > 0) {
+    lines.push({
+      accountCode: 'PATIENT_AR',
+      amountPaise: -receivablePaise,
+      patient_uid: creditNote.patient_uid,
+      invoice_id: Number(creditNote.invoice_id),
+    });
+  }
+  if (refundPaise > 0) {
+    lines.push({
+      accountCode: 'REFUNDS_PAYABLE',
+      amountPaise: -refundPaise,
+      patient_uid: creditNote.patient_uid,
+    });
+  }
+  return runPosting(tx, tenantId, {
+    entryType: 'WARD_MEDICATION_CREDIT',
+    idempotencyKey: `ward-medication-credit-${creditNote.id}`,
+    metadata: {
+      credit_note_id: String(creditNote.id),
+      source_financial_event_id: String(creditNote.source_financial_event_id),
+    },
+    lines,
+  });
+}
+
 /** Post INSURANCE_SHIFT: on claim approval move the receivable PATIENT_AR -> INSURANCE_AR. */
 export async function postInsuranceShiftEntry({ claim, tenantId, tx = null }) {
   if (claim.invoice_id == null) return null;
@@ -223,5 +269,6 @@ export async function postInsuranceShiftEntry({ claim, tenantId, tx = null }) {
 export default {
   paymentDebitAccount, postInvoiceIssueEntry, postPaymentEntry,
   postAdvanceCollectEntry, postAdvanceRefundEntry, postAdvanceSettleEntry, postPaymentReversalEntry,
-  postRefundApproveEntry, postRefundPaidEntry, postInsuranceShiftEntry,
+  postRefundApproveEntry, postRefundPaidEntry, postWardMedicationCreditEntry,
+  postInsuranceShiftEntry,
 };

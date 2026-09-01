@@ -7,6 +7,11 @@ const txMock = {
   $executeRawUnsafe: executeRawUnsafeMock,
 };
 const setTenantTxMock = jest.fn(async (_tenantId, callback) => callback(txMock));
+const assertPharmacyFacilityGrantMock = jest.fn(async () => ({
+  actor: { uid: '11111111-1111-4111-8111-111111111111', role: 'PHARMACY_STAFF' },
+  facility: { id: 23 },
+  grant: { id: 31 },
+}));
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: txMock,
@@ -14,41 +19,57 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   setTenantTx: setTenantTxMock,
 }));
 
-const { listItems, recordMovement } = await import('../../services/pharmacy/inventoryV2Service.js');
+jest.unstable_mockModule('../../services/pharmacy/pharmacyFacilityAuthorityService.js', () => ({
+  assertPharmacyFacilityGrant: assertPharmacyFacilityGrantMock,
+}));
+
+const {
+  createItem,
+  listItems,
+  listBatches,
+  listScheduleRegister,
+  recordMovement,
+} = await import('../../services/pharmacy/inventoryV2Service.js');
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const ACTOR = '11111111-1111-4111-8111-111111111111';
-
-// recordMovement() first resolves the item's schedule_class/is_narcotic in-tx
-// (controlled-drug register + witness enforcement, commit b07405f4) before
-// dispatching to recordMovementTx. A non-controlled item routes straight to the
-// ordinary movement path exercised by these cases, so every recordMovement()
-// call issues this item lookup as its first $queryRawUnsafe.
-const NON_CONTROLLED_ITEM = {
-  id: 17,
-  schedule_class: 'OTC',
-  is_narcotic: false,
-  unit_label: 'unit',
-};
+const FACILITY = 23;
+const ACTOR_ROLE = 'PHARMACY_STAFF';
 
 beforeEach(() => {
   queryRawUnsafeMock.mockReset();
   executeRawUnsafeMock.mockReset();
   setTenantTxMock.mockClear();
+  assertPharmacyFacilityGrantMock.mockClear();
 });
 
-describe('inventoryV2Service.listItems', () => {
-  test('projects catalog and composition links for exact ward-indent stock joins', async () => {
+describe('inventoryV2Service facility-scoped reads', () => {
+  test('projects catalog and composition only after exact actor-facility authority', async () => {
     queryRawUnsafeMock.mockResolvedValueOnce([]);
 
-    await listItems({ tenantId: TENANT, catalogId: 17, search: 'morphine' });
+    await listItems({
+      tenantId: TENANT,
+      actorUid: ACTOR,
+      actorRole: ACTOR_ROLE,
+      facilityId: FACILITY,
+      catalogId: 17,
+      search: 'morphine',
+    });
 
+    expect(assertPharmacyFacilityGrantMock).toHaveBeenCalledWith(txMock, {
+      tenantId: TENANT,
+      facilityId: FACILITY,
+      actorUid: ACTOR,
+      actorRole: ACTOR_ROLE,
+    });
     const sql = queryRawUnsafeMock.mock.calls[0][0];
     expect(sql).toMatch(/catalog_id/);
     expect(sql).toMatch(/composition_id/);
-    expect(sql).toMatch(/catalog_id = \$3::int/);
+    expect(sql).toMatch(/facility_id = \$2::int/);
+    expect(sql).toMatch(/catalog_id = \$4::int/);
     expect(queryRawUnsafeMock.mock.calls[0].slice(1)).toEqual([
       TENANT,
+      FACILITY,
       'active',
       17,
       '%morphine%',
@@ -56,293 +77,370 @@ describe('inventoryV2Service.listItems', () => {
     ]);
   });
 
+  test('rejects a missing facility before opening a transaction', async () => {
+    await expect(listItems({ tenantId: TENANT, actorUid: ACTOR, actorRole: ACTOR_ROLE }))
+      .rejects.toMatchObject({ statusCode: 400, code: 'PHARMACY_FACILITY_REQUIRED' });
+    expect(setTenantTxMock).not.toHaveBeenCalled();
+  });
+
   test('rejects an invalid exact catalog lookup before querying', async () => {
-    await expect(listItems({ tenantId: TENANT, catalogId: 'not-an-id' }))
-      .rejects.toMatchObject({ statusCode: 400 });
+    await expect(listItems({
+      tenantId: TENANT,
+      actorUid: ACTOR,
+      actorRole: ACTOR_ROLE,
+      facilityId: FACILITY,
+      catalogId: 'not-an-id',
+    })).rejects.toMatchObject({ statusCode: 400 });
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  test('binds the batch feed to the exact granted facility', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([]);
+
+    await listBatches({
+      tenantId: TENANT,
+      actorUid: ACTOR,
+      actorRole: ACTOR_ROLE,
+      facility_id: FACILITY,
+      item_id: 17,
+    });
+
+    expect(assertPharmacyFacilityGrantMock).toHaveBeenCalledWith(txMock, {
+      tenantId: TENANT,
+      facilityId: FACILITY,
+      actorUid: ACTOR,
+      actorRole: ACTOR_ROLE,
+    });
+    const sql = queryRawUnsafeMock.mock.calls[0][0];
+    expect(sql).toContain('b.facility_id = $2::int');
+    expect(sql).toContain('i.facility_id = b.facility_id');
+    expect(sql).toContain("b.expiry_date >= (NOW() AT TIME ZONE 'Asia/Kolkata')::date");
+    expect(queryRawUnsafeMock.mock.calls[0].slice(1)).toEqual([
+      TENANT,
+      FACILITY,
+      17,
+      'in_stock',
+      200,
+    ]);
+  });
+
+  test('binds the statutory register to the exact granted facility', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([]);
+    const dateFrom = '2026-08-01T00:00:00.000Z';
+    const dateTo = '2026-08-31T23:59:59.999Z';
+
+    await listScheduleRegister({
+      tenantId: TENANT,
+      actorUid: ACTOR,
+      actorRole: ACTOR_ROLE,
+      facility_id: FACILITY,
+      schedule_class: 'H1',
+      date_from: dateFrom,
+      date_to: dateTo,
+    });
+
+    expect(assertPharmacyFacilityGrantMock).toHaveBeenCalledWith(txMock, {
+      tenantId: TENANT,
+      facilityId: FACILITY,
+      actorUid: ACTOR,
+      actorRole: ACTOR_ROLE,
+    });
+    const sql = queryRawUnsafeMock.mock.calls[0][0];
+    expect(sql).toContain('FROM pharmacy_schedule_register register');
+    expect(sql).toContain('register.facility_id = $2::int');
+    expect(sql).toContain('item.tenant_id=register.tenant_id');
+    expect(sql).toContain('item.facility_id=register.facility_id');
+    expect(sql).toContain('batch.tenant_id=register.tenant_id');
+    expect(sql).toContain('batch.inventory_item_id=register.inventory_item_id');
+    expect(sql).toContain('batch.facility_id=register.facility_id');
+    expect(sql).toContain('register.created_at >= $4::timestamptz');
+    expect(sql).toContain('register.created_at <= $5::timestamptz');
+    expect(sql).not.toContain('SELECT register.*');
+    expect(queryRawUnsafeMock.mock.calls[0].slice(1)).toEqual([
+      TENANT,
+      FACILITY,
+      'H1',
+      dateFrom,
+      dateTo,
+      200,
+    ]);
+  });
+
+  test.each(['OTC', 'h1', '', 'H1 '])(
+    'rejects non-statutory or non-canonical schedule_class %j before querying',
+    async (scheduleClass) => {
+      await expect(listScheduleRegister({
+        tenantId: TENANT,
+        actorUid: ACTOR,
+        actorRole: ACTOR_ROLE,
+        facility_id: FACILITY,
+        schedule_class: scheduleClass,
+      })).rejects.toMatchObject({
+        statusCode: 400,
+        code: 'PHARMACY_SCHEDULE_REGISTER_FILTER_INVALID',
+        details: { field: 'schedule_class' },
+      });
+      expect(setTenantTxMock).not.toHaveBeenCalled();
+      expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+    },
+  );
+
+  test.each([
+    ['date_from', '2026-08-30T00:00:00.000Zsuffix'],
+    ['date_from', '2026-02-30T00:00:00.000Z'],
+    ['date_to', '2026-08-30T00:00:00Z'],
+    ['date_to', '2026-08-30T05:30:00.000+05:30'],
+    ['date_to', 1724976000000],
+  ])('rejects non-canonical %s before PostgreSQL casts it', async (field, value) => {
+    await expect(listScheduleRegister({
+      tenantId: TENANT,
+      actorUid: ACTOR,
+      actorRole: ACTOR_ROLE,
+      facility_id: FACILITY,
+      [field]: value,
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'PHARMACY_SCHEDULE_REGISTER_FILTER_INVALID',
+      details: { field },
+    });
+    expect(setTenantTxMock).not.toHaveBeenCalled();
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  test('rejects a reversed statutory-register date range before querying', async () => {
+    await expect(listScheduleRegister({
+      tenantId: TENANT,
+      actorUid: ACTOR,
+      actorRole: ACTOR_ROLE,
+      facility_id: FACILITY,
+      date_from: '2026-09-01T00:00:00.000Z',
+      date_to: '2026-08-31T23:59:59.999Z',
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'PHARMACY_SCHEDULE_REGISTER_FILTER_INVALID',
+      details: { field: 'date_range' },
+    });
+    expect(setTenantTxMock).not.toHaveBeenCalled();
     expect(queryRawUnsafeMock).not.toHaveBeenCalled();
   });
 });
 
-describe('inventoryV2Service.recordMovement', () => {
-  test('rejects a batch outside the requested tenant/item scope', async () => {
+describe('inventoryV2Service.createItem catalog authority', () => {
+  const canonicalCatalog = {
+    facility_id: FACILITY,
+    catalog_id: 17,
+    composition_id: 91,
+    composition_confidence: 'high',
+    display_name: 'Canonical Morphine 10 mg tablet',
+    generic_name: 'Morphine',
+    manufacturer: 'Canonical Pharma',
+    form: 'tablet',
+    strength: '10 mg',
+    catalog_pack_size: '10',
+  };
+
+  test('persists only the locked catalog identity despite malicious caller identity', async () => {
     queryRawUnsafeMock
-      .mockResolvedValueOnce([NON_CONTROLLED_ITEM])
-      .mockResolvedValueOnce([]);
+      .mockResolvedValueOnce([canonicalCatalog])
+      .mockResolvedValueOnce([{ id: 501, catalog_id: 17, composition_id: 91 }]);
 
-    await expect(recordMovement({
+    const result = await createItem({
       tenantId: TENANT,
-      inventory_item_id: 17,
-      inventory_batch_id: 29,
-      movement_kind: 'issue',
-      quantity: 1,
-      performed_by: ACTOR,
-    })).rejects.toMatchObject({ statusCode: 404 });
-
-    expect(setTenantTxMock).toHaveBeenCalledWith(TENANT, expect.any(Function));
-    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(2);
-    expect(queryRawUnsafeMock.mock.calls[1][0]).toEqual(expect.stringContaining('FOR UPDATE'));
-    expect(queryRawUnsafeMock.mock.calls[1][0]).toEqual(
-      expect.stringContaining('inventory_item_id = $3::int'),
-    );
-    expect(queryRawUnsafeMock.mock.calls[1][0]).toContain(
-      "expiry_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date",
-    );
-    expect(queryRawUnsafeMock.mock.calls[1].slice(1)).toEqual([29, TENANT, 17]);
-    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
-  });
-
-  test('rejects insufficient stock before updating the batch or writing a movement', async () => {
-    queryRawUnsafeMock
-      .mockResolvedValueOnce([NON_CONTROLLED_ITEM])
-      .mockResolvedValueOnce([{
-        id: 29,
-        inventory_item_id: 17,
-        remaining_quantity: '2.0000',
-        status: 'in_stock',
-      }]);
-
-    await expect(recordMovement({
-      tenantId: TENANT,
-      inventory_item_id: 17,
-      inventory_batch_id: 29,
-      movement_kind: 'issue',
-      quantity: 3,
-      performed_by: ACTOR,
-    })).rejects.toMatchObject({ statusCode: 400 });
-
-    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
-    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(2);
-  });
-
-  test.each([
-    [{ status: 'recalled', is_expired: false }, 'INVENTORY_BATCH_UNAVAILABLE'],
-    [{ status: 'in_stock', is_expired: true }, 'INVENTORY_BATCH_EXPIRED'],
-  ])('rejects a non-usable exact batch before any decrement', async (batchState, code) => {
-    queryRawUnsafeMock
-      .mockResolvedValueOnce([NON_CONTROLLED_ITEM])
-      .mockResolvedValueOnce([{
-        id: 29,
-        inventory_item_id: 17,
-        batch_number: 'BATCH-29',
-        lot_number: 'LOT-29',
-        expiry_date: new Date('2028-12-31T00:00:00.000Z'),
-        remaining_quantity: '5.0000',
-        ...batchState,
-      }]);
-
-    await expect(recordMovement({
-      tenantId: TENANT,
-      inventory_item_id: 17,
-      inventory_batch_id: 29,
-      movement_kind: 'issue',
-      quantity: 1,
-      performed_by: ACTOR,
-      require_usable_batch: true,
-      expected_batch_number: 'BATCH-29',
-      expected_lot_number: 'LOT-29',
-      expected_expiry_date: '2028-12-31',
-    })).rejects.toMatchObject({ statusCode: 400, code });
-
-    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
-    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(2);
-  });
-
-  test('rejects a selected batch whose locked lineage differs from the clinical record', async () => {
-    queryRawUnsafeMock
-      .mockResolvedValueOnce([NON_CONTROLLED_ITEM])
-      .mockResolvedValueOnce([{
-        id: 29,
-        inventory_item_id: 17,
-        batch_number: 'BATCH-29',
-        lot_number: 'LOT-29',
-        expiry_date: new Date('2028-12-31T00:00:00.000Z'),
-        remaining_quantity: '5.0000',
-        status: 'in_stock',
-        is_expired: false,
-      }]);
-
-    await expect(recordMovement({
-      tenantId: TENANT,
-      inventory_item_id: 17,
-      inventory_batch_id: 29,
-      movement_kind: 'issue',
-      quantity: 1,
-      performed_by: ACTOR,
-      require_usable_batch: true,
-      expected_batch_number: 'DIFFERENT-BATCH',
-      expected_lot_number: 'LOT-29',
-      expected_expiry_date: '2028-12-31',
-    })).rejects.toMatchObject({
-      statusCode: 400,
-      code: 'INVENTORY_BATCH_LINEAGE_MISMATCH',
+      actorUid: ACTOR,
+      actorRole: ACTOR_ROLE,
+      item: {
+        facility_id: FACILITY,
+        catalog_id: 17,
+        sku_code: 'MORPH-10',
+        display_name: 'Forged medicine',
+        generic_name: 'Forged generic',
+        brand_name: 'Forged brand',
+        manufacturer: 'Forged manufacturer',
+        form: 'syrup',
+        strength: '999 mg',
+        pack_size: '500 ml bag',
+        hsn_code: 'FORGED-HSN',
+        composition_id: 999,
+        unit_label: 'tablet',
+        schedule_class: 'X',
+        is_narcotic: false,
+        is_cold_chain: true,
+        reorder_level: 0,
+        reorder_quantity: 20,
+      },
     });
 
-    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
-    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(2);
-  });
-
-  test('updates the locked batch and writes its movement in one tenant transaction', async () => {
-    const movement = {
-      id: 41,
-      tenant_id: TENANT,
-      inventory_item_id: 17,
-      inventory_batch_id: 29,
-      movement_kind: 'issue',
-      quantity_delta: '-1.0000',
-    };
-    queryRawUnsafeMock
-      .mockResolvedValueOnce([NON_CONTROLLED_ITEM])
-      .mockResolvedValueOnce([{
-        id: 29,
-        inventory_item_id: 17,
-        batch_number: 'BATCH-29',
-        lot_number: 'LOT-29',
-        expiry_date: new Date('2028-12-31T00:00:00.000Z'),
-        remaining_quantity: '5.0000',
-        status: 'in_stock',
-        is_expired: false,
-      }])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([movement]);
-
-    const result = await recordMovement({
+    expect(assertPharmacyFacilityGrantMock).toHaveBeenCalledWith(txMock, {
       tenantId: TENANT,
-      inventory_item_id: 17,
-      inventory_batch_id: 29,
-      movement_kind: 'issue',
-      quantity: 1,
-      reference_type: 'cath_consumable_usage',
-      reference_id: '73',
-      notes: 'Cath consumable used',
-      performed_by: ACTOR,
-      require_usable_batch: true,
-      expected_batch_number: 'BATCH-29',
-      expected_lot_number: 'LOT-29',
-      expected_expiry_date: new Date('2028-12-31T00:00:00.000Z'),
+      facilityId: FACILITY,
+      actorUid: ACTOR,
+      actorRole: ACTOR_ROLE,
+      forUpdate: true,
     });
-
-    expect(setTenantTxMock).toHaveBeenCalledTimes(1);
-    expect(executeRawUnsafeMock).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE pharmacy_inventory_batches'),
-      -1,
-      29,
+    const authoritySql = queryRawUnsafeMock.mock.calls[0][0];
+    expect(authoritySql).toMatch(/pc\.tenant_id=f\.tenant_id/);
+    expect(authoritySql).toMatch(/f\.tenant_id=\$1::uuid/);
+    expect(authoritySql).toMatch(/pc\.id=\$3::int/);
+    expect(authoritySql).toMatch(/pc\.is_active=TRUE/);
+    expect(authoritySql).toMatch(/pc\.composition_id/);
+    expect(authoritySql).toMatch(/pc\.composition_confidence/);
+    expect(authoritySql).toMatch(/pc\.name AS display_name/);
+    expect(authoritySql).toMatch(/FOR UPDATE OF f, pc/);
+    expect(queryRawUnsafeMock.mock.calls[0].slice(1)).toEqual([
       TENANT,
+      FACILITY,
       17,
-    );
-    expect(queryRawUnsafeMock.mock.calls[3][0]).toEqual(
-      expect.stringContaining('INSERT INTO pharmacy_stock_movements'),
-    );
-    expect(queryRawUnsafeMock.mock.calls[3].slice(1)).toEqual([
-      TENANT,
-      17,
-      29,
-      'issue',
-      -1,
-      'cath_consumable_usage',
-      '73',
-      ACTOR,
-      'Cath consumable used',
     ]);
-    expect(result).toEqual({ movement, increasing: false, decreasing: true });
-  });
 
-  test('reuses an already-committed cath movement without decrementing its batch again', async () => {
-    const movement = {
-      id: 41,
-      tenant_id: TENANT,
-      inventory_item_id: 17,
-      inventory_batch_id: 29,
-      movement_kind: 'issue',
-      quantity_delta: '-1.0000',
-      reference_type: 'cath_consumable_usage',
-      reference_id: '73',
-    };
-    queryRawUnsafeMock
-      .mockResolvedValueOnce([NON_CONTROLLED_ITEM])
-      .mockResolvedValueOnce([{
-        id: 29,
-        inventory_item_id: 17,
-        batch_number: 'BATCH-29',
-        lot_number: 'LOT-29',
-        expiry_date: new Date('2028-12-31T00:00:00.000Z'),
-        remaining_quantity: '4.0000',
-        status: 'in_stock',
-        is_expired: false,
-      }])
-      .mockResolvedValueOnce([movement]);
-
-    const result = await recordMovement({
-      tenantId: TENANT,
-      inventory_item_id: 17,
-      inventory_batch_id: 29,
-      movement_kind: 'issue',
-      quantity: 1,
-      reference_type: 'cath_consumable_usage',
-      reference_id: '73',
-      performed_by: ACTOR,
-      require_usable_batch: true,
-      expected_batch_number: 'BATCH-29',
-      expected_lot_number: 'LOT-29',
-      expected_expiry_date: '2028-12-31',
-    });
-
+    const insertSql = queryRawUnsafeMock.mock.calls[1][0];
+    expect(insertSql).toMatch(/catalog_id, composition_id/);
+    expect(insertSql).not.toMatch(/hsn_code/);
+    expect(queryRawUnsafeMock.mock.calls[1].slice(1)).toEqual([
+      TENANT,
+      FACILITY,
+      17,
+      91,
+      'MORPH-10',
+      'Canonical Morphine 10 mg tablet',
+      'Morphine',
+      'Canonical Morphine 10 mg tablet',
+      'Canonical Pharma',
+      'tablet',
+      '10 mg',
+      'tablet',
+      10,
+      'X',
+      true,
+      true,
+      0,
+      20,
+    ]);
     expect(result).toEqual({
-      movement,
-      increasing: false,
-      decreasing: true,
-      idempotent_replay: true,
+      id: 501,
+      catalog_id: 17,
+      composition_id: 91,
+      pack_size_label: '10',
     });
-    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
-    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(3);
   });
 
-  test('resolves a unique-index race to the winning cath movement without decrementing', async () => {
-    const movement = {
-      id: 42,
-      tenant_id: TENANT,
-      inventory_item_id: 17,
-      inventory_batch_id: 29,
-      movement_kind: 'issue',
-      quantity_delta: '-1.0000',
-      reference_type: 'cath_consumable_usage',
-      reference_id: '74',
-    };
+  test('keeps labeled catalog pack identity linked without inventing an integer count', async () => {
     queryRawUnsafeMock
-      .mockResolvedValueOnce([NON_CONTROLLED_ITEM])
-      .mockResolvedValueOnce([{
-        id: 29,
-        inventory_item_id: 17,
-        batch_number: 'BATCH-29',
-        lot_number: 'LOT-29',
-        expiry_date: new Date('2028-12-31T00:00:00.000Z'),
-        remaining_quantity: '4.0000',
-        status: 'in_stock',
-        is_expired: false,
-      }])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([movement]);
+      .mockResolvedValueOnce([{ ...canonicalCatalog, catalog_pack_size: '500 ml bag' }])
+      .mockResolvedValueOnce([{ id: 502, catalog_id: 17, composition_id: 91, pack_size: null }]);
 
-    const result = await recordMovement({
+    const result = await createItem({
+      tenantId: TENANT,
+      actorUid: ACTOR,
+      actorRole: ACTOR_ROLE,
+      item: {
+        facility_id: FACILITY,
+        catalog_id: 17,
+        sku_code: 'MORPH-BAG',
+      },
+    });
+
+    expect(queryRawUnsafeMock.mock.calls[1][13]).toBeNull();
+    expect(result.pack_size_label).toBe('500 ml bag');
+  });
+
+  test('fails closed when the selected catalog has no composition identity', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{
+      ...canonicalCatalog,
+      composition_id: null,
+    }]);
+
+    await expect(createItem({
+      tenantId: TENANT,
+      actorUid: ACTOR,
+      actorRole: ACTOR_ROLE,
+      item: {
+        facility_id: FACILITY,
+        catalog_id: 17,
+        sku_code: 'MORPH-NO-COMPOSITION',
+      },
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'PHARMACY_CATALOG_COMPOSITION_REQUIRED',
+      details: {
+        catalog_id: 17,
+        next_action: 'REVIEW_CATALOG_COMPOSITION',
+      },
+    });
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
+  test.each(['medium', 'low'])(
+    'fails closed when the catalog composition confidence is %s despite a linked identity',
+    async (compositionConfidence) => {
+      queryRawUnsafeMock.mockResolvedValueOnce([{
+        ...canonicalCatalog,
+        composition_confidence: compositionConfidence,
+      }]);
+
+      await expect(createItem({
+        tenantId: TENANT,
+        actorUid: ACTOR,
+        actorRole: ACTOR_ROLE,
+        item: {
+          facility_id: FACILITY,
+          catalog_id: 17,
+          sku_code: `MORPH-${compositionConfidence.toUpperCase()}`,
+        },
+      })).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'PHARMACY_CATALOG_COMPOSITION_REQUIRED',
+        details: {
+          catalog_id: 17,
+          composition_confidence: compositionConfidence,
+          next_action: 'REVIEW_CATALOG_COMPOSITION',
+        },
+      });
+      expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
+      expect(queryRawUnsafeMock.mock.calls[0][0]).not.toMatch(
+        /INSERT INTO pharmacy_inventory_items/,
+      );
+    },
+  );
+
+  test.each(['inactive', 'cross-tenant'])(
+    'fails closed when the catalog authority is %s',
+    async () => {
+      queryRawUnsafeMock.mockResolvedValueOnce([]);
+
+      await expect(createItem({
+        tenantId: TENANT,
+        actorUid: ACTOR,
+        actorRole: ACTOR_ROLE,
+        item: {
+          facility_id: FACILITY,
+          catalog_id: 17,
+          sku_code: 'MORPH-NO-AUTHORITY',
+        },
+      })).rejects.toMatchObject({
+        statusCode: 400,
+        code: 'PHARMACY_INVENTORY_AUTHORITY_INVALID',
+      });
+      expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
+    },
+  );
+});
+
+describe('inventoryV2Service.recordMovement', () => {
+  test('retires the caller-defined generic movement surface before storage', async () => {
+    await expect(recordMovement({
       tenantId: TENANT,
       inventory_item_id: 17,
       inventory_batch_id: 29,
-      movement_kind: 'issue',
+      movement_kind: 'adjust_decrease',
       quantity: 1,
-      reference_type: 'cath_consumable_usage',
-      reference_id: '74',
       performed_by: ACTOR,
-      require_usable_batch: true,
-      expected_batch_number: 'BATCH-29',
-      expected_lot_number: 'LOT-29',
-      expected_expiry_date: '2028-12-31',
+    })).rejects.toMatchObject({
+      statusCode: 410,
+      code: 'INVENTORY_GENERIC_MOVEMENT_RETIRED',
     });
 
-    expect(result).toMatchObject({
-      movement,
-      idempotent_replay: true,
-    });
+    expect(setTenantTxMock).not.toHaveBeenCalled();
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
     expect(executeRawUnsafeMock).not.toHaveBeenCalled();
-    expect(queryRawUnsafeMock.mock.calls[3][0]).toContain('ON CONFLICT DO NOTHING');
   });
 });

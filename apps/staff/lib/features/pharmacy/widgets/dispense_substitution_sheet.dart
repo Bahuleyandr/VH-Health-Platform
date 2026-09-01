@@ -2,11 +2,13 @@ import 'dart:collection';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:vhhealth_core/services/idempotency_key.dart';
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 import '../../../core/models/composition_alternatives.dart';
 import '../../../core/services/pharmacy_api_service.dart';
+import '../models/pharmacy_funding_recovery.dart';
 import 'composition_alternatives_panel.dart';
 
 typedef DispensableContextLoader = Future<Map<String, dynamic>> Function(
@@ -16,6 +18,10 @@ typedef DispensableBatchLoader = Future<List<Map<String, dynamic>>> Function(
   int catalogId,
 );
 typedef SubstitutionDispenser = Future<void> Function({
+  required int orderId,
+  required int prescriptionId,
+  required int orderLineIndex,
+  required int prescriptionLineIndex,
   required String patientUid,
   int? encounterId,
   required int inventoryItemId,
@@ -25,6 +31,10 @@ typedef SubstitutionDispenser = Future<void> Function({
   required int finalCatalogId,
   String? reason,
   String? witnessApprovalId,
+  required String paymentMode,
+  required num amountCollected,
+  String? tpaReference,
+  required String idempotencyKey,
 });
 typedef SubstitutionWitnessApprovalRequester =
     Future<Map<String, dynamic>> Function({
@@ -39,7 +49,6 @@ typedef SubstitutionWitnessApprovalApprover =
       required String password,
       required String idempotencyKey,
     });
-
 dynamic _canonicalJsonValue(dynamic value) {
   if (value is Map) {
     final sorted = SplayTreeMap<String, dynamic>();
@@ -80,6 +89,7 @@ class DispenseSubstitutionSheet extends StatefulWidget {
     this.alternativesLoader,
     this.requestWitnessApproval,
     this.approveWitnessApproval,
+    this.canOpenBillingDesk = false,
   });
 
   final int orderId;
@@ -92,10 +102,12 @@ class DispenseSubstitutionSheet extends StatefulWidget {
   final CompositionAlternativesLoader? alternativesLoader;
   final SubstitutionWitnessApprovalRequester? requestWitnessApproval;
   final SubstitutionWitnessApprovalApprover? approveWitnessApproval;
+  final bool canOpenBillingDesk;
 
   static Future<void> show(
     BuildContext context, {
     required int orderId,
+    bool canOpenBillingDesk = false,
     VoidCallback? onDispensed,
   }) {
     return showModalBottomSheet<void>(
@@ -105,6 +117,7 @@ class DispenseSubstitutionSheet extends StatefulWidget {
         padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
         child: DispenseSubstitutionSheet(
           orderId: orderId,
+          canOpenBillingDesk: canOpenBillingDesk,
           onDispensed: onDispensed,
         ),
       ),
@@ -125,6 +138,8 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
   bool _dispensing = false;
   bool _witnessBusy = false;
   String? _error;
+  bool _tpaRecoveryRequired = false;
+  PharmacyFundingRecovery? _fundingRecovery;
 
   String? _patientUid;
   List<Map<String, dynamic>> _lines = const [];
@@ -133,6 +148,9 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
   List<Map<String, dynamic>> _batches = const [];
   Map<String, dynamic>? _selectedBatch;
   final TextEditingController _qtyCtrl = TextEditingController();
+  final TextEditingController _amountCollectedCtrl = TextEditingController();
+  final TextEditingController _tpaReferenceCtrl = TextEditingController();
+  String _paymentMode = '';
 
   // Schedule X / narcotic witness approval state — mirrors the counter-sale
   // two-person flow: the approval is bound server-side to the EXACT
@@ -147,6 +165,7 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
   final _witnessApprovalAttempt = IdempotencyAttempt(
     'substitution-witness-approval',
   );
+  final _dispenseAttempt = IdempotencyAttempt('dispense-substitution');
 
   @override
   void initState() {
@@ -157,11 +176,22 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
   @override
   void dispose() {
     _qtyCtrl.dispose();
+    _amountCollectedCtrl.dispose();
+    _tpaReferenceCtrl.dispose();
     super.dispose();
   }
 
   int? get _originalCatalogId =>
       (_selectedLine?['catalog_id'] as num?)?.toInt();
+
+  int? get _prescriptionId =>
+      (_selectedLine?['prescription_id'] as num?)?.toInt();
+
+  int? get _orderLineIndex =>
+      (_selectedLine?['order_line_index'] as num?)?.toInt();
+
+  int? get _prescriptionLineIndex =>
+      (_selectedLine?['prescription_line_index'] as num?)?.toInt();
 
   String get _selectedLabel =>
       (_selectedLine?['name'] as String?) ?? 'Prescribed brand';
@@ -175,20 +205,39 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
   Map<String, dynamic>? _currentSubstitutionPayload() {
     final patient = _patientUid;
     final orig = _originalCatalogId;
+    final prescriptionId = _prescriptionId;
+    final orderLineIndex = _orderLineIndex;
+    final prescriptionLineIndex = _prescriptionLineIndex;
     final chosen = _chosen;
     final batch = _selectedBatch;
     final qty = num.tryParse(_qtyCtrl.text.trim());
+    final amountCollected = num.tryParse(_amountCollectedCtrl.text.trim());
+    final tpaReference = _tpaReferenceCtrl.text.trim();
+    final tpaMode = const {'insurance', 'corporate_tpa'}.contains(_paymentMode);
     if (patient == null ||
         orig == null ||
+        prescriptionId == null ||
+        orderLineIndex == null ||
+        prescriptionLineIndex == null ||
         chosen == null ||
         batch == null ||
+        _paymentMode.isEmpty ||
         qty == null ||
-        qty <= 0) {
+        !qty.isFinite ||
+        qty <= 0 ||
+        amountCollected == null ||
+        !amountCollected.isFinite ||
+        amountCollected < 0 ||
+        (tpaMode && tpaReference.isEmpty)) {
       return null;
     }
     // Must stay byte-identical to the eventual dispense body (minus
     // witness_approval_id) — the server fingerprints these exact fields.
     return {
+      'order_id': widget.orderId,
+      'prescription_id': prescriptionId,
+      'order_line_index': orderLineIndex,
+      'prescription_line_index': prescriptionLineIndex,
       'patient_uid': patient,
       'inventory_item_id': (batch['inventory_item_id'] as num).toInt(),
       'inventory_batch_id': (batch['inventory_batch_id'] as num).toInt(),
@@ -196,6 +245,9 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
       'original_catalog_id': orig,
       'final_catalog_id': chosen.catalogId,
       'reason': _kSubstitutionReason,
+      'payment_mode': _paymentMode,
+      'amount_collected': amountCollected,
+      if (tpaReference.isNotEmpty) 'tpa_reference': tpaReference,
     };
   }
 
@@ -215,10 +267,44 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
     _witnessApprovalAttempt.reset();
   }
 
+  bool _isCorrectableClientError(PharmacyApiException error) =>
+      error.statusCode >= 400 && error.statusCode < 500;
+
+  String _paymentModeLabel(AppStrings strings, String mode) =>
+      strings.lookup('med03.pharmacy.payment_mode.$mode');
+
+  String _recoveryActionLabel(AppStrings strings, Object? rawAction) =>
+      switch (rawAction?.toString()) {
+        'select_exact_tpa_claim_allocation' => strings.lookup(
+          'med03.pharmacy.recovery.select_exact_tpa_claim_allocation',
+        ),
+        'materialize_pharmacy_funding' => strings.lookup(
+          'med03.pharmacy.recovery.materialize_pharmacy_funding',
+        ),
+        'open_exact_pharmacy_funding_task' => strings.lookup(
+          'med03.pharmacy.recovery.open_exact_pharmacy_funding_task',
+        ),
+        'complete_manual_allergy_review' => strings.lookup(
+          'med03.pharmacy.recovery.complete_manual_allergy_review',
+        ),
+        _ => strings.lookup('med03.pharmacy.recovery.contact_owner'),
+      };
+
+  bool _witnessApprovalCannotBeReused(PharmacyApiException error) => const {
+    'CONTROLLED_DISPENSE_WITNESS_APPROVAL_INVALID',
+    'CONTROLLED_DISPENSE_WITNESS_APPROVAL_NOT_FOUND',
+    'CONTROLLED_DISPENSE_WITNESS_APPROVAL_MISMATCH',
+    'CONTROLLED_DISPENSE_WITNESS_APPROVAL_EXPIRED',
+    'CONTROLLED_DISPENSE_WITNESS_APPROVAL_CONSUMED',
+    'CONTROLLED_DISPENSE_WITNESS_APPROVAL_REQUESTER_MISMATCH',
+  }.contains(error.code);
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
       _error = null;
+      _tpaRecoveryRequired = false;
+      _fundingRecovery = null;
     });
     try {
       final ctx =
@@ -231,6 +317,20 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
           .toList();
       setState(() {
         _patientUid = ctx['patient_uid'] as String?;
+        _paymentMode =
+            const {
+              'cash',
+              'card',
+              'upi',
+              'wallet',
+              'insurance',
+              'corporate_tpa',
+            }.contains(ctx['payment_mode']?.toString())
+            ? ctx['payment_mode'].toString()
+            : '';
+        _amountCollectedCtrl.text = (ctx['amount_collected'] as num? ?? 0)
+            .toString();
+        _tpaReferenceCtrl.text = ctx['tpa_reference']?.toString() ?? '';
         _lines = lines;
         _selectedLine = lines.isNotEmpty ? lines.first : null;
         _chosen = null;
@@ -261,6 +361,8 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
       _selectedBatch = null;
       _loadingBatches = true;
       _error = null;
+      _tpaRecoveryRequired = false;
+      _fundingRecovery = null;
       _clearWitnessApprovalState();
     });
     try {
@@ -307,11 +409,17 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
     setState(() {
       _dispensing = true;
       _error = null;
+      _tpaRecoveryRequired = false;
+      _fundingRecovery = null;
     });
     try {
       final SubstitutionDispenser dispenser =
           widget.dispenser ?? PharmacyApiService.dispenseSubstitution;
       await dispenser(
+        orderId: payload['order_id'] as int,
+        prescriptionId: payload['prescription_id'] as int,
+        orderLineIndex: payload['order_line_index'] as int,
+        prescriptionLineIndex: payload['prescription_line_index'] as int,
         patientUid: payload['patient_uid'] as String,
         inventoryItemId: payload['inventory_item_id'] as int,
         inventoryBatchId: payload['inventory_batch_id'] as int,
@@ -320,7 +428,15 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
         finalCatalogId: payload['final_catalog_id'] as int,
         reason: _kSubstitutionReason,
         witnessApprovalId: _needsWitness ? _witnessApprovalId : null,
+        paymentMode: payload['payment_mode'] as String,
+        amountCollected: payload['amount_collected'] as num,
+        tpaReference: payload['tpa_reference'] as String?,
+        idempotencyKey: _dispenseAttempt.keyFor({
+          ...payload,
+          'witness_approval_id': _needsWitness ? _witnessApprovalId : null,
+        }),
       );
+      _dispenseAttempt.reset();
       if (!mounted) return;
       widget.onDispensed?.call();
       Navigator.of(context).pop();
@@ -333,17 +449,36 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
           ),
         ),
       );
-    } catch (e) {
+    } on PharmacyApiException catch (error) {
+      if (_isCorrectableClientError(error)) {
+        _dispenseAttempt.reset();
+      }
+      final nextAction = error.details?['next_action']?.toString();
+      final fundingRecovery = PharmacyFundingRecovery.from(
+        error.details?['funding_recovery'],
+      );
+      if (!mounted) return;
       setState(() {
         _dispensing = false;
-        final message = e.toString().toLowerCase();
-        if (_needsWitness &&
-            (message.contains('witness') || message.contains('approval'))) {
-          // A consumed/expired/mismatched approval cannot be retried — the
-          // pharmacist must run the witness flow again.
+        if (_needsWitness && _witnessApprovalCannotBeReused(error)) {
           _clearWitnessApprovalState();
         }
-        _error = e.toString();
+        _tpaRecoveryRequired =
+            error.code == 'PHARMACY_TPA_FUNDING_REQUIRED' ||
+            error.code == 'COUNTER_FUNDING_POSTED_AUTHORITY_REQUIRED' ||
+            nextAction == 'select_exact_tpa_claim_allocation' ||
+            nextAction == 'materialize_pharmacy_funding' ||
+            nextAction == 'open_exact_pharmacy_funding_task';
+        _fundingRecovery = fundingRecovery;
+        _error = [
+          error.toString(),
+          if (nextAction != null) _recoveryActionLabel(s, nextAction),
+        ].join(' · ');
+      });
+    } catch (error) {
+      setState(() {
+        _dispensing = false;
+        _error = error.toString();
       });
     }
   }
@@ -439,10 +574,18 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
         final requester =
             widget.requestWitnessApproval ??
             PharmacyApiService.requestSubstitutionWitnessApproval;
-        final pending = await requester(
-          substitution: substitution,
-          idempotencyKey: _witnessRequestAttempt.keyFor(substitution),
-        );
+        late final Map<String, dynamic> pending;
+        try {
+          pending = await requester(
+            substitution: substitution,
+            idempotencyKey: _witnessRequestAttempt.keyFor(substitution),
+          );
+        } on PharmacyApiException catch (error) {
+          if (_isCorrectableClientError(error)) {
+            _witnessRequestAttempt.reset();
+          }
+          rethrow;
+        }
         final returnedApprovalId = pending['id']?.toString().trim() ?? '';
         if (!RegExp(r'^[1-9][0-9]*$').hasMatch(returnedApprovalId)) {
           throw StateError('Witness approval id missing');
@@ -463,17 +606,25 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
       final approver =
           widget.approveWitnessApproval ??
           PharmacyApiService.approveSubstitutionWitnessApproval;
-      final approved = await approver(
-        approvalId: approvalId,
-        substitution: substitution,
-        employeeId: credentials.employeeId,
-        password: credentials.password,
-        idempotencyKey: _witnessApprovalAttempt.keyFor({
-          'approvalId': approvalId,
-          'substitution': substitution,
-          'employeeId': credentials.employeeId,
-        }),
-      );
+      late final Map<String, dynamic> approved;
+      try {
+        approved = await approver(
+          approvalId: approvalId,
+          substitution: substitution,
+          employeeId: credentials.employeeId,
+          password: credentials.password,
+          idempotencyKey: _witnessApprovalAttempt.keyFor({
+            'approvalId': approvalId,
+            'substitution': substitution,
+            'employeeId': credentials.employeeId,
+          }),
+        );
+      } on PharmacyApiException catch (error) {
+        if (_isCorrectableClientError(error)) {
+          _witnessApprovalAttempt.reset();
+        }
+        rethrow;
+      }
       if (!mounted) return;
       _witnessApprovalAttempt.reset();
       final witness = approved['witness'];
@@ -484,20 +635,22 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
         _witnessApproved = true;
         _approvedWitnessName = witnessName;
       });
-    } catch (error) {
+    } on PharmacyApiException catch (error) {
       if (!mounted) return;
-      final message = error.toString().toLowerCase();
       setState(() {
-        if (message.contains('expired') ||
-            message.contains('consumed') ||
-            message.contains('already') ||
-            message.contains('match') ||
-            message.contains('different')) {
+        if (_witnessApprovalCannotBeReused(error)) {
           _clearWitnessApprovalState();
         } else {
           _witnessApproved = false;
           _approvedWitnessName = null;
         }
+        _error = s.lookup('s4.lib.counter_sale.witness_auth_failed');
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _witnessApproved = false;
+        _approvedWitnessName = null;
         _error = s.lookup('s4.lib.counter_sale.witness_auth_failed');
       });
     } finally {
@@ -652,6 +805,70 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
                       // rebuild so the witness status chip tracks edits.
                       onChanged: (_) => setState(() {}),
                     ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      key: const ValueKey('substitution-payment-mode'),
+                      initialValue: _paymentMode.isEmpty ? null : _paymentMode,
+                      decoration: InputDecoration(
+                        labelText: s.lookup('s4.lib.counter_sale.payment_mode'),
+                        border: const OutlineInputBorder(),
+                      ),
+                      items:
+                          const [
+                                'cash',
+                                'card',
+                                'upi',
+                                'wallet',
+                                'insurance',
+                                'corporate_tpa',
+                              ]
+                              .map(
+                                (mode) => DropdownMenuItem(
+                                  value: mode,
+                                  child: Text(_paymentModeLabel(s, mode)),
+                                ),
+                              )
+                              .toList(),
+                      onChanged: null,
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      key: const ValueKey('substitution-amount-collected'),
+                      controller: _amountCollectedCtrl,
+                      readOnly: true,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: InputDecoration(
+                        labelText: s.lookup('med03.pharmacy.amount_collected'),
+                        helperText: s.lookup(
+                          'med03.pharmacy.authoritative_total_rechecked',
+                        ),
+                        border: const OutlineInputBorder(),
+                      ),
+                    ),
+                    if (const {
+                      'insurance',
+                      'corporate_tpa',
+                    }.contains(_paymentMode)) ...[
+                      const SizedBox(height: 12),
+                      TextField(
+                        key: const ValueKey('substitution-tpa-reference'),
+                        controller: _tpaReferenceCtrl,
+                        readOnly: true,
+                        maxLength: 160,
+                        decoration: InputDecoration(
+                          labelText: s.lookup('med03.pharmacy.tpa_reference'),
+                          helperText: s.lookup(
+                            'med03.pharmacy.tpa_reference_exact_help',
+                          ),
+                          border: const OutlineInputBorder(),
+                        ),
+                        onChanged: (_) => setState(() {
+                          _clearWitnessApprovalState();
+                        }),
+                      ),
+                    ],
                     if (_needsWitness) ...[
                       const SizedBox(height: 12),
                       Container(
@@ -736,6 +953,22 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
               if (_error != null) ...[
                 const SizedBox(height: 12),
                 Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
+                if (_fundingRecovery != null) ...[
+                  const SizedBox(height: 4),
+                  Text(_fundingRecovery!.summary(s)),
+                ],
+                if (_tpaRecoveryRequired)
+                  if (_fundingRecovery?.deepLink != null &&
+                      widget.canOpenBillingDesk)
+                    TextButton.icon(
+                      key: const ValueKey('substitution-open-billing-desk'),
+                      onPressed: () =>
+                          context.push(_fundingRecovery!.deepLink!.toString()),
+                      icon: const Icon(Icons.account_balance_outlined),
+                      label: Text(
+                        s.lookup('med03.pharmacy.recovery.open_billing_desk'),
+                      ),
+                    ),
               ],
               const SizedBox(height: 16),
               FilledButton.icon(
@@ -751,6 +984,7 @@ class _DispenseSubstitutionSheetState extends State<DispenseSubstitutionSheet> {
                     (_dispensing ||
                         _chosen == null ||
                         _selectedBatch == null ||
+                        _currentSubstitutionPayload() == null ||
                         (_needsWitness && !_hasCurrentWitnessApproval))
                     ? null
                     : _dispense,

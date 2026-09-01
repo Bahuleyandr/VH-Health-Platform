@@ -302,6 +302,19 @@ void main() {
       await tester.tap(catalogSuggestion);
       await pumpUiTransition(tester);
       await tester.enterText(doseField, '75 mg');
+      final supplyQuantity = find.byKey(
+        const Key('drug-chart-supply-quantity'),
+      );
+      final supplyUnit = find.byKey(const Key('drug-chart-supply-unit'));
+      await tester.enterText(supplyQuantity, '14');
+      await tester.tap(supplyUnit);
+      await pumpUiTransition(tester);
+      // The unit dropdown renders the localized label, never the canonical
+      // wire code, so the option has to be looked up through AppStrings.
+      await tester.tap(
+        find.text(strings.medicationWardSupplyUnit('tablet')).last,
+      );
+      await pumpUiTransition(tester);
       final save = find.widgetWithText(FilledButton, strings.actionSave);
       await tester.ensureVisible(save);
       await pumpUiTransition(tester);
@@ -322,11 +335,13 @@ void main() {
       );
       expect(tester.widget<TextField>(drugField).controller?.text, 'Aspirin');
       expect(tester.widget<TextField>(doseField).controller?.text, '75 mg');
+      expect(tester.widget<TextField>(supplyQuantity).controller?.text, '14');
 
       await tester.tap(find.text(strings.offlineClinicalFallbackKeepOpen));
       await pumpUiTransition(tester);
       expect(tester.widget<TextField>(drugField).controller?.text, 'Aspirin');
       expect(tester.widget<TextField>(doseField).controller?.text, '75 mg');
+      expect(tester.widget<TextField>(supplyQuantity).controller?.text, '14');
       expect(find.widgetWithText(FilledButton, strings.actionSave), findsOne);
     },
   );

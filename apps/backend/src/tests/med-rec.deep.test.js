@@ -15,6 +15,19 @@ const d = DB_CONFIGURED ? describe : describe.skip;
 
 const PHONE = `+9199909${String(Date.now() % 10000).padStart(5, '0')}`;
 const DOCTOR_UID = 'b6b6b6b6-b6b6-4b6b-8b6b-b6b6b6b6b601';
+const RUN = String(Date.now() % 1000000);
+// Every drug this fixture puts on the reconciliation table. The active-therapy
+// authority screen only accepts a therapy that is pinned to an ACTIVE
+// same-tenant catalog item with a governed composition, and strict
+// knowledge-base resolution needs that composition's ingredient to name a live
+// drug_kb monograph — so each entry carries a real ingredient, not a label.
+const MEDICATIONS = [
+  { key: 'metformin', name: 'B6TEST Metformin 500mg', ingredient: 'metformin', dose: '500mg', route: 'oral' },
+  { key: 'telmisartan', name: 'B6TEST Telmisartan 40mg', ingredient: 'telmisartan', dose: '40mg', route: 'oral' },
+  { key: 'atorvastatin', name: 'B6TEST Atorvastatin 20mg', ingredient: 'atorvastatin', dose: '20mg', route: 'oral' },
+  { key: 'aspirin', name: 'B6TEST Aspirin 75mg', ingredient: 'aspirin', dose: '75mg', route: 'oral' },
+];
+const MED = Object.fromEntries(MEDICATIONS.map((medication) => [medication.key, medication]));
 let patientId;
 let patientUid;
 let doctorId;
@@ -34,6 +47,14 @@ async function cleanup() {
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM e_prescriptions WHERE patient_id IN (SELECT id FROM users WHERE name = 'B6TEST Patient')`,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM clinical_orders WHERE tenant_id = $1::uuid AND order_number LIKE 'B6TEST-ORD-%'`,
+    DEFAULT_TENANT_ID,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM pharmacy_catalog WHERE tenant_id = $1::uuid AND name LIKE 'B6TEST %'`,
+    DEFAULT_TENANT_ID,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, DOCTOR_UID).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM users WHERE name = 'B6TEST Patient'`).catch(() => {});
@@ -60,36 +81,107 @@ d('Medication reconciliation — deep round-trip (roadmap B6)', () => {
     doctorId = Number(doc[0].id);
     doctor = authClient('DOCTOR', { uid: DOCTOR_UID, id: doctorId, phone: '9990800001' });
 
+    // Pin every fixture drug to an active tenant catalog item with a governed
+    // composition — the identity a catalog-backed prescribing flow would have
+    // recorded. Without it the completion safety screen fails closed with
+    // ACTIVE_THERAPY_IDENTITY_UNRESOLVED.
+    for (const medication of MEDICATIONS) {
+      const composition = await prisma.$queryRawUnsafe(
+        `INSERT INTO drug_compositions
+           (composition_key, display_label, active_ingredients, source)
+         VALUES ($1, $2, ARRAY[$3]::text[], 'curated')
+         ON CONFLICT (composition_key) DO UPDATE
+           SET active_ingredients = EXCLUDED.active_ingredients
+         RETURNING id`,
+        `b6test_medrec_${medication.ingredient}`,
+        `B6TEST ${medication.ingredient}`,
+        medication.ingredient,
+      );
+      const catalog = await prisma.$queryRawUnsafe(
+        `INSERT INTO pharmacy_catalog
+           (tenant_id, name, generic_name, is_active, stock_quantity, unit_price, price,
+            composition_id, composition_confidence, composition_source,
+            strength, strength_key, form, form_key, release_key, route, updated_at)
+         VALUES ($1::uuid, $2, $2, TRUE, 50, 1.00, 1.00, $3::int, 'high', 'test_fixture',
+                 $4, $5, 'tablet', 'tablet', 'ir', $6, NOW())
+         RETURNING id`,
+        DEFAULT_TENANT_ID,
+        medication.name,
+        Number(composition[0].id),
+        medication.dose,
+        medication.dose.toLowerCase(),
+        medication.route,
+      );
+      medication.catalogId = Number(catalog[0].id);
+    }
+
     const p = await prisma.$queryRawUnsafe(
       `INSERT INTO users (phone, name, role, is_active, tenant_id, chronic_medications, updated_at)
-       VALUES ($1, 'B6TEST Patient', 'PATIENT', true, $2::uuid,
-               '["B6TEST Metformin 500mg", "B6TEST Telmisartan 40mg"]'::jsonb, NOW())
+       VALUES ($1, 'B6TEST Patient', 'PATIENT', true, $2::uuid, $3::jsonb, NOW())
        RETURNING id, uid`,
       PHONE,
       DEFAULT_TENANT_ID,
+      JSON.stringify([
+        { name: MED.metformin.name, catalog_id: MED.metformin.catalogId },
+        { name: MED.telmisartan.name, catalog_id: MED.telmisartan.catalogId },
+      ]),
     );
     patientId = Number(p[0].id);
     patientUid = p[0].uid;
 
     await prisma.$executeRawUnsafe(
       `INSERT INTO e_prescriptions (tenant_id, patient_id, status, medications, created_at, updated_at)
-       VALUES ($1::uuid, $2, 'active',
-               '[{"name":"B6TEST Atorvastatin 20mg","dose":"20mg","frequency":"HS"}]'::jsonb, NOW(), NOW())`,
+       VALUES ($1::uuid, $2, 'active', $3::jsonb, NOW(), NOW())`,
       DEFAULT_TENANT_ID,
       patientId,
+      JSON.stringify([{
+        name: MED.atorvastatin.name,
+        dose: MED.atorvastatin.dose,
+        frequency: 'HS',
+        catalog_id: MED.atorvastatin.catalogId,
+      }]),
     );
+    // Migration 744 pins a MAR row's drug identity to its medication
+    // clinical_order, and the safety screen reads the catalog id from that
+    // order's details — so order the drug before administering it.
+    for (const [index, medication] of [MED.metformin, MED.aspirin].entries()) {
+      const order = await prisma.$queryRawUnsafe(
+        `INSERT INTO clinical_orders
+           (tenant_id, order_number, patient_uid, order_type, status, ordered_by,
+            details, route, updated_at)
+         VALUES ($1::uuid, $2, $3::uuid, 'medication', 'ordered', $4::uuid,
+                 $5::jsonb, $6, NOW())
+         RETURNING id`,
+        DEFAULT_TENANT_ID,
+        `B6TEST-ORD-${RUN}-${index}`,
+        patientUid,
+        DOCTOR_UID,
+        JSON.stringify({
+          catalog_id: medication.catalogId,
+          medication_name: medication.name,
+          dose: medication.dose,
+          route: medication.route,
+        }),
+        medication.route,
+      );
+      medication.clinicalOrderId = Number(order[0].id);
+    }
+
     await prisma.$executeRawUnsafe(
       `INSERT INTO medication_administrations
-         (tenant_id, patient_uid, medication_name, dose, route, scheduled_time, status)
+         (tenant_id, patient_uid, clinical_order_id, medication_name, dose, route,
+          scheduled_time, status)
        VALUES
-         ($1::uuid, $2::uuid, 'B6TEST Metformin 500mg', '500mg', 'oral',
+         ($1::uuid, $2::uuid, $3::int, 'B6TEST Metformin 500mg', '500mg', 'oral',
           NOW() + INTERVAL '2 hours', 'scheduled'),
          -- M7: a currently-running med (already administered, no future scheduled
          -- dose). Must appear in the reconciliation snapshot, not read as omitted.
-         ($1::uuid, $2::uuid, 'B6TEST Aspirin 75mg', '75mg', 'oral',
+         ($1::uuid, $2::uuid, $4::int, 'B6TEST Aspirin 75mg', '75mg', 'oral',
           NOW() - INTERVAL '4 hours', 'administered')`,
       DEFAULT_TENANT_ID,
       patientUid,
+      MED.metformin.clinicalOrderId,
+      MED.aspirin.clinicalOrderId,
     );
     await prisma.$executeRawUnsafe(
       `INSERT INTO admissions

@@ -22,6 +22,7 @@ const {
 } = await import('../../services/nhcx/nhcxInboundCallbackService.js');
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
+const PATIENT_UID = '11111111-1111-4111-8111-111111111111';
 
 function claimResponseBundle(overrides = {}) {
   return {
@@ -458,11 +459,26 @@ describe('processNHCXCallback', () => {
       claim_id: 88,
       preauth_id: 77,
       policy_id: 55,
-      patient_uid: '11111111-1111-4111-8111-111111111111',
+      patient_uid: PATIENT_UID,
       admission_id: 7001,
     }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: '40', inserted: true, status: 'accepted' }]);
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 88, status: 'submitted' }]);
+    // recordInboundCommunicationRequest now takes pharmacy funding authority
+    // before it touches the claim, so the queue has to carry that whole
+    // sequence. In order: the claim's funding identity, the one active tenant
+    // patient it resolves to, the funding advisory, the admission advisory the
+    // admission lock re-takes, the admission row itself, and only then the
+    // claim row the transition reads. The claim row must echo the SAME
+    // patient/admission the identity read returned — the service refuses with
+    // PHARMACY_FUNDING_PATIENT_IDENTITY_MISMATCH if it drifted under the lock.
+    queryUnsafeMock.mockResolvedValueOnce([{ patient_uid: PATIENT_UID, admission_id: 7001 }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ uid: PATIENT_UID }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ lock_acquired: 'true' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ lock_acquired: 'true' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 7001, patient_uid: PATIENT_UID, status: 'admitted' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 88, status: 'submitted', patient_uid: PATIENT_UID, admission_id: 7001,
+    }]);
     executeUnsafeMock.mockResolvedValueOnce(1);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 501, claim_id: 88, direction: 'inbound', channel: 'nhcx' }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: '40', status: 'processed' }]);

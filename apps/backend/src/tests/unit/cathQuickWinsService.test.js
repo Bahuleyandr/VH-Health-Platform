@@ -331,11 +331,7 @@ describe('applyCathOrderSetSlot', () => {
     });
     orderSetItemsCountMock.mockResolvedValue(3);
     routeQueries([['FROM cath_lab_cases', [caseRow()]]]);
-    applyOrderSetMock.mockResolvedValue([
-      { id: 1 },
-      { id: 2 },
-      { error: 'Order template could not be applied', kind: 'lab' },
-    ]);
+    applyOrderSetMock.mockResolvedValue([{ id: 1 }, { id: 2 }, { id: 3 }]);
 
     const result = await applyCathOrderSetSlot(7, 'pre_cath', { tenantId: TENANT }, { actorUid: ACTOR });
 
@@ -350,8 +346,8 @@ describe('applyCathOrderSetSlot', () => {
     expect(auditMock).toHaveBeenCalledTimes(1);
     const [auditInput] = auditMock.mock.calls[0];
     expect(auditInput.action).toBe('cath_lab.order_set_applied');
-    expect(auditInput.metadata.staged_count).toBe(2);
-    expect(auditInput.metadata.failed_count).toBe(1);
+    expect(auditInput.metadata.staged_count).toBe(3);
+    expect(auditInput.metadata.failed_count).toBe(0);
   });
 
   it('refuses to stage orders on a cancelled case', async () => {

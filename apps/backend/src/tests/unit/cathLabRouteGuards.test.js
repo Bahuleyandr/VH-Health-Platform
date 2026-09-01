@@ -89,14 +89,14 @@ beforeEach(() => {
 });
 
 describe('route census — guarded vs deliberately-not', () => {
-  it('cathLabRoutes: per-case and per-report routes guarded; catalogs/templates/day list are not', () => {
+  it('cathLabRoutes: per-case, catalog-case, and report routes are guarded', () => {
     const byId = 'cath-lab:case-param:id';
     const byCaseId = 'cath-lab:case-param:caseId';
     const report = 'cath-lab:report-param';
     expectCensus(cathLabRouter, {
       'GET /report-templates': null, // template catalog
-      'GET /consumables/catalog': null, // consumable catalog
-      'GET /consumables/catalog/:id/batches': null, // catalog batches (:id = catalog item)
+      'GET /consumables/catalog': 'cath-lab:case-query:case_id',
+      'GET /consumables/catalog/:id/batches': 'cath-lab:case-query:case_id',
       'POST /report-templates/:id/supersede': null, // template governance
       'GET /cases/:caseId/reports': byCaseId,
       'POST /cases/:caseId/reports': byCaseId,

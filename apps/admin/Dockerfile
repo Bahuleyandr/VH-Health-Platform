@@ -69,8 +69,29 @@ FROM ${NODE_IMAGE} AS runner
 # forever and never fetches packages published since, so a Trivy finding whose
 # fix is already on the Alpine mirror can never clear (CVE-2026-14456 stuck
 # exactly this way on 2026-08-26). The echo makes the epoch part of the layer.
-ARG SECURITY_PATCH_EPOCH=2026-08-26.1
-RUN apk upgrade --no-cache libcrypto3 libssl3 c-ares && \
+#
+# A STALE EPOCH is what wedges the blocking scan, and bumping it is the whole
+# remedy. CVE-2026-26740 in giflib stuck this way on 2026-08-31: the cached
+# layer kept replaying a resolve from before giflib 5.2.2-r2 was published.
+#
+# Be precise about what the upgrade can reach, because it is easy to get
+# backwards. It runs BEFORE the apk add below, so it covers ONLY the pinned
+# base image's own packages. Anything the apk add brings in -- including
+# transitive dependencies such as giflib, pulled under tesseract-ocr via
+# leptonica -- is not in the image yet when the upgrade runs, and is instead
+# refreshed by apk add's own resolve against the live index. Both halves
+# therefore depend on this layer actually re-executing, which is what the
+# epoch controls.
+#
+# The upgrade is nonetheless deliberately UNSCOPED. It used to name
+# libcrypto3/libssl3/c-ares -- exactly the packages from the previous fire, and
+# c-ares is not even installed in the base image -- which left every other base
+# package (musl, zlib, busybox, libstdc++, ca-certificates-bundle) permanently
+# unpatchable behind a hand-maintained list. The pinned base carries HIGH
+# findings only this upgrade can reach. Do not re-narrow it to a package list;
+# check-infra-security-controls.mjs enforces that for all three images.
+ARG SECURITY_PATCH_EPOCH=2026-09-01.1
+RUN apk upgrade --no-cache && \
     apk add --no-cache curl && \
     rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx && \
     echo "security patch epoch: ${SECURITY_PATCH_EPOCH}"

@@ -20,12 +20,15 @@ const describeIfDb = databaseUrl ? describe : describe.skip;
 const TENANT_A = randomUUID();
 const TENANT_B = randomUUID();
 const TENANT_EMPTY = randomUUID();
+const TENANT_SOFT_DELETED_PRIMARY = randomUUID();
 const SUFFIX = randomUUID().replaceAll('-', '').slice(0, 12);
 
 const DUTY_1 = randomUUID();
 const DUTY_2 = randomUUID();
 const SENIOR_B = randomUUID();
 const NURSE_A = randomUUID();
+const SOFT_DELETED_DUTY = randomUUID();
+const ACTIVE_FALLBACK_DOCTOR = randomUUID();
 
 async function seedUser(uid, tenantId, role, phoneTail) {
   await prisma.$executeRawUnsafe(
@@ -51,14 +54,28 @@ describeIfDb('R2 — broadcast clinical_alert duty-role fan-out', () => {
       `INSERT INTO tenants (id, slug, name)
        VALUES ($1::uuid, $4::text, 'Fanout tenant A'),
               ($2::uuid, $5::text, 'Fanout tenant B'),
-              ($3::uuid, $6::text, 'Fanout tenant empty')`,
+              ($3::uuid, $6::text, 'Fanout tenant empty'),
+              ($7::uuid, $8::text, 'Fanout tenant deleted primary')`,
       TENANT_A, TENANT_B, TENANT_EMPTY,
       `fanout-a-${SUFFIX}`, `fanout-b-${SUFFIX}`, `fanout-e-${SUFFIX}`,
+      TENANT_SOFT_DELETED_PRIMARY, `fanout-d-${SUFFIX}`,
     );
     await seedUser(DUTY_1, TENANT_A, 'DUTY_DOCTOR', '11');
     await seedUser(DUTY_2, TENANT_A, 'DUTY_DOCTOR', '12');
     await seedUser(NURSE_A, TENANT_A, 'NURSING_STAFF', '13');
     await seedUser(SENIOR_B, TENANT_B, 'CONSULTANT', '14');
+    await seedUser(SOFT_DELETED_DUTY, TENANT_SOFT_DELETED_PRIMARY, 'DUTY_DOCTOR', '15');
+    await seedUser(ACTIVE_FALLBACK_DOCTOR, TENANT_SOFT_DELETED_PRIMARY, 'CONSULTANT', '16');
+    await prisma.$executeRawUnsafe(
+      `UPDATE users
+          SET status = 'inactive',
+              is_deleted = TRUE,
+              deleted_at = NOW()
+        WHERE tenant_id = $1::uuid
+          AND uid = $2::uuid`,
+      TENANT_SOFT_DELETED_PRIMARY,
+      SOFT_DELETED_DUTY,
+    );
   });
 
   afterAll(async () => {
@@ -122,6 +139,17 @@ describeIfDb('R2 — broadcast clinical_alert duty-role fan-out', () => {
     const rows = await outboxRowsFor(TENANT_B, sourceEventKey);
     expect(rows).toHaveLength(1);
     expect(rows[0].payload.recipient_role).toBe('CONSULTANT');
+  }, 60_000);
+
+  test('soft-deleted primary clinicians neither receive PHI nor suppress a valid fallback', async () => {
+    const recipients = await resolveClinicalAlertRecipients(TENANT_SOFT_DELETED_PRIMARY);
+    expect(recipients).toEqual([
+      expect.objectContaining({
+        uid: ACTIVE_FALLBACK_DOCTOR,
+        role: 'CONSULTANT',
+      }),
+    ]);
+    expect(recipients.map((recipient) => recipient.uid)).not.toContain(SOFT_DELETED_DUTY);
   }, 60_000);
 
   test('strict mode throws loudly when a tenant has no clinical audience at all', async () => {

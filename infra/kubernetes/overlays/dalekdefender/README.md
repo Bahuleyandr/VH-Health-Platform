@@ -100,6 +100,61 @@ curl -sk -H "x-monitoring-token: ${MONITORING_TOKEN}" \
   https://dalekdefender.hippocampus-monitor.ts.net:8444/health/ready
 ```
 
+## Database migrations (automatic, before every rollout)
+
+The backend fails closed at startup unless the `_migrations` tracker is an
+exact match for its image's migration directory — `runMigrations.js` raises
+`MIGRATION_TIP_MISMATCH` / `MIGRATION_CHECKSUM_DRIFT` and refuses to bind a
+socket. That guard is correct and must not be weakened: it is the only reason a
+schema/image mismatch is visible instead of silent.
+
+Production gets the matching *apply* step from an ArgoCD PreSync hook
+(`infra/kubernetes/apps/backend/migration-job.yaml`). This rig runs no ArgoCD,
+so the same ordering is enforced by the root-owned deploy helper. On every
+deploy it:
+
+1. refreshes the `ghcr-read` pull Secret,
+2. renders `migration-job.yaml` with **the same verified digest** it is about
+   to pin, deletes any previous Job, applies it, and waits for `Complete`,
+3. only then sets the Deployment images and waits for the rollout.
+
+A failed or timed-out Job **aborts the deploy**: no image is changed, the
+previous pods keep serving, and the helper prints the Job's logs plus pod
+events. Nothing is left half-applied — `ci-setup-db.mjs` runs each migration in
+a transaction and writes its `_migrations` row only on commit.
+
+`migration-job.yaml` is intentionally **not** listed in `kustomization.yaml`:
+its `image:` is a placeholder the helper substitutes, so `kubectl apply -k`
+would create an unpullable Job. The helper embeds the manifest verbatim (it
+runs as root from `/usr/local/sbin` and must not read the host's git checkout);
+`scripts/dalek-migration-job-manifest.test.mjs` pins the embedded copy
+byte-for-byte against the file so the two cannot drift.
+
+The Job is idempotent and safe to re-run — it is tracker-driven and a no-op
+when the database is already caught up. It never runs seeds.
+
+### One thing the helper will not do: roll an image back over a migration
+
+If a deploy applied migrations and the rollout then fails, the helper **refuses**
+the automatic image rollback and exits non-zero with the new digest still
+pinned. Restoring the older image would not undo the migration, and that image
+would then see the new tracker rows as `unexpected` and fail startup with
+`MIGRATION_TIP_MISMATCH` — replacing a broken pod with one that cannot boot at
+all. Fix forward and redeploy. When nothing was applied, the rollback behaves
+as before.
+
+### Running it by hand
+
+The Job is an ordinary manifest; substitute the digest and apply it:
+
+```bash
+ssh root@dalekdefender
+kubectl -n vhhealth get deploy/vhhealth-backend \
+  -o jsonpath='{.spec.template.spec.containers[0].image}'   # current digest
+# then: sed the placeholder in migration-job.yaml to that digest, kubectl apply -f -,
+# and kubectl -n vhhealth wait --for=condition=complete job/vhhealth-backend-migrate
+```
+
 ## Digest-pinned CI deploy helper
 
 GitHub Actions and Forgejo both deploy by sending verified GHCR image digests

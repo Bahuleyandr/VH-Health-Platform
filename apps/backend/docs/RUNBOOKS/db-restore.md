@@ -177,10 +177,65 @@ approved_sha="$(git rev-parse HEAD)"
 argocd app sync vhhealth-apps --revision "${approved_sha}"
 kubectl -n vhhealth wait --for=condition=complete \
   job/vhhealth-backend-migrate --timeout=900s
-kubectl -n vhhealth logs job/vhhealth-backend-migrate
+# Read ALL attempts, not one. The Job runs restartPolicy: Never, so each of its
+# up-to-3 attempts is a separate retained pod; `logs job/<name>` picks a single
+# arbitrary one ("Found 3 pods, using pod/…") and can show you a pod that is not
+# the one that failed. Select on the controller-set job-name label instead.
+kubectl -n vhhealth logs -l batch.kubernetes.io/job-name=vhhealth-backend-migrate \
+  -c migrate --tail=400 --prefix
 kubectl -n vhhealth rollout restart deployment/vhhealth-backend
 kubectl -n vhhealth rollout status deployment/vhhealth-backend
 ```
+
+If the `wait` above times out, the hook failed and the sync aborted. Prod sync
+is manual, so this surfaces to whoever triggered it — nothing pages, and nobody
+else is looking. **Start by counting pods, because that alone tells you which of
+three failures you have, and two of the three make the `logs -l …` command above
+answer something other than the diagnosis:**
+
+```bash
+kubectl -n vhhealth get pods -l batch.kubernetes.io/job-name=vhhealth-backend-migrate
+```
+
+**1 — one to three pods, `Error`. A migration failed.** This is the ordinary
+case. The `logs -l … -c migrate` command above is the answer: each attempt is a
+separate retained pod (`restartPolicy: Never`), and they are kept for
+`ttlSecondsAfterFinished` (24h). Compare the attempts — all failing identically
+means a genuinely bad migration, one failure followed by success means a
+transient blip. Do not re-sync before reading them: the next sync's
+`hook-delete-policy: BeforeHookCreation` deletes this Job and its pods.
+
+**2 — pods exist, but `-c migrate` answers `container "migrate" ... is waiting
+to start: PodInitializing`.** The `wait-owner-bypassrls` init gate is what
+failed, not a migration — `migrate` never ran, so it has no logs. Omitting `-c`
+does not help; kubectl defaults to `migrate`. Read the gate instead:
+
+```bash
+kubectl -n vhhealth logs -l batch.kubernetes.io/job-name=vhhealth-backend-migrate \
+  -c wait-owner-bypassrls --tail=400 --prefix
+```
+
+A gate timeout means CNPG has not reconciled `bypassrls` onto the owner role;
+see `docs/GO_LIVE_ACTIVATION_CHECKLIST.md` D1. Do not force the migration
+through.
+
+**3 — `No resources found`. The deadline killed it, and there are no logs to
+read.** On `activeDeadlineSeconds` (900s) the job controller DELETES the pod
+that is still running, under either restartPolicy, so retention cannot help
+here. The Job object's own condition is the only surviving evidence:
+
+```bash
+kubectl -n vhhealth describe job vhhealth-backend-migrate
+```
+
+`DeadlineExceeded` confirms it. Note the distinction from case 2: a pod stuck in
+a *Waiting* reason (`PodInitializing`, `CreateContainerConfigError`) is not a pod
+*failure*, so it never increments the backoff counter and never becomes a
+retained failed pod — it sits until the deadline and is then deleted. That is
+why a Job can end `Failed`/`DeadlineExceeded` having produced no pod output at
+all. If ArgoCD streamed the hook logs live during the sync, that stream is the
+only place the container's output ever existed; otherwise re-run the sync and
+watch it. Reproduced on a kind cluster with ArgoCD 3.2 (k8s 1.34), 2026-09-01.
 
 ### 7. Apply any post-backup migrations
 

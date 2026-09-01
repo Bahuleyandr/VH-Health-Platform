@@ -1,6 +1,12 @@
+import { EventEmitter } from 'node:events';
 import net from 'node:net';
 import { jest } from '@jest/globals';
-import { startGateway, socketIdleTimeoutMsFromEnv } from '../src/gateway.js';
+import {
+  closeListeningServer,
+  rollbackListeningServers,
+  startGateway,
+  socketIdleTimeoutMsFromEnv,
+} from '../src/gateway.js';
 import { frameMessage } from '../src/mllpFrameReader.js';
 
 const HL7 = [
@@ -146,16 +152,20 @@ describe('MLLP socket guards', () => {
   });
 
   it('closes listeners already started when a later startup bind fails', async () => {
-    const portProbe = net.createServer();
-    await new Promise((resolve) => portProbe.listen(0, '127.0.0.1', resolve));
-    const mllpPort = portProbe.address().port;
-    await new Promise((resolve) => portProbe.close(resolve));
-
     const metricsBlocker = net.createServer();
     // Match startGateway's host-unspecified metrics bind. On dual-stack hosts,
     // a blocker bound only to 127.0.0.1 does not conflict with an IPv6 bind.
     await new Promise((resolve) => metricsBlocker.listen(0, resolve));
     const blockedMetricsPort = metricsBlocker.address().port;
+
+    // Reserve the MLLP port after the metrics blocker so the kernel cannot
+    // reassign the just-released probe port to the blocker and make the first
+    // (rather than the later) bind fail.
+    const portProbe = net.createServer();
+    await new Promise((resolve) => portProbe.listen(0, '127.0.0.1', resolve));
+    const mllpPort = portProbe.address().port;
+    await new Promise((resolve) => portProbe.close(resolve));
+    expect(mllpPort).not.toBe(blockedMetricsPort);
 
     const replacement = net.createServer();
     try {
@@ -176,6 +186,96 @@ describe('MLLP socket guards', () => {
       if (replacement.listening) await new Promise((resolve) => replacement.close(resolve));
       await new Promise((resolve) => metricsBlocker.close(resolve));
     }
+  });
+});
+
+describe('listener close lifecycle', () => {
+  it('destroys accepted sockets before awaiting listener rollback', async () => {
+    const server = net.createServer();
+    const serverSocketPromise = new Promise((resolve) => server.once('connection', resolve));
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = server.address().port;
+    const client = net.connect(port, '127.0.0.1');
+    await new Promise((resolve, reject) => {
+      client.once('connect', resolve);
+      client.once('error', reject);
+    });
+    const serverSocket = await serverSocketPromise;
+
+    try {
+      await expect(rollbackListeningServers([server], new Set([serverSocket])))
+        .resolves.toEqual([{ status: 'fulfilled', value: undefined }]);
+      expect(serverSocket.destroyed).toBe(true);
+
+      const replacement = net.createServer();
+      try {
+        await expect(new Promise((resolve, reject) => {
+          replacement.once('error', reject);
+          replacement.listen(port, '127.0.0.1', resolve);
+        })).resolves.toBeUndefined();
+      } finally {
+        if (replacement.listening) await new Promise((resolve) => replacement.close(resolve));
+      }
+    } finally {
+      client.destroy();
+      if (server.listening) await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it('waits for both the close event and callback and shares an in-flight close', async () => {
+    const server = new EventEmitter();
+    server.listening = true;
+    let closeCallback;
+    server.close = jest.fn((callback) => {
+      server.listening = false;
+      closeCallback = callback;
+    });
+
+    const firstClose = closeListeningServer(server);
+    const repeatedClose = closeListeningServer(server);
+    expect(repeatedClose).toBe(firstClose);
+    expect(server.close).toHaveBeenCalledTimes(1);
+
+    let settled = false;
+    firstClose.then(() => { settled = true; });
+    closeCallback();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    server.emit('close');
+    await expect(firstClose).resolves.toBeUndefined();
+    expect(settled).toBe(true);
+
+    server.listening = true;
+    const secondClose = closeListeningServer(server);
+    expect(secondClose).not.toBe(firstClose);
+    expect(server.close).toHaveBeenCalledTimes(2);
+    closeCallback();
+    server.emit('close');
+    await expect(secondClose).resolves.toBeUndefined();
+  });
+
+  it('rejects a close callback error and removes its close listener', async () => {
+    const server = new EventEmitter();
+    const closeError = Object.assign(new Error('listener close failed'), { code: 'ECLOSE' });
+    server.listening = true;
+    server.close = jest.fn((callback) => callback(closeError));
+
+    await expect(closeListeningServer(server)).rejects.toBe(closeError);
+    expect(server.close).toHaveBeenCalledTimes(1);
+    expect(server.listenerCount('close')).toBe(0);
+
+    let retryCallback;
+    server.listening = true;
+    server.close.mockImplementation((callback) => {
+      server.listening = false;
+      retryCallback = callback;
+    });
+    const retryClose = closeListeningServer(server);
+    retryCallback();
+    server.emit('close');
+    await expect(retryClose).resolves.toBeUndefined();
+    expect(server.close).toHaveBeenCalledTimes(2);
   });
 });
 

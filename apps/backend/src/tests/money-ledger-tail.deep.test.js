@@ -75,12 +75,21 @@ async function makeIssuedInvoice(patientUid, total) {
   cleanup.invoiceIds.push(inv.id);
   return inv.id;
 }
+// Policy and pre-auth MUST be stamped with this suite's TENANT explicitly.
+// Their tenant_id defaults to app.current_tenant_id, which is unset on plain
+// `prisma` here, so an omitted column silently lands the row on the DEFAULT
+// tenant. Migration 753's claim-authority chain then refuses the claim: the
+// composite keys ux_insurance_policies_claim_authority_753 /
+// ux_insurance_preauth_claim_authority_753 lead with tenant_id, and
+// enforce_tpa_claim_authority_753() looks the pre-auth up by
+// (tenant_id, id, patient_uid, policy_id) — a cross-tenant reference is
+// exactly the authority leak it raises 23514 on.
 async function makePolicy(p) {
-  const r = await prisma.$queryRawUnsafe(`INSERT INTO insurance_policies (patient_uid, policy_number) VALUES ($1::uuid,$2) RETURNING id`, p, `POL-${Math.floor(Math.random() * 1e9)}`);
+  const r = await prisma.$queryRawUnsafe(`INSERT INTO insurance_policies (patient_uid, policy_number, tenant_id) VALUES ($1::uuid,$2,$3::uuid) RETURNING id`, p, `POL-${Math.floor(Math.random() * 1e9)}`, TENANT);
   cleanup.policyIds.push(r[0].id); return r[0].id;
 }
 async function makePreauth(p, pol) {
-  const r = await prisma.$queryRawUnsafe(`INSERT INTO insurance_preauth (policy_id, patient_uid, preauth_number, primary_diagnosis, expected_cost) VALUES ($1::int,$2::uuid,$3,'dx',1000) RETURNING id`, pol, p, `PA-${Math.floor(Math.random() * 1e9)}`);
+  const r = await prisma.$queryRawUnsafe(`INSERT INTO insurance_preauth (policy_id, patient_uid, preauth_number, primary_diagnosis, expected_cost, tenant_id) VALUES ($1::int,$2::uuid,$3,'dx',1000,$4::uuid) RETURNING id`, pol, p, `PA-${Math.floor(Math.random() * 1e9)}`, TENANT);
   cleanup.preauthIds.push(r[0].id); return r[0].id;
 }
 async function makeSubmittedClaim(p, pol, pre, inv, claimed) {

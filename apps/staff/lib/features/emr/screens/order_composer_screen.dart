@@ -28,8 +28,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../core/services/api_client.dart' show ApiResponse;
 import '../../../core/services/auth_service.dart';
+import '../../../core/services/idempotency_attempt_registry.dart';
 import '../../../core/services/medical_api_service.dart';
+import '../../../core/services/order_payloads.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/api_error_messages.dart';
 import '../../../core/widgets/staff_scaffold.dart';
@@ -42,6 +45,24 @@ import '../widgets/patient_summary_sheet.dart';
 // Pure helpers (OrderDraft, payload builders, CDS partitioning, role gate)
 // live in ../models/order_draft.dart so the order-sets picker and the unit
 // tests can share them without importing this screen.
+
+Future<ApiResponse> submitOrderComposerAttempt({
+  required IdempotencyAttemptRegistry attempts,
+  required String scope,
+  required Map<String, dynamic> body,
+  required Future<ApiResponse> Function(
+    String idempotencyKey,
+    Map<String, dynamic> body,
+  )
+  send,
+}) {
+  return attempts.execute(
+    scope: scope,
+    body: body,
+    send: send,
+    isSuccess: (response) => response.isSuccess,
+  );
+}
 
 // ───────────────────────────────────────────────────────────────────────────
 // Screen
@@ -73,6 +94,8 @@ class _OrderComposerScreenState extends State<OrderComposerScreen> {
   bool _submitting = false;
   String? _role;
   int? _blockedIndex;
+  final IdempotencyAttemptRegistry _orderCreateAttempts =
+      IdempotencyAttemptRegistry();
 
   bool get _canPrescribe => canPrescribeMedicationOrders(_role);
 
@@ -96,6 +119,7 @@ class _OrderComposerScreenState extends State<OrderComposerScreen> {
   void dispose() {
     _searchDebounce?.cancel();
     _searchCtrl.dispose();
+    _orderCreateAttempts.clear();
     super.dispose();
   }
 
@@ -123,7 +147,13 @@ class _OrderComposerScreenState extends State<OrderComposerScreen> {
         ]);
         if (!mounted || _searchCtrl.text.trim() != q) return;
         setState(() {
-          _medResults = results[0];
+          _medResults = results[0]
+              .where((row) {
+                final draft = orderDraftFromMedCatalogRow(row);
+                return medicationHasAuthoritativeCatalog(draft) &&
+                    medicationHasAuthoritativeCatalogRoute(draft);
+              })
+              .toList(growable: false);
           _testResults = results[1];
           _searching = false;
         });
@@ -234,6 +264,79 @@ class _OrderComposerScreenState extends State<OrderComposerScreen> {
   Future<void> _submit() async {
     if (_basket.isEmpty || _submitting) return;
     final s = AppStrings.of(context);
+    final missingCatalogIndex = _basket.indexWhere(
+      (draft) => !medicationHasAuthoritativeCatalog(draft),
+    );
+    if (missingCatalogIndex >= 0) {
+      setState(() => _blockedIndex = missingCatalogIndex);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            s.lookup('s4.lib.drug_chart.catalog_selection_required'),
+          ),
+          backgroundColor: AppTheme.errorRed,
+        ),
+      );
+      return;
+    }
+    final incompleteDirectionsIndex = _basket.indexWhere(
+      (draft) => medicationClinicalDirectionsFailure(draft) != null,
+    );
+    if (incompleteDirectionsIndex >= 0) {
+      final draft = _basket[incompleteDirectionsIndex];
+      final failure = medicationClinicalDirectionsFailure(draft);
+      setState(() => _blockedIndex = incompleteDirectionsIndex);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${failure == MedicationClinicalDirectionsValidationFailure.doseRequired ? s.ordersDosage : s.ordersRoute}: ${s.admissionRequired}',
+          ),
+          backgroundColor: AppTheme.errorRed,
+        ),
+      );
+      await _openDraftForm(
+        OrderDraft(
+          orderType: draft.orderType,
+          details: Map<String, dynamic>.from(draft.details),
+          priority: draft.priority,
+          notes: draft.notes,
+          source: draft.source,
+        ),
+        editIndex: incompleteDirectionsIndex,
+      );
+      return;
+    }
+    final incompleteMedicationIndex = _basket.indexWhere(
+      (draft) => medicationWardSupplyFailure(draft) != null,
+    );
+    if (incompleteMedicationIndex >= 0) {
+      final draft = _basket[incompleteMedicationIndex];
+      final failure = medicationWardSupplyFailure(draft);
+      setState(() => _blockedIndex = incompleteMedicationIndex);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            failure == MedicationWardSupplyValidationFailure.quantityRequired ||
+                    failure ==
+                        MedicationWardSupplyValidationFailure.quantityInvalid
+                ? s.lookup('mar_scan.supply.quantity_error')
+                : '${s.lookup('s4.lib.pharmacy.metric_unit')}: ${s.labelRequired}',
+          ),
+          backgroundColor: AppTheme.errorRed,
+        ),
+      );
+      await _openDraftForm(
+        OrderDraft(
+          orderType: draft.orderType,
+          details: Map<String, dynamic>.from(draft.details),
+          priority: draft.priority,
+          notes: draft.notes,
+          source: draft.source,
+        ),
+        editIndex: incompleteMedicationIndex,
+      );
+      return;
+    }
     setState(() {
       _submitting = true;
       _blockedIndex = null;
@@ -247,7 +350,17 @@ class _OrderComposerScreenState extends State<OrderComposerScreen> {
             encounterId: widget.encounterId,
           ),
       ];
-      final resp = await MedicalApiService.createEmrOrdersBulkRaw(items);
+      const attemptScope = 'clinical-order-composer-bulk';
+      final requestBody = <String, dynamic>{'orders': items};
+      final resp = await submitOrderComposerAttempt(
+        attempts: _orderCreateAttempts,
+        scope: attemptScope,
+        body: requestBody,
+        send: (key, body) => MedicalApiService.createEmrOrdersBulkRaw(
+          (body['orders'] as List).cast<Map<String, dynamic>>(),
+          idempotencyKey: key,
+        ),
+      );
       if (!mounted) return;
       if (resp.isSuccess) {
         // Each created entry is { order, cds_warnings } — aggregate warnings.
@@ -588,13 +701,6 @@ class _OrderComposerScreenState extends State<OrderComposerScreen> {
         label: Text(s.composerOrderSets),
         onPressed: _openOrderSets,
       ),
-      if (_canPrescribe)
-        ActionChip(
-          avatar: const Icon(Icons.medication, size: 16),
-          label: Text(s.ordersTypeMedication),
-          onPressed: () =>
-              _openDraftForm(OrderDraft(orderType: 'medication', details: {})),
-        ),
       ActionChip(
         avatar: const Icon(Icons.biotech, size: 16),
         label: Text(s.ordersTypeInvestigation),
@@ -836,6 +942,7 @@ class _OrderDraftFormSheetState extends State<_OrderDraftFormSheet> {
   late final Map<String, TextEditingController> _ctrl;
   late String _priority;
   late bool _fasting;
+  String? _supplyUnit;
 
   String get _type => widget.draft.orderType;
 
@@ -850,6 +957,9 @@ class _OrderDraftFormSheetState extends State<_OrderDraftFormSheet> {
       'route': TextEditingController(text: txt('route')),
       'frequency': TextEditingController(text: txt('frequency')),
       'duration_days': TextEditingController(text: txt('duration_days')),
+      'quantity_requested': TextEditingController(
+        text: txt('quantity_requested'),
+      ),
       'test_name': TextEditingController(text: txt('test_name')),
       'test_code': TextEditingController(text: txt('test_code')),
       'reason': TextEditingController(text: txt('reason')),
@@ -859,6 +969,7 @@ class _OrderDraftFormSheetState extends State<_OrderDraftFormSheet> {
     };
     _priority = widget.draft.priority;
     _fasting = d['fasting_required'] == true;
+    _supplyUnit = canonicalMedicationWardSupplyUnit(d['unit']);
   }
 
   @override
@@ -870,7 +981,7 @@ class _OrderDraftFormSheetState extends State<_OrderDraftFormSheet> {
   }
 
   OrderDraft _buildResult() {
-    final v = <String, dynamic>{};
+    final v = Map<String, dynamic>.from(widget.draft.details);
     switch (_type) {
       case 'medication':
         v['medication_name'] = _ctrl['medication_name']!.text.trim();
@@ -878,7 +989,15 @@ class _OrderDraftFormSheetState extends State<_OrderDraftFormSheet> {
         v['route'] = _ctrl['route']!.text.trim();
         v['frequency'] = _ctrl['frequency']!.text.trim();
         final days = int.tryParse(_ctrl['duration_days']!.text.trim());
-        if (days != null && days > 0) v['duration_days'] = days;
+        if (days != null && days > 0) {
+          v['duration_days'] = days;
+        } else {
+          v.remove('duration_days');
+        }
+        v['quantity_requested'] = parseMedicationWardSupplyQuantity(
+          _ctrl['quantity_requested']!.text,
+        );
+        v['unit'] = _supplyUnit;
         v['instructions'] = _ctrl['instructions']!.text.trim();
       case 'investigation':
       case 'radiology':
@@ -886,7 +1005,11 @@ class _OrderDraftFormSheetState extends State<_OrderDraftFormSheet> {
         v['test_name'] = _ctrl['test_name']!.text.trim();
         v['test_code'] = _ctrl['test_code']!.text.trim();
         v['reason'] = _ctrl['reason']!.text.trim();
-        if (_type == 'investigation' && _fasting) v['fasting_required'] = true;
+        if (_type == 'investigation' && _fasting) {
+          v['fasting_required'] = true;
+        } else {
+          v.remove('fasting_required');
+        }
       case 'consultation':
         v['specialty'] = _ctrl['specialty']!.text.trim();
         v['reason'] = _ctrl['reason']!.text.trim();
@@ -1023,6 +1146,7 @@ class _OrderDraftFormSheetState extends State<_OrderDraftFormSheet> {
         return [
           TextFormField(
             controller: _ctrl['medication_name'],
+            readOnly: medicationHasAuthoritativeCatalog(widget.draft),
             decoration: deco(s.ordersMedicationName),
             validator: _required,
           ),
@@ -1031,6 +1155,7 @@ class _OrderDraftFormSheetState extends State<_OrderDraftFormSheet> {
             children: [
               Expanded(
                 child: TextFormField(
+                  key: const Key('cpoe-medication-dose'),
                   controller: _ctrl['dose'],
                   decoration: deco(s.ordersDosage),
                   validator: _required,
@@ -1039,8 +1164,11 @@ class _OrderDraftFormSheetState extends State<_OrderDraftFormSheet> {
               const SizedBox(width: 12),
               Expanded(
                 child: TextFormField(
+                  key: const Key('cpoe-medication-route'),
                   controller: _ctrl['route'],
+                  readOnly: medicationHasAuthoritativeCatalog(widget.draft),
                   decoration: deco(s.ordersRoute, hint: s.ordersRouteHint),
+                  validator: _required,
                 ),
               ),
             ],
@@ -1067,6 +1195,55 @@ class _OrderDraftFormSheetState extends State<_OrderDraftFormSheet> {
                     s.composerDurationDays,
                     hint: s.ordersDurationHint,
                   ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              s.lookup('mar_scan.supply.title'),
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  key: const Key('cpoe-medication-supply-quantity'),
+                  controller: _ctrl['quantity_requested'],
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: deco(s.lookup('s4.lib.pharmacy.quantity')),
+                  validator: (value) =>
+                      parseMedicationWardSupplyQuantity(value) == null
+                      ? s.lookup('mar_scan.supply.quantity_error')
+                      : null,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  key: const Key('cpoe-medication-supply-unit'),
+                  initialValue: _supplyUnit,
+                  isExpanded: true,
+                  decoration: deco(s.lookup('s4.lib.pharmacy.metric_unit')),
+                  items: medicationWardSupplyUnits
+                      .map(
+                        (unit) => DropdownMenuItem(
+                          value: unit,
+                          child: Text(s.medicationWardSupplyUnit(unit)),
+                        ),
+                      )
+                      .toList(growable: false),
+                  validator: (value) =>
+                      canonicalMedicationWardSupplyUnit(value) == null
+                      ? s.labelRequired
+                      : null,
+                  onChanged: (value) => setState(() => _supplyUnit = value),
                 ),
               ),
             ],

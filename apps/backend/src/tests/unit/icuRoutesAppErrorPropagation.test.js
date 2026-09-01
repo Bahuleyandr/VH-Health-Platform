@@ -15,10 +15,13 @@ import { AppError } from '../../utils/AppError.js';
 // assert the response body itself.
 
 const createAdmissionMock = jest.fn();
+const createAdmissionFromErMock = jest.fn();
 const listAdmissionsMock = jest.fn();
+const emitIcuBoardEventMock = jest.fn();
 
 jest.unstable_mockModule('../../services/clinical/icuService.js', () => ({
   createAdmission: createAdmissionMock,
+  createAdmissionFromEr: createAdmissionFromErMock,
   listAdmissions: listAdmissionsMock,
 }));
 
@@ -31,7 +34,7 @@ jest.unstable_mockModule('../../services/clinical/nicuPicuChartingService.js', (
 }));
 
 jest.unstable_mockModule('../../utils/websocket/realtimeEmitter.js', () => ({
-  emitIcuBoardEvent: jest.fn(),
+  emitIcuBoardEvent: emitIcuBoardEventMock,
 }));
 
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
@@ -65,7 +68,42 @@ app.use('/api/v1/icu', icuRoutes);
 
 beforeEach(() => {
   createAdmissionMock.mockReset();
+  createAdmissionFromErMock.mockReset();
   listAdmissionsMock.mockReset();
+  emitIcuBoardEventMock.mockReset();
+});
+
+describe('icu admission realtime payloads', () => {
+  test('direct admission emits the direct row identity and status', async () => {
+    createAdmissionMock.mockResolvedValueOnce({ id: 41, status: 'active' });
+
+    const response = await request(app)
+      .post('/api/v1/icu/admissions')
+      .send({ patient_uid: '22222222-2222-4222-8222-222222222222', bed_number: 'ICU-4' });
+
+    expect(response.statusCode).toBe(200);
+    expect(emitIcuBoardEventMock).toHaveBeenCalledWith('admitted', expect.objectContaining({
+      admissionId: 41,
+      status: 'active',
+    }));
+  });
+
+  test('ER continuation emits the nested admission identity and status', async () => {
+    createAdmissionFromErMock.mockResolvedValueOnce({
+      admission: { id: 42, status: 'active' },
+      carried_order_count: 2,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/icu/admissions/from-er/77')
+      .send({ bed_number: 'ICU-5' });
+
+    expect(response.statusCode).toBe(200);
+    expect(emitIcuBoardEventMock).toHaveBeenCalledWith('admitted', expect.objectContaining({
+      admissionId: 42,
+      status: 'active',
+    }));
+  });
 });
 
 describe('icu route wrap() surfaces AppError code + details', () => {

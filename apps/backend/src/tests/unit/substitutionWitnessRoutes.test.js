@@ -12,6 +12,7 @@ const TENANT = '00000000-0000-4000-8000-000000000001';
 const ACTOR = '11111111-1111-4111-8111-111111111111';
 const WITNESS = '22222222-2222-4222-8222-222222222222';
 const requestApprovalMock = jest.fn(async (input) => input);
+const preflightApprovalMock = jest.fn(async (input) => input);
 const approveApprovalMock = jest.fn(async (input) => input);
 const authenticateWitnessMock = jest.fn(async ({ tenantId }) => ({
   uid: WITNESS,
@@ -22,6 +23,7 @@ const idempotencyScopes = [];
 jest.unstable_mockModule('../../controllers/pharmacy/pharmacyOrderController.js', () => ({
   requestSubstitutionWitnessApproval: requestApprovalMock,
   approveSubstitutionWitnessApproval: approveApprovalMock,
+  preflightSubstitutionWitnessApproval: preflightApprovalMock,
 }));
 jest.unstable_mockModule('../../services/pharmacy/controlledDispenseWitnessService.js', () => ({
   CONTROLLED_DISPENSE_WITNESS_ROLES: ['PHARMACY_STAFF', 'PHARMACY_INCHARGE', 'NURSING_STAFF'],
@@ -73,6 +75,8 @@ app.use('/dispense-substitution/witness-approvals', substitutionWitnessRoutes);
 beforeEach(() => {
   actorRole = 'PHARMACY_STAFF';
   requestApprovalMock.mockClear();
+  preflightApprovalMock.mockReset();
+  preflightApprovalMock.mockImplementation(async (input) => input);
   approveApprovalMock.mockClear();
   authenticateWitnessMock.mockClear();
 });
@@ -120,11 +124,17 @@ test('substitution witness endpoints require idempotency claims and exclude the 
 test('request + approve bind to the authenticated actor/tenant, never body fields', async () => {
   const requestResponse = await request(app)
     .post('/dispense-substitution/witness-approvals')
-    .send({ tenantId: 'caller-tenant', requested_by: 'caller-actor', inventory_item_id: 5 });
+    .send({
+      tenantId: 'caller-tenant',
+      requested_by: 'caller-actor',
+      requested_role: 'ADMIN',
+      inventory_item_id: 5,
+    });
   expect(requestResponse.statusCode).toBe(200);
   expect(requestApprovalMock).toHaveBeenCalledWith(expect.objectContaining({
     tenantId: TENANT,
     requested_by: ACTOR,
+    requested_role: 'PHARMACY_STAFF',
     inventory_item_id: 5,
   }));
 
@@ -143,12 +153,39 @@ test('request + approve bind to the authenticated actor/tenant, never body field
     tenantId: TENANT,
     req: expect.objectContaining({ user: expect.objectContaining({ uid: ACTOR }) }),
   });
+  expect(preflightApprovalMock).toHaveBeenCalledWith({
+    approvalId: '71',
+    requesterUid: ACTOR,
+    substitution: { tenantId: TENANT, inventory_item_id: 5 },
+  });
+  expect(preflightApprovalMock.mock.invocationCallOrder[0])
+    .toBeLessThan(authenticateWitnessMock.mock.invocationCallOrder[0]);
   expect(approveApprovalMock).toHaveBeenCalledWith({
     approvalId: '71',
     actorUid: WITNESS,
     requesterUid: ACTOR,
     substitution: { tenantId: TENANT, inventory_item_id: 5 },
   });
+});
+
+test('invalid substitution approval evidence is rejected before staff password auth', async () => {
+  const error = Object.assign(new Error('Approval does not match'), {
+    statusCode: 409,
+    code: 'CONTROLLED_DISPENSE_WITNESS_APPROVAL_MISMATCH',
+  });
+  preflightApprovalMock.mockRejectedValueOnce(error);
+
+  const response = await request(app)
+    .post('/dispense-substitution/witness-approvals/999/approve')
+    .send({
+      employeeId: 'PHARM-002',
+      password: 'wrong-secret',
+      substitution: { inventory_item_id: 5 },
+    });
+
+  expect(response.statusCode).toBe(409);
+  expect(authenticateWitnessMock).not.toHaveBeenCalled();
+  expect(approveApprovalMock).not.toHaveBeenCalled();
 });
 
 test('bearer-mode approval uses the authenticated caller as witness', async () => {

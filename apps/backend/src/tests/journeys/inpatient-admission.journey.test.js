@@ -1065,7 +1065,7 @@ describeJourney('Journey: inpatient-admission', () => {
 
   describe('Step 4 — admitting doctor places the admission order bundle', () => {
     it('creates a bulk order set and writes a canonical order triple per order', async () => {
-      const res = await doctor.post('/api/v1/emr/orders/bulk').send({
+      const body = {
         orders: [
           {
             patient_uid: PATIENT_UID,
@@ -1080,11 +1080,36 @@ describeJourney('Journey: inpatient-admission', () => {
             details: { description: 'O2 to keep SpO2 >= 94%', frequency: 'continuous' },
           },
         ],
-      });
+      };
+      const missingKey = await doctor.post('/api/v1/emr/orders/bulk').send(body);
+      expect(missingKey.statusCode).toBe(400);
+
+      const idempotencyKey = `inpatient-bulk-${RUN}`;
+      const res = await doctor.post('/api/v1/emr/orders/bulk')
+        .set('Idempotency-Key', idempotencyKey)
+        .send(body);
       expect(res.statusCode).toBe(201);
       const created = res.body.data;
       expect(Array.isArray(created)).toBe(true);
       expect(created.length).toBe(2);
+      const receipts = await prisma.$queryRawUnsafe(
+        `SELECT status, response_status, response_body
+           FROM idempotency_keys
+          WHERE tenant_id = $1::uuid
+            AND user_uid = $2::uuid
+            AND request_key = $3`,
+        DEFAULT_TENANT,
+        DOCTOR_UID,
+        idempotencyKey,
+      );
+      expect(receipts[0]).toMatchObject({ status: 'complete', response_status: 201 });
+      expect(receipts[0].response_body?.data).toEqual(created);
+
+      const replay = await doctor.post('/api/v1/emr/orders/bulk')
+        .set('Idempotency-Key', idempotencyKey)
+        .send(body);
+      expect(replay.statusCode).toBe(201);
+      expect(replay.body.data).toEqual(created);
 
       for (const item of created) {
         // Bulk returns { order, cds_warnings } per item.

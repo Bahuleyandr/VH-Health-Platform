@@ -1482,29 +1482,21 @@ export async function signDischargeSummary(admissionId, doctorUid, tenantId = nu
       tenantId: requireTenantId(tenantId),
     });
 
+    await materialiseDischargeMedsFromClinicalNote({
+      tenantId,
+      note_id: note.id,
+      admission_id: admissionId,
+      patient_uid: admission.patient_uid,
+      doctor_uid: doctorUid,
+      db: tx,
+    });
+
     return {
       noteId: note.id,
       aiGenerationId: note.ai_generation_id || null,
       signedByName: signer?.signed_by_name || null,
       signedByRole: signer?.signed_by_role || null,
     };
-  });
-
-  // Materialise take-home medicines from the signed discharge note into
-  // e_prescriptions so the patient app's Rx tab surfaces them. The
-  // clinical_notes path stores the discharge summary as a structured
-  // JSON object on `content` — medications_on_discharge is an array of
-  // { name, dose, frequency, duration, instructions, ... } entries (see
-  // buildDischargeMedications). The sibling Sprint-11 dischargeService
-  // path does the same materialisation against discharge_summary_sections
-  // free-text bodies. Best-effort: signing must not fail if no
-  // medications are present.
-  // Finding 2026-05-10-inpatient-admission-patient-takeaway-meds-missing.
-  await materialiseDischargeMedsFromClinicalNote({
-    note_id: txnResult.noteId,
-    admission_id: admissionId,
-    patient_uid: admission.patient_uid,
-    doctor_uid: doctorUid,
   });
 
   return {
@@ -1518,15 +1510,18 @@ export async function signDischargeSummary(admissionId, doctorUid, tenantId = nu
 }
 
 async function materialiseDischargeMedsFromClinicalNote({
-  note_id, admission_id, patient_uid, doctor_uid,
+  tenantId, note_id, patient_uid, doctor_uid, db = prisma,
 }) {
   if (!patient_uid) return;
-  try {
-    const noteRows = await prisma.clinical_notes.findUnique({
-      where: { id: Number(note_id) },
-      select: { content: true },
-    });
-    const content = noteRows?.content;
+  const tid = requireTenantId(tenantId);
+    const noteRows = await db.$queryRawUnsafe(
+      `SELECT content FROM clinical_notes
+        WHERE tenant_id=$1::uuid AND id=$2::int
+        LIMIT 1`,
+      tid,
+      Number(note_id),
+    );
+    const content = noteRows[0]?.content;
     const meds = (content && typeof content === 'object' && !Array.isArray(content))
       ? asArray(content.medications_on_discharge)
       : [];
@@ -1536,36 +1531,47 @@ async function materialiseDischargeMedsFromClinicalNote({
     // duplicate Rx rows. Stamp a discharge marker in clinical_notes so
     // we can detect a prior insert via LIKE.
     const marker = `[discharge_clinical_note_id=${note_id}]`;
-    const existing = await prisma.$queryRawUnsafe(
+    const existing = await db.$queryRawUnsafe(
       `SELECT id FROM e_prescriptions
-        WHERE patient_uid = $1::uuid
-          AND clinical_notes LIKE $2
+        WHERE tenant_id=$1::uuid
+          AND prescription_number=$2
         LIMIT 1`,
-      String(patient_uid), `%${marker}%`,
+      tid,
+      `DISCHARGE-NOTE-${Number(note_id)}`,
     );
     if (existing.length) return;
 
     // Resolve int ids for the FK columns. The patient must exist; the
     // doctor may not (legacy / name-only signers).
     const [patientRow, doctorRow] = await Promise.all([
-      prisma.users.findUnique({
-        where: { uid: String(patient_uid) },
-        select: { id: true },
-      }),
+      db.$queryRawUnsafe(
+        `SELECT id FROM users
+          WHERE tenant_id=$1::uuid AND uid=$2::uuid
+            AND role='PATIENT' AND is_active=TRUE AND status='active'
+            AND is_deleted=FALSE AND merged_into_uid IS NULL
+          LIMIT 1 FOR KEY SHARE`,
+        tid,
+        String(patient_uid),
+      ),
       doctor_uid
-        ? prisma.users.findUnique({
-            where: { uid: String(doctor_uid) },
-            select: { id: true },
-          })
-        : Promise.resolve(null),
+        ? db.$queryRawUnsafe(
+            `SELECT id FROM users
+              WHERE tenant_id=$1::uuid AND uid=$2::uuid
+                AND role='DOCTOR' AND is_active=TRUE AND status='active'
+                AND is_deleted=FALSE
+              LIMIT 1 FOR KEY SHARE`,
+            tid,
+            String(doctor_uid),
+          )
+        : Promise.resolve([]),
     ]);
-    const patientId = patientRow?.id ?? null;
-    const doctorId = doctorRow?.id ?? null;
+    const patientId = patientRow[0]?.id ?? null;
+    const doctorId = doctorRow[0]?.id ?? null;
     if (!patientId) {
-      logger.warn(
-        `materialiseDischargeMedsFromClinicalNote: no users row for patient_uid=${patient_uid}`,
+      throw AppError.conflict(
+        'Discharge medication materialisation requires an active tenant patient',
+        'DISCHARGE_MEDICATION_PATIENT_AUTHORITY_INVALID',
       );
-      return;
     }
 
     // Each entry is a structured medication record. Surface the array
@@ -1591,24 +1597,23 @@ async function materialiseDischargeMedsFromClinicalNote({
         return `• ${parts.join(' ')}`.trim();
       }).join('\n');
 
-    await prisma.$executeRawUnsafe(
+    await db.$executeRawUnsafe(
       `INSERT INTO e_prescriptions
          (appointment_id, patient_id, doctor_id, patient_uid, doctor_uid,
-          diagnosis, clinical_notes, medications, status)
+          diagnosis, clinical_notes, medications, status, tenant_id,
+          lifecycle_status, prescription_number, signed_at, signed_by)
        VALUES (NULL, $1::int, $2::int, $3::uuid, $4::uuid,
-               NULL, $5, $6::jsonb, 'active')`,
+               NULL, $5, $6::jsonb, 'active', $7::uuid,
+               'signed', $8, NOW(), $4::uuid)`,
       patientId,
       doctorId,
       String(patient_uid),
       doctor_uid ? String(doctor_uid) : null,
       clinicalNotesText,
       JSON.stringify(medications),
+      tid,
+      `DISCHARGE-NOTE-${Number(note_id)}`,
     );
-  } catch (e) {
-    logger.warn(
-      `materialiseDischargeMedsFromClinicalNote failed for admission ${admission_id} note ${note_id}: ${e.message}`,
-    );
-  }
 }
 
 export function getDischargeSummaryAiConfig() {

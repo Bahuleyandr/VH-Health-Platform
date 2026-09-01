@@ -4,6 +4,7 @@
 //   createOrder({ keyId, keySecret, amountPaise, currency, receipt, notes })
 //   fetchPayment(...)
 //   createRefund({ keyId, keySecret, providerPaymentId, amountPaise, receipt })
+//   fetchRefund({ keyId, keySecret, providerRefundId })
 //   verifyWebhookSignature(rawBody, signature, secret)
 // Amounts cross this boundary as PAISE INTEGERS only.
 

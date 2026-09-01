@@ -61,6 +61,14 @@ export function cathCaseGuard(paramName) {
   });
 }
 
+/** Guard for case-scoped catalog reads whose case id is carried in the query. */
+export function cathCaseQueryGuard(paramName = 'case_id') {
+  return routePatientGuard(CATH_RECORD_TYPE, {
+    tag: `cath-lab:case-query:${paramName}`,
+    patientSelector: (req) => selectCathCasePatient(req, req.query?.[paramName]),
+  });
+}
+
 /** Guard for /reports/:id* routes. */
 export function cathReportGuard() {
   return routePatientGuard(CATH_RECORD_TYPE, {

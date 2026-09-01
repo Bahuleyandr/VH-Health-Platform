@@ -79,4 +79,42 @@ describe('payment gateway security migration contracts', () => {
     expect(sql).toMatch(/status = 'requires_reconciliation'[\s\S]*reconciled_by IS NOT NULL/i);
     expect(sql).toMatch(/FOREIGN KEY \(tenant_id, reconciled_by\)[\s\S]*REFERENCES users \(tenant_id, uid\)/i);
   });
+
+  it('registers a fenced, typed, structured refund recovery contract in 752', () => {
+    const sql = migration('752_payment_gateway_refund_recovery.sql');
+    expect(sql).toMatch(/provider_request_fingerprint CHAR\(64\)/i);
+    expect(sql).toMatch(/provider_request_replay_authorized BOOLEAN/i);
+    expect(sql).toMatch(/provider_request_replay_authorized = FALSE[\s\S]*SET DEFAULT FALSE[\s\S]*SET NOT NULL/i);
+    expect(sql).toMatch(/legacy_refund_authority_invalid/i);
+    expect(sql).toMatch(/legacy_refund_replay_identity_unavailable/i);
+    expect(sql).toMatch(/initiated_at > billing\.approved_at/i);
+    expect(sql).toMatch(/recovery_claim_token IS NULL[\s\S]*recovery_state <> 'claimed'/i);
+    expect(sql).toMatch(/recovery_claim_token IS NOT NULL[\s\S]*recovery_state = 'claimed'/i);
+    expect(sql).toContain("'payment_gateway_refund_recovery'");
+    expect(sql).toContain("'payment_gateway_refunds'");
+    expect(sql).toContain("'domain_evidence'");
+    expect(sql).toMatch(/reconciliation_disposition IN \([\s\S]*provider_status_unknown/i);
+    expect(sql).toMatch(/FOREIGN KEY \(tenant_id, reconciliation_reviewed_by\)[\s\S]*REFERENCES users \(tenant_id, uid\)/i);
+    expect(sql).toMatch(/legacy_gateway_refund_reconciliation[\s\S]*migration_752_structured_reconciliation_required/i);
+    expect(sql).toMatch(/reconciled_at IS NULL[\s\S]*reconciliation_note IS NULL[\s\S]*reconciled_by IS NULL/i);
+    expect(sql).toMatch(/recovery_state NOT IN \('succeeded', 'failed'\)[\s\S]*recovery_task_id IS NULL/i);
+    expect(sql).toMatch(/automatic gateway refund recovery requires independent same-tenant post-approval authority/i);
+    expect(sql).toMatch(/provider refund creation requires an explicitly authorized replay identity/i);
+    expect(sql).toMatch(/gateway refund reconciliation evidence cannot be future-dated/i);
+    expect(sql).toMatch(/reconciliation_disposition = 'provider_failed'[\s\S]*provider_refund_id IS NOT NULL[\s\S]*reconciled_at IS NOT NULL/i);
+    expect(sql).toMatch(/reconciliation_disposition = 'provider_failed'[\s\S]*provider_refund_id IS NULL[\s\S]*reconciled_at IS NULL/i);
+    expect(sql).toMatch(/INSERT INTO workflow_sla_instances[\s\S]*backfilled_by'[\s\S]*migration_752/i);
+    expect(sql).toMatch(/INSERT INTO tasks[\s\S]*workflow_sla_instance_id[\s\S]*domain_evidence/i);
+    expect(sql).toMatch(/752 postflight: unresolved gateway refund lacks an exact task\/SLA obligation/i);
+    expect(sql).toMatch(/provider_request_fingerprint = payment_gateway_refund_request_fingerprint/i);
+    const dueIndex = sql.match(/CREATE INDEX IF NOT EXISTS idx_pg_refund_recovery_due[\s\S]*?;/i)?.[0];
+    expect(dueIndex).not.toContain('blocked_authority');
+  });
+
+  it('seeds the refund recovery SLA as a global rule in 752', () => {
+    const sql = migration('752_payment_gateway_refund_recovery.sql');
+    expect(sql).toMatch(
+      /INSERT INTO workflow_sla_rules\s*\(\s*tenant_id,\s*rule_code,[\s\S]*?\)\s*VALUES\s*\(\s*NULL::uuid,\s*'payment_gateway_refund_recovery'/i,
+    );
+  });
 });

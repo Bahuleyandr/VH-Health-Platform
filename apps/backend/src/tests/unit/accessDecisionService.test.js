@@ -313,6 +313,54 @@ describe('accessDecisionService', () => {
       .toMatch(/LOWER\(BTRIM\(COALESCE\(status, ''\)\)\) IN \('admitted', 'transferred'\)/);
   });
 
+  it('grants ICU_STAFF the inpatient admission relationship only for MAR access', async () => {
+    prismaMock.$queryRawUnsafe.mockImplementation(async (sql) => {
+      if (sql.includes('FROM users') && sql.includes('role = \'PATIENT\'')) {
+        return patientLookup();
+      }
+      if (/SELECT id\s+FROM admissions/.test(sql)) return [{ id: 27 }];
+      return [];
+    });
+    prismaMock.$executeRawUnsafe.mockResolvedValue(undefined);
+
+    const marDecision = await authorizePatientAccessRequest(reqFor('ICU_STAFF', {
+      method: 'POST',
+      originalUrl: '/api/v1/clinical/mar/41/hold',
+      query: {},
+      body: {},
+    }), {
+      policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+      recordType: 'MAR',
+      patient: { uid: PATIENT_UID },
+    });
+
+    expect(marDecision.allowed).toBe(true);
+    expect(marDecision.accessSource).toBe('admission');
+    expect(marDecision.actor_role).toBe('ICU_STAFF');
+    expect(prismaMock.$executeRawUnsafe.mock.calls[0][4]).toBe('ICU_STAFF');
+
+    prismaMock.$queryRawUnsafe.mockClear();
+    prismaMock.$executeRawUnsafe.mockClear();
+
+    const genericDecision = await authorizePatientAccessRequest(reqFor('ICU_STAFF', {
+      method: 'POST',
+      originalUrl: '/api/v1/clinical/progress-notes',
+      query: {},
+      body: {},
+    }), {
+      policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+      recordType: 'CLINICAL_WORKFLOW',
+      patient: { uid: PATIENT_UID },
+    });
+
+    expect(genericDecision.allowed).toBe(false);
+    expect(genericDecision.actor_role).toBe('ICU_STAFF');
+    expect(prismaMock.$queryRawUnsafe.mock.calls.some(
+      ([sql]) => /SELECT id\s+FROM admissions/.test(sql),
+    )).toBe(false);
+    expect(prismaMock.$executeRawUnsafe.mock.calls[0][4]).toBe('ICU_STAFF');
+  });
+
   it.each([
     [ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS, 'GET'],
     [ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE, 'POST'],

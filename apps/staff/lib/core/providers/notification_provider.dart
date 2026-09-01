@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
+import '../../l10n/app_strings.dart';
 import '../config/api_config.dart';
 import '../navigation/staff_route_policy.dart';
 import '../platform_info.dart';
@@ -65,6 +66,71 @@ typedef NotificationForegroundMessageHandler = Future<void> Function(
 typedef NotificationSurfaceCleaner = Future<void> Function();
 
 class NotificationItem {
+  static const Set<String> _localizedActionLabelKeys = {
+    'clinical_inbox.open_workflow',
+    'mar_supply.notification_action',
+    'med03.credit_note.notification_action',
+    'med03.notification.gateway_refund_reconciliation.action',
+    'orders.mar_recovery.action',
+    's4.lib.counter_sale.open_finance_workflow',
+    's4.lib.counter_sale.open_reconciliation',
+  };
+
+  static const Map<String, String> _localizedTitleKeys = {
+    'MAR_MEDICATION_EXCEPTION': 'med03.notification.mar_exception.title',
+    'MAR_MEDICATION_EXCEPTION_ESCALATION':
+        'med03.notification.mar_exception.overdue_title',
+    'MAR_MEDICATION_EXCEPTION_ASSIGNMENT_HANDOFF':
+        'med03.notification.mar_exception.handoff_title',
+    'COUNTER_SALE_VOID_REFUND_REQUIRED':
+        'med03.notification.counter_sale.finance_title',
+    'COUNTER_SALE_VOID_REFUND_PAYOUT_REQUIRED':
+        'med03.notification.counter_sale.finance_title',
+    'COUNTER_SALE_VOID_REJECTED_REVIEW_REQUIRED':
+        'med03.notification.counter_sale.reconciliation_title',
+    'COUNTER_SALE_VOID_REFUND_REJECTED':
+        'med03.notification.counter_sale.reconciliation_title',
+    'COUNTER_SALE_VOID_COMPLETED':
+        'med03.notification.counter_sale.completed_title',
+    'WARD_INDENT_CREDIT_NOTE_REVIEW': 'med03.credit_note.title',
+    'WARD_INDENT_CREDIT_NOTE_REFUND_APPROVAL':
+        'med03.credit_note.refund_approve_title',
+    'WARD_INDENT_CREDIT_NOTE_REFUND_PAYOUT': 'med03.credit_note.payout_title',
+    'WARD_INDENT_MAR_SUPPLY_RECONCILIATION': 'mar_supply.title',
+    'GATEWAY_REFUND_RECONCILIATION':
+        'med03.notification.gateway_refund_reconciliation.title',
+    'CLINICAL_ALERT_DELIVERY_RECOVERY_OVERDUE':
+        'med03.notification.alert_recovery.overdue_title',
+  };
+
+  static const Map<String, String> _localizedBodyKeys = {
+    'MAR_MEDICATION_EXCEPTION': 'med03.notification.mar_exception.body',
+    'MAR_MEDICATION_EXCEPTION_ESCALATION':
+        'med03.notification.mar_exception.overdue_body',
+    'MAR_MEDICATION_EXCEPTION_ASSIGNMENT_HANDOFF':
+        'med03.notification.mar_exception.handoff_body',
+    'COUNTER_SALE_VOID_REFUND_REQUIRED':
+        'med03.notification.counter_sale.finance_body',
+    'COUNTER_SALE_VOID_REFUND_PAYOUT_REQUIRED':
+        'med03.notification.counter_sale.finance_body',
+    'COUNTER_SALE_VOID_REJECTED_REVIEW_REQUIRED':
+        'med03.notification.counter_sale.reconciliation_body',
+    'COUNTER_SALE_VOID_REFUND_REJECTED':
+        'med03.notification.counter_sale.reconciliation_body',
+    'COUNTER_SALE_VOID_COMPLETED':
+        'med03.notification.counter_sale.completed_body',
+    'WARD_INDENT_CREDIT_NOTE_REVIEW': 'med03.credit_note.select',
+    'WARD_INDENT_CREDIT_NOTE_REFUND_APPROVAL':
+        'med03.credit_note.refund_approve_body',
+    'WARD_INDENT_CREDIT_NOTE_REFUND_PAYOUT':
+        'med03.notification.credit_note_payout.body',
+    'WARD_INDENT_MAR_SUPPLY_RECONCILIATION': 'mar_supply.help',
+    'GATEWAY_REFUND_RECONCILIATION':
+        'med03.notification.gateway_refund_reconciliation.body',
+    'CLINICAL_ALERT_DELIVERY_RECOVERY_OVERDUE':
+        'med03.notification.alert_recovery.overdue_body',
+  };
+
   final String? id;
   final String title;
   final String body;
@@ -140,12 +206,38 @@ class NotificationItem {
     'RADIOLOGY',
   ]);
 
+  String titleFor(AppStrings strings) {
+    final key = _localizedTitleKeys[normalizedType];
+    return key == null ? title : strings.lookup(key);
+  }
+
+  String bodyFor(AppStrings strings) {
+    if (normalizedType == 'CLINICAL_ALERT_DELIVERY_RECOVERY_OVERDUE') {
+      final caseKind = data['case_kind']?.toString().trim().toLowerCase();
+      if (caseKind == 'manual_hold') {
+        return strings.lookup(
+          'med03.notification.alert_recovery.manual_hold_body',
+        );
+      }
+      if (caseKind == 'recipient_coverage') {
+        return strings.lookup(
+          'med03.notification.alert_recovery.recipient_coverage_body',
+        );
+      }
+    }
+    final key = _localizedBodyKeys[normalizedType];
+    return key == null ? body : strings.lookup(key);
+  }
+
   String? get actionRoute {
     if (normalizedType == 'WARD_PHARMACY_INDENT' &&
         data['dispatch_surface_available'] != true) {
       return null;
     }
-    final explicit = data['route']?.toString().trim();
+    final route = data['route']?.toString().trim();
+    final explicit = route != null && route.isNotEmpty
+        ? route
+        : data['deep_link']?.toString().trim();
     if (explicit != null && explicit.isNotEmpty) {
       return StaffRoutePolicy.sanitizeExternalRoute(explicit);
     }
@@ -170,10 +262,39 @@ class NotificationItem {
     );
   }
 
-  String get actionLabel {
+  String actionLabelFor(AppStrings strings) {
+    final localizedKey = data['action_label_key']?.toString().trim();
+    if (localizedKey != null &&
+        _localizedActionLabelKeys.contains(localizedKey)) {
+      return strings.lookup(localizedKey);
+    }
     final explicit = data['action_label']?.toString().trim();
     if (explicit != null && explicit.isNotEmpty) return explicit;
     if (_isSosResponderType(normalizedType)) return 'Open SOS alert';
+    if (normalizedType == 'WARD_INDENT_MAR_SUPPLY_RECONCILIATION') {
+      return strings.lookup('mar_supply.notification_action');
+    }
+    if (normalizedType.startsWith('MAR_MEDICATION_EXCEPTION')) {
+      return strings.lookup('orders.mar_recovery.action');
+    }
+    if (normalizedType == 'GATEWAY_REFUND_RECONCILIATION') {
+      return strings.lookup(
+        'med03.notification.gateway_refund_reconciliation.action',
+      );
+    }
+    if (const {
+      'COUNTER_SALE_VOID_REFUND_REQUIRED',
+      'COUNTER_SALE_VOID_REFUND_PAYOUT_REQUIRED',
+    }.contains(normalizedType)) {
+      return strings.lookup('s4.lib.counter_sale.open_finance_workflow');
+    }
+    if (const {
+      'COUNTER_SALE_VOID_REJECTED_REVIEW_REQUIRED',
+      'COUNTER_SALE_VOID_REFUND_REJECTED',
+      'COUNTER_SALE_VOID_COMPLETED',
+    }.contains(normalizedType)) {
+      return strings.lookup('s4.lib.counter_sale.open_reconciliation');
+    }
     if (isAppointmentAlert) return 'Open appointment';
     if (isAdmissionAlert) return 'Open admission';
     if (isHousekeepingAlert) return 'Open housekeeping task';
@@ -187,6 +308,9 @@ class NotificationItem {
     }
     return 'Open';
   }
+
+  String get actionLabel =>
+      actionLabelFor(AppStrings.forLocale(const Locale('en')));
 }
 
 class NotificationProvider extends ChangeNotifier {
@@ -214,6 +338,8 @@ class NotificationProvider extends ChangeNotifier {
        _isAuthenticated = isAuthenticated ?? ApiConfig.isLoggedIn,
        _notificationClaimsLoader =
            notificationClaimsLoader ?? ApiConfig.getStaffJwtClaims,
+       // Public constructor seam intentionally keeps a non-private parameter.
+       // ignore: prefer_initializing_formals
        _notificationAuthorityValidator = notificationAuthorityValidator,
        _platformLoader = platformLoader ?? _defaultPlatform,
        _fetchNotifications =
@@ -696,6 +822,9 @@ String? _defaultRouteForType(String type) {
   if (t.contains('HOUSEKEEPING')) return '/housekeeping-tasks';
   if (t.contains('BED') || t.contains('CLEANING')) return '/beds';
   if (t.contains('HANDOVER')) return '/handover';
+  if (t == 'GATEWAY_REFUND_RECONCILIATION') {
+    return '/billing/gateway-refund-reconciliation';
+  }
   if (t.contains('REFERRAL')) return '/referrals';
   if (t.contains('LAB') ||
       t.contains('INVESTIGATION') ||

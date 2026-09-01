@@ -5,7 +5,7 @@ import {
   getRolePolicyVersion,
   getStaffVisibilityRoles,
 } from '../../config/rolePolicyGraph.js';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { isGovernanceSchemaMissing } from './schemaMissingGuard.js';
 import { normalizeRole } from '../../utils/roles.js';
@@ -308,18 +308,24 @@ async function resolveStaffFromResource(req, { resourceType, resourceId }) {
       id,
     );
   } else if (resourceType === 'salary_revision' && id) {
-    rows = await prisma.$queryRawUnsafe(
+    rows = await setTenant(tenantId, tx => tx.$queryRawUnsafe(
       `SELECT u.id AS user_id, u.uid AS user_uid, u.role, u.name, u.tenant_id,
               s.id AS staff_row_id, s.employee_id, s.department,
               COALESCE(s.designation, s.position) AS designation, s.supervisor_id
          FROM salary_revisions sr
-         JOIN users u ON u.uid = sr.staff_uid
-         LEFT JOIN staff s ON s.user_id = u.uid
-        WHERE sr.id = $2::int AND u.tenant_id = $1::uuid
-        LIMIT 1`,
+         JOIN users u
+           ON u.uid = sr.staff_uid
+          AND u.tenant_id = sr.tenant_id
+         LEFT JOIN staff s
+           ON s.user_id = u.uid
+          AND s.tenant_id = sr.tenant_id
+         WHERE sr.id = $2::int
+           AND sr.tenant_id = $1::uuid
+           AND sr.tenant_reconciliation_required = false
+         LIMIT 1`,
       tenantId,
       id,
-    );
+    ));
   } else if (resourceType === 'attendance_dispute' && id) {
     rows = await prisma.$queryRawUnsafe(
       `SELECT u.id AS user_id, u.uid AS user_uid, u.role, u.name, u.tenant_id,

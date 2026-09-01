@@ -43,7 +43,19 @@ import {
   evaluateMigrationChecksums,
 } from './lib/migrationChecksum.mjs';
 import { parseMigrationDirectives } from './lib/migrationDirectives.mjs';
+import {
+  findDriftedGucs,
+  isIdempotencyNotice,
+  pinMigrationSessionGucs,
+  readMigrationSessionGucs,
+} from './lib/migrationSessionGucs.mjs';
 import { assertCiSetupSeedPolicy } from './lib/testDataSeedGuard.mjs';
+import {
+  assertPayrollRevision754Acceptance,
+  buildPayrollRevision754Receipt,
+  collectPayrollRevision754Manifest,
+  lockPayrollRevision754Tables,
+} from './payroll-revision-754-preflight.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..');
@@ -69,9 +81,32 @@ const SKIP_MIGRATIONS = new Set([
 // identify a pre-existing canonical schema that must have a verified tracker.
 const BASELINE_CANONICAL_TABLES = ['users', 'appointments', 'admissions'];
 const BASELINE_FILE = '000_baseline.sql';
+const PAYROLL_REVISION_RECONCILIATION_MIGRATION =
+  '754_salary_revision_tenant_reconciliation.sql';
 
 const client = new pg.Client({ connectionString: DATABASE_URL });
 await client.connect();
+
+// Server NOTICEs are only useful if someone reads them. The runner pins
+// client_min_messages = notice so migrations' own RAISE NOTICE diagnostics are
+// not swallowed, then drops Postgres's IF [NOT] EXISTS no-ops here — roughly
+// 2,960 of the 3,054 a full apply emits — and counts what it dropped. Anything
+// unrecognised is logged, so the filter can only ever be too loud.
+let noticeContext = null;
+let suppressedNotices = 0;
+client.on('notice', (notice) => {
+  const message = String(notice?.message ?? '').trim();
+  if (!message) return;
+  if (isIdempotencyNotice(message)) {
+    suppressedNotices += 1;
+    return;
+  }
+  logger.info(`    · ${noticeContext ? `${noticeContext}: ` : ''}${message}`);
+});
+
+// Own these from the first statement, not from whatever pg_dump preamble the
+// baseline happens to carry. See MIGRATION_SESSION_GUCS below.
+await pinMigrationSessionGucs(client);
 
 if (!existsSync(MIGRATIONS_DIR)) {
   logger.error(`Migration directory not found: ${MIGRATIONS_DIR}`);
@@ -237,11 +272,64 @@ function fileStartsWithBegin(sql) {
   return /^begin\b/i.test(sql.slice(i, i + 16));
 }
 
+// A migration may legitimately relax body checking for its OWN content:
+// 000_baseline.sql and 758 both `SET check_function_bodies = false` so that
+// functions referencing tables created later in the same file can be created,
+// exactly as pg_dump does. Those are SESSION-level SETs and every migration here
+// runs through ONE long-lived connection, so without this the relaxation outlives
+// the file that asked for it and every later migration is applied unvalidated.
+//
+// That is not hypothetical: it is why 744 and 745 shipped trigger functions whose
+// plpgsql bodies cannot compile (a bare CASE inside an IF condition consumes the
+// IF's THEN) while CI stayed green, and plpgsql compiles lazily, so those
+// triggers would have raised the first time they fired. Migration 759 repairs the
+// two bodies; this restores the validation that should have caught them.
+// Session parameters the runner owns for the whole chain. The rationale — and
+// why row_security is pinned OFF rather than restored to on — lives in
+// scripts/lib/migrationSessionGucs.mjs; read it before changing either value.
+async function assertMigrationSessionGucs() {
+  const drifted = findDriftedGucs(await readMigrationSessionGucs(client));
+  if (drifted.length > 0) {
+    logger.error(
+      `Migration session GUCs drifted: ${drifted.join(', ')}. A migration issued a `
+      + 'session-level SET that outlived it; use SET LOCAL instead.',
+    );
+    process.exit(1);
+  }
+}
+
+// Two migrations shipped plpgsql bodies that CANNOT compile: a bare CASE inside
+// an IF condition consumes the IF's own THEN terminator, so the condition is
+// truncated and the server raises 42601 "syntax error at end of input". They were
+// accepted at the time only because body validation was already off, leaked from
+// the baseline. Migration 759 repairs both functions.
+//
+// 759 cannot help these two files apply, though: it runs after them, and a fresh
+// database must still replay 744 and 745 on the way there. So they are applied
+// exactly as they always were — with body checking off — and validation is
+// restored immediately afterwards. Amending them instead would drift their
+// recorded checksum in every environment that has already applied them, which is
+// the failure this repo spent a day unwinding on migration 566.
+//
+// This set must never grow. A new migration whose bodies do not compile is a bug
+// to fix before merge, not an entry here; scripts/ci/check-migration-session-guc.mjs
+// stops the session-level leak that let these two through in the first place.
+const BODIES_KNOWN_UNCOMPILABLE = new Set([
+  '744_medication_inventory_billing_mar_closure.sql',
+  '745_clinical_alert_delivery_obligations.sql',
+]);
+
+async function relaxFunctionBodyCheckingFor(file) {
+  if (!BODIES_KNOWN_UNCOMPILABLE.has(file)) return;
+  await client.query('SET check_function_bodies = off');
+}
+
 logger.info('→ Applying raw src/migrations/*.sql …');
 let appliedCount = 0;
 let alreadyApplied = 0;
 let knownBadSkipped = 0;
 let errors = 0;
+const failedFiles = [];
 for (const file of files) {
   if (SKIP_MIGRATIONS.has(file)) {
     logger.info(`  ~ ${file} (skipped — known-bad)`);
@@ -253,6 +341,7 @@ for (const file of files) {
     alreadyApplied++;
     continue;
   }
+  noticeContext = file;
   const sql = readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
   // Apply the file. @no-transaction migrations run statement-by-statement so
   // CREATE INDEX CONCURRENTLY remains legal; they must be idempotent because a
@@ -260,18 +349,45 @@ for (const file of files) {
   // their own top-level transaction or the executor's transaction wrapper.
   const selfManaged = file === BASELINE_FILE || fileStartsWithBegin(sql);
   const directives = parseMigrationDirectives(sql);
+  const payrollReconciliationGate = file === PAYROLL_REVISION_RECONCILIATION_MIGRATION;
   try {
+    await relaxFunctionBodyCheckingFor(file);
     const result = await executeCiMigrationFile({
       client,
       file,
       sql,
       baseline: file === BASELINE_FILE,
       selfManaged: selfManaged && file !== BASELINE_FILE,
+      forceTransactional: payrollReconciliationGate,
+      beforeTransaction: payrollReconciliationGate
+        ? async (transactionClient) => {
+          await lockPayrollRevision754Tables(transactionClient);
+          const concurrentlyApplied = await transactionClient.query(
+            'SELECT 1 FROM public._migrations WHERE name = $1 LIMIT 1',
+            [PAYROLL_REVISION_RECONCILIATION_MIGRATION],
+          );
+          if (concurrentlyApplied.rowCount === 1) {
+            logger.info('  → migration 754 was committed by a concurrent migration runner');
+            return { skipMigration: true };
+          }
+          const receipt = assertPayrollRevision754Acceptance(
+            buildPayrollRevision754Receipt(
+              await collectPayrollRevision754Manifest(transactionClient),
+            ),
+          );
+          logger.info(
+            `  → migration 754 accepted payroll manifest ${receipt.manifest_sha256} `
+            + `(${receipt.cardinality.total} row(s), owner ${receipt.accepted_by || 'not-required'})`,
+          );
+          return null;
+        }
+        : null,
     });
     const timeoutNote = directives.statementTimeout
       ? `, statement_timeout=${directives.statementTimeout}`
       : '';
     logger.info(`  ✓ ${file} (${result.mode}${timeoutNote})`);
+    await pinMigrationSessionGucs(client);
     applied.add(file);
     appliedCount++;
   } catch (err) {
@@ -283,6 +399,7 @@ for (const file of files) {
       `  ! ${file}${statement} — ${err.code || ''} ${(err.message || '').split('\n')[0]}${hint}`
     );
     errors++;
+    failedFiles.push(file);
     break;
   }
 }
@@ -290,7 +407,15 @@ logger.info(
   `→ Migrations: ${appliedCount} applied, ${alreadyApplied} already-tracked, ${knownBadSkipped} skipped (known-bad), ${errors} errors\n`
 );
 
-await assertMigrationBatchSucceeded({ errors, client, logger });
+noticeContext = null;
+if (suppressedNotices > 0) {
+  logger.info(
+    `→ Suppressed ${suppressedNotices} idempotent "already exists / does not exist, skipping" notice(s).\n`,
+  );
+}
+
+await assertMigrationBatchSucceeded({ errors, failedFiles, client, logger });
+await assertMigrationSessionGucs();
 await assertTrackerChecksumsCurrent();
 
 // Seed minimal lookup data the tests rely on. Skippable (--skip-seeds /

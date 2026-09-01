@@ -28,12 +28,16 @@ describe("cath consumables admin API client", () => {
 
   it("uses the exact catalog GET and PUT contract", async () => {
     await listCathConsumablesCatalog({
+      facility_id: 7,
       q: "stent",
       category: "stent",
       status: "active",
       limit: 500,
     });
+    // facility_id is not decoration: the admin catalog read has no case to pin
+    // a facility from, so `listConsumableCatalog` throws without it.
     expect(mockedGetJSON).toHaveBeenCalledWith(CATH_CONSUMABLES_CATALOG_PATH, {
+      facility_id: 7,
       q: "stent",
       category: "stent",
       status: "active",
@@ -52,11 +56,30 @@ describe("cath consumables admin API client", () => {
       inventory_item_id: null,
       status: "active",
     } as never;
-    await upsertCathConsumable(payload);
+    await upsertCathConsumable(payload, "cath-consumable-catalog-upsert:a1b2");
+    // The route is mounted with `requireIdempotencyKey({ required: true })`, so
+    // a PUT without the header is a hard 400 rather than a degraded save. The
+    // key is minted and reset by the React layer (see CatalogTab) and forwarded
+    // verbatim here — this module holds no attempt state of its own, because a
+    // module-level store is never reset and would swallow a deliberate second
+    // save of the same payload as a replay.
     expect(mockedPutJSON).toHaveBeenCalledWith(
       CATH_CONSUMABLES_CATALOG_PATH,
       payload,
+      true,
+      { "Idempotency-Key": "cath-consumable-catalog-upsert:a1b2" },
     );
+  });
+
+  it("refuses a malformed catalog idempotency key before the request leaves the browser", () => {
+    const payload = { item_name: "Synthetic stent", status: "active" } as never;
+
+    // A 400 from the server is indistinguishable from "the header was never
+    // sent", so a bad key is a call-site programming error caught locally.
+    expect(() => upsertCathConsumable(payload, "not a valid key")).toThrow(
+      TypeError,
+    );
+    expect(mockedPutJSON).not.toHaveBeenCalled();
   });
 
   it("uses the exact unbilled report contract and preserves filters", async () => {

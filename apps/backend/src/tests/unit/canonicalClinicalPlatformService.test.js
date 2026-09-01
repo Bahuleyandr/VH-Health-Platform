@@ -547,10 +547,40 @@ describe('canonical clinical platform service', () => {
     expect(result.blockers).toHaveLength(1);
     expect(result.warnings).toHaveLength(1);
     expect(result.reviews).toHaveLength(2);
-    expect(validatePrescriptionSafetyMock).toHaveBeenCalledWith(42, [
-      { name: 'Penicillin' },
-      { name: 'Gentamicin' },
-    ]);
+    expect(validatePrescriptionSafetyMock).toHaveBeenCalledWith(
+      42,
+      [
+        { name: 'Penicillin' },
+        { name: 'Gentamicin' },
+      ],
+      { tenantId: TENANT, db: __prismaDefaultMock },
+    );
+  });
+
+  it('uses one resolved tenant and the caller transaction for safety evaluation and review persistence', async () => {
+    txQueryUnsafeMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([{ id: 'review-passed', status: 'passed' }]);
+
+    const medications = [{ name: 'Paracetamol' }];
+    const result = await evaluateMedicationSafety({
+      patientUid: PATIENT,
+      patientId: 42,
+      actorUid: ACTOR,
+      medications,
+    }, { db: __prismaTxMock });
+
+    expect(result.reviews).toEqual([{ id: 'review-passed', status: 'passed' }]);
+    expect(validatePrescriptionSafetyMock).toHaveBeenCalledWith(
+      42,
+      medications,
+      { tenantId: TENANT, db: __prismaTxMock },
+    );
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+    expect(txQueryUnsafeMock).toHaveBeenCalledTimes(2);
+    expect(txQueryUnsafeMock.mock.calls[0][0]).toContain("current_setting('app.current_tenant_id'");
+    expect(txQueryUnsafeMock.mock.calls[1][0]).toContain('INSERT INTO medication_safety_reviews');
+    expect(txQueryUnsafeMock.mock.calls[1][1]).toBe(TENANT);
   });
 
   it('serves structured documentation templates and downtime policy guardrails', () => {

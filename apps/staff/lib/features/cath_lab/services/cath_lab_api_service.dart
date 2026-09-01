@@ -357,6 +357,140 @@ class CathCaseQuickWins {
   }
 }
 
+class CathInventoryReconciliation {
+  const CathInventoryReconciliation({
+    required this.caseId,
+    required this.usageId,
+    required this.patientUid,
+    required this.itemName,
+    required this.catalogItemId,
+    required this.inventoryItemId,
+    required this.inventoryBatchId,
+    required this.batchNumber,
+    required this.documentedQuantity,
+    required this.decrementedQuantity,
+    required this.remainingQuantity,
+    required this.inventoryDecrementStatus,
+    required this.inventoryWarning,
+    required this.taskId,
+    required this.taskStatus,
+    required this.workflowSlaInstanceId,
+    required this.slaStatus,
+    required this.dueAt,
+    required this.actionable,
+  });
+
+  final String caseId;
+  final String usageId;
+  final String patientUid;
+  final String itemName;
+  final String catalogItemId;
+  final String inventoryItemId;
+  final String inventoryBatchId;
+  final String batchNumber;
+  final double documentedQuantity;
+  final double decrementedQuantity;
+  final double remainingQuantity;
+  final String inventoryDecrementStatus;
+  final String inventoryWarning;
+  final String taskId;
+  final String taskStatus;
+  final String workflowSlaInstanceId;
+  final String slaStatus;
+  final DateTime? dueAt;
+  final bool actionable;
+
+  bool get isCompleted =>
+      inventoryDecrementStatus.trim().toLowerCase() == 'decremented' &&
+      taskStatus.trim().toLowerCase() == 'completed' &&
+      slaStatus.trim().toLowerCase() == 'completed' &&
+      !actionable;
+
+  bool matchesTarget({required String caseId, required String usageId}) =>
+      this.caseId == caseId && this.usageId == usageId;
+
+  factory CathInventoryReconciliation.fromJson(Map<String, dynamic> json) {
+    final task = _map(json['task']);
+    final sla = _map(json['workflow_sla'] ?? json['sla']);
+    return CathInventoryReconciliation(
+      caseId: _string(json['case_id']),
+      usageId: _string(
+        json['usage_id'] ??
+            json['consumable_usage_id'] ??
+            json['cath_consumable_usage_id'],
+      ),
+      patientUid: _string(json['patient_uid']),
+      itemName: _string(json['item_name'] ?? json['catalog_item_name']),
+      catalogItemId: _string(json['catalog_item_id'] ?? json['item_id']),
+      inventoryItemId: _string(json['inventory_item_id']),
+      inventoryBatchId: _string(json['inventory_batch_id']),
+      batchNumber: _string(json['batch_number'] ?? json['batch_no']),
+      documentedQuantity: _decimal(json['documented_quantity']),
+      decrementedQuantity: _decimal(json['decremented_quantity']),
+      remainingQuantity: _decimal(json['remaining_quantity']),
+      inventoryDecrementStatus: _string(
+        json['inventory_decrement_status'],
+        fallback: 'unknown',
+      ),
+      inventoryWarning: _string(json['inventory_warning']),
+      taskId: _string(json['task_id'] ?? task['id']),
+      taskStatus: _string(
+        json['task_status'] ?? task['status'],
+        fallback: 'unknown',
+      ),
+      workflowSlaInstanceId: _string(
+        json['workflow_sla_instance_id'] ?? sla['id'],
+      ),
+      slaStatus: _string(
+        json['sla_status'] ?? sla['status'],
+        fallback: 'unknown',
+      ),
+      dueAt: _date(json['due_at'] ?? sla['due_at']),
+      actionable: _boolean(json['actionable']),
+    );
+  }
+
+  static Map<String, dynamic> _map(Object? value) => value is Map
+      ? Map<String, dynamic>.from(value)
+      : const <String, dynamic>{};
+
+  static String _string(Object? value, {String fallback = ''}) {
+    final text = value?.toString().trim() ?? '';
+    return text.isEmpty ? fallback : text;
+  }
+
+  static double _decimal(Object? value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(_string(value)) ?? 0;
+  }
+
+  static DateTime? _date(Object? value) {
+    final text = _string(value);
+    return text.isEmpty ? null : DateTime.tryParse(text)?.toLocal();
+  }
+
+  static bool _boolean(Object? value) {
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    return const {
+      'true',
+      '1',
+      'yes',
+      'on',
+    }.contains(_string(value).toLowerCase());
+  }
+}
+
+class CathInventoryReconciliationResult {
+  const CathInventoryReconciliationResult({
+    required this.outcome,
+    required this.reconciliation,
+  });
+
+  final String outcome;
+  final CathInventoryReconciliation reconciliation;
+}
+
 class CathLabApiService {
   CathLabApiService._();
 
@@ -398,13 +532,22 @@ class CathLabApiService {
         .toList();
   }
 
+  /// GET /cath-lab/consumables/catalog.
+  ///
+  /// The read is case-scoped: `cathLabRoutes.js` guards it with
+  /// `cathCaseQueryGuard('case_id')` and the service pins the facility from
+  /// that case, so [caseId] is required — without it the call is a hard
+  /// failure, not an unfiltered search. Pass the ACTIVE case, never a
+  /// remembered one: the facility the operator is allowed to see comes from it.
   static Future<List<CathConsumableCatalogItem>> searchConsumableCatalog({
+    required int caseId,
     String? query,
     String? scan,
   }) async {
     final response = await ApiClient.get(
       '/cath-lab/consumables/catalog',
       queryParameters: {
+        'case_id': '$caseId',
         if (query != null && query.trim().isNotEmpty) 'q': query.trim(),
         if (scan != null && scan.trim().isNotEmpty) 'scan': scan.trim(),
       },
@@ -419,11 +562,17 @@ class CathLabApiService {
         .toList(growable: false);
   }
 
+  /// GET /cath-lab/consumables/catalog/:id/batches.
+  ///
+  /// Case-scoped for the same reason as [searchConsumableCatalog]: the batch
+  /// list is facility-pinned through the case, so [caseId] is required.
   static Future<List<CathInventoryBatch>> fetchConsumableBatches(
-    int catalogItemId,
-  ) async {
+    int catalogItemId, {
+    required int caseId,
+  }) async {
     final response = await ApiClient.get(
       '/cath-lab/consumables/catalog/$catalogItemId/batches',
+      queryParameters: {'case_id': '$caseId'},
     );
     final data = _successfulData(
       response,
@@ -474,6 +623,49 @@ class CathLabApiService {
       throw Exception('Cath Lab consumable usage response was malformed');
     }
     return CathCaseConsumableUsage.fromJson(Map<String, dynamic>.from(raw));
+  }
+
+  static Future<CathInventoryReconciliation> fetchInventoryReconciliation(
+    String caseId,
+    String usageId,
+  ) async {
+    _requireCanonicalPositiveBigInt(caseId, 'caseId');
+    _requireCanonicalPositiveBigInt(usageId, 'usageId');
+    final response = await ApiClient.get(
+      '/cath-lab/cases/$caseId/consumables/$usageId/inventory-reconcile',
+    );
+    final data = _successfulData(
+      response,
+      'Failed to load Cath Lab inventory reconciliation',
+    );
+    return _inventoryReconciliationFromData(data);
+  }
+
+  static Future<CathInventoryReconciliationResult> reconcileConsumableInventory(
+    String caseId,
+    String usageId, {
+    required String idempotencyKey,
+  }) async {
+    _requireCanonicalPositiveBigInt(caseId, 'caseId');
+    _requireCanonicalPositiveBigInt(usageId, 'usageId');
+    final response = await ApiClient.post(
+      '/cath-lab/cases/$caseId/consumables/$usageId/inventory-reconcile',
+      idempotencyKey: idempotencyKey,
+    );
+    final data = _successfulData(
+      response,
+      'Failed to reconcile Cath Lab inventory',
+    );
+    final outcome = data['outcome']?.toString().trim().toLowerCase() ?? '';
+    if (outcome != 'completed' && outcome != 'still_insufficient') {
+      throw Exception(
+        'Cath Lab inventory reconciliation outcome was malformed',
+      );
+    }
+    return CathInventoryReconciliationResult(
+      outcome: outcome,
+      reconciliation: _inventoryReconciliationFromData(data),
+    );
   }
 
   static Future<CathCaseQuickWins> fetchCaseQuickWins(int caseId) async {
@@ -652,11 +844,36 @@ class CathLabApiService {
     return CathProcedureReport.fromJson(Map<String, dynamic>.from(raw));
   }
 
+  static CathInventoryReconciliation _inventoryReconciliationFromData(
+    Map<String, dynamic> data,
+  ) {
+    final raw = data['reconciliation'];
+    if (raw is! Map) {
+      throw Exception(
+        'Cath Lab inventory reconciliation response was malformed',
+      );
+    }
+    return CathInventoryReconciliation.fromJson(Map<String, dynamic>.from(raw));
+  }
+
   static List<Map<String, dynamic>> _mapList(Object? value) {
     if (value is! List) return const [];
     return value
         .whereType<Map>()
         .map((item) => Map<String, dynamic>.from(item))
         .toList(growable: false);
+  }
+}
+
+const _maximumSignedBigIntIdentifier = '9223372036854775807';
+
+void _requireCanonicalPositiveBigInt(String value, String name) {
+  final valid =
+      RegExp(r'^[1-9][0-9]*$').hasMatch(value) &&
+      value.length <= _maximumSignedBigIntIdentifier.length &&
+      (value.length < _maximumSignedBigIntIdentifier.length ||
+          value.compareTo(_maximumSignedBigIntIdentifier) <= 0);
+  if (!valid) {
+    throw ArgumentError.value(value, name, 'must be a positive signed BIGINT');
   }
 }

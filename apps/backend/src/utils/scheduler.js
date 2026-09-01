@@ -763,6 +763,90 @@ if (process.env.NODE_ENV !== 'test') {
     ));
   }));
 
+  // Every 5 minutes — recreate durable ward-medication notification intent
+  // after the required roster role becomes available. The coverage task row
+  // is claimed with SKIP LOCKED and can complete only from persisted outbox
+  // evidence; this sweep never changes ward-indent clinical state.
+  registerCron('*/5 * * * *', withJobLock('ward-indent-notification-coverage-recovery', async () => {
+    const { sweepWardIndentNotificationCoverage } = await import(
+      '../services/ipd/wardIndentObligationService.js'
+    );
+    const result = await runForEachTenant(
+      'ward-indent-notification-coverage-recovery',
+      (tenantId) => sweepWardIndentNotificationCoverage({ tenantId, limit: 25 }),
+    );
+    logger.info('ward-indent-notification-coverage-recovery complete', result);
+  }));
+
+  registerCron('*/5 * * * *', withJobLock('clinical-alert-delivery-obligation-recovery', async () => {
+    const { sweepClinicalAlertDeliveryObligations } = await import(
+      '../services/clinical/clinicalAlertDeliveryObligationService.js'
+    );
+    const result = await runForEachTenant(
+      'clinical-alert-delivery-obligation-recovery',
+      (tenantId) => sweepClinicalAlertDeliveryObligations({ tenantId, limit: 25 }),
+    );
+    logger.info('clinical-alert-delivery-obligation-recovery complete', result);
+  }));
+
+  registerCron('*/5 * * * *', withJobLock('mar-medication-exception-reconciliation', async () => {
+    const { reconcileMarMedicationExceptions } = await import(
+      '../services/clinical/marMedicationExceptionService.js'
+    );
+    const { createMarMedicationExceptionTaskTx } = await import(
+      '../services/workflow/taskService.js'
+    );
+    const result = await runForEachTenant(
+      'mar-medication-exception-reconciliation',
+      (tenantId) => reconcileMarMedicationExceptions({
+        tenantId,
+        limit: 25,
+        createTaskTx: createMarMedicationExceptionTaskTx,
+      }),
+    );
+    logger.info('mar-medication-exception-reconciliation complete', result);
+  }));
+
+  registerCron('*/5 * * * *', withJobLock('cath-inventory-shortfall-assignment-recovery', async () => {
+    const { sweepCathInventoryShortfallAssignments } = await import(
+      '../services/clinical/cathLabService.js'
+    );
+    const result = await runForEachTenant(
+      'cath-inventory-shortfall-assignment-recovery',
+      (tenantId) => sweepCathInventoryShortfallAssignments({ tenantId, limit: 25 }),
+    );
+    logger.info('cath-inventory-shortfall-assignment-recovery complete', result);
+  }));
+
+  // Every 5 minutes — close counter-sale voids only after their exact bound
+  // refund has durable PAID rail evidence. The service sweep is tenant-bound,
+  // bounded, idempotent and isolates an individual request failure.
+  registerCron('*/5 * * * *', withJobLock('counter-sale-void-reconciliation', async () => {
+    const { reconcileCounterSaleVoidsForTenant } = await import(
+      '../services/pharmacy/counterSaleService.js'
+    );
+    const result = await runForEachTenant(
+      'counter-sale-void-reconciliation',
+      (tenantId) => reconcileCounterSaleVoidsForTenant({ tenantId, limit: 25 }),
+    );
+    logger.info('counter-sale-void-reconciliation complete', result);
+  }));
+
+  // Every 5 minutes — make every unresolved provider-refund park visible to
+  // an active platform administrator. The source key includes the refund
+  // row generation, so retries dedupe while later exact provider evidence can
+  // reopen the workflow with a new actionable notification.
+  registerCron('*/5 * * * *', withJobLock('gateway-refund-reconciliation-notification', async () => {
+    const { sweepGatewayRefundReconciliationNotifications } = await import(
+      '../services/billing/paymentGatewayService.js'
+    );
+    const result = await runForEachTenant(
+      'gateway-refund-reconciliation-notification',
+      (tenantId) => sweepGatewayRefundReconciliationNotifications({ tenantId, limit: 25 }),
+    );
+    logger.info('gateway-refund-reconciliation-notification complete', result);
+  }));
+
   // 🔄 Every 5 minutes - Retry failed push/SMS notifications (exponential backoff)
   registerCron('*/5 * * * *', withJobLock('retry-failed-notifications', retryFailedNotifications));
 
@@ -1246,6 +1330,21 @@ if (process.env.NODE_ENV !== 'test') {
     if (expired) logger.info(`Scheduled Task: expired ${expired} payment gateway orders`);
   }));
 
+  // Every 5 minutes — claim unresolved provider-backed refunds, fetch their
+  // authoritative provider state, and project only exact terminal evidence.
+  // The service is default-off behind an explicit operator activation gate;
+  // registering the inert sweep keeps activation to configuration + ArgoCD
+  // authority rather than requiring a second code change.
+  registerCron('*/5 * * * *', withJobLock('payment-gateway-refund-recovery', async () => {
+    const { runGatewayRefundRecoverySweep } = await import(
+      '../services/billing/gatewayRefundRecoveryService.js'
+    );
+    const result = await runForEachTenant('payment-gateway-refund-recovery', (tenantId) => (
+      runGatewayRefundRecoverySweep({ tenantId, limit: 25 })
+    ));
+    logger.info('payment-gateway-refund-recovery sweep complete', result);
+  }));
+
   // 🗓️ Hourly at :25 — ambulance GPS position retention (migration 683).
   // Position fixes are operational telemetry, not chart content; delete rows
   // older than the tenant's ambulanceGpsTracking.retentionDays (default 7).
@@ -1526,6 +1625,91 @@ export async function runAllScheduledTasksNow() {
         ));
       }))
     ));
+    await runManualTask('ward-indent-notification-coverage-recovery', () => (
+      withDbAdvisoryLock('ward-indent-notification-coverage-recovery', () => (
+        runWithSuperAdmin(async () => {
+          const { sweepWardIndentNotificationCoverage } = await import(
+            '../services/ipd/wardIndentObligationService.js'
+          );
+          return runForEachTenant(
+            'ward-indent-notification-coverage-recovery',
+            (tenantId) => sweepWardIndentNotificationCoverage({ tenantId, limit: 25 }),
+          );
+        })
+      ))
+    ));
+    await runManualTask('clinical-alert-delivery-obligation-recovery', () => (
+      withDbAdvisoryLock('clinical-alert-delivery-obligation-recovery', () => (
+        runWithSuperAdmin(async () => {
+          const { sweepClinicalAlertDeliveryObligations } = await import(
+            '../services/clinical/clinicalAlertDeliveryObligationService.js'
+          );
+          return runForEachTenant(
+            'clinical-alert-delivery-obligation-recovery',
+            (tenantId) => sweepClinicalAlertDeliveryObligations({ tenantId, limit: 25 }),
+          );
+        })
+      ))
+    ));
+    await runManualTask('mar-medication-exception-reconciliation', () => (
+      withDbAdvisoryLock('mar-medication-exception-reconciliation', () => (
+        runWithSuperAdmin(async () => {
+          const { reconcileMarMedicationExceptions } = await import(
+            '../services/clinical/marMedicationExceptionService.js'
+          );
+          const { createMarMedicationExceptionTaskTx } = await import(
+            '../services/workflow/taskService.js'
+          );
+          return runForEachTenant(
+            'mar-medication-exception-reconciliation',
+            (tenantId) => reconcileMarMedicationExceptions({
+              tenantId,
+              limit: 25,
+              createTaskTx: createMarMedicationExceptionTaskTx,
+            }),
+          );
+        })
+      ))
+    ));
+    await runManualTask('cath-inventory-shortfall-assignment-recovery', () => (
+      withDbAdvisoryLock('cath-inventory-shortfall-assignment-recovery', () => (
+        runWithSuperAdmin(async () => {
+          const { sweepCathInventoryShortfallAssignments } = await import(
+            '../services/clinical/cathLabService.js'
+          );
+          return runForEachTenant(
+            'cath-inventory-shortfall-assignment-recovery',
+            (tenantId) => sweepCathInventoryShortfallAssignments({ tenantId, limit: 25 }),
+          );
+        })
+      ))
+    ));
+    await runManualTask('counter-sale-void-reconciliation', () => (
+      withDbAdvisoryLock('counter-sale-void-reconciliation', () => (
+        runWithSuperAdmin(async () => {
+          const { reconcileCounterSaleVoidsForTenant } = await import(
+            '../services/pharmacy/counterSaleService.js'
+          );
+          return runForEachTenant(
+            'counter-sale-void-reconciliation',
+            (tenantId) => reconcileCounterSaleVoidsForTenant({ tenantId, limit: 25 }),
+          );
+        })
+      ))
+    ));
+    await runManualTask('gateway-refund-reconciliation-notification', () => (
+      withDbAdvisoryLock('gateway-refund-reconciliation-notification', () => (
+        runWithSuperAdmin(async () => {
+          const { sweepGatewayRefundReconciliationNotifications } = await import(
+            '../services/billing/paymentGatewayService.js'
+          );
+          return runForEachTenant(
+            'gateway-refund-reconciliation-notification',
+            (tenantId) => sweepGatewayRefundReconciliationNotifications({ tenantId, limit: 25 }),
+          );
+        })
+      ))
+    ));
     await runManualTask('unread-critical-notification-escalation', () => (
       withDbAdvisoryLock('unread-critical-notification-escalation', () => (
         runWithSuperAdmin(runUnreadCriticalEscalation)
@@ -1575,6 +1759,40 @@ export async function runAllScheduledTasksNow() {
 
 if (process.env.NODE_ENV !== 'test') {
   // ─── Payroll Crons ───────────────────────────────────────────────────────────
+
+  registerCron('* * * * *', withJobLock('salary-revision-workflow-worker', async () => {
+    const { parkInactiveTenantPayrollRevisionWork } = await import(
+      '../services/staff/salaryRevisionReconciliationService.js'
+    );
+    const { processBulkSalaryRevisionJobs } = await import(
+      '../services/staff/bulkSalaryRevisionService.js'
+    );
+    const { processDueSalaryRevisionActivations } = await import(
+      '../services/staff/salaryRevisionActivationService.js'
+    );
+    const { processPendingSalaryRevisionArrearsWork } = await import(
+      '../services/staff/payrollService.js'
+    );
+    await parkInactiveTenantPayrollRevisionWork();
+    const workflowFailures = [];
+    for (const [jobName, job] of [
+      ['bulk-salary-revision-worker', processBulkSalaryRevisionJobs],
+      ['salary-revision-activation-worker', processDueSalaryRevisionActivations],
+      ['salary-revision-arrears-worker', processPendingSalaryRevisionArrearsWork],
+    ]) {
+      try {
+        await runForEachTenant(jobName, tenantId => job({ tenantId }));
+      } catch (err) {
+        workflowFailures.push(err);
+      }
+    }
+    if (workflowFailures.length > 0) {
+      throw new AggregateError(
+        workflowFailures,
+        'One or more salary revision workflow stages failed',
+      );
+    }
+  }));
 
   if (process.env.ENABLE_AUTOMATED_PAYROLL_CRONS === 'true') {
     // These financially mutating jobs are disabled by default. When explicitly

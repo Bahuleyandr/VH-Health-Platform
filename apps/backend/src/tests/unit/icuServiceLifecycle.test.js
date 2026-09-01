@@ -25,6 +25,7 @@ const revisionMock = jest.fn(async () => '4242');
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: queryRawMock },
+  setTenant: async (_tenantId, fn) => fn(tx),
   setTenantTx: setTenantTxMock,
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({

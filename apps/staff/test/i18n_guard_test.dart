@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vhhealth_staff/core/services/order_payloads.dart';
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 void main() {
@@ -1398,6 +1399,9 @@ void main() {
     final allowedPrefixes = [
       'action.',
       'lab_bookings.',
+      // The MED-03 lane moved most of this screen's copy into med03.*; without
+      // this prefix the guard would police only the rump left behind.
+      'med03.',
       'patient_records.',
       'pharmacy.',
       'reception_counter.',
@@ -1426,9 +1430,18 @@ void main() {
     keys.addAll(
       _appStringPrefixedTokensFrom(file.readAsStringSync(), allowedPrefixes),
     );
+    // 'reception_counter.patient.phone' was the canary until the legacy
+    // create-pharmacy-order dialog that borrowed it was removed with the
+    // retired POST /pharmacy-orders/orders endpoint. These two carry the same
+    // proof for copy the screen still renders: the first is borrowed from
+    // another feature and resolved by a lookup that opens on the line above,
+    // the second has its key literal alone on the line below `lookup(`.
     expect(
       keys,
-      contains('reception_counter.patient.phone'),
+      containsAll(const [
+        'vitals_chart.category',
+        'med03.pharmacy.recovery.select_exact_tpa_claim_allocation',
+      ]),
       reason:
           'The Pharmacy guard must include reused multiline lookup keys, not '
           'only same-line labels.',
@@ -1740,6 +1753,210 @@ void main() {
       }
     }
   });
+
+  test('MAR recovery copy has five-locale parity including Malayalam', () {
+    const keys = {
+      'orders.mar_recovery.action',
+      'orders.mar_recovery.required',
+      'orders.mar_recovery.success',
+      'orders.mar_recovery.failed',
+      'orders.mar_recovery.desktop_only',
+      'orders.icu_mar_review.banner',
+    };
+    final english = AppStrings.forLocale(const Locale('en'));
+    for (final locale in AppStrings.supportedLocales) {
+      final strings = AppStrings.forLocale(locale);
+      for (final key in keys) {
+        expect(strings.lookup(key), isNot(key), reason: locale.languageCode);
+      }
+      expect(
+        strings.format('orders.mar_recovery.success', {'count': 7}),
+        contains('7'),
+        reason: locale.languageCode,
+      );
+      expect(
+        strings.format('orders.mar_recovery.failed', {'error': '__ERROR__'}),
+        contains('__ERROR__'),
+        reason: locale.languageCode,
+      );
+      if (locale.languageCode != 'en') {
+        expect(
+          strings.lookup('orders.mar_recovery.required'),
+          isNot(english.lookup('orders.mar_recovery.required')),
+          reason: '${locale.languageCode} must not fall back to English',
+        );
+      }
+    }
+  });
+
+  test('MED-03 workflow keys never fall through to English', () {
+    final source = File('lib/l10n/app_strings.dart').readAsStringSync();
+    final localeKeys = {
+      for (final locale in const ['en', 'hi', 'ta', 'te', 'ml'])
+        locale: _mapKeysForLocale(source, locale),
+    };
+    final med03Keys = localeKeys['en']!
+        .where(
+          (key) =>
+              key.startsWith('ward_indent.') ||
+              key.startsWith('mar_supply.') ||
+              key.startsWith('med03.credit_note.') ||
+              key.startsWith('med03.cath_inventory.') ||
+              key.startsWith('med03.counter_sale_refund.') ||
+              key.startsWith('med03.gateway_refund_reconciliation.') ||
+              key.startsWith(
+                'med03.notification.gateway_refund_reconciliation.',
+              ) ||
+              key.startsWith('med03.pharmacy.') ||
+              key.startsWith('s4.lib.counter_sale.') ||
+              key.startsWith('orders.mar_recovery.') ||
+              key.startsWith('orders.icu_mar_review.') ||
+              key.startsWith('medication_supply.unit.') ||
+              key.startsWith('due_meds.actions.') ||
+              key == 'due_meds.held_review_state' ||
+              key == 'clinical_inbox.open_workflow' ||
+              key == 'clinical_inbox.workflow_link_unavailable',
+        )
+        .toSet();
+
+    expect(med03Keys.length, greaterThanOrEqualTo(460));
+    final english = AppStrings.forLocale(const Locale('en'));
+    for (final locale in const ['hi', 'ta', 'te', 'ml']) {
+      final missing = med03Keys.difference(localeKeys[locale]!);
+      expect(
+        missing,
+        isEmpty,
+        reason: 'MED-03 keys missing from $locale: ${missing.toList()..sort()}',
+      );
+      final localized = AppStrings.forLocale(Locale(locale));
+      final fallbackKeys =
+          med03Keys
+              .where((key) => localized.lookup(key) == english.lookup(key))
+              .toList()
+            ..sort();
+      expect(
+        fallbackKeys,
+        isEmpty,
+        reason: '$locale MED-03 keys must not fall through to English',
+      );
+    }
+  });
+
+  test('CPOE and order-set copy has five-locale technical parity', () {
+    final source = File('lib/l10n/app_strings.dart').readAsStringSync();
+    final localeKeys = {
+      for (final locale in const ['en', 'hi', 'ta', 'te', 'ml'])
+        locale: _mapKeysForLocale(source, locale),
+    };
+    const reusedKeys = {
+      'admission.required',
+      'drug_chart.column.drug',
+      'orders.dosage',
+      'orders.route',
+      's4.lib.drug_chart.catalog_selection_required',
+      's4.lib.drug_chart.catalog_unavailable',
+      's4.lib.pharmacy.metric_unit',
+      's4.lib.pharmacy.quantity',
+      's4.lib.prescriptions.type_drug_name',
+      'composer.study_hint',
+      'composer.specialty_hint',
+      'composer.diet_hint',
+    };
+    final cpoeKeys = localeKeys['en']!
+        .where(
+          (key) =>
+              key.startsWith('composer.') ||
+              key.startsWith('order_sets.') ||
+              key.startsWith('s4.dynamic.order_sets.') ||
+              key.startsWith('s4.lib.order_sets.') ||
+              reusedKeys.contains(key),
+        )
+        .toSet();
+
+    expect(cpoeKeys, containsAll(reusedKeys));
+    for (final locale in const ['hi', 'ta', 'te', 'ml']) {
+      expect(
+        cpoeKeys.difference(localeKeys[locale]!),
+        isEmpty,
+        reason: '$locale CPOE/order-set keys must match English',
+      );
+    }
+
+    const localizedCpoeKeys = {
+      'admission.required',
+      'drug_chart.column.drug',
+      's4.dynamic.order_sets.duration_days',
+      's4.dynamic.order_sets.via_route',
+      's4.lib.drug_chart.catalog_selection_required',
+      's4.lib.drug_chart.catalog_unavailable',
+      's4.lib.order_sets.no_order_sets',
+      's4.lib.order_sets.order_sets',
+      's4.lib.order_sets.search_pneumonia_sepsis',
+      's4.lib.pharmacy.metric_unit',
+      's4.lib.pharmacy.quantity',
+      's4.lib.prescriptions.type_drug_name',
+      'composer.study_hint',
+      'composer.specialty_hint',
+      'composer.diet_hint',
+    };
+    final english = AppStrings.forLocale(const Locale('en'));
+    for (final locale in const ['hi', 'ta', 'te', 'ml']) {
+      final localized = AppStrings.forLocale(Locale(locale));
+      for (final key in localizedCpoeKeys) {
+        expect(
+          localized.lookup(key),
+          isNot(english.lookup(key)),
+          reason: '$locale $key must be localized, not English fallback',
+        );
+      }
+    }
+    final malayalam = AppStrings.forLocale(const Locale('ml'));
+    expect(
+      malayalam.format('s4.dynamic.order_sets.via_route', {
+        'route': '__ROUTE__',
+      }),
+      contains('__ROUTE__'),
+    );
+    expect(
+      malayalam.format('s4.dynamic.order_sets.duration_days', {'days': 7}),
+      contains('7'),
+    );
+  });
+
+  test(
+    'ward-supply units display localized labels without changing values',
+    () {
+      final source = File('lib/l10n/app_strings.dart').readAsStringSync();
+      final localeKeys = {
+        for (final locale in const ['en', 'hi', 'ta', 'te', 'ml'])
+          locale: _mapKeysForLocale(source, locale),
+      };
+      final unitKeys = localeKeys['en']!
+          .where((key) => key.startsWith('medication_supply.unit.'))
+          .toSet();
+      expect(unitKeys, hasLength(medicationWardSupplyUnits.length));
+      for (final locale in const ['hi', 'ta', 'te', 'ml']) {
+        expect(
+          unitKeys.difference(localeKeys[locale]!),
+          isEmpty,
+          reason: '$locale ward-supply unit keys must match English',
+        );
+      }
+
+      final malayalam = AppStrings.forLocale(const Locale('ml'));
+      for (final canonicalUnit in medicationWardSupplyUnits) {
+        final label = malayalam.medicationWardSupplyUnit(canonicalUnit);
+        expect(label, isNotEmpty, reason: canonicalUnit);
+        expect(label, isNot(canonicalUnit), reason: canonicalUnit);
+        expect(
+          canonicalMedicationWardSupplyUnit(canonicalUnit),
+          canonicalUnit,
+          reason:
+              'localized labels must not replace submitted canonical values',
+        );
+      }
+    },
+  );
 }
 
 class _Pattern {
@@ -1911,11 +2128,18 @@ Set<String> _appStringCallKeysFrom(String source, List<String> prefixes) {
 Set<String> _appStringPrefixedTokensFrom(String source, List<String> prefixes) {
   final keys = <String>{};
   final prefixPattern = prefixes.map(RegExp.escape).join('|');
-  final regex = RegExp('(?:$prefixPattern)[A-Za-z0-9_.-]+');
+  // Anchored on a key boundary: unanchored, 'pharmacy.' also matches inside
+  // 'med03.pharmacy.quantity' and invents a key no locale map can ever hold,
+  // so the parity check fails on copy that is in fact fully translated. A
+  // token that runs straight into a '$' is the static head of an interpolated
+  // key rather than a key, which is why the sibling helpers skip those too.
+  final regex = RegExp(
+    '(?:^|[^A-Za-z0-9_.-])((?:$prefixPattern)[A-Za-z0-9_.-]+)',
+    multiLine: true,
+  );
   for (final match in regex.allMatches(source)) {
-    final key = match.group(0)!;
-    if (key.contains(r'$')) continue;
-    keys.add(key);
+    if (match.end < source.length && source[match.end] == r'$') continue;
+    keys.add(match.group(1)!);
   }
   return keys;
 }

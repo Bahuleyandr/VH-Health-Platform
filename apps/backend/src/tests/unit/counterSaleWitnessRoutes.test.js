@@ -6,6 +6,7 @@ const TENANT = '00000000-0000-4000-8000-000000000001';
 const ACTOR = '11111111-1111-4111-8111-111111111111';
 const WITNESS = '22222222-2222-4222-8222-222222222222';
 const requestApprovalMock = jest.fn(async (input) => input);
+const preflightApprovalMock = jest.fn(async (input) => input);
 const approveApprovalMock = jest.fn(async (input) => input);
 const authenticateWitnessMock = jest.fn(async ({ tenantId }) => ({
   uid: WITNESS,
@@ -15,6 +16,7 @@ const idempotencyScopes = [];
 
 jest.unstable_mockModule('../../services/pharmacy/counterSaleService.js', () => ({
   approveCounterSaleWitnessApproval: approveApprovalMock,
+  preflightCounterSaleWitnessApproval: preflightApprovalMock,
   requestCounterSaleWitnessApproval: requestApprovalMock,
 }));
 jest.unstable_mockModule('../../services/pharmacy/inventoryV2Service.js', () => ({
@@ -55,6 +57,8 @@ app.use('/counter-sales', counterSaleRoutes);
 beforeEach(() => {
   actorRole = 'PHARMACY_STAFF';
   requestApprovalMock.mockClear();
+  preflightApprovalMock.mockReset();
+  preflightApprovalMock.mockImplementation(async (input) => input);
   approveApprovalMock.mockClear();
   authenticateWitnessMock.mockClear();
 });
@@ -113,12 +117,39 @@ test('counter-sale witness endpoints bind seller and approver to authenticated a
     tenantId: TENANT,
     req: expect.objectContaining({ user: expect.objectContaining({ uid: ACTOR }) }),
   });
+  expect(preflightApprovalMock).toHaveBeenCalledWith({
+    approvalId: '71',
+    requesterUid: ACTOR,
+    sale: { tenantId: TENANT, lines: [] },
+  });
+  expect(preflightApprovalMock.mock.invocationCallOrder[0])
+    .toBeLessThan(authenticateWitnessMock.mock.invocationCallOrder[0]);
   expect(approveApprovalMock).toHaveBeenCalledWith({
     approvalId: '71',
     actorUid: WITNESS,
     requesterUid: ACTOR,
     sale: { tenantId: TENANT, lines: [] },
   });
+});
+
+test('an invalid approval is refused before password authentication can affect a staff account', async () => {
+  const error = Object.assign(new Error('Approval does not match'), {
+    statusCode: 409,
+    code: 'CONTROLLED_DISPENSE_WITNESS_APPROVAL_MISMATCH',
+  });
+  preflightApprovalMock.mockRejectedValueOnce(error);
+
+  const response = await request(app)
+    .post('/counter-sales/witness-approvals/999/approve')
+    .send({
+      employeeId: 'PHARM-002',
+      password: 'wrong-secret',
+      sale: { lines: [] },
+    });
+
+  expect(response.statusCode).toBe(409);
+  expect(authenticateWitnessMock).not.toHaveBeenCalled();
+  expect(approveApprovalMock).not.toHaveBeenCalled();
 });
 
 test('ADMIN seller may host a separately authenticated eligible witness challenge', async () => {

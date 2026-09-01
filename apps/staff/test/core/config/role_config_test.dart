@@ -14,7 +14,7 @@ void main() {
     test(
       'every canonical backend staff role has a deterministic archetype',
       () {
-        expect(canonicalStaffRoleCodes, hasLength(83));
+        expect(canonicalStaffRoleCodes, hasLength(84));
         expect(canonicalStaffRoleArchetypeCodes.keys, canonicalStaffRoleCodes);
         for (final rawRole in canonicalStaffRoleCodes) {
           expect(
@@ -72,6 +72,7 @@ void main() {
         StaffRole.storesPurchaseIncharge,
       );
       expect(StaffRole.fromString('LAB_STAFF'), StaffRole.lab);
+      expect(StaffRole.fromString('CASHIER'), StaffRole.billingStaff);
       expect(StaffRole.fromString('BILLING_STAFF'), StaffRole.billingStaff);
       expect(
         StaffRole.fromString('ADMISSION_OFFICER'),
@@ -208,6 +209,17 @@ void main() {
       expect(idsFor('DIETITIAN'), contains('dietary'));
       expect(idsFor('DIETARY_STAFF'), contains('dietary'));
       expect(idsFor('DIALYSIS_TECHNICIAN'), contains('blood_bank'));
+      expect(
+        idsFor('CASHIER'),
+        containsAll(const ['billing_desk', 'profile', 'payroll', 'attendance']),
+      );
+      for (final forbidden in const [
+        'front_office_workbench',
+        'admissions',
+        'patient_records',
+      ]) {
+        expect(idsFor('CASHIER'), isNot(contains(forbidden)));
+      }
       expect(idsFor('NEW_UNMAPPED_ROLE'), isEmpty);
     });
 

@@ -4,8 +4,11 @@
 // payload in the uniform success() envelope (statically covered by the overlay's
 // envelope/listEnvelope), so this asserts the INNER `data` payload of every op
 // via assertData against the committed component schema — exercising the full
-// lifecycle: schedule → administer / miss / hold → patient/overdue/due lists →
-// 5-rights verify → administer-with-scan.
+// lifecycle: clinical order + ward custody → schedule → administer / miss /
+// hold → patient/overdue/due lists → 5-rights verify → administer-with-scan.
+// The public /mar/schedule route is readiness-only; its empty-batch contract is
+// covered statically in marRouteClosureContracts.test.js. This deep fixture
+// exercises the internal clinical-order scheduler that owns real MAR rows.
 //
 // Service returns are raw prisma rows (Date objects, etc.); we JSON-roundtrip
 // each one first so it matches the wire format Express actually serialises.
@@ -21,7 +24,10 @@ const prisma = (await import('../lib/prisma.js')).default;
 const marService = await import('../services/clinical/marService.js');
 const marFiveRights = await import('../services/clinical/marFiveRightsService.js');
 const { assertData } = await import('./helpers/assertSchema.js');
-const { deleteWithAuditBypass } = await import('./helpers/auditBypass.js');
+const {
+  seedMedicationFacilityAuthority,
+  seedReceivedMedicationSupply,
+} = await import('./helpers/medicationEvidenceFixture.js');
 
 // The wire format Express produces (Date -> ISO string, BigInt -> number).
 const wire = (o) => JSON.parse(JSON.stringify(o));
@@ -29,8 +35,14 @@ const wire = (o) => JSON.parse(JSON.stringify(o));
 const TENANT_ID = randomUUID();
 const PATIENT_UID = randomUUID();
 const NURSE_UID = randomUUID();
+const PHARMACIST_UID = randomUUID();
+const ADMIN_UID = randomUUID();
 const PATIENT_PHONE = `+9197${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}`;
 const NURSE_PHONE = `+9197${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}`;
+const PHARMACIST_PHONE = `+9197${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}`;
+const ADMIN_PHONE = `+9197${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}`;
+const RUN = `${process.pid}-${Date.now()}`;
+const MEDICATION_NAME = `MAR Contract Medicine ${RUN}`;
 
 const hospitalToday = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Kolkata',
@@ -39,12 +51,14 @@ const hospitalToday = new Intl.DateTimeFormat('en-CA', {
   day: '2-digit',
 }).format(new Date());
 const utcToday = () => new Date().toISOString().split('T')[0];
-const now = () => new Date().toISOString();
+const minutesFromNow = (m) => new Date(Date.now() + m * 60_000).toISOString();
 const minutesAgo = (m) => new Date(Date.now() - m * 60_000).toISOString();
 
 const ctx = { actorUid: NURSE_UID, actorRole: 'NURSING_STAFF', tenantId: TENANT_ID };
 
 let scheduled = [];
+let clinicalOrderId;
+let product;
 
 async function patientMarRowsForFixtureDay() {
   const dbDates = await prisma.$queryRawUnsafe(
@@ -68,20 +82,54 @@ async function patientMarRowsForFixtureDay() {
 }
 
 async function cleanup() {
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM medication_administrations WHERE patient_uid = $1::uuid`, PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid`, PATIENT_UID,
-  ).catch(() => {});
-  await deleteWithAuditBypass(
-    prisma,
-    `DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid`, PATIENT_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, NURSE_UID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(`DELETE FROM tenants WHERE id = $1::uuid`, TENANT_ID).catch(() => {});
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+    for (const table of [
+      'idempotency_keys',
+      'pharmacy_staff_facility_grant_events',
+      'pharmacy_staff_facility_grants',
+      'task_comments',
+      'tasks',
+      'notification_outbox',
+      'workflow_sla_instances',
+      'billing_credit_note_events',
+      'billing_credit_notes',
+      'ward_indent_financial_events',
+      'mar_administration_command_receipts',
+      'mar_transition_command_receipts',
+      'mar_supply_reconciliation_links',
+      'mar_supply_consumptions',
+      'medication_safety_reviews',
+      'medication_administrations',
+      'ward_indent_inventory_receipt_events',
+      'ward_indent_inventory_movement_links',
+      'ward_indent_inventory_allocations',
+      'ward_indent_events',
+      'clinical_timeline_events',
+      'clinical_audit_events',
+      'billing_invoice_items',
+      'billing_invoices',
+      'pharmacy_schedule_register',
+      'pharmacy_stock_movements',
+      'pharmacy_inventory_batches',
+      'pharmacy_inventory_items',
+      'ward_indent_items',
+      'ward_indents',
+      'clinical_orders',
+      'pharmacy_catalog',
+      'admissions',
+      'beds',
+      'wards',
+      'facility_locations',
+      'facilities',
+      'staff',
+      'audit_logs',
+      'users',
+    ]) {
+      await tx.$executeRawUnsafe(`DELETE FROM ${table} WHERE tenant_id = $1::uuid`, TENANT_ID);
+    }
+    await tx.$executeRawUnsafe(`DELETE FROM tenants WHERE id = $1::uuid`, TENANT_ID);
+  });
 }
 
 d('Canonical clinical MAR contract (/api/v1/clinical/mar/*)', () => {
@@ -102,18 +150,59 @@ d('Canonical clinical MAR contract (/api/v1/clinical/mar/*)', () => {
        VALUES ($1::uuid, $2, 'MAR Nurse', 'NURSING_STAFF', true, $3::uuid, NOW())`,
       NURSE_UID, NURSE_PHONE, TENANT_ID,
     );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, updated_at)
+       VALUES ($1::uuid, $2, 'MAR Pharmacist', 'PHARMACY_INCHARGE', true, $3::uuid, NOW())`,
+      PHARMACIST_UID, PHARMACIST_PHONE, TENANT_ID,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, updated_at)
+       VALUES ($1::uuid, $2, 'MAR Grant Admin', 'ADMIN', true, $3::uuid, NOW())`,
+      ADMIN_UID, ADMIN_PHONE, TENANT_ID,
+    );
 
-    // Schedule a batch: one each for administer / miss / hold / verify+scan, plus
-    // one in the past for the overdue list. barcode-friendly name on the scan row.
+    const authority = await seedMedicationFacilityAuthority({
+      prisma,
+      tenantId: TENANT_ID,
+      pharmacistUid: PHARMACIST_UID,
+      grantAdminUid: ADMIN_UID,
+      run: `contract-${RUN}`,
+    });
+    const supply = await seedReceivedMedicationSupply({
+      prisma,
+      tenantId: TENANT_ID,
+      patientUid: PATIENT_UID,
+      requesterUid: NURSE_UID,
+      pharmacistUid: PHARMACIST_UID,
+      receiverUid: NURSE_UID,
+      facilityId: authority.facilityId,
+      storageLocationId: authority.storageLocationId,
+      run: `contract-${RUN}`,
+      medications: [{
+        key: 'contract',
+        name: MEDICATION_NAME,
+        dose: '1 unit',
+        route: 'oral',
+        strength: '10 mg',
+        form: 'tablet',
+        quantity: 10,
+      }],
+    });
+    product = supply.products.contract;
+    clinicalOrderId = product.clinicalOrderId;
+
+    // Schedule one dose per contract path against the same order-linked exact
+    // ward custody. Slots are separated so the sibling-dose dedupe preserves all
+    // five legitimate doses while still rejecting duplicate scheduling races.
     scheduled = await marService.scheduleMedications(
       PATIENT_UID,
       null,
       [
-        { medication_name: 'Paracetamol', dose: '500mg', route: 'oral', scheduled_time: now() },   // 0: verify + scan
-        { medication_name: 'Amoxicillin', dose: '250mg', route: 'oral', scheduled_time: now() },   // 1: administer
-        { medication_name: 'Ibuprofen', dose: '400mg', route: 'oral', scheduled_time: now() },     // 2: miss
-        { medication_name: 'Aspirin', dose: '75mg', route: 'oral', scheduled_time: now() },        // 3: hold
-        { medication_name: 'Metformin', dose: '500mg', route: 'oral', scheduled_time: minutesAgo(30) }, // 4: overdue
+        { medication_name: MEDICATION_NAME, dose: '1 unit', route: 'oral', scheduled_time: minutesFromNow(5), clinical_order_id: clinicalOrderId, supply_quantity_per_dose: 1 },
+        { medication_name: MEDICATION_NAME, dose: '1 unit', route: 'oral', scheduled_time: minutesFromNow(10), clinical_order_id: clinicalOrderId, supply_quantity_per_dose: 1 },
+        { medication_name: MEDICATION_NAME, dose: '1 unit', route: 'oral', scheduled_time: minutesFromNow(15), clinical_order_id: clinicalOrderId, supply_quantity_per_dose: 1 },
+        { medication_name: MEDICATION_NAME, dose: '1 unit', route: 'oral', scheduled_time: minutesFromNow(20), clinical_order_id: clinicalOrderId, supply_quantity_per_dose: 1 },
+        { medication_name: MEDICATION_NAME, dose: '1 unit', route: 'oral', scheduled_time: minutesAgo(30), clinical_order_id: clinicalOrderId, supply_quantity_per_dose: 1 },
       ],
       ctx,
     );
@@ -124,7 +213,7 @@ d('Canonical clinical MAR contract (/api/v1/clinical/mar/*)', () => {
     await prisma.$disconnect().catch(() => {});
   });
 
-  it('POST /mar/schedule → array of MarRecord (201 path)', () => {
+  it('clinical-order scheduling → array of MarRecord', () => {
     expect(scheduled).toHaveLength(5);
     for (const row of scheduled) assertData('MarRecord', wire(row));
     expect(scheduled.every((r) => r.status === 'scheduled')).toBe(true);
@@ -140,13 +229,23 @@ d('Canonical clinical MAR contract (/api/v1/clinical/mar/*)', () => {
   });
 
   it('POST /mar/{id}/miss → MarRecord', async () => {
-    const rec = await marService.recordMissed(scheduled[2].id, 'Patient refused the dose', NURSE_UID);
+    const rec = await marService.recordMissed(
+      scheduled[2].id,
+      'Patient refused the dose',
+      NURSE_UID,
+      { tenantId: TENANT_ID, commandKey: `contract-miss-${RUN}` },
+    );
     assertData('MarRecord', wire(rec));
     expect(rec.status).toBe('missed');
   });
 
   it('POST /mar/{id}/hold → MarRecord', async () => {
-    const rec = await marService.holdMedication(scheduled[3].id, 'Awaiting senior review', NURSE_UID);
+    const rec = await marService.holdMedication(
+      scheduled[3].id,
+      'Awaiting senior review',
+      NURSE_UID,
+      { tenantId: TENANT_ID, commandKey: `contract-hold-${RUN}` },
+    );
     assertData('MarRecord', wire(rec));
     expect(rec.status).toBe('held');
   });
@@ -158,15 +257,19 @@ d('Canonical clinical MAR contract (/api/v1/clinical/mar/*)', () => {
   });
 
   it('GET /mar/overdue → array of MarRecord', async () => {
-    const rows = await marService.getOverdueMedications(null);
+    const rows = await marService.getOverdueMedications(null, { tenantId: TENANT_ID });
     expect(Array.isArray(rows)).toBe(true);
     for (const row of rows) assertData('MarRecord', wire(row));
-    // The past-scheduled Metformin row is overdue + still scheduled.
+    // The past-scheduled order-linked dose is overdue + still scheduled.
     expect(rows.some((r) => r.id === scheduled[4].id)).toBe(true);
   });
 
   it('GET /mar/due → array of MarDueItem', async () => {
-    const rows = await marService.getDueMedications({ pastMinutes: 120, futureMinutes: 60 });
+    const rows = await marService.getDueMedications({
+      tenantId: TENANT_ID,
+      pastMinutes: 120,
+      futureMinutes: 60,
+    });
     expect(Array.isArray(rows)).toBe(true);
     expect(rows.length).toBeGreaterThanOrEqual(1);
     for (const row of rows) assertData('MarDueItem', wire(row));
@@ -176,7 +279,8 @@ d('Canonical clinical MAR contract (/api/v1/clinical/mar/*)', () => {
     const result = await marFiveRights.evaluate5Rights({
       ma_id: scheduled[0].id,
       scanned_patient_uid: PATIENT_UID,
-      scanned_barcode: 'Paracetamol',
+      scanned_barcode: product.batchNumber,
+      tenantId: TENANT_ID,
     });
     assertData('MarVerifyResult', wire(result));
     expect(result.allPassed).toBe(true);
@@ -187,7 +291,7 @@ d('Canonical clinical MAR contract (/api/v1/clinical/mar/*)', () => {
     const rec = await marFiveRights.administerWithScan({
       ma_id: scheduled[0].id,
       scanned_patient_uid: PATIENT_UID,
-      scanned_barcode: 'Paracetamol',
+      scanned_barcode: product.batchNumber,
       administeredBy: NURSE_UID,
       tenantId: TENANT_ID,
     });

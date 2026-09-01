@@ -202,7 +202,14 @@ jobs:
     name: Pin verified digests on dalekdefender
     needs: build-sign-scan
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The helper's own worst case now exceeds 20 minutes: migrations (capped at
+    # VH_DEPLOY_MIGRATE_TIMEOUT=900s, matching the Job's activeDeadlineSeconds)
+    # plus two 300s rollout waits plus, on failure, two more for the rollback —
+    # ~35 minutes before setup. Real deploys take about a minute; this cap only
+    # has to be larger than the pathological path, because cutting the SSH off
+    # mid-migration reports a failure the rig has no record of. (The 1200s of
+    # rollout waits alone already sat close to the old 20.)
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: read   # verify + pull only; this job's token is piped to the host
@@ -279,6 +286,20 @@ jobs:
         if: steps.prereq.outputs.skip != 'true'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
+      # FAILS, it does not skip. A stale host helper means the cluster is not
+      # being mutated at all — including the PreSync-equivalent migration step
+      # the helper owns — so a green run here would mean "deployed nothing"
+      # while looking like a successful deploy. That exact silent skip left the
+      # rig six days stale in August 2026. The Forgejo twin has always failed
+      # closed here; this matches it.
+      #
+      # Every edit to vhhealth-gha-deploy.sh therefore re-requires the operator
+      # install ceremony (by design — the helper is root-owned and the sudoers
+      # entry names it):
+      #   ssh dalekdefender 'cd ~/VH-Health-Platform && git pull --ff-only'
+      #   ssh dalekdefender 'sudo install -o root -g root -m 0755 \
+      #     infra/kubernetes/overlays/dalekdefender/vhhealth-gha-deploy.sh \
+      #     /usr/local/sbin/vhhealth-gha-deploy'
       - name: Verify host deploy helper is current
         id: helper
         if: steps.prereq.outputs.skip != 'true'
@@ -295,14 +316,12 @@ jobs:
           echo "expected_sha=$expected" >> "$GITHUB_OUTPUT"
           echo "actual_sha=$actual" >> "$GITHUB_OUTPUT"
           if [ "$actual" != "$expected" ]; then
-            echo "::warning::Dalekdefender host helper is missing or stale; skipping cluster mutation. expected_sha=$expected actual_sha=$actual. Install $helper_path to /usr/local/sbin/vhhealth-gha-deploy."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
+            echo "::error::Dalekdefender host helper is missing or stale, so this deploy would change nothing (no migrations, no image pin). expected_sha=$expected actual_sha=$actual. Install $helper_path to /usr/local/sbin/vhhealth-gha-deploy and re-run."
+            exit 1
           fi
-          echo "skip=false" >> "$GITHUB_OUTPUT"
 
       - name: Pin deployments to verified digests
-        if: steps.prereq.outputs.skip != 'true' && steps.helper.outputs.skip != 'true'
+        if: steps.prereq.outputs.skip != 'true'
         env:
           # Tailscale SSH maps the connection onto a host user. The host
           # sudoers entry allows exactly this root-owned wrapper; the wrapper

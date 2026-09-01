@@ -9,12 +9,31 @@ import 'package:vhhealth_core/services/idempotency_key.dart';
 import '../models/composition_alternatives.dart';
 import 'api_client.dart';
 import 'clinical_platform_api_service.dart';
-import 'order_payloads.dart';
 
 /// Medical API calls: investigations, consultations, prescriptions, EMR,
 /// health records, vitals, diagnosis, clinical notes, and CDS.
 class MedicalApiService {
   MedicalApiService._();
+
+  static final RegExp _positiveBigIntPattern = RegExp(r'^[1-9][0-9]*$');
+  static const String _maximumSignedBigInt = '9223372036854775807';
+  static const int _maximumPostgresInteger = 2147483647;
+
+  static bool _isCanonicalPositiveBigInt(String value) =>
+      _positiveBigIntPattern.hasMatch(value) &&
+      value.length <= _maximumSignedBigInt.length &&
+      (value.length < _maximumSignedBigInt.length ||
+          value.compareTo(_maximumSignedBigInt) <= 0);
+
+  static void _requireMedicationAdministrationId(int value) {
+    if (value < 1 || value > _maximumPostgresInteger) {
+      throw ArgumentError.value(
+        value,
+        'maId',
+        'must be in PostgreSQL INTEGER range 1..2147483647',
+      );
+    }
+  }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -41,9 +60,14 @@ class MedicalApiService {
 
   static Future<Map<String, dynamic>> _put(
     String path,
-    Map<String, dynamic> body,
-  ) async {
-    final resp = await ApiClient.put(path, body: body);
+    Map<String, dynamic> body, {
+    String? idempotencyKey,
+  }) async {
+    final resp = await ApiClient.put(
+      path,
+      body: body,
+      idempotencyKey: idempotencyKey,
+    );
     return _handle(resp);
   }
 
@@ -509,6 +533,78 @@ class MedicalApiService {
     });
   }
 
+  /// GET /clinical/mar/:id/supply — exact ward-custody evidence for the
+  /// scheduled dose, including product, batch, quantity, and any open
+  /// reconciliation obligation.
+  static Future<Map<String, dynamic>> getMarSupplyState({
+    required int maId,
+  }) async {
+    _requireMedicationAdministrationId(maId);
+    return _get('/clinical/mar/$maId/supply');
+  }
+
+  /// GET /clinical/mar/patient/:patientUid — authoritative row used to
+  /// reconcile an ambiguous barcode-administration response.
+  static Future<Map<String, dynamic>?> getMedicationAdministration({
+    required int maId,
+    required String patientUid,
+    String? scheduledDate,
+  }) async {
+    final response = await _get(
+      '/clinical/mar/patient/$patientUid',
+      query: {
+        if (scheduledDate != null && scheduledDate.isNotEmpty)
+          'date': scheduledDate,
+      },
+    );
+    final rows = response['data'];
+    if (rows is! List) return null;
+    for (final row in rows.whereType<Map>()) {
+      if (int.tryParse('${row['id']}') == maId) {
+        return Map<String, dynamic>.from(row);
+      }
+    }
+    return null;
+  }
+
+  /// Reconciles one unmatched MAR supply consumption against exact ward
+  /// allocations. The backend validates the quantity total and completes the
+  /// linked domain-evidence task only when the consumption is fully matched.
+  static Future<Map<String, dynamic>> reconcileMarSupplyOverride({
+    required int maId,
+    required String consumptionId,
+    required List<Map<String, dynamic>> allocations,
+    String? idempotencyKey,
+  }) {
+    _requireMedicationAdministrationId(maId);
+    if (!_isCanonicalPositiveBigInt(consumptionId)) {
+      throw ArgumentError.value(
+        consumptionId,
+        'consumptionId',
+        'must be a canonical positive signed-64 decimal string',
+      );
+    }
+    final normalizedAllocations = allocations
+        .map((entry) {
+          final allocationId = entry['inventory_allocation_id'];
+          if (allocationId is! String ||
+              !_isCanonicalPositiveBigInt(allocationId)) {
+            throw ArgumentError.value(
+              allocationId,
+              'inventory_allocation_id',
+              'must be a canonical positive signed-64 decimal string',
+            );
+          }
+          return Map<String, dynamic>.from(entry);
+        })
+        .toList(growable: false);
+    return _post(
+      '/clinical/mar/$maId/supply-overrides/$consumptionId/reconcile',
+      {'allocations': normalizedAllocations},
+      idempotencyKey: idempotencyKey ?? IdempotencyKey.generate(),
+    );
+  }
+
   /// POST /clinical/mar/:id/administer-with-scan — commit administration with
   /// rights audit. Throws if the backend returns 409 and no [overrideReason]
   /// was supplied; caller should prompt for one and retry.
@@ -517,15 +613,53 @@ class MedicalApiService {
     required String scannedPatientUid,
     required String scannedBarcode,
     String? overrideReason,
-    DateTime? administeredAt,
+    String? supplyOverrideReason,
+    num? supplyQuantity,
+    required String idempotencyKey,
   }) async {
     return _post('/clinical/mar/$maId/administer-with-scan', {
       'scanned_patient_uid': scannedPatientUid,
       'scanned_barcode': scannedBarcode,
       'override_reason': ?overrideReason,
-      if (administeredAt != null)
-        'administered_at': administeredAt.toUtc().toIso8601String(),
-    });
+      'supply_override_reason': ?supplyOverrideReason,
+      'supply_quantity': ?supplyQuantity,
+    }, idempotencyKey: idempotencyKey);
+  }
+
+  /// POST /clinical/mar/:id/miss — record a scheduled dose as missed with a
+  /// durable idempotency receipt owned by the backend transaction.
+  static Future<Map<String, dynamic>> markMedicationMissed({
+    required int maId,
+    required String reason,
+    String? idempotencyKey,
+  }) async {
+    return _post('/clinical/mar/$maId/miss', {
+      'reason': reason.trim(),
+    }, idempotencyKey: idempotencyKey);
+  }
+
+  /// POST /clinical/mar/:id/hold — place a scheduled dose on clinical hold
+  /// without conflating the holding nurse with the administering nurse.
+  static Future<Map<String, dynamic>> holdMedication({
+    required int maId,
+    required String reason,
+    String? idempotencyKey,
+  }) async {
+    return _post('/clinical/mar/$maId/hold', {
+      'reason': reason.trim(),
+    }, idempotencyKey: idempotencyKey);
+  }
+
+  /// POST /clinical/mar/:id/release-hold — return a held dose to scheduled
+  /// state after a prescriber records the governed review reason.
+  static Future<Map<String, dynamic>> releaseHeldMedication({
+    required int maId,
+    required String reason,
+    required String idempotencyKey,
+  }) async {
+    return _post('/clinical/mar/$maId/release-hold', {
+      'reason': reason.trim(),
+    }, idempotencyKey: idempotencyKey);
   }
 
   /// GET /devices/registry — active clinical devices for bedside association.
@@ -616,6 +750,63 @@ class MedicalApiService {
     return const [];
   }
 
+  /// GET /clinical/mar/exceptions — open held/missed dose obligations assigned
+  /// to the current prescriber. These rows are not bounded by the nursing due
+  /// window, so an older exception remains reachable until exact disposition
+  /// evidence closes it.
+  static Future<List<Map<String, dynamic>>> getMedicationExceptions() async {
+    final response = await _get('/clinical/mar/exceptions');
+    final rows = response['data'];
+    if (rows is! List) return const [];
+    return rows
+        .whereType<Map>()
+        .map((row) => row.cast<String, dynamic>())
+        .toList(growable: false);
+  }
+
+  /// Loads the current authoritative medication-order page for one patient.
+  /// Callers must still apply their workflow's exact status/time constraints;
+  /// the disposition endpoint revalidates the selected ID in its transaction.
+  static Future<List<Map<String, dynamic>>> getPatientMedicationOrders(
+    String patientUid,
+  ) async {
+    final response = await _get(
+      '/emr/orders/patient/$patientUid',
+      query: const {'order_type': 'medication', 'limit': '100'},
+    );
+    final rows = response['orders'] ?? response['data'];
+    if (rows is! List) return const [];
+    return rows
+        .whereType<Map>()
+        .map((row) => row.cast<String, dynamic>())
+        .toList(growable: false);
+  }
+
+  /// POST /clinical/mar/exceptions/:caseId/disposition — records review only.
+  /// The backend never creates, reschedules, or stops an order through this
+  /// command; replacement/stop dispositions must reference canonical order
+  /// evidence created by the separately authorized order workflow.
+  static Future<Map<String, dynamic>> recordMedicationExceptionDisposition({
+    required String caseId,
+    required String disposition,
+    required String reason,
+    int? replacementClinicalOrderId,
+    required String idempotencyKey,
+  }) {
+    if (!_isCanonicalPositiveBigInt(caseId)) {
+      throw ArgumentError.value(
+        caseId,
+        'caseId',
+        'must be a positive signed-64 decimal',
+      );
+    }
+    return _post('/clinical/mar/exceptions/$caseId/disposition', {
+      'disposition': disposition,
+      'reason': reason.trim(),
+      'replacement_clinical_order_id': ?replacementClinicalOrderId,
+    }, idempotencyKey: idempotencyKey);
+  }
+
   /// GET /clinical/drug-chart/admission/:id — inpatient drug chart for the
   /// current admission, including CPOE medication orders, MAR rows, ward
   /// indents, safety flags, and role permissions.
@@ -623,65 +814,6 @@ class MedicalApiService {
     int admissionId,
   ) async {
     return _get('/clinical/drug-chart/admission/$admissionId');
-  }
-
-  /// POST /emr/orders — doctor-only inpatient medication order. The backend
-  /// schedules MAR rows and creates the pharmacy ward indent as side effects.
-  static Future<Map<String, dynamic>> createInpatientMedicationOrder({
-    required String patientUid,
-    required String? encounterId,
-    required String medicationName,
-    required String dose,
-    required String route,
-    required String frequency,
-    int? durationDays,
-    List<String>? doseTimes,
-    String? foodTiming,
-    String? instructions,
-    int? catalogId,
-    int? originalCatalogId,
-    int? compositionId,
-    String? compositionLabel,
-    String? compositionConfidence,
-    String? genericName,
-    String? strength,
-    String? strengthKey,
-    String? form,
-    String? formKey,
-    String? releaseKey,
-    bool doNotSubstitute = false,
-    String priority = 'routine',
-    DateTime? startDate,
-  }) async {
-    return _post(
-      '/emr/orders',
-      buildInpatientMedicationOrderBody(
-        patientUid: patientUid,
-        encounterId: encounterId,
-        medicationName: medicationName,
-        dose: dose,
-        route: route,
-        frequency: frequency,
-        durationDays: durationDays,
-        doseTimes: doseTimes,
-        foodTiming: foodTiming,
-        instructions: instructions,
-        catalogId: catalogId,
-        originalCatalogId: originalCatalogId,
-        compositionId: compositionId,
-        compositionLabel: compositionLabel,
-        compositionConfidence: compositionConfidence,
-        genericName: genericName,
-        strength: strength,
-        strengthKey: strengthKey,
-        form: form,
-        formKey: formKey,
-        releaseKey: releaseKey,
-        doNotSubstitute: doNotSubstitute,
-        priority: priority,
-        startDate: startDate ?? DateTime.now(),
-      ),
-    );
   }
 
   /// GET /pharmacy-orders/catalog — shared formulary suggestions for inpatient
@@ -909,8 +1041,11 @@ class MedicalApiService {
   static Future<Map<String, dynamic>> discontinueClinicalOrder({
     required int orderId,
     required String reason,
+    required String idempotencyKey,
   }) async {
-    return _put('/emr/orders/$orderId/discontinue', {'reason': reason});
+    return _put('/emr/orders/$orderId/discontinue', {
+      'reason': reason,
+    }, idempotencyKey: idempotencyKey);
   }
 
   /// POST /clinical/mar/:id/administer — nurse administration without barcode.
@@ -1503,9 +1638,10 @@ class MedicalApiService {
 
   /// POST /emr/orders — create an order (medication, investigation, nursing)
   static Future<Map<String, dynamic>> createEmrOrder(
-    Map<String, dynamic> data,
-  ) async {
-    return _post('/emr/orders', data);
+    Map<String, dynamic> data, {
+    required String idempotencyKey,
+  }) async {
+    return _post('/emr/orders', data, idempotencyKey: idempotencyKey);
   }
 
   /// POST /emr/orders/bulk — create up to 50 orders atomically (one
@@ -1516,6 +1652,7 @@ class MedicalApiService {
   /// message-only Exception.
   static Future<ApiResponse> createEmrOrdersBulkRaw(
     List<Map<String, dynamic>> orders, {
+    required String idempotencyKey,
     String? encounterId,
   }) {
     return ApiClient.post(
@@ -1525,6 +1662,7 @@ class MedicalApiService {
         if (encounterId != null && encounterId.isNotEmpty)
           'encounter_id': encounterId,
       },
+      idempotencyKey: idempotencyKey,
     );
   }
 
@@ -1553,8 +1691,26 @@ class MedicalApiService {
   static Future<Map<String, dynamic>> cancelClinicalOrder({
     required int orderId,
     required String reason,
+    required String idempotencyKey,
   }) async {
-    return _put('/emr/orders/$orderId/cancel', {'reason': reason});
+    return _put('/emr/orders/$orderId/cancel', {
+      'reason': reason,
+    }, idempotencyKey: idempotencyKey);
+  }
+
+  /// POST /emr/orders/:id/retry-mar-scheduling — replay the exact active
+  /// medication CPOE definition through the canonical MAR scheduler. The
+  /// backend remains doctor-authoritative and records canonical recovery
+  /// evidence; the generated key makes a transient client retry replay-safe.
+  static Future<Map<String, dynamic>> retryMedicationOrderMarScheduling({
+    required int orderId,
+    String? idempotencyKey,
+  }) async {
+    return _post(
+      '/emr/orders/$orderId/retry-mar-scheduling',
+      const {},
+      idempotencyKey: idempotencyKey ?? IdempotencyKey.generate(),
+    );
   }
 
   /// GET /emr/orders/patient/:uid — list orders for a patient
@@ -1595,15 +1751,28 @@ class MedicalApiService {
   }
 
   /// PUT /emr/orders/:id/verify — verify an order
-  static Future<Map<String, dynamic>> verifyOrder(int id) async {
-    final resp = await ApiClient.put('/emr/orders/$id/verify', body: {});
+  static Future<Map<String, dynamic>> verifyOrder(
+    int id, {
+    String? idempotencyKey,
+  }) async {
+    final resp = await ApiClient.put(
+      '/emr/orders/$id/verify',
+      body: const {},
+      idempotencyKey: idempotencyKey ?? IdempotencyKey.generate(),
+    );
     return _handle(resp);
   }
 
   /// PUT /emr/orders/:id/complete — complete an order
-  static Future<Map<String, dynamic>> completeOrder(int id) async {
-    final resp = await ApiClient.put('/emr/orders/$id/complete', body: {});
-    return _handle(resp);
+  static Future<Map<String, dynamic>> completeOrder(
+    int id, {
+    required String idempotencyKey,
+  }) async {
+    return _put(
+      '/emr/orders/$id/complete',
+      const {},
+      idempotencyKey: idempotencyKey,
+    );
   }
 
   // ─── EMR: Vitals ──────────────────────────────────────────────────────────

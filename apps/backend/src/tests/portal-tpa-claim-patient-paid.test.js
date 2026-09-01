@@ -60,6 +60,19 @@ describe('GET /portal/tpa/claims/:id — patient paid evidence (D70)', () => {
     );
     const userId = userRows[0].id;
 
+    // Migration 753's fk_tpa_claim_admission_authority_753 binds a claim to
+    // its admission on the composite key (tenant_id, admission_id,
+    // patient_uid), and enforce_tpa_claim_authority_753() additionally
+    // requires the linked invoice to sit on that same admission. Seed the
+    // stay so the claim, the bill and the payments all share one authority
+    // chain, as they would for a real cashless settlement.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO admissions (id, patient_uid, tenant_id)
+       VALUES ($1::int, $2::uuid, $3::uuid)
+       ON CONFLICT (id) DO NOTHING`,
+      admissionId, PATIENT_UID, TENANT_ID,
+    );
+
     const policyRows = await prisma.$queryRawUnsafe(
       `INSERT INTO insurance_policies
          (patient_uid, policy_number, policyholder_name, policy_type,
@@ -144,10 +157,13 @@ describe('GET /portal/tpa/claims/:id — patient paid evidence (D70)', () => {
         .catch(() => {});
     }
     await prisma
+      .$executeRawUnsafe(`DELETE FROM admissions WHERE id = $1::int`, admissionId)
+      .catch(() => {});
+    await prisma
       .$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PATIENT_UID)
       .catch(() => {});
     await prisma.$disconnect().catch(() => {});
-  });
+  }, 120_000);
 
   it('returns patient_paid that excludes INSURANCE + reversed payments', async () => {
     const res = await request(app)

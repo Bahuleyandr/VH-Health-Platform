@@ -22,7 +22,8 @@ const __prismaDefaultMock = { $queryRawUnsafe: queryUnsafeMock };
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: __prismaDefaultMock,
-  setTenantTx: setTenantTxMock
+  setTenantTx: setTenantTxMock,
+  isTenantTransactionClient: value => value === __prismaDefaultMock
 }));
 
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
@@ -35,7 +36,7 @@ jest.unstable_mockModule('../../services/billing/billingV2Service.js', () => ({
 }));
 
 jest.unstable_mockModule('../../services/pharmacy/inventoryV2Service.js', () => ({
-  recordMovement: jest.fn()
+  recordMovementTx: jest.fn()
 }));
 
 jest.unstable_mockModule('../../services/pharmacySupply/pharmacySupplyService.js', () => ({

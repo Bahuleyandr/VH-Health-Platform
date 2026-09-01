@@ -7,6 +7,30 @@
 #     object on the next sync (otherwise a 2nd apply of the same-named Job
 #     errors). No leftover Completed Jobs to reap manually.
 #   - Failure aborts the sync. Fix the migration, re-sync.
+#   - Because the hook is deleted only BEFORE the NEXT hook creation, exactly
+#     ONE migration Job (and its pods) can exist at a time no matter how long
+#     they are retained. That bound is what makes the retention settings below
+#     safe: `restartPolicy` and `ttlSecondsAfterFinished` decide how long the
+#     LAST run's evidence survives, never how much of it accumulates.
+#
+# Reading a FAILED run (see restartPolicy + ttlSecondsAfterFinished below).
+# ArgoCD streams hook pod logs live, so an operator watching a sync sees the
+# migration output in real time. Everything here is about the other case —
+# diagnosing after the fact, which is what an unattended or overnight sync
+# leaves you with. Note there is no alert on this Job (the
+# OutageCriticalCronJobFailing rule in base/monitoring/backend-red-alerts.yaml
+# matches the CronJobs only), so discovery is a human noticing the failed sync.
+# Every attempt is a separate retained pod, so select on the CONTROLLER-set
+# job-name label. Not `logs job/<name>` — that picks ONE arbitrary attempt
+# ("Found 3 pods, using pod/…"), which need not be the one that failed. Not the
+# app label either — it is on the pod template, so it is NOT scoped to a single
+# run: the 582 cutover runbook has an operator create a differently-NAMED Job
+# derived from this one that must keep the same app label (NetworkPolicy and
+# the CNPG pooler select Postgres access on it), and its pods would match too.
+#
+#   kubectl -n vhhealth get pods -l batch.kubernetes.io/job-name=vhhealth-backend-migrate
+#   kubectl -n vhhealth logs -l batch.kubernetes.io/job-name=vhhealth-backend-migrate \
+#     -c migrate --tail=400 --prefix
 #
 # The job does:
 #   1. `node scripts/ensure-pgvector-extension.mjs` — runs `CREATE EXTENSION
@@ -33,7 +57,10 @@
 #      SUPERUSER at initdb — before this Job. The step is kept as a defensive
 #      guard for non-CNPG / pre-existing DBs (e.g. the dalekdefender overlay and
 #      local QA, where it runs as a superuser DSN).
-#   2. `node scripts/ci-setup-db.mjs` — tracker-driven, idempotent. Applies
+#   2. `node scripts/payroll-revision-754-preflight.mjs --report-only` — emits
+#      the read-only reconciliation inventory. Acceptance is enforced again on
+#      the migration connection while source and authority tables are locked.
+#   3. `node scripts/ci-setup-db.mjs` — tracker-driven, idempotent. Applies
 #      every file in `src/migrations/*.sql` exactly once per DB via the
 #      `_migrations` table; auto-detects a pre-existing baseline schema
 #      (probes for users + appointments + admissions) and records
@@ -73,13 +100,18 @@
 # prisma CLI to regenerate it). scripts/backend-image-command-contract.test.mjs
 # pins this for every backend-image workload.
 #
-# Step 3 fails closed when no runtime role is configured. A hand-run copy of
+# Step 4 fails closed when no runtime role is configured. A hand-run copy of
 # this Job on a single-DSN environment (dalekdefender rig, local QA — no
 # configmap, no vhhealth_runtime login role in the DB) may set
 # RUNTIME_ROLE_GRANTS_OPTIONAL=true to turn exactly that configuration-absent
 # skip into a loud exit-0 no-op. This canonical Job deliberately does NOT set
-# it — prod aborts the sync if the configmap ever loses
+# it — prod aborts the sync if migration-config.yaml ever loses
 # AUTH_TENANT_RLS_RUNTIME_ROLE (pinned by startupMigrationReadiness.test.js).
+# That key lives in vhhealth-backend-migration-config rather than the runtime
+# vhhealth-backend-config because only the former exists during the PreSync
+# phase; validate-kubernetes-manifests.mjs fails closed unless the two carry an
+# identical value, so the role this Job GRANTS to and the role the Deployment
+# CONNECTS as cannot drift apart.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -95,8 +127,46 @@ metadata:
 spec:
   backoffLimit: 2
   # 15min hard cap — real migrations take <60s; anything longer is hung.
+  # NOTE this is JOB-scoped, not pod-scoped: the budget covers all attempts
+  # together. On the normal path the gate passes at once and 3 × <60s is far
+  # inside it. The margin is NOT large in the pathological case, though: the
+  # wait-owner-bypassrls initContainer below has its own 5-minute cap and runs
+  # once PER ATTEMPT, so three gate timeouts alone (~900s + back-off) exhaust
+  # the budget before a migration runs. That is unchanged from the OnFailure
+  # era — OnFailure restarts the initContainer in place under the same cap —
+  # and it is bounded evidence, not lost evidence: the earlier attempts' pods
+  # are retained with the gate's own diagnostic. It is also why the guard in
+  # scripts/validate-kubernetes-manifests.mjs floors this value rather than
+  # merely recording it. It is also the ONE terminal path that still discards
+  # evidence: on DeadlineExceeded the Job controller DELETES the pod that is
+  # still running, under either restartPolicy — verified on the rig. A hang is
+  # therefore diagnosed from the Job's DeadlineExceeded condition and ArgoCD's
+  # live stream, not from a retained pod. Earlier attempts that already failed
+  # are retained normally.
   activeDeadlineSeconds: 900
-  ttlSecondsAfterFinished: 3600
+  # 24h, raised from 1h. The TTL controller deletes the Job — and cascades to
+  # its pods — this many seconds after it FINISHES, in either terminal state;
+  # Kubernetes has no way to express a longer TTL for failure specifically, so
+  # the single number has to be justified for both.
+  #
+  # 1h was too short for the case that actually matters. Prod sync is MANUAL
+  # (base/argocd/applications/apps.yaml has no `automated:` block), so a
+  # migration failure is found by a human coming back to it — and an hour does
+  # not survive an overnight or unattended sync. The evidence was reaped before
+  # anyone looked.
+  #
+  # 24h covers any overnight window plus the whole following business day, and
+  # matches what the backup + backup-verification CronJobs already keep. The
+  # cost is bounded to ONE extra terminal Job and its ≤3 terminal pods, because
+  # `hook-delete-policy: BeforeHookCreation` deletes the previous Job at the
+  # start of the next sync regardless of TTL — a longer TTL cannot accumulate
+  # anything, it only defers the no-further-sync backstop.
+  #
+  # Deliberately NOT multi-day: a terminal Failed Job lingering for days is
+  # misleading state, and past about a day the correct move is to re-sync
+  # (ci-setup-db.mjs is tracker-driven and idempotent, so a re-run reproduces
+  # the same failure with fresh logs) rather than read stale ones.
+  ttlSecondsAfterFinished: 86400
   template:
     metadata:
       labels:
@@ -104,7 +174,29 @@ spec:
         app.kubernetes.io/component: migration
         app.kubernetes.io/part-of: vhhealth
     spec:
-      restartPolicy: OnFailure
+      # Never, NOT OnFailure — a diagnosability requirement, not a preference.
+      #
+      # With OnFailure the kubelet restarts the container in the SAME pod, and
+      # the job controller DELETES that pod the instant it exceeds the backoff
+      # limit ("SuccessfulDelete ... Deleted pod" lands about a second after
+      # "BackoffLimitExceeded"). What is left is a Job object reading
+      # `Failed 0/1` and carrying no output at all: not the migration's file
+      # name, not the Postgres error. The one thing an after-the-fact diagnosis
+      # needs is the one thing it could never have. Reproduced on the
+      # dalekdefender rig against this exact policy (OnFailure, backoffLimit 2)
+      # — the marker line the container printed was unrecoverable — and fixed
+      # for the rig's own Job in PR #954.
+      #
+      # With Never each attempt is a NEW pod and failed pods are RETAINED, so
+      # each of the backoffLimit+1 attempts leaves a readable pod — 3 today.
+      # Comparing them is how you tell a deterministic migration failure from
+      # one transient blip, which is why the guard floors backoffLimit too.
+      # Nothing about the
+      # ArgoCD hook contract changes: hook success/failure is assessed from the
+      # Job object's Complete/Failed condition, which is identical under either
+      # policy, so "failure aborts the sync" still holds, sync-wave -1 still
+      # holds, and BeforeHookCreation still clears them at the next sync.
+      restartPolicy: Never
       terminationGracePeriodSeconds: 30
       automountServiceAccountToken: false
       securityContext:
@@ -243,6 +335,8 @@ spec:
               set -euo pipefail
               echo ">> db:ensure-pgvector (CREATE EXTENSION IF NOT EXISTS vector)"
               node scripts/ensure-pgvector-extension.mjs
+              echo ">> migration 754 payroll-revision reconciliation preflight"
+              node scripts/payroll-revision-754-preflight.mjs --report-only
               echo ">> ci-setup-db.mjs (apply raw src/migrations/*.sql, tracker-driven)"
               node scripts/ci-setup-db.mjs --skip-seeds
               echo ">> ensure runtime-role grants (owner-only bootstrap)"
@@ -253,6 +347,16 @@ spec:
               value: "production"
             - name: CI_DB_SKIP_SEEDS
               value: "1"
+            - name: PAYROLL_754_ACCEPTED_MANIFEST_SHA256
+              valueFrom:
+                configMapKeyRef:
+                  name: vhhealth-payroll-revision-754-acceptance
+                  key: PAYROLL_754_ACCEPTED_MANIFEST_SHA256
+            - name: PAYROLL_754_ACCEPTED_BY
+              valueFrom:
+                configMapKeyRef:
+                  name: vhhealth-payroll-revision-754-acceptance
+                  key: PAYROLL_754_ACCEPTED_BY
             # Override DATABASE_URL with the superuser/owner DSN for migrations
             # ONLY (INF-4/INF-8). Takes precedence over the envFrom value below.
             # The Deployment keeps the vhhealth_runtime DATABASE_URL; this Job
@@ -264,9 +368,39 @@ spec:
                 secretKeyRef:
                   name: vhhealth-backend-env
                   key: DATABASE_SUPERUSER_URL
+          # vhhealth-backend-migration-config, NOT vhhealth-backend-config.
+          #
+          # This container runs in the PreSync phase, and ArgoCD completes every
+          # PreSync hook before it applies ANY Sync-phase resource — sync waves
+          # order within a phase, they do not order across phases.
+          # vhhealth-backend-config is a Sync-phase resource (configmap.yaml
+          # carries a sync-wave but no hook annotation), so on a fresh namespace
+          # it does not exist yet, and referencing it here made this Job
+          # UNSTARTABLE in the one way that leaves nothing to read:
+          # CreateContainerConfigError is a WAITING reason, not a pod failure,
+          # so it never increments backoffLimit and never produces a failed pod
+          # for the restartPolicy above to retain; the Job simply runs until
+          # activeDeadlineSeconds, and DeadlineExceeded then deletes the
+          # still-running pod. Zero pods, zero logs — and the Sync phase that
+          # would have created the ConfigMap is itself gated on this hook, so a
+          # retry reproduces it exactly. Reproduced on a kind cluster running
+          # ArgoCD before the fix, and re-run green after it.
+          #
+          # migration-config.yaml carries the same value in the PreSync phase,
+          # narrowed to the only key this Job actually reads. Its header records
+          # the key-by-key argument for that narrowing, and why annotating the
+          # runtime ConfigMap as a hook instead was measured and rejected
+          # (it loses ArgoCD drift detection and deletes/re-creates the
+          # ConfigMap on every sync).
+          #
+          # The Secret is NOT the same case: vhhealth-backend-env is not
+          # rendered by this Application at all. It is applied out of band from
+          # a SealedSecret before the first sync (GO_LIVE_ACTIVATION_CHECKLIST
+          # B1-B3, ahead of the D2 sync that runs this Job), so no phase
+          # ordering within this Application can affect it.
           envFrom:
             - configMapRef:
-                name: vhhealth-backend-config
+                name: vhhealth-backend-migration-config
             - secretRef:
                 name: vhhealth-backend-env
           resources:

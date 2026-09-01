@@ -16,9 +16,17 @@ const reversePaymentMock = jest.fn();
 const collectAdvanceMock = jest.fn();
 const settleAdvanceMock = jest.fn();
 const raiseRefundMock = jest.fn();
+const listRefundsMock = jest.fn();
+const getRefundMock = jest.fn();
 const approveRefundMock = jest.fn();
 const rejectRefundMock = jest.fn();
 const markRefundPaidMock = jest.fn();
+const markOfflineElectronicRefundPaidMock = jest.fn();
+const listBillingCreditNotesMock = jest.fn();
+const getBillingCreditNoteMock = jest.fn();
+const approveBillingCreditNoteMock = jest.fn();
+const rejectBillingCreditNoteMock = jest.fn();
+const applyBillingCreditNoteMock = jest.fn();
 const openCashDrawerSessionMock = jest.fn();
 const closeCashDrawerSessionMock = jest.fn();
 const reviewCashDrawerSessionMock = jest.fn();
@@ -43,9 +51,57 @@ jest.unstable_mockModule('../../services/billing/billingV2Service.js', () => ({
   collectAdvance: collectAdvanceMock,
   settleAdvance: settleAdvanceMock,
   raiseRefund: raiseRefundMock,
+  REFUND_RAISE_IDEMPOTENCY_PATH: '/api/v1/billing/v2/refunds',
+  refundRaiseIdempotencyBody: (body = {}) => ({
+    action: 'raise_refund',
+    patient_uid: body.patient_uid == null ? null : String(body.patient_uid).trim(),
+    invoice_id: body.invoice_id == null ? null : String(body.invoice_id).trim(),
+    advance_id: body.advance_id == null ? null : String(body.advance_id).trim(),
+    amount: body.amount == null ? null : String(body.amount).trim(),
+    reason: body.reason == null ? null : String(body.reason).trim(),
+    mode: body.mode == null ? null : String(body.mode).trim(),
+  }),
+  listRefunds: listRefundsMock,
+  getRefund: getRefundMock,
   approveRefund: approveRefundMock,
   rejectRefund: rejectRefundMock,
   markRefundPaid: markRefundPaidMock,
+  markOfflineElectronicRefundPaid: markOfflineElectronicRefundPaidMock,
+  REFUND_REJECTION_IDEMPOTENCY_PATH: '/api/v1/billing/v2/refunds/reject',
+  REFUND_MANUAL_PAYOUT_IDEMPOTENCY_PATH: '/api/v1/billing/v2/refunds/pay',
+  REFUND_OFFLINE_ELECTRONIC_PAYOUT_IDEMPOTENCY_PATH:
+    '/api/v1/billing/v2/refunds/pay/offline-electronic',
+  refundRejectionIdempotencyBody: (id, body = {}) => ({
+    action: 'reject_refund',
+    refund_id: String(id),
+    rejection_reason: body.rejection_reason == null
+      ? null
+      : String(body.rejection_reason).trim(),
+  }),
+  refundManualPayoutIdempotencyBody: (id, body = {}) => ({
+    action: 'pay_refund_manual',
+    refund_id: String(id),
+    cash_drawer_session_id: body.cash_drawer_session_id == null
+      ? null
+      : String(body.cash_drawer_session_id).trim(),
+    reference: body.reference == null ? null : String(body.reference).trim(),
+  }),
+  refundOfflineElectronicPayoutIdempotencyBody: (id, body = {}) => ({
+    action: 'pay_refund_offline_electronic',
+    refund_id: String(id),
+    original_payment_reference: body.original_payment_reference ?? null,
+    provider_name: body.provider_name ?? null,
+    provider_refund_reference: body.provider_refund_reference ?? null,
+    provider_refunded_at: body.provider_refunded_at ?? null,
+  }),
+}));
+
+jest.unstable_mockModule('../../services/billing/billingCreditNoteService.js', () => ({
+  listBillingCreditNotes: listBillingCreditNotesMock,
+  getBillingCreditNote: getBillingCreditNoteMock,
+  approveBillingCreditNote: approveBillingCreditNoteMock,
+  rejectBillingCreditNote: rejectBillingCreditNoteMock,
+  applyBillingCreditNote: applyBillingCreditNoteMock,
 }));
 
 jest.unstable_mockModule('../../services/billing/cashDrawerService.js', () => ({
@@ -77,8 +133,9 @@ const billingV2Routes = (await import('../../routes/billing/billingV2Routes.js')
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const ACTOR_UID = '11111111-1111-4111-8111-111111111111';
 const PATIENT_UID = '22222222-2222-4222-8222-222222222222';
+const DELEGATED_ACTOR_UID = '33333333-3333-4333-8333-333333333333';
 
-function makeApp({ role = 'BILLING_STAFF' } = {}) {
+function makeApp({ role = 'BILLING_STAFF', userUid = ACTOR_UID, acting = null } = {}) {
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
@@ -86,11 +143,12 @@ function makeApp({ role = 'BILLING_STAFF' } = {}) {
     req.tenantId = TENANT_ID;
     req.user = {
       id: 9,
-      uid: ACTOR_UID,
+      uid: userUid,
       role,
       tenant_id: TENANT_ID,
       deviceType: 'desktop',
     };
+    if (acting) req.acting = acting;
     next();
   });
   app.use('/', billingV2Routes);
@@ -112,9 +170,17 @@ beforeEach(() => {
   collectAdvanceMock.mockReset();
   settleAdvanceMock.mockReset();
   raiseRefundMock.mockReset();
+  listRefundsMock.mockReset();
+  getRefundMock.mockReset();
   approveRefundMock.mockReset();
   rejectRefundMock.mockReset();
   markRefundPaidMock.mockReset();
+  markOfflineElectronicRefundPaidMock.mockReset();
+  listBillingCreditNotesMock.mockReset();
+  getBillingCreditNoteMock.mockReset();
+  approveBillingCreditNoteMock.mockReset();
+  rejectBillingCreditNoteMock.mockReset();
+  applyBillingCreditNoteMock.mockReset();
   openCashDrawerSessionMock.mockReset();
   closeCashDrawerSessionMock.mockReset();
   reviewCashDrawerSessionMock.mockReset();
@@ -126,6 +192,85 @@ beforeEach(() => {
 });
 
 describe('billing v2 front-office audit logging', () => {
+  it('requires durable idempotency before entering refund creation', async () => {
+    const response = await request(makeApp())
+      .post('/refunds')
+      .send({
+        patient_uid: PATIENT_UID,
+        invoice_id: 77,
+        amount: 300,
+        mode: 'UPI',
+        reason: 'Duplicate payment',
+      });
+
+    expect(response.status).toBe(400);
+    expect(raiseRefundMock).not.toHaveBeenCalled();
+  });
+
+  it('restricts refund creation to finance operators before idempotency', async () => {
+    const response = await request(makeApp({ role: 'RECEPTIONIST' }))
+      .post('/refunds')
+      .set('Idempotency-Key', 'refund-reception-bypass')
+      .send({
+        patient_uid: PATIENT_UID,
+        invoice_id: 77,
+        amount: 300,
+        mode: 'UPI',
+        reason: 'Duplicate payment',
+      });
+
+    expect(response.status).toBe(403);
+    expect(raiseRefundMock).not.toHaveBeenCalled();
+  });
+
+  it('admits both explicit admin roles to refund approve and reject decisions', async () => {
+    approveRefundMock.mockResolvedValueOnce({ id: 31, approval_status: 'APPROVED' });
+    rejectRefundMock.mockResolvedValueOnce({ id: 32, approval_status: 'REJECTED' });
+    const app = makeApp({ role: 'SUPER_ADMIN' });
+
+    const approved = await request(app)
+      .post('/refunds/31/approve')
+      .set('Idempotency-Key', `super-admin-refund-approve-${Date.now()}-${Math.random()}`)
+      .send({});
+    const rejected = await request(app)
+      .post('/refunds/32/reject')
+      .set('Idempotency-Key', `super-admin-refund-reject-${Date.now()}-${Math.random()}`)
+      .send({ rejection_reason: 'Duplicate medication charge' });
+
+    expect(approved.status).toBe(200);
+    expect(rejected.status).toBe(200);
+    expect(approveRefundMock).toHaveBeenCalledWith('31', expect.objectContaining({
+      approved_by: ACTOR_UID,
+      tenantId: TENANT_ID,
+    }));
+    expect(rejectRefundMock).toHaveBeenCalledWith('32', expect.objectContaining({
+      rejected_by: ACTOR_UID,
+      rejection_reason: 'Duplicate medication charge',
+      tenantId: TENANT_ID,
+    }));
+  });
+
+  it('restricts expanded refund evidence reads to finance operators', async () => {
+    listRefundsMock.mockResolvedValueOnce([]);
+    getRefundMock.mockResolvedValueOnce({ refund: { id: 21 } });
+
+    const denied = await request(makeApp({ role: 'RECEPTIONIST' }))
+      .get('/refunds/21');
+    const list = await request(makeApp({ role: 'BILLING_STAFF' }))
+      .get('/refunds?id=21');
+    const detail = await request(makeApp({ role: 'BILLING_STAFF' }))
+      .get('/refunds/21');
+
+    expect(denied.status).toBe(403);
+    expect(list.status).toBe(200);
+    expect(detail.status).toBe(200);
+    expect(listRefundsMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: TENANT_ID,
+      id: '21',
+    }));
+    expect(getRefundMock).toHaveBeenCalledWith('21', { tenantId: TENANT_ID });
+  });
+
   it('allows receptionists to read patient invoices from the front-office workbench', async () => {
     listInvoicesMock.mockResolvedValueOnce({
       invoices: [],
@@ -404,6 +549,7 @@ describe('billing v2 front-office audit logging', () => {
     const staffApp = makeApp();
     const reverseResponse = await request(adminApp)
       .post('/payments/90/reverse')
+      .set('Idempotency-Key', `fo-test-reverse-90-${Date.now()}-${Math.random()}`)
       .send({ reason: 'Wrong invoice' });
     const advanceResponse = await request(staffApp)
       .post('/advances')
@@ -485,6 +631,7 @@ describe('billing v2 front-office audit logging', () => {
     const adminApp = makeApp({ role: 'ADMIN' });
     const raiseResponse = await request(staffApp)
       .post('/refunds')
+      .set('Idempotency-Key', `fo-test-refundraise-21-${Date.now()}-${Math.random()}`)
       .send({
         patient_uid: PATIENT_UID,
         invoice_id: 77,
@@ -492,7 +639,11 @@ describe('billing v2 front-office audit logging', () => {
         mode: 'UPI',
         reason: 'Duplicate payment',
       });
-    const approveResponse = await request(adminApp).post('/refunds/21/approve').send({});
+    const approveResponse = await request(adminApp)
+      .post('/refunds/21/approve')
+      .set('Idempotency-Key', `fo-test-refundapprove-21-${Date.now()}-${Math.random()}`)
+      .set('User-Agent', 'VH Staff Audit Test')
+      .send({});
     const payResponse = await request(staffApp)
       .post('/refunds/21/pay')
       .set('Idempotency-Key', `fo-test-refundpay-21-${Date.now()}-${Math.random()}`)
@@ -501,44 +652,179 @@ describe('billing v2 front-office audit logging', () => {
     expect(raiseResponse.status).toBe(200);
     expect(approveResponse.status).toBe(200);
     expect(payResponse.status).toBe(200);
-    expect(logAuditMock).toHaveBeenCalledWith(
-      expect.any(Object),
-      'FRONT_OFFICE_BILLING_REFUND_RAISED',
-      expect.objectContaining({
-        refund_id: 21,
-        invoice_id: 77,
-        patient_uid: PATIENT_UID,
-        amount: '300.00',
-        reason_present: true,
-        source: 'billing_v2',
+    expect(raiseRefundMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: TENANT_ID,
+      raised_by: ACTOR_UID,
+      commandKey: expect.stringMatching(/^fo-test-refundraise-21-/),
+      requestFingerprint: expect.stringMatching(/^[0-9a-f]{64}$/),
+      httpIdempotencyClaimId: expect.any(Number),
+      requestId: 'req-billing-audit',
+      auditContext: expect.objectContaining({
+        actorUid: ACTOR_UID,
+        subjectUid: ACTOR_UID,
+        actorRole: 'BILLING_STAFF',
+        actingAsDependent: false,
+        requestId: 'req-billing-audit',
+        deviceType: 'desktop',
       }),
-      { resource: 'billing_refund', resourceId: 21 },
-    );
-    expect(logAuditMock).toHaveBeenCalledWith(
-      expect.any(Object),
-      'FRONT_OFFICE_BILLING_REFUND_APPROVED',
-      expect.objectContaining({
-        refund_id: 21,
-        invoice_id: 77,
-        patient_uid: PATIENT_UID,
-        approval_status: 'APPROVED',
-        source: 'billing_v2',
+    }));
+    expect(logAuditMock.mock.calls.some(([, action]) => (
+      action === 'FRONT_OFFICE_BILLING_REFUND_RAISED'
+    ))).toBe(false);
+    expect(approveRefundMock).toHaveBeenCalledWith('21', expect.objectContaining({
+      tenantId: TENANT_ID,
+      approved_by: ACTOR_UID,
+      commandKey: expect.stringMatching(/^fo-test-refundapprove-21-/),
+      requestFingerprint: expect.stringMatching(/^[0-9a-f]{64}$/),
+      httpIdempotencyClaimId: expect.any(Number),
+      requestId: 'req-billing-audit',
+      auditContext: expect.objectContaining({
+        actorUid: ACTOR_UID,
+        subjectUid: ACTOR_UID,
+        actorRole: 'ADMIN',
+        actingAsDependent: false,
+        requestId: 'req-billing-audit',
+        deviceType: 'desktop',
+        ipAddress: expect.any(String),
+        userAgent: 'VH Staff Audit Test',
       }),
-      { resource: 'billing_refund', resourceId: 21 },
-    );
-    expect(logAuditMock).toHaveBeenCalledWith(
-      expect.any(Object),
-      'FRONT_OFFICE_BILLING_REFUND_PAID',
-      expect.objectContaining({
-        refund_id: 21,
-        invoice_id: 77,
-        patient_uid: PATIENT_UID,
-        approval_status: 'PAID',
-        reference_present: true,
-        source: 'billing_v2',
+    }));
+    expect(logAuditMock.mock.calls.some(([, action]) => (
+      action === 'FRONT_OFFICE_BILLING_REFUND_APPROVED'
+    ))).toBe(false);
+    expect(logAuditMock.mock.calls.some(([, action]) => (
+      action === 'FRONT_OFFICE_BILLING_REFUND_PAID'
+    ))).toBe(false);
+    expect(markRefundPaidMock).toHaveBeenCalledWith('21', expect.objectContaining({
+      tenantId: TENANT_ID,
+      paid_by: ACTOR_UID,
+      reference: 'UPI-REF-21',
+      commandKey: expect.stringMatching(/^fo-test-refundpay-21-/),
+      requestFingerprint: expect.stringMatching(/^[0-9a-f]{64}$/),
+      httpIdempotencyClaimId: expect.any(Number),
+      requestId: 'req-billing-audit',
+      auditContext: expect.objectContaining({
+        actorUid: ACTOR_UID,
+        subjectUid: ACTOR_UID,
+        actorRole: 'BILLING_STAFF',
+        actingAsDependent: false,
       }),
-      { resource: 'billing_refund', resourceId: 21 },
-    );
+    }));
+  });
+
+  it('keeps the delegated actor distinct from the rewritten request subject for refund approval', async () => {
+    approveRefundMock.mockResolvedValueOnce({
+      id: 22,
+      patient_uid: PATIENT_UID,
+      invoice_id: 77,
+      amount: '300.00',
+      approval_status: 'APPROVED',
+    });
+
+    const response = await request(makeApp({
+      role: 'ADMIN',
+      userUid: PATIENT_UID,
+      acting: {
+        actorUid: DELEGATED_ACTOR_UID,
+        actorRole: 'SUPER_ADMIN',
+      },
+    }))
+      .post('/refunds/22/approve')
+      .set('Idempotency-Key', `fo-test-refundapprove-delegated-22-${Date.now()}-${Math.random()}`)
+      .send({});
+
+    expect(response.status).toBe(200);
+    expect(approveRefundMock).toHaveBeenCalledWith('22', expect.objectContaining({
+      tenantId: TENANT_ID,
+      approved_by: DELEGATED_ACTOR_UID,
+      auditContext: expect.objectContaining({
+        actorUid: DELEGATED_ACTOR_UID,
+        subjectUid: PATIENT_UID,
+        actorRole: 'SUPER_ADMIN',
+        actingAsDependent: true,
+      }),
+    }));
+  });
+
+  it('restricts medication credit notes to the finance review roster', async () => {
+    listBillingCreditNotesMock.mockResolvedValueOnce([]);
+
+    const denied = await request(makeApp({ role: 'BILLING_STAFF' }))
+      .get('/credit-notes');
+    const allowed = await request(makeApp({ role: 'FINANCE_INCHARGE' }))
+      .get('/credit-notes?status=pending&limit=25');
+
+    expect(denied.status).toBe(403);
+    expect(allowed.status).toBe(200);
+    expect(listBillingCreditNotesMock).toHaveBeenCalledWith({
+      tenantId: TENANT_ID,
+      status: 'pending',
+      invoiceId: undefined,
+      limit: '25',
+    });
+  });
+
+  it('routes credit-note decisions and application with durable command keys', async () => {
+    const commandSuffix = `${process.pid}-${Date.now()}-${Math.random()}`;
+    const approveKey = `credit-note-approve-${commandSuffix}`;
+    const rejectKey = `credit-note-reject-${commandSuffix}`;
+    const applyKey = `credit-note-apply-${commandSuffix}`;
+    approveBillingCreditNoteMock.mockResolvedValueOnce({
+      id: 42,
+      patient_uid: PATIENT_UID,
+      invoice_id: 77,
+      amount_minor: 1250,
+      status: 'approved',
+    });
+    rejectBillingCreditNoteMock.mockResolvedValueOnce({
+      id: 43,
+      patient_uid: PATIENT_UID,
+      invoice_id: 77,
+      amount_minor: 900,
+      status: 'rejected',
+    });
+    applyBillingCreditNoteMock.mockResolvedValueOnce({
+      id: 42,
+      patient_uid: PATIENT_UID,
+      invoice_id: 77,
+      refund_id: 21,
+      receivable_credit_minor: 0,
+      refund_obligation_minor: 1250,
+      status: 'applied',
+    });
+    const app = makeApp({ role: 'BILLING_INCHARGE' });
+
+    const approve = await request(app)
+      .post('/credit-notes/42/approve')
+      .set('Idempotency-Key', approveKey)
+      .send({});
+    const reject = await request(app)
+      .post('/credit-notes/43/reject')
+      .set('Idempotency-Key', rejectKey)
+      .send({ rejection_reason: 'Invalid return evidence' });
+    const apply = await request(app)
+      .post('/credit-notes/42/apply')
+      .set('Idempotency-Key', applyKey)
+      .send({ refund_mode: 'UPI' });
+
+    expect([approve.status, reject.status, apply.status]).toEqual([200, 200, 200]);
+    expect(approveBillingCreditNoteMock).toHaveBeenCalledWith('42', {
+      tenantId: TENANT_ID,
+      approvedBy: ACTOR_UID,
+      commandKey: approveKey,
+    });
+    expect(rejectBillingCreditNoteMock).toHaveBeenCalledWith('43', {
+      tenantId: TENANT_ID,
+      rejectedBy: ACTOR_UID,
+      rejectionReason: 'Invalid return evidence',
+      commandKey: rejectKey,
+    });
+    expect(applyBillingCreditNoteMock).toHaveBeenCalledWith('42', {
+      tenantId: TENANT_ID,
+      appliedBy: ACTOR_UID,
+      refundMode: 'UPI',
+      commandKey: applyKey,
+    });
   });
 
   it('does not forward public refund-pay body fields into gateway settlement authority', async () => {
@@ -566,6 +852,16 @@ describe('billing v2 front-office audit logging', () => {
       tenantId: TENANT_ID,
       paid_by: ACTOR_UID,
       reference: 'MANUAL-21',
+      cash_drawer_session_id: undefined,
+      commandKey: expect.stringMatching(/^fo-test-refundpay-attack-/),
+      requestFingerprint: expect.stringMatching(/^[0-9a-f]{64}$/),
+      httpIdempotencyClaimId: expect.any(Number),
+      requestId: 'req-billing-audit',
+      auditContext: expect.objectContaining({
+        actorUid: ACTOR_UID,
+        subjectUid: ACTOR_UID,
+        actorRole: 'BILLING_STAFF',
+      }),
     });
   });
 

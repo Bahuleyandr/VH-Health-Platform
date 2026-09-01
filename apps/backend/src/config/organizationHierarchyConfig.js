@@ -310,7 +310,7 @@ export const ORGANIZATION_HIERARCHY_NODES = [
     lane: 'operations',
     title: 'Billing / Insurance Desk',
     subtitle: 'Financial clearance and TPA support',
-    role_codes: ['BILLING_STAFF', 'INSURANCE_COORDINATOR'],
+    role_codes: ['CASHIER', 'BILLING_STAFF', 'INSURANCE_COORDINATOR'],
     access_level: 'Billing and insurance workflow access',
     responsibilities: [
       'Billing queue work, insurance documentation, TPA coordination, and discharge financial clearance',

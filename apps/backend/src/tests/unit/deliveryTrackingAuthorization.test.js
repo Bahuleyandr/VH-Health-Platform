@@ -48,8 +48,17 @@ describe('delivery tracking authorization helpers', () => {
     }, 'investigation')).toBe(false);
   });
 
-  it('limits pharmacy staff override to pharmacy orders', () => {
-    expect(canManageDeliveryTracking({}, { role: 'PHARMACY_STAFF' }, 'pharmacy')).toBe(true);
+  it('keeps pharmacy tracking mutation courier-owned with exact UID authority', () => {
+    const order = { delivery_assignee_uid: PATIENT_UID };
+    expect(canManageDeliveryTracking(order, {
+      uid: PATIENT_UID,
+      role: 'DELIVERY_STAFF',
+    }, 'pharmacy')).toBe(true);
+    expect(canManageDeliveryTracking(order, {
+      uid: '22222222-2222-4222-8222-222222222222',
+      role: 'DELIVERY_STAFF',
+    }, 'pharmacy')).toBe(false);
+    expect(canManageDeliveryTracking(order, { role: 'PHARMACY_STAFF' }, 'pharmacy')).toBe(false);
     expect(canManageDeliveryTracking({}, { role: 'PHARMACY_STAFF' }, 'investigation')).toBe(false);
   });
 });

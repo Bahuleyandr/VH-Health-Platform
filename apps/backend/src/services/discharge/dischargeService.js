@@ -1572,7 +1572,7 @@ export async function sign({
   // admissions RLS policies. The e_prescriptions med materialisation stays
   // POST-COMMIT best-effort (idempotent, patient-app convenience) — an
   // e_prescriptions hiccup must not roll back a legally-signed discharge.
-  const signed = await setTenantTx(requireTenantId(tenantId), async (tx) => {
+  await setTenantTx(requireTenantId(tenantId), async (tx) => {
     await assertSummarySignableTx({ tx, tenantId, id });
     const rows = await tx.$queryRawUnsafe(
       `UPDATE discharge_summaries
@@ -1658,18 +1658,14 @@ export async function sign({
         },
       });
     }
+    await materialiseDischargeMedsAsPrescription({
+      tenantId,
+      discharge_summary_id: Number(id),
+      patient_uid: row.patient_uid,
+      doctor_uid: signed_by || null,
+      db: tx,
+    });
     return row;
-  });
-
-  // Materialise discharge medications as an e_prescriptions row so the
-  // patient app's Rx tab surfaces them. Best-effort: signing must not
-  // fail if no medication section is configured or the section body is
-  // empty. Finding 2026-05-09-surgical-day-care-patient-discharge-meds-
-  // not-in-e_prescriptions.
-  await materialiseDischargeMedsAsPrescription({
-    discharge_summary_id: Number(id),
-    patient_uid: signed.patient_uid,
-    doctor_uid: signed_by || null,
   });
 
   return getOne({ tenantId, id });
@@ -1692,16 +1688,18 @@ export async function sign({
  * swallowed.
  */
 export async function materialiseDischargeMedsAsPrescription({
-  discharge_summary_id, patient_uid, doctor_uid,
+  tenantId, discharge_summary_id, patient_uid, doctor_uid, db = prisma,
 }) {
   if (!patient_uid) return;
-  try {
-    const sections = await prisma.$queryRawUnsafe(
+  const tid = requireTenantId(tenantId);
+    const sections = await db.$queryRawUnsafe(
       `SELECT section_key, section_title, body
          FROM discharge_summary_sections
         WHERE discharge_summary_id = $1::int
+          AND tenant_id=$2::uuid
           AND body IS NOT NULL AND length(trim(body)) > 0`,
       Number(discharge_summary_id),
+      tid,
     );
     const medSection = sections.find((s) =>
       DISCHARGE_MED_SECTION_KEYS.has(String(s.section_key || '').toLowerCase()),
@@ -1711,12 +1709,13 @@ export async function materialiseDischargeMedsAsPrescription({
     // Idempotency probe: a prescription whose clinical_notes references
     // this discharge_summary_id means we've already materialised it.
     const marker = `[discharge_summary_id=${discharge_summary_id}]`;
-    const existing = await prisma.$queryRawUnsafe(
+    const existing = await db.$queryRawUnsafe(
       `SELECT id FROM e_prescriptions
-        WHERE patient_uid = $1::uuid
-          AND clinical_notes LIKE $2
+        WHERE tenant_id=$1::uuid
+          AND prescription_number=$2
         LIMIT 1`,
-      String(patient_uid), `%${marker}%`,
+      tid,
+      `DISCHARGE-${Number(discharge_summary_id)}`,
     );
     if (existing.length) return;
 
@@ -1724,13 +1723,23 @@ export async function materialiseDischargeMedsAsPrescription({
     // doctor_id is best-effort: discharge can be signed by a name-only
     // user with no DB row.
     const [patientRow, doctorRow] = await Promise.all([
-      prisma.$queryRawUnsafe(
-        `SELECT id FROM users WHERE uid = $1::uuid LIMIT 1`,
+      db.$queryRawUnsafe(
+        `SELECT id FROM users
+          WHERE tenant_id=$1::uuid AND uid=$2::uuid
+            AND role='PATIENT' AND is_active=TRUE AND status='active'
+            AND is_deleted=FALSE AND merged_into_uid IS NULL
+          LIMIT 1 FOR KEY SHARE`,
+        tid,
         String(patient_uid),
       ),
       doctor_uid
-        ? prisma.$queryRawUnsafe(
-            `SELECT id FROM users WHERE uid = $1::uuid LIMIT 1`,
+        ? db.$queryRawUnsafe(
+            `SELECT id FROM users
+              WHERE tenant_id=$1::uuid AND uid=$2::uuid
+                AND role='DOCTOR' AND is_active=TRUE AND status='active'
+                AND is_deleted=FALSE
+              LIMIT 1 FOR KEY SHARE`,
+            tid,
             String(doctor_uid),
           )
         : Promise.resolve([]),
@@ -1738,10 +1747,10 @@ export async function materialiseDischargeMedsAsPrescription({
     const patientId = patientRow[0]?.id ?? null;
     const doctorId = doctorRow[0]?.id ?? null;
     if (!patientId) {
-      logger.warn(
-        `materialiseDischargeMedsAsPrescription: no users row for patient_uid=${patient_uid}`,
+      throw AppError.conflict(
+        'Discharge medication materialisation requires an active tenant patient',
+        'DISCHARGE_MEDICATION_PATIENT_AUTHORITY_INVALID',
       );
-      return;
     }
 
     // The section body is unstructured free text (one med per line in
@@ -1807,7 +1816,7 @@ export async function materialiseDischargeMedsAsPrescription({
     const clinicalNotesText =
       `Discharge medications from discharge summary. ${marker}\n\n${sectionBody}`;
 
-    await prisma.$executeRawUnsafe(
+    await db.$executeRawUnsafe(
       // $2/$4 carry explicit casts: doctor_id is int (nullable — a name-only
       // signer has no users row) and doctor_uid is a uuid column. Without
       // $4::uuid Postgres typed the bound string as text → 42804 ("column
@@ -1816,21 +1825,20 @@ export async function materialiseDischargeMedsAsPrescription({
       // materialised to the patient's Rx tab. Finding surfaced during D3.
       `INSERT INTO e_prescriptions
          (appointment_id, patient_id, doctor_id, patient_uid, doctor_uid,
-          diagnosis, clinical_notes, medications, status)
+          diagnosis, clinical_notes, medications, status, tenant_id,
+          lifecycle_status, prescription_number, signed_at, signed_by)
        VALUES (NULL, $1::int, $2::int, $3::uuid, $4::uuid,
-               NULL, $5, $6::jsonb, 'active')`,
+               NULL, $5, $6::jsonb, 'active', $7::uuid,
+               'signed', $8, NOW(), $4::uuid)`,
       patientId,
       doctorId,
       String(patient_uid),
       doctor_uid ? String(doctor_uid) : null,
       clinicalNotesText,
       JSON.stringify(medications),
+      tid,
+      `DISCHARGE-${Number(discharge_summary_id)}`,
     );
-  } catch (e) {
-    logger.warn(
-      `materialiseDischargeMedsAsPrescription failed for discharge_summary_id=${discharge_summary_id}: ${e.message}`,
-    );
-  }
 }
 
 export async function markDelivered({

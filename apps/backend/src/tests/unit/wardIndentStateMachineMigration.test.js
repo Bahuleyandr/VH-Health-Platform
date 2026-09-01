@@ -4,6 +4,10 @@ const migration = readFileSync(
   new URL('../../migrations/741_ward_indent_authoritative_state_machine.sql', import.meta.url),
   'utf8',
 );
+const medicationClosureMigration = readFileSync(
+  new URL('../../migrations/744_medication_inventory_billing_mar_closure.sql', import.meta.url),
+  'utf8',
+);
 const supportService = readFileSync(
   new URL('../../services/ipd/ipdSupportService.js', import.meta.url),
   'utf8',
@@ -119,5 +123,26 @@ describe('migration 741 ward-indent authoritative state-machine contract', () =>
     expect(workflowService).toContain('await appendTransitionEvidence(tx');
     expect(workflowService).toContain('await rotateSla(tx, current, updated, action)');
     expect(workflowService).toContain('recordCanonicalClinicalEvent');
+  });
+});
+
+describe('migration 744 controlled ward custody contract', () => {
+  test('rejects patientless controlled approval and physical dispense evidence', () => {
+    expect(medicationClosureMigration)
+      .toContain('CREATE OR REPLACE FUNCTION ward_indent_controlled_patient_guard()');
+    expect(medicationClosureMigration)
+      .toContain('CREATE TRIGGER ward_indent_controlled_patient_required');
+    expect(medicationClosureMigration)
+      .toContain("NEW.status NOT IN ('controlled_handoff_required', 'approved')");
+    expect(medicationClosureMigration)
+      .toContain("CONSTRAINT = 'chk_ward_indent_controlled_patient_required'");
+    expect(medicationClosureMigration)
+      .toContain("NEW.movement_purpose = 'issue' AND medication.patient_uid IS NULL");
+    expect(medicationClosureMigration)
+      .toContain('CREATE OR REPLACE FUNCTION controlled_ward_dispense_require_patient()');
+    expect(medicationClosureMigration)
+      .toContain("movement.reference_type = 'controlled_dispense'");
+    expect(medicationClosureMigration)
+      .toContain("CONSTRAINT = 'chk_controlled_ward_dispense_patient_required'");
   });
 });

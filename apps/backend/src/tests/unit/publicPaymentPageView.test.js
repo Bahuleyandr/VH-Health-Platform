@@ -13,6 +13,7 @@ const queryRawUnsafe = jest.fn();
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: queryRawUnsafe },
   prismaReadOnly: { $queryRawUnsafe: queryRawUnsafe },
+  isTenantTransactionClient: () => false,
   setTenant: jest.fn(),
   setTenantTx: jest.fn(),
 }));

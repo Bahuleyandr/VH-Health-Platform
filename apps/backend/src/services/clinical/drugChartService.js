@@ -8,6 +8,9 @@ import {
 const INACTIVE_MEDICATION_RE =
   /cancelled|canceled|discontinued|stopped|\bheld\b|on[\s_-]?hold|suspended|completed/i;
 
+const ACTIVE_WARD_INDENT_ORDER_STATUSES = new Set(['ordered', 'verified', 'in_progress']);
+const ACTIVE_WARD_INDENT_ADMISSION_STATUSES = new Set(['admitted', 'transferred']);
+
 const PRESCRIBER_ROLES = new Set([
   'ADMIN',
   'SUPER_ADMIN',
@@ -71,6 +74,7 @@ function medicationPayloadFromOrder(order) {
   const details = parseDetails(order.details);
   const name = medicationName(details) || 'Medication not named';
   return {
+    catalog_id: positiveCatalogId(details),
     name,
     medication_name: name,
     dose: cleanText(details.dose || details.dosage),
@@ -84,6 +88,67 @@ function medicationPayloadFromOrder(order) {
     instructions: cleanText(details.instructions || details.instruction || order.notes),
     quantity: details.quantity_requested ?? details.quantity ?? details.qty ?? null,
   };
+}
+
+function positiveCatalogId(details) {
+  const raw = details.catalog_id ?? details.catalogId;
+  if (
+    typeof raw !== 'number'
+    && (typeof raw !== 'string' || !/^[1-9][0-9]*$/.test(raw.trim()))
+  ) {
+    return null;
+  }
+  const value = Number(raw);
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+function canonicalWardIndentQuantity(details) {
+  const raw = details.quantity_requested ?? details.quantity ?? details.qty ?? details.units;
+  if (
+    typeof raw !== 'number'
+    && (typeof raw !== 'string' || !/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,2})?$/.test(raw.trim()))
+  ) {
+    return null;
+  }
+  const value = Number(raw);
+  const rounded = Math.round(value * 100) / 100;
+  if (
+    !Number.isFinite(value)
+    || value <= 0
+    || rounded > 99999999.99
+    || Math.abs(value - rounded) > Number.EPSILON
+  ) {
+    return null;
+  }
+  return rounded;
+}
+
+function canonicalWardIndentUnit(details) {
+  const value = details.unit
+    ?? details.quantity_unit
+    ?? details.dispense_unit
+    ?? details.supply_unit;
+  if (typeof value !== 'string') return null;
+  return cleanText(value) || null;
+}
+
+function isEligibleWardIndentOrder(order) {
+  if (cleanText(order.order_type).toLowerCase() !== 'medication') return false;
+  const status = cleanText(order.status).toLowerCase();
+  if (!ACTIVE_WARD_INDENT_ORDER_STATUSES.has(status)) return false;
+  if (status === 'verified' || status === 'in_progress') {
+    return Boolean(order.verified_by && order.verified_at);
+  }
+  return true;
+}
+
+function orderBelongsToAdmission(order, admission) {
+  const patientUid = cleanText(admission?.patient_uid);
+  const tenantId = cleanText(admission?.tenant_id);
+  if (!patientUid || !tenantId) return false;
+  return cleanText(order.patient_uid) === patientUid
+    && cleanText(order.encounter_id) === cleanText(admission.encounter_id)
+    && cleanText(order.tenant_id) === tenantId;
 }
 
 function isActiveMedicationOrder(order) {
@@ -110,7 +175,7 @@ function mapIssue(issue, severity) {
   };
 }
 
-async function buildSafetyByOrder({ patientId, orders }) {
+async function buildSafetyByOrder({ tenantId, patientId, orders }) {
   const output = new Map();
   if (!patientId) {
     for (const order of orders) {
@@ -143,7 +208,10 @@ async function buildSafetyByOrder({ patientId, orders }) {
     const warnings = [];
     const blockers = [];
     if (med.name && med.name !== 'Medication not named') {
-      const patientSafety = await validatePrescriptionSafety(patientId, [med]);
+      const patientSafety = await validatePrescriptionSafety(patientId, [med], {
+        tenantId,
+        excludeClinicalOrderId: order.id,
+      });
       warnings.push(...(patientSafety.warnings || []).map((issue) => mapIssue(issue, 'warning')));
       blockers.push(...(patientSafety.blockers || []).map((issue) => mapIssue(issue, 'blocker')));
 
@@ -188,7 +256,80 @@ function administrationBelongsToOrder(administration, order) {
 
 function indentBelongsToOrder(indent, order) {
   const items = Array.isArray(indent.items) ? indent.items : [];
-  return items.some((item) => cleanText(item.notes).includes(`clinical_order_id:${order.id}`));
+  return items.some((item) => (
+    Number(item.clinical_order_id) === Number(order.id)
+    || cleanText(item.notes).includes(`clinical_order_id:${order.id}`)
+  ));
+}
+
+export function buildWardIndentRecoveryProjection({
+  admission,
+  orders,
+  linkedClinicalOrderIds = [],
+  catalogs,
+}) {
+  const admissionStatus = cleanText(admission?.status).toLowerCase();
+  const admissionActive = ACTIVE_WARD_INDENT_ADMISSION_STATUSES.has(admissionStatus);
+  const linkedOrderIds = new Set(linkedClinicalOrderIds
+    .map((id) => Number(id))
+    .filter((id) => Number.isSafeInteger(id) && id > 0));
+  const catalogById = new Map(
+    catalogs.map((catalog) => [Number(catalog.id), catalog]),
+  );
+
+  const eligibleOrders = admissionActive
+    ? orders.flatMap((order) => {
+      if (
+        !orderBelongsToAdmission(order, admission)
+        || !isEligibleWardIndentOrder(order)
+        || linkedOrderIds.has(Number(order.id))
+      ) return [];
+      const details = parseDetails(order.details);
+      const catalogId = positiveCatalogId(details);
+      const quantity = canonicalWardIndentQuantity(details);
+      const unit = canonicalWardIndentUnit(details);
+      const catalog = catalogId == null ? null : catalogById.get(catalogId);
+      if (!catalog || !cleanText(catalog.name) || quantity == null || unit == null) return [];
+      const doseTimes = Array.isArray(details.dose_times)
+        ? details.dose_times.map(cleanText).filter(Boolean)
+        : [];
+      return [{
+        clinical_order_id: Number(order.id),
+        order_number: order.order_number,
+        status: cleanText(order.status).toLowerCase(),
+        priority: order.priority,
+        catalog_id: catalogId,
+        item_label: cleanText(catalog.name),
+        quantity,
+        unit,
+        route: cleanText(details.route || order.route) || null,
+        dose: cleanText(details.dose || details.dosage) || null,
+        frequency: cleanText(
+          details.frequency
+          || details.dosage_frequency
+          || details.freq
+          || details.dose_interval,
+        ) || null,
+        schedule: doseTimes,
+      }];
+    })
+    : [];
+
+  return {
+    kind: 'order_bound_recovery',
+    online_only: true,
+    admission: {
+      id: Number(admission.id),
+      status: admission.status,
+      patient_uid: admission.patient_uid,
+      patient_name: admission.patient_name,
+      hospital_id: admission.hospital_id,
+      encounter_id: admission.encounter_id,
+      ward_id: admission.ward_id == null ? null : Number(admission.ward_id),
+      ward_name: admission.ward_name,
+    },
+    eligible_orders: eligibleOrders,
+  };
 }
 
 function pharmacyStatusForOrder(indents, order) {
@@ -262,7 +403,7 @@ export async function getAdmissionDrugChart({ admissionId, tenantId = null, user
 
   const [orders, administrations, indents] = await Promise.all([
     prisma.$queryRawUnsafe(
-      `SELECT co.id, co.order_number, co.encounter_id, co.patient_uid, co.order_type,
+      `SELECT co.id, co.order_number, co.encounter_id, co.patient_uid, co.tenant_id, co.order_type,
               co.priority, co.details, co.route, co.status, co.ordered_by,
               co.verified_by, co.verified_at, co.completed_by, co.completed_at,
               co.cancelled_by, co.cancel_reason, co.start_date, co.end_date,
@@ -325,6 +466,7 @@ export async function getAdmissionDrugChart({ admissionId, tenantId = null, user
                   'quantity_received', wii.quantity_received,
                   'quantity_returned', wii.quantity_returned,
                   'fulfilment_status', wii.fulfilment_status,
+                  'clinical_order_id', wii.clinical_order_id,
                   'unit', wii.unit,
                   'notes', wii.notes
                 ) ORDER BY wii.id) FILTER (WHERE wii.id IS NOT NULL),
@@ -342,7 +484,38 @@ export async function getAdmissionDrugChart({ admissionId, tenantId = null, user
     ),
   ]);
 
+  const catalogIds = [...new Set(orders
+    .map((order) => positiveCatalogId(parseDetails(order.details)))
+    .filter((catalogId) => catalogId != null))];
+  const clinicalOrderIds = orders
+    .map((order) => Number(order.id))
+    .filter((orderId) => Number.isSafeInteger(orderId) && orderId > 0);
+  const [catalogs, linkedClinicalOrders] = await Promise.all([
+    catalogIds.length
+      ? prisma.$queryRawUnsafe(
+        `SELECT id, name
+           FROM pharmacy_catalog
+          WHERE tenant_id = $1::uuid
+            AND id = ANY($2::int[])
+            AND COALESCE(is_active, TRUE) = TRUE`,
+        admission.tenant_id,
+        catalogIds,
+      )
+      : [],
+    clinicalOrderIds.length
+      ? prisma.$queryRawUnsafe(
+        `SELECT DISTINCT clinical_order_id
+           FROM ward_indent_items
+          WHERE tenant_id = $1::uuid
+            AND clinical_order_id = ANY($2::int[])`,
+        admission.tenant_id,
+        clinicalOrderIds,
+      )
+      : [],
+  ]);
+
   const safetyByOrder = await buildSafetyByOrder({
+    tenantId,
     patientId: admission.patient_id,
     orders,
   });
@@ -393,6 +566,12 @@ export async function getAdmissionDrugChart({ admissionId, tenantId = null, user
     medication_orders: medicationOrders,
     administrations,
     pharmacy_indents: indents,
+    ward_indent_request: buildWardIndentRecoveryProjection({
+      admission,
+      orders,
+      linkedClinicalOrderIds: linkedClinicalOrders.map((row) => row.clinical_order_id),
+      catalogs,
+    }),
   };
 }
 

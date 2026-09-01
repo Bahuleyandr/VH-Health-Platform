@@ -83,7 +83,7 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import {
-  lockTenantPatientMergeStability,
+  lockTenantPatientMergeExecutionExclusive,
   PATIENT_MERGE_STABILITY_TIMEOUT_MS,
 } from '../../utils/patientMergeStabilityLock.js';
 import {
@@ -118,12 +118,17 @@ const CONTINUITY_DOCTOR_APPROVER_ROLES = new Set([
  *     (reassignIdentifiersForMerge).
  *   - patient_merge_requests / patient_duplicate_candidates: merge
  *     bookkeeping — their uid columns record which records were merged.
+ *   - pharmacy_patient_safety_versions: patient-scoped logical clocks are
+ *     folded explicitly after every safety-source mutation; predecessor
+ *     clock identities stay preserved as merge provenance and are never
+ *     re-pointed.
  */
 const MERGE_SWEEP_EXCLUDED_TABLES = new Set([
   'users',
   'patient_identifiers',
   'patient_merge_requests',
   'patient_duplicate_candidates',
+  'pharmacy_patient_safety_versions',
 ]);
 
 /**
@@ -142,6 +147,23 @@ const MERGE_READ_UNION_COVERED_TABLES = new Set([
   'clinical_audit_events',
   'clinical_timeline_events',
   'patient_access_audit_log',
+  // Advances and IPD deposits are protected by financial-lineage immutability,
+  // so their rows stay on the pre-merge uid by design. Every patient-scoped
+  // read of them unions the merged family: getAdmissionDepositBalance through
+  // its patient_uid_family CTE, resolveLiveFundingCapacityTx through
+  // resolveMergedPatientUidSet, and listAdvances through
+  // mergedPatientUidsSubquery. Every other statement against these tables is
+  // keyed by id or admission_id, which the sweep never rewrites.
+  //
+  // Three exact-match verifications (lockOfflineElectronicAdvanceSourceTx,
+  // settleRefundPaid, getRefund) deliberately still pin id AND patient_uid.
+  // They are authority checks on money: post-merge they stop matching and
+  // REFUSE, which is the conservative answer on that path. This list guards
+  // against a reader silently returning an incomplete view — a refusal is not
+  // that, and widening an identity check on a financial authority path would
+  // relax it for no safety gain.
+  'billing_advances',
+  'advance_deposits',
 ]);
 
 // icu_code_status_history keeps the patient_uid recorded when the code-status
@@ -182,19 +204,40 @@ const MERGE_ADMISSION_DERIVED_PROTECTED_TABLES = new Set([
  * reader-side merged-uid union. Otherwise execution fails closed before any
  * mutation (src/services/clinical/mergedPatientReadUnion.js).
  */
-function isUpdateBlockingTriggerSource(source) {
-  const text = String(source || '')
-    .replace(/--[^\n]*/g, ' ')
-    .replace(/\/\*[\s\S]*?\*\//g, ' ');
-  if (!/RAISE\s+EXCEPTION/i.test(text)) return false;
-  // Rule (b): identity pin on the very column the sweep rewrites.
-  if (/\bOLD\s*\.\s*patient_(uid|id)\b/i.test(text)) return true;
-  // Rule (a): walk IF nesting; a raise whose whole condition stack is free of
-  // row-content / GUC references fires on the default path of any UPDATE.
-  // TG_OP-only conditions stay "transparent" (they may well be true for
-  // UPDATE), and CASE-expression THEN/ELSE tokens are ignored because only
-  // IF/ELSIF open a condition capture and only END IF pops the stack.
+// Signals that a raise is gated on the sanctioned merge path. All four GUCs
+// are required, because schema A already carries functions that name a subset
+// of them on sweep-candidate tables; a partial signal would silently
+// re-classify those.
+const MERGE_PATH_ESCAPE_SIGNALS = [
+  /current_setting\s*\(\s*'app\.patient_merge_execution'/i,
+  /current_setting\s*\(\s*'app\.patient_merge_tenant_id'/i,
+  /current_setting\s*\(\s*'app\.patient_merge_from_uid'/i,
+  /current_setting\s*\(\s*'app\.patient_merge_to_uid'/i,
+];
+
+// Polarity, not just presence. Token presence alone would also match a trigger
+// that raises *because* a merge is in progress, which is the false-safe
+// direction: it would abort a live merge mid-sweep. The shipped triggers raise
+// when the lock is NOT held, so require that negated form and nothing weaker.
+const MERGE_PATH_ESCAPE_LOCK_NEGATED =
+  /\bNOT\s+(?:public\s*\.\s*)?patient_merge_lock_held_753\s*\(/i;
+
+function isMergePathEscapeCondition(condition) {
+  return MERGE_PATH_ESCAPE_LOCK_NEGATED.test(condition)
+    && MERGE_PATH_ESCAPE_SIGNALS.every((signal) => signal.test(condition));
+}
+
+/**
+ * Collect the IF/ELSIF condition stack guarding each RAISE EXCEPTION.
+ *
+ * Extracted from rule (a)'s walker so rules (a) and (c) read the same
+ * structure. TG_OP-only conditions stay "transparent" and CASE-expression
+ * THEN/ELSE tokens are ignored, because only IF/ELSIF open a condition capture
+ * and only END IF pops the stack.
+ */
+function collectRaiseConditionStacks(text) {
   const tokenRe = /\bIF\b|\bELSIF\b|\bTHEN\b|\bELSE\b|\bEND\s+IF\b|\bRAISE\s+EXCEPTION\b/gi;
+  const stacks = [];
   const stack = [];
   let pendingCond = null;
   let match;
@@ -215,10 +258,38 @@ function isUpdateBlockingTriggerSource(source) {
       stack.pop();
     } else if (token === 'RAISE EXCEPTION') {
       if (pendingCond) continue;
-      const exempted = stack.some((cond) => /\bNEW\s*\.|\bOLD\s*\.|current_setting\s*\(/i.test(cond));
-      if (!exempted) return true;
+      stacks.push([...stack]);
     }
     // ELSE: the same condition subject governs the branch; keep the stack.
+  }
+  return stacks;
+}
+
+function isUpdateBlockingTriggerSource(source) {
+  const text = String(source || '')
+    .replace(/--[^\n]*/g, ' ')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ');
+  if (!/RAISE\s+EXCEPTION/i.test(text)) return false;
+  const raiseStacks = collectRaiseConditionStacks(text);
+  // Rule (c): certified merge-path gate. A trigger that raises ONLY when the
+  // sanctioned merge GUCs are absent or the merge lock is not held cannot fire
+  // during the sweep, which sets all of them and holds the lock. Requires every
+  // raise to be so guarded; an empty list (raise present but unattributable)
+  // deliberately does not qualify, so an unparseable body fails closed.
+  if (raiseStacks.length > 0
+    && raiseStacks.every((stack) => stack.some(isMergePathEscapeCondition))) {
+    return false;
+  }
+  // Rule (b): identity pin on the very column the sweep rewrites.
+  if (/\bOLD\s*\.\s*patient_(uid|id)\b/i.test(text)) return true;
+  // Rule (a): walk IF nesting; a raise whose whole condition stack is free of
+  // row-content / GUC references fires on the default path of any UPDATE.
+  // TG_OP-only conditions stay "transparent" (they may well be true for
+  // UPDATE), and CASE-expression THEN/ELSE tokens are ignored because only
+  // IF/ELSIF open a condition capture and only END IF pops the stack.
+  for (const stack of raiseStacks) {
+    const exempted = stack.some((cond) => /\bNEW\s*\.|\bOLD\s*\.|current_setting\s*\(/i.test(cond));
+    if (!exempted) return true;
   }
   return false;
 }
@@ -263,7 +334,12 @@ async function discoverMergeSweepTargets(tx) {
          (a.attname = 'patient_uid' AND a.atttypid = 'uuid'::regtype)
          OR (a.attname = 'patient_id' AND a.atttypid IN ('int4'::regtype, 'int8'::regtype))
        )
-     ORDER BY c.relname, a.attname`,
+     ORDER BY CASE c.relname
+                WHEN 'pharmacy_orders' THEN 0
+                WHEN 'e_prescriptions' THEN 1
+                ELSE 2
+              END,
+              c.relname, a.attname`,
   );
   return rows
     .filter((row) => {
@@ -408,6 +484,83 @@ function normalizeId(value, label = 'id') {
     throw AppError.badRequest(`${label} must be a positive integer`);
   }
   return parsed;
+}
+
+/**
+ * Fold every medication-safety clock represented by a patient merge into a
+ * new survivor clock without moving or rewriting any predecessor row.
+ *
+ * The generic chart sweep and the users deactivation/chain-flattening writes
+ * all run first with migration-753's source triggers enabled. Locking the
+ * resulting clock rows here therefore observes the final pre-merge values.
+ * A missing clock has the schema's effective initial value of 1. The survivor
+ * is then advanced to one greater than every involved clock, so a pharmacist
+ * verification pinned before either chart joined the family can never appear
+ * current after the merge.
+ */
+async function foldPatientSafetyVersionForMerge(tx, {
+  tenantId,
+  survivorPatientId,
+  mergedAwayPatientIds = [],
+}) {
+  const survivorId = normalizeId(survivorPatientId, 'survivor patient id');
+  const involvedPatientIds = [...new Set([
+    survivorId,
+    ...mergedAwayPatientIds.map((patientId) => normalizeId(patientId, 'merged-away patient id')),
+  ])].sort((left, right) => left - right);
+
+  const rows = await tx.$queryRawUnsafe(
+    `WITH involved_patient_ids AS MATERIALIZED (
+       SELECT DISTINCT involved.patient_id::integer AS patient_id
+         FROM unnest($2::integer[]) AS involved(patient_id)
+     ),
+     locked_versions AS MATERIALIZED (
+       SELECT safety.patient_id, safety.version
+         FROM pharmacy_patient_safety_versions AS safety
+         JOIN involved_patient_ids AS involved
+           ON involved.patient_id = safety.patient_id
+        WHERE safety.tenant_id = $1::uuid
+        ORDER BY safety.patient_id
+        FOR UPDATE OF safety
+     ),
+     next_version AS (
+       SELECT GREATEST(
+                1::bigint,
+                COALESCE(MAX(locked.version), 1::bigint)
+              ) + 1::bigint AS version
+         FROM locked_versions AS locked
+     ),
+     folded_survivor AS (
+       INSERT INTO pharmacy_patient_safety_versions
+         (tenant_id, patient_id, version, updated_at)
+       SELECT $1::uuid, $3::integer, next_version.version, clock_timestamp()
+         FROM next_version
+       ON CONFLICT (tenant_id, patient_id) DO UPDATE
+         SET version = GREATEST(
+                         pharmacy_patient_safety_versions.version,
+                         EXCLUDED.version - 1::bigint
+                       ) + 1::bigint,
+             updated_at = clock_timestamp()
+       RETURNING patient_id::text AS patient_id, version::text AS version
+     )
+     SELECT patient_id, version FROM folded_survivor`,
+    tenantId,
+    involvedPatientIds,
+    survivorId,
+  );
+
+  if (
+    !Array.isArray(rows)
+    || rows.length !== 1
+    || Number.parseInt(rows[0].patient_id, 10) !== survivorId
+    || !/^[1-9]\d*$/.test(String(rows[0].version || ''))
+  ) {
+    throw AppError.internal(
+      'Patient medication-safety clock was not folded into the merge survivor',
+      'PATIENT_MERGE_SAFETY_CLOCK_REQUIRED',
+    );
+  }
+  return rows[0];
 }
 
 function maybeUuid(value, label = 'uid') {
@@ -1059,6 +1212,8 @@ export async function executeMerge({
   let secondaryRevocationForPublication = null;
   try {
     updated = await setTenantTx(requireTenantId(tid), async (tx) => {
+      await lockTenantPatientMergeExecutionExclusive(tx, tid);
+
       const existingRows = await tx.$queryRawUnsafe(
         `SELECT id, status, candidate_id, primary_uid, secondary_uid, approver_uid,
                 continuity_disposition
@@ -1079,8 +1234,6 @@ export async function executeMerge({
       }
       const primary = existing.primary_uid;
       const secondary = existing.secondary_uid;
-
-      await lockTenantPatientMergeStability(tx, tid);
 
       // Lock both patient rows and re-validate under the lock: both must
       // still be live PATIENT records and neither already merged away.
@@ -1276,6 +1429,17 @@ export async function executeMerge({
         primary, tid, secondary,
       );
 
+      // Migration-753's medication-safety source triggers stayed active for
+      // the chart sweep, secondary deactivation and every chain-pointer
+      // rewrite above. Fold those final logical clocks only now. The clock
+      // table itself is excluded from the generic patient_id sweep: moving a
+      // predecessor row would erase its verification-staleness provenance.
+      const patientSafetyClock = await foldPatientSafetyVersionForMerge(tx, {
+        tenantId: tid,
+        survivorPatientId: patients.primary.id,
+        mergedAwayPatientIds: [patients.secondary.id, ...secondaryPatientIds],
+      });
+
       const summary = {
         identifiers_retargeted: identifierResult.count,
         total_rows_moved: totalRowsMoved,
@@ -1288,6 +1452,7 @@ export async function executeMerge({
         secondary_tokens_revoked: true,
         secondary_user_id: patients.secondary.id,
         primary_user_id: patients.primary.id,
+        patient_safety_version: patientSafetyClock.version,
       };
 
       // Canonical clinical timeline invariant: the merge is a
@@ -1482,8 +1647,11 @@ export const __testing__ = {
   CONTINUITY_PROPOSER_ROLES,
   CONTINUITY_DOCTOR_APPROVER_ROLES,
   discoverMergeSweepTargets,
+  foldPatientSafetyVersionForMerge,
   findUnsupportedProtectedHistory,
   isUpdateBlockingTriggerSource,
+  isMergePathEscapeCondition,
+  collectRaiseConditionStacks,
 };
 
 export default {

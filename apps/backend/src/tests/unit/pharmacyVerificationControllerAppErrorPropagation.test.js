@@ -21,7 +21,15 @@ jest.unstable_mockModule('../../services/pharmacy/pharmacistVerificationService.
   verifyOrder: verifyOrderMock,
   getPackLabel: getPackLabelMock,
   assertVerificationCleared: jest.fn(async () => {}),
+  assertVerificationClearedTx: jest.fn(async () => {}),
+  clinicalOrderItemsSha256: jest.fn(() => 'items-sha256'),
   ensurePackBarcode: jest.fn(async () => 'PACK-1'),
+  // pharmacyOrderInventoryService imports both statically for the catalog
+  // authority CAS: a sha256 string it compares, and a void advisory-lock
+  // helper. The lock stub resolves undefined because the real one only takes
+  // pg_advisory_xact_lock and returns nothing.
+  clinicalCatalogAuthoritySha256Tx: jest.fn(async () => 'catalog-authority-sha256'),
+  lockPharmacyCatalogAuthorityTx: jest.fn(async () => {}),
 }));
 
 // pharmacyOrderController shares the routes file — stub its module graph so
@@ -29,6 +37,24 @@ jest.unstable_mockModule('../../services/pharmacy/pharmacistVerificationService.
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: jest.fn(async () => []) },
   setTenantTx: jest.fn(),
+  // Services reached through the routes mount assert their `tx` is a genuine
+  // tenant-scoped (RLS-active) client and throw *_TX_REQUIRED otherwise. The
+  // real registry is populated by setTenantTx, which is stubbed here, so this
+  // answers true to keep those guards on their intended path — the suite pins
+  // AppError propagation, not tenant-transaction provenance.
+  isTenantTransactionClient: jest.fn(() => true),
+  // observability/reliabilityMetrics.js imports these statically, so the mock
+  // has to carry them or the whole graph fails to link.
+  setTenant: jest.fn(async (_tenantId, fn) => fn({ $queryRawUnsafe: jest.fn(async () => []) })),
+  // Healthy, closed breaker — callers read `.open` to decide whether the DB is
+  // in fail-fast, and this suite exercises the reachable-DB path.
+  circuitBreakerStatus: jest.fn(() => ({
+    open: false,
+    consecutiveFailures: 0,
+    openedAt: null,
+    resetInMs: 0,
+    byTag: {},
+  })),
 }));
 jest.unstable_mockModule('../../utils/r2Storage.js', () => ({
   uploadFileToR2: jest.fn(async () => 'key'),
@@ -41,11 +67,105 @@ jest.unstable_mockModule('../../controllers/delivery/deliveryTrackingController.
   calculateETA: jest.fn(() => null),
 }));
 jest.unstable_mockModule('../../services/pharmacy/pharmacyCapService.js', () => ({
-  probePharmacyCap: jest.fn(async () => ({ message: null })),
-  shouldBlockDispense: jest.fn(() => false),
+  assertPharmacyCapForDispenseTx: jest.fn(async () => ({ message: null })),
+  lockCounterFundingSubstitutionAuthorityTx: jest.fn(async () => ({})),
+  releasePharmacyCapReservationTx: jest.fn(async () => null),
+  resolveAuthoritativeCounterFundingTx: jest.fn(async () => ({
+    fundedAmount: 0,
+    fundingSource: null,
+    fundingReference: null,
+  })),
+  // The remaining funding-lock exports billingV2Service / admissionService /
+  // claimCapsService import statically. They are stubbed only so the routes
+  // graph links; each keeps the real return shape so a code path that does
+  // reach one is not handed a shape the caller cannot destructure.
+  lockPharmacyFundingAdmissionTx: jest.fn(async (_tx, { admissionId, patientUid }) => ({
+    id: Number(admissionId),
+    patient_uid: patientUid,
+    status: 'active',
+  })),
+  lockPharmacyFundingAuthorityTx: jest.fn(async () => {}),
+  resolvePharmacyFundingPatientUidTx: jest.fn(
+    async () => '11111111-1111-4111-8111-111111111111',
+  ),
+}));
+jest.unstable_mockModule('../../services/pharmacy/pharmacyFacilityAuthorityService.js', () => ({
+  requestedPharmacyFacilityId: jest.fn(() => null),
+  requireOrderFacility: jest.fn((order) => Number(order.facility_id || 7)),
+  resolvePharmacyFacility: jest.fn(async () => ({ id: 7 })),
+  resolveOrderPharmacyFacility: jest.fn(async () => ({
+    id: 7,
+    facility_code: 'PH-7',
+    display_name: 'Test Pharmacy',
+  })),
+  // Migration 752/753 made pharmacy facility custody grant-backed with NO
+  // admin bypass, so every service in the orderRoutes graph now imports this
+  // gate statically. The stub returns the real success tuple (admin_bypass
+  // false included) rather than a bare truthy object, so a caller that reads
+  // the grant sees the shape production hands it.
+  assertPharmacyFacilityGrant: jest.fn(async () => ({
+    actor_id: 1,
+    actor_uid: '11111111-1111-4111-8111-111111111111',
+    actor_role: 'PHARMACY_STAFF',
+    actor_name: 'Test Pharmacist',
+    facility_id: 7,
+    grant_id: 1,
+    admin_bypass: false,
+  })),
+  pharmacyFacilityActorFromRequest: jest.fn((req) => ({
+    actorUid: req?.user?.uid ?? null,
+    actorRole: req?.user?.role ?? null,
+  })),
+  // Kept a real Set, not a jest.fn(): callers do
+  // `FACILITY_OPERATION_ROLES.has(role)` / spread it into a text[] bind, and a
+  // function stub would throw or silently bind an empty role list.
+  FACILITY_OPERATION_ROLES: new Set([
+    'PHARMACY_STAFF',
+    'PHARMACIST',
+    'PHARMACY_INCHARGE',
+    'STORES_PURCHASE_INCHARGE',
+    'DELIVERY_STAFF',
+    'ADMIN',
+    'SUPER_ADMIN',
+  ]),
+  listPharmacyFacilityGrants: jest.fn(async () => []),
+  grantPharmacyFacilityAuthority: jest.fn(async () => ({ id: 1 })),
+  revokePharmacyFacilityAuthority: jest.fn(async () => ({ id: 1 })),
 }));
 jest.unstable_mockModule('../../services/clinical/allergySourceService.js', () => ({
   getUnifiedActiveAllergies: jest.fn(async () => []),
+  // The detail shape pharmacyOrderController destructures (.allergies /
+  // .patientResolved / .sourcesFailed) to stamp allergy_status. A resolved
+  // patient with no failed source is the 'verified' path, so a mocked order
+  // never reports a false 'unavailable'.
+  getUnifiedActiveAllergiesDetailed: jest.fn(async () => ({
+    allergies: [],
+    sourcesFailed: [],
+    patientResolved: true,
+  })),
+  // The severity pair stays faithful to the real module instead of being
+  // stubbed. prescriptionSafetyCheck gates its hard allergy block on
+  // `rankSeverity(severity) >= SEVERE_BLOCK_RANK`, and the real ranker is
+  // fail-safe: a severity that is present but unparseable ranks as a blocker,
+  // never as a warning. A flat stub would rank everything 0 and silently
+  // disable that block for the whole suite.
+  SEVERE_BLOCK_RANK: 4,
+  rankSeverity: jest.fn((value) => {
+    if (value == null) return 0;
+    const key = String(value).trim().toUpperCase();
+    if (!key || ['UNKNOWN', 'UNSPECIFIED', 'NONE', 'N/A', 'NA', 'NULL', 'NIL'].includes(key)) {
+      return 0;
+    }
+    return {
+      LIFE_THREATENING: 5,
+      ANAPHYLAXIS: 5,
+      CONTRAINDICATED: 4,
+      SEVERE: 4,
+      HIGH: 3,
+      MODERATE: 2,
+      MILD: 1,
+    }[key] ?? 4;
+  }),
 }));
 jest.unstable_mockModule('../../services/clinical/canonicalOperationalBridgeService.js', () => ({
   emitPharmacyOrderEvent: jest.fn(async () => ({})),
@@ -84,6 +204,18 @@ jest.unstable_mockModule('../../middleware/identityValidator.js', () => ({
 }));
 jest.unstable_mockModule('../../middleware/sanitizeMiddleware.js', () => ({
   sanitizePharmacyFields: (_req, _res, next) => next(),
+}));
+jest.unstable_mockModule('../../middleware/idempotencyMiddleware.js', () => ({
+  requireIdempotencyKey: ({ required }) => (req, res, next) => {
+    if (required && !req.get('Idempotency-Key')) {
+      return res.status(400).json({
+        success: false,
+        code: 'IDEMPOTENCY_KEY_REQUIRED',
+        message: 'Idempotency-Key header is required for this endpoint',
+      });
+    }
+    return next();
+  },
 }));
 jest.unstable_mockModule('../../middleware/uploadMiddleware.js', () => ({
   validateFileContent: (_req, _res, next) => next(),
@@ -124,6 +256,25 @@ beforeEach(() => {
 });
 
 describe('pharmacy verification handleFailure() relays AppError code + details', () => {
+  test('verification and pack-label calls carry the authenticated request tenant', async () => {
+    verifyOrderMock.mockResolvedValueOnce({ order: { id: 71 } });
+    getPackLabelMock.mockResolvedValueOnce({ order_id: 71, pack_barcode: 'PACK-1' });
+
+    await request(app)
+      .post('/api/v1/pharmacy/71/verify')
+      .set('Idempotency-Key', 'verify-tenant-71')
+      .send({ decision: 'verified' });
+    await request(app).get('/api/v1/pharmacy/71/pack-label');
+
+    expect(verifyOrderMock).toHaveBeenCalledWith(71, expect.objectContaining({
+      tenantId: '00000000-0000-4000-8000-000000000001',
+    }));
+    expect(getPackLabelMock).toHaveBeenCalledWith(
+      71,
+      '00000000-0000-4000-8000-000000000001',
+    );
+  });
+
   test('AppError code + details reach the envelope root / details key', async () => {
     verifyOrderMock.mockRejectedValueOnce(AppError.conflict(
       'Order already carries a verification verdict',
@@ -133,6 +284,7 @@ describe('pharmacy verification handleFailure() relays AppError code + details',
 
     const response = await request(app)
       .post('/api/v1/pharmacy/71/verify')
+      .set('Idempotency-Key', 'verify-app-error-71')
       .send({ decision: 'verified' });
 
     expect(response.statusCode).toBe(409);
@@ -150,6 +302,7 @@ describe('pharmacy verification handleFailure() relays AppError code + details',
 
     const response = await request(app)
       .post('/api/v1/pharmacy/71/verify')
+      .set('Idempotency-Key', 'verify-generic-error-71')
       .send({ decision: 'verified' });
 
     expect(response.statusCode).toBe(500);
@@ -168,5 +321,15 @@ describe('pharmacy verification handleFailure() relays AppError code + details',
     expect(response.statusCode).toBe(500);
     expect(response.body.message).toBe('Failed to build pack label');
     expect(response.body.message).not.toMatch(/barcode/);
+  });
+
+  test('verification rejects a missing durable idempotency key before the controller', async () => {
+    const response = await request(app)
+      .post('/api/v1/pharmacy/71/verify')
+      .send({ decision: 'verified' });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.body.code).toBe('IDEMPOTENCY_KEY_REQUIRED');
+    expect(verifyOrderMock).not.toHaveBeenCalled();
   });
 });

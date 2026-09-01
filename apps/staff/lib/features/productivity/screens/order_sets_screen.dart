@@ -2,8 +2,9 @@
 //
 // Order set picker + apply (Sprint 8; reworked for roadmap E1). Doctor
 // browses bundle templates, reviews items, and either:
-//   * composerMode: pops the selected raw items back to the CPOE composer
-//     basket (no network here), or
+//   * composerMode: reconciles incomplete medication templates against the
+//     live formulary, captures ward-supply quantity/unit, and pops the selected
+//     raw items back to the CPOE composer basket without writing orders, or
 //   * standalone with patient context: places REAL clinical orders through
 //     POST /emr/orders/bulk (atomic, server-side CDS), then logs the
 //     application via /productivity/order-sets/:id/apply best-effort.
@@ -14,10 +15,30 @@
 
 import 'package:flutter/material.dart';
 import 'package:vhhealth_staff/core/services/api_client.dart';
+import 'package:vhhealth_staff/core/services/idempotency_attempt_registry.dart';
 import 'package:vhhealth_staff/core/services/medical_api_service.dart';
+import 'package:vhhealth_staff/core/services/order_payloads.dart';
 import 'package:vhhealth_staff/features/doctor/widgets/cds_blocker_modal.dart';
 import 'package:vhhealth_staff/features/emr/models/order_draft.dart';
 import 'package:vhhealth_staff/l10n/app_strings.dart';
+
+Future<ApiResponse> submitOrderSetAttempt({
+  required IdempotencyAttemptRegistry attempts,
+  required String scope,
+  required Map<String, dynamic> body,
+  required Future<ApiResponse> Function(
+    String idempotencyKey,
+    Map<String, dynamic> body,
+  )
+  send,
+}) {
+  return attempts.execute(
+    scope: scope,
+    body: body,
+    send: send,
+    isSuccess: (response) => response.isSuccess,
+  );
+}
 
 class _OrderSetSummary {
   _OrderSetSummary.fromJson(Map<String, dynamic> j)
@@ -320,7 +341,16 @@ class _OrderSetDetailScreenState extends State<OrderSetDetailScreen> {
   Map<String, dynamic>? _set;
   List<_OrderSetItem> _items = [];
   final Set<int> _selected = <int>{};
+  final Map<int, Map<String, dynamic>> _reconciledMedicationPayloads = {};
   bool _applying = false;
+  final IdempotencyAttemptRegistry _orderCreateAttempts =
+      IdempotencyAttemptRegistry();
+
+  @override
+  void dispose() {
+    _orderCreateAttempts.clear();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -347,6 +377,7 @@ class _OrderSetDetailScreenState extends State<OrderSetDetailScreen> {
               .map(_OrderSetItem.fromJson)
               .toList();
           _selected.clear();
+          _reconciledMedicationPayloads.clear();
           for (final it in _items) {
             if (it.defaultSelected) _selected.add(it.id);
           }
@@ -369,11 +400,57 @@ class _OrderSetDetailScreenState extends State<OrderSetDetailScreen> {
 
   List<Map<String, dynamic>> get _selectedRawItems => _items
       .where((it) => _selected.contains(it.id))
-      .map((it) => {'id': it.id, 'kind': it.kind, 'payload': it.payload})
+      .map(
+        (it) => {
+          'id': it.id,
+          'kind': it.kind,
+          'payload': _reconciledMedicationPayloads[it.id] ?? it.payload,
+        },
+      )
       .toList();
 
-  /// Composer picker: no network — hand the selected raw items back.
-  void _returnToComposer() {
+  Future<bool> _reconcileSelectedMedicationItems() async {
+    for (final item in _items.where(
+      (candidate) =>
+          _selected.contains(candidate.id) && candidate.kind == 'med',
+    )) {
+      final payload = _reconciledMedicationPayloads[item.id] ?? item.payload;
+      if (_reconciledMedicationPayloads.containsKey(item.id) &&
+          !medicationOrderSetPayloadNeedsReconciliation(
+            payload,
+            liveCatalogSelected: true,
+          )) {
+        continue;
+      }
+      final reconciled = await showDialog<Map<String, dynamic>>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => _MedicationOrderSetReconciliationDialog(
+          medicationLabel: item.displayLabel,
+          payload: payload,
+        ),
+      );
+      if (!mounted || reconciled == null) return false;
+      setState(() => _reconciledMedicationPayloads[item.id] = reconciled);
+    }
+    return true;
+  }
+
+  /// Composer picker: reconcile medication identity and ward supply, then hand
+  /// the selected raw items back. The eventual order write remains in the
+  /// composer and still goes through its atomic bulk CPOE boundary.
+  Future<void> _returnToComposer() async {
+    if (_applying) return;
+    setState(() {
+      _applying = true;
+      _error = null;
+    });
+    final ready = await _reconcileSelectedMedicationItems();
+    if (!mounted) return;
+    if (!ready) {
+      setState(() => _applying = false);
+      return;
+    }
     Navigator.of(context).pop(_selectedRawItems);
   }
 
@@ -389,12 +466,18 @@ class _OrderSetDetailScreenState extends State<OrderSetDetailScreen> {
       _applying = true;
       _error = null;
     });
-    final applied = _selectedRawItems;
-    final skipped = _items
-        .where((it) => !_selected.contains(it.id))
-        .map((it) => {'id': it.id, 'kind': it.kind})
-        .toList();
     try {
+      final ready = await _reconcileSelectedMedicationItems();
+      if (!mounted) return;
+      if (!ready) {
+        setState(() => _applying = false);
+        return;
+      }
+      final applied = _selectedRawItems;
+      final skipped = _items
+          .where((it) => !_selected.contains(it.id))
+          .map((it) => {'id': it.id, 'kind': it.kind})
+          .toList();
       final drafts = applied
           .map(orderDraftFromSetItem)
           .whereType<OrderDraft>()
@@ -406,6 +489,36 @@ class _OrderSetDetailScreenState extends State<OrderSetDetailScreen> {
         });
         return;
       }
+      if (drafts.any((draft) => !medicationHasAuthoritativeCatalog(draft))) {
+        setState(() {
+          _applying = false;
+          _error = s.lookup('s4.lib.drug_chart.catalog_selection_required');
+        });
+        return;
+      }
+      final incompleteDirections = drafts
+          .map(medicationClinicalDirectionsFailure)
+          .whereType<MedicationClinicalDirectionsValidationFailure>()
+          .firstOrNull;
+      if (incompleteDirections != null) {
+        setState(() {
+          _applying = false;
+          _error =
+              '${incompleteDirections == MedicationClinicalDirectionsValidationFailure.doseRequired ? s.ordersDosage : s.ordersRoute}: ${s.admissionRequired}';
+        });
+        return;
+      }
+      if (drafts.any((draft) => medicationWardSupplyFailure(draft) != null)) {
+        setState(() {
+          _applying = false;
+          _error =
+              '${s.lookup('mar_scan.supply.title')}: '
+              '${s.lookup('s4.lib.pharmacy.quantity')} / '
+              '${s.lookup('s4.lib.pharmacy.metric_unit')} '
+              '${s.labelRequired.toLowerCase()}';
+        });
+        return;
+      }
       final orders = [
         for (final d in drafts)
           buildBulkOrderItem(
@@ -414,7 +527,18 @@ class _OrderSetDetailScreenState extends State<OrderSetDetailScreen> {
             encounterId: widget.encounterId?.toString(),
           ),
       ];
-      final response = await MedicalApiService.createEmrOrdersBulkRaw(orders);
+      final attemptScope =
+          'clinical-order-set:${widget.orderSetId}:$patientUid';
+      final requestBody = <String, dynamic>{'orders': orders};
+      final response = await submitOrderSetAttempt(
+        attempts: _orderCreateAttempts,
+        scope: attemptScope,
+        body: requestBody,
+        send: (key, body) => MedicalApiService.createEmrOrdersBulkRaw(
+          (body['orders'] as List).cast<Map<String, dynamic>>(),
+          idempotencyKey: key,
+        ),
+      );
       if (!mounted) return;
       if (!response.isSuccess) {
         final cds = parseCdsBlockerDetails(response.raw);
@@ -573,5 +697,345 @@ class _OrderSetDetailScreenState extends State<OrderSetDetailScreen> {
       return s.orderSetsAddToBasket(_selected.length);
     }
     return s.orderSetsApplyCount(_selected.length, _items.length);
+  }
+}
+
+class _MedicationOrderSetReconciliationDialog extends StatefulWidget {
+  const _MedicationOrderSetReconciliationDialog({
+    required this.medicationLabel,
+    required this.payload,
+  });
+
+  final String medicationLabel;
+  final Map<String, dynamic> payload;
+
+  @override
+  State<_MedicationOrderSetReconciliationDialog> createState() =>
+      _MedicationOrderSetReconciliationDialogState();
+}
+
+class _MedicationOrderSetReconciliationDialogState
+    extends State<_MedicationOrderSetReconciliationDialog> {
+  final _searchController = TextEditingController();
+  final _doseController = TextEditingController();
+  final _quantityController = TextEditingController();
+  List<Map<String, dynamic>> _catalogResults = const [];
+  Map<String, dynamic>? _selectedCatalog;
+  String? _supplyUnit;
+  int _searchGeneration = 0;
+  bool _searching = false;
+  bool _catalogUnavailable = false;
+  bool _attempted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final payload = widget.payload;
+    _doseController.text = payload['dose']?.toString() ?? '';
+    _quantityController.text = payload['quantity_requested']?.toString() ?? '';
+    _supplyUnit = canonicalMedicationWardSupplyUnit(payload['unit']);
+    final medicationName =
+        payload['medication_name']?.toString().trim().isNotEmpty == true
+        ? payload['medication_name'].toString().trim()
+        : payload['drug']?.toString().trim() ?? '';
+    _searchController.text = medicationName;
+    if (medicationName.length >= 2) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _searchCatalog(medicationName);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _searchGeneration++;
+    _searchController.dispose();
+    _doseController.dispose();
+    _quantityController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _searchCatalog(String raw) async {
+    final generation = ++_searchGeneration;
+    final query = raw.trim();
+    if (query.length < 2) {
+      setState(() {
+        _selectedCatalog = null;
+        _attempted = false;
+        _searching = false;
+        _catalogUnavailable = false;
+        _catalogResults = const [];
+      });
+      return;
+    }
+    setState(() {
+      _selectedCatalog = null;
+      _attempted = false;
+      _searching = true;
+      _catalogUnavailable = false;
+    });
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    if (!mounted || generation != _searchGeneration) return;
+    try {
+      final rows = await MedicalApiService.searchMedicationCatalog(query);
+      if (!mounted || generation != _searchGeneration) return;
+      setState(() {
+        _searching = false;
+        _catalogUnavailable = false;
+        _catalogResults = rows
+            .where(
+              (row) =>
+                  medicationHasAuthoritativeCatalog(
+                    orderDraftFromMedCatalogRow(row),
+                  ) &&
+                  medicationHasAuthoritativeCatalogRoute(
+                    orderDraftFromMedCatalogRow(row),
+                  ),
+            )
+            .take(8)
+            .toList(growable: false);
+      });
+    } catch (_) {
+      if (!mounted || generation != _searchGeneration) return;
+      setState(() {
+        _searching = false;
+        _catalogUnavailable = true;
+        _catalogResults = const [];
+      });
+    }
+  }
+
+  void _selectCatalog(Map<String, dynamic> row) {
+    final draft = orderDraftFromMedCatalogRow(row);
+    final name = draft.details['medication_name']?.toString() ?? '';
+    setState(() {
+      _selectedCatalog = row;
+      _searchController.value = TextEditingValue(
+        text: name,
+        selection: TextSelection.collapsed(offset: name.length),
+      );
+      _catalogResults = const [];
+      _catalogUnavailable = false;
+      _attempted = false;
+    });
+  }
+
+  String? _validationMessage(AppStrings strings) {
+    if (_selectedCatalog == null) {
+      return strings.lookup('s4.lib.drug_chart.catalog_selection_required');
+    }
+    final selectedDraft = orderDraftFromMedCatalogRow(_selectedCatalog!);
+    if (!medicationHasAuthoritativeCatalogRoute(selectedDraft)) {
+      return '${strings.ordersRoute}: ${strings.admissionRequired}';
+    }
+    if (_doseController.text.trim().isEmpty) {
+      return '${strings.ordersDosage}: ${strings.admissionRequired}';
+    }
+    final failure = validateMedicationWardSupply(
+      quantity: _quantityController.text,
+      unit: _supplyUnit,
+    );
+    return switch (failure) {
+      MedicationWardSupplyValidationFailure.quantityRequired ||
+      MedicationWardSupplyValidationFailure.quantityInvalid => strings.lookup(
+        'mar_scan.supply.quantity_error',
+      ),
+      MedicationWardSupplyValidationFailure.unitRequired ||
+      MedicationWardSupplyValidationFailure.unitInvalid =>
+        '${strings.lookup('s4.lib.pharmacy.metric_unit')}: ${strings.labelRequired}',
+      null => null,
+    };
+  }
+
+  void _confirm() {
+    final message = _validationMessage(AppStrings.of(context));
+    if (message != null) {
+      setState(() => _attempted = true);
+      return;
+    }
+    Navigator.of(context).pop(
+      reconcileMedicationOrderSetPayload(
+        payload: widget.payload,
+        catalogRow: _selectedCatalog!,
+        dose: _doseController.text,
+        quantityRequested: _quantityController.text,
+        unit: _supplyUnit,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
+    final validationMessage = _attempted ? _validationMessage(strings) : null;
+    final selectedDraft = _selectedCatalog == null
+        ? null
+        : orderDraftFromMedCatalogRow(_selectedCatalog!);
+    return AlertDialog(
+      title: Text(strings.lookup('mar_scan.supply.title')),
+      content: SizedBox(
+        width: 560,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(widget.medicationLabel),
+              const SizedBox(height: 16),
+              TextField(
+                key: const Key('order-set-medication-catalog-search'),
+                controller: _searchController,
+                decoration: InputDecoration(
+                  labelText: strings.lookup('drug_chart.column.drug'),
+                  hintText: strings.lookup(
+                    's4.lib.prescriptions.type_drug_name',
+                  ),
+                  border: const OutlineInputBorder(),
+                  suffixIcon: _searching
+                      ? const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.search),
+                ),
+                onChanged: _searchCatalog,
+              ),
+              if (_catalogUnavailable) ...[
+                const SizedBox(height: 8),
+                Text(
+                  strings.lookup('s4.lib.drug_chart.catalog_unavailable'),
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ],
+              if (_catalogResults.isNotEmpty)
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 220),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: _catalogResults.length,
+                    itemBuilder: (_, index) {
+                      final row = _catalogResults[index];
+                      final draft = orderDraftFromMedCatalogRow(row);
+                      return ListTile(
+                        dense: true,
+                        title: Text(draft.title),
+                        subtitle: Text(draft.subtitle),
+                        onTap: () => _selectCatalog(row),
+                      );
+                    },
+                  ),
+                ),
+              if (selectedDraft != null) ...[
+                const SizedBox(height: 8),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.check_circle_outline),
+                  title: Text(selectedDraft.title),
+                  subtitle: Text(selectedDraft.subtitle),
+                ),
+              ],
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      key: const Key('order-set-medication-dose'),
+                      controller: _doseController,
+                      decoration: InputDecoration(
+                        labelText: strings.ordersDosage,
+                        border: const OutlineInputBorder(),
+                      ),
+                      onChanged: (_) {
+                        if (_attempted) setState(() {});
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: InputDecorator(
+                      key: const Key('order-set-medication-route'),
+                      decoration: InputDecoration(
+                        labelText: strings.ordersRoute,
+                        border: const OutlineInputBorder(),
+                      ),
+                      child: Text(
+                        selectedDraft?.details['route']?.toString() ?? '—',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      key: const Key('order-set-medication-supply-quantity'),
+                      controller: _quantityController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: InputDecoration(
+                        labelText: strings.lookup('s4.lib.pharmacy.quantity'),
+                        border: const OutlineInputBorder(),
+                      ),
+                      onChanged: (_) {
+                        if (_attempted) setState(() {});
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      key: const Key('order-set-medication-supply-unit'),
+                      initialValue: _supplyUnit,
+                      isExpanded: true,
+                      decoration: InputDecoration(
+                        labelText: strings.lookup(
+                          's4.lib.pharmacy.metric_unit',
+                        ),
+                        border: const OutlineInputBorder(),
+                      ),
+                      items: medicationWardSupplyUnits
+                          .map(
+                            (unit) => DropdownMenuItem(
+                              value: unit,
+                              child: Text(
+                                strings.medicationWardSupplyUnit(unit),
+                              ),
+                            ),
+                          )
+                          .toList(growable: false),
+                      onChanged: (value) => setState(() {
+                        _supplyUnit = value;
+                        _attempted = false;
+                      }),
+                    ),
+                  ),
+                ],
+              ),
+              if (validationMessage != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  validationMessage,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(strings.actionCancel),
+        ),
+        FilledButton(
+          key: const Key('order-set-medication-reconcile-confirm'),
+          onPressed: _confirm,
+          child: Text(strings.actionConfirm),
+        ),
+      ],
+    );
   }
 }

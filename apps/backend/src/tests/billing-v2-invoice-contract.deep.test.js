@@ -110,13 +110,29 @@ describe('V2 billing invoice contract', () => {
     assertResponse('GET', '/api/v1/billing/v2/invoices/{id}', res.body);
   });
 
-  it('issues then voids the invoice (full detail both times)', async () => {
+  it('voids a draft invoice and returns full detail', async () => {
+    const create = await admin.post('/api/v1/billing/v2/invoices').send({
+      patient_uid: patientUid, invoice_type: 'OP', patient_name: 'V2 Test', patient_phone: '9990001111',
+    });
+    expect([200, 201]).toContain(create.statusCode);
+    assertResponse('POST', '/api/v1/billing/v2/invoices', create.body);
+
+    const voidRes = await admin.post(`/api/v1/billing/v2/invoices/${create.body.data.id}/void`).send({ reason: 'test draft void' });
+    expect(voidRes.statusCode).toBe(200);
+    assertResponse('POST', '/api/v1/billing/v2/invoices/{id}/void', voidRes.body);
+    expect(voidRes.body.data.status).toBe('VOID');
+  });
+
+  it('issues the invoice and requires the auditable reversal workflow', async () => {
     const issue = await admin.post(`/api/v1/billing/v2/invoices/${invoiceId}/issue`).send({});
     expect(issue.statusCode).toBe(200);
     assertResponse('POST', '/api/v1/billing/v2/invoices/{id}/issue', issue.body);
 
     const voidRes = await admin.post(`/api/v1/billing/v2/invoices/${invoiceId}/void`).send({ reason: 'test void' });
-    expect(voidRes.statusCode).toBe(200);
-    assertResponse('POST', '/api/v1/billing/v2/invoices/{id}/void', voidRes.body);
+    expect(voidRes.statusCode).toBe(409);
+    expect(voidRes.body).toMatchObject({
+      success: false,
+      code: 'BILLING_INVOICE_REVERSAL_WORKFLOW_REQUIRED',
+    });
   });
 });

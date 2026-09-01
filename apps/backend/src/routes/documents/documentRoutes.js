@@ -2,6 +2,7 @@
 // Document export and import routes: C-CDA XML, clinical PDFs, FHIR Bundle, data import.
 
 import express from 'express';
+import { createHash } from 'node:crypto';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { markRouterDomain } from '../../config/openapiDomain.js';
@@ -17,6 +18,8 @@ import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 const router = express.Router();
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SHA256_RE = /^[0-9a-f]{64}$/;
 
 // ---------------------------------------------------------------------------
 // Async route wrapper
@@ -90,6 +93,124 @@ async function guardLabReportExport(req, res, next) {
       code: 'PATIENT_ACCESS_CHECK_FAILED',
     });
   }
+}
+
+function stableImportPayload(value) {
+  if (Array.isArray(value)) return value.map(stableImportPayload);
+  if (value && typeof value === 'object') {
+    return Object.keys(value).sort().reduce((result, key) => {
+      result[key] = stableImportPayload(value[key]);
+      return result;
+    }, {});
+  }
+  return value ?? null;
+}
+
+async function resolveClinicalImportAuthority(req, payload) {
+  const tenantId = deriveTenantIdFromRequest(req);
+  const actorRole = String(req.user?.role || '').trim().toUpperCase();
+  if (actorRole !== 'MEDICAL_RECORDS') {
+    throw AppError.forbidden(
+      'External source activation is not configured; only governed Medical Records intake is available',
+      'IMPORT_PARTNER_AUTHORITY_NOT_CONFIGURED',
+    );
+  }
+  const patientUid = String(req.get('X-VH-Import-Patient-Uid') || '').trim().toLowerCase();
+  const sourceSystem = String(req.get('X-VH-Import-Source-System') || '').trim();
+  const sourceDocumentId = String(req.get('X-VH-Import-Source-Document-Id') || '').trim();
+  const sourceFacilityId = Number.parseInt(req.get('X-VH-Import-Source-Facility-Id'), 10);
+  const sourceSignatureSha256 = String(
+    req.get('X-VH-Import-Source-Signature-Sha256') || '',
+  ).trim().toLowerCase();
+  const assertedPayloadSha256 = String(
+    req.get('X-VH-Import-Payload-Sha256') || '',
+  ).trim().toLowerCase();
+  const idempotencyKey = String(req.get('Idempotency-Key') || '').trim();
+  if (!UUID_RE.test(patientUid)) {
+    throw AppError.badRequest(
+      'X-VH-Import-Patient-Uid must identify one patient UUID',
+      'IMPORT_TARGET_PATIENT_REQUIRED',
+    );
+  }
+  if (!sourceSystem || sourceSystem.length > 255
+    || !sourceDocumentId || sourceDocumentId.length > 255
+    || !Number.isInteger(sourceFacilityId) || sourceFacilityId <= 0
+    || !SHA256_RE.test(sourceSignatureSha256)
+    || !idempotencyKey || idempotencyKey.length > 255) {
+    throw AppError.badRequest(
+      'Clinical import source, facility, signature, and idempotency authority headers are required',
+      'IMPORT_SOURCE_AUTHORITY_REQUIRED',
+    );
+  }
+  const canonicalPayload = typeof payload === 'string'
+    ? payload
+    : JSON.stringify(stableImportPayload(payload));
+  const sourcePayloadSha256 = createHash('sha256').update(canonicalPayload).digest('hex');
+  if (!SHA256_RE.test(assertedPayloadSha256) || assertedPayloadSha256 !== sourcePayloadSha256) {
+    throw AppError.conflict(
+      'Clinical import payload hash does not match the declared source manifest',
+      'IMPORT_PAYLOAD_HASH_MISMATCH',
+    );
+  }
+
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT patient.id AS patient_id, patient.uid AS patient_uid,
+            facility.id AS facility_id
+       FROM users patient
+       JOIN facilities facility
+         ON facility.tenant_id=patient.tenant_id
+        AND facility.id=$3::int
+        AND facility.status='active'
+      WHERE patient.tenant_id=$1::uuid
+        AND patient.uid=$2::uuid
+        AND patient.role='PATIENT'
+        AND patient.is_active=TRUE
+        AND patient.status='active'
+        AND patient.is_deleted=FALSE
+        AND patient.merged_into_uid IS NULL
+      LIMIT 1`,
+    tenantId,
+    patientUid,
+    sourceFacilityId,
+  );
+  if (!rows.length) {
+    throw AppError.notFound(
+      'Clinical import patient or source facility is unavailable',
+      'IMPORT_PATIENT_OR_FACILITY_NOT_FOUND',
+    );
+  }
+  const decision = await authorizePatientAccessRequest(req, {
+    policyCode: ACCESS_POLICY_CODES.PATIENT_RECORD_UPLOAD,
+    recordType: 'MEDICAL_RECORD',
+    patient: { id: rows[0].patient_id, uid: rows[0].patient_uid },
+    resourceContext: {
+      resourceType: 'clinical_document_import',
+      resourceId: sourceDocumentId,
+      facilityId: sourceFacilityId,
+    },
+    requireResolvedPatient: true,
+  });
+  if (!decision.allowed) {
+    throw AppError.forbidden(
+      patientAccessErrorPayload(decision).message || 'Clinical import is not authorised for this patient',
+      decision.safe_reason_code || 'IMPORT_PATIENT_ACCESS_DENIED',
+    );
+  }
+  return {
+    tenantId,
+    patientUid,
+    patientId: Number(rows[0].patient_id),
+    sourceSystem,
+    sourceDocumentId,
+    sourceFacilityId,
+    sourceSignatureSha256,
+    sourcePayloadSha256,
+    idempotencyKey,
+    actorUid: req.user?.uid || null,
+    actorRole,
+    ingestionMode: 'manual_medical_records',
+    requestId: req.id || null,
+  };
 }
 
 // =============================================================================
@@ -291,12 +412,15 @@ router.post(
       throw AppError.badRequest('Request body must be a valid FHIR Bundle');
     }
 
-    const importedBy = req.user?.uid || 'system';
-    const tenantId = deriveTenantIdFromRequest(req);
+    const importedBy = req.user?.uid;
+    const authority = await resolveClinicalImportAuthority(req, bundle);
+    const tenantId = authority.tenantId;
 
     logPhiAccess({
       userId: importedBy,
-      patientId: 'bulk-import',
+      patientId: authority.patientUid,
+      userRole: authority.actorRole,
+      tenantId,
       recordType: 'fhir_bundle_import',
       action: 'IMPORT',
       ip: req.ip,
@@ -304,10 +428,17 @@ router.post(
     });
 
     const { importFhirBundle } = await import('../../services/import/patientDataImport.js');
-    const results = await importFhirBundle(bundle, importedBy, { tenantId });
+    const results = await importFhirBundle(bundle, importedBy, { tenantId, authority });
 
     logger.info(`FHIR Bundle imported by ${importedBy}: ${results.imported} resources`);
-    return success(res, results, 'FHIR Bundle imported successfully');
+    return success(
+      res,
+      results,
+      results.errors.length
+        ? 'FHIR Bundle imported with explicit partial failures'
+        : 'FHIR Bundle imported successfully',
+      results.errors.length ? 207 : 200,
+    );
   })
 );
 
@@ -338,12 +469,15 @@ router.post(
       throw AppError.badRequest('XML does not appear to be a valid C-CDA document');
     }
 
-    const importedBy = req.user?.uid || 'system';
-    const tenantId = deriveTenantIdFromRequest(req);
+    const importedBy = req.user?.uid;
+    const authority = await resolveClinicalImportAuthority(req, xmlString);
+    const tenantId = authority.tenantId;
 
     logPhiAccess({
       userId: importedBy,
-      patientId: 'bulk-import',
+      patientId: authority.patientUid,
+      userRole: authority.actorRole,
+      tenantId,
       recordType: 'ccda_import',
       action: 'IMPORT',
       ip: req.ip,
@@ -351,10 +485,17 @@ router.post(
     });
 
     const { importCCDA } = await import('../../services/import/patientDataImport.js');
-    const results = await importCCDA(xmlString, importedBy, { tenantId });
+    const results = await importCCDA(xmlString, importedBy, { tenantId, authority });
 
     logger.info(`C-CDA imported by ${importedBy}: ${results.imported} items`);
-    return success(res, results, 'C-CDA document imported successfully');
+    return success(
+      res,
+      results,
+      results.errors.length
+        ? 'C-CDA document imported with explicit partial failures'
+        : 'C-CDA document imported successfully',
+      results.errors.length ? 207 : 200,
+    );
   })
 );
 

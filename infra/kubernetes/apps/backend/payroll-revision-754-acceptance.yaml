@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vhhealth-payroll-revision-754-acceptance
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/sync-wave: "-2"
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+  labels:
+    app.kubernetes.io/name: vhhealth-payroll-revision-754-acceptance
+    app.kubernetes.io/component: migration-acceptance
+    app.kubernetes.io/part-of: vhhealth
+data:
+  # Fail closed. A reviewed rollout commit replaces both values only after the
+  # mode-0600 preflight export has been accepted by the named payroll data owner.
+  # This is a PreSync hook resource so Argo creates the accepted evidence before
+  # the migration Job; the ordinary runtime ConfigMap cannot satisfy this gate.
+  PAYROLL_754_ACCEPTED_MANIFEST_SHA256: ""
+  PAYROLL_754_ACCEPTED_BY: ""

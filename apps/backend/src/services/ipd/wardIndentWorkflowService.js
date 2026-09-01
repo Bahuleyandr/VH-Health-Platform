@@ -3,18 +3,57 @@ import { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { DOCTOR_TIERS, ROLES } from '../../utils/roleHelpers.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { assertPharmacyFacilityGrant } from '../pharmacy/pharmacyFacilityAuthorityService.js';
+import {
+  dispenseWardControlledAllocationTx,
+  wardControlledHandoffWitnessPayload,
+  WARD_CONTROLLED_HANDOFF_AUTHORITY,
+} from '../pharmacy/inventoryV2Service.js';
+import {
+  approveControlledDispenseWitnessApproval,
+  CONTROLLED_DISPENSE_WITNESS_ROLES,
+  CONTROLLED_DISPENSE_APPROVAL_SCOPES,
+  createControlledDispenseWitnessApproval,
+} from '../pharmacy/controlledDispenseWitnessService.js';
+import { pharmacyCommandRequestSha256 } from '../pharmacy/pharmacyOrderCommandReceiptService.js';
 import {
   cancelWorkflowSla,
   completeWorkflowSla,
   recordCanonicalClinicalEvent,
   startWorkflowSla,
 } from '../clinical/canonicalClinicalPlatformService.js';
-import { createTask } from '../workflow/taskService.js';
+import {
+  appendWardIndentChargeEventsTx,
+  appendWardIndentCreditEventsTx,
+  assertNoOpenWardAllocationAuthorityRecoveryTx,
+  issueWardIndentInventoryTx,
+  linkControlledWardIndentMovementTx,
+  loadWardIndentMedicationClosureTx,
+  receiveWardIndentInventoryTx,
+  releaseWardIndentReservationsTx,
+  releaseUnissuedWardIndentReservationsTx,
+  reserveWardIndentInventoryTx,
+  returnWardIndentInventoryTx,
+} from './wardIndentMedicationClosureService.js';
+import {
+  completeWardIndentStateObligationTx,
+  materializeWardIndentStateObligationTx,
+  reconcileWardIndentNotificationCoverageTx,
+} from './wardIndentObligationService.js';
+import { assertMedicationOrdersExecutionReadyTx } from '../clinical/marSupplyService.js';
+import {
+  canonicalMedicationRoute,
+  comparableMedicationRoute
+} from '../clinical/medicationRoute.js';
 
 const PHARMACY_OWNERS = [
   ROLES.PHARMACY_STAFF,
   ROLES.PHARMACY_INCHARGE,
   'PHARMACIST',
+];
+const CONTROLLED_HANDOFF_OWNERS = [
+  ROLES.PHARMACY_STAFF,
+  ROLES.PHARMACY_INCHARGE,
 ];
 const SUBSTITUTION_OWNERS = [...DOCTOR_TIERS];
 const WARD_OWNERS = [
@@ -52,7 +91,7 @@ export const WARD_INDENT_STATE_CONTRACT = Object.freeze({
     slaRuleCode: 'ward_indent_substitution_authorization',
   },
   controlled_handoff_required: {
-    ownerRoles: PHARMACY_OWNERS,
+    ownerRoles: CONTROLLED_HANDOFF_OWNERS,
     slaRuleCode: 'ward_indent_controlled_handoff',
   },
   approved: {
@@ -88,14 +127,6 @@ export const WARD_INDENT_STATE_CONTRACT = Object.freeze({
   closed: { ownerRoles: [], slaRuleCode: null, terminal: true },
 });
 
-const RESERVATION_STATUSES = [
-  'reserved',
-  'short_supply',
-  'substitution_pending',
-  'controlled_handoff_required',
-  'approved',
-];
-const CONTROLLED_SCHEDULES = new Set(['H', 'H1', 'X']);
 const RECONCILIATION_DISPOSITIONS = new Set([
   'transit_shortage',
   'ward_count_variance',
@@ -106,14 +137,27 @@ const TERMINAL_WARD_INDENT_STATUSES = ['rejected', 'cancelled', 'closed'];
 const WARD_INDENT_WORKLISTS = new Set(['open', 'terminal', 'owned', 'overdue']);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ISO_INSTANT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/;
+const PG_INT4_MAX = 2147483647;
+const WARD_CONTROLLED_RECOVERY_CONTRACT = 'ward_controlled_handoff_recovery_v1';
+const WARD_CONTROLLED_RECOVERY_ROLE = ROLES.PHARMACY_INCHARGE;
+const WARD_CONTROLLED_RECOVERY_REASON_MAX_LENGTH = 2000;
+const ACTIVE_WARD_ALLOCATION_STATUSES = new Set(['reserved', 'partially_issued']);
 
 function tenantOf(value) {
   return requireTenantId(value);
 }
 
 function positiveInt(value, fieldName) {
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+  if (typeof value === 'number') {
+    if (Number.isInteger(value) && value > 0 && value <= PG_INT4_MAX) return value;
+    throw AppError.badRequest(`${fieldName} must be a positive integer`);
+  }
+  const text = String(value ?? '').trim();
+  if (!/^[1-9][0-9]*$/.test(text)) {
+    throw AppError.badRequest(`${fieldName} must be a positive integer`);
+  }
+  const parsed = Number(text);
+  if (!Number.isInteger(parsed) || parsed > PG_INT4_MAX) {
     throw AppError.badRequest(`${fieldName} must be a positive integer`);
   }
   return parsed;
@@ -186,14 +230,16 @@ function itemEntryMap(entries, valueField, currentItems, {
 
 async function lockWardIndent(tx, indentId, tenantId) {
   const rows = await tx.$queryRawUnsafe(
-    `SELECT id, tenant_id, indent_number, status, state_version,
-            patient_uid, encounter_id, admission_id, ward_id, ward_name,
-            indent_type, requested_by, approved_by, issued_by, received_by,
-            owner_role_codes
-       FROM ward_indents
-      WHERE id = $1::int
-        AND tenant_id = $2::uuid
-      FOR UPDATE`,
+    `SELECT indent.id, indent.tenant_id, indent.indent_number, indent.status,
+            indent.state_version, indent.patient_uid, indent.encounter_id,
+            indent.admission_id, indent.ward_id, indent.ward_name,
+            indent.indent_type, indent.requested_by, indent.approved_by,
+            indent.issued_by, indent.received_by, indent.owner_role_codes,
+            indent.facility_id
+       FROM ward_indents indent
+      WHERE indent.id = $1::int
+        AND indent.tenant_id = $2::uuid
+      FOR UPDATE OF indent`,
     positiveInt(indentId, 'indentId'),
     tenantId,
   );
@@ -205,78 +251,528 @@ async function lockWardIndent(tx, indentId, tenantId) {
   if (!indent || String(indent.tenant_id) !== String(tenantId)) {
     throw AppError.notFound('Ward indent not found');
   }
+  indent.facility_id = rows[0].facility_id == null ? null : Number(rows[0].facility_id);
   return indent;
 }
 
 async function loadPendingControlledHandoffEvidence(tx, indent) {
   if (indent.status !== 'controlled_handoff_required') return [];
 
-  const pending = indent.items.filter((item) => (
-    item.controlled_reference_id
-    && !item.controlled_movement_id
-    && !item.controlled_register_id
-  ));
-  if (!pending.length) return [];
+  const controlled = indent.items.filter((item) => item.controlled_reference_id);
+  if (!controlled.length) return [];
+  const withPendingPrelinkCorruption = (item, classification) => {
+    if (item.controlled_movement_id == null && item.controlled_register_id == null) {
+      return classification;
+    }
+    const issue = 'WARD_ITEM_PRELINKED_IN_PENDING_STATE';
+    const linkedIdentity = {
+      controlled_movement_id: item.controlled_movement_id == null
+        ? null
+        : Number(item.controlled_movement_id),
+      controlled_register_id: item.controlled_register_id == null
+        ? null
+        : Number(item.controlled_register_id),
+    };
+    const evidence = classification.evidence?.length
+      ? classification.evidence.map((candidate) => ({
+        ...candidate,
+        ...linkedIdentity,
+        issues: [...new Set([...(candidate.issues || []), issue])].sort(),
+      }))
+      : [{ ...linkedIdentity, issues: [issue] }];
+    return {
+      ...classification,
+      ...linkedIdentity,
+      status: 'corrupt',
+      evidence,
+      issues: [...new Set([...(classification.issues || []), issue])].sort(),
+    };
+  };
+  const pending = controlled;
 
   const references = pending.map((item) => item.controlled_reference_id);
-  const rows = await tx.$queryRawUnsafe(
-    `SELECT movement.reference_id,
-            movement.id AS movement_id,
-            movement.quantity_delta,
-            register_entry.id AS register_id,
-            register_entry.quantity AS register_quantity,
-            inventory.catalog_id
+  const referenceCounts = new Map();
+  for (const item of controlled) {
+    const reference = item.controlled_reference_id;
+    referenceCounts.set(reference, Number(referenceCounts.get(reference) || 0) + 1);
+  }
+  const movements = await tx.$queryRawUnsafe(
+    `SELECT movement.reference_id, movement.id AS movement_id,
+            movement.inventory_item_id, movement.inventory_batch_id,
+            movement.movement_kind, movement.quantity_delta,
+            movement.reference_type, movement.performed_by,
+            inventory.catalog_id, inventory.facility_id AS inventory_facility_id,
+            inventory.schedule_class, inventory.is_narcotic,
+            UPPER(performer.role) AS performer_role,
+            (
+              performer.uid IS NOT NULL
+              AND performer.is_active = TRUE
+              AND performer.status = 'active'
+              AND COALESCE(performer.is_deleted, FALSE) = FALSE
+              AND performer_staff.id IS NOT NULL
+              AND performer_staff.is_active = TRUE
+              AND COALESCE(performer_staff.archived, FALSE) = FALSE
+              AND performer_staff.archived_at IS NULL
+              AND NULLIF(BTRIM(performer_staff.name), '') IS NOT NULL
+            ) AS performer_active
        FROM pharmacy_stock_movements movement
-       JOIN pharmacy_schedule_register register_entry
-         ON register_entry.tenant_id = movement.tenant_id
-        AND register_entry.reference_movement_id = movement.id
-       JOIN pharmacy_inventory_items inventory
+       LEFT JOIN pharmacy_inventory_items inventory
          ON inventory.tenant_id = movement.tenant_id
         AND inventory.id = movement.inventory_item_id
+       LEFT JOIN users performer
+         ON performer.tenant_id = movement.tenant_id
+        AND performer.uid = movement.performed_by
+       LEFT JOIN staff performer_staff
+         ON performer_staff.tenant_id = performer.tenant_id
+        AND performer_staff.user_id = performer.uid
       WHERE movement.tenant_id = $1::uuid
-        AND movement.reference_type = 'controlled_dispense'
-        AND movement.movement_kind = 'issue'
         AND movement.reference_id = ANY($2::text[])
-        AND register_entry.movement_kind = 'dispense'
-        AND register_entry.patient_uid IS NOT DISTINCT FROM $3::uuid
-        AND NOT EXISTS (
-          SELECT 1
-            FROM ward_indent_items claimed
-           WHERE claimed.tenant_id = movement.tenant_id
-             AND (
-               claimed.controlled_movement_id = movement.id
-               OR claimed.controlled_register_id = register_entry.id
-             )
-        )
       ORDER BY movement.id`,
     indent.tenant_id,
     references,
-    indent.patient_uid || null,
   );
 
-  return pending.map((item) => {
+  if (!movements.length) {
+    return pending.map((item) => {
+      if (Number(referenceCounts.get(item.controlled_reference_id)) > 1) {
+        return withPendingPrelinkCorruption(item, {
+          item_id: Number(item.id),
+          reference_id: item.controlled_reference_id,
+          status: 'corrupt',
+          candidate_count: 0,
+          same_reference_movement_count: 0,
+          evidence: [],
+          issues: ['WARD_ITEM_REFERENCE_COLLISION'],
+        });
+      }
+      return withPendingPrelinkCorruption(item, {
+        item_id: Number(item.id),
+        reference_id: item.controlled_reference_id,
+        status: 'missing',
+        candidate_count: 0,
+        same_reference_movement_count: 0,
+      });
+    });
+  }
+
+  const movementIds = movements.map((row) => Number(row.movement_id));
+  const registers = await tx.$queryRawUnsafe(
+    `SELECT register_entry.id AS register_id,
+            register_entry.reference_movement_id AS movement_id,
+            register_entry.facility_id, register_entry.inventory_item_id,
+            register_entry.inventory_batch_id,
+            register_entry.schedule_class, register_entry.movement_kind,
+            register_entry.quantity, register_entry.patient_uid,
+            register_entry.performed_by, register_entry.witness_uid,
+            register_entry.witness_name, UPPER(witness.role) AS witness_role,
+            (
+              witness.uid IS NOT NULL
+              AND witness.is_active = TRUE
+              AND witness.status = 'active'
+              AND COALESCE(witness.is_deleted, FALSE) = FALSE
+              AND witness_staff.id IS NOT NULL
+              AND witness_staff.is_active = TRUE
+              AND COALESCE(witness_staff.archived, FALSE) = FALSE
+            ) AS witness_active
+       FROM pharmacy_schedule_register register_entry
+       LEFT JOIN users witness
+         ON witness.tenant_id = register_entry.tenant_id
+        AND witness.uid = register_entry.witness_uid
+       LEFT JOIN staff witness_staff
+         ON witness_staff.tenant_id = witness.tenant_id
+        AND witness_staff.user_id = witness.uid
+      WHERE register_entry.tenant_id = $1::uuid
+        AND register_entry.reference_movement_id = ANY($2::int[])
+      ORDER BY register_entry.reference_movement_id, register_entry.id`,
+    indent.tenant_id,
+    movementIds,
+  );
+  const registerIds = registers.map((row) => Number(row.register_id));
+  const claims = await tx.$queryRawUnsafe(
+    `SELECT claimed.id AS ward_indent_item_id, claimed.ward_indent_id,
+            claimed.controlled_movement_id, claimed.controlled_register_id,
+            claimed.controlled_return_movement_id, claimed.controlled_return_register_id
+       FROM ward_indent_items claimed
+      WHERE claimed.tenant_id = $1::uuid
+        AND (
+          claimed.controlled_movement_id = ANY($2::int[])
+          OR claimed.controlled_return_movement_id = ANY($2::int[])
+          OR ($3::int[] <> '{}'::int[] AND claimed.controlled_register_id = ANY($3::int[]))
+          OR ($3::int[] <> '{}'::int[] AND claimed.controlled_return_register_id = ANY($3::int[]))
+        )
+      ORDER BY claimed.id`,
+    indent.tenant_id,
+    movementIds,
+    registerIds,
+  );
+  const links = await tx.$queryRawUnsafe(
+    `SELECT movement_link.id::text AS movement_link_id,
+            movement_link.ward_indent_id, movement_link.allocation_id::text AS allocation_id,
+            movement_link.stock_movement_id, movement_link.controlled_register_id,
+            movement_link.movement_purpose
+       FROM ward_indent_inventory_movement_links movement_link
+      WHERE movement_link.tenant_id = $1::uuid
+        AND (
+          movement_link.stock_movement_id = ANY($2::int[])
+          OR ($3::int[] <> '{}'::int[] AND movement_link.controlled_register_id = ANY($3::int[]))
+        )
+      ORDER BY movement_link.id`,
+    indent.tenant_id,
+    movementIds,
+    registerIds,
+  );
+  const allocations = await tx.$queryRawUnsafe(
+    `SELECT allocation.id::text AS allocation_id,
+            allocation.ward_indent_item_id, allocation.inventory_item_id,
+            allocation.inventory_batch_id, allocation.reserved_quantity,
+            allocation.issued_quantity, allocation.authority_released_quantity,
+            allocation.status
+       FROM ward_indent_inventory_allocations allocation
+      WHERE allocation.tenant_id = $1::uuid
+        AND allocation.ward_indent_id = $2::int
+        AND allocation.ward_indent_item_id = ANY($3::int[])
+      ORDER BY allocation.ward_indent_item_id, allocation.id`,
+    indent.tenant_id,
+    Number(indent.id),
+    pending.map((item) => Number(item.id)),
+  );
+
+  const registersByMovement = new Map();
+  for (const register of registers) {
+    const movementId = Number(register.movement_id);
+    if (!registersByMovement.has(movementId)) registersByMovement.set(movementId, []);
+    registersByMovement.get(movementId).push(register);
+  }
+  const classifiedEvidence = pending.map((item) => {
     const approvedQuantity = Number(item.quantity_approved || 0);
-    const candidates = rows.filter((row) => (
-      row.reference_id === item.controlled_reference_id
-      && Number(row.catalog_id) === Number(item.pharmacy_catalog_id)
-      && Number(row.quantity_delta) === -Math.abs(approvedQuantity)
-      && Number(row.register_quantity) === Math.abs(approvedQuantity)
-    ));
-    if (candidates.length !== 1) {
+    const sameReference = movements.filter(
+      (row) => row.reference_id === item.controlled_reference_id,
+    );
+    if (!sameReference.length) {
       return {
         item_id: Number(item.id),
-        status: candidates.length > 1 ? 'ambiguous' : 'missing',
-        candidate_count: candidates.length,
+        reference_id: item.controlled_reference_id,
+        status: Number(referenceCounts.get(item.controlled_reference_id)) > 1
+          ? 'corrupt'
+          : 'missing',
+        candidate_count: 0,
+        same_reference_movement_count: 0,
+        ...(Number(referenceCounts.get(item.controlled_reference_id)) > 1
+          ? { evidence: [], issues: ['WARD_ITEM_REFERENCE_COLLISION'] }
+          : {}),
       };
     }
+
+    const evidence = sameReference.map((movement) => {
+      const movementId = Number(movement.movement_id);
+      const movementRegisters = registersByMovement.get(movementId) || [];
+      const register = movementRegisters.length === 1 ? movementRegisters[0] : null;
+      const movementRegisterIds = movementRegisters.map((row) => Number(row.register_id));
+      const movementClaims = claims.filter((claim) => (
+        Number(claim.controlled_movement_id) === movementId
+        || Number(claim.controlled_return_movement_id) === movementId
+        || movementRegisterIds.includes(Number(claim.controlled_register_id))
+        || movementRegisterIds.includes(Number(claim.controlled_return_register_id))
+      ));
+      const movementLinks = links.filter((link) => (
+        Number(link.stock_movement_id) === movementId
+        || movementRegisterIds.includes(Number(link.controlled_register_id))
+      ));
+      const exactAllocations = allocations.filter((allocation) => {
+        const outstanding = Number(allocation.reserved_quantity)
+          - Number(allocation.issued_quantity || 0)
+          - Number(allocation.authority_released_quantity || 0);
+        return Number(allocation.ward_indent_item_id) === Number(item.id)
+          && Number(allocation.inventory_item_id) === Number(movement.inventory_item_id)
+          && Number(allocation.inventory_batch_id) === Number(movement.inventory_batch_id)
+          && ACTIVE_WARD_ALLOCATION_STATUSES.has(String(allocation.status))
+          && outstanding > 0
+          && Math.abs(outstanding - approvedQuantity) < 1e-9;
+      });
+      const issues = new Set();
+      if (movement.reference_type !== 'controlled_dispense') {
+        issues.add('MOVEMENT_REFERENCE_TYPE_MISMATCH');
+      }
+      if (movement.movement_kind !== 'issue' || Number(movement.quantity_delta) >= 0) {
+        issues.add('MOVEMENT_KIND_MISMATCH');
+      }
+      if (Number(movement.quantity_delta) !== -Math.abs(approvedQuantity)) {
+        issues.add('MOVEMENT_QUANTITY_MISMATCH');
+      }
+      if (movement.catalog_id == null || item.pharmacy_catalog_id == null
+        || Number(movement.catalog_id) !== Number(item.pharmacy_catalog_id)) {
+        issues.add('MOVEMENT_CATALOG_MISMATCH');
+      }
+      if (movement.inventory_facility_id == null
+        || Number(movement.inventory_facility_id) !== Number(indent.facility_id)) {
+        issues.add('MOVEMENT_FACILITY_MISMATCH');
+      }
+      if (movement.inventory_batch_id == null || exactAllocations.length !== 1) {
+        issues.add('MOVEMENT_ALLOCATION_LINEAGE_MISMATCH');
+      }
+      if (!movement.performed_by) {
+        issues.add('MOVEMENT_PERFORMER_MISSING');
+      } else if (movement.performer_active !== true
+        || !['PHARMACY_STAFF', 'PHARMACY_INCHARGE'].includes(movement.performer_role)) {
+        issues.add('MOVEMENT_PERFORMER_AUTHORITY_MISMATCH');
+      }
+      if (!['H', 'H1', 'X'].includes(movement.schedule_class)
+        && movement.is_narcotic !== true) {
+        issues.add('MOVEMENT_CONTROLLED_CLASSIFICATION_MISMATCH');
+      }
+      if (movementRegisters.length !== 1) issues.add('REGISTER_CARDINALITY_MISMATCH');
+      if (register) {
+        if (register.facility_id == null
+          || Number(register.facility_id) !== Number(indent.facility_id)) {
+          issues.add('REGISTER_FACILITY_MISMATCH');
+        }
+        if (Number(register.inventory_item_id) !== Number(movement.inventory_item_id)
+          || Number(register.inventory_batch_id) !== Number(movement.inventory_batch_id)) {
+          issues.add('REGISTER_BATCH_LINEAGE_MISMATCH');
+        }
+        if (register.movement_kind !== 'dispense') issues.add('REGISTER_KIND_MISMATCH');
+        if (Number(register.quantity) !== Math.abs(approvedQuantity)) {
+          issues.add('REGISTER_QUANTITY_MISMATCH');
+        }
+        if (String(register.patient_uid || '') !== String(indent.patient_uid || '')) {
+          issues.add('REGISTER_PATIENT_MISMATCH');
+        }
+        if (String(register.performed_by || '') !== String(movement.performed_by || '')) {
+          issues.add('REGISTER_PERFORMER_MISMATCH');
+        }
+        const expectedSchedule = movement.schedule_class
+          || (movement.is_narcotic === true ? 'X' : 'H1');
+        if (String(register.schedule_class || '') !== String(expectedSchedule || '')) {
+          issues.add('REGISTER_SCHEDULE_MISMATCH');
+        }
+        const needsWitness = movement.schedule_class === 'X' || movement.is_narcotic === true;
+        if (needsWitness && (
+          !register.witness_uid
+          || !String(register.witness_name || '').trim()
+          || String(register.witness_uid) === String(register.performed_by)
+          || register.witness_active !== true
+          || !CONTROLLED_DISPENSE_WITNESS_ROLES.includes(register.witness_role)
+        )) {
+          issues.add('REGISTER_WITNESS_MISMATCH');
+        }
+      }
+      if (movementClaims.length) issues.add('EVIDENCE_ALREADY_CLAIMED');
+      if (movementLinks.length) issues.add('EVIDENCE_MOVEMENT_LINK_COLLISION');
+      if (sameReference.length > 1) issues.add('SAME_REFERENCE_MOVEMENT_COLLISION');
+      if (Number(referenceCounts.get(item.controlled_reference_id)) > 1) {
+        issues.add('WARD_ITEM_REFERENCE_COLLISION');
+      }
+      return {
+        movement_id: movementId,
+        register_ids: movementRegisterIds,
+        inventory_item_id: Number(movement.inventory_item_id),
+        inventory_batch_id: movement.inventory_batch_id == null
+          ? null
+          : Number(movement.inventory_batch_id),
+        catalog_id: movement.catalog_id == null ? null : Number(movement.catalog_id),
+        facility_id: movement.inventory_facility_id == null
+          ? null
+          : Number(movement.inventory_facility_id),
+        reference_type: movement.reference_type,
+        reference_id: movement.reference_id,
+        movement_kind: movement.movement_kind,
+        quantity_delta: Number(movement.quantity_delta),
+        performed_by: movement.performed_by || null,
+        performer_role: movement.performer_role || null,
+        performer_active: movement.performer_active === true,
+        schedule_class: movement.schedule_class || null,
+        is_narcotic: movement.is_narcotic === true,
+        allocation_ids: exactAllocations.map((allocation) => allocation.allocation_id),
+        claimed_ward_indent_items: movementClaims.map((claim) => ({
+          ward_indent_id: Number(claim.ward_indent_id),
+          ward_indent_item_id: Number(claim.ward_indent_item_id),
+        })),
+        movement_links: movementLinks.map((link) => ({
+          movement_link_id: link.movement_link_id,
+          ward_indent_id: Number(link.ward_indent_id),
+          allocation_id: link.allocation_id,
+          controlled_register_id: link.controlled_register_id == null
+            ? null
+            : Number(link.controlled_register_id),
+          movement_purpose: link.movement_purpose,
+        })),
+        registers: movementRegisters.map((row) => ({
+          register_id: Number(row.register_id),
+          facility_id: row.facility_id == null ? null : Number(row.facility_id),
+          inventory_item_id: Number(row.inventory_item_id),
+          inventory_batch_id: row.inventory_batch_id == null
+            ? null
+            : Number(row.inventory_batch_id),
+          schedule_class: row.schedule_class,
+          movement_kind: row.movement_kind,
+          quantity: Number(row.quantity),
+          patient_uid: row.patient_uid || null,
+          performed_by: row.performed_by || null,
+          witness_uid: row.witness_uid || null,
+          witness_name: row.witness_name || null,
+          witness_role: row.witness_role || null,
+          witness_active: row.witness_active === true,
+        })),
+        issues: [...issues].sort(),
+      };
+    });
+    const collisionIssues = new Set([
+      'SAME_REFERENCE_MOVEMENT_COLLISION',
+      'WARD_ITEM_REFERENCE_COLLISION',
+    ]);
+    const individuallyValid = evidence.filter((candidate) => (
+      candidate.issues.every((issue) => collisionIssues.has(issue))
+    ));
+    const valid = evidence.filter((candidate) => candidate.issues.length === 0);
+    if (sameReference.length !== 1 || valid.length !== 1) {
+      return {
+        item_id: Number(item.id),
+        reference_id: item.controlled_reference_id,
+        status: 'corrupt',
+        candidate_count: individuallyValid.length,
+        same_reference_movement_count: sameReference.length,
+        evidence,
+      };
+    }
+    const selected = valid[0];
     return {
       item_id: Number(item.id),
+      reference_id: item.controlled_reference_id,
       status: 'available',
       candidate_count: 1,
-      movement_id: Number(candidates[0].movement_id),
-      register_id: Number(candidates[0].register_id),
+      same_reference_movement_count: 1,
+      movement_id: selected.movement_id,
+      register_id: selected.register_ids[0],
+      allocation_id: selected.allocation_ids[0],
+      evidence,
     };
   });
+  return classifiedEvidence.map((classification, index) => (
+    withPendingPrelinkCorruption(pending[index], classification)
+  ));
+}
+
+function historicalControlledRecoverySelection(entry) {
+  const suppliedLegacyIdentity = ['movement_id', 'register_id'].some((field) => (
+    Object.prototype.hasOwnProperty.call(entry || {}, field)
+  ));
+  if (suppliedLegacyIdentity) {
+    throw AppError.badRequest(
+      'Historical controlled custody must use the explicit historical_recovery selection',
+      'WARD_INDENT_CONTROLLED_RECOVERY_SELECTION_INVALID',
+    );
+  }
+  if (entry?.historical_recovery == null) return null;
+  if (typeof entry.historical_recovery !== 'object'
+    || Array.isArray(entry.historical_recovery)) {
+    throw AppError.badRequest(
+      'historical_recovery must bind one movement, one register, and a reason',
+      'WARD_INDENT_CONTROLLED_RECOVERY_SELECTION_INVALID',
+    );
+  }
+  const recovery = entry.historical_recovery;
+  const extraFields = Object.keys(recovery).filter(
+    (field) => !['movement_id', 'register_id', 'reason'].includes(field),
+  );
+  if (extraFields.length) {
+    throw AppError.badRequest(
+      'historical_recovery contains unsupported authority fields',
+      'WARD_INDENT_CONTROLLED_RECOVERY_SELECTION_INVALID',
+      { unsupported_fields: extraFields.sort() },
+    );
+  }
+  const reason = String(recovery.reason || '').trim();
+  if (!reason) {
+    throw AppError.badRequest('historical_recovery.reason is required');
+  }
+  if (reason.length > WARD_CONTROLLED_RECOVERY_REASON_MAX_LENGTH) {
+    throw AppError.badRequest(
+      `historical_recovery.reason must not exceed ${WARD_CONTROLLED_RECOVERY_REASON_MAX_LENGTH} characters`,
+      'WARD_INDENT_CONTROLLED_RECOVERY_REASON_TOO_LONG',
+      {
+        field: 'historical_recovery.reason',
+        max_length: WARD_CONTROLLED_RECOVERY_REASON_MAX_LENGTH,
+      },
+    );
+  }
+  return {
+    movement_id: positiveInt(recovery.movement_id, 'historical_recovery.movement_id'),
+    register_id: positiveInt(recovery.register_id, 'historical_recovery.register_id'),
+    reason,
+  };
+}
+
+async function assertWardControlledRecoverySupervisorTx(tx, {
+  indent,
+  actorUid,
+  actorRole,
+}) {
+  const grant = await assertPharmacyFacilityGrant(tx, {
+    tenantId: indent.tenant_id,
+    facilityId: Number(indent.facility_id),
+    actorUid,
+    actorRole,
+    forUpdate: true,
+  });
+  if (grant.actor_role !== WARD_CONTROLLED_RECOVERY_ROLE) {
+    throw AppError.forbidden(
+      'Historical controlled custody recovery requires the pharmacy in-charge',
+      'WARD_INDENT_CONTROLLED_RECOVERY_SUPERVISOR_REQUIRED',
+      { required_role: WARD_CONTROLLED_RECOVERY_ROLE },
+    );
+  }
+  return grant;
+}
+
+function controlledRecoveryReceipt({
+  indent,
+  item,
+  allocation,
+  candidate,
+  selection,
+  supervisor,
+  commandKey,
+}) {
+  const register = candidate.evidence[0].registers[0];
+  const receipt = {
+    contract: WARD_CONTROLLED_RECOVERY_CONTRACT,
+    disposition: 'historical_exact_pair_linked',
+    ward_indent_id: Number(indent.id),
+    ward_indent_item_id: Number(item.id),
+    allocation_id: String(allocation.id),
+    movement_id: selection.movement_id,
+    register_id: selection.register_id,
+    reference_id: item.controlled_reference_id,
+    facility_id: Number(indent.facility_id),
+    inventory_item_id: Number(allocation.inventory_item_id),
+    inventory_batch_id: Number(allocation.inventory_batch_id),
+    catalog_id: Number(item.pharmacy_catalog_id),
+    clinical_order_id: Number(item.clinical_order_id),
+    quantity: Number(item.quantity_approved),
+    patient_uid: String(indent.patient_uid),
+    movement_performed_by: candidate.evidence[0].performed_by,
+    movement_performer_role: candidate.evidence[0].performer_role,
+    register_performed_by: register.performed_by,
+    schedule_class: candidate.evidence[0].schedule_class,
+    is_narcotic: candidate.evidence[0].is_narcotic,
+    register_schedule_class: register.schedule_class,
+    witness_uid: register.witness_uid,
+    witness_name: register.witness_name,
+    recovered_by: supervisor.actor_uid,
+    recovered_by_role: supervisor.actor_role,
+    recovered_by_name: supervisor.actor_name,
+    facility_grant_id: supervisor.grant_id,
+    recovery_reason: selection.reason,
+    recovery_command_key: wardIndentCommandKey(
+      indent.id,
+      'controlled_handoff_recorded',
+      commandKey,
+    ),
+  };
+  return {
+    ...receipt,
+    receipt_sha256: pharmacyCommandRequestSha256(receipt),
+  };
 }
 
 function assertState(current, allowed, action) {
@@ -326,6 +822,7 @@ async function loadWardIndentWorkflow(tx, indentId, tenantId, { eventLimit = 100
     tx,
     indent,
   );
+  const medicationClosure = await loadWardIndentMedicationClosureTx(tx, tenantId, indentId);
   return {
     ...indent,
     workflow: {
@@ -339,6 +836,7 @@ async function loadWardIndentWorkflow(tx, indentId, tenantId, { eventLimit = 100
           reference_id: item.controlled_reference_id,
         })),
       pending_controlled_handoff_evidence: pendingControlledHandoffEvidence,
+      medication_closure: medicationClosure,
     },
   };
 }
@@ -445,10 +943,34 @@ async function rotateSla(tx, before, after, action) {
         metadata: { med_01: true, terminal_action: action },
       }, { db: tx });
       if (!Array.isArray(cancelled) || cancelled.length === 0) {
-        throw AppError.internal(
-          'Ward indent SLA cancellation was not persisted',
-          'WARD_INDENT_SLA_CANCEL_FAILED',
+        // The previous state's obligation is discharged before the clock is
+        // rotated (completeWardIndentStateObligationTx runs first), and
+        // completing that task from this transition's own evidence already
+        // retires the linked SLA -- as 'completed', which cancelWorkflowSla
+        // deliberately will not touch. So an empty cancel is acceptable only
+        // when the clock really is retired: re-read the exact (rule, source)
+        // identity and fail closed unless it is terminal. A missing clock, or
+        // one still running, would leave the rejected indent owning an SLA
+        // nobody will ever close, which is what this guard exists to prevent.
+        const retired = await tx.$queryRawUnsafe(
+          `SELECT status
+             FROM workflow_sla_instances
+            WHERE tenant_id = $1::uuid
+              AND rule_code = $2::text
+              AND source_table = 'ward_indents'
+              AND source_id = $3::text
+              AND status IN ('completed', 'cancelled')
+            LIMIT 1`,
+          before.tenant_id,
+          previous,
+          activeSlaSourceId(before),
         );
+        if (retired.length === 0) {
+          throw AppError.internal(
+            'Ward indent SLA cancellation was not persisted',
+            'WARD_INDENT_SLA_CANCEL_FAILED',
+          );
+        }
       }
     } else {
       const completed = await completeWorkflowSla({
@@ -479,7 +1001,7 @@ async function appendTransitionEvidence(tx, {
   commandKey = null,
   details = {},
 }) {
-  await tx.ward_indent_events.create({
+  const event = await tx.ward_indent_events.create({
     data: {
       tenant_id: after.tenant_id,
       ward_indent_id: after.id,
@@ -495,7 +1017,7 @@ async function appendTransitionEvidence(tx, {
     },
   });
 
-  if (!after.patient_uid) return;
+  if (!after.patient_uid) return event;
   await recordCanonicalClinicalEvent({
     tenantId: after.tenant_id,
     patientUid: String(after.patient_uid),
@@ -535,242 +1057,953 @@ async function appendTransitionEvidence(tx, {
     timelineIdempotencyKey: `ward_indents:${after.id}:transition:${after.state_version}`,
     auditIdempotencyKey: `ward_indents:${after.id}:audit:transition:${after.state_version}`,
   }, { db: tx, strict: true });
+  return event;
 }
 
-async function applyTransition({
-  indentId,
-  tenantId,
-  actorUid,
-  expectedVersion = null,
-  action,
-  allowedStatuses,
-  reason = null,
-  commandKey = null,
-  mutate,
-}) {
+async function applyTransitionTx(
+  tx,
+  {
+    indentId,
+    tenantId,
+    actorUid,
+    expectedVersion = null,
+    action,
+    allowedStatuses,
+    reason = null,
+    commandKey = null,
+    facilityGrantRequired = false,
+    facilityGrantRoles = null,
+    actorRole = null,
+    mutate,
+    lockedCurrent = null
+  }
+) {
   const cleanActorUid = uuid(actorUid, 'actorUid');
   const tid = tenantOf(tenantId);
-  return setTenantTx(tid, async (tx) => {
-    const current = await lockWardIndent(tx, indentId, tid);
-    const replay = await loadCommandReplay(tx, {
-      tenantId: tid,
-      indentId: current.id,
-      action,
-      commandKey,
-      actorUid: cleanActorUid,
-    });
-    if (replay) return replay;
-    assertState(current, allowedStatuses, action);
-    assertExpectedVersion(current, expectedVersion);
-    const outcome = await mutate(tx, current);
-    const toStatus = outcome.toStatus;
-    const contract = WARD_INDENT_STATE_CONTRACT[toStatus];
-    if (!contract) {
-      throw AppError.internal(
-        `Ward indent state contract is missing '${toStatus}'`,
-        'WARD_INDENT_STATE_CONTRACT_MISSING',
+  const current = lockedCurrent || (await lockWardIndent(tx, indentId, tid));
+  if (
+    Number(current.id) !== positiveInt(indentId, 'indentId') ||
+    String(current.tenant_id) !== tid
+  ) {
+    throw AppError.conflict(
+      'Locked ward indent does not match the requested transition',
+      'WARD_INDENT_LOCK_CONTEXT_MISMATCH'
+    );
+  }
+  if (facilityGrantRequired) {
+    if (current.facility_id == null) {
+      throw AppError.conflict(
+        'Ward indent facility custody is unresolved',
+        'WARD_INDENT_FACILITY_REQUIRED'
       );
     }
-    const previousRule = WARD_INDENT_STATE_CONTRACT[current.status]?.slaRuleCode || null;
-    const nextRule = contract.slaRuleCode || null;
-    const nextVersion = Number(current.state_version) + 1;
-    const nextSlaSourceId = nextRule == null
+    const grant = await assertPharmacyFacilityGrant(tx, {
+      tenantId: tid,
+      facilityId: Number(current.facility_id),
+      actorUid: cleanActorUid,
+      actorRole,
+      forUpdate: true
+    });
+    if (Array.isArray(facilityGrantRoles)
+      && !facilityGrantRoles.includes(grant.actor_role)) {
+      throw AppError.forbidden(
+        'Ward indent transition requires an exact pharmacy custody role',
+        'WARD_INDENT_PHARMACY_CUSTODY_ROLE_REQUIRED',
+        { required_roles: [...facilityGrantRoles] },
+      );
+    }
+  }
+  const replay = await loadCommandReplay(tx, {
+    tenantId: tid,
+    indentId: current.id,
+    action,
+    commandKey,
+    actorUid: cleanActorUid
+  });
+  if (replay) return replay;
+  assertState(current, allowedStatuses, action);
+  assertExpectedVersion(current, expectedVersion);
+  const outcome = await mutate(tx, current);
+  const toStatus = outcome.toStatus;
+  const contract = WARD_INDENT_STATE_CONTRACT[toStatus];
+  if (!contract) {
+    throw AppError.internal(
+      `Ward indent state contract is missing '${toStatus}'`,
+      'WARD_INDENT_STATE_CONTRACT_MISSING'
+    );
+  }
+  const previousRule = WARD_INDENT_STATE_CONTRACT[current.status]?.slaRuleCode || null;
+  const nextRule = contract.slaRuleCode || null;
+  const nextVersion = Number(current.state_version) + 1;
+  const nextSlaSourceId =
+    nextRule == null
       ? null
       : previousRule === nextRule
         ? activeSlaSourceId(current)
         : `ward-indent:${current.id}:v${nextVersion}`;
-    const updated = await tx.ward_indents.update({
-      where: { id: current.id },
-      data: {
-        ...outcome.indentData,
-        status: toStatus,
-        state_version: { increment: 1 },
-        owner_role_codes: contract.ownerRoles,
-        active_sla_source_id: nextSlaSourceId,
-        last_transition_at: new Date(),
-        updated_at: new Date(),
-      },
-      include: { items: { orderBy: { id: 'asc' } } },
-    });
-    await appendTransitionEvidence(tx, {
-      before: current,
-      after: updated,
-      action,
-      actorUid: cleanActorUid,
-      reason,
-      commandKey,
-      details: outcome.details || {},
-    });
-    await rotateSla(tx, current, updated, action);
-    return loadWardIndentWorkflow(tx, current.id, tid);
+  const updated = await tx.ward_indents.update({
+    where: { id: current.id },
+    data: {
+      ...outcome.indentData,
+      status: toStatus,
+      state_version: { increment: 1 },
+      owner_role_codes: contract.ownerRoles,
+      active_sla_source_id: nextSlaSourceId,
+      last_transition_at: new Date(),
+      updated_at: new Date()
+    },
+    include: { items: { orderBy: { id: 'asc' } } }
   });
+  const event = await appendTransitionEvidence(tx, {
+    before: current,
+    after: updated,
+    action,
+    actorUid: cleanActorUid,
+    reason,
+    commandKey,
+    details: outcome.details || {}
+  });
+  if (typeof outcome.afterEvidence === 'function') {
+    await outcome.afterEvidence({ tx, before: current, after: updated, event });
+  }
+  await completeWardIndentStateObligationTx(tx, {
+    before: current,
+    after: updated,
+    event,
+    actorUid: cleanActorUid
+  });
+  await rotateSla(tx, current, updated, action);
+  await reconcileWardIndentNotificationCoverageTx(tx, {
+    tenantId: tid,
+    indent: updated,
+    actorUid: cleanActorUid
+  });
+  await materializeWardIndentStateObligationTx(tx, {
+    indent: updated,
+    event,
+    actorUid: cleanActorUid
+  });
+  return loadWardIndentWorkflow(tx, current.id, tid);
 }
 
-async function classifyCatalogControl(tx, tenantId, catalogIds) {
+async function applyTransition(options) {
+  const tid = tenantOf(options.tenantId);
+  return setTenantTx(tid, tx =>
+    applyTransitionTx(tx, {
+      ...options,
+      tenantId: tid
+    })
+  );
+}
+
+export async function lockMedicationOrderWardIndentTx(tx, { tenantId, clinicalOrderId }) {
+  const tid = tenantOf(tenantId);
+  const orderId = positiveInt(clinicalOrderId, 'clinicalOrderId');
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT indent.id
+       FROM ward_indents indent
+      WHERE indent.tenant_id = $1::uuid
+        AND indent.id IN (
+          SELECT item.ward_indent_id
+            FROM ward_indent_items item
+           WHERE item.tenant_id = $1::uuid
+             AND item.clinical_order_id = $2::int
+        )
+      ORDER BY indent.id
+      LIMIT 2
+      FOR UPDATE OF indent`,
+    tid,
+    orderId
+  );
+  if (rows.length > 1) {
+    throw AppError.conflict(
+      'Medication order is linked to multiple ward indents',
+      'CLINICAL_ORDER_WARD_INDENT_LINK_AMBIGUOUS',
+      { clinical_order_id: orderId, ward_indent_ids: rows.map(row => Number(row.id)) }
+    );
+  }
+  return rows[0] ? lockWardIndent(tx, Number(rows[0].id), tid) : null;
+}
+
+function terminalWardIndentProjection(current, disposition, remainingActiveOrderIds = []) {
+  return {
+    disposition,
+    ward_indent_id: current == null ? null : Number(current.id),
+    ward_indent_status: current?.status || null,
+    ward_indent_state_version: current == null ? null : Number(current.state_version),
+    remaining_active_clinical_order_ids: remainingActiveOrderIds
+  };
+}
+
+export async function terminallyProjectMedicationOrderWardIndentTx(
+  tx,
+  { tenantId, order, actorUid, terminalStatus, reason, lockedIndent = null }
+) {
+  const tid = tenantOf(tenantId);
+  const orderId = positiveInt(order?.id, 'clinicalOrderId');
+  const cleanActorUid = uuid(actorUid, 'actorUid');
+  const cleanReason = reasonText(reason, 'terminal reason');
+  const normalizedTerminalStatus = String(terminalStatus || '')
+    .trim()
+    .toLowerCase();
+  if (!['completed', 'cancelled', 'discontinued'].includes(normalizedTerminalStatus)) {
+    throw AppError.badRequest(
+      'Medication-order ward-indent projection status is invalid',
+      'CLINICAL_ORDER_WARD_INDENT_TERMINAL_STATUS_INVALID'
+    );
+  }
+  const current =
+    lockedIndent ||
+    (await lockMedicationOrderWardIndentTx(tx, {
+      tenantId: tid,
+      clinicalOrderId: orderId
+    }));
+  if (!current) return terminalWardIndentProjection(null, 'not_materialized');
+
+  const linkedOrderIds = [
+    ...new Set(
+      current.items
+        .map(item => Number(item.clinical_order_id))
+        .filter(id => Number.isSafeInteger(id) && id > 0)
+    )
+  ];
+  const terminalOrderItemIds = current.items
+    .filter(item => Number(item.clinical_order_id) === orderId)
+    .map(item => Number(item.id));
+  if (terminalOrderItemIds.length === 0) {
+    throw AppError.conflict(
+      'Medication order ward-indent linkage disappeared while locked',
+      'CLINICAL_ORDER_WARD_INDENT_LINK_MISSING',
+      { clinical_order_id: orderId, ward_indent_id: Number(current.id) }
+    );
+  }
+  const orderRows =
+    linkedOrderIds.length === 0
+      ? []
+      : await tx.$queryRawUnsafe(
+          `SELECT id, status
+         FROM clinical_orders
+        WHERE tenant_id = $1::uuid
+          AND id = ANY($2::int[])
+        ORDER BY id
+        FOR SHARE`,
+          tid,
+          linkedOrderIds
+        );
+  const remainingActiveOrderIds = orderRows
+    .filter(
+      row =>
+        Number(row.id) !== orderId &&
+        ['ordered', 'verified', 'in_progress'].includes(
+          String(row.status || '')
+            .trim()
+            .toLowerCase()
+        )
+    )
+    .map(row => Number(row.id));
+
+  if (TERMINAL_WARD_INDENT_STATUSES.includes(current.status)) {
+    return terminalWardIndentProjection(current, 'already_terminal', remainingActiveOrderIds);
+  }
+
+  const hasIssuedCustody = current.items.some(
+    item =>
+      item.controlled_movement_id != null ||
+      Number(item.quantity_issued || 0) > 0 ||
+      Number(item.quantity_received || 0) > 0
+  );
+  const safelyCancellable = !hasIssuedCustody && remainingActiveOrderIds.length === 0;
+  const commandKey = `clinical-order-terminal:${orderId}:${normalizedTerminalStatus}`;
+
+  if (safelyCancellable) {
+    const projected = await applyTransitionTx(tx, {
+      indentId: current.id,
+      tenantId: tid,
+      actorUid: cleanActorUid,
+      commandKey,
+      reason: cleanReason,
+      action: 'cancelled',
+      allowedStatuses: [current.status],
+      lockedCurrent: current,
+      mutate: async (db, indent) => {
+        await releaseWardIndentReservationsTx(db, {
+          indent,
+          releasedBy: cleanActorUid,
+          reason: cleanReason
+        });
+        await db.ward_indent_items.updateMany({
+          where: { ward_indent_id: indent.id, tenant_id: indent.tenant_id },
+          data: {
+            quantity_reserved: 0,
+            quantity_approved: 0,
+            fulfilment_status: 'cancelled',
+            updated_at: new Date()
+          }
+        });
+        return {
+          toStatus: 'cancelled',
+          indentData: {
+            cancelled_by: cleanActorUid,
+            cancelled_at: new Date(),
+            cancellation_reason: cleanReason
+          },
+          details: {
+            clinical_order_id: orderId,
+            clinical_order_terminal_status: normalizedTerminalStatus,
+            terminal_projection: true
+          }
+        };
+      }
+    });
+    return terminalWardIndentProjection(projected, 'cancelled', remainingActiveOrderIds);
+  }
+
+  const projected = await applyTransitionTx(tx, {
+    indentId: current.id,
+    tenantId: tid,
+    actorUid: cleanActorUid,
+    commandKey,
+    reason: cleanReason,
+    action: 'reconciliation_required',
+    allowedStatuses: [current.status],
+    lockedCurrent: current,
+    mutate: async (db, indent) => {
+      const releasedReservationCount = await releaseUnissuedWardIndentReservationsTx(db, {
+        indent,
+        releasedBy: cleanActorUid,
+        reason: cleanReason,
+        wardIndentItemIds: terminalOrderItemIds
+      });
+      await db.ward_indent_items.updateMany({
+        where: {
+          id: { in: terminalOrderItemIds },
+          ward_indent_id: indent.id,
+          tenant_id: indent.tenant_id
+        },
+        data: { fulfilment_status: 'reconciliation_required', updated_at: new Date() }
+      });
+      return {
+        toStatus: 'reconciliation_required',
+        indentData: { reconciliation_reason: cleanReason },
+        details: {
+          clinical_order_id: orderId,
+          clinical_order_terminal_status: normalizedTerminalStatus,
+          terminal_projection: true,
+          released_unissued_reservation_count: releasedReservationCount,
+          remaining_active_clinical_order_ids: remainingActiveOrderIds
+        }
+      };
+    }
+  });
+  return terminalWardIndentProjection(
+    projected,
+    'reconciliation_required',
+    remainingActiveOrderIds
+  );
+}
+
+async function assertCatalogInventoryMappings(tx, tenantId, facilityId, catalogIds) {
   const ids = [...new Set(catalogIds.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))];
-  if (!ids.length) return new Map();
+  if (!ids.length) return;
   const rows = await tx.$queryRawUnsafe(
     `SELECT pc.id AS catalog_id,
-            COUNT(item.id)::int AS linked_item_count,
-            COALESCE(
-              BOOL_OR(item.schedule_class IN ('H', 'H1', 'X') OR item.is_narcotic = TRUE),
-              FALSE
-            ) AS is_controlled
+            COUNT(item.id)::int AS linked_item_count
        FROM pharmacy_catalog pc
        LEFT JOIN pharmacy_inventory_items item
          ON item.tenant_id = pc.tenant_id
-        AND item.catalog_id = pc.id
+         AND item.catalog_id = pc.id
+         AND item.status = 'active'
+         AND (
+           ($3::int IS NULL AND item.facility_id IS NULL)
+           OR
+           ($3::int IS NOT NULL AND (item.facility_id IS NULL OR item.facility_id = $3::int))
+         )
       WHERE pc.tenant_id = $1::uuid
         AND pc.id = ANY($2::int[])
       GROUP BY pc.id`,
     tenantId,
     ids,
+    facilityId == null ? null : Number(facilityId),
   );
-  const out = new Map(rows.map((row) => [Number(row.catalog_id), {
-    controlled: row.is_controlled === true,
-    linked: Number(row.linked_item_count) > 0,
-  }]));
+  const linked = new Map(rows.map((row) => [
+    Number(row.catalog_id),
+    Number(row.linked_item_count),
+  ]));
   for (const id of ids) {
-    if (!out.get(id)?.linked) {
+    if (!linked.get(id)) {
       throw AppError.conflict(
         `Catalog item ${id} has no same-facility inventory classification`,
-        'WARD_INDENT_CONTROLLED_CLASSIFICATION_UNRESOLVED',
+        'WARD_INDENT_INVENTORY_MAPPING_REQUIRED',
         { catalog_id: id },
       );
     }
   }
-  return out;
 }
 
-/**
- * Resolve each catalog id to its linked pharmacy_inventory_items row (lowest
- * id when several link) so ward traffic can be written into the
- * pharmacy_stock_movements audit ledger. classifyCatalogControl has already
- * guaranteed every ward-indent catalog item carries at least one linked
- * inventory classification.
- */
-async function resolveLinkedInventoryItems(tx, tenantId, catalogIds) {
-  const ids = [...new Set(catalogIds.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))];
-  if (!ids.length) return new Map();
+async function loadAllocationControlByItem(tx, indent) {
   const rows = await tx.$queryRawUnsafe(
-    `SELECT catalog_id, MIN(id)::int AS inventory_item_id
-       FROM pharmacy_inventory_items
-      WHERE tenant_id = $1::uuid
-        AND catalog_id = ANY($2::int[])
-      GROUP BY catalog_id`,
-    tenantId,
-    ids,
+    `SELECT allocation.ward_indent_item_id,
+            BOOL_OR(
+              inventory.is_narcotic = TRUE
+              OR COALESCE(inventory.schedule_class IN ('H', 'H1', 'X'), FALSE)
+            ) AS is_controlled,
+            COUNT(DISTINCT (
+              inventory.is_narcotic = TRUE
+              OR COALESCE(inventory.schedule_class IN ('H', 'H1', 'X'), FALSE)
+            ))::int AS classification_count
+       FROM ward_indent_inventory_allocations allocation
+       JOIN pharmacy_inventory_items inventory
+         ON inventory.tenant_id = allocation.tenant_id
+        AND inventory.id = allocation.inventory_item_id
+      WHERE allocation.tenant_id = $1::uuid
+        AND allocation.ward_indent_id = $2::int
+        AND allocation.status <> 'released'
+      GROUP BY allocation.ward_indent_item_id
+      ORDER BY allocation.ward_indent_item_id`,
+    indent.tenant_id,
+    Number(indent.id),
   );
-  return new Map(rows.map((row) => [Number(row.catalog_id), Number(row.inventory_item_id)]));
+  const controlByItem = new Map();
+  for (const row of rows) {
+    if (Number(row.classification_count) !== 1) {
+      throw AppError.conflict(
+        `Ward indent item ${row.ward_indent_item_id} has mixed controlled classifications`,
+        'WARD_INDENT_CONTROLLED_CLASSIFICATION_AMBIGUOUS',
+      );
+    }
+    controlByItem.set(Number(row.ward_indent_item_id), row.is_controlled === true);
+  }
+  return controlByItem;
 }
 
-/**
- * Ward issue/return traffic previously mutated only the pharmacy_catalog
- * counter, leaving the pharmacy_stock_movements audit ledger blind to ward
- * consumption (Sol-verification finding N4). Non-controlled ward movements now
- * append a ledger row per item in the same transaction. inventory_batch_id
- * stays NULL by design: ward stock is tracked on the catalog counter, not the
- * batch/FEFO plane — this restores the movement audit trail without changing
- * availability semantics. (Controlled lines never reach here; they carry
- * witnessed inventory-v2 movement + register evidence.)
- */
-async function appendWardMovementLedgerTx(tx, {
-  tenantId, indentId, inventoryItemId, movementKind, quantityDelta, performedBy, note,
+function assertControlledWardIndentPatient(indent) {
+  if (indent.patient_uid != null) return;
+  throw AppError.conflict(
+    'Controlled medication cannot use a patientless ward-stock indent; use a patient-linked dispense workflow',
+    'WARD_INDENT_CONTROLLED_PATIENT_REQUIRED',
+    { ward_indent_id: Number(indent.id) },
+  );
+}
+
+async function assertControlledWardIndentAdmissionOpenTx(tx, indent) {
+  if (indent.admission_id == null) return;
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT id, billing_closed_at
+       FROM admissions
+      WHERE tenant_id = $1::uuid
+        AND id = $2::int
+        AND patient_uid = $3::uuid
+      FOR SHARE`,
+    indent.tenant_id,
+    Number(indent.admission_id),
+    String(indent.patient_uid),
+  );
+  if (!rows[0]) throw AppError.notFound('Admission not found');
+  if (rows[0].billing_closed_at) {
+    throw AppError.conflict(
+      `Billing is closed for admission ${Number(indent.admission_id)}`,
+      'BILLING_CLOSED',
+    );
+  }
+}
+
+const NON_MEDICATION_CATALOG_CATEGORIES = [
+  'consumable',
+  'consumables',
+  'linen',
+  'medical_supply',
+  'medical_supplies',
+  'sterile_supply',
+  'sterile_supplies',
+  'ward_supply',
+  'ward_supplies',
+];
+
+export async function loadWardIndentCatalogClassificationsTx(tx, {
+  tenantId,
+  catalogIds,
+  lock = false,
+  unavailableCode = 'WARD_INDENT_CATALOG_UNAVAILABLE',
 }) {
-  if (!inventoryItemId) return;
-  await tx.$queryRawUnsafe(
-    `INSERT INTO pharmacy_stock_movements
-       (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
-        quantity_delta, reference_type, reference_id, performed_by, notes)
-     VALUES ($1::uuid, $2::int, NULL, $3, $4::numeric, 'ward_indent', $5, $6::uuid, $7)`,
-    tenantId,
-    Number(inventoryItemId),
-    movementKind,
-    quantityDelta,
-    String(indentId),
-    performedBy ? String(performedBy) : null,
-    note || null,
-  );
-}
-
-async function lockCatalogRows(tx, tenantId, catalogIds) {
-  const ids = [...new Set(catalogIds.map(Number))].sort((a, b) => a - b);
+  const ids = [...new Set((catalogIds || []).map(Number))]
+    .filter((id) => Number.isSafeInteger(id) && id > 0)
+    .sort((a, b) => a - b);
   if (!ids.length) return new Map();
-  const rows = await tx.$queryRawUnsafe(
-    `SELECT id, name, generic_name, unit_price, price, stock_quantity, is_active
-       FROM pharmacy_catalog
-      WHERE tenant_id = $1::uuid
-        AND id = ANY($2::int[])
-      ORDER BY id
-      FOR UPDATE`,
+  const catalogRows = await tx.$queryRawUnsafe(
+    `SELECT catalog.id, catalog.name, catalog.generic_name,
+            catalog.unit_price, catalog.price,
+            catalog.is_active, catalog.category, catalog.requires_prescription,
+            catalog.composition_id, catalog.composition_source,
+            catalog.composition_confidence,
+            catalog.strength, catalog.strength_key, catalog.strength_components,
+            catalog.form, catalog.form_key, catalog.release_key, catalog.route
+       FROM pharmacy_catalog catalog
+      WHERE catalog.tenant_id = $1::uuid
+        AND catalog.id = ANY($2::int[])
+      ORDER BY catalog.id
+      ${lock ? 'FOR SHARE OF catalog' : ''}`,
     tenantId,
     ids,
   );
-  const byId = new Map(rows.map((row) => [Number(row.id), row]));
+  const inventoryRows = await tx.$queryRawUnsafe(
+    `SELECT inventory.id, inventory.catalog_id, inventory.composition_id,
+            inventory.strength, inventory.form, inventory.schedule_class,
+            inventory.is_narcotic, inventory.metadata
+       FROM pharmacy_inventory_items inventory
+      WHERE inventory.tenant_id = $1::uuid
+        AND inventory.catalog_id = ANY($2::int[])
+      ORDER BY inventory.catalog_id, inventory.id
+      ${lock ? 'FOR SHARE OF inventory' : ''}`,
+    tenantId,
+    ids,
+  );
+  const inventoryMedicationCatalogs = new Set(inventoryRows
+    .filter((inventory) => (
+      inventory.composition_id != null
+      || String(inventory.strength || '').trim() !== ''
+      || String(inventory.form || '').trim() !== ''
+      || ['OTC', 'H', 'H1', 'X'].includes(
+        String(inventory.schedule_class || '').trim().toUpperCase(),
+      )
+      || inventory.is_narcotic === true
+      || String(inventory.metadata?.product_type || '').trim().toLowerCase() === 'medication'
+    ))
+    .map((inventory) => Number(inventory.catalog_id)));
+  const byId = new Map(catalogRows.map((catalog) => {
+    const explicitNonMedication = NON_MEDICATION_CATALOG_CATEGORIES.includes(
+      String(catalog.category || '').trim().toLowerCase(),
+    ) && catalog.requires_prescription === false;
+    const catalogMedicationIdentity = (
+      catalog.composition_id != null
+      || String(catalog.strength || '').trim() !== ''
+      || String(catalog.form || '').trim() !== ''
+      || String(catalog.route || '').trim() !== ''
+    );
+    return [Number(catalog.id), {
+      ...catalog,
+      is_medication_identity: catalogMedicationIdentity
+        || inventoryMedicationCatalogs.has(Number(catalog.id))
+        || !explicitNonMedication,
+    }];
+  }));
   for (const id of ids) {
     const row = byId.get(id);
-    if (!row || row.is_active === false) {
-      throw AppError.notFound(`Active catalog item ${id} not found`);
+    if (!row || row.is_active !== true) {
+      throw AppError.conflict(
+        `Active catalog item ${id} is unavailable`,
+        unavailableCode,
+        { catalog_id: id, exists: Boolean(row), is_active: row?.is_active ?? null },
+      );
     }
   }
   return byId;
 }
 
-async function assertReservationAvailability(tx, {
-  tenantId,
-  indentId,
-  items,
-  catalogById,
-  controlByCatalog,
-}) {
-  const nonControlledIds = [...new Set(items
-    .filter((item) => !controlByCatalog.get(Number(item.catalogId))?.controlled)
-    .map((item) => Number(item.catalogId)))];
-  if (!nonControlledIds.length) return;
-  const rows = await tx.$queryRawUnsafe(
-    `SELECT item.pharmacy_catalog_id AS catalog_id,
-            COALESCE(SUM(item.quantity_reserved), 0)::numeric AS reserved_quantity
-       FROM ward_indent_items item
-       JOIN ward_indents indent ON indent.id = item.ward_indent_id
-      WHERE indent.tenant_id = $1::uuid
-        AND indent.id <> $2::int
-        AND indent.status = ANY($3::text[])
-        AND item.pharmacy_catalog_id = ANY($4::int[])
-        AND item.controlled_reference_id IS NULL
-      GROUP BY item.pharmacy_catalog_id`,
-    tenantId,
-    indentId,
-    RESERVATION_STATUSES,
-    nonControlledIds,
-  );
-  const otherReservations = new Map(rows.map((row) => [
-    Number(row.catalog_id),
-    Number(row.reserved_quantity),
-  ]));
-  const requestedByCatalog = new Map();
-  for (const item of items) {
-    const catalogId = Number(item.catalogId);
-    if (controlByCatalog.get(catalogId)?.controlled) continue;
-    requestedByCatalog.set(
-      catalogId,
-      (requestedByCatalog.get(catalogId) || 0) + Number(item.quantity),
+const WARD_MEDICATION_SUBSTITUTION_COMPATIBILITY_RULE =
+  'same_high_confidence_composition_exact_strength_components_form_route_release_v2';
+
+function normalizedClinicalProductText(value) {
+  return String(value ?? '')
+    .normalize('NFKC')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+function canonicalCatalogMedicationName(catalog) {
+  return String(catalog?.name ?? '')
+    .normalize('NFKC')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function exactCatalogDimensionMatches(original, substitute, keyField, fallbackField) {
+  const originalKey = normalizedClinicalProductText(original?.[keyField]);
+  const substituteKey = normalizedClinicalProductText(substitute?.[keyField]);
+  const originalValue = normalizedClinicalProductText(original?.[fallbackField]);
+  const substituteValue = normalizedClinicalProductText(substitute?.[fallbackField]);
+  if (!originalValue || !substituteValue || originalValue !== substituteValue) return false;
+  if (!originalKey && !substituteKey) return true;
+  return Boolean(originalKey && substituteKey && originalKey === substituteKey);
+}
+
+function catalogStrengthComponents(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string') return null;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function strengthComponentSignature(component) {
+  const dimensions = [
+    normalizedClinicalProductText(component?.ingredient),
+    normalizedClinicalProductText(component?.amount ?? component?.value),
+    normalizedClinicalProductText(component?.unit),
+  ];
+  if (dimensions.some((dimension) => !dimension)) return null;
+  return dimensions.join('|');
+}
+
+function exactStrengthComponentsMatch(original, substitute) {
+  const originalValue = original?.strength_components;
+  const substituteValue = substitute?.strength_components;
+  const originalComponents = catalogStrengthComponents(originalValue);
+  const substituteComponents = catalogStrengthComponents(substituteValue);
+  if (
+    !originalComponents
+    || !substituteComponents
+    || originalComponents.length === 0
+    || substituteComponents.length === 0
+  ) return false;
+  if (originalComponents.length !== substituteComponents.length) return false;
+  const originalSignatures = originalComponents.map(strengthComponentSignature).sort();
+  const substituteSignatures = substituteComponents.map(strengthComponentSignature).sort();
+  if (originalSignatures.some((signature) => signature == null)) return false;
+  if (substituteSignatures.some((signature) => signature == null)) return false;
+  return originalSignatures.every((signature, index) => (
+    signature === substituteSignatures[index]
+  ));
+}
+
+function medicationSubstitutionMismatches(original, substitute) {
+  const mismatches = [];
+  const originalCompositionId = Number(original?.composition_id);
+  const substituteCompositionId = Number(substitute?.composition_id);
+  const originalHasComposition = Number.isSafeInteger(originalCompositionId)
+    && originalCompositionId > 0;
+  const substituteHasComposition = Number.isSafeInteger(substituteCompositionId)
+    && substituteCompositionId > 0;
+  if (!originalHasComposition || !substituteHasComposition) {
+    mismatches.push('composition_id_missing');
+  } else if (originalCompositionId !== substituteCompositionId) {
+    mismatches.push('composition_id');
+  }
+  if (
+    normalizedClinicalProductText(original?.composition_confidence) !== 'high'
+    || normalizedClinicalProductText(substitute?.composition_confidence) !== 'high'
+  ) {
+    mismatches.push('composition_confidence');
+  }
+  if (
+    !normalizedClinicalProductText(original?.composition_source)
+    || !normalizedClinicalProductText(substitute?.composition_source)
+  ) {
+    mismatches.push('composition_source_missing');
+  }
+  if (!exactCatalogDimensionMatches(original, substitute, 'strength_key', 'strength')) {
+    mismatches.push('strength');
+  }
+  if (!exactStrengthComponentsMatch(original, substitute)) {
+    mismatches.push('strength_components');
+  }
+  if (!exactCatalogDimensionMatches(original, substitute, 'form_key', 'form')) {
+    mismatches.push('dosage_form');
+  }
+  const originalRoute = comparableMedicationRoute(original?.route);
+  const substituteRoute = comparableMedicationRoute(substitute?.route);
+  if (!originalRoute || !substituteRoute || originalRoute !== substituteRoute) {
+    mismatches.push('route');
+  }
+  const originalRelease = normalizedClinicalProductText(original?.release_key);
+  const substituteRelease = normalizedClinicalProductText(substitute?.release_key);
+  if (!originalRelease || !substituteRelease || originalRelease !== substituteRelease) {
+    mismatches.push('release');
+  }
+  return mismatches;
+}
+
+function substitutionCatalogSnapshot(catalog) {
+  const components = catalogStrengthComponents(catalog?.strength_components) || [];
+  return {
+    catalog_id: Number(catalog?.id),
+    name: normalizedClinicalProductText(catalog?.name) || null,
+    generic_name: normalizedClinicalProductText(catalog?.generic_name) || null,
+    composition_id: Number(catalog?.composition_id),
+    composition_confidence: normalizedClinicalProductText(catalog?.composition_confidence),
+    composition_source: normalizedClinicalProductText(
+      catalog?.composition_source ?? catalog?.metadata?.composition_source,
+    ) || null,
+    strength: normalizedClinicalProductText(catalog?.strength) || null,
+    strength_key: normalizedClinicalProductText(catalog?.strength_key) || null,
+    strength_components: components
+      .map((component) => ({
+        ingredient: normalizedClinicalProductText(component?.ingredient),
+        value: normalizedClinicalProductText(component?.amount ?? component?.value),
+        unit: normalizedClinicalProductText(component?.unit),
+      }))
+      .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))),
+    form: normalizedClinicalProductText(catalog?.form) || null,
+    form_key: normalizedClinicalProductText(catalog?.form_key) || null,
+    route: normalizedClinicalProductText(catalog?.route) || null,
+    release_key: normalizedClinicalProductText(catalog?.release_key) || null,
+  };
+}
+
+export function bindMedicationOrderCatalogAuthority(details, catalog, {
+  phase = 'create',
+} = {}) {
+  if (!details || typeof details !== 'object' || Array.isArray(details) || !catalog?.id) {
+    throw AppError.conflict(
+      'Medication catalog authority context is invalid',
+      'CLINICAL_ORDER_MEDICATION_CATALOG_AUTHORITY_INVALID',
+      { phase },
     );
   }
-  const shortfalls = [];
-  for (const [catalogId, requested] of requestedByCatalog) {
-    const row = catalogById.get(catalogId);
-    const available = Math.max(0, Number(row?.stock_quantity || 0) - (otherReservations.get(catalogId) || 0));
-    if (requested > available) {
-      shortfalls.push({ catalog_id: catalogId, requested, available });
+  const catalogSnapshot = substitutionCatalogSnapshot(catalog);
+  const canonicalMedicationName = canonicalCatalogMedicationName(catalog);
+  const components = catalogSnapshot.strength_components;
+  const incompleteDimensions = [
+    !canonicalMedicationName ? 'medication_name' : null,
+    !Number.isSafeInteger(catalogSnapshot.composition_id)
+      || catalogSnapshot.composition_id <= 0 ? 'composition_id' : null,
+    catalogSnapshot.composition_confidence !== 'high' ? 'composition_confidence' : null,
+    !catalogSnapshot.composition_source ? 'composition_source' : null,
+    !Array.isArray(components)
+      || components.length === 0
+      || components.some((component) => (
+        !component.ingredient || !component.value || !component.unit
+      )) ? 'strength_components' : null,
+    !catalogSnapshot.strength ? 'strength' : null,
+    !catalogSnapshot.form ? 'form' : null,
+    !catalogSnapshot.route ? 'route' : null,
+    !catalogSnapshot.release_key ? 'release' : null,
+  ].filter(Boolean);
+  if (incompleteDimensions.length) {
+    throw AppError.conflict(
+      'Medication catalog lacks complete high-confidence clinical product authority',
+      'CLINICAL_ORDER_MEDICATION_CATALOG_CLINICAL_IDENTITY_INCOMPLETE',
+      {
+        catalog_id: Number(catalog.id),
+        incomplete_dimensions: incompleteDimensions,
+        phase,
+      },
+    );
+  }
+  const prescribedDose = String(details.dose ?? details.dosage ?? '').trim();
+  if (!prescribedDose) {
+    throw AppError.badRequest(
+      'Medication dose is required and must be bound to the selected catalog product',
+      'CLINICAL_ORDER_MEDICATION_DOSE_REQUIRED',
+    );
+  }
+  const prescribedRoute = comparableMedicationRoute(details.route);
+  const catalogRoute = comparableMedicationRoute(catalogSnapshot.route);
+  const suppliedStrength = normalizedClinicalProductText(details.strength);
+  const suppliedStrengthKey = normalizedClinicalProductText(details.strength_key);
+  const suppliedForm = normalizedClinicalProductText(details.form);
+  const suppliedFormKey = normalizedClinicalProductText(details.form_key);
+  const suppliedRelease = normalizedClinicalProductText(details.release_key);
+  const suppliedMedicationName = normalizedClinicalProductText(
+    details.medication_name ?? details.drug_name ?? details.name ?? details.medication,
+  );
+  const mismatches = [];
+  if (
+    suppliedMedicationName
+    && suppliedMedicationName !== normalizedClinicalProductText(canonicalMedicationName)
+  ) {
+    mismatches.push('medication_name');
+  }
+  if (!prescribedRoute || prescribedRoute !== catalogRoute) mismatches.push('route');
+  if (suppliedStrength && suppliedStrength !== catalogSnapshot.strength)
+    mismatches.push('strength');
+  if (suppliedStrengthKey && suppliedStrengthKey !== catalogSnapshot.strength_key) {
+    mismatches.push('strength_key');
+  }
+  if (suppliedForm && suppliedForm !== catalogSnapshot.form) mismatches.push('form');
+  if (suppliedFormKey && suppliedFormKey !== catalogSnapshot.form_key) mismatches.push('form_key');
+  if (suppliedRelease && suppliedRelease !== catalogSnapshot.release_key) mismatches.push('release');
+  const suppliedCompositionId = Number(details.composition_id);
+  if (
+    details.composition_id != null
+    && (!Number.isSafeInteger(suppliedCompositionId)
+      || suppliedCompositionId !== catalogSnapshot.composition_id)
+  ) {
+    mismatches.push('composition_id');
+  }
+  if (mismatches.length) {
+    throw AppError.conflict(
+      'Medication order clinical identity conflicts with the selected catalog product',
+      'CLINICAL_ORDER_MEDICATION_CATALOG_CLINICAL_IDENTITY_MISMATCH',
+      { catalog_id: Number(catalog.id), mismatched_dimensions: mismatches, phase },
+    );
+  }
+  const authority = {
+    version: 'medication_catalog_authority_v1',
+    catalog: catalogSnapshot,
+    prescribed: {
+      medication_name: canonicalMedicationName,
+      dose: prescribedDose,
+      route: canonicalMedicationRoute(catalogSnapshot.route),
+      quantity_requested:
+        details.quantity_requested == null
+          ? null
+          : Number.isFinite(Number(details.quantity_requested))
+            ? Number(details.quantity_requested)
+            : null,
+      unit: String(details.unit || '').trim() || null
+    }
+  };
+  const authoritySha256 = createHash('sha256')
+    .update(JSON.stringify(authority), 'utf8')
+    .digest('hex');
+  if (phase !== 'create') {
+    if (
+      details.catalog_authority?.version !== authority.version
+      || details.catalog_authority_sha256 !== authoritySha256
+    ) {
+      throw AppError.conflict(
+        'Medication order catalog authority changed after prescribing',
+        'CLINICAL_ORDER_MEDICATION_CATALOG_AUTHORITY_MISMATCH',
+        {
+          catalog_id: Number(catalog.id),
+          expected_sha256: details.catalog_authority_sha256 || null,
+          actual_sha256: authoritySha256,
+          phase,
+        },
+      );
     }
   }
-  if (shortfalls.length) {
+  return {
+    ...details,
+    medication_name: canonicalMedicationName,
+    composition_id: catalogSnapshot.composition_id,
+    composition_source: catalogSnapshot.composition_source,
+    composition_confidence: catalogSnapshot.composition_confidence,
+    strength: catalogSnapshot.strength,
+    strength_key: catalogSnapshot.strength_key,
+    strength_components: catalogSnapshot.strength_components,
+    form: catalogSnapshot.form,
+    form_key: catalogSnapshot.form_key,
+    route: canonicalMedicationRoute(catalogSnapshot.route),
+    release_key: catalogSnapshot.release_key,
+    generic_name: catalogSnapshot.generic_name,
+    catalog_authority: authority,
+    catalog_authority_sha256: authoritySha256,
+  };
+}
+
+function substitutionCompatibilityEvidence({ item, originalCatalog, substituteCatalog }) {
+  const provenance = {
+    rule: WARD_MEDICATION_SUBSTITUTION_COMPATIBILITY_RULE,
+    original: substitutionCatalogSnapshot(originalCatalog),
+    substitute: substitutionCatalogSnapshot(substituteCatalog),
+  };
+  return {
+    item_id: Number(item.id),
+    original_catalog_id: Number(originalCatalog.id),
+    substitute_catalog_id: Number(substituteCatalog.id),
+    compatibility_rule: WARD_MEDICATION_SUBSTITUTION_COMPATIBILITY_RULE,
+    provenance,
+    provenance_sha256: createHash('sha256')
+      .update(JSON.stringify(provenance), 'utf8')
+      .digest('hex'),
+  };
+}
+
+function assertWardMedicationSubstitutionCompatibility({
+  item,
+  originalCatalog,
+  substituteCatalog,
+  phase,
+}) {
+  const medicationLine = item.clinical_order_id != null
+    || originalCatalog?.is_medication_identity === true
+    || substituteCatalog?.is_medication_identity === true;
+  if (!medicationLine) return null;
+  if (item.clinical_order_id == null) {
     throw AppError.conflict(
-      'Ward indent stock cannot be fully reserved',
-      'WARD_INDENT_INSUFFICIENT_RESERVABLE_STOCK',
-      { shortfalls },
+      `Medication ward-indent item ${Number(item.id)} requires a clinical order before substitution`,
+      'WARD_INDENT_CLINICAL_ORDER_REQUIRED',
+      { item_id: Number(item.id), phase },
     );
   }
+  if (
+    originalCatalog?.is_medication_identity !== true
+    || substituteCatalog?.is_medication_identity !== true
+  ) {
+    throw AppError.conflict(
+      `Medication ward-indent item ${Number(item.id)} requires medication-classified products`,
+      'WARD_INDENT_MEDICATION_SUBSTITUTION_CLASSIFICATION_MISMATCH',
+      {
+        item_id: Number(item.id),
+        original_catalog_id: Number(originalCatalog?.id) || null,
+        substitute_catalog_id: Number(substituteCatalog?.id) || null,
+        phase,
+      },
+    );
+  }
+  const mismatchedDimensions = medicationSubstitutionMismatches(
+    originalCatalog,
+    substituteCatalog,
+  );
+  if (mismatchedDimensions.length) {
+    throw AppError.conflict(
+      `Medication substitute for ward-indent item ${Number(item.id)} is not clinically compatible`,
+      'WARD_INDENT_MEDICATION_SUBSTITUTION_INCOMPATIBLE',
+      {
+        item_id: Number(item.id),
+        original_catalog_id: Number(originalCatalog.id),
+        substitute_catalog_id: Number(substituteCatalog.id),
+        compatibility_rule: WARD_MEDICATION_SUBSTITUTION_COMPATIBILITY_RULE,
+        mismatched_dimensions: mismatchedDimensions,
+        phase,
+      },
+    );
+  }
+  return substitutionCompatibilityEvidence({ item, originalCatalog, substituteCatalog });
+}
+
+async function assertActiveWardIndentPrescriberTx(tx, tenantId, actorUid) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT role
+       FROM users
+      WHERE tenant_id = $1::uuid
+        AND uid = $2::uuid
+        AND is_active = TRUE
+        AND COALESCE(is_deleted, FALSE) = FALSE
+        AND deleted_at IS NULL
+        AND LOWER(COALESCE(status, 'active')) = 'active'
+      LIMIT 1
+      FOR SHARE`,
+    tenantId,
+    actorUid,
+  );
+  if (!DOCTOR_TIERS.includes(String(rows[0]?.role || '').trim().toUpperCase())) {
+    throw AppError.forbidden(
+      'Only an active same-tenant prescriber may approve a medication substitution',
+      'WARD_INDENT_SUBSTITUTION_ACTIVE_PRESCRIBER_REQUIRED',
+    );
+  }
+  return rows[0];
+}
+
+export async function loadMedicationCatalogAuthorityTx(tx, {
+  tenantId,
+  catalogIds,
+  lock = false,
+  unavailableCode = 'WARD_INDENT_CATALOG_UNAVAILABLE',
+  classificationCode = 'WARD_INDENT_MEDICATION_CATALOG_CLASSIFICATION_MISMATCH',
+}) {
+  const byId = await loadWardIndentCatalogClassificationsTx(tx, {
+    tenantId,
+    catalogIds,
+    lock,
+    unavailableCode,
+  });
+  for (const [catalogId, catalog] of byId) {
+    if (catalog.is_medication_identity !== true) {
+      throw AppError.conflict(
+        `Catalog item ${catalogId} is not classified as medication`,
+        classificationCode,
+        { catalog_id: catalogId, category: catalog.category || null },
+      );
+    }
+  }
+  return byId;
 }
 
 export async function initializeWardIndentWorkflowTx(tx, {
@@ -805,7 +2038,7 @@ export async function initializeWardIndentWorkflowTx(tx, {
     },
     include: { items: { orderBy: { id: 'asc' } } },
   });
-  await appendTransitionEvidence(tx, {
+  const event = await appendTransitionEvidence(tx, {
     before: null,
     after: initialized,
     action: 'requested',
@@ -814,6 +2047,11 @@ export async function initializeWardIndentWorkflowTx(tx, {
     details: { source },
   });
   await requireSlaStart(tx, initialized, 'requested', { source });
+  await materializeWardIndentStateObligationTx(tx, {
+    indent: initialized,
+    event,
+    actorUid: cleanActorUid,
+  });
   return loadWardIndentWorkflow(tx, initialized.id, initialized.tenant_id);
 }
 
@@ -821,14 +2059,18 @@ export async function reserveWardIndent({
   indentId,
   reservedBy,
   itemQuantitiesReserved = null,
+  inventorySelections = null,
   expectedVersion = null,
   commandKey = null,
   tenantId,
+  actorRole = null,
 }) {
   return applyTransition({
     indentId,
     tenantId,
     actorUid: reservedBy,
+    actorRole,
+    facilityGrantRequired: true,
     expectedVersion,
     commandKey,
     action: 'reserved',
@@ -839,7 +2081,8 @@ export async function reserveWardIndent({
         'quantity_reserved',
         current.items,
       );
-      const reservations = current.items.map((item) => {
+      const targetQuantities = new Map();
+      for (const item of current.items) {
         if (!item.pharmacy_catalog_id) {
           throw AppError.conflict(
             `Ward indent item ${item.id} must be linked to a catalog item before reservation`,
@@ -856,31 +2099,25 @@ export async function reserveWardIndent({
             'WARD_INDENT_SHORT_SUPPLY_REQUIRED',
           );
         }
-        return {
-          item,
-          catalogId: Number(item.pharmacy_catalog_id),
-          quantity: desired,
-        };
+        targetQuantities.set(Number(item.id), desired);
+      }
+      const exact = await reserveWardIndentInventoryTx(tx, {
+        indent: current,
+        reservedBy,
+        targetQuantities,
+        inventorySelections,
+        commandKey,
+        allowShortSupply: false,
       });
-      const catalogIds = reservations.map((entry) => entry.catalogId);
-      const catalogById = await lockCatalogRows(tx, current.tenant_id, catalogIds);
-      const controlByCatalog = await classifyCatalogControl(tx, current.tenant_id, catalogIds);
-      await assertReservationAvailability(tx, {
-        tenantId: current.tenant_id,
-        indentId: current.id,
-        items: reservations,
-        catalogById,
-        controlByCatalog,
-      });
-      for (const entry of reservations) {
-        const controlled = controlByCatalog.get(entry.catalogId)?.controlled === true;
+      for (const item of current.items) {
+        const controlled = exact.controlledByItem.get(Number(item.id)) === true;
         await tx.ward_indent_items.update({
-          where: { id: entry.item.id },
+          where: { id: item.id },
           data: {
-            quantity_reserved: entry.quantity,
+            quantity_reserved: exact.actualByItem.get(Number(item.id)),
             fulfilment_status: 'reserved',
             controlled_reference_id: controlled
-              ? `ward-indent:${current.id}:item:${entry.item.id}`
+              ? `ward-indent:${current.id}:item:${item.id}`
               : null,
             updated_at: new Date(),
           },
@@ -889,7 +2126,7 @@ export async function reserveWardIndent({
       return {
         toStatus: 'reserved',
         indentData: { short_supply_reason: null },
-        details: { reserved_item_count: reservations.length },
+        details: { reserved_item_count: current.items.length, exact_batch_reservation: true },
       };
     },
   });
@@ -900,15 +2137,19 @@ export async function markWardIndentShortSupply({
   markedBy,
   reason,
   itemQuantitiesAvailable,
+  inventorySelections = null,
   expectedVersion = null,
   commandKey = null,
   tenantId,
+  actorRole = null,
 }) {
   const cleanReason = reasonText(reason, 'short_supply_reason');
   return applyTransition({
     indentId,
     tenantId,
     actorUid: markedBy,
+    actorRole,
+    facilityGrantRequired: true,
     expectedVersion,
     commandKey,
     reason: cleanReason,
@@ -921,7 +2162,8 @@ export async function markWardIndentShortSupply({
         current.items,
         { required: true, allowZero: true },
       );
-      const reservations = current.items.map((item) => {
+      const targetQuantities = new Map();
+      for (const item of current.items) {
         if (!item.pharmacy_catalog_id) {
           throw AppError.conflict(
             `Ward indent item ${item.id} must be linked to a catalog item before short supply can be recorded`,
@@ -929,29 +2171,24 @@ export async function markWardIndentShortSupply({
             { item_id: item.id },
           );
         }
-        return {
-          item,
-          catalogId: Number(item.pharmacy_catalog_id),
-          quantity: available.has(item.id)
+        targetQuantities.set(
+          Number(item.id),
+          available.has(item.id)
             ? available.get(item.id)
             : Number(item.quantity_reserved || 0),
-        };
-      });
-      const catalogIds = reservations.map((entry) => entry.catalogId);
-      const catalogById = await lockCatalogRows(tx, current.tenant_id, catalogIds);
-      const controlByCatalog = await classifyCatalogControl(tx, current.tenant_id, catalogIds);
-      await assertReservationAvailability(tx, {
-        tenantId: current.tenant_id,
-        indentId: current.id,
-        items: reservations,
-        catalogById,
-        controlByCatalog,
+        );
+      }
+      const exact = await reserveWardIndentInventoryTx(tx, {
+        indent: current,
+        reservedBy: markedBy,
+        targetQuantities,
+        inventorySelections,
+        commandKey,
+        allowShortSupply: true,
       });
       let hasShortfall = false;
       for (const item of current.items) {
-        const qty = available.has(item.id)
-          ? available.get(item.id)
-          : Number(item.quantity_reserved || 0);
+        const qty = exact.actualByItem.get(Number(item.id)) || 0;
         if (qty > Number(item.quantity_requested)) {
           throw AppError.badRequest(`Item ${item.id} available quantity exceeds requested quantity`);
         }
@@ -963,6 +2200,9 @@ export async function markWardIndentShortSupply({
             fulfilment_status: qty < Number(item.quantity_requested)
               ? 'short_supply'
               : 'reserved',
+            controlled_reference_id: exact.controlledByItem.get(Number(item.id)) === true
+              ? `ward-indent:${current.id}:item:${item.id}`
+              : null,
             updated_at: new Date(),
           },
         });
@@ -973,7 +2213,7 @@ export async function markWardIndentShortSupply({
       return {
         toStatus: 'short_supply',
         indentData: { short_supply_reason: cleanReason },
-        details: { short_supply_reason: cleanReason },
+        details: { short_supply_reason: cleanReason, shortfalls: exact.shortfalls },
       };
     },
   });
@@ -986,11 +2226,14 @@ export async function proposeWardIndentSubstitution({
   expectedVersion = null,
   commandKey = null,
   tenantId,
+  actorRole = null,
 }) {
   return applyTransition({
     indentId,
     tenantId,
     actorUid: proposedBy,
+    actorRole,
+    facilityGrantRequired: true,
     expectedVersion,
     commandKey,
     action: 'substitution_proposed',
@@ -1021,6 +2264,9 @@ export async function proposeWardIndentSubstitution({
         }
         proposals.push({
           item,
+          originalCatalogId: Number(
+            item.original_pharmacy_catalog_id || item.pharmacy_catalog_id,
+          ),
           catalogId,
           quantity: quantity(
             entry?.quantity ?? item.quantity_requested,
@@ -1029,14 +2275,18 @@ export async function proposeWardIndentSubstitution({
           reason: reasonText(entry?.reason, 'substitution reason'),
         });
       }
-      const catalogById = await lockCatalogRows(
+      const catalogById = await loadWardIndentCatalogClassificationsTx(tx, {
+        tenantId: current.tenant_id,
+        catalogIds: proposals.flatMap((entry) => [
+          entry.originalCatalogId,
+          entry.catalogId,
+        ]),
+        lock: true,
+      });
+      await assertCatalogInventoryMappings(
         tx,
         current.tenant_id,
-        proposals.map((entry) => entry.catalogId),
-      );
-      await classifyCatalogControl(
-        tx,
-        current.tenant_id,
+        current.facility_id,
         proposals.map((entry) => entry.catalogId),
       );
       for (const proposal of proposals) {
@@ -1044,6 +2294,12 @@ export async function proposeWardIndentSubstitution({
           throw AppError.badRequest(`Item ${proposal.item.id} substitution quantity exceeds requested quantity`);
         }
         const catalog = catalogById.get(proposal.catalogId);
+        proposal.compatibilityEvidence = assertWardMedicationSubstitutionCompatibility({
+          item: proposal.item,
+          originalCatalog: catalogById.get(proposal.originalCatalogId),
+          substituteCatalog: catalog,
+          phase: 'proposal',
+        });
         await tx.ward_indent_items.update({
           where: { id: proposal.item.id },
           data: {
@@ -1063,6 +2319,9 @@ export async function proposeWardIndentSubstitution({
         toStatus: 'substitution_pending',
         details: {
           substitution_item_ids: proposals.map((entry) => entry.item.id),
+          medication_substitution_compatibility: proposals
+            .map((entry) => entry.compatibilityEvidence)
+            .filter(Boolean),
         },
       };
     },
@@ -1085,67 +2344,204 @@ export async function approveWardIndentSubstitution({
     action: 'substitution_approved',
     allowedStatuses: ['substitution_pending'],
     mutate: async (tx, current) => {
+      await assertActiveWardIndentPrescriberTx(tx, current.tenant_id, decidedBy);
       const pending = current.items.filter((item) => item.substitution_status === 'pending');
       if (!pending.length) throw AppError.conflict('Ward indent has no pending substitutions');
       const pendingIds = new Set(pending.map((item) => Number(item.id)));
-      const reservations = current.items.map((item) => ({
-        item,
-        catalogId: pendingIds.has(Number(item.id))
-          ? Number(item.proposed_pharmacy_catalog_id)
-          : Number(item.pharmacy_catalog_id),
-        quantity: pendingIds.has(Number(item.id))
-          ? Number(item.proposed_quantity)
-          : Number(item.quantity_reserved),
-      }));
-      const catalogIds = reservations.map((entry) => entry.catalogId);
-      const catalogById = await lockCatalogRows(tx, current.tenant_id, catalogIds);
-      const controlByCatalog = await classifyCatalogControl(tx, current.tenant_id, catalogIds);
-      await assertReservationAvailability(tx, {
+      const catalogIds = current.items.flatMap((item) => (
+        pendingIds.has(Number(item.id))
+          ? [
+            Number(item.original_pharmacy_catalog_id || item.pharmacy_catalog_id),
+            Number(item.proposed_pharmacy_catalog_id),
+          ]
+          : [Number(item.pharmacy_catalog_id)]
+      ));
+      const catalogById = await loadWardIndentCatalogClassificationsTx(tx, {
         tenantId: current.tenant_id,
-        indentId: current.id,
-        items: reservations,
-        catalogById,
-        controlByCatalog,
+        catalogIds,
+        lock: true,
+        unavailableCode: 'WARD_INDENT_SUBSTITUTION_CATALOG_CHANGED',
       });
-      for (const entry of reservations.filter(({ item }) => pendingIds.has(Number(item.id)))) {
-        const catalog = catalogById.get(entry.catalogId);
-        const controlled = controlByCatalog.get(entry.catalogId)?.controlled === true;
+      await assertCatalogInventoryMappings(
+        tx,
+        current.tenant_id,
+        current.facility_id,
+        catalogIds,
+      );
+      const compatibilityEvidence = [];
+      for (const item of pending) {
+        const catalogId = Number(item.proposed_pharmacy_catalog_id);
+        const catalog = catalogById.get(catalogId);
+        if (!catalog) {
+          throw AppError.conflict(
+            `Proposed catalog item for ward indent item ${item.id} is no longer active`,
+            'WARD_INDENT_SUBSTITUTION_CATALOG_CHANGED',
+          );
+        }
+        const originalCatalogId = Number(
+          item.original_pharmacy_catalog_id || item.pharmacy_catalog_id,
+        );
+        const compatibility = assertWardMedicationSubstitutionCompatibility({
+          item,
+          originalCatalog: catalogById.get(originalCatalogId),
+          substituteCatalog: catalog,
+          phase: 'approval',
+        });
+        if (compatibility) compatibilityEvidence.push(compatibility);
         await tx.ward_indent_items.update({
-          where: { id: entry.item.id },
+          where: { id: item.id },
           data: {
-            original_pharmacy_catalog_id: entry.item.original_pharmacy_catalog_id
-              || entry.item.pharmacy_catalog_id,
-            original_item_name: entry.item.original_item_name || entry.item.item_name,
-            pharmacy_catalog_id: entry.catalogId,
-            item_name: catalog.name,
-            unit_price: catalog.unit_price ?? catalog.price ?? entry.item.unit_price,
-            quantity_reserved: entry.quantity,
             substitution_status: 'approved',
             substitution_decided_by: decidedBy,
             substitution_decided_at: new Date(),
-            fulfilment_status: entry.quantity < Number(entry.item.quantity_requested)
+            fulfilment_status: 'substitution_pending',
+            updated_at: new Date(),
+          },
+        });
+      }
+      return {
+        toStatus: 'substitution_pending',
+        details: {
+          substitution_item_ids: pending.map((item) => item.id),
+          medication_substitution_compatibility: compatibilityEvidence,
+          inventory_action_required: 'apply_approved_substitution',
+        },
+      };
+    },
+  });
+}
+
+export async function applyApprovedWardIndentSubstitution({
+  indentId,
+  appliedBy,
+  actorRole = null,
+  inventorySelections = null,
+  expectedVersion = null,
+  commandKey = null,
+  tenantId,
+}) {
+  return applyTransition({
+    indentId,
+    tenantId,
+    actorUid: appliedBy,
+    actorRole,
+    facilityGrantRequired: true,
+    expectedVersion,
+    commandKey,
+    action: 'substitution_applied',
+    allowedStatuses: ['substitution_pending'],
+    mutate: async (tx, current) => {
+      const approved = current.items.filter((item) => item.substitution_status === 'approved');
+      if (!approved.length) {
+        throw AppError.conflict(
+          'Ward indent has no clinician-approved substitutions to apply',
+          'WARD_INDENT_SUBSTITUTION_APPROVAL_REQUIRED',
+        );
+      }
+      if (current.items.some((item) => item.substitution_status === 'pending')) {
+        throw AppError.conflict(
+          'Every pending substitution requires a clinician decision before inventory can change',
+          'WARD_INDENT_SUBSTITUTION_DECISION_INCOMPLETE',
+        );
+      }
+      const approvedIds = new Set(approved.map((item) => Number(item.id)));
+      // The application-phase compatibility recheck below reads BOTH sides of the
+      // swap out of catalogById, so the outgoing product has to be loaded alongside
+      // the proposed one -- exactly as approveWardIndentSubstitution does. Loading
+      // only the proposed catalog left originalCatalog undefined, which the
+      // classification guard reads as "not medication-classified" and refuses.
+      const catalogIds = current.items.flatMap((item) => (
+        approvedIds.has(Number(item.id))
+          ? [
+            Number(item.original_pharmacy_catalog_id || item.pharmacy_catalog_id),
+            Number(item.proposed_pharmacy_catalog_id),
+          ]
+          : [Number(item.pharmacy_catalog_id)]
+      ));
+      const catalogById = await loadWardIndentCatalogClassificationsTx(tx, {
+        tenantId: current.tenant_id,
+        catalogIds,
+        lock: true,
+      });
+      await assertCatalogInventoryMappings(
+        tx,
+        current.tenant_id,
+        current.facility_id,
+        catalogIds,
+      );
+      const compatibilityEvidence = [];
+      for (const item of approved) {
+        const catalogId = Number(item.proposed_pharmacy_catalog_id);
+        const catalog = catalogById.get(catalogId);
+        const originalCatalogId = Number(
+          item.original_pharmacy_catalog_id || item.pharmacy_catalog_id,
+        );
+        const compatibility = assertWardMedicationSubstitutionCompatibility({
+          item,
+          originalCatalog: catalogById.get(originalCatalogId),
+          substituteCatalog: catalog,
+          phase: 'application',
+        });
+        if (compatibility) compatibilityEvidence.push(compatibility);
+        await tx.ward_indent_items.update({
+          where: { id: item.id },
+          data: {
+            original_pharmacy_catalog_id: item.original_pharmacy_catalog_id
+              || item.pharmacy_catalog_id,
+            original_item_name: item.original_item_name || item.item_name,
+            pharmacy_catalog_id: catalogId,
+            item_name: catalog.name,
+            unit_price: catalog.unit_price ?? catalog.price ?? item.unit_price,
+            fulfilment_status: 'substitution_pending',
+            updated_at: new Date(),
+          },
+        });
+      }
+      const updatedItems = await tx.ward_indent_items.findMany({
+        where: { ward_indent_id: current.id, tenant_id: current.tenant_id },
+        orderBy: { id: 'asc' },
+      });
+      const targetQuantities = new Map(updatedItems.map((item) => [
+        Number(item.id),
+        approvedIds.has(Number(item.id))
+          ? Number(item.proposed_quantity)
+          : Number(item.quantity_reserved),
+      ]));
+      const exact = await reserveWardIndentInventoryTx(tx, {
+        indent: { ...current, items: updatedItems },
+        reservedBy: appliedBy,
+        targetQuantities,
+        inventorySelections,
+        commandKey,
+        allowShortSupply: true,
+      });
+      for (const item of updatedItems) {
+        const reserved = exact.actualByItem.get(Number(item.id)) || 0;
+        await tx.ward_indent_items.update({
+          where: { id: item.id },
+          data: {
+            quantity_reserved: reserved,
+            fulfilment_status: reserved < Number(item.quantity_requested)
               ? 'short_supply'
               : 'reserved',
-            controlled_reference_id: controlled
-              ? `ward-indent:${current.id}:item:${entry.item.id}`
+            controlled_reference_id: exact.controlledByItem.get(Number(item.id)) === true
+              ? `ward-indent:${current.id}:item:${item.id}`
               : null,
             updated_at: new Date(),
           },
         });
       }
-      const rows = await tx.ward_indent_items.findMany({
-        where: { ward_indent_id: current.id, tenant_id: current.tenant_id },
-        select: { quantity_requested: true, quantity_reserved: true },
-      });
-      const fullyReserved = rows.every(
-        (item) => Number(item.quantity_reserved) === Number(item.quantity_requested),
-      );
+      const fullyReserved = updatedItems.every((item) => (
+        Number(exact.actualByItem.get(Number(item.id)) || 0) === Number(item.quantity_requested)
+      ));
       return {
         toStatus: fullyReserved ? 'reserved' : 'short_supply',
         indentData: fullyReserved ? { short_supply_reason: null } : {},
         details: {
-          substitution_item_ids: pending.map((item) => item.id),
+          substitution_item_ids: approved.map((item) => item.id),
+          medication_substitution_compatibility: compatibilityEvidence,
           fully_reserved: fullyReserved,
+          shortfalls: exact.shortfalls,
         },
       };
     },
@@ -1202,17 +2598,20 @@ export async function approveWardIndent({
   expectedVersion = null,
   commandKey = null,
   tenantId,
+  actorRole = null,
 }) {
   return applyTransition({
     indentId,
     tenantId,
     actorUid: approvedBy,
+    actorRole,
+    facilityGrantRequired: true,
     expectedVersion,
     commandKey,
     action: 'approved',
     allowedStatuses: ['reserved'],
     mutate: async (tx, current) => {
-      const catalogIds = current.items.map((item) => {
+      for (const item of current.items) {
         if (!item.pharmacy_catalog_id) {
           throw AppError.conflict(
             `Ward indent item ${item.id} has no catalog link`,
@@ -1225,12 +2624,24 @@ export async function approveWardIndent({
             'WARD_INDENT_NOT_FULLY_RESERVED',
           );
         }
-        return Number(item.pharmacy_catalog_id);
-      });
-      const controlByCatalog = await classifyCatalogControl(tx, current.tenant_id, catalogIds);
+      }
+      const controlByItem = await loadAllocationControlByItem(tx, current);
+      const controlledItemIds = current.items
+        .filter((item) => controlByItem.get(Number(item.id)) === true)
+        .map((item) => Number(item.id));
+      if (controlledItemIds.length) {
+        assertControlledWardIndentPatient(current);
+        await assertControlledWardIndentAdmissionOpenTx(tx, current);
+      }
       let controlledCount = 0;
       for (const item of current.items) {
-        const controlled = controlByCatalog.get(Number(item.pharmacy_catalog_id))?.controlled === true;
+        const controlled = controlByItem.get(Number(item.id)) === true;
+        if (!controlByItem.has(Number(item.id))) {
+          throw AppError.conflict(
+            `Ward indent item ${item.id} has no exact inventory allocation`,
+            'WARD_INDENT_EXACT_RESERVATION_MISMATCH',
+          );
+        }
         if (controlled) controlledCount += 1;
         await tx.ward_indent_items.update({
           where: { id: item.id },
@@ -1264,12 +2675,15 @@ export async function rejectWardIndent({
   expectedVersion = null,
   commandKey = null,
   tenantId,
+  actorRole = null,
 }) {
   const cleanReason = reasonText(reason, 'rejection reason');
   return applyTransition({
     indentId,
     tenantId,
     actorUid: rejectedBy,
+    actorRole,
+    facilityGrantRequired: true,
     expectedVersion,
     commandKey,
     reason: cleanReason,
@@ -1292,6 +2706,11 @@ export async function rejectWardIndent({
           'WARD_INDENT_REJECTION_REQUIRES_RECONCILIATION',
         );
       }
+      await releaseWardIndentReservationsTx(tx, {
+        indent: current,
+        releasedBy: rejectedBy,
+        reason: cleanReason,
+      });
       await tx.ward_indent_items.updateMany({
         where: { ward_indent_id: current.id, tenant_id: current.tenant_id },
         data: {
@@ -1313,80 +2732,138 @@ export async function rejectWardIndent({
   });
 }
 
-async function validateControlledEvidence(tx, {
+async function loadWardControlledWitnessPayloadTx(tx, {
   tenantId,
-  indent,
-  item,
-  evidence,
-  movementKind,
-  registerKind,
-  expectedReference,
-  expectedQuantity,
+  indentId,
+  itemId,
+  allocationId,
+  requestedBy,
+  actorRole,
 }) {
-  const movementId = positiveInt(evidence?.movement_id, 'movement_id');
-  const registerId = positiveInt(evidence?.register_id, 'register_id');
-  const rows = await tx.$queryRawUnsafe(
-    `SELECT movement.id AS movement_id,
-            movement.inventory_item_id,
-            movement.movement_kind,
-            movement.quantity_delta,
-            movement.reference_type,
-            movement.reference_id,
-            register_entry.id AS register_id,
-            register_entry.movement_kind AS register_movement_kind,
-            register_entry.quantity AS register_quantity,
-            register_entry.patient_uid,
-            inventory.catalog_id,
-            inventory.schedule_class,
-            inventory.is_narcotic
-       FROM pharmacy_stock_movements movement
-       JOIN pharmacy_schedule_register register_entry
-         ON register_entry.tenant_id = movement.tenant_id
-        AND register_entry.reference_movement_id = movement.id
-       JOIN pharmacy_inventory_items inventory
-         ON inventory.tenant_id = movement.tenant_id
-        AND inventory.id = movement.inventory_item_id
-      WHERE movement.tenant_id = $1::uuid
-        AND movement.id = $2::int
-        AND register_entry.id = $3::int`,
+  const current = await lockWardIndent(tx, indentId, tenantId);
+  if (!current.facility_id) {
+    throw AppError.conflict(
+      'Ward indent has no pinned facility authority',
+      'WARD_INDENT_FACILITY_REQUIRED',
+    );
+  }
+  await assertPharmacyFacilityGrant(tx, {
     tenantId,
-    movementId,
-    registerId,
-  );
-  const row = rows[0];
-  const signedQuantity = movementKind === 'issue'
-    ? -Math.abs(Number(expectedQuantity))
-    : Math.abs(Number(expectedQuantity));
-  if (
-    !row
-    || row.movement_kind !== movementKind
-    || Number(row.quantity_delta) !== signedQuantity
-    || row.register_movement_kind !== registerKind
-    || Number(row.register_quantity) !== Math.abs(Number(expectedQuantity))
-    || String(row.reference_id || '') !== expectedReference
-    || Number(row.catalog_id) !== Number(item.pharmacy_catalog_id)
-    || (!CONTROLLED_SCHEDULES.has(row.schedule_class) && row.is_narcotic !== true)
-    || (indent.patient_uid && String(row.patient_uid || '') !== String(indent.patient_uid))
-  ) {
+    facilityId: Number(current.facility_id),
+    actorUid: requestedBy,
+    actorRole,
+    forUpdate: true,
+  });
+  assertControlledWardIndentPatient(current);
+  await assertControlledWardIndentAdmissionOpenTx(tx, current);
+  if (String(current.status) !== 'controlled_handoff_required') {
     throw AppError.conflict(
-      `Controlled-drug evidence does not match ward indent item ${item.id}`,
-      'WARD_INDENT_CONTROLLED_EVIDENCE_MISMATCH',
-      { item_id: item.id, movement_id: movementId, register_id: registerId },
+      'Ward indent is not awaiting a controlled handoff',
+      'WARD_INDENT_CONTROLLED_HANDOFF_STATE_INVALID',
     );
   }
-  if (movementKind === 'issue' && row.reference_type !== 'controlled_dispense') {
-    throw AppError.conflict(
-      `Controlled-drug issue evidence for item ${item.id} is not a sanctioned dispense`,
-      'WARD_INDENT_CONTROLLED_EVIDENCE_PATH_MISMATCH',
+  const item = current.items.find((candidate) => Number(candidate.id) === Number(itemId));
+  if (!item || !item.controlled_reference_id) {
+    throw AppError.badRequest(
+      'item_id must identify a controlled line on this ward indent',
+      'WARD_INDENT_CONTROLLED_ITEM_REQUIRED',
     );
   }
-  if (movementKind === 'return' && row.reference_type !== 'ward_indent_return') {
+  if (!item.clinical_order_id) {
     throw AppError.conflict(
-      `Controlled-drug return evidence for item ${item.id} is not a sanctioned ward-indent return`,
-      'WARD_INDENT_CONTROLLED_RETURN_PATH_MISMATCH',
+      'Controlled ward dispensing requires a linked medication clinical order',
+      'WARD_INDENT_CONTROLLED_CLINICAL_ORDER_REQUIRED',
     );
   }
-  return { movementId, registerId };
+  const closure = await loadWardIndentMedicationClosureTx(tx, tenantId, current.id);
+  const allocations = closure.allocations.filter((allocation) => (
+    Number(allocation.ward_indent_item_id) === Number(item.id)
+    && String(allocation.id) === String(allocationId)
+    && ['reserved', 'partially_issued'].includes(String(allocation.status))
+  ));
+  if (allocations.length !== 1) {
+    throw AppError.conflict(
+      'Witness request must identify one active controlled allocation',
+      'WARD_INDENT_CONTROLLED_ALLOCATION_MISMATCH',
+    );
+  }
+  const allocation = allocations[0];
+  const quantity = Number(allocation.reserved_quantity)
+    - Number(allocation.issued_quantity || 0)
+    - Number(allocation.authority_released_quantity || 0);
+  if (quantity <= 0 || Math.abs(quantity - Number(item.quantity_approved)) > 1e-9) {
+    throw AppError.conflict(
+      'Controlled ward allocation quantity changed',
+      'WARD_INDENT_EXACT_RESERVATION_MISMATCH',
+    );
+  }
+  return wardControlledHandoffWitnessPayload({
+    ward_indent_id: current.id,
+    ward_indent_item_id: item.id,
+    allocation_id: allocation.id,
+    inventory_item_id: allocation.inventory_item_id,
+    inventory_batch_id: allocation.inventory_batch_id,
+    quantity,
+    patient_uid: current.patient_uid,
+    clinical_order_id: item.clinical_order_id,
+    catalog_id: item.pharmacy_catalog_id,
+    reference_id: item.controlled_reference_id,
+  });
+}
+
+export async function requestWardIndentControlledWitnessApproval({
+  tenantId,
+  indentId,
+  itemId,
+  allocationId,
+  requestedBy,
+  actorRole,
+}) {
+  const tid = tenantOf(tenantId);
+  const payload = await setTenantTx(tid, (tx) => loadWardControlledWitnessPayloadTx(tx, {
+    tenantId: tid,
+    indentId,
+    itemId,
+    allocationId,
+    requestedBy,
+    actorRole,
+  }));
+  const approval = await createControlledDispenseWitnessApproval({
+    tenantId: tid,
+    scope: CONTROLLED_DISPENSE_APPROVAL_SCOPES.wardIndent,
+    payload,
+    requestedBy,
+  });
+  return approval;
+}
+
+export async function approveWardIndentControlledWitnessApproval({
+  tenantId,
+  indentId,
+  itemId,
+  allocationId,
+  requesterUid,
+  requesterRole,
+  witnessUid,
+  approvalId,
+}) {
+  const tid = tenantOf(tenantId);
+  const payload = await setTenantTx(tid, (tx) => loadWardControlledWitnessPayloadTx(tx, {
+    tenantId: tid,
+    indentId,
+    itemId,
+    allocationId,
+    requestedBy: requesterUid,
+    actorRole: requesterRole,
+  }));
+  const approval = await approveControlledDispenseWitnessApproval({
+    tenantId: tid,
+    approvalId,
+    actorUid: witnessUid,
+    payload,
+    requesterUid,
+  });
+  return approval;
 }
 
 export async function recordWardIndentControlledHandoff({
@@ -1396,24 +2873,45 @@ export async function recordWardIndentControlledHandoff({
   expectedVersion = null,
   commandKey = null,
   tenantId,
+  actorRole = null,
 }) {
   return applyTransition({
     indentId,
     tenantId,
     actorUid: recordedBy,
+    actorRole,
+    facilityGrantRequired: true,
+    facilityGrantRoles: CONTROLLED_HANDOFF_OWNERS,
     expectedVersion,
     commandKey,
     action: 'controlled_handoff_recorded',
     allowedStatuses: ['controlled_handoff_required'],
     mutate: async (tx, current) => {
+      assertControlledWardIndentPatient(current);
+      await assertControlledWardIndentAdmissionOpenTx(tx, current);
       if (!Array.isArray(itemEvidence) || itemEvidence.length === 0) {
         throw AppError.badRequest('item_evidence must be a non-empty array');
       }
       const evidenceByItem = new Map();
+      const recoveryByItem = new Map();
       for (const entry of itemEvidence) {
         const itemId = positiveInt(entry?.item_id, 'item_id');
         if (evidenceByItem.has(itemId)) throw AppError.badRequest(`Duplicate item evidence ${itemId}`);
         evidenceByItem.set(itemId, entry);
+        const recovery = historicalControlledRecoverySelection(entry);
+        if (recovery && entry.witness_approval_id != null) {
+          throw AppError.badRequest(
+            'Historical recovery cannot consume a new witness approval',
+            'WARD_INDENT_CONTROLLED_RECOVERY_SELECTION_INVALID',
+          );
+        }
+        if (recovery) recoveryByItem.set(itemId, recovery);
+      }
+      if (recoveryByItem.size && !String(commandKey || '').trim()) {
+        throw AppError.badRequest(
+          'Historical controlled custody recovery requires an idempotent command key',
+          'WARD_INDENT_CONTROLLED_RECOVERY_COMMAND_REQUIRED',
+        );
       }
       const controlled = current.items.filter((item) => item.controlled_reference_id);
       if (!controlled.length) throw AppError.conflict('Ward indent has no controlled lines');
@@ -1423,24 +2921,163 @@ export async function recordWardIndentControlledHandoff({
           throw AppError.badRequest(`Item evidence ${itemId} is not a controlled line on this indent`);
         }
       }
+      const pendingEvidence = await loadPendingControlledHandoffEvidence(tx, current);
+      const pendingEvidenceByItem = new Map(
+        pendingEvidence.map((candidate) => [Number(candidate.item_id), candidate]),
+      );
+      const corruptEvidence = pendingEvidence.filter(
+        (candidate) => candidate.status === 'corrupt',
+      );
+      if (corruptEvidence.length) {
+        throw AppError.conflict(
+          'Controlled custody evidence conflicts with the ward allocation; external reconciliation is required',
+          'WARD_INDENT_CONTROLLED_CUSTODY_RECONCILIATION_REQUIRED',
+          {
+            reconciliation_gate: 'external_controlled_custody_reconciliation_required',
+            items: corruptEvidence,
+          },
+        );
+      }
+      const unselectedRecovery = pendingEvidence.filter((candidate) => (
+        candidate.status === 'available'
+        && !recoveryByItem.has(Number(candidate.item_id))
+      ));
+      if (unselectedRecovery.length) {
+        throw AppError.conflict(
+          'Historical controlled custody requires an explicit pharmacy in-charge selection',
+          'WARD_INDENT_CONTROLLED_RECOVERY_SELECTION_REQUIRED',
+          { items: unselectedRecovery },
+        );
+      }
+      for (const [itemId, selection] of recoveryByItem) {
+        const candidate = pendingEvidenceByItem.get(itemId);
+        if (candidate?.status !== 'available'
+          || candidate.movement_id !== selection.movement_id
+          || candidate.register_id !== selection.register_id) {
+          throw AppError.conflict(
+            'Historical controlled custody selection does not identify the one recoverable pair',
+            'WARD_INDENT_CONTROLLED_RECOVERY_SELECTION_INVALID',
+            {
+              item_id: itemId,
+              selected_movement_id: selection.movement_id,
+              selected_register_id: selection.register_id,
+              evidence: candidate || null,
+            },
+          );
+        }
+      }
+      const closure = await loadWardIndentMedicationClosureTx(
+        tx,
+        current.tenant_id,
+        current.id,
+      );
+      let recoverySupervisor = null;
+      if (recoveryByItem.size) {
+        recoverySupervisor = await assertWardControlledRecoverySupervisorTx(tx, {
+          indent: current,
+          actorUid: recordedBy,
+          actorRole,
+        });
+        await assertWardIndentMedicationBindingAtIssueTx(tx, current);
+      }
+      let recoveredControlledItemCount = 0;
+      let createdControlledItemCount = 0;
+      const recoveryReceipts = [];
       for (const item of controlled) {
         const evidence = evidenceByItem.get(Number(item.id));
         if (!evidence) throw AppError.badRequest(`Controlled evidence is required for item ${item.id}`);
-        const validated = await validateControlledEvidence(tx, {
-          tenantId: current.tenant_id,
+        const allocations = closure.allocations.filter((allocation) => (
+          Number(allocation.ward_indent_item_id) === Number(item.id)
+          && ['reserved', 'partially_issued'].includes(String(allocation.status))
+          && Number(allocation.reserved_quantity)
+            - Number(allocation.issued_quantity || 0)
+            - Number(allocation.authority_released_quantity || 0) > 0
+        ));
+        if (allocations.length !== 1) {
+          throw AppError.conflict(
+            `Controlled ward indent item ${item.id} must have one exact active allocation`,
+            'WARD_INDENT_CONTROLLED_ALLOCATION_MISMATCH',
+            { item_id: Number(item.id), allocation_count: allocations.length },
+          );
+        }
+        const allocation = allocations[0];
+        const outstanding = Number(allocation.reserved_quantity)
+          - Number(allocation.issued_quantity || 0)
+          - Number(allocation.authority_released_quantity || 0);
+        if (Math.abs(outstanding - Number(item.quantity_approved)) > 1e-9) {
+          throw AppError.conflict(
+            `Controlled ward indent item ${item.id} allocation quantity changed`,
+            'WARD_INDENT_EXACT_RESERVATION_MISMATCH',
+          );
+        }
+        const pendingCandidate = pendingEvidenceByItem.get(Number(item.id));
+        const recoverySelection = recoveryByItem.get(Number(item.id));
+        let movementId;
+        let registerId;
+        if (pendingCandidate?.status === 'available') {
+          if (String(pendingCandidate.allocation_id) !== String(allocation.id)) {
+            throw AppError.conflict(
+              'Historical controlled custody no longer matches the locked allocation',
+              'WARD_INDENT_CONTROLLED_RECOVERY_SELECTION_INVALID',
+              {
+                item_id: Number(item.id),
+                selected_allocation_id: pendingCandidate.allocation_id,
+                locked_allocation_id: String(allocation.id),
+              },
+            );
+          }
+          movementId = Number(pendingCandidate.movement_id);
+          registerId = Number(pendingCandidate.register_id);
+          recoveredControlledItemCount += 1;
+        } else {
+          const controlledResult = await dispenseWardControlledAllocationTx(tx, {
+            tenantId: current.tenant_id,
+            facilityId: Number(current.facility_id),
+            indentId: Number(current.id),
+            wardItemId: Number(item.id),
+            allocationId: allocation.id,
+            inventoryItemId: Number(allocation.inventory_item_id),
+            inventoryBatchId: Number(allocation.inventory_batch_id),
+            quantity: outstanding,
+            patientUid: current.patient_uid,
+            clinicalOrderId: item.clinical_order_id,
+            catalogId: item.pharmacy_catalog_id,
+            referenceId: item.controlled_reference_id,
+            performedBy: recordedBy,
+            witnessApprovalId: evidence.witness_approval_id || null,
+            commandKey,
+            wardAuthority: WARD_CONTROLLED_HANDOFF_AUTHORITY,
+          });
+          movementId = Number(controlledResult.movement.id);
+          registerId = Number(controlledResult.register_entry.id);
+          createdControlledItemCount += 1;
+        }
+        await linkControlledWardIndentMovementTx(tx, {
           indent: current,
-          item,
-          evidence,
-          movementKind: 'issue',
-          registerKind: 'dispense',
-          expectedReference: item.controlled_reference_id,
-          expectedQuantity: Number(item.quantity_approved),
+          wardItem: item,
+          movementId,
+          controlledRegisterId: registerId,
+          purpose: 'issue',
+          actor: recordedBy,
+          commandKey,
+          stateVersion: Number(current.state_version) + 1,
         });
+        if (recoverySelection) {
+          recoveryReceipts.push(controlledRecoveryReceipt({
+            indent: current,
+            item,
+            allocation,
+            candidate: pendingCandidate,
+            selection: recoverySelection,
+            supervisor: recoverySupervisor,
+            commandKey,
+          }));
+        }
         await tx.ward_indent_items.update({
           where: { id: item.id },
           data: {
-            controlled_movement_id: validated.movementId,
-            controlled_register_id: validated.registerId,
+            controlled_movement_id: movementId,
+            controlled_register_id: registerId,
             quantity_issued: Number(item.quantity_approved),
             fulfilment_status: 'controlled_handoff_recorded',
             updated_at: new Date(),
@@ -1449,7 +3086,12 @@ export async function recordWardIndentControlledHandoff({
       }
       return {
         toStatus: 'approved',
-        details: { controlled_item_count: controlled.length },
+        details: {
+          controlled_item_count: controlled.length,
+          recovered_controlled_item_count: recoveredControlledItemCount,
+          created_controlled_item_count: createdControlledItemCount,
+          controlled_recovery_receipts: recoveryReceipts,
+        },
       };
     },
   });
@@ -1461,6 +3103,336 @@ function linkedClinicalOrderIds(items) {
     .filter((id) => Number.isSafeInteger(id) && id > 0))];
 }
 
+function wardMedicationOrderDetails(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+  if (typeof value !== 'string') return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function wardMedicationOrderCatalogId(details) {
+  const value = details.catalog_id ?? details.catalogId;
+  const id = typeof value === 'number'
+    ? value
+    : typeof value === 'string' && /^[1-9]\d*$/.test(value.trim())
+      ? Number(value.trim())
+      : null;
+  return Number.isSafeInteger(id) && id > 0 && id <= PG_INT4_MAX ? id : null;
+}
+
+function wardMedicationOrderQuantity(details) {
+  const value = String(details.quantity_requested ?? '').trim();
+  if (!/^(?:\d+(?:\.\d{1,2})?|\.\d{1,2})$/.test(value)) return null;
+  const quantityValue = Number(value);
+  return Number.isFinite(quantityValue)
+    && quantityValue > 0
+    && quantityValue <= 99999999.99
+    ? quantityValue
+    : null;
+}
+
+function wardMedicationOrderUnit(details) {
+  const value = details.unit;
+  const unitValue = String(value ?? '').trim();
+  return unitValue || null;
+}
+
+function normalizedWardMedicationUnit(value) {
+  return String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+async function assertWardIndentMedicationBindingAtIssueTx(tx, current) {
+  const catalogIds = current.items
+    .flatMap((item) => [
+      Number(item.pharmacy_catalog_id),
+      Number(item.original_pharmacy_catalog_id),
+    ])
+    .filter((id) => Number.isSafeInteger(id) && id > 0);
+  const catalogById = await loadWardIndentCatalogClassificationsTx(tx, {
+    tenantId: current.tenant_id,
+    catalogIds,
+    lock: true,
+  });
+  const medicationItems = current.items.filter((item) => (
+    current.indent_type === 'pharmacy'
+    || item.clinical_order_id != null
+    || catalogById.get(Number(item.pharmacy_catalog_id))?.is_medication_identity === true
+  ));
+  if (!medicationItems.length) {
+    return { clinicalOrderIds: [], substitutionCompatibilityEvidence: [] };
+  }
+  if (medicationItems.length !== current.items.length) {
+    throw AppError.conflict(
+      'Medication and non-medication ward-stock lines cannot share one indent',
+      'WARD_INDENT_MIXED_CLINICAL_CLASSIFICATION',
+    );
+  }
+  for (const item of medicationItems) {
+    const catalogId = Number(item.pharmacy_catalog_id);
+    if (catalogById.get(catalogId)?.is_medication_identity !== true) {
+      throw AppError.conflict(
+        `Ward-indent catalog ${catalogId} is no longer classified as medication`,
+        'WARD_INDENT_MEDICATION_CATALOG_CLASSIFICATION_MISMATCH',
+        { ward_indent_item_id: Number(item.id), catalog_id: catalogId },
+      );
+    }
+  }
+  if (current.indent_type !== 'pharmacy') {
+    throw AppError.conflict(
+      'Medication catalog lines must be persisted as a pharmacy ward indent',
+      'WARD_INDENT_MEDICATION_TYPE_MISMATCH',
+    );
+  }
+  const clinicalOrderIds = linkedClinicalOrderIds(medicationItems);
+  if (clinicalOrderIds.length !== medicationItems.length) {
+    throw AppError.conflict(
+      'Every medication ward-indent line must remain bound to a clinical order',
+      'WARD_INDENT_CLINICAL_ORDER_REQUIRED',
+    );
+  }
+  if (current.admission_id == null) {
+    throw AppError.conflict(
+      'Medication ward indents require an active inpatient admission',
+      'WARD_INDENT_ADMISSION_REQUIRED',
+    );
+  }
+  const admissions = await tx.$queryRawUnsafe(
+    `SELECT admission.id, admission.status, admission.patient_uid::text,
+            admission.encounter_id::text, bed.ward_id
+       FROM admissions admission
+       LEFT JOIN beds bed
+         ON bed.tenant_id = admission.tenant_id
+        AND bed.id = admission.bed_id
+      WHERE admission.tenant_id = $1::uuid
+        AND admission.id = $2::int
+      FOR SHARE OF admission`,
+    current.tenant_id,
+    Number(current.admission_id),
+  );
+  const admission = admissions[0];
+  if (!admission) {
+    throw AppError.conflict(
+      'Medication ward-indent admission is unavailable',
+      'WARD_INDENT_ADMISSION_NOT_FOUND',
+    );
+  }
+  if (!['admitted', 'transferred'].includes(
+    String(admission.status || '').trim().toLowerCase(),
+  )) {
+    throw AppError.conflict(
+      'Medication ward-indent admission is no longer active',
+      'WARD_INDENT_ADMISSION_INACTIVE',
+      { admission_id: Number(admission.id), status: admission.status || null },
+    );
+  }
+  if (
+    !admission.patient_uid
+    || !admission.encounter_id
+    || admission.ward_id == null
+    || String(admission.patient_uid) !== String(current.patient_uid)
+    || String(admission.encounter_id) !== String(current.encounter_id)
+    || Number(admission.ward_id) !== Number(current.ward_id)
+  ) {
+    throw AppError.conflict(
+      'Medication ward-indent context no longer matches its active admission',
+      'WARD_INDENT_ADMISSION_CONTEXT_MISMATCH',
+    );
+  }
+  const orders = await tx.$queryRawUnsafe(
+    `SELECT clinical_order.id, clinical_order.patient_uid::text,
+             clinical_order.encounter_id::text, clinical_order.order_type,
+             clinical_order.status, clinical_order.verified_by::text,
+             clinical_order.verified_at, clinical_order.details
+       FROM clinical_orders clinical_order
+      WHERE clinical_order.tenant_id = $1::uuid
+        AND clinical_order.id = ANY($2::int[])
+       ORDER BY clinical_order.id
+       FOR UPDATE OF clinical_order`,
+    current.tenant_id,
+    clinicalOrderIds,
+  );
+  const orderById = new Map(orders.map((order) => [Number(order.id), order]));
+  const substitutionCompatibilityEvidence = [];
+  const approvedSubstitutionRows = await tx.$queryRawUnsafe(
+    `SELECT details
+       FROM ward_indent_events
+      WHERE tenant_id = $1::uuid
+        AND ward_indent_id = $2::int
+        AND action = 'substitution_approved'
+      ORDER BY state_version DESC
+      LIMIT 1
+      FOR SHARE`,
+    current.tenant_id,
+    Number(current.id),
+  );
+  const approvedSubstitutionEvidence = new Map(
+    (Array.isArray(approvedSubstitutionRows[0]?.details?.medication_substitution_compatibility)
+      ? approvedSubstitutionRows[0].details.medication_substitution_compatibility
+      : [])
+      .map((evidence) => [Number(evidence?.item_id), evidence]),
+  );
+  for (const item of medicationItems) {
+    const clinicalOrderId = Number(item.clinical_order_id);
+    const order = orderById.get(clinicalOrderId);
+    if (!order || order.order_type !== 'medication') {
+      throw AppError.conflict(
+        `Medication clinical order ${clinicalOrderId} is unavailable at issue`,
+        'MEDICATION_ORDER_EXECUTION_ORDER_NOT_FOUND',
+        { clinical_order_id: clinicalOrderId },
+      );
+    }
+    const orderStatus = String(order.status || '').trim().toLowerCase();
+    if (!['verified', 'in_progress'].includes(orderStatus)) {
+      throw AppError.conflict(
+        `Medication clinical order ${clinicalOrderId} is not verified and active at issue`,
+        'MEDICATION_ORDER_VERIFICATION_REQUIRED',
+        { clinical_order_id: clinicalOrderId, status: order.status || null },
+      );
+    }
+    if (!order.verified_by || !order.verified_at) {
+      throw AppError.conflict(
+        `Medication clinical order ${clinicalOrderId} lacks dedicated verification evidence`,
+        'MEDICATION_ORDER_VERIFICATION_EVIDENCE_REQUIRED',
+        { clinical_order_id: clinicalOrderId, status: order.status || null },
+      );
+    }
+    if (String(order.patient_uid) !== String(admission.patient_uid)) {
+      throw AppError.conflict(
+        `Clinical order ${clinicalOrderId} no longer matches the admission patient`,
+        'WARD_INDENT_CLINICAL_ORDER_PATIENT_MISMATCH',
+      );
+    }
+    if (
+      !order.encounter_id
+      || String(order.encounter_id) !== String(admission.encounter_id)
+    ) {
+      throw AppError.conflict(
+        `Clinical order ${clinicalOrderId} no longer matches the admission encounter`,
+        'WARD_INDENT_CLINICAL_ORDER_ENCOUNTER_MISMATCH',
+      );
+    }
+    const details = wardMedicationOrderDetails(order.details);
+    const expectedCatalogId = wardMedicationOrderCatalogId(details);
+    if (expectedCatalogId == null) {
+      throw AppError.conflict(
+        `Clinical order ${clinicalOrderId} has no authoritative formulary catalog`,
+        'WARD_INDENT_CLINICAL_ORDER_CATALOG_REQUIRED',
+      );
+    }
+    bindMedicationOrderCatalogAuthority(
+      details,
+      catalogById.get(expectedCatalogId),
+      { phase: 'issue' },
+    );
+    const currentCatalogId = Number(item.pharmacy_catalog_id);
+    const originalCatalogId = Number(item.original_pharmacy_catalog_id);
+    const substitutionApproved = String(item.substitution_status || '').trim().toLowerCase()
+      === 'approved';
+    const approvedSubstitutionEvidenceComplete = substitutionApproved
+      && originalCatalogId === expectedCatalogId
+      && Number(item.proposed_pharmacy_catalog_id) === currentCatalogId
+      && item.substitution_proposed_by != null
+      && item.substitution_proposed_at != null
+      && String(item.substitution_reason || '').trim() !== ''
+      && item.substitution_decided_by != null
+      && item.substitution_decided_at != null
+      && catalogById.get(currentCatalogId)?.is_medication_identity === true;
+    if (currentCatalogId !== expectedCatalogId && approvedSubstitutionEvidenceComplete) {
+      const compatibility = assertWardMedicationSubstitutionCompatibility({
+        item,
+        originalCatalog: catalogById.get(originalCatalogId),
+        substituteCatalog: catalogById.get(currentCatalogId),
+        phase: 'issue',
+      });
+      const approvedEvidence = approvedSubstitutionEvidence.get(Number(item.id));
+      if (
+        !compatibility
+        || !approvedEvidence
+        || !approvedEvidence.provenance_sha256
+        || approvedEvidence.provenance_sha256 !== compatibility.provenance_sha256
+      ) {
+        throw AppError.conflict(
+          `Approved medication substitution evidence changed before issue for item ${Number(item.id)}`,
+          'WARD_INDENT_MEDICATION_SUBSTITUTION_PROVENANCE_MISMATCH',
+          {
+            item_id: Number(item.id),
+            approved_provenance_sha256: approvedEvidence?.provenance_sha256 || null,
+            issue_provenance_sha256: compatibility?.provenance_sha256 || null,
+          },
+        );
+      }
+      substitutionCompatibilityEvidence.push(compatibility);
+    }
+    if (currentCatalogId !== expectedCatalogId && !approvedSubstitutionEvidenceComplete) {
+      throw AppError.conflict(
+        `Ward-indent catalog no longer matches clinical order ${clinicalOrderId}`,
+        'WARD_INDENT_CLINICAL_ORDER_CATALOG_MISMATCH',
+        {
+          clinical_order_id: clinicalOrderId,
+          ordered_catalog_id: expectedCatalogId,
+          ward_catalog_id: currentCatalogId,
+          substitution_status: item.substitution_status || null,
+        },
+      );
+    }
+    const expectedQuantity = wardMedicationOrderQuantity(details);
+    if (expectedQuantity == null) {
+      throw AppError.conflict(
+        `Clinical order ${clinicalOrderId} has no authoritative ward-supply quantity`,
+        'WARD_INDENT_CLINICAL_ORDER_QUANTITY_REQUIRED',
+      );
+    }
+    if (Math.abs(Number(item.quantity_requested) - expectedQuantity) > Number.EPSILON) {
+      throw AppError.conflict(
+        `Ward-indent quantity no longer matches clinical order ${clinicalOrderId}`,
+        'WARD_INDENT_CLINICAL_ORDER_QUANTITY_MISMATCH',
+      );
+    }
+    const expectedUnit = wardMedicationOrderUnit(details);
+    if (!expectedUnit) {
+      throw AppError.conflict(
+        `Clinical order ${clinicalOrderId} has no authoritative ward-supply unit`,
+        'WARD_INDENT_CLINICAL_ORDER_UNIT_REQUIRED',
+      );
+    }
+    if (normalizedWardMedicationUnit(item.unit) !== normalizedWardMedicationUnit(expectedUnit)) {
+      throw AppError.conflict(
+        `Ward-indent unit no longer matches clinical order ${clinicalOrderId}`,
+        'WARD_INDENT_CLINICAL_ORDER_UNIT_MISMATCH',
+      );
+    }
+    const progressedRows = await tx.$queryRawUnsafe(
+      `UPDATE clinical_orders
+          SET status = status
+        WHERE tenant_id = $1::uuid
+          AND id = $2::int
+          AND order_type = 'medication'
+          AND lower(status) IN ('verified', 'in_progress')
+          AND verified_by IS NOT NULL
+          AND verified_at IS NOT NULL
+        RETURNING id, status`,
+      current.tenant_id,
+      clinicalOrderId,
+    );
+    if (progressedRows.length !== 1) {
+      throw AppError.conflict(
+        `Medication clinical order ${clinicalOrderId} changed before issue`,
+        'MEDICATION_ORDER_EXECUTION_STATE_CONFLICT',
+        { clinical_order_id: clinicalOrderId },
+      );
+    }
+  }
+  await assertMedicationOrdersExecutionReadyTx(tx, {
+    tenantId: current.tenant_id,
+    clinicalOrderIds,
+  });
+  return { clinicalOrderIds, substitutionCompatibilityEvidence };
+}
+
 export async function issueWardIndent({
   indentId,
   issuedBy,
@@ -1468,33 +3440,28 @@ export async function issueWardIndent({
   expectedVersion = null,
   commandKey = null,
   tenantId,
+  actorRole = null,
 }) {
   return applyTransition({
     indentId,
     tenantId,
     actorUid: issuedBy,
+    actorRole,
+    facilityGrantRequired: true,
     expectedVersion,
     commandKey,
     action: 'issued',
     allowedStatuses: ['approved'],
     mutate: async (tx, current) => {
+      const {
+        clinicalOrderIds,
+        substitutionCompatibilityEvidence,
+      } = await assertWardIndentMedicationBindingAtIssueTx(tx, current);
       const issuedMap = itemEntryMap(
         itemQuantitiesIssued,
         'quantity_issued',
         current.items,
       );
-      const catalogIds = current.items.map((item) => Number(item.pharmacy_catalog_id));
-      const controlByCatalog = await classifyCatalogControl(tx, current.tenant_id, catalogIds);
-      const nonControlledCatalogIds = current.items
-        .filter((item) => !controlByCatalog.get(Number(item.pharmacy_catalog_id))?.controlled)
-        .map((item) => Number(item.pharmacy_catalog_id));
-      await lockCatalogRows(tx, current.tenant_id, nonControlledCatalogIds);
-      const inventoryItemByCatalog = await resolveLinkedInventoryItems(
-        tx,
-        current.tenant_id,
-        nonControlledCatalogIds,
-      );
-
       for (const item of current.items) {
         const approvedQuantity = Number(item.quantity_approved);
         const issuedQuantity = issuedMap.has(item.id)
@@ -1506,44 +3473,15 @@ export async function issueWardIndent({
             'WARD_INDENT_ISSUE_QUANTITY_MISMATCH',
           );
         }
-        const controlled = controlByCatalog.get(Number(item.pharmacy_catalog_id))?.controlled === true;
-        if (controlled) {
-          if (!item.controlled_movement_id || !item.controlled_register_id) {
-            throw AppError.conflict(
-              `Controlled item ${item.id} has no witnessed handoff evidence`,
-              'WARD_INDENT_CONTROLLED_HANDOFF_REQUIRED',
-            );
-          }
-        } else {
-          const rows = await tx.$queryRawUnsafe(
-            `UPDATE pharmacy_catalog
-                SET stock_quantity = stock_quantity - $1::numeric,
-                    updated_at = NOW()
-              WHERE id = $2::int
-                AND tenant_id = $3::uuid
-                AND COALESCE(stock_quantity, 0) >= $1::numeric
-              RETURNING id, stock_quantity`,
-            issuedQuantity,
-            Number(item.pharmacy_catalog_id),
-            current.tenant_id,
-          );
-          if (!rows[0]) {
-            throw AppError.conflict(
-              `Stock changed before item ${item.id} could be issued`,
-              'WARD_INDENT_STOCK_CHANGED_BEFORE_ISSUE',
-              { item_id: item.id },
-            );
-          }
-          await appendWardMovementLedgerTx(tx, {
-            tenantId: current.tenant_id,
-            indentId: current.id,
-            inventoryItemId: inventoryItemByCatalog.get(Number(item.pharmacy_catalog_id)),
-            movementKind: 'issue',
-            quantityDelta: -issuedQuantity,
-            performedBy: issuedBy,
-            note: `Ward indent ${current.indent_number || current.id} item ${item.id} issued to ${current.ward_name || 'ward'}`,
-          });
-        }
+      }
+      const inventoryClosure = await issueWardIndentInventoryTx(tx, {
+        indent: current,
+        issuedBy,
+        commandKey,
+        nextStateVersion: Number(current.state_version) + 1,
+      });
+      for (const item of current.items) {
+        const issuedQuantity = Number(item.quantity_approved);
         await tx.ward_indent_items.update({
           where: { id: item.id },
           data: {
@@ -1554,30 +3492,29 @@ export async function issueWardIndent({
         });
       }
 
-      const clinicalOrderIds = linkedClinicalOrderIds(current.items);
-      if (clinicalOrderIds.length) {
-        await tx.clinical_orders.updateMany({
-          where: {
-            id: { in: clinicalOrderIds },
-            tenant_id: current.tenant_id,
-            order_type: 'medication',
-            status: { in: ['ordered', 'verified', 'in_progress'] },
-          },
-          data: {
-            status: 'verified',
-            verified_by: issuedBy,
-            verified_at: new Date(),
-            updated_at: new Date(),
-          },
-        });
-      }
       return {
         toStatus: 'issued',
         indentData: {
           issued_by: issuedBy,
           issued_at: new Date(),
         },
-        details: { verified_clinical_order_ids: clinicalOrderIds },
+        details: {
+          verified_clinical_order_ids: clinicalOrderIds,
+          medication_substitution_compatibility: substitutionCompatibilityEvidence,
+          inventory_movement_ids: inventoryClosure.movementIds,
+          billing_invoice_id: inventoryClosure.invoice == null
+            ? null
+            : Number(inventoryClosure.invoice.id),
+        },
+        afterEvidence: async ({ event }) => {
+          await appendWardIndentChargeEventsTx(tx, {
+            indent: current,
+            wardEvent: event,
+            issuedBy,
+            commandKey,
+            chargePlans: inventoryClosure.chargePlans,
+          });
+        },
       };
     },
   });
@@ -1587,6 +3524,7 @@ export async function receiveWardIndent({
   indentId,
   receivedBy,
   itemQuantitiesReceived = null,
+  substitutionAcknowledgements = null,
   expectedVersion = null,
   commandKey = null,
   tenantId,
@@ -1615,6 +3553,7 @@ export async function receiveWardIndent({
       const receiveAll = receivedMap.size === 0;
       let progressed = false;
       let fullyReceived = true;
+      const desiredReceivedByItem = new Map();
       for (const item of current.items) {
         const issuedQuantity = Number(item.quantity_issued || 0);
         const currentReceived = Number(item.quantity_received || 0);
@@ -1628,6 +3567,20 @@ export async function receiveWardIndent({
         }
         if (desired > currentReceived) progressed = true;
         if (desired !== issuedQuantity) fullyReceived = false;
+        desiredReceivedByItem.set(Number(item.id), desired);
+      }
+      if (!progressed) throw AppError.conflict('Receipt command made no quantity progress');
+      await receiveWardIndentInventoryTx(tx, {
+        indent: current,
+        receivedBy,
+        commandKey,
+        desiredReceivedByItem,
+        substitutionAcknowledgements,
+        nextStateVersion: Number(current.state_version) + 1,
+      });
+      for (const item of current.items) {
+        const issuedQuantity = Number(item.quantity_issued || 0);
+        const desired = desiredReceivedByItem.get(Number(item.id));
         await tx.ward_indent_items.update({
           where: { id: item.id },
           data: {
@@ -1639,7 +3592,6 @@ export async function receiveWardIndent({
           },
         });
       }
-      if (!progressed) throw AppError.conflict('Receipt command made no quantity progress');
       return {
         toStatus: fullyReceived ? 'received' : 'partially_received',
         indentData: fullyReceived ? {
@@ -1672,12 +3624,29 @@ export async function requestWardIndentReturn({
     action: 'return_requested',
     allowedStatuses: ['partially_received', 'received'],
     mutate: async (tx, current) => {
+      await assertNoOpenWardAllocationAuthorityRecoveryTx(tx, {
+        tenantId: current.tenant_id,
+        wardIndentId: current.id,
+      });
       const returnMap = itemEntryMap(
         itemQuantitiesReturned,
         'quantity_returned',
         current.items,
         { required: true, allowZero: true },
       );
+      const medicationClosure = await loadWardIndentMedicationClosureTx(
+        tx,
+        current.tenant_id,
+        current.id,
+      );
+      const consumedByItem = new Map();
+      for (const allocation of medicationClosure.allocations) {
+        const itemId = Number(allocation.ward_indent_item_id);
+        consumedByItem.set(
+          itemId,
+          (consumedByItem.get(itemId) || 0) + Number(allocation.consumed_quantity || 0),
+        );
+      }
       let requestedCount = 0;
       for (const item of current.items) {
         const desired = returnMap.has(item.id)
@@ -1685,9 +3654,10 @@ export async function requestWardIndentReturn({
           : Number(item.quantity_return_requested || 0);
         const receivedQuantity = Number(item.quantity_received || 0);
         const returnedQuantity = Number(item.quantity_returned || 0);
-        if (desired < returnedQuantity || desired > receivedQuantity) {
+        const returnCeiling = receivedQuantity - (consumedByItem.get(Number(item.id)) || 0);
+        if (desired < returnedQuantity || desired > returnCeiling) {
           throw AppError.badRequest(
-            `Item ${item.id} return quantity must be between ${returnedQuantity} and ${receivedQuantity}`,
+            `Item ${item.id} return quantity must be between ${returnedQuantity} and ${returnCeiling}`,
           );
         }
         if (desired > returnedQuantity) requestedCount += 1;
@@ -1751,29 +3721,30 @@ export async function reconcileWardIndent({
   indentId,
   reconciledBy,
   reason,
-  controlledReturnEvidence = null,
   itemReconciliations = null,
+  allocationReturns = null,
   expectedVersion = null,
   commandKey = null,
   tenantId,
+  actorRole = null,
 }) {
   const cleanReason = reasonText(reason, 'reconciliation reason');
   return applyTransition({
     indentId,
     tenantId,
     actorUid: reconciledBy,
+    actorRole,
+    facilityGrantRequired: String(actorRole || '').toUpperCase() === 'PHARMACY_INCHARGE',
     expectedVersion,
     commandKey,
     reason: cleanReason,
     action: 'reconciled',
     allowedStatuses: ['return_pending', 'reconciliation_required'],
     mutate: async (tx, current) => {
-      const evidenceByItem = new Map();
-      for (const evidence of (Array.isArray(controlledReturnEvidence) ? controlledReturnEvidence : [])) {
-        const itemId = positiveInt(evidence?.item_id, 'item_id');
-        if (evidenceByItem.has(itemId)) throw AppError.badRequest(`Duplicate return evidence ${itemId}`);
-        evidenceByItem.set(itemId, evidence);
-      }
+      await assertNoOpenWardAllocationAuthorityRecoveryTx(tx, {
+        tenantId: current.tenant_id,
+        wardIndentId: current.id,
+      });
       const reconciliationByItem = new Map();
       for (const entry of (Array.isArray(itemReconciliations) ? itemReconciliations : [])) {
         const itemId = positiveInt(entry?.item_id, 'item_id');
@@ -1795,38 +3766,21 @@ export async function reconcileWardIndent({
           note: reasonText(entry?.note, 'reconciliation note'),
         });
       }
-      const catalogIds = current.items
-        .filter((item) => Number(item.quantity_return_requested) > Number(item.quantity_returned))
-        .map((item) => Number(item.pharmacy_catalog_id));
-      const controlByCatalog = catalogIds.length
-        ? await classifyCatalogControl(tx, current.tenant_id, catalogIds)
-        : new Map();
-      const controlledReturnItemIds = new Set(current.items
-        .filter((item) => (
-          Number(item.quantity_return_requested) > Number(item.quantity_returned)
-          && controlByCatalog.get(Number(item.pharmacy_catalog_id))?.controlled === true
-        ))
-        .map((item) => Number(item.id)));
-      for (const itemId of evidenceByItem.keys()) {
-        if (!controlledReturnItemIds.has(itemId)) {
-          throw AppError.badRequest(`Return evidence ${itemId} is not required for this indent`);
-        }
-      }
-      const returnCatalogIds = current.items
-        .filter((item) => (
-          Number(item.quantity_return_requested) > Number(item.quantity_returned)
-          && !controlByCatalog.get(Number(item.pharmacy_catalog_id))?.controlled
-        ))
-        .map((item) => Number(item.pharmacy_catalog_id));
-      await lockCatalogRows(tx, current.tenant_id, returnCatalogIds);
-      const returnInventoryItemByCatalog = await resolveLinkedInventoryItems(
-        tx,
-        current.tenant_id,
-        returnCatalogIds,
-      );
-      let returnedItemCount = 0;
+      const inventoryReturn = await returnWardIndentInventoryTx(tx, {
+        indent: current,
+        returnedBy: reconciledBy,
+        commandKey,
+        nextStateVersion: Number(current.state_version) + 1,
+        allocationReturns,
+      });
+      const controlledReturnReferences = [...inventoryReturn.controlledByItem.entries()]
+        .map(([itemId, evidence]) => ({
+          item_id: Number(itemId),
+          movement_id: evidence.movementId,
+          register_id: evidence.registerId,
+        }));
+      const returnedItemCount = inventoryReturn.returnPlans.length;
       let varianceItemCount = 0;
-      const controlledReturnReferences = [];
       for (const item of current.items) {
         const issued = Number(item.quantity_issued || 0);
         const received = Number(item.quantity_received || 0);
@@ -1860,49 +3814,7 @@ export async function reconcileWardIndent({
         const alreadyReturned = Number(item.quantity_returned || 0);
         const outstanding = requested - alreadyReturned;
         if (outstanding <= 0) continue;
-        const controlled = controlByCatalog.get(Number(item.pharmacy_catalog_id))?.controlled === true;
-        let controlledReturn = null;
-        if (controlled) {
-          const evidence = evidenceByItem.get(Number(item.id));
-          if (!evidence) throw AppError.badRequest(`Controlled return evidence is required for item ${item.id}`);
-          controlledReturn = await validateControlledEvidence(tx, {
-            tenantId: current.tenant_id,
-            indent: current,
-            item,
-            evidence,
-            movementKind: 'return',
-            registerKind: 'return',
-            expectedReference: `ward-indent-return:${current.id}:item:${item.id}`,
-            expectedQuantity: outstanding,
-          });
-          controlledReturnReferences.push({
-            item_id: Number(item.id),
-            movement_id: controlledReturn.movementId,
-            register_id: controlledReturn.registerId,
-          });
-        } else {
-          const rows = await tx.$queryRawUnsafe(
-            `UPDATE pharmacy_catalog
-                SET stock_quantity = COALESCE(stock_quantity, 0) + $1::numeric,
-                    updated_at = NOW()
-              WHERE id = $2::int
-                AND tenant_id = $3::uuid
-              RETURNING id, stock_quantity`,
-            outstanding,
-            Number(item.pharmacy_catalog_id),
-            current.tenant_id,
-          );
-          if (!rows[0]) throw AppError.notFound(`Catalog item ${item.pharmacy_catalog_id} not found`);
-          await appendWardMovementLedgerTx(tx, {
-            tenantId: current.tenant_id,
-            indentId: current.id,
-            inventoryItemId: returnInventoryItemByCatalog.get(Number(item.pharmacy_catalog_id)),
-            movementKind: 'return',
-            quantityDelta: outstanding,
-            performedBy: reconciledBy,
-            note: `Ward indent ${current.indent_number || current.id} item ${item.id} returned from ${current.ward_name || 'ward'}`,
-          });
-        }
+        const controlledReturn = inventoryReturn.controlledByItem.get(Number(item.id)) || null;
         await tx.ward_indent_items.update({
           where: { id: item.id },
           data: {
@@ -1915,95 +3827,11 @@ export async function reconcileWardIndent({
             updated_at: new Date(),
           },
         });
-        returnedItemCount += 1;
       }
       await tx.ward_indent_items.updateMany({
         where: { ward_indent_id: current.id, tenant_id: current.tenant_id },
         data: { fulfilment_status: 'reconciled', updated_at: new Date() },
       });
-
-      // Post-issue billing truth (Sol-verification finding N2): the itemizer
-      // only re-synchronizes ward-indent charges while the admission invoice
-      // is still DRAFT — a return reconciled after the invoice was ISSUED
-      // leaves the patient charged for stock that came back, with nothing
-      // flagging it. Issued invoices are immutable here (billingV2 refuses
-      // post-issue line edits), so the delta is surfaced as an owned
-      // high-priority billing review task in the same transaction instead of
-      // being silently absorbed.
-      const billingAdjustments = [];
-      if (returnedItemCount > 0) {
-        const billedLines = await tx.$queryRawUnsafe(
-          `SELECT bii.id AS line_id, bii.line_total, bi.id AS invoice_id, bi.status
-             FROM billing_invoice_items bii
-             JOIN billing_invoices bi
-               ON bi.id = bii.invoice_id
-              AND bi.tenant_id = bii.tenant_id
-            WHERE bii.tenant_id = $1::uuid
-              AND bii.source_ref_type = 'ward_indent'
-              AND bii.source_ref_id::text = $2::text
-              AND bii.source_ref_active = TRUE`,
-          current.tenant_id,
-          String(current.id),
-        );
-        const staleBilledLines = billedLines.filter((line) => line.status !== 'DRAFT');
-        if (staleBilledLines.length) {
-          const expectedRows = await tx.$queryRawUnsafe(
-            `SELECT COALESCE(SUM(
-                      GREATEST(
-                        COALESCE(wii.quantity_issued, wii.quantity_requested, 0)
-                          - COALESCE(wii.quantity_returned, 0),
-                        0
-                      )
-                      * COALESCE(wii.unit_price, pc.unit_price, pc.price, 0)
-                    ), 0)::numeric AS expected_amount
-               FROM ward_indent_items wii
-               LEFT JOIN pharmacy_catalog pc
-                 ON pc.tenant_id = wii.tenant_id
-                AND pc.id = wii.pharmacy_catalog_id
-              WHERE wii.tenant_id = $1::uuid
-                AND wii.ward_indent_id = $2::int`,
-            current.tenant_id,
-            current.id,
-          );
-          const expectedAmount = Number(expectedRows[0]?.expected_amount || 0);
-          for (const line of staleBilledLines) {
-            const billedAmount = Number(line.line_total || 0);
-            const overcharge = Math.round((billedAmount - expectedAmount) * 100) / 100;
-            if (overcharge <= 0) continue;
-            await createTask({
-              tenantId: current.tenant_id,
-              taskKind: 'review',
-              title: `Ward indent ${current.indent_number || current.id}: post-issue return needs a billing credit`,
-              description: `Invoice ${line.invoice_id} (${line.status}) charges ${billedAmount.toFixed(2)} for ward indent ${current.indent_number || current.id}, but reconciled returns reduce the net charge to ${expectedAmount.toFixed(2)}. Raise the ${overcharge.toFixed(2)} credit/refund for the patient — the issued invoice cannot be edited in place.`,
-              patientUid: current.patient_uid || null,
-              relatedResourceType: 'ward_indent_billing_adjustment',
-              relatedResourceId: String(current.id),
-              priority: 'high',
-              assignedToRole: ROLES.BILLING_INCHARGE,
-              createdBy: reconciledBy,
-              metadata: {
-                ward_indent_id: Number(current.id),
-                invoice_id: Number(line.invoice_id),
-                invoice_status: line.status,
-                billing_line_id: Number(line.line_id),
-                billed_amount: billedAmount,
-                expected_amount: expectedAmount,
-                overcharge_amount: overcharge,
-              },
-              tx,
-              onConflictResourceDoNothing: true,
-            });
-            billingAdjustments.push({
-              invoice_id: Number(line.invoice_id),
-              invoice_status: line.status,
-              billed_amount: billedAmount,
-              expected_amount: expectedAmount,
-              overcharge_amount: overcharge,
-            });
-          }
-        }
-      }
-
       return {
         toStatus: 'reconciled',
         indentData: {
@@ -2015,7 +3843,17 @@ export async function reconcileWardIndent({
           returned_item_count: returnedItemCount,
           variance_item_count: varianceItemCount,
           controlled_return_references: controlledReturnReferences,
-          billing_adjustments_flagged: billingAdjustments,
+          inventory_movement_ids: inventoryReturn.movementIds,
+        },
+        afterEvidence: async ({ event }) => {
+          await appendWardIndentCreditEventsTx(tx, {
+            indent: current,
+            wardEvent: event,
+            returnedBy: reconciledBy,
+            commandKey,
+            returnPlans: inventoryReturn.returnPlans,
+            reason: cleanReason,
+          });
         },
       };
     },
@@ -2056,6 +3894,11 @@ export async function cancelWardIndent({
           'WARD_INDENT_CANCELLATION_REQUIRES_RECONCILIATION',
         );
       }
+      await releaseWardIndentReservationsTx(tx, {
+        indent: current,
+        releasedBy: cancelledBy,
+        reason: cleanReason,
+      });
       await tx.ward_indent_items.updateMany({
         where: { ward_indent_id: current.id, tenant_id: current.tenant_id },
         data: {
@@ -2077,6 +3920,235 @@ export async function cancelWardIndent({
   });
 }
 
+const TERMINAL_CREDIT_NOTE_STATUSES = new Set(['applied', 'rejected']);
+const TERMINAL_SLA_STATUSES = new Set(['completed', 'breached', 'escalated']);
+
+function reconciliationFailure({ financialEvent, creditNote = null, reason }) {
+  return {
+    financial_event_id: String(financialEvent.id),
+    credit_note_id: creditNote?.id == null ? null : String(creditNote.id),
+    refund_id: creditNote?.refund_id == null ? null : Number(creditNote.refund_id),
+    reason,
+  };
+}
+
+async function assertWardIndentFinancialReconciliationCompleteTx(tx, indent) {
+  const financialEvents = await tx.$queryRawUnsafe(
+    `SELECT id, invoice_id
+       FROM ward_indent_financial_events
+      WHERE tenant_id = $1::uuid
+        AND ward_indent_id = $2::int
+        AND event_kind = 'credit'
+      ORDER BY id
+      FOR UPDATE`,
+    String(indent.tenant_id),
+    Number(indent.id),
+  );
+  const outstanding = [];
+
+  for (const financialEvent of financialEvents) {
+    const initialCreditNotes = await tx.$queryRawUnsafe(
+      `SELECT id, status, task_id, refund_obligation_minor, refund_id
+         FROM billing_credit_notes
+        WHERE tenant_id = $1::uuid
+          AND source_financial_event_id = $2::bigint
+        LIMIT 1`,
+      String(indent.tenant_id),
+      BigInt(financialEvent.id),
+    );
+    const initialCreditNote = initialCreditNotes[0] || null;
+    const refunds = initialCreditNote?.refund_id == null
+      ? []
+      : await tx.$queryRawUnsafe(
+        `SELECT id, approval_status, paid_at, payout_rail
+           FROM billing_refunds
+          WHERE tenant_id = $1::uuid
+            AND id = $2::int
+          LIMIT 1
+          FOR UPDATE`,
+        String(indent.tenant_id),
+        Number(initialCreditNote.refund_id),
+      );
+    const lockedRefund = refunds[0] || null;
+    const creditNotes = await tx.$queryRawUnsafe(
+      `SELECT id, status, task_id, refund_obligation_minor, refund_id
+         FROM billing_credit_notes
+        WHERE tenant_id = $1::uuid
+          AND source_financial_event_id = $2::bigint
+        LIMIT 1
+        FOR UPDATE`,
+      String(indent.tenant_id),
+      BigInt(financialEvent.id),
+    );
+    const creditNote = creditNotes[0] || null;
+    if (!creditNote) {
+      if (financialEvent.invoice_id != null) {
+        outstanding.push(reconciliationFailure({
+          financialEvent,
+          reason: 'credit_note_missing',
+        }));
+      }
+      continue;
+    }
+    if (String(initialCreditNote?.refund_id || '') !== String(creditNote.refund_id || '')) {
+      outstanding.push(reconciliationFailure({
+        financialEvent,
+        creditNote,
+        reason: 'financial_reconciliation_state_changed',
+      }));
+      continue;
+    }
+    if (!TERMINAL_CREDIT_NOTE_STATUSES.has(creditNote.status)) {
+      outstanding.push(reconciliationFailure({
+        financialEvent,
+        creditNote,
+        reason: `credit_note_${creditNote.status}`,
+      }));
+      continue;
+    }
+    if (creditNote.task_id == null) {
+      outstanding.push(reconciliationFailure({
+        financialEvent,
+        creditNote,
+        reason: 'credit_note_task_missing',
+      }));
+      continue;
+    }
+
+    const tasks = await tx.$queryRawUnsafe(
+      `SELECT id, status, completed_at, workflow_sla_instance_id,
+              sla_completion_semantics, related_resource_type,
+              related_resource_id, metadata
+         FROM tasks
+        WHERE tenant_id = $1::uuid
+          AND id = $2::int
+        LIMIT 1
+        FOR UPDATE`,
+      String(indent.tenant_id),
+      Number(creditNote.task_id),
+    );
+    const task = tasks[0] || null;
+    if (
+      !task
+      || task.status !== 'completed'
+      || !task.completed_at
+      || !task.workflow_sla_instance_id
+      || task.sla_completion_semantics !== 'domain_evidence'
+      || task.related_resource_type !== 'billing_credit_notes'
+      || String(task.related_resource_id || '') !== String(creditNote.id)
+      || task.metadata?.task_contract !== 'ward_medication_obligation_v1'
+      || task.metadata?.obligation_kind !== 'credit_note_review'
+      || String(task.metadata?.credit_note_id || '') !== String(creditNote.id)
+    ) {
+      outstanding.push(reconciliationFailure({
+        financialEvent,
+        creditNote,
+        reason: 'credit_note_task_nonterminal',
+      }));
+      continue;
+    }
+
+    const slas = await tx.$queryRawUnsafe(
+      `SELECT id, status, completed_at, rule_code, source_table, source_id, metadata
+         FROM workflow_sla_instances
+        WHERE tenant_id = $1::uuid
+          AND id = $2::uuid
+        LIMIT 1
+        FOR UPDATE`,
+      String(indent.tenant_id),
+      String(task.workflow_sla_instance_id),
+    );
+    const sla = slas[0] || null;
+    if (
+      !sla
+      || !sla.completed_at
+      || !TERMINAL_SLA_STATUSES.has(sla.status)
+      || sla.rule_code !== 'ward_indent_credit_note_review'
+      || sla.source_table !== 'billing_credit_notes'
+      || String(sla.source_id || '') !== String(creditNote.id)
+      || sla.metadata?.completed_via !== 'domain_evidence'
+    ) {
+      outstanding.push(reconciliationFailure({
+        financialEvent,
+        creditNote,
+        reason: 'credit_note_sla_nonterminal',
+      }));
+      continue;
+    }
+
+    let evidenceKind;
+    let evidenceResourceType;
+    let evidenceResourceId;
+    if (creditNote.status === 'rejected') {
+      const events = await tx.$queryRawUnsafe(
+        `SELECT id
+           FROM billing_credit_note_events
+          WHERE tenant_id = $1::uuid
+            AND credit_note_id = $2::bigint
+            AND event_type = 'rejected'
+          LIMIT 1`,
+        String(indent.tenant_id),
+        BigInt(creditNote.id),
+      );
+      evidenceKind = 'billing_credit_note_decision';
+      evidenceResourceType = 'billing_credit_note_event';
+      evidenceResourceId = events[0]?.id == null ? null : String(events[0].id);
+    } else if (Number(creditNote.refund_obligation_minor || 0) > 0) {
+      if (
+        !lockedRefund
+        || lockedRefund.approval_status !== 'PAID'
+        || !lockedRefund.paid_at
+        || !lockedRefund.payout_rail
+      ) {
+        outstanding.push(reconciliationFailure({
+          financialEvent,
+          creditNote,
+          reason: 'refund_nonterminal',
+        }));
+        continue;
+      }
+      evidenceKind = 'billing_credit_note_refund_paid';
+      evidenceResourceType = 'billing_refund';
+      evidenceResourceId = String(lockedRefund.id);
+    } else {
+      const events = await tx.$queryRawUnsafe(
+        `SELECT id
+           FROM billing_credit_note_events
+          WHERE tenant_id = $1::uuid
+            AND credit_note_id = $2::bigint
+            AND event_type = 'applied'
+          LIMIT 1`,
+        String(indent.tenant_id),
+        BigInt(creditNote.id),
+      );
+      evidenceKind = 'billing_credit_note_application';
+      evidenceResourceType = 'billing_credit_note_event';
+      evidenceResourceId = events[0]?.id == null ? null : String(events[0].id);
+    }
+    const completionEvidence = sla.metadata?.completion_evidence;
+    if (
+      !evidenceResourceId
+      || completionEvidence?.kind !== evidenceKind
+      || completionEvidence?.resource_type !== evidenceResourceType
+      || String(completionEvidence?.resource_id || '') !== evidenceResourceId
+    ) {
+      outstanding.push(reconciliationFailure({
+        financialEvent,
+        creditNote,
+        reason: 'financial_reconciliation_evidence_incomplete',
+      }));
+    }
+  }
+
+  if (outstanding.length > 0) {
+    throw AppError.conflict(
+      'Ward indent cannot close until linked credits, refunds, tasks, and SLAs are terminal',
+      'WARD_INDENT_FINANCIAL_RECONCILIATION_REQUIRED',
+      { outstanding },
+    );
+  }
+}
+
 export async function closeWardIndent({
   indentId,
   closedBy,
@@ -2096,6 +4168,10 @@ export async function closeWardIndent({
     action: 'closed',
     allowedStatuses: ['received', 'reconciled'],
     mutate: async (tx, current) => {
+      await assertNoOpenWardAllocationAuthorityRecoveryTx(tx, {
+        tenantId: current.tenant_id,
+        wardIndentId: current.id,
+      });
       if (current.status === 'received' && current.items.some(
         (item) => Number(item.quantity_received) !== Number(item.quantity_issued || 0),
       )) {
@@ -2122,6 +4198,7 @@ export async function closeWardIndent({
           'WARD_INDENT_ISSUE_RECONCILIATION_INCOMPLETE',
         );
       }
+      await assertWardIndentFinancialReconciliationCompleteTx(tx, current);
       const hasReturns = current.items.some((item) => Number(item.quantity_returned || 0) > 0);
       const hasVariance = current.items.some(
         (item) => Number(item.quantity_variance_resolved || 0) > 0,
@@ -2459,6 +4536,9 @@ export default {
   markWardIndentShortSupply,
   proposeWardIndentSubstitution,
   approveWardIndentSubstitution,
+  applyApprovedWardIndentSubstitution,
+  requestWardIndentControlledWitnessApproval,
+  approveWardIndentControlledWitnessApproval,
   rejectWardIndentSubstitution,
   approveWardIndent,
   rejectWardIndent,

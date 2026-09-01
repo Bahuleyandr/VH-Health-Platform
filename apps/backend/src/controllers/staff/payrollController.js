@@ -1,6 +1,6 @@
 // src/controllers/staff/payrollController.js
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import {
   executePayrollRun,
@@ -10,7 +10,18 @@ import {
   signPayrollRun,
   generateAnnualTaxSummary,
   calculateArrears,
+  SalaryArrearsCommandError,
 } from '../../services/staff/payrollService.js';
+import {
+  approveBulkSalaryRevisionJob,
+  BulkSalaryRevisionError,
+  createBulkSalaryRevisionJob,
+  hrSignBulkSalaryRevisionJob,
+} from '../../services/staff/bulkSalaryRevisionService.js';
+import {
+  SalaryRevisionCommandError,
+  salaryRevisionCommandFromRequest,
+} from '../../services/staff/salaryRevisionCommandService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { escapeCsvField } from '../../utils/csv.js';
 import { logAudit } from '../../utils/logAudit.js';
@@ -481,10 +492,14 @@ export const getPayrollRunDetail = async (req, res) => {
 // ─── Admin: Get staff list for salary config search ──────────────────────────
 export const getStaffForPayroll = async (req, res) => {
   try {
+    const tenantId = resolveTenantOrThrow(req);
     const { search, department } = req.query;
-    const conditions = ['u.role NOT IN (\'PATIENT\', \'ADMIN\')'];
-    const params = [];
-    let idx = 1;
+    const conditions = [
+      'u.tenant_id = $1::uuid',
+      'u.role NOT IN (\'PATIENT\', \'ADMIN\')',
+    ];
+    const params = [tenantId];
+    let idx = 2;
 
     if (search) {
       conditions.push(`(u.name ILIKE $${idx} OR u.phone ILIKE $${idx} OR ss.employee_id ILIKE $${idx})`);
@@ -506,8 +521,8 @@ export const getStaffForPayroll = async (req, res) => {
              CASE WHEN ss.id IS NOT NULL THEN true ELSE false END as has_salary_config,
              ss.basic_salary, ss.designation
       FROM users u
-      LEFT JOIN staff s ON s.user_id = u.uid
-      LEFT JOIN staff_salary ss ON ss.staff_uid = u.uid
+      LEFT JOIN staff s ON s.tenant_id = u.tenant_id AND s.user_id = u.uid
+      LEFT JOIN staff_salary ss ON ss.tenant_id = u.tenant_id AND ss.staff_uid = u.uid
       ${where}
       ORDER BY u.name
       LIMIT 50
@@ -526,19 +541,32 @@ export const getStaffForPayroll = async (req, res) => {
 export const getStaffSalaryConfig = async (req, res) => {
   try {
     const { staffUid } = req.params;
+    const tenantId = resolveTenantOrThrow(req);
 
     const config = await prisma.$queryRawUnsafe(`
-      SELECT ss.*, u.name, u.role, u.phone,
+      SELECT ss.id, ss.staff_uid, ss.basic_salary, ss.hra_pct, ss.da_pct,
+             ss.special_allowance, ss.transport_allowance, ss.medical_allowance,
+             ss.pf_employee_pct, ss.pf_employer_pct, ss.esi_applicable,
+             ss.professional_tax, ss.tds_monthly, ss.designation, ss.department,
+             ss.employee_id, ss.date_of_joining, ss.pan_number, ss.pf_uan,
+             ss.bank_account, ss.bank_name, ss.bank_ifsc, ss.effective_from,
+             ss.is_active, ss.notice_period_days, ss.dob, ss.created_at, ss.updated_at,
+             u.name, u.role, u.phone,
              COALESCE(s.department, ss.department) as dept
       FROM staff_salary ss
-      JOIN users u ON ss.staff_uid = u.uid
-      LEFT JOIN staff s ON s.user_id = u.uid
-      WHERE ss.staff_uid = $1::uuid
-    `, staffUid);
+      JOIN users u ON u.tenant_id = ss.tenant_id AND u.uid = ss.staff_uid
+      LEFT JOIN staff s ON s.tenant_id = ss.tenant_id AND s.user_id = u.uid
+      WHERE ss.tenant_id = $2::uuid AND ss.staff_uid = $1::uuid
+    `, staffUid, tenantId);
 
     if (config.length === 0) {
       const user = await prisma.$queryRawUnsafe(
-        'SELECT uid, name, role, phone FROM users WHERE uid = $1::uuid', staffUid);
+        `SELECT uid, name, role, phone
+           FROM users
+          WHERE tenant_id = $2::uuid AND uid = $1::uuid`,
+        staffUid,
+        tenantId,
+      );
       return success(res, user[0] ? { ...user[0], no_config: true } : null, 'No salary config found');
     }
 
@@ -561,6 +589,7 @@ export const getStaffSalaryConfig = async (req, res) => {
 export const upsertStaffSalaryConfig = async (req, res) => {
   try {
     const { staffUid } = req.params;
+    const tenantId = resolveTenantOrThrow(req);
     const {
       basic_salary, hra_pct, da_pct, special_allowance, transport_allowance, medical_allowance,
       pf_employee_pct, esi_applicable, professional_tax, tds_monthly,
@@ -572,7 +601,13 @@ export const upsertStaffSalaryConfig = async (req, res) => {
       return error(res, 'basic_salary is required and must be positive', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const userCheck = await prisma.$queryRawUnsafe('SELECT uid, name FROM users WHERE uid = $1::uuid', staffUid);
+    const userCheck = await prisma.$queryRawUnsafe(
+      `SELECT uid, name
+         FROM users
+        WHERE tenant_id = $2::uuid AND uid = $1::uuid`,
+      staffUid,
+      tenantId,
+    );
     if (userCheck.length === 0) {
       return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
     }
@@ -588,6 +623,7 @@ export const upsertStaffSalaryConfig = async (req, res) => {
 
     const now = new Date();
     const sharedCreate = {
+      tenant_id: tenantId,
       staff_uid: staffUid,
       basic_salary,
       hra_pct: hra_pct ?? 40,
@@ -611,7 +647,12 @@ export const upsertStaffSalaryConfig = async (req, res) => {
       updated_at: now,
     };
     const result = await prisma.staff_salary.upsert({
-      where: { staff_uid: staffUid },
+      where: {
+        tenant_id_staff_uid: {
+          tenant_id: tenantId,
+          staff_uid: staffUid,
+        },
+      },
       create: sharedCreate,
       update: {
         basic_salary,
@@ -882,6 +923,7 @@ export const adminSignPayrollRun = async (req, res) => {
 export const getMyTaxSummary = async (req, res) => {
   try {
     const staffUid = req.user?.uid;
+    const tenantId = resolveTenantOrThrow(req);
     const { fy } = req.query;
     const now = new Date();
     const financialYear = fy || (now.getMonth() >= 3
@@ -898,16 +940,23 @@ export const getMyTaxSummary = async (req, res) => {
         total_deductions, total_net, taxable_income, tax_payable,
         months_included, generated_at, pdf_key, status, created_at, updated_at
       FROM annual_tax_summaries
-      WHERE staff_uid=$1::uuid AND financial_year=$2
-    `, staffUid, financialYear);
+      WHERE tenant_id = $3::uuid AND staff_uid=$1::uuid AND financial_year=$2
+    `, staffUid, financialYear, tenantId);
 
     if (summary.length === 0) {
       try {
-        const generated = await generateAnnualTaxSummary(staffUid, financialYear);
+        const generated = await generateAnnualTaxSummary(staffUid, financialYear, tenantId);
         return success(res, generated, 'Annual tax summary generated');
       } catch (generationErr) {
         if (/No payslips found/i.test(String(generationErr?.message || ''))) {
           return error(res, 'No issued payslips found for this financial year', HTTP_STATUS.NOT_FOUND);
+        }
+        if (generationErr?.code === 'ANNUAL_TAX_SUMMARY_TENANT_CONFLICT') {
+          return error(
+            res,
+            'Annual tax summary conflicts with tenant ownership',
+            HTTP_STATUS.CONFLICT,
+          );
         }
         throw generationErr;
       }
@@ -927,17 +976,22 @@ export const getMyTaxSummary = async (req, res) => {
 // Admin: Generate/regenerate annual tax summary for all staff
 export const generateAllTaxSummaries = async (req, res) => {
   try {
+    const tenantId = resolveTenantOrThrow(req);
     const { financial_year } = req.body;
     if (!financial_year) return error(res, 'financial_year required (e.g. 2025-26)', HTTP_STATUS.BAD_REQUEST);
 
     const staffList = await prisma.$queryRawUnsafe(
-      `SELECT DISTINCT staff_uid FROM payslips WHERE status IN ('issued','viewed','downloaded')`
+      `SELECT DISTINCT staff_uid
+         FROM payslips
+        WHERE tenant_id = $1::uuid
+          AND status IN ('issued','viewed','downloaded')`,
+      tenantId
     );
     let generated = 0, failed = 0;
 
     for (const s of staffList) {
       try {
-        await generateAnnualTaxSummary(s.staff_uid, financial_year);
+        await generateAnnualTaxSummary(s.staff_uid, financial_year, tenantId);
         generated++;
       } catch (e) {
         logger.warn(`Tax summary failed for ${s.staff_uid}: ${e.message}`);
@@ -958,6 +1012,7 @@ export const generateAllTaxSummaries = async (req, res) => {
 export const createAdvance = async (req, res) => {
   try {
     const adminUid = req.user?.uid;
+    const tenantId = resolveTenantOrThrow(req);
     const { staff_uid, amount, reason, monthly_deduction, deduction_start_month, deduction_start_year, notes } = req.body;
 
     if (!staff_uid || !amount || !monthly_deduction || !reason) {
@@ -968,10 +1023,18 @@ export const createAdvance = async (req, res) => {
 
     const result = await prisma.$queryRawUnsafe(`
       INSERT INTO salary_advances (staff_uid, amount, reason, approved_by, approved_at, status,
-        monthly_deduction, months_remaining, deduction_start_month, deduction_start_year, notes)
-      VALUES ($1,$2,$3,$4,NOW(),'approved',$5,$6,$7,$8,$9)
+        monthly_deduction, months_remaining, deduction_start_month, deduction_start_year, notes,
+        tenant_id)
+      SELECT u.uid, $2, $3, $4::uuid, NOW(), 'approved', $5, $6, $7, $8, $9,
+             $10::uuid
+        FROM users AS u
+       WHERE u.tenant_id = $10::uuid AND u.uid = $1::uuid AND u.is_active = true
       RETURNING id, staff_uid, amount, reason, approved_by, approved_at, status, monthly_deduction, months_remaining, total_deducted, deduction_start_month, deduction_start_year, notes, created_at
-    `, staff_uid, amount, reason, adminUid, monthly_deduction, months_remaining, deduction_start_month || new Date().getMonth() + 1, deduction_start_year || new Date().getFullYear(), notes || null);
+    `, staff_uid, amount, reason, adminUid, monthly_deduction, months_remaining, deduction_start_month || new Date().getMonth() + 1, deduction_start_year || new Date().getFullYear(), notes || null, tenantId);
+
+    if (result.length === 0) {
+      return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
+    }
 
     success(res, result[0], `Advance of ₹${amount} approved. ${months_remaining} monthly deductions of ₹${monthly_deduction}`);
   } catch (err) {
@@ -984,13 +1047,20 @@ export const createAdvance = async (req, res) => {
 export const getMyAdvances = async (req, res) => {
   try {
     const staffUid = req.user?.uid;
+    const tenantId = resolveTenantOrThrow(req);
     const advances = await prisma.$queryRawUnsafe(`
-      SELECT sa.*, u.name as approved_by_name,
+      SELECT sa.id, sa.staff_uid, sa.amount, sa.reason, sa.approved_by,
+             sa.approved_at, sa.status, sa.monthly_deduction,
+             sa.total_deducted, sa.months_remaining,
+             sa.deduction_start_month, sa.deduction_start_year,
+             sa.fully_cleared_at, sa.notes, sa.created_at, sa.updated_at,
+             u.name as approved_by_name,
              (sa.amount - sa.total_deducted) as balance_remaining
       FROM salary_advances sa
-      LEFT JOIN users u ON sa.approved_by = u.uid
-      WHERE sa.staff_uid = $1::uuid ORDER BY sa.created_at DESC
-    `, staffUid);
+      LEFT JOIN users u ON u.tenant_id = sa.tenant_id AND sa.approved_by = u.uid
+      WHERE sa.tenant_id = $2::uuid AND sa.staff_uid = $1::uuid
+      ORDER BY sa.created_at DESC
+    `, staffUid, tenantId);
     success(res, advances, 'Advances fetched');
   } catch (err) {
     logger.error('Get My Advances Error:', err);
@@ -1001,20 +1071,28 @@ export const getMyAdvances = async (req, res) => {
 // Admin: Get all advances
 export const getAllAdvances = async (req, res) => {
   try {
+    const tenantId = resolveTenantOrThrow(req);
     const { status } = req.query;
-    const params = [];
-    let where = '';
+    const params = [tenantId];
+    let statusFilter = '';
     if (status) {
-      where = 'WHERE sa.status = $1';
+      statusFilter = 'AND sa.status = $2';
       params.push(status);
     }
     const advances = await prisma.$queryRawUnsafe(`
-      SELECT sa.*, u.name as staff_name, ss.department,
+      SELECT sa.id, sa.staff_uid, sa.amount, sa.reason, sa.approved_by,
+             sa.approved_at, sa.status, sa.monthly_deduction,
+             sa.total_deducted, sa.months_remaining,
+             sa.deduction_start_month, sa.deduction_start_year,
+             sa.fully_cleared_at, sa.notes, sa.created_at, sa.updated_at,
+             u.name as staff_name, ss.department,
              (sa.amount - sa.total_deducted) as balance_remaining
       FROM salary_advances sa
-      JOIN users u ON sa.staff_uid = u.uid
-      LEFT JOIN staff_salary ss ON ss.staff_uid = u.uid
-      ${where} ORDER BY sa.created_at DESC
+      JOIN users u ON u.tenant_id = sa.tenant_id AND sa.staff_uid = u.uid
+      LEFT JOIN staff_salary ss
+        ON ss.tenant_id = sa.tenant_id AND ss.staff_uid = u.uid
+      WHERE sa.tenant_id = $1::uuid
+      ${statusFilter} ORDER BY sa.created_at DESC
     `, ...params);
     success(res, advances, 'Advances fetched');
   } catch (err) {
@@ -1029,11 +1107,80 @@ export const getAllAdvances = async (req, res) => {
 export const calculateRevisionArrears = async (req, res) => {
   try {
     const { revisionId } = req.params;
-    const result = await calculateArrears(parseInt(revisionId));
+    const result = await calculateArrears(
+      parseInt(revisionId),
+      resolveTenantOrThrow(req),
+      {
+        actorUid: req.user?.uid,
+        commandKey: req.idempotencyClaim?.requestKey
+          || (typeof req.get === 'function' ? req.get('idempotency-key') : undefined),
+        requestBodySha256: req.idempotencyClaim?.requestBodyHash,
+        httpIdempotencyClaimId: req.idempotencyClaim?.id,
+        requestId: req.id,
+      },
+    );
     success(res, result, result.message || `Arrears calculated: ₹${result.arrears_amount}`);
   } catch (err) {
     logger.error('Calculate Arrears Error:', err);
-    error(res, 'Failed to calculate arrears', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    // #941's mapping, kept: the service now raises a typed 404 for a missing
+    // revision, but an AppError raised deeper in still carries only `code`.
+    if (err?.code === 'SALARY_REVISION_NOT_FOUND') {
+      return error(res, err.message, HTTP_STATUS.NOT_FOUND);
+    }
+    error(
+      res,
+      err instanceof SalaryArrearsCommandError
+        ? err.message
+        : 'Failed to calculate arrears',
+      err instanceof SalaryArrearsCommandError
+        ? err.statusCode
+        : HTTP_STATUS.INTERNAL_SERVER_ERROR,
+    );
+  }
+};
+
+export const processRevisionArrearsWorkItem = async (req, res) => {
+  try {
+    const workItemId = Number(req.params.workItemId);
+    if (!Number.isSafeInteger(workItemId) || workItemId <= 0) {
+      return error(res, 'Invalid salary arrears work item id', HTTP_STATUS.BAD_REQUEST);
+    }
+    const tenantId = resolveTenantOrThrow(req);
+    const work = await setTenant(tenantId, tx => tx.$queryRawUnsafe(
+      `SELECT id, revision_id, staff_uid, effective_on, status
+         FROM salary_revision_arrears_work_items
+        WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+      tenantId,
+      workItemId,
+    ));
+    if (work.length !== 1) {
+      return error(res, 'Salary arrears work item not found', HTTP_STATUS.NOT_FOUND);
+    }
+    const result = await calculateArrears(
+      Number(work[0].revision_id),
+      tenantId,
+      {
+        actorUid: req.user?.uid,
+        commandKey: req.idempotencyClaim?.requestKey
+          || (typeof req.get === 'function' ? req.get('idempotency-key') : undefined),
+        requestBodySha256: req.idempotencyClaim?.requestBodyHash,
+        httpIdempotencyClaimId: req.idempotencyClaim?.id,
+        requestId: req.id,
+        workItemId,
+      },
+    );
+    success(res, result, result.message || `Arrears calculated: ₹${result.arrears_amount}`);
+  } catch (err) {
+    logger.error('Process Salary Arrears Work Item Error:', err);
+    error(
+      res,
+      err instanceof SalaryArrearsCommandError
+        ? err.message
+        : 'Failed to process salary arrears work item',
+      err instanceof SalaryArrearsCommandError
+        ? err.statusCode
+        : HTTP_STATUS.INTERNAL_SERVER_ERROR,
+    );
   }
 };
 
@@ -1848,153 +1995,111 @@ export const getComplianceCalendar = async (req, res) => {
 
 export const createBulkRevision = async (req, res) => {
   try {
-    const { description, revision_type, target_type, target_value, increment_type, increment_value, bonus_amount, effective_from } = req.body;
-    if (!description||!revision_type||!target_type||!effective_from) return error(res,'description,revision_type,target_type,effective_from required',HTTP_STATUS.BAD_REQUEST);
-    let countQuery=`SELECT COUNT(*) as cnt FROM users u JOIN staff_salary ss ON ss.staff_uid=u.uid WHERE u.is_active=true`;
-    const params=[];
-    if (target_type==='department') { countQuery+=` AND ss.department=$1`; params.push(target_value); }
-    else if (target_type==='role') { countQuery+=` AND u.role=$1`; params.push(target_value); }
-    else if (target_type==='designation') { countQuery+=` AND ss.designation=$1`; params.push(target_value); }
-    const countResult=await prisma.$queryRawUnsafe(countQuery,...params);
-    const staffCount=parseInt(countResult[0].cnt);
-    if (staffCount===0) return error(res,`No active staff found for ${target_type}=${target_value}`,HTTP_STATUS.BAD_REQUEST);
-    const job = await prisma.bulk_revision_jobs.create({
-      data: {
-        description,
-        revision_type,
-        target_type,
-        target_value,
-        increment_type,
-        increment_value,
-        bonus_amount,
-        effective_from: new Date(effective_from),
-        staff_count: staffCount,
-        status: 'draft',
-        created_by: req.user?.uid,
-      },
-      select: {
-        id: true,
-        description: true,
-        revision_type: true,
-        target_type: true,
-        target_value: true,
-        increment_type: true,
-        increment_value: true,
-        bonus_amount: true,
-        effective_from: true,
-        staff_count: true,
-        status: true,
-        created_by: true,
-        created_at: true,
-      },
+    const tenantId = resolveTenantOrThrow(req);
+    const command = salaryRevisionCommandFromRequest(req, 'bulk_revision_create', 'create');
+    const job = await createBulkSalaryRevisionJob({
+      tenantId,
+      actorUid: req.user?.uid,
+      input: req.body,
+      command,
     });
-    success(res, job, `Bulk revision draft created. Will affect ${staffCount} staff.`);
-  } catch (err) { logger.error('CreateBulkRev:', err); error(res,'Failed to create bulk revision',HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+    success(res, job, `Bulk revision draft created. Will affect ${job.staff_count} staff.`);
+  } catch (err) {
+    logger.error('CreateBulkRev:', err);
+    error(
+      res,
+      err instanceof BulkSalaryRevisionError || err instanceof SalaryRevisionCommandError
+        ? err.message
+        : 'Failed to create bulk revision',
+      err instanceof BulkSalaryRevisionError || err instanceof SalaryRevisionCommandError
+        ? err.statusCode
+        : HTTP_STATUS.INTERNAL_SERVER_ERROR,
+    );
+  }
+};
+
+export const hrSignBulkRevision = async (req, res) => {
+  try {
+    const command = salaryRevisionCommandFromRequest(req, 'bulk_revision_hr_sign', req.params.id);
+    const result = await hrSignBulkSalaryRevisionJob({
+      tenantId: resolveTenantOrThrow(req),
+      jobId: req.params.id,
+      hrUid: req.user?.uid,
+      command,
+    });
+    success(res, result, 'Bulk revision HR signature applied — awaiting Admin countersign');
+  } catch (err) {
+    logger.error('HrSignBulkRev:', err);
+    error(
+      res,
+      err instanceof BulkSalaryRevisionError || err instanceof SalaryRevisionCommandError
+        ? err.message
+        : 'Failed to HR-sign bulk revision',
+      err instanceof BulkSalaryRevisionError || err instanceof SalaryRevisionCommandError
+        ? err.statusCode
+        : HTTP_STATUS.INTERNAL_SERVER_ERROR,
+    );
+  }
 };
 
 export const approveBulkRevision = async (req, res) => {
   try {
-    const { id } = req.params; const adminUid=req.user?.uid;
-    const j = await prisma.bulk_revision_jobs.findUnique({
-      where: { id: Number(id) },
-      select: {
-        id: true,
-        status: true,
-        target_type: true,
-        target_value: true,
-        revision_type: true,
-        increment_type: true,
-        increment_value: true,
-        bonus_amount: true,
-        effective_from: true,
-        description: true,
-        staff_count: true,
-      },
+    const command = salaryRevisionCommandFromRequest(req, 'bulk_revision_approve', req.params.id);
+    const approved = await approveBulkSalaryRevisionJob({
+      tenantId: resolveTenantOrThrow(req),
+      jobId: req.params.id,
+      adminUid: req.user?.uid,
+      command,
     });
-    if (!j) return error(res,'Not found',HTTP_STATUS.NOT_FOUND);
-    if (j.status !== 'draft') return error(res,'Already processed',HTTP_STATUS.BAD_REQUEST);
-
-    await prisma.bulk_revision_jobs.update({
-      where: { id: Number(id) },
-      data: { status: 'approved', approved_by: adminUid, approved_at: new Date() },
-      select: { id: true },
-    });
-
-    setImmediate(async () => {
-      try {
-        // Staff targeting — still raw because the dynamic WHERE on users/
-        // staff_salary with varying filter columns is awkward in ORM form,
-        // and this is a read. Writes below are all typed.
-        let staffQuery = `SELECT u.uid,ss.basic_salary FROM users u JOIN staff_salary ss ON ss.staff_uid=u.uid WHERE u.is_active=true`;
-        const params = [];
-        if (j.target_type === 'department') { staffQuery += ` AND ss.department=$1`; params.push(j.target_value); }
-        else if (j.target_type === 'role') { staffQuery += ` AND u.role=$1`; params.push(j.target_value); }
-        else if (j.target_type === 'designation') { staffQuery += ` AND ss.designation=$1`; params.push(j.target_value); }
-        const staffList = await prisma.$queryRawUnsafe(staffQuery, ...params);
-
-        let processed = 0;
-        for (const s of staffList) {
-          try {
-            let proposed_basic = parseFloat(s.basic_salary);
-            if (j.revision_type === 'increment') {
-              proposed_basic = j.increment_type === 'percentage'
-                ? proposed_basic * (1 + parseFloat(j.increment_value) / 100)
-                : proposed_basic + parseFloat(j.increment_value);
-            }
-            const now = new Date();
-            await prisma.salary_revisions.create({
-              data: {
-                staff_uid: s.uid,
-                revision_number: `BULK-${id}-${s.uid.toString().slice(0, 6)}`,
-                revision_type: j.revision_type,
-                current_basic: s.basic_salary,
-                proposed_basic: j.revision_type === 'increment'
-                  ? Math.round(proposed_basic * 100) / 100
-                  : s.basic_salary,
-                bonus_amount: j.bonus_amount || 0,
-                effective_from: new Date(j.effective_from),
-                reason: j.description,
-                status: 'applied',
-                hr_signed_by: adminUid,
-                hr_signed_at: now,
-                admin_signed_by: adminUid,
-                admin_signed_at: now,
-                applied_at: now,
-              },
-              select: { id: true },
-            });
-            if (j.revision_type === 'increment') {
-              await prisma.staff_salary.update({
-                where: { staff_uid: s.uid },
-                data: { basic_salary: Math.round(proposed_basic * 100) / 100, updated_at: now },
-                select: { id: true },
-              });
-            }
-            processed++;
-          } catch (e) { logger.warn(`Bulk rev failed ${s.uid}: ${e.message}`); }
-        }
-        await prisma.bulk_revision_jobs.update({
-          where: { id: Number(id) },
-          data: { status: 'completed', processed_count: processed, completed_at: new Date() },
-          select: { id: true },
-        });
-      } catch (e) {
-        await prisma.bulk_revision_jobs.update({
-          where: { id: Number(id) },
-          data: { status: 'failed', error_log: e.message },
-          select: { id: true },
-        });
-      }
-    });
-
-    success(res, { id, status: 'processing', staff_count: j.staff_count }, 'Bulk revision approved and processing');
-  } catch (err) { logger.error('ApproveBulkRev:', err); error(res,'Failed to approve bulk revision',HTTP_STATUS.INTERNAL_SERVER_ERROR); }
+    success(
+      res,
+      { id: approved.id, status: approved.status, staff_count: approved.staff_count },
+      'Bulk revision approved and queued for durable processing',
+    );
+  } catch (err) {
+    logger.error('ApproveBulkRev:', err);
+    error(
+      res,
+      err instanceof BulkSalaryRevisionError || err instanceof SalaryRevisionCommandError
+        ? err.message
+        : 'Failed to approve bulk revision',
+      err instanceof BulkSalaryRevisionError || err instanceof SalaryRevisionCommandError
+        ? err.statusCode
+        : HTTP_STATUS.INTERNAL_SERVER_ERROR,
+    );
+  }
 };
 
 export const getBulkRevisions = async (req, res) => {
   try {
-    const result=await prisma.$queryRawUnsafe(
-      `SELECT b.*,u.name as created_by_name FROM bulk_revision_jobs b LEFT JOIN users u ON b.created_by=u.uid ORDER BY b.created_at DESC`);
+    const tenantId = resolveTenantOrThrow(req);
+    const result=await setTenant(tenantId, (tx) => tx.$queryRawUnsafe(
+      `SELECT b.*, u.name AS created_by_name,
+              COALESCE(item_outcomes.items, '[]'::jsonb) AS item_outcomes
+         FROM bulk_revision_jobs b
+         LEFT JOIN users u
+           ON b.created_by = u.uid
+          AND u.tenant_id = b.tenant_id
+         LEFT JOIN LATERAL (
+           SELECT jsonb_agg(
+                    jsonb_build_object(
+                      'staff_uid', item.staff_uid,
+                      'status', item.status,
+                      'attempt_count', item.attempt_count,
+                      'revision_id', item.revision_id,
+                      'outcome', item.outcome,
+                      'last_error', item.last_error,
+                      'finalized_at', item.finalized_at
+                    ) ORDER BY item.id
+                  ) AS items
+             FROM bulk_revision_job_items item
+            WHERE item.tenant_id = b.tenant_id
+              AND item.job_id = b.id
+         ) item_outcomes ON true
+        WHERE b.tenant_id = $1::uuid
+        ORDER BY b.created_at DESC`,
+      tenantId,
+    ));
     success(res,result,'Bulk revisions fetched');
   } catch (_err) { error(res,'Failed',HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };

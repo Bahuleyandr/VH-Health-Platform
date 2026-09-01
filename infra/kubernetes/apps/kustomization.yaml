@@ -74,6 +74,19 @@ images:
 # overlay before activation. The committed value stays empty and fail-closed,
 # so this repository never carries an unresolved production token.
 patches:
+  # Production acceptance patch point. Keep blank until the exact production
+  # manifest is reviewed; staging has an independent override in its app overlay.
+  - target:
+      kind: ConfigMap
+      name: vhhealth-payroll-revision-754-acceptance
+    patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: vhhealth-payroll-revision-754-acceptance
+      data:
+        PAYROLL_754_ACCEPTED_MANIFEST_SHA256: ""
+        PAYROLL_754_ACCEPTED_BY: ""
   - target:
       kind: ConfigMap
       name: vhhealth-backend-config

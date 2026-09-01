@@ -15,11 +15,34 @@ const buildCommunicationMock = jest.fn();
 const persistEnvelopeMock = jest.fn();
 const submitClaimMock = jest.fn();
 const createCommunicationResponseMock = jest.fn();
+const createTaskMock = jest.fn();
+
+const loggerMock = {
+  debug: jest.fn(),
+  info: jest.fn(),
+  warn: jest.fn(),
+  error: jest.fn(),
+};
 
 const prismaMock = { $queryRawUnsafe: queryUnsafeMock };
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: prismaMock,
+  setTenantTx: async (_tenantId, callback) => callback(prismaMock),
+}));
+
+jest.unstable_mockModule('../../logging/logger.js', () => ({
+  default: loggerMock,
+}));
+
+jest.unstable_mockModule('../../services/workflow/taskService.js', () => ({
+  createTask: createTaskMock,
+}));
+
+jest.unstable_mockModule('../../services/pharmacy/pharmacyCapService.js', () => ({
+  resolvePharmacyFundingPatientUidTx: jest.fn(async (_tx, { patientUid }) => String(patientUid)),
+  lockPharmacyFundingAuthorityTx: jest.fn(),
+  lockPharmacyFundingAdmissionTx: jest.fn(),
 }));
 
 jest.unstable_mockModule('../../services/nhcx/nhcxTenantConfigService.js', () => ({
@@ -49,10 +72,12 @@ const {
   enqueueClaimSubmit,
   enqueueCommunicationResponse,
   redriveNHCXMessage,
+  retryAcceptedNHCXProjection,
   __testing__,
 } = await import('../../services/nhcx/nhcxOutboundDispatcherService.js');
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
+const RECEIPT_HASH = 'a'.repeat(64);
 
 function runtime() {
   return {
@@ -179,6 +204,16 @@ beforeEach(() => {
   persistEnvelopeMock.mockReset();
   submitClaimMock.mockReset();
   createCommunicationResponseMock.mockReset();
+  loggerMock.debug.mockReset();
+  loggerMock.info.mockReset();
+  loggerMock.warn.mockReset();
+  loggerMock.error.mockReset();
+  createTaskMock.mockReset();
+  createTaskMock.mockResolvedValue({
+    id: 71,
+    status: 'open',
+    assigned_to_role: 'INSURANCE_COORDINATOR',
+  });
   runtimeMock.mockResolvedValue(runtime());
   buildPreauthMock.mockResolvedValue(builtPreauth());
   buildClaimMock.mockResolvedValue(builtClaim());
@@ -258,10 +293,27 @@ describe('dispatchPendingNHCXMessages', () => {
 
   it('encrypts the current preauth snapshot and marks gateway acceptance', async () => {
     const row = preauthRow();
+    const accepted = {
+      ...row,
+      status: 'accepted',
+      projection_status: 'pending',
+      transport_accepted_at: new Date(),
+      transport_http_status: 202,
+      transport_response_sha256: RECEIPT_HASH,
+      transport_gateway_reference: 'GW-123',
+    };
     queryUnsafeMock.mockResolvedValueOnce([row]);
     queryUnsafeMock.mockResolvedValueOnce([{ ...row, payload_hash: 'hash-preauth-current' }]);
+    queryUnsafeMock.mockResolvedValueOnce([accepted]);
+    queryUnsafeMock.mockResolvedValueOnce([accepted]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 77,
+      patient_uid: row.patient_uid,
+      admission_id: row.admission_id,
+      status: 'submitted',
+    }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 77, status: 'submitted', submission_channel: 'nhcx' }]);
-    queryUnsafeMock.mockResolvedValueOnce([{ ...row, status: 'accepted' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ ...accepted, projection_status: 'applied' }]);
 
     const fetchMock = jest.fn(async (_url, options) => {
       const body = JSON.parse(options.body);
@@ -295,10 +347,26 @@ describe('dispatchPendingNHCXMessages', () => {
 
   it('encrypts the current claim snapshot and marks gateway acceptance without posting ledger', async () => {
     const row = claimRow();
+    const accepted = {
+      ...row,
+      status: 'accepted',
+      projection_status: 'pending',
+      transport_accepted_at: new Date(),
+      transport_http_status: 202,
+      transport_response_sha256: RECEIPT_HASH,
+    };
     queryUnsafeMock.mockResolvedValueOnce([row]);
     queryUnsafeMock.mockResolvedValueOnce([{ ...row, payload_hash: 'hash-claim-current' }]);
+    queryUnsafeMock.mockResolvedValueOnce([accepted]);
+    queryUnsafeMock.mockResolvedValueOnce([accepted]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 88,
+      patient_uid: row.patient_uid,
+      admission_id: row.admission_id,
+      status: 'submitted',
+    }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 88, status: 'submitted', submission_channel: 'nhcx' }]);
-    queryUnsafeMock.mockResolvedValueOnce([{ ...row, status: 'accepted' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ ...accepted, projection_status: 'applied' }]);
 
     const result = await dispatchPendingNHCXMessages({
       tenantId: TENANT,
@@ -311,8 +379,9 @@ describe('dispatchPendingNHCXMessages', () => {
       tenantId: TENANT,
       claimId: 88,
     }));
-    expect(queryUnsafeMock.mock.calls[2][0]).toContain('UPDATE tpa_claims');
-    expect(queryUnsafeMock.mock.calls[2][0]).not.toMatch(/ledger|INSURANCE_AR/i);
+    const claimProjectionCall = queryUnsafeMock.mock.calls.find(([sql]) =>
+      String(sql).includes('UPDATE tpa_claims'));
+    expect(claimProjectionCall[0]).not.toMatch(/ledger|INSURANCE_AR/i);
   });
 
   it('backs off retryable gateway failures', async () => {
@@ -342,7 +411,17 @@ describe('dispatchPendingNHCXMessages', () => {
     });
     queryUnsafeMock.mockResolvedValueOnce([row]);
     queryUnsafeMock.mockResolvedValueOnce([{ ...row, payload_hash: 'hash-communication-current' }]);
-    queryUnsafeMock.mockResolvedValueOnce([{ ...row, status: 'accepted' }]);
+    const accepted = {
+      ...row,
+      status: 'accepted',
+      projection_status: 'pending',
+      transport_accepted_at: new Date(),
+      transport_http_status: 202,
+      transport_response_sha256: RECEIPT_HASH,
+    };
+    queryUnsafeMock.mockResolvedValueOnce([accepted]);
+    queryUnsafeMock.mockResolvedValueOnce([accepted]);
+    queryUnsafeMock.mockResolvedValueOnce([{ ...accepted, projection_status: 'applied' }]);
 
     const fetchMock = jest.fn(async () => new Response(JSON.stringify({ status: 'accepted' }), { status: 202 }));
     const result = await dispatchPendingNHCXMessages({
@@ -360,6 +439,319 @@ describe('dispatchPendingNHCXMessages', () => {
       'https://nhcx.example.test/v0.9/communication/request',
       expect.objectContaining({ method: 'POST' }),
     );
+  });
+
+  // `communication` is one of the four outbound cycles that own no local claim
+  // or pre-auth row to project onto. Gateway acceptance must close the
+  // projection out, not raise NHCX_GATEWAY_PROJECTION_TARGET_REQUIRED into a
+  // coordinator task that no retry could ever clear.
+  it('closes an accepted Communication cycle as projection-complete instead of demanding a local target', async () => {
+    const row = claimRow({
+      cycle: 'communication',
+      endpoint: 'communication/request',
+      hcx_api_call_id: 'communication-api-1',
+    });
+    const accepted = {
+      ...row,
+      status: 'accepted',
+      projection_status: 'pending',
+      transport_accepted_at: new Date(),
+      transport_http_status: 202,
+      transport_response_sha256: RECEIPT_HASH,
+    };
+    queryUnsafeMock.mockResolvedValueOnce([row]);
+    queryUnsafeMock.mockResolvedValueOnce([{ ...row, payload_hash: 'hash-communication-current' }]);
+    queryUnsafeMock.mockResolvedValueOnce([accepted]);
+    queryUnsafeMock.mockResolvedValueOnce([accepted]);
+    queryUnsafeMock.mockResolvedValueOnce([{ ...accepted, projection_status: 'applied' }]);
+
+    const result = await dispatchPendingNHCXMessages({
+      tenantId: TENANT,
+      fetchImpl: jest.fn(async () => new Response(JSON.stringify({ status: 'accepted' }), { status: 202 })),
+      allowDisabled: true,
+    });
+
+    expect(result).toEqual({ dispatched: 1, accepted: 1, failed: 0, dead: 0 });
+
+    const sqlText = queryUnsafeMock.mock.calls.map(([sql]) => String(sql));
+    // No local workflow row was touched and no reconciliation owner was minted.
+    expect(sqlText.some((sql) => sql.includes('UPDATE tpa_claims'))).toBe(false);
+    expect(sqlText.some((sql) => sql.includes('UPDATE insurance_preauth'))).toBe(false);
+    expect(sqlText.some((sql) => sql.includes("projection_status='reconciliation_required'"))).toBe(false);
+    expect(createTaskMock).not.toHaveBeenCalled();
+    expect(loggerMock.error).not.toHaveBeenCalled();
+
+    const appliedCall = queryUnsafeMock.mock.calls.find(([sql]) =>
+      String(sql).includes("SET projection_status='applied'"));
+    expect(appliedCall).toBeDefined();
+    expect(appliedCall[1]).toBe(TENANT);
+    expect(appliedCall[2]).toBe('10');
+    expect(JSON.parse(appliedCall[3])).toEqual({
+      contract: 'nhcx_gateway_projection_not_applicable_v1',
+      transport_response_sha256: RECEIPT_HASH,
+      cycle: 'communication',
+      claim_id: 88,
+      preauth_id: 77,
+      projection: null,
+      no_local_projection_target_reason: 'cycle_has_no_local_projection_target',
+      task_id: null,
+      completed_by: null,
+    });
+  });
+
+  // A claim/pre-auth row already past its projectable window is the second
+  // pre-receipt case that returned a benign null: warn and close, never raise.
+  it('closes an accepted claim whose local row is past its projectable window', async () => {
+    const row = claimRow();
+    const accepted = {
+      ...row,
+      status: 'accepted',
+      projection_status: 'pending',
+      transport_accepted_at: new Date(),
+      transport_http_status: 202,
+      transport_response_sha256: RECEIPT_HASH,
+    };
+    queryUnsafeMock.mockResolvedValueOnce([row]);
+    queryUnsafeMock.mockResolvedValueOnce([{ ...row, payload_hash: 'hash-claim-current' }]);
+    queryUnsafeMock.mockResolvedValueOnce([accepted]);
+    queryUnsafeMock.mockResolvedValueOnce([accepted]);
+    // The payer already adjudicated this claim, so it is no longer inside the
+    // ('submitted','queried') window projectGatewayAcceptanceTargetTx can touch.
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 88,
+      patient_uid: row.patient_uid,
+      admission_id: row.admission_id,
+      status: 'approved',
+      submission_channel: 'nhcx',
+      tpa_reference_id: 'GW-OLD',
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ ...accepted, projection_status: 'applied' }]);
+
+    const result = await dispatchPendingNHCXMessages({
+      tenantId: TENANT,
+      fetchImpl: jest.fn(async () => new Response(JSON.stringify({ status: 'accepted' }), { status: 202 })),
+      allowDisabled: true,
+    });
+
+    expect(result).toEqual({ dispatched: 1, accepted: 1, failed: 0, dead: 0 });
+
+    const sqlText = queryUnsafeMock.mock.calls.map(([sql]) => String(sql));
+    expect(sqlText.some((sql) => sql.includes('UPDATE tpa_claims'))).toBe(false);
+    expect(sqlText.some((sql) => sql.includes("projection_status='reconciliation_required'"))).toBe(false);
+    expect(createTaskMock).not.toHaveBeenCalled();
+    expect(loggerMock.error).not.toHaveBeenCalled();
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      'NHCX gateway acceptance had no projectable local workflow row',
+      expect.objectContaining({
+        nhcx_message_id: '10',
+        tenant_id: TENANT,
+        cycle: 'claim',
+        claim_id: 88,
+        preauth_id: 77,
+      }),
+    );
+
+    const appliedCall = queryUnsafeMock.mock.calls.find(([sql]) =>
+      String(sql).includes("SET projection_status='applied'"));
+    expect(appliedCall).toBeDefined();
+    expect(JSON.parse(appliedCall[3])).toEqual({
+      contract: 'nhcx_gateway_projection_not_applicable_v1',
+      transport_response_sha256: RECEIPT_HASH,
+      cycle: 'claim',
+      claim_id: 88,
+      preauth_id: 77,
+      projection: null,
+      no_local_projection_target_reason: 'local_target_not_in_projectable_state',
+      task_id: null,
+      completed_by: null,
+    });
+  });
+
+  // The relaxation is scoped to cycles with no target. A claim that DOES own a
+  // projectable local row and still cannot be projected keeps failing closed
+  // onto a durable INSURANCE_COORDINATOR reconciliation task.
+  it('still fails an accepted claim closed onto a reconciliation task when its local target will not project', async () => {
+    const row = claimRow();
+    const accepted = {
+      ...row,
+      status: 'accepted',
+      projection_status: 'pending',
+      transport_accepted_at: new Date(),
+      transport_http_status: 202,
+      transport_response_sha256: RECEIPT_HASH,
+    };
+    queryUnsafeMock.mockResolvedValueOnce([row]);
+    queryUnsafeMock.mockResolvedValueOnce([{ ...row, payload_hash: 'hash-claim-current' }]);
+    queryUnsafeMock.mockResolvedValueOnce([accepted]);
+    queryUnsafeMock.mockResolvedValueOnce([accepted]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 88,
+      patient_uid: row.patient_uid,
+      admission_id: row.admission_id,
+      status: 'submitted',
+      submission_channel: 'tpa_portal',
+      tpa_reference_id: null,
+    }]);
+    // The guarded UPDATE matches nothing: the row moved out from under the lock.
+    queryUnsafeMock.mockResolvedValueOnce([]);
+    // markGatewayProjectionReconciliation re-locks the message, then persists.
+    queryUnsafeMock.mockResolvedValueOnce([accepted]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      ...accepted,
+      projection_status: 'reconciliation_required',
+      projection_task_id: 71,
+    }]);
+
+    const result = await dispatchPendingNHCXMessages({
+      tenantId: TENANT,
+      fetchImpl: jest.fn(async () => new Response(JSON.stringify({ status: 'accepted' }), { status: 202 })),
+      allowDisabled: true,
+    });
+
+    expect(result).toEqual({ dispatched: 1, accepted: 1, failed: 0, dead: 0 });
+
+    const sqlText = queryUnsafeMock.mock.calls.map(([sql]) => String(sql));
+    expect(sqlText.some((sql) => sql.includes("SET projection_status='applied'"))).toBe(false);
+    expect(loggerMock.error).toHaveBeenCalledWith(
+      'Accepted NHCX response requires local projection reconciliation',
+      expect.objectContaining({
+        nhcx_message_id: '10',
+        tenant_id: TENANT,
+        transport_response_sha256: RECEIPT_HASH,
+        error: 'The accepted NHCX response has no actionable local claim or pre-auth target',
+      }),
+    );
+    expect(createTaskMock).toHaveBeenCalledTimes(1);
+    expect(createTaskMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: TENANT,
+      taskKind: 'review',
+      relatedResourceType: 'nhcx_gateway_projection',
+      relatedResourceId: '10',
+      assignedToRole: 'INSURANCE_COORDINATOR',
+      priority: 'high',
+      metadata: expect.objectContaining({
+        contract: 'nhcx_gateway_projection_reconciliation_v1',
+        transport_response_sha256: RECEIPT_HASH,
+        claim_id: 88,
+        preauth_id: 77,
+      }),
+    }));
+
+    const reconciliationCall = queryUnsafeMock.mock.calls.find(([sql]) =>
+      String(sql).includes("SET projection_status='reconciliation_required'"));
+    expect(reconciliationCall).toBeDefined();
+    expect(reconciliationCall[1]).toBe(TENANT);
+    expect(reconciliationCall[2]).toBe('10');
+    expect(reconciliationCall[3])
+      .toBe('The accepted NHCX response has no actionable local claim or pre-auth target');
+    expect(JSON.parse(reconciliationCall[4])).toEqual({
+      contract: 'nhcx_gateway_projection_reconciliation_v1',
+      transport_response_sha256: RECEIPT_HASH,
+      task_id: 71,
+      error: 'The accepted NHCX response has no actionable local claim or pre-auth target',
+    });
+    expect(reconciliationCall[5]).toBe(71);
+  });
+});
+
+describe('retryAcceptedNHCXProjection', () => {
+  it('replays one durable local projection without a second target mutation', async () => {
+    const message = claimRow({
+      status: 'accepted',
+      projection_status: 'reconciliation_required',
+      projection_task_id: 71,
+      transport_accepted_at: new Date('2026-08-29T08:00:00.000Z'),
+      transport_http_status: 202,
+      transport_response_sha256: RECEIPT_HASH,
+      transport_gateway_reference: 'GW-42',
+    });
+    const actorUid = '22222222-2222-4222-8222-222222222222';
+    let projected = false;
+    let completedReceipt = null;
+    let targetMutations = 0;
+    queryUnsafeMock.mockImplementation(async (sql) => {
+      const text = String(sql);
+      if (text.includes('SELECT * FROM nhcx_messages') && text.includes('FOR UPDATE')) {
+        return [{ ...message, projection_status: projected ? 'applied' : 'reconciliation_required' }];
+      }
+      if (text.includes('FROM users')) {
+        return [{ uid: actorUid, role: 'INSURANCE_COORDINATOR' }];
+      }
+      if (text.includes('SELECT * FROM nhcx_projection_commands')) {
+        return completedReceipt ? [completedReceipt] : [];
+      }
+      if (text.includes('FROM tpa_claims') && text.includes('FOR UPDATE')) {
+        return [{
+          id: 88,
+          patient_uid: message.patient_uid,
+          admission_id: message.admission_id,
+          status: 'submitted',
+        }];
+      }
+      if (text.includes('FROM tasks') && text.includes('FOR UPDATE')) {
+        return [{ id: 71, status: 'open', assigned_to_role: 'INSURANCE_COORDINATOR' }];
+      }
+      if (text.includes('INSERT INTO nhcx_projection_commands')) {
+        return [{
+          id: '501',
+          tenant_id: TENANT,
+          nhcx_message_id: message.id,
+          task_id: 71,
+          actor_uid: actorUid,
+          actor_role: 'INSURANCE_COORDINATOR',
+          command_key_sha256: 'b'.repeat(64),
+          request_sha256: expect.anything(),
+          transport_response_sha256: RECEIPT_HASH,
+          status: 'IN_PROGRESS',
+        }];
+      }
+      if (text.includes('UPDATE tpa_claims')) {
+        targetMutations += 1;
+        return [{ id: 88, status: 'submitted', submission_channel: 'nhcx' }];
+      }
+      if (text.includes('UPDATE tasks')) {
+        return [{ id: 71, status: 'completed', assigned_to_role: 'INSURANCE_COORDINATOR' }];
+      }
+      if (text.includes('UPDATE nhcx_messages')) {
+        projected = true;
+        return [{ ...message, projection_status: 'applied', projection_task_id: null }];
+      }
+      if (text.includes('UPDATE nhcx_projection_commands')) return [{ id: '501' }];
+      throw new Error(`Unexpected retry query: ${text}`);
+    });
+
+    const first = await retryAcceptedNHCXProjection({
+      tenantId: TENANT,
+      messageId: 10,
+      expectedTransportResponseSha256: RECEIPT_HASH,
+      actorUid,
+      commandKeySha256: 'b'.repeat(64),
+    });
+    completedReceipt = {
+      id: '501',
+      tenant_id: TENANT,
+      nhcx_message_id: message.id,
+      task_id: 71,
+      actor_uid: actorUid,
+      command_key_sha256: 'b'.repeat(64),
+      request_sha256: __testing__.projectionRequestSha256({
+        messageId: message.id,
+        transportResponseSha256: RECEIPT_HASH,
+      }),
+      transport_response_sha256: RECEIPT_HASH,
+      status: 'COMPLETE',
+      response: first,
+    };
+    const replay = await retryAcceptedNHCXProjection({
+      tenantId: TENANT,
+      messageId: 10,
+      expectedTransportResponseSha256: RECEIPT_HASH,
+      actorUid,
+      commandKeySha256: 'b'.repeat(64),
+    });
+
+    expect(replay).toEqual(first);
+    expect(targetMutations).toBe(1);
   });
 });
 

@@ -7,6 +7,10 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { normalizeClinicalJustification } from '../insurance/clinicalJustificationTemplate.js';
+import {
+  lockPharmacyFundingAuthorityTx,
+  resolvePharmacyFundingPatientUidTx,
+} from '../pharmacy/pharmacyCapService.js';
 
 // SEC-3 — open a financial interactive transaction that is ALWAYS RLS-tenant-
 // scoped. A known tenantId scopes to it; a falsy tenantId (single-tenant
@@ -454,30 +458,56 @@ class BillingService {
       }
     }
 
+    const tid = requireTenantId(tenant_id);
     const claimNumber = await this._generateClaimNumber();
     const now = new Date();
 
-    const claim = await prisma.insurance_claims.create({
-      data: {
-        claim_number: claimNumber,
-        patient_uid,
-        invoice_id: invoice_id || null,
-        insurance_provider,
-        policy_number,
-        claim_amount,
-        documents,
-        ...(tenant_id ? { tenant_id: String(tenant_id) } : {}),
-        updated_at: now,
-      },
-    });
-
-    // Link claim to invoice
-    if (invoice_id) {
-      await prisma.invoices.update({
-        where: { id: invoice_id },
-        data: { insurance_claim_id: claim.id, updated_at: now },
+    const claim = await scopedTx(tid, async (tx) => {
+      const canonicalPatientUid = await resolvePharmacyFundingPatientUidTx(tx, {
+        tenantId: tid,
+        patientUid: String(patient_uid),
       });
-    }
+      await lockPharmacyFundingAuthorityTx(tx, {
+        tenantId: tid,
+        patientUid: canonicalPatientUid,
+      });
+      if (invoice_id) {
+        const invoiceRows = await tx.$queryRawUnsafe(
+          `SELECT id FROM invoices
+            WHERE tenant_id=$1::uuid AND id=$2::int AND patient_uid=$3::uuid
+            FOR UPDATE`,
+          tid,
+          Number(invoice_id),
+          canonicalPatientUid,
+        );
+        if (!invoiceRows.length) {
+          throw AppError.conflict(
+            'The linked invoice no longer belongs to the exact claim patient',
+            'CLAIM_REFERENCE_PATIENT_MISMATCH',
+          );
+        }
+      }
+      const created = await tx.insurance_claims.create({
+        data: {
+          claim_number: claimNumber,
+          patient_uid: canonicalPatientUid,
+          invoice_id: invoice_id || null,
+          insurance_provider,
+          policy_number,
+          claim_amount,
+          documents,
+          tenant_id: tid,
+          updated_at: now,
+        },
+      });
+      if (invoice_id) {
+        await tx.invoices.update({
+          where: { id: invoice_id },
+          data: { insurance_claim_id: created.id, updated_at: now },
+        });
+      }
+      return created;
+    });
 
     logger.info(`Insurance claim created: ${claimNumber} for patient ${patient_uid}`);
     return claim;
@@ -513,63 +543,63 @@ class BillingService {
     // defense-in-depth debt when on). When the caller threads a tenantId we
     // require the row to belong to it before any write; the read returning
     // notFound short-circuits the by-id update below.
-    const tenantId = opts.tenantId ?? null;
-    const existing = tenantId
-      ? await prisma.insurance_claims.findFirst({
-        where: { id: claimId, tenant_id: String(tenantId) },
-        select: { id: true, documents: true, status: true },
-      })
-      : await prisma.insurance_claims.findUnique({
-        where: { id: claimId },
-        select: { id: true, documents: true, status: true },
-      });
+    const tenantId = requireTenantId(opts.tenantId);
+    const existing = await prisma.insurance_claims.findFirst({
+      where: { id: claimId, tenant_id: tenantId },
+      select: { id: true, documents: true, status: true, patient_uid: true },
+    });
     if (!existing) throw AppError.notFound('Insurance claim not found');
-
-    // Merge partial-approval caps and other structured payload bits into
-    // the existing `documents` jsonb instead of overwriting. Caller can
-    // pass `documents: null` to explicitly clear. See finding
-    // 2026-05-08-tpa-insurance-claim-billing-claim-update-drops-fields.
-    let mergedDocuments = existing.documents ?? null;
-    if (documentsPatch !== undefined) {
-      if (documentsPatch === null) {
-        mergedDocuments = null;
-      } else if (typeof documentsPatch === 'object' && !Array.isArray(documentsPatch)) {
-        mergedDocuments = { ...(existing.documents ?? {}), ...documentsPatch };
-      } else {
-        mergedDocuments = documentsPatch;
-      }
-    }
-    // Stamp the payment reference + actor inside `documents` so we have an
-    // audit trail without a separate column. Real ledger linkage can be
-    // wired through payment_transactions in a follow-up.
-    if (status === 'paid' && paymentReference) {
-      mergedDocuments = {
-        ...(typeof mergedDocuments === 'object' && mergedDocuments !== null ? mergedDocuments : {}),
-        payment: {
-          reference: paymentReference,
-          recorded_by: opts.actor_uid ?? null,
-          recorded_at: new Date().toISOString(),
-        },
-      };
-    }
 
     const reviewedAt = ['approved', 'partially_approved', 'rejected', 'paid', 'settled_partial', 'settled_full'].includes(status)
       ? new Date()
       : null;
     const now = new Date();
 
-    const updated = await prisma.insurance_claims.update({
-      where: { id: claimId },
-      data: {
-        status,
-        approved_amount: approvedAmount ?? null,
-        rejection_reason: reason ?? null,
-        non_payable_amount: nonPayableAmount,
-        disallowed_reason: disallowedReason,
-        documents: mergedDocuments,
-        reviewed_at: reviewedAt,
-        updated_at: now,
-      },
+    const updated = await scopedTx(tenantId, async (tx) => {
+      const canonicalPatientUid = await resolvePharmacyFundingPatientUidTx(tx, {
+        tenantId,
+        patientUid: String(existing.patient_uid),
+      });
+      await lockPharmacyFundingAuthorityTx(tx, { tenantId, patientUid: canonicalPatientUid });
+      const lockedRows = await tx.$queryRawUnsafe(
+        `SELECT id,documents,status,patient_uid FROM insurance_claims
+          WHERE tenant_id=$1::uuid AND id=$2::int AND patient_uid=$3::uuid
+          FOR UPDATE`,
+        tenantId,
+        Number(claimId),
+        canonicalPatientUid,
+      );
+      if (!lockedRows.length) throw AppError.notFound('Insurance claim not found');
+      let lockedDocuments = lockedRows[0].documents ?? null;
+      if (documentsPatch !== undefined) {
+        if (documentsPatch === null) lockedDocuments = null;
+        else if (typeof documentsPatch === 'object' && !Array.isArray(documentsPatch)) {
+          lockedDocuments = { ...(lockedRows[0].documents ?? {}), ...documentsPatch };
+        } else lockedDocuments = documentsPatch;
+      }
+      if (status === 'paid' && paymentReference) {
+        lockedDocuments = {
+          ...(typeof lockedDocuments === 'object' && lockedDocuments !== null ? lockedDocuments : {}),
+          payment: {
+            reference: paymentReference,
+            recorded_by: opts.actor_uid ?? null,
+            recorded_at: now.toISOString(),
+          },
+        };
+      }
+      return tx.insurance_claims.update({
+        where: { id: claimId },
+        data: {
+          status,
+          approved_amount: approvedAmount ?? null,
+          rejection_reason: reason ?? null,
+          non_payable_amount: nonPayableAmount,
+          disallowed_reason: disallowedReason,
+          documents: lockedDocuments,
+          reviewed_at: reviewedAt,
+          updated_at: now,
+        },
+      });
     });
 
     logger.info(`Insurance claim ${claimId} updated to status: ${status}`);
@@ -595,7 +625,7 @@ class BillingService {
    */
   async createEnhancementClaim({
     parentClaimId, enhancementAmount, justification = null,
-    clinicalJustification = null, actorUid = null,
+    clinicalJustification = null, actorUid = null, tenantId,
   }) {
     if (!parentClaimId) throw AppError.badRequest('parentClaimId is required');
     const amount = Number(enhancementAmount);
@@ -612,15 +642,18 @@ class BillingService {
     // surface this endpoint writes to; `tpa_claims` is the Sprint 5 TPA
     // workflow and uses `insurance_preauth.parent_preauth_id` instead
     // (see CLAUDE.md table-split note + commit 8c2b157a).
+    const tid = requireTenantId(tenantId);
     const parentRows = await prisma.$queryRawUnsafe(
       `SELECT id, claim_number, patient_uid, invoice_id, insurance_provider, policy_number, tenant_id
-         FROM insurance_claims WHERE id = $1::int`,
+         FROM insurance_claims WHERE tenant_id=$2::uuid AND id = $1::int`,
       Number(parentClaimId),
+      tid,
     );
     if (!parentRows.length) {
       const tpaRows = await prisma.$queryRawUnsafe(
-        `SELECT id, claim_number FROM tpa_claims WHERE id = $1::int`,
+        `SELECT id, claim_number FROM tpa_claims WHERE tenant_id=$2::uuid AND id = $1::int`,
         Number(parentClaimId),
+        tid,
       );
       if (tpaRows.length) {
         throw AppError.badRequest(
@@ -666,6 +699,23 @@ class BillingService {
       // leaves app.current_tenant_id unset → policy falls to its permissive
       // branch. setTenantTx sets the GUC as the first statement of the tx.
       const created = await setTenantTx(parent.tenant_id, async (tx) => {
+        const canonicalPatientUid = await resolvePharmacyFundingPatientUidTx(tx, {
+          tenantId: parent.tenant_id,
+          patientUid: String(parent.patient_uid),
+        });
+        await lockPharmacyFundingAuthorityTx(tx, {
+          tenantId: parent.tenant_id,
+          patientUid: canonicalPatientUid,
+        });
+        const lockedParentRows = await tx.$queryRawUnsafe(
+          `SELECT id FROM insurance_claims
+            WHERE tenant_id=$1::uuid AND id=$2::int AND patient_uid=$3::uuid
+            FOR UPDATE`,
+          parent.tenant_id,
+          Number(parentClaimId),
+          canonicalPatientUid,
+        );
+        if (!lockedParentRows.length) throw AppError.notFound('Parent insurance claim not found');
         const countRows = await tx.$queryRawUnsafe(
           `SELECT COUNT(*)::int AS n
              FROM insurance_claims

@@ -22,6 +22,10 @@ labels:
 
 resources:
   - configmap.yaml
+  - payroll-revision-754-acceptance.yaml
+  # PreSync-phase config for the migration Job. Must render whenever
+  # migration-job.yaml does — the Job's envFrom hard-requires it.
+  - migration-config.yaml
   - migration-job.yaml
   - deployment.yaml
   - service.yaml

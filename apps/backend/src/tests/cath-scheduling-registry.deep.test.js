@@ -145,9 +145,13 @@ async function asRlsRole(tenantId, sql, ...params) {
 async function insertCase({ patientUid, urgency, status, plannedStartAt = null, actualStartAt = null }) {
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO cath_lab_cases
-       (tenant_id, patient_uid, requested_procedure, urgency, status,
+       (tenant_id, patient_uid, facility_id, requested_procedure, urgency, status,
         planned_start_at, actual_start_at)
-     VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6::timestamptz, $7::timestamptz)
+     VALUES ($1::uuid, $2::uuid,
+             (SELECT id FROM facilities
+               WHERE tenant_id=$1::uuid AND status='active'
+               ORDER BY is_default DESC, id LIMIT 1),
+             $3, $4, $5, $6::timestamptz, $7::timestamptz)
      RETURNING id, patient_uid, urgency, status`,
     TENANT_A,
     patientUid,
@@ -230,6 +234,17 @@ describeIfDb('NL-13 P1f cath scheduling + registries deep integration', () => {
       `INSERT INTO tenants (id, slug, name, region, compliance_profile, status)
        VALUES ($1::uuid, 'p1f-tenant-b', 'P1F Tenant B', 'IN', 'DPDP', 'active')
        ON CONFLICT (id) DO NOTHING`,
+      TENANT_B,
+    );
+    await prisma.$queryRawUnsafe(
+      `INSERT INTO facilities
+         (tenant_id, facility_code, display_name, status, is_default)
+       VALUES
+         ($1::uuid, 'P1F-CATH-A', 'P1F Cath A', 'active', TRUE),
+         ($2::uuid, 'P1F-CATH-B', 'P1F Cath B', 'active', TRUE)
+       ON CONFLICT (tenant_id, facility_code) DO UPDATE
+         SET status='active', is_default=TRUE, updated_at=NOW()`,
+      TENANT_A,
       TENANT_B,
     );
     await prisma.$queryRawUnsafe(

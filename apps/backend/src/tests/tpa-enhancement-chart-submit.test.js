@@ -30,6 +30,25 @@ describe('Chart-shaped TPA enhancement — doctor can fetch template + reach sub
   let strayPreauthId; // a pre-auth that does NOT belong to ADMISSION_ID
 
   beforeAll(async () => {
+    // Migration 753 routes createPreauth through
+    // lockInsuranceFundingPatientTx → resolvePharmacyFundingPatientUidTx,
+    // which serialises the pre-auth against the ONE active patient it names.
+    // The stray pre-auth's patient_uid therefore has to be a real registered
+    // patient in this tenant (role='PATIENT', is_active, status='active', not
+    // deleted, not merged); a bare uuid is refused with 409
+    // PHARMACY_FUNDING_PATIENT_IDENTITY_MISMATCH, which kills beforeAll and
+    // takes every case in this RBAC suite with it.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, status, tenant_id, updated_at)
+       VALUES ($1::uuid, $2, 'TPA Enhancement Chart Test Patient', 'PATIENT', true, 'active', $3::uuid, NOW())
+       ON CONFLICT (uid) DO UPDATE
+          SET is_active = true, status = 'active', is_deleted = false,
+              merged_into_uid = NULL, updated_at = NOW()`,
+      PATIENT_UID,
+      `9604${Date.now() % 1000000}`.slice(0, 10),
+      TENANT,
+    );
+
     const policyRows = await prisma.$queryRawUnsafe(
       `INSERT INTO insurance_policies
          (patient_uid, policy_number, status, tenant_id)
@@ -67,8 +86,11 @@ describe('Chart-shaped TPA enhancement — doctor can fetch template + reach sub
         .$executeRawUnsafe(`DELETE FROM insurance_policies WHERE id = $1::int`, policyId)
         .catch(() => {});
     }
+    await prisma
+      .$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PATIENT_UID)
+      .catch(() => {});
     await prisma.$disconnect().catch(() => {});
-  });
+  }, 120_000);
 
   it('lets a DOCTOR fetch the enhancement justification template from the chart', async () => {
     const res = await doctor.get(

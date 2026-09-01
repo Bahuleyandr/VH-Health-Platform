@@ -80,6 +80,12 @@ class _DeferredInboxApi extends ClinicalInboxApi {
       throw UnsupportedError('Claim is outside this fixture');
 
   @override
+  Future<void> claimMarMedicationException({
+    required String caseId,
+    required String idempotencyKey,
+  }) => throw UnsupportedError('MAR claim is outside this fixture');
+
+  @override
   Future<DiagnosticActionReceipt> recordDiagnosticAction(
     DiagnosticActionCommand command,
   ) => throw UnsupportedError('Action is outside this fixture');
@@ -123,6 +129,12 @@ class _InboxApi extends ClinicalInboxApi {
   @override
   Future<ClinicalInboxTask> claimTask(String id) =>
       throw UnsupportedError('Claim is outside this fixture');
+
+  @override
+  Future<void> claimMarMedicationException({
+    required String caseId,
+    required String idempotencyKey,
+  }) => throw UnsupportedError('MAR claim is outside this fixture');
 
   @override
   Future<DiagnosticActionReceipt> recordDiagnosticAction(
