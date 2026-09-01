@@ -176,6 +176,37 @@ describe('ci-setup-db migration failure boundary', () => {
     expect(failureBreak).toBeGreaterThan(errorIncrement);
   });
 
+  test('restores plpgsql body checking after every migration so a relaxation cannot leak', () => {
+    // 000_baseline.sql and 758 both issue a SESSION-level
+    // `SET check_function_bodies = false` so they can create functions ahead of
+    // the tables those functions reference. Every migration is applied through
+    // ONE long-lived client, so without an explicit restore that relaxation
+    // outlives the file that asked for it and every later migration is applied
+    // unvalidated. That is exactly how 744 and 745 shipped plpgsql bodies which
+    // cannot compile (a bare CASE inside an IF condition eats the IF's THEN)
+    // while CI stayed green; plpgsql compiles lazily, so both trigger functions
+    // would have raised the first time they fired.
+    const helper = runnerSource.indexOf('async function restoreFunctionBodyChecking()');
+    const setsOn = runnerSource.indexOf("'SET check_function_bodies = on'", helper);
+    const migrationLoop = runnerSource.indexOf('for (const file of files)');
+    const executorCall = runnerSource.indexOf(
+      'const result = await executeCiMigrationFile({',
+      migrationLoop,
+    );
+    const restoreCall = runnerSource.indexOf(
+      'await restoreFunctionBodyChecking();',
+      executorCall,
+    );
+    const appliedAdd = runnerSource.indexOf('applied.add(file);', executorCall);
+
+    expect(helper).toBeGreaterThan(-1);
+    expect(setsOn).toBeGreaterThan(helper);
+    // The restore must sit INSIDE the per-file loop, after the file is applied
+    // and before the next iteration — not once after the whole batch.
+    expect(restoreCall).toBeGreaterThan(executorCall);
+    expect(restoreCall).toBeLessThan(appliedAdd);
+  });
+
   test('adopts legacy checksums before apply and verifies the exact tracker before seeds', () => {
     const trackerGuard = runnerSource.indexOf('await assertMigrationTrackerReady({');
     const checksumColumn = runnerSource.indexOf(

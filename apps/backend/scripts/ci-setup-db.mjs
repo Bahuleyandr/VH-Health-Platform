@@ -245,6 +245,22 @@ function fileStartsWithBegin(sql) {
   return /^begin\b/i.test(sql.slice(i, i + 16));
 }
 
+// A migration may legitimately relax body checking for its OWN content:
+// 000_baseline.sql and 758 both `SET check_function_bodies = false` so that
+// functions referencing tables created later in the same file can be created,
+// exactly as pg_dump does. Those are SESSION-level SETs and every migration here
+// runs through ONE long-lived connection, so without this the relaxation outlives
+// the file that asked for it and every later migration is applied unvalidated.
+//
+// That is not hypothetical: it is why 744 and 745 shipped trigger functions whose
+// plpgsql bodies cannot compile (a bare CASE inside an IF condition consumes the
+// IF's THEN) while CI stayed green, and plpgsql compiles lazily, so those
+// triggers would have raised the first time they fired. Migration 759 repairs the
+// two bodies; this restores the validation that should have caught them.
+async function restoreFunctionBodyChecking() {
+  await client.query('SET check_function_bodies = on');
+}
+
 logger.info('→ Applying raw src/migrations/*.sql …');
 let appliedCount = 0;
 let alreadyApplied = 0;
@@ -305,6 +321,7 @@ for (const file of files) {
       ? `, statement_timeout=${directives.statementTimeout}`
       : '';
     logger.info(`  ✓ ${file} (${result.mode}${timeoutNote})`);
+    await restoreFunctionBodyChecking();
     applied.add(file);
     appliedCount++;
   } catch (err) {
