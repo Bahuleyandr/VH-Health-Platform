@@ -133,6 +133,66 @@ export function assertNoIngressClassParameters(rendered, target = 'render') {
   }
 }
 
+// The migration Job's failure evidence must survive long enough to be read.
+//
+// Checked on the RENDERED output, not the source file, so an overlay patch can
+// never quietly put either half back: both `infra/kubernetes/apps` and
+// `infra/kubernetes/overlays/staging/apps` render this Job today, and a target
+// that stops rendering it is simply skipped.
+//
+// Reproduced on the dalekdefender rig 2026-09-01 with production's exact policy
+// (restartPolicy OnFailure, backoffLimit 2): the job controller deleted the pod
+// about a second after BackoffLimitExceeded, so the failure was left as a Job
+// object reading `Failed 0/1` carrying no migration output at all — no file
+// name, no Postgres error — and `kubectl logs job/<name>` returned "timed out
+// waiting for the condition". restartPolicy Never retains every attempt's pod
+// (3 readable pods for backoffLimit 2, verified), and a 24h TTL keeps them past
+// an unattended overnight sync. `hook-delete-policy: BeforeHookCreation` bounds
+// the retention to one Job regardless, so neither setting can accumulate.
+const MIGRATION_JOB_MIN_TTL_SECONDS = 86400;
+
+function requireMigrationJobEvidenceContract(target, rendered) {
+  const migrationJobs = renderedDocuments(rendered).filter(
+    (document) =>
+      /^apiVersion:\s+batch\/v1\s*$/m.test(document) &&
+      /^kind:\s+Job\s*$/m.test(document) &&
+      /^\s{2}name:\s+vhhealth-backend-migrate\s*$/m.test(document),
+  );
+  if (migrationJobs.length === 0) return;
+
+  for (const job of migrationJobs) {
+    rejectInRendered(target, job, [
+      {
+        label:
+          'migration Job uses restartPolicy: OnFailure — the job controller deletes the pod ' +
+          'on BackoffLimitExceeded, destroying the only record of which migration failed',
+        pattern: /^\s+restartPolicy:\s+OnFailure\s*$/m,
+      },
+    ]);
+    requireInRendered(target, job, [
+      {
+        label: 'migration Job retains failed attempt pods (restartPolicy: Never)',
+        pattern: /^\s+restartPolicy:\s+Never\s*$/m,
+      },
+    ]);
+
+    const ttl = job.match(/^\s{2}ttlSecondsAfterFinished:\s+(\d+)\s*$/m);
+    if (!ttl) {
+      throw new Error(
+        `${target} migration Job has no ttlSecondsAfterFinished; retained failure evidence ` +
+          'would never be reaped.',
+      );
+    }
+    if (Number(ttl[1]) < MIGRATION_JOB_MIN_TTL_SECONDS) {
+      throw new Error(
+        `${target} migration Job sets ttlSecondsAfterFinished=${ttl[1]}; at least ` +
+          `${MIGRATION_JOB_MIN_TTL_SECONDS} (24h) is required so a failure from an unattended ` +
+          'or overnight sync is still readable when an operator returns to it.',
+      );
+    }
+  }
+}
+
 function requireObjectStoreContract(target, rendered) {
   if (target !== 'infra/kubernetes/overlays/prod') return;
 
@@ -221,6 +281,7 @@ function validateTarget(kustomize, kubeconform, target, tmpDir) {
   assertNoIngressClassParameters(rendered, target);
   requireObjectStoreContract(target, rendered);
   requireDeviceGatewayContract(target, rendered);
+  requireMigrationJobEvidenceContract(target, rendered);
 
   if (target === 'infra/kubernetes/apps') {
     requireInRendered(target, rendered, [
