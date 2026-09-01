@@ -69,8 +69,15 @@ FROM ${NODE_IMAGE} AS runner
 # forever and never fetches packages published since, so a Trivy finding whose
 # fix is already on the Alpine mirror can never clear (CVE-2026-14456 stuck
 # exactly this way on 2026-08-26). The echo makes the epoch part of the layer.
-ARG SECURITY_PATCH_EPOCH=2026-08-26.1
-RUN apk upgrade --no-cache libcrypto3 libssl3 c-ares && \
+#
+# The upgrade is deliberately UNSCOPED. It used to name libcrypto3/libssl3/
+# c-ares only, which cannot patch a CVE in a package that arrives transitively:
+# CVE-2026-26740 in giflib (pulled in under tesseract-ocr via leptonica) wedged
+# this blocking scan for days because giflib was not on the list. A blocking
+# gate must not depend on someone having predicted which package would be
+# vulnerable. Do not re-narrow this to a package list.
+ARG SECURITY_PATCH_EPOCH=2026-09-01.1
+RUN apk upgrade --no-cache && \
     apk add --no-cache curl && \
     rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx && \
     echo "security patch epoch: ${SECURITY_PATCH_EPOCH}"
