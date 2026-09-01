@@ -98,6 +98,15 @@ jobs:
       - name: Migration number collision guard (no duplicate numeric prefixes)
         run: npm run check:migration-numbers
 
+      # Applied-migration immutability. The authoritative copy of this gate runs
+      # in the unconditional `security` stage of ci.yml — it must not be
+      # skippable by tier routing. It is mirrored here (and in the full tier)
+      # beside the collision guard so that both migration checks fail in the
+      # same place, for the same reason, on the same push. Needs the
+      # `fetch-depth: 0` checkout above: it resolves a merge-base with main.
+      - name: Applied-migration immutability guard (no edits to migrations on main)
+        run: npm run check:migration-immutability
+
       - name: Restore generated Prisma client
         id: prisma-client
         uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0

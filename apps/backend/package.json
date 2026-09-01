@@ -25,6 +25,7 @@
     "check:lockfile-libc": "node ../../scripts/check-lockfile-libc.mjs backend",
     "check:timestamptz-clock": "node scripts/check-timestamptz-clock-comparisons.mjs",
     "check:migration-numbers": "node scripts/check-migration-number-collisions.mjs",
+    "check:migration-immutability": "node ../../scripts/ci/check-migration-immutability.mjs",
     "check:prisma-relations": "node scripts/check-prisma-relation-budget.mjs",
     "check:schema-drift": "node scripts/check-schema-drift.mjs",
     "check:continuity-action-registry": "node scripts/check-clinical-continuity-action-registry.mjs",
