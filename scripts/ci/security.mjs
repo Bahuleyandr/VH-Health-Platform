@@ -201,6 +201,14 @@ export async function runSecurityStage() {
   // it belongs with them. Costs one `git diff --raw` over one directory.
   run(process.execPath, ['scripts/ci/check-migration-immutability.mjs']);
 
+  // Session-scoped GUC leaks in migrations. Same stage and same reasoning as the
+  // immutability gate above: a guard that exists to keep body validation ON for
+  // every migration must not be skippable by tier routing. A bare
+  // `SET check_function_bodies = false` outlives its own file because every
+  // migration is applied through one connection — which is how 744 and 745
+  // shipped plpgsql bodies that cannot compile while CI stayed green.
+  run(process.execPath, ['scripts/ci/check-migration-session-guc.mjs']);
+
   run(process.execPath, ['scripts/check-forgejo-supply-chain-pins.mjs']);
   run(process.execPath, ['scripts/scan-secrets.mjs']);
   run(process.execPath, ['scripts/gitleaks-scan.mjs', 'worktree'], { env: gitleaksEnv });

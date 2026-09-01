@@ -176,6 +176,71 @@ describe('ci-setup-db migration failure boundary', () => {
     expect(failureBreak).toBeGreaterThan(errorIncrement);
   });
 
+  test('restores plpgsql body checking after every migration so a relaxation cannot leak', () => {
+    // 000_baseline.sql and 758 both issue a SESSION-level
+    // `SET check_function_bodies = false` so they can create functions ahead of
+    // the tables those functions reference. Every migration is applied through
+    // ONE long-lived client, so without an explicit restore that relaxation
+    // outlives the file that asked for it and every later migration is applied
+    // unvalidated. That is exactly how 744 and 745 shipped plpgsql bodies which
+    // cannot compile (a bare CASE inside an IF condition eats the IF's THEN)
+    // while CI stayed green; plpgsql compiles lazily, so both trigger functions
+    // would have raised the first time they fired.
+    const helper = runnerSource.indexOf('async function restoreFunctionBodyChecking()');
+    const setsOn = runnerSource.indexOf("'SET check_function_bodies = on'", helper);
+    const migrationLoop = runnerSource.indexOf('for (const file of files)');
+    const executorCall = runnerSource.indexOf(
+      'const result = await executeCiMigrationFile({',
+      migrationLoop,
+    );
+    const restoreCall = runnerSource.indexOf(
+      'await restoreFunctionBodyChecking();',
+      executorCall,
+    );
+    const appliedAdd = runnerSource.indexOf('applied.add(file);', executorCall);
+
+    expect(helper).toBeGreaterThan(-1);
+    expect(setsOn).toBeGreaterThan(helper);
+    // The restore must sit INSIDE the per-file loop, after the file is applied
+    // and before the next iteration — not once after the whole batch.
+    expect(restoreCall).toBeGreaterThan(executorCall);
+    expect(restoreCall).toBeLessThan(appliedAdd);
+  });
+
+  test('only the two known-uncompilable migrations are applied with body checking off', () => {
+    // 744 and 745 shipped plpgsql bodies that cannot compile. 759 repairs the
+    // functions, but it runs AFTER them, so a fresh database must still replay
+    // 744 and 745 on the way there — they are applied exactly as they always
+    // were, with checking off, and validation is restored immediately after.
+    // Amending them instead would drift their recorded checksum in every
+    // environment that has already applied them.
+    //
+    // Pinned exactly: this set must never grow. A new migration whose bodies do
+    // not compile is a bug to fix before merge, not an entry here.
+    const setStart = runnerSource.indexOf('const BODIES_KNOWN_UNCOMPILABLE = new Set([');
+    expect(setStart).toBeGreaterThan(-1);
+    const setEnd = runnerSource.indexOf(']);', setStart);
+    const listed = runnerSource
+      .slice(setStart, setEnd)
+      .match(/'[^']+\.sql'/g)
+      ?.map((s) => s.slice(1, -1)) ?? [];
+    expect(listed.sort()).toEqual([
+      '744_medication_inventory_billing_mar_closure.sql',
+      '745_clinical_alert_delivery_obligations.sql',
+    ]);
+
+    // The relaxation must be applied BEFORE the file executes, and must be
+    // reachable from inside the loop rather than left defined and unused.
+    const migrationLoop = runnerSource.indexOf('for (const file of files)');
+    const relaxCall = runnerSource.indexOf('await relaxFunctionBodyCheckingFor(file);', migrationLoop);
+    const executorCall = runnerSource.indexOf(
+      'const result = await executeCiMigrationFile({',
+      migrationLoop,
+    );
+    expect(relaxCall).toBeGreaterThan(migrationLoop);
+    expect(relaxCall).toBeLessThan(executorCall);
+  });
+
   test('adopts legacy checksums before apply and verifies the exact tracker before seeds', () => {
     const trackerGuard = runnerSource.indexOf('await assertMigrationTrackerReady({');
     const checksumColumn = runnerSource.indexOf(

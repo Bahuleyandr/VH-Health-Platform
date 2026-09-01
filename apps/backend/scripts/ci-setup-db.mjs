@@ -245,6 +245,48 @@ function fileStartsWithBegin(sql) {
   return /^begin\b/i.test(sql.slice(i, i + 16));
 }
 
+// A migration may legitimately relax body checking for its OWN content:
+// 000_baseline.sql and 758 both `SET check_function_bodies = false` so that
+// functions referencing tables created later in the same file can be created,
+// exactly as pg_dump does. Those are SESSION-level SETs and every migration here
+// runs through ONE long-lived connection, so without this the relaxation outlives
+// the file that asked for it and every later migration is applied unvalidated.
+//
+// That is not hypothetical: it is why 744 and 745 shipped trigger functions whose
+// plpgsql bodies cannot compile (a bare CASE inside an IF condition consumes the
+// IF's THEN) while CI stayed green, and plpgsql compiles lazily, so those
+// triggers would have raised the first time they fired. Migration 759 repairs the
+// two bodies; this restores the validation that should have caught them.
+async function restoreFunctionBodyChecking() {
+  await client.query('SET check_function_bodies = on');
+}
+
+// Two migrations shipped plpgsql bodies that CANNOT compile: a bare CASE inside
+// an IF condition consumes the IF's own THEN terminator, so the condition is
+// truncated and the server raises 42601 "syntax error at end of input". They were
+// accepted at the time only because body validation was already off, leaked from
+// the baseline. Migration 759 repairs both functions.
+//
+// 759 cannot help these two files apply, though: it runs after them, and a fresh
+// database must still replay 744 and 745 on the way there. So they are applied
+// exactly as they always were — with body checking off — and validation is
+// restored immediately afterwards. Amending them instead would drift their
+// recorded checksum in every environment that has already applied them, which is
+// the failure this repo spent a day unwinding on migration 566.
+//
+// This set must never grow. A new migration whose bodies do not compile is a bug
+// to fix before merge, not an entry here; scripts/ci/check-migration-session-guc.mjs
+// stops the session-level leak that let these two through in the first place.
+const BODIES_KNOWN_UNCOMPILABLE = new Set([
+  '744_medication_inventory_billing_mar_closure.sql',
+  '745_clinical_alert_delivery_obligations.sql',
+]);
+
+async function relaxFunctionBodyCheckingFor(file) {
+  if (!BODIES_KNOWN_UNCOMPILABLE.has(file)) return;
+  await client.query('SET check_function_bodies = off');
+}
+
 logger.info('→ Applying raw src/migrations/*.sql …');
 let appliedCount = 0;
 let alreadyApplied = 0;
@@ -270,6 +312,7 @@ for (const file of files) {
   const directives = parseMigrationDirectives(sql);
   const payrollReconciliationGate = file === PAYROLL_REVISION_RECONCILIATION_MIGRATION;
   try {
+    await relaxFunctionBodyCheckingFor(file);
     const result = await executeCiMigrationFile({
       client,
       file,
@@ -305,6 +348,7 @@ for (const file of files) {
       ? `, statement_timeout=${directives.statementTimeout}`
       : '';
     logger.info(`  ✓ ${file} (${result.mode}${timeoutNote})`);
+    await restoreFunctionBodyChecking();
     applied.add(file);
     appliedCount++;
   } catch (err) {
