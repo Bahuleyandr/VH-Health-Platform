@@ -4,6 +4,11 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  objectReferencesOf,
+  parseRenderedManifests,
+  syncPhasesOf,
+} from './lib/rendered-manifest-refs.mjs';
 
 const thisFile = fileURLToPath(import.meta.url);
 const repoRoot = resolve(dirname(thisFile), '..');
@@ -288,6 +293,154 @@ function requireMigrationJobEvidenceContract(target, rendered) {
   }
 }
 
+// ── ArgoCD hook phase-ordering contract ──────────────────────────────────────
+//
+// THE CLASS: ArgoCD runs every PreSync hook to completion BEFORE it applies any
+// Sync-phase resource. Sync waves order resources within a phase; they do not
+// order across phases. So a PreSync hook that hard-requires a ConfigMap/Secret
+// which this same Application only creates during Sync can never start on a
+// fresh namespace — and it fails in the worst possible way:
+// CreateContainerConfigError is a WAITING reason, not a pod failure, so the
+// backoff counter never moves and no failed pod is ever retained; the Job runs
+// to activeDeadlineSeconds and DeadlineExceeded deletes the still-running pod.
+// Zero pods, zero logs, and the Sync phase that would have created the object
+// is itself gated on the hook, so a retry reproduces it. Reproduced on a kind
+// cluster running ArgoCD.
+//
+// THE RULE: a PreSync hook may reference an object this render also produces
+// only if that object is itself a PreSync hook, or the reference is
+// `optional: true`.
+//
+// DELIBERATELY NOT FLAGGED: references to objects this render does NOT produce
+// (vhhealth-backend-env, ghcr-read, ...). Those are applied out of band before
+// the first sync — GO_LIVE_ACTIVATION_CHECKLIST B1-B3 seals the backend Secret
+// well ahead of the D2 sync — and no phase ordering inside this Application can
+// affect them. Flagging them would make the guard unusable and teach people to
+// silence it with `optional: true`, which for a Secret carrying DATABASE_URL
+// would convert a loud failure into a mysterious one.
+const HOOK_PHASE_ORDER = { PreSync: 0, Sync: 1, PostSync: 2 };
+
+export function requireHookPhaseOrdering(target, resources) {
+  // Index by kind+name. Two resources of the same kind and name cannot coexist
+  // in one namespace, so this is a faithful model of what the cluster will hold.
+  const rendered = new Map();
+  for (const resource of resources) {
+    const name = resource?.metadata?.name;
+    if (typeof name === 'string' && name !== '') {
+      rendered.set(`${resource.kind}/${name}`, resource);
+    }
+  }
+
+  const failures = [];
+  for (const resource of resources) {
+    const phases = syncPhasesOf(resource);
+    if (!phases.includes('PreSync')) continue;
+    for (const reference of objectReferencesOf(resource)) {
+      if (reference.optional) continue;
+      const referenced = rendered.get(`${reference.kind}/${reference.name}`);
+      if (!referenced) continue; // applied out of band — see the note above
+      const referencedPhases = syncPhasesOf(referenced);
+      const earliest = Math.min(
+        ...referencedPhases.map((phase) => HOOK_PHASE_ORDER[phase] ?? HOOK_PHASE_ORDER.Sync),
+      );
+      if (earliest <= HOOK_PHASE_ORDER.PreSync) continue;
+      failures.push(
+        `- ${resource.kind}/${resource.metadata.name} (PreSync hook) requires ` +
+          `${reference.kind}/${reference.name} at ${reference.site}, but that object is a ` +
+          `${referencedPhases.join(',')}-phase resource of the same Application, so it does not ` +
+          'exist yet when the hook runs.',
+      );
+    }
+  }
+
+  // A guard that early-returns on an empty match reports green. If this target
+  // is one of the two that render the migration Job, the Job must still BE a
+  // PreSync hook — otherwise the rule above has nothing to check and would pass
+  // silently on a tree where the hook contract was quietly dropped.
+  if (TARGETS_RENDERING_MIGRATION_JOB.has(target)) {
+    const migrationJob = resources.find(
+      (resource) => resource?.kind === 'Job' && resource?.metadata?.name === 'vhhealth-backend-migrate',
+    );
+    if (!migrationJob) {
+      throw new Error(
+        `${target} no longer renders a Job named vhhealth-backend-migrate, so the PreSync hook ` +
+          'phase-ordering contract cannot be checked. Update this guard deliberately rather than ' +
+          'letting it pass on an empty match.',
+      );
+    }
+    if (!syncPhasesOf(migrationJob).includes('PreSync')) {
+      throw new Error(
+        `${target} migration Job is no longer an argocd.argoproj.io/hook: PreSync resource. The ` +
+          'phase-ordering guard below only inspects PreSync hooks, so dropping the annotation ' +
+          'would silence it. If the Job is deliberately becoming a Sync-phase resource, it needs ' +
+          'sync-wave ordering against the ConfigMap plus Replace=true (a Job pod template is ' +
+          'immutable) — change this guard deliberately.',
+      );
+    }
+  }
+
+  if (failures.length > 0) {
+    throw new Error(
+      `${target} has PreSync hooks that consume Sync-phase resources:\n${failures.join('\n')}\n` +
+        'Fix by making the referenced object a PreSync hook too (see ' +
+        'infra/kubernetes/apps/backend/migration-config.yaml and ' +
+        'payroll-revision-754-acceptance.yaml), or — only where the hook genuinely tolerates ' +
+        'the value being absent — by marking the reference `optional: true`.',
+    );
+  }
+}
+
+// The role ensure-runtime-role-grants.mjs GRANTS to (read by the PreSync Job
+// from vhhealth-backend-migration-config) must be the role the Deployment
+// CONNECTS as (read from vhhealth-backend-config). Those are two objects
+// precisely because only the first exists during PreSync, so nothing but this
+// check keeps them equal — and a silent divergence would grant privileges to
+// one role while the API used another.
+const RUNTIME_ROLE_KEY = 'AUTH_TENANT_RLS_RUNTIME_ROLE';
+const RUNTIME_CONFIG_NAME = 'vhhealth-backend-config';
+const MIGRATION_CONFIG_NAME = 'vhhealth-backend-migration-config';
+
+export function requireMigrationRuntimeRoleParity(target, resources) {
+  const byName = new Map(
+    resources
+      .filter((resource) => resource?.kind === 'ConfigMap' && resource?.metadata?.name)
+      .map((resource) => [resource.metadata.name, resource]),
+  );
+  const runtimeConfig = byName.get(RUNTIME_CONFIG_NAME);
+  const migrationConfig = byName.get(MIGRATION_CONFIG_NAME);
+  // Targets that render neither are simply not app-tier targets.
+  if (!runtimeConfig && !migrationConfig) return;
+  if (!runtimeConfig || !migrationConfig) {
+    throw new Error(
+      `${target} renders ${runtimeConfig ? RUNTIME_CONFIG_NAME : MIGRATION_CONFIG_NAME} but not ` +
+        `${runtimeConfig ? MIGRATION_CONFIG_NAME : RUNTIME_CONFIG_NAME}. Both are required: the ` +
+        'PreSync migration Job reads the migration ConfigMap and the Deployment reads the runtime ' +
+        'one, and this guard exists to keep their runtime-role values identical.',
+    );
+  }
+  const runtimeRole = runtimeConfig.data?.[RUNTIME_ROLE_KEY];
+  const migrationRole = migrationConfig.data?.[RUNTIME_ROLE_KEY];
+  if (typeof runtimeRole !== 'string' || runtimeRole.trim() === '') {
+    throw new Error(
+      `${target}: ${RUNTIME_CONFIG_NAME} has no ${RUNTIME_ROLE_KEY}; the backend would lose tenant ` +
+        'RLS runtime-role enforcement.',
+    );
+  }
+  if (typeof migrationRole !== 'string' || migrationRole.trim() === '') {
+    throw new Error(
+      `${target}: ${MIGRATION_CONFIG_NAME} has no ${RUNTIME_ROLE_KEY}; the PreSync migration Job ` +
+        'would fail closed in ensure-runtime-role-grants.mjs and abort the sync.',
+    );
+  }
+  if (runtimeRole !== migrationRole) {
+    throw new Error(
+      `${target}: ${RUNTIME_ROLE_KEY} is "${migrationRole}" in ${MIGRATION_CONFIG_NAME} but ` +
+        `"${runtimeRole}" in ${RUNTIME_CONFIG_NAME}. The migration would grant privileges to one ` +
+        'role while the API connects as another.',
+    );
+  }
+}
+
 function requireObjectStoreContract(target, rendered) {
   if (target !== 'infra/kubernetes/overlays/prod') return;
 
@@ -377,6 +530,10 @@ function validateTarget(kustomize, kubeconform, target, tmpDir) {
   requireObjectStoreContract(target, rendered);
   requireDeviceGatewayContract(target, rendered);
   requireMigrationJobEvidenceContract(target, rendered);
+
+  const parsed = parseRenderedManifests(rendered);
+  requireHookPhaseOrdering(target, parsed);
+  requireMigrationRuntimeRoleParity(target, parsed);
 
   if (target === 'infra/kubernetes/apps') {
     requireInRendered(target, rendered, [

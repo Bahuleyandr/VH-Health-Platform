@@ -1,0 +1,85 @@
+# Migration-scoped configuration for the PreSync migration Job.
+#
+# WHY THIS EXISTS AS A SEPARATE, HOOK-PHASE ConfigMap
+#
+# ArgoCD runs EVERY PreSync hook to completion before it applies ANY Sync-phase
+# resource. Sync waves order resources WITHIN a phase; they do not order across
+# phases. `configmap.yaml` (vhhealth-backend-config) carries only
+# `sync-wave: "-2"` and no `hook` annotation, so it is a Sync-phase resource —
+# it does not exist yet while this Application's PreSync hooks are running.
+#
+# migration-job.yaml used to take `envFrom: configMapRef: vhhealth-backend-config`
+# with no `optional: true`. On a fresh namespace (the go-live D2 sync) that is
+# unstartable, and it fails in the one way that leaves nothing to read:
+#   - the kubelet reports CreateContainerConfigError
+#     (`configmap "vhhealth-backend-config" not found`), which is a WAITING
+#     reason, retried indefinitely — NOT a pod failure. `restartPolicy: Never`
+#     therefore never yields a retained Failed pod and `backoffLimit` never
+#     increments (PR #955's evidence retention cannot help here);
+#   - the Job runs until `activeDeadlineSeconds`, and DeadlineExceeded DELETES
+#     the still-running pod. Zero pods, zero logs;
+#   - the Sync phase that would have created the ConfigMap is itself gated on
+#     this hook succeeding, so a retry reproduces it exactly.
+# Reproduced end-to-end on a kind cluster running ArgoCD; see the PR.
+#
+# WHY NOT JUST ANNOTATE vhhealth-backend-config AS A PreSync HOOK
+# Measured on that same cluster, and rejected on the evidence:
+#   1. ArgoCD does not diff hook resources against git. After a hand-edit of a
+#      hook ConfigMap the Application still reported `Synced` — annotating the
+#      runtime ConfigMap would silently drop drift detection on the backend's
+#      entire runtime configuration (AUTH_ENFORCE_TENANT_RLS, ALLOWED_ORIGINS,
+#      the rate-limit profile, ...).
+#   2. `hook-delete-policy` defaults to BeforeHookCreation, so the ConfigMap is
+#      DELETED and re-created on every sync (observed present -> absent across a
+#      sync). Any backend pod that starts in that window hits exactly the
+#      CreateContainerConfigError this file exists to prevent, and there is no
+#      delete policy that means "never".
+#
+# WHY ONLY THIS ONE KEY
+# Every ConfigMap key reachable from the migrate container's four scripts
+# (ensure-pgvector-extension, payroll-revision-754-preflight, ci-setup-db,
+# ensure-runtime-role-grants — including their transitive imports through
+# src/lib/prisma.js) was enumerated. Apart from the key below, each is a no-op
+# for this Job:
+#   - NODE_ENV                    already set explicitly on the Job.
+#   - AUTH_ENFORCE_TENANT_RLS     isTenantRlsEnforcementEnabled() already
+#                                 defaults to true when NODE_ENV=production.
+#   - LOG_FORMAT ("json")         logger.js already defaults to JSON under
+#                                 NODE_ENV=production.
+#   - STATEMENT_TIMEOUT_MS        the ConfigMap value (30000) IS the code
+#     ("30000")                   default, and prisma.js documents that the
+#                                 app-layer cap does not affect DDL migrations.
+#   - REDIS_*                     src/lib/redis.js connects lazily; nothing on
+#                                 the migrate path initialises it.
+#   - ALLOW_DEFAULT_TENANT        request-path resolution policy only.
+# This also matches how every other PreSync hook Job in this repo already
+# treats the runtime ConfigMap: the dalekdefender rig's migration Job has no
+# configMapRef at all, and held/clinical-ai-deep-tier's preflight Job reads it
+# only with `optional: true`.
+#
+# DRIFT
+# AUTH_TENANT_RLS_RUNTIME_ROLE is the role ensure-runtime-role-grants.mjs
+# GRANTS to; the Deployment CONNECTS as it. If the two values ever diverged the
+# migration would grant privileges to one role while the API used another, so
+# scripts/validate-kubernetes-manifests.mjs fails closed unless this value and
+# vhhealth-backend-config's are identical in every rendered target.
+#
+# FAIL-CLOSED, UNCHANGED
+# This Job still deliberately does NOT set RUNTIME_ROLE_GRANTS_OPTIONAL. If the
+# key below is ever removed, ensure-runtime-role-grants.mjs aborts the sync
+# exactly as it does today when vhhealth-backend-config loses the key.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vhhealth-backend-migration-config
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/sync-wave: "-2"
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+  labels:
+    app.kubernetes.io/name: vhhealth-backend-migration-config
+    app.kubernetes.io/component: migration
+    app.kubernetes.io/part-of: vhhealth
+data:
+  # MUST equal vhhealth-backend-config's AUTH_TENANT_RLS_RUNTIME_ROLE.
+  AUTH_TENANT_RLS_RUNTIME_ROLE: "vhhealth_app"
