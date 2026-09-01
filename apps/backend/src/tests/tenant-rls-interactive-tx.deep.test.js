@@ -163,13 +163,28 @@ d('Tenant RLS — interactive $transaction isolation (SEC-3 / B1.3)', () => {
     await cleanup();
   }, 30000);
 
-  // ----- NON-VACUOUS CONTROL: the bare-$transaction shape STILL leaks -----
-  // This is the pre-fix behaviour. A non-owner role inside a plain
-  // prisma.$transaction with the GUC UNSET hits the policy's permissive branch
-  // and sees BOTH tenants' admissions. If this assertion ever fails, the test
-  // below is vacuous (RLS would be blocking regardless of the fix) and must be
-  // re-examined.
-  it('LEAK (control): bare prisma.$transaction with GUC unset sees BOTH tenants admissions', async () => {
+  // ----- NON-VACUOUS CONTROL: what the bare-$transaction shape sees -----
+  // A non-owner role inside a plain prisma.$transaction never sets the GUC. On
+  // a table carrying only the permissive tenant_isolation policy that hits the
+  // policy's permissive branch and sees BOTH tenants' admissions — the pre-fix
+  // leak, and the reason the FIX assertions below are not vacuous.
+  //
+  // A RESTRICTIVE explicit_tenant_context twin ANDs with that permissive policy
+  // and its predicate excludes the unset/empty/bypass markers, so the same
+  // shape is fail-closed once such a twin exists. Assert the rule rather than
+  // one side of it: the control keeps doing its job in both postures instead of
+  // quietly becoming false in one. The FIX assertions stay non-vacuous either
+  // way, because they require the row to BE visible under its own tenant.
+  it('CONTROL: the bare-$transaction shape leaks exactly while admissions has no restrictive twin', async () => {
+    const twin = await prisma.$queryRawUnsafe(
+      `SELECT count(*)::int AS n
+         FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'admissions'
+          AND permissive = 'RESTRICTIVE'
+          AND policyname LIKE 'explicit_tenant_context%'`,
+    );
+    const failClosed = Number(twin[0].n) > 0;
     process.env.AUTH_ENFORCE_TENANT_RLS = 'true';
     process.env.AUTH_TENANT_RLS_RUNTIME_ROLE = APP_ROLE;
     // Emulate the pre-fix converted-service shape: an interactive tx opened
@@ -185,9 +200,15 @@ d('Tenant RLS — interactive $transaction isolation (SEC-3 / B1.3)', () => {
       );
     }));
     const tenants = rows.map((r) => r.tenant_id);
-    expect(tenants).toContain(TENANT_A);
-    expect(tenants).toContain(TENANT_B);
-    expect(rows).toHaveLength(2);
+    if (failClosed) {
+      // The restrictive twin removes the permissive branch entirely, so the
+      // shape that used to leak now returns nothing at all.
+      expect(rows).toHaveLength(0);
+    } else {
+      expect(tenants).toContain(TENANT_A);
+      expect(tenants).toContain(TENANT_B);
+      expect(rows).toHaveLength(2);
+    }
   });
 
   // ----- FIX: setTenantTx scopes the interactive tx to one tenant -----
@@ -228,11 +249,14 @@ d('Tenant RLS — interactive $transaction isolation (SEC-3 / B1.3)', () => {
     ));
     expect(Number(affected)).toBe(0);
 
-    // Confirm via a bypass read that B's row is intact + still tenant-B.
-    const check = await setTenantTx(null, (tx) => tx.$queryRawUnsafe(
+    // Confirm B's row is intact + still tenant-B. Read it inside B's OWN
+    // context rather than cross-tenant: that proves the isolation above did not
+    // also hide the row from its owner, which is the property a restrictive
+    // policy must never break, and it holds in both postures.
+    const check = await setTenantTx(TENANT_B, (tx) => tx.$queryRawUnsafe(
       `SELECT tenant_id::text AS tenant_id FROM admissions WHERE id = $1`,
       admissionBId,
-    ), { superAdmin: true });
+    ));
     expect(check[0].tenant_id).toBe(TENANT_B);
   });
 
@@ -257,10 +281,10 @@ d('Tenant RLS — interactive $transaction isolation (SEC-3 / B1.3)', () => {
 
     // The tenant-A admission must be untouched: still 'admitted', no
     // discharge_initiated_at stamp.
-    const after = await setTenantTx(null, (tx) => tx.$queryRawUnsafe(
+    const after = await setTenantTx(TENANT_A, (tx) => tx.$queryRawUnsafe(
       `SELECT status, discharge_initiated_at FROM admissions WHERE id = $1`,
       admissionAId,
-    ), { superAdmin: true });
+    ));
     expect(after[0].status).toBe('admitted');
     expect(after[0].discharge_initiated_at).toBeNull();
   });
@@ -278,10 +302,10 @@ d('Tenant RLS — interactive $transaction isolation (SEC-3 / B1.3)', () => {
     ));
     expect(result?.admission?.id).toBe(admissionAId);
 
-    const after = await setTenantTx(null, (tx) => tx.$queryRawUnsafe(
+    const after = await setTenantTx(TENANT_A, (tx) => tx.$queryRawUnsafe(
       `SELECT discharge_initiated_at FROM admissions WHERE id = $1`,
       admissionAId,
-    ), { superAdmin: true });
+    ));
     expect(after[0].discharge_initiated_at).not.toBeNull();
   });
 });
