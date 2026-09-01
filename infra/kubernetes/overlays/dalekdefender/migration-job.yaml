@@ -70,7 +70,16 @@ spec:
         app.kubernetes.io/component: migration
         app.kubernetes.io/part-of: vhhealth
     spec:
-      restartPolicy: OnFailure
+      # Never, NOT OnFailure — this is a diagnosability requirement, not a
+      # preference. With OnFailure the job controller DELETES the pod the
+      # moment it exceeds the backoff limit ("SuccessfulDelete ... Deleted
+      # pod" immediately after "BackoffLimitExceeded"), so by the time the
+      # deploy helper collects diagnostics there is no pod left and the
+      # operator gets the failure with NO migration output at all — exactly
+      # the output that says WHICH migration broke and why. Observed on the
+      # rig 2026-09-01. With Never each attempt is a fresh pod and failed pods
+      # are retained, so their logs survive for the helper to print.
+      restartPolicy: Never
       terminationGracePeriodSeconds: 30
       automountServiceAccountToken: false
       # The helper refreshes this Secret from the workflow token immediately

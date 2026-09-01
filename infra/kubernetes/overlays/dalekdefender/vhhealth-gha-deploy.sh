@@ -231,7 +231,16 @@ spec:
         app.kubernetes.io/component: migration
         app.kubernetes.io/part-of: vhhealth
     spec:
-      restartPolicy: OnFailure
+      # Never, NOT OnFailure — this is a diagnosability requirement, not a
+      # preference. With OnFailure the job controller DELETES the pod the
+      # moment it exceeds the backoff limit ("SuccessfulDelete ... Deleted
+      # pod" immediately after "BackoffLimitExceeded"), so by the time the
+      # deploy helper collects diagnostics there is no pod left and the
+      # operator gets the failure with NO migration output at all — exactly
+      # the output that says WHICH migration broke and why. Observed on the
+      # rig 2026-09-01. With Never each attempt is a fresh pod and failed pods
+      # are retained, so their logs survive for the helper to print.
+      restartPolicy: Never
       terminationGracePeriodSeconds: 30
       automountServiceAccountToken: false
       # The helper refreshes this Secret from the workflow token immediately
@@ -337,19 +346,21 @@ migration_logs() {
 diagnose_migration() {
   echo "::group::Dalekdefender migration Job diagnostics: ${MIGRATE_JOB}"
   kubectl -n "$NAMESPACE" describe job "$MIGRATE_JOB" || true
-  kubectl -n "$NAMESPACE" get pods \
-    -l app.kubernetes.io/name=vhhealth-backend-migrate -o wide || true
 
+  # Select on the controller-set job-name label, not the app label: it is
+  # guaranteed to match this Job's own pods and nothing else. restartPolicy
+  # Never means every attempt is a distinct, RETAINED pod, so this loop is
+  # what actually surfaces the failing migration's name and Postgres error.
   local pods
   pods="$(kubectl -n "$NAMESPACE" get pods \
-    -l app.kubernetes.io/name=vhhealth-backend-migrate \
+    -l "batch.kubernetes.io/job-name=${MIGRATE_JOB}" \
     -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)"
+  kubectl -n "$NAMESPACE" get pods \
+    -l "batch.kubernetes.io/job-name=${MIGRATE_JOB}" -o wide || true
   while IFS= read -r pod; do
     [[ -z "$pod" ]] && continue
     echo "--- logs: ${pod}/migrate tail=400 ---"
     kubectl -n "$NAMESPACE" logs "$pod" -c migrate --tail=400 || true
-    echo "--- previous logs: ${pod}/migrate tail=200 ---"
-    kubectl -n "$NAMESPACE" logs "$pod" -c migrate --previous --tail=200 || true
   done <<< "$pods"
 
   kubectl -n "$NAMESPACE" get events --sort-by=.lastTimestamp | tail -40 || true

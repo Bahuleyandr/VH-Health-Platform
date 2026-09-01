@@ -92,7 +92,6 @@ test('the migration Job is tracker-driven, seedless, and cannot mask the Prisma 
 
   assert.match(manifest, /imagePullPolicy: IfNotPresent/);
   assert.match(manifest, /imagePullSecrets:\n\s+- name: ghcr-read/);
-  assert.match(manifest, /restartPolicy: OnFailure/);
   assert.match(manifest, /readOnlyRootFilesystem: true/);
   assert.match(manifest, /activeDeadlineSeconds: \d+/);
 
@@ -106,6 +105,24 @@ test('the migration Job is tracker-driven, seedless, and cannot mask the Prisma 
       `volumeMount at ${mountPath} would replace image content under /app/node_modules`,
     );
   }
+});
+
+test('a failed migration leaves a pod whose logs the helper can actually read', () => {
+  const manifest = readRepo(MANIFEST_PATH);
+  const helper = readRepo(HELPER_PATH);
+
+  // Observed on the rig 2026-09-01: with restartPolicy OnFailure the job
+  // controller deletes the pod the instant it exceeds the backoff limit, so
+  // the helper's diagnostics ran against zero pods and the operator got a
+  // failed deploy with NO migration output — no file name, no Postgres error.
+  // Never keeps each failed attempt's pod, which is the whole diagnosis path.
+  assert.match(manifest, /^\s+restartPolicy: Never$/m);
+  assert.doesNotMatch(manifest, /restartPolicy: OnFailure/);
+
+  // And the diagnostics must select on the controller-set job-name label,
+  // which is guaranteed to match this Job's pods.
+  assert.match(helper, /batch\.kubernetes\.io\/job-name=\$\{MIGRATE_JOB\}/);
+  assert.match(helper, /logs "\$pod" -c migrate/);
 });
 
 test('the helper migrates before it pins images, and never rolls back over a migration', () => {
