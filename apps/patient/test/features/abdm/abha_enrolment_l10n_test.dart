@@ -10,6 +10,9 @@
 // hardcoding translations, so a corrected translation does not break them —
 // only a REGRESSION to hardcoded English does.
 
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth/core/services/abdm_api_service.dart';
@@ -27,6 +30,26 @@ Widget _harness(Widget child, Locale locale) => MaterialApp(
 Widget _flow() => AbhaEnrolmentFlow(onEnrolled: () {}, onCancelled: () {});
 
 void main() {
+  test('every ABDM key is declared in all five ARB files', () {
+    Map<String, dynamic> readArb(String locale) =>
+        jsonDecode(File('lib/l10n/intl_$locale.arb').readAsStringSync())
+            as Map<String, dynamic>;
+
+    final englishKeys = readArb('en').keys
+        .where((key) => key.startsWith('abdm') && !key.startsWith('@'))
+        .toSet();
+
+    for (final locale in const ['hi', 'ta', 'te', 'ml']) {
+      final localeKeys = readArb(locale).keys.toSet();
+      final missing = englishKeys.difference(localeKeys).toList()..sort();
+      expect(
+        missing,
+        isEmpty,
+        reason: '$locale is missing ABDM keys: $missing',
+      );
+    }
+  });
+
   testWidgets('the Aadhaar step renders localised copy in English', (
     tester,
   ) async {
@@ -99,6 +122,38 @@ void main() {
     expect(find.textContaining('have an ABHA? Create one'), findsNothing);
   });
 
+  testWidgets('the existing-ABHA link form is localised in Malayalam', (
+    tester,
+  ) async {
+    final ml = await AppLocalizations.delegate.load(const Locale('ml'));
+
+    await tester.pumpWidget(
+      _harness(
+        MyAbhaTab(loadLinkage: () async => const AbhaLinkage(linked: false)),
+        const Locale('ml'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text(ml.abdmRegister));
+    await tester.pumpAndSettle();
+
+    expect(find.text(ml.abdmLinkExistingExplanation), findsOneWidget);
+    expect(
+      find.widgetWithText(TextFormField, ml.abdmNumberRequiredLabel),
+      findsOneWidget,
+    );
+    expect(
+      find.widgetWithText(TextFormField, ml.abdmAddressOptionalLabel),
+      findsOneWidget,
+    );
+    expect(find.text(ml.abdmLinkAction), findsOneWidget);
+    expect(find.text(ml.abdmCreateAtPortalAction), findsOneWidget);
+    expect(find.text('ABHA Address (optional)'), findsNothing);
+    expect(find.text('Link ABHA'), findsNothing);
+    expect(find.text('Create one at abha.abdm.gov.in'), findsNothing);
+  });
+
   test('every string lane L added is translated in all five locales', () async {
     // Guards the class, not the instance: adding a key to English without
     // filling the other four ARBs would silently fall back to English on a
@@ -142,6 +197,80 @@ void main() {
       untranslated('abhaEnrolVerify', (l) => l.abhaEnrolVerify),
       untranslated('abhaEnrolViewMyAbha', (l) => l.abhaEnrolViewMyAbha),
       untranslated('abdmCreateAbhaCta', (l) => l.abdmCreateAbhaCta),
+      untranslated('abdmMyAbhaTab', (l) => l.abdmMyAbhaTab),
+      untranslated('abdmConsentRequestsTab', (l) => l.abdmConsentRequestsTab),
+      untranslated(
+        'abdmStatusCheckFailedDetail',
+        (l) => l.abdmStatusCheckFailedDetail,
+      ),
+      untranslated('abdmLinkSuccess', (l) => l.abdmLinkSuccess),
+      untranslated('abdmLinkFailed', (l) => l.abdmLinkFailed),
+      untranslated(
+        'abdmStatusCheckFailedTitle',
+        (l) => l.abdmStatusCheckFailedTitle,
+      ),
+      untranslated(
+        'abdmStatusUnknownExplanation',
+        (l) => l.abdmStatusUnknownExplanation,
+      ),
+      untranslated('abdmCopyNumberTooltip', (l) => l.abdmCopyNumberTooltip),
+      untranslated('abdmCopyNumberSuccess', (l) => l.abdmCopyNumberSuccess(30)),
+      untranslated('abdmAddressLabel', (l) => l.abdmAddressLabel),
+      untranslated(
+        'abdmLinkExistingExplanation',
+        (l) => l.abdmLinkExistingExplanation,
+      ),
+      untranslated('abdmNumberRequiredLabel', (l) => l.abdmNumberRequiredLabel),
+      untranslated('abdmNumberRequiredError', (l) => l.abdmNumberRequiredError),
+      untranslated('abdmNumberLengthError', (l) => l.abdmNumberLengthError),
+      untranslated(
+        'abdmAddressOptionalLabel',
+        (l) => l.abdmAddressOptionalLabel,
+      ),
+      untranslated('abdmLinkAction', (l) => l.abdmLinkAction),
+      untranslated('abdmNoAbhaPrompt', (l) => l.abdmNoAbhaPrompt),
+      untranslated(
+        'abdmCreateAtPortalAction',
+        (l) => l.abdmCreateAtPortalAction,
+      ),
+      untranslated(
+        'abdmConsentPurposeFallback',
+        (l) => l.abdmConsentPurposeFallback,
+      ),
+      untranslated(
+        'abdmConsentRequesterUnknown',
+        (l) => l.abdmConsentRequesterUnknown,
+      ),
+      untranslated('abdmConsentDateUnknown', (l) => l.abdmConsentDateUnknown),
+      untranslated(
+        'abdmConsentStatusRequested',
+        (l) => l.abdmConsentStatusRequested,
+      ),
+      untranslated(
+        'abdmConsentStatusGranted',
+        (l) => l.abdmConsentStatusGranted,
+      ),
+      untranslated('abdmConsentStatusDenied', (l) => l.abdmConsentStatusDenied),
+      untranslated(
+        'abdmConsentStatusExpired',
+        (l) => l.abdmConsentStatusExpired,
+      ),
+      untranslated(
+        'abdmConsentStatusRevoked',
+        (l) => l.abdmConsentStatusRevoked,
+      ),
+      untranslated(
+        'abdmConsentStatusUnknown',
+        (l) => l.abdmConsentStatusUnknown,
+      ),
+      untranslated(
+        'abdmConsentRequestedBy',
+        (l) => l.abdmConsentRequestedBy('VH Health'),
+      ),
+      untranslated(
+        'abdmConsentPeriod',
+        (l) => l.abdmConsentPeriod('2026-01-01', '2026-01-31'),
+      ),
       untranslated(
         'settingsBiometricLockSubtitle',
         (l) => l.settingsBiometricLockSubtitle,
@@ -157,8 +286,8 @@ void main() {
       untranslated('biometricGateGoHome', (l) => l.biometricGateGoHome),
     ].whereType<String>().toList();
 
-    // `abhaEnrolOtpLabel` ("OTP *") is intentionally identical everywhere —
-    // OTP is kept as-is in all five locales, so it is excluded above.
+    // `abhaEnrolOtpLabel` ("OTP *") and the two ABHA example values are
+    // intentionally identical everywhere, so they are excluded above.
     expect(gaps, isEmpty, reason: 'Untranslated strings: $gaps');
   });
 }

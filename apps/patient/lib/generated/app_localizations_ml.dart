@@ -4193,6 +4193,109 @@ class AppLocalizationsMl extends AppLocalizations {
   String get abdmCreateAbhaCta => 'ABHA ഇല്ലേ? ഒന്ന് സൃഷ്ടിക്കുക';
 
   @override
+  String get abdmMyAbhaTab => 'എന്റെ ABHA';
+
+  @override
+  String get abdmConsentRequestsTab => 'സമ്മത അഭ്യർത്ഥനകൾ';
+
+  @override
+  String get abdmStatusCheckFailedDetail =>
+      'നിങ്ങളുടെ ABHA നില പരിശോധിക്കാനായില്ല. ദയവായി വീണ്ടും ശ്രമിക്കുക.';
+
+  @override
+  String get abdmLinkSuccess => 'ABHA നിങ്ങളുടെ അക്കൗണ്ടുമായി ബന്ധിപ്പിച്ചു';
+
+  @override
+  String get abdmLinkFailed => 'നിങ്ങളുടെ ABHA ബന്ധിപ്പിക്കാനായില്ല';
+
+  @override
+  String get abdmStatusCheckFailedTitle =>
+      'നിങ്ങളുടെ ABHA നില പരിശോധിക്കാനായില്ല';
+
+  @override
+  String get abdmStatusUnknownExplanation =>
+      'നിങ്ങളുടെ അക്കൗണ്ടുമായി ഇതിനകം ഒരു ABHA ബന്ധിപ്പിച്ചിട്ടുണ്ടോ എന്ന് നിർണ്ണയിക്കാനാകുന്നില്ല; അതിനാൽ ഈ വിവരം ലോഡ് ആകുന്നതുവരെ രജിസ്ട്രേഷൻ മറച്ചിരിക്കും.';
+
+  @override
+  String get abdmCopyNumberTooltip => 'ABHA നമ്പർ പകർത്തുക';
+
+  @override
+  String abdmCopyNumberSuccess(int seconds) {
+    return 'ABHA നമ്പർ പകർത്തി — ക്ലിപ്പ്ബോർഡ് $seconds സെക്കൻഡിനുള്ളിൽ മായ്ക്കും';
+  }
+
+  @override
+  String get abdmAddressLabel => 'ABHA വിലാസം';
+
+  @override
+  String get abdmLinkExistingExplanation =>
+      'നിങ്ങൾക്ക് ഇതിനകം ഉള്ള ABHA നൽകുക. ഇത് നിങ്ങളുടെ ആശുപത്രി രേഖയുമായി ബന്ധിപ്പിക്കും — പുതിയ ABHA സൃഷ്ടിക്കില്ല.';
+
+  @override
+  String get abdmNumberRequiredLabel => 'ABHA നമ്പർ *';
+
+  @override
+  String get abdmNumberHint => '12-3456-7890-1234';
+
+  @override
+  String get abdmNumberRequiredError => 'ABHA നമ്പർ ആവശ്യമാണ്';
+
+  @override
+  String get abdmNumberLengthError => 'ABHA നമ്പർ 14 അക്കമായിരിക്കണം';
+
+  @override
+  String get abdmAddressOptionalLabel => 'ABHA വിലാസം (ഐച്ഛികം)';
+
+  @override
+  String get abdmAddressHint => 'yourname@abdm';
+
+  @override
+  String get abdmLinkAction => 'ABHA ബന്ധിപ്പിക്കുക';
+
+  @override
+  String get abdmNoAbhaPrompt => 'ഇതുവരെ ABHA ഇല്ലേ?';
+
+  @override
+  String get abdmCreateAtPortalAction => 'abha.abdm.gov.in-ൽ സൃഷ്ടിക്കുക';
+
+  @override
+  String get abdmConsentPurposeFallback => 'ആരോഗ്യ ഡാറ്റയിലേക്കുള്ള പ്രവേശനം';
+
+  @override
+  String get abdmConsentRequesterUnknown => 'അജ്ഞാത അഭ്യർത്ഥകൻ';
+
+  @override
+  String get abdmConsentDateUnknown => 'അജ്ഞാതം';
+
+  @override
+  String get abdmConsentStatusRequested => 'അഭ്യർത്ഥിച്ചു';
+
+  @override
+  String get abdmConsentStatusGranted => 'അനുവദിച്ചു';
+
+  @override
+  String get abdmConsentStatusDenied => 'നിരസിച്ചു';
+
+  @override
+  String get abdmConsentStatusExpired => 'കാലാവധി കഴിഞ്ഞു';
+
+  @override
+  String get abdmConsentStatusRevoked => 'പിൻവലിച്ചു';
+
+  @override
+  String get abdmConsentStatusUnknown => 'അജ്ഞാതം';
+
+  @override
+  String abdmConsentRequestedBy(String requester) {
+    return 'അഭ്യർത്ഥിച്ചത്: $requester';
+  }
+
+  @override
+  String abdmConsentPeriod(String from, String to) {
+    return 'കാലയളവ്: $from — $to';
+  }
+
+  @override
   String get abhaEnrolTitle => 'പുതിയ ABHA സൃഷ്ടിക്കുക';
 
   @override
