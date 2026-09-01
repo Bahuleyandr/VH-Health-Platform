@@ -63,6 +63,53 @@ No scrape targets for 2m.
 3. If recovery is not imminent (>10–15m), notify wards to begin the
    downtime procedure with their latest packs.
 
+## BackendMigrationJobFailed
+
+The ArgoCD PreSync hook `vhhealth-backend-migrate` went terminally Failed
+(BackoffLimitExceeded, or DeadlineExceeded against the 900s cap). The sync is
+aborted and the new Deployment never rolled out — but this is not merely a
+stalled deploy. `ci-setup-db.mjs` applies one file per transaction and records
+it in `_migrations`, so every migration before the failing one is committed:
+the database can be left ahead of the image that is still serving.
+
+**Capture evidence before you re-sync.** `hook-delete-policy:
+BeforeHookCreation` deletes this Job, its pods, and this alert at the start of
+the next sync, and `ttlSecondsAfterFinished` reaps it after that window even if
+no sync follows. Once it is gone the failure is not reconstructable.
+
+1. Read the attempts. Each attempt is its own pod under `restartPolicy: Never`,
+   so select on the controller-set job-name label — not `logs job/<name>`,
+   which picks one arbitrary attempt that need not be the one that failed:
+   `kubectl -n vhhealth logs -l batch.kubernetes.io/job-name=vhhealth-backend-migrate -c migrate --tail=400 --prefix`
+   and `kubectl -n vhhealth describe job vhhealth-backend-migrate`.
+   Two cases have no retained pod: the older `restartPolicy: OnFailure`, where
+   the controller deletes the pod at BackoffLimitExceeded and the Job reads
+   `Failed 0/1`; and DeadlineExceeded, where the still-running pod is deleted
+   under either policy. In both, the Job's conditions/events plus the ArgoCD
+   sync's live hook stream are the only record.
+2. Establish how far the schema advanced — the tracker is the source of truth:
+   `kubectl cnpg psql vhhealth-pg -- -c "SELECT name FROM _migrations ORDER BY name DESC LIMIT 5"`.
+   Compare against `apps/backend/src/migrations/` for the image being deployed.
+   An `@no-transaction` migration runs statement-by-statement, so it can be
+   HALF applied with no tracker row at all; if the failing file carries that
+   directive, inspect the objects it creates before retrying anything.
+3. Check the blast radius on the pods still serving. Backend workers call
+   `verifyMigrationsCurrent()` at startup and `process.exit(1)` on any
+   mismatch — tracker rows the running image does not carry count as
+   `unexpected`, exactly as pending ones do. The old ReplicaSet therefore keeps
+   serving only until something restarts a pod (node drain, OOM, eviction).
+   Treat a partly advanced schema as an armed outage, not a stalled deploy.
+4. Fix forward by preference. `ci-setup-db.mjs` is tracker-driven and
+   idempotent, so correcting the migration and re-syncing re-runs only what is
+   pending and reproduces the same failure with fresh logs if it is not fixed.
+5. If you roll back instead (see Rollback below), the target image's migration
+   set must match the tracker. Rolling back to an image that is now *behind*
+   the database puts its workers into the same `unexpected` refusal as step 3.
+6. Never hand-apply DDL to clear this alert. The Job runs as the bootstrap
+   OWNER role (`DATABASE_SUPERUSER_URL`); ad-hoc DDL from another identity
+   leaves the schema and `_migrations` disagreeing, which is the one state
+   neither the Job nor the startup gate can reason about.
+
 ## WardDowntimePacksStale
 
 Packs not regenerated in >1h.

@@ -168,6 +168,88 @@ spec:
                      kubectl logs -n vhhealth -l job-name={{ $labels.job_name }}
             runbook: "docs/DOWNTIME_PROCEDURE.md"
 
+        # The production migration Job is NOT a CronJob, and is deliberately
+        # not folded into the alternation above.
+        #
+        # vhhealth-backend-migrate (infra/kubernetes/apps/backend/migration-job.yaml)
+        # is the ArgoCD PreSync hook. Until this rule it was unalerted, so
+        # discovery of a failed PRODUCTION migration depended entirely on a
+        # human noticing a failed sync.
+        #
+        # NAME. The rule above anchors a `-.*` suffix because CronJob pods are
+        # named `<cronjob>-<timestamp>`. Prometheus label regexes are FULLY
+        # ANCHORED, so adding `vhhealth-backend-migrate` to that alternation
+        # would still never match — the hook Job's name is fixed with nothing
+        # after it. This rule uses an exact matcher instead.
+        #
+        # ROUTING. That rule is warning/continuity: an outage-continuity
+        # producer missed a run. This one is critical/backend, because a failed
+        # migration blocks the deploy AND can leave the schema between two
+        # releases (see the description).
+        #
+        # SERIES. NOT kube_job_status_failed. That series counts FAILED PODS,
+        # which is wrong for this Job in both directions:
+        #   · Under `restartPolicy: OnFailure` (today) the Job controller
+        #     DELETES the pod once it exceeds backoffLimit, so a terminally
+        #     failed Job reads `Failed 0/1` and the count never leaves 0. A
+        #     rule on the pod count would ship blind. Reproduced on the
+        #     dalekdefender rig in PR #954.
+        #   · Under `restartPolicy: Never` (PR #955, which retains failed pods
+        #     so their logs survive) the count is CUMULATIVE and a later
+        #     success does not clear it, so a Job that failed once and then
+        #     SUCCEEDED would page for the whole retention window.
+        # kube_job_failed{condition="true"} is the Job object's own Failed
+        # condition: set only on a terminal BackoffLimitExceeded or
+        # DeadlineExceeded, never set on an eventually-successful retry, and
+        # identical under either restartPolicy. It is also the condition ArgoCD
+        # itself reads to abort the sync, so this fires exactly when a deploy
+        # is blocked. Both directions are pinned in promtool-rule-parity.test.yaml.
+        #
+        # FOR. The condition is terminal and monotonic — a Failed Job never
+        # un-fails — so `for:` buys scrape-jitter tolerance only, not flap
+        # suppression, and must stay well under the OBJECT'S LIFE or it could
+        # never elapse. The Job is removed by `ttlSecondsAfterFinished` (3600s
+        # today, 86400s under #955) or by `hook-delete-policy:
+        # BeforeHookCreation` at the start of the next sync, whichever comes
+        # first. 2m keeps a 30x margin against the shorter of those, and does
+        # not spend ten minutes of a blocked deploy the way the 10m above would.
+        #
+        # NO absent() COMPANION, unlike the ward-pack and Postgres rules in
+        # this file. This Job object exists only around a sync, so absence is
+        # the normal state and an absent() arm would page continuously. What
+        # keeps the rule from shipping inert instead is that kube-state-metrics
+        # runs on chart defaults with no metricAllowlist
+        # (base/monitoring/kube-prometheus-values.yaml), so kube_job_failed is
+        # exported for every Job in the cluster.
+        - alert: BackendMigrationJobFailed
+          expr: |
+            max(kube_job_failed{
+              namespace="vhhealth",
+              job_name="vhhealth-backend-migrate",
+              condition="true"
+            }) > 0
+          for: 2m
+          labels:
+            severity: critical
+            team: backend
+          annotations:
+            summary: "The production database migration Job failed — the deploy is blocked and the schema may sit between releases"
+            description: |
+              The PreSync hook failed, so ArgoCD aborted the sync and the new
+              Deployment never rolled out. ci-setup-db.mjs applies one file per
+              transaction, so every migration BEFORE the failing one is already
+              committed and tracked — the database can be left ahead of the
+              image still serving traffic, and an @no-transaction file can be
+              half-applied with no tracker row at all. Backend workers verify
+              the tracker against their own image at startup and exit 1 on a
+              mismatch, so the running pods survive only until one restarts.
+              Read the evidence BEFORE re-syncing — hook-delete-policy
+              BeforeHookCreation destroys this Job, its pods, and this alert at
+              the start of the next sync:
+                kubectl -n vhhealth logs -l batch.kubernetes.io/job-name=vhhealth-backend-migrate -c migrate --tail=400 --prefix
+                kubectl -n vhhealth describe job vhhealth-backend-migrate
+            runbook: "docs/RUNBOOK_ONCALL.md#backendmigrationjobfailed"
+
         - alert: LabThresholdReconciliationCronJobStale
           expr: |
             (
