@@ -1106,9 +1106,9 @@ tests:
 
   # 1. Terminal failure. The Job is running (condition false) through t=5m and
   # goes Failed at t=6m. `for: 2m` holds the page to t=8m — three minutes from
-  # failure to page, which fits inside even the shorter 3600s
-  # ttlSecondsAfterFinished by more than an order of magnitude, so the object
-  # cannot be reaped before the alert can fire.
+  # failure to page, three orders of magnitude inside the 86400s
+  # ttlSecondsAfterFinished, so the object cannot be reaped before the alert
+  # can fire.
   - interval: 1m
     input_series:
       - series: 'kube_job_failed{namespace="vhhealth",job_name="vhhealth-backend-migrate",condition="true"}'

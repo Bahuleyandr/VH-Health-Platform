@@ -213,10 +213,11 @@ spec:
         # FOR. The condition is terminal and monotonic — a Failed Job never
         # un-fails — so `for:` buys scrape-jitter tolerance only, not flap
         # suppression, and must stay well under the OBJECT'S LIFE or it could
-        # never elapse. The Job is removed by `ttlSecondsAfterFinished` (3600s
-        # today, 86400s under #955) or by `hook-delete-policy:
-        # BeforeHookCreation` at the start of the next sync, whichever comes
-        # first. 2m keeps a 30x margin against the shorter of those, and does
+        # never elapse. The Job is removed by `ttlSecondsAfterFinished` (86400s)
+        # or by `hook-delete-policy: BeforeHookCreation` at the start of the
+        # next sync, whichever comes first. The sync is manual, so the TTL is
+        # usually the binding one; 2m clears it by three orders of magnitude
+        # and clears even a prompt re-sync comfortably. It also does
         # not spend ten minutes of a blocked deploy the way the 10m above would.
         #
         # NO absent() COMPANION, unlike the ward-pack and Postgres rules in
