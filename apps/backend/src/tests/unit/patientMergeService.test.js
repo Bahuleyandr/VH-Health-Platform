@@ -11,6 +11,7 @@
  */
 
 import { jest } from '@jest/globals';
+import { readFileSync } from 'node:fs';
 
 const queryUnsafeMock = jest.fn();
 const executeUnsafeMock = jest.fn();
@@ -745,6 +746,20 @@ describe('merge sweep exclusions', () => {
       'pharmacy_patient_safety_versions',
     ]));
     expect(__testing__.MERGE_SWEEP_EXCLUDED_PREFIXES).toEqual(['clinical_continuity_']);
+  });
+
+  it('certifies the advance tables only alongside their merge-aware readers', () => {
+    // Financial-lineage immutability means these rows stay on the pre-merge uid,
+    // which is only safe while every patient-scoped read unions the merged
+    // family. The set and the readers move together — adding a table here
+    // without its reader is the failure this pins.
+    const covered = [...__testing__.MERGE_READ_UNION_COVERED_TABLES];
+    expect(covered).toContain('billing_advances');
+    expect(covered).toContain('advance_deposits');
+    const billing = readFileSync(
+      new URL('../../services/billing/billingV2Service.js', import.meta.url), 'utf8',
+    );
+    expect(billing).toContain('mergedPatientUidsSubquery');
   });
 
   it('certifies ICU code-status history through its admission-derived read path', () => {

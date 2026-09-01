@@ -15,6 +15,7 @@ import { createHash } from 'node:crypto';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { mergedPatientUidsSubquery } from '../clinical/mergedPatientReadUnion.js';
 import { istDateString } from '../../utils/dateUtils.js';
 import { boundedInteger } from '../../utils/pagination.js';
 import { toPaise } from '../../utils/money.js';
@@ -3127,7 +3128,24 @@ export async function listAdvances({ tenantId, patient_uid, admission_id, status
   const params = [];
   const where = [];
   pushTenantWhere(where, params, tenantId);
-  if (patient_uid) { params.push(String(patient_uid)); where.push(`patient_uid = $${params.length}::uuid`); }
+  // 0 when no tenant scope was added — pushTenantWhere is a no-op without one,
+  // so the tenant's parameter index cannot be assumed to be $1.
+  const tenantIdx = params.length;
+  if (patient_uid) {
+    params.push(String(patient_uid));
+    const uidExpr = `$${params.length}::uuid`;
+    // Advances are protected by financial-lineage immutability, so a merged
+    // patient's rows stay on the pre-merge uid — the sweep cannot re-point
+    // them. Reading only the survivor's uid would silently drop them from the
+    // patient's own list. Union the merged family instead.
+    //
+    // The union needs a tenant to scope its users lookup; without one there is
+    // no safe way to widen the read, so fall back to the exact match rather
+    // than risk reaching across tenants.
+    where.push(tenantIdx
+      ? `patient_uid IN (${mergedPatientUidsSubquery(`$${tenantIdx}::uuid`, uidExpr)})`
+      : `patient_uid = ${uidExpr}`);
+  }
   if (admission_id) { params.push(Number(admission_id)); where.push(`admission_id = $${params.length}::int`); }
   if (status) { params.push(status); where.push(`status = $${params.length}`); }
   const sql = `SELECT * FROM billing_advances

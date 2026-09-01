@@ -1644,9 +1644,18 @@ describe('advances', () => {
     await svc.listAdvances({ tenantId: TENANT, patient_uid: PATIENT, admission_id: 5, status: 'ACTIVE' });
     const [sql, ...params] = queryMock.mock.calls[0];
     expect(sql).toContain('tenant_id = $1::uuid');
-    expect(sql).toContain('patient_uid = $2::uuid');
+    // Advances stay on the pre-merge uid — the lineage triggers forbid the
+    // merge sweep from re-pointing them — so this read must span the merged
+    // family or a survivor silently loses their own money from the list.
+    expect(sql).toContain('patient_uid IN (');
+    expect(sql).toContain('merged_user.merged_into_uid = $2::uuid');
+    // The family lookup must be scoped to the same tenant as the outer query;
+    // an unscoped users lookup here would reach across tenants.
+    expect(sql).toContain('merged_user.tenant_id = $1::uuid');
+    expect(sql).not.toContain('patient_uid = $2::uuid');
     expect(sql).toContain('admission_id = $3::int');
     expect(sql).toContain('status = $4');
+    // Widening the predicate must not add a bind or renumber the existing ones.
     expect(params).toEqual([TENANT, PATIENT, 5, 'ACTIVE']);
   });
 

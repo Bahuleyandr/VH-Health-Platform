@@ -147,6 +147,23 @@ const MERGE_READ_UNION_COVERED_TABLES = new Set([
   'clinical_audit_events',
   'clinical_timeline_events',
   'patient_access_audit_log',
+  // Advances and IPD deposits are protected by financial-lineage immutability,
+  // so their rows stay on the pre-merge uid by design. Every patient-scoped
+  // read of them unions the merged family: getAdmissionDepositBalance through
+  // its patient_uid_family CTE, resolveLiveFundingCapacityTx through
+  // resolveMergedPatientUidSet, and listAdvances through
+  // mergedPatientUidsSubquery. Every other statement against these tables is
+  // keyed by id or admission_id, which the sweep never rewrites.
+  //
+  // Three exact-match verifications (lockOfflineElectronicAdvanceSourceTx,
+  // settleRefundPaid, getRefund) deliberately still pin id AND patient_uid.
+  // They are authority checks on money: post-merge they stop matching and
+  // REFUSE, which is the conservative answer on that path. This list guards
+  // against a reader silently returning an incomplete view — a refusal is not
+  // that, and widening an identity check on a financial authority path would
+  // relax it for no safety gain.
+  'billing_advances',
+  'advance_deposits',
 ]);
 
 // icu_code_status_history keeps the patient_uid recorded when the code-status
