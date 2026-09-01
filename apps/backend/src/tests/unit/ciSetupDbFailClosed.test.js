@@ -207,6 +207,40 @@ describe('ci-setup-db migration failure boundary', () => {
     expect(restoreCall).toBeLessThan(appliedAdd);
   });
 
+  test('only the two known-uncompilable migrations are applied with body checking off', () => {
+    // 744 and 745 shipped plpgsql bodies that cannot compile. 759 repairs the
+    // functions, but it runs AFTER them, so a fresh database must still replay
+    // 744 and 745 on the way there — they are applied exactly as they always
+    // were, with checking off, and validation is restored immediately after.
+    // Amending them instead would drift their recorded checksum in every
+    // environment that has already applied them.
+    //
+    // Pinned exactly: this set must never grow. A new migration whose bodies do
+    // not compile is a bug to fix before merge, not an entry here.
+    const setStart = runnerSource.indexOf('const BODIES_KNOWN_UNCOMPILABLE = new Set([');
+    expect(setStart).toBeGreaterThan(-1);
+    const setEnd = runnerSource.indexOf(']);', setStart);
+    const listed = runnerSource
+      .slice(setStart, setEnd)
+      .match(/'[^']+\.sql'/g)
+      ?.map((s) => s.slice(1, -1)) ?? [];
+    expect(listed.sort()).toEqual([
+      '744_medication_inventory_billing_mar_closure.sql',
+      '745_clinical_alert_delivery_obligations.sql',
+    ]);
+
+    // The relaxation must be applied BEFORE the file executes, and must be
+    // reachable from inside the loop rather than left defined and unused.
+    const migrationLoop = runnerSource.indexOf('for (const file of files)');
+    const relaxCall = runnerSource.indexOf('await relaxFunctionBodyCheckingFor(file);', migrationLoop);
+    const executorCall = runnerSource.indexOf(
+      'const result = await executeCiMigrationFile({',
+      migrationLoop,
+    );
+    expect(relaxCall).toBeGreaterThan(migrationLoop);
+    expect(relaxCall).toBeLessThan(executorCall);
+  });
+
   test('adopts legacy checksums before apply and verifies the exact tracker before seeds', () => {
     const trackerGuard = runnerSource.indexOf('await assertMigrationTrackerReady({');
     const checksumColumn = runnerSource.indexOf(
