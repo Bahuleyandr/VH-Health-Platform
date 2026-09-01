@@ -7,9 +7,7 @@ describe("dashboard shortcut contract", () => {
     const sequenceKeys = NAVIGATION_SHORTCUTS.map(
       (shortcut) => shortcut.sequenceKey,
     );
-    const shortcutHrefs = NAVIGATION_SHORTCUTS.map(
-      (shortcut) => shortcut.href,
-    );
+    const shortcutHrefs = NAVIGATION_SHORTCUTS.map((shortcut) => shortcut.href);
 
     expect(new Set(sequenceKeys).size).toBe(sequenceKeys.length);
     expect(new Set(shortcutHrefs).size).toBe(shortcutHrefs.length);
@@ -18,9 +16,7 @@ describe("dashboard shortcut contract", () => {
 
   test("displayed sequences match their registered follow-up keys", () => {
     for (const shortcut of NAVIGATION_SHORTCUTS) {
-      expect(shortcut.key).toBe(
-        `G then ${shortcut.sequenceKey.toUpperCase()}`,
-      );
+      expect(shortcut.key).toBe(`G then ${shortcut.sequenceKey.toUpperCase()}`);
     }
   });
 });

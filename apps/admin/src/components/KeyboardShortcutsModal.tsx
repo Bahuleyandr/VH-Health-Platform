@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
 import { KeyboardIcon, CloseIcon } from "@/components/icons";
 import { usePermissions } from "@/hooks/usePermissions";
 import {
@@ -8,6 +7,7 @@ import {
   visibleNavigationShortcuts,
 } from "@/lib/dashboardShortcuts";
 import { visibleNavSections } from "@/lib/navConfig";
+import { useEffect, useMemo, useState } from "react";
 
 export function KeyboardShortcutsModal() {
   const [open, setOpen] = useState(false);
@@ -84,7 +84,9 @@ export function KeyboardShortcutsModal() {
               key={s.key}
               className="flex justify-between items-center py-1.5 border-b border-border last:border-0"
             >
-              <span className="text-muted-foreground text-sm">{s.description}</span>
+              <span className="text-muted-foreground text-sm">
+                {s.description}
+              </span>
               <kbd className="px-2 py-0.5 text-xs bg-muted text-muted-foreground rounded border border-border font-mono">
                 {s.key}
               </kbd>

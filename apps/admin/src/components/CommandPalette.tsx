@@ -96,10 +96,7 @@ export function CommandPalette() {
   const navigationShortcutByKey = useMemo(
     () =>
       new Map<string, NavigationShortcut>(
-        navigationShortcuts.map((shortcut) => [
-          shortcut.sequenceKey,
-          shortcut,
-        ]),
+        navigationShortcuts.map((shortcut) => [shortcut.sequenceKey, shortcut]),
       ),
     [navigationShortcuts],
   );

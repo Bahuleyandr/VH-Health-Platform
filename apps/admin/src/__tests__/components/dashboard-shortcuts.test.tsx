@@ -1,7 +1,7 @@
-import { fireEvent, render, screen } from "@testing-library/react";
 import { CommandPalette } from "@/components/CommandPalette";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
 import { usePermissions } from "@/hooks/usePermissions";
+import { fireEvent, render, screen } from "@testing-library/react";
 
 const push = jest.fn();
 
