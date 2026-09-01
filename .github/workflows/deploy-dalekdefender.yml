@@ -202,7 +202,14 @@ jobs:
     name: Pin verified digests on dalekdefender
     needs: build-sign-scan
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The helper's own worst case now exceeds 20 minutes: migrations (capped at
+    # VH_DEPLOY_MIGRATE_TIMEOUT=900s, matching the Job's activeDeadlineSeconds)
+    # plus two 300s rollout waits plus, on failure, two more for the rollback —
+    # ~35 minutes before setup. Real deploys take about a minute; this cap only
+    # has to be larger than the pathological path, because cutting the SSH off
+    # mid-migration reports a failure the rig has no record of. (The 1200s of
+    # rollout waits alone already sat close to the old 20.)
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: read   # verify + pull only; this job's token is piped to the host
