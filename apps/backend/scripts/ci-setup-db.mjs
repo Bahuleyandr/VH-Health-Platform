@@ -329,6 +329,7 @@ let appliedCount = 0;
 let alreadyApplied = 0;
 let knownBadSkipped = 0;
 let errors = 0;
+const failedFiles = [];
 for (const file of files) {
   if (SKIP_MIGRATIONS.has(file)) {
     logger.info(`  ~ ${file} (skipped — known-bad)`);
@@ -398,6 +399,7 @@ for (const file of files) {
       `  ! ${file}${statement} — ${err.code || ''} ${(err.message || '').split('\n')[0]}${hint}`
     );
     errors++;
+    failedFiles.push(file);
     break;
   }
 }
@@ -412,7 +414,7 @@ if (suppressedNotices > 0) {
   );
 }
 
-await assertMigrationBatchSucceeded({ errors, client, logger });
+await assertMigrationBatchSucceeded({ errors, failedFiles, client, logger });
 await assertMigrationSessionGucs();
 await assertTrackerChecksumsCurrent();
 
