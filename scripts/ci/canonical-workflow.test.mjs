@@ -127,6 +127,27 @@ test('both backend tiers run the migration-number collision guard', () => {
   assert.match(pkg.scripts.ci, /npm run check:migration-numbers/);
 });
 
+test('the unconditional security job validates the pinned Alertmanager route contract', () => {
+  const workflow = read('.github/workflows/ci.yml');
+  const security = jobBlock(workflow, 'security');
+  const validator = read('infra/kubernetes/base/monitoring/validate-alertmanager.mjs');
+
+  assert.match(security, /ALERTMANAGER_VERSION: '0\.27\.0'/);
+  assert.match(
+    security,
+    /ALERTMANAGER_SHA256: 23c3f5a3c73de91dbaec419f3c492bef636deb02680808e5d842e6553aa16074/,
+  );
+  assert.match(
+    security,
+    /node infra\/kubernetes\/base\/monitoring\/validate-alertmanager\.mjs/,
+  );
+  assert.match(validator, /alertname=BackendMigrationJobFailed/);
+  assert.match(
+    validator,
+    /receivers: \['ops-webhook', 'critical-pagerduty', 'team-backend'\]/,
+  );
+});
+
 test('long standalone stack workflows are manual and smoke is nightly', () => {
   for (const file of ['ci-admin.yml', 'ci-flutter.yml', 'ci-client-contract.yml', 'ci-kubernetes.yml']) {
     const workflow = read(`.github/workflows/${file}`);

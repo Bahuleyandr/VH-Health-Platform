@@ -1,15 +1,4 @@
 {
   "$comment": "The skip floor: the ONLY tests allowed to report a skipped/pending/todo status in a jest run where JEST_ENFORCE_SKIP_FLOOR is set (the canonical CI gate exports it). Enforced at run time by scripts/jest-skip-floor-reporter.cjs and reconciled against the test corpus in both directions by src/tests/unit/jestSkipFloor.test.js — a new skip marker without an entry here fails, and a stale entry whose test no longer exists also fails. Adding an entry is an auditable decision: include the file, the exact test (or describe) title, and a reason. HIGH-3 follow-up (PR #874): the lab-ORU deep suites silently skipped as green in every merge-gate lane for their whole life; this floor is the corpus-wide guard that no test can silently join them again. A reason must say whether the skipped test HAS A BODY: a bodiless `it.skip` is a placeholder, not disabled coverage, and un-skipping one produces a vacuous green.",
-  "entries": [
-    {
-      "file": "src/tests/notification-my.test.js",
-      "title": "should return notifications for the authenticated user (requires test DB)",
-      "reason": "BODILESS PLACEHOLDER — the callback contains only a one-line comment, so this is not disabled coverage and un-skipping it would assert nothing. Writing it needs seeded notification rows for the JWT-derived phone, which this file does not create. The route-shape and auth-failure coverage in the file does run. Parked in docs/ROADMAP.md under 'Notification /my owner-path coverage'."
-    },
-    {
-      "file": "src/tests/notification-my.test.js",
-      "title": "should mark all notifications as read for the authenticated user (requires test DB)",
-      "reason": "BODILESS PLACEHOLDER — same shape and same fixture gap as the read happy-path above; the callback contains only a comment. Parked in docs/ROADMAP.md under 'Notification /my owner-path coverage'."
-    }
-  ]
+  "entries": []
 }
