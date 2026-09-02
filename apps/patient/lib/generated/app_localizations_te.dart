@@ -71,11 +71,11 @@ class AppLocalizationsTe extends AppLocalizations {
 
   @override
   String get authSosBackendFailed =>
-      'Couldn\'t send the SOS alert to the hospital. Stay on the emergency call — the phone line is your backup.';
+      'ఆసుపత్రికి SOS హెచ్చరికను పంపలేకపోయాం. అత్యవసర కాల్‌లో కొనసాగండి — ఫోన్ లైన్ మీ ప్రత్యామ్నాయ రక్షణ.';
 
   @override
   String get authSosGuestSkipped =>
-      'Emergency call opened. Sign in to also send an SOS alert to the hospital.';
+      'అత్యవసర కాల్ తెరవబడింది. ఆసుపత్రికి SOS హెచ్చరికను కూడా పంపడానికి సైన్ ఇన్ చేయండి.';
 
   @override
   String get authGuestUserSOS => 'అతిథి_వినియోగదారు_sos';
@@ -545,7 +545,7 @@ class AppLocalizationsTe extends AppLocalizations {
 
   @override
   String investigationsUploadNotAvailableForDependent(String name) {
-    return 'Report uploads aren\'t available while viewing $name\'s profile. Switch back to your own profile to upload a report.';
+    return '$name ప్రొఫైల్‌ను చూస్తున్నప్పుడు నివేదికలను అప్‌లోడ్ చేయలేరు. నివేదికను అప్‌లోడ్ చేయడానికి మీ స్వంత ప్రొఫైల్‌కు తిరిగి మారండి.';
   }
 
   @override
@@ -1080,41 +1080,41 @@ class AppLocalizationsTe extends AppLocalizations {
       'పరీక్ష కోడ్ లింక్ చేయబడనందున ఈ ఫలితానికి ట్రెండ్ అందుబాటులో లేదు.';
 
   @override
-  String get diagnosticResultsTitle => 'Imaging and pathology reports';
+  String get diagnosticResultsTitle => 'ఇమేజింగ్ మరియు పాథాలజీ నివేదికలు';
 
   @override
-  String get diagnosticResultsEmptyTitle => 'No released reports yet';
+  String get diagnosticResultsEmptyTitle => 'ఇంకా విడుదల చేసిన నివేదికలు లేవు';
 
   @override
   String get diagnosticResultsEmptySubtitle =>
-      'Clinician-signed reports released by your care team will appear here.';
+      'మీ సంరక్షణ బృందం విడుదల చేసే వైద్యుడు సంతకం చేసిన నివేదికలు ఇక్కడ కనిపిస్తాయి.';
 
   @override
   String get diagnosticResultsLoadFailed =>
-      'Unable to load imaging and pathology reports.';
+      'ఇమేజింగ్ మరియు పాథాలజీ నివేదికలను లోడ్ చేయలేకపోయాం.';
 
   @override
-  String get diagnosticResultDetailsTitle => 'Diagnostic report';
+  String get diagnosticResultDetailsTitle => 'నిర్ధారణ నివేదిక';
 
   @override
   String get diagnosticResultDetailLoadFailed =>
-      'Unable to load this diagnostic report.';
+      'ఈ నిర్ధారణ నివేదికను లోడ్ చేయలేకపోయాం.';
 
   @override
-  String get diagnosticResultRadiology => 'Imaging report';
+  String get diagnosticResultRadiology => 'ఇమేజింగ్ నివేదిక';
 
   @override
-  String get diagnosticResultPathology => 'Pathology report';
+  String get diagnosticResultPathology => 'పాథాలజీ నివేదిక';
 
   @override
-  String get diagnosticResultAmended => 'Amended';
+  String get diagnosticResultAmended => 'సవరించబడింది';
 
   @override
-  String get diagnosticResultAddendum => 'Signed addendum';
+  String get diagnosticResultAddendum => 'సంతకం చేసిన అనుబంధం';
 
   @override
   String get diagnosticResultAdvice =>
-      'Please discuss this report with your doctor if you have questions about what it means for your care.';
+      'ఈ నివేదిక మీ సంరక్షణకు ఏమి సూచిస్తుందనే విషయంపై ప్రశ్నలు ఉంటే, దయచేసి మీ వైద్యుడితో చర్చించండి.';
 
   @override
   String get summaryAllergies => 'అలర్జీలు';
@@ -1334,7 +1334,7 @@ class AppLocalizationsTe extends AppLocalizations {
   String get refillRequestFailed => 'రీఫిల్‌ని అభ్యర్థించడంలో విఫలమైంది';
 
   @override
-  String get refillStatusActive => 'ACTIVE';
+  String get refillStatusActive => 'సక్రియం';
 
   @override
   String get refillStatusExpired => 'గడువు ముగిసింది';
@@ -1587,7 +1587,7 @@ class AppLocalizationsTe extends AppLocalizations {
   String get familyTapToSelect => 'ఎంచుకోవడానికి నొక్కండి';
 
   @override
-  String get familyDobPrefix => 'DOB:';
+  String get familyDobPrefix => 'పుట్టిన తేదీ:';
 
   @override
   String get familyNameRequired => 'పేరు అవసరం';
@@ -2103,7 +2103,7 @@ class AppLocalizationsTe extends AppLocalizations {
       'మీరు ఖచ్చితంగా లాగ్ అవుట్ చేయాలనుకుంటున్నారా?';
 
   @override
-  String get logoutProgressMessage => 'Signing out…';
+  String get logoutProgressMessage => 'సైన్ అవుట్ అవుతోంది…';
 
   @override
   String get aboutHospitalName => 'Venkataeswara Hospitals';
@@ -2574,7 +2574,7 @@ class AppLocalizationsTe extends AppLocalizations {
   String get recordAccessContinueButton => 'కొనసాగించండి';
 
   @override
-  String get recordAccessProxyFallback => 'Proxy';
+  String get recordAccessProxyFallback => 'ప్రతినిధి';
 
   @override
   String get recordAccessStatusActive => 'సక్రియం';
@@ -4089,37 +4089,37 @@ class AppLocalizationsTe extends AppLocalizations {
   String get teleconsultEndCall => 'కాల్ ముగించండి';
 
   @override
-  String get referralsTitle => 'Referrals';
+  String get referralsTitle => 'రెఫరల్స్';
 
   @override
   String get referralsLoadFailed =>
-      'We could not load your referral updates. Please try again.';
+      'మీ రెఫరల్ నవీకరణలను లోడ్ చేయలేకపోయాం. దయచేసి మళ్లీ ప్రయత్నించండి.';
 
   @override
-  String get referralsEmptyTitle => 'No referral updates yet';
+  String get referralsEmptyTitle => 'ఇంకా రెఫరల్ నవీకరణలు లేవు';
 
   @override
   String get referralsEmptySubtitle =>
-      'Signed specialist updates that your care team releases will appear here.';
+      'మీ సంరక్షణ బృందం విడుదల చేసే సంతకం చేసిన నిపుణుల నవీకరణలు ఇక్కడ కనిపిస్తాయి.';
 
   @override
-  String get referralsSpecialist => 'Specialist referral';
+  String get referralsSpecialist => 'నిపుణుడి రెఫరల్';
 
   @override
-  String get referralsSummary => 'Specialist summary';
+  String get referralsSummary => 'నిపుణుడి సారాంశం';
 
   @override
-  String get referralsNextSteps => 'What to do next';
+  String get referralsNextSteps => 'తర్వాత ఏమి చేయాలి';
 
   @override
-  String get referralsFollowUp => 'Follow-up plan';
+  String get referralsFollowUp => 'ఫాలో-అప్ ప్రణాళిక';
 
   @override
-  String get referralsAppointment => 'Appointment';
+  String get referralsAppointment => 'అపాయింట్‌మెంట్';
 
   @override
   String get referralsAppointmentLinked =>
-      'A follow-up appointment is linked to this referral.';
+      'ఈ రెఫరల్‌కు ఫాలో-అప్ అపాయింట్‌మెంట్ అనుసంధానించబడింది.';
 
   @override
   String get patientOutageTitle => 'ఆసుపత్రి సేవ తాత్కాలికంగా అందుబాటులో లేదు';

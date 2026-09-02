@@ -1,6 +1,6 @@
 # Staff App - Language Health Report
 
-_Last verified: 2026-08-25 (re-audit J, translation-gap pass)._
+_Last verified: 2026-09-02 (Malayalam technical-parity lane)._
 
 ## How to reproduce every number below
 
@@ -8,43 +8,47 @@ _Last verified: 2026-08-25 (re-audit J, translation-gap pass)._
 # The full informational report (this document's tables come from it)
 node apps/staff/scripts/i18n-verify.mjs        # or: melos run i18n-health-staff
 
+# Regenerate the exact Malayalam technical-placeholder review queue
+melos run gen-staff-ml-parity
+
 # The blocking half: structural key parity only, exits 1 on a gap
 node apps/staff/scripts/i18n-verify.mjs --check  # or: melos run i18n-parity-check
 ```
 
-Both read `apps/staff/lib/l10n/app_strings.dart` directly — there is no
-generated artefact and no cached count. "Keys present" is the size of each
-locale's map in `_byLang`; every other row is a section of the report, in
-the order the script prints them. If a number here disagrees with the
-script, the script is right and this document is stale.
+Both read `apps/staff/lib/l10n/app_strings.dart`; Malayalam also composes the
+deterministic `app_strings_ml_parity.g.dart` technical-placeholder map.
+`--check` byte-compares that generated map with the English source and fails
+if it is stale. If a number here disagrees with the script, the script is
+right and this document is stale.
 
 This report is the structural verification of the staff app i18n setup.
 It answers "does every key resolve?" — **not** "is every translation
 clinically approved?" Hindi, Tamil, and Telugu are structurally complete,
-but a large part of each map is an AI first pass; **Malayalam is a
-declared-partial nurse-facing first pass (2026-06-10)**. Nothing in any
-non-English locale has had a fluent clinical review, and all of it still
-requires one before production rollout.
+but a large part of each map is an AI first pass. Malayalam has full technical
+key parity: 2,419 explicit entries plus 4,030 generated English-source
+placeholders. A placeholder is not a Malayalam translation. Nothing in any
+non-English locale has complete fluent clinical review, and all of it still
+requires the relevant human approval before production rollout.
 
-## Headline numbers (measured 2026-08-25)
+## Headline numbers (measured 2026-09-02)
 
 | | en | hi | ta | te | ml |
 |---|---:|---:|---:|---:|---:|
-| Keys present | 5,660 | 5,657 | 5,657 | 5,657 | 1,556 |
-| Coverage vs en | 100% | 100% | 100% | 100% | 27.5% (partial by design) |
-| `// REVIEW:` flags | - | 495 | 948 | 949 | 1 (map-level banner) |
-| Length outliers | - | 0 | 7 | 1 | 1 |
-| Copy-pasted English | - | 125 | 135 | 134 | 61 |
+| Keys present | 6,452 | 6,449 | 6,449 | 6,449 | 6,449 |
+| Coverage vs en | 100% | 100% | 100% | 100% | 100% technical parity |
+| `// REVIEW:` flags | - | 500 | 953 | 954 | 17 + 4,030 generated placeholders |
+| Length outliers | - | 0 | 8 | 1 | 2 |
+| Identical English heuristic | - | 125 | 132 | 131 | 3,879 |
 
-`en` declares 5,660 keys. Three of them are deliberately left to the
-English fallback in hi/ta/te (see "Declared English fallback" below), so
-the translatable set is 5,657 and hi/ta/te are at 100% of it.
+`en` declares 6,452 keys. Three signed-attestation keys are deliberately left
+to the English fallback in every non-English locale (see "Declared English
+fallback" below), so the translatable set is 6,449.
 
 | | |
 |---|---:|
-| Getters declared on `AppStrings` | 2,533 |
-| Getters called from `lib/` | 2,045 |
-| Declared but never called | 488 |
+| Getters declared on `AppStrings` | 2,539 |
+| Getters called from `lib/` | 2,050 |
+| Declared but never called | 489 |
 | Orphan calls (would crash at runtime) | 0 |
 | Files with hardcoded English (UI text heuristic) | 1 (`lib/main.dart`, 2 occurrences) |
 
@@ -123,22 +127,23 @@ descriptive clinical copy gets translated and marked `// REVIEW:` instead.
 
 Structural key parity is now a **CI failure**, not a report line:
 
-- `node apps/staff/scripts/i18n-verify.mjs --check` exits 1 when hi, ta, or
-  te is missing a key that `en` declares.
+- `node apps/staff/scripts/i18n-verify.mjs --check` exits 1 when hi, ta, te,
+  or ml is missing a key that `en` declares, or when the generated Malayalam
+  placeholder map is stale.
 - Wired into **both** halves of the Flutter tier, alongside the vital-bounds
   and staff-role contract drift checks — pure Node, before the SDK install,
   so it fails in seconds:
   - `.github/workflows/_reusable-flutter-workspace.yml` → step
-    "Staff i18n structural parity (hi/ta/te vs en)"
+    "Flutter i18n structural parity (hi/ta/te/ml vs en)"
   - `scripts/ci/flutter.mjs` → the Forgejo/local canonical half
 - Any change under `apps/staff/` selects the Flutter stage, so touching
   `app_strings.dart` always runs it.
 
-It is deliberately narrow. It compares key **sets** and nothing else: it has
+It is deliberately narrow. It compares key **sets** and generated bytes: it has
 no opinion about translation quality, register, or length, and it never reads
 a translated value. That is why it can block without ever being a judgement
-call. `ml` is exempt outright as a declared-partial locale. The check also
-fails closed if it parses fewer than 1,000 `en` keys, so a future refactor of
+call. Malayalam's generated placeholder map is gated rather than exempt. The
+check also fails closed if it parses fewer than 1,000 `en` keys, so a future refactor of
 `app_strings.dart` that breaks the scanner reports a broken scanner instead
 of a cheerful zero.
 
@@ -150,17 +155,16 @@ heuristics, and heuristics do not belong on a path that must not fail.
 
 ## What's verified
 
-- **English, Hindi, Tamil, and Telugu are at 100% structural key parity**
-  (5,657 translatable keys each). The runtime fallback remains English; the
-  only keys that depend on it are the three declared above.
+- **English, Hindi, Tamil, Telugu, and Malayalam are at 100% structural key
+  parity** (6,449 translatable keys each). Malayalam reaches that technical
+  state with 4,030 generated English-source review placeholders. The only
+  implicit runtime fallbacks are the three signed attestations declared above.
 
 - **No runtime crashes from orphan calls.** Every `s.foo` /
   `AppStrings.of(context).foo` reference resolves to a declared getter.
 
-- **No catastrophic length blow-ups from the new fill.** The outlier counts
-  (ta 7, te 1, ml 1, hi 0) are unchanged by the 2026-08-25 pass; all are
-  pre-existing short UI labels that should wrap, and should be watched during
-  visual QA.
+- **Length risks remain measurable.** The heuristic reports ta 8, te 1, ml 2,
+  and hi 0 outliers; all require visual QA rather than structural judgement.
 
 - **Fallback still works.** Any missing key in a non-English map falls
   through to English at runtime. Empty-string values are not supported —
@@ -175,7 +179,8 @@ Tamil and Telugu were completed as an AI first pass on 2026-05-03; the
 since. Hindi had a second-pass review on 2026-05-02, but the 2026-08-25
 additions have not had it.
 
-Before production rollout in Hindi/Tamil/Telugu-speaking staff populations:
+Before production rollout in Hindi/Tamil/Telugu/Malayalam-speaking staff
+populations:
 
 1. Validate all `// REVIEW:` strings with a fluent clinician or hospital
    operations translator. Start with the 2026-08-25 block in each locale map
@@ -185,27 +190,30 @@ Before production rollout in Hindi/Tamil/Telugu-speaking staff populations:
    sign-off and patient release, ED closure/recovery evidence, controlled
    dispensing (Schedule H/H1/X) witness copy, consent, discharge,
    emergency/code-blue, payroll, HR, incident, and grievance copy.
-3. Decide whether the three declared English-fallback strings should stay
+3. Replace the 4,030 entries listed in
+   `app_strings_ml_parity.g.dart` with reviewed Malayalam values in the
+   explicit `ml` map. Regeneration removes each replaced placeholder.
+4. Decide whether the three declared English-fallback strings should stay
    English or receive hospital-approved translations. If translated, remove
    them from `DELIBERATE_ENGLISH_FALLBACK`.
-4. Run `melos run i18n-parity-check` after edits (it must stay green) and
+5. Run `melos run i18n-parity-check` after edits (it must stay green) and
    `melos run i18n-health-staff` to re-measure the tables above.
 
 ---
 
 ## Remaining non-blocking cleanup
 
-- **488 getters declared but never called.** See the caveat below — this
+- **489 getters declared but never called.** See the caveat below — this
   headline overstates the safe-to-delete set.
 - **Hardcoded English** is down to one file (`lib/main.dart`, 2 occurrences
   in the web-activation hold copy) by the `Text('...')` + error-assignment
   heuristic. The heuristic does not see every shape of hardcoded copy, so
   treat this as a floor, not a proof.
-- **Malayalam beyond the nurse-facing core** (4,104 keys fall back to
-  English) — extend per screen as the pilot demands. This is deliberate and
-  is not a defect; the parity gate exempts `ml`.
-- **Admin portal and backend notifications** remain English-only and are
-  tracked separately.
+- **Malayalam human translation** remains open for the 4,030 generated
+  English-source placeholders. This is explicit technical parity, not final
+  localized copy.
+- **Admin portal** has no locale-resource system. Backend five-locale
+  presentation contracts are tracked separately.
 
 ---
 
@@ -214,10 +222,11 @@ Before production rollout in Hindi/Tamil/Telugu-speaking staff populations:
 For a human validation pass, provide:
 
 1. `apps/staff/lib/l10n/app_strings.dart`
-2. `apps/staff/scripts/i18n-verify.mjs`
-3. This report
-4. `apps/staff/docs/ACCESSIBILITY_AUDIT.md`
-5. `apps/staff/docs/COLOR_CONTRAST_AUDIT.md`
+2. `apps/staff/lib/l10n/app_strings_ml_parity.g.dart`
+3. `apps/staff/scripts/i18n-verify.mjs`
+4. This report
+5. `apps/staff/docs/ACCESSIBILITY_AUDIT.md`
+6. `apps/staff/docs/COLOR_CONTRAST_AUDIT.md`
 
 Run after every translator edit:
 

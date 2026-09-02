@@ -69,11 +69,11 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get authSosBackendFailed =>
-      'Couldn\'t send the SOS alert to the hospital. Stay on the emergency call — the phone line is your backup.';
+      'अस्पताल को SOS अलर्ट नहीं भेजा जा सका। आपातकालीन कॉल पर बने रहें — फोन लाइन आपका बैकअप है।';
 
   @override
   String get authSosGuestSkipped =>
-      'Emergency call opened. Sign in to also send an SOS alert to the hospital.';
+      'आपातकालीन कॉल खुल गई है। अस्पताल को SOS अलर्ट भी भेजने के लिए साइन इन करें।';
 
   @override
   String get authGuestUserSOS => 'अतिथि_उपयोगकर्ता_sos';
@@ -536,7 +536,7 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String investigationsUploadNotAvailableForDependent(String name) {
-    return 'Report uploads aren\'t available while viewing $name\'s profile. Switch back to your own profile to upload a report.';
+    return '$name की प्रोफ़ाइल देखते समय रिपोर्ट अपलोड उपलब्ध नहीं हैं। रिपोर्ट अपलोड करने के लिए अपनी प्रोफ़ाइल पर वापस जाएँ।';
   }
 
   @override
@@ -1069,41 +1069,41 @@ class AppLocalizationsHi extends AppLocalizations {
       'इस परिणाम के लिए रुझान उपलब्ध नहीं है क्योंकि कोई टेस्ट कोड जुड़ा नहीं है।';
 
   @override
-  String get diagnosticResultsTitle => 'Imaging and pathology reports';
+  String get diagnosticResultsTitle => 'इमेजिंग और पैथोलॉजी रिपोर्टें';
 
   @override
-  String get diagnosticResultsEmptyTitle => 'No released reports yet';
+  String get diagnosticResultsEmptyTitle => 'अभी तक कोई जारी रिपोर्ट नहीं';
 
   @override
   String get diagnosticResultsEmptySubtitle =>
-      'Clinician-signed reports released by your care team will appear here.';
+      'आपकी देखभाल टीम द्वारा जारी चिकित्सक-हस्ताक्षरित रिपोर्टें यहाँ दिखाई देंगी।';
 
   @override
   String get diagnosticResultsLoadFailed =>
-      'Unable to load imaging and pathology reports.';
+      'इमेजिंग और पैथोलॉजी रिपोर्टें लोड नहीं हो सकीं।';
 
   @override
-  String get diagnosticResultDetailsTitle => 'Diagnostic report';
+  String get diagnosticResultDetailsTitle => 'नैदानिक रिपोर्ट';
 
   @override
   String get diagnosticResultDetailLoadFailed =>
-      'Unable to load this diagnostic report.';
+      'यह नैदानिक रिपोर्ट लोड नहीं हो सकी।';
 
   @override
-  String get diagnosticResultRadiology => 'Imaging report';
+  String get diagnosticResultRadiology => 'इमेजिंग रिपोर्ट';
 
   @override
-  String get diagnosticResultPathology => 'Pathology report';
+  String get diagnosticResultPathology => 'पैथोलॉजी रिपोर्ट';
 
   @override
-  String get diagnosticResultAmended => 'Amended';
+  String get diagnosticResultAmended => 'संशोधित';
 
   @override
-  String get diagnosticResultAddendum => 'Signed addendum';
+  String get diagnosticResultAddendum => 'हस्ताक्षरित परिशिष्ट';
 
   @override
   String get diagnosticResultAdvice =>
-      'Please discuss this report with your doctor if you have questions about what it means for your care.';
+      'यदि इस रिपोर्ट का आपकी देखभाल के लिए क्या अर्थ है, इस बारे में आपके प्रश्न हैं, तो कृपया अपने डॉक्टर से चर्चा करें।';
 
   @override
   String get summaryAllergies => 'एलर्जी';
@@ -2077,7 +2077,7 @@ class AppLocalizationsHi extends AppLocalizations {
   String get logoutConfirmBody => 'क्या आप वाकई लॉगआउट करना चाहते हैं?';
 
   @override
-  String get logoutProgressMessage => 'Signing out…';
+  String get logoutProgressMessage => 'साइन आउट हो रहा है…';
 
   @override
   String get aboutHospitalName => 'वेंकटेश्वर अस्पताल';
@@ -4053,37 +4053,37 @@ class AppLocalizationsHi extends AppLocalizations {
   String get teleconsultEndCall => 'कॉल समाप्त करें';
 
   @override
-  String get referralsTitle => 'Referrals';
+  String get referralsTitle => 'रेफ़रल';
 
   @override
   String get referralsLoadFailed =>
-      'We could not load your referral updates. Please try again.';
+      'हम आपके रेफ़रल अपडेट लोड नहीं कर सके। कृपया फिर कोशिश करें।';
 
   @override
-  String get referralsEmptyTitle => 'No referral updates yet';
+  String get referralsEmptyTitle => 'अभी तक कोई रेफ़रल अपडेट नहीं';
 
   @override
   String get referralsEmptySubtitle =>
-      'Signed specialist updates that your care team releases will appear here.';
+      'आपकी देखभाल टीम द्वारा जारी हस्ताक्षरित विशेषज्ञ अपडेट यहाँ दिखाई देंगे।';
 
   @override
-  String get referralsSpecialist => 'Specialist referral';
+  String get referralsSpecialist => 'विशेषज्ञ रेफ़रल';
 
   @override
-  String get referralsSummary => 'Specialist summary';
+  String get referralsSummary => 'विशेषज्ञ सारांश';
 
   @override
-  String get referralsNextSteps => 'What to do next';
+  String get referralsNextSteps => 'आगे क्या करना है';
 
   @override
-  String get referralsFollowUp => 'Follow-up plan';
+  String get referralsFollowUp => 'फ़ॉलो-अप योजना';
 
   @override
-  String get referralsAppointment => 'Appointment';
+  String get referralsAppointment => 'अपॉइंटमेंट';
 
   @override
   String get referralsAppointmentLinked =>
-      'A follow-up appointment is linked to this referral.';
+      'इस रेफ़रल से एक फ़ॉलो-अप अपॉइंटमेंट जुड़ा हुआ है।';
 
   @override
   String get patientOutageTitle => 'अस्पताल सेवा अस्थायी रूप से उपलब्ध नहीं है';

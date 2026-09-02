@@ -1156,7 +1156,7 @@
     }
   },
   "refillRequestFailed": "റീഫിൽ അഭ്യർത്ഥിക്കുന്നതിൽ പരാജയപ്പെട്ടു",
-  "refillStatusActive": "ACTIVE",
+  "refillStatusActive": "സജീവം",
   "refillStatusExpired": "കാലഹരണപ്പെട്ടു",
   "stepsTitle": "നടത്ത വെല്ലുവിളി",
   "stepsProfile": "പ്രൊഫൈൽ",
@@ -1350,7 +1350,7 @@
   "@familyTapToSelect": {
     "description": "Hint inside the date of birth field"
   },
-  "familyDobPrefix": "DOB:",
+  "familyDobPrefix": "ജനന തീയതി:",
   "@familyDobPrefix": {
     "description": "Prefix before formatted date of birth on member card"
   },
@@ -2158,7 +2158,7 @@
   "recordAccessSignatureClear": "മായ്ക്കുക",
   "recordAccessSignatureRequired": "തുടരുന്നതിന് മുമ്പ് നിങ്ങളുടെ ഒപ്പ് ചേർക്കുക.",
   "recordAccessContinueButton": "തുടരുക",
-  "recordAccessProxyFallback": "Proxy",
+  "recordAccessProxyFallback": "പ്രതിനിധി",
   "recordAccessStatusActive": "സജീവം",
   "recordAccessStatusRevoked": "പിൻവലിച്ചത്",
   "commonRetry": "വീണ്ടും ശ്രമിക്കുക",
@@ -2675,5 +2675,30 @@
   "abhaEnrolResendOtp": "OTP വീണ്ടും അയയ്ക്കുക",
   "abhaEnrolResendOtpIn": "OTP വീണ്ടും അയയ്ക്കുക ({seconds}s)",
   "abhaEnrolVerify": "സ്ഥിരീകരിക്കുക",
-  "abhaEnrolViewMyAbha": "എന്റെ ABHA കാണുക"
+  "abhaEnrolViewMyAbha": "എന്റെ ABHA കാണുക",
+  "authSosBackendFailed": "ആശുപത്രിയിലേക്ക് SOS മുന്നറിയിപ്പ് അയയ്ക്കാനായില്ല. അടിയന്തര കോളിൽ തുടരുക — ഫോൺ ലൈനാണ് നിങ്ങളുടെ പകരം സുരക്ഷാ മാർഗം.",
+  "authSosGuestSkipped": "അടിയന്തര കോൾ തുറന്നു. ആശുപത്രിയിലേക്ക് SOS മുന്നറിയിപ്പും അയയ്ക്കാൻ സൈൻ ഇൻ ചെയ്യുക.",
+  "investigationsUploadNotAvailableForDependent": "{name}-ന്റെ പ്രൊഫൈൽ കാണുമ്പോൾ റിപ്പോർട്ടുകൾ അപ്‌ലോഡ് ചെയ്യാനാകില്ല. റിപ്പോർട്ട് അപ്‌ലോഡ് ചെയ്യാൻ നിങ്ങളുടെ സ്വന്തം പ്രൊഫൈലിലേക്ക് മടങ്ങുക.",
+  "logoutProgressMessage": "സൈൻ ഔട്ട് ചെയ്യുന്നു…",
+  "referralsAppointment": "അപ്പോയിന്റ്മെന്റ്",
+  "referralsAppointmentLinked": "ഈ റഫറലുമായി ഒരു ഫോളോ-അപ്പ് അപ്പോയിന്റ്മെന്റ് ബന്ധിപ്പിച്ചിരിക്കുന്നു.",
+  "referralsEmptySubtitle": "നിങ്ങളുടെ പരിചരണ സംഘം പുറത്തുവിടുന്ന ഒപ്പിട്ട വിദഗ്ധ അപ്‌ഡേറ്റുകൾ ഇവിടെ കാണും.",
+  "referralsEmptyTitle": "ഇതുവരെ റഫറൽ അപ്‌ഡേറ്റുകളില്ല",
+  "referralsFollowUp": "ഫോളോ-അപ്പ് പദ്ധതി",
+  "referralsLoadFailed": "നിങ്ങളുടെ റഫറൽ അപ്‌ഡേറ്റുകൾ ലോഡ് ചെയ്യാനായില്ല. ദയവായി വീണ്ടും ശ്രമിക്കുക.",
+  "referralsNextSteps": "അടുത്തതായി എന്ത് ചെയ്യണം",
+  "referralsSpecialist": "വിദഗ്ധ റഫറൽ",
+  "referralsSummary": "വിദഗ്ധ സംഗ്രഹം",
+  "referralsTitle": "റഫറലുകൾ",
+  "diagnosticResultsTitle": "ഇമേജിംഗ്, പാത്തോളജി റിപ്പോർട്ടുകൾ",
+  "diagnosticResultsEmptyTitle": "ഇതുവരെ പുറത്തുവിട്ട റിപ്പോർട്ടുകളില്ല",
+  "diagnosticResultsEmptySubtitle": "നിങ്ങളുടെ പരിചരണ സംഘം പുറത്തുവിടുന്ന ഡോക്ടർ ഒപ്പിട്ട റിപ്പോർട്ടുകൾ ഇവിടെ കാണും.",
+  "diagnosticResultsLoadFailed": "ഇമേജിംഗ്, പാത്തോളജി റിപ്പോർട്ടുകൾ ലോഡ് ചെയ്യാനായില്ല.",
+  "diagnosticResultDetailsTitle": "രോഗനിർണയ റിപ്പോർട്ട്",
+  "diagnosticResultDetailLoadFailed": "ഈ രോഗനിർണയ റിപ്പോർട്ട് ലോഡ് ചെയ്യാനായില്ല.",
+  "diagnosticResultRadiology": "ഇമേജിംഗ് റിപ്പോർട്ട്",
+  "diagnosticResultPathology": "പാത്തോളജി റിപ്പോർട്ട്",
+  "diagnosticResultAmended": "ഭേദഗതി ചെയ്തു",
+  "diagnosticResultAddendum": "ഒപ്പിട്ട അനുബന്ധം",
+  "diagnosticResultAdvice": "ഈ റിപ്പോർട്ട് നിങ്ങളുടെ പരിചരണത്തിന് എന്താണ് അർത്ഥമാക്കുന്നത് എന്നതിനെക്കുറിച്ച് ചോദ്യങ്ങളുണ്ടെങ്കിൽ, ദയവായി നിങ്ങളുടെ ഡോക്ടറുമായി ചർച്ച ചെയ്യുക."
 }

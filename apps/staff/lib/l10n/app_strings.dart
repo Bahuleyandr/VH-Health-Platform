@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'app_strings_ml_parity.g.dart';
+
 /// i18n scaffolding for the staff app.
 ///
 /// English (`en`) is the source of truth and the runtime fallback.
@@ -16,15 +18,15 @@ import 'package:flutter/material.dart';
 ///   need a Tamil-fluent clinician's review before production.
 /// - `te` (Telugu) - same as Tamil. Placeholder. ALL clinical-action
 ///   strings need a Telugu-fluent clinician's review.
-/// - `ml` (Malayalam) remains a declared-partial locale overall, but the
-///   MED-03 MAR/supply, ward-indent, and billing/refund safety paths are
-///   translated whenever those workflows change. Their MED-03 key set is
-///   checked explicitly in `test/i18n_guard_test.dart` and the focused feature
-///   tests. This is technical coverage, not human translation approval. The
-///   wording remains fail-closed for Malayalam-fluent clinical, linguistic,
-///   and finance review before activation.
+/// - `ml` (Malayalam) has complete technical key parity. Approved or existing
+///   first-pass Malayalam entries override a generated English-source
+///   placeholder map. Those placeholders prevent silent runtime fallback and
+///   make the exact human-review queue inspectable; they are not translation
+///   approval. Malayalam wording remains fail-closed for Malayalam-fluent
+///   clinical, linguistic, finance, legal, and operational review before
+///   activation.
 ///
-/// hi/ta/te are held at structural key parity with `en` by a BLOCKING CI
+/// hi/ta/te/ml are held at structural key parity with `en` by a BLOCKING CI
 /// gate - `node scripts/i18n-verify.mjs --check`, wired into both halves
 /// of the Flutter tier. Parity is a key-set check only and says nothing
 /// about translation quality. Three keys are deliberately left to the
@@ -81,9 +83,9 @@ class AppStrings {
   /// Locales the app ships translations for. Wire this list into
   /// `MaterialApp.supportedLocales`.
   ///
-  /// `ml` (Malayalam) shipped 2026-06-10 as a nurse-facing first pass —
-  /// the highest-traffic clinical screens are translated; everything else
-  /// falls back to English until the next translator pass (roadmap E2).
+  /// `ml` (Malayalam) shipped 2026-06-10 as a nurse-facing first pass. Every
+  /// remaining key now has a generated English-source technical placeholder
+  /// that remains visibly queued for human review.
   static const supportedLocales = <Locale>[
     Locale('en'),
     Locale('hi'),
@@ -37081,11 +37083,10 @@ class AppStrings {
     },
 
     // ── Malayalam (ml) ─────────────────────────────────────────────────
-    // Roadmap E2 first pass: the NURSE-FACING core only (actions, labels,
-    // login, dashboard, settings, bed sheet, vitals + vitals chart, MAR
-    // scan, due meds, nursing notes, handover, code blue, CDS, orders +
-    // composer + order sets, notifications, logout/splash/error). All
-    // other keys fall back to English by design until the next pass.
+    // Roadmap E2 first pass plus technical parity. Existing Malayalam values
+    // below override the generated English-source placeholders. Every
+    // placeholder remains awaiting human review and cannot be treated as
+    // approved Malayalam wording.
     //
     // REVIEW: ml AI first-pass — the ENTIRE map needs review by a
     // Malayalam-fluent clinician before production rollout in
@@ -37093,6 +37094,7 @@ class AppStrings {
     // patient app's ml register (transliterated loanwords for clinical/
     // technical terms: ഫാർമസി, അപ്പോയിന്റ്മെന്റ്, ഡോസ്).
     'ml': {
+      ...malayalamTechnicalParityPlaceholders,
       // REVIEW: MED-03 Malayalam technical parity only; a Malayalam-fluent
       // clinician-linguist must approve this wording before activation.
       'pharmacy.disposal.title': 'ഇൻവെന്ററി നിർമാർജനം രേഖപ്പെടുത്തുക',

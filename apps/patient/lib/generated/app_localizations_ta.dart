@@ -71,11 +71,11 @@ class AppLocalizationsTa extends AppLocalizations {
 
   @override
   String get authSosBackendFailed =>
-      'Couldn\'t send the SOS alert to the hospital. Stay on the emergency call — the phone line is your backup.';
+      'மருத்துவமனைக்கு SOS எச்சரிக்கையை அனுப்ப முடியவில்லை. அவசர அழைப்பில் தொடருங்கள் — தொலைபேசி இணைப்பே உங்கள் மாற்றுப் பாதுகாப்பு.';
 
   @override
   String get authSosGuestSkipped =>
-      'Emergency call opened. Sign in to also send an SOS alert to the hospital.';
+      'அவசர அழைப்பு திறக்கப்பட்டது. மருத்துவமனைக்கு SOS எச்சரிக்கையையும் அனுப்ப உள்நுழையுங்கள்.';
 
   @override
   String get authGuestUserSOS => 'விருந்தினர்_பயனர்_sos';
@@ -549,7 +549,7 @@ class AppLocalizationsTa extends AppLocalizations {
 
   @override
   String investigationsUploadNotAvailableForDependent(String name) {
-    return 'Report uploads aren\'t available while viewing $name\'s profile. Switch back to your own profile to upload a report.';
+    return '$name அவர்களின் சுயவிவரத்தைப் பார்க்கும்போது அறிக்கைகளைப் பதிவேற்ற முடியாது. அறிக்கையைப் பதிவேற்ற உங்கள் சொந்த சுயவிவரத்திற்குத் திரும்புங்கள்.';
   }
 
   @override
@@ -1088,41 +1088,42 @@ class AppLocalizationsTa extends AppLocalizations {
       'சோதனை குறியீடு இணைக்கப்படாததால் இந்த முடிவிற்கு போக்கு கிடைக்கவில்லை.';
 
   @override
-  String get diagnosticResultsTitle => 'Imaging and pathology reports';
+  String get diagnosticResultsTitle => 'படமெடுப்பு மற்றும் நோயியல் அறிக்கைகள்';
 
   @override
-  String get diagnosticResultsEmptyTitle => 'No released reports yet';
+  String get diagnosticResultsEmptyTitle =>
+      'இன்னும் வெளியிடப்பட்ட அறிக்கைகள் இல்லை';
 
   @override
   String get diagnosticResultsEmptySubtitle =>
-      'Clinician-signed reports released by your care team will appear here.';
+      'உங்கள் பராமரிப்புக் குழு வெளியிடும் மருத்துவர் கையொப்பமிட்ட அறிக்கைகள் இங்கே தோன்றும்.';
 
   @override
   String get diagnosticResultsLoadFailed =>
-      'Unable to load imaging and pathology reports.';
+      'படமெடுப்பு மற்றும் நோயியல் அறிக்கைகளை ஏற்ற முடியவில்லை.';
 
   @override
-  String get diagnosticResultDetailsTitle => 'Diagnostic report';
+  String get diagnosticResultDetailsTitle => 'நோயறிதல் அறிக்கை';
 
   @override
   String get diagnosticResultDetailLoadFailed =>
-      'Unable to load this diagnostic report.';
+      'இந்த நோயறிதல் அறிக்கையை ஏற்ற முடியவில்லை.';
 
   @override
-  String get diagnosticResultRadiology => 'Imaging report';
+  String get diagnosticResultRadiology => 'படமெடுப்பு அறிக்கை';
 
   @override
-  String get diagnosticResultPathology => 'Pathology report';
+  String get diagnosticResultPathology => 'நோயியல் அறிக்கை';
 
   @override
-  String get diagnosticResultAmended => 'Amended';
+  String get diagnosticResultAmended => 'திருத்தப்பட்டது';
 
   @override
-  String get diagnosticResultAddendum => 'Signed addendum';
+  String get diagnosticResultAddendum => 'கையொப்பமிட்ட இணைப்பு';
 
   @override
   String get diagnosticResultAdvice =>
-      'Please discuss this report with your doctor if you have questions about what it means for your care.';
+      'இந்த அறிக்கை உங்கள் பராமரிப்புக்கு என்ன பொருள் தருகிறது என்பது குறித்து கேள்விகள் இருந்தால், தயவுசெய்து உங்கள் மருத்துவருடன் பேசுங்கள்.';
 
   @override
   String get summaryAllergies => 'ஒவ்வாமை';
@@ -1341,7 +1342,7 @@ class AppLocalizationsTa extends AppLocalizations {
   String get refillRequestFailed => 'மீண்டும் நிரப்பக் கோர முடியவில்லை';
 
   @override
-  String get refillStatusActive => 'ACTIVE';
+  String get refillStatusActive => 'செயலில்';
 
   @override
   String get refillStatusExpired => 'காலாவதியானது';
@@ -1597,7 +1598,7 @@ class AppLocalizationsTa extends AppLocalizations {
   String get familyTapToSelect => 'தேர்ந்தெடுக்க தட்டவும்';
 
   @override
-  String get familyDobPrefix => 'DOB:';
+  String get familyDobPrefix => 'பிறந்த தேதி:';
 
   @override
   String get familyNameRequired => 'பெயர் தேவை';
@@ -2119,7 +2120,7 @@ class AppLocalizationsTa extends AppLocalizations {
   String get logoutConfirmBody => 'நிச்சயமாக வெளியேற விரும்புகிறீர்களா?';
 
   @override
-  String get logoutProgressMessage => 'Signing out…';
+  String get logoutProgressMessage => 'வெளியேறுகிறது…';
 
   @override
   String get aboutHospitalName => 'Venkataeswara Hospitals';
@@ -2593,7 +2594,7 @@ class AppLocalizationsTa extends AppLocalizations {
   String get recordAccessContinueButton => 'தொடரவும்';
 
   @override
-  String get recordAccessProxyFallback => 'Proxy';
+  String get recordAccessProxyFallback => 'பிரதிநிதி';
 
   @override
   String get recordAccessStatusActive => 'செயலில்';
@@ -4121,37 +4122,37 @@ class AppLocalizationsTa extends AppLocalizations {
   String get teleconsultEndCall => 'அழைப்பை முடி';
 
   @override
-  String get referralsTitle => 'Referrals';
+  String get referralsTitle => 'பரிந்துரைகள்';
 
   @override
   String get referralsLoadFailed =>
-      'We could not load your referral updates. Please try again.';
+      'உங்கள் பரிந்துரை புதுப்பிப்புகளை ஏற்ற முடியவில்லை. மீண்டும் முயற்சிக்கவும்.';
 
   @override
-  String get referralsEmptyTitle => 'No referral updates yet';
+  String get referralsEmptyTitle => 'இன்னும் பரிந்துரை புதுப்பிப்புகள் இல்லை';
 
   @override
   String get referralsEmptySubtitle =>
-      'Signed specialist updates that your care team releases will appear here.';
+      'உங்கள் பராமரிப்புக் குழு வெளியிடும் கையொப்பமிடப்பட்ட நிபுணர் புதுப்பிப்புகள் இங்கே தோன்றும்.';
 
   @override
-  String get referralsSpecialist => 'Specialist referral';
+  String get referralsSpecialist => 'நிபுணர் பரிந்துரை';
 
   @override
-  String get referralsSummary => 'Specialist summary';
+  String get referralsSummary => 'நிபுணர் சுருக்கம்';
 
   @override
-  String get referralsNextSteps => 'What to do next';
+  String get referralsNextSteps => 'அடுத்து என்ன செய்ய வேண்டும்';
 
   @override
-  String get referralsFollowUp => 'Follow-up plan';
+  String get referralsFollowUp => 'தொடர் பராமரிப்புத் திட்டம்';
 
   @override
-  String get referralsAppointment => 'Appointment';
+  String get referralsAppointment => 'சந்திப்பு';
 
   @override
   String get referralsAppointmentLinked =>
-      'A follow-up appointment is linked to this referral.';
+      'இந்தப் பரிந்துரையுடன் ஒரு தொடர் சந்திப்பு இணைக்கப்பட்டுள்ளது.';
 
   @override
   String get patientOutageTitle => 'மருத்துவமனை சேவை தற்காலிகமாக கிடைக்கவில்லை';

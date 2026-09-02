@@ -1,6 +1,9 @@
 # Translation Human Review Tracker
 
-> **Last reviewed: 2026-06-29.** Structural i18n coverage is 100%; human clinical review of translated strings remains PENDING (deprioritized until the pilot). This is a tracking artifact, not a blocker.
+> **Last structurally reconciled: 2026-09-02.** Structural i18n coverage is
+> 100%; human clinical, linguistic, finance, and legal review remains PENDING.
+> This tracker does not block technical development, but the named human
+> reviews remain fail-closed activation gates.
 
 The Flutter apps now have structural i18n coverage, but AI first-pass
 translations are not clinical sign-off. This tracker is the human validation
@@ -13,6 +16,7 @@ queue before production rollout in Tamil, Telugu, Malayalam, or Hindi.
 | Staff | Hindi | 100% | Pending |
 | Staff | Tamil | 100% | Pending |
 | Staff | Telugu | 100% | Pending |
+| Staff | Malayalam | 100% technical parity (4,030 English-source placeholders) | Pending |
 | Patient | Hindi | 100% | Pending |
 | Patient | Tamil | 100% | Pending |
 | Patient | Telugu | 100% | Pending |
@@ -94,6 +98,40 @@ Also on 2026-08-27, three machine-translation corruption fixes (mixed-script
 passages, no meaning change intended, still AI-quality pending review):
 `aboutUsContent` (ta — Telugu/Russian/Bengali fragments), `conditionsBody`
 (ta — one Telugu word), `labOrdersScheduled` (te — Tamil suffix).
+
+## Priority queue — added 2026-09-02 (Malayalam parity closure)
+
+The staff app no longer exempts Malayalam from structural parity. The exact
+review queue is the 4,030-key generated map at
+`apps/staff/lib/l10n/app_strings_ml_parity.g.dart`. Every value in that file is
+the English source copied as a technical placeholder, not approved Malayalam.
+An approved translation belongs in the explicit `ml` map in
+`app_strings.dart`; regeneration then removes that key from the placeholder
+file. Review must prioritize clinical action, dosage/MAR, consent, emergency,
+finance/payroll, controlled-drug, legal declaration, and operator copy.
+
+The patient app gained first-pass hi/ta/te/ml wording for 25 previously
+missing or English-copy keys. Human review is required for:
+
+- `authSosBackendFailed`, `authSosGuestSkipped`
+- `investigationsUploadNotAvailableForDependent`
+- `logoutProgressMessage`
+- `referralsAppointment`, `referralsAppointmentLinked`,
+  `referralsEmptySubtitle`, `referralsEmptyTitle`, `referralsFollowUp`,
+  `referralsLoadFailed`, `referralsNextSteps`, `referralsSpecialist`,
+  `referralsSummary`, `referralsTitle`
+- `diagnosticResultsTitle`, `diagnosticResultsEmptyTitle`,
+  `diagnosticResultsEmptySubtitle`, `diagnosticResultsLoadFailed`,
+  `diagnosticResultDetailsTitle`, `diagnosticResultDetailLoadFailed`,
+  `diagnosticResultRadiology`, `diagnosticResultPathology`,
+  `diagnosticResultAmended`, `diagnosticResultAddendum`,
+  `diagnosticResultAdvice`
+
+The backend payment-link presentation now resolves the patient's server-owned
+preferred locale across en/hi/ta/te/ml, but all five entries deliberately
+retain the pre-existing bilingual English/Hindi message. Locale-specific
+payment wording remains blocked on finance and linguistic approval; replacing
+those technical placeholders must not widen what the payment page promises.
 
 ## Verification After Review
 

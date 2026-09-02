@@ -1156,7 +1156,7 @@
     }
   },
   "refillRequestFailed": "రీఫిల్‌ని అభ్యర్థించడంలో విఫలమైంది",
-  "refillStatusActive": "ACTIVE",
+  "refillStatusActive": "సక్రియం",
   "refillStatusExpired": "గడువు ముగిసింది",
   "stepsTitle": "అడుగుల సవాలు",
   "stepsProfile": "ప్రొఫైల్",
@@ -1350,7 +1350,7 @@
   "@familyTapToSelect": {
     "description": "Hint inside the date of birth field"
   },
-  "familyDobPrefix": "DOB:",
+  "familyDobPrefix": "పుట్టిన తేదీ:",
   "@familyDobPrefix": {
     "description": "Prefix before formatted date of birth on member card"
   },
@@ -2158,7 +2158,7 @@
   "recordAccessSignatureClear": "క్లియర్",
   "recordAccessSignatureRequired": "కొనసాగించే ముందు మీ సంతకం జోడించండి.",
   "recordAccessContinueButton": "కొనసాగించండి",
-  "recordAccessProxyFallback": "Proxy",
+  "recordAccessProxyFallback": "ప్రతినిధి",
   "recordAccessStatusActive": "సక్రియం",
   "recordAccessStatusRevoked": "రద్దయింది",
   "commonRetry": "మళ్లీ ప్రయత్నించండి",
@@ -2675,5 +2675,30 @@
   "abhaEnrolResendOtp": "OTPని మళ్లీ పంపండి",
   "abhaEnrolResendOtpIn": "OTPని మళ్లీ పంపండి ({seconds}s)",
   "abhaEnrolVerify": "ధృవీకరించండి",
-  "abhaEnrolViewMyAbha": "నా ABHAని చూడండి"
+  "abhaEnrolViewMyAbha": "నా ABHAని చూడండి",
+  "authSosBackendFailed": "ఆసుపత్రికి SOS హెచ్చరికను పంపలేకపోయాం. అత్యవసర కాల్‌లో కొనసాగండి — ఫోన్ లైన్ మీ ప్రత్యామ్నాయ రక్షణ.",
+  "authSosGuestSkipped": "అత్యవసర కాల్ తెరవబడింది. ఆసుపత్రికి SOS హెచ్చరికను కూడా పంపడానికి సైన్ ఇన్ చేయండి.",
+  "investigationsUploadNotAvailableForDependent": "{name} ప్రొఫైల్‌ను చూస్తున్నప్పుడు నివేదికలను అప్‌లోడ్ చేయలేరు. నివేదికను అప్‌లోడ్ చేయడానికి మీ స్వంత ప్రొఫైల్‌కు తిరిగి మారండి.",
+  "logoutProgressMessage": "సైన్ అవుట్ అవుతోంది…",
+  "referralsAppointment": "అపాయింట్‌మెంట్",
+  "referralsAppointmentLinked": "ఈ రెఫరల్‌కు ఫాలో-అప్ అపాయింట్‌మెంట్ అనుసంధానించబడింది.",
+  "referralsEmptySubtitle": "మీ సంరక్షణ బృందం విడుదల చేసే సంతకం చేసిన నిపుణుల నవీకరణలు ఇక్కడ కనిపిస్తాయి.",
+  "referralsEmptyTitle": "ఇంకా రెఫరల్ నవీకరణలు లేవు",
+  "referralsFollowUp": "ఫాలో-అప్ ప్రణాళిక",
+  "referralsLoadFailed": "మీ రెఫరల్ నవీకరణలను లోడ్ చేయలేకపోయాం. దయచేసి మళ్లీ ప్రయత్నించండి.",
+  "referralsNextSteps": "తర్వాత ఏమి చేయాలి",
+  "referralsSpecialist": "నిపుణుడి రెఫరల్",
+  "referralsSummary": "నిపుణుడి సారాంశం",
+  "referralsTitle": "రెఫరల్స్",
+  "diagnosticResultsTitle": "ఇమేజింగ్ మరియు పాథాలజీ నివేదికలు",
+  "diagnosticResultsEmptyTitle": "ఇంకా విడుదల చేసిన నివేదికలు లేవు",
+  "diagnosticResultsEmptySubtitle": "మీ సంరక్షణ బృందం విడుదల చేసే వైద్యుడు సంతకం చేసిన నివేదికలు ఇక్కడ కనిపిస్తాయి.",
+  "diagnosticResultsLoadFailed": "ఇమేజింగ్ మరియు పాథాలజీ నివేదికలను లోడ్ చేయలేకపోయాం.",
+  "diagnosticResultDetailsTitle": "నిర్ధారణ నివేదిక",
+  "diagnosticResultDetailLoadFailed": "ఈ నిర్ధారణ నివేదికను లోడ్ చేయలేకపోయాం.",
+  "diagnosticResultRadiology": "ఇమేజింగ్ నివేదిక",
+  "diagnosticResultPathology": "పాథాలజీ నివేదిక",
+  "diagnosticResultAmended": "సవరించబడింది",
+  "diagnosticResultAddendum": "సంతకం చేసిన అనుబంధం",
+  "diagnosticResultAdvice": "ఈ నివేదిక మీ సంరక్షణకు ఏమి సూచిస్తుందనే విషయంపై ప్రశ్నలు ఉంటే, దయచేసి మీ వైద్యుడితో చర్చించండి."
 }

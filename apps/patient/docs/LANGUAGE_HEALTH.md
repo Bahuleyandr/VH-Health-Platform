@@ -1,6 +1,6 @@
 # Patient App - Language Health Report
 
-_Last verified: 2026-05-03. Reproducible via `melos run i18n-health`
+_Last verified: 2026-09-02. Reproducible via `melos run i18n-health`
 or `node apps/patient/scripts/i18n-verify.mjs`._
 
 The patient app uses Flutter ARB localization with generated Dart files
@@ -15,7 +15,7 @@ rollout.
 
 | | en | hi | ta | te | ml |
 |---|---:|---:|---:|---:|---:|
-| Keys present | 528 | 528 | 528 | 528 | 528 |
+| Keys present | 1,320 | 1,320 | 1,320 | 1,320 | 1,320 |
 | Coverage vs en | 100% | 100% | 100% | 100% | 100% |
 | Missing keys | 0 | 0 | 0 | 0 | 0 |
 | Length outliers | - | 0 | 1 | 0 | 0 |
@@ -41,6 +41,11 @@ JSON and include copied English `@key` metadata for newly added entries.
 `{name}`, and `{medication}` remain intact and were adjusted where needed
 to avoid ambiguous Dart interpolation in generated code.
 
+- **Parity is blocking.** `node apps/patient/scripts/i18n-verify.mjs --check`
+  fails on a missing key, ICU-placeholder drift, or an English-identical value
+  that is not in the short, reasoned identifier/brand allowlist. It runs in
+  both Flutter CI halves alongside the staff parity gate.
+
 ---
 
 ## Review queue
@@ -55,6 +60,9 @@ Before production rollout:
    `appointmentsBookOneNow`.
 3. Keep brand names unchanged unless the hospital supplies a formal
    localized style guide.
+4. Review the 2026-09-02 SOS, dependent-upload, referral, logout, and released
+   diagnostic-report additions listed in
+   `docs/TRANSLATION_REVIEW_TRACKER.md` before locale activation.
 
 ---
 
@@ -64,5 +72,6 @@ After every translator edit:
 
 ```bash
 melos run i18n-health-patient
+node apps/patient/scripts/i18n-verify.mjs --check
 cd apps/patient && flutter gen-l10n
 ```

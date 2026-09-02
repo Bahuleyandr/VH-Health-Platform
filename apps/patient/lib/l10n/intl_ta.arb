@@ -1156,7 +1156,7 @@
     }
   },
   "refillRequestFailed": "மீண்டும் நிரப்பக் கோர முடியவில்லை",
-  "refillStatusActive": "ACTIVE",
+  "refillStatusActive": "செயலில்",
   "refillStatusExpired": "காலாவதியானது",
   "stepsTitle": "நடை சவால்",
   "stepsProfile": "சுயவிவரம்",
@@ -1350,7 +1350,7 @@
   "@familyTapToSelect": {
     "description": "Hint inside the date of birth field"
   },
-  "familyDobPrefix": "DOB:",
+  "familyDobPrefix": "பிறந்த தேதி:",
   "@familyDobPrefix": {
     "description": "Prefix before formatted date of birth on member card"
   },
@@ -2158,7 +2158,7 @@
   "recordAccessSignatureClear": "அழி",
   "recordAccessSignatureRequired": "தொடர்வதற்கு முன் உங்கள் கையொப்பத்தைச் சேர்க்கவும்.",
   "recordAccessContinueButton": "தொடரவும்",
-  "recordAccessProxyFallback": "Proxy",
+  "recordAccessProxyFallback": "பிரதிநிதி",
   "recordAccessStatusActive": "செயலில்",
   "recordAccessStatusRevoked": "ரத்து செய்யப்பட்டது",
   "commonRetry": "மீண்டும் முயற்சிக்கவும்",
@@ -2675,5 +2675,30 @@
   "abhaEnrolResendOtp": "OTP மீண்டும் அனுப்பு",
   "abhaEnrolResendOtpIn": "OTP மீண்டும் அனுப்பு ({seconds}s)",
   "abhaEnrolVerify": "சரிபார்",
-  "abhaEnrolViewMyAbha": "என் ABHA-ஐப் பார்க்கவும்"
+  "abhaEnrolViewMyAbha": "என் ABHA-ஐப் பார்க்கவும்",
+  "authSosBackendFailed": "மருத்துவமனைக்கு SOS எச்சரிக்கையை அனுப்ப முடியவில்லை. அவசர அழைப்பில் தொடருங்கள் — தொலைபேசி இணைப்பே உங்கள் மாற்றுப் பாதுகாப்பு.",
+  "authSosGuestSkipped": "அவசர அழைப்பு திறக்கப்பட்டது. மருத்துவமனைக்கு SOS எச்சரிக்கையையும் அனுப்ப உள்நுழையுங்கள்.",
+  "investigationsUploadNotAvailableForDependent": "{name} அவர்களின் சுயவிவரத்தைப் பார்க்கும்போது அறிக்கைகளைப் பதிவேற்ற முடியாது. அறிக்கையைப் பதிவேற்ற உங்கள் சொந்த சுயவிவரத்திற்குத் திரும்புங்கள்.",
+  "logoutProgressMessage": "வெளியேறுகிறது…",
+  "referralsAppointment": "சந்திப்பு",
+  "referralsAppointmentLinked": "இந்தப் பரிந்துரையுடன் ஒரு தொடர் சந்திப்பு இணைக்கப்பட்டுள்ளது.",
+  "referralsEmptySubtitle": "உங்கள் பராமரிப்புக் குழு வெளியிடும் கையொப்பமிடப்பட்ட நிபுணர் புதுப்பிப்புகள் இங்கே தோன்றும்.",
+  "referralsEmptyTitle": "இன்னும் பரிந்துரை புதுப்பிப்புகள் இல்லை",
+  "referralsFollowUp": "தொடர் பராமரிப்புத் திட்டம்",
+  "referralsLoadFailed": "உங்கள் பரிந்துரை புதுப்பிப்புகளை ஏற்ற முடியவில்லை. மீண்டும் முயற்சிக்கவும்.",
+  "referralsNextSteps": "அடுத்து என்ன செய்ய வேண்டும்",
+  "referralsSpecialist": "நிபுணர் பரிந்துரை",
+  "referralsSummary": "நிபுணர் சுருக்கம்",
+  "referralsTitle": "பரிந்துரைகள்",
+  "diagnosticResultsTitle": "படமெடுப்பு மற்றும் நோயியல் அறிக்கைகள்",
+  "diagnosticResultsEmptyTitle": "இன்னும் வெளியிடப்பட்ட அறிக்கைகள் இல்லை",
+  "diagnosticResultsEmptySubtitle": "உங்கள் பராமரிப்புக் குழு வெளியிடும் மருத்துவர் கையொப்பமிட்ட அறிக்கைகள் இங்கே தோன்றும்.",
+  "diagnosticResultsLoadFailed": "படமெடுப்பு மற்றும் நோயியல் அறிக்கைகளை ஏற்ற முடியவில்லை.",
+  "diagnosticResultDetailsTitle": "நோயறிதல் அறிக்கை",
+  "diagnosticResultDetailLoadFailed": "இந்த நோயறிதல் அறிக்கையை ஏற்ற முடியவில்லை.",
+  "diagnosticResultRadiology": "படமெடுப்பு அறிக்கை",
+  "diagnosticResultPathology": "நோயியல் அறிக்கை",
+  "diagnosticResultAmended": "திருத்தப்பட்டது",
+  "diagnosticResultAddendum": "கையொப்பமிட்ட இணைப்பு",
+  "diagnosticResultAdvice": "இந்த அறிக்கை உங்கள் பராமரிப்புக்கு என்ன பொருள் தருகிறது என்பது குறித்து கேள்விகள் இருந்தால், தயவுசெய்து உங்கள் மருத்துவருடன் பேசுங்கள்."
 }
