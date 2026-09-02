@@ -1,19 +1,24 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import {
   mkdtempSync,
   mkdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
   evaluateDeadCodeRetirements,
   loadDeadCodeRetirementManifest,
 } from './check-dead-code-retirements.mjs';
+
+const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
 
 const historicalForty = [
   'apps/admin/public/sw.js',
@@ -62,6 +67,13 @@ function cloneManifest() {
   return structuredClone(loadDeadCodeRetirementManifest());
 }
 
+function git(args) {
+  return execFileSync('git', args, {
+    cwd: repoRoot,
+    encoding: 'utf8',
+  }).trim();
+}
+
 function writeFixture(root, path, contents = '// retirement fixture\n') {
   const target = join(root, ...path.split('/'));
   mkdirSync(dirname(target), { recursive: true });
@@ -91,6 +103,14 @@ test('the manifest pins the exact historical 40-file delete proof', () => {
     manifest.evidence.reconciledHead,
     'b3807dccbc9281e94182041dd440542e6e77f14d',
   );
+  assert.equal(
+    manifest.evidence.originalLedgerCommit,
+    '5a0d69677926c268ca4a1c2eb2ad600fde689bce',
+  );
+  assert.equal(
+    manifest.evidence.ledger,
+    'docs/FULL_REPOSITORY_AUDIT_2026_08.md',
+  );
   assert.equal(manifest.expectedAbsentPathCount, 40);
   assert.deepEqual(
     manifest.absentPaths.map((entry) => entry.path).sort(),
@@ -103,6 +123,34 @@ test('the manifest pins the exact historical 40-file delete proof', () => {
       (_, index) => `DEAD-${String(index + 1).padStart(3, '0')}`,
     ),
   );
+
+  const deletedPaths = git([
+    'diff',
+    '--diff-filter=D',
+    '--name-only',
+    manifest.evidence.auditedSource,
+    manifest.evidence.reconciledHead,
+  ])
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .sort();
+  assert.deepEqual(deletedPaths, [...historicalForty].sort());
+
+  const originalLedger = git([
+    'show',
+    `${manifest.evidence.originalLedgerCommit}:${manifest.evidence.ledger}`,
+  ]);
+  for (const findingId of manifest.requiredFindingIds) {
+    assert.match(originalLedger, new RegExp(`\\| ${findingId} \\|`));
+  }
+  assert.doesNotThrow(() =>
+    git([
+      'merge-base',
+      '--is-ancestor',
+      manifest.evidence.reconciledHead,
+      'HEAD',
+    ]),
+  );
 });
 
 test('the exact current tree satisfies every retirement rule', () => {
@@ -110,12 +158,36 @@ test('the exact current tree satisfies every retirement rule', () => {
 });
 
 test('restoring any retired file is detected', () => {
+  for (const candidate of cloneManifest().absentPaths) {
+    withFixture(({ root, manifest }) => {
+      const restored = manifest.absentPaths.find(
+        (entry) => entry.id === candidate.id,
+      );
+      assert.ok(restored, `the ${candidate.id} mutation anchor must exist`);
+      writeFixture(root, restored.path, 'retired surface\n');
+
+      const violations = evaluateDeadCodeRetirements(manifest, {
+        rootDir: root,
+      });
+      assert.ok(
+        violations.some((violation) =>
+          violation.includes(`${restored.id}: retired path exists`),
+        ),
+        `${restored.id}:\n${violations.join('\n')}`,
+      );
+    });
+  }
+});
+
+test('restoring a retired path as a dangling symlink is detected', () => {
   withFixture(({ root, manifest }) => {
     const restored = manifest.absentPaths.find((entry) =>
       entry.id.includes('consultations-tab'),
     );
-    assert.ok(restored, 'the mutation anchor must exist');
-    writeFixture(root, restored.path, 'e\n');
+    assert.ok(restored, 'the dangling-symlink mutation anchor must exist');
+    const target = join(root, ...restored.path.split('/'));
+    mkdirSync(dirname(target), { recursive: true });
+    symlinkSync(join(root, 'missing-retired-target'), target, 'file');
 
     const violations = evaluateDeadCodeRetirements(manifest, { rootDir: root });
     assert.ok(
@@ -171,6 +243,28 @@ test('restoring an orphan auth symbol is detected', () => {
   });
 });
 
+test('restoring any scoped fragment is detected', () => {
+  for (const candidate of cloneManifest().forbiddenFragments) {
+    withFixture(({ root, manifest }) => {
+      const restored = manifest.forbiddenFragments.find(
+        (entry) => entry.id === candidate.id,
+      );
+      assert.ok(restored, `the ${candidate.id} mutation anchor must exist`);
+      writeFixture(root, restored.path, `${restored.fragments[0]}\n`);
+
+      const violations = evaluateDeadCodeRetirements(manifest, {
+        rootDir: root,
+      });
+      assert.ok(
+        violations.some((violation) =>
+          violation.includes(`${restored.id}: retired fragment restored`),
+        ),
+        `${restored.id}:\n${violations.join('\n')}`,
+      );
+    });
+  }
+});
+
 test('shrinking the historical manifest without changing the census fails closed', () => {
   withFixture(({ root, manifest }) => {
     manifest.absentPaths.pop();
@@ -203,6 +297,16 @@ test('the mutation suite and live gate run in the unconditional security stage',
     new URL('./security.mjs', import.meta.url),
     'utf8',
   );
+  const workflow = readFileSync(
+    new URL('../../.github/workflows/ci.yml', import.meta.url),
+    'utf8',
+  );
+  const securityJobStart = workflow.indexOf('  security:\n');
+  const nextJobStart = workflow.indexOf('\n  quick_backend:\n', securityJobStart);
+  assert.notEqual(securityJobStart, -1, 'the canonical security job must exist');
+  assert.notEqual(nextJobStart, -1, 'the canonical security job must be bounded');
+  const securityJob = workflow.slice(securityJobStart, nextJobStart);
+
   assert.match(
     security,
     /run\(process\.execPath,\s*\[\s*["']--test["'],\s*["']scripts\/ci\/check-dead-code-retirements\.test\.mjs["'],?\s*\]\s*\)/s,
@@ -210,5 +314,17 @@ test('the mutation suite and live gate run in the unconditional security stage',
   assert.match(
     security,
     /run\(process\.execPath,\s*\[\s*["']scripts\/ci\/check-dead-code-retirements\.mjs["'],?\s*\]\s*\)/s,
+  );
+  assert.match(
+    securityJob,
+    /if: \$\{\{ always\(\) && needs\.plan\.result == 'success' \}\}/,
+  );
+  assert.match(
+    securityJob,
+    /run: node scripts\/ci\/run\.mjs --only=security/,
+  );
+  assert.doesNotMatch(
+    securityJob,
+    /needs\.plan\.outputs\.(?:tier|backend|admin|flutter|infra)/,
   );
 });

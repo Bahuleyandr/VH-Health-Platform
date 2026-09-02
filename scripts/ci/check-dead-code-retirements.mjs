@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
@@ -11,6 +11,10 @@ export const manifestPath = resolve(
   'scripts/ci/dead-code-retirements.json',
 );
 
+function pathEntryExists(path) {
+  return lstatSync(path, { throwIfNoEntry: false }) !== undefined;
+}
+
 function isSafeRepoPath(value) {
   return (
     typeof value === 'string' &&
@@ -20,6 +24,31 @@ function isSafeRepoPath(value) {
     !value.split('/').includes('..') &&
     value !== '.'
   );
+}
+
+function validateEvidence(evidence, rootDir, violations) {
+  if (!evidence || typeof evidence !== 'object' || Array.isArray(evidence)) {
+    violations.push('evidence must be an object');
+    return;
+  }
+
+  for (const field of [
+    'auditedSource',
+    'reconciledHead',
+    'originalLedgerCommit',
+  ]) {
+    if (typeof evidence[field] !== 'string' || !/^[0-9a-f]{40}$/.test(evidence[field])) {
+      violations.push(`evidence.${field} must be a full lowercase commit SHA`);
+    }
+  }
+
+  if (!isSafeRepoPath(evidence.ledger)) {
+    violations.push(
+      `evidence.ledger has an unsafe repository path: ${String(evidence.ledger)}`,
+    );
+  } else if (!existsSync(resolve(rootDir, evidence.ledger))) {
+    violations.push(`evidence ledger is missing: ${evidence.ledger}`);
+  }
 }
 
 function validateEntry(
@@ -85,6 +114,7 @@ export function evaluateDeadCodeRetirements(
       `unsupported dead-code retirement schema: ${String(manifest.schemaVersion)}`,
     );
   }
+  validateEvidence(manifest.evidence, rootDir, violations);
   if (
     !Number.isInteger(manifest.expectedAbsentPathCount) ||
     manifest.expectedAbsentPathCount < 1
@@ -126,7 +156,7 @@ export function evaluateDeadCodeRetirements(
       violations,
       findingIds,
     );
-    if (pathIsSafe && existsSync(resolve(rootDir, entry.path))) {
+    if (pathIsSafe && pathEntryExists(resolve(rootDir, entry.path))) {
       violations.push(`${entry.id}: retired path exists: ${entry.path}`);
     }
   }
