@@ -109,3 +109,5 @@ msix_config:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/fonts/noto/

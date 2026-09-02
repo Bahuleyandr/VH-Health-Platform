@@ -1,3 +1,6 @@
+import 'dart:typed_data';
+
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -19,13 +22,49 @@ import '../../l10n/app_strings.dart';
 class BedBoardPrintService {
   BedBoardPrintService._();
 
+  static const _fontRoot = 'assets/fonts/noto';
+
+  static const _regularFontAssets = [
+    '$_fontRoot/NotoSansDevanagari-Regular.ttf',
+    '$_fontRoot/NotoSansTamil-Regular.ttf',
+    '$_fontRoot/NotoSansTelugu-Regular.ttf',
+    '$_fontRoot/NotoSansMalayalam-Regular.ttf',
+  ];
+
+  static const _boldFontAssets = [
+    '$_fontRoot/NotoSansDevanagari-Bold.ttf',
+    '$_fontRoot/NotoSansTamil-Bold.ttf',
+    '$_fontRoot/NotoSansTelugu-Bold.ttf',
+    '$_fontRoot/NotoSansMalayalam-Bold.ttf',
+  ];
+
   static Future<void> print({
     required String wardName,
     required List<Map<String, dynamic>> beds,
     required AppStrings strings,
     required String generatedBy,
   }) async {
-    final pdf = pw.Document();
+    final bytes = await buildPdf(
+      wardName: wardName,
+      beds: beds,
+      strings: strings,
+      generatedBy: generatedBy,
+    );
+
+    await Printing.layoutPdf(onLayout: (_) async => bytes);
+  }
+
+  static Future<Uint8List> buildPdf({
+    required String wardName,
+    required List<Map<String, dynamic>> beds,
+    required AppStrings strings,
+    required String generatedBy,
+    AssetBundle? assetBundle,
+  }) async {
+    final fonts = await _loadFonts(assetBundle ?? rootBundle);
+    final pdf = pw.Document(
+      theme: pw.ThemeData.withFont(fontFallback: fonts.regular),
+    );
     final now = DateTime.now();
     final dateStr = DateFormat('EEE, d MMM yyyy · HH:mm').format(now);
 
@@ -75,18 +114,20 @@ class BedBoardPrintService {
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(28),
-        header: (ctx) => _buildHeader(strings, wardName, dateStr, summary),
+        header: (ctx) =>
+            _buildHeader(strings, wardName, dateStr, summary, fonts.bold),
         footer: (ctx) => _buildFooter(strings, ctx, generatedBy),
         build: (ctx) => [
           pw.SizedBox(height: 8),
           pw.TableHelper.fromTextArray(
             headers: headers,
             data: rows,
-            cellStyle: const pw.TextStyle(fontSize: 9),
+            cellStyle: pw.TextStyle(fontSize: 9, fontFallback: fonts.regular),
             headerStyle: pw.TextStyle(
               fontSize: 9,
               fontWeight: pw.FontWeight.bold,
               color: PdfColors.white,
+              fontFallback: fonts.bold,
             ),
             headerDecoration: const pw.BoxDecoration(color: PdfColors.blue900),
             cellAlignment: pw.Alignment.centerLeft,
@@ -116,7 +157,22 @@ class BedBoardPrintService {
       ),
     );
 
-    await Printing.layoutPdf(onLayout: (_) async => pdf.save());
+    return pdf.save();
+  }
+
+  static Future<_BedBoardFonts> _loadFonts(AssetBundle bundle) async {
+    Future<List<pw.Font>> loadAll(List<String> paths) async {
+      final fonts = <pw.Font>[];
+      for (final path in paths) {
+        fonts.add(pw.Font.ttf(await bundle.load(path)));
+      }
+      return fonts;
+    }
+
+    return _BedBoardFonts(
+      regular: await loadAll(_regularFontAssets),
+      bold: await loadAll(_boldFontAssets),
+    );
   }
 
   static pw.Widget _buildHeader(
@@ -124,6 +180,7 @@ class BedBoardPrintService {
     String wardName,
     String dateStr,
     Map<String, int> summary,
+    List<pw.Font> boldFallback,
   ) {
     return pw.Padding(
       padding: const pw.EdgeInsets.only(bottom: 12),
@@ -144,6 +201,7 @@ class BedBoardPrintService {
                     style: pw.TextStyle(
                       fontSize: 18,
                       fontWeight: pw.FontWeight.bold,
+                      fontFallback: boldFallback,
                     ),
                   ),
                   pw.SizedBox(height: 2),
@@ -162,24 +220,28 @@ class BedBoardPrintService {
                     strings.bedBoardWardStatTotal,
                     summary['total']!,
                     PdfColors.grey700,
+                    boldFallback,
                   ),
                   pw.SizedBox(width: 6),
                   _summaryPill(
                     strings.bedBoardLegendAvailable,
                     summary['available']!,
                     PdfColors.green700,
+                    boldFallback,
                   ),
                   pw.SizedBox(width: 6),
                   _summaryPill(
                     strings.bedBoardLegendOccupied,
                     summary['occupied']!,
                     PdfColors.red700,
+                    boldFallback,
                   ),
                   pw.SizedBox(width: 6),
                   _summaryPill(
                     strings.bedBoardLegendMaintenance,
                     summary['maintenance']!,
                     PdfColors.orange700,
+                    boldFallback,
                   ),
                 ],
               ),
@@ -192,7 +254,12 @@ class BedBoardPrintService {
     );
   }
 
-  static pw.Widget _summaryPill(String label, int value, PdfColor color) {
+  static pw.Widget _summaryPill(
+    String label,
+    int value,
+    PdfColor color,
+    List<pw.Font> boldFallback,
+  ) {
     // 12%-alpha background tint of the accent color. PdfColor doesn't
     // expose a nice withAlpha helper; build it from the 0xRRGGBB bits.
     final tint = PdfColor(color.red, color.green, color.blue, 0.12);
@@ -212,6 +279,7 @@ class BedBoardPrintService {
               fontSize: 8,
               color: color,
               fontWeight: pw.FontWeight.bold,
+              fontFallback: boldFallback,
             ),
           ),
           pw.SizedBox(width: 4),
@@ -221,6 +289,7 @@ class BedBoardPrintService {
               fontSize: 10,
               color: color,
               fontWeight: pw.FontWeight.bold,
+              fontFallback: boldFallback,
             ),
           ),
         ],
@@ -297,4 +366,11 @@ class BedBoardPrintService {
       return iso.length > 16 ? iso.substring(0, 16) : iso;
     }
   }
+}
+
+class _BedBoardFonts {
+  const _BedBoardFonts({required this.regular, required this.bold});
+
+  final List<pw.Font> regular;
+  final List<pw.Font> bold;
 }
