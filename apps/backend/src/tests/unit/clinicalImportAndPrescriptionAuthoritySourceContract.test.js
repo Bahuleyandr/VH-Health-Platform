@@ -181,18 +181,35 @@ describe('clinical import and signed prescription authority source contract', ()
   });
 
   test('receipt service uses explicit projections and locks source and idempotency identities', () => {
+    const correctionLockFunction = receiptService.match(
+      /async function lockClinicalImportCorrectionTx[\s\S]*?\n}\n\nexport async function lockClinicalImportDocumentReceiptTx/,
+    );
+    const receiptLockFunction = receiptService.match(
+      /export async function lockClinicalImportDocumentReceiptTx[\s\S]*?\n}\n\nexport async function persistClinicalImportDocumentReceiptTx/,
+    );
+    expect(correctionLockFunction).not.toBeNull();
+    expect(receiptLockFunction).not.toBeNull();
     expect(receiptService).not.toMatch(/\bSELECT\s+\*/i);
-    expect(receiptService).not.toMatch(/\bFOR\s+(?:NO KEY\s+)?(?:UPDATE|SHARE)\b/i);
+    expect(correctionLockFunction[0].match(/\bFOR\s+UPDATE\b/gi)).toHaveLength(2);
+    expect(receiptLockFunction[0]).not.toMatch(
+      /\bFOR\s+(?:UPDATE|NO\s+KEY\s+UPDATE|SHARE|KEY\s+SHARE)\b/i,
+    );
     expect(receiptService).toMatch(/`source:\$\{expected\.sourceIdentitySha256\}`/);
     expect(receiptService).toMatch(/`idempotency:\$\{expected\.idempotencyKeySha256\}`/);
-    expect(receiptService).toMatch(
+    expect(receiptLockFunction[0]).toMatch(
       /for \(const lockIdentity of lockIdentities\)[\s\S]*pg_advisory_xact_lock\([\s\S]*expected\.tenantId,[\s\S]*lockIdentity/,
     );
     expect(receiptService).not.toContain(
       'raw.source_author_evidence AS raw_source_author_evidence',
     );
     expect(receiptService).toMatch(
-      /raw\.source_author_evidence_sha256 AS raw_source_author_evidence_sha256[\s\S]*raw_source_author_evidence_sha256[\s\S]*source_author_evidence_sha256/,
+      /document\.source_author_evidence,[\s\S]*document\.source_author_evidence_sha256/,
+    );
+    expect(receiptService).toMatch(
+      /raw\.source_author_evidence_sha256 AS raw_source_author_evidence_sha256/,
+    );
+    expect(receiptService).toMatch(
+      /receipt\.raw_source_author_evidence_sha256[\s\S]*receipt\.source_author_evidence_sha256/,
     );
   });
 
@@ -275,25 +292,28 @@ describe('clinical import and signed prescription authority source contract', ()
   });
 
   test('reconciliation worklist cursor is bounded, validated, and advances by stable keyset', () => {
-    expect(reconciliationService).toMatch(/const LIST_LIMIT = 100/);
+    expect(reconciliationService).toMatch(/const LIST_LIMIT = 25/);
     expect(reconciliationService).toMatch(/const LIST_SCAN_BATCH_SIZE = 25/);
-    expect(reconciliationService).toMatch(/const LIST_SCAN_ROW_LIMIT = 250/);
-    expect(reconciliationService).toMatch(/const LIST_SCAN_QUERY_LIMIT = 10/);
+    expect(reconciliationService).toMatch(/const LIST_SCAN_ROW_LIMIT = 25/);
+    expect(reconciliationService).toMatch(/const LIST_SCAN_QUERY_LIMIT = 1/);
     expect(reconciliationService).toMatch(/const LIST_SCAN_TIME_BUDGET_MS = 10_000/);
+    expect(reconciliationService).toMatch(/const LIST_TRANSACTION_TIMEOUT_MS = 10_000/);
+    expect(reconciliationService).toMatch(/const LIST_TOTAL_DB_QUERY_LIMIT = 38/);
+    expect(reconciliationService).toMatch(/const LIST_CONCURRENCY_SLOTS = 4/);
     expect(reconciliationService).toMatch(
       /function decodeWorklistCursor[\s\S]*token\.length > 512[\s\S]*crypto\.timingSafeEqual[\s\S]*IMPORT_RECONCILIATION_CURSOR_INVALID/,
     );
     expect(reconciliationService).toMatch(
-      /Buffer\.from\(encodedPayload, 'base64url'\)[\s\S]*toString\('base64url'\) !== encodedPayload[\s\S]*Object\.keys\(decoded\)\.join\(','\) !== 'v,tenant_id,created_at,item_id'[\s\S]*decoded\.tenant_id !== tenantId[\s\S]*JSON\.stringify\(decoded\) !== decodedText[\s\S]*createdAt\.toISOString\(\) !== decoded\.created_at/,
+      /Buffer\.from\(encodedPayload, 'base64url'\)[\s\S]*toString\('base64url'\) !== encodedPayload[\s\S]*Object\.keys\(decoded\)\.join\(','\) !== 'v,tenant_id,created_at,item_id'[\s\S]*JSON\.stringify\(decoded\) !== decodedText[\s\S]*decoded\.tenant_id !== tenantId[\s\S]*createdAt\.toISOString\(\) !== decoded\.created_at/,
     );
     expect(reconciliationService).toMatch(
       /\(item\.created_at, item\.id\) > \(\$2::timestamptz, \$3::uuid\)[\s\S]*ORDER BY item\.created_at, item\.id[\s\S]*LIMIT \$4::int/,
     );
     expect(reconciliationService).toMatch(
-      /while \(authorized\.length < LIST_LIMIT\)[\s\S]*lastScannedRow = row[\s\S]*authorizeAccess\(\{[\s\S]*db: tx,[\s\S]*audit: true[\s\S]*needsContinuation[\s\S]*encodeWorklistCursor\(lastScannedRow, tenant\)/,
+      /while \(authorized\.length < LIST_LIMIT\)[\s\S]*resolveActivePatientSurvivorsTx\([\s\S]*authorizeAccessBatch\(\{[\s\S]*db,[\s\S]*entries: accessEntries[\s\S]*lastScannedRow = row[\s\S]*needsContinuation[\s\S]*auditReturnedItems\(\{ db, items }\)[\s\S]*encodeWorklistCursor\(lastScannedRow, tenant\)/,
     );
     expect(reconciliationService).toMatch(
-      /SET LOCAL statement_timeout = '3000ms'[\s\S]*timeout: LIST_TRANSACTION_TIMEOUT_MS/,
+      /Math\.max\(1, Math\.min\(3_000, remainingMs\)\)[\s\S]*SET LOCAL statement_timeout = '\$\{timeoutMs}ms'[\s\S]*timeout: LIST_TRANSACTION_TIMEOUT_MS/,
     );
     expect(migration760).toMatch(
       /CREATE INDEX idx_clinical_import_reconciliation_worklist_760[\s\S]*\(tenant_id, created_at, id\)/,
@@ -343,7 +363,12 @@ describe('clinical import and signed prescription authority source contract', ()
       /runtime_guard_functions CONSTANT TEXT\[\] := ARRAY\[([\s\S]*?)\n {2}\];/,
     );
     expect(runtimeGuards).not.toBeNull();
-    for (const guard of [
+    const normalizedMigration760 = migration760
+      .replace(/\s+/g, ' ')
+      .replace(/\s*,\s*/g, ',')
+      .replace(/\(\s+/g, '(')
+      .replace(/\s+\)/g, ')');
+    const runtimeGuardSignatures = [
       'clinical_import_append_only_guard_760()',
       'clinical_import_authority_event_guard_760()',
       'clinical_import_raw_artifact_guard_760()',
@@ -352,8 +377,15 @@ describe('clinical import and signed prescription authority source contract', ()
       'clinical_import_resource_correction_guard_760()',
       'clinical_import_reconciliation_event_guard_760()',
       'clinical_import_failed_receipt_reconciliation_guard_760()',
-    ]) {
-      expect(migration760).toContain(`CREATE OR REPLACE FUNCTION public.${guard}`);
+    ];
+    for (const guard of runtimeGuardSignatures) {
+      if (guard === 'clinical_import_active_patient_survivor_760(uuid,uuid)') {
+        expect(normalizedMigration760).toContain(
+          'CREATE OR REPLACE FUNCTION public.clinical_import_active_patient_survivor_760(target_tenant_id uuid,target_patient_uid uuid) RETURNS uuid',
+        );
+      } else {
+        expect(normalizedMigration760).toContain(`CREATE OR REPLACE FUNCTION public.${guard}`);
+      }
       expect(runtimeGuards[1]).toContain(`'${guard}'`);
     }
 

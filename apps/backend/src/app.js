@@ -663,6 +663,7 @@ function legacyBodyLimitError(length) {
 }
 
 const legacyJsonParser = express.json({
+  type: ['application/json', 'application/*+json'],
   limit: HTTP_BODY_LIMIT,
   verify: (req, _res, body) => captureJsonRawBody(req, body),
 });

@@ -2,6 +2,7 @@ import { envelope } from './_helpers.mjs';
 
 const AUTHENTICATED_SECURITY = [{ ApiKeyAuth: [], BearerAuth: [] }];
 const SHA256_PATTERN = '^[0-9a-fA-F]{64}$';
+const LOWERCASE_SHA256_PATTERN = '^[a-f0-9]{64}$';
 
 const jsonResponse = (description, schemaName) => ({
   description,
@@ -379,7 +380,7 @@ export const schemas = {
       reason: { type: 'string', minLength: 10, maxLength: 1000 },
       evidence_sha256: {
         type: 'string',
-        pattern: SHA256_PATTERN,
+        pattern: LOWERCASE_SHA256_PATTERN,
         description:
           'Hash of the withheld append-only evidence. Authority grants, relationship identifiers, and custody internals are not returned in the shared worklist.',
       },
@@ -510,7 +511,7 @@ export const schemas = {
       replacement_resource_receipt_id: { type: 'string', format: 'uuid', nullable: true },
       evidence_sha256: {
         type: 'string',
-        pattern: SHA256_PATTERN,
+        pattern: LOWERCASE_SHA256_PATTERN,
         description:
           'Hash of the withheld append-only action evidence; authority and patient-access internals are never returned.',
       },
