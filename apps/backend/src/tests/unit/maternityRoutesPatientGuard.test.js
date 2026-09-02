@@ -188,7 +188,11 @@ describe('mother-from-pregnancy selectors', () => {
 
   it('returns null on malformed ids without touching the database', async () => {
     const selector = selectorFor('GET /pregnancies/:id');
-    await expect(selector({ tenantId: TENANT, params: { id: 'abc' } })).resolves.toBeNull();
+    for (const id of [
+      'abc', '1suffix', ' 1', '1 ', '1.0', '+1', '-1', '0', '01', '2147483648',
+    ]) {
+      await expect(selector({ tenantId: TENANT, params: { id } })).resolves.toBeNull();
+    }
     await expect(selector({ tenantId: TENANT, params: {} })).resolves.toBeNull();
     const bodySelector = selectorFor('POST /anc-visits');
     await expect(bodySelector({ tenantId: TENANT, body: {} })).resolves.toBeNull();

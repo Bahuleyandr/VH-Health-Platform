@@ -178,6 +178,9 @@ describe('maternityService.updatePregnancy', () => {
         pregnancy_id: 41,
         updated_fields: ['lmp_date', 'high_risk', 'high_risk_reasons'],
       },
+      metadata: {
+        updated_fields: ['lmp_date', 'high_risk', 'high_risk_reasons'],
+      },
     });
     expect(event).not.toHaveProperty('patient_uid');
     expect(event.payload).not.toHaveProperty('actor_uid');
@@ -185,6 +188,34 @@ describe('maternityService.updatePregnancy', () => {
       /^maternity_pregnancies:41:updated:[a-f0-9]{32}:tx:8124$/,
     );
     expect(options).toEqual({ db: txMock, strict: true });
+  });
+
+  it.each([
+    '1suffix',
+    ' 1',
+    '1 ',
+    '1.0',
+    '+1',
+    '-1',
+    '0',
+    '01',
+    '2147483648',
+  ])('rejects non-canonical or out-of-int4 pregnancy id %p before SQL', async (id) => {
+    await expect(updatePregnancy({
+      tenantId: TENANT,
+      id,
+      notes: 'must not reach SQL',
+    }, {
+      actorUid: ACTOR,
+      actorRole: 'NURSING_STAFF',
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      message: expect.stringMatching(/positive integer/i),
+    });
+
+    expect(setTenantTxMock).not.toHaveBeenCalled();
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+    expect(recordCanonicalClinicalEventMock).not.toHaveBeenCalled();
   });
 
   it('treats an exact retry as a no-op without projection, revision, or canonical writes', async () => {
