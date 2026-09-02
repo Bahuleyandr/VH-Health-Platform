@@ -4138,6 +4138,109 @@ class AppLocalizationsHi extends AppLocalizations {
   String get abdmCreateAbhaCta => 'ABHA नहीं है? एक बनाएँ';
 
   @override
+  String get abdmMyAbhaTab => 'मेरा ABHA';
+
+  @override
+  String get abdmConsentRequestsTab => 'सहमति अनुरोध';
+
+  @override
+  String get abdmStatusCheckFailedDetail =>
+      'आपके ABHA की स्थिति जाँची नहीं जा सकी। कृपया फिर प्रयास करें।';
+
+  @override
+  String get abdmLinkSuccess => 'ABHA आपके खाते से जुड़ गया';
+
+  @override
+  String get abdmLinkFailed => 'आपका ABHA लिंक नहीं किया जा सका';
+
+  @override
+  String get abdmStatusCheckFailedTitle =>
+      'आपके ABHA की स्थिति जाँची नहीं जा सकी';
+
+  @override
+  String get abdmStatusUnknownExplanation =>
+      'हम यह पता नहीं कर सकते कि आपके खाते से पहले से कोई ABHA जुड़ा है या नहीं, इसलिए यह जानकारी लोड होने तक पंजीकरण छिपा रहेगा।';
+
+  @override
+  String get abdmCopyNumberTooltip => 'ABHA नंबर कॉपी करें';
+
+  @override
+  String abdmCopyNumberSuccess(int seconds) {
+    return 'ABHA नंबर कॉपी हो गया — क्लिपबोर्ड $seconds सेकंड में साफ़ हो जाएगा';
+  }
+
+  @override
+  String get abdmAddressLabel => 'ABHA पता';
+
+  @override
+  String get abdmLinkExistingExplanation =>
+      'अपना मौजूदा ABHA दर्ज करें। इससे वह आपके अस्पताल रिकॉर्ड से जुड़ता है — नया ABHA नहीं बनता।';
+
+  @override
+  String get abdmNumberRequiredLabel => 'ABHA नंबर *';
+
+  @override
+  String get abdmNumberHint => '12-3456-7890-1234';
+
+  @override
+  String get abdmNumberRequiredError => 'ABHA नंबर आवश्यक है';
+
+  @override
+  String get abdmNumberLengthError => 'ABHA नंबर 14 अंकों का होना चाहिए';
+
+  @override
+  String get abdmAddressOptionalLabel => 'ABHA पता (वैकल्पिक)';
+
+  @override
+  String get abdmAddressHint => 'yourname@abdm';
+
+  @override
+  String get abdmLinkAction => 'ABHA लिंक करें';
+
+  @override
+  String get abdmNoAbhaPrompt => 'अभी तक ABHA नहीं है?';
+
+  @override
+  String get abdmCreateAtPortalAction => 'abha.abdm.gov.in पर बनाएँ';
+
+  @override
+  String get abdmConsentPurposeFallback => 'स्वास्थ्य डेटा तक पहुँच';
+
+  @override
+  String get abdmConsentRequesterUnknown => 'अज्ञात अनुरोधकर्ता';
+
+  @override
+  String get abdmConsentDateUnknown => 'अज्ञात';
+
+  @override
+  String get abdmConsentStatusRequested => 'अनुरोधित';
+
+  @override
+  String get abdmConsentStatusGranted => 'स्वीकृत';
+
+  @override
+  String get abdmConsentStatusDenied => 'अस्वीकृत';
+
+  @override
+  String get abdmConsentStatusExpired => 'समाप्त';
+
+  @override
+  String get abdmConsentStatusRevoked => 'वापस लिया गया';
+
+  @override
+  String get abdmConsentStatusUnknown => 'अज्ञात';
+
+  @override
+  String abdmConsentRequestedBy(String requester) {
+    return 'अनुरोधकर्ता: $requester';
+  }
+
+  @override
+  String abdmConsentPeriod(String from, String to) {
+    return 'अवधि: $from — $to';
+  }
+
+  @override
   String get abhaEnrolTitle => 'नया ABHA बनाएँ';
 
   @override
