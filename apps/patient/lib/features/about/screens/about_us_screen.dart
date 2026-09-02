@@ -139,44 +139,58 @@ class AboutUsScreen extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  _ContactAction(
-                    icon: Icons.calendar_month,
-                    label: 'Appointments',
-                    color: Colors.teal,
-                    onTap: () =>
-                        _showPhoneOptions(context, 'Doctor Appointments', [
+                  Expanded(
+                    child: _ContactAction(
+                      icon: Icons.calendar_month,
+                      label: l10n.appointments,
+                      color: Colors.teal,
+                      onTap: () => _showPhoneOptions(
+                        context,
+                        l10n.aboutDoctorAppointmentsTitle,
+                        [
                           ('044-4511 4511', _appointmentPhone),
                           ('4511 1111', _appointmentPhone2),
-                        ]),
-                  ),
-                  _ContactAction(
-                    icon: Icons.science_outlined,
-                    label: 'Home Sample',
-                    color: Colors.blue,
-                    onTap: () => _showPhoneOptions(
-                      context,
-                      'Free Home Sample Collection',
-                      [
-                        ('93845 43289', _sampleCollectionPhone),
-                        ('95002 10210', _sampleCollectionPhone2),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                  _ContactAction(
-                    icon: Icons.emergency,
-                    label: 'Ambulance',
-                    color: Colors.red,
-                    onTap: () =>
-                        _showPhoneOptions(context, 'Emergency Ambulance', [
+                  Expanded(
+                    child: _ContactAction(
+                      icon: Icons.science_outlined,
+                      label: l10n.aboutHomeSampleAction,
+                      color: Colors.blue,
+                      onTap: () => _showPhoneOptions(
+                        context,
+                        l10n.aboutFreeHomeSampleCollectionTitle,
+                        [
+                          ('93845 43289', _sampleCollectionPhone),
+                          ('95002 10210', _sampleCollectionPhone2),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: _ContactAction(
+                      icon: Icons.emergency,
+                      label: l10n.aboutAmbulanceAction,
+                      color: Colors.red,
+                      onTap: () => _showPhoneOptions(
+                        context,
+                        l10n.aboutEmergencyAmbulanceTitle,
+                        [
                           ('044-4500 4500', _emergencyPhone),
                           ('90940 04500', _emergencyPhone2),
-                        ]),
+                        ],
+                      ),
+                    ),
                   ),
-                  _ContactAction(
-                    icon: Icons.navigation_rounded,
-                    label: 'Navigate',
-                    color: Colors.green,
-                    onTap: _navigateToHospital,
+                  Expanded(
+                    child: _ContactAction(
+                      icon: Icons.navigation_rounded,
+                      label: l10n.aboutNavigateAction,
+                      color: Colors.green,
+                      onTap: _navigateToHospital,
+                    ),
                   ),
                 ],
               ),
@@ -332,6 +346,9 @@ class _ContactAction extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             label,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w600,

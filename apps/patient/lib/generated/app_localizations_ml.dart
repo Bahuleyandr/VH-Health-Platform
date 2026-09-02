@@ -4407,6 +4407,57 @@ class AppLocalizationsMl extends AppLocalizations {
   String get ancRecordedBpWeight => 'രേഖപ്പെടുത്തിയ BPയും ഭാരവും';
 
   @override
+  String get appointmentSelectDateError => 'ദയവായി ഒരു തീയതി തിരഞ്ഞെടുക്കുക';
+
+  @override
+  String get appointmentSelectAvailableSlotError =>
+      'ദയവായി ലഭ്യമായ സമയ സ്ലോട്ട് തിരഞ്ഞെടുക്കുക';
+
+  @override
+  String get appointmentSelectDoctorError =>
+      'ദയവായി ഒരു ഡോക്ടറെ തിരഞ്ഞെടുക്കുക';
+
+  @override
+  String get appointmentSessionMissingError =>
+      'ഉപയോക്തൃ സെഷൻ കണ്ടെത്താനായില്ല. ദയവായി ലോഗ് ഔട്ട് ചെയ്ത് വീണ്ടും ലോഗിൻ ചെയ്യുക.';
+
+  @override
+  String get appointmentReasonForVisitLabel => 'സന്ദർശനത്തിന്റെ കാരണം';
+
+  @override
+  String get appointmentReasonForVisitHint =>
+      'ഉദാ. പതിവ് പരിശോധന, തലവേദന, തുടർസന്ദർശനം...';
+
+  @override
+  String get appointmentSelectDateLabel => 'തീയതി തിരഞ്ഞെടുക്കുക';
+
+  @override
+  String appointmentSelectedTime(String time) {
+    return 'തിരഞ്ഞെടുത്തത്: $time';
+  }
+
+  @override
+  String get appointmentSelectTimeLabel => 'സമയം തിരഞ്ഞെടുക്കുക';
+
+  @override
+  String get aboutDoctorAppointmentsTitle => 'ഡോക്ടർ അപ്പോയിന്റ്മെന്റുകൾ';
+
+  @override
+  String get aboutHomeSampleAction => 'വീട്ടിലെ സാമ്പിൾ';
+
+  @override
+  String get aboutFreeHomeSampleCollectionTitle => 'സൗജന്യ ഹോം സാമ്പിൾ ശേഖരണം';
+
+  @override
+  String get aboutAmbulanceAction => 'ആംബുലൻസ്';
+
+  @override
+  String get aboutEmergencyAmbulanceTitle => 'അടിയന്തര ആംബുലൻസ്';
+
+  @override
+  String get aboutNavigateAction => 'വഴി കാണിക്കുക';
+
+  @override
   String gamificationShareEarnedBadge(String title) {
     return 'VH Health-ൽ ഞാൻ \"$title\" ബാഡ്ജ് നേടി!';
   }

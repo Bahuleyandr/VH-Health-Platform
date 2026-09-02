@@ -4335,6 +4335,57 @@ class AppLocalizationsEn extends AppLocalizations {
   String get ancRecordedBpWeight => 'Recorded BP & weight';
 
   @override
+  String get appointmentSelectDateError => 'Please select a date';
+
+  @override
+  String get appointmentSelectAvailableSlotError =>
+      'Please select an available time slot';
+
+  @override
+  String get appointmentSelectDoctorError => 'Please select a doctor';
+
+  @override
+  String get appointmentSessionMissingError =>
+      'User session not found. Please log out and log back in.';
+
+  @override
+  String get appointmentReasonForVisitLabel => 'Reason for visit';
+
+  @override
+  String get appointmentReasonForVisitHint =>
+      'e.g. Regular checkup, headache, follow-up...';
+
+  @override
+  String get appointmentSelectDateLabel => 'Select Date';
+
+  @override
+  String appointmentSelectedTime(String time) {
+    return 'Selected: $time';
+  }
+
+  @override
+  String get appointmentSelectTimeLabel => 'Select Time';
+
+  @override
+  String get aboutDoctorAppointmentsTitle => 'Doctor Appointments';
+
+  @override
+  String get aboutHomeSampleAction => 'Home Sample';
+
+  @override
+  String get aboutFreeHomeSampleCollectionTitle =>
+      'Free Home Sample Collection';
+
+  @override
+  String get aboutAmbulanceAction => 'Ambulance';
+
+  @override
+  String get aboutEmergencyAmbulanceTitle => 'Emergency Ambulance';
+
+  @override
+  String get aboutNavigateAction => 'Navigate';
+
+  @override
   String gamificationShareEarnedBadge(String title) {
     return 'I earned the \"$title\" badge on VH Health!';
   }

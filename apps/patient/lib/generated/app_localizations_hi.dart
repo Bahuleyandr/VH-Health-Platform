@@ -4348,6 +4348,57 @@ class AppLocalizationsHi extends AppLocalizations {
   String get ancRecordedBpWeight => 'दर्ज BP और वज़न';
 
   @override
+  String get appointmentSelectDateError => 'कृपया एक तारीख चुनें';
+
+  @override
+  String get appointmentSelectAvailableSlotError =>
+      'कृपया उपलब्ध समय स्लॉट चुनें';
+
+  @override
+  String get appointmentSelectDoctorError => 'कृपया एक डॉक्टर चुनें';
+
+  @override
+  String get appointmentSessionMissingError =>
+      'उपयोगकर्ता सत्र नहीं मिला। कृपया लॉग आउट करके फिर से लॉग इन करें।';
+
+  @override
+  String get appointmentReasonForVisitLabel => 'विज़िट का कारण';
+
+  @override
+  String get appointmentReasonForVisitHint =>
+      'जैसे नियमित जांच, सिरदर्द, फॉलो-अप...';
+
+  @override
+  String get appointmentSelectDateLabel => 'तारीख चुनें';
+
+  @override
+  String appointmentSelectedTime(String time) {
+    return 'चयनित: $time';
+  }
+
+  @override
+  String get appointmentSelectTimeLabel => 'समय चुनें';
+
+  @override
+  String get aboutDoctorAppointmentsTitle => 'डॉक्टर की अपॉइंटमेंट्स';
+
+  @override
+  String get aboutHomeSampleAction => 'घर पर सैंपल';
+
+  @override
+  String get aboutFreeHomeSampleCollectionTitle =>
+      'निःशुल्क घर से सैंपल संग्रह';
+
+  @override
+  String get aboutAmbulanceAction => 'एम्बुलेंस';
+
+  @override
+  String get aboutEmergencyAmbulanceTitle => 'आपातकालीन एम्बुलेंस';
+
+  @override
+  String get aboutNavigateAction => 'रास्ता देखें';
+
+  @override
   String gamificationShareEarnedBadge(String title) {
     return 'मैंने VH Health पर \"$title\" बैज अर्जित किया!';
   }

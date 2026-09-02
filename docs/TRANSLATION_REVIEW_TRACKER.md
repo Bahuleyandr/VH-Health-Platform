@@ -127,7 +127,14 @@ missing or English-copy keys. Human review is required for:
   `diagnosticResultAmended`, `diagnosticResultAddendum`,
   `diagnosticResultAdvice`
 - `appointmentVisitType`, `appointmentInPersonConsultation`,
-  `appointmentTeleconsultVideoVisit`
+  `appointmentTeleconsultVideoVisit`, `appointmentSelectDateError`,
+  `appointmentSelectAvailableSlotError`, `appointmentSelectDoctorError`,
+  `appointmentSessionMissingError`, `appointmentReasonForVisitLabel`,
+  `appointmentReasonForVisitHint`, `appointmentSelectDateLabel`,
+  `appointmentSelectedTime`, `appointmentSelectTimeLabel`
+- `aboutDoctorAppointmentsTitle`, `aboutHomeSampleAction`,
+  `aboutFreeHomeSampleCollectionTitle`, `aboutAmbulanceAction`,
+  `aboutEmergencyAmbulanceTitle`, `aboutNavigateAction`
 - `familyLinkedDependentBadge`, `familySetUpLinkedDependent`
 - `ancBookedVisits`, `ancRecordedBpWeight`
 - `gamificationShareEarnedBadge`
@@ -137,6 +144,14 @@ preferred locale across en/hi/ta/te/ml, but all five entries deliberately
 retain the pre-existing bilingual English/Hindi message. Locale-specific
 payment wording remains blocked on finance and linguistic approval; replacing
 those technical placeholders must not widen what the payment page promises.
+
+The appointment and About entries above close the technically safe portion of
+audit finding OPEN-21. They are first-pass translations, not human approval.
+The dependent-setup errors, guardianship explanation, relationship declaration,
+and consent wording remain English and fail-closed on legal plus linguistic
+review. The Staff Web activation title/message also remain unchanged and held
+for operator/release ownership. Neither hold may be converted into a technical
+placeholder merely to make the parity ledger look complete.
 
 ## Verification After Review
 

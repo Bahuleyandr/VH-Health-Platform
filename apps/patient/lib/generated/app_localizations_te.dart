@@ -4387,6 +4387,56 @@ class AppLocalizationsTe extends AppLocalizations {
   String get ancRecordedBpWeight => 'నమోదు చేసిన BP మరియు బరువు';
 
   @override
+  String get appointmentSelectDateError => 'దయచేసి ఒక తేదీని ఎంచుకోండి';
+
+  @override
+  String get appointmentSelectAvailableSlotError =>
+      'దయచేసి అందుబాటులో ఉన్న సమయ స్లాట్‌ను ఎంచుకోండి';
+
+  @override
+  String get appointmentSelectDoctorError => 'దయచేసి ఒక వైద్యుడిని ఎంచుకోండి';
+
+  @override
+  String get appointmentSessionMissingError =>
+      'వినియోగదారు సెషన్ కనుగొనబడలేదు. దయచేసి లాగ్ అవుట్ చేసి మళ్లీ లాగ్ ఇన్ చేయండి.';
+
+  @override
+  String get appointmentReasonForVisitLabel => 'సందర్శనకు కారణం';
+
+  @override
+  String get appointmentReasonForVisitHint =>
+      'ఉదా. సాధారణ పరీక్ష, తలనొప్పి, ఫాలో-అప్...';
+
+  @override
+  String get appointmentSelectDateLabel => 'తేదీని ఎంచుకోండి';
+
+  @override
+  String appointmentSelectedTime(String time) {
+    return 'ఎంచుకున్నది: $time';
+  }
+
+  @override
+  String get appointmentSelectTimeLabel => 'సమయాన్ని ఎంచుకోండి';
+
+  @override
+  String get aboutDoctorAppointmentsTitle => 'వైద్యుని అపాయింట్‌మెంట్‌లు';
+
+  @override
+  String get aboutHomeSampleAction => 'ఇంటి వద్ద నమూనా';
+
+  @override
+  String get aboutFreeHomeSampleCollectionTitle => 'ఉచిత ఇంటి నమూనా సేకరణ';
+
+  @override
+  String get aboutAmbulanceAction => 'అంబులెన్స్';
+
+  @override
+  String get aboutEmergencyAmbulanceTitle => 'అత్యవసర అంబులెన్స్';
+
+  @override
+  String get aboutNavigateAction => 'దారి చూపు';
+
+  @override
   String gamificationShareEarnedBadge(String title) {
     return 'నేను VH Healthలో \"$title\" బ్యాడ్జ్ సాధించాను!';
   }

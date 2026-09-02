@@ -8066,6 +8066,96 @@ abstract class AppLocalizations {
   /// **'Recorded BP & weight'**
   String get ancRecordedBpWeight;
 
+  /// Booking validation shown when no appointment date is selected
+  ///
+  /// In en, this message translates to:
+  /// **'Please select a date'**
+  String get appointmentSelectDateError;
+
+  /// Booking validation shown when available appointment slots exist but none is selected
+  ///
+  /// In en, this message translates to:
+  /// **'Please select an available time slot'**
+  String get appointmentSelectAvailableSlotError;
+
+  /// Booking validation shown when no doctor is selected
+  ///
+  /// In en, this message translates to:
+  /// **'Please select a doctor'**
+  String get appointmentSelectDoctorError;
+
+  /// Booking error shown when the signed-in patient identifier is unavailable
+  ///
+  /// In en, this message translates to:
+  /// **'User session not found. Please log out and log back in.'**
+  String get appointmentSessionMissingError;
+
+  /// Label for the optional appointment reason field
+  ///
+  /// In en, this message translates to:
+  /// **'Reason for visit'**
+  String get appointmentReasonForVisitLabel;
+
+  /// Example text for the optional appointment reason field
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. Regular checkup, headache, follow-up...'**
+  String get appointmentReasonForVisitHint;
+
+  /// Appointment date-picker action before a date is selected
+  ///
+  /// In en, this message translates to:
+  /// **'Select Date'**
+  String get appointmentSelectDateLabel;
+
+  /// Summary below the appointment slot picker
+  ///
+  /// In en, this message translates to:
+  /// **'Selected: {time}'**
+  String appointmentSelectedTime(String time);
+
+  /// Manual appointment time-picker action
+  ///
+  /// In en, this message translates to:
+  /// **'Select Time'**
+  String get appointmentSelectTimeLabel;
+
+  /// Title above the appointment phone-number choices on About Us
+  ///
+  /// In en, this message translates to:
+  /// **'Doctor Appointments'**
+  String get aboutDoctorAppointmentsTitle;
+
+  /// About Us contact action for home sample collection
+  ///
+  /// In en, this message translates to:
+  /// **'Home Sample'**
+  String get aboutHomeSampleAction;
+
+  /// Title above the home sample collection phone-number choices on About Us
+  ///
+  /// In en, this message translates to:
+  /// **'Free Home Sample Collection'**
+  String get aboutFreeHomeSampleCollectionTitle;
+
+  /// About Us contact action for ambulance phone numbers
+  ///
+  /// In en, this message translates to:
+  /// **'Ambulance'**
+  String get aboutAmbulanceAction;
+
+  /// Title above the emergency ambulance phone-number choices on About Us
+  ///
+  /// In en, this message translates to:
+  /// **'Emergency Ambulance'**
+  String get aboutEmergencyAmbulanceTitle;
+
+  /// About Us contact action that opens the hospital location in maps
+  ///
+  /// In en, this message translates to:
+  /// **'Navigate'**
+  String get aboutNavigateAction;
+
   /// Text shared with an earned achievement image
   ///
   /// In en, this message translates to:

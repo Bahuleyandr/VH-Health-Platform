@@ -139,13 +139,14 @@ class _AppointmentBookTabState extends State<AppointmentBookTab> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate() || _submitting) return;
+    final l10n = AppLocalizations.of(context)!;
     if (_selectedDate == null) {
-      _showError('Please select a date');
+      _showError(l10n.appointmentSelectDateError);
       return;
     }
     // When slots are shown, require a slot selection
     if (_availableSlots.isNotEmpty && _selectedSlotTime == null) {
-      _showError('Please select an available time slot');
+      _showError(l10n.appointmentSelectAvailableSlotError);
       return;
     }
     if (_availableSlots.isEmpty && _selectedTime == null) {
@@ -153,7 +154,7 @@ class _AppointmentBookTabState extends State<AppointmentBookTab> {
       return;
     }
     if (_selectedDoctor == null) {
-      _showError('Please select a doctor');
+      _showError(l10n.appointmentSelectDoctorError);
       return;
     }
     // Booking-for: when a dependent profile is active, the booking targets
@@ -166,11 +167,10 @@ class _AppointmentBookTabState extends State<AppointmentBookTab> {
         activeDependent?.id ??
         (_patientId == null ? null : int.tryParse(_patientId!));
     if (effectivePatientId == null) {
-      _showError('User session not found. Please log out and log back in.');
+      _showError(l10n.appointmentSessionMissingError);
       return;
     }
 
-    final l10n = AppLocalizations.of(context)!;
     final date = _selectedDate!;
     final time = _selectedTime!;
     final dateStr =
@@ -524,7 +524,8 @@ class _AppointmentBookTabState extends State<AppointmentBookTab> {
                 });
                 if (val != null && _selectedDate != null) _fetchSlots();
               },
-              validator: (v) => v == null ? 'Please select a doctor' : null,
+              validator: (v) =>
+                  v == null ? l10n.appointmentSelectDoctorError : null,
               style: theme.textTheme.bodyLarge?.copyWith(color: cs.onSurface),
               dropdownColor: theme.cardColor,
               iconEnabledColor: cs.primary,
@@ -554,9 +555,9 @@ class _AppointmentBookTabState extends State<AppointmentBookTab> {
           // Reason
           TextFormField(
             controller: _reasonController,
-            decoration: const InputDecoration(
-              labelText: 'Reason for visit',
-              hintText: 'e.g. Regular checkup, headache, follow-up...',
+            decoration: InputDecoration(
+              labelText: l10n.appointmentReasonForVisitLabel,
+              hintText: l10n.appointmentReasonForVisitHint,
             ),
             maxLines: 2,
             style: theme.textTheme.bodyLarge,
@@ -570,7 +571,7 @@ class _AppointmentBookTabState extends State<AppointmentBookTab> {
             title: Text(
               _selectedDate != null
                   ? '${_selectedDate!.day.toString().padLeft(2, '0')}/${_selectedDate!.month.toString().padLeft(2, '0')}/${_selectedDate!.year}'
-                  : 'Select Date',
+                  : l10n.appointmentSelectDateLabel,
               style: theme.textTheme.bodyLarge,
             ),
             trailing: Icon(Icons.arrow_drop_down, color: cs.onSurface),
@@ -665,7 +666,7 @@ class _AppointmentBookTabState extends State<AppointmentBookTab> {
               Padding(
                 padding: const EdgeInsets.only(top: 4),
                 child: Text(
-                  'Selected: $_selectedSlotTime',
+                  l10n.appointmentSelectedTime(_selectedSlotTime!),
                   style: TextStyle(
                     fontSize: 12,
                     color: const Color(0xFF00796B),
@@ -681,7 +682,7 @@ class _AppointmentBookTabState extends State<AppointmentBookTab> {
               title: Text(
                 _selectedTime != null
                     ? _selectedTime!.format(context)
-                    : 'Select Time',
+                    : l10n.appointmentSelectTimeLabel,
                 style: theme.textTheme.bodyLarge,
               ),
               trailing: Icon(Icons.arrow_drop_down, color: cs.onSurface),

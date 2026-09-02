@@ -15,7 +15,7 @@ rollout.
 
 | | en | hi | ta | te | ml |
 |---|---:|---:|---:|---:|---:|
-| Keys present | 1,328 | 1,328 | 1,328 | 1,328 | 1,328 |
+| Keys present | 1,343 | 1,343 | 1,343 | 1,343 | 1,343 |
 | Coverage vs en | 100% | 100% | 100% | 100% | 100% |
 | Missing keys | 0 | 0 | 0 | 0 | 0 |
 | Length outliers | - | 0 | 1 | 0 | 0 |
@@ -46,10 +46,12 @@ to avoid ambiguous Dart interpolation in generated code.
   that is not in the short, reasoned identifier/brand allowlist. It runs in
   both Flutter CI halves alongside the staff parity gate.
 
-- **The direct `Text('...')` screen heuristic is clear.** Visit-type, linked
-  dependent, ANC timeline, achievement-share, About, and splash copy now use
-  generated localization accessors. This heuristic is a floor, not proof that
-  every dynamically assembled or non-`Text` string is localized.
+- **The direct `Text('...')` screen heuristic is clear, but remains only a
+  floor.** Visit-type, appointment validation/reason/date/time copy, About
+  contact actions, linked-dependent badges, ANC timeline, achievement-share,
+  and splash copy now use generated localization accessors. A broader
+  2026-09-02 residual scan still found dynamically assembled and non-`Text`
+  English elsewhere; 100% key parity is not global presentation parity.
 
 ---
 
@@ -66,8 +68,8 @@ Before production rollout:
 3. Keep brand names unchanged unless the hospital supplies a formal
    localized style guide.
 4. Review the 2026-09-02 SOS, dependent-upload, referral, logout, released
-   diagnostic-report, appointment, linked-dependent, ANC, and achievement-share
-   additions listed in
+   diagnostic-report, appointment, About, linked-dependent, ANC, and
+   achievement-share additions listed in
    `docs/TRANSLATION_REVIEW_TRACKER.md` before locale activation.
 
 ---

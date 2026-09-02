@@ -4420,6 +4420,59 @@ class AppLocalizationsTa extends AppLocalizations {
   String get ancRecordedBpWeight => 'பதிவுசெய்த BP மற்றும் எடை';
 
   @override
+  String get appointmentSelectDateError =>
+      'தயவுசெய்து ஒரு தேதியைத் தேர்ந்தெடுக்கவும்';
+
+  @override
+  String get appointmentSelectAvailableSlotError =>
+      'தயவுசெய்து கிடைக்கக்கூடிய நேர இடைவெளியைத் தேர்ந்தெடுக்கவும்';
+
+  @override
+  String get appointmentSelectDoctorError =>
+      'தயவுசெய்து ஒரு மருத்துவரைத் தேர்ந்தெடுக்கவும்';
+
+  @override
+  String get appointmentSessionMissingError =>
+      'பயனர் அமர்வு கிடைக்கவில்லை. வெளியேறி மீண்டும் உள்நுழையவும்.';
+
+  @override
+  String get appointmentReasonForVisitLabel => 'வருகைக்கான காரணம்';
+
+  @override
+  String get appointmentReasonForVisitHint =>
+      'எ.கா. வழக்கமான பரிசோதனை, தலைவலி, பின்தொடர்பு...';
+
+  @override
+  String get appointmentSelectDateLabel => 'தேதியைத் தேர்ந்தெடுக்கவும்';
+
+  @override
+  String appointmentSelectedTime(String time) {
+    return 'தேர்ந்தெடுக்கப்பட்டது: $time';
+  }
+
+  @override
+  String get appointmentSelectTimeLabel => 'நேரத்தைத் தேர்ந்தெடுக்கவும்';
+
+  @override
+  String get aboutDoctorAppointmentsTitle => 'மருத்துவர் நேரமுன்பதிவுகள்';
+
+  @override
+  String get aboutHomeSampleAction => 'வீட்டு மாதிரி';
+
+  @override
+  String get aboutFreeHomeSampleCollectionTitle =>
+      'இலவச வீட்டு மாதிரி சேகரிப்பு';
+
+  @override
+  String get aboutAmbulanceAction => 'அவசர ஊர்தி';
+
+  @override
+  String get aboutEmergencyAmbulanceTitle => 'அவசரகால ஊர்தி';
+
+  @override
+  String get aboutNavigateAction => 'வழிகாட்டு';
+
+  @override
   String gamificationShareEarnedBadge(String title) {
     return 'VH Health-இல் \"$title\" பதக்கத்தை நான் பெற்றேன்!';
   }
