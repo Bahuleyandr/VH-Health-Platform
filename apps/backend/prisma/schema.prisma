@@ -26565,11 +26565,11 @@ model clinical_import_resource_receipts {
   canonical_timeline_event_id             String?  @db.Uuid
   canonical_audit_event_id                String?  @db.Uuid
   evidence                                Json     @default("{}")
+  contract_version                        Int      @default(1)
+  created_at                              DateTime @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
   correction_reconciliation_item_id       String?  @db.Uuid
   correction_original_resource_receipt_id String?  @db.Uuid
   correction_retry_event_id               String?  @db.Uuid
-  contract_version                        Int      @default(1)
-  created_at                              DateTime @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
 
   @@unique([tenant_id, document_receipt_id, source_identity_sha256], map: "ux_clinical_import_resource_identity_755")
   @@unique([tenant_id, document_receipt_id, source_resource_index], map: "ux_clinical_import_resource_position_755")
@@ -26661,6 +26661,7 @@ model clinical_import_reconciliation_items {
   @@unique([tenant_id, idempotency_key_sha256], map: "ux_clinical_import_reconciliation_item_idempotency_760")
   @@unique([tenant_id, resource_receipt_id], map: "ux_clinical_import_reconciliation_item_receipt_760")
   @@unique([tenant_id, id], map: "ux_clinical_import_reconciliation_item_tenant_id_760")
+  @@unique([tenant_id, id, resource_receipt_id], map: "ux_clinical_import_reconciliation_item_resource_binding_760")
   @@index([tenant_id, owner_actor_uid, created_at, id], map: "idx_clinical_import_reconciliation_owner_760")
   @@index([tenant_id, created_at, id], map: "idx_clinical_import_reconciliation_worklist_760")
 }
