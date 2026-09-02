@@ -168,14 +168,25 @@ describe('skip floor enforcement wiring (the gate must not be hollow)', () => {
 describe('jest-skip-floor-reporter.cjs behavior', () => {
   const Reporter = require(reporterPath);
   const savedEnv = process.env.JEST_ENFORCE_SKIP_FLOOR;
+  const reporterFixtureEntry = Object.freeze({
+    file: 'src/tests/fake-suite.test.js',
+    title: 'allowed fixture skip',
+    reason: 'Reporter behavior test fixture; not part of the corpus floor.',
+  });
 
   afterEach(() => {
     if (savedEnv === undefined) delete process.env.JEST_ENFORCE_SKIP_FLOOR;
     else process.env.JEST_ENFORCE_SKIP_FLOOR = savedEnv;
   });
 
-  function runReporter(assertions, { testFile = 'src/tests/fake-suite.test.js' } = {}) {
-    const reporter = new Reporter({ rootDir: backendRoot });
+  function runReporter(
+    assertions,
+    {
+      testFile = 'src/tests/fake-suite.test.js',
+      floorEntries = [],
+    } = {},
+  ) {
+    const reporter = new Reporter({ rootDir: backendRoot }, { floorEntries });
     reporter.onRunComplete(new Set(), {
       testResults: [
         {
@@ -219,7 +230,7 @@ describe('jest-skip-floor-reporter.cjs behavior', () => {
 
   test('a floor entry allows the skip when matched by exact title in the right file', () => {
     process.env.JEST_ENFORCE_SKIP_FLOOR = '1';
-    const allowed = entries[0];
+    const allowed = reporterFixtureEntry;
     const err = runReporter(
       [
         {
@@ -229,14 +240,14 @@ describe('jest-skip-floor-reporter.cjs behavior', () => {
           status: 'pending',
         },
       ],
-      { testFile: allowed.file },
+      { testFile: allowed.file, floorEntries: [allowed] },
     );
     expect(err).toBeUndefined();
   });
 
   test('a floor entry naming a describe title allows every test under it (ancestor match)', () => {
     process.env.JEST_ENFORCE_SKIP_FLOOR = '1';
-    const allowed = entries[0];
+    const allowed = reporterFixtureEntry;
     const err = runReporter(
       [
         {
@@ -246,14 +257,14 @@ describe('jest-skip-floor-reporter.cjs behavior', () => {
           status: 'pending',
         },
       ],
-      { testFile: allowed.file },
+      { testFile: allowed.file, floorEntries: [allowed] },
     );
     expect(err).toBeUndefined();
   });
 
   test('the same title in a different file is NOT allowed (floor entries are file-scoped)', () => {
     process.env.JEST_ENFORCE_SKIP_FLOOR = '1';
-    const allowed = entries[0];
+    const allowed = reporterFixtureEntry;
     const err = runReporter(
       [
         {
@@ -263,7 +274,10 @@ describe('jest-skip-floor-reporter.cjs behavior', () => {
           status: 'pending',
         },
       ],
-      { testFile: 'src/tests/some-other-file.test.js' },
+      {
+        testFile: 'src/tests/some-other-file.test.js',
+        floorEntries: [allowed],
+      },
     );
     expect(err).toBeInstanceOf(Error);
   });
