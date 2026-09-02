@@ -218,6 +218,19 @@ async function insertSignedPrescription({ number, catalogId, quantity }) {
   return Number(rows[0].id);
 }
 
+async function providerRefundedAtFor(refundId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT date_trunc('milliseconds', approved_at) + INTERVAL '1 millisecond'
+              AS provider_refunded_at
+       FROM billing_refunds
+      WHERE tenant_id = $1::uuid AND id = $2::int`,
+    TENANT,
+    Number(refundId),
+  );
+  expect(rows).toHaveLength(1);
+  return rows[0].provider_refunded_at.toISOString();
+}
+
 async function payCounterSaleVoidRefund(initiated) {
   if (String(initiated.refund.mode).toUpperCase() === 'CASH') {
     await markRefundPaid(initiated.refund.id, {
@@ -244,7 +257,7 @@ async function payCounterSaleVoidRefund(initiated) {
       original_payment_reference: payments[0].reference,
       provider_name: 'POS Test Acquirer',
       provider_refund_reference: `POS-ELECTRONIC-VOID-${process.pid}-${voidCommandSequence}`,
-      provider_refunded_at: new Date().toISOString(),
+      provider_refunded_at: await providerRefundedAtFor(initiated.refund.id),
     });
   }
 }
@@ -692,6 +705,22 @@ beforeAll(async () => {
   );
   await prisma.$executeRawUnsafe(
     'GRANT USAGE, SELECT ON SEQUENCE public.tasks_id_seq TO vhhealth_app',
+  );
+  await prisma.$executeRawUnsafe(
+    `GRANT EXECUTE ON FUNCTION
+       public.care_pathway_assert_task_sla_source_binding(UUID, INTEGER),
+       public.care_pathway_assert_task_sla_source_binding_pre_752(UUID, INTEGER),
+       public.care_pathway_assert_task_sla_source_binding_pre_748(UUID, INTEGER),
+       public.care_pathway_assert_task_sla_source_binding_pre_746(UUID, INTEGER),
+       public.care_pathway_assert_task_sla_source_binding_pre_745(UUID, INTEGER),
+       public.care_pathway_assert_task_sla_completion_receipt(UUID, INTEGER),
+       public.care_pathway_assert_task_sla_completion_receipt_pre_752(UUID, INTEGER),
+       public.care_pathway_assert_task_sla_completion_receipt_pre_748(UUID, INTEGER),
+       public.care_pathway_assert_task_sla_completion_receipt_pre_746(UUID, INTEGER),
+       public.care_pathway_assert_task_sla_completion_receipt_pre_745(UUID, INTEGER),
+       public.care_pathway_assert_task_sla_completion_receipt_pre_mar_exception(UUID, INTEGER),
+       public.care_pathway_assert_task_sla_completion_receipt_pre_med03(UUID, INTEGER)
+     TO vhhealth_app`,
   );
   // The whole point of switching roles is that this role cannot bypass RLS. If
   // it ever could, the cross-tenant case below would pass vacuously.
@@ -1493,7 +1522,7 @@ describe('counter-sale void refund obligation closure', () => {
       original_payment_reference: originalReference,
       provider_name: 'POS Test Acquirer',
       provider_refund_reference: `POS-UNAUTHORIZED-${process.pid}`,
-      provider_refunded_at: new Date().toISOString(),
+      provider_refunded_at: await providerRefundedAtFor(initiated.refund.id),
     };
     const originalPayments = await prisma.$queryRawUnsafe(
       `SELECT id
