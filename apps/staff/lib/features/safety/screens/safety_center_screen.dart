@@ -84,6 +84,62 @@ String safetyHousekeepingSlaLabel(Map<String, dynamic> task, {DateTime? now}) {
       : 'Due in ${remaining <= 0 ? 1 : remaining}m';
 }
 
+@visibleForTesting
+class SafetyCriticalAlertRow extends StatelessWidget {
+  const SafetyCriticalAlertRow({
+    super.key,
+    required this.item,
+    required this.strings,
+    required this.meta,
+    required this.owner,
+    required this.escalation,
+    this.onAcknowledge,
+    this.onOpen,
+  });
+
+  final NotificationItem item;
+  final AppStrings strings;
+  final String meta;
+  final String owner;
+  final String escalation;
+  final VoidCallback? onAcknowledge;
+  final VoidCallback? onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SafetyRow(
+      icon: item.isInvestigationAlert
+          ? Icons.science_outlined
+          : Icons.notification_important_outlined,
+      color: item.isRead ? AppTheme.textSecondary : AppTheme.errorOnSurface,
+      title: item.titleFor(strings),
+      subtitle: [
+        if (item.body.isNotEmpty) item.body,
+        '${strings.safetyCenterOwnerPrefix}: $owner',
+        escalation,
+        item.normalizedPriority.isNotEmpty
+            ? item.normalizedPriority
+            : item.normalizedType,
+      ].where((part) => part.isNotEmpty).join(' - '),
+      meta: meta,
+      actions: [
+        if (onAcknowledge != null)
+          TextButton.icon(
+            onPressed: onAcknowledge,
+            icon: const Icon(Icons.done_all, size: 16),
+            label: Text(strings.safetyCenterAcknowledge),
+          ),
+        if (onOpen != null)
+          FilledButton.tonalIcon(
+            onPressed: onOpen,
+            icon: const Icon(Icons.open_in_new, size: 16),
+            label: Text(item.actionLabelFor(strings)),
+          ),
+      ],
+    );
+  }
+}
+
 class SafetyCenterScreen extends StatefulWidget {
   const SafetyCenterScreen({super.key});
 
@@ -425,35 +481,16 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
       onAction: () => context.push('/notifications'),
       children: items.map((item) {
         final route = item.actionRoute;
-        return _SafetyRow(
-          icon: item.isInvestigationAlert
-              ? Icons.science_outlined
-              : Icons.notification_important_outlined,
-          color: item.isRead ? AppTheme.textSecondary : AppTheme.errorOnSurface,
-          title: item.title,
-          subtitle: [
-            if (item.body.isNotEmpty) item.body,
-            '${s.safetyCenterOwnerPrefix}: ${safetyOwnerForAlert(item)}',
-            safetyEscalationLabel(item),
-            item.normalizedPriority.isNotEmpty
-                ? item.normalizedPriority
-                : item.normalizedType,
-          ].where((part) => part.isNotEmpty).join(' - '),
+        return SafetyCriticalAlertRow(
+          item: item,
+          strings: s,
           meta: _dateFmt.format(item.timestamp.toLocal()),
-          actions: [
-            if (!item.isRead && item.id != null)
-              TextButton.icon(
-                onPressed: () => _acknowledge(item),
-                icon: const Icon(Icons.done_all, size: 16),
-                label: Text(s.safetyCenterAcknowledge),
-              ),
-            if (route != null)
-              FilledButton.tonalIcon(
-                onPressed: () => _openAlert(item),
-                icon: const Icon(Icons.open_in_new, size: 16),
-                label: Text(item.actionLabelFor(s)),
-              ),
-          ],
+          owner: safetyOwnerForAlert(item),
+          escalation: safetyEscalationLabel(item),
+          onAcknowledge: !item.isRead && item.id != null
+              ? () => _acknowledge(item)
+              : null,
+          onOpen: route != null ? () => _openAlert(item) : null,
         );
       }).toList(),
     );

@@ -943,7 +943,10 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
       await _loadPathwayWork(showLoading: false);
     } catch (e) {
       if (!mounted) return;
-      ErrorToast.show(context, e.toString().replaceFirst('Exception: ', ''));
+      ErrorToast.show(
+        context,
+        localizedApiErrorFromRaw(AppStrings.of(context), e),
+      );
     } finally {
       if (mounted) setState(() => _completing = false);
     }

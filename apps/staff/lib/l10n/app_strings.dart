@@ -3350,8 +3350,6 @@ class AppStrings {
   String get bedBoardPrintColumnNotes =>
       _t('presentation.bed_board_print.column.notes');
   String get dietaryLoadFailed => _t('presentation.dietary_load_failed');
-  String get staffPhoneHomeLoadFailed =>
-      _t('presentation.staff_phone.home_load_failed');
   String get staffPhoneQueriesLoadFailed =>
       _t('presentation.staff_phone.queries_load_failed');
   String get staffPhoneQuerySubmitFailed =>
@@ -3742,7 +3740,6 @@ class AppStrings {
       'presentation.bed_board_print.column.admitted': 'Admitted',
       'presentation.bed_board_print.column.notes': 'Notes',
       'presentation.dietary_load_failed': 'Failed to load dietary orders',
-      'presentation.staff_phone.home_load_failed': 'Could not load phone home',
       'presentation.staff_phone.queries_load_failed': 'Could not load queries',
       'presentation.staff_phone.query_submit_failed': 'Could not submit query',
       'presentation.staff_phone.subject_required': 'Subject is required',
@@ -3753,9 +3750,6 @@ class AppStrings {
       'presentation.order_sets.item_load_failed': 'Failed to load items',
       'presentation.billing_request_failed': 'Billing request failed',
       'presentation.request_failed': 'Request failed. Please try again.',
-      'presentation.device_registration_failed': 'Device registration failed',
-      'presentation.device_unregistration_failed':
-          'Device unregistration failed',
       // Common actions
       'action.cancel': 'Cancel',
       'continuity.action.open_cache': 'Open continuity cache',
@@ -11432,8 +11426,6 @@ class AppStrings {
       'presentation.bed_board_print.column.admitted': 'भर्ती समय',
       'presentation.bed_board_print.column.notes': 'टिप्पणियाँ',
       'presentation.dietary_load_failed': 'आहार आदेश लोड नहीं हो सके',
-      'presentation.staff_phone.home_load_failed':
-          'फ़ोन होम लोड नहीं किया जा सका',
       'presentation.staff_phone.queries_load_failed':
           'प्रश्न लोड नहीं किए जा सके',
       'presentation.staff_phone.query_submit_failed':
@@ -11446,8 +11438,6 @@ class AppStrings {
       'presentation.order_sets.item_load_failed': 'आइटम लोड नहीं हो सके',
       'presentation.billing_request_failed': 'बिलिंग अनुरोध विफल रहा',
       'presentation.request_failed': 'अनुरोध विफल रहा। फिर से प्रयास करें।',
-      'presentation.device_registration_failed': 'डिवाइस पंजीकरण विफल रहा',
-      'presentation.device_unregistration_failed': 'डिवाइस अपंजीकरण विफल रहा',
       // Common actions
       'action.cancel': 'रद्द करें',
       'continuity.action.open_cache': 'कंटिन्यूटी कैश खोलें',
@@ -19624,8 +19614,6 @@ class AppStrings {
       'presentation.bed_board_print.column.admitted': 'அனுமதிக்கப்பட்டது',
       'presentation.bed_board_print.column.notes': 'குறிப்புகள்',
       'presentation.dietary_load_failed': 'உணவு உத்தரவுகளை ஏற்ற முடியவில்லை',
-      'presentation.staff_phone.home_load_failed':
-          'தொலைபேசி முகப்பை ஏற்ற முடியவில்லை',
       'presentation.staff_phone.queries_load_failed':
           'கேள்விகளை ஏற்ற முடியவில்லை',
       'presentation.staff_phone.query_submit_failed':
@@ -19642,9 +19630,6 @@ class AppStrings {
       'presentation.billing_request_failed': 'பில்லிங் கோரிக்கை தோல்வியடைந்தது',
       'presentation.request_failed':
           'கோரிக்கை தோல்வியடைந்தது. மீண்டும் முயற்சிக்கவும்.',
-      'presentation.device_registration_failed': 'சாதனப் பதிவு தோல்வியடைந்தது',
-      'presentation.device_unregistration_failed':
-          'சாதனப் பதிவுநீக்கம் தோல்வியடைந்தது',
       'action.cancel': 'ரத்து',
       'continuity.action.open_cache': 'தொடர்ச்சி கேஷைத் திற',
       'continuity.action.print': 'சரிபார்த்த தொகுப்பை அச்சிடு',
@@ -28476,8 +28461,6 @@ class AppStrings {
       'presentation.bed_board_print.column.admitted': 'చేర్చిన సమయం',
       'presentation.bed_board_print.column.notes': 'గమనికలు',
       'presentation.dietary_load_failed': 'ఆహార ఆదేశాలను లోడ్ చేయలేకపోయాము',
-      'presentation.staff_phone.home_load_failed':
-          'ఫోన్ హోమ్‌ను లోడ్ చేయలేకపోయాము',
       'presentation.staff_phone.queries_load_failed':
           'ప్రశ్నలను లోడ్ చేయలేకపోయాము',
       'presentation.staff_phone.query_submit_failed':
@@ -28491,9 +28474,6 @@ class AppStrings {
       'presentation.billing_request_failed': 'బిల్లింగ్ అభ్యర్థన విఫలమైంది',
       'presentation.request_failed':
           'అభ్యర్థన విఫలమైంది. దయచేసి మళ్లీ ప్రయత్నించండి.',
-      'presentation.device_registration_failed': 'పరికరం నమోదు విఫలమైంది',
-      'presentation.device_unregistration_failed':
-          'పరికరం నమోదుతొలగింపు విఫలమైంది',
       'action.cancel': 'రద్దు',
       'continuity.action.open_cache': 'కంటిన్యూటీ క్యాష్ తెరవండి',
       'continuity.action.print': 'ధృవీకరించిన ప్యాక్ ముద్రించండి',
@@ -37258,7 +37238,6 @@ class AppStrings {
       'presentation.bed_board_print.column.admitted': 'അഡ്മിറ്റ് ചെയ്തത്',
       'presentation.bed_board_print.column.notes': 'കുറിപ്പുകൾ',
       'presentation.dietary_load_failed': 'ഭക്ഷണ ഓർഡറുകൾ ലോഡ് ചെയ്യാനായില്ല',
-      'presentation.staff_phone.home_load_failed': 'ഫോൺ ഹോം ലോഡ് ചെയ്യാനായില്ല',
       'presentation.staff_phone.queries_load_failed':
           'ചോദ്യങ്ങൾ ലോഡ് ചെയ്യാനായില്ല',
       'presentation.staff_phone.query_submit_failed':
@@ -37273,10 +37252,6 @@ class AppStrings {
           'ബില്ലിംഗ് അഭ്യർത്ഥന പരാജയപ്പെട്ടു',
       'presentation.request_failed':
           'അഭ്യർത്ഥന പരാജയപ്പെട്ടു. ദയവായി വീണ്ടും ശ്രമിക്കുക.',
-      'presentation.device_registration_failed':
-          'ഉപകരണ രജിസ്ട്രേഷൻ പരാജയപ്പെട്ടു',
-      'presentation.device_unregistration_failed':
-          'ഉപകരണ രജിസ്ട്രേഷൻ നീക്കം പരാജയപ്പെട്ടു',
       ...malayalamTechnicalParityPlaceholders,
       // REVIEW: MED-03 Malayalam technical parity only; a Malayalam-fluent
       // clinician-linguist must approve this wording before activation.

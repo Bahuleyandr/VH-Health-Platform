@@ -1,6 +1,9 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_staff/core/providers/notification_provider.dart';
 import 'package:vhhealth_staff/features/safety/screens/safety_center_screen.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 void main() {
   group('Safety Center ownership helpers', () {
@@ -63,4 +66,46 @@ void main() {
       );
     });
   });
+
+  testWidgets(
+    'titleless unmapped critical alert renders localized Malayalam fallback',
+    (tester) async {
+      final strings = AppStrings.forLocale(const Locale('ml'));
+      final item = NotificationItem(
+        id: 'critical-1',
+        title: '',
+        body: '',
+        timestamp: DateTime(2026, 9, 2, 10),
+        type: 'UNMAPPED_CRITICAL_ALERT',
+        priority: 'CRITICAL',
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('ml'),
+          supportedLocales: AppStrings.supportedLocales,
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          home: Scaffold(
+            body: SafetyCriticalAlertRow(
+              item: item,
+              strings: strings,
+              meta: '10:00',
+              owner: 'Receiving team',
+              escalation: 'Escalated',
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text(strings.notificationFallbackTitle), findsOneWidget);
+      expect(find.text('Notification'), findsNothing);
+      expect(find.text('UNMAPPED_CRITICAL_ALERT'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

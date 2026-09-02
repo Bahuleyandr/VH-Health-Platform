@@ -25,7 +25,7 @@ This report is the structural verification of the staff app i18n setup.
 It answers "does every key resolve?" — **not** "is every translation
 clinically approved?" Hindi, Tamil, and Telugu are structurally complete,
 but a large part of each map is an AI first pass. Malayalam has full technical
-key parity: 2,419 explicit entries plus 4,030 generated English-source
+key parity: 2,440 explicit entries plus 4,030 generated English-source
 placeholders. A placeholder is not a Malayalam translation. Nothing in any
 non-English locale has complete fluent clinical review, and all of it still
 requires the relevant human approval before production rollout.
@@ -34,21 +34,21 @@ requires the relevant human approval before production rollout.
 
 | | en | hi | ta | te | ml |
 |---|---:|---:|---:|---:|---:|
-| Keys present | 6,452 | 6,449 | 6,449 | 6,449 | 6,449 |
+| Keys present | 6,473 | 6,470 | 6,470 | 6,470 | 6,470 |
 | Coverage vs en | 100% | 100% | 100% | 100% | 100% technical parity |
 | `// REVIEW:` flags | - | 500 | 953 | 954 | 17 + 4,030 generated placeholders |
 | Length outliers | - | 0 | 8 | 1 | 2 |
 | Identical English heuristic | - | 125 | 132 | 131 | 3,879 |
 
-`en` declares 6,452 keys. Three signed-attestation keys are deliberately left
+`en` declares 6,473 keys. Three signed-attestation keys are deliberately left
 to the English fallback in every non-English locale (see "Declared English
 fallback" below), so the translatable set is 6,449.
 
 | | |
 |---|---:|
-| Getters declared on `AppStrings` | 2,539 |
-| Getters called from `lib/` | 2,050 |
-| Declared but never called | 489 |
+| Getters declared on `AppStrings` | 2,558 |
+| Getters called from `lib/` | 2,056 |
+| Declared but never called | 502 |
 | Orphan calls (would crash at runtime) | 0 |
 | Files with hardcoded English (UI text heuristic) | 1 (`lib/main.dart`, 2 occurrences) |
 
@@ -156,7 +156,7 @@ heuristics, and heuristics do not belong on a path that must not fail.
 ## What's verified
 
 - **English, Hindi, Tamil, Telugu, and Malayalam are at 100% structural key
-  parity** (6,449 translatable keys each). Malayalam reaches that technical
+  parity** (6,470 translatable keys each). Malayalam reaches that technical
   state with 4,030 generated English-source review placeholders. The only
   implicit runtime fallbacks are the three signed attestations declared above.
 
@@ -203,7 +203,7 @@ populations:
 
 ## Remaining non-blocking cleanup
 
-- **489 getters declared but never called.** See the caveat below — this
+- **502 getters declared but never called.** See the caveat below — this
   headline overstates the safe-to-delete set.
 - **Hardcoded English** is down to one file (`lib/main.dart`, 2 occurrences
   in the web-activation hold copy) by the `Text('...')` + error-assignment

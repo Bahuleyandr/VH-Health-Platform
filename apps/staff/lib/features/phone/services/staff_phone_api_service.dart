@@ -3,16 +3,6 @@ import '../../../core/services/api_client.dart';
 class StaffPhoneApiService {
   StaffPhoneApiService._();
 
-  static Future<Map<String, dynamic>> getHome({
-    required String failureMessage,
-  }) async {
-    final response = await ApiClient.get('/staff/phone/home');
-    if (!response.isSuccess) {
-      throw Exception(response.failureMessage(failureMessage));
-    }
-    return response.dataAsMap();
-  }
-
   static Future<List<Map<String, dynamic>>> getMyQueries({
     int limit = 30,
     required String failureMessage,

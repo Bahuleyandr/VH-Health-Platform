@@ -15,7 +15,7 @@ rollout.
 
 | | en | hi | ta | te | ml |
 |---|---:|---:|---:|---:|---:|
-| Keys present | 1,343 | 1,343 | 1,343 | 1,343 | 1,343 |
+| Keys present | 1,447 | 1,447 | 1,447 | 1,447 | 1,447 |
 | Coverage vs en | 100% | 100% | 100% | 100% | 100% |
 | Missing keys | 0 | 0 | 0 | 0 | 0 |
 | Length outliers | - | 0 | 1 | 0 | 0 |
@@ -30,6 +30,12 @@ and `Venkataeswara Hospitals`.
 
 - **All supported patient locales have 100% structural coverage.**
 English, Hindi, Tamil, Telugu, and Malayalam all define every source key.
+
+- **Current measured key set: 1,447 per locale.** The 2026-09-02
+  Malayalam technical-parity batches added ordinary appointment, About,
+  dashboard, generic error, gamification-chrome, and non-safety step copy.
+  This count is structural evidence only and does not change human review or
+  activation status.
 
 - **ARB JSON parses cleanly.** The translated locale files remain valid
 JSON and include copied English `@key` metadata for newly added entries.
@@ -51,7 +57,9 @@ to avoid ambiguous Dart interpolation in generated code.
   contact actions, linked-dependent badges, ANC timeline, achievement-share,
   and splash copy now use generated localization accessors. A broader
   2026-09-02 residual scan still found dynamically assembled and non-`Text`
-  English elsewhere; 100% key parity is not global presentation parity.
+  English elsewhere. The current high-confidence scan has no remaining safe
+  technical candidates, but 246 clinical/legal/activation holds remain;
+  100% key parity is not global presentation parity or linguistic approval.
 
 ---
 

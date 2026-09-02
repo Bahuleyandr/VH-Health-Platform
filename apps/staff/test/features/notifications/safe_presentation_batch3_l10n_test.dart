@@ -23,7 +23,6 @@ const _ownedKeys = [
   'presentation.bed_board_print.column.admitted',
   'presentation.bed_board_print.column.notes',
   'presentation.dietary_load_failed',
-  'presentation.staff_phone.home_load_failed',
   'presentation.staff_phone.queries_load_failed',
   'presentation.staff_phone.query_submit_failed',
   'presentation.staff_phone.subject_required',
@@ -34,8 +33,6 @@ const _ownedKeys = [
   'presentation.order_sets.item_load_failed',
   'presentation.billing_request_failed',
   'presentation.request_failed',
-  'presentation.device_registration_failed',
-  'presentation.device_unregistration_failed',
 ];
 
 const _ownedSources = [
@@ -105,6 +102,31 @@ void main() {
     expect(item.title, isEmpty);
     expect(item.titleFor(ml), ml.notificationFallbackTitle);
     expect(item.titleFor(ml), isNot('Notification'));
+  });
+
+  test('dead phone-home and log-only device fallbacks are not UI keys', () {
+    final phoneService = File(
+      'lib/features/phone/services/staff_phone_api_service.dart',
+    ).readAsStringSync();
+    final notificationProvider = File(
+      'lib/core/providers/notification_provider.dart',
+    ).readAsStringSync();
+    final stringsSource = File('lib/l10n/app_strings.dart').readAsStringSync();
+
+    expect(phoneService, isNot(contains('getHome(')));
+    expect(phoneService, isNot(contains('/staff/phone/home')));
+    expect(stringsSource, isNot(contains('staff_phone.home_load_failed')));
+    expect(stringsSource, isNot(contains('device_registration_failed')));
+    expect(stringsSource, isNot(contains('device_unregistration_failed')));
+    expect(notificationProvider, contains('HrApiService.registerDevice'));
+    expect(
+      notificationProvider,
+      contains("debugPrint('❌ Device registration error: \$e')"),
+    );
+    expect(
+      notificationProvider,
+      contains("debugPrint('❌ Device unregistration error: \$e')"),
+    );
   });
 
   testWidgets('generic Staff presentation labels render in Malayalam', (
