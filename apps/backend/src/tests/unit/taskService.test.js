@@ -2100,7 +2100,9 @@ describe('transitionTask', () => {
     expect(row.status).toBe('completed');
     const transitionCall = queryUnsafeMock.mock.calls[1];
     const sql = transitionCall[0];
-    expect(sql).toMatch(/WITH transition_clock AS \(\s*SELECT clock_timestamp\(\) AS transition_at/);
+    expect(sql).toMatch(
+      /WITH transition_clock AS \(\s*SELECT date_trunc\('milliseconds', clock_timestamp\(\)\) AS transition_at/,
+    );
     expect(sql).toMatch(/completed_at = transition_clock\.transition_at/);
     expect(sql).toMatch(/updated_at = transition_clock\.transition_at/);
     expect(sql).toMatch(/AND status = \$\d/);
@@ -2269,6 +2271,10 @@ describe('transitionTask', () => {
 
     const row = await transitionTask({ tenantId: TENANT, id: 1, nextStatus: 'completed' });
     expect(row.status).toBe('completed');
+    const transitionCall = queryUnsafeMock.mock.calls[2];
+    expect(transitionCall[0]).toMatch(
+      /SELECT date_trunc\('milliseconds', clock_timestamp\(\)\) AS transition_at/,
+    );
     const slaCall = queryUnsafeMock.mock.calls[3];
     expect(slaCall[0]).toMatch(/completed_at = \$7::text::timestamptz/);
     expect(slaCall[7]).toBe(completedAt.toISOString());
@@ -2416,6 +2422,9 @@ describe('supersedeAcknowledgementTaskFromTrustedWorkflow', () => {
     expect(taskUpdates[1][1]).toBe('completed');
     expect(taskUpdates[1][0]).toMatch(/completed_at = transition_clock\.transition_at/);
     expect(taskUpdates[1][0]).toMatch(/updated_at = transition_clock\.transition_at/);
+    expect(taskUpdates[1][0]).toMatch(
+      /SELECT date_trunc\('milliseconds', clock_timestamp\(\)\) AS transition_at/,
+    );
     // The SLA binds the exact terminal instant returned by the task UPDATE.
     expect(txQuery.mock.calls[6][7]).toBe(completedAt.toISOString());
     expect(txQuery.mock.calls[6][5]).toBe(USER);

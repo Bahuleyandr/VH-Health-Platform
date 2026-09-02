@@ -2276,7 +2276,7 @@ export async function transitionTask({
 
   const rows = await db.$queryRawUnsafe(
     `WITH transition_clock AS (
-       SELECT clock_timestamp() AS transition_at
+       SELECT date_trunc('milliseconds', clock_timestamp()) AS transition_at
      )
      UPDATE tasks SET ${updates.join(', ')}
        FROM transition_clock
