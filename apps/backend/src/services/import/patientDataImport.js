@@ -552,13 +552,41 @@ async function resolveExternalPatientIdentityClaimsTx(db, {
   hasNativeVhUid,
 }) {
   const normalizedClaims = uniquePatientIdentityClaims(claims);
-  if (!hasNativeVhUid && normalizedClaims.length === 0) {
+  const externalClaims = [];
+  let hasResolvedNativeVhUid = hasNativeVhUid;
+  for (const claim of normalizedClaims) {
+    const nativeUid = claim.kind === 'fhir_patient_id'
+      && UUID_RE.test(String(claim.value || '').toLowerCase())
+      ? String(claim.value).toLowerCase()
+      : null;
+    if (!nativeUid) {
+      externalClaims.push(claim);
+      continue;
+    }
+    let resolvedNativePatient;
+    try {
+      resolvedNativePatient = await resolveFhirVitalPatientInTenant(nativeUid, tenantId, db);
+    } catch (error) {
+      if (error?.code !== 'IMPORT_PATIENT_TENANT_MISMATCH') throw error;
+      externalClaims.push(claim);
+      continue;
+    }
+    if (String(resolvedNativePatient.uid).toLowerCase() !== patientUid) {
+      throw AppError.conflict(
+        'An imported patient identity belongs to a different patient',
+        'IMPORT_PATIENT_IDENTITY_MISMATCH',
+        { identity_kind: claim.kind },
+      );
+    }
+    hasResolvedNativeVhUid = true;
+  }
+  if (!hasResolvedNativeVhUid && externalClaims.length === 0) {
     throw AppError.conflict(
       'The imported document does not contain an identity bound to the authorised patient',
       'IMPORT_PATIENT_IDENTIFIER_MAPPING_REQUIRED',
     );
   }
-  const values = [...new Set(normalizedClaims.map(({ value }) => value))].sort();
+  const values = [...new Set(externalClaims.map(({ value }) => value))].sort();
   const rows = values.length === 0 ? [] : await db.$queryRawUnsafe(
     `SELECT id, patient_uid, identifier_value, issuer, status, merged_into_uid
        FROM patient_identifiers
@@ -579,7 +607,7 @@ async function resolveExternalPatientIdentityClaimsTx(db, {
     rowsByValue.get(value).push(row);
   }
   const patientIdentifierIds = [];
-  for (const claim of normalizedClaims) {
+  for (const claim of externalClaims) {
     const matches = (rowsByValue.get(claim.value) || []).filter((row) => (
       !claim.issuerRequired || String(row.issuer || '') === claim.issuer
     ));
@@ -611,7 +639,7 @@ async function resolveExternalPatientIdentityClaimsTx(db, {
     }
     patientIdentifierIds.push(...matches.map(({ id }) => Number(id)));
   }
-  if (normalizedClaims.length > 0 && patientIdentifierIds.length === 0) {
+  if (externalClaims.length > 0 && patientIdentifierIds.length === 0) {
     throw AppError.conflict(
       'The imported patient identity is missing its external identifier binding',
       'IMPORT_PATIENT_IDENTIFIER_MAPPING_REQUIRED',
@@ -983,7 +1011,7 @@ async function reconcileFhirReceiptReplayEffects(result, tenantId) {
       }
       if (committed?.news2_effects_completed_at != null
         && committed?.anomaly_effects_completed_at != null) {
-        partition.clinicalEffectsReconciled = true;
+        partition.clinicalEffectsReconciled = (reconciliation?.claimedEffects?.length || 0) > 0;
         delete partition.error;
         delete partition.errorCode;
         delete partition.errorStatusCode;
@@ -3114,6 +3142,8 @@ async function importObservationSet(fhirObservations, importedBy, {
       if (skippedResources.length > 0) outcomes.push(observationOutcome('skipped', skippedResources));
       return outcomes;
     }
+
+    if (db) throw error;
 
     if (linkedVitalsChartId != null && initialEffectClaims) {
       await releaseFhirObservationEffectClaims({

@@ -79,6 +79,16 @@ async function query(sql, ...params) {
   });
 }
 
+function sqlState(error) {
+  return String(
+    error?.meta?.code
+      || error?.meta?.driverAdapterError?.cause?.originalCode
+      || error?.cause?.code
+      || error?.code
+      || '',
+  );
+}
+
 function fhirBundle({ medicationName = 'Metformin 500 mg tablet' } = {}) {
   return {
     resourceType: 'Bundle',
@@ -905,9 +915,9 @@ d('migration 755 clinical import receipt journey (real PostgreSQL)', () => {
       source_id: vitalsId,
       payload: expect.objectContaining({
         source_kind: 'fhir',
-        verification_status: 'unverified',
+        verification_status: 'asserted_unverified',
       }),
-      tags: expect.arrayContaining(['vitals', 'fhir-imported', 'unverified']),
+      tags: expect.arrayContaining(['vitals', 'fhir-imported', 'asserted-unverified']),
     })]);
     const audit = await query(
       `SELECT id, action, resource_table, resource_id
@@ -1168,8 +1178,10 @@ d('migration 755 clinical import receipt journey (real PostgreSQL)', () => {
         correction_retry_event_id: retry.event.id,
       },
     };
-    await expect(query(
-      `INSERT INTO clinical_import_reconciliation_events
+    let bypassError;
+    try {
+      await query(
+        `INSERT INTO clinical_import_reconciliation_events
          (tenant_id, reconciliation_item_id, resource_receipt_id,
           document_receipt_id, patient_uid, facility_id, event_type,
           actor_uid, actor_role, reason, predecessor_event_id,
@@ -1189,7 +1201,12 @@ d('migration 755 clinical import receipt journey (real PostgreSQL)', () => {
       unboundReceipt.id,
       clinicalImportSha256(`${IDEMPOTENCY_KEY}-unbound-resolution-bypass`),
       JSON.stringify(bypassEvidence),
-    )).rejects.toMatchObject({ code: '23514' });
+      );
+    } catch (error) {
+      bypassError = error;
+    }
+    expect(bypassError).toBeDefined();
+    expect(sqlState(bypassError)).toBe('23514');
 
     const replacementBundle = fhirBundle();
     const replacementAuthority = authorityFor(replacementBundle, {

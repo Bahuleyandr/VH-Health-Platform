@@ -92,7 +92,11 @@ const ACCESS_POLICY = Object.freeze({
 const clinicalImportAuthorityGrants = new Map();
 
 async function clinicalImportQuery(tenantId, sql, ...params) {
-  return setTenantTx(tenantId, async (tx) => {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(
+      `SELECT set_config('app.current_tenant_id', $1::text, true)`,
+      tenantId,
+    );
     const rows = await tx.$queryRawUnsafe(sql, ...params);
     return Array.isArray(rows) ? rows : [];
   });
@@ -657,6 +661,26 @@ async function approvedMergeRequest(primary, secondary) {
 
 async function cleanup() {
   if (!DB) return;
+  const discoveredFhirRows = await prisma.$queryRawUnsafe(
+    `SELECT DISTINCT link.set_fingerprint, observation_set.vitals_chart_id
+       FROM fhir_vital_observation_receipts AS receipt
+       LEFT JOIN fhir_vital_observation_set_resources AS link
+         ON link.tenant_id = receipt.tenant_id
+        AND link.resource_fingerprint = receipt.resource_fingerprint
+       LEFT JOIN fhir_vital_observation_sets AS observation_set
+         ON observation_set.tenant_id = link.tenant_id
+        AND observation_set.set_fingerprint = link.set_fingerprint
+      WHERE receipt.tenant_id = $1::uuid
+        AND receipt.resource_id LIKE $2`,
+    TENANT,
+    `${MARK}%`,
+  );
+  seeded.fhirSetFingerprints.push(...discoveredFhirRows
+    .map(({ set_fingerprint: fingerprint }) => fingerprint)
+    .filter((fingerprint) => fingerprint && !seeded.fhirSetFingerprints.includes(fingerprint)));
+  seeded.fhirVitalsIds.push(...discoveredFhirRows
+    .map(({ vitals_chart_id: id }) => Number(id))
+    .filter((id) => Number.isInteger(id) && !seeded.fhirVitalsIds.includes(id)));
   await prisma.$transaction(async (tx) => {
     await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
     await tx.$queryRawUnsafe(

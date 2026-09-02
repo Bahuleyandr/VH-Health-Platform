@@ -237,6 +237,21 @@ function isMergePathEscapeCondition(condition) {
     && MERGE_PATH_ESCAPE_SIGNALS.every((signal) => signal.test(condition));
 }
 
+function isMergeCompatibleClinicalImportReceiptGuard(text, functionName) {
+  if (functionName !== 'clinical_import_history_receipt_guard_755') return false;
+  if (/\bOLD\b/i.test(text)) return false;
+  if (/\b(?:INSERT\s+INTO|UPDATE\s+|DELETE\s+FROM)\b/i.test(text)) return false;
+  return [
+    /FROM\s+(?:public\s*\.\s*)?e_prescriptions\s+AS\s+prescription/i,
+    /prescription\s*\.\s*id\s*=\s*NEW\s*\.\s*id/i,
+    /prescription\s*\.\s*tenant_id\s*=\s*NEW\s*\.\s*tenant_id/i,
+    /resource\s*\.\s*target_table\s*=\s*'e_prescriptions'/i,
+    /source_patient\s*\.\s*uid\s*=\s*current_history\s*\.\s*patient_uid/i,
+    /source_patient\s*\.\s*merged_into_uid\s*=\s*current_history\s*\.\s*patient_uid/i,
+    /RETURN\s+NEW\s*;/i,
+  ].every((anchor) => anchor.test(text));
+}
+
 /**
  * Collect the IF/ELSIF condition stack guarding each RAISE EXCEPTION.
  *
@@ -275,11 +290,12 @@ function collectRaiseConditionStacks(text) {
   return stacks;
 }
 
-function isUpdateBlockingTriggerSource(source) {
+function isUpdateBlockingTriggerSource(source, functionName = null) {
   const text = String(source || '')
     .replace(/--[^\n]*/g, ' ')
     .replace(/\/\*[\s\S]*?\*\//g, ' ');
   if (!/RAISE\s+EXCEPTION/i.test(text)) return false;
+  if (isMergeCompatibleClinicalImportReceiptGuard(text, functionName)) return false;
   const raiseStacks = collectRaiseConditionStacks(text);
   // Rule (c): certified merge-path gate. A trigger that raises ONLY when the
   // sanctioned merge GUCs are absent or the merge lock is not held cannot fire
@@ -359,7 +375,10 @@ async function discoverMergeSweepTargets(tx) {
     .map((row) => {
       const triggers = Array.isArray(row.update_triggers) ? row.update_triggers : [];
       const blockingTriggers = triggers
-        .filter((trigger) => isUpdateBlockingTriggerSource(trigger?.prosrc))
+        .filter((trigger) => isUpdateBlockingTriggerSource(
+          trigger?.prosrc,
+          String(trigger?.proname || ''),
+        ))
         .map((trigger) => String(trigger.proname));
       return {
         table_name: row.table_name,
