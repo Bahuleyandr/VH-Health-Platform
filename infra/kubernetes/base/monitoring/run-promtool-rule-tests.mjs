@@ -5,7 +5,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
@@ -22,7 +22,7 @@ const ruleFiles = [
 const tempDir = mkdtempSync(join(tmpdir(), 'vhhealth-promtool-test-'));
 
 try {
-  const groups = ruleFiles.flatMap((file) => extractGroups(join(here, file)));
+  const groups = ruleFiles.flatMap((file) => extractGroups(rulePath(file)));
   const combinedRuleFile = join(tempDir, 'rules.yaml');
   writeFileSync(combinedRuleFile, `groups:\n${groups.join('\n')}\n`, 'utf8');
 
@@ -48,6 +48,13 @@ try {
   process.exitCode = 1;
 } finally {
   rmSync(tempDir, { recursive: true, force: true });
+}
+
+function rulePath(file) {
+  if (file === 'backend-red-alerts.yaml' && process.env.BACKEND_RED_ALERTS_FILE) {
+    return resolve(process.env.BACKEND_RED_ALERTS_FILE);
+  }
+  return join(here, file);
 }
 
 function extractGroups(filePath) {

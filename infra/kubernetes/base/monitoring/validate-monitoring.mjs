@@ -51,6 +51,7 @@ for (const script of [
   'verify-rule-metadata.mjs',
   'check-cnpg-metric-parity.mjs',
   'run-promtool-rule-tests.mjs',
+  'verify-monitoring-negative-contracts.mjs',
 ]) {
   try {
     const out = execFileSync(process.execPath, [join(here, script)], {

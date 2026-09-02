@@ -131,6 +131,7 @@ test('the unconditional security job validates the pinned Alertmanager route con
   const workflow = read('.github/workflows/ci.yml');
   const security = jobBlock(workflow, 'security');
   const validator = read('infra/kubernetes/base/monitoring/validate-alertmanager.mjs');
+  const chartTracker = read('infra/kubernetes/base/monitoring/chart-tracker.yaml');
 
   assert.match(security, /ALERTMANAGER_VERSION: '0\.27\.0'/);
   assert.match(
@@ -141,11 +142,34 @@ test('the unconditional security job validates the pinned Alertmanager route con
     security,
     /node infra\/kubernetes\/base\/monitoring\/validate-alertmanager\.mjs/,
   );
+  assert.match(
+    security,
+    /node --test infra\/kubernetes\/base\/monitoring\/validate-alertmanager\.test\.mjs/,
+  );
   assert.match(validator, /alertname=BackendMigrationJobFailed/);
   assert.match(
     validator,
     /receivers: \['ops-webhook', 'critical-pagerduty', 'team-backend'\]/,
   );
+  assert.match(chartTracker, /alertmanagerVersion: "v0\.27\.0"/);
+});
+
+test('infra monitoring validation pins promtool and proves the rule matcher negative', () => {
+  const workflow = read('.github/workflows/_reusable-kubernetes-manifests.yml');
+  const validator = read('infra/kubernetes/base/monitoring/validate-monitoring.mjs');
+  const ruleRunner = read(
+    'infra/kubernetes/base/monitoring/run-promtool-rule-tests.mjs',
+  );
+  const chartTracker = read('infra/kubernetes/base/monitoring/chart-tracker.yaml');
+
+  assert.match(workflow, /PROMETHEUS_VERSION: 2\.55\.0/);
+  assert.match(
+    workflow,
+    /PROMETHEUS_SHA256: 7a6b6d5ea003e8d59def294392c64e28338da627bf760cf268e788d6a8832a23/,
+  );
+  assert.match(validator, /'verify-monitoring-negative-contracts\.mjs'/);
+  assert.match(ruleRunner, /BACKEND_RED_ALERTS_FILE/);
+  assert.match(chartTracker, /prometheusVersion: "v2\.55\.0"/);
 });
 
 test('long standalone stack workflows are manual and smoke is nightly', () => {
