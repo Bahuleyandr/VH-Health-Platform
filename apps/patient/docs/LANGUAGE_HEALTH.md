@@ -35,7 +35,9 @@ English, Hindi, Tamil, Telugu, and Malayalam all define every source key.
   Malayalam technical-parity batches added ordinary appointment, About,
   dashboard, generic error, gamification-chrome, and non-safety step copy.
   This count is structural evidence only and does not change human review or
-  activation status.
+  activation status. The 48 first-pass review keys from this closure are
+  enumerated, one by one, under the 2026-09-02 queue in
+  `docs/TRANSLATION_REVIEW_TRACKER.md`; the count is derived from that list.
 
 - **ARB JSON parses cleanly.** The translated locale files remain valid
 JSON and include copied English `@key` metadata for newly added entries.
@@ -58,8 +60,11 @@ to avoid ambiguous Dart interpolation in generated code.
   and splash copy now use generated localization accessors. A broader
   2026-09-02 residual scan still found dynamically assembled and non-`Text`
   English elsewhere. The current high-confidence scan has no remaining safe
-  technical candidates, but 246 clinical/legal/activation holds remain;
-  100% key parity is not global presentation parity or linguistic approval.
+  technical candidates. The exact review queue is the 48-key tracker list,
+  plus the separately named dependent/guardianship/consent and Staff Web
+  activation holds in that tracker; no unsupported aggregate hold count is
+  claimed. 100% key parity is not global presentation parity or linguistic
+  approval.
 
 ---
 

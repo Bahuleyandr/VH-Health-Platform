@@ -1,40 +1,37 @@
-import 'package:flutter/services.dart';
+import 'dart:ui' as ui;
+
+import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 import '../../l10n/app_strings.dart';
+import 'bed_board_shaped_text.dart';
 
-/// Renders a printable A4 occupancy sheet for the current bed-board view
-/// and shows the platform print dialog. Indian hospital wards still rely
-/// on printed handover sheets at shift change; this gives the staff app
-/// a "Print" button that doesn't require routing through an admin page.
+/// Renders a printable A4 occupancy sheet for the current bed-board view.
 ///
-/// Caller passes:
-///   - [wardName]: the human-readable ward name (rendered in the header)
-///   - [beds]:     the same map list rendered on the bed grid (raw JSON
-///                 from `/api/v1/beds/ward/:id`). The service pulls bed
-///                 number, status, patient name, patient age, admitted-at,
-///                 and notes — same fields the on-screen card displays.
+/// All text is shaped and painted by Flutter's engine into deterministic A4
+/// page rasters before those images are embedded in the PDF. dart_pdf only
+/// wraps the finished page images; it never receives Indic text.
 class BedBoardPrintService {
   BedBoardPrintService._();
 
-  static const _fontRoot = 'assets/fonts/noto';
+  static const _rasterScale = 2.0;
+  static const _margin = 28.0;
+  static const _tableTop = 118.0;
+  static const _tableHeaderHeight = 36.0;
+  static const _tableHeaderFontSize = 7.2;
+  static const _tableHeaderMaxLines = 2;
+  static const _rowHeight = 31.0;
+  static const _rowsPerPage = 20;
 
-  static const _regularFontAssets = [
-    '$_fontRoot/NotoSansDevanagari-Regular.ttf',
-    '$_fontRoot/NotoSansTamil-Regular.ttf',
-    '$_fontRoot/NotoSansTelugu-Regular.ttf',
-    '$_fontRoot/NotoSansMalayalam-Regular.ttf',
-  ];
-
-  static const _boldFontAssets = [
-    '$_fontRoot/NotoSansDevanagari-Bold.ttf',
-    '$_fontRoot/NotoSansTamil-Bold.ttf',
-    '$_fontRoot/NotoSansTelugu-Bold.ttf',
-    '$_fontRoot/NotoSansMalayalam-Bold.ttf',
-  ];
+  static const _ink = ui.Color(0xFF172033);
+  static const _mutedInk = ui.Color(0xFF5B6578);
+  static const _blue900 = ui.Color(0xFF173E70);
+  static const _line = ui.Color(0xFFD4D9E2);
+  static const _alternateRow = ui.Color(0xFFF5F7FA);
+  static const _white = ui.Color(0xFFFFFFFF);
 
   static Future<void> print({
     required String wardName,
@@ -57,34 +54,162 @@ class BedBoardPrintService {
     required List<Map<String, dynamic>> beds,
     required AppStrings strings,
     required String generatedBy,
-    AssetBundle? assetBundle,
+    DateTime? generatedAt,
   }) async {
-    final fonts = await _loadFonts(assetBundle ?? rootBundle);
-    final pdf = pw.Document(
-      theme: pw.ThemeData.withFont(fontFallback: fonts.regular),
-    );
-    final now = DateTime.now();
-    final dateStr = DateFormat('EEE, d MMM yyyy · HH:mm').format(now);
-
-    // Sort beds by bed_number so the printout matches what the eye
-    // expects on a paper handover sheet (lexicographic, "A-101" before
-    // "A-102").
     final sorted = [...beds]
       ..sort((a, b) {
         final an = (a['bed_number'] ?? a['bedNumber'] ?? '').toString();
         final bn = (b['bed_number'] ?? b['bedNumber'] ?? '').toString();
         return an.compareTo(bn);
       });
+    final chunks = <List<Map<String, dynamic>>>[];
+    if (sorted.isEmpty) {
+      chunks.add(const []);
+    } else {
+      for (var start = 0; start < sorted.length; start += _rowsPerPage) {
+        final end = (start + _rowsPerPage).clamp(0, sorted.length).toInt();
+        chunks.add(sorted.sublist(start, end));
+      }
+    }
 
-    final headers = [
-      strings.bedBoardPrintColumnBed,
-      strings.bedBoardPrintColumnStatus,
-      strings.bedBoardPrintColumnPatient,
-      strings.bedBoardPrintColumnAge,
-      strings.bedBoardPrintColumnAdmitted,
-      strings.bedBoardPrintColumnNotes,
+    final pdf = pw.Document();
+    final pageCount = chunks.length;
+    final created = generatedAt ?? DateTime.now();
+    for (var index = 0; index < chunks.length; index++) {
+      final pageRaster = await _renderPage(
+        wardName: wardName,
+        allBeds: sorted,
+        pageBeds: chunks[index],
+        strings: strings,
+        generatedBy: generatedBy,
+        generatedAt: created,
+        pageNumber: index + 1,
+        pageCount: pageCount,
+      );
+      final image = pw.MemoryImage(pageRaster);
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          margin: pw.EdgeInsets.zero,
+          build: (_) => pw.Image(
+            image,
+            width: PdfPageFormat.a4.width,
+            height: PdfPageFormat.a4.height,
+            fit: pw.BoxFit.fill,
+          ),
+        ),
+      );
+    }
+    return pdf.save();
+  }
+
+  static Future<Uint8List> _renderPage({
+    required String wardName,
+    required List<Map<String, dynamic>> allBeds,
+    required List<Map<String, dynamic>> pageBeds,
+    required AppStrings strings,
+    required String generatedBy,
+    required DateTime generatedAt,
+    required int pageNumber,
+    required int pageCount,
+  }) async {
+    final width = PdfPageFormat.a4.width;
+    final height = PdfPageFormat.a4.height;
+    final languageCode = strings.locale.languageCode;
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder)..scale(_rasterScale, _rasterScale);
+    canvas.drawRect(
+      ui.Rect.fromLTWH(0, 0, width, height),
+      ui.Paint()..color = _white,
+    );
+
+    final title = wardName.isEmpty ? strings.bedBoardPrintOccupancy : wardName;
+    _text(
+      canvas,
+      title,
+      languageCode,
+      ui.Rect.fromLTWH(_margin, 24, width - (_margin * 2), 28),
+      18,
+      bold: true,
+    );
+    final date = DateFormat('yyyy-MM-dd HH:mm').format(generatedAt.toLocal());
+    _text(
+      canvas,
+      strings.bedBoardPrintOccupancyDate(date),
+      languageCode,
+      ui.Rect.fromLTWH(_margin, 51, width - (_margin * 2), 18),
+      9,
+      color: _mutedInk,
+    );
+
+    final summary = _summarise(allBeds);
+    final pillWidth = (width - (_margin * 2)) / 4;
+    final pills = <(String, int, ui.Color)>[
+      (strings.bedBoardWardStatTotal, summary['total']!, _mutedInk),
+      (
+        strings.bedBoardLegendAvailable,
+        summary['available']!,
+        const ui.Color(0xFF157347),
+      ),
+      (
+        strings.bedBoardLegendOccupied,
+        summary['occupied']!,
+        const ui.Color(0xFFB42318),
+      ),
+      (
+        strings.bedBoardLegendMaintenance,
+        summary['maintenance']!,
+        const ui.Color(0xFFB54708),
+      ),
     ];
-    final rows = sorted.map((bed) {
+    for (var index = 0; index < pills.length; index++) {
+      _summaryPill(
+        canvas,
+        languageCode,
+        ui.Rect.fromLTWH(_margin + (index * pillWidth), 76, pillWidth - 5, 27),
+        pills[index].$1,
+        pills[index].$2,
+        pills[index].$3,
+      );
+    }
+
+    canvas.drawLine(
+      const ui.Offset(_margin, 110),
+      ui.Offset(width - _margin, 110),
+      ui.Paint()
+        ..color = _line
+        ..strokeWidth = 0.7,
+    );
+
+    final availableWidth = width - (_margin * 2);
+    final columns = _columnWidths(availableWidth);
+    final headers = _headerLabels(strings);
+    canvas.drawRect(
+      ui.Rect.fromLTWH(_margin, _tableTop, availableWidth, _tableHeaderHeight),
+      ui.Paint()..color = _blue900,
+    );
+    _drawCells(
+      canvas,
+      languageCode,
+      headers,
+      columns,
+      _tableTop,
+      _tableHeaderHeight,
+      fontSize: _tableHeaderFontSize,
+      bold: true,
+      color: _white,
+      maxLines: _tableHeaderMaxLines,
+    );
+
+    for (var rowIndex = 0; rowIndex < pageBeds.length; rowIndex++) {
+      final bed = pageBeds[rowIndex];
+      final top = _tableTop + _tableHeaderHeight + (rowIndex * _rowHeight);
+      if (rowIndex.isOdd) {
+        canvas.drawRect(
+          ui.Rect.fromLTWH(_margin, top, availableWidth, _rowHeight),
+          ui.Paint()..color = _alternateRow,
+        );
+      }
       final bedNum = (bed['bed_number'] ?? bed['bedNumber'] ?? '—').toString();
       final status = (bed['status'] ?? '').toString();
       final patient =
@@ -96,232 +221,237 @@ class BedBoardPrintService {
       final age = bed['patient_age'];
       final admitted = bed['admission_admitted_at'] ?? bed['admitted_at'];
       final notes = (bed['notes'] ?? '').toString();
-      return [
-        bedNum,
-        _statusLabel(strings, status),
-        patient.isEmpty ? '—' : patient,
-        (age == null || age.toString().isEmpty) ? '—' : age.toString(),
-        admitted == null ? '—' : _shortDate(admitted.toString()),
-        notes.isEmpty ? '—' : _truncate(notes, 80),
-      ];
-    }).toList();
-
-    final summary = _summarise(sorted);
-
-    pdf.addPage(
-      pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(28),
-        header: (ctx) =>
-            _buildHeader(strings, wardName, dateStr, summary, fonts.bold),
-        footer: (ctx) => _buildFooter(strings, ctx, generatedBy),
-        build: (ctx) => [
-          pw.SizedBox(height: 8),
-          pw.TableHelper.fromTextArray(
-            headers: headers,
-            data: rows,
-            cellStyle: pw.TextStyle(fontSize: 9, fontFallback: fonts.regular),
-            headerStyle: pw.TextStyle(
-              fontSize: 9,
-              fontWeight: pw.FontWeight.bold,
-              color: PdfColors.white,
-              fontFallback: fonts.bold,
-            ),
-            headerDecoration: const pw.BoxDecoration(color: PdfColors.blue900),
-            cellAlignment: pw.Alignment.centerLeft,
-            cellAlignments: const {
-              0: pw.Alignment.centerLeft,
-              1: pw.Alignment.centerLeft,
-              2: pw.Alignment.centerLeft,
-              3: pw.Alignment.centerRight,
-              4: pw.Alignment.centerLeft,
-              5: pw.Alignment.centerLeft,
-            },
-            columnWidths: const {
-              0: pw.FixedColumnWidth(48),
-              1: pw.FixedColumnWidth(60),
-              2: pw.FlexColumnWidth(2.2),
-              3: pw.FixedColumnWidth(38),
-              4: pw.FixedColumnWidth(80),
-              5: pw.FlexColumnWidth(3),
-            },
-            rowDecoration: const pw.BoxDecoration(
-              border: pw.Border(
-                bottom: pw.BorderSide(color: PdfColors.grey300, width: 0.4),
-              ),
-            ),
-          ),
+      _drawCells(
+        canvas,
+        languageCode,
+        [
+          bedNum,
+          _statusLabel(strings, status),
+          patient.isEmpty ? '—' : patient,
+          (age == null || age.toString().isEmpty) ? '—' : age.toString(),
+          admitted == null ? '—' : _shortDate(admitted.toString()),
+          notes.isEmpty ? '—' : notes,
         ],
-      ),
-    );
-
-    return pdf.save();
-  }
-
-  static Future<_BedBoardFonts> _loadFonts(AssetBundle bundle) async {
-    Future<List<pw.Font>> loadAll(List<String> paths) async {
-      final fonts = <pw.Font>[];
-      for (final path in paths) {
-        fonts.add(pw.Font.ttf(await bundle.load(path)));
-      }
-      return fonts;
+        columns,
+        top,
+        _rowHeight,
+        fontSize: 8,
+        maxLines: 2,
+      );
+      canvas.drawLine(
+        ui.Offset(_margin, top + _rowHeight),
+        ui.Offset(width - _margin, top + _rowHeight),
+        ui.Paint()
+          ..color = _line
+          ..strokeWidth = 0.4,
+      );
     }
 
-    return _BedBoardFonts(
-      regular: await loadAll(_regularFontAssets),
-      bold: await loadAll(_boldFontAssets),
+    final footerTop = height - 36;
+    canvas.drawLine(
+      ui.Offset(_margin, footerTop - 6),
+      ui.Offset(width - _margin, footerTop - 6),
+      ui.Paint()
+        ..color = _line
+        ..strokeWidth = 0.5,
     );
-  }
-
-  static pw.Widget _buildHeader(
-    AppStrings strings,
-    String wardName,
-    String dateStr,
-    Map<String, int> summary,
-    List<pw.Font> boldFallback,
-  ) {
-    return pw.Padding(
-      padding: const pw.EdgeInsets.only(bottom: 12),
-      child: pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
-        children: [
-          pw.Row(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-            children: [
-              pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text(
-                    wardName.isEmpty
-                        ? strings.bedBoardPrintOccupancy
-                        : wardName,
-                    style: pw.TextStyle(
-                      fontSize: 18,
-                      fontWeight: pw.FontWeight.bold,
-                      fontFallback: boldFallback,
-                    ),
-                  ),
-                  pw.SizedBox(height: 2),
-                  pw.Text(
-                    strings.bedBoardPrintOccupancyDate(dateStr),
-                    style: const pw.TextStyle(
-                      fontSize: 10,
-                      color: PdfColors.grey700,
-                    ),
-                  ),
-                ],
-              ),
-              pw.Row(
-                children: [
-                  _summaryPill(
-                    strings.bedBoardWardStatTotal,
-                    summary['total']!,
-                    PdfColors.grey700,
-                    boldFallback,
-                  ),
-                  pw.SizedBox(width: 6),
-                  _summaryPill(
-                    strings.bedBoardLegendAvailable,
-                    summary['available']!,
-                    PdfColors.green700,
-                    boldFallback,
-                  ),
-                  pw.SizedBox(width: 6),
-                  _summaryPill(
-                    strings.bedBoardLegendOccupied,
-                    summary['occupied']!,
-                    PdfColors.red700,
-                    boldFallback,
-                  ),
-                  pw.SizedBox(width: 6),
-                  _summaryPill(
-                    strings.bedBoardLegendMaintenance,
-                    summary['maintenance']!,
-                    PdfColors.orange700,
-                    boldFallback,
-                  ),
-                ],
-              ),
-            ],
-          ),
-          pw.SizedBox(height: 8),
-          pw.Container(height: 0.5, color: PdfColors.grey400),
-        ],
+    _text(
+      canvas,
+      generatedBy,
+      languageCode,
+      ui.Rect.fromLTWH(_margin, footerTop, availableWidth * 0.62, 16),
+      7.5,
+      color: _mutedInk,
+    );
+    _text(
+      canvas,
+      strings.bedBoardPrintPage(pageNumber, pageCount),
+      languageCode,
+      ui.Rect.fromLTWH(
+        _margin + (availableWidth * 0.62),
+        footerTop,
+        availableWidth * 0.38,
+        16,
       ),
+      7.5,
+      color: _mutedInk,
+      textAlign: ui.TextAlign.right,
     );
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(
+      (width * _rasterScale).round(),
+      (height * _rasterScale).round(),
+    );
+    picture.dispose();
+    try {
+      final data = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (data == null) {
+        throw StateError('Flutter engine did not encode the bed-board page');
+      }
+      return data.buffer.asUint8List();
+    } finally {
+      image.dispose();
+    }
   }
 
-  static pw.Widget _summaryPill(
+  static void _drawCells(
+    ui.Canvas canvas,
+    String languageCode,
+    List<String> values,
+    List<double> widths,
+    double top,
+    double height, {
+    required double fontSize,
+    bool bold = false,
+    ui.Color color = _ink,
+    int maxLines = 1,
+  }) {
+    var left = _margin;
+    for (var index = 0; index < values.length; index++) {
+      _text(
+        canvas,
+        values[index],
+        languageCode,
+        ui.Rect.fromLTWH(left + 5, top + 2, widths[index] - 10, height - 4),
+        fontSize,
+        bold: bold,
+        color: color,
+        maxLines: maxLines,
+        textAlign: index == 3 ? ui.TextAlign.right : ui.TextAlign.left,
+      );
+      left += widths[index];
+    }
+  }
+
+  static List<double> _columnWidths(double availableWidth) {
+    final widths = <double>[56, 72, 112, 42, 100];
+    widths.add(availableWidth - widths.fold<double>(0, (a, b) => a + b));
+    return widths;
+  }
+
+  static List<String> _headerLabels(AppStrings strings) => [
+    strings.bedBoardPrintColumnBed,
+    strings.bedBoardPrintColumnStatus,
+    strings.bedBoardPrintColumnPatient,
+    strings.bedBoardPrintColumnAge,
+    strings.bedBoardPrintColumnAdmitted,
+    strings.bedBoardPrintColumnNotes,
+  ];
+
+  @visibleForTesting
+  static List<String> debugOverflowingHeaderLabels(AppStrings strings) {
+    final availableWidth = PdfPageFormat.a4.width - (_margin * 2);
+    final widths = _columnWidths(availableWidth);
+    final labels = _headerLabels(strings);
+    final languageCode = strings.locale.languageCode;
+    final overflowing = <String>[];
+    for (var index = 0; index < labels.length; index++) {
+      final paragraph = BedBoardShapedText.layout(
+        text: labels[index],
+        languageCode: languageCode,
+        width: widths[index] - 10,
+        fontSize: _tableHeaderFontSize,
+        color: _white,
+        bold: true,
+        maxLines: _tableHeaderMaxLines,
+        textAlign: index == 3 ? ui.TextAlign.right : ui.TextAlign.left,
+      );
+      if (paragraph.didExceedMaxLines ||
+          paragraph.height > _tableHeaderHeight - 4) {
+        overflowing.add(labels[index]);
+      }
+    }
+    return overflowing;
+  }
+
+  static void _summaryPill(
+    ui.Canvas canvas,
+    String languageCode,
+    ui.Rect bounds,
     String label,
     int value,
-    PdfColor color,
-    List<pw.Font> boldFallback,
+    ui.Color color,
   ) {
-    // 12%-alpha background tint of the accent color. PdfColor doesn't
-    // expose a nice withAlpha helper; build it from the 0xRRGGBB bits.
-    final tint = PdfColor(color.red, color.green, color.blue, 0.12);
-    return pw.Container(
-      padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: pw.BoxDecoration(
-        color: tint,
-        borderRadius: pw.BorderRadius.circular(8),
-        border: pw.Border.all(color: color, width: 0.4),
+    final background = ui.Color.fromARGB(
+      28,
+      (color.r * 255).round(),
+      (color.g * 255).round(),
+      (color.b * 255).round(),
+    );
+    canvas.drawRRect(
+      ui.RRect.fromRectAndRadius(bounds, const ui.Radius.circular(8)),
+      ui.Paint()..color = background,
+    );
+    canvas.drawRRect(
+      ui.RRect.fromRectAndRadius(bounds, const ui.Radius.circular(8)),
+      ui.Paint()
+        ..color = color
+        ..style = ui.PaintingStyle.stroke
+        ..strokeWidth = 0.5,
+    );
+    _text(
+      canvas,
+      label,
+      languageCode,
+      ui.Rect.fromLTWH(
+        bounds.left + 7,
+        bounds.top + 2,
+        bounds.width - 31,
+        bounds.height - 4,
       ),
-      child: pw.Row(
-        mainAxisSize: pw.MainAxisSize.min,
-        children: [
-          pw.Text(
-            label,
-            style: pw.TextStyle(
-              fontSize: 8,
-              color: color,
-              fontWeight: pw.FontWeight.bold,
-              fontFallback: boldFallback,
-            ),
-          ),
-          pw.SizedBox(width: 4),
-          pw.Text(
-            '$value',
-            style: pw.TextStyle(
-              fontSize: 10,
-              color: color,
-              fontWeight: pw.FontWeight.bold,
-              fontFallback: boldFallback,
-            ),
-          ),
-        ],
+      7.2,
+      bold: true,
+      color: color,
+    );
+    _text(
+      canvas,
+      '$value',
+      languageCode,
+      ui.Rect.fromLTWH(
+        bounds.right - 25,
+        bounds.top + 2,
+        18,
+        bounds.height - 4,
       ),
+      9,
+      bold: true,
+      color: color,
+      textAlign: ui.TextAlign.right,
     );
   }
 
-  static pw.Widget _buildFooter(
-    AppStrings strings,
-    pw.Context ctx,
-    String generatedBy,
-  ) {
-    return pw.Padding(
-      padding: const pw.EdgeInsets.only(top: 12),
-      child: pw.Row(
-        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-        children: [
-          pw.Text(
-            generatedBy,
-            style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
-          ),
-          pw.Text(
-            strings.bedBoardPrintPage(ctx.pageNumber, ctx.pagesCount),
-            style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
-          ),
-        ],
-      ),
+  static void _text(
+    ui.Canvas canvas,
+    String text,
+    String languageCode,
+    ui.Rect bounds,
+    double fontSize, {
+    bool bold = false,
+    ui.Color color = _ink,
+    int maxLines = 1,
+    ui.TextAlign textAlign = ui.TextAlign.left,
+  }) {
+    canvas.save();
+    canvas.clipRect(bounds);
+    BedBoardShapedText.paint(
+      canvas,
+      text: text,
+      languageCode: languageCode,
+      bounds: bounds,
+      fontSize: fontSize,
+      color: color,
+      bold: bold,
+      maxLines: maxLines,
+      textAlign: textAlign,
     );
+    canvas.restore();
   }
 
   static Map<String, int> _summarise(List<Map<String, dynamic>> beds) {
     int available = 0, occupied = 0, maintenance = 0;
-    for (final b in beds) {
-      switch ((b['status'] ?? '').toString().toLowerCase()) {
+    for (final bed in beds) {
+      switch ((bed['status'] ?? '').toString().toLowerCase()) {
         case 'available':
           available++;
           break;
@@ -351,24 +481,12 @@ class BedBoardPrintService {
     };
   }
 
-  static String _truncate(String s, int max) {
-    if (s.length <= max) return s;
-    return '${s.substring(0, max)}…';
-  }
-
   static String _shortDate(String iso) {
     try {
-      final d = DateTime.parse(iso);
-      return DateFormat('d MMM HH:mm').format(d);
+      final date = DateTime.parse(iso);
+      return DateFormat('yyyy-MM-dd HH:mm').format(date.toLocal());
     } catch (_) {
       return iso.length > 16 ? iso.substring(0, 16) : iso;
     }
   }
-}
-
-class _BedBoardFonts {
-  const _BedBoardFonts({required this.regular, required this.bold});
-
-  final List<pw.Font> regular;
-  final List<pw.Font> bold;
 }

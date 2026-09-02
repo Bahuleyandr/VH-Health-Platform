@@ -1,13 +1,15 @@
 # Bed-board PDF fallback fonts
 
 These static TrueType fonts are bundled only for offline bed-board PDF rendering.
-They are not fetched at runtime. Latin text continues to use the `pdf` package's
-built-in Helvetica fonts; these Noto Sans faces are fallback fonts for the four
-Indian scripts supported by the Staff application.
+They are not fetched at runtime. Flutter's engine shapes all page text with these
+families and paints the finished A4 page to a raster; the `pdf` package only wraps
+that raster and never receives Indic code points.
 
 All four families are licensed under the SIL Open Font License 1.1. The exact
 upstream `OFL.txt`, `AUTHORS.txt`, and `CONTRIBUTORS.txt` notices from each
 release are retained under `licenses/`; trailing whitespace is normalized.
+`apps/staff/pubspec.yaml` explicitly packages the `licenses/` directory, and the
+font packaging test loads all twelve notices from Flutter's built asset bundle.
 
 | Family | Official repository | Immutable release tag | Tag commit | Release ZIP SHA-256 |
 | --- | --- | --- | --- | --- |

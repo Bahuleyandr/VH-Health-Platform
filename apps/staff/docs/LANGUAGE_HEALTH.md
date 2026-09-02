@@ -25,7 +25,7 @@ This report is the structural verification of the staff app i18n setup.
 It answers "does every key resolve?" — **not** "is every translation
 clinically approved?" Hindi, Tamil, and Telugu are structurally complete,
 but a large part of each map is an AI first pass. Malayalam has full technical
-key parity: 2,440 explicit entries plus 4,030 generated English-source
+key parity: 2,494 explicit entries plus 4,008 generated English-source
 placeholders. A placeholder is not a Malayalam translation. Nothing in any
 non-English locale has complete fluent clinical review, and all of it still
 requires the relevant human approval before production rollout.
@@ -34,15 +34,17 @@ requires the relevant human approval before production rollout.
 
 | | en | hi | ta | te | ml |
 |---|---:|---:|---:|---:|---:|
-| Keys present | 6,473 | 6,470 | 6,470 | 6,470 | 6,470 |
+| Keys present | 6,505 | 6,502 | 6,502 | 6,502 | 6,502 |
 | Coverage vs en | 100% | 100% | 100% | 100% | 100% technical parity |
-| `// REVIEW:` flags | - | 500 | 953 | 954 | 17 + 4,030 generated placeholders |
+| `// REVIEW:` flags | - | 501 | 954 | 955 | 18 + 4,008 generated placeholders |
 | Length outliers | - | 0 | 8 | 1 | 2 |
-| Identical English heuristic | - | 125 | 132 | 131 | 3,879 |
+| Identical English heuristic | - | 125 | 132 | 131 | 3,857 |
 
-`en` declares 6,473 keys. Three signed-attestation keys are deliberately left
+`en` declares 6,505 keys. Three signed-attestation keys are deliberately left
 to the English fallback in every non-English locale (see "Declared English
-fallback" below), so the translatable set is 6,449.
+fallback" below), so the translatable set is 6,502. These counts are emitted
+directly by `node apps/staff/scripts/i18n-verify.mjs`; they are not a manual
+estimate.
 
 | | |
 |---|---:|
@@ -156,8 +158,8 @@ heuristics, and heuristics do not belong on a path that must not fail.
 ## What's verified
 
 - **English, Hindi, Tamil, Telugu, and Malayalam are at 100% structural key
-  parity** (6,470 translatable keys each). Malayalam reaches that technical
-  state with 4,030 generated English-source review placeholders. The only
+  parity** (6,502 translatable keys each). Malayalam reaches that technical
+  state with 4,008 generated English-source review placeholders. The only
   implicit runtime fallbacks are the three signed attestations declared above.
 
 - **No runtime crashes from orphan calls.** Every `s.foo` /
@@ -190,7 +192,7 @@ populations:
    sign-off and patient release, ED closure/recovery evidence, controlled
    dispensing (Schedule H/H1/X) witness copy, consent, discharge,
    emergency/code-blue, payroll, HR, incident, and grievance copy.
-3. Replace the 4,030 entries listed in
+3. Replace the 4,008 entries listed in
    `app_strings_ml_parity.g.dart` with reviewed Malayalam values in the
    explicit `ml` map. Regeneration removes each replaced placeholder.
 4. Decide whether the three declared English-fallback strings should stay
@@ -209,7 +211,7 @@ populations:
   in the web-activation hold copy) by the `Text('...')` + error-assignment
   heuristic. The heuristic does not see every shape of hardcoded copy, so
   treat this as a floor, not a proof.
-- **Malayalam human translation** remains open for the 4,030 generated
+- **Malayalam human translation** remains open for the 4,008 generated
   English-source placeholders. This is explicit technical parity, not final
   localized copy.
 - **Admin portal** has no locale-resource system. Backend five-locale

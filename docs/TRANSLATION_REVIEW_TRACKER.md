@@ -16,7 +16,7 @@ queue before production rollout in Tamil, Telugu, Malayalam, or Hindi.
 | Staff | Hindi | 100% | Pending |
 | Staff | Tamil | 100% | Pending |
 | Staff | Telugu | 100% | Pending |
-| Staff | Malayalam | 100% technical parity (4,030 English-source placeholders) | Pending |
+| Staff | Malayalam | 100% technical parity (4,008 English-source placeholders) | Pending |
 | Patient | Hindi | 100% | Pending |
 | Patient | Tamil | 100% | Pending |
 | Patient | Telugu | 100% | Pending |
@@ -102,7 +102,7 @@ passages, no meaning change intended, still AI-quality pending review):
 ## Priority queue — added 2026-09-02 (Malayalam parity closure)
 
 The staff app no longer exempts Malayalam from structural parity. The exact
-review queue is the 4,030-key generated map at
+review queue is the 4,008-key generated map at
 `apps/staff/lib/l10n/app_strings_ml_parity.g.dart`. Every value in that file is
 the English source copied as a technical placeholder, not approved Malayalam.
 An approved translation belongs in the explicit `ml` map in
@@ -110,7 +110,7 @@ An approved translation belongs in the explicit `ml` map in
 file. Review must prioritize clinical action, dosage/MAR, consent, emergency,
 finance/payroll, controlled-drug, legal declaration, and operator copy.
 
-The patient app gained first-pass hi/ta/te/ml wording for 33 previously
+The patient app gained first-pass hi/ta/te/ml wording for 48 previously
 missing or English-copy keys. Human review is required for:
 
 - `authSosBackendFailed`, `authSosGuestSkipped`
