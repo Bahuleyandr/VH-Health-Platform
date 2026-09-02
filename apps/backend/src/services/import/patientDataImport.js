@@ -550,10 +550,12 @@ async function resolveExternalPatientIdentityClaimsTx(db, {
   patientUid,
   claims,
   hasNativeVhUid,
+  resourceManifest = [],
 }) {
   const normalizedClaims = uniquePatientIdentityClaims(claims);
   const externalClaims = [];
   let hasResolvedNativeVhUid = hasNativeVhUid;
+  let priorFhirReceiptBinding = null;
   for (const claim of normalizedClaims) {
     const nativeUid = claim.kind === 'fhir_patient_id'
       && UUID_RE.test(String(claim.value || '').toLowerCase())
@@ -571,14 +573,39 @@ async function resolveExternalPatientIdentityClaimsTx(db, {
       externalClaims.push(claim);
       continue;
     }
-    if (String(resolvedNativePatient.uid).toLowerCase() !== patientUid) {
-      throw AppError.conflict(
-        'An imported patient identity belongs to a different patient',
-        'IMPORT_PATIENT_IDENTITY_MISMATCH',
-        { identity_kind: claim.kind },
-      );
+    if (String(resolvedNativePatient.uid).toLowerCase() === patientUid) {
+      if (priorFhirReceiptBinding == null) {
+        const observationOnlyManifest = resourceManifest.length > 0
+          && resourceManifest.every((resource) => (
+            resource.source_resource_type === 'Observation'
+          ));
+        const observationResourceIds = [...new Set(resourceManifest
+          .filter((resource) => resource.source_resource_type === 'Observation')
+          .map((resource) => resource.source_resource_id)
+          .filter(Boolean))];
+        if (!observationOnlyManifest || observationResourceIds.length !== resourceManifest.length) {
+          priorFhirReceiptBinding = false;
+        } else {
+          const receiptRows = await db.$queryRawUnsafe(
+            `SELECT COUNT(DISTINCT resource_id)::integer AS matched_count
+               FROM fhir_vital_observation_receipts
+              WHERE tenant_id=$1::uuid
+                AND patient_uid=$2::uuid
+                AND resource_id=ANY($3::text[])`,
+            tenantId,
+            patientUid,
+            observationResourceIds,
+          );
+          priorFhirReceiptBinding = Number(receiptRows[0]?.matched_count || 0)
+            === observationResourceIds.length;
+        }
+      }
+      if (priorFhirReceiptBinding) {
+        hasResolvedNativeVhUid = true;
+        continue;
+      }
     }
-    hasResolvedNativeVhUid = true;
+    externalClaims.push(claim);
   }
   if (!hasResolvedNativeVhUid && externalClaims.length === 0) {
     throw AppError.conflict(
@@ -913,6 +940,7 @@ export async function importFhirBundle(bundle, importedBy, {
           patientUid: targetPatientUid,
           claims: identityClaims.claims,
           hasNativeVhUid: identityClaims.hasNativeVhUid,
+          resourceManifest,
         });
         const receiptAuthority = buildClinicalImportDocumentAuthority({
           tenantId: tid,
@@ -1036,6 +1064,68 @@ async function reconcileFhirReceiptReplayEffects(result, tenantId) {
   return reconciledResult;
 }
 
+function applyFhirObservationOutcomes({
+  outcomes,
+  results,
+  resourceOutcomes,
+  resourceIndexByResource,
+}) {
+  for (const observationResult of outcomes) {
+    const {
+      resources: outcomeResources,
+      resourceErrors,
+      ...publicOutcome
+    } = observationResult;
+    results.observationPartitions.push(publicOutcome);
+    if (observationResult.status === 'imported') {
+      results.imported += observationResult.resourceCount;
+    }
+    if (observationResult.status === 'deduplicated') {
+      results.deduplicated += observationResult.resourceCount;
+    }
+    if (observationResult.status === 'skipped') {
+      results.skipped += observationResult.resourceCount;
+    }
+    if (['error', 'failed'].includes(observationResult.status)) {
+      results.failed += observationResult.resourceCount;
+    }
+    if (observationResult.error && ['error', 'failed'].includes(observationResult.status)) {
+      for (const failedResource of outcomeResources) {
+        const resourceKey = failedResource.id || '(no id)';
+        const error = resourceErrors?.get(resourceKey) || observationResult.error;
+        logger.warn(`FHIR import error for ${failedResource.resourceType}/${resourceKey}: ${error}`);
+        results.errors.push({
+          resource: failedResource.resourceType,
+          id: failedResource.id,
+          error,
+          ...(observationResult.errorCode ? { code: observationResult.errorCode } : {}),
+        });
+      }
+    }
+    for (const outcomeResource of outcomeResources) {
+      const outcomeIndex = resourceIndexByResource.get(outcomeResource);
+      if (outcomeIndex == null) continue;
+      const resourceKey = outcomeResource.id || '(no id)';
+      resourceOutcomes[outcomeIndex] = receiptOutcome({
+        status: observationResult.status,
+        targetTable: ['imported', 'deduplicated'].includes(observationResult.status)
+          ? 'vitals_chart'
+          : null,
+        targetId: ['imported', 'deduplicated'].includes(observationResult.status)
+          ? observationResult.vitalsChartId
+          : null,
+        canonicalTimelineEventId: observationResult.canonicalTimelineEventId || null,
+        canonicalAuditEventId: observationResult.canonicalAuditEventId || null,
+      }, {
+        set_fingerprint: observationResult.setFingerprint || null,
+        error: resourceErrors?.get(resourceKey) || observationResult.error || null,
+        error_code: observationResult.errorCode || null,
+        clinical_effects_reconciled: observationResult.clinicalEffectsReconciled || false,
+      });
+    }
+  }
+}
+
 async function importFhirBundleWithStablePatientSnapshot(bundle, importedBy, {
   tenantId,
   authority,
@@ -1127,50 +1217,12 @@ async function importFhirBundleWithStablePatientSnapshot(bundle, importedBy, {
             beforeFhirVitalWrite,
             requiresClinicalVerification: true,
           });
-          for (const outcome of outcomes) {
-            const { resources: outcomeResources, resourceErrors, ...publicOutcome } = outcome;
-            results.observationPartitions.push(publicOutcome);
-            if (outcome.status === 'imported') results.imported += outcome.resourceCount;
-            if (outcome.status === 'deduplicated') results.deduplicated += outcome.resourceCount;
-            if (outcome.status === 'skipped') results.skipped += outcome.resourceCount;
-            if (['error', 'failed'].includes(outcome.status)) {
-              results.failed += outcome.resourceCount;
-            }
-            if (outcome.error && ['error', 'failed'].includes(outcome.status)) {
-              for (const failedResource of outcomeResources) {
-                const resourceKey = failedResource.id || '(no id)';
-                const error = resourceErrors?.get(resourceKey) || outcome.error;
-                logger.warn(`FHIR import error for ${failedResource.resourceType}/${resourceKey}: ${error}`);
-                results.errors.push({
-                  resource: failedResource.resourceType,
-                  id: failedResource.id,
-                  error,
-                  ...(outcome.errorCode ? { code: outcome.errorCode } : {}),
-                });
-              }
-            }
-            for (const outcomeResource of outcomeResources) {
-              const outcomeIndex = resourceIndexByResource.get(outcomeResource);
-              if (outcomeIndex == null) continue;
-              const resourceKey = outcomeResource.id || '(no id)';
-              resourceOutcomes[outcomeIndex] = receiptOutcome({
-                status: outcome.status,
-                targetTable: ['imported', 'deduplicated'].includes(outcome.status)
-                  ? 'vitals_chart'
-                  : null,
-                targetId: ['imported', 'deduplicated'].includes(outcome.status)
-                  ? outcome.vitalsChartId
-                  : null,
-                canonicalTimelineEventId: outcome.canonicalTimelineEventId || null,
-                canonicalAuditEventId: outcome.canonicalAuditEventId || null,
-              }, {
-                set_fingerprint: outcome.setFingerprint || null,
-                error: resourceErrors?.get(resourceKey) || outcome.error || null,
-                error_code: outcome.errorCode || null,
-                clinical_effects_reconciled: outcome.clinicalEffectsReconciled || false,
-              });
-            }
-          }
+          applyFhirObservationOutcomes({
+            outcomes,
+            results,
+            resourceOutcomes,
+            resourceIndexByResource,
+          });
           resources = [];
           break;
         }
@@ -1218,6 +1270,22 @@ async function importFhirBundleWithStablePatientSnapshot(bundle, importedBy, {
         'FHIR_RESOURCE_IMPORT_FAILED',
         'FHIR resource import failed',
       );
+      if (resources.length > 0
+        && resources.every((resource) => resource?.resourceType === 'Observation')) {
+        applyFhirObservationOutcomes({
+          outcomes: [observationOutcome('error', resources, {
+            error: err instanceof AppError && Number(err.statusCode) < 500
+              ? err.message
+              : failure.error,
+            errorCode: failure.errorCode,
+            errorStatusCode: failure.errorStatusCode,
+          })],
+          results,
+          resourceOutcomes,
+          resourceIndexByResource,
+        });
+        continue;
+      }
       for (const failedResource of resources) {
         results.failed += 1;
         const failedIndex = resourceIndexByResource.get(failedResource);

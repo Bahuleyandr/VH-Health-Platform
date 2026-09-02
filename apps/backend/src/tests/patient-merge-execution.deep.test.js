@@ -60,6 +60,7 @@ import { lookupByIdentifier } from '../services/patient/patientIdentifierService
 import { importFhirBundle as importFhirBundleWithAuthority } from '../services/import/patientDataImport.js';
 import { clinicalImportSha256 } from '../services/import/clinicalImportReceiptService.js';
 import { reconcileRecordedVitalsEffects } from '../services/emr/vitalsChartService.js';
+import { verifyDeviceVitals } from '../services/emr/deviceVitalsService.js';
 import {
   listWorkflowSlaInstances,
   readCanonicalPatientTimeline,
@@ -356,6 +357,7 @@ const REQUESTER = randomUUID();
 const APPROVER = randomUUID();
 const EXECUTOR = randomUUID();
 const CLINICAL_IMPORTER = randomUUID();
+const CLINICAL_VERIFIER = randomUUID();
 let clinicalImportFacilityId = null;
 let importDocumentSequence = 0;
 
@@ -927,6 +929,14 @@ d('patient merge execution (deep)', () => {
       `+9196${String(process.pid).padStart(8, '0').slice(-8)}4`,
       `${MARK}-clinical-importer`,
     );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, status, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3, $4, 'NURSING_STAFF', true, 'active', NOW())`,
+      CLINICAL_VERIFIER,
+      TENANT,
+      `+9196${String(process.pid).padStart(8, '0').slice(-8)}5`,
+      `${MARK}-clinical-verifier`,
+    );
     const facilityRows = await prisma.$queryRawUnsafe(
       `INSERT INTO facilities (tenant_id, facility_code, display_name, status)
        VALUES ($1::uuid, $2, $3, 'active')
@@ -938,7 +948,7 @@ d('patient merge execution (deep)', () => {
       `${MARK} FHIR facility`.slice(0, 255),
     );
     clinicalImportFacilityId = Number(facilityRows[0].id);
-    seeded.userUids.push(REQUESTER, APPROVER, EXECUTOR, CLINICAL_IMPORTER);
+    seeded.userUids.push(REQUESTER, APPROVER, EXECUTOR, CLINICAL_IMPORTER, CLINICAL_VERIFIER);
     process.env.AUTH_TENANT_RLS_RUNTIME_ROLE = RUNTIME_ROLE;
     const grantResult = await ensureTenantRlsRuntimeRoleGrants();
     if (grantResult.error) throw new Error(grantResult.error);
@@ -1194,6 +1204,20 @@ d('patient merge execution (deep)', () => {
       { tenantId: TENANT },
     );
     expect(initial).toEqual(expect.objectContaining({ imported: 1, errors: [] }));
+    const importedVitalsId = Number(initial.observationPartitions[0].vitalsChartId);
+    expect(initial.observationPartitions[0]).toMatchObject({
+      verificationStatus: 'asserted_unverified',
+      clinicalEffectsReconciled: false,
+    });
+    await expect(verifyDeviceVitals(importedVitalsId, {
+      actorUid: CLINICAL_VERIFIER,
+      actorRole: 'NURSING_STAFF',
+      tenantId: TENANT,
+    })).resolves.toMatchObject({
+      source: 'fhir',
+      device_verified: true,
+      clinical_effects: { pendingEffects: [] },
+    });
     const sourceRows = await prisma.$queryRawUnsafe(
       `SELECT sets.set_fingerprint, sets.vitals_chart_id, score.id AS news2_id
          FROM fhir_vital_observation_receipts AS receipt
@@ -1352,6 +1376,20 @@ d('patient merge execution (deep)', () => {
       }],
     }, CLINICAL_IMPORTER, { tenantId: TENANT });
     expect(initial).toEqual(expect.objectContaining({ imported: 1, errors: [] }));
+    const importedVitalsId = Number(initial.observationPartitions[0].vitalsChartId);
+    expect(initial.observationPartitions[0]).toMatchObject({
+      verificationStatus: 'asserted_unverified',
+      clinicalEffectsReconciled: false,
+    });
+    await expect(verifyDeviceVitals(importedVitalsId, {
+      actorUid: CLINICAL_VERIFIER,
+      actorRole: 'NURSING_STAFF',
+      tenantId: TENANT,
+    })).resolves.toMatchObject({
+      source: 'fhir',
+      device_verified: true,
+      clinical_effects: { pendingEffects: [] },
+    });
 
     const sourceRows = await prisma.$queryRawUnsafe(
       `SELECT sets.set_fingerprint, sets.vitals_chart_id

@@ -905,7 +905,7 @@ d('clinical import replay across a production patient merge (real PostgreSQL)', 
     });
     expect(medication[0].medications[0].import_receipt).toMatchObject({
       source_resource_type: 'C-CDA_Medication',
-      source_resource_index: 0,
+      source_resource_index: beforeMerge.resources[1].source_resource_index,
       document_source_identity_sha256: beforeMerge.documents[0].source_identity_sha256,
       resource_manifest_sha256: beforeMerge.documents[0].resource_manifest_sha256,
       idempotency_key_sha256: clinicalImportSha256(CCDA_IDEMPOTENCY_KEY),
