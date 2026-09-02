@@ -474,6 +474,17 @@ function requireTaskAcknowledgementTimestamp(value) {
   return timestamp.toISOString();
 }
 
+function requireTaskTransitionTimestamp(value) {
+  const timestamp = parseDurableTimestamp(value);
+  if (!timestamp) {
+    throw AppError.internal(
+      'Task terminal transition requires the authoritative database clock',
+      'TASK_TRANSITION_DATABASE_CLOCK_REQUIRED',
+    );
+  }
+  return timestamp.toISOString();
+}
+
 function durableTimestampBinding(value) {
   const instant = parseDurableTimestamp(value);
   if (!instant) return null;
@@ -2247,18 +2258,13 @@ export async function transitionTask({
     }
   }
 
-  const updates = ['status = $1', 'updated_at = NOW()'];
+  const updates = ['status = $1', 'updated_at = transition_clock.transition_at'];
   const params = [cleanNext];
-  let transitionInstant = null;
   if (cleanNext === 'completed') {
-    transitionInstant = new Date();
-    params.push(transitionInstant.getTime());
-    updates.push(`completed_at = to_timestamp($${params.length}::double precision / 1000.0)`);
+    updates.push('completed_at = transition_clock.transition_at');
   }
   if (cleanNext === 'cancelled') {
-    transitionInstant = new Date();
-    params.push(transitionInstant.getTime());
-    updates.push(`cancelled_at = to_timestamp($${params.length}::double precision / 1000.0)`);
+    updates.push('cancelled_at = transition_clock.transition_at');
     if (cancellationReason) {
       params.push(safeText(cancellationReason));
       updates.push(`cancellation_reason = $${params.length}`);
@@ -2269,7 +2275,11 @@ export async function transitionTask({
   params.push(current.status);
 
   const rows = await db.$queryRawUnsafe(
-    `UPDATE tasks SET ${updates.join(', ')}
+    `WITH transition_clock AS (
+       SELECT clock_timestamp() AS transition_at
+     )
+     UPDATE tasks SET ${updates.join(', ')}
+       FROM transition_clock
      WHERE id = $${params.length - 2}
        AND tenant_id = $${params.length - 1}::uuid
        AND status = $${params.length}
@@ -2280,6 +2290,11 @@ export async function transitionTask({
     await getTask({ tenantId: tid, id: taskId, tx });
     throw AppError.conflict('Task status changed before transition completed', 'TASK_TRANSITION_CONFLICT');
   }
+  const transitionInstant = cleanNext === 'completed'
+    ? requireTaskTransitionTimestamp(rows[0].completed_at)
+    : cleanNext === 'cancelled'
+      ? requireTaskTransitionTimestamp(rows[0].cancelled_at)
+      : null;
 
   // A direct completion closes only an acknowledgement-semantics SLA.
   // Cancellation is work withdrawal, never evidence that the obligation was met.

@@ -2093,27 +2093,56 @@ describe('transitionTask', () => {
   });
 
   it('flips open -> completed and stamps completed_at', async () => {
+    const completedAt = new Date('2026-09-02T10:56:06.842Z');
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'open' }]);
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'completed' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'completed', completed_at: completedAt }]);
     const row = await transitionTask({ tenantId: TENANT, id: 1, nextStatus: 'completed' });
     expect(row.status).toBe('completed');
     const transitionCall = queryUnsafeMock.mock.calls[1];
     const sql = transitionCall[0];
-    expect(sql).toMatch(/completed_at = to_timestamp\(\$\d::double precision \/ 1000\.0\)/);
-    expect(typeof transitionCall[2]).toBe('number');
+    expect(sql).toMatch(/WITH transition_clock AS \(\s*SELECT clock_timestamp\(\) AS transition_at/);
+    expect(sql).toMatch(/completed_at = transition_clock\.transition_at/);
+    expect(sql).toMatch(/updated_at = transition_clock\.transition_at/);
     expect(sql).toMatch(/AND status = \$\d/);
     expect(queryUnsafeMock.mock.calls[1]).toContain('open');
     expect(setTenantTxMock).toHaveBeenCalledWith(TENANT, expect.any(Function));
   });
 
   it('records cancellation_reason on cancel', async () => {
+    const cancelledAt = new Date('2026-09-02T10:56:06.842Z');
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'open' }]);
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'cancelled' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'cancelled', cancelled_at: cancelledAt }]);
     await transitionTask({
       tenantId: TENANT, id: 1, nextStatus: 'cancelled', cancellationReason: 'duplicate',
     });
+    const sql = queryUnsafeMock.mock.calls[1][0];
+    expect(sql).toMatch(/cancelled_at = transition_clock\.transition_at/);
+    expect(sql).toMatch(/updated_at = transition_clock\.transition_at/);
     const params = queryUnsafeMock.mock.calls[1].slice(1);
     expect(params).toContain('duplicate');
+  });
+
+  it.each([
+    ['completed', 'completed_at', undefined],
+    ['completed', 'completed_at', 'not-a-timestamp'],
+    ['cancelled', 'cancelled_at', undefined],
+    ['cancelled', 'cancelled_at', 'not-a-timestamp'],
+  ])('fails closed when a %s transition returns an invalid %s database clock', async (
+    nextStatus,
+    terminalColumn,
+    terminalValue,
+  ) => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'open' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 1,
+      status: nextStatus,
+      [terminalColumn]: terminalValue,
+    }]);
+
+    await expect(transitionTask({ tenantId: TENANT, id: 1, nextStatus }))
+      .rejects.toMatchObject({ code: 'TASK_TRANSITION_DATABASE_CLOCK_REQUIRED' });
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE workflow_sla_instances/i.test(sql)))
+      .toBe(false);
   });
 
   it('rejects cancellation while a typed linked SLA remains incomplete', async () => {
@@ -2149,7 +2178,11 @@ describe('transitionTask', () => {
       .mockResolvedValueOnce([task])
       .mockResolvedValueOnce([ackSlaRow()])
       .mockResolvedValueOnce([{ completed_at: new Date('2026-07-19T03:00:00.000Z') }])
-      .mockResolvedValueOnce([{ ...task, status: 'cancelled' }]);
+      .mockResolvedValueOnce([{
+        ...task,
+        status: 'cancelled',
+        cancelled_at: new Date('2026-07-19T03:01:00.000Z'),
+      }]);
 
     const cancelled = await transitionTask({ tenantId: TENANT, id: 1, nextStatus: 'cancelled' });
 
@@ -2219,6 +2252,7 @@ describe('transitionTask', () => {
   });
 
   it('allows completion of an acknowledgement-tracked task once the receipt is stamped', async () => {
+    const completedAt = new Date('2026-09-02T10:56:07.103Z');
     const task = {
       id: 1,
       status: 'in_progress',
@@ -2230,11 +2264,14 @@ describe('transitionTask', () => {
     queryUnsafeMock
       .mockResolvedValueOnce([task])
       .mockResolvedValueOnce([ackSlaRow()])
-      .mockResolvedValueOnce([{ ...task, status: 'completed' }])
+      .mockResolvedValueOnce([{ ...task, status: 'completed', completed_at: completedAt }])
       .mockResolvedValueOnce([{ id: DEFAULT_SLA_ID, status: 'completed' }]);
 
     const row = await transitionTask({ tenantId: TENANT, id: 1, nextStatus: 'completed' });
     expect(row.status).toBe('completed');
+    const slaCall = queryUnsafeMock.mock.calls[3];
+    expect(slaCall[0]).toMatch(/completed_at = \$7::text::timestamptz/);
+    expect(slaCall[7]).toBe(completedAt.toISOString());
   });
 
   it('rejects a generic transition when the typed SLA belongs to another source', async () => {
@@ -2309,7 +2346,11 @@ describe('transitionTask', () => {
     };
     queryUnsafeMock.mockResolvedValueOnce([task]);
     queryUnsafeMock.mockResolvedValueOnce([ackSlaRow()]);
-    queryUnsafeMock.mockResolvedValueOnce([{ ...task, status: 'completed' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      ...task,
+      status: 'completed',
+      completed_at: new Date('2026-09-02T10:56:07.103Z'),
+    }]);
     queryUnsafeMock.mockRejectedValueOnce(new Error('SLA write failed'));
 
     await expect(transitionTask({ tenantId: TENANT, id: 1, nextStatus: 'completed' }))
@@ -2320,7 +2361,12 @@ describe('transitionTask', () => {
   it('preserves a supplied transaction without nesting setTenantTx', async () => {
     const txQuery = jest.fn()
       .mockResolvedValueOnce([{ id: 1, status: 'open', metadata: {} }])
-      .mockResolvedValueOnce([{ id: 1, status: 'completed', metadata: {} }]);
+      .mockResolvedValueOnce([{
+        id: 1,
+        status: 'completed',
+        completed_at: new Date('2026-09-02T10:56:07.103Z'),
+        metadata: {},
+      }]);
     const tx = { $queryRawUnsafe: txQuery };
 
     const row = await transitionTask({
@@ -2368,13 +2414,10 @@ describe('supersedeAcknowledgementTaskFromTrustedWorkflow', () => {
     expect(taskUpdates).toHaveLength(2);
     expect(taskUpdates[0][1]).toBe('in_progress');
     expect(taskUpdates[1][1]).toBe('completed');
-    expect(taskUpdates[1][0]).toMatch(/completed_at = to_timestamp/);
-    // Both writes close on the SAME instant, but they bind it differently: the
-    // task keeps epoch millis (to_timestamp), while the SLA now binds a durable
-    // ISO-8601 UTC string ($7::text::timestamptz) so a session timezone cannot
-    // reinterpret it. Pin the SLA binding to the exact ISO rendering of the
-    // task's own epoch millis — same-instant equality plus the text shape.
-    expect(txQuery.mock.calls[6][7]).toBe(new Date(taskUpdates[1][2]).toISOString());
+    expect(taskUpdates[1][0]).toMatch(/completed_at = transition_clock\.transition_at/);
+    expect(taskUpdates[1][0]).toMatch(/updated_at = transition_clock\.transition_at/);
+    // The SLA binds the exact terminal instant returned by the task UPDATE.
+    expect(txQuery.mock.calls[6][7]).toBe(completedAt.toISOString());
     expect(txQuery.mock.calls[6][5]).toBe(USER);
   });
 
@@ -2468,7 +2511,11 @@ describe('completeTaskFromDomainEvidence', () => {
         created_at_epoch_ms: Date.parse('2026-07-19T06:00:00.001Z'),
       }])
       .mockResolvedValueOnce([task])
-      .mockResolvedValueOnce([{ ...task, status: 'completed' }])
+      .mockResolvedValueOnce([{
+        ...task,
+        status: 'completed',
+        completed_at: new Date('2026-07-19T06:00:00.002Z'),
+      }])
       .mockResolvedValueOnce([{ id: slaId, status: 'completed', completed_at: new Date() }])
       .mockResolvedValueOnce([{ id: 12, body_kind: 'state_change' }]);
     const tx = { $queryRawUnsafe: txQuery };
@@ -2817,8 +2864,8 @@ describe('completePathwayTaskFromRegisteredEvidence', () => {
   });
 
   it('atomically completes an in-progress task and linked SLA with normalized condition evidence', async () => {
-    const completedTask = pathwayTask({ status: 'completed' });
     const completedAt = new Date('2026-07-19T06:00:00.000Z');
+    const completedTask = pathwayTask({ status: 'completed', completed_at: completedAt });
     const completedSla = {
       ...pathwaySla(),
       status: 'completed',
@@ -2864,8 +2911,8 @@ describe('completePathwayTaskFromRegisteredEvidence', () => {
   it('advances a blocked task through in_progress before evidence completion', async () => {
     const blockedTask = pathwayTask({ status: 'blocked' });
     const inProgressTask = pathwayTask({ status: 'in_progress' });
-    const completedTask = pathwayTask({ status: 'completed' });
     const completedAt = new Date('2026-07-19T06:00:00.000Z');
+    const completedTask = pathwayTask({ status: 'completed', completed_at: completedAt });
     const completedSla = {
       ...pathwaySla(),
       status: 'completed',
@@ -2900,7 +2947,10 @@ describe('completePathwayTaskFromRegisteredEvidence', () => {
       .mockResolvedValueOnce([{ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }])
       .mockResolvedValueOnce([pathwaySla()])
       .mockResolvedValueOnce([pathwayTask()])
-      .mockResolvedValueOnce([pathwayTask({ status: 'completed' })])
+      .mockResolvedValueOnce([pathwayTask({
+        status: 'completed',
+        completed_at: new Date('2026-07-19T06:00:00.000Z'),
+      })])
       .mockRejectedValueOnce(new Error('forced pathway SLA failure'));
 
     await expect(complete({
@@ -3114,7 +3164,10 @@ describe('completePathwayTaskFromRegisteredCondition', () => {
   });
 
   it('completes current SLA-none work with canonical registered-condition evidence', async () => {
-    const completedTask = task({ status: 'completed' });
+    const completedTask = task({
+      status: 'completed',
+      completed_at: new Date('2026-07-19T06:00:00.000Z'),
+    });
     lockPathwayRuntimeTxMock.mockResolvedValueOnce(runtime(task()));
     const txQuery = jest.fn()
       .mockResolvedValueOnce([{ id: PATHWAY_INSTANCE_ID }])
