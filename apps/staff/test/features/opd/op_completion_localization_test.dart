@@ -8,7 +8,6 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 import 'package:vhhealth_core/vhhealth_core.dart';
 import 'package:vhhealth_staff/core/providers/theme_provider.dart';
 import 'package:vhhealth_staff/features/opd/screens/op_doctor_workspace_screen.dart';
@@ -90,15 +89,15 @@ void main() {
       await tester.pumpWidget(
         ChangeNotifierProvider(
           create: (_) => ThemeProvider(),
-          child: MaterialApp(
-            locale: const Locale('ml'),
+          child: const MaterialApp(
+            locale: Locale('ml'),
             supportedLocales: AppStrings.supportedLocales,
-            localizationsDelegates: const [
+            localizationsDelegates: [
               GlobalMaterialLocalizations.delegate,
               GlobalWidgetsLocalizations.delegate,
               GlobalCupertinoLocalizations.delegate,
             ],
-            home: const OpDoctorWorkspaceScreen(
+            home: OpDoctorWorkspaceScreen(
               patientUid: 'patient-7',
               patientName: 'Patient Seven',
               appointmentId: 7,
