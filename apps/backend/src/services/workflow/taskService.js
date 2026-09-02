@@ -6579,7 +6579,11 @@ export async function settleCoveringTransferReviewTaskTx({
   const current = await getTaskForUpdate({ tenantId: tid, id: taskId, db: tx });
   assertGenericTaskMutationAllowed(current, COVERING_TRANSFER_TASK_AUTHORITY);
   const bindings = await tx.$queryRawUnsafe(
-    `SELECT chi.id
+    `SELECT chi.id,
+            to_char(
+              GREATEST(clock_timestamp(), chi.requested_at) AT TIME ZONE 'UTC',
+              'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+            ) AS settlement_clock
        FROM care_handoff_instances chi
        JOIN tasks task
          ON task.tenant_id = chi.tenant_id
@@ -6627,7 +6631,7 @@ export async function settleCoveringTransferReviewTaskTx({
   }
 
   const nextStatus = cleanOutcome === 'accepted' ? 'completed' : 'cancelled';
-  const settledAt = new Date().toISOString();
+  const settledAt = bindings[0].settlement_clock;
   const rows = await tx.$queryRawUnsafe(
     `UPDATE tasks
         SET status = $3::text,
@@ -6640,7 +6644,7 @@ export async function settleCoveringTransferReviewTaskTx({
                    'covering_transfer_settled_by', $7::text,
                    'covering_transfer_settled_at', $4::text
                  ),
-            updated_at = NOW()
+            updated_at = $4::timestamptz
       WHERE tenant_id = $1::uuid
         AND id = $2::bigint
         AND status = $8::text
@@ -6716,7 +6720,11 @@ export async function settleOpInpatientTransferReviewTaskTx({
   const current = await getTaskForUpdate({ tenantId: tid, id: taskId, db: tx });
   assertGenericTaskMutationAllowed(current, OP_INPATIENT_TRANSFER_TASK_AUTHORITY);
   const bindings = await tx.$queryRawUnsafe(
-    `SELECT handoff.id
+    `SELECT handoff.id,
+            to_char(
+              GREATEST(clock_timestamp(), handoff.requested_at) AT TIME ZONE 'UTC',
+              'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+            ) AS settlement_clock
        FROM care_handoff_instances AS handoff
        JOIN tasks AS task
          ON task.tenant_id = handoff.tenant_id
@@ -6789,7 +6797,7 @@ export async function settleOpInpatientTransferReviewTaskTx({
     );
   }
 
-  const settledAt = new Date().toISOString();
+  const settledAt = bindings[0].settlement_clock;
   const rows = await tx.$queryRawUnsafe(
     `UPDATE tasks
         SET status = 'completed',
@@ -6802,7 +6810,7 @@ export async function settleOpInpatientTransferReviewTaskTx({
                    'op_inpatient_transfer_settled_by', $4::text,
                    'op_inpatient_transfer_settled_at', $3::text
                  ),
-            updated_at = NOW()
+            updated_at = $3::timestamptz
       WHERE tenant_id = $1::uuid
         AND id = $2::bigint
         AND status = $5::text
@@ -6909,7 +6917,11 @@ export async function settleEdDestinationHandoffReviewTaskTx({
   const current = await getTaskForUpdate({ tenantId: tid, id: taskId, db: tx });
   assertGenericTaskMutationAllowed(current, ED_DESTINATION_HANDOFF_TASK_AUTHORITY);
   const bindings = await tx.$queryRawUnsafe(
-    `SELECT handoff.id
+    `SELECT handoff.id,
+            to_char(
+              GREATEST(clock_timestamp(), handoff.requested_at) AT TIME ZONE 'UTC',
+              'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+            ) AS settlement_clock
        FROM care_handoff_instances AS handoff
        JOIN tasks AS task
          ON task.tenant_id = handoff.tenant_id
@@ -6989,7 +7001,7 @@ export async function settleEdDestinationHandoffReviewTaskTx({
     );
   }
 
-  const settledAt = new Date().toISOString();
+  const settledAt = bindings[0].settlement_clock;
   const nextStatus = cleanOutcome === 'accepted' ? 'completed' : 'cancelled';
   const rows = await tx.$queryRawUnsafe(
     `UPDATE tasks
@@ -7012,7 +7024,7 @@ export async function settleEdDestinationHandoffReviewTaskTx({
                    'ed_destination_handoff_settled_by', $7::text,
                    'ed_destination_handoff_settled_at', $4::text
                  ),
-            updated_at = NOW()
+            updated_at = $4::timestamptz
       WHERE tenant_id = $1::uuid
         AND id = $2::bigint
         AND status = $8::text
