@@ -265,14 +265,36 @@ export async function exportAuditEvents(tenantId, query = {}) {
   return { csv: auditEventsToCsv(rows), row_count: rows.length, filters: publicFilters(filters) };
 }
 
-export async function getAuditHealth(tenantId, query = {}) {
+export function normalizeAuditHealthWindow(query = {}, databaseNow) {
   const hours = integer(query.hours, 'hours', { min: 1, max: 24 * 90, fallback: 24 });
-  const patientThreshold = integer(query.patient_threshold, 'patient_threshold', { min: 1, max: 500, fallback: 20 });
-  const from = instant(query.from, 'from') || new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
-  const to = instant(query.to, 'to') || new Date().toISOString();
+  const explicitFrom = instant(query.from, 'from');
+  const explicitTo = instant(query.to, 'to');
+  let to = explicitTo;
+
+  if (!to) {
+    const databaseInstant = databaseNow instanceof Date ? databaseNow : new Date(databaseNow);
+    if (Number.isNaN(databaseInstant.getTime())) {
+      throw AppError.internal(
+        'Database clock returned an invalid audit-health timestamp',
+        'AUDIT_HEALTH_DATABASE_CLOCK_INVALID',
+      );
+    }
+    to = databaseInstant.toISOString();
+  }
+
+  const from = explicitFrom || new Date(new Date(to).getTime() - hours * 60 * 60 * 1000).toISOString();
   if (new Date(from) > new Date(to)) {
     throw AppError.badRequest('Audit from date must be before to date', 'INVALID_AUDIT_DATE_RANGE');
   }
+  return { from, hours, to };
+}
+
+export async function getAuditHealth(tenantId, query = {}) {
+  const patientThreshold = integer(query.patient_threshold, 'patient_threshold', { min: 1, max: 500, fallback: 20 });
+  const databaseNow = query.to
+    ? null
+    : (await prismaReadOnly.$queryRawUnsafe('SELECT clock_timestamp() AS database_now'))[0]?.database_now;
+  const { from, to } = normalizeAuditHealthWindow(query, databaseNow);
 
   const [
     sources,
