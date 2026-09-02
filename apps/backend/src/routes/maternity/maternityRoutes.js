@@ -279,11 +279,17 @@ router.get('/pregnancies/:id', requireStaffOrAdmin, guardByPregnancyIdParam, wra
 ));
 
 router.patch('/pregnancies/:id', requireStaffOrAdmin, guardByPregnancyIdParam, wrap(async (req) =>
-  mat.updatePregnancy({
-    ...req.body,
-    tenantId: tenantOf(req),
-    id: req.params.id,
-  }),
+  mat.updatePregnancy(
+    {
+      ...req.body,
+      tenantId: tenantOf(req),
+      id: req.params.id,
+    },
+    {
+      actorUid: req.user?.uid,
+      actorRole: req.user?.role,
+    },
+  ),
 ));
 
 // ── ANC visits ───────────────────────────────────────────────────────

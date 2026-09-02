@@ -441,28 +441,190 @@ export async function listPregnanciesForPatient({ tenantId, patient_uid }) {
   );
 }
 
-export async function updatePregnancy({ tenantId, id, ...patch }) {
-  const allowed = ['lmp_date', 'edd_date', 'gravida', 'parity', 'living_children',
-    'abortions', 'blood_group', 'rh_factor', 'high_risk', 'high_risk_reasons',
-    'status', 'notes'];
+export async function updatePregnancy(input = {}, { actorUid = null, actorRole = null } = {}) {
+  if (Object.prototype.hasOwnProperty.call(input, 'status')) {
+    throw AppError.badRequest(
+      'Pregnancy status changes require an explicit lifecycle action',
+      'MATERNITY_STATUS_TRANSITION_REQUIRES_LIFECYCLE_ACTION',
+    );
+  }
+  if (!actorUid || !actorRole) {
+    throw AppError.unauthorized(
+      'Authenticated actor context is required to update a pregnancy',
+      'MATERNITY_PREGNANCY_UPDATE_ACTOR_REQUIRED',
+    );
+  }
+
+  const { tenantId, id, ...patch } = input;
+  const pregnancyId = Number.parseInt(id, 10);
+  if (!Number.isInteger(pregnancyId) || pregnancyId <= 0) {
+    throw AppError.badRequest('Pregnancy id must be a positive integer');
+  }
+  const tid = tenantOr(tenantId);
+  const allowed = new Map([
+    ['lmp_date', 'date'],
+    ['edd_date', 'date'],
+    ['gravida', 'int'],
+    ['parity', 'int'],
+    ['living_children', 'int'],
+    ['abortions', 'int'],
+    ['blood_group', 'text'],
+    ['rh_factor', 'text'],
+    ['high_risk', 'boolean'],
+    ['high_risk_reasons', 'text[]'],
+    ['notes', 'text'],
+  ]);
   const sets = [];
+  const differences = [];
   const params = [];
-  for (const k of allowed) {
-    if (patch[k] !== undefined) {
-      params.push(patch[k]);
-      sets.push(`${k} = $${params.length}`);
+  const updatedFields = [];
+  for (const [field, type] of allowed) {
+    if (patch[field] !== undefined) {
+      params.push(patch[field]);
+      const placeholder = `$${params.length}::${type}`;
+      sets.push(`${field} = ${placeholder}`);
+      differences.push(`${field} IS DISTINCT FROM ${placeholder}`);
+      updatedFields.push(field);
     }
   }
   if (!sets.length) return getPregnancy({ tenantId, id });
-  params.push(Number(id));
-  params.push(tenantOr(tenantId));
-  await prisma.$executeRawUnsafe(
-    `UPDATE maternity_pregnancies
-        SET ${sets.join(', ')}, updated_at = NOW()
-      WHERE id = $${params.length - 1}::int AND tenant_id = $${params.length}::uuid`,
-    ...params,
-  );
-  return getPregnancy({ tenantId, id });
+
+  return setTenantTx(tid, async (tx) => {
+    const candidates = await tx.$queryRawUnsafe(
+      `SELECT patient_uid
+         FROM maternity_pregnancies
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      tid,
+      pregnancyId,
+    );
+    if (!candidates.length) throw AppError.notFound('Pregnancy not found');
+    const candidatePatientUid = String(candidates[0].patient_uid);
+
+    const lockedPatients = await tx.$queryRawUnsafe(
+      `SELECT uid, is_pregnant, pregnancy_lmp_date
+         FROM users
+        WHERE tenant_id = $1::uuid
+          AND uid = $2::uuid
+          AND role = 'PATIENT'
+        FOR UPDATE`,
+      tid,
+      candidatePatientUid,
+    );
+    if (!lockedPatients.length) throw AppError.notFound('Patient not found');
+
+    const lockedPregnancies = await tx.$queryRawUnsafe(
+      `SELECT *
+         FROM maternity_pregnancies
+        WHERE tenant_id = $1::uuid AND id = $2::int
+        FOR UPDATE`,
+      tid,
+      pregnancyId,
+    );
+    if (!lockedPregnancies.length) throw AppError.notFound('Pregnancy not found');
+    const lockedPregnancy = lockedPregnancies[0];
+    if (String(lockedPregnancy.patient_uid) !== candidatePatientUid) {
+      throw AppError.conflict(
+        'Pregnancy patient assignment changed during the update',
+        'MATERNITY_PREGNANCY_PATIENT_CHANGED',
+      );
+    }
+
+    const updateParams = [...params, pregnancyId, tid];
+    const idIndex = updateParams.length - 1;
+    const tenantIndex = updateParams.length;
+    const updatedRows = await tx.$queryRawUnsafe(
+      `UPDATE maternity_pregnancies
+          SET ${sets.join(', ')}, updated_at = NOW()
+        WHERE id = $${idIndex}::int
+          AND tenant_id = $${tenantIndex}::uuid
+          AND (${differences.join(' OR ')})
+      RETURNING *`,
+      ...updateParams,
+    );
+    if (!updatedRows.length) return lockedPregnancy;
+    const updated = updatedRows[0];
+
+    const projectionRows = await tx.$queryRawUnsafe(
+      `WITH projection AS (
+         SELECT EXISTS (
+                  SELECT 1
+                    FROM maternity_pregnancies
+                   WHERE tenant_id = $2::uuid
+                     AND patient_uid = $1::uuid
+                     AND status = 'ongoing'
+                ) AS is_pregnant,
+                (
+                  SELECT lmp_date
+                    FROM maternity_pregnancies
+                   WHERE tenant_id = $2::uuid
+                     AND patient_uid = $1::uuid
+                     AND status = 'ongoing'
+                   ORDER BY created_at DESC, id DESC
+                   LIMIT 1
+                ) AS lmp_date
+       )
+       UPDATE users u
+          SET is_pregnant = projection.is_pregnant,
+              pregnancy_lmp_date = projection.lmp_date,
+              updated_at = NOW()
+         FROM projection
+        WHERE u.tenant_id = $2::uuid
+          AND u.uid = $1::uuid
+       RETURNING u.is_pregnant, u.pregnancy_lmp_date`,
+      candidatePatientUid,
+      tid,
+    );
+    if (projectionRows.length !== 1) throw AppError.notFound('Patient not found');
+    const projection = projectionRows[0];
+    const canonicalRevision = canonicalStateFingerprint({
+      lmp_date: updated.lmp_date,
+      edd_date: updated.edd_date,
+      gravida: updated.gravida,
+      parity: updated.parity,
+      living_children: updated.living_children,
+      abortions: updated.abortions,
+      blood_group: updated.blood_group,
+      rh_factor: updated.rh_factor,
+      high_risk: updated.high_risk,
+      high_risk_reasons: updated.high_risk_reasons,
+      notes: updated.notes,
+    });
+    const txRevision = await currentCanonicalTransactionRevision(tx);
+
+    await recordCanonicalClinicalEvent({
+      tenantId: tid,
+      patientUid: candidatePatientUid,
+      eventType: 'maternity.pregnancy_updated',
+      eventStatus: updated.status,
+      sourceTable: 'maternity_pregnancies',
+      sourceId: updated.id,
+      resourceType: 'pregnancy',
+      resourceId: updated.id,
+      actorUid: String(actorUid),
+      actorRole: String(actorRole),
+      occurredAt: updated.updated_at,
+      visibleToPatient: false,
+      summary: 'Pregnancy episode updated',
+      payload: {
+        pregnancy_id: updated.id,
+        updated_fields: updatedFields,
+      },
+      beforeState: {
+        pregnancy_status: lockedPregnancy.status,
+        user_is_pregnant: lockedPatients[0].is_pregnant === true,
+      },
+      afterState: {
+        pregnancy_status: updated.status,
+        user_is_pregnant: projection.is_pregnant === true,
+      },
+      timelineIdempotencyKey:
+        `maternity_pregnancies:${updated.id}:updated:${canonicalRevision}:tx:${txRevision}`,
+      auditIdempotencyKey:
+        `maternity_pregnancies:${updated.id}:audit:updated:${canonicalRevision}:tx:${txRevision}`,
+    }, { db: tx, strict: true });
+
+    return updated;
+  });
 }
 
 // ── ANC visits ──────────────────────────────────────────────────────

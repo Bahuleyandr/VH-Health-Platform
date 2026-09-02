@@ -4,6 +4,7 @@ import prisma from '../lib/prisma.js';
 import {
   admitToLabor,
   createPregnancy,
+  updatePregnancy,
   recordPartographEntry,
   recordDelivery,
 } from '../services/maternity/maternityService.js';
@@ -193,6 +194,27 @@ async function assertCreateRolledBack(patientUid) {
   expect(events.audit).toHaveLength(0);
 }
 
+async function assertPregnancyUpdateRolledBack({ patientUid, pregnancyId, lmpDate }) {
+  const pregnancies = await prisma.$queryRawUnsafe(
+    `SELECT lmp_date::text AS lmp_date, high_risk, notes
+       FROM maternity_pregnancies
+      WHERE tenant_id = $1::uuid AND id = $2::int`,
+    TENANT_A,
+    Number(pregnancyId),
+  );
+  const projection = await patientProjection(patientUid);
+  const events = await canonicalRows(patientUid, 'maternity.pregnancy_updated');
+
+  expect(pregnancies[0]).toMatchObject({
+    lmp_date: lmpDate,
+    high_risk: false,
+    notes: null,
+  });
+  expect(projection).toMatchObject({ is_pregnant: false, pregnancy_lmp_date: null });
+  expect(events.timeline).toHaveLength(0);
+  expect(events.audit).toHaveLength(0);
+}
+
 async function assertLaborAdmissionRolledBack({ patientUid, pregnancyId }) {
   const admissions = await prisma.$queryRawUnsafe(
     `SELECT id FROM maternity_labor_admissions
@@ -320,7 +342,7 @@ d('C2 maternity atomic writes', () => {
     if (originalGate === undefined) delete process.env.OBGYN_LABOUR_WARD_PRIVILEGE_GATE_ENABLED;
     else process.env.OBGYN_LABOUR_WARD_PRIVILEGE_GATE_ENABLED = originalGate;
     await prisma.$disconnect();
-  });
+  }, 30_000);
 
   test('createPregnancy commits detail, projection, staff-only canonical event, and audit together', async () => {
     const patientUid = await seedUser();
@@ -414,6 +436,189 @@ d('C2 maternity atomic writes', () => {
       await removeTrigger();
     }
     await assertCreateRolledBack(patientUid);
+  });
+
+  test('updatePregnancy commits correction, projection, and canonical evidence from stored truth', async () => {
+    const patientUid = await seedUser();
+    const spoofedPatientUid = await seedUser();
+    const pregnancy = await seedPregnancy({ patientUid, lmpDate: '2025-10-01' });
+
+    const updated = await updatePregnancy({
+      tenantId: TENANT_A,
+      id: pregnancy.id,
+      patient_uid: spoofedPatientUid,
+      actor_uid: spoofedPatientUid,
+      actor_role: 'SUPER_ADMIN',
+      lmp_date: '2025-10-15',
+      high_risk: true,
+      high_risk_reasons: ['private-risk-reason'],
+      notes: 'private corrected narrative',
+    }, {
+      actorUid: ACTOR_UID,
+      actorRole: 'NURSING_STAFF',
+    });
+
+    expect(String(updated.patient_uid)).toBe(patientUid);
+    expect(updated.status).toBe('ongoing');
+    expect(await patientProjection(patientUid)).toMatchObject({
+      is_pregnant: true,
+      pregnancy_lmp_date: '2025-10-15',
+    });
+    expect(await patientProjection(spoofedPatientUid)).toMatchObject({
+      is_pregnant: false,
+      pregnancy_lmp_date: null,
+    });
+
+    const { timeline, audit } = await canonicalRows(patientUid, 'maternity.pregnancy_updated');
+    expect(timeline).toHaveLength(1);
+    expect(timeline[0]).toMatchObject({
+      tenant_id: TENANT_A,
+      event_status: 'ongoing',
+      source_table: 'maternity_pregnancies',
+      source_id: String(pregnancy.id),
+      resource_type: 'pregnancy',
+      resource_id: String(pregnancy.id),
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+      visible_to_patient: false,
+      clinical_summary: 'Pregnancy episode updated',
+      payload: {
+        pregnancy_id: pregnancy.id,
+        updated_fields: ['lmp_date', 'high_risk', 'high_risk_reasons', 'notes'],
+      },
+    });
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({
+      tenant_id: TENANT_A,
+      patient_uid: patientUid,
+      action_status: 'success',
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+      resource_type: 'pregnancy',
+      resource_table: 'maternity_pregnancies',
+      resource_id: String(pregnancy.id),
+      after_state: {
+        pregnancy_status: 'ongoing',
+        user_is_pregnant: true,
+      },
+    });
+    expect(JSON.stringify([timeline[0].payload, audit[0].after_state])).not.toContain(
+      'private corrected narrative',
+    );
+    expect(JSON.stringify([timeline[0].payload, audit[0].after_state])).not.toContain(
+      'private-risk-reason',
+    );
+
+    const beforeRetry = await prisma.$queryRawUnsafe(
+      `SELECT updated_at FROM maternity_pregnancies
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT_A,
+      Number(pregnancy.id),
+    );
+    await updatePregnancy({
+      tenantId: TENANT_A,
+      id: pregnancy.id,
+      lmp_date: '2025-10-15',
+      high_risk: true,
+      high_risk_reasons: ['private-risk-reason'],
+      notes: 'private corrected narrative',
+    }, {
+      actorUid: ACTOR_UID,
+      actorRole: 'NURSING_STAFF',
+    });
+    const afterRetry = await prisma.$queryRawUnsafe(
+      `SELECT updated_at FROM maternity_pregnancies
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT_A,
+      Number(pregnancy.id),
+    );
+    expect(afterRetry[0].updated_at).toEqual(beforeRetry[0].updated_at);
+    const retryEvents = await canonicalRows(patientUid, 'maternity.pregnancy_updated');
+    expect(retryEvents.timeline).toHaveLength(1);
+    expect(retryEvents.audit).toHaveLength(1);
+  });
+
+  test('updatePregnancy rejects general lifecycle changes and cross-tenant updates without writes', async () => {
+    const patientUid = await seedUser();
+    const pregnancy = await seedPregnancy({ patientUid, lmpDate: '2025-10-01' });
+
+    await expect(updatePregnancy({
+      tenantId: TENANT_A,
+      id: pregnancy.id,
+      status: 'delivered',
+    }, {
+      actorUid: ACTOR_UID,
+      actorRole: 'NURSING_STAFF',
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'MATERNITY_STATUS_TRANSITION_REQUIRES_LIFECYCLE_ACTION',
+    });
+    await expect(updatePregnancy({
+      tenantId: TENANT_B,
+      id: pregnancy.id,
+      lmp_date: '2025-10-15',
+    }, {
+      actorUid: ACTOR_UID,
+      actorRole: 'NURSING_STAFF',
+    })).rejects.toMatchObject({ statusCode: 404 });
+
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT lmp_date::text AS lmp_date, status
+         FROM maternity_pregnancies
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT_A,
+      Number(pregnancy.id),
+    );
+    expect(rows[0]).toMatchObject({ lmp_date: '2025-10-01', status: 'ongoing' });
+    const events = await canonicalRows(patientUid, 'maternity.pregnancy_updated');
+    expect(events.timeline).toHaveLength(0);
+    expect(events.audit).toHaveLength(0);
+  });
+
+  test.each([
+    ['pregnancy detail', ({ pregnancyId }) => ({
+      table: 'maternity_pregnancies', operation: 'UPDATE',
+      condition: `NEW.id = ${Number(pregnancyId)}`,
+    })],
+    ['user projection', ({ patientUid }) => ({
+      table: 'users', operation: 'UPDATE',
+      condition: `NEW.uid = '${patientUid}'::uuid AND NEW.pregnancy_lmp_date = '2025-10-15'::date`,
+    })],
+    ['canonical timeline', ({ patientUid }) => ({
+      table: 'clinical_timeline_events', operation: 'INSERT',
+      condition: `NEW.patient_uid = '${patientUid}'::uuid AND NEW.event_type = 'maternity.pregnancy_updated'`,
+    })],
+    ['clinical audit', ({ patientUid }) => ({
+      table: 'clinical_audit_events', operation: 'INSERT',
+      condition: `NEW.patient_uid = '${patientUid}'::uuid AND NEW.action = 'maternity.pregnancy_updated'`,
+    })],
+  ])('updatePregnancy rolls back after injected failure at %s', async (_label, triggerFor) => {
+    const lmpDate = '2025-10-01';
+    const patientUid = await seedUser();
+    const pregnancy = await seedPregnancy({ patientUid, lmpDate });
+    const removeTrigger = await installFailureTrigger(triggerFor({
+      patientUid,
+      pregnancyId: pregnancy.id,
+    }));
+    try {
+      await expect(updatePregnancy({
+        tenantId: TENANT_A,
+        id: pregnancy.id,
+        lmp_date: '2025-10-15',
+        high_risk: true,
+        notes: 'must roll back',
+      }, {
+        actorUid: ACTOR_UID,
+        actorRole: 'NURSING_STAFF',
+      })).rejects.toThrow();
+    } finally {
+      await removeTrigger();
+    }
+    await assertPregnancyUpdateRolledBack({
+      patientUid,
+      pregnancyId: pregnancy.id,
+      lmpDate,
+    });
   });
 
   test('admitToLabor commits detail and a staff-only canonical/audit pair under the submitter identity', async () => {
