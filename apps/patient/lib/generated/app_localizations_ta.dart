@@ -4476,4 +4476,203 @@ class AppLocalizationsTa extends AppLocalizations {
   String gamificationShareEarnedBadge(String title) {
     return 'VH Health-இல் \"$title\" பதக்கத்தை நான் பெற்றேன்!';
   }
+
+  @override
+  String navigationPageNotFound(String path) {
+    return 'பக்கம் கிடைக்கவில்லை: $path';
+  }
+
+  @override
+  String get navigationGoHome => 'முகப்புக்குச் செல்லவும்';
+
+  @override
+  String get dependentsLoadFailed =>
+      'சார்ந்தவர்களை ஏற்ற முடியவில்லை. மீண்டும் முயற்சிக்கவும்.';
+
+  @override
+  String get permissionsNotificationsName => 'அறிவிப்புகள்';
+
+  @override
+  String get permissionsNotificationsExplanation =>
+      'சந்திப்பு நினைவூட்டல்கள் மற்றும் உடல்நலப் புதுப்பிப்புகளுக்கு அறிவிப்புகளை அனுமதிக்கவும்.';
+
+  @override
+  String get permissionsCameraName => 'கேமரா அணுகல்';
+
+  @override
+  String get permissionsCameraExplanation =>
+      'ஆவணங்களை ஸ்கேன் செய்யவும் உடல்நலப் பதிவுகளுக்கான படங்களை எடுக்கவும் கேமரா அணுகலை அனுமதிக்கவும்.';
+
+  @override
+  String get permissionsPhotosName => 'படத் தொகுப்பு அணுகல்';
+
+  @override
+  String get permissionsPhotosExplanation =>
+      'ஆவணங்கள் மற்றும் மருந்துச் சீட்டுகளைப் பதிவேற்ற பட அணுகலை அனுமதிக்கவும்.';
+
+  @override
+  String get permissionsLocationName => 'இருப்பிட அணுகல்';
+
+  @override
+  String get permissionsLocationExplanation =>
+      'அவசர SOS வசதிகள் மற்றும் அருகிலுள்ள மருத்துவமனைகளுக்காக இருப்பிட அணுகலை அனுமதிக்கவும்.';
+
+  @override
+  String get permissionsCalendarName => 'நாள்காட்டி அணுகல்';
+
+  @override
+  String get permissionsCalendarExplanation =>
+      'சந்திப்புகள் மற்றும் உடல்நலம் சார்ந்த நிகழ்வுகளைக் காட்ட நாள்காட்டி அணுகலை அனுமதிக்கவும்.';
+
+  @override
+  String permissionsGenericName(String name) {
+    return '$name அணுகல்';
+  }
+
+  @override
+  String get permissionsGenericExplanation =>
+      'இந்த வசதி செயல்பட இந்த அனுமதி தேவை.';
+
+  @override
+  String permissionsRequiredTitle(String name) {
+    return '$name தேவை';
+  }
+
+  @override
+  String permissionsDisabledTitle(String name) {
+    return '$name முடக்கப்பட்டுள்ளது';
+  }
+
+  @override
+  String permissionsDisabledBody(String name) {
+    return '$name முடக்கப்பட்டுள்ளது. இந்த வசதியைப் பயன்படுத்த அமைப்புகளில் அதை இயக்கவும்.';
+  }
+
+  @override
+  String circularDialTapToAccess(String feature) {
+    return '$feature அணுக தட்டவும்';
+  }
+
+  @override
+  String get contactBookByPhone => 'தொலைபேசியில் முன்பதிவு செய்யவும்';
+
+  @override
+  String get deliveryTrackingLive => 'நேரலை';
+
+  @override
+  String deliveryTrackingEstimatedArrival(String minutes) {
+    return 'மதிப்பிடப்பட்ட வருகை: ~$minutes நிமி';
+  }
+
+  @override
+  String deliveryTrackingDistance(String distance) {
+    return '$distance கிமீ';
+  }
+
+  @override
+  String get deliveryTrackingCall => 'அழைக்கவும்';
+
+  @override
+  String get deliveryTrackingHospital => 'மருத்துவமனை';
+
+  @override
+  String get logoutRevocationRetryQueued =>
+      'இந்தச் சாதனத்தில் வெளியேறிவிட்டீர்கள். சேவையகத்தை அணுக முடியாததால் மற்ற சாதனங்களில் உள்நுழைந்திருக்கலாம் — அடுத்த முறை இந்தச் செயலியைத் திறக்கும்போது அவற்றிலிருந்து தானாக வெளியேற்றுவோம்.';
+
+  @override
+  String get logoutRevocationRetryUnavailable =>
+      'இந்தச் சாதனத்தில் மட்டும் வெளியேறிவிட்டீர்கள். சேவையகத்தை அணுக முடியவில்லை, இந்தச் சாதனம் மீண்டும் முயற்சிக்கவும் முடியாது; எனவே மற்ற சாதனங்களில் உள்நுழைந்திருக்கலாம். அவற்றிலிருந்து நேரடியாக வெளியேறவும்.';
+
+  @override
+  String get logoutFailed => 'வெளியேற முடியவில்லை. மீண்டும் முயற்சிக்கவும்.';
+
+  @override
+  String get loginLightMode => 'ஒளி முறை';
+
+  @override
+  String get loginDarkMode => 'இருள் முறை';
+
+  @override
+  String get dashboardTodayRefreshFailed =>
+      'இன்றைய தகவலை இப்போது புதுப்பிக்க முடியவில்லை.';
+
+  @override
+  String get dashboardTodayRefreshTitle => 'இன்றைய தகவல் புதுப்பிக்கப்படவில்லை';
+
+  @override
+  String get commonDoneButton => 'முடிந்தது';
+
+  @override
+  String dashboardHospitalId(String hospitalId) {
+    return 'மருத்துவமனை ID $hospitalId';
+  }
+
+  @override
+  String get dashboardStepsBreakdown => 'அடிகள் விவரம்';
+
+  @override
+  String get dashboardMetricLeft => 'மீதம்';
+
+  @override
+  String get dashboardMetricActivity => 'செயல்பாடு';
+
+  @override
+  String get dashboardPointsBreakdown => 'புள்ளிகள் விவரம்';
+
+  @override
+  String get dashboardMetricTier => 'நிலை';
+
+  @override
+  String get dashboardMetricNext => 'அடுத்து';
+
+  @override
+  String get dashboardMetricCycle => 'சுழற்சி';
+
+  @override
+  String get dashboardMetricPeriod => 'மாதவிடாய்';
+
+  @override
+  String get dashboardMetricSteps => 'அடிகள்';
+
+  @override
+  String get feedbackHistoryEmptyTitle =>
+      'இதுவரை கருத்து சமர்ப்பிக்கப்படவில்லை';
+
+  @override
+  String get feedbackHistoryEmptySubtitle =>
+      'உங்கள் கருத்து வரலாறு இங்கே தோன்றும்';
+
+  @override
+  String feedbackAverageRating(String rating) {
+    return 'சராசரி மதிப்பீடு: $rating';
+  }
+
+  @override
+  String get messageThreadLoadFailed =>
+      'இந்தச் செய்தித் தொடரை ஏற்ற முடியவில்லை. மீண்டும் முயற்சிக்கவும்.';
+
+  @override
+  String get messageReplyHint => 'பதில்…';
+
+  @override
+  String get dischargeSummariesRefreshFailed =>
+      'டிஸ்சார்ஜ் சுருக்கங்களைப் புதுப்பிக்க முடியவில்லை.';
+
+  @override
+  String get referralsRefreshFailed =>
+      'பரிந்துரைகளைப் புதுப்பிக்க முடியவில்லை.';
+
+  @override
+  String get settingsAuthenticationFailed =>
+      'அங்கீகாரம் தோல்வியடைந்தது. மீண்டும் முயற்சிக்கவும்.';
+
+  @override
+  String get settingsVerifiedPhoneRequiredForDeletion =>
+      'கணக்கை நீக்க சரிபார்க்கப்பட்ட தொலைபேசி எண் தேவை.';
+
+  @override
+  String get commonDeleteButton => 'நீக்கு';
+
+  @override
+  String get commonUploadButton => 'பதிவேற்றவும்';
 }

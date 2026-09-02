@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:vhhealth/core/providers/language_provider.dart';
 import 'package:vhhealth/core/providers/theme_provider.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class LanguageMenuButton extends StatelessWidget {
   const LanguageMenuButton({super.key});
@@ -14,13 +15,14 @@ class LanguageMenuButton extends StatelessWidget {
     final buttonSize = 40.0 * iconScale;
     final iconSize = 20.0 * iconScale;
     final currentLanguage = languageProvider.locale.languageCode;
+    final l10n = AppLocalizations.of(context)!;
 
     return Tooltip(
-      message: 'Change Language',
+      message: l10n.changeLanguage,
       child: SizedBox.square(
         dimension: buttonSize,
         child: PopupMenuButton<String>(
-          tooltip: 'Change Language',
+          tooltip: l10n.changeLanguage,
           padding: EdgeInsets.zero,
           offset: Offset(0, buttonSize),
           shape: RoundedRectangleBorder(

@@ -4389,4 +4389,201 @@ class AppLocalizationsEn extends AppLocalizations {
   String gamificationShareEarnedBadge(String title) {
     return 'I earned the \"$title\" badge on VH Health!';
   }
+
+  @override
+  String navigationPageNotFound(String path) {
+    return 'Page not found: $path';
+  }
+
+  @override
+  String get navigationGoHome => 'Go Home';
+
+  @override
+  String get dependentsLoadFailed =>
+      'Unable to load dependents. Please try again.';
+
+  @override
+  String get permissionsNotificationsName => 'Notifications';
+
+  @override
+  String get permissionsNotificationsExplanation =>
+      'Allow notifications for appointment reminders and health updates.';
+
+  @override
+  String get permissionsCameraName => 'Camera Access';
+
+  @override
+  String get permissionsCameraExplanation =>
+      'Allow camera access to scan documents and take photos for your health records.';
+
+  @override
+  String get permissionsPhotosName => 'Photo Library Access';
+
+  @override
+  String get permissionsPhotosExplanation =>
+      'Allow photo access to upload documents and prescriptions.';
+
+  @override
+  String get permissionsLocationName => 'Location Access';
+
+  @override
+  String get permissionsLocationExplanation =>
+      'Allow location access for emergency SOS features and nearby hospitals.';
+
+  @override
+  String get permissionsCalendarName => 'Calendar Access';
+
+  @override
+  String get permissionsCalendarExplanation =>
+      'Allow calendar access to display appointments and health-related events.';
+
+  @override
+  String permissionsGenericName(String name) {
+    return '$name access';
+  }
+
+  @override
+  String get permissionsGenericExplanation =>
+      'This permission is required for this feature to work.';
+
+  @override
+  String permissionsRequiredTitle(String name) {
+    return '$name Required';
+  }
+
+  @override
+  String permissionsDisabledTitle(String name) {
+    return '$name Disabled';
+  }
+
+  @override
+  String permissionsDisabledBody(String name) {
+    return '$name has been disabled. Enable it in Settings to use this feature.';
+  }
+
+  @override
+  String circularDialTapToAccess(String feature) {
+    return 'Tap to access $feature';
+  }
+
+  @override
+  String get contactBookByPhone => 'Book by Phone';
+
+  @override
+  String get deliveryTrackingLive => 'Live';
+
+  @override
+  String deliveryTrackingEstimatedArrival(String minutes) {
+    return 'Estimated arrival: ~$minutes min';
+  }
+
+  @override
+  String deliveryTrackingDistance(String distance) {
+    return '$distance km';
+  }
+
+  @override
+  String get deliveryTrackingCall => 'Call';
+
+  @override
+  String get deliveryTrackingHospital => 'Hospital';
+
+  @override
+  String get logoutRevocationRetryQueued =>
+      'Signed out on this device. We could not reach the server, so your other devices may stay signed in — we will finish signing them out automatically the next time you open this app.';
+
+  @override
+  String get logoutRevocationRetryUnavailable =>
+      'Signed out on this device only. We could not reach the server and this device cannot try again, so your other devices may stay signed in. Sign out from them directly.';
+
+  @override
+  String get logoutFailed => 'Could not log out. Please try again.';
+
+  @override
+  String get loginLightMode => 'Light mode';
+
+  @override
+  String get loginDarkMode => 'Dark mode';
+
+  @override
+  String get dashboardTodayRefreshFailed =>
+      'Today could not refresh right now.';
+
+  @override
+  String get dashboardTodayRefreshTitle => 'Today could not refresh';
+
+  @override
+  String get commonDoneButton => 'Done';
+
+  @override
+  String dashboardHospitalId(String hospitalId) {
+    return 'Hospital ID $hospitalId';
+  }
+
+  @override
+  String get dashboardStepsBreakdown => 'Steps breakdown';
+
+  @override
+  String get dashboardMetricLeft => 'Left';
+
+  @override
+  String get dashboardMetricActivity => 'Activity';
+
+  @override
+  String get dashboardPointsBreakdown => 'Points breakdown';
+
+  @override
+  String get dashboardMetricTier => 'Tier';
+
+  @override
+  String get dashboardMetricNext => 'Next';
+
+  @override
+  String get dashboardMetricCycle => 'Cycle';
+
+  @override
+  String get dashboardMetricPeriod => 'Period';
+
+  @override
+  String get dashboardMetricSteps => 'Steps';
+
+  @override
+  String get feedbackHistoryEmptyTitle => 'No feedback submitted yet';
+
+  @override
+  String get feedbackHistoryEmptySubtitle =>
+      'Your feedback history will appear here';
+
+  @override
+  String feedbackAverageRating(String rating) {
+    return 'Average rating: $rating';
+  }
+
+  @override
+  String get messageThreadLoadFailed =>
+      'Could not load this message thread. Please try again.';
+
+  @override
+  String get messageReplyHint => 'Reply…';
+
+  @override
+  String get dischargeSummariesRefreshFailed =>
+      'Could not refresh discharge summaries.';
+
+  @override
+  String get referralsRefreshFailed => 'Could not refresh referrals.';
+
+  @override
+  String get settingsAuthenticationFailed =>
+      'Authentication failed. Please try again.';
+
+  @override
+  String get settingsVerifiedPhoneRequiredForDeletion =>
+      'A verified phone number is required to delete the account.';
+
+  @override
+  String get commonDeleteButton => 'Delete';
+
+  @override
+  String get commonUploadButton => 'Upload';
 }

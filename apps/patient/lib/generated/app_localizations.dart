@@ -8161,6 +8161,330 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'I earned the \"{title}\" badge on VH Health!'**
   String gamificationShareEarnedBadge(String title);
+
+  /// Router error page message
+  ///
+  /// In en, this message translates to:
+  /// **'Page not found: {path}'**
+  String navigationPageNotFound(String path);
+
+  /// Router error page action
+  ///
+  /// In en, this message translates to:
+  /// **'Go Home'**
+  String get navigationGoHome;
+
+  /// Fallback when the linked-dependent roster cannot load
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to load dependents. Please try again.'**
+  String get dependentsLoadFailed;
+
+  /// Notification permission name
+  ///
+  /// In en, this message translates to:
+  /// **'Notifications'**
+  String get permissionsNotificationsName;
+
+  /// Notification permission explanation
+  ///
+  /// In en, this message translates to:
+  /// **'Allow notifications for appointment reminders and health updates.'**
+  String get permissionsNotificationsExplanation;
+
+  /// Camera permission name
+  ///
+  /// In en, this message translates to:
+  /// **'Camera Access'**
+  String get permissionsCameraName;
+
+  /// Camera permission explanation
+  ///
+  /// In en, this message translates to:
+  /// **'Allow camera access to scan documents and take photos for your health records.'**
+  String get permissionsCameraExplanation;
+
+  /// Photo-library permission name
+  ///
+  /// In en, this message translates to:
+  /// **'Photo Library Access'**
+  String get permissionsPhotosName;
+
+  /// Photo-library permission explanation
+  ///
+  /// In en, this message translates to:
+  /// **'Allow photo access to upload documents and prescriptions.'**
+  String get permissionsPhotosExplanation;
+
+  /// Location permission name
+  ///
+  /// In en, this message translates to:
+  /// **'Location Access'**
+  String get permissionsLocationName;
+
+  /// Location permission explanation
+  ///
+  /// In en, this message translates to:
+  /// **'Allow location access for emergency SOS features and nearby hospitals.'**
+  String get permissionsLocationExplanation;
+
+  /// Calendar permission name
+  ///
+  /// In en, this message translates to:
+  /// **'Calendar Access'**
+  String get permissionsCalendarName;
+
+  /// Calendar permission explanation
+  ///
+  /// In en, this message translates to:
+  /// **'Allow calendar access to display appointments and health-related events.'**
+  String get permissionsCalendarExplanation;
+
+  /// Fallback permission name
+  ///
+  /// In en, this message translates to:
+  /// **'{name} access'**
+  String permissionsGenericName(String name);
+
+  /// Fallback permission explanation
+  ///
+  /// In en, this message translates to:
+  /// **'This permission is required for this feature to work.'**
+  String get permissionsGenericExplanation;
+
+  /// Permission explanation dialog title
+  ///
+  /// In en, this message translates to:
+  /// **'{name} Required'**
+  String permissionsRequiredTitle(String name);
+
+  /// Permanently disabled permission dialog title
+  ///
+  /// In en, this message translates to:
+  /// **'{name} Disabled'**
+  String permissionsDisabledTitle(String name);
+
+  /// Permanently disabled permission dialog body
+  ///
+  /// In en, this message translates to:
+  /// **'{name} has been disabled. Enable it in Settings to use this feature.'**
+  String permissionsDisabledBody(String name);
+
+  /// Fallback description in the dashboard feature dial
+  ///
+  /// In en, this message translates to:
+  /// **'Tap to access {feature}'**
+  String circularDialTapToAccess(String feature);
+
+  /// Heading above appointment phone numbers
+  ///
+  /// In en, this message translates to:
+  /// **'Book by Phone'**
+  String get contactBookByPhone;
+
+  /// Live delivery location indicator
+  ///
+  /// In en, this message translates to:
+  /// **'Live'**
+  String get deliveryTrackingLive;
+
+  /// Delivery ETA
+  ///
+  /// In en, this message translates to:
+  /// **'Estimated arrival: ~{minutes} min'**
+  String deliveryTrackingEstimatedArrival(String minutes);
+
+  /// Delivery distance
+  ///
+  /// In en, this message translates to:
+  /// **'{distance} km'**
+  String deliveryTrackingDistance(String distance);
+
+  /// Call the delivery person action
+  ///
+  /// In en, this message translates to:
+  /// **'Call'**
+  String get deliveryTrackingCall;
+
+  /// Delivery route origin label
+  ///
+  /// In en, this message translates to:
+  /// **'Hospital'**
+  String get deliveryTrackingHospital;
+
+  /// Logout warning when remote revocation is queued for retry
+  ///
+  /// In en, this message translates to:
+  /// **'Signed out on this device. We could not reach the server, so your other devices may stay signed in — we will finish signing them out automatically the next time you open this app.'**
+  String get logoutRevocationRetryQueued;
+
+  /// Logout warning when remote revocation cannot be retried
+  ///
+  /// In en, this message translates to:
+  /// **'Signed out on this device only. We could not reach the server and this device cannot try again, so your other devices may stay signed in. Sign out from them directly.'**
+  String get logoutRevocationRetryUnavailable;
+
+  /// Unexpected logout failure
+  ///
+  /// In en, this message translates to:
+  /// **'Could not log out. Please try again.'**
+  String get logoutFailed;
+
+  /// Login toolbar light-theme tooltip
+  ///
+  /// In en, this message translates to:
+  /// **'Light mode'**
+  String get loginLightMode;
+
+  /// Login toolbar dark-theme tooltip
+  ///
+  /// In en, this message translates to:
+  /// **'Dark mode'**
+  String get loginDarkMode;
+
+  /// Dashboard Today refresh failure detail
+  ///
+  /// In en, this message translates to:
+  /// **'Today could not refresh right now.'**
+  String get dashboardTodayRefreshFailed;
+
+  /// Dashboard Today refresh failure heading
+  ///
+  /// In en, this message translates to:
+  /// **'Today could not refresh'**
+  String get dashboardTodayRefreshTitle;
+
+  /// Generic completion action
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get commonDoneButton;
+
+  /// Dashboard header hospital identifier
+  ///
+  /// In en, this message translates to:
+  /// **'Hospital ID {hospitalId}'**
+  String dashboardHospitalId(String hospitalId);
+
+  /// Expanded steps panel heading
+  ///
+  /// In en, this message translates to:
+  /// **'Steps breakdown'**
+  String get dashboardStepsBreakdown;
+
+  /// Remaining amount metric label
+  ///
+  /// In en, this message translates to:
+  /// **'Left'**
+  String get dashboardMetricLeft;
+
+  /// Activity-level metric label
+  ///
+  /// In en, this message translates to:
+  /// **'Activity'**
+  String get dashboardMetricActivity;
+
+  /// Expanded points panel heading
+  ///
+  /// In en, this message translates to:
+  /// **'Points breakdown'**
+  String get dashboardPointsBreakdown;
+
+  /// Points tier metric label
+  ///
+  /// In en, this message translates to:
+  /// **'Tier'**
+  String get dashboardMetricTier;
+
+  /// Next points tier metric label
+  ///
+  /// In en, this message translates to:
+  /// **'Next'**
+  String get dashboardMetricNext;
+
+  /// Cycle-length metric label
+  ///
+  /// In en, this message translates to:
+  /// **'Cycle'**
+  String get dashboardMetricCycle;
+
+  /// Period metric label
+  ///
+  /// In en, this message translates to:
+  /// **'Period'**
+  String get dashboardMetricPeriod;
+
+  /// Step count metric label
+  ///
+  /// In en, this message translates to:
+  /// **'Steps'**
+  String get dashboardMetricSteps;
+
+  /// Feedback history empty-state title
+  ///
+  /// In en, this message translates to:
+  /// **'No feedback submitted yet'**
+  String get feedbackHistoryEmptyTitle;
+
+  /// Feedback history empty-state subtitle
+  ///
+  /// In en, this message translates to:
+  /// **'Your feedback history will appear here'**
+  String get feedbackHistoryEmptySubtitle;
+
+  /// Feedback average rating
+  ///
+  /// In en, this message translates to:
+  /// **'Average rating: {rating}'**
+  String feedbackAverageRating(String rating);
+
+  /// Secure-message thread load failure
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load this message thread. Please try again.'**
+  String get messageThreadLoadFailed;
+
+  /// Secure-message reply field placeholder
+  ///
+  /// In en, this message translates to:
+  /// **'Reply…'**
+  String get messageReplyHint;
+
+  /// Background refresh failure for discharge summaries
+  ///
+  /// In en, this message translates to:
+  /// **'Could not refresh discharge summaries.'**
+  String get dischargeSummariesRefreshFailed;
+
+  /// Background refresh failure for referrals
+  ///
+  /// In en, this message translates to:
+  /// **'Could not refresh referrals.'**
+  String get referralsRefreshFailed;
+
+  /// Generic settings authentication failure
+  ///
+  /// In en, this message translates to:
+  /// **'Authentication failed. Please try again.'**
+  String get settingsAuthenticationFailed;
+
+  /// Account-deletion prerequisite error
+  ///
+  /// In en, this message translates to:
+  /// **'A verified phone number is required to delete the account.'**
+  String get settingsVerifiedPhoneRequiredForDeletion;
+
+  /// Generic delete action
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get commonDeleteButton;
+
+  /// Generic upload action
+  ///
+  /// In en, this message translates to:
+  /// **'Upload'**
+  String get commonUploadButton;
 }
 
 class _AppLocalizationsDelegate

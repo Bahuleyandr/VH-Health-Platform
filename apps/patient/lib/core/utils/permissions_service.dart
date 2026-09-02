@@ -29,11 +29,12 @@ class PermissionsService {
   // 2. Minimal startup permission (notification only)
   // ────────────────────────────────────────────────
   static Future<bool> requestStartupPermissions(BuildContext context) async {
+    final l10n = AppLocalizations.of(context)!;
     return _requestPermissionWithExplanation(
       context,
       Permission.notification,
-      'Notifications',
-      'We need notification permission to send you appointment reminders and health updates.',
+      l10n.permissionsNotificationsName,
+      l10n.permissionsNotificationsExplanation,
     );
   }
 
@@ -41,38 +42,42 @@ class PermissionsService {
   // 3. Individual permissions with explanation
   // ────────────────────────────────────────────────
   static Future<bool> requestCameraPermission(BuildContext context) async {
+    final l10n = AppLocalizations.of(context)!;
     return _requestPermissionWithExplanation(
       context,
       Permission.camera,
-      'Camera Access',
-      'We need camera access to scan documents and take photos for your health records.',
+      l10n.permissionsCameraName,
+      l10n.permissionsCameraExplanation,
     );
   }
 
   static Future<bool> requestPhotoPermission(BuildContext context) async {
+    final l10n = AppLocalizations.of(context)!;
     return _requestPermissionWithExplanation(
       context,
       Permission.photos,
-      'Photo Library Access',
-      'We need access to your photos to upload medical documents and prescriptions.',
+      l10n.permissionsPhotosName,
+      l10n.permissionsPhotosExplanation,
     );
   }
 
   static Future<bool> requestLocationPermission(BuildContext context) async {
+    final l10n = AppLocalizations.of(context)!;
     return _requestPermissionWithExplanation(
       context,
       Permission.locationWhenInUse,
-      'Location Access',
-      'We need your location for emergency SOS features and to find nearby hospitals.',
+      l10n.permissionsLocationName,
+      l10n.permissionsLocationExplanation,
     );
   }
 
   static Future<bool> requestCalendarPermission(BuildContext context) async {
+    final l10n = AppLocalizations.of(context)!;
     return _requestPermissionWithExplanation(
       context,
       Permission.calendarFullAccess,
-      'Calendar Access',
-      'We need calendar access to display your appointments and health-related events.',
+      l10n.permissionsCalendarName,
+      l10n.permissionsCalendarExplanation,
     );
   }
 
@@ -81,16 +86,18 @@ class PermissionsService {
     BuildContext context,
     Permission permission,
   ) async {
+    final l10n = AppLocalizations.of(context)!;
+    final permissionName = permission
+        .toString()
+        .split('.')
+        .last
+        .replaceAll(RegExp(r'([A-Z])'), ' \$1')
+        .trim();
     return _requestPermissionWithExplanation(
       context,
       permission,
-      permission
-          .toString()
-          .split('.')
-          .last
-          .replaceAll(RegExp(r'([A-Z])'), ' \$1')
-          .trim(),
-      'This permission is required for proper functionality.',
+      l10n.permissionsGenericName(permissionName),
+      l10n.permissionsGenericExplanation,
     );
   }
 
@@ -185,20 +192,25 @@ class PermissionsService {
     return await showDialog<bool>(
           context: context,
           barrierDismissible: false,
-          builder: (dialogCtx) => AlertDialog(
-            title: Text('$permissionName Required'),
-            content: Text(explanation),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogCtx).pop(false),
-                child: Text(AppLocalizations.of(dialogCtx)!.permissionsNotNow),
-              ),
-              ElevatedButton(
-                onPressed: () => Navigator.of(dialogCtx).pop(true),
-                child: const Text('Continue'),
-              ),
-            ],
-          ),
+          builder: (dialogCtx) {
+            final l10n = AppLocalizations.of(dialogCtx)!;
+            return AlertDialog(
+              title: Text(l10n.permissionsRequiredTitle(permissionName)),
+              content: Text(explanation),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogCtx).pop(false),
+                  child: Text(
+                    AppLocalizations.of(dialogCtx)!.permissionsNotNow,
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(dialogCtx).pop(true),
+                  child: Text(l10n.commonContinueButton),
+                ),
+              ],
+            );
+          },
         ) ??
         false;
   }
@@ -212,25 +224,25 @@ class PermissionsService {
     return await showDialog<bool>(
           context: context,
           barrierDismissible: false,
-          builder: (dialogCtx) => AlertDialog(
-            title: Text('$permissionName Disabled'),
-            content: Text(
-              '$permissionName has been disabled. '
-              'Please enable it in Settings to use this feature.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogCtx).pop(false),
-                child: const Text('Cancel'),
-              ),
-              ElevatedButton(
-                onPressed: () => Navigator.of(dialogCtx).pop(true),
-                child: Text(
-                  AppLocalizations.of(dialogCtx)!.permissionsOpenSettings,
+          builder: (dialogCtx) {
+            final l10n = AppLocalizations.of(dialogCtx)!;
+            return AlertDialog(
+              title: Text(l10n.permissionsDisabledTitle(permissionName)),
+              content: Text(l10n.permissionsDisabledBody(permissionName)),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogCtx).pop(false),
+                  child: Text(l10n.commonCancelButton),
                 ),
-              ),
-            ],
-          ),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(dialogCtx).pop(true),
+                  child: Text(
+                    AppLocalizations.of(dialogCtx)!.permissionsOpenSettings,
+                  ),
+                ),
+              ],
+            );
+          },
         ) ??
         false;
   }

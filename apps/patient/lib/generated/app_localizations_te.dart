@@ -4440,4 +4440,202 @@ class AppLocalizationsTe extends AppLocalizations {
   String gamificationShareEarnedBadge(String title) {
     return 'నేను VH Healthలో \"$title\" బ్యాడ్జ్ సాధించాను!';
   }
+
+  @override
+  String navigationPageNotFound(String path) {
+    return 'పేజీ కనబడలేదు: $path';
+  }
+
+  @override
+  String get navigationGoHome => 'హోమ్‌కు వెళ్లండి';
+
+  @override
+  String get dependentsLoadFailed =>
+      'ఆధారితుల వివరాలను లోడ్ చేయలేకపోయాము. దయచేసి మళ్లీ ప్రయత్నించండి.';
+
+  @override
+  String get permissionsNotificationsName => 'నోటిఫికేషన్‌లు';
+
+  @override
+  String get permissionsNotificationsExplanation =>
+      'అపాయింట్‌మెంట్ రిమైండర్లు మరియు ఆరోగ్య అప్‌డేట్‌ల కోసం నోటిఫికేషన్‌లను అనుమతించండి.';
+
+  @override
+  String get permissionsCameraName => 'కెమెరా యాక్సెస్';
+
+  @override
+  String get permissionsCameraExplanation =>
+      'పత్రాలను స్కాన్ చేయడానికి మరియు ఆరోగ్య రికార్డుల కోసం ఫోటోలు తీయడానికి కెమెరా యాక్సెస్‌ను అనుమతించండి.';
+
+  @override
+  String get permissionsPhotosName => 'ఫోటో లైబ్రరీ యాక్సెస్';
+
+  @override
+  String get permissionsPhotosExplanation =>
+      'పత్రాలు మరియు ప్రిస్క్రిప్షన్‌లను అప్‌లోడ్ చేయడానికి ఫోటో యాక్సెస్‌ను అనుమతించండి.';
+
+  @override
+  String get permissionsLocationName => 'స్థాన యాక్సెస్';
+
+  @override
+  String get permissionsLocationExplanation =>
+      'అత్యవసర SOS ఫీచర్లు మరియు సమీప ఆసుపత్రుల కోసం స్థాన యాక్సెస్‌ను అనుమతించండి.';
+
+  @override
+  String get permissionsCalendarName => 'క్యాలెండర్ యాక్సెస్';
+
+  @override
+  String get permissionsCalendarExplanation =>
+      'అపాయింట్‌మెంట్‌లు మరియు ఆరోగ్య సంబంధిత ఈవెంట్‌లను చూపడానికి క్యాలెండర్ యాక్సెస్‌ను అనుమతించండి.';
+
+  @override
+  String permissionsGenericName(String name) {
+    return '$name యాక్సెస్';
+  }
+
+  @override
+  String get permissionsGenericExplanation =>
+      'ఈ ఫీచర్ పని చేయడానికి ఈ అనుమతి అవసరం.';
+
+  @override
+  String permissionsRequiredTitle(String name) {
+    return '$name అవసరం';
+  }
+
+  @override
+  String permissionsDisabledTitle(String name) {
+    return '$name నిలిపివేయబడింది';
+  }
+
+  @override
+  String permissionsDisabledBody(String name) {
+    return '$name నిలిపివేయబడింది. ఈ ఫీచర్‌ను ఉపయోగించడానికి సెట్టింగ్‌లలో దాన్ని ప్రారంభించండి.';
+  }
+
+  @override
+  String circularDialTapToAccess(String feature) {
+    return '$feature తెరవడానికి ట్యాప్ చేయండి';
+  }
+
+  @override
+  String get contactBookByPhone => 'ఫోన్ ద్వారా బుక్ చేయండి';
+
+  @override
+  String get deliveryTrackingLive => 'లైవ్';
+
+  @override
+  String deliveryTrackingEstimatedArrival(String minutes) {
+    return 'అంచనా రాక: ~$minutes నిమి';
+  }
+
+  @override
+  String deliveryTrackingDistance(String distance) {
+    return '$distance కి.మీ';
+  }
+
+  @override
+  String get deliveryTrackingCall => 'కాల్ చేయండి';
+
+  @override
+  String get deliveryTrackingHospital => 'ఆసుపత్రి';
+
+  @override
+  String get logoutRevocationRetryQueued =>
+      'ఈ పరికరంలో లాగ్ అవుట్ అయ్యారు. సర్వర్‌ను చేరుకోలేకపోయాము, కాబట్టి మీ ఇతర పరికరాలు సైన్ ఇన్‌లో ఉండవచ్చు — మీరు తదుపరి సారి ఈ యాప్‌ను తెరిచినప్పుడు వాటి నుండి స్వయంచాలకంగా సైన్ అవుట్ చేస్తాము.';
+
+  @override
+  String get logoutRevocationRetryUnavailable =>
+      'ఈ పరికరంలో మాత్రమే లాగ్ అవుట్ అయ్యారు. సర్వర్‌ను చేరుకోలేకపోయాము మరియు ఈ పరికరం మళ్లీ ప్రయత్నించలేదు; కాబట్టి ఇతర పరికరాలు సైన్ ఇన్‌లో ఉండవచ్చు. వాటి నుండి నేరుగా సైన్ అవుట్ చేయండి.';
+
+  @override
+  String get logoutFailed =>
+      'లాగ్ అవుట్ చేయలేకపోయాము. దయచేసి మళ్లీ ప్రయత్నించండి.';
+
+  @override
+  String get loginLightMode => 'లైట్ మోడ్';
+
+  @override
+  String get loginDarkMode => 'డార్క్ మోడ్';
+
+  @override
+  String get dashboardTodayRefreshFailed =>
+      'ఈరోజు సమాచారం ఇప్పుడు రిఫ్రెష్ కాలేదు.';
+
+  @override
+  String get dashboardTodayRefreshTitle => 'ఈరోజు సమాచారం రిఫ్రెష్ కాలేదు';
+
+  @override
+  String get commonDoneButton => 'పూర్తయింది';
+
+  @override
+  String dashboardHospitalId(String hospitalId) {
+    return 'ఆసుపత్రి ID $hospitalId';
+  }
+
+  @override
+  String get dashboardStepsBreakdown => 'అడుగుల వివరాలు';
+
+  @override
+  String get dashboardMetricLeft => 'మిగిలింది';
+
+  @override
+  String get dashboardMetricActivity => 'కార్యాచరణ';
+
+  @override
+  String get dashboardPointsBreakdown => 'పాయింట్ల వివరాలు';
+
+  @override
+  String get dashboardMetricTier => 'స్థాయి';
+
+  @override
+  String get dashboardMetricNext => 'తదుపరి';
+
+  @override
+  String get dashboardMetricCycle => 'చక్రం';
+
+  @override
+  String get dashboardMetricPeriod => 'రుతుక్రమం';
+
+  @override
+  String get dashboardMetricSteps => 'అడుగులు';
+
+  @override
+  String get feedbackHistoryEmptyTitle => 'ఇంకా అభిప్రాయం సమర్పించలేదు';
+
+  @override
+  String get feedbackHistoryEmptySubtitle =>
+      'మీ అభిప్రాయ చరిత్ర ఇక్కడ కనిపిస్తుంది';
+
+  @override
+  String feedbackAverageRating(String rating) {
+    return 'సగటు రేటింగ్: $rating';
+  }
+
+  @override
+  String get messageThreadLoadFailed =>
+      'ఈ సందేశ సంభాషణను లోడ్ చేయలేకపోయాము. దయచేసి మళ్లీ ప్రయత్నించండి.';
+
+  @override
+  String get messageReplyHint => 'ప్రత్యుత్తరం…';
+
+  @override
+  String get dischargeSummariesRefreshFailed =>
+      'డిశ్చార్జ్ సారాంశాలను రిఫ్రెష్ చేయలేకపోయాము.';
+
+  @override
+  String get referralsRefreshFailed => 'రిఫరల్‌లను రిఫ్రెష్ చేయలేకపోయాము.';
+
+  @override
+  String get settingsAuthenticationFailed =>
+      'ధృవీకరణ విఫలమైంది. దయచేసి మళ్లీ ప్రయత్నించండి.';
+
+  @override
+  String get settingsVerifiedPhoneRequiredForDeletion =>
+      'ఖాతాను తొలగించడానికి ధృవీకరించిన ఫోన్ నంబర్ అవసరం.';
+
+  @override
+  String get commonDeleteButton => 'తొలగించు';
+
+  @override
+  String get commonUploadButton => 'అప్‌లోడ్ చేయండి';
 }

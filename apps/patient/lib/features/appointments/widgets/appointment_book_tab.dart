@@ -68,7 +68,9 @@ class _AppointmentBookTabState extends State<AppointmentBookTab> {
     // idiom).
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _isGuest) return;
-      context.read<DependentsProvider>().loadDependents();
+      context.read<DependentsProvider>().loadDependents(
+        failureMessage: AppLocalizations.of(context)!.dependentsLoadFailed,
+      );
     });
   }
 

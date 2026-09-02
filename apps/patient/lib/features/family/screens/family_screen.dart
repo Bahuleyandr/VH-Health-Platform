@@ -101,10 +101,16 @@ class _FamilyScreenState extends State<FamilyScreen> {
       ),
     );
     if (promoted == true && mounted) {
+      final l = AppLocalizations.of(context)!;
       // Refresh both the contact list (linked badge) and the acting-as
       // roster (profile switcher / booking-for selector pick it up).
       unawaited(_fetchMembers());
-      unawaited(context.read<DependentsProvider>().loadDependents(force: true));
+      unawaited(
+        context.read<DependentsProvider>().loadDependents(
+          force: true,
+          failureMessage: l.dependentsLoadFailed,
+        ),
+      );
     }
   }
 

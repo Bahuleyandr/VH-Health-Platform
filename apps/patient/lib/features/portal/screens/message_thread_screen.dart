@@ -8,6 +8,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class _Message {
   _Message.fromJson(Map<String, dynamic> j)
@@ -75,6 +76,7 @@ class _MessageThreadScreenState extends State<MessageThreadScreen> {
   }
 
   Future<void> _fetch({required bool initialLoad}) async {
+    final l10n = AppLocalizations.of(context)!;
     if (initialLoad) {
       setState(() {
         _loading = true;
@@ -112,7 +114,7 @@ class _MessageThreadScreenState extends State<MessageThreadScreen> {
         });
       } else if (initialLoad) {
         setState(() {
-          _error = response.failureMessage('Failed to load thread');
+          _error = response.failureMessage(l10n.messageThreadLoadFailed);
           _loading = false;
         });
       }
@@ -120,7 +122,7 @@ class _MessageThreadScreenState extends State<MessageThreadScreen> {
       if (!mounted) return;
       if (initialLoad) {
         setState(() {
-          _error = e.toString();
+          _error = l10n.messageThreadLoadFailed;
           _loading = false;
         });
       }
@@ -128,6 +130,7 @@ class _MessageThreadScreenState extends State<MessageThreadScreen> {
   }
 
   Future<void> _sendReply() async {
+    final l10n = AppLocalizations.of(context)!;
     final body = _replyController.text.trim();
     if (body.isEmpty) return;
     setState(() {
@@ -148,14 +151,14 @@ class _MessageThreadScreenState extends State<MessageThreadScreen> {
       } else {
         setState(() {
           _sending = false;
-          _error = response.failureMessage('Send failed');
+          _error = response.failureMessage(l10n.messagesSendFailed);
         });
       }
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _sending = false;
-        _error = e.toString();
+        _error = l10n.messagesSendFailed;
       });
     }
   }
@@ -210,8 +213,8 @@ class _MessageThreadScreenState extends State<MessageThreadScreen> {
             Expanded(
               child: TextField(
                 controller: _replyController,
-                decoration: const InputDecoration(
-                  hintText: 'Reply…',
+                decoration: InputDecoration(
+                  hintText: AppLocalizations.of(context)!.messageReplyHint,
                   border: OutlineInputBorder(),
                   isDense: true,
                 ),
