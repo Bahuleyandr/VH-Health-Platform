@@ -742,6 +742,14 @@ beforeAll(async () => {
       tid, slug,
     );
   }
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO ledger_accounts (tenant_id, code, type, description)
+       SELECT $1::uuid, code, type, description
+         FROM ledger_accounts
+        WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+      ON CONFLICT (tenant_id, code) DO NOTHING`,
+    TENANT,
+  );
   // One active facility per tenant. Counter sales, inventory items, batches,
   // lines and allocations are all pinned to it by composite FK, and it is the
   // scope every pharmacy_staff_facility_grants row below is issued against.
