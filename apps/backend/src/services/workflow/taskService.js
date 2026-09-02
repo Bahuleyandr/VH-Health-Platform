@@ -463,6 +463,17 @@ function parseDurableTimestamp(value) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function requireTaskAcknowledgementTimestamp(value) {
+  const timestamp = parseDurableTimestamp(value);
+  if (!timestamp) {
+    throw AppError.internal(
+      'Task acknowledgement requires the authoritative database clock',
+      'TASK_ACKNOWLEDGEMENT_DATABASE_CLOCK_REQUIRED',
+    );
+  }
+  return timestamp.toISOString();
+}
+
 function durableTimestampBinding(value) {
   const instant = parseDurableTimestamp(value);
   if (!instant) return null;
@@ -5540,15 +5551,14 @@ async function reconcileInProgressAcknowledgement({
   // records that repair before the SLA clock is reconciled in this transaction.
   const previousAcknowledgedAt = current.metadata?.acknowledged_at ?? null;
   const repairedFrom = previousAcknowledgedAt === null ? 'missing' : 'malformed';
-  const repairedAt = new Date().toISOString();
   const repairedRows = await db.$queryRawUnsafe(
     `WITH repair_input AS (
        SELECT to_char(
-                to_timestamp($12::double precision / 1000.0) AT TIME ZONE 'UTC',
+                clock_timestamp() AT TIME ZONE 'UTC',
                 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
               ) AS acknowledged_at,
-              $13::jsonb AS previous_acknowledged_at,
-              $14::text AS repaired_from
+              $12::jsonb AS previous_acknowledged_at,
+              $13::text AS repaired_from
      )
      UPDATE tasks
         SET metadata = COALESCE(metadata, '{}'::jsonb)
@@ -5575,12 +5585,14 @@ async function reconcileInProgressAcknowledgement({
         AND ${ACK_AUTHORITY_PREDICATE}
       RETURNING ${TASK_RETURNING}`,
     ...authorityParams,
-    new Date(repairedAt).getTime(),
     JSON.stringify(previousAcknowledgedAt),
     repairedFrom,
   );
   const repaired = repairedRows[0];
   if (!repaired) throw ackForbidden(taskRow);
+  const repairedAt = requireTaskAcknowledgementTimestamp(
+    repaired.metadata?.acknowledged_at,
+  );
 
   await completeLinkedSla({
     tenantId,
@@ -5639,7 +5651,10 @@ async function updateTaskForAcknowledgement({
   return db.$queryRawUnsafe(
     `WITH ack_input AS (
        SELECT to_char(
-                to_timestamp($12::double precision / 1000.0) AT TIME ZONE 'UTC',
+                (CASE
+                   WHEN $12::double precision IS NULL THEN clock_timestamp()
+                   ELSE to_timestamp($12::double precision / 1000.0)
+                 END) AT TIME ZONE 'UTC',
                 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
               ) AS acknowledged_at
      )
@@ -5664,7 +5679,7 @@ async function updateTaskForAcknowledgement({
         AND ${ACK_AUTHORITY_PREDICATE}
       RETURNING ${TASK_RETURNING}`,
     ...authorityParams,
-    new Date(acknowledgedAt).getTime(),
+    acknowledgedAt === null ? null : new Date(acknowledgedAt).getTime(),
     ackContractVersion,
   );
 }
@@ -5912,7 +5927,7 @@ async function acknowledgeTaskInternal({
       'LAB_CRITICAL_ALERT_ACK_DATABASE_CLOCK_REQUIRED',
     );
   }
-  const ackedAt = (authoritativeAckedAt || new Date()).toISOString();
+  let ackedAt = authoritativeAckedAt?.toISOString() || null;
   let rows = await updateTaskForAcknowledgement({
     tenantId: tid,
     taskId,
@@ -5978,6 +5993,8 @@ async function acknowledgeTaskInternal({
       throw AppError.invalidTransition(after.status, 'in_progress', TASK_TRANSITIONS[after.status] || []);
     }
   }
+
+  ackedAt = requireTaskAcknowledgementTimestamp(rows[0]?.metadata?.acknowledged_at);
 
   // The guarded task UPDATE above acquires the task row lock before we touch
   // the SLA row. Corrected-result reopen follows the same task -> SLA order.
