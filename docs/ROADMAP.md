@@ -81,19 +81,21 @@ closed-row receipts remain in
 - **OPEN-20 — dead-surface regression manifest.** The historical dead files are
   still absent, but no single maintained gate preserves the all-40/all-eleven
   import-reachability proof.
-- **OPEN-21 — residual hardcoded English outside locale-key parity.** The local,
-  unpushed Malayalam candidate (`30903b6c8`, `49ca4c729`) reports zero missing
-  keys, but appointment copy remains at
-  `apps/patient/lib/features/appointments/widgets/appointment_book_tab.dart:156,527,558,573`,
-  About contact titles at
-  `apps/patient/lib/features/about/screens/about_us_screen.dart:147,158,170`,
-  dependent-setup/guardianship/consent copy at
-  `apps/patient/lib/features/family/screens/family_screen.dart:726,737,778,833`,
-  and the held Staff Web title/message at `apps/staff/lib/main.dart:457,475`.
-  Local structural parity is not current-main or global presentation
-  completion. Localize the ordinary appointment/About copy; keep dependent
-  legal/consent wording behind human legal/linguistic review and Staff Web copy
-  behind operator/release ownership.
+- **OPEN-21 — broader five-locale technical parity is draft-only.** Live draft
+  PR #970 at `ac012b6a2b40546a65282c4a39aafe5d16832ada` localizes the ordinary
+  appointment/About paths, reports patient parity at 1,447/1,447 keys, removes
+  the Staff Malayalam structural exemption at 6,502/6,502 keys, and tracks
+  4,008 Staff English-source Malayalam placeholders. It also proves exactly
+  four named backend presentation contracts across `en`/`hi`/`ta`/`te`/`ml`.
+  It changes no Admin locale resources and does not establish repository-wide
+  backend/Admin presentation parity. It remains unmerged, and Canonical run
+  `33657452600` is red in backend static checks, backend shard 3, Admin, and
+  Flutter. Repair those gates and verify the exact final head before any merge;
+  do not count the draft as current-main completion. Human review remains
+  fail-closed for all explicit translations/placeholders and payment wording;
+  dependent guardianship/relationship/consent copy remains held for legal plus
+  linguistic review, and Staff Web copy remains held for operator/release
+  authority.
 - **OPEN-22 — backend minimatch install-time patch debt.** Current main depends
   on a global `minimatch` override plus a `postinstall` rewrite of
   `node_modules`; normal installs work because that hook runs. Local unpushed
@@ -139,10 +141,12 @@ closed-row receipts remain in
   webhook/PagerDuty/Slack/SMTP inputs, sealing, manual Argo sync, and captured
   notification proof.
 - Five-locale technical parity is `en`/`hi`/`ta`/`te`/`ml`; #965 closes the
-  known ABDM Malayalam omission. OPEN-21 records remaining hardcoded
-  presentation paths. Human linguistic review remains mandatory for clinical,
-  dosage, consent, legal, identity, security, and ABDM wording; Staff Web
-  activation copy also remains subject to operator/release ownership.
+  known ABDM Malayalam omission on current main. Draft #970 proposes broader
+  Patient, Staff, and four-contract backend technical coverage, but remains
+  unmerged and red and changes no Admin locale resources. OPEN-21 records the
+  exact boundary. Human linguistic review remains mandatory for clinical,
+  dosage, consent, legal, identity, security, payment, and ABDM wording; Staff
+  Web activation copy remains subject to operator/release ownership.
 
 ---
 
