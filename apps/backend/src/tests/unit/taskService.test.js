@@ -924,6 +924,7 @@ describe('acknowledgeTask', () => {
       resultId: 1,
       patientUid,
       actorUid: USER,
+      acknowledgedAt: '2026-07-19T06:00:00.000Z',
       tx,
     });
 
@@ -931,6 +932,39 @@ describe('acknowledgeTask', () => {
     expect(txQuery.mock.calls[1][0]).toMatch(/JOIN lab_critical_alerts AS alert/i);
     expect(txQuery.mock.calls[2][0]).toMatch(/UPDATE tasks/i);
     expect(txQuery.mock.calls[4][0]).toMatch(/UPDATE workflow_sla_instances/i);
+  });
+
+  it('fails closed when the trusted lab workflow omits its database-issued clock', async () => {
+    const patientUid = '44444444-4444-4444-8444-444444444444';
+    const task = {
+      id: 1,
+      status: 'open',
+      assigned_to_uid: USER,
+      patient_uid: patientUid,
+      ...ACK_RESOURCE,
+      workflow_sla_instance_id: DEFAULT_SLA_ID,
+      sla_completion_semantics: 'acknowledgement',
+      metadata: { lab_critical_alert_id: 91, lab_alert_generation_state: 'critical' },
+    };
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([task])
+      .mockResolvedValueOnce([{ id: 91 }]);
+    const tx = { $queryRawUnsafe: txQuery };
+
+    await expect(acknowledgeLabCriticalAlertTaskFromTrustedWorkflow({
+      tenantId: TENANT,
+      id: 1,
+      alertId: 91,
+      resultId: 1,
+      patientUid,
+      actorUid: USER,
+      tx,
+    })).rejects.toMatchObject({
+      statusCode: 500,
+      code: 'LAB_CRITICAL_ALERT_ACK_DATABASE_CLOCK_REQUIRED',
+    });
+    expect(txQuery).toHaveBeenCalledTimes(2);
+    expect(txQuery.mock.calls.some(([sql]) => /UPDATE tasks/i.test(sql))).toBe(false);
   });
 
   it('permits only the transaction-only lab entrypoint to acknowledge a blocked alert task', async () => {
@@ -965,6 +999,7 @@ describe('acknowledgeTask', () => {
       resultId: 1,
       patientUid,
       actorUid: USER,
+      acknowledgedAt: '2026-07-19T06:00:00.000Z',
       tx,
     });
 

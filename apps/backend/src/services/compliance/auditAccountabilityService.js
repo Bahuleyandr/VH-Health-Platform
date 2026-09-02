@@ -293,7 +293,10 @@ export async function getAuditHealth(tenantId, query = {}) {
   const patientThreshold = integer(query.patient_threshold, 'patient_threshold', { min: 1, max: 500, fallback: 20 });
   const databaseNow = query.to
     ? null
-    : (await prismaReadOnly.$queryRawUnsafe('SELECT clock_timestamp() AS database_now'))[0]?.database_now;
+    : (await prismaReadOnly.$queryRawUnsafe(
+      `SELECT date_trunc('milliseconds', clock_timestamp())
+                + INTERVAL '1 millisecond' AS database_now`,
+    ))[0]?.database_now;
   const { from, to } = normalizeAuditHealthWindow(query, databaseNow);
 
   const [

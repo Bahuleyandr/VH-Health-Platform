@@ -5755,6 +5755,7 @@ async function acknowledgeTaskInternal({
   breakGlassId = null,
   trustedOverride = null,
   labCriticalAlertAuthority = null,
+  trustedAcknowledgedAt = null,
   executorAuthority = null,
   tx = null,
 } = {}) {
@@ -5904,7 +5905,14 @@ async function acknowledgeTaskInternal({
   // row when the guard excludes the current status. `acknowledged_via` records
   // the authorization mode; a verified override stamps its durable authority
   // source, record id, and server-loaded reason.
-  const ackedAt = new Date().toISOString();
+  const authoritativeAckedAt = parseDurableTimestamp(trustedAcknowledgedAt);
+  if (labCriticalAlertAuthority && !authoritativeAckedAt) {
+    throw AppError.internal(
+      'Critical-alert acknowledgement requires the authoritative database clock',
+      'LAB_CRITICAL_ALERT_ACK_DATABASE_CLOCK_REQUIRED',
+    );
+  }
+  const ackedAt = (authoritativeAckedAt || new Date()).toISOString();
   let rows = await updateTaskForAcknowledgement({
     tenantId: tid,
     taskId,
@@ -6054,6 +6062,7 @@ export async function acknowledgeLabCriticalAlertTaskFromTrustedWorkflow({
   actorPrimaryRole = null,
   actorRawRole = null,
   breakGlassId = null,
+  acknowledgedAt = null,
   tx = null,
 } = {}) {
   if (!tx) {
@@ -6070,6 +6079,7 @@ export async function acknowledgeLabCriticalAlertTaskFromTrustedWorkflow({
     actorPrimaryRole,
     actorRawRole,
     breakGlassId,
+    trustedAcknowledgedAt: acknowledgedAt,
     labCriticalAlertAuthority: {
       capability: LAB_CRITICAL_ALERT_ACKNOWLEDGEMENT_AUTHORITY,
       alertId,
