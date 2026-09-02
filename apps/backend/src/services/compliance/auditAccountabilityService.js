@@ -1,4 +1,4 @@
-import prisma, { prismaReadOnly } from '../../lib/prisma.js';
+import { prismaReadOnly, setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { mergedPatientUidsSubquery } from '../clinical/mergedPatientReadUnion.js';
@@ -557,23 +557,38 @@ export async function recordAuditConsoleAccess(req, action, metadata = {}) {
   const actorUid = rawActorUid && UUID_RE.test(String(rawActorUid)) ? String(rawActorUid) : null;
   if (!tenantId) return;
   try {
-    await prisma.audit_logs.create({
-      data: {
-        tenant_id: String(tenantId),
-        uid: actorUid,
-        actor_uid: actorUid,
-        role: req.user?.role || null,
-        action,
-        resource: 'audit_console',
-        resource_id: req.id || null,
-        ip_address: req.ip || null,
-        user_agent: String(req.headers?.['user-agent'] || '').slice(0, 500) || null,
-        metadata: {
-          request_id: req.id || null,
-          actor_user_id: req.user?.id ?? req.user?.userId ?? null,
-          ...metadata,
+    await setTenant(String(tenantId), async (tx) => {
+      const [clockRow] = await tx.$queryRawUnsafe(
+        `SELECT date_trunc('milliseconds', clock_timestamp()) AS created_at`,
+      );
+      const createdAt = clockRow?.created_at instanceof Date
+        ? clockRow.created_at
+        : new Date(clockRow?.created_at);
+      if (Number.isNaN(createdAt.getTime())) {
+        throw AppError.internal(
+          'Database clock returned an invalid audit-console timestamp',
+          'AUDIT_CONSOLE_DATABASE_CLOCK_INVALID',
+        );
+      }
+      await tx.audit_logs.create({
+        data: {
+          tenant_id: String(tenantId),
+          uid: actorUid,
+          actor_uid: actorUid,
+          role: req.user?.role || null,
+          action,
+          resource: 'audit_console',
+          resource_id: req.id || null,
+          ip_address: req.ip || null,
+          user_agent: String(req.headers?.['user-agent'] || '').slice(0, 500) || null,
+          created_at: createdAt,
+          metadata: {
+            request_id: req.id || null,
+            actor_user_id: req.user?.id ?? req.user?.userId ?? null,
+            ...metadata,
+          },
         },
-      },
+      });
     });
   } catch (err) {
     logger.error('Failed to record audit-console access', { action, error: err.message });
