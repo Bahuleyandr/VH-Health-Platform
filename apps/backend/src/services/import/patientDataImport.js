@@ -46,6 +46,7 @@ const FHIR_EFFECT_RETRY_BASE_SECONDS = 120;
 const FHIR_EFFECT_RETRY_MAX_SECONDS = 3600;
 const FHIR_EFFECT_SWEEP_MAX = 100;
 const CLINICAL_IMPORT_RESOURCE_SAVEPOINT = 'clinical_import_resource';
+const FHIR_OBSERVATION_WRITE_SAVEPOINT = 'fhir_observation_write';
 const CLINICAL_IMPORT_SERIALIZABLE_ATTEMPTS = 3;
 
 function clinicalImportSqlState(error) {
@@ -78,6 +79,19 @@ async function releaseClinicalImportResourceSavepoint(db) {
 async function rollbackClinicalImportResourceSavepoint(db) {
   await db.$executeRawUnsafe(`ROLLBACK TO SAVEPOINT ${CLINICAL_IMPORT_RESOURCE_SAVEPOINT}`);
   await releaseClinicalImportResourceSavepoint(db);
+}
+
+async function beginFhirObservationWriteSavepoint(db) {
+  await db.$executeRawUnsafe(`SAVEPOINT ${FHIR_OBSERVATION_WRITE_SAVEPOINT}`);
+}
+
+async function releaseFhirObservationWriteSavepoint(db) {
+  await db.$executeRawUnsafe(`RELEASE SAVEPOINT ${FHIR_OBSERVATION_WRITE_SAVEPOINT}`);
+}
+
+async function rollbackFhirObservationWriteSavepoint(db) {
+  await db.$executeRawUnsafe(`ROLLBACK TO SAVEPOINT ${FHIR_OBSERVATION_WRITE_SAVEPOINT}`);
+  await releaseFhirObservationWriteSavepoint(db);
 }
 
 function fhirEffectRetrySeconds(attempts) {
@@ -3041,6 +3055,7 @@ async function importObservationSet(fhirObservations, importedBy, {
     news2: crypto.randomUUID(),
     anomaly: crypto.randomUUID(),
   };
+  if (db) await beginFhirObservationWriteSavepoint(db);
   try {
     const result = await recordVitals(payload, {
       ...(db ? { db, deferPostCommitEffects } : {}),
@@ -3118,8 +3133,17 @@ async function importObservationSet(fhirObservations, importedBy, {
           canonicalAuditEventId: result.canonicalAuditEventId,
     })];
     if (skippedResources.length > 0) outcomes.push(observationOutcome('skipped', skippedResources));
+    if (db) await releaseFhirObservationWriteSavepoint(db);
     return outcomes;
   } catch (error) {
+    if (db) {
+      try {
+        await rollbackFhirObservationWriteSavepoint(db);
+      } catch (rollbackError) {
+        if (isRetryableClinicalImportTransactionError(error)) throw error;
+        throw rollbackError;
+      }
+    }
     if (isRetryableClinicalImportTransactionError(error)) throw error;
     if (error instanceof FhirObservationReplay) {
       const matchedSetFingerprint = error.matchedSetFingerprint || setFingerprint;
