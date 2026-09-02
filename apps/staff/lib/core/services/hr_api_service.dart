@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:vhhealth_core/services/auth_service.dart' as core_auth;
 
 import 'api_client.dart';
+import '../utils/localized_failure.dart';
 import 'staff_notification_session.dart';
 
 class PayslipPasswordRevealException implements Exception {
@@ -1004,7 +1005,11 @@ class HrApiService {
       },
     );
     if (!response.isSuccess) {
-      throw Exception(response.failureMessage('Device registration failed'));
+      throw LocalizedApiFailure(
+        fallbackLocalizationKey: 'presentation.device_registration_failed',
+        localizationSource: response,
+        diagnosticMessage: response.failureMessage(),
+      );
     }
     final audience = StaffNotificationAudience.fromJson(
       response.dataAsMap()['notificationAuthority'],
@@ -1028,7 +1033,11 @@ class HrApiService {
       body: {'deviceId': installationId},
     );
     if (!response.isSuccess && response.statusCode != 404) {
-      throw Exception(response.failureMessage('Device unregistration failed'));
+      throw LocalizedApiFailure(
+        fallbackLocalizationKey: 'presentation.device_unregistration_failed',
+        localizationSource: response,
+        diagnosticMessage: response.failureMessage(),
+      );
     }
   }
 

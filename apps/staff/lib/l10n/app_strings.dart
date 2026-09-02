@@ -3327,6 +3327,45 @@ class AppStrings {
       format('s4.dynamic.break_tracker.duration_minutes', {'minutes': minutes});
   String get pharmacyNoPreview => _t('pharmacy.no_preview');
   String get printGeneratedBy => _t('print.generated_by');
+  String get notificationFallbackTitle =>
+      _t('presentation.notification_fallback_title');
+  String get bedBoardPrintOccupancy =>
+      _t('presentation.bed_board_print.occupancy');
+  String bedBoardPrintOccupancyDate(String date) =>
+      format('presentation.bed_board_print.occupancy_date', {'date': date});
+  String bedBoardPrintPage(int page, int pages) => format(
+    'presentation.bed_board_print.page',
+    {'page': page, 'pages': pages},
+  );
+  String get bedBoardPrintColumnBed =>
+      _t('presentation.bed_board_print.column.bed');
+  String get bedBoardPrintColumnStatus =>
+      _t('presentation.bed_board_print.column.status');
+  String get bedBoardPrintColumnPatient =>
+      _t('presentation.bed_board_print.column.patient');
+  String get bedBoardPrintColumnAge =>
+      _t('presentation.bed_board_print.column.age');
+  String get bedBoardPrintColumnAdmitted =>
+      _t('presentation.bed_board_print.column.admitted');
+  String get bedBoardPrintColumnNotes =>
+      _t('presentation.bed_board_print.column.notes');
+  String get dietaryLoadFailed => _t('presentation.dietary_load_failed');
+  String get staffPhoneHomeLoadFailed =>
+      _t('presentation.staff_phone.home_load_failed');
+  String get staffPhoneQueriesLoadFailed =>
+      _t('presentation.staff_phone.queries_load_failed');
+  String get staffPhoneQuerySubmitFailed =>
+      _t('presentation.staff_phone.query_submit_failed');
+  String get staffPhoneSubjectRequired =>
+      _t('presentation.staff_phone.subject_required');
+  String get staffPhoneDetailsRequired =>
+      _t('presentation.staff_phone.details_required');
+  String get staffPhotoUploadFailed => _t('presentation.photo_upload_failed');
+  String get orderSetsLoadFailed => _t('presentation.order_sets.load_failed');
+  String orderSetsItemCount(int count) =>
+      format('presentation.order_sets.item_count', {'count': count});
+  String get orderSetsItemLoadFailed =>
+      _t('presentation.order_sets.item_load_failed');
   String get blockedFeatureTitle => _t('blocked_feature.title');
   String get blockedFeatureAttendanceTitle =>
       _t('blocked_feature.attendance.title');
@@ -3692,6 +3731,31 @@ class AppStrings {
   static const Map<String, Map<String, String>> _byLang = {
     // ── English ──────────────────────────────────────────────────────
     'en': {
+      'presentation.notification_fallback_title': 'Notification',
+      'presentation.bed_board_print.occupancy': 'Bed Occupancy',
+      'presentation.bed_board_print.occupancy_date': 'Bed Occupancy · {date}',
+      'presentation.bed_board_print.page': 'Page {page} / {pages}',
+      'presentation.bed_board_print.column.bed': 'Bed',
+      'presentation.bed_board_print.column.status': 'Status',
+      'presentation.bed_board_print.column.patient': 'Patient',
+      'presentation.bed_board_print.column.age': 'Age',
+      'presentation.bed_board_print.column.admitted': 'Admitted',
+      'presentation.bed_board_print.column.notes': 'Notes',
+      'presentation.dietary_load_failed': 'Failed to load dietary orders',
+      'presentation.staff_phone.home_load_failed': 'Could not load phone home',
+      'presentation.staff_phone.queries_load_failed': 'Could not load queries',
+      'presentation.staff_phone.query_submit_failed': 'Could not submit query',
+      'presentation.staff_phone.subject_required': 'Subject is required',
+      'presentation.staff_phone.details_required': 'Details are required',
+      'presentation.photo_upload_failed': 'Photo upload failed',
+      'presentation.order_sets.load_failed': 'Failed to load order sets',
+      'presentation.order_sets.item_count': '{count} items',
+      'presentation.order_sets.item_load_failed': 'Failed to load items',
+      'presentation.billing_request_failed': 'Billing request failed',
+      'presentation.request_failed': 'Request failed. Please try again.',
+      'presentation.device_registration_failed': 'Device registration failed',
+      'presentation.device_unregistration_failed':
+          'Device unregistration failed',
       // Common actions
       'action.cancel': 'Cancel',
       'continuity.action.open_cache': 'Open continuity cache',
@@ -11357,6 +11421,33 @@ class AppStrings {
     // contexts; a handful are flagged `// REVIEW:` where local
     // hospital convention may differ (e.g. discharge wording, urgency).
     'hi': {
+      'presentation.notification_fallback_title': 'सूचना',
+      'presentation.bed_board_print.occupancy': 'बेड अधिभोग',
+      'presentation.bed_board_print.occupancy_date': 'बेड अधिभोग · {date}',
+      'presentation.bed_board_print.page': 'पृष्ठ {page} / {pages}',
+      'presentation.bed_board_print.column.bed': 'बेड',
+      'presentation.bed_board_print.column.status': 'स्थिति',
+      'presentation.bed_board_print.column.patient': 'रोगी',
+      'presentation.bed_board_print.column.age': 'आयु',
+      'presentation.bed_board_print.column.admitted': 'भर्ती समय',
+      'presentation.bed_board_print.column.notes': 'टिप्पणियाँ',
+      'presentation.dietary_load_failed': 'आहार आदेश लोड नहीं हो सके',
+      'presentation.staff_phone.home_load_failed':
+          'फ़ोन होम लोड नहीं किया जा सका',
+      'presentation.staff_phone.queries_load_failed':
+          'प्रश्न लोड नहीं किए जा सके',
+      'presentation.staff_phone.query_submit_failed':
+          'प्रश्न जमा नहीं किया जा सका',
+      'presentation.staff_phone.subject_required': 'विषय आवश्यक है',
+      'presentation.staff_phone.details_required': 'विवरण आवश्यक हैं',
+      'presentation.photo_upload_failed': 'फ़ोटो अपलोड विफल रहा',
+      'presentation.order_sets.load_failed': 'ऑर्डर सेट लोड नहीं हो सके',
+      'presentation.order_sets.item_count': '{count} आइटम',
+      'presentation.order_sets.item_load_failed': 'आइटम लोड नहीं हो सके',
+      'presentation.billing_request_failed': 'बिलिंग अनुरोध विफल रहा',
+      'presentation.request_failed': 'अनुरोध विफल रहा। फिर से प्रयास करें।',
+      'presentation.device_registration_failed': 'डिवाइस पंजीकरण विफल रहा',
+      'presentation.device_unregistration_failed': 'डिवाइस अपंजीकरण विफल रहा',
       // Common actions
       'action.cancel': 'रद्द करें',
       'continuity.action.open_cache': 'कंटिन्यूटी कैश खोलें',
@@ -19521,6 +19612,39 @@ class AppStrings {
     // ── தமிழ் (Tamil) ─────────────────────────────────────────────────
     // First-pass machine translation. REVIEW required before production.
     'ta': {
+      'presentation.notification_fallback_title': 'அறிவிப்பு',
+      'presentation.bed_board_print.occupancy': 'படுக்கை பயன்பாடு',
+      'presentation.bed_board_print.occupancy_date':
+          'படுக்கை பயன்பாடு · {date}',
+      'presentation.bed_board_print.page': 'பக்கம் {page} / {pages}',
+      'presentation.bed_board_print.column.bed': 'படுக்கை',
+      'presentation.bed_board_print.column.status': 'நிலை',
+      'presentation.bed_board_print.column.patient': 'நோயாளர்',
+      'presentation.bed_board_print.column.age': 'வயது',
+      'presentation.bed_board_print.column.admitted': 'அனுமதிக்கப்பட்டது',
+      'presentation.bed_board_print.column.notes': 'குறிப்புகள்',
+      'presentation.dietary_load_failed': 'உணவு உத்தரவுகளை ஏற்ற முடியவில்லை',
+      'presentation.staff_phone.home_load_failed':
+          'தொலைபேசி முகப்பை ஏற்ற முடியவில்லை',
+      'presentation.staff_phone.queries_load_failed':
+          'கேள்விகளை ஏற்ற முடியவில்லை',
+      'presentation.staff_phone.query_submit_failed':
+          'கேள்வியைச் சமர்ப்பிக்க முடியவில்லை',
+      'presentation.staff_phone.subject_required': 'பொருள் தேவை',
+      'presentation.staff_phone.details_required': 'விவரங்கள் தேவை',
+      'presentation.photo_upload_failed':
+          'புகைப்படப் பதிவேற்றம் தோல்வியடைந்தது',
+      'presentation.order_sets.load_failed':
+          'உத்தரவுத் தொகுப்புகளை ஏற்ற முடியவில்லை',
+      'presentation.order_sets.item_count': '{count} உருப்படிகள்',
+      'presentation.order_sets.item_load_failed':
+          'உருப்படிகளை ஏற்ற முடியவில்லை',
+      'presentation.billing_request_failed': 'பில்லிங் கோரிக்கை தோல்வியடைந்தது',
+      'presentation.request_failed':
+          'கோரிக்கை தோல்வியடைந்தது. மீண்டும் முயற்சிக்கவும்.',
+      'presentation.device_registration_failed': 'சாதனப் பதிவு தோல்வியடைந்தது',
+      'presentation.device_unregistration_failed':
+          'சாதனப் பதிவுநீக்கம் தோல்வியடைந்தது',
       'action.cancel': 'ரத்து',
       'continuity.action.open_cache': 'தொடர்ச்சி கேஷைத் திற',
       'continuity.action.print': 'சரிபார்த்த தொகுப்பை அச்சிடு',
@@ -28341,6 +28465,35 @@ class AppStrings {
     // ── తెలుగు (Telugu) ──────────────────────────────────────────────
     // First-pass machine translation. REVIEW required before production.
     'te': {
+      'presentation.notification_fallback_title': 'నోటిఫికేషన్',
+      'presentation.bed_board_print.occupancy': 'పడకల వినియోగం',
+      'presentation.bed_board_print.occupancy_date': 'పడకల వినియోగం · {date}',
+      'presentation.bed_board_print.page': 'పేజీ {page} / {pages}',
+      'presentation.bed_board_print.column.bed': 'పడక',
+      'presentation.bed_board_print.column.status': 'స్థితి',
+      'presentation.bed_board_print.column.patient': 'రోగి',
+      'presentation.bed_board_print.column.age': 'వయస్సు',
+      'presentation.bed_board_print.column.admitted': 'చేర్చిన సమయం',
+      'presentation.bed_board_print.column.notes': 'గమనికలు',
+      'presentation.dietary_load_failed': 'ఆహార ఆదేశాలను లోడ్ చేయలేకపోయాము',
+      'presentation.staff_phone.home_load_failed':
+          'ఫోన్ హోమ్‌ను లోడ్ చేయలేకపోయాము',
+      'presentation.staff_phone.queries_load_failed':
+          'ప్రశ్నలను లోడ్ చేయలేకపోయాము',
+      'presentation.staff_phone.query_submit_failed':
+          'ప్రశ్నను సమర్పించలేకపోయాము',
+      'presentation.staff_phone.subject_required': 'విషయం అవసరం',
+      'presentation.staff_phone.details_required': 'వివరాలు అవసరం',
+      'presentation.photo_upload_failed': 'ఫోటో అప్‌లోడ్ విఫలమైంది',
+      'presentation.order_sets.load_failed': 'ఆర్డర్ సెట్లను లోడ్ చేయలేకపోయాము',
+      'presentation.order_sets.item_count': '{count} అంశాలు',
+      'presentation.order_sets.item_load_failed': 'అంశాలను లోడ్ చేయలేకపోయాము',
+      'presentation.billing_request_failed': 'బిల్లింగ్ అభ్యర్థన విఫలమైంది',
+      'presentation.request_failed':
+          'అభ్యర్థన విఫలమైంది. దయచేసి మళ్లీ ప్రయత్నించండి.',
+      'presentation.device_registration_failed': 'పరికరం నమోదు విఫలమైంది',
+      'presentation.device_unregistration_failed':
+          'పరికరం నమోదుతొలగింపు విఫలమైంది',
       'action.cancel': 'రద్దు',
       'continuity.action.open_cache': 'కంటిన్యూటీ క్యాష్ తెరవండి',
       'continuity.action.print': 'ధృవీకరించిన ప్యాక్ ముద్రించండి',
@@ -37094,6 +37247,36 @@ class AppStrings {
     // patient app's ml register (transliterated loanwords for clinical/
     // technical terms: ഫാർമസി, അപ്പോയിന്റ്മെന്റ്, ഡോസ്).
     'ml': {
+      'presentation.notification_fallback_title': 'അറിയിപ്പ്',
+      'presentation.bed_board_print.occupancy': 'കിടക്ക ഉപയോഗനില',
+      'presentation.bed_board_print.occupancy_date': 'കിടക്ക ഉപയോഗനില · {date}',
+      'presentation.bed_board_print.page': 'പേജ് {page} / {pages}',
+      'presentation.bed_board_print.column.bed': 'കിടക്ക',
+      'presentation.bed_board_print.column.status': 'നില',
+      'presentation.bed_board_print.column.patient': 'രോഗി',
+      'presentation.bed_board_print.column.age': 'പ്രായം',
+      'presentation.bed_board_print.column.admitted': 'അഡ്മിറ്റ് ചെയ്തത്',
+      'presentation.bed_board_print.column.notes': 'കുറിപ്പുകൾ',
+      'presentation.dietary_load_failed': 'ഭക്ഷണ ഓർഡറുകൾ ലോഡ് ചെയ്യാനായില്ല',
+      'presentation.staff_phone.home_load_failed': 'ഫോൺ ഹോം ലോഡ് ചെയ്യാനായില്ല',
+      'presentation.staff_phone.queries_load_failed':
+          'ചോദ്യങ്ങൾ ലോഡ് ചെയ്യാനായില്ല',
+      'presentation.staff_phone.query_submit_failed':
+          'ചോദ്യം സമർപ്പിക്കാനായില്ല',
+      'presentation.staff_phone.subject_required': 'വിഷയം ആവശ്യമാണ്',
+      'presentation.staff_phone.details_required': 'വിശദാംശങ്ങൾ ആവശ്യമാണ്',
+      'presentation.photo_upload_failed': 'ഫോട്ടോ അപ്‌ലോഡ് പരാജയപ്പെട്ടു',
+      'presentation.order_sets.load_failed': 'ഓർഡർ സെറ്റുകൾ ലോഡ് ചെയ്യാനായില്ല',
+      'presentation.order_sets.item_count': '{count} ഇനങ്ങൾ',
+      'presentation.order_sets.item_load_failed': 'ഇനങ്ങൾ ലോഡ് ചെയ്യാനായില്ല',
+      'presentation.billing_request_failed':
+          'ബില്ലിംഗ് അഭ്യർത്ഥന പരാജയപ്പെട്ടു',
+      'presentation.request_failed':
+          'അഭ്യർത്ഥന പരാജയപ്പെട്ടു. ദയവായി വീണ്ടും ശ്രമിക്കുക.',
+      'presentation.device_registration_failed':
+          'ഉപകരണ രജിസ്ട്രേഷൻ പരാജയപ്പെട്ടു',
+      'presentation.device_unregistration_failed':
+          'ഉപകരണ രജിസ്ട്രേഷൻ നീക്കം പരാജയപ്പെട്ടു',
       ...malayalamTechnicalParityPlaceholders,
       // REVIEW: MED-03 Malayalam technical parity only; a Malayalam-fluent
       // clinician-linguist must approve this wording before activation.

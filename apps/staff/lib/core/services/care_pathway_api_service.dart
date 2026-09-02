@@ -3,17 +3,25 @@ import '../models/care_pathway_work_models.dart';
 import 'package:vhhealth_core/services/idempotency_key.dart';
 
 import 'api_client.dart';
+import '../utils/localized_failure.dart';
 
-class CarePathwayApiException implements Exception {
+class CarePathwayApiException implements Exception, LocalizedFailure {
   const CarePathwayApiException({
     required this.message,
     required this.statusCode,
     this.code,
+    this.localizationSource,
   });
 
   final String message;
   final int statusCode;
   final String? code;
+
+  @override
+  String get fallbackLocalizationKey => 'presentation.request_failed';
+
+  @override
+  final Object? localizationSource;
 
   bool get isMissingPathwayWorkSurface =>
       statusCode == 405 ||
@@ -24,10 +32,16 @@ class CarePathwayApiException implements Exception {
 
   @override
   String toString() {
+    final cleanMessage = message.trim();
     final cleanCode = code?.trim();
+    if (cleanMessage.isEmpty) {
+      return cleanCode == null || cleanCode.isEmpty
+          ? fallbackLocalizationKey
+          : cleanCode;
+    }
     return cleanCode == null || cleanCode.isEmpty
-        ? message
-        : '$message ($cleanCode)';
+        ? cleanMessage
+        : '$cleanMessage ($cleanCode)';
   }
 }
 
@@ -147,11 +161,10 @@ class CarePathwayApiService {
   static Map<String, dynamic> _dataMap(ApiResponse response) {
     if (!response.isSuccess) {
       throw CarePathwayApiException(
-        message: response.failureMessage(
-          'Request failed (${response.statusCode})',
-        ),
+        message: response.message ?? '',
         statusCode: response.statusCode,
         code: response.code,
+        localizationSource: response,
       );
     }
     if (response.data is Map) {
@@ -164,9 +177,10 @@ class CarePathwayApiService {
       }
     }
     throw CarePathwayApiException(
-      message: response.message ?? 'Unexpected response',
+      message: response.message ?? '',
       statusCode: response.statusCode,
       code: response.code,
+      localizationSource: response,
     );
   }
 }

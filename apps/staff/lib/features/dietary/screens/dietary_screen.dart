@@ -28,6 +28,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
   }
 
   Future<void> _fetchOrders() async {
+    final strings = AppStrings.of(context);
     setState(() {
       _loading = true;
       _error = null;
@@ -45,10 +46,10 @@ class _DietaryScreenState extends State<DietaryScreen> {
           ),
         );
       } else {
-        _error = response.failureMessage('Failed to load dietary orders');
+        _error = response.failureMessage(strings.dietaryLoadFailed);
       }
     } catch (e) {
-      _error = AppStrings.of(context).commonServerUnreachable;
+      _error = strings.commonServerUnreachable;
     } finally {
       if (mounted) setState(() => _loading = false);
     }

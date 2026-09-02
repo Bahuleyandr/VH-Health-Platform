@@ -19,11 +19,16 @@ class _StaffQueryScreenState extends State<StaffQueryScreen> {
   String _priority = 'normal';
   bool _submitting = false;
   late Future<List<Map<String, dynamic>>> _queriesFuture;
+  bool _queriesInitialized = false;
 
   @override
-  void initState() {
-    super.initState();
-    _queriesFuture = StaffPhoneApiService.getMyQueries();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_queriesInitialized) return;
+    _queriesInitialized = true;
+    _queriesFuture = StaffPhoneApiService.getMyQueries(
+      failureMessage: AppStrings.of(context).staffPhoneQueriesLoadFailed,
+    );
   }
 
   @override
@@ -34,7 +39,11 @@ class _StaffQueryScreenState extends State<StaffQueryScreen> {
   }
 
   Future<void> _refresh() async {
-    setState(() => _queriesFuture = StaffPhoneApiService.getMyQueries());
+    setState(
+      () => _queriesFuture = StaffPhoneApiService.getMyQueries(
+        failureMessage: AppStrings.of(context).staffPhoneQueriesLoadFailed,
+      ),
+    );
     await _queriesFuture;
   }
 
@@ -47,6 +56,7 @@ class _StaffQueryScreenState extends State<StaffQueryScreen> {
         subject: _subjectCtrl.text.trim(),
         body: _bodyCtrl.text.trim(),
         priority: _priority,
+        failureMessage: AppStrings.of(context).staffPhoneQuerySubmitFailed,
       );
       if (!mounted) return;
       _subjectCtrl.clear();
@@ -159,7 +169,7 @@ class _StaffQueryScreenState extends State<StaffQueryScreen> {
                         ),
                         textInputAction: TextInputAction.next,
                         validator: (v) => (v ?? '').trim().isEmpty
-                            ? 'Subject is required'
+                            ? AppStrings.of(context).staffPhoneSubjectRequired
                             : null,
                       ),
                       const SizedBox(height: 10),
@@ -172,7 +182,7 @@ class _StaffQueryScreenState extends State<StaffQueryScreen> {
                         minLines: 4,
                         maxLines: 8,
                         validator: (v) => (v ?? '').trim().isEmpty
-                            ? 'Details are required'
+                            ? AppStrings.of(context).staffPhoneDetailsRequired
                             : null,
                       ),
                       const SizedBox(height: 12),

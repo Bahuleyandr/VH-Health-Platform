@@ -8,6 +8,7 @@ import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 import '../../../core/dictation/dictation_section_router.dart';
 import '../../../core/models/care_pathway_work_models.dart';
 import '../../../core/services/care_pathway_api_service.dart';
+import '../../../core/utils/api_error_messages.dart';
 import '../../../core/services/clinical_inbox_api_service.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/services/medical_api_service.dart';
@@ -301,7 +302,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
     } catch (e) {
       if (!mounted) return null;
       setState(() {
-        _pathwayWorkError = e.toString().replaceFirst('Exception: ', '');
+        _pathwayWorkError = localizedApiErrorFromRaw(AppStrings.of(context), e);
       });
       return null;
     } finally {
@@ -730,7 +731,10 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
       await _loadPathwayWork(showLoading: false);
     } catch (error) {
       if (!mounted) return;
-      ErrorToast.show(context, error.toString());
+      ErrorToast.show(
+        context,
+        localizedApiErrorFromRaw(AppStrings.of(context), error),
+      );
     } finally {
       if (mounted) setState(() => _pathwayActionBusy = null);
     }
@@ -780,7 +784,10 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
       await _loadPathwayWork(showLoading: false);
     } catch (error) {
       if (!mounted) return;
-      ErrorToast.show(context, error.toString());
+      ErrorToast.show(
+        context,
+        localizedApiErrorFromRaw(AppStrings.of(context), error),
+      );
     } finally {
       if (mounted) setState(() => _pathwayActionBusy = null);
     }

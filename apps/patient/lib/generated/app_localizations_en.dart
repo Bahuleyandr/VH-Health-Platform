@@ -4586,4 +4586,187 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get commonUploadButton => 'Upload';
+
+  @override
+  String appointmentCardToken(int token) {
+    return 'Token #$token';
+  }
+
+  @override
+  String appointmentCardReason(String reason) {
+    return 'Reason: $reason';
+  }
+
+  @override
+  String appointmentCardNote(String note) {
+    return 'Note: $note';
+  }
+
+  @override
+  String appointmentListForDependent(String name) {
+    return 'Showing appointments for $name';
+  }
+
+  @override
+  String get appointmentStatusScheduled => 'Scheduled';
+
+  @override
+  String get appointmentStatusConfirmed => 'Confirmed ✓';
+
+  @override
+  String get appointmentStatusInProgress => 'In progress';
+
+  @override
+  String get appointmentStatusCompleted => 'Completed';
+
+  @override
+  String get appointmentStatusCancelled => 'Cancelled';
+
+  @override
+  String get appointmentStatusNoShow => 'No show';
+
+  @override
+  String get gamificationClaimMilestoneFailed => 'Failed to claim milestone';
+
+  @override
+  String get gamificationScreenTitle => 'Health Hub';
+
+  @override
+  String get gamificationTabOverview => 'Overview';
+
+  @override
+  String get gamificationTabMilestones => 'Milestones';
+
+  @override
+  String get gamificationTabAchievements => 'Achievements';
+
+  @override
+  String get gamificationTabMyRewards => 'My rewards';
+
+  @override
+  String get gamificationTabHistory => 'History';
+
+  @override
+  String gamificationBadgesEarned(int unlocked, int total) {
+    return '$unlocked of $total badges earned';
+  }
+
+  @override
+  String gamificationEarnedOn(String date) {
+    return 'Earned on $date';
+  }
+
+  @override
+  String get commonShareButton => 'Share';
+
+  @override
+  String get gamificationPointsActivity => 'Points activity';
+
+  @override
+  String get gamificationMilestoneFallback => 'Milestone';
+
+  @override
+  String gamificationPointsRequired(int points) {
+    return '$points points required';
+  }
+
+  @override
+  String get gamificationClaimButton => 'Claim';
+
+  @override
+  String get gamificationPointsLabel => 'points';
+
+  @override
+  String gamificationNextTierWithPoints(String tier, int points) {
+    return 'Next: $tier — $points more points';
+  }
+
+  @override
+  String gamificationNextTier(String tier) {
+    return 'Next: $tier';
+  }
+
+  @override
+  String get commonEditButton => 'Edit';
+
+  @override
+  String get stepsDisplayNameRequired => 'Display name cannot be empty';
+
+  @override
+  String get stepsDailyTargetNumberRequired =>
+      'Daily step target must be a number';
+
+  @override
+  String get stepsDailyTargetRange =>
+      'Daily step target must be between 1,000 and 100,000';
+
+  @override
+  String get stepsProfileSaveFailed => 'Failed to save profile';
+
+  @override
+  String stepsWeekOf(String date) {
+    return 'Week of $date';
+  }
+
+  @override
+  String get stepsAveragePerDay => 'avg/day';
+
+  @override
+  String stepsCount(String count) {
+    return '$count steps';
+  }
+
+  @override
+  String stepsYourRank(String rank, String steps) {
+    return 'Your rank: #$rank — $steps steps';
+  }
+
+  @override
+  String stepsLeaderboardYou(String name) {
+    return '$name (You)';
+  }
+
+  @override
+  String stepsDailyTarget(String count) {
+    return 'Daily target: $count';
+  }
+
+  @override
+  String get stepsEditTargetTitle => 'Edit step target';
+
+  @override
+  String get stepsDisplayNameLabel => 'Display name';
+
+  @override
+  String get stepsDisplayNameHint => 'How others see you on the leaderboard';
+
+  @override
+  String get stepsDailyTargetLabel => 'Daily step target';
+
+  @override
+  String get stepsDailyTargetExample => 'Example: 7500';
+
+  @override
+  String get stepsDailyTargetHelper =>
+      'Choose a realistic goal between 1,000 and 100,000';
+
+  @override
+  String get stepsTodayActivity => 'Today\'s activity';
+
+  @override
+  String get stepsDailyGoalReached => '🎉 Daily goal reached!';
+
+  @override
+  String stepsGoalProgress(String percent, int goal) {
+    return '$percent% of $goal-step goal';
+  }
+
+  @override
+  String get stepsDailyTab => 'Daily';
+
+  @override
+  String get stepsWeeklyTab => 'Weekly';
+
+  @override
+  String get stepsMonthlyTab => 'Monthly';
 }

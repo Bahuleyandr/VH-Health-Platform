@@ -152,7 +152,7 @@ class _AchievementShareCardState extends State<AchievementShareCard> {
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
-                        'Earned on $dateStr',
+                        l.gamificationEarnedOn(dateStr),
                         style: const TextStyle(color: Colors.white),
                       ),
                     ),
@@ -166,7 +166,7 @@ class _AchievementShareCardState extends State<AchievementShareCard> {
                 Expanded(
                   child: OutlinedButton(
                     onPressed: () => Navigator.of(context).maybePop(),
-                    child: const Text('Close'),
+                    child: Text(l.commonCloseButton),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -183,7 +183,7 @@ class _AchievementShareCardState extends State<AchievementShareCard> {
                             ),
                           )
                         : const Icon(Icons.share),
-                    label: const Text('Share'),
+                    label: Text(l.commonShareButton),
                     style: FilledButton.styleFrom(backgroundColor: a.color),
                   ),
                 ),

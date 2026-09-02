@@ -8485,6 +8485,306 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Upload'**
   String get commonUploadButton;
+
+  /// Appointment queue token
+  ///
+  /// In en, this message translates to:
+  /// **'Token #{token}'**
+  String appointmentCardToken(int token);
+
+  /// Appointment reason line
+  ///
+  /// In en, this message translates to:
+  /// **'Reason: {reason}'**
+  String appointmentCardReason(String reason);
+
+  /// Appointment confirmation note line
+  ///
+  /// In en, this message translates to:
+  /// **'Note: {note}'**
+  String appointmentCardNote(String note);
+
+  /// Acting-as dependent appointment list banner
+  ///
+  /// In en, this message translates to:
+  /// **'Showing appointments for {name}'**
+  String appointmentListForDependent(String name);
+
+  /// Scheduled appointment status
+  ///
+  /// In en, this message translates to:
+  /// **'Scheduled'**
+  String get appointmentStatusScheduled;
+
+  /// Confirmed appointment status
+  ///
+  /// In en, this message translates to:
+  /// **'Confirmed ✓'**
+  String get appointmentStatusConfirmed;
+
+  /// In-progress appointment status
+  ///
+  /// In en, this message translates to:
+  /// **'In progress'**
+  String get appointmentStatusInProgress;
+
+  /// Completed appointment status
+  ///
+  /// In en, this message translates to:
+  /// **'Completed'**
+  String get appointmentStatusCompleted;
+
+  /// Cancelled appointment status
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled'**
+  String get appointmentStatusCancelled;
+
+  /// No-show appointment status
+  ///
+  /// In en, this message translates to:
+  /// **'No show'**
+  String get appointmentStatusNoShow;
+
+  /// Generic milestone claim failure
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to claim milestone'**
+  String get gamificationClaimMilestoneFailed;
+
+  /// Health-points hub screen title
+  ///
+  /// In en, this message translates to:
+  /// **'Health Hub'**
+  String get gamificationScreenTitle;
+
+  /// Health-points overview tab
+  ///
+  /// In en, this message translates to:
+  /// **'Overview'**
+  String get gamificationTabOverview;
+
+  /// Health-points milestones tab
+  ///
+  /// In en, this message translates to:
+  /// **'Milestones'**
+  String get gamificationTabMilestones;
+
+  /// Health-points achievements tab
+  ///
+  /// In en, this message translates to:
+  /// **'Achievements'**
+  String get gamificationTabAchievements;
+
+  /// Health-points rewards tab
+  ///
+  /// In en, this message translates to:
+  /// **'My rewards'**
+  String get gamificationTabMyRewards;
+
+  /// Health-points history tab
+  ///
+  /// In en, this message translates to:
+  /// **'History'**
+  String get gamificationTabHistory;
+
+  /// Unlocked badge count
+  ///
+  /// In en, this message translates to:
+  /// **'{unlocked} of {total} badges earned'**
+  String gamificationBadgesEarned(int unlocked, int total);
+
+  /// Badge earned date
+  ///
+  /// In en, this message translates to:
+  /// **'Earned on {date}'**
+  String gamificationEarnedOn(String date);
+
+  /// Generic share action
+  ///
+  /// In en, this message translates to:
+  /// **'Share'**
+  String get commonShareButton;
+
+  /// Fallback label for a points-history entry
+  ///
+  /// In en, this message translates to:
+  /// **'Points activity'**
+  String get gamificationPointsActivity;
+
+  /// Fallback milestone name
+  ///
+  /// In en, this message translates to:
+  /// **'Milestone'**
+  String get gamificationMilestoneFallback;
+
+  /// Points needed for a milestone
+  ///
+  /// In en, this message translates to:
+  /// **'{points} points required'**
+  String gamificationPointsRequired(int points);
+
+  /// Milestone claim action label
+  ///
+  /// In en, this message translates to:
+  /// **'Claim'**
+  String get gamificationClaimButton;
+
+  /// Lowercase points unit label
+  ///
+  /// In en, this message translates to:
+  /// **'points'**
+  String get gamificationPointsLabel;
+
+  /// Next tier and remaining points
+  ///
+  /// In en, this message translates to:
+  /// **'Next: {tier} — {points} more points'**
+  String gamificationNextTierWithPoints(String tier, int points);
+
+  /// Next tier label
+  ///
+  /// In en, this message translates to:
+  /// **'Next: {tier}'**
+  String gamificationNextTier(String tier);
+
+  /// Generic edit action
+  ///
+  /// In en, this message translates to:
+  /// **'Edit'**
+  String get commonEditButton;
+
+  /// Step-profile display-name validation
+  ///
+  /// In en, this message translates to:
+  /// **'Display name cannot be empty'**
+  String get stepsDisplayNameRequired;
+
+  /// Step-target numeric validation
+  ///
+  /// In en, this message translates to:
+  /// **'Daily step target must be a number'**
+  String get stepsDailyTargetNumberRequired;
+
+  /// Step-target range validation
+  ///
+  /// In en, this message translates to:
+  /// **'Daily step target must be between 1,000 and 100,000'**
+  String get stepsDailyTargetRange;
+
+  /// Generic step-profile save failure
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to save profile'**
+  String get stepsProfileSaveFailed;
+
+  /// Weekly step-history heading
+  ///
+  /// In en, this message translates to:
+  /// **'Week of {date}'**
+  String stepsWeekOf(String date);
+
+  /// Average-per-day step label
+  ///
+  /// In en, this message translates to:
+  /// **'avg/day'**
+  String get stepsAveragePerDay;
+
+  /// Formatted step count
+  ///
+  /// In en, this message translates to:
+  /// **'{count} steps'**
+  String stepsCount(String count);
+
+  /// Current user's step rank and count
+  ///
+  /// In en, this message translates to:
+  /// **'Your rank: #{rank} — {steps} steps'**
+  String stepsYourRank(String rank, String steps);
+
+  /// Current user marker on leaderboard
+  ///
+  /// In en, this message translates to:
+  /// **'{name} (You)'**
+  String stepsLeaderboardYou(String name);
+
+  /// Saved daily step target
+  ///
+  /// In en, this message translates to:
+  /// **'Daily target: {count}'**
+  String stepsDailyTarget(String count);
+
+  /// Step-target edit form heading
+  ///
+  /// In en, this message translates to:
+  /// **'Edit step target'**
+  String get stepsEditTargetTitle;
+
+  /// Step-profile display-name field
+  ///
+  /// In en, this message translates to:
+  /// **'Display name'**
+  String get stepsDisplayNameLabel;
+
+  /// Step-profile display-name hint
+  ///
+  /// In en, this message translates to:
+  /// **'How others see you on the leaderboard'**
+  String get stepsDisplayNameHint;
+
+  /// Daily step target field
+  ///
+  /// In en, this message translates to:
+  /// **'Daily step target'**
+  String get stepsDailyTargetLabel;
+
+  /// Daily step target example
+  ///
+  /// In en, this message translates to:
+  /// **'Example: 7500'**
+  String get stepsDailyTargetExample;
+
+  /// Daily step target guidance
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a realistic goal between 1,000 and 100,000'**
+  String get stepsDailyTargetHelper;
+
+  /// Today's step activity card heading
+  ///
+  /// In en, this message translates to:
+  /// **'Today\'s activity'**
+  String get stepsTodayActivity;
+
+  /// Daily step goal completion label
+  ///
+  /// In en, this message translates to:
+  /// **'🎉 Daily goal reached!'**
+  String get stepsDailyGoalReached;
+
+  /// Daily step goal progress
+  ///
+  /// In en, this message translates to:
+  /// **'{percent}% of {goal}-step goal'**
+  String stepsGoalProgress(String percent, int goal);
+
+  /// Daily step-history tab
+  ///
+  /// In en, this message translates to:
+  /// **'Daily'**
+  String get stepsDailyTab;
+
+  /// Weekly step-history tab
+  ///
+  /// In en, this message translates to:
+  /// **'Weekly'**
+  String get stepsWeeklyTab;
+
+  /// Monthly step-history tab
+  ///
+  /// In en, this message translates to:
+  /// **'Monthly'**
+  String get stepsMonthlyTab;
 }
 
 class _AppLocalizationsDelegate
