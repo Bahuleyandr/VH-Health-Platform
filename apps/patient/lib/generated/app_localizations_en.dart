@@ -4127,6 +4127,108 @@ class AppLocalizationsEn extends AppLocalizations {
   String get abdmCreateAbhaCta => 'Don’t have an ABHA? Create one';
 
   @override
+  String get abdmMyAbhaTab => 'My ABHA';
+
+  @override
+  String get abdmConsentRequestsTab => 'Consent Requests';
+
+  @override
+  String get abdmStatusCheckFailedDetail =>
+      'Could not check your ABHA status. Please try again.';
+
+  @override
+  String get abdmLinkSuccess => 'ABHA linked to your account';
+
+  @override
+  String get abdmLinkFailed => 'Could not link your ABHA';
+
+  @override
+  String get abdmStatusCheckFailedTitle => 'Could not check your ABHA status';
+
+  @override
+  String get abdmStatusUnknownExplanation =>
+      'We can\'t tell whether you already have an ABHA linked, so registration is hidden until this loads.';
+
+  @override
+  String get abdmCopyNumberTooltip => 'Copy ABHA number';
+
+  @override
+  String abdmCopyNumberSuccess(int seconds) {
+    return 'ABHA number copied — clipboard clears in $seconds s';
+  }
+
+  @override
+  String get abdmAddressLabel => 'ABHA Address';
+
+  @override
+  String get abdmLinkExistingExplanation =>
+      'Enter the ABHA you already have. This links it to your hospital record — it does not create a new ABHA.';
+
+  @override
+  String get abdmNumberRequiredLabel => 'ABHA Number *';
+
+  @override
+  String get abdmNumberHint => '12-3456-7890-1234';
+
+  @override
+  String get abdmNumberRequiredError => 'ABHA number is required';
+
+  @override
+  String get abdmNumberLengthError => 'ABHA number must be 14 digits';
+
+  @override
+  String get abdmAddressOptionalLabel => 'ABHA Address (optional)';
+
+  @override
+  String get abdmAddressHint => 'yourname@abdm';
+
+  @override
+  String get abdmLinkAction => 'Link ABHA';
+
+  @override
+  String get abdmNoAbhaPrompt => 'Don\'t have an ABHA yet?';
+
+  @override
+  String get abdmCreateAtPortalAction => 'Create one at abha.abdm.gov.in';
+
+  @override
+  String get abdmConsentPurposeFallback => 'Health data access';
+
+  @override
+  String get abdmConsentRequesterUnknown => 'Unknown requester';
+
+  @override
+  String get abdmConsentDateUnknown => 'Unknown';
+
+  @override
+  String get abdmConsentStatusRequested => 'Requested';
+
+  @override
+  String get abdmConsentStatusGranted => 'Granted';
+
+  @override
+  String get abdmConsentStatusDenied => 'Denied';
+
+  @override
+  String get abdmConsentStatusExpired => 'Expired';
+
+  @override
+  String get abdmConsentStatusRevoked => 'Revoked';
+
+  @override
+  String get abdmConsentStatusUnknown => 'Unknown';
+
+  @override
+  String abdmConsentRequestedBy(String requester) {
+    return 'Requested by: $requester';
+  }
+
+  @override
+  String abdmConsentPeriod(String from, String to) {
+    return 'Period: $from — $to';
+  }
+
+  @override
   String get abhaEnrolTitle => 'Create a new ABHA';
 
   @override

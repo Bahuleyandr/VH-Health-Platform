@@ -64,8 +64,11 @@ function isAllowed(entries, relPath, assertion) {
 }
 
 class JestSkipFloorReporter {
-  constructor(globalConfig) {
+  constructor(globalConfig, options = {}) {
     this._rootDir = (globalConfig && globalConfig.rootDir) || path.resolve(__dirname, '..');
+    this._floorEntries = options && Array.isArray(options.floorEntries)
+      ? options.floorEntries
+      : null;
     this._error = null;
   }
 
@@ -74,7 +77,7 @@ class JestSkipFloorReporter {
 
     let entries;
     try {
-      entries = loadFloorEntries();
+      entries = this._floorEntries ?? loadFloorEntries();
     } catch (err) {
       this._error = new Error(
         `JEST_ENFORCE_SKIP_FLOOR is set but the skip floor could not be loaded from ${FLOOR_PATH}: ${err.message}`,

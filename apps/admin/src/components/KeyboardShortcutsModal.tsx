@@ -1,28 +1,42 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { KeyboardIcon, CloseIcon } from "@/components/icons";
-
-const shortcuts = [
-  { key: "⌘K / Ctrl+K", description: "Open command palette" },
-  { key: "?", description: "Show keyboard shortcuts" },
-  { key: "Escape", description: "Close modal / sidebar" },
-  { key: "⌘/ / Ctrl+/", description: "Focus search" },
-  { key: "G then D", description: "Go to Dashboard" },
-  { key: "G then U", description: "Go to Users" },
-  { key: "G then A", description: "Go to Appointments" },
-  { key: "G then Dr", description: "Go to Doctors" },
-];
+import { usePermissions } from "@/hooks/usePermissions";
+import {
+  GLOBAL_DASHBOARD_SHORTCUTS,
+  visibleNavigationShortcuts,
+} from "@/lib/dashboardShortcuts";
+import { visibleNavSections } from "@/lib/navConfig";
+import { useEffect, useMemo, useState } from "react";
 
 export function KeyboardShortcutsModal() {
   const [open, setOpen] = useState(false);
+  const { rawRole, role, isSuperAdmin, hasAllPermissions } = usePermissions();
+  const shortcuts = useMemo(() => {
+    const visibleSections = visibleNavSections({
+      rawRole,
+      role,
+      isSuperAdmin,
+      hasAllPermissions,
+    });
+    return [
+      ...GLOBAL_DASHBOARD_SHORTCUTS,
+      ...visibleNavigationShortcuts(visibleSections),
+    ];
+  }, [rawRole, role, isSuperAdmin, hasAllPermissions]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "?" && !e.metaKey && !e.ctrlKey) {
         // Don't trigger when typing in inputs
-        const tag = (e.target as HTMLElement).tagName;
-        if (tag !== "INPUT" && tag !== "TEXTAREA") {
+        const target = e.target;
+        const isTyping =
+          target instanceof HTMLElement &&
+          (target.tagName === "INPUT" ||
+            target.tagName === "TEXTAREA" ||
+            target.tagName === "SELECT" ||
+            target.isContentEditable);
+        if (!isTyping) {
           setOpen((prev) => !prev);
         }
       }
@@ -41,9 +55,17 @@ export function KeyboardShortcutsModal() {
         onClick={() => setOpen(false)}
         aria-hidden="true"
       />
-      <div className="relative bg-card border border-border rounded-xl shadow-lg p-6 w-full max-w-md z-50">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="keyboard-shortcuts-title"
+        className="relative bg-card border border-border rounded-xl shadow-lg p-6 w-full max-w-md z-50"
+      >
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold flex items-center gap-2">
+          <h2
+            id="keyboard-shortcuts-title"
+            className="text-lg font-semibold flex items-center gap-2"
+          >
             <KeyboardIcon className="w-5 h-5" />
             Keyboard Shortcuts
           </h2>
@@ -62,7 +84,9 @@ export function KeyboardShortcutsModal() {
               key={s.key}
               className="flex justify-between items-center py-1.5 border-b border-border last:border-0"
             >
-              <span className="text-muted-foreground text-sm">{s.description}</span>
+              <span className="text-muted-foreground text-sm">
+                {s.description}
+              </span>
               <kbd className="px-2 py-0.5 text-xs bg-muted text-muted-foreground rounded border border-border font-mono">
                 {s.key}
               </kbd>

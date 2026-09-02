@@ -7,9 +7,7 @@ void main() {
     const files = [
       // Lane L: the ABHA self-enrolment wizard was hardcoded English in a
       // five-language app. Listed here so it cannot drift back.
-      // NOT listed: lib/features/abdm/screens/abdm_screen.dart — its link
-      // form and consent dialogs are still English, parked in
-      // docs/ROADMAP.md rather than machine-translated.
+      'lib/features/abdm/screens/abdm_screen.dart',
       'lib/features/abdm/widgets/abha_enrolment_flow.dart',
       'lib/core/widgets/main_scaffold_go_router.dart',
       'lib/features/appointments/screens/appointments_screen.dart',
@@ -34,13 +32,25 @@ void main() {
       RegExp(r'''hintText:\s*['"]'''),
       RegExp(r'''tooltip:\s*['"]'''),
     ];
+    final abdmScreenPatterns = <RegExp>[
+      RegExp(r'''message:\s*['"]'''),
+      RegExp(r'''_loadError\s*=\s*['"]'''),
+      RegExp(r'''_showSnackBar\(\s*['"]'''),
+      RegExp(r'''\?\?\s*['"][A-Z][a-z]'''),
+      RegExp(r'''return\s+['"][A-Z][a-z]'''),
+    ];
 
     final hits = <String>[];
     for (final filePath in files) {
+      final filePatterns = [
+        ...patterns,
+        if (filePath == 'lib/features/abdm/screens/abdm_screen.dart')
+          ...abdmScreenPatterns,
+      ];
       final lines = File(filePath).readAsLinesSync();
       for (var i = 0; i < lines.length; i += 1) {
         final line = lines[i];
-        if (patterns.any((pattern) => pattern.hasMatch(line))) {
+        if (filePatterns.any((pattern) => pattern.hasMatch(line))) {
           hits.add('$filePath:${i + 1}: ${line.trim()}');
         }
       }

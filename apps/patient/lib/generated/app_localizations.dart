@@ -7694,6 +7694,192 @@ abstract class AppLocalizations {
   /// **'Don’t have an ABHA? Create one'**
   String get abdmCreateAbhaCta;
 
+  /// Tab showing the patient's linked ABHA
+  ///
+  /// In en, this message translates to:
+  /// **'My ABHA'**
+  String get abdmMyAbhaTab;
+
+  /// Tab showing ABDM health-data consent requests
+  ///
+  /// In en, this message translates to:
+  /// **'Consent Requests'**
+  String get abdmConsentRequestsTab;
+
+  /// Safe fallback detail when the ABHA linkage check fails unexpectedly
+  ///
+  /// In en, this message translates to:
+  /// **'Could not check your ABHA status. Please try again.'**
+  String get abdmStatusCheckFailedDetail;
+
+  /// Confirmation after an existing ABHA is linked
+  ///
+  /// In en, this message translates to:
+  /// **'ABHA linked to your account'**
+  String get abdmLinkSuccess;
+
+  /// Safe fallback when linking an existing ABHA fails unexpectedly
+  ///
+  /// In en, this message translates to:
+  /// **'Could not link your ABHA'**
+  String get abdmLinkFailed;
+
+  /// Heading when the authoritative ABHA linkage status cannot be loaded
+  ///
+  /// In en, this message translates to:
+  /// **'Could not check your ABHA status'**
+  String get abdmStatusCheckFailedTitle;
+
+  /// IDENTITY SAFETY: explains the fail-closed registration state. Translations require human linguistic review before rollout.
+  ///
+  /// In en, this message translates to:
+  /// **'We can\'t tell whether you already have an ABHA linked, so registration is hidden until this loads.'**
+  String get abdmStatusUnknownExplanation;
+
+  /// Tooltip for copying the patient's ABHA number
+  ///
+  /// In en, this message translates to:
+  /// **'Copy ABHA number'**
+  String get abdmCopyNumberTooltip;
+
+  /// Confirms the ABHA number was copied and states the clipboard clearing delay
+  ///
+  /// In en, this message translates to:
+  /// **'ABHA number copied — clipboard clears in {seconds} s'**
+  String abdmCopyNumberSuccess(int seconds);
+
+  /// Label above the patient's ABHA address
+  ///
+  /// In en, this message translates to:
+  /// **'ABHA Address'**
+  String get abdmAddressLabel;
+
+  /// LEGAL/IDENTITY: distinguishes linking an existing ABHA from creating one. Translations require human linguistic review before rollout.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the ABHA you already have. This links it to your hospital record — it does not create a new ABHA.'**
+  String get abdmLinkExistingExplanation;
+
+  /// Required ABHA number field label
+  ///
+  /// In en, this message translates to:
+  /// **'ABHA Number *'**
+  String get abdmNumberRequiredLabel;
+
+  /// Example of the displayed ABHA number format
+  ///
+  /// In en, this message translates to:
+  /// **'12-3456-7890-1234'**
+  String get abdmNumberHint;
+
+  /// Validation error for an empty ABHA number
+  ///
+  /// In en, this message translates to:
+  /// **'ABHA number is required'**
+  String get abdmNumberRequiredError;
+
+  /// Validation error for a malformed ABHA number
+  ///
+  /// In en, this message translates to:
+  /// **'ABHA number must be 14 digits'**
+  String get abdmNumberLengthError;
+
+  /// Optional ABHA address field label
+  ///
+  /// In en, this message translates to:
+  /// **'ABHA Address (optional)'**
+  String get abdmAddressOptionalLabel;
+
+  /// Example ABHA address
+  ///
+  /// In en, this message translates to:
+  /// **'yourname@abdm'**
+  String get abdmAddressHint;
+
+  /// Button that links an existing ABHA
+  ///
+  /// In en, this message translates to:
+  /// **'Link ABHA'**
+  String get abdmLinkAction;
+
+  /// Prompt above the official ABHA creation portal link
+  ///
+  /// In en, this message translates to:
+  /// **'Don\'t have an ABHA yet?'**
+  String get abdmNoAbhaPrompt;
+
+  /// Link to the official ABHA creation portal
+  ///
+  /// In en, this message translates to:
+  /// **'Create one at abha.abdm.gov.in'**
+  String get abdmCreateAtPortalAction;
+
+  /// Fallback purpose when a consent request has no purpose label
+  ///
+  /// In en, this message translates to:
+  /// **'Health data access'**
+  String get abdmConsentPurposeFallback;
+
+  /// Fallback when a consent request has no requester label
+  ///
+  /// In en, this message translates to:
+  /// **'Unknown requester'**
+  String get abdmConsentRequesterUnknown;
+
+  /// Fallback for a missing consent-period boundary
+  ///
+  /// In en, this message translates to:
+  /// **'Unknown'**
+  String get abdmConsentDateUnknown;
+
+  /// Patient-facing label for a requested ABDM consent
+  ///
+  /// In en, this message translates to:
+  /// **'Requested'**
+  String get abdmConsentStatusRequested;
+
+  /// Patient-facing label for a granted ABDM consent
+  ///
+  /// In en, this message translates to:
+  /// **'Granted'**
+  String get abdmConsentStatusGranted;
+
+  /// Patient-facing label for a denied ABDM consent
+  ///
+  /// In en, this message translates to:
+  /// **'Denied'**
+  String get abdmConsentStatusDenied;
+
+  /// Patient-facing label for an expired ABDM consent
+  ///
+  /// In en, this message translates to:
+  /// **'Expired'**
+  String get abdmConsentStatusExpired;
+
+  /// Patient-facing label for a revoked ABDM consent
+  ///
+  /// In en, this message translates to:
+  /// **'Revoked'**
+  String get abdmConsentStatusRevoked;
+
+  /// Patient-facing label for an unrecognized ABDM consent status
+  ///
+  /// In en, this message translates to:
+  /// **'Unknown'**
+  String get abdmConsentStatusUnknown;
+
+  /// Names the organization requesting ABDM consent
+  ///
+  /// In en, this message translates to:
+  /// **'Requested by: {requester}'**
+  String abdmConsentRequestedBy(String requester);
+
+  /// Date range covered by an ABDM consent request
+  ///
+  /// In en, this message translates to:
+  /// **'Period: {from} — {to}'**
+  String abdmConsentPeriod(String from, String to);
+
   /// Heading of the ABHA self-enrolment wizard
   ///
   /// In en, this message translates to:

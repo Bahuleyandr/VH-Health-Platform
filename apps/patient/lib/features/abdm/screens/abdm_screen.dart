@@ -63,9 +63,12 @@ class _AbdmScreenState extends State<AbdmScreen>
             labelColor: colors.primary,
             unselectedLabelColor: colors.onSurfaceVariant,
             indicatorColor: colors.primary,
-            tabs: const [
-              Tab(icon: Icon(Icons.badge), text: 'My ABHA'),
-              Tab(icon: Icon(Icons.handshake), text: 'Consent Requests'),
+            tabs: [
+              Tab(icon: const Icon(Icons.badge), text: l.abdmMyAbhaTab),
+              Tab(
+                icon: const Icon(Icons.handshake),
+                text: l.abdmConsentRequestsTab,
+              ),
             ],
           ),
           Expanded(
@@ -102,6 +105,8 @@ class MyAbhaTab extends StatefulWidget {
 }
 
 class _MyAbhaTabState extends State<MyAbhaTab> {
+  static const _clipboardClearSeconds = 30;
+
   // Starts true: the first frame is the spinner, never a momentary flash of the
   // "not registered" prompt before the status is known.
   bool _loading = true;
@@ -144,8 +149,9 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
       if (kDebugMode) debugPrint('ABDM check error: $e');
       if (mounted) {
         setState(
-          () => _loadError =
-              'Could not check your ABHA status. Please try again.',
+          () =>
+              _loadError = AppLocalizations.of(context)!
+                  .abdmStatusCheckFailedDetail,
         );
       }
     } finally {
@@ -172,7 +178,7 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
       );
       if (!mounted) return;
       setState(() => _showRegistration = false);
-      _showSnackBar('ABHA linked to your account');
+      _showSnackBar(AppLocalizations.of(context)!.abdmLinkSuccess);
       // Re-read the canonical linkage rather than trusting what we posted, so
       // the card always reflects what the server actually stored. A failure
       // here lands in the error+retry state; the link itself already succeeded.
@@ -182,7 +188,10 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
     } catch (e) {
       if (kDebugMode) debugPrint('ABDM link error: $e');
       if (mounted) {
-        _showSnackBar('Could not link your ABHA', isError: true);
+        _showSnackBar(
+          AppLocalizations.of(context)!.abdmLinkFailed,
+          isError: true,
+        );
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -253,6 +262,7 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
   }
 
   Widget _buildErrorState(ThemeData theme) {
+    final l = AppLocalizations.of(context)!;
     return SingleChildScrollView(
       key: const ValueKey('abha_error'),
       padding: const EdgeInsets.all(16),
@@ -261,7 +271,7 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
           Icon(Icons.cloud_off, size: 64, color: theme.colorScheme.error),
           const SizedBox(height: 16),
           Text(
-            'Could not check your ABHA status',
+            l.abdmStatusCheckFailedTitle,
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.bold,
             ),
@@ -277,8 +287,7 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
           ),
           const SizedBox(height: 8),
           Text(
-            "We can't tell whether you already have an ABHA linked, so "
-            'registration is hidden until this loads.',
+            l.abdmStatusUnknownExplanation,
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
@@ -289,7 +298,7 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
             key: const ValueKey('abha_retry'),
             onPressed: _checkAbha,
             icon: const Icon(Icons.refresh),
-            label: const Text('Retry'),
+            label: Text(l.commonRetry),
           ),
         ],
       ),
@@ -380,18 +389,21 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
                     ),
                     IconButton(
                       icon: const Icon(Icons.copy),
-                      tooltip: 'Copy ABHA Number',
+                      tooltip: l.abdmCopyNumberTooltip,
                       onPressed: () {
                         // PAT-9: Copy the ABHA number and schedule a clipboard
                         // clear after 30 s so PHI does not linger in the
                         // clipboard indefinitely (pastes into other apps, etc.).
                         Clipboard.setData(ClipboardData(text: abhaNumber));
                         _showSnackBar(
-                          'ABHA number copied — clipboard clears in 30 s',
+                          l.abdmCopyNumberSuccess(_clipboardClearSeconds),
                         );
-                        Timer(const Duration(seconds: 30), () {
-                          Clipboard.setData(const ClipboardData(text: ''));
-                        });
+                        Timer(
+                          const Duration(seconds: _clipboardClearSeconds),
+                          () {
+                            Clipboard.setData(const ClipboardData(text: ''));
+                          },
+                        );
                       },
                     ),
                   ],
@@ -401,7 +413,7 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
           ],
           if (abhaAddress != null) ...[
             const SizedBox(height: 16),
-            Text('ABHA Address', style: theme.textTheme.titleMedium),
+            Text(l.abdmAddressLabel, style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
             Text(
               abhaAddress,
@@ -435,8 +447,7 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Enter the ABHA you already have. This links it to your hospital '
-              'record — it does not create a new ABHA.',
+              l.abdmLinkExistingExplanation,
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -445,17 +456,17 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
             TextFormField(
               controller: _abhaNumberController,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'ABHA Number *',
-                hintText: '12-3456-7890-1234',
-                prefixIcon: Icon(Icons.badge),
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: l.abdmNumberRequiredLabel,
+                hintText: l.abdmNumberHint,
+                prefixIcon: const Icon(Icons.badge),
+                border: const OutlineInputBorder(),
               ),
               validator: (v) {
                 final digits = _normalisedAbhaNumber(v ?? '');
-                if (digits.isEmpty) return 'ABHA number is required';
+                if (digits.isEmpty) return l.abdmNumberRequiredError;
                 if (!RegExp(r'^\d{14}$').hasMatch(digits)) {
-                  return 'ABHA number must be 14 digits';
+                  return l.abdmNumberLengthError;
                 }
                 return null;
               },
@@ -464,11 +475,11 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
             TextFormField(
               controller: _abhaAddressController,
               keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(
-                labelText: 'ABHA Address (optional)',
-                hintText: 'yourname@abdm',
-                prefixIcon: Icon(Icons.alternate_email),
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: l.abdmAddressOptionalLabel,
+                hintText: l.abdmAddressHint,
+                prefixIcon: const Icon(Icons.alternate_email),
+                border: const OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 24),
@@ -477,7 +488,7 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
                 Expanded(
                   child: OutlinedButton(
                     onPressed: () => setState(() => _showRegistration = false),
-                    child: const Text('Cancel'),
+                    child: Text(l.commonCancelButton),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -485,7 +496,7 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
                   child: FilledButton(
                     key: const ValueKey('abha_link_submit'),
                     onPressed: _linkAbha,
-                    child: const Text('Link ABHA'),
+                    child: Text(l.abdmLinkAction),
                   ),
                 ),
               ],
@@ -494,7 +505,7 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
             const Divider(),
             const SizedBox(height: 8),
             Text(
-              "Don't have an ABHA yet?",
+              l.abdmNoAbhaPrompt,
               style: theme.textTheme.bodyMedium,
               textAlign: TextAlign.center,
             ),
@@ -503,7 +514,7 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
               key: const ValueKey('abha_create_portal'),
               onPressed: _openAbhaPortal,
               icon: const Icon(Icons.open_in_new),
-              label: const Text('Create one at abha.abdm.gov.in'),
+              label: Text(l.abdmCreateAtPortalAction),
             ),
           ],
         ),
@@ -641,7 +652,7 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
             TextButton.icon(
               onPressed: _loadConsents,
               icon: const Icon(Icons.refresh),
-              label: const Text('Refresh'),
+              label: Text(l.commonRefreshButton),
             ),
           ],
         ),
@@ -657,8 +668,10 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
           final consent = _consents[index] as Map<String, dynamic>;
           final status = (consent['status'] as String?) ?? 'UNKNOWN';
           final purpose =
-              (consent['purpose'] as String?) ?? 'Health data access';
-          final requester = (consent['requester'] as String?) ?? 'Unknown';
+              (consent['purpose'] as String?) ?? l.abdmConsentPurposeFallback;
+          final requester =
+              (consent['requester'] as String?) ??
+              l.abdmConsentRequesterUnknown;
           final dateFrom = consent['dateFrom'] as String?;
           final dateTo = consent['dateTo'] as String?;
           final id = consent['id']?.toString() ?? '';
@@ -682,7 +695,7 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
                       ),
                       Chip(
                         label: Text(
-                          status,
+                          _localisedStatus(status, l),
                           style: TextStyle(
                             color: _statusColor(status, colors),
                             fontSize: 12,
@@ -703,12 +716,15 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Requested by: $requester',
+                    l.abdmConsentRequestedBy(requester),
                     style: theme.textTheme.bodySmall,
                   ),
                   if (dateFrom != null || dateTo != null)
                     Text(
-                      'Period: ${dateFrom ?? '?'} — ${dateTo ?? '?'}',
+                      l.abdmConsentPeriod(
+                        dateFrom ?? l.abdmConsentDateUnknown,
+                        dateTo ?? l.abdmConsentDateUnknown,
+                      ),
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
@@ -774,5 +790,22 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
         },
       ),
     );
+  }
+
+  String _localisedStatus(String status, AppLocalizations l) {
+    switch (status.toUpperCase()) {
+      case 'REQUESTED':
+        return l.abdmConsentStatusRequested;
+      case 'GRANTED':
+        return l.abdmConsentStatusGranted;
+      case 'DENIED':
+        return l.abdmConsentStatusDenied;
+      case 'EXPIRED':
+        return l.abdmConsentStatusExpired;
+      case 'REVOKED':
+        return l.abdmConsentStatusRevoked;
+      default:
+        return l.abdmConsentStatusUnknown;
+    }
   }
 }
