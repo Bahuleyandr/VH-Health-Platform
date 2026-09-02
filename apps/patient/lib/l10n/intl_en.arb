@@ -4711,5 +4711,21 @@
   "abhaEnrolVerify": "Verify",
   "@abhaEnrolVerify": {"description": "Button that submits the OTP"},
   "abhaEnrolViewMyAbha": "View my ABHA",
-  "@abhaEnrolViewMyAbha": {"description": "Button on the success step that returns to the ABHA card"}
+  "@abhaEnrolViewMyAbha": {"description": "Button on the success step that returns to the ABHA card"},
+  "appointmentVisitType": "Visit type",
+  "@appointmentVisitType": {"description": "Label for choosing an in-person or teleconsult appointment"},
+  "appointmentInPersonConsultation": "In-person consultation",
+  "@appointmentInPersonConsultation": {"description": "Appointment visit-type option"},
+  "appointmentTeleconsultVideoVisit": "Teleconsult (video visit)",
+  "@appointmentTeleconsultVideoVisit": {"description": "Appointment visit-type option"},
+  "familyLinkedDependentBadge": "Linked dependent",
+  "@familyLinkedDependentBadge": {"description": "Badge on a family member whose patient profile is linked"},
+  "familySetUpLinkedDependent": "Set up linked dependent",
+  "@familySetUpLinkedDependent": {"description": "Heading and action for promoting a family member into a linked dependent; translations require legal and linguistic review"},
+  "ancBookedVisits": "Booked visits",
+  "@ancBookedVisits": {"description": "ANC timeline heading for upcoming booked appointments"},
+  "ancRecordedBpWeight": "Recorded BP & weight",
+  "@ancRecordedBpWeight": {"description": "ANC timeline heading for recorded blood pressure and weight"},
+  "gamificationShareEarnedBadge": "I earned the \"{title}\" badge on VH Health!",
+  "@gamificationShareEarnedBadge": {"description": "Text shared with an earned achievement image", "placeholders": {"title": {"type": "String"}}}
 }

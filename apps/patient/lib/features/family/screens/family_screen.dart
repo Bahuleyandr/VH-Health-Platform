@@ -362,7 +362,7 @@ class _FamilyMemberCard extends StatelessWidget {
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            'Linked dependent',
+                            l.familyLinkedDependentBadge,
                             style: theme.textTheme.labelSmall?.copyWith(
                               color: colors.tertiary,
                               fontWeight: FontWeight.w600,
@@ -743,6 +743,7 @@ class _PromoteDependentSheetState extends State<_PromoteDependentSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
     final name = widget.member['name'] as String? ?? 'this family member';
@@ -767,7 +768,7 @@ class _PromoteDependentSheetState extends State<_PromoteDependentSheet> {
             ),
             const SizedBox(height: 16),
             Text(
-              'Set up linked dependent',
+              l.familySetUpLinkedDependent,
               style: theme.textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.bold,
               ),
@@ -846,7 +847,9 @@ class _PromoteDependentSheetState extends State<_PromoteDependentSheet> {
                     )
                   : const Icon(Icons.escalator_warning),
               label: Text(
-                _submitting ? 'Setting up…' : 'Set up linked dependent',
+                _submitting
+                    ? l.permissionGateSettingUp
+                    : l.familySetUpLinkedDependent,
               ),
               style: FilledButton.styleFrom(
                 backgroundColor: colors.tertiary,

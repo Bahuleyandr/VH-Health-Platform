@@ -110,7 +110,7 @@ An approved translation belongs in the explicit `ml` map in
 file. Review must prioritize clinical action, dosage/MAR, consent, emergency,
 finance/payroll, controlled-drug, legal declaration, and operator copy.
 
-The patient app gained first-pass hi/ta/te/ml wording for 25 previously
+The patient app gained first-pass hi/ta/te/ml wording for 33 previously
 missing or English-copy keys. Human review is required for:
 
 - `authSosBackendFailed`, `authSosGuestSkipped`
@@ -126,6 +126,11 @@ missing or English-copy keys. Human review is required for:
   `diagnosticResultRadiology`, `diagnosticResultPathology`,
   `diagnosticResultAmended`, `diagnosticResultAddendum`,
   `diagnosticResultAdvice`
+- `appointmentVisitType`, `appointmentInPersonConsultation`,
+  `appointmentTeleconsultVideoVisit`
+- `familyLinkedDependentBadge`, `familySetUpLinkedDependent`
+- `ancBookedVisits`, `ancRecordedBpWeight`
+- `gamificationShareEarnedBadge`
 
 The backend payment-link presentation now resolves the patient's server-owned
 preferred locale across en/hi/ta/te/ml, but all five entries deliberately

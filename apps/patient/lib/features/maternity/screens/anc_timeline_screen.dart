@@ -332,7 +332,7 @@ class _AncTimelineScreenState extends State<AncTimelineScreen> {
         if (nextVisit != null) _nextVisitCard(theme, l, nextVisit),
         if (nextVisit != null) const SizedBox(height: 16),
         if (bookedVisits.isNotEmpty) ...[
-          Text('Booked visits', style: theme.textTheme.titleMedium),
+          Text(l.ancBookedVisits, style: theme.textTheme.titleMedium),
           const SizedBox(height: 8),
           ...bookedVisits.map((v) => _bookedVisitCard(theme, l, v)),
           const SizedBox(height: 16),
@@ -344,7 +344,7 @@ class _AncTimelineScreenState extends State<AncTimelineScreen> {
           const SizedBox(height: 16),
         ],
         if (generalVitals.isNotEmpty) ...[
-          Text('Recorded BP & weight', style: theme.textTheme.titleMedium),
+          Text(l.ancRecordedBpWeight, style: theme.textTheme.titleMedium),
           const SizedBox(height: 8),
           Card(
             child: Column(

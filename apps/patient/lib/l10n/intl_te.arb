@@ -2700,5 +2700,13 @@
   "diagnosticResultPathology": "పాథాలజీ నివేదిక",
   "diagnosticResultAmended": "సవరించబడింది",
   "diagnosticResultAddendum": "సంతకం చేసిన అనుబంధం",
-  "diagnosticResultAdvice": "ఈ నివేదిక మీ సంరక్షణకు ఏమి సూచిస్తుందనే విషయంపై ప్రశ్నలు ఉంటే, దయచేసి మీ వైద్యుడితో చర్చించండి."
+  "diagnosticResultAdvice": "ఈ నివేదిక మీ సంరక్షణకు ఏమి సూచిస్తుందనే విషయంపై ప్రశ్నలు ఉంటే, దయచేసి మీ వైద్యుడితో చర్చించండి.",
+  "appointmentVisitType": "సందర్శన రకం",
+  "appointmentInPersonConsultation": "ప్రత్యక్ష సంప్రదింపు",
+  "appointmentTeleconsultVideoVisit": "టెలీకన్సల్ట్ (వీడియో సందర్శన)",
+  "familyLinkedDependentBadge": "అనుసంధానించిన ఆధారిత వ్యక్తి",
+  "familySetUpLinkedDependent": "అనుసంధానించిన ఆధారిత వ్యక్తిని సెటప్ చేయండి",
+  "ancBookedVisits": "బుక్ చేసిన సందర్శనలు",
+  "ancRecordedBpWeight": "నమోదు చేసిన BP మరియు బరువు",
+  "gamificationShareEarnedBadge": "నేను VH Healthలో \"{title}\" బ్యాడ్జ్ సాధించాను!"
 }

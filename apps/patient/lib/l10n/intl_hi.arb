@@ -2124,5 +2124,13 @@
   "diagnosticResultPathology": "पैथोलॉजी रिपोर्ट",
   "diagnosticResultAmended": "संशोधित",
   "diagnosticResultAddendum": "हस्ताक्षरित परिशिष्ट",
-  "diagnosticResultAdvice": "यदि इस रिपोर्ट का आपकी देखभाल के लिए क्या अर्थ है, इस बारे में आपके प्रश्न हैं, तो कृपया अपने डॉक्टर से चर्चा करें।"
+  "diagnosticResultAdvice": "यदि इस रिपोर्ट का आपकी देखभाल के लिए क्या अर्थ है, इस बारे में आपके प्रश्न हैं, तो कृपया अपने डॉक्टर से चर्चा करें।",
+  "appointmentVisitType": "विज़िट का प्रकार",
+  "appointmentInPersonConsultation": "व्यक्तिगत परामर्श",
+  "appointmentTeleconsultVideoVisit": "टेलीकंसल्ट (वीडियो विज़िट)",
+  "familyLinkedDependentBadge": "लिंक किया गया आश्रित",
+  "familySetUpLinkedDependent": "लिंक किए गए आश्रित को सेट अप करें",
+  "ancBookedVisits": "बुक की गई विज़िट",
+  "ancRecordedBpWeight": "दर्ज BP और वज़न",
+  "gamificationShareEarnedBadge": "मैंने VH Health पर \"{title}\" बैज अर्जित किया!"
 }

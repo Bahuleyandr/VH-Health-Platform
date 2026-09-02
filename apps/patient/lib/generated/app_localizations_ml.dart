@@ -4383,4 +4383,31 @@ class AppLocalizationsMl extends AppLocalizations {
 
   @override
   String get abhaEnrolViewMyAbha => 'എന്റെ ABHA കാണുക';
+
+  @override
+  String get appointmentVisitType => 'സന്ദർശന തരം';
+
+  @override
+  String get appointmentInPersonConsultation => 'നേരിട്ടുള്ള കൺസൾട്ടേഷൻ';
+
+  @override
+  String get appointmentTeleconsultVideoVisit =>
+      'ടെലികൺസൾട്ട് (വീഡിയോ സന്ദർശനം)';
+
+  @override
+  String get familyLinkedDependentBadge => 'ബന്ധിപ്പിച്ച ആശ്രിതൻ';
+
+  @override
+  String get familySetUpLinkedDependent => 'ബന്ധിപ്പിച്ച ആശ്രിതനെ സജ്ജമാക്കുക';
+
+  @override
+  String get ancBookedVisits => 'ബുക്ക് ചെയ്ത സന്ദർശനങ്ങൾ';
+
+  @override
+  String get ancRecordedBpWeight => 'രേഖപ്പെടുത്തിയ BPയും ഭാരവും';
+
+  @override
+  String gamificationShareEarnedBadge(String title) {
+    return 'VH Health-ൽ ഞാൻ \"$title\" ബാഡ്ജ് നേടി!';
+  }
 }

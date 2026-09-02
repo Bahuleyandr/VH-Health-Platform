@@ -533,15 +533,15 @@ class _AppointmentBookTabState extends State<AppointmentBookTab> {
 
           DropdownButtonFormField<String>(
             initialValue: _visitType,
-            decoration: const InputDecoration(labelText: 'Visit type'),
-            items: const [
+            decoration: InputDecoration(labelText: l10n.appointmentVisitType),
+            items: [
               DropdownMenuItem(
                 value: 'NEW',
-                child: Text('In-person consultation'),
+                child: Text(l10n.appointmentInPersonConsultation),
               ),
               DropdownMenuItem(
                 value: 'TELE',
-                child: Text('Teleconsult (video visit)'),
+                child: Text(l10n.appointmentTeleconsultVideoVisit),
               ),
             ],
             onChanged: (value) {

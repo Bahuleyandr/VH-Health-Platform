@@ -4397,4 +4397,30 @@ class AppLocalizationsTa extends AppLocalizations {
 
   @override
   String get abhaEnrolViewMyAbha => 'என் ABHA-ஐப் பார்க்கவும்';
+
+  @override
+  String get appointmentVisitType => 'வருகை வகை';
+
+  @override
+  String get appointmentInPersonConsultation => 'நேரடி ஆலோசனை';
+
+  @override
+  String get appointmentTeleconsultVideoVisit => 'தொலை ஆலோசனை (காணொலி வருகை)';
+
+  @override
+  String get familyLinkedDependentBadge => 'இணைக்கப்பட்ட சார்பாளர்';
+
+  @override
+  String get familySetUpLinkedDependent => 'இணைக்கப்பட்ட சார்பாளரை அமைக்கவும்';
+
+  @override
+  String get ancBookedVisits => 'முன்பதிவு செய்யப்பட்ட வருகைகள்';
+
+  @override
+  String get ancRecordedBpWeight => 'பதிவுசெய்த BP மற்றும் எடை';
+
+  @override
+  String gamificationShareEarnedBadge(String title) {
+    return 'VH Health-இல் \"$title\" பதக்கத்தை நான் பெற்றேன்!';
+  }
 }

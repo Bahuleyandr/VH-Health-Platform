@@ -4362,4 +4362,32 @@ class AppLocalizationsTe extends AppLocalizations {
 
   @override
   String get abhaEnrolViewMyAbha => 'నా ABHAని చూడండి';
+
+  @override
+  String get appointmentVisitType => 'సందర్శన రకం';
+
+  @override
+  String get appointmentInPersonConsultation => 'ప్రత్యక్ష సంప్రదింపు';
+
+  @override
+  String get appointmentTeleconsultVideoVisit =>
+      'టెలీకన్సల్ట్ (వీడియో సందర్శన)';
+
+  @override
+  String get familyLinkedDependentBadge => 'అనుసంధానించిన ఆధారిత వ్యక్తి';
+
+  @override
+  String get familySetUpLinkedDependent =>
+      'అనుసంధానించిన ఆధారిత వ్యక్తిని సెటప్ చేయండి';
+
+  @override
+  String get ancBookedVisits => 'బుక్ చేసిన సందర్శనలు';
+
+  @override
+  String get ancRecordedBpWeight => 'నమోదు చేసిన BP మరియు బరువు';
+
+  @override
+  String gamificationShareEarnedBadge(String title) {
+    return 'నేను VH Healthలో \"$title\" బ్యాడ్జ్ సాధించాను!';
+  }
 }

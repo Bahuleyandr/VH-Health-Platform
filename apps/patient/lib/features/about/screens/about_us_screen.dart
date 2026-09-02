@@ -202,7 +202,7 @@ class AboutUsScreen extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Venkataeswara Hospitals',
+                            l10n.aboutHospitalName,
                             style: theme.textTheme.titleSmall?.copyWith(
                               fontWeight: FontWeight.bold,
                             ),

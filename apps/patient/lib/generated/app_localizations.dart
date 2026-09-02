@@ -8023,6 +8023,54 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'View my ABHA'**
   String get abhaEnrolViewMyAbha;
+
+  /// Label for choosing an in-person or teleconsult appointment
+  ///
+  /// In en, this message translates to:
+  /// **'Visit type'**
+  String get appointmentVisitType;
+
+  /// Appointment visit-type option
+  ///
+  /// In en, this message translates to:
+  /// **'In-person consultation'**
+  String get appointmentInPersonConsultation;
+
+  /// Appointment visit-type option
+  ///
+  /// In en, this message translates to:
+  /// **'Teleconsult (video visit)'**
+  String get appointmentTeleconsultVideoVisit;
+
+  /// Badge on a family member whose patient profile is linked
+  ///
+  /// In en, this message translates to:
+  /// **'Linked dependent'**
+  String get familyLinkedDependentBadge;
+
+  /// Heading and action for promoting a family member into a linked dependent; translations require legal and linguistic review
+  ///
+  /// In en, this message translates to:
+  /// **'Set up linked dependent'**
+  String get familySetUpLinkedDependent;
+
+  /// ANC timeline heading for upcoming booked appointments
+  ///
+  /// In en, this message translates to:
+  /// **'Booked visits'**
+  String get ancBookedVisits;
+
+  /// ANC timeline heading for recorded blood pressure and weight
+  ///
+  /// In en, this message translates to:
+  /// **'Recorded BP & weight'**
+  String get ancRecordedBpWeight;
+
+  /// Text shared with an earned achievement image
+  ///
+  /// In en, this message translates to:
+  /// **'I earned the \"{title}\" badge on VH Health!'**
+  String gamificationShareEarnedBadge(String title);
 }
 
 class _AppLocalizationsDelegate

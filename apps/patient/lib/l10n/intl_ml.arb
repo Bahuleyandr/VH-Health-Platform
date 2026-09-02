@@ -2700,5 +2700,13 @@
   "diagnosticResultPathology": "പാത്തോളജി റിപ്പോർട്ട്",
   "diagnosticResultAmended": "ഭേദഗതി ചെയ്തു",
   "diagnosticResultAddendum": "ഒപ്പിട്ട അനുബന്ധം",
-  "diagnosticResultAdvice": "ഈ റിപ്പോർട്ട് നിങ്ങളുടെ പരിചരണത്തിന് എന്താണ് അർത്ഥമാക്കുന്നത് എന്നതിനെക്കുറിച്ച് ചോദ്യങ്ങളുണ്ടെങ്കിൽ, ദയവായി നിങ്ങളുടെ ഡോക്ടറുമായി ചർച്ച ചെയ്യുക."
+  "diagnosticResultAdvice": "ഈ റിപ്പോർട്ട് നിങ്ങളുടെ പരിചരണത്തിന് എന്താണ് അർത്ഥമാക്കുന്നത് എന്നതിനെക്കുറിച്ച് ചോദ്യങ്ങളുണ്ടെങ്കിൽ, ദയവായി നിങ്ങളുടെ ഡോക്ടറുമായി ചർച്ച ചെയ്യുക.",
+  "appointmentVisitType": "സന്ദർശന തരം",
+  "appointmentInPersonConsultation": "നേരിട്ടുള്ള കൺസൾട്ടേഷൻ",
+  "appointmentTeleconsultVideoVisit": "ടെലികൺസൾട്ട് (വീഡിയോ സന്ദർശനം)",
+  "familyLinkedDependentBadge": "ബന്ധിപ്പിച്ച ആശ്രിതൻ",
+  "familySetUpLinkedDependent": "ബന്ധിപ്പിച്ച ആശ്രിതനെ സജ്ജമാക്കുക",
+  "ancBookedVisits": "ബുക്ക് ചെയ്ത സന്ദർശനങ്ങൾ",
+  "ancRecordedBpWeight": "രേഖപ്പെടുത്തിയ BPയും ഭാരവും",
+  "gamificationShareEarnedBadge": "VH Health-ൽ ഞാൻ \"{title}\" ബാഡ്ജ് നേടി!"
 }
