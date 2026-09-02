@@ -97,3 +97,56 @@ export function logPhiAccess({
     }
   });
 }
+
+export async function logPhiAccessBatch(entries, { db } = {}) {
+  if (!db?.$executeRawUnsafe) {
+    throw new TypeError('A transaction-scoped database client is required');
+  }
+  if (!Array.isArray(entries) || entries.length > 25) {
+    throw new TypeError('HIPAA access batch entries must be an array of at most 25 items');
+  }
+  if (!entries.length) return;
+  const rows = entries.map((entry) => {
+    const accessedBy = toUuidOrNull(entry?.userId);
+    const tenantId = requireTenantId(toUuidOrNull(entry?.tenantId));
+    const patientId = entry?.patientId == null || entry.patientId === ''
+      ? null
+      : String(entry.patientId);
+    const recordType = String(entry?.recordType || '').trim();
+    if (!accessedBy || !patientId || !recordType) {
+      throw new TypeError('Each HIPAA access batch entry requires userId, patientId, and recordType');
+    }
+    return {
+      accessed_by: accessedBy,
+      accessed_by_role: entry?.userRole == null ? null : String(entry.userRole),
+      patient_id: patientId,
+      record_type: recordType,
+      action: entry?.action == null ? 'VIEW' : String(entry.action),
+      ip_address: entry?.ip || null,
+      request_id: entry?.requestId || null,
+      actor_uid: toUuidOrNull(entry?.actorUid) ?? accessedBy,
+      subject_uid: toUuidOrNull(entry?.subjectUid),
+      acting_as_dependent: entry?.actingAsDependent === true,
+      device_type: entry?.deviceType || null,
+      tenant_id: tenantId,
+    };
+  });
+  await db.$executeRawUnsafe(
+    `INSERT INTO hipaa_access_log
+       (accessed_by, accessed_by_role, patient_id, record_type, action,
+        ip_address, request_id, accessed_at, actor_uid, subject_uid,
+        acting_as_dependent, device_type, tenant_id)
+     SELECT audit.accessed_by, audit.accessed_by_role, audit.patient_id,
+            audit.record_type, audit.action, audit.ip_address,
+            audit.request_id, clock_timestamp(), audit.actor_uid,
+            audit.subject_uid, audit.acting_as_dependent,
+            audit.device_type, audit.tenant_id
+       FROM jsonb_to_recordset($1::jsonb) AS audit(
+         accessed_by uuid, accessed_by_role text, patient_id text,
+         record_type text, action text, ip_address text, request_id text,
+         actor_uid uuid, subject_uid uuid, acting_as_dependent boolean,
+         device_type text, tenant_id uuid
+       )`,
+    JSON.stringify(rows),
+  );
+}

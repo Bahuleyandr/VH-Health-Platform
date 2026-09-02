@@ -321,7 +321,7 @@ const CLINICAL_TEXT_FIELDS = new Set([
   'diagnosis', 'diagnoses', 'symptoms', 'chief_complaint', 'history',
   'subjective', 'objective', 'examination', 'assessment', 'plan',
   'treatment_plan', 'clinical_summary', 'response_notes', 'completion_notes',
-  'follow_up_notes', 'instructions', 'discharge_summary',
+  'follow_up_notes', 'instructions', 'discharge_summary', 'reason', 'xml',
 ]);
 
 const ALLOWED_DEVICE_TYPES = new Set(['mobile', 'tablet', 'desktop', 'web']);

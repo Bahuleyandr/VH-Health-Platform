@@ -11,6 +11,7 @@ import * as payroll from '../../../scripts/openapi/schemas/payroll.mjs';
 import * as emr from '../../../scripts/openapi/schemas/emr.mjs';
 import * as clinicalAi from '../../../scripts/openapi/schemas/clinicalAi.mjs';
 import * as clinicalMar from '../../../scripts/openapi/schemas/clinicalMar.mjs';
+import * as clinicalImport from '../../../scripts/openapi/schemas/clinicalImport.mjs';
 import * as pharmacy from '../../../scripts/openapi/schemas/pharmacy.mjs';
 import * as wardIndents from '../../../scripts/openapi/schemas/wardIndents.mjs';
 import * as users from '../../../scripts/openapi/schemas/users.mjs';
@@ -64,6 +65,7 @@ const MODULES = [
   emr,
   clinicalAi,
   clinicalMar,
+  clinicalImport,
   pharmacy,
   wardIndents,
   users,

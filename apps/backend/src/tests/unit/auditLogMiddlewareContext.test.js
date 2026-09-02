@@ -113,6 +113,13 @@ describe('auditLogMiddleware context enrichment', () => {
     expect(sanitizeBody({ patient_uid: 'patient', notes: 'sensitive', result: { value: 'secret' } }))
       .toContain('REDACTED_CLINICAL_TEXT');
     expect(sanitizeBody({ notes: 'sensitive' })).not.toContain('sensitive');
+    const reconciliationSummary = sanitizeBody({
+      reason: 'patient-specific correction narrative',
+      envelope: { xml: '<ClinicalDocument>private</ClinicalDocument>' },
+    });
+    expect(reconciliationSummary).not.toContain('patient-specific correction narrative');
+    expect(reconciliationSummary).not.toContain('ClinicalDocument');
+    expect(reconciliationSummary.match(/REDACTED_CLINICAL_TEXT/g)).toHaveLength(2);
     const gatewaySecrets = sanitizeBody({
       auth_key: 'sms-auth-secret',
       key_secret: 'payment-key-secret',

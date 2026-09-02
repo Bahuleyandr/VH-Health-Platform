@@ -147,6 +147,16 @@ const MERGE_READ_UNION_COVERED_TABLES = new Set([
   'clinical_audit_events',
   'clinical_timeline_events',
   'patient_access_audit_log',
+  // Clinical-import receipts are immutable custody provenance. A patient
+  // merge must never rewrite the source identity recorded on either the
+  // document or its resource receipts; replay/read paths resolve that source
+  // uid through the survivor's merged family instead.
+  'clinical_import_authority_events',
+  'clinical_import_document_receipts',
+  'clinical_import_raw_artifacts',
+  'clinical_import_resource_receipts',
+  'clinical_import_reconciliation_items',
+  'clinical_import_reconciliation_events',
   // Advances and IPD deposits are protected by financial-lineage immutability,
   // so their rows stay on the pre-merge uid by design. Every patient-scoped
   // read of them unions the merged family: getAdmissionDepositBalance through

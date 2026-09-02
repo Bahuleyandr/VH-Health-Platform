@@ -23,6 +23,7 @@ const EXPECTED_POSTURES = {
   otp: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_CLOSED,
   sos: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_CLOSED,
   dataExport: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_CLOSED,
+  clinicalImport: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_CLOSED,
   dashboard: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_CLOSED,
   smartFhirOAuth: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_CLOSED,
   scimProvisioning: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_CLOSED,
@@ -55,7 +56,14 @@ describe('rate-limit store-loss policy', () => {
     },
   );
 
-  it.each(['dataExport', 'dashboard', 'smartFhirOAuth', 'scimProvisioning', 'interfaceEngineIngress'])(
+  it.each([
+    'dataExport',
+    'clinicalImport',
+    'dashboard',
+    'smartFhirOAuth',
+    'scimProvisioning',
+    'interfaceEngineIngress',
+  ])(
     '%s fails closed — the limiter is the security control on this surface',
     (profile) => {
       expect(storeLossPostureFor(profile)).toBe(RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_CLOSED);
