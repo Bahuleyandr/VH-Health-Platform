@@ -2952,7 +2952,6 @@ model care_handoff_instances {
   request_reason                String?
   request_fingerprint           String?   @db.Char(64)
   accepted_by_uid               String?   @db.Uuid
-  accepted_by                   users?    @relation("care_handoff_accepted_by", fields: [tenant_id, accepted_by_uid], references: [tenant_id, uid], onDelete: Restrict, onUpdate: Restrict, map: "fk_care_handoff_accepted_by_tenant")
 
   @@unique([tenant_id, idempotency_key], map: "ux_care_handoff_idempotency")
   @@unique([tenant_id, sending_pathway_instance_id, source_resource_id], map: "ux_care_handoff_one_live_ed_destination", where: raw("(((handoff_type)::text = 'ed_destination_handoff'::text) AND ((status)::text = ANY ((ARRAY['requested'::character varying, 'accepted'::character varying])::text[])))"))
@@ -24851,87 +24850,86 @@ model user_status_history {
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model users {
-  id                                                Int                      @id @default(autoincrement())
-  uid                                               String                   @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  phone                                             String?                  @db.VarChar(15)
-  name                                              String?                  @db.VarChar(255)
-  gender                                            String?                  @db.VarChar(20)
+  id                                                Int               @id @default(autoincrement())
+  uid                                               String            @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  phone                                             String?           @db.VarChar(15)
+  name                                              String?           @db.VarChar(255)
+  gender                                            String?           @db.VarChar(20)
   address                                           String?
-  email                                             String?                  @db.VarChar(255)
-  birthday                                          DateTime?                @db.Date
-  anniversary                                       DateTime?                @db.Date
-  guardian_name                                     String?                  @db.VarChar(160)
-  guardian_phone                                    String?                  @db.VarChar(20)
-  guardian_relationship                             String?                  @db.VarChar(40)
+  email                                             String?           @db.VarChar(255)
+  birthday                                          DateTime?         @db.Date
+  anniversary                                       DateTime?         @db.Date
+  guardian_name                                     String?           @db.VarChar(160)
+  guardian_phone                                    String?           @db.VarChar(20)
+  guardian_relationship                             String?           @db.VarChar(40)
   profile_picture                                   String?
-  role                                              String?                  @default("PATIENT") @db.VarChar(50)
-  is_active                                         Boolean                  @default(true)
-  registered_at                                     DateTime                 @default(now()) @db.Timestamp(6)
-  updated_at                                        DateTime                 @db.Timestamp(6)
+  role                                              String?           @default("PATIENT") @db.VarChar(50)
+  is_active                                         Boolean           @default(true)
+  registered_at                                     DateTime          @default(now()) @db.Timestamp(6)
+  updated_at                                        DateTime          @db.Timestamp(6)
   e2e_public_key                                    String?
-  e2e_key_updated_at                                DateTime?                @db.Timestamptz(6)
-  tenant_id                                         String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  preferred_language                                String                   @default("en") @db.VarChar(5)
+  e2e_key_updated_at                                DateTime?         @db.Timestamptz(6)
+  tenant_id                                         String            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  preferred_language                                String            @default("en") @db.VarChar(5)
   encrypted_password                                String?
-  is_pregnant                                       Boolean?                 @default(false)
-  pregnancy_lmp_date                                DateTime?                @db.Date
-  last_sign_in_at                                   DateTime?                @db.Timestamptz(6)
-  pan_number                                        String?                  @db.VarChar(20)
-  abha_address                                      String?                  @db.VarChar(100)
-  abha_number                                       String?                  @db.VarChar(20)
+  is_pregnant                                       Boolean?          @default(false)
+  pregnancy_lmp_date                                DateTime?         @db.Date
+  last_sign_in_at                                   DateTime?         @db.Timestamptz(6)
+  pan_number                                        String?           @db.VarChar(20)
+  abha_address                                      String?           @db.VarChar(100)
+  abha_number                                       String?           @db.VarChar(20)
   device_token                                      String?
-  role_updated_at                                   DateTime?                @db.Timestamp(6)
-  status                                            String                   @default("active") @db.VarChar(50)
+  role_updated_at                                   DateTime?         @db.Timestamp(6)
+  status                                            String            @default("active") @db.VarChar(50)
   status_reason                                     String?
-  status_updated_at                                 DateTime?                @db.Timestamp(6)
-  status_updated_by                                 String?                  @db.Uuid
+  status_updated_at                                 DateTime?         @db.Timestamp(6)
+  status_updated_by                                 String?           @db.Uuid
   emergency_contact                                 Json?
-  blood_group                                       String?                  @db.VarChar(10)
+  blood_group                                       String?           @db.VarChar(10)
   allergies                                         String?
   medical_history                                   String?
-  profile_completed_at                              DateTime?                @db.Timestamptz(6)
+  profile_completed_at                              DateTime?         @db.Timestamptz(6)
   name_encrypted                                    String?
   phone_encrypted                                   String?
-  phone_search_hash                                 String?                  @db.Char(64)
+  phone_search_hash                                 String?           @db.Char(64)
   address_encrypted                                 String?
-  weight_kg                                         Decimal?                 @db.Decimal(6, 2)
-  guardian_id_type                                  String?                  @db.VarChar(30)
-  guardian_id_reference                             String?                  @db.VarChar(80)
+  weight_kg                                         Decimal?          @db.Decimal(6, 2)
+  guardian_id_type                                  String?           @db.VarChar(30)
+  guardian_id_reference                             String?           @db.VarChar(80)
   guardian_user_id                                  Int?
-  is_minor                                          Boolean                  @default(false)
-  is_unidentified                                   Boolean                  @default(false)
-  chronic_medications                               Json                     @default("[]")
-  chronic_medications_updated_at                    DateTime?                @db.Timestamptz(6)
-  preferred_channel                                 String                   @default("app") @db.VarChar(10)
-  firebase_uid                                      String?                  @db.VarChar(128)
-  firebase_tokens_revoked_at                        DateTime?                @db.Timestamptz(6)
-  email_verified                                    Boolean                  @default(false)
-  is_deleted                                        Boolean                  @default(false)
-  deleted_at                                        DateTime?                @db.Timestamptz(6)
+  is_minor                                          Boolean           @default(false)
+  is_unidentified                                   Boolean           @default(false)
+  chronic_medications                               Json              @default("[]")
+  chronic_medications_updated_at                    DateTime?         @db.Timestamptz(6)
+  preferred_channel                                 String            @default("app") @db.VarChar(10)
+  firebase_uid                                      String?           @db.VarChar(128)
+  firebase_tokens_revoked_at                        DateTime?         @db.Timestamptz(6)
+  email_verified                                    Boolean           @default(false)
+  is_deleted                                        Boolean           @default(false)
+  deleted_at                                        DateTime?         @db.Timestamptz(6)
   deleted_reason                                    String?
-  identity_source                                   String                   @default("local") @db.VarChar(20)
+  identity_source                                   String            @default("local") @db.VarChar(20)
   scim_external_id                                  String?
   scim_provider_id                                  BigInt?
-  scim_last_synced_at                               DateTime?                @db.Timestamptz(6)
-  identity_overrides                                Json                     @default("{}")
-  is_break_glass_account                            Boolean                  @default(false)
-  break_glass_name                                  String?                  @db.VarChar(160)
+  scim_last_synced_at                               DateTime?         @db.Timestamptz(6)
+  identity_overrides                                Json              @default("{}")
+  is_break_glass_account                            Boolean           @default(false)
+  break_glass_name                                  String?           @db.VarChar(160)
   break_glass_reason                                String?
-  merged_into_uid                                   String?                  @db.Uuid
-  merged_at                                         DateTime?                @db.Timestamptz(6)
-  news2_spo2_scale                                  Int                      @default(1) @db.SmallInt
-  token_epoch                                       Int                      @default(0)
-  token_epoch_bumped_at                             DateTime?                @db.Timestamptz(6)
-  abha_verification_status                          String                   @default("pending") @db.VarChar(16)
-  abha_verified_at                                  DateTime?                @db.Timestamptz(6)
-  appointments_appointments_doctor_idTousers        appointments[]           @relation("appointments_doctor_idTousers")
-  appointments_appointments_patient_idTousers       appointments[]           @relation("appointments_patient_idTousers")
-  care_handoff_accepted_by                          care_handoff_instances[] @relation("care_handoff_accepted_by")
+  merged_into_uid                                   String?           @db.Uuid
+  merged_at                                         DateTime?         @db.Timestamptz(6)
+  news2_spo2_scale                                  Int               @default(1) @db.SmallInt
+  token_epoch                                       Int               @default(0)
+  token_epoch_bumped_at                             DateTime?         @db.Timestamptz(6)
+  abha_verification_status                          String            @default("pending") @db.VarChar(16)
+  abha_verified_at                                  DateTime?         @db.Timestamptz(6)
+  appointments_appointments_doctor_idTousers        appointments[]    @relation("appointments_doctor_idTousers")
+  appointments_appointments_patient_idTousers       appointments[]    @relation("appointments_patient_idTousers")
   doctors                                           doctors[]
-  investigations_investigations_patient_idTousers   investigations[]         @relation("investigations_patient_idTousers")
-  investigations_investigations_requested_byTousers investigations[]         @relation("investigations_requested_byTousers")
-  medical_records_medical_records_doctor_idTousers  medical_records[]        @relation("medical_records_doctor_idTousers")
-  pharmacy_orders_pharmacy_orders_patient_idTousers pharmacy_orders[]        @relation("pharmacy_orders_patient_idTousers")
+  investigations_investigations_patient_idTousers   investigations[]  @relation("investigations_patient_idTousers")
+  investigations_investigations_requested_byTousers investigations[]  @relation("investigations_requested_byTousers")
+  medical_records_medical_records_doctor_idTousers  medical_records[] @relation("medical_records_doctor_idTousers")
+  pharmacy_orders_pharmacy_orders_patient_idTousers pharmacy_orders[] @relation("pharmacy_orders_patient_idTousers")
   staff                                             staff[]
 
   @@unique([tenant_id, firebase_uid], map: "uniq_users_tenant_firebase_uid", where: raw("(firebase_uid IS NOT NULL)"))

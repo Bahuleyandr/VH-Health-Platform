@@ -546,12 +546,12 @@ describe('migration 586 static owner-acceptance contract', () => {
     );
   });
 
-  test('keeps Prisma parity for the receipt relation and every new query path', () => {
+  test('keeps Prisma parity for the scalar receipt key and every new query path', () => {
     expect(prismaSchema).toMatch(/request_reason\s+String\?/);
     expect(prismaSchema).toMatch(/request_fingerprint\s+String\?\s+@db\.Char\(64\)/);
     expect(prismaSchema).toMatch(/accepted_by_uid\s+String\?\s+@db\.Uuid/);
-    expect(prismaSchema).toContain('@relation("care_handoff_accepted_by", fields: [tenant_id, accepted_by_uid], references: [tenant_id, uid], onDelete: Restrict, onUpdate: Restrict, map: "fk_care_handoff_accepted_by_tenant")');
-    expect(prismaSchema).toContain('care_handoff_accepted_by');
+    expect(prismaSchema).not.toMatch(/^\s+accepted_by\s+users\?\s+@relation\("care_handoff_accepted_by"/m);
+    expect(prismaSchema).not.toMatch(/^\s+care_handoff_accepted_by\s+care_handoff_instances\[\]/m);
     expect(prismaSchema).toContain('This model contains an expression index');
     expect(prismaSchema).not.toContain('map: "ux_care_handoff_one_live_covering_transfer"');
     expect(prismaSchema).toContain('map: "idx_care_handoff_covering_recipient"');
