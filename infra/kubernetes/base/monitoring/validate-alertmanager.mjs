@@ -63,6 +63,15 @@ const routeCases = [
     receivers: ['ops-webhook', 'critical-pagerduty', 'team-backend'],
   },
   {
+    labels: [
+      'alertname=BackendMigrationJobFailed',
+      'severity=critical',
+      'team=backend',
+      'namespace=vhhealth',
+    ],
+    receivers: ['ops-webhook', 'critical-pagerduty', 'team-backend'],
+  },
+  {
     labels: ['alertname=ContinuityPackExpired', 'severity=critical', 'team=continuity'],
     receivers: ['ops-webhook', 'critical-pagerduty', 'team-continuity'],
   },

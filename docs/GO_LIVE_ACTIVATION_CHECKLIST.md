@@ -123,6 +123,45 @@ These are the audit's blocker #2 (monitoring/DR not running) and the roadmap's
 Jun-30 reliability gate.
 
 - [ ] **G1.** Monitoring stack (`base/monitoring/`) deployed and **scraping**: Prometheus targets up, Grafana dashboards render, Alertmanager + deadman alert firing-path tested. (date / initials): ______
+  - **G1 activation is an owner/operator ceremony, not a repository default.**
+    CI validates the placeholder template and routing tree only; it does not
+    prove that a receiver exists, accepts delivery, reaches a named human, or
+    retains off-site evidence. Keep G1 open until every receipt below exists.
+  - [ ] Owner-input receipt completed outside git. Do not place secret values,
+    real contact details, or endpoint addresses in this checklist:
+    release SHA: ______; environment: ______; operator: ______;
+    infrastructure approver: ______; security approver: ______;
+    on-call coordinator: ______; approved drill window: ______.
+  - [ ] The owner supplied all six Secret values: `alertmanager.yaml`,
+    `discord-webhook-url`, `discord-watchdog-url`,
+    `pagerduty-routing-key`, `slack-api-url`, and `smtp-password`.
+    Record presence/hash evidence only: ______.
+  - [ ] The owner replaced the SMTP username, seven Slack channel placeholders,
+    and seven team/unmatched email placeholders in
+    `alertmanager.yaml.example`. Record the approved recipient-map receipt,
+    without copying its values here: ______.
+  - [ ] The rendered private configuration passed pinned amtool v0.27.0
+    `check-config`, and the repository validator passed all route cases,
+    including `BackendMigrationJobFailed` -> `ops-webhook`,
+    `critical-pagerduty`, and `team-backend`. Evidence location/hash: ______.
+  - [ ] An authorized operator sealed the six-key Secret, committed only the
+    ciphertext, added that SealedSecret to the monitoring kustomization, and
+    recorded the prior approved release/configuration for rollback. PR/SHA and
+    rollback receipt: ______.
+  - [ ] An authorized operator manually synced the approved ArgoCD revision.
+    Prometheus targets/rules, Grafana, Alertmanager, and the off-site Watchdog
+    were healthy before the drill continued. Sync/change receipt: ______.
+  - [ ] The complete
+    [`C1_3_MONITORING_LIVE_DRILL.md`](runbooks/C1_3_MONITORING_LIVE_DRILL.md)
+    scrape-to-resolution, owning-rule, and missed-Watchdog drills reached named
+    operators and were acknowledged, resolved, cleaned up, and retained
+    outside the monitored site. Evidence bundle/hash: ______.
+  - **Stop/rollback:** missing input, failed validation, absent target,
+    unacknowledged delivery, missing resolution, or missing off-site Watchdog
+    evidence keeps G1 open. Remove the drill namespace, manually restore the
+    prior approved monitoring revision, verify Watchdog recovery, and preserve
+    both failure and recovery evidence; never weaken a route, alert, duration,
+    threshold, or recipient requirement to make this ceremony pass.
 - [ ] **G2.** Confirm outage-critical CronJobs run independently of the backend: `downtime-pack`, `backup-verify`, `canary` (B2.3) — and the `OutageCriticalCronFailing` alert wires to real metrics. (date / initials): ______
 - [ ] **G2a.** Confirm ward downtime packs are actually **produced**, not merely that their job succeeds: `WardDowntimePacksMissing` reads a non-absent `vhhealth_ward_downtime_pack_wards_missing`, an occupied ward with no pack raises it, and generating a pack clears it. (`WardDowntimePacksStale` was retired 2026-08-04 — a CronJob-liveness rule cannot see a sweep that succeeds having published nothing; see [`DOWNTIME_PROCEDURE.md`](DOWNTIME_PROCEDURE.md#why-generation-may-produce-nothing).) (date / initials): ______
 - [ ] **G3.** Nightly CNPG backup to R2 succeeds with `encryption: AES256` + object-lock/versioning (check the Backup CR status). *(PHASE0 §7.2)* (date / initials): ______

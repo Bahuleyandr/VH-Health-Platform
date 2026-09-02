@@ -102,6 +102,25 @@ jobs:
       - name: Migration session-GUC gate regression tests
         run: node --test scripts/ci/check-migration-session-guc.test.mjs
 
+      - name: Install pinned amtool
+        env:
+          ALERTMANAGER_VERSION: '0.27.0'
+          ALERTMANAGER_SHA256: 23c3f5a3c73de91dbaec419f3c492bef636deb02680808e5d842e6553aa16074
+        run: |
+          archive="alertmanager-${ALERTMANAGER_VERSION}.linux-amd64.tar.gz"
+          curl --fail --location --retry 5 --retry-all-errors \
+            --output "$archive" \
+            "https://github.com/prometheus/alertmanager/releases/download/v${ALERTMANAGER_VERSION}/${archive}"
+          printf '%s  %s\n' "$ALERTMANAGER_SHA256" "$archive" | sha256sum --check --status
+          tar -xzf "$archive"
+          sudo install -m 0755 \
+            "alertmanager-${ALERTMANAGER_VERSION}.linux-amd64/amtool" \
+            /usr/local/bin/amtool
+          amtool --version
+
+      - name: Validate Alertmanager configuration and routing
+        run: node infra/kubernetes/base/monitoring/validate-alertmanager.mjs
+
       - run: node scripts/ci/run.mjs --only=security
 
   quick_backend:
