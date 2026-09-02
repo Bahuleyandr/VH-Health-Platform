@@ -126,7 +126,11 @@ async function ensureClinicalImportGrant({ tenantId, patientUid, importedBy }) {
   if (!clinicalImportAuthorityGrants.has(scope)) {
     const grantId = randomUUID();
     const ownerEvidenceRef = `test://clinical-import/patient-merge/${grantId}`;
-    clinicalImportAuthorityGrants.set(scope, setTenantTx(tenantId, async (tx) => {
+    clinicalImportAuthorityGrants.set(scope, prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `SELECT set_config('app.current_tenant_id', $1::text, true)`,
+        tenantId,
+      );
       await tx.$executeRawUnsafe(
         `INSERT INTO clinical_import_authority_events
            (tenant_id, grant_id, event_type, patient_uid, facility_id,

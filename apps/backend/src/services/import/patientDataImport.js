@@ -46,6 +46,26 @@ const FHIR_EFFECT_RETRY_BASE_SECONDS = 120;
 const FHIR_EFFECT_RETRY_MAX_SECONDS = 3600;
 const FHIR_EFFECT_SWEEP_MAX = 100;
 const CLINICAL_IMPORT_RESOURCE_SAVEPOINT = 'clinical_import_resource';
+const CLINICAL_IMPORT_SERIALIZABLE_ATTEMPTS = 3;
+
+function clinicalImportSqlState(error) {
+  return String(
+    error?.meta?.code
+      || error?.meta?.driverAdapterError?.cause?.originalCode
+      || error?.cause?.code
+      || error?.code
+      || '',
+  );
+}
+
+function isRetryableClinicalImportTransactionError(error) {
+  return ['40001', '40P01', 'P2034'].includes(clinicalImportSqlState(error));
+}
+
+async function waitForClinicalImportRetry(attempt) {
+  const delayMs = (attempt * 25) + crypto.randomInt(0, 26);
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
+}
 
 async function beginClinicalImportResourceSavepoint(db) {
   await db.$executeRawUnsafe(`SAVEPOINT ${CLINICAL_IMPORT_RESOURCE_SAVEPOINT}`);
@@ -575,7 +595,14 @@ async function resolveExternalPatientIdentityClaimsTx(db, {
         ? String(row.patient_uid).toLowerCase()
         : String(row.merged_into_uid || '').toLowerCase()
     )));
-    if (resolvedPatientUids.size !== 1 || !resolvedPatientUids.has(patientUid)) {
+    if (resolvedPatientUids.size !== 1) {
+      throw AppError.conflict(
+        'An imported patient identity resolves to multiple patients',
+        'IMPORT_PATIENT_IDENTITY_AMBIGUOUS',
+        { identity_kind: claim.kind },
+      );
+    }
+    if (!resolvedPatientUids.has(patientUid)) {
       throw AppError.conflict(
         'An imported patient identity belongs to a different patient',
         'IMPORT_PATIENT_IDENTITY_MISMATCH',
@@ -825,82 +852,101 @@ export async function importFhirBundle(bundle, importedBy, {
       'IMPORT_PATIENT_ACCESS_REVALIDATION_REQUIRED',
     );
   }
-  const deferredPostCommitEffects = [];
-  let receiptResult = await setTenantTx(tid, async (lockTx) => {
-    await lockTenantPatientMergeStability(lockTx, tid);
-    const accessDecisionEvidence = await authority.revalidateAccess({
-      db: lockTx,
-      patientId: authority?.patientId,
-      patientUid: targetPatientUid,
-    });
-    const transactionAuthority = {
-      ...authorityWithSourceAuthor,
-      accessDecisionEvidence,
-    };
-    const preliminaryReceiptAuthority = buildClinicalImportDocumentAuthority({
-      tenantId: tid,
-      patientUid: targetPatientUid,
-      patientId: authority?.patientId,
-      documentFormat: 'fhir_bundle',
-      authority: withoutClinicalImportPatientIdentityBinding(transactionAuthority),
-      resourceManifest,
-    });
-    const replay = await lockClinicalImportDocumentReceiptTx(lockTx, preliminaryReceiptAuthority);
-    if (replay) return replay.result;
-    const identityClaims = collectFhirPatientIdentityClaims(bundle, targetPatientUid);
-    const identityBinding = await resolveExternalPatientIdentityClaimsTx(lockTx, {
-      tenantId: tid,
-      patientId: authority?.patientId,
-      patientUid: targetPatientUid,
-      claims: identityClaims.claims,
-      hasNativeVhUid: identityClaims.hasNativeVhUid,
-    });
-    const receiptAuthority = buildClinicalImportDocumentAuthority({
-      tenantId: tid,
-      patientUid: targetPatientUid,
-      patientId: authority?.patientId,
-      documentFormat: 'fhir_bundle',
-      authority: { ...transactionAuthority, ...identityBinding },
-      resourceManifest,
-    });
-    const identityBoundReplay = await lockClinicalImportDocumentReceiptTx(lockTx, receiptAuthority);
-    if (identityBoundReplay) return identityBoundReplay.result;
-    const normalizedBundle = normalizeFhirBundlePatientReferences(
-      bundle,
-      targetPatientUid,
-      identityClaims.acceptedReferences,
-    );
-    const { results, resourceOutcomes } = await importFhirBundleWithStablePatientSnapshot(
-      normalizedBundle,
-      importedBy,
-      {
-        tenantId: tid,
-        authority: {
-          ...transactionAuthority,
-          ...identityBinding,
+  let receiptResult;
+  let deferredPostCommitEffects = [];
+  for (let attempt = 1; attempt <= CLINICAL_IMPORT_SERIALIZABLE_ATTEMPTS; attempt += 1) {
+    const attemptPostCommitEffects = [];
+    try {
+      receiptResult = await setTenantTx(tid, async (lockTx) => {
+        await lockTenantPatientMergeStability(lockTx, tid);
+        const accessDecisionEvidence = await authority.revalidateAccess({
+          db: lockTx,
+          patientId: authority?.patientId,
           patientUid: targetPatientUid,
-          documentSourceIdentitySha256: receiptAuthority.sourceIdentitySha256,
-          resourceManifestSha256: receiptAuthority.resourceManifestSha256,
-          idempotencyKeySha256: receiptAuthority.idempotencyKeySha256,
-        },
-        db: lockTx,
-        deferPostCommitEffects: (effect) => deferredPostCommitEffects.push(effect),
-        beforeFhirVitalWrite,
-        resourceManifest,
-      },
-    );
-    return persistClinicalImportDocumentReceiptTx(lockTx, receiptAuthority, {
-      result: results,
-      resourceOutcomes,
-    });
-  }, {
-    isolationLevel: 'Serializable',
-    timeout: PATIENT_MERGE_STABILITY_TIMEOUT_MS,
-  });
-  if (receiptResult.replayed === true) {
-    receiptResult = await reconcileFhirReceiptReplayEffects(receiptResult, tid);
+        });
+        const transactionAuthority = {
+          ...authorityWithSourceAuthor,
+          accessDecisionEvidence,
+        };
+        const preliminaryReceiptAuthority = buildClinicalImportDocumentAuthority({
+          tenantId: tid,
+          patientUid: targetPatientUid,
+          patientId: authority?.patientId,
+          documentFormat: 'fhir_bundle',
+          authority: withoutClinicalImportPatientIdentityBinding(transactionAuthority),
+          resourceManifest,
+        });
+        const replay = await lockClinicalImportDocumentReceiptTx(lockTx, preliminaryReceiptAuthority);
+        if (replay) return replay.result;
+        const identityClaims = collectFhirPatientIdentityClaims(bundle, targetPatientUid);
+        const identityBinding = await resolveExternalPatientIdentityClaimsTx(lockTx, {
+          tenantId: tid,
+          patientId: authority?.patientId,
+          patientUid: targetPatientUid,
+          claims: identityClaims.claims,
+          hasNativeVhUid: identityClaims.hasNativeVhUid,
+        });
+        const receiptAuthority = buildClinicalImportDocumentAuthority({
+          tenantId: tid,
+          patientUid: targetPatientUid,
+          patientId: authority?.patientId,
+          documentFormat: 'fhir_bundle',
+          authority: { ...transactionAuthority, ...identityBinding },
+          resourceManifest,
+        });
+        const identityBoundReplay = await lockClinicalImportDocumentReceiptTx(lockTx, receiptAuthority);
+        if (identityBoundReplay) return identityBoundReplay.result;
+        const normalizedBundle = normalizeFhirBundlePatientReferences(
+          bundle,
+          targetPatientUid,
+          identityClaims.acceptedReferences,
+        );
+        const { results, resourceOutcomes } = await importFhirBundleWithStablePatientSnapshot(
+          normalizedBundle,
+          importedBy,
+          {
+            tenantId: tid,
+            authority: {
+              ...transactionAuthority,
+              ...identityBinding,
+              patientUid: targetPatientUid,
+              documentSourceIdentitySha256: receiptAuthority.sourceIdentitySha256,
+              resourceManifestSha256: receiptAuthority.resourceManifestSha256,
+              idempotencyKeySha256: receiptAuthority.idempotencyKeySha256,
+            },
+            db: lockTx,
+            deferPostCommitEffects: (effect) => attemptPostCommitEffects.push(effect),
+            beforeFhirVitalWrite,
+            resourceManifest,
+          },
+        );
+        return persistClinicalImportDocumentReceiptTx(lockTx, receiptAuthority, {
+          result: results,
+          resourceOutcomes,
+        });
+      }, {
+        isolationLevel: 'Serializable',
+        timeout: PATIENT_MERGE_STABILITY_TIMEOUT_MS,
+      });
+      deferredPostCommitEffects = attemptPostCommitEffects;
+      break;
+    } catch (error) {
+      if (attempt >= CLINICAL_IMPORT_SERIALIZABLE_ATTEMPTS
+        || !isRetryableClinicalImportTransactionError(error)) {
+        throw error;
+      }
+      logger.warn('Clinical FHIR import transaction conflicted; retrying from a fresh snapshot', {
+        tenantId: tid,
+        attempt,
+        code: clinicalImportSqlState(error),
+      });
+      await waitForClinicalImportRetry(attempt);
+    }
   }
   for (const effect of deferredPostCommitEffects) await effect();
+  if ((receiptResult?.observationPartitions || []).length > 0) {
+    receiptResult = await reconcileFhirReceiptReplayEffects(receiptResult, tid);
+  }
   return receiptResult;
 }
 
@@ -1131,7 +1177,13 @@ async function importFhirBundleWithStablePatientSnapshot(bundle, importedBy, {
       }
       await releaseClinicalImportResourceSavepoint(db);
     } catch (err) {
-      await rollbackClinicalImportResourceSavepoint(db);
+      try {
+        await rollbackClinicalImportResourceSavepoint(db);
+      } catch (rollbackError) {
+        if (isRetryableClinicalImportTransactionError(err)) throw err;
+        throw rollbackError;
+      }
+      if (isRetryableClinicalImportTransactionError(err)) throw err;
       if (isFatalClinicalImportResourceError(err, resources)) throw err;
       const failure = safeClinicalImportResourceFailure(
         err,
@@ -2250,8 +2302,8 @@ async function claimFhirObservationSet({
   };
 }
 
-async function findCommittedFhirSet(tenantId, setFingerprint) {
-  return setTenantTx(tenantId, async (tx) => {
+async function findCommittedFhirSet(tenantId, setFingerprint, db = null) {
+  const find = async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `SELECT observation_set.set_fingerprint,
               vitals_chart_id,
@@ -2292,7 +2344,8 @@ async function findCommittedFhirSet(tenantId, setFingerprint) {
       tenantId, setFingerprint,
     );
     return rows[0] || null;
-  });
+  };
+  return db ? find(db) : setTenantTx(tenantId, find);
 }
 
 async function claimFhirObservationEffects({
@@ -2971,12 +3024,14 @@ async function importObservationSet(fhirObservations, importedBy, {
     if (skippedResources.length > 0) outcomes.push(observationOutcome('skipped', skippedResources));
     return outcomes;
   } catch (error) {
+    if (isRetryableClinicalImportTransactionError(error)) throw error;
     if (error instanceof FhirObservationReplay) {
       const matchedSetFingerprint = error.matchedSetFingerprint || setFingerprint;
       let committed;
       try {
-        committed = await findCommittedFhirSet(resolvedTenantId, matchedSetFingerprint);
+        committed = await findCommittedFhirSet(resolvedTenantId, matchedSetFingerprint, db);
       } catch (lookupError) {
+        if (isRetryableClinicalImportTransactionError(lookupError)) throw lookupError;
         logger.error('FHIR Observation replay state lookup failed', {
           tenantId: resolvedTenantId,
           setFingerprint: matchedSetFingerprint,
@@ -3002,30 +3057,40 @@ async function importObservationSet(fhirObservations, importedBy, {
       if (committed.vitals_verified === false) {
         reconciliationResult = { claimedEffects: [], pendingEffects: ['news2', 'anomaly'], verificationPending: true };
       } else if (news2Pending || anomalyPending) {
-        try {
-          reconciliationResult = await reconcileFhirObservationSetEffects({
-            tenantId: resolvedTenantId,
-            setFingerprint: matchedSetFingerprint,
-            vitalsChartId: committed.vitals_chart_id,
-            news2Pending,
-            anomalyPending,
-          });
-        } catch (reconcileError) {
-          logger.error(
-            `FHIR observation replay clinical-effect reconciliation failed for patient ${patientUid}: ${reconcileError.message}`,
-          );
-          return [observationOutcome('error', fhirObservations, {
-            error: 'FHIR Observation clinical effects could not be restored',
-            errorCode: 'FHIR_OBSERVATION_EFFECTS_RETRY_FAILED',
-            errorStatusCode: 503,
-          })];
-        }
-        if (reconciliationResult.pendingEffects.length > 0) {
-          return [observationOutcome('error', fhirObservations, {
-            error: `FHIR Observation clinical effects are already being reconciled: ${reconciliationResult.pendingEffects.join(', ')}`,
-            errorCode: 'FHIR_OBSERVATION_EFFECTS_IN_PROGRESS',
-            errorStatusCode: 409,
-          })];
+        if (db) {
+          reconciliationResult = {
+            claimedEffects: [],
+            pendingEffects: [
+              ...(news2Pending ? ['news2'] : []),
+              ...(anomalyPending ? ['anomaly'] : []),
+            ],
+          };
+        } else {
+          try {
+            reconciliationResult = await reconcileFhirObservationSetEffects({
+              tenantId: resolvedTenantId,
+              setFingerprint: matchedSetFingerprint,
+              vitalsChartId: committed.vitals_chart_id,
+              news2Pending,
+              anomalyPending,
+            });
+          } catch (reconcileError) {
+            logger.error(
+              `FHIR observation replay clinical-effect reconciliation failed for patient ${patientUid}: ${reconcileError.message}`,
+            );
+            return [observationOutcome('error', fhirObservations, {
+              error: 'FHIR Observation clinical effects could not be restored',
+              errorCode: 'FHIR_OBSERVATION_EFFECTS_RETRY_FAILED',
+              errorStatusCode: 503,
+            })];
+          }
+          if (reconciliationResult.pendingEffects.length > 0) {
+            return [observationOutcome('error', fhirObservations, {
+              error: `FHIR Observation clinical effects are already being reconciled: ${reconciliationResult.pendingEffects.join(', ')}`,
+              errorCode: 'FHIR_OBSERVATION_EFFECTS_IN_PROGRESS',
+              errorStatusCode: 409,
+            })];
+          }
         }
       }
       logger.info(
@@ -3066,8 +3131,9 @@ async function importObservationSet(fhirObservations, importedBy, {
     }
     let committed;
     try {
-      committed = await findCommittedFhirSet(resolvedTenantId, setFingerprint);
+      committed = await findCommittedFhirSet(resolvedTenantId, setFingerprint, db);
     } catch (lookupError) {
+      if (isRetryableClinicalImportTransactionError(lookupError)) throw lookupError;
       logger.error('FHIR Observation commit state lookup failed', {
         tenantId: resolvedTenantId,
         setFingerprint,

@@ -60,7 +60,8 @@ CREATE TABLE public.clinical_import_authority_events (
     UNIQUE (tenant_id, idempotency_key_sha256),
   CONSTRAINT fk_clinical_import_authority_patient_760
     FOREIGN KEY (tenant_id, patient_uid)
-    REFERENCES public.users(tenant_id, uid) ON DELETE RESTRICT,
+    REFERENCES public.users(tenant_id, uid) ON DELETE RESTRICT
+    DEFERRABLE INITIALLY IMMEDIATE,
   CONSTRAINT fk_clinical_import_authority_facility_760
     FOREIGN KEY (tenant_id, facility_id)
     REFERENCES public.facilities(tenant_id, id) ON DELETE RESTRICT,
@@ -153,7 +154,8 @@ CREATE TABLE public.clinical_import_raw_artifacts (
     UNIQUE (tenant_id, source_system, source_document_id, document_format),
   CONSTRAINT fk_clinical_import_raw_patient_760
     FOREIGN KEY (tenant_id, patient_uid)
-    REFERENCES public.users(tenant_id, uid) ON DELETE RESTRICT,
+    REFERENCES public.users(tenant_id, uid) ON DELETE RESTRICT
+    DEFERRABLE INITIALLY IMMEDIATE,
   CONSTRAINT fk_clinical_import_raw_facility_760
     FOREIGN KEY (tenant_id, source_facility_id)
     REFERENCES public.facilities(tenant_id, id) ON DELETE RESTRICT,
@@ -201,6 +203,86 @@ ALTER TABLE public.clinical_import_document_receipts
     REFERENCES public.clinical_import_raw_artifacts(tenant_id, id)
     ON DELETE RESTRICT;
 
+-- Patient merges update the survivor and its dependent receipt graph inside one
+-- transaction, so every composite patient identity edge must be deferrable.
+ALTER TABLE public.clinical_import_document_receipts
+  ALTER CONSTRAINT fk_clinical_import_document_patient_755
+  DEFERRABLE INITIALLY IMMEDIATE;
+ALTER TABLE public.clinical_import_resource_receipts
+  ALTER CONSTRAINT fk_clinical_import_resource_document_755
+  DEFERRABLE INITIALLY IMMEDIATE;
+ALTER TABLE public.clinical_import_resource_receipts
+  ALTER CONSTRAINT fk_clinical_import_resource_patient_755
+  DEFERRABLE INITIALLY IMMEDIATE;
+
+-- Keep operational imported medication history movable only inside the
+-- approved patient-merge transaction. The explicit negative merge guard lets
+-- the runtime preflight prove that its identity-only sweep cannot trip either
+-- immutable-history exception; every other mutation remains fail-closed.
+CREATE OR REPLACE FUNCTION clinical_import_history_immutable_755()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+BEGIN
+  IF OLD.lifecycle_status = 'imported_history' THEN
+    IF current_setting('app.patient_merge_execution', true) IS DISTINCT FROM 'on'
+       OR current_setting('app.patient_merge_tenant_id', true) IS DISTINCT FROM NEW.tenant_id::text
+       OR NULLIF(current_setting('app.patient_merge_from_uid', true), '') IS NULL
+       OR NULLIF(current_setting('app.patient_merge_to_uid', true), '') IS NULL
+       OR NOT public.clinical_import_patient_merge_lock_held_755(NEW.tenant_id)
+       OR (to_jsonb(NEW) - 'patient_id' - 'patient_uid')
+            IS DISTINCT FROM (to_jsonb(OLD) - 'patient_id' - 'patient_uid')
+       OR NOT (NEW.patient_id IS DISTINCT FROM OLD.patient_id
+               OR NEW.patient_uid IS DISTINCT FROM OLD.patient_uid)
+       OR NOT EXISTS (
+         SELECT 1
+           FROM patient_merge_requests AS request
+           JOIN users AS secondary
+             ON secondary.tenant_id = request.tenant_id
+            AND secondary.uid = request.secondary_uid
+           JOIN users AS primary_patient
+             ON primary_patient.tenant_id = request.tenant_id
+            AND primary_patient.uid = request.primary_uid
+          WHERE request.id::text = current_setting('app.patient_merge_request_id', true)
+            AND request.tenant_id = NEW.tenant_id
+            AND request.status = 'approved'
+            AND request.continuity_disposition IS NULL
+            AND request.secondary_uid::text
+                  = current_setting('app.patient_merge_from_uid', true)
+            AND request.primary_uid::text
+                  = current_setting('app.patient_merge_to_uid', true)
+            AND OLD.patient_id IN (secondary.id, primary_patient.id)
+            AND NEW.patient_id = primary_patient.id
+            AND OLD.patient_uid IN (secondary.uid, primary_patient.uid)
+            AND NEW.patient_uid IN (secondary.uid, primary_patient.uid)
+            AND NOT (
+              OLD.patient_uid = primary_patient.uid
+              AND NEW.patient_uid = secondary.uid
+            )
+       ) THEN
+      RAISE EXCEPTION 'imported medication history is immutable; import a corrected source document'
+        USING ERRCODE = '55000';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'UPDATE' AND NEW.lifecycle_status = 'imported_history' THEN
+    IF current_setting('app.patient_merge_execution', true) IS DISTINCT FROM 'on'
+       OR current_setting('app.patient_merge_tenant_id', true) IS DISTINCT FROM NEW.tenant_id::text
+       OR NULLIF(current_setting('app.patient_merge_from_uid', true), '') IS NULL
+       OR NULLIF(current_setting('app.patient_merge_to_uid', true), '') IS NULL
+       OR NOT public.clinical_import_patient_merge_lock_held_755(NEW.tenant_id)
+       OR OLD.lifecycle_status IS DISTINCT FROM NEW.lifecycle_status THEN
+      RAISE EXCEPTION 'an existing prescription cannot be converted into imported history'
+        USING ERRCODE = '23514';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
 CREATE TABLE public.clinical_import_reconciliation_items (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id uuid NOT NULL REFERENCES public.tenants(id) ON DELETE RESTRICT,
@@ -242,7 +324,7 @@ CREATE TABLE public.clinical_import_reconciliation_items (
   CONSTRAINT fk_clinical_import_reconciliation_item_document_760
     FOREIGN KEY (tenant_id, document_receipt_id, patient_uid)
     REFERENCES public.clinical_import_document_receipts(tenant_id, id, patient_uid)
-    ON DELETE RESTRICT,
+    ON DELETE RESTRICT DEFERRABLE INITIALLY IMMEDIATE,
   CONSTRAINT fk_clinical_import_reconciliation_item_facility_760
     FOREIGN KEY (tenant_id, facility_id)
     REFERENCES public.facilities(tenant_id, id) ON DELETE RESTRICT,
@@ -318,7 +400,7 @@ CREATE TABLE public.clinical_import_reconciliation_events (
     ) REFERENCES public.clinical_import_reconciliation_items(
       tenant_id, id, resource_receipt_id,
       document_receipt_id, patient_uid, facility_id
-    ) ON DELETE RESTRICT,
+    ) ON DELETE RESTRICT DEFERRABLE INITIALLY IMMEDIATE,
   CONSTRAINT fk_clinical_import_reconciliation_event_actor_760
     FOREIGN KEY (tenant_id, actor_uid)
     REFERENCES public.users(tenant_id, uid) ON DELETE RESTRICT,

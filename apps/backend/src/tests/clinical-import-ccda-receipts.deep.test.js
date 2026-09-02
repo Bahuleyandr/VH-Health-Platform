@@ -382,7 +382,7 @@ d('migration 755 C-CDA clinical import receipt journey (real PostgreSQL)', () =>
     });
     expect(medications[0].medications[0].import_receipt).toMatchObject({
       source_resource_type: 'C-CDA_Medication',
-      source_resource_index: 0,
+      source_resource_index: resources[1].source_resource_index,
       document_source_identity_sha256: documents[0].source_identity_sha256,
       resource_manifest_sha256: documents[0].resource_manifest_sha256,
       idempotency_key_sha256: clinicalImportSha256(IDEMPOTENCY_KEY),

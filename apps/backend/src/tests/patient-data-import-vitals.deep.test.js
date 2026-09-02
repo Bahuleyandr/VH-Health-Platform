@@ -560,6 +560,64 @@ async function cleanup() {
       PATIENT,
       MERGE_RACE_PATIENT,
     );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM resuscitation_device_links
+        WHERE resuscitation_event_id IN (
+          SELECT id FROM resuscitation_events
+           WHERE tenant_id=$1::uuid AND patient_uid IN ($2::uuid, $3::uuid)
+        )`,
+      TENANT,
+      PATIENT,
+      MERGE_RACE_PATIENT,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM resuscitation_medication_links
+        WHERE resuscitation_event_id IN (
+          SELECT id FROM resuscitation_events
+           WHERE tenant_id=$1::uuid AND patient_uid IN ($2::uuid, $3::uuid)
+        )`,
+      TENANT,
+      PATIENT,
+      MERGE_RACE_PATIENT,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM resuscitation_qa_reviews
+        WHERE resuscitation_event_id IN (
+          SELECT id FROM resuscitation_events
+           WHERE tenant_id=$1::uuid AND patient_uid IN ($2::uuid, $3::uuid)
+        )`,
+      TENANT,
+      PATIENT,
+      MERGE_RACE_PATIENT,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM resuscitation_team_roles
+        WHERE resuscitation_event_id IN (
+          SELECT id FROM resuscitation_events
+           WHERE tenant_id=$1::uuid AND patient_uid IN ($2::uuid, $3::uuid)
+        )`,
+      TENANT,
+      PATIENT,
+      MERGE_RACE_PATIENT,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM resuscitation_event_timeline
+        WHERE resuscitation_event_id IN (
+          SELECT id FROM resuscitation_events
+           WHERE tenant_id=$1::uuid AND patient_uid IN ($2::uuid, $3::uuid)
+        )`,
+      TENANT,
+      PATIENT,
+      MERGE_RACE_PATIENT,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM resuscitation_events
+        WHERE tenant_id=$1::uuid
+          AND patient_uid IN ($2::uuid, $3::uuid)`,
+      TENANT,
+      PATIENT,
+      MERGE_RACE_PATIENT,
+    );
   }).catch(() => {});
   authorityGrants.clear();
   await exec(
@@ -883,8 +941,13 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
 
     const rows = await query(
       `SELECT id, heart_rate, source, recorded_by
-         FROM vitals_chart WHERE patient_uid = $1::uuid ORDER BY id`,
+         FROM vitals_chart
+        WHERE patient_uid = $1::uuid
+          AND recorded_at IN ($2::timestamptz, $3::timestamptz)
+        ORDER BY id`,
       PATIENT,
+      chartedAt,
+      new Date(observedAt),
     );
     expect(rows).toHaveLength(2);
     // The staff-charted row is untouched.
@@ -918,8 +981,14 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
     expect(rerun.imported).toBe(0);
     expect(rerun.deduplicated).toBe(1);
     const after = await query(
-      `SELECT id, heart_rate, source FROM vitals_chart WHERE patient_uid = $1::uuid ORDER BY id`,
+      `SELECT id, heart_rate, source
+         FROM vitals_chart
+        WHERE patient_uid = $1::uuid
+          AND recorded_at IN ($2::timestamptz, $3::timestamptz)
+        ORDER BY id`,
       PATIENT,
+      chartedAt,
+      new Date(observedAt),
     );
     expect(after).toHaveLength(2);
     expect(Number(after[0].heart_rate)).toBe(80);
@@ -2050,7 +2119,7 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
       entry: [...heartRate.entry, ...crossPatientHeight.entry],
     }, IMPORTER, { tenantId: TENANT })).rejects.toMatchObject({
       statusCode: 409,
-      code: 'IMPORT_RESOURCE_PATIENT_MISMATCH',
+      code: 'IMPORT_PATIENT_IDENTIFIER_MAPPING_REQUIRED',
     });
 
     let mergeAttempt = null;
@@ -2066,6 +2135,7 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
         entry: [...heartRate.entry, ...height.entry],
       }, IMPORTER, {
         tenantId: TENANT,
+        autoVerifyClinicalVitals: false,
         beforeFhirVitalWrite: async () => {
           if (!mergeAttempt) {
             mergeAttempt = setTenantTx(TENANT, async (tx) => {
@@ -2130,7 +2200,7 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
     expect([Number(rows[0].heart_rate), Number(rows[0].height_cm)]).toEqual([82, 168]);
   });
 
-  it('groups same-time aliases only after resolving them to one active merge survivor', async () => {
+  it('requires an exact external identifier mapping before accepting a merged patient alias', async () => {
     await exec(
       `INSERT INTO users
          (uid, phone, name, role, is_active, status, tenant_id, merged_into_uid, updated_at)
@@ -2145,43 +2215,44 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
     heartRate.entry[0].resource.subject.reference = `Patient/${MERGED_PATIENT_ALIAS}`;
     const height = heightBundle(observedAt, 169, { id: `obs-survivor-height-${Date.now()}` });
 
-    // The retired alias and its survivor are two patient references: one
-    // manifest cannot carry both, whatever they resolve to.
+    // A foreign FHIR patient reference is never inferred from users.merged_into_uid.
+    // It needs explicit external-identifier evidence bound to the active target.
     await expect(importFhirBundle({
       resourceType: 'Bundle',
       type: 'collection',
       entry: [...heartRate.entry, ...height.entry],
-    }, IMPORTER, { tenantId: TENANT })).rejects.toMatchObject({
+    }, IMPORTER, {
+      tenantId: TENANT,
+      authority: { patientUid: PATIENT },
+    })).rejects.toMatchObject({
       statusCode: 409,
-      code: 'IMPORT_RESOURCE_PATIENT_MISMATCH',
+      code: 'IMPORT_PATIENT_IDENTIFIER_MAPPING_REQUIRED',
     });
 
-    // A manifest that IS the retired alias still resolves to the one active
-    // merge survivor before grouping: both same-time observations collapse into
-    // a single row keyed by the survivor, and nothing is written under the alias.
+    // Making every resource name the same retired alias does not create that
+    // authority implicitly, and no vitals row is written under either identity.
     height.entry[0].resource.subject.reference = `Patient/${MERGED_PATIENT_ALIAS}`;
-    const result = await importFhirBundle({
+    await expect(importFhirBundle({
       resourceType: 'Bundle',
       type: 'collection',
       entry: [...heartRate.entry, ...height.entry],
-    }, IMPORTER, { tenantId: TENANT });
-
-    expect(result).toEqual(expect.objectContaining({ imported: 2, errors: [] }));
+    }, IMPORTER, {
+      tenantId: TENANT,
+      authority: { patientUid: PATIENT },
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'IMPORT_PATIENT_IDENTIFIER_MAPPING_REQUIRED',
+    });
     const rows = await query(
-      `SELECT patient_uid, heart_rate, height_cm
+      `SELECT patient_uid
          FROM vitals_chart
-        WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz`,
+        WHERE patient_uid IN ($1::uuid, $2::uuid)
+          AND recorded_at = $3::timestamptz`,
       PATIENT,
+      MERGED_PATIENT_ALIAS,
       new Date(observedAt),
     );
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toEqual(expect.objectContaining({ patient_uid: PATIENT }));
-    expect([Number(rows[0].heart_rate), Number(rows[0].height_cm)]).toEqual([82, 169]);
-    const aliasRows = await query(
-      `SELECT id FROM vitals_chart WHERE patient_uid = $1::uuid`,
-      MERGED_PATIENT_ALIAS,
-    );
-    expect(aliasRows).toHaveLength(0);
+    expect(rows).toHaveLength(0);
   });
 
   it('rejects duplicate canonical fields in an implicit same-time group atomically', async () => {

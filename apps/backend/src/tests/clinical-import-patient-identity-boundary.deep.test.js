@@ -503,7 +503,7 @@ d('clinical import patient identity boundary (real PostgreSQL)', () => {
         authority: multipleAuthority,
       })).rejects.toMatchObject({
         statusCode: 409,
-        code: 'IMPORT_PATIENT_AMBIGUOUS',
+        code: 'IMPORT_PATIENT_IDENTITY_AMBIGUOUS',
       });
       await expect(importFhirBundle(conflictingIdentifiers, IMPORTER_UID, {
         tenantId: TENANT_ID,
@@ -651,7 +651,7 @@ d('clinical import patient identity boundary (real PostgreSQL)', () => {
       { label: 'cross-tenant', value: crossTenantValue, code: 'IMPORT_PATIENT_IDENTIFIER_MAPPING_REQUIRED' },
       { label: 'wrong-patient', value: wrongPatientValue, code: 'IMPORT_PATIENT_IDENTITY_MISMATCH' },
       { label: 'retired', value: retiredValue, code: 'IMPORT_PATIENT_IDENTIFIER_MAPPING_REQUIRED' },
-      { label: 'ambiguous', value: ambiguousValue, code: 'IMPORT_PATIENT_IDENTIFIER_MAPPING_REQUIRED' },
+      { label: 'ambiguous', value: ambiguousValue, code: 'IMPORT_PATIENT_IDENTITY_AMBIGUOUS' },
     ];
     const attempts = [];
     for (const item of cases) {

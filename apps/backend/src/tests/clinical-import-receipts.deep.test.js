@@ -10,7 +10,7 @@ import crypto from 'node:crypto';
 
 import { jest } from '@jest/globals';
 
-import prisma, { setTenantTx } from '../lib/prisma.js';
+import prisma, { ensureTenantRlsRuntimeRoleGrants, setTenantTx } from '../lib/prisma.js';
 import { importFhirBundle } from '../services/import/patientDataImport.js';
 import { clinicalImportSha256 } from '../services/import/clinicalImportReceiptService.js';
 import {
@@ -59,6 +59,15 @@ const ACCESS_POLICY = Object.freeze({
   policy_hash: clinicalImportSha256('test-manual-clinical-import-policy-v1'),
   reason: 'Explicit test-only clinical import access evidence',
 });
+
+function reconciliationAccessDecision(patientUid) {
+  return {
+    ...ACCESS_POLICY,
+    contract_version: 'clinical-import-reconciliation-access-decision-v1',
+    actor_uid: IMPORTER_UID,
+    patient_uid: patientUid,
+  };
+}
 
 let patientId;
 let facilityId;
@@ -265,6 +274,16 @@ async function expectPersistedCustody(receiptId, authority) {
 
 d('migration 755 clinical import receipt journey (real PostgreSQL)', () => {
   beforeAll(async () => {
+    const priorRuntimeRole = process.env.AUTH_TENANT_RLS_RUNTIME_ROLE;
+    process.env.AUTH_TENANT_RLS_RUNTIME_ROLE = 'vhhealth_runtime';
+    try {
+      const runtimeGrantResult = await ensureTenantRlsRuntimeRoleGrants();
+      if (runtimeGrantResult.error) throw new Error(runtimeGrantResult.error);
+    } finally {
+      if (priorRuntimeRole == null) delete process.env.AUTH_TENANT_RLS_RUNTIME_ROLE;
+      else process.env.AUTH_TENANT_RLS_RUNTIME_ROLE = priorRuntimeRole;
+    }
+
     await prisma.$executeRawUnsafe(
       `INSERT INTO tenants
          (id, slug, name, region, compliance_profile, status, settings, created_at, updated_at)
@@ -753,7 +772,7 @@ d('migration 755 clinical import receipt journey (real PostgreSQL)', () => {
     expect(orphanRows).toEqual([]);
   });
 
-  it('binds a successful FHIR Observation receipt to its vitals canonical pair and NEWS2 row', async () => {
+  it('binds a successful FHIR Observation receipt to held vitals without pre-verification effects', async () => {
     const bundle = heartRateBundle({
       id: SUCCESS_OBSERVATION_ID,
       effectiveDateTime: SUCCESS_OBSERVED_AT,
@@ -814,7 +833,8 @@ d('migration 755 clinical import receipt journey (real PostgreSQL)', () => {
 
     const vitalsId = resources[0].target_id;
     const vitals = await query(
-      `SELECT id, patient_uid, heart_rate, source, source_device, recorded_at
+      `SELECT id, patient_uid, heart_rate, source, source_device, recorded_at,
+              device_verified
          FROM vitals_chart
         WHERE tenant_id=$1::uuid AND id=$2::int`,
       TENANT_ID,
@@ -824,6 +844,7 @@ d('migration 755 clinical import receipt journey (real PostgreSQL)', () => {
     expect(vitals[0]).toMatchObject({
       patient_uid: PATIENT_UID,
       source: 'fhir',
+      device_verified: false,
     });
     expect(Number(vitals[0].heart_rate)).toBe(80);
     expect(vitals[0].source_device).toMatch(/^fhir-set:/);
@@ -851,8 +872,8 @@ d('migration 755 clinical import receipt journey (real PostgreSQL)', () => {
       vitals_chart_id: Number(vitalsId),
       resource_count: 1,
     });
-    expect(observationSets[0].news2_effects_completed_at).not.toBeNull();
-    expect(observationSets[0].anomaly_effects_completed_at).not.toBeNull();
+    expect(observationSets[0].news2_effects_completed_at).toBeNull();
+    expect(observationSets[0].anomaly_effects_completed_at).toBeNull();
 
     const news2 = await query(
       `SELECT id, patient_uid, heart_rate, total_score, partial_score, vitals_chart_id
@@ -861,13 +882,14 @@ d('migration 755 clinical import receipt journey (real PostgreSQL)', () => {
       TENANT_ID,
       vitalsId,
     );
-    expect(news2).toHaveLength(1);
-    expect(news2[0]).toMatchObject({
-      patient_uid: PATIENT_UID,
-      partial_score: true,
-      vitals_chart_id: Number(vitalsId),
-    });
-    expect(Number(news2[0].heart_rate)).toBe(80);
+    expect(news2).toEqual([]);
+    const alerts = await query(
+      `SELECT id FROM clinical_alerts
+        WHERE tenant_id=$1::uuid AND source_vitals_chart_id=$2::int`,
+      TENANT_ID,
+      vitalsId,
+    );
+    expect(alerts).toEqual([]);
 
     const timeline = await query(
       `SELECT id, event_type, event_status, source_table, source_id, payload, tags
@@ -1105,7 +1127,9 @@ d('migration 755 clinical import receipt journey (real PostgreSQL)', () => {
       reason: 'Correct the missing MedicationRequest source identifier and resubmit',
       idempotencyKey: `${IDEMPOTENCY_KEY}-missing-id-retry-action`,
       authorityGrantId: failedAuthority.authorityGrantId,
-      revalidateAccess: async () => ACCESS_POLICY,
+      revalidateAccess: async ({ context }) => (
+        reconciliationAccessDecision(context.activePatientUid)
+      ),
     });
     expect(retry).toMatchObject({
       replayed: false,
@@ -1210,7 +1234,9 @@ d('migration 755 clinical import receipt journey (real PostgreSQL)', () => {
       reason: 'Attempt another retry after the committed correction already exists',
       idempotencyKey: `${IDEMPOTENCY_KEY}-missing-id-stranding-retry`,
       authorityGrantId: failedAuthority.authorityGrantId,
-      revalidateAccess: async () => ACCESS_POLICY,
+      revalidateAccess: async ({ context }) => (
+        reconciliationAccessDecision(context.activePatientUid)
+      ),
     })).rejects.toMatchObject({
       statusCode: 409,
       code: 'IMPORT_RECONCILIATION_CORRECTION_PENDING_RESOLUTION',
@@ -1225,7 +1251,9 @@ d('migration 755 clinical import receipt journey (real PostgreSQL)', () => {
       idempotencyKey: `${IDEMPOTENCY_KEY}-missing-id-resolution`,
       authorityGrantId: failedAuthority.authorityGrantId,
       replacementResourceReceiptId: replacementReceipt.id,
-      revalidateAccess: async () => ACCESS_POLICY,
+      revalidateAccess: async ({ context }) => (
+        reconciliationAccessDecision(context.activePatientUid)
+      ),
     });
     expect(resolved).toMatchObject({
       replayed: false,

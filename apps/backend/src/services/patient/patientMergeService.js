@@ -230,7 +230,7 @@ const MERGE_PATH_ESCAPE_SIGNALS = [
 // direction: it would abort a live merge mid-sweep. The shipped triggers raise
 // when the lock is NOT held, so require that negated form and nothing weaker.
 const MERGE_PATH_ESCAPE_LOCK_NEGATED =
-  /\bNOT\s+(?:public\s*\.\s*)?patient_merge_lock_held_753\s*\(/i;
+  /\bNOT\s+(?:public\s*\.\s*)?(?:patient_merge_lock_held_753|clinical_import_patient_merge_lock_held_755)\s*\(/i;
 
 function isMergePathEscapeCondition(condition) {
   return MERGE_PATH_ESCAPE_LOCK_NEGATED.test(condition)

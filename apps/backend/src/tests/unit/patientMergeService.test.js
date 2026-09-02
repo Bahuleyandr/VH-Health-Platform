@@ -833,6 +833,18 @@ describe('isUpdateBlockingTriggerSource', () => {
       END;`)).toBe(true);
   });
 
+  it('accepts the migration 760 governed clinical-import history guard', () => {
+    const migration = readFileSync(
+      new URL('../../migrations/760_clinical_import_authority_custody_and_reconciliation.sql', import.meta.url),
+      'utf8',
+    );
+    const functionBody = migration.match(
+      /CREATE OR REPLACE FUNCTION clinical_import_history_immutable_755\(\)[\s\S]*?AS \$\$([\s\S]*?)\$\$;/,
+    )?.[1];
+    expect(functionBody).toBeDefined();
+    expect(classify(functionBody)).toBe(false);
+  });
+
   it('treats TG_OP-only conditions as potentially firing for UPDATE (conservative)', () => {
     expect(classify(`
       BEGIN
