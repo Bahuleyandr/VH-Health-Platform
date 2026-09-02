@@ -1,6 +1,7 @@
 # VH Health Platform — Consolidated Roadmap
 
-**Single source of truth for pending work. Last reconciled: 2026-08-25.**
+**Single source of truth for pending work. Last reconciled: 2026-09-02 at
+authoritative `github/main` `a4ffe9860596f07ae984d9334fe78f008b75907b`.**
 
 This file consolidates every open item from the planning docs that previously
 lived scattered across `docs/` (EPIC roadmap, S-tier roadmap, AI feature-gap
@@ -9,15 +10,14 @@ remediation plans/work-order, the execution log, and the tenant-RLS gap
 analysis). Those source docs are now in [`archive/`](archive/) — see
 [§8](#8-archived-source-docs).
 
-**Code/CI state:** Audit #3 P0-P10 is merged, but the prior "engineering
-complete" conclusion was overstated. A live re-read at `github/main` @
-`831dbc86c` found residual messaging, recovery, scheduler, payroll, patient,
-Admin, Staff Web, and device-gateway gaps. They are consolidated on
-`fix/audit3-residual-remediation`; they are not counted as merged until the
-single protected PR lands. See the
-[`2026-08-11 Audit #3 corrected residual reconciliation`](archive/audits/PLATFORM_AUDIT_2026-08-11_RECONCILIATION.md)
-for the per-finding matrix, evidence, rating, and activation limits. A code
-merge does not authorize deployment or activation.
+**Code/CI state:** the current per-finding classification and evidence ledger is
+[`FULL_REPOSITORY_AUDIT_2026_08.md`](FULL_REPOSITORY_AUDIT_2026_08.md). PRs
+#940–#943, #945–#959, and #961–#965 are merged; #944/#960 were closed
+unmerged and superseded; #966 remains an independently owned draft. PR #872 is
+held by design. PR #967's full marker has green named `Merge Gate` and
+`Full Merge Gate` contexts, and exact-main Full Stack Sweep is green, but
+exact-main Smoke E2E run `33601968478` is red on the MAR route-authority gap
+below. A code merge or green matrix does not authorize deployment or activation.
 
 > **2026-07-05 — next chapter:** §0's engineering backlog (Tier 0/1/2) is complete.
 > The forward **build** program now lives in
@@ -39,6 +39,86 @@ merge does not authorize deployment or activation.
 | `[EXTERNAL]` | Third-party / government engagement (certification, pen test, audit). |
 | `[PROCUREMENT]` | Hardware or commercial-license purchase. |
 | `[CODE]` | Genuinely-unwritten code. Deferred-by-design / customer-pull unless flagged otherwise. |
+
+---
+
+## Current audit-remediation queue (2026-09-02)
+
+This is the pending-work cross-link for the canonical audit ledger, not a second
+finding ledger. Finding classifications, historical IDs, exact evidence, and
+closed-row receipts remain in
+[`FULL_REPOSITORY_AUDIT_2026_08.md`](FULL_REPOSITORY_AUDIT_2026_08.md).
+
+### Immediate technical work `[CODE]`
+
+- **OPEN-11 — Admin MAR route authority / red Smoke E2E.** Preserve the
+  backend's inpatient-nursing-only due/overdue contract and align Admin route,
+  navigation, and page construction with it. Current-main run `33601968478`
+  fails all three attempts because `/dashboard/mar` admits the SUPER_ADMIN
+  route-crawl identity and then receives two 403 responses.
+- **OPEN-12 — migration 753 cath usage disposition.** An ordinary successful
+  real-stock consumable usage appears unable to record without a pre-existing
+  *shortfall* task, SLA, and outbox. Clinical/pharmacy/finance owners must decide
+  whether that is intended before any forward-only migration. Never edit 753.
+- **OPEN-13 — migration 753 JSON-scalar disposition, partly superseded by 757.**
+  Migration 757 (`78e077e3a`) correctly normalizes SQL NULL and JSON `null`,
+  closing the product-order lifecycle freeze. Other non-array scalars still
+  abort SQLSTATE 22023 deliberately. The owner must choose continued fail-closed
+  rejection or a governed recovery/quarantine path; any change is forward-only.
+- **OPEN-14 — comprehensive-seed `checkedValue()` heuristic.** Replace the
+  neighbouring-conjunct literal heuristic with column-bound CHECK-expression
+  handling, then run the full deterministic seed and contract matrix.
+- **OPEN-15 — migration 753 readiness.** Current main has 82 `NOT VALID`
+  clauses and no `VALIDATE CONSTRAINT` in migration 753. After recovery
+  decisions freeze, produce a zero-open or named-exception readiness receipt
+  and validate every applicable constraint in a new migration.
+- **OPEN-16 — engagement-campaign material version binding.** Approval must bind
+  an immutable content hash/version through materialization; detailed design is
+  retained under “Engagement campaigns” below.
+- **OPEN-18 — linen/CSSD picker authorization.** Supply only the least-privilege
+  ward/theatre lookup contract needed by the already-authorized console roles;
+  do not broadly grant clinical location or schedule access.
+- **OPEN-20 — dead-surface regression manifest.** The historical dead files are
+  still absent, but no single maintained gate preserves the all-40/all-eleven
+  import-reachability proof.
+
+### Product or interface decisions — no implementation without authority
+
+- **OPEN-17 — first-bed ADT event semantics** `[CODE]` `[OPERATOR]`: receiving
+  systems must choose the correct message contract; do not guess A02/A01/A08.
+- **OPEN-10 — Staff desktop boundary**: Windows remains the documented pilot.
+  Linux/macOS support requires platform capture protection before either can be
+  represented as supported; the existing restriction is intentional.
+- **OPEN-19 — callerless/one-way workflows** `[CODE]`: decide to connect or
+  explicitly retire/restrict gamification writes, research registry, most
+  surgical-document writes, structured maternity writes, paediatric
+  immunisations, document-signature reads, bed inspections, and Ask-a-Doubt's
+  intentionally one-way product contract. Existing detail remains in the
+  re-audit sections below.
+
+### External and activation stops `[OPERATOR]` `[EXTERNAL]`
+
+- Care-team enforcement stays `shadow` until current tenant memberships and
+  break-glass behavior have owner-reviewed evidence. The old 0/28 count is
+  historical, not current inventory.
+- Patient HTTPS deep links and signed minimum-version policy await an owned
+  domain, App Links/AASA publication, and production signing authority.
+- PR #872 / INF-006 stays held until legacy workflow identities are disabled,
+  tags protected, old secrets removed, the Forgejo cosign key rotated, and the
+  interlock rebased and reverified. Do not merge it as a code-only change.
+- ABDM awaits a transactional ordered outbox, NHA credentials/certification,
+  official contract evidence, and operator activation.
+- HL7v2/FHIR adapters await conformance evidence against real receiving
+  endpoints before any interoperability activation.
+- Production digests, R2/allowlists, Sealed Secrets, PG18, operator lifecycle,
+  target-cluster qualification, Redis failover, MinIO recovery, and Android
+  release evidence remain owner/environment gates.
+- Alertmanager validation is wired by #961, but delivery still awaits owner
+  webhook/PagerDuty/Slack/SMTP inputs, sealing, manual Argo sync, and captured
+  notification proof.
+- Five-locale technical parity is `en`/`hi`/`ta`/`te`/`ml`; #965 closes the
+  known ABDM Malayalam omission. Human linguistic review remains mandatory for
+  clinical, dosage, consent, legal, identity, security, and ABDM wording.
 
 ---
 
@@ -1209,9 +1289,15 @@ discharges and lab results until an owner reconciles by hand.
 
 ## Explicitly parked (re-audit lane L, 2026-08-25 — documentation drift)
 
-### Notification `/my` owner-path coverage — two bodiless test stubs, kept skipped and relabelled `[CODE]`
+### Notification `/my` owner-path coverage — closed by PR #964 `[DONE]`
 
-*What is wrong.* `apps/backend/src/tests/notification-my.test.js` carries two
+PR #964 (`632333389`) replaced the historical placeholders with real
+tenant/user-owned fixtures and assertions. Current coverage proves the owner GET
+path and mark/read-state transitions in
+`apps/backend/src/tests/notification-my.test.js:311-340,387-447`. The following
+text is retained as the historical finding and test-shape rationale.
+
+*Historical finding.* `apps/backend/src/tests/notification-my.test.js` carried two
 `it.skip` cases — "should return notifications for the authenticated user" and
 "should mark all notifications as read for the authenticated user" — whose
 callbacks contain a single comment and nothing else. They are placeholders, not
@@ -1219,8 +1305,8 @@ disabled coverage. Un-skipping them would produce two vacuous green tests
 asserting nothing, which is worse than the skip: the run would report the owner
 path as covered.
 
-*User-visible symptom if the gap bites.* Nothing in CI proves that a patient
-with real notification rows can read them or mark them read. A regression that
+*Historical user-visible risk.* Before #964, nothing in CI proved that a patient
+with real notification rows could read them or mark them read. A regression that
 made `GET /api/v1/notifications/my` return an empty list, or made
 `PATCH /api/v1/notifications/my/mark-all-read` a no-op, would pass the whole
 merge gate — the file's remaining cases only assert 401s and route shape, and
@@ -1228,16 +1314,17 @@ the two cases in `authorization.test.js` assert the *missing-user* 404 contract.
 A patient would see an inbox that never fills, or unread badges that never
 clear, with a green pipeline.
 
-*Why it was not fixed in this lane.* The same defect in
+*Why it was originally parked.* The same defect in
 `authorization.test.js` was fixed here, by writing the owner path properly in
 `src/tests/appointment-record-owner-access.deep.test.js` (own tenant, own
 fixtures, both halves asserted against the same rows). The notification pair
 needs the same treatment — seeded notification rows keyed to the JWT-derived
 phone, in a self-isolating tenant — which is a test to write, not a doc to
-correct, and it is outside a documentation-drift lane's remit. The stubs stay
-skipped; what changed is that `apps/backend/scripts/jest-skip-floor.json` now
-says **BODILESS PLACEHOLDER** in both reasons, so the next reader is not misled
-into un-skipping them.
+correct, and it was outside a documentation-drift lane's remit. At that point
+the stubs stayed skipped and `apps/backend/scripts/jest-skip-floor.json` named
+both reasons **BODILESS PLACEHOLDER**, so the next reader would not mistake an
+empty callback for coverage. PR #964 subsequently replaced them with the real
+owner-path cases recorded above.
 
 *Shape to copy when it is built.* `appointment-record-owner-access.deep.test.js`
 — including its teardown, which deletes the tenant-scoped PHI-access evidence
@@ -1345,11 +1432,19 @@ path is served).
 ## Explicitly parked (re-audit lane L, 2026-08-25 — patient-app privacy + localisation)
 
 Three items surfaced while closing the patient app's backup/transfer leak, its
-bypassable biometric lock, and the English-only ABHA enrolment wizard. Each is
-recorded with the user-visible symptom, because each is a hole a reader could
-otherwise mistake for "covered".
+bypassable biometric lock, and the English-only ABHA enrolment wizard. The iOS
+backup and ABDM technical-locale gaps are now closed; the Home biometric
+boundary remains an explicit product restriction. Historical symptom text is
+retained below so the original decisions remain auditable.
 
-### iOS has no backup exclusion at all `[CODE]`
+### iOS PHI backup exclusion — closed by `61c4d3dd9` `[DONE]`
+
+Patient iOS now creates the two persistent PHI-cache directories before first
+use and applies `URLResourceValues.isExcludedFromBackup` on every launch
+(`apps/patient/ios/Runner/AppDelegate.swift:11,22-45`). Shared secure storage
+already uses `KeychainAccessibility.first_unlock_this_device`
+(`packages/vhhealth_core/lib/services/secure_storage.dart:43-53`). The following
+text is retained as the historical gap that motivated the fix.
 
 *What shipped in lane L.* Android now suppresses both extraction channels:
 `android:allowBackup="false"` (API 26+, cloud Auto Backup and `adb backup`),
@@ -1363,19 +1458,19 @@ the three attributes or any domain exclusion goes missing, and also if an
 exclusion names a domain outside those nine (the platform ignores an
 unrecognised domain silently).
 
-*The gap.* `apps/patient/ios/` contains no equivalent. There is no
+*Historical gap.* `apps/patient/ios/` contained no equivalent. There was no
 `NSURLIsExcludedFromBackupKey` applied to the offline PHI cache under the
 application documents directory, and no explicit `kSecAttrAccessible…
 ThisDeviceOnly` policy asserted for the Keychain items behind
 `flutter_secure_storage`.
 
-*User-visible symptom if the gap bites.* An iPhone restored from an iCloud or
-encrypted-iTunes backup of the patient's old handset arrives with the cached
+*Historical user-visible risk.* An iPhone restored from an iCloud or
+encrypted-iTunes backup of the patient's old handset could arrive with cached
 clinical records, and — depending on the Keychain accessibility class in force
 — potentially the session credential too. This is the same defect that was just
 fixed on Android, on the other platform.
 
-*Why it was not fixed in this lane.* Verifying it requires a real iOS build and
+*Why it was originally parked.* Verifying it requires a real iOS build and
 a restore test; asserting it from a Dart guard is not possible the way the
 manifest guard is. Writing an untested Swift/plist change and calling it fixed
 would be worse than recording it.
@@ -1438,7 +1533,16 @@ was named here in the first pass and does not belong: its only call site is
 `features/gamification/widgets/overview_tab.dart`, i.e. `/health-points`, not
 Home.)
 
-### `abdm_screen.dart` is still hardcoded English outside the enrolment wizard `[CODE]`
+### ABDM screen five-locale technical parity — closed by #965; linguistic review held `[DONE]` `[EXTERNAL]`
+
+PR #965 (`9430bc9b2`) closes the remaining technical locale omission across
+`en`/`hi`/`ta`/`te`/`ml`. `abdm_screen.dart:52-82,732-782` now uses distinct
+localized grant/deny/revoke titles, bodies, action labels, and success messages;
+the structural and rendering coverage includes Malayalam. These are technical
+placeholder/parity strings, not human approval. Consent, identity, security,
+legal, and ABDM wording stays fail-closed in
+`docs/TRANSLATION_REVIEW_TRACKER.md`. The following text is retained as the
+historical finding.
 
 *What shipped in lane L.*
 `apps/patient/lib/features/abdm/widgets/abha_enrolment_flow.dart`, which
@@ -1462,19 +1566,20 @@ older than the reclaim TTL, and to answer 409
 `ABHA_ENROLMENT_VERIFY_IN_PROGRESS` rather than cancel under a verifier that
 may still be inside the gateway call.
 
-*The gap.* The rest of `apps/patient/lib/features/abdm/screens/abdm_screen.dart`
-is still English-only: the two tab labels ("My ABHA", "Consent Requests"), the
+*Historical gap.* The rest of `apps/patient/lib/features/abdm/screens/abdm_screen.dart`
+was English-only: the two tab labels ("My ABHA", "Consent Requests"), the
 existing-ABHA link form ("ABHA Number *", "ABHA Address (optional)", "Link
 ABHA"), and the consent dialogs ("Grant", "Deny", "Revoke", `'$action
 Consent?'`, `'Consent ${action.toLowerCase()}ed successfully'`).
 
-*User-visible symptom if the gap bites.* A patient who has set the app to
-Tamil, Telugu, Hindi or Malayalam can now create an ABHA in their own language,
-but is still asked to **grant, deny or revoke consent** for sharing their
-health records in English. Consent that the person cannot read is not
-meaningful consent.
+*Historical user-visible symptom.* After the enrolment-only localization, a
+patient using Tamil, Telugu, Hindi, or Malayalam could create an ABHA in their
+own language but was still asked to **grant, deny or revoke consent** for
+sharing health records in English. Consent that the person cannot read is not
+meaningful consent; #965 closes the technical-language omission, while human
+meaning review remains held.
 
-*Why it was not fixed in this lane.* Two reasons, both deliberate. The consent
+*Why it was originally parked.* Two reasons, both deliberate. The consent
 strings are built by interpolating an English verb into an English sentence
 frame (`'$action Consent?'`), so localising them is a restructure into
 per-action keys, not a lookup swap. And ABDM consent wording is on the
