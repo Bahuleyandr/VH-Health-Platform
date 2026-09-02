@@ -81,6 +81,28 @@ closed-row receipts remain in
 - **OPEN-20 — dead-surface regression manifest.** The historical dead files are
   still absent, but no single maintained gate preserves the all-40/all-eleven
   import-reachability proof.
+- **OPEN-21 — residual hardcoded English outside locale-key parity.** The local,
+  unpushed Malayalam candidate (`30903b6c8`, `49ca4c729`) reports zero missing
+  keys, but appointment copy remains at
+  `apps/patient/lib/features/appointments/widgets/appointment_book_tab.dart:156,527,558,573`,
+  About contact titles at
+  `apps/patient/lib/features/about/screens/about_us_screen.dart:147,158,170`,
+  dependent-setup/guardianship/consent copy at
+  `apps/patient/lib/features/family/screens/family_screen.dart:726,737,778,833`,
+  and the held Staff Web title/message at `apps/staff/lib/main.dart:457,475`.
+  Local structural parity is not current-main or global presentation
+  completion. Localize the ordinary appointment/About copy; keep dependent
+  legal/consent wording behind human legal/linguistic review and Staff Web copy
+  behind operator/release ownership.
+- **OPEN-22 — backend minimatch install-time patch debt.** Current main depends
+  on a global `minimatch` override plus a `postinstall` rewrite of
+  `node_modules`; normal installs work because that hook runs. Local unpushed
+  commit `e5699a180f72f736b1dd953ba9235a3299a3e80b` replaces it with a
+  dependency-native patched graph and reports fresh install, lint/security,
+  dependency-floor mutation tests, and Docker install stages green, but it is
+  not an ancestor of `github/main`. Reconcile it to fresh main and rerun the
+  complete applicable local gate before publication; do not mark it complete
+  merely because the candidate exists.
 
 ### Product or interface decisions — no implementation without authority
 
@@ -117,8 +139,10 @@ closed-row receipts remain in
   webhook/PagerDuty/Slack/SMTP inputs, sealing, manual Argo sync, and captured
   notification proof.
 - Five-locale technical parity is `en`/`hi`/`ta`/`te`/`ml`; #965 closes the
-  known ABDM Malayalam omission. Human linguistic review remains mandatory for
-  clinical, dosage, consent, legal, identity, security, and ABDM wording.
+  known ABDM Malayalam omission. OPEN-21 records remaining hardcoded
+  presentation paths. Human linguistic review remains mandatory for clinical,
+  dosage, consent, legal, identity, security, and ABDM wording; Staff Web
+  activation copy also remains subject to operator/release ownership.
 
 ---
 
