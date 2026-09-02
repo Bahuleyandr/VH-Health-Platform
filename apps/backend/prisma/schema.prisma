@@ -14735,6 +14735,7 @@ model ledger_accounts {
   created_at  DateTime @default(now()) @db.Timestamptz(6)
 
   @@unique([tenant_id, code])
+  @@unique([tenant_id, id], map: "uq_ledger_accounts_tenant_id_id")
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
@@ -14765,6 +14766,8 @@ model ledger_entries {
   created_at        DateTime @default(now()) @db.Timestamptz(6)
 
   @@unique([tenant_id, idempotency_key])
+  @@unique([tenant_id, id], map: "uq_ledger_entries_tenant_id_id")
+  @@index([tenant_id, reverses_entry_id], map: "idx_ledger_entries_tenant_reversal", where: raw("(reverses_entry_id IS NOT NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -14787,6 +14790,7 @@ model ledger_postings {
   @@index([entry_id], map: "idx_ledger_postings_entry")
   @@index([tenant_id, invoice_id], map: "idx_ledger_postings_invoice", where: raw("(invoice_id IS NOT NULL)"))
   @@index([tenant_id, patient_uid], map: "idx_ledger_postings_patient", where: raw("(patient_uid IS NOT NULL)"))
+  @@index([tenant_id, entry_id], map: "idx_ledger_postings_tenant_entry")
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
