@@ -541,8 +541,6 @@ export async function lockClinicalImportDocumentReceiptTx(tx, expected) {
     tenantId: expected.tenantId,
     patientUid: expected.patientUid,
   }));
-  const ownerEvidenceSha256 = await lockClinicalImportAuthorityGrantTx(tx, expected);
-  bindClinicalImportAccessDecision(expected, ownerEvidenceSha256);
   const lockIdentities = [
     `source:${expected.sourceIdentitySha256}`,
     `idempotency:${expected.idempotencyKeySha256}`,
@@ -610,6 +608,8 @@ export async function lockClinicalImportDocumentReceiptTx(tx, expected) {
     exactReceiptMismatch('Clinical import source and idempotency identities belong to different receipts');
   }
   if (!rows.length) {
+    const ownerEvidenceSha256 = await lockClinicalImportAuthorityGrantTx(tx, expected);
+    bindClinicalImportAccessDecision(expected, ownerEvidenceSha256);
     await lockClinicalImportCorrectionTx(tx, expected);
     return null;
   }

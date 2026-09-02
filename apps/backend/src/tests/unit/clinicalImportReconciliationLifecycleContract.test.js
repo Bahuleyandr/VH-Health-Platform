@@ -121,7 +121,9 @@ describe('clinical import reconciliation lifecycle contract', () => {
     expect(listImplementation.indexOf('acquireTenantWorklistLock')).toBeLessThan(
       listImplementation.indexOf('acquireWorklistConcurrencySlot'),
     );
-    expect(service).toMatch(/resolveActivePatientSurvivorsTx[\s\S]*patient_uid=ANY\(\$2::uuid\[\]\)/);
+    expect(service).toMatch(
+      /async function resolveActivePatientSurvivorsTx[\s\S]*const uniquePatientUids[\s\S]*patient\.uid=ANY\(\$2::uuid\[\]\)[\s\S]*tenantId,[\s\S]*uniquePatientUids/,
+    );
     expect(accessDecisions).toMatch(/authorizeClinicalImportReconciliationAccessBatchRequest[\s\S]*entries\.length > 25/);
     expect(accessDecisions).toMatch(/actorRoleOf\(req\) !== 'MEDICAL_RECORDS'[\s\S]*PATIENT_RECORD_UPLOAD[\s\S]*recordType !== 'MEDICAL_RECORD'/);
     expect(accessDecisions).toMatch(/UUID_RE\.test\(decisionKey\)[\s\S]*resourceContext\?\.resourceType !== 'clinical_import_reconciliation'[\s\S]*resourceContext\?\.resourceId/);
@@ -254,12 +256,24 @@ describe('clinical import reconciliation lifecycle contract', () => {
   });
 
   test('commands serialize per item and lock the exact current grant for the active survivor', () => {
+    const currentAuthorityLock = service.slice(
+      service.indexOf('async function lockCurrentAuthorityTx'),
+      service.indexOf('async function findIdempotentEventTx'),
+    );
+    const sharedAuthorityLock = receiptService.slice(
+      receiptService.indexOf('export async function lockClinicalImportAuthorityGrantTx'),
+      receiptService.indexOf('function requiredText'),
+    );
+
     expect(service).toMatch(
       /pg_advisory_xact_lock\(hashtextextended\(\$1::text, 760\)\)::text/,
     );
     expect(service).toMatch(/vh:clinical_import_reconciliation:\$\{tenant\}:\$\{item\}/);
-    expect(service).toMatch(
-      /SELECT public\.lock_clinical_import_authority_760\([\s\S]*authorityGrantId,[\s\S]*patientUid,[\s\S]*facilityId,[\s\S]*actorUid,[\s\S]*sourceSystem,[\s\S]*documentFormat/,
+    expect(currentAuthorityLock).toMatch(
+      /return lockClinicalImportAuthorityGrantTx\(tx, \{[\s\S]*tenantId,[\s\S]*authorityGrantId,[\s\S]*patientUid,[\s\S]*sourceFacilityId: facilityId,[\s\S]*actorUid,[\s\S]*sourceSystem,[\s\S]*documentFormat/,
+    );
+    expect(sharedAuthorityLock).toMatch(
+      /SELECT public\.lock_clinical_import_authority_760\([\s\S]*\$1::uuid, \$2::uuid, \$3::uuid, \$4::int, \$5::uuid, \$6::text, \$7::text[\s\S]*tenantId,[\s\S]*authorityGrantId,[\s\S]*patientUid,[\s\S]*sourceFacilityId,[\s\S]*actorUid,[\s\S]*sourceSystem,[\s\S]*documentFormat/,
     );
     expect(service).toMatch(/resolveActivePatientSurvivorTx\(tx, tenant, itemRow\.patient_uid\)/);
     expect(routes).toContain("req.get('Idempotency-Key')");
@@ -423,6 +437,15 @@ describe('clinical import reconciliation lifecycle contract', () => {
   });
 
   test('correction imports require a bounded header pair and persist an exact causal binding', () => {
+    const correctionGuard = migration760.slice(
+      migration760.indexOf(
+        'CREATE OR REPLACE FUNCTION public.clinical_import_resource_correction_guard_760',
+      ),
+      migration760.indexOf(
+        'CREATE OR REPLACE FUNCTION public.clinical_import_reconciliation_event_guard_760',
+      ),
+    );
+
     expect(routes).toContain("req.get('X-VH-Import-Correction-Item-Id')");
     expect(routes).toContain("req.get('X-VH-Import-Correction-Manifest-Index')");
     expect(routes).toMatch(/\^\(\?:0\|\[1-9\]\[0-9\]\{0,3\}\)\$/);
@@ -442,8 +465,8 @@ describe('clinical import reconciliation lifecycle contract', () => {
     expect(migration760).toMatch(
       /CREATE UNIQUE INDEX ux_clinical_import_resource_correction_item_760[\s\S]*correction_reconciliation_item_id[\s\S]*WHERE correction_reconciliation_item_id IS NOT NULL/,
     );
-    expect(migration760).toMatch(
-      /clinical_import_resource_correction_guard_760[\s\S]*latest exact retry binding/,
+    expect(correctionGuard).toMatch(
+      /NOT EXISTS \([\s\S]*FROM public\.clinical_import_reconciliation_events AS later[\s\S]*\(later\.created_at, later\.id\) > \(retry\.created_at, retry\.id\)[\s\S]*current exact retry binding/,
     );
     expect(service).toMatch(
       /eventType === 'RETRY_REQUESTED'[\s\S]*correction_reconciliation_item_id=\$2::uuid[\s\S]*IMPORT_RECONCILIATION_CORRECTION_PENDING_RESOLUTION/,
@@ -509,10 +532,10 @@ describe('clinical import reconciliation lifecycle contract', () => {
       /async function importAllergyIntolerance\([\s\S]*clinicalAssertionPromotionRequired\('AllergyIntolerance', fhirAllergy\.id \|\| null\)/,
     );
     expect(importService).toMatch(
-      /async function importDiagnosisFromCCDA\([\s\S]*clinicalAssertionPromotionRequired\('C-CDA_Problem', problem\.id \|\| problem\.code \|\| null\)/,
+      /async function importDiagnosisFromCCDA\([\s\S]*clinicalAssertionPromotionRequired\(\s*'C-CDA_Problem',[\s\S]*problem\.id \|\| problem\.code \|\| null/,
     );
     expect(importService).toMatch(
-      /async function importAllergyFromCCDA\([\s\S]*clinicalAssertionPromotionRequired\('C-CDA_Allergy', allergy\.id \|\| allergy\.code \|\| null\)/,
+      /async function importAllergyFromCCDA\([\s\S]*clinicalAssertionPromotionRequired\(\s*'C-CDA_Allergy',[\s\S]*allergy\.id \|\| allergy\.code \|\| null/,
     );
     expect(allRoutes).not.toMatch(/clinicalAssertionPromotion|CLINICAL_IMPORT_ASSERTION_PROMOTION_OWNER/);
   });
