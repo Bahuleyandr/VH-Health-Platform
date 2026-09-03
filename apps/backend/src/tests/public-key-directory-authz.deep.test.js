@@ -3,7 +3,7 @@
 // GET /users/:id/public-key fetched by global numeric id with no tenant
 // predicate, so peer keys / account existence were enumerable across tenants.
 // The query is now tenant-scoped and the 404 is uniform (no existence oracle).
-import { generateTestToken, API_KEY } from './testClient.js';
+import { generateTestToken, API_KEY, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -30,6 +30,11 @@ async function clean() {
 }
 
 d('E2E public-key directory tenant scoping (CAN-038)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity('c0de0107-00aa-4c0d-8c0d-c0de010700aa', { tenantId: TENANT_A });
+  });
   beforeAll(async () => {
     await clean();
     await prisma.$executeRawUnsafe(

@@ -33,7 +33,7 @@
 import request from 'supertest';
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
-import { API_KEY, generateTestToken } from './testClient.js';
+import { API_KEY, generateTestToken, ensureTestIdentity } from './testClient.js';
 import { setCompositionSearchEnabled } from '../services/pharmacy/compositionFeatureService.js';
 import { grantPharmacyFacilityAuthority } from '../services/pharmacy/pharmacyFacilityAuthorityService.js';
 
@@ -94,6 +94,12 @@ const comboSplit625 = JSON.stringify([
 ]);
 
 describe('GET /pharmacy-orders/catalog/:id/alternatives — gated composition alternatives', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity(ACTOR_UID_A, { tenantId: TENANT_A });
+    await ensureTestIdentity(ACTOR_UID_OFF, { tenantId: TENANT_OFF });
+  });
   let comboId;
   let monoId;
   const ids = {};

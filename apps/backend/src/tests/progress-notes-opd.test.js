@@ -14,7 +14,7 @@ import request from 'supertest';
 import app from '../app.js';
 import prisma, { setTenantTx } from '../lib/prisma.js';
 import { waitForAuditLogDrain } from '../middleware/auditLog.js';
-import { API_KEY, generateTestToken } from './testClient.js';
+import { API_KEY, generateTestToken, ensureTestIdentity } from './testClient.js';
 
 const PATIENT_UID = 'a9a9a9a9-a9a9-4a9a-8a9a-a9a9a9a90901';
 const DOCTOR_UID = 'a9a9a9a9-a9a9-4a9a-8a9a-a9a9a9a90902';
@@ -27,6 +27,11 @@ const TODAY_HOSPITAL_DATE = new Intl.DateTimeFormat('en-CA', {
 }).format(new Date());
 
 describe('POST /clinical/progress-notes — OPD note save (no 500)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity(DOCTOR_UID, { tenantId: TENANT_ID });
+  });
   let patientId;
   let appointmentId;
   let createdNoteId;

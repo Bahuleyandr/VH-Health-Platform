@@ -10,7 +10,7 @@
 //
 // FILE_SCAN_POLICY is read per call, so each case sets it and restores it.
 
-import { generateTestToken, API_KEY } from './testClient.js';
+import { generateTestToken, API_KEY, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -47,6 +47,11 @@ async function statusFor(key) {
 }
 
 d('Generic upload by-key scan-policy gate', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity(OWNER, { tenantId: TENANT });
+  });
   let previousPolicy;
 
   beforeAll(async () => {
