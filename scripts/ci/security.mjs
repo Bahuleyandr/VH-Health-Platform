@@ -216,6 +216,16 @@ export async function runSecurityStage() {
   run(process.execPath, ['--test', 'scripts/ci/check-dead-code-retirements.test.mjs']);
   run(process.execPath, ['scripts/ci/check-dead-code-retirements.mjs']);
 
+  // Inline CHECK census (OPEN-23): an inline CHECK inside a `CREATE TABLE IF
+  // NOT EXISTS` re-declaration of a baseline-owned table never reaches the
+  // database. The static half — the pinned census and its regression guard —
+  // needs no database and lives here, in the one stage every canonical plan
+  // selects, with its mutation proof beside it. The pg_constraint calibration
+  // runs in the DB-backed backend job (`--verify-db`) next to the schema drift
+  // check; the meta-test fails CI if either wiring line is removed.
+  run(process.execPath, ['--test', 'scripts/ci/check-inline-check-census.test.mjs']);
+  run(process.execPath, ['scripts/ci/check-inline-check-census.mjs']);
+
   run(process.execPath, ['scripts/check-forgejo-supply-chain-pins.mjs']);
   run(process.execPath, ['scripts/scan-secrets.mjs']);
   run(process.execPath, ['scripts/gitleaks-scan.mjs', 'worktree'], { env: gitleaksEnv });
