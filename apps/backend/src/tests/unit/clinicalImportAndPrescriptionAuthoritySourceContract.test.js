@@ -314,7 +314,7 @@ describe('clinical import and signed prescription authority source contract', ()
     expect(reconciliationService).toMatch(/const LIST_SCAN_TIME_BUDGET_MS = 10_000/);
     expect(reconciliationService).toMatch(/const LIST_TRANSACTION_TIMEOUT_MS = 10_000/);
     expect(reconciliationService).toMatch(/const LIST_TOTAL_DB_QUERY_LIMIT = 38/);
-    expect(reconciliationService).toMatch(/const LIST_CONCURRENCY_SLOTS = 4/);
+    expect(reconciliationService).not.toMatch(/LIST_CONCURRENCY_SLOTS/);
     expect(reconciliationService).toMatch(
       /function decodeWorklistCursor[\s\S]*token\.length > 512[\s\S]*crypto\.timingSafeEqual[\s\S]*IMPORT_RECONCILIATION_CURSOR_INVALID/,
     );
