@@ -8,6 +8,12 @@ import { recordPatientFeedNotificationWithReceipt } from '../../utils/notificati
 import {
   PREPERSISTED_FEED_NOTIFICATION_ID_PAYLOAD_KEY,
 } from '../../utils/notifications/tenantNotificationChannels.js';
+import {
+  buildApprovalMaterial,
+  describeMaterialDifference,
+  hashApprovalMaterial,
+  stableJson,
+} from './campaignApprovalMaterial.js';
 
 export const CAMPAIGN_TYPES = Object.freeze([
   'appointment_recall',
@@ -178,16 +184,6 @@ function objectOrDefault(value, fallback = {}) {
   return value;
 }
 
-function stableJson(value) {
-  if (Array.isArray(value)) return value.map((entry) => stableJson(entry));
-  if (!value || typeof value !== 'object') return value;
-  return Object.fromEntries(
-    Object.keys(value)
-      .sort()
-      .map((key) => [key, stableJson(value[key])]),
-  );
-}
-
 function hashCohortSource(source) {
   return crypto.createHash('sha256').update(JSON.stringify(stableJson(source || {}))).digest('hex');
 }
@@ -314,7 +310,7 @@ function requiredConsentType(campaign, settings) {
 
 async function writeCampaignTransitionAudit(
   tx,
-  { tenantId, actorUid, actorRole, campaignId, previousStatus, nextStatus, reason },
+  { tenantId, actorUid, actorRole, campaignId, previousStatus, nextStatus, reason, details = null },
 ) {
   await tx.$executeRawUnsafe(
     `INSERT INTO audit_logs
@@ -329,6 +325,7 @@ async function writeCampaignTransitionAudit(
       previous_status: previousStatus,
       next_status: nextStatus,
       reason: reason || null,
+      ...(details || {}),
     }),
   );
 }
@@ -466,8 +463,10 @@ async function loadCampaignContext(tx, tenantId, campaignId) {
             c.audience_kind, c.approval_required_role, c.created_by,
             c.submitted_by, c.submitted_at, c.approved_by, c.approved_at, c.scheduled_at,
             c.frozen_audience_hash, c.current_audience_snapshot_id,
+            c.approval_material, c.approval_material_hash, c.approved_material_hash,
             et.channel AS template_channel, et.allowed_variables,
             et.phi_classification, et.approved_at AS template_approved_at,
+            et.locale AS template_locale, et.notification_template_id,
             nt.title_template, nt.message_template, nt.type AS notification_type
        FROM engagement_campaigns c
        JOIN engagement_templates et
@@ -486,6 +485,90 @@ async function loadCampaignContext(tx, tenantId, campaignId) {
   campaign.rate_policy = objectOrDefault(campaign.rate_policy, {});
   campaign.schedule_policy = objectOrDefault(campaign.schedule_policy, {});
   return campaign;
+}
+
+// The material a reviewer approves, computed from the live rows: the campaign
+// context row, its current audience snapshot and that snapshot's recipients.
+async function loadApprovalMaterial(tx, tenantId, campaign) {
+  const snapshotId = campaign.current_audience_snapshot_id;
+  let snapshot = null;
+  let recipients = [];
+  if (snapshotId) {
+    const snapshotRows = await tx.$queryRawUnsafe(
+      `SELECT id, snapshot_kind, cohort_hash
+         FROM engagement_audience_snapshots
+        WHERE tenant_id = $1::uuid
+          AND id = $2::bigint
+        LIMIT 1`,
+      tenantId,
+      snapshotId,
+    );
+    snapshot = snapshotRows[0] ? jsonReady(snapshotRows[0]) : null;
+    const recipientRows = await tx.$queryRawUnsafe(
+      `SELECT idempotency_key, patient_uid, channel, due_at, required_consent_type, variables
+         FROM engagement_campaign_recipients
+        WHERE tenant_id = $1::uuid
+          AND campaign_id = $2::bigint
+          AND audience_snapshot_id = $3::bigint
+        ORDER BY idempotency_key ASC`,
+      tenantId,
+      campaign.id,
+      snapshotId,
+    );
+    recipients = recipientRows.map((row) => jsonReady(row));
+  }
+  const material = buildApprovalMaterial({ campaign, snapshot, recipients });
+  return { material, hash: hashApprovalMaterial(material), snapshot, recipients };
+}
+
+// The approval no longer describes the campaign: clear it, return the campaign
+// to draft and record why. Callers commit this before raising their error so a
+// rolled-back transaction cannot leave a stale approval standing.
+async function resetCampaignToDraft(tx, { tenantId, campaign, actorUid, actorRole, reason, details }) {
+  const rows = await tx.$queryRawUnsafe(
+    `UPDATE engagement_campaigns
+        SET status = 'draft',
+            submitted_by = NULL,
+            submitted_at = NULL,
+            approved_by = NULL,
+            approved_at = NULL,
+            approval_material = NULL,
+            approval_material_hash = NULL,
+            approved_material_hash = NULL,
+            frozen_audience_hash = NULL,
+            updated_at = NOW()
+      WHERE tenant_id = $1::uuid
+        AND id = $2::bigint
+        AND status = $3::varchar
+      RETURNING id`,
+    tenantId,
+    campaign.id,
+    campaign.status,
+  );
+  if (!rows[0]) {
+    throw AppError.conflict(
+      'Campaign status changed before the transition completed',
+      'ENGAGEMENT_CAMPAIGN_TRANSITION_CONFLICT',
+    );
+  }
+  await writeCampaignTransitionAudit(tx, {
+    tenantId,
+    actorUid,
+    actorRole,
+    campaignId: campaign.id,
+    previousStatus: campaign.status,
+    nextStatus: 'draft',
+    reason,
+    details,
+  });
+}
+
+function materialMismatchDetails(campaign, live) {
+  return {
+    expected_material_hash: campaign.approved_material_hash || campaign.approval_material_hash || null,
+    live_material_hash: live.hash,
+    changed_sections: describeMaterialDifference(campaign.approval_material, live.material),
+  };
 }
 
 export async function createEngagementCampaign(tenantId, input = {}, actorUid = null) {
@@ -861,8 +944,15 @@ export async function materializeCampaignRecipients({ tenantId, campaignId, inpu
 
   return setTenantTx(tid, async (tx) => {
     const campaign = await loadCampaignContext(tx, tid, campaignId);
-    if (!['dry_run', 'pending_approval', 'scheduled', 'running'].includes(campaign.status)) {
-      throw AppError.badRequest('Campaign must be dry-run or approved before recipient materialization', 'ENGAGEMENT_BAD_MATERIALIZE_STATE');
+    if (['scheduled', 'running'].includes(campaign.status)) {
+      // A post-approval re-cut would replace the audience the approval binds.
+      throw AppError.conflict(
+        'Approved campaigns cannot re-materialize their audience; the approval binds the audience that was approved',
+        'ENGAGEMENT_APPROVAL_LOCKED',
+      );
+    }
+    if (!['dry_run', 'pending_approval'].includes(campaign.status)) {
+      throw AppError.badRequest('Campaign must be dry-run before recipient materialization', 'ENGAGEMENT_BAD_MATERIALIZE_STATE');
     }
     const settings = await loadEngagementSettings(tx, tid);
     const results = await evaluateCandidates(tx, { tenantId: tid, campaign, settings, candidates, dryRun: false });
@@ -918,80 +1008,119 @@ export async function materializeCampaignRecipients({ tenantId, campaignId, inpu
       inserted.push(jsonReady(rows[0]));
     }
 
-    await tx.$executeRawUnsafe(
-      `UPDATE engagement_campaigns
-          SET current_audience_snapshot_id = $3::bigint,
-              frozen_audience_hash = $4,
-              updated_at = NOW()
-        WHERE tenant_id = $1::uuid
-          AND id = $2::bigint`,
-      tid,
-      campaign.id,
-      snapshot.id,
-      snapshot.cohort_hash,
-    );
+    if (campaign.status === 'pending_approval') {
+      // The submitted audience no longer exists: withdraw the submission so the
+      // reviewer can only approve what is materialized now.
+      await tx.$executeRawUnsafe(
+        `UPDATE engagement_campaigns
+            SET status = 'dry_run',
+                submitted_by = NULL,
+                submitted_at = NULL,
+                approval_material = NULL,
+                approval_material_hash = NULL,
+                frozen_audience_hash = NULL,
+                current_audience_snapshot_id = $3::bigint,
+                updated_at = NOW()
+          WHERE tenant_id = $1::uuid
+            AND id = $2::bigint
+            AND status = 'pending_approval'`,
+        tid,
+        campaign.id,
+        snapshot.id,
+      );
+      await writeCampaignTransitionAudit(tx, {
+        tenantId: tid,
+        actorUid,
+        actorRole: null,
+        campaignId: campaign.id,
+        previousStatus: 'pending_approval',
+        nextStatus: 'dry_run',
+        reason: 'audience_rematerialized_before_approval',
+        details: {
+          withdrawn_material_hash: campaign.approval_material_hash || null,
+          new_snapshot_id: String(snapshot.id),
+        },
+      });
+    } else {
+      await tx.$executeRawUnsafe(
+        `UPDATE engagement_campaigns
+            SET current_audience_snapshot_id = $3::bigint,
+                updated_at = NOW()
+          WHERE tenant_id = $1::uuid
+            AND id = $2::bigint`,
+        tid,
+        campaign.id,
+        snapshot.id,
+      );
+    }
 
     return { snapshot, counts, recipients: inserted };
   });
 }
 
-async function updateCampaignStatus({
-  tenantId,
-  campaignId,
-  fromStatuses,
-  nextStatus,
-  actorUid,
-  actorRole,
-  reason,
-  validateCampaign = null,
-}) {
-  const tid = requireTenantId(tenantId);
-  const rows = await setTenantTx(tid, async (tx) => {
-    const campaign = await loadCampaignContext(tx, tid, campaignId);
-    if (!fromStatuses.includes(campaign.status)) {
-      throw AppError.invalidTransition(campaign.status, nextStatus, fromStatuses);
-    }
-    if (validateCampaign) validateCampaign(campaign);
-    const transitioned = await tx.$queryRawUnsafe(
-      `UPDATE engagement_campaigns
-          SET status = $4::varchar,
-              submitted_by = CASE WHEN $4::varchar = 'pending_approval' THEN $5::uuid ELSE submitted_by END,
-              submitted_at = CASE WHEN $4::varchar = 'pending_approval' THEN NOW() ELSE submitted_at END,
-              approved_by = CASE WHEN $4::varchar = 'scheduled' THEN $5::uuid ELSE approved_by END,
-              approved_at = CASE WHEN $4::varchar = 'scheduled' THEN NOW() ELSE approved_at END,
-              updated_at = NOW()
-        WHERE tenant_id = $1::uuid
-          AND id = $2::bigint
-          AND status = $3::varchar
+const TRANSITION_RETURNING = `
       RETURNING id, tenant_id, campaign_type, objective, status, template_id,
                 channels, schedule_policy, rate_policy, audience_kind,
                 approval_required_role, submitted_by, submitted_at,
                 approved_by, approved_at, scheduled_at, frozen_audience_hash,
-                current_audience_snapshot_id, created_at, updated_at`,
-      tid,
-      campaign.id,
-      campaign.status,
-      nextStatus,
-      uuidOrNull(actorUid),
+                current_audience_snapshot_id, approval_material,
+                approval_material_hash, approved_material_hash, created_at, updated_at`;
+
+// One status transition plus its audit row, inside the caller's tenant
+// transaction. Submit supplies `material` (the reviewer-facing material and
+// its hashes); approve stamps the approved hash from the stored submitted one.
+async function applyCampaignTransition(tx, {
+  tenantId,
+  campaign,
+  nextStatus,
+  actorUid,
+  actorRole,
+  reason,
+  material = null,
+  details = null,
+}) {
+  const transitioned = await tx.$queryRawUnsafe(
+    `UPDATE engagement_campaigns
+        SET status = $4::varchar,
+            submitted_by = CASE WHEN $4::varchar = 'pending_approval' THEN $5::uuid ELSE submitted_by END,
+            submitted_at = CASE WHEN $4::varchar = 'pending_approval' THEN NOW() ELSE submitted_at END,
+            approval_material = CASE WHEN $4::varchar = 'pending_approval' THEN $6::jsonb ELSE approval_material END,
+            approval_material_hash = CASE WHEN $4::varchar = 'pending_approval' THEN $7::varchar ELSE approval_material_hash END,
+            frozen_audience_hash = CASE WHEN $4::varchar = 'pending_approval' THEN $8::varchar ELSE frozen_audience_hash END,
+            approved_by = CASE WHEN $4::varchar = 'scheduled' THEN $5::uuid ELSE approved_by END,
+            approved_at = CASE WHEN $4::varchar = 'scheduled' THEN NOW() ELSE approved_at END,
+            approved_material_hash = CASE WHEN $4::varchar = 'scheduled' THEN approval_material_hash ELSE approved_material_hash END,
+            updated_at = NOW()
+      WHERE tenant_id = $1::uuid
+        AND id = $2::bigint
+        AND status = $3::varchar
+      ${TRANSITION_RETURNING}`,
+    tenantId,
+    campaign.id,
+    campaign.status,
+    nextStatus,
+    uuidOrNull(actorUid),
+    material ? JSON.stringify(material.body) : null,
+    material ? material.hash : null,
+    material ? material.audienceHash : null,
+  );
+  if (!transitioned[0]) {
+    throw AppError.conflict(
+      'Campaign status changed before the transition completed',
+      'ENGAGEMENT_CAMPAIGN_TRANSITION_CONFLICT',
     );
-    if (!transitioned[0]) {
-      throw AppError.conflict(
-        'Campaign status changed before the transition completed',
-        'ENGAGEMENT_CAMPAIGN_TRANSITION_CONFLICT',
-      );
-    }
-    await writeCampaignTransitionAudit(tx, {
-      tenantId: tid,
-      actorUid,
-      actorRole,
-      campaignId: campaign.id,
-      previousStatus: campaign.status,
-      nextStatus,
-      reason,
-    });
-    return transitioned;
+  }
+  await writeCampaignTransitionAudit(tx, {
+    tenantId,
+    actorUid,
+    actorRole,
+    campaignId: campaign.id,
+    previousStatus: campaign.status,
+    nextStatus,
+    reason,
+    details,
   });
-  return jsonReady(rows[0]);
+  return jsonReady(transitioned[0]);
 }
 
 export async function submitCampaignForApproval({ tenantId, campaignId, actorUid = null, actorRole = null, reason = null }) {
@@ -1002,14 +1131,33 @@ export async function submitCampaignForApproval({ tenantId, campaignId, actorUid
       'ENGAGEMENT_SUBMITTER_IDENTITY_REQUIRED',
     );
   }
-  return updateCampaignStatus({
-    tenantId,
-    campaignId,
-    fromStatuses: ['dry_run'],
-    nextStatus: 'pending_approval',
-    actorUid: submitterUid,
-    actorRole,
-    reason,
+  const tid = requireTenantId(tenantId);
+  return setTenantTx(tid, async (tx) => {
+    const campaign = await loadCampaignContext(tx, tid, campaignId);
+    if (campaign.status !== 'dry_run') {
+      throw AppError.invalidTransition(campaign.status, 'pending_approval', ['dry_run']);
+    }
+    const live = await loadApprovalMaterial(tx, tid, campaign);
+    if (!live.snapshot || live.snapshot.snapshot_kind !== 'materialized' || live.recipients.length === 0) {
+      throw AppError.badRequest(
+        'Campaign audience must be materialized before submission so the approval can bind it',
+        'ENGAGEMENT_AUDIENCE_NOT_MATERIALIZED',
+      );
+    }
+    return applyCampaignTransition(tx, {
+      tenantId: tid,
+      campaign,
+      nextStatus: 'pending_approval',
+      actorUid: submitterUid,
+      actorRole,
+      reason,
+      material: {
+        body: live.material,
+        hash: live.hash,
+        audienceHash: live.material.audience.recipients_hash,
+      },
+      details: { approval_material_hash: live.hash },
+    });
   });
 }
 
@@ -1018,68 +1166,118 @@ export async function approveCampaign({ tenantId, campaignId, actorUid = null, a
   const role = String(actorRole || '').toUpperCase();
   const approverUid = uuidOrNull(actorUid);
   const approvalReason = approvalReasonText(reason);
-  return updateCampaignStatus({
-    tenantId: tid,
-    campaignId,
-    fromStatuses: ['pending_approval'],
-    nextStatus: 'scheduled',
-    actorUid: approverUid,
-    actorRole,
-    reason: approvalReason,
-    validateCampaign: (campaign) => {
-      const allowed = campaign.approval_required_role === 'admin_quality'
-        ? BROAD_APPROVAL_ROLES
-        : CARE_TEAM_APPROVAL_ROLES;
-      if (!allowed.has(role)) {
-        throw AppError.forbidden(
-          'This role cannot approve the requested engagement campaign',
-          'ENGAGEMENT_APPROVAL_FORBIDDEN',
-        );
-      }
-      if (!approverUid) {
-        throw AppError.forbidden(
-          'Authenticated approver identity is required',
-          'ENGAGEMENT_APPROVER_IDENTITY_REQUIRED',
-        );
-      }
-      if (!campaign.submitted_by) {
-        throw AppError.forbidden(
-          'Campaign submission identity is missing',
-          'ENGAGEMENT_SUBMITTER_IDENTITY_MISSING',
-        );
-      }
-      if (String(campaign.submitted_by).toLowerCase() === approverUid.toLowerCase()) {
-        throw AppError.forbidden(
-          'Campaign submitters cannot approve their own campaign',
-          'ENGAGEMENT_SELF_APPROVAL_FORBIDDEN',
-        );
-      }
-      if (!approvalReason) {
-        throw AppError.badRequest(
-          'Approval reason is required',
-          'ENGAGEMENT_APPROVAL_REASON_REQUIRED',
-        );
-      }
-    },
+  const outcome = await setTenantTx(tid, async (tx) => {
+    const campaign = await loadCampaignContext(tx, tid, campaignId);
+    if (campaign.status !== 'pending_approval') {
+      throw AppError.invalidTransition(campaign.status, 'scheduled', ['pending_approval']);
+    }
+    const allowed = campaign.approval_required_role === 'admin_quality'
+      ? BROAD_APPROVAL_ROLES
+      : CARE_TEAM_APPROVAL_ROLES;
+    if (!allowed.has(role)) {
+      throw AppError.forbidden(
+        'This role cannot approve the requested engagement campaign',
+        'ENGAGEMENT_APPROVAL_FORBIDDEN',
+      );
+    }
+    if (!approverUid) {
+      throw AppError.forbidden(
+        'Authenticated approver identity is required',
+        'ENGAGEMENT_APPROVER_IDENTITY_REQUIRED',
+      );
+    }
+    if (!campaign.submitted_by) {
+      throw AppError.forbidden(
+        'Campaign submission identity is missing',
+        'ENGAGEMENT_SUBMITTER_IDENTITY_MISSING',
+      );
+    }
+    if (String(campaign.submitted_by).toLowerCase() === approverUid.toLowerCase()) {
+      throw AppError.forbidden(
+        'Campaign submitters cannot approve their own campaign',
+        'ENGAGEMENT_SELF_APPROVAL_FORBIDDEN',
+      );
+    }
+    if (!approvalReason) {
+      throw AppError.badRequest(
+        'Approval reason is required',
+        'ENGAGEMENT_APPROVAL_REASON_REQUIRED',
+      );
+    }
+    // The approval binds the material the reviewer is looking at. If the live
+    // rows no longer match what was submitted, nothing is approved: the
+    // campaign returns to draft (committed here) and the caller learns why.
+    const live = await loadApprovalMaterial(tx, tid, campaign);
+    if (!campaign.approval_material_hash || live.hash !== campaign.approval_material_hash) {
+      const details = materialMismatchDetails(campaign, live);
+      await resetCampaignToDraft(tx, {
+        tenantId: tid,
+        campaign,
+        actorUid: approverUid,
+        actorRole,
+        reason: campaign.approval_material_hash ? 'approval_material_changed' : 'approval_material_missing',
+        details,
+      });
+      return { mismatch: details };
+    }
+    const row = await applyCampaignTransition(tx, {
+      tenantId: tid,
+      campaign,
+      nextStatus: 'scheduled',
+      actorUid: approverUid,
+      actorRole,
+      reason: approvalReason,
+      details: { approved_material_hash: live.hash },
+    });
+    return { row };
   });
+  if (outcome.mismatch) {
+    throw AppError.conflict(
+      'Campaign material changed since submission; the campaign has been returned to draft for re-approval',
+      'ENGAGEMENT_APPROVAL_MATERIAL_CHANGED',
+      outcome.mismatch,
+    );
+  }
+  return outcome.row;
 }
 
 export async function queueDueCampaignRecipients({ tenantId, campaignId, limit = 50 }) {
   const tid = requireTenantId(tenantId);
   const boundedLimit = integerOrDefault(limit, 50, { min: 1 });
 
-  const recipients = await setTenant(tid, async (tx) => {
+  // Re-verify the approved material before selecting anything, in the same
+  // transaction as the selection, and only ever select from the snapshot the
+  // approval bound. A mismatch returns the campaign to draft (committed) and
+  // dispatches nothing.
+  const selection = await setTenantTx(tid, async (tx) => {
     const campaign = await loadCampaignContext(tx, tid, campaignId);
     if (!['scheduled', 'running'].includes(campaign.status)) {
       throw AppError.badRequest('Campaign must be approved before queueing recipients', 'ENGAGEMENT_NOT_APPROVED');
     }
-    return tx.$queryRawUnsafe(
+    const live = await loadApprovalMaterial(tx, tid, campaign);
+    if (!campaign.approved_material_hash || live.hash !== campaign.approved_material_hash) {
+      const details = materialMismatchDetails(campaign, live);
+      const code = campaign.approved_material_hash
+        ? 'ENGAGEMENT_APPROVAL_MATERIAL_CHANGED'
+        : 'ENGAGEMENT_APPROVAL_MATERIAL_MISSING';
+      await resetCampaignToDraft(tx, {
+        tenantId: tid,
+        campaign,
+        actorUid: null,
+        actorRole: 'system',
+        reason: campaign.approved_material_hash ? 'approval_material_changed' : 'approval_material_missing',
+        details,
+      });
+      return { mismatch: { code, details } };
+    }
+    const rows = await tx.$queryRawUnsafe(
       `SELECT id, tenant_id, campaign_id, audience_snapshot_id, patient_uid,
               consent_id, required_consent_type, channel, contact_route, due_at,
               status, variables, idempotency_key
          FROM engagement_campaign_recipients
         WHERE tenant_id = $1::uuid
           AND campaign_id = $2::bigint
+          AND audience_snapshot_id = $4::bigint
           AND status = 'eligible'
           AND due_at <= NOW()
         ORDER BY due_at ASC, id ASC
@@ -1087,8 +1285,25 @@ export async function queueDueCampaignRecipients({ tenantId, campaignId, limit =
       tid,
       campaign.id,
       boundedLimit,
+      campaign.current_audience_snapshot_id,
     );
-  }, { readOnly: true });
+    return { recipients: rows };
+  });
+  if (selection.mismatch) {
+    logger.warn('Engagement campaign approval no longer matches its material; returned to draft', {
+      campaignId,
+      code: selection.mismatch.code,
+      changedSections: selection.mismatch.details.changed_sections,
+    });
+    throw AppError.conflict(
+      selection.mismatch.code === 'ENGAGEMENT_APPROVAL_MATERIAL_MISSING'
+        ? 'Campaign approval predates material binding; the campaign has been returned to draft for re-approval'
+        : 'Campaign material changed after approval; the campaign has been returned to draft for re-approval',
+      selection.mismatch.code,
+      selection.mismatch.details,
+    );
+  }
+  const recipients = selection.recipients;
 
   let queued = 0;
   let suppressed = 0;

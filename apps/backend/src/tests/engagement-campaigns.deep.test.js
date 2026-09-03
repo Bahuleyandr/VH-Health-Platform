@@ -280,6 +280,22 @@ d('NL9-P1 engagement campaigns consent gates', () => {
       status: 'scheduled',
     }));
 
+    // The approval records what it approved: the submitted material hash is
+    // stamped as the approved hash, and the audience hash is the recipients
+    // hash of the materialized snapshot (all four candidates, eligible or not).
+    const materialRows = await prisma.$queryRawUnsafe(
+      `SELECT approval_material_hash, approved_material_hash, frozen_audience_hash, approval_material
+         FROM engagement_campaigns
+        WHERE tenant_id = $1::uuid
+          AND id = $2::bigint`,
+      TENANT_ID,
+      campaign.id,
+    );
+    expect(materialRows[0].approval_material_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(materialRows[0].approved_material_hash).toBe(materialRows[0].approval_material_hash);
+    expect(materialRows[0].frozen_audience_hash).toBe(materialRows[0].approval_material.audience.recipients_hash);
+    expect(materialRows[0].approval_material.audience.recipient_count).toBe(4);
+
     const transitionAudit = await prisma.$queryRawUnsafe(
       `SELECT uid::text, role, metadata
          FROM audit_logs
@@ -368,4 +384,212 @@ d('NL9-P1 engagement campaigns consent gates', () => {
     );
     expect(replayCounts[0]).toEqual({ feed_count: 1, outbox_count: 1 });
   });
+
+  // --- approval binds the material -------------------------------------------
+
+  function candidateInput() {
+    const candidates = PATIENTS.map(([patientUid, _phone, name]) => ({
+      patient_uid: patientUid,
+      channel: 'sms',
+      due_at: new Date(Date.now() - 60_000).toISOString(),
+      variables: { first_name: name.split(' ')[1], appointment_window: 'tomorrow morning' },
+    }));
+    return { patients: candidates, cohort_source: { source_tables: ['users', 'patient_consents'] } };
+  }
+
+  async function approvedCampaign() {
+    await cleanup();
+    const campaign = await seedCampaign();
+    const input = candidateInput();
+    await dryRunCampaign({ tenantId: TENANT_ID, campaignId: campaign.id, input, actorUid: ACTOR_UID });
+    await materializeCampaignRecipients({ tenantId: TENANT_ID, campaignId: campaign.id, input, actorUid: ACTOR_UID });
+    await submitCampaignForApproval({ tenantId: TENANT_ID, campaignId: campaign.id, actorUid: ACTOR_UID, actorRole: 'DOCTOR' });
+    await approveCampaign({
+      tenantId: TENANT_ID,
+      campaignId: campaign.id,
+      actorUid: APPROVER_UID,
+      actorRole: 'DOCTOR',
+      reason: 'Reviewed',
+    });
+    return { campaign, input };
+  }
+
+  async function campaignState(campaignId) {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT status, submitted_by::text, approved_by::text,
+              approval_material_hash, approved_material_hash, frozen_audience_hash
+         FROM engagement_campaigns
+        WHERE tenant_id = $1::uuid
+          AND id = $2::bigint`,
+      TENANT_ID,
+      campaignId,
+    );
+    return rows[0];
+  }
+
+  async function lastTransitionAudit(campaignId) {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT metadata
+         FROM audit_logs
+        WHERE action = 'ENGAGEMENT_CAMPAIGN_STATUS_CHANGED'
+          AND resource = 'engagement_campaign'
+          AND resource_id = $1
+          AND metadata->>'tenant_id' = $2
+        ORDER BY id DESC
+        LIMIT 1`,
+      String(campaignId),
+      TENANT_ID,
+    );
+    return rows[0]?.metadata;
+  }
+
+  it('refuses submission until the audience is materialized, and locks the audience once approved', async () => {
+    await cleanup();
+    const campaign = await seedCampaign();
+    const input = candidateInput();
+    await dryRunCampaign({ tenantId: TENANT_ID, campaignId: campaign.id, input, actorUid: ACTOR_UID });
+
+    await expect(submitCampaignForApproval({
+      tenantId: TENANT_ID,
+      campaignId: campaign.id,
+      actorUid: ACTOR_UID,
+      actorRole: 'DOCTOR',
+    })).rejects.toMatchObject({ statusCode: 400, code: 'ENGAGEMENT_AUDIENCE_NOT_MATERIALIZED' });
+
+    await materializeCampaignRecipients({ tenantId: TENANT_ID, campaignId: campaign.id, input, actorUid: ACTOR_UID });
+    await submitCampaignForApproval({ tenantId: TENANT_ID, campaignId: campaign.id, actorUid: ACTOR_UID, actorRole: 'DOCTOR' });
+    await approveCampaign({
+      tenantId: TENANT_ID,
+      campaignId: campaign.id,
+      actorUid: APPROVER_UID,
+      actorRole: 'DOCTOR',
+      reason: 'Reviewed',
+    });
+
+    await expect(materializeCampaignRecipients({
+      tenantId: TENANT_ID,
+      campaignId: campaign.id,
+      input,
+      actorUid: ACTOR_UID,
+    })).rejects.toMatchObject({ statusCode: 409, code: 'ENGAGEMENT_APPROVAL_LOCKED' });
+    expect((await campaignState(campaign.id)).status).toBe('scheduled');
+  }, 30000);
+
+  it('returns a campaign to draft when its material changes between submission and approval', async () => {
+    await cleanup();
+    const campaign = await seedCampaign();
+    const input = candidateInput();
+    await dryRunCampaign({ tenantId: TENANT_ID, campaignId: campaign.id, input, actorUid: ACTOR_UID });
+    await materializeCampaignRecipients({ tenantId: TENANT_ID, campaignId: campaign.id, input, actorUid: ACTOR_UID });
+    await submitCampaignForApproval({ tenantId: TENANT_ID, campaignId: campaign.id, actorUid: ACTOR_UID, actorRole: 'DOCTOR' });
+
+    await prisma.$executeRawUnsafe(
+      `UPDATE engagement_campaigns
+          SET schedule_policy = '{"window":"evening"}'::jsonb
+        WHERE tenant_id = $1::uuid
+          AND id = $2::bigint`,
+      TENANT_ID,
+      campaign.id,
+    );
+
+    await expect(approveCampaign({
+      tenantId: TENANT_ID,
+      campaignId: campaign.id,
+      actorUid: APPROVER_UID,
+      actorRole: 'DOCTOR',
+      reason: 'Reviewed',
+    })).rejects.toMatchObject({ statusCode: 409, code: 'ENGAGEMENT_APPROVAL_MATERIAL_CHANGED' });
+
+    expect(await campaignState(campaign.id)).toEqual(expect.objectContaining({
+      status: 'draft',
+      submitted_by: null,
+      approved_by: null,
+      approval_material_hash: null,
+      approved_material_hash: null,
+      frozen_audience_hash: null,
+    }));
+    expect(await lastTransitionAudit(campaign.id)).toEqual(expect.objectContaining({
+      previous_status: 'pending_approval',
+      next_status: 'draft',
+      reason: 'approval_material_changed',
+      changed_sections: ['campaign.schedule_policy'],
+    }));
+  }, 30000);
+
+  it('cannot dispatch an approved campaign whose material was edited afterwards', async () => {
+    const { campaign } = await approvedCampaign();
+    await prisma.$executeRawUnsafe(
+      `UPDATE engagement_campaigns
+          SET rate_policy = '{"per_patient_cooldown_hours":72}'::jsonb
+        WHERE tenant_id = $1::uuid
+          AND id = $2::bigint`,
+      TENANT_ID,
+      campaign.id,
+    );
+
+    await expect(queueDueCampaignRecipients({ tenantId: TENANT_ID, campaignId: campaign.id, limit: 10 }))
+      .rejects.toMatchObject({ statusCode: 409, code: 'ENGAGEMENT_APPROVAL_MATERIAL_CHANGED' });
+
+    const recipientStatuses = await prisma.$queryRawUnsafe(
+      `SELECT status, COUNT(*)::int AS count
+         FROM engagement_campaign_recipients
+        WHERE tenant_id = $1::uuid
+          AND campaign_id = $2::bigint
+        GROUP BY status
+        ORDER BY status`,
+      TENANT_ID,
+      campaign.id,
+    );
+    expect(recipientStatuses).toEqual([{ status: 'eligible', count: 1 }, { status: 'suppressed', count: 3 }]);
+    const outbox = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count FROM notification_outbox WHERE payload->>'campaign_id' = $1`,
+      String(campaign.id),
+    );
+    expect(outbox[0].count).toBe(0);
+    expect((await campaignState(campaign.id)).status).toBe('draft');
+    expect(await lastTransitionAudit(campaign.id)).toEqual(expect.objectContaining({
+      previous_status: 'scheduled',
+      next_status: 'draft',
+      reason: 'approval_material_changed',
+      changed_sections: ['campaign.rate_policy'],
+    }));
+
+    await expect(queueDueCampaignRecipients({ tenantId: TENANT_ID, campaignId: campaign.id, limit: 10 }))
+      .rejects.toMatchObject({ statusCode: 400, code: 'ENGAGEMENT_NOT_APPROVED' });
+  }, 30000);
+
+  it('never dispatches a recipient attached to a snapshot other than the approved one', async () => {
+    const { campaign } = await approvedCampaign();
+    const foreignSnapshot = await prisma.$queryRawUnsafe(
+      `INSERT INTO engagement_audience_snapshots
+         (tenant_id, campaign_id, snapshot_kind, cohort_source, cohort_hash,
+          materialized_count, eligible_count, suppressed_count)
+       VALUES ($1::uuid, $2::bigint, 'materialized', '{}'::jsonb, 'foreign', 1, 1, 0)
+       RETURNING id`,
+      TENANT_ID,
+      campaign.id,
+    );
+    const foreignKey = `${campaign.id}:foreign:${PATIENT_ELIGIBLE}`;
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO engagement_campaign_recipients
+         (tenant_id, campaign_id, audience_snapshot_id, patient_uid, required_consent_type, channel,
+          contact_route, due_at, status, idempotency_key, variables, updated_at)
+       VALUES ($1::uuid, $2::bigint, $3::bigint, $4::uuid, 'care_reminder_whatsapp', 'sms',
+               '+919000009911', NOW() - INTERVAL '1 minute', 'eligible', $5, '{}'::jsonb, NOW())`,
+      TENANT_ID,
+      campaign.id,
+      foreignSnapshot[0].id,
+      PATIENT_ELIGIBLE,
+      foreignKey,
+    );
+
+    const queued = await queueDueCampaignRecipients({ tenantId: TENANT_ID, campaignId: campaign.id, limit: 10 });
+    expect(queued).toEqual({ claimed: 1, queued: 1, suppressed: 0, failed: 0 });
+    const foreign = await prisma.$queryRawUnsafe(
+      `SELECT status FROM engagement_campaign_recipients WHERE tenant_id = $1::uuid AND idempotency_key = $2`,
+      TENANT_ID,
+      foreignKey,
+    );
+    expect(foreign[0].status).toBe('eligible');
+  }, 30000);
 });
