@@ -30,11 +30,19 @@
 // enforcement). SUPER_ADMIN login keeps working under a tenant context because
 // the admins tenant_isolation policy admits rows with tenant_id IS NULL.
 //
+// This is NOT a per-tenant-subdomain feature. On the bare base host, the API
+// and admin apex hosts, and any host outside the configured base domains,
+// tenantFromHost resolves the DEFAULT tenant without touching the database, so
+// the single-tenant deployment on the apex host runs scoped too; only a
+// known-shaped but unknown slug (`<slug>-api.<base>`) is rejected with
+// TENANT_NOT_RESOLVED before any handler runs. Pinned by
+// preAuthTenantContextMiddlewareApexHost.test.js.
+//
 // Two things a tenant context does NOT cover, on purpose: a bare
 // prisma.$transaction (its tx client skips the proxy — creation sites use
 // setTenantTx explicitly, pinned by preAuthIdentityCreationTenantScope.test.js)
-// and an unknown tenant subdomain, which resolveTenantForRequest rejects with
-// TENANT_NOT_RESOLVED before any handler runs.
+// and that unknown tenant subdomain, which resolveTenantForRequest rejects
+// before any handler runs.
 import { runInTenantContext, getCurrentTenantId } from '../lib/tenantContext.js';
 import { resolveTenantForRequest } from '../services/tenant/tenantService.js';
 
