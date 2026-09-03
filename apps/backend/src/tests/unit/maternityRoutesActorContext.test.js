@@ -3,6 +3,7 @@ import express from 'express';
 import request from 'supertest';
 
 const createPregnancyMock = jest.fn(async () => ({ id: 41 }));
+const updatePregnancyMock = jest.fn(async () => ({ id: 43 }));
 const recordAncVisitMock = jest.fn(async () => ({ id: 49 }));
 const recordSupplementMock = jest.fn(async () => ({ id: 53 }));
 const admitToLaborMock = jest.fn(async () => ({ id: 57 }));
@@ -22,6 +23,7 @@ const markScheduleUpToDateMock = jest.fn(async () => ({ id: 92 }));
 
 jest.unstable_mockModule('../../services/maternity/maternityService.js', () => ({
   createPregnancy: createPregnancyMock,
+  updatePregnancy: updatePregnancyMock,
   recordAncVisit: recordAncVisitMock,
   recordSupplement: recordSupplementMock,
   admitToLabor: admitToLaborMock,
@@ -71,6 +73,7 @@ app.use('/api/v1/maternity', maternityRoutes);
 beforeEach(() => {
   requestUser = { uid: ACTOR_UID, role: 'NURSING_STAFF' };
   createPregnancyMock.mockClear();
+  updatePregnancyMock.mockClear();
   recordAncVisitMock.mockClear();
   recordSupplementMock.mockClear();
   admitToLaborMock.mockClear();
@@ -104,6 +107,35 @@ describe('maternity mutation actor context', () => {
       actor_uid: ACTOR_UID,
       actor_role: 'NURSING_STAFF',
     }));
+  });
+
+  test('pregnancy correction passes authenticated provenance separately from spoofable body fields', async () => {
+    const response = await request(app)
+      .patch('/api/v1/maternity/pregnancies/9')
+      .send({
+        lmp_date: '2026-01-15',
+        actorUid: SPOOFED_UID,
+        actorRole: 'SUPER_ADMIN',
+        actor_uid: SPOOFED_UID,
+        actor_role: 'SUPER_ADMIN',
+        patient_uid: SPOOFED_UID,
+      });
+
+    expect(response.statusCode).toBe(200);
+    expect(updatePregnancyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: '00000000-0000-4000-8000-000000000001',
+        id: '9',
+        lmp_date: '2026-01-15',
+        actor_uid: SPOOFED_UID,
+        actor_role: 'SUPER_ADMIN',
+        patient_uid: SPOOFED_UID,
+      }),
+      {
+        actorUid: ACTOR_UID,
+        actorRole: 'NURSING_STAFF',
+      },
+    );
   });
 
   test('delivery preserves the named performer while auditing the authenticated submitter', async () => {

@@ -43,8 +43,17 @@ describe('recordAncVisit — same-day UPSERT (migration 222)', () => {
     );
     patientId = u[0].id;
     const p = await prisma.$queryRawUnsafe(
+      // 'ongoing', not 'active'. 'active' is maternity_labor_admissions'
+      // status default; a pregnancy episode is 'ongoing' (what createPregnancy
+      // writes, what the edd index is partial on, and what the is_pregnant
+      // projection derives from). The wrong value survived here only because
+      // nothing validates it -- migration 155's CHECK is dead, its CREATE
+      // TABLE IF NOT EXISTS never fires over the baseline's copy -- and
+      // because recordAncVisit used to force is_pregnant = TRUE regardless of
+      // status. Now that it derives the projection like the other two writers,
+      // an 'active' episode reads as no ongoing pregnancy.
       `INSERT INTO maternity_pregnancies (patient_uid, lmp_date, edd_date, status, tenant_id)
-       VALUES ($1::uuid, '2025-11-01', '2026-08-08', 'active', $2::uuid)
+       VALUES ($1::uuid, '2025-11-01', '2026-08-08', 'ongoing', $2::uuid)
        RETURNING id`,
       PATIENT_UID, TENANT,
     );
