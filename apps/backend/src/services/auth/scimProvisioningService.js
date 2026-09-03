@@ -842,7 +842,6 @@ async function upsertStaff(context, payload, { id = null, method = 'post', req =
         context.provider.id,
       );
       const user = userRows[0];
-      await withAuthIdentityLifecycleLocks(tx, [user.uid], async () => {});
       const staffRows = await tx.$queryRawUnsafe(
         `INSERT INTO staff (
             user_id, employee_id, name, department, position, is_active, tenant_id,
@@ -1021,7 +1020,6 @@ async function upsertAdmin(context, payload, { id = null, method = 'post', req =
         fields.externalId || fields.userName,
         context.provider.id,
       );
-      await withAuthIdentityLifecycleLocks(tx, [rows[0].uid], async () => {});
       mutation = 'created';
       commandReceipt = await recordLiveScimCommandTx(tx, {
         context,

@@ -138,6 +138,23 @@ export async function withAuthRevocationLocks(client, keys, fn) {
   return fn(client);
 }
 
+/**
+ * Serialise a lifecycle MUTATION of identities that already have committed,
+ * discoverable rows (deactivate, reactivate, status change, delete, merge,
+ * unlink, revoke-all) against every other writer of the same identities.
+ *
+ * Identity CREATION does not take this lock, in either order around the
+ * INSERT. A row no other transaction can address needs no advisory lock: the
+ * create and any lock run inside one transaction, so MVCC hides the new row
+ * from every other session until commit whatever the statement order, and
+ * every identity uid is database-generated (gen_random_uuid()), so no
+ * concurrent transaction can name it before commit. Pinned by
+ * src/tests/unit/authIdentityCreationWriterLocks.test.js. Revisit only if a
+ * creation path starts exposing an uncommitted uid to another transaction
+ * (in-transaction NOTIFY, a synchronous cache or websocket push between the
+ * INSERT and commit, or a response flushed before the transaction resolves);
+ * that path would then need an application-known uid locked BEFORE the write.
+ */
 export function withAuthIdentityLifecycleLocks(client, identityUids, fn) {
   return withAuthRevocationLocks(
     client,

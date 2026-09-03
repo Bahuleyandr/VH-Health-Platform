@@ -11,7 +11,6 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { withAuthIdentityLifecycleLocks } from '../../utils/tokenBlacklist.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import {
@@ -5647,7 +5646,7 @@ async function createCounterAdmissionPatient({
       patientName,
       tid,
     );
-    return withAuthIdentityLifecycleLocks(tx, [rows[0].uid], async () => rows[0]);
+    return rows[0];
   });
   const hospitalNumber = await ensureHospitalNumber({
     tenantId: patient.tenant_id || tenantId,

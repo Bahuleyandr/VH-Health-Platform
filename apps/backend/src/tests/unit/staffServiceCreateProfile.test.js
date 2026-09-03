@@ -114,11 +114,9 @@ describe('createStaffProfile onboarding account creation', () => {
         }),
       }),
     );
-    expect(lifecycleLockMock).toHaveBeenCalledWith(
-      __prismaDefaultMock,
-      [staffUid],
-      expect.any(Function),
-    );
+    // Creation takes no lifecycle lock: the row is invisible until commit and
+    // its uid is database-generated, so nothing can contend for it.
+    expect(lifecycleLockMock).not.toHaveBeenCalled();
     expect(onboardingCreate).toHaveBeenCalledTimes(6);
     expect(queryRawUnsafe.mock.calls[4][0]).toContain('INSERT INTO staff');
     expect(queryRawUnsafe.mock.calls[4]).toEqual(

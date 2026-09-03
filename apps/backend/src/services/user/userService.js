@@ -334,7 +334,6 @@ export class UserService {
           },
           select: USER_SELECT
         });
-        await withAuthIdentityLifecycleLocks(tx, [identity.uid], async () => identity);
         return identity;
       });
 

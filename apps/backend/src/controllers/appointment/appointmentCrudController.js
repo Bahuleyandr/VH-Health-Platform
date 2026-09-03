@@ -13,7 +13,6 @@ import { isValidPhone, normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { emitAppointmentEvent } from '../../utils/websocket/realtimeEmitter.js';
 import { AppError } from '../../utils/AppError.js';
-import { withAuthIdentityLifecycleLocks } from '../../utils/tokenBlacklist.js';
 
 function tenantOf(req) {
   return resolveTenantOrThrow(req);
@@ -65,7 +64,7 @@ async function resolveOrCreatePatientFromPhone({ patientPhone, patientName, tena
       name,
       tenantId,
     );
-    return withAuthIdentityLifecycleLocks(tx, [rows[0].uid], async () => rows);
+    return rows;
   });
 
   return { patient: created[0], created: true };

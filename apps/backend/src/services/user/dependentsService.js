@@ -516,7 +516,6 @@ export class DependentsService {
           guardian.tenant_id || requireTenantId(tenantId),
         );
         dependentRow = inserted[0];
-        await withAuthIdentityLifecycleLocks(tx, [dependentRow.uid], async () => undefined);
         createdIdentity = true;
       }
 

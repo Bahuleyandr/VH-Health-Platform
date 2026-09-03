@@ -19,7 +19,6 @@ import { normalizePhone } from '../../utils/phoneUtils.js';
 import { boundedInteger } from '../../utils/pagination.js';
 import { uploadFileToR2, getSignedFileUrl, getFileFromR2, deleteObject } from '../../utils/r2Storage.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
-import { withAuthIdentityLifecycleLocks } from '../../utils/tokenBlacklist.js';
 
 function asJsonObject(value, fallback = null) {
   if (!value) return fallback;
@@ -253,7 +252,7 @@ async function resolvePatientForRecordUpload(req) {
       patientName,
       tenantId,
     );
-    return withAuthIdentityLifecycleLocks(tx, [rows[0].uid], async () => rows);
+    return rows;
   });
   return created[0].id;
 }

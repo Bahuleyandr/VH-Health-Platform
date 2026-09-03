@@ -7,7 +7,6 @@ import logger from '../../logging/logger.js';
 import { buildPagination } from '../../utils/listQuery.js';
 import { getStaffHierarchy } from '../../utils/staff/staffHelpers.js';
 import { DEFAULT_ONBOARDING_TASKS } from './hr/constants.js';
-import { withAuthIdentityLifecycleLocks } from '../../utils/tokenBlacklist.js';
 
 const ONBOARDABLE_STAFF_ROLES = Object.values(STAFF_ROLES).filter(
   (role) => !['SUPER_ADMIN', 'ADMIN'].includes(role),
@@ -446,7 +445,7 @@ async function resolveOrCreateStaffUser(data) {
       },
       select: { id: true, uid: true, role: true, name: true, phone: true, email: true },
     });
-    return withAuthIdentityLifecycleLocks(tx, [user.uid], async () => user);
+    return user;
   });
 
   return { user: created, createdUser: true };
