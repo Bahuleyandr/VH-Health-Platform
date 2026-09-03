@@ -132,8 +132,15 @@ later driven by an unattended scheduler with no log consumer, alerting is a sepa
   makes queue refuse with nothing dispatched, the campaign back in draft and an audit row; a
   recipient row attached to a different snapshot is never queued; the existing happy path still
   dispatches one recipient and the second queue call still returns zeroes after a real dispatch.
-- **Mutation:** removing the queue-time comparison turns the "edited approved campaign cannot
-  dispatch" test red; removing the snapshot filter turns the foreign-snapshot test red.
+- **Mutation results** (each reverted, tree clean): removing the queue-time comparison turns
+  exactly the "edited approved campaign cannot dispatch" test red (1 of 5); removing the snapshot
+  filter from the due SELECT turns exactly the foreign-snapshot test red (1 of 5); adding recipient
+  `status` to the identity turns the unit test's dispatch-state case red (1 of 46) but is invisible
+  to the deep suite, because `loadApprovalMaterial` selects only the identity columns, so a status
+  added to the identity function reads as null on both sides. That second line of defence is
+  deliberate: the loader's column list and the identity list must be widened together for
+  dispatch state to leak into the hash, and the unit test's source contract names the columns
+  that must never be.
 
 ## Verification
 
