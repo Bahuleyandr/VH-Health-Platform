@@ -7,6 +7,7 @@
 
 import request from 'supertest';
 import app from '../app.js';
+import { ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import { generateToken } from '../utils/jwtUtils.js';
 
@@ -154,6 +155,18 @@ afterAll(() => {
 });
 
 describe('specialty department gate (oncology probe)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so these subjects must exist before any request or the suite 401s
+  // before reaching the behaviour it asserts.
+  beforeAll(async () => {
+    for (const uid of [
+      'cdcdcdcd-0000-4000-8000-0000000f0001',
+      'cdcdcdcd-0000-4000-8000-0000000f0002',
+      'cdcdcdcd-0000-4000-8000-000000009999',
+    ]) {
+      await ensureTestIdentity(uid);
+    }
+  });
   let gmDoctor;
   let oncoDoctor;
 

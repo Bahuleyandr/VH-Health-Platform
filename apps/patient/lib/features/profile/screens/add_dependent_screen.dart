@@ -78,6 +78,7 @@ class _AddDependentScreenState extends State<AddDependentScreen> {
     try {
       final dep = await provider.linkDependent(
         dependentUidOrPhone: _identifierCtrl.text.trim(),
+        failureMessage: l.addDependentLinkFailed,
         relationship: _relationship,
       );
       if (!mounted) return;

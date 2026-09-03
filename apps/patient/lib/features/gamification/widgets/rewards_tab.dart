@@ -18,6 +18,7 @@ class RewardsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     if (loading && rewards.isEmpty) {
       return const Center(
         child: Padding(
@@ -45,7 +46,10 @@ class RewardsTab extends StatelessWidget {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 8),
-            TextButton(onPressed: onRefresh, child: const Text('Refresh')),
+            TextButton(
+              onPressed: onRefresh,
+              child: Text(l.commonRefreshButton),
+            ),
           ],
         ),
       );

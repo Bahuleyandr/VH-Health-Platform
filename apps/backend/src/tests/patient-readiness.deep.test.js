@@ -1,7 +1,7 @@
 import request from 'supertest';
 
 import app from '../app.js';
-import { API_KEY, generateTestToken } from './testClient.js';
+import { API_KEY, generateTestToken, ensureTestIdentity } from './testClient.js';
 
 const PATH = '/api/v1/health/patient-readiness';
 const TENANT = '00000000-0000-4000-8000-000000000001';
@@ -15,6 +15,11 @@ function bearer(role = 'PATIENT', overrides = {}) {
 }
 
 describe('GET /api/v1/health/patient-readiness deep contract', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity('550e8400-e29b-41d4-a716-446655440042', { tenantId: TENANT });
+  });
   it('requires the API key, patient JWT, tenant middleware, and patient role', async () => {
     const noApiKey = await request(app)
       .get(PATH)

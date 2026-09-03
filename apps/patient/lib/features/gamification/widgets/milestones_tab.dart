@@ -65,7 +65,8 @@ class MilestonesTab extends StatelessWidget {
         itemBuilder: (context, index) {
           final m = milestones[index];
           final id = m['id']?.toString() ?? m['_id']?.toString() ?? '';
-          final name = m['name']?.toString() ?? 'Milestone';
+          final name =
+              m['name']?.toString() ?? l10n.gamificationMilestoneFallback;
           final tierName = m['tier']?.toString() ?? name;
           final pointsRequired = (m['pointsRequired'] as num?)?.toInt() ?? 0;
           final rewardDesc =
@@ -129,7 +130,7 @@ class MilestonesTab extends StatelessWidget {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            '$pointsRequired points required',
+                            l10n.gamificationPointsRequired(pointsRequired),
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: cs.onSurface.withValues(alpha: 0.5),
                               fontSize: 11,
@@ -189,7 +190,7 @@ class MilestonesTab extends StatelessWidget {
                                     color: Colors.white,
                                   ),
                                 )
-                              : const Text('Claim'),
+                              : Text(l10n.gamificationClaimButton),
                         ),
                       ),
                     if (isClaimed)

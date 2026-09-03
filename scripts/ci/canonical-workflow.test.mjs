@@ -131,6 +131,7 @@ test('the unconditional security job validates the pinned Alertmanager route con
   const workflow = read('.github/workflows/ci.yml');
   const security = jobBlock(workflow, 'security');
   const validator = read('infra/kubernetes/base/monitoring/validate-alertmanager.mjs');
+  const chartTracker = read('infra/kubernetes/base/monitoring/chart-tracker.yaml');
 
   assert.match(security, /ALERTMANAGER_VERSION: '0\.27\.0'/);
   assert.match(
@@ -141,11 +142,78 @@ test('the unconditional security job validates the pinned Alertmanager route con
     security,
     /node infra\/kubernetes\/base\/monitoring\/validate-alertmanager\.mjs/,
   );
+  assert.match(
+    security,
+    /node --test infra\/kubernetes\/base\/monitoring\/validate-alertmanager\.test\.mjs/,
+  );
+  // "Unconditional" has to be asserted, not merely claimed in the test name.
+  // The job aggregate cannot see a STEP-level `if:` — the job still reports
+  // success — which is this repo's recurring silent-skip class. Pin the job
+  // condition, and pin that neither monitoring step carries one of its own.
+  assert.match(
+    security,
+    /if: \$\{\{ always\(\) && needs\.plan\.result == 'success' \}\}/,
+  );
+  const alertmanagerSteps = security.slice(
+    security.indexOf('      - name: Validate Alertmanager configuration and routing'),
+    security.indexOf('      - run: node scripts/ci/run.mjs --only=security'),
+  );
+  assert.ok(
+    alertmanagerSteps.length > 0,
+    'alertmanager validation steps not found in the security job',
+  );
+  assert.doesNotMatch(alertmanagerSteps, /\n\s+if:/);
   assert.match(validator, /alertname=BackendMigrationJobFailed/);
   assert.match(
     validator,
     /receivers: \['ops-webhook', 'critical-pagerduty', 'team-backend'\]/,
   );
+  assert.match(chartTracker, /alertmanagerVersion: "v0\.27\.0"/);
+});
+
+test('infra monitoring validation pins promtool and proves the rule matcher negative', () => {
+  const workflow = read('.github/workflows/_reusable-kubernetes-manifests.yml');
+  const validator = read('infra/kubernetes/base/monitoring/validate-monitoring.mjs');
+  const ruleRunner = read(
+    'infra/kubernetes/base/monitoring/run-promtool-rule-tests.mjs',
+  );
+  const chartTracker = read('infra/kubernetes/base/monitoring/chart-tracker.yaml');
+
+  assert.match(workflow, /PROMETHEUS_VERSION: 2\.55\.0/);
+  assert.match(
+    workflow,
+    /PROMETHEUS_SHA256: 7a6b6d5ea003e8d59def294392c64e28338da627bf760cf268e788d6a8832a23/,
+  );
+  // The two constants above match anywhere in the file, including the job-level
+  // `env:` block, so on their own they stay green after the step body is
+  // reverted to an unverified `curl | tar xz`. Assert the STEP BODY itself.
+  const monitoringStep = workflow.slice(
+    workflow.indexOf('      - name: Validate monitoring rules + dashboards'),
+    workflow.indexOf('      - name: Notify Discord on failure'),
+  );
+  assert.ok(monitoringStep.length > 0, 'monitoring validation step not found');
+  assert.match(
+    monitoringStep,
+    /releases\/download\/v\$\{PROMETHEUS_VERSION\}\/\$\{archive\}/,
+  );
+  assert.match(
+    monitoringStep,
+    /"\$PROMETHEUS_SHA256" "\$archive"[\s\S]*sha256sum --check/,
+  );
+  assert.doesNotMatch(monitoringStep, /curl[^\n]*\|\s*tar/);
+
+  // Structural rather than a bare source grep: a commented-out array entry or
+  // an `if (false)` wrapper satisfies a grep while the proof stops running.
+  assert.match(
+    validator,
+    /for \(const script of \[[\s\S]*?\n\s+'verify-monitoring-negative-contracts\.mjs',\n\s*\]\)/,
+  );
+  assert.match(validator, /process\.exit\(failed \? 1 : 0\)/);
+  assert.match(
+    ruleRunner,
+    /process\.env\.BACKEND_RED_ALERTS_FILE\)[\s\S]*?resolve\(process\.env\.BACKEND_RED_ALERTS_FILE\)/,
+  );
+  assert.match(chartTracker, /prometheusVersion: "v2\.55\.0"/);
 });
 
 test('long standalone stack workflows are manual and smoke is nightly', () => {

@@ -8,7 +8,7 @@
 // care-team-governed ABAC posture (shadow by default → non-breaking; a real 403
 // once the tenant/env flips to enforce). This proves the wiring: an unrelated
 // clinician is denied under enforce and passes under shadow.
-import { generateTestToken, API_KEY } from './testClient.js';
+import { generateTestToken, API_KEY, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -34,6 +34,11 @@ async function clean() {
 }
 
 d('Investigation booking-by-id care-team guard (CAN-017)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity('c0de0017-00d0-4000-8000-00000000d001', { tenantId: TENANT_ID });
+  });
   let prevMode;
   beforeAll(async () => {
     prevMode = process.env.CARE_TEAM_ENFORCEMENT_MODE;

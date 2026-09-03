@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'app_strings_ml_parity.g.dart';
+
 /// i18n scaffolding for the staff app.
 ///
 /// English (`en`) is the source of truth and the runtime fallback.
@@ -16,15 +18,15 @@ import 'package:flutter/material.dart';
 ///   need a Tamil-fluent clinician's review before production.
 /// - `te` (Telugu) - same as Tamil. Placeholder. ALL clinical-action
 ///   strings need a Telugu-fluent clinician's review.
-/// - `ml` (Malayalam) remains a declared-partial locale overall, but the
-///   MED-03 MAR/supply, ward-indent, and billing/refund safety paths are
-///   translated whenever those workflows change. Their MED-03 key set is
-///   checked explicitly in `test/i18n_guard_test.dart` and the focused feature
-///   tests. This is technical coverage, not human translation approval. The
-///   wording remains fail-closed for Malayalam-fluent clinical, linguistic,
-///   and finance review before activation.
+/// - `ml` (Malayalam) has complete technical key parity. Approved or existing
+///   first-pass Malayalam entries override a generated English-source
+///   placeholder map. Those placeholders prevent silent runtime fallback and
+///   make the exact human-review queue inspectable; they are not translation
+///   approval. Malayalam wording remains fail-closed for Malayalam-fluent
+///   clinical, linguistic, finance, legal, and operational review before
+///   activation.
 ///
-/// hi/ta/te are held at structural key parity with `en` by a BLOCKING CI
+/// hi/ta/te/ml are held at structural key parity with `en` by a BLOCKING CI
 /// gate - `node scripts/i18n-verify.mjs --check`, wired into both halves
 /// of the Flutter tier. Parity is a key-set check only and says nothing
 /// about translation quality. Three keys are deliberately left to the
@@ -81,9 +83,9 @@ class AppStrings {
   /// Locales the app ships translations for. Wire this list into
   /// `MaterialApp.supportedLocales`.
   ///
-  /// `ml` (Malayalam) shipped 2026-06-10 as a nurse-facing first pass —
-  /// the highest-traffic clinical screens are translated; everything else
-  /// falls back to English until the next translator pass (roadmap E2).
+  /// `ml` (Malayalam) shipped 2026-06-10 as a nurse-facing first pass. Every
+  /// remaining key now has a generated English-source technical placeholder
+  /// that remains visibly queued for human review.
   static const supportedLocales = <Locale>[
     Locale('en'),
     Locale('hi'),
@@ -3325,6 +3327,43 @@ class AppStrings {
       format('s4.dynamic.break_tracker.duration_minutes', {'minutes': minutes});
   String get pharmacyNoPreview => _t('pharmacy.no_preview');
   String get printGeneratedBy => _t('print.generated_by');
+  String get notificationFallbackTitle =>
+      _t('presentation.notification_fallback_title');
+  String get bedBoardPrintOccupancy =>
+      _t('presentation.bed_board_print.occupancy');
+  String bedBoardPrintOccupancyDate(String date) =>
+      format('presentation.bed_board_print.occupancy_date', {'date': date});
+  String bedBoardPrintPage(int page, int pages) => format(
+    'presentation.bed_board_print.page',
+    {'page': page, 'pages': pages},
+  );
+  String get bedBoardPrintColumnBed =>
+      _t('presentation.bed_board_print.column.bed');
+  String get bedBoardPrintColumnStatus =>
+      _t('presentation.bed_board_print.column.status');
+  String get bedBoardPrintColumnPatient =>
+      _t('presentation.bed_board_print.column.patient');
+  String get bedBoardPrintColumnAge =>
+      _t('presentation.bed_board_print.column.age');
+  String get bedBoardPrintColumnAdmitted =>
+      _t('presentation.bed_board_print.column.admitted');
+  String get bedBoardPrintColumnNotes =>
+      _t('presentation.bed_board_print.column.notes');
+  String get dietaryLoadFailed => _t('presentation.dietary_load_failed');
+  String get staffPhoneQueriesLoadFailed =>
+      _t('presentation.staff_phone.queries_load_failed');
+  String get staffPhoneQuerySubmitFailed =>
+      _t('presentation.staff_phone.query_submit_failed');
+  String get staffPhoneSubjectRequired =>
+      _t('presentation.staff_phone.subject_required');
+  String get staffPhoneDetailsRequired =>
+      _t('presentation.staff_phone.details_required');
+  String get staffPhotoUploadFailed => _t('presentation.photo_upload_failed');
+  String get orderSetsLoadFailed => _t('presentation.order_sets.load_failed');
+  String orderSetsItemCount(int count) =>
+      format('presentation.order_sets.item_count', {'count': count});
+  String get orderSetsItemLoadFailed =>
+      _t('presentation.order_sets.item_load_failed');
   String get blockedFeatureTitle => _t('blocked_feature.title');
   String get blockedFeatureAttendanceTitle =>
       _t('blocked_feature.attendance.title');
@@ -3690,6 +3729,27 @@ class AppStrings {
   static const Map<String, Map<String, String>> _byLang = {
     // ── English ──────────────────────────────────────────────────────
     'en': {
+      'presentation.notification_fallback_title': 'Notification',
+      'presentation.bed_board_print.occupancy': 'Bed Occupancy',
+      'presentation.bed_board_print.occupancy_date': 'Bed Occupancy · {date}',
+      'presentation.bed_board_print.page': 'Page {page} / {pages}',
+      'presentation.bed_board_print.column.bed': 'Bed',
+      'presentation.bed_board_print.column.status': 'Status',
+      'presentation.bed_board_print.column.patient': 'Patient',
+      'presentation.bed_board_print.column.age': 'Age',
+      'presentation.bed_board_print.column.admitted': 'Admitted',
+      'presentation.bed_board_print.column.notes': 'Notes',
+      'presentation.dietary_load_failed': 'Failed to load dietary orders',
+      'presentation.staff_phone.queries_load_failed': 'Could not load queries',
+      'presentation.staff_phone.query_submit_failed': 'Could not submit query',
+      'presentation.staff_phone.subject_required': 'Subject is required',
+      'presentation.staff_phone.details_required': 'Details are required',
+      'presentation.photo_upload_failed': 'Photo upload failed',
+      'presentation.order_sets.load_failed': 'Failed to load order sets',
+      'presentation.order_sets.item_count': '{count} items',
+      'presentation.order_sets.item_load_failed': 'Failed to load items',
+      'presentation.billing_request_failed': 'Billing request failed',
+      'presentation.request_failed': 'Request failed. Please try again.',
       // Common actions
       'action.cancel': 'Cancel',
       'continuity.action.open_cache': 'Open continuity cache',
@@ -7373,6 +7433,41 @@ class AppStrings {
       'safety_center.housekeeping.action': 'Open Housekeeping',
       'safety_center.housekeeping.open_task': 'Open task',
       'safety_center.owner_prefix': 'Owner',
+      'safety_center.alert.owner.lab_treating_doctor': 'Lab / treating doctor',
+      'safety_center.alert.owner.reception_doctor': 'Reception / doctor',
+      'safety_center.alert.owner.admission_nursing': 'Admission desk / nursing',
+      'safety_center.alert.owner.housekeeping': 'Housekeeping incharge',
+      'safety_center.alert.owner.pharmacy': 'Pharmacy',
+      'safety_center.alert.owner.receiving_team': 'Receiving team',
+      'safety_center.alert.escalation.acknowledged': 'Acknowledged',
+      'safety_center.alert.escalation.monitor': 'Monitor until acknowledged',
+      'safety_center.alert.escalation.escalated':
+          'Escalated until acknowledged',
+      'safety_center.alert.escalation.in_minutes':
+          'Escalates in {minutes} min if unread',
+      'safety_center.alert.type.investigation': 'Investigation alert',
+      'safety_center.alert.type.appointment': 'Appointment alert',
+      'safety_center.alert.type.admission': 'Admission alert',
+      'safety_center.alert.type.housekeeping': 'Housekeeping alert',
+      'safety_center.alert.type.bed': 'Bed alert',
+      'safety_center.alert.type.pharmacy': 'Pharmacy alert',
+      'safety_center.alert.type.emergency': 'Emergency alert',
+      'safety_center.alert.type.referral': 'Referral alert',
+      'safety_center.alert.type.workflow': 'Workflow alert',
+      'safety_center.alert.priority.critical': 'Critical priority',
+      'safety_center.alert.priority.high': 'High priority',
+      'safety_center.alert.priority.attention': 'Needs attention',
+      'safety_center.alert.details_hidden':
+          'Open the governed workflow to review clinical details.',
+      'safety_center.alert.action.open_emergency': 'Open emergency alert',
+      'safety_center.alert.action.open_appointment': 'Open appointment',
+      'safety_center.alert.action.open_admission': 'Open admission',
+      'safety_center.alert.action.open_housekeeping': 'Open housekeeping task',
+      'safety_center.alert.action.open_bed': 'Open bed',
+      'safety_center.alert.action.open_investigation': 'Open investigation',
+      'safety_center.alert.action.open_referral': 'Open referral',
+      'safety_center.alert.action.open_pharmacy': 'Open pharmacy',
+      'safety_center.alert.action.open_workflow': 'Open workflow',
       'safety_center.retry': 'Retry',
       // Reception Counter screen (B6.5)
       'reception_counter.title': 'Reception Counter',
@@ -11355,6 +11450,29 @@ class AppStrings {
     // contexts; a handful are flagged `// REVIEW:` where local
     // hospital convention may differ (e.g. discharge wording, urgency).
     'hi': {
+      'presentation.notification_fallback_title': 'सूचना',
+      'presentation.bed_board_print.occupancy': 'बेड अधिभोग',
+      'presentation.bed_board_print.occupancy_date': 'बेड अधिभोग · {date}',
+      'presentation.bed_board_print.page': 'पृष्ठ {page} / {pages}',
+      'presentation.bed_board_print.column.bed': 'बेड',
+      'presentation.bed_board_print.column.status': 'स्थिति',
+      'presentation.bed_board_print.column.patient': 'रोगी',
+      'presentation.bed_board_print.column.age': 'आयु',
+      'presentation.bed_board_print.column.admitted': 'भर्ती समय',
+      'presentation.bed_board_print.column.notes': 'टिप्पणियाँ',
+      'presentation.dietary_load_failed': 'आहार आदेश लोड नहीं हो सके',
+      'presentation.staff_phone.queries_load_failed':
+          'प्रश्न लोड नहीं किए जा सके',
+      'presentation.staff_phone.query_submit_failed':
+          'प्रश्न जमा नहीं किया जा सका',
+      'presentation.staff_phone.subject_required': 'विषय आवश्यक है',
+      'presentation.staff_phone.details_required': 'विवरण आवश्यक हैं',
+      'presentation.photo_upload_failed': 'फ़ोटो अपलोड विफल रहा',
+      'presentation.order_sets.load_failed': 'ऑर्डर सेट लोड नहीं हो सके',
+      'presentation.order_sets.item_count': '{count} आइटम',
+      'presentation.order_sets.item_load_failed': 'आइटम लोड नहीं हो सके',
+      'presentation.billing_request_failed': 'बिलिंग अनुरोध विफल रहा',
+      'presentation.request_failed': 'अनुरोध विफल रहा। फिर से प्रयास करें।',
       // Common actions
       'action.cancel': 'रद्द करें',
       'continuity.action.open_cache': 'कंटिन्यूटी कैश खोलें',
@@ -18802,6 +18920,43 @@ class AppStrings {
       'safety_center.housekeeping.action': 'हाउसकीपिंग खोलें',
       'safety_center.housekeeping.open_task': 'कार्य खोलें',
       'safety_center.owner_prefix': 'उत्तरदायी',
+      // REVIEW: AI first-pass 2026-09-02 Safety Center presentation wording.
+      'safety_center.alert.owner.lab_treating_doctor':
+          'प्रयोगशाला / उपचारकर्ता डॉक्टर',
+      'safety_center.alert.owner.reception_doctor': 'रिसेप्शन / डॉक्टर',
+      'safety_center.alert.owner.admission_nursing': 'भर्ती डेस्क / नर्सिंग',
+      'safety_center.alert.owner.housekeeping': 'हाउसकीपिंग प्रभारी',
+      'safety_center.alert.owner.pharmacy': 'फार्मेसी',
+      'safety_center.alert.owner.receiving_team': 'प्राप्तकर्ता टीम',
+      'safety_center.alert.escalation.acknowledged': 'स्वीकार किया गया',
+      'safety_center.alert.escalation.monitor': 'स्वीकार होने तक निगरानी करें',
+      'safety_center.alert.escalation.escalated':
+          'स्वीकार होने तक एस्केलेट किया गया',
+      'safety_center.alert.escalation.in_minutes':
+          'न पढ़े जाने पर {minutes} मिनट में एस्केलेट होगा',
+      'safety_center.alert.type.investigation': 'जाँच अलर्ट',
+      'safety_center.alert.type.appointment': 'अपॉइंटमेंट अलर्ट',
+      'safety_center.alert.type.admission': 'भर्ती अलर्ट',
+      'safety_center.alert.type.housekeeping': 'हाउसकीपिंग अलर्ट',
+      'safety_center.alert.type.bed': 'बेड अलर्ट',
+      'safety_center.alert.type.pharmacy': 'फार्मेसी अलर्ट',
+      'safety_center.alert.type.emergency': 'आपातकालीन अलर्ट',
+      'safety_center.alert.type.referral': 'रेफरल अलर्ट',
+      'safety_center.alert.type.workflow': 'वर्कफ़्लो अलर्ट',
+      'safety_center.alert.priority.critical': 'गंभीर प्राथमिकता',
+      'safety_center.alert.priority.high': 'उच्च प्राथमिकता',
+      'safety_center.alert.priority.attention': 'ध्यान आवश्यक',
+      'safety_center.alert.details_hidden':
+          'क्लिनिकल विवरण देखने के लिए नियंत्रित वर्कफ़्लो खोलें।',
+      'safety_center.alert.action.open_emergency': 'आपातकालीन अलर्ट खोलें',
+      'safety_center.alert.action.open_appointment': 'अपॉइंटमेंट खोलें',
+      'safety_center.alert.action.open_admission': 'भर्ती खोलें',
+      'safety_center.alert.action.open_housekeeping': 'हाउसकीपिंग कार्य खोलें',
+      'safety_center.alert.action.open_bed': 'बेड खोलें',
+      'safety_center.alert.action.open_investigation': 'जाँच खोलें',
+      'safety_center.alert.action.open_referral': 'रेफरल खोलें',
+      'safety_center.alert.action.open_pharmacy': 'फार्मेसी खोलें',
+      'safety_center.alert.action.open_workflow': 'वर्कफ़्लो खोलें',
       'safety_center.retry': 'पुनः प्रयास करें',
       'reception_counter.title': 'रिसेप्शन काउंटर',
       'reception_counter.mode_title': 'काउंटर मोड',
@@ -19519,6 +19674,34 @@ class AppStrings {
     // ── தமிழ் (Tamil) ─────────────────────────────────────────────────
     // First-pass machine translation. REVIEW required before production.
     'ta': {
+      'presentation.notification_fallback_title': 'அறிவிப்பு',
+      'presentation.bed_board_print.occupancy': 'படுக்கை பயன்பாடு',
+      'presentation.bed_board_print.occupancy_date':
+          'படுக்கை பயன்பாடு · {date}',
+      'presentation.bed_board_print.page': 'பக்கம் {page} / {pages}',
+      'presentation.bed_board_print.column.bed': 'படுக்கை',
+      'presentation.bed_board_print.column.status': 'நிலை',
+      'presentation.bed_board_print.column.patient': 'நோயாளர்',
+      'presentation.bed_board_print.column.age': 'வயது',
+      'presentation.bed_board_print.column.admitted': 'அனுமதிக்கப்பட்டது',
+      'presentation.bed_board_print.column.notes': 'குறிப்புகள்',
+      'presentation.dietary_load_failed': 'உணவு உத்தரவுகளை ஏற்ற முடியவில்லை',
+      'presentation.staff_phone.queries_load_failed':
+          'கேள்விகளை ஏற்ற முடியவில்லை',
+      'presentation.staff_phone.query_submit_failed':
+          'கேள்வியைச் சமர்ப்பிக்க முடியவில்லை',
+      'presentation.staff_phone.subject_required': 'பொருள் தேவை',
+      'presentation.staff_phone.details_required': 'விவரங்கள் தேவை',
+      'presentation.photo_upload_failed':
+          'புகைப்படப் பதிவேற்றம் தோல்வியடைந்தது',
+      'presentation.order_sets.load_failed':
+          'உத்தரவுத் தொகுப்புகளை ஏற்ற முடியவில்லை',
+      'presentation.order_sets.item_count': '{count} உருப்படிகள்',
+      'presentation.order_sets.item_load_failed':
+          'உருப்படிகளை ஏற்ற முடியவில்லை',
+      'presentation.billing_request_failed': 'பில்லிங் கோரிக்கை தோல்வியடைந்தது',
+      'presentation.request_failed':
+          'கோரிக்கை தோல்வியடைந்தது. மீண்டும் முயற்சிக்கவும்.',
       'action.cancel': 'ரத்து',
       'continuity.action.open_cache': 'தொடர்ச்சி கேஷைத் திற',
       'continuity.action.print': 'சரிபார்த்த தொகுப்பை அச்சிடு',
@@ -27594,6 +27777,43 @@ class AppStrings {
       'safety_center.housekeeping.action': 'ஹவுஸ்கீப்பிங்கைத் திற',
       'safety_center.housekeeping.open_task': 'பணியைத் திற',
       'safety_center.owner_prefix': 'பொறுப்பாளர்',
+      // REVIEW: AI first-pass 2026-09-02 Safety Center presentation wording.
+      'safety_center.alert.owner.lab_treating_doctor':
+          'ஆய்வகம் / சிகிச்சை மருத்துவர்',
+      'safety_center.alert.owner.reception_doctor': 'வரவேற்பு / மருத்துவர்',
+      'safety_center.alert.owner.admission_nursing': 'அனுமதி மேசை / செவிலியர்',
+      'safety_center.alert.owner.housekeeping': 'ஹவுஸ்கீப்பிங் பொறுப்பாளர்',
+      'safety_center.alert.owner.pharmacy': 'மருந்தகம்',
+      'safety_center.alert.owner.receiving_team': 'பெறும் குழு',
+      'safety_center.alert.escalation.acknowledged': 'ஏற்கப்பட்டது',
+      'safety_center.alert.escalation.monitor':
+          'ஏற்கப்படும் வரை கண்காணிக்கவும்',
+      'safety_center.alert.escalation.escalated':
+          'ஏற்கப்படும் வரை மேல் நிலைக்கு அனுப்பப்பட்டது',
+      'safety_center.alert.escalation.in_minutes': 'படிக்கப்படாவிட்டால் {minutes} நிமிடத்தில் மேல் நிலைக்கு அனுப்பப்படும்',
+      'safety_center.alert.type.investigation': 'பரிசோதனை எச்சரிக்கை',
+      'safety_center.alert.type.appointment': 'சந்திப்பு எச்சரிக்கை',
+      'safety_center.alert.type.admission': 'அனுமதி எச்சரிக்கை',
+      'safety_center.alert.type.housekeeping': 'ஹவுஸ்கீப்பிங் எச்சரிக்கை',
+      'safety_center.alert.type.bed': 'படுக்கை எச்சரிக்கை',
+      'safety_center.alert.type.pharmacy': 'மருந்தக எச்சரிக்கை',
+      'safety_center.alert.type.emergency': 'அவசர எச்சரிக்கை',
+      'safety_center.alert.type.referral': 'பரிந்துரை எச்சரிக்கை',
+      'safety_center.alert.type.workflow': 'பணிப்பாய்வு எச்சரிக்கை',
+      'safety_center.alert.priority.critical': 'தீவிர முன்னுரிமை',
+      'safety_center.alert.priority.high': 'உயர் முன்னுரிமை',
+      'safety_center.alert.priority.attention': 'கவனம் தேவை',
+      'safety_center.alert.details_hidden': 'மருத்துவ விவரங்களைப் பார்க்க நிர்வகிக்கப்பட்ட பணிப்பாய்வைத் திறக்கவும்.',
+      'safety_center.alert.action.open_emergency': 'அவசர எச்சரிக்கையைத் திற',
+      'safety_center.alert.action.open_appointment': 'சந்திப்பைத் திற',
+      'safety_center.alert.action.open_admission': 'அனுமதியைத் திற',
+      'safety_center.alert.action.open_housekeeping':
+          'ஹவுஸ்கீப்பிங் பணியைத் திற',
+      'safety_center.alert.action.open_bed': 'படுக்கையைத் திற',
+      'safety_center.alert.action.open_investigation': 'பரிசோதனையைத் திற',
+      'safety_center.alert.action.open_referral': 'பரிந்துரையைத் திற',
+      'safety_center.alert.action.open_pharmacy': 'மருந்தகத்தைத் திற',
+      'safety_center.alert.action.open_workflow': 'பணிப்பாய்வைத் திற',
       'safety_center.retry': 'மீண்டும் முயற்சி',
       'reception_counter.title': 'வரவேற்பு கவுண்டர்',
       'reception_counter.mode_title': 'கவுண்டர் பயன்முறை',
@@ -28339,6 +28559,30 @@ class AppStrings {
     // ── తెలుగు (Telugu) ──────────────────────────────────────────────
     // First-pass machine translation. REVIEW required before production.
     'te': {
+      'presentation.notification_fallback_title': 'నోటిఫికేషన్',
+      'presentation.bed_board_print.occupancy': 'పడకల వినియోగం',
+      'presentation.bed_board_print.occupancy_date': 'పడకల వినియోగం · {date}',
+      'presentation.bed_board_print.page': 'పేజీ {page} / {pages}',
+      'presentation.bed_board_print.column.bed': 'పడక',
+      'presentation.bed_board_print.column.status': 'స్థితి',
+      'presentation.bed_board_print.column.patient': 'రోగి',
+      'presentation.bed_board_print.column.age': 'వయస్సు',
+      'presentation.bed_board_print.column.admitted': 'చేర్చిన సమయం',
+      'presentation.bed_board_print.column.notes': 'గమనికలు',
+      'presentation.dietary_load_failed': 'ఆహార ఆదేశాలను లోడ్ చేయలేకపోయాము',
+      'presentation.staff_phone.queries_load_failed':
+          'ప్రశ్నలను లోడ్ చేయలేకపోయాము',
+      'presentation.staff_phone.query_submit_failed':
+          'ప్రశ్నను సమర్పించలేకపోయాము',
+      'presentation.staff_phone.subject_required': 'విషయం అవసరం',
+      'presentation.staff_phone.details_required': 'వివరాలు అవసరం',
+      'presentation.photo_upload_failed': 'ఫోటో అప్‌లోడ్ విఫలమైంది',
+      'presentation.order_sets.load_failed': 'ఆర్డర్ సెట్లను లోడ్ చేయలేకపోయాము',
+      'presentation.order_sets.item_count': '{count} అంశాలు',
+      'presentation.order_sets.item_load_failed': 'అంశాలను లోడ్ చేయలేకపోయాము',
+      'presentation.billing_request_failed': 'బిల్లింగ్ అభ్యర్థన విఫలమైంది',
+      'presentation.request_failed':
+          'అభ్యర్థన విఫలమైంది. దయచేసి మళ్లీ ప్రయత్నించండి.',
       'action.cancel': 'రద్దు',
       'continuity.action.open_cache': 'కంటిన్యూటీ క్యాష్ తెరవండి',
       'continuity.action.print': 'ధృవీకరించిన ప్యాక్ ముద్రించండి',
@@ -36344,6 +36588,47 @@ class AppStrings {
       'safety_center.housekeeping.action': 'హౌస్‌కీపింగ్‌ను తెరవండి',
       'safety_center.housekeeping.open_task': 'పనిని తెరవండి',
       'safety_center.owner_prefix': 'బాధ్యుడు',
+      // REVIEW: AI first-pass 2026-09-02 Safety Center presentation wording.
+      'safety_center.alert.owner.lab_treating_doctor':
+          'ప్రయోగశాల / చికిత్స వైద్యుడు',
+      'safety_center.alert.owner.reception_doctor': 'రిసెప్షన్ / వైద్యుడు',
+      'safety_center.alert.owner.admission_nursing':
+          'అడ్మిషన్ డెస్క్ / నర్సింగ్',
+      'safety_center.alert.owner.housekeeping': 'హౌస్‌కీపింగ్ ఇన్‌చార్జ్',
+      'safety_center.alert.owner.pharmacy': 'ఫార్మసీ',
+      'safety_center.alert.owner.receiving_team': 'స్వీకరించే బృందం',
+      'safety_center.alert.escalation.acknowledged': 'అంగీకరించబడింది',
+      'safety_center.alert.escalation.monitor':
+          'అంగీకరించే వరకు పర్యవేక్షించండి',
+      'safety_center.alert.escalation.escalated':
+          'అంగీకరించే వరకు ఎస్కలేట్ చేయబడింది',
+      'safety_center.alert.escalation.in_minutes':
+          'చదవకపోతే {minutes} నిమిషాల్లో ఎస్కలేట్ అవుతుంది',
+      'safety_center.alert.type.investigation': 'పరీక్ష హెచ్చరిక',
+      'safety_center.alert.type.appointment': 'అపాయింట్‌మెంట్ హెచ్చరిక',
+      'safety_center.alert.type.admission': 'అడ్మిషన్ హెచ్చరిక',
+      'safety_center.alert.type.housekeeping': 'హౌస్‌కీపింగ్ హెచ్చరిక',
+      'safety_center.alert.type.bed': 'బెడ్ హెచ్చరిక',
+      'safety_center.alert.type.pharmacy': 'ఫార్మసీ హెచ్చరిక',
+      'safety_center.alert.type.emergency': 'అత్యవసర హెచ్చరిక',
+      'safety_center.alert.type.referral': 'రిఫరల్ హెచ్చరిక',
+      'safety_center.alert.type.workflow': 'వర్క్‌ఫ్లో హెచ్చరిక',
+      'safety_center.alert.priority.critical': 'తీవ్ర ప్రాధాన్యత',
+      'safety_center.alert.priority.high': 'అధిక ప్రాధాన్యత',
+      'safety_center.alert.priority.attention': 'శ్రద్ధ అవసరం',
+      'safety_center.alert.details_hidden':
+          'వైద్య వివరాలను చూడటానికి నియంత్రిత వర్క్‌ఫ్లోను తెరవండి.',
+      'safety_center.alert.action.open_emergency': 'అత్యవసర హెచ్చరికను తెరవండి',
+      'safety_center.alert.action.open_appointment':
+          'అపాయింట్‌మెంట్‌ను తెరవండి',
+      'safety_center.alert.action.open_admission': 'అడ్మిషన్‌ను తెరవండి',
+      'safety_center.alert.action.open_housekeeping':
+          'హౌస్‌కీపింగ్ పనిని తెరవండి',
+      'safety_center.alert.action.open_bed': 'బెడ్‌ను తెరవండి',
+      'safety_center.alert.action.open_investigation': 'పరీక్షను తెరవండి',
+      'safety_center.alert.action.open_referral': 'రిఫరల్‌ను తెరవండి',
+      'safety_center.alert.action.open_pharmacy': 'ఫార్మసీని తెరవండి',
+      'safety_center.alert.action.open_workflow': 'వర్క్‌ఫ్లోను తెరవండి',
       'safety_center.retry': 'మళ్ళీ ప్రయత్నించు',
       'reception_counter.title': 'రిసెప్షన్ కౌంటర్',
       'reception_counter.mode_title': 'కౌంటర్ మోడ్',
@@ -37081,11 +37366,10 @@ class AppStrings {
     },
 
     // ── Malayalam (ml) ─────────────────────────────────────────────────
-    // Roadmap E2 first pass: the NURSE-FACING core only (actions, labels,
-    // login, dashboard, settings, bed sheet, vitals + vitals chart, MAR
-    // scan, due meds, nursing notes, handover, code blue, CDS, orders +
-    // composer + order sets, notifications, logout/splash/error). All
-    // other keys fall back to English by design until the next pass.
+    // Roadmap E2 first pass plus technical parity. Existing Malayalam values
+    // below override the generated English-source placeholders. Every
+    // placeholder remains awaiting human review and cannot be treated as
+    // approved Malayalam wording.
     //
     // REVIEW: ml AI first-pass — the ENTIRE map needs review by a
     // Malayalam-fluent clinician before production rollout in
@@ -37093,6 +37377,101 @@ class AppStrings {
     // patient app's ml register (transliterated loanwords for clinical/
     // technical terms: ഫാർമസി, അപ്പോയിന്റ്മെന്റ്, ഡോസ്).
     'ml': {
+      'presentation.notification_fallback_title': 'അറിയിപ്പ്',
+      'presentation.bed_board_print.occupancy': 'കിടക്ക ഉപയോഗനില',
+      'presentation.bed_board_print.occupancy_date': 'കിടക്ക ഉപയോഗനില · {date}',
+      'presentation.bed_board_print.page': 'പേജ് {page} / {pages}',
+      'presentation.bed_board_print.column.bed': 'കിടക്ക',
+      'presentation.bed_board_print.column.status': 'നില',
+      'presentation.bed_board_print.column.patient': 'രോഗി',
+      'presentation.bed_board_print.column.age': 'പ്രായം',
+      'presentation.bed_board_print.column.admitted': 'അഡ്മിറ്റ് ചെയ്തത്',
+      'presentation.bed_board_print.column.notes': 'കുറിപ്പുകൾ',
+      'presentation.dietary_load_failed': 'ഭക്ഷണ ഓർഡറുകൾ ലോഡ് ചെയ്യാനായില്ല',
+      'presentation.staff_phone.queries_load_failed':
+          'ചോദ്യങ്ങൾ ലോഡ് ചെയ്യാനായില്ല',
+      'presentation.staff_phone.query_submit_failed':
+          'ചോദ്യം സമർപ്പിക്കാനായില്ല',
+      'presentation.staff_phone.subject_required': 'വിഷയം ആവശ്യമാണ്',
+      'presentation.staff_phone.details_required': 'വിശദാംശങ്ങൾ ആവശ്യമാണ്',
+      'presentation.photo_upload_failed': 'ഫോട്ടോ അപ്‌ലോഡ് പരാജയപ്പെട്ടു',
+      'presentation.order_sets.load_failed': 'ഓർഡർ സെറ്റുകൾ ലോഡ് ചെയ്യാനായില്ല',
+      'presentation.order_sets.item_count': '{count} ഇനങ്ങൾ',
+      'presentation.order_sets.item_load_failed': 'ഇനങ്ങൾ ലോഡ് ചെയ്യാനായില്ല',
+      'presentation.billing_request_failed':
+          'ബില്ലിംഗ് അഭ്യർത്ഥന പരാജയപ്പെട്ടു',
+      'presentation.request_failed':
+          'അഭ്യർത്ഥന പരാജയപ്പെട്ടു. ദയവായി വീണ്ടും ശ്രമിക്കുക.',
+      ...malayalamTechnicalParityPlaceholders,
+      // REVIEW: Malayalam technical parity only. A Malayalam-fluent
+      // clinician-linguist must approve all Safety Center wording before
+      // activation; arbitrary server clinical prose remains hidden here.
+      'safety_center.title': 'സുരക്ഷാ കേന്ദ്രം',
+      'safety_center.refresh_tooltip': 'പുതുക്കുക',
+      'safety_center.metric.critical_alerts': 'ഗുരുതര മുന്നറിയിപ്പുകൾ',
+      'safety_center.metric.discharge_blockers': 'ഡിസ്ചാർജ് തടസ്സങ്ങൾ',
+      'safety_center.metric.cleaning_overdue': 'ശുചീകരണം വൈകി',
+      'safety_center.critical_alerts.title': 'ഗുരുതര മുന്നറിയിപ്പുകൾ',
+      'safety_center.critical_alerts.subtitle': 'സ്വീകാര്യത ആവശ്യമായ വായിക്കാത്തതോ ഉയർന്ന മുൻഗണനയുള്ളതോ ആയ പ്രവർത്തന മുന്നറിയിപ്പുകൾ.',
+      'safety_center.critical_alerts.empty':
+          'കാത്തിരിക്കുന്ന ഗുരുതര മുന്നറിയിപ്പുകളില്ല.',
+      'safety_center.critical_alerts.action': 'മുന്നറിയിപ്പുകൾ തുറക്കുക',
+      'safety_center.acknowledge': 'സ്വീകരിക്കുക',
+      'safety_center.discharge.title': 'ഡിസ്ചാർജ് തടസ്സങ്ങൾ',
+      'safety_center.discharge.subtitle':
+          'അന്തിമ ഡിസ്ചാർജ് തടയുന്ന ചുമതലയുള്ള ഇനങ്ങൾ.',
+      'safety_center.discharge.empty': 'ഡിസ്ചാർജ് തടസ്സങ്ങളില്ല.',
+      'safety_center.discharge.action': 'ഡിസ്ചാർജ് കേന്ദ്രം തുറക്കുക',
+      'safety_center.discharge.open_hub': 'കേന്ദ്രം തുറക്കുക',
+      'safety_center.housekeeping.title': 'കിടക്ക ശുചീകരണ സമയപരിധി',
+      'safety_center.housekeeping.subtitle':
+          'അടുത്ത സേവന സമയപരിധി അനുസരിച്ച് ക്രമപ്പെടുത്തിയ ശുചീകരണ ജോലികൾ.',
+      'safety_center.housekeeping.empty':
+          'ചുമതലപ്പെടുത്തിയ ശുചീകരണ ജോലികളില്ല.',
+      'safety_center.housekeeping.action': 'ശുചീകരണ വിഭാഗം തുറക്കുക',
+      'safety_center.housekeeping.open_task': 'ജോലി തുറക്കുക',
+      'safety_center.owner_prefix': 'ചുമതല',
+      'safety_center.alert.owner.lab_treating_doctor':
+          'പരിശോധനശാല / ചികിത്സാ ഡോക്ടർ',
+      'safety_center.alert.owner.reception_doctor': 'സ്വീകരണ വിഭാഗം / ഡോക്ടർ',
+      'safety_center.alert.owner.admission_nursing':
+          'അഡ്മിഷൻ വിഭാഗം / നഴ്സിംഗ്',
+      'safety_center.alert.owner.housekeeping': 'ശുചീകരണ വിഭാഗം മേധാവി',
+      'safety_center.alert.owner.pharmacy': 'ഫാർമസി',
+      'safety_center.alert.owner.receiving_team': 'സ്വീകരിക്കുന്ന സംഘം',
+      'safety_center.alert.escalation.acknowledged': 'സ്വീകരിച്ചു',
+      'safety_center.alert.escalation.monitor':
+          'സ്വീകരിക്കുന്നതുവരെ നിരീക്ഷിക്കുക',
+      'safety_center.alert.escalation.escalated':
+          'സ്വീകരിക്കുന്നതുവരെ ഉയർന്ന നിലയിലേക്ക് അറിയിച്ചു',
+      'safety_center.alert.escalation.in_minutes':
+          'വായിക്കാത്ത പക്ഷം {minutes} മിനിറ്റിൽ ഉയർന്ന നിലയിലേക്ക് അറിയിക്കും',
+      'safety_center.alert.type.investigation': 'പരിശോധന മുന്നറിയിപ്പ്',
+      'safety_center.alert.type.appointment': 'അപ്പോയിന്റ്മെന്റ് മുന്നറിയിപ്പ്',
+      'safety_center.alert.type.admission': 'അഡ്മിഷൻ മുന്നറിയിപ്പ്',
+      'safety_center.alert.type.housekeeping': 'ശുചീകരണ മുന്നറിയിപ്പ്',
+      'safety_center.alert.type.bed': 'കിടക്ക മുന്നറിയിപ്പ്',
+      'safety_center.alert.type.pharmacy': 'ഫാർമസി മുന്നറിയിപ്പ്',
+      'safety_center.alert.type.emergency': 'അടിയന്തര മുന്നറിയിപ്പ്',
+      'safety_center.alert.type.referral': 'റഫറൽ മുന്നറിയിപ്പ്',
+      'safety_center.alert.type.workflow': 'പ്രവർത്തന മുന്നറിയിപ്പ്',
+      'safety_center.alert.priority.critical': 'ഗുരുതര മുൻഗണന',
+      'safety_center.alert.priority.high': 'ഉയർന്ന മുൻഗണന',
+      'safety_center.alert.priority.attention': 'ശ്രദ്ധ ആവശ്യമാണ്',
+      'safety_center.alert.details_hidden':
+          'ക്ലിനിക്കൽ വിശദാംശങ്ങൾ പരിശോധിക്കാൻ നിയന്ത്രിത പ്രവർത്തനം തുറക്കുക.',
+      'safety_center.alert.action.open_emergency':
+          'അടിയന്തര മുന്നറിയിപ്പ് തുറക്കുക',
+      'safety_center.alert.action.open_appointment':
+          'അപ്പോയിന്റ്മെന്റ് തുറക്കുക',
+      'safety_center.alert.action.open_admission': 'അഡ്മിഷൻ തുറക്കുക',
+      'safety_center.alert.action.open_housekeeping': 'ശുചീകരണ ജോലി തുറക്കുക',
+      'safety_center.alert.action.open_bed': 'കിടക്ക തുറക്കുക',
+      'safety_center.alert.action.open_investigation': 'പരിശോധന തുറക്കുക',
+      'safety_center.alert.action.open_referral': 'റഫറൽ തുറക്കുക',
+      'safety_center.alert.action.open_pharmacy': 'ഫാർമസി തുറക്കുക',
+      'safety_center.alert.action.open_workflow': 'പ്രവർത്തനം തുറക്കുക',
+      'safety_center.retry': 'വീണ്ടും ശ്രമിക്കുക',
       // REVIEW: MED-03 Malayalam technical parity only; a Malayalam-fluent
       // clinician-linguist must approve this wording before activation.
       'pharmacy.disposal.title': 'ഇൻവെന്ററി നിർമാർജനം രേഖപ്പെടുത്തുക',

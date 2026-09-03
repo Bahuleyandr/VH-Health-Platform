@@ -51,12 +51,12 @@ describe('Phase 2b — cutover + reconciliation', () => {
 
     const first = await applyArOpeningBalances(TENANT);
     expect(first.seeded).toBeGreaterThanOrEqual(1);
-    const arPaise = await setTenantTx(TENANT, (tx) => getAccountBalancePaise(tx, 'PATIENT_AR', { invoice_id: invoiceId }));
+    const arPaise = await setTenantTx(TENANT, (tx) => getAccountBalancePaise(tx, TENANT, 'PATIENT_AR', { invoice_id: invoiceId }));
     expect(arPaise).toBe(60000); // ₹600.00 opening receivable
 
     // re-run is a no-op (idempotency key opening-ar-<id>) — AR unchanged
     await applyArOpeningBalances(TENANT);
-    const arPaise2 = await setTenantTx(TENANT, (tx) => getAccountBalancePaise(tx, 'PATIENT_AR', { invoice_id: invoiceId }));
+    const arPaise2 = await setTenantTx(TENANT, (tx) => getAccountBalancePaise(tx, TENANT, 'PATIENT_AR', { invoice_id: invoiceId }));
     expect(arPaise2).toBe(60000);
   });
 

@@ -34,6 +34,7 @@ const mockPrisma = {
   otp_sessions: { count: jest.fn() },
   auth_logs: { create: jest.fn(), count: jest.fn(), findMany: jest.fn(), groupBy: jest.fn() },
   password_reset_otps: { create: jest.fn(), findFirst: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
+  identity_audit_events: { create: jest.fn() },
   user_sessions: { count: jest.fn() },
   $transaction: jest.fn(async (cb) => cb(mockPrisma)),
   $queryRawUnsafe: jest.fn(),
@@ -910,9 +911,18 @@ describe('AuthService.listAdmins', () => {
 });
 
 describe('AuthService.deactivateAdmin', () => {
-  it('deactivates an active admin and returns its identity', async () => {
+  it('atomically deactivates and durably revokes before publishing after commit', async () => {
     mockPrisma.admins.updateMany.mockResolvedValue({ count: 1 });
-    mockPrisma.admins.findUnique.mockResolvedValue({ uid: 'a1', username: 'jane' });
+    mockPrisma.admins.findUnique
+      .mockResolvedValueOnce({
+        uid: 'a1',
+        tenant_id: '00000000-0000-4000-8000-000000000001',
+        username: 'jane',
+        identity_source: 'local',
+        scim_provider_id: null,
+        status: 'active',
+      })
+      .mockResolvedValueOnce({ uid: 'a1', username: 'jane' });
 
     const res = await AuthService.deactivateAdmin('a1', 'left company', 'root');
 
@@ -920,11 +930,74 @@ describe('AuthService.deactivateAdmin', () => {
     expect(mockPrisma.admins.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { uid: 'a1', status: 'active' } }),
     );
+    expect(mockPersistRevokeAllUserTokens).toHaveBeenCalledWith('a1', {
+      client: mockPrisma,
+      requireEvidence: true,
+      reason: 'admin_deactivated',
+    });
+    expect(mockPublishRevokeAllUserTokens).toHaveBeenCalledWith(
+      'a1',
+      1_700_000_000,
+      { reason: 'admin_deactivated' },
+    );
+    expect(mockPrisma.$transaction.mock.invocationCallOrder[0])
+      .toBeLessThan(mockPublishRevokeAllUserTokens.mock.invocationCallOrder[0]);
+    expect(mockPersistRevokeAllUserTokens.mock.invocationCallOrder[0])
+      .toBeLessThan(mockPublishRevokeAllUserTokens.mock.invocationCallOrder[0]);
   });
 
   it('throws when no active admin matched', async () => {
+    mockPrisma.admins.findUnique.mockResolvedValueOnce({
+      uid: 'a1',
+      identity_source: 'local',
+      status: 'active',
+    });
     mockPrisma.admins.updateMany.mockResolvedValue({ count: 0 });
     await expect(AuthService.deactivateAdmin('a1')).rejects.toThrow('Admin not found or already deactivated');
+    expect(mockPersistRevokeAllUserTokens).not.toHaveBeenCalled();
+    expect(mockPublishRevokeAllUserTokens).not.toHaveBeenCalled();
+  });
+
+  it('does not publish when durable revocation fails inside the transaction', async () => {
+    mockPrisma.admins.findUnique.mockResolvedValueOnce({
+      uid: 'a1',
+      identity_source: 'local',
+      status: 'active',
+    });
+    mockPrisma.admins.updateMany.mockResolvedValue({ count: 1 });
+    mockPersistRevokeAllUserTokens.mockRejectedValueOnce(new Error('durable store down'));
+
+    await expect(AuthService.deactivateAdmin('a1')).rejects.toThrow('durable store down');
+
+    expect(mockPublishRevokeAllUserTokens).not.toHaveBeenCalled();
+  });
+
+  it('keeps the SCIM override audit in the same revocation transaction', async () => {
+    mockPrisma.admins.findUnique
+      .mockResolvedValueOnce({
+        uid: 'a1',
+        tenant_id: '00000000-0000-4000-8000-000000000001',
+        username: 'jane',
+        identity_source: 'scim',
+        scim_provider_id: 7n,
+        status: 'active',
+      })
+      .mockResolvedValueOnce({ uid: 'a1', username: 'jane' });
+    mockPrisma.admins.updateMany.mockResolvedValue({ count: 1 });
+
+    await AuthService.deactivateAdmin('a1', 'owner approved override', 'root');
+
+    expect(mockPrisma.identity_audit_events.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        event_type: 'SCIM_LOCAL_OVERRIDE',
+        local_uid: 'a1',
+        details: expect.objectContaining({ action: 'deactivate' }),
+      }),
+    });
+    expect(mockPersistRevokeAllUserTokens).toHaveBeenCalledWith(
+      'a1',
+      expect.objectContaining({ client: mockPrisma, reason: 'admin_deactivated' }),
+    );
   });
 });
 
@@ -1197,6 +1270,45 @@ describe('AuthService.logout', () => {
     expect(mockPrisma.auth_logs.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ action: 'logout', success: true }) }),
     );
+  });
+
+  it('revokes the canonical Hasura app UUID rather than the provider subject', async () => {
+    const appUid = 'a0000000-0000-4000-8000-000000000abc';
+    mockVerifyToken.mockReturnValue({
+      sub: 'oidc-provider-subject',
+      jti: 'hasura-jti',
+      exp: 9999999999,
+      'https://hasura.io/jwt/claims': {
+        'x-hasura-user-id': appUid.toUpperCase(),
+      },
+    });
+    mockPrisma.auth_logs.create.mockResolvedValue({});
+
+    await AuthService.logout('tok');
+
+    expect(mockRevokeAllUserTokens).toHaveBeenCalledWith(appUid, {
+      requireEvidence: true,
+      reason: 'logout',
+    });
+    expect(mockPrisma.auth_logs.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ user_id: appUid, action: 'logout' }),
+    }));
+  });
+
+  it('fails closed before any revocation write when strong identity aliases conflict', async () => {
+    mockVerifyToken.mockReturnValue({
+      uid: 'a0000000-0000-4000-8000-000000000abc',
+      user_id: 'different-app-identity',
+      jti: 'conflict-jti',
+      exp: 9999999999,
+    });
+
+    await expect(AuthService.logout('tok')).rejects.toMatchObject({
+      statusCode: 401,
+      code: 'TOKEN_INVALID',
+    });
+    expect(mockBlacklistToken).not.toHaveBeenCalled();
+    expect(mockRevokeAllUserTokens).not.toHaveBeenCalled();
   });
 
   it('returns {} when the token cannot be verified', async () => {

@@ -4,6 +4,7 @@ import 'package:vhhealth/core/widgets/logo_background.dart';
 import 'package:vhhealth/features/auth/widgets/login_form.dart';
 import 'package:vhhealth/core/widgets/language_dropdown.dart';
 import 'package:vhhealth/core/providers/theme_provider.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class LoginScreen extends StatefulWidget {
   final String? returnTo;
@@ -42,6 +43,7 @@ class _LoginToolbar extends StatelessWidget {
     final colors = theme.colorScheme;
     final themeProvider = context.watch<ThemeProvider>();
     final isDark = themeProvider.isDarkMode;
+    final l10n = AppLocalizations.of(context)!;
 
     Widget themeButton({
       required IconData icon,
@@ -83,14 +85,14 @@ class _LoginToolbar extends StatelessWidget {
           children: [
             themeButton(
               icon: Icons.light_mode_outlined,
-              tooltip: 'Light mode',
+              tooltip: l10n.loginLightMode,
               selected: !isDark,
               onPressed: () =>
                   context.read<ThemeProvider>().setThemeMode(ThemeMode.light),
             ),
             themeButton(
               icon: Icons.dark_mode_outlined,
-              tooltip: 'Dark mode',
+              tooltip: l10n.loginDarkMode,
               selected: isDark,
               onPressed: () =>
                   context.read<ThemeProvider>().setThemeMode(ThemeMode.dark),
@@ -98,7 +100,7 @@ class _LoginToolbar extends StatelessWidget {
             const SizedBox(width: 2),
             PopupMenuButton<int>(
               icon: Icon(Icons.language, color: colors.onSurfaceVariant),
-              tooltip: 'Change Language',
+              tooltip: l10n.changeLanguage,
               offset: const Offset(0, 40),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8),

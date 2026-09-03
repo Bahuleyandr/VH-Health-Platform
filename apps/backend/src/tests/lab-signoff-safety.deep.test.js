@@ -1,6 +1,6 @@
 import prisma from '../lib/prisma.js';
 import { signOffResults } from '../services/lab/labResultsService.js';
-import { authClient } from './testClient.js';
+import { authClient, ensureTestIdentity } from './testClient.js';
 import { purgeDiagnosticEvidence } from './helpers/diagnosticEvidenceCleanup.js';
 
 const DB_CONFIGURED = Boolean(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
@@ -104,6 +104,12 @@ async function cleanup() {
 }
 
 d('Lab pathologist sign-off safety contract', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity(PATHOLOGIST_UID);
+    await ensureTestIdentity(INACTIVE_UID);
+  });
   const pathologist = authClient('PATHOLOGIST', { uid: PATHOLOGIST_UID });
   const inactive = authClient('PATHOLOGIST', { uid: INACTIVE_UID });
 

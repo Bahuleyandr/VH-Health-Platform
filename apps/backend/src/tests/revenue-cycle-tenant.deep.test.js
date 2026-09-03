@@ -9,7 +9,7 @@
 import request from 'supertest';
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
-import { API_KEY, generateTestToken } from './testClient.js';
+import { API_KEY, generateTestToken, ensureTestIdentity } from './testClient.js';
 
 const TENANT_A = '00000000-0000-4000-8000-000000000001';
 const TENANT_B = '22222222-2222-4222-8222-222222222222';
@@ -165,6 +165,12 @@ afterAll(async () => {
 });
 
 describe('GET /billing/denials + /denials/summary — tenant scoped (Sol Ultra #16)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity(STAFF_A, { tenantId: TENANT_A });
+    await ensureTestIdentity(STAFF_B, { tenantId: TENANT_B });
+  });
   it('lists only the caller tenant denials, both directions', async () => {
     const resA = await asTenant(tokenA).get('/api/v1/billing/denials?limit=200');
     expect(resA.statusCode).toBe(200);

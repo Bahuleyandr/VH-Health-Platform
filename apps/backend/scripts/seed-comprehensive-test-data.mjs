@@ -25,6 +25,18 @@ const FHIR_VITAL_SEED_RESOURCE_FINGERPRINT = `fhir:${createHash('sha256')
 const FHIR_VITAL_SEED_SET_FINGERPRINT = `fhir-set:${createHash('sha256')
   .update(FHIR_VITAL_SEED_RESOURCE_FINGERPRINT, 'utf8')
   .digest('hex')}`;
+const CLINICAL_IMPORT_SEED_IDS = Object.freeze({
+  actorUid: '75500000-0000-4000-8000-000000000001',
+  grantId: '75500000-0000-4000-8000-000000000002',
+  authorityEventId: '75500000-0000-4000-8000-000000000003',
+  rawArtifactId: '75500000-0000-4000-8000-000000000004',
+  documentReceiptId: '75500000-0000-4000-8000-000000000005',
+  resourceReceiptId: '75500000-0000-4000-8000-000000000006',
+  reconciliationItemId: '75500000-0000-4000-8000-000000000007',
+  reconciliationEventId: '75500000-0000-4000-8000-000000000008',
+  timelineEventId: '75500000-0000-4000-8000-000000000009',
+  auditEventId: '75500000-0000-4000-8000-00000000000a'
+});
 // Continuity authorization and replay remain inert until their approval gates
 // are satisfied. Synthetic credentials or immutable receipts would violate
 // those activation boundaries.
@@ -112,6 +124,16 @@ const MANUAL_SEED_TABLES = new Set([
   'fhir_vital_observation_receipts',
   'fhir_vital_observation_sets',
   'fhir_vital_observation_set_resources',
+  // Migrations 755/760 make clinical imports one append-only authority,
+  // encrypted-custody, canonical-receipt, and reconciliation graph. The
+  // generic walker cannot order that graph or synthesize its exact owner and
+  // manifest bindings. Seed one inert synthetic failed-resource journey below.
+  'clinical_import_authority_events',
+  'clinical_import_raw_artifacts',
+  'clinical_import_document_receipts',
+  'clinical_import_resource_receipts',
+  'clinical_import_reconciliation_items',
+  'clinical_import_reconciliation_events',
   'insurance_claim_caps',
   // Migration 669 makes the current payroll attempt a required, deferrable
   // back-reference from payroll_runs. Seed the circular run/attempt graph and
@@ -10771,6 +10793,423 @@ async function seedFhirVitalObservationReceiptGraph() {
   );
 }
 
+async function seedClinicalImportReceiptGraph() {
+  const graphRows = [
+    ['clinical_import_authority_events', CLINICAL_IMPORT_SEED_IDS.authorityEventId],
+    ['clinical_import_raw_artifacts', CLINICAL_IMPORT_SEED_IDS.rawArtifactId],
+    ['clinical_import_document_receipts', CLINICAL_IMPORT_SEED_IDS.documentReceiptId],
+    ['clinical_import_resource_receipts', CLINICAL_IMPORT_SEED_IDS.resourceReceiptId],
+    ['clinical_import_reconciliation_items', CLINICAL_IMPORT_SEED_IDS.reconciliationItemId],
+    ['clinical_import_reconciliation_events', CLINICAL_IMPORT_SEED_IDS.reconciliationEventId]
+  ];
+
+  await client.query("SELECT set_config('app.current_tenant_id', $1::text, true)", [
+    DEFAULT_TENANT_ID
+  ]);
+  const existingRows = [];
+  for (const [table, id] of graphRows) {
+    const existing = await client.query(
+      `SELECT 1
+         FROM ${quote(table)}
+        WHERE tenant_id = $1::uuid
+          AND id = $2::uuid`,
+      [DEFAULT_TENANT_ID, id]
+    );
+    if (existing.rowCount) existingRows.push(table);
+  }
+  if (existingRows.length === graphRows.length) return;
+  if (existingRows.length > 0) {
+    throw new Error(
+      `Clinical import synthetic receipt graph is partial: ${existingRows.sort().join(', ')}`
+    );
+  }
+
+  const sha256 = value => createHash('sha256').update(String(value), 'utf8').digest('hex');
+  const sourceSystem = 'vh-seed-clinical-import';
+  const sourceDocumentId = 'vh-seed-held-condition-v1';
+  const documentFormat = 'fhir_bundle';
+  const ownerEvidenceRef = 'synthetic-test-only://clinical-import/grant/v1';
+  const ownerEvidenceSha256 = sha256(ownerEvidenceRef);
+  const sourceAuthorEvidence = {
+    contract_version: 'clinical-import-source-author-v1',
+    authors: [
+      {
+        reference: 'Practitioner/vh-seed-medical-records',
+        display: 'Synthetic medical records importer'
+      }
+    ],
+    seed: true
+  };
+  const rawPayload = JSON.stringify({
+    resourceType: 'Bundle',
+    type: 'collection',
+    id: sourceDocumentId,
+    entry: [
+      {
+        resource: {
+          resourceType: 'Condition',
+          id: 'vh-seed-held-condition',
+          subject: { reference: 'Patient/vh-seed-patient' },
+          code: { text: 'Synthetic condition held for external clinical review' }
+        }
+      }
+    ]
+  });
+  const payloadSha256 = sha256(rawPayload);
+  const assertedSignatureSha256 = sha256(`asserted-signature:${payloadSha256}`);
+  const resourceIdentitySha256 = sha256(
+    `${sourceSystem}|${sourceDocumentId}|Condition|vh-seed-held-condition`
+  );
+  const resourcePayloadSha256 = sha256(
+    JSON.stringify({
+      resourceType: 'Condition',
+      id: 'vh-seed-held-condition',
+      disposition: 'held_external_authority'
+    })
+  );
+  const resourceManifest = [
+    {
+      source_resource_type: 'Condition',
+      source_resource_id: 'vh-seed-held-condition',
+      source_resource_index: 0,
+      source_identity_sha256: resourceIdentitySha256,
+      payload_sha256: resourcePayloadSha256
+    }
+  ];
+  const resourceManifestSha256 = sha256(JSON.stringify(resourceManifest));
+  const sourceIdentitySha256 = sha256(
+    `${sourceSystem}|${sourceDocumentId}|${documentFormat}|${payloadSha256}`
+  );
+  const documentIdempotencySha256 = sha256('vh-seed-clinical-import-document-v1');
+  const reconciliationIdempotencySha256 = sha256(
+    'vh-seed-clinical-import-reconciliation-v1'
+  );
+  const reconciliationReason =
+    'Synthetic clinical assertion requires external clinical review before promotion.';
+  const authorityCreatedAt = new Date('2026-09-02T00:00:00.000Z');
+  const rawCreatedAt = new Date('2026-09-02T00:01:00.000Z');
+  const documentCreatedAt = new Date('2026-09-02T00:02:00.000Z');
+  const resourceCreatedAt = new Date('2026-09-02T00:03:00.000Z');
+  const reconciliationCreatedAt = new Date('2026-09-02T00:04:00.000Z');
+  const reconciliationEventCreatedAt = new Date('2026-09-02T00:05:00.000Z');
+
+  await client.query(
+    `INSERT INTO users
+       (uid, tenant_id, phone, name, role, is_active, status, is_deleted, updated_at)
+     VALUES
+       ($1::uuid, $2::uuid, '+917550000001', 'Synthetic Medical Records Importer',
+        'MEDICAL_RECORDS', TRUE, 'active', FALSE, $3::timestamptz)
+     ON CONFLICT (tenant_id, phone) DO NOTHING`,
+    [CLINICAL_IMPORT_SEED_IDS.actorUid, DEFAULT_TENANT_ID, authorityCreatedAt]
+  );
+  const actor = await client.query(
+    `SELECT uid
+       FROM users
+      WHERE tenant_id = $1::uuid
+        AND uid = $2::uuid
+        AND role = 'MEDICAL_RECORDS'
+        AND is_active = TRUE
+        AND status = 'active'
+        AND is_deleted = FALSE
+        AND merged_into_uid IS NULL`,
+    [DEFAULT_TENANT_ID, CLINICAL_IMPORT_SEED_IDS.actorUid]
+  );
+  if (actor.rowCount !== 1) {
+    throw new Error('Clinical import synthetic receipt graph requires its active records actor');
+  }
+
+  const patient = await client.query(
+    `SELECT id, uid
+       FROM users
+      WHERE tenant_id = $1::uuid
+        AND role = 'PATIENT'
+        AND is_active = TRUE
+        AND status = 'active'
+        AND is_deleted = FALSE
+        AND merged_into_uid IS NULL
+      ORDER BY id
+      LIMIT 1`,
+    [DEFAULT_TENANT_ID]
+  );
+  const facility = await client.query(
+    `SELECT id
+       FROM facilities
+      WHERE tenant_id = $1::uuid
+        AND status = 'active'
+      ORDER BY (facility_code = 'SEED-MAIN') DESC, id
+      LIMIT 1`,
+    [DEFAULT_TENANT_ID]
+  );
+  if (patient.rowCount !== 1 || facility.rowCount !== 1) {
+    throw new Error('Clinical import synthetic receipt graph requires an active patient and facility');
+  }
+  const patientId = Number(patient.rows[0].id);
+  const patientUid = patient.rows[0].uid;
+  const facilityId = Number(facility.rows[0].id);
+  const patientIdentityBindingSha256 = sha256(
+    `clinical-import-patient-identity-v1|${DEFAULT_TENANT_ID}|${patientId}|${patientUid}|`
+  );
+  const accessDecisionEvidence = {
+    contract_version: 'clinical-import-access-decision-v1',
+    decision: 'allow',
+    authority_grant_id: CLINICAL_IMPORT_SEED_IDS.grantId,
+    patient_uid: patientUid,
+    actor_uid: CLINICAL_IMPORT_SEED_IDS.actorUid,
+    source_facility_id: String(facilityId),
+    source_system: sourceSystem,
+    document_format: documentFormat,
+    patient_identity_binding_sha256: patientIdentityBindingSha256,
+    owner_evidence_sha256: ownerEvidenceSha256,
+    policy_code: 'patient.record.upload',
+    seed: true
+  };
+
+  await client.query(
+    `INSERT INTO clinical_import_authority_events
+       (id, tenant_id, grant_id, event_type, patient_uid, facility_id,
+        actor_uid, actor_role, source_system, document_formats,
+        valid_from, valid_until, owner_evidence_ref, owner_evidence_sha256,
+        recorded_by, reason, idempotency_key_sha256, contract_version, created_at)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid, 'GRANTED', $4::uuid, $5::integer,
+        $6::uuid, 'MEDICAL_RECORDS', $7::text, ARRAY['fhir_bundle']::text[],
+        clock_timestamp() - INTERVAL '5 minutes',
+        clock_timestamp() + INTERVAL '1 day',
+        $8::text, $9::char(64), $6::uuid,
+        'Synthetic test-only clinical import grant for comprehensive seed coverage.',
+        $10::char(64), 1, $11::timestamptz)`,
+    [
+      CLINICAL_IMPORT_SEED_IDS.authorityEventId,
+      DEFAULT_TENANT_ID,
+      CLINICAL_IMPORT_SEED_IDS.grantId,
+      patientUid,
+      facilityId,
+      CLINICAL_IMPORT_SEED_IDS.actorUid,
+      sourceSystem,
+      ownerEvidenceRef,
+      ownerEvidenceSha256,
+      sha256('vh-seed-clinical-import-authority-v1'),
+      authorityCreatedAt
+    ]
+  );
+
+  await client.query(
+    `INSERT INTO clinical_import_raw_artifacts
+       (id, tenant_id, authority_grant_id, patient_uid, source_facility_id,
+        actor_uid, actor_role, source_system, source_document_id, document_format,
+        raw_payload_sha256, raw_payload_bytes, raw_content_type,
+        raw_payload_ciphertext, encryption_key_id, canonicalization_version,
+        canonical_payload_sha256, asserted_source_signature_sha256,
+        signature_verification_status, source_author_evidence, recorded_by,
+        contract_version, created_at)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::integer,
+        $6::uuid, 'MEDICAL_RECORDS', $7::text, $8::text, 'fhir_bundle',
+        $9::char(64), $10::bigint, 'application/fhir+json',
+        'enc:v2:c3ludGhldGljLXRlc3Qtb25seS1ub3QtZGVjcnlwdGFibGU=',
+        'synthetic-test-only-key', 'clinical-import-canonical-json-v1',
+        $9::char(64), $11::char(64), 'asserted_unverified', $12::jsonb,
+        $6::uuid, 1, $13::timestamptz)`,
+    [
+      CLINICAL_IMPORT_SEED_IDS.rawArtifactId,
+      DEFAULT_TENANT_ID,
+      CLINICAL_IMPORT_SEED_IDS.grantId,
+      patientUid,
+      facilityId,
+      CLINICAL_IMPORT_SEED_IDS.actorUid,
+      sourceSystem,
+      sourceDocumentId,
+      payloadSha256,
+      Buffer.byteLength(rawPayload, 'utf8'),
+      assertedSignatureSha256,
+      JSON.stringify(sourceAuthorEvidence),
+      rawCreatedAt
+    ]
+  );
+
+  await client.query(
+    `INSERT INTO clinical_timeline_events
+       (id, tenant_id, patient_uid, actor_uid, actor_role, event_type,
+        event_status, source_table, source_id, resource_type, resource_id,
+        occurred_at, visible_to_patient, clinical_summary, payload, tags,
+        idempotency_key)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'MEDICAL_RECORDS',
+        'clinical_document.imported', 'completed_with_errors',
+        'clinical_import_document_receipts', $5::text,
+        'clinical_import_document_receipt', $5::text, $6::timestamptz, FALSE,
+        'Synthetic clinical import held for external clinical review.',
+        $7::jsonb, ARRAY['clinical_import', 'seed', 'held_external_authority']::text[],
+        'vh-seed-clinical-import-document-timeline-v1')`,
+    [
+      CLINICAL_IMPORT_SEED_IDS.timelineEventId,
+      DEFAULT_TENANT_ID,
+      patientUid,
+      CLINICAL_IMPORT_SEED_IDS.actorUid,
+      CLINICAL_IMPORT_SEED_IDS.documentReceiptId,
+      documentCreatedAt,
+      JSON.stringify({ seed: true, status: 'completed_with_errors' })
+    ]
+  );
+  await client.query(
+    `INSERT INTO clinical_audit_events
+       (id, tenant_id, patient_uid, actor_uid, actor_role, action,
+        action_status, resource_type, resource_table, resource_id,
+        before_state, after_state, metadata, idempotency_key, occurred_at)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'MEDICAL_RECORDS',
+        'clinical_document.imported', 'success', 'clinical_import_document_receipt',
+        'clinical_import_document_receipts', $5::text, '{}'::jsonb, $6::jsonb,
+        $7::jsonb, 'vh-seed-clinical-import-document-audit-v1', $8::timestamptz)`,
+    [
+      CLINICAL_IMPORT_SEED_IDS.auditEventId,
+      DEFAULT_TENANT_ID,
+      patientUid,
+      CLINICAL_IMPORT_SEED_IDS.actorUid,
+      CLINICAL_IMPORT_SEED_IDS.documentReceiptId,
+      JSON.stringify({ status: 'completed_with_errors', failed: 1 }),
+      JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+      documentCreatedAt
+    ]
+  );
+
+  await client.query(
+    `INSERT INTO clinical_import_document_receipts
+       (id, tenant_id, patient_id, patient_uid, source_facility_id, actor_uid,
+        actor_role, ingestion_mode, document_format, source_system,
+        source_document_id, asserted_source_signature_sha256,
+        source_payload_sha256, source_identity_sha256, idempotency_key_sha256,
+        resource_manifest_sha256, resource_manifest, result, status, request_id,
+        canonical_timeline_event_id, canonical_audit_event_id, contract_version,
+        created_at, authority_grant_id, raw_artifact_id, patient_identifier_ids,
+        patient_identity_binding_sha256, access_decision_evidence,
+        source_author_evidence)
+     VALUES
+       ($1::uuid, $2::uuid, $3::integer, $4::uuid, $5::integer, $6::uuid,
+        'MEDICAL_RECORDS', 'manual_medical_records', 'fhir_bundle', $7::text,
+        $8::text, $9::char(64), $10::char(64), $11::char(64), $12::char(64),
+        $13::char(64), $14::jsonb, $15::jsonb, 'completed_with_errors',
+        'vh-seed-clinical-import-request-v1', $16::uuid, $17::uuid, 1,
+        $18::timestamptz, $19::uuid, $20::uuid, ARRAY[]::integer[],
+        $21::char(64), $22::jsonb, $23::jsonb)`,
+    [
+      CLINICAL_IMPORT_SEED_IDS.documentReceiptId,
+      DEFAULT_TENANT_ID,
+      patientId,
+      patientUid,
+      facilityId,
+      CLINICAL_IMPORT_SEED_IDS.actorUid,
+      sourceSystem,
+      sourceDocumentId,
+      assertedSignatureSha256,
+      payloadSha256,
+      sourceIdentitySha256,
+      documentIdempotencySha256,
+      resourceManifestSha256,
+      JSON.stringify(resourceManifest),
+      JSON.stringify({
+        imported: 0,
+        deduplicated: 0,
+        skipped: 0,
+        failed: 1,
+        errors: [
+          {
+            index: 0,
+            code: 'IMPORT_CLINICAL_ASSERTION_REVIEW_REQUIRED',
+            required_authority: 'CLINICAL_IMPORT_ASSERTION_PROMOTION_OWNER'
+          }
+        ]
+      }),
+      CLINICAL_IMPORT_SEED_IDS.timelineEventId,
+      CLINICAL_IMPORT_SEED_IDS.auditEventId,
+      documentCreatedAt,
+      CLINICAL_IMPORT_SEED_IDS.grantId,
+      CLINICAL_IMPORT_SEED_IDS.rawArtifactId,
+      patientIdentityBindingSha256,
+      JSON.stringify(accessDecisionEvidence),
+      JSON.stringify(sourceAuthorEvidence)
+    ]
+  );
+
+  await client.query(
+    `INSERT INTO clinical_import_resource_receipts
+       (id, tenant_id, document_receipt_id, patient_uid, source_resource_type,
+        source_resource_id, source_resource_index, source_identity_sha256,
+        payload_sha256, outcome, target_table, target_id,
+        canonical_timeline_event_id, canonical_audit_event_id, evidence,
+        contract_version, created_at)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'Condition',
+        'vh-seed-held-condition', 0, $5::char(64), $6::char(64), 'failed',
+        NULL, NULL, NULL, NULL, $7::jsonb, 1, $8::timestamptz)`,
+    [
+      CLINICAL_IMPORT_SEED_IDS.resourceReceiptId,
+      DEFAULT_TENANT_ID,
+      CLINICAL_IMPORT_SEED_IDS.documentReceiptId,
+      patientUid,
+      resourceIdentitySha256,
+      resourcePayloadSha256,
+      JSON.stringify({
+        seed: true,
+        status: 'HELD_EXTERNAL_AUTHORITY',
+        code: 'IMPORT_CLINICAL_ASSERTION_REVIEW_REQUIRED',
+        required_authority: 'CLINICAL_IMPORT_ASSERTION_PROMOTION_OWNER'
+      }),
+      resourceCreatedAt
+    ]
+  );
+  await client.query(
+    `INSERT INTO clinical_import_reconciliation_items
+       (id, tenant_id, resource_receipt_id, document_receipt_id, patient_uid,
+        facility_id, owner_actor_uid, owner_actor_role, reason,
+        idempotency_key_sha256, contract_version, created_at)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::integer,
+        $7::uuid, 'MEDICAL_RECORDS', $8::text, $9::char(64), 1, $10::timestamptz)`,
+    [
+      CLINICAL_IMPORT_SEED_IDS.reconciliationItemId,
+      DEFAULT_TENANT_ID,
+      CLINICAL_IMPORT_SEED_IDS.resourceReceiptId,
+      CLINICAL_IMPORT_SEED_IDS.documentReceiptId,
+      patientUid,
+      facilityId,
+      CLINICAL_IMPORT_SEED_IDS.actorUid,
+      reconciliationReason,
+      reconciliationIdempotencySha256,
+      reconciliationCreatedAt
+    ]
+  );
+  await client.query(
+    `INSERT INTO clinical_import_reconciliation_events
+       (id, tenant_id, reconciliation_item_id, resource_receipt_id,
+        document_receipt_id, patient_uid, facility_id, event_type, actor_uid,
+        actor_role, reason, predecessor_event_id, idempotency_key_sha256,
+        evidence, contract_version, created_at)
+     VALUES
+       ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid,
+        $7::integer, 'OPENED', $8::uuid, 'MEDICAL_RECORDS', $9::text, NULL,
+        $10::char(64), $11::jsonb, 1, $12::timestamptz)`,
+    [
+      CLINICAL_IMPORT_SEED_IDS.reconciliationEventId,
+      DEFAULT_TENANT_ID,
+      CLINICAL_IMPORT_SEED_IDS.reconciliationItemId,
+      CLINICAL_IMPORT_SEED_IDS.resourceReceiptId,
+      CLINICAL_IMPORT_SEED_IDS.documentReceiptId,
+      patientUid,
+      facilityId,
+      CLINICAL_IMPORT_SEED_IDS.actorUid,
+      reconciliationReason,
+      reconciliationIdempotencySha256,
+      JSON.stringify({
+        seed: true,
+        status: 'HELD_EXTERNAL_AUTHORITY',
+        required_authority: 'CLINICAL_IMPORT_ASSERTION_PROMOTION_OWNER'
+      }),
+      reconciliationEventCreatedAt
+    ]
+  );
+}
+
 try {
   await client.query('BEGIN');
   await seedCoreData();
@@ -10790,6 +11229,7 @@ try {
   const { seeded, failed: initialSeedFailures } = await seedRemainingTables();
   await seedPayrollAttemptGraph();
   await seedFhirVitalObservationReceiptGraph();
+  await seedClinicalImportReceiptGraph();
   await seedInteropHl7v2DeliveryReceipt();
   await seedEdClosureRecoveryEvidence();
   await seedInsuranceClaimCaps();

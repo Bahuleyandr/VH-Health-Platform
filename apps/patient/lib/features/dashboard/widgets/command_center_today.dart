@@ -32,7 +32,7 @@ class CommandCenterToday extends StatelessWidget {
     if (error != null && cards.isEmpty) {
       return _CommandCenterNotice(
         icon: LucideIcons.wifiOff,
-        title: 'Today could not refresh',
+        title: l10n.dashboardTodayRefreshTitle,
         subtitle: error!,
         actionLabel: l10n.commonRetry,
         onAction: onRetry,

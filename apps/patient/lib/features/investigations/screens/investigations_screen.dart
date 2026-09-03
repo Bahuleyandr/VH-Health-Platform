@@ -68,7 +68,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
               ),
             ],
           ),
-          ContactBanner.homeSampleCollection(),
+          ContactBanner.homeSampleCollection(l10n),
           Expanded(
             child: TabBarView(
               controller: _tabController,

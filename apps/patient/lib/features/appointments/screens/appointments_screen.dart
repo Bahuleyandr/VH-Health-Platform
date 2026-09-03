@@ -69,7 +69,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
               ),
             ],
           ),
-          ContactBanner.appointments(),
+          ContactBanner.appointments(l10n),
           Expanded(
             child: TabBarView(
               controller: _tabController,

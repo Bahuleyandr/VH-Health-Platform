@@ -6,7 +6,7 @@
 // filters on tenant_id. RLS is OFF in the test env, so this differential test
 // proves the predicate: alerts seeded in tenant B do not change a tenant-A
 // admin's totals, but do show up for a tenant-B admin.
-import { generateTestToken, API_KEY } from './testClient.js';
+import { generateTestToken, API_KEY, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -35,6 +35,11 @@ async function seedCriticalAlert(tenantId) {
 const criticalTotal = (body) => body.data?.unacknowledgedCriticalAlerts?.denominator ?? 0;
 
 d('Compliance indicators tenant scope (CAN-036)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity('c0de0036-00d0-4000-8000-00000000d001');
+  });
   beforeAll(async () => {
     await clean();
     await prisma.$executeRawUnsafe(

@@ -1,6 +1,12 @@
 .gitattributes text eol=lf
 *.sh text eol=lf
 
+# Migration function bodies and fail-closed textual anchors must retain the
+# repository's LF bytes on every platform. CRLF checkout changes dollar-quoted
+# strings and can make a fresh Windows database reject an otherwise identical
+# migration chain.
+apps/backend/src/migrations/*.sql text eol=lf
+
 # Generated Dart contracts that a CI gate byte-compares against a freshly
 # rendered string (scripts/generate-*.mjs --check, wired into
 # scripts/ci/flutter.mjs and .github/workflows/_reusable-flutter-workspace.yml).

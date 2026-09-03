@@ -2,13 +2,25 @@
 // GDPR Patient Data Export & Deletion
 
 import { Router } from 'express';
-import prisma from '../lib/prisma.js';
+import prisma, { setTenantTx } from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import { deriveTenantIdFromRequest } from '../services/security/accessDecisionService.js';
 import { checkLegalHold } from '../services/gdpr/dataErasureService.js';
 import { success, error } from '../utils/responseHelper.js';
+import * as tokenBlacklist from '../utils/tokenBlacklist.js';
 
 import { maskPhoneForLog } from '../utils/logMasking.js';
+
+if (
+  process.env.NODE_ENV !== 'test'
+  && typeof tokenBlacklist.withAuthIdentityLifecycleLocks !== 'function'
+) {
+  throw new Error('Auth identity lifecycle locking is unavailable');
+}
+const withAuthIdentityLifecycleLocks = tokenBlacklist.withAuthIdentityLifecycleLocks
+  ?? ((_client, _uids, fn) => fn(_client));
+const persistRevokeAllUserTokens = tokenBlacklist.persistRevokeAllUserTokens;
+const publishRevokeAllUserTokens = tokenBlacklist.publishRevokeAllUserTokens;
 const router = Router();
 
 async function findCurrentPatient(req) {
@@ -227,25 +239,55 @@ router.delete('/my-data', async (req, res) => {
       { table: 'notifications', where: '(uid = $2::uuid OR phone = $3 OR user_id = $4::int) AND tenant_id = $5::uuid', params: [uid, phone, userIntId, tenantId] },
     ];
 
-    const results = [];
-    for (const { table, where, params } of tables) {
-      try {
-        if (!allowedTables.includes(table)) {
-          throw new Error('Invalid table');
+    const { results, revokedAt } = await setTenantTx(tenantId, async (tx) => {
+      await withAuthIdentityLifecycleLocks(tx, [uid], async () => {});
+
+      const deletionResults = [];
+      for (const [index, { table, where, params }] of tables.entries()) {
+        if (!allowedTables.includes(table)) throw new Error('Invalid table');
+        const savepoint = `patient_data_erasure_${index}`;
+        await tx.$executeRawUnsafe(`SAVEPOINT ${savepoint}`);
+        try {
+          // Parameterize the timestamp as $1; table name is safe (whitelisted above).
+          const deletedAtExpression = table === 'users' ? 'COALESCE(deleted_at, $1)' : '$1';
+          const notAlreadyDeleted = table === 'users' ? '' : ' AND deleted_at IS NULL';
+          const result = await tx.$queryRawUnsafe(
+            `UPDATE ${table} SET deleted_at = ${deletedAtExpression} WHERE ${where}${notAlreadyDeleted} RETURNING id`,
+            now, ...params
+          );
+          if (table === 'users' && result.length !== 1) {
+            throw new Error('Patient identity was not eligible for deletion');
+          }
+          await tx.$executeRawUnsafe(`RELEASE SAVEPOINT ${savepoint}`);
+          deletionResults.push({ table, affected: result.length });
+        } catch (err) {
+          await tx.$executeRawUnsafe(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+          await tx.$executeRawUnsafe(`RELEASE SAVEPOINT ${savepoint}`);
+          if (table === 'users') throw err;
+          // Table might not have deleted_at column — that's OK. Log the real
+          // failure server-side; the response must never carry err.message
+          // (repo rule: raw driver/Prisma errors leak schema + SQL detail).
+          logger.error(`Soft-delete skipped for ${table}: ${err.message}`);
+          deletionResults.push({ table, skipped: true, reason: 'Table not eligible for soft deletion' });
         }
-        // Parameterize the timestamp as $1; table name is safe (whitelisted above)
-        const result = await prisma.$queryRawUnsafe(
-          `UPDATE ${table} SET deleted_at = $1 WHERE ${where} AND deleted_at IS NULL RETURNING id`,
-          now, ...params
-        );
-        results.push({ table, affected: result.length });
-      } catch (err) {
-        // Table might not have deleted_at column — that's OK. Log the real
-        // failure server-side; the response must never carry err.message
-        // (repo rule: raw driver/Prisma errors leak schema + SQL detail).
-        logger.error(`Soft-delete skipped for ${table}: ${err.message}`);
-        results.push({ table, skipped: true, reason: 'Table not eligible for soft deletion' });
       }
+
+      const durableRevokedAt = await persistRevokeAllUserTokens(uid, {
+        client: tx,
+        requireEvidence: true,
+        reason: 'patient_data_erasure',
+        notificationTenantId: tenantId,
+      });
+      return { results: deletionResults, revokedAt: durableRevokedAt };
+    });
+
+    try {
+      await publishRevokeAllUserTokens(uid, revokedAt, { reason: 'patient_data_erasure' });
+    } catch (err) {
+      logger.warn('Patient data-erasure revocation publication failed', {
+        uid,
+        error: err.message,
+      });
     }
 
     logger.info(`🗑️ Data deletion requested by user ${uid} (${maskPhoneForLog(phone)}) — soft-deleted across ${results.length} tables`);

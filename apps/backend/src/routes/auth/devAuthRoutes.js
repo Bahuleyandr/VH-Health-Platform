@@ -68,19 +68,22 @@ router.post('/patient-login', async (req, res) => {
     let isNewUser = false;
     if (!user) {
       const now = new Date();
-      user = await prisma.users.create({
-        data: {
-          phone,
-          role: 'PATIENT',
-          name,
-          registered_at: now,
-          updated_at: now,
-          last_sign_in_at: now,
-        },
-        select: {
-          uid: true, id: true, tenant_id: true, name: true, phone: true, email: true,
-          role: true, gender: true, is_active: true,
-        },
+      user = await prisma.$transaction(async (tx) => {
+        const created = await tx.users.create({
+          data: {
+            phone,
+            role: 'PATIENT',
+            name,
+            registered_at: now,
+            updated_at: now,
+            last_sign_in_at: now,
+          },
+          select: {
+            uid: true, id: true, tenant_id: true, name: true, phone: true, email: true,
+            role: true, gender: true, is_active: true,
+          },
+        });
+        return created;
       });
       isNewUser = true;
       logger.info(`[dev-login] created patient ${maskPhoneForLog(phone)} (${user.uid})`);

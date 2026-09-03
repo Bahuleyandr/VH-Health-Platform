@@ -51,12 +51,14 @@ const persistRevokeAllUserTokensMock = jest.fn();
 const publishRevokeAllUserTokensMock = jest.fn();
 const persistRevokeDelegatedTupleMock = jest.fn();
 const publishRevokeDelegatedTupleMock = jest.fn();
+const lifecycleLockMock = jest.fn(async (_tx, _uids, fn) => fn());
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   isSubjectDelegationRevoked: jest.fn().mockResolvedValue(false),
   persistRevokeAllUserTokens: persistRevokeAllUserTokensMock,
   publishRevokeAllUserTokens: publishRevokeAllUserTokensMock,
   persistRevokeDelegatedTuple: persistRevokeDelegatedTupleMock,
   publishRevokeDelegatedTuple: publishRevokeDelegatedTupleMock,
+  withAuthIdentityLifecycleLocks: lifecycleLockMock,
 }));
 
 const { USER_CONFIG } = await import('../../config/userConfig.js');
@@ -88,6 +90,7 @@ describe('delegated authority writers revoke at the mutation boundary', () => {
       id: 42,
       uid: DEPENDENT_UID,
       guardian_user_id: 7,
+      guardian_uid: GUARDIAN_UID,
     }]);
     txQueryRawUnsafeMock.mockResolvedValueOnce([{
       id: 42,
@@ -107,6 +110,15 @@ describe('delegated authority writers revoke at the mutation boundary', () => {
       DEPENDENT_UID,
       { client: tx, reason: 'dependent_unlinked' },
     );
+    expect(lifecycleLockMock).toHaveBeenCalledWith(
+      tx,
+      [GUARDIAN_UID, DEPENDENT_UID],
+      expect.any(Function),
+    );
+    expect(lifecycleLockMock.mock.invocationCallOrder[0])
+      .toBeLessThan(persistRevokeDelegatedTupleMock.mock.invocationCallOrder[0]);
+    expect(persistRevokeDelegatedTupleMock.mock.invocationCallOrder[0])
+      .toBeLessThan(txQueryRawUnsafeMock.mock.invocationCallOrder[0]);
     expect(persistRevokeDelegatedTupleMock.mock.invocationCallOrder[0])
       .toBeLessThan(publishRevokeDelegatedTupleMock.mock.invocationCallOrder[0]);
     expect(publishRevokeDelegatedTupleMock).toHaveBeenCalledWith(
@@ -122,10 +134,6 @@ describe('delegated authority writers revoke at the mutation boundary', () => {
       id: 42,
       uid: DEPENDENT_UID,
       guardian_user_id: 7,
-    }]);
-    txQueryRawUnsafeMock.mockResolvedValueOnce([{
-      id: 42,
-      uid: DEPENDENT_UID,
       guardian_uid: GUARDIAN_UID,
     }]);
     persistRevokeDelegatedTupleMock.mockRejectedValueOnce(new Error('revocation unavailable'));
@@ -137,6 +145,7 @@ describe('delegated authority writers revoke at the mutation boundary', () => {
       tenantId: TENANT_ID,
     })).rejects.toThrow('revocation unavailable');
     expect(publishRevokeDelegatedTupleMock).not.toHaveBeenCalled();
+    expect(txQueryRawUnsafeMock).not.toHaveBeenCalled();
   });
 
   it('deactivation atomically bumps the identity epoch and publishes after commit', async () => {
@@ -197,6 +206,8 @@ describe('delegated authority writers revoke at the mutation boundary', () => {
 
   it('RBAC lock durably revokes the identity, while unlock does not add a revocation', async () => {
     txQueryRawUnsafeMock
+      .mockResolvedValueOnce([{ uid: GUARDIAN_UID, name: 'Guardian', role: 'PATIENT', is_active: true }])
+      .mockResolvedValueOnce([{ uid: GUARDIAN_UID, name: 'Guardian', role: 'PATIENT', is_active: false }])
       .mockResolvedValueOnce([{ uid: GUARDIAN_UID, name: 'Guardian', role: 'PATIENT', is_active: false }])
       .mockResolvedValueOnce([{ uid: GUARDIAN_UID, name: 'Guardian', role: 'PATIENT', is_active: true }]);
     const admin = {

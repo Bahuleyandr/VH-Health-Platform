@@ -39,6 +39,7 @@ class StepProfileSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     if (loadingProfile) {
       return const Center(
         child: Padding(
@@ -73,17 +74,18 @@ class StepProfileSection extends StatelessWidget {
             profile!.displayName,
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
-          subtitle: Text('Daily target: ${_formatGoal(profile!.dailyGoal)}'),
+          subtitle: Text(
+            l.stepsDailyTarget(l.stepsCount(_formatGoal(profile!.dailyGoal))),
+          ),
           trailing: TextButton(
             onPressed: onEditPressed,
-            child: const Text('Edit'),
+            child: Text(l.commonEditButton),
           ),
         ),
       );
     }
 
     // Setup form
-    final l = AppLocalizations.of(context)!;
     final targetPresets = [6000, 8000, 10000, 12000];
     return Card(
       child: Padding(
@@ -92,16 +94,16 @@ class StepProfileSection extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              needsSetup ? l.stepsSetupProfileTitle : 'Edit step target',
+              needsSetup ? l.stepsSetupProfileTitle : l.stepsEditTargetTitle,
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: nameController,
-              decoration: const InputDecoration(
-                labelText: 'Display name',
-                hintText: 'How others see you on the leaderboard',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: l.stepsDisplayNameLabel,
+                hintText: l.stepsDisplayNameHint,
+                border: const OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 12),
@@ -109,13 +111,13 @@ class StepProfileSection extends StatelessWidget {
               controller: goalController,
               keyboardType: TextInputType.number,
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: const InputDecoration(
-                labelText: 'Daily step target',
-                hintText: 'Example: 7500',
-                helperText: 'Choose a realistic goal between 1,000 and 100,000',
-                prefixIcon: Icon(Icons.flag_outlined),
-                suffixText: 'steps',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: l.stepsDailyTargetLabel,
+                hintText: l.stepsDailyTargetExample,
+                helperText: l.stepsDailyTargetHelper,
+                prefixIcon: const Icon(Icons.flag_outlined),
+                suffixText: l.dashboardMetricSteps,
+                border: const OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 10),
@@ -170,7 +172,7 @@ class StepProfileSection extends StatelessWidget {
                   Expanded(
                     child: OutlinedButton(
                       onPressed: savingProfile ? null : onCancelEdit,
-                      child: const Text('Cancel'),
+                      child: Text(l.commonCancelButton),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -198,11 +200,11 @@ class StepProfileSection extends StatelessWidget {
 
   static String _formatGoal(int steps) {
     if (steps >= 1000 && steps % 1000 == 0) {
-      return '${steps ~/ 1000}k steps';
+      return '${steps ~/ 1000}k';
     }
     if (steps >= 1000) {
-      return '${(steps / 1000).toStringAsFixed(1)}k steps';
+      return '${(steps / 1000).toStringAsFixed(1)}k';
     }
-    return '$steps steps';
+    return '$steps';
   }
 }

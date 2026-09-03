@@ -79,7 +79,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         context.read<NotificationProvider>().reconcileFromFeed(data);
       } else {
         setState(() {
-          _error = result.failureMessage('Failed to fetch notifications');
+          _error = result.failureMessage(
+            AppLocalizations.of(context)!.failedToFetchNotifications,
+          );
           loading = false;
         });
       }
@@ -110,7 +112,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        _error = AppLocalizations.of(context)!.errorFetchingNotifications;
         loading = false;
       });
     }

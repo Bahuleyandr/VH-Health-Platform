@@ -1,5 +1,13 @@
 # VH Health Platform — Deployment Guide
 
+> **Status (2026-09-02): HELD sequence; not deployment authority.** The current
+> repository posture is STOP in
+> [`GO_LIVE_READINESS_GAP_MATRIX.md`](GO_LIVE_READINESS_GAP_MATRIX.md). Every
+> write, secret operation, migration, manual ArgoCD sync, traffic cutover, and
+> legacy-system change below requires the named owner, exact approved revision,
+> change window, rollback evidence, and target-environment receipt. Missing
+> input is a stop.
+>
 > End-to-end runbook for bringing up the VH Health backend + admin portal
 > on a **3-node on-prem RKE2 Kubernetes cluster** inside a hospital data
 > centre. Target audience: hospital SRE who's comfortable with Linux +
@@ -11,7 +19,7 @@
 > - [`india-deployment-readiness.md`](india-deployment-readiness.md) — India
 >   compliance, ABDM/DPDP/CERT-In, and go-live evidence gates
 > - [`../apps/backend/docs/DISASTER-RECOVERY.md`](../apps/backend/docs/DISASTER-RECOVERY.md) — DR scenarios
-> - [`../apps/backend/docs/DB-MIGRATION-PLAN.md`](../apps/backend/docs/DB-MIGRATION-PLAN.md) — CNPG data cutover runbook
+> - [`../apps/backend/docs/DB-MIGRATION-PLAN.md`](../apps/backend/docs/DB-MIGRATION-PLAN.md) — held PreSync migration evidence runbook
 > - [`CNPG_POSTGRES_18_QUALIFICATION.md`](CNPG_POSTGRES_18_QUALIFICATION.md) —
 >   binding CNPG 1.30 / PostgreSQL 18.4 activation and rollback gates
 > - [`RKE2_1_34_QUALIFICATION.md`](RKE2_1_34_QUALIFICATION.md) — exact RKE2
@@ -84,8 +92,10 @@ following invariants:
 - Backend Kubernetes Deployment sets `CLUSTER_WORKERS=2`; increasing it needs a
   capacity review so pods do not oversubscribe host CPUs.
 - CI database setup reads SQL from `apps/backend/src/migrations`.
-- Mobile release workflows require Forgejo Actions variable `VH_BASE_URL`,
-  secret `VH_API_KEY`, and patient/staff Android signing secrets.
+- A future owner-authorized Forgejo release path would require `VH_BASE_URL`,
+  `VH_API_KEY`, and patient/staff Android signing material. The current
+  audit-program release gate is GitHub Actions; see
+  [`RELEASE_READINESS.md`](RELEASE_READINESS.md).
 - Admin CI runs lint, type-check, Jest, production build, and the Clinical AI
   bundle guard.
 - Smoke journey commands are documented in
@@ -810,7 +820,12 @@ kubectl -n vhhealth logs deployment/vhhealth-backend --tail=20 | grep "GET /heal
 
 ### 7.4 Cut the legacy host off
 
-After confirming 24 hours of stable production traffic on the cluster:
+This is a destructive, separately authorized decommission step. OWNER-INPUT —
+legacy-system owner: ______; exact new-cluster release: ______; signed 24-hour
+traffic/reconciliation receipt: ______; retained rollback/archive receipt:
+______.
+
+Only after those receipts and explicit decommission authority exist:
 
 - Remove the legacy host from any remaining DNS records.
 - Stop the legacy backend process + DB container.
@@ -825,13 +840,17 @@ After steps 3–7 are complete:
 - [ ] `kubectl get nodes` — 3 Ready
 - [ ] `kubectl get pods -A` — 0 pods in CrashLoopBackOff or Pending > 2 min
 - [ ] `kubectl -n vhhealth-platform get cluster vhhealth-pg` — Phase: "Cluster in healthy state", ReadyInstances: 3
-- [ ] `kubectl -n argocd get application` — all Applications Synced + Healthy
+- [ ] `kubectl -n argocd get application` — each Application approved for this
+      change is Synced + Healthy at the exact reviewed revision; every
+      intentionally held or unrelated `OutOfSync` Application is recorded and
+      left unsynced
 - [ ] `curl https://api.vhhealth.app/health/deep` — all checks `ok: true`
 - [ ] `curl https://admin.vhhealth.app/` — returns admin portal HTML
 - [ ] **Post-C1.2/qualification only:** `ScheduledBackup/vhhealth-pg-daily`
       succeeds with `method: plugin`; its `Backup` is complete under the
-      distinct `vhhealth-pg18` R2 archive identity. Until then, production
-      remains on its qualified PostgreSQL 17 backup path
+      distinct `vhhealth-pg18` R2 archive identity. Until then, the active
+      repository composition continues to target PostgreSQL 17; live backup
+      qualification requires a separate target-environment receipt
 - [ ] Grafana dashboards (port-forward the Grafana Service in `vhhealth-monitoring`) — all panels populated, no "No data"
 - [ ] A merge leaves the C1.1 `PrometheusRule` definitions inert. After the
       approved `vhhealth-platform` manual sync, confirm Prometheus loads and
@@ -943,7 +962,7 @@ the infrastructure checks below. That runbook is the acceptance gate for
 ABDM/ABHA, DPDP Act/Rules, CERT-In 180-day logs and six-hour incident
 reporting, clinical UAT, backup/DR, and medical-device boundary decisions.
 
-### In place
+### Repository controls requiring live qualification
 
 - **DPDP Act (India, 2023):**
   - Data residency: primary PHI remains on cluster storage. The confirmed R2
@@ -952,8 +971,9 @@ reporting, clinical UAT, backup/DR, and medical-device boundary decisions.
     location/residency configuration separately before go-live.
   - Audit logs: `audit_log` + `file_access_logs` tables capture every
     PHI access with actor, timestamp, resource.
-  - Encryption at rest: the running CNPG PostgreSQL 17 cluster uses
-    `data_checksums`. Cloudflare R2 automatically encrypts database backup
+  - Encryption at rest: the active CNPG PostgreSQL 17 manifest enables
+    `data_checksums`; the target cluster must prove that setting live.
+    Cloudflare R2 automatically encrypts database backup
     objects and metadata at rest with provider-managed AES-256-GCM; the Barman
     `ObjectStore` must not force the unsupported S3 server-side-encryption
     header. Backend upload archives use separate encryption and HMAC keys from
@@ -963,7 +983,8 @@ reporting, clinical UAT, backup/DR, and medical-device boundary decisions.
   - Access controls: RBAC on both the application layer
     (`wrapAutoRBAC`) and k8s namespace layer (NetworkPolicy + RBAC).
 
-- **HIPAA-ready (for future multi-region / US workload):**
+- **Repository support for a future HIPAA-scoped workload (not a compliance
+  claim):**
   - Field-level encryption for sensitive columns
     (`FIELD_ENCRYPTION_KEY`).
   - TOTP secrets encrypted with a distinct key

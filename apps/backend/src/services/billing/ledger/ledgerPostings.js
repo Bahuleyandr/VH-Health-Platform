@@ -14,8 +14,9 @@ import { postLedgerEntry } from './ledgerService.js';
 // Phase 4-1: post into a caller-supplied tx when present (same-tx, enforce mode),
 // otherwise open our own setTenantTx (post-commit best-effort, shadow mode = today).
 function runPosting(tx, tenantId, entryArgs) {
-  if (tx) return postLedgerEntry(tx, entryArgs);
-  return setTenantTx(tenantId, (t) => postLedgerEntry(t, entryArgs));
+  const tenantEntryArgs = { ...entryArgs, tenantId };
+  if (tx) return postLedgerEntry(tx, tenantEntryArgs);
+  return setTenantTx(tenantId, (t) => postLedgerEntry(t, tenantEntryArgs));
 }
 
 const ELECTRONIC_MODES = new Set(['UPI', 'CARD', 'NETBANKING', 'CHEQUE', 'ONLINE', 'BANK_TRANSFER', 'DD', 'WALLET']);

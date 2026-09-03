@@ -17,7 +17,7 @@
 //  - the pre-acquisition contrast-plan amendment (PUT /:id/contrast) runs the
 //    same gate and locks once the study leaves 'ordered'.
 
-import { generateTestToken } from './testClient.js';
+import { generateTestToken, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -65,6 +65,11 @@ async function cleanupRows() {
 }
 
 describe('radiology contrast/allergy screening at order time (migration 678)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity(DOCTOR_UID);
+  });
   beforeAll(async () => {
     await cleanupRows();
     const seedUsers = [

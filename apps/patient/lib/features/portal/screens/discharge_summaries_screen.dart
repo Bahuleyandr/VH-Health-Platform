@@ -104,7 +104,10 @@ class _DischargeSummariesListState extends State<DischargeSummariesList> {
 
     final l10n = AppLocalizations.of(context)!;
     try {
-      final page = await widget.repository.listSummaries();
+      final page = await widget.repository.listSummaries(
+        loadFailureMessage: l10n.dischargeSummariesLoadFailed,
+        refreshFailureMessage: l10n.dischargeSummariesRefreshFailed,
+      );
       if (!mounted) return;
       setState(() {
         _summaries = page.summaries;
@@ -288,9 +291,15 @@ class _DischargeSummaryDetailScreenState
     try {
       final snapshot = widget.repository is ApiDischargeSummariesRepository
           ? await (widget.repository as ApiDischargeSummariesRepository)
-                .getSummarySnapshot(widget.summaryId)
+                .getSummarySnapshot(
+                  widget.summaryId,
+                  loadFailureMessage: l10n.dischargeSummaryDetailLoadFailed,
+                )
           : DischargeSummarySnapshot(
-              summary: await widget.repository.getSummary(widget.summaryId),
+              summary: await widget.repository.getSummary(
+                widget.summaryId,
+                loadFailureMessage: l10n.dischargeSummaryDetailLoadFailed,
+              ),
             );
       if (!mounted) return;
       setState(() {

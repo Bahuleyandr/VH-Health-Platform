@@ -90,9 +90,19 @@ import {
   persistRevokeAllUserTokens,
   publishRevokeAllUserTokens,
 } from '../../utils/tokenBlacklist.js';
+import * as tokenBlacklist from '../../utils/tokenBlacklist.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { resolveMergedPatientUidSet } from '../clinical/mergedPatientReadUnion.js';
 import { reassignIdentifiersForMerge } from './patientIdentifierService.js';
+
+if (
+  process.env.NODE_ENV !== 'test'
+  && typeof tokenBlacklist.withAuthIdentityLifecycleLocks !== 'function'
+) {
+  throw new Error('Auth identity lifecycle locking is unavailable');
+}
+const withAuthIdentityLifecycleLocks = tokenBlacklist.withAuthIdentityLifecycleLocks
+  ?? ((_client, _uids, fn) => fn(_client));
 
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 200;
@@ -147,6 +157,16 @@ const MERGE_READ_UNION_COVERED_TABLES = new Set([
   'clinical_audit_events',
   'clinical_timeline_events',
   'patient_access_audit_log',
+  // Clinical-import receipts are immutable custody provenance. A patient
+  // merge must never rewrite the source identity recorded on either the
+  // document or its resource receipts; replay/read paths resolve that source
+  // uid through the survivor's merged family instead.
+  'clinical_import_authority_events',
+  'clinical_import_document_receipts',
+  'clinical_import_raw_artifacts',
+  'clinical_import_resource_receipts',
+  'clinical_import_reconciliation_items',
+  'clinical_import_reconciliation_events',
   // Advances and IPD deposits are protected by financial-lineage immutability,
   // so their rows stay on the pre-merge uid by design. Every patient-scoped
   // read of them unions the merged family: getAdmissionDepositBalance through
@@ -220,11 +240,26 @@ const MERGE_PATH_ESCAPE_SIGNALS = [
 // direction: it would abort a live merge mid-sweep. The shipped triggers raise
 // when the lock is NOT held, so require that negated form and nothing weaker.
 const MERGE_PATH_ESCAPE_LOCK_NEGATED =
-  /\bNOT\s+(?:public\s*\.\s*)?patient_merge_lock_held_753\s*\(/i;
+  /\bNOT\s+(?:public\s*\.\s*)?(?:patient_merge_lock_held_753|clinical_import_patient_merge_lock_held_755)\s*\(/i;
 
 function isMergePathEscapeCondition(condition) {
   return MERGE_PATH_ESCAPE_LOCK_NEGATED.test(condition)
     && MERGE_PATH_ESCAPE_SIGNALS.every((signal) => signal.test(condition));
+}
+
+function isMergeCompatibleClinicalImportReceiptGuard(text, functionName) {
+  if (functionName !== 'clinical_import_history_receipt_guard_755') return false;
+  if (/\bOLD\b/i.test(text)) return false;
+  if (/\b(?:INSERT\s+INTO|UPDATE\s+|DELETE\s+FROM)\b/i.test(text)) return false;
+  return [
+    /FROM\s+(?:public\s*\.\s*)?e_prescriptions\s+AS\s+prescription/i,
+    /prescription\s*\.\s*id\s*=\s*NEW\s*\.\s*id/i,
+    /prescription\s*\.\s*tenant_id\s*=\s*NEW\s*\.\s*tenant_id/i,
+    /resource\s*\.\s*target_table\s*=\s*'e_prescriptions'/i,
+    /source_patient\s*\.\s*uid\s*=\s*current_history\s*\.\s*patient_uid/i,
+    /source_patient\s*\.\s*merged_into_uid\s*=\s*current_history\s*\.\s*patient_uid/i,
+    /RETURN\s+NEW\s*;/i,
+  ].every((anchor) => anchor.test(text));
 }
 
 /**
@@ -265,11 +300,12 @@ function collectRaiseConditionStacks(text) {
   return stacks;
 }
 
-function isUpdateBlockingTriggerSource(source) {
+function isUpdateBlockingTriggerSource(source, functionName = null) {
   const text = String(source || '')
     .replace(/--[^\n]*/g, ' ')
     .replace(/\/\*[\s\S]*?\*\//g, ' ');
   if (!/RAISE\s+EXCEPTION/i.test(text)) return false;
+  if (isMergeCompatibleClinicalImportReceiptGuard(text, functionName)) return false;
   const raiseStacks = collectRaiseConditionStacks(text);
   // Rule (c): certified merge-path gate. A trigger that raises ONLY when the
   // sanctioned merge GUCs are absent or the merge lock is not held cannot fire
@@ -349,7 +385,10 @@ async function discoverMergeSweepTargets(tx) {
     .map((row) => {
       const triggers = Array.isArray(row.update_triggers) ? row.update_triggers : [];
       const blockingTriggers = triggers
-        .filter((trigger) => isUpdateBlockingTriggerSource(trigger?.prosrc))
+        .filter((trigger) => isUpdateBlockingTriggerSource(
+          trigger?.prosrc,
+          String(trigger?.proname || ''),
+        ))
         .map((trigger) => String(trigger.proname));
       return {
         table_name: row.table_name,
@@ -1234,6 +1273,7 @@ export async function executeMerge({
       }
       const primary = existing.primary_uid;
       const secondary = existing.secondary_uid;
+      await withAuthIdentityLifecycleLocks(tx, [primary, secondary], async () => {});
 
       // Lock both patient rows and re-validate under the lock: both must
       // still be live PATIENT records and neither already merged away.

@@ -668,7 +668,11 @@ class _RequestCard extends StatelessWidget {
                       try {
                         final evidence = photo == null
                             ? null
-                            : await StaffEvidenceUploadService.upload(photo!);
+                            : await StaffEvidenceUploadService.upload(
+                                photo!,
+                                failureMessage: AppStrings.of(context)
+                                    .staffPhotoUploadFailed,
+                              );
                         await HrApiService.completeHousekeepingRequest(
                           requestId: requestId,
                           completionNotes: notesCtrl.text.trim().isNotEmpty

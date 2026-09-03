@@ -1,7 +1,7 @@
 // Roadmap D3 — credentialing & privileging deep round-trip.
 
 import prisma from '../lib/prisma.js';
-import { authClient } from './testClient.js';
+import { authClient, ensureTestIdentity } from './testClient.js';
 import { hasActivePrivilege } from '../services/staff/credentialingService.js';
 import theatreService from '../services/theatre/theatreService.js';
 import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
@@ -55,6 +55,11 @@ async function cleanup() {
 }
 
 d('Credentialing & privileging — deep round-trip (roadmap D3)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity(APPROVER_UID);
+  });
   const originalTheatreGate = process.env.THEATRE_REQUIRE_PRIMARY_SURGEON_PRIVILEGE;
 
   beforeAll(async () => {

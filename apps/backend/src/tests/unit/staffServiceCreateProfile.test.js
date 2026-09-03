@@ -4,6 +4,7 @@ const queryRawUnsafe = jest.fn();
 const usersCreate = jest.fn();
 const onboardingCreate = jest.fn();
 const bcryptHash = jest.fn();
+const lifecycleLockMock = jest.fn(async (_tx, _uids, fn) => fn());
 
 const __prismaDefaultMock = {
   $queryRawUnsafe: queryRawUnsafe,
@@ -13,6 +14,7 @@ const __prismaDefaultMock = {
   staff_onboarding_tasks: {
     create: onboardingCreate,
   },
+  $transaction: jest.fn(async (fn) => fn(__prismaDefaultMock)),
 };
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
@@ -30,6 +32,10 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   },
 }));
 
+jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
+  withAuthIdentityLifecycleLocks: lifecycleLockMock,
+}));
+
 jest.unstable_mockModule('bcrypt', () => ({
   default: {
     hash: bcryptHash,
@@ -41,6 +47,9 @@ const { createStaffProfile } = await import('../../services/staff/staffService.j
 describe('createStaffProfile onboarding account creation', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    queryRawUnsafe.mockReset();
+    usersCreate.mockReset();
+    onboardingCreate.mockReset();
     bcryptHash.mockResolvedValue('$2b$10$hashed');
     onboardingCreate.mockResolvedValue({});
   });
@@ -105,6 +114,9 @@ describe('createStaffProfile onboarding account creation', () => {
         }),
       }),
     );
+    // Creation takes no lifecycle lock: the row is invisible until commit and
+    // its uid is database-generated, so nothing can contend for it.
+    expect(lifecycleLockMock).not.toHaveBeenCalled();
     expect(onboardingCreate).toHaveBeenCalledTimes(6);
     expect(queryRawUnsafe.mock.calls[4][0]).toContain('INSERT INTO staff');
     expect(queryRawUnsafe.mock.calls[4]).toEqual(

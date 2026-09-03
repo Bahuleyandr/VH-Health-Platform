@@ -3,7 +3,7 @@
 // requireRole grants SUPER_ADMIN an un-scoped bypass; the control-plane mounts
 // now also require an MFA step-up (req.user.mfa), matching /admin, /system,
 // /logs. A SUPER_ADMIN token without mfa must be blocked.
-import { generateTestToken, API_KEY } from './testClient.js';
+import { generateTestToken, API_KEY, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -18,6 +18,11 @@ function su(mfa) {
 }
 
 d('Control-plane SUPER_ADMIN step-up (CAN-043)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity('c0de0143-0001-4c0d-8c0d-c0de01430001', { tenantId: TENANT_ID });
+  });
   afterAll(async () => { await prisma.$disconnect().catch(() => {}); });
 
   it('SUPER_ADMIN WITHOUT mfa is blocked from the tenant control plane', async () => {

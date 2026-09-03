@@ -39,6 +39,8 @@ class _AchievementShareCardState extends State<AchievementShareCard> {
 
   Future<void> _share() async {
     if (_sharing) return;
+    final shareText = AppLocalizations.of(context)!
+        .gamificationShareEarnedBadge(widget.achievement.title);
     setState(() => _sharing = true);
     try {
       final boundary =
@@ -56,8 +58,7 @@ class _AchievementShareCardState extends State<AchievementShareCard> {
       await SharePlus.instance.share(
         ShareParams(
           files: [XFile(file.path, mimeType: 'image/png')],
-          text:
-              'I earned the "${widget.achievement.title}" badge on VH Health!',
+          text: shareText,
         ),
       );
     } catch (e) {
@@ -76,6 +77,7 @@ class _AchievementShareCardState extends State<AchievementShareCard> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final dateStr = DateFormat('dd MMM yyyy').format(widget.earnedAt);
     final a = widget.achievement;
@@ -104,9 +106,9 @@ class _AchievementShareCardState extends State<AchievementShareCard> {
                 ),
                 child: Column(
                   children: [
-                    const Text(
-                      'VH Health',
-                      style: TextStyle(
+                    Text(
+                      l.splashAppName,
+                      style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w600,
                         letterSpacing: 1.2,
@@ -150,7 +152,7 @@ class _AchievementShareCardState extends State<AchievementShareCard> {
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
-                        'Earned on $dateStr',
+                        l.gamificationEarnedOn(dateStr),
                         style: const TextStyle(color: Colors.white),
                       ),
                     ),
@@ -164,7 +166,7 @@ class _AchievementShareCardState extends State<AchievementShareCard> {
                 Expanded(
                   child: OutlinedButton(
                     onPressed: () => Navigator.of(context).maybePop(),
-                    child: const Text('Close'),
+                    child: Text(l.commonCloseButton),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -181,7 +183,7 @@ class _AchievementShareCardState extends State<AchievementShareCard> {
                             ),
                           )
                         : const Icon(Icons.share),
-                    label: const Text('Share'),
+                    label: Text(l.commonShareButton),
                     style: FilledButton.styleFrom(backgroundColor: a.color),
                   ),
                 ),

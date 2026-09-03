@@ -5626,17 +5626,28 @@ async function createCounterAdmissionPatient({
     throw AppError.badRequest('patient_name is required for a new admission patient');
   }
   const tid = tenantId || null;
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, registered_at, updated_at)
-     VALUES (gen_random_uuid(), $1, $2, 'PATIENT', true,
-             COALESCE($3::uuid, '00000000-0000-4000-8000-000000000001'::uuid),
-             NOW(), NOW())
-     RETURNING id, uid, name, phone, tenant_id`,
-    digits,
-    patientName,
-    tid,
-  );
-  const patient = rows[0];
+  // Tenant-scoped on purpose. A bare `prisma.$transaction` hands back the raw
+  // itx client, which skips the prisma proxy's tenant wrapper, so
+  // `app.current_tenant_id` stays unset inside it. `public.users` carries the
+  // RESTRICTIVE `explicit_tenant_context_753` policy (migration 758) whose
+  // WITH CHECK requires that GUC — naming tenant_id in the INSERT is not
+  // enough, the unscoped write is rejected 42501.
+  // `tid` may be null for a legacy caller; fall back to the bare transaction
+  // there so this keeps its previous behaviour rather than throwing.
+  const runPatientCreate = (fn) => (tid ? setTenantTx(tid, fn) : prisma.$transaction(fn));
+  const patient = await runPatientCreate(async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, registered_at, updated_at)
+       VALUES (gen_random_uuid(), $1, $2, 'PATIENT', true,
+               COALESCE($3::uuid, '00000000-0000-4000-8000-000000000001'::uuid),
+               NOW(), NOW())
+       RETURNING id, uid, name, phone, tenant_id`,
+      digits,
+      patientName,
+      tid,
+    );
+    return rows[0];
+  });
   const hospitalNumber = await ensureHospitalNumber({
     tenantId: patient.tenant_id || tenantId,
     patientUid: patient.uid,

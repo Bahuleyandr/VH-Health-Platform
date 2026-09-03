@@ -10,6 +10,7 @@ import { AppError } from '../../utils/AppError.js';
 import { maskPhoneForLog } from '../../utils/logMasking.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
 import { issueSetupToken, verifyToken } from '../../utils/jwtUtils.js';
+import { resolveCanonicalTokenIdentity } from '../../utils/tokenIdentity.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { trackFailedLogin } from '../../utils/loginAnomalyDetector.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
@@ -23,6 +24,7 @@ import {
   publishRevokeAllUserTokens,
   revokeAllUserTokens,
 } from '../../utils/tokenBlacklist.js';
+import * as tokenBlacklist from '../../utils/tokenBlacklist.js';
 import { generateChallengeToken } from '../../utils/totpUtils.js';
 import * as firebaseAuthService from './firebaseAuthService.js';
 import { issueAccessTokenAndClaimSession, generateRefreshToken, resolveTenantIdForUid } from './loginSessionHelper.js';
@@ -36,6 +38,23 @@ import * as otpService from './otpService.js';
 // uses the same cost. Verifiers detect a $2-prefixed value and bcrypt.compare;
 // any in-flight legacy plaintext row still matches via the === fallback.
 const OTP_HASH_ROUNDS = 6;
+if (
+  process.env.NODE_ENV !== 'test'
+  && typeof tokenBlacklist.withAuthIdentityLifecycleLocks !== 'function'
+) {
+  throw new Error('Auth identity lifecycle locking is unavailable');
+}
+const withAuthIdentityLifecycleLocks = tokenBlacklist.withAuthIdentityLifecycleLocks
+  ?? ((_client, _uids, fn) => fn(_client));
+
+// Identity creation takes no lifecycle lock: the new row is invisible to every
+// other transaction until commit and its uid is database-generated, so nothing
+// can contend for it (see withAuthIdentityLifecycleLocks in tokenBlacklist.js).
+// The interactive transaction is kept so the create runs on the same client
+// shape as before; it is not a synchronisation point.
+async function createIdentityTx(realm, args) {
+  return prisma.$transaction(async (tx) => tx[realm].create(args));
+}
 
 // Lock a single password-reset OTP after this many failed verify attempts.
 // Single source of truth: SECURITY_CONFIG.otp.maxAttemptsPerPhone — previously
@@ -141,7 +160,7 @@ export class AuthService {
             data: { updated_at: now },
             select: { uid: true, id: true, name: true, phone: true, role: true },
           })
-        : await prisma.users.create({
+        : await createIdentityTx('users', {
             data: {
               phone: normalizedPhone,
               role: 'PATIENT',
@@ -500,15 +519,16 @@ export class AuthService {
       const newHash = await bcrypt.hash(newPassword, 10);
 
       const revokedAt = await prisma.$transaction(async (tx) => {
-        await tx.admins.update({
-          where: { uid: String(adminId) },
-          data: { password_hash: newHash, password_changed_at: new Date() },
-        });
-        return persistRevokeAllUserTokens(String(adminId), {
+        const durableRevokedAt = await persistRevokeAllUserTokens(String(adminId), {
           client: tx,
           requireEvidence: true,
           reason: 'password_changed',
         });
+        await tx.admins.update({
+          where: { uid: String(adminId) },
+          data: { password_hash: newHash, password_changed_at: new Date() },
+        });
+        return durableRevokedAt;
       });
       await publishRevokeAllUserTokens(String(adminId), revokedAt, { reason: 'password_changed' });
 
@@ -631,15 +651,14 @@ export class AuthService {
         // Lost the race (another concurrent reset already consumed this OTP).
         if (burned.count === 0) throw new Error('Invalid or expired OTP');
 
-        await tx.admins.update({
-          where: { uid: admin.uid },
-          data: { password_hash: newHash, password_changed_at: new Date() },
-        });
-
         const durableRevokedAt = await persistRevokeAllUserTokens(String(admin.uid), {
           client: tx,
           requireEvidence: true,
           reason: 'password_reset',
+        });
+        await tx.admins.update({
+          where: { uid: admin.uid },
+          data: { password_hash: newHash, password_changed_at: new Date() },
         });
         return {
           result: { message: 'Password reset successfully' },
@@ -776,7 +795,7 @@ export class AuthService {
 
       const passwordHash = await bcrypt.hash(password, 10);
 
-      const newAdmin = await prisma.admins.create({
+      const newAdmin = await createIdentityTx('admins', {
         data: {
           username,
           password_hash: passwordHash,
@@ -890,43 +909,57 @@ export class AuthService {
         err.details = { fields: ['active', 'status'] };
         throw err;
       }
-      const admin = await prisma.admins.updateMany({
-        where: { uid: String(adminId), status: 'active' },
-        data: {
-          status: 'inactive',
-          is_active: false,
-          deactivated_at: new Date(),
-          deactivated_by: deactivatedBy ?? null,
-          deactivation_reason: reason ?? null,
-        },
-      });
-      if (admin.count === 0) {
-        throw new Error('Admin not found or already deactivated');
-      }
-      if (scimManaged) {
-        await prisma.identity_audit_events.create({
+      const { updated, revokedAt } = await prisma.$transaction(async (tx) => {
+        await withAuthIdentityLifecycleLocks(tx, [String(adminId)], async () => {});
+        const admin = await tx.admins.updateMany({
+          where: { uid: String(adminId), status: 'active' },
           data: {
-            tenant_id: existing.tenant_id,
-            realm: 'admin',
-            protocol: 'scim',
-            provider_id: existing.scim_provider_id ?? null,
-            event_type: 'SCIM_LOCAL_OVERRIDE',
-            outcome: 'accepted',
-            actor_uid: deactivatedBy ?? null,
-            local_uid: existing.uid,
-            details: {
-              fields: ['active', 'status'],
-              action: 'deactivate',
-              reason: scimOverrideReason(reason),
-              source,
-            },
+            status: 'inactive',
+            is_active: false,
+            deactivated_at: new Date(),
+            deactivated_by: deactivatedBy ?? null,
+            deactivation_reason: reason ?? null,
           },
         });
-      }
+        if (admin.count === 0) {
+          throw new Error('Admin not found or already deactivated');
+        }
 
-      const updated = await prisma.admins.findUnique({
-        where: { uid: String(adminId) },
-        select: { uid: true, username: true },
+        const durableRevokedAt = await persistRevokeAllUserTokens(String(adminId), {
+          client: tx,
+          requireEvidence: true,
+          reason: 'admin_deactivated',
+        });
+
+        if (scimManaged) {
+          await tx.identity_audit_events.create({
+            data: {
+              tenant_id: existing.tenant_id,
+              realm: 'admin',
+              protocol: 'scim',
+              provider_id: existing.scim_provider_id ?? null,
+              event_type: 'SCIM_LOCAL_OVERRIDE',
+              outcome: 'accepted',
+              actor_uid: deactivatedBy ?? null,
+              local_uid: existing.uid,
+              details: {
+                fields: ['active', 'status'],
+                action: 'deactivate',
+                reason: scimOverrideReason(reason),
+                source,
+              },
+            },
+          });
+        }
+
+        const deactivated = await tx.admins.findUnique({
+          where: { uid: String(adminId) },
+          select: { uid: true, username: true },
+        });
+        return { updated: deactivated, revokedAt: durableRevokedAt };
+      });
+      await publishRevokeAllUserTokens(String(adminId), revokedAt, {
+        reason: 'admin_deactivated',
       });
       return { message: 'Admin account deactivated', admin: { uid: updated.uid, username: updated.username } };
     } catch (error) {
@@ -955,38 +988,42 @@ export class AuthService {
         err.details = { fields: ['active', 'status'] };
         throw err;
       }
-      const admin = await prisma.admins.updateMany({
-        where: { uid: String(adminId), status: 'inactive' },
-        data: {
-          status: 'active',
-          is_active: true,
-          deactivated_at: null,
-          deactivated_by: null,
-          deactivation_reason: null,
-        },
+      const admin = await prisma.$transaction(async (tx) => {
+        await withAuthIdentityLifecycleLocks(tx, [String(adminId)], async () => {});
+        const updated = await tx.admins.updateMany({
+          where: { uid: String(adminId), status: 'inactive' },
+          data: {
+            status: 'active',
+            is_active: true,
+            deactivated_at: null,
+            deactivated_by: null,
+            deactivation_reason: null,
+          },
+        });
+        if (updated.count > 0 && scimManaged) {
+          await tx.identity_audit_events.create({
+            data: {
+              tenant_id: existing.tenant_id,
+              realm: 'admin',
+              protocol: 'scim',
+              provider_id: existing.scim_provider_id ?? null,
+              event_type: 'SCIM_LOCAL_OVERRIDE',
+              outcome: 'accepted',
+              actor_uid: reactivatedBy ?? null,
+              local_uid: existing.uid,
+              details: {
+                fields: ['active', 'status'],
+                action: 'reactivate',
+                reason: scimOverrideReason(overrideReason),
+                source,
+              },
+            },
+          });
+        }
+        return updated;
       });
       if (admin.count === 0) {
         throw new Error('Admin not found or already active');
-      }
-      if (scimManaged) {
-        await prisma.identity_audit_events.create({
-          data: {
-            tenant_id: existing.tenant_id,
-            realm: 'admin',
-            protocol: 'scim',
-            provider_id: existing.scim_provider_id ?? null,
-            event_type: 'SCIM_LOCAL_OVERRIDE',
-            outcome: 'accepted',
-            actor_uid: reactivatedBy ?? null,
-            local_uid: existing.uid,
-            details: {
-              fields: ['active', 'status'],
-              action: 'reactivate',
-              reason: scimOverrideReason(overrideReason),
-              source,
-            },
-          },
-        });
       }
 
       const updated = await prisma.admins.findUnique({
@@ -1115,7 +1152,11 @@ export class AuthService {
       // test-minted tokens set one). Resolve the subject the same way
       // jwtMiddleware does, or the lookup runs against `undefined` and every
       // real refresh 401s with "user not found" (i.e. refresh never works).
-      const subjectUid = decoded.uid ?? decoded.sub;
+      const identityResolution = resolveCanonicalTokenIdentity(decoded);
+      if (identityResolution.conflict || !identityResolution.identity) {
+        throw AppError.unauthorized('Invalid or expired refresh token', 'TOKEN_INVALID');
+      }
+      const subjectUid = identityResolution.identity;
       const explicitAdminRealm = decoded.realm === 'admin';
       const user = subjectUid && !explicitAdminRealm
         ? await prisma.users.findUnique({
@@ -1304,6 +1345,11 @@ export class AuthService {
       // there's no honesty gap in telling the caller they're logged out.
       return {};
     }
+    const identityResolution = resolveCanonicalTokenIdentity(decoded);
+    if (identityResolution.conflict || !identityResolution.identity) {
+      throw AppError.unauthorized('Invalid or expired token', 'TOKEN_INVALID');
+    }
+    const revokeKey = identityResolution.identity;
 
     // Revocation is the security-critical action (audit F10) — a failure here
     // must propagate so the controller can report it, rather than being
@@ -1325,17 +1371,14 @@ export class AuthService {
     // Firebase session (auth_time predating the bump) can no longer silently
     // re-login. R14: it also pushes `session:revoked` to the user's live
     // WebSockets, which wsServer closes server-side.
-    const revokeKey = decoded.uid ?? decoded.user_id ?? decoded.userId ?? decoded.sub ?? decoded.id;
-    if (revokeKey != null) {
-      await revokeAllUserTokens(String(revokeKey), { requireEvidence: true, reason: 'logout' });
-    }
+    await revokeAllUserTokens(revokeKey, { requireEvidence: true, reason: 'logout' });
 
     // Audit trail is best-effort — a logging hiccup must not undo (or mask)
     // an otherwise-successful revocation.
     try {
       await prisma.auth_logs.create({
         data: {
-          user_id: decoded.uid,
+          user_id: revokeKey,
           phone: decoded.phone,
           action: 'logout',
           success: true,
@@ -1414,7 +1457,7 @@ export class AuthService {
       }
       const now = new Date();
 
-      const user = await prisma.users.create({
+      const user = await createIdentityTx('users', {
         data: {
           phone: normalizedPhone,
           role: 'PATIENT',
@@ -1627,7 +1670,7 @@ export class AuthService {
             data: { updated_at: now },
             select: { uid: true, id: true, name: true, phone: true, role: true },
           })
-        : await prisma.users.create({
+        : await createIdentityTx('users', {
             data: {
               phone: normalizedPhone,
               role: 'PATIENT',

@@ -555,6 +555,23 @@ describeIfDb('migration 632 C6.3-TG database transition contract', () => {
       policy_id: fixture.policyId,
       state: 'shadow'
     });
+    const cleanDrillClock = await client.query(
+      `WITH database_clock AS MATERIALIZED (
+         SELECT clock_timestamp() AS completed_at
+       )
+       SELECT database_clock.completed_at::text AS completed_at,
+              database_clock.completed_at >= transition.recorded_at AS completed_after_shadow
+         FROM database_clock
+         JOIN clinical_continuity_activation_transition_events AS transition
+           ON transition.tenant_id = $1::uuid
+          AND transition.facility_id = $2::integer
+          AND transition.id = $3::uuid
+          AND transition.outcome = 'applied'
+          AND transition.transition_kind = 'off_to_shadow'`,
+      [fixture.tenantId, fixture.facilityId, advanceEventId]
+    );
+    expect(cleanDrillClock.rows).toHaveLength(1);
+    expect(cleanDrillClock.rows[0].completed_after_shadow).toBe(true);
 
     const enforcePolicyId = await seedPolicy(client, fixture, {
       enforcedActionIds: ['test.0'],
@@ -569,7 +586,7 @@ describeIfDb('migration 632 C6.3-TG database transition contract', () => {
       {
         captured_work_reconciled: true,
         clean: true,
-        completed_at: new Date().toISOString(),
+        completed_at: cleanDrillClock.rows[0].completed_at,
         continuity_packs_verified: true,
         paper_path_exercised: true,
         planned: true,

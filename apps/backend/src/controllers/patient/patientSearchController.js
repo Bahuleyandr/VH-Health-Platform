@@ -25,7 +25,7 @@
 import crypto from 'crypto';
 
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import {
   findRegistrationDuplicateCandidates,
@@ -411,19 +411,28 @@ export const createPatient = async (req, res) => {
       );
     }
 
-    const rows = await prisma.$queryRawUnsafe(
-      `INSERT INTO users
-         (phone, name, gender, birthday, address, profile_picture, role, is_active, tenant_id, registered_at, updated_at)
-       VALUES ($1, $2, $3, $4::date, $5, $6, 'PATIENT', true, $7::uuid, NOW(), NOW())
-       RETURNING id, uid`,
-      phone,
-      name,
-      gender,
-      birthday,
-      address || null,
-      profilePicture,
-      tenantId,
-    );
+    // Tenant-scoped on purpose. A bare `prisma.$transaction` hands back the raw
+    // itx client, which skips the prisma proxy's tenant wrapper, so
+    // `app.current_tenant_id` stays unset inside it. `public.users` carries the
+    // RESTRICTIVE `explicit_tenant_context_753` policy (migration 758) whose
+    // WITH CHECK requires that GUC — naming tenant_id in the INSERT is not
+    // enough, the unscoped write is rejected 42501.
+    const rows = await setTenantTx(tenantId, async (tx) => {
+      const inserted = await tx.$queryRawUnsafe(
+        `INSERT INTO users
+           (phone, name, gender, birthday, address, profile_picture, role, is_active, tenant_id, registered_at, updated_at)
+         VALUES ($1, $2, $3, $4::date, $5, $6, 'PATIENT', true, $7::uuid, NOW(), NOW())
+         RETURNING id, uid`,
+        phone,
+        name,
+        gender,
+        birthday,
+        address || null,
+        profilePicture,
+        tenantId,
+      );
+      return inserted;
+    });
 
     const patient = await fetchPatientByUid(rows[0].uid, tenantId);
     attachPatientPhiContext(req, patient ?? rows[0], {
