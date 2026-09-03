@@ -30,12 +30,14 @@ const prismaMock = {
   $transaction: jest.fn(async (fn) => fn(prismaMock)),
 };
 
+// setTenantTx delegates its callback to the per-call client and is a spy so
+// the creation paths can assert they run tenant-scoped, not in a bare
+// prisma.$transaction (public.users rejects unscoped inserts under RLS).
+const setTenantTxMock = jest.fn(async (_tenantId, fn) => fn(prismaMock));
+
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: prismaMock,
-  // setTenantTx must delegate its callback to the per-call client when code
-  // wraps writes (kept for parity with the repo mock convention even though
-  // firebaseAuthService talks to the local `query` shim directly).
-  setTenantTx: async (_tenantId, fn) => fn(prismaMock),
+  setTenantTx: setTenantTxMock,
   setTenant: async (_tenantId, fn) => fn(prismaMock),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(prismaMock),
   pickTenantClient: () => prismaMock,
@@ -832,6 +834,10 @@ describe('legacyRegisterUser', () => {
     const insertCall = prismaMock.$queryRawUnsafe.mock.calls[1];
     expect(insertCall[0]).toMatch(/INSERT INTO users/i);
     expect(insertCall[1]).toBe(DEFAULT_TENANT_ID); // tenant_id bound first
+    // The INSERT runs inside a tenant-scoped transaction for that same tenant:
+    // public.users rejects unscoped inserts under RLS (policy 753).
+    expect(setTenantTxMock).toHaveBeenCalledWith(DEFAULT_TENANT_ID, expect.any(Function));
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
 
     expect(issueAccessTokenAndClaimSessionMock).toHaveBeenCalledWith(
       expect.objectContaining({

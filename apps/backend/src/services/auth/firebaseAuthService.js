@@ -2,7 +2,7 @@
 
 import { AUTH_ACTIONS } from '../../config/authConfig.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import prisma, { setTenant } from '../../lib/prisma.js';
+import prisma, { setTenant, setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { maskPhoneForLog } from '../../utils/logMasking.js';
 import admin from '../../utils/firebaseAdmin.js';
@@ -94,7 +94,17 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
   if (userResult.length === 0) {
     // Create new user — set tenant_id explicitly rather than relying on the
     // column DEFAULT, so SaaS registrations land in the right tenant.
-    const insertResult = await prisma.$transaction(async (tx) => {
+    //
+    // This runs BEFORE the tenant middleware, so nothing has set
+    // app.current_tenant_id. public.users carries the RESTRICTIVE
+    // explicit_tenant_context_753 policy (migration 758) under FORCE ROW
+    // LEVEL SECURITY, whose WITH CHECK requires that GUC to equal the row's
+    // tenant_id — naming tenant_id in the INSERT is not enough. A bare
+    // prisma.$transaction is not scoped (its tx client skips the tenant
+    // wrapper) and is rejected 42501 on any RLS-subject connection, which
+    // production is (vhhealth_runtime). setTenantTx sets the runtime role
+    // and the GUC as the transaction's first statements.
+    const insertResult = await setTenantTx(tenantId, async (tx) => {
       const rows = await query(
         `INSERT INTO users (
           tenant_id, phone, firebase_uid, role, registered_at, updated_at, last_sign_in_at,
@@ -644,8 +654,10 @@ export const legacyRegisterUser = async (userData, req, { deviceType } = {}) => 
     throw error;
   }
 
-  // Create new user — tenant_id set explicitly.
-  const insertResult = await prisma.$transaction(async (tx) => {
+  // Create new user — tenant_id set explicitly, inside a tenant-scoped
+  // transaction: this pre-auth path has no app.current_tenant_id and
+  // public.users rejects unscoped inserts under RLS (see authenticateWithFirebase).
+  const insertResult = await setTenantTx(tenantId, async (tx) => {
     const rows = await query(
       `INSERT INTO users (
         tenant_id, phone, name, gender, email, birthday, anniversary, address,

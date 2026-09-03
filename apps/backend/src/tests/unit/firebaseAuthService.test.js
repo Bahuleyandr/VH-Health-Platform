@@ -13,9 +13,11 @@ const ensureHospitalNumberMock = jest.fn();
 const revokeAllUserTokensMock = jest.fn();
 const lifecycleLockMock = jest.fn(async (_tx, _uids, fn) => fn());
 
+const setTenantTxMock = jest.fn(async (_tenantId, fn) => fn(prismaMock));
+
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: prismaMock,
-  setTenantTx: async (_tenantId, fn) => fn(prismaMock),
+  setTenantTx: setTenantTxMock,
   setTenant: async (_tenantId, fn) => fn(prismaMock),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(prismaMock),
   pickTenantClient: () => prismaMock
@@ -109,6 +111,12 @@ describe('firebaseAuthService.authenticateWithFirebase', () => {
     );
 
     expect(verifyIdTokenMock).toHaveBeenCalledWith('firebase-id-token', true);
+    // public.users rejects an unscoped INSERT under RLS (RESTRICTIVE policy
+    // explicit_tenant_context_753, migration 758), and this path runs before
+    // the tenant middleware, so the new identity must be created inside a
+    // tenant-scoped transaction for the tenant resolved from the request.
+    expect(setTenantTxMock).toHaveBeenCalledWith(insertedUser.tenant_id, expect.any(Function));
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
     expect(issueAccessTokenAndClaimSessionMock).toHaveBeenCalledWith(
       expect.objectContaining({
         userUid: insertedUser.uid,

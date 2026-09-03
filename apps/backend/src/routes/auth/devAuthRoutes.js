@@ -17,7 +17,7 @@
 import express from 'express';
 
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { maskPhoneForLog } from '../../utils/logMasking.js';
 import { generateToken } from '../../utils/jwtUtils.js';
@@ -25,6 +25,7 @@ import { normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { ensureHospitalNumber } from '../../services/patient/patientIdentifierService.js';
 import { isDevAuthEnabled } from '../../utils/authCompatibilityGates.js';
+import { resolveTenantForRequest } from '../../services/tenant/tenantService.js';
 
 const router = express.Router();
 
@@ -68,9 +69,14 @@ router.post('/patient-login', async (req, res) => {
     let isNewUser = false;
     if (!user) {
       const now = new Date();
-      user = await prisma.$transaction(async (tx) => {
+      // Pre-auth path: public.users rejects unscoped inserts under RLS
+      // (RESTRICTIVE policy 753), so create inside a tenant-scoped
+      // transaction and stamp that tenant on the row.
+      const tenantId = await resolveTenantForRequest(req);
+      user = await setTenantTx(tenantId, async (tx) => {
         const created = await tx.users.create({
           data: {
+            tenant_id: tenantId,
             phone,
             role: 'PATIENT',
             name,

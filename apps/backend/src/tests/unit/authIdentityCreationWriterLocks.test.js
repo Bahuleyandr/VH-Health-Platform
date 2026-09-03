@@ -129,7 +129,11 @@ describe('auth identity creation writers take no lifecycle lock', () => {
     const source = read('services/auth/authService.js');
     const helperIndexes = matchIndexes(source, /\btx\[realm\]\.create\s*\(/g);
     expect(helperIndexes).toHaveLength(1);
-    expect(source).toMatch(/async function createIdentityTx\(realm, args\)[\s\S]*?prisma\.\$transaction\(/);
+    // The users realm runs inside setTenantTx (pre-auth callers have no tenant
+    // context and public.users rejects unscoped inserts under RLS, see
+    // preAuthIdentityCreationTenantScope.test.js); admins keeps the bare
+    // transaction. Neither takes a lifecycle lock.
+    expect(source).toMatch(/async function createIdentityTx\(realm, args, \{ tenantId = null \} = \{\}\)[\s\S]*?prisma\.\$transaction\(/);
     expect(source).not.toMatch(/createIdentityWithLifecycleLock/);
     expect(source.match(/createIdentityTx\('(?:users|admins)'/g)).toHaveLength(4);
     expectNoLockAfterOrmCreation(source, helperIndexes);
