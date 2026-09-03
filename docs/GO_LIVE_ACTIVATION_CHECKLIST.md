@@ -1,15 +1,17 @@
 # Go-Live Activation Checklist — VH Health Platform
 
-**Created 2026-06-14.** Single ordered runbook for taking the platform from
-"all in-our-control code complete + green" (the S-tier roadmap state as of
-2026-06-14) to a production-enforced pilot deploy.
+**Created 2026-06-14; readiness reconciled 2026-09-02.** This is the ordered
+evidence checklist for a possible production pilot. It does not assert that the
+current repository, release train, cluster, external authorities, or operator
+inputs are ready, and it does not authorize any release, sync, migration, or
+activation.
 
-Everything below is **operator / cluster work** — the code, migrations, and
-manifests are already committed and on `main`. Each step flips a control from
-"manifest-ready" to "live + verified". **Order matters** where noted: secrets
-before the first app deploy; digest pins before ArgoCD syncs apps; the
-non-superuser DB role before (or with) the backend rollout, or RLS enforcement
-breaks at runtime.
+Every write below is an **owner-authorized operator action**. Repository
+preparation, CI evidence, a merge, or an ArgoCD `OutOfSync` state is not
+activation authority. **Order matters** where noted: named owner inputs before
+sealing; approved release evidence before digest pins; an exact reviewed
+migration receipt before the app sync; and live delivery plus rollback proof
+before G1 can close.
 
 > Status legend per item: tick `- [ ]` → `- [x]` with **date / operator
 > initials** once verified against the live system. Mirror completions into
@@ -31,7 +33,11 @@ Confirm the platform substrate is installed before any app activation. None of
 this is app-specific; it's the GitOps + data foundation.
 
 - [ ] **A1.** 3-node RKE2 cluster reachable; `kubectl get nodes` all `Ready`. (date / initials): ______
-- [ ] **A2.** ArgoCD installed and the `apps` + base Applications are registered, but **auto-sync paused** until B/C below land (so fail-closed placeholders don't block the first sync). `argocd app get vhhealth-apps`. (date / initials): ______
+- [ ] **A2.** ArgoCD installed and the production Applications are registered
+  with **manual sync**. Confirm there is no `syncPolicy.automated` block on
+  `vhhealth-platform`, `vhhealth-apps`, `vhhealth-kube-prometheus`, or
+  `vhhealth-loki`; an `OutOfSync` state must remain inert until the operator
+  approves the exact revision. Evidence location/hash: ______. (date / initials): ______
 - [ ] **A3.** Sealed-secrets controller installed; you can `kubeseal` against this cluster's public cert. (date / initials): ______
 - [ ] **A4.** CloudNativePG operator installed; the `vhhealth-pg` Cluster CR is present (PG17, 3 replicas). (date / initials): ______
 - [ ] **A5.** Cloudflare Tunnel → ingress-nginx path provisioned (zero inbound firewall ports). (date / initials): ______
@@ -68,6 +74,13 @@ is silently bypassed. Full detail: PHASE0 §1 (readonly) + §8 (runtime role).
 `@sha256` — the committed values are **all-zeros fail-closed placeholders**
 (pods can't pull them). Resolve real digests before the first `apps` sync.
 
+- [ ] **C0. Release authority is separately cleared.** As of 2026-09-02,
+  [PR #872](https://github.com/Bahuleyandr/VH-Health-Platform/pull/872)
+  (`INF-006`) remains `OPEN`, `DRAFT`, and explicitly `HELD`; its required
+  out-of-band containment ceremony is not complete. **STOP:** this checklist
+  does not authorize a release workflow, tag, publication, digest write-back,
+  or merge. OWNER-INPUT — release authority decision/receipt: ______.
+
 - [ ] **C1.** Build + sign + push the first images (GH Actions `release-images.yml`, or tag `backend-v…`/`admin-v…`/`staff-web-v…`). (date / initials): ______
 - [ ] **C2.** `GHCR_TOKEN=<read:packages> COSIGN_PUBLIC_KEY=<public key> node scripts/update-prod-digests.mjs --tag backend-v<v> --expected-digest sha256:<from that release run> --tag admin-v<v> --expected-digest sha256:<…> --tag staff-web-v<v> --expected-digest sha256:<…>` (each digest from its release run's image-ref.txt artifact / summary — prod refuses tag-only pins, audit finding #20) → verify signatures, commit "chore(prod): bootstrap H11 digest pins" → push. *(PHASE0 §5)* (date / initials): ______
 - [ ] **C3.** Future releases auto-update the pin block via `release-images.yml`; `release-pin-digests.yml` is the manual repair path. (noted)
@@ -76,13 +89,50 @@ is silently bypassed. Full detail: PHASE0 §1 (readonly) + §8 (runtime role).
 
 ## Phase D — First sync / deploy (dependency-ordered)
 
-Resume ArgoCD auto-sync (A2). The order CNPG → migration Job → backend is what
-makes RLS enforce cleanly on first boot.
+Keep every production Application manual-sync. After review of the exact target
+revision, the authorized operator sequences CNPG/platform reconciliation and
+then the `vhhealth-apps` sync. The `vhhealth-apps` PreSync hooks gate the
+Deployment; no auto-sync is resumed.
 
 - [ ] **D1.** CNPG Cluster reconciles: `vhhealth_runtime` role created (from B1), `enableSuperuserAccess: false` applied, **and the owner `vhhealth` carries `bypassrls`** (granted via `managed.roles` so the migration can apply through FORCE RLS). ⚠️ `managed.roles` is reconciled on the **CNPG operator's own loop**, NOT as an ArgoCD sync-wave — so on a fresh cluster the `bypassrls` attribute can lag behind the PreSync migration Job. **Manual fallback check before letting D2 proceed:** `kubectl cnpg psql vhhealth-pg -- -c "SELECT rolbypassrls FROM pg_roles WHERE rolname='vhhealth'"` **must return `t`**. If it's `f`, wait for the CNPG operator to reconcile `managed.roles` (check operator logs) — do NOT force the migration through. (date / initials): ______
-- [ ] **D2.** PreSync **migration Job** runs all `src/migrations/*.sql` using `DATABASE_SUPERUSER_URL` — including **309** (BCMA scan timestamps), **310** (GUC-reading `tenant_id` defaults on 379 policied tables — needs owner to ALTER), **311** (knowledge curation columns). Confirm the Job is `Complete`, not `Error`. (date / initials): ______
+- [ ] **D2.** Before the `vhhealth-apps` sync, capture the exact release SHA,
+  rendered Job/ConfigMap hashes, pre-sync backup/restore receipt, current
+  `_migrations` tail and checksums, target migration filenames/checksums, and
+  the expected post-run tracker tail. Evidence location/hash: ______.
+  The PreSync **migration Job** runs `ensure-pgvector-extension.mjs`, the
+  migration-754 report-only preflight, and then seed-free
+  `ci-setup-db.mjs --skip-seeds` with the owner DSN. Confirm the Job reaches
+  `Complete`; do not infer success from a Deployment rollout or one pod log.
+  (date / initials): ______
+  - [ ] **Payroll 754 owner acceptance.** If the report finds legacy payroll
+    rows, OWNER-INPUT supplies the exact accepted 64-hex manifest SHA and named
+    payroll data owner in `PAYROLL_754_ACCEPTED_MANIFEST_SHA256` and
+    `PAYROLL_754_ACCEPTED_BY`. The production kustomization deliberately keeps
+    both blank. Empty values are a stop, not defaults. Receipt: ______.
+  - [ ] **Inventory 753 readiness.** OPEN-QUESTION — migration 753 currently
+    contains 82 `NOT VALID` constraints and no `VALIDATE CONSTRAINT`; it states
+    validation is deferred to migration 756, which is not present on this
+    release. Keep production activation stopped until an additive readiness
+    migration and owner-approved zero-open/exception receipt prove every
+    applicable constraint has `pg_constraint.convalidated=true`. Receipt: ______.
+  - [ ] **Migration-753 design disposition.** OPEN-QUESTION — the two design
+    questions recorded in
+    [`GO_LIVE_READINESS_GAP_MATRIX.md`](GO_LIVE_READINESS_GAP_MATRIX.md) require
+    an owner decision and additive correction if selected. Never edit applied
+    migration 753. Decision receipt: ______.
   - **Ordering gate (security-review HIGH #6 — closes the fresh-cluster race).** The Job has a `wait-owner-bypassrls` **initContainer** that BLOCKS until `SELECT rolbypassrls FROM pg_roles WHERE rolname='vhhealth'` returns `t` (polls every 5s, hard 5-min timeout), so the migration can never start while the owner is still `NOBYPASSRLS` — without it, the Job could race CNPG's async `managed.roles` reconcile and 42501 partway through (000_baseline does `SET row_security=off`; migs 237/272 `ALTER … FORCE ROW LEVEL SECURITY`). On timeout the initContainer exits non-zero with `owner bypassrls not reconciled by CNPG — check managed.roles` and the Job fails **at the gate**, loudly and diagnosably, instead of half-applying migrations. If you see this timeout, run the D1 manual fallback check above. Verify the gate ran: `kubectl -n vhhealth logs -l batch.kubernetes.io/job-name=vhhealth-backend-migrate -c wait-owner-bypassrls --prefix` should end with `… has bypassrls=t … — proceeding to migrate`. (Select on the controller-set job-name label, not `job/<name>`: the Job runs `restartPolicy: Never`, so a failed run leaves up to three retained attempt pods and `logs job/<name>` shows only one arbitrary attempt.)
   - **Config must be PreSync-phase, and it now is.** ArgoCD completes every PreSync hook before applying ANY Sync-phase resource — sync waves order within a phase, not across phases. The Job therefore takes its config from `vhhealth-backend-migration-config` (`migration-config.yaml`, a PreSync hook at wave `-2`), NOT from the runtime `vhhealth-backend-config`, which is Sync-phase and does not exist yet at this point of a fresh sync. Until this was fixed the Job could not start on a fresh namespace at all: `CreateContainerConfigError` is a *Waiting* reason, so the Job never failed, never retained a pod, and was finally killed at `activeDeadlineSeconds` leaving **no pods and no logs** — and the Sync phase that would have created the missing ConfigMap was itself gated on this hook, so re-syncing reproduced it. `scripts/validate-kubernetes-manifests.mjs` now fails the render if any PreSync hook hard-requires a Sync-phase object. If D2 ever shows a Job stuck with no pods, check `kubectl -n vhhealth describe job vhhealth-backend-migrate` for `DeadlineExceeded` and the pod events for `CreateContainerConfigError` before assuming a database problem.
+  - **Evidence and rollback limit.** Read every retained attempt via the
+    controller-set job-name label and export logs/Job conditions before the
+    24-hour TTL or any re-sync (`BeforeHookCreation` deletes the prior Job).
+    `DeadlineExceeded` can delete the still-running pod, so retain the ArgoCD
+    live stream as well. A failed or partial forward migration has **no generic
+    SQL down-migration**: an image/digest revert does not undo schema or data.
+    Stop the sync, preserve evidence, keep traffic on the pre-sync release where
+    safe, and obtain database-owner approval for restore-to-new-cluster from the
+    verified pre-sync backup or an additive fix-forward migration. Never edit an
+    already-applied migration or clear/rewrite `_migrations`. Failure/decision
+    receipt: ______.
 - [ ] **D3.** Backend Deployment rolls out, connecting as `vhhealth_runtime`. `/health/ready` green. (date / initials): ______
 - [ ] **D4.** Admin + staff-web rollouts healthy; ingress serves `https://api.vhhealth.app` and the admin portal. (date / initials): ______
 
@@ -136,8 +186,8 @@ Jun-30 reliability gate.
     `discord-webhook-url`, `discord-watchdog-url`,
     `pagerduty-routing-key`, `slack-api-url`, and `smtp-password`.
     Record presence/hash evidence only: ______.
-  - [ ] The owner replaced the SMTP username, seven Slack channel placeholders,
-    and seven team/unmatched email placeholders in
+  - [ ] The owner replaced the SMTP smarthost, from address, username, seven
+    Slack channel placeholders, and seven team/unmatched email placeholders in
     `alertmanager.yaml.example`. Record the approved recipient-map receipt,
     without copying its values here: ______.
   - [ ] The rendered private configuration passed pinned amtool v0.27.0
@@ -145,12 +195,17 @@ Jun-30 reliability gate.
     including `BackendMigrationJobFailed` -> `ops-webhook`,
     `critical-pagerduty`, and `team-backend`. Evidence location/hash: ______.
   - [ ] An authorized operator sealed the six-key Secret, committed only the
-    ciphertext, added that SealedSecret to the monitoring kustomization, and
+    ciphertext as
+    `infra/kubernetes/base/monitoring/alertmanager-secrets.sealed-secret.yaml`,
+    added that exact non-example resource to the monitoring kustomization, and
     recorded the prior approved release/configuration for rollback. PR/SHA and
     rollback receipt: ______.
-  - [ ] An authorized operator manually synced the approved ArgoCD revision.
-    Prometheus targets/rules, Grafana, Alertmanager, and the off-site Watchdog
-    were healthy before the drill continued. Sync/change receipt: ______.
+  - [ ] An authorized operator manually synced the approved exact revision of
+    `vhhealth-platform` so the SealedSecret materialized, verified the Secret
+    name/key set without reading values, and then separately manually reconciled
+    the approved exact revision of `vhhealth-kube-prometheus` so Alertmanager
+    consumed that Secret. Prometheus targets/rules, Grafana, Alertmanager, and the off-site
+    Watchdog were healthy before the drill continued. Sync/change receipt: ______.
   - [ ] The complete
     [`C1_3_MONITORING_LIVE_DRILL.md`](runbooks/C1_3_MONITORING_LIVE_DRILL.md)
     scrape-to-resolution, owning-rule, and missed-Watchdog drills reached named
@@ -222,7 +277,11 @@ for the exact operator sequence.
 - [ ] **I1.** Stand up the deep-tier embedder (B5.4). The Ollama manifests are HELD at `infra/kubernetes/held/clinical-ai-deep-tier/` and composed by nothing, so this is an explicit operator activation, not a sync: provision + label the GPU node, render and apply that held directory per its `README.md`, pull a model, and let the fail-closed `PreSync` preflight hook pass. Then set `CLINICAL_AI_EMBED_URL` / the deep-tier bindings. (date / initials): ______
 - [ ] **I2.** Import hospital-owned knowledge into the RAG KB: `node apps/backend/scripts/knowledge-curation-import.mjs` (formulary / antibiogram / protocols) → review the `pending` queue → approve. Imports stay dark to retrieval until `curation_status='approved'`. ([`CLINICAL_AI_KNOWLEDGE_CURATION.md`](CLINICAL_AI_KNOWLEDGE_CURATION.md)) (date / initials): ______
 - [ ] **I3.** Load the real hospital formulary + antibiogram data (the starter KBs in migration 311 are flagged placeholders). (date / initials): ______
-- [ ] **I4.** **[flagged — licensed]** Import a commercial drug-interaction KB (Medi-Span / FDB) if procured; `drugKnowledgeBaseService` + migration 277 are ready for the feed. (date / initials): ______
+- [ ] **I4.** **[flagged — licensed]** OWNER-INPUT — procurement, source-rights,
+  clinical validation, data-owner, and exact-feed approval: ______. Repository
+  interfaces (`drugKnowledgeBaseService` and migration 277) exist, but that is
+  not evidence that a commercial Medi-Span/FDB feed is licensed, compatible,
+  clinically accepted, imported, or live. (date / initials): ______
 
 ---
 
@@ -239,6 +298,13 @@ bar. Packages are cert-ready in `docs/compliance/`. *(WS7)*
 ---
 
 ## Done-definition
+
+**Current repository posture at `github/main` `a4ffe9860` (2026-09-02):
+STOP / not pilot-ready.** C0 is held; production image digests and admin CIDRs
+remain fail-closed placeholders; payroll-754 owner acceptance is blank;
+migration-753 readiness migration 756 is absent; the two migration-753 design
+questions are unresolved; and no live G1/DR/RLS/owner evidence is recorded here.
+This statement must be re-anchored to the exact release SHA before use.
 
 **Internal A+/S (pilot-ready):** Phases A–I complete + verified; the
 deterministic 11-journey gate green in CI on the deployed `main`; E (RLS), F

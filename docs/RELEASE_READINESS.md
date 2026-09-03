@@ -4,7 +4,18 @@ This checklist is the release gate for patient and staff app tags. It is meant
 to answer one question before a tag is pushed: can we prove the app builds,
 talks to the backend, and has the required operational guardrails?
 
-## Required Forgejo Configuration
+**Current status (2026-09-02): HELD / not tag-ready.** PR #872 (`INF-006`)
+remains open and draft with an explicit external-containment prerequisite. This
+file describes evidence requirements; it does not authorize a tag, workflow
+dispatch, publication, deployment, secret change, or ArgoCD sync. OWNER-INPUT —
+release authority receipt: ______.
+
+## Held Forgejo configuration inventory
+
+The values below are an inventory for a possible future authorized Forgejo
+release path. Do not create, rotate, or rely on them while `INF-006` remains
+held. The current audit-program authority requires GitHub Actions as the sole
+test/CI execution environment.
 
 - `VH_BASE_URL` as a Forgejo Actions variable.
 - `VH_API_KEY` as a Forgejo Actions secret.
@@ -17,8 +28,8 @@ talks to the backend, and has the required operational guardrails?
 - `STAFF_ANDROID_KEY_PASSWORD`
 - `STAFF_ANDROID_STORE_PASSWORD`
 
-The release workflows validate these before building and fail before artifact
-creation if any required value is missing.
+An authorized future release path must validate these before artifact creation
+and fail closed when any required value is missing.
 
 Container and deploy workflows additionally require Forgejo secrets for GHCR
 pushes (`GHCR_USERNAME`/`GHCR_TOKEN` or
@@ -27,63 +38,34 @@ pushes (`GHCR_USERNAME`/`GHCR_TOKEN` or
 Dalekdefender path (`TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`,
 `DALEKDEFENDER_SSH_KEY`).
 
-## Local CI Gate
+## Canonical GitHub release gate
 
-GitHub-hosted minutes are optional for this repo. The canonical pre-merge and
-pre-tag gate is the local runner:
+Release evidence must be attached to the exact proposed release commit from the
+GitHub protected gate. An ordinary affected-path run is not the final release
+boundary. After sources are frozen, the exact head requires a no-source-change
+`[full-ci]` marker and successful `Merge Gate` plus `Full Merge Gate`; any later
+source change invalidates that evidence.
 
-```bash
-node scripts/local-ci.mjs
-```
+`scripts/local-ci.mjs` and scoped local commands are developer diagnostics only;
+they are not release evidence and are not substitutes for GitHub Actions.
 
-Useful scoped runs:
+## Pre-tag evidence gate
 
-```bash
-node scripts/local-ci.mjs --only=security,backend
-node scripts/local-ci.mjs --only=admin
-node scripts/local-ci.mjs --only=flutter
-node scripts/local-ci.mjs --only=infra
-```
+Before any tag, an authorized release captain must attach all of the following
+to the exact candidate SHA:
 
-This runs the same trust checks that matter for release: secret scans, backend
-Docker-backed DB/tests, admin lint/type-check/test/build/bundle guard, Flutter
-format/analyze/test, and Kubernetes manifest validation.
+- [ ] INF-006 external containment and named release authority receipt: ______.
+- [ ] Exact SHA, `[full-ci]` run URL, `Merge Gate`, and `Full Merge Gate`: ______.
+- [ ] Dependency, secret, and supply-chain evidence for that SHA: ______.
+- [ ] Signed mobile/container artifact provenance and immutable digest evidence: ______.
+- [ ] Completed operational gate in
+  [`GO_LIVE_ACTIVATION_CHECKLIST.md`](GO_LIVE_ACTIVATION_CHECKLIST.md), including
+  migration, G1, rollback, and owner receipts when the release affects the
+  production pilot: ______.
 
-The backend stage requires Docker to be running because it creates a disposable
-`pgvector` Postgres database instead of trusting a developer database.
-
-## Manual Pre-Tag Gate
-
-Run these from a clean `main` checkout before creating `patient-v*` or
-`staff-v*` tags:
-
-```bash
-node scripts/gitleaks-scan.mjs worktree
-dart pub get
-dart run melos bootstrap
-dart run melos run format
-dart run melos run analyze
-dart run melos run test
-```
-
-```bash
-cd apps/backend
-npm run lint
-npm run swagger:validate
-npm test
-```
-
-```bash
-cd apps/admin
-npm run lint
-npm run type-check
-npm test
-npm run build
-npm run check:clinical-ai-bundle
-```
-
-Run the Forgejo `Smoke E2E` workflow on the target commit; the GitHub workflow
-is the mirror. For local live staff desktop verification on Windows, run:
+Run the authorized GitHub `Smoke E2E` workflow on the target commit. Local live
+staff desktop verification on Windows is supplemental manual evidence only and
+must use owner-approved non-PHI test identities:
 
 ```powershell
 $env:VH_BASE_URL='https://<host>/api/v1'
@@ -139,7 +121,9 @@ Known live case:
 
 ## Tagging
 
-Use separate monorepo tags so the workflows do not collide:
+Only the named release authority may create a tag after every gate above is
+complete. The tag namespaces remain separate so authorized workflows do not
+collide:
 
 ```bash
 git tag staff-v1.2.0
@@ -151,3 +135,6 @@ git push origin patient-v1.2.0
 
 Do not tag if the app is only structurally translated but has not had clinical,
 security, and financial wording reviewed for the release locale.
+
+Do not tag while PR #872 remains held, while any production readiness row is
+OPEN/STOP, or merely because repository preparation or CI is green.
