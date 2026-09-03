@@ -7,11 +7,12 @@ import { jest } from '@jest/globals';
 
 // Mock prisma
 import mockPrisma from '../__mocks__/prisma.js';
+const setTenantTxMock = jest.fn(async (_tenantId, fn) => fn(mockPrisma));
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   circuitBreakerStatus: jest.fn(() => ({ open: false, consecutiveFailures: 0 })),
   default: mockPrisma,
   isTenantTransactionClient: () => true,
-  setTenantTx: async (_tenantId, fn) => fn(mockPrisma),
+  setTenantTx: setTenantTxMock,
   setTenant: async (_tenantId, fn) => fn(mockPrisma),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(mockPrisma),
   pickTenantClient: () => mockPrisma,
@@ -248,6 +249,18 @@ describe('AuthService.verifyOtp', () => {
     expect(mockPrisma.users.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ phone: '+919876543210', role: 'PATIENT' }),
+      })
+    );
+    // Pre-auth creation must run inside a tenant-scoped transaction for the
+    // tenant resolved from the request (bare host → default tenant) and stamp
+    // that tenant on the row: public.users rejects unscoped inserts under RLS.
+    expect(setTenantTxMock).toHaveBeenCalledWith(
+      '00000000-0000-4000-8000-000000000001',
+      expect.any(Function),
+    );
+    expect(mockPrisma.users.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ tenant_id: '00000000-0000-4000-8000-000000000001' }),
       })
     );
     expect(result.user.isNewUser).toBe(true);

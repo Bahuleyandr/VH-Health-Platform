@@ -853,7 +853,30 @@ export function tenantRlsRuntimeRole(env = process.env) {
  * @returns {{enforced:boolean, ok:boolean, effectiveRole:string|null,
  *            bypassesRls:boolean, reason:string}}
  */
-export function evaluateTenantRlsPosture({
+export function evaluateTenantRlsPosture(input = {}) {
+  const verdict = evaluateTenantRlsPostureCore(input);
+  // The runtime role (SET LOCAL ROLE inside setTenant/setTenantTx) is the
+  // effective role for tenant-scoped work ONLY. Everything outside those
+  // transactions — the pre-auth writers under /api/v1/auth in particular —
+  // runs as the bare CONNECTION role, so the verdict also reports that
+  // role's own RLS status: when it is subject to RLS, an unscoped write to a
+  // FORCE-RLS table carrying a RESTRICTIVE policy (migration 758's
+  // explicit_tenant_context_753 on users) is rejected 42501. A verdict keyed
+  // only on `testRole || connectionRole` was structurally blind to that path
+  // and reported "posture OK" on a cluster where first-time registration
+  // failed every time.
+  const enforced = Boolean(input.enforced);
+  const connectionBypassesRls = Boolean(input.connectionBypassesRls);
+  return {
+    ...verdict,
+    connectionRole: input.connectionRole ?? null,
+    connectionBypassesRls,
+    connectionRoleRlsSubject: enforced && !connectionBypassesRls,
+    restrictiveForcedTables: Number(input.restrictiveForcedTables) || 0,
+  };
+}
+
+function evaluateTenantRlsPostureCore({
   enforced,
   connectionRole = null,
   connectionBypassesRls = false,
@@ -970,7 +993,15 @@ export async function tenantRlsRolePosture() {
              AND c.relowner = (
                SELECT oid FROM pg_roles
                 WHERE rolname = COALESCE(NULLIF($1, ''), session_user)
-             )) AS unforced_owned_rls_tables`,
+             )) AS unforced_owned_rls_tables,
+         (SELECT count(*)::int
+            FROM pg_policies p
+            JOIN pg_class c     ON c.relname = p.tablename
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+                               AND n.nspname = p.schemaname
+           WHERE p.schemaname = 'public'
+             AND p.permissive = 'RESTRICTIVE'
+             AND c.relforcerowsecurity) AS restrictive_forced_tables`,
       testRole || '',
     );
     const row = rows?.[0] || {};
@@ -1009,6 +1040,7 @@ export async function tenantRlsRolePosture() {
         testRole,
         testRoleBypassesRls: row.test_role_bypasses_rls === true,
         effectiveRoleOwnsUnforcedRlsTables: Number(row.unforced_owned_rls_tables) || 0,
+        restrictiveForcedTables: Number(row.restrictive_forced_tables) || 0,
         replicaProbed,
         replicaConnectionRole: replicaRow.connection_role ?? null,
         replicaConnectionBypassesRls: replicaRow.connection_bypasses_rls === true,
@@ -1143,7 +1175,24 @@ export async function logTenantRlsRolePosture({
   logger.info('Tenant RLS posture OK — isolation will enforce', {
     effectiveRole: posture.effectiveRole,
     via: posture.testRole ? 'SET LOCAL ROLE' : 'connection role',
+    connectionRole: posture.connectionRole,
+    connectionRoleRlsSubject: posture.connectionRoleRlsSubject,
+    restrictiveForcedTables: posture.restrictiveForcedTables,
   });
+  if (posture.testRole && posture.connectionRoleRlsSubject && posture.restrictiveForcedTables > 0) {
+    // The runtime role only applies INSIDE setTenant/setTenantTx. Everything
+    // else — the pre-auth writers under /api/v1/auth in particular — runs as
+    // the bare connection role, which is itself subject to RLS here, so a
+    // write outside a tenant transaction to one of these FORCE-RLS tables
+    // with a RESTRICTIVE explicit-tenant-context policy is rejected 42501
+    // rather than silently allowed. Pre-auth identity creation is pinned to
+    // setTenantTx by src/tests/unit/preAuthIdentityCreationTenantScope.test.js
+    // and proven live by src/tests/preauth-identity-creation-rls.deep.test.js.
+    logger.info('Tenant RLS: the bare connection role is RLS-subject; writes outside a tenant transaction to RESTRICTIVE-policy tables are rejected', {
+      connectionRole: posture.connectionRole,
+      restrictiveForcedTables: posture.restrictiveForcedTables,
+    });
+  }
   return posture;
 }
 

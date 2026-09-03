@@ -40,9 +40,10 @@ const mockPrisma = {
   $queryRawUnsafe: jest.fn(),
 };
 
+const setTenantTxMock = jest.fn(async (_tenantId, fn) => fn(mockPrisma));
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: mockPrisma,
-  setTenantTx: async (_tenantId, fn) => fn(mockPrisma),
+  setTenantTx: setTenantTxMock,
   setTenant: async (_tenantId, fn) => fn(mockPrisma),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(mockPrisma),
   pickTenantClient: () => mockPrisma,
@@ -499,6 +500,16 @@ describe('AuthService.verifyOtp', () => {
     expect(res.token).toBe('session-access-token');
     expect(mockPrisma.users.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ phone: '+919876543210' }) }),
+    );
+    // Tenant-scoped creation (public.users rejects unscoped inserts under RLS).
+    expect(setTenantTxMock).toHaveBeenCalledWith(
+      '00000000-0000-4000-8000-000000000001',
+      expect.any(Function),
+    );
+    expect(mockPrisma.users.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ tenant_id: '00000000-0000-4000-8000-000000000001' }),
+      }),
     );
     expect(mockIssueSession).toHaveBeenCalledWith(
       expect.objectContaining({
