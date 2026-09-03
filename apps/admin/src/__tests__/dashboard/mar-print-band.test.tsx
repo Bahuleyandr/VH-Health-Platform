@@ -21,6 +21,16 @@ jest.mock("@/lib/api", () => ({
   fetchAdminAPI: jest.fn(),
 }));
 
+// MarPage reads usePermissions to decide whether it may enumerate the due list
+// (OPEN-11 — see mar-due-list-gate.test.tsx). The real hook needs an
+// AuthProvider, and this suite pins the wristband URL rather than any
+// authorization outcome, so it mounts as a bedside nursing role: that is the
+// identity whose due list actually populates, which is what gives these tests
+// their dose rows to assert links on.
+jest.mock("@/hooks/usePermissions", () => ({
+  usePermissions: () => ({ rawRole: "NURSING_STAFF" }),
+}));
+
 const fetchAdminAPIMock = fetchAdminAPI as jest.MockedFunction<
   typeof fetchAdminAPI
 >;

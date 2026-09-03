@@ -22,15 +22,20 @@
 // nurse to scan. See src/lib/bcmaWristband.ts for why it goes through the
 // portal proxy rather than straight to the backend, and for who the backend
 // lets print: the bedside nursing and treating-clinician roles this page is
-// for. An ADMIN or SUPER_ADMIN session opening the same link gets a 403 from
-// the backend's patient-access guard, which is that guard's designed answer —
-// an administrator has no care relationship to the patient.
+// for, PLUS administrators. An ADMIN or SUPER_ADMIN session may print without
+// break-glass; the backend admits it and writes an audit row instead
+// (bcmaRoutes.js:50 quoting the 2026-08-25 owner decision, and
+// WRISTBAND_ADMIN_AUDIT_ACTION = 'wristband-print-administrative-access' at
+// :120). This comment previously claimed administrators get a 403 here; that
+// was wrong, and mar-print-band.test.tsx pins the admitted behaviour.
 
 "use client";
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
+import { usePermissions } from "@/hooks/usePermissions";
+import { MAR_DUE_LIST_ROLES } from "@/lib/marRoles";
 import { printableWristbandUrl } from "@/lib/bcmaWristband";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
@@ -125,6 +130,25 @@ export default function MarPage() {
   const [windowMins, setWindowMins] = useState(60);
   const [scanning, setScanning] = useState<MarDose | null>(null);
 
+  // Only the two ENUMERATE reads below are nursing-only. The backend guards
+  // /clinical/mar/due and /clinical/mar/overdue with requireMarDueListRole over
+  // MAR_DUE_LIST_ROLES (clinicalRoutes.js:145-153,186-191), which deliberately
+  // omits ADMIN and SUPER_ADMIN — enumerating every due dose in the hospital is
+  // a bedside nursing act.
+  //
+  // This is scoped to the queries ON PURPOSE, not lifted to the route policy.
+  // The page carries four different backend contracts and only this one
+  // excludes administrators: administer-with-scan admits ADMIN and SUPER_ADMIN
+  // (MEDICATION_ADMINISTRATION_ROLES, clinicalRoutes.js:126-137), /mar/verify
+  // carries no role gate at all, and wristband print admits administrators by
+  // explicit owner decision with an audit row (bcmaRoutes.js:50,120). Gating
+  // the whole route would revoke three grants to silence one.
+  //
+  // rawRole, not `allowed` — usePermissions short-circuits SUPER_ADMIN to true
+  // (usePermissions.ts:58,70), which is exactly the identity this must refuse.
+  const { rawRole } = usePermissions();
+  const canEnumerateDueList = MAR_DUE_LIST_ROLES.includes(rawRole ?? "");
+
   const {
     data: due = [],
     error,
@@ -137,6 +161,7 @@ export default function MarPage() {
       );
       return unwrapList<MarDose>(r);
     },
+    enabled: canEnumerateDueList,
     refetchInterval: 30_000,
   });
 
@@ -146,6 +171,7 @@ export default function MarPage() {
       const r = await fetchAdminAPI<unknown>("/clinical/mar/overdue?limit=100");
       return unwrapList<MarDose>(r);
     },
+    enabled: canEnumerateDueList,
     refetchInterval: 30_000,
   });
 
@@ -187,6 +213,18 @@ export default function MarPage() {
         </div>
       </div>
 
+      {!canEnumerateDueList && (
+        // Say why the lists are empty. Without this an administrator reads an
+        // empty due list as "nothing is due", which is a worse answer than the
+        // 403 this replaces. Deliberately avoids the route-crawl's
+        // visible-error vocabulary (route-crawl.spec.ts:167) because this is a
+        // scope notice, not a failure.
+        <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+          The due and overdue lists are limited to bedside nursing roles, so
+          they are not shown for your role. The 5-rights check, barcode
+          administration and wristband printing on this page remain available.
+        </div>
+      )}
       {errMsg && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
           {errMsg}
