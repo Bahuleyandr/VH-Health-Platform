@@ -14,6 +14,7 @@
 import request from 'supertest';
 import app from '../app.js';
 import { generateToken } from '../utils/jwtUtils.js';
+import { ensureTestIdentity } from './testClient.js';
 import { isClinical, isStaff } from '../utils/roleHelpers.js';
 
 const API_KEY = process.env.API_KEY || 'test-api-key';
@@ -22,6 +23,22 @@ const tokenFor = (role, id) => generateToken({
   uid: `ffffffff-0000-4000-8000-${String(id).padStart(12, '0')}`,
   id,
   role,
+});
+
+// Authentication now fails closed when a token's subject does not resolve to a
+// live identity row, and this suite synthesises its uids from an id rather than
+// using fixed literals — so the subjects have to be seeded before any request,
+// or every case 401s before reaching the gate it is testing.
+const uidFor = (id) => `ffffffff-0000-4000-8000-${String(id).padStart(12, '0')}`;
+
+beforeAll(async () => {
+  for (const id of [
+      ...Array.from({ length: 50 }, (_, i) => 9600 + i),
+      ...Array.from({ length: 50 }, (_, i) => 9700 + i),
+      9800, 9801,
+    ]) {
+    await ensureTestIdentity(uidFor(id));
+  }
 });
 
 const get = (path, token) => request(app)
