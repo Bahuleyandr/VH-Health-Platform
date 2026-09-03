@@ -124,11 +124,22 @@ sample. The two caller-controlled columns the ledger names (`maternity_pregnanci
   "exact current tree" test).
 - Wiring: both `run` lines in `security.mjs`, the workflow step present.
 
-## Verification
+## Verification (measured)
 
-Static gate and meta-test green locally; calibration green against the schema-only base with zero
-discrepancies in both directions; census totals reproduced; `npm run lint` in the backend
-(untouched) and the security stage's own checks; canonical CI with `[full-ci]`.
+| check | result |
+|---|---|
+| static gate on the corpus | 465 clauses / 411 absent / 54 enforced, passed |
+| calibration (`--verify-db`) against the schema-only base, 2,108 CHECK constraints | 0 discrepancies in both directions |
+| meta-test | 10 / 10 |
+| mutation A: satisfied `beds.status` CHECK removed from `001_create_beds_wards.sql` | static gate red, names the file and constraint; reverted |
+| mutation B: `expectedAbsentCount` decremented, or an absent entry deleted, without a fix | red both ways; reverted |
+| mutation C: `maternity_pregnancies_edd_method_check` added directly on the scratch DB | calibration "marked absent but present"; flip + decrement → both halves green at 410; constraint dropped → "marked enforced but absent"; manifest restored |
+| name model on the 1,729 inline CHECKs of migration-created tables | 98.3 % found by predicted name; every miss traced to a later `DROP TABLE` or a replaced constraint |
+| eslint (backend config) on the two scripts, `git diff --check` | clean |
+
+Canonical CI runs with `[full-ci]`; the calibration step runs in the backend job on the CI-built
+database, which is the first time the census is checked against a database nobody on a
+workstation built.
 
 ## Out of scope, deliberately
 
