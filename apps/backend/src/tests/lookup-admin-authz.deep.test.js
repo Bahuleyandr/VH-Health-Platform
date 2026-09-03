@@ -3,7 +3,7 @@
 // /users/lookup/{stats,activity} and POST /users/lookup/bulk-search expose
 // hospital-wide user analytics / bulk lists. They sit behind the broad lookup
 // RBAC mount; an inner ADMIN guard must keep operational roles out.
-import { generateTestToken, API_KEY } from './testClient.js';
+import { generateTestToken, API_KEY, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -19,6 +19,11 @@ function client(role) {
 }
 
 d('Legacy lookup admin verbs (CAN-057)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity('c0de0104-0001-4c0d-8c0d-c0de01040001', { tenantId: TENANT_ID });
+  });
   afterAll(async () => { await prisma.$disconnect().catch(() => {}); });
 
   it('GENERAL_STAFF is denied lookup stats / activity / bulk-search', async () => {

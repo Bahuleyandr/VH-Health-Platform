@@ -1,6 +1,6 @@
 import { APPOINTMENT_CONFIG } from '../../config/appointmentConfig.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import appointmentService from '../../services/appointment/appointmentService.js';
 import appointmentQueryService from '../../services/appointment/appointmentQueryService.js';
@@ -13,6 +13,7 @@ import { isValidPhone, normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { emitAppointmentEvent } from '../../utils/websocket/realtimeEmitter.js';
 import { AppError } from '../../utils/AppError.js';
+import { withAuthIdentityLifecycleLocks } from '../../utils/tokenBlacklist.js';
 
 function tenantOf(req) {
   return resolveTenantOrThrow(req);
@@ -49,14 +50,23 @@ async function resolveOrCreatePatientFromPhone({ patientPhone, patientName, tena
   }
 
   const name = (patientName || '').trim() || 'New Patient';
-  const created = await prisma.$queryRawUnsafe(
-    `INSERT INTO users (phone, name, role, is_active, tenant_id, registered_at, updated_at)
-     VALUES ($1, $2, 'PATIENT', true, $3::uuid, NOW(), NOW())
-     RETURNING id, uid, phone, name`,
-    normalizedPhone,
-    name,
-    tenantId,
-  );
+  // Tenant-scoped on purpose. A bare `prisma.$transaction` hands back the
+  // raw itx client, which skips the prisma proxy's tenant wrapper, so
+  // `app.current_tenant_id` stays unset inside it. `public.users` carries
+  // the RESTRICTIVE `explicit_tenant_context_753` policy (migration 758)
+  // whose WITH CHECK requires that GUC — naming tenant_id in the INSERT is
+  // not enough, the unscoped write is rejected 42501.
+  const created = await setTenantTx(tenantId, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `INSERT INTO users (phone, name, role, is_active, tenant_id, registered_at, updated_at)
+       VALUES ($1, $2, 'PATIENT', true, $3::uuid, NOW(), NOW())
+       RETURNING id, uid, phone, name`,
+      normalizedPhone,
+      name,
+      tenantId,
+    );
+    return withAuthIdentityLifecycleLocks(tx, [rows[0].uid], async () => rows);
+  });
 
   return { patient: created[0], created: true };
 }

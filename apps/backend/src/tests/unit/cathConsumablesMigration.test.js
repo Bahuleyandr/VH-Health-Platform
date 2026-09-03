@@ -9,9 +9,9 @@ const seederPath = path.resolve(__dirname, '../../../scripts/seed-comprehensive-
 const coveragePolicyPath = path.resolve(__dirname, '../../db/seedCoveragePolicy.js');
 const prismaSchemaPath = path.resolve(__dirname, '../../../prisma/schema.prisma');
 
-// These files are committed with LF, but core.autocrlf checks them out as CRLF
-// on Windows. Read the canonical (committed) bytes so an assertion that spells
-// a line break as `\n` means exactly the same thing on every host.
+// Migration SQL is LF-pinned at checkout. Keep defensive normalization for
+// historical CRLF blobs or tools that bypass attributes so an assertion that
+// spells a line break as `\n` means the same thing on every host.
 const readCanonical = (file) => fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
 
 const sql = {};

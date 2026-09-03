@@ -5,7 +5,7 @@
 // catch returned zeros (the endpoint never produced data). Fixed to created_at /
 // phone with ::int casts (raw COUNT is BigInt → res.json would throw). This
 // proves an ADMIN gets 200 with a populated, correctly-shaped aggregate.
-import { generateTestToken, API_KEY } from './testClient.js';
+import { generateTestToken, API_KEY, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -26,6 +26,11 @@ async function clean() {
 }
 
 d('Health stats overview aggregate (recorded_date/patient_id fix)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity('c0de0533-00d0-4000-8000-00000000d001', { tenantId: TENANT_ID });
+  });
   beforeAll(async () => {
     await clean();
     // Two recent records, two distinct patient phones, same record_type.

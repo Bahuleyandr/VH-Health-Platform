@@ -262,6 +262,7 @@ describeIfDb('MED-03 medication-credit ledger reconciliation', () => {
       refundMinor: 0,
     });
     await setTenantTx(tenantId, (tx) => postLedgerEntry(tx, {
+      tenantId,
       entryType: 'WARD_MEDICATION_CREDIT',
       idempotencyKey: `ward-medication-credit-${credit.id}`,
       metadata: {

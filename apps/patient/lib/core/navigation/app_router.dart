@@ -15,6 +15,7 @@ import 'package:vhhealth/core/services/patient_session_authority.dart';
 import 'package:vhhealth/core/services/deep_link_service.dart';
 import 'package:vhhealth/core/services/startup_gate_service.dart';
 import 'package:vhhealth/core/widgets/biometric_gate.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 // Import all your screens
 import 'package:vhhealth/features/chatbot/screens/symptom_checker_screen.dart';
@@ -855,26 +856,29 @@ class AppRouter {
     ],
 
     // Error page
-    errorBuilder: (context, state) => Scaffold(
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.error_outline,
-              size: 64,
-              color: Theme.of(context).colorScheme.error,
-            ),
-            const SizedBox(height: 16),
-            Text('Page not found: ${state.matchedLocation}'),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () => context.go('/home'),
-              child: const Text('Go Home'),
-            ),
-          ],
+    errorBuilder: (context, state) {
+      final l10n = AppLocalizations.of(context)!;
+      return Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.error_outline,
+                size: 64,
+                color: Theme.of(context).colorScheme.error,
+              ),
+              const SizedBox(height: 16),
+              Text(l10n.navigationPageNotFound(state.matchedLocation)),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () => context.go('/home'),
+                child: Text(l10n.navigationGoHome),
+              ),
+            ],
+          ),
         ),
-      ),
-    ),
+      );
+    },
   );
 }

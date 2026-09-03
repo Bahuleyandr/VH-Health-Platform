@@ -13,6 +13,7 @@ import prisma from '../lib/prisma.js';
 import { generateWardDowntimePacks, WARD_PACK_SCOPE } from '../services/downtime/wardDowntimePackService.js';
 import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
 import { generateToken } from '../utils/jwtUtils.js';
+import { ensureTestIdentity } from './testClient.js';
 
 const API_KEY = process.env.API_KEY || 'test-api-key';
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
@@ -26,8 +27,16 @@ let wardId;
 let patientUid;
 let patientId;
 
+const DOCTOR_UID = '33333333-3333-4333-8333-333333333d03';
+
+// Hand-signed bearer; the subject needs a live identity row now that
+// authentication fails closed on one that does not resolve.
+beforeAll(async () => {
+  await ensureTestIdentity(DOCTOR_UID, { role: 'DOCTOR' });
+});
+
 const doctorToken = () => generateToken({
-  uid: '33333333-3333-4333-8333-333333333d03',
+  uid: DOCTOR_UID,
   role: 'DOCTOR',
   type: 'staff',
 });

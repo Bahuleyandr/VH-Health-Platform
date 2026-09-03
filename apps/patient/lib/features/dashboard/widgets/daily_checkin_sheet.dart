@@ -344,7 +344,7 @@ class _DailyCheckInSheetState extends State<DailyCheckInSheet> {
           width: double.infinity,
           child: FilledButton.tonal(
             onPressed: () => Navigator.of(context).maybePop(),
-            child: const Text('Done'),
+            child: Text(AppLocalizations.of(context)!.commonDoneButton),
           ),
         ),
       ],

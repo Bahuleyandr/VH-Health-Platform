@@ -23,17 +23,18 @@
 //
 //     node scripts/i18n-verify.mjs --check
 //
-// runs the BLOCKING half instead: structural key parity for hi/ta/te
-// against en, and nothing else. Key parity is objectively checkable and
-// says nothing about translation quality, so it can fail CI without ever
-// arguing about wording. `--check` deliberately does not walk lib/ and
-// does not run any heuristic — the only ways it can fail are a real
-// parity gap, a stale exemption, or a parse that produced nonsense.
+// runs the BLOCKING half instead: structural key parity for hi/ta/te/ml
+// against en plus byte-for-byte drift detection for the generated Malayalam
+// technical-placeholder map. Key parity is objectively checkable and says
+// nothing about translation quality, so it can fail CI without arguing about
+// wording. `--check` deliberately does not walk lib/ and does not run any
+// heuristic — the only ways it can fail are a real parity/generated drift,
+// a stale exemption, or a parse that produced nonsense.
 // Wired into both halves of the Flutter gate:
 //   .github/workflows/_reusable-flutter-workspace.yml  (GitHub)
 //   scripts/ci/flutter.mjs                             (Forgejo/local)
 
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
@@ -41,16 +42,16 @@ import { dirname } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = join(__dirname, '..');
 const STRINGS_FILE = join(APP_ROOT, 'lib', 'l10n', 'app_strings.dart');
+const MALAYALAM_PARITY_FILE = join(
+  APP_ROOT,
+  'lib',
+  'l10n',
+  'app_strings_ml_parity.g.dart',
+);
 const LIB_ROOT = join(APP_ROOT, 'lib');
 
 // Locales held to full structural parity with `en`.
-const FULL_LOCALES = ['hi', 'ta', 'te'];
-
-// Locales that are partial ON PURPOSE. `ml` shipped 2026-06-10 as a
-// declared nurse-facing first pass (see the class doc in app_strings.dart);
-// everything outside that core falls back to English by design. Reported,
-// never a finding, never gated.
-const PARTIAL_LOCALES = ['ml'];
+const FULL_LOCALES = ['hi', 'ta', 'te', 'ml'];
 
 // Keys deliberately left to the English fallback in hi/ta/te, with the
 // reason. The parity gate skips exactly these and prints them on every
@@ -147,6 +148,7 @@ function readStrings() {
 // Captures REVIEW comments on the line above each entry.
 function parseMap(chunk) {
   const entries = {};
+  const entrySource = {};
   const reviewKeys = new Set();
   // Match `'key': value,` where value can span multiple lines as
   // adjacent string literals.
@@ -215,11 +217,99 @@ function parseMap(chunk) {
     }
 
     entries[key] = value;
+    entrySource[key] = entry;
     if (pendingReview) reviewKeys.add(key);
     pendingReview = null;
   }
 
-  return { entries, reviewKeys };
+  return { entries, entrySource, reviewKeys };
+}
+
+function readGeneratedMalayalam() {
+  if (!existsSync(MALAYALAM_PARITY_FILE)) {
+    return { entries: {}, entrySource: {}, reviewKeys: new Set() };
+  }
+  const raw = readFileSync(MALAYALAM_PARITY_FILE, 'utf8');
+  const startMatch = raw.match(/malayalamTechnicalParityPlaceholders\s*=\s*<String, String>\s*\{/);
+  if (!startMatch) {
+    throw new Error('generated Malayalam technical-parity map declaration not found');
+  }
+  const start = startMatch.index + startMatch[0].length;
+  const end = raw.lastIndexOf('};');
+  if (end < start) {
+    throw new Error('generated Malayalam technical-parity map closing brace not found');
+  }
+  return parseMap(raw.slice(start, end));
+}
+
+function parsedLocales() {
+  const chunks = readStrings();
+  const parsed = {};
+  for (const [loc, chunk] of Object.entries(chunks)) parsed[loc] = parseMap(chunk);
+
+  const generated = readGeneratedMalayalam();
+  const explicitMalayalam = parsed.ml ?? {
+    entries: {},
+    entrySource: {},
+    reviewKeys: new Set(),
+  };
+  parsed.ml = {
+    entries: { ...generated.entries, ...explicitMalayalam.entries },
+    entrySource: {
+      ...generated.entrySource,
+      ...explicitMalayalam.entrySource,
+    },
+    reviewKeys: new Set([
+      ...generated.reviewKeys,
+      ...explicitMalayalam.reviewKeys,
+    ]),
+    generatedPlaceholderKeys: new Set(Object.keys(generated.entries)),
+    explicitEntries: explicitMalayalam.entries,
+  };
+  return parsed;
+}
+
+function expectedMalayalamParityFile() {
+  const chunks = readStrings();
+  const en = parseMap(chunks.en ?? '');
+  const explicitMalayalam = parseMap(chunks.ml ?? '');
+  const exempt = new Set(Object.keys(DELIBERATE_ENGLISH_FALLBACK));
+  const missing = Object.keys(en.entries)
+    .filter((key) => !(key in explicitMalayalam.entries) && !exempt.has(key))
+    .sort();
+
+  const lines = [
+    '// GENERATED FILE - DO NOT EDIT.',
+    '//',
+    '// These English-source values provide structural Malayalam parity only.',
+    '// Every entry is awaiting Malayalam linguistic review; clinical, finance,',
+    '// legal, and operational wording remains fail-closed until the relevant',
+    '// human authority approves it. Add an approved value to the explicit `ml`',
+    '// map in app_strings.dart; regeneration will then remove its placeholder.',
+    '',
+    '// dart format off',
+    'const Map<String, String> malayalamTechnicalParityPlaceholders = <String, String>{',
+  ];
+  for (const key of missing) {
+    const source = en.entrySource[key];
+    if (!source) throw new Error(`English source entry missing for '${key}'`);
+    const sourceLines = source.split('\n');
+    lines.push(`  ${sourceLines[0].trim()}`);
+    for (const line of sourceLines.slice(1)) lines.push(`    ${line.trim()}`);
+    lines[lines.length - 1] += ',';
+  }
+  lines.push('};', '// dart format on', '');
+  return lines.join('\n');
+}
+
+function generateMalayalamParity() {
+  const expected = expectedMalayalamParityFile();
+  writeFileSync(MALAYALAM_PARITY_FILE, expected, 'utf8');
+  const generated = readGeneratedMalayalam();
+  console.log(
+    `Generated ${Object.keys(generated.entries).length} Malayalam technical-parity ` +
+    'placeholders in lib/l10n/app_strings_ml_parity.g.dart.',
+  );
 }
 
 // ── Getter / call analysis ─────────────────────────────────────────────
@@ -332,42 +422,34 @@ function main() {
   console.log('VH Health — Staff app i18n health check');
   console.log('========================================\n');
 
-  const chunks = readStrings();
-  const parsed = {};
-  for (const [loc, chunk] of Object.entries(chunks)) {
-    parsed[loc] = parseMap(chunk);
-  }
+  const parsed = parsedLocales();
 
   const enKeys = new Set(Object.keys(parsed.en?.entries ?? {}));
   console.log(`English source-of-truth keys: ${enKeys.size}\n`);
 
   // 1+2. Coverage + missing keys per locale.
-  // `ml` is a DECLARED-PARTIAL locale (2026-06-10 nurse-facing first
-  // pass; everything else falls back to English by design) — its
-  // coverage is reported but missing keys are not listed and partial
-  // coverage is not a finding.
+  // All shipped locales are held to structural parity. Malayalam entries
+  // that have not yet received an approved translation are explicit,
+  // generated English-source placeholders and remain in the human-review
+  // queue; structural coverage is not linguistic approval.
   const exempt = new Set(Object.keys(DELIBERATE_ENGLISH_FALLBACK));
-  for (const loc of [...FULL_LOCALES, ...PARTIAL_LOCALES]) {
-    const partial = PARTIAL_LOCALES.includes(loc);
+  for (const loc of FULL_LOCALES) {
     const got = new Set(Object.keys(parsed[loc]?.entries ?? {}));
     const missing = [];
     for (const k of enKeys) {
       if (got.has(k)) continue;
-      if (!partial && exempt.has(k)) continue; // declared English fallback
+      if (exempt.has(k)) continue; // declared English fallback
       missing.push(k);
     }
     // Denominator excludes the declared English-fallback keys for the
     // full locales, so "100%" means "everything this locale is meant to
     // translate is translated" rather than silently counting exemptions
     // as coverage.
-    const denom = partial ? enKeys.size : enKeys.size - exempt.size;
+    const denom = enKeys.size - exempt.size;
     const cov = (((denom - missing.length) / denom) * 100).toFixed(1);
     const reviewN = parsed[loc]?.reviewKeys.size ?? 0;
-    console.log(`[${loc}] coverage ${cov}%  (${denom - missing.length}/${denom}),  // REVIEW: flags ${reviewN},  missing ${missing.length}${partial ? '  [partial by design — nurse-facing first pass]' : `  [+${exempt.size} declared English fallback]`}`);
-    if (partial) {
-      console.log('');
-      continue;
-    }
+    const placeholderN = parsed[loc]?.generatedPlaceholderKeys?.size ?? 0;
+    console.log(`[${loc}] coverage ${cov}%  (${denom - missing.length}/${denom}),  // REVIEW: flags ${reviewN},  generated review placeholders ${placeholderN},  missing ${missing.length}  [+${exempt.size} declared English fallback]`);
     if (missing.length > 0 && missing.length < 25) {
       for (const k of missing.sort()) console.log(`   missing: ${k}`);
     } else if (missing.length >= 25) {
@@ -541,23 +623,33 @@ function main() {
 
 // ── Blocking parity gate (`--check`) ───────────────────────────────────
 //
-// Structural only. Every `en` key must exist in hi/ta/te, except the keys
-// declared in DELIBERATE_ENGLISH_FALLBACK. `ml` is exempt outright.
+// Structural only. Every `en` key must exist in hi/ta/te/ml, except the keys
+// declared in DELIBERATE_ENGLISH_FALLBACK. Generated Malayalam technical
+// placeholders count structurally but remain explicitly unapproved wording.
 // Nothing here inspects the VALUE of a translation, so this gate never
 // has an opinion about wording — it only stops the locale maps drifting
 // apart again, which is what happened between 2026-06-10 (last 100%
 // verification) and 2026-08-25 (461-463 keys behind).
 function runParityCheck() {
-  console.log('Staff i18n structural parity check (hi/ta/te vs en)');
-  console.log('---------------------------------------------------');
+  console.log('Staff i18n structural parity check (hi/ta/te/ml vs en)');
+  console.log('------------------------------------------------------');
 
-  const chunks = readStrings();
-  const parsed = {};
-  for (const [loc, chunk] of Object.entries(chunks)) parsed[loc] = parseMap(chunk);
+  const parsed = parsedLocales();
 
   const failures = [];
   const enEntries = parsed.en?.entries ?? {};
   const enKeys = new Set(Object.keys(enEntries));
+
+  const expectedGenerated = expectedMalayalamParityFile();
+  const actualGenerated = existsSync(MALAYALAM_PARITY_FILE)
+    ? readFileSync(MALAYALAM_PARITY_FILE, 'utf8')
+    : null;
+  if (actualGenerated !== expectedGenerated) {
+    failures.push(
+      'generated Malayalam technical-parity map is missing or stale; run ' +
+      '`node apps/staff/scripts/i18n-verify.mjs --generate-ml-parity`',
+    );
+  }
 
   // Fail closed on a nonsense parse. If app_strings.dart is ever
   // restructured so the map scanner stops finding entries, this gate must
@@ -613,17 +705,11 @@ function runParityCheck() {
     }
   }
 
-  const partialSummary = PARTIAL_LOCALES.map((loc) => {
-    const n = Object.keys(parsed[loc]?.entries ?? {}).length;
-    return `${loc} ${n} keys`;
-  }).join(', ');
-  console.log(`\n[${PARTIAL_LOCALES.join(', ')}] exempt — declared-partial locale(s): ${partialSummary}`);
-
   if (failures.length > 0) {
     console.error('\nFAIL: staff i18n structural parity');
     for (const f of failures) console.error(`  - ${f}`);
     console.error(
-      '\nAdd the missing key(s) to the hi/ta/te maps in ' +
+      '\nAdd the missing key(s) to the hi/ta/te/ml maps in ' +
       'apps/staff/lib/l10n/app_strings.dart. New clinical copy may be filled as an ' +
       'AI first pass marked `// REVIEW:` (the established practice — see ' +
       'apps/staff/docs/LANGUAGE_HEALTH.md). If a string genuinely must stay English, ' +
@@ -632,10 +718,16 @@ function runParityCheck() {
     process.exit(1);
   }
 
-  console.log('\nOK: hi/ta/te are at structural parity with en.');
+  const placeholderN = parsed.ml?.generatedPlaceholderKeys?.size ?? 0;
+  console.log(
+    `\nOK: hi/ta/te/ml are at structural parity with en; ${placeholderN} ` +
+    'Malayalam English-source placeholders remain fail-closed for human review.',
+  );
 }
 
-if (process.argv.includes('--check')) {
+if (process.argv.includes('--generate-ml-parity')) {
+  generateMalayalamParity();
+} else if (process.argv.includes('--check')) {
   runParityCheck();
 } else {
   main();

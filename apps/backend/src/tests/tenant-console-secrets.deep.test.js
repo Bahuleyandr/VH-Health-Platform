@@ -6,7 +6,7 @@
 import request from 'supertest';
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
-import { API_KEY, generateTestToken } from './testClient.js';
+import { API_KEY, generateTestToken, ensureTestIdentity } from './testClient.js';
 import { getKeyId } from '../utils/fieldEncryption.js';
 import { provisionTenantKek, tenantKeyId, resetTenantKekCacheForTesting } from '../services/security/tenantKekProvider.js';
 import { resetTenantKekRewrapJobsForTesting } from '../services/security/tenantKekRewrapService.js';
@@ -56,6 +56,11 @@ async function waitForJob(jobId) {
 }
 
 d('Batch 4 tenant console secrets + KEK re-wrap control plane', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity(SUPER_UID, { tenantId: TENANT_ID });
+  });
   beforeAll(async () => {
     resetTenantKekCacheForTesting();
     resetTenantKekRewrapJobsForTesting();

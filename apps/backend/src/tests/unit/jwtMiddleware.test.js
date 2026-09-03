@@ -30,7 +30,7 @@ function makeRes() {
 describe('jwtMiddleware.req.user shape', () => {
   it('surfaces uid + role + id when all three are present on the token', async () => {
     const req = makeReq({
-      uid: 'a0000000-0000-4000-8000-000000000001',
+      uid: 'test-user-1',
       id: 42,
       role: 'DOCTOR',
       phone: '+919000000000',
@@ -41,7 +41,7 @@ describe('jwtMiddleware.req.user shape', () => {
     await jwtMiddleware(req, res, () => { nextCalled = true; });
     expect(nextCalled).toBe(true);
     expect(req.user).toMatchObject({
-      uid: 'a0000000-0000-4000-8000-000000000001',
+      uid: 'test-user-1',
       id: 42,
       role: 'DOCTOR',
       phone: '+919000000000',
@@ -50,25 +50,26 @@ describe('jwtMiddleware.req.user shape', () => {
   });
 
   it('normalizes SUPER_ADMIN → ADMIN', async () => {
-    const req = makeReq({ uid: 'a0000000-0000-4000-8000-000000000002', id: 1, role: 'SUPER_ADMIN' });
+    const req = makeReq({ uid: 'test-admin-2', id: 1, role: 'SUPER_ADMIN' });
     const res = makeRes();
     await jwtMiddleware(req, res, () => {});
     expect(req.user.role).toBe('ADMIN');
   });
 
   it('normalizes NURSE → NURSING_STAFF', async () => {
-    const req = makeReq({ uid: 'a0000000-0000-4000-8000-000000000003', id: 2, role: 'NURSE' });
+    const req = makeReq({ uid: 'test-nurse-3', id: 2, role: 'NURSE' });
     const res = makeRes();
     await jwtMiddleware(req, res, () => {});
     expect(req.user.role).toBe('NURSING_STAFF');
   });
 
-  it('sets id to null when the token is uid-only and no users row matches', async () => {
+  it('rejects a UUID token when no users or admins identity row matches', async () => {
     const req = makeReq({ uid: 'a0000000-0000-4000-8000-000000000004', role: 'PATIENT' });
     const res = makeRes();
     await jwtMiddleware(req, res, () => {});
-    expect(req.user.uid).toBe('a0000000-0000-4000-8000-000000000004');
-    expect(req.user.id).toBeNull();
+    expect(res.statusCode).toBe(401);
+    expect(res.body?.code).toBe('TOKEN_REVOKED');
+    expect(req.user).toBeUndefined();
   });
 
   // Regression for finding
@@ -110,7 +111,7 @@ describe('jwtMiddleware.req.user shape', () => {
   });
 
   it('accepts userId claim as a fallback for id', async () => {
-    const req = makeReq({ uid: 'a0000000-0000-4000-8000-000000000005', userId: 99, role: 'PATIENT' });
+    const req = makeReq({ uid: 'test-user-5', userId: 99, role: 'PATIENT' });
     const res = makeRes();
     await jwtMiddleware(req, res, () => {});
     expect(req.user.id).toBe(99);
@@ -152,7 +153,7 @@ describe('jwtMiddleware.req.user shape', () => {
 // can gate sensitive namespaces (audit 2026-06-18 — SUPER_ADMIN un-scoped bypass).
 describe('jwtMiddleware.req.user.mfa (2FA step-up claim)', () => {
   it('surfaces mfa:true from a 2FA-verified admin token', async () => {
-    const req = makeReq({ uid: 'a0000000-0000-4000-8000-00000000000a', id: 7, role: 'SUPER_ADMIN', mfa: true });
+    const req = makeReq({ uid: 'test-admin-a', id: 7, role: 'SUPER_ADMIN', mfa: true });
     const res = makeRes();
     let nextCalled = false;
     await jwtMiddleware(req, res, () => { nextCalled = true; });
@@ -161,7 +162,7 @@ describe('jwtMiddleware.req.user.mfa (2FA step-up claim)', () => {
   });
 
   it('does not invent mfa when the token lacks the claim (password-only session)', async () => {
-    const req = makeReq({ uid: 'a0000000-0000-4000-8000-00000000000b', id: 8, role: 'ADMIN' });
+    const req = makeReq({ uid: 'test-admin-b', id: 8, role: 'ADMIN' });
     const res = makeRes();
     await jwtMiddleware(req, res, () => {});
     expect(req.user.mfa).not.toBe(true);

@@ -2,9 +2,20 @@
 // Migrated from raw pg to Prisma ORM
 
 import { Prisma } from '@prisma/client';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
+import { getCurrentTenantId } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
+import * as tokenBlacklist from '../../utils/tokenBlacklist.js';
+
+if (
+  process.env.NODE_ENV !== 'test'
+  && typeof tokenBlacklist.withAuthIdentityLifecycleLocks !== 'function'
+) {
+  throw new Error('Auth identity lifecycle locking is unavailable');
+}
+const withAuthIdentityLifecycleLocks = tokenBlacklist.withAuthIdentityLifecycleLocks
+  ?? ((_client, _uids, fn) => fn(_client));
 
 export class AdminUserService {
   static async getUserAnalytics(timeframe = '30d') {
@@ -149,47 +160,60 @@ export class AdminUserService {
   }
 
   static async reactivateUser(userId, reactivatedBy) {
-    let userRows;
-    if (/^\d+$/.test(String(userId))) {
-      userRows = await prisma.$queryRaw`
-        SELECT uid, role, id FROM users WHERE id = ${parseInt(userId)}
+    // Tenant-scoped on purpose. The pre-PR `prisma.$queryRaw`/`$executeRaw`
+    // calls were auto-wrapped by the prisma proxy, so this lookup and update
+    // ran under `app.current_tenant_id`. A bare `prisma.$transaction` hands
+    // back the raw itx client and drops that GUC, which both widens the
+    // lookup's intent and trips the RESTRICTIVE `explicit_tenant_context_753`
+    // policy on `public.users` (migration 758). Callers with no ambient
+    // tenant keep the previous shape.
+    const ambientTenantId = getCurrentTenantId();
+    const runReactivation = (fn) => (ambientTenantId
+      ? setTenantTx(ambientTenantId, fn)
+      : prisma.$transaction(fn));
+    const userRecord = await runReactivation(async (tx) => {
+      let userRows;
+      if (/^\d+$/.test(String(userId))) {
+        userRows = await tx.$queryRaw`
+          SELECT uid, role, id FROM users WHERE id = ${parseInt(userId)}
+        `;
+      } else {
+        userRows = await tx.$queryRaw`
+          SELECT uid, role, id FROM users WHERE uid = ${String(userId)}::uuid
+        `;
+      }
+
+      if (userRows.length !== 1) throw new Error('User not found');
+      const identity = userRows[0];
+      await withAuthIdentityLifecycleLocks(tx, [identity.uid], async () => {});
+
+      const updated = await tx.$executeRaw`
+        UPDATE users
+        SET is_active = true,
+            status = 'active',
+            updated_at = NOW()
+        WHERE uid = ${identity.uid}::uuid
       `;
-    } else {
-      userRows = await prisma.$queryRaw`
-        SELECT uid, role, id FROM users WHERE uid = ${String(userId)}::uuid
-      `;
-    }
+      if (Number(updated) !== 1) throw new Error('User reactivation did not update the identity');
 
-    if (userRows.length === 0) {
-      throw new Error('User not found');
-    }
+      if (['NURSE', 'PHARMACY_STAFF', 'LAB_STAFF'].includes(identity.role)) {
+        await tx.$executeRaw`
+          UPDATE staff SET is_active = true, updated_at = NOW() WHERE user_id = ${identity.uid}::uuid
+        `;
+      } else if (identity.role === 'DOCTOR') {
+        await tx.$executeRaw`
+          UPDATE doctors SET is_available = true, updated_at = NOW() WHERE user_id = ${identity.id}
+        `;
+      }
 
-    const userRecord = userRows[0];
-
-    await prisma.$executeRaw`
-      UPDATE users
-      SET is_active = true,
-          status = 'active',
-          updated_at = NOW()
-      WHERE uid = ${userRecord.uid}::uuid
-    `;
-
-    if (['NURSE', 'PHARMACY_STAFF', 'LAB_STAFF'].includes(userRecord.role)) {
-      await prisma.$executeRaw`
-        UPDATE staff SET is_active = true, updated_at = NOW() WHERE user_id = ${userRecord.uid}::uuid
-      `;
-    } else if (userRecord.role === 'DOCTOR') {
-      await prisma.$executeRaw`
-        UPDATE doctors SET is_available = true, updated_at = NOW() WHERE user_id = ${userRecord.id}
-      `;
-    }
-
-    await prisma.audit_logs.create({
-      data: {
-        uid: reactivatedBy || null,
-        action: 'USER_REACTIVATED',
-        metadata: { reactivatedBy, user_id: userRecord.id },
-      },
+      await tx.audit_logs.create({
+        data: {
+          uid: reactivatedBy || null,
+          action: 'USER_REACTIVATED',
+          metadata: { reactivatedBy, user_id: identity.id },
+        },
+      });
+      return identity;
     });
 
     logger.info(`User reactivated: ${userRecord.uid} by ${reactivatedBy}`);

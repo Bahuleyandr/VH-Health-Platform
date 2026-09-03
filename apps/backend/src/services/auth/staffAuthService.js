@@ -594,17 +594,18 @@ export class StaffAuthService {
     const newHash = await bcrypt.hash(newPassword, 10);
     const tenantId = String(staff.tenant_id);
     const revokedAt = await setTenantTx(tenantId, async (tx) => {
-      await query(`
-        UPDATE users
-        SET encrypted_password = $2, password_changed_at = NOW(), updated_at = NOW()
-        WHERE uid = $1::uuid
-      `, [staffUid, newHash], tx);
-      return persistRevokeAllUserTokens(String(staffUid), {
+      const durableRevokedAt = await persistRevokeAllUserTokens(String(staffUid), {
         client: tx,
         requireEvidence: true,
         reason: 'password_changed',
         notificationTenantId: tenantId,
       });
+      await query(`
+        UPDATE users
+        SET encrypted_password = $2, password_changed_at = NOW(), updated_at = NOW()
+        WHERE uid = $1::uuid
+      `, [staffUid, newHash], tx);
+      return durableRevokedAt;
     });
     await publishRevokeAllUserTokens(String(staffUid), revokedAt, { reason: 'password_changed' });
 
@@ -1562,23 +1563,6 @@ export class StaffAuthService {
       if (identity.rows.length === 0) throw new Error('Staff not found');
       const tenantId = String(identity.rows[0].tenant_id);
       const { result, staffUid, revokedAt } = await setTenantTx(tenantId, async (tx) => {
-        const identity = await query(
-          'SELECT uid FROM users WHERE id = $1 LIMIT 1 FOR UPDATE',
-          [staffId],
-          tx,
-        );
-        if (identity.rows.length === 0) throw new Error('Staff not found');
-        const resetResult = await query(
-          `UPDATE staff_devices
-              SET pin_hash = NULL
-            WHERE tenant_id = $1::uuid
-              AND staff_id = $2
-              AND user_uid = $3::uuid
-              AND is_active = true
-          RETURNING id`,
-          [tenantId, staffId, identity.rows[0].uid],
-          tx,
-        );
         const uid = String(identity.rows[0].uid);
         const durableRevokedAt = await persistRevokeAllUserTokens(uid, {
           client: tx,
@@ -1586,6 +1570,25 @@ export class StaffAuthService {
           reason: 'pin_reset',
           notificationTenantId: tenantId,
         });
+        const lockedIdentity = await query(
+          'SELECT uid FROM users WHERE id = $1 LIMIT 1 FOR UPDATE',
+          [staffId],
+          tx,
+        );
+        if (lockedIdentity.rows.length !== 1 || String(lockedIdentity.rows[0].uid) !== uid) {
+          throw new Error('Staff identity changed during PIN reset');
+        }
+        const resetResult = await query(
+          `UPDATE staff_devices
+              SET pin_hash = NULL
+            WHERE tenant_id = $1::uuid
+              AND staff_id = $2
+              AND user_uid = $3::uuid
+              AND is_active = true
+           RETURNING id`,
+          [tenantId, staffId, uid],
+          tx,
+        );
         return { result: resetResult, staffUid: uid, revokedAt: durableRevokedAt };
       });
       await publishRevokeAllUserTokens(staffUid, revokedAt, { reason: 'pin_reset' });

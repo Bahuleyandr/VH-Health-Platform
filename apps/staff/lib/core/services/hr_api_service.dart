@@ -1004,7 +1004,7 @@ class HrApiService {
       },
     );
     if (!response.isSuccess) {
-      throw Exception(response.failureMessage('Device registration failed'));
+      throw Exception(response.failureMessage());
     }
     final audience = StaffNotificationAudience.fromJson(
       response.dataAsMap()['notificationAuthority'],
@@ -1028,7 +1028,7 @@ class HrApiService {
       body: {'deviceId': installationId},
     );
     if (!response.isSuccess && response.statusCode != 404) {
-      throw Exception(response.failureMessage('Device unregistration failed'));
+      throw Exception(response.failureMessage());
     }
   }
 

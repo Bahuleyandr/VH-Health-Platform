@@ -121,6 +121,9 @@ jobs:
       - name: Validate Alertmanager configuration and routing
         run: node infra/kubernetes/base/monitoring/validate-alertmanager.mjs
 
+      - name: Prove Alertmanager validation fails closed
+        run: node --test infra/kubernetes/base/monitoring/validate-alertmanager.test.mjs
+
       - run: node scripts/ci/run.mjs --only=security
 
   quick_backend:

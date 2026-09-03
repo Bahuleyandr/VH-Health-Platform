@@ -28,17 +28,58 @@ import express from 'express';
 import request from 'supertest';
 import WebSocket from 'ws';
 
+import prisma from '../lib/prisma.js';
 import jwtAuth, { enforceFullScope, requireSetupScope } from '../middleware/jwtMiddleware.js';
 import { generateToken, issueSetupToken } from '../utils/jwtUtils.js';
 import { initWebSocket, closeWebSocket } from '../utils/websocket/wsServer.js';
 
-// Any non-null tenant — wsServer requires a tenant claim; the value is irrelevant.
-// UIDs are valid UUIDs (hex only) so the incidental uid→users.id lookup in
-// jwtMiddleware resolves cleanly (no row) instead of erroring on a bad uuid.
-const TENANT = 'fa11ed00-0000-4000-8000-0000000000aa';
+// UUID credentials are live only while exactly one active users/admins identity
+// exists. Seed real throwaway identities so this scope test cannot accidentally
+// depend on the retired "missing UUID means epoch 0" behavior.
+const TENANT = '00000000-0000-4000-8000-000000000001';
 const WS_UID = 'fa11ed00-0000-4000-8000-000000000001';
 const FULL_UID = 'fa11ed00-0000-4000-8000-000000000002';
 const SETUP_UID = 'fa11ed00-0000-4000-8000-000000000003';
+const TEST_UIDS = [WS_UID, FULL_UID, SETUP_UID];
+
+beforeAll(async () => {
+  await prisma.$executeRawUnsafe(
+    'DELETE FROM invalidated_tokens WHERE jti = ANY($1::text[])',
+    TEST_UIDS.map((uid) => `user:${uid}`),
+  );
+  await prisma.$executeRawUnsafe(
+    'DELETE FROM users WHERE uid = ANY($1::uuid[])',
+    TEST_UIDS,
+  );
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO users
+       (uid, tenant_id, phone, name, role, is_active, status, is_deleted,
+        registered_at, updated_at)
+     VALUES
+       ($1::uuid, $4::uuid, '+919899061001', 'WS scope fixture', 'PATIENT',
+        TRUE, 'active', FALSE, NOW(), NOW()),
+       ($2::uuid, $4::uuid, '+919899061002', 'Full scope fixture', 'PATIENT',
+        TRUE, 'active', FALSE, NOW(), NOW()),
+       ($3::uuid, $4::uuid, '+919899061003', 'Setup scope fixture', 'SUPER_ADMIN',
+        TRUE, 'active', FALSE, NOW(), NOW())`,
+    WS_UID,
+    FULL_UID,
+    SETUP_UID,
+    TENANT,
+  );
+});
+
+afterAll(async () => {
+  await prisma.$executeRawUnsafe(
+    'DELETE FROM invalidated_tokens WHERE jti = ANY($1::text[])',
+    TEST_UIDS.map((uid) => `user:${uid}`),
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    'DELETE FROM users WHERE uid = ANY($1::uuid[])',
+    TEST_UIDS,
+  ).catch(() => {});
+  await prisma.$disconnect().catch(() => {});
+});
 
 // A ws ticket exactly as realtimeTicketRoutes mints it.
 function wsTicket() {
@@ -51,8 +92,7 @@ function fullToken() {
   return generateToken({ uid: FULL_UID, role: 'PATIENT', tenant_id: TENANT }, '1h');
 }
 function setupToken() {
-  // Epoch 0 — SETUP_UID is a throwaway identity with no admins/users row, so
-  // its durable epoch is 0 and the revocation gate admits the token.
+  // Fresh throwaway identity starts at epoch 0.
   return issueSetupToken({ uid: SETUP_UID, role: 'SUPER_ADMIN' }, 0);
 }
 

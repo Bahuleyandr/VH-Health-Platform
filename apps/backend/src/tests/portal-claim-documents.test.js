@@ -22,7 +22,7 @@ import crypto from 'crypto';
 import request from 'supertest';
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
-import { API_KEY, generateTestToken } from './testClient.js';
+import { API_KEY, generateTestToken, ensureTestIdentity } from './testClient.js';
 
 const PATIENT_UID = 'f9999999-9999-4999-8999-aaaaaaaa9909';
 const OTHER_UID = 'f9999999-9999-4999-8999-bbbbbbbbbb09';
@@ -33,6 +33,12 @@ const CLAIM_NUMBER = `CL-DOCS-${STAMP}`;
 const PREAUTH_NUMBER = `PA-DOCS-${STAMP}`;
 
 describe('GET /portal/tpa/claims/:id/documents — patient document list (H D69)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity(PATIENT_UID);
+    await ensureTestIdentity(OTHER_UID);
+  });
   let claimId;
   let policyId;
   let preauthId;

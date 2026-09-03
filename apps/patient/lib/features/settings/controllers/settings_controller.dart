@@ -142,7 +142,7 @@ class SettingsController {
         if (context.mounted) {
           messenger.showSnackBar(
             LiveRegionSnackBar.build(
-              message: 'Authentication failed: $e',
+              message: loc.settingsAuthenticationFailed,
               backgroundColor: Theme.of(context).colorScheme.error,
             ),
           );
@@ -210,7 +210,7 @@ class SettingsController {
 
   Future<void> deleteAccount() async {
     if (phone.trim().isEmpty) {
-      _showSnackBar('A verified phone number is required to delete account.');
+      _showSnackBar(loc.settingsVerifiedPhoneRequiredForDeletion);
       return;
     }
 

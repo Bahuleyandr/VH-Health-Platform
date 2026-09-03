@@ -5,7 +5,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
@@ -22,7 +22,7 @@ const ruleFiles = [
 const tempDir = mkdtempSync(join(tmpdir(), 'vhhealth-promtool-test-'));
 
 try {
-  const groups = ruleFiles.flatMap((file) => extractGroups(join(here, file)));
+  const groups = ruleFiles.flatMap((file) => extractGroups(rulePath(file)));
   const combinedRuleFile = join(tempDir, 'rules.yaml');
   writeFileSync(combinedRuleFile, `groups:\n${groups.join('\n')}\n`, 'utf8');
 
@@ -48,6 +48,19 @@ try {
   process.exitCode = 1;
 } finally {
   rmSync(tempDir, { recursive: true, force: true });
+}
+
+function rulePath(file) {
+  // Same rule as validate-alertmanager.mjs: the override is for the negative
+  // harness, so the resolved path is echoed rather than assumed.
+  if (file === 'backend-red-alerts.yaml' && process.env.BACKEND_RED_ALERTS_FILE) {
+    const overridden = resolve(process.env.BACKEND_RED_ALERTS_FILE);
+    console.log(`• rule file (overridden): ${overridden}`);
+    return overridden;
+  }
+  const resolved = join(here, file);
+  console.log(`• rule file: ${resolved}`);
+  return resolved;
 }
 
 function extractGroups(filePath) {

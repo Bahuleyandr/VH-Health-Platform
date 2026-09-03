@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:vhhealth/core/widgets/health_charts.dart';
 import 'package:vhhealth/features/period_tracker/models/cycle_tracker.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 /// Glance strip for the patient's top daily signals. It intentionally fits
 /// the available screen width instead of scrolling so the right edge never
@@ -46,6 +47,7 @@ class StatsStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final cards = <Widget>[
       _WellnessStatCard(
         score: wellnessScore,
@@ -55,7 +57,7 @@ class StatsStrip extends StatelessWidget {
       _StatCard(
         icon: LucideIcons.footprints,
         tint: Colors.lightBlueAccent,
-        label: 'Steps',
+        label: l10n.dashboardMetricSteps,
         value: stepsToday != null ? _formatThousands(stepsToday!) : '-',
         subValue: stepGoal != null ? '/${_formatThousands(stepGoal!)}' : null,
         expanded: stepsExpanded,
@@ -69,7 +71,7 @@ class StatsStrip extends StatelessWidget {
         tint: Colors.amber,
         label: healthTier != null
             ? '${healthTier![0]}${healthTier!.substring(1).toLowerCase()}'
-            : 'Points',
+            : l10n.healthPointsPoints,
         value: healthPoints != null ? '$healthPoints' : '-',
         subValue: 'pts',
         expanded: pointsExpanded,
@@ -242,7 +244,7 @@ class _WellnessStatCard extends StatelessWidget {
               ),
               const Spacer(),
               Text(
-                'out of 100',
+                AppLocalizations.of(context)!.healthPointsOutOfHundred,
                 textAlign: TextAlign.center,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -322,7 +324,7 @@ class _PeriodStatCard extends StatelessWidget {
                   const SizedBox(width: 5),
                   Expanded(
                     child: _StatHeaderLabel(
-                      text: 'Period',
+                      text: AppLocalizations.of(context)!.dashboardMetricPeriod,
                       style: theme.textTheme.labelSmall?.copyWith(
                         color: cs.onSurface.withValues(alpha: 0.7),
                         fontWeight: FontWeight.w600,

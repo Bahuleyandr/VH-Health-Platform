@@ -1,5 +1,5 @@
 import prisma from '../lib/prisma.js';
-import { authClient } from './testClient.js';
+import { authClient, ensureTestIdentity } from './testClient.js';
 import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
 import { setTransplantProgramEnabled } from '../services/transplant/transplantProgramFeatureService.js';
 import { createProgram } from '../services/transplant/transplantProgramService.js';
@@ -133,6 +133,11 @@ async function grantTransplantPrivileges(tenantId) {
 }
 
 d('NL-13 P6 transplant program management', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity(ACTOR_UID);
+  });
   beforeAll(async () => {
     await cleanup();
     await prisma.$executeRawUnsafe(

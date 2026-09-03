@@ -1986,8 +1986,6 @@ warning	operation-description	["paths","/api/v1/documents/ccd/{patientUid}","get
 warning	operation-description	["paths","/api/v1/documents/discharge-summary/{admissionId}/pdf","get"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/documents/discharge-summary/{admissionId}/pdf/persisted","get"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/documents/fhir-bundle/{patientUid}","get"]	Operation "description" must be present and non-empty string.
-warning	operation-description	["paths","/api/v1/documents/import/ccd","post"]	Operation "description" must be present and non-empty string.
-warning	operation-description	["paths","/api/v1/documents/import/fhir-bundle","post"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/documents/lab-report/{investigationId}/pdf","get"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/drug-kb/status","get"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/ed/ambulance-requests","get"]	Operation "description" must be present and non-empty string.

@@ -335,12 +335,18 @@ class _FakeDischargeSummariesRepository
   final requestedIds = <int>[];
 
   @override
-  Future<DischargeSummariesPage> listSummaries() async {
+  Future<DischargeSummariesPage> listSummaries({
+    required String loadFailureMessage,
+    required String refreshFailureMessage,
+  }) async {
     return DischargeSummariesPage(summaries: [listSummary]);
   }
 
   @override
-  Future<DischargeSummary> getSummary(int id) async {
+  Future<DischargeSummary> getSummary(
+    int id, {
+    required String loadFailureMessage,
+  }) async {
     requestedIds.add(id);
     return detailSummary;
   }

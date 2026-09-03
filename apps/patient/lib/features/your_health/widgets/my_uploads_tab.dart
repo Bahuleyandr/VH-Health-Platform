@@ -105,7 +105,7 @@ class MyUploadsTabState extends State<MyUploadsTab> {
               foregroundColor: Colors.white,
             ),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete'),
+            child: Text(l.commonDeleteButton),
           ),
         ],
       ),
@@ -169,6 +169,7 @@ class MyUploadsTabState extends State<MyUploadsTab> {
 
   /// Show the upload bottom sheet. Called externally from the parent FAB.
   void showUploadSheet() {
+    final l = AppLocalizations.of(context)!;
     final titleCtrl = TextEditingController();
     final hospitalCtrl = TextEditingController();
     String docType = 'other';
@@ -353,7 +354,7 @@ class MyUploadsTabState extends State<MyUploadsTab> {
                               width: 20,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : const Text('Upload'),
+                          : Text(l.commonUploadButton),
                     ),
                   ),
                 ],

@@ -1,5 +1,6 @@
 import '../config/campus_config.dart';
 import 'api_client.dart';
+import '../utils/localized_failure.dart';
 
 /// Schedule-related API calls: shifts, roster, appointments, walk-ins.
 class ScheduleApiService {
@@ -306,7 +307,18 @@ class ScheduleApiService {
     int id, {
     String? notes,
   }) async {
-    return _post('/appointments/$id/complete', {'notes': ?notes});
+    final response = await ApiClient.post(
+      '/appointments/$id/complete',
+      body: {'notes': ?notes},
+    );
+    if (!response.isSuccess) {
+      throw LocalizedApiFailure(
+        fallbackLocalizationKey: 'presentation.request_failed',
+        localizationSource: response,
+        diagnosticMessage: response.failureMessage(),
+      );
+    }
+    return _handle(response);
   }
 
   /// POST /appointments/:id/cancel

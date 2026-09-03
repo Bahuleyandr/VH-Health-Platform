@@ -3,7 +3,7 @@
 // A FHIR PHI collection search (GET /Observation, /Condition, …) with no
 // ?patient/subject enumerated tenant PHI. It now requires a patient context for
 // non-export roles; patient-scoped searches and an export-role carve-out pass.
-import { generateTestToken, API_KEY } from './testClient.js';
+import { generateTestToken, API_KEY, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -19,6 +19,11 @@ function client(role) {
 }
 
 d('FHIR collection-search patient context (CAN-030)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity('c0de0030-00d0-4000-8000-00000000d001', { tenantId: TENANT_ID });
+  });
   afterAll(async () => { await prisma.$disconnect().catch(() => {}); });
 
   it('denies an unscoped PHI collection search for a clinical role', async () => {

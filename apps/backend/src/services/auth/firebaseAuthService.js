@@ -12,7 +12,10 @@ import { ensureHospitalNumber } from '../patient/patientIdentifierService.js';
 import { registerNotificationDevice } from '../notification/deviceRegistrationService.js';
 import { DEFAULT_TENANT_ID, resolveTenantForRequest } from '../tenant/tenantService.js';
 import { issueAccessTokenAndClaimSession, generateRefreshToken } from './loginSessionHelper.js';
-import { revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
+import {
+  revokeAllUserTokens,
+  withAuthIdentityLifecycleLocks,
+} from '../../utils/tokenBlacklist.js';
 
 // Local pg-shape shim: returns the raw `rows` array directly for any
 // query that produces rows (SELECT / WITH / `… RETURNING …`), so call
@@ -94,26 +97,30 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
   if (userResult.length === 0) {
     // Create new user — set tenant_id explicitly rather than relying on the
     // column DEFAULT, so SaaS registrations land in the right tenant.
-    const insertResult = await query(
-      `INSERT INTO users (
-        tenant_id, phone, firebase_uid, role, registered_at, updated_at, last_sign_in_at,
-        name, email, email_verified
-      ) VALUES ($1::uuid, $2, $3, $4, NOW(), NOW(), NOW(), $5, $6, $7)
-      RETURNING id, uid, tenant_id, name, phone, email, role, firebase_uid,
-                gender, email_verified, is_active, status,
-                COALESCE(is_deleted, false) AS is_deleted,
-                deleted_at, last_sign_in_at AS last_login,
-                token_epoch, token_epoch_bumped_at`,
-      [
-        tenantId,
-        phone,
-        firebaseUid,
-        'PATIENT', // Default role
-        decodedToken.name || null,
-        decodedToken.email || null,
-        decodedToken.email_verified || false
-      ]
-    );
+    const insertResult = await prisma.$transaction(async (tx) => {
+      const rows = await query(
+        `INSERT INTO users (
+          tenant_id, phone, firebase_uid, role, registered_at, updated_at, last_sign_in_at,
+          name, email, email_verified
+        ) VALUES ($1::uuid, $2, $3, $4, NOW(), NOW(), NOW(), $5, $6, $7)
+        RETURNING id, uid, tenant_id, name, phone, email, role, firebase_uid,
+                  gender, email_verified, is_active, status,
+                  COALESCE(is_deleted, false) AS is_deleted,
+                  deleted_at, last_sign_in_at AS last_login,
+                  token_epoch, token_epoch_bumped_at`,
+        [
+          tenantId,
+          phone,
+          firebaseUid,
+          'PATIENT', // Default role
+          decodedToken.name || null,
+          decodedToken.email || null,
+          decodedToken.email_verified || false
+        ],
+        tx,
+      );
+      return withAuthIdentityLifecycleLocks(tx, [rows[0].uid], async () => rows);
+    });
     user = insertResult[0];
     isNewUser = true;
     logger.info(`🔥 New Firebase user created: ${maskPhoneForLog(phone)} (${firebaseUid})`);
@@ -641,14 +648,18 @@ export const legacyRegisterUser = async (userData, req, { deviceType } = {}) => 
   }
 
   // Create new user — tenant_id set explicitly.
-  const insertResult = await query(
-    `INSERT INTO users (
-      tenant_id, phone, name, gender, email, birthday, anniversary, address,
-      role, registered_at, updated_at
-    ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
-    RETURNING id, uid, name, phone, email, role, is_active`,
-    [tenantId, normalizedPhone, name, gender, email, birthday, anniversary, address, 'PATIENT']
-  );
+  const insertResult = await prisma.$transaction(async (tx) => {
+    const rows = await query(
+      `INSERT INTO users (
+        tenant_id, phone, name, gender, email, birthday, anniversary, address,
+        role, registered_at, updated_at
+      ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+      RETURNING id, uid, name, phone, email, role, is_active`,
+      [tenantId, normalizedPhone, name, gender, email, birthday, anniversary, address, 'PATIENT'],
+      tx,
+    );
+    return withAuthIdentityLifecycleLocks(tx, [rows[0].uid], async () => rows);
+  });
 
   const user = insertResult[0];
 

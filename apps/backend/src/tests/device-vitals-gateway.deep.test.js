@@ -26,6 +26,7 @@ const PATIENT_RETRYABLE = 'cafe0c53-0000-4000-8000-0000000000b8';
 const PATIENT_POSTCOMMIT = 'cafe0c53-0000-4000-8000-0000000000b9';
 const GHOST_PATIENT = 'cafe0c53-0000-4000-8000-00000000dead'; // never created
 const GATEWAY_ACTOR = 'cafe0c53-0000-4000-8000-0000000000ac';
+const CLINICAL_VERIFIER = 'cafe0c53-0000-4000-8000-0000000000ad';
 const DEVICE_CODE = 'GWCM3-MON-1';
 
 const GW_CONTEXT = { actorRole: 'DEVICE_GATEWAY', actorUid: GATEWAY_ACTOR };
@@ -89,6 +90,7 @@ async function cleanup() {
     PATIENT_RETRY, PATIENT_SUPPRESS, PATIENT_TS_DEVICE, PATIENT_TS_NONE, PATIENT_TS_FUTURE,
     PATIENT_CONCURRENT, PATIENT_TS_PAST, PATIENT_RETRYABLE, PATIENT_POSTCOMMIT,
   ];
+  const users = [...patients, CLINICAL_VERIFIER];
   await prisma.$executeRawUnsafe(
     `DROP TRIGGER IF EXISTS test_device_vitals_concurrent_hold ON vitals_chart`,
   ).catch(() => {});
@@ -147,7 +149,7 @@ async function cleanup() {
     `DELETE FROM news2_scores WHERE patient_uid = ANY($1::uuid[])`, patients,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
-    `DELETE FROM users WHERE uid = ANY($1::uuid[])`, patients,
+    `DELETE FROM users WHERE uid = ANY($1::uuid[])`, users,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM tenants WHERE id = $1::uuid`, TENANT,
@@ -180,6 +182,13 @@ d('Device-gateway vitals ingest — control-id lifecycle + timestamps (deep)', (
         uid, TENANT, phone,
       );
     }
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, status, updated_at)
+       VALUES ($1::uuid, $2::uuid, '+919000053110', 'GWCM3 Clinical Verifier',
+               'NURSING_STAFF', true, 'active', NOW())`,
+      CLINICAL_VERIFIER,
+      TENANT,
+    );
     await prisma.$executeRawUnsafe(
       `INSERT INTO device_registry (tenant_id, device_code, display_name, kind, status)
        VALUES ($1::uuid, $2, 'GWCM3 Test Monitor', 'monitor', 'active')`,
@@ -569,7 +578,7 @@ d('Device-gateway vitals ingest — control-id lifecycle + timestamps (deep)', (
     );
 
     const verified = await verifyDeviceVitals(vitalsId, {
-      actorUid: GATEWAY_ACTOR,
+      actorUid: CLINICAL_VERIFIER,
       actorRole: 'NURSING_STAFF',
       tenantId: TENANT,
     });
@@ -598,7 +607,7 @@ d('Device-gateway vitals ingest — control-id lifecycle + timestamps (deep)', (
     // Verification is one-shot: the second call is NOT_FOUND and the
     // canonical pair stays exactly one row per table.
     await expect(verifyDeviceVitals(vitalsId, {
-      actorUid: GATEWAY_ACTOR,
+      actorUid: CLINICAL_VERIFIER,
       actorRole: 'NURSING_STAFF',
       tenantId: TENANT,
     })).rejects.toMatchObject({ code: 'DEVICE_VITALS_NOT_FOUND' });

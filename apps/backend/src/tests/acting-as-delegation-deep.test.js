@@ -45,16 +45,22 @@ function asGuardian({ uid, id, phone }) {
 
 async function purgeActingAsAuditRows(uids) {
   await withAuditBypass(prisma, async (tx) => {
-    for (const uid of uids) {
-      await tx.$executeRawUnsafe(
-        `DELETE FROM hipaa_access_log WHERE actor_uid = $1::uuid OR subject_uid = $1::uuid OR accessed_by = $1::uuid`,
-        uid,
-      );
-      await tx.$executeRawUnsafe(
-        `DELETE FROM audit_logs WHERE uid = $1::uuid OR actor_uid = $1::uuid OR subject_uid = $1::uuid OR resource_id = $1::text`,
-        uid,
-      );
-    }
+    await tx.$executeRawUnsafe(
+      `DELETE FROM hipaa_access_log
+        WHERE actor_uid = ANY($1::uuid[])
+           OR subject_uid = ANY($1::uuid[])
+           OR accessed_by = ANY($1::uuid[])`,
+      uids,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM audit_logs
+        WHERE uid = ANY($1::uuid[])
+           OR actor_uid = ANY($1::uuid[])
+           OR subject_uid = ANY($1::uuid[])
+           OR resource_id = ANY($2::text[])`,
+      uids,
+      uids,
+    );
   });
 }
 
@@ -212,7 +218,7 @@ describe('Acting-as delegation — deep integration', () => {
       );
     }
     await prisma.$disconnect();
-  });
+  }, 20_000);
 
   test('GET /users/me without delegation returns guardian', async () => {
     const res = await guardianCall('get', '/api/v1/users/me');

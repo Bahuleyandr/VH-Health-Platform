@@ -14,13 +14,11 @@ export function runFlutterStage() {
   run(process.execPath, ['scripts/generate-vital-bounds.mjs', '--check']);
   run(process.execPath, ['scripts/generate-staff-role-contract.mjs', '--check']);
   run(process.execPath, ['scripts/generate-patient-notification-contract.mjs', '--check']);
-  // Staff i18n structural key parity (hi/ta/te vs en; ml is declared-partial
-  // and exempt). Node-only, same cheap-gate-first placement as the drift
-  // checks above. This is the Forgejo/canonical half of the "Staff i18n
-  // structural parity" step in .github/workflows/_reusable-flutter-workspace.yml
-  // — .forgejo/workflows/ci.yml has no Flutter YAML of its own, it invokes this
-  // stage, so parity between the two CI halves lives here.
+  // Staff and patient i18n structural parity (hi/ta/te/ml vs en). Node-only,
+  // same cheap-gate-first placement as the drift checks above. This is the
+  // Forgejo/local half of the matching GitHub workflow step.
   run(process.execPath, ['apps/staff/scripts/i18n-verify.mjs', '--check']);
+  run(process.execPath, ['apps/patient/scripts/i18n-verify.mjs', '--check']);
 
   run('dart', ['pub', 'get']);
   run('dart', ['run', 'melos', 'bootstrap']);

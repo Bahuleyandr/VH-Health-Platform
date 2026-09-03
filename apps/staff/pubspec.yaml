@@ -13,7 +13,7 @@ dependencies:
     sdk: flutter
   # Built-in Material/Cupertino translations for date pickers,
   # back-button labels, etc. Required to declare supportedLocales =
-  # [en, hi, ta, te] cleanly. App-specific strings live in
+  # [en, hi, ta, te, ml] cleanly. App-specific strings live in
   # `lib/l10n/app_strings.dart` (manual map, no codegen).
   flutter_localizations:
     sdk: flutter
@@ -109,3 +109,31 @@ msix_config:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/fonts/noto/
+    - assets/fonts/noto/licenses/
+  fonts:
+    - family: VH Bed Board Devanagari
+      fonts:
+        - asset: assets/fonts/noto/NotoSansDevanagari-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/noto/NotoSansDevanagari-Bold.ttf
+          weight: 700
+    - family: VH Bed Board Tamil
+      fonts:
+        - asset: assets/fonts/noto/NotoSansTamil-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/noto/NotoSansTamil-Bold.ttf
+          weight: 700
+    - family: VH Bed Board Telugu
+      fonts:
+        - asset: assets/fonts/noto/NotoSansTelugu-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/noto/NotoSansTelugu-Bold.ttf
+          weight: 700
+    - family: VH Bed Board Malayalam
+      fonts:
+        - asset: assets/fonts/noto/NotoSansMalayalam-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/noto/NotoSansMalayalam-Bold.ttf
+          weight: 700

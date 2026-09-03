@@ -2,7 +2,7 @@
 //
 // Roadmap C5 — ICU monitor vitals. Mounted at /api/v1/devices (app.js).
 //   POST /vitals/ingest        — monitor/gateway pushes ORU^R01
-//   GET  /vitals/unverified    — ICU review queue
+//   GET  /vitals/unverified    — device/FHIR clinical review queue
 //   POST /vitals/:id/verify    — clinician verification (audited)
 
 import express from 'express';
@@ -137,7 +137,7 @@ router.get('/vitals/unverified', async (req, res) => {
       limit: req.query.limit,
       tenantId: requestTenantId(req), // CAN-045
     });
-    return success(res, { vitals: rows, count: rows.length }, 'Unverified device vitals');
+    return success(res, { vitals: rows, count: rows.length }, 'Unverified clinical vitals');
   } catch (err) {
     return handleFailure(res, err, 'list unverified device vitals');
   }
@@ -146,12 +146,12 @@ router.get('/vitals/unverified', async (req, res) => {
 router.post('/vitals/:id/verify', async (req, res) => {
   try {
     if (!canVerify(req.user?.role)) {
-      return error(res, 'Only clinical staff can verify device vitals', HTTP_STATUS.FORBIDDEN);
+      return error(res, 'Only clinical staff can verify vitals', HTTP_STATUS.FORBIDDEN);
     }
     const row = await verifyDeviceVitals(Number.parseInt(req.params.id, 10), {
       actorUid: req.user?.uid || null, actorRole: req.user?.role || null, tenantId: requestTenantId(req), // CAN-045
     });
-    return success(res, { vitals: row }, 'Device vitals verified');
+    return success(res, { vitals: row }, 'Vitals verified');
   } catch (err) {
     return handleFailure(res, err, 'verify device vitals');
   }

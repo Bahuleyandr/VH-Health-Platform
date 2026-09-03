@@ -201,11 +201,11 @@ test('a migration born on this branch may be edited on this branch', (t) => {
 });
 
 test('a line-ending rewrite is not drift', (t) => {
-  // The blob changes, the checksum does not. '*.sql' is not LF-pinned in
-  // .gitattributes, so a Windows editor can re-commit a migration as CRLF —
-  // and migrationChecksum() normalises CRLF before hashing, so that file still
-  // matches every _migrations row on every database. This gate's authority
-  // rests on mirroring the runtime check exactly, so it must not fail here.
+  // The blob changes, the checksum does not. The repository LF-pins migration
+  // checkouts, but historical blobs and tools that bypass attributes can still
+  // produce CRLF. migrationChecksum() normalises it so that file still matches
+  // every _migrations row on every database. This gate's authority rests on
+  // mirroring the runtime check exactly, so it must not fail here.
   const { repo } = seedRepo(t);
   writeFile(repo, MIGRATION_566, before.replace(/\n/g, '\r\n'));
   commit(repo, 'chore: an editor rewrote 566 as CRLF');
@@ -214,6 +214,16 @@ test('a line-ending rewrite is not drift', (t) => {
   assert.equal(status, 0, 'a CRLF-only rewrite was reported as drift');
   assert.match(stdout, /1 migration\(s\) touched with no checksum change/);
   assert.match(stdout, /0 violation\(s\)/);
+});
+
+test('backend migrations resolve to an effective LF checkout policy', () => {
+  const attributes = execFileSync(
+    'git',
+    ['check-attr', 'text', 'eol', '--', MIGRATION_566],
+    { cwd: repoRoot, encoding: 'utf8' },
+  );
+  assert.match(attributes, /: text: set(?:\r?\n|$)/);
+  assert.match(attributes, /: eol: lf(?:\r?\n|$)/);
 });
 
 test('the gate sources are free of NUL bytes', () => {

@@ -1,4 +1,4 @@
-import prisma, { prismaReadOnly } from '../../lib/prisma.js';
+import { prismaReadOnly, setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { mergedPatientUidsSubquery } from '../clinical/mergedPatientReadUnion.js';
@@ -265,14 +265,39 @@ export async function exportAuditEvents(tenantId, query = {}) {
   return { csv: auditEventsToCsv(rows), row_count: rows.length, filters: publicFilters(filters) };
 }
 
-export async function getAuditHealth(tenantId, query = {}) {
+export function normalizeAuditHealthWindow(query = {}, databaseNow) {
   const hours = integer(query.hours, 'hours', { min: 1, max: 24 * 90, fallback: 24 });
-  const patientThreshold = integer(query.patient_threshold, 'patient_threshold', { min: 1, max: 500, fallback: 20 });
-  const from = instant(query.from, 'from') || new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
-  const to = instant(query.to, 'to') || new Date().toISOString();
+  const explicitFrom = instant(query.from, 'from');
+  const explicitTo = instant(query.to, 'to');
+  let to = explicitTo;
+
+  if (!to) {
+    const databaseInstant = databaseNow instanceof Date ? databaseNow : new Date(databaseNow);
+    if (Number.isNaN(databaseInstant.getTime())) {
+      throw AppError.internal(
+        'Database clock returned an invalid audit-health timestamp',
+        'AUDIT_HEALTH_DATABASE_CLOCK_INVALID',
+      );
+    }
+    to = databaseInstant.toISOString();
+  }
+
+  const from = explicitFrom || new Date(new Date(to).getTime() - hours * 60 * 60 * 1000).toISOString();
   if (new Date(from) > new Date(to)) {
     throw AppError.badRequest('Audit from date must be before to date', 'INVALID_AUDIT_DATE_RANGE');
   }
+  return { from, hours, to };
+}
+
+export async function getAuditHealth(tenantId, query = {}) {
+  const patientThreshold = integer(query.patient_threshold, 'patient_threshold', { min: 1, max: 500, fallback: 20 });
+  const databaseNow = query.to
+    ? null
+    : (await prismaReadOnly.$queryRawUnsafe(
+      `SELECT date_trunc('milliseconds', clock_timestamp())
+                + INTERVAL '1 millisecond' AS database_now`,
+    ))[0]?.database_now;
+  const { from, to } = normalizeAuditHealthWindow(query, databaseNow);
 
   const [
     sources,
@@ -532,23 +557,38 @@ export async function recordAuditConsoleAccess(req, action, metadata = {}) {
   const actorUid = rawActorUid && UUID_RE.test(String(rawActorUid)) ? String(rawActorUid) : null;
   if (!tenantId) return;
   try {
-    await prisma.audit_logs.create({
-      data: {
-        tenant_id: String(tenantId),
-        uid: actorUid,
-        actor_uid: actorUid,
-        role: req.user?.role || null,
-        action,
-        resource: 'audit_console',
-        resource_id: req.id || null,
-        ip_address: req.ip || null,
-        user_agent: String(req.headers?.['user-agent'] || '').slice(0, 500) || null,
-        metadata: {
-          request_id: req.id || null,
-          actor_user_id: req.user?.id ?? req.user?.userId ?? null,
-          ...metadata,
+    await setTenant(String(tenantId), async (tx) => {
+      const [clockRow] = await tx.$queryRawUnsafe(
+        `SELECT date_trunc('milliseconds', clock_timestamp()) AS created_at`,
+      );
+      const createdAt = clockRow?.created_at instanceof Date
+        ? clockRow.created_at
+        : new Date(clockRow?.created_at);
+      if (Number.isNaN(createdAt.getTime())) {
+        throw AppError.internal(
+          'Database clock returned an invalid audit-console timestamp',
+          'AUDIT_CONSOLE_DATABASE_CLOCK_INVALID',
+        );
+      }
+      await tx.audit_logs.create({
+        data: {
+          tenant_id: String(tenantId),
+          uid: actorUid,
+          actor_uid: actorUid,
+          role: req.user?.role || null,
+          action,
+          resource: 'audit_console',
+          resource_id: req.id || null,
+          ip_address: req.ip || null,
+          user_agent: String(req.headers?.['user-agent'] || '').slice(0, 500) || null,
+          created_at: createdAt,
+          metadata: {
+            request_id: req.id || null,
+            actor_user_id: req.user?.id ?? req.user?.userId ?? null,
+            ...metadata,
+          },
         },
-      },
+      });
     });
   } catch (err) {
     logger.error('Failed to record audit-console access', { action, error: err.message });

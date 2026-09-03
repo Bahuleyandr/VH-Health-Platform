@@ -16,6 +16,8 @@
 //
 // Self-skips without a DB.
 
+import crypto from 'node:crypto';
+
 import { jest } from '@jest/globals';
 
 import prisma, { setTenantTx } from '../lib/prisma.js';
@@ -24,6 +26,9 @@ import {
   importFhirVitalObservation,
   reconcilePendingFhirVitalEffects,
 } from '../services/import/patientDataImport.js';
+import { verifyDeviceVitals } from '../services/emr/deviceVitalsService.js';
+import { correctVitals } from '../services/emr/vitalsChartService.js';
+import { clinicalImportSha256 } from '../services/import/clinicalImportReceiptService.js';
 import {
   lockTenantPatientMergeExecutionExclusive,
   PATIENT_MERGE_STABILITY_TIMEOUT_MS,
@@ -36,18 +41,291 @@ jest.setTimeout(30_000);
 const TENANT = '00000000-0000-4000-8000-000000000001'; // literal default tenant
 const PATIENT = '00000000-0000-4000-8000-0000000f4151';
 const IMPORTER = '00000000-0000-4000-8000-0000000f4152';
+const VERIFYING_CLINICIAN = '00000000-0000-4000-8000-0000000f4155';
 const MERGED_PATIENT_ALIAS = '00000000-0000-4000-8000-0000000f4153';
 const MERGE_RACE_PATIENT = '00000000-0000-4000-8000-0000000f4154';
+const CLINICAL_IMPORT_SOURCE_SYSTEM = 'jest-fhir-vitals-deep';
+const ACCESS_POLICY = Object.freeze({
+  access_decision: 'allow',
+  access_source: 'test_fixture_explicit_grant',
+  policy_code: 'patient.record.upload',
+  policy_version: '1',
+  policy_hash: clinicalImportSha256('test-manual-clinical-import-policy-v1'),
+  reason: 'Explicit test-only clinical import access evidence',
+});
+let testFacilityId = null;
+let importDocumentSequence = 0;
+const authorityGrants = new Map();
 
-function importFhirBundle(bundle, importedBy, options = {}) {
-  const patientReference = (bundle.entry || [])
+async function clinicalImportQuery(tenantId, sql, ...params) {
+  return setTenantTx(tenantId, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(sql, ...params);
+    return Array.isArray(rows) ? rows : [];
+  });
+}
+
+function bundleWithSourceAuthor(bundle, importedBy) {
+  return {
+    ...bundle,
+    entry: (bundle.entry || []).map((entry) => {
+      const resource = entry?.resource;
+      if (resource?.resourceType !== 'Observation' || resource.performer?.length) return entry;
+      return {
+        ...entry,
+        resource: {
+          ...resource,
+          performer: [{ reference: `Practitioner/${importedBy}` }],
+        },
+      };
+    }),
+  };
+}
+
+async function ensureClinicalImportGrant({ tenantId, patientUid, importedBy }) {
+  const scope = `${tenantId}:${patientUid}:${importedBy}:${CLINICAL_IMPORT_SOURCE_SYSTEM}`;
+  if (!authorityGrants.has(scope)) {
+    const grantId = crypto.randomUUID();
+    const ownerEvidenceRef = `test://clinical-import/fhir-vitals/${grantId}`;
+    authorityGrants.set(scope, setTenantTx(tenantId, async (tx) => {
+      await tx.$executeRawUnsafe(
+        `INSERT INTO clinical_import_authority_events
+           (tenant_id, grant_id, event_type, patient_uid, facility_id,
+            actor_uid, actor_role, source_system, document_formats,
+            valid_from, valid_until, owner_evidence_ref, owner_evidence_sha256,
+            recorded_by, reason, idempotency_key_sha256, contract_version)
+         VALUES
+           ($1::uuid, $2::uuid, 'GRANTED', $3::uuid, $4::int,
+            $5::uuid, 'MEDICAL_RECORDS', $6, ARRAY['fhir_bundle']::text[],
+            NOW() - INTERVAL '1 minute', NOW() + INTERVAL '1 day', $7, $8,
+            $5::uuid, $9, $10, 1)`,
+        tenantId,
+        grantId,
+        patientUid,
+        testFacilityId,
+        importedBy,
+        CLINICAL_IMPORT_SOURCE_SYSTEM,
+        ownerEvidenceRef,
+        clinicalImportSha256(ownerEvidenceRef),
+        `Explicit test grant for ${patientUid}`,
+        clinicalImportSha256(`grant:${tenantId}:${grantId}`),
+      );
+      return grantId;
+    }));
+  }
+  return authorityGrants.get(scope);
+}
+
+async function expectClinicalImportReceipt(result, authority) {
+  const custody = await clinicalImportQuery(
+    authority.tenantId,
+    `SELECT document.authority_grant_id, document.raw_artifact_id,
+            document.access_decision_evidence, document.source_author_evidence,
+            raw.patient_uid, raw.source_facility_id, raw.actor_uid,
+            raw.source_system, raw.source_document_id, raw.document_format,
+            raw.raw_payload_sha256, raw.raw_payload_bytes::int AS raw_payload_bytes,
+            raw.raw_content_type, raw.canonicalization_version,
+            raw.canonical_payload_sha256, raw.signature_verification_status,
+            raw.source_author_evidence AS raw_source_author_evidence
+       FROM clinical_import_document_receipts AS document
+       JOIN clinical_import_raw_artifacts AS raw
+         ON raw.tenant_id=document.tenant_id AND raw.id=document.raw_artifact_id
+      WHERE document.tenant_id=$1::uuid AND document.id=$2::uuid`,
+    authority.tenantId,
+    result.receipt_id,
+  );
+  expect(custody).toHaveLength(1);
+  expect(custody[0]).toMatchObject({
+    authority_grant_id: authority.authorityGrantId,
+    patient_uid: authority.patientUid,
+    source_facility_id: testFacilityId,
+    actor_uid: authority.actorUid,
+    source_system: CLINICAL_IMPORT_SOURCE_SYSTEM,
+    source_document_id: authority.sourceDocumentId,
+    document_format: 'fhir_bundle',
+    raw_payload_sha256: crypto.createHash('sha256').update(authority.rawDocument).digest('hex'),
+    raw_payload_bytes: authority.rawDocument.length,
+    raw_content_type: 'application/fhir+json',
+    canonicalization_version: 'exact-http-body+fhir-canonical-json-v1',
+    canonical_payload_sha256: authority.sourcePayloadSha256,
+    signature_verification_status: 'asserted_unverified',
+  });
+  expect(custody[0].raw_artifact_id).toEqual(expect.any(String));
+  expect(custody[0].access_decision_evidence).toMatchObject({
+    contract_version: 'clinical-import-access-decision-v1',
+    decision: 'allow',
+    authority_grant_id: authority.authorityGrantId,
+    patient_uid: authority.patientUid,
+    patient_access: ACCESS_POLICY,
+  });
+  expect(custody[0].source_author_evidence.authors).not.toHaveLength(0);
+  expect(custody[0].raw_source_author_evidence).toEqual(custody[0].source_author_evidence);
+
+  const persistedResources = await clinicalImportQuery(
+    authority.tenantId,
+    `SELECT id, source_resource_type, source_resource_id, source_resource_index,
+            outcome, target_table, target_id
+       FROM clinical_import_resource_receipts
+      WHERE tenant_id=$1::uuid AND document_receipt_id=$2::uuid
+      ORDER BY source_resource_index`,
+    authority.tenantId,
+    result.receipt_id,
+  );
+  expect(result.resource_receipts).toEqual(persistedResources.map((resource) => ({
+    ...resource,
+    source_resource_index: Number(resource.source_resource_index),
+  })));
+  const failedReceiptIds = result.resource_receipts
+    .filter(({ outcome }) => outcome === 'failed')
+    .map(({ id }) => id)
+    .sort();
+  expect(result.reconciliation_items.map(({ resource_receipt_id: id }) => id).sort())
+    .toEqual(failedReceiptIds);
+  expect(result.reconciliation_items).toEqual(result.reconciliation_items.map((item) => ({
+    ...item,
+    opened_event_id: expect.any(String),
+    status: 'OPENED',
+  })));
+  expect(result.errors).toHaveLength(Number(result.failed || 0));
+  for (const partition of result.observationPartitions.filter((candidate) => (
+    candidate.status === 'imported' && candidate.error
+  ))) {
+    expect(partition).toEqual(expect.objectContaining({
+      error: 'FHIR vitals were committed, but clinical effects remain incomplete',
+      errorCode: expect.any(String),
+    }));
+  }
+
+  const reconciliation = await clinicalImportQuery(
+    authority.tenantId,
+    `SELECT
+       (SELECT COUNT(*)::int FROM clinical_import_resource_receipts
+         WHERE tenant_id=$1::uuid AND document_receipt_id=$2::uuid
+           AND outcome='failed') AS failed_resource_count,
+       (SELECT COUNT(*)::int FROM clinical_import_reconciliation_items
+         WHERE tenant_id=$1::uuid AND document_receipt_id=$2::uuid) AS item_count,
+       (SELECT COUNT(*)::int FROM clinical_import_reconciliation_events
+         WHERE tenant_id=$1::uuid AND document_receipt_id=$2::uuid
+           AND event_type='OPENED') AS opened_event_count`,
+    authority.tenantId,
+    result.receipt_id,
+  );
+  const failed = Number(result.failed || 0);
+  expect(reconciliation).toEqual([{
+    failed_resource_count: failed,
+    item_count: failed,
+    opened_event_count: failed,
+  }]);
+}
+
+async function expectClinicalImportRollback(tenantId, sourceDocumentId) {
+  const rows = await clinicalImportQuery(
+    tenantId,
+    `SELECT
+       (SELECT COUNT(*)::int FROM clinical_import_document_receipts
+         WHERE tenant_id=$1::uuid AND source_system=$2 AND source_document_id=$3) AS document_count,
+       (SELECT COUNT(*)::int FROM clinical_import_raw_artifacts
+         WHERE tenant_id=$1::uuid AND source_system=$2 AND source_document_id=$3) AS raw_artifact_count,
+       (SELECT COUNT(*)::int FROM clinical_import_resource_receipts
+         WHERE tenant_id=$1::uuid AND document_receipt_id IN (
+           SELECT id FROM clinical_import_document_receipts
+            WHERE tenant_id=$1::uuid AND source_system=$2 AND source_document_id=$3
+         )) AS resource_count,
+       (SELECT COUNT(*)::int FROM clinical_import_reconciliation_items
+         WHERE tenant_id=$1::uuid AND document_receipt_id IN (
+           SELECT id FROM clinical_import_document_receipts
+            WHERE tenant_id=$1::uuid AND source_system=$2 AND source_document_id=$3
+         )) AS reconciliation_item_count,
+       (SELECT COUNT(*)::int FROM clinical_import_reconciliation_events
+         WHERE tenant_id=$1::uuid AND document_receipt_id IN (
+           SELECT id FROM clinical_import_document_receipts
+            WHERE tenant_id=$1::uuid AND source_system=$2 AND source_document_id=$3
+         )) AS reconciliation_event_count`,
+    tenantId,
+    CLINICAL_IMPORT_SOURCE_SYSTEM,
+    sourceDocumentId,
+  );
+  expect(rows).toEqual([{
+    document_count: 0,
+    raw_artifact_count: 0,
+    resource_count: 0,
+    reconciliation_item_count: 0,
+    reconciliation_event_count: 0,
+  }]);
+}
+
+async function importFhirBundle(bundle, importedBy, options = {}) {
+  const authoritativeBundle = bundleWithSourceAuthor(bundle, importedBy);
+  const patientReference = (authoritativeBundle.entry || [])
     .map(({ resource }) => resource?.subject?.reference || resource?.patient?.reference)
     .find(Boolean);
-  const patientUid = String(patientReference || '').replace('Patient/', '') || PATIENT;
-  return importFhirBundleWithAuthority(bundle, importedBy, {
-    ...options,
-    authority: { patientUid },
+  const patientUid = options.authority?.patientUid
+    || String(patientReference || '').replace('Patient/', '')
+    || PATIENT;
+  const patientRows = await query(
+    `SELECT id FROM users WHERE tenant_id=$1::uuid AND uid=$2::uuid LIMIT 1`,
+    options.tenantId || TENANT,
+    patientUid,
+  );
+  if (!patientRows.length || !testFacilityId) throw new Error('FHIR deep-test receipt authority is unavailable');
+  const authorityGrantId = await ensureClinicalImportGrant({
+    tenantId: options.tenantId || TENANT,
+    patientUid,
+    importedBy,
   });
+  const sourcePayloadSha256 = clinicalImportSha256(authoritativeBundle);
+  const sourceDocumentId = `fhir-deep-${process.pid}-${++importDocumentSequence}`;
+  const authority = {
+    ...options.authority,
+    patientUid,
+    patientId: Number(patientRows[0].id),
+    sourceSystem: CLINICAL_IMPORT_SOURCE_SYSTEM,
+    sourceDocumentId,
+    sourceFacilityId: testFacilityId,
+    authorityGrantId,
+    sourceSignatureSha256: clinicalImportSha256(`signature:${sourcePayloadSha256}`),
+    sourcePayloadSha256,
+    rawDocument: Buffer.from(JSON.stringify(authoritativeBundle), 'utf8'),
+    rawContentType: 'application/fhir+json',
+    accessDecisionEvidence: ACCESS_POLICY,
+    revalidateAccess: async () => ACCESS_POLICY,
+    actorUid: importedBy,
+    actorRole: 'MEDICAL_RECORDS',
+    ingestionMode: 'manual_medical_records',
+    requestId: sourceDocumentId,
+    tenantId: options.tenantId || TENANT,
+  };
+  const invocationAuthority = {
+    ...authority,
+    idempotencyKey: `fhir-deep:${sourceDocumentId}`,
+  };
+  if (typeof options.captureInvocation === 'function') {
+    options.captureInvocation({ bundle: authoritativeBundle, authority: invocationAuthority });
+  }
+  let result;
+  try {
+    result = await importFhirBundleWithAuthority(authoritativeBundle, importedBy, {
+      ...options,
+      authority: invocationAuthority,
+    });
+  } catch (error) {
+    await expectClinicalImportRollback(authority.tenantId, sourceDocumentId);
+    throw error;
+  }
+  await expectClinicalImportReceipt(result, authority);
+  if (options.autoVerifyClinicalVitals !== false) {
+    const ids = [...new Set((result.observationPartitions || [])
+      .filter(({ status }) => ['imported', 'deduplicated'].includes(status))
+      .map(({ vitalsChartId }) => Number(vitalsChartId))
+      .filter((id) => Number.isInteger(id) && id > 0))];
+    for (const id of ids) {
+      await verifyDeviceVitals(id, {
+        actorUid: VERIFYING_CLINICIAN,
+        actorRole: 'NURSING_STAFF',
+        tenantId: options.tenantId || TENANT,
+      });
+    }
+  }
+  return result;
 }
 
 async function exec(sql, ...p) {
@@ -215,8 +493,63 @@ function componentAndFahrenheitBundle(effective) {
 }
 
 async function cleanup() {
+  await prisma.$executeRawUnsafe(
+    `DROP TRIGGER IF EXISTS test_fhir_verification_news2_failure ON news2_scores`,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DROP FUNCTION IF EXISTS test_fhir_verification_news2_failure()`,
+  ).catch(() => {});
   await prisma.$transaction(async (tx) => {
     await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+    await tx.$queryRawUnsafe(
+      `SELECT set_config('app.current_tenant_id', $1::text, true)`,
+      TENANT,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM clinical_import_reconciliation_events
+        WHERE tenant_id=$1::uuid AND document_receipt_id IN (
+          SELECT id FROM clinical_import_document_receipts
+           WHERE tenant_id=$1::uuid AND source_system=$2
+        )`,
+      TENANT,
+      CLINICAL_IMPORT_SOURCE_SYSTEM,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM clinical_import_reconciliation_items
+        WHERE tenant_id=$1::uuid AND document_receipt_id IN (
+          SELECT id FROM clinical_import_document_receipts
+           WHERE tenant_id=$1::uuid AND source_system=$2
+        )`,
+      TENANT,
+      CLINICAL_IMPORT_SOURCE_SYSTEM,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM clinical_import_resource_receipts
+        WHERE tenant_id=$1::uuid AND document_receipt_id IN (
+          SELECT id FROM clinical_import_document_receipts
+           WHERE tenant_id=$1::uuid AND source_system=$2
+        )`,
+      TENANT,
+      CLINICAL_IMPORT_SOURCE_SYSTEM,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM clinical_import_document_receipts
+        WHERE tenant_id=$1::uuid AND source_system=$2`,
+      TENANT,
+      CLINICAL_IMPORT_SOURCE_SYSTEM,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM clinical_import_raw_artifacts
+        WHERE tenant_id=$1::uuid AND source_system=$2`,
+      TENANT,
+      CLINICAL_IMPORT_SOURCE_SYSTEM,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM clinical_import_authority_events
+        WHERE tenant_id=$1::uuid AND source_system=$2`,
+      TENANT,
+      CLINICAL_IMPORT_SOURCE_SYSTEM,
+    );
     await tx.$executeRawUnsafe(
       `DELETE FROM tasks WHERE patient_uid IN ($1::uuid, $2::uuid)`,
       PATIENT,
@@ -227,7 +560,66 @@ async function cleanup() {
       PATIENT,
       MERGE_RACE_PATIENT,
     );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM resuscitation_device_links
+        WHERE resuscitation_event_id IN (
+          SELECT id FROM resuscitation_events
+           WHERE tenant_id=$1::uuid AND patient_uid IN ($2::uuid, $3::uuid)
+        )`,
+      TENANT,
+      PATIENT,
+      MERGE_RACE_PATIENT,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM resuscitation_medication_links
+        WHERE resuscitation_event_id IN (
+          SELECT id FROM resuscitation_events
+           WHERE tenant_id=$1::uuid AND patient_uid IN ($2::uuid, $3::uuid)
+        )`,
+      TENANT,
+      PATIENT,
+      MERGE_RACE_PATIENT,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM resuscitation_qa_reviews
+        WHERE resuscitation_event_id IN (
+          SELECT id FROM resuscitation_events
+           WHERE tenant_id=$1::uuid AND patient_uid IN ($2::uuid, $3::uuid)
+        )`,
+      TENANT,
+      PATIENT,
+      MERGE_RACE_PATIENT,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM resuscitation_team_roles
+        WHERE resuscitation_event_id IN (
+          SELECT id FROM resuscitation_events
+           WHERE tenant_id=$1::uuid AND patient_uid IN ($2::uuid, $3::uuid)
+        )`,
+      TENANT,
+      PATIENT,
+      MERGE_RACE_PATIENT,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM resuscitation_event_timeline
+        WHERE resuscitation_event_id IN (
+          SELECT id FROM resuscitation_events
+           WHERE tenant_id=$1::uuid AND patient_uid IN ($2::uuid, $3::uuid)
+        )`,
+      TENANT,
+      PATIENT,
+      MERGE_RACE_PATIENT,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM resuscitation_events
+        WHERE tenant_id=$1::uuid
+          AND patient_uid IN ($2::uuid, $3::uuid)`,
+      TENANT,
+      PATIENT,
+      MERGE_RACE_PATIENT,
+    );
   }).catch(() => {});
+  authorityGrants.clear();
   await exec(
     `DELETE FROM news2_scores WHERE patient_uid IN ($1::uuid, $2::uuid)`,
     PATIENT,
@@ -267,11 +659,12 @@ async function cleanup() {
     MERGE_RACE_PATIENT,
   ).catch(() => {});
   await exec(
-    `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
+    `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid)`,
     PATIENT,
     IMPORTER,
     MERGED_PATIENT_ALIAS,
     MERGE_RACE_PATIENT,
+    VERIFYING_CLINICIAN,
   ).catch(() => {});
 }
 
@@ -286,15 +679,248 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
     );
     await exec(
       `INSERT INTO users (uid, phone, name, role, is_active, status, tenant_id, updated_at)
-       VALUES ($1::uuid, '8990333445', 'Import Test Clerk', 'STAFF', true, 'active', $2::uuid, NOW())
+       VALUES ($1::uuid, '8990333445', 'Import Test Clerk', 'MEDICAL_RECORDS', true, 'active', $2::uuid, NOW())
        ON CONFLICT (uid) DO NOTHING`,
       IMPORTER, TENANT,
     );
+    await exec(
+      `INSERT INTO users (uid, phone, name, role, is_active, status, tenant_id, updated_at)
+       VALUES ($1::uuid, '8990333448', 'Import Test Clinician', 'NURSING_STAFF', true, 'active', $2::uuid, NOW())
+       ON CONFLICT (uid) DO NOTHING`,
+      VERIFYING_CLINICIAN, TENANT,
+    );
+    const facilityRows = await query(
+      `INSERT INTO facilities (tenant_id, facility_code, display_name, status)
+       VALUES ($1::uuid, 'FHIR-DEEP', 'FHIR deep-test facility', 'active')
+       ON CONFLICT (tenant_id, facility_code)
+       DO UPDATE SET status='active'
+       RETURNING id`,
+      TENANT,
+    );
+    testFacilityId = Number(facilityRows[0].id);
   });
 
   afterAll(async () => {
     await cleanup();
     await prisma.$disconnect().catch(() => {});
+  });
+
+  it('holds asserted-unverified manual FHIR vitals until one clinical verification activates effects', async () => {
+    const observedAt = new Date(Date.now() - 60_000).toISOString();
+    const bundle = heartRateBundle(observedAt, 180, { id: `held-${crypto.randomUUID()}` });
+    let replayInvocation = null;
+    const imported = await importFhirBundle(
+      bundle,
+      IMPORTER,
+      {
+        tenantId: TENANT,
+        autoVerifyClinicalVitals: false,
+        captureInvocation: (invocation) => { replayInvocation = invocation; },
+      },
+    );
+    const vitalsId = Number(imported.observationPartitions[0].vitalsChartId);
+
+    const before = await query(
+      `SELECT vitals.device_verified,
+              (SELECT COUNT(*)::int FROM news2_scores WHERE vitals_chart_id=vitals.id) AS news2_count,
+              (SELECT COUNT(*)::int FROM clinical_alerts WHERE source_vitals_chart_id=vitals.id) AS alert_count,
+              (SELECT event_status FROM clinical_timeline_events
+                WHERE tenant_id=vitals.tenant_id AND source_table='vitals_chart'
+                  AND source_id=vitals.id::text AND event_type='vitals.recorded'
+                ORDER BY occurred_at, id LIMIT 1) AS canonical_status,
+              (SELECT payload->>'verification_status' FROM clinical_timeline_events
+                WHERE tenant_id=vitals.tenant_id AND source_table='vitals_chart'
+                  AND source_id=vitals.id::text AND event_type='vitals.recorded'
+                ORDER BY occurred_at, id LIMIT 1) AS verification_status,
+              sets.news2_effects_completed_at,
+              sets.anomaly_effects_completed_at
+         FROM vitals_chart AS vitals
+         JOIN fhir_vital_observation_sets AS sets
+           ON sets.tenant_id=vitals.tenant_id AND sets.vitals_chart_id=vitals.id
+        WHERE vitals.tenant_id=$1::uuid AND vitals.id=$2::int`,
+      TENANT,
+      vitalsId,
+    );
+    expect(before).toEqual([expect.objectContaining({
+      device_verified: false,
+      news2_count: 0,
+      alert_count: 0,
+      canonical_status: 'unverified',
+      verification_status: 'asserted_unverified',
+      news2_effects_completed_at: null,
+      anomaly_effects_completed_at: null,
+    })]);
+    const exactReplay = await importFhirBundleWithAuthority(
+      replayInvocation.bundle,
+      IMPORTER,
+      { tenantId: TENANT, authority: replayInvocation.authority },
+    );
+    expect(exactReplay).toMatchObject({ receipt_id: imported.receipt_id, replayed: true });
+    await reconcilePendingFhirVitalEffects({ tenantId: TENANT, limit: 25 });
+    const afterSweep = await query(
+      `SELECT
+         (SELECT COUNT(*)::int FROM news2_scores WHERE vitals_chart_id=$1::int) AS news2_count,
+         (SELECT COUNT(*)::int FROM clinical_alerts WHERE source_vitals_chart_id=$1::int) AS alert_count,
+         sets.news2_effects_completed_at,
+         sets.anomaly_effects_completed_at
+       FROM fhir_vital_observation_sets AS sets
+       WHERE sets.tenant_id=$2::uuid AND sets.vitals_chart_id=$1::int`,
+      vitalsId,
+      TENANT,
+    );
+    expect(afterSweep).toEqual([{
+      news2_count: 0,
+      alert_count: 0,
+      news2_effects_completed_at: null,
+      anomaly_effects_completed_at: null,
+    }]);
+    await expect(verifyDeviceVitals(vitalsId, {
+      actorUid: IMPORTER,
+      actorRole: 'MEDICAL_RECORDS',
+      tenantId: TENANT,
+    })).rejects.toMatchObject({ statusCode: 403, code: 'FHIR_VITAL_VERIFIER_ROLE_REQUIRED' });
+
+    await correctVitals(vitalsId, {
+      corrected_by: VERIFYING_CLINICIAN,
+      actor_role: 'NURSING_STAFF',
+      tenantId: TENANT,
+      heart_rate: 179,
+    });
+    const heldAfterCorrection = await query(
+      `SELECT
+         (SELECT COUNT(*)::int FROM news2_scores WHERE vitals_chart_id=$1::int) AS news2_count,
+         (SELECT COUNT(*)::int FROM clinical_alerts WHERE source_vitals_chart_id=$1::int) AS alert_count,
+         (SELECT event_status FROM clinical_timeline_events
+           WHERE tenant_id=$2::uuid AND source_table='vitals_chart'
+             AND source_id=$1::text AND event_type='vitals.corrected'
+           ORDER BY occurred_at DESC, id DESC LIMIT 1) AS correction_status`,
+      vitalsId,
+      TENANT,
+    );
+    expect(heldAfterCorrection).toEqual([{
+      news2_count: 0,
+      alert_count: 0,
+      correction_status: 'unverified',
+    }]);
+
+    const verified = await verifyDeviceVitals(vitalsId, {
+      actorUid: VERIFYING_CLINICIAN,
+      actorRole: 'NURSING_STAFF',
+      tenantId: TENANT,
+    });
+    expect(verified).toMatchObject({
+      source: 'fhir',
+      device_verified: true,
+      verification_replayed: false,
+      clinical_effects: { pendingEffects: [] },
+    });
+    const after = await query(
+      `SELECT
+         (SELECT COUNT(*)::int FROM news2_scores WHERE vitals_chart_id=$1::int) AS news2_count,
+         (SELECT COUNT(*)::int FROM clinical_alerts WHERE source_vitals_chart_id=$1::int) AS alert_count,
+         (SELECT COUNT(*)::int FROM clinical_timeline_events
+           WHERE tenant_id=$2::uuid AND source_table='vitals_chart'
+             AND source_id=$1::text AND event_type='vitals.fhir_verified') AS verification_events`,
+      vitalsId,
+      TENANT,
+    );
+    expect(after[0].news2_count).toBe(1);
+    expect(after[0].alert_count).toBeGreaterThan(0);
+    expect(after[0].verification_events).toBe(1);
+
+    const replay = await verifyDeviceVitals(vitalsId, {
+      actorUid: VERIFYING_CLINICIAN,
+      actorRole: 'NURSING_STAFF',
+      tenantId: TENANT,
+    });
+    expect(replay.verification_replayed).toBe(true);
+    const afterReplay = await query(
+      `SELECT
+         (SELECT COUNT(*)::int FROM news2_scores WHERE vitals_chart_id=$1::int) AS news2_count,
+         (SELECT COUNT(*)::int FROM clinical_alerts WHERE source_vitals_chart_id=$1::int) AS alert_count,
+         (SELECT COUNT(*)::int FROM clinical_timeline_events
+           WHERE tenant_id=$2::uuid AND source_table='vitals_chart'
+             AND source_id=$1::text AND event_type='vitals.fhir_verified') AS verification_events`,
+      vitalsId,
+      TENANT,
+    );
+    expect(afterReplay).toEqual(after);
+  });
+
+  it('keeps verification evidence durable and resumes effects exactly once after a transient activation failure', async () => {
+    const observedAt = new Date(Date.now() - 90_000).toISOString();
+    const imported = await importFhirBundle(
+      heartRateBundle(observedAt, 180, { id: `verify-recovery-${crypto.randomUUID()}` }),
+      IMPORTER,
+      { tenantId: TENANT, autoVerifyClinicalVitals: false },
+    );
+    const vitalsId = Number(imported.observationPartitions[0].vitalsChartId);
+
+    await exec(`
+      CREATE OR REPLACE FUNCTION test_fhir_verification_news2_failure()
+      RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.patient_uid = '00000000-0000-4000-8000-0000000f4151'::uuid THEN
+          RAISE EXCEPTION 'forced FHIR verification NEWS2 failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$
+    `);
+    await exec(`
+      CREATE TRIGGER test_fhir_verification_news2_failure
+      BEFORE INSERT ON news2_scores
+      FOR EACH ROW EXECUTE FUNCTION test_fhir_verification_news2_failure()
+    `);
+    try {
+      await expect(verifyDeviceVitals(vitalsId, {
+        actorUid: VERIFYING_CLINICIAN,
+        actorRole: 'NURSING_STAFF',
+        tenantId: TENANT,
+      })).rejects.toThrow(/forced FHIR verification NEWS2 failure/);
+    } finally {
+      await exec(`DROP TRIGGER IF EXISTS test_fhir_verification_news2_failure ON news2_scores`);
+      await exec(`DROP FUNCTION IF EXISTS test_fhir_verification_news2_failure()`);
+    }
+
+    const afterFailure = await query(
+      `SELECT vitals.device_verified,
+              (SELECT COUNT(*)::int FROM news2_scores WHERE vitals_chart_id=vitals.id) AS news2_count,
+              (SELECT COUNT(*)::int FROM clinical_timeline_events
+                WHERE tenant_id=vitals.tenant_id AND source_table='vitals_chart'
+                  AND source_id=vitals.id::text AND event_type='vitals.fhir_verified') AS verification_events
+         FROM vitals_chart AS vitals
+        WHERE vitals.tenant_id=$1::uuid AND vitals.id=$2::int`,
+      TENANT,
+      vitalsId,
+    );
+    expect(afterFailure).toEqual([{
+      device_verified: true,
+      news2_count: 0,
+      verification_events: 1,
+    }]);
+
+    const recovered = await verifyDeviceVitals(vitalsId, {
+      actorUid: VERIFYING_CLINICIAN,
+      actorRole: 'NURSING_STAFF',
+      tenantId: TENANT,
+    });
+    expect(recovered).toMatchObject({
+      verification_replayed: true,
+      clinical_effects: { pendingEffects: [] },
+    });
+    const afterRecovery = await query(
+      `SELECT
+         (SELECT COUNT(*)::int FROM news2_scores WHERE vitals_chart_id=$1::int) AS news2_count,
+         (SELECT COUNT(*)::int FROM clinical_alerts WHERE source_vitals_chart_id=$1::int) AS alert_count,
+         (SELECT COUNT(*)::int FROM clinical_timeline_events
+           WHERE tenant_id=$2::uuid AND source_table='vitals_chart'
+             AND source_id=$1::text AND event_type='vitals.fhir_verified') AS verification_events`,
+      vitalsId,
+      TENANT,
+    );
+    expect(afterRecovery[0]).toMatchObject({ news2_count: 1, verification_events: 1 });
+    expect(afterRecovery[0].alert_count).toBeGreaterThan(0);
   });
 
   it('a near-duplicate import inserts a distinct fhir-sourced row; the staff row is untouched; timeline + audit exist; re-import dedupes', async () => {
@@ -315,8 +941,13 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
 
     const rows = await query(
       `SELECT id, heart_rate, source, recorded_by
-         FROM vitals_chart WHERE patient_uid = $1::uuid ORDER BY id`,
+         FROM vitals_chart
+        WHERE patient_uid = $1::uuid
+          AND recorded_at IN ($2::timestamptz, $3::timestamptz)
+        ORDER BY id`,
       PATIENT,
+      chartedAt,
+      new Date(observedAt),
     );
     expect(rows).toHaveLength(2);
     // The staff-charted row is untouched.
@@ -350,8 +981,14 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
     expect(rerun.imported).toBe(0);
     expect(rerun.deduplicated).toBe(1);
     const after = await query(
-      `SELECT id, heart_rate, source FROM vitals_chart WHERE patient_uid = $1::uuid ORDER BY id`,
+      `SELECT id, heart_rate, source
+         FROM vitals_chart
+        WHERE patient_uid = $1::uuid
+          AND recorded_at IN ($2::timestamptz, $3::timestamptz)
+        ORDER BY id`,
       PATIENT,
+      chartedAt,
+      new Date(observedAt),
     );
     expect(after).toHaveLength(2);
     expect(Number(after[0].heart_rate)).toBe(80);
@@ -570,7 +1207,21 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
     const result = await importFhirBundle(bundle, IMPORTER, { tenantId: TENANT });
     expect(result.imported).toBe(0);
     expect(result.errors).toHaveLength(1);
+    expect(result.errors).toHaveLength(result.failed);
     expect(result.errors[0].error).toMatch(/finite numeric Quantity value/);
+    expect(result.resource_receipts).toEqual([expect.objectContaining({
+      id: expect.any(String),
+      source_resource_type: 'Observation',
+      source_resource_id: bundle.entry[0].resource.id,
+      outcome: 'failed',
+      target_table: null,
+      target_id: null,
+    })]);
+    expect(result.reconciliation_items).toEqual([expect.objectContaining({
+      resource_receipt_id: result.resource_receipts[0].id,
+      opened_event_id: expect.any(String),
+      status: 'OPENED',
+    })]);
 
     const rows = await query(
       `SELECT id FROM vitals_chart
@@ -1468,7 +2119,7 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
       entry: [...heartRate.entry, ...crossPatientHeight.entry],
     }, IMPORTER, { tenantId: TENANT })).rejects.toMatchObject({
       statusCode: 409,
-      code: 'IMPORT_RESOURCE_PATIENT_MISMATCH',
+      code: 'IMPORT_PATIENT_IDENTIFIER_MAPPING_REQUIRED',
     });
 
     let mergeAttempt = null;
@@ -1484,6 +2135,7 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
         entry: [...heartRate.entry, ...height.entry],
       }, IMPORTER, {
         tenantId: TENANT,
+        autoVerifyClinicalVitals: false,
         beforeFhirVitalWrite: async () => {
           if (!mergeAttempt) {
             mergeAttempt = setTenantTx(TENANT, async (tx) => {
@@ -1548,7 +2200,7 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
     expect([Number(rows[0].heart_rate), Number(rows[0].height_cm)]).toEqual([82, 168]);
   });
 
-  it('groups same-time aliases only after resolving them to one active merge survivor', async () => {
+  it('requires an exact external identifier mapping before accepting a merged patient alias', async () => {
     await exec(
       `INSERT INTO users
          (uid, phone, name, role, is_active, status, tenant_id, merged_into_uid, updated_at)
@@ -1563,43 +2215,44 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
     heartRate.entry[0].resource.subject.reference = `Patient/${MERGED_PATIENT_ALIAS}`;
     const height = heightBundle(observedAt, 169, { id: `obs-survivor-height-${Date.now()}` });
 
-    // The retired alias and its survivor are two patient references: one
-    // manifest cannot carry both, whatever they resolve to.
+    // A foreign FHIR patient reference is never inferred from users.merged_into_uid.
+    // It needs explicit external-identifier evidence bound to the active target.
     await expect(importFhirBundle({
       resourceType: 'Bundle',
       type: 'collection',
       entry: [...heartRate.entry, ...height.entry],
-    }, IMPORTER, { tenantId: TENANT })).rejects.toMatchObject({
+    }, IMPORTER, {
+      tenantId: TENANT,
+      authority: { patientUid: PATIENT },
+    })).rejects.toMatchObject({
       statusCode: 409,
-      code: 'IMPORT_RESOURCE_PATIENT_MISMATCH',
+      code: 'IMPORT_PATIENT_IDENTIFIER_MAPPING_REQUIRED',
     });
 
-    // A manifest that IS the retired alias still resolves to the one active
-    // merge survivor before grouping: both same-time observations collapse into
-    // a single row keyed by the survivor, and nothing is written under the alias.
+    // Making every resource name the same retired alias does not create that
+    // authority implicitly, and no vitals row is written under either identity.
     height.entry[0].resource.subject.reference = `Patient/${MERGED_PATIENT_ALIAS}`;
-    const result = await importFhirBundle({
+    await expect(importFhirBundle({
       resourceType: 'Bundle',
       type: 'collection',
       entry: [...heartRate.entry, ...height.entry],
-    }, IMPORTER, { tenantId: TENANT });
-
-    expect(result).toEqual(expect.objectContaining({ imported: 2, errors: [] }));
+    }, IMPORTER, {
+      tenantId: TENANT,
+      authority: { patientUid: PATIENT },
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'IMPORT_PATIENT_IDENTIFIER_MAPPING_REQUIRED',
+    });
     const rows = await query(
-      `SELECT patient_uid, heart_rate, height_cm
+      `SELECT patient_uid
          FROM vitals_chart
-        WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz`,
+        WHERE patient_uid IN ($1::uuid, $2::uuid)
+          AND recorded_at = $3::timestamptz`,
       PATIENT,
+      MERGED_PATIENT_ALIAS,
       new Date(observedAt),
     );
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toEqual(expect.objectContaining({ patient_uid: PATIENT }));
-    expect([Number(rows[0].heart_rate), Number(rows[0].height_cm)]).toEqual([82, 169]);
-    const aliasRows = await query(
-      `SELECT id FROM vitals_chart WHERE patient_uid = $1::uuid`,
-      MERGED_PATIENT_ALIAS,
-    );
-    expect(aliasRows).toHaveLength(0);
+    expect(rows).toHaveLength(0);
   });
 
   it('rejects duplicate canonical fields in an implicit same-time group atomically', async () => {

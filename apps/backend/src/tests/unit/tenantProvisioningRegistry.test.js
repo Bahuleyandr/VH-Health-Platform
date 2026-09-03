@@ -138,9 +138,9 @@ const BACKEND_ROOT = path.resolve(HERE, '../../..');
 const MIGRATIONS_DIR = path.join(BACKEND_ROOT, 'src/migrations');
 const SCHEMA_PATH = path.join(BACKEND_ROOT, 'prisma/schema.prisma');
 
-// core.autocrlf checks these files out CRLF on Windows and LF on Linux; the
-// committed blobs are LF either way. Normalising here is what keeps the
-// byte-compare below a statement about content rather than about the host.
+// Migration SQL is LF-pinned, while the Prisma schema and historical blobs can
+// still arrive as CRLF. Normalising keeps the byte-compare below a statement
+// about content rather than about the host.
 function readText(file) {
   return fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
 }

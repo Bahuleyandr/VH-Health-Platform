@@ -323,6 +323,13 @@ describeIfTestDb('HL7 ORU composed HTTP authentication and transaction boundary'
       expectedCode: 'LAB_ORU_ANALYZER_UNTRUSTED',
     },
     {
+      // A deleted identity is now refused at AUTHENTICATION rather than by the
+      // route's own actor check: the durable revocation gate resolves the token
+      // subject against users/admins and denies before any handler runs. That
+      // is strictly earlier than the old LAB_ORU_ACTOR_NOT_AUTHORIZED 403, and
+      // it is the behaviour this branch exists to add. The properties that
+      // matter here — no clinical write, no PHI in the body — are asserted
+      // identically for every case below.
       label: 'deleted DB actor',
       key: () => keyA,
       token: () => tokenFor({
@@ -330,16 +337,19 @@ describeIfTestDb('HL7 ORU composed HTTP authentication and transaction boundary'
         id: deletedActorAId,
         tenantId: TENANT_A,
       }),
-      expectedCode: 'LAB_ORU_ACTOR_NOT_AUTHORIZED',
+      expectedStatus: 401,
+      expectedCode: 'TOKEN_REVOKED',
     },
-  ])('rejects $label before any clinical write', async ({ label, key, token, expectedCode }) => {
+  ])('rejects $label before any clinical write', async ({
+    label, key, token, expectedCode, expectedStatus = 403,
+  }) => {
     const controlId = `DENY-${label.replaceAll(/[^A-Za-z0-9]/g, '').slice(0, 24)}-${RUN_ID}`;
     const response = await postWithCredentials('/api/v1/lab/oru/ingest', {
       key: key(),
       token: token(),
       body: { message: messageFor({ controlId }) },
     });
-    expect(response.statusCode).toBe(403);
+    expect(response.statusCode).toBe(expectedStatus);
     expect(response.body?.code).toBe(expectedCode);
     expect(JSON.stringify(response.body)).not.toContain(PATIENT_A);
     expect(await artifactCounts(controlId)).toEqual({
