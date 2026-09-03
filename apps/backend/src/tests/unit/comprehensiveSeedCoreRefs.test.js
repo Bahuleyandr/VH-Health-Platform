@@ -50,7 +50,21 @@ describe('comprehensive seed core references', () => {
     );
   });
 
-  test('pins facility asset history to a non-transition event', () => {
-    expect(source).toMatch(/facility_asset_events:\s*\{\s*event_type: 'created'/);
+  test('derives event types from CHECK definitions instead of pinning them', () => {
+    // body_custody_events, facility_asset_events and pharmacy_funding_decision_events
+    // used to pin event_type in TABLE_COLUMN_SEED_OVERRIDES because checkedValue()
+    // returned whichever definition the catalog listed first. The column-bound
+    // module derives 'receive', 'created' and 'LINE_MATERIALIZED' from the
+    // definitions alone (see comprehensiveSeedCheckedValue.test.js), so the pins
+    // are gone and must not come back.
+    expect(source).toContain(
+      "import { columnBoundValue } from './lib/checkConstraintValues.mjs';",
+    );
+    expect(source).toContain(
+      'return columnBoundValue(checksByTable.get(table) || [], column.column_name);',
+    );
+    expect(source).not.toMatch(/facility_asset_events:\s*\{/);
+    expect(source).not.toMatch(/body_custody_events:\s*\{/);
+    expect(source).not.toMatch(/event_type: 'LINE_MATERIALIZED'/);
   });
 });

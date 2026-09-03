@@ -755,13 +755,12 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
   // mig 753: chk_pharmacy_funding_event_generation_753 splits on event_type —
   // FUNDING_RESOLVED and AUTHORITY_INVALIDATED carry an authority_generation
   // and, past generation 1, a supersedes_event_id; every other kind must carry
-  // NEITHER. checkedValue() would pick whichever literal happens to come first
-  // across two different CHECK definitions that both mention event_type, so
-  // this table's validity depended on pg_constraint row order: it passed on one
-  // database and failed on another with the same schema. Pin the plain,
-  // lineage-free event kind so the row is correct either way.
+  // NEITHER. event_type needs no pin: checkedValue() derives LINE_MATERIALIZED
+  // from the allowed-values CHECK because both lineage kinds appear in the
+  // multi-column CHECK and are avoided. The two lineage columns are not text,
+  // so the walker would fill them (1 and an FK) and satisfy neither branch;
+  // they stay pinned NULL.
   pharmacy_funding_decision_events: {
-    event_type: 'LINE_MATERIALIZED',
     authority_generation: null,
     supersedes_event_id: null
   },
@@ -1025,25 +1024,6 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
   // generic row satisfies without coordinating three clock columns.
   stemi_activations: {
     activation_source: 'prehospital_handover'
-  },
-  // mig 414: body_custody_release_has_method requires release_method whenever
-  // event_type = 'release'. checkedValue() scans the table's CHECK definitions
-  // in pg_constraint order — which is UNORDERED — and event_type appears in
-  // two of them: the IN-list (first literal 'receive', row passes) and the
-  // conditional CHECK (first literal 'release', row fails because the nullable
-  // release_method is never filled). Whichever definition the catalog returns
-  // first decided pass vs fail — the intermittent 801/802 seeded-coverage
-  // failure. Pin the safe branch deterministically.
-  body_custody_events: {
-    event_type: 'receive'
-  },
-  // mig 704 has the same catalog-order ambiguity: event_type appears in both
-  // its allowed-values CHECK and a conditional transition-evidence CHECK. If
-  // the latter is visited first, checkedValue() chooses status_changed while
-  // nullable to_status remains unset. Pin a non-transition event so the seed
-  // is deterministic on fresh PostgreSQL catalogs.
-  facility_asset_events: {
-    event_type: 'created'
   },
   // migs 563-565: keep the generic cath usage row on the non-batch,
   // non-implant branch while satisfying its tenant-composite references.
