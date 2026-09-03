@@ -1,7 +1,7 @@
 # Go-Live Readiness Gap Matrix
 
-Snapshot: `github/main` `61e7dcf7a3799227d1ac68010eb16041c1c0a446`
-on 2026-09-03. The previous snapshot was `a4ffe9860` on 2026-09-02.
+Snapshot: `github/main` `9e70d950d` on 2026-09-03. Earlier snapshots the same
+day: `61e7dcf7a`, and `a4ffe9860` on 2026-09-02.
 
 Status: **STOP / evidence reconciliation only.** This document describes the
 current repository evidence and the owner decisions still required. It does not
