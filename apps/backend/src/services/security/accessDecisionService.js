@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 import {
   getClinicalAccountabilityRoleCodes,
@@ -20,6 +21,16 @@ import {
 } from './accessPolicyRegistry.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const accessDecisionDbContext = new AsyncLocalStorage();
+
+function accessDecisionDb() {
+  return accessDecisionDbContext.getStore()?.db || prisma;
+}
+
+function accessDecisionUsesScopedDb() {
+  return Boolean(accessDecisionDbContext.getStore()?.db);
+}
 
 const PHI_LEVEL_RANK = {
   [PHI_ACCESS_LEVELS.NONE]: 0,
@@ -307,7 +318,7 @@ function isSchemaMissing(err) {
 }
 
 async function patientByIdOrUid({ tenantId, id = null, uid = null }) {
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await accessDecisionDb().$queryRawUnsafe(
     `SELECT id, uid
        FROM users
       WHERE tenant_id = $1::uuid
@@ -328,7 +339,7 @@ async function patientByIdOrUid({ tenantId, id = null, uid = null }) {
 async function patientFromResourceQuery(req, sql, idValue) {
   const resourceId = cleanInt(idValue);
   if (!resourceId) return null;
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await accessDecisionDb().$queryRawUnsafe(
     sql,
     deriveTenantIdFromRequest(req),
     resourceId,
@@ -345,7 +356,7 @@ async function patientFromResourceQuery(req, sql, idValue) {
 async function patientFromBigintResourceQuery(req, sql, idValue) {
   const resourceId = cleanBigInt(idValue);
   if (!resourceId) return null;
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await accessDecisionDb().$queryRawUnsafe(
     sql,
     deriveTenantIdFromRequest(req),
     resourceId,
@@ -357,7 +368,7 @@ async function patientFromBigintResourceQuery(req, sql, idValue) {
 async function patientFromUuidResourceQuery(req, sql, uuidValue) {
   const resourceUid = cleanUuid(uuidValue);
   if (!resourceUid) return null;
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await accessDecisionDb().$queryRawUnsafe(
     sql,
     deriveTenantIdFromRequest(req),
     resourceUid,
@@ -989,7 +1000,7 @@ export async function resolvePatientForAccess(req, providedPatient = undefined) 
   const digits = text.replace(/\D/g, '');
   const phoneDigits = digits.length >= 10 ? digits.slice(-10) : null;
 
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await accessDecisionDb().$queryRawUnsafe(
     `SELECT id, uid
        FROM users
       WHERE tenant_id = $1::uuid
@@ -1065,7 +1076,7 @@ async function findActiveBreakGlass(req, patient, policy, rolePolicy) {
   const patientUid = cleanUuid(patient?.uid);
   if (!actorUid || !patientUid) return null;
 
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await accessDecisionDb().$queryRawUnsafe(
     `SELECT id, reason
        FROM patient_access_break_glass
       WHERE tenant_id = $1::uuid
@@ -1094,7 +1105,7 @@ async function findCareTeamRelationship(req, patient) {
   // bounded 30-day clinical follow-up window; admission access ends as soon as
   // the admission leaves admitted/transferred. This prevents a forgotten
   // active care-team row from extending episode authority indefinitely.
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await accessDecisionDb().$queryRawUnsafe(
     `SELECT ctm.id, ctm.care_team_id
        FROM care_team_members ctm
        JOIN care_teams ct ON ct.id = ctm.care_team_id
@@ -1162,7 +1173,7 @@ async function findReferralRelationship(req, patient, role) {
   const patientUid = cleanUuid(patient?.uid);
   if (!actorUid || !patientUid || !DOCTOR_RELATIONSHIP_ROLES.has(role)) return null;
 
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await accessDecisionDb().$queryRawUnsafe(
     `WITH actor_departments AS (
        SELECT LOWER(TRIM(token)) AS token
          FROM (
@@ -1233,7 +1244,7 @@ async function findClinicalAuthorshipRelationship(req, patient, policy) {
   const patientUid = cleanUuid(patient?.uid);
   if (!actorUid || !patientUid) return null;
 
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await accessDecisionDb().$queryRawUnsafe(
     `SELECT source, id
        FROM (
          SELECT 'clinical_order' AS source, id, created_at
@@ -1299,7 +1310,7 @@ async function findCarePathwayOwnerRelationship(req, patient, policy, resourceCo
     return null;
   }
 
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await accessDecisionDb().$queryRawUnsafe(
     `SELECT cpi.id
        FROM care_pathway_instances cpi
        JOIN users owner
@@ -1421,7 +1432,7 @@ async function findCarePathwayTransferRecipientRelationship(
           AND cpi.owning_clinician_uid = chi.intended_recipient_uid)
        )`;
 
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await accessDecisionDb().$queryRawUnsafe(
     `SELECT chi.id, cpi.id AS care_pathway_instance_id
        FROM care_handoff_instances chi
        JOIN care_pathway_instances cpi
@@ -1504,7 +1515,7 @@ async function findCarePathwayRoleQueueClaimantRelationship(
     return null;
   }
 
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await accessDecisionDb().$queryRawUnsafe(
     `WITH candidates AS (
      SELECT cpi.id, task.id AS task_id, 0 AS authorization_priority
        FROM care_pathway_instances cpi
@@ -1622,7 +1633,7 @@ async function findCarePathwayTransferDeclineRecipientRelationship(
     return null;
   }
 
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await accessDecisionDb().$queryRawUnsafe(
     `SELECT chi.id, cpi.id AS care_pathway_instance_id, review_task.id AS task_id
        FROM care_handoff_instances chi
        JOIN care_pathway_instances cpi
@@ -1717,7 +1728,7 @@ async function findAppointmentRelationship(req, patient, role, policy = null, re
       ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
     ].includes(policy?.code);
 
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await accessDecisionDb().$queryRawUnsafe(
     `SELECT a.id
        FROM appointments a
        JOIN users p ON p.id = a.patient_id
@@ -1769,7 +1780,7 @@ async function findAdmissionRelationship(req, patient, role, {
   const operationalScoped = ADMISSION_OPERATIONS_ROLES.has(role) || orderVerificationScoped;
   if (!nursingScoped && !doctorScoped && !operationalScoped) return null;
 
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await accessDecisionDb().$queryRawUnsafe(
     `SELECT id
        FROM admissions
       WHERE tenant_id = $1::uuid
@@ -1804,7 +1815,7 @@ async function findGuardianRelationship(req, patient) {
   const patientUid = cleanUuid(patient?.uid);
   if (!actorId || !patientUid) return null;
 
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await accessDecisionDb().$queryRawUnsafe(
     `SELECT id, guardian_user_id
        FROM users
       WHERE tenant_id = $1::uuid
@@ -1875,7 +1886,7 @@ async function writePatientAccessAudit(req, decision) {
     return;
   }
   try {
-    await prisma.$executeRawUnsafe(
+    await accessDecisionDb().$executeRawUnsafe(
       `INSERT INTO patient_access_audit_log (
          tenant_id, patient_uid, actor_uid, actor_role,
          access_decision, access_source, reason, route, action,
@@ -1927,13 +1938,202 @@ async function writePatientAccessAudit(req, decision) {
       }),
     );
   } catch (err) {
+    if (accessDecisionUsesScopedDb()) throw err;
     // Durable fallback — carry the full decision tuple to the file sink so the
     // audit row is recoverable, not just an error line (audit §3).
     _writePatientAccessAuditToFile(req, decision, { error: err?.message });
   }
 }
 
-export async function authorizePatientAccessRequest(req, {
+export async function authorizePatientAccessRequest(req, options = {}) {
+  const { db = null, ...decisionOptions } = options;
+  if (!db) return authorizePatientAccessRequestInContext(req, decisionOptions);
+  return accessDecisionDbContext.run(
+    { db },
+    () => authorizePatientAccessRequestInContext(req, decisionOptions),
+  );
+}
+
+function patientAccessAuditMetadata(req, decision, resourceContext = null) {
+  return {
+    policy_code: decision.policy_code,
+    policy_version: decision.policy_version,
+    policy_hash: decision.policy_hash,
+    record_type: decision.recordType ?? null,
+    resource_type: resourceContext?.resourceType ?? decision.resource_type ?? null,
+    resource_id: resourceContext?.resourceId == null
+      ? null
+      : String(resourceContext.resourceId),
+    phi_access_level: decision.phi_access_level ?? null,
+    referral_id: decision.referralId ?? null,
+    care_pathway_instance_id: decision.carePathwayInstanceId ?? null,
+    care_handoff_instance_id: decision.careHandoffInstanceId ?? null,
+    care_pathway_task_id: decision.carePathwayTaskId ?? null,
+    actor_id: req?.user?.id ?? null,
+    subject_uid: req?.user?.uid ?? null,
+    acting_as_dependent: req?.acting != null,
+    shadow_mode: decision.shadow_mode === true,
+    administrative_access: decision.administrativeAccess === true,
+    administrative_grant: decision.administrativeGrant ?? null,
+  };
+}
+
+async function writePatientAccessAuditBatch(req, entries, db) {
+  if (!entries.length) return;
+  const tenantId = deriveTenantIdFromRequest(req);
+  const actorUid = cleanUuid(actorUidOf(req));
+  const rows = entries.map(({ decision, resourceContext }) => ({
+    tenant_id: tenantId,
+    patient_uid: decision.patient_uid,
+    actor_uid: actorUid,
+    actor_role: decision.actor_role || 'UNKNOWN',
+    access_decision: decision.accessDecision,
+    access_source: decision.accessSource,
+    reason: decision.reason ?? null,
+    route: String(req?.originalUrl || req?.url || '').slice(0, 255),
+    action: decision.action || deriveActionFromRequest(req),
+    care_team_id: decision.careTeamId ?? null,
+    break_glass_id: decision.breakGlassId ?? null,
+    request_id: req?.id ? String(req.id) : null,
+    metadata: patientAccessAuditMetadata(req, decision, resourceContext),
+  }));
+  await db.$executeRawUnsafe(
+    `INSERT INTO patient_access_audit_log (
+       tenant_id, patient_uid, actor_uid, actor_role,
+       access_decision, access_source, reason, route, action,
+       care_team_id, break_glass_id, request_id, metadata,
+       created_by, updated_by, created_at, updated_at
+     )
+     SELECT audit.tenant_id, audit.patient_uid, audit.actor_uid,
+            audit.actor_role, audit.access_decision, audit.access_source,
+            audit.reason, audit.route, audit.action, audit.care_team_id,
+            audit.break_glass_id, audit.request_id, audit.metadata,
+            audit.actor_uid, audit.actor_uid, clock_timestamp(), clock_timestamp()
+       FROM jsonb_to_recordset($1::jsonb) AS audit(
+         tenant_id uuid, patient_uid uuid, actor_uid uuid, actor_role text,
+         access_decision text, access_source text, reason text, route text,
+         action text, care_team_id integer, break_glass_id integer,
+         request_id text, metadata jsonb
+       )`,
+    JSON.stringify(rows),
+  );
+}
+
+export async function authorizeClinicalImportReconciliationAccessBatchRequest(req, {
+  db,
+  entries,
+  policyCode = null,
+  recordType = 'PHI',
+  requireResolvedPatient = false,
+} = {}) {
+  if (!db?.$queryRawUnsafe || !db?.$executeRawUnsafe) {
+    throw new TypeError('A transaction-scoped database client is required');
+  }
+  if (!Array.isArray(entries) || entries.length > 25) {
+    throw new TypeError('Patient access batch entries must be an array of at most 25 items');
+  }
+  if (!entries.length) return [];
+  if (actorRoleOf(req) !== 'MEDICAL_RECORDS'
+    || policyCode !== ACCESS_POLICY_CODES.PATIENT_RECORD_UPLOAD
+    || recordType !== 'MEDICAL_RECORD'
+    || requireResolvedPatient !== true) {
+    throw new TypeError('The bounded access batch is restricted to Medical Records clinical-import reconciliation');
+  }
+
+  const tenantId = deriveTenantIdFromRequest(req);
+  const normalized = entries.map((entry) => {
+    const decisionKey = String(entry?.decisionKey || '').toLowerCase();
+    const patientId = cleanInt(entry?.patient?.id);
+    const patientUid = cleanUuid(entry?.patient?.uid);
+    const resourceContext = entry?.resourceContext ?? null;
+    if (!UUID_RE.test(decisionKey) || !patientId || !patientUid
+      || resourceContext?.resourceType !== 'clinical_import_reconciliation'
+      || String(resourceContext?.resourceId || '').toLowerCase() !== decisionKey) {
+      throw new TypeError('Each patient access batch entry requires an exact reconciliation item key, patient id, patient uid, and item-bound resource context');
+    }
+    return {
+      decisionKey,
+      patient: { id: patientId, uid: patientUid },
+      resourceContext,
+    };
+  });
+  if (new Set(normalized.map(entry => entry.decisionKey)).size !== normalized.length) {
+    throw new TypeError('Patient access batch decision keys must be unique');
+  }
+
+  const verifiedRows = await db.$queryRawUnsafe(
+    `WITH requested AS (
+       SELECT request.decision_key, request.patient_id, request.patient_uid
+         FROM jsonb_to_recordset($2::jsonb) AS request(
+           decision_key text, patient_id integer, patient_uid uuid
+         )
+     )
+     SELECT request.decision_key, patient.id, patient.uid
+       FROM requested AS request
+       JOIN users AS patient
+         ON patient.tenant_id=$1::uuid
+        AND patient.id=request.patient_id
+        AND patient.uid=request.patient_uid
+        AND patient.role='PATIENT'
+        AND patient.is_active=TRUE
+        AND patient.status='active'
+        AND patient.is_deleted=FALSE
+        AND patient.merged_into_uid IS NULL`,
+    tenantId,
+    JSON.stringify(normalized.map(entry => ({
+      decision_key: entry.decisionKey,
+      patient_id: entry.patient.id,
+      patient_uid: entry.patient.uid,
+    }))),
+  );
+  const verified = new Map(verifiedRows.map(row => [String(row.decision_key), {
+    id: Number(row.id),
+    uid: String(row.uid).toLowerCase(),
+  }]));
+  const policy = getAccessPolicy(policyCode);
+  if (!policy) {
+    throw new TypeError('The clinical-import reconciliation access policy is unavailable');
+  }
+  const rolePolicy = rolePolicyFor(actorRoleOf(req));
+  const decisions = [];
+  for (const entry of normalized) {
+    const exactPatient = verified.get(entry.decisionKey);
+    let decision;
+    if (!exactPatient) {
+      decision = denyDecision({
+        req,
+        patient: entry.patient,
+        policy,
+        rolePolicy,
+      }, 'Patient identity did not match the exact tenant-scoped batch pair', { recordType });
+      decision = {
+        ...decision,
+        action: deriveActionFromRequest(req, policy),
+        recordType,
+        shadow_mode: false,
+        enforced: true,
+      };
+    } else {
+      decision = await evaluateResolvedPatientAccessRequest(req, {
+        policy,
+        recordType,
+        resourceContext: entry.resourceContext,
+        audit: false,
+        shadowMode: false,
+        resolvedPatient: exactPatient,
+      });
+    }
+    decisions.push({
+      decisionKey: entry.decisionKey,
+      decision,
+      resourceContext: entry.resourceContext,
+    });
+  }
+  await writePatientAccessAuditBatch(req, decisions, db);
+  return decisions.map(({ decisionKey, decision }) => ({ decisionKey, decision }));
+}
+
+async function authorizePatientAccessRequestInContext(req, {
   policyCode = null,
   recordType = 'PHI',
   patient = undefined,
@@ -1989,6 +2189,24 @@ export async function authorizePatientAccessRequest(req, {
       : unresolvedDecision;
   }
 
+  return evaluateResolvedPatientAccessRequest(req, {
+    policy,
+    recordType,
+    resourceContext,
+    audit,
+    shadowMode,
+    resolvedPatient,
+  });
+}
+
+async function evaluateResolvedPatientAccessRequest(req, {
+  policy,
+  recordType,
+  resourceContext,
+  audit,
+  shadowMode,
+  resolvedPatient,
+}) {
   const role = actorRoleOf(req);
   const rolePolicy = rolePolicyFor(role);
   const args = {

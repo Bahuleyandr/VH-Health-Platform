@@ -10,6 +10,7 @@ import '../../../core/config/api_config.dart';
 import '../../../core/navigation/staff_route_policy.dart';
 import '../../../core/providers/clinical_inbox_provider.dart';
 import '../../../core/services/care_pathway_api_service.dart';
+import '../../../core/utils/api_error_messages.dart';
 import '../../../core/services/clinical_inbox_api_service.dart';
 import '../../../core/widgets/mar_medication_exception_handoff_sheet.dart';
 import '../../../core/widgets/online_only_action_state.dart';
@@ -394,8 +395,13 @@ class _ClinicalInboxScreenState extends State<ClinicalInboxScreen> {
       await _showAcceptedAdmissionSource(context, receipt.admissionSource);
     } catch (error) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(error.toString())));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            localizedApiErrorFromRaw(AppStrings.of(context), error),
+          ),
+        ),
+      );
     } finally {
       if (mounted && _acceptingTransfers.contains(task.id)) {
         setState(() => _acceptingTransfers.remove(task.id));

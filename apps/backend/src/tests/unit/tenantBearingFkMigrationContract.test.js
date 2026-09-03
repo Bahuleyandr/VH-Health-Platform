@@ -30,7 +30,7 @@ import { Client } from 'pg';
 // not a projection of it — no datasource flag, introspection setting, or
 // re-pull can blind it, and it also sees keys Prisma never modelled. Applied
 // against the committed migration chain it reproduces the exemption list
-// below exactly: 982 live single-column tenant-bearing keys, 982 exemptions,
+// below exactly: 978 live single-column tenant-bearing keys, 978 exemptions,
 // zero offenders and zero stale entries.
 //
 // THE INVARIANT. A tenant-bearing table that references another tenant-bearing
@@ -724,10 +724,6 @@ leave_applications.staff_id
 leave_encashments.fnf_id
 leave_encashments.payslip_id
 leave_encashments.staff_uid
-ledger_balances.account_id
-ledger_entries.reverses_entry_id
-ledger_postings.account_id
-ledger_postings.entry_id
 linen_laundry_cycle_items.cycle_id
 linen_laundry_cycle_items.item_type_id
 linen_laundry_cycles.housekeeping_request_id

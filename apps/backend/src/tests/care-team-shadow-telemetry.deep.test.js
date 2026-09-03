@@ -13,7 +13,7 @@
 // (Enforce-mode 403 is also covered for investigation [investigation-booking-
 // guard], pharmacy [pharmacy-phone-careteam-guard], and records [CAN-039 in
 // referral-records-child-guard]; this adds the shadow-telemetry leg.)
-import { generateTestToken, API_KEY } from './testClient.js';
+import { generateTestToken, API_KEY, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -37,6 +37,11 @@ async function clean() {
 }
 
 d('CT-001 care-team governed guard: enforce blocks, shadow logs (records/uid)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity(DOCTOR_UID, { tenantId: TENANT_ID });
+  });
   let prevMode;
   beforeAll(async () => {
     prevMode = process.env.CARE_TEAM_ENFORCEMENT_MODE;

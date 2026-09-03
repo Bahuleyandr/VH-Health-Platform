@@ -2948,13 +2948,24 @@ async function acknowledgeAlertTransition(alertId, {
     // Corrected-result reopen takes task then SLA locks. Preserve that exact
     // order explicitly; a joined FOR UPDATE leaves row-lock acquisition to the
     // query plan and can deadlock against the reopen transaction.
+    // The receipt is millisecond-precision. Round the database clock upward so
+    // it cannot precede a microsecond-precision fired_at in the same millisecond.
     const linkedSlas = await tx.$queryRawUnsafe(
       `SELECT sla.id,
               sla.status,
-              sla.completed_at,
-              (EXTRACT(EPOCH FROM sla.completed_at) * 1000)::bigint
-                AS completed_at_epoch_ms,
-              sla.metadata
+               sla.completed_at,
+               (EXTRACT(EPOCH FROM sla.completed_at) * 1000)::bigint
+                 AS completed_at_epoch_ms,
+               to_char(
+                 (
+                   date_trunc(
+                     'milliseconds',
+                     GREATEST(clock_timestamp(), $4::timestamptz)
+                   ) + INTERVAL '1 millisecond'
+                 ) AT TIME ZONE 'UTC',
+                 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+               ) AS acknowledgement_clock,
+               sla.metadata
          FROM workflow_sla_instances AS sla
         WHERE sla.tenant_id = $1::uuid
           AND sla.id = $2::uuid
@@ -2966,6 +2977,7 @@ async function acknowledgeAlertTransition(alertId, {
       tenantId,
       linkedTask.workflow_sla_instance_id,
       String(alert.result_id),
+      alert.fired_at,
     );
     const linkedSla = linkedSlas[0];
     if (!linkedSla) throw criticalAlertAckForbidden(alert.patient_uid);
@@ -2999,6 +3011,7 @@ async function acknowledgeAlertTransition(alertId, {
         actorPrimaryRole: canonicalActorRole,
         actorRawRole: currentActor.rawRole,
         breakGlassId,
+        acknowledgedAt: linkedSla.acknowledgement_clock,
         tx,
       });
     } catch (err) {

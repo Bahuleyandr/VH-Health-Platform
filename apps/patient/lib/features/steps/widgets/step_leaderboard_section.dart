@@ -52,7 +52,10 @@ class StepLeaderboardSection extends StatelessWidget {
                 const Icon(Icons.person, color: Color(0xFF4CAF50), size: 18),
                 const SizedBox(width: 8),
                 Text(
-                  'Your rank: #${myRank!['rank']} — ${myRank!['totalSteps']} steps',
+                  l.stepsYourRank(
+                    myRank!['rank'].toString(),
+                    myRank!['totalSteps'].toString(),
+                  ),
                   style: const TextStyle(
                     fontWeight: FontWeight.w600,
                     color: Color(0xFF2E7D32),
@@ -96,6 +99,7 @@ class _LeaderboardTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     final rankLabel = entry.rank == 1
         ? '🥇'
         : entry.rank == 2
@@ -147,7 +151,9 @@ class _LeaderboardTile extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              entry.isMe ? '${entry.displayName} (You)' : entry.displayName,
+              entry.isMe
+                  ? l.stepsLeaderboardYou(entry.displayName)
+                  : entry.displayName,
               style: TextStyle(
                 fontWeight: entry.isMe ? FontWeight.bold : FontWeight.normal,
               ),

@@ -1,10 +1,27 @@
 import { jest } from '@jest/globals';
 
 const queryRawUnsafeMock = jest.fn();
+const advisoryLockMock = jest.fn();
+const executeRawUnsafeMock = jest.fn();
 const cacheGetMock = jest.fn();
 const cacheSetMock = jest.fn();
 
-const __prismaDefaultMock = { $queryRawUnsafe: queryRawUnsafeMock };
+const transactionQueryRawUnsafeMock = jest.fn((sql, ...params) => {
+  if (String(sql).includes('pg_advisory_xact_lock')) {
+    advisoryLockMock(sql, ...params);
+    return Promise.resolve([]);
+  }
+  return queryRawUnsafeMock(sql, ...params);
+});
+const __transactionClientMock = {
+  $executeRawUnsafe: executeRawUnsafeMock,
+  $queryRawUnsafe: transactionQueryRawUnsafeMock,
+};
+const __prismaDefaultMock = {
+  $executeRawUnsafe: executeRawUnsafeMock,
+  $queryRawUnsafe: queryRawUnsafeMock,
+  $transaction: (fn) => fn(__transactionClientMock),
+};
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: __prismaDefaultMock,
   setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
@@ -40,6 +57,7 @@ jest.unstable_mockModule('../../utils/websocket/wsServer.js', () => ({
 }));
 
 const {
+  authRevocationLockKeys,
   isDelegatedTupleRevoked,
   isSubjectDelegationRevoked,
   isUserTokensRevoked,
@@ -48,12 +66,68 @@ const {
   revokeAllUserTokens,
   blacklistToken,
   getCurrentTokenEpoch,
+  withAuthIdentityLifecycleLocks,
 } = await import('../../utils/tokenBlacklist.js');
 
 const UUID_USER = '11111111-2222-4333-8444-555555555555';
 
+describe('auth revocation transaction locks', () => {
+  it('derives stable, normalized, deadlock-safe lock order', () => {
+    expect(authRevocationLockKeys({
+      identityUids: ['USER-B', 'user-a', 'USER-B'],
+      jtis: ['jti-b', 'jti-a'],
+      tupleKeys: ['Guardian:Dependent'],
+    })).toEqual([
+      'vh:auth:identity:user-a',
+      'vh:auth:identity:user-b',
+      'vh:auth:jti:jti-a',
+      'vh:auth:jti:jti-b',
+      'vh:auth:tuple:guardian:dependent',
+    ]);
+  });
+
+  it('holds owner and jti locks before an evidence blacklist becomes durable', async () => {
+    const future = Math.floor(Date.now() / 1000) + 3600;
+    cacheSetMock.mockResolvedValueOnce(true);
+    queryRawUnsafeMock.mockResolvedValueOnce([]);
+
+    await blacklistToken('session-jti', future, 'logout', {
+      requireEvidence: true,
+      userId: UUID_USER,
+    });
+
+    expect(advisoryLockMock.mock.calls.map(([, key]) => key)).toEqual([
+      `vh:auth:identity:${UUID_USER}`,
+      'vh:auth:jti:session-jti',
+    ]);
+    expect(advisoryLockMock.mock.invocationCallOrder.at(-1))
+      .toBeLessThan(queryRawUnsafeMock.mock.invocationCallOrder[0]);
+  });
+
+  it('serializes lifecycle writers on normalized identity keys before their callback runs', async () => {
+    const mutate = jest.fn(() => 'updated');
+
+    await expect(withAuthIdentityLifecycleLocks(
+      __transactionClientMock,
+      ['USER-B', 'user-a', 'USER-B'],
+      mutate,
+    )).resolves.toBe('updated');
+
+    expect(advisoryLockMock.mock.calls.map(([, key]) => key)).toEqual([
+      'vh:auth:identity:user-a',
+      'vh:auth:identity:user-b',
+    ]);
+    expect(advisoryLockMock.mock.invocationCallOrder.at(-1))
+      .toBeLessThan(mutate.mock.invocationCallOrder[0]);
+    expect(mutate).toHaveBeenCalledWith(__transactionClientMock);
+  });
+});
+
 beforeEach(() => {
   queryRawUnsafeMock.mockReset();
+  transactionQueryRawUnsafeMock.mockClear();
+  advisoryLockMock.mockReset();
+  executeRawUnsafeMock.mockReset().mockResolvedValue(0);
   cacheGetMock.mockReset();
   cacheSetMock.mockReset();
   pushSessionRevokedMock.mockReset();
@@ -90,6 +164,10 @@ describe('delegated tuple revocation', () => {
 
     expect(queryRawUnsafeMock.mock.invocationCallOrder[0])
       .toBeLessThan(pushDelegatedSessionRevokedMock.mock.invocationCallOrder[0]);
+    expect(advisoryLockMock).toHaveBeenCalledWith(
+      expect.stringContaining('pg_advisory_xact_lock'),
+      `vh:auth:tuple:delegated:${guardianUid}:${dependentUid}`,
+    );
     expect(pushDelegatedSessionRevokedMock).toHaveBeenCalledWith(
       guardianUid,
       dependentUid,
@@ -171,13 +249,58 @@ describe('tokenBlacklist revoke-all fallback', () => {
     await expect(isUserTokensRevoked(UUID_USER, 2000, 4)).resolves.toBe(true);
 
     const [sql, marker, issuedAt, uid, hasTokenEpoch, tokenEpoch] = queryRawUnsafeMock.mock.calls[0];
-    expect(sql).toMatch(/SELECT token_epoch, token_epoch_bumped_at FROM users/);
-    expect(sql).toMatch(/SELECT token_epoch, token_epoch_bumped_at FROM admins/);
+    expect(sql).toMatch(/FROM users\s+WHERE uid = \$3::uuid/);
+    expect(sql).toMatch(/FROM admins\s+WHERE uid = \$3::uuid/);
     expect(marker).toBe(`user:${UUID_USER}`);
     expect(issuedAt).toBe(2000);
     expect(uid).toBe(UUID_USER);
     expect(hasTokenEpoch).toBe(true);
     expect(tokenEpoch).toBe(4);
+  });
+
+  // A uid absent from BOTH realms still denies — but only when the probe can
+  // prove it is not blind. jwtMiddleware runs BEFORE app.js mounts the tenant
+  // middleware, so app.current_tenant_id is unset, and public.users carries the
+  // RESTRICTIVE explicit_tenant_context_753 policy (migration 758) which hides
+  // every row from a role subject to RLS. Measured against a live database as a
+  // NOSUPERUSER role: GUC unset -> 0 rows visible, GUC 'bypass' -> 0 rows (the
+  // predicate excludes that marker), GUC <tenant uuid> -> all rows. Without the
+  // oracle, "identity_rows = 0" would 401 every live bearer in such a
+  // deployment, and CI cannot catch it — its Postgres user is a superuser and
+  // bypasses RLS.
+  it('denies a uuid token absent from both realms, but only when not blind', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{ '?column?': 1 }]);
+
+    await expect(isUserTokensRevoked(UUID_USER, 2000, 0)).resolves.toBe(true);
+
+    const [sql] = queryRawUnsafeMock.mock.calls[0];
+    expect(sql).toMatch(/COUNT\(\*\)::int AS identity_rows/);
+    expect(sql).toMatch(/EXISTS \(SELECT 1 FROM users LIMIT 1\) AS users_visible/);
+    // Absent uid denies only together with the visibility proof.
+    expect(sql).toMatch(
+      /identity\.identity_rows = 0 AND visibility\.users_visible/,
+    );
+    // Ambiguous, and visible-but-not-live, still deny on their own.
+    expect(sql).toMatch(/identity\.identity_rows > 1/);
+    expect(sql).toMatch(
+      /identity\.identity_rows = 1 AND identity\.live_identity_rows <> 1/,
+    );
+    // The unconditional invisibility-means-revoked predicate must be gone.
+    expect(sql).not.toMatch(/identity\.identity_rows <> 1\s/);
+  });
+
+  it('keeps uuid identity liveness fail closed for user and admin lifecycle states', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{ '?column?': 1 }]);
+
+    await expect(isUserTokensRevoked(UUID_USER, 2000, 0)).resolves.toBe(true);
+
+    const [sql] = queryRawUnsafeMock.mock.calls[0];
+    expect(sql).toMatch(/COUNT\(\*\) FILTER \(WHERE state\.is_live\)::int AS live_identity_rows/);
+    expect(sql).toMatch(/is_active = TRUE[\s\S]*LOWER\(COALESCE\(status, ''\)\) = 'active'/);
+    expect(sql).toMatch(/COALESCE\(is_deleted, FALSE\) = FALSE/);
+    expect(sql).toMatch(/deleted_at IS NULL/);
+    expect(sql).toMatch(/merged_into_uid IS NULL/);
+    expect(sql).toMatch(/identity\.live_identity_rows <> 1/);
   });
 
   it('keeps the durable watermark predicate for epoch-stamped tokens', async () => {
@@ -250,6 +373,10 @@ describe('tokenBlacklist revoke-all fallback', () => {
       notificationTenantId: '00000000-0000-4000-8000-000000000001',
     });
 
+    expect(advisoryLockMock).toHaveBeenCalledWith(
+      expect.stringContaining('pg_advisory_xact_lock'),
+      `vh:auth:identity:${UUID_USER}`,
+    );
     expect(queryRawUnsafeMock.mock.calls[0]).toEqual([
       expect.stringContaining('revoke_notification_authority'),
       '00000000-0000-4000-8000-000000000001',
@@ -277,7 +404,23 @@ describe('tokenBlacklist revoke-all fallback', () => {
     expect(cacheSetMock).not.toHaveBeenCalled();
     expect(pushSessionRevokedMock).not.toHaveBeenCalled();
     const [sql] = queryRawUnsafeMock.mock.calls[0];
-    expect(sql).toMatch(/INSERT INTO invalidated_tokens[\s\S]*FROM epoch_count[\s\S]*WHERE epoch_rows >= 1/);
+    expect(sql).toMatch(/identity_count AS MATERIALIZED/);
+    expect(sql).toMatch(/AND \(SELECT identity_rows FROM identity_count\) = 1/);
+    expect(sql).toMatch(/INSERT INTO invalidated_tokens[\s\S]*FROM epoch_count[\s\S]*WHERE epoch_rows = 1/);
+  });
+
+  it('rejects an ambiguous uuid revoke-all without publishing a marker', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{ revoked_at: 2000, epoch_rows: 2 }]);
+
+    await expect(
+      revokeAllUserTokens(UUID_USER, { reason: 'logout' }),
+    ).rejects.toMatchObject({ code: 'REVOCATION_WRITE_UNAVAILABLE' });
+    expect(cacheSetMock).not.toHaveBeenCalled();
+    expect(pushSessionRevokedMock).not.toHaveBeenCalled();
+
+    const [sql] = queryRawUnsafeMock.mock.calls[0];
+    expect(sql.match(/\(SELECT identity_rows FROM identity_count\) = 1/g)).toHaveLength(2);
+    expect(sql.match(/WHERE epoch_rows = 1/g)).toHaveLength(2);
   });
 
   it('R14: pushes session:revoked to the identity WebSockets after a durable revoke-all', async () => {
@@ -306,19 +449,49 @@ describe('tokenBlacklist revoke-all fallback', () => {
 
 describe('getCurrentTokenEpoch (R1 issuance gate input)', () => {
   it('reads the durable epoch for a uuid identity (users OR admins realm)', async () => {
-    queryRawUnsafeMock.mockResolvedValueOnce([{ token_epoch: 3 }]);
+    queryRawUnsafeMock.mockResolvedValueOnce([{
+      identity_rows: 1,
+      live_identity_rows: 1,
+      token_epoch: 3,
+      users_visible: true,
+    }]);
 
     await expect(getCurrentTokenEpoch(UUID_USER)).resolves.toBe(3);
     const [sql, param] = queryRawUnsafeMock.mock.calls[0];
-    expect(sql).toMatch(/FROM users WHERE uid = \$1::uuid/);
-    expect(sql).toMatch(/FROM admins WHERE uid = \$1::uuid/);
+    expect(sql).toMatch(/FROM users\s+WHERE uid = \$1::uuid/);
+    expect(sql).toMatch(/FROM admins\s+WHERE uid = \$1::uuid/);
+    expect(sql).toMatch(/COUNT\(\*\)::int AS identity_rows/);
+    expect(sql).toMatch(/COUNT\(\*\) FILTER \(WHERE identity\.is_live\)::int AS live_identity_rows/);
     expect(param).toBe(UUID_USER);
   });
 
-  it('returns 0 for unknown identities and non-uuid legacy keys without touching the DB for the latter', async () => {
-    queryRawUnsafeMock.mockResolvedValueOnce([]);
+  it.each([
+    ['missing', { identity_rows: 0, live_identity_rows: 0, token_epoch: 0, users_visible: true }],
+    ['inactive', { identity_rows: 1, live_identity_rows: 0, token_epoch: 0, users_visible: true }],
+    ['ambiguous', { identity_rows: 2, live_identity_rows: 1, token_epoch: 0, users_visible: true }],
+  ])('fails closed for a %s uuid identity', async (_state, row) => {
+    queryRawUnsafeMock.mockResolvedValueOnce([row]);
+    await expect(getCurrentTokenEpoch(UUID_USER)).rejects.toMatchObject({
+      code: 'REVOCATION_CHECK_UNAVAILABLE',
+    });
+  });
+
+  // Issuance runs on /api/v1/auth, mounted before the tenant middleware, so an
+  // RLS-subject role sees zero rows for a perfectly live identity (see the
+  // isUserTokensRevoked note above). Denying here would 500 every login while
+  // CI, running as a superuser, stays green. Nothing outside tests hard-deletes
+  // a users row, so zero rows carries no retirement signal.
+  it('treats a BLIND probe as inconclusive rather than retired', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([
+      { identity_rows: 0, live_identity_rows: 0, token_epoch: 0, users_visible: false },
+    ]);
     await expect(getCurrentTokenEpoch(UUID_USER)).resolves.toBe(0);
 
+    const [sql] = queryRawUnsafeMock.mock.calls[0];
+    expect(sql).toMatch(/EXISTS \(SELECT 1 FROM users LIMIT 1\)\) AS users_visible/);
+  });
+
+  it('returns 0 for a non-uuid legacy key without touching the DB', async () => {
     queryRawUnsafeMock.mockClear();
     await expect(getCurrentTokenEpoch('42')).resolves.toBe(0);
     expect(queryRawUnsafeMock).not.toHaveBeenCalled();
@@ -390,5 +563,18 @@ describe('tokenBlacklist blacklistToken (single-token revoke, audit F10)', () =>
         stableDeviceId: 'device-1',
       }),
     );
+  });
+
+  it('allows a caller to publish only after its own post-commit session decision', async () => {
+    cacheSetMock.mockResolvedValueOnce(true);
+    queryRawUnsafeMock.mockResolvedValueOnce([]);
+
+    await blacklistToken('jti-1', future, 'refresh_rotation', {
+      requireEvidence: true,
+      userId: UUID_USER,
+      notifySession: false,
+    });
+
+    expect(pushSessionRevokedMock).not.toHaveBeenCalled();
   });
 });

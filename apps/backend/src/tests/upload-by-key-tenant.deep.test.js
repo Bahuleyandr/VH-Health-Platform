@@ -6,7 +6,7 @@
 // in the test env, so this explicit predicate is what scopes the lookup: a
 // tenant-A admin gets 404 for a tenant-B file, while a tenant-B admin finds it
 // (here surfaced as 423, blocked by the pending scan — proves the row resolved).
-import { generateTestToken, API_KEY } from './testClient.js';
+import { generateTestToken, API_KEY, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -16,6 +16,7 @@ const d = DB_CONFIGURED ? describe : describe.skip;
 const TENANT_A = '00000000-0000-4000-8000-000000000001';
 const TENANT_B = '22222222-2222-4222-8222-222222222222';
 const OWNER_B = 'c0de0023-00b0-4000-8000-0000000000b1';
+const ADMIN_A = 'c0de0023-00a0-4000-8000-0000000000a1';
 const KEY = `uploads/${OWNER_B}/can023_secret.pdf`;
 
 function admin(tenantId, uid) {
@@ -41,10 +42,16 @@ d('Upload by-key tenant scope (CAN-023)', () => {
                $2::uuid,'PENDING','RESTRICTED',TRUE,$3::uuid,NOW())`,
       KEY, OWNER_B, TENANT_B);
   }, 30000);
+  // Both admins are token subjects only; neither is inserted by this suite.
+  beforeAll(async () => {
+    await ensureTestIdentity(ADMIN_A, { role: 'ADMIN', tenantId: TENANT_A });
+    await ensureTestIdentity(OWNER_B, { role: 'ADMIN', tenantId: TENANT_B });
+  }, 30000);
+
   afterAll(async () => { await clean(); await prisma.$disconnect().catch(() => {}); }, 30000);
 
   it('a tenant-A admin cannot resolve a tenant-B file by key (404)', async () => {
-    const res = await admin(TENANT_A, 'c0de0023-00a0-4000-8000-0000000000a1').get(`/api/v1/upload/by-key/${KEY}`);
+    const res = await admin(TENANT_A, ADMIN_A).get(`/api/v1/upload/by-key/${KEY}`);
     expect(res.statusCode).toBe(404);
   });
 

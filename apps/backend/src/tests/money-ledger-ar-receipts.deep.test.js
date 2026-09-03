@@ -44,7 +44,7 @@ afterAll(async () => {
 });
 
 const arBalance = (invoiceId, patientUid) =>
-  setTenantTx(TENANT, (tx) => getAccountBalancePaise(tx, 'PATIENT_AR', { patient_uid: patientUid, invoice_id: invoiceId }));
+  setTenantTx(TENANT, (tx) => getAccountBalancePaise(tx, TENANT, 'PATIENT_AR', { patient_uid: patientUid, invoice_id: invoiceId }));
 
 describe('Phase 2a — ledger mirrors legacy AR', () => {
   it('issueInvoice posts AR; collectPayment reduces it; ledger == legacy amount_due', async () => {
@@ -62,7 +62,7 @@ describe('Phase 2a — ledger mirrors legacy AR', () => {
     expect(await arBalance(invoiceId, patient)).toBe(60000); // 100000 - 40000
 
     // ledger CASH debit increased by at least this payment
-    const cash = await setTenantTx(TENANT, (tx) => getAccountBalancePaise(tx, 'CASH'));
+    const cash = await setTenantTx(TENANT, (tx) => getAccountBalancePaise(tx, TENANT, 'CASH'));
     expect(cash).toBeGreaterThanOrEqual(40000);
 
     // ledger AR (60000 paise = ₹600.00) matches the legacy invoice amount_due

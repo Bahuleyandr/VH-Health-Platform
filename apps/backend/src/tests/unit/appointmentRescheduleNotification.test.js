@@ -30,6 +30,14 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
     $queryRawUnsafe: queryRawUnsafeMock,
     $executeRawUnsafe: executeRawUnsafeMock,
   },
+  // `setTenantTx` must be exported by the mock: the controllers under test
+  // now open their identity-creating transaction through it, and an ESM mock
+  // factory that omits a named export fails the whole module graph at link
+  // time rather than at call time.
+  setTenantTx: (_tenantId, run) => run({
+    $queryRawUnsafe: queryRawUnsafeMock,
+    $executeRawUnsafe: executeRawUnsafeMock,
+  }),
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({ default: loggerMock }));
 jest.unstable_mockModule('../../services/appointment/appointmentService.js', () => ({

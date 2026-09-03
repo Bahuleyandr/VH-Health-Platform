@@ -14,14 +14,14 @@ enum LogoutButtonStyle {
 class LogoutButton extends StatelessWidget {
   final LogoutButtonStyle style;
   final IconData icon;
-  final String label;
+  final String? label;
   final Color? color;
 
   const LogoutButton({
     super.key,
     this.style = LogoutButtonStyle.listTile,
     this.icon = Icons.logout,
-    this.label = 'Logout',
+    this.label,
     this.color,
   });
 
@@ -46,19 +46,19 @@ class LogoutButton extends StatelessWidget {
   ///
   /// Pure and static so the copy can be asserted without pumping a widget.
   @visibleForTesting
-  static String? logoutWarningMessage(LogoutOutcome outcome) {
+  static String? logoutWarningMessage(
+    LogoutOutcome outcome,
+    AppLocalizations l10n,
+  ) {
     if (outcome.serverSessionRevoked) return null;
     if (outcome.revocationRetryQueued) {
-      return 'Signed out on this device. We could not reach the server, so '
-          'your other devices may stay signed in — we will finish signing '
-          'them out automatically the next time you open this app.';
+      return l10n.logoutRevocationRetryQueued;
     }
-    return 'Signed out on this device only. We could not reach the server and '
-        'this device cannot try again, so your other devices may stay signed '
-        'in. Sign out from them directly.';
+    return l10n.logoutRevocationRetryUnavailable;
   }
 
   static Future<void> _confirmAndLogout(BuildContext context) async {
+    final l10n = AppLocalizations.of(context)!;
     final confirm = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -76,7 +76,7 @@ class LogoutButton extends StatelessWidget {
               foregroundColor: Colors.white,
             ),
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Logout'),
+            child: Text(l10n.settingsLogout),
           ),
         ],
       ),
@@ -151,7 +151,7 @@ class LogoutButton extends StatelessWidget {
       // Local sign-out succeeded either way, but if the backend never revoked
       // the token we must not let the user believe every device is signed out
       // — nor promise a retry that may not exist.
-      final warning = logoutWarningMessage(outcome);
+      final warning = logoutWarningMessage(outcome, l10n);
       if (warning != null && scaffoldMessenger.mounted) {
         scaffoldMessenger.showSnackBar(
           SnackBar(
@@ -168,7 +168,7 @@ class LogoutButton extends StatelessWidget {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           LiveRegionSnackBar.build(
-            message: 'Logout failed: ${e.toString()}',
+            message: l10n.logoutFailed,
             backgroundColor: Colors.red,
           ),
         );
@@ -179,11 +179,12 @@ class LogoutButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final resolvedLabel = label ?? AppLocalizations.of(context)!.settingsLogout;
 
     switch (style) {
       case LogoutButtonStyle.iconOnly:
         return IconButton(
-          tooltip: label,
+          tooltip: resolvedLabel,
           icon: Icon(icon, color: color ?? theme.colorScheme.onSurface),
           onPressed: () => confirmAndLogout(context),
         );
@@ -191,7 +192,10 @@ class LogoutButton extends StatelessWidget {
       case LogoutButtonStyle.listTile:
         return ListTile(
           leading: Icon(icon, color: theme.colorScheme.error),
-          title: Text(label, style: TextStyle(color: theme.colorScheme.error)),
+          title: Text(
+            resolvedLabel,
+            style: TextStyle(color: theme.colorScheme.error),
+          ),
           onTap: () => confirmAndLogout(context),
         );
     }

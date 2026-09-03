@@ -9,32 +9,10 @@ import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
-const here = dirname(fileURLToPath(import.meta.url));
+const modulePath = fileURLToPath(import.meta.url);
+const here = dirname(modulePath);
 const amtool = process.env.AMTOOL_BIN || 'amtool';
 const secretFixtureDir = resolve(here, 'proof', 'secrets').replaceAll('\\', '/');
-const source = readFileSync(join(here, 'alertmanager.yaml.example'), 'utf8');
-const rendered = source.replaceAll(
-  '/etc/alertmanager/secrets/alertmanager-secrets',
-  secretFixtureDir,
-);
-const values = readFileSync(
-  join(here, 'kube-prometheus-values.yaml'),
-  'utf8',
-).replace(/\r\n/g, '\n');
-const sealedSecretExample = readFileSync(
-  join(here, 'alertmanager-secrets.sealed-secret.yaml.example'),
-  'utf8',
-).replace(/\r\n/g, '\n');
-const kustomization = readFileSync(
-  join(here, 'kustomization.yaml'),
-  'utf8',
-).replace(/\r\n/g, '\n');
-const edgeServiceMonitor = readFileSync(
-  join(here, 'continuity-edge-service-monitor.yaml'),
-  'utf8',
-).replace(/\r\n/g, '\n');
-const tempDir = mkdtempSync(join(tmpdir(), 'vhhealth-alertmanager-'));
-const configPath = join(tempDir, 'alertmanager.yaml');
 
 const routeCases = [
   {
@@ -85,66 +63,140 @@ const routeCases = [
   },
 ];
 
-try {
-  requireSnippets(values, 'kube-prometheus-values.yaml', [
-    'Chart: prometheus-community/kube-prometheus-stack v65.2.0',
-    'useExistingSecret: true',
-    'configSecret: alertmanager-secrets',
-    'secrets:\n      - alertmanager-secrets',
-    'serviceDiscoveryRole: EndpointSlice',
-  ]);
-  requireSnippets(
-    sealedSecretExample,
-    'alertmanager-secrets.sealed-secret.yaml.example',
-    [
-      'alertmanager.yaml: PLACEHOLDER_REPLACE_WITH_KUBESEAL_CIPHERTEXT',
-      'discord-watchdog-url: PLACEHOLDER_REPLACE_WITH_KUBESEAL_CIPHERTEXT',
-    ],
-  );
-  requireSnippets(kustomization, 'kustomization.yaml', [
-    '  - continuity-edge-alerts.yaml\n  - continuity-edge-service-monitor.yaml',
-  ]);
-  requireSnippets(
-    edgeServiceMonitor,
-    'continuity-edge-service-monitor.yaml',
-    [
-      'namespace: vhhealth-monitoring',
-      'app.kubernetes.io/name: vhhealth-continuity-edge',
-    ],
-  );
+export function assertRouteCases(cases) {
+  if (!Array.isArray(cases) || cases.length === 0) {
+    throw new Error('Alertmanager route validation requires at least one case');
+  }
 
-  writeFileSync(configPath, rendered, 'utf8');
-  run(['check-config', configPath]);
-  console.log('✓ amtool check-config: alertmanager.yaml.example');
+  for (const [index, routeCase] of cases.entries()) {
+    if (!Array.isArray(routeCase.labels) || routeCase.labels.length === 0) {
+      throw new Error(`Alertmanager route case ${index + 1} has an empty label match`);
+    }
+    if (!Array.isArray(routeCase.receivers) || routeCase.receivers.length === 0) {
+      throw new Error(`Alertmanager route case ${index + 1} has no expected receivers`);
+    }
+  }
 
-  for (const routeCase of routeCases) {
-    run([
-      'config',
-      'routes',
-      'test',
-      `--config.file=${configPath}`,
-      `--verify.receivers=${routeCase.receivers.join(',')}`,
-      ...routeCase.labels,
-    ]);
-    console.log(
-      `✓ ${routeCase.labels.join(' ')} -> ${routeCase.receivers.join(', ')}`,
+  const migrationCase = cases.find((routeCase) =>
+    routeCase.labels.includes('alertname=BackendMigrationJobFailed'),
+  );
+  if (!migrationCase) {
+    throw new Error('BackendMigrationJobFailed route case is required');
+  }
+
+  for (const label of ['severity=critical', 'team=backend']) {
+    if (!migrationCase.labels.includes(label)) {
+      throw new Error(`BackendMigrationJobFailed route case is missing ${label}`);
+    }
+  }
+
+  const expectedReceivers = ['ops-webhook', 'critical-pagerduty', 'team-backend'];
+  if (
+    migrationCase.receivers.length !== expectedReceivers.length ||
+    expectedReceivers.some((receiver) => !migrationCase.receivers.includes(receiver))
+  ) {
+    throw new Error(
+      `BackendMigrationJobFailed must route to ${expectedReceivers.join(', ')}`,
     );
   }
-} finally {
-  rmSync(tempDir, { recursive: true, force: true });
+}
+
+export function validateAlertmanager() {
+  // The env override exists so the negative harness can point this at a
+  // mutated copy. Resolve it once and NAME IT in the log: printing a
+  // hard-coded filename while validating a substituted one is exactly the
+  // false-green this gate is meant to prevent.
+  const configSource = process.env.ALERTMANAGER_CONFIG_SOURCE
+    || join(here, 'alertmanager.yaml.example');
+  const source = readFileSync(configSource, 'utf8');
+  const rendered = source.replaceAll(
+    '/etc/alertmanager/secrets/alertmanager-secrets',
+    secretFixtureDir,
+  );
+  const values = readFileSync(
+    join(here, 'kube-prometheus-values.yaml'),
+    'utf8',
+  ).replace(/\r\n/g, '\n');
+  const chartTracker = readFileSync(
+    join(here, 'chart-tracker.yaml'),
+    'utf8',
+  ).replace(/\r\n/g, '\n');
+  const sealedSecretExample = readFileSync(
+    join(here, 'alertmanager-secrets.sealed-secret.yaml.example'),
+    'utf8',
+  ).replace(/\r\n/g, '\n');
+  const kustomization = readFileSync(
+    join(here, 'kustomization.yaml'),
+    'utf8',
+  ).replace(/\r\n/g, '\n');
+  const edgeServiceMonitor = readFileSync(
+    join(here, 'continuity-edge-service-monitor.yaml'),
+    'utf8',
+  ).replace(/\r\n/g, '\n');
+  const tempDir = mkdtempSync(join(tmpdir(), 'vhhealth-alertmanager-'));
+  const configPath = join(tempDir, 'alertmanager.yaml');
+
+  assertRouteCases(routeCases);
+
+  try {
+    requireSnippets(values, 'kube-prometheus-values.yaml', [
+      'Chart: prometheus-community/kube-prometheus-stack v65.2.0',
+      'useExistingSecret: true',
+      'configSecret: alertmanager-secrets',
+      'secrets:\n      - alertmanager-secrets',
+      'serviceDiscoveryRole: EndpointSlice',
+    ]);
+    requireSnippets(chartTracker, 'chart-tracker.yaml', [
+      'prometheusVersion: "v2.55.0"',
+      'alertmanagerVersion: "v0.27.0"',
+    ]);
+    requireSnippets(
+      sealedSecretExample,
+      'alertmanager-secrets.sealed-secret.yaml.example',
+      [
+        'alertmanager.yaml: PLACEHOLDER_REPLACE_WITH_KUBESEAL_CIPHERTEXT',
+        'discord-watchdog-url: PLACEHOLDER_REPLACE_WITH_KUBESEAL_CIPHERTEXT',
+      ],
+    );
+    requireSnippets(kustomization, 'kustomization.yaml', [
+      '  - continuity-edge-alerts.yaml\n  - continuity-edge-service-monitor.yaml',
+    ]);
+    requireSnippets(
+      edgeServiceMonitor,
+      'continuity-edge-service-monitor.yaml',
+      [
+        'namespace: vhhealth-monitoring',
+        'app.kubernetes.io/name: vhhealth-continuity-edge',
+      ],
+    );
+
+    writeFileSync(configPath, rendered, 'utf8');
+    run(['check-config', configPath]);
+    console.log(`✓ amtool check-config: ${configSource}`);
+
+    for (const routeCase of routeCases) {
+      run([
+        'config',
+        'routes',
+        'test',
+        `--config.file=${configPath}`,
+        `--verify.receivers=${routeCase.receivers.join(',')}`,
+        ...routeCase.labels,
+      ]);
+      console.log(
+        `✓ ${routeCase.labels.join(' ')} -> ${routeCase.receivers.join(', ')}`,
+      );
+    }
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
 }
 
 function run(args) {
-  try {
-    return execFileSync(amtool, args, {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-  } catch (error) {
-    process.stdout.write(error.stdout || '');
-    process.stderr.write(error.stderr || error.message);
-    process.exit(1);
-  }
+  return execFileSync(amtool, args, {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
 }
 
 function requireSnippets(content, file, snippets) {
@@ -154,4 +206,14 @@ function requireSnippets(content, file, snippets) {
     }
   }
   console.log(`✓ ${file}: C1.3 wiring contract`);
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === resolve(modulePath)) {
+  try {
+    validateAlertmanager();
+  } catch (error) {
+    process.stdout.write(error.stdout || '');
+    process.stderr.write(error.stderr || error.message);
+    process.exitCode = 1;
+  }
 }

@@ -25,7 +25,7 @@ jest.unstable_mockModule('../utils/notifications/sendEmailNotification.js', () =
 const { default: prisma } = await import('../lib/prisma.js');
 const { default: app } = await import('../app.js');
 const { default: request } = await import('supertest');
-const { API_KEY, generateTestToken } = await import('./testClient.js');
+const { API_KEY, generateTestToken, ensureTestIdentity } = await import('./testClient.js');
 const {
   runDueMisReportSchedules,
   runMisReportScheduleNow,
@@ -103,6 +103,11 @@ async function deliveryRows(scheduleId) {
 }
 
 d('MIS report schedules (migration 679)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity(ADMIN_A, { tenantId: TENANT_A });
+  });
   beforeAll(async () => {
     await cleanup();
     for (const [tenantId, slug] of [[TENANT_A, 'mis-679-a'], [TENANT_B, 'mis-679-b']]) {

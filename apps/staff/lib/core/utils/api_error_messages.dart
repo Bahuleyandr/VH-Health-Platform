@@ -6,6 +6,7 @@ import '../../l10n/app_strings.dart';
 export 'api_error_codes.dart';
 
 import 'api_error_codes.dart';
+import 'localized_failure.dart';
 
 String? localizedApiErrorForCode(AppStrings strings, String? code) {
   return switch (code) {
@@ -38,6 +39,14 @@ String localizedApiErrorFromRaw(
   String? fallback,
   bool queued = false,
 }) {
+  if (raw is LocalizedFailure) {
+    return localizedApiErrorFromRaw(
+      strings,
+      raw.localizationSource,
+      fallback: strings.lookup(raw.fallbackLocalizationKey),
+      queued: queued,
+    );
+  }
   final message = _messageFromRaw(
     raw,
     fallback: fallback ?? strings.errorSomethingWentWrong,

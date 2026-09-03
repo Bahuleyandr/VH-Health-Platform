@@ -316,6 +316,8 @@ export function phiAccessLogger(recordType) {
       // detection — the success-only path used to drop these silently.
       const isDenied = res.statusCode === 403 || res.statusCode === 404;
 
+      if (!isDenied && req.suppressSuccessfulPhiAccessLog === true) return;
+
       if (res.statusCode >= 400 && !isDenied) {
         // Other 4xx/5xx (400 validation, 429 rate limit, 500 server error)
         // are not PHI-access decisions — leave them to the error/security log.

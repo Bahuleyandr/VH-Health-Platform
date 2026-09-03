@@ -44,7 +44,11 @@ class _PatientReferralsScreenState extends State<PatientReferralsScreen> {
       _error = null;
     });
     try {
-      final page = await widget.repository.listReferrals();
+      final l10n = AppLocalizations.of(context)!;
+      final page = await widget.repository.listReferrals(
+        loadFailureMessage: l10n.referralsLoadFailed,
+        refreshFailureMessage: l10n.referralsRefreshFailed,
+      );
       if (!mounted) return;
       setState(() {
         _referrals = page.referrals;

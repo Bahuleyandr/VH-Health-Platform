@@ -2,7 +2,7 @@
 // assignment/discharge through `/api/v1/beds` + `/api/v1/wards`, including
 // column-accurate RETURNING values and real-world DELETE counts.
 
-import { generateTestToken } from './testClient.js';
+import { generateTestToken, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -63,6 +63,13 @@ describe('Bed + ward management — deep integration', () => {
   const WARD_NAME = 'BED-DEEP-WARD';
   const EMPTY_WARD_NAME = 'BED-DEEP-EMPTY-WARD';
   let wardId;
+
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so these invented uids 401 before the ward RBAC gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity('a8888888-8888-4888-8888-888888888a01', { role: 'ADMIN' });
+    await ensureTestIdentity('a8888888-8888-4888-8888-888888888a02', { role: 'NURSING_STAFF' });
+  });
 
   beforeAll(async () => {
     // Clean any fixtures from prior runs (in FK-safe order)

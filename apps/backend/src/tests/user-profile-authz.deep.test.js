@@ -11,7 +11,7 @@
 // Note: the app normalises phones to +91XXXXXXXXXX (utils/phoneUtils), so we
 // SEND bare 10-digit numbers (as a real client does) but SEED/QUERY the DB in
 // the normalised form.
-import { generateTestToken, API_KEY } from './testClient.js';
+import { generateTestToken, API_KEY, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -23,6 +23,7 @@ const TENANT_ID = '00000000-0000-4000-8000-000000000001'; // platform default te
 const N = (p) => `+91${p}`; // DB-stored normalised form
 
 const A_UID = 'c0de0101-0001-4c0d-8c0d-c0de01010001';
+const SELF_REGISTER_UID = 'c0de0101-000a-4c0d-8c0d-c0de0101000a';
 const A_PHONE = '9310000101';
 const B_UID = 'c0de0101-0002-4c0d-8c0d-c0de01010002';
 const B_PHONE = '9310000102';
@@ -65,10 +66,24 @@ d('Self-service profile authz (CAN-001, CAN-002)', () => {
         ($3::uuid,$4,'Patient B','PATIENT',true,$5::uuid,NOW())`,
       A_UID, N(A_PHONE), B_UID, N(B_PHONE), TENANT_ID);
   }, 60000);
+
+  // Seeded AFTER the block above, because clean() deletes ADMIN_UID and would
+  // otherwise undo this. Authentication now fails closed on a subject with no
+  // live identity row, so both callers below have to exist.
+  //
+  // The self-registration caller is given NEW_PHONE deliberately: a
+  // self-service profile write resolves the target by the CALLER's identity
+  // rather than the body phone (that is the CAN-002 protection), so with a live
+  // caller the write lands on NEW_PHONE exactly as the original create path did
+  // and `roleOf(NEW_PHONE)` still proves the role-escalation refusal.
+  beforeAll(async () => {
+    await ensureTestIdentity(SELF_REGISTER_UID, { role: 'PATIENT', phone: N(NEW_PHONE), tenantId: TENANT_ID });
+    await ensureTestIdentity(ADMIN_UID, { role: 'ADMIN', tenantId: TENANT_ID });
+  }, 60000);
   afterAll(async () => { await clean(); await prisma.$disconnect().catch(() => {}); }, 60000);
 
   it('CAN-001: PATIENT self-registration with role=ADMIN lands as PATIENT', async () => {
-    const C = client('PATIENT', { uid: 'c0de0101-000a-4c0d-8c0d-c0de0101000a', phone: NEW_PHONE });
+    const C = client('PATIENT', { uid: SELF_REGISTER_UID, phone: NEW_PHONE });
     const res = await C.post('/api/v1/users/profile')
       .send({ phone: NEW_PHONE, name: 'New Patient', role: 'ADMIN' });
     expect(res.statusCode).toBeLessThan(300);

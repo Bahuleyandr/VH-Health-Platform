@@ -206,12 +206,12 @@ export function evaluateMigrationChanges(changes, allowlist = []) {
 
     // The blob moved but the CHECKSUM did not, so the runtime is indifferent:
     // a file-mode change, or - the one that would actually bite here - a
-    // line-ending rewrite. '*.sql' is not LF-pinned in .gitattributes, so a
-    // Windows editor can re-commit a migration as CRLF; migrationChecksum()
-    // normalises CRLF before hashing, so that file still matches every
-    // _migrations row on every database. Failing it would be a pure false
-    // positive against a gate whose whole authority is that it mirrors the
-    // runtime check exactly.
+    // line-ending rewrite. Migrations are LF-pinned at checkout, but a
+    // historical blob or an editor that bypasses attributes can still commit
+    // CRLF; migrationChecksum() normalises CRLF before hashing, so that file
+    // still matches every _migrations row on every database. Failing it would
+    // be a pure false positive against a gate whose whole authority is that it
+    // mirrors the runtime check exactly.
     if (change.fromChecksum !== null && change.fromChecksum === change.toChecksum) {
       unchanged.push(change);
       continue;

@@ -27,6 +27,7 @@ import { jest } from '@jest/globals';
 const prismaMock = {
   $queryRawUnsafe: jest.fn(),
   $executeRawUnsafe: jest.fn(),
+  $transaction: jest.fn(async (fn) => fn(prismaMock)),
 };
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
@@ -87,9 +88,11 @@ jest.unstable_mockModule('../../services/auth/loginSessionHelper.js', () => ({
 }));
 
 const revokeAllUserTokensMock = jest.fn();
+const lifecycleLockMock = jest.fn(async (_tx, _uids, fn) => fn());
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   isSubjectDelegationRevoked: jest.fn().mockResolvedValue(false),
   revokeAllUserTokens: revokeAllUserTokensMock,
+  withAuthIdentityLifecycleLocks: lifecycleLockMock,
 }));
 
 const registerNotificationDeviceMock = jest.fn();

@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:vhhealth/features/steps/models/step_models.dart';
 import 'package:vhhealth/features/steps/step_formatters.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class StepTodayCard extends StatelessWidget {
   final DailyRow? today;
@@ -17,6 +18,7 @@ class StepTodayCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final steps = today?.steps ?? 0;
     final dist = today?.distanceMeters ?? 0.0;
@@ -29,9 +31,9 @@ class StepTodayCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              "Today's Activity",
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            Text(
+              l.stepsTodayActivity,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             const SizedBox(height: 12),
             Row(
@@ -48,7 +50,7 @@ class StepTodayCard extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      'steps',
+                      l.dashboardMetricSteps,
                       style: TextStyle(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
@@ -66,7 +68,7 @@ class StepTodayCard extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      'distance',
+                      l.healthPointsDistance,
                       style: TextStyle(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
@@ -86,8 +88,8 @@ class StepTodayCard extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               pct >= 1.0
-                  ? '🎉 Daily goal reached!'
-                  : '${(pct * 100).toStringAsFixed(0)}% of $goal-step goal',
+                  ? l.stepsDailyGoalReached
+                  : l.stepsGoalProgress((pct * 100).toStringAsFixed(0), goal),
               style: TextStyle(
                 fontSize: 12,
                 color: theme.colorScheme.onSurfaceVariant,

@@ -6,11 +6,10 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const backend = path.resolve(here, '../../..');
 
-// apps/backend/.gitattributes pins *.js/*.json/*.yml to LF but not *.sql or
-// *.prisma, so a Windows checkout hands these files back with CRLF endings.
-// Normalise on read: the digests below are already taken over LF-normalised
-// text, and the line-anchored assertions further down would otherwise trip on
-// a stray \r that is no part of any contract.
+// Migration SQL is LF-pinned at checkout, but normalise defensively for
+// historical CRLF blobs or tools that bypass attributes. The digests below are
+// already taken over LF-normalised text, and a stray \r is no part of any
+// contract.
 function read(relativePath) {
   return fs.readFileSync(path.join(backend, relativePath), 'utf8').replace(/\r\n/g, '\n');
 }

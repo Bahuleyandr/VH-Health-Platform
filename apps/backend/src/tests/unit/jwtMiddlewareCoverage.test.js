@@ -152,14 +152,105 @@ describe('jwtMiddleware — revocation control flow', () => {
     await expect(jwtMiddleware(req, res, () => {})).rejects.toThrow('unexpected boom');
   });
 
-  it('skips revocation checks when the token carries no jti/iat', async () => {
+  it('checks identity liveness even when the token carries no jti/iat', async () => {
     verifyTokenMock.mockReturnValue({ uid: UID, role: 'DOCTOR' });
     let nextCalled = false;
     const req = makeReq(); const res = makeRes();
     await jwtMiddleware(req, res, () => { nextCalled = true; });
     expect(nextCalled).toBe(true);
     expect(isTokenBlacklistedMock).not.toHaveBeenCalled();
+    expect(isUserTokensRevokedMock).toHaveBeenCalledWith(String(UID), undefined, undefined);
+  });
+
+  it('denies a no-iat token when its identity is missing or inactive', async () => {
+    verifyTokenMock.mockReturnValue({ uid: UID, role: 'DOCTOR' });
+    isUserTokensRevokedMock.mockResolvedValue(true);
+    const req = makeReq(); const res = makeRes();
+
+    await jwtMiddleware(req, res, () => {});
+
+    expect(res.statusCode).toBe(401);
+    expect(res.body.code).toBe('TOKEN_REVOKED');
+    expect(isUserTokensRevokedMock).toHaveBeenCalledWith(String(UID), undefined, undefined);
+  });
+
+  it('includes a Hasura-only identity claim in revoke-all enforcement', async () => {
+    verifyTokenMock.mockReturnValue({
+      iat: 1000,
+      token_epoch: 0,
+      'https://hasura.io/jwt/claims': {
+        'x-hasura-user-id': UID,
+        'x-hasura-default-role': 'doctor',
+      },
+    });
+    isUserTokensRevokedMock.mockResolvedValue(true);
+    const req = makeReq(); const res = makeRes();
+
+    await jwtMiddleware(req, res, () => {});
+
+    expect(res.statusCode).toBe(401);
+    expect(res.body.code).toBe('TOKEN_REVOKED');
+    expect(isUserTokensRevokedMock).toHaveBeenCalledWith(String(UID), 1000, 0);
+  });
+
+  it('uses the Hasura app identity instead of a generic provider subject', async () => {
+    verifyTokenMock.mockReturnValue({
+      sub: 'oidc-provider-subject',
+      userId: 77,
+      iat: 1000,
+      token_epoch: 0,
+      'https://hasura.io/jwt/claims': {
+        'x-hasura-user-id': UID,
+        'x-hasura-default-role': 'doctor',
+        'x-hasura-user-int-id': '77',
+      },
+    });
+    let nextCalled = false;
+    const req = makeReq(); const res = makeRes();
+
+    await jwtMiddleware(req, res, () => { nextCalled = true; });
+
+    expect(nextCalled).toBe(true);
+    expect(isUserTokensRevokedMock).toHaveBeenCalledWith(String(UID), 1000, 0);
+    expect(req.user.uid).toBe(UID);
+    expect(req.user.id).toBe(77);
+  });
+
+  it.each([
+    ['Hasura', { 'https://hasura.io/jwt/claims': { 'x-hasura-user-id': 'b0000000-0000-4000-8000-000000000abc' } }],
+    ['user_id', { user_id: 'different-app-identity' }],
+    ['userId', { userId: 'different-app-identity' }],
+  ])('fails closed when uid conflicts with the %s app identity alias', async (_label, extra) => {
+    verifyTokenMock.mockReturnValue({ uid: UID, role: 'PATIENT', ...extra });
+    let nextCalled = false;
+    const req = makeReq(); const res = makeRes();
+
+    await jwtMiddleware(req, res, () => { nextCalled = true; });
+
+    expect(nextCalled).toBe(false);
+    expect(res.statusCode).toBe(401);
+    expect(res.body.code).toBe('TOKEN_INVALID');
     expect(isUserTokensRevokedMock).not.toHaveBeenCalled();
+  });
+
+  it('accepts case-only UUID aliases and signed numeric DB-ID projections', async () => {
+    verifyTokenMock.mockReturnValue({
+      uid: UID.toUpperCase(),
+      user_id: UID,
+      userId: 77,
+      id: 77,
+      role: 'DOCTOR',
+      'https://hasura.io/jwt/claims': { 'x-hasura-user-id': UID },
+    });
+    let nextCalled = false;
+    const req = makeReq(); const res = makeRes();
+
+    await jwtMiddleware(req, res, () => { nextCalled = true; });
+
+    expect(nextCalled).toBe(true);
+    expect(req.user.uid).toBe(UID);
+    expect(req.user.id).toBe(77);
+    expect(isUserTokensRevokedMock).toHaveBeenCalledWith(UID, undefined, undefined);
   });
 });
 
@@ -434,6 +525,32 @@ describe('jwtMiddleware — acting-as delegation', () => {
     expect(res.statusCode).toBe(403);
     expect(res.body.code).toBe('NOT_AUTHORISED_TO_ACT_AS');
     expect(isDelegatedTupleRevokedMock).toHaveBeenCalledWith(GUARDIAN_UID, DEP_UID, 1000);
+  });
+
+  it('denies a no-iat delegated token when the dependent subject is revoked', async () => {
+    verifyTokenMock.mockReturnValue(guardianToken());
+    isSubjectDelegationRevokedMock.mockResolvedValue(true);
+    queryRawUnsafeMock.mockResolvedValueOnce([liveDelegationRow()]);
+    const req = makeReq({ 'x-acting-as-uid': DEP_UID }); const res = makeRes();
+
+    await jwtMiddleware(req, res, () => {});
+
+    expect(res.statusCode).toBe(403);
+    expect(isSubjectDelegationRevokedMock).toHaveBeenCalledWith(DEP_UID, null);
+    expect(isDelegatedTupleRevokedMock).not.toHaveBeenCalled();
+  });
+
+  it('denies a no-iat delegated token when its guardian-dependent tuple is revoked', async () => {
+    verifyTokenMock.mockReturnValue(guardianToken());
+    isDelegatedTupleRevokedMock.mockResolvedValue(true);
+    queryRawUnsafeMock.mockResolvedValueOnce([liveDelegationRow()]);
+    const req = makeReq({ 'x-acting-as-uid': DEP_UID }); const res = makeRes();
+
+    await jwtMiddleware(req, res, () => {});
+
+    expect(res.statusCode).toBe(403);
+    expect(isSubjectDelegationRevokedMock).toHaveBeenCalledWith(DEP_UID, null);
+    expect(isDelegatedTupleRevokedMock).toHaveBeenCalledWith(GUARDIAN_UID, DEP_UID, null);
   });
 
   it('fails CLOSED with 503 when the subject revocation store is unreachable', async () => {

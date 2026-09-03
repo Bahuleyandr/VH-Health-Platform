@@ -123,4 +123,32 @@ describe('phiAccessLogger denied-access audit (SEC-6)', () => {
       action: 'VIEW',
     }));
   });
+
+  it('suppresses only the generic success row for explicitly multi-patient worklists', () => {
+    const req = baseReq({
+      method: 'GET',
+      suppressSuccessfulPhiAccessLog: true,
+    });
+    const res = makeRes(200);
+    phiAccessLogger('CLINICAL_DOCUMENT')(req, res, jest.fn());
+    res.emit('finish');
+
+    expect(logPhiAccessMock).not.toHaveBeenCalled();
+  });
+
+  it('does not suppress a denied row when the multi-patient success flag is set', () => {
+    const req = baseReq({
+      method: 'GET',
+      suppressSuccessfulPhiAccessLog: true,
+      patientAccessDecision: { patient_uid: PATIENT },
+    });
+    const res = makeRes(403);
+    phiAccessLogger('CLINICAL_DOCUMENT')(req, res, jest.fn());
+    res.emit('finish');
+
+    expect(logPhiAccessMock).toHaveBeenCalledWith(expect.objectContaining({
+      patientId: PATIENT,
+      action: 'ACCESS_DENIED',
+    }));
+  });
 });

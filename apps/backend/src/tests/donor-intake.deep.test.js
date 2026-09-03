@@ -6,7 +6,7 @@
 // the patient-keyed canonical clinical timeline.
 
 import prisma from '../lib/prisma.js';
-import { authClient, generateTestToken, API_KEY } from './testClient.js';
+import { authClient, generateTestToken, API_KEY, ensureTestIdentity } from './testClient.js';
 import request from 'supertest';
 import app from '../app.js';
 
@@ -49,6 +49,11 @@ async function cleanup() {
 }
 
 d('Blood-bank donor intake cycle', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity('d0620000-0000-4000-8000-000000000001');
+  });
   let donorId;
   let deferralId;
   let eligibleScreeningId;

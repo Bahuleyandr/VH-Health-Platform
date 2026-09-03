@@ -14,7 +14,7 @@
 import request from 'supertest';
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
-import { API_KEY, generateTestToken } from './testClient.js';
+import { API_KEY, generateTestToken, ensureTestIdentity } from './testClient.js';
 
 const PATIENT_UID = 'f2222222-2222-4222-8222-bbbbbbbb2202';
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
@@ -207,6 +207,10 @@ describe('GET /portal/tpa/claims — patient self-service', () => {
 
   it('does not return another patient\'s claim', async () => {
     const otherUid = 'f3333333-3333-4333-8333-cccccccc3303';
+    // The other patient must be a LIVE identity, otherwise authentication
+    // fails closed and this returns 401 — which would pass a "not 200" test for
+    // the wrong reason and stop proving the ownership check at all.
+    await ensureTestIdentity(otherUid, { role: 'PATIENT' });
     const otherToken = generateTestToken('PATIENT', { uid: otherUid, id: 9_000_001 });
     const res = await request(app)
       .get(`/api/v1/portal/tpa/claims/${claimId}`)

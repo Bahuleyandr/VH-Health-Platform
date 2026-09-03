@@ -27,6 +27,58 @@ const TELECONSULT_PAYMENT_LINK_NOTES_PREFIX = 'Teleconsult post-consult payment'
 
 export const PAYMENT_LINK_CHANNELS = new Set(['sms', 'whatsapp', 'email']);
 
+// Technical five-locale contract only. The non-English entries intentionally
+// preserve the already-live bilingual wording until finance and linguistic
+// reviewers approve locale-specific payment copy. The recipient locale is
+// still resolved and wired now, so approved wording can replace one bounded
+// presentation without another data-flow change.
+const PAYMENT_LINK_TECHNICAL_PRESENTATION = Object.freeze({
+  subject: 'Hospital bill',
+  billReady: 'Your hospital bill of {amount} is ready.',
+  payGateway: 'Pay securely by UPI or card here: {url}',
+  payUpi: 'Pay by UPI here: {url}',
+  secondaryLine: 'बिल {amount} का तैयार है। भुगतान करें: {url}',
+  emailLead: 'Your bill of',
+  emailReadySuffix: 'is ready.',
+  emailAction: 'Pay now',
+});
+
+export const PAYMENT_LINK_PRESENTATIONS = Object.freeze({
+  en: PAYMENT_LINK_TECHNICAL_PRESENTATION,
+  hi: PAYMENT_LINK_TECHNICAL_PRESENTATION,
+  ta: PAYMENT_LINK_TECHNICAL_PRESENTATION,
+  te: PAYMENT_LINK_TECHNICAL_PRESENTATION,
+  ml: PAYMENT_LINK_TECHNICAL_PRESENTATION,
+});
+
+// Exported so the locale contract can be asserted on the resolved KEY. The
+// five presentations are deliberately the same frozen object until wording is
+// approved, so an identity assertion on the returned value cannot distinguish
+// a working resolver from a broken one.
+export function paymentLinkLocaleKey(language) {
+  const locale = String(language || '').trim().toLowerCase().split(/[-_]/u)[0];
+  return Object.hasOwn(PAYMENT_LINK_PRESENTATIONS, locale) ? locale : 'en';
+}
+
+export function paymentLinkPresentation(language) {
+  return PAYMENT_LINK_PRESENTATIONS[paymentLinkLocaleKey(language)];
+}
+
+function renderPaymentLinkPresentation(template, { amount, url, gatewayCheckout }) {
+  const render = (value) => value
+    .replaceAll('{amount}', amount)
+    .replaceAll('{url}', url);
+  return {
+    subject: `${template.subject} — ${amount}`,
+    billReady: render(template.billReady),
+    paymentAction: render(gatewayCheckout ? template.payGateway : template.payUpi),
+    secondaryLine: render(template.secondaryLine),
+    emailLead: template.emailLead,
+    emailReadySuffix: template.emailReadySuffix,
+    emailAction: template.emailAction,
+  };
+}
+
 function generateToken() {
   return randomBytes(24).toString('base64url');
 }
@@ -266,14 +318,32 @@ export async function createPaymentLink({
   return rows[0];
 }
 
-export async function getPaymentLink({ tenantId, link_token }) {
+// INTERNAL. Same row as getPaymentLink plus the recipient's server-owned
+// preferred language, used only to pick the outbound message presentation.
+// Not exported and never returned to a caller: the `PaymentLink` OpenAPI
+// component is `additionalProperties: false`, so any extra column on a
+// response body breaks the committed contract on every endpoint that returns
+// one (GET/send/cancel/mark-paid and the teleconsult post-consult link).
+async function readPaymentLinkWithRecipient({ tenantId, link_token }) {
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT * FROM billing_payment_links
-      WHERE link_token = $1 AND tenant_id = $2::uuid`,
+    `SELECT payment_link.*,
+            patient.preferred_language AS patient_preferred_language
+       FROM billing_payment_links payment_link
+       LEFT JOIN users patient
+              ON patient.uid = payment_link.patient_uid
+             AND patient.tenant_id = payment_link.tenant_id
+      WHERE payment_link.link_token = $1
+        AND payment_link.tenant_id = $2::uuid`,
     String(link_token), tenantId,
   );
   if (!rows.length) throw AppError.notFound('Payment link not found');
   return rows[0];
+}
+
+export async function getPaymentLink({ tenantId, link_token }) {
+  const { patient_preferred_language: _recipientLanguage, ...link } =
+    await readPaymentLinkWithRecipient({ tenantId, link_token });
+  return link;
 }
 
 // ---------------------------------------------------------------------------
@@ -407,7 +477,7 @@ export async function sendPaymentLink({
   tenantId, link_token, channels = ['whatsapp'],
   patient_phone, patient_email,
 }) {
-  const link = await getPaymentLink({ tenantId, link_token });
+  const link = await readPaymentLinkWithRecipient({ tenantId, link_token });
   if (link.status === 'paid' || link.status === 'cancelled') {
     throw AppError.badRequest(`Link is ${link.status}, cannot resend`);
   }
@@ -415,8 +485,10 @@ export async function sendPaymentLink({
   const baseUrl = process.env.HOSPITAL_PAY_BASE_URL || 'https://api.vhhealth.app/pay';
   const shareUrl = `${baseUrl}/${link.link_token}`;
 
-  // Build a short message body. Localise via the hospital's preferred
-  // language eventually; for MVP we keep it bilingual English+Hindi.
+  // Build a short message body from the patient's server-owned preferred
+  // language. Non-English values currently preserve the existing bilingual
+  // copy as explicit technical placeholders pending finance + linguistic
+  // approval; no caller-supplied language can widen that authority.
   //
   // Wording follows what the landing page can actually offer. With the
   // tenant's online gateway effectively enabled (env + settings + config —
@@ -435,13 +507,15 @@ export async function sendPaymentLink({
     }
   }
   const amountStr = `₹${Number(link.amount).toFixed(2)}`;
+  const presentation = renderPaymentLinkPresentation(
+    paymentLinkPresentation(link.patient_preferred_language),
+    { amount: amountStr, url: shareUrl, gatewayCheckout },
+  );
   const messageBody = [
-    `Your hospital bill of ${amountStr} is ready.`,
-    gatewayCheckout
-      ? `Pay securely by UPI or card here: ${shareUrl}`
-      : `Pay by UPI here: ${shareUrl}`,
+    presentation.billReady,
+    presentation.paymentAction,
     '',
-    `बिल ₹${Number(link.amount).toFixed(2)} का तैयार है। भुगतान करें: ${shareUrl}`,
+    presentation.secondaryLine,
   ].join('\n');
 
   const updates = {};
@@ -455,7 +529,7 @@ export async function sendPaymentLink({
       tenantId,
       recipientId: link.patient_uid || null,
       recipientPhone: patient_phone,
-      title: `Hospital bill — ${amountStr}`,
+      title: presentation.subject,
       // Never persist the link token in outbox payload metadata — it is a
       // bearer credential. It stays inside the message body only.
       body: messageBody,
@@ -484,8 +558,8 @@ export async function sendPaymentLink({
     try {
       await sendEmail({
         to: patient_email,
-        subject: `Hospital bill — ${amountStr}`,
-        html: `<p>Your bill of <strong>${amountStr}</strong> is ready.</p><p><a href="${shareUrl}">Pay now</a></p>`,
+        subject: presentation.subject,
+        html: `<p>${presentation.emailLead} <strong>${amountStr}</strong> ${presentation.emailReadySuffix}</p><p><a href="${shareUrl}">${presentation.emailAction}</a></p>`,
         text: messageBody,
       });
       updates.sent_via_email_at = 'NOW()';

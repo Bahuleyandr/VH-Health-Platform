@@ -232,10 +232,13 @@ d('M-E walk-in ANC canonical parity', () => {
     for (const entry of [...installedTriggers]) await dropFailureTrigger(entry);
   });
 
+  // cleanup() unwinds a walk-in + ANC canonical graph and does not fit jest's
+  // default 5s hook budget; every assertion here passes, only the teardown
+  // was timing out. Budgeted explicitly, as sibling DB-backed suites are.
   afterAll(async () => {
     await cleanup();
     await prisma.$disconnect().catch(() => {});
-  });
+  }, 60000);
 
   function postWalkIn(body) {
     return request(app)

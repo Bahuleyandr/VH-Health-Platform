@@ -24,7 +24,7 @@ jest.unstable_mockModule(
 );
 
 const { default: app } = await import('../app.js');
-const { API_KEY, generateTestToken } = await import('./testClient.js');
+const { API_KEY, generateTestToken, ensureTestIdentity } = await import('./testClient.js');
 
 function authHeaders(uid = '550e8400-e29b-41d4-a716-446655440022') {
   const token = generateTestToken('ADMIN', {
@@ -39,6 +39,31 @@ function authHeaders(uid = '550e8400-e29b-41d4-a716-446655440022') {
 }
 
 describe('GET /api/v1/health/client-readiness deep contract', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    for (const uid of [
+      // Every subject this suite mints a bearer for: authHeaders()'s parameter
+      // default, generateTestToken's own default for the bare
+      // `generateTestToken('ADMIN')` call, and each uid passed positionally.
+      '550e8400-e29b-41d4-a716-446655440022',
+      '550e8400-e29b-41d4-a716-446655440000',
+      '00000000-0000-4000-8000-000000000024',
+      '00000000-0000-4000-8000-000000000025',
+      '550e8400-e29b-41d4-a716-446655440023',
+      '550e8400-e29b-41d4-a716-446655440026',
+      '550e8400-e29b-41d4-a716-446655440027',
+      '550e8400-e29b-41d4-a716-446655440028',
+      '550e8400-e29b-41d4-a716-446655440029',
+      '550e8400-e29b-41d4-a716-446655440030',
+      '550e8400-e29b-41d4-a716-446655440031',
+      '550e8400-e29b-41d4-a716-446655440032',
+      '550e8400-e29b-41d4-a716-446655440034',
+    ]) {
+      await ensureTestIdentity(uid);
+    }
+  });
+
   beforeEach(() => {
     loadPolicies.mockReset();
     loadPolicies.mockImplementation(async tenantId => [

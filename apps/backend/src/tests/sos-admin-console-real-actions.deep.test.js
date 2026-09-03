@@ -20,7 +20,7 @@
 // notifications both carry a fail-open permissive policy, so the explicit
 // `tenant_id = $n::uuid` predicates are what actually scope these queries — a
 // tenant-A admin must not read, escalate, or notify anything in tenant B.
-import { generateTestToken, API_KEY } from './testClient.js';
+import { generateTestToken, API_KEY, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -94,6 +94,11 @@ const severityOf = async (id) => {
 };
 
 d('Admin SOS console executes real logic (F1)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity('c0de00f1-50d0-4000-8000-0000000000f1');
+  });
   beforeAll(async () => {
     await clean();
     await prisma.$executeRawUnsafe(

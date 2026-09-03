@@ -36,7 +36,10 @@ class StaffEvidenceUpload {
 class StaffEvidenceUploadService {
   StaffEvidenceUploadService._();
 
-  static Future<StaffEvidenceUpload> upload(File file) async {
+  static Future<StaffEvidenceUpload> upload(
+    File file, {
+    required String failureMessage,
+  }) async {
     final response = await ApiClient.multipart(
       '/upload',
       fileBuilder: () async => [
@@ -50,7 +53,7 @@ class StaffEvidenceUploadService {
     );
 
     if (!response.isSuccess) {
-      throw Exception(response.failureMessage('Photo upload failed'));
+      throw Exception(response.failureMessage(failureMessage));
     }
 
     final payload = _extractPayload(response);

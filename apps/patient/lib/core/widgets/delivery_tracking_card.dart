@@ -98,6 +98,7 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
 
     final etaMins = data['estimated_delivery_mins'];
     final distanceKm = data['delivery_distance_km'];
+    final l10n = AppLocalizations.of(context)!;
     final deliveryPerson = data['delivery_person'];
     final deliveryPhone = data['delivery_person_phone'];
     final isActive = data['delivery_tracking_active'] == true;
@@ -164,7 +165,7 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
                       ),
                       const SizedBox(width: 4),
                       Text(
-                        'Live',
+                        l10n.deliveryTrackingLive,
                         style: TextStyle(
                           fontSize: 11,
                           color: Colors.green.shade700,
@@ -190,7 +191,7 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  'Estimated arrival: ~$etaMins min',
+                  l10n.deliveryTrackingEstimatedArrival(etaMins.toString()),
                   style: TextStyle(
                     fontSize: 14,
                     color: theme.colorScheme.primary,
@@ -206,7 +207,7 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  '$distanceKm km',
+                  l10n.deliveryTrackingDistance(distanceKm.toString()),
                   style: TextStyle(
                     fontSize: 14,
                     color: theme.colorScheme.primary,
@@ -250,7 +251,7 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
                   IconButton(
                     icon: Icon(Icons.call, color: theme.colorScheme.primary),
                     onPressed: () => SafeUrlLauncher.launchPhone(deliveryPhone),
-                    tooltip: 'Call',
+                    tooltip: l10n.deliveryTrackingCall,
                   ),
               ],
             ),
@@ -275,14 +276,14 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Hospital',
+                    l10n.deliveryTrackingHospital,
                     style: TextStyle(
                       fontSize: 11,
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
                   Text(
-                    AppLocalizations.of(context)!.deliveryYourLocation,
+                    l10n.deliveryYourLocation,
                     style: TextStyle(
                       fontSize: 11,
                       color: theme.colorScheme.onSurfaceVariant,

@@ -14,6 +14,7 @@ import 'package:flutter/material.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/features/gamification/widgets/achievement_share_card.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 /// Static catalog of achievements the patient app tracks. Each entry maps to
 /// one or more `activity_type` values in the ledger; seeing the activity_type
@@ -217,6 +218,7 @@ class _AchievementGridState extends State<AchievementGrid> {
       );
     }
     final unlocked = kAchievements.where(_isUnlocked).length;
+    final l = AppLocalizations.of(context)!;
 
     return RefreshIndicator(
       onRefresh: _load,
@@ -224,7 +226,7 @@ class _AchievementGridState extends State<AchievementGrid> {
         padding: const EdgeInsets.all(16),
         children: [
           Text(
-            '$unlocked of ${kAchievements.length} badges earned',
+            l.gamificationBadgesEarned(unlocked, kAchievements.length),
             style: Theme.of(context).textTheme.titleMedium
                 ?.copyWith(fontWeight: FontWeight.bold),
           ),

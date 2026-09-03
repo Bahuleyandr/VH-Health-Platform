@@ -106,6 +106,7 @@ export const RATE_LIMIT_STORE_LOSS_POLICY = Object.freeze({
   sos: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_CLOSED,
   // Bulk PHI export cap (5/user/hour) — unmetered = exfiltration amplifier.
   dataExport: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_CLOSED,
+  clinicalImport: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_CLOSED,
   // Exists specifically to stop pre-auth phone enumeration (10/min/IP).
   dashboard: RATE_LIMIT_STORE_LOSS_POSTURE.FAIL_CLOSED,
   // Public-by-design SMART-on-FHIR token/authorize endpoints (30/min).

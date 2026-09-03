@@ -101,7 +101,10 @@ class DependentsProvider extends ChangeNotifier {
   /// Safe to call repeatedly — concurrent calls coalesce via the loading
   /// flag. The active selection is preserved across reloads when the
   /// previously-active dependent is still in the new list.
-  Future<void> loadDependents({bool force = false}) async {
+  Future<void> loadDependents({
+    bool force = false,
+    required String failureMessage,
+  }) async {
     if (_disposed) return;
     if (_loading) return;
     if (_loadedOnce && !force) return;
@@ -136,12 +139,12 @@ class DependentsProvider extends ChangeNotifier {
           _active = match.isEmpty ? null : match.first;
         }
       } else {
-        _error = response.failureMessage('Failed to load dependents');
+        _error = response.failureMessage(failureMessage);
       }
     } catch (e) {
       if (_disposed) return;
       if (kDebugMode) debugPrint('DependentsProvider.loadDependents: $e');
-      _error = 'Failed to load dependents';
+      _error = failureMessage;
     } finally {
       if (!_disposed) {
         _loading = false;
@@ -169,6 +172,7 @@ class DependentsProvider extends ChangeNotifier {
   /// (so the caller can surface it in a SnackBar / inline form error).
   Future<Dependent> linkDependent({
     required String dependentUidOrPhone,
+    required String failureMessage,
     String? relationship,
   }) async {
     if (_disposed) {
@@ -184,9 +188,7 @@ class DependentsProvider extends ChangeNotifier {
     );
 
     if (!response.isSuccess) {
-      throw DependentApiException(
-        response.failureMessage('Failed to link dependent'),
-      );
+      throw DependentApiException(response.failureMessage(failureMessage));
     }
 
     final raw = response.data;
@@ -221,14 +223,15 @@ class DependentsProvider extends ChangeNotifier {
   }
 
   /// Unlink a dependent and remove it from the local list.
-  Future<void> unlinkDependent(int dependentId) async {
+  Future<void> unlinkDependent(
+    int dependentId, {
+    required String failureMessage,
+  }) async {
     if (_disposed) return;
     final response = await ApiClient.delete('/users/dependents/$dependentId');
     if (_disposed) return;
     if (!response.isSuccess) {
-      throw DependentApiException(
-        response.failureMessage('Failed to unlink dependent'),
-      );
+      throw DependentApiException(response.failureMessage(failureMessage));
     }
     await PatientCacheInvalidation.afterDependentMutation();
     if (_disposed) return;

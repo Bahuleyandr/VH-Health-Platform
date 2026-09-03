@@ -3,7 +3,7 @@
 // LookupService.lookupUser OR-ed the non-admin `role != 'ADMIN'` guard into the
 // same list as the search criteria, so a NON-MATCHING lookup returned the whole
 // non-admin roster. Fix: criteria are OR-ed; the role guard is AND-ed on top.
-import { generateTestToken, API_KEY } from './testClient.js';
+import { generateTestToken, API_KEY, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -30,6 +30,11 @@ async function clean() {
 }
 
 d('Legacy lookup OR-predicate (CAN-056)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity('c0de0103-00aa-4c0d-8c0d-c0de010300aa', { tenantId: TENANT_ID });
+  });
   beforeAll(async () => {
     await clean();
     await prisma.$executeRawUnsafe(
