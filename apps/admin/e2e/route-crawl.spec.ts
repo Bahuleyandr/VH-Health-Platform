@@ -104,82 +104,145 @@ test.describe("authenticated — dashboard route crawl", () => {
       "dashboard route discovery returned no routes",
     ).toBeGreaterThan(0);
 
+    // Every broken route, not just the alphabetically first one (audit row
+    // OPEN-24). This loop used to assert inside each step, and a failing expect
+    // propagates out of an awaited test.step and ends the run - so the crawl
+    // reported exactly ONE route however many were broken, and because routes
+    // are crawled in sorted order the masking was systematic rather than
+    // random. /dashboard/mar sorts before /dashboard/pharmacy, so when the MAR
+    // authority defect was fixed the crawl immediately surfaced a pharmacy
+    // failure that had been present and invisible behind it. Every prior
+    // reading of "Smoke E2E is red" as a single defect was an artefact of this
+    // loop.
+    //
+    // Findings are now collected per route and asserted once at the end. The
+    // per-route step still throws, so a broken route is still marked failed in
+    // the Playwright report; the throw is caught HERE so the crawl carries on.
+    const routeFailures: Array<{ route: string; problems: string[] }> = [];
+
     for (const route of routes) {
-      await test.step(route, async () => {
-        const page = await context.newPage();
-        const pageErrors: string[] = [];
-        const consoleErrors: string[] = [];
-        const failedResponses: string[] = [];
-        const failedResponseReads: Array<Promise<void>> = [];
+      try {
+        await test.step(route, async () => {
+          const page = await context.newPage();
+          const pageErrors: string[] = [];
+          const consoleErrors: string[] = [];
+          const failedResponses: string[] = [];
+          const failedResponseReads: Array<Promise<void>> = [];
 
-        page.on("pageerror", (error) => {
-          pageErrors.push(error.message);
-        });
-        page.on("console", (message) => {
-          if (message.type() === "error") {
-            const text = message.text();
-            if (!text.includes("Failed to load resource")) {
-              consoleErrors.push(text);
+          page.on("pageerror", (error) => {
+            pageErrors.push(error.message);
+          });
+          page.on("console", (message) => {
+            if (message.type() === "error") {
+              const text = message.text();
+              if (!text.includes("Failed to load resource")) {
+                consoleErrors.push(text);
+              }
             }
-          }
-        });
-        page.on("response", (response) => {
-          const url = response.url();
-          const isBackendSurface =
-            url.includes("/api/proxy/") ||
-            url.includes("/api/login") ||
-            url.includes("/api/refresh") ||
-            url.includes("/api/realtime-ticket");
-          if (isBackendSurface && response.status() >= 400) {
-            failedResponseReads.push(
-              (async () => {
-                const body = await response.text().catch(() => "");
-                const method = response.request().method();
-                if (
-                  isExpectedDarkGateResponse(
-                    method,
-                    response.status(),
-                    url,
-                    body,
-                  )
-                ) {
-                  return;
-                }
-                const bodySnippet = body.replace(/\s+/g, " ").slice(0, 240);
-                failedResponses.push(
-                  `${method} ${response.status()} ${url}${bodySnippet ? ` :: ${bodySnippet}` : ""}`,
-                );
-              })(),
+          });
+          page.on("response", (response) => {
+            const url = response.url();
+            const isBackendSurface =
+              url.includes("/api/proxy/") ||
+              url.includes("/api/login") ||
+              url.includes("/api/refresh") ||
+              url.includes("/api/realtime-ticket");
+            if (isBackendSurface && response.status() >= 400) {
+              failedResponseReads.push(
+                (async () => {
+                  const body = await response.text().catch(() => "");
+                  const method = response.request().method();
+                  if (
+                    isExpectedDarkGateResponse(
+                      method,
+                      response.status(),
+                      url,
+                      body,
+                    )
+                  ) {
+                    return;
+                  }
+                  const bodySnippet = body.replace(/\s+/g, " ").slice(0, 240);
+                  failedResponses.push(
+                    `${method} ${response.status()} ${url}${bodySnippet ? ` :: ${bodySnippet}` : ""}`,
+                  );
+                })(),
+              );
+            }
+          });
+
+          const problems: string[] = [];
+          // Each check is recorded rather than thrown, so one finding on a
+          // route does not hide the others on the SAME route either. The
+          // web-first assertions keep their retry semantics by staying inside
+          // expect() and being caught individually.
+          const record = async (
+            label: string,
+            assertion: () => Promise<void>,
+          ) => {
+            try {
+              await assertion();
+            } catch (error) {
+              const first = String((error as Error)?.message ?? error).split(
+                "\n",
+              )[0];
+              problems.push(`${label} (${first})`);
+            }
+          };
+
+          try {
+            await page.goto(route, { waitUntil: "domcontentloaded" });
+            await record("redirected to login", () =>
+              expect(page).not.toHaveURL(/\/login/),
             );
+            await page.waitForTimeout(ROUTE_SETTLE_MS);
+            await Promise.all(failedResponseReads);
+
+            const failureText = page.getByText(
+              /page not found|cannot get|socketexception|clientexception|request failed|failed to load|something went wrong|http 404|http 500/i,
+            );
+            await record("renders a visible error", () =>
+              expect(failureText.first()).toHaveCount(0),
+            );
+
+            if (pageErrors.length > 0) {
+              problems.push(`page errors: ${pageErrors.join(" / ")}`);
+            }
+            if (consoleErrors.length > 0) {
+              problems.push(`console errors: ${consoleErrors.join(" / ")}`);
+            }
+            if (failedResponses.length > 0) {
+              problems.push(
+                `failed backend responses: ${failedResponses.join(" / ")}`,
+              );
+            }
+
+            if (problems.length > 0) {
+              routeFailures.push({ route, problems });
+              // Thrown so this step is marked failed in the report; caught at
+              // the loop so the crawl continues to the next route.
+              throw new Error(`${route}: ${problems.join(" | ")}`);
+            }
+          } finally {
+            await page.close();
           }
         });
-
-        try {
-          await page.goto(route, { waitUntil: "domcontentloaded" });
-          await expect(
-            page,
-            `${route} should not redirect to login`,
-          ).not.toHaveURL(/\/login/);
-          await page.waitForTimeout(ROUTE_SETTLE_MS);
-          await Promise.all(failedResponseReads);
-
-          const failureText = page.getByText(
-            /page not found|cannot get|socketexception|clientexception|request failed|failed to load|something went wrong|http 404|http 500/i,
-          );
-          await expect(
-            failureText.first(),
-            `${route} should not render a visible error`,
-          ).toHaveCount(0);
-
-          expect(pageErrors, `${route} page errors`).toEqual([]);
-          expect(consoleErrors, `${route} console errors`).toEqual([]);
-          expect(failedResponses, `${route} failed backend responses`).toEqual(
-            [],
-          );
-        } finally {
-          await page.close();
-        }
-      });
+      } catch {
+        // Recorded in routeFailures by the step itself. Swallowed so one broken
+        // route cannot hide the rest - the assertion after this loop is what
+        // fails the test, and it names every route at once.
+      }
     }
+
+    expect(
+      routeFailures,
+      `${routeFailures.length} of ${routes.length} dashboard route(s) failed:\n` +
+        routeFailures
+          .map(
+            ({ route, problems }) =>
+              `  ${route}\n${problems.map((p) => `    - ${p}`).join("\n")}`,
+          )
+          .join("\n"),
+    ).toEqual([]);
   });
 });
