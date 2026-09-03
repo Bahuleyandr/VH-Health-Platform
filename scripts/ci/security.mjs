@@ -209,6 +209,13 @@ export async function runSecurityStage() {
   // shipped plpgsql bodies that cannot compile while CI stayed green.
   run(process.execPath, ['scripts/ci/check-migration-session-guc.mjs']);
 
+  // Dead-code retirement is a repository-wide invariant, not an Admin or
+  // Flutter quality signal. Keep both its mutation proof and live manifest in
+  // the one stage selected by every canonical plan so a path filter cannot
+  // silently resurrect an audited surface.
+  run(process.execPath, ['--test', 'scripts/ci/check-dead-code-retirements.test.mjs']);
+  run(process.execPath, ['scripts/ci/check-dead-code-retirements.mjs']);
+
   run(process.execPath, ['scripts/check-forgejo-supply-chain-pins.mjs']);
   run(process.execPath, ['scripts/scan-secrets.mjs']);
   run(process.execPath, ['scripts/gitleaks-scan.mjs', 'worktree'], { env: gitleaksEnv });
