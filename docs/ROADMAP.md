@@ -96,15 +96,13 @@ closed-row receipts remain in
   dependent guardianship/relationship/consent copy remains held for legal plus
   linguistic review, and Staff Web copy remains held for operator/release
   authority.
-- **OPEN-22 — backend minimatch install-time patch debt.** Current main depends
-  on a global `minimatch` override plus a `postinstall` rewrite of
-  `node_modules`; normal installs work because that hook runs. Local unpushed
-  commit `e5699a180f72f736b1dd953ba9235a3299a3e80b` replaces it with a
-  dependency-native patched graph and reports fresh install, lint/security,
-  dependency-floor mutation tests, and Docker install stages green, but it is
-  not an ancestor of `github/main`. Reconcile it to fresh main and rerun the
-  complete applicable local gate before publication; do not mark it complete
-  merely because the candidate exists.
+- **OPEN-22 — install-time dependency mutation retired** (`fix/retire-install-time-dependency-mutation`).
+  Backend and admin no longer override `minimatch` (nor admin `@redocly/openapi-core`'s
+  `js-yaml`) or rewrite `node_modules` in `postinstall`; every consumer resolves the
+  major it declares at a patched release, `scripts/security/dependency-floors.mjs`
+  pins the per-major floors on both lockfiles through
+  `check-infra-security-controls.mjs`, and the Docker install stages copy nothing
+  before `npm ci`. The former local candidate `e5699a180` is superseded.
 
 ### Product or interface decisions — no implementation without authority
 

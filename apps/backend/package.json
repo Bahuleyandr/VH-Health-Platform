@@ -6,7 +6,6 @@
   "private": true,
   "main": "src/bin/www.js",
   "scripts": {
-    "postinstall": "node scripts/patch-minimatch-compat.mjs",
     "prestart": "npm run db:generate",
     "start": "node --enable-source-maps src/bin/www.js",
     "predev": "npm run db:generate",
@@ -391,7 +390,6 @@
     "google-gax": "^5.0.6",
     "uuid": "^14.0.0",
     "lodash": ">=4.17.21",
-    "minimatch": "10.2.5",
     "postcss": "8.5.25",
     "@prisma/dev": "0.24.16",
     "deepmerge-ts": "^8.0.1",
