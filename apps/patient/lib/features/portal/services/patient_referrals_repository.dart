@@ -16,17 +16,23 @@ class PatientReferralsPage {
 }
 
 abstract class PatientReferralsRepository {
-  Future<PatientReferralsPage> listReferrals();
+  Future<PatientReferralsPage> listReferrals({
+    required String loadFailureMessage,
+    required String refreshFailureMessage,
+  });
 }
 
 class ApiPatientReferralsRepository implements PatientReferralsRepository {
   const ApiPatientReferralsRepository();
 
   @override
-  Future<PatientReferralsPage> listReferrals() async {
+  Future<PatientReferralsPage> listReferrals({
+    required String loadFailureMessage,
+    required String refreshFailureMessage,
+  }) async {
     final response = await ApiClient.cachedGet('/portal/referrals');
     if (!response.isSuccess) {
-      throw Exception(response.failureMessage('Failed to load referrals'));
+      throw Exception(response.failureMessage(loadFailureMessage));
     }
     return PatientReferralsPage(
       referrals: _parse(response.data),
@@ -34,7 +40,7 @@ class ApiPatientReferralsRepository implements PatientReferralsRepository {
       cachedAt: response.cachedAt,
       onFresh: response.onFresh?.then((fresh) {
         if (!fresh.isSuccess) {
-          throw Exception(fresh.failureMessage('Failed to refresh referrals'));
+          throw Exception(fresh.failureMessage(refreshFailureMessage));
         }
         return _parse(fresh.data);
       }),

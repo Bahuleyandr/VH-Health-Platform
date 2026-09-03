@@ -10,6 +10,7 @@ import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/services/clinical_print_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/api_error_messages.dart';
 import '../../../core/widgets/clinical_print_pdf_action.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/online_only_action_state.dart';
@@ -60,7 +61,9 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.toString());
+      setState(
+        () => _error = localizedApiErrorFromRaw(AppStrings.of(context), e),
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -134,8 +137,13 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
       );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(error.toString())));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            localizedApiErrorFromRaw(AppStrings.of(context), error),
+          ),
+        ),
+      );
     } finally {
       if (mounted) setState(() => _busyKey = null);
     }
@@ -168,8 +176,13 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
       );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(error.toString())));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            localizedApiErrorFromRaw(AppStrings.of(context), error),
+          ),
+        ),
+      );
     } finally {
       if (mounted) setState(() => _busyKey = null);
     }
@@ -240,8 +253,13 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
       );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(error.toString())));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            localizedApiErrorFromRaw(AppStrings.of(context), error),
+          ),
+        ),
+      );
     } finally {
       if (mounted) setState(() => _busyKey = null);
     }

@@ -137,7 +137,7 @@ class DashboardHeader extends StatelessWidget {
                     if (!isGuest && hospitalId.isNotEmpty) ...[
                       const SizedBox(height: 3),
                       Text(
-                        'Hospital ID $hospitalId',
+                        l10n.dashboardHospitalId(hospitalId),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.bodySmall?.copyWith(

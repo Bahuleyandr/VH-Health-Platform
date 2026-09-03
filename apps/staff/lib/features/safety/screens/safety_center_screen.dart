@@ -18,33 +18,169 @@ import '../../../l10n/app_strings.dart';
 import '../widgets/resus_event_panel.dart';
 import '../widgets/resus_trigger_button.dart';
 
+typedef SafetyNotificationLoader = Future<List<dynamic>> Function();
+typedef SafetyMapLoader = Future<Map<String, dynamic>> Function();
+typedef SafetyResusLoader = Future<List<Map<String, dynamic>>> Function();
+typedef SafetyRoleLoader = Future<String?> Function();
+
+const _safetyTranslatedNotificationTypes = <String>{
+  'MAR_MEDICATION_EXCEPTION',
+  'MAR_MEDICATION_EXCEPTION_ESCALATION',
+  'MAR_MEDICATION_EXCEPTION_ASSIGNMENT_HANDOFF',
+  'COUNTER_SALE_VOID_REFUND_REQUIRED',
+  'COUNTER_SALE_VOID_REFUND_PAYOUT_REQUIRED',
+  'COUNTER_SALE_VOID_REJECTED_REVIEW_REQUIRED',
+  'COUNTER_SALE_VOID_REFUND_REJECTED',
+  'COUNTER_SALE_VOID_COMPLETED',
+  'WARD_INDENT_CREDIT_NOTE_REVIEW',
+  'WARD_INDENT_CREDIT_NOTE_REFUND_APPROVAL',
+  'WARD_INDENT_CREDIT_NOTE_REFUND_PAYOUT',
+  'WARD_INDENT_MAR_SUPPLY_RECONCILIATION',
+  'GATEWAY_REFUND_RECONCILIATION',
+  'CLINICAL_ALERT_DELIVERY_RECOVERY_OVERDUE',
+};
+
+const _safetyLocalizedActionLabelKeys = <String>{
+  'clinical_inbox.open_workflow',
+  'mar_supply.notification_action',
+  'med03.credit_note.notification_action',
+  'med03.notification.gateway_refund_reconciliation.action',
+  'orders.mar_recovery.action',
+  's4.lib.counter_sale.open_finance_workflow',
+  's4.lib.counter_sale.open_reconciliation',
+};
+
 @visibleForTesting
-String safetyOwnerForAlert(NotificationItem item) {
+String safetyOwnerForAlert(NotificationItem item, AppStrings strings) {
   final type = item.normalizedType;
-  if (item.isInvestigationAlert) return 'Lab / treating doctor';
+  if (item.isInvestigationAlert) {
+    return strings.lookup('safety_center.alert.owner.lab_treating_doctor');
+  }
   if (type.contains('APPOINTMENT') || type.contains('QUEUE')) {
-    return 'Reception / doctor';
+    return strings.lookup('safety_center.alert.owner.reception_doctor');
   }
   if (type.contains('ADMISSION') || type.contains('IPD')) {
-    return 'Admission desk / nursing';
+    return strings.lookup('safety_center.alert.owner.admission_nursing');
   }
   if (type.contains('HOUSEKEEPING') || type.contains('BED')) {
-    return 'Housekeeping incharge';
+    return strings.lookup('safety_center.alert.owner.housekeeping');
   }
   if (type.contains('PHARMACY') || type.contains('MEDICATION')) {
-    return 'Pharmacy';
+    return strings.lookup('safety_center.alert.owner.pharmacy');
   }
-  return 'Receiving team';
+  return strings.lookup('safety_center.alert.owner.receiving_team');
 }
 
 @visibleForTesting
-String safetyEscalationLabel(NotificationItem item, {DateTime? now}) {
-  if (item.isRead) return 'Acknowledged';
-  if (!item.isHighPriority) return 'Monitor until acknowledged';
+String safetyEscalationLabel(
+  NotificationItem item,
+  AppStrings strings, {
+  DateTime? now,
+}) {
+  if (item.isRead) {
+    return strings.lookup('safety_center.alert.escalation.acknowledged');
+  }
+  if (!item.isHighPriority) {
+    return strings.lookup('safety_center.alert.escalation.monitor');
+  }
   final age = (now ?? DateTime.now()).difference(item.timestamp.toLocal());
-  if (age.inMinutes >= 15) return 'Escalated until acknowledged';
+  if (age.inMinutes >= 15) {
+    return strings.lookup('safety_center.alert.escalation.escalated');
+  }
   final remaining = 15 - age.inMinutes;
-  return 'Escalates in ${remaining <= 0 ? 1 : remaining} min if unread';
+  return strings.format('safety_center.alert.escalation.in_minutes', {
+    'minutes': remaining <= 0 ? 1 : remaining,
+  });
+}
+
+@visibleForTesting
+String safetyAlertTypeLabel(NotificationItem item, AppStrings strings) {
+  final type = item.normalizedType;
+  if (item.isInvestigationAlert) {
+    return strings.lookup('safety_center.alert.type.investigation');
+  }
+  if (item.isAppointmentAlert) {
+    return strings.lookup('safety_center.alert.type.appointment');
+  }
+  if (item.isAdmissionAlert) {
+    return strings.lookup('safety_center.alert.type.admission');
+  }
+  if (item.isHousekeepingAlert) {
+    return strings.lookup('safety_center.alert.type.housekeeping');
+  }
+  if (item.isBedAlert) {
+    return strings.lookup('safety_center.alert.type.bed');
+  }
+  if (type.contains('PHARMACY') || type.contains('MEDICATION')) {
+    return strings.lookup('safety_center.alert.type.pharmacy');
+  }
+  if (type.contains('SOS') || type.contains('EMERGENCY')) {
+    return strings.lookup('safety_center.alert.type.emergency');
+  }
+  if (type.contains('REFERRAL')) {
+    return strings.lookup('safety_center.alert.type.referral');
+  }
+  return strings.lookup('safety_center.alert.type.workflow');
+}
+
+@visibleForTesting
+String safetyAlertPriorityLabel(NotificationItem item, AppStrings strings) {
+  return switch (item.normalizedPriority) {
+    'CRITICAL' => strings.lookup('safety_center.alert.priority.critical'),
+    'HIGH' => strings.lookup('safety_center.alert.priority.high'),
+    _ => strings.lookup('safety_center.alert.priority.attention'),
+  };
+}
+
+@visibleForTesting
+String safetyAlertTitle(NotificationItem item, AppStrings strings) {
+  if (_safetyTranslatedNotificationTypes.contains(item.normalizedType)) {
+    return item.titleFor(strings);
+  }
+  return safetyAlertTypeLabel(item, strings);
+}
+
+@visibleForTesting
+String safetyAlertBody(NotificationItem item, AppStrings strings) {
+  if (_safetyTranslatedNotificationTypes.contains(item.normalizedType)) {
+    return item.bodyFor(strings);
+  }
+  return strings.lookup('safety_center.alert.details_hidden');
+}
+
+@visibleForTesting
+String safetyAlertActionLabel(NotificationItem item, AppStrings strings) {
+  final localizedKey = item.data['action_label_key']?.toString().trim();
+  if (localizedKey != null &&
+      _safetyLocalizedActionLabelKeys.contains(localizedKey)) {
+    return strings.lookup(localizedKey);
+  }
+  final type = item.normalizedType;
+  if (type.contains('SOS') || type.contains('EMERGENCY')) {
+    return strings.lookup('safety_center.alert.action.open_emergency');
+  }
+  if (item.isAppointmentAlert) {
+    return strings.lookup('safety_center.alert.action.open_appointment');
+  }
+  if (item.isAdmissionAlert) {
+    return strings.lookup('safety_center.alert.action.open_admission');
+  }
+  if (item.isHousekeepingAlert) {
+    return strings.lookup('safety_center.alert.action.open_housekeeping');
+  }
+  if (item.isBedAlert) {
+    return strings.lookup('safety_center.alert.action.open_bed');
+  }
+  if (item.isInvestigationAlert) {
+    return strings.lookup('safety_center.alert.action.open_investigation');
+  }
+  if (type.contains('REFERRAL')) {
+    return strings.lookup('safety_center.alert.action.open_referral');
+  }
+  if (type.contains('PHARMACY') || type.contains('MEDICATION')) {
+    return strings.lookup('safety_center.alert.action.open_pharmacy');
+  }
+  return strings.lookup('safety_center.alert.action.open_workflow');
 }
 
 @visibleForTesting
@@ -84,15 +220,81 @@ String safetyHousekeepingSlaLabel(Map<String, dynamic> task, {DateTime? now}) {
       : 'Due in ${remaining <= 0 ? 1 : remaining}m';
 }
 
+@visibleForTesting
+class SafetyCriticalAlertRow extends StatelessWidget {
+  const SafetyCriticalAlertRow({
+    super.key,
+    required this.item,
+    required this.strings,
+    required this.meta,
+    this.onAcknowledge,
+    this.onOpen,
+  });
+
+  final NotificationItem item;
+  final AppStrings strings;
+  final String meta;
+  final VoidCallback? onAcknowledge;
+  final VoidCallback? onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SafetyRow(
+      icon: item.isInvestigationAlert
+          ? Icons.science_outlined
+          : Icons.notification_important_outlined,
+      color: item.isRead ? AppTheme.textSecondary : AppTheme.errorOnSurface,
+      title: safetyAlertTitle(item, strings),
+      subtitle: [
+        safetyAlertBody(item, strings),
+        '${strings.safetyCenterOwnerPrefix}: ${safetyOwnerForAlert(item, strings)}',
+        safetyEscalationLabel(item, strings),
+        safetyAlertPriorityLabel(item, strings),
+        safetyAlertTypeLabel(item, strings),
+      ].where((part) => part.isNotEmpty).join(' - '),
+      meta: meta,
+      actions: [
+        if (onAcknowledge != null)
+          TextButton.icon(
+            onPressed: onAcknowledge,
+            icon: const Icon(Icons.done_all, size: 16),
+            label: Text(strings.safetyCenterAcknowledge),
+          ),
+        if (onOpen != null)
+          FilledButton.tonalIcon(
+            onPressed: onOpen,
+            icon: const Icon(Icons.open_in_new, size: 16),
+            label: Text(safetyAlertActionLabel(item, strings)),
+          ),
+      ],
+    );
+  }
+}
+
 class SafetyCenterScreen extends StatefulWidget {
-  const SafetyCenterScreen({super.key});
+  const SafetyCenterScreen({
+    super.key,
+    this.notificationLoader,
+    this.dischargeLoader,
+    this.housekeepingLoader,
+    this.resusLoader,
+    this.roleLoader,
+    this.enableRealtime = true,
+  });
+
+  final SafetyNotificationLoader? notificationLoader;
+  final SafetyMapLoader? dischargeLoader;
+  final SafetyMapLoader? housekeepingLoader;
+  final SafetyResusLoader? resusLoader;
+  final SafetyRoleLoader? roleLoader;
+  final bool enableRealtime;
 
   @override
   State<SafetyCenterScreen> createState() => _SafetyCenterScreenState();
 }
 
 class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
-  final _dateFmt = DateFormat('dd MMM, HH:mm');
+  final _dateFmt = DateFormat('dd-MM-yyyy HH:mm');
   bool _loading = true;
   String? _error;
   bool _canRespondSos = false;
@@ -123,7 +325,7 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
     super.initState();
     _loadSosEntitlement();
     _load();
-    _attachRealtime();
+    if (widget.enableRealtime) _attachRealtime();
   }
 
   @override
@@ -137,8 +339,8 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
   /// backend emergencyResponderRoutes RBAC), unlike the all-staff Safety
   /// Center itself, so the entry point only renders for authorized roles.
   Future<void> _loadSosEntitlement() async {
-    final role = await AuthService.getRole();
-    final allowed = RoleFeatures.getFeaturesForRawRole(role)
+    final role = await (widget.roleLoader ?? AuthService.getRole)();
+    final allowed = RoleFeatures.getFeaturesForRawRole(role ?? '')
         .any((feature) => feature.id == 'sos_response');
     if (mounted) setState(() => _canRespondSos = allowed);
   }
@@ -150,19 +352,16 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
     });
     try {
       final results = await Future.wait<Object?>([
-        HrApiService.getNotifications(),
-        MedicalApiService.listDischargeHubs().catchError(
-          (_) => <String, dynamic>{},
-        ),
-        HrApiService.getMyHousekeepingRequests().catchError(
-          (_) => <String, dynamic>{},
-        ),
+        (widget.notificationLoader ?? () => HrApiService.getNotifications())(),
+        (widget.dischargeLoader ?? MedicalApiService.listDischargeHubs)()
+            .catchError((_) => <String, dynamic>{}),
+        (widget.housekeepingLoader ?? HrApiService.getMyHousekeepingRequests)()
+            .catchError((_) => <String, dynamic>{}),
         // Persisted code-blue/resus history — the durable rows are the source
         // of truth on (re)load; the live WS banner is notification-only.
-        ResusApiService.listRecentEvents(
-          hours: 24,
-          limit: 10,
-        ).catchError((_) => <Map<String, dynamic>>[]),
+        (widget.resusLoader ??
+                () => ResusApiService.listRecentEvents(hours: 24, limit: 10))()
+            .catchError((_) => <Map<String, dynamic>>[]),
       ]);
 
       final notifications =
@@ -425,35 +624,14 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
       onAction: () => context.push('/notifications'),
       children: items.map((item) {
         final route = item.actionRoute;
-        return _SafetyRow(
-          icon: item.isInvestigationAlert
-              ? Icons.science_outlined
-              : Icons.notification_important_outlined,
-          color: item.isRead ? AppTheme.textSecondary : AppTheme.errorOnSurface,
-          title: item.title,
-          subtitle: [
-            if (item.body.isNotEmpty) item.body,
-            '${s.safetyCenterOwnerPrefix}: ${safetyOwnerForAlert(item)}',
-            safetyEscalationLabel(item),
-            item.normalizedPriority.isNotEmpty
-                ? item.normalizedPriority
-                : item.normalizedType,
-          ].where((part) => part.isNotEmpty).join(' - '),
+        return SafetyCriticalAlertRow(
+          item: item,
+          strings: s,
           meta: _dateFmt.format(item.timestamp.toLocal()),
-          actions: [
-            if (!item.isRead && item.id != null)
-              TextButton.icon(
-                onPressed: () => _acknowledge(item),
-                icon: const Icon(Icons.done_all, size: 16),
-                label: Text(s.safetyCenterAcknowledge),
-              ),
-            if (route != null)
-              FilledButton.tonalIcon(
-                onPressed: () => _openAlert(item),
-                icon: const Icon(Icons.open_in_new, size: 16),
-                label: Text(item.actionLabelFor(s)),
-              ),
-          ],
+          onAcknowledge: !item.isRead && item.id != null
+              ? () => _acknowledge(item)
+              : null,
+          onOpen: route != null ? () => _openAlert(item) : null,
         );
       }).toList(),
     );

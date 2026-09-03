@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
+/// Resolves a localized string once an [AppLocalizations] is safely available.
+typedef _LocalizedText = String Function(AppLocalizations l10n);
+
 class PermissionsService {
   // ────────────────────────────────────────────────
   // 1. Request all key permissions needed in app
@@ -28,51 +31,51 @@ class PermissionsService {
   // ────────────────────────────────────────────────
   // 2. Minimal startup permission (notification only)
   // ────────────────────────────────────────────────
-  static Future<bool> requestStartupPermissions(BuildContext context) async {
+  static Future<bool> requestStartupPermissions(BuildContext context) {
     return _requestPermissionWithExplanation(
       context,
       Permission.notification,
-      'Notifications',
-      'We need notification permission to send you appointment reminders and health updates.',
+      (l10n) => l10n.permissionsNotificationsName,
+      (l10n) => l10n.permissionsNotificationsExplanation,
     );
   }
 
   // ────────────────────────────────────────────────
   // 3. Individual permissions with explanation
   // ────────────────────────────────────────────────
-  static Future<bool> requestCameraPermission(BuildContext context) async {
+  static Future<bool> requestCameraPermission(BuildContext context) {
     return _requestPermissionWithExplanation(
       context,
       Permission.camera,
-      'Camera Access',
-      'We need camera access to scan documents and take photos for your health records.',
+      (l10n) => l10n.permissionsCameraName,
+      (l10n) => l10n.permissionsCameraExplanation,
     );
   }
 
-  static Future<bool> requestPhotoPermission(BuildContext context) async {
+  static Future<bool> requestPhotoPermission(BuildContext context) {
     return _requestPermissionWithExplanation(
       context,
       Permission.photos,
-      'Photo Library Access',
-      'We need access to your photos to upload medical documents and prescriptions.',
+      (l10n) => l10n.permissionsPhotosName,
+      (l10n) => l10n.permissionsPhotosExplanation,
     );
   }
 
-  static Future<bool> requestLocationPermission(BuildContext context) async {
+  static Future<bool> requestLocationPermission(BuildContext context) {
     return _requestPermissionWithExplanation(
       context,
       Permission.locationWhenInUse,
-      'Location Access',
-      'We need your location for emergency SOS features and to find nearby hospitals.',
+      (l10n) => l10n.permissionsLocationName,
+      (l10n) => l10n.permissionsLocationExplanation,
     );
   }
 
-  static Future<bool> requestCalendarPermission(BuildContext context) async {
+  static Future<bool> requestCalendarPermission(BuildContext context) {
     return _requestPermissionWithExplanation(
       context,
       Permission.calendarFullAccess,
-      'Calendar Access',
-      'We need calendar access to display your appointments and health-related events.',
+      (l10n) => l10n.permissionsCalendarName,
+      (l10n) => l10n.permissionsCalendarExplanation,
     );
   }
 
@@ -80,17 +83,18 @@ class PermissionsService {
   static Future<bool> ensurePermission(
     BuildContext context,
     Permission permission,
-  ) async {
+  ) {
+    final permissionName = permission
+        .toString()
+        .split('.')
+        .last
+        .replaceAll(RegExp(r'([A-Z])'), ' \$1')
+        .trim();
     return _requestPermissionWithExplanation(
       context,
       permission,
-      permission
-          .toString()
-          .split('.')
-          .last
-          .replaceAll(RegExp(r'([A-Z])'), ' \$1')
-          .trim(),
-      'This permission is required for proper functionality.',
+      (l10n) => l10n.permissionsGenericName(permissionName),
+      (l10n) => l10n.permissionsGenericExplanation,
     );
   }
 
@@ -100,8 +104,8 @@ class PermissionsService {
   static Future<bool> _requestPermissionWithExplanation(
     BuildContext context,
     Permission permission,
-    String title,
-    String explanation,
+    _LocalizedText titleOf,
+    _LocalizedText explanationOf,
   ) async {
     var status = await permission.status;
     if (!context.mounted) return false; // Check 1: After initial status check
@@ -109,6 +113,13 @@ class PermissionsService {
     if (status.isGranted || status.isLimited) {
       return true;
     }
+
+    // Resolved only here, never before the first await: a caller may invoke
+    // these helpers straight from initState (calendar_screen.dart does), and
+    // an inherited-widget lookup during State creation throws.
+    final l10n = AppLocalizations.of(context)!;
+    final title = titleOf(l10n);
+    final explanation = explanationOf(l10n);
 
     if (status.isPermanentlyDenied) {
       final openSettings = await _showSettingsDialog(context, title);
@@ -185,20 +196,25 @@ class PermissionsService {
     return await showDialog<bool>(
           context: context,
           barrierDismissible: false,
-          builder: (dialogCtx) => AlertDialog(
-            title: Text('$permissionName Required'),
-            content: Text(explanation),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogCtx).pop(false),
-                child: Text(AppLocalizations.of(dialogCtx)!.permissionsNotNow),
-              ),
-              ElevatedButton(
-                onPressed: () => Navigator.of(dialogCtx).pop(true),
-                child: const Text('Continue'),
-              ),
-            ],
-          ),
+          builder: (dialogCtx) {
+            final l10n = AppLocalizations.of(dialogCtx)!;
+            return AlertDialog(
+              title: Text(l10n.permissionsRequiredTitle(permissionName)),
+              content: Text(explanation),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogCtx).pop(false),
+                  child: Text(
+                    AppLocalizations.of(dialogCtx)!.permissionsNotNow,
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(dialogCtx).pop(true),
+                  child: Text(l10n.commonContinueButton),
+                ),
+              ],
+            );
+          },
         ) ??
         false;
   }
@@ -212,25 +228,25 @@ class PermissionsService {
     return await showDialog<bool>(
           context: context,
           barrierDismissible: false,
-          builder: (dialogCtx) => AlertDialog(
-            title: Text('$permissionName Disabled'),
-            content: Text(
-              '$permissionName has been disabled. '
-              'Please enable it in Settings to use this feature.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogCtx).pop(false),
-                child: const Text('Cancel'),
-              ),
-              ElevatedButton(
-                onPressed: () => Navigator.of(dialogCtx).pop(true),
-                child: Text(
-                  AppLocalizations.of(dialogCtx)!.permissionsOpenSettings,
+          builder: (dialogCtx) {
+            final l10n = AppLocalizations.of(dialogCtx)!;
+            return AlertDialog(
+              title: Text(l10n.permissionsDisabledTitle(permissionName)),
+              content: Text(l10n.permissionsDisabledBody(permissionName)),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogCtx).pop(false),
+                  child: Text(l10n.commonCancelButton),
                 ),
-              ),
-            ],
-          ),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(dialogCtx).pop(true),
+                  child: Text(
+                    AppLocalizations.of(dialogCtx)!.permissionsOpenSettings,
+                  ),
+                ),
+              ],
+            );
+          },
         ) ??
         false;
   }

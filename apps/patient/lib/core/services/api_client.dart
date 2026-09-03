@@ -243,8 +243,8 @@ class ApiClient {
                   statusCode: 0,
                   isSuccess: false,
                   data: cached.data,
-                  raw: null,
-                  message: 'Background refresh failed',
+                  code: 'BACKGROUND_REFRESH_FAILED',
+                  raw: const {'code': 'BACKGROUND_REFRESH_FAILED'},
                 ),
               );
 
