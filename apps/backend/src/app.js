@@ -617,7 +617,7 @@ const HL7_RECEIVE_JSON_LIMIT_BYTES = Math.max(
   I03_RECOVERY_ENCODED_JSON_LIMIT_BYTES,
 );
 function captureJsonRawBody(req, body) {
-  const path = String(req.originalUrl || req.url || '');
+  const path = String(req.originalUrl || req.url || '').split('?', 1)[0].replace(/\/+$/, '');
   if (path.startsWith('/api/v1/scim/v2/')) {
     req.scimRawBody = Buffer.from(body);
   }
@@ -663,6 +663,7 @@ function legacyBodyLimitError(length) {
 }
 
 const legacyJsonParser = express.json({
+  type: ['application/json', 'application/*+json'],
   limit: HTTP_BODY_LIMIT,
   verify: (req, _res, body) => captureJsonRawBody(req, body),
 });
@@ -693,6 +694,11 @@ const hl7ReceiveJsonParser = express.json({
   },
 });
 app.use((req, res, next) => {
+  const path = String(req.originalUrl || req.url || '').split('?', 1)[0].replace(/\/+$/, '');
+  if (path === '/api/v1/documents/import/fhir-bundle'
+      || path === '/api/v1/documents/import/ccd') {
+    return next();
+  }
   const parser = isHl7ReceiveEndpoint(String(req.originalUrl || req.url || ''))
     ? hl7ReceiveJsonParser
     : legacyJsonParser;

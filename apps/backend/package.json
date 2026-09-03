@@ -154,7 +154,7 @@
     "prisma": "^7.9.1",
     "qrcode": "^1.5.4",
     "rate-limit-redis": "^6.0.1",
-    "sanitize-html": "^2.17.6",
+    "sanitize-html": "^2.17.7",
     "semver": "^7.8.5",
     "sharp": "^0.35.3",
     "source-map-support": "^0.5.21",

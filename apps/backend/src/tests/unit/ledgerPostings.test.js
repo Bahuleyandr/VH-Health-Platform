@@ -46,6 +46,7 @@ describe('postInvoiceIssueEntry', () => {
     });
     expect(postLedgerEntry).toHaveBeenCalledTimes(1);
     const arg = postLedgerEntry.mock.calls[0][1];
+    expect(arg.tenantId).toBe(TENANT);
     expect(arg.entryType).toBe('INVOICE_ISSUE');
     expect(arg.idempotencyKey).toBe('issue-inv-42');
     expect(arg.lines).toEqual([
@@ -374,6 +375,7 @@ describe('tx-threading (Phase 4-1) — posting wrappers honor a caller-supplied 
     expect(setTenantTx).not.toHaveBeenCalled();
     expect(postLedgerEntry).toHaveBeenCalledTimes(1);
     expect(postLedgerEntry.mock.calls[0][0]).toBe(callerTx);
+    expect(postLedgerEntry.mock.calls[0][1].tenantId).toBe(TENANT);
   });
 
   it('opens its own setTenantTx when no tx is passed (today’s post-commit path)', async () => {
@@ -384,6 +386,7 @@ describe('tx-threading (Phase 4-1) — posting wrappers honor a caller-supplied 
     expect(setTenantTx).toHaveBeenCalledTimes(1);
     expect(postLedgerEntry).toHaveBeenCalledTimes(1);
     expect(postLedgerEntry.mock.calls[0][0]).toEqual({ __fakeTx: 'own' });
+    expect(postLedgerEntry.mock.calls[0][1].tenantId).toBe(TENANT);
   });
 
   it('threads tx through the invoice-issue wrapper too', async () => {

@@ -27,6 +27,7 @@ import {
 } from '../integrations/externalInterfaceRecoveryService.js';
 import { validateI09GatewayRecovery } from '../integrations/externalVitalsRecoveryService.js';
 import { epochMsOrNull } from '../../utils/dbInstant.js';
+import { isAdmin, isClinical, isDoctor } from '../../utils/roleHelpers.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DEVICE_GATEWAY_ROLE = 'DEVICE_GATEWAY';
@@ -1053,18 +1054,19 @@ export async function resolveDeviceForGateway({
   };
 }
 
-/** ICU review queue: unverified device vitals, newest first. */
+/** Clinical review queue: unverified device and manual-import FHIR vitals. */
 export async function listUnverifiedDeviceVitals({ patientUid = null, limit = 50, tenantId = null } = {}) {
   if (!tenantId) throw AppError.badRequest('tenantId is required', 'DEVICE_VITALS_NO_TENANT');
   const params = [tenantId];
-  let where = `source = 'device' AND device_verified = false AND tenant_id = $1::uuid`;
+  let where = `source IN ('device', 'fhir') AND device_verified = false
+    AND recovery_inbox_id IS NULL AND tenant_id = $1::uuid`;
   if (patientUid) {
     params.push(patientUid);
     where += ` AND patient_uid = $${params.length}::uuid`;
   }
   params.push(Math.min(Number.parseInt(limit, 10) || 50, 200));
   return prisma.$queryRawUnsafe(
-    `SELECT id, patient_uid, source_device, heart_rate, systolic_bp, diastolic_bp,
+    `SELECT id, patient_uid, source, source_device, heart_rate, systolic_bp, diastolic_bp,
             temperature, spo2, respiratory_rate, recorded_at
        FROM vitals_chart
       WHERE ${where}
@@ -1075,7 +1077,7 @@ export async function listUnverifiedDeviceVitals({ patientUid = null, limit = 50
 }
 
 /**
- * Clinician verification of a device vitals row.
+ * Clinician verification of a device or asserted-unverified FHIR vitals row.
  *
  * Canonical clinical timeline invariant (docs/CANONICAL_CLINICAL_TIMELINE.md):
  * the vitals_chart flip + one clinical_timeline_events row + one
@@ -1090,48 +1092,126 @@ export async function listUnverifiedDeviceVitals({ patientUid = null, limit = 50
 export async function verifyDeviceVitals(vitalsId, context = {}) {
   if (!context.actorUid) throw AppError.unauthorized('Verifier identity missing');
   if (!context.tenantId) throw AppError.badRequest('tenantId is required', 'DEVICE_VITALS_NO_TENANT');
-  return setTenantTx(context.tenantId, async (tx) => {
+  const result = await setTenantTx(context.tenantId, async (tx) => {
     const rows = await tx.$queryRawUnsafe(
-      `UPDATE vitals_chart SET
-         device_verified = true, verified_by = $2::uuid, verified_at = NOW()
-       WHERE id = $1 AND source = 'device' AND device_verified = false AND tenant_id = $3::uuid
-       RETURNING id, patient_uid, encounter_uid, source_device, device_verified, verified_at`,
+      `SELECT vitals.id, vitals.patient_uid, vitals.encounter_uid,
+              vitals.source, vitals.source_device, vitals.device_verified,
+              vitals.verified_by, vitals.verified_at,
+              actor.role AS verifier_role
+         FROM vitals_chart AS vitals
+         JOIN users AS patient
+           ON patient.tenant_id = vitals.tenant_id
+          AND patient.uid = vitals.patient_uid
+          AND patient.role = 'PATIENT'
+          AND patient.is_active = TRUE
+          AND patient.status = 'active'
+          AND COALESCE(patient.is_deleted, FALSE) = FALSE
+          AND patient.merged_into_uid IS NULL
+         JOIN users AS actor
+           ON actor.tenant_id = vitals.tenant_id
+          AND actor.uid = $2::uuid
+          AND actor.is_active = TRUE
+          AND actor.status = 'active'
+          AND COALESCE(actor.is_deleted, FALSE) = FALSE
+        WHERE vitals.id = $1::integer
+          AND vitals.tenant_id = $3::uuid
+          AND vitals.source IN ('device', 'fhir')
+          AND vitals.device_verified IS NOT NULL
+          AND vitals.recovery_inbox_id IS NULL
+        FOR UPDATE OF vitals, patient, actor`,
       vitalsId,
       context.actorUid,
       context.tenantId,
     );
     if (!rows.length) {
-      throw AppError.notFound('Unverified device vitals row not found', 'DEVICE_VITALS_NOT_FOUND');
+      throw AppError.notFound('Unverified clinical vitals row not found', 'DEVICE_VITALS_NOT_FOUND');
     }
     const row = rows[0];
-    const idempotencyKey = `vitals_chart:${row.id}:device_verified`;
+    const verifierRole = String(row.verifier_role || '');
+    const deviceVerifier = isClinical(verifierRole)
+      || isDoctor(verifierRole)
+      || isAdmin(verifierRole)
+      || verifierRole === 'SUPER_ADMIN';
+    const fhirVerifier = isClinical(verifierRole) || isDoctor(verifierRole);
+    if ((row.source === 'fhir' && !fhirVerifier) || (row.source === 'device' && !deviceVerifier)) {
+      throw AppError.forbidden(
+        'Only current clinical staff may verify imported FHIR vitals',
+        'FHIR_VITAL_VERIFIER_ROLE_REQUIRED',
+      );
+    }
+    if (row.device_verified === true) {
+      if (row.source === 'device') {
+        throw AppError.notFound('Unverified device vitals row not found', 'DEVICE_VITALS_NOT_FOUND');
+      }
+      delete row.verifier_role;
+      return { row, verificationApplied: false };
+    }
+
+    const updatedRows = await tx.$queryRawUnsafe(
+      `UPDATE vitals_chart
+          SET device_verified = TRUE, verified_by = $2::uuid, verified_at = NOW()
+        WHERE id = $1::integer
+          AND tenant_id = $3::uuid
+          AND device_verified = FALSE
+        RETURNING id, patient_uid, encounter_uid, source, source_device,
+                  device_verified, verified_by, verified_at`,
+      vitalsId,
+      context.actorUid,
+      context.tenantId,
+    );
+    if (updatedRows.length !== 1) {
+      throw AppError.conflict('Vitals verification state changed concurrently', 'VITALS_VERIFICATION_CONFLICT');
+    }
+    const updated = updatedRows[0];
+    const sourceKind = updated.source === 'fhir' ? 'fhir' : 'device';
+    const idempotencyKey = `vitals_chart:${updated.id}:${sourceKind}_verified`;
     await recordCanonicalClinicalEvent({
       tenantId: context.tenantId,
-      patientUid: row.patient_uid,
-      encounterId: row.encounter_uid || null,
-      eventType: 'vitals.device_verified',
+      patientUid: updated.patient_uid,
+      encounterId: updated.encounter_uid || null,
+      eventType: `vitals.${sourceKind}_verified`,
       eventStatus: 'verified',
       sourceTable: 'vitals_chart',
-      sourceId: String(row.id),
+      sourceId: String(updated.id),
       resourceType: 'vitals',
       resourceTable: 'vitals_chart',
-      resourceId: String(row.id),
+      resourceId: String(updated.id),
       actorUid: context.actorUid,
-      actorRole: context.actorRole || null,
-      summary: `Device vitals verified (${row.source_device || 'monitor'})`,
+      actorRole: verifierRole,
+      summary: sourceKind === 'fhir'
+        ? 'Imported FHIR vitals clinically verified'
+        : `Device vitals verified (${updated.source_device || 'monitor'})`,
       payload: {
-        vitals_chart_id: row.id,
-        source_kind: 'device',
+        vitals_chart_id: updated.id,
+        source_kind: sourceKind,
         verification_status: 'verified',
       },
-      afterState: { device_verified: true },
-      metadata: { source_device: row.source_device },
-      tags: ['vitals', 'device-synced', 'verified'],
+      afterState: {
+        device_verified: true,
+        verified_by: updated.verified_by,
+        verified_at: updated.verified_at,
+      },
+      metadata: { source_device: updated.source_device },
+      tags: ['vitals', sourceKind === 'fhir' ? 'fhir-imported' : 'device-synced', 'verified'],
       timelineIdempotencyKey: idempotencyKey,
       auditIdempotencyKey: idempotencyKey,
     }, { db: tx });
-    return row;
+    return { row: updated, verificationApplied: true };
   });
+
+  if (result.row.source === 'fhir') {
+    const { reconcileVerifiedFhirVitalEffects } = await import('../import/patientDataImport.js');
+    const clinicalEffects = await reconcileVerifiedFhirVitalEffects({
+      tenantId: context.tenantId,
+      vitalsChartId: result.row.id,
+    });
+    return {
+      ...result.row,
+      verification_replayed: !result.verificationApplied,
+      clinical_effects: clinicalEffects,
+    };
+  }
+  return result.row;
 }
 
 export default {

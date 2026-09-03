@@ -21,6 +21,7 @@ describe('Invariant 1 — postings net to zero', () => {
     // proves balanced-acceptance without needing a prior receivable (a standalone
     // credit to PATIENT_AR would correctly trip the no-negative trigger).
     const { entryId } = await inTx((tx) => postLedgerEntry(tx, {
+      tenantId: TENANT,
       entryType: 'PAYMENT', idempotencyKey: `t-${randomUUID()}`,
       lines: [
         { accountCode: 'CASH', amountPaise: 100000 },
@@ -32,6 +33,7 @@ describe('Invariant 1 — postings net to zero', () => {
 
   it('app-side rejects an unbalanced entry before it hits the DB', async () => {
     await expect(inTx((tx) => postLedgerEntry(tx, {
+      tenantId: TENANT,
       entryType: 'PAYMENT', idempotencyKey: `t-${randomUUID()}`,
       lines: [
         { accountCode: 'CASH', amountPaise: 100000 },
@@ -61,6 +63,7 @@ describe('Invariant 2 — no-negative (bug-class killers)', () => {
   async function issueAr(patient, invoiceId, paise) {
     // debit PATIENT_AR (receivable up), credit REVENUE
     return inTx((tx) => postLedgerEntry(tx, {
+      tenantId: TENANT,
       entryType: 'INVOICE_ISSUE', idempotencyKey: `iss-${randomUUID()}`,
       lines: [
         { accountCode: 'PATIENT_AR', amountPaise: paise, patient_uid: patient, invoice_id: invoiceId },
@@ -75,6 +78,7 @@ describe('Invariant 2 — no-negative (bug-class killers)', () => {
     await issueAr(patient, invoice, 100000); // owe 1000.00
     // pay 1200.00 against a 1000.00 receivable → AR normal balance would be -200.00
     await expect(inTx((tx) => postLedgerEntry(tx, {
+      tenantId: TENANT,
       entryType: 'PAYMENT', idempotencyKey: `op-${randomUUID()}`,
       lines: [
         { accountCode: 'CASH', amountPaise: 120000 },
@@ -82,7 +86,7 @@ describe('Invariant 2 — no-negative (bug-class killers)', () => {
       ],
     }))).rejects.toThrow(/no-negative|overpayment/i);
     // and the receivable is untouched (the whole tx rolled back)
-    const bal = await inTx((tx) => getAccountBalancePaise(tx, 'PATIENT_AR', { patient_uid: patient, invoice_id: invoice }));
+    const bal = await inTx((tx) => getAccountBalancePaise(tx, TENANT, 'PATIENT_AR', { patient_uid: patient, invoice_id: invoice }));
     expect(bal).toBe(100000);
   });
 
@@ -91,6 +95,7 @@ describe('Invariant 2 — no-negative (bug-class killers)', () => {
     const invoice = Math.floor(1e8 + Math.random() * 1e8);
     await issueAr(patient, invoice, 50000); // owe 500.00
     const pay = () => inTx((tx) => postLedgerEntry(tx, {
+      tenantId: TENANT,
       entryType: 'PAYMENT', idempotencyKey: `c-${randomUUID()}`,
       lines: [
         { accountCode: 'CASH', amountPaise: 50000 },
@@ -99,7 +104,7 @@ describe('Invariant 2 — no-negative (bug-class killers)', () => {
     }));
     const results = await Promise.allSettled([pay(), pay()]);
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
-    const bal = await inTx((tx) => getAccountBalancePaise(tx, 'PATIENT_AR', { patient_uid: patient, invoice_id: invoice }));
+    const bal = await inTx((tx) => getAccountBalancePaise(tx, TENANT, 'PATIENT_AR', { patient_uid: patient, invoice_id: invoice }));
     expect(bal).toBe(0); // exactly paid off, never negative
   });
 });
@@ -107,6 +112,7 @@ describe('Invariant 2 — no-negative (bug-class killers)', () => {
 describe('Invariant 3 — append-only', () => {
   it('UPDATE and DELETE on postings are blocked', async () => {
     const { entryId } = await inTx((tx) => postLedgerEntry(tx, {
+      tenantId: TENANT,
       entryType: 'PAYMENT', idempotencyKey: `ao-${randomUUID()}`,
       lines: [
         { accountCode: 'CASH', amountPaise: 1000 },
@@ -129,8 +135,8 @@ describe('idempotency', () => {
       { accountCode: 'CASH', amountPaise: 2500 },
       { accountCode: 'REVENUE', amountPaise: -2500 },
     ];
-    await inTx((tx) => postLedgerEntry(tx, { entryType: 'PAYMENT', idempotencyKey: key, lines }));
-    await expect(inTx((tx) => postLedgerEntry(tx, { entryType: 'PAYMENT', idempotencyKey: key, lines })))
+    await inTx((tx) => postLedgerEntry(tx, { tenantId: TENANT, entryType: 'PAYMENT', idempotencyKey: key, lines }));
+    await expect(inTx((tx) => postLedgerEntry(tx, { tenantId: TENANT, entryType: 'PAYMENT', idempotencyKey: key, lines })))
       .rejects.toMatchObject({ code: 'LEDGER_DUPLICATE' });
   });
 });

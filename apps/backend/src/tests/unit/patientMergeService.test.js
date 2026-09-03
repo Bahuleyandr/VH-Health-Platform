@@ -833,6 +833,42 @@ describe('isUpdateBlockingTriggerSource', () => {
       END;`)).toBe(true);
   });
 
+  it('accepts the migration 760 governed clinical-import history guard', () => {
+    const migration = readFileSync(
+      new URL('../../migrations/760_clinical_import_authority_custody_and_reconciliation.sql', import.meta.url),
+      'utf8',
+    );
+    const functionBody = migration.match(
+      /CREATE OR REPLACE FUNCTION clinical_import_history_immutable_755\(\)[\s\S]*?AS \$\$([\s\S]*?)\$\$;/,
+    )?.[1];
+    expect(functionBody).toBeDefined();
+    expect(classify(functionBody)).toBe(false);
+  });
+
+  it('certifies only the exact merge-aware clinical-import receipt guard shape', () => {
+    const migration = readFileSync(
+      new URL('../../migrations/755_clinical_import_receipt_and_history_immutability.sql', import.meta.url),
+      'utf8',
+    );
+    const functionBody = migration.match(
+      /CREATE OR REPLACE FUNCTION clinical_import_history_receipt_guard_755\(\)[\s\S]*?AS \$\$([\s\S]*?)\$\$;/,
+    )?.[1];
+    expect(functionBody).toBeDefined();
+    expect(classify(functionBody, 'clinical_import_history_receipt_guard_755')).toBe(false);
+    expect(classify(functionBody)).toBe(true);
+    expect(classify(
+      functionBody.replace(
+        'source_patient.merged_into_uid = current_history.patient_uid',
+        'FALSE',
+      ),
+      'clinical_import_history_receipt_guard_755',
+    )).toBe(true);
+    expect(classify(
+      `${functionBody}\nIF OLD.patient_uid IS DISTINCT FROM NEW.patient_uid THEN RETURN NEW; END IF;`,
+      'clinical_import_history_receipt_guard_755',
+    )).toBe(true);
+  });
+
   it('treats TG_OP-only conditions as potentially firing for UPDATE (conservative)', () => {
     expect(classify(`
       BEGIN

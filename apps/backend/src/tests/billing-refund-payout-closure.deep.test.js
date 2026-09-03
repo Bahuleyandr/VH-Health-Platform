@@ -246,11 +246,20 @@ d('billing refund payout closure (migration 747 + live services)', () => {
 
   test('CASH payout is exact-replay safe and drawer close stores inflow/refund/net totals', async () => {
     const drawerId = await openDrawer();
+    const paymentClockRows = await prisma.$queryRawUnsafe(
+      `SELECT date_trunc('milliseconds', opened_at) + INTERVAL '1 millisecond'
+              AS collected_at
+         FROM cash_drawer_sessions
+        WHERE tenant_id = $1::uuid
+          AND id = $2::bigint`,
+      TENANT,
+      drawerId,
+    );
     const { invoiceId, paymentId } = await createInvoice({
       mode: 'CASH',
       reference: `CASH-IN-${randomUUID()}`,
       shift: 'MORNING',
-      collectedAt: new Date(),
+      collectedAt: paymentClockRows[0].collected_at,
     });
     const refundId = await createApprovedRefund({ invoiceId, mode: 'CASH', amount: 100 });
     const key = `cash-refund-${randomUUID()}`;

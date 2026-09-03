@@ -463,6 +463,28 @@ function parseDurableTimestamp(value) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function requireTaskAcknowledgementTimestamp(value) {
+  const timestamp = parseDurableTimestamp(value);
+  if (!timestamp) {
+    throw AppError.internal(
+      'Task acknowledgement requires the authoritative database clock',
+      'TASK_ACKNOWLEDGEMENT_DATABASE_CLOCK_REQUIRED',
+    );
+  }
+  return timestamp.toISOString();
+}
+
+function requireTaskTransitionTimestamp(value) {
+  const timestamp = parseDurableTimestamp(value);
+  if (!timestamp) {
+    throw AppError.internal(
+      'Task terminal transition requires the authoritative database clock',
+      'TASK_TRANSITION_DATABASE_CLOCK_REQUIRED',
+    );
+  }
+  return timestamp.toISOString();
+}
+
 function durableTimestampBinding(value) {
   const instant = parseDurableTimestamp(value);
   if (!instant) return null;
@@ -2236,18 +2258,13 @@ export async function transitionTask({
     }
   }
 
-  const updates = ['status = $1', 'updated_at = NOW()'];
+  const updates = ['status = $1', 'updated_at = transition_clock.transition_at'];
   const params = [cleanNext];
-  let transitionInstant = null;
   if (cleanNext === 'completed') {
-    transitionInstant = new Date();
-    params.push(transitionInstant.getTime());
-    updates.push(`completed_at = to_timestamp($${params.length}::double precision / 1000.0)`);
+    updates.push('completed_at = transition_clock.transition_at');
   }
   if (cleanNext === 'cancelled') {
-    transitionInstant = new Date();
-    params.push(transitionInstant.getTime());
-    updates.push(`cancelled_at = to_timestamp($${params.length}::double precision / 1000.0)`);
+    updates.push('cancelled_at = transition_clock.transition_at');
     if (cancellationReason) {
       params.push(safeText(cancellationReason));
       updates.push(`cancellation_reason = $${params.length}`);
@@ -2258,7 +2275,11 @@ export async function transitionTask({
   params.push(current.status);
 
   const rows = await db.$queryRawUnsafe(
-    `UPDATE tasks SET ${updates.join(', ')}
+    `WITH transition_clock AS (
+       SELECT date_trunc('milliseconds', clock_timestamp()) AS transition_at
+     )
+     UPDATE tasks SET ${updates.join(', ')}
+       FROM transition_clock
      WHERE id = $${params.length - 2}
        AND tenant_id = $${params.length - 1}::uuid
        AND status = $${params.length}
@@ -2269,6 +2290,11 @@ export async function transitionTask({
     await getTask({ tenantId: tid, id: taskId, tx });
     throw AppError.conflict('Task status changed before transition completed', 'TASK_TRANSITION_CONFLICT');
   }
+  const transitionInstant = cleanNext === 'completed'
+    ? requireTaskTransitionTimestamp(rows[0].completed_at)
+    : cleanNext === 'cancelled'
+      ? requireTaskTransitionTimestamp(rows[0].cancelled_at)
+      : null;
 
   // A direct completion closes only an acknowledgement-semantics SLA.
   // Cancellation is work withdrawal, never evidence that the obligation was met.
@@ -5540,15 +5566,14 @@ async function reconcileInProgressAcknowledgement({
   // records that repair before the SLA clock is reconciled in this transaction.
   const previousAcknowledgedAt = current.metadata?.acknowledged_at ?? null;
   const repairedFrom = previousAcknowledgedAt === null ? 'missing' : 'malformed';
-  const repairedAt = new Date().toISOString();
   const repairedRows = await db.$queryRawUnsafe(
     `WITH repair_input AS (
        SELECT to_char(
-                to_timestamp($12::double precision / 1000.0) AT TIME ZONE 'UTC',
+                clock_timestamp() AT TIME ZONE 'UTC',
                 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
               ) AS acknowledged_at,
-              $13::jsonb AS previous_acknowledged_at,
-              $14::text AS repaired_from
+              $12::jsonb AS previous_acknowledged_at,
+              $13::text AS repaired_from
      )
      UPDATE tasks
         SET metadata = COALESCE(metadata, '{}'::jsonb)
@@ -5575,12 +5600,14 @@ async function reconcileInProgressAcknowledgement({
         AND ${ACK_AUTHORITY_PREDICATE}
       RETURNING ${TASK_RETURNING}`,
     ...authorityParams,
-    new Date(repairedAt).getTime(),
     JSON.stringify(previousAcknowledgedAt),
     repairedFrom,
   );
   const repaired = repairedRows[0];
   if (!repaired) throw ackForbidden(taskRow);
+  const repairedAt = requireTaskAcknowledgementTimestamp(
+    repaired.metadata?.acknowledged_at,
+  );
 
   await completeLinkedSla({
     tenantId,
@@ -5639,7 +5666,10 @@ async function updateTaskForAcknowledgement({
   return db.$queryRawUnsafe(
     `WITH ack_input AS (
        SELECT to_char(
-                to_timestamp($12::double precision / 1000.0) AT TIME ZONE 'UTC',
+                (CASE
+                   WHEN $12::double precision IS NULL THEN clock_timestamp()
+                   ELSE to_timestamp($12::double precision / 1000.0)
+                 END) AT TIME ZONE 'UTC',
                 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
               ) AS acknowledged_at
      )
@@ -5664,7 +5694,7 @@ async function updateTaskForAcknowledgement({
         AND ${ACK_AUTHORITY_PREDICATE}
       RETURNING ${TASK_RETURNING}`,
     ...authorityParams,
-    new Date(acknowledgedAt).getTime(),
+    acknowledgedAt === null ? null : new Date(acknowledgedAt).getTime(),
     ackContractVersion,
   );
 }
@@ -5755,6 +5785,7 @@ async function acknowledgeTaskInternal({
   breakGlassId = null,
   trustedOverride = null,
   labCriticalAlertAuthority = null,
+  trustedAcknowledgedAt = null,
   executorAuthority = null,
   tx = null,
 } = {}) {
@@ -5904,7 +5935,14 @@ async function acknowledgeTaskInternal({
   // row when the guard excludes the current status. `acknowledged_via` records
   // the authorization mode; a verified override stamps its durable authority
   // source, record id, and server-loaded reason.
-  const ackedAt = new Date().toISOString();
+  const authoritativeAckedAt = parseDurableTimestamp(trustedAcknowledgedAt);
+  if (labCriticalAlertAuthority && !authoritativeAckedAt) {
+    throw AppError.internal(
+      'Critical-alert acknowledgement requires the authoritative database clock',
+      'LAB_CRITICAL_ALERT_ACK_DATABASE_CLOCK_REQUIRED',
+    );
+  }
+  let ackedAt = authoritativeAckedAt?.toISOString() || null;
   let rows = await updateTaskForAcknowledgement({
     tenantId: tid,
     taskId,
@@ -5970,6 +6008,8 @@ async function acknowledgeTaskInternal({
       throw AppError.invalidTransition(after.status, 'in_progress', TASK_TRANSITIONS[after.status] || []);
     }
   }
+
+  ackedAt = requireTaskAcknowledgementTimestamp(rows[0]?.metadata?.acknowledged_at);
 
   // The guarded task UPDATE above acquires the task row lock before we touch
   // the SLA row. Corrected-result reopen follows the same task -> SLA order.
@@ -6054,6 +6094,7 @@ export async function acknowledgeLabCriticalAlertTaskFromTrustedWorkflow({
   actorPrimaryRole = null,
   actorRawRole = null,
   breakGlassId = null,
+  acknowledgedAt = null,
   tx = null,
 } = {}) {
   if (!tx) {
@@ -6070,6 +6111,7 @@ export async function acknowledgeLabCriticalAlertTaskFromTrustedWorkflow({
     actorPrimaryRole,
     actorRawRole,
     breakGlassId,
+    trustedAcknowledgedAt: acknowledgedAt,
     labCriticalAlertAuthority: {
       capability: LAB_CRITICAL_ALERT_ACKNOWLEDGEMENT_AUTHORITY,
       alertId,
@@ -6569,7 +6611,11 @@ export async function settleCoveringTransferReviewTaskTx({
   const current = await getTaskForUpdate({ tenantId: tid, id: taskId, db: tx });
   assertGenericTaskMutationAllowed(current, COVERING_TRANSFER_TASK_AUTHORITY);
   const bindings = await tx.$queryRawUnsafe(
-    `SELECT chi.id
+    `SELECT chi.id,
+            to_char(
+              GREATEST(clock_timestamp(), chi.requested_at) AT TIME ZONE 'UTC',
+              'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+            ) AS settlement_clock
        FROM care_handoff_instances chi
        JOIN tasks task
          ON task.tenant_id = chi.tenant_id
@@ -6617,7 +6663,7 @@ export async function settleCoveringTransferReviewTaskTx({
   }
 
   const nextStatus = cleanOutcome === 'accepted' ? 'completed' : 'cancelled';
-  const settledAt = new Date().toISOString();
+  const settledAt = bindings[0].settlement_clock;
   const rows = await tx.$queryRawUnsafe(
     `UPDATE tasks
         SET status = $3::text,
@@ -6630,7 +6676,7 @@ export async function settleCoveringTransferReviewTaskTx({
                    'covering_transfer_settled_by', $7::text,
                    'covering_transfer_settled_at', $4::text
                  ),
-            updated_at = NOW()
+            updated_at = $4::timestamptz
       WHERE tenant_id = $1::uuid
         AND id = $2::bigint
         AND status = $8::text
@@ -6706,7 +6752,11 @@ export async function settleOpInpatientTransferReviewTaskTx({
   const current = await getTaskForUpdate({ tenantId: tid, id: taskId, db: tx });
   assertGenericTaskMutationAllowed(current, OP_INPATIENT_TRANSFER_TASK_AUTHORITY);
   const bindings = await tx.$queryRawUnsafe(
-    `SELECT handoff.id
+    `SELECT handoff.id,
+            to_char(
+              GREATEST(clock_timestamp(), handoff.requested_at) AT TIME ZONE 'UTC',
+              'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+            ) AS settlement_clock
        FROM care_handoff_instances AS handoff
        JOIN tasks AS task
          ON task.tenant_id = handoff.tenant_id
@@ -6779,7 +6829,7 @@ export async function settleOpInpatientTransferReviewTaskTx({
     );
   }
 
-  const settledAt = new Date().toISOString();
+  const settledAt = bindings[0].settlement_clock;
   const rows = await tx.$queryRawUnsafe(
     `UPDATE tasks
         SET status = 'completed',
@@ -6792,7 +6842,7 @@ export async function settleOpInpatientTransferReviewTaskTx({
                    'op_inpatient_transfer_settled_by', $4::text,
                    'op_inpatient_transfer_settled_at', $3::text
                  ),
-            updated_at = NOW()
+            updated_at = $3::timestamptz
       WHERE tenant_id = $1::uuid
         AND id = $2::bigint
         AND status = $5::text
@@ -6899,7 +6949,11 @@ export async function settleEdDestinationHandoffReviewTaskTx({
   const current = await getTaskForUpdate({ tenantId: tid, id: taskId, db: tx });
   assertGenericTaskMutationAllowed(current, ED_DESTINATION_HANDOFF_TASK_AUTHORITY);
   const bindings = await tx.$queryRawUnsafe(
-    `SELECT handoff.id
+    `SELECT handoff.id,
+            to_char(
+              GREATEST(clock_timestamp(), handoff.requested_at) AT TIME ZONE 'UTC',
+              'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+            ) AS settlement_clock
        FROM care_handoff_instances AS handoff
        JOIN tasks AS task
          ON task.tenant_id = handoff.tenant_id
@@ -6979,7 +7033,7 @@ export async function settleEdDestinationHandoffReviewTaskTx({
     );
   }
 
-  const settledAt = new Date().toISOString();
+  const settledAt = bindings[0].settlement_clock;
   const nextStatus = cleanOutcome === 'accepted' ? 'completed' : 'cancelled';
   const rows = await tx.$queryRawUnsafe(
     `UPDATE tasks
@@ -7002,7 +7056,7 @@ export async function settleEdDestinationHandoffReviewTaskTx({
                    'ed_destination_handoff_settled_by', $7::text,
                    'ed_destination_handoff_settled_at', $4::text
                  ),
-            updated_at = NOW()
+            updated_at = $4::timestamptz
       WHERE tenant_id = $1::uuid
         AND id = $2::bigint
         AND status = $8::text

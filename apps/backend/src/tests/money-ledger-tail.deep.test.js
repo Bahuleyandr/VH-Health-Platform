@@ -100,7 +100,7 @@ async function makeSubmittedClaim(p, pol, pre, inv, claimed) {
   );
   cleanup.claimIds.push(r[0].id); return r[0].id;
 }
-const bal = (code, dims) => setTenantTx(TENANT, (tx) => getAccountBalancePaise(tx, code, dims));
+const bal = (code, dims) => setTenantTx(TENANT, (tx) => getAccountBalancePaise(tx, TENANT, code, dims));
 
 afterAll(async () => {
   try {

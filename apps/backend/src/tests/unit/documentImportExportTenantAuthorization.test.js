@@ -67,7 +67,7 @@ describe('document import/export tenant authorization', () => {
     }
   });
 
-  it('keeps external clinical assertions behind the governed promotion gate', async () => {
+  it('requires authenticated receipt authority before external clinical-assertion intake', async () => {
     await expect(importFhirBundle({
       resourceType: 'Bundle',
       entry: [{
@@ -82,7 +82,7 @@ describe('document import/export tenant authorization', () => {
       tenantId: TENANT,
       authority: { patientUid: PATIENT_UID },
     })).rejects.toMatchObject({
-      code: 'IMPORT_CLINICAL_ASSERTION_REVIEW_REQUIRED',
+      code: 'IMPORT_ACTOR_AUTHORITY_MISMATCH',
     });
     expect(prismaMock.$queryRawUnsafe).not.toHaveBeenCalled();
   });
