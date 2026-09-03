@@ -4,7 +4,8 @@
 **Scope:** `apps/backend/scripts/seed-comprehensive-test-data.mjs` (`checkedValue` and three entries
 of `TABLE_COLUMN_SEED_OVERRIDES`), a new `apps/backend/scripts/lib/checkConstraintValues.mjs`, and
 its unit test.
-**Status:** implemented on `fix/seed-checked-value-column-bound` (off main `5b9b765b3`).
+**Status:** implemented on `fix/seed-checked-value-column-bound` (branched from main `5b9b765b3`,
+rebased onto `9e70d950d` after #982 landed; no file overlap).
 **Origin:** audit row OPEN-14; brief from the coordinating session, 2026-09-03. Design decisions were
 taken through the advocate / challenger / supervisor protocol against the measurements below.
 
@@ -153,21 +154,53 @@ imports the module directly):
 - **Column binding.** `kind IN ('a','b') AND status IN ('x','y')` asked for `status` gives `'x'`;
   a table whose only mention of `status` is inside `order_status` gives nothing for `status`.
 - **Shapes.** `= ANY`, single equality, `<>`, `<> ALL`, a `NOT VALID` suffix, regex atoms giving
-  nothing, function-wrapped columns, casts, an `OR` of equalities in a single-column conjunct, and
-  a multi-column-only column giving nothing (no third tier).
-- **Mutation.** Reintroducing first-literal-of-whole-definition behaviour, or removing the
-  trigger exclusion, turns the both-orders test red. Recorded in the pull request.
+  nothing, function-wrapped columns, casts, an `OR` of equalities in a single-column conjunct, a
+  multi-column-only column giving nothing (no third tier), and a trigger that heads the
+  enumeration (added after the first mutation pass showed that in all three real sets the safe
+  value happened to be listed first, so dropping the exclusion changed no value).
+- **Mutation results** (each reverted afterwards, tree clean): treating every conjunct as
+  single-column, which is the first-literal reversion, fails 5 of 21; dropping the trigger
+  exclusion fails 2 of 21 including a value flip; using the caller's order instead of the
+  definition text fails 1 of 21, the intersection case, which is the only place order can matter
+  in tiers 1 and 2 by construction.
+- `comprehensiveSeedCoreRefs.test.js` used to pin `facility_asset_events: { event_type: 'created' }`
+  in the seeder source; it now asserts the replacement contract instead (delegation to the module,
+  no `event_type` pin for the three tables).
 
-## Verification
+## Verification (measured)
 
-- Fresh schema-only database built the way CI does it (empty database, `ci-setup-db.mjs` through
-  the full migration corpus, its lookup seeds), then `seed:test-data` with the change and the pins
-  retired: green, with the seeded-value delta reported table by table against a baseline snapshot
-  taken from unmodified main. The `vh_pr970` template already carries a full seed, so a seed run
-  against it is a no-op and proves nothing.
-- Backend unit suites that read the seeder; full backend `npm run lint`; canonical CI with
-  `[full-ci]`. Tests elsewhere that assert on a value the seeder used to produce are expected
-  fallout of the function working and are reported, not accommodated by bending the function.
+All seed runs used a fresh schema-only database built the way CI does it: empty database,
+`CREATE EXTENSION vector` (CI's Postgres image pre-creates pgvector; `000_baseline.sql` needs it),
+`ci-setup-db.mjs` through the full migration corpus, then its lookup seeds. The `vh_pr970`
+scratch template already carries a full seed, so a seed run against it reports
+`newlySeededTables: 0` and proves nothing.
+
+| check | result |
+|---|---|
+| unmodified main on the fresh base | 654 tables newly seeded, 0 failed, 0 unexpectedly empty, 904/973 non-empty |
+| this change with the pins retired | 654 / 0 / 0 / 904, rc 0 |
+| every CHECK evaluated against the seeded rows (`WHERE (expr) IS FALSE`) | 2,107 evaluated, 0 errors, 0 violations, `NOT VALID` included |
+| NOT NULL columns that fell through to `semanticValue` | 122 listed with the seeded value and each referencing CHECK: 0 violations; 70 have a row, 52 sit on tables with no row on this base |
+| row-level snapshot delta, main → this change (first row of every table) | 37 (table, column) pairs: 13 real changes, 24 values that differ on every run by construction (bcrypt salts, random UUIDs, digests of random content, generated numbers) |
+| whole-schema proof with the shipped module | 2,107 parsed, 0 order flips, 917 columns answered (tier 1: 827, tier 2: 90) |
+| backend unit suites reading the seeder | 9 suites, 72 tests, CI mode |
+| full backend `npm run lint` | rc 0 |
+
+The 13 real changes are each either the column's own enumeration value (`blood_units.blood_group`
+`A-` → `A+`, three `realm` columns `admin` → `staff`, `nhcx_messages.direction`,
+`icu_line_tube_drain_events.presence_kind`, the two provider columns) or a `semanticValue` default
+replacing a literal that belonged to a neighbouring column (`salary_revisions.reason` was
+`'pending_hr'`, a status; `nhcx_messages.endpoint` was `'outbound'`, a direction;
+`abdm_webhook_events.external_event_id` was `'live_authenticated_callback'`).
+
+Why the scope shrank from the first measurement: 968 columns read a multi-column literal, but only
+NOT NULL columns reach `checkedValue` on the generic path, and 148 tables are hand-seeded and never
+consult it. Offline the NOT NULL delta was 170 changed plus 113 fallen through; at row level, on the
+tables the generic walker actually seeds, it is the 13 above.
+
+Canonical CI runs with `[full-ci]`. A test elsewhere that asserts on a value the seeder used to
+produce is expected fallout of the function working and is reported, not accommodated by bending
+the function.
 
 ## Revisit triggers
 
