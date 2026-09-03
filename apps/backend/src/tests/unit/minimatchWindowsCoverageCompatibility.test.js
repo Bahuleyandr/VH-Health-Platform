@@ -4,10 +4,16 @@ import { readFileSync } from "node:fs";
 
 const require = createRequire(import.meta.url);
 const backendRoot = path.resolve(import.meta.dirname, "../../..");
-const windowsTest = process.platform === "win32" ? test : test.skip;
+const isWindows = process.platform === "win32";
 
+// This suite runs on BOTH platforms and asserts on both. The pinned versions
+// and the patched shim are platform-independent facts about the install; the
+// glob and instrumentation behaviour is asserted with the separator the host
+// actually uses. It deliberately does NOT use `test.skip` off Windows: a skip
+// marker without an entry in scripts/jest-skip-floor.json fails the canonical
+// gate, and the floor is meant to stay empty (see its $comment).
 describe("minimatch Windows coverage compatibility", () => {
-  test("test-exclude retains its Windows path compatibility patch", () => {
+  test("the install pins the patched test-exclude/minimatch pair", () => {
     const packageLock = JSON.parse(
       readFileSync(path.join(backendRoot, "package-lock.json"), "utf8"),
     );
@@ -20,18 +26,24 @@ describe("minimatch Windows coverage compatibility", () => {
     expect(readFileSync(testExcludeWin32Path, "utf8")).toContain(
       "windowsPathsNoEscape: true",
     );
+  });
 
+  test("minimatch matches a repo-rooted path using this platform's separator", () => {
     const minimatch = require("minimatch");
+    // `windowsPathsNoEscape` makes a backslash a separator rather than an
+    // escape, which is only meaningful where the host uses backslashes. On
+    // POSIX the same guarantee is expressed with forward slashes, so assert
+    // the equivalent rather than skipping and leaving CI with no coverage.
+    const [target, pattern] = isWindows
+      ? ["D:\\repo\\src\\services\\auth\\otpService.js", "D:\\repo\\**"]
+      : ["/repo/src/services/auth/otpService.js", "/repo/**"];
+
     expect(
-      minimatch(
-        "D:\\repo\\src\\services\\auth\\otpService.js",
-        "D:\\repo\\**",
-        { dot: true, windowsPathsNoEscape: true },
-      ),
+      minimatch(target, pattern, { dot: true, windowsPathsNoEscape: true }),
     ).toBe(true);
   });
 
-  windowsTest("test-exclude enforces the backend root on Windows", () => {
+  test("test-exclude instruments inside the backend root and refuses outside it", () => {
     const TestExclude = require("test-exclude");
     const exclude = new TestExclude({ cwd: backendRoot });
     expect(
