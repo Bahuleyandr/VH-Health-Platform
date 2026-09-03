@@ -28,6 +28,7 @@ import { specialtyDepartmentGuard } from './middleware/specialtyDepartmentMiddle
 import jwtAuth, { enforceFullScope } from './middleware/jwtMiddleware.js';
 import tenantContextMiddleware from './middleware/tenantContextMiddleware.js';
 import tenantRlsMiddleware from './middleware/tenantRlsMiddleware.js';
+import preAuthTenantContextMiddleware from './middleware/preAuthTenantContextMiddleware.js';
 import tenantRoutes from './routes/admin/tenantRoutes.js';
 import tenantContextRoutes from './routes/admin/tenantContextRoutes.js';
 import loggingMiddleware from './middleware/loggingMiddleware.js';
@@ -838,6 +839,16 @@ app.head('/', probeLimiter, async (req, res, next) => {
 // utilities outside this scope: browser/provider callbacks cannot attach an
 // App Check header.
 app.use('/api/v1/auth', patientRateLimiter);
+// Pre-auth tenant context: the handlers below run BEFORE tenantContextMiddleware
+// sets req.tenantId, so the global tenantRlsMiddleware seeded an EMPTY context
+// and nothing scoped their queries. Under RLS enforcement with an RLS-subject
+// connection role (production: vhhealth_runtime) that left every users read
+// blind and every users write rejected 42501 (migration 758 put a RESTRICTIVE
+// policy on users; 167 FORCE-RLS tables carry one). Resolve the tenant from
+// the request host — the same trust-by-topology resolver the handlers use —
+// and run the chain inside it. Inert while enforcement is off; never writes
+// req.tenantId. See middleware/preAuthTenantContextMiddleware.js.
+app.use('/api/v1/auth', preAuthTenantContextMiddleware);
 app.use('/api/v1/auth/firebase', appCheckMiddleware({ expectedClient: 'patient' }));
 app.use('/api/v1/auth/request-otp', appCheckMiddleware({ expectedClient: 'patient' }));
 app.use('/api/v1/auth/verify-otp', appCheckMiddleware({ expectedClient: 'patient' }));

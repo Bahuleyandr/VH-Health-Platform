@@ -4,7 +4,8 @@ import crypto from 'crypto';
 import { assertValidAdminPermissions } from '../../config/adminPermissionsCatalog.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { SECURITY_CONFIG } from '../../config/securityConfig.js';
-import prisma, { setTenant } from '../../lib/prisma.js';
+import prisma, { setTenant, setTenantTx } from '../../lib/prisma.js';
+import { resolveTenantForRequest } from '../tenant/tenantService.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { maskPhoneForLog } from '../../utils/logMasking.js';
@@ -50,10 +51,27 @@ const withAuthIdentityLifecycleLocks = tokenBlacklist.withAuthIdentityLifecycleL
 // Identity creation takes no lifecycle lock: the new row is invisible to every
 // other transaction until commit and its uid is database-generated, so nothing
 // can contend for it (see withAuthIdentityLifecycleLocks in tokenBlacklist.js).
-// The interactive transaction is kept so the create runs on the same client
-// shape as before; it is not a synchronisation point.
-async function createIdentityTx(realm, args) {
-  return prisma.$transaction(async (tx) => tx[realm].create(args));
+//
+// It does need a TENANT SCOPE. These callers run BEFORE the tenant middleware
+// (every /api/v1/auth path), so nothing has set app.current_tenant_id, and
+// public.users carries the RESTRICTIVE explicit_tenant_context_753 policy
+// (migration 758) under FORCE ROW LEVEL SECURITY, whose WITH CHECK requires
+// that GUC to equal the row's tenant_id. A bare prisma.$transaction is not
+// scoped (its tx client skips the tenant wrapper) and is rejected 42501 on any
+// RLS-subject connection, which production is (vhhealth_runtime). The users
+// realm therefore takes the tenant the caller resolved from the request, runs
+// inside setTenantTx and stamps that tenant on the row. admins carries only
+// the permissive tenant_isolation policy and keeps the bare transaction.
+async function createIdentityTx(realm, args, { tenantId = null } = {}) {
+  const create = (tx, createArgs) => tx[realm].create(createArgs);
+  if (realm === 'users') {
+    if (!tenantId) {
+      throw new Error('User identity creation requires the tenant resolved from the request');
+    }
+    const scopedArgs = { ...args, data: { tenant_id: tenantId, ...(args?.data || {}) } };
+    return setTenantTx(tenantId, (tx) => create(tx, scopedArgs));
+  }
+  return prisma.$transaction(async (tx) => create(tx, args));
 }
 
 // Lock a single password-reset OTP after this many failed verify attempts.
@@ -153,6 +171,9 @@ export class AuthService {
       });
       const isNewUser = !existingUser;
       const now = new Date();
+      // Pre-auth: the tenant comes from the request host (W4 trust-by-topology);
+      // creation must run tenant-scoped or public.users rejects it under RLS.
+      const tenantId = await resolveTenantForRequest(req);
 
       const user = existingUser
         ? await prisma.users.update({
@@ -168,7 +189,7 @@ export class AuthService {
               updated_at: now,
             },
             select: { uid: true, id: true, name: true, phone: true, role: true },
-          });
+          }, { tenantId });
 
       if (isNewUser) {
         logger.info(`New user registered: ${maskPhoneForLog(normalizedPhone)}`);
@@ -1456,6 +1477,9 @@ export class AuthService {
         throw err;
       }
       const now = new Date();
+      // Pre-auth: the tenant comes from the request host (W4 trust-by-topology);
+      // creation must run tenant-scoped or public.users rejects it under RLS.
+      const tenantId = await resolveTenantForRequest(req);
 
       const user = await createIdentityTx('users', {
         data: {
@@ -1465,7 +1489,7 @@ export class AuthService {
           updated_at: now,
         },
         select: { uid: true, id: true, phone: true, role: true },
-      });
+      }, { tenantId });
 
       const tokenPayload = {
         uid: user.uid,
@@ -1663,6 +1687,9 @@ export class AuthService {
       });
       const isNewUser = !existingUser;
       const now = new Date();
+      // Pre-auth: the tenant comes from the request host (W4 trust-by-topology);
+      // creation must run tenant-scoped or public.users rejects it under RLS.
+      const tenantId = await resolveTenantForRequest(req);
 
       const user = existingUser
         ? await prisma.users.update({
@@ -1678,7 +1705,7 @@ export class AuthService {
               updated_at: now,
             },
             select: { uid: true, id: true, name: true, phone: true, role: true },
-          });
+          }, { tenantId });
 
       if (isNewUser) {
         logger.info(`New user registered: ${maskPhoneForLog(normalizedPhone)}`);

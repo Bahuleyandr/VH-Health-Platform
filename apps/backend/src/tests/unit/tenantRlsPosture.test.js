@@ -258,3 +258,69 @@ describe('tenantRlsRuntimeRole', () => {
     expect(tenantRlsRuntimeRole({ AUTH_TENANT_RLS_RUNTIME_ROLE: '  ' })).toBeNull();
   });
 });
+
+// The pre-auth writers (Firebase first login, legacy register, the OTP register
+// paths) run BEFORE the tenant middleware and outside setTenant/setTenantTx, so
+// they execute as the bare CONNECTION role, never as the runtime role. A verdict
+// that evaluates only `testRole || connectionRole` is blind to that path: it can
+// report "posture OK" for vhhealth_app while every unscoped write to a FORCE-RLS
+// table carrying a RESTRICTIVE policy (migration 758's explicit_tenant_context_753
+// on users) is rejected 42501 for vhhealth_runtime. The verdict therefore also
+// reports the connection role's own RLS status and how many such tables exist.
+describe('evaluateTenantRlsPosture reports the bare connection role alongside the runtime role', () => {
+  it('exposes the connection role as RLS-subject when a runtime role is configured', () => {
+    const v = evaluateTenantRlsPosture({
+      enforced: true,
+      connectionRole: 'vhhealth_runtime',
+      connectionBypassesRls: false,
+      testRole: 'vhhealth_app',
+      testRoleBypassesRls: false,
+      restrictiveForcedTables: 31,
+    });
+    expect(v.ok).toBe(true);
+    expect(v.effectiveRole).toBe('vhhealth_app');
+    expect(v.connectionRole).toBe('vhhealth_runtime');
+    expect(v.connectionBypassesRls).toBe(false);
+    expect(v.connectionRoleRlsSubject).toBe(true);
+    expect(v.restrictiveForcedTables).toBe(31);
+  });
+
+  it('marks the connection role as not RLS-subject when it bypasses RLS (CI and rig superusers)', () => {
+    const v = evaluateTenantRlsPosture({
+      enforced: true,
+      connectionRole: 'postgres',
+      connectionBypassesRls: true,
+      testRole: 'rls_test_app',
+      testRoleBypassesRls: false,
+      restrictiveForcedTables: 31,
+    });
+    expect(v.ok).toBe(true);
+    expect(v.connectionRole).toBe('postgres');
+    expect(v.connectionBypassesRls).toBe(true);
+    expect(v.connectionRoleRlsSubject).toBe(false);
+    expect(v.restrictiveForcedTables).toBe(31);
+  });
+
+  it('reports the connection role even without a runtime role, and defaults the table count to zero', () => {
+    const v = evaluateTenantRlsPosture({
+      enforced: true,
+      connectionRole: 'vhhealth_runtime',
+      connectionBypassesRls: false,
+    });
+    expect(v.ok).toBe(true);
+    expect(v.connectionRole).toBe('vhhealth_runtime');
+    expect(v.connectionRoleRlsSubject).toBe(true);
+    expect(v.restrictiveForcedTables).toBe(0);
+  });
+
+  it('never calls the connection role RLS-subject while enforcement is disabled', () => {
+    const v = evaluateTenantRlsPosture({
+      enforced: false,
+      connectionRole: 'vhhealth_runtime',
+      connectionBypassesRls: false,
+      restrictiveForcedTables: 31,
+    });
+    expect(v.connectionRoleRlsSubject).toBe(false);
+    expect(v.restrictiveForcedTables).toBe(31);
+  });
+});
