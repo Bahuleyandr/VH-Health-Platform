@@ -51,9 +51,17 @@ export const PAYMENT_LINK_PRESENTATIONS = Object.freeze({
   ml: PAYMENT_LINK_TECHNICAL_PRESENTATION,
 });
 
-export function paymentLinkPresentation(language) {
+// Exported so the locale contract can be asserted on the resolved KEY. The
+// five presentations are deliberately the same frozen object until wording is
+// approved, so an identity assertion on the returned value cannot distinguish
+// a working resolver from a broken one.
+export function paymentLinkLocaleKey(language) {
   const locale = String(language || '').trim().toLowerCase().split(/[-_]/u)[0];
-  return PAYMENT_LINK_PRESENTATIONS[locale] ?? PAYMENT_LINK_PRESENTATIONS.en;
+  return Object.hasOwn(PAYMENT_LINK_PRESENTATIONS, locale) ? locale : 'en';
+}
+
+export function paymentLinkPresentation(language) {
+  return PAYMENT_LINK_PRESENTATIONS[paymentLinkLocaleKey(language)];
 }
 
 function renderPaymentLinkPresentation(template, { amount, url, gatewayCheckout }) {
@@ -310,7 +318,13 @@ export async function createPaymentLink({
   return rows[0];
 }
 
-export async function getPaymentLink({ tenantId, link_token }) {
+// INTERNAL. Same row as getPaymentLink plus the recipient's server-owned
+// preferred language, used only to pick the outbound message presentation.
+// Not exported and never returned to a caller: the `PaymentLink` OpenAPI
+// component is `additionalProperties: false`, so any extra column on a
+// response body breaks the committed contract on every endpoint that returns
+// one (GET/send/cancel/mark-paid and the teleconsult post-consult link).
+async function readPaymentLinkWithRecipient({ tenantId, link_token }) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT payment_link.*,
             patient.preferred_language AS patient_preferred_language
@@ -324,6 +338,12 @@ export async function getPaymentLink({ tenantId, link_token }) {
   );
   if (!rows.length) throw AppError.notFound('Payment link not found');
   return rows[0];
+}
+
+export async function getPaymentLink({ tenantId, link_token }) {
+  const { patient_preferred_language: _recipientLanguage, ...link } =
+    await readPaymentLinkWithRecipient({ tenantId, link_token });
+  return link;
 }
 
 // ---------------------------------------------------------------------------
@@ -457,7 +477,7 @@ export async function sendPaymentLink({
   tenantId, link_token, channels = ['whatsapp'],
   patient_phone, patient_email,
 }) {
-  const link = await getPaymentLink({ tenantId, link_token });
+  const link = await readPaymentLinkWithRecipient({ tenantId, link_token });
   if (link.status === 'paid' || link.status === 'cancelled') {
     throw AppError.badRequest(`Link is ${link.status}, cannot resend`);
   }

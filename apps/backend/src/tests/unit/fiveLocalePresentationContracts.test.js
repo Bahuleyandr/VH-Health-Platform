@@ -3,6 +3,7 @@ import {
 } from '../../services/billing/paymentGatewayService.js';
 import {
   PAYMENT_LINK_PRESENTATIONS,
+  paymentLinkLocaleKey,
   paymentLinkPresentation,
 } from '../../services/billing/paymentLinkService.js';
 import {
@@ -37,8 +38,29 @@ describe('five-locale backend notification presentation contracts', () => {
       'emailReadySuffix',
       'emailAction',
     ]);
-    expect(paymentLinkPresentation('ml-IN')).toBe(PAYMENT_LINK_PRESENTATIONS.ml);
-    expect(paymentLinkPresentation('unsupported')).toBe(PAYMENT_LINK_PRESENTATIONS.en);
+    // The five presentations are the same frozen object until wording is
+    // approved, so `toBe` on the returned value cannot tell a working
+    // resolver from `return PAYMENT_LINK_PRESENTATIONS.hi`. Assert the
+    // resolved KEY, which is distinguishable, and keep one identity check so
+    // the two stay wired together.
+    for (const [input, expected] of [
+      ['ml', 'ml'],
+      ['ml-IN', 'ml'],
+      ['ML_in', 'ml'],
+      ['  ta-IN  ', 'ta'],
+      ['te', 'te'],
+      ['hi-IN', 'hi'],
+      ['en-GB', 'en'],
+      ['unsupported', 'en'],
+      ['constructor', 'en'],
+      ['', 'en'],
+      [null, 'en'],
+      [undefined, 'en'],
+    ]) {
+      expect([input, paymentLinkLocaleKey(input)]).toEqual([input, expected]);
+    }
+    expect(paymentLinkPresentation('ml-IN'))
+      .toBe(PAYMENT_LINK_PRESENTATIONS[paymentLinkLocaleKey('ml-IN')]);
   });
 
   test('gateway refund reconciliation includes Malayalam', () => {

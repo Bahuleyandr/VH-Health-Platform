@@ -80,9 +80,11 @@ melos:
 
     i18n-parity-check:
       description: "BLOCKING gate: staff and patient structural key parity across en/hi/ta/te/ml, including generated Malayalam technical placeholders and patient ICU-placeholder preservation. Structural only; says nothing about translation quality."
-      run: |
-        node apps/staff/scripts/i18n-verify.mjs --check
-        node apps/patient/scripts/i18n-verify.mjs --check
+      # `&&`-chained on purpose. Melos runs a script body through
+      # `sh -c 'eval "$MELOS_SCRIPT"'` with no `set -e`, so a bare two-line
+      # block returns only the LAST command's status and a staff-parity
+      # failure would report SUCCESS whenever the patient check passes.
+      run: node apps/staff/scripts/i18n-verify.mjs --check && node apps/patient/scripts/i18n-verify.mjs --check
 
     i18n-health-staff:
       description: "Staff app i18n health only."

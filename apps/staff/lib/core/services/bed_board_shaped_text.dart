@@ -121,6 +121,9 @@ class BedBoardShapedText {
       _ => bounds.top + math.max(0, (bounds.height - paragraph.height) / 2),
     };
     canvas.drawParagraph(paragraph, ui.Offset(bounds.left, top));
+    // ui.Paragraph owns a native SkParagraph the Dart GC cannot see; a large
+    // ward board builds well over a thousand of them per print.
+    paragraph.dispose();
   }
 
   static Future<BedBoardShapingEvidence> renderEvidence({
@@ -160,6 +163,7 @@ class BedBoardShapedText {
       );
     } finally {
       image.dispose();
+      paragraph.dispose();
     }
   }
 

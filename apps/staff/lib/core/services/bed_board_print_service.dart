@@ -357,8 +357,11 @@ class BedBoardPrintService {
         maxLines: _tableHeaderMaxLines,
         textAlign: index == 3 ? ui.TextAlign.right : ui.TextAlign.left,
       );
-      if (paragraph.didExceedMaxLines ||
-          paragraph.height > _tableHeaderHeight - 4) {
+      final overflows =
+          paragraph.didExceedMaxLines ||
+          paragraph.height > _tableHeaderHeight - 4;
+      paragraph.dispose();
+      if (overflows) {
         overflowing.add(labels[index]);
       }
     }

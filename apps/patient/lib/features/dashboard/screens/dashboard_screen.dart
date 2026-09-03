@@ -80,6 +80,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Color _dialAccentColor = DashboardAccents.explore;
 
+  // Memoised against the active locale. CircularFeatureDial.didUpdateWidget
+  // compares `oldWidget.features != widget.features` — List has no `==`, so
+  // that is identity. Building a fresh list inside build() made it true on
+  // every rebuild, which reset the dial's rotation and cleared the tap
+  // selection each time (including on the dial's own onFocusColorChanged
+  // setState, so a tap erased its own highlight).
+  List<FeatureIconData>? _features;
+  Locale? _featuresLocale;
+
+  List<FeatureIconData> _featuresFor(
+    BuildContext context,
+    AppLocalizations l10n,
+  ) {
+    final locale = Localizations.localeOf(context);
+    if (_features == null || _featuresLocale != locale) {
+      _features = _initializeFeatures(l10n);
+      _featuresLocale = locale;
+    }
+    return _features!;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -816,7 +837,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             accent: _dialAccentColor,
                             tinted: false,
                             child: CircularFeatureDial(
-                              features: _initializeFeatures(l10n),
+                              features: _featuresFor(context, l10n),
                               iconScale: iconScale,
                               onFocusColorChanged: (color) {
                                 if (mounted) {
