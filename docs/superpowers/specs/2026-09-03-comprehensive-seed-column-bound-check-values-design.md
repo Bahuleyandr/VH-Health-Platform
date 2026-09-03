@@ -19,17 +19,20 @@ table's CHECK definitions for a quoted literal. Measured on main's schema (migra
    definition that mentions only `hbsag_status` or `order_status`. 65 columns take their value this
    way (`dialysis_patients.status = 'negative'` comes from the HBsAg check).
 2. **Whole-definition harvest, first literal wins.** Literals are collected from the entire
-   definition regardless of which conjunct constrains the requested column. 968 columns take a
+   definition regardless of which conjunct constrains the requested column. 849 columns take a
    literal from a multi-column CHECK: `bulk_revision_jobs.hr_signature_sha256 = 'building'`,
    `diagnostic_result_generations.classification = 'object'` (from a `jsonb_typeof` check) and
-   `clinical_ai_trial_sync_runs.source = 'clinicaltrials_gov_v2:legacy:%'` (a LIKE pattern) are
-   representative.
-3. **The answer depends on definition order.** With the same schema, 199 text columns return a
+   `salary_revisions.reason = 'pending_hr'` (a status) are representative.
+3. **The answer depends on definition order.** With the same schema, 187 text columns return a
    different literal when the definitions are presented in reverse.
 
 Only NOT NULL text columns reach the function on the generic path (nullable columns without an
-override are left null), and 148 tables are seeded by hand and never consult it. Of the NOT NULL
-columns, 1,483 currently get their value from `checkedValue`.
+override are left null), and 148 tables are seeded by hand and never consult it. 1,379 text
+columns currently get their value from `checkedValue`. (An earlier draft of these figures read
+968 / 199 / 1,483; they came from a measurement script whose copy of the old function had lost the
+word-boundary escape in its format-constraint regex, so it never recognised a regex or LIKE atom.
+The figures above are from a faithful copy, cross-checked against the per-constraint verification
+below, whose fallthrough list matches the offline one exactly.)
 
 ### Ordering is not a fix
 
@@ -181,22 +184,46 @@ scratch template already carries a full seed, so a seed run against it reports
 | this change with the pins retired | 654 / 0 / 0 / 904, rc 0 |
 | every CHECK evaluated against the seeded rows (`WHERE (expr) IS FALSE`) | 2,107 evaluated, 0 errors, 0 violations, `NOT VALID` included |
 | NOT NULL columns that fell through to `semanticValue` | 122 listed with the seeded value and each referencing CHECK: 0 violations; 70 have a row, 52 sit on tables with no row on this base |
-| row-level snapshot delta, main → this change (first row of every table) | 37 (table, column) pairs: 13 real changes, 24 values that differ on every run by construction (bcrypt salts, random UUIDs, digests of random content, generated numbers) |
+| row-level snapshot delta, main → this change (first row of every table) | 37 (table, column) pairs: 14 real changes, 23 values that differ on every run by construction (bcrypt salts, random UUIDs, digests of random content, generated numbers) |
 | whole-schema proof with the shipped module | 2,107 parsed, 0 order flips, 917 columns answered (tier 1: 827, tier 2: 90) |
 | backend unit suites reading the seeder | 9 suites, 72 tests, CI mode |
 | full backend `npm run lint` | rc 0 |
 
-The 13 real changes are each either the column's own enumeration value (`blood_units.blood_group`
+The 14 real changes are each either the column's own enumeration value (`blood_units.blood_group`
 `A-` → `A+`, three `realm` columns `admin` → `staff`, `nhcx_messages.direction`,
 `icu_line_tube_drain_events.presence_kind`, the two provider columns) or a `semanticValue` default
-replacing a literal that belonged to a neighbouring column (`salary_revisions.reason` was
-`'pending_hr'`, a status; `nhcx_messages.endpoint` was `'outbound'`, a direction;
-`abdm_webhook_events.external_event_id` was `'live_authenticated_callback'`).
+replacing a literal that belonged to a neighbouring column or a branch (`salary_revisions.reason`
+was `'pending_hr'`, a status; `nhcx_messages.endpoint` was `'outbound'`, a direction;
+`abdm_webhook_events.external_event_id` was `'live_authenticated_callback'`;
+`pharmacy_order_command_receipts.action` was `'dispense_substitution'`, the branch literal of a
+multi-column conditional).
 
-Why the scope shrank from the first measurement: 968 columns read a multi-column literal, but only
-NOT NULL columns reach `checkedValue` on the generic path, and 148 tables are hand-seeded and never
-consult it. Offline the NOT NULL delta was 170 changed plus 113 fallen through; at row level, on the
-tables the generic walker actually seeds, it is the 13 above.
+### What the runtime evidence covers, and what it does not
+
+The offline measurement predicts 254 NOT NULL columns whose `checkedValue` answer changes (132 to a
+different literal, 122 to null). The row-level delta shows 14. The two numbers measure different
+things and the boundary between them is explicit:
+
+| of the 254 predicted-affected columns | count |
+|---|---|
+| on a table that carries no row on the schema-only base | 78 |
+| on a hand-seeded table (`MANUAL_SEED_TABLES`; `checkedValue` never consulted) | 78 |
+| on a generic-walker table with a row, value supplied by an override pin or another path that runs before `checkedValue` (same value in both runs) | 84 |
+| on a generic-walker table with a row, `checkedValue`'s answer reaches the row | **14** |
+
+So the "0 violations" runtime result covers the 176 columns that materialise a row (every CHECK
+on every seeded row was evaluated), but it exercises the *change* for only those 14. The other 240
+are covered by the unit test (both orders, shuffles, the real definition sets) and by the
+whole-schema proof (2,107 definitions parsed, 0 order flips), which is the stronger evidence for
+order independence in any case. The 84 include the retirement proof itself:
+`facility_asset_events.event_type` and `pharmacy_funding_decision_events.event_type` were seeded
+`'created'` and `'LINE_MATERIALIZED'` in both runs, from the pin on main and from derivation here,
+and `body_custody_events.event_type` was `'receive'` in both. The 122 offline fallthroughs and the
+122 columns the per-constraint verification listed are the same set.
+
+Why the scope shrank from the first measurement: 849 columns read a multi-column literal, but only
+NOT NULL columns reach `checkedValue` on the generic path, 148 tables are hand-seeded and never
+consult it, and the override table is consulted before `checkedValue`.
 
 Canonical CI runs with `[full-ci]`. A test elsewhere that asserts on a value the seeder used to
 produce is expected fallout of the function working and is reported, not accommodated by bending
