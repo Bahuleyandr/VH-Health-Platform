@@ -483,6 +483,9 @@ async function getMetadata() {
      ORDER BY child_table.relname, fk.conname, child_key.position
   `);
 
+  // checkedValue() no longer depends on this order: scripts/lib/checkConstraintValues.mjs
+  // answers from the SET of a table's definitions in its own text order. The ORDER BY is
+  // kept only so the input is stable to read and diff; it is not what makes seeds deterministic.
   const checks = await client.query(`
     SELECT conrelid::regclass::text AS table_name,
            pg_get_constraintdef(oid) AS definition
