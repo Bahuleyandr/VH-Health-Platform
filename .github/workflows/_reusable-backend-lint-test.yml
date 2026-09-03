@@ -295,6 +295,14 @@ jobs:
       - name: Schema drift check (column-level via prisma db pull)
         run: node scripts/check-schema-drift.mjs
 
+      # The static half of the inline CHECK census runs in the security stage;
+      # this is its calibration against the migrated database: every pinned
+      # census entry's `enforced` flag must match pg_constraint in both
+      # directions, so the static classifier is checked against reality rather
+      # than trusted. The drift check above cannot see CHECK constraints at all.
+      - name: Inline CHECK census calibration (pg_constraint vs pinned census)
+        run: node ../../scripts/ci/check-inline-check-census.mjs --verify-db
+
       - name: DB contract check
         run: npm run db:contracts
 
