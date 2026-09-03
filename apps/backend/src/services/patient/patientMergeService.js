@@ -90,9 +90,19 @@ import {
   persistRevokeAllUserTokens,
   publishRevokeAllUserTokens,
 } from '../../utils/tokenBlacklist.js';
+import * as tokenBlacklist from '../../utils/tokenBlacklist.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { resolveMergedPatientUidSet } from '../clinical/mergedPatientReadUnion.js';
 import { reassignIdentifiersForMerge } from './patientIdentifierService.js';
+
+if (
+  process.env.NODE_ENV !== 'test'
+  && typeof tokenBlacklist.withAuthIdentityLifecycleLocks !== 'function'
+) {
+  throw new Error('Auth identity lifecycle locking is unavailable');
+}
+const withAuthIdentityLifecycleLocks = tokenBlacklist.withAuthIdentityLifecycleLocks
+  ?? ((_client, _uids, fn) => fn(_client));
 
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 200;
@@ -1234,6 +1244,7 @@ export async function executeMerge({
       }
       const primary = existing.primary_uid;
       const secondary = existing.secondary_uid;
+      await withAuthIdentityLifecycleLocks(tx, [primary, secondary], async () => {});
 
       // Lock both patient rows and re-validate under the lock: both must
       // still be live PATIENT records and neither already merged away.

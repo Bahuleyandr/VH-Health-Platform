@@ -5,7 +5,7 @@
 // matrix (normal login, refresh rotation, strict single-session, tablet device).
 // This file drives the previously-uncovered surface:
 //   - claimUserSession: the required-args guard, the prior-lookup catch, the
-//     blacklistToken-failure catch, the sendToUser-failure catch, the upsert
+//     blacklistToken fail-closed branch, the revocation-push catch, the upsert
 //     catch, and the "no prior row" branch.
 //   - getUserSessionDeviceType: no-uid short-circuit, row hit, empty result, and
 //     the catch branch.
@@ -19,7 +19,7 @@ import { jest } from '@jest/globals';
 const queryRawUnsafeMock = jest.fn();
 const executeRawUnsafeMock = jest.fn();
 const blacklistTokenMock = jest.fn();
-const sendToUserMock = jest.fn();
+const pushSessionRevokedMock = jest.fn();
 
 const __prismaDefaultMock = {
   $queryRawUnsafe: queryRawUnsafeMock,
@@ -40,7 +40,7 @@ jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   blacklistToken: blacklistTokenMock,
 }));
 jest.unstable_mockModule('../../utils/websocket/wsServer.js', () => ({
-  sendToUser: sendToUserMock,
+  pushSessionRevoked: pushSessionRevokedMock,
 }));
 
 const {
@@ -59,7 +59,7 @@ beforeEach(() => {
   queryRawUnsafeMock.mockReset();
   executeRawUnsafeMock.mockReset();
   blacklistTokenMock.mockReset();
-  sendToUserMock.mockReset();
+  pushSessionRevokedMock.mockReset();
   queryRawUnsafeMock.mockResolvedValue([PRIOR]);
   executeRawUnsafeMock.mockResolvedValue(1);
 });
@@ -75,12 +75,41 @@ describe('claimUserSession — required-args guard', () => {
 });
 
 describe('claimUserSession — degraded branches', () => {
-  it('continues (no revoke) when the prior-session lookup throws', async () => {
+  it('fails closed when refresh rotation cannot inspect the prior session', async () => {
+    queryRawUnsafeMock.mockRejectedValueOnce(new Error('read failed'));
+    await expect(claimUserSession({
+      userUid: USER_UID, jti: 'new-jti', deviceType: 'web', expiresAt: EXPIRES_AT, pushRevoked: false,
+    })).rejects.toThrow('read failed');
+    expect(blacklistTokenMock).not.toHaveBeenCalled();
+    expect(pushSessionRevokedMock).not.toHaveBeenCalled();
+    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when strict login cannot inspect the prior session', async () => {
+    queryRawUnsafeMock.mockRejectedValueOnce(new Error('read failed'));
+    await expect(claimUserSession({
+      userUid: USER_UID,
+      jti: 'new-jti',
+      deviceType: 'web',
+      expiresAt: EXPIRES_AT,
+      pushRevoked: true,
+      enforceSingleSession: true,
+    })).rejects.toThrow('read failed');
+    expect(blacklistTokenMock).not.toHaveBeenCalled();
+    expect(pushSessionRevokedMock).not.toHaveBeenCalled();
+    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('preserves non-strict normal-login availability when the prior lookup fails', async () => {
     queryRawUnsafeMock.mockRejectedValueOnce(new Error('read failed'));
     const result = await claimUserSession({
-      userUid: USER_UID, jti: 'new-jti', deviceType: 'web', expiresAt: EXPIRES_AT, pushRevoked: false,
+      userUid: USER_UID,
+      jti: 'new-jti',
+      deviceType: 'web',
+      expiresAt: EXPIRES_AT,
+      pushRevoked: true,
+      enforceSingleSession: false,
     });
-    // prior stayed null → nothing revoked, but the upsert still runs.
     expect(result.revokedPrior).toBe(false);
     expect(result.priorDeviceType).toBeNull();
     expect(executeRawUnsafeMock).toHaveBeenCalledTimes(1);
@@ -95,26 +124,36 @@ describe('claimUserSession — degraded branches', () => {
     expect(blacklistTokenMock).not.toHaveBeenCalled();
   });
 
-  it('swallows a blacklistToken failure during refresh rotation', async () => {
-    blacklistTokenMock.mockRejectedValueOnce(new Error('redis down'));
-    const result = await claimUserSession({
-      userUid: USER_UID, jti: 'refresh-jti', deviceType: 'web', expiresAt: EXPIRES_AT, pushRevoked: false,
-    });
-    // revoke was attempted (shouldRevokePrior true) but the failure is swallowed.
-    expect(result.revokedPrior).toBe(true);
-    expect(blacklistTokenMock).toHaveBeenCalled();
-    expect(executeRawUnsafeMock).toHaveBeenCalledTimes(1); // upsert still runs
+  it('fails closed before publishing or claiming the new session when durable revocation fails', async () => {
+    blacklistTokenMock.mockRejectedValueOnce(new Error('redis and database down'));
+    await expect(claimUserSession({
+      userUid: USER_UID, jti: 'strict-jti', deviceType: 'web', expiresAt: EXPIRES_AT,
+      pushRevoked: true, enforceSingleSession: true,
+    })).rejects.toThrow('redis and database down');
+    expect(blacklistTokenMock).toHaveBeenCalledWith(
+      'prior-jti',
+      PRIOR.expires_at_unix,
+      'replaced_by_new_login',
+      expect.objectContaining({ requireEvidence: true, userId: USER_UID }),
+    );
+    expect(pushSessionRevokedMock).not.toHaveBeenCalled();
+    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
   });
 
-  it('swallows a sendToUser failure during strict single-session revoke', async () => {
+  it('swallows a pushSessionRevoked failure after durable strict-session revocation', async () => {
     process.env.AUTH_ENFORCE_SINGLE_ACTIVE_SESSION = 'true';
-    sendToUserMock.mockImplementationOnce(() => { throw new Error('ws closed'); });
+    pushSessionRevokedMock.mockImplementationOnce(() => { throw new Error('ws closed'); });
     const result = await claimUserSession({
       userUid: USER_UID, jti: 'strict-jti', deviceType: 'mobile', expiresAt: EXPIRES_AT, pushRevoked: true,
     });
     expect(result.revokedPrior).toBe(true);
-    expect(blacklistTokenMock).toHaveBeenCalledWith('prior-jti', PRIOR.expires_at_unix, 'replaced_by_new_login');
-    expect(sendToUserMock).toHaveBeenCalled();
+    expect(blacklistTokenMock).toHaveBeenCalledWith(
+      'prior-jti',
+      PRIOR.expires_at_unix,
+      'replaced_by_new_login',
+      expect.objectContaining({ requireEvidence: true, userId: USER_UID }),
+    );
+    expect(pushSessionRevokedMock).toHaveBeenCalled();
   });
 
   it('logs but does not throw when the session upsert fails', async () => {

@@ -97,6 +97,12 @@ const { AuthService } = await import('../../services/auth/authService.js');
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockPrisma.$transaction.mockImplementation(async (callback) => callback(mockPrisma));
+  mockPrisma.$queryRawUnsafe.mockImplementation(async (sql) => (
+    String(sql).includes('live_identity_rows')
+      ? [{ identity_rows: 1, live_identity_rows: 1, token_epoch: 0 }]
+      : []
+  ));
 });
 
 // ---------- getUserByPhone ----------
