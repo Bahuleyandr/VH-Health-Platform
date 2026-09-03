@@ -125,7 +125,9 @@ const CAMPAIGN_COLUMNS = `
   schedule_policy, rate_policy, audience_kind, approval_required_role,
   created_by, submitted_by, submitted_at, approved_by, approved_at,
   scheduled_at, started_at, completed_at, cancelled_at,
-  frozen_audience_hash, current_audience_snapshot_id, created_at, updated_at
+  frozen_audience_hash, current_audience_snapshot_id,
+  approval_material, approval_material_hash, approved_material_hash,
+  created_at, updated_at
 `;
 
 const TEMPLATE_COLUMNS = `
