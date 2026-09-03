@@ -54,7 +54,10 @@ function renderAs(role: string | null) {
 function enumerateCalls() {
   return fetchAdminAPI.mock.calls
     .map((c) => String(c[0]))
-    .filter((u) => u.includes("/clinical/mar/due") || u.includes("/clinical/mar/overdue"));
+    .filter(
+      (u) =>
+        u.includes("/clinical/mar/due") || u.includes("/clinical/mar/overdue"),
+    );
 }
 
 beforeEach(() => {
@@ -123,7 +126,9 @@ describe("MAR due-list gate", () => {
     // which is the point, because the backend grants them these.
     renderAs("SUPER_ADMIN");
     expect(
-      await screen.findByRole("heading", { name: /medication administration/i }),
+      await screen.findByRole("heading", {
+        name: /medication administration/i,
+      }),
     ).toBeInTheDocument();
   });
 });
