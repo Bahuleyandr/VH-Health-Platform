@@ -63,14 +63,15 @@ const withAuthIdentityLifecycleLocks = tokenBlacklist.withAuthIdentityLifecycleL
 // inside setTenantTx and stamps that tenant on the row. admins carries only
 // the permissive tenant_isolation policy and keeps the bare transaction.
 async function createIdentityTx(realm, args, { tenantId = null } = {}) {
+  const create = (tx, createArgs) => tx[realm].create(createArgs);
   if (realm === 'users') {
     if (!tenantId) {
       throw new Error('User identity creation requires the tenant resolved from the request');
     }
     const scopedArgs = { ...args, data: { tenant_id: tenantId, ...(args?.data || {}) } };
-    return setTenantTx(tenantId, (tx) => tx[realm].create(scopedArgs));
+    return setTenantTx(tenantId, (tx) => create(tx, scopedArgs));
   }
-  return prisma.$transaction(async (tx) => tx[realm].create(args));
+  return prisma.$transaction(async (tx) => create(tx, args));
 }
 
 // Lock a single password-reset OTP after this many failed verify attempts.
