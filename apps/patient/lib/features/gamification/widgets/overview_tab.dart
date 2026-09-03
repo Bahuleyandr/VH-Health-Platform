@@ -101,7 +101,7 @@ class OverviewTab extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        'points',
+                        l10n.gamificationPointsLabel,
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: cs.onSurface.withValues(alpha: 0.6),
                         ),
@@ -133,7 +133,12 @@ class OverviewTab extends StatelessWidget {
           if (nextTier.isNotEmpty)
             Center(
               child: Text(
-                'Next: $nextTier ${pointsToNext > 0 ? '-- $pointsToNext more points' : ''}',
+                pointsToNext > 0
+                    ? l10n.gamificationNextTierWithPoints(
+                        nextTier,
+                        pointsToNext,
+                      )
+                    : l10n.gamificationNextTier(nextTier),
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: cs.onSurface.withValues(alpha: 0.6),
                 ),

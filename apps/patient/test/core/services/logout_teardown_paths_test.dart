@@ -63,6 +63,7 @@ import 'package:vhhealth/features/auth/widgets/otp_widget.dart';
 import 'package:vhhealth/features/settings/controllers/settings_controller.dart';
 import 'package:vhhealth/features/settings/services/account_deletion_service.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/generated/app_localizations_en.dart';
 
 /// The complete teardown, in order. Every logout path must produce exactly
 /// this sequence — nothing skipped, nothing reordered.
@@ -357,7 +358,12 @@ void main() {
       await tester.pumpAndSettle();
 
       // Confirm in the dialog (the only ElevatedButton on screen).
-      await tester.tap(find.widgetWithText(ElevatedButton, 'Logout'));
+      await tester.tap(
+        find.widgetWithText(
+          ElevatedButton,
+          AppLocalizationsEn().settingsLogout,
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(calls, fullTeardown);
@@ -387,7 +393,12 @@ void main() {
 
       await tester.tap(find.byType(ListTile));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(ElevatedButton, 'Logout'));
+      await tester.tap(
+        find.widgetWithText(
+          ElevatedButton,
+          AppLocalizationsEn().settingsLogout,
+        ),
+      );
       await tester.pump();
       await tester.pump();
 
@@ -441,7 +452,12 @@ void main() {
 
       await tester.tap(find.byType(ListTile));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(ElevatedButton, 'Logout'));
+      await tester.tap(
+        find.widgetWithText(
+          ElevatedButton,
+          AppLocalizationsEn().settingsLogout,
+        ),
+      );
       await tester.pump();
       await tester.pump();
 
@@ -466,7 +482,9 @@ void main() {
       );
       expect(outcome.revocationRetryQueued, isFalse);
       expect(
-        find.text(LogoutButton.logoutWarningMessage(outcome)!),
+        find.text(
+          LogoutButton.logoutWarningMessage(outcome, AppLocalizationsEn())!,
+        ),
         findsOneWidget,
       );
       // And it must NOT be the "we will retry for you" copy — there is no
@@ -479,6 +497,7 @@ void main() {
               vhSessionRevoked: true,
               revocationRetryQueued: true,
             ),
+            AppLocalizationsEn(),
           )!,
         ),
         findsNothing,

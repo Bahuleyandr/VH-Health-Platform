@@ -11,6 +11,7 @@ void main() {
       'lib/features/abdm/widgets/abha_enrolment_flow.dart',
       'lib/core/widgets/main_scaffold_go_router.dart',
       'lib/features/appointments/screens/appointments_screen.dart',
+      'lib/features/about/screens/about_us_screen.dart',
       'lib/features/pharmacy/screens/pharmacy_screen.dart',
       'lib/features/pharmacy/widgets/order_form_tab.dart',
       'lib/features/portal/screens/bills_screen.dart',
@@ -31,6 +32,9 @@ void main() {
       RegExp(r'''labelText:\s*['"]'''),
       RegExp(r'''hintText:\s*['"]'''),
       RegExp(r'''tooltip:\s*['"]'''),
+      RegExp(r'''_showError\(\s*['"]'''),
+      RegExp(r'''failureMessage\(\s*['"]'''),
+      RegExp(r'''_showPhoneOptions\(\s*context,\s*['"]'''),
     ];
     final abdmScreenPatterns = <RegExp>[
       RegExp(r'''message:\s*['"]'''),

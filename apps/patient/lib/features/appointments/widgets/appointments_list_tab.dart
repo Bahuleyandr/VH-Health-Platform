@@ -714,7 +714,7 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Showing appointments for ${activeDep.name}',
+                  l10n.appointmentListForDependent(activeDep.name),
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: cs.tertiary,
                     fontWeight: FontWeight.w600,

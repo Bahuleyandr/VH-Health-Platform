@@ -191,11 +191,16 @@ class _FakeDischargeSummariesRepository
   int detailRequests = 0;
 
   @override
-  Future<DischargeSummariesPage> listSummaries() async =>
-      DischargeSummariesPage(summaries: summaries);
+  Future<DischargeSummariesPage> listSummaries({
+    required String loadFailureMessage,
+    required String refreshFailureMessage,
+  }) async => DischargeSummariesPage(summaries: summaries);
 
   @override
-  Future<DischargeSummary> getSummary(int id) async {
+  Future<DischargeSummary> getSummary(
+    int id, {
+    required String loadFailureMessage,
+  }) async {
     detailRequests += 1;
     return summaries.firstWhere((summary) => summary.id == id);
   }
