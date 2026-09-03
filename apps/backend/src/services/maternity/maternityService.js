@@ -144,8 +144,8 @@ async function assertPregnancyInTenant(tenantId, pregnancyId) {
 }
 
 async function assertAdmissionInTenant(tenantId, admissionId, patientUid = null) {
-  const id = Number.parseInt(admissionId, 10);
-  if (!Number.isInteger(id) || id <= 0) {
+  const id = exactPositiveInt4OrNull(admissionId);
+  if (id === null) {
     throw AppError.badRequest('admission_id must be a positive integer');
   }
   const rows = await prisma.$queryRawUnsafe(
@@ -163,8 +163,8 @@ async function assertAdmissionInTenant(tenantId, admissionId, patientUid = null)
 }
 
 async function assertDeliveryInTenant(tenantId, deliveryId) {
-  const id = Number.parseInt(deliveryId, 10);
-  if (!Number.isInteger(id) || id <= 0) {
+  const id = exactPositiveInt4OrNull(deliveryId);
+  if (id === null) {
     throw AppError.badRequest('delivery_id must be a positive integer');
   }
   const rows = await prisma.$queryRawUnsafe(
@@ -182,8 +182,8 @@ async function assertDeliveryInTenant(tenantId, deliveryId) {
 }
 
 async function assertNewbornInTenant(tenantId, newbornId, deliveryId = null) {
-  const id = Number.parseInt(newbornId, 10);
-  if (!Number.isInteger(id) || id <= 0) {
+  const id = exactPositiveInt4OrNull(newbornId);
+  if (id === null) {
     throw AppError.badRequest('newborn_id must be a positive integer');
   }
   const rows = await prisma.$queryRawUnsafe(
@@ -840,11 +840,37 @@ export async function recordAncVisit({
     // its own canonical revision instead of colliding with revision 1's key.
     const txRevision = await currentCanonicalTransactionRevision(tx);
 
+    // DERIVED, not forced. This used to write `is_pregnant = TRUE`
+    // unconditionally, which contradicted the projection updatePregnancy and
+    // recordDelivery derive from stored ongoing episodes: recording an ANC
+    // visit against an already-delivered episode flipped the mother back to
+    // pregnant, and whichever writer ran last won. Same CTE as the other two,
+    // so all three writers now agree by construction.
     const projected = await tx.$executeRawUnsafe(
-      `UPDATE users
-          SET is_pregnant = TRUE,
+      `WITH projection AS (
+         SELECT EXISTS (
+                  SELECT 1
+                    FROM maternity_pregnancies
+                   WHERE tenant_id = $1::uuid
+                     AND patient_uid = $2::uuid
+                     AND status = 'ongoing'
+                ) AS is_pregnant,
+                (
+                  SELECT lmp_date
+                    FROM maternity_pregnancies
+                   WHERE tenant_id = $1::uuid
+                     AND patient_uid = $2::uuid
+                     AND status = 'ongoing'
+                   ORDER BY created_at DESC, id DESC
+                   LIMIT 1
+                ) AS lmp_date
+       )
+       UPDATE users u
+          SET is_pregnant = projection.is_pregnant,
+              pregnancy_lmp_date = projection.lmp_date,
               updated_at = NOW()
-        WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+         FROM projection
+        WHERE u.tenant_id = $1::uuid AND u.uid = $2::uuid`,
       tid,
       String(lockedPregnancy.patient_uid),
     );
@@ -1128,8 +1154,8 @@ export async function getActivePregnancyForPatient({ tenantId, patient_uid }) {
  * which calls this after resolving the active pregnancy.
  */
 export async function getAncTimelineForPregnancy({ tenantId, pregnancy_id }) {
-  const id = Number.parseInt(pregnancy_id, 10);
-  if (!Number.isInteger(id) || id <= 0) {
+  const id = exactPositiveInt4OrNull(pregnancy_id);
+  if (id === null) {
     throw AppError.badRequest('pregnancy_id must be a positive integer');
   }
   const tid = tenantOr(tenantId);
@@ -1795,8 +1821,8 @@ export async function maybePropagateAncSupplements({
 }
 
 export async function listSupplements({ tenantId, pregnancy_id, activeOnly = false }) {
-  const id = Number.parseInt(pregnancy_id, 10);
-  if (!Number.isInteger(id) || id <= 0) {
+  const id = exactPositiveInt4OrNull(pregnancy_id);
+  if (id === null) {
     throw AppError.badRequest('pregnancy_id must be a positive integer');
   }
   const tid = tenantOr(tenantId);
@@ -1952,8 +1978,8 @@ export async function recordFetalKick({
  * Finding: 2026-05-08-obstetric-anc-doctor-no-prior-orders-surfaced.
  */
 export async function listPriorOrdersForPregnancy({ tenantId, pregnancy_id }) {
-  const id = Number.parseInt(pregnancy_id, 10);
-  if (!Number.isInteger(id) || id <= 0) {
+  const id = exactPositiveInt4OrNull(pregnancy_id);
+  if (id === null) {
     throw AppError.badRequest('pregnancy_id must be a positive integer');
   }
   const tid = tenantOr(tenantId);
@@ -2015,8 +2041,8 @@ export async function listPriorOrdersForPregnancy({ tenantId, pregnancy_id }) {
 }
 
 export async function listFetalKicks({ tenantId, pregnancy_id, fromDate = null, toDate = null }) {
-  const id = Number.parseInt(pregnancy_id, 10);
-  if (!Number.isInteger(id) || id <= 0) {
+  const id = exactPositiveInt4OrNull(pregnancy_id);
+  if (id === null) {
     throw AppError.badRequest('pregnancy_id must be a positive integer');
   }
   const tid = tenantOr(tenantId);
@@ -2123,7 +2149,7 @@ export async function setSupplementReminder({
   tenantId, pregnancy_id, supplement_id, reminder_enabled,
   actor_uid, actor_role,
 }) {
-  const pregnancyId = Number.parseInt(pregnancy_id, 10);
+  const pregnancyId = exactPositiveInt4OrNull(pregnancy_id);
   const supplementId = Number.parseInt(supplement_id, 10);
   if (!Number.isInteger(pregnancyId) || pregnancyId <= 0) {
     throw AppError.badRequest('pregnancy_id must be a positive integer');

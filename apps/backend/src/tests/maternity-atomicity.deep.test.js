@@ -592,7 +592,11 @@ d('C2 maternity atomic writes', () => {
   });
 
   test('updatePregnancy preserves the newest ongoing pregnancy projection when correcting an older episode', async () => {
-    const patientUid = await seedUser({ isPregnant: true, lmpDate: '2025-12-01' });
+    // Seeded DELIBERATELY WRONG (is_pregnant false, a stale lmp_date that
+    // matches neither episode) so the assertions below can only pass if the
+    // derived projection actually ran. Seeding the expected values would make
+    // this test pass with the projection write deleted entirely.
+    const patientUid = await seedUser({ isPregnant: false, lmpDate: '2024-01-01' });
     const olderPregnancy = await seedPregnancy({
       patientUid,
       pregnancyNumber: 1,
@@ -627,7 +631,14 @@ d('C2 maternity atomic writes', () => {
     expect(latestRows[0].lmp_date).toBe('2025-12-01');
   });
 
-  test('updatePregnancy and recordAncVisit use one lock order and settle without deadlock or lost writes', async () => {
+  // What this proves: with one writer parked mid-transaction, the other WAITS
+  // and both then commit with no lost write and exactly one event pair each.
+  // What it deliberately does NOT prove is the lock ORDER — the barrier fires
+  // on the ANC insert, by which point recordAncVisit already holds both row
+  // locks, so no cycle is constructible and this passes even with a writer's
+  // order flipped (measured). The order is pinned at source instead, by
+  // unit/maternityLockOrderSourceContract.test.js.
+  test('updatePregnancy waits for a parked recordAncVisit and both settle without lost writes', async () => {
     const patientUid = await seedUser({ isPregnant: true, lmpDate: '2025-10-01' });
     const pregnancy = await seedPregnancy({ patientUid, lmpDate: '2025-10-01' });
     const namespace = 19019;
@@ -684,8 +695,17 @@ d('C2 maternity atomic writes', () => {
 
     expect(results).toHaveLength(2);
     for (const result of results) {
+      // Report the driver code on failure. The previous shape asserted
+      // `fulfilled` first and only then inspected `result.reason`, so the
+      // 40P01 (deadlock detected) branch was unreachable JS: the expect above
+      // it had already thrown, and the failure read only "rejected".
+      if (result.status === 'rejected') {
+        throw new Error(
+          `concurrent maternity write rejected: code=${result.reason?.code} `
+          + `${result.reason?.message}`,
+        );
+      }
       expect(result.status).toBe('fulfilled');
-      if (result.status === 'rejected') expect(result.reason?.code).not.toBe('40P01');
     }
     const pregnancyRows = await prisma.$queryRawUnsafe(
       `SELECT lmp_date::text AS lmp_date, notes

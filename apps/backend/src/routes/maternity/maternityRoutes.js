@@ -57,8 +57,19 @@ function requireStaffAdminOrPatient(req, res, next) {
 
 async function ensurePregnancyAccess(req, res, pregnancyId) {
   if (!isPatient(req.user?.role)) return true;
+  // FAIL CLOSED. This used to `return true` on an unparseable id, which was
+  // survivable only while the guard and the services behind it parsed
+  // identically. They no longer do: this guard uses the exact int4 parser while
+  // getAncTimelineForPregnancy/listFetalKicks used Number.parseInt, which
+  // accepts '012', '12abc', ' 12', '+12' and '12.9' as 12. An id in that gap
+  // skipped the ownership check entirely and served another patient's record.
+  // Both sides now use the same parser AND this refuses rather than allows, so
+  // neither half alone can reopen the hole.
   const parsedId = exactPositiveInt4OrNull(pregnancyId);
-  if (parsedId === null) return true;
+  if (parsedId === null) {
+    error(res, 'pregnancy id must be a positive integer', 400);
+    return false;
+  }
   const pregnancy = await mat.getPregnancy({ tenantId: tenantOf(req), id: parsedId });
   if (String(pregnancy.patient_uid) !== String(req.user?.uid)) {
     error(res, 'Forbidden', 403);
