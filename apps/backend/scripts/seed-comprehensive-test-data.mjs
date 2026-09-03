@@ -10,6 +10,7 @@ import {
 import { CLINICAL_CONTINUITY_SEED_FIXTURE } from './lib/clinicalContinuitySeedFixture.mjs';
 import { INTENTIONALLY_EMPTY_SEED_TABLES } from '../src/db/seedCoveragePolicy.js';
 import { assertSyntheticSeedTarget } from './lib/testDataSeedGuard.mjs';
+import { columnBoundValue } from './lib/checkConstraintValues.mjs';
 
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const STAFF_PASSWORD = process.env.VH_TEST_STAFF_PASSWORD || ['test', '1234'].join('');
@@ -551,33 +552,14 @@ function detectXorPair(definition) {
 function checkedValue(checksByTable, table, column) {
   const textTypes = new Set(['bpchar', 'char', 'name', 'text', 'varchar']);
   if (!textTypes.has(column.udt_name)) return null;
-
-  const definitions = checksByTable.get(table) || [];
-  const lowerColumn = column.column_name.toLowerCase();
-  // A definition that constrains THIS column by regex is describing its FORMAT,
-  // not its allowed values, so none of its literals belong to it — they belong to
-  // the conjuncts next door. Harvesting them anyway is how a CHAR(64) digest
-  // column ends up holding 'RESERVED' or 'ADMIN': the first clean literal of a
-  // big multi-column identity CHECK wins, and every hex pattern is already
-  // filtered out below for looking like a regex. Skip such a definition and let
-  // semanticValue answer the format question instead. pg_get_constraintdef
-  // deparses a bpchar/varchar regex test as ((col)::text ~ '...'::text), so the
-  // cast and parens are tolerated. Column names here are all [a-z0-9_], so
-  // interpolating one into a RegExp is safe.
-  const formatConstrained = new RegExp(
-    `\\b${lowerColumn}\\b[)\\s]*(?:::\\s*[a-z][a-z0-9_ ]*)?[)\\s]*!?~`
-  );
-  for (const definition of definitions) {
-    const lowerDefinition = definition.toLowerCase();
-    if (!lowerDefinition.includes(lowerColumn)) continue;
-    if (formatConstrained.test(lowerDefinition)) continue;
-    const values = [...definition.matchAll(/'([^']+)'(?:::|,|\)|\])/g)].map(match => match[1]);
-    const cleaned = values.filter(
-      value => !value.includes('::') && value.length <= 80 && !/[\\^$[\]{}+*?]/.test(value)
-    );
-    if (cleaned.length) return cleaned[0];
-  }
-  return null;
+  // A literal belongs to THIS column only when the atom carrying it compares
+  // this column; a literal that would engage a side condition on another
+  // column (`event_type <> 'release' OR release_method IS NOT NULL`) is
+  // avoided; and the answer is a function of the set of definitions, never of
+  // the order the catalog returned them in. Format constraints (regex, LIKE)
+  // contribute nothing, so semanticValue answers those as before. See
+  // scripts/lib/checkConstraintValues.mjs.
+  return columnBoundValue(checksByTable.get(table) || [], column.column_name);
 }
 
 function semanticValue(column, table, index, ctx, maxLength) {
