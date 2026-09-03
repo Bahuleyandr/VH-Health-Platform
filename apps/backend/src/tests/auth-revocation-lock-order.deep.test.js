@@ -102,7 +102,12 @@ describeIfDb('auth identity advisory lock ordering', () => {
     await Promise.all([registration.end(), lifecycleWriter.end()]);
   });
 
-  test('registration and lifecycle mutation serialize advisory-first without a row-lock cycle', async () => {
+  // This case holds the identity lock from one open transaction and proves a
+  // lifecycle writer blocks on it and applies after commit. It does NOT drive
+  // an identity creation path: creation takes no lifecycle lock (the new row is
+  // invisible until commit and its uid is database-generated), see
+  // src/tests/unit/authIdentityCreationWriterLocks.test.js.
+  test('a lifecycle writer blocks on the identity lock held by another open transaction and applies after it commits', async () => {
     await registration.query('BEGIN');
     await registration.query("SET LOCAL app.current_tenant_id = 'bypass'");
     await registration.query("SET LOCAL lock_timeout = '5s'");

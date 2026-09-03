@@ -12,10 +12,7 @@ import { ensureHospitalNumber } from '../patient/patientIdentifierService.js';
 import { registerNotificationDevice } from '../notification/deviceRegistrationService.js';
 import { DEFAULT_TENANT_ID, resolveTenantForRequest } from '../tenant/tenantService.js';
 import { issueAccessTokenAndClaimSession, generateRefreshToken } from './loginSessionHelper.js';
-import {
-  revokeAllUserTokens,
-  withAuthIdentityLifecycleLocks,
-} from '../../utils/tokenBlacklist.js';
+import { revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
 
 // Local pg-shape shim: returns the raw `rows` array directly for any
 // query that produces rows (SELECT / WITH / `… RETURNING …`), so call
@@ -119,7 +116,7 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
         ],
         tx,
       );
-      return withAuthIdentityLifecycleLocks(tx, [rows[0].uid], async () => rows);
+      return rows;
     });
     user = insertResult[0];
     isNewUser = true;
@@ -658,7 +655,7 @@ export const legacyRegisterUser = async (userData, req, { deviceType } = {}) => 
       [tenantId, normalizedPhone, name, gender, email, birthday, anniversary, address, 'PATIENT'],
       tx,
     );
-    return withAuthIdentityLifecycleLocks(tx, [rows[0].uid], async () => rows);
+    return rows;
   });
 
   const user = insertResult[0];

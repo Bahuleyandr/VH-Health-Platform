@@ -275,11 +275,9 @@ describe('patientSearchController front-office mutations', () => {
     expect(insertedPhone).toBe('+919876543210');
     expect(insertedName).toBe('Codex Test Patient');
     expect(insertedGender).toBe('female');
-    expect(lifecycleLockMock).toHaveBeenCalledWith(
-      __prismaDefaultMock,
-      [PATIENT_UID],
-      expect.any(Function),
-    );
+    // Creation takes no lifecycle lock: the row is invisible until commit and
+    // its uid is database-generated, so nothing can contend for it.
+    expect(lifecycleLockMock).not.toHaveBeenCalled();
     expect(logAuditMock).toHaveBeenCalledWith(
       req,
       'FRONT_OFFICE_PATIENT_CREATED',
@@ -394,11 +392,9 @@ describe('patientSearchController front-office mutations', () => {
     expect(JSON.parse(signals)).toEqual({ name_exact: true, birthday_exact: true });
     expect(decidedBy).toBe(req.user.uid);
     expect(reason).toBe('Different person verified with photo ID');
-    expect(lifecycleLockMock).toHaveBeenCalledWith(
-      __prismaDefaultMock,
-      [PATIENT_UID],
-      expect.any(Function),
-    );
+    // Creation takes no lifecycle lock: the row is invisible until commit and
+    // its uid is database-generated, so nothing can contend for it.
+    expect(lifecycleLockMock).not.toHaveBeenCalled();
     expect(logAuditMock).toHaveBeenCalledWith(
       req,
       'FRONT_OFFICE_PATIENT_DUPLICATE_OVERRIDE',

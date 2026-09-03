@@ -47,12 +47,13 @@ if (
 const withAuthIdentityLifecycleLocks = tokenBlacklist.withAuthIdentityLifecycleLocks
   ?? ((_client, _uids, fn) => fn(_client));
 
-async function createIdentityWithLifecycleLock(realm, args) {
-  return prisma.$transaction(async (tx) => {
-    const identity = await tx[realm].create(args);
-    await withAuthIdentityLifecycleLocks(tx, [identity.uid], async () => identity);
-    return identity;
-  });
+// Identity creation takes no lifecycle lock: the new row is invisible to every
+// other transaction until commit and its uid is database-generated, so nothing
+// can contend for it (see withAuthIdentityLifecycleLocks in tokenBlacklist.js).
+// The interactive transaction is kept so the create runs on the same client
+// shape as before; it is not a synchronisation point.
+async function createIdentityTx(realm, args) {
+  return prisma.$transaction(async (tx) => tx[realm].create(args));
 }
 
 // Lock a single password-reset OTP after this many failed verify attempts.
@@ -159,7 +160,7 @@ export class AuthService {
             data: { updated_at: now },
             select: { uid: true, id: true, name: true, phone: true, role: true },
           })
-        : await createIdentityWithLifecycleLock('users', {
+        : await createIdentityTx('users', {
             data: {
               phone: normalizedPhone,
               role: 'PATIENT',
@@ -794,7 +795,7 @@ export class AuthService {
 
       const passwordHash = await bcrypt.hash(password, 10);
 
-      const newAdmin = await createIdentityWithLifecycleLock('admins', {
+      const newAdmin = await createIdentityTx('admins', {
         data: {
           username,
           password_hash: passwordHash,
@@ -1456,7 +1457,7 @@ export class AuthService {
       }
       const now = new Date();
 
-      const user = await createIdentityWithLifecycleLock('users', {
+      const user = await createIdentityTx('users', {
         data: {
           phone: normalizedPhone,
           role: 'PATIENT',
@@ -1669,7 +1670,7 @@ export class AuthService {
             data: { updated_at: now },
             select: { uid: true, id: true, name: true, phone: true, role: true },
           })
-        : await createIdentityWithLifecycleLock('users', {
+        : await createIdentityTx('users', {
             data: {
               phone: normalizedPhone,
               role: 'PATIENT',

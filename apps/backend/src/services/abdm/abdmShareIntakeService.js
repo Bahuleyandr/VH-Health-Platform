@@ -39,7 +39,6 @@ import {
   recordWebhookEvent,
 } from '../abdmFull/abdmHipHiuService.js';
 import abdmService from './abdmService.js';
-import { withAuthIdentityLifecycleLocks } from '../../utils/tokenBlacklist.js';
 
 const SHARE_INTAKE_TTL_MINUTES = 30;
 const DUPLICATE_OVERRIDE_MIN_REASON = 10;
@@ -410,7 +409,6 @@ export async function registerFromShareIntake({
       phone, name, gender, birthday, address, tid,
     );
     const patient = created[0];
-    await withAuthIdentityLifecycleLocks(tx, [patient.uid], async () => undefined);
 
     if (duplicateScan.candidates.length > 0) {
       await recordRegistrationDuplicateOverride({

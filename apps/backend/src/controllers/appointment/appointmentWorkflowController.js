@@ -15,7 +15,6 @@ import { canWriteAppointmentClinical } from '../../utils/appointment/appointment
 import { isDoctor } from '../../utils/roleHelpers.js';
 import { AppError } from '../../utils/AppError.js';
 import { istDateString } from '../../utils/dateUtils.js';
-import { withAuthIdentityLifecycleLocks } from '../../utils/tokenBlacklist.js';
 import { resolveDoctorRef } from '../../services/doctor/doctorRefService.js';
 import { emitAppointmentEvent } from '../../utils/websocket/realtimeEmitter.js';
 import { ensureAppointmentQueueForAppointment } from '../../services/appointment/appointmentQueueService.js';
@@ -1904,7 +1903,6 @@ export const registerWalkIn = async (req, res) => {
                 guardian_name ? String(guardian_name).trim().slice(0, 160) : 'Guardian',
                 actingTenantId,
               );
-              await withAuthIdentityLifecycleLocks(tx, [newGuardian[0].uid], async () => undefined);
               guardianUserIdInt = newGuardian[0].id;
             }
           }
@@ -1988,7 +1986,6 @@ export const registerWalkIn = async (req, res) => {
             chronicMedsJson,
             actingTenantId,
           );
-          await withAuthIdentityLifecycleLocks(tx, [newUser[0].uid], async () => undefined);
           patientId = newUser[0].id;
           patientIdentity = await lockAppointmentPatientIdentity(tx, {
             tenantId: actingTenantId,

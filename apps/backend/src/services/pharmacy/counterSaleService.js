@@ -52,7 +52,6 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { boundedInteger } from '../../utils/pagination.js';
 import { istDateString } from '../../utils/dateUtils.js';
-import { withAuthIdentityLifecycleLocks } from '../../utils/tokenBlacklist.js';
 import {
   recordMovementTx, dispenseControlledTx, lockControlledRegisterItemTx,
 } from './inventoryV2Service.js';
@@ -214,7 +213,7 @@ async function ensureWalkInAnchorUidTx(tenant, db) {
     tenant,
   );
   if (inserted.length) {
-    return withAuthIdentityLifecycleLocks(db, [inserted[0].uid], async () => inserted[0].uid);
+    return inserted[0].uid;
   }
   const rows = await db.$queryRawUnsafe(
     `SELECT uid FROM users

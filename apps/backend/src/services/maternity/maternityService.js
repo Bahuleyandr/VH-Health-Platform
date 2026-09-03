@@ -21,7 +21,6 @@ import { boundedInteger } from '../../utils/pagination.js';
 import logger from '../../logging/logger.js';
 import { checkVitalAnomalies } from '../../utils/clinical/vitalSignMonitor.js';
 import { istDateString } from '../../utils/dateUtils.js';
-import { withAuthIdentityLifecycleLocks } from '../../utils/tokenBlacklist.js';
 import notificationOutbox from '../../utils/notifications/notificationOutbox.js'; // eslint-disable-line import/no-named-as-default
 import { queueClinicalAlertFanout } from '../../utils/notifications/clinicalAlertFanout.js';
 import {
@@ -2969,7 +2968,6 @@ export async function recordNewborn({
         tid,
       );
       const infant = infantRows[0];
-      await withAuthIdentityLifecycleLocks(tx, [infant.uid], async () => undefined);
       infantUid = String(infant.uid);
 
       // G-3: guardian(mother) consent evidence through the EXISTING
