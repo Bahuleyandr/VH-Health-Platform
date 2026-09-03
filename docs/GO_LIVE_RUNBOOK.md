@@ -1,8 +1,15 @@
 # Go-Live Runbook
 
-Status: operator activation runbook for the first production pilot.
+Status: **HELD operator activation sequence for a possible first production
+pilot.**
 
-This runbook turns the go-live board into one dependency-ordered activation path. It assumes the codebase is already deployed from `github/main`, but that production-impacting switches remain held until the evidence gate for each phase is attached to the activation packet.
+This runbook turns the go-live board into one dependency-ordered evidence path.
+It does not assume the code is deployed and it does not authorize any command.
+As of 2026-09-02, the current status is STOP; see
+[`GO_LIVE_READINESS_GAP_MATRIX.md`](GO_LIVE_READINESS_GAP_MATRIX.md). Every
+write requires the named owner, exact target SHA/environment, approved change
+window, rollback owner, and retained evidence. Missing input is a stop, not an
+instruction for engineering to choose a value.
 
 ## Rules Of Engagement
 
@@ -10,6 +17,10 @@ This runbook turns the go-live board into one dependency-ordered activation path
 - Treat every command that writes to a cluster, database, tenant setting, IdP, DNS zone, or external integration as an operator action requiring the named owner.
 - Do not attach secrets, PHI, raw IdP assertions, raw NHCX payloads, or private keys to the evidence packet. Attach redacted command output, signed owner approval, hashes, run IDs, and screenshots where appropriate.
 - Keep rollback ready before each flip. If rollback cannot be run by the on-call operator without escalation, the step is not ready.
+- Production ArgoCD Applications stay manual-sync. A merge, `OutOfSync` state,
+  CI result, prepared Secret, or rendered manifest never authorizes a sync.
+- Forward SQL migrations have no generic down path. Do not describe an image or
+  DSN rollback as undoing schema/data changes.
 - The production sequence is: cluster, release pins, tenant, identity, terminology and content, media, device gateway, NHCX, clinical flips, monitoring and DR, external certification, cutover.
 
 ## Evidence Packet Layout
@@ -48,17 +59,22 @@ Evidence gate:
 - No active production deploy is in progress.
 - Operator owners are present or delegated for every owner in this runbook.
 - The owner decisions in the final section are filled in and approved.
+- PR #872 (`INF-006`) external containment is complete and the named release
+  authority has supplied a retained receipt. As of 2026-09-02 it is not
+  complete: the PR remains open/draft/HELD.
 
 Commands:
 
 ```powershell
 git fetch github --prune
-git switch main
-git reset --hard github/main
 git status -sb
-git rev-parse HEAD
+git rev-parse github/main
 gh run list --repo Bahuleyandr/VH-Health-Platform --branch main --limit 10
 ```
+
+Run these read-only checks in a clean isolated checkout of the exact candidate
+SHA. Do not reset, clean, switch, or overwrite a checkout owned by another
+operator or agent.
 
 Confirm the held surfaces are still held before activation:
 
@@ -81,10 +97,14 @@ Dependency: Phase 0.
 
 Evidence gate:
 
-- Node, storage, ingress, Cloudflare Tunnel, cert-manager, Argo CD, CNPG, R2 backups, Prometheus, Grafana, and alert routing are healthy.
+- Node, storage, ingress, Cloudflare Tunnel, cert-manager, Argo CD, and CNPG
+  have target-environment evidence. Monitoring delivery is not assumed; it is
+  separately proven by the Alertmanager ceremony below.
 - Production image placeholders in `infra/kubernetes/apps/kustomization.yaml` have been replaced by signed digest pins.
 - RLS runtime role is present and the backend does not run as a PostgreSQL superuser.
 - Kyverno is clean in Audit before any Enforce flip.
+- The exact migration target, pre-sync restore point, migration-754 acceptance,
+  migration-753 readiness, and post-run tracker expectation are reviewed.
 
 Commands:
 
@@ -92,10 +112,10 @@ Commands:
 kubectl get nodes -o wide
 kubectl -n argocd get applications
 kubectl -n cnpg-system get pods
-kubectl -n monitoring get pods
+kubectl -n vhhealth-monitoring get pods
 kubectl -n vhhealth get deploy,sts,svc,ingress
-kubectl -n vhhealth describe secret vhhealth-db-runtime
-kubectl -n vhhealth exec deploy/backend -- node -e "console.log(process.env.AUTH_TENANT_RLS_RUNTIME_ROLE || '')"
+kubectl -n vhhealth get secret vhhealth-backend-env -o jsonpath='{.metadata.name}'
+kubectl -n vhhealth exec deploy/vhhealth-backend -- node -e "console.log(process.env.AUTH_TENANT_RLS_RUNTIME_ROLE || '')"
 ```
 
 Pin release images:
@@ -105,7 +125,101 @@ node scripts/update-prod-digests.mjs --verify backend --verify admin --verify st
 git diff -- infra/kubernetes/apps/kustomization.yaml
 ```
 
-Run policy and monitoring validation:
+### 1A - PreSync migration evidence and rollback limit
+
+Owner: database owner with platform ops and the release captain.
+
+OWNER-INPUT — target SHA: ______; environment: ______; database owner: ______;
+payroll data owner: ______; change window: ______; restore decision owner:
+______; evidence location/hash: ______.
+
+Before any `vhhealth-apps` manual sync:
+
+1. Capture the rendered `vhhealth-backend-migration-config`,
+   `vhhealth-payroll-revision-754-acceptance`, and
+   `Job/vhhealth-backend-migrate` hashes without Secret values.
+2. Capture a verified pre-sync backup/restore receipt, the current `_migrations`
+   tail and checksums, the exact target migration files/checksums, and the
+   expected post-run tail.
+3. Run the migration-754 report-only preflight from the approved backend image.
+   If legacy rows exist, the named payroll data owner must accept the exact
+   exported mode-0600 manifest hash. The production acceptance fields are blank
+   by default and must stay a stop until that receipt exists.
+4. STOP on migration-753 activation: the current release has 82 `NOT VALID`
+   constraints, no validation statements, no migration 756, and two unresolved
+   design questions in the readiness gap matrix. An additive readiness
+   migration plus owner-approved zero-open/exception evidence is required.
+5. Only after every preceding receipt is complete may the authorized operator
+   start the exact manual sync. Observe the PreSync Job live and export the Job
+   conditions plus every attempt selected by
+   `batch.kubernetes.io/job-name=vhhealth-backend-migrate` before the 24-hour
+   TTL or another sync removes them. Confirm the owner-bypass gate and the final
+   `_migrations` state independently; `Deployment` progress is not proof.
+
+Failure stop:
+
+- Stop the sync and preserve the ArgoCD stream, Job conditions, every retained
+  attempt log, and database state. `DeadlineExceeded` may delete the running
+  pod, so the live stream is part of the evidence.
+- Do not re-sync merely to obtain fresh logs: `BeforeHookCreation` deletes the
+  prior Job and its pods.
+- Do not edit an applied migration, rewrite `_migrations`, force the Deployment,
+  or assume a previous image reverses schema/data changes.
+- OWNER-INPUT chooses restore-to-new-cluster from the verified pre-sync backup
+  or an additive fix-forward migration after diagnosis. Until that decision and
+  recovery proof exist, production cutover remains stopped.
+
+### 1B - G1 Alertmanager activation ceremony
+
+Owner: SRE/on-call lead with infrastructure and security approvers. The complete
+live drill is
+[`runbooks/C1_3_MONITORING_LIVE_DRILL.md`](runbooks/C1_3_MONITORING_LIVE_DRILL.md).
+
+OWNER-INPUT — exact SHA: ______; environment: ______; operator: ______;
+infrastructure approver: ______; security approver: ______; on-call coordinator:
+______; approved window: ______; prior approved monitoring revision: ______;
+off-site evidence location/retention: ______.
+
+Sequence:
+
+1. Outside git, the owners supply the complete `alertmanager.yaml`, operations
+   webhook and off-site Watchdog endpoints, PagerDuty routing key, Slack API
+   URL, SMTP password, SMTP smarthost/from/username, seven Slack channels, seven
+   team/unmatched email targets, and the named on-call/acknowledgement map. Do
+   not record values or direct contact details in the packet.
+2. Build the private config from `alertmanager.yaml.example`; replace every
+   `OWNER_INPUT` and example-invalid recipient value. Run pinned Alertmanager
+   0.27.0 `amtool check-config` against the private file, then run the repository
+   monitoring and route validators. Retain hashes and route output, including
+   `BackendMigrationJobFailed` to `ops-webhook`, `critical-pagerduty`, and
+   `team-backend`. Template validation is not live-delivery proof.
+3. The authorized secret operator creates the strict-scope six-key
+   `alertmanager-secrets` SealedSecret, commits ciphertext only as the
+   non-example file, and adds that file to
+   `infra/kubernetes/base/monitoring/kustomization.yaml`. Review the exact
+   ciphertext/resource diff and the prior-revision rollback receipt.
+4. The authorized ArgoCD operator manually syncs the approved exact revision of
+   `vhhealth-platform` so the SealedSecret materializes. Verify only the Secret
+   name and six key names. Then separately manually reconcile the approved exact
+   revision of `vhhealth-kube-prometheus` so Alertmanager consumes that Secret.
+   Never enable auto-sync.
+5. Prove Prometheus targets/rules, Grafana dashboards, Alertmanager readiness,
+   and the off-site Watchdog are healthy. Execute C1.3 scrape-to-resolution,
+   owning-rule, and missed-Watchdog drills. Each route must reach a named human,
+   be acknowledged and resolved, and retain delivery identifiers off-site.
+6. G1 remains open until cleanup and rollback proof are attached. Missing input,
+   target, delivery, acknowledgement, resolution, Watchdog, or off-site evidence
+   is a failure, not an accepted partial pass.
+
+Rollback/stop:
+
+- Remove the synthetic drill namespace; manually restore the prior approved
+  monitoring revision; verify all targets and Watchdog heartbeats recover; and
+  preserve both failure and recovery evidence.
+- Never weaken a route, alert, duration, threshold, recipient requirement, or
+  evidence-retention rule to make the ceremony pass.
+
+Run policy and repository monitoring validation as preparation evidence:
 
 ```powershell
 node infra/kubernetes/base/monitoring/validate-monitoring.mjs
@@ -406,7 +520,7 @@ Soak replay and acceptance:
 ```powershell
 npm --prefix apps/backend test -- device-vitals-tenant-scope
 kubectl -n vhhealth exec deployment/device-gateway -c device-gateway -- node scripts/soak-replay.mjs --cycles=250 --duplicate-every=25
-kubectl -n monitoring port-forward svc/prometheus 9090:9090
+kubectl -n vhhealth-monitoring get prometheus -o name
 ```
 
 Files:
@@ -635,7 +749,9 @@ Dependency: Phases 1 through 8 evidence attached.
 Evidence gate:
 
 - PrometheusRule syntax and dashboards validate.
-- Backend SLO burn alerts route to the activation-week on-call.
+- Phase 1B and the complete C1.3 live drill prove backend SLO burn alerts and
+  every required family route to the named activation-week on-call, including
+  acknowledgement, resolution, Watchdog, and rollback evidence.
 - DR drill proves RPO/RTO target or has a signed exception.
 - Backup posture has R2 object lock/versioning and restore evidence.
 - Pen-test readiness pack is current and external tester handoff is complete.
@@ -645,8 +761,8 @@ Commands:
 
 ```powershell
 node infra/kubernetes/base/monitoring/validate-monitoring.mjs
-kubectl -n monitoring get prometheusrule
-kubectl -n monitoring get configmap -l grafana_dashboard=1
+kubectl -n vhhealth-monitoring get prometheusrule
+kubectl -n vhhealth-monitoring get configmap -l grafana_dashboard=1
 ```
 
 DR drill:
@@ -698,15 +814,15 @@ Commands:
 git rev-parse github/main
 gh run list --repo Bahuleyandr/VH-Health-Platform --branch main --limit 10
 kubectl -n vhhealth get deploy
-kubectl -n vhhealth rollout status deploy/backend
-kubectl -n vhhealth rollout status deploy/admin
+kubectl -n vhhealth rollout status deploy/vhhealth-backend
+kubectl -n vhhealth rollout status deploy/vhhealth-admin
 ```
 
 First-week checks:
 
 ```powershell
-kubectl -n vhhealth logs deploy/backend --since=30m --tail=500
-kubectl -n monitoring get alertmanager,prometheus
+kubectl -n vhhealth logs deploy/vhhealth-backend --since=30m --tail=500
+kubectl -n vhhealth-monitoring get alertmanager,prometheus
 node apps/backend/scripts/ledger-reconciliation-evidence.mjs <pilot-tenant-uuid>
 ```
 
@@ -777,6 +893,8 @@ QA rehearsal is acceptable only if every skipped item is listed in `00-owner-dec
 | Device pilot scope | VLAN, monitor vendor/model list, wards/beds, NodePort/LB exposure, triage owner. | Biomedical engineering |
 | NHCX live package | Environment, participant IDs, callback host, finance SOP, payment notice non-settlement rule. | Revenue cycle owner |
 | Compliance acceptance | ABDM/NHCX/certification prerequisites, CERT-In log retention, pen-test signoff, evidence retention location. | Compliance owner |
+| Alertmanager recipient and Watchdog authority | Operations webhook owner, off-site Watchdog service/evidence retention, PagerDuty integration owner, Slack channels, SMTP sender/recipients, drill acknowledgement map. | SRE/on-call lead, security, infrastructure, and department owners |
+| Migration disposition | Payroll-754 manifest owner; inventory-753 readiness/exception owner; answers to 753-D1 and 753-D2; restore vs additive fix-forward decision owner. | Database, payroll, pharmacy, clinical safety, and release owners |
 
 ## Source Map
 
