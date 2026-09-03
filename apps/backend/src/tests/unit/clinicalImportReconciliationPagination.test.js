@@ -94,7 +94,6 @@ function tupleAfter(row, createdAt, itemId) {
 
 function transactionFor(rows, {
   resolvePatient = (patientUid) => [activePatient(patientUid)],
-  concurrencyAvailable = true,
   tenantConcurrencyAvailable = true,
 } = {}) {
   return {
@@ -102,11 +101,12 @@ function transactionFor(rows, {
     $queryRawUnsafe: jest.fn(async (sql, ...parameters) => {
       const query = String(sql);
       if (query.includes('pg_try_advisory_xact_lock')) {
-        return [{
-          acquired: String(parameters[0]).includes(':tenant:')
-            ? tenantConcurrencyAvailable
-            : concurrencyAvailable,
-        }];
+        // The worklist takes exactly one advisory lock: the per-tenant one.
+        // Any other key here would be a fleet-wide cap creeping back in.
+        if (!String(parameters[0]).includes(':tenant:')) {
+          throw new Error(`Unexpected worklist advisory lock key: ${String(parameters[0])}`);
+        }
+        return [{ acquired: tenantConcurrencyAvailable }];
       }
       if (query.includes('budget_probe')) return [{ ok: true }];
       if (query.includes('exact_patient_access_batch')) return [{ ok: true }];
@@ -399,18 +399,7 @@ describe('clinical import reconciliation worklist pagination', () => {
     ))).rejects.toBe(auditFailure);
   });
 
-  it('rejects work when every database-coordinated concurrency slot is held', async () => {
-    transactionDb = transactionFor([makeRow(1)], { concurrencyAvailable: false });
-
-    await expect(listClinicalImportReconciliationItems(listInput(jest.fn())))
-      .rejects.toMatchObject({
-        statusCode: 429,
-        code: 'IMPORT_RECONCILIATION_CONCURRENCY_EXHAUSTED',
-      });
-    expect(transactionDb.$queryRawUnsafe).toHaveBeenCalledTimes(5);
-  });
-
-  it('rejects a second scan for the same tenant before consuming a fleet slot', async () => {
+  it('rejects a second concurrent scan for the same tenant before doing any work', async () => {
     transactionDb = transactionFor([makeRow(1)], { tenantConcurrencyAvailable: false });
 
     await expect(listClinicalImportReconciliationItems(listInput(jest.fn())))
@@ -421,27 +410,35 @@ describe('clinical import reconciliation worklist pagination', () => {
     expect(transactionDb.$queryRawUnsafe).toHaveBeenCalledTimes(1);
   });
 
-  it('admits four fleet-wide scans and rejects the N+1 concurrent scan', async () => {
-    const heldSlots = new Set();
+  it('admits concurrent scans for distinct tenants and only rejects a tenant for its own in-flight scan', async () => {
+    // Real advisory-lock semantics: any key is held by at most one open
+    // transaction, whatever the key is. Six tenants is deliberately more than
+    // the fleet-wide slot pool this worklist used to carry, so a cap keyed on
+    // anything other than the tenant would reject a healthy tenant here.
+    const TENANT_COUNT = 6;
+    const heldLocks = new Map();
+    let arrived = 0;
     let releaseScans;
+    let signalEveryoneArrived;
     const scanBarrier = new Promise(resolve => { releaseScans = resolve; });
-    setTenantTxMock.mockImplementation(async (_tenantId, callback) => {
-      let ownedSlot = null;
+    const everyoneArrived = new Promise(resolve => { signalEveryoneArrived = resolve; });
+    setTenantTxMock.mockImplementation(async (tenantId, callback) => {
+      const owned = [];
       const db = {
         $executeRawUnsafe: jest.fn(async () => 0),
         $queryRawUnsafe: jest.fn(async (sql, ...parameters) => {
           const query = String(sql);
-          if (query.includes('pg_try_advisory_xact_lock')
-            && parameters[0] === 'vh:clinical-import-reconciliation-worklist') {
-            const slot = Number(parameters[1]);
-            if (heldSlots.has(slot)) return [{ acquired: false }];
-            heldSlots.add(slot);
-            ownedSlot = slot;
+          if (query.includes('pg_try_advisory_xact_lock')) {
+            const key = JSON.stringify(parameters);
+            if (heldLocks.has(key)) return [{ acquired: false }];
+            heldLocks.set(key, tenantId);
+            owned.push(key);
             return [{ acquired: true }];
           }
-          if (query.includes('pg_try_advisory_xact_lock')) return [{ acquired: true }];
           if (query.includes('FROM users AS actor')) return [{ uid: ACTOR_UID }];
           if (query.includes('FROM clinical_import_reconciliation_items AS item')) {
+            arrived += 1;
+            if (arrived === TENANT_COUNT) signalEveryoneArrived();
             await scanBarrier;
             return [];
           }
@@ -451,21 +448,36 @@ describe('clinical import reconciliation worklist pagination', () => {
       try {
         return await callback(db);
       } finally {
-        if (ownedSlot != null) heldSlots.delete(ownedSlot);
+        for (const key of owned) heldLocks.delete(key);
       }
     });
 
-    const calls = Array.from({ length: 5 }, () => (
-      listClinicalImportReconciliationItems(listInput(jest.fn()))
+    const tenants = Array.from({ length: TENANT_COUNT }, (_, index) => entityUuid('9', index + 1));
+    const scans = tenants.map(tenantId => (
+      listClinicalImportReconciliationItems({ ...listInput(jest.fn()), tenantId })
     ));
-    await expect(calls[4]).rejects.toMatchObject({
-      statusCode: 429,
-      code: 'IMPORT_RECONCILIATION_CONCURRENCY_EXHAUSTED',
-    });
-    expect(heldSlots.size).toBe(4);
-    releaseScans();
-    await expect(Promise.all(calls.slice(0, 4))).resolves.toHaveLength(4);
-    expect(heldSlots.size).toBe(0);
+    const firstRejection = new Promise(resolve => scans.forEach(scan => scan.catch(resolve)));
+    try {
+      const outcome = await Promise.race([
+        everyoneArrived.then(() => 'every tenant scan is in flight'),
+        firstRejection.then(error => `a tenant scan was rejected: ${error?.code}`),
+      ]);
+      expect(outcome).toBe('every tenant scan is in flight');
+      expect(heldLocks.size).toBe(TENANT_COUNT);
+      expect([...heldLocks.keys()].every(key => key.includes(':tenant:'))).toBe(true);
+
+      await expect(listClinicalImportReconciliationItems({
+        ...listInput(jest.fn()),
+        tenantId: tenants[0],
+      })).rejects.toMatchObject({
+        statusCode: 429,
+        code: 'IMPORT_RECONCILIATION_TENANT_CONCURRENCY_EXHAUSTED',
+      });
+    } finally {
+      releaseScans();
+    }
+    await expect(Promise.all(scans)).resolves.toHaveLength(TENANT_COUNT);
+    expect(heldLocks.size).toBe(0);
   });
 
   it.each([

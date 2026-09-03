@@ -285,8 +285,11 @@ describe('clinical import OpenAPI source contract', () => {
     expect(operation.description).toMatch(/at most 40 total worklist database statements/i);
     expect(operation.description).toMatch(/including the tenant-scope preamble/i);
     expect(operation.description).toMatch(/hard 10-second transaction deadline/i);
-    expect(operation.description).toMatch(/4 database-coordinated global worklist slots/i);
     expect(operation.description).toMatch(/one nonblocking per-tenant worklist lock/i);
+    expect(operation.description).toMatch(/at most one worklist scan is open per tenant/i);
+    expect(operation.description).toMatch(/no fleet-wide concurrency cap/i);
+    expect(operation.description).not.toMatch(/global worklist slots/i);
+    expect(operation.responses['429'].description).not.toMatch(/capacity/i);
     expect(operation.description).toMatch(/429 with Retry-After: 1/i);
     expect(operation.description).toMatch(/even if the visible page is empty/i);
     expect(operation.description).toMatch(/denied work is not rescanned/i);
