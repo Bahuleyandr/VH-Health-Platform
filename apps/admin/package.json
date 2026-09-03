@@ -4,7 +4,6 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "postinstall": "node scripts/patch-minimatch-compat.mjs && node scripts/patch-redocly-js-yaml-compat.mjs",
     "predev": "npm run generate:types",
     "dev": "next dev --turbopack -p 3001",
     "dev:qa": "next dev --turbopack -p 3201",
@@ -94,14 +93,10 @@
   "overrides": {
     "sharp": "$sharp",
     "postcss": "8.5.25",
-    "minimatch": "10.2.5",
     "glob": "^10.5.0",
     "rimraf": "^5.0.10",
     "import-in-the-middle": "3.0.1",
     "@babel/plugin-transform-modules-systemjs": "^7.29.7",
-    "@redocly/openapi-core": {
-      "js-yaml": "5.2.3"
-    },
     "openapi-typescript": {
       "typescript": "$typescript"
     },

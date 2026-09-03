@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { PATCHED_DEPENDENCY_FLOORS, dependencyViolations } from './dependency-floors.mjs';
 
 const repoRoot = process.cwd();
 
@@ -18,11 +19,11 @@ const backendAllowlist = read('apps/backend/src/middleware/ipAllowlistMiddleware
 const backendDockerfile = read('apps/backend/Dockerfile');
 const backendPackage = JSON.parse(read('apps/backend/package.json'));
 const backendCi = read('scripts/ci/backend.mjs');
-const backendMinimatchPatch = read('apps/backend/scripts/patch-minimatch-compat.mjs');
+const backendLock = JSON.parse(read('apps/backend/package-lock.json'));
 const adminMiddleware = read('apps/admin/src/middleware.ts');
 const adminDockerfile = read('apps/admin/Dockerfile');
 const adminPackage = JSON.parse(read('apps/admin/package.json'));
-const adminMinimatchPatch = read('apps/admin/scripts/patch-minimatch-compat.mjs');
+const adminLock = JSON.parse(read('apps/admin/package-lock.json'));
 const staffWebDockerfile = read('apps/staff/Dockerfile.web');
 const mcpIndex = read('infra/mcp/vh-mcp-postgres/index.js');
 const mcpK8s = read('infra/mcp/vh-mcp-postgres/k8s.yaml');
@@ -37,29 +38,31 @@ const githubDalekDeploy = read('.github/workflows/deploy-dalekdefender.yml');
 const backendIngress = read('infra/kubernetes/apps/backend/ingress.yaml');
 
 const sha256Digest = '@sha256:[a-f0-9]{64}';
-const minimatchPatchCopy =
-  'COPY scripts/patch-minimatch-compat.mjs ./scripts/patch-minimatch-compat.mjs';
-const redoclyPatchCopy =
-  'COPY scripts/patch-redocly-js-yaml-compat.mjs ./scripts/patch-redocly-js-yaml-compat.mjs';
-
-function installStagesCopyPostinstallPatches(
-  dockerfile,
-  expectedStageCount,
-  expectedCopies,
-) {
+// OPEN-22 (2026-09-03): the install used to copy a patch script into every
+// `npm ci` stage and rewrite node_modules from postinstall. That is retired;
+// each install stage may copy ONLY the manifests before `npm ci`, and nothing
+// under scripts/ may be named like an install-time compatibility patch.
+const MANIFEST_COPY = /^COPY package\.json package-lock\.json\*? \.\/$/;
+function installStagesCopyOnlyManifestsBeforeNpmCi(dockerfile, expectedStageCount) {
   const installStages = dockerfile
     .split(/^FROM /m)
     .filter((stage) => stage.includes('RUN npm ci'));
   return (
     installStages.length === expectedStageCount &&
-    installStages.every(
-      (stage) =>
-        expectedCopies.every(
-          (copy) =>
-            stage.indexOf(copy) >= 0 &&
-            stage.indexOf(copy) < stage.indexOf('RUN npm ci'),
-        ),
-    )
+    installStages.every((stage) => {
+      const beforeInstall = stage.slice(0, stage.indexOf('RUN npm ci'));
+      const copies = beforeInstall
+        .split(/\r?\n/)
+        .filter((line) => /^COPY\b/.test(line));
+      return copies.length === 1 && MANIFEST_COPY.test(copies[0]);
+    })
+  );
+}
+
+const GUARDED_DEPENDENCIES = Object.keys(PATCHED_DEPENDENCY_FLOORS);
+function lockfileMeetsPatchedFloors(lockfile) {
+  return GUARDED_DEPENDENCIES.every(
+    (dependency) => dependencyViolations(lockfile, dependency).length === 0,
   );
 }
 
@@ -97,19 +100,26 @@ check('release Dockerfiles use digest-pinned base image defaults', () =>
   new RegExp(`^ARG NGINX_IMAGE=nginx:1\\.27-alpine${sha256Digest}$`, 'm').test(staffWebDockerfile) &&
   !/^FROM (node|nginx|debian|ghcr\.io\/cirruslabs\/flutter):/m.test(`${backendDockerfile}\n${adminDockerfile}\n${staffWebDockerfile}`));
 
-check('container npm postinstall hooks remain inside each Docker build context', () =>
-  backendPackage.scripts.postinstall ===
-    'node scripts/patch-minimatch-compat.mjs' &&
-  adminPackage.scripts.postinstall ===
-    'node scripts/patch-minimatch-compat.mjs && node scripts/patch-redocly-js-yaml-compat.mjs' &&
-  backendMinimatchPatch === adminMinimatchPatch &&
-  installStagesCopyPostinstallPatches(backendDockerfile, 2, [
-    minimatchPatchCopy,
-  ]) &&
-  installStagesCopyPostinstallPatches(adminDockerfile, 1, [
-    minimatchPatchCopy,
-    redoclyPatchCopy,
-  ]));
+check('no app runs an install-time dependency mutation from postinstall', () =>
+  backendPackage.scripts.postinstall === undefined &&
+  adminPackage.scripts.postinstall === undefined &&
+  !fs.existsSync(path.join(repoRoot, 'apps/backend/scripts/patch-minimatch-compat.mjs')) &&
+  !fs.existsSync(path.join(repoRoot, 'apps/admin/scripts/patch-minimatch-compat.mjs')) &&
+  !fs.existsSync(path.join(repoRoot, 'apps/admin/scripts/patch-redocly-js-yaml-compat.mjs')) &&
+  !fs.readdirSync(path.join(repoRoot, 'apps/backend/scripts')).some((name) => /^patch-.*-compat\.mjs$/.test(name)) &&
+  !fs.readdirSync(path.join(repoRoot, 'apps/admin/scripts')).some((name) => /^patch-.*-compat\.mjs$/.test(name)));
+
+check('Docker install stages copy only the manifests before npm ci', () =>
+  installStagesCopyOnlyManifestsBeforeNpmCi(backendDockerfile, 2) &&
+  installStagesCopyOnlyManifestsBeforeNpmCi(adminDockerfile, 1) &&
+  !/patch-[a-z-]+\.mjs/.test(`${backendDockerfile}\n${adminDockerfile}`));
+
+check('minimatch, brace-expansion and js-yaml resolve natively at patched releases in both apps', () =>
+  backendPackage.overrides?.minimatch === undefined &&
+  adminPackage.overrides?.minimatch === undefined &&
+  adminPackage.overrides?.['@redocly/openapi-core'] === undefined &&
+  lockfileMeetsPatchedFloors(backendLock) &&
+  lockfileMeetsPatchedFloors(adminLock));
 
 check('release workflows keep backend base image overrides digest-pinned', () => {
   const workflowBuilds = `${forgejoReleaseImages}\n${forgejoDalekDeploy}\n${forgejoContainerSupplyChain}\n${githubReleaseImages}\n${githubDalekDeploy}`;
