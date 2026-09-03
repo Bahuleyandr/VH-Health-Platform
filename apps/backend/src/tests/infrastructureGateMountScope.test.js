@@ -22,6 +22,7 @@ import app from '../app.js';
 import infrastructureRouter from '../routes/infrastructure/index.js';
 import { requireProductionInfrastructureAdmin } from '../middleware/infrastructureAccessMiddleware.js';
 import { generateToken } from '../utils/jwtUtils.js';
+import { ensureTestIdentity } from './testClient.js';
 
 const API_KEY = process.env.API_KEY || 'test-api-key';
 const TEST_TENANT_ID = 'aaaaaaaa-0000-4000-8000-000000000001';
@@ -32,6 +33,18 @@ const tokenFor = (role, id, claims = {}) => generateToken({
   role,
   tenant_id: TEST_TENANT_ID,
   ...claims,
+});
+
+// Authentication now fails closed when a token's subject does not resolve to a
+// live identity row, and this suite synthesises its uids from an id rather than
+// using fixed literals — so the subjects have to be seeded before any request,
+// or every case 401s before reaching the gate it is testing.
+const uidFor = (id) => `55555555-5555-4555-8555-${String(id).padStart(12, '0')}`;
+
+beforeAll(async () => {
+  for (const id of [5, 6100, 6200, 6300, 6400, 6500, 6501, 6600]) {
+    await ensureTestIdentity(uidFor(id));
+  }
 });
 
 const doctorToken = tokenFor('DOCTOR', 5);

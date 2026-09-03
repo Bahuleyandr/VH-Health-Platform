@@ -18,6 +18,7 @@ import jwt from 'jsonwebtoken';
 import request from 'supertest';
 import app from '../app.js';
 import { generateToken } from '../utils/jwtUtils.js';
+import { ensureTestIdentity } from './testClient.js';
 
 const API_KEY = process.env.API_KEY || 'test-api-key';
 const PATIENT_A_UID = '11111111-1111-4111-8111-111111111111';
@@ -28,6 +29,16 @@ function uniqueTestUuid() {
   const suffix = Date.now().toString(16).padStart(12, '0').slice(-12);
   return `44444444-4444-4444-8444-${suffix}`;
 }
+
+// Authentication now fails closed when a token's subject does not resolve to a
+// live identity row. Without these, every IDOR and RBAC case below returns 401
+// before its own gate runs — which still satisfies a "should NOT return 200"
+// assertion, so the suite would keep passing while proving nothing.
+beforeAll(async () => {
+  for (const uid of [PATIENT_A_UID, PATIENT_B_UID, STAFF_UID]) {
+    await ensureTestIdentity(uid);
+  }
+});
 
 // ── Test tokens ─────────────────────────────────────────────────────────────
 const patientAToken = generateToken({
@@ -183,16 +194,27 @@ describe('Notification Authorization', () => {
   // notification endpoint via the general notification routes.
 
   describe('GET /api/v1/notifications/my — own notifications', () => {
-    it('allows PATIENT through RBAC and returns the exact missing-user contract', async () => {
+    // These two used to assert 404, the "missing-user contract" — but that was
+    // incidental: the subjects had no users row, so the handler fell through to
+    // not-found. Authentication now fails closed on a subject with no live
+    // identity, so that 404 is unreachable through the front door (the request
+    // 401s first) and asserting it would only prove the seeding was absent.
+    // What these cases are actually for, per the describe comment above, is
+    // that RBAC ADMITS both roles on /my — so assert exactly that.
+    it('admits PATIENT through RBAC on /my', async () => {
       const res = await authRequest('get', '/api/v1/notifications/my', patientAToken);
 
-      expect(res.statusCode).toBe(404);
+      expect(res.statusCode).not.toBe(403);
+      expect(res.statusCode).not.toBe(401);
+      expect(res.statusCode).toBe(200);
     });
 
-    it('allows ADMIN through RBAC and returns the exact missing-user contract', async () => {
+    it('admits ADMIN through RBAC on /my', async () => {
       const res = await authRequest('get', '/api/v1/notifications/my', staffToken);
 
-      expect(res.statusCode).toBe(404);
+      expect(res.statusCode).not.toBe(403);
+      expect(res.statusCode).not.toBe(401);
+      expect(res.statusCode).toBe(200);
     });
   });
 
@@ -310,6 +332,8 @@ describe('Rate Limiting', () => {
     it('should return 429 after exceeding SOS rate limit', async () => {
       // Use a unique UID so the rate limit counter is fresh for this test.
       const uniqueUid = uniqueTestUuid();
+      // Freshly minted per run, so it needs its own live identity too.
+      await ensureTestIdentity(uniqueUid, { role: 'PATIENT' });
       const sosToken = generateToken({
         uid: uniqueUid,
         id: 99999,

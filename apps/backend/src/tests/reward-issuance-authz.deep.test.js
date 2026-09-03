@@ -2,7 +2,7 @@
 //
 // POST /api/v1/rewards/issue-monthly creates discount-bearing reward records.
 // It must be admin-gated at the route and write a batch audit entry.
-import { generateTestToken, API_KEY } from './testClient.js';
+import { generateTestToken, API_KEY, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -23,6 +23,11 @@ async function clean() {
 }
 
 d('Monthly reward issuance hardening (CAN-034)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity('c0de0134-0001-4c0d-8c0d-c0de01340001', { tenantId: TENANT_ID });
+  });
   beforeAll(async () => { await clean(); }, 30000);
   afterAll(async () => { await clean(); await prisma.$disconnect().catch(() => {}); }, 30000);
 

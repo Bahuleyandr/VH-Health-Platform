@@ -5,7 +5,7 @@
 // trail. The list now always ANDs al.tenant_id, and the unified feed projects
 // the real al.tenant_id (was NULL, which bypassed the tenant filter). RLS is OFF
 // in the test env, so this explicit predicate is what scopes the feed.
-import { generateTestToken, API_KEY } from './testClient.js';
+import { generateTestToken, API_KEY, ensureTestIdentity } from './testClient.js';
 import { deleteWithAuditBypass } from './helpers/auditBypass.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
@@ -33,6 +33,11 @@ async function seedAudit(tenantId, userName) {
 }
 
 d('Admin audit-log tenant scope (CAN-042)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity('c0de0042-00d0-4000-8000-00000000d001');
+  });
   beforeAll(async () => {
     await clean();
     await prisma.$executeRawUnsafe(

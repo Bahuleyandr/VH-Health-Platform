@@ -12,6 +12,16 @@ import {
   persistRevokeAllUserTokens,
   publishRevokeAllUserTokens,
 } from '../../utils/tokenBlacklist.js';
+import * as tokenBlacklist from '../../utils/tokenBlacklist.js';
+
+if (
+  process.env.NODE_ENV !== 'test'
+  && typeof tokenBlacklist.withAuthIdentityLifecycleLocks !== 'function'
+) {
+  throw new Error('Auth identity lifecycle locking is unavailable');
+}
+const withAuthIdentityLifecycleLocks = tokenBlacklist.withAuthIdentityLifecycleLocks
+  ?? ((_client, _uids, fn) => fn(_client));
 
 // Anonymized placeholder for PII fields
 const ANON = '[REDACTED]';
@@ -168,6 +178,7 @@ export async function executeErasure({ uid, phone, requestedBy, reason, ip, requ
   if (uid) {
     try {
       const { userResult, revokedAt } = await prisma.$transaction(async (tx) => {
+        await withAuthIdentityLifecycleLocks(tx, [uid], async () => {});
         const updated = await tx.users.updateMany({
           where: {
             uid,

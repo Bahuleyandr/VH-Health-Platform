@@ -21,7 +21,7 @@
 
 import request from 'supertest';
 import app from '../app.js';
-import { API_KEY, generateTestToken } from './testClient.js';
+import { API_KEY, generateTestToken, ensureTestIdentity } from './testClient.js';
 
 const RECEPTIONIST_UID = 'f1234567-aaaa-4bbb-8ccc-dddddddd0001';
 const receptionistToken = generateTestToken('RECEPTIONIST', {
@@ -53,6 +53,11 @@ const baseBody = {
 };
 
 describe('POST /appointments/walkin — minor guardian legal-ID gate (D74)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity(RECEPTIONIST_UID);
+  });
   it('rejects a minor walk-in without guardian_id_type / guardian_id (MINOR_GUARDIAN_ID_REQUIRED)', async () => {
     const res = await request(app)
       .post('/api/v1/appointments/walk-in')

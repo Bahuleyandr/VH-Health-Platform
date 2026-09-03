@@ -453,6 +453,11 @@ export const mfaDisable = async (req, res) => {
     if (!totpOk) return error(res, 'Invalid authenticator code', HTTP_STATUS.UNAUTHORIZED);
 
     const revokedAt = await prisma.$transaction(async (tx) => {
+      const durableRevokedAt = await persistRevokeAllUserTokens(String(adminId), {
+        client: tx,
+        requireEvidence: true,
+        reason: 'mfa_disabled',
+      });
       await tx.admins.update({
         where: { uid: String(adminId) },
         data: {
@@ -462,11 +467,7 @@ export const mfaDisable = async (req, res) => {
           totp_enrolled_at: null,
         },
       });
-      return persistRevokeAllUserTokens(String(adminId), {
-        client: tx,
-        requireEvidence: true,
-        reason: 'mfa_disabled',
-      });
+      return durableRevokedAt;
     });
     await publishRevokeAllUserTokens(String(adminId), revokedAt, { reason: 'mfa_disabled' });
 

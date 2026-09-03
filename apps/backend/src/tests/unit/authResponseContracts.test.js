@@ -29,6 +29,11 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {},
+  // `setTenantTx` must be exported by the mock: the controllers under test
+  // now open their identity-creating transaction through it, and an ESM mock
+  // factory that omits a named export fails the whole module graph at link
+  // time rather than at call time.
+  setTenantTx: (_tenantId, run) => run({}),
 }));
 
 jest.unstable_mockModule('bcrypt', () => ({

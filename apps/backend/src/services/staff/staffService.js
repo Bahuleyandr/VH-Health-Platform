@@ -1,11 +1,13 @@
 import { STAFF_ROLES, SHIFT_TYPES } from '../../config/staffConfig.js';
 import { SECURITY_CONFIG } from '../../config/securityConfig.js';
 import bcrypt from 'bcrypt';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
+import { getCurrentTenantId } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
 import { buildPagination } from '../../utils/listQuery.js';
 import { getStaffHierarchy } from '../../utils/staff/staffHelpers.js';
 import { DEFAULT_ONBOARDING_TASKS } from './hr/constants.js';
+import { withAuthIdentityLifecycleLocks } from '../../utils/tokenBlacklist.js';
 
 const ONBOARDABLE_STAFF_ROLES = Object.values(STAFF_ROLES).filter(
   (role) => !['SUPER_ADMIN', 'ADMIN'].includes(role),
@@ -418,18 +420,33 @@ async function resolveOrCreateStaffUser(data) {
   if (existing.length > 0) throw new Error('USER_PHONE_EXISTS');
 
   const passwordHash = await bcrypt.hash(password, 10);
-  const created = await prisma.users.create({
-    data: {
-      phone,
-      name,
-      email: data.email || null,
-      role,
-      encrypted_password: passwordHash,
-      is_active: true,
-      registered_at: new Date(),
-      updated_at: new Date(),
-    },
-    select: { id: true, uid: true, role: true, name: true, phone: true, email: true },
+// A bare `prisma.$transaction` hands back the raw itx client, which skips the
+// prisma proxy's tenant wrapper — so `app.current_tenant_id` stays unset for
+// every statement inside it. `public.users` carries the RESTRICTIVE
+// `explicit_tenant_context_753` policy (migration 758) whose WITH CHECK
+// requires that GUC, so an unscoped insert is rejected 42501 rather than
+// filed anywhere. Scope the transaction when a tenant is in ambient context;
+// callers with none (scripts, the pre-auth realm) keep the previous shape.
+  const ambientTenantId = getCurrentTenantId();
+  const runIdentityCreate = (fn) => (ambientTenantId
+    ? setTenantTx(ambientTenantId, fn)
+    : prisma.$transaction(fn));
+
+  const created = await runIdentityCreate(async (tx) => {
+    const user = await tx.users.create({
+      data: {
+        phone,
+        name,
+        email: data.email || null,
+        role,
+        encrypted_password: passwordHash,
+        is_active: true,
+        registered_at: new Date(),
+        updated_at: new Date(),
+      },
+      select: { id: true, uid: true, role: true, name: true, phone: true, email: true },
+    });
+    return withAuthIdentityLifecycleLocks(tx, [user.uid], async () => user);
   });
 
   return { user: created, createdUser: true };

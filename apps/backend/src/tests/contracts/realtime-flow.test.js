@@ -65,23 +65,33 @@ jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {
     $transaction: async (fn) => fn({
-      $queryRawUnsafe: async (_sql, uid) => [{
-        uid,
-        role: 'PATIENT',
-        is_minor: true,
-        is_minor_now: true,
-        is_active: true,
-        status: 'active',
-        is_deleted: false,
-        deleted_at: null,
-        merged_into_uid: null,
-        guardian_role: 'PATIENT',
-        guardian_is_active: true,
-        guardian_status: 'active',
-        guardian_is_deleted: false,
-        guardian_deleted_at: null,
-        guardian_merged_into_uid: null,
-      }],
+      $executeRawUnsafe: async () => 0,
+      $queryRawUnsafe: async (sql, uid) => {
+        if (String(sql).includes('FROM users dep')) {
+          return [{
+            uid,
+            role: 'PATIENT',
+            is_minor: true,
+            is_minor_now: true,
+            is_active: true,
+            status: 'active',
+            is_deleted: false,
+            deleted_at: null,
+            merged_into_uid: null,
+            guardian_role: 'PATIENT',
+            guardian_is_active: true,
+            guardian_status: 'active',
+            guardian_is_deleted: false,
+            guardian_deleted_at: null,
+            guardian_merged_into_uid: null,
+          }];
+        }
+        if (String(sql).includes('FROM users')) return [];
+        if (String(sql).includes('FROM admins')) {
+          return [{ uid, tenant_id: null, is_active: true, status: 'active' }];
+        }
+        return [];
+      },
     }),
   },
 }));

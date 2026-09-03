@@ -5,7 +5,7 @@
 // ANDs where.tenant_id and the picker ANDs a.tenant_id. RLS is OFF in the test
 // env, so these explicit predicates are what scope the results: a tenant-A admin
 // must not see tenant-B appointments.
-import { generateTestToken, API_KEY } from './testClient.js';
+import { generateTestToken, API_KEY, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -34,6 +34,11 @@ async function seedAppt(tenantId, name, phone) {
 }
 
 d('Appointment list + completed-picker tenant scope (CAN-018)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity('c0de0018-00d0-4000-8000-00000000d001');
+  });
   beforeAll(async () => {
     await clean();
     await prisma.$executeRawUnsafe(

@@ -4,7 +4,7 @@ import app from '../app.js';
 import prisma from '../lib/prisma.js';
 import { waitForAuditLogDrain } from '../middleware/auditLog.js';
 import { deleteWithAuditBypass } from './helpers/auditBypass.js';
-import { API_KEY, generateTestToken } from './testClient.js';
+import { API_KEY, generateTestToken, ensureTestIdentity } from './testClient.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -84,6 +84,11 @@ async function insertAudit({
 }
 
 d('Batch 4 item 4 — care-team shadow-denials report', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity('c4d40000-0000-4000-8000-0000000004ad', { tenantId: TENANT_ID });
+  });
   beforeAll(async () => {
     await cleanup();
     await prisma.$executeRawUnsafe(

@@ -13,12 +13,18 @@ const validateUpdateRequestMock = jest.fn();
 const logAuditMock = jest.fn();
 const emitAppointmentEventMock = jest.fn();
 
+const fanoutQueryRawUnsafe = jest.fn().mockResolvedValue([]);
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {
-    $queryRawUnsafe: jest.fn().mockResolvedValue([]),
+    $queryRawUnsafe: fanoutQueryRawUnsafe,
     users: { findFirst: jest.fn() },
     audit_logs: { create: jest.fn() },
   },
+  // `setTenantTx` must be exported by the mock: the controllers under test
+  // now open their identity-creating transaction through it, and an ESM mock
+  // factory that omits a named export fails the whole module graph at link
+  // time rather than at call time.
+  setTenantTx: (_tenantId, run) => run({ $queryRawUnsafe: fanoutQueryRawUnsafe }),
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { error: jest.fn(), warn: jest.fn() },

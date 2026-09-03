@@ -10,7 +10,17 @@ import {
   persistRevokeAllUserTokens,
   publishRevokeAllUserTokens,
 } from '../../utils/tokenBlacklist.js';
+import * as tokenBlacklist from '../../utils/tokenBlacklist.js';
 import { getTenantBySlug } from '../tenant/tenantService.js';
+
+if (
+  process.env.NODE_ENV !== 'test'
+  && typeof tokenBlacklist.withAuthIdentityLifecycleLocks !== 'function'
+) {
+  throw new Error('Auth identity lifecycle locking is unavailable');
+}
+const withAuthIdentityLifecycleLocks = tokenBlacklist.withAuthIdentityLifecycleLocks
+  ?? ((_client, _uids, fn) => fn(_client));
 
 export const SCIM_USER_SCHEMA = 'urn:ietf:params:scim:schemas:core:2.0:User';
 export const SCIM_LIST_SCHEMA = 'urn:ietf:params:scim:api:messages:2.0:ListResponse';
@@ -644,6 +654,7 @@ export async function deactivateScimIdentityTx(tx, {
       tokens: null,
     };
   }
+  return withAuthIdentityLifecycleLocks(tx, [uid], async () => {
   // NOTE (tenancy hardening, deliberately NOT tenant-scoped): the session and
   // device kill queries below match on user_uid / staff_id ALONE. Both keys are
   // globally-unique identities (uid is a global uuid; staff_id FKs one staff
@@ -753,16 +764,17 @@ export async function deactivateScimIdentityTx(tx, {
   } else {
     throw AppError.badRequest('SCIM identity realm is invalid', 'SCIM_REALM_INVALID');
   }
-  return {
-    excluded_break_glass: false,
-    revoked_sessions: activeCount,
-    disabled_staff_devices: staffDeviceCount,
-    deleted_staff_sessions: staffSessionCount,
-    cleared_pins: pinCount,
-    disabled_biometrics: biometricCount,
-    tokens,
-    ...(revocationPublication ? { revocationPublication } : {}),
-  };
+    return {
+      excluded_break_glass: false,
+      revoked_sessions: activeCount,
+      disabled_staff_devices: staffDeviceCount,
+      deleted_staff_sessions: staffSessionCount,
+      cleared_pins: pinCount,
+      disabled_biometrics: biometricCount,
+      tokens,
+      ...(revocationPublication ? { revocationPublication } : {}),
+    };
+  });
 }
 
 export function publishScimRevocationAfterCommit(publication) {
@@ -830,6 +842,7 @@ async function upsertStaff(context, payload, { id = null, method = 'post', req =
         context.provider.id,
       );
       const user = userRows[0];
+      await withAuthIdentityLifecycleLocks(tx, [user.uid], async () => {});
       const staffRows = await tx.$queryRawUnsafe(
         `INSERT INTO staff (
             user_id, employee_id, name, department, position, is_active, tenant_id,
@@ -880,6 +893,8 @@ async function upsertStaff(context, payload, { id = null, method = 'post', req =
         breakGlass: existing.is_break_glass_account === true,
       });
       ({ deprovision, revocationPublication } = separateScimRevocationPublication(deactivation));
+    } else {
+      await withAuthIdentityLifecycleLocks(tx, [existing.uid], async () => {});
     }
     await tx.$executeRawUnsafe(
       `UPDATE users
@@ -1006,6 +1021,7 @@ async function upsertAdmin(context, payload, { id = null, method = 'post', req =
         fields.externalId || fields.userName,
         context.provider.id,
       );
+      await withAuthIdentityLifecycleLocks(tx, [rows[0].uid], async () => {});
       mutation = 'created';
       commandReceipt = await recordLiveScimCommandTx(tx, {
         context,
@@ -1027,6 +1043,8 @@ async function upsertAdmin(context, payload, { id = null, method = 'post', req =
         breakGlass: existing.is_break_glass_account === true,
       });
       ({ deprovision, revocationPublication } = separateScimRevocationPublication(deactivation));
+    } else {
+      await withAuthIdentityLifecycleLocks(tx, [existing.uid], async () => {});
     }
     await tx.$executeRawUnsafe(
       `UPDATE admins

@@ -10,7 +10,7 @@ import jwt from 'jsonwebtoken';
 import request from 'supertest';
 import prisma from '../lib/prisma.js';
 import app from '../app.js';
-import { authClient, API_KEY } from './testClient.js';
+import { authClient, API_KEY, ensureTestIdentity } from './testClient.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -31,10 +31,20 @@ let chairId;
 let bookingId;
 
 // Second verifier must be a DIFFERENT human — mint a token with another uid.
+// It is hand-signed rather than built by the test helper, and the subject has
+// to exist: authentication now fails closed on a uid with no live identity
+// row, so an unseeded second verifier 401s and the different-human guard
+// below never actually runs.
+const SECOND_NURSE_UID = '660e8400-e29b-41d4-a716-446655440111';
+
+beforeAll(async () => {
+  await ensureTestIdentity(SECOND_NURSE_UID, { role: 'NURSE' });
+});
+
 function secondNurse() {
   const secret = process.env.JWT_SECRET || 'test-jwt-secret';
   const token = jwt.sign({
-    uid: '660e8400-e29b-41d4-a716-446655440111',
+    uid: SECOND_NURSE_UID,
     id: 2,
     phone: '9876543211',
     role: 'NURSE',
