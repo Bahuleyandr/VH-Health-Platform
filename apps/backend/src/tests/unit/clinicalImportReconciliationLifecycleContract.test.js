@@ -109,17 +109,26 @@ describe('clinical import reconciliation lifecycle contract', () => {
     expect(service).toContain('const LIST_SCAN_TIME_BUDGET_MS = 10_000');
     expect(service).toContain('const LIST_TRANSACTION_TIMEOUT_MS = 10_000');
     expect(service).toContain('const LIST_TOTAL_DB_QUERY_LIMIT = 38');
-    expect(service).toContain('const LIST_CONCURRENCY_SLOTS = 4');
     expect(service).toMatch(/applyRemainingStatementTimeout[\s\S]*Math\.min\(3_000, remainingMs\)/);
     expect(service).toMatch(/function worklistDbBudget[\s\S]*IMPORT_RECONCILIATION_QUERY_BUDGET_EXHAUSTED/);
-    expect(service).toMatch(/acquireWorklistConcurrencySlot[\s\S]*pg_try_advisory_xact_lock[\s\S]*IMPORT_RECONCILIATION_CONCURRENCY_EXHAUSTED/);
     expect(service).toMatch(/acquireTenantWorklistLock[\s\S]*IMPORT_RECONCILIATION_TENANT_CONCURRENCY_EXHAUSTED/);
+    // Decision 2026-09-03 (docs/superpowers/specs/2026-09-03-clinical-import-worklist-concurrency-design.md):
+    // the worklist takes exactly ONE advisory lock, the per-tenant one. The
+    // fleet-wide slot pool that used to sit behind it rejected one tenant for
+    // another tenant's scan and cannot be sized against per-pod connection
+    // pools, so it was removed rather than tenant-scoped (which would have made
+    // it unreachable behind the tenant lock).
+    expect(service).not.toMatch(
+      /LIST_CONCURRENCY_SLOTS|acquireWorklistConcurrencySlot|IMPORT_RECONCILIATION_CONCURRENCY_EXHAUSTED/,
+    );
+    expect(service.match(/pg_try_advisory_xact_lock/g)).toHaveLength(1);
     const listImplementation = service.slice(
       service.indexOf('export async function listClinicalImportReconciliationItems'),
       service.indexOf('async function lockCurrentAuthorityTx'),
     );
+    expect(listImplementation.match(/acquire\w+\(/g)).toEqual(['acquireTenantWorklistLock(']);
     expect(listImplementation.indexOf('acquireTenantWorklistLock')).toBeLessThan(
-      listImplementation.indexOf('acquireWorklistConcurrencySlot'),
+      listImplementation.indexOf('requireActiveMedicalRecordsActorTx'),
     );
     expect(service).toMatch(
       /async function resolveActivePatientSurvivorsTx[\s\S]*const uniquePatientUids[\s\S]*patient\.uid=ANY\(\$2::uuid\[\]\)[\s\S]*tenantId,[\s\S]*uniquePatientUids/,

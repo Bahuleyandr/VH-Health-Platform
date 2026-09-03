@@ -24,7 +24,6 @@ const LIST_SCAN_TIME_BUDGET_MS = 10_000;
 const LIST_TRANSACTION_TIMEOUT_MS = 10_000;
 // setTenantTx adds at most two tenant-scope preamble statements before this budget.
 const LIST_TOTAL_DB_QUERY_LIMIT = 38;
-const LIST_CONCURRENCY_SLOTS = 4;
 const WORKLIST_CURSOR_VERSION = 1;
 const WORKLIST_CURSOR_KEY_DOMAIN = 'vhhealth:clinical-import-reconciliation-cursor:key:v1';
 const SUPERSESSION_AUTHORITY_GATE = 'CLINICAL_IMPORT_SUPERSESSION_OWNER';
@@ -49,23 +48,16 @@ function worklistDbBudget(tx) {
   };
 }
 
-async function acquireWorklistConcurrencySlot(db) {
-  for (let slot = 0; slot < LIST_CONCURRENCY_SLOTS; slot += 1) {
-    const rows = await db.$queryRawUnsafe(
-      `SELECT pg_try_advisory_xact_lock(
-         hashtextextended($1::text || ':' || $2::int::text, 760)
-       ) AS acquired`,
-      'vh:clinical-import-reconciliation-worklist',
-      slot,
-    );
-    if (rows[0]?.acquired === true) return slot;
-  }
-  throw AppError.tooMany(
-    'Clinical import reconciliation worklist concurrency is exhausted',
-    'IMPORT_RECONCILIATION_CONCURRENCY_EXHAUSTED',
-  );
-}
-
+// The worklist takes exactly one advisory lock: this per-tenant one. A
+// fleet-wide slot pool used to sit behind it (4 slots keyed on a constant
+// string) and was removed on 2026-09-03: behind this lock, fleet concurrency is
+// already bounded by the number of distinct tenants with a scan open, and a
+// per-database advisory constant cannot be sized against the per-pod
+// connection pools it would be protecting, so its only reachable effect was
+// rejecting a healthy tenant for another tenant's slow scan. Reintroduce a
+// concurrency guard only for a real high-fanout consumer or measured pool
+// pressure, and size it in the process against live pod count and pool size.
+// See docs/superpowers/specs/2026-09-03-clinical-import-worklist-concurrency-design.md.
 async function acquireTenantWorklistLock(db, tenantId) {
   const rows = await db.$queryRawUnsafe(
     `SELECT pg_try_advisory_xact_lock(hashtextextended($1::text, 760)) AS acquired`,
@@ -687,7 +679,6 @@ export async function listClinicalImportReconciliationItems({
     const deadlineMs = Date.now() + LIST_SCAN_TIME_BUDGET_MS;
     await applyRemainingStatementTimeout(db, deadlineMs);
     await acquireTenantWorklistLock(db, tenant);
-    await acquireWorklistConcurrencySlot(db);
     await requireActiveMedicalRecordsActorTx(db, tenant, actor);
     const authorized = [];
     let scanCursor = decodedCursor;
