@@ -26,7 +26,6 @@ import { success, error } from '../../utils/responseHelper.js';
 import { ensureHospitalNumber } from '../../services/patient/patientIdentifierService.js';
 import { isDevAuthEnabled } from '../../utils/authCompatibilityGates.js';
 import { resolveTenantForRequest } from '../../services/tenant/tenantService.js';
-import { withAuthIdentityLifecycleLocks } from '../../utils/tokenBlacklist.js';
 
 const router = express.Router();
 
@@ -90,7 +89,7 @@ router.post('/patient-login', async (req, res) => {
             role: true, gender: true, is_active: true,
           },
         });
-        return withAuthIdentityLifecycleLocks(tx, [created.uid], async () => created);
+        return created;
       });
       isNewUser = true;
       logger.info(`[dev-login] created patient ${maskPhoneForLog(phone)} (${user.uid})`);

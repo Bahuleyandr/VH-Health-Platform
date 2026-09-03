@@ -15,7 +15,6 @@ import { recordCanonicalClinicalEvent } from '../../services/clinical/canonicalC
 import { resolveStaffPushRecipients } from '../../services/notification/staffPushRecipientService.js';
 import { recordStaffPushFanoutFailure } from '../../observability/staffPushFanoutMetrics.js';
 import { AppError } from '../../utils/AppError.js';
-import { withAuthIdentityLifecycleLocks } from '../../utils/tokenBlacklist.js';
 
 // Roles alerted when a patient books an investigation.
 const LAB_ALERT_ROLES = ['LAB_STAFF', 'NURSING_STAFF'];
@@ -164,7 +163,7 @@ async function resolveBookingPatient(req) {
       patientName,
       tenantId,
     );
-    return withAuthIdentityLifecycleLocks(tx, [rows[0].uid], async () => rows);
+    return rows;
   });
   return created[0];
 }

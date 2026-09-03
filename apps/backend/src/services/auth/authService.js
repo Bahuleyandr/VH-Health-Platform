@@ -48,30 +48,29 @@ if (
 const withAuthIdentityLifecycleLocks = tokenBlacklist.withAuthIdentityLifecycleLocks
   ?? ((_client, _uids, fn) => fn(_client));
 
-// Identity creation here runs BEFORE the tenant middleware (every /api/v1/auth
-// path), so nothing has set app.current_tenant_id. public.users carries the
-// RESTRICTIVE explicit_tenant_context_753 policy (migration 758) under FORCE
-// ROW LEVEL SECURITY, whose WITH CHECK requires that GUC to equal the row's
-// tenant_id; a bare prisma.$transaction (whose tx client skips the tenant
-// wrapper) is therefore rejected 42501 on any RLS-subject connection, which
-// production is (vhhealth_runtime). The users realm takes the tenant the
-// caller resolved from the request, runs inside setTenantTx and stamps that
-// tenant on the row. admins carries only the permissive tenant_isolation
-// policy and keeps the bare transaction.
-async function createIdentityWithLifecycleLock(realm, args, { tenantId = null } = {}) {
-  const create = async (tx, createArgs) => {
-    const identity = await tx[realm].create(createArgs);
-    await withAuthIdentityLifecycleLocks(tx, [identity.uid], async () => identity);
-    return identity;
-  };
+// Identity creation takes no lifecycle lock: the new row is invisible to every
+// other transaction until commit and its uid is database-generated, so nothing
+// can contend for it (see withAuthIdentityLifecycleLocks in tokenBlacklist.js).
+//
+// It does need a TENANT SCOPE. These callers run BEFORE the tenant middleware
+// (every /api/v1/auth path), so nothing has set app.current_tenant_id, and
+// public.users carries the RESTRICTIVE explicit_tenant_context_753 policy
+// (migration 758) under FORCE ROW LEVEL SECURITY, whose WITH CHECK requires
+// that GUC to equal the row's tenant_id. A bare prisma.$transaction is not
+// scoped (its tx client skips the tenant wrapper) and is rejected 42501 on any
+// RLS-subject connection, which production is (vhhealth_runtime). The users
+// realm therefore takes the tenant the caller resolved from the request, runs
+// inside setTenantTx and stamps that tenant on the row. admins carries only
+// the permissive tenant_isolation policy and keeps the bare transaction.
+async function createIdentityTx(realm, args, { tenantId = null } = {}) {
   if (realm === 'users') {
     if (!tenantId) {
       throw new Error('User identity creation requires the tenant resolved from the request');
     }
     const scopedArgs = { ...args, data: { tenant_id: tenantId, ...(args?.data || {}) } };
-    return setTenantTx(tenantId, (tx) => create(tx, scopedArgs));
+    return setTenantTx(tenantId, (tx) => tx[realm].create(scopedArgs));
   }
-  return prisma.$transaction((tx) => create(tx, args));
+  return prisma.$transaction(async (tx) => tx[realm].create(args));
 }
 
 // Lock a single password-reset OTP after this many failed verify attempts.
@@ -181,7 +180,7 @@ export class AuthService {
             data: { updated_at: now },
             select: { uid: true, id: true, name: true, phone: true, role: true },
           })
-        : await createIdentityWithLifecycleLock('users', {
+        : await createIdentityTx('users', {
             data: {
               phone: normalizedPhone,
               role: 'PATIENT',
@@ -816,7 +815,7 @@ export class AuthService {
 
       const passwordHash = await bcrypt.hash(password, 10);
 
-      const newAdmin = await createIdentityWithLifecycleLock('admins', {
+      const newAdmin = await createIdentityTx('admins', {
         data: {
           username,
           password_hash: passwordHash,
@@ -1481,7 +1480,7 @@ export class AuthService {
       // creation must run tenant-scoped or public.users rejects it under RLS.
       const tenantId = await resolveTenantForRequest(req);
 
-      const user = await createIdentityWithLifecycleLock('users', {
+      const user = await createIdentityTx('users', {
         data: {
           phone: normalizedPhone,
           role: 'PATIENT',
@@ -1697,7 +1696,7 @@ export class AuthService {
             data: { updated_at: now },
             select: { uid: true, id: true, name: true, phone: true, role: true },
           })
-        : await createIdentityWithLifecycleLock('users', {
+        : await createIdentityTx('users', {
             data: {
               phone: normalizedPhone,
               role: 'PATIENT',

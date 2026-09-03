@@ -1,12 +1,20 @@
 # First Trial Deployment Readiness
 
+Status: **sanitized non-production engineering trial only.** This profile does
+not establish production-pilot or real-PHI readiness, and it does not authorize
+a deployment. The production gate remains
+[`GO_LIVE_ACTIVATION_CHECKLIST.md`](GO_LIVE_ACTIVATION_CHECKLIST.md); current
+holds are recorded in
+[`GO_LIVE_READINESS_GAP_MATRIX.md`](GO_LIVE_READINESS_GAP_MATRIX.md).
+
 ## Scope
 
 - Environment: Dalekdefender first-trial stack.
 - Surfaces: Backend, Admin Portal, and Staff Windows app.
 - Observability for this round: Sentry, backend health/version checks, existing
   `/metrics`, CI, and manual smoke evidence.
-- Deferred: Prometheus, Grafana, Loki, Tempo, and Alloy.
+- Deferred for this isolated Dalekdefender engineering trial only: Prometheus,
+  Grafana, Loki, Tempo, and Alloy. This deferral cannot close production G1.
 - Data posture: use test or sanitized pilot data unless the hospital explicitly
   approves real-patient dry-run handling.
 
@@ -36,6 +44,10 @@
 
 ## Trial Gate
 
-The first internal trial can proceed only when there are no P0/P1 blockers in
-the live staff role sweep, Admin login works, Staff login works, and the manual
-pilot script can be started with sanitized data.
+OWNER-INPUT — named engineering-trial owner: ______; approved sanitized-data
+boundary: ______; environment and exact SHA: ______.
+
+The non-production engineering trial can proceed only when there are no P0/P1
+blockers in the live staff role sweep, Admin login works, Staff login works, and
+the manual pilot script can be started with sanitized data. A successful trial
+must not be reported as production-ready, G1-complete, or approved for real PHI.

@@ -1,0 +1,261 @@
+{
+  "schemaVersion": 1,
+  "evidence": {
+    "auditedSource": "8a692269f71b0666182fa82a5b7582119b9e2539",
+    "reconciledHead": "b3807dccbc9281e94182041dd440542e6e77f14d",
+    "ledger": "docs/FULL_REPOSITORY_AUDIT_2026_08.md",
+    "originalLedgerCommit": "5a0d69677926c268ca4a1c2eb2ad600fde689bce"
+  },
+  "expectedAbsentPathCount": 40,
+  "requiredFindingIds": [
+    "DEAD-001",
+    "DEAD-002",
+    "DEAD-003",
+    "DEAD-004",
+    "DEAD-005",
+    "DEAD-006",
+    "DEAD-007",
+    "DEAD-008",
+    "DEAD-009",
+    "DEAD-010",
+    "DEAD-011"
+  ],
+  "absentPaths": [
+    {
+      "id": "adm-008-admin-service-worker",
+      "findingIds": ["ADM-008"],
+      "path": "apps/admin/public/sw.js"
+    },
+    {
+      "id": "adm-008-admin-service-worker-map",
+      "findingIds": ["ADM-008"],
+      "path": "apps/admin/public/sw.js.map"
+    },
+    {
+      "id": "adm-008-admin-workbox-runtime",
+      "findingIds": ["ADM-008"],
+      "path": "apps/admin/public/workbox-f1770938.js"
+    },
+    {
+      "id": "adm-008-admin-workbox-runtime-map",
+      "findingIds": ["ADM-008"],
+      "path": "apps/admin/public/workbox-f1770938.js.map"
+    },
+    {
+      "id": "dead-005-admin-appointments-table",
+      "findingIds": ["DEAD-005"],
+      "path": "apps/admin/src/app/(with-auth)/dashboard/appointments/components/AppointmentsTable.tsx"
+    },
+    {
+      "id": "dead-005-admin-ai-expansion-panels",
+      "findingIds": ["DEAD-005"],
+      "path": "apps/admin/src/app/(with-auth)/dashboard/clinical-ai/components/AIExpansionPanels.tsx"
+    },
+    {
+      "id": "dead-005-admin-deferred-panel-barrel",
+      "findingIds": ["DEAD-005"],
+      "path": "apps/admin/src/app/(with-auth)/dashboard/clinical-ai/components/deferredModulePanels/index.ts"
+    },
+    {
+      "id": "dead-005-admin-dashboard-types",
+      "findingIds": ["DEAD-005"],
+      "path": "apps/admin/src/app/(with-auth)/dashboard/components/types.ts"
+    },
+    {
+      "id": "dead-005-admin-dashboard-utils",
+      "findingIds": ["DEAD-005"],
+      "path": "apps/admin/src/app/(with-auth)/dashboard/components/utils.ts"
+    },
+    {
+      "id": "dead-005-admin-relative-time",
+      "findingIds": ["DEAD-005"],
+      "path": "apps/admin/src/app/(with-auth)/dashboard/formatTimeAgo.ts"
+    },
+    {
+      "id": "dead-005-admin-announcement-form",
+      "findingIds": ["DEAD-005"],
+      "path": "apps/admin/src/app/(with-auth)/dashboard/notifications/components/SendAnnouncementForm.tsx"
+    },
+    {
+      "id": "dead-005-admin-export-logs-button",
+      "findingIds": ["DEAD-005"],
+      "path": "apps/admin/src/app/(with-auth)/dashboard/system-logs/components/ExportLogsButton.tsx"
+    },
+    {
+      "id": "dead-005-admin-log-search-bar",
+      "findingIds": ["DEAD-005"],
+      "path": "apps/admin/src/app/(with-auth)/dashboard/system-logs/components/LogSearchBar.tsx"
+    },
+    {
+      "id": "dead-005-admin-retired-theme",
+      "findingIds": ["DEAD-005"],
+      "path": "apps/admin/src/app/(with-auth)/theme.css"
+    },
+    {
+      "id": "dead-005-admin-pagination-controls",
+      "findingIds": ["DEAD-005"],
+      "path": "apps/admin/src/components/PaginationControls.tsx"
+    },
+    {
+      "id": "adm-008-admin-service-worker-cleanup",
+      "findingIds": ["ADM-008"],
+      "path": "apps/admin/src/components/ServiceWorkerCleanup.tsx"
+    },
+    {
+      "id": "dead-005-admin-table-controls",
+      "findingIds": ["DEAD-005"],
+      "path": "apps/admin/src/components/table/TableControls.tsx"
+    },
+    {
+      "id": "dead-005-admin-use-auth",
+      "findingIds": ["DEAD-005"],
+      "path": "apps/admin/src/hooks/useAuth.ts"
+    },
+    {
+      "id": "dead-005-admin-use-debounce",
+      "findingIds": ["DEAD-005"],
+      "path": "apps/admin/src/hooks/useDebounce.ts"
+    },
+    {
+      "id": "dead-005-admin-api-response-types",
+      "findingIds": ["DEAD-005"],
+      "path": "apps/admin/src/lib/api-response.types.ts"
+    },
+    {
+      "id": "dead-010-admin-old-clean-script",
+      "findingIds": ["DEAD-010"],
+      "path": "apps/admin/src/scripts/clean.js"
+    },
+    {
+      "id": "dead-010-admin-script-config",
+      "findingIds": ["DEAD-010"],
+      "path": "apps/admin/src/scripts/config.ts"
+    },
+    {
+      "id": "dead-005-admin-test-auth",
+      "findingIds": ["DEAD-005", "DEAD-010"],
+      "path": "apps/admin/src/scripts/test-auth.ts"
+    },
+    {
+      "id": "dead-010-admin-test-cors",
+      "findingIds": ["DEAD-010"],
+      "path": "apps/admin/src/scripts/test-cors.ts"
+    },
+    {
+      "id": "dead-010-admin-lucide-shadow-type",
+      "findingIds": ["DEAD-010"],
+      "path": "apps/admin/src/types/lucide-react.d.ts"
+    },
+    {
+      "id": "dead-006-backend-duplicate-reminder-scheduler",
+      "findingIds": ["DEAD-006"],
+      "path": "apps/backend/src/schedulers/appointmentReminderScheduler.js"
+    },
+    {
+      "id": "dead-001-patient-record-cache-manifest",
+      "findingIds": ["DEAD-001"],
+      "path": "apps/patient/lib/core/offline/record_cache_manifest.dart"
+    },
+    {
+      "id": "dead-002-patient-shared-preferences-service",
+      "findingIds": ["DEAD-002"],
+      "path": "apps/patient/lib/core/services/shared_prefs_service.dart"
+    },
+    {
+      "id": "pat-001-patient-legacy-websocket-service",
+      "findingIds": ["PAT-001", "PAT-007"],
+      "path": "apps/patient/lib/core/services/websocket_service.dart"
+    },
+    {
+      "id": "dead-002-patient-wait-time-widget",
+      "findingIds": ["DEAD-002"],
+      "path": "apps/patient/lib/features/appointments/widgets/wait_time_widget.dart"
+    },
+    {
+      "id": "dead-002-patient-permission-gate",
+      "findingIds": ["DEAD-002"],
+      "path": "apps/patient/lib/features/bootstrap/permission_gate.dart"
+    },
+    {
+      "id": "dead-002-patient-step-share-card",
+      "findingIds": ["DEAD-002"],
+      "path": "apps/patient/lib/features/steps/widgets/step_share_card.dart"
+    },
+    {
+      "id": "dead-001-patient-consultations-tab",
+      "findingIds": ["DEAD-001"],
+      "path": "apps/patient/lib/features/your_health/widgets/consultations_tab.dart"
+    },
+    {
+      "id": "pat-001-patient-legacy-websocket-test",
+      "findingIds": ["PAT-001", "PAT-007"],
+      "path": "apps/patient/test/core/services/websocket_service_test.dart"
+    },
+    {
+      "id": "dead-003-staff-security-config-compatibility",
+      "findingIds": ["DEAD-003"],
+      "path": "apps/staff/lib/core/config/security_config.dart"
+    },
+    {
+      "id": "dead-003-staff-api-retry-compatibility",
+      "findingIds": ["DEAD-003"],
+      "path": "apps/staff/lib/core/services/api_retry.dart"
+    },
+    {
+      "id": "dead-003-staff-certificate-pinner-compatibility",
+      "findingIds": ["DEAD-003"],
+      "path": "apps/staff/lib/core/services/certificate_pinner.dart"
+    },
+    {
+      "id": "dead-003-staff-api-service-compatibility",
+      "findingIds": ["DEAD-003"],
+      "path": "apps/staff/lib/core/services/staff_api_service.dart"
+    },
+    {
+      "id": "dead-003-staff-data-state-builder-compatibility",
+      "findingIds": ["DEAD-003"],
+      "path": "apps/staff/lib/core/widgets/data_state_builder.dart"
+    },
+    {
+      "id": "dead-009-admin-service-monitor-placeholder",
+      "findingIds": ["DEAD-009"],
+      "path": "infra/kubernetes/apps/admin/service-monitor.yaml"
+    }
+  ],
+  "forbiddenFragments": [
+    {
+      "id": "dead-004-staff-clinical-inbox-runtime-traps",
+      "findingIds": ["DEAD-004"],
+      "path": "apps/staff/lib/core/services/clinical_inbox_api_service.dart",
+      "fragments": ["UnimplementedError("]
+    },
+    {
+      "id": "dead-007-backend-published-firebase-501-routes",
+      "findingIds": ["DEAD-007"],
+      "path": "apps/backend/src/routes/auth/firebaseAuthRoutes.js",
+      "fragments": [
+        "/admin/users",
+        "/admin/devices",
+        "/admin/revoke-user-tokens",
+        "/admin/cleanup-devices"
+      ]
+    },
+    {
+      "id": "dead-008-backend-orphan-auth-implementations",
+      "findingIds": ["DEAD-008"],
+      "path": "apps/backend/src/config/authConfig.js",
+      "fragments": [
+        "export const AUTH_METHODS",
+        "export const verifyDevice",
+        "export const getTodayAttendance",
+        "export const getAttendanceHistory"
+      ]
+    },
+    {
+      "id": "dead-011-argocd-redundant-singular-source",
+      "findingIds": ["DEAD-011"],
+      "path": "infra/kubernetes/base/argocd/applications/monitoring.yaml",
+      "fragments": ["  source:"]
+    }
+  ]
+}

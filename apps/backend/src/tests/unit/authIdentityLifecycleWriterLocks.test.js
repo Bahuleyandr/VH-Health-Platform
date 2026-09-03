@@ -89,15 +89,17 @@ describe('auth identity lifecycle writer locks', () => {
     ]);
   });
 
-  it('serializes patient profile creation, status changes, and account deletion', () => {
-    expectOrdered(scope(
+  it('creates patient profiles without a lock and serializes status changes and account deletion', () => {
+    // Creation takes no lifecycle lock (see authIdentityCreationWriterLocks.test.js):
+    // the new row is invisible to every other transaction until commit and its
+    // uid is database-generated, so there is nothing for a lock to serialize.
+    const creation = scope(
       'services/user/userService.js',
       'static async createOrUpdateProfile',
       'static async listUsers',
-    ), [
-      'tx.users.create',
-      'withAuthIdentityLifecycleLocks(tx, [identity.uid]',
-    ]);
+    );
+    expect(creation).toContain('tx.users.create');
+    expect(creation).not.toContain('withAuthIdentityLifecycleLocks');
     expectOrdered(scope(
       'services/user/userService.js',
       'static async changeUserStatus',
@@ -189,13 +191,18 @@ describe('auth identity lifecycle writer locks', () => {
     ]);
   });
 
-  it('locks SCIM-created and active identities on both staff and admin paths', () => {
+  it('locks existing SCIM identities on both staff and admin paths and never the ones it creates', () => {
     for (const [start, end, insert] of [
       ['async function upsertStaff', 'async function upsertAdmin', 'INSERT INTO users'],
       ['async function upsertAdmin', 'export async function upsertScimUser', 'INSERT INTO admins'],
     ]) {
       const writer = scope('services/auth/scimProvisioningService.js', start, end);
-      expectOrdered(writer, [insert, 'withAuthIdentityLifecycleLocks']);
+      const insertIndex = writer.indexOf(insert);
+      expect(insertIndex).toBeGreaterThanOrEqual(0);
+      // The creation branch returns the new row without locking it; the only
+      // lock in each upsert is the `existing` branch below.
+      const creationBranch = writer.slice(insertIndex, writer.indexOf('const source = sourceAfterScim', insertIndex));
+      expect(creationBranch).not.toContain('withAuthIdentityLifecycleLocks');
       expect(writer).toMatch(
         /else\s*{\s*await withAuthIdentityLifecycleLocks\(tx, \[existing\.uid\][\s\S]*?UPDATE (?:users|admins)/,
       );

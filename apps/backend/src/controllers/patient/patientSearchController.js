@@ -37,7 +37,6 @@ import { logAudit } from '../../utils/logAudit.js';
 import { isValidPhone, normalizePhone } from '../../utils/phoneUtils.js';
 import { uploadFileToR2 } from '../../utils/r2Storage.js';
 import { error, success } from '../../utils/responseHelper.js';
-import { withAuthIdentityLifecycleLocks } from '../../utils/tokenBlacklist.js';
 
 const MIN_QUERY_LENGTH = 2;
 const MAX_RESULTS = 20;
@@ -432,7 +431,7 @@ export const createPatient = async (req, res) => {
         profilePicture,
         tenantId,
       );
-      return withAuthIdentityLifecycleLocks(tx, [inserted[0].uid], async () => inserted);
+      return inserted;
     });
 
     const patient = await fetchPatientByUid(rows[0].uid, tenantId);
