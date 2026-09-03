@@ -10,7 +10,7 @@
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
-import { API_KEY, generateTestToken } from './testClient.js';
+import { API_KEY, generateTestToken, ensureTestIdentity } from './testClient.js';
 
 const OWNER_UID = 'a6666666-6666-4666-8666-666666666601';
 const DOCTOR_UID = 'a6666666-6666-4666-8666-666666666602';
@@ -57,6 +57,11 @@ beforeAll(async () => {
 
   ownerId = await insertUser(OWNER_UID, 'PATIENT', '9000066601');
   doctorId = await insertUser(DOCTOR_UID, 'DOCTOR', '9000066602');
+  // The foreign patient is only ever a TOKEN SUBJECT here — the suite never
+  // inserts it. Authentication now fails closed on a subject with no live
+  // identity, so without this the non-owner case 401s and the 404 ownership
+  // boundary it exists to prove is never reached.
+  await ensureTestIdentity(FOREIGN_UID, { role: 'PATIENT' });
   // patient_uid is not optional identity any more. orderPharmacyFromPrescription
   // loads the prescription through a JOIN that requires the users row to match
   // on BOTH keys — `p.id = ep.patient_id AND p.uid = ep.patient_uid`

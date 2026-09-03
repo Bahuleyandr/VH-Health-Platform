@@ -64,6 +64,9 @@ export async function ensureTestIdentity(uid, options = {}) {
     role = 'ADMIN',
     tenantId = TEST_DEFAULT_TENANT_ID,
     name = `Test identity ${String(uid).slice(0, 8)}`,
+    // Pass this when the suite keys behaviour off the identity's phone (a
+    // self-service profile write resolves the caller by phone, not by uid).
+    phone: explicitPhone = null,
   } = options;
   const { default: prisma } = await import('../lib/prisma.js');
 
@@ -99,7 +102,11 @@ export async function ensureTestIdentity(uid, options = {}) {
   // A salt loop covers the residual chance of colliding with a seeded patient.
   const numeric = BigInt(`0x${String(uid).replace(/-/g, '')}`);
   for (let salt = 0; salt < 20; salt++) {
-    const phone = `9${String((numeric + BigInt(salt)) % 1000000000n).padStart(9, '0')}`;
+    const phone = explicitPhone
+      ?? `9${String((numeric + BigInt(salt)) % 1000000000n).padStart(9, '0')}`;
+    if (explicitPhone && salt > 0) {
+      throw new Error(`ensureTestIdentity: phone ${explicitPhone} is already taken`);
+    }
     try {
       await prisma.$executeRawUnsafe(
         `INSERT INTO users (uid, phone, name, role, is_active, status, tenant_id, registered_at, updated_at)
