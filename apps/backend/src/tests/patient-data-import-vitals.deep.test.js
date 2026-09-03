@@ -2822,13 +2822,59 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
     const observedAt = new Date(Date.now() - 4 * 60 * 1000).toISOString();
     const bundle = compositeNews2Bundle(observedAt, { idSuffix: '-receipt' });
 
-    const [left, right] = await Promise.all([
+    // allSettled, not all, PURELY so a failure is diagnosable. This test flaked
+    // in CI (audit row OPEN-26) on a run whose only change was four admin-only
+    // files, and the log showed SQLSTATE 40001 and 23505 under Promise.all -
+    // but Promise.all rejects with the raw driver error and names no outcome, so
+    // it was impossible to tell from the log whether a serialization failure had
+    // ESCAPED the importer or had been retried and merely logged. The importer
+    // does classify and retry 40001/40P01/P2034 (patientDataImport.js:63,998,
+    // 1008) and does handle 23505 (:2350), which is exactly why the distinction
+    // matters: an escaping 40001 would be the importer's retry failing to cover
+    // a path, while a tolerated one is nothing.
+    //
+    // This deliberately does NOT widen what the test accepts. Both settled
+    // states below still fail; they just fail saying which SQLSTATE surfaced and
+    // from which of the two concurrent calls. If a future run reports an escaped
+    // 40001 here, that resolves OPEN-26's open question in favour of the
+    // importer needing the fix rather than this test.
+    const settled = await Promise.allSettled([
       importFhirBundle(bundle, IMPORTER, { tenantId: TENANT }),
       importFhirBundle(bundle, IMPORTER, { tenantId: TENANT }),
     ]);
-    const initialResults = [left, right];
-    expect(initialResults.filter(({ imported }) => imported === 6)).toHaveLength(1);
+    const rejected = settled
+      .map((outcome, index) => ({ outcome, index }))
+      .filter(({ outcome }) => outcome.status === 'rejected');
+    if (rejected.length > 0) {
+      throw new Error(
+        `concurrent replay rejected instead of settling: ${rejected
+          .map(({ outcome, index }) => {
+            const reason = outcome.reason;
+            const sqlState =
+              reason?.meta?.code ?? reason?.code ?? 'unknown';
+            return `call#${index} sqlState=${sqlState} ${String(reason?.message || reason).slice(0, 300)}`;
+          })
+          .join(' | ')}`,
+      );
+    }
+    const initialResults = settled.map(({ value }) => value);
+    expect(
+      initialResults.filter(({ imported }) => imported === 6),
+      `exactly one call should import; got ${JSON.stringify(
+        initialResults.map(({ imported, deduplicated, errors }) => ({
+          imported,
+          deduplicated,
+          errorCodes: (errors ?? []).map(({ code }) => code),
+        })),
+      )}`,
+    ).toHaveLength(1);
     const concurrentReplay = initialResults.find(({ imported }) => imported === 0);
+    expect(
+      concurrentReplay,
+      `expected one call to import nothing; got ${JSON.stringify(
+        initialResults.map(({ imported, deduplicated }) => ({ imported, deduplicated })),
+      )}`,
+    ).toBeDefined();
     if (concurrentReplay.errors.length > 0) {
       expect(concurrentReplay.errors).toHaveLength(6);
       expect(concurrentReplay.errors.every(({ code }) => (
