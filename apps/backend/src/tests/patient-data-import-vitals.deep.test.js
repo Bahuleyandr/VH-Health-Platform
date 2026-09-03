@@ -2858,23 +2858,23 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
       );
     }
     const initialResults = settled.map(({ value }) => value);
-    expect(
-      initialResults.filter(({ imported }) => imported === 6),
-      `exactly one call should import; got ${JSON.stringify(
-        initialResults.map(({ imported, deduplicated, errors }) => ({
-          imported,
-          deduplicated,
-          errorCodes: (errors ?? []).map(({ code }) => code),
-        })),
-      )}`,
-    ).toHaveLength(1);
+    // Thrown rather than passed as a second expect() argument: jest's expect
+    // takes exactly one, unlike Playwright's (which is why route-crawl.spec.ts
+    // can pass messages and this file cannot).
+    const describeOutcomes = () => JSON.stringify(
+      initialResults.map(({ imported, deduplicated, errors }) => ({
+        imported,
+        deduplicated,
+        errorCodes: (errors ?? []).map(({ code }) => code),
+      })),
+    );
+    if (initialResults.filter(({ imported }) => imported === 6).length !== 1) {
+      throw new Error(`exactly one call should import; got ${describeOutcomes()}`);
+    }
     const concurrentReplay = initialResults.find(({ imported }) => imported === 0);
-    expect(
-      concurrentReplay,
-      `expected one call to import nothing; got ${JSON.stringify(
-        initialResults.map(({ imported, deduplicated }) => ({ imported, deduplicated })),
-      )}`,
-    ).toBeDefined();
+    if (!concurrentReplay) {
+      throw new Error(`expected one call to import nothing; got ${describeOutcomes()}`);
+    }
     if (concurrentReplay.errors.length > 0) {
       expect(concurrentReplay.errors).toHaveLength(6);
       expect(concurrentReplay.errors.every(({ code }) => (
