@@ -117,8 +117,23 @@ const corsOptionsDelegate = (req, callback) => {
       'Origin',
       'X-API-Key',
       'X-App-Type',
+      'Idempotency-Key',
+      'X-VH-Import-Patient-Uid',
+      'X-VH-Import-Source-System',
+      'X-VH-Import-Source-Document-Id',
+      'X-VH-Import-Source-Facility-Id',
+      'X-VH-Import-Authority-Grant-Id',
+      'X-VH-Import-Source-Signature-Sha256',
+      'X-VH-Import-Payload-Sha256',
+      'X-VH-Import-Correction-Item-Id',
+      'X-VH-Import-Correction-Manifest-Index',
     ],
-    exposedHeaders: ['X-Total-Count', 'X-Page-Count', 'X-Request-Id'],
+    // Retry-After is set by the shared rate limiter and by the clinical-import
+    // 429 path, and the OpenAPI contract documents it on those responses. A
+    // browser cannot read a response header that is not exposed, so without
+    // this the documented back-off is invisible to the very clients the spec
+    // promises it to.
+    exposedHeaders: ['X-Total-Count', 'X-Page-Count', 'X-Request-Id', 'Retry-After'],
     maxAge: 86400,
     optionsSuccessStatus: 204,
   });

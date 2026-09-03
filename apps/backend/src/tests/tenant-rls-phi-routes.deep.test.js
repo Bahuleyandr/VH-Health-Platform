@@ -28,6 +28,7 @@
 
 import request from 'supertest';
 import app from '../app.js';
+import { ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import { waitForAuditLogDrain } from '../middleware/auditLog.js';
 import { generateToken } from '../utils/jwtUtils.js';
@@ -181,6 +182,17 @@ async function ensureAppRole() {
 }
 
 d('Tenant RLS — cross-tenant PHI route gate (B1.4 comprehensive)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so these subjects must exist before any request or the suite 401s
+  // before reaching the behaviour it asserts.
+  beforeAll(async () => {
+    for (const uid of [
+      PUID_A,
+      PUID_B,
+    ]) {
+      await ensureTestIdentity(uid);
+    }
+  });
   beforeAll(async () => {
     savedEnforceFlag = process.env.AUTH_ENFORCE_TENANT_RLS;
     savedRuntimeRole = process.env.AUTH_TENANT_RLS_RUNTIME_ROLE;

@@ -15,6 +15,7 @@ import { canWriteAppointmentClinical } from '../../utils/appointment/appointment
 import { isDoctor } from '../../utils/roleHelpers.js';
 import { AppError } from '../../utils/AppError.js';
 import { istDateString } from '../../utils/dateUtils.js';
+import { withAuthIdentityLifecycleLocks } from '../../utils/tokenBlacklist.js';
 import { resolveDoctorRef } from '../../services/doctor/doctorRefService.js';
 import { emitAppointmentEvent } from '../../utils/websocket/realtimeEmitter.js';
 import { ensureAppointmentQueueForAppointment } from '../../services/appointment/appointmentQueueService.js';
@@ -1898,11 +1899,12 @@ export const registerWalkIn = async (req, res) => {
               const newGuardian = await tx.$queryRawUnsafe(
                 `INSERT INTO users (phone, name, role, is_active, tenant_id, updated_at)
                  VALUES ($1, $2, 'PATIENT', true, $3::uuid, NOW())
-                 RETURNING id`,
+                 RETURNING id, uid`,
                 normalizedGuardianPhone,
                 guardian_name ? String(guardian_name).trim().slice(0, 160) : 'Guardian',
                 actingTenantId,
               );
+              await withAuthIdentityLifecycleLocks(tx, [newGuardian[0].uid], async () => undefined);
               guardianUserIdInt = newGuardian[0].id;
             }
           }
@@ -1967,7 +1969,7 @@ export const registerWalkIn = async (req, res) => {
                      CASE WHEN $16 IS NOT NULL THEN NOW() ELSE NULL END,
                      $17::uuid,
                      NOW())
-             RETURNING id`,
+             RETURNING id, uid`,
             patientPhoneForInsert,
             patient_name || (isUnidentifiedFlag ? 'Unidentified Patient' : 'Walk-in Patient'),
             birthday,
@@ -1986,6 +1988,7 @@ export const registerWalkIn = async (req, res) => {
             chronicMedsJson,
             actingTenantId,
           );
+          await withAuthIdentityLifecycleLocks(tx, [newUser[0].uid], async () => undefined);
           patientId = newUser[0].id;
           patientIdentity = await lockAppointmentPatientIdentity(tx, {
             tenantId: actingTenantId,

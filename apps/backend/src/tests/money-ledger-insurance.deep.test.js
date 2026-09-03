@@ -97,7 +97,7 @@ async function makeSubmittedClaim(patientUid, policyId, preauthId, invoiceId, cl
   cleanup.claimIds.push(rows[0].id);
   return rows[0].id;
 }
-const bal = (code, dims) => setTenantTx(TENANT, (tx) => getAccountBalancePaise(tx, code, dims));
+const bal = (code, dims) => setTenantTx(TENANT, (tx) => getAccountBalancePaise(tx, TENANT, code, dims));
 
 // ledger_entries / ledger_postings are append-only (mig-343 ledger_block_mutation
 // guard); a plain DELETE aborts. Remove the ENTRIES (and their postings) THIS test

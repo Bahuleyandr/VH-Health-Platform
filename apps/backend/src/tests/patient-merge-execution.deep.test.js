@@ -45,7 +45,7 @@
 //
 // Requires a reachable Postgres (DATABASE_URL). Skipped if none configured.
 
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import prisma, {
   ensureTenantRlsRuntimeRoleGrants,
   setTenantTx,
@@ -58,7 +58,9 @@ import {
 } from '../services/patient/patientMergeService.js';
 import { lookupByIdentifier } from '../services/patient/patientIdentifierService.js';
 import { importFhirBundle as importFhirBundleWithAuthority } from '../services/import/patientDataImport.js';
+import { clinicalImportSha256 } from '../services/import/clinicalImportReceiptService.js';
 import { reconcileRecordedVitalsEffects } from '../services/emr/vitalsChartService.js';
+import { verifyDeviceVitals } from '../services/emr/deviceVitalsService.js';
 import {
   listWorkflowSlaInstances,
   readCanonicalPatientTimeline,
@@ -79,21 +81,285 @@ const TENANT = '00000000-0000-4000-8000-000000000001';
 const MARK = `PMERGE-${process.pid}-${Date.now()}`;
 const RUNTIME_ROLE = `vh_p2_merge_${process.pid}_${Date.now().toString(36)}`;
 const PRIOR_RUNTIME_ROLE = process.env.AUTH_TENANT_RLS_RUNTIME_ROLE;
+const CLINICAL_IMPORT_SOURCE_SYSTEM = 'jest-patient-merge-deep';
+const ACCESS_POLICY = Object.freeze({
+  access_decision: 'allow',
+  access_source: 'test_fixture_explicit_grant',
+  policy_code: 'patient.record.upload',
+  policy_version: '1',
+  policy_hash: clinicalImportSha256('patient-record-upload-policy-v1'),
+  reason: 'Explicit test-only clinical import access evidence',
+});
+const clinicalImportAuthorityGrants = new Map();
 
-function importFhirBundle(bundle, importedBy, options = {}) {
-  const patientReference = (bundle.entry || [])
+async function clinicalImportQuery(tenantId, sql, ...params) {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(
+      `SELECT set_config('app.current_tenant_id', $1::text, true)`,
+      tenantId,
+    );
+    const rows = await tx.$queryRawUnsafe(sql, ...params);
+    return Array.isArray(rows) ? rows : [];
+  });
+}
+
+function bundleWithSourceAuthor(bundle, importedBy) {
+  return {
+    ...bundle,
+    signature: bundle.signature?.who
+      ? bundle.signature
+      : {
+        ...(bundle.signature || {}),
+        who: { reference: `Practitioner/${importedBy}` },
+      },
+    entry: (bundle.entry || []).map((entry) => {
+      const resource = entry?.resource;
+      if (resource?.resourceType !== 'Observation' || resource.performer?.length) return entry;
+      return {
+        ...entry,
+        resource: {
+          ...resource,
+          performer: [{ reference: `Practitioner/${importedBy}` }],
+        },
+      };
+    }),
+  };
+}
+
+async function ensureClinicalImportGrant({ tenantId, patientUid, importedBy }) {
+  const scope = `${tenantId}:${patientUid}:${importedBy}:${CLINICAL_IMPORT_SOURCE_SYSTEM}`;
+  if (!clinicalImportAuthorityGrants.has(scope)) {
+    const grantId = randomUUID();
+    const ownerEvidenceRef = `test://clinical-import/patient-merge/${grantId}`;
+    clinicalImportAuthorityGrants.set(scope, prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `SELECT set_config('app.current_tenant_id', $1::text, true)`,
+        tenantId,
+      );
+      await tx.$executeRawUnsafe(
+        `INSERT INTO clinical_import_authority_events
+           (tenant_id, grant_id, event_type, patient_uid, facility_id,
+            actor_uid, actor_role, source_system, document_formats,
+            valid_from, valid_until, owner_evidence_ref, owner_evidence_sha256,
+            recorded_by, reason, idempotency_key_sha256, contract_version)
+         VALUES
+           ($1::uuid, $2::uuid, 'GRANTED', $3::uuid, $4::int,
+            $5::uuid, 'MEDICAL_RECORDS', $6, ARRAY['fhir_bundle']::text[],
+            NOW() - INTERVAL '1 minute', NOW() + INTERVAL '1 day', $7, $8,
+            $5::uuid, $9, $10, 1)`,
+        tenantId,
+        grantId,
+        patientUid,
+        clinicalImportFacilityId,
+        importedBy,
+        CLINICAL_IMPORT_SOURCE_SYSTEM,
+        ownerEvidenceRef,
+        clinicalImportSha256(ownerEvidenceRef),
+        `Explicit test grant for ${patientUid}`,
+        clinicalImportSha256(`grant:${tenantId}:${grantId}`),
+      );
+      return grantId;
+    }));
+  }
+  return clinicalImportAuthorityGrants.get(scope);
+}
+
+async function expectClinicalImportReceipt(result, authority) {
+  const custody = await clinicalImportQuery(
+    authority.tenantId,
+    `SELECT document.authority_grant_id, document.raw_artifact_id,
+            document.access_decision_evidence, document.source_author_evidence,
+            raw.patient_uid::text AS patient_uid, raw.source_facility_id,
+            raw.actor_uid::text AS actor_uid, raw.source_system,
+            raw.source_document_id, raw.document_format, raw.raw_payload_sha256,
+            raw.raw_payload_bytes::int AS raw_payload_bytes, raw.raw_content_type,
+            raw.canonical_payload_sha256,
+            raw.source_author_evidence AS raw_source_author_evidence
+       FROM clinical_import_document_receipts AS document
+       JOIN clinical_import_raw_artifacts AS raw
+         ON raw.tenant_id=document.tenant_id AND raw.id=document.raw_artifact_id
+      WHERE document.tenant_id=$1::uuid AND document.id=$2::uuid`,
+    authority.tenantId,
+    result.receipt_id,
+  );
+  expect(custody).toHaveLength(1);
+  expect(custody[0]).toMatchObject({
+    authority_grant_id: authority.authorityGrantId,
+    patient_uid: authority.patientUid,
+    source_facility_id: clinicalImportFacilityId,
+    actor_uid: authority.actorUid,
+    source_system: CLINICAL_IMPORT_SOURCE_SYSTEM,
+    source_document_id: authority.sourceDocumentId,
+    document_format: 'fhir_bundle',
+    raw_payload_sha256: createHash('sha256').update(authority.rawDocument).digest('hex'),
+    raw_payload_bytes: authority.rawDocument.length,
+    raw_content_type: 'application/fhir+json',
+    canonical_payload_sha256: authority.sourcePayloadSha256,
+  });
+  expect(custody[0].raw_artifact_id).toEqual(expect.any(String));
+  expect(custody[0].access_decision_evidence).toMatchObject({
+    contract_version: 'clinical-import-access-decision-v1',
+    decision: 'allow',
+    authority_grant_id: authority.authorityGrantId,
+    patient_uid: authority.patientUid,
+    patient_access: ACCESS_POLICY,
+  });
+  expect(custody[0].source_author_evidence.authors).not.toHaveLength(0);
+  expect(custody[0].raw_source_author_evidence).toEqual(custody[0].source_author_evidence);
+
+  const persistedResources = await clinicalImportQuery(
+    authority.tenantId,
+    `SELECT id, source_resource_type, source_resource_id, source_resource_index,
+            outcome, target_table, target_id
+       FROM clinical_import_resource_receipts
+      WHERE tenant_id=$1::uuid AND document_receipt_id=$2::uuid
+      ORDER BY source_resource_index`,
+    authority.tenantId,
+    result.receipt_id,
+  );
+  expect(result.resource_receipts).toEqual(persistedResources.map((resource) => ({
+    ...resource,
+    source_resource_index: Number(resource.source_resource_index),
+  })));
+  const failedReceiptIds = result.resource_receipts
+    .filter(({ outcome }) => outcome === 'failed')
+    .map(({ id }) => id)
+    .sort();
+  expect(result.reconciliation_items.map(({ resource_receipt_id: id }) => id).sort())
+    .toEqual(failedReceiptIds);
+  expect(result.reconciliation_items).toEqual(result.reconciliation_items.map((item) => ({
+    ...item,
+    opened_event_id: expect.any(String),
+    status: 'OPENED',
+  })));
+  expect(result.errors).toHaveLength(Number(result.failed || 0));
+  for (const partition of result.observationPartitions.filter((candidate) => (
+    candidate.status === 'imported' && candidate.error
+  ))) {
+    expect(partition).toEqual(expect.objectContaining({
+      error: 'FHIR vitals were committed, but clinical effects remain incomplete',
+      errorCode: expect.any(String),
+    }));
+  }
+
+  const reconciliation = await clinicalImportQuery(
+    authority.tenantId,
+    `SELECT
+       (SELECT COUNT(*)::int FROM clinical_import_resource_receipts
+         WHERE tenant_id=$1::uuid AND document_receipt_id=$2::uuid
+           AND outcome='failed') AS failed_resource_count,
+       (SELECT COUNT(*)::int FROM clinical_import_reconciliation_items
+         WHERE tenant_id=$1::uuid AND document_receipt_id=$2::uuid) AS item_count,
+       (SELECT COUNT(*)::int FROM clinical_import_reconciliation_events
+         WHERE tenant_id=$1::uuid AND document_receipt_id=$2::uuid
+           AND event_type='OPENED') AS opened_event_count`,
+    authority.tenantId,
+    result.receipt_id,
+  );
+  const failed = Number(result.failed || 0);
+  expect(reconciliation).toEqual([{
+    failed_resource_count: failed,
+    item_count: failed,
+    opened_event_count: failed,
+  }]);
+}
+
+async function expectClinicalImportRollback(tenantId, sourceDocumentId) {
+  const rows = await clinicalImportQuery(
+    tenantId,
+    `SELECT
+       (SELECT COUNT(*)::int FROM clinical_import_document_receipts
+         WHERE tenant_id=$1::uuid AND source_system=$2 AND source_document_id=$3) AS document_count,
+       (SELECT COUNT(*)::int FROM clinical_import_raw_artifacts
+         WHERE tenant_id=$1::uuid AND source_system=$2 AND source_document_id=$3) AS raw_artifact_count,
+       (SELECT COUNT(*)::int FROM clinical_import_resource_receipts
+         WHERE tenant_id=$1::uuid AND document_receipt_id IN (
+           SELECT id FROM clinical_import_document_receipts
+            WHERE tenant_id=$1::uuid AND source_system=$2 AND source_document_id=$3
+         )) AS resource_count,
+       (SELECT COUNT(*)::int FROM clinical_import_reconciliation_items
+         WHERE tenant_id=$1::uuid AND document_receipt_id IN (
+           SELECT id FROM clinical_import_document_receipts
+            WHERE tenant_id=$1::uuid AND source_system=$2 AND source_document_id=$3
+         )) AS reconciliation_item_count,
+       (SELECT COUNT(*)::int FROM clinical_import_reconciliation_events
+         WHERE tenant_id=$1::uuid AND document_receipt_id IN (
+           SELECT id FROM clinical_import_document_receipts
+            WHERE tenant_id=$1::uuid AND source_system=$2 AND source_document_id=$3
+         )) AS reconciliation_event_count`,
+    tenantId,
+    CLINICAL_IMPORT_SOURCE_SYSTEM,
+    sourceDocumentId,
+  );
+  expect(rows).toEqual([{
+    document_count: 0,
+    raw_artifact_count: 0,
+    resource_count: 0,
+    reconciliation_item_count: 0,
+    reconciliation_event_count: 0,
+  }]);
+}
+
+async function importFhirBundle(bundle, importedBy, options = {}) {
+  const authoritativeBundle = bundleWithSourceAuthor(bundle, importedBy);
+  const patientReference = (authoritativeBundle.entry || [])
     .map(({ resource }) => resource?.subject?.reference || resource?.patient?.reference)
     .find(Boolean);
-  const patientUid = String(patientReference || '').replace('Patient/', '');
-  return importFhirBundleWithAuthority(bundle, importedBy, {
-    ...options,
-    authority: { patientUid },
-  });
+  const patientUid = options.authority?.patientUid
+    || String(patientReference || '').replace('Patient/', '');
+  const tenantId = options.tenantId || TENANT;
+  const patientRows = await prisma.$queryRawUnsafe(
+    `SELECT id FROM users WHERE tenant_id=$1::uuid AND uid=$2::uuid LIMIT 1`,
+    tenantId,
+    patientUid,
+  );
+  if (!patientRows.length || !clinicalImportFacilityId) {
+    throw new Error('patient-merge FHIR receipt authority is unavailable');
+  }
+  const authorityGrantId = await ensureClinicalImportGrant({ tenantId, patientUid, importedBy });
+  const sourcePayloadSha256 = clinicalImportSha256(authoritativeBundle);
+  const sourceDocumentId = `merge-fhir-${process.pid}-${++importDocumentSequence}`;
+  const authority = {
+    ...options.authority,
+    patientUid,
+    patientId: Number(patientRows[0].id),
+    sourceSystem: CLINICAL_IMPORT_SOURCE_SYSTEM,
+    sourceDocumentId,
+    sourceFacilityId: clinicalImportFacilityId,
+    authorityGrantId,
+    sourceSignatureSha256: clinicalImportSha256(`signature:${sourcePayloadSha256}`),
+    sourcePayloadSha256,
+    rawDocument: Buffer.from(JSON.stringify(authoritativeBundle), 'utf8'),
+    rawContentType: 'application/fhir+json',
+    accessDecisionEvidence: ACCESS_POLICY,
+    revalidateAccess: async () => ACCESS_POLICY,
+    actorUid: importedBy,
+    actorRole: 'MEDICAL_RECORDS',
+    ingestionMode: 'manual_medical_records',
+    requestId: sourceDocumentId,
+    tenantId,
+  };
+  let result;
+  try {
+    result = await importFhirBundleWithAuthority(authoritativeBundle, importedBy, {
+      ...options,
+      authority: { ...authority, idempotencyKey: `merge-fhir:${sourceDocumentId}` },
+    });
+  } catch (error) {
+    await expectClinicalImportRollback(tenantId, sourceDocumentId);
+    throw error;
+  }
+  await expectClinicalImportReceipt(result, authority);
+  return result;
 }
 
 const REQUESTER = randomUUID();
 const APPROVER = randomUUID();
 const EXECUTOR = randomUUID();
+const CLINICAL_IMPORTER = randomUUID();
+const CLINICAL_VERIFIER = randomUUID();
+let clinicalImportFacilityId = null;
+let importDocumentSequence = 0;
 
 const seeded = {
   userUids: [],
@@ -397,6 +663,93 @@ async function approvedMergeRequest(primary, secondary) {
 
 async function cleanup() {
   if (!DB) return;
+  const discoveredFhirRows = await prisma.$queryRawUnsafe(
+    `SELECT DISTINCT link.set_fingerprint, observation_set.vitals_chart_id
+       FROM fhir_vital_observation_receipts AS receipt
+       LEFT JOIN fhir_vital_observation_set_resources AS link
+         ON link.tenant_id = receipt.tenant_id
+        AND link.resource_fingerprint = receipt.resource_fingerprint
+       LEFT JOIN fhir_vital_observation_sets AS observation_set
+         ON observation_set.tenant_id = link.tenant_id
+        AND observation_set.set_fingerprint = link.set_fingerprint
+      WHERE receipt.tenant_id = $1::uuid
+        AND receipt.resource_id LIKE $2`,
+    TENANT,
+    `${MARK}%`,
+  );
+  seeded.fhirSetFingerprints.push(...discoveredFhirRows
+    .map(({ set_fingerprint: fingerprint }) => fingerprint)
+    .filter((fingerprint) => fingerprint && !seeded.fhirSetFingerprints.includes(fingerprint)));
+  seeded.fhirVitalsIds.push(...discoveredFhirRows
+    .map(({ vitals_chart_id: id }) => Number(id))
+    .filter((id) => Number.isInteger(id) && !seeded.fhirVitalsIds.includes(id)));
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+    await tx.$queryRawUnsafe(
+      `SELECT set_config('app.current_tenant_id', $1::text, true)`,
+      TENANT,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM clinical_import_reconciliation_events
+        WHERE tenant_id=$1::uuid AND document_receipt_id IN (
+          SELECT id FROM clinical_import_document_receipts
+           WHERE tenant_id=$1::uuid AND source_system=$2
+        )`,
+      TENANT,
+      CLINICAL_IMPORT_SOURCE_SYSTEM,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM clinical_import_reconciliation_items
+        WHERE tenant_id=$1::uuid AND document_receipt_id IN (
+          SELECT id FROM clinical_import_document_receipts
+           WHERE tenant_id=$1::uuid AND source_system=$2
+        )`,
+      TENANT,
+      CLINICAL_IMPORT_SOURCE_SYSTEM,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM clinical_import_resource_receipts
+        WHERE tenant_id=$1::uuid AND document_receipt_id IN (
+          SELECT id FROM clinical_import_document_receipts
+           WHERE tenant_id=$1::uuid AND source_system=$2
+        )`,
+      TENANT,
+      CLINICAL_IMPORT_SOURCE_SYSTEM,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM clinical_import_document_receipts
+        WHERE tenant_id=$1::uuid AND source_system=$2`,
+      TENANT,
+      CLINICAL_IMPORT_SOURCE_SYSTEM,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM clinical_import_raw_artifacts
+        WHERE tenant_id=$1::uuid AND source_system=$2`,
+      TENANT,
+      CLINICAL_IMPORT_SOURCE_SYSTEM,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM clinical_import_authority_events
+        WHERE tenant_id=$1::uuid AND source_system=$2`,
+      TENANT,
+      CLINICAL_IMPORT_SOURCE_SYSTEM,
+    );
+  });
+  clinicalImportAuthorityGrants.clear();
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM clinical_timeline_events
+      WHERE tenant_id=$1::uuid AND actor_uid=$2::uuid
+        AND event_type='clinical_document.imported'`,
+    TENANT,
+    CLINICAL_IMPORTER,
+  );
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM clinical_audit_events
+      WHERE tenant_id=$1::uuid AND actor_uid=$2::uuid
+        AND action='clinical_document.imported'`,
+    TENANT,
+    CLINICAL_IMPORTER,
+  );
   if (seeded.fhirSetFingerprints.length) {
     await prisma.$executeRawUnsafe(
       `DELETE FROM fhir_vital_observation_set_resources
@@ -536,7 +889,15 @@ async function cleanup() {
   );
   if (seeded.userUids.length) {
     await prisma.$executeRawUnsafe(
-      `DELETE FROM users WHERE uid = ANY($1::uuid[])`, seeded.userUids,
+      `DELETE FROM users AS candidate
+        WHERE candidate.uid = ANY($1::uuid[])
+          AND NOT EXISTS (
+            SELECT 1
+              FROM clinical_import_document_receipts AS receipt
+             WHERE receipt.tenant_id = candidate.tenant_id
+               AND (receipt.patient_uid = candidate.uid OR receipt.actor_uid = candidate.uid)
+          )`,
+      seeded.userUids,
     );
   }
 }
@@ -560,7 +921,34 @@ d('patient merge execution (deep)', () => {
       `${MARK}-approver`,
       `${MARK}-executor`,
     );
-    seeded.userUids.push(REQUESTER, APPROVER, EXECUTOR);
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, status, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3, $4, 'MEDICAL_RECORDS', true, 'active', NOW())`,
+      CLINICAL_IMPORTER,
+      TENANT,
+      `+9196${String(process.pid).padStart(8, '0').slice(-8)}4`,
+      `${MARK}-clinical-importer`,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, status, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3, $4, 'NURSING_STAFF', true, 'active', NOW())`,
+      CLINICAL_VERIFIER,
+      TENANT,
+      `+9196${String(process.pid).padStart(8, '0').slice(-8)}5`,
+      `${MARK}-clinical-verifier`,
+    );
+    const facilityRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO facilities (tenant_id, facility_code, display_name, status)
+       VALUES ($1::uuid, $2, $3, 'active')
+       ON CONFLICT (tenant_id, facility_code)
+       DO UPDATE SET status='active'
+       RETURNING id`,
+      TENANT,
+      `${MARK}-FHIR`.slice(0, 80),
+      `${MARK} FHIR facility`.slice(0, 255),
+    );
+    clinicalImportFacilityId = Number(facilityRows[0].id);
+    seeded.userUids.push(REQUESTER, APPROVER, EXECUTOR, CLINICAL_IMPORTER, CLINICAL_VERIFIER);
     process.env.AUTH_TENANT_RLS_RUNTIME_ROLE = RUNTIME_ROLE;
     const grantResult = await ensureTenantRlsRuntimeRoleGrants();
     if (grantResult.error) throw new Error(grantResult.error);
@@ -677,7 +1065,10 @@ d('patient merge execution (deep)', () => {
           valueQuantity: { value: 96, code: '/min' },
         },
       }],
-    }, primary.uid, { tenantId: TENANT });
+    }, CLINICAL_IMPORTER, {
+      tenantId: TENANT,
+      authority: { patientUid: primary.uid },
+    });
     expect(correctedReplay).toEqual(expect.objectContaining({
       imported: 0,
       deduplicated: 0,
@@ -721,7 +1112,7 @@ d('patient merge execution (deep)', () => {
           valueQuantity: { value: 84, code: '/min' },
         },
       }],
-    }, EXECUTOR, {
+    }, CLINICAL_IMPORTER, {
       tenantId: TENANT,
       beforeFhirVitalWrite: async () => {
         signalResolved();
@@ -809,10 +1200,24 @@ d('patient merge execution (deep)', () => {
     const resourceId = `${MARK}-fhir-effect-race-observation`;
     const initial = await importFhirBundle(
       criticalFhirVitalBundle(secondary.uid, observedAt, resourceId),
-      EXECUTOR,
+      CLINICAL_IMPORTER,
       { tenantId: TENANT },
     );
     expect(initial).toEqual(expect.objectContaining({ imported: 1, errors: [] }));
+    const importedVitalsId = Number(initial.observationPartitions[0].vitalsChartId);
+    expect(initial.observationPartitions[0]).toMatchObject({
+      verificationStatus: 'asserted_unverified',
+      clinicalEffectsReconciled: false,
+    });
+    await expect(verifyDeviceVitals(importedVitalsId, {
+      actorUid: CLINICAL_VERIFIER,
+      actorRole: 'NURSING_STAFF',
+      tenantId: TENANT,
+    })).resolves.toMatchObject({
+      source: 'fhir',
+      device_verified: true,
+      clinical_effects: { pendingEffects: [] },
+    });
     const sourceRows = await prisma.$queryRawUnsafe(
       `SELECT sets.set_fingerprint, sets.vitals_chart_id, score.id AS news2_id
          FROM fhir_vital_observation_receipts AS receipt
@@ -969,8 +1374,22 @@ d('patient merge execution (deep)', () => {
           },
         },
       }],
-    }, EXECUTOR, { tenantId: TENANT });
+    }, CLINICAL_IMPORTER, { tenantId: TENANT });
     expect(initial).toEqual(expect.objectContaining({ imported: 1, errors: [] }));
+    const importedVitalsId = Number(initial.observationPartitions[0].vitalsChartId);
+    expect(initial.observationPartitions[0]).toMatchObject({
+      verificationStatus: 'asserted_unverified',
+      clinicalEffectsReconciled: false,
+    });
+    await expect(verifyDeviceVitals(importedVitalsId, {
+      actorUid: CLINICAL_VERIFIER,
+      actorRole: 'NURSING_STAFF',
+      tenantId: TENANT,
+    })).resolves.toMatchObject({
+      source: 'fhir',
+      device_verified: true,
+      clinical_effects: { pendingEffects: [] },
+    });
 
     const sourceRows = await prisma.$queryRawUnsafe(
       `SELECT sets.set_fingerprint, sets.vitals_chart_id

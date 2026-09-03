@@ -1035,7 +1035,8 @@ describe('listLabWorklist STAT ordering (D45)', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([linkedTask])
       .mockResolvedValueOnce([{
-        id: 'sla-82', status: 'active', completed_at: null, completed_at_epoch_ms: null, metadata: {},
+        id: 'sla-82', status: 'active', completed_at: null, completed_at_epoch_ms: null,
+        acknowledgement_clock: '2026-07-19T04:00:00.000Z', metadata: {},
       }])
       .mockResolvedValueOnce([acknowledgedAlert])
       .mockResolvedValueOnce([{ recorded: true }]);
@@ -1085,7 +1086,8 @@ describe('listLabWorklist STAT ordering (D45)', () => {
 
     const slaLock = queryRawUnsafeMock.mock.calls[4];
     expect(slaLock[0]).toMatch(/FROM workflow_sla_instances AS sla[\s\S]*sla\.id = \$2::uuid[\s\S]*sla\.rule_code = 'critical_result_ack'[\s\S]*sla\.source_table = 'lab_result'[\s\S]*sla\.source_id = \$3::text[\s\S]*FOR UPDATE OF sla/i);
-    expect(slaLock.slice(1)).toEqual([tenantId, 'sla-82', '37']);
+    expect(slaLock[0]).toMatch(/GREATEST\(clock_timestamp\(\), \$4::timestamptz\)[\s\S]*INTERVAL '1 millisecond'[\s\S]*AT TIME ZONE 'UTC'/i);
+    expect(slaLock.slice(1)).toEqual([tenantId, 'sla-82', '37', alert.fired_at]);
     expect(taskLock[0]).not.toMatch(/FOR UPDATE OF task, sla/i);
     expect(acknowledgeTaskMock).toHaveBeenCalledWith({
       tenantId,
@@ -1098,6 +1100,7 @@ describe('listLabWorklist STAT ordering (D45)', () => {
       actorPrimaryRole: 'DOCTOR',
       actorRawRole: 'DOCTOR',
       breakGlassId: 44,
+      acknowledgedAt: '2026-07-19T04:00:00.000Z',
       tx: __prismaDefaultMock,
     });
 

@@ -2,9 +2,11 @@ import { jest } from '@jest/globals';
 
 const queryUnsafeMock = jest.fn();
 const logAuditMock = jest.fn();
+const lifecycleLockMock = jest.fn(async (_tx, _uids, fn) => fn());
 
 const __prismaDefaultMock = {
   $queryRawUnsafe: queryUnsafeMock,
+  $transaction: jest.fn(async (fn) => fn(__prismaDefaultMock)),
 };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: __prismaDefaultMock,
@@ -16,6 +18,10 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 
 jest.unstable_mockModule('../../utils/logAudit.js', () => ({
   logAudit: logAuditMock,
+}));
+
+jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
+  withAuthIdentityLifecycleLocks: lifecycleLockMock,
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({
@@ -77,6 +83,7 @@ function makeReq({ body = {}, params = {}, query = {}, tenantId = TENANT_ID } = 
 beforeEach(() => {
   queryUnsafeMock.mockReset();
   logAuditMock.mockReset().mockResolvedValue(undefined);
+  lifecycleLockMock.mockClear();
 });
 
 describe('patientSearchController search', () => {
@@ -268,6 +275,11 @@ describe('patientSearchController front-office mutations', () => {
     expect(insertedPhone).toBe('+919876543210');
     expect(insertedName).toBe('Codex Test Patient');
     expect(insertedGender).toBe('female');
+    expect(lifecycleLockMock).toHaveBeenCalledWith(
+      __prismaDefaultMock,
+      [PATIENT_UID],
+      expect.any(Function),
+    );
     expect(logAuditMock).toHaveBeenCalledWith(
       req,
       'FRONT_OFFICE_PATIENT_CREATED',
@@ -382,6 +394,11 @@ describe('patientSearchController front-office mutations', () => {
     expect(JSON.parse(signals)).toEqual({ name_exact: true, birthday_exact: true });
     expect(decidedBy).toBe(req.user.uid);
     expect(reason).toBe('Different person verified with photo ID');
+    expect(lifecycleLockMock).toHaveBeenCalledWith(
+      __prismaDefaultMock,
+      [PATIENT_UID],
+      expect.any(Function),
+    );
     expect(logAuditMock).toHaveBeenCalledWith(
       req,
       'FRONT_OFFICE_PATIENT_DUPLICATE_OVERRIDE',

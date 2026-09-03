@@ -46,9 +46,9 @@ class _StepHistorySectionState extends State<StepHistorySection>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'History',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        Text(
+          AppLocalizations.of(context)!.stepsHistory,
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
         ),
         const SizedBox(height: 8),
         TabBar(
@@ -56,10 +56,10 @@ class _StepHistorySectionState extends State<StepHistorySection>
           labelColor: const Color(0xFF4CAF50),
           unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
           indicatorColor: const Color(0xFF4CAF50),
-          tabs: const [
-            Tab(text: 'Daily'),
-            Tab(text: 'Weekly'),
-            Tab(text: 'Monthly'),
+          tabs: [
+            Tab(text: AppLocalizations.of(context)!.stepsDailyTab),
+            Tab(text: AppLocalizations.of(context)!.stepsWeeklyTab),
+            Tab(text: AppLocalizations.of(context)!.stepsMonthlyTab),
           ],
         ),
         SizedBox(
@@ -118,10 +118,10 @@ class _StepHistorySectionState extends State<StepHistorySection>
       itemBuilder: (ctx, i) {
         final row = widget.weekly[i];
         return _historyTile(
-          title: 'Week of ${row.weekStart}',
+          title: AppLocalizations.of(context)!.stepsWeekOf(row.weekStart),
           steps: row.avgSteps,
           distanceMeters: row.avgDistanceMeters,
-          subtitle: 'avg/day',
+          subtitle: AppLocalizations.of(context)!.stepsAveragePerDay,
         );
       },
     );
@@ -145,7 +145,7 @@ class _StepHistorySectionState extends State<StepHistorySection>
           title: row.month,
           steps: row.avgSteps,
           distanceMeters: row.avgDistanceMeters,
-          subtitle: 'avg/day',
+          subtitle: AppLocalizations.of(context)!.stepsAveragePerDay,
         );
       },
     );
@@ -190,7 +190,7 @@ class _StepHistorySectionState extends State<StepHistorySection>
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                '$steps steps',
+                AppLocalizations.of(context)!.stepsCount(steps.toString()),
                 style: const TextStyle(
                   fontWeight: FontWeight.bold,
                   color: Color(0xFF4CAF50),

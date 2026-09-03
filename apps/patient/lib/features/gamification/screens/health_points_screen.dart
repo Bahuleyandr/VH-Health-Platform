@@ -245,6 +245,7 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
   }
 
   Future<void> _claimMilestone(String milestoneId) async {
+    final l = AppLocalizations.of(context)!;
     setState(() => _claimingIds.add(milestoneId));
     try {
       final resp = await ApiClient.post(
@@ -266,11 +267,11 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
         unawaited(_fetchSummary());
         unawaited(_fetchHubStats());
       } else {
-        _showError(resp.failureMessage('Failed to claim milestone'));
+        _showError(resp.failureMessage(l.gamificationClaimMilestoneFailed));
       }
     } catch (e) {
       debugPrint('claimMilestone error: $e');
-      _showError('Failed to claim milestone');
+      _showError(l.gamificationClaimMilestoneFailed);
     } finally {
       if (mounted) setState(() => _claimingIds.remove(milestoneId));
     }
@@ -357,7 +358,7 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
         actions: [
           FilledButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Done'),
+            child: Text(l.commonDoneButton),
           ),
         ],
       ),
@@ -368,9 +369,10 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     final colors = Theme.of(context).colorScheme;
     return FeatureScreenScaffold(
-      title: 'Health Hub',
+      title: l.gamificationScreenTitle,
       icon: Icons.health_and_safety_outlined,
       color: colors.primary,
       heroTag: 'health-points',
@@ -390,12 +392,12 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
             controller: _tabController,
             isScrollable: true,
             tabAlignment: TabAlignment.start,
-            tabs: const [
-              Tab(text: 'Overview'),
-              Tab(text: 'Milestones'),
-              Tab(text: 'Achievements'),
-              Tab(text: 'My Rewards'),
-              Tab(text: 'History'),
+            tabs: [
+              Tab(text: l.gamificationTabOverview),
+              Tab(text: l.gamificationTabMilestones),
+              Tab(text: l.gamificationTabAchievements),
+              Tab(text: l.gamificationTabMyRewards),
+              Tab(text: l.gamificationTabHistory),
             ],
           ),
           const SizedBox(height: 8),

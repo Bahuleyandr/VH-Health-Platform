@@ -18,6 +18,7 @@ import 'package:vhhealth/features/steps/widgets/step_profile_section.dart';
 import 'package:vhhealth/features/steps/widgets/step_rewards_section.dart';
 import 'package:vhhealth/features/steps/widgets/step_today_card.dart';
 import 'package:vhhealth/features/steps/widgets/step_walk_control.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class StepChallengeScreen extends StatefulWidget {
@@ -240,18 +241,19 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
   // ─── Profile save ────────────────────────────────────────────────────────
 
   Future<void> _saveProfile() async {
+    final l = AppLocalizations.of(context)!;
     final name = _nameController.text.trim();
     if (name.isEmpty) {
-      _showError('Display name cannot be empty');
+      _showError(l.stepsDisplayNameRequired);
       return;
     }
     final dailyGoal = int.tryParse(_goalController.text.trim());
     if (dailyGoal == null) {
-      _showError('Daily step target must be a number');
+      _showError(l.stepsDailyTargetNumberRequired);
       return;
     }
     if (dailyGoal < 1000 || dailyGoal > 100000) {
-      _showError('Daily step target must be between 1,000 and 100,000');
+      _showError(l.stepsDailyTargetRange);
       return;
     }
     setState(() => _savingProfile = true);
@@ -270,10 +272,10 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
         await _fetchProfile();
         _showSuccess('Profile saved');
       } else {
-        _showError(resp.failureMessage('Failed to save profile'));
+        _showError(resp.failureMessage(l.stepsProfileSaveFailed));
       }
     } catch (e) {
-      _showError('Failed to save profile');
+      _showError(l.stepsProfileSaveFailed);
     } finally {
       if (mounted) setState(() => _savingProfile = false);
     }
@@ -517,9 +519,10 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     final colors = Theme.of(context).colorScheme;
     return FeatureScreenScaffold(
-      title: 'Step Challenge 🏃',
+      title: l.stepsTitle,
       icon: LucideIcons.footprints,
       color: colors.tertiary,
       heroTag: 'steps',

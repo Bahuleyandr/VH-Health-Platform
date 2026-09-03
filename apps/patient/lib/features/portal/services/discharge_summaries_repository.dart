@@ -25,20 +25,27 @@ class DischargeSummarySnapshot {
 }
 
 abstract class DischargeSummariesRepository {
-  Future<DischargeSummariesPage> listSummaries();
-  Future<DischargeSummary> getSummary(int id);
+  Future<DischargeSummariesPage> listSummaries({
+    required String loadFailureMessage,
+    required String refreshFailureMessage,
+  });
+  Future<DischargeSummary> getSummary(
+    int id, {
+    required String loadFailureMessage,
+  });
 }
 
 class ApiDischargeSummariesRepository implements DischargeSummariesRepository {
   const ApiDischargeSummariesRepository();
 
   @override
-  Future<DischargeSummariesPage> listSummaries() async {
+  Future<DischargeSummariesPage> listSummaries({
+    required String loadFailureMessage,
+    required String refreshFailureMessage,
+  }) async {
     final result = await ApiClient.cachedGet('/portal/discharge-summaries');
     if (!result.isSuccess) {
-      throw Exception(
-        result.failureMessage('Failed to load discharge summaries'),
-      );
+      throw Exception(result.failureMessage(loadFailureMessage));
     }
 
     return DischargeSummariesPage(
@@ -47,7 +54,7 @@ class ApiDischargeSummariesRepository implements DischargeSummariesRepository {
       cachedAt: result.cachedAt,
       onFresh: result.onFresh?.then((fresh) {
         if (!fresh.isSuccess) {
-          throw Exception(fresh.failureMessage('Failed to refresh summaries'));
+          throw Exception(fresh.failureMessage(refreshFailureMessage));
         }
         return _parseSummaries(fresh.data);
       }),
@@ -55,15 +62,21 @@ class ApiDischargeSummariesRepository implements DischargeSummariesRepository {
   }
 
   @override
-  Future<DischargeSummary> getSummary(int id) async =>
-      (await getSummarySnapshot(id)).summary;
+  Future<DischargeSummary> getSummary(
+    int id, {
+    required String loadFailureMessage,
+  }) async => (await getSummarySnapshot(
+    id,
+    loadFailureMessage: loadFailureMessage,
+  )).summary;
 
-  Future<DischargeSummarySnapshot> getSummarySnapshot(int id) async {
+  Future<DischargeSummarySnapshot> getSummarySnapshot(
+    int id, {
+    required String loadFailureMessage,
+  }) async {
     final result = await ApiClient.cachedGet('/portal/discharge-summaries/$id');
     if (!result.isSuccess) {
-      throw Exception(
-        result.failureMessage('Failed to load discharge summary'),
-      );
+      throw Exception(result.failureMessage(loadFailureMessage));
     }
     final data = result.data;
     if (data is Map<String, dynamic>) {

@@ -161,7 +161,7 @@ class NotificationItem {
     final title = (map['title'] ?? '').toString().trim();
     return NotificationItem(
       id: map['id']?.toString(),
-      title: title.isNotEmpty ? title : 'Notification',
+      title: title,
       body: (map['message'] ?? map['body'] ?? '').toString(),
       timestamp:
           DateTime.tryParse(
@@ -208,7 +208,8 @@ class NotificationItem {
 
   String titleFor(AppStrings strings) {
     final key = _localizedTitleKeys[normalizedType];
-    return key == null ? title : strings.lookup(key);
+    if (key != null) return strings.lookup(key);
+    return title.isEmpty ? strings.notificationFallbackTitle : title;
   }
 
   String bodyFor(AppStrings strings) {
@@ -704,7 +705,7 @@ class NotificationProvider extends ChangeNotifier {
       0,
       NotificationItem(
         id: message.data['id']?.toString(),
-        title: notification?.title ?? message.data['title'] ?? 'Notification',
+        title: notification?.title ?? message.data['title'] ?? '',
         body: notification?.body ?? message.data['body'] ?? '',
         timestamp: DateTime.now(),
         type: message.data['type']?.toString(),

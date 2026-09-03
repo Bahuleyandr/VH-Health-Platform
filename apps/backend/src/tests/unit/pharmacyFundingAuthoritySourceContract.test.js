@@ -102,10 +102,9 @@ describe('pharmacy funding authority source contracts', () => {
 
   it('makes allocation and cap evidence append-only and exactly cross-bound', () => {
     // Bound to the owning constraint name, and matched across whitespace rather
-    // than a literal '\n': core.autocrlf=true checks this LF blob out as CRLF on
-    // Windows, so a '\n'-literal probe fails on every Windows host even when the
-    // committed SQL has not drifted at all — and an unbound probe could be
-    // satisfied by the same column list on a different table entirely.
+    // than a literal '\n': migration SQL is LF-pinned, but historical CRLF blobs
+    // and tools that bypass attributes remain possible. An unbound probe could
+    // also be satisfied by the same column list on a different table entirely.
     expect(migration).toMatch(
       /CONSTRAINT fk_pharmacy_payment_allocation_item_753\s*FOREIGN KEY \(tenant_id, invoice_item_id, invoice_id\)\s*REFERENCES billing_invoice_items \(tenant_id, id, invoice_id\)/,
     );

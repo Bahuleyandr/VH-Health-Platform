@@ -3,7 +3,7 @@
 // The /referrals and /records parent mounts apply patientAccessGuard before the
 // child :uid is bound, so it can't see it. The guards now sit on the child
 // routes. Governed: shadow by default, real 403 under enforce.
-import { generateTestToken, API_KEY } from './testClient.js';
+import { generateTestToken, API_KEY, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -23,6 +23,11 @@ async function clean() {
 }
 
 d('Referral + records child-route guards (CAN-020, CAN-039)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity('c0de2039-00d0-4000-8000-00000000d001', { tenantId: TENANT_ID });
+  });
   let prevMode;
   beforeAll(async () => {
     prevMode = process.env.CARE_TEAM_ENFORCEMENT_MODE;

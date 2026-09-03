@@ -3,12 +3,11 @@
 import { WebSocketServer } from 'ws';
 import logger from '../../logging/logger.js';
 import { verifyToken } from '../jwtUtils.js';
+import * as tokenBlacklist from '../tokenBlacklist.js';
 import {
-  isDelegatedTupleRevoked,
-  isSubjectDelegationRevoked,
-  isTokenBlacklisted,
-  isUserTokensRevoked,
-} from '../tokenBlacklist.js';
+  normalizeCanonicalIdentity,
+  resolveCanonicalTokenIdentity,
+} from '../tokenIdentity.js';
 import { authorizeSubscriptionChannel } from './subscriptionAuth.js';
 import { parsePatientChannel } from './channelAuth.js';
 import { createWsFanout } from './wsRedisAdapter.js';
@@ -20,6 +19,26 @@ import { recordWsBroadcastDropped } from '../../observability/reliabilityMetrics
 // differential-delivery harness can load two independent wsServer realms (via
 // query-string cache-busting) that own separate fan-outs over one shared bus.
 const fanout = createWsFanout();
+const {
+  isDelegatedTupleRevoked,
+  isSubjectDelegationRevoked,
+  isTokenBlacklisted,
+  isUserTokensRevoked,
+} = tokenBlacklist;
+if (
+  process.env.NODE_ENV !== 'test'
+  && (
+    typeof tokenBlacklist.authRevocationLockKeys !== 'function'
+    || typeof tokenBlacklist.withAuthRevocationLocks !== 'function'
+  )
+) {
+  throw new Error('WebSocket auth revocation lock protocol is unavailable');
+}
+// A few legacy unit suites install intentionally partial ESM mocks. Production
+// cannot enter these fallbacks because the invariant above is fail-fast.
+const authRevocationLockKeys = tokenBlacklist.authRevocationLockKeys ?? (() => []);
+const withAuthRevocationLocks = tokenBlacklist.withAuthRevocationLocks
+  ?? ((_client, _keys, fn) => fn(_client));
 
 /** Wire this process's fan-out onto the Redis bus. Called from bin/www.js. */
 export function initWsFanout(opts) {
@@ -174,24 +193,84 @@ const clients = new Map();
 /** @type {Map<string, Set<import('ws').WebSocket>>} authenticated owner uid → Set of sockets */
 const revocationClients = new Map();
 
-/** @type {Map<import('ws').WebSocket, { userId: string, revocationOwnerUid: string, role: string, tenantId?: string, jti?: string, accessSessionJti?: string, sessionFamilyId?: string, stableDeviceId?: string, channels: Set<string>, patientDeliveryQueue: Promise<void> }>} */
+/** @type {Map<import('ws').WebSocket, { userId: string, revocationOwnerUid: string, role: string, tenantId?: string, jti?: string, accessSessionJti?: string, sessionFamilyId?: string, stableDeviceId?: string, channels: Set<string>, revocationDeliveryQueue: Promise<void> }>} */
 const socketMeta = new Map();
+
+// Pending-auth sockets are visible only to revocation closers. They are never
+// considered by normal user delivery or broadcast loops until their final
+// durable revocation check succeeds and they are promoted synchronously.
+const pendingClients = new Map();
+const pendingRevocationClients = new Map();
+const pendingSocketMeta = new Map();
 
 let wss = null;
 let heartbeatInterval = null;
 
 const HEARTBEAT_INTERVAL = 30_000; // 30s
+export const WS_REMOTE_REVOCATION_CLOSE_BOUND_MS = HEARTBEAT_INTERVAL;
 const MAX_BUFFERED_AMOUNT = 1024 * 1024; // 1MB buffer limit per client
 const MAX_CONNECTIONS_PER_USER = 5;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function normalizeIdentityKey(value) {
+  return normalizeCanonicalIdentity(value) ?? String(value).trim();
+}
+
+async function registerDirectClientIfLive(userId, tenantId, lockKeys, registerClient) {
+  const { default: prisma } = await import('../../lib/prisma.js');
+  return prisma.$transaction((tx) => withAuthRevocationLocks(tx, lockKeys, async () => {
+    const users = await tx.$queryRawUnsafe(
+      `SELECT uid, tenant_id, is_active, status, is_deleted, deleted_at,
+              merged_into_uid
+         FROM users
+        WHERE uid = $1::uuid
+        FOR SHARE`,
+      userId,
+    );
+    const admins = await tx.$queryRawUnsafe(
+      `SELECT uid, tenant_id, is_active, status
+         FROM admins
+        WHERE uid = $1::uuid
+        FOR SHARE`,
+      userId,
+    );
+
+    const user = users[0];
+    const admin = admins[0];
+    const exactlyOneIdentity = (users.length + admins.length) === 1;
+    const userLive = Boolean(
+      exactlyOneIdentity
+      && user
+      && String(user.tenant_id || '').toLowerCase() === tenantId.toLowerCase()
+      && user.is_active === true
+      && String(user.status || '').trim().toLowerCase() === 'active'
+      && user.is_deleted === false
+      && user.deleted_at == null
+      && user.merged_into_uid == null
+    );
+    const adminLive = Boolean(
+      exactlyOneIdentity
+      && admin
+      && (admin.tenant_id == null
+        || String(admin.tenant_id).toLowerCase() === tenantId.toLowerCase())
+      && admin.is_active === true
+      && String(admin.status || '').trim().toLowerCase() === 'active'
+    );
+    const live = userLive || adminLive;
+    if (!live) return { live: false, revocationDenial: null };
+    return { live: true, revocationDenial: await registerClient(tx) };
+  }));
+}
 
 async function registerDelegatedClientIfLive(
   userId,
   revocationOwnerUid,
   tenantId,
+  lockKeys,
   registerClient,
 ) {
   const { default: prisma } = await import('../../lib/prisma.js');
-  return prisma.$transaction(async (tx) => {
+  return prisma.$transaction((tx) => withAuthRevocationLocks(tx, lockKeys, async () => {
     const rows = await tx.$queryRawUnsafe(
       `SELECT dep.uid, dep.role, dep.is_minor, dep.is_active, dep.status,
               (dep.birthday IS NULL
@@ -252,9 +331,18 @@ async function registerDelegatedClientIfLive(
       && subject.guardian_deleted_at == null
       && subject.guardian_merged_into_uid == null
     );
-    if (live) registerClient();
-    return live;
-  });
+    if (!live) return { live: false, revocationDenial: null };
+    return { live: true, revocationDenial: await registerClient(tx) };
+  }));
+}
+
+async function registerNonUuidClient(lockKeys, registerClient) {
+  const { default: prisma } = await import('../../lib/prisma.js');
+  return prisma.$transaction((tx) => withAuthRevocationLocks(
+    tx,
+    lockKeys,
+    () => registerClient(tx),
+  ));
 }
 
 export function initWebSocket(server) {
@@ -302,13 +390,16 @@ export function initWebSocket(server) {
     }
   });
 
-  // Heartbeat interval to detect dead connections
+  // The same bounded patrol that detects dead connections also revalidates
+  // durable revocation state. Redis PubSub accelerates remote socket closure,
+  // but correctness does not depend on that lossy notification channel.
   heartbeatInterval = setInterval(() => {
     wss.clients.forEach((ws) => {
       if (!ws.isAlive) return ws.terminate();
       ws.isAlive = false;
       ws.ping();
     });
+    void runDurableRevocationSweep();
   }, HEARTBEAT_INTERVAL);
 
   if (heartbeatInterval.unref) heartbeatInterval.unref();
@@ -318,6 +409,9 @@ export function initWebSocket(server) {
     clients.clear();
     revocationClients.clear();
     socketMeta.clear();
+    pendingClients.clear();
+    pendingRevocationClients.clear();
+    pendingSocketMeta.clear();
   });
 }
 
@@ -338,6 +432,9 @@ export function closeWebSocket() {
       clients.clear();
       revocationClients.clear();
       socketMeta.clear();
+      pendingClients.clear();
+      pendingRevocationClients.clear();
+      pendingSocketMeta.clear();
       resolve();
     });
   });
@@ -361,25 +458,21 @@ async function authenticateAndRegister(ws, token) {
     return;
   }
 
-  // Check token blacklist (revoked/rotated tokens)
-  if (decoded.jti) {
-    const blacklisted = await isTokenBlacklisted(decoded.jti);
-    if (blacklisted) {
-      ws.close(4001, 'Token has been revoked');
-      return;
-    }
+  const identityResolution = resolveCanonicalTokenIdentity(decoded);
+  if (identityResolution.conflict) {
+    ws.close(4001, 'Invalid token payload');
+    return;
   }
-
-  const identityClaim = decoded.uid || decoded.sub || decoded.id;
-  const userId = identityClaim === undefined || identityClaim === null
+  const userId = identityResolution.identity === undefined
+    || identityResolution.identity === null
     ? null
-    : String(identityClaim);
+    : normalizeIdentityKey(identityResolution.identity);
   const role = decoded.role;
   const tenantId = decoded.tenant_id || decoded.tenantId || null;
   const revocationOwnerUid = decoded.revocationOwnerUid === undefined
     || decoded.revocationOwnerUid === null
     ? userId
-    : String(decoded.revocationOwnerUid);
+    : normalizeIdentityKey(decoded.revocationOwnerUid);
   if (!userId) {
     ws.close(4001, 'Invalid token payload');
     return;
@@ -392,113 +485,193 @@ async function authenticateAndRegister(ws, token) {
     ws.close(4001, 'Invalid token payload');
     return;
   }
-  const ownerIsSubject = revocationOwnerUid.toLowerCase() === userId.toLowerCase();
+  const ownerIsSubject = revocationOwnerUid === userId;
+  const delegatedTupleKey = ownerIsSubject
+    ? null
+    : `delegated:${revocationOwnerUid}:${userId}`;
+  const revocationLockKeys = authRevocationLockKeys({
+    identityUids: [revocationOwnerUid, ...(ownerIsSubject ? [] : [userId])],
+    jtis: [decoded.jti],
+    tupleKeys: [delegatedTupleKey],
+  });
 
-  // Check if all user tokens were revoked (force-logout)
-  if (decoded.iat) {
-    try {
-      const ownerRevoked = await isUserTokensRevoked(
-        revocationOwnerUid,
-        decoded.iat,
-        decoded.token_epoch,
-      );
-      if (ownerRevoked) {
-        ws.close(4001, 'All sessions revoked');
-        return;
-      }
-
-      // A delegated ticket is authorized as the dependent but owned by the
-      // guardian session. Either identity's later revoke-all must stop the
-      // handshake. The guardian's token_epoch is not meaningful for the
-      // dependent, so that second check uses the durable timestamp predicate
-      // (isSubjectDelegationRevoked — including the epoch-bump TIMESTAMP, so a
-      // subject revoke-all severs tickets issued before it without denying
-      // forever; a ticket minted after guardian re-login recovers).
-      if (!ownerIsSubject) {
-        const subjectRevoked = await isSubjectDelegationRevoked(userId, decoded.iat);
-        if (subjectRevoked) {
-          ws.close(4001, 'All sessions revoked');
-          return;
-        }
-        const tupleRevoked = await isDelegatedTupleRevoked(
+  const getRevocationDenial = async (client) => {
+    const checkOpts = client ? { client } : undefined;
+    const tokenBlacklisted = decoded.jti && (client
+      ? await isTokenBlacklisted(decoded.jti, checkOpts)
+      : await isTokenBlacklisted(decoded.jti));
+    if (tokenBlacklisted) {
+      return 'Token has been revoked';
+    }
+    const ownerRevoked = client
+      ? await isUserTokensRevoked(
           revocationOwnerUid,
-          userId,
           decoded.iat,
-        );
-        if (tupleRevoked) {
-          ws.close(4001, 'Delegated session revoked');
-          return;
-        }
+          decoded.token_epoch,
+          checkOpts,
+        )
+      : await isUserTokensRevoked(revocationOwnerUid, decoded.iat, decoded.token_epoch);
+    if (ownerRevoked) {
+      return 'All sessions revoked';
+    }
+
+    // A delegated ticket is authorized as the dependent but owned by the
+    // guardian session. Either identity's later revoke-all must stop the
+    // handshake. The guardian's token_epoch is not meaningful for the
+    // dependent, so that second check uses the durable timestamp predicate
+    // (isSubjectDelegationRevoked — including the epoch-bump TIMESTAMP, so a
+    // subject revoke-all severs tickets issued before it without denying
+    // forever; a ticket minted after guardian re-login recovers).
+    if (!ownerIsSubject) {
+      const subjectRevoked = client
+        ? await isSubjectDelegationRevoked(userId, decoded.iat, checkOpts)
+        : await isSubjectDelegationRevoked(userId, decoded.iat);
+      if (subjectRevoked) {
+        return 'All sessions revoked';
       }
-    } catch (err) {
-      logger.error('WS denied (fail closed): revocation store unreachable', {
-        error: err?.message,
-        userId,
-        revocationOwnerUid,
-      });
-      ws.close(1013, 'Authentication unavailable');
+      const tupleRevoked = client
+        ? await isDelegatedTupleRevoked(
+            revocationOwnerUid,
+            userId,
+            decoded.iat,
+            checkOpts,
+          )
+        : await isDelegatedTupleRevoked(revocationOwnerUid, userId, decoded.iat);
+      if (tupleRevoked) {
+        return 'Delegated session revoked';
+      }
+    }
+    return null;
+  };
+
+  // Check both single-token and revoke-all state before doing any registration.
+  // UUID and delegated registrations repeat the same check after the socket is
+  // visible to revocation closers (but not normal delivery) while their
+  // lifecycle locks are still held. That closes the gap in which a committed
+  // revocation push could otherwise run before registration.
+  try {
+    const revocationDenial = await getRevocationDenial();
+    if (revocationDenial) {
+      ws.close(4001, revocationDenial);
       return;
     }
+  } catch (err) {
+    logger.error('WS denied (fail closed): revocation store unreachable', {
+      error: err?.message,
+      userId,
+      revocationOwnerUid,
+    });
+    ws.close(1013, 'Authentication unavailable');
+    return;
   }
 
   // Enforce per-user connection limit before either direct or delegated
   // registration. Delegated registration then happens under the subject lock.
-  const existingConnections = clients.get(userId);
-  if (existingConnections && existingConnections.size >= MAX_CONNECTIONS_PER_USER) {
+  const connectionCount = (clients.get(userId)?.size || 0)
+    + (pendingClients.get(userId)?.size || 0);
+  if (connectionCount >= MAX_CONNECTIONS_PER_USER) {
     ws.close(4029, 'Too many concurrent connections');
     return;
   }
 
-  const registerClient = () => {
-    ws.on('close', () => {
-      const meta = socketMeta.get(ws);
-      if (meta) {
-        clients.get(meta.userId)?.delete(ws);
-        if (clients.get(meta.userId)?.size === 0) clients.delete(meta.userId);
-        revocationClients.get(meta.revocationOwnerUid)?.delete(ws);
-        if (revocationClients.get(meta.revocationOwnerUid)?.size === 0) {
-          revocationClients.delete(meta.revocationOwnerUid);
-        }
-        socketMeta.delete(ws);
-      }
-    });
+  const meta = {
+    userId,
+    revocationOwnerUid,
+    role,
+    tenantId,
+    jti: decoded.jti ?? null,
+    accessSessionJti: decoded.accessSessionJti ?? null,
+    sessionFamilyId: decoded.sessionFamilyId ?? null,
+    stableDeviceId: decoded.stableDeviceId ?? null,
+    channels: new Set(),
+    revocationDeliveryQueue: Promise.resolve(),
+    revocationLockKeys,
+    getRevocationDenial,
+  };
+  const removeSocketFrom = (registry, key) => {
+    registry.get(key)?.delete(ws);
+    if (registry.get(key)?.size === 0) registry.delete(key);
+  };
+  const cleanupRegistration = () => {
+    const registeredMeta = socketMeta.get(ws) ?? pendingSocketMeta.get(ws) ?? meta;
+    removeSocketFrom(clients, registeredMeta.userId);
+    removeSocketFrom(revocationClients, registeredMeta.revocationOwnerUid);
+    removeSocketFrom(pendingClients, registeredMeta.userId);
+    removeSocketFrom(pendingRevocationClients, registeredMeta.revocationOwnerUid);
+    socketMeta.delete(ws);
+    pendingSocketMeta.delete(ws);
+  };
+  ws.on('close', cleanupRegistration);
+
+  const registerPending = () => {
+    if (!pendingClients.has(userId)) pendingClients.set(userId, new Set());
+    pendingClients.get(userId).add(ws);
+    if (!pendingRevocationClients.has(revocationOwnerUid)) {
+      pendingRevocationClients.set(revocationOwnerUid, new Set());
+    }
+    pendingRevocationClients.get(revocationOwnerUid).add(ws);
+    pendingSocketMeta.set(ws, meta);
+  };
+  const promotePending = () => {
+    removeSocketFrom(pendingClients, userId);
+    removeSocketFrom(pendingRevocationClients, revocationOwnerUid);
+    pendingSocketMeta.delete(ws);
     if (!clients.has(userId)) clients.set(userId, new Set());
     clients.get(userId).add(ws);
     if (!revocationClients.has(revocationOwnerUid)) {
       revocationClients.set(revocationOwnerUid, new Set());
     }
     revocationClients.get(revocationOwnerUid).add(ws);
-    socketMeta.set(ws, {
-      userId,
-      revocationOwnerUid,
-      role,
-      tenantId,
-      jti: decoded.jti ?? null,
-      accessSessionJti: decoded.accessSessionJti ?? null,
-      sessionFamilyId: decoded.sessionFamilyId ?? null,
-      stableDeviceId: decoded.stableDeviceId ?? null,
-      channels: new Set(),
-      patientDeliveryQueue: Promise.resolve(),
-    });
+    socketMeta.set(ws, meta);
+  };
+  const registerAndRevalidate = async (client) => {
+    let revocationDenial;
+    try {
+      revocationDenial = await getRevocationDenial(client);
+    } catch (err) {
+      cleanupRegistration();
+      throw err;
+    }
+    if (revocationDenial) {
+      cleanupRegistration();
+      return revocationDenial;
+    }
+    if (ws.readyState !== 1 || pendingSocketMeta.get(ws) !== meta) {
+      cleanupRegistration();
+      return 'Session revoked';
+    }
+    promotePending();
+    return null;
   };
 
+  // Reserve synchronously after the count and before the next await. Pending
+  // sockets are invisible to normal delivery but visible to revocation closers.
+  registerPending();
+
   // The revocation watermark only rejects tickets issued before retirement.
-  // Hold share locks on both delegated identities through socket registration,
-  // so a concurrent merge/deletion/link change either wins before validation
-  // or waits until the socket is visible to its post-commit revocation push.
+  // Hold identity share locks through socket registration, so a concurrent
+  // deactivation/merge/deletion either wins before validation or waits until
+  // the socket is visible to its post-commit revocation push.
   if (!ownerIsSubject) {
     try {
-      const subjectLive = await registerDelegatedClientIfLive(
+      const result = await registerDelegatedClientIfLive(
         userId,
         revocationOwnerUid,
         tenantId,
-        registerClient,
+        revocationLockKeys,
+        registerAndRevalidate,
       );
-      if (!subjectLive) {
+      if (!result.live) {
+        cleanupRegistration();
         ws.close(4001, 'Delegated subject unavailable');
         return;
       }
+      if (result.revocationDenial) {
+        if (ws.readyState === 1) ws.close(4001, result.revocationDenial);
+        return;
+      }
     } catch (err) {
+      cleanupRegistration();
       logger.error('WS denied (fail closed): delegated subject lookup unavailable', {
         error: err?.message,
         userId,
@@ -507,9 +680,54 @@ async function authenticateAndRegister(ws, token) {
       ws.close(1013, 'Authentication unavailable');
       return;
     }
+  } else if (!UUID_RE.test(userId)) {
+    try {
+      const revocationDenial = await registerNonUuidClient(
+        revocationLockKeys,
+        registerAndRevalidate,
+      );
+      if (revocationDenial) {
+        if (ws.readyState === 1) ws.close(4001, revocationDenial);
+        return;
+      }
+    } catch (err) {
+      cleanupRegistration();
+      logger.error('WS denied (fail closed): revocation store unreachable', {
+        error: err?.message,
+        userId,
+        revocationOwnerUid,
+      });
+      ws.close(1013, 'Authentication unavailable');
+      return;
+    }
   } else {
-    registerClient();
+    try {
+      const result = await registerDirectClientIfLive(
+        userId,
+        tenantId,
+        revocationLockKeys,
+        registerAndRevalidate,
+      );
+      if (!result.live) {
+        cleanupRegistration();
+        ws.close(4001, 'Identity unavailable');
+        return;
+      }
+      if (result.revocationDenial) {
+        if (ws.readyState === 1) ws.close(4001, result.revocationDenial);
+        return;
+      }
+    } catch (err) {
+      cleanupRegistration();
+      logger.error('WS denied (fail closed): identity lookup unavailable', {
+        error: err?.message,
+        userId,
+      });
+      ws.close(1013, 'Authentication unavailable');
+      return;
+    }
   }
+
   if (ws.readyState !== 1) return;
 
   logger.info(`🔌 WS connected: user=${userId} role=${role || 'unknown'}`);
@@ -599,7 +817,9 @@ async function authenticateAndRegister(ws, token) {
   });
 
   // Send welcome
-  ws.send(JSON.stringify({ event: 'connected', userId }));
+  await queueRevocationGuardedDelivery(ws, meta, async () => {
+    ws.send(JSON.stringify({ event: 'connected', userId }));
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -626,8 +846,81 @@ function tenantMatches(socketTenantId, eventTenantId) {
   return String(socketTenantId) === String(eventTenantId);
 }
 
+async function deliverWithDurableRevocationBarrier(ws, meta, deliver) {
+  try {
+    const { default: prisma } = await import('../../lib/prisma.js');
+    await prisma.$transaction(async (tx) => {
+      await withAuthRevocationLocks(tx, meta.revocationLockKeys, async () => {
+        const revocationDenial = await meta.getRevocationDenial(tx);
+        if (socketMeta.get(ws) !== meta || ws.readyState !== 1) return;
+        if (revocationDenial) {
+          ws.close(SESSION_REVOKED_CLOSE_CODE, revocationDenial);
+          return;
+        }
+        await deliver();
+      });
+    });
+  } catch (err) {
+    logger.error('WebSocket delivery denied: durable revocation check unavailable', {
+      error: err?.message,
+      userId: meta.userId,
+      revocationOwnerUid: meta.revocationOwnerUid,
+    });
+    if (ws.readyState === 1) ws.close(1013, 'Authentication unavailable');
+  }
+}
+
+// The barrier holds one pool connection for the life of its transaction and
+// the pg pool is the adapter default (10). Sweeping every socket with
+// Promise.all opened one transaction per connected socket, so a ward with more
+// sockets than pool slots made every sweep queue past the interactive
+// transaction timeout — and the barrier's catch closes a timed-out socket with
+// 1013. Walk the sockets in bounded batches instead.
+const REVOCATION_SWEEP_CONCURRENCY = 4;
+
+async function runDurableRevocationSweep() {
+  const sockets = [...socketMeta];
+  for (let i = 0; i < sockets.length; i += REVOCATION_SWEEP_CONCURRENCY) {
+    await Promise.all(sockets.slice(i, i + REVOCATION_SWEEP_CONCURRENCY).map(([ws, meta]) => (
+      deliverWithDurableRevocationBarrier(ws, meta, async () => {})
+    )));
+  }
+}
+
+// Serializes work on a socket without itself opening a transaction.
+function queueSocketDelivery(meta, run) {
+  const queued = meta.revocationDeliveryQueue.then(run);
+  meta.revocationDeliveryQueue = queued.catch(() => {});
+  return queued;
+}
+
+function queueRevocationGuardedDelivery(ws, meta, deliver) {
+  return queueSocketDelivery(meta, () => (
+    deliverWithDurableRevocationBarrier(ws, meta, deliver)
+  ));
+}
+
+// Re-authorization MUST NOT run inside the barrier transaction.
+// `authorizeSubscriptionChannel` -> `authorizePatientAccessRequest` issues its
+// own queries on the module-level prisma client — the same pool the barrier
+// already holds a connection from. Nesting the two checkouts deadlocked the
+// pool under fan-out (one broadcast per waiting patient starts one barrier
+// each), and the barrier's catch then closed every stalled clinical socket
+// with 1013. So: authorize first on a released connection, then run only the
+// send itself through the barrier, whose callback touches no database.
 async function deliverPatientBroadcastLocal(ws, meta, channel, payload, tenantId) {
-  const decision = await authorizeSubscriptionChannel(channel, meta);
+  let decision;
+  try {
+    decision = await authorizeSubscriptionChannel(channel, meta);
+  } catch (err) {
+    logger.error('WebSocket delivery denied: patient re-authorization unavailable', {
+      error: err?.message,
+      userId: meta.userId,
+      channel,
+    });
+    if (ws.readyState === 1) ws.close(1013, 'Authentication unavailable');
+    return;
+  }
   if (
     socketMeta.get(ws) !== meta
     || ws.readyState !== 1
@@ -651,21 +944,8 @@ async function deliverPatientBroadcastLocal(ws, meta, channel, payload, tenantId
     logger.warn(`Skipping broadcast to slow WebSocket client (buffered: ${ws.bufferedAmount})`);
     return;
   }
-  ws.send(payload);
-}
-
-function queuePatientBroadcastDelivery(ws, meta, channel, payload, tenantId) {
-  const delivery = meta.patientDeliveryQueue.then(() => (
-    deliverPatientBroadcastLocal(ws, meta, channel, payload, tenantId)
-  ));
-  meta.patientDeliveryQueue = delivery.catch((err) => {
-    // An unexpected authorization/delivery failure must not leave a personal
-    // PHI subscription live. A new subscribe can re-establish it after recovery.
-    meta.channels.delete(channel);
-    logger.error('Patient realtime delivery failed closed', {
-      error: err?.message,
-      topic: parsePatientChannel(channel)?.topic,
-    });
+  await deliverWithDurableRevocationBarrier(ws, meta, async () => {
+    ws.send(payload);
   });
 }
 
@@ -688,16 +968,21 @@ function deliverBroadcastLocal(channel, event, data, tenantId) {
       // Care-team and break-glass authority can expire or be revoked after the
       // subscription ACK. Re-authorize immediately before every personal PHI
       // delivery and serialize per socket so events cannot overtake each other.
-      queuePatientBroadcastDelivery(ws, meta, channel, payload, tenantId);
+      queueSocketDelivery(
+        meta,
+        () => deliverPatientBroadcastLocal(ws, meta, channel, payload, tenantId),
+      );
       continue;
     }
-    // Skip slow clients to prevent memory buildup (1MB buffer cap).
-    if (ws.bufferedAmount > MAX_BUFFERED_AMOUNT) {
-      recordWsBroadcastDropped('backpressure');
-      logger.warn(`Skipping broadcast to slow WebSocket client (buffered: ${ws.bufferedAmount})`);
-      continue;
-    }
-    ws.send(payload);
+    queueRevocationGuardedDelivery(ws, meta, async () => {
+      // Skip slow clients to prevent memory buildup (1MB buffer cap).
+      if (ws.bufferedAmount > MAX_BUFFERED_AMOUNT) {
+        recordWsBroadcastDropped('backpressure');
+        logger.warn(`Skipping broadcast to slow WebSocket client (buffered: ${ws.bufferedAmount})`);
+        return;
+      }
+      ws.send(payload);
+    });
   }
 }
 
@@ -712,14 +997,26 @@ const SESSION_REVOKED_CLOSE_CODE = 4001;
 /** Deliver a user-targeted message to this process's sockets for that user. */
 function deliverUserLocal(userId, event, data, tenantId) {
   const isRevocation = event === SESSION_REVOKED_EVENT;
-  const uid = String(userId);
+  const uid = normalizeIdentityKey(userId);
   const deliverySockets = clients.get(uid);
   const ownerSockets = isRevocation ? revocationClients.get(uid) : null;
-  if (!deliverySockets && !ownerSockets) return;
+  const pendingDeliverySockets = isRevocation ? pendingClients.get(uid) : null;
+  const pendingOwnerSockets = isRevocation ? pendingRevocationClients.get(uid) : null;
+  if (
+    !deliverySockets
+    && !ownerSockets
+    && !pendingDeliverySockets
+    && !pendingOwnerSockets
+  ) return;
   // Normal user delivery remains effective-subject scoped. Only revocation
   // adds sockets authenticated by that owner (for guardian acting-as tickets).
   const sockets = isRevocation
-    ? new Set([...(deliverySockets || []), ...(ownerSockets || [])])
+    ? new Set([
+        ...(deliverySockets || []),
+        ...(ownerSockets || []),
+        ...(pendingDeliverySockets || []),
+        ...(pendingOwnerSockets || []),
+      ])
     : deliverySockets;
   const payload = JSON.stringify({ event, data });
   const revokedJti = isRevocation && data?.jti ? String(data.jti) : null;
@@ -730,18 +1027,19 @@ function deliverUserLocal(userId, event, data, tenantId) {
     ? String(data.stableDeviceId)
     : null;
   const revokedDelegatedSubjectUid = isRevocation && data?.delegatedSubjectUid
-    ? String(data.delegatedSubjectUid)
+    ? normalizeIdentityKey(data.delegatedSubjectUid)
     : null;
   // Copy: closing a socket mutates `sockets` via the ws 'close' handler.
   for (const ws of [...sockets]) {
-    const meta = socketMeta.get(ws);
+    const meta = socketMeta.get(ws) ?? pendingSocketMeta.get(ws);
     if (!tenantMatches(meta?.tenantId, tenantId)) continue;
     if (
       revokedDelegatedSubjectUid
       && (
-        String(meta?.revocationOwnerUid || '') !== uid
-        || String(meta?.userId || '') !== revokedDelegatedSubjectUid
-        || String(meta?.revocationOwnerUid || '') === String(meta?.userId || '')
+        normalizeIdentityKey(meta?.revocationOwnerUid || '') !== uid
+        || normalizeIdentityKey(meta?.userId || '') !== revokedDelegatedSubjectUid
+        || normalizeIdentityKey(meta?.revocationOwnerUid || '')
+          === normalizeIdentityKey(meta?.userId || '')
       )
     ) {
       continue;
@@ -763,16 +1061,16 @@ function deliverUserLocal(userId, event, data, tenantId) {
       const matchesAccessSession = String(meta?.accessSessionJti || '') === revokedJti;
       if (!matchesJti && !matchesAccessSession) continue;
     }
-    const open = ws.readyState === 1;
-    if (open) {
-      if (ws.bufferedAmount > MAX_BUFFERED_AMOUNT) {
-        recordWsBroadcastDropped('backpressure');
-        logger.warn(`Skipping sendToUser to slow WebSocket client (buffered: ${ws.bufferedAmount})`);
-      } else {
-        ws.send(payload);
-      }
-    }
     if (isRevocation) {
+      const open = ws.readyState === 1;
+      if (open) {
+        if (ws.bufferedAmount > MAX_BUFFERED_AMOUNT) {
+          recordWsBroadcastDropped('backpressure');
+          logger.warn(`Skipping sendToUser to slow WebSocket client (buffered: ${ws.bufferedAmount})`);
+        } else {
+          ws.send(payload);
+        }
+      }
       // Close even when the send was skipped (backpressure) or the socket
       // is still connecting — a revoked session gets no further delivery.
       try {
@@ -780,6 +1078,15 @@ function deliverUserLocal(userId, event, data, tenantId) {
       } catch {
         ws.terminate();
       }
+    } else {
+      queueRevocationGuardedDelivery(ws, meta, async () => {
+        if (ws.bufferedAmount > MAX_BUFFERED_AMOUNT) {
+          recordWsBroadcastDropped('backpressure');
+          logger.warn(`Skipping sendToUser to slow WebSocket client (buffered: ${ws.bufferedAmount})`);
+          return;
+        }
+        ws.send(payload);
+      });
     }
   }
 }
@@ -874,17 +1181,20 @@ export async function broadcastConfirmed(channel, data, opts = {}) {
  * @param {string} [opts.tenantId]
  */
 export function sendToUser(userId, event, data, opts = {}) {
+  const uid = normalizeIdentityKey(userId);
   const tenantId = resolveTenantId(opts.tenantId);
-  const published = fanout.publishUser(userId, event, data, tenantId);
+  const published = fanout.publishUser(uid, event, data, tenantId);
   if (!published) {
     recordWsBroadcastDropped('fanout_local_fallback');
-    deliverUserLocal(String(userId), event, data, tenantId);
+    deliverUserLocal(uid, event, data, tenantId);
   }
 }
 
 /**
- * Push `session:revoked` to every open socket of a user, across EVERY process,
- * and close those sockets server-side (deliverUserLocal's revocation branch).
+ * Push `session:revoked` to every reachable socket of a user and close local
+ * sockets synchronously. A remote process that misses the lossy PubSub event
+ * closes from the durable marker patrol within
+ * WS_REMOTE_REVOCATION_CLOSE_BOUND_MS.
  *
  * Called by the revocation chokepoint (tokenBlacklist.revokeAllUserTokens) so
  * logout, force-revoke-all, and SCIM deprovisioning all tear down live sockets
@@ -901,7 +1211,7 @@ export function sendToUser(userId, event, data, opts = {}) {
  * @param {object} [data] - payload delivered with the event (e.g. { reason }).
  */
 export function pushSessionRevoked(userId, data = {}) {
-  const uid = String(userId);
+  const uid = normalizeIdentityKey(userId);
   // Close this process's sockets synchronously. Redis publish acknowledgement
   // is asynchronous, so its immediate boolean cannot prove remote delivery or
   // safely decide whether local fallback is necessary.
@@ -914,9 +1224,9 @@ export function pushSessionRevoked(userId, data = {}) {
 
 /** Close only sockets for one authenticated guardian-dependent delegation. */
 export function pushDelegatedSessionRevoked(guardianUid, dependentUid, data = {}) {
-  pushSessionRevoked(String(guardianUid), {
+  pushSessionRevoked(normalizeIdentityKey(guardianUid), {
     ...data,
-    delegatedSubjectUid: String(dependentUid),
+    delegatedSubjectUid: normalizeIdentityKey(dependentUid),
   });
 }
 

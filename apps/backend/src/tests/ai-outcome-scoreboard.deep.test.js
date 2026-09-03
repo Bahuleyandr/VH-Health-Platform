@@ -13,7 +13,7 @@ import { jest } from '@jest/globals';
 import request from 'supertest';
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
-import { API_KEY, generateTestToken } from './testClient.js';
+import { API_KEY, generateTestToken, ensureTestIdentity } from './testClient.js';
 
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const MODULE_KEY = 'g3_scoreboard_probe';
@@ -122,6 +122,14 @@ async function insertMedicationSafetyReview({ overrideRequired, overridden }) {
 describe('AI outcome scoreboard (G3)', () => {
   const admin = authed('ADMIN', ADMIN_UID);
   const doctor = authed('DOCTOR', DOCTOR_UID);
+
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so these invented uids 401 before the control-mount role gate is
+  // reached — which would satisfy a "not 200" assertion for the wrong reason.
+  beforeAll(async () => {
+    await ensureTestIdentity(ADMIN_UID, { role: 'ADMIN', tenantId: TENANT_ID });
+    await ensureTestIdentity(DOCTOR_UID, { role: 'DOCTOR', tenantId: TENANT_ID });
+  });
 
   beforeAll(async () => {
     await prisma.$executeRawUnsafe(

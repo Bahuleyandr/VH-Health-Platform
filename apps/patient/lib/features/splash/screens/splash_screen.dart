@@ -393,6 +393,7 @@ class _SplashScreenState extends State<SplashScreen>
         hasStoreUrl: minimumVersionBlock.storeUrl.trim().isNotEmpty,
       );
     }
+    final l = AppLocalizations.of(context)!;
 
     return Scaffold(
       body: GestureDetector(
@@ -428,9 +429,9 @@ class _SplashScreenState extends State<SplashScreen>
                         ),
                       ),
                       const SizedBox(height: 20),
-                      const Text(
-                        'VH Health',
-                        style: TextStyle(
+                      Text(
+                        l.splashAppName,
+                        style: const TextStyle(
                           fontSize: 28,
                           // The original 'VHFont' family was never declared in
                           // pubspec.yaml, so this silently fell back to the

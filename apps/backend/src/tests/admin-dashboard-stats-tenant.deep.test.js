@@ -19,7 +19,7 @@
 // the tableExists gate always failed and pending_reviews silently always read 0.
 // It now counts staff_performance_reviews rows with review_date IS NULL,
 // tenant-scoped.
-import { generateTestToken, API_KEY } from './testClient.js';
+import { generateTestToken, API_KEY, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -63,6 +63,11 @@ const totalUsers = (body) => Number(body.data?.overview?.totalUsers ?? 0);
 const pendingReviews = (body) => Number(body.data?.pending_reviews ?? 0);
 
 d('Admin dashboard stats/activity tenant scope (CAN-015)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity('c0de0015-50d0-4000-8000-00000000d015');
+  });
   beforeAll(async () => {
     await clean();
     // Fresh CI DBs only have the default tenant (TENANT_A); seed TENANT_B so the

@@ -23,6 +23,7 @@
 
 import request from 'supertest';
 import app from '../app.js';
+import { ensureTestIdentity } from './testClient.js';
 import prisma, { tenantRlsRolePosture } from '../lib/prisma.js';
 import { generateToken } from '../utils/jwtUtils.js';
 
@@ -80,6 +81,17 @@ async function cleanup() {
 }
 
 d('Tenant RLS — HTTP staff-route isolation (roadmap A2)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so these subjects must exist before any request or the suite 401s
+  // before reaching the behaviour it asserts.
+  beforeAll(async () => {
+    for (const uid of [
+      '11111111-1111-4111-8111-111111111a01',
+      '22222222-2222-4222-8222-222222222b02',
+    ]) {
+      await ensureTestIdentity(uid);
+    }
+  });
   beforeAll(async () => {
     savedEnforceFlag = process.env.AUTH_ENFORCE_TENANT_RLS;
     savedRuntimeRole = process.env.AUTH_TENANT_RLS_RUNTIME_ROLE;

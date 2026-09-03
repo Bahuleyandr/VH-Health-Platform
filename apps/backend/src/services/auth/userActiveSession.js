@@ -16,7 +16,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { blacklistToken } from '../../utils/tokenBlacklist.js';
-import { sendToUser } from '../../utils/websocket/wsServer.js';
+import { pushSessionRevoked } from '../../utils/websocket/wsServer.js';
 
 function strictSingleSessionEnabled() {
   const raw = process.env.AUTH_ENFORCE_SINGLE_ACTIVE_SESSION
@@ -68,11 +68,16 @@ export async function claimUserSession({
     throw new Error('claimUserSession: userUid, jti, deviceType, expiresAt are required');
   }
 
+  const revocationRequired = Boolean(
+    pushRevoked === false || (enforceSingleSession ?? strictSingleSessionEnabled())
+  );
+
   // Step 1: look up the prior session for this user.
   let prior = null;
   try {
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT jti, device_type, EXTRACT(EPOCH FROM expires_at)::bigint AS expires_at_unix
+      `SELECT jti, device_type, session_family_id, stable_device_id,
+              EXTRACT(EPOCH FROM expires_at)::bigint AS expires_at_unix
          FROM user_active_sessions
         WHERE user_uid = $1::uuid
         LIMIT 1`,
@@ -80,9 +85,10 @@ export async function claimUserSession({
     );
     if (rows.length > 0) prior = rows[0];
   } catch (err) {
-    // A read failure should not block a login. Log and continue without
-    // revoking — the worst case is the prior device stays alive one more
-    // request cycle, until its jti naturally expires.
+    if (revocationRequired) throw err;
+    // A normal, non-strict login does not promise to retire a prior session.
+    // Preserve that availability contract when the operator has not enabled
+    // single-session enforcement.
     logger.warn('claimUserSession: prior-session lookup failed', { userUid, error: err.message });
   }
 
@@ -94,29 +100,35 @@ export async function claimUserSession({
   const shouldRevokePrior = Boolean(
     prior?.jti
     && prior.jti !== jti
-    && (pushRevoked === false || (enforceSingleSession ?? strictSingleSessionEnabled()))
+    && revocationRequired
   );
 
   if (shouldRevokePrior) {
-    try {
-      await blacklistToken(
-        prior.jti,
-        Number(prior.expires_at_unix),
-        pushRevoked ? 'replaced_by_new_login' : 'refresh_rotation',
-      );
-    } catch (err) {
-      logger.warn('claimUserSession: blacklistToken failed', { userUid, error: err.message });
-    }
+    await blacklistToken(
+      prior.jti,
+      Number(prior.expires_at_unix),
+      pushRevoked ? 'replaced_by_new_login' : 'refresh_rotation',
+      {
+        requireEvidence: true,
+        userId: userUid,
+        sessionFamilyId: prior.session_family_id ?? null,
+        stableDeviceId: prior.stable_device_id ?? null,
+        notifySession: false,
+      },
+    );
     if (pushRevoked) {
       try {
-        sendToUser(userUid, 'session:revoked', {
+        pushSessionRevoked(userUid, {
           reason: 'new_login_elsewhere',
+          jti: prior.jti,
+          sessionFamilyId: prior.session_family_id ?? null,
+          stableDeviceId: prior.stable_device_id ?? null,
           newDeviceType: deviceType,
           priorDeviceType: prior.device_type,
           at: new Date().toISOString(),
         });
       } catch (err) {
-        logger.warn('claimUserSession: sendToUser failed', { userUid, error: err.message });
+        logger.warn('claimUserSession: pushSessionRevoked failed', { userUid, error: err.message });
       }
     }
   }

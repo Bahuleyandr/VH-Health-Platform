@@ -6,7 +6,7 @@
 // doctorRoutes:[DOCTOR,ADMIN]; the create/update routes are now gated to that.
 // (Reads stay at parent breadth; staff createPrescription/PUT have no active
 // non-doctor callers, so this does not break a clinical documentation flow.)
-import { generateTestToken, API_KEY } from './testClient.js';
+import { generateTestToken, API_KEY, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -23,6 +23,11 @@ function client(role) {
 }
 
 d('Record write RBAC (doctor create/update)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity('c0de0b07-00d0-4000-8000-00000000d001', { tenantId: TENANT });
+  });
   afterAll(async () => { await prisma.$disconnect().catch(() => {}); });
 
   // PUT /:id has no patient context (record id), so the parent PHI guard passes

@@ -6,7 +6,7 @@
 // scoped. RLS is OFF in the test env, so this explicit predicate is what scopes:
 // a tenant-A clinician booking by a tenant-B patient_id gets 404, while booking
 // for a tenant-A patient resolves.
-import { generateTestToken, API_KEY } from './testClient.js';
+import { generateTestToken, API_KEY, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -52,6 +52,11 @@ async function clean() {
 }
 
 d('Booking patient-resolution tenant scope (CAN-032)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity('c0de0032-00d0-4000-8000-00000000d001');
+  });
   beforeAll(async () => {
     await clean();
     await prisma.$executeRawUnsafe(

@@ -7,7 +7,7 @@
 import request from 'supertest';
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
-import { API_KEY, generateTestToken } from './testClient.js';
+import { API_KEY, generateTestToken, ensureTestIdentity } from './testClient.js';
 
 const DB = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB ? describe : describe.skip;
@@ -23,6 +23,11 @@ function superClient(overrides) {
 }
 
 d('SUPER_ADMIN step-up on admin management (audit H1)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity(SUPER_UID);
+  });
   afterAll(async () => {
     await prisma.$disconnect().catch(() => {});
   });

@@ -3,6 +3,7 @@ import logger from '../logging/logger.js';
 import prisma from '../lib/prisma.js';
 import { verifyToken } from '../utils/jwtUtils.js';
 import { canonicalizeRequestRole } from '../utils/roles.js';
+import { resolveCanonicalTokenIdentity } from '../utils/tokenIdentity.js';
 import {
   isDelegatedTupleRevoked,
   isSubjectDelegationRevoked,
@@ -118,6 +119,18 @@ export default async function jwtMiddleware(req, res, next) {
     });
   }
 
+  const hasura = getHasuraClaims(decoded);
+  const identityResolution = resolveCanonicalTokenIdentity(decoded);
+  if (identityResolution.conflict) {
+    logger.warn('JWT denied: conflicting identity claims');
+    return res.status(401).json({
+      success: false,
+      error: 'Invalid or expired token',
+      code: 'TOKEN_INVALID',
+    });
+  }
+  const revocationUid = identityResolution.identity;
+
   // Check token blacklist (jti-based revocation) + revoke-all. FAIL CLOSED
   // (audit finding M2): when no revocation store can answer, deny with 503
   // instead of honouring a possibly-revoked token.
@@ -135,11 +148,14 @@ export default async function jwtMiddleware(req, res, next) {
     }
 
     // Check if all user tokens were revoked (force-logout)
-    const uid = decoded.uid ?? decoded.user_id ?? decoded.userId ?? decoded.sub ?? decoded.id;
-    if (uid && decoded.iat) {
-      const revoked = await isUserTokensRevoked(String(uid), decoded.iat, decoded.token_epoch);
+    if (revocationUid) {
+      const revoked = await isUserTokensRevoked(
+        String(revocationUid),
+        decoded.iat,
+        decoded.token_epoch,
+      );
       if (revoked) {
-        logger.warn(`JWT denied: all tokens revoked for user ${uid}`);
+        logger.warn(`JWT denied: all tokens revoked for user ${revocationUid}`);
         return res.status(401).json({
           success: false,
           error: 'All sessions have been revoked. Please log in again.',
@@ -161,16 +177,8 @@ export default async function jwtMiddleware(req, res, next) {
     throw err;
   }
 
-  const hasura = getHasuraClaims(decoded);
-
   // Derive UID
-  const uidRaw =
-    decoded.uid ??
-    decoded.user_id ??
-    decoded.userId ??
-    decoded.sub ??
-    hasura?.['x-hasura-user-id'] ??
-    decoded.id;
+  const uidRaw = revocationUid;
 
   if (!uidRaw) {
     logger.warn('JWT denied: no uid-like claim present');
@@ -559,40 +567,38 @@ async function applyActingAsHop(req, dependentUidRaw, { bearerIssuedAt = null } 
   // severed links stay severed via the tuple revocation + link-row gates.
   // RevocationCheckUnavailableError propagates to the caller, which fails
   // CLOSED with 503.
-  if (bearerIssuedAt) {
-    const subjectRevoked = await isSubjectDelegationRevoked(
-      String(row.dep_uid),
-      bearerIssuedAt,
+  const subjectRevoked = await isSubjectDelegationRevoked(
+    String(row.dep_uid),
+    bearerIssuedAt,
+  );
+  if (subjectRevoked) {
+    logger.warn(`Acting-as denied: subject ${row.dep_uid} sessions revoked`);
+    return {
+      status: 403,
+      body: {
+        success: false,
+        error: 'Not authorised to act as that user',
+        code: 'NOT_AUTHORISED_TO_ACT_AS',
+      },
+    };
+  }
+  const tupleRevoked = await isDelegatedTupleRevoked(
+    String(req.user.uid),
+    String(row.dep_uid),
+    bearerIssuedAt,
+  );
+  if (tupleRevoked) {
+    logger.warn(
+      `Acting-as denied: delegated tuple revoked for guardian=${req.user.uid} dependent=${row.dep_uid}`,
     );
-    if (subjectRevoked) {
-      logger.warn(`Acting-as denied: subject ${row.dep_uid} sessions revoked`);
-      return {
-        status: 403,
-        body: {
-          success: false,
-          error: 'Not authorised to act as that user',
-          code: 'NOT_AUTHORISED_TO_ACT_AS',
-        },
-      };
-    }
-    const tupleRevoked = await isDelegatedTupleRevoked(
-      String(req.user.uid),
-      String(row.dep_uid),
-      bearerIssuedAt,
-    );
-    if (tupleRevoked) {
-      logger.warn(
-        `Acting-as denied: delegated tuple revoked for guardian=${req.user.uid} dependent=${row.dep_uid}`,
-      );
-      return {
-        status: 403,
-        body: {
-          success: false,
-          error: 'Not authorised to act as that user',
-          code: 'NOT_AUTHORISED_TO_ACT_AS',
-        },
-      };
-    }
+    return {
+      status: 403,
+      body: {
+        success: false,
+        error: 'Not authorised to act as that user',
+        code: 'NOT_AUTHORISED_TO_ACT_AS',
+      },
+    };
   }
 
   // All gates passed — record the actor on req.acting and rewrite req.user

@@ -52,6 +52,7 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { boundedInteger } from '../../utils/pagination.js';
 import { istDateString } from '../../utils/dateUtils.js';
+import { withAuthIdentityLifecycleLocks } from '../../utils/tokenBlacklist.js';
 import {
   recordMovementTx, dispenseControlledTx, lockControlledRegisterItemTx,
 } from './inventoryV2Service.js';
@@ -192,8 +193,7 @@ function isWitnessed(item) {
 // anchor the invoice on. One system user per tenant, created on first use.
 // Not loginable: no phone, no password, no firebase identity.
 
-export async function ensureWalkInAnchorUid(tenantId, db = prisma) {
-  const tenant = requireTenant(tenantId);
+async function ensureWalkInAnchorUidTx(tenant, db) {
   const existing = await db.$queryRawUnsafe(
     `SELECT uid FROM users
       WHERE tenant_id = $1::uuid AND role = 'PHARMACY_WALKIN'
@@ -204,14 +204,18 @@ export async function ensureWalkInAnchorUid(tenantId, db = prisma) {
   if (existing.length) return existing[0].uid;
   // WHERE NOT EXISTS keeps the common race harmless; ORDER BY id above makes
   // every caller converge on the first row even if two ever get created.
-  await db.$executeRawUnsafe(
+  const inserted = await db.$queryRawUnsafe(
     `INSERT INTO users (name, role, tenant_id, is_active, is_unidentified, updated_at)
      SELECT 'Pharmacy Walk-In Counter', 'PHARMACY_WALKIN', $1::uuid, false, true, NOW()
       WHERE NOT EXISTS (
         SELECT 1 FROM users WHERE tenant_id = $1::uuid AND role = 'PHARMACY_WALKIN'
-      )`,
+      )
+     RETURNING uid`,
     tenant,
   );
+  if (inserted.length) {
+    return withAuthIdentityLifecycleLocks(db, [inserted[0].uid], async () => inserted[0].uid);
+  }
   const rows = await db.$queryRawUnsafe(
     `SELECT uid FROM users
       WHERE tenant_id = $1::uuid AND role = 'PHARMACY_WALKIN'
@@ -221,6 +225,14 @@ export async function ensureWalkInAnchorUid(tenantId, db = prisma) {
   );
   if (!rows.length) throw AppError.internal('Failed to provision walk-in anchor user');
   return rows[0].uid;
+}
+
+export async function ensureWalkInAnchorUid(tenantId, db = prisma) {
+  const tenant = requireTenant(tenantId);
+  if (typeof db.$transaction === 'function') {
+    return db.$transaction((tx) => ensureWalkInAnchorUidTx(tenant, tx));
+  }
+  return ensureWalkInAnchorUidTx(tenant, db);
 }
 
 // ── Item search (POS pick list) ───────────────────────────────────────

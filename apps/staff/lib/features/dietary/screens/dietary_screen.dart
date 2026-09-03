@@ -9,8 +9,12 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 
+typedef DietaryOrdersLoader = Future<ApiResponse> Function();
+
 class DietaryScreen extends StatefulWidget {
-  const DietaryScreen({super.key});
+  const DietaryScreen({super.key, this.loadOrders});
+
+  final DietaryOrdersLoader? loadOrders;
 
   @override
   State<DietaryScreen> createState() => _DietaryScreenState();
@@ -20,20 +24,26 @@ class _DietaryScreenState extends State<DietaryScreen> {
   List<Map<String, dynamic>> _orders = [];
   bool _loading = true;
   String? _error;
+  bool _initialLoadStarted = false;
 
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_initialLoadStarted) return;
+    _initialLoadStarted = true;
     _fetchOrders();
   }
 
   Future<void> _fetchOrders() async {
+    final strings = AppStrings.of(context);
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final response = await ApiClient.get('/dietary/worklist');
+      final response =
+          await (widget.loadOrders?.call() ??
+              ApiClient.get('/dietary/worklist'));
       if (response.isSuccess) {
         final data = response.data;
         final list = data is List
@@ -45,10 +55,10 @@ class _DietaryScreenState extends State<DietaryScreen> {
           ),
         );
       } else {
-        _error = response.failureMessage('Failed to load dietary orders');
+        _error = response.failureMessage(strings.dietaryLoadFailed);
       }
     } catch (e) {
-      _error = AppStrings.of(context).commonServerUnreachable;
+      _error = strings.commonServerUnreachable;
     } finally {
       if (mounted) setState(() => _loading = false);
     }

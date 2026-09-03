@@ -4312,4 +4312,461 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get abhaEnrolViewMyAbha => 'View my ABHA';
+
+  @override
+  String get appointmentVisitType => 'Visit type';
+
+  @override
+  String get appointmentInPersonConsultation => 'In-person consultation';
+
+  @override
+  String get appointmentTeleconsultVideoVisit => 'Teleconsult (video visit)';
+
+  @override
+  String get familyLinkedDependentBadge => 'Linked dependent';
+
+  @override
+  String get familySetUpLinkedDependent => 'Set up linked dependent';
+
+  @override
+  String get ancBookedVisits => 'Booked visits';
+
+  @override
+  String get ancRecordedBpWeight => 'Recorded BP & weight';
+
+  @override
+  String get appointmentSelectDateError => 'Please select a date';
+
+  @override
+  String get appointmentSelectAvailableSlotError =>
+      'Please select an available time slot';
+
+  @override
+  String get appointmentSelectDoctorError => 'Please select a doctor';
+
+  @override
+  String get appointmentSessionMissingError =>
+      'User session not found. Please log out and log back in.';
+
+  @override
+  String get appointmentReasonForVisitLabel => 'Reason for visit';
+
+  @override
+  String get appointmentReasonForVisitHint =>
+      'e.g. Regular checkup, headache, follow-up...';
+
+  @override
+  String get appointmentSelectDateLabel => 'Select Date';
+
+  @override
+  String appointmentSelectedTime(String time) {
+    return 'Selected: $time';
+  }
+
+  @override
+  String get appointmentSelectTimeLabel => 'Select Time';
+
+  @override
+  String get aboutDoctorAppointmentsTitle => 'Doctor Appointments';
+
+  @override
+  String get aboutHomeSampleAction => 'Home Sample';
+
+  @override
+  String get aboutFreeHomeSampleCollectionTitle =>
+      'Free Home Sample Collection';
+
+  @override
+  String get aboutAmbulanceAction => 'Ambulance';
+
+  @override
+  String get aboutEmergencyAmbulanceTitle => 'Emergency Ambulance';
+
+  @override
+  String get aboutNavigateAction => 'Navigate';
+
+  @override
+  String gamificationShareEarnedBadge(String title) {
+    return 'I earned the \"$title\" badge on VH Health!';
+  }
+
+  @override
+  String navigationPageNotFound(String path) {
+    return 'Page not found: $path';
+  }
+
+  @override
+  String get navigationGoHome => 'Go Home';
+
+  @override
+  String get dependentsLoadFailed =>
+      'Unable to load dependents. Please try again.';
+
+  @override
+  String get permissionsNotificationsName => 'Notifications';
+
+  @override
+  String get permissionsNotificationsExplanation =>
+      'Allow notifications for appointment reminders and health updates.';
+
+  @override
+  String get permissionsCameraName => 'Camera Access';
+
+  @override
+  String get permissionsCameraExplanation =>
+      'Allow camera access to scan documents and take photos for your health records.';
+
+  @override
+  String get permissionsPhotosName => 'Photo Library Access';
+
+  @override
+  String get permissionsPhotosExplanation =>
+      'Allow photo access to upload documents and prescriptions.';
+
+  @override
+  String get permissionsLocationName => 'Location Access';
+
+  @override
+  String get permissionsLocationExplanation =>
+      'Allow location access for emergency SOS features and nearby hospitals.';
+
+  @override
+  String get permissionsCalendarName => 'Calendar Access';
+
+  @override
+  String get permissionsCalendarExplanation =>
+      'Allow calendar access to display appointments and health-related events.';
+
+  @override
+  String permissionsGenericName(String name) {
+    return '$name access';
+  }
+
+  @override
+  String get permissionsGenericExplanation =>
+      'This permission is required for this feature to work.';
+
+  @override
+  String permissionsRequiredTitle(String name) {
+    return '$name Required';
+  }
+
+  @override
+  String permissionsDisabledTitle(String name) {
+    return '$name Disabled';
+  }
+
+  @override
+  String permissionsDisabledBody(String name) {
+    return '$name has been disabled. Enable it in Settings to use this feature.';
+  }
+
+  @override
+  String circularDialTapToAccess(String feature) {
+    return 'Tap to access $feature';
+  }
+
+  @override
+  String get contactBookByPhone => 'Book by Phone';
+
+  @override
+  String get deliveryTrackingLive => 'Live';
+
+  @override
+  String deliveryTrackingEstimatedArrival(String minutes) {
+    return 'Estimated arrival: ~$minutes min';
+  }
+
+  @override
+  String deliveryTrackingDistance(String distance) {
+    return '$distance km';
+  }
+
+  @override
+  String get deliveryTrackingCall => 'Call';
+
+  @override
+  String get deliveryTrackingHospital => 'Hospital';
+
+  @override
+  String get logoutRevocationRetryQueued =>
+      'Signed out on this device. We could not reach the server, so your other devices may stay signed in — we will finish signing them out automatically the next time you open this app.';
+
+  @override
+  String get logoutRevocationRetryUnavailable =>
+      'Signed out on this device only. We could not reach the server and this device cannot try again, so your other devices may stay signed in. Sign out from them directly.';
+
+  @override
+  String get logoutFailed => 'Could not log out. Please try again.';
+
+  @override
+  String get loginLightMode => 'Light mode';
+
+  @override
+  String get loginDarkMode => 'Dark mode';
+
+  @override
+  String get dashboardTodayRefreshFailed =>
+      'Today could not refresh right now.';
+
+  @override
+  String get dashboardTodayRefreshTitle => 'Today could not refresh';
+
+  @override
+  String get commonDoneButton => 'Done';
+
+  @override
+  String dashboardHospitalId(String hospitalId) {
+    return 'Hospital ID $hospitalId';
+  }
+
+  @override
+  String get dashboardStepsBreakdown => 'Steps breakdown';
+
+  @override
+  String get dashboardMetricLeft => 'Left';
+
+  @override
+  String get dashboardMetricActivity => 'Activity';
+
+  @override
+  String get dashboardPointsBreakdown => 'Points breakdown';
+
+  @override
+  String get dashboardMetricTier => 'Tier';
+
+  @override
+  String get dashboardMetricNext => 'Next';
+
+  @override
+  String get dashboardMetricCycle => 'Cycle';
+
+  @override
+  String get dashboardMetricPeriod => 'Period';
+
+  @override
+  String get dashboardMetricSteps => 'Steps';
+
+  @override
+  String get feedbackHistoryEmptyTitle => 'No feedback submitted yet';
+
+  @override
+  String get feedbackHistoryEmptySubtitle =>
+      'Your feedback history will appear here';
+
+  @override
+  String feedbackAverageRating(String rating) {
+    return 'Average rating: $rating';
+  }
+
+  @override
+  String get messageThreadLoadFailed =>
+      'Could not load this message thread. Please try again.';
+
+  @override
+  String get messageReplyHint => 'Reply…';
+
+  @override
+  String get dischargeSummariesRefreshFailed =>
+      'Could not refresh discharge summaries.';
+
+  @override
+  String get referralsRefreshFailed => 'Could not refresh referrals.';
+
+  @override
+  String get settingsAuthenticationFailed =>
+      'Authentication failed. Please try again.';
+
+  @override
+  String get settingsVerifiedPhoneRequiredForDeletion =>
+      'A verified phone number is required to delete the account.';
+
+  @override
+  String get commonDeleteButton => 'Delete';
+
+  @override
+  String get commonUploadButton => 'Upload';
+
+  @override
+  String appointmentCardToken(int token) {
+    return 'Token #$token';
+  }
+
+  @override
+  String appointmentCardReason(String reason) {
+    return 'Reason: $reason';
+  }
+
+  @override
+  String appointmentCardNote(String note) {
+    return 'Note: $note';
+  }
+
+  @override
+  String appointmentListForDependent(String name) {
+    return 'Showing appointments for $name';
+  }
+
+  @override
+  String get appointmentStatusScheduled => 'Scheduled';
+
+  @override
+  String get appointmentStatusConfirmed => 'Confirmed ✓';
+
+  @override
+  String get appointmentStatusInProgress => 'In progress';
+
+  @override
+  String get appointmentStatusCompleted => 'Completed';
+
+  @override
+  String get appointmentStatusCancelled => 'Cancelled';
+
+  @override
+  String get appointmentStatusNoShow => 'No show';
+
+  @override
+  String get gamificationClaimMilestoneFailed => 'Failed to claim milestone';
+
+  @override
+  String get gamificationScreenTitle => 'Health Hub';
+
+  @override
+  String get gamificationTabOverview => 'Overview';
+
+  @override
+  String get gamificationTabMilestones => 'Milestones';
+
+  @override
+  String get gamificationTabAchievements => 'Achievements';
+
+  @override
+  String get gamificationTabMyRewards => 'My rewards';
+
+  @override
+  String get gamificationTabHistory => 'History';
+
+  @override
+  String gamificationBadgesEarned(int unlocked, int total) {
+    return '$unlocked of $total badges earned';
+  }
+
+  @override
+  String gamificationEarnedOn(String date) {
+    return 'Earned on $date';
+  }
+
+  @override
+  String get commonShareButton => 'Share';
+
+  @override
+  String get gamificationPointsActivity => 'Points activity';
+
+  @override
+  String get gamificationMilestoneFallback => 'Milestone';
+
+  @override
+  String gamificationPointsRequired(int points) {
+    return '$points points required';
+  }
+
+  @override
+  String get gamificationClaimButton => 'Claim';
+
+  @override
+  String get gamificationPointsLabel => 'points';
+
+  @override
+  String gamificationNextTierWithPoints(String tier, int points) {
+    return 'Next: $tier — $points more points';
+  }
+
+  @override
+  String gamificationNextTier(String tier) {
+    return 'Next: $tier';
+  }
+
+  @override
+  String get commonEditButton => 'Edit';
+
+  @override
+  String get stepsDisplayNameRequired => 'Display name cannot be empty';
+
+  @override
+  String get stepsDailyTargetNumberRequired =>
+      'Daily step target must be a number';
+
+  @override
+  String get stepsDailyTargetRange =>
+      'Daily step target must be between 1,000 and 100,000';
+
+  @override
+  String get stepsProfileSaveFailed => 'Failed to save profile';
+
+  @override
+  String stepsWeekOf(String date) {
+    return 'Week of $date';
+  }
+
+  @override
+  String get stepsAveragePerDay => 'avg/day';
+
+  @override
+  String stepsCount(String count) {
+    return '$count steps';
+  }
+
+  @override
+  String stepsYourRank(String rank, String steps) {
+    return 'Your rank: #$rank — $steps steps';
+  }
+
+  @override
+  String stepsLeaderboardYou(String name) {
+    return '$name (You)';
+  }
+
+  @override
+  String stepsDailyTarget(String count) {
+    return 'Daily target: $count';
+  }
+
+  @override
+  String get stepsEditTargetTitle => 'Edit step target';
+
+  @override
+  String get stepsDisplayNameLabel => 'Display name';
+
+  @override
+  String get stepsDisplayNameHint => 'How others see you on the leaderboard';
+
+  @override
+  String get stepsDailyTargetLabel => 'Daily step target';
+
+  @override
+  String get stepsDailyTargetExample => 'Example: 7500';
+
+  @override
+  String get stepsDailyTargetHelper =>
+      'Choose a realistic goal between 1,000 and 100,000';
+
+  @override
+  String get stepsTodayActivity => 'Today\'s activity';
+
+  @override
+  String get stepsDailyGoalReached => '🎉 Daily goal reached!';
+
+  @override
+  String stepsGoalProgress(String percent, int goal) {
+    return '$percent% of $goal-step goal';
+  }
+
+  @override
+  String get stepsDailyTab => 'Daily';
+
+  @override
+  String get stepsWeeklyTab => 'Weekly';
+
+  @override
+  String get stepsMonthlyTab => 'Monthly';
 }

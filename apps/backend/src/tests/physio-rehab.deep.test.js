@@ -4,7 +4,7 @@
 // care_plan → completed session → outcome trend + patient timeline linkage.
 
 import prisma from '../lib/prisma.js';
-import { authClient } from './testClient.js';
+import { authClient, ensureTestIdentity } from './testClient.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -56,6 +56,11 @@ async function cleanup() {
 }
 
 d('Physiotherapy rehab foundation — deep round-trip (NL6-11)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity(ACTOR_UID, { tenantId: TENANT_ID });
+  });
   beforeAll(async () => {
     await cleanup();
     await prisma.$executeRawUnsafe(

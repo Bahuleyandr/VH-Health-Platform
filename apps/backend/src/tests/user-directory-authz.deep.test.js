@@ -3,7 +3,7 @@
 // The user *directory* (GET /users, /users/:id, /role/:role, /search) is split
 // from self-service (/profile, /me). PATIENT must NOT reach the directory but
 // MUST keep self-service; broad non-admin staff get PII-masked rows.
-import { generateTestToken, API_KEY } from './testClient.js';
+import { generateTestToken, API_KEY, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -30,6 +30,17 @@ async function clean() {
 }
 
 d('User directory authz (CAN-055)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so these subjects must exist before any request or the suite 401s
+  // before reaching the behaviour it asserts.
+  beforeAll(async () => {
+    for (const uid of [
+      'c0de0102-0003-4c0d-8c0d-c0de01020003',
+      'c0de0102-0004-4c0d-8c0d-c0de01020004',
+    ]) {
+      await ensureTestIdentity(uid);
+    }
+  });
   beforeAll(async () => {
     await clean();
     await prisma.$executeRawUnsafe(

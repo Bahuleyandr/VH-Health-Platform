@@ -8,7 +8,7 @@
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
-import { API_KEY, authClient, generateTestToken } from './testClient.js';
+import { API_KEY, authClient, generateTestToken, ensureTestIdentity } from './testClient.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -109,6 +109,11 @@ async function createEligibleDonation(label, bloodGroup = 'O+') {
 }
 
 d('Blood-bank donor processing cycle', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity('d0630000-0000-4000-8000-000000000001');
+  });
   let reactiveDonationId;
   let reactiveDonorId;
   let quarantinedUnitId;

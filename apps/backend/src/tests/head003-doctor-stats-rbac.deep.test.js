@@ -4,7 +4,7 @@
 // on the stats router is a no-op (empty routeMap), and the controller only
 // restricts a DOCTOR to their own id. The mount is now role-gated to
 // admin/clinical leadership + doctors (doctor-self-only still enforced).
-import { generateTestToken, API_KEY } from './testClient.js';
+import { generateTestToken, API_KEY, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -19,6 +19,11 @@ function client(role, extra = {}) {
 }
 
 d('HEAD-003 doctor stats RBAC', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity('c0de0d03-00d0-4000-8000-00000000d001', { tenantId: TENANT });
+  });
   afterAll(async () => { await prisma.$disconnect().catch(() => {}); });
 
   it('a PATIENT cannot read doctor stats (403)', async () => {
