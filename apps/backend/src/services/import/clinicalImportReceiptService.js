@@ -420,13 +420,25 @@ function assertStoredReceiptMatches(receipt, expected, resources, allowedPatient
 async function lockClinicalImportCorrectionTx(tx, expected) {
   if (expected.correctionItemId == null) return;
   const manifest = expected.resourceManifest[expected.correctionManifestIndex];
+  // No row-level locking clause here, deliberately -- and the source contract
+  // pins its absence. Migration 760 and ensureTenantRlsRuntimeRoleGrants give
+  // the runtime role SELECT plus a column-scoped INSERT on these append-only
+  // tables and nothing more, while PostgreSQL requires UPDATE or DELETE
+  // privilege for every row-locking variant (update / no-key-update / share /
+  // key-share). All four raise 42501 under a SELECT-only grant -- measured
+  // against a live database -- so a row lock here would break every correction
+  // re-import in the deployed AUTH_TENANT_RLS_RUNTIME_ROLE posture, and
+  // granting the extra privilege to obtain one would hand the runtime role
+  // write access to an immutable ledger. Mutual exclusion is already held:
+  // lockClinicalImportDocumentReceiptTx takes pg_advisory_xact_lock on
+  // 'correction:<itemId>' before calling this, and an advisory lock needs no
+  // table privilege at all.
   const rows = await tx.$queryRawUnsafe(
     `WITH locked_item AS (
        SELECT item.*
          FROM clinical_import_reconciliation_items AS item
         WHERE item.tenant_id=$1::uuid
           AND item.id=$2::uuid
-        FOR UPDATE
      )
      SELECT item.id AS reconciliation_item_id,
             item.resource_receipt_id AS original_resource_receipt_id,
@@ -465,7 +477,6 @@ async function lockClinicalImportCorrectionTx(tx, expected) {
             AND event.reconciliation_item_id=item.id
           ORDER BY event.created_at DESC, event.id DESC
           LIMIT 1
-          FOR UPDATE
        ) AS latest ON TRUE`,
     expected.tenantId,
     expected.correctionItemId,

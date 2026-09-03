@@ -113,13 +113,31 @@ describe('auditLogMiddleware context enrichment', () => {
     expect(sanitizeBody({ patient_uid: 'patient', notes: 'sensitive', result: { value: 'secret' } }))
       .toContain('REDACTED_CLINICAL_TEXT');
     expect(sanitizeBody({ notes: 'sensitive' })).not.toContain('sensitive');
-    const reconciliationSummary = sanitizeBody({
+    // `reason` and `xml` carry clinical free text on the import surface...
+    const reconciliationBody = {
       reason: 'patient-specific correction narrative',
       envelope: { xml: '<ClinicalDocument>private</ClinicalDocument>' },
-    });
+    };
+    const reconciliationSummary = sanitizeBody(
+      reconciliationBody,
+      '/api/v1/documents/import/reconciliation/abc/resolve',
+    );
     expect(reconciliationSummary).not.toContain('patient-specific correction narrative');
     expect(reconciliationSummary).not.toContain('ClinicalDocument');
     expect(reconciliationSummary.match(/REDACTED_CLINICAL_TEXT/g)).toHaveLength(2);
+
+    // ...but `reason` is the operational justification everywhere else, and an
+    // auditor reading a break-glass record needs to see it. Redacting it
+    // platform-wide would erase the one field that says whether the emergency
+    // access was warranted.
+    const breakGlassSummary = sanitizeBody(
+      { reason: 'cardiac arrest, attending unreachable' },
+      '/api/v1/emr/break-glass',
+    );
+    expect(breakGlassSummary).toContain('cardiac arrest, attending unreachable');
+    expect(breakGlassSummary).not.toContain('REDACTED_CLINICAL_TEXT');
+    // A body with no path context keeps the conservative platform-wide set.
+    expect(sanitizeBody({ notes: 'sensitive' })).toContain('REDACTED_CLINICAL_TEXT');
     const gatewaySecrets = sanitizeBody({
       auth_key: 'sms-auth-secret',
       key_secret: 'payment-key-secret',

@@ -190,12 +190,27 @@ describe('clinical import and signed prescription authority source contract', ()
     expect(correctionLockFunction).not.toBeNull();
     expect(receiptLockFunction).not.toBeNull();
     expect(receiptService).not.toMatch(/\bSELECT\s+\*/i);
-    expect(correctionLockFunction[0].match(/\bFOR\s+UPDATE\b/gi)).toHaveLength(2);
+    // NO locking clause in the correction path. Migration 760 and
+    // ensureTenantRlsRuntimeRoleGrants grant the runtime role SELECT plus a
+    // column-scoped INSERT on the reconciliation tables and nothing more, and
+    // PostgreSQL requires UPDATE/DELETE privilege for EVERY locking clause —
+    // FOR UPDATE, FOR SHARE and FOR KEY SHARE all raise 42501 under a
+    // SELECT-only grant (measured against a live database). A row lock here
+    // would break every correction re-import in the deployed
+    // AUTH_TENANT_RLS_RUNTIME_ROLE posture, and granting UPDATE to fix it
+    // would hand the runtime role write access to an append-only ledger.
+    // Serialization comes from the advisory lock asserted below instead.
+    expect(correctionLockFunction[0]).not.toMatch(
+      /\bFOR\s+(?:UPDATE|NO\s+KEY\s+UPDATE|SHARE|KEY\s+SHARE)\b/i,
+    );
     expect(receiptLockFunction[0]).not.toMatch(
       /\bFOR\s+(?:UPDATE|NO\s+KEY\s+UPDATE|SHARE|KEY\s+SHARE)\b/i,
     );
     expect(receiptService).toMatch(/`source:\$\{expected\.sourceIdentitySha256\}`/);
     expect(receiptService).toMatch(/`idempotency:\$\{expected\.idempotencyKeySha256\}`/);
+    // The correction item must still be serialized — by the advisory lock the
+    // caller takes before lockClinicalImportCorrectionTx runs.
+    expect(receiptService).toMatch(/`correction:\$\{expected\.correctionItemId\}`/);
     expect(receiptLockFunction[0]).toMatch(
       /for \(const lockIdentity of lockIdentities\)[\s\S]*pg_advisory_xact_lock\([\s\S]*expected\.tenantId,[\s\S]*lockIdentity/,
     );

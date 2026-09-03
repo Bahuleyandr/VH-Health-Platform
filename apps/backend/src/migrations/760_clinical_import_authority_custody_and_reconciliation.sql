@@ -1523,4 +1523,48 @@ COMMENT ON TABLE public.clinical_import_raw_artifacts IS
 COMMENT ON COLUMN public.clinical_import_document_receipts.patient_identity_binding_sha256 IS
   'SHA-256 of clinical-import-patient-identity-v1|tenant_id|patient_id|patient_uid|sorted comma-separated patient_identifier_ids.';
 
+-- ---------------------------------------------------------------------------
+-- BI reader privileges.
+--
+-- Migration 157 sets ALTER DEFAULT PRIVILEGES so the read-only analytics roles
+-- inherit SELECT on every new public table. That is right for operational
+-- tables and wrong for these six: clinical_import_raw_artifacts holds
+-- raw_payload_ciphertext (the exact encrypted source document), and the receipt
+-- and reconciliation tables carry patient identity bindings, authority-grant
+-- evidence and custody internals. Measured on a database built from this
+-- migration chain: metabase_readonly held SELECT on all six, including the
+-- ciphertext table.
+--
+-- Same guarded shape as migration 631: skip a role that does not exist, so this
+-- is a no-op on a deployment that never provisioned the BI readers.
+-- ---------------------------------------------------------------------------
+DO $clinical_import_bi_privileges$
+DECLARE
+  readonly_role TEXT;
+  target_table TEXT;
+BEGIN
+  FOREACH readonly_role IN ARRAY ARRAY['metabase_readonly', 'vhhealth_readonly']::TEXT[] LOOP
+    IF pg_catalog.to_regrole(readonly_role) IS NULL THEN
+      CONTINUE;
+    END IF;
+    FOREACH target_table IN ARRAY ARRAY[
+      'clinical_import_raw_artifacts',
+      'clinical_import_document_receipts',
+      'clinical_import_resource_receipts',
+      'clinical_import_authority_events',
+      'clinical_import_reconciliation_items',
+      'clinical_import_reconciliation_events'
+    ]::TEXT[] LOOP
+      IF pg_catalog.to_regclass('public.' || target_table) IS NULL THEN
+        CONTINUE;
+      END IF;
+      EXECUTE FORMAT(
+        'REVOKE ALL PRIVILEGES ON TABLE public.%I FROM %I',
+        target_table, readonly_role
+      );
+    END LOOP;
+  END LOOP;
+END
+$clinical_import_bi_privileges$;
+
 COMMIT;

@@ -321,8 +321,23 @@ const CLINICAL_TEXT_FIELDS = new Set([
   'diagnosis', 'diagnoses', 'symptoms', 'chief_complaint', 'history',
   'subjective', 'objective', 'examination', 'assessment', 'plan',
   'treatment_plan', 'clinical_summary', 'response_notes', 'completion_notes',
-  'follow_up_notes', 'instructions', 'discharge_summary', 'reason', 'xml',
+  'follow_up_notes', 'instructions', 'discharge_summary',
 ]);
+
+// `reason` and `xml` carry clinical free text on the clinical-import
+// reconciliation surface, but `reason` is also the operational justification on
+// break-glass, cancellation, override and refund bodies platform-wide. Redacting
+// it everywhere would erase exactly the field an auditor reads to judge whether
+// an emergency access was warranted, so these two are scoped to the routes that
+// actually put PHI in them.
+const IMPORT_CLINICAL_TEXT_FIELDS = new Set(['reason', 'xml']);
+const IMPORT_CLINICAL_TEXT_PATH = /^\/api\/v\d+\/(?:documents\/)?import(?:\/|$)/;
+
+function clinicalTextFieldsForPath(path) {
+  return IMPORT_CLINICAL_TEXT_PATH.test(String(path || ''))
+    ? new Set([...CLINICAL_TEXT_FIELDS, ...IMPORT_CLINICAL_TEXT_FIELDS])
+    : CLINICAL_TEXT_FIELDS;
+}
 
 const ALLOWED_DEVICE_TYPES = new Set(['mobile', 'tablet', 'desktop', 'web']);
 
@@ -340,18 +355,18 @@ function requestDeviceType(req) {
   );
 }
 
-function sanitizeAuditObject(body) {
+function sanitizeAuditObject(body, clinicalTextFields = CLINICAL_TEXT_FIELDS) {
   const cleaned = {};
   for (const [k, v] of Object.entries(body)) {
     const normalizedKey = normalizeCredentialFieldName(k);
     if (isCredentialFieldName(k) || SENSITIVE_IDENTITY_FIELDS.has(normalizedKey)) {
       cleaned[k] = '[REDACTED]';
-    } else if (CLINICAL_TEXT_FIELDS.has(normalizedKey)) {
+    } else if (clinicalTextFields.has(normalizedKey)) {
       cleaned[k] = '[REDACTED_CLINICAL_TEXT]';
     } else if (typeof v === 'string' && URL_VALUE_FIELDS.has(normalizedKey)) {
       cleaned[k] = redactSensitiveQueryParams(v);
     } else if (v && typeof v === 'object' && !Array.isArray(v)) {
-      cleaned[k] = sanitizeAuditObject(v);
+      cleaned[k] = sanitizeAuditObject(v, clinicalTextFields);
     } else if (Array.isArray(v)) {
       cleaned[k] = `[Array(${v.length})]`;
     } else {
@@ -361,10 +376,10 @@ function sanitizeAuditObject(body) {
   return cleaned;
 }
 
-export function sanitizeBody(body) {
+export function sanitizeBody(body, path) {
   if (!body || typeof body !== 'object') return null;
   try {
-    const cleaned = sanitizeAuditObject(body);
+    const cleaned = sanitizeAuditObject(body, clinicalTextFieldsForPath(path));
     const summary = JSON.stringify(cleaned);
     return summary.length > 500 ? summary.substring(0, 500) + '…' : summary;
   } catch {
@@ -676,7 +691,9 @@ export function auditLogMiddleware(req, res, next) {
           !excludesAuditRequestBody(cleanPath) && Object.keys(query || {}).length
             ? sanitizeQueryParameters(query)
             : null,
-          method !== 'GET' && !excludesAuditRequestBody(cleanPath) ? sanitizeBody(body) : null,
+          method !== 'GET' && !excludesAuditRequestBody(cleanPath)
+            ? sanitizeBody(body, cleanPath)
+            : null,
           statusCode,
           responseTimeMs,
           isSuccess,
