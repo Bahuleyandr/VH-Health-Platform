@@ -104,13 +104,17 @@ class _HousekeepingTasksScreenState extends State<HousekeepingTasksScreen>
 
   Future<void> _completeTask(_Task task) async {
     final completion = await _showCompleteDialog();
-    if (completion == null) return;
+    if (completion == null || !mounted) return;
 
+    final photoUploadFailure = AppStrings.of(context).staffPhotoUploadFailed;
     setState(() => _busyTaskId = task.id);
     try {
       final evidence = completion.photo == null
           ? null
-          : await StaffEvidenceUploadService.upload(completion.photo!);
+          : await StaffEvidenceUploadService.upload(
+              completion.photo!,
+              failureMessage: photoUploadFailure,
+            );
       final notes = completion.notes.trim();
       await HrApiService.completeHousekeepingRequest(
         requestId: task.id,

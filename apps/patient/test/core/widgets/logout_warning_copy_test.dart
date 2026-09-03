@@ -13,6 +13,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:vhhealth/core/services/logout_service.dart';
 import 'package:vhhealth/core/widgets/logout_button.dart';
+import 'package:vhhealth/generated/app_localizations_en.dart';
+
+final _l10n = AppLocalizationsEn();
 
 const _revoked = LogoutOutcome(
   firebaseSessionRevoked: true,
@@ -33,22 +36,27 @@ const _unconfirmedWithoutRetry = LogoutOutcome(
 
 void main() {
   test('a confirmed server revocation warns about nothing', () {
-    expect(LogoutButton.logoutWarningMessage(_revoked), isNull);
+    expect(LogoutButton.logoutWarningMessage(_revoked, _l10n), isNull);
   });
 
   test('the two unconfirmed branches must not say the same thing', () {
     // THE defect, stated directly: one sentence for both states means the
     // field it is supposed to reflect changes nothing a user can see.
     expect(
-      LogoutButton.logoutWarningMessage(_unconfirmedWithRetry),
+      LogoutButton.logoutWarningMessage(_unconfirmedWithRetry, _l10n),
       isNot(
-        equals(LogoutButton.logoutWarningMessage(_unconfirmedWithoutRetry)),
+        equals(
+          LogoutButton.logoutWarningMessage(_unconfirmedWithoutRetry, _l10n),
+        ),
       ),
     );
   });
 
   test('a queued retry is described as AUTOMATIC, not as a user action', () {
-    final message = LogoutButton.logoutWarningMessage(_unconfirmedWithRetry)!;
+    final message = LogoutButton.logoutWarningMessage(
+      _unconfirmedWithRetry,
+      _l10n,
+    )!;
 
     expect(message, contains('automatically'));
     expect(
@@ -63,6 +71,7 @@ void main() {
   test('no queued retry must not promise one', () {
     final message = LogoutButton.logoutWarningMessage(
       _unconfirmedWithoutRetry,
+      _l10n,
     )!;
 
     expect(

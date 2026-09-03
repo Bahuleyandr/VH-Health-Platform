@@ -161,7 +161,9 @@ class _OrderSetsScreenState extends State<OrderSetsScreen> {
         });
       } else {
         setState(() {
-          _error = response.failureMessage('Failed to load order sets');
+          _error = response.failureMessage(
+            AppStrings.of(context).orderSetsLoadFailed,
+          );
           _loading = false;
         });
       }
@@ -291,7 +293,8 @@ class _SetCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
-                      '${summary.itemCount} items',
+                      AppStrings.of(context)
+                          .orderSetsItemCount(summary.itemCount),
                       style: theme.textTheme.bodySmall,
                     ),
                   ),
@@ -385,7 +388,9 @@ class _OrderSetDetailScreenState extends State<OrderSetDetailScreen> {
         });
       } else {
         setState(() {
-          _error = response.failureMessage('Failed to load');
+          _error = response.failureMessage(
+            AppStrings.of(context).orderSetsItemLoadFailed,
+          );
           _loading = false;
         });
       }

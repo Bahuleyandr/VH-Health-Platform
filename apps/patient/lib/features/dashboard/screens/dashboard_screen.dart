@@ -78,9 +78,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
   CycleTrackerSnapshot? _cycleTrackerSnapshot;
   bool _stepsHealthSyncInFlight = false;
 
-  // Features list
-  late final List<FeatureIconData> _features;
   Color _dialAccentColor = DashboardAccents.explore;
+
+  // Memoised against the active locale. CircularFeatureDial.didUpdateWidget
+  // compares `oldWidget.features != widget.features` — List has no `==`, so
+  // that is identity. Building a fresh list inside build() made it true on
+  // every rebuild, which reset the dial's rotation and cleared the tap
+  // selection each time (including on the dial's own onFocusColorChanged
+  // setState, so a tap erased its own highlight).
+  List<FeatureIconData>? _features;
+  Locale? _featuresLocale;
+
+  List<FeatureIconData> _featuresFor(
+    BuildContext context,
+    AppLocalizations l10n,
+  ) {
+    final locale = Localizations.localeOf(context);
+    if (_features == null || _featuresLocale != locale) {
+      _features = _initializeFeatures(l10n);
+      _featuresLocale = locale;
+    }
+    return _features!;
+  }
 
   @override
   void initState() {
@@ -89,7 +108,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _name = user.name;
     _hospitalNumber = user.hospitalNumber;
     _isGuestSession = user.isGuest;
-    _features = _initializeFeatures();
     cachedName = _name;
     _dashboardProvider = DashboardProvider(isGuestSession: _isGuestSession)
       ..addListener(_handleDashboardProviderChanged);
@@ -157,12 +175,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   // ── Existing methods (unchanged) ───────────────────────────────
 
-  List<FeatureIconData> _initializeFeatures() {
+  List<FeatureIconData> _initializeFeatures(AppLocalizations l10n) {
     return [
       FeatureIconData(
         icon: LucideIcons.heartPulse,
         svgAsset: 'assets/images/features/your-health.svg',
-        label: 'Your Health',
+        label: l10n.yourHealth,
         color: const Color(0xFF15B8A6),
         description: 'Records, prescriptions, consultations, and uploads',
         onTap: (ctx) => _openFeature(ctx, '/your-health'),
@@ -170,7 +188,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       FeatureIconData(
         icon: LucideIcons.calendarCheck,
         svgAsset: 'assets/images/features/appointments.svg',
-        label: 'Appointments',
+        label: l10n.appointments,
         color: const Color(0xFF3D8BFF),
         description: 'Book and manage visits',
         onTap: (ctx) => _openFeature(ctx, '/appointments'),
@@ -178,7 +196,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       FeatureIconData(
         icon: LucideIcons.pill,
         svgAsset: 'assets/images/features/pharmacy.svg',
-        label: 'Pharmacy',
+        label: l10n.pharmacy,
         color: const Color(0xFF61B15A),
         description: 'Medicines, refills, and delivery',
         onTap: (ctx) => _openFeature(ctx, '/pharmacy'),
@@ -186,7 +204,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       FeatureIconData(
         icon: LucideIcons.flaskConical,
         svgAsset: 'assets/images/features/investigations.svg',
-        label: 'Tests & Reports',
+        label: l10n.investigations,
         color: const Color(0xFF00A7C8),
         description: 'Lab tests, scans, reports, and bookings',
         onTap: (ctx) => _openFeature(ctx, '/investigations'),
@@ -194,7 +212,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       FeatureIconData(
         icon: LucideIcons.helpCircle,
         svgAsset: 'assets/images/features/ask-a-doubt.svg',
-        label: 'Ask a Doubt',
+        label: l10n.askDoubt,
         color: const Color(0xFFF4A261),
         description: 'Send a question to the hospital team',
         onTap: (ctx) => _openFeature(ctx, '/ask-a-doubt'),
@@ -202,7 +220,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       FeatureIconData(
         icon: LucideIcons.brainCircuit,
         svgAsset: 'assets/images/features/trivia.svg',
-        label: 'Trivia',
+        label: l10n.triviaLabel,
         color: const Color(0xFF8E5CF7),
         description: 'Learn something useful and fun',
         onTap: (ctx) => _openFeature(ctx, '/trivia'),
@@ -210,7 +228,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       FeatureIconData(
         icon: LucideIcons.building2,
         svgAsset: 'assets/images/features/departments.svg',
-        label: 'Departments',
+        label: l10n.departments,
         color: const Color(0xFF2F9E44),
         description: 'Find departments and doctors',
         onTap: (ctx) => _openFeature(ctx, '/departments'),
@@ -218,7 +236,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       FeatureIconData(
         icon: LucideIcons.info,
         svgAsset: 'assets/images/features/about-us.svg',
-        label: 'About Us',
+        label: l10n.aboutUsLabel,
         color: const Color(0xFFE76F51),
         description: 'Hospital information and contact details',
         onTap: (ctx) => _openFeature(ctx, '/about-us'),
@@ -297,7 +315,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         setState(() {
           _commandCenterLoading = false;
           _commandCenterError = result.failureMessage(
-            'Today could not refresh right now.',
+            AppLocalizations.of(context)!.dashboardTodayRefreshFailed,
           );
         });
       }
@@ -306,7 +324,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (mounted) {
         setState(() {
           _commandCenterLoading = false;
-          _commandCenterError = 'Today could not refresh right now.';
+          _commandCenterError = AppLocalizations.of(context)!
+              .dashboardTodayRefreshFailed;
         });
       }
     }
@@ -818,7 +837,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             accent: _dialAccentColor,
                             tinted: false,
                             child: CircularFeatureDial(
-                              features: _features,
+                              features: _featuresFor(context, l10n),
                               iconScale: iconScale,
                               onFocusColorChanged: (color) {
                                 if (mounted) {

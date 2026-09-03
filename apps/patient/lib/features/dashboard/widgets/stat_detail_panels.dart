@@ -38,7 +38,7 @@ class StepsBreakdownPanel extends StatelessWidget {
     return _DetailShell(
       accent: accent,
       icon: LucideIcons.footprints,
-      title: 'Steps breakdown',
+      title: l.dashboardStepsBreakdown,
       subtitle: progress >= 1
           ? 'Daily step goal reached'
           : '$remaining steps left for today',
@@ -60,7 +60,7 @@ class StepsBreakdownPanel extends StatelessWidget {
             children: [
               Expanded(
                 child: _MetricChip(
-                  label: 'Today',
+                  label: l.dashboardTodaySection,
                   value: _formatThousands(steps),
                   accent: accent,
                 ),
@@ -68,7 +68,7 @@ class StepsBreakdownPanel extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: _MetricChip(
-                  label: 'Goal',
+                  label: l.healthPointsGoal,
                   value: _formatThousands(goal),
                   accent: accent,
                 ),
@@ -76,7 +76,7 @@ class StepsBreakdownPanel extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: _MetricChip(
-                  label: 'Left',
+                  label: l.dashboardMetricLeft,
                   value: _formatThousands(remaining),
                   accent: accent,
                 ),
@@ -88,7 +88,7 @@ class StepsBreakdownPanel extends StatelessWidget {
             children: [
               Expanded(
                 child: _MetricChip(
-                  label: 'Distance',
+                  label: l.healthPointsDistance,
                   value: _formatDistance(distanceMeters),
                   accent: accent,
                 ),
@@ -96,7 +96,7 @@ class StepsBreakdownPanel extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: _MetricChip(
-                  label: 'Activity',
+                  label: l.dashboardMetricActivity,
                   value: activityLabel,
                   accent: accent,
                 ),
@@ -147,7 +147,8 @@ class PointsBreakdownPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final data = summary ?? const <String, dynamic>{};
     final total = _asInt(data['totalPoints']) ?? _asInt(data['total']) ?? 0;
-    final currentTier = _tierName(data['currentTier']) ?? 'Points';
+    final l = AppLocalizations.of(context)!;
+    final currentTier = _tierName(data['currentTier']) ?? l.healthPointsPoints;
     final nextTierMap = _asMap(data['nextTier']);
     final nextTier = _tierName(nextTierMap) ?? _tierName(data['nextTier']);
     final progress =
@@ -163,12 +164,11 @@ class PointsBreakdownPanel extends StatelessWidget {
     final accent = getTierColor(currentTier);
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final l = AppLocalizations.of(context)!;
 
     return _DetailShell(
       accent: accent,
       icon: getTierIcon(currentTier),
-      title: 'Points breakdown',
+      title: l.dashboardPointsBreakdown,
       subtitle: nextTier == null || nextTier.isEmpty
           ? 'Keep earning with hospital activities'
           : '$pointsNeeded points to $nextTier',
@@ -190,7 +190,7 @@ class PointsBreakdownPanel extends StatelessWidget {
             children: [
               Expanded(
                 child: _MetricChip(
-                  label: 'Tier',
+                  label: l.dashboardMetricTier,
                   value: currentTier,
                   accent: accent,
                 ),
@@ -198,7 +198,7 @@ class PointsBreakdownPanel extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: _MetricChip(
-                  label: 'Rewards',
+                  label: l.stepsRewards,
                   value: '$unclaimed',
                   accent: accent,
                 ),
@@ -206,7 +206,7 @@ class PointsBreakdownPanel extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: _MetricChip(
-                  label: 'Next',
+                  label: l.dashboardMetricNext,
                   value: nextTier ?? '-',
                   accent: accent,
                 ),
@@ -346,7 +346,7 @@ class CycleBreakdownPanel extends StatelessWidget {
             children: [
               Expanded(
                 child: _MetricChip(
-                  label: 'Cycle',
+                  label: l.dashboardMetricCycle,
                   value: '${snapshot?.cycleLength ?? 28}d',
                   accent: accent,
                 ),
@@ -354,7 +354,7 @@ class CycleBreakdownPanel extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: _MetricChip(
-                  label: 'Period',
+                  label: l.dashboardMetricPeriod,
                   value: '${snapshot?.periodLength ?? 5}d',
                   accent: accent,
                 ),

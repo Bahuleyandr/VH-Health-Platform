@@ -18,6 +18,12 @@
 //      same intentionally-English filter used in the staff verifier
 //   4. Length outliers (translation > 2.5x English chars)
 //   5. Hardcoded English remaining in screens (Text('...') heuristic)
+//
+//     node scripts/i18n-verify.mjs --check
+//
+// runs the blocking structural contract: all five locale files must carry
+// the English key set, preserve every ICU placeholder, and may equal the
+// English value only for the short, reasoned identifier list below.
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -29,6 +35,20 @@ const APP_ROOT = join(__dirname, '..');
 const ARB_DIR = join(APP_ROOT, 'lib', 'l10n');
 const LIB_ROOT = join(APP_ROOT, 'lib');
 const LOCALES = ['en', 'hi', 'ta', 'te', 'ml'];
+
+const DELIBERATE_ENGLISH_VALUES = {
+  profileEmailHint: 'Literal example email address.',
+  vitalsSpO2: 'International clinical abbreviation.',
+  splashAppName: 'Product name.',
+  aboutHospitalName: 'Registered hospital name.',
+  ancBpLabel: 'International clinical abbreviation.',
+  ancFhrLabel: 'International clinical abbreviation.',
+  ancHbLabel: 'International clinical abbreviation.',
+  yourHealthTimelineRxPill: 'International prescription symbol.',
+  teleconsultBadge: 'Product badge token.',
+  abdmAddressHint: 'Literal example ABHA address.',
+  abhaEnrolOtpLabel: 'ABDM programme term and required-field marker.',
+};
 
 function loadArb(loc) {
   const path = join(ARB_DIR, `intl_${loc}.arb`);
@@ -187,4 +207,88 @@ function main() {
   console.log('Done. Treat as informational; gaps queue for translator review.');
 }
 
-main();
+function placeholders(value) {
+  return [...String(value).matchAll(/\{([A-Za-z][A-Za-z0-9_]*)\}/g)]
+    .map((match) => match[1])
+    .sort();
+}
+
+function runParityCheck() {
+  console.log('Patient i18n structural parity check (hi/ta/te/ml vs en)');
+  console.log('--------------------------------------------------------');
+
+  const arb = {};
+  for (const loc of LOCALES) arb[loc] = loadArb(loc);
+  const enKeys = Object.keys(arb.en).sort();
+  const failures = [];
+  if (enKeys.length < 1000) {
+    failures.push(
+      `parsed only ${enKeys.length} English keys; the ARB reader is no longer trustworthy`,
+    );
+  }
+
+  for (const key of Object.keys(DELIBERATE_ENGLISH_VALUES)) {
+    if (!(key in arb.en)) {
+      failures.push(`stale deliberate-English entry '${key}'`);
+    } else if (LOCALES.slice(1).every((loc) => arb[loc][key] !== arb.en[key])) {
+      failures.push(`unused deliberate-English entry '${key}'`);
+    }
+  }
+
+  for (const loc of LOCALES.slice(1)) {
+    const got = new Set(Object.keys(arb[loc]));
+    const missing = enKeys.filter((key) => !got.has(key));
+    const extra = [...got].filter((key) => !(key in arb.en)).sort();
+    const placeholderDrift = [];
+    const undeclaredEnglish = [];
+    for (const key of enKeys) {
+      if (!got.has(key)) continue;
+      const expectedPlaceholders = placeholders(arb.en[key]);
+      const actualPlaceholders = placeholders(arb[loc][key]);
+      if (JSON.stringify(actualPlaceholders) !== JSON.stringify(expectedPlaceholders)) {
+        placeholderDrift.push(
+          `${key} expected {${expectedPlaceholders.join(',')}} got {${actualPlaceholders.join(',')}}`,
+        );
+      }
+      if (
+        arb[loc][key] === arb.en[key] &&
+        /[A-Za-z]/.test(arb.en[key]) &&
+        !(key in DELIBERATE_ENGLISH_VALUES)
+      ) {
+        undeclaredEnglish.push(key);
+      }
+    }
+    console.log(
+      `[${loc}] ${got.size}/${enKeys.length} keys, missing ${missing.length}, ` +
+      `placeholder drift ${placeholderDrift.length}, undeclared English values ` +
+      `${undeclaredEnglish.length}, orphaned ${extra.length}`,
+    );
+    for (const key of missing.slice(0, 20)) console.log(`   missing: ${key}`);
+    for (const detail of placeholderDrift.slice(0, 20)) {
+      console.log(`   placeholder drift: ${detail}`);
+    }
+    for (const key of undeclaredEnglish.slice(0, 20)) {
+      console.log(`   undeclared English value: ${key}`);
+    }
+    if (missing.length > 0) failures.push(`${loc} is missing ${missing.length} key(s)`);
+    if (placeholderDrift.length > 0) {
+      failures.push(`${loc} has ${placeholderDrift.length} placeholder mismatch(es)`);
+    }
+    if (undeclaredEnglish.length > 0) {
+      failures.push(`${loc} has ${undeclaredEnglish.length} undeclared English value(s)`);
+    }
+  }
+
+  if (failures.length > 0) {
+    console.error('\nFAIL: patient i18n structural parity');
+    for (const failure of failures) console.error(`  - ${failure}`);
+    process.exit(1);
+  }
+  console.log('\nOK: patient en/hi/ta/te/ml keys and placeholders are at parity.');
+}
+
+if (process.argv.includes('--check')) {
+  runParityCheck();
+} else {
+  main();
+}

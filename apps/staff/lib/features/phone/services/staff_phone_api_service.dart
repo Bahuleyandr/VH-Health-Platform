@@ -3,23 +3,16 @@ import '../../../core/services/api_client.dart';
 class StaffPhoneApiService {
   StaffPhoneApiService._();
 
-  static Future<Map<String, dynamic>> getHome() async {
-    final response = await ApiClient.get('/staff/phone/home');
-    if (!response.isSuccess) {
-      throw Exception(response.failureMessage('Could not load phone home'));
-    }
-    return response.dataAsMap();
-  }
-
   static Future<List<Map<String, dynamic>>> getMyQueries({
     int limit = 30,
+    required String failureMessage,
   }) async {
     final response = await ApiClient.get(
       '/staff/queries/my',
       queryParameters: {'limit': '$limit'},
     );
     if (!response.isSuccess) {
-      throw Exception(response.failureMessage('Could not load queries'));
+      throw Exception(response.failureMessage(failureMessage));
     }
     final data = response.dataAsMap();
     final queries = data['queries'];
@@ -37,6 +30,7 @@ class StaffPhoneApiService {
     required String subject,
     required String body,
     required String priority,
+    required String failureMessage,
   }) async {
     final response = await ApiClient.post(
       '/staff/queries',
@@ -48,7 +42,7 @@ class StaffPhoneApiService {
       },
     );
     if (!response.isSuccess) {
-      throw Exception(response.failureMessage('Could not submit query'));
+      throw Exception(response.failureMessage(failureMessage));
     }
     return response.dataAsMap();
   }

@@ -31,7 +31,7 @@ class AppointmentCard extends StatelessWidget {
     final l = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final statusCol = _statusColor(appt.status);
-    final statusLabel = _statusLabel(appt.status);
+    final statusLabel = _statusLabel(l, appt.status);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -126,7 +126,7 @@ class AppointmentCard extends StatelessWidget {
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      'Token #${appt.tokenNumber}',
+                      l.appointmentCardToken(appt.tokenNumber!),
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: const Color(0xFF00796B),
                         fontWeight: FontWeight.w600,
@@ -138,7 +138,7 @@ class AppointmentCard extends StatelessWidget {
               if (appt.reason != null && appt.reason!.isNotEmpty) ...[
                 const SizedBox(height: 4),
                 Text(
-                  'Reason: ${appt.reason}',
+                  l.appointmentCardReason(appt.reason!),
                   style: theme.textTheme.bodySmall?.copyWith(
                     fontStyle: FontStyle.italic,
                   ),
@@ -148,7 +148,7 @@ class AppointmentCard extends StatelessWidget {
                   appt.confirmationNotes!.isNotEmpty) ...[
                 const SizedBox(height: 4),
                 Text(
-                  'Note: ${appt.confirmationNotes}',
+                  l.appointmentCardNote(appt.confirmationNotes!),
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
@@ -284,20 +284,20 @@ String _teleconsultStateLabel(
   };
 }
 
-String _statusLabel(String status) {
+String _statusLabel(AppLocalizations l, String status) {
   switch (status.toLowerCase()) {
     case 'scheduled':
-      return 'Scheduled';
+      return l.appointmentStatusScheduled;
     case 'confirmed':
-      return 'Confirmed ✓';
+      return l.appointmentStatusConfirmed;
     case 'in_progress':
-      return 'In Progress';
+      return l.appointmentStatusInProgress;
     case 'completed':
-      return 'Completed';
+      return l.appointmentStatusCompleted;
     case 'cancelled':
-      return 'Cancelled';
+      return l.appointmentStatusCancelled;
     case 'no_show':
-      return 'No Show';
+      return l.appointmentStatusNoShow;
     default:
       return status.isNotEmpty
           ? status[0].toUpperCase() + status.substring(1)

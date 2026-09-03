@@ -71,11 +71,11 @@ class AppLocalizationsTa extends AppLocalizations {
 
   @override
   String get authSosBackendFailed =>
-      'Couldn\'t send the SOS alert to the hospital. Stay on the emergency call — the phone line is your backup.';
+      'மருத்துவமனைக்கு SOS எச்சரிக்கையை அனுப்ப முடியவில்லை. அவசர அழைப்பில் தொடருங்கள் — தொலைபேசி இணைப்பே உங்கள் மாற்றுப் பாதுகாப்பு.';
 
   @override
   String get authSosGuestSkipped =>
-      'Emergency call opened. Sign in to also send an SOS alert to the hospital.';
+      'அவசர அழைப்பு திறக்கப்பட்டது. மருத்துவமனைக்கு SOS எச்சரிக்கையையும் அனுப்ப உள்நுழையுங்கள்.';
 
   @override
   String get authGuestUserSOS => 'விருந்தினர்_பயனர்_sos';
@@ -549,7 +549,7 @@ class AppLocalizationsTa extends AppLocalizations {
 
   @override
   String investigationsUploadNotAvailableForDependent(String name) {
-    return 'Report uploads aren\'t available while viewing $name\'s profile. Switch back to your own profile to upload a report.';
+    return '$name அவர்களின் சுயவிவரத்தைப் பார்க்கும்போது அறிக்கைகளைப் பதிவேற்ற முடியாது. அறிக்கையைப் பதிவேற்ற உங்கள் சொந்த சுயவிவரத்திற்குத் திரும்புங்கள்.';
   }
 
   @override
@@ -1088,41 +1088,42 @@ class AppLocalizationsTa extends AppLocalizations {
       'சோதனை குறியீடு இணைக்கப்படாததால் இந்த முடிவிற்கு போக்கு கிடைக்கவில்லை.';
 
   @override
-  String get diagnosticResultsTitle => 'Imaging and pathology reports';
+  String get diagnosticResultsTitle => 'படமெடுப்பு மற்றும் நோயியல் அறிக்கைகள்';
 
   @override
-  String get diagnosticResultsEmptyTitle => 'No released reports yet';
+  String get diagnosticResultsEmptyTitle =>
+      'இன்னும் வெளியிடப்பட்ட அறிக்கைகள் இல்லை';
 
   @override
   String get diagnosticResultsEmptySubtitle =>
-      'Clinician-signed reports released by your care team will appear here.';
+      'உங்கள் பராமரிப்புக் குழு வெளியிடும் மருத்துவர் கையொப்பமிட்ட அறிக்கைகள் இங்கே தோன்றும்.';
 
   @override
   String get diagnosticResultsLoadFailed =>
-      'Unable to load imaging and pathology reports.';
+      'படமெடுப்பு மற்றும் நோயியல் அறிக்கைகளை ஏற்ற முடியவில்லை.';
 
   @override
-  String get diagnosticResultDetailsTitle => 'Diagnostic report';
+  String get diagnosticResultDetailsTitle => 'நோயறிதல் அறிக்கை';
 
   @override
   String get diagnosticResultDetailLoadFailed =>
-      'Unable to load this diagnostic report.';
+      'இந்த நோயறிதல் அறிக்கையை ஏற்ற முடியவில்லை.';
 
   @override
-  String get diagnosticResultRadiology => 'Imaging report';
+  String get diagnosticResultRadiology => 'படமெடுப்பு அறிக்கை';
 
   @override
-  String get diagnosticResultPathology => 'Pathology report';
+  String get diagnosticResultPathology => 'நோயியல் அறிக்கை';
 
   @override
-  String get diagnosticResultAmended => 'Amended';
+  String get diagnosticResultAmended => 'திருத்தப்பட்டது';
 
   @override
-  String get diagnosticResultAddendum => 'Signed addendum';
+  String get diagnosticResultAddendum => 'கையொப்பமிட்ட இணைப்பு';
 
   @override
   String get diagnosticResultAdvice =>
-      'Please discuss this report with your doctor if you have questions about what it means for your care.';
+      'இந்த அறிக்கை உங்கள் பராமரிப்புக்கு என்ன பொருள் தருகிறது என்பது குறித்து கேள்விகள் இருந்தால், தயவுசெய்து உங்கள் மருத்துவருடன் பேசுங்கள்.';
 
   @override
   String get summaryAllergies => 'ஒவ்வாமை';
@@ -1341,7 +1342,7 @@ class AppLocalizationsTa extends AppLocalizations {
   String get refillRequestFailed => 'மீண்டும் நிரப்பக் கோர முடியவில்லை';
 
   @override
-  String get refillStatusActive => 'ACTIVE';
+  String get refillStatusActive => 'செயலில்';
 
   @override
   String get refillStatusExpired => 'காலாவதியானது';
@@ -1597,7 +1598,7 @@ class AppLocalizationsTa extends AppLocalizations {
   String get familyTapToSelect => 'தேர்ந்தெடுக்க தட்டவும்';
 
   @override
-  String get familyDobPrefix => 'DOB:';
+  String get familyDobPrefix => 'பிறந்த தேதி:';
 
   @override
   String get familyNameRequired => 'பெயர் தேவை';
@@ -2119,7 +2120,7 @@ class AppLocalizationsTa extends AppLocalizations {
   String get logoutConfirmBody => 'நிச்சயமாக வெளியேற விரும்புகிறீர்களா?';
 
   @override
-  String get logoutProgressMessage => 'Signing out…';
+  String get logoutProgressMessage => 'வெளியேறுகிறது…';
 
   @override
   String get aboutHospitalName => 'Venkataeswara Hospitals';
@@ -2593,7 +2594,7 @@ class AppLocalizationsTa extends AppLocalizations {
   String get recordAccessContinueButton => 'தொடரவும்';
 
   @override
-  String get recordAccessProxyFallback => 'Proxy';
+  String get recordAccessProxyFallback => 'பிரதிநிதி';
 
   @override
   String get recordAccessStatusActive => 'செயலில்';
@@ -4121,37 +4122,37 @@ class AppLocalizationsTa extends AppLocalizations {
   String get teleconsultEndCall => 'அழைப்பை முடி';
 
   @override
-  String get referralsTitle => 'Referrals';
+  String get referralsTitle => 'பரிந்துரைகள்';
 
   @override
   String get referralsLoadFailed =>
-      'We could not load your referral updates. Please try again.';
+      'உங்கள் பரிந்துரை புதுப்பிப்புகளை ஏற்ற முடியவில்லை. மீண்டும் முயற்சிக்கவும்.';
 
   @override
-  String get referralsEmptyTitle => 'No referral updates yet';
+  String get referralsEmptyTitle => 'இன்னும் பரிந்துரை புதுப்பிப்புகள் இல்லை';
 
   @override
   String get referralsEmptySubtitle =>
-      'Signed specialist updates that your care team releases will appear here.';
+      'உங்கள் பராமரிப்புக் குழு வெளியிடும் கையொப்பமிடப்பட்ட நிபுணர் புதுப்பிப்புகள் இங்கே தோன்றும்.';
 
   @override
-  String get referralsSpecialist => 'Specialist referral';
+  String get referralsSpecialist => 'நிபுணர் பரிந்துரை';
 
   @override
-  String get referralsSummary => 'Specialist summary';
+  String get referralsSummary => 'நிபுணர் சுருக்கம்';
 
   @override
-  String get referralsNextSteps => 'What to do next';
+  String get referralsNextSteps => 'அடுத்து என்ன செய்ய வேண்டும்';
 
   @override
-  String get referralsFollowUp => 'Follow-up plan';
+  String get referralsFollowUp => 'தொடர் பராமரிப்புத் திட்டம்';
 
   @override
-  String get referralsAppointment => 'Appointment';
+  String get referralsAppointment => 'சந்திப்பு';
 
   @override
   String get referralsAppointmentLinked =>
-      'A follow-up appointment is linked to this referral.';
+      'இந்தப் பரிந்துரையுடன் ஒரு தொடர் சந்திப்பு இணைக்கப்பட்டுள்ளது.';
 
   @override
   String get patientOutageTitle => 'மருத்துவமனை சேவை தற்காலிகமாக கிடைக்கவில்லை';
@@ -4396,4 +4397,466 @@ class AppLocalizationsTa extends AppLocalizations {
 
   @override
   String get abhaEnrolViewMyAbha => 'என் ABHA-ஐப் பார்க்கவும்';
+
+  @override
+  String get appointmentVisitType => 'வருகை வகை';
+
+  @override
+  String get appointmentInPersonConsultation => 'நேரடி ஆலோசனை';
+
+  @override
+  String get appointmentTeleconsultVideoVisit => 'தொலை ஆலோசனை (காணொலி வருகை)';
+
+  @override
+  String get familyLinkedDependentBadge => 'இணைக்கப்பட்ட சார்பாளர்';
+
+  @override
+  String get familySetUpLinkedDependent => 'இணைக்கப்பட்ட சார்பாளரை அமைக்கவும்';
+
+  @override
+  String get ancBookedVisits => 'முன்பதிவு செய்யப்பட்ட வருகைகள்';
+
+  @override
+  String get ancRecordedBpWeight => 'பதிவுசெய்த BP மற்றும் எடை';
+
+  @override
+  String get appointmentSelectDateError =>
+      'தயவுசெய்து ஒரு தேதியைத் தேர்ந்தெடுக்கவும்';
+
+  @override
+  String get appointmentSelectAvailableSlotError =>
+      'தயவுசெய்து கிடைக்கக்கூடிய நேர இடைவெளியைத் தேர்ந்தெடுக்கவும்';
+
+  @override
+  String get appointmentSelectDoctorError =>
+      'தயவுசெய்து ஒரு மருத்துவரைத் தேர்ந்தெடுக்கவும்';
+
+  @override
+  String get appointmentSessionMissingError =>
+      'பயனர் அமர்வு கிடைக்கவில்லை. வெளியேறி மீண்டும் உள்நுழையவும்.';
+
+  @override
+  String get appointmentReasonForVisitLabel => 'வருகைக்கான காரணம்';
+
+  @override
+  String get appointmentReasonForVisitHint =>
+      'எ.கா. வழக்கமான பரிசோதனை, தலைவலி, பின்தொடர்பு...';
+
+  @override
+  String get appointmentSelectDateLabel => 'தேதியைத் தேர்ந்தெடுக்கவும்';
+
+  @override
+  String appointmentSelectedTime(String time) {
+    return 'தேர்ந்தெடுக்கப்பட்டது: $time';
+  }
+
+  @override
+  String get appointmentSelectTimeLabel => 'நேரத்தைத் தேர்ந்தெடுக்கவும்';
+
+  @override
+  String get aboutDoctorAppointmentsTitle => 'மருத்துவர் நேரமுன்பதிவுகள்';
+
+  @override
+  String get aboutHomeSampleAction => 'வீட்டு மாதிரி';
+
+  @override
+  String get aboutFreeHomeSampleCollectionTitle =>
+      'இலவச வீட்டு மாதிரி சேகரிப்பு';
+
+  @override
+  String get aboutAmbulanceAction => 'அவசர ஊர்தி';
+
+  @override
+  String get aboutEmergencyAmbulanceTitle => 'அவசரகால ஊர்தி';
+
+  @override
+  String get aboutNavigateAction => 'வழிகாட்டு';
+
+  @override
+  String gamificationShareEarnedBadge(String title) {
+    return 'VH Health-இல் \"$title\" பதக்கத்தை நான் பெற்றேன்!';
+  }
+
+  @override
+  String navigationPageNotFound(String path) {
+    return 'பக்கம் கிடைக்கவில்லை: $path';
+  }
+
+  @override
+  String get navigationGoHome => 'முகப்புக்குச் செல்லவும்';
+
+  @override
+  String get dependentsLoadFailed =>
+      'சார்ந்தவர்களை ஏற்ற முடியவில்லை. மீண்டும் முயற்சிக்கவும்.';
+
+  @override
+  String get permissionsNotificationsName => 'அறிவிப்புகள்';
+
+  @override
+  String get permissionsNotificationsExplanation =>
+      'சந்திப்பு நினைவூட்டல்கள் மற்றும் உடல்நலப் புதுப்பிப்புகளுக்கு அறிவிப்புகளை அனுமதிக்கவும்.';
+
+  @override
+  String get permissionsCameraName => 'கேமரா அணுகல்';
+
+  @override
+  String get permissionsCameraExplanation =>
+      'ஆவணங்களை ஸ்கேன் செய்யவும் உடல்நலப் பதிவுகளுக்கான படங்களை எடுக்கவும் கேமரா அணுகலை அனுமதிக்கவும்.';
+
+  @override
+  String get permissionsPhotosName => 'படத் தொகுப்பு அணுகல்';
+
+  @override
+  String get permissionsPhotosExplanation =>
+      'ஆவணங்கள் மற்றும் மருந்துச் சீட்டுகளைப் பதிவேற்ற பட அணுகலை அனுமதிக்கவும்.';
+
+  @override
+  String get permissionsLocationName => 'இருப்பிட அணுகல்';
+
+  @override
+  String get permissionsLocationExplanation =>
+      'அவசர SOS வசதிகள் மற்றும் அருகிலுள்ள மருத்துவமனைகளுக்காக இருப்பிட அணுகலை அனுமதிக்கவும்.';
+
+  @override
+  String get permissionsCalendarName => 'நாள்காட்டி அணுகல்';
+
+  @override
+  String get permissionsCalendarExplanation =>
+      'சந்திப்புகள் மற்றும் உடல்நலம் சார்ந்த நிகழ்வுகளைக் காட்ட நாள்காட்டி அணுகலை அனுமதிக்கவும்.';
+
+  @override
+  String permissionsGenericName(String name) {
+    return '$name அணுகல்';
+  }
+
+  @override
+  String get permissionsGenericExplanation =>
+      'இந்த வசதி செயல்பட இந்த அனுமதி தேவை.';
+
+  @override
+  String permissionsRequiredTitle(String name) {
+    return '$name தேவை';
+  }
+
+  @override
+  String permissionsDisabledTitle(String name) {
+    return '$name முடக்கப்பட்டுள்ளது';
+  }
+
+  @override
+  String permissionsDisabledBody(String name) {
+    return '$name முடக்கப்பட்டுள்ளது. இந்த வசதியைப் பயன்படுத்த அமைப்புகளில் அதை இயக்கவும்.';
+  }
+
+  @override
+  String circularDialTapToAccess(String feature) {
+    return '$feature அணுக தட்டவும்';
+  }
+
+  @override
+  String get contactBookByPhone => 'தொலைபேசியில் முன்பதிவு செய்யவும்';
+
+  @override
+  String get deliveryTrackingLive => 'நேரலை';
+
+  @override
+  String deliveryTrackingEstimatedArrival(String minutes) {
+    return 'மதிப்பிடப்பட்ட வருகை: ~$minutes நிமி';
+  }
+
+  @override
+  String deliveryTrackingDistance(String distance) {
+    return '$distance கிமீ';
+  }
+
+  @override
+  String get deliveryTrackingCall => 'அழைக்கவும்';
+
+  @override
+  String get deliveryTrackingHospital => 'மருத்துவமனை';
+
+  @override
+  String get logoutRevocationRetryQueued =>
+      'இந்தச் சாதனத்தில் வெளியேறிவிட்டீர்கள். சேவையகத்தை அணுக முடியாததால் மற்ற சாதனங்களில் உள்நுழைந்திருக்கலாம் — அடுத்த முறை இந்தச் செயலியைத் திறக்கும்போது அவற்றிலிருந்து தானாக வெளியேற்றுவோம்.';
+
+  @override
+  String get logoutRevocationRetryUnavailable =>
+      'இந்தச் சாதனத்தில் மட்டும் வெளியேறிவிட்டீர்கள். சேவையகத்தை அணுக முடியவில்லை, இந்தச் சாதனம் மீண்டும் முயற்சிக்கவும் முடியாது; எனவே மற்ற சாதனங்களில் உள்நுழைந்திருக்கலாம். அவற்றிலிருந்து நேரடியாக வெளியேறவும்.';
+
+  @override
+  String get logoutFailed => 'வெளியேற முடியவில்லை. மீண்டும் முயற்சிக்கவும்.';
+
+  @override
+  String get loginLightMode => 'ஒளி முறை';
+
+  @override
+  String get loginDarkMode => 'இருள் முறை';
+
+  @override
+  String get dashboardTodayRefreshFailed =>
+      'இன்றைய தகவலை இப்போது புதுப்பிக்க முடியவில்லை.';
+
+  @override
+  String get dashboardTodayRefreshTitle => 'இன்றைய தகவல் புதுப்பிக்கப்படவில்லை';
+
+  @override
+  String get commonDoneButton => 'முடிந்தது';
+
+  @override
+  String dashboardHospitalId(String hospitalId) {
+    return 'மருத்துவமனை ID $hospitalId';
+  }
+
+  @override
+  String get dashboardStepsBreakdown => 'அடிகள் விவரம்';
+
+  @override
+  String get dashboardMetricLeft => 'மீதம்';
+
+  @override
+  String get dashboardMetricActivity => 'செயல்பாடு';
+
+  @override
+  String get dashboardPointsBreakdown => 'புள்ளிகள் விவரம்';
+
+  @override
+  String get dashboardMetricTier => 'நிலை';
+
+  @override
+  String get dashboardMetricNext => 'அடுத்து';
+
+  @override
+  String get dashboardMetricCycle => 'சுழற்சி';
+
+  @override
+  String get dashboardMetricPeriod => 'மாதவிடாய்';
+
+  @override
+  String get dashboardMetricSteps => 'அடிகள்';
+
+  @override
+  String get feedbackHistoryEmptyTitle =>
+      'இதுவரை கருத்து சமர்ப்பிக்கப்படவில்லை';
+
+  @override
+  String get feedbackHistoryEmptySubtitle =>
+      'உங்கள் கருத்து வரலாறு இங்கே தோன்றும்';
+
+  @override
+  String feedbackAverageRating(String rating) {
+    return 'சராசரி மதிப்பீடு: $rating';
+  }
+
+  @override
+  String get messageThreadLoadFailed =>
+      'இந்தச் செய்தித் தொடரை ஏற்ற முடியவில்லை. மீண்டும் முயற்சிக்கவும்.';
+
+  @override
+  String get messageReplyHint => 'பதில்…';
+
+  @override
+  String get dischargeSummariesRefreshFailed =>
+      'டிஸ்சார்ஜ் சுருக்கங்களைப் புதுப்பிக்க முடியவில்லை.';
+
+  @override
+  String get referralsRefreshFailed =>
+      'பரிந்துரைகளைப் புதுப்பிக்க முடியவில்லை.';
+
+  @override
+  String get settingsAuthenticationFailed =>
+      'அங்கீகாரம் தோல்வியடைந்தது. மீண்டும் முயற்சிக்கவும்.';
+
+  @override
+  String get settingsVerifiedPhoneRequiredForDeletion =>
+      'கணக்கை நீக்க சரிபார்க்கப்பட்ட தொலைபேசி எண் தேவை.';
+
+  @override
+  String get commonDeleteButton => 'நீக்கு';
+
+  @override
+  String get commonUploadButton => 'பதிவேற்றவும்';
+
+  @override
+  String appointmentCardToken(int token) {
+    return 'டோக்கன் #$token';
+  }
+
+  @override
+  String appointmentCardReason(String reason) {
+    return 'காரணம்: $reason';
+  }
+
+  @override
+  String appointmentCardNote(String note) {
+    return 'குறிப்பு: $note';
+  }
+
+  @override
+  String appointmentListForDependent(String name) {
+    return '$name அவர்களுக்கான நேரமுன்பதிவுகள் காட்டப்படுகின்றன';
+  }
+
+  @override
+  String get appointmentStatusScheduled => 'திட்டமிடப்பட்டது';
+
+  @override
+  String get appointmentStatusConfirmed => 'உறுதிசெய்யப்பட்டது ✓';
+
+  @override
+  String get appointmentStatusInProgress => 'நடைபெறுகிறது';
+
+  @override
+  String get appointmentStatusCompleted => 'முடிந்தது';
+
+  @override
+  String get appointmentStatusCancelled => 'ரத்துசெய்யப்பட்டது';
+
+  @override
+  String get appointmentStatusNoShow => 'வரவில்லை';
+
+  @override
+  String get gamificationClaimMilestoneFailed => 'மைல்கல்லைப் பெற முடியவில்லை';
+
+  @override
+  String get gamificationScreenTitle => 'ஆரோக்கிய மையம்';
+
+  @override
+  String get gamificationTabOverview => 'மேலோட்டம்';
+
+  @override
+  String get gamificationTabMilestones => 'மைல்கற்கள்';
+
+  @override
+  String get gamificationTabAchievements => 'சாதனைகள்';
+
+  @override
+  String get gamificationTabMyRewards => 'எனது வெகுமதிகள்';
+
+  @override
+  String get gamificationTabHistory => 'வரலாறு';
+
+  @override
+  String gamificationBadgesEarned(int unlocked, int total) {
+    return '$total இல் $unlocked பதக்கங்கள் பெற்றுள்ளீர்கள்';
+  }
+
+  @override
+  String gamificationEarnedOn(String date) {
+    return '$date அன்று பெற்றது';
+  }
+
+  @override
+  String get commonShareButton => 'பகிரவும்';
+
+  @override
+  String get gamificationPointsActivity => 'புள்ளி செயல்பாடு';
+
+  @override
+  String get gamificationMilestoneFallback => 'மைல்கல்';
+
+  @override
+  String gamificationPointsRequired(int points) {
+    return '$points புள்ளிகள் தேவை';
+  }
+
+  @override
+  String get gamificationClaimButton => 'பெறவும்';
+
+  @override
+  String get gamificationPointsLabel => 'புள்ளிகள்';
+
+  @override
+  String gamificationNextTierWithPoints(String tier, int points) {
+    return 'அடுத்து: $tier — மேலும் $points புள்ளிகள்';
+  }
+
+  @override
+  String gamificationNextTier(String tier) {
+    return 'அடுத்து: $tier';
+  }
+
+  @override
+  String get commonEditButton => 'திருத்தவும்';
+
+  @override
+  String get stepsDisplayNameRequired => 'காட்சி பெயர் காலியாக இருக்கக்கூடாது';
+
+  @override
+  String get stepsDailyTargetNumberRequired =>
+      'தினசரி அடி இலக்கு எண்ணாக இருக்க வேண்டும்';
+
+  @override
+  String get stepsDailyTargetRange =>
+      'தினசரி அடி இலக்கு 1,000 முதல் 100,000 வரை இருக்க வேண்டும்';
+
+  @override
+  String get stepsProfileSaveFailed => 'சுயவிவரத்தைச் சேமிக்க முடியவில்லை';
+
+  @override
+  String stepsWeekOf(String date) {
+    return '$date தொடங்கும் வாரம்';
+  }
+
+  @override
+  String get stepsAveragePerDay => 'சராசரி/நாள்';
+
+  @override
+  String stepsCount(String count) {
+    return '$count அடிகள்';
+  }
+
+  @override
+  String stepsYourRank(String rank, String steps) {
+    return 'உங்கள் தரவரிசை: #$rank — $steps அடிகள்';
+  }
+
+  @override
+  String stepsLeaderboardYou(String name) {
+    return '$name (நீங்கள்)';
+  }
+
+  @override
+  String stepsDailyTarget(String count) {
+    return 'தினசரி இலக்கு: $count';
+  }
+
+  @override
+  String get stepsEditTargetTitle => 'அடி இலக்கைத் திருத்தவும்';
+
+  @override
+  String get stepsDisplayNameLabel => 'காட்சி பெயர்';
+
+  @override
+  String get stepsDisplayNameHint =>
+      'தரவரிசையில் மற்றவர்கள் உங்களைப் பார்க்கும் பெயர்';
+
+  @override
+  String get stepsDailyTargetLabel => 'தினசரி அடி இலக்கு';
+
+  @override
+  String get stepsDailyTargetExample => 'எடுத்துக்காட்டு: 7500';
+
+  @override
+  String get stepsDailyTargetHelper =>
+      '1,000 முதல் 100,000 வரை நடைமுறையான இலக்கைத் தேர்ந்தெடுக்கவும்';
+
+  @override
+  String get stepsTodayActivity => 'இன்றைய செயல்பாடு';
+
+  @override
+  String get stepsDailyGoalReached => '🎉 தினசரி இலக்கு எட்டப்பட்டது!';
+
+  @override
+  String stepsGoalProgress(String percent, int goal) {
+    return '$goal அடி இலக்கில் $percent%';
+  }
+
+  @override
+  String get stepsDailyTab => 'தினசரி';
+
+  @override
+  String get stepsWeeklyTab => 'வாராந்திர';
+
+  @override
+  String get stepsMonthlyTab => 'மாதாந்திர';
 }
