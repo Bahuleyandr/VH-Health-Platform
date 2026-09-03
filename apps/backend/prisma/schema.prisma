@@ -10481,6 +10481,9 @@ model engagement_campaigns {
   current_audience_snapshot_id BigInt?
   created_at                   DateTime  @default(now()) @db.Timestamptz(6)
   updated_at                   DateTime  @default(now()) @db.Timestamptz(6)
+  approval_material            Json?
+  approval_material_hash       String?   @db.VarChar(64)
+  approved_material_hash       String?   @db.VarChar(64)
 
   @@index([tenant_id, status, created_at(sort: Desc)], map: "idx_engagement_campaigns_tenant_status")
 }
