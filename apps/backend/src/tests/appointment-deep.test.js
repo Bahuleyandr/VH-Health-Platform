@@ -3,7 +3,7 @@
 // and SCHEDULED → CANCELLED. Verifies double-booking conflict, IDOR enforcement, and
 // side-effects (phone + patient_name + doctor_name populated in the row).
 
-import { generateTestToken } from './testClient.js';
+import { generateTestToken, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -462,8 +462,13 @@ describe('Appointment booking + lifecycle — deep integration', () => {
     });
 
     it('another doctor cannot update someone else\'s appointment status (IDOR)', async () => {
-      // Create a second doctor-client bound to a different user id
-      const strangerDoctor = mkClient('DOCTOR', '00000000-0000-4000-8000-000000000777', 777777, '9000070777');
+      // Create a second doctor-client bound to a different user id. The
+      // stranger must be a LIVE identity: authentication now fails closed on a
+      // subject with no users row, and a 401 would satisfy "not 200" without
+      // ever exercising the IDOR check this test exists for.
+      const strangerUid = '00000000-0000-4000-8000-000000000777';
+      await ensureTestIdentity(strangerUid, { role: 'DOCTOR' });
+      const strangerDoctor = mkClient('DOCTOR', strangerUid, 777777, '9000070777');
       const res = await strangerDoctor.put(`/api/v1/appointments/${apptId}/status`).send({
         status: 'IN_PROGRESS',
       });

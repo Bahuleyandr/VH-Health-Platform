@@ -74,6 +74,7 @@ jest.unstable_mockModule('../middleware/auditLog.js', () => ({
 }));
 
 const { default: app } = await import('../app.js');
+const { ensureTestIdentity } = await import('./testClient.js');
 
 function token() {
   return jwt.sign(
@@ -123,6 +124,16 @@ function rawRequest(server, extraHeaders = {}, facilityId = FACILITY) {
 }
 
 describe('clinical continuity policy delivery real middleware bytes', () => {
+  // This suite hand-signs its bearer rather than using generateTestToken, but
+  // the subject still has to resolve to a live identity row now that
+  // authentication fails closed; otherwise every request 401s.
+  beforeAll(async () => {
+    await ensureTestIdentity('550e8400-e29b-41d4-a716-446655440022', {
+      role: 'ADMIN',
+      tenantId: TENANT,
+    });
+  });
+
   let server;
 
   beforeAll(async () => {

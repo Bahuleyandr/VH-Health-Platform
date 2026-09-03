@@ -3,7 +3,7 @@ import { jest } from '@jest/globals';
 const queryRawUnsafeMock = jest.fn();
 const executeRawUnsafeMock = jest.fn();
 const blacklistTokenMock = jest.fn();
-const sendToUserMock = jest.fn();
+const pushSessionRevokedMock = jest.fn();
 
 const __prismaDefaultMock = {
   $queryRawUnsafe: queryRawUnsafeMock,
@@ -28,7 +28,7 @@ jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   blacklistToken: blacklistTokenMock,
 }));
 jest.unstable_mockModule('../../utils/websocket/wsServer.js', () => ({
-  sendToUser: sendToUserMock,
+  pushSessionRevoked: pushSessionRevokedMock,
 }));
 
 const { claimUserSession } = await import('../../services/auth/userActiveSession.js');
@@ -39,6 +39,8 @@ const PRIOR = {
   jti: 'prior-jti',
   device_type: 'web',
   expires_at_unix: 1_779_000_000,
+  session_family_id: 'prior-family',
+  stable_device_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
 };
 
 beforeEach(() => {
@@ -47,7 +49,7 @@ beforeEach(() => {
   queryRawUnsafeMock.mockReset();
   executeRawUnsafeMock.mockReset();
   blacklistTokenMock.mockReset();
-  sendToUserMock.mockReset();
+  pushSessionRevokedMock.mockReset();
   queryRawUnsafeMock.mockResolvedValue([PRIOR]);
   executeRawUnsafeMock.mockResolvedValue(1);
 });
@@ -64,7 +66,7 @@ describe('claimUserSession', () => {
 
     expect(result.revokedPrior).toBe(false);
     expect(blacklistTokenMock).not.toHaveBeenCalled();
-    expect(sendToUserMock).not.toHaveBeenCalled();
+    expect(pushSessionRevokedMock).not.toHaveBeenCalled();
     expect(executeRawUnsafeMock).toHaveBeenCalledTimes(1);
   });
 
@@ -78,8 +80,19 @@ describe('claimUserSession', () => {
     });
 
     expect(result.revokedPrior).toBe(true);
-    expect(blacklistTokenMock).toHaveBeenCalledWith('prior-jti', PRIOR.expires_at_unix, 'refresh_rotation');
-    expect(sendToUserMock).not.toHaveBeenCalled();
+    expect(blacklistTokenMock).toHaveBeenCalledWith(
+      'prior-jti',
+      PRIOR.expires_at_unix,
+      'refresh_rotation',
+      {
+        requireEvidence: true,
+        userId: USER_UID,
+        sessionFamilyId: PRIOR.session_family_id,
+        stableDeviceId: PRIOR.stable_device_id,
+        notifySession: false,
+      },
+    );
+    expect(pushSessionRevokedMock).not.toHaveBeenCalled();
   });
 
   it('can enforce strict single-session revocation when explicitly configured', async () => {
@@ -94,9 +107,17 @@ describe('claimUserSession', () => {
     });
 
     expect(result.revokedPrior).toBe(true);
-    expect(blacklistTokenMock).toHaveBeenCalledWith('prior-jti', PRIOR.expires_at_unix, 'replaced_by_new_login');
-    expect(sendToUserMock).toHaveBeenCalledWith(USER_UID, 'session:revoked', expect.objectContaining({
+    expect(blacklistTokenMock).toHaveBeenCalledWith(
+      'prior-jti',
+      PRIOR.expires_at_unix,
+      'replaced_by_new_login',
+      expect.objectContaining({ requireEvidence: true, userId: USER_UID }),
+    );
+    expect(pushSessionRevokedMock).toHaveBeenCalledWith(USER_UID, expect.objectContaining({
       reason: 'new_login_elsewhere',
+      jti: 'prior-jti',
+      sessionFamilyId: PRIOR.session_family_id,
+      stableDeviceId: PRIOR.stable_device_id,
       newDeviceType: 'mobile',
       priorDeviceType: 'web',
     }));

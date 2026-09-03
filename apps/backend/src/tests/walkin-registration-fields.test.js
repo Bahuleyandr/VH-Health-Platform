@@ -29,7 +29,7 @@
 import request from 'supertest';
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
-import { API_KEY, generateTestToken } from './testClient.js';
+import { API_KEY, generateTestToken, ensureTestIdentity } from './testClient.js';
 
 const STAFF_UID = 'a6666666-6666-4666-8666-66666666fd01';
 // Deterministically 10 digits so registerWalkIn's normalizePhone() always
@@ -145,6 +145,12 @@ async function cleanupFixtures() {
 }
 
 describe('POST /appointments/walk-in — Stage-5 structured registration fields', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity(STAFF_UID);
+    await ensureTestIdentity('a6666666-6666-4666-8666-66666666fd03');
+  });
   let staffId;
   let staffToken;
   let searchToken;

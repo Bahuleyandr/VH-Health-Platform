@@ -6,6 +6,7 @@ import { postLedgerEntry } from '../billing/ledger/ledgerService.js';
 import { AppError } from '../../utils/AppError.js';
 import { toPaise } from '../../utils/money.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { withAuthIdentityLifecycleLocks } from '../../utils/tokenBlacklist.js';
 
 const IMPORT_KINDS = ['patient', 'encounter', 'opening_ar', 'mixed', 'hl7_adt'];
 const FILE_KINDS = ['patient', 'encounter', 'opening_ar'];
@@ -1580,6 +1581,7 @@ async function commitPatientRecordTx(tx, {
       text(canonical.gender, 20),
     );
     patientUid = rows[0]?.uid;
+    await withAuthIdentityLifecycleLocks(tx, [patientUid], async () => undefined);
   }
 
   const identifierResults = [];

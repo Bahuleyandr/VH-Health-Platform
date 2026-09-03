@@ -2,7 +2,8 @@ import { jest } from '@jest/globals';
 
 const prismaMock = {
   $queryRawUnsafe: jest.fn(),
-  $executeRawUnsafe: jest.fn()
+  $executeRawUnsafe: jest.fn(),
+  $transaction: jest.fn(async (fn) => fn(prismaMock))
 };
 
 const verifyIdTokenMock = jest.fn();
@@ -10,6 +11,7 @@ const issueAccessTokenAndClaimSessionMock = jest.fn();
 const generateRefreshTokenMock = jest.fn();
 const ensureHospitalNumberMock = jest.fn();
 const revokeAllUserTokensMock = jest.fn();
+const lifecycleLockMock = jest.fn(async (_tx, _uids, fn) => fn());
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: prismaMock,
@@ -54,7 +56,8 @@ jest.unstable_mockModule('../../services/auth/loginSessionHelper.js', () => ({
 
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   isSubjectDelegationRevoked: jest.fn().mockResolvedValue(false),
-  revokeAllUserTokens: revokeAllUserTokensMock
+  revokeAllUserTokens: revokeAllUserTokensMock,
+  withAuthIdentityLifecycleLocks: lifecycleLockMock
 }));
 
 const { authenticateWithFirebase } = await import('../../services/auth/firebaseAuthService.js');

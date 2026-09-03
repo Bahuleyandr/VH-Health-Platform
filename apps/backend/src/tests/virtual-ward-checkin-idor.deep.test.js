@@ -9,7 +9,7 @@
 // Needs the test Postgres (DATABASE_URL / TEST_DATABASE_URL, default
 // 127.0.0.1:55432 db vhhealth_test). Self-skips when unconfigured.
 
-import { generateTestToken } from './testClient.js';
+import { generateTestToken, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -26,6 +26,8 @@ const PATIENT_PHONE = '+919000070701';
 const CARE_MANAGER_UID = 'f7700000-0000-4000-8000-0000000007b2';
 const CARE_MANAGER_PHONE = '+919000070702';
 const OTHER_STAFF_UID = 'f7700000-0000-4000-8000-0000000007c3';
+// Oversight actor, used inline below and never inserted by this suite.
+const OVERSIGHT_UID = 'f7700000-0000-4000-8000-0000000007d4';
 const OTHER_STAFF_PHONE = '+919000070703';
 
 function client(role, uid, intId) {
@@ -93,8 +95,15 @@ d('Virtual-ward check-in staff IDOR (#7)', () => {
     expect(res.statusCode).toBe(201);
   });
 
+  beforeAll(async () => {
+
+    await ensureTestIdentity(OVERSIGHT_UID, { role: 'SUPER_ADMIN' });
+
+  });
+
+
   test('SUPER_ADMIN (oversight) CAN submit → 201', async () => {
-    const res = await client('SUPER_ADMIN', 'f7700000-0000-4000-8000-0000000007d4', 999).post(CHECK_IN, { patient_uid: PATIENT_UID });
+    const res = await client('SUPER_ADMIN', OVERSIGHT_UID, 999).post(CHECK_IN, { patient_uid: PATIENT_UID });
     expect(res.statusCode).toBe(201);
   });
 });

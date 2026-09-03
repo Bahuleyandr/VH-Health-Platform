@@ -4,6 +4,7 @@
 // (the endpoint takes no tenant param; req.tenantId comes from the token).
 import request from 'supertest';
 import app from '../app.js';
+import { ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import { generateToken } from '../utils/jwtUtils.js';
 
@@ -35,6 +36,17 @@ async function seedTenant(id, slug, name, settingsJson) {
 }
 
 d('W5 S1 — GET /admin/tenant-context', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so these subjects must exist before any request or the suite 401s
+  // before reaching the behaviour it asserts.
+  beforeAll(async () => {
+    for (const uid of [
+      'a5a5a5a5-0000-4a5a-8a5a-a5a5a5a5aa01',
+      'b5b5b5b5-0000-4b5b-8b5b-b5b5b5b5bb02',
+    ]) {
+      await ensureTestIdentity(uid);
+    }
+  });
   beforeAll(async () => {
     await seedTenant(TENANT_A, `w5-a-${SFX}`, 'W5 Hospital A',
       JSON.stringify({ branding: { name: 'Brand A', primaryColor: '#aa0011', logoUrl: 'https://a.example/logo.png' } }));

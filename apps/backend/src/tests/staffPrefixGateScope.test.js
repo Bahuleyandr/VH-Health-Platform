@@ -20,6 +20,7 @@
 
 import request from 'supertest';
 import app from '../app.js';
+import { ensureTestIdentity } from './testClient.js';
 import rbacConfig from '../config/rbacConfig.js';
 import staffRouter from '../routes/staff/index.js';
 import { generateToken } from '../utils/jwtUtils.js';
@@ -30,6 +31,19 @@ const tokenFor = (role, id) => generateToken({
   uid: `dddddddd-0000-4000-8000-${String(id).padStart(12, '0')}`,
   id,
   role,
+});
+
+// Subjects are synthesised from an id, so there is no literal to seed and
+// authentication now fails closed on one that does not resolve. Seed the
+// bands this suite draws from (base + list index).
+const uidFor = (id) => `dddddddd-0000-4000-8000-${String(id).padStart(12, '0')}`;
+
+beforeAll(async () => {
+  for (const base of [8100, 8200, 8300, 8400, 8500]) {
+    for (let i = 0; i < 40; i++) {
+      await ensureTestIdentity(uidFor(base + i));
+    }
+  }
 });
 
 const get = (path, token) => request(app)

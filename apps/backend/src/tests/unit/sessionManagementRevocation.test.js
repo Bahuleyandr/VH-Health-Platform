@@ -13,7 +13,10 @@ const queryRawUnsafeMock = jest.fn();
 const cacheSetMock = jest.fn();
 const pushSessionRevokedMock = jest.fn();
 
-const prismaMock = { $queryRawUnsafe: queryRawUnsafeMock };
+const prismaMock = {
+  $queryRawUnsafe: queryRawUnsafeMock,
+  $transaction: (fn) => fn(prismaMock),
+};
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: prismaMock,
   setTenantTx: async (_tenantId, fn) => fn(prismaMock),

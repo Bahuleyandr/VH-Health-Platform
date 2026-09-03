@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { USER_CONFIG } from '../../config/userConfig.js';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
+import { getCurrentTenantId } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { maskPhoneForLog } from '../../utils/logMasking.js';
@@ -11,7 +12,17 @@ import {
   persistRevokeAllUserTokens as persistIdentityRevocation,
   publishRevokeAllUserTokens,
 } from '../../utils/tokenBlacklist.js';
+import * as tokenBlacklist from '../../utils/tokenBlacklist.js';
 import { encryptColumn, searchableHash } from '../../services/security/phiColumnEncryption.js';
+
+if (
+  process.env.NODE_ENV !== 'test'
+  && typeof tokenBlacklist.withAuthIdentityLifecycleLocks !== 'function'
+) {
+  throw new Error('Auth identity lifecycle locking is unavailable');
+}
+const withAuthIdentityLifecycleLocks = tokenBlacklist.withAuthIdentityLifecycleLocks
+  ?? ((_client, _uids, fn) => fn(_client));
 
 const USER_SELECT = {
   id: true,
@@ -160,36 +171,6 @@ async function verifyFreshFirebaseReauthToken(firebaseIdToken, user, { now = new
   return decodedToken;
 }
 
-async function persistRevokeAllUserTokens(userUid, tx = prisma) {
-  if (!userUid) return;
-  const epochRows = await tx.$executeRawUnsafe(
-    `UPDATE users
-        SET token_epoch = COALESCE(token_epoch, 0) + 1,
-            token_epoch_bumped_at = NOW()
-      WHERE uid = $1::uuid`,
-    String(userUid)
-  );
-  if (Number(epochRows) < 1) {
-    throw new Error('Account deletion could not persist the token epoch bump');
-  }
-  const markerRows = await tx.$queryRawUnsafe(
-    `INSERT INTO invalidated_tokens (jti, expires_at, reason, created_at)
-     VALUES ($1, NOW() + INTERVAL '30 days', $2, NOW())
-     ON CONFLICT (jti) DO UPDATE SET
-       expires_at = EXCLUDED.expires_at,
-       reason = EXCLUDED.reason,
-       created_at = EXCLUDED.created_at
-     RETURNING EXTRACT(EPOCH FROM created_at)::double precision AS revoked_at`,
-    `user:${userUid}`,
-    'account_deleted'
-  );
-  const revokedAt = Number(markerRows[0]?.revoked_at);
-  if (!Number.isFinite(revokedAt)) {
-    throw new Error('Account deletion could not persist the revocation marker');
-  }
-  return revokedAt;
-}
-
 async function revokeFirebaseRefreshTokens(firebaseUid) {
   if (!firebaseUid) return;
   try {
@@ -325,20 +306,36 @@ export class UserService {
         throw new Error('Cannot create profile without a phone number');
       }
 
-      const createdUser = await prisma.users.create({
-        data: {
-          phone,
-          ...buildProfileUpdateData(data),
-          // CAN-001: role is NEVER taken from the request body for self-service.
-          // Only a privileged actor (admin/super-admin) may set a non-default
-          // role here; every other caller is forced to PATIENT.
-          role: isPrivilegedActor
-            ? data.role || USER_CONFIG.ROLES.PATIENT
-            : USER_CONFIG.ROLES.PATIENT,
-          registered_at: new Date(),
-          updated_at: new Date()
-        },
-        select: USER_SELECT
+// A bare `prisma.$transaction` hands back the raw itx client, which skips the
+// prisma proxy's tenant wrapper — so `app.current_tenant_id` stays unset for
+// every statement inside it. `public.users` carries the RESTRICTIVE
+// `explicit_tenant_context_753` policy (migration 758) whose WITH CHECK
+// requires that GUC, so an unscoped insert is rejected 42501 rather than
+// filed anywhere. Scope the transaction when a tenant is in ambient context;
+// callers with none (scripts, the pre-auth realm) keep the previous shape.
+      const ambientTenantId = getCurrentTenantId();
+      const runIdentityCreate = (fn) => (ambientTenantId
+        ? setTenantTx(ambientTenantId, fn)
+        : prisma.$transaction(fn));
+
+      const createdUser = await runIdentityCreate(async (tx) => {
+        const identity = await tx.users.create({
+          data: {
+            phone,
+            ...buildProfileUpdateData(data),
+            // CAN-001: role is NEVER taken from the request body for self-service.
+            // Only a privileged actor (admin/super-admin) may set a non-default
+            // role here; every other caller is forced to PATIENT.
+            role: isPrivilegedActor
+              ? data.role || USER_CONFIG.ROLES.PATIENT
+              : USER_CONFIG.ROLES.PATIENT,
+            registered_at: new Date(),
+            updated_at: new Date()
+          },
+          select: USER_SELECT
+        });
+        await withAuthIdentityLifecycleLocks(tx, [identity.uid], async () => identity);
+        return identity;
       });
 
       // Phase E3 follow-up — write encrypted shadows + phone_search_hash.
@@ -633,6 +630,7 @@ export class UserService {
       throw new Error('User status change requires a tenant-bound identity');
     }
     const revokedAt = await setTenantTx(String(user.tenant_id), async (tx) => {
+      await withAuthIdentityLifecycleLocks(tx, [user.uid], async () => {});
       const updated = await tx.$executeRaw`
         UPDATE users
         SET is_active = ${isActive},
@@ -807,6 +805,7 @@ export class UserService {
     const idempotencyKey = `patient-account-deletion:${user.uid}`;
 
     const revokedAt = await setTenantTx(user.tenant_id, async tx => {
+      await withAuthIdentityLifecycleLocks(tx, [user.uid], async () => {});
       await tx.$executeRawUnsafe(
         `UPDATE user_devices
             SET fcm_token = NULL,
@@ -882,15 +881,15 @@ export class UserService {
         idempotencyKey
       );
 
-      return persistRevokeAllUserTokens(user.uid, tx);
+      return persistIdentityRevocation(user.uid, {
+        client: tx,
+        requireEvidence: true,
+        reason: 'account_deleted'
+      });
     });
 
     try {
-      const { pushSessionRevoked } = await import('../../utils/websocket/wsServer.js');
-      pushSessionRevoked(String(user.uid), {
-        reason: 'account_deleted',
-        at: new Date(revokedAt * 1000).toISOString()
-      });
+      await publishRevokeAllUserTokens(user.uid, revokedAt, { reason: 'account_deleted' });
     } catch (err) {
       logger.warn('Account-deletion session:revoked push failed', {
         uid: user.uid,

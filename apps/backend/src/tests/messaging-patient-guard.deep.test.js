@@ -3,7 +3,7 @@
 // Patient-linked staff discussions are PHI. With a patient_uid present, the
 // reader/sender must have a care relationship. Governed: shadow by default,
 // real 403 under enforce.
-import { generateTestToken, API_KEY } from './testClient.js';
+import { generateTestToken, API_KEY, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -25,6 +25,11 @@ async function clean() {
 }
 
 d('Staff messaging patient guard (CAN-013, CAN-014)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity('c0de1314-00d0-4000-8000-00000000d001', { tenantId: TENANT_ID });
+  });
   let prevMode;
   beforeAll(async () => {
     prevMode = process.env.CARE_TEAM_ENFORCEMENT_MODE;

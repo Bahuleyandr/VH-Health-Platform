@@ -22,6 +22,7 @@ import { normalizePhone } from '../../utils/phoneUtils.js';
 import {
   persistRevokeDelegatedTuple,
   publishRevokeDelegatedTuple,
+  withAuthIdentityLifecycleLocks,
 } from '../../utils/tokenBlacklist.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
@@ -515,6 +516,7 @@ export class DependentsService {
           guardian.tenant_id || requireTenantId(tenantId),
         );
         dependentRow = inserted[0];
+        await withAuthIdentityLifecycleLocks(tx, [dependentRow.uid], async () => undefined);
         createdIdentity = true;
       }
 
@@ -591,7 +593,12 @@ export class DependentsService {
 
     // Phase 0 — confirm linkage exists, owned by this guardian.
     const existing = await prisma.$queryRawUnsafe(
-      `SELECT id, uid, guardian_user_id FROM users WHERE id = $1 LIMIT 1`,
+      `SELECT dependent.id, dependent.uid, dependent.guardian_user_id,
+              guardian.uid AS guardian_uid
+         FROM users AS dependent
+         JOIN users AS guardian ON guardian.id = dependent.guardian_user_id
+        WHERE dependent.id = $1
+        LIMIT 1`,
       depIdInt,
     );
     if (existing.length === 0) {
@@ -605,47 +612,61 @@ export class DependentsService {
 
     // Phase 1 — atomic unlink + audit.
     const tupleRevocation = await setTenantTx(requireTenantId(tenantId), async (tx) => {
-      const result = await tx.$queryRawUnsafe(
-        `UPDATE users AS dependent
-            SET guardian_user_id = NULL,
-                updated_at = NOW()
-           FROM users AS guardian
-          WHERE dependent.id = $1
-            AND dependent.guardian_user_id = $2
-            AND guardian.id = $2
-          RETURNING dependent.id, dependent.uid, guardian.uid AS guardian_uid`,
-        depIdInt, guardianUserId,
-      );
+      const dependentUid = String(existing[0].uid);
+      const linkedGuardianUid = String(existing[0].guardian_uid);
+      return withAuthIdentityLifecycleLocks(
+        tx,
+        [linkedGuardianUid, dependentUid],
+        async () => {
+          // Tuple persistence takes the third canonical advisory lock. All
+          // three xact locks remain held through the identity-row mutation and
+          // commit, matching delegated WS registration's lock-before-row order.
+          const revokedAt = await persistRevokeDelegatedTuple(
+            linkedGuardianUid,
+            dependentUid,
+            { client: tx, reason: 'dependent_unlinked' },
+          );
 
-      if (result.length === 0) {
-        throw AppError.notFound('Dependent not found', 'DEPENDENT_NOT_FOUND');
-      }
+          const result = await tx.$queryRawUnsafe(
+            `UPDATE users AS dependent
+                SET guardian_user_id = NULL,
+                    updated_at = NOW()
+               FROM users AS guardian
+              WHERE dependent.id = $1
+                AND dependent.uid = $2::uuid
+                AND dependent.guardian_user_id = $3
+                AND guardian.id = $3
+                AND guardian.uid = $4::uuid
+              RETURNING dependent.id, dependent.uid, guardian.uid AS guardian_uid`,
+            depIdInt, dependentUid, guardianUserId, linkedGuardianUid,
+          );
 
-      await tx.audit_logs.create({
-        data: {
-          uid: guardianUid || null,
-          role: 'PATIENT',
-          action: 'DEPENDENT_UNLINKED',
-          resource: 'users',
-          resource_id: result[0].uid,
-          metadata: {
-            dependent_id: result[0].id,
-            dependent_uid: result[0].uid,
-            guardian_user_id: guardianUserId,
-          },
+          if (result.length === 0) {
+            throw AppError.notFound('Dependent not found', 'DEPENDENT_NOT_FOUND');
+          }
+
+          await tx.audit_logs.create({
+            data: {
+              uid: guardianUid || null,
+              role: 'PATIENT',
+              action: 'DEPENDENT_UNLINKED',
+              resource: 'users',
+              resource_id: result[0].uid,
+              metadata: {
+                dependent_id: result[0].id,
+                dependent_uid: result[0].uid,
+                guardian_user_id: guardianUserId,
+              },
+            },
+          });
+
+          return {
+            guardianUid: result[0].guardian_uid,
+            dependentUid: result[0].uid,
+            revokedAt,
+          };
         },
-      });
-
-      const revokedAt = await persistRevokeDelegatedTuple(
-        result[0].guardian_uid,
-        result[0].uid,
-        { client: tx, reason: 'dependent_unlinked' },
       );
-      return {
-        guardianUid: result[0].guardian_uid,
-        dependentUid: result[0].uid,
-        revokedAt,
-      };
     });
 
     try {

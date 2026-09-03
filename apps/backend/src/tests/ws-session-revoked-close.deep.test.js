@@ -14,6 +14,8 @@
 //       user reach zero sockets (the registration is gone).
 
 import http from 'http';
+import prisma from '../lib/prisma.js';
+import { ensureTestIdentity } from './testClient.js';
 import WebSocket from 'ws';
 
 import { generateToken } from '../utils/jwtUtils.js';
@@ -84,6 +86,20 @@ describe('session:revoked closes the delivered-to sockets server-side', () => {
   let port;
 
   beforeAll(async () => {
+    // The socket subject has to be a live identity AND sit in the tenant its
+    // token claims: the ws handshake resolves it through the same durable
+    // revocation gate as HTTP and then compares the ticket's tenant against
+    // users.tenant_id. An unseeded uid — or one seeded into a different tenant
+    // — never completes registration, and connectAndRegister just hangs to the
+    // test timeout. TENANT has no tenants row of its own, so create it first;
+    // otherwise ensureTestIdentity falls back to the default tenant and the
+    // equality check rejects the socket.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, $2, $3)
+       ON CONFLICT (id) DO NOTHING`,
+      TENANT, 'ws-session-revoked-close', 'WS session revoked close',
+    );
+    await ensureTestIdentity(STAFF_UID, { role: 'NURSE', tenantId: TENANT });
     server = http.createServer();
     initWebSocket(server);
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));

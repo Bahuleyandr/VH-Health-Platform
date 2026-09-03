@@ -3,7 +3,7 @@
 // GET /api/v1/health/stats/overview returns platform-wide health_records
 // aggregates; it must be restricted to admin/clinical-leadership analytics roles
 // (was reachable by PATIENT + broad health roles).
-import { generateTestToken, API_KEY } from './testClient.js';
+import { generateTestToken, API_KEY, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -18,6 +18,11 @@ function client(role) {
 }
 
 d('Health stats overview role boundary (CAN-053)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity('c0de0053-0001-4c0d-8c0d-c0de00530001', { tenantId: TENANT_ID });
+  });
   afterAll(async () => { await prisma.$disconnect().catch(() => {}); });
 
   it.each(['PATIENT', 'NURSING_STAFF'])('%s is denied the global health stats overview', async (role) => {

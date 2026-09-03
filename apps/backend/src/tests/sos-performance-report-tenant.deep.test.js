@@ -5,7 +5,7 @@
 // filters on sa.tenant_id. RLS is OFF in the test env (AUTH_ENFORCE_TENANT_RLS
 // unset), so this explicit predicate is exactly what scopes the report — a
 // tenant-A admin must not see a tenant-B responder.
-import { generateTestToken, API_KEY } from './testClient.js';
+import { generateTestToken, API_KEY, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -43,6 +43,11 @@ async function seedAlert(tenantId, respUid) {
 }
 
 d('SOS performance report tenant scope (CAN-006)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity('c0de0006-00d0-4000-8000-00000000d001');
+  });
   beforeAll(async () => {
     await clean();
     await prisma.$executeRawUnsafe(

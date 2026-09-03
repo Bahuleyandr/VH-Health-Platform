@@ -178,10 +178,14 @@ describe('Family-member promotion + booking-on-behalf — deep integration', () 
     guardian = clientAs({ uid: GUARDIAN_UID, id: guardianId, phone: GUARDIAN_PHONE });
   });
 
+  // purgeFixtures unwinds a guardian/dependent graph across several tables and
+  // does not fit jest's default 5s hook budget; every assertion in this suite
+  // passes, only the teardown was timing out. Budgeted explicitly, as the
+  // other DB-backed suites in this tree do.
   afterAll(async () => {
     await purgeFixtures();
     await prisma.$disconnect();
-  });
+  }, 60000);
 
   async function addContact(body) {
     const res = await guardian.post('/api/v1/users/family-members').send(body);

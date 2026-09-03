@@ -25,6 +25,7 @@ import { normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { ensureHospitalNumber } from '../../services/patient/patientIdentifierService.js';
 import { isDevAuthEnabled } from '../../utils/authCompatibilityGates.js';
+import { withAuthIdentityLifecycleLocks } from '../../utils/tokenBlacklist.js';
 
 const router = express.Router();
 
@@ -68,19 +69,22 @@ router.post('/patient-login', async (req, res) => {
     let isNewUser = false;
     if (!user) {
       const now = new Date();
-      user = await prisma.users.create({
-        data: {
-          phone,
-          role: 'PATIENT',
-          name,
-          registered_at: now,
-          updated_at: now,
-          last_sign_in_at: now,
-        },
-        select: {
-          uid: true, id: true, tenant_id: true, name: true, phone: true, email: true,
-          role: true, gender: true, is_active: true,
-        },
+      user = await prisma.$transaction(async (tx) => {
+        const created = await tx.users.create({
+          data: {
+            phone,
+            role: 'PATIENT',
+            name,
+            registered_at: now,
+            updated_at: now,
+            last_sign_in_at: now,
+          },
+          select: {
+            uid: true, id: true, tenant_id: true, name: true, phone: true, email: true,
+            role: true, gender: true, is_active: true,
+          },
+        });
+        return withAuthIdentityLifecycleLocks(tx, [created.uid], async () => created);
       });
       isNewUser = true;
       logger.info(`[dev-login] created patient ${maskPhoneForLog(phone)} (${user.uid})`);

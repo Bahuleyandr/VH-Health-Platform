@@ -4,7 +4,7 @@
 // (a no-op) and sat before tenant middleware, so ANY authenticated user could
 // read/write patient vitals with no tenant scoping. They now enforce the
 // healthRecordsRoutes role set + tenant context/RLS.
-import { generateTestToken, API_KEY } from './testClient.js';
+import { generateTestToken, API_KEY, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -20,6 +20,11 @@ function client(role) {
 }
 
 d('Protected health router RBAC (CAN-028/029)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity('c0de0289-0001-4c0d-8c0d-c0de02890001', { tenantId: TENANT_ID });
+  });
   afterAll(async () => { await prisma.$disconnect().catch(() => {}); });
 
   it('a role outside healthRecordsRoutes (GENERAL_STAFF) is denied patient health reads/writes', async () => {

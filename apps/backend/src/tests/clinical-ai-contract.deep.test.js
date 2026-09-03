@@ -45,7 +45,7 @@
 // keys survive in the committed spec. We drive + assert the canonical
 // /clinical-ai/control prefix.
 
-import { generateTestToken } from './testClient.js';
+import { generateTestToken, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -143,6 +143,11 @@ async function cleanup() {
 }
 
 describe('Clinical AI — live OpenAPI contract deep test (reachable strict ops)', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity(ADMIN_UID);
+  });
   let admin;
 
   beforeAll(async () => {

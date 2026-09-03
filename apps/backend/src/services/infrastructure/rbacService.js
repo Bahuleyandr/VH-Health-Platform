@@ -32,6 +32,16 @@ import {
   persistRevokeAllUserTokens,
   publishRevokeAllUserTokens,
 } from '../../utils/tokenBlacklist.js';
+import * as tokenBlacklist from '../../utils/tokenBlacklist.js';
+
+if (
+  process.env.NODE_ENV !== 'test'
+  && typeof tokenBlacklist.withAuthIdentityLifecycleLocks !== 'function'
+) {
+  throw new Error('Auth identity lifecycle locking is unavailable');
+}
+const withAuthIdentityLifecycleLocks = tokenBlacklist.withAuthIdentityLifecycleLocks
+  ?? ((_client, _uids, fn) => fn(_client));
 
 function assertRoleMutationStepUp(adminInfo) {
   const actorRole = normalizeRole(adminInfo?.rawRole) || normalizeRole(adminInfo?.role);
@@ -403,6 +413,7 @@ export class RBACService {
           throw new Error(`Invalid role transition: ${validation.errors.join(', ')}`);
         }
 
+        await withAuthIdentityLifecycleLocks(tx, [user.uid], async () => {});
         await tx.$executeRawUnsafe(
           'UPDATE users SET role = $1, role_updated_at = NOW() WHERE phone = $2 AND tenant_id = $3::uuid',
           targetRole, normalizedPhone, actorTenantId
@@ -692,6 +703,17 @@ export class RBACService {
 
     try {
       const user = await setTenantTx(actorTenantId, async (tx) => {
+        const identityRows = await tx.$queryRawUnsafe(
+          `SELECT uid, name, role, is_active
+             FROM users
+            WHERE phone = $1 AND tenant_id = $2::uuid`,
+          normalizedPhone,
+          actorTenantId,
+        );
+        if (identityRows.length !== 1) throw AppError.notFound('User not found');
+        const identity = identityRows[0];
+        await withAuthIdentityLifecycleLocks(tx, [identity.uid], async () => {});
+
         const result = await tx.$queryRawUnsafe(
           `UPDATE users SET
             is_active = $1,
@@ -699,10 +721,10 @@ export class RBACService {
             status_updated_at = NOW(),
             status_updated_by = $3::uuid,
             status_reason = $4
-           WHERE phone = $5 AND tenant_id = $6::uuid
+           WHERE uid = $5::uuid AND tenant_id = $6::uuid
            RETURNING uid, name, role, is_active`,
           isActive, isActive ? 'active' : 'inactive', adminInfo.uid, reason,
-          normalizedPhone, actorTenantId
+          identity.uid, actorTenantId
         );
 
         if (result.length === 0) throw AppError.notFound('User not found');

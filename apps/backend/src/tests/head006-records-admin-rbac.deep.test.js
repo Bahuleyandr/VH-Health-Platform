@@ -7,7 +7,7 @@
 // soft-delete a medical record by id. The three admin-only routes are now gated
 // inline with requireRole('ADMIN','SUPER_ADMIN'); the patient-scoped /export/*
 // routes keep their existing patientAccessGuard and are unaffected.
-import { generateTestToken, API_KEY } from './testClient.js';
+import { generateTestToken, API_KEY, ensureTestIdentity } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -25,6 +25,11 @@ function client(role) {
 }
 
 d('HEAD-006 record admin RBAC', () => {
+  // Authentication fails closed when a token's subject has no live identity
+  // row, so an invented uid 401s before this suite's authz gate is reached.
+  beforeAll(async () => {
+    await ensureTestIdentity('c0de0b06-00d0-4000-8000-00000000d001', { tenantId: TENANT });
+  });
   afterAll(async () => { await prisma.$disconnect().catch(() => {}); });
 
   it('a non-admin record role (MEDICAL_RECORDS) is denied the admin routes (403)', async () => {
