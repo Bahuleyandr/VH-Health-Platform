@@ -1215,7 +1215,8 @@ DECLARE
     'clinical_continuity_incident_contact_sheet_approvals',
     'clinical_continuity_incident_packet_allocations',
     'clinical_continuity_incident_packet_artifacts',
-    'clinical_continuity_incident_packet_custody_events'
+    'clinical_continuity_incident_packet_custody_events',
+    'clinical_import_authority_events'
   ];
   runtime_append_only_relations CONSTANT TEXT[] := ARRAY[
     'care_pathway_reconciliation_checks',
@@ -1314,7 +1315,22 @@ DECLARE
     'assert_cc_packet_allocation_mutation()',
     'scheduled_job_run_transition_guard()',
     'scheduled_job_run_finalization_guard()',
-    'scheduled_job_tenant_run_transition_guard()'
+    'scheduled_job_tenant_run_transition_guard()',
+    'clinical_import_receipt_append_only_755()',
+    'clinical_import_document_authority_guard_755()',
+    'clinical_import_resource_authority_guard_755()',
+    'clinical_import_document_completeness_guard_755()',
+    'clinical_import_patient_merge_lock_held_755(uuid)',
+    'clinical_import_history_immutable_755()',
+    'clinical_import_history_receipt_guard_755()',
+    'clinical_import_append_only_guard_760()',
+    'clinical_import_authority_event_guard_760()',
+    'clinical_import_raw_artifact_guard_760()',
+    'clinical_import_reconciliation_item_guard_760()',
+    'clinical_import_active_patient_survivor_760(uuid,uuid)',
+    'clinical_import_reconciliation_event_guard_760()',
+    'clinical_import_failed_receipt_reconciliation_guard_760()',
+    'clinical_import_resource_correction_guard_760()'
   ];
   med03_mutable_relations CONSTANT TEXT[] := ARRAY[
     'ward_indent_inventory_allocations',
@@ -1931,6 +1947,76 @@ BEGIN
           );
         END IF;
       END LOOP;
+      IF pg_catalog.to_regclass('public.clinical_import_raw_artifacts') IS NOT NULL THEN
+        EXECUTE pg_catalog.format(
+          'REVOKE ALL PRIVILEGES ON TABLE public.clinical_import_raw_artifacts FROM %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT INSERT (id, tenant_id, authority_grant_id, patient_uid, source_facility_id, actor_uid, actor_role, source_system, source_document_id, document_format, raw_payload_sha256, raw_payload_bytes, raw_content_type, raw_payload_ciphertext, encryption_key_id, canonicalization_version, canonical_payload_sha256, asserted_source_signature_sha256, signature_verification_status, source_author_evidence, recorded_by, contract_version) ON TABLE public.clinical_import_raw_artifacts TO %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT SELECT (id, tenant_id, authority_grant_id, patient_uid, source_facility_id, actor_uid, actor_role, source_system, source_document_id, document_format, raw_payload_sha256, raw_payload_bytes, raw_content_type, canonicalization_version, canonical_payload_sha256, asserted_source_signature_sha256, signature_verification_status, source_author_evidence_sha256, recorded_by, contract_version, created_at) ON TABLE public.clinical_import_raw_artifacts TO %I',
+          '${role}'
+        );
+      END IF;
+      IF pg_catalog.to_regclass('public.clinical_import_document_receipts') IS NOT NULL THEN
+        EXECUTE pg_catalog.format(
+          'REVOKE ALL PRIVILEGES ON TABLE public.clinical_import_document_receipts FROM %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT SELECT ON TABLE public.clinical_import_document_receipts TO %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT INSERT (id, tenant_id, patient_id, patient_uid, source_facility_id, authority_grant_id, raw_artifact_id, patient_identifier_ids, patient_identity_binding_sha256, access_decision_evidence, source_author_evidence, actor_uid, actor_role, ingestion_mode, document_format, source_system, source_document_id, asserted_source_signature_sha256, source_payload_sha256, source_identity_sha256, idempotency_key_sha256, resource_manifest_sha256, resource_manifest, result, status, request_id, canonical_timeline_event_id, canonical_audit_event_id, contract_version) ON TABLE public.clinical_import_document_receipts TO %I',
+          '${role}'
+        );
+      END IF;
+      IF pg_catalog.to_regclass('public.clinical_import_resource_receipts') IS NOT NULL THEN
+        EXECUTE pg_catalog.format(
+          'REVOKE ALL PRIVILEGES ON TABLE public.clinical_import_resource_receipts FROM %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT SELECT ON TABLE public.clinical_import_resource_receipts TO %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT INSERT (id, tenant_id, document_receipt_id, patient_uid, source_resource_type, source_resource_id, source_resource_index, source_identity_sha256, payload_sha256, outcome, target_table, target_id, canonical_timeline_event_id, canonical_audit_event_id, evidence, correction_reconciliation_item_id, correction_original_resource_receipt_id, correction_retry_event_id, contract_version) ON TABLE public.clinical_import_resource_receipts TO %I',
+          '${role}'
+        );
+      END IF;
+      IF pg_catalog.to_regclass('public.clinical_import_reconciliation_items') IS NOT NULL THEN
+        EXECUTE pg_catalog.format(
+          'REVOKE ALL PRIVILEGES ON TABLE public.clinical_import_reconciliation_items FROM %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT SELECT ON TABLE public.clinical_import_reconciliation_items TO %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT INSERT (id, tenant_id, resource_receipt_id, document_receipt_id, patient_uid, facility_id, owner_actor_uid, owner_actor_role, reason, idempotency_key_sha256, contract_version) ON TABLE public.clinical_import_reconciliation_items TO %I',
+          '${role}'
+        );
+      END IF;
+      IF pg_catalog.to_regclass('public.clinical_import_reconciliation_events') IS NOT NULL THEN
+        EXECUTE pg_catalog.format(
+          'REVOKE ALL PRIVILEGES ON TABLE public.clinical_import_reconciliation_events FROM %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT SELECT ON TABLE public.clinical_import_reconciliation_events TO %I',
+          '${role}'
+        );
+        EXECUTE pg_catalog.format(
+          'GRANT INSERT (id, tenant_id, reconciliation_item_id, resource_receipt_id, document_receipt_id, patient_uid, facility_id, event_type, actor_uid, actor_role, reason, predecessor_event_id, replacement_resource_receipt_id, idempotency_key_sha256, evidence, contract_version) ON TABLE public.clinical_import_reconciliation_events TO %I',
+          '${role}'
+        );
+      END IF;
       FOREACH runtime_acl_relation IN ARRAY runtime_mutable_no_delete_relations
       LOOP
         IF pg_catalog.to_regclass(pg_catalog.format('public.%I', runtime_acl_relation)) IS NOT NULL THEN
@@ -1973,6 +2059,14 @@ BEGIN
           );
         END IF;
       END LOOP;
+      IF pg_catalog.to_regprocedure(
+        'public.lock_clinical_import_authority_760(uuid,uuid,uuid,integer,uuid,text,text)'
+      ) IS NOT NULL THEN
+        EXECUTE pg_catalog.format(
+          'GRANT EXECUTE ON FUNCTION public.lock_clinical_import_authority_760(UUID,UUID,UUID,INTEGER,UUID,TEXT,TEXT) TO %I',
+          '${role}'
+        );
+      END IF;
       IF pg_catalog.to_regclass('public.event_consumer_offsets') IS NOT NULL THEN
         REVOKE INSERT, UPDATE, DELETE, TRUNCATE
           ON TABLE public.event_consumer_offsets FROM ${role};

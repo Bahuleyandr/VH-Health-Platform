@@ -4,6 +4,7 @@ import {
   decodeAuditCursor,
   encodeAuditCursor,
   normalizeAuditFilters,
+  normalizeAuditHealthWindow,
 } from '../../services/compliance/auditAccountabilityService.js';
 
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
@@ -96,6 +97,36 @@ describe('auditAccountabilityService', () => {
       from: '2026-01-01T00:00:00Z',
       to: '2026-03-01T00:00:00Z',
     }, { exportMode: true })).toThrow('31-day window');
+  });
+
+  it('anchors default audit-health bounds to one database-clock instant', () => {
+    expect(normalizeAuditHealthWindow(
+      { hours: '24' },
+      new Date('2026-09-02T07:30:38.039Z'),
+    )).toEqual({
+      from: '2026-09-01T07:30:38.039Z',
+      hours: 24,
+      to: '2026-09-02T07:30:38.039Z',
+    });
+
+    expect(normalizeAuditHealthWindow({
+      from: '2026-09-01T00:00:00Z',
+      to: '2026-09-02T00:00:00Z',
+    }, new Date('2026-09-03T00:00:00Z'))).toMatchObject({
+      from: '2026-09-01T00:00:00.000Z',
+      to: '2026-09-02T00:00:00.000Z',
+    });
+
+    let clockError;
+    try {
+      normalizeAuditHealthWindow({}, undefined);
+    } catch (error) {
+      clockError = error;
+    }
+    expect(clockError).toMatchObject({
+      code: 'AUDIT_HEALTH_DATABASE_CLOCK_INVALID',
+      statusCode: 500,
+    });
   });
 
   it('produces spreadsheet-safe CSV and exports no raw state columns', () => {

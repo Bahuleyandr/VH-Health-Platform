@@ -110,7 +110,9 @@ async function findMedicationCreditDrift(tx, tenantId) {
        LEFT JOIN ledger_postings posting
          ON posting.tenant_id = note.tenant_id
         AND posting.entry_id = entry.id
-       LEFT JOIN ledger_accounts account ON account.id = posting.account_id
+       LEFT JOIN ledger_accounts account
+         ON account.id = posting.account_id
+        AND account.tenant_id = posting.tenant_id
       WHERE note.tenant_id = $1::uuid
         AND note.status = 'applied'
         AND invoice.status IN ('ISSUED', 'PARTIAL', 'PAID')
@@ -212,13 +214,20 @@ export async function applyArOpeningBalances(tenantId) {
       `SELECT i.id, i.patient_uid, ROUND(i.amount_due * 100)::bigint AS due_paise
          FROM billing_invoices i
         WHERE i.status = 'ISSUED'
+          AND i.tenant_id = $1::uuid
           AND i.amount_due > 0
           AND i.patient_uid IS NOT NULL
           AND NOT EXISTS (
-            SELECT 1 FROM ledger_balances b
-              JOIN ledger_accounts a ON a.id = b.account_id
-             WHERE a.code = 'PATIENT_AR' AND b.invoice_id = i.id
-          )`,
+             SELECT 1 FROM ledger_balances b
+               JOIN ledger_accounts a
+                 ON a.id = b.account_id
+                AND a.tenant_id = b.tenant_id
+              WHERE b.tenant_id = $1::uuid
+                AND a.tenant_id = $1::uuid
+                AND a.code = 'PATIENT_AR'
+                AND b.invoice_id = i.id
+           )`,
+      tenantId,
     );
     let seeded = 0;
     for (const r of rows) {
@@ -226,6 +235,7 @@ export async function applyArOpeningBalances(tenantId) {
       if (paise <= 0) continue;
       try {
         await postLedgerEntry(tx, {
+          tenantId,
           entryType: 'OPENING_BALANCE',
           idempotencyKey: `opening-ar-${r.id}`,
           metadata: { invoice_id: Number(r.id) },
@@ -333,8 +343,12 @@ export async function reconcileLedger(tenantId, { mode = 'shadow' } = {}) {
          FROM billing_invoices i
          LEFT JOIN (
            SELECT b.tenant_id, b.invoice_id, SUM(b.balance_paise)::bigint AS ledger_paise
-             FROM ledger_balances b JOIN ledger_accounts a ON a.id = b.account_id
-            WHERE b.tenant_id = $1::uuid
+             FROM ledger_balances b
+             JOIN ledger_accounts a
+               ON a.id = b.account_id
+              AND a.tenant_id = b.tenant_id
+             WHERE b.tenant_id = $1::uuid
+               AND a.tenant_id = $1::uuid
               AND a.code IN ('PATIENT_AR','INSURANCE_AR')
               AND b.invoice_id IS NOT NULL
             GROUP BY b.tenant_id, b.invoice_id
@@ -374,8 +388,12 @@ export async function reconcileLedger(tenantId, { mode = 'shadow' } = {}) {
     eventsDrift.push(...await findMedicationCreditDrift(tx, tenantId));
     const tb = await tx.$queryRawUnsafe(
       `SELECT COALESCE(SUM(b.balance_paise * ledger_account_normal_side(a.type)), 0)::bigint AS tb
-         FROM ledger_balances b JOIN ledger_accounts a ON a.id = b.account_id
-        WHERE b.tenant_id = $1::uuid`,
+         FROM ledger_balances b
+         JOIN ledger_accounts a
+           ON a.id = b.account_id
+          AND a.tenant_id = b.tenant_id
+        WHERE b.tenant_id = $1::uuid
+          AND a.tenant_id = $1::uuid`,
       tenantId,
     );
     return { mismatches, unwired, eventsDrift, trialBalancePaise: Number(tb[0].tb) };

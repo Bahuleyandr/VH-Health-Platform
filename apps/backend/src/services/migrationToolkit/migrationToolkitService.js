@@ -1926,6 +1926,7 @@ async function commitOpeningArRecordTx(tx, {
   if (!existingLedger[0] && paise > 0) {
     try {
       await postLedgerEntry(tx, {
+        tenantId,
         entryType: 'OPENING_BALANCE',
         idempotencyKey: ledgerKey,
         createdBy: maybeUuid(createdBy, 'created_by'),

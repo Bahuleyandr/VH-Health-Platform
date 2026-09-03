@@ -1931,18 +1931,23 @@ export async function escalateClinicalAlertRecoveryCases({
             queuedIds.length = 0;
           }
         }
-        const now = new Date().toISOString();
+        // Outbox evidence is timestamp(3), so PostgreSQL may round its NOW()
+        // upward. Use the next millisecond for every receipt-bound timestamp;
+        // transaction-stable NOW() keeps the case, SLA, and task identical.
         await tx.$executeRawUnsafe(
           `UPDATE clinical_alert_delivery_recovery_cases
               SET escalation_attempt_count = escalation_attempt_count + 1,
-                  last_escalation_attempt_at = $3::timestamptz,
-                  last_escalation_error_code = $4::text,
-                  escalated_at = CASE WHEN $5::int > 0 THEN $3::timestamptz ELSE NULL END
+                  last_escalation_attempt_at =
+                    date_trunc('milliseconds', NOW()) + INTERVAL '1 millisecond',
+                  last_escalation_error_code = $3::text,
+                  escalated_at = CASE WHEN $4::int > 0
+                    THEN date_trunc('milliseconds', NOW()) + INTERVAL '1 millisecond'
+                    ELSE NULL
+                  END
             WHERE tenant_id = $1::uuid
               AND id = $2::bigint`,
           tid,
           recoveryCase.id,
-          now,
           errorCode,
           queued,
         );
@@ -1950,18 +1955,23 @@ export async function escalateClinicalAlertRecoveryCases({
           `UPDATE workflow_sla_instances
               SET status = CASE WHEN $3::int > 0 THEN 'escalated' ELSE 'breached' END,
                   breached_at = COALESCE(breached_at, due_at),
-                  escalated_at = CASE WHEN $3::int > 0 THEN $4::timestamptz ELSE NULL END,
+                  escalated_at = CASE WHEN $3::int > 0
+                    THEN date_trunc('milliseconds', NOW()) + INTERVAL '1 millisecond'
+                    ELSE NULL
+                  END,
                    metadata = COALESCE(metadata, '{}'::jsonb)
                      || jsonb_build_object(
                           'recovery_escalation_recipient_count', $3::int,
-                          'recovery_escalation_error_code', $5::text
+                          'recovery_escalation_error_code', $4::text
                         )
                      || CASE WHEN $3::int > 0
                           THEN jsonb_build_object(
                             'recovery_escalation_version',
                               'clinical_alert_delivery_recovery_escalation_v1',
-                            'recovery_escalation_outbox_ids', $6::jsonb,
-                            'recovery_escalated_at', $4::timestamptz
+                            'recovery_escalation_outbox_ids', $5::jsonb,
+                            'recovery_escalated_at',
+                              date_trunc('milliseconds', NOW())
+                                + INTERVAL '1 millisecond'
                           )
                           ELSE '{}'::jsonb
                         END,
@@ -1972,7 +1982,6 @@ export async function escalateClinicalAlertRecoveryCases({
           tid,
           recoveryCase.workflow_sla_instance_id,
           queued,
-          now,
           errorCode,
           JSON.stringify(queuedIds),
         );
@@ -1984,14 +1993,18 @@ export async function escalateClinicalAlertRecoveryCases({
                      || jsonb_build_object(
                           'recovery_escalation_recipient_count', $3::int,
                           'recovery_escalation_error_code', $4::text,
-                          'recovery_escalation_attempted_at', $5::timestamptz
+                          'recovery_escalation_attempted_at',
+                            date_trunc('milliseconds', NOW())
+                              + INTERVAL '1 millisecond'
                         )
                      || CASE WHEN $3::int > 0
                           THEN jsonb_build_object(
                             'recovery_escalation_version',
                               'clinical_alert_delivery_recovery_escalation_v1',
-                            'recovery_escalation_outbox_ids', $6::jsonb,
-                            'recovery_escalated_at', $5::timestamptz
+                            'recovery_escalation_outbox_ids', $5::jsonb,
+                            'recovery_escalated_at',
+                              date_trunc('milliseconds', NOW())
+                                + INTERVAL '1 millisecond'
                           )
                           ELSE '{}'::jsonb
                         END,
@@ -2003,7 +2016,6 @@ export async function escalateClinicalAlertRecoveryCases({
           recoveryCase.task_id,
           queued,
           errorCode,
-          now,
           JSON.stringify(queuedIds),
         );
         return queued > 0 ? 'escalated' : 'awaiting_admin';

@@ -736,7 +736,7 @@ function diagnosticSettlementTx(binding) {
       return [id === 101 ? protectedTask() : trackingTask()];
     }
     if (sql.includes('UPDATE tasks SET')) {
-      const id = Number(params[2]);
+      const id = Number(params[1]);
       transitionedIds.push(id);
       return [{
         ...(id === 101 ? protectedTask() : trackingTask()),
@@ -845,7 +845,7 @@ test('an exact signed named-owner action atomically completes child and tracking
       return [id === 101 ? protectedTask() : trackingTask()];
     }
     if (sql.includes('UPDATE tasks SET')) {
-      const id = Number(params[2]);
+      const id = Number(params[1]);
       transitionedIds.push(id);
       return [{
         ...(id === 101 ? protectedTask() : trackingTask()),

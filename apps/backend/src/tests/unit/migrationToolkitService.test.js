@@ -428,6 +428,7 @@ describe('migrationToolkitService commit path', () => {
     expect(result.records.map((record) => record.target_kind)).toEqual(['patient', 'encounter', 'opening_ar']);
     expect(postLedgerEntryMock).toHaveBeenCalledTimes(1);
     expect(postLedgerEntryMock.mock.calls[0][1]).toMatchObject({
+      tenantId: TENANT,
       entryType: 'OPENING_BALANCE',
       idempotencyKey: 'migration-opening-ar-42-BILL-1001',
     });

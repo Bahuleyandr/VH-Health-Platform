@@ -192,6 +192,11 @@ export const RATE_LIMIT_PROFILES = {
     max: 5,
     message: 'Too many data export requests. Please try again later.'
   },
+  clinicalImport: {
+    windowMs: 15 * 60 * 1000,
+    max: 60,
+    message: 'Too many clinical import requests. Please pause and try again later.'
+  },
 
   // Dashboard rate limiting — stricter to prevent phone enumeration
   // 10 requests per minute per IP (dashboard is pre-auth, API key only)

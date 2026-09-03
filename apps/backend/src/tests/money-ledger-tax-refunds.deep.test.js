@@ -25,7 +25,7 @@ async function makeDraftInvoice(patientUid, unitPrice, gstRate) {
   cleanup.invoiceIds.push(inv.id);
   return inv.id;
 }
-const bal = (code, dims) => setTenantTx(TENANT, (tx) => getAccountBalancePaise(tx, code, dims));
+const bal = (code, dims) => setTenantTx(TENANT, (tx) => getAccountBalancePaise(tx, TENANT, code, dims));
 
 afterAll(async () => {
   try {
