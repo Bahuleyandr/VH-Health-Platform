@@ -44,7 +44,41 @@ async function withAuditBypass(fn) {
   });
 }
 
+/** Teardown is ordered correctly - every audit child is deleted before the
+ *  tenant - but ordering alone cannot win a race against a write that has not
+ *  happened yet. Audit rows are written by triggers and by post-response
+ *  loggers, so one can commit BETWEEN this transaction's `DELETE FROM
+ *  audit_logs` and its `DELETE FROM tenants`, and the tenant delete then fails
+ *  23503 on fk_audit_log_tenant. That is what made this suite flake in CI
+ *  (audit row OPEN-26): it failed on shard 3/3 of a run whose only change was
+ *  four admin-only files, and passed on a re-run with no code change.
+ *
+ *  Retrying is deliberate rather than waiting for quiescence. The suite already
+ *  waits for a KNOWN count of hipaa_access_log rows (waitForPhiAuditWrites),
+ *  which works because the expected number is known. For audit_logs it is not:
+ *  trigger-written rows depend on what each test touched, so any wait would be
+ *  guessing at both a count and a deadline. A re-delete is deterministic - it
+ *  cannot pass while a child still exists, and it cannot hang. */
+const CLEANUP_FK_RETRIES = 3;
+
 async function cleanup() {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await cleanupOnce();
+      return;
+    } catch (error) {
+      const isLateAuditChild =
+        String(error?.message || '').includes('23503') ||
+        String(error?.meta?.code || '') === '23503';
+      if (!isLateAuditChild || attempt >= CLEANUP_FK_RETRIES) throw error;
+      // A child reappeared after we deleted it. Let the writer commit, then
+      // delete again from the top - the earlier statements are idempotent.
+      await new Promise((r) => setTimeout(r, 100 * attempt));
+    }
+  }
+}
+
+async function cleanupOnce() {
   await withAuditBypass(async (tx) => {
     await tx.$executeRawUnsafe(
       `DELETE FROM clinical_document_signatures WHERE tenant_id = $1::uuid`,

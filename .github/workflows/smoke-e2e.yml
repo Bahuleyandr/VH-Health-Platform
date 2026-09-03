@@ -119,6 +119,22 @@ jobs:
           node scripts/check-schema-drift.mjs
           npm run ci:db-guardrails
 
+      # OPEN-25: the smoke database is built by ci-setup-db.mjs, which applies
+      # the migration corpus plus a minimal lookup seed and does NOT run
+      # seed-comprehensive-test-data.mjs — so the smoke tenant has no
+      # `facilities` row at all. pharmacyFacilityAuthorityService resolves the
+      # custody facility by `status='active' AND is_default=TRUE` when no
+      # facility_id is supplied and answers 409 PHARMACY_FACILITY_REQUIRED
+      # otherwise, so /dashboard/pharmacy took a 409 on every crawl attempt.
+      # That 409 is the backend being correct: it treats a tenant with no
+      # default pharmacy facility as a misconfiguration needing admin action.
+      # The gap is in the synthetic environment, so it is closed here rather
+      # than by waiving the response in the crawl. Same shape as the Clinical AI
+      # reviewer seeding below: a smoke-only gap closed by a smoke-only step.
+      - name: Seed the smoke tenant's default pharmacy facility
+        working-directory: apps/backend
+        run: node scripts/seed-smoke-pharmacy-facility.mjs --tenant 00000000-0000-4000-8000-000000000001
+
       - name: Enroll SUPER_ADMIN TOTP for the route-crawl (real 2FA)
         working-directory: apps/backend
         # The admin route-crawl (e2e/route-crawl.spec.ts) visits SUPER_ADMIN-only
