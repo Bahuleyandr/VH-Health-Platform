@@ -18,6 +18,7 @@ import { createHash, randomUUID } from 'crypto';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { boundedInteger } from '../../utils/pagination.js';
+import { exactPositiveInt4OrNull } from '../../utils/postgresInteger.js';
 import logger from '../../logging/logger.js';
 import { checkVitalAnomalies } from '../../utils/clinical/vitalSignMonitor.js';
 import { istDateString } from '../../utils/dateUtils.js';
@@ -126,8 +127,8 @@ async function assertPatientInTenant(tenantId, patientUid) {
 }
 
 async function assertPregnancyInTenant(tenantId, pregnancyId) {
-  const id = Number.parseInt(pregnancyId, 10);
-  if (!Number.isInteger(id) || id <= 0) {
+  const id = exactPositiveInt4OrNull(pregnancyId);
+  if (id === null) {
     throw AppError.badRequest('pregnancy_id must be a positive integer');
   }
   const rows = await prisma.$queryRawUnsafe(
@@ -143,8 +144,8 @@ async function assertPregnancyInTenant(tenantId, pregnancyId) {
 }
 
 async function assertAdmissionInTenant(tenantId, admissionId, patientUid = null) {
-  const id = Number.parseInt(admissionId, 10);
-  if (!Number.isInteger(id) || id <= 0) {
+  const id = exactPositiveInt4OrNull(admissionId);
+  if (id === null) {
     throw AppError.badRequest('admission_id must be a positive integer');
   }
   const rows = await prisma.$queryRawUnsafe(
@@ -162,8 +163,8 @@ async function assertAdmissionInTenant(tenantId, admissionId, patientUid = null)
 }
 
 async function assertDeliveryInTenant(tenantId, deliveryId) {
-  const id = Number.parseInt(deliveryId, 10);
-  if (!Number.isInteger(id) || id <= 0) {
+  const id = exactPositiveInt4OrNull(deliveryId);
+  if (id === null) {
     throw AppError.badRequest('delivery_id must be a positive integer');
   }
   const rows = await prisma.$queryRawUnsafe(
@@ -181,8 +182,8 @@ async function assertDeliveryInTenant(tenantId, deliveryId) {
 }
 
 async function assertNewbornInTenant(tenantId, newbornId, deliveryId = null) {
-  const id = Number.parseInt(newbornId, 10);
-  if (!Number.isInteger(id) || id <= 0) {
+  const id = exactPositiveInt4OrNull(newbornId);
+  if (id === null) {
     throw AppError.badRequest('newborn_id must be a positive integer');
   }
   const rows = await prisma.$queryRawUnsafe(
@@ -422,9 +423,13 @@ export async function createPregnancy({
 }
 
 export async function getPregnancy({ tenantId, id }) {
+  const pregnancyId = exactPositiveInt4OrNull(id);
+  if (pregnancyId === null) {
+    throw AppError.badRequest('Pregnancy id must be a positive integer');
+  }
   const rows = await prisma.$queryRawUnsafe(
     `SELECT * FROM maternity_pregnancies WHERE id = $1::int AND tenant_id = $2::uuid`,
-    Number(id), tenantOr(tenantId),
+    pregnancyId, tenantOr(tenantId),
   );
   if (!rows.length) throw AppError.notFound('Pregnancy not found');
   return rows[0];
@@ -441,28 +446,193 @@ export async function listPregnanciesForPatient({ tenantId, patient_uid }) {
   );
 }
 
-export async function updatePregnancy({ tenantId, id, ...patch }) {
-  const allowed = ['lmp_date', 'edd_date', 'gravida', 'parity', 'living_children',
-    'abortions', 'blood_group', 'rh_factor', 'high_risk', 'high_risk_reasons',
-    'status', 'notes'];
+export async function updatePregnancy(input = {}, { actorUid = null, actorRole = null } = {}) {
+  if (Object.prototype.hasOwnProperty.call(input, 'status')) {
+    throw AppError.badRequest(
+      'Pregnancy status changes require an explicit lifecycle action',
+      'MATERNITY_STATUS_TRANSITION_REQUIRES_LIFECYCLE_ACTION',
+    );
+  }
+  if (!actorUid || !actorRole) {
+    throw AppError.unauthorized(
+      'Authenticated actor context is required to update a pregnancy',
+      'MATERNITY_PREGNANCY_UPDATE_ACTOR_REQUIRED',
+    );
+  }
+
+  const { tenantId, id, ...patch } = input;
+  const pregnancyId = exactPositiveInt4OrNull(id);
+  if (pregnancyId === null) {
+    throw AppError.badRequest('Pregnancy id must be a positive integer');
+  }
+  const tid = tenantOr(tenantId);
+  const allowed = new Map([
+    ['lmp_date', 'date'],
+    ['edd_date', 'date'],
+    ['gravida', 'int'],
+    ['parity', 'int'],
+    ['living_children', 'int'],
+    ['abortions', 'int'],
+    ['blood_group', 'text'],
+    ['rh_factor', 'text'],
+    ['high_risk', 'boolean'],
+    ['high_risk_reasons', 'text[]'],
+    ['notes', 'text'],
+  ]);
   const sets = [];
+  const differences = [];
   const params = [];
-  for (const k of allowed) {
-    if (patch[k] !== undefined) {
-      params.push(patch[k]);
-      sets.push(`${k} = $${params.length}`);
+  const updatedFields = [];
+  for (const [field, type] of allowed) {
+    if (patch[field] !== undefined) {
+      params.push(patch[field]);
+      const placeholder = `$${params.length}::${type}`;
+      sets.push(`${field} = ${placeholder}`);
+      differences.push(`${field} IS DISTINCT FROM ${placeholder}`);
+      updatedFields.push(field);
     }
   }
   if (!sets.length) return getPregnancy({ tenantId, id });
-  params.push(Number(id));
-  params.push(tenantOr(tenantId));
-  await prisma.$executeRawUnsafe(
-    `UPDATE maternity_pregnancies
-        SET ${sets.join(', ')}, updated_at = NOW()
-      WHERE id = $${params.length - 1}::int AND tenant_id = $${params.length}::uuid`,
-    ...params,
-  );
-  return getPregnancy({ tenantId, id });
+
+  return setTenantTx(tid, async (tx) => {
+    const candidates = await tx.$queryRawUnsafe(
+      `SELECT patient_uid
+         FROM maternity_pregnancies
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      tid,
+      pregnancyId,
+    );
+    if (!candidates.length) throw AppError.notFound('Pregnancy not found');
+    const candidatePatientUid = String(candidates[0].patient_uid);
+
+    const lockedPatients = await tx.$queryRawUnsafe(
+      `SELECT uid, is_pregnant, pregnancy_lmp_date
+         FROM users
+        WHERE tenant_id = $1::uuid
+          AND uid = $2::uuid
+          AND role = 'PATIENT'
+        FOR UPDATE`,
+      tid,
+      candidatePatientUid,
+    );
+    if (!lockedPatients.length) throw AppError.notFound('Patient not found');
+
+    const lockedPregnancies = await tx.$queryRawUnsafe(
+      `SELECT *
+         FROM maternity_pregnancies
+        WHERE tenant_id = $1::uuid AND id = $2::int
+        FOR UPDATE`,
+      tid,
+      pregnancyId,
+    );
+    if (!lockedPregnancies.length) throw AppError.notFound('Pregnancy not found');
+    const lockedPregnancy = lockedPregnancies[0];
+    if (String(lockedPregnancy.patient_uid) !== candidatePatientUid) {
+      throw AppError.conflict(
+        'Pregnancy patient assignment changed during the update',
+        'MATERNITY_PREGNANCY_PATIENT_CHANGED',
+      );
+    }
+
+    const updateParams = [...params, pregnancyId, tid];
+    const idIndex = updateParams.length - 1;
+    const tenantIndex = updateParams.length;
+    const updatedRows = await tx.$queryRawUnsafe(
+      `UPDATE maternity_pregnancies
+          SET ${sets.join(', ')}, updated_at = NOW()
+        WHERE id = $${idIndex}::int
+          AND tenant_id = $${tenantIndex}::uuid
+          AND (${differences.join(' OR ')})
+      RETURNING *`,
+      ...updateParams,
+    );
+    if (!updatedRows.length) return lockedPregnancy;
+    const updated = updatedRows[0];
+
+    const projectionRows = await tx.$queryRawUnsafe(
+      `WITH projection AS (
+         SELECT EXISTS (
+                  SELECT 1
+                    FROM maternity_pregnancies
+                   WHERE tenant_id = $2::uuid
+                     AND patient_uid = $1::uuid
+                     AND status = 'ongoing'
+                ) AS is_pregnant,
+                (
+                  SELECT lmp_date
+                    FROM maternity_pregnancies
+                   WHERE tenant_id = $2::uuid
+                     AND patient_uid = $1::uuid
+                     AND status = 'ongoing'
+                   ORDER BY created_at DESC, id DESC
+                   LIMIT 1
+                ) AS lmp_date
+       )
+       UPDATE users u
+          SET is_pregnant = projection.is_pregnant,
+              pregnancy_lmp_date = projection.lmp_date,
+              updated_at = NOW()
+         FROM projection
+        WHERE u.tenant_id = $2::uuid
+          AND u.uid = $1::uuid
+       RETURNING u.is_pregnant, u.pregnancy_lmp_date`,
+      candidatePatientUid,
+      tid,
+    );
+    if (projectionRows.length !== 1) throw AppError.notFound('Patient not found');
+    const projection = projectionRows[0];
+    const canonicalRevision = canonicalStateFingerprint({
+      lmp_date: updated.lmp_date,
+      edd_date: updated.edd_date,
+      gravida: updated.gravida,
+      parity: updated.parity,
+      living_children: updated.living_children,
+      abortions: updated.abortions,
+      blood_group: updated.blood_group,
+      rh_factor: updated.rh_factor,
+      high_risk: updated.high_risk,
+      high_risk_reasons: updated.high_risk_reasons,
+      notes: updated.notes,
+    });
+    const txRevision = await currentCanonicalTransactionRevision(tx);
+
+    await recordCanonicalClinicalEvent({
+      tenantId: tid,
+      patientUid: candidatePatientUid,
+      eventType: 'maternity.pregnancy_updated',
+      eventStatus: updated.status,
+      sourceTable: 'maternity_pregnancies',
+      sourceId: updated.id,
+      resourceType: 'pregnancy',
+      resourceId: updated.id,
+      actorUid: String(actorUid),
+      actorRole: String(actorRole),
+      occurredAt: updated.updated_at,
+      visibleToPatient: false,
+      summary: 'Pregnancy episode updated',
+      payload: {
+        pregnancy_id: updated.id,
+        updated_fields: updatedFields,
+      },
+      metadata: {
+        updated_fields: updatedFields,
+      },
+      beforeState: {
+        pregnancy_status: lockedPregnancy.status,
+        user_is_pregnant: lockedPatients[0].is_pregnant === true,
+      },
+      afterState: {
+        pregnancy_status: updated.status,
+        user_is_pregnant: projection.is_pregnant === true,
+      },
+      timelineIdempotencyKey:
+        `maternity_pregnancies:${updated.id}:updated:${canonicalRevision}:tx:${txRevision}`,
+      auditIdempotencyKey:
+        `maternity_pregnancies:${updated.id}:audit:updated:${canonicalRevision}:tx:${txRevision}`,
+    }, { db: tx, strict: true });
+
+    return updated;
+  });
 }
 
 // ── ANC visits ──────────────────────────────────────────────────────
@@ -507,8 +677,20 @@ export async function recordAncVisit({
   // original row. Finding:
   //   2026-05-09-obstetric-anc-patient-duplicate-anc-visit-alarming-bp
   const visit = await setTenantTx(tid, async (tx) => {
+    const lockedPatients = await tx.$queryRawUnsafe(
+      `SELECT uid
+         FROM users
+        WHERE tenant_id = $1::uuid
+          AND uid = $2::uuid
+          AND role = 'PATIENT'
+        FOR UPDATE`,
+      tid,
+      String(pregnancy.patient_uid),
+    );
+    if (!lockedPatients.length) throw AppError.notFound('Patient not found');
+
     const lockedPregnancies = await tx.$queryRawUnsafe(
-      `SELECT id
+      `SELECT id, patient_uid
          FROM maternity_pregnancies
         WHERE tenant_id = $1::uuid AND id = $2::int
         FOR UPDATE`,
@@ -516,6 +698,13 @@ export async function recordAncVisit({
       pregnancy.id,
     );
     if (!lockedPregnancies.length) throw AppError.notFound('Pregnancy not found');
+    const lockedPregnancy = lockedPregnancies[0];
+    if (String(lockedPregnancy.patient_uid) !== String(pregnancy.patient_uid)) {
+      throw AppError.conflict(
+        'Pregnancy patient assignment changed during ANC recording',
+        'MATERNITY_PREGNANCY_PATIENT_CHANGED',
+      );
+    }
 
     // Effective-state no-op guard (canonical revision-sequence fix). Compare
     // the EXACT state the ON CONFLICT UPDATE below would persist (COALESCE /
@@ -555,7 +744,7 @@ export async function recordAncVisit({
           AND v.visit_date = $23::date
         FOR UPDATE`,
       tid,
-      pregnancy.id,
+      lockedPregnancy.id,
       gestational_age_weeks ? Number(gestational_age_weeks) : null,
       weight_kg ? Number(weight_kg) : null,
       bp_systolic ? Number(bp_systolic) : null,
@@ -583,7 +772,7 @@ export async function recordAncVisit({
          FROM maternity_anc_visits
         WHERE tenant_id = $1::uuid AND pregnancy_id = $2::int`,
       tid,
-      pregnancy.id,
+      lockedPregnancy.id,
     );
     const nextNumber = Number(nextNumberRow?.[0]?.next_number) || 1;
     // updated_at is deliberately absent from the ON CONFLICT SET list (the table
@@ -627,7 +816,7 @@ export async function recordAncVisit({
          notes                  = COALESCE(EXCLUDED.notes, maternity_anc_visits.notes),
          recorded_by            = COALESCE(EXCLUDED.recorded_by, maternity_anc_visits.recorded_by)
        RETURNING *`,
-      pregnancy.id, visit_date,
+      lockedPregnancy.id, visit_date,
       gestational_age_weeks ? Number(gestational_age_weeks) : null,
       weight_kg ? Number(weight_kg) : null,
       bp_systolic ? Number(bp_systolic) : null,
@@ -651,19 +840,45 @@ export async function recordAncVisit({
     // its own canonical revision instead of colliding with revision 1's key.
     const txRevision = await currentCanonicalTransactionRevision(tx);
 
+    // DERIVED, not forced. This used to write `is_pregnant = TRUE`
+    // unconditionally, which contradicted the projection updatePregnancy and
+    // recordDelivery derive from stored ongoing episodes: recording an ANC
+    // visit against an already-delivered episode flipped the mother back to
+    // pregnant, and whichever writer ran last won. Same CTE as the other two,
+    // so all three writers now agree by construction.
     const projected = await tx.$executeRawUnsafe(
-      `UPDATE users
-          SET is_pregnant = TRUE,
+      `WITH projection AS (
+         SELECT EXISTS (
+                  SELECT 1
+                    FROM maternity_pregnancies
+                   WHERE tenant_id = $1::uuid
+                     AND patient_uid = $2::uuid
+                     AND status = 'ongoing'
+                ) AS is_pregnant,
+                (
+                  SELECT lmp_date
+                    FROM maternity_pregnancies
+                   WHERE tenant_id = $1::uuid
+                     AND patient_uid = $2::uuid
+                     AND status = 'ongoing'
+                   ORDER BY created_at DESC, id DESC
+                   LIMIT 1
+                ) AS lmp_date
+       )
+       UPDATE users u
+          SET is_pregnant = projection.is_pregnant,
+              pregnancy_lmp_date = projection.lmp_date,
               updated_at = NOW()
-        WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+         FROM projection
+        WHERE u.tenant_id = $1::uuid AND u.uid = $2::uuid`,
       tid,
-      String(pregnancy.patient_uid),
+      String(lockedPregnancy.patient_uid),
     );
     if (projected !== 1) throw AppError.notFound('Patient not found');
 
     await recordCanonicalClinicalEvent({
       tenantId: tid,
-      patientUid: String(pregnancy.patient_uid),
+      patientUid: String(lockedPregnancy.patient_uid),
       eventType: 'maternity.anc_visit_recorded',
       eventStatus: 'recorded',
       sourceTable: 'maternity_anc_visits',
@@ -677,7 +892,7 @@ export async function recordAncVisit({
       summary: 'ANC visit recorded',
       payload: {
         anc_visit_id: recordedVisit.id,
-        pregnancy_id: pregnancy.id,
+        pregnancy_id: lockedPregnancy.id,
         visit_number: recordedVisit.visit_number,
       },
       afterState: {
@@ -939,8 +1154,8 @@ export async function getActivePregnancyForPatient({ tenantId, patient_uid }) {
  * which calls this after resolving the active pregnancy.
  */
 export async function getAncTimelineForPregnancy({ tenantId, pregnancy_id }) {
-  const id = Number.parseInt(pregnancy_id, 10);
-  if (!Number.isInteger(id) || id <= 0) {
+  const id = exactPositiveInt4OrNull(pregnancy_id);
+  if (id === null) {
     throw AppError.badRequest('pregnancy_id must be a positive integer');
   }
   const tid = tenantOr(tenantId);
@@ -1606,8 +1821,8 @@ export async function maybePropagateAncSupplements({
 }
 
 export async function listSupplements({ tenantId, pregnancy_id, activeOnly = false }) {
-  const id = Number.parseInt(pregnancy_id, 10);
-  if (!Number.isInteger(id) || id <= 0) {
+  const id = exactPositiveInt4OrNull(pregnancy_id);
+  if (id === null) {
     throw AppError.badRequest('pregnancy_id must be a positive integer');
   }
   const tid = tenantOr(tenantId);
@@ -1763,8 +1978,8 @@ export async function recordFetalKick({
  * Finding: 2026-05-08-obstetric-anc-doctor-no-prior-orders-surfaced.
  */
 export async function listPriorOrdersForPregnancy({ tenantId, pregnancy_id }) {
-  const id = Number.parseInt(pregnancy_id, 10);
-  if (!Number.isInteger(id) || id <= 0) {
+  const id = exactPositiveInt4OrNull(pregnancy_id);
+  if (id === null) {
     throw AppError.badRequest('pregnancy_id must be a positive integer');
   }
   const tid = tenantOr(tenantId);
@@ -1826,8 +2041,8 @@ export async function listPriorOrdersForPregnancy({ tenantId, pregnancy_id }) {
 }
 
 export async function listFetalKicks({ tenantId, pregnancy_id, fromDate = null, toDate = null }) {
-  const id = Number.parseInt(pregnancy_id, 10);
-  if (!Number.isInteger(id) || id <= 0) {
+  const id = exactPositiveInt4OrNull(pregnancy_id);
+  if (id === null) {
     throw AppError.badRequest('pregnancy_id must be a positive integer');
   }
   const tid = tenantOr(tenantId);
@@ -1934,7 +2149,7 @@ export async function setSupplementReminder({
   tenantId, pregnancy_id, supplement_id, reminder_enabled,
   actor_uid, actor_role,
 }) {
-  const pregnancyId = Number.parseInt(pregnancy_id, 10);
+  const pregnancyId = exactPositiveInt4OrNull(pregnancy_id);
   const supplementId = Number.parseInt(supplement_id, 10);
   if (!Number.isInteger(pregnancyId) || pregnancyId <= 0) {
     throw AppError.badRequest('pregnancy_id must be a positive integer');

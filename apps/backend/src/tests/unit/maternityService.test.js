@@ -5,6 +5,7 @@
 
 import {
   createPregnancy,
+  updatePregnancy,
   recordAncVisit,
   admitToLabor,
   recordPartographEntry,
@@ -40,6 +41,31 @@ describe('createPregnancy validation', () => {
   it('rejects missing patient_uid', async () => {
     await expect(createPregnancy({ tenantId: T })).rejects.toMatchObject({
       message: expect.stringMatching(/patient_uid/i),
+    });
+  });
+});
+
+describe('updatePregnancy validation', () => {
+  const context = { actorUid: P, actorRole: 'NURSING_STAFF' };
+
+  it.each(['ongoing', 'delivered', 'aborted', 'still_birth', 'transferred', undefined])(
+    'rejects any own status property (%p) before touching the database',
+    async (status) => {
+      await expect(
+        updatePregnancy({ tenantId: T, id: 1, status }, context),
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        code: 'MATERNITY_STATUS_TRANSITION_REQUIRES_LIFECYCLE_ACTION',
+      });
+    },
+  );
+
+  it('requires authenticated actor provenance before touching the database', async () => {
+    await expect(
+      updatePregnancy({ tenantId: T, id: 1, notes: 'correction' }),
+    ).rejects.toMatchObject({
+      statusCode: 401,
+      code: 'MATERNITY_PREGNANCY_UPDATE_ACTOR_REQUIRED',
     });
   });
 });

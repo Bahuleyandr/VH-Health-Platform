@@ -11,7 +11,7 @@ import * as immun from '../../services/maternity/immunisationService.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin, isPatient, isStaff } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
-import { positiveIntOrNull } from '../../middleware/routePatientAccessGuards.js';
+import { exactPositiveInt4OrNull } from '../../utils/postgresInteger.js';
 
 const router = Router();
 
@@ -57,8 +57,19 @@ function requireStaffAdminOrPatient(req, res, next) {
 
 async function ensurePregnancyAccess(req, res, pregnancyId) {
   if (!isPatient(req.user?.role)) return true;
-  const parsedId = Number.parseInt(pregnancyId, 10);
-  if (!Number.isInteger(parsedId) || parsedId <= 0) return true;
+  // FAIL CLOSED. This used to `return true` on an unparseable id, which was
+  // survivable only while the guard and the services behind it parsed
+  // identically. They no longer do: this guard uses the exact int4 parser while
+  // getAncTimelineForPregnancy/listFetalKicks used Number.parseInt, which
+  // accepts '012', '12abc', ' 12', '+12' and '12.9' as 12. An id in that gap
+  // skipped the ownership check entirely and served another patient's record.
+  // Both sides now use the same parser AND this refuses rather than allows, so
+  // neither half alone can reopen the hole.
+  const parsedId = exactPositiveInt4OrNull(pregnancyId);
+  if (parsedId === null) {
+    error(res, 'pregnancy id must be a positive integer', 400);
+    return false;
+  }
   const pregnancy = await mat.getPregnancy({ tenantId: tenantOf(req), id: parsedId });
   if (String(pregnancy.patient_uid) !== String(req.user?.uid)) {
     error(res, 'Forbidden', 403);
@@ -130,7 +141,7 @@ async function ensurePregnancyAccess(req, res, pregnancyId) {
 // int4 cap, so a 10-digit id reached the ::int bind and threw 22003 —
 // a guard 500 on malformed input, violating the never-throw contract.
 function positiveInt(value) {
-  return positiveIntOrNull(value);
+  return exactPositiveInt4OrNull(value);
 }
 
 const maternityGuard = (patientSelector) => patientAccessGuard('MATERNITY_RECORD', {
@@ -279,11 +290,17 @@ router.get('/pregnancies/:id', requireStaffOrAdmin, guardByPregnancyIdParam, wra
 ));
 
 router.patch('/pregnancies/:id', requireStaffOrAdmin, guardByPregnancyIdParam, wrap(async (req) =>
-  mat.updatePregnancy({
-    ...req.body,
-    tenantId: tenantOf(req),
-    id: req.params.id,
-  }),
+  mat.updatePregnancy(
+    {
+      ...req.body,
+      tenantId: tenantOf(req),
+      id: req.params.id,
+    },
+    {
+      actorUid: req.user?.uid,
+      actorRole: req.user?.role,
+    },
+  ),
 ));
 
 // ── ANC visits ───────────────────────────────────────────────────────

@@ -1,9 +1,12 @@
 import { randomUUID } from 'crypto';
+import { Client } from 'pg';
 
 import prisma from '../lib/prisma.js';
 import {
   admitToLabor,
   createPregnancy,
+  recordAncVisit,
+  updatePregnancy,
   recordPartographEntry,
   recordDelivery,
 } from '../services/maternity/maternityService.js';
@@ -69,6 +72,54 @@ async function installFailureTrigger({ table, operation, condition }) {
 
   installedTriggers.push(entry);
   return () => dropFailureTrigger(entry);
+}
+
+async function installAdvisoryBarrierTrigger({ namespace, key }) {
+  const suffix = randomUUID().replaceAll('-', '');
+  const functionName = `c2_atomic_wait_${suffix}`;
+  const triggerName = `c2_atomic_wait_trigger_${suffix}`;
+  const entry = { table: 'maternity_anc_visits', functionName, triggerName };
+
+  await prisma.$executeRawUnsafe(
+    `CREATE FUNCTION ${functionName}()
+       RETURNS trigger
+       LANGUAGE plpgsql
+       AS $$
+       BEGIN
+         PERFORM pg_advisory_xact_lock(${Number(namespace)}, ${Number(key)});
+         RETURN NEW;
+       END;
+       $$`,
+  );
+  try {
+    await prisma.$executeRawUnsafe(
+      `CREATE TRIGGER ${triggerName}
+         BEFORE INSERT ON maternity_anc_visits
+         FOR EACH ROW EXECUTE FUNCTION ${functionName}()`,
+    );
+  } catch (error) {
+    await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS ${functionName}()`).catch(() => {});
+    throw error;
+  }
+
+  installedTriggers.push(entry);
+  return () => dropFailureTrigger(entry);
+}
+
+async function waitForLockWaiters(expected, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS waiters
+         FROM pg_stat_activity
+        WHERE datname = current_database()
+          AND pid <> pg_backend_pid()
+          AND wait_event_type = 'Lock'`,
+    );
+    if (Number(rows[0]?.waiters) >= expected) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Timed out waiting for ${expected} blocked database operation(s)`);
 }
 
 async function seedUser({
@@ -188,6 +239,27 @@ async function assertCreateRolledBack(patientUid) {
   const events = await canonicalRows(patientUid, 'maternity.pregnancy_created');
 
   expect(pregnancies).toHaveLength(0);
+  expect(projection).toMatchObject({ is_pregnant: false, pregnancy_lmp_date: null });
+  expect(events.timeline).toHaveLength(0);
+  expect(events.audit).toHaveLength(0);
+}
+
+async function assertPregnancyUpdateRolledBack({ patientUid, pregnancyId, lmpDate }) {
+  const pregnancies = await prisma.$queryRawUnsafe(
+    `SELECT lmp_date::text AS lmp_date, high_risk, notes
+       FROM maternity_pregnancies
+      WHERE tenant_id = $1::uuid AND id = $2::int`,
+    TENANT_A,
+    Number(pregnancyId),
+  );
+  const projection = await patientProjection(patientUid);
+  const events = await canonicalRows(patientUid, 'maternity.pregnancy_updated');
+
+  expect(pregnancies[0]).toMatchObject({
+    lmp_date: lmpDate,
+    high_risk: false,
+    notes: null,
+  });
   expect(projection).toMatchObject({ is_pregnant: false, pregnancy_lmp_date: null });
   expect(events.timeline).toHaveLength(0);
   expect(events.audit).toHaveLength(0);
@@ -320,7 +392,7 @@ d('C2 maternity atomic writes', () => {
     if (originalGate === undefined) delete process.env.OBGYN_LABOUR_WARD_PRIVILEGE_GATE_ENABLED;
     else process.env.OBGYN_LABOUR_WARD_PRIVILEGE_GATE_ENABLED = originalGate;
     await prisma.$disconnect();
-  });
+  }, 30_000);
 
   test('createPregnancy commits detail, projection, staff-only canonical event, and audit together', async () => {
     const patientUid = await seedUser();
@@ -414,6 +486,344 @@ d('C2 maternity atomic writes', () => {
       await removeTrigger();
     }
     await assertCreateRolledBack(patientUid);
+  });
+
+  test('updatePregnancy commits correction, projection, and canonical evidence from stored truth', async () => {
+    const patientUid = await seedUser();
+    const spoofedPatientUid = await seedUser();
+    const pregnancy = await seedPregnancy({ patientUid, lmpDate: '2025-10-01' });
+
+    const updated = await updatePregnancy({
+      tenantId: TENANT_A,
+      id: pregnancy.id,
+      patient_uid: spoofedPatientUid,
+      actor_uid: spoofedPatientUid,
+      actor_role: 'SUPER_ADMIN',
+      lmp_date: '2025-10-15',
+      high_risk: true,
+      high_risk_reasons: ['private-risk-reason'],
+      notes: 'private corrected narrative',
+    }, {
+      actorUid: ACTOR_UID,
+      actorRole: 'NURSING_STAFF',
+    });
+
+    expect(String(updated.patient_uid)).toBe(patientUid);
+    expect(updated.status).toBe('ongoing');
+    expect(await patientProjection(patientUid)).toMatchObject({
+      is_pregnant: true,
+      pregnancy_lmp_date: '2025-10-15',
+    });
+    expect(await patientProjection(spoofedPatientUid)).toMatchObject({
+      is_pregnant: false,
+      pregnancy_lmp_date: null,
+    });
+
+    const { timeline, audit } = await canonicalRows(patientUid, 'maternity.pregnancy_updated');
+    expect(timeline).toHaveLength(1);
+    expect(timeline[0]).toMatchObject({
+      tenant_id: TENANT_A,
+      event_status: 'ongoing',
+      source_table: 'maternity_pregnancies',
+      source_id: String(pregnancy.id),
+      resource_type: 'pregnancy',
+      resource_id: String(pregnancy.id),
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+      visible_to_patient: false,
+      clinical_summary: 'Pregnancy episode updated',
+      payload: {
+        pregnancy_id: pregnancy.id,
+        updated_fields: ['lmp_date', 'high_risk', 'high_risk_reasons', 'notes'],
+      },
+    });
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({
+      tenant_id: TENANT_A,
+      patient_uid: patientUid,
+      action_status: 'success',
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+      resource_type: 'pregnancy',
+      resource_table: 'maternity_pregnancies',
+      resource_id: String(pregnancy.id),
+      after_state: {
+        pregnancy_status: 'ongoing',
+        user_is_pregnant: true,
+      },
+      metadata: {
+        updated_fields: ['lmp_date', 'high_risk', 'high_risk_reasons', 'notes'],
+      },
+    });
+    expect(JSON.stringify([timeline[0].payload, audit[0].after_state])).not.toContain(
+      'private corrected narrative',
+    );
+    expect(JSON.stringify([timeline[0].payload, audit[0].after_state])).not.toContain(
+      'private-risk-reason',
+    );
+
+    const beforeRetry = await prisma.$queryRawUnsafe(
+      `SELECT updated_at FROM maternity_pregnancies
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT_A,
+      Number(pregnancy.id),
+    );
+    await updatePregnancy({
+      tenantId: TENANT_A,
+      id: pregnancy.id,
+      lmp_date: '2025-10-15',
+      high_risk: true,
+      high_risk_reasons: ['private-risk-reason'],
+      notes: 'private corrected narrative',
+    }, {
+      actorUid: ACTOR_UID,
+      actorRole: 'NURSING_STAFF',
+    });
+    const afterRetry = await prisma.$queryRawUnsafe(
+      `SELECT updated_at FROM maternity_pregnancies
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT_A,
+      Number(pregnancy.id),
+    );
+    expect(afterRetry[0].updated_at).toEqual(beforeRetry[0].updated_at);
+    const retryEvents = await canonicalRows(patientUid, 'maternity.pregnancy_updated');
+    expect(retryEvents.timeline).toHaveLength(1);
+    expect(retryEvents.audit).toHaveLength(1);
+  });
+
+  test('updatePregnancy preserves the newest ongoing pregnancy projection when correcting an older episode', async () => {
+    // Seeded DELIBERATELY WRONG (is_pregnant false, a stale lmp_date that
+    // matches neither episode) so the assertions below can only pass if the
+    // derived projection actually ran. Seeding the expected values would make
+    // this test pass with the projection write deleted entirely.
+    const patientUid = await seedUser({ isPregnant: false, lmpDate: '2024-01-01' });
+    const olderPregnancy = await seedPregnancy({
+      patientUid,
+      pregnancyNumber: 1,
+      lmpDate: '2025-10-01',
+    });
+    const latestPregnancy = await seedPregnancy({
+      patientUid,
+      pregnancyNumber: 2,
+      lmpDate: '2025-12-01',
+    });
+
+    await updatePregnancy({
+      tenantId: TENANT_A,
+      id: olderPregnancy.id,
+      lmp_date: '2025-10-15',
+    }, {
+      actorUid: ACTOR_UID,
+      actorRole: 'NURSING_STAFF',
+    });
+
+    expect(await patientProjection(patientUid)).toMatchObject({
+      is_pregnant: true,
+      pregnancy_lmp_date: '2025-12-01',
+    });
+    const latestRows = await prisma.$queryRawUnsafe(
+      `SELECT lmp_date::text AS lmp_date
+         FROM maternity_pregnancies
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT_A,
+      Number(latestPregnancy.id),
+    );
+    expect(latestRows[0].lmp_date).toBe('2025-12-01');
+  });
+
+  // What this proves: with one writer parked mid-transaction, the other WAITS
+  // and both then commit with no lost write and exactly one event pair each.
+  // What it deliberately does NOT prove is the lock ORDER — the barrier fires
+  // on the ANC insert, by which point recordAncVisit already holds both row
+  // locks, so no cycle is constructible and this passes even with a writer's
+  // order flipped (measured). The order is pinned at source instead, by
+  // unit/maternityLockOrderSourceContract.test.js.
+  test('updatePregnancy waits for a parked recordAncVisit and both settle without lost writes', async () => {
+    const patientUid = await seedUser({ isPregnant: true, lmpDate: '2025-10-01' });
+    const pregnancy = await seedPregnancy({ patientUid, lmpDate: '2025-10-01' });
+    const namespace = 19019;
+    const key = Number.parseInt(randomUUID().replaceAll('-', '').slice(0, 7), 16);
+    const blocker = new Client({
+      connectionString: process.env.TEST_DATABASE_URL || process.env.DATABASE_URL,
+    });
+    const removeBarrier = await installAdvisoryBarrierTrigger({ namespace, key });
+    const operations = [];
+    let blockerConnected = false;
+    let lockReleased = false;
+    let results;
+
+    try {
+      await blocker.connect();
+      blockerConnected = true;
+      await blocker.query('SELECT pg_advisory_lock($1::int, $2::int)', [namespace, key]);
+
+      operations.push(recordAncVisit({
+        tenantId: TENANT_A,
+        pregnancy_id: pregnancy.id,
+        visit_date: '2026-06-01',
+        weight_kg: 68.5,
+        notes: 'concurrent ANC correction',
+        recorded_by: ACTOR_UID,
+        actor_uid: ACTOR_UID,
+        actor_role: 'NURSING_STAFF',
+      }));
+      await waitForLockWaiters(1);
+
+      operations.push(updatePregnancy({
+        tenantId: TENANT_A,
+        id: pregnancy.id,
+        lmp_date: '2025-10-15',
+        notes: 'concurrent pregnancy correction',
+      }, {
+        actorUid: ACTOR_UID,
+        actorRole: 'NURSING_STAFF',
+      }));
+      await waitForLockWaiters(2);
+
+      await blocker.query('SELECT pg_advisory_unlock($1::int, $2::int)', [namespace, key]);
+      lockReleased = true;
+      results = await Promise.allSettled(operations);
+    } finally {
+      if (!lockReleased && blockerConnected) {
+        await blocker.query('SELECT pg_advisory_unlock($1::int, $2::int)', [namespace, key])
+          .catch(() => {});
+      }
+      await Promise.allSettled(operations);
+      await blocker.end().catch(() => {});
+      await removeBarrier();
+    }
+
+    expect(results).toHaveLength(2);
+    for (const result of results) {
+      // Report the driver code on failure. The previous shape asserted
+      // `fulfilled` first and only then inspected `result.reason`, so the
+      // 40P01 (deadlock detected) branch was unreachable JS: the expect above
+      // it had already thrown, and the failure read only "rejected".
+      if (result.status === 'rejected') {
+        throw new Error(
+          `concurrent maternity write rejected: code=${result.reason?.code} `
+          + `${result.reason?.message}`,
+        );
+      }
+      expect(result.status).toBe('fulfilled');
+    }
+    const pregnancyRows = await prisma.$queryRawUnsafe(
+      `SELECT lmp_date::text AS lmp_date, notes
+         FROM maternity_pregnancies
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT_A,
+      Number(pregnancy.id),
+    );
+    expect(pregnancyRows[0]).toMatchObject({
+      lmp_date: '2025-10-15',
+      notes: 'concurrent pregnancy correction',
+    });
+    const visits = await prisma.$queryRawUnsafe(
+      `SELECT weight_kg::text AS weight_kg, notes
+         FROM maternity_anc_visits
+        WHERE tenant_id = $1::uuid
+          AND pregnancy_id = $2::int
+          AND visit_date = '2026-06-01'::date`,
+      TENANT_A,
+      Number(pregnancy.id),
+    );
+    expect(visits).toEqual([{
+      weight_kg: '68.50',
+      notes: 'concurrent ANC correction',
+    }]);
+    expect(await patientProjection(patientUid)).toMatchObject({
+      is_pregnant: true,
+      pregnancy_lmp_date: '2025-10-15',
+    });
+    const updateEvents = await canonicalRows(patientUid, 'maternity.pregnancy_updated');
+    const ancEvents = await canonicalRows(patientUid, 'maternity.anc_visit_recorded');
+    expect(updateEvents.timeline).toHaveLength(1);
+    expect(updateEvents.audit).toHaveLength(1);
+    expect(ancEvents.timeline).toHaveLength(1);
+    expect(ancEvents.audit).toHaveLength(1);
+  }, 30_000);
+
+  test('updatePregnancy rejects general lifecycle changes and cross-tenant updates without writes', async () => {
+    const patientUid = await seedUser();
+    const pregnancy = await seedPregnancy({ patientUid, lmpDate: '2025-10-01' });
+
+    await expect(updatePregnancy({
+      tenantId: TENANT_A,
+      id: pregnancy.id,
+      status: 'delivered',
+    }, {
+      actorUid: ACTOR_UID,
+      actorRole: 'NURSING_STAFF',
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'MATERNITY_STATUS_TRANSITION_REQUIRES_LIFECYCLE_ACTION',
+    });
+    await expect(updatePregnancy({
+      tenantId: TENANT_B,
+      id: pregnancy.id,
+      lmp_date: '2025-10-15',
+    }, {
+      actorUid: ACTOR_UID,
+      actorRole: 'NURSING_STAFF',
+    })).rejects.toMatchObject({ statusCode: 404 });
+
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT lmp_date::text AS lmp_date, status
+         FROM maternity_pregnancies
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT_A,
+      Number(pregnancy.id),
+    );
+    expect(rows[0]).toMatchObject({ lmp_date: '2025-10-01', status: 'ongoing' });
+    const events = await canonicalRows(patientUid, 'maternity.pregnancy_updated');
+    expect(events.timeline).toHaveLength(0);
+    expect(events.audit).toHaveLength(0);
+  });
+
+  test.each([
+    ['pregnancy detail', ({ pregnancyId }) => ({
+      table: 'maternity_pregnancies', operation: 'UPDATE',
+      condition: `NEW.id = ${Number(pregnancyId)}`,
+    })],
+    ['user projection', ({ patientUid }) => ({
+      table: 'users', operation: 'UPDATE',
+      condition: `NEW.uid = '${patientUid}'::uuid AND NEW.pregnancy_lmp_date = '2025-10-15'::date`,
+    })],
+    ['canonical timeline', ({ patientUid }) => ({
+      table: 'clinical_timeline_events', operation: 'INSERT',
+      condition: `NEW.patient_uid = '${patientUid}'::uuid AND NEW.event_type = 'maternity.pregnancy_updated'`,
+    })],
+    ['clinical audit', ({ patientUid }) => ({
+      table: 'clinical_audit_events', operation: 'INSERT',
+      condition: `NEW.patient_uid = '${patientUid}'::uuid AND NEW.action = 'maternity.pregnancy_updated'`,
+    })],
+  ])('updatePregnancy rolls back after injected failure at %s', async (_label, triggerFor) => {
+    const lmpDate = '2025-10-01';
+    const patientUid = await seedUser();
+    const pregnancy = await seedPregnancy({ patientUid, lmpDate });
+    const removeTrigger = await installFailureTrigger(triggerFor({
+      patientUid,
+      pregnancyId: pregnancy.id,
+    }));
+    try {
+      await expect(updatePregnancy({
+        tenantId: TENANT_A,
+        id: pregnancy.id,
+        lmp_date: '2025-10-15',
+        high_risk: true,
+        notes: 'must roll back',
+      }, {
+        actorUid: ACTOR_UID,
+        actorRole: 'NURSING_STAFF',
+      })).rejects.toThrow();
+    } finally {
+      await removeTrigger();
+    }
+    await assertPregnancyUpdateRolledBack({
+      patientUid,
+      pregnancyId: pregnancy.id,
+      lmpDate,
+    });
   });
 
   test('admitToLabor commits detail and a staff-only canonical/audit pair under the submitter identity', async () => {

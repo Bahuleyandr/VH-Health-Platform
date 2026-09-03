@@ -44,9 +44,15 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 
 const getPregnancy = jest.fn();
 const listActiveLaborAdmissions = jest.fn();
+const getAncTimelineForPregnancy = jest.fn();
+const listFetalKicks = jest.fn();
+const projectAncTimelineForPatient = jest.fn((timeline) => timeline);
 jest.unstable_mockModule('../../services/maternity/maternityService.js', () => ({
   getPregnancy,
   listActiveLaborAdmissions,
+  getAncTimelineForPregnancy,
+  listFetalKicks,
+  projectAncTimelineForPatient,
 }));
 jest.unstable_mockModule('../../services/maternity/immunisationService.js', () => ({}));
 
@@ -188,7 +194,11 @@ describe('mother-from-pregnancy selectors', () => {
 
   it('returns null on malformed ids without touching the database', async () => {
     const selector = selectorFor('GET /pregnancies/:id');
-    await expect(selector({ tenantId: TENANT, params: { id: 'abc' } })).resolves.toBeNull();
+    for (const id of [
+      'abc', '1suffix', ' 1', '1 ', '1.0', '+1', '-1', '0', '01', '2147483648',
+    ]) {
+      await expect(selector({ tenantId: TENANT, params: { id } })).resolves.toBeNull();
+    }
     await expect(selector({ tenantId: TENANT, params: {} })).resolves.toBeNull();
     const bodySelector = selectorFor('POST /anc-visits');
     await expect(bodySelector({ tenantId: TENANT, body: {} })).resolves.toBeNull();
@@ -348,5 +358,83 @@ describe('request-time behaviour', () => {
 
     expect(res.status).toBe(200);
     expect(listActiveLaborAdmissions).toHaveBeenCalledWith({ tenantId: TENANT, limit: undefined });
+  });
+});
+
+// Regression: ensurePregnancyAccess must FAIL CLOSED on an id it cannot parse.
+//
+// It used to `return true` there, which was survivable only while the guard and
+// the services behind it parsed identifiers identically. They stopped: the
+// guard moved to the exact int4 parser while getAncTimelineForPregnancy and
+// listFetalKicks still used Number.parseInt, which reads '012', '12abc', ' 12',
+// '+12' and '12.9' all as 12. Every id in that gap skipped the ownership check
+// and served another patient's record to an authenticated patient. Both halves
+// are fixed (same parser on both sides, and this guard refuses rather than
+// allows) so that neither one alone can reopen the hole -- which is why this
+// pins the REFUSAL, not just the parser agreement.
+describe('patient ownership guard fails closed on unparseable pregnancy ids', () => {
+  const OWNER = 'mother-uid-1';
+  const INTRUDER = 'other-patient-uid';
+
+  function buildPatientApp(uid) {
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => {
+      req.tenantId = TENANT;
+      req.user = { uid, role: 'PATIENT' };
+      next();
+    });
+    app.use('/maternity', maternityRoutes);
+    return app;
+  }
+
+  beforeEach(() => {
+    getPregnancy.mockReset();
+    getAncTimelineForPregnancy.mockReset();
+    listFetalKicks.mockReset();
+    getPregnancy.mockResolvedValue({ id: 12, patient_uid: OWNER });
+    getAncTimelineForPregnancy.mockResolvedValue({ visits: [] });
+    listFetalKicks.mockResolvedValue([]);
+  });
+
+  // Exactly the forms Number.parseInt would have coerced to 12.
+  const COERCIBLE = ['012', '12abc', '%2012', '12%20', '+12', '12.9'];
+
+  it.each(COERCIBLE)(
+    'refuses GET /pregnancies/%s/timeline for a non-owner instead of serving it',
+    async (id) => {
+      const res = await request(buildPatientApp(INTRUDER))
+        .get(`/maternity/pregnancies/${id}/timeline`);
+
+      expect(res.status).toBe(400);
+      expect(getAncTimelineForPregnancy).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(COERCIBLE)(
+    'refuses GET /fetal-kicks/pregnancy/%s for a non-owner instead of serving it',
+    async (id) => {
+      const res = await request(buildPatientApp(INTRUDER))
+        .get(`/maternity/fetal-kicks/pregnancy/${id}`);
+
+      expect(res.status).toBe(400);
+      expect(listFetalKicks).not.toHaveBeenCalled();
+    },
+  );
+
+  it('still refuses a well-formed id belonging to another patient with 403', async () => {
+    const res = await request(buildPatientApp(INTRUDER))
+      .get('/maternity/pregnancies/12/timeline');
+
+    expect(res.status).toBe(403);
+    expect(getAncTimelineForPregnancy).not.toHaveBeenCalled();
+  });
+
+  it('still serves the owner their own well-formed pregnancy', async () => {
+    const res = await request(buildPatientApp(OWNER))
+      .get('/maternity/pregnancies/12/timeline');
+
+    expect(res.status).toBe(200);
+    expect(getAncTimelineForPregnancy).toHaveBeenCalledTimes(1);
   });
 });
