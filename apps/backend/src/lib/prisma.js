@@ -994,7 +994,7 @@ export async function tenantRlsRolePosture() {
                SELECT oid FROM pg_roles
                 WHERE rolname = COALESCE(NULLIF($1, ''), session_user)
              )) AS unforced_owned_rls_tables,
-         (SELECT count(*)::int
+         (SELECT count(DISTINCT c.oid)::int
             FROM pg_policies p
             JOIN pg_class c     ON c.relname = p.tablename
             JOIN pg_namespace n ON n.oid = c.relnamespace
