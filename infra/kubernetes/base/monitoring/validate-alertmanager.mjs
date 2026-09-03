@@ -102,10 +102,13 @@ export function assertRouteCases(cases) {
 }
 
 export function validateAlertmanager() {
-  const source = readFileSync(
-    process.env.ALERTMANAGER_CONFIG_SOURCE || join(here, 'alertmanager.yaml.example'),
-    'utf8',
-  );
+  // The env override exists so the negative harness can point this at a
+  // mutated copy. Resolve it once and NAME IT in the log: printing a
+  // hard-coded filename while validating a substituted one is exactly the
+  // false-green this gate is meant to prevent.
+  const configSource = process.env.ALERTMANAGER_CONFIG_SOURCE
+    || join(here, 'alertmanager.yaml.example');
+  const source = readFileSync(configSource, 'utf8');
   const rendered = source.replaceAll(
     '/etc/alertmanager/secrets/alertmanager-secrets',
     secretFixtureDir,
@@ -169,7 +172,7 @@ export function validateAlertmanager() {
 
     writeFileSync(configPath, rendered, 'utf8');
     run(['check-config', configPath]);
-    console.log('✓ amtool check-config: alertmanager.yaml.example');
+    console.log(`✓ amtool check-config: ${configSource}`);
 
     for (const routeCase of routeCases) {
       run([

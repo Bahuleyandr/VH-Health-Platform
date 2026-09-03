@@ -51,10 +51,16 @@ try {
 }
 
 function rulePath(file) {
+  // Same rule as validate-alertmanager.mjs: the override is for the negative
+  // harness, so the resolved path is echoed rather than assumed.
   if (file === 'backend-red-alerts.yaml' && process.env.BACKEND_RED_ALERTS_FILE) {
-    return resolve(process.env.BACKEND_RED_ALERTS_FILE);
+    const overridden = resolve(process.env.BACKEND_RED_ALERTS_FILE);
+    console.log(`• rule file (overridden): ${overridden}`);
+    return overridden;
   }
-  return join(here, file);
+  const resolved = join(here, file);
+  console.log(`• rule file: ${resolved}`);
+  return resolved;
 }
 
 function extractGroups(filePath) {

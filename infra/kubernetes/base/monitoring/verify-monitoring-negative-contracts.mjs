@@ -47,13 +47,15 @@ try {
 }
 
 function runRuleTests(backendRuleFile) {
-  return spawnSync(process.execPath, [runnerPath], {
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      ...(backendRuleFile ? { BACKEND_RED_ALERTS_FILE: backendRuleFile } : {}),
-    },
-  });
+  // Build the child env explicitly and DELETE the override first. A plain
+  // spread lets an ambient BACKEND_RED_ALERTS_FILE survive into the baseline
+  // run, so the harness would assert "baseline green" against a file nobody
+  // reviewed and then compare it to a mutation of the repo's file — a green
+  // proof about two unrelated inputs.
+  const env = { ...process.env };
+  delete env.BACKEND_RED_ALERTS_FILE;
+  if (backendRuleFile) env.BACKEND_RED_ALERTS_FILE = backendRuleFile;
+  return spawnSync(process.execPath, [runnerPath], { encoding: 'utf8', env });
 }
 
 function resultOutput(result) {
