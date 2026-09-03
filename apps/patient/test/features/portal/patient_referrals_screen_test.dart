@@ -63,6 +63,8 @@ class _FakeRepository implements PatientReferralsRepository {
   final List<PatientReferral> referrals;
 
   @override
-  Future<PatientReferralsPage> listReferrals() async =>
-      PatientReferralsPage(referrals: referrals);
+  Future<PatientReferralsPage> listReferrals({
+    required String loadFailureMessage,
+    required String refreshFailureMessage,
+  }) async => PatientReferralsPage(referrals: referrals);
 }

@@ -359,30 +359,35 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
   void _showFeatureDescription(FeatureIconData feature) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(feature.icon, color: feature.color),
-            const SizedBox(width: 8),
-            Flexible(child: Text(feature.label)),
+      builder: (context) {
+        final l10n = AppLocalizations.of(context)!;
+        return AlertDialog(
+          title: Row(
+            children: [
+              Icon(feature.icon, color: feature.color),
+              const SizedBox(width: 8),
+              Flexible(child: Text(feature.label)),
+            ],
+          ),
+          content: Text(
+            feature.description ?? l10n.circularDialTapToAccess(feature.label),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(l10n.commonCloseButton),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(context);
+                feature.onTap(context);
+              },
+              style: FilledButton.styleFrom(backgroundColor: feature.color),
+              child: Text(l10n.commonOpenButton),
+            ),
           ],
-        ),
-        content: Text(feature.description ?? 'Tap to access ${feature.label}'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(context);
-              feature.onTap(context);
-            },
-            style: FilledButton.styleFrom(backgroundColor: feature.color),
-            child: const Text('Open'),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -539,13 +544,7 @@ class _FeatureDialButton extends StatelessWidget {
 }
 
 String _dialLabel(String label) {
-  return switch (label) {
-    'Appointments' => 'Appoint-\nments',
-    'Departments' => 'Depart-\nments',
-    'Tests & Reports' => 'Tests &\nReports',
-    'Ask a Doubt' => 'Ask a\nDoubt',
-    _ => label,
-  };
+  return label;
 }
 
 class _CenterLogoButton extends StatelessWidget {

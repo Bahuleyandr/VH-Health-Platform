@@ -23,6 +23,7 @@ class HistoryTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     if (loading && history.isEmpty) {
       return const Center(
         child: Padding(
@@ -45,11 +46,14 @@ class HistoryTab extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              AppLocalizations.of(context)!.gamificationNoPointHistory,
+              l.gamificationNoPointHistory,
               style: Theme.of(context).textTheme.bodyMedium,
             ),
             const SizedBox(height: 8),
-            TextButton(onPressed: onRefresh, child: const Text('Refresh')),
+            TextButton(
+              onPressed: onRefresh,
+              child: Text(l.commonRefreshButton),
+            ),
           ],
         ),
       );
@@ -86,7 +90,8 @@ class HistoryTab extends StatelessWidget {
 
             final entry = history[index];
             final description =
-                entry['description']?.toString() ?? 'Points activity';
+                entry['description']?.toString() ??
+                l.gamificationPointsActivity;
             final points = (entry['points'] as num?)?.toInt() ?? 0;
             final dateStr =
                 entry['createdAt']?.toString() ??

@@ -45,18 +45,17 @@ class _FeedbackHistoryScreenState extends State<FeedbackHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Scaffold(
-      appBar: AppBar(
-        title: Text(AppLocalizations.of(context)!.feedbackHistoryTitle),
-      ),
+      appBar: AppBar(title: Text(l10n.feedbackHistoryTitle)),
       body: DataStateBuilder<dynamic>(
         isLoading: _loading,
         error: _error,
         data: _feedback,
         onRetry: _load,
         emptyIcon: Icons.feedback_outlined,
-        emptyTitle: 'No feedback submitted yet',
-        emptySubtitle: 'Your feedback history will appear here',
+        emptyTitle: l10n.feedbackHistoryEmptyTitle,
+        emptySubtitle: l10n.feedbackHistoryEmptySubtitle,
         builder: (context, feedback) => Column(
           children: [
             if (_averageRating != null)
@@ -67,7 +66,7 @@ class _FeedbackHistoryScreenState extends State<FeedbackHistoryScreen> {
                     const Icon(Icons.star, color: Colors.amber),
                     const SizedBox(width: 8),
                     Text(
-                      'Average rating: $_averageRating',
+                      l10n.feedbackAverageRating(_averageRating!),
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                   ],

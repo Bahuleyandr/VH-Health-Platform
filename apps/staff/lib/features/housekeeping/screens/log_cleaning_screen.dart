@@ -85,7 +85,10 @@ class _LogCleaningScreenState extends State<LogCleaningScreen> {
     try {
       final evidence = _photo == null
           ? null
-          : await StaffEvidenceUploadService.upload(_photo!);
+          : await StaffEvidenceUploadService.upload(
+              _photo!,
+              failureMessage: AppStrings.of(context).staffPhotoUploadFailed,
+            );
       final result = await HrApiService.submitCleaningLog(
         cleaningType: _cleaningType,
         zoneId: _selectedZoneId,

@@ -8023,6 +8023,768 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'View my ABHA'**
   String get abhaEnrolViewMyAbha;
+
+  /// Label for choosing an in-person or teleconsult appointment
+  ///
+  /// In en, this message translates to:
+  /// **'Visit type'**
+  String get appointmentVisitType;
+
+  /// Appointment visit-type option
+  ///
+  /// In en, this message translates to:
+  /// **'In-person consultation'**
+  String get appointmentInPersonConsultation;
+
+  /// Appointment visit-type option
+  ///
+  /// In en, this message translates to:
+  /// **'Teleconsult (video visit)'**
+  String get appointmentTeleconsultVideoVisit;
+
+  /// Badge on a family member whose patient profile is linked
+  ///
+  /// In en, this message translates to:
+  /// **'Linked dependent'**
+  String get familyLinkedDependentBadge;
+
+  /// Heading and action for promoting a family member into a linked dependent; translations require legal and linguistic review
+  ///
+  /// In en, this message translates to:
+  /// **'Set up linked dependent'**
+  String get familySetUpLinkedDependent;
+
+  /// ANC timeline heading for upcoming booked appointments
+  ///
+  /// In en, this message translates to:
+  /// **'Booked visits'**
+  String get ancBookedVisits;
+
+  /// ANC timeline heading for recorded blood pressure and weight
+  ///
+  /// In en, this message translates to:
+  /// **'Recorded BP & weight'**
+  String get ancRecordedBpWeight;
+
+  /// Booking validation shown when no appointment date is selected
+  ///
+  /// In en, this message translates to:
+  /// **'Please select a date'**
+  String get appointmentSelectDateError;
+
+  /// Booking validation shown when available appointment slots exist but none is selected
+  ///
+  /// In en, this message translates to:
+  /// **'Please select an available time slot'**
+  String get appointmentSelectAvailableSlotError;
+
+  /// Booking validation shown when no doctor is selected
+  ///
+  /// In en, this message translates to:
+  /// **'Please select a doctor'**
+  String get appointmentSelectDoctorError;
+
+  /// Booking error shown when the signed-in patient identifier is unavailable
+  ///
+  /// In en, this message translates to:
+  /// **'User session not found. Please log out and log back in.'**
+  String get appointmentSessionMissingError;
+
+  /// Label for the optional appointment reason field
+  ///
+  /// In en, this message translates to:
+  /// **'Reason for visit'**
+  String get appointmentReasonForVisitLabel;
+
+  /// Example text for the optional appointment reason field
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. Regular checkup, headache, follow-up...'**
+  String get appointmentReasonForVisitHint;
+
+  /// Appointment date-picker action before a date is selected
+  ///
+  /// In en, this message translates to:
+  /// **'Select Date'**
+  String get appointmentSelectDateLabel;
+
+  /// Summary below the appointment slot picker
+  ///
+  /// In en, this message translates to:
+  /// **'Selected: {time}'**
+  String appointmentSelectedTime(String time);
+
+  /// Manual appointment time-picker action
+  ///
+  /// In en, this message translates to:
+  /// **'Select Time'**
+  String get appointmentSelectTimeLabel;
+
+  /// Title above the appointment phone-number choices on About Us
+  ///
+  /// In en, this message translates to:
+  /// **'Doctor Appointments'**
+  String get aboutDoctorAppointmentsTitle;
+
+  /// About Us contact action for home sample collection
+  ///
+  /// In en, this message translates to:
+  /// **'Home Sample'**
+  String get aboutHomeSampleAction;
+
+  /// Title above the home sample collection phone-number choices on About Us
+  ///
+  /// In en, this message translates to:
+  /// **'Free Home Sample Collection'**
+  String get aboutFreeHomeSampleCollectionTitle;
+
+  /// About Us contact action for ambulance phone numbers
+  ///
+  /// In en, this message translates to:
+  /// **'Ambulance'**
+  String get aboutAmbulanceAction;
+
+  /// Title above the emergency ambulance phone-number choices on About Us
+  ///
+  /// In en, this message translates to:
+  /// **'Emergency Ambulance'**
+  String get aboutEmergencyAmbulanceTitle;
+
+  /// About Us contact action that opens the hospital location in maps
+  ///
+  /// In en, this message translates to:
+  /// **'Navigate'**
+  String get aboutNavigateAction;
+
+  /// Text shared with an earned achievement image
+  ///
+  /// In en, this message translates to:
+  /// **'I earned the \"{title}\" badge on VH Health!'**
+  String gamificationShareEarnedBadge(String title);
+
+  /// Router error page message
+  ///
+  /// In en, this message translates to:
+  /// **'Page not found: {path}'**
+  String navigationPageNotFound(String path);
+
+  /// Router error page action
+  ///
+  /// In en, this message translates to:
+  /// **'Go Home'**
+  String get navigationGoHome;
+
+  /// Fallback when the linked-dependent roster cannot load
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to load dependents. Please try again.'**
+  String get dependentsLoadFailed;
+
+  /// Notification permission name
+  ///
+  /// In en, this message translates to:
+  /// **'Notifications'**
+  String get permissionsNotificationsName;
+
+  /// Notification permission explanation
+  ///
+  /// In en, this message translates to:
+  /// **'Allow notifications for appointment reminders and health updates.'**
+  String get permissionsNotificationsExplanation;
+
+  /// Camera permission name
+  ///
+  /// In en, this message translates to:
+  /// **'Camera Access'**
+  String get permissionsCameraName;
+
+  /// Camera permission explanation
+  ///
+  /// In en, this message translates to:
+  /// **'Allow camera access to scan documents and take photos for your health records.'**
+  String get permissionsCameraExplanation;
+
+  /// Photo-library permission name
+  ///
+  /// In en, this message translates to:
+  /// **'Photo Library Access'**
+  String get permissionsPhotosName;
+
+  /// Photo-library permission explanation
+  ///
+  /// In en, this message translates to:
+  /// **'Allow photo access to upload documents and prescriptions.'**
+  String get permissionsPhotosExplanation;
+
+  /// Location permission name
+  ///
+  /// In en, this message translates to:
+  /// **'Location Access'**
+  String get permissionsLocationName;
+
+  /// Location permission explanation
+  ///
+  /// In en, this message translates to:
+  /// **'Allow location access for emergency SOS features and nearby hospitals.'**
+  String get permissionsLocationExplanation;
+
+  /// Calendar permission name
+  ///
+  /// In en, this message translates to:
+  /// **'Calendar Access'**
+  String get permissionsCalendarName;
+
+  /// Calendar permission explanation
+  ///
+  /// In en, this message translates to:
+  /// **'Allow calendar access to display appointments and health-related events.'**
+  String get permissionsCalendarExplanation;
+
+  /// Fallback permission name
+  ///
+  /// In en, this message translates to:
+  /// **'{name} access'**
+  String permissionsGenericName(String name);
+
+  /// Fallback permission explanation
+  ///
+  /// In en, this message translates to:
+  /// **'This permission is required for this feature to work.'**
+  String get permissionsGenericExplanation;
+
+  /// Permission explanation dialog title
+  ///
+  /// In en, this message translates to:
+  /// **'{name} Required'**
+  String permissionsRequiredTitle(String name);
+
+  /// Permanently disabled permission dialog title
+  ///
+  /// In en, this message translates to:
+  /// **'{name} Disabled'**
+  String permissionsDisabledTitle(String name);
+
+  /// Permanently disabled permission dialog body
+  ///
+  /// In en, this message translates to:
+  /// **'{name} has been disabled. Enable it in Settings to use this feature.'**
+  String permissionsDisabledBody(String name);
+
+  /// Fallback description in the dashboard feature dial
+  ///
+  /// In en, this message translates to:
+  /// **'Tap to access {feature}'**
+  String circularDialTapToAccess(String feature);
+
+  /// Heading above appointment phone numbers
+  ///
+  /// In en, this message translates to:
+  /// **'Book by Phone'**
+  String get contactBookByPhone;
+
+  /// Live delivery location indicator
+  ///
+  /// In en, this message translates to:
+  /// **'Live'**
+  String get deliveryTrackingLive;
+
+  /// Delivery ETA
+  ///
+  /// In en, this message translates to:
+  /// **'Estimated arrival: ~{minutes} min'**
+  String deliveryTrackingEstimatedArrival(String minutes);
+
+  /// Delivery distance
+  ///
+  /// In en, this message translates to:
+  /// **'{distance} km'**
+  String deliveryTrackingDistance(String distance);
+
+  /// Call the delivery person action
+  ///
+  /// In en, this message translates to:
+  /// **'Call'**
+  String get deliveryTrackingCall;
+
+  /// Delivery route origin label
+  ///
+  /// In en, this message translates to:
+  /// **'Hospital'**
+  String get deliveryTrackingHospital;
+
+  /// Logout warning when remote revocation is queued for retry
+  ///
+  /// In en, this message translates to:
+  /// **'Signed out on this device. We could not reach the server, so your other devices may stay signed in — we will finish signing them out automatically the next time you open this app.'**
+  String get logoutRevocationRetryQueued;
+
+  /// Logout warning when remote revocation cannot be retried
+  ///
+  /// In en, this message translates to:
+  /// **'Signed out on this device only. We could not reach the server and this device cannot try again, so your other devices may stay signed in. Sign out from them directly.'**
+  String get logoutRevocationRetryUnavailable;
+
+  /// Unexpected logout failure
+  ///
+  /// In en, this message translates to:
+  /// **'Could not log out. Please try again.'**
+  String get logoutFailed;
+
+  /// Login toolbar light-theme tooltip
+  ///
+  /// In en, this message translates to:
+  /// **'Light mode'**
+  String get loginLightMode;
+
+  /// Login toolbar dark-theme tooltip
+  ///
+  /// In en, this message translates to:
+  /// **'Dark mode'**
+  String get loginDarkMode;
+
+  /// Dashboard Today refresh failure detail
+  ///
+  /// In en, this message translates to:
+  /// **'Today could not refresh right now.'**
+  String get dashboardTodayRefreshFailed;
+
+  /// Dashboard Today refresh failure heading
+  ///
+  /// In en, this message translates to:
+  /// **'Today could not refresh'**
+  String get dashboardTodayRefreshTitle;
+
+  /// Generic completion action
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get commonDoneButton;
+
+  /// Dashboard header hospital identifier
+  ///
+  /// In en, this message translates to:
+  /// **'Hospital ID {hospitalId}'**
+  String dashboardHospitalId(String hospitalId);
+
+  /// Expanded steps panel heading
+  ///
+  /// In en, this message translates to:
+  /// **'Steps breakdown'**
+  String get dashboardStepsBreakdown;
+
+  /// Remaining amount metric label
+  ///
+  /// In en, this message translates to:
+  /// **'Left'**
+  String get dashboardMetricLeft;
+
+  /// Activity-level metric label
+  ///
+  /// In en, this message translates to:
+  /// **'Activity'**
+  String get dashboardMetricActivity;
+
+  /// Expanded points panel heading
+  ///
+  /// In en, this message translates to:
+  /// **'Points breakdown'**
+  String get dashboardPointsBreakdown;
+
+  /// Points tier metric label
+  ///
+  /// In en, this message translates to:
+  /// **'Tier'**
+  String get dashboardMetricTier;
+
+  /// Next points tier metric label
+  ///
+  /// In en, this message translates to:
+  /// **'Next'**
+  String get dashboardMetricNext;
+
+  /// Cycle-length metric label
+  ///
+  /// In en, this message translates to:
+  /// **'Cycle'**
+  String get dashboardMetricCycle;
+
+  /// Period metric label
+  ///
+  /// In en, this message translates to:
+  /// **'Period'**
+  String get dashboardMetricPeriod;
+
+  /// Step count metric label
+  ///
+  /// In en, this message translates to:
+  /// **'Steps'**
+  String get dashboardMetricSteps;
+
+  /// Feedback history empty-state title
+  ///
+  /// In en, this message translates to:
+  /// **'No feedback submitted yet'**
+  String get feedbackHistoryEmptyTitle;
+
+  /// Feedback history empty-state subtitle
+  ///
+  /// In en, this message translates to:
+  /// **'Your feedback history will appear here'**
+  String get feedbackHistoryEmptySubtitle;
+
+  /// Feedback average rating
+  ///
+  /// In en, this message translates to:
+  /// **'Average rating: {rating}'**
+  String feedbackAverageRating(String rating);
+
+  /// Secure-message thread load failure
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load this message thread. Please try again.'**
+  String get messageThreadLoadFailed;
+
+  /// Secure-message reply field placeholder
+  ///
+  /// In en, this message translates to:
+  /// **'Reply…'**
+  String get messageReplyHint;
+
+  /// Background refresh failure for discharge summaries
+  ///
+  /// In en, this message translates to:
+  /// **'Could not refresh discharge summaries.'**
+  String get dischargeSummariesRefreshFailed;
+
+  /// Background refresh failure for referrals
+  ///
+  /// In en, this message translates to:
+  /// **'Could not refresh referrals.'**
+  String get referralsRefreshFailed;
+
+  /// Generic settings authentication failure
+  ///
+  /// In en, this message translates to:
+  /// **'Authentication failed. Please try again.'**
+  String get settingsAuthenticationFailed;
+
+  /// Account-deletion prerequisite error
+  ///
+  /// In en, this message translates to:
+  /// **'A verified phone number is required to delete the account.'**
+  String get settingsVerifiedPhoneRequiredForDeletion;
+
+  /// Generic delete action
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get commonDeleteButton;
+
+  /// Generic upload action
+  ///
+  /// In en, this message translates to:
+  /// **'Upload'**
+  String get commonUploadButton;
+
+  /// Appointment queue token
+  ///
+  /// In en, this message translates to:
+  /// **'Token #{token}'**
+  String appointmentCardToken(int token);
+
+  /// Appointment reason line
+  ///
+  /// In en, this message translates to:
+  /// **'Reason: {reason}'**
+  String appointmentCardReason(String reason);
+
+  /// Appointment confirmation note line
+  ///
+  /// In en, this message translates to:
+  /// **'Note: {note}'**
+  String appointmentCardNote(String note);
+
+  /// Acting-as dependent appointment list banner
+  ///
+  /// In en, this message translates to:
+  /// **'Showing appointments for {name}'**
+  String appointmentListForDependent(String name);
+
+  /// Scheduled appointment status
+  ///
+  /// In en, this message translates to:
+  /// **'Scheduled'**
+  String get appointmentStatusScheduled;
+
+  /// Confirmed appointment status
+  ///
+  /// In en, this message translates to:
+  /// **'Confirmed ✓'**
+  String get appointmentStatusConfirmed;
+
+  /// In-progress appointment status
+  ///
+  /// In en, this message translates to:
+  /// **'In progress'**
+  String get appointmentStatusInProgress;
+
+  /// Completed appointment status
+  ///
+  /// In en, this message translates to:
+  /// **'Completed'**
+  String get appointmentStatusCompleted;
+
+  /// Cancelled appointment status
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled'**
+  String get appointmentStatusCancelled;
+
+  /// No-show appointment status
+  ///
+  /// In en, this message translates to:
+  /// **'No show'**
+  String get appointmentStatusNoShow;
+
+  /// Generic milestone claim failure
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to claim milestone'**
+  String get gamificationClaimMilestoneFailed;
+
+  /// Health-points hub screen title
+  ///
+  /// In en, this message translates to:
+  /// **'Health Hub'**
+  String get gamificationScreenTitle;
+
+  /// Health-points overview tab
+  ///
+  /// In en, this message translates to:
+  /// **'Overview'**
+  String get gamificationTabOverview;
+
+  /// Health-points milestones tab
+  ///
+  /// In en, this message translates to:
+  /// **'Milestones'**
+  String get gamificationTabMilestones;
+
+  /// Health-points achievements tab
+  ///
+  /// In en, this message translates to:
+  /// **'Achievements'**
+  String get gamificationTabAchievements;
+
+  /// Health-points rewards tab
+  ///
+  /// In en, this message translates to:
+  /// **'My rewards'**
+  String get gamificationTabMyRewards;
+
+  /// Health-points history tab
+  ///
+  /// In en, this message translates to:
+  /// **'History'**
+  String get gamificationTabHistory;
+
+  /// Unlocked badge count
+  ///
+  /// In en, this message translates to:
+  /// **'{unlocked} of {total} badges earned'**
+  String gamificationBadgesEarned(int unlocked, int total);
+
+  /// Badge earned date
+  ///
+  /// In en, this message translates to:
+  /// **'Earned on {date}'**
+  String gamificationEarnedOn(String date);
+
+  /// Generic share action
+  ///
+  /// In en, this message translates to:
+  /// **'Share'**
+  String get commonShareButton;
+
+  /// Fallback label for a points-history entry
+  ///
+  /// In en, this message translates to:
+  /// **'Points activity'**
+  String get gamificationPointsActivity;
+
+  /// Fallback milestone name
+  ///
+  /// In en, this message translates to:
+  /// **'Milestone'**
+  String get gamificationMilestoneFallback;
+
+  /// Points needed for a milestone
+  ///
+  /// In en, this message translates to:
+  /// **'{points} points required'**
+  String gamificationPointsRequired(int points);
+
+  /// Milestone claim action label
+  ///
+  /// In en, this message translates to:
+  /// **'Claim'**
+  String get gamificationClaimButton;
+
+  /// Lowercase points unit label
+  ///
+  /// In en, this message translates to:
+  /// **'points'**
+  String get gamificationPointsLabel;
+
+  /// Next tier and remaining points
+  ///
+  /// In en, this message translates to:
+  /// **'Next: {tier} — {points} more points'**
+  String gamificationNextTierWithPoints(String tier, int points);
+
+  /// Next tier label
+  ///
+  /// In en, this message translates to:
+  /// **'Next: {tier}'**
+  String gamificationNextTier(String tier);
+
+  /// Generic edit action
+  ///
+  /// In en, this message translates to:
+  /// **'Edit'**
+  String get commonEditButton;
+
+  /// Step-profile display-name validation
+  ///
+  /// In en, this message translates to:
+  /// **'Display name cannot be empty'**
+  String get stepsDisplayNameRequired;
+
+  /// Step-target numeric validation
+  ///
+  /// In en, this message translates to:
+  /// **'Daily step target must be a number'**
+  String get stepsDailyTargetNumberRequired;
+
+  /// Step-target range validation
+  ///
+  /// In en, this message translates to:
+  /// **'Daily step target must be between 1,000 and 100,000'**
+  String get stepsDailyTargetRange;
+
+  /// Generic step-profile save failure
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to save profile'**
+  String get stepsProfileSaveFailed;
+
+  /// Weekly step-history heading
+  ///
+  /// In en, this message translates to:
+  /// **'Week of {date}'**
+  String stepsWeekOf(String date);
+
+  /// Average-per-day step label
+  ///
+  /// In en, this message translates to:
+  /// **'avg/day'**
+  String get stepsAveragePerDay;
+
+  /// Formatted step count
+  ///
+  /// In en, this message translates to:
+  /// **'{count} steps'**
+  String stepsCount(String count);
+
+  /// Current user's step rank and count
+  ///
+  /// In en, this message translates to:
+  /// **'Your rank: #{rank} — {steps} steps'**
+  String stepsYourRank(String rank, String steps);
+
+  /// Current user marker on leaderboard
+  ///
+  /// In en, this message translates to:
+  /// **'{name} (You)'**
+  String stepsLeaderboardYou(String name);
+
+  /// Saved daily step target
+  ///
+  /// In en, this message translates to:
+  /// **'Daily target: {count}'**
+  String stepsDailyTarget(String count);
+
+  /// Step-target edit form heading
+  ///
+  /// In en, this message translates to:
+  /// **'Edit step target'**
+  String get stepsEditTargetTitle;
+
+  /// Step-profile display-name field
+  ///
+  /// In en, this message translates to:
+  /// **'Display name'**
+  String get stepsDisplayNameLabel;
+
+  /// Step-profile display-name hint
+  ///
+  /// In en, this message translates to:
+  /// **'How others see you on the leaderboard'**
+  String get stepsDisplayNameHint;
+
+  /// Daily step target field
+  ///
+  /// In en, this message translates to:
+  /// **'Daily step target'**
+  String get stepsDailyTargetLabel;
+
+  /// Daily step target example
+  ///
+  /// In en, this message translates to:
+  /// **'Example: 7500'**
+  String get stepsDailyTargetExample;
+
+  /// Daily step target guidance
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a realistic goal between 1,000 and 100,000'**
+  String get stepsDailyTargetHelper;
+
+  /// Today's step activity card heading
+  ///
+  /// In en, this message translates to:
+  /// **'Today\'s activity'**
+  String get stepsTodayActivity;
+
+  /// Daily step goal completion label
+  ///
+  /// In en, this message translates to:
+  /// **'🎉 Daily goal reached!'**
+  String get stepsDailyGoalReached;
+
+  /// Daily step goal progress
+  ///
+  /// In en, this message translates to:
+  /// **'{percent}% of {goal}-step goal'**
+  String stepsGoalProgress(String percent, int goal);
+
+  /// Daily step-history tab
+  ///
+  /// In en, this message translates to:
+  /// **'Daily'**
+  String get stepsDailyTab;
+
+  /// Weekly step-history tab
+  ///
+  /// In en, this message translates to:
+  /// **'Weekly'**
+  String get stepsWeeklyTab;
+
+  /// Monthly step-history tab
+  ///
+  /// In en, this message translates to:
+  /// **'Monthly'**
+  String get stepsMonthlyTab;
 }
 
 class _AppLocalizationsDelegate

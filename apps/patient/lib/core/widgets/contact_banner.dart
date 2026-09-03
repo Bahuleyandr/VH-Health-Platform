@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:vhhealth/core/utils/safe_url_launcher.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 /// Reusable contact banner with phone numbers and tap-to-call
 class ContactBanner extends StatelessWidget {
@@ -17,8 +18,8 @@ class ContactBanner extends StatelessWidget {
   });
 
   /// Appointment booking banner
-  factory ContactBanner.appointments() => ContactBanner(
-    title: 'Book by Phone',
+  factory ContactBanner.appointments(AppLocalizations l10n) => ContactBanner(
+    title: l10n.contactBookByPhone,
     icon: Icons.calendar_month,
     color: const Color(0xFF007A64),
     numbers: const [
@@ -28,15 +29,16 @@ class ContactBanner extends StatelessWidget {
   );
 
   /// Home sample collection banner
-  factory ContactBanner.homeSampleCollection() => ContactBanner(
-    title: 'Free Home Sample Collection',
-    icon: Icons.home_outlined,
-    color: Colors.blue,
-    numbers: const [
-      ContactNumber(label: '93845 43289', phone: '+919384543289'),
-      ContactNumber(label: '95002 10210', phone: '+919500210210'),
-    ],
-  );
+  factory ContactBanner.homeSampleCollection(AppLocalizations l10n) =>
+      ContactBanner(
+        title: l10n.aboutFreeHomeSampleCollectionTitle,
+        icon: Icons.home_outlined,
+        color: Colors.blue,
+        numbers: const [
+          ContactNumber(label: '93845 43289', phone: '+919384543289'),
+          ContactNumber(label: '95002 10210', phone: '+919500210210'),
+        ],
+      );
 
   @override
   Widget build(BuildContext context) {

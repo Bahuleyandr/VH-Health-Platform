@@ -38,7 +38,9 @@ class _ProfileSwitcherState extends State<ProfileSwitcher> {
     // ApiClient call.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      context.read<DependentsProvider>().loadDependents();
+      context.read<DependentsProvider>().loadDependents(
+        failureMessage: AppLocalizations.of(context)!.dependentsLoadFailed,
+      );
     });
   }
 
@@ -268,7 +270,10 @@ class _ProfileSwitcherSheet extends StatelessWidget {
     if (confirmed != true || !context.mounted) return;
 
     try {
-      await context.read<DependentsProvider>().unlinkDependent(dep.id);
+      await context.read<DependentsProvider>().unlinkDependent(
+        dep.id,
+        failureMessage: l.profileSwitcherRemoveFailed,
+      );
       if (context.mounted) {
         Navigator.of(context).pop();
         messenger.showSnackBar(

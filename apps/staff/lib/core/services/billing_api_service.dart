@@ -4,13 +4,18 @@ import 'package:http/http.dart' as http;
 import 'package:vhhealth_core/services/idempotency_key.dart';
 
 import 'api_client.dart';
+import '../utils/localized_failure.dart';
 
 class BillingApiService {
   BillingApiService._();
 
   static Map<String, dynamic> _dataFrom(ApiResponse response) {
     if (!response.isSuccess) {
-      throw Exception(response.failureMessage('Billing request failed'));
+      throw LocalizedApiFailure(
+        fallbackLocalizationKey: 'presentation.billing_request_failed',
+        localizationSource: response,
+        diagnosticMessage: response.failureMessage(),
+      );
     }
     final raw = response.raw;
     if (raw is Map<String, dynamic>) {
