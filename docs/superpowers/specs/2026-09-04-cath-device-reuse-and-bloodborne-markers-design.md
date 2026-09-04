@@ -76,23 +76,25 @@ All new tables: `tenant_id UUID NOT NULL` with the GUC default used by `cath_lab
 
 ### 5.1 `patient_bloodborne_markers` (platform-level)
 
-One row per recorded result. Append-only with voiding; the resolver reads the latest non-voided row per marker.
+One row per recorded result. Append-only by convention (writers insert rows and perform the void transition only); the resolver reads the latest non-voided row per marker. Database-level enforcement of append-only is a deferred follow-up: it needs the merge-aware trigger pattern of migration 758 so the patient-merge sweep can still re-point `patient_uid`.
+
+Foreign keys are tenant-pinned composites in the repository's convention for children of `users` and `lab_results`, and the two patient-bearing ones are `DEFERRABLE INITIALLY DEFERRED` because the patient-merge sweep re-points `patient_uid` under `SET CONSTRAINTS ALL DEFERRED`. Migration 765 as reviewed on 2026-09-04.
 
 | Column | Type | Notes |
 |---|---|---|
 | id | BIGSERIAL PK | |
-| tenant_id | UUID NOT NULL | GUC default |
-| patient_uid | UUID NOT NULL | FK `users(uid)` ON DELETE RESTRICT |
+| tenant_id | UUID NOT NULL | GUC default; FK `tenants(id)` ON DELETE NO ACTION |
+| patient_uid | UUID NOT NULL | composite FK `(tenant_id, patient_uid)` → `users (tenant_id, uid)` ON DELETE NO ACTION, deferrable |
 | marker | VARCHAR(32) NOT NULL | CHECK `patient_bloodborne_markers_marker_check`: `hiv`, `hbsag`, `hcv`, `cjd_suspected`, `other` |
 | marker_label | VARCHAR(120) | required when marker = `other` (CHECK `patient_bloodborne_markers_label_check`) |
 | result | VARCHAR(20) NOT NULL | CHECK `patient_bloodborne_markers_result_check`: `reactive`, `non_reactive`, `indeterminate`, `pending`. For `cjd_suspected`, `reactive` means suspected and `non_reactive` means cleared (CHECK `patient_bloodborne_markers_cjd_result_check` restricts it to those two). |
 | tested_on | DATE NOT NULL | |
 | source | VARCHAR(24) NOT NULL | CHECK `patient_bloodborne_markers_source_check`: `lab_result`, `external_report`, `clinical_declaration` |
-| lab_result_id | INTEGER | FK `lab_results(id)`; required when source = `lab_result` (CHECK `patient_bloodborne_markers_lab_link_check`) |
+| lab_result_id | INTEGER | composite FK `(tenant_id, lab_result_id, patient_uid)` → `lab_results (tenant_id, id, patient_uid)` ON DELETE NO ACTION, deferrable; present for `lab_result` and `external_report` rows, null for `clinical_declaration` (CHECK `patient_bloodborne_markers_lab_link_check`: `(source = 'clinical_declaration') = (lab_result_id IS NULL)`) |
 | evidence | JSONB NOT NULL DEFAULT '{}' | external lab name, report number, raw `value_text` for lab rows |
-| recorded_by | UUID NOT NULL | |
+| recorded_by | UUID NOT NULL | composite FK `(tenant_id, recorded_by)` → `users (tenant_id, uid)` ON DELETE NO ACTION |
 | recorded_at | TIMESTAMPTZ NOT NULL DEFAULT now() | |
-| voided_at, voided_by, void_reason | | entered-in-error path; voided rows are ignored by the resolver |
+| voided_at, voided_by, void_reason | | entered-in-error path; all three set together or none (a blank reason is rejected); `voided_by` has the same composite FK to `users`; voided rows are ignored by the resolver |
 | notes | TEXT | |
 
 Indexes: `(tenant_id, patient_uid, marker, tested_on DESC, id DESC)`; unique partial `(tenant_id, lab_result_id) WHERE lab_result_id IS NOT NULL` so the lab hook is idempotent.

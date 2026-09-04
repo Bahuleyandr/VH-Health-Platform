@@ -465,7 +465,7 @@ model patient_bloodborne_markers {
 }
 ```
 
-`db pull` also adds the back-relation fields `patient_bloodborne_markers patient_bloodborne_markers[]` to `model users` and `model lab_results`; add both (the lesson from PR #894: relations must be appended on BOTH sides or `check:prisma-relations` fails).
+Correction from execution (2026-09-04): this schema declares `relationMode = "prisma"` and `scripts/check-prisma-relation-budget.mjs` enforces an exact allowlist of 24 curated relation fields, so `db pull` emits NO relation fields for the new FKs and none may be added; the mirrored model carries scalar fields, `@@index` and the partial `@@unique … where: raw(...)` only (the `partialIndexes` preview feature is on, so the partial index IS mirrored). Append the model where `db pull` places it (the file is not alphabetical). The migration as reviewed also pins the FKs as composites (`users (tenant_id, uid)`, `lab_results (tenant_id, id, patient_uid)`, deferrable), adds `tenant_id`, `recorded_by` and `voided_by` FKs, rejects a blank void reason, and enforces `(source = 'clinical_declaration') = (lab_result_id IS NULL)`; see the committed file, which is authoritative over the SQL shown above.
 
 - [ ] **Step 4: Run the drift check and the relation check**
 
@@ -991,9 +991,9 @@ d('blood-borne markers (deep)', () => {
       patientUid: PATIENT,
       actorUid: ACTOR,
       entries: [
-        { marker: 'hiv', result: 'non_reactive', testedOn: '2026-08-20', source: 'external_report', evidence: { lab: 'Outside Lab' } },
-        { marker: 'hbsag', result: 'non_reactive', testedOn: '2026-08-20', source: 'external_report' },
-        { marker: 'hcv', result: 'non_reactive', testedOn: '2026-08-20', source: 'external_report' },
+        { marker: 'hiv', result: 'non_reactive', testedOn: '2026-08-20', source: 'clinical_declaration', evidence: { note: 'outside report sighted' } },
+        { marker: 'hbsag', result: 'non_reactive', testedOn: '2026-08-20', source: 'clinical_declaration' },
+        { marker: 'hcv', result: 'non_reactive', testedOn: '2026-08-20', source: 'clinical_declaration' },
       ],
     });
     expect(recorded.recorded).toHaveLength(3);
@@ -1208,8 +1208,14 @@ export async function recordMarkerTx(tx, {
   if (safeMarker === 'cjd_suspected' && !['reactive', 'non_reactive'].includes(safeResult)) {
     throw AppError.badRequest('cjd_suspected accepts reactive (suspected) or non_reactive (cleared)', 'BLOODBORNE_MARKER_INVALID');
   }
-  if (safeSource === 'lab_result' && labResultId == null) {
-    throw AppError.badRequest('lab_result_id is required for lab_result markers', 'BLOODBORNE_MARKER_INVALID');
+  // Mirrors patient_bloodborne_markers_lab_link_check: lab_result and
+  // external_report rows always carry the lab result id; clinical
+  // declarations never do.
+  if (safeSource !== 'clinical_declaration' && labResultId == null) {
+    throw AppError.badRequest(`lab_result_id is required for ${safeSource} markers`, 'BLOODBORNE_MARKER_INVALID');
+  }
+  if (safeSource === 'clinical_declaration' && labResultId != null) {
+    throw AppError.badRequest('clinical_declaration markers do not reference a lab result', 'BLOODBORNE_MARKER_INVALID');
   }
   const rows = await tx.$queryRawUnsafe(
     `INSERT INTO patient_bloodborne_markers
