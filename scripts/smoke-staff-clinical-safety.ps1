@@ -5,8 +5,12 @@ Runs a local staff clinical-safety API smoke matrix against the backend.
 .DESCRIPTION
 Assumes the local backend and Postgres smoke database are already running. The
 script applies the idempotent clinical-safety alignment migration, seeds
-disposable staff/patient data, and exercises MAR 5-rights plus CDS allergy
-blocking end to end.
+disposable staff/patient data, and exercises CDS allergy blocking end to end,
+plus a probe proving the retired direct MAR-schedule route is still closed.
+
+MAR 5-rights is NOT exercised here. It moved to src/tests/clinical-safety.test.js
+(service layer) and src/tests/governed-order-mar-http.deep.test.js (HTTP layer)
+when PR #940 put dose creation behind the governed clinical-order workflow.
 #>
 [CmdletBinding()]
 param(
@@ -14,7 +18,6 @@ param(
   [string]$BackendDir = "",
   [string]$StaffUid = "77777777-7777-4777-8777-777777777777",
   [string]$PatientUid = "66666666-6666-4666-8666-666666666666",
-  [string]$WrongPatientUid = "99999999-9999-4999-8999-999999999999",
   [string]$JwtSecret = "vhhealth-local-admin-smoke-secret-123456789",
   [string]$ApiKey = "vhhealth-local-api-key",
   [string]$PgHost = "127.0.0.1",
@@ -287,8 +290,7 @@ DELETE FROM care_teams WHERE patient_uid = '$PatientUid'::uuid;
 INSERT INTO users (uid, phone, name, email, role, is_active, status, updated_at)
 VALUES
   ('$StaffUid'::uuid, '8811000201', 'Clinical Safety Staff $stamp', 'clinical-safety-staff-$stamp@example.test', 'NURSE', true, 'active', NOW()),
-  ('$PatientUid'::uuid, '8811000202', 'Clinical Safety Patient $stamp', 'clinical-safety-patient-$stamp@example.test', 'PATIENT', true, 'active', NOW()),
-  ('$WrongPatientUid'::uuid, '8811000203', 'Clinical Safety Wrong Patient $stamp', 'clinical-safety-wrong-$stamp@example.test', 'PATIENT', true, 'active', NOW())
+  ('$PatientUid'::uuid, '8811000202', 'Clinical Safety Patient $stamp', 'clinical-safety-patient-$stamp@example.test', 'PATIENT', true, 'active', NOW())
 ON CONFLICT (uid) DO UPDATE SET
   name = EXCLUDED.name,
   email = EXCLUDED.email,
@@ -340,9 +342,31 @@ $script:StaffToken = New-SmokeToken -Uid $StaffUid -Role "NURSING_STAFF"
 $results = [System.Collections.Generic.List[object]]::new()
 
 try {
-$scheduledTime = (Get-Date).ToString("o")
-
-$schedule = Invoke-SmokeRequest $results "mar_schedule" "POST" "/api/v1/clinical/mar/schedule" @{
+# MAR five-rights moved out of this smoke (2026-09-04).
+#
+# PR #940 retired POST /clinical/mar/schedule: doses are now created only as a
+# post-commit side effect of the governed clinical-order workflow, and the
+# drug-right resolves to "exactly the ordered catalog product and one eligible
+# ward-custody batch" (services/clinical/marFiveRightsService.js#186). Re-proving
+# the five rights from here would mean seeding catalog, inventory, facility,
+# ward, bed, admission, a ward indent and its reserve/approve/issue/receive
+# custody chain, then an order and its verification, before the first assertion
+# -- coupling a clinical-safety smoke to the entire ward-supply subsystem, so
+# that an inventory change reddens this file and points at the wrong subsystem.
+#
+# The contracts are NOT dropped. They moved to where the fixtures already exist:
+#   src/tests/clinical-safety.test.js proves the five rights, the block on an
+#     un-overridden failure, the SOFT-right override audit trail, and the
+#     wrong-patient NON-overridable hard stop -- that last one more strictly
+#     than this script ever did.
+#   src/tests/governed-order-mar-http.deep.test.js proves the same surface over
+#     HTTP -- routes, auth and middleware -- through the governed order path.
+#
+# What stays here is the one thing neither of those can see from inside the
+# process: that the retired route is still closed on the running server. If it
+# ever answers 2xx again, an ungoverned way back into the MAR has reopened, and
+# every custody guarantee above it is bypassable.
+$marClosure = Invoke-SmokeRequest $results "mar_schedule_direct_closed" "POST" "/api/v1/clinical/mar/schedule" @{
   patient_uid = $PatientUid
   prescription_id = $null
   medications = @(
@@ -350,91 +374,24 @@ $schedule = Invoke-SmokeRequest $results "mar_schedule" "POST" "/api/v1/clinical
       medication_name = "Paracetamol"
       dose = "500 mg"
       route = "oral"
-      scheduled_time = $scheduledTime
-      notes = "Clinical safety smoke $stamp"
-    },
-    @{
-      medication_name = "Cetirizine"
-      dose = "10 mg"
-      route = "oral"
-      scheduled_time = $scheduledTime
-      notes = "Clinical safety override smoke $stamp"
+      scheduled_time = (Get-Date).ToString("o")
+      notes = "Clinical safety smoke closure probe $stamp"
     }
   )
-}
-$scheduleJson = Get-JsonContent $schedule
-$scheduleData = Get-JsonProperty $scheduleJson "data"
-$scheduledRows = if ($null -ne $scheduleData) { @($scheduleData) } else { @() }
-$scheduledCount = @($scheduledRows).Count
-$paracetamolRow = if ($scheduledCount -ge 1) { @($scheduledRows)[0] } else { $null }
-$cetirizineRow = if ($scheduledCount -ge 2) { @($scheduledRows)[1] } else { $null }
-$paracetamolId = Get-JsonProperty $paracetamolRow "id"
-$cetirizineId = Get-JsonProperty $cetirizineRow "id"
-Add-ContractResult $results "mar_schedule_contract" ($paracetamolId -and $cetirizineId) "paracetamol=$paracetamolId cetirizine=$cetirizineId"
+} -ExpectedStatus 409
 
-if ($paracetamolId) {
-  $verify = Invoke-SmokeRequest $results "mar_verify_all_rights" "POST" "/api/v1/clinical/mar/verify" @{
-    ma_id = [int]$paracetamolId
-    scanned_patient_uid = $PatientUid
-    scanned_barcode = "paracetamol"
-  }
-  $verifyJson = Get-JsonContent $verify
-  $verifyData = Get-JsonProperty $verifyJson "data"
-  $verifyAllPassed = Get-JsonProperty $verifyData "allPassed"
-  Add-ContractResult $results "mar_verify_all_rights_contract" ($verifyAllPassed -eq $true) "allPassed=$verifyAllPassed"
+# Assert the REASON, not just the status. A 409 is reachable from unrelated
+# conflicts; only the code proves this specific closure is what refused us.
+# responseHelper.error() nests the details object under `details` (utils/
+# responseHelper.js#234), so the code is details.code, not a root field.
+$marClosureJson = Get-JsonContent $marClosure
+$marClosureDetails = Get-JsonProperty $marClosureJson "details"
+$marClosureCode = Get-JsonProperty $marClosureDetails "code"
+$marClosureEndpoint = Get-JsonProperty $marClosureDetails "order_endpoint"
+Add-ContractResult $results "mar_schedule_closed_contract" ($marClosureCode -eq "MAR_SCHEDULE_REQUIRES_CLINICAL_ORDER_WORKFLOW") "code=$marClosureCode"
 
-  $wrongVerify = Invoke-SmokeRequest $results "mar_verify_wrong_patient" "POST" "/api/v1/clinical/mar/verify" @{
-    ma_id = [int]$paracetamolId
-    scanned_patient_uid = $WrongPatientUid
-    scanned_barcode = "paracetamol"
-  }
-  $wrongVerifyJson = Get-JsonContent $wrongVerify
-  $wrongVerifyData = Get-JsonProperty $wrongVerifyJson "data"
-  $wrongVerifyAllPassed = Get-JsonProperty $wrongVerifyData "allPassed"
-  $wrongVerifyRights = Get-JsonProperty $wrongVerifyData "rights"
-  $wrongPatientRight = Get-JsonProperty $wrongVerifyRights "patient"
-  Add-ContractResult $results "mar_verify_wrong_patient_contract" ($wrongVerifyAllPassed -eq $false -and $wrongPatientRight -eq $false) "patientRight=$wrongPatientRight"
-
-  Invoke-SmokeRequest $results "mar_administer_wrong_without_override" "POST" "/api/v1/clinical/mar/$paracetamolId/administer-with-scan" @{
-    scanned_patient_uid = $WrongPatientUid
-    scanned_barcode = "paracetamol"
-  } -ExpectedStatus 409 | Out-Null
-
-  $administer = Invoke-SmokeRequest $results "mar_administer_all_rights" "POST" "/api/v1/clinical/mar/$paracetamolId/administer-with-scan" @{
-    scanned_patient_uid = $PatientUid
-    scanned_barcode = "paracetamol"
-  }
-  $administerJson = Get-JsonContent $administer
-  $administerData = Get-JsonProperty $administerJson "data"
-  $administerStatus = Get-JsonProperty $administerData "status"
-  $administerAllRights = Get-JsonProperty $administerData "all_rights_passed"
-  Add-ContractResult $results "mar_administer_all_rights_contract" ($administerStatus -eq "administered" -and $administerAllRights -eq $true) "status=$administerStatus"
-} else {
-  Add-ContractResult $results "mar_verify_all_rights_contract" $false "paracetamol id missing"
-  Add-ContractResult $results "mar_verify_wrong_patient_contract" $false "paracetamol id missing"
-  Add-ContractResult $results "mar_administer_all_rights_contract" $false "paracetamol id missing"
-}
-
-if ($cetirizineId) {
-  # F-H1 hard-stop (audit 2026-06-22): a wrong-DRUG barcode scan is a BCMA
-  # never-event, so override_reason CANNOT authorize administering the wrong
-  # medication — only the soft rights (dose/route/time) stay overridable. Scanning
-  # "wrong-drug" with an override must therefore be REJECTED with 409, never
-  # administered. (The genuine "could not scan / equipment failure" break-glass is
-  # the separate non-scan POST /mar/:id/administer.) See
-  # services/clinical/marFiveRightsService.js#administerWithScan.
-  $override = Invoke-SmokeRequest $results "mar_administer_wrong_drug_override_rejected" "POST" "/api/v1/clinical/mar/$cetirizineId/administer-with-scan" @{
-    scanned_patient_uid = $PatientUid
-    scanned_barcode = "wrong-drug"
-    override_reason = "Clinical safety smoke override"
-  } -ExpectedStatus 409
-  $overrideJson = Get-JsonContent $override
-  $overrideCode = Get-JsonProperty $overrideJson "code"
-  $overrideMessage = Get-JsonProperty $overrideJson "message"
-  Add-ContractResult $results "mar_administer_override_contract" (($overrideCode -eq "MAR_DRUG_MISMATCH") -or ($overrideMessage -like "*mismatch*")) "code=$overrideCode"
-} else {
-  Add-ContractResult $results "mar_administer_override_contract" $false "cetirizine id missing"
-}
+# The refusal is only actionable if it still names the governed replacement.
+Add-ContractResult $results "mar_schedule_closure_names_successor" ($marClosureEndpoint -eq "/api/v1/emr/orders") "orderEndpoint=$marClosureEndpoint"
 
 $cds = Invoke-SmokeRequest $results "cds_check_allergy_blocker" "POST" "/api/v1/emr/cds/check-order" @{
   type = "medication"
