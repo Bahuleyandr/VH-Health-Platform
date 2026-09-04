@@ -26743,7 +26743,7 @@ model cath_reprocessable_devices {
   tenant_id           String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   facility_id         Int
   catalog_item_id     BigInt
-  device_tag          String?   @default(dbgenerated("('RP'::text || lpad((id)::text, 8, '0'::text))")) @db.VarChar(24)
+  device_tag          String?   @default(dbgenerated("('RP'::text || lpad((id)::text, GREATEST(8, length((id)::text)), '0'::text))")) @db.VarChar(24)
   origin_usage_id     BigInt
   origin_unit_index   Int       @default(1) @db.SmallInt
   cycle_count         Int       @default(0)

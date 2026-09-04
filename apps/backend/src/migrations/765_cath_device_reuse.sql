@@ -166,7 +166,8 @@ CREATE TABLE cath_reprocessable_devices (
   ),
   facility_id INTEGER NOT NULL,
   catalog_item_id BIGINT NOT NULL,
-  device_tag VARCHAR(24) GENERATED ALWAYS AS ('RP' || lpad(id::text, 8, '0')) STORED,
+  -- lpad truncates inputs longer than the width; GREATEST keeps every digit past 10^8 (bigint max = 21 chars, fits VARCHAR(24)).
+  device_tag VARCHAR(24) GENERATED ALWAYS AS ('RP' || lpad(id::text, GREATEST(8, length(id::text)), '0')) STORED,
   origin_usage_id BIGINT NOT NULL,
   origin_unit_index SMALLINT NOT NULL DEFAULT 1,
   cycle_count INTEGER NOT NULL DEFAULT 0,
@@ -521,7 +522,7 @@ BEGIN
             AND device.facility_id=usage_record.facility_id
        )
     THEN
-      RAISE EXCEPTION 'Reused device usage does not reference an available device of the same catalogue item and facility'
+      RAISE EXCEPTION 'Reused device usage does not reference a registered device of the same catalogue item and facility'
         USING ERRCODE='23514';
     END IF;
     IF usage_record.device_id IS NULL
