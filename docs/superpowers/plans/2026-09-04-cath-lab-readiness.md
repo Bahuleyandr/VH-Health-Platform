@@ -22,7 +22,7 @@ All of Plan 1's conventions apply (tenant transactions, raw SQL, `AppError`, npm
 - **Automation only alters rows it set itself**: every automated write to `cath_lab_readiness_checks` sets `metadata.auto_managed = true`; a row whose `metadata.auto_managed` is not `true` and whose status is not `pending` is never changed by automation.
 - **A critical value never blocks.** It sets `critical_warning`; it never changes status. This is the owner's decision (spec §2).
 - **Outside values enter only through the cath checklist route.** The public lab route keeps rejecting `result_origin` and unlinked results.
-- **Migration number**: computed against `github/main` and every open branch at write time (the loop in Plan 1 Task 0 Step 2). This plan uses **767**; substitute if claimed and re-check before push.
+- **Migration number**: computed against `github/main` and every open branch at write time (the loop in Plan 1 Task 0 Step 2). This plan uses **766**; substitute if claimed and re-check before push.
 
 ---
 
@@ -30,7 +30,7 @@ All of Plan 1's conventions apply (tenant transactions, raw SQL, `AppError`, npm
 
 | File | Responsibility |
 |---|---|
-| Create `apps/backend/src/migrations/767_cath_lab_readiness.sql` | Settings, items, `lab_results` origin columns. |
+| Create `apps/backend/src/migrations/766_cath_lab_readiness.sql` | Settings, items, `lab_results` origin columns. |
 | Modify `apps/backend/prisma/schema.prisma` | Mirror. |
 | Create `apps/backend/src/services/clinical/cathLabReadinessService.js` | Settings, pure resolution rules, refresh + persistence, check-level automation, order-missing, external result entry, waive, refresh-on-lab-event. |
 | Create `apps/backend/src/tests/unit/cathLabReadinessService.test.js` | Pure rules. |
@@ -49,20 +49,20 @@ All of Plan 1's conventions apply (tenant transactions, raw SQL, `AppError`, npm
 
 ## Task 0: Branch, worktree, migration number
 
-Same as Plan 2 Task 0 with `feat/cath-lab-readiness`, worktree `$SCRATCH/wt/readiness`, scratch DB `vh_clr_<initials>`, and the expectation that the number loop's tail shows `766` (Plan 2, if pushed) so this plan uses **767**.
+Same as Plan 2 Task 0 with `feat/cath-lab-readiness`, worktree `$SCRATCH/wt/readiness`, scratch DB `vh_clr_<initials>`, and the expectation that the number loop's tail shows `765` (Plan 2, if pushed) so this plan uses **766**.
 
 ---
 
-## Task 1: Migration 767
+## Task 1: Migration 766
 
 **Files:**
-- Create: `apps/backend/src/migrations/767_cath_lab_readiness.sql`
+- Create: `apps/backend/src/migrations/766_cath_lab_readiness.sql`
 - Modify: `apps/backend/prisma/schema.prisma`
 
 - [ ] **Step 1: Write the migration**
 
 ```sql
--- 767_cath_lab_readiness.sql
+-- 766_cath_lab_readiness.sql
 --
 -- Cath-lab pre-procedure lab readiness
 -- (docs/superpowers/specs/2026-09-04-cath-pre-procedure-lab-readiness-design.md).
@@ -212,8 +212,8 @@ Expected: six named CHECKs on the two new tables; two on `lab_results`. Mirror i
 - [ ] **Step 3: Commit**
 
 ```bash
-git add apps/backend/src/migrations/767_cath_lab_readiness.sql apps/backend/prisma/schema.prisma
-git commit -m "feat(db): cath lab readiness items/settings and lab_results origin columns (mig 767)
+git add apps/backend/src/migrations/766_cath_lab_readiness.sql apps/backend/prisma/schema.prisma
+git commit -m "feat(db): cath lab readiness items/settings and lab_results origin columns (mig 766)
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```

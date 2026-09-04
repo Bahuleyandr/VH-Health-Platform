@@ -12,6 +12,13 @@
 
 **Base:** branch `design/cath-device-reuse` at `b3a4619b1` (main `f60df4e95`). Work on a new branch `feat/bloodborne-markers` cut from `github/main`, in a worktree under the session scratchpad (never `.claude/worktrees/`, which breaks jest: 0 tests, exit 0).
 
+## Execution notes (as built)
+
+This plan shipped on `feat/bloodborne-markers` at `6eefb54f1`. Where a task below still shows the drafted code, the committed files are authoritative; the deltas are called out inline as "Execution note" / "Correction from execution" paragraphs next to the relevant step. Two cross-cutting facts worth stating once here rather than in every task:
+
+- **Deep-test conventions.** `bloodborne-markers.deep.test.js` provisions the RLS runtime roles via `ensureTenantRlsRuntimeRoleGrants()` in `beforeAll` (a fresh scratch DB does not otherwise have `vhhealth_runtime` scoped correctly for the RLS assertions); its sign-off-residue teardown runs under a replica-role transaction scoped to the suite's own tenants, so cleanup cannot be blocked by another suite's RLS context; and the sign-off-hook test drives the real `signOffResults` end-to-end, which needs an `investigations` order, a `preliminary` result and a `PATHOLOGIST` actor already seeded — there is no shortcut through a mocked sign-off.
+- **Commits, per task:** Task 1 `edcb0c863`, `b1536b47c`. Task 2 `bb96b982f`, `9681e5ece`, `879a5a896`. Task 3 `46e09e984`, `ffe396abe`, `8fe21848a`. Task 4 `f7fca6854`, `0376484e1`, `584de3b18`, `36edc82c5`. Task 5 `68dec19db`, `a9ff27c82`. Task 6 `6eefb54f1`.
+
 ---
 
 ## Conventions you must follow (read once)
@@ -34,7 +41,7 @@
 |---|---|
 | Create `apps/backend/src/services/lab/labAnalyteCodes.js` | The single order-code / analyte-code / LOINC map for the seven lab items and the three serology markers. Pure constants + lookup functions. |
 | Create `apps/backend/src/tests/unit/labAnalyteCodes.test.js` | Pins every alias row of the map. |
-| Create `apps/backend/src/migrations/765_patient_bloodborne_markers.sql` | The marker table, indexes, RLS. |
+| Create `apps/backend/src/migrations/764_patient_bloodborne_markers.sql` | The marker table, indexes, RLS. |
 | Modify `apps/backend/prisma/schema.prisma` | Mirror the new table (drift gate). |
 | Create `apps/backend/src/services/clinical/bloodborneMarkerService.js` | Normaliser, `computeReuseStatus`, `resolveReuseStatus`, `recordMarkerTx`, `recordMarkers`, `recordMarkersFromSignedResults`, `listMarkersForPatient`, `voidMarker`, exposure-handler registry. |
 | Create `apps/backend/src/tests/unit/bloodborneMarkerService.test.js` | Normaliser and resolver rules, exposure registry. |
@@ -74,7 +81,7 @@ for ref in $(git for-each-ref --format='%(refname)' refs/remotes/github/); do
 done | sed -E 's#.*/([0-9]+)_.*#\1#' | sort -n | uniq | tail -3
 ```
 
-Expected output ends with `763`, `764` (claimed by `audit/cath-implant-lifecycle`). This plan uses **765**. If the output shows 765 already claimed, use the next free number and substitute it everywhere below (file name and `_migrations` expectations). Re-run this check immediately before the final push.
+Expected output ends with `763`. This plan uses **764**, confirmed free on `main` and every open branch at write time. If the output shows 764 already claimed, use the next free number and substitute it everywhere below (file name and `_migrations` expectations). Re-run this check immediately before the final push.
 
 ---
 
@@ -315,16 +322,16 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
-## Task 2: Migration 765 — `patient_bloodborne_markers`
+## Task 2: Migration 764 — `patient_bloodborne_markers`
 
 **Files:**
-- Create: `apps/backend/src/migrations/765_patient_bloodborne_markers.sql`
+- Create: `apps/backend/src/migrations/764_patient_bloodborne_markers.sql`
 - Modify: `apps/backend/prisma/schema.prisma` (append model; add back-relations on `users` and `lab_results`)
 
 - [ ] **Step 1: Write the migration**
 
 ```sql
--- 765_patient_bloodborne_markers.sql
+-- 764_patient_bloodborne_markers.sql
 --
 -- Platform-level patient blood-borne marker record (HIV, HBsAg, HCV,
 -- CJD-suspected, other). Until now the only serology status lived inside
@@ -434,7 +441,7 @@ DATABASE_URL=postgres://…/vh_bbm_<initials> node scripts/ci-setup-db.mjs
 psql "postgres://…/vh_bbm_<initials>" -c "SELECT conname FROM pg_constraint WHERE conrelid = 'patient_bloodborne_markers'::regclass ORDER BY conname;"
 ```
 
-Expected: the seven `patient_bloodborne_markers_*_check` names, the two `fk_*` names and the primary key. If any CHECK is missing, the migration did not run; check `_migrations` for the row `765_patient_bloodborne_markers.sql`.
+Expected: the seven `patient_bloodborne_markers_*_check` names, the two `fk_*` names and the primary key. If any CHECK is missing, the migration did not run; check `_migrations` for the row `764_patient_bloodborne_markers.sql`.
 
 - [ ] **Step 3: Mirror the table in `schema.prisma`**
 
@@ -465,7 +472,7 @@ model patient_bloodborne_markers {
 }
 ```
 
-Correction from execution (2026-09-04): this schema declares `relationMode = "prisma"` and `scripts/check-prisma-relation-budget.mjs` enforces an exact allowlist of 24 curated relation fields, so `db pull` emits NO relation fields for the new FKs and none may be added; the mirrored model carries scalar fields, `@@index` and the partial `@@unique … where: raw(...)` only (the `partialIndexes` preview feature is on, so the partial index IS mirrored). Append the model where `db pull` places it (the file is not alphabetical). The migration as reviewed also pins the FKs as composites (`users (tenant_id, uid)`, `lab_results (tenant_id, id, patient_uid)`, deferrable), adds `tenant_id`, `recorded_by` and `voided_by` FKs, rejects a blank void reason, and enforces `(source = 'clinical_declaration') = (lab_result_id IS NULL)`; see the committed file, which is authoritative over the SQL shown above.
+Correction from execution (2026-09-04): this schema declares `relationMode = "prisma"` and `scripts/check-prisma-relation-budget.mjs` enforces an exact allowlist of 24 curated relation fields, so `db pull` emits NO relation fields for the new FKs and none may be added; the mirrored model carries scalar fields, `@@index` and the partial `@@unique … where: raw(...)` only (the `partialIndexes` preview feature is on, so the partial index IS mirrored). Append the model where `db pull` places it (the file is not alphabetical). The migration as reviewed also pins the FKs as composites (`users (tenant_id, uid)`, `lab_results (tenant_id, id, patient_uid)`, deferrable), adds `tenant_id`, `recorded_by` and `voided_by` FKs, rejects a blank void reason, and enforces `(source = 'clinical_declaration') = (lab_result_id IS NULL)`. It also ends with a `to_regrole`-guarded runtime-role GRANT block (`vhhealth_app`, `vhhealth_runtime`: SELECT, INSERT, UPDATE; DELETE and TRUNCATE revoked; sequence USAGE, SELECT), and registers the table in `src/lib/prisma.js`'s `runtime_mutable_no_delete_relations` list (and the sequence in `runtime_nextval_sequences`) so `ensureTenantRlsRuntimeRoleGrants` preserves that posture on a later-provisioned runtime role instead of leaving it on the bootstrap's broad fallback grants. See the committed file, which is authoritative over the SQL shown above.
 
 - [ ] **Step 4: Run the drift check and the relation check**
 
@@ -489,8 +496,8 @@ Expected: all three exit 0 (the census static guard reports the manifest unchang
 - [ ] **Step 6: Commit**
 
 ```bash
-git add apps/backend/src/migrations/765_patient_bloodborne_markers.sql apps/backend/prisma/schema.prisma
-git commit -m "feat(db): patient_bloodborne_markers table (mig 765)
+git add apps/backend/src/migrations/764_patient_bloodborne_markers.sql apps/backend/prisma/schema.prisma
+git commit -m "feat(db): patient_bloodborne_markers table (mig 764)
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
@@ -1118,6 +1125,8 @@ Expected: FAIL with `recordMarkers is not a function` (or an import error naming
 
 Execution note (2026-09-04): Task 3's review split the pure rules into `apps/backend/src/services/clinical/bloodborneMarkerRules.js` (normaliser, `computeReuseStatus`, exposure registry, `requireUuid`, `isoDate`, `clinicalDate`, `ageInDays`, the constants), and `bloodborneMarkerService.js` became `export * from './bloodborneMarkerRules.js'; export { markerForResult } from '../lab/labAnalyteCodes.js';`. The rules also changed: a non-voided reactive row LATCHES (a later non-reactive never clears it; only voiding does), `unknown` always carries a reason, ages are Asia/Kolkata calendar days, and the normaliser treats mixed negative+positive text as `indeterminate`. So this task ADDS the persistence functions to `bloodborneMarkerService.js` beneath the two re-export lines, importing what it needs from the rules module (`computeReuseStatus, normalizeSerologyValue, notifyExposureHandlers, requireUuid, isoDate, clinicalDate, DEFAULT_VALIDITY_DAYS, MARKERS, RESULTS, SOURCES`) plus `prisma, { setTenant, setTenantTx }`, `logger`, `AppError`, `requireTenantId`, `markerForResult`. Do not re-declare the helpers the rules module already exports. With that read, the code below is what to add:
 
+Correction from execution (2026-09-04, later commits `0376484e1`/`584de3b18`/`36edc82c5`): `recordMarkers` returns `{ recorded, skipped }`, not `{ recorded }` — `skipped` lists the lab_result_ids of `external_report` entries whose lab-linked slot was already taken (the only entries that can lose the unique-index race; a clinical declaration always inserts), and both `patientUid` and `actorUid` are validated with `requireUuid` before the transaction opens. `recordMarkerTx` honours `marker_label` only for `marker = 'other'` (required, ≤120 chars, else `BLOODBORNE_MARKER_INVALID`; ignored and never stored for a named marker) and rejects a `lab_result_id` that is not a positive int4 before it reaches the `$8::int` cast. `listMarkersForPatient` and `resolveReuseStatus` both gained `asOf` and `db` parameters (so a caller can evaluate as of a given instant, or inside its own transaction) — the draft below is missing them. `voidMarker`'s final `UPDATE` is scoped by `patient_uid` as well as `tenant_id` and `id` (the draft's `UPDATE` omits the patient filter present in its own `SELECT … FOR UPDATE`), so a marker id belonging to another patient 404s rather than voiding cross-patient. `recordMarkersFromSignedResults` shipped as a fundamentally different function from the draft below — see the correction after that code block. See the committed `bloodborneMarkerService.js`, which is authoritative over the code shown below.
+
 ```js
 // ---------------------------------------------------------------------------
 // Persistence
@@ -1421,6 +1430,8 @@ export async function recordMarkersFromSignedResults({ tenantId, resultIds = [],
 }
 ```
 
+Correction from execution (2026-09-04, commits `584de3b18` then `36edc82c5`): `recordMarkersFromSignedResults` did not ship as the decision-driven function above. Spec review during Task 4 concluded that a decision word is not sufficient evidence to decide whether to void — a `verified` sign-off can still carry a corrected value, and a `corrected` sign-off can repeat the same value — so the shipped function is a **content-aware upsert**: for each candidate lab result, inside the one tenant transaction and under `pg_advisory_xact_lock(hashtextextended('<tenant>:bloodborne-marker:<id>', 0))` (candidates are walked in lab_result_id order so two overlapping batches cannot deadlock against each other), it locks the active marker row `FOR UPDATE` and compares it against what the lab result now says: same `result` and `tested_on` → skip; different → void (`lab_result_corrected`) and insert; absent → insert. `decision` is still validated (now against the exported `SIGN_OFF_DECISIONS = ['verified', 'corrected', 'amended']`) but is stored only in `evidence.decision`, never used to gate the void. The clinical date helpers moved to `clinicalDate`/`isoDate` in the rules module (no more local `istDate`), and a candidate whose `tested_on` cannot be read as a non-future date is dropped into a `failed: [{ lab_result_id, reason }]` array before any SQL is issued for it — a database error, by contrast, is still all-or-nothing for the whole batch. The return shape is `{ recorded, voided, skipped, failed }`, where `skipped` is lab_result_ids (not a count) and `voided` is the running count across the batch. `resultIds` are also bounded to the same `int4` range as elsewhere. See the committed function, which is authoritative over the draft above; spec A §7.1 documents the shipped behaviour in full.
+
 - [ ] **Step 4: Run the deep test to verify it passes**
 
 Run: `DATABASE_URL=postgres://…/vh_bbm_<initials> npm test -- --testPathPatterns bloodborne-markers.deep`
@@ -1476,6 +1487,8 @@ In `signOffResults`, immediately after the line `emitLabEvent('result-signed', {
     logger.warn(`Blood-borne marker sync failed after sign-off (sign-off stands): ${markerErr?.message}`);
   }
 ```
+
+Correction from execution (2026-09-04, commit `a9ff27c82`): the shipped call is gated by `BLOODBORNE_MARKER_DECISIONS = new Set(SIGN_OFF_DECISIONS)` (only `verified`/`corrected`/`amended` sign-offs call the recorder at all, matching the module's own decision validation), and the catch block logs a structured warning with fields rather than one interpolated string: `{ tenantId, signoffId: signoffRow?.id ?? null, resultIds: ids, decision: normalizedDecision, code: markerErr?.code || null, error: markerErr?.message }`. The comment is also corrected: the hook is idempotent, but idempotency only means *replaying the same request* is safe (the idempotency layer replays the stored response and never re-runs the hook) — a genuine miss is repaired only by a corrective sign-off or a reconciliation sweep (spec A §18), not by retrying. A success path also logs at info when anything happened (`recorded.length || voided || failed.length`), naming `recorded`, `voided`, `skipped`, `failed` counts, which the draft above omits.
 
 - [ ] **Step 3: Keep the existing hermetic unit test hermetic**
 
@@ -1606,6 +1619,8 @@ router.post(
 export default router;
 ```
 
+Correction from execution (2026-09-04, commit `6eefb54f1`): `validityDaysOf` shipped as `parseValidityDays`, which never throws — it returns `{ value }` or `{ invalid: true }` so the handler can 400 on a bad window with a fixed `VALIDITY_DAYS_MESSAGE` rather than branching on an ad hoc `err.statusCode`. The digits-only regex (`/^\d+$/`) also rejects a repeated query key before it reaches `parseInt`: Express arrays a repeated `validity_days` and it stringifies to `"30,90"`, which is not all digits. See the committed router, which is authoritative over the draft above.
+
 - [ ] **Step 2: Mount it in `app.js`**
 
 After the line `import allergyRoutes from './routes/clinical/allergyRoutes.js';` add:
@@ -1626,7 +1641,7 @@ app.use('/api/v1/bloodborne-markers', requireRole(...CLINICAL_STAFF_ROUTE_ROLES)
 grep -n "'ALLERGY'" apps/backend/src/middleware/phiAccessMiddleware.js apps/backend/src/config/*.js | head
 ```
 
-If `ALLERGY` appears in an allowlist of record types (for example a `PHI_RECORD_TYPES` set), add `BLOODBORNE_MARKERS` beside it in the same file; if it does not appear anywhere but the mount line, no change is needed. Then start the app once to confirm it boots:
+If `ALLERGY` appears in an allowlist of record types (for example a `PHI_RECORD_TYPES` set), add `BLOODBORNE_MARKERS` beside it in the same file; if it does not appear anywhere but the mount line, no change is needed. As executed, `ALLERGY` appears in two such allowlists and both gained a `BLOODBORNE_MARKERS` sibling: `config/careTeamGovernedRecordTypes.js` and, mapped to `PATIENT_CLINICAL_WORKFLOW_ACCESS`, `services/security/accessPolicyRegistry.js`. A third file needed a matching change that this grep does not surface: `src/tests/unit/mountLevelPatientGuardCensus.test.js` carries an explicit census of every mount-level `patientAccessGuard` and fails shut on an unlisted mount, so the bloodborne-markers mount was added to its exemption list alongside `/api/v1/allergies` — both are param-only routers (`:patientUid` is not visible to Express before routing) whose own in-router guard is the authority, so the mount-level guard's inability to see the param is not a gap. Then start the app once to confirm it boots:
 
 ```bash
 DATABASE_URL=postgres://…/vh_bbm_<initials> node -e "import('./src/app.js').then(() => { console.log('app loaded'); process.exit(0); }).catch((e) => { console.error(e); process.exit(1); })"
@@ -1756,6 +1771,8 @@ export const operations = {
 };
 ```
 
+Correction from execution (2026-09-04, commit `6eefb54f1`): the shipped schema is stricter than the draft above in three ways, all driven by what the service actually returns rather than the table alone. `BloodborneMarker.required` lists all sixteen `MARKER_SELECT` columns (the draft lists nine) — every column is present on every row from `normalizeMarkerRow()`, only the values are nullable. `BloodborneReuseMarkerSummary.required` adds `label` (present, and `null`, on every entry `computeReuseStatus()` emits — not only for `other`) and marks `age_days` `nullable: true` (it is `null` when `tested_on` cannot be read as a date; the draft's plain `{ type: 'integer' }` would reject that). `BloodborneReuseStatus.reasons` gets `minItems: 1` (a `'clear'` status still carries the single all-clear reason, so `reasons` is never empty). See the committed `bloodborneMarkers.mjs`, which is authoritative over the draft above; it is synced into `packages/vhhealth_core/swagger/openapi.json` by the regenerate step below.
+
 - [ ] **Step 5: Register the module and regenerate**
 
 In `apps/backend/scripts/generate-openapi.mjs`, next to `import * as cathConsumables from './openapi/schemas/cathConsumables.mjs';` add `import * as bloodborneMarkers from './openapi/schemas/bloodborneMarkers.mjs';`, and in the modules array add `bloodborneMarkers,` on the line after `cathConsumables,`. Then:
@@ -1814,7 +1831,7 @@ Expected: all exit 0.
 
 - [ ] **Step 4: Re-check the migration number against every open branch, then push and open a DRAFT PR**
 
-Re-run Task 0 Step 2. If 765 is now claimed elsewhere, renumber the file (and the `schema.prisma` needs nothing) and amend the migration commit before pushing.
+Re-run Task 0 Step 2. If 764 is now claimed elsewhere, renumber the file (and the `schema.prisma` needs nothing) and amend the migration commit before pushing.
 
 ```bash
 git commit --allow-empty -m "chore(ci): [full-ci] blood-borne marker foundation

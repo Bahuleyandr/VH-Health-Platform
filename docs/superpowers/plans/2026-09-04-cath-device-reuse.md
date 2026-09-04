@@ -29,7 +29,7 @@
 
 | File | Responsibility |
 |---|---|
-| Create `apps/backend/src/migrations/766_cath_device_reuse.sql` | Settings, category policies, device register, usage/catalog columns, 753 assert re-declaration. |
+| Create `apps/backend/src/migrations/765_cath_device_reuse.sql` | Settings, category policies, device register, usage/catalog columns, 753 assert re-declaration. |
 | Modify `apps/backend/prisma/schema.prisma` | Mirror the three tables and the new columns. |
 | Create `apps/backend/src/services/clinical/cathDeviceReuseService.js` | Policy reads/writes, register, transitions, post-use, reused capture helpers, reuse context, late-reactive handler. |
 | Create `apps/backend/src/tests/unit/cathDeviceReuseService.test.js` | Pure rules: transitions, post-use options, tag validation. |
@@ -66,14 +66,14 @@ for ref in $(git for-each-ref --format='%(refname)' refs/remotes/github/); do
 done | sed -E 's#.*/([0-9]+)_.*#\1#' | sort -n | uniq | tail -3
 ```
 
-Expected tail: `764`, `765` (Plan 1). This plan uses **766**. Substitute if claimed; re-run immediately before the final push.
+Expected tail: `763`, `764` (Plan 1). This plan uses **765**. Substitute if claimed; re-run immediately before the final push.
 
 ---
 
-## Task 1: Migration 766
+## Task 1: Migration 765
 
 **Files:**
-- Create: `apps/backend/src/migrations/766_cath_device_reuse.sql`
+- Create: `apps/backend/src/migrations/765_cath_device_reuse.sql`
 - Modify: `apps/backend/prisma/schema.prisma`
 
 - [ ] **Step 1: Extract the 758 function text you will re-declare**
@@ -103,7 +103,7 @@ Expected: one match. Three lines below it are `USING ERRCODE='23514';`, `END IF;
 Open `$SCRATCH/assert753.sql` and, immediately after the `END IF;` that closes the `not_applicable` early return, insert:
 
 ```sql
-  -- 766: a reused reprocessable device consumes no stock and owes no pharmacy
+  -- 765: a reused reprocessable device consumes no stock and owes no pharmacy
   -- shortfall obligation (spec 2026-09-04 §8). Independent of ballot 753-D1.
   IF usage_record.inventory_decrement_status = 'reused_device' THEN
     IF usage_record.device_id IS NULL
@@ -152,7 +152,7 @@ Before saving, confirm the three referenced column names against the existing tr
 - [ ] **Step 3: Write the migration**
 
 ```sql
--- 766_cath_device_reuse.sql
+-- 765_cath_device_reuse.sql
 --
 -- Cath-lab device reuse (spec docs/superpowers/specs/2026-09-04-cath-device-reuse-and-bloodborne-markers-design.md).
 -- Indian cath labs reprocess and reuse catheters, guidewires, balloons and
@@ -471,8 +471,8 @@ Expected: all exit 0. The plpgsql body gate runs in CI; to pre-check locally, `g
 - [ ] **Step 6: Commit**
 
 ```bash
-git add apps/backend/src/migrations/766_cath_device_reuse.sql apps/backend/prisma/schema.prisma
-git commit -m "feat(db): cath device reuse register, policies, usage columns, 753 assert re-declared (mig 766)
+git add apps/backend/src/migrations/765_cath_device_reuse.sql apps/backend/prisma/schema.prisma
+git commit -m "feat(db): cath device reuse register, policies, usage columns, 753 assert re-declared (mig 765)
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
@@ -4273,7 +4273,7 @@ Read the jest summary for `Suites failed` separately from `Tests passed`.
 
 - [ ] **Step 2: Staff and Admin** — repeat Task 6 Step 7 and Task 7 Step 6.
 
-- [ ] **Step 3: Re-check the migration number against every open branch** (Task 0 Step 2). Renumber and amend the migration commit if 766 is now claimed.
+- [ ] **Step 3: Re-check the migration number against every open branch** (Task 0 Step 2). Renumber and amend the migration commit if 765 is now claimed.
 
 - [ ] **Step 4: Push and open the DRAFT PR**
 
