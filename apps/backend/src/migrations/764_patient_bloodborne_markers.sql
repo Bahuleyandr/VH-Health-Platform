@@ -101,7 +101,8 @@ CREATE INDEX idx_patient_bloodborne_markers_patient
   ON patient_bloodborne_markers (tenant_id, patient_uid, marker, tested_on DESC, id DESC);
 
 -- One active marker row per lab result, whatever its source. The sign-off
--- hook inserts with ON CONFLICT … DO NOTHING on this index, so a replay — or
+-- hook runs an advisory-locked read-compare-write per lab result, with
+-- ON CONFLICT … DO NOTHING on this index as the backstop, so a replay — or
 -- an external_report row already occupying the slot — is a no-op, never a
 -- 23505; a corrective sign-off voids the old row before inserting the new.
 CREATE UNIQUE INDEX ux_patient_bloodborne_markers_lab_result

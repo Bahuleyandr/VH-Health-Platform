@@ -12,6 +12,14 @@ import request from 'supertest';
 
 import { AppError } from '../../utils/AppError.js';
 import * as markerOverlay from '../../../scripts/openapi/schemas/bloodborneMarkers.mjs';
+// The rules module is NOT mocked in this file: its constants are the source
+// the published enums have to track.
+import {
+  MARKERS,
+  RESULTS,
+  SOURCES,
+  STATUSES,
+} from '../../services/clinical/bloodborneMarkerRules.js';
 
 const listMarkersForPatient = jest.fn();
 const voidMarker = jest.fn();
@@ -337,6 +345,19 @@ describe('blood-borne marker routes', () => {
     // column added to the SELECT but not the overlay would otherwise be a
     // response the published contract forbids.
     expect(Object.keys(markerOverlay.schemas.BloodborneMarker.properties)).toEqual(columns);
+    // The published enums are a second copy of the service's own constants;
+    // a value added to one and not the other is a contract lie (a response
+    // the client's generated types reject, or a value the docs promise and
+    // the service never emits).
+    expect(markerOverlay.ENUMS).toEqual({
+      MARKERS: [...MARKERS],
+      RESULTS: [...RESULTS],
+      SOURCES: [...SOURCES],
+      STATUSES: [...STATUSES],
+    });
+    expect(markerOverlay.schemas.BloodborneMarker.properties.marker.enum).toEqual([...MARKERS]);
+    expect(markerOverlay.schemas.BloodborneMarker.properties.result.enum).toEqual([...RESULTS]);
+    expect(markerOverlay.schemas.BloodborneMarker.properties.source.enum).toEqual([...SOURCES]);
   });
 
   test('exposes only the read and the void — there is no create route by owner decision', () => {

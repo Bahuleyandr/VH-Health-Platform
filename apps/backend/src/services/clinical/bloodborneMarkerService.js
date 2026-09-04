@@ -33,8 +33,6 @@ import {
   requireUuid,
 } from './bloodborneMarkerRules.js';
 
-export { markerForResult };
-
 // ---------------------------------------------------------------------------
 // Persistence
 // ---------------------------------------------------------------------------
@@ -107,6 +105,15 @@ function requireDate(value, label) {
 function safeClinicalDate(instant) {
   const at = instant instanceof Date ? instant : new Date(instant);
   return Number.isNaN(at.getTime()) ? '' : clinicalDate(at);
+}
+
+// The unusable instant itself, kept verbatim-ish as evidence when a reactive
+// candidate's tested_on is clamped. Null when there was no value at all or it
+// cannot be read as an instant — there is nothing honest to record then.
+function rawInstantIso(value) {
+  if (value === null || value === undefined) return null;
+  const at = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(at.getTime()) ? null : at.toISOString();
 }
 
 function requireOneOf(value, allowed, label) {
@@ -358,7 +365,11 @@ export async function voidMarker({ tenantId, patientUid, markerId, actorUid, rea
 //   voided   — count of superseded marker rows voided by this call.
 //   skipped  — lab_result_ids whose active marker already said exactly this.
 //   failed   — { lab_result_id, reason } for candidates rejected before any
-//              SQL was issued for them (an unusable tested_on).
+//              SQL was issued for them (an unusable tested_on) — never a
+//              reactive one, whose unusable tested_on is instead clamped to
+//              today's clinical date and flagged evidence.tested_on_clamped,
+//              because dropping a reactive result is the permissive direction
+//              (a skewed analyzer clock would leave the patient 'clear').
 //
 // Voiding frees the lab-linked unique slot (ux_patient_bloodborne_markers_lab_result
 // is partial on voided_at IS NULL), so replaying a batch whose row was voided
@@ -390,17 +401,15 @@ async function upsertMarkerForLabResult(tx, {
   nextTestedOn,
   decision,
   actor,
+  evidenceExtra = null,
 }) {
   const activeRows = await tx.$queryRawUnsafe(
-    `SELECT id, result, tested_on, patient_uid
+    `SELECT id, result, tested_on
        FROM patient_bloodborne_markers
       WHERE tenant_id = $1::uuid AND lab_result_id = $2::int AND voided_at IS NULL
       FOR UPDATE`,
     tenantId, labResultId,
   );
-  // patient_uid is read for the comparison's completeness only: the new row
-  // must carry the lab result's *current* patient_uid, because the composite
-  // FK points at lab_results (tenant_id, id, patient_uid).
   const active = activeRows[0];
   if (active && active.result === nextResult && isoDate(active.tested_on) === nextTestedOn) {
     return { outcome: 'skipped', voided: 0, row: null };
@@ -427,6 +436,7 @@ async function upsertMarkerForLabResult(tx, {
       test_code: labRow.test_code,
       loinc_code: labRow.loinc_code,
       decision,
+      ...(evidenceExtra || {}),
     },
     recordedBy: actor,
   });
@@ -480,23 +490,48 @@ export async function recordMarkersFromSignedResults({ tenantId, resultIds = [],
       // collide with an advisory lock taken by unrelated code over the same
       // tenant and a numerically-equal id.
       //
-      // $executeRawUnsafe, not $queryRawUnsafe: pg_advisory_xact_lock returns
-      // void and Prisma's query path cannot deserialise a void column
-      // ('Failed to deserialize column of type void').
-      await tx.$executeRawUnsafe(
-        `SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text, 0))`,
+      // The ::text cast is not cosmetic: pg_advisory_xact_lock returns void
+      // and Prisma's driver adapter cannot deserialise a void column
+      // ('Failed to deserialize column of type void'), so the projection is
+      // cast before it leaves Postgres. That is the house-safe idiom the
+      // advisory-lock guard enforces (advisoryLockVoidGuard.test.js) and the
+      // shape labResultsService.js already uses for its sign-off episode lock.
+      await tx.$queryRawUnsafe(
+        `SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text, 0))::text AS lock_acquired`,
         tid, `bloodborne-marker:${labResultId}`,
       );
       const nextResult = normalizeSerologyValue(row.value_text);
-      const nextTestedOn = safeClinicalDate(row.performed_at || row.received_at || new Date());
+      const rawTestedAt = row.performed_at || row.received_at || null;
+      let nextTestedOn = safeClinicalDate(rawTestedAt || new Date());
       const problem = clinicalDateProblem(nextTestedOn);
+      let evidenceExtra = null;
       if (problem) {
+        // Dropping a candidate is the permissive direction, and for a reactive
+        // result that is the wrong way to fail: an analyzer clock skewed a day
+        // forward would silently leave the patient 'clear' in the reuse
+        // resolver. A reactive result is therefore always recorded — its
+        // tested_on clamped to today's clinical date, with the raw instant and
+        // the reason kept in evidence so the clamp is auditable and reversible
+        // by a corrective sign-off. Every other value keeps the drop.
+        if (nextResult !== 'reactive') {
+          logger.warn(
+            `Blood-borne marker skipped for lab result ${labResultId}: tested_on ${problem}`,
+            { tenantId: tid, labResultId, testedOn: nextTestedOn || null, reason: problem },
+          );
+          failed.push({ lab_result_id: labResultId, reason: problem });
+          continue;
+        }
+        const rawIso = rawInstantIso(rawTestedAt);
+        nextTestedOn = clinicalDate(new Date());
+        evidenceExtra = {
+          tested_on_clamped: true,
+          tested_on_raw: rawIso,
+          tested_on_problem: problem,
+        };
         logger.warn(
-          `Blood-borne marker skipped for lab result ${labResultId}: tested_on ${problem}`,
-          { tenantId: tid, labResultId, testedOn: nextTestedOn || null, reason: problem },
+          `Blood-borne marker tested_on clamped for lab result ${labResultId}: reactive result with ${problem} tested_on`,
+          { tenantId: tid, labResultId, testedOn: nextTestedOn, testedOnRaw: rawIso, reason: problem },
         );
-        failed.push({ lab_result_id: labResultId, reason: problem });
-        continue;
       }
       const passArgs = {
         tenantId: tid,
@@ -507,6 +542,7 @@ export async function recordMarkersFromSignedResults({ tenantId, resultIds = [],
         nextTestedOn,
         decision: normalizedDecision,
         actor,
+        evidenceExtra,
       };
       let pass = await upsertMarkerForLabResult(tx, passArgs);
       voided += pass.voided;

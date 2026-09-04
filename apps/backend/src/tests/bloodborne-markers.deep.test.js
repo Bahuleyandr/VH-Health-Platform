@@ -478,8 +478,10 @@ d('blood-borne markers (deep)', () => {
     ]);
   }, 30000);
 
-  test('a future-dated result is reported in failed and the rest of the batch is still recorded', async () => {
-    const future = await seedSignedResult({ testCode: 'HCV', valueText: 'Reactive', daysBack: -5 });
+  test('a future-dated NON-reactive result is reported in failed and the rest of the batch is still recorded', async () => {
+    // Non-reactive: dropping it is the safe direction, so the drop stands.
+    // The reactive case below is clamped instead — see the test after this.
+    const future = await seedSignedResult({ testCode: 'HCV', valueText: 'Non-reactive', daysBack: -5 });
     const usable = await seedSignedResult({ testCode: 'HBSAG', valueText: 'Non-reactive', daysBack: 1 });
     const outcome = await recordMarkersFromSignedResults({
       tenantId: TENANT, resultIds: [future, usable], decision: 'verified', actorUid: ACTOR,
@@ -492,6 +494,43 @@ d('blood-borne markers (deep)', () => {
       TENANT, future,
     );
     expect(rows[0].n).toBe(0);
+  }, 30000);
+
+  test('a future-dated REACTIVE result is clamped to today rather than dropped, and still restricts', async () => {
+    // Dropping this candidate would be the permissive failure: an analyzer
+    // clock skewed a day forward would keep a reactive HIV result off the
+    // record entirely, and the patient would read as unrestricted.
+    const before = await resolveReuseStatus({ tenantId: TENANT, patientUid: SECOND_PATIENT });
+    expect(before.status).not.toBe('restricted');
+
+    const skewed = await seedSignedResult({
+      testCode: 'HIV', valueText: 'Reactive', patientUid: SECOND_PATIENT, daysBack: -3,
+    });
+    const outcome = await recordMarkersFromSignedResults({
+      tenantId: TENANT, resultIds: [skewed], decision: 'verified', actorUid: ACTOR,
+    });
+    expect(outcome.failed).toEqual([]);
+    expect(outcome.recorded).toHaveLength(1);
+    expect(outcome.recorded[0]).toMatchObject({
+      marker: 'hiv', result: 'reactive', lab_result_id: skewed, tested_on: clinicalDate(new Date()),
+    });
+    expect(outcome.recorded[0].evidence).toMatchObject({
+      tested_on_clamped: true, tested_on_problem: 'future_dated',
+    });
+    // The raw instant is kept so the clamp is auditable.
+    expect(typeof outcome.recorded[0].evidence.tested_on_raw).toBe('string');
+
+    const status = await resolveReuseStatus({ tenantId: TENANT, patientUid: SECOND_PATIENT });
+    expect(status.status).toBe('restricted');
+
+    // The clamped date is what the content compare reads, so a replay on the
+    // same day skips instead of voiding and re-inserting on every sign-off.
+    const replay = await recordMarkersFromSignedResults({
+      tenantId: TENANT, resultIds: [skewed], decision: 'verified', actorUid: ACTOR,
+    });
+    expect(replay.recorded).toEqual([]);
+    expect(replay.skipped).toEqual([skewed]);
+    expect(replay.voided).toBe(0);
   }, 30000);
 
   test('an external_report entry for a lab result the hook already recorded is reported in skipped, not written', async () => {

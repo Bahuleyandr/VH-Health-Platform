@@ -3,8 +3,9 @@
 // Read and void surface for the patient blood-borne marker record. Mounted at
 // /api/v1/bloodborne-markers behind the clinical-staff gate + PHI logger (see
 // app.js), mirroring /api/v1/allergies. There is no create route by owner
-// decision: marker rows are written by the lab sign-off hook and by the cath
-// readiness checklist's external-result path.
+// decision: marker rows are written by the lab sign-off hook, and by the cath
+// readiness checklist's external-result path planned in the companion cath
+// readiness work.
 //
 // Both routes carry their own per-route patientAccessGuard: the mount guard
 // runs before Express has matched a route, so :patientUid is not visible to it
@@ -12,7 +13,10 @@
 // guard is the authority here, and it fails closed: requirePatientContext
 // makes an unresolvable :patientUid — a syntactically valid uid that is not a
 // patient in this tenant — a 403 PATIENT_CONTEXT_REQUIRED rather than a
-// no-patient-context pass-through into the handler.
+// no-patient-context pass-through into the handler. This guard is deliberately
+// not careTeamModeGoverned, so it enforces whatever the tenant's care-team mode
+// is (allergies parity); registering BLOODBORNE_MARKERS in
+// CARE_TEAM_GOVERNED_RECORD_TYPES therefore only affects the mount-level guard.
 //
 // Chain order on the void route is guard → requirePatientUidParam →
 // requireMarkerIdParam → requireIdempotencyKey: the guard first so an

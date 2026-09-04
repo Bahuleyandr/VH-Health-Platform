@@ -1640,9 +1640,9 @@ app.use('/api/v1/problems', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBod
 app.use('/api/v1/allergies', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('ALLERGY', { careTeamModeGoverned: true }), phiAccessLogger('ALLERGY'), allergyRoutes);
 
 // Patient blood-borne marker record (HIV/HBsAg/HCV/CJD) — read + void.
-// Rows are written by the lab sign-off hook and the cath readiness
-// checklist's external-result path; there is deliberately no create route.
-// PHI by definition.
+// Rows are written by the lab sign-off hook and by the cath readiness
+// checklist's external-result path planned in the companion cath readiness
+// work; there is deliberately no create route. PHI by definition.
 app.use('/api/v1/bloodborne-markers', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('BLOODBORNE_MARKERS', { careTeamModeGoverned: true }), phiAccessLogger('BLOODBORNE_MARKERS'), bloodborneMarkerRoutes);
 
 // Drug knowledge base (roadmap B2) — stateless KB evaluation + source

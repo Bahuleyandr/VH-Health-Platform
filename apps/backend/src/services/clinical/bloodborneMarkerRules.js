@@ -2,8 +2,8 @@
 //
 // Pure rules for the patient blood-borne marker record: the serology value
 // normaliser, the reuse-status resolver and the exposure-handler registry.
-// Kept free of prisma/logger-heavy imports so unit tests import them without
-// a database (same split as icuComputations.js). bloodborneMarkerService.js
+// Kept free of prisma / database access so unit tests import them without a
+// database (same split as icuComputations.js). bloodborneMarkerService.js
 // re-exports everything here and adds the persistence functions.
 //
 // Spec: docs/superpowers/specs/2026-09-04-cath-device-reuse-and-bloodborne-markers-design.md §7.

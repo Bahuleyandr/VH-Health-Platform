@@ -103452,7 +103452,7 @@
             }
           }
         },
-        "description": "Voids one marker row (entered in error). The route is mounted with requireIdempotencyKey({ required: true, scope: bloodborne_marker_void }), so the Idempotency-Key header is not optional — omitting it is a hard 400. A voided row is ignored by the reuse resolver and cannot be voided again (409 BLOODBORNE_MARKER_ALREADY_VOIDED); an id that is not this patient’s live or voided row is 404 BLOODBORNE_MARKER_NOT_FOUND. There is deliberately no create route: rows are written by the lab sign-off hook and the cath readiness checklist.",
+        "description": "Voids one marker row (entered in error). The route is mounted with requireIdempotencyKey({ required: true, scope: bloodborne_marker_void }), so the Idempotency-Key header is not optional — omitting it is a hard 400. A voided row is ignored by the reuse resolver and cannot be voided again (409 BLOODBORNE_MARKER_ALREADY_VOIDED); an id that is not this patient’s live or voided row is 404 BLOODBORNE_MARKER_NOT_FOUND. Voiding a lab-linked row does not retract the lab result: the next sign-off event or reconciliation run for that result re-inserts a row from the result’s current content. To retract durably, correct the lab result. There is deliberately no create route: rows are written by the lab sign-off hook and the cath readiness checklist.",
         "parameters": [
           {
             "name": "patientUid",

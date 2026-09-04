@@ -12,6 +12,11 @@ const RESULTS = ['reactive', 'non_reactive', 'indeterminate', 'pending'];
 const SOURCES = ['lab_result', 'external_report', 'clinical_declaration'];
 const STATUSES = ['restricted', 'unknown', 'clear'];
 
+// Exported so a test can pin these published enums against the service's own
+// constants (bloodborneMarkerRules.js). generate-openapi.mjs reads only
+// `schemas` and `operations` from a module, so the extra export is inert.
+export const ENUMS = { MARKERS, RESULTS, SOURCES, STATUSES };
+
 const nullableString = { type: 'string', nullable: true };
 const nullableUuid = { type: 'string', format: 'uuid', nullable: true };
 const nullableDateTime = { type: 'string', format: 'date-time', nullable: true };
@@ -162,7 +167,7 @@ export const operations = {
   },
   'POST /api/v1/bloodborne-markers/patient/{patientUid}/markers/{id}/void': {
     description:
-      'Voids one marker row (entered in error). The route is mounted with requireIdempotencyKey({ required: true, scope: bloodborne_marker_void }), so the Idempotency-Key header is not optional — omitting it is a hard 400. A voided row is ignored by the reuse resolver and cannot be voided again (409 BLOODBORNE_MARKER_ALREADY_VOIDED); an id that is not this patient’s live or voided row is 404 BLOODBORNE_MARKER_NOT_FOUND. There is deliberately no create route: rows are written by the lab sign-off hook and the cath readiness checklist.',
+      'Voids one marker row (entered in error). The route is mounted with requireIdempotencyKey({ required: true, scope: bloodborne_marker_void }), so the Idempotency-Key header is not optional — omitting it is a hard 400. A voided row is ignored by the reuse resolver and cannot be voided again (409 BLOODBORNE_MARKER_ALREADY_VOIDED); an id that is not this patient’s live or voided row is 404 BLOODBORNE_MARKER_NOT_FOUND. Voiding a lab-linked row does not retract the lab result: the next sign-off event or reconciliation run for that result re-inserts a row from the result’s current content. To retract durably, correct the lab result. There is deliberately no create route: rows are written by the lab sign-off hook and the cath readiness checklist.',
     pathParameters: {
       patientUid: { type: 'string', format: 'uuid' },
       id: { type: 'integer', minimum: 1 }
