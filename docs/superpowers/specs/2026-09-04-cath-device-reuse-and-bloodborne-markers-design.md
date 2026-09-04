@@ -87,7 +87,7 @@ Foreign keys are tenant-pinned composites in the repository's convention for chi
 | patient_uid | UUID NOT NULL | composite FK `(tenant_id, patient_uid)` → `users (tenant_id, uid)` ON DELETE NO ACTION, deferrable |
 | marker | VARCHAR(32) NOT NULL | CHECK `patient_bloodborne_markers_marker_check`: `hiv`, `hbsag`, `hcv`, `cjd_suspected`, `other` |
 | marker_label | VARCHAR(120) | required when marker = `other` (CHECK `patient_bloodborne_markers_label_check`) |
-| result | VARCHAR(20) NOT NULL | CHECK `patient_bloodborne_markers_result_check`: `reactive`, `non_reactive`, `indeterminate`, `pending`. For `cjd_suspected`, `reactive` means suspected and `non_reactive` means cleared (CHECK `patient_bloodborne_markers_cjd_result_check` restricts it to those two). |
+| result | VARCHAR(20) NOT NULL | CHECK `patient_bloodborne_markers_result_check`: `reactive`, `non_reactive`, `indeterminate`, `pending`. For `cjd_suspected` the CHECK `patient_bloodborne_markers_cjd_result_check` allows only `reactive` (suspected) and `non_reactive` (recorded as not suspected); because reactive rows latch (§7.3), a suspicion is withdrawn by voiding the reactive row, not by adding a `non_reactive` one. |
 | tested_on | DATE NOT NULL | |
 | source | VARCHAR(24) NOT NULL | CHECK `patient_bloodborne_markers_source_check`: `lab_result`, `external_report`, `clinical_declaration` |
 | lab_result_id | INTEGER | composite FK `(tenant_id, lab_result_id, patient_uid)` → `lab_results (tenant_id, id, patient_uid)` ON DELETE NO ACTION, deferrable; present for `lab_result` and `external_report` rows, null for `clinical_declaration` (CHECK `patient_bloodborne_markers_lab_link_check`: `(source = 'clinical_declaration') = (lab_result_id IS NULL)`) |
@@ -265,7 +265,7 @@ Applied to `value_text` after trimming and lower-casing; `value_numeric` is neve
 | `pending`, `awaited`, empty | `pending` |
 | anything else | `indeterminate` (never silently `non_reactive`) |
 
-`weakly reactive` must be matched before `reactive` is tested as a prefix of `non-reactive`; the normaliser tests the negative tokens first, then the positive ones.
+Precedence (as reviewed on 2026-09-04): empty → `pending`; any indeterminate token → `indeterminate`; a negative token present → `indeterminate` if a positive token survives once the negative phrases are removed ("reactive, not detected on repeat"), else `pending` if a pending token is present ("not detected, repeat pending"), else `non_reactive`; a positive token present → `reactive`, even alongside a pending token ("reactive, confirmation pending" is a reactive screen); a pending token alone → `pending`; anything else → `indeterminate`. Every mixed case resolves toward the restrictive side, because a false `non_reactive` is the one input that manufactures an unearned `clear`.
 
 ### 7.3 Resolver
 
@@ -275,18 +275,18 @@ Applied to `value_text` after trimming and lower-casing; `value_numeric` is neve
 {
   "status": "restricted | unknown | clear",
   "markers": [{ "marker": "hbsag", "label": null, "result": "reactive", "tested_on": "2026-08-12", "source": "lab_result", "age_days": 23, "within_window": true }],
-  "reasons": ["hbsag reactive 2026-08-12"],
+  "reasons": ["HBsAg reactive 2026-08-12"],
   "validity_days": 90,
   "evaluated_at": "2026-09-04T10:15:00Z"
 }
 ```
 
-Rules, evaluated over the latest non-voided row per marker:
+Rules (as reviewed on 2026-09-04):
 
-1. Any `cjd_suspected` row with result `reactive` → `restricted`, regardless of age.
-2. Any `hiv`, `hbsag`, `hcv` or `other` row with result `reactive` and `age_days ≤ validity_days` → `restricted`. A reactive result older than the window still yields `restricted`; blood-borne infections do not lapse. (The window governs how long a negative result may be relied on, not how long a positive one counts.)
-3. Otherwise, if `hiv`, `hbsag` and `hcv` each have a `non_reactive` latest row within the window → `clear`.
-4. Otherwise → `unknown` (a marker missing, `pending`, `indeterminate`, or stale).
+1. **A reactive row latches.** Any non-voided row with result `reactive`, for any marker, of any age, → `restricted`, even when a later non-voided row for the same marker is `non_reactive`. Antibody markers (HIV, anti-HCV) do not revert, and for device reprocessing "ever reactive" is the safe reading of HBsAg too. Only voiding the row (entered in error) clears it. `cjd_suspected` follows the same rule: a suspicion is withdrawn by voiding, not by a later `non_reactive` row.
+2. Otherwise, the latest non-voided row per core marker decides: if `hiv`, `hbsag` and `hcv` each have a `non_reactive` latest row within `validity_days` → `clear`.
+3. Otherwise → `unknown`, with one reason per core marker that is missing, `pending`, `indeterminate`, undated, uninterpretable, or older than the window (the reason names the window and the result date). `unknown` always carries at least one reason.
+4. Ages are Asia/Kolkata calendar days. A result dated in the future is unusable evidence: it counts as `unknown` with a reason naming the date (a future-dated reactive still latches). A `validity_days` outside 1–365 falls back to 90. The value normaliser's precedence is given in §7.2.
 
 `reasons` lists what produced the status, in the order checked, and is what the Staff strip prints.
 

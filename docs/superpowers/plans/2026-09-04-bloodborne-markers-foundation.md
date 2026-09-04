@@ -1116,7 +1116,7 @@ Expected: FAIL with `recordMarkers is not a function` (or an import error naming
 
 - [ ] **Step 3: Append the DB functions to the service**
 
-Append to `apps/backend/src/services/clinical/bloodborneMarkerService.js` (below the exposure registry, above the final `export {}` line; move that final line to the very end of the file):
+Execution note (2026-09-04): Task 3's review split the pure rules into `apps/backend/src/services/clinical/bloodborneMarkerRules.js` (normaliser, `computeReuseStatus`, exposure registry, `requireUuid`, `isoDate`, `clinicalDate`, `ageInDays`, the constants), and `bloodborneMarkerService.js` became `export * from './bloodborneMarkerRules.js'; export { markerForResult } from '../lab/labAnalyteCodes.js';`. The rules also changed: a non-voided reactive row LATCHES (a later non-reactive never clears it; only voiding does), `unknown` always carries a reason, ages are Asia/Kolkata calendar days, and the normaliser treats mixed negative+positive text as `indeterminate`. So this task ADDS the persistence functions to `bloodborneMarkerService.js` beneath the two re-export lines, importing what it needs from the rules module (`computeReuseStatus, normalizeSerologyValue, notifyExposureHandlers, requireUuid, isoDate, clinicalDate, DEFAULT_VALIDITY_DAYS, MARKERS, RESULTS, SOURCES`) plus `prisma, { setTenant, setTenantTx }`, `logger`, `AppError`, `requireTenantId`, `markerForResult`. Do not re-declare the helpers the rules module already exports. With that read, the code below is what to add:
 
 ```js
 // ---------------------------------------------------------------------------
