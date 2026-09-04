@@ -204,10 +204,15 @@ jobs:
           path: apps/backend/node_modules/.prisma
           key: prisma-client-${{ runner.os }}-node-26-${{ hashFiles('apps/backend/package-lock.json', 'apps/backend/prisma/schema.prisma') }}
 
+      # Routed through the gate so an unreachable advisory service cannot read
+      # as a vulnerability finding. Findings still fail at the same thresholds;
+      # see scripts/ci/npm-audit-gate.mjs. (`npx --yes` matches how
+      # apps/backend/package.json already invokes audit-ci — without it npx can
+      # stop to ask before installing.)
       - name: Security audit
         run: |
-          npm audit --audit-level=high
-          npx audit-ci --critical
+          node ../../scripts/ci/npm-audit-gate.mjs --label "backend npm audit (high)" -- npm audit --audit-level=high
+          node ../../scripts/ci/npm-audit-gate.mjs --label "backend audit-ci (critical)" -- npx --yes audit-ci --critical
 
       - name: Trivy filesystem scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0

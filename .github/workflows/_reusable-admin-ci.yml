@@ -71,8 +71,15 @@ jobs:
       - name: Lockfile libc guard (musl/glibc platform constraints intact)
         run: npm run check:lockfile-libc
 
+      # Routed through the gate so an unreachable advisory service cannot read
+      # as a vulnerability finding. Findings still fail at the same threshold;
+      # see scripts/ci/npm-audit-gate.mjs for why an outage is forgiven ONLY
+      # when this branch has not touched a dependency manifest.
       - name: Security audit
-        run: npm audit --audit-level=high
+        run: >
+          node ../../scripts/ci/npm-audit-gate.mjs
+          --label "admin npm audit (high)"
+          -- npm audit --audit-level=high
 
       - name: Trivy filesystem scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
