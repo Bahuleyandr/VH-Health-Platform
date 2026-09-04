@@ -76,6 +76,14 @@ Expected tail: `763`, `764` (Plan 1). This plan uses **765**. Substitute if clai
 - Create: `apps/backend/src/migrations/765_cath_device_reuse.sql`
 - Modify: `apps/backend/prisma/schema.prisma`
 
+**Execution notes** (confirmed against 758's and 753's actual text and the repository's seed/runtime-grant machinery; re-verify locally before writing SQL, do not assume these hold if the source has moved):
+
+- The 758 re-declaration of `cath_inventory_authority_assert_contract_753` runs from line 4042 (`CREATE OR REPLACE FUNCTION`) to line 4363 (`$function$;`) in `758_pharmacy_advance_funding_authority.sql`.
+- `usage_record` is declared `public.cath_case_consumable_usage%ROWTYPE` and loaded with `SELECT usage.* INTO usage_record` — there is no explicit column list to extend when `device_id`/`reuse_cycle` are added to the table.
+- The shortfall-triple lookup (753/758, byte-identical) reads the task via `task.related_resource_type = 'cath_case_consumable_usage' AND task.related_resource_id = usage_record.id::text AND task.metadata->>'task_contract' = 'cath_inventory_shortfall_v1'`; the movement lookup has two arms — `pharmacy_stock_movements` referenced either by `reference_type = 'cath_consumable_usage' AND reference_id = usage_record.id::text`, or by `reference_type = 'cath_consumable_reconciliation' AND metadata->>'cath_consumable_usage_id' = usage_record.id::text`. Both arms belong in the reused branch's artefact check (spec §8), alongside `workflow_sla_instances` (`rule_code = 'cath_consumable_inventory_reconciliation'`) and `notification_outbox` (`type = 'cath_inventory_shortfall'`, `source_event_key = 'cath-inventory-shortfall:' || usage_record.id::text`).
+- `cath_reprocessable_devices` is registered in `INTENTIONALLY_EMPTY_SEED_TABLES` (`apps/backend/src/db/seedCoveragePolicy.js`): the generic seed walker cannot fabricate a device's `origin_usage_id` linkage without inventing a first-use clinical event, so the register stays seed-empty by the same convention already used for the other append-only/evidence tables on that list. `cath_reprocessing_settings` and `cath_reprocessing_category_policies` instead get `TABLE_COLUMN_SEED_OVERRIDES` entries (`apps/backend/scripts/seed-comprehensive-test-data.mjs`) so the walker can populate them with in-range values.
+- The three new tables need the same role-guarded GRANT block for `vhhealth_app`/`vhhealth_runtime` that `patient_bloodborne_markers` got in migration 764 (spec §5.1), plus entries in `apps/backend/src/lib/prisma.js`'s `runtime_mutable_no_delete_relations` and `runtime_nextval_sequences` arrays (~1293, ~1309) so `ensureTenantRlsRuntimeRoleGrants` re-grants correctly on every boot. Check `apps/backend/src/tests/unit/prismaCoverage.test.js` for any pinned expectation over those arrays' contents and update it in the same commit.
+
 - [ ] **Step 1: Extract the 758 function text you will re-declare**
 
 ```bash
@@ -98,6 +106,27 @@ grep -n "Terminal Cath usage preservation lacks its governed recovery receipt" "
 
 Expected: one match. Three lines below it are `USING ERRCODE='23514';`, `END IF;`, `RETURN;`, `END IF;` — the fourth `END IF;` after the match closes the `not_applicable` early return. The reused branch goes immediately after that line.
 
+Also extract `cath_authority_identity_guard_753` — the migration re-declares it too, so `device_id` and `reuse_cycle` become immutable once written (spec §5.5, §8):
+
+```bash
+grep -n "CREATE OR REPLACE FUNCTION public.cath_authority_identity_guard_753" 758_pharmacy_advance_funding_authority.sql
+```
+
+Expected: one line number near 3763. Then find its end the same way (the next `$function$;` after that line, near 3967):
+
+```bash
+awk -v s=3763 'NR>s && /^\$function\$;/ {print NR; exit}' 758_pharmacy_advance_funding_authority.sql
+```
+
+Note both numbers as START2 and END2. Write the function text to a second scratch file:
+
+```bash
+sed -n "${START2},${END2}p" 758_pharmacy_advance_funding_authority.sql > "$SCRATCH/identityGuard753.sql"
+grep -n "Cath consumable clinical and canonical-event identity is immutable" "$SCRATCH/identityGuard753.sql"
+```
+
+Expected: one match, inside the `ELSIF TG_TABLE_NAME = 'cath_case_consumable_usage' THEN` branch, in the `IF NEW.tenant_id IS DISTINCT FROM OLD.tenant_id OR … THEN` list that raises this exception.
+
 - [ ] **Step 2: Insert the reused-device branch into the scratch copy**
 
 Open `$SCRATCH/assert753.sql` and, immediately after the `END IF;` that closes the `not_applicable` early return, insert:
@@ -105,24 +134,46 @@ Open `$SCRATCH/assert753.sql` and, immediately after the `END IF;` that closes t
 ```sql
   -- 765: a reused reprocessable device consumes no stock and owes no pharmacy
   -- shortfall obligation (spec 2026-09-04 §8). Independent of ballot 753-D1.
+  -- Two distinct 23514s so a failure names which half of the guarantee broke:
+  -- device identity, or artefacts/provenance.
   IF usage_record.inventory_decrement_status = 'reused_device' THEN
     IF usage_record.device_id IS NULL
-       OR usage_record.reuse_cycle IS NULL
+       OR NOT EXISTS (
+         SELECT 1
+           FROM public.cath_reprocessable_devices device
+          WHERE device.id = usage_record.device_id
+            AND device.tenant_id = usage_record.tenant_id
+            AND device.catalog_item_id = usage_record.catalog_item_id
+            AND device.facility_id = usage_record.facility_id
+       )
+    THEN
+      RAISE EXCEPTION 'Reused device usage does not reference a device of this tenant, catalogue item and facility'
+        USING ERRCODE = '23514';
+    END IF;
+    IF usage_record.reuse_cycle IS NULL
+       OR usage_record.quantity <> 1
+       OR usage_record.timeline_event_id IS NULL
+       OR usage_record.audit_event_id IS NULL
        OR usage_record.inventory_batch_id IS NOT NULL
        OR usage_record.inventory_movement_id IS NOT NULL
        OR EXISTS (
          SELECT 1
            FROM public.pharmacy_stock_movements movement
           WHERE movement.tenant_id = usage_record.tenant_id
-            AND movement.reference_type = 'cath_consumable_usage'
-            AND movement.reference_id = usage_record.id
+            AND (
+              (movement.reference_type = 'cath_consumable_usage'
+               AND movement.reference_id = usage_record.id::text)
+              OR (movement.reference_type = 'cath_consumable_reconciliation'
+               AND movement.metadata->>'cath_consumable_usage_id' = usage_record.id::text)
+            )
        )
        OR EXISTS (
          SELECT 1
            FROM public.tasks task
           WHERE task.tenant_id = usage_record.tenant_id
-            AND task.task_contract = 'cath_inventory_shortfall_v1'
+            AND task.related_resource_type = 'cath_case_consumable_usage'
             AND task.related_resource_id = usage_record.id::text
+            AND task.metadata->>'task_contract' = 'cath_inventory_shortfall_v1'
        )
        OR EXISTS (
          SELECT 1
@@ -132,22 +183,31 @@ Open `$SCRATCH/assert753.sql` and, immediately after the `END IF;` that closes t
             AND sla.source_table = 'cath_case_consumable_usage'
             AND sla.source_id = usage_record.id::text
        )
-       OR NOT EXISTS (
+       OR EXISTS (
          SELECT 1
-           FROM public.cath_reprocessable_devices device
-          WHERE device.id = usage_record.device_id
-            AND device.tenant_id = usage_record.tenant_id
-            AND device.catalog_item_id = usage_record.catalog_item_id
+           FROM public.notification_outbox outbox
+          WHERE outbox.tenant_id = usage_record.tenant_id
+            AND outbox.type = 'cath_inventory_shortfall'
+            AND outbox.source_event_key = 'cath-inventory-shortfall:' || usage_record.id::text
        )
     THEN
-      RAISE EXCEPTION 'Reused device usage carries inventory or shortfall artefacts'
+      RAISE EXCEPTION 'Reused device usage carries inventory, shortfall or provenance artefacts it must not'
         USING ERRCODE = '23514';
     END IF;
     RETURN;
   END IF;
 ```
 
-Before saving, confirm the three referenced column names against the existing triple assertion in the same scratch file (search it for `task_contract`, `related_resource_id`, `rule_code`, `source_table`): use exactly the column names that function already uses. If the existing text references the SLA through a different column pair, mirror it. Also confirm `usage_record` declares `device_id` and `reuse_cycle`: the function reads `usage_record` with `SELECT * ... INTO usage_record` (or an explicit column list). If it is an explicit list, add `device_id` and `reuse_cycle` to that list in the scratch copy. Do not use `CASE` inside `IF` (SQLSTATE 42601 in the body gate).
+Before saving, confirm every referenced column name against the existing text in the same scratch file: the task lookup uses `related_resource_type`, `related_resource_id` and `metadata->>'task_contract'` (not a bare `task_contract` column); the movement lookup has the two arms shown (`reference_type`/`reference_id` for a direct usage reference, `reference_type`/`metadata->>'cath_consumable_usage_id'` for a reconciliation reference) — search the scratch file for `reference_type`, `metadata->>'cath_consumable_usage_id'`, `rule_code`, `source_table`, `source_event_key` and use exactly the column names and literal values that function already uses; if any differ, mirror the scratch file, not this sketch. Also confirm `usage_record` declares `device_id`, `reuse_cycle`, `quantity`, `timeline_event_id` and `audit_event_id`: the function reads `usage_record` as `public.cath_case_consumable_usage%ROWTYPE` via `SELECT usage.* INTO usage_record` (no explicit column list), so every column on the row is already visible without edits to the `SELECT`. Do not use `CASE` inside `IF` (SQLSTATE 42601 in the body gate).
+
+In `$SCRATCH/identityGuard753.sql`, find the `ELSIF TG_TABLE_NAME = 'cath_case_consumable_usage' THEN` branch's immutable-column `IF` (the one ending `RAISE EXCEPTION 'Cath consumable clinical and canonical-event identity is immutable'`) and add two lines to its condition list, alongside the existing `OR NEW.wasted IS DISTINCT FROM OLD.wasted`:
+
+```sql
+       OR NEW.device_id IS DISTINCT FROM OLD.device_id
+       OR NEW.reuse_cycle IS DISTINCT FROM OLD.reuse_cycle
+```
+
+Leave `post_use_disposition`, `post_use_screen` and `reuse_screen` out of every `IF` in this function — they are written after the capture insert (post-use) and must stay mutable. Do not touch any other branch (`cath_lab_cases`, `cath_consumable_catalog`, `tasks`, …); this function guards several tables and only the usage branch changes.
 
 - [ ] **Step 3: Write the migration**
 
@@ -164,16 +224,30 @@ Before saving, confirm the three referenced column names against the existing tr
 -- This migration adds, forward-only:
 --   * cath_reprocessing_settings            — per tenant: blood-borne rules + serology window
 --   * cath_reprocessing_category_policies   — per tenant per category: reprocessable, max cycles
---   * cath_reprocessable_devices            — the device register (system-minted tag, cycle count)
+--   * cath_reprocessable_devices            — the device register (system-minted tag, cycle count);
+--                                             11 CHECK constraints incl. a biconditional in_case_check,
+--                                             an exposure_check, and a discarded_check requiring both
+--                                             discard_reason and discarded_at; every FK into an
+--                                             existing table is a tenant-pinned composite
+--   * cath_consumable_catalog, cath_case_consumable_usage — new (tenant_id, id) unique indexes to
+--                                             back the composite FKs above (both tables were unique
+--                                             on id alone)
 --   * cath_case_consumable_usage            — device_id, reuse_cycle, post_use_disposition,
 --                                             reuse_screen, post_use_screen; status value
---                                             'reused_device'; shape CHECK; the 753 exact-authority
---                                             CHECK re-added with a third arm
+--                                             'reused_device'; shape CHECK (two biconditionals plus
+--                                             the no-batch/no-movement clause); the 753 exact-authority
+--                                             CHECK re-added with a third arm requiring device_id,
+--                                             facility_id AND inventory_item_id
 --   * cath_consumable_catalog               — reused_billing_item_code
 --   * cath_inventory_authority_assert_contract_753 re-declared exactly as 758
---     re-declared it, plus one branch: a 'reused_device' usage must reference a
---     device of the same catalogue item and carry no stock movement, no
---     shortfall task and no SLA. Every other branch is byte-identical to 758.
+--     re-declared it, plus one branch with two 23514s: a 'reused_device' usage
+--     must reference a device of the same tenant, catalogue item AND facility
+--     (arm a), and must carry no stock movement, no shortfall task, no SLA, no
+--     shortfall notification, quantity = 1 and non-null timeline_event_id /
+--     audit_event_id (arm b). Every other branch is byte-identical to 758.
+--   * cath_authority_identity_guard_753 re-declared alongside it, on the same
+--     forward pattern, so device_id and reuse_cycle join the immutable-column
+--     list for cath_case_consumable_usage once written.
 --     Migrations 753 and 758 are not edited.
 --
 -- Ballot 753-D1 (every new-unit use is a shortfall task, or only actual
@@ -261,23 +335,35 @@ CREATE TABLE cath_reprocessing_category_policies (
 );
 
 -- ---------------------------------------------------------------------------
--- 3. Device register (no patient identity; patient linkage lives on usage rows)
+-- 3. Composite-FK backing indexes. cath_consumable_catalog and
+--    cath_case_consumable_usage (563/564) are each unique on id alone; every
+--    FK the device register and the usage row take out below is a
+--    tenant-pinned composite, which needs a unique index on exactly that
+--    column pair on the referenced side.
+-- ---------------------------------------------------------------------------
+CREATE UNIQUE INDEX ux_cath_consumable_catalog_tenant_id
+  ON cath_consumable_catalog (tenant_id, id);
+CREATE UNIQUE INDEX ux_cath_case_consumable_usage_tenant_id
+  ON cath_case_consumable_usage (tenant_id, id);
+
+-- ---------------------------------------------------------------------------
+-- 4. Device register (no patient identity; patient linkage lives on usage rows)
 -- ---------------------------------------------------------------------------
 CREATE TABLE cath_reprocessable_devices (
   id BIGSERIAL PRIMARY KEY,
   tenant_id UUID NOT NULL DEFAULT COALESCE(
     (NULLIF(NULLIF(current_setting('app.current_tenant_id', true), ''), 'bypass'))::uuid,
     '00000000-0000-4000-8000-000000000001'::uuid
-  ),
+  ) REFERENCES tenants(id) ON DELETE CASCADE,
   facility_id INTEGER NOT NULL,
-  catalog_item_id BIGINT NOT NULL REFERENCES cath_consumable_catalog(id) ON DELETE RESTRICT,
+  catalog_item_id BIGINT NOT NULL,
   device_tag VARCHAR(24) GENERATED ALWAYS AS ('RP' || lpad(id::text, 8, '0')) STORED,
-  origin_usage_id BIGINT NOT NULL REFERENCES cath_case_consumable_usage(id) ON DELETE RESTRICT,
+  origin_usage_id BIGINT NOT NULL,
   origin_unit_index SMALLINT NOT NULL DEFAULT 1,
   cycle_count INTEGER NOT NULL DEFAULT 0,
   max_cycles_snapshot INTEGER NOT NULL,
   status VARCHAR(32) NOT NULL DEFAULT 'awaiting_reprocessing',
-  current_usage_id BIGINT REFERENCES cath_case_consumable_usage(id) ON DELETE SET NULL,
+  current_usage_id BIGINT,
   exposure_flag BOOLEAN NOT NULL DEFAULT FALSE,
   exposure_markers TEXT[] NOT NULL DEFAULT '{}'::text[],
   last_reprocessed_at TIMESTAMPTZ(6),
@@ -294,6 +380,18 @@ CREATE TABLE cath_reprocessable_devices (
   created_at TIMESTAMPTZ(6) NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT NOW(),
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  CONSTRAINT fk_cath_reprocessable_devices_catalog
+    FOREIGN KEY (tenant_id, catalog_item_id)
+    REFERENCES cath_consumable_catalog (tenant_id, id) ON DELETE RESTRICT,
+  CONSTRAINT fk_cath_reprocessable_devices_facility
+    FOREIGN KEY (tenant_id, facility_id)
+    REFERENCES facilities (tenant_id, id),
+  CONSTRAINT fk_cath_reprocessable_devices_origin_usage
+    FOREIGN KEY (tenant_id, origin_usage_id)
+    REFERENCES cath_case_consumable_usage (tenant_id, id) ON DELETE RESTRICT,
+  CONSTRAINT fk_cath_reprocessable_devices_current_usage
+    FOREIGN KEY (tenant_id, current_usage_id)
+    REFERENCES cath_case_consumable_usage (tenant_id, id) ON DELETE SET NULL,
   CONSTRAINT cath_reprocessable_devices_unit_index_check CHECK (origin_unit_index >= 1),
   CONSTRAINT cath_reprocessable_devices_cycle_check CHECK (cycle_count >= 0),
   CONSTRAINT cath_reprocessable_devices_max_cycles_check CHECK (max_cycles_snapshot >= 1),
@@ -301,7 +399,9 @@ CREATE TABLE cath_reprocessable_devices (
   CONSTRAINT cath_reprocessable_devices_status_check
     CHECK (status IN ('awaiting_reprocessing', 'in_cssd', 'available', 'in_case', 'quarantined', 'discarded')),
   CONSTRAINT cath_reprocessable_devices_in_case_check
-    CHECK (status <> 'in_case' OR current_usage_id IS NOT NULL),
+    CHECK ((status = 'in_case') = (current_usage_id IS NOT NULL)),
+  CONSTRAINT cath_reprocessable_devices_exposure_check
+    CHECK (exposure_flag OR cardinality(exposure_markers) = 0),
   CONSTRAINT cath_reprocessable_devices_cycle_type_check
     CHECK (last_cycle_type IS NULL OR last_cycle_type IN ('steam', 'eto', 'plasma', 'dry_heat', 'chemical', 'other')),
   CONSTRAINT cath_reprocessable_devices_function_check_check
@@ -314,23 +414,31 @@ CREATE TABLE cath_reprocessable_devices (
     CHECK (status <> 'discarded' OR (discard_reason IS NOT NULL AND discarded_at IS NOT NULL)),
   CONSTRAINT ux_cath_reprocessable_devices_origin UNIQUE (origin_usage_id, origin_unit_index)
 );
+-- 11 CHECK constraints above (unit_index, cycle, max_cycles, cycle_bound,
+-- status, in_case, exposure, cycle_type, function_check, discard_reason,
+-- discarded); verify with the pg_constraint query in Step 4.
 
+CREATE UNIQUE INDEX ux_cath_reprocessable_devices_tenant_id
+  ON cath_reprocessable_devices (tenant_id, id);
 CREATE UNIQUE INDEX ux_cath_reprocessable_devices_tag ON cath_reprocessable_devices (tenant_id, device_tag);
 CREATE INDEX idx_cath_reprocessable_devices_status ON cath_reprocessable_devices (tenant_id, status);
 CREATE INDEX idx_cath_reprocessable_devices_facility ON cath_reprocessable_devices (tenant_id, facility_id, status);
 CREATE INDEX idx_cath_reprocessable_devices_catalog ON cath_reprocessable_devices (tenant_id, catalog_item_id, status);
 
 -- ---------------------------------------------------------------------------
--- 4. Usage row: reused-device columns, status value, shape checks
+-- 5. Usage row: reused-device columns, status value, shape checks
 -- ---------------------------------------------------------------------------
 ALTER TABLE cath_case_consumable_usage
-  ADD COLUMN device_id BIGINT REFERENCES cath_reprocessable_devices(id) ON DELETE RESTRICT,
+  ADD COLUMN device_id BIGINT,
   ADD COLUMN reuse_cycle INTEGER,
   ADD COLUMN post_use_disposition VARCHAR(32),
   ADD COLUMN reuse_screen JSONB,
   ADD COLUMN post_use_screen JSONB;
 
 ALTER TABLE cath_case_consumable_usage
+  ADD CONSTRAINT fk_cath_case_consumable_usage_device
+    FOREIGN KEY (tenant_id, device_id)
+    REFERENCES cath_reprocessable_devices (tenant_id, id) ON DELETE RESTRICT,
   DROP CONSTRAINT IF EXISTS cath_consumable_usage_inventory_status_check,
   ADD CONSTRAINT cath_consumable_usage_inventory_status_check
     CHECK (inventory_decrement_status IN (
@@ -345,7 +453,8 @@ ALTER TABLE cath_case_consumable_usage
       'discarded_wasted', 'discarded_other', 'not_reprocessable')),
   ADD CONSTRAINT cath_consumable_usage_reused_device_shape_check
     CHECK (
-      ((inventory_decrement_status = 'reused_device') = (device_id IS NOT NULL AND reuse_cycle IS NOT NULL))
+      ((inventory_decrement_status = 'reused_device') = (device_id IS NOT NULL))
+      AND ((inventory_decrement_status = 'reused_device') = (reuse_cycle IS NOT NULL))
       AND (inventory_decrement_status <> 'reused_device'
            OR (inventory_batch_id IS NULL AND inventory_movement_id IS NULL))
     ),
@@ -371,13 +480,13 @@ CREATE INDEX idx_cath_consumable_usage_device ON cath_case_consumable_usage (ten
   WHERE device_id IS NOT NULL;
 
 -- ---------------------------------------------------------------------------
--- 5. Catalogue: reprocessed tariff code
+-- 6. Catalogue: reprocessed tariff code
 -- ---------------------------------------------------------------------------
 ALTER TABLE cath_consumable_catalog
   ADD COLUMN reused_billing_item_code VARCHAR(50);
 
 -- ---------------------------------------------------------------------------
--- 6. RLS on the three new tables
+-- 7. RLS on the three new tables
 -- ---------------------------------------------------------------------------
 ALTER TABLE cath_reprocessing_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cath_reprocessing_settings FORCE ROW LEVEL SECURITY;
@@ -431,11 +540,20 @@ CREATE POLICY tenant_isolation ON cath_reprocessable_devices
   );
 
 -- ---------------------------------------------------------------------------
--- 7. Re-declare the 753 assert function (body copied from 758 + the reused branch)
+-- 8. Re-declare the 753 assert function (body copied from 758 + the reused branch)
 -- ---------------------------------------------------------------------------
 ```
 
 Then append the entire contents of `$SCRATCH/assert753.sql` (the edited copy) below that comment, followed by:
+
+```sql
+
+-- ---------------------------------------------------------------------------
+-- 9. Re-declare the 753 identity guard (device_id/reuse_cycle immutability)
+-- ---------------------------------------------------------------------------
+```
+
+Then append the entire contents of `$SCRATCH/identityGuard753.sql` (the edited copy, with the two added `IS DISTINCT FROM` lines) below that comment, followed by:
 
 ```sql
 
@@ -448,11 +566,13 @@ COMMIT;
 cd apps/backend
 DATABASE_URL=postgres://…/vh_cdr_<initials> node scripts/ci-setup-db.mjs
 psql "$DATABASE_URL" -c "SELECT position('reused_device' in pg_get_functiondef('public.cath_inventory_authority_assert_contract_753'::regproc)) > 0 AS has_branch;"
-psql "$DATABASE_URL" -c "SELECT conname, convalidated FROM pg_constraint WHERE conrelid = 'cath_case_consumable_usage'::regclass AND conname IN ('cath_consumable_usage_inventory_status_check','cath_consumable_usage_reused_device_shape_check','chk_cath_usage_exact_inventory_authority_753') ORDER BY 1;"
+psql "$DATABASE_URL" -c "SELECT position('device_id' in pg_get_functiondef('public.cath_authority_identity_guard_753'::regproc)) > 0 AS identity_guard_has_device_id;"
+psql "$DATABASE_URL" -c "SELECT conname, convalidated FROM pg_constraint WHERE conrelid = 'cath_case_consumable_usage'::regclass AND conname IN ('cath_consumable_usage_inventory_status_check','cath_consumable_usage_reused_device_shape_check','chk_cath_usage_exact_inventory_authority_753','fk_cath_case_consumable_usage_device') ORDER BY 1;"
 psql "$DATABASE_URL" -c "SELECT count(*) FROM pg_constraint WHERE conrelid = 'cath_reprocessable_devices'::regclass AND contype = 'c';"
+psql "$DATABASE_URL" -c "SELECT conname FROM pg_constraint WHERE conrelid = 'cath_reprocessable_devices'::regclass AND contype = 'f' ORDER BY 1;"
 ```
 
-Expected: `has_branch = t`; the three usage constraints present, the exact-authority one with `convalidated = f` and the other two `t`; device table check count = 11.
+Expected: `has_branch = t`; `identity_guard_has_device_id = t`; the four usage constraints present, the exact-authority one with `convalidated = f` and the rest `t`; device table check count = 11; four FKs on `cath_reprocessable_devices` (catalog, facility, origin_usage, current_usage), all composite on `(tenant_id, …)`.
 
 - [ ] **Step 5: Mirror in `schema.prisma`, run the gates**
 
@@ -630,6 +750,11 @@ export const CATH_CATEGORIES = Object.freeze([
 ]);
 export const IMPLANT_CATEGORIES = Object.freeze(['stent', 'pacemaker', 'lead', 'closure_device']);
 export const DEVICE_TAG_PATTERN = /^RP[0-9]{8}$/;
+// Regex stays RP + exactly 8 digits — do not widen it. `device_tag` is
+// GENERATED ALWAYS AS ('RP' || lpad(id::text, 8, '0')) STORED (spec §5.4):
+// lpad TRUNCATES on the right once id needs a 9th digit, so ids past
+// 99,999,999 are unreachable in practice for a well-formed tag; that ceiling
+// is a documented limitation, not something this pattern should paper over.
 
 // Every state change on a device, and the states it may start from.
 export const DEVICE_ACTIONS = Object.freeze({
@@ -1136,6 +1261,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Files:**
 - Modify: `apps/backend/src/services/clinical/cathDeviceReuseService.js` (append)
 - Modify: `apps/backend/src/services/clinical/cathLabService.js` (`recordConsumableUsage` 4064–4466, `getCase` 971–1026, import block)
+- Modify: `apps/backend/src/services/facility/facilityService.js` (add `'reused_device'` to the `unreconciled_cath_usage` reconciled-statuses list, ~line 244)
 - Test: `apps/backend/src/tests/cath-device-reuse.deep.test.js`
 
 - [ ] **Step 1: Append the case-level helpers to the reuse service**
@@ -1688,6 +1814,8 @@ import { resolveReuseStatus } from './bloodborneMarkerService.js';
       JSON.stringify(reuseScreen)
 ```
 
+`facility_id` and `inventory_item_id` need no new handling here: the base INSERT already sets both unconditionally from the case and the catalogue row (`Number(cathCase.facility_id)` and `Number(catalog.inventory_item_id)` in the existing parameter list, before this plan's changes) for every usage row, reused or not — which is exactly what the third arm of `chk_cath_usage_exact_inventory_authority_753` (spec §5.5) requires on a reused row. Only `inventory_batch_id` needs the reused-row override, already covered by step (d).
+
 (h) In the canonical event `payload`, replace `inventory_batch_id: Number(inventoryBatchId),` with `inventory_batch_id: inventoryBatchId == null ? null : Number(inventoryBatchId),` and add `reused_device_tag: reused ? reused.device.device_tag : null, reuse_cycle: reused ? reused.device.cycle_count : null,`.
 
 (i) Replace the unconditional `await materializeCathInventoryShortfallTx(tx, { … })` call with:
@@ -1719,6 +1847,8 @@ import { resolveReuseStatus } from './bloodborneMarkerService.js';
 (j) In `getCase`, before the `return normalizeDbValue({` add `const reuseRestriction = await resolveReuseStatus({ tenantId: tenantOr(tenantId), patientUid: cathCase.patient_uid, db });` and add `reuse_restriction: reuseRestriction,` to the returned object after `consumable_usage`.
 
 (k) Add the two new columns to `CATH_CONSUMABLE_USAGE_SELECT` (line ≈2705): after `u.audit_event_id, u.idempotency_key,` insert `u.device_id, u.reuse_cycle, u.post_use_disposition,`.
+
+(l) In `apps/backend/src/services/facility/facilityService.js`, the facility-shutdown blocker query's `unreconciled_cath_usage` subquery (~line 244) reads `usage.inventory_decrement_status NOT IN ('decremented', 'not_applicable')`. A `reused_device` row can never reach `decremented` (§6.2 never decrements stock for it) and is not `not_applicable` either, so without this change every reused capture reads as a permanent open reconciliation blocker. Add `'reused_device'` to the list: `usage.inventory_decrement_status NOT IN ('decremented', 'not_applicable', 'reused_device')`.
 
 - [ ] **Step 3: Write the deep test**
 
@@ -1873,6 +2003,8 @@ d('cath device reuse (deep)', () => {
 ```
 
 The `tasks` INSERT in the contract-rejection test must name that table's NOT NULL columns; open `apps/backend/src/migrations` for the `tasks` definition (`grep -ln "CREATE TABLE.*tasks (" apps/backend/src/migrations/*.sql`) and add any further NOT NULL columns it requires (for example `task_type`, `assigned_to_role`). The assertion only needs the transaction to fail at commit with SQLSTATE 23514 raised by the deferred constraint trigger; Prisma surfaces it as `P2010` with the message text, so the matcher accepts either.
+
+Deep-test idea for the Step 2(l) `facilityService.js` fix: `upsertFacility` (`apps/backend/src/services/facility/facilityService.js:351`) calls `loadFacilityShutdownBlockersTx` when a facility's status moves away from `active`, and throws `FACILITY_DEACTIVATION_BLOCKED` when `shutdownEvidence.total_blocker_count > 0`. A row-count assertion is cheaper and less fixture-fragile than driving `upsertFacility` end to end: after seeding one `reused_device` usage row and nothing else outstanding for `FACILITY_ID`, run the `unreconciled_cath_usage` subquery from `loadFacilityShutdownBlockersTx` directly (`SELECT COUNT(*) … WHERE inventory_decrement_status NOT IN ('decremented','not_applicable','reused_device')`) and assert it returns 0, then assert it returns ≥1 with the `'reused_device'` value removed from the list — proving the fix is what keeps the count at 0, not an unrelated blocker being absent.
 
 - [ ] **Step 4: Run the deep test**
 
