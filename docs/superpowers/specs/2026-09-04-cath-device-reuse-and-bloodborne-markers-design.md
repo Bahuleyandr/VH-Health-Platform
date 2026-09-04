@@ -68,7 +68,7 @@ New modules:
 
 - `apps/backend/src/services/clinical/bloodborneMarkerService.js` — platform-level marker record, resolver, lab hook, exposure-handler registry.
 - `apps/backend/src/services/clinical/cathDeviceReuseService.js` — register, policy reads, post-use flow, CSSD device transitions, device history. `cathLabService.js` (already 4,956 lines) calls into it rather than growing.
-- One forward migration (next free number at landing time; 764 on `main` at `f60df4e95`; the unmerged branch `audit/cath-implant-lifecycle` also claims 764, so the number is confirmed at plan time).
+- One forward migration. Its number is computed at the moment the file is written, against `github/main` and every open branch (`git ls-remote --heads github` then `git ls-tree` on each head's `apps/backend/src/migrations`), not against `main` alone: 764 is free on `main` at `f60df4e95` but already claimed by the unmerged branch `audit/cath-implant-lifecycle`, and two lanes converged on the same next number twice on 2026-09-04. The number is re-checked immediately before push.
 
 ## 5. Data model
 
