@@ -216,6 +216,7 @@ void main() {
     (tester) async {
       CathConsumableUsageDraft? submitted;
       String? submittedIdempotencyKey;
+      CathCaseConsumableUsage? created;
       final batch = CathInventoryBatch(
         id: _batch.id,
         inventoryItemId: _batch.inventoryItemId,
@@ -228,7 +229,12 @@ void main() {
       await tester.pumpWidget(
         _wrap(
           CathConsumableDependencies(
-            loadUsage: (_) async => const [],
+            // The panel re-reads the case after a capture — the POST response
+            // is undecorated, so a spliced row would never carry its post-use
+            // options — which means the listing has to show what was created.
+            loadUsage: (_) async => created == null
+                ? const []
+                : <CathCaseConsumableUsage>[created!],
             searchCatalog: _trackedSearch,
             loadBatches: (_, {required caseId}) async {
               expect(caseId, 42);
@@ -243,7 +249,7 @@ void main() {
               expect(idempotencyKey.length, lessThanOrEqualTo(200));
               submittedIdempotencyKey = idempotencyKey;
               submitted = draft;
-              return CathCaseConsumableUsage(
+              created = CathCaseConsumableUsage(
                 id: 71,
                 caseId: 42,
                 catalogItemId: 17,
@@ -263,6 +269,7 @@ void main() {
                 inventoryWarning: 'Insufficient stock; documentation retained',
                 inventoryDecrementStatus: 'warning',
               );
+              return created!;
             },
           ),
         ),
@@ -417,4 +424,220 @@ void main() {
     );
     expect(find.text('Diagnostic catheter'), findsOneWidget);
   });
+
+  testWidgets('reused mode sends reused_device_tag and no batch fields', (
+    tester,
+  ) async {
+    Map<String, dynamic>? sent;
+    final deps = CathConsumableDependencies(
+      loadConsumables: (_) async => const CathCaseConsumablesPayload(
+        usage: [],
+        restriction: CathReuseRestriction(
+          status: 'clear',
+          reasons: [],
+          validityDays: 90,
+        ),
+        reprocessableCategories: {'catheter'},
+      ),
+      searchCatalog: ({required caseId, query, scan}) async => const [
+        _untrackedItem,
+      ],
+      loadBatches: (_, {required caseId}) async => const [],
+      lookupDevice: (_, tag) async => CathDeviceLookup(
+        device: CathReprocessableDevice(
+          id: 9,
+          deviceTag: tag,
+          itemName: 'Diagnostic catheter',
+          category: 'catheter',
+          status: 'available',
+          cycleCount: 1,
+          maxCycles: 3,
+          exposureFlag: false,
+          exposureMarkers: const [],
+        ),
+        reprocessable: true,
+        cyclesRemaining: 2,
+        requiresAcknowledgement: false,
+        blocked: false,
+      ),
+      createUsage: (caseId, draft, {required idempotencyKey}) async {
+        sent = draft.toJson();
+        return CathCaseConsumableUsage.fromJson({
+          'id': 77,
+          'case_id': caseId,
+          'catalog_item_id': 10,
+          'item_name': 'Diagnostic catheter',
+          'quantity': 1,
+          'reuse_cycle': 1,
+          'device_tag': 'RP00000042',
+        });
+      },
+      scanCode: () async => null,
+    );
+
+    await tester.pumpWidget(_wrap(deps));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('cath-consumables-add-42')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('cath-consumable-search')),
+      'cath',
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('cath-consumable-option-10')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Reprocessed device'));
+    await tester.pumpAndSettle();
+    // Lower-case in, canonical upper-case out: the tag the operator typed is
+    // normalised before it reaches either the lookup or the draft.
+    await tester.enterText(
+      find.byKey(const ValueKey('cath-consumable-device-tag')),
+      'rp00000042',
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('cath-consumable-device-check')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('cath-consumable-device-card')),
+      findsOneWidget,
+    );
+    // Cycle 1 of a 3-cycle device reads as "2 of 4": cycle 0 is the first use.
+    expect(find.textContaining('Cycle 2 of 4'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('cath-consumable-quantity')),
+      findsNothing,
+    );
+
+    final save = find.byKey(const ValueKey('cath-consumable-save'));
+    await tester.ensureVisible(save);
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+
+    expect(sent!['reused_device_tag'], 'RP00000042');
+    expect(sent!.containsKey('batch_number'), isFalse);
+    expect(sent!.containsKey('inventory_batch_id'), isFalse);
+    expect(sent!.containsKey('exposure_acknowledgement'), isFalse);
+    expect(sent!['quantity'], 1.0);
+  });
+
+  testWidgets(
+    'restricted patient shows the strip and only the discard action',
+    (tester) async {
+      final deps = CathConsumableDependencies(
+        loadConsumables: (_) async => CathCaseConsumablesPayload(
+          usage: [
+            CathCaseConsumableUsage.fromJson({
+              'id': 5,
+              'case_id': 42,
+              'catalog_item_id': 10,
+              'item_name': 'Diagnostic catheter',
+              'quantity': 1,
+              'allowed_post_use': {
+                'dispositions': ['discard'],
+                'requires_acknowledgement': false,
+                'exposure': false,
+                'discard_reason': 'bloodborne_exposure',
+                'reason_codes': ['bloodborne_restricted'],
+                'units_max': 1,
+              },
+            }),
+          ],
+          restriction: const CathReuseRestriction(
+            status: 'restricted',
+            reasons: ['HBsAg reactive 2026-08-12'],
+            validityDays: 90,
+          ),
+          reprocessableCategories: const {'catheter'},
+        ),
+        scanCode: () async => null,
+      );
+
+      await tester.pumpWidget(_wrap(deps));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('cath-reuse-restriction-42')),
+        findsOneWidget,
+      );
+      expect(find.text('HBsAg reactive 2026-08-12'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('cath-post-use-discard-5')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('cath-post-use-reprocess-5')),
+        findsNothing,
+      );
+    },
+  );
+
+  testWidgets(
+    'unknown serology: send to CSSD requires an acknowledgement and posts it',
+    (tester) async {
+      CathPostUseDraft? posted;
+      final deps = CathConsumableDependencies(
+        loadConsumables: (_) async => CathCaseConsumablesPayload(
+          usage: [
+            CathCaseConsumableUsage.fromJson({
+              'id': 6,
+              'case_id': 42,
+              'catalog_item_id': 10,
+              'item_name': 'Diagnostic catheter',
+              'quantity': 2,
+              'allowed_post_use': {
+                'dispositions': ['reprocess', 'discard'],
+                'requires_acknowledgement': true,
+                'exposure': false,
+                'reason_codes': ['serology_unknown'],
+                'units_max': 2,
+              },
+            }),
+          ],
+          restriction: const CathReuseRestriction(
+            status: 'unknown',
+            reasons: ['HCV not on record'],
+            validityDays: 90,
+          ),
+          reprocessableCategories: const {'catheter'},
+        ),
+        recordPostUse:
+            (caseId, usageId, draft, {required idempotencyKey}) async {
+              posted = draft;
+              return const CathPostUseResult(
+                usageId: 6,
+                disposition: 'sent_for_reprocessing',
+                deviceTags: ['RP00000001', 'RP00000002'],
+              );
+            },
+        scanCode: () async => null,
+      );
+
+      await tester.pumpWidget(_wrap(deps));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('cath-post-use-reprocess-6')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('cath-post-use-confirm')));
+      await tester.pumpAndSettle();
+      expect(
+        posted,
+        isNull,
+        reason: 'an empty acknowledgement must not submit',
+      );
+
+      await tester.enterText(
+        find.byKey(const ValueKey('cath-post-use-acknowledgement')),
+        'Emergency PCI, serology pending',
+      );
+      await tester.tap(find.byKey(const ValueKey('cath-post-use-confirm')));
+      await tester.pumpAndSettle();
+
+      expect(posted!.disposition, 'reprocess');
+      expect(posted!.units, 2);
+      expect(posted!.acknowledgementReason, 'Emergency PCI, serology pending');
+    },
+  );
 }

@@ -91,4 +91,143 @@ void main() {
       });
     },
   );
+
+  test('draft emits reused_device_tag and exposure acknowledgement, no batch fields', () {
+    const draft = CathConsumableUsageDraft(
+      catalogItemId: 10,
+      quantity: 1,
+      wasted: false,
+      reusedDeviceTag: 'RP00000042',
+      exposureAcknowledgementReason: 'reviewed',
+    );
+
+    expect(draft.toJson(), {
+      'catalog_item_id': '10',
+      'quantity': 1.0,
+      'wasted': false,
+      'reused_device_tag': 'RP00000042',
+      'exposure_acknowledgement': {'reason': 'reviewed'},
+    });
+  });
+
+  test('usage parses reuse fields and post-use options', () {
+    final usage = CathCaseConsumableUsage.fromJson({
+      'id': 5,
+      'case_id': 42,
+      'catalog_item_id': 10,
+      'item_name': 'Diagnostic catheter',
+      'quantity': '1.0000',
+      'device_tag': 'RP00000042',
+      'reuse_cycle': 2,
+      'inventory_decrement_status': 'reused_device',
+      'allowed_post_use': {
+        'dispositions': ['discard'],
+        'requires_acknowledgement': false,
+        'exposure': false,
+        'discard_reason': 'max_cycles_reached',
+        'reason_codes': ['max_cycles_reached'],
+        'units_max': 1,
+      },
+    });
+
+    expect(usage.isReused, isTrue);
+    expect(usage.deviceTag, 'RP00000042');
+    expect(usage.allowedPostUse!.canReprocess, isFalse);
+    expect(usage.allowedPostUse!.canDiscard, isTrue);
+    expect(usage.allowedPostUse!.discardReason, 'max_cycles_reached');
+  });
+
+  test('a first-use row is not reused and carries no post-use options', () {
+    final usage = CathCaseConsumableUsage.fromJson({
+      'id': 6,
+      'case_id': 42,
+      'catalog_item_id': 10,
+      'item_name': 'Diagnostic catheter',
+      'quantity': 1,
+      'reuse_cycle': 0,
+    });
+
+    expect(usage.isReused, isFalse);
+    expect(usage.allowedPostUse, isNull);
+    expect(usage.deviceTag, isEmpty);
+  });
+
+  test('restriction tolerates the redacted payload non-clinical roles get', () {
+    final restriction = CathReuseRestriction.fromJson({
+      'status': 'restricted',
+      'reasons': <Object?>[],
+      'markers': <Object?>[],
+      'validity_days': 120,
+    });
+
+    expect(restriction.isRestricted, isTrue);
+    expect(restriction.reasons, isEmpty);
+    expect(restriction.validityDays, 120);
+    // An absent status must not read as "clear" — the strip has to render.
+    expect(CathReuseRestriction.fromJson(const {}).isUnknown, isTrue);
+  });
+
+  test(
+    'device lookup is only usable when available, reprocessable, unblocked',
+    () {
+      final lookup = CathDeviceLookup.fromJson({
+        'device': {
+          'id': '9',
+          'device_tag': 'RP00000042',
+          'item_name': 'Diagnostic catheter',
+          'category': 'catheter',
+          'status': 'available',
+          'cycle_count': '1',
+          'max_cycles_snapshot': '3',
+          'exposure_flag': false,
+          'exposure_markers': <Object?>[],
+        },
+        'reprocessable': true,
+        'cycles_remaining': 2,
+        'requires_acknowledgement': false,
+        'blocked': false,
+      });
+
+      expect(lookup.usable, isTrue);
+      expect(lookup.device.cycleCount, 1);
+      expect(lookup.device.maxCycles, 3);
+
+      final blocked = CathDeviceLookup.fromJson({
+        'device': {'device_tag': 'RP00000043', 'status': 'available'},
+        'reprocessable': true,
+        'blocked': true,
+      });
+      expect(blocked.usable, isFalse);
+    },
+  );
+
+  test('post-use draft and result map the wire shape', () {
+    const draft = CathPostUseDraft(
+      disposition: 'reprocess',
+      units: 2,
+      acknowledgementReason: 'Emergency PCI, serology pending',
+    );
+
+    expect(draft.toJson(), {
+      'disposition': 'reprocess',
+      'units': 2,
+      'acknowledgement': {'reason': 'Emergency PCI, serology pending'},
+    });
+
+    final result = CathPostUseResult.fromJson({
+      'usage_id': '6',
+      'disposition': 'sent_for_reprocessing',
+      'devices': [
+        {'device_tag': 'RP00000001'},
+        {'device_tag': 'RP00000002'},
+      ],
+      // Unknown keys the backend may add stay ignored.
+      'device_already_discarded': true,
+      'idempotent_replay': true,
+    });
+
+    expect(result.usageId, 6);
+    expect(result.disposition, 'sent_for_reprocessing');
+    expect(result.deviceTags, ['RP00000001', 'RP00000002']);
+  });
 }

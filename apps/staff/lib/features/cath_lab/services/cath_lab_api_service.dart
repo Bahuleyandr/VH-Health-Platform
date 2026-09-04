@@ -625,6 +625,81 @@ class CathLabApiService {
     return CathCaseConsumableUsage.fromJson(Map<String, dynamic>.from(raw));
   }
 
+  /// GET /cath-lab/cases/:id/consumables — the same route
+  /// [fetchConsumablesForCase] reads, but keeping the case-level reuse facts
+  /// the capture sheet and the post-use buttons need: the patient's
+  /// blood-borne restriction and the categories this tenant reprocesses.
+  ///
+  /// Roles outside the clinical-staff set get `reuse_restriction` with empty
+  /// `reasons`/`markers` and the same `status`, so the strip still renders the
+  /// restriction without the clinical detail behind it.
+  static Future<CathCaseConsumablesPayload> fetchCaseConsumablesWithReuse(
+    int caseId,
+  ) async {
+    final response = await ApiClient.get('/cath-lab/cases/$caseId/consumables');
+    final data = _successfulData(
+      response,
+      'Failed to load Cath Lab consumable usage',
+    );
+    final restrictionRaw = data['reuse_restriction'];
+    final reprocessingRaw = data['reprocessing'];
+    final categories =
+        reprocessingRaw is Map &&
+            reprocessingRaw['reprocessable_categories'] is List
+        ? (reprocessingRaw['reprocessable_categories'] as List)
+              .map((entry) => entry.toString())
+              .toSet()
+        : <String>{};
+    return CathCaseConsumablesPayload(
+      usage: _mapList(data['usage'])
+          .map(CathCaseConsumableUsage.fromJson)
+          .where((usage) => usage.id > 0)
+          .toList(growable: false),
+      restriction: CathReuseRestriction.fromJson(
+        restrictionRaw is Map
+            ? Map<String, dynamic>.from(restrictionRaw)
+            : const <String, dynamic>{},
+      ),
+      reprocessableCategories: categories,
+    );
+  }
+
+  /// GET /cath-lab/devices/lookup?case_id=&tag= — device state for the capture
+  /// sheet. Case-pinned like the catalogue reads, so a device belonging to
+  /// another facility comes back as a 404 rather than being described.
+  static Future<CathDeviceLookup> lookupReusableDevice(
+    int caseId,
+    String tag,
+  ) async {
+    final response = await ApiClient.get(
+      '/cath-lab/devices/lookup',
+      queryParameters: {'case_id': '$caseId', 'tag': tag.trim().toUpperCase()},
+    );
+    final data = _successfulData(response, 'Device not found');
+    return CathDeviceLookup.fromJson(data);
+  }
+
+  /// POST /cath-lab/cases/:id/consumables/:usageId/post-use.
+  ///
+  /// Mounted with `requireIdempotencyKey({ required: true, scope:
+  /// 'cath_consumable_post_use' })`: without a key the call is a hard 400, and
+  /// with a stable one a retry replays the recorded result instead of minting
+  /// a second batch of CSSD devices.
+  static Future<CathPostUseResult> recordPostUse(
+    int caseId,
+    int usageId,
+    CathPostUseDraft draft, {
+    required String idempotencyKey,
+  }) async {
+    final response = await ApiClient.post(
+      '/cath-lab/cases/$caseId/consumables/$usageId/post-use',
+      body: draft.toJson(),
+      idempotencyKey: idempotencyKey,
+    );
+    final data = _successfulData(response, 'Failed to record post-use');
+    return CathPostUseResult.fromJson(data);
+  }
+
   static Future<CathInventoryReconciliation> fetchInventoryReconciliation(
     String caseId,
     String usageId,

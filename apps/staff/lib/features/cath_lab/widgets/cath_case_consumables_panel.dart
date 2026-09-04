@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:vhhealth_core/services/idempotency_key.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/states/empty_state.dart';
@@ -8,6 +9,7 @@ import '../../../l10n/app_strings.dart';
 import '../models/cath_consumable_models.dart';
 import '../services/cath_lab_api_service.dart';
 import 'cath_consumable_capture_sheet.dart';
+import 'cath_reuse_restriction_strip.dart';
 
 // Cath catalog and batch reads are case-scoped on the backend — the case is
 // what pins the facility the operator may see — so both loaders carry the
@@ -30,6 +32,22 @@ typedef CathConsumableCreator = Future<CathCaseConsumableUsage> Function(
   required String idempotencyKey,
 });
 typedef CathConsumableScanner = Future<String?> Function();
+// The reuse-aware read of the same route [CathCaseConsumableLoader] hits: it
+// keeps the case-level restriction and reprocessable categories the plain
+// usage list throws away.
+typedef CathCaseConsumablesLoader = Future<CathCaseConsumablesPayload> Function(
+  int caseId,
+);
+typedef CathDeviceLookupFn = Future<CathDeviceLookup> Function(
+  int caseId,
+  String tag,
+);
+typedef CathPostUseRecorder = Future<CathPostUseResult> Function(
+  int caseId,
+  int usageId,
+  CathPostUseDraft draft, {
+  required String idempotencyKey,
+});
 
 class CathConsumableDependencies {
   const CathConsumableDependencies({
@@ -38,6 +56,9 @@ class CathConsumableDependencies {
     this.loadUsage,
     this.createUsage,
     this.scanCode,
+    this.loadConsumables,
+    this.lookupDevice,
+    this.recordPostUse,
   });
 
   final CathConsumableCatalogLoader? searchCatalog;
@@ -45,6 +66,9 @@ class CathConsumableDependencies {
   final CathCaseConsumableLoader? loadUsage;
   final CathConsumableCreator? createUsage;
   final CathConsumableScanner? scanCode;
+  final CathCaseConsumablesLoader? loadConsumables;
+  final CathDeviceLookupFn? lookupDevice;
+  final CathPostUseRecorder? recordPostUse;
 }
 
 class CathCaseConsumablesPanel extends StatefulWidget {
@@ -71,6 +95,8 @@ class _CathCaseConsumablesPanelState extends State<CathCaseConsumablesPanel> {
   bool _loading = false;
   String? _error;
   List<CathCaseConsumableUsage> _usage = const [];
+  CathReuseRestriction? _restriction;
+  Set<String> _reprocessableCategories = const {};
 
   CathConsumableCatalogLoader get _searchCatalog =>
       widget.dependencies.searchCatalog ??
@@ -78,12 +104,32 @@ class _CathCaseConsumablesPanelState extends State<CathCaseConsumablesPanel> {
   CathConsumableBatchLoader get _loadBatches =>
       widget.dependencies.loadBatches ??
       CathLabApiService.fetchConsumableBatches;
-  CathCaseConsumableLoader get _loadUsage =>
-      widget.dependencies.loadUsage ??
-      CathLabApiService.fetchConsumablesForCase;
   CathConsumableCreator get _createUsage =>
       widget.dependencies.createUsage ??
       CathLabApiService.createConsumableUsage;
+
+  /// An injected [CathConsumableDependencies.loadUsage] still wins, so the
+  /// tests written before reuse existed keep working — they simply see a
+  /// `clear` restriction and no reprocessable category, which is exactly the
+  /// UI a tenant with reprocessing off gets.
+  CathCaseConsumablesLoader get _loadConsumables =>
+      widget.dependencies.loadConsumables ??
+      (widget.dependencies.loadUsage != null
+          ? (caseId) async => CathCaseConsumablesPayload(
+              usage: await widget.dependencies.loadUsage!(caseId),
+              restriction: const CathReuseRestriction(
+                status: 'clear',
+                reasons: [],
+                validityDays: 90,
+              ),
+              reprocessableCategories: const {},
+            )
+          : CathLabApiService.fetchCaseConsumablesWithReuse);
+  CathDeviceLookupFn get _lookupDevice =>
+      widget.dependencies.lookupDevice ??
+      CathLabApiService.lookupReusableDevice;
+  CathPostUseRecorder get _recordPostUse =>
+      widget.dependencies.recordPostUse ?? CathLabApiService.recordPostUse;
 
   @override
   void initState() {
@@ -98,10 +144,12 @@ class _CathCaseConsumablesPanelState extends State<CathCaseConsumablesPanel> {
       _error = null;
     });
     try {
-      final usage = await _loadUsage(widget.cathCase.id);
+      final payload = await _loadConsumables(widget.cathCase.id);
       if (!mounted) return;
       setState(() {
-        _usage = usage;
+        _usage = payload.usage;
+        _restriction = payload.restriction;
+        _reprocessableCategories = payload.reprocessableCategories;
         _loaded = true;
       });
     } catch (error) {
@@ -128,6 +176,9 @@ class _CathCaseConsumablesPanelState extends State<CathCaseConsumablesPanel> {
           searchCatalog: _searchCatalog,
           loadBatches: _loadBatches,
           createUsage: _createUsage,
+          reprocessableCategories: _reprocessableCategories,
+          restriction: _restriction,
+          lookupDevice: _lookupDevice,
           scanCode:
               widget.dependencies.scanCode ??
               () => showCathConsumableScanner(sheetContext),
@@ -135,11 +186,6 @@ class _CathCaseConsumablesPanelState extends State<CathCaseConsumablesPanel> {
       ),
     );
     if (usage == null || !mounted) return;
-    setState(() {
-      _loaded = true;
-      _error = null;
-      _usage = [usage, ..._usage.where((existing) => existing.id != usage.id)];
-    });
     final s = AppStrings.of(context);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -155,6 +201,64 @@ class _CathCaseConsumablesPanelState extends State<CathCaseConsumablesPanel> {
             : AppTheme.successGreen,
       ),
     );
+    // Re-read rather than splice the POST's row in: the create response is
+    // undecorated, so a spliced row would carry no `allowed_post_use` and the
+    // post-use buttons would only appear after a manual collapse/expand.
+    await _load();
+  }
+
+  Future<void> _openPostUse(
+    CathCaseConsumableUsage usage,
+    String disposition,
+  ) async {
+    final options = usage.allowedPostUse;
+    if (options == null) return;
+    final draft = await showModalBottomSheet<CathPostUseDraft>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (_) => _PostUseSheet(
+        usage: usage,
+        disposition: disposition,
+        options: options,
+        restriction: _restriction,
+      ),
+    );
+    if (draft == null || !mounted) return;
+    // One key per disposition of this row: a double-tap replays instead of
+    // minting a second batch of CSSD devices.
+    final attempt = IdempotencyAttempt('cath-post-use-${usage.id}');
+    try {
+      final result = await _recordPostUse(
+        widget.cathCase.id,
+        usage.id,
+        draft,
+        idempotencyKey: attempt.keyFor(draft.toJson()),
+      );
+      if (!mounted) return;
+      final s = AppStrings.of(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            [
+              s.lookup('s4.lib.cath_lab.consumables.post_use_saved'),
+              if (result.deviceTags.isNotEmpty) result.deviceTags.join(', '),
+            ].join(' - '),
+          ),
+          backgroundColor: AppTheme.successGreen,
+        ),
+      );
+      await _load();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_cleanError(error)),
+          backgroundColor: AppTheme.errorRed,
+        ),
+      );
+    }
   }
 
   @override
@@ -207,6 +311,15 @@ class _CathCaseConsumablesPanelState extends State<CathCaseConsumablesPanel> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                if (_restriction != null && !_restriction!.isClear) ...[
+                  const SizedBox(height: 12),
+                  CathReuseRestrictionStrip(
+                    key: ValueKey(
+                      'cath-reuse-restriction-${widget.cathCase.id}',
+                    ),
+                    restriction: _restriction!,
+                  ),
+                ],
                 if (widget.canAddUsage)
                   Align(
                     alignment: Alignment.centerRight,
@@ -242,7 +355,13 @@ class _CathCaseConsumablesPanelState extends State<CathCaseConsumablesPanel> {
                   ),
                 ] else ...[
                   const SizedBox(height: 12),
-                  for (final usage in _usage) _UsageCard(usage: usage),
+                  for (final usage in _usage)
+                    _UsageCard(
+                      usage: usage,
+                      onPostUse: widget.canAddUsage
+                          ? (disposition) => _openPostUse(usage, disposition)
+                          : null,
+                    ),
                 ],
               ],
             ),
@@ -254,9 +373,10 @@ class _CathCaseConsumablesPanelState extends State<CathCaseConsumablesPanel> {
 }
 
 class _UsageCard extends StatelessWidget {
-  const _UsageCard({required this.usage});
+  const _UsageCard({required this.usage, this.onPostUse});
 
   final CathCaseConsumableUsage usage;
+  final void Function(String disposition)? onPostUse;
 
   @override
   Widget build(BuildContext context) {
@@ -361,8 +481,293 @@ class _UsageCard extends StatelessWidget {
                 ),
               ),
             ],
+            if (usage.isReused) ...[
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 6,
+                children: [
+                  _UsageChip(
+                    label: s.lookup('s4.lib.cath_lab.consumables.reused_badge'),
+                    color: AppTheme.primaryBlue,
+                  ),
+                  if (usage.deviceTag.isNotEmpty)
+                    _UsageChip(
+                      label: s.format(
+                        's4.dynamic.cath_lab.consumables.device_tag',
+                        {'tag': usage.deviceTag},
+                      ),
+                      color: AppTheme.textSecondary,
+                    ),
+                  if (usage.deviceExposureFlag)
+                    _UsageChip(
+                      label: s.lookup(
+                        's4.lib.cath_lab.consumables.exposure_badge',
+                      ),
+                      color: AppTheme.errorRed,
+                    ),
+                ],
+              ),
+            ],
+            // The server recomputes what it will accept on every post-use
+            // call; these buttons only mirror the last listing it sent.
+            if (onPostUse != null &&
+                usage.allowedPostUse != null &&
+                !usage.allowedPostUse!.isEmpty) ...[
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  if (usage.allowedPostUse!.canReprocess)
+                    FilledButton.tonalIcon(
+                      key: ValueKey('cath-post-use-reprocess-${usage.id}'),
+                      onPressed: () => onPostUse!('reprocess'),
+                      icon: const Icon(
+                        Icons.local_laundry_service_outlined,
+                        size: 18,
+                      ),
+                      label: Text(
+                        s.lookup('s4.lib.cath_lab.consumables.post_use_send'),
+                      ),
+                    ),
+                  if (usage.allowedPostUse!.canReprocess &&
+                      usage.allowedPostUse!.canDiscard)
+                    const SizedBox(width: 8),
+                  if (usage.allowedPostUse!.canDiscard)
+                    OutlinedButton.icon(
+                      key: ValueKey('cath-post-use-discard-${usage.id}'),
+                      onPressed: () => onPostUse!('discard'),
+                      icon: const Icon(Icons.delete_outline, size: 18),
+                      label: Text(
+                        s.lookup(
+                          's4.lib.cath_lab.consumables.post_use_discard',
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+            if (usage.postUseDisposition.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                _humanize(usage.postUseDisposition),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Collects the one decision the post-use call needs. Everything the operator
+/// may choose is bounded by [options], which the server recomputes anyway —
+/// this sheet exists so the common case is one tap and a confirm, not so the
+/// client can decide what is allowed.
+class _PostUseSheet extends StatefulWidget {
+  const _PostUseSheet({
+    required this.usage,
+    required this.disposition,
+    required this.options,
+    this.restriction,
+  });
+
+  final CathCaseConsumableUsage usage;
+  final String disposition;
+  final CathPostUseOptions options;
+  final CathReuseRestriction? restriction;
+
+  @override
+  State<_PostUseSheet> createState() => _PostUseSheetState();
+}
+
+// The reasons the backend's `discard_reason` column accepts.
+const _postUseDiscardReasons = [
+  'max_cycles_reached',
+  'bloodborne_exposure',
+  'function_check_failed',
+  'damaged',
+  'wasted',
+  'policy_change',
+  'other',
+];
+
+/// Server-side cap on a single post-use call. Clamping here keeps the field
+/// from offering a number the route would reject outright.
+const _postUseUnitsCeiling = 50;
+
+class _PostUseSheetState extends State<_PostUseSheet> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _unitsController;
+  final _ackController = TextEditingController();
+  final _noteController = TextEditingController();
+  String? _discardReason;
+
+  bool get _isReprocess => widget.disposition == 'reprocess';
+  int get _unitsMax => widget.options.unitsMax < _postUseUnitsCeiling
+      ? widget.options.unitsMax
+      : _postUseUnitsCeiling;
+
+  @override
+  void initState() {
+    super.initState();
+    _unitsController = TextEditingController(text: '$_unitsMax');
+    _discardReason =
+        widget.options.discardReason ?? _postUseDiscardReasons.last;
+  }
+
+  @override
+  void dispose() {
+    _unitsController.dispose();
+    _ackController.dispose();
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  String? _unitsValidator(String? value) {
+    final s = AppStrings.of(context);
+    final units = int.tryParse((value ?? '').trim());
+    if (units == null || units < 1 || units > _unitsMax) {
+      return s.lookup('s4.lib.cath_lab.consumables.quantity_invalid');
+    }
+    return null;
+  }
+
+  String? _requiredValidator(String? value) {
+    if ((value ?? '').trim().isNotEmpty) return null;
+    return AppStrings.of(context)
+        .lookup('s4.lib.cath_lab.consumables.field_required');
+  }
+
+  void _confirm() {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    Navigator.pop(
+      context,
+      CathPostUseDraft(
+        disposition: widget.disposition,
+        units: _isReprocess
+            ? (_unitsMax <= 1
+                  ? _unitsMax
+                  : int.parse(_unitsController.text.trim()))
+            : null,
+        discardReason: _isReprocess ? null : _discardReason,
+        discardNote: _isReprocess ? null : _nullableText(_noteController.text),
+        acknowledgementReason: widget.options.requiresAcknowledgement
+            ? _nullableText(_ackController.text)
+            : null,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
+    final reasonLocked = widget.options.discardReason != null;
+    return Form(
+      key: _formKey,
+      child: ListView(
+        shrinkWrap: true,
+        padding: EdgeInsets.fromLTRB(
+          20,
+          8,
+          20,
+          20 + MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        children: [
+          Text(
+            s.lookup(
+              _isReprocess
+                  ? 's4.lib.cath_lab.consumables.post_use_send'
+                  : 's4.lib.cath_lab.consumables.post_use_discard',
+            ),
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            widget.usage.itemName,
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          if (widget.restriction != null && !widget.restriction!.isClear) ...[
+            const SizedBox(height: 12),
+            CathReuseRestrictionStrip(restriction: widget.restriction!),
+          ],
+          if (_isReprocess && _unitsMax > 1) ...[
+            const SizedBox(height: 12),
+            TextFormField(
+              key: const ValueKey('cath-post-use-units'),
+              controller: _unitsController,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: s.lookup(
+                  's4.lib.cath_lab.consumables.post_use_units',
+                ),
+                helperText: '1 - $_unitsMax',
+              ),
+              validator: _unitsValidator,
+            ),
+          ],
+          if (!_isReprocess) ...[
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              key: const ValueKey('cath-post-use-reason'),
+              initialValue: _discardReason,
+              isExpanded: true,
+              decoration: InputDecoration(
+                labelText: s.lookup(
+                  's4.lib.cath_lab.consumables.post_use_discard_reason',
+                ),
+              ),
+              items: [
+                for (final reason in _postUseDiscardReasons)
+                  DropdownMenuItem(
+                    value: reason,
+                    child: Text(
+                      _humanize(reason),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+              // A reason the backend already fixed (max cycles reached, a
+              // blood-borne restriction) is shown, not offered for editing.
+              onChanged: reasonLocked
+                  ? null
+                  : (value) => setState(() => _discardReason = value),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              key: const ValueKey('cath-post-use-note'),
+              controller: _noteController,
+              minLines: 2,
+              maxLines: 3,
+              decoration: InputDecoration(
+                labelText: s.lookup(
+                  's4.lib.cath_lab.consumables.wastage_reason_label',
+                ),
+              ),
+            ),
+          ],
+          if (widget.options.requiresAcknowledgement) ...[
+            const SizedBox(height: 12),
+            TextFormField(
+              key: const ValueKey('cath-post-use-acknowledgement'),
+              controller: _ackController,
+              minLines: 2,
+              maxLines: 3,
+              decoration: InputDecoration(
+                labelText: s.lookup(
+                  's4.lib.cath_lab.consumables.acknowledgement_label',
+                ),
+              ),
+              validator: _requiredValidator,
+            ),
+          ],
+          const SizedBox(height: 20),
+          FilledButton.icon(
+            key: const ValueKey('cath-post-use-confirm'),
+            onPressed: _confirm,
+            icon: const Icon(Icons.check),
+            label: Text(s.lookup('s4.lib.cath_lab.consumables.save')),
+          ),
+        ],
       ),
     );
   }
@@ -401,6 +806,24 @@ String _formatQuantity(double value) {
             .toStringAsFixed(2)
             .replaceFirst(RegExp(r'0+$'), '')
             .replaceFirst(RegExp(r'\.$'), '');
+}
+
+String _humanize(String value) {
+  final text = value.replaceAll('_', ' ').trim();
+  if (text.isEmpty) return '-';
+  return text
+      .split(' ')
+      .map(
+        (part) => part.isEmpty
+            ? part
+            : '${part[0].toUpperCase()}${part.substring(1)}',
+      )
+      .join(' ');
+}
+
+String? _nullableText(String value) {
+  final text = value.trim();
+  return text.isEmpty ? null : text;
 }
 
 String _cleanError(Object error) {

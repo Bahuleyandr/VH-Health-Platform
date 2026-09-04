@@ -8,6 +8,7 @@ import 'package:vhhealth_core/services/idempotency_key.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../l10n/app_strings.dart';
 import '../models/cath_consumable_models.dart';
+import 'cath_reuse_restriction_strip.dart';
 
 class CathConsumableCaptureSheet extends StatefulWidget {
   const CathConsumableCaptureSheet({
@@ -18,6 +19,9 @@ class CathConsumableCaptureSheet extends StatefulWidget {
     required this.createUsage,
     required this.scanCode,
     this.wastageOnly = false,
+    this.reprocessableCategories = const <String>{},
+    this.restriction,
+    this.lookupDevice,
   });
 
   final int caseId;
@@ -43,6 +47,13 @@ class CathConsumableCaptureSheet extends StatefulWidget {
   final Future<String?> Function() scanCode;
   final bool wastageOnly;
 
+  /// Catalogue categories this tenant reprocesses. Empty (the default) hides
+  /// the reused-device mode entirely, which is what a tenant with the feature
+  /// off, or a payload without the reuse decoration, must see.
+  final Set<String> reprocessableCategories;
+  final CathReuseRestriction? restriction;
+  final Future<CathDeviceLookup> Function(int caseId, String tag)? lookupDevice;
+
   @override
   State<CathConsumableCaptureSheet> createState() =>
       _CathConsumableCaptureSheetState();
@@ -58,6 +69,8 @@ class _CathConsumableCaptureSheetState
   final _expiryController = TextEditingController();
   final _serialController = TextEditingController();
   final _wastageReasonController = TextEditingController();
+  final _tagController = TextEditingController();
+  final _ackController = TextEditingController();
   Timer? _debounce;
   int _searchGeneration = 0;
   CathConsumableCatalogItem? _selectedItem;
@@ -70,6 +83,9 @@ class _CathConsumableCaptureSheetState
   bool _loadingBatches = false;
   bool _wasted = false;
   bool _saving = false;
+  String _mode = 'new';
+  CathDeviceLookup? _lookup;
+  bool _lookingUp = false;
   final _captureAttempt = IdempotencyAttempt('cath-consumable-usage');
   String? _error;
 
@@ -89,6 +105,8 @@ class _CathConsumableCaptureSheetState
     _expiryController.dispose();
     _serialController.dispose();
     _wastageReasonController.dispose();
+    _tagController.dispose();
+    _ackController.dispose();
     super.dispose();
   }
 
@@ -176,6 +194,12 @@ class _CathConsumableCaptureSheetState
       _serialController.clear();
       _error = null;
       _searching = false;
+      // A device tag is bound to one catalogue item, so a new selection can
+      // never keep the previous item's device: reset the whole reused block.
+      _mode = 'new';
+      _lookup = null;
+      _tagController.clear();
+      _ackController.clear();
     });
     if (!item.batchTracked) return;
     setState(() => _loadingBatches = true);
@@ -230,6 +254,34 @@ class _CathConsumableCaptureSheetState
     });
   }
 
+  /// Reused capture is offered only where the backend would accept it: a
+  /// non-implant catalogue item in a category this tenant reprocesses, with a
+  /// lookup wired. Implants are never reprocessed.
+  bool get _reusedModeAvailable =>
+      _selectedItem != null &&
+      !_selectedItem!.isImplant &&
+      widget.lookupDevice != null &&
+      widget.reprocessableCategories.contains(_selectedItem!.category);
+
+  Future<void> _checkDevice() async {
+    final tag = _tagController.text.trim().toUpperCase();
+    if (tag.isEmpty || _lookingUp) return;
+    setState(() {
+      _lookingUp = true;
+      _lookup = null;
+      _error = null;
+    });
+    try {
+      final result = await widget.lookupDevice!(widget.caseId, tag);
+      if (!mounted) return;
+      setState(() => _lookup = result);
+    } catch (error) {
+      if (mounted) setState(() => _error = _cleanError(error));
+    } finally {
+      if (mounted) setState(() => _lookingUp = false);
+    }
+  }
+
   Future<void> _pickExpiryDate() async {
     final now = DateTime.now();
     final picked = await showDatePicker(
@@ -246,32 +298,55 @@ class _CathConsumableCaptureSheetState
   }
 
   Future<void> _save() async {
+    final s = AppStrings.of(context);
     final item = _selectedItem;
     if (item == null) {
       setState(
-        () =>
-            _error = AppStrings.of(context)
-                .lookup('s4.lib.cath_lab.consumables.select_required'),
+        () => _error = s.lookup('s4.lib.cath_lab.consumables.select_required'),
       );
       return;
     }
     if (!(_formKey.currentState?.validate() ?? false) || _saving) return;
+    // The server re-checks all of this; refusing here only spares the operator
+    // a round trip and a raw CATH_DEVICE_* code.
+    if (_mode == 'reused') {
+      final lookup = _lookup;
+      if (lookup == null || !lookup.usable) {
+        setState(
+          () => _error = s.lookup(
+            lookup?.blocked == true
+                ? 's4.lib.cath_lab.consumables.device_blocked'
+                : 's4.lib.cath_lab.consumables.device_not_available',
+          ),
+        );
+        return;
+      }
+    }
     setState(() {
       _saving = true;
       _error = null;
     });
     try {
+      // A reused capture is one device: quantity is pinned to 1 and every
+      // new-unit batch field is dropped, because sending both sides is a
+      // CATH_CONSUMABLE_REUSE_FIELDS_CONFLICT on the backend.
+      final reused = _mode == 'reused';
       final draft = CathConsumableUsageDraft(
         catalogItemId: item.id,
-        quantity: double.parse(_quantityController.text.trim()),
-        inventoryBatchId: _selectedBatchId,
-        batchNumber: _nullableText(_batchController.text),
-        lotNumber: _nullableText(_lotController.text),
-        expiryDate: _expiryDate,
-        serialNumber: _nullableText(_serialController.text),
+        quantity: reused ? 1 : double.parse(_quantityController.text.trim()),
+        inventoryBatchId: reused ? null : _selectedBatchId,
+        batchNumber: reused ? null : _nullableText(_batchController.text),
+        lotNumber: reused ? null : _nullableText(_lotController.text),
+        expiryDate: reused ? null : _expiryDate,
+        serialNumber: reused ? null : _nullableText(_serialController.text),
         wasted: _wasted,
         wastageReason: _wasted
             ? _nullableText(_wastageReasonController.text)
+            : null,
+        reusedDeviceTag: reused ? _lookup!.device.deviceTag : null,
+        exposureAcknowledgementReason:
+            reused && (_lookup?.requiresAcknowledgement ?? false)
+            ? _nullableText(_ackController.text)
             : null,
       );
       final usage = await widget.createUsage(
@@ -323,6 +398,13 @@ class _CathConsumableCaptureSheetState
             style: Theme.of(context).textTheme.titleLarge,
           ),
           const SizedBox(height: 16),
+          if (widget.restriction != null && !widget.restriction!.isClear) ...[
+            CathReuseRestrictionStrip(
+              key: const ValueKey('cath-consumable-restriction-strip'),
+              restriction: widget.restriction!,
+            ),
+            const SizedBox(height: 12),
+          ],
           if (item == null) ...[
             TextFormField(
               key: const ValueKey('cath-consumable-search'),
@@ -399,118 +481,224 @@ class _CathConsumableCaptureSheetState
                 ),
               ),
             ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: const ValueKey('cath-consumable-quantity'),
-              controller: _quantityController,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              decoration: InputDecoration(
-                labelText: s.lookup(
-                  's4.lib.cath_lab.consumables.quantity_label',
-                ),
-                suffixText: item.unitLabel,
-              ),
-              validator: _quantityValidator,
-            ),
-            if (item.batchTracked) ...[
+            if (_reusedModeAvailable) ...[
               const SizedBox(height: 12),
-              if (_loadingBatches) ...[
-                const LinearProgressIndicator(),
-                const SizedBox(height: 8),
-                Text(s.lookup('s4.lib.cath_lab.consumables.loading_batches')),
-              ] else if (_batches.isNotEmpty) ...[
-                DropdownButtonFormField<int>(
-                  key: const ValueKey('cath-consumable-batch-picker'),
-                  initialValue: _selectedBatchId,
-                  isExpanded: true,
-                  decoration: InputDecoration(
-                    labelText: s.lookup(
-                      's4.lib.cath_lab.consumables.batch_label',
+              SegmentedButton<String>(
+                key: const ValueKey('cath-consumable-mode'),
+                segments: [
+                  ButtonSegment(
+                    value: 'new',
+                    label: Text(
+                      s.lookup('s4.lib.cath_lab.consumables.mode_new'),
                     ),
                   ),
-                  items: [
-                    for (final batch in _batches)
-                      DropdownMenuItem(
-                        value: batch.id,
-                        child: Text(
-                          _batchLabel(s, batch),
-                          overflow: TextOverflow.ellipsis,
+                  ButtonSegment(
+                    value: 'reused',
+                    label: Text(
+                      s.lookup('s4.lib.cath_lab.consumables.mode_reused'),
+                    ),
+                  ),
+                ],
+                selected: {_mode},
+                onSelectionChanged: _saving
+                    ? null
+                    : (selection) => setState(() {
+                        _mode = selection.first;
+                        _lookup = null;
+                        _error = null;
+                      }),
+              ),
+            ],
+            if (_mode == 'reused') ...[
+              const SizedBox(height: 12),
+              TextFormField(
+                key: const ValueKey('cath-consumable-device-tag'),
+                controller: _tagController,
+                textCapitalization: TextCapitalization.characters,
+                onFieldSubmitted: (_) => _checkDevice(),
+                decoration: InputDecoration(
+                  labelText: s.lookup(
+                    's4.lib.cath_lab.consumables.device_tag_label',
+                  ),
+                  hintText: 'RP00000042',
+                  suffixIcon: IconButton(
+                    key: const ValueKey('cath-consumable-device-check'),
+                    tooltip: s.lookup(
+                      's4.lib.cath_lab.consumables.device_check',
+                    ),
+                    onPressed: _lookingUp ? null : _checkDevice,
+                    icon: const Icon(Icons.search),
+                  ),
+                ),
+                validator: _requiredValidator,
+              ),
+              if (_lookingUp) const LinearProgressIndicator(),
+              if (_lookup != null) ...[
+                const SizedBox(height: 8),
+                Card(
+                  key: const ValueKey('cath-consumable-device-card'),
+                  color:
+                      (_lookup!.usable
+                              ? AppTheme.successGreen
+                              : AppTheme.errorRed)
+                          .withValues(alpha: 0.08),
+                  child: ListTile(
+                    dense: true,
+                    title: Text(_lookup!.device.itemName),
+                    subtitle: Text(
+                      [
+                        // Cycle 0 is the first use, so both sides are +1 to
+                        // read as "cycle 2 of 4" rather than "1 of 3".
+                        s.format(
+                          's4.dynamic.cath_lab.consumables.device_cycle',
+                          {
+                            'cycle': _lookup!.device.cycleCount + 1,
+                            'max': _lookup!.device.maxCycles + 1,
+                          },
                         ),
-                      ),
-                  ],
-                  onChanged: _saving ? null : _selectBatch,
-                  validator: (value) => value == null
-                      ? s.lookup('s4.lib.cath_lab.consumables.batch_required')
-                      : null,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  key: const ValueKey('cath-consumable-batch-expiry'),
-                  controller: _expiryController,
-                  readOnly: true,
-                  decoration: InputDecoration(
-                    labelText: s.lookup(
-                      's4.lib.cath_lab.consumables.expiry_label',
+                        _humanize(_lookup!.device.status),
+                        if (_lookup!.blocked)
+                          s.lookup(
+                            's4.lib.cath_lab.consumables.device_blocked',
+                          ),
+                      ].join(' - '),
                     ),
+                    trailing: _lookup!.device.exposureFlag
+                        ? const Icon(Icons.warning_amber_outlined)
+                        : null,
                   ),
-                  validator: _requiredValidator,
                 ),
-              ] else ...[
-                Text(
-                  s.lookup('s4.lib.cath_lab.consumables.manual_batch_hint'),
-                  style: TextStyle(color: AppTheme.warningOnSurface),
-                ),
+              ],
+              if (_lookup?.requiresAcknowledgement ?? false) ...[
                 const SizedBox(height: 8),
                 TextFormField(
-                  key: const ValueKey('cath-consumable-manual-batch'),
-                  controller: _batchController,
+                  key: const ValueKey('cath-consumable-acknowledgement'),
+                  controller: _ackController,
+                  minLines: 2,
+                  maxLines: 3,
                   decoration: InputDecoration(
                     labelText: s.lookup(
-                      's4.lib.cath_lab.consumables.batch_number_label',
+                      's4.lib.cath_lab.consumables.acknowledgement_label',
                     ),
-                  ),
-                  validator: _requiredValidator,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  key: const ValueKey('cath-consumable-manual-lot'),
-                  controller: _lotController,
-                  decoration: InputDecoration(
-                    labelText: s.lookup(
-                      's4.lib.cath_lab.consumables.lot_number_label',
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  key: const ValueKey('cath-consumable-manual-expiry'),
-                  controller: _expiryController,
-                  readOnly: true,
-                  onTap: _pickExpiryDate,
-                  decoration: InputDecoration(
-                    labelText: s.lookup(
-                      's4.lib.cath_lab.consumables.expiry_label',
-                    ),
-                    suffixIcon: const Icon(Icons.calendar_today_outlined),
                   ),
                   validator: _requiredValidator,
                 ),
               ],
             ],
-            if (item.isImplant) ...[
+            if (_mode == 'new') ...[
               const SizedBox(height: 12),
               TextFormField(
-                key: const ValueKey('cath-consumable-serial-number'),
-                controller: _serialController,
+                key: const ValueKey('cath-consumable-quantity'),
+                controller: _quantityController,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 decoration: InputDecoration(
                   labelText: s.lookup(
-                    's4.lib.cath_lab.consumables.serial_number_label',
+                    's4.lib.cath_lab.consumables.quantity_label',
                   ),
+                  suffixText: item.unitLabel,
                 ),
-                validator: _requiredValidator,
+                validator: _quantityValidator,
               ),
+              if (item.batchTracked) ...[
+                const SizedBox(height: 12),
+                if (_loadingBatches) ...[
+                  const LinearProgressIndicator(),
+                  const SizedBox(height: 8),
+                  Text(s.lookup('s4.lib.cath_lab.consumables.loading_batches')),
+                ] else if (_batches.isNotEmpty) ...[
+                  DropdownButtonFormField<int>(
+                    key: const ValueKey('cath-consumable-batch-picker'),
+                    initialValue: _selectedBatchId,
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      labelText: s.lookup(
+                        's4.lib.cath_lab.consumables.batch_label',
+                      ),
+                    ),
+                    items: [
+                      for (final batch in _batches)
+                        DropdownMenuItem(
+                          value: batch.id,
+                          child: Text(
+                            _batchLabel(s, batch),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                    ],
+                    onChanged: _saving ? null : _selectBatch,
+                    validator: (value) => value == null
+                        ? s.lookup('s4.lib.cath_lab.consumables.batch_required')
+                        : null,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    key: const ValueKey('cath-consumable-batch-expiry'),
+                    controller: _expiryController,
+                    readOnly: true,
+                    decoration: InputDecoration(
+                      labelText: s.lookup(
+                        's4.lib.cath_lab.consumables.expiry_label',
+                      ),
+                    ),
+                    validator: _requiredValidator,
+                  ),
+                ] else ...[
+                  Text(
+                    s.lookup('s4.lib.cath_lab.consumables.manual_batch_hint'),
+                    style: TextStyle(color: AppTheme.warningOnSurface),
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    key: const ValueKey('cath-consumable-manual-batch'),
+                    controller: _batchController,
+                    decoration: InputDecoration(
+                      labelText: s.lookup(
+                        's4.lib.cath_lab.consumables.batch_number_label',
+                      ),
+                    ),
+                    validator: _requiredValidator,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    key: const ValueKey('cath-consumable-manual-lot'),
+                    controller: _lotController,
+                    decoration: InputDecoration(
+                      labelText: s.lookup(
+                        's4.lib.cath_lab.consumables.lot_number_label',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    key: const ValueKey('cath-consumable-manual-expiry'),
+                    controller: _expiryController,
+                    readOnly: true,
+                    onTap: _pickExpiryDate,
+                    decoration: InputDecoration(
+                      labelText: s.lookup(
+                        's4.lib.cath_lab.consumables.expiry_label',
+                      ),
+                      suffixIcon: const Icon(Icons.calendar_today_outlined),
+                    ),
+                    validator: _requiredValidator,
+                  ),
+                ],
+              ],
+              if (item.isImplant) ...[
+                const SizedBox(height: 12),
+                TextFormField(
+                  key: const ValueKey('cath-consumable-serial-number'),
+                  controller: _serialController,
+                  decoration: InputDecoration(
+                    labelText: s.lookup(
+                      's4.lib.cath_lab.consumables.serial_number_label',
+                    ),
+                  ),
+                  validator: _requiredValidator,
+                ),
+              ],
             ],
             const SizedBox(height: 8),
             SwitchListTile.adaptive(

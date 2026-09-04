@@ -118,6 +118,12 @@ class CathCaseConsumableUsage {
     this.inventoryBatchId,
     this.expiryDate,
     this.recordedAt,
+    this.deviceTag = '',
+    this.reuseCycle,
+    this.postUseDisposition = '',
+    this.deviceStatus = '',
+    this.deviceExposureFlag = false,
+    this.allowedPostUse,
   });
 
   final int id;
@@ -141,8 +147,19 @@ class CathCaseConsumableUsage {
   final String inventoryWarning;
   final String inventoryDecrementStatus;
   final DateTime? recordedAt;
+  final String deviceTag;
+
+  /// 0 on a first use, 1+ once the row consumed a reprocessed device. Absent
+  /// on rows the backend has not decorated with reuse state at all.
+  final int? reuseCycle;
+  final String postUseDisposition;
+  final String deviceStatus;
+  final bool deviceExposureFlag;
+  final CathPostUseOptions? allowedPostUse;
 
   bool get hasInventoryWarning => inventoryWarning.trim().isNotEmpty;
+
+  bool get isReused => reuseCycle != null && reuseCycle! >= 1;
 
   factory CathCaseConsumableUsage.fromJson(Map<String, dynamic> json) {
     final nestedRaw = json['catalog_item'] ?? json['catalog'];
@@ -186,6 +203,16 @@ class CathCaseConsumableUsage {
       recordedAt: _asDate(
         json['used_at'] ?? json['recorded_at'] ?? json['created_at'],
       ),
+      deviceTag: _text(json['device_tag']),
+      reuseCycle: _asInt(json['reuse_cycle']),
+      postUseDisposition: _text(json['post_use_disposition']),
+      deviceStatus: _text(json['device_status']),
+      deviceExposureFlag: _asBool(json['device_exposure_flag']),
+      allowedPostUse: json['allowed_post_use'] is Map
+          ? CathPostUseOptions.fromJson(
+              Map<String, dynamic>.from(json['allowed_post_use'] as Map),
+            )
+          : null,
     );
   }
 }
@@ -202,6 +229,8 @@ class CathConsumableUsageDraft {
     this.expiryDate,
     this.serialNumber,
     this.wastageReason,
+    this.reusedDeviceTag,
+    this.exposureAcknowledgementReason,
   });
 
   final int catalogItemId;
@@ -215,6 +244,13 @@ class CathConsumableUsageDraft {
   final bool wasted;
   final String? wastageReason;
 
+  /// Set only in reused-device capture mode. The backend rejects a draft that
+  /// carries both this and any new-unit batch field
+  /// (`CATH_CONSUMABLE_REUSE_FIELDS_CONFLICT`), so the sheet clears the batch
+  /// side before it builds the draft rather than sending both.
+  final String? reusedDeviceTag;
+  final String? exposureAcknowledgementReason;
+
   Map<String, dynamic> toJson() => {
     'catalog_item_id': catalogItemId.toString(),
     'quantity': quantity,
@@ -227,7 +263,228 @@ class CathConsumableUsageDraft {
     if ((serialNumber ?? '').isNotEmpty) 'serial_number': serialNumber,
     'wasted': wasted,
     if ((wastageReason ?? '').isNotEmpty) 'waste_reason': wastageReason,
+    if ((reusedDeviceTag ?? '').isNotEmpty)
+      'reused_device_tag': reusedDeviceTag,
+    if ((exposureAcknowledgementReason ?? '').isNotEmpty)
+      'exposure_acknowledgement': {'reason': exposureAcknowledgementReason},
   };
+}
+
+/// The patient's blood-borne restriction as the backend resolved it for this
+/// case. `reasons` and `markers` come back empty for roles outside the
+/// clinical-staff set while `status` and `validityDays` stay populated, so the
+/// strip must render from `status` alone when the detail is withheld.
+class CathReuseRestriction {
+  const CathReuseRestriction({
+    required this.status,
+    required this.reasons,
+    required this.validityDays,
+  });
+
+  /// `restricted` | `unknown` | `clear`.
+  final String status;
+  final List<String> reasons;
+  final int validityDays;
+
+  bool get isRestricted => status == 'restricted';
+  bool get isUnknown => status == 'unknown';
+  bool get isClear => status == 'clear';
+
+  factory CathReuseRestriction.fromJson(Map<String, dynamic> json) {
+    return CathReuseRestriction(
+      status: _text(json['status'], fallback: 'unknown'),
+      reasons: json['reasons'] is List
+          ? (json['reasons'] as List)
+                .map((e) => _text(e))
+                .where((e) => e.isNotEmpty)
+                .toList()
+          : const [],
+      validityDays: _asInt(json['validity_days']) ?? 90,
+    );
+  }
+}
+
+/// What the backend will accept for a usage row once the case is done with it.
+/// The server recomputes this on every post-use call, so the client uses it to
+/// shape the buttons, never as the authority.
+class CathPostUseOptions {
+  const CathPostUseOptions({
+    required this.dispositions,
+    required this.requiresAcknowledgement,
+    required this.exposure,
+    required this.reasonCodes,
+    required this.unitsMax,
+    this.discardReason,
+    this.blockedCode,
+  });
+
+  /// Any of `reprocess` / `discard`; empty when neither is offered.
+  final List<String> dispositions;
+  final bool requiresAcknowledgement;
+  final bool exposure;
+  final List<String> reasonCodes;
+  final int unitsMax;
+  final String? discardReason;
+  final String? blockedCode;
+
+  bool get canReprocess => dispositions.contains('reprocess');
+  bool get canDiscard => dispositions.contains('discard');
+  bool get isEmpty => dispositions.isEmpty;
+
+  factory CathPostUseOptions.fromJson(Map<String, dynamic> json) {
+    List<String> list(Object? value) => value is List
+        ? value.map((e) => _text(e)).where((e) => e.isNotEmpty).toList()
+        : const [];
+    final discardReason = _text(json['discard_reason']);
+    final blockedCode = _text(json['blocked_code']);
+    return CathPostUseOptions(
+      dispositions: list(json['dispositions']),
+      requiresAcknowledgement: _asBool(json['requires_acknowledgement']),
+      exposure: _asBool(json['exposure']),
+      reasonCodes: list(json['reason_codes']),
+      unitsMax: _asInt(json['units_max']) ?? 0,
+      discardReason: discardReason.isEmpty ? null : discardReason,
+      blockedCode: blockedCode.isEmpty ? null : blockedCode,
+    );
+  }
+}
+
+class CathReprocessableDevice {
+  const CathReprocessableDevice({
+    required this.id,
+    required this.deviceTag,
+    required this.itemName,
+    required this.category,
+    required this.status,
+    required this.cycleCount,
+    required this.maxCycles,
+    required this.exposureFlag,
+    required this.exposureMarkers,
+  });
+
+  final int id;
+  final String deviceTag;
+  final String itemName;
+  final String category;
+  final String status;
+  final int cycleCount;
+  final int maxCycles;
+  final bool exposureFlag;
+  final List<String> exposureMarkers;
+
+  factory CathReprocessableDevice.fromJson(Map<String, dynamic> json) {
+    return CathReprocessableDevice(
+      id: _asInt(json['id']) ?? 0,
+      deviceTag: _text(json['device_tag']),
+      itemName: _text(json['item_name']),
+      category: _text(json['category'], fallback: 'other'),
+      status: _text(json['status'], fallback: 'unknown'),
+      cycleCount: _asInt(json['cycle_count']) ?? 0,
+      maxCycles: _asInt(json['max_cycles_snapshot']) ?? 0,
+      exposureFlag: _asBool(json['exposure_flag']),
+      exposureMarkers: json['exposure_markers'] is List
+          ? (json['exposure_markers'] as List).map((e) => _text(e)).toList()
+          : const [],
+    );
+  }
+}
+
+class CathDeviceLookup {
+  const CathDeviceLookup({
+    required this.device,
+    required this.reprocessable,
+    required this.cyclesRemaining,
+    required this.requiresAcknowledgement,
+    required this.blocked,
+  });
+
+  final CathReprocessableDevice device;
+  final bool reprocessable;
+  final int cyclesRemaining;
+  final bool requiresAcknowledgement;
+  final bool blocked;
+
+  bool get usable => device.status == 'available' && reprocessable && !blocked;
+
+  factory CathDeviceLookup.fromJson(Map<String, dynamic> json) {
+    final raw = json['device'];
+    return CathDeviceLookup(
+      device: CathReprocessableDevice.fromJson(
+        raw is Map ? Map<String, dynamic>.from(raw) : const <String, dynamic>{},
+      ),
+      reprocessable: _asBool(json['reprocessable']),
+      cyclesRemaining: _asInt(json['cycles_remaining']) ?? 0,
+      requiresAcknowledgement: _asBool(json['requires_acknowledgement']),
+      blocked: _asBool(json['blocked']),
+    );
+  }
+}
+
+/// The whole `GET /cath-lab/cases/:id/consumables` body: usage rows plus the
+/// two case-level facts the reuse UI needs.
+class CathCaseConsumablesPayload {
+  const CathCaseConsumablesPayload({
+    required this.usage,
+    required this.restriction,
+    required this.reprocessableCategories,
+  });
+
+  final List<CathCaseConsumableUsage> usage;
+  final CathReuseRestriction restriction;
+  final Set<String> reprocessableCategories;
+}
+
+class CathPostUseDraft {
+  const CathPostUseDraft({
+    required this.disposition,
+    this.units,
+    this.discardReason,
+    this.discardNote,
+    this.acknowledgementReason,
+  });
+
+  /// `reprocess` | `discard`.
+  final String disposition;
+  final int? units;
+  final String? discardReason;
+  final String? discardNote;
+  final String? acknowledgementReason;
+
+  Map<String, dynamic> toJson() => {
+    'disposition': disposition,
+    if (units != null) 'units': units,
+    if ((discardReason ?? '').isNotEmpty) 'discard_reason': discardReason,
+    if ((discardNote ?? '').isNotEmpty) 'discard_note': discardNote,
+    if ((acknowledgementReason ?? '').isNotEmpty)
+      'acknowledgement': {'reason': acknowledgementReason},
+  };
+}
+
+class CathPostUseResult {
+  const CathPostUseResult({
+    required this.usageId,
+    required this.disposition,
+    required this.deviceTags,
+  });
+
+  final int usageId;
+  final String disposition;
+  final List<String> deviceTags;
+
+  factory CathPostUseResult.fromJson(Map<String, dynamic> json) {
+    final devices = json['devices'];
+    return CathPostUseResult(
+      usageId: _asInt(json['usage_id']) ?? 0,
+      disposition: _text(json['disposition']),
+      deviceTags: devices is List
+          ? devices
+                .whereType<Map>()
+                .map((d) => _text(d['device_tag']))
+                .where((tag) => tag.isNotEmpty)
+                .toList()
+          : const [],
+    );
+  }
 }
 
 String _firstText(
