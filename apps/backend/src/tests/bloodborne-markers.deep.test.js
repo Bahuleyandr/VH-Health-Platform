@@ -1,5 +1,5 @@
 // apps/backend/src/tests/bloodborne-markers.deep.test.js
-import prisma, { ensureTenantRlsRuntimeRoleGrants } from '../lib/prisma.js';
+import prisma, { ensureTenantRlsRuntimeRoleGrants, setTenantTx } from '../lib/prisma.js';
 import {
   __clearExposureHandlersForTests,
   clinicalDate,
@@ -10,6 +10,7 @@ import {
   resolveReuseStatus,
   voidMarker,
 } from '../services/clinical/bloodborneMarkerService.js';
+import { signOffResults } from '../services/lab/labResultsService.js';
 
 const DB_CONFIGURED = Boolean(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -23,6 +24,9 @@ const OTHER_PATIENT = '00000000-0000-4000-8000-0000000bb012';
 const SECOND_PATIENT = '00000000-0000-4000-8000-0000000bb013';
 const ACTOR = '00000000-0000-4000-8000-0000000bb0aa';
 const OTHER_ACTOR = '00000000-0000-4000-8000-0000000bb0ab';
+// signOffResults gates on canSignOffLabResults, which ACTOR's DOCTOR role
+// does not satisfy; the end-to-end sign-off test below signs as this user.
+const PATHOLOGIST = '00000000-0000-4000-8000-0000000bb0ac';
 const RUNTIME_ROLES = ['vhhealth_app', 'vhhealth_runtime'];
 const RLS_ROLE = 'vhhealth_runtime';
 let previousRuntimeRole;
@@ -42,6 +46,7 @@ const runtimeRoleProvisioning = new Map();
 const daysAgo = (n) => clinicalDate(new Date(Date.now() - n * 86400000));
 
 const resultIds = [];
+const investigationIds = [];
 
 // Handlers fire AFTER the writing transaction commits, so a *separate*
 // connection must already see the row. The bare `prisma` client used here is
@@ -104,6 +109,39 @@ async function seedSignedResult({ testCode, valueText, patientUid = PATIENT, day
   return id;
 }
 
+// A result the real sign-off path can act on. seedSignedResult above writes
+// the post-sign-off state directly; signOffResults instead needs the state
+// *before* sign-off — a preliminary row linked to an investigation order,
+// because deriveSignoffEpisode rejects a result with no order episode.
+async function seedPreliminaryResult({ testCode, valueText, patientUid = PATIENT }) {
+  const patientRows = await prisma.$queryRawUnsafe(
+    `SELECT id, phone FROM users WHERE uid = $1::uuid`,
+    patientUid,
+  );
+  const orders = await prisma.$queryRawUnsafe(
+    `INSERT INTO investigations
+       (tenant_id, phone, patient_id, patient_uid, test_name, test_type,
+        status, priority, requested_by, requested_at, updated_at)
+     VALUES ($1::uuid, $2, $3, $4::uuid, $5, 'blood', 'IN_PROGRESS', 'NORMAL',
+             $6::uuid, NOW(), NOW())
+     RETURNING id`,
+    TENANT, patientRows[0].phone, patientRows[0].id, patientUid, testCode, ACTOR,
+  );
+  const investigationId = Number(orders[0].id);
+  investigationIds.push(investigationId);
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO lab_results
+       (tenant_id, patient_uid, investigation_id, test_code, test_name,
+        value_text, status, performed_at, received_at)
+     VALUES ($1::uuid, $2::uuid, $3::int, $4, $4, $5, 'preliminary', NOW(), NOW())
+     RETURNING id`,
+    TENANT, patientUid, investigationId, testCode, valueText,
+  );
+  const resultId = Number(rows[0].id);
+  resultIds.push(resultId);
+  return { investigationId, resultId };
+}
+
 // FK order: markers -> lab_results -> users -> tenants. Written as explicit
 // IN-lists rather than `= ANY($n::uuid[])` because the repo lint rule reads an
 // array literal in a $queryRawUnsafe argument list as a missed spread.
@@ -112,6 +150,32 @@ async function cleanup() {
     `DELETE FROM patient_bloodborne_markers WHERE tenant_id IN ($1::uuid, $2::uuid)`,
     TENANT, OTHER_TENANT,
   ).catch(() => {});
+  // A real sign-off writes canonical, diagnostic and worklist receipts that FK
+  // this file's investigations and users, and several of them are append-only.
+  // One replica-role transaction, scoped to the two tenants this file owns,
+  // clears them; every table listed exists in the migrated schema, so a
+  // statement failure here means a genuine teardown gap, not a missing table.
+  await setTenantTx(TENANT, async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+    for (const table of [
+      'lab_critical_alert_acknowledgement_receipts',
+      'lab_critical_alert_reconciliation_receipts',
+      'lab_critical_alerts',
+      'lab_threshold_unmatched_exceptions',
+      'diagnostic_result_generation_items',
+      'diagnostic_result_generations',
+      'lab_pathologist_signoffs',
+      'clinical_timeline_events',
+      'clinical_audit_events',
+      'tasks',
+      'event_outbox',
+    ]) {
+      await tx.$executeRawUnsafe(
+        `DELETE FROM ${table} WHERE tenant_id IN ($1::uuid, $2::uuid)`,
+        TENANT, OTHER_TENANT,
+      );
+    }
+  }).catch(() => {});
   if (resultIds.length) {
     await prisma.$executeRawUnsafe(
       `DELETE FROM lab_results WHERE tenant_id = $1::uuid AND id = ANY($2::int[])`,
@@ -124,9 +188,16 @@ async function cleanup() {
         AND patient_uid IN ($3::uuid, $4::uuid, $5::uuid)`,
     TENANT, OTHER_TENANT, PATIENT, OTHER_PATIENT, SECOND_PATIENT,
   ).catch(() => {});
+  if (investigationIds.length) {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM investigations WHERE tenant_id = $1::uuid AND id = ANY($2::int[])`,
+      TENANT, investigationIds,
+    ).catch(() => {});
+  }
   await prisma.$executeRawUnsafe(
-    `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid)`,
-    PATIENT, OTHER_PATIENT, SECOND_PATIENT, ACTOR, OTHER_ACTOR,
+    `DELETE FROM users
+      WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid)`,
+    PATIENT, OTHER_PATIENT, SECOND_PATIENT, ACTOR, OTHER_ACTOR, PATHOLOGIST,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM tenants WHERE id IN ($1::uuid, $2::uuid)`,
@@ -168,6 +239,7 @@ d('blood-borne markers (deep)', () => {
       [SECOND_PATIENT, TENANT, 'PATIENT', '+919000011013'],
       [ACTOR, TENANT, 'DOCTOR', '+919000011099'],
       [OTHER_ACTOR, OTHER_TENANT, 'DOCTOR', '+919000011098'],
+      [PATHOLOGIST, TENANT, 'PATHOLOGIST', '+919000011097'],
     ]) {
       await prisma.$executeRawUnsafe(
         `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, status, updated_at)
@@ -312,6 +384,37 @@ d('blood-borne markers (deep)', () => {
     );
     expect(rows[0].n).toBe(1);
   }, 30000);
+
+  test('the real lab sign-off path records the marker: signOffResults on a reactive HBSAG result writes one active lab-sourced row and fires the exposure handler', async () => {
+    const { resultId } = await seedPreliminaryResult({ testCode: 'HBSAG', valueText: 'Reactive' });
+    const events = [];
+    registerExposureHandler(async (event) => { events.push(event); });
+
+    await signOffResults({
+      tenantId: TENANT,
+      signed_off_by: PATHOLOGIST,
+      signed_off_by_role: 'PATHOLOGIST',
+      result_ids: [resultId],
+      decision: 'verified',
+      patient_uid: PATIENT,
+    });
+
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT marker, result, source, patient_uid::text AS patient_uid
+         FROM patient_bloodborne_markers
+        WHERE tenant_id = $1::uuid AND lab_result_id = $2::int AND voided_at IS NULL`,
+      TENANT, resultId,
+    );
+    expect(rows).toEqual([
+      { marker: 'hbsag', result: 'reactive', source: 'lab_result', patient_uid: PATIENT },
+    ]);
+    // The hook runs post-commit, so the handler must have fired by the time
+    // signOffResults resolves — not on some later tick.
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      tenantId: TENANT, patientUid: PATIENT, marker: 'hbsag', result: 'reactive', labResultId: resultId,
+    });
+  }, 60000);
 
   test('a corrective sign-off voids the earlier marker row and inserts the corrected one', async () => {
     const hcv = await seedSignedResult({ testCode: 'HCV', valueText: 'Reactive' });

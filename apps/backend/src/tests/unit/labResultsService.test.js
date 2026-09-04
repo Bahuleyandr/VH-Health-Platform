@@ -116,6 +116,16 @@ jest.unstable_mockModule('../../utils/websocket/realtimeEmitter.js', () => ({
   emitLabEvent: emitLabEventMock,
 }));
 
+// signOffResults calls the blood-borne marker recorder post-commit. Mock it so
+// this suite stays hermetic — the real recorder issues its own raw queries
+// against the shared prisma mock and would perturb the call sequences asserted
+// below.
+jest.unstable_mockModule('../../services/clinical/bloodborneMarkerService.js', () => ({
+  recordMarkersFromSignedResults: jest.fn().mockResolvedValue({
+    recorded: [], voided: 0, skipped: [], failed: [],
+  }),
+}));
+
 const {
   detectCriticalsForResults,
   recordResultManual,
