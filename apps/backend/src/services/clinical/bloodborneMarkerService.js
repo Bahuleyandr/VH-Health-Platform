@@ -63,8 +63,12 @@ function withTenant(tenantId, db, fn) {
 // Trim only. Bulk free text (notes) is trimmed and truncated through
 // cleanText; text a human is expected to read back verbatim — marker_label,
 // and the void reason, which is the whole audit record of why a row was
-// retracted — is trimmed and then rejected when it is too long, so a caller
-// never silently stores a shortened value.
+// retracted — is trimmed and then rejected when it exceeds its declared cap,
+// so a caller never silently stores a shortened value. The two caps come from
+// different places: marker_label's 120 is the column (VarChar(120)), while
+// void_reason is a TEXT column and its 500 is the published contract
+// (BloodborneMarkerVoidRequest.maxLength), which the service enforces by
+// refusing an over-length reason rather than truncating it.
 function trimText(value) {
   if (value === null || value === undefined) return null;
   const text = String(value).trim();

@@ -15,9 +15,10 @@
 // no-patient-context pass-through into the handler.
 //
 // Chain order on the void route is guard → requirePatientUidParam →
-// requireIdempotencyKey: the guard first so an unauthorised caller cannot use
-// the 400/403 split to probe which uids exist, and uid validation before the
-// idempotency claim so a malformed request never burns a key.
+// requireMarkerIdParam → requireIdempotencyKey: the guard first so an
+// unauthorised caller cannot use the 400/403 split to probe which uids exist,
+// and BOTH identifiers validated before the idempotency claim so malformed
+// identifiers never burn an idempotency key.
 
 import express from 'express';
 import { patientAccessGuard } from '../../middleware/phiAccessMiddleware.js';
@@ -39,6 +40,16 @@ const VALIDITY_DAYS_MESSAGE = 'validity_days must be an integer between 1 and 36
 const INCLUDE_VOIDED_MESSAGE = 'include_voided must be true or false';
 const MARKER_ID_MESSAGE = 'marker id must be a positive integer';
 
+// Tier decision 2026-09-04 (classification and the role delta are recorded on
+// the BLOODBORNE_MARKERS branch in accessPolicyRegistry.js): the marker rides
+// PATIENT_CLINICAL_WORKFLOW_ACCESS, not PATIENT_LAB_RESULT_VIEW. That policy's
+// extra care_pathway_owner / care_pathway_transfer_recipient checks are inert
+// here — plain patientAccessGuard never supplies a resourceContext
+// (accessDecisionService.js:1294; phiAccessMiddleware.js:238 is the only site
+// that does) — so both tiers decide on the same base relationship checks on
+// this route. Revisit if these routes move to patientAccessGuardForResource
+// with a care-pathway resource, or a named HIV-status compliance requirement
+// lands: that would want its own policy, not the lab tier.
 const guardMarkerAccess = patientAccessGuard('BLOODBORNE_MARKERS', {
   policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
   requirePatientContext: true,
@@ -54,6 +65,19 @@ function requirePatientUidParam(req, res, next) {
     return error(res, 'patientUid must be a UUID', HTTP_STATUS.BAD_REQUEST);
   }
   req.params.patientUid = patientUid;
+  return next();
+}
+
+// The void route's second identifier, checked in its own layer for the same
+// reason as the uid: it runs ahead of the idempotency claim, so a malformed
+// marker id cannot consume the caller's key either. Decimal digits only — the
+// service coerces with Number(), which would otherwise accept '0x29' and '4e1'
+// as 41 and 40: two different ids reaching one row, and an id the audit trail
+// cannot reproduce.
+function requireMarkerIdParam(req, res, next) {
+  if (!/^\d+$/.test(String(req.params.id ?? ''))) {
+    return error(res, MARKER_ID_MESSAGE, HTTP_STATUS.BAD_REQUEST);
+  }
   return next();
 }
 
@@ -109,6 +133,7 @@ router.post(
   '/patient/:patientUid/markers/:id/void',
   guardMarkerAccess,
   requirePatientUidParam,
+  requireMarkerIdParam,
   requireIdempotencyKey({
     required: true,
     scope: 'bloodborne_marker_void',
@@ -119,17 +144,11 @@ router.post(
   }),
   async (req, res) => {
     try {
-      // Decimal digits only. The service coerces with Number(), which would
-      // otherwise accept '0x29' and '4e1' as 41 and 40 — two different ids
-      // reaching one row, and an id the audit trail cannot reproduce.
-      const markerId = String(req.params.id ?? '');
-      if (!/^\d+$/.test(markerId)) {
-        return error(res, MARKER_ID_MESSAGE, HTTP_STATUS.BAD_REQUEST);
-      }
+      // Shape already pinned by requireMarkerIdParam above.
       const marker = await voidMarker({
         tenantId: resolveTenantOrThrow(req),
         patientUid: req.params.patientUid,
-        markerId,
+        markerId: String(req.params.id),
         actorUid: req.user?.uid,
         reason: req.body?.reason,
       });

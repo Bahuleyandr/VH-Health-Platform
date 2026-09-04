@@ -461,6 +461,15 @@ export function policyCodeForRecordType(recordType = 'PHI') {
   if (normalized === 'ADMISSION') return ACCESS_POLICY_CODES.PATIENT_ADMISSION_VIEW;
   if (normalized === 'BED_BOARD' || normalized === 'BED_MANAGEMENT') return ACCESS_POLICY_CODES.PATIENT_BED_VIEW;
   if (normalized === 'CLINICAL_WORKFLOW'
+    // Tier decision 2026-09-04: BLOODBORNE_MARKERS stays here and does NOT move
+    // to PATIENT_LAB_RESULT_VIEW. The marker is a safety flag for device reuse
+    // (cath / OT / dialysis), not a restatement of the lab report, so it sits
+    // with clinical-workflow access like allergies. HIV and AIDS (Prevention
+    // and Control) Act 2017 ss.8-9 permit disclosure to healthcare providers
+    // for treatment and care, and every read here is audited. The lab tier has
+    // no `pharmacy` capability group: remapping would drop PHARMACIST,
+    // PHARMACY_STAFF and PHARMACY_INCHARGE for a gain of OP_STAFF_NURSE only.
+    // Mechanism and revisit triggers: routes/clinical/bloodborneMarkerRoutes.js.
     || normalized === 'BLOODBORNE_MARKERS'
     || normalized === 'CARE_PATHWAY'
     || normalized === 'EMR'

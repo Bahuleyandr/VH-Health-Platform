@@ -346,9 +346,11 @@ d('blood-borne markers (deep)', () => {
     const markerId = created.recorded[0].id;
     await expect(voidMarker({ tenantId: TENANT, patientUid: PATIENT, markerId, actorUid: ACTOR, reason: '  ' }))
       .rejects.toMatchObject({ code: 'BLOODBORNE_MARKER_INVALID' });
-    // The void reason is the retraction's whole audit record and the column is
-    // 500 chars: an over-length one is refused, never silently shortened into
-    // a reason that reads as the caller's but is not.
+    // The void reason is the retraction's whole audit record. void_reason is a
+    // TEXT column, so the 500-char cap is the published contract
+    // (BloodborneMarkerVoidRequest.maxLength), and the service enforces it by
+    // refusing an over-length reason rather than truncating it into one that
+    // reads as the caller's but is not.
     await expect(voidMarker({ tenantId: TENANT, patientUid: PATIENT, markerId, actorUid: ACTOR, reason: 'r'.repeat(501) }))
       .rejects.toMatchObject({ code: 'BLOODBORNE_MARKER_INVALID' });
     // Right tenant, wrong patient: tenant membership alone must not reach it.

@@ -186,7 +186,7 @@ describe('blood-borne marker routes', () => {
     },
   );
 
-  test('GET rejects a non-UUID patientUid before reaching the service', async () => {
+  test('GET rejects a non-UUID patientUid at the uid layer (guard mocked here; the real guard returns 403 first)', async () => {
     const response = await request(app()).get('/api/v1/bloodborne-markers/patient/not-a-uuid');
 
     expect(response.status).toBe(400);
@@ -250,7 +250,7 @@ describe('blood-borne marker routes', () => {
     ]);
   });
 
-  test('POST void rejects a non-UUID patientUid BEFORE the idempotency claim, so no key is burned', async () => {
+  test('POST void rejects a non-UUID patientUid at the uid layer, BEFORE the idempotency claim, so no key is burned (guard mocked here; the real guard returns 403 first)', async () => {
     const response = await request(app())
       .post('/api/v1/bloodborne-markers/patient/not-a-uuid/markers/41/void')
       .set('Idempotency-Key', 'void-41-abc')
@@ -285,6 +285,9 @@ describe('blood-borne marker routes', () => {
       expect(response.status).toBe(400);
       expect(response.body.message).toMatch(/marker id must be a positive integer/);
       expect(voidMarker).not.toHaveBeenCalled();
+      // The id check is its own layer ahead of the claim, so a malformed
+      // marker id cannot burn the caller's key any more than a malformed uid.
+      expect(idempotencyMiddleware).not.toHaveBeenCalled();
     },
   );
 

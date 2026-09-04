@@ -72,6 +72,10 @@ jest.unstable_mockModule('../../middleware/phiAccessMiddleware.js', () => ({
 const { default: router } = await import('../../routes/clinical/bloodborneMarkerRoutes.js');
 
 const GUARD_NAME = 'patientAccessGuardMiddleware';
+// The exact function object the router built from the (single) factory call.
+// Name-based detection alone would accept any stand-in that happens to share
+// the name; identity pins that the layer IS the guard the router constructed.
+const guardInstance = patientAccessGuard.mock.results[0].value;
 const ROUTES = {
   'GET /patient/:patientUid': { idempotent: false },
   'POST /patient/:patientUid/markers/:id/void': { idempotent: true },
@@ -82,12 +86,15 @@ function routeTable() {
   for (const layer of router.stack) {
     if (!layer.route) continue;
     const methods = Object.keys(layer.route.methods || {}).filter((m) => layer.route.methods[m]);
-    const names = layer.route.stack.map((s) => s.handle.name);
+    const handles = layer.route.stack.map((s) => s.handle);
+    const names = handles.map((h) => h.name);
     for (const method of new Set(methods)) {
       table.set(`${method.toUpperCase()} ${layer.route.path}`, {
+        handles,
         names,
         guardIndex: names.indexOf(GUARD_NAME),
         uidIndex: names.indexOf('requirePatientUidParam'),
+        markerIdIndex: names.indexOf('requireMarkerIdParam'),
         idempotencyIndex: names.findIndex((n) => /idempotency/i.test(n)),
         layerCount: layer.route.stack.length,
       });
@@ -108,6 +115,10 @@ describe('blood-borne marker route guard census', () => {
     expect({ route, guarded: entry.guardIndex > -1 }).toEqual({ route, guarded: true });
     // The guard is a real layer ahead of the handler, not the handler itself.
     expect(entry.guardIndex).toBeLessThan(entry.layerCount - 1);
+    // Identity, not just the name: the layer must BE the middleware the router
+    // got back from patientAccessGuard(...), so a look-alike function that
+    // shares the name cannot satisfy this census.
+    expect(entry.handles[entry.guardIndex]).toBe(guardInstance);
   });
 
   it.each(Object.keys(ROUTES))('%s validates :patientUid in its own layer, after the guard', (route) => {
@@ -118,12 +129,23 @@ describe('blood-borne marker route guard census', () => {
     expect(entry.guardIndex).toBeLessThan(entry.uidIndex);
   });
 
-  it('the void route claims an idempotency key, AFTER the guard and the uid check', () => {
+  it('the void route claims an idempotency key, AFTER the guard and BOTH identifier checks', () => {
     const entry = TABLE.get('POST /patient/:patientUid/markers/:id/void');
     expect(entry.idempotencyIndex).toBeGreaterThan(-1);
-    expect(entry.guardIndex).toBeLessThan(entry.idempotencyIndex);
-    // A malformed uid must be rejected before a key is burned on it.
-    expect(entry.uidIndex).toBeLessThan(entry.idempotencyIndex);
+    // The whole chain, in order: guard → uid → marker id → claim → handler.
+    // Neither malformed identifier may burn a key, so both validators sit
+    // ahead of the claim and the claim still sits ahead of the handler.
+    expect([
+      entry.guardIndex,
+      entry.uidIndex,
+      entry.markerIdIndex,
+      entry.idempotencyIndex,
+      entry.layerCount - 1,
+    ]).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it('the read route has no marker id to validate', () => {
+    expect(TABLE.get('GET /patient/:patientUid').markerIdIndex).toBe(-1);
   });
 
   it('the read route takes no idempotency key', () => {
