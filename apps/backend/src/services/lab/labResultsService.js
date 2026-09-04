@@ -55,7 +55,7 @@ import {
   classifySignedLabEpisode as classifyDiagnosticLabEpisode,
 } from '../diagnostics/diagnosticClassification.js';
 import { createLabDiagnosticGenerationTx } from '../diagnostics/diagnosticResultGenerationService.js';
-import { recordMarkersFromSignedResults } from '../clinical/bloodborneMarkerService.js';
+import { SIGN_OFF_DECISIONS, recordMarkersFromSignedResults } from '../clinical/bloodborneMarkerService.js';
 
 // Cap on the CRITICAL-lab alert fan-out. The candidate set is "clinicians
 // responsible for this patient" (ordering doctor, order placer, attending on an
@@ -141,7 +141,7 @@ const SUPPORTED_SIGNOFF_DECISIONS = new Set(['verified', ...CORRECTIVE_SIGNOFF_D
 // Sign-off decisions the blood-borne marker recorder accepts (spec 2026-09-04
 // §7.1). Kept as its own set so a sign-off vocabulary that later grows a
 // decision the recorder rejects skips the hook instead of throwing inside it.
-const BLOODBORNE_MARKER_DECISIONS = new Set(['verified', 'corrected', 'amended']);
+const BLOODBORNE_MARKER_DECISIONS = new Set(SIGN_OFF_DECISIONS);
 
 const NORMAL_LAB_FLAGS = new Set(['N']);
 const ABNORMAL_LAB_FLAGS = new Set(['L', 'H', 'A']);
@@ -2454,8 +2454,10 @@ export async function signOffResults({
 
   // Blood-borne marker record (spec 2026-09-04 §7.1): signed HIV/HBSAG/HCV
   // results become patient marker rows. Post-commit and best-effort — the
-  // sign-off stands whether or not the marker write succeeds; the recorder is
-  // idempotent, so a later re-run of the same sign-off repairs a miss.
+  // sign-off stands whether or not the marker write succeeds. A miss is not
+  // repaired by retrying the same request (idempotency replays the stored
+  // response); a corrective sign-off or a reconciliation sweep re-drives the
+  // recorder.
   if (BLOODBORNE_MARKER_DECISIONS.has(normalizedDecision)) {
     try {
       const markerSync = await recordMarkersFromSignedResults({
@@ -2470,11 +2472,18 @@ export async function signOffResults({
           recorded: markerSync.recorded.length,
           voided: markerSync.voided,
           skipped: markerSync.skipped.length,
-          failed: markerSync.failed,
+          failed: markerSync.failed.length,
         });
       }
     } catch (markerErr) {
-      logger.warn(`Blood-borne marker sync failed after sign-off (sign-off stands): ${markerErr?.message}`);
+      logger.warn('Blood-borne marker sync failed after sign-off (sign-off stands)', {
+        tenantId: tid,
+        signoffId: signoffRow?.id ?? null,
+        resultIds: ids,
+        decision: normalizedDecision,
+        code: markerErr?.code || null,
+        error: markerErr?.message,
+      });
     }
   }
 

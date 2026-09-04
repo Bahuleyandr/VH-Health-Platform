@@ -121,6 +121,7 @@ jest.unstable_mockModule('../../utils/websocket/realtimeEmitter.js', () => ({
 // against the shared prisma mock and would perturb the call sequences asserted
 // below.
 jest.unstable_mockModule('../../services/clinical/bloodborneMarkerService.js', () => ({
+  SIGN_OFF_DECISIONS: Object.freeze(['verified', 'corrected', 'amended']),
   recordMarkersFromSignedResults: jest.fn().mockResolvedValue({
     recorded: [], voided: 0, skipped: [], failed: [],
   }),

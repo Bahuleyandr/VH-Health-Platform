@@ -6,14 +6,12 @@
 // (record, list, void, lab sign-off ingestion) live below.
 // Spec: docs/superpowers/specs/2026-09-04-cath-device-reuse-and-bloodborne-markers-design.md §5.1, §7.
 //
-// Nothing in the tree calls these functions yet. The lab sign-off hook below
-// is *intended* to be called post-commit by labResultsService.signOffResults,
-// and that wiring lands in a following commit. The intended readers are
-// cath-lab device reuse (restriction strip, post-use rules, late-result
-// quarantine), OT sign-in and dialysis; none of them is wired here either.
-// Writers: the lab sign-off hook and the cath readiness checklist's
-// external-result / clinical-declaration paths. There is deliberately no
-// general create endpoint.
+// labResultsService.signOffResults calls recordMarkersFromSignedResults
+// post-commit — signed HIV/HBSAG/HCV results become marker rows there. The
+// intended additional readers/writers are cath-lab device reuse (restriction
+// strip, post-use rules, late-result quarantine), OT sign-in and dialysis;
+// none of them is wired here yet. There is deliberately no general create
+// endpoint.
 
 export * from './bloodborneMarkerRules.js';
 
@@ -329,10 +327,8 @@ export async function voidMarker({ tenantId, patientUid, markerId, actorUid, rea
 }
 
 // ---------------------------------------------------------------------------
-// Lab sign-off hook — intended to be called post-commit by
-// labResultsService.signOffResults; that wiring lands in a following commit,
-// so nothing calls this yet. Signed HIV, HBSAG and HCV results become marker
-// rows.
+// Lab sign-off hook — called post-commit by labResultsService.signOffResults.
+// Signed HIV, HBSAG and HCV results become marker rows.
 //
 // The upsert is content-aware: the active row's own content is the authority,
 // not the batch's decision word. For each candidate the active lab-linked row
@@ -367,7 +363,7 @@ export async function voidMarker({ tenantId, patientUid, markerId, actorUid, rea
 // ---------------------------------------------------------------------------
 
 const SIGNED_STATUSES = new Set(['final', 'corrected', 'amended', 'verified']);
-const SIGN_OFF_DECISIONS = ['verified', 'corrected', 'amended'];
+export const SIGN_OFF_DECISIONS = Object.freeze(['verified', 'corrected', 'amended']);
 
 // One read-compare-write pass over a lab result's active marker slot, run
 // inside the caller's transaction and under its advisory lock for that lab
@@ -470,14 +466,17 @@ export async function recordMarkersFromSignedResults({ tenantId, resultIds = [],
       // Serialise the whole read-compare-write for this lab result. The lock
       // is transaction-scoped, so it is held to COMMIT: a second sign-off of
       // the same result waits here instead of racing the compare, reading the
-      // same active row and voiding it twice.
+      // same active row and voiding it twice. The key text is namespaced
+      // (`<tenant>:bloodborne-marker:<lab_result_id>`) so this lock cannot
+      // collide with an advisory lock taken by unrelated code over the same
+      // tenant and a numerically-equal id.
       //
       // $executeRawUnsafe, not $queryRawUnsafe: pg_advisory_xact_lock returns
       // void and Prisma's query path cannot deserialise a void column
       // ('Failed to deserialize column of type void').
       await tx.$executeRawUnsafe(
         `SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text, 0))`,
-        tid, String(labResultId),
+        tid, `bloodborne-marker:${labResultId}`,
       );
       const nextResult = normalizeSerologyValue(row.value_text);
       const nextTestedOn = safeClinicalDate(row.performed_at || row.received_at || new Date());

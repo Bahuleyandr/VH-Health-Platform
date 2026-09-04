@@ -155,6 +155,11 @@ async function cleanup() {
   // One replica-role transaction, scoped to the two tenants this file owns,
   // clears them; every table listed exists in the migrated schema, so a
   // statement failure here means a genuine teardown gap, not a missing table.
+  // The tenant-wide (not id-scoped) deletes below are safe because TENANT
+  // (...bb001) and OTHER_TENANT (...bb002) are unique to this file, and
+  // because setTenantTx(TENANT, ...) still applies RLS inside the
+  // replica-role transaction, so the block only ever reaches TENANT rows —
+  // OTHER_TENANT never receives sign-off residue and is a no-op here.
   await setTenantTx(TENANT, async (tx) => {
     await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
     for (const table of [
@@ -175,7 +180,9 @@ async function cleanup() {
         TENANT, OTHER_TENANT,
       );
     }
-  }).catch(() => {});
+  }).catch((err) => {
+    console.warn(`bloodborne-markers teardown: sign-off residue delete failed: ${err?.message}`);
+  });
   if (resultIds.length) {
     await prisma.$executeRawUnsafe(
       `DELETE FROM lab_results WHERE tenant_id = $1::uuid AND id = ANY($2::int[])`,
