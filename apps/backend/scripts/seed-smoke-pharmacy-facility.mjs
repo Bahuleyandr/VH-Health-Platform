@@ -115,6 +115,123 @@ try {
       );
     }
   }
+
+  // A facility alone is not authority.
+  //
+  // Seeding the facility fixed the 409 PHARMACY_FACILITY_REQUIRED, but the
+  // pharmacy dashboard still rendered no table: resolvePharmacyFacility also
+  // requires the actor to hold an ACTIVE GRANT on that facility, and the smoke
+  // tenant had none (pharmacy_staff_facility_grants was empty). So the page
+  // correctly showed its "not assigned to a facility" scope notice, and
+  // e2e/table-controls.spec.ts failed asking a table-less page for a
+  // rows-per-page control.
+  //
+  // Same reasoning as the facility above: the backend is right that an actor
+  // with no grant has no custody. The gap is that the synthetic tenant never
+  // granted one, so it is closed here rather than by teaching the spec to
+  // accept the empty state — which would stop it testing the table at all.
+  if (process.exitCode !== 1) {
+    const facilities = await prisma.$queryRawUnsafe(
+      `SELECT id, facility_code
+         FROM facilities
+        WHERE tenant_id = $1::uuid AND status = 'active' AND is_default = TRUE`,
+      tenantId,
+    );
+
+    // Mirror the authority service's actor predicate EXACTLY
+    // (pharmacyFacilityAuthorityService.js, resolvePharmacyFacility), so what is
+    // granted here is what the service will resolve at request time. The
+    // route-crawl authenticates as the seeded SUPER_ADMIN, which
+    // FACILITY_OPERATION_ROLES admits and which already carries an active staff
+    // row from ci-setup-db's test-staff seed.
+    const actors = await prisma.$queryRawUnsafe(
+      `SELECT actor.uid, staff.id AS staff_id
+         FROM users actor
+         JOIN staff
+           ON staff.tenant_id = actor.tenant_id AND staff.user_id = actor.uid
+          AND staff.is_active = TRUE AND staff.archived = FALSE
+        WHERE actor.tenant_id = $1::uuid
+          AND actor.role = 'SUPER_ADMIN'
+          AND actor.is_active = TRUE AND actor.status = 'active'
+          AND actor.is_deleted = FALSE AND actor.merged_into_uid IS NULL
+        ORDER BY actor.uid`,
+      tenantId,
+    );
+
+    if (facilities.length !== 1 || actors.length !== 1) {
+      // Fail closed and say which half is wrong, rather than granting against a
+      // guess. Both "no staffed SUPER_ADMIN" and "ambiguous facility" mean the
+      // smoke database is not the shape this seed was written for.
+      console.error(
+        '[seed-smoke-pharmacy-facility] cannot seed a facility grant: expected exactly one active ' +
+          `default facility (found ${facilities.length}) and exactly one staffed active SUPER_ADMIN ` +
+          `(found ${actors.length}) for tenant ${tenantId}.`,
+      );
+      process.exitCode = 1;
+    } else {
+      const facilityId = Number(facilities[0].id);
+      const staffUid = actors[0].uid;
+
+      const heldGrants = await prisma.$queryRawUnsafe(
+        `SELECT id::text AS id
+           FROM pharmacy_staff_facility_grants
+          WHERE tenant_id = $1::uuid AND staff_uid = $2::uuid AND facility_id = $3::int
+            AND status = 'active' AND revoked_at IS NULL`,
+        tenantId,
+        staffUid,
+        facilityId,
+      );
+
+      if (heldGrants.length > 1) {
+        // The service takes LIMIT 2 and treats anything but exactly one as no
+        // authority at all, so a second grant is the same failure with the
+        // opposite cause — adding a third cannot help.
+        console.error(
+          `[seed-smoke-pharmacy-facility] ${staffUid} already holds ${heldGrants.length} active grants on ` +
+            `facility ${facilityId}; the authority service treats that as no authority. Resolve the duplicates.`,
+        );
+        process.exitCode = 1;
+      } else if (heldGrants.length === 1) {
+        console.log(
+          `[seed-smoke-pharmacy-facility] ${staffUid} already holds an active grant on facility ${facilityId} — nothing to do.`,
+        );
+      } else {
+        // granted_by is the actor itself: this is a synthetic environment with
+        // no granting administrator to attribute it to, and the column is NOT
+        // NULL. grant_reason must be 10-500 characters (CHECK constraint 753).
+        await prisma.$executeRawUnsafe(
+          `INSERT INTO pharmacy_staff_facility_grants
+             (tenant_id, facility_id, staff_uid, status, grant_source, grant_reason, granted_by)
+           VALUES ($1::uuid, $2::int, $3::uuid, 'active', 'smoke_seed',
+                   'Smoke environment seed: route-crawl actor needs custody of the default pharmacy facility',
+                   $3::uuid)`,
+          tenantId,
+          facilityId,
+          staffUid,
+        );
+
+        const grantsAfter = await prisma.$queryRawUnsafe(
+          `SELECT id::text AS id
+             FROM pharmacy_staff_facility_grants
+            WHERE tenant_id = $1::uuid AND staff_uid = $2::uuid AND facility_id = $3::int
+              AND status = 'active' AND revoked_at IS NULL`,
+          tenantId,
+          staffUid,
+          facilityId,
+        );
+        if (grantsAfter.length !== 1) {
+          console.error(
+            `[seed-smoke-pharmacy-facility] expected exactly one active grant after seeding, got ${grantsAfter.length}.`,
+          );
+          process.exitCode = 1;
+        } else {
+          console.log(
+            `[seed-smoke-pharmacy-facility] granted ${staffUid} active custody of facility ${facilityId}.`,
+          );
+        }
+      }
+    }
+  }
 } finally {
   await prisma.$disconnect();
 }
