@@ -42,6 +42,9 @@ describe('labAnalyteCodes', () => {
     expect(analyteItemForResult({ test_code: 'NA' })).toBeNull();
     expect(analyteItemForResult({})).toBeNull();
     expect(analyteItemForResult({ test_code: '', loinc_code: '' })).toBeNull();
+    expect(analyteItemForResult(null)).toBeNull();
+    expect(markerForResult(null)).toBeNull();
+    expect(analyteItemForResult()).toBeNull();
   });
 
   test('markerForResult returns a marker only for the serology items', () => {
@@ -61,11 +64,39 @@ describe('labAnalyteCodes', () => {
     }
   });
 
+  test('every alias is already in normalised form (uppercase, digits, underscore)', () => {
+    for (const key of LAB_ANALYTE_ITEM_CODES) {
+      for (const code of LAB_ANALYTE_ITEMS[key].analyteCodes) {
+        expect(code).toMatch(/^[A-Z0-9_]+$/);
+      }
+    }
+  });
+
+  test('no analyte alias or LOINC code is claimed by two items', () => {
+    const seen = new Map();
+    for (const key of LAB_ANALYTE_ITEM_CODES) {
+      const def = LAB_ANALYTE_ITEMS[key];
+      for (const code of [...def.analyteCodes, ...def.loincCodes]) {
+        expect(seen.get(code) ?? key).toBe(key);
+        seen.set(code, key);
+      }
+    }
+  });
+
   test('orderCodesCovering orders CBC once for hb and platelets together', () => {
     expect(orderCodesCovering(['hb', 'platelets'])).toEqual(['CBC']);
     expect(orderCodesCovering(['potassium', 'creatinine'])).toEqual(['ELECTROLYTES', 'CREATININE']);
     expect(orderCodesCovering(['hcv', 'hiv', 'hbsag'])).toEqual(['HIV', 'HBSAG', 'HCV']);
     expect(orderCodesCovering([])).toEqual([]);
     expect(orderCodesCovering(['not-an-item'])).toEqual([]);
+  });
+
+  test('orderCodesCovering emits each item\'s primary catalogue code', () => {
+    for (const key of LAB_ANALYTE_ITEM_CODES) {
+      expect(orderCodesCovering([key])).toEqual([LAB_ANALYTE_ITEMS[key].orderCodes[0]]);
+    }
+    expect(orderCodesCovering(['hb', 'platelets', 'creatinine', 'potassium', 'hiv', 'hbsag', 'hcv']))
+      .toEqual(['CBC', 'ELECTROLYTES', 'CREATININE', 'HIV', 'HBSAG', 'HCV']);
+    expect(orderCodesCovering(null)).toEqual([]);
   });
 });

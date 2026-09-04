@@ -1,4 +1,4 @@
-// apps/backend/src/services/lab/labAnalyteCodes.js
+// src/services/lab/labAnalyteCodes.js
 //
 // The one map between orderable investigation catalogue codes
 // (investigation_test_catalog.code: CBC, PLT, CREATININE, KFT, ELECTROLYTES,
@@ -6,7 +6,19 @@
 // lab_results.test_code (HGB, PLT, CREA, K — migration 175; serology arrives
 // under the catalogue code). There is no join key between the two tables, so
 // every consumer (cath lab readiness, blood-borne marker hook) reads this map
-// and nothing else. Extend the alias lists here; the unit test pins every row.
+// and nothing else.
+//
+// Extending it: add aliases in NORMALISED form only (uppercase, digits,
+// underscore — the unit test refuses anything else) and never claim one code
+// under two items (also tested). Serology items are alias-only by design: the
+// catalogue seeds no LOINC for them, so an unknown serology code resolves to
+// null, which every consumer treats as "no result on record" (fail-safe:
+// the reuse resolver answers "unknown", never "clear"). `unit` follows the
+// migration-151 threshold vocabulary (mmol/L, 10^3/uL); migration 175 uses
+// mEq/L and x10^9/L for the same quantities, so never string-compare
+// `unit` against lab_results.unit. Slash and ampersand forms such as
+// "HIV 1/2" are deliberately not normalised; add an alias when real traffic
+// shows one.
 
 const item = ({
   canonicalAnalyteCode,
@@ -93,7 +105,8 @@ function normalizeCode(value) {
   return String(value ?? '').trim().toUpperCase().replace(/[\s-]+/g, '_');
 }
 
-export function analyteItemForResult({ test_code = null, loinc_code = null } = {}) {
+export function analyteItemForResult(result) {
+  const { test_code = null, loinc_code = null } = result || {};
   const code = normalizeCode(test_code);
   if (code) {
     for (const [key, def] of Object.entries(LAB_ANALYTE_ITEMS)) {
@@ -109,21 +122,32 @@ export function analyteItemForResult({ test_code = null, loinc_code = null } = {
   return null;
 }
 
-export function markerForResult(result = {}) {
-  const key = analyteItemForResult(result);
+export function markerForResult(result) {
+  const key = analyteItemForResult(result || {});
   return key ? LAB_ANALYTE_ITEMS[key].marker : null;
 }
 
-// Which orderable codes cover a set of missing items. CBC covers hb and
-// platelets at once; serology items order under their own catalogue code.
+// Which orderable codes cover a set of missing items, in the order the
+// pre-cath checklist places them: CBC (covers hb and platelets at once),
+// ELECTROLYTES, CREATININE, then the three serology tests. Codes come from
+// each item's own orderCodes[0] so the table stays the single source of truth.
+const ORDER_PLACEMENT_SEQUENCE = Object.freeze([
+  Object.freeze(['hb', 'platelets']),
+  Object.freeze(['potassium']),
+  Object.freeze(['creatinine']),
+  Object.freeze(['hiv']),
+  Object.freeze(['hbsag']),
+  Object.freeze(['hcv']),
+]);
+
 export function orderCodesCovering(items = []) {
-  const wanted = new Set(items);
+  const wanted = new Set(items || []);
   const codes = [];
-  if (wanted.has('hb') || wanted.has('platelets')) codes.push('CBC');
-  if (wanted.has('potassium')) codes.push('ELECTROLYTES');
-  if (wanted.has('creatinine')) codes.push('CREATININE');
-  for (const key of BLOODBORNE_MARKER_ITEM_CODES) {
-    if (wanted.has(key)) codes.push(LAB_ANALYTE_ITEMS[key].canonicalAnalyteCode);
+  for (const group of ORDER_PLACEMENT_SEQUENCE) {
+    const hit = group.find((key) => wanted.has(key));
+    if (!hit) continue;
+    const [primary] = LAB_ANALYTE_ITEMS[hit].orderCodes;
+    if (!codes.includes(primary)) codes.push(primary);
   }
   return codes;
 }
