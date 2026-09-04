@@ -1039,6 +1039,25 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     inventory_item_id: async () =>
       (await seedCathInventoryBatch())?.inventory_item_id ?? null
   },
+  // mig 765: the defaults ARE the honest state — no tenant has reviewed the
+  // blood-borne reuse rules yet, so reviewed_by/reviewed_at stay NULL and the
+  // conservative 'discard'/'warn'/90-day defaults stand.
+  cath_reprocessing_settings: {
+    tenant_id: ctx => ctx.tenantId
+  },
+  // mig 765: seed the one policy shape that permits nothing. A reprocessable
+  // policy must also carry max_cycles and at least one sterilisation method
+  // (cath_reprocessing_category_policies_complete_check), and the walker
+  // derives category from the single-column CHECK — landing on 'stent', whose
+  // implant branch forbids reprocessing outright. 'catheter' with
+  // reprocessable = FALSE is a real, inert row.
+  cath_reprocessing_category_policies: {
+    tenant_id: ctx => ctx.tenantId,
+    category: 'catheter',
+    reprocessable: false,
+    max_cycles: null,
+    allowed_cycle_types: []
+  },
   surgical_implants: {
     tenant_id: ctx => ctx.tenantId,
     cath_case_id: null,
