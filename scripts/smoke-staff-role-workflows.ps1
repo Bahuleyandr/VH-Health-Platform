@@ -122,7 +122,19 @@ function ConvertFrom-ContentJson {
 function Get-ErrorContent {
   param($Exception)
 
-  $response = $Exception.Response
+  # Set-StrictMode -Version Latest (line 24) makes a missing property a
+  # TERMINATING error, and a connection-level failure raises
+  # HttpRequestException, which carries no .Response at all. So the one case
+  # this helper exists to describe -- the backend is unreachable -- used to
+  # kill the script with "The property 'Response' cannot be found on this
+  # object" before a single check was recorded. Probe the property the way the
+  # rest of this function already probes .Content and .GetResponseStream, so
+  # the $null branch below (which reports the real message) becomes reachable.
+  $response = if ($null -ne $Exception -and $Exception.PSObject.Properties["Response"]) {
+    $Exception.Response
+  } else {
+    $null
+  }
   if ($null -eq $response) {
     return @{ status = "ERR"; content = $Exception.Message }
   }
