@@ -195,7 +195,10 @@ export const schemas = {
     required: ['disposition'],
     properties: {
       disposition: { type: 'string', enum: ['reprocess', 'discard'] },
-      units: { type: 'integer', minimum: 1 },
+      // Bounded by the recorded quantity AND by an absolute cap of 50 devices
+      // per post-use record (cathDeviceReuseService.POST_USE_UNITS_CAP): each
+      // unit is an INSERT + lock + audit round trip inside one transaction.
+      units: { type: 'integer', minimum: 1, maximum: 50 },
       discard_reason: { type: 'string', enum: DISCARD_REASONS },
       discard_note: { type: 'string', maxLength: 2000 },
       acknowledgement: {
@@ -401,7 +404,7 @@ export const operations = {
   },
   'GET /api/v1/cath-lab/devices/lookup': {
     description:
-      'Device state for the capture sheet, pinned to the case facility: a device belonging to another facility is reported as not found rather than described. No patient data.',
+      'Device state for the capture sheet, pinned to the case facility: a device belonging to another facility is reported as not found rather than described. Carries no patient identity, but the device row does carry exposure_flag and exposure_markers — the blood-borne markers a PREVIOUS patient tested reactive for.',
     parameters: [
       { name: 'case_id', in: 'query', required: true, schema: BIGINT_WIRE },
       { name: 'tag', in: 'query', required: true, schema: { type: 'string', pattern: DEVICE_TAG_IN_PATTERN } }
@@ -410,7 +413,7 @@ export const operations = {
   },
   'GET /api/v1/cath-lab/devices/{deviceId}/history': {
     description:
-      'Every use of a device (the patients it touched included) and its register events, for infection-control lookback. PHI with no single patient subject — logged on the /api/v1/cath-lab mount.',
+      'Every use of a device (the patients it touched included) and its register events, for infection-control lookback. Requires a cath-lab WORKFLOW role, not merely report read. PHI with no single patient subject, so the mount logger records patient_id = NULL and the route writes one hipaa_access_log row per distinct patient in the answer instead (capped at 25).',
     pathParameters: { deviceId: BIGINT_WIRE },
     response: 'CathDeviceHistoryResponse'
   },
@@ -459,22 +462,30 @@ export const operations = {
     response: 'CssdDeviceResponse'
   },
 
-  'GET /api/v1/admin/cath-consumables/reprocessing-settings': {
-    description: 'Per-tenant device reuse rules. Restricted to QUALITY_OFFICER, INFECTION_CONTROL_OFFICER and SUPER_ADMIN on top of the admin mount gate.',
+  'GET /api/v1/cath-reprocessing/settings': {
+    description: 'Per-tenant device reuse rules. Mounted at /api/v1/cath-reprocessing for QUALITY_OFFICER, INFECTION_CONTROL_OFFICER, ADMIN and SUPER_ADMIN.',
     response: 'CathReprocessingSettingsResponse'
   },
-  'PUT /api/v1/admin/cath-consumables/reprocessing-settings': {
-    description: 'Saves the per-tenant device reuse rules. Restricted to QUALITY_OFFICER, INFECTION_CONTROL_OFFICER and SUPER_ADMIN on top of the admin mount gate.',
+  'PUT /api/v1/cath-reprocessing/settings': {
+    description: 'Saves the per-tenant device reuse rules. Mounted at /api/v1/cath-reprocessing for QUALITY_OFFICER, INFECTION_CONTROL_OFFICER, ADMIN and SUPER_ADMIN. Requires Idempotency-Key (scope cath_reprocessing_policy).',
+    parameters: [idempotencyHeaderParameter],
     request: 'CathReprocessingSettingsUpdateRequest',
     response: 'CathReprocessingSettingsResponse'
   },
-  'GET /api/v1/admin/cath-consumables/reprocessing-policies': {
-    description: 'One policy row per consumable category, defaulted to not reprocessable where the tenant has saved nothing. Restricted to QUALITY_OFFICER, INFECTION_CONTROL_OFFICER and SUPER_ADMIN.',
+  'GET /api/v1/cath-reprocessing/policies': {
+    description: 'One policy row per consumable category, defaulted to not reprocessable where the tenant has saved nothing. Mounted at /api/v1/cath-reprocessing for QUALITY_OFFICER, INFECTION_CONTROL_OFFICER, ADMIN and SUPER_ADMIN.',
     response: 'CathReprocessingPoliciesResponse'
   },
-  'PUT /api/v1/admin/cath-consumables/reprocessing-policies': {
-    description: 'Upserts category reprocessing policies. Implant categories can never be reprocessable, and a reprocessable category needs max_cycles and at least one allowed cycle type. Restricted to QUALITY_OFFICER, INFECTION_CONTROL_OFFICER and SUPER_ADMIN.',
+  'PUT /api/v1/cath-reprocessing/policies': {
+    description: 'Upserts category reprocessing policies. Implant categories can never be reprocessable, a reprocessable category needs max_cycles and at least one allowed cycle type, and a category may appear at most once. Mounted at /api/v1/cath-reprocessing for QUALITY_OFFICER, INFECTION_CONTROL_OFFICER, ADMIN and SUPER_ADMIN. Requires Idempotency-Key (scope cath_reprocessing_policy).',
+    parameters: [idempotencyHeaderParameter],
     request: 'CathReprocessingPoliciesUpdateRequest',
     response: 'CathReprocessingPoliciesResponse'
+  },
+  'GET /api/v1/cath-reprocessing/devices/{deviceId}/history': {
+    description:
+      'The same device history the cath router serves, on the governance mount so infection control can open the device tags named in its own exposure notifications without holding a cath-lab workflow role. Mounted at /api/v1/cath-reprocessing for QUALITY_OFFICER, INFECTION_CONTROL_OFFICER, ADMIN and SUPER_ADMIN. Writes one hipaa_access_log row per distinct patient in the answer.',
+    pathParameters: { deviceId: BIGINT_WIRE },
+    response: 'CathDeviceHistoryResponse'
   }
 };

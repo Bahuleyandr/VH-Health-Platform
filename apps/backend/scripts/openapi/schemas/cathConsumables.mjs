@@ -12,6 +12,17 @@ const CATEGORIES = [
   'other'
 ];
 const CATALOG_STATUSES = ['active', 'retired'];
+// cath_reprocessable_devices.status — the same frozen vocabulary
+// cathDeviceReuseService.DEVICE_STATUSES publishes on the device row. The
+// decorated usage row carries it verbatim, so it must not be a bare string here.
+const DEVICE_STATUSES = [
+  'awaiting_reprocessing',
+  'in_cssd',
+  'available',
+  'in_case',
+  'quarantined',
+  'discarded'
+];
 const INVENTORY_DECREMENT_STATUSES = [
   'pending',
   'not_linked',
@@ -499,7 +510,7 @@ export const schemas = {
       // Decoration added by cathDeviceReuseService.decorateConsumablesWithReuse
       // on the case listing; absent from the create/mutation payload.
       device_tag: nullableString,
-      device_status: nullableString,
+      device_status: { type: 'string', enum: DEVICE_STATUSES, nullable: true },
       device_exposure_flag: { type: 'boolean' },
       allowed_post_use: { $ref: '#/components/schemas/CathPostUseOptions' },
       inventory_movement_id: nullableInteger,
@@ -774,6 +785,8 @@ export const schemas = {
       'used_at',
       'billing_item_code',
       'inventory_decrement_status',
+      'reuse_cycle',
+      'reused_billing_item_code',
       'billing_gap_reason'
     ],
     properties: {
@@ -793,6 +806,15 @@ export const schemas = {
         type: 'string',
         enum: INVENTORY_DECREMENT_STATUSES
       },
+      // Both come straight out of the worklist SELECT (cathLabService
+      // listUnbilledConsumableUsage) and this schema is
+      // additionalProperties:false, so omitting them made every reused row a
+      // response the published contract forbids. reuse_cycle is NULL on a
+      // first-use row; reused_billing_item_code is the catalogue's separate
+      // reprocessed tariff mapping, which is exactly what
+      // 'reused_billing_code_not_mapped' reports as missing.
+      reuse_cycle: nullableInteger,
+      reused_billing_item_code: nullableString,
       billing_gap_reason: { type: 'string', enum: BILLING_GAP_REASONS }
     }
   },

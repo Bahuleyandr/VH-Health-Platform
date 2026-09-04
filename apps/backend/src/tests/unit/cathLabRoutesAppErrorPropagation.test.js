@@ -64,6 +64,9 @@ jest.unstable_mockModule('../../services/clinical/cathDeviceReuseService.js', ()
   })),
   deviceForCaseLookup: jest.fn(),
   deviceHistory: jest.fn(),
+  logDeviceHistoryAccess: jest.fn(async () => ({ logged: 0, skipped: 0 })),
+  projectReuseRestrictionForRole: jest.fn((restriction) => restriction),
+  roleSeesSerologyDetail: jest.fn(() => true),
   recordPostUse: jest.fn(),
 }));
 

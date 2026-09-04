@@ -379,12 +379,39 @@ describeIfDb('cath device reuse (deep)', () => {
 
   test('CSSD: receive, wrong cycle type refused, reprocessed increments the cycle', async () => {
     const device = await deviceByTag({ tenantId: TENANT, tag: deviceTags[0] });
-    const received = await receiveDevice(device.id, ctx(CSSD_ACTOR));
+    const received = await receiveDevice(device.id, ctx(CSSD_ACTOR, { idempotencyKey: 'cdr-receive-1' }));
     expect(received.status).toBe('in_cssd');
     await expect(markDeviceReprocessed(device.id, { cycle_type: 'steam' }, ctx(CSSD_ACTOR)))
       .rejects.toMatchObject({ code: 'CSSD_DEVICE_CYCLE_TYPE_NOT_ALLOWED' });
     const done = await markDeviceReprocessed(device.id, { cycle_type: 'eto' }, ctx(CSSD_ACTOR));
     expect(done).toMatchObject({ status: 'available', cycle_count: 1, last_cycle_type: 'eto' });
+
+    // The CSSD router collects the claimed idempotency key into deviceContext
+    // for exactly one purpose: telling a replayed command apart from a genuine
+    // second transition on the same device. That is only true if the key
+    // actually reaches the append-only audit row.
+    const audit = await prisma.$queryRawUnsafe(
+      `SELECT action, metadata
+         FROM audit_logs
+        WHERE tenant_id = $1::uuid
+          AND resource = 'cath_reprocessable_devices'
+          AND resource_id = $2
+          AND action = 'cath_device.receive'
+        ORDER BY id DESC
+        LIMIT 1`,
+      TENANT, String(device.id),
+    );
+    expect(audit[0].metadata).toMatchObject({ idempotency_key: 'cdr-receive-1', from: 'awaiting_reprocessing', to: 'in_cssd' });
+    // A transition made without a claimed key records the absence explicitly
+    // rather than leaving the key out of the row's shape.
+    const reprocessed = await prisma.$queryRawUnsafe(
+      `SELECT metadata FROM audit_logs
+        WHERE tenant_id = $1::uuid AND resource = 'cath_reprocessable_devices'
+          AND resource_id = $2 AND action = 'cath_device.reprocessed'
+        ORDER BY id DESC LIMIT 1`,
+      TENANT, String(device.id),
+    );
+    expect(reprocessed[0].metadata).toMatchObject({ idempotency_key: null });
   }, 60000);
 
   test('an exposure-flagged device cannot be captured under the discard rule, and needs an acknowledgement under override', async () => {

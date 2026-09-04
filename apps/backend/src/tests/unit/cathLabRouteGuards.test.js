@@ -44,6 +44,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 }));
 
 const { default: cathLabRouter } = await import('../../routes/clinical/cathLabRoutes.js');
+const { default: cathDeviceHistoryHandler } = await import('../../routes/clinical/cathDeviceHistoryHandler.js');
 const { default: cathSchedulingRouter } = await import('../../routes/clinical/cathSchedulingRoutes.js');
 const { selectCathCasePatient, selectCathReportPatient } = await import('../../routes/clinical/cathLabAccessGuards.js');
 const { canUseCathWorkflow, canViewCathReport } = await import('../../utils/roleHelpers.js');
@@ -118,9 +119,11 @@ describe('route census — guarded vs deliberately-not', () => {
       'GET /devices/lookup': 'cath-lab:case-query:case_id',
       // Deliberately NOT patient-guarded: a reprocessable device spans
       // patients, so there is no single case or report row a selector could
-      // resolve. The PHI trail is the /api/v1/cath-lab mount's
-      // phiAccessLogger('CATH_LAB'); the authority is the mount role gate plus
-      // the cath report-read gate pinned below.
+      // resolve. The mount's phiAccessLogger('CATH_LAB') cannot be the trail
+      // either — it resolves a patient from the request and this request
+      // carries none, so it writes patient_id = NULL. The trail is the
+      // explicit per-patient batch the shared handler writes; the authority is
+      // the mount role gate plus the cath WORKFLOW gate pinned below.
       'GET /devices/:deviceId/history': null,
       'GET /cases/:id/quick-wins': byId,
       'POST /cases/:id/readiness/evidence/refresh': byId,
@@ -231,15 +234,26 @@ describe('device-reuse route chains', () => {
     expect(stack.some((s) => /idempotency/i.test(s.handle.name))).toBe(false);
   });
 
-  it('GET /devices/:deviceId/history: report-read gate, no per-route patient guard', () => {
+  it('GET /devices/:deviceId/history: WORKFLOW gate, no per-route patient guard', () => {
     const stack = layerOf('get', '/devices/:deviceId/history');
     expect(stack).toHaveLength(2);
     const refusal = refusalCodeOf(stack[0].handle);
     expect(refusal.status).toBe(403);
-    expect(refusal.code).toContain('CATH_REPORT_READ_FORBIDDEN');
+    // The workflow gate, NOT report-read: report-read admits RECEPTIONIST and
+    // TECHNICIAN, and a cross-patient blood-borne lookback is not a front-desk
+    // or an imaging read. Infection control reaches the same handler on the
+    // /api/v1/cath-reprocessing governance mount instead.
+    expect(refusal.code).toContain('CATH_LAB_WORKFLOW_FORBIDDEN');
+    expect(canViewCathReport('RECEPTIONIST')).toBe(true);
+    expect(canUseCathWorkflow('RECEPTIONIST')).toBe(false);
+    expect(canUseCathWorkflow('TECHNICIAN')).toBe(false);
     // Multi-patient by construction — asserted here so a later "fix" that
     // bolts a single-patient selector on has to argue with this test first.
     expect(stack.filter((s) => s.handle.patientGuardTag)).toEqual([]);
+    // ...and the terminal handler is the SHARED one the governance router also
+    // registers, so the per-patient access trail cannot exist on one mount and
+    // not the other.
+    expect(stack[1].handle).toBe(cathDeviceHistoryHandler);
   });
 });
 

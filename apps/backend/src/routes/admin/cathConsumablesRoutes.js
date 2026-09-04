@@ -2,13 +2,6 @@ import express from 'express';
 
 import { phiAccessLogger } from '../../middleware/phiAccessMiddleware.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
-import { requireRole } from '../../middleware/rbacMiddleware.js';
-import {
-  getReprocessingSettings,
-  listCategoryPolicies,
-  upsertCategoryPolicies,
-  upsertReprocessingSettings
-} from '../../services/clinical/cathDeviceReuseService.js';
 import {
   getCathConsumablesBillingSettings,
   listConsumableCatalog,
@@ -132,51 +125,14 @@ router.get(
   }
 );
 
-// Reprocessing policy is clinical governance, not billing: a route-level role
-// gate on top of the admin barrel's ADMIN_ROUTE_ROLES mount gate, so the two
-// officers who own device reuse can hold it without widening the whole console.
-const requireReprocessingPolicyRole = requireRole('QUALITY_OFFICER', 'INFECTION_CONTROL_OFFICER', 'SUPER_ADMIN');
-
-router.get('/reprocessing-settings', requireReprocessingPolicyRole, async (req, res, next) => {
-  try {
-    const settings = await getReprocessingSettings({ tenantId: req.tenantId });
-    return success(res, { settings }, 'Cath reprocessing settings retrieved');
-  } catch (err) {
-    return next(err);
-  }
-});
-
-router.put('/reprocessing-settings', requireReprocessingPolicyRole, async (req, res, next) => {
-  try {
-    const settings = await upsertReprocessingSettings(
-      { ...(req.body || {}), tenantId: req.tenantId },
-      actorContext(req)
-    );
-    return success(res, { settings }, 'Cath reprocessing settings saved');
-  } catch (err) {
-    return next(err);
-  }
-});
-
-router.get('/reprocessing-policies', requireReprocessingPolicyRole, async (req, res, next) => {
-  try {
-    const policies = await listCategoryPolicies({ tenantId: req.tenantId });
-    return success(res, { policies, count: policies.length }, 'Cath reprocessing policies retrieved');
-  } catch (err) {
-    return next(err);
-  }
-});
-
-router.put('/reprocessing-policies', requireReprocessingPolicyRole, async (req, res, next) => {
-  try {
-    const policies = await upsertCategoryPolicies(
-      { tenantId: req.tenantId, policies: req.body?.policies },
-      actorContext(req)
-    );
-    return success(res, { policies, count: policies.length }, 'Cath reprocessing policies saved');
-  } catch (err) {
-    return next(err);
-  }
-});
+// Reprocessing settings and category policies USED to live here, behind the
+// admin barrel's ADMIN_ROUTE_ROLES mount gate plus a route-level gate naming
+// QUALITY_OFFICER and INFECTION_CONTROL_OFFICER. That second gate could never
+// admit either officer — the mount had already refused them — so it was a dead
+// gate over a surface neither owner could reach. Device reuse is clinical
+// governance, so the four operations moved to their own mount with their own
+// audience: /api/v1/cath-reprocessing (routes/clinical/cathReprocessingPolicyRoutes.js,
+// CATH_REPROCESSING_POLICY_ROUTE_ROLES). This router keeps the billing-facing
+// catalogue, billing settings, authority recovery and unbilled-usage surfaces.
 
 export default router;

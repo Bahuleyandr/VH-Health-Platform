@@ -1,12 +1,18 @@
 import {
+  CATH_CATEGORIES,
   DEVICE_ACTIONS,
   DEVICE_STATUSES,
   IMPLANT_CATEGORIES,
+  __testing__,
   computePostUseOptions,
   deviceTransition,
   normalizeDeviceTag,
+  projectReuseRestrictionForRole,
+  roleSeesSerologyDetail,
+  upsertCategoryPolicies,
   validatePolicyInput,
 } from '../../services/clinical/cathDeviceReuseService.js';
+import { CLINICAL_STAFF_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
 
 const policy = { reprocessable: true, max_cycles: 3, allowed_cycle_types: ['eto'], function_check_required: false };
 const settings = { reactive_patient_rule: 'discard', unknown_serology_rule: 'warn', serology_validity_days: 90 };
@@ -165,5 +171,133 @@ describe('validatePolicyInput', () => {
   });
   test('an unknown category is refused', () => {
     expect(() => validatePolicyInput({ ...base, category: 'defibrillator' })).toThrow(expect.objectContaining({ code: 'CATH_LAB_BAD_ENUM' }));
+  });
+});
+
+describe('positiveInt is strict about how a number is SPELLED', () => {
+  const { positiveInt } = __testing__;
+
+  test('plain decimal digits, trimmed, in either type', () => {
+    expect(positiveInt(7, 'x')).toBe(7);
+    expect(positiveInt('7', 'x')).toBe(7);
+    // Surrounding whitespace is a transport artefact, not a different value.
+    expect(positiveInt(' 7 ', 'x')).toBe(7);
+  });
+
+  test.each(['7e2', '0x10', '+7', '7.0', '1e1', ' ', '', null, undefined, '-7', 'seven', '1_0', '٧'])(
+    'rejects %p',
+    (value) => {
+      expect(() => positiveInt(value, 'device_id')).toThrow(
+        expect.objectContaining({ code: 'CATH_LAB_BAD_ID', statusCode: 400 }),
+      );
+    },
+  );
+
+  test('the rejected spellings are exactly the ones Number() used to accept as a DIFFERENT number', () => {
+    // This is the whole point: the old implementation was `Number(value)`, so
+    // '7e2' reached a bigint id as 700 and '0x10' as 16.
+    expect(Number('7e2')).toBe(700);
+    expect(Number('0x10')).toBe(16);
+    expect(Number('+7')).toBe(7);
+    expect(Number('7.0')).toBe(7);
+  });
+
+  test('the bounds still apply on top of the shape', () => {
+    expect(positiveInt('50', 'max_cycles', { max: 50 })).toBe(50);
+    expect(() => positiveInt('51', 'max_cycles', { max: 50 })).toThrow(/positive integer/);
+    expect(() => positiveInt('0', 'max_cycles')).toThrow(/positive integer/);
+    expect(() => positiveInt(String(Number.MAX_SAFE_INTEGER) + '0', 'id')).toThrow(/positive integer/);
+  });
+
+  test('every tag the register can mint still parses (normalizeDeviceTag is unaffected)', () => {
+    expect(normalizeDeviceTag('rp00000042')).toBe('RP00000042');
+  });
+});
+
+describe('projectReuseRestrictionForRole', () => {
+  const full = {
+    status: 'restricted',
+    reasons: ['HBsAg reactive 2026-08-12'],
+    markers: [{ marker: 'hbsag', result: 'reactive', tested_on: '2026-08-12' }],
+    validity_days: 90,
+    evaluated_at: '2026-09-04T00:00:00.000Z',
+  };
+
+  test('a clinical role sees the object untouched, by identity', () => {
+    expect(projectReuseRestrictionForRole(full, 'DOCTOR')).toBe(full);
+    expect(roleSeesSerologyDetail('DOCTOR')).toBe(true);
+  });
+
+  test.each(['RECEPTIONIST', 'TECHNICIAN', 'BILLING_STAFF', 'STORES_PURCHASE_INCHARGE', 'HR_STAFF'])(
+    '%s sees the decision but not the serology narrative',
+    (role) => {
+      expect(projectReuseRestrictionForRole(full, role)).toEqual({
+        status: 'restricted',
+        validity_days: 90,
+        evaluated_at: '2026-09-04T00:00:00.000Z',
+        reasons: [],
+        markers: [],
+      });
+    },
+  );
+
+  test.each([null, undefined, '', 'NOT_A_ROLE', 'quality_officer'])(
+    'an unrecognised role %p is projected, never trusted',
+    (role) => {
+      const projected = projectReuseRestrictionForRole(full, role);
+      expect(projected.reasons).toEqual([]);
+      expect(projected.markers).toEqual([]);
+      // ...and the status still comes through, so the capture sheet can still
+      // refuse a reuse it should refuse.
+      expect(projected.status).toBe('restricted');
+    },
+  );
+
+  test('the projected shape keeps EVERY published key — emptied, never dropped', () => {
+    // BloodborneReuseStatus is additionalProperties:false with all five keys
+    // required, so a dropped key would be a contract violation, not a redaction.
+    expect(Object.keys(projectReuseRestrictionForRole(full, 'RECEPTIONIST')).sort())
+      .toEqual(Object.keys(full).sort());
+  });
+
+  test('the audience is the platform clinical-staff list, not a private copy', () => {
+    for (const role of CLINICAL_STAFF_ROUTE_ROLES) expect(roleSeesSerologyDetail(role)).toBe(true);
+    // CLINICAL_STAFF_ROUTE_ROLES excludes reception by construction; that is
+    // what makes the projection do anything on the cath surfaces.
+    expect(CLINICAL_STAFF_ROUTE_ROLES).not.toContain('RECEPTIONIST');
+  });
+
+  test('a non-object restriction is returned as-is rather than fabricated', () => {
+    expect(projectReuseRestrictionForRole(null, 'RECEPTIONIST')).toBeNull();
+    expect(projectReuseRestrictionForRole(undefined, 'DOCTOR')).toBeUndefined();
+  });
+});
+
+describe('upsertCategoryPolicies refuses an ambiguous batch before it opens a transaction', () => {
+  const TENANT = '00000000-0000-4000-8000-000000000001';
+  const ACTOR = '11111111-1111-4111-8111-111111111111';
+  const entry = (category) => ({ category, reprocessable: false });
+
+  test('the same category twice is a 400, not a last-writer-wins race', async () => {
+    // Both rows key on (tenant_id, category); upserting the same key twice in
+    // one request leaves the caller unable to say which of its entries won.
+    await expect(upsertCategoryPolicies(
+      { tenantId: TENANT, policies: [entry('catheter'), entry('balloon'), entry('catheter')] },
+      { actorUid: ACTOR },
+    )).rejects.toEqual(expect.objectContaining({ code: 'CATH_REPROCESSING_POLICY_DUPLICATE', statusCode: 400 }));
+  });
+
+  test('more entries than there are categories is refused before validation work', async () => {
+    await expect(upsertCategoryPolicies(
+      { tenantId: TENANT, policies: CATH_CATEGORIES.map(entry).concat([entry('other')]) },
+      { actorUid: ACTOR },
+    )).rejects.toEqual(expect.objectContaining({ code: 'CATH_REPROCESSING_POLICY_DUPLICATE', statusCode: 400 }));
+  });
+
+  test('an empty batch is still the INCOMPLETE code, not the new one', async () => {
+    await expect(upsertCategoryPolicies(
+      { tenantId: TENANT, policies: [] },
+      { actorUid: ACTOR },
+    )).rejects.toEqual(expect.objectContaining({ code: 'CATH_REPROCESSING_POLICY_INCOMPLETE' }));
   });
 });

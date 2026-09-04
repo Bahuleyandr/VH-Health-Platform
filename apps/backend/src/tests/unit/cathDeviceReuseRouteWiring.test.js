@@ -4,30 +4,37 @@
  *
  *   - the CSSD reprocessable-device queue (six routes on cssdRoutes), where the
  *     five state transitions are commands that must each claim an idempotency
- *     key and the queue read must not; and
- *   - the admin reprocessing settings/policies (four routes on
- *     admin/cathConsumablesRoutes), which sit under the admin barrel's
- *     ADMIN_ROUTE_ROLES mount gate and carry an ADDITIONAL route-level role
- *     gate because reuse policy is clinical governance, not billing config.
+ *     key, the queue read must not, and the whole /devices sub-tree is narrowed
+ *     to CSSD_DEVICE_ROUTE_ROLES — a strict subset of the mount audience,
+ *     because the CSSD mount also admits the audit office and stores/purchase,
+ *     and neither of those runs a sterilizer; and
+ *   - the reprocessing settings/policies governance router, which USED to be
+ *     four routes on admin/cathConsumablesRoutes behind ADMIN_ROUTE_ROLES plus
+ *     a route-level gate naming QUALITY_OFFICER and INFECTION_CONTROL_OFFICER.
+ *     That gate was DEAD: the admin mount had already refused both officers, so
+ *     the surface its owners were named on was the one surface they could not
+ *     reach. It now lives at /api/v1/cath-reprocessing with its own audience.
  *
- * Both are census-style: the real routers are imported and their layer stacks
- * walked, so the pins are on the wiring. The two middleware FACTORIES are
- * spied so their options can be asserted and the exact function object each
- * router received can be matched by identity — a look-alike with the same name
- * cannot satisfy these tests. The middleware names the stand-ins use are
- * pinned against the real modules' source at the bottom of the file, so the
- * census cannot drift into agreeing only with itself.
+ * The census part is structural: the real routers are imported and their layer
+ * stacks walked, with the idempotency FACTORY spied so its options can be
+ * asserted and the exact function object each router received matched by
+ * identity — a look-alike with the same name cannot satisfy these tests.
+ *
+ * The ROLE part is behavioural, because a role list is only worth what the
+ * gate does with it. rbacMiddleware is deliberately NOT mocked here: the
+ * requests below run the real gate, and app.js's own source is pinned so the
+ * harness cannot mount a different audience than production does.
  */
 
 import { readFileSync } from 'node:fs';
 
 import { jest } from '@jest/globals';
+import express from 'express';
+import request from 'supertest';
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const ACTOR = '11111111-1111-4111-8111-111111111111';
 const IDEMPOTENCY_NAME = 'idempotencyMiddleware';
-const RBAC_NAME = 'rbacRoleGate';
-const POLICY_ROLES = ['QUALITY_OFFICER', 'INFECTION_CONTROL_OFFICER', 'SUPER_ADMIN'];
 
 const requireIdempotencyKey = jest.fn(() => function idempotencyMiddleware(_req, _res, next) {
   return next();
@@ -36,18 +43,36 @@ jest.unstable_mockModule('../../middleware/idempotencyMiddleware.js', () => ({
   requireIdempotencyKey,
 }));
 
-const requireRole = jest.fn(() => function rbacRoleGate(_req, _res, next) {
-  return next();
-});
-jest.unstable_mockModule('../../middleware/rbacMiddleware.js', () => ({
-  __esModule: true,
-  default: () => function rbacRoleGate(_req, _res, next) { return next(); },
-  requireRole,
-  requireAnyRole: requireRole,
-}));
-
 jest.unstable_mockModule('../../middleware/phiAccessMiddleware.js', () => ({
   phiAccessLogger: () => (_req, _res, next) => next(),
+}));
+
+// rbacMiddleware's denial path writes a security-audit row through prisma.
+// Stub the client so a 403 in this suite stays a 403 and never touches a DB.
+const prismaMock = {
+  $queryRawUnsafe: jest.fn(),
+  $queryRaw: jest.fn(),
+  $executeRaw: jest.fn(),
+  $executeRawUnsafe: jest.fn(),
+  $transaction: jest.fn(),
+  $on: jest.fn(),
+};
+jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  __esModule: true,
+  default: prismaMock,
+  prismaReadOnly: prismaMock,
+  setTenant: jest.fn(),
+  setTenantTx: jest.fn(),
+  isTenantTransactionClient: () => false,
+  circuitBreakerStatus: () => ({}),
+  pinSessionTimeZoneToUrl: (url) => url,
+  evaluateTenantRlsPosture: () => ({}),
+  tenantRlsRuntimeRole: () => null,
+  tenantRlsRolePosture: async () => ({}),
+  logTenantRlsRolePosture: async () => {},
+  rlsDisabledLogLevel: () => 'warn',
+  tenantRlsPostureMustFailClosed: () => false,
+  ensureTenantRlsRuntimeRoleGrants: async () => {},
 }));
 
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
@@ -66,11 +91,13 @@ const deviceService = {
   listCategoryPolicies: jest.fn(async () => [{ category: 'balloon' }]),
   upsertCategoryPolicies: jest.fn(async () => [{ category: 'balloon' }]),
   upsertReprocessingSettings: jest.fn(async () => ({ tenant_id: TENANT, configured: true })),
+  deviceHistory: jest.fn(async () => ({ device: { id: 1 }, uses: [], events: [] })),
+  logDeviceHistoryAccess: jest.fn(async () => ({ logged: 0, skipped: 0 })),
 };
 jest.unstable_mockModule('../../services/clinical/cathDeviceReuseService.js', () => deviceService);
 
 jest.unstable_mockModule('../../services/cssd/cssdService.js', () => ({
-  getCssdBoard: jest.fn(), listInstrumentSets: jest.fn(), createInstrumentSet: jest.fn(),
+  getCssdBoard: jest.fn(async () => ({ board: [] })), listInstrumentSets: jest.fn(), createInstrumentSet: jest.fn(),
   getInstrumentSetLabel: jest.fn(), listSterilizationLoads: jest.fn(), createSterilizationLoad: jest.fn(),
   transitionSterilizationLoad: jest.fn(), listIssues: jest.fn(), issueSet: jest.fn(),
   markTheatreUse: jest.fn(), returnIssuedSet: jest.fn(), markDecontaminated: jest.fn(),
@@ -85,18 +112,26 @@ jest.unstable_mockModule('../../services/clinical/cathLabService.js', () => ({
 
 const { default: cssdRouter } = await import('../../routes/cssd/cssdRoutes.js');
 const { default: adminCathRouter } = await import('../../routes/admin/cathConsumablesRoutes.js');
+const { default: governanceRouter } = await import('../../routes/clinical/cathReprocessingPolicyRoutes.js');
+const { default: cathDeviceHistoryHandler } = await import('../../routes/clinical/cathDeviceHistoryHandler.js');
+const { requireRole } = await import('../../middleware/rbacMiddleware.js');
+const {
+  CATH_REPROCESSING_POLICY_ROUTE_ROLES,
+  CSSD_DEVICE_ROUTE_ROLES,
+  CSSD_ROUTE_ROLES,
+} = await import('../../config/routeRolePolicy.js');
 
-// The exact instances each router built. cssdRoutes makes ONE device claim
-// layer and reuses it across its five commands; the admin router makes ONE
-// policy role gate and reuses it across its four routes.
-const cssdClaimCall = requireIdempotencyKey.mock.calls
-  .findIndex(([options]) => options?.scope === 'cssd_device_transition');
-const cssdClaimInstance = cssdClaimCall === -1
-  ? null
-  : requireIdempotencyKey.mock.results[cssdClaimCall].value;
-const policyRoleInstance = requireRole.mock.results[0]?.value ?? null;
+const APP_SOURCE = readFileSync(new URL('../../app.js', import.meta.url), 'utf8');
 
-function routeTable(router) {
+/** The exact claim instance a router built for a given scope. */
+function claimInstanceFor(scope) {
+  const index = requireIdempotencyKey.mock.calls.findIndex(([options]) => options?.scope === scope);
+  return index === -1 ? null : { index, instance: requireIdempotencyKey.mock.results[index].value };
+}
+const cssdClaim = claimInstanceFor('cssd_device_transition');
+const policyClaim = claimInstanceFor('cath_reprocessing_policy');
+
+function routeTable(router, claimInstance) {
   const table = new Map();
   for (const layer of router.stack) {
     if (!layer.route) continue;
@@ -106,8 +141,7 @@ function routeTable(router) {
       table.set(`${method.toUpperCase()} ${layer.route.path}`, {
         handles,
         names: handles.map((h) => h.name),
-        claimIndex: handles.indexOf(cssdClaimInstance),
-        roleIndex: handles.indexOf(policyRoleInstance),
+        claimIndex: claimInstance ? handles.indexOf(claimInstance) : -1,
         layerCount: handles.length,
       });
     }
@@ -115,8 +149,9 @@ function routeTable(router) {
   return table;
 }
 
-const CSSD = routeTable(cssdRouter);
-const ADMIN = routeTable(adminCathRouter);
+const CSSD = routeTable(cssdRouter, cssdClaim?.instance ?? null);
+const ADMIN = routeTable(adminCathRouter, null);
+const POLICY = routeTable(governanceRouter, policyClaim?.instance ?? null);
 
 const CSSD_COMMANDS = [
   ['POST /devices/:id/receive', 'receiveDevice'],
@@ -125,11 +160,11 @@ const CSSD_COMMANDS = [
   ['POST /devices/:id/release', 'releaseDevice'],
   ['POST /devices/:id/discard', 'discardDevice'],
 ];
-const ADMIN_ROUTES = [
-  'GET /reprocessing-settings',
-  'PUT /reprocessing-settings',
-  'GET /reprocessing-policies',
-  'PUT /reprocessing-policies',
+const POLICY_ROUTES = [
+  'GET /settings',
+  'PUT /settings',
+  'GET /policies',
+  'PUT /policies',
 ];
 
 /** Drive one route's terminal handler with a fake req/res. */
@@ -139,6 +174,23 @@ async function invoke(entry, req) {
   res.json = (body) => { res.body = body; res.headersSent = true; return res; };
   await entry.handles[entry.layerCount - 1](req, res, () => {});
   return res;
+}
+
+/**
+ * An app shaped exactly like the production mount: the REAL requireRole in
+ * front of the real router. `req.user` stands in for the decoded JWT, which is
+ * all rbacMiddleware reads.
+ */
+function appFor(mountPath, roles, router, role) {
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    req.tenantId = TENANT;
+    req.user = { uid: ACTOR, id: 9, role, scope: 'full' };
+    next();
+  });
+  app.use(mountPath, requireRole(...roles), router);
+  return app;
 }
 
 beforeEach(() => {
@@ -154,8 +206,8 @@ describe('CSSD device queue wiring', () => {
   });
 
   it('builds ONE device claim layer, required, scoped to cssd_device_transition', () => {
-    expect(cssdClaimInstance).not.toBeNull();
-    expect(requireIdempotencyKey.mock.calls[cssdClaimCall][0]).toEqual({
+    expect(cssdClaim).not.toBeNull();
+    expect(requireIdempotencyKey.mock.calls[cssdClaim.index][0]).toEqual({
       required: true,
       scope: 'cssd_device_transition',
     });
@@ -189,7 +241,7 @@ describe('CSSD device queue wiring', () => {
       params: { id: '77' },
       query: {},
       body: { reason: 'damaged', cycle_type: 'steam' },
-      user: { uid: ACTOR, role: 'CSSD_TECHNICIAN' },
+      user: { uid: ACTOR, role: 'OT_NURSE' },
       idempotencyClaim: { requestKey: 'cssd-key-77' },
       get: () => undefined,
     });
@@ -213,7 +265,7 @@ describe('CSSD device queue wiring', () => {
     await invoke(CSSD.get('GET /devices'), {
       params: {},
       query: { status: 'in_cssd', facility_id: '4', limit: '25' },
-      user: { uid: ACTOR, role: 'CSSD_TECHNICIAN' },
+      user: { uid: ACTOR, role: 'OT_NURSE' },
       get: () => undefined,
     });
     expect(deviceService.listDevices).toHaveBeenCalledWith({
@@ -222,50 +274,179 @@ describe('CSSD device queue wiring', () => {
   });
 });
 
-describe('admin reprocessing policy wiring', () => {
-  it('adds exactly the four reprocessing routes to the cath-consumables admin router', () => {
-    const policyRoutes = [...ADMIN.keys()].filter((key) => key.includes('/reprocessing-'));
-    expect(policyRoutes.sort()).toEqual([...ADMIN_ROUTES].sort());
+describe('the CSSD /devices sub-tree is narrower than the CSSD mount', () => {
+  it('CSSD_DEVICE_ROUTE_ROLES is a strict SUBSET of the mount audience', () => {
+    // A role the mount already refuses cannot be admitted by a route gate, so
+    // a device list naming one would be a dead entry — exactly the defect this
+    // change removed from the reprocessing-policy routes.
+    for (const role of CSSD_DEVICE_ROUTE_ROLES) expect(CSSD_ROUTE_ROLES).toContain(role);
+    expect(CSSD_DEVICE_ROUTE_ROLES.length).toBeLessThan(CSSD_ROUTE_ROLES.length);
   });
 
-  it('builds ONE route-level role gate for exactly the two officers plus SUPER_ADMIN', () => {
-    expect(requireRole).toHaveBeenCalledTimes(1);
-    expect(requireRole).toHaveBeenCalledWith(...POLICY_ROLES);
-    expect(policyRoleInstance).not.toBeNull();
+  it('admits sterile processing, the wards, infection control, quality and admin', () => {
+    expect(CSSD_DEVICE_ROUTE_ROLES).toEqual(expect.arrayContaining([
+      'OT_STAFF', 'OT_NURSE', 'OT_INCHARGE', 'NURSING_STAFF',
+      'INFECTION_CONTROL_OFFICER', 'QUALITY_OFFICER', 'ADMIN', 'SUPER_ADMIN',
+    ]));
   });
 
-  it.each(ADMIN_ROUTES)('%s carries the reprocessing-policy role gate ahead of its handler', (route) => {
-    const entry = ADMIN.get(route);
-    expect({ route, gated: entry.roleIndex > -1 }).toEqual({ route, gated: true });
-    expect(entry.roleIndex).toBeLessThan(entry.layerCount - 1);
-  });
-
-  it('the billing-facing routes on the same router do NOT carry the policy gate', () => {
-    // The extra gate is scoped to governance: widening it to the catalogue or
-    // billing settings would lock out the admins who legitimately hold those.
-    for (const route of ['GET /catalog', 'PUT /catalog', 'GET /billing-settings', 'PUT /billing-settings']) {
-      expect({ route, gated: ADMIN.get(route).roleIndex > -1 }).toEqual({ route, gated: false });
+  it('excludes the audit office, stores/purchase and pharmacy — and the cath lab', () => {
+    for (const role of [
+      'HR_STAFF', 'DATA_PROTECTION_OFFICER', 'COMPLIANCE_OFFICER',
+      'PHARMACY_INCHARGE', 'STORES_PURCHASE_INCHARGE',
+      // Cath-lab roles hand devices to CSSD through the case post-use tap;
+      // they must not be able to mark one reprocessed without it passing
+      // through sterile processing.
+      'CATH_LAB_STAFF', 'CATH_LAB_INCHARGE',
+    ]) {
+      expect(CSSD_DEVICE_ROUTE_ROLES).not.toContain(role);
     }
+    // ...and three of those ARE on the mount, so the narrowing is doing work.
+    expect(CSSD_ROUTE_ROLES).toEqual(expect.arrayContaining([
+      'HR_STAFF', 'PHARMACY_INCHARGE', 'STORES_PURCHASE_INCHARGE',
+    ]));
+  });
+
+  it('the gate DECIDES: OT_NURSE reads the queue, HR_STAFF is refused', async () => {
+    const allowed = await request(appFor('/api/v1/cssd', CSSD_ROUTE_ROLES, cssdRouter, 'OT_NURSE'))
+      .get('/api/v1/cssd/devices');
+    expect(allowed.status).toBe(200);
+    expect(deviceService.listDevices).toHaveBeenCalledTimes(1);
+
+    deviceService.listDevices.mockClear();
+    const refused = await request(appFor('/api/v1/cssd', CSSD_ROUTE_ROLES, cssdRouter, 'HR_STAFF'))
+      .get('/api/v1/cssd/devices');
+    expect(refused.status).toBe(403);
+    expect(deviceService.listDevices).not.toHaveBeenCalled();
+  });
+
+  it('...and the narrowing is scoped to /devices — HR_STAFF still reads the CSSD board', async () => {
+    const res = await request(appFor('/api/v1/cssd', CSSD_ROUTE_ROLES, cssdRouter, 'HR_STAFF'))
+      .get('/api/v1/cssd/board');
+    expect(res.status).toBe(200);
+  });
+});
+
+describe('reprocessing policy governance router', () => {
+  it('serves exactly the four policy routes plus the infection-control history read', () => {
+    expect([...POLICY.keys()].sort()).toEqual(
+      [...POLICY_ROUTES, 'GET /devices/:deviceId/history'].sort(),
+    );
+  });
+
+  it('the four policy routes are GONE from the admin cath-consumables barrel', () => {
+    // The whole point of the move: nothing reprocessing-shaped may be reachable
+    // behind ADMIN_ROUTE_ROLES any more.
+    expect([...ADMIN.keys()].filter((key) => /reprocessing/i.test(key))).toEqual([]);
+    // ...while the billing-facing surfaces it legitimately owns stay put.
+    expect([...ADMIN.keys()].sort()).toEqual([
+      'GET /billing-settings',
+      'GET /catalog',
+      'GET /unbilled-usage',
+      'POST /authority-recovery/:id/resolve',
+      'PUT /billing-settings',
+      'PUT /catalog',
+    ]);
+  });
+
+  it('builds ONE policy claim layer, required, scoped to cath_reprocessing_policy', () => {
+    expect(policyClaim).not.toBeNull();
+    expect(requireIdempotencyKey.mock.calls[policyClaim.index][0]).toEqual({
+      required: true,
+      scope: 'cath_reprocessing_policy',
+    });
+  });
+
+  it.each(['PUT /settings', 'PUT /policies'])('%s claims an idempotency key ahead of its handler', (route) => {
+    const entry = POLICY.get(route);
+    expect({ route, claimed: entry.claimIndex > -1 }).toEqual({ route, claimed: true });
+    expect(entry.claimIndex).toBeLessThan(entry.layerCount - 1);
+  });
+
+  it.each(['GET /settings', 'GET /policies'])('%s takes no idempotency key', (route) => {
+    expect(POLICY.get(route).claimIndex).toBe(-1);
+  });
+
+  it('the history read is the SAME handler the cath router registers', () => {
+    const entry = POLICY.get('GET /devices/:deviceId/history');
+    expect(entry.layerCount).toBe(1);
+    expect(entry.handles[0]).toBe(cathDeviceHistoryHandler);
   });
 
   it.each([
-    ['GET /reprocessing-settings', 'getReprocessingSettings'],
-    ['PUT /reprocessing-settings', 'upsertReprocessingSettings'],
-    ['GET /reprocessing-policies', 'listCategoryPolicies'],
-    ['PUT /reprocessing-policies', 'upsertCategoryPolicies'],
-  ])('%s dispatches to %s pinned to the authenticated tenant', async (route, fnName) => {
+    ['GET /settings', 'getReprocessingSettings'],
+    ['PUT /settings', 'upsertReprocessingSettings'],
+    ['GET /policies', 'listCategoryPolicies'],
+    ['PUT /policies', 'upsertCategoryPolicies'],
+  ])('%s dispatches to %s pinned to the authenticated tenant and actor', async (route, fnName) => {
     const OTHER_TENANT = '00000000-0000-4000-8000-000000000099';
-    await invoke(ADMIN.get(route), {
+    await invoke(POLICY.get(route), {
       params: {},
       query: {},
-      // A body-supplied tenantId must never win over req.tenantId.
+      // A body-supplied tenantId must never win over the resolved tenant.
       body: { tenantId: OTHER_TENANT, policies: [{ category: 'balloon', reprocessable: false }] },
-      tenantId: TENANT,
       user: { uid: ACTOR, role: 'QUALITY_OFFICER' },
       get: () => undefined,
     });
     expect(deviceService[fnName]).toHaveBeenCalledTimes(1);
     expect(deviceService[fnName].mock.calls[0][0]).toMatchObject({ tenantId: TENANT });
+    if (route.startsWith('PUT')) {
+      // The actor written to reviewed_by/updated_by and to the append-only
+      // audit row is the JWT subject, never anything from the body.
+      expect(deviceService[fnName].mock.calls[0][1]).toMatchObject({ actorUid: ACTOR });
+    }
+  });
+});
+
+describe('the reprocessing policy audience', () => {
+  it('names the two officers who own device reuse, plus platform admin', () => {
+    expect(CATH_REPROCESSING_POLICY_ROUTE_ROLES).toEqual(expect.arrayContaining([
+      'QUALITY_OFFICER',
+      'INFECTION_CONTROL_OFFICER',
+      'ADMIN',
+      'SUPER_ADMIN',
+    ]));
+    // Deliberately NOT the whole platform-admin console audience it used to
+    // sit behind, and not the clinical floor.
+    for (const role of ['DOCTOR', 'NURSING_STAFF', 'PHARMACIST', 'CATH_LAB_STAFF', 'HR_STAFF']) {
+      expect(CATH_REPROCESSING_POLICY_ROUTE_ROLES).not.toContain(role);
+    }
+  });
+
+  it('app.js mounts the router behind exactly that list', () => {
+    // Pins the harness below to production: without this, the supertests would
+    // only prove that SOME list decides, not that THIS one is mounted.
+    expect(APP_SOURCE).toMatch(
+      /app\.use\('\/api\/v1\/cath-reprocessing', requireRole\(\.\.\.CATH_REPROCESSING_POLICY_ROUTE_ROLES\)/,
+    );
+  });
+
+  it('the gate DECIDES: a QUALITY_OFFICER reads the settings', async () => {
+    const res = await request(
+      appFor('/api/v1/cath-reprocessing', CATH_REPROCESSING_POLICY_ROUTE_ROLES, governanceRouter, 'QUALITY_OFFICER'),
+    ).get('/api/v1/cath-reprocessing/settings');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.settings).toMatchObject({ tenant_id: TENANT });
+    expect(deviceService.getReprocessingSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('the gate DECIDES: an INFECTION_CONTROL_OFFICER reads the settings', async () => {
+    const res = await request(
+      appFor('/api/v1/cath-reprocessing', CATH_REPROCESSING_POLICY_ROUTE_ROLES, governanceRouter, 'INFECTION_CONTROL_OFFICER'),
+    ).get('/api/v1/cath-reprocessing/settings');
+
+    expect(res.status).toBe(200);
+    expect(deviceService.getReprocessingSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('the gate DECIDES: a PHARMACIST is refused and never reaches the service', async () => {
+    const res = await request(
+      appFor('/api/v1/cath-reprocessing', CATH_REPROCESSING_POLICY_ROUTE_ROLES, governanceRouter, 'PHARMACIST'),
+    ).get('/api/v1/cath-reprocessing/settings');
+
+    expect(res.status).toBe(403);
+    expect(deviceService.getReprocessingSettings).not.toHaveBeenCalled();
   });
 });
 
@@ -278,20 +459,13 @@ describe('the stand-in middleware match the real ones', () => {
     expect(source).toContain(`return async function ${IDEMPOTENCY_NAME}(req, res, next)`);
   });
 
-  it('requireRole is a real named export of the rbac middleware', () => {
-    const source = readFileSync(
-      new URL('../../middleware/rbacMiddleware.js', import.meta.url),
-      'utf8',
-    );
-    expect(source).toContain('export const requireRole =');
-  });
-
-  it('the three policy roles are real roles', async () => {
+  it('every role these gates decide on is a real role', async () => {
     const { ALL_ROLES } = await import('../../utils/roles.js');
-    for (const role of POLICY_ROLES) expect(ALL_ROLES).toContain(role);
-  });
-
-  it('names the stand-ins use are not accidentally shared with a real layer', () => {
-    expect(IDEMPOTENCY_NAME).not.toBe(RBAC_NAME);
+    for (const role of [...CATH_REPROCESSING_POLICY_ROUTE_ROLES, ...CSSD_DEVICE_ROUTE_ROLES]) {
+      expect(ALL_ROLES).toContain(role);
+    }
+    // ...including the probe roles the refusals above rely on: an invented
+    // string would be refused by every gate and prove nothing.
+    for (const role of ['PHARMACIST', 'HR_STAFF', 'OT_NURSE']) expect(ALL_ROLES).toContain(role);
   });
 });

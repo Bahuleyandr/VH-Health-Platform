@@ -37,9 +37,11 @@ import {
 import {
   decorateConsumablesWithReuse,
   deviceForCaseLookup,
-  deviceHistory,
-  recordPostUse
+  projectReuseRestrictionForRole,
+  recordPostUse,
+  roleSeesSerologyDetail
 } from '../../services/clinical/cathDeviceReuseService.js';
+import cathDeviceHistoryHandler from './cathDeviceHistoryHandler.js';
 import { renderCathReportPdf } from '../../services/documents/cathReportPdfService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
@@ -95,12 +97,27 @@ function contextOf(req) {
   };
 }
 
-function hasRole(req, predicate) {
+function rolesOf(req) {
   return [
     req.user?.rawRole,
     req.user?.role,
     ...(Array.isArray(req.user?.roles) ? req.user.roles : [])
-  ].some(role => predicate(role));
+  ];
+}
+
+function hasRole(req, predicate) {
+  return rolesOf(req).some(role => predicate(role));
+}
+
+// The role the serology projection is judged on. A user can carry several role
+// claims and the gates above already accept ANY of them, so the projection has
+// to as well — otherwise a doctor whose clinical role sits in `roles` would be
+// shown the redacted strip while passing a gate that read the same claim.
+function serologyRoleOf(req) {
+  return rolesOf(req).find(role => role && roleSeesSerologyDetail(role))
+    ?? req.user?.role
+    ?? req.user?.rawRole
+    ?? null;
 }
 
 function roleGuard(predicate, message, code) {
@@ -342,7 +359,18 @@ router.post('/cases', requireCathWorkflow, guardCathCaseCreate, async (req, res)
 router.get('/cases/:id', requireReportRead, guardCathCaseById, async (req, res) => {
   try {
     const cathCase = await getCase(req.params.id, { tenantId: tenantOf(req) });
-    return success(res, { case: cathCase }, 'Cath-lab case');
+    // The case view carries the same blood-borne restriction strip the
+    // consumables view does, so it takes the same role projection — otherwise
+    // the narrower surface would simply be the way round the wider one.
+    return success(res, {
+      case: {
+        ...cathCase,
+        reuse_restriction: projectReuseRestrictionForRole(
+          cathCase?.reuse_restriction,
+          serologyRoleOf(req)
+        )
+      }
+    }, 'Cath-lab case');
   } catch (err) {
     return handleFailure(res, err, 'get case');
   }
@@ -362,7 +390,13 @@ router.get(
       return success(res, {
         usage: decorated.usage,
         count: decorated.usage.length,
-        reuse_restriction: decorated.reuse_restriction,
+        // Serology narrative is projected by role: the capture sheet gets the
+        // decision (status / window / evaluated_at) for everyone, the reasons
+        // and per-marker results only for clinical staff.
+        reuse_restriction: projectReuseRestrictionForRole(
+          decorated.reuse_restriction,
+          serologyRoleOf(req)
+        ),
         reprocessing: decorated.reprocessing
       }, 'Cath consumable usage');
     } catch (err) {
@@ -428,17 +462,15 @@ router.get('/devices/lookup', requireReportRead, guardCathCatalogCase, async (re
 
 // Which patients a device touched (infection-control lookback). PHI, but with
 // NO single patient subject — a device spans patients, so there is no case or
-// report row a per-route patient guard could resolve. The access trail is the
-// /api/v1/cath-lab mount's phiAccessLogger('CATH_LAB'); the authorisation is
-// the mount role gate plus cath report-read.
-router.get('/devices/:deviceId/history', requireReportRead, async (req, res) => {
-  try {
-    const history = await deviceHistory({ tenantId: tenantOf(req), deviceId: req.params.deviceId });
-    return success(res, history, 'Reprocessable device history');
-  } catch (err) {
-    return handleFailure(res, err, 'device history');
-  }
-});
+// report row a per-route patient guard could resolve. The mount's
+// phiAccessLogger('CATH_LAB') therefore records ONE row with patient_id = NULL
+// (it resolves a patient from the request, and this request carries none), so
+// the real per-patient trail is the explicit batch the shared handler writes.
+// The gate is the cath WORKFLOW gate, not report-read: report-read admits
+// RECEPTIONIST and TECHNICIAN, and a cross-patient exposure lookback is not a
+// front-desk or imaging read. Infection control reaches the same handler on
+// /api/v1/cath-reprocessing.
+router.get('/devices/:deviceId/history', requireCathWorkflow, cathDeviceHistoryHandler);
 router.get('/cases/:id/quick-wins', requireReportRead, guardCathCaseById, async (req, res) => {
   try {
     const quickWins = await getCaseQuickWins(req.params.id, { tenantId: tenantOf(req) });

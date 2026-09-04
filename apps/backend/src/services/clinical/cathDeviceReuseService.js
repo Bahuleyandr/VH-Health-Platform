@@ -9,10 +9,13 @@
 // devices lives here. The register carries no patient identity — patient
 // linkage is on usage rows — so the CSSD routes can read it without PHI logging.
 
+import { CLINICAL_STAFF_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
 import { setTenant, setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { logPhiAccess, logPhiAccessBatch } from '../../utils/hipaaAudit.js';
 import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
+import { normalizeRole } from '../../utils/roles.js';
 import { persistCdsAlert } from '../emr/cdsEngine.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import {
@@ -42,6 +45,13 @@ export const CATH_CATEGORIES = Object.freeze([
   'stent', 'balloon', 'guidewire', 'catheter', 'sheath', 'closure_device', 'pacemaker', 'lead', 'other',
 ]);
 export const IMPLANT_CATEGORIES = Object.freeze(['stent', 'pacemaker', 'lead', 'closure_device']);
+// Absolute ceiling on the devices ONE post-use call may mint. units_max is
+// derived from cath_case_consumable_usage.quantity, a NUMERIC the catalogue
+// side does not bound: a fat-fingered quantity of 5000 would otherwise run
+// 5000 INSERT + lock + audit round trips inside a single transaction and mint
+// 5000 register rows nobody asked for. No real case opens more than a handful
+// of reprocessable units, so 50 is far above practice and far below harm.
+export const POST_USE_UNITS_CAP = 50;
 // RP + at least 8 digits. cath_reprocessable_devices.device_tag is a stored
 // generated column, `'RP' || lpad(id::text, GREATEST(8, length(id::text)), '0')`,
 // so every tag minted today is exactly RP + 8 digits and ids past 10^8 keep
@@ -130,7 +140,16 @@ function requireUuid(value, label) {
   return text.toLowerCase();
 }
 function positiveInt(value, label, { max = Number.MAX_SAFE_INTEGER } = {}) {
-  const n = Number(value);
+  // Decimal digits ONLY. `Number(value)` alone silently accepts '7e2' (700),
+  // '0x10' (16) and '+7' — three spellings that mean a DIFFERENT number than
+  // the one the caller typed, and every one of them reaches a bigint row id, a
+  // facility filter or a bounded policy field. '7.0' is rejected too: an id
+  // with a fractional part is a malformed request, not a rounding job.
+  // Surrounding whitespace is a transport artefact rather than a different
+  // value, so the text is trimmed before the shape check.
+  const text = String(value ?? '').trim();
+  if (!/^[0-9]+$/.test(text)) throw AppError.badRequest(`${label} must be a positive integer`, 'CATH_LAB_BAD_ID');
+  const n = Number(text);
   if (!Number.isSafeInteger(n) || n <= 0 || n > max) throw AppError.badRequest(`${label} must be a positive integer`, 'CATH_LAB_BAD_ID');
   return n;
 }
@@ -235,8 +254,23 @@ export function validatePolicyInput(entry) {
 export async function upsertCategoryPolicies({ tenantId, policies = [] } = {}, context = {}) {
   const tid = tenantOr(tenantId);
   if (!Array.isArray(policies) || policies.length === 0) throw AppError.badRequest('policies must be a non-empty array', 'CATH_REPROCESSING_POLICY_INCOMPLETE');
+  // There are exactly CATH_CATEGORIES.length categories and the table is keyed
+  // (tenant_id, category), so a longer array can only be duplicates — and a
+  // duplicated category is a last-writer-wins race inside ONE request, where
+  // the caller cannot tell which of its two entries survived. Bound the loop
+  // and reject the ambiguity instead of upserting the same key twice.
+  if (policies.length > CATH_CATEGORIES.length) {
+    throw AppError.badRequest(`policies cannot exceed the ${CATH_CATEGORIES.length} consumable categories`, 'CATH_REPROCESSING_POLICY_DUPLICATE');
+  }
   const actor = requireUuid(context.actorUid, 'actorUid');
   const validated = policies.map(validatePolicyInput);
+  const seen = new Set();
+  for (const policy of validated) {
+    if (seen.has(policy.category)) {
+      throw AppError.badRequest(`category ${policy.category} appears more than once`, 'CATH_REPROCESSING_POLICY_DUPLICATE');
+    }
+    seen.add(policy.category);
+  }
   await setTenantTx(tid, async (tx) => {
     for (const policy of validated) {
       await tx.$executeRawUnsafe(
@@ -384,7 +418,11 @@ async function applyDeviceTransitionTx(tx, device, action, patch = {}, context =
   );
   if (!rows[0]) throw AppError.internal('Device transition did not persist', 'CATH_DEVICE_TRANSITION_FAILED');
   await recordDeviceAudit(tx, { tenantId: device.tenant_id, action: `cath_device.${action}`, resource: 'cath_reprocessable_devices', resourceId: device.id, context,
-    metadata: { device_tag: device.device_tag, from: device.status, to, cycle_count_before: device.cycle_count, discard_reason: discardReason, quarantine_reason: cleanText(patch.quarantineReason, 500), note: cleanText(patch.discardNote ?? patch.note, 500) } });
+    // The claimed idempotency key rides the audit row so a replayed CSSD
+    // command can be told apart from a genuine second transition on the same
+    // device. cssdRoutes builds deviceContext() with it for exactly this;
+    // before this line the key was collected and then dropped on the floor.
+    metadata: { device_tag: device.device_tag, from: device.status, to, cycle_count_before: device.cycle_count, discard_reason: discardReason, quarantine_reason: cleanText(patch.quarantineReason, 500), note: cleanText(patch.discardNote ?? patch.note, 500), idempotency_key: context.idempotencyKey ?? null } });
   return lockDeviceTx(tx, device.tenant_id, device.id);
 }
 
@@ -453,6 +491,12 @@ export async function discardDevice(deviceId, input = {}, context = {}) {
 // module-private: Task 3 appends to this same file and uses them directly.
 export { lockDeviceTx, lockDeviceByTagTx, applyDeviceTransitionTx, recordDeviceAudit, withTenant };
 
+// positiveInt guards every bigint row id, the facility filter and the bounded
+// policy fields on this surface, and how strict it is cannot be observed
+// through a caller without a database. Exposed the same way cathLabService
+// exposes its own internals — for tests, not for callers.
+export const __testing__ = { positiveInt };
+
 // ---------------------------------------------------------------------------
 // Case-level reuse context and usage decoration
 // ---------------------------------------------------------------------------
@@ -490,6 +534,35 @@ export async function caseReuseContext({ tenantId, caseId, db = null } = {}) {
       reprocessable_categories: policies.filter((p) => p.reprocessable).map((p) => p.category),
     };
   });
+}
+
+// The serology detail audience. CLINICAL_STAFF_ROUTE_ROLES is the platform's
+// existing answer to "who may read a patient's clinical narrative" — reuse it
+// rather than mint a parallel list that drifts from it.
+const SEROLOGY_DETAIL_ROLES = new Set(CLINICAL_STAFF_ROUTE_ROLES);
+
+export function roleSeesSerologyDetail(role) {
+  return SEROLOGY_DETAIL_ROLES.has(normalizeRole(role) || '');
+}
+
+// A reuse restriction carries two fields that are a patient's blood-borne
+// serology in plain sight: `reasons` ("HBsAg reactive 2026-04-11") and
+// `markers` (per-marker result and date). The capture sheet needs the DECISION
+// — status, the window it was judged against, and when — but a receptionist or
+// a stores clerk holding a cath-lab role has no business reading which marker
+// came back reactive. Project by role rather than drop the keys: the published
+// schema and the Staff app both parse a fixed shape, so `reasons`/`markers`
+// come back EMPTY, never absent.
+export function projectReuseRestrictionForRole(restriction, role) {
+  if (!restriction || typeof restriction !== 'object') return restriction;
+  if (roleSeesSerologyDetail(role)) return restriction;
+  return {
+    status: restriction.status,
+    validity_days: restriction.validity_days,
+    evaluated_at: restriction.evaluated_at,
+    reasons: [],
+    markers: [],
+  };
 }
 
 // Adds device_tag / device status / allowed_post_use to the usage rows
@@ -783,6 +856,12 @@ export async function recordPostUse(caseId, usageId, input = {}, context = {}) {
         if (units > options.units_max) {
           throw AppError.badRequest(`units cannot exceed the recorded quantity (${options.units_max})`, 'CATH_DEVICE_UNITS_EXCEED_QUANTITY');
         }
+        // Checked AFTER the quantity bound and against the resolved value, so
+        // an omitted `units` that defaults to an absurd units_max is refused
+        // too — the loop below is what the cap actually protects.
+        if (units > POST_USE_UNITS_CAP) {
+          throw AppError.badRequest(`units cannot exceed ${POST_USE_UNITS_CAP} in one post-use record`, 'CATH_DEVICE_UNITS_CAP', { cap: POST_USE_UNITS_CAP, units_max: options.units_max });
+        }
         const seedMarkers = exposureMarkers || [];
         for (let index = 1; index <= units; index += 1) {
           const created = await tx.$queryRawUnsafe(
@@ -876,7 +955,11 @@ export async function deviceHistory({ tenantId, deviceId } = {}) {
       tid, id, num(deviceRows[0].origin_usage_id),
     );
     const events = await tx.$queryRawUnsafe(
-      `SELECT action, actor_uid, metadata, created_at
+      // audit_logs.metadata is nullable and rows written by other writers can
+      // leave it NULL; the published event schema declares metadata as a
+      // required object, so coalesce here rather than emit a contract-invalid
+      // null the generated clients reject.
+      `SELECT action, actor_uid, COALESCE(metadata, '{}'::jsonb) AS metadata, created_at
          FROM audit_logs
         WHERE tenant_id = $1::uuid AND resource = 'cath_reprocessable_devices' AND resource_id = $2
         ORDER BY created_at ASC, id ASC`,
@@ -888,6 +971,60 @@ export async function deviceHistory({ tenantId, deviceId } = {}) {
       events,
     };
   });
+}
+
+// logPhiAccessBatch builds ONE jsonb_to_recordset INSERT and refuses more than
+// 25 entries. A device late in its register life can have touched more than
+// that; cap and warn rather than lose the whole batch to a TypeError.
+export const DEVICE_HISTORY_PHI_BATCH_CAP = 25;
+
+/**
+ * One hipaa_access_log row per DISTINCT patient in a device history answer.
+ *
+ * Neither mount serving this read can produce that trail: the /api/v1/cath-lab
+ * phiAccessLogger resolves a patient from the request and this request carries
+ * none (so it writes patient_id = NULL), and the governance mount has no PHI
+ * logger. Called by routes/clinical/cathDeviceHistoryHandler.js, which both
+ * routers register — so the obligation exists once, here.
+ */
+export async function logDeviceHistoryAccess({ tenantId, deviceId, history, actor = {} } = {}) {
+  const tid = tenantOr(tenantId);
+  const uses = Array.isArray(history?.uses) ? history.uses : [];
+  const patientUids = [...new Set(uses.map((use) => use?.patient_uid).filter(Boolean).map(String))];
+  if (patientUids.length === 0) return { logged: 0, skipped: 0 };
+  const capped = patientUids.slice(0, DEVICE_HISTORY_PHI_BATCH_CAP);
+  const skipped = patientUids.length - capped.length;
+  if (skipped > 0) {
+    logger.warn(
+      `Cath device history for device ${deviceId} spans ${patientUids.length} patients; only the first ${DEVICE_HISTORY_PHI_BATCH_CAP} were access-logged`,
+      { tenantId: tid, deviceId, patientCount: patientUids.length, loggedCount: capped.length },
+    );
+  }
+  // hipaa_access_log has no resource column, and request_id is its only free
+  // text correlation field (varchar(80)) — so the device the read was ABOUT
+  // rides there next to the request id. Without it the rows say only that
+  // someone read CATH_LAB for N patients and lose what tied them together.
+  const requestId = `${actor.requestId ? `${actor.requestId} ` : ''}cath_device:${deviceId}`.slice(0, 80);
+  const entries = capped.map((patientUid) => ({
+    userId: actor.actorUid || null,
+    userRole: actor.actorRole || null,
+    patientId: patientUid,
+    recordType: 'CATH_LAB',
+    action: 'VIEW',
+    ip: actor.ipAddress || null,
+    requestId,
+    tenantId: tid,
+  }));
+  try {
+    await setTenant(tid, (db) => logPhiAccessBatch(entries, { db }));
+  } catch (err) {
+    // The read itself succeeded and the caller is entitled to it; losing the
+    // audit is the thing that must not happen. logPhiAccess is fire-and-forget
+    // with its own durable file fallback.
+    logger.error(`Cath device history PHI access batch failed: ${err?.message}`, { tenantId: tid, deviceId });
+    for (const entry of entries) logPhiAccess(entry);
+  }
+  return { logged: entries.length, skipped };
 }
 
 // Device state for the capture sheet. Case-pinned like the catalogue reads:

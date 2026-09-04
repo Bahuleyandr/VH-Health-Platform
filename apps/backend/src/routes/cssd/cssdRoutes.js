@@ -1,7 +1,9 @@
 // N6-13 CSSD instrument tracking routes.
 
 import { Router } from 'express';
+import { CSSD_DEVICE_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
+import { requireRole } from '../../middleware/rbacMiddleware.js';
 import {
   discardDevice,
   listDevices,
@@ -79,6 +81,19 @@ router.patch('/loads/:id/status', wrap((req) =>
 // Reprocessable cath devices (spec 2026-09-04 §6.4). No patient data on this
 // router: the register carries none (patient linkage lives on the cath usage
 // rows), so CSSD roles read and transition devices without a PHI surface.
+//
+// The /api/v1/cssd mount audience is wider than the hands that run
+// reprocessing — notifications_audit brings HR_STAFF,
+// DATA_PROTECTION_OFFICER and COMPLIANCE_OFFICER for the audit-facing board,
+// supply_chain brings PHARMACY_INCHARGE and STORES_PURCHASE_INCHARGE for
+// consumption — and a device discard is irreversible. Narrow the whole
+// /devices sub-tree to CSSD_DEVICE_ROUTE_ROLES (an intersection with the mount
+// list, so the gate can never be dead), which is sterile processing, the
+// wards, infection control, quality and platform admin. Cath-lab roles stay
+// out deliberately: they hand a device to CSSD through the case post-use tap
+// and take it back through the case-pinned lookup — they do not run the queue.
+router.use('/devices', requireRole(...CSSD_DEVICE_ROUTE_ROLES));
+
 const deviceIdempotency = requireIdempotencyKey({ required: true, scope: 'cssd_device_transition' });
 const deviceContext = (req) => ({
   ...contextOf(req),

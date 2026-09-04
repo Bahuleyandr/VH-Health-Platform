@@ -16,6 +16,7 @@ import { readFileSync } from 'node:fs';
 import { jest } from '@jest/globals';
 
 import * as overlay from '../../../scripts/openapi/schemas/cathDeviceReuse.mjs';
+import * as consumablesOverlay from '../../../scripts/openapi/schemas/cathConsumables.mjs';
 
 const prismaMock = {
   $queryRawUnsafe: jest.fn(),
@@ -194,5 +195,33 @@ describe('the post-use result contract admits the non-ordinary outcomes', () => 
     // ...and they are optional, because the ordinary result carries neither.
     expect(schema.required).not.toContain('idempotent_replay');
     expect(schema.required).not.toContain('device_already_discarded');
+  });
+});
+
+describe('the cath-consumables overlay speaks the register vocabularies', () => {
+  it('device_status on the decorated usage row publishes DEVICE_STATUSES', () => {
+    // decorateConsumablesWithReuse copies cath_reprocessable_devices.status
+    // verbatim onto the row, so a bare string here published a wider contract
+    // than the register can ever emit.
+    const property = consumablesOverlay.schemas.CathCaseConsumableUsage.properties.device_status;
+    expect(property.enum).toEqual([...service.DEVICE_STATUSES]);
+    expect(property.nullable).toBe(true);
+  });
+
+  it('the unbilled worklist item publishes the two reuse columns its SELECT returns', () => {
+    // cathLabService.listUnbilledConsumableUsage selects u.reuse_cycle and
+    // c.reused_billing_item_code, and this schema is additionalProperties:false
+    // — omitting either made every reused row a response the contract forbids.
+    const schema = consumablesOverlay.schemas.CathConsumableUnbilledUsageItem;
+    expect(schema.additionalProperties).toBe(false);
+    expect(schema.properties.reuse_cycle).toEqual({ type: 'integer', nullable: true });
+    expect(schema.properties.reused_billing_item_code).toEqual({ type: 'string', nullable: true });
+    expect(schema.required).toEqual(expect.arrayContaining(['reuse_cycle', 'reused_billing_item_code']));
+  });
+
+  it('the published units ceiling is the service constant, not a second opinion', () => {
+    expect(overlay.schemas.CathPostUseRequest.properties.units.maximum)
+      .toBe(service.POST_USE_UNITS_CAP);
+    expect(service.POST_USE_UNITS_CAP).toBe(50);
   });
 });
