@@ -725,6 +725,39 @@ SELECT
   (SELECT COUNT(*) FROM seed_audit)::text;
 "@
 
+# Seed the token subjects as LIVE identities, before the fixture seed.
+#
+# Auth fails closed for an identity that is missing, retired or inactive (the
+# 2026-09-03 "fail closed for retired identities" change). This script mints a
+# hand-signed ADMIN bearer for $ReviewerUid but never created a users row for
+# it, so every authenticated call answered
+#   401 {"error":"All sessions have been revoked. Please log in again."}
+# That change's follow-up train seeded identities across the jest suites; the
+# PowerShell smokes were skipped in CI that week and so were never swept.
+#
+# A SEPARATE statement, deliberately: the fixture seed below is one chained
+# data-modifying CTE, and data-modifying CTEs cannot see each other's writes, so
+# an identity inserted in that chain would not be visible to rows in the same
+# statement that reference it.
+#
+# The role MUST match the role the token is minted with (ADMIN, below) — the
+# fail-closed guards compare the database actor's role against the bearer's, so
+# a mismatch fails as an authorization error rather than an authentication one.
+$identitySql = @"
+INSERT INTO users (uid, phone, name, email, role, is_active, status, updated_at)
+VALUES
+  ('$reviewerSql'::uuid, '8812000101', 'Clinical AI Pilot Reviewer $smokeSql', 'clinical-ai-pilot-reviewer@example.test', 'ADMIN', true, 'active', NOW()),
+  ('$patientSql'::uuid, '8812000102', 'Clinical AI Pilot Patient $smokeSql', 'clinical-ai-pilot-patient@example.test', 'PATIENT', true, 'active', NOW())
+ON CONFLICT (uid) DO UPDATE SET
+  name = EXCLUDED.name,
+  email = EXCLUDED.email,
+  role = EXCLUDED.role,
+  is_active = true,
+  status = 'active',
+  updated_at = NOW();
+"@
+$null = Invoke-Psql $identitySql
+
 $seedOutput = Invoke-Psql $seedSql
 $seedParts = $seedOutput -split "\|"
 if ($seedParts.Count -lt 6) {

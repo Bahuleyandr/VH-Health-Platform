@@ -18,6 +18,7 @@ import * as users from '../../../scripts/openapi/schemas/users.mjs';
 import * as config from '../../../scripts/openapi/schemas/config.mjs';
 import * as portal from '../../../scripts/openapi/schemas/portal.mjs';
 import * as cathConsumables from '../../../scripts/openapi/schemas/cathConsumables.mjs';
+import * as bloodborneMarkers from '../../../scripts/openapi/schemas/bloodborneMarkers.mjs';
 import * as clinicalInbox from '../../../scripts/openapi/schemas/clinicalInbox.mjs';
 import * as hl7 from '../../../scripts/openapi/schemas/hl7.mjs';
 import * as lab from '../../../scripts/openapi/schemas/lab.mjs';
@@ -72,6 +73,7 @@ const MODULES = [
   config,
   portal,
   cathConsumables,
+  bloodborneMarkers,
   clinicalInbox,
   hl7,
   lab,
