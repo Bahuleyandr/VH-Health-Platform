@@ -179,23 +179,52 @@ jobs:
           cat ../../output/ci-smoke/admin.log
           exit 1
 
+      # Everything above this point is SETUP: without a migrated database, a
+      # seeded tenant, a TOTP-enrolled admin and both servers up, no assertion
+      # below can mean anything. Everything below is an INDEPENDENT assertion.
+      #
+      # The steps below each carry `if: !cancelled() && env.SMOKE_SETUP_OK`,
+      # so one failing assertion no longer skips the rest (audit row OPEN-27).
+      # Before this, the job stopped at the first failing smoke step: the
+      # 2026-09-03 runs show `Admin table controls smoke` and FOUR later steps
+      # skipped behind one route-crawl failure, in every run for at least six
+      # consecutive days. When the crawl was finally fixed, table-controls ran
+      # for the first time and failed immediately — a defect that had been
+      # invisible, not absent.
+      #
+      # This is the same fail-fast masking the route crawl itself had inside
+      # it (OPEN-24), one level up: there, one broken route hid every later
+      # route; here, one broken step hid every later step.
+      #
+      # Deliberately NOT `continue-on-error` and NOT a bare `always()`:
+      # a failed assertion must still fail the job, and an assertion must not
+      # run when the setup it depends on never completed — that would turn one
+      # honest setup failure into a screen of meaningless cascade.
+      - name: Mark smoke setup complete
+        run: echo "SMOKE_SETUP_OK=1" >> "$GITHUB_ENV"
+
       - name: Realtime admin:kpi WebSocket smoke
+        if: ${{ !cancelled() && env.SMOKE_SETUP_OK == '1' }}
         working-directory: apps/backend
         run: node scripts/smoke-realtime-admin-kpi.mjs
 
       - name: Patient OTP login API smoke
+        if: ${{ !cancelled() && env.SMOKE_SETUP_OK == '1' }}
         working-directory: apps/backend
         run: node scripts/smoke-patient-otp-login.mjs
 
       - name: Admin browser route smoke
+        if: ${{ !cancelled() && env.SMOKE_SETUP_OK == '1' }}
         working-directory: apps/admin
         run: npm run smoke:routes
 
       - name: Admin table controls smoke
+        if: ${{ !cancelled() && env.SMOKE_SETUP_OK == '1' }}
         working-directory: apps/admin
         run: npm run smoke:tables
 
       - name: Patient API smoke
+        if: ${{ !cancelled() && env.SMOKE_SETUP_OK == '1' }}
         shell: pwsh
         run: >
           ./scripts/smoke-patient-routing.ps1
@@ -209,6 +238,7 @@ jobs:
           -PgPassword '${{ github.run_id }}'
 
       - name: Staff API smoke
+        if: ${{ !cancelled() && env.SMOKE_SETUP_OK == '1' }}
         shell: pwsh
         run: >
           ./scripts/smoke-staff-routing.ps1
@@ -222,6 +252,7 @@ jobs:
           -PgPassword '${{ github.run_id }}'
 
       - name: Staff clinical-safety API smoke
+        if: ${{ !cancelled() && env.SMOKE_SETUP_OK == '1' }}
         shell: pwsh
         run: >
           ./scripts/smoke-staff-clinical-safety.ps1
@@ -235,6 +266,7 @@ jobs:
           -PgPassword '${{ github.run_id }}'
 
       - name: Clinical AI pilot evidence smoke
+        if: ${{ !cancelled() && env.SMOKE_SETUP_OK == '1' }}
         shell: pwsh
         run: >
           ./scripts/smoke-clinical-ai-pilot-evidence.ps1
@@ -250,6 +282,7 @@ jobs:
           -SignoffOutputPath output/ci-smoke/clinical-ai-pilot-signoff-gate.json
 
       - name: Clinical AI local Ollama deep-tier smoke
+        if: ${{ !cancelled() && env.SMOKE_SETUP_OK == '1' }}
         shell: pwsh
         run: >
           ./scripts/smoke-clinical-ai-local-ollama.ps1
@@ -274,10 +307,12 @@ jobs:
       #     deep provider, but the local-Ollama smoke above start/stopped its own
       #     mock. Start a persistent mock that stays up through the preflight.
       - name: Seed Clinical AI preflight reviewers
+        if: ${{ !cancelled() && env.SMOKE_SETUP_OK == '1' }}
         working-directory: apps/backend
         run: node scripts/seed-clinical-ai-preflight-reviewers.mjs --tenant 00000000-0000-4000-8000-000000000001
 
       - name: Start mock Ollama for preflight readiness
+        if: ${{ !cancelled() && env.SMOKE_SETUP_OK == '1' }}
         run: |
           mkdir -p output/ci-smoke
           node scripts/mock-ollama-readiness-server.mjs 11534 "$CLINICAL_AI_DEEP_MODEL" > output/ci-smoke/mock-ollama-readiness.log 2>&1 &
@@ -289,6 +324,7 @@ jobs:
           echo "mock ollama failed to start"; cat output/ci-smoke/mock-ollama-readiness.log; exit 1
 
       - name: Clinical AI tenant rollout preflight
+        if: ${{ !cancelled() && env.SMOKE_SETUP_OK == '1' }}
         shell: pwsh
         run: >
           ./scripts/check-clinical-ai-tenant-preflight.ps1

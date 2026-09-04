@@ -133,15 +133,27 @@ jobs:
           cat ../../output/ci-smoke/admin.log
           exit 1
 
+      # Everything above is SETUP; everything below is an INDEPENDENT
+      # assertion. Mirrors .github/workflows/smoke-e2e.yml (audit row OPEN-27):
+      # one failing smoke step used to skip every later step, so a defect in a
+      # later step was invisible rather than absent. Not continue-on-error and
+      # not a bare always(): a failed assertion must still fail the job, and an
+      # assertion must not run when the setup it depends on never completed.
+      - name: Mark smoke setup complete
+        run: echo "SMOKE_SETUP_OK=1" >> "$GITHUB_ENV"
+
       - name: Admin browser route smoke
+        if: ${{ !cancelled() && env.SMOKE_SETUP_OK == '1' }}
         working-directory: apps/admin
         run: npm run smoke:routes
 
       - name: Admin table controls smoke
+        if: ${{ !cancelled() && env.SMOKE_SETUP_OK == '1' }}
         working-directory: apps/admin
         run: npm run smoke:tables
 
       - name: Patient API smoke
+        if: ${{ !cancelled() && env.SMOKE_SETUP_OK == '1' }}
         shell: pwsh
         run: >
           ./scripts/smoke-patient-routing.ps1
@@ -155,6 +167,7 @@ jobs:
           -PgPassword '${{ github.run_id }}'
 
       - name: Staff API smoke
+        if: ${{ !cancelled() && env.SMOKE_SETUP_OK == '1' }}
         shell: pwsh
         run: >
           ./scripts/smoke-staff-routing.ps1
@@ -168,6 +181,7 @@ jobs:
           -PgPassword '${{ github.run_id }}'
 
       - name: Staff clinical-safety API smoke
+        if: ${{ !cancelled() && env.SMOKE_SETUP_OK == '1' }}
         shell: pwsh
         run: >
           ./scripts/smoke-staff-clinical-safety.ps1
@@ -181,6 +195,7 @@ jobs:
           -PgPassword '${{ github.run_id }}'
 
       - name: Clinical AI pilot evidence smoke
+        if: ${{ !cancelled() && env.SMOKE_SETUP_OK == '1' }}
         shell: pwsh
         run: >
           ./scripts/smoke-clinical-ai-pilot-evidence.ps1
@@ -196,6 +211,7 @@ jobs:
           -SignoffOutputPath output/ci-smoke/clinical-ai-pilot-signoff-gate.json
 
       - name: Clinical AI local Ollama deep-tier smoke
+        if: ${{ !cancelled() && env.SMOKE_SETUP_OK == '1' }}
         shell: pwsh
         run: >
           ./scripts/smoke-clinical-ai-local-ollama.ps1
@@ -209,6 +225,7 @@ jobs:
           -PgPassword '${{ github.run_id }}'
 
       - name: Clinical AI tenant rollout preflight
+        if: ${{ !cancelled() && env.SMOKE_SETUP_OK == '1' }}
         shell: pwsh
         run: >
           ./scripts/check-clinical-ai-tenant-preflight.ps1
