@@ -35,7 +35,20 @@ if ([string]::IsNullOrWhiteSpace($StaffPassword)) {
 }
 
 $script:Base = $BaseUrl.TrimEnd("/")
+. (Join-Path $PSScriptRoot "lib/smoke-results.ps1")
+
+# One formatter for both call sites below, so the crash path cannot print
+# a differently-shaped table from the normal path.
+$roleResultFormatter = {
+  param($rows)
+  $rows |
+    Sort-Object role, check |
+    Format-Table role, check, method, status, ok, severity -AutoSize
+}
+
 $script:Results = [System.Collections.Generic.List[object]]::new()
+
+try {
 $script:Tokens = @{}
 $script:Context = [ordered]@{
   appointmentId = $null
@@ -109,7 +122,19 @@ function ConvertFrom-ContentJson {
 function Get-ErrorContent {
   param($Exception)
 
-  $response = $Exception.Response
+  # Set-StrictMode -Version Latest (line 24) makes a missing property a
+  # TERMINATING error, and a connection-level failure raises
+  # HttpRequestException, which carries no .Response at all. So the one case
+  # this helper exists to describe -- the backend is unreachable -- used to
+  # kill the script with "The property 'Response' cannot be found on this
+  # object" before a single check was recorded. Probe the property the way the
+  # rest of this function already probes .Content and .GetResponseStream, so
+  # the $null branch below (which reports the real message) becomes reachable.
+  $response = if ($null -ne $Exception -and $Exception.PSObject.Properties["Response"]) {
+    $Exception.Response
+  } else {
+    $null
+  }
   if ($null -eq $response) {
     return @{ status = "ERR"; content = $Exception.Message }
   }
@@ -595,11 +620,15 @@ if ($IncludeCreates) {
 Write-Report
 
 $requiredFailures = @($script:Results | Where-Object { -not $_.ok -and $_.severity -ne "optional" })
-$script:Results |
-  Sort-Object role, check |
-  Format-Table role, check, method, status, ok, severity -AutoSize
+Write-SmokeResults -Results $script:Results -Formatter $roleResultFormatter
 
 Write-Host "Staff role workflow report: $ReportPath"
 if ($requiredFailures.Count -gt 0 -and $FailOnFailure) {
   throw "$($requiredFailures.Count) required staff role workflow smoke check(s) failed. See $ReportPath"
+}
+} finally {
+  # A terminating error above must not discard the checks already recorded.
+  # Write-SmokeResults is idempotent, so the normal path prints where it
+  # always did and this is a no-op after it.
+  Write-SmokeResults -Results $script:Results -Formatter $roleResultFormatter
 }

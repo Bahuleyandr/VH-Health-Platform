@@ -282,7 +282,11 @@ server.listen($Port, '127.0.0.1', () => {
 Assert-Command "node"
 Assert-Command $PsqlPath
 
+. (Join-Path $PSScriptRoot "lib/smoke-results.ps1")
+
 $results = [System.Collections.Generic.List[object]]::new()
+
+try {
 $mockServer = $null
 
 try {
@@ -542,10 +546,16 @@ LIMIT 1;
   }
 }
 
-$results | Format-Table -AutoSize | Out-String | Write-Host
+Write-SmokeResults $results
 $failed = @($results | Where-Object { -not $_.ok })
 if ($failed.Count -gt 0) {
   throw "$($failed.Count) local Ollama smoke check(s) failed"
 }
 
 Write-Host "Clinical AI local Ollama deep-tier smoke passed ($($results.Count) checks)."
+} finally {
+  # A terminating error above must not discard the checks already recorded.
+  # Write-SmokeResults is idempotent, so the normal path prints where it
+  # always did and this is a no-op after it.
+  Write-SmokeResults $results
+}

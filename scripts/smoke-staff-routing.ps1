@@ -217,7 +217,11 @@ ON CONFLICT (uid) DO UPDATE SET
 
 $script:StaffToken = New-SmokeToken -Uid $StaffUid
 $recipientToken = New-SmokeToken -Uid $RecipientUid
+. (Join-Path $PSScriptRoot "lib/smoke-results.ps1")
+
 $results = [System.Collections.Generic.List[object]]::new()
+
+try {
 
 Invoke-SmokeRequest $results "config_campus_locations" "GET" "/api/v1/config/campus-locations" | Out-Null
 Invoke-SmokeRequest $results "staff_stats_summary" "GET" "/api/v1/staff/stats/summary" | Out-Null
@@ -271,7 +275,7 @@ if ($messageId) {
   Add-Result $results "messaging_mark_read" "SKIP" $false "message id not found after send"
 }
 
-$results | Format-Table -AutoSize
+Write-SmokeResults $results
 
 $failed = @($results | Where-Object { -not $_.ok })
 if ($failed.Count -gt 0) {
@@ -280,3 +284,9 @@ if ($failed.Count -gt 0) {
 }
 
 Write-Host "Staff routing smoke passed: $($results.Count) check(s)."
+} finally {
+  # A terminating error above must not discard the checks already recorded.
+  # Write-SmokeResults is idempotent, so the normal path prints where it
+  # always did and this is a no-op after it.
+  Write-SmokeResults $results
+}
