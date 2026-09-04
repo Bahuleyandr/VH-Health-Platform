@@ -12,7 +12,11 @@ import prisma, { setTenantTx } from '../lib/prisma.js';
 import {
   getCase,
   listCaseConsumableUsage,
+  listUnbilledConsumableUsage,
+  maybeEmitCathBillingLines,
   recordConsumableUsage,
+  transitionCaseStatus,
+  upsertCathConsumablesBillingSettings,
   upsertConsumableCatalogItem,
 } from '../services/clinical/cathLabService.js';
 import {
@@ -91,6 +95,12 @@ async function cleanup() {
     await tx.$executeRawUnsafe("SELECT set_config('app.audit_bypass', 'on', true)");
     for (const sql of [
       `DELETE FROM notification_outbox WHERE tenant_id = $1::uuid`,
+      // The billing test emits invoice lines and seeds its own tariff rows;
+      // items before invoices (billing_invoice_items_invoice_id_fkey), and both
+      // before the users delete below takes the patient out from under them.
+      `DELETE FROM billing_invoice_items WHERE tenant_id = $1::uuid`,
+      `DELETE FROM billing_invoices WHERE tenant_id = $1::uuid`,
+      `DELETE FROM billing_service_master WHERE tenant_id = $1::uuid`,
       `DELETE FROM cds_alerts WHERE tenant_id = $1::uuid`,
       `DELETE FROM medication_safety_reviews WHERE tenant_id = $1::uuid`,
       `DELETE FROM patient_bloodborne_markers WHERE tenant_id = $1::uuid`,
@@ -880,5 +890,109 @@ describeIfDb('cath device reuse (deep)', () => {
 
     const restored = await upsertReprocessingSettings({ tenantId: TENANT }, ctx());
     expect(restored.reactive_patient_rule).toBe('discard');
+  }, 120000);
+
+  test('billing: a reused row bills the reprocessed tariff, not the first-use one, and its gap is named separately', async () => {
+    // Runs LAST: it completes the case, and 'completed' is a terminal status.
+    const catalogCtx = { actorUid: CATALOG_ADMIN, actorRole: 'ADMIN', tenantId: TENANT };
+    for (const [code, description] of [
+      ['CATH-TEST-NEW', 'Cath consumable first use deep test'],
+      ['CATH-TEST-REUSED', 'Cath consumable reprocessed deep test'],
+    ]) {
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO billing_service_master
+           (tenant_id, code, description, category, default_price, gst_rate, is_active)
+         VALUES ($1::uuid, $2, $3, 'procedure', 1000, 0, TRUE)
+         ON CONFLICT (tenant_id, code) DO NOTHING`,
+        TENANT, code, description,
+      );
+    }
+    // maybeEmitCathBillingLines refuses a case with no finalized procedure log.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO cath_procedure_logs
+         (tenant_id, case_id, patient_uid, procedure_type, operators, status, started_at, ended_at, logged_by)
+       VALUES ($1::uuid, $2::bigint, $3::uuid, 'Diagnostic coronary angiogram', '[]'::jsonb,
+               'finalized', NOW() - INTERVAL '30 minutes', NOW(), $4::uuid)`,
+      TENANT, caseId, PATIENT, ACTOR,
+    );
+
+    // First-use tariff mapped, reprocessed tariff deliberately NOT: a reused row
+    // must fall into its OWN gap rather than quietly billing the new-device code.
+    const unmappedItem = await upsertConsumableCatalogItem({
+      tenantId: TENANT, id: catalogItemId, billing_item_code: 'CATH-TEST-NEW',
+    }, catalogCtx);
+    expect(unmappedItem).toMatchObject({
+      billing_item_code: 'CATH-TEST-NEW',
+      reused_billing_item_code: null,
+    });
+    await upsertCathConsumablesBillingSettings({
+      tenantId: TENANT, charge_enabled: true, finance_reviewed_at: new Date().toISOString(),
+    }, ctx());
+
+    const completed = await transitionCaseStatus(caseId, { tenantId: TENANT, status: 'completed' }, ctx());
+    expect(completed.status).toBe('completed');
+    expect(['emitted', 'partial']).toContain(completed.billing_hook.status);
+    expect(completed.billing_hook.unmapped_items).toEqual(expect.arrayContaining([
+      { type: 'consumable', source_id: Number(reusedUsage.id), reason: 'reused_billing_code_not_mapped' },
+    ]));
+
+    // The first use of the same catalogue item DID bill, on the new-device code.
+    const firstLines = await prisma.$queryRawUnsafe(
+      `SELECT service_code, description FROM billing_invoice_items
+        WHERE tenant_id = $1::uuid
+          AND source_ref_type = 'cath_consumable_usage'
+          AND source_ref_id = $2::bigint`,
+      TENANT, firstUse.id,
+    );
+    expect(firstLines).toHaveLength(1);
+    expect(firstLines[0]).toMatchObject({
+      service_code: 'CATH-TEST-NEW',
+      description: 'Deep test reusable diagnostic catheter',
+    });
+
+    // …and the unbilled worklist names the reused row's own gap, positively.
+    const unbilled = await listUnbilledConsumableUsage({ tenantId: TENANT, case_id: caseId, limit: 200 });
+    const gapRow = unbilled.items.find((row) => String(row.usage_id) === String(reusedUsage.id));
+    expect(gapRow).toBeDefined();
+    expect(gapRow).toMatchObject({
+      billing_gap_reason: 'reused_billing_code_not_mapped',
+      reuse_cycle: 1,
+      reused_billing_item_code: null,
+      billing_item_code: 'CATH-TEST-NEW',
+    });
+
+    // Map the reprocessed tariff and re-run the hook: the same row now bills
+    // CATH-TEST-REUSED with the cycle in its description.
+    const mappedItem = await upsertConsumableCatalogItem({
+      tenantId: TENANT, id: catalogItemId, reused_billing_item_code: 'CATH-TEST-REUSED',
+    }, catalogCtx);
+    expect(mappedItem).toMatchObject({
+      billing_item_code: 'CATH-TEST-NEW',
+      reused_billing_item_code: 'CATH-TEST-REUSED',
+    });
+    const rerun = await maybeEmitCathBillingLines({ tenantId: TENANT, caseId, actorUid: ACTOR });
+    expect(['emitted', 'partial']).toContain(rerun.status);
+    const reusedLines = await prisma.$queryRawUnsafe(
+      `SELECT service_code, description FROM billing_invoice_items
+        WHERE tenant_id = $1::uuid
+          AND source_ref_type = 'cath_consumable_usage'
+          AND source_ref_id = $2::bigint`,
+      TENANT, reusedUsage.id,
+    );
+    expect(reusedLines).toHaveLength(1);
+    expect(reusedLines[0]).toMatchObject({
+      service_code: 'CATH-TEST-REUSED',
+      description: 'Deep test reusable diagnostic catheter (reprocessed, cycle 1)',
+    });
+    // The first-use line is untouched by the re-run — no second line, no recode.
+    const firstAfter = await prisma.$queryRawUnsafe(
+      `SELECT service_code FROM billing_invoice_items
+        WHERE tenant_id = $1::uuid
+          AND source_ref_type = 'cath_consumable_usage'
+          AND source_ref_id = $2::bigint`,
+      TENANT, firstUse.id,
+    );
+    expect(firstAfter).toHaveLength(1);
+    expect(firstAfter[0].service_code).toBe('CATH-TEST-NEW');
   }, 120000);
 });

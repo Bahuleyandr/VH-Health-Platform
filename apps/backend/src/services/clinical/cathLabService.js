@@ -1550,7 +1550,7 @@ export async function addDeviceLink(caseId, input = {}, context = {}) {
 const CATH_CONSUMABLE_CATALOG_SELECT = `
   c.id, c.tenant_id, c.facility_id, c.inventory_item_id, c.item_name, c.category,
   c.manufacturer, c.model, c.is_implant, c.batch_tracked,
-  c.default_unit_cost_reference, c.billing_item_code, c.status,
+  c.default_unit_cost_reference, c.billing_item_code, c.reused_billing_item_code, c.status,
   c.retired_at, c.created_by, c.updated_by, c.created_at, c.updated_at,
   c.metadata, i.sku_code AS inventory_sku, i.display_name AS inventory_item_name,
   i.unit_label AS inventory_unit_label, i.status AS inventory_item_status,
@@ -1823,6 +1823,18 @@ export async function upsertConsumableCatalogItem(input = {}, context = {}) {
     const billingCode = billingCodeInput.provided
       ? cleanText(billingCodeInput.value, 50)
       : (existing?.billing_item_code ?? null);
+    // Migration 765: a reprocessed unit bills against its OWN tariff, a mapping
+    // that is separate from — and separately unmapped from — billing_item_code.
+    // providedInput, like every other optional column here: an explicit null has
+    // to CLEAR the mapping, which a `??` fallback to `existing` would swallow.
+    const reusedBillingCodeInput = providedInput(
+      input,
+      'reused_billing_item_code',
+      'reusedBillingItemCode'
+    );
+    const reusedBillingCode = reusedBillingCodeInput.provided
+      ? cleanText(reusedBillingCodeInput.value, 50)
+      : (existing?.reused_billing_item_code ?? null);
     const metadata = normalizeJson(input.metadata, 'metadata', existing?.metadata || {});
     let savedId;
     if (existing) {
@@ -1838,6 +1850,8 @@ export async function upsertConsumableCatalogItem(input = {}, context = {}) {
                 batch_tracked = $10,
                 default_unit_cost_reference = $11::numeric,
                 billing_item_code = $12,
+                -- Appended as $16 so the existing parameter positions stay put.
+                reused_billing_item_code = $16,
                 status = $13::varchar(20),
                 retired_at = CASE
                   WHEN $13::varchar(20) = 'retired' THEN COALESCE(retired_at, NOW())
@@ -1863,7 +1877,8 @@ export async function upsertConsumableCatalogItem(input = {}, context = {}) {
         billingCode,
         status,
         canonicalActor.uid,
-        JSON.stringify(metadata)
+        JSON.stringify(metadata),
+        reusedBillingCode
       );
       savedId = rows[0].id;
     } else {
@@ -1871,9 +1886,10 @@ export async function upsertConsumableCatalogItem(input = {}, context = {}) {
         `INSERT INTO cath_consumable_catalog
            (tenant_id, facility_id, inventory_item_id, item_name, category, manufacturer, model,
             is_implant, batch_tracked, default_unit_cost_reference, billing_item_code,
+            reused_billing_item_code,
             status, retired_at, created_by, updated_by, metadata)
          VALUES ($1::uuid, $2::int, $3::int, $4, $5, $6, $7,
-                 $8, $9, $10::numeric, $11, $12::varchar(20),
+                 $8, $9, $10::numeric, $11, $15, $12::varchar(20),
                  CASE WHEN $12::varchar(20) = 'retired' THEN NOW() ELSE NULL END,
                  $13::uuid, $13::uuid, $14::jsonb)
          RETURNING id`,
@@ -1890,7 +1906,8 @@ export async function upsertConsumableCatalogItem(input = {}, context = {}) {
         billingCode,
         status,
         canonicalActor.uid,
-        JSON.stringify(metadata)
+        JSON.stringify(metadata),
+        reusedBillingCode
       );
       savedId = rows[0].id;
     }
@@ -4930,9 +4947,10 @@ export async function maybeEmitCathBillingLines({ tenantId, caseId, actorUid = n
       });
     }
     const usageRows = await prisma.$queryRawUnsafe(
-      `SELECT u.id, u.quantity, u.wasted, u.is_implant,
-              c.item_name, c.billing_item_code,
-              bsm.id AS billing_service_id
+      `SELECT u.id, u.quantity, u.wasted, u.is_implant, u.reuse_cycle,
+              c.item_name, c.billing_item_code, c.reused_billing_item_code,
+              bsm.id AS billing_service_id,
+              bsm_reused.id AS reused_billing_service_id
          FROM cath_case_consumable_usage u
          JOIN cath_consumable_catalog c
            ON c.id = u.catalog_item_id
@@ -4941,6 +4959,10 @@ export async function maybeEmitCathBillingLines({ tenantId, caseId, actorUid = n
            ON bsm.tenant_id = u.tenant_id
           AND bsm.code = c.billing_item_code
           AND bsm.is_active = TRUE
+         LEFT JOIN billing_service_master bsm_reused
+           ON bsm_reused.tenant_id = u.tenant_id
+          AND bsm_reused.code = c.reused_billing_item_code
+          AND bsm_reused.is_active = TRUE
         WHERE u.tenant_id = $1::uuid
           AND u.case_id = $2::bigint
         ORDER BY u.id`,
@@ -4951,28 +4973,39 @@ export async function maybeEmitCathBillingLines({ tenantId, caseId, actorUid = n
       const sourceId = sourceReferenceId(usage.id, 'usage_id');
       const key = `cath_consumable_usage:${String(sourceId)}`;
       if (existing.has(key)) continue;
-      if (usage.wasted || !usage.billing_item_code || !usage.billing_service_id) {
+      // reuse_cycle is NULL on a first use and >= 1 on a reprocessed unit, so
+      // it — not the device link — is what decides which tariff applies.
+      const reused = Number(usage.reuse_cycle || 0) >= 1;
+      const serviceCode = reused ? usage.reused_billing_item_code : usage.billing_item_code;
+      const serviceId = reused ? usage.reused_billing_service_id : usage.billing_service_id;
+      if (usage.wasted || !serviceCode || !serviceId) {
         unmapped.push({
           type: 'consumable',
           source_id: sourceId,
           reason: usage.wasted
             ? 'wastage_review_required'
-            : (usage.billing_item_code ? 'billing_code_invalid' : 'billing_code_not_mapped')
+            : (serviceCode
+              ? 'billing_code_invalid'
+              : (reused ? 'reused_billing_code_not_mapped' : 'billing_code_not_mapped'))
         });
         continue;
       }
       try {
         const line = await addInvoiceItem(invoice.id, {
           tenantId: tid,
-          service_code: usage.billing_item_code,
-          description: usage.item_name,
+          service_code: serviceCode,
+          description: reused
+            ? `${usage.item_name} (reprocessed, cycle ${usage.reuse_cycle})`
+            : usage.item_name,
           category: usage.is_implant ? 'implants' : 'procedure',
           quantity: Number(usage.quantity),
           // Inventory cost references are not patient tariffs. The active,
           // tenant-scoped billing master remains authoritative for price.
           unit_price: null,
           gst_rate: null,
-          notes: 'Cath consumable emitted from documented per-case usage.',
+          notes: reused
+            ? 'Reprocessed cath device emitted from documented per-case reuse.'
+            : 'Cath consumable emitted from documented per-case usage.',
           source_ref_type: 'cath_consumable_usage',
           source_ref_id: sourceId
         });
@@ -5063,6 +5096,10 @@ export async function listUnbilledConsumableUsage({
          ON bsm.tenant_id = u.tenant_id
         AND bsm.code = c.billing_item_code
         AND bsm.is_active = TRUE
+       LEFT JOIN billing_service_master bsm_reused
+         ON bsm_reused.tenant_id = u.tenant_id
+        AND bsm_reused.code = c.reused_billing_item_code
+        AND bsm_reused.is_active = TRUE
         LEFT JOIN billing_invoice_items bii
           ON bii.source_ref_type = 'cath_consumable_usage'
          AND bii.source_ref_id = u.id
@@ -5081,11 +5118,17 @@ export async function listUnbilledConsumableUsage({
             patient.name AS patient_name, c.item_name, c.category,
             u.quantity, u.wasted, u.waste_reason, u.used_at,
             c.billing_item_code, u.inventory_decrement_status,
+            u.reuse_cycle, c.reused_billing_item_code,
+            -- A reprocessed row is billed from reused_billing_item_code, so its
+            -- gap is diagnosed against THAT mapping; reading the first-use code
+            -- here would report a row as billable that emission would refuse.
             CASE
               WHEN cath_case.status <> 'completed' THEN 'procedure_not_completed'
               WHEN u.wasted THEN 'wastage_review_required'
-              WHEN c.billing_item_code IS NULL THEN 'billing_code_not_mapped'
-              WHEN bsm.id IS NULL THEN 'billing_code_invalid'
+              WHEN COALESCE(u.reuse_cycle, 0) >= 1 AND c.reused_billing_item_code IS NULL THEN 'reused_billing_code_not_mapped'
+              WHEN COALESCE(u.reuse_cycle, 0) >= 1 AND bsm_reused.id IS NULL THEN 'billing_code_invalid'
+              WHEN COALESCE(u.reuse_cycle, 0) = 0 AND c.billing_item_code IS NULL THEN 'billing_code_not_mapped'
+              WHEN COALESCE(u.reuse_cycle, 0) = 0 AND bsm.id IS NULL THEN 'billing_code_invalid'
               WHEN COALESCE(settings.charge_enabled, FALSE) = FALSE THEN 'billing_disabled'
               ELSE 'billing_pending_or_failed'
             END AS billing_gap_reason
