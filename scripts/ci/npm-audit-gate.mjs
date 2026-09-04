@@ -100,8 +100,14 @@ export function manifestsUnchanged({ repoRoot, baseRef, manifests }) {
   return true;
 }
 
-function resolveBaseRef(repoRoot) {
-  const base = process.env.GITHUB_BASE_REF;
+export function resolveBaseRef(repoRoot) {
+  // AUDIT_GATE_BASE_REF first, because this repo's canonical CI triggers on
+  // PUSH to every non-main branch (ci.yml `on: push: branches: ['**','!main']`),
+  // not on pull_request — so GITHUB_BASE_REF is empty here and a PR-only lookup
+  // would never resolve a base at all. The workflows pass
+  // `github.base_ref || github.event.repository.default_branch`, which covers
+  // both trigger shapes.
+  const base = process.env.AUDIT_GATE_BASE_REF || process.env.GITHUB_BASE_REF;
   if (!base) return null;
   // Remote-tracking refs ONLY. actions/checkout fetches the PR base as
   // origin/<base> with fetch-depth: 0, which both audit jobs use. A local
@@ -186,11 +192,17 @@ async function main() {
   // Service unavailable after every attempt. The gate's answer is a pure
   // function of the manifests, so if they are identical to the base the answer
   // is too — and the base only got there by passing this same gate.
-  const unchanged = manifestsUnchanged({
-    repoRoot,
-    baseRef: resolveBaseRef(repoRoot),
-    manifests,
-  });
+  const baseRef = resolveBaseRef(repoRoot);
+  // Say what was resolved. The first CI run of this gate failed on "base could
+  // not be resolved" and the log could not say WHY — exactly the diagnosis-free
+  // failure this whole change exists to stop shipping.
+  console.log(
+    `[audit-gate] ${label}: base ref = ${baseRef ?? 'UNRESOLVED'} `
+    + `(AUDIT_GATE_BASE_REF=${process.env.AUDIT_GATE_BASE_REF ?? '<unset>'}, `
+    + `GITHUB_BASE_REF=${process.env.GITHUB_BASE_REF ?? '<unset>'}); `
+    + `manifests = ${manifests.join(', ') || '<none found>'}`,
+  );
+  const unchanged = manifestsUnchanged({ repoRoot, baseRef, manifests });
 
   if (unchanged === true) {
     annotate(

@@ -76,6 +76,10 @@ jobs:
       # see scripts/ci/npm-audit-gate.mjs for why an outage is forgiven ONLY
       # when this branch has not touched a dependency manifest.
       - name: Security audit
+        env:
+          # ci.yml triggers on PUSH (branches: ["**", "!main"]), so
+          # github.base_ref is empty here; fall back to the default branch.
+          AUDIT_GATE_BASE_REF: ${{ github.base_ref || github.event.repository.default_branch }}
         run: >
           node ../../scripts/ci/npm-audit-gate.mjs
           --label "admin npm audit (high)"

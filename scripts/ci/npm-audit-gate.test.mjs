@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { classifyAuditOutcome, manifestsUnchanged } from './npm-audit-gate.mjs';
+import { classifyAuditOutcome, manifestsUnchanged, resolveBaseRef } from './npm-audit-gate.mjs';
 
 // Captured verbatim from run 33845185488, job 100935633334.
 const REAL_503 = `npm warn config production Use \`--omit=dev\` instead.
@@ -209,6 +209,47 @@ describe('manifestsUnchanged', () => {
       manifestsUnchanged({ repoRoot: repo, baseRef: null, manifests: ['package.json'] }),
       null,
     );
+  });
+
+  // This repo's canonical CI triggers on PUSH (ci.yml `branches: ['**','!main']`),
+  // never on pull_request, so GITHUB_BASE_REF is always empty here. The gate's
+  // first CI run failed on "the base branch could not be resolved" for exactly
+  // that reason: a PR-only lookup can never resolve a base in this repo.
+  describe('resolveBaseRef', () => {
+    test('AUDIT_GATE_BASE_REF resolves when GITHUB_BASE_REF is empty (push builds)', (t) => {
+      makeRepo();
+      t.after(() => rmSync(repo, { recursive: true, force: true }));
+      // Stand in for what actions/checkout leaves behind.
+      run(['update-ref', 'refs/remotes/origin/main', 'HEAD']);
+
+      t.after(() => { delete process.env.AUDIT_GATE_BASE_REF; });
+      delete process.env.GITHUB_BASE_REF;
+      process.env.AUDIT_GATE_BASE_REF = 'main';
+
+      assert.equal(resolveBaseRef(repo), 'origin/main');
+    });
+
+    test('with neither variable set there is no base', (t) => {
+      makeRepo();
+      t.after(() => rmSync(repo, { recursive: true, force: true }));
+      delete process.env.AUDIT_GATE_BASE_REF;
+      delete process.env.GITHUB_BASE_REF;
+
+      assert.equal(resolveBaseRef(repo), null);
+    });
+
+    // A local branch of the same name must NOT satisfy the lookup: on a
+    // developer checkout it can be arbitrarily stale, and a stale base is how
+    // "unchanged" quietly starts meaning something else.
+    test('a local branch is not accepted in place of the remote-tracking ref', (t) => {
+      makeRepo();
+      t.after(() => rmSync(repo, { recursive: true, force: true }));
+      t.after(() => { delete process.env.AUDIT_GATE_BASE_REF; });
+      // `main` exists locally; refs/remotes/origin/main deliberately does not.
+      process.env.AUDIT_GATE_BASE_REF = 'main';
+
+      assert.equal(resolveBaseRef(repo), null);
+    });
   });
 
   test('a manifest absent from both sides is not treated as a change', (t) => {
