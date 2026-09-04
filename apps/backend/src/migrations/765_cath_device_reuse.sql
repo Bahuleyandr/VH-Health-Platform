@@ -14,7 +14,21 @@
 --   * cath_case_consumable_usage            — device_id, reuse_cycle, post_use_disposition,
 --                                             reuse_screen, post_use_screen; status value
 --                                             'reused_device'; shape CHECK; the 753 exact-authority
---                                             CHECK re-added with a third arm
+--                                             CHECK re-added with a third arm;
+--                                             564's batch/expiry CHECK re-added
+--                                             with a 'reused_device' disjunct
+--   * cath_consumable_usage_batch_expiry_check (created by migration 564, inline
+--     in its CREATE TABLE, therefore always VALIDATED) is dropped and re-added
+--     under the SAME name with one extra disjunct,
+--     `OR inventory_decrement_status = 'reused_device'`. 564 required a
+--     batch/lot number AND an expiry date from every batch_tracked row; a reused
+--     device has neither, because its batch lineage belongs to the ORIGIN usage
+--     row that the device register points back at (origin_usage_id). Without the
+--     widening no batch_tracked catalogue item could ever be reused — and
+--     catheters, balloons and sheaths, the exact class this migration exists to
+--     serve, are batch_tracked. It is re-added VALIDATED, not NOT VALID: the new
+--     arm only widens the predicate, so every row that satisfied the old CHECK
+--     still satisfies the new one. Migration 564 itself is not edited.
 --   * cath_consumable_catalog               — reused_billing_item_code
 --   * cath_inventory_authority_assert_contract_753 re-declared exactly as 758
 --     re-declared it, plus one branch for 'reused_device' usage. That branch
@@ -292,6 +306,25 @@ ALTER TABLE cath_case_consumable_usage
       AND ((inventory_decrement_status = 'reused_device') = (reuse_cycle IS NOT NULL))
       AND (inventory_decrement_status <> 'reused_device'
            OR (inventory_batch_id IS NULL AND inventory_movement_id IS NULL))
+    ),
+  -- 564's batch/expiry CHECK demanded a batch/lot number and an expiry date
+  -- from every batch_tracked row. A reused device carries no batch lineage of
+  -- its own — the batch it came out of is recorded on its ORIGIN usage row, and
+  -- the device register points back at that row (origin_usage_id). Without this
+  -- widening a batch_tracked catalogue item could never be reused, which is
+  -- exactly the class (catheters, balloons, sheaths) the migration exists for.
+  -- Re-added under the SAME name, and VALIDATED: 564 created it inline in
+  -- CREATE TABLE, so it has always been validated, and the extra disjunct only
+  -- widens the predicate — every row that passed before still passes.
+  DROP CONSTRAINT IF EXISTS cath_consumable_usage_batch_expiry_check,
+  ADD CONSTRAINT cath_consumable_usage_batch_expiry_check
+    CHECK (
+      NOT batch_tracked
+      OR inventory_decrement_status = 'reused_device'
+      OR (
+        COALESCE(NULLIF(BTRIM(batch_number), ''), NULLIF(BTRIM(lot_number), '')) IS NOT NULL
+        AND expiry_date IS NOT NULL
+      )
     ),
   DROP CONSTRAINT IF EXISTS chk_cath_usage_exact_inventory_authority_753,
   ADD CONSTRAINT chk_cath_usage_exact_inventory_authority_753
