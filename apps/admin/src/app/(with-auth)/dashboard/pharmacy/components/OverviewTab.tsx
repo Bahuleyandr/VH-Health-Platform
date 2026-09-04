@@ -4,18 +4,15 @@ import { useCallback, useEffect, useState } from "react";
 import { fetchAdminAPI } from "@/lib/api";
 import type { SLAData } from "./types";
 import { StatCard } from "./shared";
-
-type FacilityAuthority = {
-  has_authority: boolean;
-  facility_id: number | null;
-  code: string | null;
-};
+import {
+  FACILITY_SCOPE_NOTICE,
+  useFacilityAuthority,
+} from "./useFacilityAuthority";
 
 export function OverviewTab() {
   const [sla, setSla] = useState<SLAData | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [unscoped, setUnscoped] = useState(false);
 
   // OPEN-25. Ask before firing, rather than firing and rendering the refusal.
   //
@@ -32,28 +29,20 @@ export function OverviewTab() {
   // route crawl honest: the crawl flags any >=400 on /api/proxy/* at the
   // network layer, so handling the refusal in the UI alone would not have
   // helped — the page has to not make the call.
+  const {
+    authority,
+    error: authorityError,
+    loading: authorityLoading,
+  } = useFacilityAuthority();
+  const hasFacilityAuthority = authority?.has_authority === true;
+
   const load = useCallback(() => {
     setLoading(true);
     setLoadError(null);
-    setUnscoped(false);
-    fetchAdminAPI<{ data: FacilityAuthority }>(
-      "/pharmacy-orders/orders/facility-authority",
-    )
-      .then((r) => {
-        const authority = ((r as Record<string, unknown>).data ??
-          r) as FacilityAuthority;
-        if (!authority?.has_authority) {
-          setUnscoped(true);
-          setSla(null);
-          return null;
-        }
-        return fetchAdminAPI<{ data: SLAData }>(
-          "/pharmacy-orders/orders/sla",
-        ).then((res) => {
-          const data = (res as Record<string, unknown>).data ?? res;
-          setSla(data as SLAData);
-          return null;
-        });
+    fetchAdminAPI<{ data: SLAData }>("/pharmacy-orders/orders/sla")
+      .then((res) => {
+        const data = (res as Record<string, unknown>).data ?? res;
+        setSla(data as SLAData);
       })
       .catch((err: unknown) => {
         setLoadError(
@@ -64,19 +53,31 @@ export function OverviewTab() {
   }, []);
 
   useEffect(() => {
+    // `authority === null` means UNRESOLVED, not "no authority": firing on it
+    // would reintroduce the call this gate exists to avoid.
+    if (authorityLoading) return;
+    if (!hasFacilityAuthority) {
+      setSla(null);
+      setLoading(false);
+      return;
+    }
     load();
-  }, [load]);
+  }, [authorityLoading, hasFacilityAuthority, load]);
 
-  if (loading)
+  if (authorityLoading || loading)
     return <div className="p-8 text-center">Loading SLA data...</div>;
-  if (unscoped)
+  if (authorityError)
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700">
+        {authorityError}
+      </div>
+    );
+  if (!hasFacilityAuthority)
     // Deliberately not styled as an error, and deliberately avoiding the route
     // crawl's visible-failure vocabulary: this is a scope notice, not a fault.
     return (
       <div className="rounded-lg border border-border bg-muted/40 p-4 text-sm text-muted-foreground">
-        Order SLA figures are scoped to a pharmacy facility, and your account is
-        not currently assigned to one. An administrator can grant facility
-        access to show this dashboard.
+        {FACILITY_SCOPE_NOTICE}
       </div>
     );
   if (loadError)
