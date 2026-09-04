@@ -45,6 +45,11 @@ describe('normalizeSerologyValue', () => {
     ['NON REACTIVE (repeat)', 'non_reactive'], ['REACTIVE*', 'reactive'], ['Non reactive.', 'non_reactive'],
     ['Positive (confirm)', 'reactive'], ['Indeterminate - repeat', 'indeterminate'],
     ['NEG', 'indeterminate'], ['NR', 'indeterminate'], ['+', 'indeterminate'],
+    ['reactive, confirmation pending', 'reactive'], ['Reactive - repeat awaited', 'reactive'],
+    ['HBsAg reactive, HCV result awaited', 'reactive'],
+    ['Not detected, repeat pending', 'pending'],
+    ['Non-reactive (equivocal, repeat advised)', 'indeterminate'], ['negative - borderline on repeat', 'indeterminate'],
+    ['Reactive - indeterminate on repeat', 'indeterminate'],
   ])('%p -> %s', (input, expected) => {
     expect(normalizeSerologyValue(input)).toBe(expected);
   });
@@ -209,6 +214,39 @@ describe('computeReuseStatus', () => {
     expect(out.markers.map((m) => m.marker)).toEqual(['hiv', 'hbsag', 'hcv', 'other']);
     expect(out.markers[3].label).toBe('HTLV-1');
   });
+
+  test('a future-dated non-reactive is unusable: unknown, with the date named, never clear', () => {
+    const out = computeReuseStatus([
+      { ...row('hiv', 'non_reactive', 0), tested_on: '2027-10-09' },
+      row('hbsag', 'non_reactive', 1), row('hcv', 'non_reactive', 1),
+    ], { asOf: AS_OF });
+    expect(out.status).toBe('unknown');
+    expect(out.reasons).toEqual(['HIV result dated in the future (2027-10-09)']);
+    const hiv = out.markers.find((m) => m.marker === 'hiv');
+    expect(hiv.within_window).toBe(false);
+    expect(hiv.age_days).toBeLessThan(0);
+  });
+
+  test('a future-dated reactive still latches', () => {
+    const out = computeReuseStatus([{ ...row('hcv', 'reactive', 0), tested_on: '2027-10-09' }], { asOf: AS_OF });
+    expect(out.status).toBe('restricted');
+  });
+
+  test('an absurdly large validity window falls back to 90', () => {
+    const rows = [row('hiv', 'non_reactive', 200), row('hbsag', 'non_reactive', 1), row('hcv', 'non_reactive', 1)];
+    const out = computeReuseStatus(rows, { asOf: AS_OF, validityDays: 1e9 });
+    expect(out.validity_days).toBe(90);
+    expect(out.status).toBe('unknown');
+  });
+
+  test('an invalid Date for tested_on reads as undated, not a crash', () => {
+    const out = computeReuseStatus([
+      { ...row('hiv', 'non_reactive', 1), tested_on: new Date('nonsense') },
+      row('hbsag', 'non_reactive', 1), row('hcv', 'non_reactive', 1),
+    ], { asOf: AS_OF });
+    expect(out.status).toBe('unknown');
+    expect(out.reasons).toEqual(['HIV result date cannot be read']);
+  });
 });
 
 describe('exposure handlers', () => {
@@ -236,5 +274,9 @@ describe('exposure handlers', () => {
     off();
     await notifyExposureHandlers([{ marker: 'hiv' }]);
     expect(seen).toEqual([]);
+  });
+
+  test('null events are a no-op', async () => {
+    await expect(notifyExposureHandlers(null)).resolves.toBeUndefined();
   });
 });

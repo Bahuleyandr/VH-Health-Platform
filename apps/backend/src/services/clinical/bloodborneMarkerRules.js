@@ -26,28 +26,42 @@ const MARKER_DISPLAY = Object.freeze({
   cjd_suspected: 'CJD suspected',
 });
 
-// Free-text serology to one of RESULTS. Order of checks: pending, indeterminate,
-// then negatives, then positives. A value carrying BOTH a negative and a
-// positive token (a panel comment dumped into value_text, "reactive — not
-// detected on repeat") is indeterminate: never a definite negative, because a
-// false non_reactive is the one input that manufactures an unearned "clear".
+// Free-text serology to one of RESULTS. Precedence:
+//   1. empty → pending
+//   2. any indeterminate token → indeterminate (an equivocal note outranks
+//      the surrounding words, whichever way they lean)
+//   3. a negative token present: if a positive token survives once the
+//      negative phrases are removed ("reactive — not detected on repeat",
+//      a panel comment dumped into value_text) → indeterminate, never a
+//      definite negative; else if a pending token is present → pending
+//      ("not detected, repeat pending"); else → non_reactive
+//   4. a positive token present → reactive, even with a pending token
+//      ("reactive, confirmation pending" is a reactive screen)
+//   5. a pending token present → pending
+//   6. anything else → indeterminate
+// A false non_reactive is the one input that manufactures an unearned
+// "clear", so every mixed case resolves toward the restrictive side.
 const PENDING_TOKENS = ['pending', 'awaited'];
 const INDETERMINATE_TOKENS = ['indeterminate', 'equivocal', 'borderline', 'grey zone', 'gray zone'];
 const NEGATIVE_TOKENS = ['non-reactive', 'nonreactive', 'non reactive', 'non_reactive', 'negative', 'not detected'];
 const POSITIVE_TOKENS = ['weakly reactive', 'reactive', 'positive', 'detected'];
 
+const hasAny = (text, tokens) => tokens.some((token) => text.includes(token));
+
 export function normalizeSerologyValue(valueText) {
   const text = String(valueText ?? '').trim().toLowerCase();
   if (!text) return 'pending';
-  if (PENDING_TOKENS.some((token) => text.includes(token))) return 'pending';
-  if (INDETERMINATE_TOKENS.some((token) => text.includes(token))) return 'indeterminate';
+  if (hasAny(text, INDETERMINATE_TOKENS)) return 'indeterminate';
+  const pending = hasAny(text, PENDING_TOKENS);
   const negatives = NEGATIVE_TOKENS.filter((token) => text.includes(token));
   if (negatives.length) {
     let rest = text;
     for (const token of negatives) rest = rest.split(token).join(' ');
-    return POSITIVE_TOKENS.some((token) => rest.includes(token)) ? 'indeterminate' : 'non_reactive';
+    if (hasAny(rest, POSITIVE_TOKENS)) return 'indeterminate';
+    return pending ? 'pending' : 'non_reactive';
   }
-  if (POSITIVE_TOKENS.some((token) => text.includes(token))) return 'reactive';
+  if (hasAny(text, POSITIVE_TOKENS)) return 'reactive';
+  if (pending) return 'pending';
   return 'indeterminate';
 }
 
@@ -63,7 +77,7 @@ export function requireUuid(value, label) {
 
 // YYYY-MM-DD for a DATE column value (string or the UTC-midnight Date Prisma returns).
 export function isoDate(value) {
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? '' : value.toISOString().slice(0, 10);
   const text = String(value ?? '').trim();
   return /^\d{4}-\d{2}-\d{2}/.test(text) ? text.slice(0, 10) : '';
 }
@@ -80,11 +94,13 @@ function utcDayNumber(isoDay) {
 }
 
 // Whole calendar days from tested_on to asOf, both read as clinical-zone
-// dates, never negative. NaN when tested_on is not a date.
+// dates. Negative when tested_on is after asOf (a future-dated result is
+// unusable evidence and must not read as a same-day test); NaN when
+// tested_on is not a date.
 export function ageInDays(testedOn, asOf) {
   const tested = isoDate(testedOn);
   if (!tested) return NaN;
-  return Math.max(0, utcDayNumber(clinicalDate(asOf)) - utcDayNumber(tested));
+  return utcDayNumber(clinicalDate(asOf)) - utcDayNumber(tested);
 }
 
 function markerLabel(row) {
@@ -98,12 +114,12 @@ function markerKey(row) {
     : row.marker;
 }
 
-const MARKER_ORDER = Object.freeze(['hiv', 'hbsag', 'hcv', 'cjd_suspected', 'other']);
-
 function markerSortValue(row) {
-  const rank = MARKER_ORDER.indexOf(row.marker);
+  const rank = MARKERS.indexOf(row.marker);
   return `${rank < 0 ? 9 : rank}:${markerKey(row)}`;
 }
+
+const compareText = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
 function liveRows(rows) {
   return (Array.isArray(rows) ? rows : []).filter((row) => row && !row.voided_at);
@@ -112,7 +128,7 @@ function liveRows(rows) {
 // Latest non-voided row per marker (per label for 'other'), by tested_on then id.
 function latestPerMarker(rows) {
   const sorted = [...liveRows(rows)].sort((a, b) => {
-    const byDate = isoDate(b.tested_on).localeCompare(isoDate(a.tested_on));
+    const byDate = compareText(isoDate(b.tested_on), isoDate(a.tested_on));
     if (byDate !== 0) return byDate;
     return Number(b.id) - Number(a.id);
   });
@@ -126,7 +142,7 @@ function latestPerMarker(rows) {
 
 function coerceValidityDays(value) {
   const days = Number(value);
-  return Number.isFinite(days) && days >= 1 ? Math.floor(days) : DEFAULT_VALIDITY_DAYS;
+  return Number.isFinite(days) && days >= 1 && days <= 365 ? Math.floor(days) : DEFAULT_VALIDITY_DAYS;
 }
 
 // Reuse-restriction status for a patient from their marker rows.
@@ -146,7 +162,7 @@ export function computeReuseStatus(rows = [], { validityDays, asOf = new Date() 
 
   const reactiveRows = live
     .filter((row) => row.result === 'reactive')
-    .sort((a, b) => markerSortValue(a).localeCompare(markerSortValue(b)) || isoDate(b.tested_on).localeCompare(isoDate(a.tested_on)));
+    .sort((a, b) => compareText(markerSortValue(a), markerSortValue(b)) || compareText(isoDate(b.tested_on), isoDate(a.tested_on)));
   const seenReactive = new Set();
   for (const row of reactiveRows) {
     const key = markerKey(row);
@@ -158,7 +174,7 @@ export function computeReuseStatus(rows = [], { validityDays, asOf = new Date() 
   }
 
   const markers = [...latest.values()]
-    .sort((a, b) => markerSortValue(a).localeCompare(markerSortValue(b)))
+    .sort((a, b) => compareText(markerSortValue(a), markerSortValue(b)))
     .map((row) => {
       const age = ageInDays(row.tested_on, asOf);
       return {
@@ -168,7 +184,7 @@ export function computeReuseStatus(rows = [], { validityDays, asOf = new Date() 
         tested_on: isoDate(row.tested_on),
         source: row.source,
         age_days: Number.isNaN(age) ? null : age,
-        within_window: Number.isNaN(age) ? false : age <= window,
+        within_window: Number.isNaN(age) ? false : (age >= 0 && age <= window),
       };
     });
 
@@ -179,7 +195,7 @@ export function computeReuseStatus(rows = [], { validityDays, asOf = new Date() 
     const row = latest.get(marker);
     if (!row || row.result !== 'non_reactive') return false;
     const age = ageInDays(row.tested_on, asOf);
-    return !Number.isNaN(age) && age <= window;
+    return !Number.isNaN(age) && age >= 0 && age <= window;
   });
   if (clear) {
     return { status: 'clear', reasons: ['HIV, HBsAg and HCV non-reactive within window'], ...base };
@@ -193,6 +209,7 @@ export function computeReuseStatus(rows = [], { validityDays, asOf = new Date() 
     if (row.result === 'pending') reasons.push(`${label} pending`);
     else if (row.result === 'indeterminate') reasons.push(`${label} indeterminate`);
     else if (row.result === 'non_reactive' && Number.isNaN(age)) reasons.push(`${label} result date cannot be read`);
+    else if (row.result === 'non_reactive' && age < 0) reasons.push(`${label} result dated in the future (${isoDate(row.tested_on)})`);
     else if (row.result === 'non_reactive' && age > window) reasons.push(`${label} result older than ${window} days (${isoDate(row.tested_on)})`);
     else if (row.result !== 'non_reactive') reasons.push(`${label} result cannot be interpreted`);
   }
@@ -220,7 +237,7 @@ export function __clearExposureHandlersForTests() {
 }
 
 export async function notifyExposureHandlers(events = []) {
-  for (const event of events) {
+  for (const event of Array.isArray(events) ? events : []) {
     for (const handler of exposureHandlers) {
       try {
         await handler(event);
