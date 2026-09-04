@@ -15,7 +15,10 @@
 // requireRole at the mount for the whole router, no per-route re-gate), which
 // is why "the board loads" implies "the actions are reachable" for these two.
 //
-// This drives the REAL proxy handler for every path the two consoles call.
+// This drives the REAL proxy handler for every path these consoles call. The
+// cath device-reuse governance mount joined them on the same reasoning: its
+// editor lives on the quality console, and its own audience gate is a fourth
+// layer this cannot see.
 
 import { requiredProxyPermission } from "@/lib/proxyPermissions";
 import { ROUTE_POLICY, STAFF } from "@/lib/routePolicy";
@@ -93,8 +96,25 @@ const CSSD_CALLS: [string, string][] = [
   ["POST", "cssd/issues/31/cancel"],
 ];
 
+// Cath device-reuse governance, from src/lib/api/cathDevices.ts. Its own mount
+// with its own audience (CATH_REPROCESSING_POLICY_ROUTE_ROLES — quality,
+// infection control, admin), reached from the quality console's Reprocessing
+// policy tab. The device transitions themselves sit under the `cssd/` prefix
+// already covered above.
+const CATH_REPROCESSING_CALLS: [string, string][] = [
+  ["GET", "cath-reprocessing/settings"],
+  ["PUT", "cath-reprocessing/settings"],
+  ["GET", "cath-reprocessing/policies"],
+  ["PUT", "cath-reprocessing/policies"],
+  // The mount's one PHI read (it writes a hipaa_access_log row per patient in
+  // the answer). No console control calls it yet; pinned so that narrowing the
+  // allowlist to /settings and /policies is a failure here rather than a
+  // device-history view that renders and cannot load.
+  ["GET", "cath-reprocessing/devices/41/history"],
+];
+
 describe("linen + CSSD console reachability through the portal proxy", () => {
-  it.each([...LINEN_CALLS, ...CSSD_CALLS])(
+  it.each([...LINEN_CALLS, ...CSSD_CALLS, ...CATH_REPROCESSING_CALLS])(
     "forwards %s /api/v1/%s",
     async (method, path) => {
       const response = await call(method, path);
@@ -105,7 +125,7 @@ describe("linen + CSSD console reachability through the portal proxy", () => {
     },
   );
 
-  it.each([...LINEN_CALLS, ...CSSD_CALLS])(
+  it.each([...LINEN_CALLS, ...CSSD_CALLS, ...CATH_REPROCESSING_CALLS])(
     "needs no per-admin permission flag for %s /api/v1/%s",
     (method, path) => {
       // A gate here would let a flag-scoped ADMIN see the board and be refused
@@ -128,12 +148,15 @@ describe("linen + CSSD console reachability through the portal proxy", () => {
     }
   });
 
-  it("admits STAFF-rank roles to both dashboard segments", () => {
+  it("admits STAFF-rank roles to the three dashboard segments", () => {
     // Housekeeping, nursing, OT and stores roles all rank STAFF in the portal;
-    // if either entry were raised the pages would redirect and every control
-    // above would be unreachable for the people who do the work.
+    // if any entry were raised the pages would redirect and every control
+    // above would be unreachable for the people who do the work. `quality`
+    // carries the reprocessing-policy editor, whose audience is the quality and
+    // infection-control officers rather than administrators.
     expect(ROUTE_POLICY["linen-laundry"]).toEqual({ minRank: STAFF });
     expect(ROUTE_POLICY.cssd).toEqual({ minRank: STAFF });
+    expect(ROUTE_POLICY.quality).toEqual({ minRank: STAFF });
   });
 });
 

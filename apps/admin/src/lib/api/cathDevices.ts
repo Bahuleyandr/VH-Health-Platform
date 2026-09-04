@@ -152,6 +152,26 @@ export const CATH_CATEGORIES = [
 export const IMPLANT_CATEGORIES: ReadonlySet<CathCategory> =
   new Set<CathCategory>(["stent", "pacemaker", "lead", "closure_device"]);
 
+/**
+ * Display names for `exposure_markers` — the blood-borne markers a PREVIOUS
+ * patient tested reactive for. The wire values are the backend's lowercase
+ * enum (`hiv | hbsag | hcv | cjd_suspected | other`) and the generic
+ * `humanize` would render them as "hbsag" and "cjd suspected", which is not
+ * how the labels read on a serology report or in a screen reader. Anything the
+ * enum grows falls back to the underscore-stripped value rather than vanishing.
+ */
+export const EXPOSURE_MARKER_LABELS: Readonly<Record<string, string>> = {
+  hiv: "HIV",
+  hbsag: "HBsAg",
+  hcv: "HCV",
+  cjd_suspected: "CJD suspected",
+  other: "Other",
+};
+
+export function exposureMarkerLabel(marker: string): string {
+  return EXPOSURE_MARKER_LABELS[marker] ?? marker.replace(/_/g, " ");
+}
+
 /** GET /cssd/devices caps `limit` at 500; the console asks for a page of 200. */
 export const CSSD_DEVICE_LIST_LIMIT = 200;
 

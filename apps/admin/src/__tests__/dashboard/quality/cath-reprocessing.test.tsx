@@ -11,6 +11,7 @@ import * as api from "@/lib/api/cathDevices";
 import { IDEMPOTENCY_KEY_PATTERN } from "@/lib/idempotencyKey";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { toast } from "react-hot-toast";
 
 jest.mock("@/lib/api/cathDevices", () => ({
   ...jest.requireActual("@/lib/api/cathDevices"),
@@ -66,22 +67,24 @@ describe("Reprocessing policy tab", () => {
 
   it("disables the reprocessable toggle for implant categories", async () => {
     renderTab();
-    for (const implant of ["stent", "pacemaker", "lead", "closure_device"]) {
+    // The labels are the humanised category names, not the wire enum: a screen
+    // reader announcing "closure_device reprocessable" spells the underscore.
+    for (const implant of ["Stent", "Pacemaker", "Lead", "Closure device"]) {
       expect(
         await screen.findByLabelText(`${implant} reprocessable`),
       ).toBeDisabled();
     }
-    expect(screen.getByLabelText("balloon reprocessable")).toBeEnabled();
+    expect(screen.getByLabelText("Balloon reprocessable")).toBeEnabled();
   });
 
   it("saves the full nine-category set with an idempotency key", async () => {
     renderTab();
-    fireEvent.click(await screen.findByLabelText("catheter reprocessable"));
-    fireEvent.change(screen.getByLabelText("catheter max cycles"), {
+    fireEvent.click(await screen.findByLabelText("Catheter reprocessable"));
+    fireEvent.change(screen.getByLabelText("Catheter max cycles"), {
       target: { value: "3" },
     });
-    fireEvent.click(screen.getByLabelText("catheter allows eto"));
-    fireEvent.click(screen.getByLabelText("catheter function check required"));
+    fireEvent.click(screen.getByLabelText("Catheter allows eto"));
+    fireEvent.click(screen.getByLabelText("Catheter function check required"));
     fireEvent.click(screen.getByText("Save category policies"));
 
     await waitFor(() =>
@@ -111,7 +114,7 @@ describe("Reprocessing policy tab", () => {
     renderTab();
     // The backend rejects the WHOLE put on the first offender, so an unguarded
     // save would lose every other row's edits over one blank cell.
-    fireEvent.click(await screen.findByLabelText("balloon reprocessable"));
+    fireEvent.click(await screen.findByLabelText("Balloon reprocessable"));
     fireEvent.click(screen.getByText("Save category policies"));
 
     expect(
@@ -159,5 +162,94 @@ describe("Reprocessing policy tab", () => {
         /implant category and can never be reprocessable/,
       ),
     ).toBeInTheDocument();
+  });
+
+  it("retries a failed policy save under the SAME idempotency key", async () => {
+    jest
+      .mocked(api.updateCathReprocessingPolicies)
+      .mockRejectedValueOnce(new Error("Policy service is unavailable"))
+      .mockResolvedValue({ policies: [], count: 0 } as never);
+    renderTab();
+    fireEvent.click(await screen.findByText("Save category policies"));
+    await screen.findByText("Policy service is unavailable");
+
+    fireEvent.click(screen.getByText("Save category policies"));
+    await waitFor(() =>
+      expect(api.updateCathReprocessingPolicies).toHaveBeenCalledTimes(2),
+    );
+
+    const calls = jest.mocked(api.updateCathReprocessingPolicies).mock.calls;
+    // idempotencyMiddleware cached the 4xx under this key (and deletes the
+    // claim outright on a 5xx), so the retry replays the recorded outcome or
+    // runs exactly once. Re-minting on error is what lets a PUT that timed out
+    // on the wire but committed on the server be written a second time.
+    expect(calls[0][0]).toEqual(calls[1][0]);
+    expect(calls[0][1]).toBe(calls[1][1]);
+  });
+
+  it("mints a NEW key for a second save once the first has succeeded", async () => {
+    renderTab();
+    fireEvent.click(await screen.findByText("Save category policies"));
+    await waitFor(() =>
+      expect(jest.mocked(toast.success)).toHaveBeenCalledWith(
+        "Category policies saved",
+      ),
+    );
+
+    fireEvent.click(screen.getByText("Save category policies"));
+    await waitFor(() =>
+      expect(api.updateCathReprocessingPolicies).toHaveBeenCalledTimes(2),
+    );
+
+    const calls = jest.mocked(api.updateCathReprocessingPolicies).mock.calls;
+    // Identical payload, deliberately sent twice: the second save must reach
+    // the backend rather than replay the first one's recorded response.
+    expect(calls[0][0]).toEqual(calls[1][0]);
+    expect(calls[0][1]).not.toBe(calls[1][1]);
+  });
+
+  it("offers no policy save while the policy read is still unresolved", async () => {
+    // An unresolved read is not an empty table: Save would PUT nine
+    // `defaultPolicy` rows and wipe every policy the read never delivered.
+    jest
+      .mocked(api.listCathReprocessingPolicies)
+      .mockReturnValue(new Promise<never>(() => {}));
+    renderTab();
+
+    expect(
+      await screen.findByText("Loading category policies…"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Save category policies")).toBeNull();
+    expect(screen.queryByLabelText("Catheter reprocessable")).toBeNull();
+    expect(api.updateCathReprocessingPolicies).not.toHaveBeenCalled();
+  });
+
+  it("offers no policy save when the policy read failed", async () => {
+    jest
+      .mocked(api.listCathReprocessingPolicies)
+      .mockRejectedValue(new Error("Reprocessing policy is unavailable"));
+    renderTab();
+
+    expect(
+      await screen.findByText("Reprocessing policy is unavailable"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Save category policies")).toBeNull();
+    expect(screen.queryByLabelText("Catheter reprocessable")).toBeNull();
+    expect(api.updateCathReprocessingPolicies).not.toHaveBeenCalled();
+  });
+
+  it("will not save a cleared serology validity window as zero days", async () => {
+    renderTab();
+    fireEvent.change(await screen.findByLabelText("Serology validity days"), {
+      target: { value: "" },
+    });
+
+    // Zero days would make every serology result stale the moment it is filed.
+    expect(screen.getByText("Save settings")).toBeDisabled();
+    expect(
+      screen.getByText(/Enter a serology validity window/i),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Save settings"));
+    expect(api.updateCathReprocessingSettings).not.toHaveBeenCalled();
   });
 });

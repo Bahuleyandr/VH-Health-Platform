@@ -14,6 +14,7 @@ import { LoadingSpinner } from "@/components/LoadingSpinner";
 import {
   CSSD_DEVICE_LIST_LIMIT,
   CSSD_DEVICE_STATUSES,
+  exposureMarkerLabel,
   listCssdDevices,
   type CathDevice,
   type CathDeviceStatus,
@@ -30,9 +31,17 @@ import {
 import { StatusPill, fmtDate, humanize, inputClass } from "./helpers";
 
 /**
- * Mirror of the transitions cathDeviceReuseService allows out of each status.
- * `in_case` and `discarded` are terminal from this console: a device in a case
- * moves through the cath-lab post-use tap, and a discard is irreversible.
+ * The transitions this console offers out of each status. Every entry is a
+ * SUBSET of what cathDeviceReuseService allows — a control the service refuses
+ * could only ever answer 409 CATH_DEVICE_INVALID_TRANSITION — and in one place
+ * the console deliberately narrows the backend table further:
+ *
+ *   * `in_case` — the service does allow a discard here, but this console does
+ *     not offer one. A device in a case is settled by the cath lab's post-use
+ *     tap (used, wasted, or sent for reprocessing), which is the record that
+ *     closes out the usage row. Discarding it from CSSD behind the lab's back
+ *     would strand that usage and lose the reason the device left the case.
+ *   * `discarded` — genuinely terminal; a discard is irreversible.
  */
 const ACTIONS_BY_STATUS: Record<CathDeviceStatus, DeviceAction[]> = {
   awaiting_reprocessing: ["receive", "reprocessed", "quarantine", "discard"],
@@ -147,7 +156,9 @@ export function DevicesTab() {
                   <td className="p-3 text-xs">
                     {device.exposure_flag ? (
                       <span className="rounded bg-rose-500/15 px-2 py-1 text-rose-700 dark:text-rose-300">
-                        {device.exposure_markers.join(", ") || "flagged"}
+                        {device.exposure_markers
+                          .map(exposureMarkerLabel)
+                          .join(", ") || "flagged"}
                       </span>
                     ) : (
                       "-"

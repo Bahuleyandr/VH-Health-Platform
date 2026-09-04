@@ -95,8 +95,9 @@ describe("CSSD Devices tab", () => {
     expect(await screen.findByText("RP00000001")).toBeInTheDocument();
     expect(screen.getByText("0 of 3")).toBeInTheDocument();
     // exposure_markers is what tells CSSD this device came off a reactive
-    // patient; losing it would turn a discard decision into a guess.
-    expect(screen.getByText("hbsag")).toBeInTheDocument();
+    // patient; losing it would turn a discard decision into a guess. It is
+    // rendered under its clinical name, not the wire enum.
+    expect(screen.getByText("HBsAg")).toBeInTheDocument();
     expect(api.listCssdDevices).toHaveBeenCalledWith({
       status: "awaiting_reprocessing",
       limit: 200,
@@ -158,7 +159,7 @@ describe("CSSD Devices tab", () => {
     );
   });
 
-  it("holds the same key across a retried attempt and mints a new one after it settles", async () => {
+  it("retries a failed attempt under the SAME idempotency key", async () => {
     jest
       .mocked(api.markCssdDeviceReprocessed)
       .mockRejectedValueOnce(new Error("Device is in the wrong state"))
@@ -167,6 +168,9 @@ describe("CSSD Devices tab", () => {
     fireEvent.click(
       await screen.findByLabelText("Mark reprocessed RP00000001"),
     );
+    fireEvent.change(screen.getByLabelText("Cycle type"), {
+      target: { value: "eto" },
+    });
     fireEvent.click(screen.getByLabelText("Confirm device action"));
     await screen.findByText("Device is in the wrong state");
 
@@ -176,9 +180,58 @@ describe("CSSD Devices tab", () => {
     );
 
     const calls = jest.mocked(api.markCssdDeviceReprocessed).mock.calls;
-    // reset() on settle: a deliberate second attempt at an identical payload
-    // must actually run rather than replay the first attempt's response.
+    // A failed attempt is not a concluded one. idempotencyMiddleware cached the
+    // 4xx outcome under this key (and deletes the claim outright on a 5xx), so
+    // the retry has to arrive with the same key: it then replays the recorded
+    // refusal, or runs exactly once if nothing was recorded. Re-minting here is
+    // how a request that timed out on the wire but committed on the server gets
+    // to run the transition a second time.
+    expect(calls[0][2]).toBe(calls[1][2]);
+  });
+
+  it("mints a NEW key for a fresh attempt once one has succeeded", async () => {
+    jest.mocked(api.markCssdDeviceReprocessed).mockResolvedValue(DEVICE);
+    renderTab();
+    fireEvent.click(
+      await screen.findByLabelText("Mark reprocessed RP00000001"),
+    );
+    fireEvent.change(screen.getByLabelText("Cycle type"), {
+      target: { value: "eto" },
+    });
+    fireEvent.click(screen.getByLabelText("Confirm device action"));
+    // The dialog closes from onSuccess, which is where reset() lives.
+    await waitFor(() =>
+      expect(screen.queryByLabelText("Confirm device action")).toBeNull(),
+    );
+
+    fireEvent.click(screen.getByLabelText("Mark reprocessed RP00000001"));
+    fireEvent.change(screen.getByLabelText("Cycle type"), {
+      target: { value: "eto" },
+    });
+    fireEvent.click(screen.getByLabelText("Confirm device action"));
+    await waitFor(() =>
+      expect(api.markCssdDeviceReprocessed).toHaveBeenCalledTimes(2),
+    );
+
+    const calls = jest.mocked(api.markCssdDeviceReprocessed).mock.calls;
+    // Same payload, deliberately taken twice: a second cycle recorded on the
+    // same device must actually run rather than replay the first response.
+    expect(calls[0][1]).toEqual(calls[1][1]);
     expect(calls[0][2]).not.toBe(calls[1][2]);
+  });
+
+  it("will not record a reprocessing cycle before a cycle type is chosen", async () => {
+    renderTab();
+    fireEvent.click(
+      await screen.findByLabelText("Mark reprocessed RP00000001"),
+    );
+    // No pre-selected "eto": a cycle type nobody chose would land in the
+    // device's reprocessing history as though they had chosen it.
+    expect(screen.getByLabelText("Confirm device action")).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Cycle type"), {
+      target: { value: "steam" },
+    });
+    expect(screen.getByLabelText("Confirm device action")).toBeEnabled();
   });
 
   it("will not send a quarantine without a reason", async () => {

@@ -9,8 +9,15 @@
 // api module: `keyFor` is stable while the payload identity is unchanged, so a
 // double-click or the 401→refresh replay in `api/core.ts` reuses the key and
 // the backend replays its recorded response instead of running the transition
-// twice; `reset()` once the attempt settles means the operator's genuinely
-// separate next action is a new attempt rather than a swallowed replay.
+// twice.
+//
+// `reset()` runs on SUCCESS ONLY, as it does at every other call site
+// (CatalogTab, PayrollRunsTab, PaymentLinksTab, ward-indents ActionPanel). A
+// FAILED attempt deliberately keeps its key: idempotencyMiddleware caches a 4xx
+// outcome and deletes the claim on a 5xx, so pressing the button again replays
+// the recorded refusal or runs the transition exactly once. Re-minting on error
+// throws that away — a request that timed out on the wire but committed on the
+// server would run a second time under a key the server has never seen.
 //
 // Only the transitions cathDeviceReuseService's state machine allows are
 // offered (see ACTIONS_BY_STATUS in DevicesTab) — anything else could only ever
@@ -74,13 +81,17 @@ export function DeviceActionDialog({
 }) {
   const qc = useQueryClient();
   const attemptKey = useIdempotencyKey("cssd-device-transition");
-  const [cycleType, setCycleType] = useState<CathDeviceCycleType>("eto");
+  // Cycle type and discard reason start EMPTY, like the quarantine reason: a
+  // pre-selected "eto" or "other" is a choice the operator never made, recorded
+  // on an irreversible transition as though they had.
+  const [cycleType, setCycleType] = useState<"" | CathDeviceCycleType>("");
   const [functionCheck, setFunctionCheck] = useState<
     "" | CathDeviceFunctionCheck
   >("");
   const [quarantineReason, setQuarantineReason] = useState("");
-  const [discardReason, setDiscardReason] =
-    useState<CathDeviceDiscardReason>("other");
+  const [discardReason, setDiscardReason] = useState<
+    "" | CathDeviceDiscardReason
+  >("");
   const [note, setNote] = useState("");
   const [failure, setFailure] = useState<string | null>(null);
 
@@ -97,6 +108,9 @@ export function DeviceActionDialog({
           );
         }
         case "reprocessed": {
+          // Unreachable through the UI (the confirm stays disabled), but the
+          // narrowing has to be real: `cycle_type` is required by the route.
+          if (!cycleType) throw new Error("Choose a cycle type");
           const body = {
             cycle_type: cycleType,
             ...(functionCheck ? { function_check_result: functionCheck } : {}),
@@ -125,6 +139,7 @@ export function DeviceActionDialog({
           );
         }
         case "discard": {
+          if (!discardReason) throw new Error("Choose a discard reason");
           const body = {
             reason: discardReason,
             ...(trimmedNote ? { note: trimmedNote } : {}),
@@ -148,14 +163,20 @@ export function DeviceActionDialog({
       onClose();
     },
     onError: (err: unknown) => {
-      attemptKey.reset();
+      // NO reset() here — see the header. The retry must carry the same key.
+      // The row is refetched anyway: the commonest refusal is a 409 invalid
+      // transition, which means the status this dialog was opened from is
+      // already stale on the server.
+      void qc.invalidateQueries({ queryKey: ["cssd", "devices"] });
       setFailure(errorMessage(err, "Could not update the device"));
     },
   });
 
   const disabled =
     run.isPending ||
-    (action === "quarantine" && quarantineReason.trim() === "");
+    (action === "quarantine" && quarantineReason.trim() === "") ||
+    (action === "reprocessed" && cycleType === "") ||
+    (action === "discard" && discardReason === "");
 
   return (
     <Modal
@@ -166,7 +187,10 @@ export function DeviceActionDialog({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-border px-4 py-2 text-sm"
+            // Closing mid-flight unmounts the attempt store, so the operator
+            // could not retry the in-flight key even if the write did land.
+            disabled={run.isPending}
+            className="rounded-lg border border-border px-4 py-2 text-sm disabled:opacity-50"
           >
             Cancel
           </button>
@@ -201,9 +225,12 @@ export function DeviceActionDialog({
               className={inputClass}
               value={cycleType}
               onChange={(e) =>
-                setCycleType(e.target.value as CathDeviceCycleType)
+                setCycleType(e.target.value as "" | CathDeviceCycleType)
               }
             >
+              <option value="" disabled>
+                Select cycle type
+              </option>
               {CATH_DEVICE_CYCLE_TYPES.map((type) => (
                 <option key={type} value={type}>
                   {humanize(type)}
@@ -254,9 +281,12 @@ export function DeviceActionDialog({
             className={inputClass}
             value={discardReason}
             onChange={(e) =>
-              setDiscardReason(e.target.value as CathDeviceDiscardReason)
+              setDiscardReason(e.target.value as "" | CathDeviceDiscardReason)
             }
           >
+            <option value="" disabled>
+              Select a discard reason
+            </option>
             {CATH_DEVICE_DISCARD_REASONS.map((reason) => (
               <option key={reason} value={reason}>
                 {humanize(reason)}
