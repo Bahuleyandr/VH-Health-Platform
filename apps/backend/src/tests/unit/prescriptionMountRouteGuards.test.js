@@ -52,7 +52,7 @@ function routePrisma(sql) {
   if (sql.includes('FROM users') && sql.includes('REGEXP_REPLACE')) {
     return db.phoneRow ? [db.phoneRow] : [];
   }
-  if (sql.includes('FROM users') && sql.includes('$2::int IS NOT NULL AND id = $2::int')) {
+  if (sql.includes('FROM users') && sql.includes('$2::int IS NULL OR id = $2::int')) {
     return db.patientRow ? [db.patientRow] : [];
   }
   if (sql.includes('care_team_members')) return db.careTeamRows;
@@ -292,7 +292,7 @@ describe('guard decisions', () => {
     expect(ePrescriptionControllerMock.createPrescription).not.toHaveBeenCalled();
     // Engine validated the body patient id inside the tenant.
     const validate = prismaMock.$queryRawUnsafe.mock.calls.find(
-      ([sql]) => sql.includes('$2::int IS NOT NULL AND id = $2::int'),
+      ([sql]) => sql.includes('$2::int IS NULL OR id = $2::int'),
     );
     expect(validate.slice(1)).toEqual([TENANT, PATIENT_ID, null]);
   });

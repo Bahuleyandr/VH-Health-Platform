@@ -42,7 +42,7 @@ function routePrisma(sql) {
   if (sql.includes('FROM users') && sql.includes('REGEXP_REPLACE')) {
     return db.phoneRow ? [db.phoneRow] : [];
   }
-  if (sql.includes('FROM users') && sql.includes('$2::int IS NOT NULL AND id = $2::int')) {
+  if (sql.includes('FROM users') && sql.includes('$2::int IS NULL OR id = $2::int')) {
     return db.patientRow ? [db.patientRow] : [];
   }
   if (sql.includes('care_team_members')) return db.careTeamRows;
