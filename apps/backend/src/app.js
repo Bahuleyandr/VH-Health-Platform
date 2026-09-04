@@ -350,6 +350,7 @@ import staticDowntimeRoutes from './routes/downtime/staticDowntimeRoutes.js';
 import terminologyRoutes from './routes/terminology/terminologyRoutes.js';
 import problemListRoutes from './routes/clinical/problemListRoutes.js';
 import allergyRoutes from './routes/clinical/allergyRoutes.js';
+import bloodborneMarkerRoutes from './routes/clinical/bloodborneMarkerRoutes.js';
 import drugKbRoutes from './routes/clinical/drugKbRoutes.js';
 import bcmaRoutes from './routes/clinical/bcmaRoutes.js';
 import medRecRoutes from './routes/clinical/medRecRoutes.js';
@@ -1637,6 +1638,12 @@ app.use('/api/v1/problems', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBod
 // Unified allergies (roadmap A10 over HTTP; E5 follow-up) — union of all
 // four allergy stores for any patient, admitted or not. PHI by definition.
 app.use('/api/v1/allergies', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('ALLERGY', { careTeamModeGoverned: true }), phiAccessLogger('ALLERGY'), allergyRoutes);
+
+// Patient blood-borne marker record (HIV/HBsAg/HCV/CJD) — read + void.
+// Rows are written by the lab sign-off hook and the cath readiness
+// checklist's external-result path; there is deliberately no create route.
+// PHI by definition.
+app.use('/api/v1/bloodborne-markers', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('BLOODBORNE_MARKERS', { careTeamModeGoverned: true }), phiAccessLogger('BLOODBORNE_MARKERS'), bloodborneMarkerRoutes);
 
 // Drug knowledge base (roadmap B2) — stateless KB evaluation + source
 // status. Reference data; patient-bound screening runs inside

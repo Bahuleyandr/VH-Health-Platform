@@ -615,6 +615,8 @@ const EXEMPT_MOUNT_PAIR_ENTRIES = [
     { fixInFlight: false, reason: 'FOLLOW-UP (not converted by the 2026-08 lane): All 5 routes already per-route guarded in-router; mount guard is redundant and undecided on 4 of 5 (param-only /patient/:patientUid + :id writes). Mount removal only.' }],
   ['/api/v1/allergies :: ./routes/clinical/allergyRoutes.js#default :: ALLERGY',
     { fixInFlight: false, reason: 'FOLLOW-UP (not converted by the 2026-08 lane): Single route GET /patient/:patientUid/unified is param-only and ALREADY carries its own per-route guard; the mount guard has never decided anything on this router.' }],
+  ['/api/v1/bloodborne-markers :: ./routes/clinical/bloodborneMarkerRoutes.js#default :: BLOODBORNE_MARKERS',
+    { fixInFlight: false, reason: 'Same shape as /api/v1/allergies: both routes (GET /patient/:patientUid, POST /patient/:patientUid/markers/:id/void) are param-only and ALREADY carry the in-router guardMarkerAccess per-route guard, which is the authority; the mount guard cannot see :patientUid and never decides. Mount removal only.' }],
   ['/api/v1/bcma :: ./routes/clinical/bcmaRoutes.js#default :: BCMA',
     { fixInFlight: false, reason: 'FOLLOW-UP (not converted by the 2026-08 lane): The reference pattern lives here: guardWristbandView per-route guard is the authority (owner’s 2026-08-25 admin grant on PATIENT_WRISTBAND_PRINT); the mount guard sees no :patientUid and is documented in app.js as never firing. Mount removal only.' }],
   ['/api/v1/med-rec :: ./routes/clinical/medRecRoutes.js#default :: MED_REC',
