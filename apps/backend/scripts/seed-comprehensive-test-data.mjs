@@ -1298,6 +1298,34 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     sex: 'female',
     mother_patient_uid: ctx => ctx.patient.uid
   },
+  // mig 764: a marker row couples three decisions the per-column walker makes
+  // independently. void_check is all-or-nothing and voided_by is a nullable FK,
+  // which the walker fills unconditionally — producing a live row that also
+  // names a voider. lab_link_check ties the discriminator to the lab link
+  // ((source = 'clinical_declaration') = (lab_result_id IS NULL)); that check is
+  // a two-column equality, so checkedValue() reads no trigger in it and derives
+  // 'lab_result' from the single-column source CHECK, while lab_result_id is
+  // resolved from whichever lab_results row is first. And the patient and
+  // recorder are tenant-pinned composites into users ((tenant_id, patient_uid),
+  // (tenant_id, recorded_by)) whose members the walker resolves one column at a
+  // time.
+  //
+  // Seed the one shape that asserts nothing unearned: a live, never-voided
+  // clinical declaration recorded by a real doctor against a real patient of
+  // the seeded tenant, with no lab result behind it. marker and result need no
+  // pin — checkedValue() derives 'hiv' and 'indeterminate' from their
+  // single-column CHECKs, avoiding exactly the 'other' and 'cjd_suspected'
+  // literals that would engage marker_label and the CJD result branch.
+  patient_bloodborne_markers: {
+    tenant_id: ctx => ctx.tenantId,
+    patient_uid: ctx => ctx.patient.uid,
+    recorded_by: ctx => ctx.doctor.uid,
+    source: 'clinical_declaration',
+    lab_result_id: null,
+    voided_at: null,
+    voided_by: null,
+    void_reason: null
+  },
   // Optional dependent linkage is real consent evidence, not synthetic seed
   // material. A plain family contact remains a valid coverage row.
   family_members: {
