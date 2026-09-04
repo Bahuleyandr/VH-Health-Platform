@@ -99,4 +99,11 @@ describe('labAnalyteCodes', () => {
       .toEqual(['CBC', 'ELECTROLYTES', 'CREATININE', 'HIV', 'HBSAG', 'HCV']);
     expect(orderCodesCovering(null)).toEqual([]);
   });
+
+  test('the codes ordered for all items cover every item', () => {
+    const codes = orderCodesCovering(LAB_ANALYTE_ITEM_CODES);
+    for (const key of LAB_ANALYTE_ITEM_CODES) {
+      expect(codes.some((c) => LAB_ANALYTE_ITEMS[key].orderCodes.includes(c))).toBe(true);
+    }
+  });
 });
