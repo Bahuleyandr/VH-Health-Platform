@@ -141,7 +141,7 @@ One row per physical device. No patient identity: patient linkage lives only on 
 | tenant_id | UUID NOT NULL | GUC default; FK `tenants(id)` |
 | facility_id | INTEGER NOT NULL | from the origin case; composite FK `(tenant_id, facility_id) → facilities (tenant_id, id)` |
 | catalog_item_id | BIGINT NOT NULL | composite FK `(tenant_id, catalog_item_id) → cath_consumable_catalog (tenant_id, id)` |
-| device_tag | VARCHAR(24) GENERATED ALWAYS AS ('RP' \|\| lpad(id::text, 8, '0')) STORED | printed on the label and encoded in its barcode; unique index `(tenant_id, device_tag)` |
+| device_tag | VARCHAR(24) GENERATED ALWAYS AS ('RP' \|\| lpad(id::text, GREATEST(8, length(id::text)), '0')) STORED | printed on the label and encoded in its barcode; unique index `(tenant_id, device_tag)`. **As built:** the width floor is `GREATEST(8, length(id::text))`, not a fixed 8, so `lpad` never truncates once the bigint id passes 10⁸ — `DEVICE_TAG_PATTERN = /^RP[0-9]{8,19}$/` in `cathDeviceReuseService.js`, not a fixed 8 digits, and `CATH_DEVICE_TAG_INVALID`'s message reads "device tag must look like RP00000042" as an example, not a spec. |
 | origin_usage_id | BIGINT NOT NULL | composite FK `(tenant_id, origin_usage_id) → cath_case_consumable_usage (tenant_id, id)`; the first-use row |
 | origin_unit_index | SMALLINT NOT NULL DEFAULT 1 | CHECK ≥ 1; UNIQUE `(origin_usage_id, origin_unit_index)` — a usage of quantity N can yield up to N devices |
 | cycle_count | INTEGER NOT NULL DEFAULT 0 | CHECK `cath_reprocessable_devices_cycle_check`: ≥ 0 |
@@ -174,6 +174,8 @@ Transitions (Phase 1). Any other transition is refused with `CATH_DEVICE_INVALID
 | awaiting_reprocessing / in_cssd / available | CSSD `quarantine` | quarantined | reason required |
 | quarantined | CSSD `release` | awaiting_reprocessing | never straight to available; a fresh cycle is required |
 
+**As built:** `releaseDevice` clears `quarantine_reason`/`quarantined_at` back to `NULL` on this transition (and on `reprocessed`) rather than leaving the last quarantine's reason hanging off an otherwise-clean device. A usage row pinned to a device that is currently `in_case` is undeletable in practice — usage rows are append-only and the `cath_reprocessable_devices_in_case_check` biconditional (`(status = 'in_case') = (current_usage_id IS NOT NULL)`) would refuse the FK's `ON DELETE SET NULL` — but nothing in the schema stops two usage rows from naming the same `(device_id, reuse_cycle)` pair; that uniqueness is enforced only by the service's `FOR UPDATE` lock plus the device status machine (a device can only be captured while `available`, and capture immediately flips it to `in_case`), not by a database constraint.
+
 ### 5.5 Changes to `cath_case_consumable_usage`
 
 - `device_id BIGINT NULL` composite FK `(tenant_id, device_id) → cath_reprocessable_devices (tenant_id, id)` — set on reused rows.
@@ -185,6 +187,7 @@ Transitions (Phase 1). Any other transition is refused with `CATH_DEVICE_INVALID
 - New CHECK `cath_consumable_usage_reused_device_shape_check`, two biconditionals plus the no-batch/no-movement clause: `(inventory_decrement_status = 'reused_device') = (device_id IS NOT NULL)` AND `(inventory_decrement_status = 'reused_device') = (reuse_cycle IS NOT NULL)`, and reused rows have `inventory_batch_id IS NULL AND inventory_movement_id IS NULL`.
 - `chk_cath_usage_exact_inventory_authority_753` dropped and re-added `NOT VALID` with a third arm: `inventory_decrement_status = 'reused_device' AND device_id IS NOT NULL AND facility_id IS NOT NULL AND inventory_item_id IS NOT NULL AND inventory_batch_id IS NULL AND inventory_movement_id IS NULL`. The added `inventory_item_id IS NOT NULL` clause is what lets the existing facility/catalogue/item FK bite on reused rows too. It stays `NOT VALID` for the same reason the original did (legacy rows); the migration header carries the violation-count query and the `VALIDATE CONSTRAINT` follow-up so it does not join the OPEN-15 backlog by default.
 - `cath_authority_identity_guard_753` (the append-only/immutability trigger function) is re-declared alongside the assert-contract function so that, on `cath_case_consumable_usage`, `device_id` and `reuse_cycle` join the immutable column list once written — a change to either after insert raises the same 23514 as changing `catalog_item_id` or `quantity` today. `post_use_disposition`, `post_use_screen` and `reuse_screen` are deliberately left out of that list and stay mutable, since post-use recording writes them after the capture insert.
+- **As built, one more constraint touched:** migration 765 also drops and re-adds `cath_consumable_usage_batch_expiry_check` (originally added by migration 564) with an extra disjunct, `OR inventory_decrement_status = 'reused_device'` — otherwise batch-tracked catalogue items (most catheters, balloons, sheaths) could never take the `reused_device` path, since 564's check demands batch/expiry fields whenever the catalogue item is batch-tracked and a reused row deliberately carries neither (the lineage lives on the origin usage row, not the reused one).
 
 ### 5.6 Change to `cath_consumable_catalog`
 
@@ -213,6 +216,12 @@ Inside the existing tenant transaction, after the case lock (cathLabService.js:4
 
 The pharmacy reconciliation listings and the recovery worklist exclude `reused_device` rows; they never appear in a pharmacist's queue.
 
+**As built:**
+- Idempotency replay is answered **before** the device is locked — the same shape as a new-unit capture's replay — so a retried request with the same key never re-enters the transition machinery at all, whether the device is available or not.
+- `wasted: true` on a reused capture (§6.5) discards the device via `markDeviceWastedTx` (reason `wasted`, usage `post_use_disposition = 'discarded_wasted'`); if the capture also ran under `override_allowed` with an acknowledgement, the `EXPOSED_DEVICE_REUSED` safety review (§7.5) is still written even though the device never returns to service.
+- The `serology_validity_days` used by the first-use `reuse_screen` and by `getCase.reuse_restriction` is the tenant's own `cath_reprocessing_settings` value (default 90), not a hardcoded window.
+- `positiveInt` — the guard on every bigint row id, the facility filter and bounded policy fields — accepts decimal digits only (`^[0-9]+$` after trimming); it rejects `'7e2'`, `'0x10'`, `'+7'` and `'7.0'`, each of which `Number(value)` alone would silently accept as a different value than the caller typed.
+
 ### 6.3 Post-use (the return tap)
 
 `POST /api/v1/cath-lab/cases/:caseId/consumables/:usageId/post-use`, idempotency scope `cath_consumable_post_use`. Body: `{ disposition: 'reprocess' | 'discard', units?, discard_reason?, discard_note?, acknowledgement?: { reason } }`.
@@ -230,9 +239,27 @@ The server computes the allowed dispositions and returns them with the case's co
 4. Reused rows: the device moves per the transition table. At `cycle_count = max_cycles_snapshot` the only disposition is `discard`, reason `max_cycles_reached`.
 5. The usage row's `post_use_disposition` is set. Idempotent replays return the original result.
 
+**As built:**
+- `computePostUseOptions` checks the **device's own** exposure flag before the current patient's serology: a device the late-reactive sweep (§6.6) flagged from a *previous* patient returns discard-only (reason `bloodborne_exposure`, reason code `device_exposure_flagged`) under the `discard` rule even when the current patient's own screen is clear — the device's history, not the case in front of it, decides.
+- If the device was already `discarded` — CSSD can discard a device while it sits `in_case`, even though this Admin console does not offer that action (§6.4) — the post-use call still returns HTTP 200 and settles the usage as `discarded_other` or `discarded_bloodborne_exposure` with `device_already_discarded: true` in the response and in the recorded metadata; the Staff panel renders an amber notice rather than an error.
+- First-use rows: units not sent are recorded in `metadata.units_not_reprocessed` only when `units < quantity`; `units` is capped at `CATH_DEVICE_UNITS_CAP` = 50 regardless of the row's quantity.
+- `upsertCategoryPolicies` (the settings/policies PUT, §9.5) rejects a payload with more than nine entries or a repeated category with `CATH_REPROCESSING_POLICY_DUPLICATE` (nine is the count of `cath_consumable_catalog_category_check` values, §5.3).
+- `markDeviceReprocessed` checks the reprocessed-transition's `from` list **before** any of its own branching — including before the fail-discard shortcut — so a function-check failure submitted against a device that is `in_case`, `available`, `quarantined` or `discarded` 409s as `CATH_DEVICE_INVALID_TRANSITION` naming the actual state, instead of being silently discarded by the wider `from` list a plain `discard` call would accept.
+- Cycle-type validation is two failures, not one: `CSSD_DEVICE_CYCLE_TYPE_INVALID` (400) for a value outside the six-type vocabulary, `CSSD_DEVICE_CYCLE_TYPE_NOT_ALLOWED` (409, carries the allowed list) for a known type the category policy does not permit.
+- `releaseDevice` clears `quarantine_reason` and `quarantined_at` back to `NULL` on the `quarantined → awaiting_reprocessing` transition (§5.4).
+- The `discarded_check`, the `in_case_check` biconditional and the `exposure_check` are exactly as declared in §5.4 — no additional shape constraints were added at this layer.
+- Every device transition's audit-row `metadata` carries `idempotency_key` (the request's idempotency key, or `null` for the system actor in §6.6) alongside `device_tag`, `from`, `to` and the reason fields.
+
 ### 6.4 CSSD device queue
 
 Admin CSSD board gains a **Devices** tab backed by the CSSD endpoints (§9.3). Each row shows tag, catalogue item, facility, cycle `k of max`, status, exposure flag, time in queue. Actions: receive, reprocessed (choose cycle type from the category's allowed list; record function check when required), quarantine, release, discard. Reprocessed prints the label (tag as text and barcode) through the browser print path the board already uses for load reports. No patient data is present in any payload on this router.
+
+**As built, several narrowings from the paragraph above:**
+- The `/devices` sub-tree of `/api/v1/cssd` is gated by `CSSD_DEVICE_ROUTE_ROLES`, an intersection of `CSSD_ROUTE_ROLES` with `SUPER_ADMIN, ADMIN, NURSING_STAFF, OT_NURSE, OT_INCHARGE, OT_STAFF, QUALITY_OFFICER, INFECTION_CONTROL_OFFICER` — narrower than the CSSD mount at large. There is no `CSSD_*` role in the policy graph; `OT_STAFF`/`OT_NURSE`/`OT_INCHARGE` **are** the CSSD hands here. HR, DPO, compliance, pharmacy and stores roles that can reach the rest of `/api/v1/cssd` are excluded from the device sub-tree; cath-lab roles were never on it (§6.2/§6.3 are how a cath role hands a device to CSSD and takes it back).
+- The Devices tab does not offer a Discard action for a device in `in_case`, even though the service's transition table (§5.4) allows CSSD to discard from that state: a device in a case is settled by the cath lab's own post-use tap, and a console-side discard behind the lab's back would strand that usage row and lose the reason the device left the case. `in_case` and `discarded` both render with no action buttons.
+- Cycle type is offered from all six types in the vocabulary, not filtered to the category's `allowed_cycle_types`; the backend enforces the policy and returns `CSSD_DEVICE_CYCLE_TYPE_NOT_ALLOWED` (409, carrying the allowed list) for a type the category forbids. Filtering the picker by policy is a follow-up (§18).
+- "Prints the label" is, as built, a text reminder inside the reprocessed dialog ("Print and affix the label carrying tag …") rather than a call to any label/barcode endpoint — no device-label print endpoint exists yet (§18).
+- The row set as built has no facility column and no time-in-queue column; the table shows tag, device (catalogue item), cycle, status, exposure and an "Updated" timestamp only (§18).
 
 ### 6.5 Wasted reused device
 
@@ -247,6 +274,8 @@ When a marker row with `result = 'reactive'` (or `cjd_suspected`) is recorded fo
 3. Writes a `cds_alerts` row for the patient (`alert_type = 'bloodborne_reuse_exposure'`, `severity = 'high'`, description naming the device tags) and a notification through the existing outbox to `INFECTION_CONTROL_OFFICER` recipients, following the `cath_inventory_shortfall` notification shape.
 
 This is what makes "unknown serology means warn" safe for emergency cases that proceed with serology pending.
+
+**As built, the sweep's resilience contract:** candidates are read once (ordered by device id, for a reproducible partial-failure list), then each device is quarantined in its **own** transaction rather than one transaction for the whole set — a lock timeout or a status race on one device must not roll back the nine that already succeeded. A device already `discarded` under the lock is skipped (re-checked at lock time, not only in the candidate read, since CSSD may have discarded it in the interim); a device already `in_case` or `quarantined` gets the exposure flag stamped without attempting the transition. Failures are collected as `{ device_id, error }` and returned/logged rather than raised, and the window boundary is computed at Asia/Kolkata midnight (`AT TIME ZONE 'Asia/Kolkata'`) so the boundary does not drift 5h30m against the server's UTC session zone. The `cds_alerts` row and outbox notification are still raised for whatever subset of devices did settle, even when others in the same sweep failed — a partial sweep infection control never hears about is the failure mode this guards against. Separately, `facilityService.js`'s facility-shutdown blocker query now counts `reused_device` as a reconciled terminal state alongside `decremented` and `not_applicable` (§8), matching the migration note that a reused row can never reach `decremented`.
 
 ## 7. Blood-borne marker record
 
@@ -387,8 +416,10 @@ All mutations require an idempotency key. Money and stock are untouched by every
 | `GET /cases/:id/consumables` | existing; each row gains `device_tag`, `reuse_cycle`, `post_use_disposition`, `allowed_post_use` |
 | `GET /cases/:id` | existing; payload gains `reuse_restriction` (resolver output) and `reprocessing_policy_summary` |
 | `POST /cases/:id/consumables/:usageId/post-use` | §6.3 |
-| `GET /devices?tag=` | device state for the capture sheet (no patient data) |
+| `GET /devices/lookup?case_id=&tag=` | device state for the capture sheet, case-pinned; `exposure_markers` blanked for RECEPTIONIST/TECHNICIAN (§6.2 as-built) |
 | `GET /devices/:deviceId/history` | uses (case, patient_uid, used_at, cycle) and transitions; PHI |
+
+**As built:** `GET /devices/:deviceId/history` is gated by `requireCathWorkflow`, not `requireReportRead` — reading who a device has touched is treated as a workflow action, not a report read. The same handler function is also registered at `GET /api/v1/cath-reprocessing/devices/:deviceId/history` (§9.5) so infection control can open a device's history without holding a cath-lab workflow role. Because the response lists every patient a device has touched, it is PHI with no single patient subject: neither mount's `phiAccessLogger` can resolve a patient from the request (the cath mount's logger would record `patient_id = NULL`; the governance mount carries no PHI logger at all). The handler instead writes its own `hipaa_access_log` trail explicitly, before responding — one row per **distinct** patient in the answer, `record_type = 'CATH_LAB'`, `action = 'VIEW'`, in batches of 25, with `request_id` set to `"<incoming request id, truncated to fit> cath_device:<device id>"` (the table has no resource column, so the device token rides in the one free-text correlation field, and it is always kept in full — an oversized incoming `X-Request-Id` header is truncated instead). `GET /cases/:id` and `GET /cases/:id/consumables` both project `reuse_restriction` by role through `projectReuseRestrictionForRole`/`roleSeesSerologyDetail` (§9.2 as-built) before returning it.
 
 ### 9.2 Blood-borne markers (`/api/v1/bloodborne-markers`)
 
@@ -403,7 +434,7 @@ There is no general create endpoint on this router. Marker rows are created by t
 
 Voiding a lab-linked row through `POST /:id/void` does not retract the lab result. As §7.1 notes, the lab-linked slot it frees is re-filled: the next sign-off event or reconciliation run (§18) for that result re-inserts a row from the result's current content, because the writer treats the lab result as the source of truth. The durable way to retract a lab-linked marker finding is to correct the lab result itself, not to void the marker row.
 
-Implementation detail beyond the table: `validity_days` is parsed digits-only and must be an integer 1–365, else 400; a repeated query key (which Express arrays into `"30,90"`) is rejected by the same digits-only test. The record type `BLOODBORNE_MARKERS` is registered in `config/careTeamGovernedRecordTypes.js` and mapped to `PATIENT_CLINICAL_WORKFLOW_ACCESS` in `services/security/accessPolicyRegistry.js`. The mount is listed in the mount-level patient-guard census exemptions (`mountLevelPatientGuardCensus.test.js`) as a param-only router that already carries its own in-router `guardMarkerAccess` guard — the mount guard runs before Express has matched a route and cannot see `:patientUid` — the same treatment as `/api/v1/allergies`. The OpenAPI contract (`scripts/openapi/schemas/bloodborneMarkers.mjs`, synced to `packages/vhhealth_core/swagger/openapi.json`) makes `BloodborneReuseMarkerSummary.age_days` nullable and `label` always present (not only for `other`), requires `reasons` to carry at least one entry (`minItems: 1`), and lists all sixteen `BloodborneMarker` columns as required (only their values are nullable).
+Implementation detail beyond the table: `validity_days` is parsed digits-only and must be an integer 1–365, else 400; a repeated query key (which Express arrays into `"30,90"`) is rejected by the same digits-only test. The record type `BLOODBORNE_MARKERS` is registered in `config/careTeamGovernedRecordTypes.js` and mapped to `PATIENT_CLINICAL_WORKFLOW_ACCESS` in `services/security/accessPolicyRegistry.js`. The mount is listed in the mount-level patient-guard census exemptions (`mountLevelPatientGuardCensus.test.js`) as a param-only router that already carries its own in-router `guardMarkerAccess` guard — the mount guard runs before Express has matched a route and cannot see `:patientUid` — the same treatment as `/api/v1/allergies`. The OpenAPI contract (`scripts/openapi/schemas/bloodborneMarkers.mjs`, synced to `packages/vhhealth_core/swagger/openapi.json`) makes `BloodborneReuseMarkerSummary.age_days` nullable and `label` always present (not only for `other`), and lists all sixteen `BloodborneMarker` columns as required (only their values are nullable). **As built, `reasons` no longer carries `minItems: 1`.** `computeReuseStatus` always produces at least one reason, but the cath surfaces (§9.1) project this same `BloodborneReuseStatus` object by role through `projectReuseRestrictionForRole`: a caller outside `CLINICAL_STAFF_ROUTE_ROLES` gets `status`, `validity_days` and `evaluated_at` with `reasons` and `markers` **emptied**, not dropped, so the published shape holds for every caller — `SEROLOGY_DETAIL_ROLES` is `CLINICAL_STAFF_ROUTE_ROLES` itself, reused rather than a parallel list that could drift from it. A `minItems: 1` constraint would make that projection a contract violation, so it was removed from the schema.
 
 ### 9.3 CSSD (`/api/v1/cssd`, `CSSD_ROUTE_ROLES`, unchanged role set; no PHI in any payload)
 
@@ -418,17 +449,31 @@ Implementation detail beyond the table: `validity_days` is parsed digits-only an
 
 Idempotency scope `cssd_device_transition`. Each transition writes the CSSD audit row the service already writes for set and load changes.
 
+**As built:** the `/devices` sub-tree is narrower than the mount's stated "unchanged role set" — see §6.4 as-built for `CSSD_DEVICE_ROUTE_ROLES`, the intersection with `CSSD_ROUTE_ROLES` that excludes HR, DPO, compliance, pharmacy and stores roles from device transitions specifically.
+
 ### 9.4 Admin (`/api/v1/admin/cath-consumables`, existing router mounted at admin/index.js:260 under `ADMIN_ROUTE_ROLES` with super-admin step-up, app.js:1888)
 
 | Method and path | Purpose |
 |---|---|
-| `GET / PUT /reprocessing-settings` | §5.2 |
-| `GET / PUT /reprocessing-policies` | §5.3, whole set per tenant |
 | `PUT /catalog/:id` | existing; accepts `reused_billing_item_code` |
 
-The two reprocessing endpoints add a route-level `requireRole('QUALITY_OFFICER', 'INFECTION_CONTROL_OFFICER', 'SUPER_ADMIN')` inside the router, the pattern the admin index already uses for its dark-gate console (admin/index.js:246). Writes are audited (`CATH_REPROCESSING_SETTINGS_UPDATED`, `CATH_REPROCESSING_POLICY_UPDATED`) the way `setDoseAlertSettings` audits (cathSchedulingRegistryService.js:567).
+**As built, the reprocessing settings/policies endpoints do not live here.** The design above put `GET`/`PUT /reprocessing-settings` and `GET`/`PUT /reprocessing-policies` on this router behind a route-level `requireRole('QUALITY_OFFICER', 'INFECTION_CONTROL_OFFICER', 'SUPER_ADMIN')`. That shape cannot work: this mount is gated at the mount level by `ADMIN_ROUTE_ROLES` (`SUPER_ADMIN`/`ADMIN` only, plus super-admin step-up), and a route-level `requireRole` can only *subtract* from what the mount already admits — it can never let through a role the mount refused. QUALITY_OFFICER and INFECTION_CONTROL_OFFICER were named in the route gate and admitted by neither it nor the mount: the prefix-mount lockout class recorded elsewhere in this program. As built, the four operations move to their own mount — see §9.5. `PUT /catalog/:id` (the catalogue's reused-billing-code field) is the only endpoint that stays here, unchanged.
 
 `npm run openapi:check` runs after the route changes; `apps/backend/scripts/openapi/schemas/cathConsumables.mjs` is updated for the new fields and its `INVENTORY_DECREMENT_STATUSES` list, which still omits `not_applicable`, is corrected to the seven live values in the same change.
+
+### 9.5 Cath reprocessing governance (`/api/v1/cath-reprocessing`, `CATH_REPROCESSING_POLICY_ROUTE_ROLES`, `app.js:1220`) — as built, replaces the §9.4 rows above
+
+| Method and path | Purpose |
+|---|---|
+| `GET` / `PUT /settings` | §5.2 |
+| `GET` / `PUT /policies` | §5.3, whole set per tenant |
+| `GET /devices/:deviceId/history` | same handler as §9.1's cath-lab route; infection control's entry point |
+
+A new mount, not a route-level gate on an existing one. `CATH_REPROCESSING_POLICY_ROUTE_ROLES` = `QUALITY_OFFICER`, `INFECTION_CONTROL_OFFICER`, `SUPER_ADMIN`, `ADMIN` (`config/routeRolePolicy.js`), applied as the mount-level `requireRole` in `app.js`. ADMIN is included deliberately, not by inheritance from the old admin mount: the same console administers the consumable catalogue's billing codes (`reused_billing_item_code` only means anything once a category is reprocessable, §5.6) and hosts the policy editor — revisiting that inclusion is a one-line change, not a redesign. The mount deliberately carries **none** of `requireSuperAdminStepUp`, `adminIpAllowlist` or `adminRateLimiter` — this is clinical-mount posture, the same as `/api/v1/cssd` and `/api/v1/cath-lab`, not the SUPER_ADMIN control-plane posture of the `/api/v1/admin/*` mounts: the audience is ward/infection-control roles on ordinary hospital workstations, not a fixed admin IP set, and none of `CATH_REPROCESSING_POLICY_ROUTE_ROLES` requires step-up elsewhere either. A rate limiter is noted as a one-line follow-up if the owner wants a ceiling on this surface (§18).
+
+Both `PUT /settings` and `PUT /policies` require `Idempotency-Key` with scope `cath_reprocessing_policy` — one scope for the pair, since both writes are commands against the same tenant-wide row set edited from the same screen. Writes are still audited as `CATH_REPROCESSING_SETTINGS_UPDATED` / `CATH_REPROCESSING_POLICY_UPDATED`, unchanged from the original design.
+
+The router carries no PHI except `GET /devices/:deviceId/history`, which is the one read that writes its own per-patient `hipaa_access_log` rows rather than relying on a mount-level PHI logger the mount does not have (§9.1 as-built has the batching and `request_id` shape). The Admin app's `/api/proxy` allowlist (`ALLOWED_PATH_PREFIXES`) gained the `api/v1/cath-reprocessing` prefix; the Admin console's route policy admits `QUALITY_OFFICER`/`INFECTION_CONTROL_OFFICER` at `STAFF` rank for both `/dashboard/cssd` and `/dashboard/quality/cath`, so the officers can reach the pages that call these endpoints.
 
 ## 10. Billing
 
@@ -448,11 +493,23 @@ Staff (Flutter):
 - `cath_lab_screen.dart`: the restriction strip in the case header next to the readiness strip (:572-580); "Record outside serology" opens the checklist's external-result sheet for the serology items (companion spec §10).
 - `cath_lab_api_service.dart` and `cath_consumable_models.dart`: the new fields and endpoints.
 
+**As built, additions beyond the bullets above:**
+- The device-tag lookup guards against a stale card: `cath_consumable_capture_sheet.dart` keeps an internal generation counter (`_lookupGeneration`) that a catalogue-item change or a fresh scan bumps, so a slow in-flight lookup response for a superseded tag is dropped instead of populating the sheet with a device the pending save would not actually send. The card always shows the tag that will be submitted.
+- `_scan()` fills the catalogue **search** field, not the device-tag field — a scanned device tag still has to be typed or otherwise entered into the reused-device field; wiring the scanner to the tag field is a follow-up (§18).
+- Post-use recording goes through the module-level `IdempotencyAttemptRegistry` (the same mechanism `ward_indent_workbench.dart`, `orders_screen.dart` and others already use) so a retry of the same post-use action replays the same idempotency key rather than minting a new one.
+- On a failed post-use call, the panel reloads the case's consumables rather than leaving stale `allowed_post_use` state on screen.
+- The post-use discard path never demands the exposure acknowledgement: only `reprocess` can return a device to service, so only `reprocess` needs the attestation — a discard already takes the device out of service.
+- `cath_reuse_restriction_strip.dart` renders nothing when the restriction status is `clear`, and caps visible `reasons` at 4 with a "+N more" line (`s4.dynamic.cath_lab.consumables.more_reasons`) rather than growing unbounded.
+- New Staff strings, all five locale maps: `s4.lib.cath_lab.consumables.post_use_device_already_discarded`, `.post_use_note`, `.post_use_confirm`, `s4.dynamic.cath_lab.consumables.more_reasons`.
+- Staff refusal messages surface in English only in the current build — the platform's `ApiResponse.code` is discarded on the client rather than mapped through the five-locale string tables; a localized-refusal pass is a follow-up (§18).
+
 Admin (Next.js):
 
-- `dashboard/cssd`: Devices tab with the actions in §6.4 and label printing.
+- `dashboard/cssd`: Devices tab with the actions in §6.4 (as narrowed there) and label printing (as built, a text reminder rather than a print endpoint — §6.4, §18).
 - `dashboard/billing/cath-consumables`: catalogue form field for the reused code; unbilled tab shows the new gap reason.
 - `dashboard/quality/cath`: Reprocessing policy tab (settings and per-category rows).
+
+**As built:** the shared `Modal` component used by both new dashboards does not trap keyboard focus inside itself — a follow-up (§18), not specific to this feature but exercised by it.
 
 ## 12. Error handling
 
@@ -535,3 +592,13 @@ Repository gates: `scripts/ci/security.mjs` (inline-check census static guard: u
 - Database-level enforcement of append-only (a `BEFORE UPDATE OR DELETE` trigger in the merge-aware pattern of migration 758, so the patient-merge sweep can still re-point `patient_uid`) is deferred, as already noted in §5.1; convention (insert-only, void transition) is the only enforcement today.
 - There is no outbox for exposure notifications: a crash between the lab-sign-off commit and the post-commit `notifyExposureHandlers` call loses that event. The resolver is pull-based (§7.3), so a status read afterwards is still correct — only the push-style `cds_alerts` row and infection-control notification (§6.6) are missed, not the underlying restriction.
 - A reconciliation sweep — signed HIV/HBsAg/HCV `lab_results` rows with no active marker row — is recommended before any device-reuse reader goes live, to repair a hook miss that the try/catch around the post-commit call in §7.1 otherwise leaves unrepaired until the next sign-off event touches that same result.
+- **As built, additional follow-ups recorded during implementation:**
+  - CSSD's Devices tab offers all six cycle types rather than filtering to the category policy's `allowed_cycle_types`; the backend still enforces the policy (`CSSD_DEVICE_CYCLE_TYPE_NOT_ALLOWED`), so this is a UX gap, not a safety one (§6.4).
+  - There is no device-label print endpoint; the CSSD reprocessed dialog shows a text reminder to print and affix the tag instead (§6.4).
+  - The Devices tab has no facility column and no time-in-queue column (§6.4).
+  - `retainOnServerError` is deliberately not set on the device/post-use claim routes: the transition `from`-lists plus the service's idempotency replay make a retry after a post-commit 5xx safe on their own (a retry either replays the stored response or 409s naming the state actually reached), so this is a recorded design choice, not an oversight to revisit.
+  - A rate limiter on the `/api/v1/cath-reprocessing` mount (§9.5) is optional and not yet added.
+  - `reactive_markers`-style derivation straight from `computeReuseStatus` is not implemented on the device register: a device's `exposure_markers` list is whatever the late-reactive sweep or an override appended at the time, so a latched marker whose most recent row later reads `indeterminate` does not currently drop out of that list even though the resolver's own `restricted` status would still hold on the flag.
+  - Staff refusal messages are English-only; `ApiResponse.code` is not currently mapped through the five-locale string tables.
+  - The Admin `Modal` component (used by the CSSD and reprocessing-policy dialogs) does not trap keyboard focus.
+  - `cath_consumable_capture_sheet.dart`'s `_scan()` does not populate the device-tag field — a scanned reused-device tag must still be typed in.

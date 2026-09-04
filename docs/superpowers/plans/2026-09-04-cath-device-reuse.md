@@ -1,5 +1,28 @@
 # Cath Device Reuse Implementation Plan
 
+## Execution notes (as built)
+
+Tasks 1–7 have been executed (commits below); Task 8 gates/hand-back are pending. Implementation worktree: `feat/cath-device-reuse`, backend final at `46c5c1265`, staff at `d520da250`; admin (Task 7) landed at `3bcf151f7` and is still being fixed as of this note. Each task went through a review loop — spec-and-quality review, fix commit(s), re-review — which is why several tasks carry more than one commit. The spec (`docs/superpowers/specs/2026-09-04-cath-device-reuse-and-bloodborne-markers-design.md`) has been updated in place with "As built" call-outs against every section below; read those alongside this list rather than treating the original prose as current.
+
+Commits per task:
+- **Task 1** (migration 765): `b86ac322c`, `6280492a7`, `956b702c7`, `273c1bb52`
+- **Task 2** (`cathDeviceReuseService.js` core): `8efd7c371`, `126b7853d`
+- **Task 3** (reuse context, reused capture, post-use, late-reactive, history): `bd81cdddd`, `c155671ec`, `c7689e5a0`
+- **Task 4** (routes and OpenAPI): `082e47775`, `1e8097a5f`, `46c5c1265`
+- **Task 5** (billing and catalogue code): `47f74c708`
+- **Task 6** (Staff app): `24079863a`, `d520da250`
+- **Task 7** (Admin app): `3bcf151f7` (+ fix pending)
+
+Deltas from the plan/spec worth knowing before touching this code further:
+1. The reprocessing settings/policies endpoints (Task 4/7) do **not** live on `/api/v1/admin/cath-consumables` as designed — a route-level `requireRole` under the `/api/v1/admin` mount can only subtract from what the mount already admits, and the mount's `ADMIN_ROUTE_ROLES` (SUPER_ADMIN/ADMIN) never admitted QUALITY_OFFICER or INFECTION_CONTROL_OFFICER in the first place (the prefix-mount lockout class). They now live on their own mount, `/api/v1/cath-reprocessing`, gated by `CATH_REPROCESSING_POLICY_ROUTE_ROLES` (QUALITY_OFFICER, INFECTION_CONTROL_OFFICER, ADMIN, SUPER_ADMIN) with no super-admin step-up, IP allowlist or admin rate limiter. See spec §9.5.
+2. Device history (`GET .../devices/:deviceId/history`) is gated by `requireCathWorkflow`, not report-read, and is served on both the cath-lab mount and the new governance mount through one shared handler that writes its own per-patient `hipaa_access_log` rows (batches of 25) since neither mount's PHI logger can resolve a patient from a device-scoped request. See spec §9.1 as-built.
+3. `reuse_restriction` and `exposure_markers` are now projected by role: RECEPTIONIST/TECHNICIAN get the status/window/evaluated-at shape with `reasons`/`markers` emptied, not the full serology narrative. `BloodborneReuseStatus.reasons` lost its `minItems: 1` in the OpenAPI contract as a result. See spec §6.2, §9.1, §9.2 as-built.
+4. The CSSD `/devices` sub-tree has its own narrower role set (`CSSD_DEVICE_ROUTE_ROLES`), the Admin Devices tab does not offer Discard on an `in_case` device, cycle-type filtering by policy and the device-label print endpoint are follow-ups, not built. See spec §6.4, §18 as-built.
+5. Migration 765 also relaxes `cath_consumable_usage_batch_expiry_check` (from migration 564) with a `reused_device` disjunct, and the device tag width is `GREATEST(8, length(id))` digits (regex `RP[0-9]{8,19}`), not a fixed 8. See spec §5.4, §5.5 as-built.
+6. Staff app gained a device-tag lookup generation counter (stale-response guard), a durable post-use idempotency registry, reload-on-failed-post-use, and a 4-reason cap with "+N more" on the restriction strip, beyond what the plan specified. See spec §11 as-built.
+
+Full list of as-built deltas, with exact file/line evidence, is in the spec's "As built" call-outs (§5.4, §5.5, §6.2, §6.3, §6.4, §6.6, §9.1, §9.2, §9.3, §9.4, §9.5, §11, §18).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let a cath lab record the reprocessing and reuse of catheters, guidewires, balloons and sheaths without a manual ledger: a system-minted device identity at return, a per-category tenant policy, reuse by tag scan with no stock movement and no pharmacy shortfall task, a manual CSSD device queue, reduced-tariff billing, and blood-borne restriction alerts at capture and return.
@@ -71,6 +94,8 @@ Expected tail: `763`, `764` (Plan 1). This plan uses **765**. Substitute if clai
 ---
 
 ## Task 1: Migration 765
+
+**Executed:** `b86ac322c`, `6280492a7`, `956b702c7`, `273c1bb52` (review loop; see Execution notes at top of this file).
 
 **Files:**
 - Create: `apps/backend/src/migrations/765_cath_device_reuse.sql`
@@ -357,7 +382,10 @@ CREATE TABLE cath_reprocessable_devices (
   ) REFERENCES tenants(id) ON DELETE CASCADE,
   facility_id INTEGER NOT NULL,
   catalog_item_id BIGINT NOT NULL,
-  device_tag VARCHAR(24) GENERATED ALWAYS AS ('RP' || lpad(id::text, 8, '0')) STORED,
+  -- AS BUILT (956b702c7): fixed-width lpad(id::text, 8, '0') TRUNCATES id on
+  -- the right past 99,999,999, naming a different, smaller id. GREATEST grows
+  -- the width floor with id instead.
+  device_tag VARCHAR(24) GENERATED ALWAYS AS ('RP' || lpad(id::text, GREATEST(8, length(id::text)), '0')) STORED,
   origin_usage_id BIGINT NOT NULL,
   origin_unit_index SMALLINT NOT NULL DEFAULT 1,
   cycle_count INTEGER NOT NULL DEFAULT 0,
@@ -601,6 +629,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ## Task 2: `cathDeviceReuseService.js` — rules, policies, register, CSSD transitions (TDD)
 
+**Executed:** `8efd7c371`, `126b7853d` (review loop; see Execution notes at top of this file).
+
 **Files:**
 - Create: `apps/backend/src/services/clinical/cathDeviceReuseService.js`
 - Test: `apps/backend/src/tests/unit/cathDeviceReuseService.test.js`
@@ -749,12 +779,14 @@ export const CATH_CATEGORIES = Object.freeze([
   'stent', 'balloon', 'guidewire', 'catheter', 'sheath', 'closure_device', 'pacemaker', 'lead', 'other',
 ]);
 export const IMPLANT_CATEGORIES = Object.freeze(['stent', 'pacemaker', 'lead', 'closure_device']);
-export const DEVICE_TAG_PATTERN = /^RP[0-9]{8}$/;
-// Regex stays RP + exactly 8 digits — do not widen it. `device_tag` is
-// GENERATED ALWAYS AS ('RP' || lpad(id::text, 8, '0')) STORED (spec §5.4):
-// lpad TRUNCATES on the right once id needs a 9th digit, so ids past
-// 99,999,999 are unreachable in practice for a well-formed tag; that ceiling
-// is a documented limitation, not something this pattern should paper over.
+// AS BUILT (956b702c7): the fixed-8-digits version below was wrong, not a
+// documented limitation — `lpad(id::text, 8, '0')` TRUNCATES id on the RIGHT
+// once it needs a 9th digit, so a device past id 99,999,999 would silently get
+// a tag naming a DIFFERENT, smaller id. Migration 765 generates the column as
+// `'RP' || lpad(id::text, GREATEST(8, length(id::text)), '0')` instead — the
+// width floor grows with id instead of truncating it — and the pattern here
+// was widened to match:
+export const DEVICE_TAG_PATTERN = /^RP[0-9]{8,19}$/;
 
 // Every state change on a device, and the states it may start from.
 export const DEVICE_ACTIONS = Object.freeze({
@@ -1257,6 +1289,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ---
 
 ## Task 3: Reuse context, reused capture, post-use, late-reactive handler, history
+
+**Executed:** `bd81cdddd`, `c155671ec`, `c7689e5a0` (review loop; see Execution notes at top of this file).
 
 **Files:**
 - Modify: `apps/backend/src/services/clinical/cathDeviceReuseService.js` (append)
@@ -2034,6 +2068,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ## Task 4: Routes and OpenAPI
 
+**Executed:** `082e47775`, `1e8097a5f`, `46c5c1265` (review loop; see Execution notes at top of this file — `1e8097a5f` is where the reprocessing policy mount, per-patient device-history audit and role-projected serology landed).
+
 **Files:**
 - Modify: `apps/backend/src/services/clinical/cathDeviceReuseService.js` (one lookup helper)
 - Modify: `apps/backend/src/routes/clinical/cathLabRoutes.js` (import block; `GET /cases/:id/consumables` at ≈345; new routes after `POST /cases/:id/consumables`)
@@ -2308,7 +2344,7 @@ const device = {
     tenant_id: { type: 'string', format: 'uuid' },
     facility_id: { type: 'integer', minimum: 1 },
     catalog_item_id: { type: 'integer', minimum: 1 },
-    device_tag: { type: 'string', pattern: '^RP[0-9]{8}$' },
+    device_tag: { type: 'string', pattern: '^RP[0-9]{8,19}$' }, // AS BUILT (956b702c7): 8-19 digits, not a fixed 8 (see DEVICE_TAG_PATTERN note above)
     origin_usage_id: { type: 'integer', minimum: 1 },
     origin_unit_index: { type: 'integer', minimum: 1 },
     cycle_count: { type: 'integer', minimum: 0 },
@@ -2585,10 +2621,16 @@ export const operations = {
   'POST /api/v1/cssd/devices/{id}/quarantine': { pathParameters: { id: BIGINT_WIRE }, parameters: [idempotencyHeaderParameter], request: 'CssdDeviceReasonRequest', response: 'CssdDeviceResponse' },
   'POST /api/v1/cssd/devices/{id}/release': { pathParameters: { id: BIGINT_WIRE }, parameters: [idempotencyHeaderParameter], request: 'CssdDeviceNoteRequest', response: 'CssdDeviceResponse' },
   'POST /api/v1/cssd/devices/{id}/discard': { pathParameters: { id: BIGINT_WIRE }, parameters: [idempotencyHeaderParameter], request: 'CssdDeviceDiscardRequest', response: 'CssdDeviceResponse' },
-  'GET /api/v1/admin/cath-consumables/reprocessing-settings': { response: 'CathReprocessingSettingsResponse' },
-  'PUT /api/v1/admin/cath-consumables/reprocessing-settings': { request: 'CathReprocessingSettingsUpdateRequest', response: 'CathReprocessingSettingsResponse' },
-  'GET /api/v1/admin/cath-consumables/reprocessing-policies': { response: 'CathReprocessingPoliciesResponse' },
-  'PUT /api/v1/admin/cath-consumables/reprocessing-policies': { request: 'CathReprocessingPoliciesUpdateRequest', response: 'CathReprocessingPoliciesResponse' }
+  // AS BUILT (1e8097a5f): these four moved off the admin cath-consumables
+  // barrel onto their own governance mount — a route-level requireRole under
+  // ADMIN_ROUTE_ROLES can only subtract from what the mount admits, and the
+  // mount never admitted QUALITY_OFFICER/INFECTION_CONTROL_OFFICER in the
+  // first place. See spec §9.5.
+  'GET /api/v1/cath-reprocessing/settings': { response: 'CathReprocessingSettingsResponse' },
+  'PUT /api/v1/cath-reprocessing/settings': { parameters: [idempotencyHeaderParameter], request: 'CathReprocessingSettingsUpdateRequest', response: 'CathReprocessingSettingsResponse' },
+  'GET /api/v1/cath-reprocessing/policies': { response: 'CathReprocessingPoliciesResponse' },
+  'PUT /api/v1/cath-reprocessing/policies': { parameters: [idempotencyHeaderParameter], request: 'CathReprocessingPoliciesUpdateRequest', response: 'CathReprocessingPoliciesResponse' },
+  'GET /api/v1/cath-reprocessing/devices/{deviceId}/history': { pathParameters: { deviceId: BIGINT_WIRE }, response: 'CathDeviceHistoryResponse' }
 };
 ```
 
@@ -2671,6 +2713,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ---
 
 ## Task 5: Billing and catalogue code
+
+**Executed:** `47f74c708` (see Execution notes at top of this file).
 
 **Files:**
 - Modify: `apps/backend/src/services/clinical/cathLabService.js` (`CATH_CONSUMABLE_CATALOG_SELECT` ≈1526, `upsertConsumableCatalogItem` ≈1653–1875, `maybeEmitCathBillingLines` ≈4653–4825, `listUnbilledConsumableUsage` ≈4827–4917)
@@ -2843,6 +2887,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ---
 
 ## Task 6: Staff app — reused capture, restriction strip, post-use actions
+
+**Executed:** `24079863a`, `d520da250` (review loop; see Execution notes at top of this file — `d520da250` is the fix commit: stale device-tag invalidation, durable post-use idempotency, discard-without-acknowledgement, header restriction strip).
 
 **Files:**
 - Modify: `apps/staff/lib/features/cath_lab/models/cath_consumable_models.dart`
@@ -3723,6 +3769,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ## Task 7: Admin — CSSD Devices tab, catalogue field, reprocessing policy editor
 
+**Executed:** `3bcf151f7`; a fix commit was pending as of this note (see Execution notes at top of this file).
+
 **Files:**
 - Create: `apps/admin/src/lib/api/cathDevices.ts`
 - Create: `apps/admin/src/app/(with-auth)/dashboard/cssd/components/DevicesTab.tsx`, `DeviceActions.tsx`
@@ -3841,20 +3889,28 @@ export function discardCssdDevice(id: number, body: { reason: string; note?: str
   return postJSON<CathDevice>(`/api/v1/cssd/devices/${id}/discard`, body, true, transitionHeaders(id, "discard", body));
 }
 
+// AS BUILT (1e8097a5f): these four calls target the new /api/v1/cath-reprocessing
+// governance mount, not /api/v1/admin/cath-consumables — the route-level gate
+// on that admin barrel could never admit QUALITY_OFFICER/INFECTION_CONTROL_OFFICER
+// in the first place (the mount itself is ADMIN_ROUTE_ROLES-only). Both PUTs also
+// require an Idempotency-Key (scope cath_reprocessing_policy). See spec §9.5.
+const CATH_REPROCESSING_SETTINGS_PATH = "/api/v1/cath-reprocessing/settings" as const;
+const CATH_REPROCESSING_POLICIES_PATH = "/api/v1/cath-reprocessing/policies" as const;
+
 export function getCathReprocessingSettings() {
-  return getJSON<{ settings: CathReprocessingSettings }>("/api/v1/admin/cath-consumables/reprocessing-settings");
+  return getJSON<{ settings: CathReprocessingSettings }>(CATH_REPROCESSING_SETTINGS_PATH);
 }
 
-export function updateCathReprocessingSettings(body: Partial<Pick<CathReprocessingSettings, "reactive_patient_rule" | "unknown_serology_rule" | "serology_validity_days">>) {
-  return putJSON<{ settings: CathReprocessingSettings }>("/api/v1/admin/cath-consumables/reprocessing-settings", body);
+export function updateCathReprocessingSettings(body: Partial<Pick<CathReprocessingSettings, "reactive_patient_rule" | "unknown_serology_rule" | "serology_validity_days">>, idempotencyKey: string) {
+  return putJSON<{ settings: CathReprocessingSettings }>(CATH_REPROCESSING_SETTINGS_PATH, body, true, transitionHeaders(idempotencyKey));
 }
 
 export function listCathReprocessingPolicies() {
-  return getJSON<{ policies: CathReprocessingPolicy[]; count: number }>("/api/v1/admin/cath-consumables/reprocessing-policies");
+  return getJSON<{ policies: CathReprocessingPolicy[]; count: number }>(CATH_REPROCESSING_POLICIES_PATH);
 }
 
-export function updateCathReprocessingPolicies(policies: CathReprocessingPolicy[]) {
-  return putJSON<{ policies: CathReprocessingPolicy[]; count: number }>("/api/v1/admin/cath-consumables/reprocessing-policies", { policies });
+export function updateCathReprocessingPolicies(policies: CathReprocessingPolicy[], idempotencyKey: string) {
+  return putJSON<{ policies: CathReprocessingPolicy[]; count: number }>(CATH_REPROCESSING_POLICIES_PATH, { policies }, true, transitionHeaders(idempotencyKey));
 }
 ```
 
