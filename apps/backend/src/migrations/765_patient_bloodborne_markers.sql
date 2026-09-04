@@ -9,17 +9,26 @@
 -- (docs/superpowers/specs/2026-09-04-cath-device-reuse-and-bloodborne-markers-design.md §5.1, §7);
 -- OT and dialysis are named future consumers.
 --
--- Append-only with voiding: a correction inserts a new row and voids the old
--- one; the resolver reads the latest non-voided row per marker.
+-- Append-only by convention: writers insert rows and perform the void
+-- transition (voided_at/voided_by/void_reason set together, nothing else
+-- changed); the resolver reads the latest non-voided row per marker.
+-- Database-level enforcement (a BEFORE UPDATE OR DELETE trigger in the
+-- merge-aware pattern of migration 758's enforce_*_patient_merge_path_753,
+-- so the patient-merge sweep can still re-point patient_uid) is deferred to a
+-- follow-up and tracked on the delivering pull request.
 --
 -- Writers: the lab sign-off hook (source = lab_result, one row per signed
 -- HIV/HBSAG/HCV result, idempotent through ux_patient_bloodborne_markers_lab_result)
 -- and, in the companion cath readiness work, the checklist's external-result
 -- and clinical-declaration paths. There is no general create endpoint.
+-- Foreign keys are tenant-pinned composites (users (tenant_id, uid);
+-- lab_results (tenant_id, id, patient_uid)) so a marker can never bind to
+-- another tenant's or another patient's lab result.
 --
 -- No NOT VALID constraints; the table is new, so nothing joins the OPEN-15
--- validation backlog. Every CHECK is named so the inline-check census reads
--- it as declared.
+-- validation backlog. Every CHECK is named explicitly so the constraint names
+-- are stable (Postgres auto-names would be <table>_<column>_check, ambiguous
+-- for the multi-column checks below).
 
 BEGIN;
 
@@ -48,9 +57,18 @@ CREATE TABLE patient_bloodborne_markers (
   notes TEXT,
 
   CONSTRAINT fk_patient_bloodborne_markers_patient
-    FOREIGN KEY (patient_uid) REFERENCES users(uid) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, patient_uid) REFERENCES users (tenant_id, uid)
+    ON UPDATE NO ACTION ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED,
   CONSTRAINT fk_patient_bloodborne_markers_lab_result
-    FOREIGN KEY (lab_result_id) REFERENCES lab_results(id) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, lab_result_id, patient_uid)
+    REFERENCES lab_results (tenant_id, id, patient_uid)
+    ON UPDATE NO ACTION ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED,
+  CONSTRAINT fk_patient_bloodborne_markers_tenant
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE NO ACTION,
+  CONSTRAINT fk_patient_bloodborne_markers_recorded_by
+    FOREIGN KEY (tenant_id, recorded_by) REFERENCES users (tenant_id, uid) ON DELETE NO ACTION,
+  CONSTRAINT fk_patient_bloodborne_markers_voided_by
+    FOREIGN KEY (tenant_id, voided_by) REFERENCES users (tenant_id, uid) ON DELETE NO ACTION,
   CONSTRAINT patient_bloodborne_markers_marker_check
     CHECK (marker IN ('hiv', 'hbsag', 'hcv', 'cjd_suspected', 'other')),
   CONSTRAINT patient_bloodborne_markers_result_check
@@ -62,11 +80,11 @@ CREATE TABLE patient_bloodborne_markers (
   CONSTRAINT patient_bloodborne_markers_cjd_result_check
     CHECK (marker <> 'cjd_suspected' OR result IN ('reactive', 'non_reactive')),
   CONSTRAINT patient_bloodborne_markers_lab_link_check
-    CHECK (source <> 'lab_result' OR lab_result_id IS NOT NULL),
+    CHECK ((source = 'clinical_declaration') = (lab_result_id IS NULL)),
   CONSTRAINT patient_bloodborne_markers_void_check
     CHECK (
       (voided_at IS NULL AND voided_by IS NULL AND void_reason IS NULL)
-      OR (voided_at IS NOT NULL AND voided_by IS NOT NULL AND void_reason IS NOT NULL)
+      OR (voided_at IS NOT NULL AND voided_by IS NOT NULL AND NULLIF(BTRIM(void_reason), '') IS NOT NULL)
     )
 );
 
