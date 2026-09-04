@@ -57,8 +57,19 @@ const ADVISORY_REPORT_PATTERNS = [
   /\bfound\s+(?!0\b)\d+\s+vulnerabilit/i,
 ];
 
+// audit-ci colourises its output, so its error line arrives as
+// `\x1b[31mcode undefined: \x1b[0m` — a `^code undefined:` anchor never matches
+// it, and neither does a `$` after the trailing reset. Every pattern here is
+// written against plain text, so strip the escapes once, centrally, rather than
+// teaching each pattern about colour. (This cost a CI cycle: the log viewer
+// strips colour, so the raw line looked plain in every log I read.)
+export function stripAnsi(text) {
+  // eslint-disable-next-line no-control-regex
+  return String(text ?? '').replace(/\x1b\[[0-9;]*[A-Za-z]/g, '');
+}
+
 export function classifyAuditOutcome({ exitCode, output }) {
-  const text = String(output ?? '');
+  const text = stripAnsi(output);
   if (SERVICE_FAILURE_PATTERNS.some((pattern) => pattern.test(text))) {
     // A service failure that ALSO carries a real advisory report is a findings
     // failure: we got an answer, and the answer was bad news. Anything short of
@@ -201,7 +212,7 @@ async function main() {
     // first live run classified a registry ECONNRESET as "advisories found" and
     // the log could not show what tipped it — a gate whose verdict cannot be
     // audited is the same bug it was written to fix, one level up.
-    const matched = ADVISORY_REPORT_PATTERNS.filter((p) => p.test(lastOutput));
+    const matched = ADVISORY_REPORT_PATTERNS.filter((p) => p.test(stripAnsi(lastOutput)));
     console.log(
       `[audit-gate] ${label}: classified as FINDINGS. `
       + `Advisory-report evidence: ${matched.length ? matched.map(String).join(' ') : 'none — non-zero exit with no recognised service failure'}.`,

@@ -14,7 +14,12 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { classifyAuditOutcome, manifestsUnchanged, resolveBaseRef } from './npm-audit-gate.mjs';
+import {
+  classifyAuditOutcome,
+  manifestsUnchanged,
+  resolveBaseRef,
+  stripAnsi,
+} from './npm-audit-gate.mjs';
 
 // Captured verbatim from run 33845185488, job 100935633334.
 const REAL_503 = `npm warn config production Use \`--omit=dev\` instead.
@@ -109,6 +114,36 @@ npm error audit endpoint returned an error`;
     assert.equal(
       classifyAuditOutcome({ exitCode: 1, output: auditCiOutage }),
       'service-unavailable',
+    );
+  });
+
+  // The bytes audit-ci ACTUALLY emits (job 100964009573, read with od -c):
+  // it colourises, so the line is \x1b[31mcode undefined: \x1b[0m. A `^`
+  // anchor never sees the start of that line and a `$` never sees its end.
+  // Every log viewer strips colour, which is why the plain-text version above
+  // looked like the real thing and passed while CI kept failing.
+  test('audit-ci output is classified through its ANSI colour codes', () => {
+    const colourised = 'npm warn config production Use `--omit=dev` instead.\n'
+      + '[31mcode undefined: [0m\nExiting...\n';
+    assert.equal(
+      classifyAuditOutcome({ exitCode: 1, output: colourised }),
+      'service-unavailable',
+    );
+  });
+
+  test('stripAnsi leaves plain text untouched and removes colour', () => {
+    assert.equal(stripAnsi('plain text'), 'plain text');
+    assert.equal(stripAnsi('[31mred[0m'), 'red');
+    assert.equal(stripAnsi(undefined), '');
+  });
+
+  // Colour must not become a way to hide a real advisory either.
+  test('a colourised advisory report is still a FINDING', () => {
+    const colourisedReport = '[31mnpm error audit endpoint returned an error[0m\n'
+      + `[1m${REAL_FINDINGS}[0m`;
+    assert.equal(
+      classifyAuditOutcome({ exitCode: 1, output: colourisedReport }),
+      'findings',
     );
   });
 
