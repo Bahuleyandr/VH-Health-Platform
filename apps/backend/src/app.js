@@ -74,6 +74,7 @@ import {
   BURN_ROUTE_ROLES,
   CATH_INVENTORY_RECONCILIATION_ROUTE_ROLES,
   CATH_LAB_ROUTE_ROLES,
+  CATH_REPROCESSING_POLICY_ROUTE_ROLES,
   CARE_PATHWAY_ROUTE_ROLES,
   COLD_CHAIN_ROUTE_ROLES,
   CLINICAL_ASSESSMENT_ROUTE_ROLES,
@@ -325,6 +326,7 @@ import publicHealthRoutes from './routes/publicHealth/publicHealthRoutes.js';
 import dialysisRoutes from './routes/clinical/dialysisRoutes.js';
 import cathLabRoutes from './routes/clinical/cathLabRoutes.js';
 import cathInventoryReconciliationRoutes from './routes/clinical/cathInventoryReconciliationRoutes.js';
+import cathReprocessingPolicyRoutes from './routes/clinical/cathReprocessingPolicyRoutes.js';
 import radiationOncologyRoutes from './routes/clinical/radiationOncologyRoutes.js';
 import bloodBankRoutes from './routes/bloodbank/bloodBankRoutes.js';
 
@@ -1198,6 +1200,24 @@ app.use(
 app.use('/api/v1/pharmacy/inventory/v2', patientRateLimiter, requireRole(...PHARMACY_INVENTORY_PARENT_ROLES), pharmacyInventoryV2Routes);
 app.use('/api/v1/pharmacy-orders/inventory/v2', patientRateLimiter, requireRole(...PHARMACY_INVENTORY_PARENT_ROLES), pharmacyInventoryV2Routes);
 app.use('/api/v1/pharmacy-supply', adminRateLimiter, requireRole(...PHARMACY_SUPPLY_ROUTE_ROLES), pharmacySupplyRoutes);
+// Cath device reuse GOVERNANCE — the same shape as the supply-chain mount
+// above: a small policy surface with its own audience rather than a corner of
+// somebody else's console. These four operations were on the admin
+// cath-consumables barrel behind ADMIN_ROUTE_ROLES, where the route-level gate
+// naming QUALITY_OFFICER and INFECTION_CONTROL_OFFICER could never fire —
+// the mount had already refused both. The router carries no PHI except
+// /devices/:deviceId/history, which writes its own per-patient
+// hipaa_access_log rows (routes/clinical/cathDeviceHistoryHandler.js), so
+// there is no mount-level phiAccessLogger to resolve a patient it cannot see.
+// Deliberately carries neither requireSuperAdminStepUp, adminIpAllowlist nor
+// adminRateLimiter — this is clinical-mount posture (same as /api/v1/cssd and
+// /api/v1/cath-lab below), not the SUPER_ADMIN control-plane posture used on
+// the /api/v1/admin/* mounts above: the audience here is ward/infection-control
+// roles on ordinary hospital workstations, not a fixed admin IP set, and none
+// of CATH_REPROCESSING_POLICY_ROUTE_ROLES requires step-up elsewhere either.
+// adminRateLimiter is a one-line add here if the owner wants a rate ceiling on
+// this surface without the rest of the admin posture.
+app.use('/api/v1/cath-reprocessing', requireRole(...CATH_REPROCESSING_POLICY_ROUTE_ROLES), sanitizeAllBodyStrings, cathReprocessingPolicyRoutes);
 // Ward indents carry narrower per-operation role and patient guards. Mount
 // their exact subtree before the broad pharmacy-order host so emergency
 // receipt and stores/supply roles can reach only the operations explicitly

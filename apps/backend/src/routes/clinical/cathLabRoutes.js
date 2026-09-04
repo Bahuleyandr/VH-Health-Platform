@@ -34,6 +34,14 @@ import {
   supersedeReportTemplate,
   updateReport
 } from '../../services/clinical/cathReportService.js';
+import {
+  decorateConsumablesWithReuse,
+  deviceForCaseLookup,
+  projectReuseRestrictionForRole,
+  recordPostUse,
+  roleSeesSerologyDetail
+} from '../../services/clinical/cathDeviceReuseService.js';
+import cathDeviceHistoryHandler from './cathDeviceHistoryHandler.js';
 import { renderCathReportPdf } from '../../services/documents/cathReportPdfService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
@@ -89,12 +97,54 @@ function contextOf(req) {
   };
 }
 
-function hasRole(req, predicate) {
+function rolesOf(req) {
   return [
     req.user?.rawRole,
     req.user?.role,
     ...(Array.isArray(req.user?.roles) ? req.user.roles : [])
-  ].some(role => predicate(role));
+  ];
+}
+
+function hasRole(req, predicate) {
+  return rolesOf(req).some(role => predicate(role));
+}
+
+// The role the serology projection is judged on. A user can carry several role
+// claims and the gates above already accept ANY of them, so the projection has
+// to as well — otherwise a doctor whose clinical role sits in `roles` would be
+// shown the redacted strip while passing a gate that read the same claim.
+function serologyRoleOf(req) {
+  return rolesOf(req).find(role => role && roleSeesSerologyDetail(role))
+    ?? req.user?.role
+    ?? req.user?.rawRole
+    ?? null;
+}
+
+// `reuse_screen` and `post_use_screen` (migration 765) are the FROZEN copy of
+// the same blood-borne restriction `reuse_restriction` carries — spec §7.4 says
+// they are evidence and must not be edited, so they are projected on the way
+// out, exactly like the live strip, and by the same function so the two can
+// never disagree about what a receptionist may read.
+//
+// cathLabService.CATH_CONSUMABLE_USAGE_SELECT does NOT select either column
+// today, so on the current SELECT this is a no-op — and it is deliberately
+// written as one: `usage` rows are also published as additionalProperties:false
+// (CathCaseConsumableUsage), so a key that is absent must stay absent rather
+// than be added back empty. It exists so that adding `u.reuse_screen` to that
+// SELECT — a one-line change that reads entirely harmless — cannot hand the
+// serology narrative to the RECEPTIONIST and TECHNICIAN that report-read admits.
+function projectUsageScreensForRole(rows, role) {
+  if (!Array.isArray(rows) || roleSeesSerologyDetail(role)) return rows;
+  return rows.map(row => {
+    if (!row || typeof row !== 'object') return row;
+    const projected = { ...row };
+    for (const key of ['reuse_screen', 'post_use_screen']) {
+      if (key in projected && projected[key] && typeof projected[key] === 'object') {
+        projected[key] = projectReuseRestrictionForRole(projected[key], role);
+      }
+    }
+    return projected;
+  });
 }
 
 function roleGuard(predicate, message, code) {
@@ -336,7 +386,22 @@ router.post('/cases', requireCathWorkflow, guardCathCaseCreate, async (req, res)
 router.get('/cases/:id', requireReportRead, guardCathCaseById, async (req, res) => {
   try {
     const cathCase = await getCase(req.params.id, { tenantId: tenantOf(req) });
-    return success(res, { case: cathCase }, 'Cath-lab case');
+    // The case view carries the same blood-borne restriction strip the
+    // consumables view does, so it takes the same role projection — otherwise
+    // the narrower surface would simply be the way round the wider one.
+    return success(res, {
+      case: {
+        ...cathCase,
+        consumable_usage: projectUsageScreensForRole(
+          cathCase?.consumable_usage,
+          serologyRoleOf(req)
+        ),
+        reuse_restriction: projectReuseRestrictionForRole(
+          cathCase?.reuse_restriction,
+          serologyRoleOf(req)
+        )
+      }
+    }, 'Cath-lab case');
   } catch (err) {
     return handleFailure(res, err, 'get case');
   }
@@ -349,7 +414,22 @@ router.get(
   async (req, res) => {
     try {
       const usage = await listCaseConsumableUsage(req.params.id, { tenantId: tenantOf(req) });
-      return success(res, { usage, count: usage.length }, 'Cath consumable usage');
+      const decorated = await decorateConsumablesWithReuse(usage, {
+        tenantId: tenantOf(req),
+        caseId: req.params.id
+      });
+      return success(res, {
+        usage: projectUsageScreensForRole(decorated.usage, serologyRoleOf(req)),
+        count: decorated.usage.length,
+        // Serology narrative is projected by role: the capture sheet gets the
+        // decision (status / window / evaluated_at) for everyone, the reasons
+        // and per-marker results only for clinical staff.
+        reuse_restriction: projectReuseRestrictionForRole(
+          decorated.reuse_restriction,
+          serologyRoleOf(req)
+        ),
+        reprocessing: decorated.reprocessing
+      }, 'Cath consumable usage');
     } catch (err) {
       return handleFailure(res, err, 'list consumable usage');
     }
@@ -374,6 +454,71 @@ router.post(
     }
   }
 );
+
+router.post(
+  '/cases/:id/consumables/:usageId/post-use',
+  requireCathWorkflow,
+  guardCathCaseById,
+  // retainOnServerError is deliberately NOT set: recordPostUse's device
+  // transitions ('return', 'discard' in cathDeviceReuseService.js
+  // DEVICE_ACTIONS) each have a `from` list that excludes their own `to`
+  // state, so a retry after a post-commit 5xx finds the device already landed
+  // and 409s with CATH_DEVICE_INVALID_TRANSITION naming the state it is
+  // actually in, rather than silently repeating the transition. A route added
+  // to this claim layer whose handler is not similarly self-blocking on retry
+  // must argue with this comment before leaving retainOnServerError unset.
+  requireIdempotencyKey({ required: true, scope: 'cath_consumable_post_use' }),
+  async (req, res) => {
+    try {
+      const result = await recordPostUse(
+        req.params.id,
+        req.params.usageId,
+        { ...req.body, tenantId: tenantOf(req) },
+        contextOf(req)
+      );
+      return success(res, result, 'Cath consumable post-use recorded', HTTP_STATUS.CREATED);
+    } catch (err) {
+      return handleFailure(res, err, 'record consumable post-use');
+    }
+  }
+);
+
+// Device state for the capture sheet. No patient data in the response; the
+// route is case-pinned so the facility identity is enforced exactly like the
+// catalogue reads (guardCathCatalogCase resolves req.query.case_id).
+router.get('/devices/lookup', requireReportRead, guardCathCatalogCase, async (req, res) => {
+  try {
+    const result = await deviceForCaseLookup({
+      tenantId: tenantOf(req),
+      caseId: req.query.case_id,
+      tag: req.query.tag
+    });
+    // exposure_markers names WHICH bloodborne marker came back reactive on the
+    // device — the same serology narrative projectReuseRestrictionForRole
+    // redacts elsewhere. Report-read admits RECEPTIONIST/TECHNICIAN, who need
+    // exposure_flag/blocked/requires_acknowledgement to run the capture sheet
+    // but have no business reading the marker. Blank it, don't drop it, so the
+    // published shape holds for everyone.
+    if (!roleSeesSerologyDetail(serologyRoleOf(req))) {
+      result.device = { ...result.device, exposure_markers: [] };
+    }
+    return success(res, result, 'Reprocessable device');
+  } catch (err) {
+    return handleFailure(res, err, 'lookup device');
+  }
+});
+
+// Which patients a device touched (infection-control lookback). PHI, but with
+// NO single patient subject — a device spans patients, so there is no case or
+// report row a per-route patient guard could resolve. The mount's
+// phiAccessLogger('CATH_LAB') therefore records ONE row with patient_id = NULL
+// (it resolves a patient from the request, and this request carries none), so
+// the real per-patient trail is the explicit batch the shared handler writes.
+// The gate is the cath WORKFLOW gate, not report-read: report-read admits
+// RECEPTIONIST and TECHNICIAN, and a cross-patient exposure lookback is not a
+// front-desk or imaging read. Infection control reaches the same handler on
+// /api/v1/cath-reprocessing.
+router.get('/devices/:deviceId/history', requireCathWorkflow, cathDeviceHistoryHandler);
 router.get('/cases/:id/quick-wins', requireReportRead, guardCathCaseById, async (req, res) => {
   try {
     const quickWins = await getCaseQuickWins(req.params.id, { tenantId: tenantOf(req) });

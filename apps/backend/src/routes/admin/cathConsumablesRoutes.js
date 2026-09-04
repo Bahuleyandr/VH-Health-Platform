@@ -125,4 +125,14 @@ router.get(
   }
 );
 
+// Reprocessing settings and category policies USED to live here, behind the
+// admin barrel's ADMIN_ROUTE_ROLES mount gate plus a route-level gate naming
+// QUALITY_OFFICER and INFECTION_CONTROL_OFFICER. That second gate could never
+// admit either officer — the mount had already refused them — so it was a dead
+// gate over a surface neither owner could reach. Device reuse is clinical
+// governance, so the four operations moved to their own mount with their own
+// audience: /api/v1/cath-reprocessing (routes/clinical/cathReprocessingPolicyRoutes.js,
+// CATH_REPROCESSING_POLICY_ROUTE_ROLES). This router keeps the billing-facing
+// catalogue, billing settings, authority recovery and unbilled-usage surfaces.
+
 export default router;

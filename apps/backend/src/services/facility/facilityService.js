@@ -241,7 +241,11 @@ async function loadFacilityShutdownBlockersTx(tx, tenantId, facilityId, { isDefa
        (SELECT COUNT(*)::int
           FROM cath_case_consumable_usage usage
          WHERE usage.tenant_id=$1::uuid AND usage.facility_id=$2::int
-           AND usage.inventory_decrement_status NOT IN ('decremented','not_applicable'))
+           -- 'reused_device' (migration 765) is a reconciled terminal state:
+           -- a reprocessed device consumes no stock, so it can never reach
+           -- 'decremented' and must not read as a permanent shutdown blocker.
+           AND usage.inventory_decrement_status
+                 NOT IN ('decremented','not_applicable','reused_device'))
          AS unreconciled_cath_usage,
        (SELECT COUNT(*)::int
           FROM tasks task

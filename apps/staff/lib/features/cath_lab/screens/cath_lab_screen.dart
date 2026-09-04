@@ -22,6 +22,7 @@ import '../widgets/cath_case_reports_panel.dart';
 import '../widgets/cath_schedule_strip.dart';
 import '../widgets/cath_case_consumables_panel.dart';
 import '../widgets/cath_quick_wins_panel.dart';
+import '../widgets/cath_reuse_restriction_strip.dart';
 
 typedef CathLabCaseLoader = Future<List<CathLabCaseSummary>> Function(
   DateTime date,
@@ -1102,35 +1103,53 @@ class _CaseHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
-    return Row(
+    final restriction = cathCase.reuseRestriction;
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                cathCase.requestedProcedure.isEmpty
-                    ? s.lookup('s4.lib.cath_lab.procedure_not_set')
-                    : cathCase.requestedProcedure,
-                style: TextStyle(
-                  color: AppTheme.textPrimary,
-                  fontWeight: FontWeight.w700,
-                ),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    cathCase.requestedProcedure.isEmpty
+                        ? s.lookup('s4.lib.cath_lab.procedure_not_set')
+                        : cathCase.requestedProcedure,
+                    style: TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _patientLabel(s, cathCase),
+                    style: TextStyle(color: AppTheme.textSecondary),
+                  ),
+                ],
               ),
-              const SizedBox(height: 4),
-              Text(
-                _patientLabel(s, cathCase),
-                style: TextStyle(color: AppTheme.textSecondary),
-              ),
-            ],
+            ),
+            const SizedBox(width: 10),
+            _StatusChip(
+              label: _statusLabel(s, cathCase.status),
+              color: _statusColor(cathCase.status),
+            ),
+          ],
+        ),
+        // Spec §11: the blood-borne restriction is a case-level fact, so it is
+        // stated on the case header itself — beside the readiness strip, where
+        // the team plans the case — not only inside the consumables panel a
+        // step later. The strip renders nothing for a `clear` case, and the
+        // restriction is null whenever the payload did not carry one.
+        if (restriction != null && !restriction.isClear) ...[
+          const SizedBox(height: 10),
+          CathReuseRestrictionStrip(
+            key: ValueKey('cath-case-reuse-restriction-${cathCase.id}'),
+            restriction: restriction,
           ),
-        ),
-        const SizedBox(width: 10),
-        _StatusChip(
-          label: _statusLabel(s, cathCase.status),
-          color: _statusColor(cathCase.status),
-        ),
+        ],
       ],
     );
   }

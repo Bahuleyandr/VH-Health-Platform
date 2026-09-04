@@ -1359,11 +1359,20 @@ describe('src/lib/prisma.js coverage completion', () => {
       );
       expect(mutableNoDelete).not.toBeNull();
       expect(mutableNoDelete[1]).toContain("'patient_bloodborne_markers'");
+      // Migration 765's own GRANT block has the same once-per-database reach,
+      // so the three cath device-reuse tables are pinned here for the same
+      // reason: settings, category policies and the device register are all
+      // updated in place (a review, a policy edit, a cycle count), never
+      // deleted.
+      expect(mutableNoDelete[1]).toContain("'cath_reprocessing_settings'");
+      expect(mutableNoDelete[1]).toContain("'cath_reprocessing_category_policies'");
+      expect(mutableNoDelete[1]).toContain("'cath_reprocessable_devices'");
       const nextvalSequences = grantSql.match(
         /runtime_nextval_sequences CONSTANT TEXT\[\] := ARRAY\[([\s\S]*?)\n {2}\];/,
       );
       expect(nextvalSequences).not.toBeNull();
       expect(nextvalSequences[1]).toContain("'patient_bloodborne_markers_id_seq'");
+      expect(nextvalSequences[1]).toContain("'cath_reprocessable_devices_id_seq'");
       expect(mockLogger.info).toHaveBeenCalledWith(
         'Tenant RLS runtime role grants ensured',
         { role: 'vhhealth_app' },

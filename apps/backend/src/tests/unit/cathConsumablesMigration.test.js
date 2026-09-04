@@ -345,8 +345,19 @@ describe('NL-13 P1d cath consumables migrations 563-566', () => {
     expect(sql.coveragePolicy).toMatch(
       /cath_inventory_shortfall_v1[\s\S]*cath_consumable_inventory_reconciliation[\s\S]*'cath_case_consumable_usage',/,
     );
+    // Migration 765's device register is minted FROM a usage row
+    // (origin_usage_id is NOT NULL and tenant-pinned into
+    // cath_case_consumable_usage), so it inherits the same verdict and must be
+    // accounted for in the same registry rather than dropped from coverage.
+    expect(sql.coveragePolicy).toMatch(
+      /INTENTIONALLY_EMPTY_SEED_TABLES = Object\.freeze\(\[[\s\S]*'cath_reprocessable_devices',/,
+    );
+    expect(sql.coveragePolicy).toMatch(
+      /origin_usage_id[\s\S]*'cath_reprocessable_devices',/,
+    );
     // A table cannot be both intentionally empty and generically seeded.
     expect(sql.seeder).not.toMatch(/^\s*cath_case_consumable_usage:\s*\{/m);
+    expect(sql.seeder).not.toMatch(/^\s*cath_reprocessable_devices:\s*\{/m);
     expect(sql.seeder).toMatch(/TABLE_COLUMN_SEED_OVERRIDES[\s\S]*surgical_implants/i);
     expect(sql.seeder).toMatch(/surgical_implants[\s\S]*cath_case_id:\s*null/i);
     expect(sql.seeder).toMatch(/surgical_implants[\s\S]*cath_usage_id:\s*null/i);

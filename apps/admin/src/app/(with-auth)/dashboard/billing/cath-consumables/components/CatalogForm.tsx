@@ -38,6 +38,7 @@ interface CatalogFormState {
   batch_tracked: boolean;
   default_unit_cost_reference: string;
   billing_item_code: string;
+  reused_billing_item_code: string;
   inventory_item_id: string;
   status: CathConsumableStatus;
 }
@@ -58,6 +59,7 @@ function initialState(
         ? ""
         : String(item.default_unit_cost_reference),
     billing_item_code: item?.billing_item_code ?? "",
+    reused_billing_item_code: item?.reused_billing_item_code ?? "",
     inventory_item_id:
       item?.inventory_item_id === null || item?.inventory_item_id === undefined
         ? ""
@@ -165,6 +167,10 @@ export function CatalogForm({
       batch_tracked: form.batch_tracked,
       default_unit_cost_reference: cost,
       billing_item_code: form.billing_item_code.trim() || null,
+      // Empty means "no separate reuse tariff" — the emitter then falls back to
+      // billing_item_code, so a blank field must clear the column rather than
+      // store an empty string the service-master will never match.
+      reused_billing_item_code: form.reused_billing_item_code.trim() || null,
       inventory_item_id: optionalNumber(form.inventory_item_id),
       status: form.status,
     };
@@ -329,6 +335,26 @@ export function CatalogForm({
                 className="mt-1 block text-xs text-muted-foreground"
               >
                 Unmapped usage remains visible in the Unbilled Usage report.
+              </span>
+            </FormField>
+            <FormField label="Reprocessed tariff code">
+              <input
+                aria-describedby="reused-billing-code-help"
+                aria-label="Reprocessed tariff code"
+                className="h-10 w-full rounded-md border border-input bg-background px-3 font-mono text-sm"
+                onChange={(event) =>
+                  update("reused_billing_item_code", event.target.value)
+                }
+                placeholder="Service-master code for reuse"
+                value={form.reused_billing_item_code}
+              />
+              <span
+                id="reused-billing-code-help"
+                className="mt-1 block text-xs text-muted-foreground"
+              >
+                Billed instead of the item code when a reprocessed device is
+                used (cycle 1 or later). Leave blank to bill reuse at the item
+                code.
               </span>
             </FormField>
             <FormField label="Status">

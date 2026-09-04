@@ -12,12 +12,28 @@ const CATEGORIES = [
   'other'
 ];
 const CATALOG_STATUSES = ['active', 'retired'];
+// cath_reprocessable_devices.status — the same frozen vocabulary
+// cathDeviceReuseService.DEVICE_STATUSES publishes on the device row. The
+// decorated usage row carries it verbatim, so it must not be a bare string here.
+const DEVICE_STATUSES = [
+  'awaiting_reprocessing',
+  'in_cssd',
+  'available',
+  'in_case',
+  'quarantined',
+  'discarded'
+];
 const INVENTORY_DECREMENT_STATUSES = [
   'pending',
   'not_linked',
   'decremented',
   'insufficient_stock',
-  'error'
+  'error',
+  // Migration 765 widened cath_consumable_usage_inventory_status_check:
+  // 'not_applicable' for rows inventory never owned, 'reused_device' for a row
+  // served from the reprocessable register (no stock movement to make).
+  'not_applicable',
+  'reused_device'
 ];
 const BILLING_GAP_REASONS = [
   'procedure_not_completed',
@@ -25,7 +41,10 @@ const BILLING_GAP_REASONS = [
   'billing_code_not_mapped',
   'billing_code_invalid',
   'billing_disabled',
-  'billing_pending_or_failed'
+  'billing_pending_or_failed',
+  // A reused device bills against the catalogue's reused_billing_item_code,
+  // which is a separate mapping from billing_item_code and separately unmapped.
+  'reused_billing_code_not_mapped'
 ];
 
 const nullableString = { type: 'string', nullable: true };
@@ -122,6 +141,7 @@ export const schemas = {
       'batch_tracked',
       'default_unit_cost_reference',
       'billing_item_code',
+      'reused_billing_item_code',
       'status',
       'retired_at',
       'created_by',
@@ -145,6 +165,7 @@ export const schemas = {
       batch_tracked: { type: 'boolean' },
       default_unit_cost_reference: nullableNumber,
       billing_item_code: nullableString,
+      reused_billing_item_code: nullableString,
       status: { type: 'string', enum: CATALOG_STATUSES },
       retired_at: nullableDateTime,
       created_by: nullableUuid,
@@ -176,6 +197,7 @@ export const schemas = {
       batch_tracked: { type: 'boolean' },
       default_unit_cost_reference: { type: 'number', nullable: true, minimum: 0 },
       billing_item_code: { type: 'string', nullable: true, maxLength: 50 },
+      reused_billing_item_code: { type: 'string', nullable: true, maxLength: 50 },
       status: { type: 'string', enum: CATALOG_STATUSES },
       metadata: { type: 'object', additionalProperties: true }
     }
@@ -470,6 +492,27 @@ export const schemas = {
         type: 'string',
         enum: INVENTORY_DECREMENT_STATUSES
       },
+      // Reuse columns (migration 765) — set together on a reused-device row.
+      device_id: NULLABLE_BIGINT_WIRE,
+      reuse_cycle: nullableInteger,
+      post_use_disposition: {
+        type: 'string',
+        enum: [
+          'sent_for_reprocessing',
+          'discarded_bloodborne_exposure',
+          'discarded_max_cycles',
+          'discarded_wasted',
+          'discarded_other',
+          'not_reprocessable'
+        ],
+        nullable: true
+      },
+      // Decoration added by cathDeviceReuseService.decorateConsumablesWithReuse
+      // on the case listing; absent from the create/mutation payload.
+      device_tag: nullableString,
+      device_status: { type: 'string', enum: DEVICE_STATUSES, nullable: true },
+      device_exposure_flag: { type: 'boolean' },
+      allowed_post_use: { $ref: '#/components/schemas/CathPostUseOptions' },
       inventory_movement_id: nullableInteger,
       inventory_warning: nullableString,
       timeline_event_id: nullableUuid,
@@ -493,7 +536,34 @@ export const schemas = {
     }
   },
 
-  CathCaseConsumableUsageListData: countData('usage', 'CathCaseConsumableUsage'),
+  // NOT countData(...): the case listing is decorated with the case-level reuse
+  // context (cathDeviceReuseService.decorateConsumablesWithReuse), so the
+  // payload carries two keys the bare count shape does not.
+  CathCaseConsumableUsageListData: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['usage', 'count', 'reuse_restriction', 'reprocessing'],
+    properties: {
+      usage: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/CathCaseConsumableUsage' }
+      },
+      count: { type: 'integer', minimum: 0 },
+      reuse_restriction: { $ref: '#/components/schemas/BloodborneReuseStatus' },
+      reprocessing: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['settings', 'reprocessable_categories'],
+        properties: {
+          settings: { $ref: '#/components/schemas/CathReprocessingSettings' },
+          reprocessable_categories: {
+            type: 'array',
+            items: { type: 'string', enum: CATEGORIES }
+          }
+        }
+      }
+    }
+  },
   CathCaseConsumableUsageListResponse: envelope('CathCaseConsumableUsageListData'),
 
   CathCaseConsumableUsageCreateRequest: {
@@ -512,6 +582,15 @@ export const schemas = {
       used_at: { type: 'string', format: 'date-time' },
       wasted: { type: 'boolean' },
       waste_reason: { type: 'string' },
+      // Capturing a device from the reprocessable register instead of new
+      // stock. The acknowledgement is required when the reuse screen says so.
+      reused_device_tag: { type: 'string', pattern: '^[Rr][Pp][0-9]{8,19}$' },
+      exposure_acknowledgement: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['reason'],
+        properties: { reason: { type: 'string', minLength: 1, maxLength: 500 } }
+      },
       metadata: { type: 'object', additionalProperties: true }
     }
   },
@@ -706,6 +785,8 @@ export const schemas = {
       'used_at',
       'billing_item_code',
       'inventory_decrement_status',
+      'reuse_cycle',
+      'reused_billing_item_code',
       'billing_gap_reason'
     ],
     properties: {
@@ -725,6 +806,15 @@ export const schemas = {
         type: 'string',
         enum: INVENTORY_DECREMENT_STATUSES
       },
+      // Both come straight out of the worklist SELECT (cathLabService
+      // listUnbilledConsumableUsage) and this schema is
+      // additionalProperties:false, so omitting them made every reused row a
+      // response the published contract forbids. reuse_cycle is NULL on a
+      // first-use row; reused_billing_item_code is the catalogue's separate
+      // reprocessed tariff mapping, which is exactly what
+      // 'reused_billing_code_not_mapped' reports as missing.
+      reuse_cycle: nullableInteger,
+      reused_billing_item_code: nullableString,
       billing_gap_reason: { type: 'string', enum: BILLING_GAP_REASONS }
     }
   },

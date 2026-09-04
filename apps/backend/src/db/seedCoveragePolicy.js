@@ -139,6 +139,13 @@ export const INTENTIONALLY_EMPTY_SEED_TABLES = Object.freeze([
   // NOTE: this is a COVERAGE REGRESSION against main, where the generic walker
   // still seeds this table. It is recorded here rather than worked around.
   'cath_case_consumable_usage',
+  // Migration 765's device register is minted FROM a cath usage row:
+  // origin_usage_id is NOT NULL and tenant-pinned into
+  // cath_case_consumable_usage, which is intentionally empty directly above.
+  // A seeded device would therefore have to invent the very usage row (and its
+  // governed shortfall obligation) that entry refuses to fabricate. Restoring
+  // usage coverage restores this table's too.
+  'cath_reprocessable_devices',
   // A salary revision activation event asserts that a SIGNED revision was
   // applied, and carries the terms manifest plus both signature digests. The
   // seeded revision is deliberately unsigned (pending_hr), so no activation has
