@@ -88,6 +88,47 @@ ${REAL_FINDINGS}`;
     assert.equal(classifyAuditOutcome({ exitCode: 1, output: mixed }), 'findings');
   });
 
+  // The gate's own first live run got this wrong. npm prints the word
+  // "vulnerabilities" in ordinary deprecation warnings — glob@10.5.0 does, on
+  // every install in this repo — so a bare /vulnerabilit/ test read a registry
+  // ECONNRESET as "dependency advisories found". Only an actual advisory REPORT
+  // may override a service failure.
+  test('a deprecation warning mentioning vulnerabilities is NOT a finding', () => {
+    const deprecationDuringOutage = `npm warn deprecated glob@10.5.0: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version.
+npm warn audit request to https://registry.npmjs.org/-/npm/v1/security/advisories/bulk failed, reason: read ECONNRESET
+npm error audit endpoint returned an error`;
+    assert.equal(
+      classifyAuditOutcome({ exitCode: 1, output: deprecationDuringOutage }),
+      'service-unavailable',
+    );
+  });
+
+  // Captured verbatim from job 100955477893 — audit-ci during the same outage.
+  test("audit-ci's outage output is not a finding", () => {
+    const auditCiOutage = 'npm warn config production Use `--omit=dev` instead.\ncode undefined: \nExiting...\n';
+    assert.equal(
+      classifyAuditOutcome({ exitCode: 1, output: auditCiOutage }),
+      'service-unavailable',
+    );
+  });
+
+  // ...but a real report during an outage still wins. This is the direction
+  // that must never regress: a flaky network cannot launder an advisory.
+  test('a real advisory report during an outage is still a FINDING', () => {
+    const reportDuringOutage = `npm warn audit 503 Service Unavailable - POST https://registry.npmjs.org/-/npm/v1/security/advisories/bulk
+${REAL_FINDINGS}`;
+    assert.equal(classifyAuditOutcome({ exitCode: 1, output: reportDuringOutage }), 'findings');
+  });
+
+  test('a zero-count summary during an outage is not a finding', () => {
+    const cleanDuringOutage = `found 0 vulnerabilities
+npm error audit endpoint returned an error`;
+    assert.equal(
+      classifyAuditOutcome({ exitCode: 1, output: cleanDuringOutage }),
+      'service-unavailable',
+    );
+  });
+
   // Unrecognised failure shapes must fail CLOSED. A new npm error string should
   // block the merge, not be waved through as infrastructure.
   test('an unrecognised non-zero exit is treated as a finding', () => {

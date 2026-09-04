@@ -43,15 +43,27 @@ const SERVICE_FAILURE_PATTERNS = [
   /^code undefined:\s*$/m,
 ];
 
-// A clean audit prints its report and exits 0; these confirm the tool actually
-// produced a verdict, so a service failure cannot be mistaken for a pass.
+// Evidence that the tool actually PRODUCED an advisory report, as opposed to
+// merely uttering the word "vulnerability". This distinction is load-bearing:
+// npm says "contain widely publicized security vulnerabilities" in its ordinary
+// deprecation warnings (glob@10.5.0 does, on every install in this repo), so a
+// bare /vulnerabilit/ test reads a routine warning as a finding — which is
+// exactly how the gate's own first live run turned a registry ECONNRESET into
+// "dependency advisories found".
+const ADVISORY_REPORT_PATTERNS = [
+  /^#\s*npm audit report/im,
+  /^Severity:\s*(?:low|moderate|high|critical)\b/im,
+  /\b(?!0\b)\d+\s+(?:low|moderate|high|critical)\s+severity\s+vulnerabilit/i,
+  /\bfound\s+(?!0\b)\d+\s+vulnerabilit/i,
+];
+
 export function classifyAuditOutcome({ exitCode, output }) {
   const text = String(output ?? '');
   if (SERVICE_FAILURE_PATTERNS.some((pattern) => pattern.test(text))) {
-    // A service failure that ALSO reported findings is a findings failure: we
-    // got a real answer, and the answer was bad news.
-    if (exitCode !== 0 && /\bvulnerabilit(?:y|ies)\b/i.test(text)
-        && !/0 vulnerabilities/i.test(text)) {
+    // A service failure that ALSO carries a real advisory report is a findings
+    // failure: we got an answer, and the answer was bad news. Anything short of
+    // an actual report is just the service being unwell.
+    if (exitCode !== 0 && ADVISORY_REPORT_PATTERNS.some((p) => p.test(text))) {
       return 'findings';
     }
     return 'service-unavailable';
@@ -185,6 +197,15 @@ async function main() {
   }
 
   if (outcome === 'findings') {
+    // Say WHY this was read as a finding rather than as a service failure. The
+    // first live run classified a registry ECONNRESET as "advisories found" and
+    // the log could not show what tipped it — a gate whose verdict cannot be
+    // audited is the same bug it was written to fix, one level up.
+    const matched = ADVISORY_REPORT_PATTERNS.filter((p) => p.test(lastOutput));
+    console.log(
+      `[audit-gate] ${label}: classified as FINDINGS. `
+      + `Advisory-report evidence: ${matched.length ? matched.map(String).join(' ') : 'none — non-zero exit with no recognised service failure'}.`,
+    );
     annotate('error', `${label}: dependency advisories found at or above the configured threshold.`);
     process.exit(1);
   }
