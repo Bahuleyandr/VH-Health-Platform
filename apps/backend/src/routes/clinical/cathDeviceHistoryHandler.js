@@ -45,6 +45,6 @@ export default async function cathDeviceHistoryHandler(req, res) {
     });
     return success(res, history, 'Reprocessable device history');
   } catch (err) {
-    return relayAppError(res, err, 'Failed to device history');
+    return relayAppError(res, err, 'Failed to load device history');
   }
 }

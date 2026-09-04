@@ -1209,6 +1209,14 @@ app.use('/api/v1/pharmacy-supply', adminRateLimiter, requireRole(...PHARMACY_SUP
 // /devices/:deviceId/history, which writes its own per-patient
 // hipaa_access_log rows (routes/clinical/cathDeviceHistoryHandler.js), so
 // there is no mount-level phiAccessLogger to resolve a patient it cannot see.
+// Deliberately carries neither requireSuperAdminStepUp, adminIpAllowlist nor
+// adminRateLimiter — this is clinical-mount posture (same as /api/v1/cssd and
+// /api/v1/cath-lab below), not the SUPER_ADMIN control-plane posture used on
+// the /api/v1/admin/* mounts above: the audience here is ward/infection-control
+// roles on ordinary hospital workstations, not a fixed admin IP set, and none
+// of CATH_REPROCESSING_POLICY_ROUTE_ROLES requires step-up elsewhere either.
+// adminRateLimiter is a one-line add here if the owner wants a rate ceiling on
+// this surface without the rest of the admin posture.
 app.use('/api/v1/cath-reprocessing', requireRole(...CATH_REPROCESSING_POLICY_ROUTE_ROLES), sanitizeAllBodyStrings, cathReprocessingPolicyRoutes);
 // Ward indents carry narrower per-operation role and patient guards. Mount
 // their exact subtree before the broad pharmacy-order host so emergency

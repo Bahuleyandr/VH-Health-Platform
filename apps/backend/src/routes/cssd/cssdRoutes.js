@@ -94,6 +94,14 @@ router.patch('/loads/:id/status', wrap((req) =>
 // and take it back through the case-pinned lookup — they do not run the queue.
 router.use('/devices', requireRole(...CSSD_DEVICE_ROUTE_ROLES));
 
+// retainOnServerError is deliberately NOT set: every device action's `from`
+// list (cathDeviceReuseService.js DEVICE_TRANSITIONS) excludes its own `to`
+// state, so a retry after a post-commit 5xx finds the device already landed
+// and fails the transition check with a 409 CATH_DEVICE_INVALID_TRANSITION
+// naming the state it is actually in — the claim need not retain the response
+// for that to be safe. A route added to this claim layer whose handler is NOT
+// similarly self-blocking on retry must argue with this comment before
+// leaving retainOnServerError unset.
 const deviceIdempotency = requireIdempotencyKey({ required: true, scope: 'cssd_device_transition' });
 const deviceContext = (req) => ({
   ...contextOf(req),

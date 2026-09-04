@@ -975,7 +975,8 @@ export async function deviceHistory({ tenantId, deviceId } = {}) {
 
 // logPhiAccessBatch builds ONE jsonb_to_recordset INSERT and refuses more than
 // 25 entries. A device late in its register life can have touched more than
-// that; cap and warn rather than lose the whole batch to a TypeError.
+// that; chunk into batches of this size rather than lose the whole write to a
+// TypeError or silently drop the overflow.
 export const DEVICE_HISTORY_PHI_BATCH_CAP = 25;
 
 /**
@@ -992,39 +993,42 @@ export async function logDeviceHistoryAccess({ tenantId, deviceId, history, acto
   const uses = Array.isArray(history?.uses) ? history.uses : [];
   const patientUids = [...new Set(uses.map((use) => use?.patient_uid).filter(Boolean).map(String))];
   if (patientUids.length === 0) return { logged: 0, skipped: 0 };
-  const capped = patientUids.slice(0, DEVICE_HISTORY_PHI_BATCH_CAP);
-  const skipped = patientUids.length - capped.length;
-  if (skipped > 0) {
-    logger.warn(
-      `Cath device history for device ${deviceId} spans ${patientUids.length} patients; only the first ${DEVICE_HISTORY_PHI_BATCH_CAP} were access-logged`,
-      { tenantId: tid, deviceId, patientCount: patientUids.length, loggedCount: capped.length },
-    );
-  }
   // hipaa_access_log has no resource column, and request_id is its only free
   // text correlation field (varchar(80)) — so the device the read was ABOUT
-  // rides there next to the request id. Without it the rows say only that
-  // someone read CATH_LAB for N patients and lose what tied them together.
-  const requestId = `${actor.requestId ? `${actor.requestId} ` : ''}cath_device:${deviceId}`.slice(0, 80);
-  const entries = capped.map((patientUid) => ({
-    userId: actor.actorUid || null,
-    userRole: actor.actorRole || null,
-    patientId: patientUid,
-    recordType: 'CATH_LAB',
-    action: 'VIEW',
-    ip: actor.ipAddress || null,
-    requestId,
-    tenantId: tid,
-  }));
-  try {
-    await setTenant(tid, (db) => logPhiAccessBatch(entries, { db }));
-  } catch (err) {
-    // The read itself succeeded and the caller is entitled to it; losing the
-    // audit is the thing that must not happen. logPhiAccess is fire-and-forget
-    // with its own durable file fallback.
-    logger.error(`Cath device history PHI access batch failed: ${err?.message}`, { tenantId: tid, deviceId });
-    for (const entry of entries) logPhiAccess(entry);
+  // rides there next to the request id. requestIdMiddleware trusts an incoming
+  // X-Request-Id header verbatim, so actor.requestId is client-controlled and
+  // unbounded; truncate IT to whatever room is left rather than the device
+  // token, or a long header pushes the one thing that ties the rows together
+  // off the end of the column.
+  const token = `cath_device:${deviceId}`;
+  const room = 80 - token.length - 1;
+  const prefix = actor.requestId ? String(actor.requestId).slice(0, Math.max(0, room)) : '';
+  const requestId = prefix ? `${prefix} ${token}` : token;
+  let logged = 0;
+  for (let i = 0; i < patientUids.length; i += DEVICE_HISTORY_PHI_BATCH_CAP) {
+    const slice = patientUids.slice(i, i + DEVICE_HISTORY_PHI_BATCH_CAP);
+    const entries = slice.map((patientUid) => ({
+      userId: actor.actorUid || null,
+      userRole: actor.actorRole || null,
+      patientId: patientUid,
+      recordType: 'CATH_LAB',
+      action: 'VIEW',
+      ip: actor.ipAddress || null,
+      requestId,
+      tenantId: tid,
+    }));
+    try {
+      await setTenant(tid, (db) => logPhiAccessBatch(entries, { db }));
+    } catch (err) {
+      // The read itself succeeded and the caller is entitled to it; losing the
+      // audit is the thing that must not happen. logPhiAccess is fire-and-forget
+      // with its own durable file fallback.
+      logger.error(`Cath device history PHI access batch failed: ${err?.message}`, { tenantId: tid, deviceId, sliceStart: i, sliceSize: slice.length });
+      for (const entry of entries) logPhiAccess(entry);
+    }
+    logged += entries.length;
   }
-  return { logged: entries.length, skipped };
+  return { logged, skipped: 0 };
 }
 
 // Device state for the capture sheet. Case-pinned like the catalogue reads:

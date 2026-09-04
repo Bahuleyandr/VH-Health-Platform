@@ -428,6 +428,14 @@ router.post(
   '/cases/:id/consumables/:usageId/post-use',
   requireCathWorkflow,
   guardCathCaseById,
+  // retainOnServerError is deliberately NOT set: recordPostUse's device
+  // transitions ('return', 'discard' in cathDeviceReuseService.js
+  // DEVICE_TRANSITIONS) each have a `from` list that excludes their own `to`
+  // state, so a retry after a post-commit 5xx finds the device already landed
+  // and 409s with CATH_DEVICE_INVALID_TRANSITION naming the state it is
+  // actually in, rather than silently repeating the transition. A route added
+  // to this claim layer whose handler is not similarly self-blocking on retry
+  // must argue with this comment before leaving retainOnServerError unset.
   requireIdempotencyKey({ required: true, scope: 'cath_consumable_post_use' }),
   async (req, res) => {
     try {
@@ -454,6 +462,15 @@ router.get('/devices/lookup', requireReportRead, guardCathCatalogCase, async (re
       caseId: req.query.case_id,
       tag: req.query.tag
     });
+    // exposure_markers names WHICH bloodborne marker came back reactive on the
+    // device — the same serology narrative projectReuseRestrictionForRole
+    // redacts elsewhere. Report-read admits RECEPTIONIST/TECHNICIAN, who need
+    // exposure_flag/blocked/requires_acknowledgement to run the capture sheet
+    // but have no business reading the marker. Blank it, don't drop it, so the
+    // published shape holds for everyone.
+    if (!roleSeesSerologyDetail(serologyRoleOf(req))) {
+      result.device = { ...result.device, exposure_markers: [] };
+    }
     return success(res, result, 'Reprocessable device');
   } catch (err) {
     return handleFailure(res, err, 'lookup device');

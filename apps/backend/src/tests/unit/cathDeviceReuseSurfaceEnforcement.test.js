@@ -229,19 +229,46 @@ describe('device history writes one HIPAA access row per distinct patient', () =
     expect(logPhiAccessBatch).not.toHaveBeenCalled();
   });
 
-  it('more patients than the batch helper accepts are capped, not dropped wholesale', async () => {
-    // logPhiAccessBatch throws above 25 entries; an uncapped call would lose
-    // every row instead of the overflow.
+  it('more patients than the batch helper accepts are chunked, not dropped', async () => {
+    // logPhiAccessBatch throws above 25 entries; an unchunked call would lose
+    // every row instead of splitting into slices it can accept.
     const many = Array.from({ length: 30 }, (_, index) => useRow(
       1000 + index,
       `dddddddd-0000-4000-8000-${String(index).padStart(12, '0')}`,
     ));
     historyWith(many);
 
-    await request(appFor('DOCTOR')).get('/api/v1/cath-lab/devices/77/history');
+    const res = await request(appFor('DOCTOR')).get('/api/v1/cath-lab/devices/77/history');
 
-    expect(logPhiAccessBatch.mock.calls[0][0]).toHaveLength(DEVICE_HISTORY_PHI_BATCH_CAP);
+    expect(res.status).toBe(200);
     expect(DEVICE_HISTORY_PHI_BATCH_CAP).toBe(25);
+    expect(logPhiAccessBatch).toHaveBeenCalledTimes(2);
+    expect(logPhiAccessBatch.mock.calls[0][0]).toHaveLength(25);
+    expect(logPhiAccessBatch.mock.calls[1][0]).toHaveLength(5);
+    // Both slices carry every distinct patient between them.
+    const allPatients = [...logPhiAccessBatch.mock.calls[0][0], ...logPhiAccessBatch.mock.calls[1][0]]
+      .map((entry) => entry.patientId);
+    expect(new Set(allPatients).size).toBe(30);
+  });
+
+  it('a 200-char X-Request-Id still yields a request_id ending in the device token, within 80 chars', async () => {
+    historyWith([useRow(901, PATIENT_A)]);
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => {
+      req.id = 'r'.repeat(200);
+      req.tenantId = TENANT;
+      req.user = { uid: ACTOR, id: 9, role: 'DOCTOR', rawRole: 'DOCTOR', roles: ['DOCTOR'], scope: 'full' };
+      next();
+    });
+    app.use('/api/v1/cath-lab', cathLabRoutes);
+
+    const res = await request(app).get('/api/v1/cath-lab/devices/77/history');
+
+    expect(res.status).toBe(200);
+    const [entry] = logPhiAccessBatch.mock.calls[0][0];
+    expect(entry.requestId.length).toBeLessThanOrEqual(80);
+    expect(entry.requestId.endsWith('cath_device:77')).toBe(true);
   });
 
   it('a failing batch still lands the rows through the fire-and-forget fallback', async () => {
@@ -286,6 +313,48 @@ describe('device history writes one HIPAA access row per distinct patient', () =
     expect(res.status).toBe(403);
     expect(res.body.details.code).toBe('CATH_LAB_WORKFLOW_FORBIDDEN');
     expect(logPhiAccessBatch).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /devices/lookup projects exposure_markers by role', () => {
+  const exposedDeviceRow = { ...deviceRow, exposure_flag: true, exposure_markers: ['hbsag'] };
+
+  function lookupWith(row) {
+    dispatch([
+      ['FROM cath_lab_cases', [{
+        id: 10n, tenant_id: TENANT, patient_uid: CASE_PATIENT, encounter_id: null,
+        facility_id: 4, status: 'completed', actual_start_at: null,
+      }]],
+      ['FROM cath_reprocessable_devices d', [row]],
+      ['FROM cath_reprocessing_category_policies', []],
+      ['FROM cath_reprocessing_settings', []],
+    ]);
+  }
+
+  it('a RECEPTIONIST gets the decision fields but not which marker is reactive', async () => {
+    lookupWith(exposedDeviceRow);
+
+    const res = await request(appFor('RECEPTIONIST'))
+      .get('/api/v1/cath-lab/devices/lookup?case_id=10&tag=RP00000077');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.device.exposure_markers).toEqual([]);
+    // The shape and the decision fields survive the projection — only the
+    // marker identity is redacted.
+    expect(res.body.data.device.exposure_flag).toBe(true);
+    expect(res.body.data.device.device_tag).toBe('RP00000077');
+    expect(typeof res.body.data.blocked).toBe('boolean');
+    expect(typeof res.body.data.requires_acknowledgement).toBe('boolean');
+  });
+
+  it('a DOCTOR sees the full marker list', async () => {
+    lookupWith(exposedDeviceRow);
+
+    const res = await request(appFor('DOCTOR'))
+      .get('/api/v1/cath-lab/devices/lookup?case_id=10&tag=RP00000077');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.device.exposure_markers).toEqual(['hbsag']);
   });
 });
 
