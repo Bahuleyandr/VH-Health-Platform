@@ -126,4 +126,37 @@ CREATE POLICY tenant_isolation ON patient_bloodborne_markers
     OR tenant_id = app_current_tenant_id_uuid()
   );
 
+-- Runtime-role grants, same to_regrole-guarded shape as migration 587's
+-- care_pathway_reconciliation_checks block: skip a role the deployment never
+-- provisioned, so this is a no-op on a single-DSN rig. The application inserts
+-- marker rows and performs the void transition (voided_at/voided_by/
+-- void_reason), so the contract is SELECT + INSERT + UPDATE; DELETE and
+-- TRUNCATE stay revoked because the record is append-only by convention.
+DO $patient_bloodborne_markers_runtime_grants$
+DECLARE
+  role_name TEXT;
+BEGIN
+  FOREACH role_name IN ARRAY ARRAY['vhhealth_app', 'vhhealth_runtime']::TEXT[] LOOP
+    IF pg_catalog.to_regrole(role_name) IS NOT NULL THEN
+      EXECUTE format(
+        'GRANT SELECT, INSERT, UPDATE ON TABLE patient_bloodborne_markers TO %I',
+        role_name
+      );
+      EXECUTE format(
+        'REVOKE DELETE, TRUNCATE ON TABLE patient_bloodborne_markers FROM %I',
+        role_name
+      );
+      EXECUTE format(
+        'GRANT USAGE, SELECT ON SEQUENCE patient_bloodborne_markers_id_seq TO %I',
+        role_name
+      );
+      EXECUTE format(
+        'REVOKE UPDATE ON SEQUENCE patient_bloodborne_markers_id_seq FROM %I',
+        role_name
+      );
+    END IF;
+  END LOOP;
+END
+$patient_bloodborne_markers_runtime_grants$;
+
 COMMIT;

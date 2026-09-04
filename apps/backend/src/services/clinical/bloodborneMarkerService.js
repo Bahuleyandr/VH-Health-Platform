@@ -53,10 +53,18 @@ function withTenant(tenantId, db, fn) {
   return db ? fn(db) : setTenant(tenantId, fn);
 }
 
-function cleanText(value, max = 500) {
+// Trim only. Free text (notes, void reason) is trimmed and truncated through
+// cleanText; identifying text (marker_label) is trimmed and then rejected when
+// it is too long, so a caller never silently stores a shortened label.
+function trimText(value) {
   if (value === null || value === undefined) return null;
   const text = String(value).trim();
-  return text ? text.slice(0, max) : null;
+  return text || null;
+}
+
+function cleanText(value, max = 500) {
+  const text = trimText(value);
+  return text === null ? null : text.slice(0, max);
 }
 
 function requireDate(value, label) {
@@ -114,20 +122,32 @@ export async function recordMarkerTx(tx, {
   const safeMarker = requireOneOf(marker, MARKERS, 'marker');
   const safeResult = requireOneOf(result, RESULTS, 'result');
   const safeSource = requireOneOf(source, SOURCES, 'source');
-  const label = cleanText(markerLabel, 120);
+  const label = trimText(markerLabel);
+  if (label && label.length > 120) {
+    throw AppError.badRequest('marker_label must be 120 characters or fewer', 'BLOODBORNE_MARKER_INVALID');
+  }
   if (safeMarker === 'other' && !label) {
     throw AppError.badRequest('marker_label is required when marker is other', 'BLOODBORNE_MARKER_INVALID');
   }
   if (safeMarker === 'cjd_suspected' && !['reactive', 'non_reactive'].includes(safeResult)) {
     throw AppError.badRequest('cjd_suspected accepts reactive (suspected) or non_reactive (not suspected)', 'BLOODBORNE_MARKER_INVALID');
   }
+  // A lab result id, when present, must be a positive integer before it ever
+  // reaches the $8::int cast — Number('abc') would otherwise arrive as NaN.
+  let safeLabResultId = null;
+  if (labResultId !== null && labResultId !== undefined) {
+    safeLabResultId = Number(labResultId);
+    if (!Number.isSafeInteger(safeLabResultId) || safeLabResultId <= 0) {
+      throw AppError.badRequest('lab_result_id must be a positive integer', 'BLOODBORNE_MARKER_INVALID');
+    }
+  }
   // Mirrors patient_bloodborne_markers_lab_link_check: lab_result and
   // external_report rows always carry the lab result id; clinical
   // declarations never do.
-  if (safeSource !== 'clinical_declaration' && labResultId == null) {
+  if (safeSource !== 'clinical_declaration' && safeLabResultId == null) {
     throw AppError.badRequest(`lab_result_id is required for ${safeSource} markers`, 'BLOODBORNE_MARKER_INVALID');
   }
-  if (safeSource === 'clinical_declaration' && labResultId != null) {
+  if (safeSource === 'clinical_declaration' && safeLabResultId != null) {
     throw AppError.badRequest('clinical_declaration markers do not reference a lab result', 'BLOODBORNE_MARKER_INVALID');
   }
   const rows = await tx.$queryRawUnsafe(
@@ -147,8 +167,8 @@ export async function recordMarkerTx(tx, {
     safeResult,
     requireDate(testedOn, 'tested_on'),
     safeSource,
-    labResultId == null ? null : Number(labResultId),
-    JSON.stringify(evidence && typeof evidence === 'object' ? evidence : {}),
+    safeLabResultId,
+    JSON.stringify(evidence && typeof evidence === 'object' && !Array.isArray(evidence) ? evidence : {}),
     actor,
     cleanText(notes, 2000),
   );
@@ -252,9 +272,9 @@ export async function voidMarker({ tenantId, patientUid, markerId, actorUid, rea
     const updated = await tx.$queryRawUnsafe(
       `UPDATE patient_bloodborne_markers
           SET voided_at = NOW(), voided_by = $3::uuid, void_reason = $4
-        WHERE tenant_id = $1::uuid AND id = $2::bigint
+        WHERE tenant_id = $1::uuid AND id = $2::bigint AND patient_uid = $5::uuid
         RETURNING ${MARKER_SELECT}`,
-      tid, id, actor, safeReason,
+      tid, id, actor, safeReason, uid,
     );
     return normalizeMarkerRow(updated[0]);
   });
@@ -273,23 +293,25 @@ export async function recordMarkersFromSignedResults({ tenantId, resultIds = [],
   const tid = requireTenantId(tenantId);
   const ids = [...new Set((resultIds || []).map(Number).filter((n) => Number.isSafeInteger(n) && n > 0))];
   if (ids.length === 0) return { recorded: [], voided: 0 };
-  const rows = await setTenant(tid, (tx) => tx.$queryRawUnsafe(
-    `SELECT id, patient_uid, test_code, loinc_code, value_text, status,
-            signed_off_at, performed_at, received_at
-       FROM lab_results
-      WHERE tenant_id = $1::uuid AND id = ANY($2::int[])`,
-    tid, ids,
-  ));
-  const candidates = rows
-    .map((row) => ({ row, marker: markerForResult(row) }))
-    .filter(({ row, marker }) => marker
-      && row.signed_off_at
-      && SIGNED_STATUSES.has(String(row.status || '').toLowerCase()));
-  if (candidates.length === 0) return { recorded: [], voided: 0 };
-
-  const normalizedDecision = String(decision || 'verified').toLowerCase();
+  // Validated before any database access: a bad actor uid must not cost a read.
   const actor = requireUuid(actorUid, 'actorUid');
+  const normalizedDecision = String(decision || 'verified').toLowerCase();
+  // One transaction for the whole hook: the lab_results read and the marker
+  // writes share a snapshot, so a result cannot be corrected between the two.
   const outcome = await setTenantTx(tid, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT id, patient_uid, test_code, loinc_code, value_text, status,
+              signed_off_at, performed_at, received_at
+         FROM lab_results
+        WHERE tenant_id = $1::uuid AND id = ANY($2::int[])`,
+      tid, ids,
+    );
+    const candidates = rows
+      .map((row) => ({ row, marker: markerForResult(row) }))
+      .filter(({ row, marker }) => marker
+        && row.signed_off_at
+        && SIGNED_STATUSES.has(String(row.status || '').toLowerCase()));
+    if (candidates.length === 0) return { recorded: [], voided: 0 };
     let voided = 0;
     const recorded = [];
     for (const { row, marker } of candidates) {
