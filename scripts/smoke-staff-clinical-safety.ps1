@@ -335,7 +335,11 @@ SELECT id FROM users WHERE uid = '$PatientUid'::uuid;
 "@
 
 $script:StaffToken = New-SmokeToken -Uid $StaffUid -Role "NURSING_STAFF"
+. (Join-Path $PSScriptRoot "lib/smoke-results.ps1")
+
 $results = [System.Collections.Generic.List[object]]::new()
+
+try {
 $scheduledTime = (Get-Date).ToString("o")
 
 $schedule = Invoke-SmokeRequest $results "mar_schedule" "POST" "/api/v1/clinical/mar/schedule" @{
@@ -473,7 +477,7 @@ if ($alertId) {
 $ackCount = Invoke-Psql "SELECT COUNT(*) FROM cds_alerts WHERE patient_uid = '$PatientUid'::uuid AND alert_type = 'allergy' AND acknowledged = true AND ack_by = '$StaffUid'::uuid;"
 Add-ContractResult $results "cds_acknowledged_db_contract" ([int]$ackCount -ge 1) "acknowledged=$ackCount patientId=$patientId"
 
-$results | Format-Table -AutoSize
+Write-SmokeResults $results
 
 $failed = @($results | Where-Object { -not $_.ok })
 if ($failed.Count -gt 0) {
@@ -482,3 +486,9 @@ if ($failed.Count -gt 0) {
 }
 
 Write-Host "Staff clinical-safety smoke passed: $($results.Count) check(s)."
+} finally {
+  # A terminating error above must not discard the checks already recorded.
+  # Write-SmokeResults is idempotent, so the normal path prints where it
+  # always did and this is a no-op after it.
+  Write-SmokeResults $results
+}

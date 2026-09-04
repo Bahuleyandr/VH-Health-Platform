@@ -732,7 +732,11 @@ if ($seedParts.Count -lt 6) {
 }
 
 $script:AdminToken = New-SmokeToken -Uid $ReviewerUid -Role "ADMIN" -TokenTenantId $TenantId
+. (Join-Path $PSScriptRoot "lib/smoke-results.ps1")
+
 $results = [System.Collections.Generic.List[object]]::new()
+
+try {
 
 Add-ContractResult $results "seed_medication_generation" (-not [string]::IsNullOrWhiteSpace($seedParts[0])) "generationId=$($seedParts[0])"
 Add-ContractResult $results "seed_aftercare_generation" (-not [string]::IsNullOrWhiteSpace($seedParts[1])) "generationId=$($seedParts[1])"
@@ -863,7 +867,7 @@ Write-JsonArtifact -Path $SignoffOutputPath -Payload ([pscustomobject]@{
   gate = $gate
 })
 
-$results | Format-Table -AutoSize
+Write-SmokeResults $results
 
 $failed = @($results | Where-Object { -not $_.ok })
 if ($failed.Count -gt 0) {
@@ -872,3 +876,9 @@ if ($failed.Count -gt 0) {
 }
 
 Write-Host "Clinical AI pilot evidence smoke passed: $($results.Count) check(s)."
+} finally {
+  # A terminating error above must not discard the checks already recorded.
+  # Write-SmokeResults is idempotent, so the normal path prints where it
+  # always did and this is a no-op after it.
+  Write-SmokeResults $results
+}

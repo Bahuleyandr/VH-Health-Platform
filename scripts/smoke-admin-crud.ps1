@@ -154,7 +154,11 @@ Assert-Command "node"
 Assert-Command $PsqlPath
 
 $script:Token = New-SmokeToken
+. (Join-Path $PSScriptRoot "lib/smoke-results.ps1")
+
 $results = [System.Collections.Generic.List[object]]::new()
+
+try {
 $stamp = Get-Date -Format "yyyyMMddHHmmss"
 $suffix = $stamp.Substring($stamp.Length - 6)
 
@@ -293,7 +297,7 @@ Invoke-SmokeRequest $results "clinical_ai_modules" "GET" "/api/v1/admin/clinical
 Invoke-SmokeRequest $results "clinical_ai_reviews" "GET" "/api/v1/admin/clinical-ai/reviews?limit=1" | Out-Null
 Invoke-SmokeRequest $results "clinical_ai_audit" "GET" "/api/v1/admin/clinical-ai/audit?limit=1" | Out-Null
 
-$results | Format-Table -AutoSize
+Write-SmokeResults $results
 
 $failed = @($results | Where-Object { -not $_.ok })
 if ($failed.Count -gt 0) {
@@ -302,3 +306,9 @@ if ($failed.Count -gt 0) {
 }
 
 Write-Host "Admin CRUD smoke passed: $($results.Count) check(s)."
+} finally {
+  # A terminating error above must not discard the checks already recorded.
+  # Write-SmokeResults is idempotent, so the normal path prints where it
+  # always did and this is a no-op after it.
+  Write-SmokeResults $results
+}
