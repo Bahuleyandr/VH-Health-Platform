@@ -239,6 +239,9 @@ wrapAutoRBAC(router, 'pharmacyLifecycleRoutes', {
     ['/', [], pharmacyOrderController.getOrderQueue],
     ['/queue', [], pharmacyOrderController.getOrderQueue],
     ['/sla', [], pharmacyOrderController.getPharmacySLADashboard],
+    // OPEN-25: sits beside /sla on purpose, so it inherits the identical
+    // mount and guards and therefore answers for the same surface.
+    ['/facility-authority', [], pharmacyOrderController.getPharmacyFacilityAuthority],
     ['/:id/detail', [guardOrderByIdParam], pharmacyOrderController.getOrderDetail],
     // Patient + prescribed catalog_id lines behind an order — pharmacist substitution context.
     ['/:id/dispensable', [guardOrderByIdParam], pharmacyOrderController.getOrderDispensableContext],

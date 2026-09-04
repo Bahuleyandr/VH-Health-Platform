@@ -152986,6 +152986,33 @@
         ]
       }
     },
+    "/api/v1/pharmacy-orders/orders/facility-authority": {
+      "get": {
+        "operationId": "get_api_v1_pharmacy_orders_orders_facility_authority",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "description": "Reports whether the authenticated actor currently holds pharmacy facility authority, so a client can decide whether to request facility-scoped data rather than firing a call it cannot be authorized for and rendering the refusal as a failure. ALWAYS answers 200: holding no authority is data, not a refusal, and every authenticated viewer of a pharmacy page may ask it. It resolves the facility through the same path the facility-scoped reads use, with the same actor and requested facility, so its answer predicts those calls rather than approximating them. Authority is NOT a role: ADMIN and SUPER_ADMIN are role-eligible but still require an active facility grant, so this cannot be decided from the session — and it is deliberately not cached there, because a grant revoked mid-session would leave a session-baked answer stale.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
     "/api/v1/pharmacy-orders/orders/my": {
       "get": {
         "operationId": "get_api_v1_pharmacy_orders_orders_my",
@@ -162524,6 +162551,33 @@
           }
         },
         "description": "Lists only the authenticated delivery staff member's unconsumed in-transit or return-pending pharmacy packages under a current active facility grant. Handoff secrets are never returned.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/pharmacy/orders/facility-authority": {
+      "get": {
+        "operationId": "get_api_v1_pharmacy_orders_facility_authority",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "description": "Reports whether the authenticated actor currently holds pharmacy facility authority, so a client can decide whether to request facility-scoped data rather than firing a call it cannot be authorized for and rendering the refusal as a failure. ALWAYS answers 200: holding no authority is data, not a refusal, and every authenticated viewer of a pharmacy page may ask it. It resolves the facility through the same path the facility-scoped reads use, with the same actor and requested facility, so its answer predicts those calls rather than approximating them. Authority is NOT a role: ADMIN and SUPER_ADMIN are role-eligible but still require an active facility grant, so this cannot be decided from the session — and it is deliberately not cached there, because a grant revoked mid-session would leave a session-baked answer stale.",
         "security": [
           {
             "ApiKeyAuth": [],
