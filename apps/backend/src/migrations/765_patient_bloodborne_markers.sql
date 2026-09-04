@@ -24,11 +24,20 @@
 -- Foreign keys are tenant-pinned composites (users (tenant_id, uid);
 -- lab_results (tenant_id, id, patient_uid)) so a marker can never bind to
 -- another tenant's or another patient's lab result.
+-- Source semantics: `lab_result` rows come from the pathologist sign-off hook
+-- on an in-house result; `external_report` rows come from the cath readiness
+-- checklist, which first files the outside value as an external-origin
+-- lab_results row (result_origin = 'external_lab', never signed off) and then
+-- records the marker against it — so both carry lab_result_id and differ in
+-- provenance, not shape; `clinical_declaration` rows carry none. The
+-- lab_link_check below enforces exactly that.
 --
 -- No NOT VALID constraints; the table is new, so nothing joins the OPEN-15
--- validation backlog. Every CHECK is named explicitly so the constraint names
--- are stable (Postgres auto-names would be <table>_<column>_check, ambiguous
--- for the multi-column checks below).
+-- validation backlog.
+-- Every CHECK is named explicitly so the names are stable: Postgres
+-- auto-names a single-column check <table>_<column>_check but a multi-column
+-- check <table>_check, <table>_check1, … — positional suffixes that renumber
+-- when a check is added or removed.
 
 BEGIN;
 
@@ -58,11 +67,11 @@ CREATE TABLE patient_bloodborne_markers (
 
   CONSTRAINT fk_patient_bloodborne_markers_patient
     FOREIGN KEY (tenant_id, patient_uid) REFERENCES users (tenant_id, uid)
-    ON UPDATE NO ACTION ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED,
+    ON UPDATE NO ACTION ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED,
   CONSTRAINT fk_patient_bloodborne_markers_lab_result
     FOREIGN KEY (tenant_id, lab_result_id, patient_uid)
     REFERENCES lab_results (tenant_id, id, patient_uid)
-    ON UPDATE NO ACTION ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED,
+    ON UPDATE NO ACTION ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED,
   CONSTRAINT fk_patient_bloodborne_markers_tenant
     FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE NO ACTION,
   CONSTRAINT fk_patient_bloodborne_markers_recorded_by
@@ -91,8 +100,10 @@ CREATE TABLE patient_bloodborne_markers (
 CREATE INDEX idx_patient_bloodborne_markers_patient
   ON patient_bloodborne_markers (tenant_id, patient_uid, marker, tested_on DESC, id DESC);
 
--- One active marker row per signed lab result: the sign-off hook replays as a
--- no-op, and a corrective sign-off voids the old row before inserting the new.
+-- One active marker row per lab result, whatever its source. The sign-off
+-- hook inserts with ON CONFLICT … DO NOTHING on this index, so a replay — or
+-- an external_report row already occupying the slot — is a no-op, never a
+-- 23505; a corrective sign-off voids the old row before inserting the new.
 CREATE UNIQUE INDEX ux_patient_bloodborne_markers_lab_result
   ON patient_bloodborne_markers (tenant_id, lab_result_id)
   WHERE lab_result_id IS NOT NULL AND voided_at IS NULL;
