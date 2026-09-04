@@ -26,6 +26,14 @@ const STATUS_TONE: Record<string, string> = {
   completed: "bg-cyan-500/15 text-cyan-700 dark:text-cyan-300",
   cancelled: "bg-slate-500/15 text-slate-700 dark:text-slate-300",
   planned: "bg-muted text-muted-foreground",
+  // Reprocessable cath devices (Devices tab). `available` and
+  // `sterilization_failed` above are shared with the instrument-set statuses.
+  awaiting_reprocessing:
+    "bg-purple-500/15 text-purple-700 dark:text-purple-300",
+  in_cssd: "bg-blue-500/15 text-blue-700 dark:text-blue-300",
+  in_case: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
+  quarantined: "bg-rose-500/15 text-rose-700 dark:text-rose-300",
+  discarded: "bg-slate-500/15 text-slate-700 dark:text-slate-300",
 };
 
 export function fmtDate(value?: string | null) {

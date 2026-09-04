@@ -3,15 +3,23 @@
 // NL13-P1f — cath quality views: dose-audit rollups (owner-thresholded) and
 // the complication registry review board. Lives under the existing quality
 // segment so the api/v1/quality proxy family + routePolicy cover it.
+//
+// The reprocessing-policy tab is device-reuse GOVERNANCE, not a cath-lab
+// workflow: it reads and writes /api/v1/cath-reprocessing, whose audience is
+// quality, infection control and platform admin. It sits here because those
+// are the hands that set it, and because routePolicy's `quality` segment
+// already admits them.
 
 import { useState } from "react";
-import { Activity, ClipboardList } from "lucide-react";
+import { Activity, ClipboardList, Recycle } from "lucide-react";
 import DoseRollupTab from "./components/DoseRollupTab";
 import ComplicationRegistryTab from "./components/ComplicationRegistryTab";
+import ReprocessingPolicyTab from "./components/ReprocessingPolicyTab";
 
 const TABS = [
   { key: "dose", label: "Dose rollup", icon: Activity },
   { key: "registry", label: "Complication registry", icon: ClipboardList },
+  { key: "reprocessing", label: "Reprocessing policy", icon: Recycle },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
@@ -49,7 +57,13 @@ export default function CathQualityPage() {
           );
         })}
       </nav>
-      {activeTab === "dose" ? <DoseRollupTab /> : <ComplicationRegistryTab />}
+      {activeTab === "dose" ? (
+        <DoseRollupTab />
+      ) : activeTab === "registry" ? (
+        <ComplicationRegistryTab />
+      ) : (
+        <ReprocessingPolicyTab />
+      )}
     </div>
   );
 }

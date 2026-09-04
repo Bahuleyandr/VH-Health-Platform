@@ -64,6 +64,16 @@ const ALLOWED_PATH_PREFIXES = [
   "api/v1/gdpr/",
   "api/v1/engagement/",
   "api/v1/cssd",
+  // Cath device-reuse governance. app.js mounts /api/v1/cath-reprocessing
+  // behind requireRole(...CATH_REPROCESSING_POLICY_ROUTE_ROLES) — quality,
+  // infection control and platform admin — and the router carries the
+  // reprocessing settings, the per-category policy and one PHI read (the
+  // device-history lookback, which writes its own per-patient access rows).
+  // The four policy operations are the callers here; the console does not wire
+  // the history read. No PERMISSION_GATES entry: the flags scope ADMIN
+  // accounts by console, and none of the seven describes reuse governance,
+  // whose audience is the two officers rather than administrators.
+  "api/v1/cath-reprocessing",
   "api/v1/blood-bank",
   "api/v1/cold-chain",
   "api/v1/compliance",

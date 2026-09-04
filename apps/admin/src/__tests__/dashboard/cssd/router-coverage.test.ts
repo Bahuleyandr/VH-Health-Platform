@@ -7,10 +7,18 @@
 // silently, because the spec gate only checks the other direction (that a
 // client path is served), never that a served path has a client.
 //
-// So this walks cssdRoutes.js and requires a caller in src/lib/api/cssd.ts for
-// every route it mounts. An endpoint that genuinely should not have one is
-// exempted BY NAME with the reason, so an unwired route cannot hide behind a
-// blanket allowance.
+// So this walks cssdRoutes.js and requires a caller in the admin api modules
+// that serve it for every route it mounts. An endpoint that genuinely should
+// not have one is exempted BY NAME with the reason, so an unwired route cannot
+// hide behind a blanket allowance.
+//
+// TWO client modules, because the router serves two audiences. The instrument-
+// set console calls through `fetchAdminAPI` (api/cssd.ts). The reprocessable
+// cath-device queue added under `/devices` cannot: every transition there is
+// mounted with `requireIdempotencyKey({ required: true })` and fetchAdminAPI
+// carries no header, so api/cathDevices.ts goes through the core.ts helpers
+// instead. Both are scanned — a device route with no caller must fail here just
+// as loudly as a set route with none.
 
 import fs from "fs";
 import path from "path";
@@ -27,6 +35,7 @@ const ROUTES = path.join(
   "cssdRoutes.js",
 );
 const API_MODULE = path.join(ADMIN_SRC, "lib", "api", "cssd.ts");
+const DEVICE_API_MODULE = path.join(ADMIN_SRC, "lib", "api", "cathDevices.ts");
 
 /**
  * Routes that are mounted but deliberately have no admin caller, with the
@@ -60,28 +69,74 @@ function mountedRoutes(): string[] {
   return [...new Set(routes)];
 }
 
-/**
- * Every path the admin api module sends, as `VERB /cssd/...`. `fetchAdminAPI`
- * defaults to GET, so a call with no `method` counts as one.
- */
-function calledRoutes(): string[] {
-  const source = read(API_MODULE);
-  const calls = [
-    ...source.matchAll(
-      /fetchAdminAPI<[^>]*>\(\s*[`"]([^`"]+)[`"]\s*(?:,\s*\{\s*method:\s*"([A-Z]+)")?/g,
-    ),
-  ].map(([, literal, method]) => {
-    const route = literal
+/** `/api/v1/cssd/devices/${id}/receive` → `/cssd/devices/{param}/receive`. */
+function normalizeLiteral(literal: string): string {
+  return (
+    literal
       // `${suffix}` is the optional query string. Drop it BEFORE path params
       // collapse to {param}, or every list read would read as a path segment.
       .replace(/\$\{suffix\}/g, "")
       .replace(/\$\{[^}]*\}/g, "{param}")
       .split("?")[0]
-      .replace(/\/$/, "");
-    return `${method ?? "GET"} ${route}`;
+      .replace(/^\/api\/v1/, "")
+      .replace(/\/$/, "")
+  );
+}
+
+/**
+ * Every path api/cssd.ts sends, as `VERB /cssd/...`. `fetchAdminAPI` defaults
+ * to GET, so a call with no `method` counts as one.
+ */
+function fetchAdminApiRoutes(): string[] {
+  const source = read(API_MODULE);
+  const calls = [
+    ...source.matchAll(
+      /fetchAdminAPI<[^>]*>\(\s*[`"]([^`"]+)[`"]\s*(?:,\s*\{\s*method:\s*"([A-Z]+)")?/g,
+    ),
+  ].map(
+    ([, literal, method]) => `${method ?? "GET"} ${normalizeLiteral(literal)}`,
+  );
+  expect(calls.length).toBeGreaterThan(5);
+  return calls;
+}
+
+/**
+ * Every path api/cathDevices.ts sends through the core.ts helpers. The endpoint
+ * is either an inline literal or one of the module's exported path constants,
+ * so the constants are resolved from the same source rather than duplicated
+ * here — a renamed constant must not be able to make this scan silently empty.
+ */
+function coreHelperRoutes(): string[] {
+  const source = read(DEVICE_API_MODULE);
+  const constants = new Map(
+    [
+      ...source.matchAll(
+        /export const ([A-Z][A-Z0-9_]*) =\s*"([^"]+)" as const;/g,
+      ),
+    ].map(([, name, value]) => [name, value]),
+  );
+  const verbs: Record<string, string> = {
+    getJSON: "GET",
+    postJSON: "POST",
+    putJSON: "PUT",
+  };
+  const calls = [
+    ...source.matchAll(
+      /\b(getJSON|postJSON|putJSON)<[^>]*>\(\s*(?:([A-Z][A-Z0-9_]*)|[`"]([^`"]+)[`"])/g,
+    ),
+  ].map(([, helper, constName, literal]) => {
+    const endpoint = constName ? constants.get(constName) : literal;
+    // An unresolvable constant would quietly drop a call from the census.
+    expect(endpoint).toBeDefined();
+    return `${verbs[helper]} ${normalizeLiteral(endpoint as string)}`;
   });
   expect(calls.length).toBeGreaterThan(5);
-  return [...new Set(calls)];
+  return calls;
+}
+
+/** The union of both client modules. */
+function calledRoutes(): string[] {
+  return [...new Set([...fetchAdminApiRoutes(), ...coreHelperRoutes()])];
 }
 
 describe("CSSD router coverage", () => {
