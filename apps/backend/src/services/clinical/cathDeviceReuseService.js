@@ -588,6 +588,34 @@ export async function markDeviceInCaseTx(tx, { device, usageId, acknowledgementR
   return updated;
 }
 
+// A reused device recorded as wasted is opened and destroyed in the case: it
+// never becomes 'in_case', so it takes the discard tap instead of the capture
+// tap. The acknowledgement obligation is identical either way — captureReusedDeviceTx
+// demands exposure_acknowledgement.reason for an exposure-flagged device under
+// `override_allowed` regardless of the wasted flag, so the override must land on
+// the clinical record here too. Before this existed the wasted branch called
+// applyDeviceTransitionTx directly and the review was silently dropped.
+export async function markDeviceWastedTx(tx, { device, usageId, wasteReason, acknowledgementReason = null, patientUid, encounterId = null, context = {} }) {
+  const updated = await applyDeviceTransitionTx(tx, device, 'discard', {
+    discardReason: 'wasted',
+    discardNote: wasteReason,
+    metadata: {
+      usage_id: usageId,
+      ...(acknowledgementReason ? { last_exposure_acknowledgement: acknowledgementReason } : {}),
+    },
+  }, context);
+  if (acknowledgementReason) {
+    await recordReuseSafetyReview(tx, {
+      tenantId: device.tenant_id, patientUid, encounterId,
+      findingCode: 'EXPOSED_DEVICE_REUSED',
+      message: `Exposure-flagged device ${device.device_tag} reused with acknowledgement and wasted`,
+      reason: acknowledgementReason, actorUid: context.actorUid,
+      payload: { device_id: device.id, device_tag: device.device_tag, usage_id: usageId, exposure_markers: device.exposure_markers, wasted: true },
+    });
+  }
+  return updated;
+}
+
 // Overrides land on the clinical record through the platform safety-review
 // vehicle (spec §7.5). `issue.type` becomes medication_safety_reviews.review_type
 // and `issue.code` becomes finding_code — verified against

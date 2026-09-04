@@ -816,4 +816,69 @@ describeIfDb('cath device reuse (deep)', () => {
         details: { exposure_markers: expect.arrayContaining(['hbsag']) },
       });
   }, 120000);
+
+  test('a wasted reused capture under override_allowed with an acknowledgement discards the device and records EXPOSED_DEVICE_REUSED', async () => {
+    // The wasted branch takes the DISCARD tap, not the capture tap, so it never
+    // passes through markDeviceInCaseTx. captureReusedDeviceTx demands
+    // exposure_acknowledgement.reason all the same, so the override owes the
+    // clinical record the identical EXPOSED_DEVICE_REUSED review — before
+    // markDeviceWastedTx existed it was silently dropped on this path.
+    // Runs after the override test on purpose: that one counts the tenant's
+    // EXPOSED_DEVICE_REUSED reviews exactly.
+    await upsertReprocessingSettings({ tenantId: TENANT, reactive_patient_rule: 'override_allowed' }, ctx());
+    const { devices } = await mintAvailableDevices({
+      key: 'wasted-ack',
+      acknowledgement: 'Infection control cleared this device for a restricted-patient case',
+    });
+    const device = devices[0];
+    // The patient is blood-borne restricted by now, so the mint above already
+    // flags the device. Setting the flag by SQL anyway keeps the precondition
+    // explicit instead of leaning on suite ordering for it.
+    await prisma.$executeRawUnsafe(
+      `UPDATE cath_reprocessable_devices
+          SET exposure_flag = TRUE,
+              exposure_markers = ARRAY(SELECT DISTINCT m FROM unnest(exposure_markers || ARRAY['hbsag']::text[]) AS m ORDER BY m)
+        WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+      TENANT, device.id,
+    );
+    const flagged = await deviceByTag({ tenantId: TENANT, tag: device.device_tag });
+    expect(flagged).toMatchObject({ status: 'available', exposure_flag: true });
+
+    const wasted = await recordConsumableUsage(caseId, {
+      tenantId: TENANT,
+      catalog_item_id: catalogItemId,
+      quantity: 1,
+      reused_device_tag: device.device_tag,
+      wasted: true,
+      waste_reason: 'Balloon ruptured on the table; device destroyed',
+      exposure_acknowledgement: { reason: 'Consultant accepts the exposure risk; device was opened and destroyed' },
+    }, ctx(ACTOR, { idempotencyKey: 'cdr-reuse-wasted-ack-1' }));
+    expect(wasted).toMatchObject({
+      inventory_decrement_status: 'reused_device',
+      wasted: true,
+      post_use_disposition: 'discarded_wasted',
+    });
+
+    const discarded = await deviceByTag({ tenantId: TENANT, tag: device.device_tag });
+    expect(discarded).toMatchObject({ status: 'discarded', discard_reason: 'wasted', current_usage_id: null });
+    expect(discarded.discard_note).toBe('Balloon ruptured on the table; device destroyed');
+    expect(discarded.metadata.last_exposure_acknowledgement)
+      .toBe('Consultant accepts the exposure risk; device was opened and destroyed');
+
+    const reviews = await prisma.$queryRawUnsafe(
+      `SELECT status, override_reason, payload FROM medication_safety_reviews
+        WHERE tenant_id = $1::uuid
+          AND review_type = 'cath_device_reuse'
+          AND finding_code = 'EXPOSED_DEVICE_REUSED'
+          AND payload->>'usage_id' = $2`,
+      TENANT, String(wasted.id),
+    );
+    expect(reviews).toHaveLength(1);
+    expect(reviews[0]).toMatchObject({ status: 'overridden' });
+    expect(reviews[0].override_reason).toContain('Consultant accepts the exposure risk');
+    expect(reviews[0].payload).toMatchObject({ device_tag: device.device_tag, wasted: true });
+
+    const restored = await upsertReprocessingSettings({ tenantId: TENANT }, ctx());
+    expect(restored.reactive_patient_rule).toBe('discard');
+  }, 120000);
 });

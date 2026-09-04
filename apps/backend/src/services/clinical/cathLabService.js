@@ -30,10 +30,10 @@ import {
 } from '../staff/credentialingService.js';
 import { deriveComplicationRegistryRows } from './cathSchedulingRegistryService.js';
 import {
-  applyDeviceTransitionTx,
   captureReusedDeviceTx,
   getReprocessingSettings,
-  markDeviceInCaseTx
+  markDeviceInCaseTx,
+  markDeviceWastedTx
 } from './cathDeviceReuseService.js';
 import { resolveReuseStatus } from './bloodborneMarkerService.js';
 
@@ -4595,11 +4595,15 @@ export async function recordConsumableUsage(caseId, input = {}, context = {}) {
       // can never disagree. post_use_disposition is MUTABLE under the 765
       // identity guard (device_id and reuse_cycle are the frozen columns), so
       // this follow-up UPDATE is legal.
-      await applyDeviceTransitionTx(tx, reused.device, 'discard', {
-        discardReason: 'wasted',
-        discardNote: wasteReason,
-        metadata: { usage_id: normalizedUsage.id }
-      }, context);
+      await markDeviceWastedTx(tx, {
+        device: reused.device,
+        usageId: normalizedUsage.id,
+        wasteReason,
+        acknowledgementReason: exposureAcknowledgement,
+        patientUid: cathCase.patient_uid,
+        encounterId: cathCase.encounter_id,
+        context
+      });
       await tx.$queryRawUnsafe(
         `UPDATE cath_case_consumable_usage
             SET post_use_disposition = 'discarded_wasted',
