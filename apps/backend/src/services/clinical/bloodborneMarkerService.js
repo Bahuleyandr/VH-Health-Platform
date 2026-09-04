@@ -41,7 +41,7 @@ export { markerForResult };
 // Persistence
 // ---------------------------------------------------------------------------
 
-// lab_result_id is an INTEGER column (migration 765); a larger id would reach
+// lab_result_id is an INTEGER column (migration 764); a larger id would reach
 // the $8::int cast as a 22003 rather than a validation error.
 const POSTGRES_INT4_MAX = 2_147_483_647;
 
@@ -78,17 +78,13 @@ function cleanText(value, max = 500) {
 
 // The single acceptance rule for a tested_on value: a readable YYYY-MM-DD that
 // is not after today's clinical-zone date. requireDate throws on it (writer
-// path); isUsableClinicalDate asks the same question without throwing, so the
-// sign-off hook can drop a bad candidate before it issues SQL for it.
+// path); the sign-off hook reads the problem name directly so it can drop a
+// bad candidate before it issues any SQL for it.
 function clinicalDateProblem(value) {
   const text = isoDate(value);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return 'not_a_date';
   if (text > clinicalDate(new Date())) return 'future_dated';
   return null;
-}
-
-export function isUsableClinicalDate(value) {
-  return clinicalDateProblem(value) === null;
 }
 
 function requireDate(value, label) {
@@ -243,8 +239,12 @@ export async function recordMarkers({ tenantId, patientUid, entries = [], actorU
         recordedBy: actor,
         notes: entry.notes ?? null,
       });
+      // Only a lab-linked entry can lose the ON CONFLICT race: the unique
+      // index is partial on lab_result_id IS NOT NULL, so a clinical
+      // declaration always inserts. `skipped` therefore only ever carries
+      // lab_result_ids.
       if (row) recorded.push(row);
-      else skipped.push(labResultId == null ? null : Number(labResultId));
+      else skipped.push(Number(labResultId));
     }
     return { recorded, skipped };
   });
@@ -343,6 +343,18 @@ export async function voidMarker({ tenantId, patientUid, markerId, actorUid, rea
 // record, and one announced as 'corrected' over an unchanged value writes
 // nothing. `decision` is validated and kept only as evidence.decision.
 //
+// The read-compare-write is serialised per (tenant, lab result) by a
+// transaction-scoped advisory lock taken before the row is read, so two
+// concurrent sign-offs of the same result cannot both read the same active
+// row, both void it and both insert — which would lose one correction.
+//
+// Return shape:
+//   recorded — the marker rows inserted by this call (full rows).
+//   voided   — count of superseded marker rows voided by this call.
+//   skipped  — lab_result_ids whose active marker already said exactly this.
+//   failed   — { lab_result_id, reason } for candidates rejected before any
+//              SQL was issued for them (an unusable tested_on).
+//
 // Voiding frees the lab-linked unique slot (ux_patient_bloodborne_markers_lab_result
 // is partial on voided_at IS NULL), so replaying a batch whose row was voided
 // and superseded re-inserts. That is intended: the live row is whatever the
@@ -356,6 +368,67 @@ export async function voidMarker({ tenantId, patientUid, markerId, actorUid, rea
 
 const SIGNED_STATUSES = new Set(['final', 'corrected', 'amended', 'verified']);
 const SIGN_OFF_DECISIONS = ['verified', 'corrected', 'amended'];
+
+// One read-compare-write pass over a lab result's active marker slot, run
+// inside the caller's transaction and under its advisory lock for that lab
+// result. Returns { outcome, voided, row }:
+//   'skipped'  — the active row already says exactly this; nothing written.
+//   'recorded' — any stale active row was voided and the new row inserted.
+//   'conflict' — the lab-linked slot was taken between the read and the
+//                insert, so nothing was inserted.
+async function upsertMarkerForLabResult(tx, {
+  tenantId,
+  labResultId,
+  labRow,
+  marker,
+  nextResult,
+  nextTestedOn,
+  decision,
+  actor,
+}) {
+  const activeRows = await tx.$queryRawUnsafe(
+    `SELECT id, result, tested_on, patient_uid
+       FROM patient_bloodborne_markers
+      WHERE tenant_id = $1::uuid AND lab_result_id = $2::int AND voided_at IS NULL
+      FOR UPDATE`,
+    tenantId, labResultId,
+  );
+  // patient_uid is read for the comparison's completeness only: the new row
+  // must carry the lab result's *current* patient_uid, because the composite
+  // FK points at lab_results (tenant_id, id, patient_uid).
+  const active = activeRows[0];
+  if (active && active.result === nextResult && isoDate(active.tested_on) === nextTestedOn) {
+    return { outcome: 'skipped', voided: 0, row: null };
+  }
+  let voided = 0;
+  if (active) {
+    voided = await tx.$executeRawUnsafe(
+      `UPDATE patient_bloodborne_markers
+          SET voided_at = NOW(), voided_by = $3::uuid, void_reason = 'lab_result_corrected'
+        WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+      tenantId, Number(active.id), actor,
+    );
+  }
+  const inserted = await recordMarkerTx(tx, {
+    tenantId,
+    patientUid: labRow.patient_uid,
+    marker,
+    result: nextResult,
+    testedOn: nextTestedOn,
+    source: 'lab_result',
+    labResultId,
+    evidence: {
+      raw_value: labRow.value_text,
+      test_code: labRow.test_code,
+      loinc_code: labRow.loinc_code,
+      decision,
+    },
+    recordedBy: actor,
+  });
+  return inserted
+    ? { outcome: 'recorded', voided, row: inserted }
+    : { outcome: 'conflict', voided, row: null };
+}
 
 export async function recordMarkersFromSignedResults({ tenantId, resultIds = [], decision = 'verified', actorUid }) {
   const tid = requireTenantId(tenantId);
@@ -375,7 +448,8 @@ export async function recordMarkersFromSignedResults({ tenantId, resultIds = [],
       `SELECT id, patient_uid, test_code, loinc_code, value_text, status,
               signed_off_at, performed_at, received_at
          FROM lab_results
-        WHERE tenant_id = $1::uuid AND id = ANY($2::int[])`,
+        WHERE tenant_id = $1::uuid AND id = ANY($2::int[])
+        ORDER BY id`,
       tid, ids,
     );
     const candidates = rows
@@ -386,12 +460,25 @@ export async function recordMarkersFromSignedResults({ tenantId, resultIds = [],
     if (candidates.length === 0) return { recorded: [], voided: 0, skipped: [], failed: [] };
     let voided = 0;
     const recorded = [];
-    // Both arrays carry lab_result_ids: `skipped` is what was already recorded
-    // correctly, `failed` is what could not be read as evidence at all.
     const skipped = [];
     const failed = [];
+    // Candidates are walked in lab_result_id order (the select above is
+    // ORDER BY id), so two overlapping batches take the per-result advisory
+    // locks below in the same order and cannot deadlock against each other.
     for (const { row, marker } of candidates) {
       const labResultId = Number(row.id);
+      // Serialise the whole read-compare-write for this lab result. The lock
+      // is transaction-scoped, so it is held to COMMIT: a second sign-off of
+      // the same result waits here instead of racing the compare, reading the
+      // same active row and voiding it twice.
+      //
+      // $executeRawUnsafe, not $queryRawUnsafe: pg_advisory_xact_lock returns
+      // void and Prisma's query path cannot deserialise a void column
+      // ('Failed to deserialize column of type void').
+      await tx.$executeRawUnsafe(
+        `SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text, 0))`,
+        tid, String(labResultId),
+      );
       const nextResult = normalizeSerologyValue(row.value_text);
       const nextTestedOn = safeClinicalDate(row.performed_at || row.received_at || new Date());
       const problem = clinicalDateProblem(nextTestedOn);
@@ -403,48 +490,27 @@ export async function recordMarkersFromSignedResults({ tenantId, resultIds = [],
         failed.push({ lab_result_id: labResultId, reason: problem });
         continue;
       }
-      const activeRows = await tx.$queryRawUnsafe(
-        `SELECT id, result, tested_on, patient_uid
-           FROM patient_bloodborne_markers
-          WHERE tenant_id = $1::uuid AND lab_result_id = $2::int AND voided_at IS NULL
-          FOR UPDATE`,
-        tid, labResultId,
-      );
-      // patient_uid is read for the comparison's completeness only: the new row
-      // must carry the lab result's *current* patient_uid, because the
-      // composite FK points at lab_results (tenant_id, id, patient_uid).
-      const active = activeRows[0];
-      if (active && active.result === nextResult && isoDate(active.tested_on) === nextTestedOn) {
-        skipped.push(labResultId);
-        continue;
-      }
-      if (active) {
-        voided += await tx.$executeRawUnsafe(
-          `UPDATE patient_bloodborne_markers
-              SET voided_at = NOW(), voided_by = $3::uuid, void_reason = 'lab_result_corrected'
-            WHERE tenant_id = $1::uuid AND id = $2::bigint`,
-          tid, Number(active.id), actor,
-        );
-      }
-      const inserted = await recordMarkerTx(tx, {
+      const passArgs = {
         tenantId: tid,
-        patientUid: row.patient_uid,
-        marker,
-        result: nextResult,
-        testedOn: nextTestedOn,
-        source: 'lab_result',
         labResultId,
-        evidence: {
-          raw_value: row.value_text,
-          test_code: row.test_code,
-          loinc_code: row.loinc_code,
-          decision: normalizedDecision,
-        },
-        recordedBy: actor,
-      });
-      // A null insert means a concurrent writer took the lab-linked slot; that
-      // writer's row is the record, so this is a skip, not a loss.
-      if (inserted) recorded.push(inserted);
+        labRow: row,
+        marker,
+        nextResult,
+        nextTestedOn,
+        decision: normalizedDecision,
+        actor,
+      };
+      let pass = await upsertMarkerForLabResult(tx, passArgs);
+      voided += pass.voided;
+      if (pass.outcome === 'conflict') {
+        // Defensive; unreachable while the advisory lock is held — only a
+        // writer that does not take this lock could take the lab-linked slot
+        // between the read and the insert. Re-read and re-decide once rather
+        // than silently dropping a correction.
+        pass = await upsertMarkerForLabResult(tx, passArgs);
+        voided += pass.voided;
+      }
+      if (pass.outcome === 'recorded') recorded.push(pass.row);
       else skipped.push(labResultId);
     }
     return { recorded, voided, skipped, failed };

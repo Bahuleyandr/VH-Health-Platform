@@ -1,4 +1,4 @@
--- 765_patient_bloodborne_markers.sql
+-- 764_patient_bloodborne_markers.sql
 --
 -- Platform-level patient blood-borne marker record (HIV, HBsAg, HCV,
 -- CJD-suspected, other). Until now the only serology status lived inside

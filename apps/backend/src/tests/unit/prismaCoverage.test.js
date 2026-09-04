@@ -1349,7 +1349,7 @@ describe('src/lib/prisma.js coverage completion', () => {
       expect(grantSql).toContain(
         'REVOKE ALL PRIVILEGES\n          ON SEQUENCE public._migrations_id_seq\n          FROM vhhealth_app',
       );
-      // Migration 765's own GRANT block runs once per database; this boot pass
+      // Migration 764's own GRANT block runs once per database; this boot pass
       // re-grants SELECT, INSERT, UPDATE, DELETE on ALL tables first, so a
       // table missing from these lists silently keeps DELETE. Pin
       // patient_bloodborne_markers to the mutable-no-delete list (not the

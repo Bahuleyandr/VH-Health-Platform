@@ -26,10 +26,14 @@ const OTHER_ACTOR = '00000000-0000-4000-8000-0000000bb0ab';
 const RUNTIME_ROLES = ['vhhealth_app', 'vhhealth_runtime'];
 const RLS_ROLE = 'vhhealth_runtime';
 let previousRuntimeRole;
-// beforeAll provisions the runtime role through the same boot-time bootstrap
-// production uses, so the RLS assertions below normally run. The probe stays
-// only as a last resort for a rig where provisioning could not happen at all.
-let rlsRoleSkipReason = null;
+// beforeAll provisions the runtime roles through the same boot-time bootstrap
+// production uses and keeps each call's own return value here. That return
+// value — not a probe of the database — decides whether the RLS test may skip:
+// `skipped: true` is the bootstrap declining to run at all (no role
+// configured, unsafe role name), which is the only rig this file cannot make
+// assertions on. Anything else means provisioning ran, so a missing role or a
+// missing grant is a defect and must fail rather than skip.
+const runtimeRoleProvisioning = new Map();
 
 // Every fixture date is relative to the run. A hard-coded date reads as
 // "recent" while the calendar is near it and as "older than the 90-day
@@ -136,12 +140,17 @@ d('blood-borne markers (deep)', () => {
     // RLS assertions below actually execute instead of skipping on a rig whose
     // ci-setup-db never created vhhealth_runtime.
     previousRuntimeRole = process.env.AUTH_TENANT_RLS_RUNTIME_ROLE;
-    for (const role of RUNTIME_ROLES) {
-      process.env.AUTH_TENANT_RLS_RUNTIME_ROLE = role;
-      await ensureTenantRlsRuntimeRoleGrants();
+    try {
+      for (const role of RUNTIME_ROLES) {
+        process.env.AUTH_TENANT_RLS_RUNTIME_ROLE = role;
+        runtimeRoleProvisioning.set(role, await ensureTenantRlsRuntimeRoleGrants());
+      }
+    } finally {
+      // The env restore must happen even if provisioning throws, or every
+      // later test in this worker inherits the overridden role name.
+      if (previousRuntimeRole === undefined) delete process.env.AUTH_TENANT_RLS_RUNTIME_ROLE;
+      else process.env.AUTH_TENANT_RLS_RUNTIME_ROLE = previousRuntimeRole;
     }
-    if (previousRuntimeRole === undefined) delete process.env.AUTH_TENANT_RLS_RUNTIME_ROLE;
-    else process.env.AUTH_TENANT_RLS_RUNTIME_ROLE = previousRuntimeRole;
 
     await cleanup();
     for (const [id, slug] of [[TENANT, 'bbm-test'], [OTHER_TENANT, 'bbm-other']]) {
@@ -167,14 +176,6 @@ d('blood-borne markers (deep)', () => {
         uid, tenant, phone, role,
       );
     }
-    const probe = await prisma.$queryRawUnsafe(
-      `SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1::name) AS role_exists,
-              COALESCE((SELECT has_table_privilege($1::name, 'public.patient_bloodborne_markers', 'SELECT')
-                          FROM pg_roles WHERE rolname = $1::name), false) AS can_select`,
-      RLS_ROLE,
-    );
-    if (!probe[0].role_exists) rlsRoleSkipReason = `role ${RLS_ROLE} is not provisioned on this database`;
-    else if (!probe[0].can_select) rlsRoleSkipReason = `role ${RLS_ROLE} has no SELECT on patient_bloodborne_markers`;
   }, 60000);
 
   afterAll(async () => {
@@ -376,6 +377,56 @@ d('blood-borne markers (deep)', () => {
     expect(rows[0].n).toBe(0);
   }, 30000);
 
+  test('an external_report entry for a lab result the hook already recorded is reported in skipped, not written', async () => {
+    const hbsag = await seedSignedResult({ testCode: 'HBSAG', valueText: 'Non-reactive' });
+    const hook = await recordMarkersFromSignedResults({
+      tenantId: TENANT, resultIds: [hbsag], decision: 'verified', actorUid: ACTOR,
+    });
+    expect(hook.recorded).toHaveLength(1);
+    // The lab-linked slot is now held by an active row, so the checklist's
+    // external_report path writes nothing. It has to say so in `skipped`: a
+    // short `recorded` array alone cannot tell "already on record" from
+    // "silently lost", and this is the only path that fills recordMarkers'
+    // `skipped` at all.
+    const outcome = await recordMarkers({
+      tenantId: TENANT,
+      patientUid: PATIENT,
+      actorUid: ACTOR,
+      entries: [{
+        marker: 'hbsag', result: 'reactive', testedOn: daysAgo(1), source: 'external_report', lab_result_id: hbsag,
+      }],
+    });
+    expect(outcome.recorded).toEqual([]);
+    expect(outcome.skipped).toEqual([hbsag]);
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n FROM patient_bloodborne_markers WHERE tenant_id = $1::uuid AND lab_result_id = $2::int`,
+      TENANT, hbsag,
+    );
+    expect(rows[0].n).toBe(1);
+  }, 30000);
+
+  test('two concurrent sign-offs of the same result leave exactly one active row and neither rejects', async () => {
+    const hcv = await seedSignedResult({ testCode: 'HCV', valueText: 'Reactive' });
+    const call = () => recordMarkersFromSignedResults({
+      tenantId: TENANT, resultIds: [hcv], decision: 'verified', actorUid: ACTOR,
+    });
+    const [first, second] = await Promise.all([call(), call()]);
+    // The per-(tenant, lab result) advisory lock serialises the pair: one
+    // transaction inserts, the other waits, reads the committed row and skips.
+    // This does not prove the race is closed — it proves the lock neither
+    // deadlocks nor throws, and that the pair still lands one active row.
+    expect(first.recorded.length + first.skipped.length
+      + second.recorded.length + second.skipped.length).toBe(2);
+    expect(first.failed).toEqual([]);
+    expect(second.failed).toEqual([]);
+    const active = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n FROM patient_bloodborne_markers
+        WHERE tenant_id = $1::uuid AND lab_result_id = $2::int AND voided_at IS NULL`,
+      TENANT, hcv,
+    );
+    expect(active[0].n).toBe(1);
+  }, 30000);
+
   test('a marker cannot bind another patient\'s lab result (composite FK)', async () => {
     const otherPatientResult = await prisma.$queryRawUnsafe(
       `INSERT INTO lab_results (tenant_id, patient_uid, test_code, test_name, value_text, status, signed_off_at, signed_off_by, performed_at, received_at)
@@ -397,13 +448,33 @@ d('blood-borne markers (deep)', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM lab_results WHERE id = $1::int`, foreignId);
   }, 30000);
 
-  test('RLS: another tenant cannot read this tenant\'s marker rows', async () => {
-    if (rlsRoleSkipReason) {
-      // Last resort only: beforeAll provisions the role, so reaching this
-      // branch means the rig could not provision it at all.
-      console.warn(`Skipping RLS probe: ${rlsRoleSkipReason}`);
+  test('RLS: another tenant cannot read this tenant\'s marker rows, and the runtime role is mutable but cannot delete', async () => {
+    const provisioned = runtimeRoleProvisioning.get(RLS_ROLE);
+    if (provisioned?.skipped === true) {
+      // The only skip this file allows: the bootstrap declined to run (no
+      // runtime role configured, or an unsafe role name), so there is nothing
+      // to assert against. A provisioning pass that ran must have produced a
+      // usable role, and the assertions below fail if it did not.
+      console.warn(`Skipping RLS probe: ${RLS_ROLE} provisioning skipped (${provisioned.reason})`);
       return;
     }
+    const probe = await prisma.$queryRawUnsafe(
+      `SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1::name) AS role_exists,
+              COALESCE((SELECT has_table_privilege($1::name, 'public.patient_bloodborne_markers', 'SELECT')
+                          FROM pg_roles WHERE rolname = $1::name), false) AS can_select,
+              COALESCE((SELECT has_table_privilege($1::name, 'public.patient_bloodborne_markers', 'UPDATE')
+                          FROM pg_roles WHERE rolname = $1::name), false) AS can_update,
+              COALESCE((SELECT has_table_privilege($1::name, 'public.patient_bloodborne_markers', 'DELETE')
+                          FROM pg_roles WHERE rolname = $1::name), false) AS can_delete`,
+      RLS_ROLE,
+    );
+    expect(probe[0].role_exists).toBe(true);
+    expect(probe[0].can_select).toBe(true);
+    // The void transition is an UPDATE, so UPDATE is part of the contract;
+    // the record is append-only by convention, so DELETE must stay revoked.
+    expect(probe[0].can_update).toBe(true);
+    expect(probe[0].can_delete).toBe(false);
+
     const visible = await asRlsRole(
       OTHER_TENANT,
       `SELECT COUNT(*)::int AS n FROM patient_bloodborne_markers WHERE patient_uid = $1::uuid`,
@@ -416,5 +487,14 @@ d('blood-borne markers (deep)', () => {
       PATIENT,
     );
     expect(own[0].n).toBeGreaterThan(0);
+    // The sign-off hook locks the active row with SELECT … FOR UPDATE, and a
+    // row lock needs UPDATE privilege: without it this raises 42501 under the
+    // runtime role while passing as the owner in every other test here.
+    const locked = await asRlsRole(
+      TENANT,
+      `SELECT id FROM patient_bloodborne_markers WHERE patient_uid = $1::uuid FOR UPDATE`,
+      PATIENT,
+    );
+    expect(Array.isArray(locked)).toBe(true);
   });
 });
