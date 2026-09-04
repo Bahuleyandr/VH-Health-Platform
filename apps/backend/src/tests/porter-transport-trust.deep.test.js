@@ -15,6 +15,7 @@ const d = DB_CONFIGURED ? describe : describe.skip;
 
 const prisma = (await import('../lib/prisma.js')).default;
 const {
+  assignTransportTask,
   completeTransportTask,
   cancelTransportTask,
   verifyTransportTask,
@@ -274,6 +275,71 @@ d('B-L5 porter transport trust boundaries (deep)', () => {
     expect(PATIENT_TRANSPORT_VERIFY_ROUTE_ROLES).not.toContain('DRIVER');
     expect(PATIENT_TRANSPORT_VERIFY_ROUTE_ROLES).not.toContain('DELIVERY_STAFF');
     expect(PATIENT_TRANSPORT_VERIFY_ROUTE_ROLES).not.toContain('EMERGENCY_RESPONDER');
+  });
+
+  // ── (c) assignment cannot be steered by contradictory body identifiers ────
+
+  it('refuses an assignment whose staffId and staffUid name different people', async () => {
+    const taskId = await seedTask({ status: 'open' });
+    const before = (await prisma.$queryRawUnsafe(
+      `SELECT status, assigned_porter_uid, assigned_porter_id
+         FROM porter_transport_tasks
+        WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+      TENANT,
+      taskId,
+    ))[0];
+
+    // staffId and staffUid are INDEPENDENT body fields. This pair is
+    // contradictory: the id is the porter, the uid is the nurse. The lookup was
+    // an OR with no ordering, so one of them won arbitrarily and the task was
+    // assigned to — and audited against — a person the request never
+    // unambiguously named.
+    await expect(
+      assignTransportTask({
+        tenantId: TENANT,
+        taskId,
+        actorUid: INCHARGE_UID,
+        actorRole: 'NURSING_INCHARGE',
+        body: { staffId: porterId, staffUid: BYSTANDER_NURSE_UID },
+      }),
+    ).rejects.toMatchObject({ code: 'TRANSPORT_STAFF_NOT_FOUND' });
+
+    // And the row is UNCHANGED: a contradictory request must not half-apply.
+    // Compared against a snapshot rather than against null, because seedTask
+    // pre-populates the porter columns — asserting null here would pass for the
+    // wrong reason on a seed that happened to leave them empty.
+    const after = (await prisma.$queryRawUnsafe(
+      `SELECT status, assigned_porter_uid, assigned_porter_id
+         FROM porter_transport_tasks
+        WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+      TENANT,
+      taskId,
+    ))[0];
+    expect(after).toEqual(before);
+    // Specifically: the nurse named by the contradictory uid was not assigned.
+    expect(after.assigned_porter_uid).not.toBe(BYSTANDER_NURSE_UID);
+  });
+
+  it('still assigns when only one identifier is supplied', async () => {
+    const taskId = await seedTask({ status: 'open' });
+
+    // The fix must not break the ordinary path: one identifier, no ambiguity.
+    await assignTransportTask({
+      tenantId: TENANT,
+      taskId,
+      actorUid: INCHARGE_UID,
+      actorRole: 'NURSING_INCHARGE',
+      body: { staffUid: PORTER_UID },
+    });
+
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT status, assigned_porter_uid FROM porter_transport_tasks
+        WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+      TENANT,
+      taskId,
+    );
+    expect(rows[0].assigned_porter_uid).toBe(PORTER_UID);
+    expect(rows[0].status).toBe('assigned');
   });
 
   // ── (b) cancellation restricted to requester + coordination roles ─────────
