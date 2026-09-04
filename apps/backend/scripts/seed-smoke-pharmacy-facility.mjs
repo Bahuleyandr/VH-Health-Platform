@@ -140,10 +140,21 @@ try {
 
     // Mirror the authority service's actor predicate EXACTLY
     // (pharmacyFacilityAuthorityService.js, resolvePharmacyFacility), so what is
-    // granted here is what the service will resolve at request time. The
-    // route-crawl authenticates as the seeded SUPER_ADMIN, which
-    // FACILITY_OPERATION_ROLES admits and which already carries an active staff
-    // row from ci-setup-db's test-staff seed.
+    // granted here is what the service will resolve at request time.
+    //
+    // CORRECTION (the comment here previously said this grants the route-crawl's
+    // actor — it does not, and the claim cost a CI cycle). The admin e2e suite
+    // authenticates via POST /api/v1/auth/admin/login, i.e. as a row in the
+    // `admins` table, which is a SEPARATE IDENTITY REALM from `users`; see
+    // services/auth/loginSessionHelper.js#54. A platform admin therefore has no
+    // `users` row for resolvePharmacyFacility to find and correctly holds no
+    // pharmacy custody, whatever is granted here.
+    //
+    // What this grants is the users-realm SUPER_ADMIN seeded by ci-setup-db's
+    // test-staff seed, so any API-level smoke authenticating as that staff
+    // identity has custody. The admin dashboard's own expectation is handled
+    // where it belongs — apps/admin/e2e/table-controls.spec.ts asserts the scope
+    // notice for /dashboard/pharmacy rather than a table.
     const actors = await prisma.$queryRawUnsafe(
       `SELECT actor.uid, staff.id AS staff_id
          FROM users actor
