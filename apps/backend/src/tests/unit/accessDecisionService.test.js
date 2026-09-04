@@ -90,6 +90,72 @@ describe('accessDecisionService', () => {
     expect(prismaMock.$queryRawUnsafe).not.toHaveBeenCalled();
   });
 
+  // Steering: a caller-supplied identifier must not compete with the route's own
+  // subject. These four pin the fix for that; each one fails on the pre-fix code.
+  describe('patient identifier steering', () => {
+    it('ignores a conflicting query patient_id when the path param names the subject', async () => {
+      prismaMock.$queryRawUnsafe.mockResolvedValueOnce([{ id: 41, uid: PATIENT_UID }]);
+
+      const resolved = await resolvePatientForAccess(reqFor('DOCTOR', {
+        params: { uid: PATIENT_UID },
+        query: { patient_id: '999' },
+      }));
+
+      // THE REGRESSION. Pre-fix, `directId` was built from an independent chain
+      // that reached into query, so 999 was passed alongside the path uid and the
+      // OR predicate could return whichever patient registered later.
+      expect(prismaMock.$queryRawUnsafe.mock.calls[0][2]).toBeNull();
+      expect(prismaMock.$queryRawUnsafe.mock.calls[0][3]).toBe(PATIENT_UID);
+      expect(resolved).toEqual({ id: 41, uid: PATIENT_UID });
+    });
+
+    it('ignores a conflicting query patient_uid when the path param names a numeric subject', async () => {
+      prismaMock.$queryRawUnsafe.mockResolvedValueOnce([{ id: 15, uid: PATIENT_UID }]);
+
+      await resolvePatientForAccess(reqFor('DOCTOR', {
+        params: { patient_id: '15' },
+        query: { patient_uid: OTHER_PATIENT_UID },
+      }));
+
+      expect(prismaMock.$queryRawUnsafe.mock.calls[0][2]).toBe(15);
+      expect(prismaMock.$queryRawUnsafe.mock.calls[0][3]).toBeNull();
+    });
+
+    it('requires every supplied identifier to match the same row', async () => {
+      prismaMock.$queryRawUnsafe.mockResolvedValueOnce([{ id: 15, uid: PATIENT_UID }]);
+
+      await resolvePatientForAccess(reqFor('DOCTOR', {
+        params: { patient_id: '15', patient_uid: PATIENT_UID },
+        query: {},
+      }));
+
+      // Both came from the SAME source, so both are the route's own binding and
+      // both are used — but ANDed, never ORed with a tiebreak.
+      const [sql] = prismaMock.$queryRawUnsafe.mock.calls[0];
+      expect(sql).toMatch(/\$2::int IS NULL OR id = \$2::int/);
+      expect(sql).toMatch(/\$3::uuid IS NULL OR uid = \$3::uuid/);
+      expect(sql).not.toMatch(/registered_at DESC/);
+    });
+
+    it('never selects a query-supplied patient when the path param is malformed', async () => {
+      prismaMock.$queryRawUnsafe.mockResolvedValue([]);
+
+      const resolved = await resolvePatientForAccess(reqFor('DOCTOR', {
+        params: { uid: 'not-a-uuid' },
+        query: { patient_uid: OTHER_PATIENT_UID, patient_id: '999' },
+      }));
+
+      // A malformed path param does fall through to the token resolver, which is
+      // fine: requestedPatientToken is a SINGLE chain that reads params before
+      // query, so the unusable path value still wins and the lookup finds
+      // nothing. What must never happen is the query naming the subject instead.
+      expect(resolved).toBeNull();
+      const everyArg = prismaMock.$queryRawUnsafe.mock.calls.flat().map(String);
+      expect(everyArg).not.toContain(OTHER_PATIENT_UID);
+      expect(everyArg).not.toContain('999');
+    });
+  });
+
   it('uses an explicit patient selector instead of conflicting query and body aliases', async () => {
     const selectedUid = '33333333-3333-4333-8333-333333333333';
     prismaMock.$queryRawUnsafe.mockResolvedValueOnce([{ id: 27, uid: selectedUid }]);

@@ -317,17 +317,31 @@ function isSchemaMissing(err) {
   return isGovernanceSchemaMissing(err);
 }
 
+// Both identifiers must agree. This was an OR with a `registered_at DESC`
+// tiebreak, which made it an authorization bypass: a caller who supplied BOTH a
+// uid and an id naming DIFFERENT patients got whichever registered later, and
+// the winner was decided by registration order rather than by intent. On a
+// `:uid` route an attacker could append `?patient_id=<a patient they are
+// authorized for>`, have the access decision evaluated against THAT patient,
+// and have the handler serve the victim in the path param. In shadow mode the
+// same steering silently attributes the audit row to the wrong subject, which
+// corrupts the very evidence a staged enforcement rollout depends on.
+//
+// Now: at least one identifier is required, and EVERY identifier supplied must
+// match the same row. Two that disagree select nothing and the caller fails
+// closed. The ORDER BY is `id` only — `id` and `uid` are both unique, so with
+// AND semantics at most one row can match and the ordering exists solely to
+// keep the result deterministic rather than to pick a winner.
 async function patientByIdOrUid({ tenantId, id = null, uid = null }) {
   const rows = await accessDecisionDb().$queryRawUnsafe(
     `SELECT id, uid
        FROM users
       WHERE tenant_id = $1::uuid
         AND role = 'PATIENT'
-        AND (
-          ($2::int IS NOT NULL AND id = $2::int)
-          OR ($3::uuid IS NOT NULL AND uid = $3::uuid)
-        )
-      ORDER BY registered_at DESC NULLS LAST, id DESC
+        AND ($2::int IS NOT NULL OR $3::uuid IS NOT NULL)
+        AND ($2::int IS NULL OR id = $2::int)
+        AND ($3::uuid IS NULL OR uid = $3::uuid)
+      ORDER BY id
       LIMIT 1`,
     tenantId,
     cleanInt(id),
@@ -949,6 +963,46 @@ export async function resolvePatientForResourceAccess(req, {
   }
 }
 
+// Ordered highest precedence first. `params` alone accepts a bare `uid`,
+// because that is a route binding its own subject; a bare `uid` in query or body
+// would be caller-chosen decoration, and accepting it there is what let a
+// request name a patient its route never mentioned.
+const PATIENT_IDENTIFIER_SOURCES = Object.freeze([
+  { of: (req) => req?.phiContext, uidKeys: ['patientUid', 'patient_uid'], idKeys: ['patientId', 'patient_id'] },
+  { of: (req) => req?.params, uidKeys: ['patient_uid', 'patientUid', 'uid'], idKeys: ['patientId', 'patient_id'] },
+  { of: (req) => req?.query, uidKeys: ['patient_uid', 'patientUid'], idKeys: ['patientId', 'patient_id'] },
+  { of: (req) => req?.body, uidKeys: ['patient_uid', 'patientUid'], idKeys: ['patientId', 'patient_id'] },
+]);
+
+function firstTruthy(bag, keys) {
+  for (const key of keys) {
+    if (bag[key]) return bag[key];
+  }
+  return undefined;
+}
+
+/**
+ * The patient identifiers carried by the HIGHEST-precedence source that offers
+ * any, and only that source.
+ *
+ * A source that offers a raw candidate CLAIMS the subject even if the value
+ * fails validation — it returns {uid:null,id:null} rather than falling through.
+ * Falling through would mean a malformed `:uid` in the path silently handed
+ * subject selection to the query string, which is the same steering defect one
+ * step removed.
+ */
+function firstPatientIdentifierSource(req) {
+  for (const source of PATIENT_IDENTIFIER_SOURCES) {
+    const bag = source.of(req);
+    if (!bag || typeof bag !== 'object') continue;
+    const rawUid = firstTruthy(bag, source.uidKeys);
+    const rawId = firstTruthy(bag, source.idKeys);
+    if (rawUid === undefined && rawId === undefined) continue;
+    return { uid: cleanUuid(rawUid), id: cleanInt(rawId) };
+  }
+  return { uid: null, id: null };
+}
+
 export async function resolvePatientForAccess(req, providedPatient = undefined) {
   const tenantId = deriveTenantIdFromRequest(req);
   const providedUid = cleanUuid(providedPatient?.uid || providedPatient?.patient_uid || providedPatient?.patientUid);
@@ -959,27 +1013,21 @@ export async function resolvePatientForAccess(req, providedPatient = undefined) 
     return row ? { id: row.id ?? providedId, uid: row.uid ?? providedUid } : null;
   }
 
-  const directUid = cleanUuid(
-    req?.phiContext?.patientUid
-      || req?.phiContext?.patient_uid
-      || req?.params?.patient_uid
-      || req?.params?.patientUid
-      || req?.params?.uid
-      || req?.query?.patient_uid
-      || req?.query?.patientUid
-      || req?.body?.patient_uid
-      || req?.body?.patientUid,
-  );
-  const directId = cleanInt(
-    req?.phiContext?.patientId
-      || req?.phiContext?.patient_id
-      || req?.params?.patientId
-      || req?.params?.patient_id
-      || req?.query?.patientId
-      || req?.query?.patient_id
-      || req?.body?.patientId
-      || req?.body?.patient_id,
-  );
+  // Resolve BOTH identifiers from the SAME source, highest precedence first.
+  //
+  // These were two independent fallback chains, each spanning phiContext ->
+  // params -> query -> body. That let a lower-precedence source contribute the
+  // identifier the higher one did not: on a `:uid` route, `params` supplied the
+  // uid and `query` was still free to supply an unrelated `patient_id`, so the
+  // decision was made about a patient the route never names. Query and body are
+  // caller-controlled decoration; the path param is the route's own subject, and
+  // it must not be competed with.
+  //
+  // Now the first source that yields ANYTHING wins outright and the rest are
+  // never consulted. Within a source both identifiers are read, because a route
+  // that genuinely binds both means both — and patientByIdOrUid requires them to
+  // agree.
+  const { uid: directUid, id: directId } = firstPatientIdentifierSource(req);
   if (directUid || directId) {
     const row = await patientByIdOrUid({ tenantId, id: directId, uid: directUid });
     return row ? { id: row.id ?? directId, uid: row.uid ?? directUid } : null;
