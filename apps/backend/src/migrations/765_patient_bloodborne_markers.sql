@@ -132,6 +132,19 @@ CREATE POLICY tenant_isolation ON patient_bloodborne_markers
 -- marker rows and performs the void transition (voided_at/voided_by/
 -- void_reason), so the contract is SELECT + INSERT + UPDATE; DELETE and
 -- TRUNCATE stay revoked because the record is append-only by convention.
+--
+-- This block alone is not the whole story, and must not be read as such. A
+-- tracker-driven migration runs once per database, so on a cluster where the
+-- runtime role is provisioned later (CNPG reconciles spec.managed.roles after
+-- the first migration pass) the to_regrole guard would skip these grants
+-- forever. The boot-time bootstrap in src/lib/prisma.js
+-- (ensureTenantRlsRuntimeRoleGrants) re-narrows the runtime role's privileges
+-- on EVERY boot after its broad late-provisioning fallback grants, so a table
+-- that is not registered there silently keeps those broad privileges.
+-- patient_bloodborne_markers is registered in that bootstrap's
+-- runtime_mutable_no_delete_relations list (SELECT, INSERT, UPDATE; DELETE and
+-- TRUNCATE revoked) and patient_bloodborne_markers_id_seq in its
+-- runtime_nextval_sequences list (USAGE, SELECT; no setval).
 DO $patient_bloodborne_markers_runtime_grants$
 DECLARE
   role_name TEXT;

@@ -1,7 +1,8 @@
 // apps/backend/src/tests/bloodborne-markers.deep.test.js
-import prisma from '../lib/prisma.js';
+import prisma, { ensureTenantRlsRuntimeRoleGrants } from '../lib/prisma.js';
 import {
   __clearExposureHandlersForTests,
+  clinicalDate,
   listMarkersForPatient,
   recordMarkers,
   recordMarkersFromSignedResults,
@@ -17,14 +18,24 @@ const TENANT = '00000000-0000-4000-8000-0000000bb001';
 const OTHER_TENANT = '00000000-0000-4000-8000-0000000bb002';
 const PATIENT = '00000000-0000-4000-8000-0000000bb011';
 const OTHER_PATIENT = '00000000-0000-4000-8000-0000000bb012';
+// Second patient inside TENANT: proves voidMarker's patient scoping is not
+// satisfied by tenant membership alone.
+const SECOND_PATIENT = '00000000-0000-4000-8000-0000000bb013';
 const ACTOR = '00000000-0000-4000-8000-0000000bb0aa';
 const OTHER_ACTOR = '00000000-0000-4000-8000-0000000bb0ab';
+const RUNTIME_ROLES = ['vhhealth_app', 'vhhealth_runtime'];
 const RLS_ROLE = 'vhhealth_runtime';
-// Migration 765 grants the table to vhhealth_app/vhhealth_runtime only when the
-// role exists (to_regrole guard), and ci-setup-db's provision-rls-test-roles.mjs
-// does not create vhhealth_runtime. Probe rather than false-fail on a rig that
-// never provisioned it.
+let previousRuntimeRole;
+// beforeAll provisions the runtime role through the same boot-time bootstrap
+// production uses, so the RLS assertions below normally run. The probe stays
+// only as a last resort for a rig where provisioning could not happen at all.
 let rlsRoleSkipReason = null;
+
+// Every fixture date is relative to the run. A hard-coded date reads as
+// "recent" while the calendar is near it and as "older than the 90-day
+// validity window" afterwards, which silently flips reuse status from clear to
+// unknown and would fail this file on a future date rather than on a defect.
+const daysAgo = (n) => clinicalDate(new Date(Date.now() - n * 86400000));
 
 const resultIds = [];
 
@@ -40,6 +51,32 @@ async function rowVisibleToAnotherConnection(event) {
   return seen[0].n === 1;
 }
 
+// expectForeignKeyFailure in billing-refund-payout-closure.deep.test.js reads
+// message + meta, which is the shape of a statement-time violation
+// (PrismaClientKnownRequestError P2010, SQLSTATE and constraint name inside
+// the message). This FK is DEFERRABLE INITIALLY DEFERRED, so it fires at
+// COMMIT and arrives instead as a bare DriverAdapterError whose message is
+// only 'ForeignKeyConstraintViolation' — the SQLSTATE and the constraint name
+// live on err.cause. Both shapes are folded into one text so the assertion
+// pins the SQLSTATE and the constraint rather than a stringified class name.
+async function expectForeignKeyFailure(operation, pattern) {
+  let failure;
+  try {
+    await operation;
+  } catch (err) {
+    failure = err;
+  }
+  expect(failure).toBeTruthy();
+  const text = [
+    String(failure?.message || failure || ''),
+    JSON.stringify(failure?.meta ?? ''),
+    JSON.stringify(failure?.cause ?? ''),
+    failure?.meta?.code || failure?.code || '',
+  ].join(' ');
+  expect(text).toMatch(/23503/);
+  expect(text).toMatch(pattern);
+}
+
 async function asRlsRole(tenantId, sql, ...params) {
   return prisma.$transaction(async (tx) => {
     await tx.$executeRawUnsafe(`SET LOCAL ROLE ${RLS_ROLE}`);
@@ -48,7 +85,7 @@ async function asRlsRole(tenantId, sql, ...params) {
   });
 }
 
-async function seedSignedResult({ testCode, valueText, patientUid = PATIENT, daysAgo = 3 }) {
+async function seedSignedResult({ testCode, valueText, patientUid = PATIENT, daysBack = 3 }) {
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO lab_results
        (tenant_id, patient_uid, test_code, test_name, value_text, status,
@@ -56,7 +93,7 @@ async function seedSignedResult({ testCode, valueText, patientUid = PATIENT, day
      VALUES ($1::uuid, $2::uuid, $3, $3, $4, 'final',
              NOW(), $5::uuid, NOW() - ($6::int * INTERVAL '1 day'), NOW() - ($6::int * INTERVAL '1 day'))
      RETURNING id`,
-    TENANT, patientUid, testCode, valueText, ACTOR, daysAgo,
+    TENANT, patientUid, testCode, valueText, ACTOR, daysBack,
   );
   const id = Number(rows[0].id);
   resultIds.push(id);
@@ -79,12 +116,13 @@ async function cleanup() {
   }
   await prisma.$executeRawUnsafe(
     `DELETE FROM lab_results
-      WHERE tenant_id IN ($1::uuid, $2::uuid) AND patient_uid IN ($3::uuid, $4::uuid)`,
-    TENANT, OTHER_TENANT, PATIENT, OTHER_PATIENT,
+      WHERE tenant_id IN ($1::uuid, $2::uuid)
+        AND patient_uid IN ($3::uuid, $4::uuid, $5::uuid)`,
+    TENANT, OTHER_TENANT, PATIENT, OTHER_PATIENT, SECOND_PATIENT,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
-    `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
-    PATIENT, OTHER_PATIENT, ACTOR, OTHER_ACTOR,
+    `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid)`,
+    PATIENT, OTHER_PATIENT, SECOND_PATIENT, ACTOR, OTHER_ACTOR,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM tenants WHERE id IN ($1::uuid, $2::uuid)`,
@@ -94,6 +132,17 @@ async function cleanup() {
 
 d('blood-borne markers (deep)', () => {
   beforeAll(async () => {
+    // Provision the sealed runtime roles the way the boot path does, so the
+    // RLS assertions below actually execute instead of skipping on a rig whose
+    // ci-setup-db never created vhhealth_runtime.
+    previousRuntimeRole = process.env.AUTH_TENANT_RLS_RUNTIME_ROLE;
+    for (const role of RUNTIME_ROLES) {
+      process.env.AUTH_TENANT_RLS_RUNTIME_ROLE = role;
+      await ensureTenantRlsRuntimeRoleGrants();
+    }
+    if (previousRuntimeRole === undefined) delete process.env.AUTH_TENANT_RLS_RUNTIME_ROLE;
+    else process.env.AUTH_TENANT_RLS_RUNTIME_ROLE = previousRuntimeRole;
+
     await cleanup();
     for (const [id, slug] of [[TENANT, 'bbm-test'], [OTHER_TENANT, 'bbm-other']]) {
       await prisma.$executeRawUnsafe(
@@ -101,15 +150,20 @@ d('blood-borne markers (deep)', () => {
         id, slug,
       );
     }
+    // ON CONFLICT (uid) — users_uid_key is the unique constraint on uid. A row
+    // left behind by a failed prior cleanup then shows up as a failed
+    // assertion in a test rather than as a 23505 that aborts the whole file.
     for (const [uid, tenant, role, phone] of [
       [PATIENT, TENANT, 'PATIENT', '+919000011011'],
       [OTHER_PATIENT, OTHER_TENANT, 'PATIENT', '+919000011012'],
+      [SECOND_PATIENT, TENANT, 'PATIENT', '+919000011013'],
       [ACTOR, TENANT, 'DOCTOR', '+919000011099'],
       [OTHER_ACTOR, OTHER_TENANT, 'DOCTOR', '+919000011098'],
     ]) {
       await prisma.$executeRawUnsafe(
         `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, status, updated_at)
-         VALUES ($1::uuid, $2::uuid, $3, 'BBM Test', $4, true, 'active', NOW())`,
+         VALUES ($1::uuid, $2::uuid, $3, 'BBM Test', $4, true, 'active', NOW())
+         ON CONFLICT (uid) DO NOTHING`,
         uid, tenant, phone, role,
       );
     }
@@ -121,7 +175,7 @@ d('blood-borne markers (deep)', () => {
     );
     if (!probe[0].role_exists) rlsRoleSkipReason = `role ${RLS_ROLE} is not provisioned on this database`;
     else if (!probe[0].can_select) rlsRoleSkipReason = `role ${RLS_ROLE} has no SELECT on patient_bloodborne_markers`;
-  }, 30000);
+  }, 60000);
 
   afterAll(async () => {
     __clearExposureHandlersForTests();
@@ -130,45 +184,55 @@ d('blood-borne markers (deep)', () => {
 
   afterEach(() => __clearExposureHandlersForTests());
 
-  test('recordMarkers writes rows and the resolver reads them back', async () => {
+  test('recordMarkers writes rows, ignores a label on a named marker, and the resolver reads them back', async () => {
     const recorded = await recordMarkers({
       tenantId: TENANT,
       patientUid: PATIENT,
       actorUid: ACTOR,
       entries: [
-        { marker: 'hiv', result: 'non_reactive', testedOn: '2026-08-20', source: 'clinical_declaration', evidence: { note: 'outside report sighted' } },
-        { marker: 'hbsag', result: 'non_reactive', testedOn: '2026-08-20', source: 'clinical_declaration' },
-        { marker: 'hcv', result: 'non_reactive', testedOn: '2026-08-20', source: 'clinical_declaration' },
+        // marker_label identifies the marker only for 'other'; on hiv it is
+        // ignored outright rather than validated or stored.
+        { marker: 'hiv', marker_label: 'ignored', result: 'non_reactive', testedOn: daysAgo(15), source: 'clinical_declaration', evidence: { note: 'outside report sighted' } },
+        { marker: 'hbsag', result: 'non_reactive', testedOn: daysAgo(15), source: 'clinical_declaration' },
+        { marker: 'hcv', result: 'non_reactive', testedOn: daysAgo(15), source: 'clinical_declaration' },
       ],
     });
     expect(recorded.recorded).toHaveLength(3);
-    const status = await resolveReuseStatus({ tenantId: TENANT, patientUid: PATIENT, asOf: new Date('2026-09-04T00:00:00Z') });
+    expect(recorded.skipped).toEqual([]);
+    expect(recorded.recorded.find((row) => row.marker === 'hiv').marker_label).toBeNull();
+    const status = await resolveReuseStatus({ tenantId: TENANT, patientUid: PATIENT });
     expect(status.status).toBe('clear');
     const listed = await listMarkersForPatient({ tenantId: TENANT, patientUid: PATIENT });
     expect(listed.markers).toHaveLength(3);
     expect(listed.reuse_status.status).toBe('clear');
   }, 30000);
 
-  test('recordMarkers rejects an invalid marker, a missing or over-long label for other, a future date, a mismatched source/link, and a non-integer lab result id', async () => {
+  test('recordMarkers rejects an invalid marker, a missing or over-long label for other, a future date, a mismatched source/link, and an out-of-range lab result id', async () => {
     const base = { tenantId: TENANT, patientUid: PATIENT, actorUid: ACTOR };
-    await expect(recordMarkers({ ...base, entries: [{ marker: 'malaria', result: 'reactive', testedOn: '2026-09-01', source: 'clinical_declaration' }] }))
+    await expect(recordMarkers({ ...base, entries: [{ marker: 'malaria', result: 'reactive', testedOn: daysAgo(1), source: 'clinical_declaration' }] }))
       .rejects.toMatchObject({ code: 'BLOODBORNE_MARKER_INVALID' });
-    await expect(recordMarkers({ ...base, entries: [{ marker: 'other', result: 'reactive', testedOn: '2026-09-01', source: 'clinical_declaration' }] }))
+    await expect(recordMarkers({ ...base, entries: [{ marker: 'other', result: 'reactive', testedOn: daysAgo(1), source: 'clinical_declaration' }] }))
       .rejects.toMatchObject({ code: 'BLOODBORNE_MARKER_INVALID' });
     await expect(recordMarkers({ ...base, entries: [{ marker: 'hiv', result: 'reactive', testedOn: '2999-01-01', source: 'clinical_declaration' }] }))
       .rejects.toMatchObject({ code: 'BLOODBORNE_MARKER_INVALID' });
-    await expect(recordMarkers({ ...base, entries: [{ marker: 'hiv', result: 'reactive', testedOn: '2026-09-01', source: 'external_report' }] }))
+    await expect(recordMarkers({ ...base, entries: [{ marker: 'hiv', result: 'reactive', testedOn: daysAgo(1), source: 'external_report' }] }))
       .rejects.toMatchObject({ code: 'BLOODBORNE_MARKER_INVALID' });
-    await expect(recordMarkers({ ...base, entries: [{ marker: 'hiv', result: 'reactive', testedOn: '2026-09-01', source: 'clinical_declaration', lab_result_id: 1 }] }))
+    await expect(recordMarkers({ ...base, entries: [{ marker: 'hiv', result: 'reactive', testedOn: daysAgo(1), source: 'clinical_declaration', lab_result_id: 1 }] }))
       .rejects.toMatchObject({ code: 'BLOODBORNE_MARKER_INVALID' });
     // An over-long label is rejected, not silently truncated to 120.
     await expect(recordMarkers({
       ...base,
-      entries: [{ marker: 'other', marker_label: 'L'.repeat(121), result: 'reactive', testedOn: '2026-09-01', source: 'clinical_declaration' }],
+      entries: [{ marker: 'other', marker_label: 'L'.repeat(121), result: 'reactive', testedOn: daysAgo(1), source: 'clinical_declaration' }],
     })).rejects.toMatchObject({ code: 'BLOODBORNE_MARKER_INVALID' });
     await expect(recordMarkers({
       ...base,
-      entries: [{ marker: 'hiv', result: 'reactive', testedOn: '2026-09-01', source: 'external_report', lab_result_id: 'abc' }],
+      entries: [{ marker: 'hiv', result: 'reactive', testedOn: daysAgo(1), source: 'external_report', lab_result_id: 'abc' }],
+    })).rejects.toMatchObject({ code: 'BLOODBORNE_MARKER_INVALID' });
+    // lab_result_id is an int4 column: an id past int4 must fail validation,
+    // not reach the $8::int cast as a 22003.
+    await expect(recordMarkers({
+      ...base,
+      entries: [{ marker: 'hiv', result: 'reactive', testedOn: daysAgo(1), source: 'external_report', lab_result_id: 2_147_483_648 }],
     })).rejects.toMatchObject({ code: 'BLOODBORNE_MARKER_INVALID' });
   });
 
@@ -177,13 +241,14 @@ d('blood-borne markers (deep)', () => {
     registerExposureHandler(async (event) => {
       events.push({ ...event, visibleToOtherConnection: await rowVisibleToAnotherConnection(event) });
     });
+    const testedOn = daysAgo(3);
     await recordMarkers({
       tenantId: TENANT, patientUid: PATIENT, actorUid: ACTOR,
-      entries: [{ marker: 'other', marker_label: 'HTLV-1', result: 'reactive', testedOn: '2026-09-01', source: 'clinical_declaration' }],
+      entries: [{ marker: 'other', marker_label: 'HTLV-1', result: 'reactive', testedOn, source: 'clinical_declaration' }],
     });
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
-      tenantId: TENANT, patientUid: PATIENT, marker: 'other', markerLabel: 'HTLV-1', testedOn: '2026-09-01', source: 'clinical_declaration',
+      tenantId: TENANT, patientUid: PATIENT, marker: 'other', markerLabel: 'HTLV-1', testedOn, source: 'clinical_declaration',
     });
     expect(Number(events[0].markerRowId)).toBeGreaterThan(0);
     expect(events[0].visibleToOtherConnection).toBe(true);
@@ -191,24 +256,33 @@ d('blood-borne markers (deep)', () => {
     expect(status.status).toBe('restricted');
   });
 
-  test('voidMarker hides a row from the resolver and refuses a second void or a blank reason', async () => {
-    const listed = await listMarkersForPatient({ tenantId: TENANT, patientUid: PATIENT });
-    const htlv = listed.markers.find((m) => m.marker === 'other');
-    await expect(voidMarker({ tenantId: TENANT, patientUid: PATIENT, markerId: htlv.id, actorUid: ACTOR, reason: '  ' }))
+  test('voidMarker is patient-scoped, hides the row from the resolver, and refuses a second void or a blank reason', async () => {
+    // Owns its fixture rather than voiding a row an earlier test happened to
+    // leave behind.
+    const created = await recordMarkers({
+      tenantId: TENANT, patientUid: PATIENT, actorUid: ACTOR,
+      entries: [{ marker: 'other', marker_label: 'HTLV-void', result: 'reactive', testedOn: daysAgo(2), source: 'clinical_declaration' }],
+    });
+    const markerId = created.recorded[0].id;
+    await expect(voidMarker({ tenantId: TENANT, patientUid: PATIENT, markerId, actorUid: ACTOR, reason: '  ' }))
       .rejects.toMatchObject({ code: 'BLOODBORNE_MARKER_INVALID' });
-    const voided = await voidMarker({ tenantId: TENANT, patientUid: PATIENT, markerId: htlv.id, actorUid: ACTOR, reason: 'entered in error' });
+    // Right tenant, wrong patient: tenant membership alone must not reach it.
+    await expect(voidMarker({ tenantId: TENANT, patientUid: SECOND_PATIENT, markerId, actorUid: ACTOR, reason: 'wrong patient' }))
+      .rejects.toMatchObject({ code: 'BLOODBORNE_MARKER_NOT_FOUND' });
+    const voided = await voidMarker({ tenantId: TENANT, patientUid: PATIENT, markerId, actorUid: ACTOR, reason: 'entered in error' });
     expect(voided.void_reason).toBe('entered in error');
-    const after = await resolveReuseStatus({ tenantId: TENANT, patientUid: PATIENT, asOf: new Date('2026-09-04T00:00:00Z') });
-    expect(after.status).toBe('clear');
-    await expect(voidMarker({ tenantId: TENANT, patientUid: PATIENT, markerId: htlv.id, actorUid: ACTOR, reason: 'again' }))
+    await expect(voidMarker({ tenantId: TENANT, patientUid: PATIENT, markerId, actorUid: ACTOR, reason: 'again' }))
       .rejects.toMatchObject({ code: 'BLOODBORNE_MARKER_ALREADY_VOIDED' });
     await expect(voidMarker({ tenantId: TENANT, patientUid: PATIENT, markerId: 999999999, actorUid: ACTOR, reason: 'x' }))
       .rejects.toMatchObject({ code: 'BLOODBORNE_MARKER_NOT_FOUND' });
+    const active = await listMarkersForPatient({ tenantId: TENANT, patientUid: PATIENT });
+    expect(active.markers.some((m) => m.id === markerId)).toBe(false);
+    expect(active.reuse_status.reasons.some((reason) => reason.includes('HTLV-void'))).toBe(false);
     const withVoided = await listMarkersForPatient({ tenantId: TENANT, patientUid: PATIENT, includeVoided: true });
-    expect(withVoided.markers.some((m) => m.id === htlv.id && m.voided_at)).toBe(true);
-  });
+    expect(withVoided.markers.some((m) => m.id === markerId && m.voided_at)).toBe(true);
+  }, 30000);
 
-  test('a signed HBSAG result creates one marker; replay is a no-op; HGB is ignored', async () => {
+  test('a signed HBSAG result creates one marker; an exact replay is reported as skipped; HGB is ignored', async () => {
     const hbsag = await seedSignedResult({ testCode: 'HBSAG', valueText: 'Reactive' });
     const hgb = await seedSignedResult({ testCode: 'HGB', valueText: '12.1' });
     const events = [];
@@ -219,11 +293,16 @@ d('blood-borne markers (deep)', () => {
     const first = await recordMarkersFromSignedResults({ tenantId: TENANT, resultIds: [hbsag, hgb], decision: 'verified', actorUid: ACTOR });
     expect(first.recorded).toHaveLength(1);
     expect(first.recorded[0]).toMatchObject({ marker: 'hbsag', result: 'reactive', source: 'lab_result', lab_result_id: hbsag });
+    expect(first.skipped).toEqual([]);
+    expect(first.failed).toEqual([]);
     expect(events).toHaveLength(1);
     expect(events[0].visibleToOtherConnection).toBe(true);
 
+    // Same content on replay: nothing is written and no handler fires again.
     const replay = await recordMarkersFromSignedResults({ tenantId: TENANT, resultIds: [hbsag, hgb], decision: 'verified', actorUid: ACTOR });
     expect(replay.recorded).toHaveLength(0);
+    expect(replay.skipped).toEqual([hbsag]);
+    expect(replay.voided).toBe(0);
     expect(events).toHaveLength(1);
 
     const rows = await prisma.$queryRawUnsafe(
@@ -244,6 +323,7 @@ d('blood-borne markers (deep)', () => {
     expect(corrected.voided).toBe(1);
     expect(corrected.recorded).toHaveLength(1);
     expect(corrected.recorded[0].result).toBe('non_reactive');
+    expect(corrected.recorded[0].evidence).toMatchObject({ decision: 'corrected' });
     const rows = await prisma.$queryRawUnsafe(
       `SELECT result, voided_at IS NOT NULL AS voided, void_reason
          FROM patient_bloodborne_markers WHERE tenant_id = $1::uuid AND lab_result_id = $2::int ORDER BY id`,
@@ -255,6 +335,47 @@ d('blood-borne markers (deep)', () => {
     ]);
   }, 30000);
 
+  test('the lab row content decides, not the decision word: a changed value replayed as verified still corrects', async () => {
+    const hiv = await seedSignedResult({ testCode: 'HIV', valueText: 'Non-reactive' });
+    const first = await recordMarkersFromSignedResults({ tenantId: TENANT, resultIds: [hiv], decision: 'verified', actorUid: ACTOR });
+    expect(first.recorded).toHaveLength(1);
+    expect(first.recorded[0].result).toBe('non_reactive');
+    await prisma.$executeRawUnsafe(
+      `UPDATE lab_results SET value_text = 'Reactive', status = 'corrected', updated_at = NOW() WHERE id = $1::int AND tenant_id = $2::uuid`,
+      hiv, TENANT,
+    );
+    const replay = await recordMarkersFromSignedResults({ tenantId: TENANT, resultIds: [hiv], decision: 'verified', actorUid: ACTOR });
+    expect(replay.voided).toBe(1);
+    expect(replay.recorded).toHaveLength(1);
+    expect(replay.recorded[0].result).toBe('reactive');
+    expect(replay.skipped).toEqual([]);
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT result, voided_at IS NOT NULL AS voided, void_reason
+         FROM patient_bloodborne_markers WHERE tenant_id = $1::uuid AND lab_result_id = $2::int ORDER BY id`,
+      TENANT, hiv,
+    );
+    expect(rows).toEqual([
+      { result: 'non_reactive', voided: true, void_reason: 'lab_result_corrected' },
+      { result: 'reactive', voided: false, void_reason: null },
+    ]);
+  }, 30000);
+
+  test('a future-dated result is reported in failed and the rest of the batch is still recorded', async () => {
+    const future = await seedSignedResult({ testCode: 'HCV', valueText: 'Reactive', daysBack: -5 });
+    const usable = await seedSignedResult({ testCode: 'HBSAG', valueText: 'Non-reactive', daysBack: 1 });
+    const outcome = await recordMarkersFromSignedResults({
+      tenantId: TENANT, resultIds: [future, usable], decision: 'verified', actorUid: ACTOR,
+    });
+    expect(outcome.failed).toEqual([{ lab_result_id: future, reason: 'future_dated' }]);
+    expect(outcome.recorded).toHaveLength(1);
+    expect(outcome.recorded[0].lab_result_id).toBe(usable);
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n FROM patient_bloodborne_markers WHERE tenant_id = $1::uuid AND lab_result_id = $2::int`,
+      TENANT, future,
+    );
+    expect(rows[0].n).toBe(0);
+  }, 30000);
+
   test('a marker cannot bind another patient\'s lab result (composite FK)', async () => {
     const otherPatientResult = await prisma.$queryRawUnsafe(
       `INSERT INTO lab_results (tenant_id, patient_uid, test_code, test_name, value_text, status, signed_off_at, signed_off_by, performed_at, received_at)
@@ -262,10 +383,13 @@ d('blood-borne markers (deep)', () => {
       OTHER_TENANT, OTHER_PATIENT, OTHER_ACTOR,
     );
     const foreignId = Number(otherPatientResult[0].id);
-    await expect(recordMarkers({
-      tenantId: TENANT, patientUid: PATIENT, actorUid: ACTOR,
-      entries: [{ marker: 'hiv', result: 'non_reactive', testedOn: '2026-09-01', source: 'external_report', lab_result_id: foreignId }],
-    })).rejects.toBeTruthy();
+    await expectForeignKeyFailure(
+      recordMarkers({
+        tenantId: TENANT, patientUid: PATIENT, actorUid: ACTOR,
+        entries: [{ marker: 'hiv', result: 'non_reactive', testedOn: daysAgo(1), source: 'external_report', lab_result_id: foreignId }],
+      }),
+      /fk_patient_bloodborne_markers_lab_result/,
+    );
     const rows = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*)::int AS n FROM patient_bloodborne_markers WHERE lab_result_id = $1::int`, foreignId,
     );
@@ -275,7 +399,8 @@ d('blood-borne markers (deep)', () => {
 
   test('RLS: another tenant cannot read this tenant\'s marker rows', async () => {
     if (rlsRoleSkipReason) {
-      // Skip rather than false-fail on a rig without the sealed runtime role.
+      // Last resort only: beforeAll provisions the role, so reaching this
+      // branch means the rig could not provision it at all.
       console.warn(`Skipping RLS probe: ${rlsRoleSkipReason}`);
       return;
     }

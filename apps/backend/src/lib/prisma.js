@@ -1304,7 +1304,8 @@ DECLARE
     'hl7_outbound_messages',
     'hl7_outbound_delivery_cursors',
     'scheduled_job_runs',
-    'scheduled_job_tenant_runs'
+    'scheduled_job_tenant_runs',
+    'patient_bloodborne_markers'
   ];
   runtime_nextval_sequences CONSTANT TEXT[] := ARRAY[
     'care_pathway_reconciliation_checks_id_seq',
@@ -1315,7 +1316,8 @@ DECLARE
     'imaging_study_link_recovery_receipts_id_seq',
     'scim_provisioning_commands_id_seq',
     'hl7_inbound_clinical_receipts_id_seq',
-    'scheduled_job_runs_id_seq'
+    'scheduled_job_runs_id_seq',
+    'patient_bloodborne_markers_id_seq'
   ];
   runtime_guard_functions CONSTANT TEXT[] := ARRAY[
     'care_pathway_reconciliation_block_mutation()',

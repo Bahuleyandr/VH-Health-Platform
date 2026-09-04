@@ -6,16 +6,19 @@
 // (record, list, void, lab sign-off ingestion) live below.
 // Spec: docs/superpowers/specs/2026-09-04-cath-device-reuse-and-bloodborne-markers-design.md §5.1, §7.
 //
-// Consumers today: cath-lab device reuse (restriction strip, post-use rules,
-// late-result quarantine). Named future consumers: OT sign-in, dialysis.
+// Nothing in the tree calls these functions yet. The lab sign-off hook below
+// is *intended* to be called post-commit by labResultsService.signOffResults,
+// and that wiring lands in a following commit. The intended readers are
+// cath-lab device reuse (restriction strip, post-use rules, late-result
+// quarantine), OT sign-in and dialysis; none of them is wired here either.
 // Writers: the lab sign-off hook and the cath readiness checklist's
 // external-result / clinical-declaration paths. There is deliberately no
 // general create endpoint.
 
 export * from './bloodborneMarkerRules.js';
-export { markerForResult } from '../lab/labAnalyteCodes.js';
 
 import { setTenant, setTenantTx } from '../../lib/prisma.js';
+import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { markerForResult } from '../lab/labAnalyteCodes.js';
@@ -32,9 +35,15 @@ import {
   requireUuid,
 } from './bloodborneMarkerRules.js';
 
+export { markerForResult };
+
 // ---------------------------------------------------------------------------
 // Persistence
 // ---------------------------------------------------------------------------
+
+// lab_result_id is an INTEGER column (migration 765); a larger id would reach
+// the $8::int cast as a 22003 rather than a validation error.
+const POSTGRES_INT4_MAX = 2_147_483_647;
 
 const MARKER_SELECT = `id, tenant_id, patient_uid, marker, marker_label, result, tested_on, source,
   lab_result_id, evidence, recorded_by, recorded_at, voided_at, voided_by, void_reason, notes`;
@@ -67,15 +76,37 @@ function cleanText(value, max = 500) {
   return text === null ? null : text.slice(0, max);
 }
 
-function requireDate(value, label) {
+// The single acceptance rule for a tested_on value: a readable YYYY-MM-DD that
+// is not after today's clinical-zone date. requireDate throws on it (writer
+// path); isUsableClinicalDate asks the same question without throwing, so the
+// sign-off hook can drop a bad candidate before it issues SQL for it.
+function clinicalDateProblem(value) {
   const text = isoDate(value);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return 'not_a_date';
+  if (text > clinicalDate(new Date())) return 'future_dated';
+  return null;
+}
+
+export function isUsableClinicalDate(value) {
+  return clinicalDateProblem(value) === null;
+}
+
+function requireDate(value, label) {
+  const problem = clinicalDateProblem(value);
+  if (problem === 'not_a_date') {
     throw AppError.badRequest(`${label} must be a date (YYYY-MM-DD)`, 'BLOODBORNE_MARKER_INVALID');
   }
-  if (text > clinicalDate(new Date())) {
+  if (problem === 'future_dated') {
     throw AppError.badRequest(`${label} cannot be in the future`, 'BLOODBORNE_MARKER_INVALID');
   }
-  return text;
+  return isoDate(value);
+}
+
+// clinicalDate throws on an invalid instant; a lab row carrying one must
+// degrade to a skipped candidate, never to a failed batch.
+function safeClinicalDate(instant) {
+  const at = instant instanceof Date ? instant : new Date(instant);
+  return Number.isNaN(at.getTime()) ? '' : clinicalDate(at);
 }
 
 function requireOneOf(value, allowed, label) {
@@ -122,12 +153,17 @@ export async function recordMarkerTx(tx, {
   const safeMarker = requireOneOf(marker, MARKERS, 'marker');
   const safeResult = requireOneOf(result, RESULTS, 'result');
   const safeSource = requireOneOf(source, SOURCES, 'source');
-  const label = trimText(markerLabel);
-  if (label && label.length > 120) {
-    throw AppError.badRequest('marker_label must be 120 characters or fewer', 'BLOODBORNE_MARKER_INVALID');
-  }
-  if (safeMarker === 'other' && !label) {
-    throw AppError.badRequest('marker_label is required when marker is other', 'BLOODBORNE_MARKER_INVALID');
+  // marker_label identifies the marker only for 'other'. For a named marker
+  // the display name comes from the marker itself, so any label a caller sends
+  // is ignored rather than validated or stored — nothing downstream reads it.
+  const label = safeMarker === 'other' ? trimText(markerLabel) : null;
+  if (safeMarker === 'other') {
+    if (!label) {
+      throw AppError.badRequest('marker_label is required when marker is other', 'BLOODBORNE_MARKER_INVALID');
+    }
+    if (label.length > 120) {
+      throw AppError.badRequest('marker_label must be 120 characters or fewer', 'BLOODBORNE_MARKER_INVALID');
+    }
   }
   if (safeMarker === 'cjd_suspected' && !['reactive', 'non_reactive'].includes(safeResult)) {
     throw AppError.badRequest('cjd_suspected accepts reactive (suspected) or non_reactive (not suspected)', 'BLOODBORNE_MARKER_INVALID');
@@ -137,7 +173,7 @@ export async function recordMarkerTx(tx, {
   let safeLabResultId = null;
   if (labResultId !== null && labResultId !== undefined) {
     safeLabResultId = Number(labResultId);
-    if (!Number.isSafeInteger(safeLabResultId) || safeLabResultId <= 0) {
+    if (!Number.isSafeInteger(safeLabResultId) || safeLabResultId <= 0 || safeLabResultId > POSTGRES_INT4_MAX) {
       throw AppError.badRequest('lab_result_id must be a positive integer', 'BLOODBORNE_MARKER_INVALID');
     }
   }
@@ -163,7 +199,7 @@ export async function recordMarkerTx(tx, {
     tid,
     uid,
     safeMarker,
-    safeMarker === 'other' ? label : null,
+    label,
     safeResult,
     requireDate(testedOn, 'tested_on'),
     safeSource,
@@ -176,34 +212,44 @@ export async function recordMarkerTx(tx, {
 }
 
 // Record one or more marker rows for a patient in one tenant transaction, then
-// notify exposure handlers for every reactive row AFTER commit.
+// notify exposure handlers for every reactive row AFTER commit. An entry whose
+// lab-linked slot is already taken by an active row inserts nothing and is
+// reported in `skipped` by its lab_result_id, so a caller can tell "written"
+// from "already on record" instead of reading a short `recorded` array.
 export async function recordMarkers({ tenantId, patientUid, entries = [], actorUid }) {
   const tid = requireTenantId(tenantId);
   if (!Array.isArray(entries) || entries.length === 0) {
     throw AppError.badRequest('At least one marker entry is required', 'BLOODBORNE_MARKER_INVALID');
   }
-  const recorded = await setTenantTx(tid, async (tx) => {
-    const rows = [];
+  // Validated before the transaction opens: a malformed uid must not cost a
+  // connection and a BEGIN/ROLLBACK.
+  const uid = requireUuid(patientUid, 'patientUid');
+  const actor = requireUuid(actorUid, 'actorUid');
+  const outcome = await setTenantTx(tid, async (tx) => {
+    const recorded = [];
+    const skipped = [];
     for (const entry of entries) {
+      const labResultId = entry.lab_result_id ?? entry.labResultId ?? null;
       const row = await recordMarkerTx(tx, {
         tenantId: tid,
-        patientUid,
+        patientUid: uid,
         marker: entry.marker,
         markerLabel: entry.marker_label ?? entry.markerLabel ?? null,
         result: entry.result,
         testedOn: entry.tested_on ?? entry.testedOn,
         source: entry.source,
-        labResultId: entry.lab_result_id ?? entry.labResultId ?? null,
+        labResultId,
         evidence: entry.evidence ?? {},
-        recordedBy: actorUid,
+        recordedBy: actor,
         notes: entry.notes ?? null,
       });
-      if (row) rows.push(row);
+      if (row) recorded.push(row);
+      else skipped.push(labResultId == null ? null : Number(labResultId));
     }
-    return rows;
+    return { recorded, skipped };
   });
-  await notifyExposureHandlers(recorded.filter((row) => row.result === 'reactive').map(exposureEventFrom));
-  return { recorded };
+  await notifyExposureHandlers(outcome.recorded.filter((row) => row.result === 'reactive').map(exposureEventFrom));
+  return outcome;
 }
 
 async function activeMarkerRows(tenantId, patientUid, { db = null, includeVoided = false } = {}) {
@@ -237,13 +283,15 @@ export async function listMarkersForPatient({
   patientUid,
   validityDays = DEFAULT_VALIDITY_DAYS,
   includeVoided = false,
+  asOf = new Date(),
+  db = null,
 } = {}) {
   const tid = requireTenantId(tenantId);
   const uid = requireUuid(patientUid, 'patientUid');
-  const rows = await activeMarkerRows(tid, uid, { includeVoided });
+  const rows = await activeMarkerRows(tid, uid, { db, includeVoided });
   return {
     markers: rows.map(normalizeMarkerRow),
-    reuse_status: computeReuseStatus(rows, { validityDays }),
+    reuse_status: computeReuseStatus(rows, { validityDays, asOf }),
   };
 }
 
@@ -281,23 +329,47 @@ export async function voidMarker({ tenantId, patientUid, markerId, actorUid, rea
 }
 
 // ---------------------------------------------------------------------------
-// Lab sign-off hook — called post-commit from labResultsService.signOffResults.
-// Verified/corrected/amended HIV, HBSAG and HCV results become marker rows;
-// a corrective decision voids the previous row for the same lab result first.
+// Lab sign-off hook — intended to be called post-commit by
+// labResultsService.signOffResults; that wiring lands in a following commit,
+// so nothing calls this yet. Signed HIV, HBSAG and HCV results become marker
+// rows.
+//
+// The upsert is content-aware: the active row's own content is the authority,
+// not the batch's decision word. For each candidate the active lab-linked row
+// is locked and compared with what the lab result now says — same result and
+// same tested_on means skip, different means void that row
+// ('lab_result_corrected') and insert the new one, absent means insert. So a
+// sign-off announced as 'verified' over a changed value still corrects the
+// record, and one announced as 'corrected' over an unchanged value writes
+// nothing. `decision` is validated and kept only as evidence.decision.
+//
+// Voiding frees the lab-linked unique slot (ux_patient_bloodborne_markers_lab_result
+// is partial on voided_at IS NULL), so replaying a batch whose row was voided
+// and superseded re-inserts. That is intended: the live row is whatever the
+// lab result currently says, and the voided rows remain as history.
+//
+// A void or correction emits no retraction event by design; the intended
+// consumers (cath device reuse, OT, dialysis) resolve status pull-style
+// through resolveReuseStatus, so a lifted restriction is seen on their next
+// read rather than pushed at them.
 // ---------------------------------------------------------------------------
 
-const CORRECTIVE_DECISIONS = new Set(['corrected', 'amended']);
 const SIGNED_STATUSES = new Set(['final', 'corrected', 'amended', 'verified']);
+const SIGN_OFF_DECISIONS = ['verified', 'corrected', 'amended'];
 
 export async function recordMarkersFromSignedResults({ tenantId, resultIds = [], decision = 'verified', actorUid }) {
   const tid = requireTenantId(tenantId);
-  const ids = [...new Set((resultIds || []).map(Number).filter((n) => Number.isSafeInteger(n) && n > 0))];
-  if (ids.length === 0) return { recorded: [], voided: 0 };
+  const ids = [...new Set((resultIds || [])
+    .map(Number)
+    .filter((n) => Number.isSafeInteger(n) && n > 0 && n <= POSTGRES_INT4_MAX))];
+  if (ids.length === 0) return { recorded: [], voided: 0, skipped: [], failed: [] };
   // Validated before any database access: a bad actor uid must not cost a read.
   const actor = requireUuid(actorUid, 'actorUid');
-  const normalizedDecision = String(decision || 'verified').toLowerCase();
+  const normalizedDecision = requireOneOf(decision, SIGN_OFF_DECISIONS, 'decision');
   // One transaction for the whole hook: the lab_results read and the marker
   // writes share a snapshot, so a result cannot be corrected between the two.
+  // A candidate carrying an unusable date is dropped before any SQL is issued
+  // for it; a database error is still all-or-nothing for the whole batch.
   const outcome = await setTenantTx(tid, async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `SELECT id, patient_uid, test_code, loinc_code, value_text, status,
@@ -311,26 +383,57 @@ export async function recordMarkersFromSignedResults({ tenantId, resultIds = [],
       .filter(({ row, marker }) => marker
         && row.signed_off_at
         && SIGNED_STATUSES.has(String(row.status || '').toLowerCase()));
-    if (candidates.length === 0) return { recorded: [], voided: 0 };
+    if (candidates.length === 0) return { recorded: [], voided: 0, skipped: [], failed: [] };
     let voided = 0;
     const recorded = [];
+    // Both arrays carry lab_result_ids: `skipped` is what was already recorded
+    // correctly, `failed` is what could not be read as evidence at all.
+    const skipped = [];
+    const failed = [];
     for (const { row, marker } of candidates) {
-      if (CORRECTIVE_DECISIONS.has(normalizedDecision)) {
+      const labResultId = Number(row.id);
+      const nextResult = normalizeSerologyValue(row.value_text);
+      const nextTestedOn = safeClinicalDate(row.performed_at || row.received_at || new Date());
+      const problem = clinicalDateProblem(nextTestedOn);
+      if (problem) {
+        logger.warn(
+          `Blood-borne marker skipped for lab result ${labResultId}: tested_on ${problem}`,
+          { tenantId: tid, labResultId, testedOn: nextTestedOn || null, reason: problem },
+        );
+        failed.push({ lab_result_id: labResultId, reason: problem });
+        continue;
+      }
+      const activeRows = await tx.$queryRawUnsafe(
+        `SELECT id, result, tested_on, patient_uid
+           FROM patient_bloodborne_markers
+          WHERE tenant_id = $1::uuid AND lab_result_id = $2::int AND voided_at IS NULL
+          FOR UPDATE`,
+        tid, labResultId,
+      );
+      // patient_uid is read for the comparison's completeness only: the new row
+      // must carry the lab result's *current* patient_uid, because the
+      // composite FK points at lab_results (tenant_id, id, patient_uid).
+      const active = activeRows[0];
+      if (active && active.result === nextResult && isoDate(active.tested_on) === nextTestedOn) {
+        skipped.push(labResultId);
+        continue;
+      }
+      if (active) {
         voided += await tx.$executeRawUnsafe(
           `UPDATE patient_bloodborne_markers
               SET voided_at = NOW(), voided_by = $3::uuid, void_reason = 'lab_result_corrected'
-            WHERE tenant_id = $1::uuid AND lab_result_id = $2::int AND voided_at IS NULL`,
-          tid, Number(row.id), actor,
+            WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+          tid, Number(active.id), actor,
         );
       }
       const inserted = await recordMarkerTx(tx, {
         tenantId: tid,
         patientUid: row.patient_uid,
         marker,
-        result: normalizeSerologyValue(row.value_text),
-        testedOn: clinicalDate(row.performed_at || row.received_at || new Date()),
+        result: nextResult,
+        testedOn: nextTestedOn,
         source: 'lab_result',
-        labResultId: Number(row.id),
+        labResultId,
         evidence: {
           raw_value: row.value_text,
           test_code: row.test_code,
@@ -339,9 +442,12 @@ export async function recordMarkersFromSignedResults({ tenantId, resultIds = [],
         },
         recordedBy: actor,
       });
+      // A null insert means a concurrent writer took the lab-linked slot; that
+      // writer's row is the record, so this is a skip, not a loss.
       if (inserted) recorded.push(inserted);
+      else skipped.push(labResultId);
     }
-    return { recorded, voided };
+    return { recorded, voided, skipped, failed };
   });
   await notifyExposureHandlers(outcome.recorded.filter((row) => row.result === 'reactive').map(exposureEventFrom));
   return outcome;
