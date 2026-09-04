@@ -437,3 +437,104 @@ describe('serology narrative is projected by role on the cath surfaces', () => {
     expect(doctor.body.data.case.reuse_restriction).toEqual(restriction);
   });
 });
+
+describe('the FROZEN serology screens on a usage row are projected by the same rule', () => {
+  // reuse_screen / post_use_screen (migration 765) are a snapshot of the same
+  // restriction the live strip carries, taken at capture and at post-use. They
+  // are spec §7.4 evidence and must not be edited, so the only place they can
+  // be redacted is on the way out.
+  //
+  // cathLabService.CATH_CONSUMABLE_USAGE_SELECT does not return either column
+  // today — which is exactly why this suite mocks the service rather than the
+  // database. It pins the ROUTE's behaviour for the day someone adds
+  // `u.reuse_screen,` to that SELECT: report-read admits RECEPTIONIST and
+  // TECHNICIAN, so an unprojected column would hand them the marker identity
+  // that projectReuseRestrictionForRole redacts one key over.
+  const SCREEN = Object.freeze({
+    status: 'restricted',
+    reasons: ['HBsAg reactive 2026-08-12'],
+    markers: [{ marker: 'hbsag', result: 'reactive', tested_on: '2026-08-12' }],
+    validity_days: 90,
+    evaluated_at: '2026-09-04T00:00:00.000Z',
+  });
+  const REDACTED = {
+    status: 'restricted', validity_days: 90, evaluated_at: '2026-09-04T00:00:00.000Z',
+    reasons: [], markers: [],
+  };
+  const usageRow = () => ({
+    id: 501, tenant_id: TENANT, case_id: 10, catalog_item_id: 5, patient_uid: CASE_PATIENT,
+    quantity: 1, wasted: false, is_implant: false, category: 'catheter', device_id: null,
+    post_use_disposition: 'sent_for_reprocessing', metadata: {},
+    reuse_screen: { ...SCREEN }, post_use_screen: { ...SCREEN },
+  });
+
+  beforeEach(() => {
+    dispatch([
+      ['FROM cath_lab_cases', [{
+        id: 10n, tenant_id: TENANT, patient_uid: CASE_PATIENT, encounter_id: null,
+        facility_id: 4, status: 'completed', actual_start_at: null,
+      }]],
+      ['FROM cath_reprocessing_category_policies', []],
+      ['FROM cath_reprocessing_settings', []],
+      ['FROM patient_bloodborne_markers', []],
+    ]);
+    listCaseConsumableUsage.mockResolvedValue([usageRow()]);
+  });
+
+  async function consumableRowFor(role) {
+    const res = await request(appFor(role)).get('/api/v1/cath-lab/cases/10/consumables');
+    expect(res.status).toBe(200);
+    expect(res.body.data.usage).toHaveLength(1);
+    return res.body.data.usage[0];
+  }
+
+  it('a DOCTOR reads both frozen screens whole', async () => {
+    // Positive control: without it, an emptied projection below would be
+    // indistinguishable from a fixture that never carried a marker.
+    const row = await consumableRowFor('DOCTOR');
+    expect(row.reuse_screen).toEqual(SCREEN);
+    expect(row.post_use_screen).toEqual(SCREEN);
+  });
+
+  it('a RECEPTIONIST gets the frozen DECISION and no marker or reason from either screen', async () => {
+    const row = await consumableRowFor('RECEPTIONIST');
+    expect(row.reuse_screen).toEqual(REDACTED);
+    expect(row.post_use_screen).toEqual(REDACTED);
+    // Emptied, never dropped — the shape a client parses is unchanged.
+    expect(Object.keys(row.reuse_screen).sort())
+      .toEqual(['evaluated_at', 'markers', 'reasons', 'status', 'validity_days']);
+    // ...and the rest of the decorated row survives untouched.
+    expect(row.id).toBe(501);
+    expect(row.allowed_post_use.reason_codes).toEqual(['already_recorded']);
+  });
+
+  it('a TECHNICIAN is projected too', async () => {
+    const row = await consumableRowFor('TECHNICIAN');
+    expect(row.reuse_screen.markers).toEqual([]);
+    expect(row.post_use_screen.reasons).toEqual([]);
+  });
+
+  it('GET /cases/:id projects the usage rows it embeds, so the case view is not the way round', async () => {
+    getCase.mockResolvedValue({
+      id: 10, patient_uid: CASE_PATIENT, consumable_usage: [usageRow()], reuse_restriction: SCREEN,
+    });
+
+    const reception = await request(appFor('RECEPTIONIST')).get('/api/v1/cath-lab/cases/10');
+    expect(reception.status).toBe(200);
+    expect(reception.body.data.case.consumable_usage[0].reuse_screen).toEqual(REDACTED);
+    expect(reception.body.data.case.consumable_usage[0].post_use_screen).toEqual(REDACTED);
+
+    const doctor = await request(appFor('DOCTOR')).get('/api/v1/cath-lab/cases/10');
+    expect(doctor.body.data.case.consumable_usage[0].reuse_screen).toEqual(SCREEN);
+  });
+
+  it('a case with no usage list does not grow one', async () => {
+    // The projection maps a list; it must not invent the key on a response
+    // that never had it — CathLabCase is additionalProperties:false.
+    getCase.mockResolvedValue({ id: 10, patient_uid: CASE_PATIENT, reuse_restriction: SCREEN });
+
+    const reception = await request(appFor('RECEPTIONIST')).get('/api/v1/cath-lab/cases/10');
+    expect(reception.status).toBe(200);
+    expect('consumable_usage' in reception.body.data.case).toBe(false);
+  });
+});

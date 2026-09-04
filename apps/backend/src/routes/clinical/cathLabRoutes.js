@@ -120,6 +120,33 @@ function serologyRoleOf(req) {
     ?? null;
 }
 
+// `reuse_screen` and `post_use_screen` (migration 765) are the FROZEN copy of
+// the same blood-borne restriction `reuse_restriction` carries — spec §7.4 says
+// they are evidence and must not be edited, so they are projected on the way
+// out, exactly like the live strip, and by the same function so the two can
+// never disagree about what a receptionist may read.
+//
+// cathLabService.CATH_CONSUMABLE_USAGE_SELECT does NOT select either column
+// today, so on the current SELECT this is a no-op — and it is deliberately
+// written as one: `usage` rows are also published as additionalProperties:false
+// (CathCaseConsumableUsage), so a key that is absent must stay absent rather
+// than be added back empty. It exists so that adding `u.reuse_screen` to that
+// SELECT — a one-line change that reads entirely harmless — cannot hand the
+// serology narrative to the RECEPTIONIST and TECHNICIAN that report-read admits.
+function projectUsageScreensForRole(rows, role) {
+  if (!Array.isArray(rows) || roleSeesSerologyDetail(role)) return rows;
+  return rows.map(row => {
+    if (!row || typeof row !== 'object') return row;
+    const projected = { ...row };
+    for (const key of ['reuse_screen', 'post_use_screen']) {
+      if (key in projected && projected[key] && typeof projected[key] === 'object') {
+        projected[key] = projectReuseRestrictionForRole(projected[key], role);
+      }
+    }
+    return projected;
+  });
+}
+
 function roleGuard(predicate, message, code) {
   return (req, res, next) => {
     if (hasRole(req, predicate)) return next();
@@ -365,6 +392,10 @@ router.get('/cases/:id', requireReportRead, guardCathCaseById, async (req, res) 
     return success(res, {
       case: {
         ...cathCase,
+        consumable_usage: projectUsageScreensForRole(
+          cathCase?.consumable_usage,
+          serologyRoleOf(req)
+        ),
         reuse_restriction: projectReuseRestrictionForRole(
           cathCase?.reuse_restriction,
           serologyRoleOf(req)
@@ -388,7 +419,7 @@ router.get(
         caseId: req.params.id
       });
       return success(res, {
-        usage: decorated.usage,
+        usage: projectUsageScreensForRole(decorated.usage, serologyRoleOf(req)),
         count: decorated.usage.length,
         // Serology narrative is projected by role: the capture sheet gets the
         // decision (status / window / evaluated_at) for everyone, the reasons
@@ -430,7 +461,7 @@ router.post(
   guardCathCaseById,
   // retainOnServerError is deliberately NOT set: recordPostUse's device
   // transitions ('return', 'discard' in cathDeviceReuseService.js
-  // DEVICE_TRANSITIONS) each have a `from` list that excludes their own `to`
+  // DEVICE_ACTIONS) each have a `from` list that excludes their own `to`
   // state, so a retry after a post-commit 5xx finds the device already landed
   // and 409s with CATH_DEVICE_INVALID_TRANSITION naming the state it is
   // actually in, rather than silently repeating the transition. A route added

@@ -95,7 +95,7 @@ router.patch('/loads/:id/status', wrap((req) =>
 router.use('/devices', requireRole(...CSSD_DEVICE_ROUTE_ROLES));
 
 // retainOnServerError is deliberately NOT set: every device action's `from`
-// list (cathDeviceReuseService.js DEVICE_TRANSITIONS) excludes its own `to`
+// list (cathDeviceReuseService.js DEVICE_ACTIONS) excludes its own `to`
 // state, so a retry after a post-commit 5xx finds the device already landed
 // and fails the transition check with a 409 CATH_DEVICE_INVALID_TRANSITION
 // naming the state it is actually in — the claim need not retain the response

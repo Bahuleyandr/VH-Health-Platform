@@ -116,12 +116,35 @@ describe('computePostUseOptions', () => {
     });
     expect(out).toMatchObject({ dispositions: ['reprocess', 'discard'], reason_codes: [] });
   });
-  test('max cycles still wins over the device exposure flag', () => {
+  test('a flagged device at its cycle ceiling is retired for the EXPOSURE, not for the cycles', () => {
+    // Both rules settle on discard-only, so the order cannot change what the
+    // operator may do — it decides the discard_reason the device is retired
+    // under, and that reason is what an infection-control lookback reads.
+    // 'max_cycles_reached' here would file a blood-borne exposure as a routine
+    // end-of-life.
     const out = computePostUseOptions({
       usage: reusedRow, category: 'catheter', isImplant: false, policy, settings, restriction: clear,
       device: { cycle_count: 3, max_cycles_snapshot: 3, status: 'in_case', exposure_flag: true },
     });
-    expect(out.reason_codes).toEqual(['max_cycles_reached']);
+    expect(out).toMatchObject({
+      dispositions: ['discard'],
+      discard_reason: 'bloodborne_exposure',
+      reason_codes: ['device_exposure_flagged'],
+    });
+  });
+  test('...but with overrides allowed the flag rule stands down and max cycles is the reason again', () => {
+    // The exposure rule is conditioned on the 'discard' tenant rule, so under
+    // 'override_allowed' it never fires and the cycle ceiling is what is left.
+    const out = computePostUseOptions({
+      usage: reusedRow, category: 'catheter', isImplant: false, policy,
+      settings: { ...settings, reactive_patient_rule: 'override_allowed' }, restriction: clear,
+      device: { cycle_count: 3, max_cycles_snapshot: 3, status: 'in_case', exposure_flag: true },
+    });
+    expect(out).toMatchObject({
+      dispositions: ['discard'],
+      discard_reason: 'max_cycles_reached',
+      reason_codes: ['max_cycles_reached'],
+    });
   });
   test('a missing or malformed restriction is treated as unknown, never as clear', () => {
     expect(computePostUseOptions({ usage: firstUse, category: 'catheter', isImplant: false, policy, settings, restriction: null }).reason_codes).toEqual(['serology_unknown']);

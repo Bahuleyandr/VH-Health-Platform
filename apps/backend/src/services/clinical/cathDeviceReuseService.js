@@ -5,9 +5,9 @@
 // docs/superpowers/specs/2026-09-04-cath-device-reuse-and-bloodborne-markers-design.md
 //
 // Boundaries: cathLabService.recordConsumableUsage calls captureReusedDeviceTx
-// and markDeviceInCaseTx (added in a following commit); everything else about
-// devices lives here. The register carries no patient identity — patient
-// linkage is on usage rows — so the CSSD routes can read it without PHI logging.
+// and markDeviceInCaseTx; everything else about devices lives here. The
+// register carries no patient identity — patient linkage is on usage rows — so
+// the CSSD routes can read it without PHI logging.
 
 import { CLINICAL_STAFF_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
 import { setTenant, setTenantTx } from '../../lib/prisma.js';
@@ -98,16 +98,24 @@ export function computePostUseOptions({ usage, category, isImplant, policy, sett
   if (isImplant || IMPLANT_CATEGORIES.includes(category) || !policy || policy.reprocessable !== true) {
     return { ...base, reason_codes: ['not_reprocessable'] };
   }
-  if (device && Number(device.cycle_count) >= Number(device.max_cycles_snapshot)) {
-    return { ...base, dispositions: ['discard'], discard_reason: 'max_cycles_reached', reason_codes: ['max_cycles_reached'] };
-  }
   // The device's OWN exposure flag, which is a different fact from this
   // patient's restriction status below: the late-reactive sweep stamps the flag
   // from a PREVIOUS patient's reactive result, so a device can be flagged while
   // the current patient screens clear. Under the 'discard' rule that device
   // must not be offered for reprocessing on a clear patient's say-so.
+  //
+  // This is evaluated BEFORE the max-cycles rule on purpose. Both rules settle
+  // on discard-only, so the ORDER cannot change what an operator may do — but
+  // it decides which discard_reason the device is retired under, and that
+  // reason is what an infection-control lookback reads. A flagged device that
+  // also happens to be at its cycle ceiling was retired because of a
+  // blood-borne exposure; recording 'max_cycles_reached' would file it as a
+  // routine end-of-life and lose the exposure from the register's own account.
   if (device?.exposure_flag === true && settings?.reactive_patient_rule === 'discard') {
     return { ...base, dispositions: ['discard'], discard_reason: 'bloodborne_exposure', reason_codes: ['device_exposure_flagged'] };
+  }
+  if (device && Number(device.cycle_count) >= Number(device.max_cycles_snapshot)) {
+    return { ...base, dispositions: ['discard'], discard_reason: 'max_cycles_reached', reason_codes: ['max_cycles_reached'] };
   }
   // Anything that is not an explicit 'clear' or 'restricted' is treated as unknown (fail restrictive).
   const status = restriction?.status === 'clear' || restriction?.status === 'restricted' ? restriction.status : 'unknown';
@@ -190,7 +198,7 @@ async function recordDeviceAudit(tx, { tenantId, action, resource, resourceId, c
   );
 }
 
-export const SETTINGS_DEFAULTS = Object.freeze({ reactive_patient_rule: 'discard', unknown_serology_rule: 'warn', serology_validity_days: DEFAULT_VALIDITY_DAYS });
+const SETTINGS_DEFAULTS = Object.freeze({ reactive_patient_rule: 'discard', unknown_serology_rule: 'warn', serology_validity_days: DEFAULT_VALIDITY_DAYS });
 const SETTINGS_SELECT = `tenant_id, reactive_patient_rule, unknown_serology_rule, serology_validity_days, reviewed_by, reviewed_at, updated_by, created_at, updated_at`;
 
 export async function getReprocessingSettings({ tenantId, db = null } = {}) {
@@ -234,7 +242,7 @@ export async function listCategoryPolicies({ tenantId, db = null } = {}) {
   const byCategory = new Map(rows.map((row) => [row.category, normalizePolicy(row)]));
   return CATH_CATEGORIES.map((category) => byCategory.get(category) || defaultPolicy(tid, category));
 }
-export async function categoryPolicyTx(tx, tenantId, category) {
+async function categoryPolicyTx(tx, tenantId, category) {
   const rows = await tx.$queryRawUnsafe(`SELECT ${POLICY_SELECT} FROM cath_reprocessing_category_policies WHERE tenant_id = $1::uuid AND category = $2 LIMIT 1`, tenantOr(tenantId), category);
   return rows[0] ? normalizePolicy(rows[0]) : null;
 }
@@ -292,7 +300,7 @@ const DEVICE_SELECT = `d.id, d.tenant_id, d.facility_id, d.catalog_item_id, d.de
   d.discard_reason, d.discard_note, d.discarded_at, d.discarded_by, d.created_by, d.created_at, d.updated_at, d.metadata, c.item_name, c.category, c.manufacturer, c.model`;
 const DEVICE_FROM = `FROM cath_reprocessable_devices d JOIN cath_consumable_catalog c ON c.id = d.catalog_item_id AND c.tenant_id = d.tenant_id`;
 
-export function normalizeDevice(row) {
+function normalizeDevice(row) {
   if (!row) return row;
   return { ...row, id: num(row.id), catalog_item_id: num(row.catalog_item_id), origin_usage_id: num(row.origin_usage_id),
     current_usage_id: row.current_usage_id == null ? null : num(row.current_usage_id), cycle_count: Number(row.cycle_count),
@@ -341,8 +349,8 @@ async function applyDeviceTransitionTx(tx, device, action, patch = {}, context =
   // Shape guards for the columns the UPDATE below writes, checked here rather
   // than left to the table's CHECK constraints: a 23514 from Postgres is a 500
   // with no field name, these are 400s that say which field is wrong. Every
-  // caller — including the ones Task 3 adds — goes through this function, so
-  // this is the one place that has to be right.
+  // caller — the CSSD commands, the capture tap and the post-use tap alike —
+  // goes through this function, so this is the one place that has to be right.
   if (to === 'in_case' && patch.usageId == null) throw AppError.badRequest('usage_id is required to place a device in a case', 'CATH_DEVICE_USAGE_REQUIRED');
   if (to === 'discarded' && !patch.discardReason) throw AppError.badRequest('discard reason is required', 'CATH_DEVICE_REASON_REQUIRED');
   const discardReason = patch.discardReason == null ? null : oneOf(patch.discardReason, DISCARD_REASONS, 'discard_reason', 'CATH_DEVICE_DISCARD_REASON_INVALID');
@@ -355,8 +363,9 @@ async function applyDeviceTransitionTx(tx, device, action, patch = {}, context =
     ? [...new Set(patch.exposureMarkers.map((marker) => oneOf(marker, MARKERS, 'exposure_markers', 'CATH_DEVICE_EXPOSURE_MARKER_INVALID')))]
     : null;
   // The actor stays nullable HERE on purpose: the late-reactive-marker sweep
-  // Task 3 adds is a system actor and calls in with `actorUid: null`. Every
-  // human-facing entry point below requires it before opening its transaction.
+  // (quarantineDevicesExposedToPatient) is a system actor and calls in with
+  // `actorUid: null`. Every human-facing entry point below requires it before
+  // opening its transaction.
   const actor = context.actorUid ? requireUuid(context.actorUid, 'actorUid') : null;
   // cath_reprocessable_devices_exposure_check: exposure_flag must be true
   // whenever exposure_markers is non-empty, so supplying markers implies the
@@ -487,9 +496,11 @@ export async function discardDevice(deviceId, input = {}, context = {}) {
   return setTenantTx(tid, async (tx) => applyDeviceTransitionTx(tx, await lockDeviceTx(tx, tid, deviceId), 'discard', { discardReason: reason, discardNote: cleanText(input.note, 2000) }, context));
 }
 
-// The generic validators (cleanText, requireUuid, positiveInt, oneOf) stay
-// module-private: Task 3 appends to this same file and uses them directly.
-export { lockDeviceTx, lockDeviceByTagTx, applyDeviceTransitionTx, recordDeviceAudit, withTenant };
+// The generic validators (cleanText, requireUuid, positiveInt, oneOf) and the
+// transaction helpers (lockDeviceTx, lockDeviceByTagTx, applyDeviceTransitionTx,
+// recordDeviceAudit, withTenant) stay module-private. Every caller that needs a
+// device transition is in this file already; exporting the raw taps would let a
+// future one skip assertTransition and the audit row it writes.
 
 // positiveInt guards every bigint row id, the facility filter and the bounded
 // policy fields on this surface, and how strict it is cannot be observed
@@ -741,6 +752,49 @@ async function lockUsageTx(tx, tenantId, caseId, usageId) {
   };
 }
 
+// What the post-use RECEIPT stored on the usage row is allowed to say about a
+// device. A full normalizeDevice row carries `exposure_markers`, a free-text
+// `quarantine_reason` ("Late reactive hbsag result dated …") and the device's
+// own metadata.last_exposure_acknowledgement — a patient's blood-borne serology
+// in plain sight. The receipt lives in cath_case_consumable_usage.metadata,
+// which is one of the columns CATH_CONSUMABLE_USAGE_SELECT returns, and BOTH
+// readers of it (GET /cases/:id and GET /cases/:id/consumables) are report-read
+// — a gate that admits RECEPTIONIST and TECHNICIAN. Storing the full rows there
+// put the serology narrative BEHIND projectReuseRestrictionForRole instead of
+// under it. What the receipt has to answer is "which devices did this command
+// settle, and in what state"; these six fields answer exactly that.
+const RECEIPT_DEVICE_KEYS = Object.freeze([
+  'id', 'device_tag', 'status', 'cycle_count', 'max_cycles_snapshot', 'exposure_flag',
+]);
+function receiptDevice(device) {
+  const slim = {};
+  for (const key of RECEIPT_DEVICE_KEYS) slim[key] = device?.[key] ?? null;
+  return slim;
+}
+function receiptResult(result) {
+  return { ...result, devices: (result.devices || []).map(receiptDevice) };
+}
+
+// The live call answers with the full device rows and the published contract
+// (CathPostUseResultData.devices → CathReprocessableDevice) requires them, so a
+// replay that handed back the slim receipt verbatim would be a narrower — and
+// contract-invalid — answer to the same command. Re-read the rows by id. No
+// lock: the usage row is already held FOR UPDATE and a replay writes nothing.
+async function hydrateReceiptDevicesTx(tx, tenantId, storedDevices) {
+  const ids = (Array.isArray(storedDevices) ? storedDevices : [])
+    .map((entry) => Number(entry?.id))
+    .filter((id) => Number.isInteger(id) && id > 0);
+  if (!ids.length) return [];
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT ${DEVICE_SELECT} ${DEVICE_FROM} WHERE d.tenant_id = $1::uuid AND d.id = ANY($2::bigint[])`,
+    tenantOr(tenantId), ids,
+  );
+  const byId = new Map(rows.map((row) => [Number(row.id), normalizeDevice(row)]));
+  // Recorded order, not row order: the receipt's list is the order the command
+  // minted or transitioned them in, and callers index into it.
+  return ids.map((id) => byId.get(id)).filter(Boolean);
+}
+
 function dispositionCodeFor(disposition, discardReason) {
   if (disposition === 'reprocess') return 'sent_for_reprocessing';
   if (discardReason === 'bloodborne_exposure' || discardReason === 'late_reactive_marker') return 'discarded_bloodborne_exposure';
@@ -767,7 +821,11 @@ export async function recordPostUse(caseId, usageId, input = {}, context = {}) {
     if (usage.post_use_disposition) {
       const previous = usage.metadata?.post_use;
       if (previous && idempotencyKey && previous.idempotency_key === idempotencyKey) {
-        return { ...previous.result, idempotent_replay: true };
+        return {
+          ...previous.result,
+          devices: await hydrateReceiptDevicesTx(tx, tid, previous.result?.devices),
+          idempotent_replay: true,
+        };
       }
       throw AppError.conflict('Post-use disposition already recorded for this usage', 'CATH_POST_USE_ALREADY_RECORDED', { post_use_disposition: usage.post_use_disposition });
     }
@@ -805,7 +863,7 @@ export async function recordPostUse(caseId, usageId, input = {}, context = {}) {
                 updated_at = NOW()
           WHERE tenant_id = $1::uuid AND id = $2::bigint`,
         tid, usage.id, settledCode, JSON.stringify(restriction),
-        JSON.stringify({ post_use: { idempotency_key: idempotencyKey, acknowledgement: acknowledgement || null, actor_uid: actor, recorded_at: new Date().toISOString(), device_already_discarded: true, result: settledResult } }),
+        JSON.stringify({ post_use: { idempotency_key: idempotencyKey, acknowledgement: acknowledgement || null, actor_uid: actor, recorded_at: new Date().toISOString(), device_already_discarded: true, result: receiptResult(settledResult) } }),
       );
       await recordDeviceAudit(tx, {
         tenantId: tid, action: 'cath_usage.post_use', resource: 'cath_case_consumable_usage', resourceId: usage.id,
@@ -884,7 +942,17 @@ export async function recordPostUse(caseId, usageId, input = {}, context = {}) {
         }
       }
     } else {
-      discardReason = options.discard_reason || requestedDiscardReason || 'other';
+      // Under `override_allowed` a restricted patient's device is offered BOTH
+      // taps, so computePostUseOptions names no discard_reason — the operator
+      // chooses. When they choose discard and name no reason, the reason is
+      // still known: options.exposure is true precisely because this patient is
+      // blood-borne restricted, so the device is being retired for exposure,
+      // not for the 'other' bucket. Falling through to 'other' filed an
+      // infection-control discard as `discarded_other` and lost it to the
+      // register's own exposure account.
+      discardReason = options.discard_reason
+        || requestedDiscardReason
+        || (options.exposure ? 'bloodborne_exposure' : 'other');
       if (device) {
         devices = [await applyDeviceTransitionTx(tx, device, 'discard', { discardReason, discardNote }, context)];
       }
@@ -913,7 +981,7 @@ export async function recordPostUse(caseId, usageId, input = {}, context = {}) {
         WHERE tenant_id = $1::uuid AND id = $2::bigint`,
       tid, usage.id, dispositionCode, JSON.stringify(restriction),
       JSON.stringify({
-        post_use: { idempotency_key: idempotencyKey, acknowledgement: acknowledgement || null, actor_uid: actor, recorded_at: new Date().toISOString(), result },
+        post_use: { idempotency_key: idempotencyKey, acknowledgement: acknowledgement || null, actor_uid: actor, recorded_at: new Date().toISOString(), result: receiptResult(result) },
         ...(unitsNotReprocessed > 0 ? { units_not_reprocessed: unitsNotReprocessed } : {}),
       }),
     );

@@ -360,11 +360,32 @@ describeIfDb('cath device reuse (deep)', () => {
     expect(deviceTags[0]).toMatch(/^RP\d{8}$/);
     expect(result.devices[0]).toMatchObject({ status: 'awaiting_reprocessing', cycle_count: 0, max_cycles_snapshot: 2 });
 
+    // The RECEIPT stored on the usage row is a slim device list, not the rows
+    // the caller just got back. cath_case_consumable_usage.metadata is one of
+    // the columns CATH_CONSUMABLE_USAGE_SELECT returns, and both readers of it
+    // are report-read (RECEPTIONIST, TECHNICIAN) — so anything the receipt
+    // carries is read by roles the serology projection exists to keep out.
+    const receipt = await prisma.$queryRawUnsafe(
+      `SELECT jsonb_object_keys(metadata->'post_use'->'result'->'devices'->0) AS k
+         FROM cath_case_consumable_usage WHERE id = $1::bigint
+        ORDER BY k`,
+      firstUse.id,
+    );
+    expect(receipt.map((row) => row.k)).toEqual([
+      'cycle_count', 'device_tag', 'exposure_flag', 'id', 'max_cycles_snapshot', 'status',
+    ]);
+
     const replay = await recordPostUse(caseId, firstUse.id, {
       tenantId: TENANT, disposition: 'reprocess', acknowledgement: { reason: 'replayed' },
     }, ctx(ACTOR, { idempotencyKey: 'cdr-pu-1' }));
     expect(replay.idempotent_replay).toBe(true);
     expect(replay.devices).toHaveLength(2);
+    // ...and the replay answers the FULL rows, not the slim receipt: the same
+    // command must not get a narrower answer the second time, and
+    // CathPostUseResultData.devices publishes the whole device row.
+    expect(replay.devices.map((device) => device.device_tag)).toEqual(deviceTags);
+    expect(Object.keys(replay.devices[0]).sort()).toEqual(Object.keys(result.devices[0]).sort());
+    expect(replay.devices[0].exposure_markers).toEqual([]);
     await expect(recordPostUse(caseId, firstUse.id, { tenantId: TENANT, disposition: 'discard' }, ctx(ACTOR, { idempotencyKey: 'cdr-pu-2' })))
       .rejects.toMatchObject({ code: 'CATH_POST_USE_ALREADY_RECORDED' });
 
@@ -574,6 +595,51 @@ describeIfDb('cath device reuse (deep)', () => {
     expect(tasks[0].n).toBe(0);
   }, 60000);
 
+  test("765's own artefact arm refuses a reused row carrying a shortfall NOTIFICATION", async () => {
+    // The test above cannot prove 765's branch: migration 748's task contract
+    // rejects the INSERT first, so that assertion is satisfied by the wrong
+    // mechanism. The outbox artefact has no such pre-emption — 765's reused
+    // branch is the only thing that looks at
+    // notification_outbox.source_event_key = 'cath-inventory-shortfall:<id>'.
+    //
+    // So: insert the artefact and call the contract function DIRECTLY, in a
+    // transaction that is then rolled back. Calling it directly is the point —
+    // the table's own contract triggers are DEFERRABLE INITIALLY DEFERRED and
+    // would not fire until COMMIT, which never comes.
+    const sourceEventKey = `cath-inventory-shortfall:${String(reusedUsage.id)}`;
+    await expect(setTenantTx(TENANT, async (tx) => {
+      await tx.$executeRawUnsafe(
+        `INSERT INTO notification_outbox
+           (tenant_id, type, title, body, recipient_id, source_event_key, payload)
+         VALUES ($1::uuid, 'cath_inventory_shortfall', 'contract probe', 'contract probe',
+                 $2::text, $3::varchar, '{}'::jsonb)`,
+        TENANT, ACTOR, sourceEventKey,
+      );
+      // The assert returns void, which Prisma cannot deserialise — wrap it so
+      // the outer column is an int and the raise still propagates.
+      await tx.$queryRawUnsafe(
+        `SELECT 1::int AS ok
+           FROM (SELECT cath_inventory_authority_assert_contract_753($1::uuid, $2::bigint)) AS probe`,
+        TENANT, reusedUsage.id,
+      );
+    })).rejects.toThrow(/artefacts or lacks exact provenance/);
+
+    // The rollback really did roll back: the well-formed row still passes the
+    // same direct call, so the arm above rejected the ARTEFACT, not the row.
+    const outbox = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n FROM notification_outbox
+        WHERE tenant_id = $1::uuid AND source_event_key = $2`,
+      TENANT, sourceEventKey,
+    );
+    expect(outbox[0].n).toBe(0);
+    const contract = await prisma.$queryRawUnsafe(
+      `SELECT 1::int AS ok
+         FROM (SELECT cath_inventory_authority_assert_contract_753($1::uuid, $2::bigint)) AS probe`,
+      TENANT, reusedUsage.id,
+    );
+    expect(contract[0].ok).toBe(1);
+  }, 60000);
+
   test('decorateConsumablesWithReuse exposes tags and allowed post-use options', async () => {
     const usage = await listCaseConsumableUsage(caseId, { tenantId: TENANT });
     const decorated = await decorateConsumablesWithReuse(usage, { tenantId: TENANT, caseId });
@@ -761,6 +827,30 @@ describeIfDb('cath device reuse (deep)', () => {
     expect(out.disposition).toBe('discarded_bloodborne_exposure');
     expect(out.restriction_status).toBe('restricted');
     expect(out.devices[0]).toMatchObject({ status: 'discarded', discard_reason: 'bloodborne_exposure' });
+    // The live answer names the marker (this caller is clinical staff); the
+    // RECEIPT persisted on the usage row must not. This is the arm that made
+    // the leak real: the device really does carry exposure_markers and a
+    // free-text quarantine narrative by now, and metadata is read by
+    // report-read roles the projection exists to keep out of the serology.
+    expect(out.devices[0].exposure_markers).toEqual(expect.arrayContaining(['hbsag']));
+    const receipt = await prisma.$queryRawUnsafe(
+      `SELECT metadata->'post_use'->'result'->'devices'->0 AS device
+         FROM cath_case_consumable_usage WHERE id = $1::bigint`,
+      reusedUsage.id,
+    );
+    expect(Object.keys(receipt[0].device).sort()).toEqual([
+      'cycle_count', 'device_tag', 'exposure_flag', 'id', 'max_cycles_snapshot', 'status',
+    ]);
+    // The decision the receipt IS allowed to carry survives.
+    expect(receipt[0].device).toMatchObject({ status: 'discarded', exposure_flag: true });
+    // Nothing anywhere under the receipt names a marker or a quarantine reason.
+    const leaked = await prisma.$queryRawUnsafe(
+      `SELECT (metadata->'post_use'->'result')::text AS receipt
+         FROM cath_case_consumable_usage WHERE id = $1::bigint`,
+      reusedUsage.id,
+    );
+    expect(leaked[0].receipt).not.toContain('hbsag');
+    expect(leaked[0].receipt).not.toContain('quarantine_reason');
   }, 60000);
 
   test('a late reactive result adds its marker to an already-quarantined device', async () => {
@@ -914,6 +1004,36 @@ describeIfDb('cath device reuse (deep)', () => {
     expect(reviews[0]).toMatchObject({ status: 'overridden' });
     expect(reviews[0].override_reason).toContain('Consultant accepts the exposure risk');
     expect(reviews[0].payload).toMatchObject({ device_tag: device.device_tag, wasted: true });
+
+    const restored = await upsertReprocessingSettings({ tenantId: TENANT }, ctx());
+    expect(restored.reactive_patient_rule).toBe('discard');
+  }, 120000);
+
+  test('a restricted patient discarded under override_allowed with no reason is retired for the EXPOSURE', async () => {
+    // Under `override_allowed` computePostUseOptions names no discard_reason —
+    // both taps are offered and the operator chooses. When they choose discard
+    // and name no reason, the reason is still known: options.exposure is true
+    // precisely because this patient is blood-borne restricted. Falling through
+    // to 'other' filed an infection-control discard as `discarded_other`.
+    await upsertReprocessingSettings({ tenantId: TENANT, reactive_patient_rule: 'override_allowed' }, ctx());
+    const usage = await recordConsumableUsage(caseId, {
+      tenantId: TENANT,
+      catalog_item_id: catalogItemId,
+      quantity: 1,
+      batch_number: BATCH_NUMBER,
+      expiry_date: dateOffset(700),
+    }, ctx(ACTOR, { idempotencyKey: 'cdr-override-discard-1' }));
+
+    const out = await recordPostUse(caseId, usage.id, {
+      tenantId: TENANT, disposition: 'discard',
+    }, ctx(ACTOR, { idempotencyKey: 'cdr-pu-override-discard-1' }));
+    expect(out.restriction_status).toBe('restricted');
+    expect(out.disposition).toBe('discarded_bloodborne_exposure');
+    const settled = await prisma.$queryRawUnsafe(
+      `SELECT post_use_disposition FROM cath_case_consumable_usage WHERE id = $1::bigint`,
+      usage.id,
+    );
+    expect(settled[0].post_use_disposition).toBe('discarded_bloodborne_exposure');
 
     const restored = await upsertReprocessingSettings({ tenantId: TENANT }, ctx());
     expect(restored.reactive_patient_rule).toBe('discard');
