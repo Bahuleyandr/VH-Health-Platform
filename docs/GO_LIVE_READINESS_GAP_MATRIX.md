@@ -1,6 +1,6 @@
 # Go-Live Readiness Gap Matrix
 
-Snapshot: `github/main` `9e70d950d` on 2026-09-03. Earlier snapshots the same
+Snapshot: `github/main` `8524685f4` on 2026-09-03. Earlier snapshots the same
 day: `61e7dcf7a`, and `a4ffe9860` on 2026-09-02.
 
 Status: **STOP / evidence reconciliation only.** This document describes the
