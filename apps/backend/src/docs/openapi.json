@@ -6197,6 +6197,304 @@
           "BILLING_INSURANCE_REFUND_SETTLEMENT_EVIDENCE_REQUIRED"
         ]
       },
+      "BloodborneMarker": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenant_id",
+          "patient_uid",
+          "marker",
+          "marker_label",
+          "result",
+          "tested_on",
+          "source",
+          "lab_result_id",
+          "evidence",
+          "recorded_by",
+          "recorded_at",
+          "voided_at",
+          "voided_by",
+          "void_reason",
+          "notes"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "marker": {
+            "type": "string",
+            "enum": [
+              "hiv",
+              "hbsag",
+              "hcv",
+              "cjd_suspected",
+              "other"
+            ]
+          },
+          "marker_label": {
+            "type": "string",
+            "nullable": true,
+            "description": "Free-text label, set only when marker is 'other'."
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "reactive",
+              "non_reactive",
+              "indeterminate",
+              "pending"
+            ]
+          },
+          "tested_on": {
+            "type": "string",
+            "format": "date"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "lab_result",
+              "external_report",
+              "clinical_declaration"
+            ]
+          },
+          "lab_result_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "evidence": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "recorded_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "voided_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "voided_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "void_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "BloodborneMarkerListData": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "markers",
+          "reuse_status"
+        ],
+        "properties": {
+          "markers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BloodborneMarker"
+            }
+          },
+          "reuse_status": {
+            "$ref": "#/components/schemas/BloodborneReuseStatus"
+          }
+        }
+      },
+      "BloodborneMarkerListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/BloodborneMarkerListData"
+          },
+          "requestId": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "BloodborneMarkerVoidData": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "marker"
+        ],
+        "properties": {
+          "marker": {
+            "$ref": "#/components/schemas/BloodborneMarker"
+          }
+        }
+      },
+      "BloodborneMarkerVoidRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      },
+      "BloodborneMarkerVoidResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/BloodborneMarkerVoidData"
+          },
+          "requestId": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "BloodborneReuseMarkerSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "marker",
+          "label",
+          "result",
+          "tested_on",
+          "source",
+          "age_days",
+          "within_window"
+        ],
+        "properties": {
+          "marker": {
+            "type": "string",
+            "enum": [
+              "hiv",
+              "hbsag",
+              "hcv",
+              "cjd_suspected",
+              "other"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "nullable": true
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "reactive",
+              "non_reactive",
+              "indeterminate",
+              "pending"
+            ]
+          },
+          "tested_on": {
+            "type": "string",
+            "format": "date"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "lab_result",
+              "external_report",
+              "clinical_declaration"
+            ]
+          },
+          "age_days": {
+            "type": "integer",
+            "nullable": true
+          },
+          "within_window": {
+            "type": "boolean"
+          }
+        }
+      },
+      "BloodborneReuseStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "reasons",
+          "markers",
+          "validity_days",
+          "evaluated_at"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "restricted",
+              "unknown",
+              "clear"
+            ],
+            "description": "'restricted' whenever any non-voided reactive row exists for any marker, at any age — a reactive result latches and is cleared only by voiding the row. 'clear' requires the latest HIV, HBsAg and HCV rows to all be non-reactive within validity_days. Anything else is 'unknown'."
+          },
+          "reasons": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          },
+          "markers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BloodborneReuseMarkerSummary"
+            }
+          },
+          "validity_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 365
+          },
+          "evaluated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "BonusPayableReconciliationItem": {
         "type": "object",
         "additionalProperties": true,
@@ -103083,6 +103381,119 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/bloodborne-markers/patient/{patientUid}": {
+      "get": {
+        "operationId": "get_api_v1_bloodborne_markers_patient_by_patientUid",
+        "tags": [
+          "clinical"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BloodborneMarkerListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Patient blood-borne marker rows (latest tested_on first) and the reuse-restriction status derived from them. Reactive rows never lapse; non-reactive rows are relied on for validity_days (default 90). Voided rows are excluded from both the list and the resolver unless include_voided=true, which adds them to `markers` only — the resolver always ignores them.",
+        "parameters": [
+          {
+            "name": "patientUid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "validity_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 365,
+              "default": 90
+            }
+          },
+          {
+            "name": "include_voided",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/bloodborne-markers/patient/{patientUid}/markers/{id}/void": {
+      "post": {
+        "operationId": "post_api_v1_bloodborne_markers_patient_by_patientUid_markers_by_id_void",
+        "tags": [
+          "clinical"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BloodborneMarkerVoidResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Voids one marker row (entered in error). The route is mounted with requireIdempotencyKey({ required: true, scope: bloodborne_marker_void }), so the Idempotency-Key header is not optional — omitting it is a hard 400. A voided row is ignored by the reuse resolver and cannot be voided again (409 BLOODBORNE_MARKER_ALREADY_VOIDED); an id that is not this patient’s live or voided row is 404 BLOODBORNE_MARKER_NOT_FOUND. Voiding a lab-linked row does not retract the lab result: the next sign-off event or reconciliation run for that result re-inserts a row from the result’s current content. To retract durably, correct the lab result. There is deliberately no create route: rows are written by the lab sign-off hook and the cath readiness checklist.",
+        "parameters": [
+          {
+            "name": "patientUid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BloodborneMarkerVoidRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/burns/charts": {

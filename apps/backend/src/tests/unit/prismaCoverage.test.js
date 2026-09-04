@@ -1349,6 +1349,21 @@ describe('src/lib/prisma.js coverage completion', () => {
       expect(grantSql).toContain(
         'REVOKE ALL PRIVILEGES\n          ON SEQUENCE public._migrations_id_seq\n          FROM vhhealth_app',
       );
+      // Migration 764's own GRANT block runs once per database; this boot pass
+      // re-grants SELECT, INSERT, UPDATE, DELETE on ALL tables first, so a
+      // table missing from these lists silently keeps DELETE. Pin
+      // patient_bloodborne_markers to the mutable-no-delete list (not the
+      // append-only one — the void transition is an UPDATE).
+      const mutableNoDelete = grantSql.match(
+        /runtime_mutable_no_delete_relations CONSTANT TEXT\[\] := ARRAY\[([\s\S]*?)\n {2}\];/,
+      );
+      expect(mutableNoDelete).not.toBeNull();
+      expect(mutableNoDelete[1]).toContain("'patient_bloodborne_markers'");
+      const nextvalSequences = grantSql.match(
+        /runtime_nextval_sequences CONSTANT TEXT\[\] := ARRAY\[([\s\S]*?)\n {2}\];/,
+      );
+      expect(nextvalSequences).not.toBeNull();
+      expect(nextvalSequences[1]).toContain("'patient_bloodborne_markers_id_seq'");
       expect(mockLogger.info).toHaveBeenCalledWith(
         'Tenant RLS runtime role grants ensured',
         { role: 'vhhealth_app' },

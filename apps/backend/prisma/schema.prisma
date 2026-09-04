@@ -26703,6 +26703,30 @@ model clinical_import_reconciliation_events {
   @@index([tenant_id, reconciliation_item_id, created_at, id], map: "idx_clinical_import_reconciliation_event_stream_760")
 }
 
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model patient_bloodborne_markers {
+  id            BigInt    @id @default(autoincrement())
+  tenant_id     String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  patient_uid   String    @db.Uuid
+  marker        String    @db.VarChar(32)
+  marker_label  String?   @db.VarChar(120)
+  result        String    @db.VarChar(20)
+  tested_on     DateTime  @db.Date
+  source        String    @db.VarChar(24)
+  lab_result_id Int?
+  evidence      Json      @default("{}")
+  recorded_by   String    @db.Uuid
+  recorded_at   DateTime  @default(now()) @db.Timestamptz(6)
+  voided_at     DateTime? @db.Timestamptz(6)
+  voided_by     String?   @db.Uuid
+  void_reason   String?
+  notes         String?
+
+  @@unique([tenant_id, lab_result_id], map: "ux_patient_bloodborne_markers_lab_result", where: raw("((lab_result_id IS NOT NULL) AND (voided_at IS NULL))"))
+  @@index([tenant_id, patient_uid, marker, tested_on(sort: Desc), id(sort: Desc)], map: "idx_patient_bloodborne_markers_patient")
+}
+
 enum transplant_organ_type {
   heart
   liver
