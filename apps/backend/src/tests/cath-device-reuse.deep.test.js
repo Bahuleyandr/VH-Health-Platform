@@ -42,6 +42,11 @@ const CSSD_ACTOR = 'cd000000-0000-4000-8000-00000000c0db';
 const INFECTION_CONTROL = 'cd000000-0000-4000-8000-00000000c0dc';
 const CATALOG_ADMIN = 'cd000000-0000-4000-8000-00000000c0dd';
 const BATCH_NUMBER = 'CDR-C0DE-CATH-B1';
+// A SECOND catalogue item, batch_tracked, mapped to its own inventory item and
+// batch. Migration 765 relaxed cath_consumable_usage_batch_expiry_check so a
+// reused row of a batch-tracked item may carry no batch/lot/expiry at all; this
+// fixture is what proves it, and catheters are batch-tracked in practice.
+const BATCH_TRACKED_BATCH_NUMBER = 'CDR-C0DE-CATH-B2';
 
 // No calendar literals: a fixed expiry or tested_on date silently rots the suite
 // the day it passes. Everything is relative to "now" in the clinical time zone.
@@ -53,6 +58,8 @@ let storageLocationId;
 let inventoryItemId;
 let caseId;
 let catalogItemId;
+let batchTrackedInventoryItemId;
+let batchTrackedCatalogItemId;
 let firstUse;
 let reusedUsage;
 let deviceTags;
@@ -208,6 +215,80 @@ async function seed() {
     metadata: { test_scope: 'cath_device_reuse_deep' },
   }, { actorUid: CATALOG_ADMIN, actorRole: 'ADMIN', tenantId: TENANT });
   catalogItemId = Number(catalog.id);
+
+  // Second lane: its own pharmacy catalogue row, inventory item and stock batch,
+  // fronted by a batch_tracked cath catalogue item. Same facility, same
+  // reprocessable category, so only the batch_tracked flag differs.
+  const batchTrackedPharmacyCatalog = await prisma.$queryRawUnsafe(
+    `INSERT INTO pharmacy_catalog
+       (tenant_id, name, generic_name, category, is_active, is_available, in_stock, stock_quantity, updated_at)
+     VALUES ($1::uuid, 'CDR C0de Batch Tracked Catheter', 'Synthetic batch-tracked catheter',
+             'implant', TRUE, TRUE, TRUE, 5, NOW())
+     RETURNING id`,
+    TENANT,
+  );
+  const batchTrackedItems = await prisma.$queryRawUnsafe(
+    `INSERT INTO pharmacy_inventory_items
+       (tenant_id, facility_id, catalog_id, sku_code, display_name, unit_label, status)
+     VALUES ($1::uuid, $2::int, $3::int, 'CDR-C0DE-CATHETER-BT', 'Deep test batch-tracked catheter', 'each', 'active')
+     RETURNING id`,
+    TENANT, facilityId, Number(batchTrackedPharmacyCatalog[0].id),
+  );
+  batchTrackedInventoryItemId = Number(batchTrackedItems[0].id);
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO pharmacy_inventory_batches
+       (tenant_id, facility_id, inventory_item_id, batch_number, lot_number, expiry_date,
+        received_quantity, remaining_quantity, storage_location_id, status)
+     VALUES ($1::uuid, $2::int, $3::int, $4::text, 'CDR-C0DE-LOT-B2', $5::date,
+             5, 5, $6::int, 'in_stock')`,
+    TENANT, facilityId, batchTrackedInventoryItemId, BATCH_TRACKED_BATCH_NUMBER, dateOffset(700), storageLocationId,
+  );
+  const batchTrackedCatalog = await upsertConsumableCatalogItem({
+    tenantId: TENANT,
+    item_name: 'Deep test batch-tracked diagnostic catheter',
+    category: 'catheter',
+    manufacturer: 'Synthetic Devices',
+    model: 'CATH-REUSE-BT-TEST',
+    is_implant: false,
+    batch_tracked: true,
+    inventory_item_id: batchTrackedInventoryItemId,
+    default_unit_cost_reference: 2100,
+    metadata: { test_scope: 'cath_device_reuse_deep_batch_tracked' },
+  }, { actorUid: CATALOG_ADMIN, actorRole: 'ADMIN', tenantId: TENANT });
+  batchTrackedCatalogItemId = Number(batchTrackedCatalog.id);
+}
+
+// Mints ONE available device from a fresh first use, so a test that consumes a
+// device never has to borrow one the ordering-sensitive tests depend on. Every
+// device it produces must be left discarded by its caller before the
+// late-reactive sweep runs, or the sweep's exact affected list changes.
+async function mintAvailableDevices({
+  key,
+  catalogId = catalogItemId,
+  batchNumber = BATCH_NUMBER,
+  quantity = 1,
+  units = undefined,
+  acknowledgement = 'Serology pending; device sent for reprocessing',
+}) {
+  const usage = await recordConsumableUsage(caseId, {
+    tenantId: TENANT,
+    catalog_item_id: catalogId,
+    quantity,
+    batch_number: batchNumber,
+    expiry_date: dateOffset(700),
+  }, ctx(ACTOR, { idempotencyKey: `cdr-mint-${key}` }));
+  const postUse = await recordPostUse(caseId, usage.id, {
+    tenantId: TENANT,
+    disposition: 'reprocess',
+    ...(units === undefined ? {} : { units }),
+    acknowledgement: { reason: acknowledgement },
+  }, ctx(ACTOR, { idempotencyKey: `cdr-mint-pu-${key}` }));
+  const devices = [];
+  for (const minted of postUse.devices) {
+    await receiveDevice(minted.id, ctx(CSSD_ACTOR));
+    devices.push(await markDeviceReprocessed(minted.id, { cycle_type: 'eto' }, ctx(CSSD_ACTOR)));
+  }
+  return { usage, postUse, devices };
 }
 
 describeIfDb('cath device reuse (deep)', () => {
@@ -388,6 +469,35 @@ describeIfDb('cath device reuse (deep)', () => {
       .rejects.toMatchObject({ code: 'CATH_CONSUMABLE_REUSE_FIELDS_CONFLICT' });
   }, 60000);
 
+  test('replaying a reused capture returns the same usage row instead of 409ing on the device', async () => {
+    // The retry of a request whose response was lost. The device is now in_case,
+    // so the ON CONFLICT replay branch that runs AFTER captureReusedDeviceTx
+    // could never be reached — capture would 409 CATH_DEVICE_NOT_AVAILABLE
+    // first. The replay probe runs before the device is locked, which is the
+    // whole point of this assertion.
+    const before = await deviceByTag({ tenantId: TENANT, tag: deviceTags[0] });
+    expect(before).toMatchObject({ status: 'in_case', current_usage_id: reusedUsage.id });
+
+    const replay = await recordConsumableUsage(caseId, {
+      tenantId: TENANT, catalog_item_id: catalogItemId, quantity: 1, reused_device_tag: deviceTags[0],
+    }, ctx(ACTOR, { idempotencyKey: 'cdr-reuse-1' }));
+    expect(replay.id).toBe(reusedUsage.id);
+    expect(replay.idempotent_replay).toBe(true);
+    expect(replay.inventory_decrement_status).toBe('reused_device');
+    expect(replay.device_id).toBe(reusedUsage.device_id);
+    expect(replay.reuse_cycle).toBe(1);
+
+    // Nothing moved: no second row, and the device's cycle count is untouched.
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n FROM cath_case_consumable_usage
+        WHERE tenant_id = $1::uuid AND idempotency_key = 'cdr-reuse-1'`,
+      TENANT,
+    );
+    expect(rows[0].n).toBe(1);
+    const after = await deviceByTag({ tenantId: TENANT, tag: deviceTags[0] });
+    expect(after).toMatchObject({ status: 'in_case', current_usage_id: reusedUsage.id, cycle_count: before.cycle_count });
+  }, 60000);
+
   test('a device in a case cannot be discarded through the CSSD failed-check path', async () => {
     const device = await deviceByTag({ tenantId: TENANT, tag: deviceTags[0] });
     expect(device.status).toBe('in_case');
@@ -475,6 +585,103 @@ describeIfDb('cath device reuse (deep)', () => {
     expect(rows[0]).toMatchObject({ with_fix: 0, without_fix: 1 });
   }, 60000);
 
+  test('a reused capture marked wasted discards the device instead of parking it in_case', async () => {
+    // Spec §6.5. A wasted reused device was opened and destroyed in this case:
+    // there is no post-use tap to return it through, so leaving it 'in_case'
+    // would strand it with a current_usage_id pointing at a wasted row.
+    const { devices } = await mintAvailableDevices({ key: 'wasted' });
+    const tag = devices[0].device_tag;
+    expect(devices[0]).toMatchObject({ status: 'available', cycle_count: 1 });
+
+    const wastedUsage = await recordConsumableUsage(caseId, {
+      tenantId: TENANT,
+      catalog_item_id: catalogItemId,
+      quantity: 1,
+      reused_device_tag: tag,
+      wasted: true,
+      waste_reason: 'Shaft kinked during insertion; device destroyed',
+    }, ctx(ACTOR, { idempotencyKey: 'cdr-reuse-wasted-1' }));
+    expect(wastedUsage.inventory_decrement_status).toBe('reused_device');
+    expect(wastedUsage.wasted).toBe(true);
+    expect(wastedUsage.post_use_disposition).toBe('discarded_wasted');
+
+    const device = await deviceByTag({ tenantId: TENANT, tag });
+    expect(device).toMatchObject({
+      status: 'discarded',
+      discard_reason: 'wasted',
+      current_usage_id: null,
+    });
+    expect(device.discard_note).toBe('Shaft kinked during insertion; device destroyed');
+    expect(String(device.metadata.usage_id)).toBe(String(wastedUsage.id));
+  }, 120000);
+
+  test('a batch_tracked catalogue item can be reused with no batch, lot or expiry', async () => {
+    // Migration 765's widened cath_consumable_usage_batch_expiry_check. Before
+    // it, this INSERT was a 23514: the row is batch_tracked (the flag is copied
+    // from the catalogue) but a reused device has no batch lineage of its own —
+    // that lives on the origin usage row the register points back at.
+    const { usage: originUsage, devices } = await mintAvailableDevices({
+      key: 'bt',
+      catalogId: batchTrackedCatalogItemId,
+      batchNumber: BATCH_TRACKED_BATCH_NUMBER,
+    });
+    expect(originUsage).toMatchObject({ batch_tracked: true, batch_number: BATCH_TRACKED_BATCH_NUMBER });
+    expect(originUsage.expiry_date).not.toBeNull();
+
+    const tag = devices[0].device_tag;
+    const reused = await recordConsumableUsage(caseId, {
+      tenantId: TENANT,
+      catalog_item_id: batchTrackedCatalogItemId,
+      quantity: 1,
+      reused_device_tag: tag,
+    }, ctx(ACTOR, { idempotencyKey: 'cdr-reuse-bt-1' }));
+    expect(reused).toMatchObject({
+      inventory_decrement_status: 'reused_device',
+      batch_tracked: true,
+      batch_number: null,
+      lot_number: null,
+      expiry_date: null,
+      inventory_batch_id: null,
+      reuse_cycle: 1,
+    });
+    // The batch lineage is recoverable through the register, not lost.
+    const history = await deviceHistory({ tenantId: TENANT, deviceId: devices[0].id });
+    expect(history.uses.map((u) => u.usage_id)).toEqual([originUsage.id, reused.id]);
+
+    // Leave the device discarded so the late-reactive sweep below still sees
+    // exactly the two devices its assertions name.
+    const out = await recordPostUse(caseId, reused.id, {
+      tenantId: TENANT, disposition: 'discard', discard_reason: 'damaged', discard_note: 'deep-test teardown',
+    }, ctx(ACTOR, { idempotencyKey: 'cdr-pu-bt-1' }));
+    expect(out.disposition).toBe('discarded_other');
+    expect(out.devices[0]).toMatchObject({ status: 'discarded', discard_reason: 'damaged' });
+  }, 120000);
+
+  test('reprocessing fewer units than were used records the shortfall on the row', async () => {
+    // Spec §6.3 step 3: a quantity-2 first use reprocessed as one unit leaves
+    // one unit unaccounted for. Counting the ABSENCE of a minted device is not
+    // something a reader can do, so the number is written on the usage row.
+    const { usage, postUse, devices } = await mintAvailableDevices({ key: 'units', quantity: 2, units: 1 });
+    expect(postUse.units).toBe(1);
+    expect(postUse.devices).toHaveLength(1);
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT metadata->>'units_not_reprocessed' AS shortfall FROM cath_case_consumable_usage WHERE id = $1::bigint`,
+      usage.id,
+    );
+    expect(rows[0].shortfall).toBe('1');
+
+    // The whole-quantity case writes nothing: firstUse was 2 units reprocessed
+    // as 2, so the key must be absent rather than 0.
+    const whole = await prisma.$queryRawUnsafe(
+      `SELECT (metadata->'units_not_reprocessed') IS NOT NULL AS present
+         FROM cath_case_consumable_usage WHERE id = $1::bigint`,
+      firstUse.id,
+    );
+    expect(whole[0].present).toBe(false);
+
+    await discardDevice(devices[0].id, { reason: 'damaged', note: 'deep-test teardown' }, ctx(CSSD_ACTOR));
+  }, 120000);
+
   test('a reactive marker sweeps the register and forces discard at post-use', async () => {
     // ORDERING NOTE: registerExposureHandler(quarantineDevicesExposedToPatient)
     // is live, and notifyExposureHandlers awaits handlers right after
@@ -553,4 +760,60 @@ describeIfDb('cath device reuse (deep)', () => {
     const queue = await listDevices({ tenantId: TENANT, status: 'discarded' });
     expect(queue.map((entry) => entry.device_tag)).toEqual(expect.arrayContaining(deviceTags));
   }, 60000);
+
+  test('under override_allowed an exposure-flagged device is captured and the override lands on the record', async () => {
+    // The POSITIVE arm the earlier test only rejected. Runs last on purpose:
+    // the patient is blood-borne restricted by now, so the device this mints is
+    // exposure-flagged by the platform itself rather than by fixture SQL.
+    await upsertReprocessingSettings({ tenantId: TENANT, reactive_patient_rule: 'override_allowed' }, ctx());
+    const { devices } = await mintAvailableDevices({
+      key: 'override',
+      acknowledgement: 'Infection control cleared this device for a restricted-patient case',
+    });
+    const device = devices[0];
+    expect(device).toMatchObject({ status: 'available', exposure_flag: true });
+    expect(device.exposure_markers).toEqual(expect.arrayContaining(['hbsag']));
+
+    // The patient is restricted by now, which is why the minted device carries
+    // the flag at all — the capture below is an override, not a clean reuse.
+    const cathCase = await getCase(caseId, { tenantId: TENANT });
+    expect(cathCase.reuse_restriction.status).toBe('restricted');
+
+    const overridden = await recordConsumableUsage(caseId, {
+      tenantId: TENANT,
+      catalog_item_id: catalogItemId,
+      quantity: 1,
+      reused_device_tag: device.device_tag,
+      exposure_acknowledgement: { reason: 'Consultant accepts reuse; patient already positive for the same marker' },
+    }, ctx(ACTOR, { idempotencyKey: 'cdr-reuse-override-1' }));
+    expect(overridden.inventory_decrement_status).toBe('reused_device');
+    expect(overridden.metadata.reused_device.acknowledgement)
+      .toBe('Consultant accepts reuse; patient already positive for the same marker');
+    const captured = await deviceByTag({ tenantId: TENANT, tag: device.device_tag });
+    expect(captured).toMatchObject({ status: 'in_case', current_usage_id: Number(overridden.id) });
+
+    const reviews = await prisma.$queryRawUnsafe(
+      `SELECT finding_code, status, override_reason FROM medication_safety_reviews
+        WHERE tenant_id = $1::uuid AND review_type = 'cath_device_reuse'
+          AND finding_code = 'EXPOSED_DEVICE_REUSED'`,
+      TENANT,
+    );
+    expect(reviews).toHaveLength(1);
+    expect(reviews[0]).toMatchObject({ status: 'overridden' });
+    expect(reviews[0].override_reason)
+      .toContain('Consultant accepts reuse');
+
+    // Under the discard rule the same in-case device is discard-only at
+    // post-use, refused on the DEVICE's own exposure flag — computePostUseOptions'
+    // device_exposure_flagged rule — rather than on the patient's status.
+    const restored = await upsertReprocessingSettings({ tenantId: TENANT }, ctx());
+    expect(restored.reactive_patient_rule).toBe('discard');
+    await expect(recordPostUse(caseId, overridden.id, {
+      tenantId: TENANT, disposition: 'reprocess', acknowledgement: { reason: 'second override attempt' },
+    }, ctx(ACTOR, { idempotencyKey: 'cdr-pu-override-1' })))
+      .rejects.toMatchObject({
+        code: 'CATH_DEVICE_EXPOSURE_BLOCKED',
+        details: { exposure_markers: expect.arrayContaining(['hbsag']) },
+      });
+  }, 120000);
 });

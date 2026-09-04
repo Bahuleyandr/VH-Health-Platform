@@ -91,6 +91,14 @@ export function computePostUseOptions({ usage, category, isImplant, policy, sett
   if (device && Number(device.cycle_count) >= Number(device.max_cycles_snapshot)) {
     return { ...base, dispositions: ['discard'], discard_reason: 'max_cycles_reached', reason_codes: ['max_cycles_reached'] };
   }
+  // The device's OWN exposure flag, which is a different fact from this
+  // patient's restriction status below: the late-reactive sweep stamps the flag
+  // from a PREVIOUS patient's reactive result, so a device can be flagged while
+  // the current patient screens clear. Under the 'discard' rule that device
+  // must not be offered for reprocessing on a clear patient's say-so.
+  if (device?.exposure_flag === true && settings?.reactive_patient_rule === 'discard') {
+    return { ...base, dispositions: ['discard'], discard_reason: 'bloodborne_exposure', reason_codes: ['device_exposure_flagged'] };
+  }
   // Anything that is not an explicit 'clear' or 'restricted' is treated as unknown (fail restrictive).
   const status = restriction?.status === 'clear' || restriction?.status === 'restricted' ? restriction.status : 'unknown';
   if (status === 'restricted') {
@@ -667,6 +675,44 @@ export async function recordPostUse(caseId, usageId, input = {}, context = {}) {
     const policy = await categoryPolicyTx(tx, tid, usage.category);
     const restriction = await resolveReuseStatus({ tenantId: tid, patientUid: cathCase.patient_uid, validityDays: settings.serology_validity_days, db: tx });
     const device = usage.device_id ? await lockDeviceTx(tx, tid, usage.device_id) : null;
+
+    // CSSD can discard a device while it is still in the case: `discard`'s
+    // from-list includes 'in_case', and the late-reactive sweep uses it. There
+    // is then nothing left to transition — 'discarded' is terminal, so both
+    // 'return' and 'discard' would 409 and the usage row would be stuck without
+    // a disposition forever. Settle the row from the device's OWN discard
+    // reason and return normally; the operator's requested disposition is moot
+    // because the physical decision has already been taken.
+    if (device && device.status === 'discarded') {
+      const settledCode = device.discard_reason === 'bloodborne_exposure' || device.discard_reason === 'late_reactive_marker'
+        ? 'discarded_bloodborne_exposure'
+        : 'discarded_other';
+      const settledResult = {
+        usage_id: usage.id,
+        case_id: cathCase.id,
+        disposition: settledCode,
+        units: null,
+        devices: [normalizeDevice(device)],
+        restriction_status: restriction.status,
+        device_already_discarded: true,
+      };
+      await tx.$executeRawUnsafe(
+        `UPDATE cath_case_consumable_usage
+            SET post_use_disposition = $3,
+                post_use_screen = $4::jsonb,
+                metadata = COALESCE(metadata, '{}'::jsonb) || $5::jsonb,
+                updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+        tid, usage.id, settledCode, JSON.stringify(restriction),
+        JSON.stringify({ post_use: { idempotency_key: idempotencyKey, acknowledgement: acknowledgement || null, actor_uid: actor, recorded_at: new Date().toISOString(), device_already_discarded: true, result: settledResult } }),
+      );
+      await recordDeviceAudit(tx, {
+        tenantId: tid, action: 'cath_usage.post_use', resource: 'cath_case_consumable_usage', resourceId: usage.id,
+        context, metadata: { disposition: settledCode, units: null, device_tags: [device.device_tag], restriction_status: restriction.status, device_already_discarded: true, device_discard_reason: device.discard_reason },
+      });
+      return settledResult;
+    }
+
     const options = computePostUseOptions({ usage, category: usage.category, isImplant: Boolean(usage.is_implant), policy, settings, restriction, device });
 
     if (!options.dispositions.includes(disposition)) {
@@ -678,6 +724,12 @@ export async function recordPostUse(caseId, usageId, input = {}, context = {}) {
       }
       if (options.reason_codes.includes('bloodborne_restricted')) {
         throw AppError.conflict('Patient is blood-borne restricted; only discard is allowed', 'CATH_DEVICE_EXPOSURE_BLOCKED', { reasons: restriction.reasons });
+      }
+      // Same block, different fact: the DEVICE carries the exposure flag (from
+      // an earlier patient's late reactive result), so it must not be sent back
+      // for reprocessing even when this patient screens clear.
+      if (options.reason_codes.includes('device_exposure_flagged')) {
+        throw AppError.conflict(`Device ${device.device_tag} carries a blood-borne exposure flag; only discard is allowed`, 'CATH_DEVICE_EXPOSURE_BLOCKED', { exposure_markers: device.exposure_markers, reasons: restriction.reasons });
       }
       throw AppError.conflict(`This usage cannot be ${disposition}ed`, 'CATH_REPROCESSING_NOT_ALLOWED', { reason_codes: options.reason_codes });
     }
@@ -740,6 +792,11 @@ export async function recordPostUse(caseId, usageId, input = {}, context = {}) {
       devices: devices.map(normalizeDevice),
       restriction_status: restriction.status,
     };
+    // Spec §6.3 step 3: a first-use row of quantity N reprocessed as only M
+    // units leaves N - M units unaccounted for. Record the shortfall on the row
+    // itself — the devices minted above are the only other trace, and counting
+    // their absence is not something a reader can do.
+    const unitsNotReprocessed = units == null ? 0 : Math.max(0, Number(options.units_max) - Number(units));
     await tx.$executeRawUnsafe(
       `UPDATE cath_case_consumable_usage
           SET post_use_disposition = $3,
@@ -748,7 +805,10 @@ export async function recordPostUse(caseId, usageId, input = {}, context = {}) {
               updated_at = NOW()
         WHERE tenant_id = $1::uuid AND id = $2::bigint`,
       tid, usage.id, dispositionCode, JSON.stringify(restriction),
-      JSON.stringify({ post_use: { idempotency_key: idempotencyKey, acknowledgement: acknowledgement || null, actor_uid: actor, recorded_at: new Date().toISOString(), result } }),
+      JSON.stringify({
+        post_use: { idempotency_key: idempotencyKey, acknowledgement: acknowledgement || null, actor_uid: actor, recorded_at: new Date().toISOString(), result },
+        ...(unitsNotReprocessed > 0 ? { units_not_reprocessed: unitsNotReprocessed } : {}),
+      }),
     );
     if (acknowledgement) {
       await recordReuseSafetyReview(tx, {
@@ -833,38 +893,67 @@ export async function quarantineDevicesExposedToPatient(event) {
   // The system actor is the one caller allowed to hold a null actorUid — see
   // the note on applyDeviceTransitionTx.
   const context = { actorUid: null, actorRole: 'SYSTEM' };
-  const affected = await setTenantTx(tid, async (tx) => {
-    const rows = await tx.$queryRawUnsafe(
-      `SELECT DISTINCT d.id
-         FROM cath_reprocessable_devices d
-         JOIN cath_case_consumable_usage u
-           ON u.tenant_id = d.tenant_id AND (u.id = d.origin_usage_id OR u.device_id = d.id)
-        WHERE d.tenant_id = $1::uuid
-          AND u.patient_uid = $2::uuid
-          AND d.status <> 'discarded'
-          AND u.used_at >= ($3::date - ($4::int * INTERVAL '1 day'))`,
-      tid, requireUuid(event.patientUid, 'patientUid'), event.testedOn, lookbackDays,
-    );
-    const out = [];
-    const markers = [marker];
-    for (const { id } of rows) {
-      const device = await lockDeviceTx(tx, tid, id);
-      // A device already in a case, or already held, cannot take the quarantine
-      // transition — flag the exposure on it instead so the marker is never lost.
-      if (device.status === 'in_case' || device.status === 'quarantined') {
-        await flagDeviceExposureTx(tx, device, { ...event, marker }, context);
-        out.push(await lockDeviceTx(tx, tid, id));
-        continue;
-      }
-      out.push(await applyDeviceTransitionTx(tx, device, 'quarantine', {
-        exposureFlag: true, exposureMarkers: markers,
-        quarantineReason: `Late reactive ${marker} result dated ${event.testedOn}`,
-        metadata: { late_reactive_marker_row_id: event.markerRowId },
-      }, context));
+  const patientUid = requireUuid(event.patientUid, 'patientUid');
+  // Candidates are selected in their own read, then each device is handled in
+  // its OWN transaction. One device that cannot be quarantined — a status race,
+  // a lock timeout, a constraint — must not roll back the ones that already
+  // succeeded: this sweep is the platform's response to a reactive result, and
+  // losing nine quarantines because the tenth failed is the worst outcome
+  // available. ORDER BY d.id makes the sweep deterministic, so a partial
+  // failure is reproducible and the failed list is stable.
+  const candidates = await setTenant(tid, (tx) => tx.$queryRawUnsafe(
+    `SELECT DISTINCT d.id
+       FROM cath_reprocessable_devices d
+       JOIN cath_case_consumable_usage u
+         ON u.tenant_id = d.tenant_id AND (u.id = d.origin_usage_id OR u.device_id = d.id)
+      WHERE d.tenant_id = $1::uuid
+        AND u.patient_uid = $2::uuid
+        AND d.status <> 'discarded'
+        -- used_at is TIMESTAMPTZ and tested_on is a bare date. Subtracting the
+        -- window from the date yields a plain timestamp with no zone, which
+        -- Postgres would coerce using the SESSION TimeZone — UTC on the server,
+        -- so the boundary would sit 5h30m off the clinical day. Pin it to
+        -- Asia/Kolkata, the same zone every other cath date window uses.
+        AND u.used_at >= (($3::date - ($4::int * INTERVAL '1 day'))::timestamp AT TIME ZONE 'Asia/Kolkata')
+      ORDER BY d.id`,
+    tid, patientUid, event.testedOn, lookbackDays,
+  ));
+  const affected = [];
+  const failed = [];
+  const markers = [marker];
+  for (const { id } of candidates) {
+    try {
+      const settled = await setTenantTx(tid, async (tx) => {
+        const device = await lockDeviceTx(tx, tid, id);
+        // Re-checked under the lock, not only in the candidate SELECT: CSSD may
+        // have discarded it between the read and this transaction, and
+        // 'discarded' is terminal — quarantine would 409 and flagging a scrapped
+        // device tells nobody anything.
+        if (device.status === 'discarded') return null;
+        // A device already in a case, or already held, cannot take the quarantine
+        // transition — flag the exposure on it instead so the marker is never lost.
+        if (device.status === 'in_case' || device.status === 'quarantined') {
+          await flagDeviceExposureTx(tx, device, { ...event, marker }, context);
+          return lockDeviceTx(tx, tid, id);
+        }
+        return applyDeviceTransitionTx(tx, device, 'quarantine', {
+          exposureFlag: true, exposureMarkers: markers,
+          quarantineReason: `Late reactive ${marker} result dated ${event.testedOn}`,
+          metadata: { late_reactive_marker_row_id: event.markerRowId },
+        }, context);
+      });
+      if (settled) affected.push(settled);
+    } catch (err) {
+      failed.push({ device_id: num(id), error: err?.message || String(err) });
+      logger.error(
+        `Late-reactive device sweep failed for device ${num(id)}: ${err?.message}`,
+        { tenantId: tid, deviceId: num(id), marker, markerRowId: event.markerRowId },
+      );
     }
-    return out;
-  });
-  if (affected.length === 0) return { affected: [] };
+  }
+  // The alert and the outbox are still raised for the devices that DID settle:
+  // a partial sweep that infection control never hears about is a silent one.
+  if (affected.length === 0) return { affected: [], failed };
 
   const tags = affected.map((d) => d.device_tag).join(', ');
   try {
@@ -904,7 +993,7 @@ export async function quarantineDevicesExposedToPatient(event) {
   } catch (err) {
     logger.error(`Infection-control notification for blood-borne reuse exposure failed: ${err?.message}`, { tenantId: tid });
   }
-  return { affected: affected.map(normalizeDevice) };
+  return { affected: affected.map(normalizeDevice), failed };
 }
 
 // Registered at module load: bloodborneMarkerService.notifyExposureHandlers

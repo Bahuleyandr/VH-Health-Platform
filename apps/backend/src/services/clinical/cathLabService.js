@@ -30,7 +30,9 @@ import {
 } from '../staff/credentialingService.js';
 import { deriveComplicationRegistryRows } from './cathSchedulingRegistryService.js';
 import {
+  applyDeviceTransitionTx,
   captureReusedDeviceTx,
+  getReprocessingSettings,
   markDeviceInCaseTx
 } from './cathDeviceReuseService.js';
 import { resolveReuseStatus } from './bloodborneMarkerService.js';
@@ -1018,9 +1020,18 @@ export async function getCase(caseId, { tenantId, db = prisma } = {}) {
   const consumableUsage = await listCaseConsumableUsage(caseId, { tenantId, db });
   // The blood-borne restriction strip the capture sheet shows. Read here so the
   // case view and the consumables view cannot disagree about the same patient.
+  // The validity window is the TENANT's (cath_reprocessing_settings), not the
+  // marker service's compiled-in default: caseReuseContext — which is what the
+  // consumables view resolves through — passes the tenant window, so omitting it
+  // here is exactly how the two views come to disagree.
+  const caseReuseSettings = await getReprocessingSettings({
+    tenantId: tenantOr(tenantId),
+    db
+  });
   const reuseRestriction = await resolveReuseStatus({
     tenantId: tenantOr(tenantId),
     patientUid: cathCase.patient_uid,
+    validityDays: caseReuseSettings.serology_validity_days,
     db
   });
   const normalizedReadiness = normalizeRows(readiness);
@@ -4116,6 +4127,13 @@ export async function recordConsumableUsage(caseId, input = {}, context = {}) {
       throw AppError.badRequest('A reused device is one unit', 'CATH_CONSUMABLE_BAD_QUANTITY');
     }
   }
+  // Hoisted out of the transaction: the reused-device replay probe below needs
+  // it before the device is locked, and the INSERT further down needs the same
+  // value. One derivation, one precedence order.
+  const idempotencyKey = cleanText(
+    context.idempotencyKey || input.idempotency_key || input.idempotencyKey,
+    200
+  );
   const committed = await setTenantTx(tenantId, async tx => {
     const canonicalActor = await cathCanonicalActorTx(tx, tenantId, context);
     const cathCase = await caseById(tx, tenantId, caseId, { lock: true });
@@ -4179,6 +4197,41 @@ export async function recordConsumableUsage(caseId, input = {}, context = {}) {
         'Cath consumable facility inventory authority changed before usage capture',
         'CATH_CONSUMABLE_FACILITY_MAPPING_CHANGED'
       );
+    }
+    // Reused-device replay MUST be settled before the device is touched.
+    // The INSERT's ON CONFLICT (tenant_id, idempotency_key) replay branch far
+    // below cannot save a reused capture: captureReusedDeviceTx demands
+    // status = 'available', and the first call already moved the device to
+    // 'in_case', so the retry of a request whose response was lost would 409
+    // CATH_DEVICE_NOT_AVAILABLE instead of returning the row it already wrote.
+    // Probed here — after the case and inventory-authority locks, before the
+    // device lock — and returned in exactly the shape the ON CONFLICT branch
+    // returns, so both paths surface the same normalised row with the same
+    // idempotent_replay marker.
+    if (idempotencyKey && reusedDeviceTag) {
+      const priorRows = await tx.$queryRawUnsafe(
+        `SELECT id, case_id
+           FROM cath_case_consumable_usage
+          WHERE tenant_id = $1::uuid
+            AND idempotency_key = $2
+          LIMIT 1`,
+        tenantId,
+        idempotencyKey
+      );
+      const prior = unwrap(priorRows);
+      if (prior) {
+        if (String(prior.case_id) !== String(cathCase.id)) {
+          throw AppError.conflict(
+            'Cath consumable usage could not be recorded idempotently',
+            'CATH_CONSUMABLE_IDEMPOTENCY_CONFLICT'
+          );
+        }
+        return {
+          usage: await consumableUsageById(tx, tenantId, prior.id),
+          caseStatus: cathCase.status,
+          replayed: true
+        };
+      }
     }
     // Locks the device row and settles catalogue, facility, policy, status and
     // exposure rules before anything is written.
@@ -4350,9 +4403,18 @@ export async function recordConsumableUsage(caseId, input = {}, context = {}) {
     // The serology screen is stamped on EVERY capture, not only reused ones:
     // it is the evidence the post-use decision is later judged against, and a
     // first use is what mints the device the next case reuses.
+    // The tenant's serology window, not the marker service's default: a reused
+    // capture takes it from captureReusedDeviceTx (which reads the settings row
+    // itself), so a first-use screen resolved on the default window would judge
+    // the same patient by a different rule than the very next reuse does.
     const reuseScreen = reused
       ? reused.restriction
-      : await resolveReuseStatus({ tenantId, patientUid: cathCase.patient_uid, db: tx });
+      : await resolveReuseStatus({
+        tenantId,
+        patientUid: cathCase.patient_uid,
+        validityDays: (await getReprocessingSettings({ tenantId, db: tx })).serology_validity_days,
+        db: tx
+      });
     const metadata = {
       ...normalizeJson(input.metadata, 'metadata', {}),
       inventory_authority: {
@@ -4375,10 +4437,6 @@ export async function recordConsumableUsage(caseId, input = {}, context = {}) {
         }
       } : {})
     };
-    const idempotencyKey = cleanText(
-      context.idempotencyKey || input.idempotency_key || input.idempotencyKey,
-      200
-    );
     const rows = await tx.$queryRawUnsafe(
        `INSERT INTO cath_case_consumable_usage
           (tenant_id, case_id, procedure_log_id, catalog_item_id, patient_uid,
@@ -4528,7 +4586,30 @@ export async function recordConsumableUsage(caseId, input = {}, context = {}) {
     // provenance. Only the pharmacy shortfall obligation is reused-specific:
     // a reused device owes none, and materialising one would make the row
     // unreconcilable forever.
-    if (reused) {
+    if (reused && wasted) {
+      // Spec §6.5: a reused device recorded as wasted was opened and destroyed
+      // in this case. It never becomes 'in_case' — there is no post-use tap to
+      // return it through, and leaving it in_case would strand it there with a
+      // current_usage_id pointing at a wasted row. Discard it here, and settle
+      // the usage row's disposition in the same transaction so the two records
+      // can never disagree. post_use_disposition is MUTABLE under the 765
+      // identity guard (device_id and reuse_cycle are the frozen columns), so
+      // this follow-up UPDATE is legal.
+      await applyDeviceTransitionTx(tx, reused.device, 'discard', {
+        discardReason: 'wasted',
+        discardNote: wasteReason,
+        metadata: { usage_id: normalizedUsage.id }
+      }, context);
+      await tx.$queryRawUnsafe(
+        `UPDATE cath_case_consumable_usage
+            SET post_use_disposition = 'discarded_wasted',
+                updated_at = NOW()
+          WHERE tenant_id = $1::uuid
+            AND id = $2::bigint`,
+        tenantId,
+        usage.id
+      );
+    } else if (reused) {
       await markDeviceInCaseTx(tx, {
         device: reused.device,
         usageId: normalizedUsage.id,

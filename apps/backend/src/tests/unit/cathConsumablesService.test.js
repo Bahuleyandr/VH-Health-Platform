@@ -96,7 +96,11 @@ jest.unstable_mockModule('../../services/clinical/cathSchedulingRegistryService.
 // bloodborneMarkerService needs setTenant. Both are covered end to end by
 // cath-device-reuse.deep.test.js, so stub the boundary here.
 jest.unstable_mockModule('../../services/clinical/cathDeviceReuseService.js', () => ({
+  applyDeviceTransitionTx: jest.fn(),
   captureReusedDeviceTx: jest.fn(),
+  getReprocessingSettings: jest.fn(async () => ({
+    reactive_patient_rule: 'discard', unknown_serology_rule: 'warn', serology_validity_days: 90,
+  })),
   markDeviceInCaseTx: jest.fn(),
 }));
 jest.unstable_mockModule('../../services/clinical/bloodborneMarkerService.js', () => ({

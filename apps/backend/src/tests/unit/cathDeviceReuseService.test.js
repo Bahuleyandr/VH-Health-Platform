@@ -93,6 +93,30 @@ describe('computePostUseOptions', () => {
     const out = computePostUseOptions({ usage: reusedRow, category: 'catheter', isImplant: false, policy, settings, restriction: clear, device: { cycle_count: 1, max_cycles_snapshot: 3, status: 'in_case' } });
     expect(out).toMatchObject({ dispositions: ['reprocess', 'discard'], units_max: 1 });
   });
+  test('a device carrying its own exposure flag is discard-only under the discard rule, even for a clear patient', () => {
+    // The flag is a DIFFERENT fact from this patient's restriction status: the
+    // late-reactive sweep stamps it from a PREVIOUS patient's reactive result.
+    const out = computePostUseOptions({
+      usage: reusedRow, category: 'catheter', isImplant: false, policy, settings, restriction: clear,
+      device: { cycle_count: 1, max_cycles_snapshot: 3, status: 'in_case', exposure_flag: true },
+    });
+    expect(out).toMatchObject({ dispositions: ['discard'], discard_reason: 'bloodborne_exposure', reason_codes: ['device_exposure_flagged'], units_max: 1 });
+  });
+  test('an exposure-flagged device stays overridable while the tenant allows overrides', () => {
+    const out = computePostUseOptions({
+      usage: reusedRow, category: 'catheter', isImplant: false, policy,
+      settings: { ...settings, reactive_patient_rule: 'override_allowed' }, restriction: clear,
+      device: { cycle_count: 1, max_cycles_snapshot: 3, status: 'in_case', exposure_flag: true },
+    });
+    expect(out).toMatchObject({ dispositions: ['reprocess', 'discard'], reason_codes: [] });
+  });
+  test('max cycles still wins over the device exposure flag', () => {
+    const out = computePostUseOptions({
+      usage: reusedRow, category: 'catheter', isImplant: false, policy, settings, restriction: clear,
+      device: { cycle_count: 3, max_cycles_snapshot: 3, status: 'in_case', exposure_flag: true },
+    });
+    expect(out.reason_codes).toEqual(['max_cycles_reached']);
+  });
   test('a missing or malformed restriction is treated as unknown, never as clear', () => {
     expect(computePostUseOptions({ usage: firstUse, category: 'catheter', isImplant: false, policy, settings, restriction: null }).reason_codes).toEqual(['serology_unknown']);
     expect(computePostUseOptions({ usage: firstUse, category: 'catheter', isImplant: false, policy, settings, restriction: { status: 'bogus' } }).reason_codes).toEqual(['serology_unknown']);
