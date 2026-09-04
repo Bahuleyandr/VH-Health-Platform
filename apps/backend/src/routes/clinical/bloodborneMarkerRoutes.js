@@ -9,7 +9,15 @@
 // Both routes carry their own per-route patientAccessGuard: the mount guard
 // runs before Express has matched a route, so :patientUid is not visible to it
 // (mountLevelPatientGuardCensus.test.js documents that class). The in-router
-// guard is the authority here.
+// guard is the authority here, and it fails closed: requirePatientContext
+// makes an unresolvable :patientUid — a syntactically valid uid that is not a
+// patient in this tenant — a 403 PATIENT_CONTEXT_REQUIRED rather than a
+// no-patient-context pass-through into the handler.
+//
+// Chain order on the void route is guard → requirePatientUidParam →
+// requireIdempotencyKey: the guard first so an unauthorised caller cannot use
+// the 400/403 split to probe which uids exist, and uid validation before the
+// idempotency claim so a malformed request never burns a key.
 
 import express from 'express';
 import { patientAccessGuard } from '../../middleware/phiAccessMiddleware.js';
@@ -28,10 +36,26 @@ const router = express.Router();
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const VALIDITY_DAYS_MESSAGE = 'validity_days must be an integer between 1 and 365';
+const INCLUDE_VOIDED_MESSAGE = 'include_voided must be true or false';
+const MARKER_ID_MESSAGE = 'marker id must be a positive integer';
 
 const guardMarkerAccess = patientAccessGuard('BLOODBORNE_MARKERS', {
   policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+  requirePatientContext: true,
 });
+
+// Both routes address one patient by :patientUid, so the shape check is the
+// same on both and runs as its own layer — on the void route that puts it
+// ahead of the idempotency claim, so a malformed uid cannot consume a key.
+// The trimmed value is written back so the handlers read one normalised uid.
+function requirePatientUidParam(req, res, next) {
+  const patientUid = String(req.params.patientUid || '').trim();
+  if (!UUID_RE.test(patientUid)) {
+    return error(res, 'patientUid must be a UUID', HTTP_STATUS.BAD_REQUEST);
+  }
+  req.params.patientUid = patientUid;
+  return next();
+}
 
 // `{ value }` or `{ invalid: true }` — never throws, so the 400 for a bad
 // window is distinguishable from a service AppError in the handler without
@@ -46,21 +70,34 @@ function parseValidityDays(raw) {
   return { value: parsed };
 }
 
-router.get('/patient/:patientUid', guardMarkerAccess, async (req, res) => {
+// Same never-throws shape as parseValidityDays. The contract is a closed set:
+// true|1 and false|0 (case-insensitive), absent or empty meaning false.
+// Anything else — 'yes', 'on', a repeated key stringifying to "true,false" —
+// is a 400 rather than a silent false, so a client asking for voided rows can
+// never be quietly served the active-only list.
+function parseIncludeVoided(raw) {
+  if (raw === undefined || raw === null) return { value: false };
+  const text = String(raw).trim().toLowerCase();
+  if (text === '' || text === 'false' || text === '0') return { value: false };
+  if (text === 'true' || text === '1') return { value: true };
+  return { invalid: true };
+}
+
+router.get('/patient/:patientUid', guardMarkerAccess, requirePatientUidParam, async (req, res) => {
   try {
-    const patientUid = String(req.params.patientUid || '').trim();
-    if (!UUID_RE.test(patientUid)) {
-      return error(res, 'patientUid must be a UUID', HTTP_STATUS.BAD_REQUEST);
-    }
     const validityDays = parseValidityDays(req.query?.validity_days);
     if (validityDays.invalid) {
       return error(res, VALIDITY_DAYS_MESSAGE, HTTP_STATUS.BAD_REQUEST);
     }
+    const includeVoided = parseIncludeVoided(req.query?.include_voided);
+    if (includeVoided.invalid) {
+      return error(res, INCLUDE_VOIDED_MESSAGE, HTTP_STATUS.BAD_REQUEST);
+    }
     const data = await listMarkersForPatient({
       tenantId: resolveTenantOrThrow(req),
-      patientUid,
+      patientUid: req.params.patientUid,
       validityDays: validityDays.value,
-      includeVoided: String(req.query?.include_voided ?? '').toLowerCase() === 'true',
+      includeVoided: includeVoided.value,
     });
     return success(res, data, 'Blood-borne markers');
   } catch (err) {
@@ -71,17 +108,28 @@ router.get('/patient/:patientUid', guardMarkerAccess, async (req, res) => {
 router.post(
   '/patient/:patientUid/markers/:id/void',
   guardMarkerAccess,
-  requireIdempotencyKey({ required: true, scope: 'bloodborne_marker_void' }),
+  requirePatientUidParam,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'bloodborne_marker_void',
+    // A void is irreversible: a 5xx raised after the UPDATE committed must not
+    // release the claim, so the retry replays the stored outcome instead of
+    // re-running the void against a row that is already voided.
+    retainOnServerError: true,
+  }),
   async (req, res) => {
     try {
-      const patientUid = String(req.params.patientUid || '').trim();
-      if (!UUID_RE.test(patientUid)) {
-        return error(res, 'patientUid must be a UUID', HTTP_STATUS.BAD_REQUEST);
+      // Decimal digits only. The service coerces with Number(), which would
+      // otherwise accept '0x29' and '4e1' as 41 and 40 — two different ids
+      // reaching one row, and an id the audit trail cannot reproduce.
+      const markerId = String(req.params.id ?? '');
+      if (!/^\d+$/.test(markerId)) {
+        return error(res, MARKER_ID_MESSAGE, HTTP_STATUS.BAD_REQUEST);
       }
       const marker = await voidMarker({
         tenantId: resolveTenantOrThrow(req),
-        patientUid,
-        markerId: req.params.id,
+        patientUid: req.params.patientUid,
+        markerId,
         actorUid: req.user?.uid,
         reason: req.body?.reason,
       });

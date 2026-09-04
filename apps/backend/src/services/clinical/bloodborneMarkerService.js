@@ -60,9 +60,11 @@ function withTenant(tenantId, db, fn) {
   return db ? fn(db) : setTenant(tenantId, fn);
 }
 
-// Trim only. Free text (notes, void reason) is trimmed and truncated through
-// cleanText; identifying text (marker_label) is trimmed and then rejected when
-// it is too long, so a caller never silently stores a shortened label.
+// Trim only. Bulk free text (notes) is trimmed and truncated through
+// cleanText; text a human is expected to read back verbatim — marker_label,
+// and the void reason, which is the whole audit record of why a row was
+// retracted — is trimmed and then rejected when it is too long, so a caller
+// never silently stores a shortened value.
 function trimText(value) {
   if (value === null || value === undefined) return null;
   const text = String(value).trim();
@@ -301,9 +303,12 @@ export async function voidMarker({ tenantId, patientUid, markerId, actorUid, rea
   if (!Number.isSafeInteger(id) || id <= 0) {
     throw AppError.badRequest('marker id must be a positive integer', 'BLOODBORNE_MARKER_INVALID');
   }
-  const safeReason = cleanText(reason, 500);
+  const safeReason = trimText(reason);
   if (!safeReason) {
     throw AppError.badRequest('reason is required to void a marker', 'BLOODBORNE_MARKER_INVALID');
+  }
+  if (safeReason.length > 500) {
+    throw AppError.badRequest('reason must be 500 characters or fewer', 'BLOODBORNE_MARKER_INVALID');
   }
   return setTenantTx(tid, async (tx) => {
     const existing = await tx.$queryRawUnsafe(

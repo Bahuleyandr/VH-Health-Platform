@@ -11,10 +11,19 @@ import { jest } from '@jest/globals';
 import request from 'supertest';
 
 import { AppError } from '../../utils/AppError.js';
+import * as markerOverlay from '../../../scripts/openapi/schemas/bloodborneMarkers.mjs';
 
 const listMarkersForPatient = jest.fn();
 const voidMarker = jest.fn();
 const idempotencyOptions = [];
+
+const POLICY_CODES = { PATIENT_CLINICAL_WORKFLOW_ACCESS: 'patient.clinical_workflow.access' };
+
+// Recorded, not just stubbed: the guard's declared options are the whole
+// fail-closed contract of this surface and are asserted below.
+const patientAccessGuard = jest.fn(() => function patientAccessGuardMiddleware(_req, _res, next) {
+  next();
+});
 
 const TENANT_ID = '10000000-0000-4000-8000-000000000001';
 const PATIENT_UID = '20000000-0000-4000-8000-000000000002';
@@ -32,28 +41,32 @@ jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
 }));
 
 jest.unstable_mockModule('../../services/security/accessDecisionService.js', () => ({
-  ACCESS_POLICY_CODES: { PATIENT_CLINICAL_WORKFLOW_ACCESS: 'patient.clinical_workflow.access' },
+  ACCESS_POLICY_CODES: POLICY_CODES,
 }));
 
 jest.unstable_mockModule('../../middleware/phiAccessMiddleware.js', () => ({
-  patientAccessGuard: () => (_req, _res, next) => next(),
+  patientAccessGuard,
   phiAccessLogger: () => (_req, _res, next) => next(),
 }));
 
 // Mirrors the pre-claim branch of the real middleware (a missing header is a
 // hard 400 when required); the declared options are asserted separately so the
-// route's real idempotency contract is still pinned.
+// route's real idempotency contract is still pinned. It is a jest.fn so a
+// request that is rejected BEFORE the claim can be told apart from one that
+// reached the claim and passed it.
+const idempotencyMiddleware = jest.fn(function idempotencyMiddleware(req, res, next) {
+  return req.get('idempotency-key')
+    ? next()
+    : res.status(400).json({
+      success: false,
+      message: 'Idempotency-Key header is required for this endpoint',
+    });
+});
+
 jest.unstable_mockModule('../../middleware/idempotencyMiddleware.js', () => ({
   requireIdempotencyKey: (options = {}) => {
     idempotencyOptions.push(options);
-    return (req, res, next) => (
-      req.get('idempotency-key')
-        ? next()
-        : res.status(400).json({
-          success: false,
-          message: 'Idempotency-Key header is required for this endpoint',
-        })
-    );
+    return idempotencyMiddleware;
   },
 }));
 
@@ -110,6 +123,9 @@ describe('blood-borne marker routes', () => {
   beforeEach(() => {
     listMarkersForPatient.mockReset();
     voidMarker.mockReset();
+    // patientAccessGuard is deliberately NOT cleared — its only call happens
+    // once, at router construction, and is asserted below.
+    idempotencyMiddleware.mockClear();
     listMarkersForPatient.mockResolvedValue({ markers: [MARKER], reuse_status: REUSE_STATUS });
     voidMarker.mockResolvedValue({ ...MARKER, voided_at: '2026-09-04T06:00:00.000Z', voided_by: ACTOR_UID, void_reason: 'Entered in error' });
   });
@@ -142,6 +158,33 @@ describe('blood-borne marker routes', () => {
       includeVoided: true,
     }));
   });
+
+  test.each([
+    ['true', true], ['TRUE', true], ['1', true],
+    ['false', false], ['False', false], ['0', false], ['', false],
+  ])('GET reads include_voided=%s as %s', async (value, expected) => {
+    const response = await request(app())
+      .get(`/api/v1/bloodborne-markers/patient/${PATIENT_UID}`)
+      .query({ include_voided: value });
+
+    expect(response.status).toBe(200);
+    expect(listMarkersForPatient).toHaveBeenCalledWith(expect.objectContaining({
+      includeVoided: expected,
+    }));
+  });
+
+  test.each([['yes'], ['on'], ['no'], ['2'], ['null']])(
+    'GET rejects include_voided=%s rather than silently serving the active-only list',
+    async (value) => {
+      const response = await request(app())
+        .get(`/api/v1/bloodborne-markers/patient/${PATIENT_UID}`)
+        .query({ include_voided: value });
+
+      expect(response.status).toBe(400);
+      expect(response.body.message).toMatch(/include_voided must be true or false/);
+      expect(listMarkersForPatient).not.toHaveBeenCalled();
+    },
+  );
 
   test('GET rejects a non-UUID patientUid before reaching the service', async () => {
     const response = await request(app()).get('/api/v1/bloodborne-markers/patient/not-a-uuid');
@@ -200,19 +243,50 @@ describe('blood-borne marker routes', () => {
     expect(response.status).toBe(400);
     expect(voidMarker).not.toHaveBeenCalled();
     expect(idempotencyOptions).toEqual([
-      { required: true, scope: 'bloodborne_marker_void' },
+      // retainOnServerError: a void is irreversible, so a 5xx after the commit
+      // must leave the claim in place and make the retry replay the stored
+      // outcome rather than re-run the void.
+      { required: true, scope: 'bloodborne_marker_void', retainOnServerError: true },
     ]);
   });
 
-  test('POST void rejects a non-UUID patientUid before reaching the service', async () => {
+  test('POST void rejects a non-UUID patientUid BEFORE the idempotency claim, so no key is burned', async () => {
     const response = await request(app())
       .post('/api/v1/bloodborne-markers/patient/not-a-uuid/markers/41/void')
       .set('Idempotency-Key', 'void-41-abc')
       .send({ reason: 'Entered in error' });
 
     expect(response.status).toBe(400);
+    expect(response.body.message).toMatch(/patientUid must be a UUID/);
     expect(voidMarker).not.toHaveBeenCalled();
+    // The claim layer never ran: a malformed request cannot consume the
+    // caller's key and poison the retry of a well-formed one.
+    expect(idempotencyMiddleware).not.toHaveBeenCalled();
   });
+
+  test('POST void with a well-formed patientUid does reach the idempotency claim', async () => {
+    const response = await request(app())
+      .post(`/api/v1/bloodborne-markers/patient/${PATIENT_UID}/markers/41/void`)
+      .set('Idempotency-Key', 'void-41-abc')
+      .send({ reason: 'Entered in error' });
+
+    expect(response.status).toBe(200);
+    expect(idempotencyMiddleware).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([['0x29'], ['4e1'], ['41abc'], ['-41'], ['1.0'], [' 41'], ['%2041']])(
+    'POST void rejects marker id %s instead of letting Number() coerce it',
+    async (value) => {
+      const response = await request(app())
+        .post(`/api/v1/bloodborne-markers/patient/${PATIENT_UID}/markers/${value}/void`)
+        .set('Idempotency-Key', 'void-41-abc')
+        .send({ reason: 'Entered in error' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.message).toMatch(/marker id must be a positive integer/);
+      expect(voidMarker).not.toHaveBeenCalled();
+    },
+  );
 
   test.each([
     [AppError.notFound('Blood-borne marker not found', 'BLOODBORNE_MARKER_NOT_FOUND'), 404, 'BLOODBORNE_MARKER_NOT_FOUND'],
@@ -228,6 +302,38 @@ describe('blood-borne marker routes', () => {
 
     expect(response.status).toBe(status);
     expect(response.body.code).toBe(code);
+  });
+
+  test('builds ONE patient-access guard and declares it fail-closed on an unresolvable patient', () => {
+    // requirePatientContext is what turns a uid that resolves to no patient in
+    // this tenant into a 403 PATIENT_CONTEXT_REQUIRED. Without it the guard
+    // reports no_patient_context and falls through to the handler, which then
+    // queries by that uid anyway.
+    expect(patientAccessGuard).toHaveBeenCalledTimes(1);
+    expect(patientAccessGuard).toHaveBeenCalledWith('BLOODBORNE_MARKERS', {
+      policyCode: POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+      requirePatientContext: true,
+    });
+  });
+
+  test('the OpenAPI row contract requires exactly the columns MARKER_SELECT returns', () => {
+    // Every column in MARKER_SELECT is on every row the routes emit, so the
+    // published `required` list is only honest while it tracks that SQL. Read
+    // from the service SOURCE because the module itself is mocked here.
+    const serviceSource = readFileSync(
+      new URL('../../services/clinical/bloodborneMarkerService.js', import.meta.url),
+      'utf8',
+    );
+    const selectMatch = serviceSource.match(/const MARKER_SELECT = `([^`]*)`/);
+    expect(selectMatch).not.toBeNull();
+    const columns = selectMatch[1].split(',').map((c) => c.trim()).filter(Boolean);
+    expect(columns).toContain('id');
+    expect(columns.length).toBeGreaterThan(10);
+    expect(markerOverlay.schemas.BloodborneMarker.required).toEqual(columns);
+    // additionalProperties:false, so the property set must match too — a
+    // column added to the SELECT but not the overlay would otherwise be a
+    // response the published contract forbids.
+    expect(Object.keys(markerOverlay.schemas.BloodborneMarker.properties)).toEqual(columns);
   });
 
   test('exposes only the read and the void — there is no create route by owner decision', () => {
