@@ -608,17 +608,6 @@ class _PostUseSheet extends StatefulWidget {
   State<_PostUseSheet> createState() => _PostUseSheetState();
 }
 
-// The reasons the backend's `discard_reason` column accepts.
-const _postUseDiscardReasons = [
-  'max_cycles_reached',
-  'bloodborne_exposure',
-  'function_check_failed',
-  'damaged',
-  'wasted',
-  'policy_change',
-  'other',
-];
-
 /// Mirror of `POST_USE_UNITS_CAP` in
 /// `apps/backend/src/services/clinical/cathDeviceReuseService.js` — the
 /// absolute number of CSSD devices ONE post-use call may mint. Clamping here
@@ -648,7 +637,7 @@ class _PostUseSheetState extends State<_PostUseSheet> {
     super.initState();
     _unitsController = TextEditingController(text: '$_unitsMax');
     _discardReason =
-        widget.options.discardReason ?? _postUseDiscardReasons.last;
+        widget.options.discardReason ?? cathDeviceDiscardReasons.last;
   }
 
   @override
@@ -760,7 +749,7 @@ class _PostUseSheetState extends State<_PostUseSheet> {
                 ),
               ),
               items: [
-                for (final reason in _postUseDiscardReasons)
+                for (final reason in cathDeviceDiscardReasons)
                   DropdownMenuItem(
                     value: reason,
                     child: Text(

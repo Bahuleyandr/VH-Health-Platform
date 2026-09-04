@@ -304,6 +304,22 @@ class CathReuseRestriction {
   }
 }
 
+/// Mirror of `DISCARD_REASONS` in
+/// `apps/backend/src/services/clinical/cathDeviceReuseService.js`, in the
+/// backend's declared order. `cath_consumable_models_test.dart` pins this
+/// list against that source so the two cannot silently drift apart again.
+const cathDeviceDiscardReasons = [
+  'max_cycles_reached',
+  'bloodborne_exposure',
+  'late_reactive_marker',
+  'function_check_failed',
+  'sterilization_failed',
+  'damaged',
+  'wasted',
+  'policy_change',
+  'other',
+];
+
 /// What the backend will accept for a usage row once the case is done with it.
 /// The server recomputes this on every post-use call, so the client uses it to
 /// shape the buttons, never as the authority.
