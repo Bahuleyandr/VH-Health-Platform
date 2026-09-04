@@ -34,6 +34,12 @@ import {
   supersedeReportTemplate,
   updateReport
 } from '../../services/clinical/cathReportService.js';
+import {
+  decorateConsumablesWithReuse,
+  deviceForCaseLookup,
+  deviceHistory,
+  recordPostUse
+} from '../../services/clinical/cathDeviceReuseService.js';
 import { renderCathReportPdf } from '../../services/documents/cathReportPdfService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
@@ -349,7 +355,16 @@ router.get(
   async (req, res) => {
     try {
       const usage = await listCaseConsumableUsage(req.params.id, { tenantId: tenantOf(req) });
-      return success(res, { usage, count: usage.length }, 'Cath consumable usage');
+      const decorated = await decorateConsumablesWithReuse(usage, {
+        tenantId: tenantOf(req),
+        caseId: req.params.id
+      });
+      return success(res, {
+        usage: decorated.usage,
+        count: decorated.usage.length,
+        reuse_restriction: decorated.reuse_restriction,
+        reprocessing: decorated.reprocessing
+      }, 'Cath consumable usage');
     } catch (err) {
       return handleFailure(res, err, 'list consumable usage');
     }
@@ -374,6 +389,56 @@ router.post(
     }
   }
 );
+
+router.post(
+  '/cases/:id/consumables/:usageId/post-use',
+  requireCathWorkflow,
+  guardCathCaseById,
+  requireIdempotencyKey({ required: true, scope: 'cath_consumable_post_use' }),
+  async (req, res) => {
+    try {
+      const result = await recordPostUse(
+        req.params.id,
+        req.params.usageId,
+        { ...req.body, tenantId: tenantOf(req) },
+        contextOf(req)
+      );
+      return success(res, result, 'Cath consumable post-use recorded', HTTP_STATUS.CREATED);
+    } catch (err) {
+      return handleFailure(res, err, 'record consumable post-use');
+    }
+  }
+);
+
+// Device state for the capture sheet. No patient data in the response; the
+// route is case-pinned so the facility identity is enforced exactly like the
+// catalogue reads (guardCathCatalogCase resolves req.query.case_id).
+router.get('/devices/lookup', requireReportRead, guardCathCatalogCase, async (req, res) => {
+  try {
+    const result = await deviceForCaseLookup({
+      tenantId: tenantOf(req),
+      caseId: req.query.case_id,
+      tag: req.query.tag
+    });
+    return success(res, result, 'Reprocessable device');
+  } catch (err) {
+    return handleFailure(res, err, 'lookup device');
+  }
+});
+
+// Which patients a device touched (infection-control lookback). PHI, but with
+// NO single patient subject — a device spans patients, so there is no case or
+// report row a per-route patient guard could resolve. The access trail is the
+// /api/v1/cath-lab mount's phiAccessLogger('CATH_LAB'); the authorisation is
+// the mount role gate plus cath report-read.
+router.get('/devices/:deviceId/history', requireReportRead, async (req, res) => {
+  try {
+    const history = await deviceHistory({ tenantId: tenantOf(req), deviceId: req.params.deviceId });
+    return success(res, history, 'Reprocessable device history');
+  } catch (err) {
+    return handleFailure(res, err, 'device history');
+  }
+});
 router.get('/cases/:id/quick-wins', requireReportRead, guardCathCaseById, async (req, res) => {
   try {
     const quickWins = await getCaseQuickWins(req.params.id, { tenantId: tenantOf(req) });

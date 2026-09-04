@@ -1,6 +1,15 @@
 // N6-13 CSSD instrument tracking routes.
 
 import { Router } from 'express';
+import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
+import {
+  discardDevice,
+  listDevices,
+  markDeviceReprocessed,
+  quarantineDevice,
+  receiveDevice,
+  releaseDevice,
+} from '../../services/clinical/cathDeviceReuseService.js';
 import * as cssd from '../../services/cssd/cssdService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { success, relayAppError } from '../../utils/responseHelper.js';
@@ -66,6 +75,38 @@ router.post('/loads', wrap((req) =>
 
 router.patch('/loads/:id/status', wrap((req) =>
   cssd.transitionSterilizationLoad(req.params.id, req.body, contextOf(req))));
+
+// Reprocessable cath devices (spec 2026-09-04 §6.4). No patient data on this
+// router: the register carries none (patient linkage lives on the cath usage
+// rows), so CSSD roles read and transition devices without a PHI surface.
+const deviceIdempotency = requireIdempotencyKey({ required: true, scope: 'cssd_device_transition' });
+const deviceContext = (req) => ({
+  ...contextOf(req),
+  idempotencyKey: req.idempotencyClaim?.requestKey || null,
+});
+
+router.get('/devices', wrap((req) =>
+  listDevices({
+    tenantId: contextOf(req).tenantId,
+    status: req.query.status,
+    facilityId: req.query.facility_id,
+    limit: req.query.limit,
+  })));
+
+router.post('/devices/:id/receive', deviceIdempotency, wrap((req) =>
+  receiveDevice(req.params.id, deviceContext(req)), { message: 'Device received in CSSD' }));
+
+router.post('/devices/:id/reprocessed', deviceIdempotency, wrap((req) =>
+  markDeviceReprocessed(req.params.id, req.body || {}, deviceContext(req)), { message: 'Device reprocessed' }));
+
+router.post('/devices/:id/quarantine', deviceIdempotency, wrap((req) =>
+  quarantineDevice(req.params.id, req.body || {}, deviceContext(req)), { message: 'Device quarantined' }));
+
+router.post('/devices/:id/release', deviceIdempotency, wrap((req) =>
+  releaseDevice(req.params.id, req.body || {}, deviceContext(req)), { message: 'Device released for reprocessing' }));
+
+router.post('/devices/:id/discard', deviceIdempotency, wrap((req) =>
+  discardDevice(req.params.id, req.body || {}, deviceContext(req)), { message: 'Device discarded' }));
 
 router.get('/issues', wrap((req) =>
   cssd.listIssues({

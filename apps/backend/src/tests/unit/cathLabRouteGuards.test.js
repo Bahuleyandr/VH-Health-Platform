@@ -46,6 +46,8 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 const { default: cathLabRouter } = await import('../../routes/clinical/cathLabRoutes.js');
 const { default: cathSchedulingRouter } = await import('../../routes/clinical/cathSchedulingRoutes.js');
 const { selectCathCasePatient, selectCathReportPatient } = await import('../../routes/clinical/cathLabAccessGuards.js');
+const { canUseCathWorkflow, canViewCathReport } = await import('../../utils/roleHelpers.js');
+const { ALL_ROLES } = await import('../../utils/roles.js');
 
 const TENANT = '11111111-2222-4333-8444-555555555555';
 const PATIENT_UID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
@@ -112,6 +114,14 @@ describe('route census — guarded vs deliberately-not', () => {
       'GET /cases/:id': byId,
       'GET /cases/:id/consumables': byId,
       'POST /cases/:id/consumables': byId,
+      'POST /cases/:id/consumables/:usageId/post-use': byId,
+      'GET /devices/lookup': 'cath-lab:case-query:case_id',
+      // Deliberately NOT patient-guarded: a reprocessable device spans
+      // patients, so there is no single case or report row a selector could
+      // resolve. The PHI trail is the /api/v1/cath-lab mount's
+      // phiAccessLogger('CATH_LAB'); the authority is the mount role gate plus
+      // the cath report-read gate pinned below.
+      'GET /devices/:deviceId/history': null,
       'GET /cases/:id/quick-wins': byId,
       'POST /cases/:id/readiness/evidence/refresh': byId,
       'POST /cases/:id/order-sets/:slot/apply': byId,
@@ -136,9 +146,12 @@ describe('route census — guarded vs deliberately-not', () => {
     });
   });
 
-  it('POST /cases/:id/consumables runs the guard BEFORE the idempotency-key claim', () => {
+  it.each([
+    '/cases/:id/consumables',
+    '/cases/:id/consumables/:usageId/post-use',
+  ])('POST %s runs the guard BEFORE the idempotency-key claim', (path) => {
     const layer = cathLabRouter.stack.find(
-      (l) => l.route && l.route.path === '/cases/:id/consumables' && l.route.methods.post,
+      (l) => l.route && l.route.path === path && l.route.methods.post,
     );
     const names = layer.route.stack.map((s) => s.handle.name);
     const guardIndex = layer.route.stack.findIndex((s) => s.handle.patientGuardTag);
@@ -146,6 +159,87 @@ describe('route census — guarded vs deliberately-not', () => {
     expect(guardIndex).toBeGreaterThan(-1);
     expect(idempotencyIndex).toBeGreaterThan(-1);
     expect(guardIndex).toBeLessThan(idempotencyIndex);
+  });
+});
+
+/**
+ * Device-reuse routes (spec 2026-09-04): the role gates are anonymous closures
+ * built by the router's own roleGuard(), so they cannot be identified by name.
+ * Probe them instead — run the layer with a role that holds neither cath gate
+ * and read back the refusal code. That pins WHICH gate is mounted, not merely
+ * that some middleware sits in front of the handler.
+ */
+// A REAL role that holds neither cath gate. It has to be real: an invented
+// string normalises to '' and would be refused by every gate, so the probe
+// would pass against nothing. RECEPTIONIST is deliberately not used — it holds
+// cath report-read, which is exactly the distinction being pinned here.
+const NON_CATH_ROLE = 'PHARMACIST';
+
+function refusalCodeOf(handle) {
+  let payload = null;
+  const res = {
+    statusCode: null,
+    req: {},
+    status(code) { this.statusCode = code; return this; },
+    json(body) { payload = body; return this; },
+  };
+  let passed = false;
+  handle({ user: { role: NON_CATH_ROLE }, get: () => undefined }, res, () => { passed = true; });
+  if (passed) return null;
+  return { status: res.statusCode, code: JSON.stringify(payload) };
+}
+
+function layerOf(method, path) {
+  const layer = cathLabRouter.stack.find(
+    (l) => l.route && l.route.path === path && l.route.methods[method],
+  );
+  expect(layer).toBeDefined();
+  return layer.route.stack;
+}
+
+describe('device-reuse route chains', () => {
+  it('the probe role is a real role that holds neither cath gate', () => {
+    expect(ALL_ROLES).toContain(NON_CATH_ROLE);
+    expect(canUseCathWorkflow(NON_CATH_ROLE)).toBe(false);
+    expect(canViewCathReport(NON_CATH_ROLE)).toBe(false);
+    // ...and the gates do let a cath role through, so a refusal below is the
+    // gate deciding, not a gate that refuses everyone.
+    expect(canUseCathWorkflow('CATH_LAB_STAFF')).toBe(true);
+    expect(canViewCathReport('CATH_LAB_STAFF')).toBe(true);
+  });
+
+  it('POST /cases/:id/consumables/:usageId/post-use: workflow gate, case guard, claim, handler', () => {
+    const stack = layerOf('post', '/cases/:id/consumables/:usageId/post-use');
+    expect(stack).toHaveLength(4);
+    const refusal = refusalCodeOf(stack[0].handle);
+    expect(refusal.status).toBe(403);
+    expect(refusal.code).toContain('CATH_LAB_WORKFLOW_FORBIDDEN');
+    expect(stack[1].handle.patientGuardTag).toBe('cath-lab:case-param:id');
+    expect(stack[1].handle.patientGuardRecordType).toBe('CLINICAL_WORKFLOW');
+    expect(/idempotency/i.test(stack[2].handle.name)).toBe(true);
+  });
+
+  it('GET /devices/lookup: report-read gate then the case-query guard (facility pin)', () => {
+    const stack = layerOf('get', '/devices/lookup');
+    expect(stack).toHaveLength(3);
+    const refusal = refusalCodeOf(stack[0].handle);
+    expect(refusal.status).toBe(403);
+    expect(refusal.code).toContain('CATH_REPORT_READ_FORBIDDEN');
+    // The guard is what makes ?case_id a real authority check rather than a
+    // hint: without it the lookup would describe any device in the tenant.
+    expect(stack[1].handle.patientGuardTag).toBe('cath-lab:case-query:case_id');
+    expect(stack.some((s) => /idempotency/i.test(s.handle.name))).toBe(false);
+  });
+
+  it('GET /devices/:deviceId/history: report-read gate, no per-route patient guard', () => {
+    const stack = layerOf('get', '/devices/:deviceId/history');
+    expect(stack).toHaveLength(2);
+    const refusal = refusalCodeOf(stack[0].handle);
+    expect(refusal.status).toBe(403);
+    expect(refusal.code).toContain('CATH_REPORT_READ_FORBIDDEN');
+    // Multi-patient by construction — asserted here so a later "fix" that
+    // bolts a single-patient selector on has to argue with this test first.
+    expect(stack.filter((s) => s.handle.patientGuardTag)).toEqual([]);
   });
 });
 

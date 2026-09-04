@@ -862,6 +862,29 @@ export async function deviceHistory({ tenantId, deviceId } = {}) {
   });
 }
 
+// Device state for the capture sheet. Case-pinned like the catalogue reads:
+// a device from another facility is reported as not found, never described.
+export async function deviceForCaseLookup({ tenantId, caseId, tag } = {}) {
+  const tid = tenantOr(tenantId);
+  return setTenant(tid, async (tx) => {
+    const cathCase = await caseRowTx(tx, tid, caseId);
+    const device = await deviceByTag({ tenantId: tid, tag, db: tx });
+    if (!device || device.facility_id !== Number(cathCase.facility_id)) {
+      throw AppError.notFound('Reprocessable device not found', 'CATH_DEVICE_NOT_FOUND');
+    }
+    const policy = await categoryPolicyTx(tx, tid, device.category);
+    const settings = await getReprocessingSettings({ tenantId: tid, db: tx });
+    return {
+      device,
+      reprocessable: Boolean(policy?.reprocessable),
+      cycles_remaining: Math.max(0, device.max_cycles_snapshot - device.cycle_count),
+      exposure_rule: settings.reactive_patient_rule,
+      requires_acknowledgement: device.exposure_flag && settings.reactive_patient_rule === 'override_allowed',
+      blocked: device.exposure_flag && settings.reactive_patient_rule === 'discard',
+    };
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Late reactive result: quarantine in-flight devices and alert infection control
 // ---------------------------------------------------------------------------

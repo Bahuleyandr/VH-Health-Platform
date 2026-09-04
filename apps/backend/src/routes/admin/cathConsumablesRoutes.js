@@ -2,6 +2,13 @@ import express from 'express';
 
 import { phiAccessLogger } from '../../middleware/phiAccessMiddleware.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
+import { requireRole } from '../../middleware/rbacMiddleware.js';
+import {
+  getReprocessingSettings,
+  listCategoryPolicies,
+  upsertCategoryPolicies,
+  upsertReprocessingSettings
+} from '../../services/clinical/cathDeviceReuseService.js';
 import {
   getCathConsumablesBillingSettings,
   listConsumableCatalog,
@@ -124,5 +131,52 @@ router.get(
     }
   }
 );
+
+// Reprocessing policy is clinical governance, not billing: a route-level role
+// gate on top of the admin barrel's ADMIN_ROUTE_ROLES mount gate, so the two
+// officers who own device reuse can hold it without widening the whole console.
+const requireReprocessingPolicyRole = requireRole('QUALITY_OFFICER', 'INFECTION_CONTROL_OFFICER', 'SUPER_ADMIN');
+
+router.get('/reprocessing-settings', requireReprocessingPolicyRole, async (req, res, next) => {
+  try {
+    const settings = await getReprocessingSettings({ tenantId: req.tenantId });
+    return success(res, { settings }, 'Cath reprocessing settings retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.put('/reprocessing-settings', requireReprocessingPolicyRole, async (req, res, next) => {
+  try {
+    const settings = await upsertReprocessingSettings(
+      { ...(req.body || {}), tenantId: req.tenantId },
+      actorContext(req)
+    );
+    return success(res, { settings }, 'Cath reprocessing settings saved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/reprocessing-policies', requireReprocessingPolicyRole, async (req, res, next) => {
+  try {
+    const policies = await listCategoryPolicies({ tenantId: req.tenantId });
+    return success(res, { policies, count: policies.length }, 'Cath reprocessing policies retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.put('/reprocessing-policies', requireReprocessingPolicyRole, async (req, res, next) => {
+  try {
+    const policies = await upsertCategoryPolicies(
+      { tenantId: req.tenantId, policies: req.body?.policies },
+      actorContext(req)
+    );
+    return success(res, { policies, count: policies.length }, 'Cath reprocessing policies saved');
+  } catch (err) {
+    return next(err);
+  }
+});
 
 export default router;
