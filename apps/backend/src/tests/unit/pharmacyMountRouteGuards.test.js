@@ -107,6 +107,7 @@ const pharmacyOrderControllerMock = {
   getMyOrders: handlerMock('getMyOrders'),
   getOrderQueue: handlerMock('getOrderQueue'),
   getPharmacySLADashboard: handlerMock('getPharmacySLADashboard'),
+  getPharmacyFacilityAuthority: handlerMock('getPharmacyFacilityAuthority'),
   assignOrderFacility: handlerMock('assignOrderFacility'),
   resolveOrderLineIdentities: handlerMock('resolveOrderLineIdentities'),
   confirmOrder: handlerMock('confirmOrder'),
