@@ -21,6 +21,16 @@ jest.unstable_mockModule('../../services/radiology/radiologyService.js', () => (
 
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   resolveTenantOrThrow: () => '00000000-0000-4000-8000-000000000001',
+  // requireTenantId is reached through the router's new per-route
+  // patientAccessGuardForResource -> accessDecisionService import chain. An ESM
+  // mock factory must provide EVERY export the graph imports, or the suite fails
+  // to LOAD with "does not provide an export named ..." — which reads like a
+  // missing test rather than a missing mock line.
+  requireTenantId: (tenantId) => tenantId,
+  // careTeamEnforcement reads the tenant to resolve care_team_enforcement_mode.
+  // null makes it fall back to the env/default posture, which is 'shadow' — the
+  // behaviour these suites already assume.
+  getTenantById: async () => null,
 }));
 
 jest.unstable_mockModule('../../utils/websocket/realtimeEmitter.js', () => ({
