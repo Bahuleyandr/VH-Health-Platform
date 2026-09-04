@@ -12,7 +12,7 @@
 import { setTenant, setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
-import { DEFAULT_VALIDITY_DAYS } from './bloodborneMarkerService.js';
+import { DEFAULT_VALIDITY_DAYS, MARKERS } from './bloodborneMarkerService.js';
 
 export const DEVICE_STATUSES = Object.freeze([
   'awaiting_reprocessing', 'in_cssd', 'available', 'in_case', 'quarantined', 'discarded',
@@ -34,9 +34,10 @@ export const CATH_CATEGORIES = Object.freeze([
 ]);
 export const IMPLANT_CATEGORIES = Object.freeze(['stent', 'pacemaker', 'lead', 'closure_device']);
 // RP + at least 8 digits. cath_reprocessable_devices.device_tag is a stored
-// generated column, `'RP' || lpad(id::text, 8, '0')`, so every tag minted today
-// is exactly RP + 8 digits; the pattern stays open to 19 (bigint max) so this
-// validator never becomes the thing that rejects a tag the DB itself produced.
+// generated column, `'RP' || lpad(id::text, GREATEST(8, length(id::text)), '0')`,
+// so every tag minted today is exactly RP + 8 digits and ids past 10^8 keep
+// every digit; the pattern stays open to 19 (bigint max) so this validator
+// never becomes the thing that rejects a tag the DB itself produced.
 export const DEVICE_TAG_PATTERN = /^RP[0-9]{8,19}$/;
 
 export const DEVICE_ACTIONS = Object.freeze({
@@ -146,7 +147,9 @@ async function recordDeviceAudit(tx, { tenantId, action, resource, resourceId, c
      VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7::jsonb, $2::uuid, NOW())`,
     tenantId,
     context.actorUid ? requireUuid(context.actorUid, 'actorUid') : null,
-    cleanText(context.actorRole, 60),
+    // audit_logs.role is VARCHAR(50); anything longer would raise 22001 and
+    // take the whole transition down with it.
+    cleanText(context.actorRole, 50),
     action, resource, String(resourceId), JSON.stringify(metadata),
   );
 }
@@ -158,7 +161,9 @@ export async function getReprocessingSettings({ tenantId, db = null } = {}) {
   const tid = tenantOr(tenantId);
   const rows = await withTenant(tid, db, (client) => client.$queryRawUnsafe(`SELECT ${SETTINGS_SELECT} FROM cath_reprocessing_settings WHERE tenant_id = $1::uuid LIMIT 1`, tid));
   const row = rows[0];
-  if (!row) return { tenant_id: tid, ...SETTINGS_DEFAULTS, reviewed_by: null, reviewed_at: null, configured: false };
+  // The unconfigured shape carries every column SETTINGS_SELECT returns, so a
+  // caller reading settings never has to branch on `configured` for key access.
+  if (!row) return { tenant_id: tid, ...SETTINGS_DEFAULTS, reviewed_by: null, reviewed_at: null, updated_by: null, created_at: null, updated_at: null, configured: false };
   return { ...row, serology_validity_days: Number(row.serology_validity_days), configured: true };
 }
 
@@ -197,7 +202,10 @@ export async function categoryPolicyTx(tx, tenantId, category) {
   const rows = await tx.$queryRawUnsafe(`SELECT ${POLICY_SELECT} FROM cath_reprocessing_category_policies WHERE tenant_id = $1::uuid AND category = $2 LIMIT 1`, tenantOr(tenantId), category);
   return rows[0] ? normalizePolicy(rows[0]) : null;
 }
-function validatePolicyInput(entry) {
+// Pure, and it mirrors four of the table's CHECK constraints (implant vs
+// reprocessable, max_cycles range, allowed_cycle_types vocabulary, category
+// vocabulary), so it is exported for tests rather than reached through a write.
+export function validatePolicyInput(entry) {
   const category = oneOf(entry.category, CATH_CATEGORIES, 'category');
   const reprocessable = boolValue(entry.reprocessable, false);
   if (reprocessable && IMPLANT_CATEGORIES.includes(category)) throw AppError.badRequest(`${category} is an implant category and can never be reprocessable`, 'CATH_REPROCESSING_IMPLANT_FORBIDDEN');
@@ -239,13 +247,19 @@ export function normalizeDevice(row) {
     current_usage_id: row.current_usage_id == null ? null : num(row.current_usage_id), cycle_count: Number(row.cycle_count),
     max_cycles_snapshot: Number(row.max_cycles_snapshot), facility_id: Number(row.facility_id), exposure_markers: Array.isArray(row.exposure_markers) ? row.exposure_markers : [] };
 }
-export async function listDevices({ tenantId, status = null, facilityId = null, limit = 100 } = {}) {
+export async function listDevices({ tenantId, status = null, facilityId = null, limit = 100, db = null } = {}) {
   const tid = tenantOr(tenantId);
   const params = [tid]; const clauses = ['d.tenant_id = $1::uuid'];
   if (status) { params.push(oneOf(status, DEVICE_STATUSES, 'status')); clauses.push(`d.status = $${params.length}`); }
-  if (facilityId) { params.push(positiveInt(facilityId, 'facility_id')); clauses.push(`d.facility_id = $${params.length}::int`); }
+  // Presence, not truthiness: facility_id is INTEGER, so a bad filter should be
+  // a 400 rather than silently listing every facility. 0 is not a valid id and
+  // positiveInt rejects it; only null/undefined/'' mean "no filter".
+  if (facilityId !== null && facilityId !== undefined && facilityId !== '') {
+    params.push(positiveInt(facilityId, 'facility_id', { max: 2_147_483_647 }));
+    clauses.push(`d.facility_id = $${params.length}::int`);
+  }
   params.push(Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 500));
-  const rows = await setTenant(tid, (tx) => tx.$queryRawUnsafe(
+  const rows = await withTenant(tid, db, (client) => client.$queryRawUnsafe(
     `SELECT ${DEVICE_SELECT} ${DEVICE_FROM} WHERE ${clauses.join(' AND ')}
       ORDER BY CASE d.status WHEN 'awaiting_reprocessing' THEN 0 WHEN 'in_cssd' THEN 1 WHEN 'quarantined' THEN 2 WHEN 'available' THEN 3 WHEN 'in_case' THEN 4 ELSE 5 END, d.updated_at DESC, d.id DESC
       LIMIT $${params.length}::int`, ...params));
@@ -273,8 +287,26 @@ function assertTransition(device, action) {
 }
 async function applyDeviceTransitionTx(tx, device, action, patch = {}, context = {}) {
   const to = assertTransition(device, action);
+  // Shape guards for the columns the UPDATE below writes, checked here rather
+  // than left to the table's CHECK constraints: a 23514 from Postgres is a 500
+  // with no field name, these are 400s that say which field is wrong. Every
+  // caller — including the ones Task 3 adds — goes through this function, so
+  // this is the one place that has to be right.
+  if (to === 'in_case' && patch.usageId == null) throw AppError.badRequest('usage_id is required to place a device in a case', 'CATH_DEVICE_USAGE_REQUIRED');
+  if (to === 'discarded' && !patch.discardReason) throw AppError.badRequest('discard reason is required', 'CATH_DEVICE_REASON_REQUIRED');
+  const discardReason = patch.discardReason == null ? null : oneOf(patch.discardReason, DISCARD_REASONS, 'discard_reason', 'CATH_DEVICE_DISCARD_REASON_INVALID');
+  const cycleType = patch.cycleType == null ? null : oneOf(patch.cycleType, CYCLE_TYPES, 'cycle_type', 'CSSD_DEVICE_CYCLE_TYPE_INVALID');
+  const functionCheck = patch.functionCheck == null ? null : oneOf(patch.functionCheck, FUNCTION_CHECK_RESULTS, 'function_check_result', 'CATH_DEVICE_FUNCTION_CHECK_INVALID');
+  // Markers are a shared vocabulary with the patient marker record, and they
+  // are appended to a TEXT[] with no CHECK on its element values — validate and
+  // dedupe here so nothing can smuggle a free-text value into the array.
+  const exposureMarkers = Array.isArray(patch.exposureMarkers) && patch.exposureMarkers.length
+    ? [...new Set(patch.exposureMarkers.map((marker) => oneOf(marker, MARKERS, 'exposure_markers', 'CATH_DEVICE_EXPOSURE_MARKER_INVALID')))]
+    : null;
+  // The actor stays nullable HERE on purpose: the late-reactive-marker sweep
+  // Task 3 adds is a system actor and calls in with `actorUid: null`. Every
+  // human-facing entry point below requires it before opening its transaction.
   const actor = context.actorUid ? requireUuid(context.actorUid, 'actorUid') : null;
-  const exposureMarkers = Array.isArray(patch.exposureMarkers) && patch.exposureMarkers.length ? patch.exposureMarkers : null;
   // cath_reprocessable_devices_exposure_check: exposure_flag must be true
   // whenever exposure_markers is non-empty, so supplying markers implies the
   // flag — never let a caller set one without the other.
@@ -300,47 +332,78 @@ async function applyDeviceTransitionTx(tx, device, action, patch = {}, context =
             last_reprocessed_at = CASE WHEN $3::text = 'available' THEN NOW() ELSE last_reprocessed_at END,
             last_reprocessed_by = CASE WHEN $3::text = 'available' THEN $5::uuid ELSE last_reprocessed_by END,
             last_cycle_type = CASE WHEN $3::text = 'available' THEN $6 ELSE last_cycle_type END,
-            last_function_check = CASE WHEN $3::text = 'available' THEN $7 ELSE last_function_check END,
-            quarantine_reason = CASE WHEN $3::text = 'quarantined' THEN $8 ELSE quarantine_reason END,
-            quarantined_at = CASE WHEN $3::text = 'quarantined' THEN NOW() ELSE quarantined_at END,
+            -- A device discarded for 'function_check_failed' never reaches
+            -- 'available', so without this second arm the failing check would
+            -- exist only in the audit row and last_function_check would still
+            -- read 'pass' from the previous cycle.
+            last_function_check = CASE WHEN $3::text = 'available' OR $9 = 'function_check_failed' THEN $7 ELSE last_function_check END,
+            -- 'awaiting_reprocessing' clears the quarantine fields: it is where
+            -- the release action lands, and a released device must not keep
+            -- showing the reason it was held for. The return action
+            -- (in_case -> awaiting_reprocessing) hits the same arm, but a device
+            -- in a case cannot be quarantined -- quarantine's from-list excludes
+            -- 'in_case' -- so there it is a no-op.
+            quarantine_reason = CASE WHEN $3::text = 'quarantined' THEN $8 WHEN $3::text = 'awaiting_reprocessing' THEN NULL ELSE quarantine_reason END,
+            quarantined_at = CASE WHEN $3::text = 'quarantined' THEN NOW() WHEN $3::text = 'awaiting_reprocessing' THEN NULL ELSE quarantined_at END,
             discard_reason = CASE WHEN $3::text = 'discarded' THEN $9 ELSE discard_reason END,
             discard_note = CASE WHEN $3::text = 'discarded' THEN $10 ELSE discard_note END,
             discarded_at = CASE WHEN $3::text = 'discarded' THEN NOW() ELSE discarded_at END,
             discarded_by = CASE WHEN $3::text = 'discarded' THEN $5::uuid ELSE discarded_by END,
             exposure_flag = exposure_flag OR $11::boolean,
-            exposure_markers = CASE WHEN $12::text[] IS NULL THEN exposure_markers ELSE (SELECT ARRAY(SELECT DISTINCT unnest(exposure_markers || $12::text[]))) END,
+            -- DISTINCT without ORDER BY leaves the stored array in hash order,
+            -- which makes the column's value depend on the plan; ORDER BY m
+            -- makes the merge deterministic so equality assertions hold.
+            exposure_markers = CASE WHEN $12::text[] IS NULL THEN exposure_markers ELSE ARRAY(SELECT DISTINCT m FROM unnest(exposure_markers || $12::text[]) AS m ORDER BY m) END,
             metadata = metadata || $13::jsonb,
             updated_at = NOW()
       WHERE d.tenant_id = $1::uuid AND d.id = $2::bigint
       RETURNING d.id`,
     device.tenant_id, device.id, to,
     patch.usageId == null ? null : positiveInt(patch.usageId, 'usage_id'),
-    actor, patch.cycleType ?? null, patch.functionCheck ?? null, cleanText(patch.quarantineReason, 500),
-    patch.discardReason ?? null, cleanText(patch.discardNote, 2000), exposureFlag,
+    actor, cycleType, functionCheck, cleanText(patch.quarantineReason, 500),
+    discardReason, cleanText(patch.discardNote, 2000), exposureFlag,
     exposureMarkers,
     JSON.stringify(patch.metadata || {}),
   );
   if (!rows[0]) throw AppError.internal('Device transition did not persist', 'CATH_DEVICE_TRANSITION_FAILED');
   await recordDeviceAudit(tx, { tenantId: device.tenant_id, action: `cath_device.${action}`, resource: 'cath_reprocessable_devices', resourceId: device.id, context,
-    metadata: { device_tag: device.device_tag, from: device.status, to, cycle_count_before: device.cycle_count, discard_reason: patch.discardReason ?? null, quarantine_reason: cleanText(patch.quarantineReason, 500), note: cleanText(patch.discardNote ?? patch.note, 500) } });
+    metadata: { device_tag: device.device_tag, from: device.status, to, cycle_count_before: device.cycle_count, discard_reason: discardReason, quarantine_reason: cleanText(patch.quarantineReason, 500), note: cleanText(patch.discardNote ?? patch.note, 500) } });
   return lockDeviceTx(tx, device.tenant_id, device.id);
 }
 
+// Every entry point below is operated by a person, so each validates
+// context.actorUid BEFORE opening its transaction: a missing actor is a 400,
+// not a row written with a NULL audit actor, and not a lock held while we
+// discover the request was malformed.
 export async function receiveDevice(deviceId, context = {}) {
   const tid = tenantOr(context.tenantId);
+  requireUuid(context.actorUid, 'actorUid');
   return setTenantTx(tid, async (tx) => applyDeviceTransitionTx(tx, await lockDeviceTx(tx, tid, deviceId), 'receive', {}, context));
 }
 export async function markDeviceReprocessed(deviceId, input = {}, context = {}) {
   const tid = tenantOr(context.tenantId);
-  const cycleType = oneOf(input.cycle_type ?? input.cycleType, CYCLE_TYPES, 'cycle_type', 'CSSD_DEVICE_CYCLE_TYPE_NOT_ALLOWED');
+  // Shape (400) and policy (409) are different failures: an unknown cycle type
+  // is a bad request, a known one the category does not allow is a conflict
+  // that carries the allowed list.
+  const cycleType = oneOf(input.cycle_type ?? input.cycleType, CYCLE_TYPES, 'cycle_type', 'CSSD_DEVICE_CYCLE_TYPE_INVALID');
   const functionCheck = input.function_check_result == null && input.functionCheckResult == null ? null : oneOf(input.function_check_result ?? input.functionCheckResult, FUNCTION_CHECK_RESULTS, 'function_check_result');
+  requireUuid(context.actorUid, 'actorUid');
   return setTenantTx(tid, async (tx) => {
     const device = await lockDeviceTx(tx, tid, deviceId);
+    // The from-state check for what this call IS — a reprocessing record —
+    // runs before any branching. The fail path below transitions with
+    // `discard`, whose from-list is wider, so without this an in_case,
+    // available, quarantined or discarded device would be silently discarded
+    // by a CSSD "reprocessed, check failed" submission instead of 409ing.
+    assertTransition(device, 'reprocessed');
     const policy = await categoryPolicyTx(tx, tid, device.category);
     if (!policy || policy.reprocessable !== true) throw AppError.conflict(`${device.category} is not reprocessable under the current policy`, 'CATH_REPROCESSING_NOT_ALLOWED');
     if (!policy.allowed_cycle_types.includes(cycleType)) throw AppError.conflict(`${cycleType} is not an allowed cycle type for ${device.category}`, 'CSSD_DEVICE_CYCLE_TYPE_NOT_ALLOWED', { allowed: policy.allowed_cycle_types });
     if (policy.function_check_required && functionCheck !== 'pass' && functionCheck !== 'fail') throw AppError.badRequest('function_check_result (pass or fail) is required for this category', 'CATH_DEVICE_FUNCTION_CHECK_REQUIRED');
-    if (functionCheck === 'fail') return applyDeviceTransitionTx(tx, device, 'discard', { discardReason: 'function_check_failed', discardNote: cleanText(input.note, 2000), metadata: { cycle_type: cycleType } }, context);
+    if (functionCheck === 'fail') {
+      return applyDeviceTransitionTx(tx, device, 'discard', { discardReason: 'function_check_failed', functionCheck: 'fail', discardNote: cleanText(input.note, 2000),
+        metadata: { cycle_type: cycleType, function_check_result: 'fail' } }, context);
+    }
     if (device.cycle_count >= device.max_cycles_snapshot) throw AppError.conflict(`Device ${device.device_tag} has reached ${device.max_cycles_snapshot} cycles; discard it`, 'CATH_DEVICE_MAX_CYCLES_REACHED');
     return applyDeviceTransitionTx(tx, device, 'reprocessed', { cycleType, functionCheck: functionCheck ?? 'not_required' }, context);
   });
@@ -348,15 +411,27 @@ export async function markDeviceReprocessed(deviceId, input = {}, context = {}) 
 export async function quarantineDevice(deviceId, input = {}, context = {}) {
   const tid = tenantOr(context.tenantId); const reason = cleanText(input.reason, 500);
   if (!reason) throw AppError.badRequest('reason is required to quarantine a device', 'CATH_DEVICE_REASON_REQUIRED');
+  requireUuid(context.actorUid, 'actorUid');
   return setTenantTx(tid, async (tx) => applyDeviceTransitionTx(tx, await lockDeviceTx(tx, tid, deviceId), 'quarantine', { quarantineReason: reason }, context));
 }
 export async function releaseDevice(deviceId, input = {}, context = {}) {
   const tid = tenantOr(context.tenantId);
+  requireUuid(context.actorUid, 'actorUid');
+  // The release note survives the cleared quarantine_reason column: it is kept
+  // in metadata and in the audit row this transition writes.
   return setTenantTx(tid, async (tx) => applyDeviceTransitionTx(tx, await lockDeviceTx(tx, tid, deviceId), 'release', { note: cleanText(input.note, 500), metadata: { release_note: cleanText(input.note, 500) } }, context));
 }
 export async function discardDevice(deviceId, input = {}, context = {}) {
-  const tid = tenantOr(context.tenantId); const reason = oneOf(input.reason, DISCARD_REASONS, 'reason', 'CATH_DEVICE_REASON_REQUIRED');
+  const tid = tenantOr(context.tenantId);
+  // Missing and invalid are separate 400s: "you forgot the reason" and "that is
+  // not a reason we recognise" are different things to show an operator.
+  const rawReason = cleanText(input.reason, 100);
+  if (!rawReason) throw AppError.badRequest('discard reason is required', 'CATH_DEVICE_REASON_REQUIRED');
+  const reason = oneOf(rawReason, DISCARD_REASONS, 'reason', 'CATH_DEVICE_DISCARD_REASON_INVALID');
+  requireUuid(context.actorUid, 'actorUid');
   return setTenantTx(tid, async (tx) => applyDeviceTransitionTx(tx, await lockDeviceTx(tx, tid, deviceId), 'discard', { discardReason: reason, discardNote: cleanText(input.note, 2000) }, context));
 }
 
-export { lockDeviceTx, lockDeviceByTagTx, applyDeviceTransitionTx, recordDeviceAudit, withTenant, cleanText, requireUuid, positiveInt, oneOf };
+// The generic validators (cleanText, requireUuid, positiveInt, oneOf) stay
+// module-private: Task 3 appends to this same file and uses them directly.
+export { lockDeviceTx, lockDeviceByTagTx, applyDeviceTransitionTx, recordDeviceAudit, withTenant };

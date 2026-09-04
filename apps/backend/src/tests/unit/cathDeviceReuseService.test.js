@@ -1,8 +1,11 @@
 import {
   DEVICE_ACTIONS,
+  DEVICE_STATUSES,
+  IMPLANT_CATEGORIES,
   computePostUseOptions,
   deviceTransition,
   normalizeDeviceTag,
+  validatePolicyInput,
 } from '../../services/clinical/cathDeviceReuseService.js';
 
 const policy = { reprocessable: true, max_cycles: 3, allowed_cycle_types: ['eto'], function_check_required: false };
@@ -93,5 +96,50 @@ describe('computePostUseOptions', () => {
   test('a missing or malformed restriction is treated as unknown, never as clear', () => {
     expect(computePostUseOptions({ usage: firstUse, category: 'catheter', isImplant: false, policy, settings, restriction: null }).reason_codes).toEqual(['serology_unknown']);
     expect(computePostUseOptions({ usage: firstUse, category: 'catheter', isImplant: false, policy, settings, restriction: { status: 'bogus' } }).reason_codes).toEqual(['serology_unknown']);
+  });
+});
+
+describe('DEVICE_ACTIONS', () => {
+  test('every from-state is a real status and no action starts from the terminal one', () => {
+    for (const [action, rule] of Object.entries(DEVICE_ACTIONS)) {
+      expect(DEVICE_STATUSES).toContain(rule.to);
+      for (const from of rule.from) {
+        expect({ action, from, known: DEVICE_STATUSES.includes(from) }).toEqual({ action, from, known: true });
+        expect({ action, from }).not.toEqual({ action, from: 'discarded' });
+      }
+    }
+  });
+});
+
+describe('validatePolicyInput', () => {
+  const base = { category: 'catheter', reprocessable: true, max_cycles: 3, allowed_cycle_types: ['eto'], function_check_required: false };
+
+  test.each(IMPLANT_CATEGORIES)('%s can never be reprocessable', (category) => {
+    expect(() => validatePolicyInput({ ...base, category })).toThrow(expect.objectContaining({ code: 'CATH_REPROCESSING_IMPLANT_FORBIDDEN', statusCode: 400 }));
+  });
+  test('an implant category is still allowed while it stays non-reprocessable', () => {
+    expect(validatePolicyInput({ category: 'stent', reprocessable: false })).toMatchObject({ category: 'stent', reprocessable: false, maxCycles: null, cycleTypes: [] });
+  });
+  test('reprocessable without max_cycles is incomplete', () => {
+    expect(() => validatePolicyInput({ ...base, max_cycles: null })).toThrow(expect.objectContaining({ code: 'CATH_REPROCESSING_POLICY_INCOMPLETE', statusCode: 400 }));
+  });
+  test('reprocessable without any cycle type is incomplete', () => {
+    expect(() => validatePolicyInput({ ...base, allowed_cycle_types: [] })).toThrow(expect.objectContaining({ code: 'CATH_REPROCESSING_POLICY_INCOMPLETE', statusCode: 400 }));
+  });
+  test('duplicate cycle types are deduped', () => {
+    expect(validatePolicyInput({ ...base, allowed_cycle_types: ['eto', 'ETO', ' eto ', 'steam'] }).cycleTypes).toEqual(['eto', 'steam']);
+  });
+  test.each([0, 51, -1, '0'])('max_cycles %p is rejected', (max_cycles) => {
+    expect(() => validatePolicyInput({ ...base, max_cycles })).toThrow(expect.objectContaining({ code: 'CATH_LAB_BAD_ID', statusCode: 400 }));
+  });
+  test.each([1, 50])('max_cycles %p is accepted at the CHECK boundary', (max_cycles) => {
+    expect(validatePolicyInput({ ...base, max_cycles }).maxCycles).toBe(max_cycles);
+  });
+  test('a valid entry normalises the category and returns the persisted shape', () => {
+    expect(validatePolicyInput({ category: 'Catheter', reprocessable: 'true', max_cycles: '5', allowed_cycle_types: ['Steam'], function_check_required: 1 }))
+      .toEqual({ category: 'catheter', reprocessable: true, maxCycles: 5, cycleTypes: ['steam'], functionCheck: true });
+  });
+  test('an unknown category is refused', () => {
+    expect(() => validatePolicyInput({ ...base, category: 'defibrillator' })).toThrow(expect.objectContaining({ code: 'CATH_LAB_BAD_ENUM' }));
   });
 });
