@@ -10,9 +10,18 @@
 // linkage is on usage rows — so the CSSD routes can read it without PHI logging.
 
 import { setTenant, setTenantTx } from '../../lib/prisma.js';
+import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
+import { persistCdsAlert } from '../emr/cdsEngine.js';
 import { requireTenantId } from '../tenant/tenantService.js';
-import { DEFAULT_VALIDITY_DAYS, MARKERS } from './bloodborneMarkerService.js';
+import {
+  DEFAULT_VALIDITY_DAYS,
+  MARKERS,
+  registerExposureHandler,
+  resolveReuseStatus,
+} from './bloodborneMarkerService.js';
+import { recordMedicationSafetyReviews } from './canonicalClinicalPlatformService.js';
 
 export const DEVICE_STATUSES = Object.freeze([
   'awaiting_reprocessing', 'in_cssd', 'available', 'in_case', 'quarantined', 'discarded',
@@ -435,3 +444,470 @@ export async function discardDevice(deviceId, input = {}, context = {}) {
 // The generic validators (cleanText, requireUuid, positiveInt, oneOf) stay
 // module-private: Task 3 appends to this same file and uses them directly.
 export { lockDeviceTx, lockDeviceByTagTx, applyDeviceTransitionTx, recordDeviceAudit, withTenant };
+
+// ---------------------------------------------------------------------------
+// Case-level reuse context and usage decoration
+// ---------------------------------------------------------------------------
+
+// `lock` is a boolean the callers below set literally; it never carries caller
+// input, so the interpolation cannot become an injection point.
+async function caseRowTx(client, tenantId, caseId, { lock = false } = {}) {
+  const rows = await client.$queryRawUnsafe(
+    `SELECT id, tenant_id, patient_uid, encounter_id, facility_id, status, actual_start_at
+       FROM cath_lab_cases
+      WHERE tenant_id = $1::uuid AND id = $2::bigint
+      ${lock ? 'FOR UPDATE' : ''}
+      LIMIT 1`,
+    tenantOr(tenantId), positiveInt(caseId, 'case_id'),
+  );
+  const row = rows[0];
+  if (!row) throw AppError.notFound('Cath-lab case not found', 'CATH_LAB_CASE_NOT_FOUND');
+  return { ...row, id: num(row.id), facility_id: row.facility_id == null ? null : Number(row.facility_id) };
+}
+
+export async function caseReuseContext({ tenantId, caseId, db = null } = {}) {
+  const tid = tenantOr(tenantId);
+  return withTenant(tid, db, async (client) => {
+    const cathCase = await caseRowTx(client, tid, caseId);
+    const settings = await getReprocessingSettings({ tenantId: tid, db: client });
+    const policies = await listCategoryPolicies({ tenantId: tid, db: client });
+    const restriction = await resolveReuseStatus({
+      tenantId: tid, patientUid: cathCase.patient_uid, validityDays: settings.serology_validity_days, db: client,
+    });
+    return {
+      case: cathCase,
+      settings,
+      policies,
+      restriction,
+      reprocessable_categories: policies.filter((p) => p.reprocessable).map((p) => p.category),
+    };
+  });
+}
+
+// Adds device_tag / device status / allowed_post_use to the usage rows
+// cathLabService.listCaseConsumableUsage produces.
+export async function decorateConsumablesWithReuse(usageRows, { tenantId, caseId }) {
+  const tid = tenantOr(tenantId);
+  const rows = Array.isArray(usageRows) ? usageRows : [];
+  const context = await caseReuseContext({ tenantId: tid, caseId });
+  const deviceIds = rows.map((u) => u.device_id).filter((id) => id != null).map(Number);
+  const devices = deviceIds.length
+    ? await setTenant(tid, (tx) => tx.$queryRawUnsafe(
+      `SELECT ${DEVICE_SELECT} ${DEVICE_FROM} WHERE d.tenant_id = $1::uuid AND d.id = ANY($2::bigint[])`,
+      tid, deviceIds,
+    ))
+    : [];
+  const byId = new Map(devices.map((d) => [num(d.id), normalizeDevice(d)]));
+  const policyByCategory = new Map(context.policies.map((p) => [p.category, p]));
+  const usage = rows.map((row) => {
+    const device = row.device_id == null ? null : byId.get(Number(row.device_id)) || null;
+    const options = computePostUseOptions({
+      usage: row,
+      category: row.category,
+      isImplant: Boolean(row.is_implant),
+      policy: policyByCategory.get(row.category) || null,
+      settings: context.settings,
+      restriction: context.restriction,
+      device,
+    });
+    return {
+      ...row,
+      device_tag: device ? device.device_tag : null,
+      device_status: device ? device.status : null,
+      device_exposure_flag: device ? device.exposure_flag : false,
+      allowed_post_use: options,
+    };
+  });
+  return {
+    usage,
+    reuse_restriction: context.restriction,
+    reprocessing: {
+      settings: context.settings,
+      reprocessable_categories: context.reprocessable_categories,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Reused capture — called by cathLabService.recordConsumableUsage inside its tx
+// ---------------------------------------------------------------------------
+
+export async function captureReusedDeviceTx(tx, { tenantId, cathCase, catalog, deviceTag, acknowledgementReason = null }) {
+  const tid = tenantOr(tenantId);
+  const device = await lockDeviceByTagTx(tx, tid, deviceTag);
+  if (device.catalog_item_id !== Number(catalog.id)) {
+    throw AppError.conflict(`Device ${device.device_tag} is a ${device.item_name}, not the selected catalogue item`, 'CATH_DEVICE_CATALOG_MISMATCH');
+  }
+  if (device.facility_id !== Number(cathCase.facility_id)) {
+    throw AppError.conflict(`Device ${device.device_tag} belongs to another facility`, 'CATH_DEVICE_FACILITY_MISMATCH');
+  }
+  const policy = await categoryPolicyTx(tx, tid, catalog.category);
+  if (!policy || policy.reprocessable !== true) {
+    throw AppError.conflict(`${catalog.category} is not reprocessable under the current policy`, 'CATH_REPROCESSING_NOT_ALLOWED');
+  }
+  if (device.status !== 'available') {
+    throw AppError.conflict(`Device ${device.device_tag} is ${device.status}, not available`, 'CATH_DEVICE_NOT_AVAILABLE', { status: device.status });
+  }
+  const settings = await getReprocessingSettings({ tenantId: tid, db: tx });
+  if (device.exposure_flag) {
+    if (settings.reactive_patient_rule === 'discard') {
+      throw AppError.conflict(`Device ${device.device_tag} carries a blood-borne exposure flag`, 'CATH_DEVICE_EXPOSURE_BLOCKED', { exposure_markers: device.exposure_markers });
+    }
+    if (!acknowledgementReason) {
+      throw AppError.badRequest('exposure_acknowledgement.reason is required to reuse an exposure-flagged device', 'CATH_DEVICE_ACKNOWLEDGEMENT_REQUIRED', { exposure_markers: device.exposure_markers });
+    }
+  }
+  const restriction = await resolveReuseStatus({
+    tenantId: tid, patientUid: cathCase.patient_uid, validityDays: settings.serology_validity_days, db: tx,
+  });
+  return { device, policy, settings, restriction };
+}
+
+export async function markDeviceInCaseTx(tx, { device, usageId, acknowledgementReason = null, patientUid, encounterId = null, context = {} }) {
+  const updated = await applyDeviceTransitionTx(tx, device, 'capture', {
+    usageId,
+    metadata: acknowledgementReason ? { last_exposure_acknowledgement: acknowledgementReason } : {},
+  }, context);
+  if (acknowledgementReason) {
+    await recordReuseSafetyReview(tx, {
+      tenantId: device.tenant_id, patientUid, encounterId,
+      findingCode: 'EXPOSED_DEVICE_REUSED',
+      message: `Exposure-flagged device ${device.device_tag} reused with acknowledgement`,
+      reason: acknowledgementReason, actorUid: context.actorUid,
+      payload: { device_id: device.id, device_tag: device.device_tag, usage_id: usageId, exposure_markers: device.exposure_markers },
+    });
+  }
+  return updated;
+}
+
+// Overrides land on the clinical record through the platform safety-review
+// vehicle (spec §7.5). `issue.type` becomes medication_safety_reviews.review_type
+// and `issue.code` becomes finding_code — verified against
+// canonicalClinicalPlatformService.recordMedicationSafetyReviews:1372.
+async function recordReuseSafetyReview(tx, { tenantId, patientUid, encounterId, findingCode, message, reason, actorUid, payload }) {
+  const rows = await recordMedicationSafetyReviews({
+    tenantId,
+    patientUid,
+    encounterId,
+    safety: {
+      safe: false,
+      blockers: [{ type: 'cath_device_reuse', code: findingCode, severity: 'high', message, ...payload }],
+      warnings: [],
+    },
+    override: { reason, approvedBy: actorUid },
+    actorUid,
+  }, { db: tx });
+  if (!rows.length) {
+    throw AppError.internal('Cath device reuse safety review did not persist', 'CATH_DEVICE_SAFETY_REVIEW_FAILED');
+  }
+  return rows[0];
+}
+
+// ---------------------------------------------------------------------------
+// Post-use: the return tap
+// ---------------------------------------------------------------------------
+
+async function lockUsageTx(tx, tenantId, caseId, usageId) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT u.id, u.tenant_id, u.case_id, u.patient_uid, u.facility_id, u.catalog_item_id, u.quantity,
+            u.wasted, u.device_id, u.reuse_cycle, u.post_use_disposition, u.metadata, u.used_at,
+            c.category, c.is_implant, c.item_name
+       FROM cath_case_consumable_usage u
+       JOIN cath_consumable_catalog c ON c.id = u.catalog_item_id AND c.tenant_id = u.tenant_id
+      WHERE u.tenant_id = $1::uuid AND u.case_id = $2::bigint AND u.id = $3::bigint
+      FOR UPDATE OF u`,
+    tenantOr(tenantId), positiveInt(caseId, 'case_id'), positiveInt(usageId, 'usage_id'),
+  );
+  const row = rows[0];
+  if (!row) throw AppError.notFound('Cath consumable usage not found', 'CATH_CONSUMABLE_USAGE_NOT_FOUND');
+  // quantity is NUMERIC — Prisma hands it back as a Decimal, and units_max is
+  // computed from it, so normalise here rather than at every reader.
+  return {
+    ...row,
+    id: num(row.id),
+    case_id: num(row.case_id),
+    catalog_item_id: num(row.catalog_item_id),
+    quantity: num(row.quantity),
+    device_id: row.device_id == null ? null : num(row.device_id),
+  };
+}
+
+function dispositionCodeFor(disposition, discardReason) {
+  if (disposition === 'reprocess') return 'sent_for_reprocessing';
+  if (discardReason === 'bloodborne_exposure' || discardReason === 'late_reactive_marker') return 'discarded_bloodborne_exposure';
+  if (discardReason === 'max_cycles_reached') return 'discarded_max_cycles';
+  if (discardReason === 'wasted') return 'discarded_wasted';
+  return 'discarded_other';
+}
+
+export async function recordPostUse(caseId, usageId, input = {}, context = {}) {
+  const tid = tenantOr(input.tenantId ?? context.tenantId);
+  const disposition = oneOf(input.disposition, ['reprocess', 'discard'], 'disposition', 'CATH_POST_USE_DISPOSITION_INVALID');
+  const acknowledgement = cleanText(input.acknowledgement?.reason ?? input.acknowledgement_reason, 500);
+  const requestedDiscardReason = input.discard_reason ? oneOf(input.discard_reason, DISCARD_REASONS, 'discard_reason', 'CATH_DEVICE_DISCARD_REASON_INVALID') : null;
+  const discardNote = cleanText(input.discard_note, 2000);
+  const idempotencyKey = cleanText(context.idempotencyKey, 200);
+  const actor = requireUuid(context.actorUid, 'actorUid');
+
+  return setTenantTx(tid, async (tx) => {
+    const cathCase = await caseRowTx(tx, tid, caseId, { lock: true });
+    const usage = await lockUsageTx(tx, tid, cathCase.id, usageId);
+
+    // Replay of the same command returns the recorded result; a different
+    // command on a dispositioned row is a conflict.
+    if (usage.post_use_disposition) {
+      const previous = usage.metadata?.post_use;
+      if (previous && idempotencyKey && previous.idempotency_key === idempotencyKey) {
+        return { ...previous.result, idempotent_replay: true };
+      }
+      throw AppError.conflict('Post-use disposition already recorded for this usage', 'CATH_POST_USE_ALREADY_RECORDED', { post_use_disposition: usage.post_use_disposition });
+    }
+
+    const settings = await getReprocessingSettings({ tenantId: tid, db: tx });
+    const policy = await categoryPolicyTx(tx, tid, usage.category);
+    const restriction = await resolveReuseStatus({ tenantId: tid, patientUid: cathCase.patient_uid, validityDays: settings.serology_validity_days, db: tx });
+    const device = usage.device_id ? await lockDeviceTx(tx, tid, usage.device_id) : null;
+    const options = computePostUseOptions({ usage, category: usage.category, isImplant: Boolean(usage.is_implant), policy, settings, restriction, device });
+
+    if (!options.dispositions.includes(disposition)) {
+      if (options.blocked_code && disposition === 'reprocess') {
+        throw AppError.conflict('Serology must be recorded before this device can be sent for reprocessing', options.blocked_code, { reasons: restriction.reasons });
+      }
+      if (options.reason_codes.includes('max_cycles_reached')) {
+        throw AppError.conflict(`Device ${device.device_tag} has reached its maximum cycles; only discard is allowed`, 'CATH_DEVICE_MAX_CYCLES_REACHED');
+      }
+      if (options.reason_codes.includes('bloodborne_restricted')) {
+        throw AppError.conflict('Patient is blood-borne restricted; only discard is allowed', 'CATH_DEVICE_EXPOSURE_BLOCKED', { reasons: restriction.reasons });
+      }
+      throw AppError.conflict(`This usage cannot be ${disposition}ed`, 'CATH_REPROCESSING_NOT_ALLOWED', { reason_codes: options.reason_codes });
+    }
+    if (disposition === 'reprocess' && options.requires_acknowledgement && !acknowledgement) {
+      throw AppError.badRequest('acknowledgement.reason is required for this post-use disposition', 'CATH_DEVICE_ACKNOWLEDGEMENT_REQUIRED', { reason_codes: options.reason_codes, reasons: restriction.reasons });
+    }
+
+    const exposureMarkers = options.exposure
+      ? restriction.markers.filter((m) => m.result === 'reactive').map((m) => m.marker)
+      : null;
+    let devices = [];
+    let discardReason = null;
+    let units = null;
+
+    if (disposition === 'reprocess') {
+      if (device) {
+        devices = [await applyDeviceTransitionTx(tx, device, 'return', {
+          exposureFlag: options.exposure, exposureMarkers,
+          metadata: acknowledgement ? { last_post_use_acknowledgement: acknowledgement } : {},
+        }, context)];
+      } else {
+        units = input.units == null ? options.units_max : positiveInt(input.units, 'units');
+        if (units > options.units_max) {
+          throw AppError.badRequest(`units cannot exceed the recorded quantity (${options.units_max})`, 'CATH_DEVICE_UNITS_EXCEED_QUANTITY');
+        }
+        const seedMarkers = exposureMarkers || [];
+        for (let index = 1; index <= units; index += 1) {
+          const created = await tx.$queryRawUnsafe(
+            `INSERT INTO cath_reprocessable_devices
+               (tenant_id, facility_id, catalog_item_id, origin_usage_id, origin_unit_index,
+                cycle_count, max_cycles_snapshot, status, exposure_flag, exposure_markers, created_by, metadata)
+             VALUES ($1::uuid, $2::int, $3::bigint, $4::bigint, $5::smallint,
+                     0, $6::int, 'awaiting_reprocessing', $7, $8::text[], $9::uuid, $10::jsonb)
+             RETURNING id`,
+            tid, Number(cathCase.facility_id), usage.catalog_item_id, usage.id, index,
+            policy.max_cycles, Boolean(options.exposure), seedMarkers, actor,
+            JSON.stringify({ created_from: 'post_use', acknowledgement: acknowledgement || null }),
+          );
+          const minted = await lockDeviceTx(tx, tid, created[0].id);
+          await recordDeviceAudit(tx, {
+            tenantId: tid, action: 'cath_device.created', resource: 'cath_reprocessable_devices', resourceId: minted.id,
+            context, metadata: { device_tag: minted.device_tag, origin_usage_id: usage.id, unit_index: index, max_cycles: policy.max_cycles, exposure: Boolean(options.exposure) },
+          });
+          devices.push(minted);
+        }
+      }
+    } else {
+      discardReason = options.discard_reason || requestedDiscardReason || 'other';
+      if (device) {
+        devices = [await applyDeviceTransitionTx(tx, device, 'discard', { discardReason, discardNote }, context)];
+      }
+    }
+
+    const dispositionCode = dispositionCodeFor(disposition, discardReason);
+    const result = {
+      usage_id: usage.id,
+      case_id: cathCase.id,
+      disposition: dispositionCode,
+      units,
+      devices: devices.map(normalizeDevice),
+      restriction_status: restriction.status,
+    };
+    await tx.$executeRawUnsafe(
+      `UPDATE cath_case_consumable_usage
+          SET post_use_disposition = $3,
+              post_use_screen = $4::jsonb,
+              metadata = COALESCE(metadata, '{}'::jsonb) || $5::jsonb,
+              updated_at = NOW()
+        WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+      tid, usage.id, dispositionCode, JSON.stringify(restriction),
+      JSON.stringify({ post_use: { idempotency_key: idempotencyKey, acknowledgement: acknowledgement || null, actor_uid: actor, recorded_at: new Date().toISOString(), result } }),
+    );
+    if (acknowledgement) {
+      await recordReuseSafetyReview(tx, {
+        tenantId: tid, patientUid: cathCase.patient_uid, encounterId: cathCase.encounter_id,
+        findingCode: options.exposure ? 'BLOODBORNE_RESTRICTED_OVERRIDE' : 'SEROLOGY_UNKNOWN_ACKNOWLEDGED',
+        message: options.exposure
+          ? `Device from a blood-borne restricted patient sent for reprocessing (${restriction.reasons.join('; ')})`
+          : `Device sent for reprocessing with serology unknown (${restriction.reasons.join('; ')})`,
+        reason: acknowledgement, actorUid: actor,
+        payload: { usage_id: usage.id, case_id: cathCase.id, device_ids: devices.map((d) => d.id) },
+      });
+    }
+    await recordDeviceAudit(tx, {
+      tenantId: tid, action: 'cath_usage.post_use', resource: 'cath_case_consumable_usage', resourceId: usage.id,
+      context, metadata: { disposition: dispositionCode, units, device_tags: devices.map((d) => d.device_tag), restriction_status: restriction.status },
+    });
+    return result;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Device history (PHI: lists the patients the device touched)
+// ---------------------------------------------------------------------------
+
+export async function deviceHistory({ tenantId, deviceId } = {}) {
+  const tid = tenantOr(tenantId);
+  const id = positiveInt(deviceId, 'device_id');
+  return setTenant(tid, async (tx) => {
+    const deviceRows = await tx.$queryRawUnsafe(`SELECT ${DEVICE_SELECT} ${DEVICE_FROM} WHERE d.tenant_id = $1::uuid AND d.id = $2::bigint LIMIT 1`, tid, id);
+    if (!deviceRows[0]) throw AppError.notFound('Reprocessable device not found', 'CATH_DEVICE_NOT_FOUND');
+    const uses = await tx.$queryRawUnsafe(
+      `SELECT u.id AS usage_id, u.case_id, u.patient_uid, u.used_at, u.reuse_cycle, u.post_use_disposition,
+              CASE WHEN u.id = $3::bigint THEN 'first_use' ELSE 'reuse' END AS kind
+         FROM cath_case_consumable_usage u
+        WHERE u.tenant_id = $1::uuid AND (u.device_id = $2::bigint OR u.id = $3::bigint)
+        ORDER BY u.used_at ASC, u.id ASC`,
+      tid, id, num(deviceRows[0].origin_usage_id),
+    );
+    const events = await tx.$queryRawUnsafe(
+      `SELECT action, actor_uid, metadata, created_at
+         FROM audit_logs
+        WHERE tenant_id = $1::uuid AND resource = 'cath_reprocessable_devices' AND resource_id = $2
+        ORDER BY created_at ASC, id ASC`,
+      tid, String(id),
+    );
+    return {
+      device: normalizeDevice(deviceRows[0]),
+      uses: uses.map((u) => ({ ...u, usage_id: num(u.usage_id), case_id: num(u.case_id) })),
+      events,
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Late reactive result: quarantine in-flight devices and alert infection control
+// ---------------------------------------------------------------------------
+
+async function flagDeviceExposureTx(tx, device, event, context) {
+  const markers = [event.marker];
+  await tx.$executeRawUnsafe(
+    `UPDATE cath_reprocessable_devices
+        SET exposure_flag = TRUE,
+            exposure_markers = ARRAY(SELECT DISTINCT m FROM unnest(exposure_markers || $3::text[]) AS m ORDER BY m),
+            metadata = metadata || $4::jsonb,
+            updated_at = NOW()
+      WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+    device.tenant_id, device.id, markers, JSON.stringify({ late_reactive_marker_row_id: event.markerRowId }),
+  );
+  await recordDeviceAudit(tx, {
+    tenantId: device.tenant_id, action: 'cath_device.exposure_flagged', resource: 'cath_reprocessable_devices', resourceId: device.id,
+    context, metadata: { marker: event.marker, tested_on: event.testedOn, status: device.status },
+  });
+}
+
+export async function quarantineDevicesExposedToPatient(event) {
+  const tid = tenantOr(event.tenantId);
+  const marker = oneOf(event.marker, MARKERS, 'marker', 'CATH_DEVICE_EXPOSURE_MARKER_INVALID');
+  const settings = await getReprocessingSettings({ tenantId: tid });
+  // CJD is not a serology window question: prion contamination has no decay, so
+  // the sweep looks back over the whole register rather than the window.
+  const lookbackDays = marker === 'cjd_suspected' ? 36500 : settings.serology_validity_days;
+  // The system actor is the one caller allowed to hold a null actorUid — see
+  // the note on applyDeviceTransitionTx.
+  const context = { actorUid: null, actorRole: 'SYSTEM' };
+  const affected = await setTenantTx(tid, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT DISTINCT d.id
+         FROM cath_reprocessable_devices d
+         JOIN cath_case_consumable_usage u
+           ON u.tenant_id = d.tenant_id AND (u.id = d.origin_usage_id OR u.device_id = d.id)
+        WHERE d.tenant_id = $1::uuid
+          AND u.patient_uid = $2::uuid
+          AND d.status <> 'discarded'
+          AND u.used_at >= ($3::date - ($4::int * INTERVAL '1 day'))`,
+      tid, requireUuid(event.patientUid, 'patientUid'), event.testedOn, lookbackDays,
+    );
+    const out = [];
+    const markers = [marker];
+    for (const { id } of rows) {
+      const device = await lockDeviceTx(tx, tid, id);
+      // A device already in a case, or already held, cannot take the quarantine
+      // transition — flag the exposure on it instead so the marker is never lost.
+      if (device.status === 'in_case' || device.status === 'quarantined') {
+        await flagDeviceExposureTx(tx, device, { ...event, marker }, context);
+        out.push(await lockDeviceTx(tx, tid, id));
+        continue;
+      }
+      out.push(await applyDeviceTransitionTx(tx, device, 'quarantine', {
+        exposureFlag: true, exposureMarkers: markers,
+        quarantineReason: `Late reactive ${marker} result dated ${event.testedOn}`,
+        metadata: { late_reactive_marker_row_id: event.markerRowId },
+      }, context));
+    }
+    return out;
+  });
+  if (affected.length === 0) return { affected: [] };
+
+  const tags = affected.map((d) => d.device_tag).join(', ');
+  try {
+    await persistCdsAlert({
+      patientUid: event.patientUid,
+      encounterId: null,
+      alertType: 'bloodborne_reuse_exposure',
+      severity: 'high',
+      title: 'Reprocessable devices exposed to a reactive blood-borne marker',
+      description: `Devices ${tags} were used on this patient and are now quarantined or flagged after a reactive ${marker} result dated ${event.testedOn}.`,
+      sourceData: { marker, tested_on: event.testedOn, device_ids: affected.map((d) => d.id), marker_row_id: event.markerRowId },
+    });
+  } catch (err) {
+    logger.error(`CDS alert for blood-borne reuse exposure failed: ${err?.message}`, { tenantId: tid });
+  }
+  try {
+    const officers = await setTenant(tid, (tx) => tx.$queryRawUnsafe(
+      `SELECT id, uid FROM users
+        WHERE tenant_id = $1::uuid AND role = 'INFECTION_CONTROL_OFFICER'
+          AND is_active = TRUE AND status = 'active' AND COALESCE(is_deleted, FALSE) = FALSE`,
+      tid,
+    ));
+    for (const officer of officers) {
+      await notificationOutbox.queue({
+        tenantId: tid,
+        type: 'bloodborne_reuse_exposure',
+        channel: 'inapp',
+        recipientId: officer.id,
+        recipientPhone: null,
+        title: 'Reprocessable devices quarantined after a reactive result',
+        body: `Devices ${tags}: reactive ${marker} result dated ${event.testedOn}. Review the CSSD device queue.`,
+        sourceEventKey: `bloodborne-reuse-exposure:${event.markerRowId}:${officer.uid}`,
+        templateVersion: 'bloodborne-reuse-exposure.v1',
+        data: { kind: 'bloodborne_reuse_exposure', marker, tested_on: event.testedOn, device_ids: affected.map((d) => d.id), deep_link: '/dashboard/cssd?tab=devices' },
+      }, { strict: false });
+    }
+  } catch (err) {
+    logger.error(`Infection-control notification for blood-borne reuse exposure failed: ${err?.message}`, { tenantId: tid });
+  }
+  return { affected: affected.map(normalizeDevice) };
+}
+
+// Registered at module load: bloodborneMarkerService.notifyExposureHandlers
+// awaits every handler AFTER the marker transaction commits, so a reactive row
+// recorded anywhere in the platform sweeps the device register here.
+registerExposureHandler(quarantineDevicesExposedToPatient);

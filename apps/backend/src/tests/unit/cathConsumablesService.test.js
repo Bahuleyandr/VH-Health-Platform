@@ -91,6 +91,20 @@ jest.unstable_mockModule('../../services/clinical/cathSchedulingRegistryService.
   deriveComplicationRegistryRows: jest.fn(async () => []),
 }));
 
+// Device reuse widened cathLabService's import graph again: the reuse service
+// pulls cdsEngine (which needs canonical exports this mock does not carry) and
+// bloodborneMarkerService needs setTenant. Both are covered end to end by
+// cath-device-reuse.deep.test.js, so stub the boundary here.
+jest.unstable_mockModule('../../services/clinical/cathDeviceReuseService.js', () => ({
+  captureReusedDeviceTx: jest.fn(),
+  markDeviceInCaseTx: jest.fn(),
+}));
+jest.unstable_mockModule('../../services/clinical/bloodborneMarkerService.js', () => ({
+  resolveReuseStatus: jest.fn(async () => ({
+    status: 'unknown', reasons: ['HIV not on record'], markers: [], validity_days: 90,
+  })),
+}));
+
 jest.unstable_mockModule('../../services/staff/credentialingService.js', () => ({
   assertPrivilegeForGate: jest.fn(),
   isGateEnabled: jest.fn(() => false),

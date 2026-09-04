@@ -29,6 +29,11 @@ import {
   privilegeKey
 } from '../staff/credentialingService.js';
 import { deriveComplicationRegistryRows } from './cathSchedulingRegistryService.js';
+import {
+  captureReusedDeviceTx,
+  markDeviceInCaseTx
+} from './cathDeviceReuseService.js';
+import { resolveReuseStatus } from './bloodborneMarkerService.js';
 
 const tenantOr = value => requireTenantId(value);
 
@@ -1011,6 +1016,13 @@ export async function getCase(caseId, { tenantId, db = prisma } = {}) {
     normalizeId(caseId, 'case_id')
   );
   const consumableUsage = await listCaseConsumableUsage(caseId, { tenantId, db });
+  // The blood-borne restriction strip the capture sheet shows. Read here so the
+  // case view and the consumables view cannot disagree about the same patient.
+  const reuseRestriction = await resolveReuseStatus({
+    tenantId: tenantOr(tenantId),
+    patientUid: cathCase.patient_uid,
+    db
+  });
   const normalizedReadiness = normalizeRows(readiness);
   return normalizeDbValue({
     ...cathCase,
@@ -1021,7 +1033,8 @@ export async function getCase(caseId, { tenantId, db = prisma } = {}) {
     contrast_radiation: contrastRadiation,
     post_orders: postOrders,
     device_links: deviceLinks,
-    consumable_usage: consumableUsage
+    consumable_usage: consumableUsage,
+    reuse_restriction: reuseRestriction
   });
 }
 
@@ -2710,7 +2723,9 @@ const CATH_CONSUMABLE_USAGE_SELECT = `
   u.serial_number, u.unit_cost_snapshot, u.used_by, u.used_at,
   u.wasted, u.waste_reason, u.inventory_decrement_status,
   u.inventory_movement_id, u.inventory_warning, u.timeline_event_id,
-  u.audit_event_id, u.idempotency_key, u.created_at, u.updated_at, u.metadata,
+  u.audit_event_id, u.idempotency_key,
+  u.device_id, u.reuse_cycle, u.post_use_disposition,
+  u.created_at, u.updated_at, u.metadata,
   c.item_name, c.category, c.manufacturer, c.model, c.billing_item_code,
   c.facility_id AS catalog_facility_id,
   c.inventory_item_id AS catalog_inventory_item_id, i.sku_code AS inventory_sku,
@@ -4076,6 +4091,31 @@ export async function recordConsumableUsage(caseId, input = {}, context = {}) {
       'CATH_CONSUMABLE_WASTE_REASON_REQUIRED'
     );
   }
+  // A reused reprocessable device consumes no stock: it has no batch, no lot,
+  // no expiry and no serial of its own, and it is exactly one physical unit.
+  // Rejecting the combination before the transaction opens keeps the shape
+  // error a 400 with the offending field names rather than a 23514 at commit.
+  const reusedDeviceTag = cleanText(input.reused_device_tag || input.reusedDeviceTag, 24);
+  const exposureAcknowledgement = cleanText(
+    input.exposure_acknowledgement?.reason || input.exposure_acknowledgement_reason,
+    500
+  );
+  if (reusedDeviceTag) {
+    const conflicting = [
+      'inventory_batch_id', 'inventoryBatchId', 'batch_number', 'batchNumber',
+      'lot_number', 'lotNumber', 'expiry_date', 'expiryDate', 'serial_number', 'serialNumber'
+    ].filter(key => input[key] !== undefined && input[key] !== null && input[key] !== '');
+    if (conflicting.length) {
+      throw AppError.badRequest(
+        'reused_device_tag cannot be combined with batch, lot, expiry or serial fields',
+        'CATH_CONSUMABLE_REUSE_FIELDS_CONFLICT',
+        { fields: conflicting }
+      );
+    }
+    if (quantity !== 1) {
+      throw AppError.badRequest('A reused device is one unit', 'CATH_CONSUMABLE_BAD_QUANTITY');
+    }
+  }
   const committed = await setTenantTx(tenantId, async tx => {
     const canonicalActor = await cathCanonicalActorTx(tx, tenantId, context);
     const cathCase = await caseById(tx, tenantId, caseId, { lock: true });
@@ -4140,6 +4180,18 @@ export async function recordConsumableUsage(caseId, input = {}, context = {}) {
         'CATH_CONSUMABLE_FACILITY_MAPPING_CHANGED'
       );
     }
+    // Locks the device row and settles catalogue, facility, policy, status and
+    // exposure rules before anything is written.
+    let reused = null;
+    if (reusedDeviceTag) {
+      reused = await captureReusedDeviceTx(tx, {
+        tenantId,
+        cathCase,
+        catalog,
+        deviceTag: reusedDeviceTag,
+        acknowledgementReason: exposureAcknowledgement
+      });
+    }
     const procedureLogIdValue = input.procedure_log_id || input.procedureLogId;
     let procedureLogId = null;
     if (procedureLogIdValue) {
@@ -4167,64 +4219,26 @@ export async function recordConsumableUsage(caseId, input = {}, context = {}) {
     let batchNumber = cleanText(input.batch_number || input.batchNumber, 120);
     let lotNumber = cleanText(input.lot_number || input.lotNumber, 120);
     let expiryDate = optionalDate(input.expiry_date || input.expiryDate, 'expiry_date');
-    const inventoryDecrementStatus = 'pending';
+    let inventoryDecrementStatus = 'pending';
     let inventoryWarning = 'Clinical usage recorded; exact facility pharmacy reconciliation is required';
 
-    if (inventoryBatchValue && catalog.inventory_item_id) {
-      const requestedInventoryBatchId = normalizeId(
-        inventoryBatchValue,
-        'inventory_batch_id'
-      );
-      const batches = await tx.$queryRawUnsafe(
-        `SELECT id, facility_id, batch_number, lot_number, expiry_date, remaining_quantity,
-                status,
-                (expiry_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date) AS is_expired
-           FROM pharmacy_inventory_batches
-          WHERE tenant_id = $1::uuid
-            AND inventory_item_id = $2::int
-            AND facility_id = $3::int
-            AND id = $4::int
-          LIMIT 1`,
-        tenantId,
-        Number(catalog.inventory_item_id),
-        Number(cathCase.facility_id),
-        requestedInventoryBatchId
-      );
-      const batch = unwrap(batches);
-      if (!batch) {
-        throw AppError.conflict(
-          'Selected inventory batch is outside the exact Cath facility and inventory mapping',
-          'CATH_CONSUMABLE_BATCH_AUTHORITY_MISMATCH'
+    // A reused device is captured against the register, not against stock:
+    // no batch lineage, no movement, no shortfall obligation. The 765
+    // contract (chk_cath_usage_exact_inventory_authority_753, third arm)
+    // requires exactly this shape on a reused row.
+    if (reused) {
+      inventoryBatchId = null;
+      batchNumber = null;
+      lotNumber = null;
+      expiryDate = null;
+      inventoryDecrementStatus = 'reused_device';
+      inventoryWarning = null;
+    } else {
+      if (inventoryBatchValue && catalog.inventory_item_id) {
+        const requestedInventoryBatchId = normalizeId(
+          inventoryBatchValue,
+          'inventory_batch_id'
         );
-      } else if (batchLineageMismatch(batch, { batchNumber, lotNumber, expiryDate })) {
-        throw AppError.conflict(
-          'Documented batch/lot/expiry does not match the exact selected inventory batch',
-          'CATH_CONSUMABLE_BATCH_LINEAGE_MISMATCH'
-        );
-      } else {
-        inventoryBatchId = requestedInventoryBatchId;
-        batchNumber = cleanText(batch.batch_number, 120);
-        lotNumber = cleanText(batch.lot_number, 120);
-        expiryDate = optionalDate(batch.expiry_date, 'expiry_date');
-        const outcome = evaluateCathInventoryBatch(batch, quantity);
-        inventoryWarning = outcome.warning || inventoryWarning;
-      }
-    } else if (
-      catalog.inventory_item_id
-      && (catalog.batch_tracked || batchNumber || lotNumber || expiryDate)
-    ) {
-      if ((!batchNumber && !lotNumber) || !expiryDate) {
-        if (catalog.batch_tracked) {
-          throw AppError.badRequest(
-            'Batch/lot number and expiry_date are required for this catalog item',
-            'CATH_CONSUMABLE_BATCH_EXPIRY_REQUIRED'
-          );
-        }
-        throw AppError.badRequest(
-          'Exact batch/lot/expiry lineage is required for Cath inventory reconciliation',
-          'CATH_CONSUMABLE_BATCH_AUTHORITY_REQUIRED'
-        );
-      } else {
         const batches = await tx.$queryRawUnsafe(
           `SELECT id, facility_id, batch_number, lot_number, expiry_date, remaining_quantity,
                   status,
@@ -4233,46 +4247,97 @@ export async function recordConsumableUsage(caseId, input = {}, context = {}) {
             WHERE tenant_id = $1::uuid
               AND inventory_item_id = $2::int
               AND facility_id = $3::int
-              AND expiry_date = $4::date
-              AND ($5::text IS NULL OR batch_number = $5::text)
-              AND ($6::text IS NULL OR lot_number = $6::text)
-            ORDER BY id
-            LIMIT 2`,
+              AND id = $4::int
+            LIMIT 1`,
           tenantId,
           Number(catalog.inventory_item_id),
           Number(cathCase.facility_id),
-          expiryDate,
-          batchNumber,
-          lotNumber
+          requestedInventoryBatchId
         );
-        if (batches.length === 1) {
-          const batch = batches[0];
-          inventoryBatchId = normalizeId(batch.id, 'inventory_batch_id');
+        const batch = unwrap(batches);
+        if (!batch) {
+          throw AppError.conflict(
+            'Selected inventory batch is outside the exact Cath facility and inventory mapping',
+            'CATH_CONSUMABLE_BATCH_AUTHORITY_MISMATCH'
+          );
+        } else if (batchLineageMismatch(batch, { batchNumber, lotNumber, expiryDate })) {
+          throw AppError.conflict(
+            'Documented batch/lot/expiry does not match the exact selected inventory batch',
+            'CATH_CONSUMABLE_BATCH_LINEAGE_MISMATCH'
+          );
+        } else {
+          inventoryBatchId = requestedInventoryBatchId;
           batchNumber = cleanText(batch.batch_number, 120);
           lotNumber = cleanText(batch.lot_number, 120);
           expiryDate = optionalDate(batch.expiry_date, 'expiry_date');
           const outcome = evaluateCathInventoryBatch(batch, quantity);
           inventoryWarning = outcome.warning || inventoryWarning;
-        } else {
-          throw AppError.conflict(
-            batches.length > 1
-              ? 'Documented batch/lot/expiry matches multiple facility inventory batches'
-              : 'Documented batch/lot/expiry was not found in the exact facility inventory',
-            'CATH_CONSUMABLE_BATCH_AUTHORITY_UNRESOLVED'
-          );
         }
+      } else if (
+        catalog.inventory_item_id
+        && (catalog.batch_tracked || batchNumber || lotNumber || expiryDate)
+      ) {
+        if ((!batchNumber && !lotNumber) || !expiryDate) {
+          if (catalog.batch_tracked) {
+            throw AppError.badRequest(
+              'Batch/lot number and expiry_date are required for this catalog item',
+              'CATH_CONSUMABLE_BATCH_EXPIRY_REQUIRED'
+            );
+          }
+          throw AppError.badRequest(
+            'Exact batch/lot/expiry lineage is required for Cath inventory reconciliation',
+            'CATH_CONSUMABLE_BATCH_AUTHORITY_REQUIRED'
+          );
+        } else {
+          const batches = await tx.$queryRawUnsafe(
+            `SELECT id, facility_id, batch_number, lot_number, expiry_date, remaining_quantity,
+                    status,
+                    (expiry_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date) AS is_expired
+               FROM pharmacy_inventory_batches
+              WHERE tenant_id = $1::uuid
+                AND inventory_item_id = $2::int
+                AND facility_id = $3::int
+                AND expiry_date = $4::date
+                AND ($5::text IS NULL OR batch_number = $5::text)
+                AND ($6::text IS NULL OR lot_number = $6::text)
+              ORDER BY id
+              LIMIT 2`,
+            tenantId,
+            Number(catalog.inventory_item_id),
+            Number(cathCase.facility_id),
+            expiryDate,
+            batchNumber,
+            lotNumber
+          );
+          if (batches.length === 1) {
+            const batch = batches[0];
+            inventoryBatchId = normalizeId(batch.id, 'inventory_batch_id');
+            batchNumber = cleanText(batch.batch_number, 120);
+            lotNumber = cleanText(batch.lot_number, 120);
+            expiryDate = optionalDate(batch.expiry_date, 'expiry_date');
+            const outcome = evaluateCathInventoryBatch(batch, quantity);
+            inventoryWarning = outcome.warning || inventoryWarning;
+          } else {
+            throw AppError.conflict(
+              batches.length > 1
+                ? 'Documented batch/lot/expiry matches multiple facility inventory batches'
+                : 'Documented batch/lot/expiry was not found in the exact facility inventory',
+              'CATH_CONSUMABLE_BATCH_AUTHORITY_UNRESOLVED'
+            );
+          }
+        }
+      } else {
+        throw AppError.badRequest(
+          'inventory_batch_id or exact batch/lot/expiry lineage is required for Cath inventory reconciliation',
+          'CATH_CONSUMABLE_BATCH_AUTHORITY_REQUIRED'
+        );
       }
-    } else {
-      throw AppError.badRequest(
-        'inventory_batch_id or exact batch/lot/expiry lineage is required for Cath inventory reconciliation',
-        'CATH_CONSUMABLE_BATCH_AUTHORITY_REQUIRED'
-      );
-    }
-    if (catalog.batch_tracked && (!batchNumber && !lotNumber || !expiryDate)) {
-      throw AppError.badRequest(
-        'Batch/lot number and expiry_date are required for this catalog item',
-        'CATH_CONSUMABLE_BATCH_EXPIRY_REQUIRED'
-      );
+      if (catalog.batch_tracked && (!batchNumber && !lotNumber || !expiryDate)) {
+        throw AppError.badRequest(
+          'Batch/lot number and expiry_date are required for this catalog item',
+          'CATH_CONSUMABLE_BATCH_EXPIRY_REQUIRED'
+        );
+      }
     }
     const serialNumber = cleanText(input.serial_number || input.serialNumber, 160);
     if (catalog.is_implant && !serialNumber) {
@@ -4282,18 +4347,33 @@ export async function recordConsumableUsage(caseId, input = {}, context = {}) {
       );
     }
     const usedAt = optionalTimestamp(input.used_at || input.usedAt, 'used_at');
+    // The serology screen is stamped on EVERY capture, not only reused ones:
+    // it is the evidence the post-use decision is later judged against, and a
+    // first use is what mints the device the next case reuses.
+    const reuseScreen = reused
+      ? reused.restriction
+      : await resolveReuseStatus({ tenantId, patientUid: cathCase.patient_uid, db: tx });
     const metadata = {
       ...normalizeJson(input.metadata, 'metadata', {}),
       inventory_authority: {
         facility_id: Number(cathCase.facility_id),
         catalog_item_id: String(catalog.id),
         inventory_item_id: Number(catalog.inventory_item_id),
-        inventory_batch_id: Number(inventoryBatchId),
+        inventory_batch_id: inventoryBatchId == null ? null : Number(inventoryBatchId),
         mapping_contract: 'cath_facility_catalog_inventory_v1',
         canonical_actor_uid: canonicalActor.uid,
         canonical_actor_role: canonicalActor.role,
         canonical_actor_name: canonicalActor.name
-      }
+      },
+      ...(reused ? {
+        reused_device: {
+          device_id: reused.device.id,
+          device_tag: reused.device.device_tag,
+          reuse_cycle: reused.device.cycle_count,
+          exposure_flag: reused.device.exposure_flag,
+          acknowledgement: exposureAcknowledgement || null
+        }
+      } : {})
     };
     const idempotencyKey = cleanText(
       context.idempotencyKey || input.idempotency_key || input.idempotencyKey,
@@ -4306,12 +4386,14 @@ export async function recordConsumableUsage(caseId, input = {}, context = {}) {
             quantity, batch_tracked, is_implant, batch_number,
             lot_number, expiry_date, serial_number, unit_cost_snapshot, used_by,
             used_at, wasted, waste_reason, inventory_decrement_status,
-            inventory_warning, metadata, idempotency_key)
+            inventory_warning, metadata, idempotency_key,
+            device_id, reuse_cycle, reuse_screen)
          VALUES ($1::uuid, $2::bigint, $3::bigint, $4::bigint, $5::uuid,
                  $6::int, $7::int, $8::int, $9::numeric, $10, $11, $12,
                  $13, $14::date, $15, $16::numeric, $17::uuid,
                  COALESCE($18::timestamptz, NOW()), $19, $20, $21, $22,
-                 $23::jsonb, $24)
+                 $23::jsonb, $24,
+                 $25::bigint, $26::int, $27::jsonb)
        ON CONFLICT (tenant_id, idempotency_key)
        WHERE idempotency_key IS NOT NULL
        DO NOTHING
@@ -4339,7 +4421,10 @@ export async function recordConsumableUsage(caseId, input = {}, context = {}) {
       inventoryDecrementStatus,
       inventoryWarning,
       JSON.stringify(metadata),
-      idempotencyKey
+      idempotencyKey,
+      reused ? reused.device.id : null,
+      reused ? reused.device.cycle_count : null,
+      JSON.stringify(reuseScreen)
     );
     const usage = unwrap(rows);
     if (!usage) {
@@ -4411,7 +4496,7 @@ export async function recordConsumableUsage(caseId, input = {}, context = {}) {
         catalog_item_id: catalog.id,
         facility_id: Number(cathCase.facility_id),
         inventory_item_id: Number(catalog.inventory_item_id),
-        inventory_batch_id: Number(inventoryBatchId),
+        inventory_batch_id: inventoryBatchId == null ? null : Number(inventoryBatchId),
         item_name: catalog.item_name,
         category: catalog.category,
         quantity,
@@ -4419,6 +4504,8 @@ export async function recordConsumableUsage(caseId, input = {}, context = {}) {
         lot_number: lotNumber,
         expiry_date: expiryDate,
         serial_number: serialNumber,
+        reused_device_tag: reused ? reused.device.device_tag : null,
+        reuse_cycle: reused ? reused.device.cycle_count : null,
         wasted,
         waste_reason: wasteReason
       },
@@ -4436,16 +4523,32 @@ export async function recordConsumableUsage(caseId, input = {}, context = {}) {
       event?.timeline?.id || null,
       event?.audit?.id || null
     );
-    await materializeCathInventoryShortfallTx(tx, {
-      ...normalizedUsage,
-      encounter_id: cathCase.encounter_id,
-      facility_id: Number(cathCase.facility_id),
-      inventory_item_id: Number(catalog.inventory_item_id)
-    }, {
-      decrementedUnits: 0,
-      finalMovementId: null,
-      warning: inventoryWarning
-    });
+    // The canonical timeline/audit events above are written for EVERY capture —
+    // the 765 reused branch of the authority contract demands exactly that
+    // provenance. Only the pharmacy shortfall obligation is reused-specific:
+    // a reused device owes none, and materialising one would make the row
+    // unreconcilable forever.
+    if (reused) {
+      await markDeviceInCaseTx(tx, {
+        device: reused.device,
+        usageId: normalizedUsage.id,
+        acknowledgementReason: exposureAcknowledgement,
+        patientUid: cathCase.patient_uid,
+        encounterId: cathCase.encounter_id,
+        context
+      });
+    } else {
+      await materializeCathInventoryShortfallTx(tx, {
+        ...normalizedUsage,
+        encounter_id: cathCase.encounter_id,
+        facility_id: Number(cathCase.facility_id),
+        inventory_item_id: Number(catalog.inventory_item_id)
+      }, {
+        decrementedUnits: 0,
+        finalMovementId: null,
+        warning: inventoryWarning
+      });
+    }
     return {
       usage: await consumableUsageById(tx, tenantId, usage.id),
       caseStatus: cathCase.status
