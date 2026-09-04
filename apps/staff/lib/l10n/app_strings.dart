@@ -8057,6 +8057,7 @@ class AppStrings {
       's4.lib.cath_lab.consumables.mode_new': "New unit",
       's4.lib.cath_lab.consumables.mode_reused': "Reprocessed device",
       's4.lib.cath_lab.consumables.device_tag_label': "Device tag",
+      's4.lib.cath_lab.consumables.device_tag_hint': "RP00000042",
       's4.lib.cath_lab.consumables.device_check': "Check device",
       's4.lib.cath_lab.consumables.device_not_available':
           "This device is not available for use",
@@ -15526,6 +15527,7 @@ class AppStrings {
       's4.lib.cath_lab.consumables.mode_new': "नई इकाई",
       's4.lib.cath_lab.consumables.mode_reused': "पुनःसंसाधित उपकरण",
       's4.lib.cath_lab.consumables.device_tag_label': "उपकरण टैग",
+      's4.lib.cath_lab.consumables.device_tag_hint': "RP00000042",
       's4.lib.cath_lab.consumables.device_check': "उपकरण जांचें",
       's4.lib.cath_lab.consumables.device_not_available':
           "यह उपकरण उपयोग के लिए उपलब्ध नहीं है",
@@ -24320,6 +24322,7 @@ class AppStrings {
       's4.lib.cath_lab.consumables.mode_new': "புதிய அலகு",
       's4.lib.cath_lab.consumables.mode_reused': "மறுசெயலாக்கப்பட்ட சாதனம்",
       's4.lib.cath_lab.consumables.device_tag_label': "சாதன குறிச்சொல்",
+      's4.lib.cath_lab.consumables.device_tag_hint': "RP00000042",
       's4.lib.cath_lab.consumables.device_check': "சாதனத்தைச் சரிபார்",
       's4.lib.cath_lab.consumables.device_not_available':
           "இந்த சாதனம் பயன்பாட்டிற்கு கிடைக்கவில்லை",
@@ -33193,6 +33196,7 @@ class AppStrings {
       's4.lib.cath_lab.consumables.mode_new': "కొత్త యూనిట్",
       's4.lib.cath_lab.consumables.mode_reused': "పునఃప్రాసెస్ చేసిన పరికరం",
       's4.lib.cath_lab.consumables.device_tag_label': "పరికర ట్యాగ్",
+      's4.lib.cath_lab.consumables.device_tag_hint': "RP00000042",
       's4.lib.cath_lab.consumables.device_check': "పరికరాన్ని తనిఖీ చేయండి",
       's4.lib.cath_lab.consumables.device_not_available':
           "ఈ పరికరం వినియోగానికి అందుబాటులో లేదు",
@@ -38923,6 +38927,7 @@ class AppStrings {
       's4.lib.cath_lab.consumables.mode_new': 'പുതിയ യൂണിറ്റ്',
       's4.lib.cath_lab.consumables.mode_reused': 'പുനഃസംസ്കരിച്ച ഉപകരണം',
       's4.lib.cath_lab.consumables.device_tag_label': 'ഉപകരണ ടാഗ്',
+      's4.lib.cath_lab.consumables.device_tag_hint': 'RP00000042',
       's4.lib.cath_lab.consumables.device_check': 'ഉപകരണം പരിശോധിക്കുക',
       's4.lib.cath_lab.consumables.device_not_available':
           'ഈ ഉപകരണം ഉപയോഗത്തിന് ലഭ്യമല്ല',

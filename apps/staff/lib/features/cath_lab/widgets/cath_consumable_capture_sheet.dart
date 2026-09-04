@@ -559,7 +559,9 @@ class _CathConsumableCaptureSheetState
                   labelText: s.lookup(
                     's4.lib.cath_lab.consumables.device_tag_label',
                   ),
-                  hintText: 'RP00000042',
+                  hintText: s.lookup(
+                    's4.lib.cath_lab.consumables.device_tag_hint',
+                  ),
                   suffixIcon: IconButton(
                     key: const ValueKey('cath-consumable-device-check'),
                     tooltip: s.lookup(
