@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchAdminAPI, postJSON } from "@/lib/api";
 import {
+  FACILITY_SCOPE_NOTICE,
+  useFacilityAuthority,
+} from "./useFacilityAuthority";
+import {
   ClientTablePagination,
   ManagedTableToolbar,
   SortableTableHeader,
@@ -65,6 +69,18 @@ export function OrdersTab() {
   const [selectedOrder, setSelectedOrder] =
     useState<PharmacyOrderLifecycle | null>(null);
 
+  // OPEN-25, same repair as OverviewTab. /orders/queue is facility-scoped:
+  // getOrderQueue makes the identical resolvePharmacyFacility call the SLA read
+  // makes, so an administrator holding no facility grant got a red failure box
+  // here too. Ask before requesting, using the shared probe so the two tabs
+  // cannot gate on subtly different questions.
+  const {
+    authority,
+    error: authorityError,
+    loading: authorityLoading,
+  } = useFacilityAuthority();
+  const hasFacilityAuthority = authority?.has_authority === true;
+
   const fetchOrders = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -78,7 +94,7 @@ export function OrdersTab() {
     } catch (err) {
       setOrders([]);
       setError(
-        err instanceof Error ? err.message : "Failed to load pharmacy orders",
+        err instanceof Error ? err.message : "Could not load pharmacy orders",
       );
     } finally {
       setLoading(false);
@@ -86,8 +102,17 @@ export function OrdersTab() {
   }, [statusFilter]);
 
   useEffect(() => {
+    // Wait for the probe, then only request what this viewer can be granted.
+    // `authority === null` means UNRESOLVED, not "no authority" — firing on it
+    // would reintroduce the very call this gate exists to avoid.
+    if (authorityLoading) return;
+    if (!hasFacilityAuthority) {
+      setOrders([]);
+      setLoading(false);
+      return;
+    }
     fetchOrders();
-  }, [fetchOrders]);
+  }, [authorityLoading, hasFacilityAuthority, fetchOrders]);
 
   useEffect(() => {
     setPage(1);
@@ -201,7 +226,19 @@ export function OrdersTab() {
         ))}
       </div>
 
-      {loading ? (
+      {authorityLoading ? (
+        <div className="text-center py-8">Loading orders...</div>
+      ) : authorityError ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          {authorityError}
+        </div>
+      ) : !hasFacilityAuthority ? (
+        // Scope notice, not an error: this viewer is legitimate, the data is
+        // not theirs to see. Deliberately styled and worded as information.
+        <div className="rounded-lg border border-border bg-muted/40 p-4 text-sm text-muted-foreground">
+          {FACILITY_SCOPE_NOTICE}
+        </div>
+      ) : loading ? (
         <div className="text-center py-8">Loading orders...</div>
       ) : error ? (
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
