@@ -8,6 +8,7 @@ import 'package:vhhealth_core/services/idempotency_key.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../l10n/app_strings.dart';
 import '../models/cath_consumable_models.dart';
+import 'cath_consumable_formatting.dart';
 import 'cath_reuse_restriction_strip.dart';
 
 class CathConsumableCaptureSheet extends StatefulWidget {
@@ -86,6 +87,10 @@ class _CathConsumableCaptureSheetState
   String _mode = 'new';
   CathDeviceLookup? _lookup;
   bool _lookingUp = false;
+  // Bumped by every edit, mode switch and item change that invalidates the
+  // device on screen, so a lookup that resolves late cannot repopulate the
+  // card for a tag the operator has already moved away from.
+  int _lookupGeneration = 0;
   final _captureAttempt = IdempotencyAttempt('cath-consumable-usage');
   String? _error;
 
@@ -107,6 +112,9 @@ class _CathConsumableCaptureSheetState
     _wastageReasonController.dispose();
     _tagController.dispose();
     _ackController.dispose();
+    // The sheet is gone, so there is no retry left to replay: end the attempt
+    // rather than leaving a key that a later capture could reuse.
+    _captureAttempt.reset();
     super.dispose();
   }
 
@@ -149,7 +157,7 @@ class _CathConsumableCaptureSheetState
       if (!mounted || generation != _searchGeneration) return;
       setState(() {
         _suggestions = const [];
-        _error = _cleanError(error);
+        _error = cathCleanError(error);
       });
     } finally {
       if (mounted && generation == _searchGeneration) {
@@ -173,7 +181,7 @@ class _CathConsumableCaptureSheetState
       );
       await _search(scan: code.trim());
     } catch (error) {
-      if (mounted) setState(() => _error = _cleanError(error));
+      if (mounted) setState(() => _error = cathCleanError(error));
     } finally {
       if (mounted) setState(() => _scanning = false);
     }
@@ -196,8 +204,10 @@ class _CathConsumableCaptureSheetState
       _searching = false;
       // A device tag is bound to one catalogue item, so a new selection can
       // never keep the previous item's device: reset the whole reused block.
+      _lookupGeneration++;
       _mode = 'new';
       _lookup = null;
+      _lookingUp = false;
       _tagController.clear();
       _ackController.clear();
     });
@@ -211,7 +221,7 @@ class _CathConsumableCaptureSheetState
       if (mounted && _selectedItem?.id == item.id) {
         setState(() {
           _batches = const [];
-          _error = _cleanError(error);
+          _error = cathCleanError(error);
         });
       }
     } finally {
@@ -266,6 +276,7 @@ class _CathConsumableCaptureSheetState
   Future<void> _checkDevice() async {
     final tag = _tagController.text.trim().toUpperCase();
     if (tag.isEmpty || _lookingUp) return;
+    final generation = ++_lookupGeneration;
     setState(() {
       _lookingUp = true;
       _lookup = null;
@@ -273,12 +284,19 @@ class _CathConsumableCaptureSheetState
     });
     try {
       final result = await widget.lookupDevice!(widget.caseId, tag);
-      if (!mounted) return;
+      // A response for a tag the operator has since edited, or for a sheet
+      // that has switched back to new-unit capture, describes a device this
+      // save would not send: drop it rather than showing a stale card.
+      if (!mounted || generation != _lookupGeneration) return;
       setState(() => _lookup = result);
     } catch (error) {
-      if (mounted) setState(() => _error = _cleanError(error));
+      if (mounted && generation == _lookupGeneration) {
+        setState(() => _error = cathCleanError(error));
+      }
     } finally {
-      if (mounted) setState(() => _lookingUp = false);
+      if (mounted && generation == _lookupGeneration) {
+        setState(() => _lookingUp = false);
+      }
     }
   }
 
@@ -311,7 +329,13 @@ class _CathConsumableCaptureSheetState
     // a round trip and a raw CATH_DEVICE_* code.
     if (_mode == 'reused') {
       final lookup = _lookup;
-      if (lookup == null || !lookup.usable) {
+      // Belt and braces on top of the onChanged reset: a card whose tag no
+      // longer matches the field describes a different device, so it is
+      // treated exactly like a device that was never checked.
+      final tagMatches =
+          lookup != null &&
+          _tagController.text.trim().toUpperCase() == lookup.device.deviceTag;
+      if (lookup == null || !lookup.usable || !tagMatches) {
         setState(
           () => _error = s.lookup(
             lookup?.blocked == true
@@ -335,18 +359,18 @@ class _CathConsumableCaptureSheetState
         catalogItemId: item.id,
         quantity: reused ? 1 : double.parse(_quantityController.text.trim()),
         inventoryBatchId: reused ? null : _selectedBatchId,
-        batchNumber: reused ? null : _nullableText(_batchController.text),
-        lotNumber: reused ? null : _nullableText(_lotController.text),
+        batchNumber: reused ? null : cathNullableText(_batchController.text),
+        lotNumber: reused ? null : cathNullableText(_lotController.text),
         expiryDate: reused ? null : _expiryDate,
-        serialNumber: reused ? null : _nullableText(_serialController.text),
+        serialNumber: reused ? null : cathNullableText(_serialController.text),
         wasted: _wasted,
         wastageReason: _wasted
-            ? _nullableText(_wastageReasonController.text)
+            ? cathNullableText(_wastageReasonController.text)
             : null,
         reusedDeviceTag: reused ? _lookup!.device.deviceTag : null,
         exposureAcknowledgementReason:
             reused && (_lookup?.requiresAcknowledgement ?? false)
-            ? _nullableText(_ackController.text)
+            ? cathNullableText(_ackController.text)
             : null,
       );
       final usage = await widget.createUsage(
@@ -358,7 +382,7 @@ class _CathConsumableCaptureSheetState
       );
       if (mounted) Navigator.pop(context, usage);
     } catch (error) {
-      if (mounted) setState(() => _error = _cleanError(error));
+      if (mounted) setState(() => _error = cathCleanError(error));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -502,11 +526,15 @@ class _CathConsumableCaptureSheetState
                 selected: {_mode},
                 onSelectionChanged: _saving
                     ? null
-                    : (selection) => setState(() {
-                        _mode = selection.first;
-                        _lookup = null;
-                        _error = null;
-                      }),
+                    : (selection) {
+                        _lookupGeneration++;
+                        setState(() {
+                          _mode = selection.first;
+                          _lookup = null;
+                          _lookingUp = false;
+                          _error = null;
+                        });
+                      },
               ),
             ],
             if (_mode == 'reused') ...[
@@ -515,6 +543,17 @@ class _CathConsumableCaptureSheetState
                 key: const ValueKey('cath-consumable-device-tag'),
                 controller: _tagController,
                 textCapitalization: TextCapitalization.characters,
+                // Editing the tag invalidates the card below it: the operator
+                // must re-check before the sheet will send anything.
+                onChanged: (_) {
+                  _lookupGeneration++;
+                  if (_lookup != null || _lookingUp) {
+                    setState(() {
+                      _lookup = null;
+                      _lookingUp = false;
+                    });
+                  }
+                },
                 onFieldSubmitted: (_) => _checkDevice(),
                 decoration: InputDecoration(
                   labelText: s.lookup(
@@ -556,15 +595,51 @@ class _CathConsumableCaptureSheetState
                             'max': _lookup!.device.maxCycles + 1,
                           },
                         ),
-                        _humanize(_lookup!.device.status),
+                        cathHumanize(_lookup!.device.status),
+                        // The tag is what the save actually sends, so it is
+                        // stated on the card rather than left to the field
+                        // above it.
+                        s.format('s4.dynamic.cath_lab.consumables.device_tag', {
+                          'tag': _lookup!.device.deviceTag,
+                        }),
                         if (_lookup!.blocked)
                           s.lookup(
                             's4.lib.cath_lab.consumables.device_blocked',
                           ),
+                        // Colour alone would leave an unusable-but-unblocked
+                        // device looking merely decorated; say why it cannot
+                        // be picked up.
+                        if (!_lookup!.usable && !_lookup!.blocked)
+                          s.lookup(
+                            's4.lib.cath_lab.consumables.device_not_available',
+                          ),
                       ].join(' - '),
                     ),
                     trailing: _lookup!.device.exposureFlag
-                        ? const Icon(Icons.warning_amber_outlined)
+                        ? Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.warning_amber_outlined,
+                                size: 18,
+                                color: AppTheme.errorOnSurface,
+                                semanticLabel: s.lookup(
+                                  's4.lib.cath_lab.consumables.exposure_badge',
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                s.lookup(
+                                  's4.lib.cath_lab.consumables.exposure_badge',
+                                ),
+                                style: TextStyle(
+                                  color: AppTheme.errorOnSurface,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          )
                         : null,
                   ),
                 ),
@@ -733,10 +808,15 @@ class _CathConsumableCaptureSheetState
           ],
           if (_error != null) ...[
             const SizedBox(height: 12),
-            Text(
-              _error!,
-              key: const ValueKey('cath-consumable-error'),
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            // A validation refusal that only appears visually is missed by an
+            // operator driving the sheet with a screen reader.
+            Semantics(
+              liveRegion: true,
+              child: Text(
+                _error!,
+                key: const ValueKey('cath-consumable-error'),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
             ),
           ],
           const SizedBox(height: 20),
@@ -829,34 +909,12 @@ String _batchLabel(AppStrings s, CathInventoryBatch batch) {
   final expiry = batch.expiryDate == null
       ? s.lookup('s4.lib.cath_lab.consumables.expiry_unknown')
       : DateFormat('yyyy-MM-dd').format(batch.expiryDate!);
-  final quantity = _formatQuantity(batch.remainingQuantity);
+  final quantity = cathFormatQuantity(batch.remainingQuantity);
   return s.format('s4.dynamic.cath_lab.consumables.batch_option', {
     'batch': batch.batchNumber,
     'expiry': expiry,
     'quantity': quantity,
   });
-}
-
-String _formatQuantity(double value) {
-  return value == value.roundToDouble()
-      ? value.toInt().toString()
-      : value
-            .toStringAsFixed(2)
-            .replaceFirst(RegExp(r'0+$'), '')
-            .replaceFirst(RegExp(r'\.$'), '');
-}
-
-String _humanize(String value) {
-  final text = value.replaceAll('_', ' ').trim();
-  if (text.isEmpty) return '-';
-  return text
-      .split(' ')
-      .map(
-        (part) => part.isEmpty
-            ? part
-            : '${part[0].toUpperCase()}${part.substring(1)}',
-      )
-      .join(' ');
 }
 
 const _categoryStringKeys = {
@@ -873,14 +931,5 @@ const _categoryStringKeys = {
 
 String _categoryLabel(AppStrings strings, String value) {
   final key = _categoryStringKeys[value];
-  return key == null ? _humanize(value) : strings.lookup(key);
-}
-
-String? _nullableText(String value) {
-  final text = value.trim();
-  return text.isEmpty ? null : text;
-}
-
-String _cleanError(Object error) {
-  return error.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
+  return key == null ? cathHumanize(value) : strings.lookup(key);
 }

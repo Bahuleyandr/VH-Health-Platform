@@ -221,13 +221,22 @@ void main() {
         {'device_tag': 'RP00000001'},
         {'device_tag': 'RP00000002'},
       ],
-      // Unknown keys the backend may add stay ignored.
+      // CSSD had already discarded the device: the disposition IS recorded,
+      // but the operator's "sent to CSSD" model is wrong and the panel has to
+      // say so, so this is parsed rather than ignored.
       'device_already_discarded': true,
+      // Genuinely unknown keys the backend may add stay ignored.
       'idempotent_replay': true,
     });
 
     expect(result.usageId, 6);
     expect(result.disposition, 'sent_for_reprocessing');
     expect(result.deviceTags, ['RP00000001', 'RP00000002']);
+    expect(result.deviceAlreadyDiscarded, isTrue);
+    expect(
+      CathPostUseResult.fromJson({'usage_id': 7, 'disposition': 'discarded'})
+          .deviceAlreadyDiscarded,
+      isFalse,
+    );
   });
 }

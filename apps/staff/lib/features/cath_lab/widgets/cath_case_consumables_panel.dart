@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:vhhealth_core/services/idempotency_key.dart';
 
+import '../../../core/services/idempotency_attempt_registry.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
@@ -9,7 +9,20 @@ import '../../../l10n/app_strings.dart';
 import '../models/cath_consumable_models.dart';
 import '../services/cath_lab_api_service.dart';
 import 'cath_consumable_capture_sheet.dart';
+import 'cath_consumable_formatting.dart';
 import 'cath_reuse_restriction_strip.dart';
+
+/// One open post-use command identity per usage row, held OUTSIDE the widget
+/// tree: a `recordPostUse` that threw may still have been applied server-side,
+/// and the panel rebuilds (or the sheet is reopened) between the failure and
+/// the retry. A key minted per attempt would make the retry a second command
+/// and mint a second batch of CSSD devices; this one replays instead. The
+/// scope is completed only on a definitive success, so the NEXT deliberate
+/// disposition of the same row is a genuinely separate write.
+final IdempotencyAttemptRegistry _cathPostUseAttempts =
+    IdempotencyAttemptRegistry();
+
+String _cathPostUseScope(int usageId) => 'cath-post-use-$usageId';
 
 // Cath catalog and batch reads are case-scoped on the backend — the case is
 // what pins the facility the operator may see — so both loaders carry the
@@ -153,7 +166,7 @@ class _CathCaseConsumablesPanelState extends State<CathCaseConsumablesPanel> {
         _loaded = true;
       });
     } catch (error) {
-      if (mounted) setState(() => _error = _cleanError(error));
+      if (mounted) setState(() => _error = cathCleanError(error));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -226,27 +239,35 @@ class _CathCaseConsumablesPanelState extends State<CathCaseConsumablesPanel> {
       ),
     );
     if (draft == null || !mounted) return;
-    // One key per disposition of this row: a double-tap replays instead of
-    // minting a second batch of CSSD devices.
-    final attempt = IdempotencyAttempt('cath-post-use-${usage.id}');
+    final scope = _cathPostUseScope(usage.id);
     try {
       final result = await _recordPostUse(
         widget.cathCase.id,
         usage.id,
         draft,
-        idempotencyKey: attempt.keyFor(draft.toJson()),
+        idempotencyKey: _cathPostUseAttempts.keyFor(scope, draft.toJson()),
       );
+      // Only a definitive success ends the attempt. A throw leaves the key
+      // open so the operator's retry replays this same command.
+      _cathPostUseAttempts.complete(scope);
       if (!mounted) return;
       final s = AppStrings.of(context);
+      final alreadyDiscarded = result.deviceAlreadyDiscarded;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             [
-              s.lookup('s4.lib.cath_lab.consumables.post_use_saved'),
+              s.lookup(
+                alreadyDiscarded
+                    ? 's4.lib.cath_lab.consumables.post_use_device_already_discarded'
+                    : 's4.lib.cath_lab.consumables.post_use_saved',
+              ),
               if (result.deviceTags.isNotEmpty) result.deviceTags.join(', '),
             ].join(' - '),
           ),
-          backgroundColor: AppTheme.successGreen,
+          backgroundColor: alreadyDiscarded
+              ? AppTheme.warningAmber
+              : AppTheme.successGreen,
         ),
       );
       await _load();
@@ -254,10 +275,13 @@ class _CathCaseConsumablesPanelState extends State<CathCaseConsumablesPanel> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(_cleanError(error)),
+          content: Text(cathCleanError(error)),
           backgroundColor: AppTheme.errorRed,
         ),
       );
+      // The call may have been applied before it failed, so the buttons on
+      // screen can no longer be trusted: re-read what the server will accept.
+      if (mounted) await _load();
     }
   }
 
@@ -406,7 +430,7 @@ class _UsageCard extends StatelessWidget {
                 ),
                 _UsageChip(
                   label: s.format('s4.dynamic.cath_lab.consumables.quantity', {
-                    'quantity': _formatQuantity(usage.quantity),
+                    'quantity': cathFormatQuantity(usage.quantity),
                     'unit': usage.unitLabel,
                   }),
                   color: AppTheme.primaryBlue,
@@ -504,6 +528,10 @@ class _UsageCard extends StatelessWidget {
                         's4.lib.cath_lab.consumables.exposure_badge',
                       ),
                       color: AppTheme.errorRed,
+                      // The brand red is tuned for a filled surface; body text
+                      // on the 12%-alpha chip needs the on-surface token to
+                      // clear WCAG AA in both themes.
+                      textColor: AppTheme.errorOnSurface,
                     ),
                 ],
               ),
@@ -548,7 +576,7 @@ class _UsageCard extends StatelessWidget {
             if (usage.postUseDisposition.isNotEmpty) ...[
               const SizedBox(height: 6),
               Text(
-                _humanize(usage.postUseDisposition),
+                cathHumanize(usage.postUseDisposition),
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
@@ -591,8 +619,11 @@ const _postUseDiscardReasons = [
   'other',
 ];
 
-/// Server-side cap on a single post-use call. Clamping here keeps the field
-/// from offering a number the route would reject outright.
+/// Mirror of `POST_USE_UNITS_CAP` in
+/// `apps/backend/src/services/clinical/cathDeviceReuseService.js` — the
+/// absolute number of CSSD devices ONE post-use call may mint. Clamping here
+/// keeps the field from offering a number the route would reject outright
+/// with `CATH_DEVICE_UNITS_CAP`; the server remains the authority.
 const _postUseUnitsCeiling = 50;
 
 class _PostUseSheetState extends State<_PostUseSheet> {
@@ -603,6 +634,11 @@ class _PostUseSheetState extends State<_PostUseSheet> {
   String? _discardReason;
 
   bool get _isReprocess => widget.disposition == 'reprocess';
+
+  /// Only a reprocess returns the device to service, so only a reprocess can
+  /// need the exposure acknowledgement the backend asks for.
+  bool get _requiresAcknowledgement =>
+      _isReprocess && widget.options.requiresAcknowledgement;
   int get _unitsMax => widget.options.unitsMax < _postUseUnitsCeiling
       ? widget.options.unitsMax
       : _postUseUnitsCeiling;
@@ -644,15 +680,22 @@ class _PostUseSheetState extends State<_PostUseSheet> {
       context,
       CathPostUseDraft(
         disposition: widget.disposition,
-        units: _isReprocess
+        // A zero `units` is refused by the route's positive-integer check,
+        // so an exhausted row omits the field and lets the server resolve it.
+        units: _isReprocess && _unitsMax >= 1
             ? (_unitsMax <= 1
                   ? _unitsMax
                   : int.parse(_unitsController.text.trim()))
             : null,
         discardReason: _isReprocess ? null : _discardReason,
-        discardNote: _isReprocess ? null : _nullableText(_noteController.text),
-        acknowledgementReason: widget.options.requiresAcknowledgement
-            ? _nullableText(_ackController.text)
+        discardNote: _isReprocess
+            ? null
+            : cathNullableText(_noteController.text),
+        // The acknowledgement is what lets a device go BACK into service; a
+        // discard takes it out of service, so demanding one there would block
+        // the safe disposition behind an attestation about reuse.
+        acknowledgementReason: _requiresAcknowledgement
+            ? cathNullableText(_ackController.text)
             : null,
       ),
     );
@@ -721,7 +764,7 @@ class _PostUseSheetState extends State<_PostUseSheet> {
                   DropdownMenuItem(
                     value: reason,
                     child: Text(
-                      _humanize(reason),
+                      cathHumanize(reason),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -739,13 +782,16 @@ class _PostUseSheetState extends State<_PostUseSheet> {
               minLines: 2,
               maxLines: 3,
               decoration: InputDecoration(
+                // Not the wastage reason: this note rides a discard
+                // disposition, which is a different column and a different
+                // decision from opening a unit and not using it.
                 labelText: s.lookup(
-                  's4.lib.cath_lab.consumables.wastage_reason_label',
+                  's4.lib.cath_lab.consumables.post_use_note',
                 ),
               ),
             ),
           ],
-          if (widget.options.requiresAcknowledgement) ...[
+          if (_requiresAcknowledgement) ...[
             const SizedBox(height: 12),
             TextFormField(
               key: const ValueKey('cath-post-use-acknowledgement'),
@@ -765,7 +811,10 @@ class _PostUseSheetState extends State<_PostUseSheet> {
             key: const ValueKey('cath-post-use-confirm'),
             onPressed: _confirm,
             icon: const Icon(Icons.check),
-            label: Text(s.lookup('s4.lib.cath_lab.consumables.save')),
+            // This confirms a disposition; it does not record a usage row.
+            label: Text(
+              s.lookup('s4.lib.cath_lab.consumables.post_use_confirm'),
+            ),
           ),
         ],
       ),
@@ -774,10 +823,14 @@ class _PostUseSheetState extends State<_PostUseSheet> {
 }
 
 class _UsageChip extends StatelessWidget {
-  const _UsageChip({required this.label, required this.color});
+  const _UsageChip({required this.label, required this.color, this.textColor});
 
   final String label;
   final Color color;
+
+  /// Overrides the label colour where [color] is a filled-surface brand token
+  /// that would not meet contrast as text on the chip's tinted background.
+  final Color? textColor;
 
   @override
   Widget build(BuildContext context) {
@@ -790,42 +843,11 @@ class _UsageChip extends StatelessWidget {
       child: Text(
         label,
         style: TextStyle(
-          color: color,
+          color: textColor ?? color,
           fontSize: 12,
           fontWeight: FontWeight.w700,
         ),
       ),
     );
   }
-}
-
-String _formatQuantity(double value) {
-  return value == value.roundToDouble()
-      ? value.toInt().toString()
-      : value
-            .toStringAsFixed(2)
-            .replaceFirst(RegExp(r'0+$'), '')
-            .replaceFirst(RegExp(r'\.$'), '');
-}
-
-String _humanize(String value) {
-  final text = value.replaceAll('_', ' ').trim();
-  if (text.isEmpty) return '-';
-  return text
-      .split(' ')
-      .map(
-        (part) => part.isEmpty
-            ? part
-            : '${part[0].toUpperCase()}${part.substring(1)}',
-      )
-      .join(' ');
-}
-
-String? _nullableText(String value) {
-  final text = value.trim();
-  return text.isEmpty ? null : text;
-}
-
-String _cleanError(Object error) {
-  return error.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
 }

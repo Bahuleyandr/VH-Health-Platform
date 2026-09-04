@@ -465,17 +465,24 @@ class CathPostUseResult {
     required this.usageId,
     required this.disposition,
     required this.deviceTags,
+    this.deviceAlreadyDiscarded = false,
   });
 
   final int usageId;
   final String disposition;
   final List<String> deviceTags;
 
+  /// CSSD had already discarded the device before this call landed. The
+  /// disposition IS recorded, so this is not a failure — but the operator's
+  /// "sent to CSSD" mental model is wrong and the row must say so.
+  final bool deviceAlreadyDiscarded;
+
   factory CathPostUseResult.fromJson(Map<String, dynamic> json) {
     final devices = json['devices'];
     return CathPostUseResult(
       usageId: _asInt(json['usage_id']) ?? 0,
       disposition: _text(json['disposition']),
+      deviceAlreadyDiscarded: _asBool(json['device_already_discarded']),
       deviceTags: devices is List
           ? devices
                 .whereType<Map>()

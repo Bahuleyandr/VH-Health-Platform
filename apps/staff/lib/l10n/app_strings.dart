@@ -8076,6 +8076,11 @@ class AppStrings {
       's4.lib.cath_lab.consumables.exposure_badge': "Exposure",
       's4.dynamic.cath_lab.consumables.device_cycle': "Cycle {cycle} of {max}",
       's4.dynamic.cath_lab.consumables.device_tag': "Tag {tag}",
+      's4.lib.cath_lab.consumables.post_use_device_already_discarded':
+          "Device was already discarded by CSSD; disposition recorded",
+      's4.lib.cath_lab.consumables.post_use_note': "Note",
+      's4.lib.cath_lab.consumables.post_use_confirm': "Confirm",
+      's4.dynamic.cath_lab.consumables.more_reasons': "+{count} more",
       'med03.cath_inventory.title': "Cath inventory reconciliation",
       'med03.cath_inventory.access_denied':
           "Your role is not authorized to open this Cath inventory workflow.",
@@ -15541,6 +15546,10 @@ class AppStrings {
       's4.lib.cath_lab.consumables.exposure_badge': "संक्रमण जोखिम",
       's4.dynamic.cath_lab.consumables.device_cycle': "चक्र {cycle} / {max}",
       's4.dynamic.cath_lab.consumables.device_tag': "टैग {tag}",
+      's4.lib.cath_lab.consumables.post_use_device_already_discarded': "डिवाइस पहले ही CSSD द्वारा नष्ट किया जा चुका है; निपटान दर्ज किया गया",
+      's4.lib.cath_lab.consumables.post_use_note': "टिप्पणी",
+      's4.lib.cath_lab.consumables.post_use_confirm': "पुष्टि करें",
+      's4.dynamic.cath_lab.consumables.more_reasons': "+{count} और",
       'med03.cath_inventory.title': "कैथ इन्वेंटरी मिलान",
       'med03.cath_inventory.access_denied': "आपकी भूमिका इस कैथ इन्वेंटरी कार्यप्रवाह को खोलने के लिए अधिकृत नहीं है।",
       'med03.cath_inventory.invalid_target':
@@ -24332,6 +24341,11 @@ class AppStrings {
       's4.lib.cath_lab.consumables.exposure_badge': "தொற்று ஆபத்து",
       's4.dynamic.cath_lab.consumables.device_cycle': "சுழற்சி {cycle} / {max}",
       's4.dynamic.cath_lab.consumables.device_tag': "குறிச்சொல் {tag}",
+      's4.lib.cath_lab.consumables.post_use_device_already_discarded':
+          "சாதனம் ஏற்கனவே CSSD ஆல் அகற்றப்பட்டது; அகற்றல் பதிவு செய்யப்பட்டது",
+      's4.lib.cath_lab.consumables.post_use_note': "குறிப்பு",
+      's4.lib.cath_lab.consumables.post_use_confirm': "உறுதிப்படுத்து",
+      's4.dynamic.cath_lab.consumables.more_reasons': "+{count} மேலும்",
       'med03.cath_inventory.title': "காத் இருப்புச் சரிசெய்தல்",
       'med03.cath_inventory.access_denied': "இந்த காத் இருப்பு பணிப்பாய்வைத் திறக்க உங்கள் பங்கிற்கு அனுமதி இல்லை.",
       'med03.cath_inventory.invalid_target':
@@ -33199,6 +33213,11 @@ class AppStrings {
       's4.lib.cath_lab.consumables.exposure_badge': "సంక్రమణ ప్రమాదం",
       's4.dynamic.cath_lab.consumables.device_cycle': "చక్రం {cycle} / {max}",
       's4.dynamic.cath_lab.consumables.device_tag': "ట్యాగ్ {tag}",
+      's4.lib.cath_lab.consumables.post_use_device_already_discarded':
+          "పరికరాన్ని CSSD ఇప్పటికే పారవేసింది; పారవేత నమోదైంది",
+      's4.lib.cath_lab.consumables.post_use_note': "గమనిక",
+      's4.lib.cath_lab.consumables.post_use_confirm': "నిర్ధారించండి",
+      's4.dynamic.cath_lab.consumables.more_reasons': "+{count} మరిన్ని",
       'med03.cath_inventory.title': "క్యాథ్ నిల్వ సమన్వయం",
       'med03.cath_inventory.access_denied':
           "ఈ క్యాథ్ నిల్వ వర్క్‌ఫ్లోను తెరవడానికి మీ పాత్రకు అనుమతి లేదు.",
@@ -38925,6 +38944,11 @@ class AppStrings {
       's4.lib.cath_lab.consumables.exposure_badge': 'അണുബാധ സാധ്യത',
       's4.dynamic.cath_lab.consumables.device_cycle': 'സൈക്കിൾ {cycle} / {max}',
       's4.dynamic.cath_lab.consumables.device_tag': 'ടാഗ് {tag}',
+      's4.lib.cath_lab.consumables.post_use_device_already_discarded':
+          'ഉപകരണം CSSD ഇതിനകം നീക്കം ചെയ്തു; തീർപ്പാക്കൽ രേഖപ്പെടുത്തി',
+      's4.lib.cath_lab.consumables.post_use_note': 'കുറിപ്പ്',
+      's4.lib.cath_lab.consumables.post_use_confirm': 'സ്ഥിരീകരിക്കുക',
+      's4.dynamic.cath_lab.consumables.more_reasons': '+{count} കൂടുതൽ',
       'med03.cath_inventory.title': 'കാത്ത് ഇൻവെന്ററി പൊരുത്തപ്പെടുത്തൽ',
       'med03.cath_inventory.access_denied': 'ഈ കാത്ത് ഇൻവെന്ററി പ്രവർത്തനക്രമം തുറക്കാൻ നിങ്ങളുടെ റോളിന് അനുമതിയില്ല.',
       'med03.cath_inventory.invalid_target':

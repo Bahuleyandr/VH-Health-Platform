@@ -15,12 +15,23 @@ import '../models/cath_consumable_models.dart';
 class CathReuseRestrictionStrip extends StatelessWidget {
   const CathReuseRestrictionStrip({super.key, required this.restriction});
 
+  /// A serology panel can carry a long tail of markers; past this many the
+  /// strip would push the decision it precedes off the screen.
+  static const int maxVisibleReasons = 4;
+
   final CathReuseRestriction restriction;
 
   @override
   Widget build(BuildContext context) {
+    // A cleared patient has nothing to warn about: the guard lives here so no
+    // caller can render an empty amber box by forgetting to check.
+    if (restriction.isClear) return const SizedBox.shrink();
     final s = AppStrings.of(context);
     final restricted = restriction.isRestricted;
+    final visibleReasons = restriction.reasons.length > maxVisibleReasons
+        ? restriction.reasons.take(maxVisibleReasons).toList(growable: false)
+        : restriction.reasons;
+    final hiddenReasons = restriction.reasons.length - visibleReasons.length;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
@@ -45,8 +56,15 @@ class CathReuseRestrictionStrip extends StatelessWidget {
                   : AppTheme.warningOnSurface,
             ),
           ),
-          for (final reason in restriction.reasons)
+          for (final reason in visibleReasons)
             Text(reason, style: Theme.of(context).textTheme.bodySmall),
+          if (hiddenReasons > 0)
+            Text(
+              s.format('s4.dynamic.cath_lab.consumables.more_reasons', {
+                'count': hiddenReasons,
+              }),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
         ],
       ),
     );

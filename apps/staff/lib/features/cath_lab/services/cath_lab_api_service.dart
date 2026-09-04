@@ -24,6 +24,7 @@ class CathLabCaseSummary {
     required this.deviceLinkCount,
     this.signedReportCount = 0,
     this.reportTatMinutes,
+    this.reuseRestriction,
   });
 
   final int id;
@@ -42,6 +43,12 @@ class CathLabCaseSummary {
   final int deviceLinkCount;
   final int signedReportCount;
   final int? reportTatMinutes;
+
+  /// The patient's blood-borne reuse restriction, as `GET /cath-lab/cases/:id`
+  /// projects it for the caller's role. Null when the payload did not carry
+  /// one — the case LIST does not — which is a different fact from `clear`
+  /// and must not be rendered as a restriction of unknown status.
+  final CathReuseRestriction? reuseRestriction;
 
   double get readinessProgress {
     if (readinessTotal <= 0) return 0;
@@ -69,6 +76,11 @@ class CathLabCaseSummary {
       deviceLinkCount: _asInt(json['device_link_count']) ?? 0,
       signedReportCount: _asInt(json['signed_report_count']) ?? 0,
       reportTatMinutes: _asInt(json['report_tat_minutes']),
+      reuseRestriction: json['reuse_restriction'] is Map
+          ? CathReuseRestriction.fromJson(
+              Map<String, dynamic>.from(json['reuse_restriction'] as Map),
+            )
+          : null,
     );
   }
 
@@ -584,20 +596,6 @@ class CathLabApiService {
         .toList(growable: false);
   }
 
-  static Future<List<CathCaseConsumableUsage>> fetchConsumablesForCase(
-    int caseId,
-  ) async {
-    final response = await ApiClient.get('/cath-lab/cases/$caseId/consumables');
-    final data = _successfulData(
-      response,
-      'Failed to load Cath Lab consumable usage',
-    );
-    return _mapList(data['usage'])
-        .map(CathCaseConsumableUsage.fromJson)
-        .where((usage) => usage.id > 0)
-        .toList(growable: false);
-  }
-
   /// POST /cath-lab/cases/:id/consumables.
   ///
   /// Mounted with `requireIdempotencyKey({ required: true, scope:
@@ -625,10 +623,11 @@ class CathLabApiService {
     return CathCaseConsumableUsage.fromJson(Map<String, dynamic>.from(raw));
   }
 
-  /// GET /cath-lab/cases/:id/consumables — the same route
-  /// [fetchConsumablesForCase] reads, but keeping the case-level reuse facts
-  /// the capture sheet and the post-use buttons need: the patient's
-  /// blood-borne restriction and the categories this tenant reprocesses.
+  /// GET /cath-lab/cases/:id/consumables — the case's usage rows plus the
+  /// case-level reuse facts the capture sheet and the post-use buttons need:
+  /// the patient's blood-borne restriction and the categories this tenant
+  /// reprocesses. This is the only read of the route; a usage-only variant
+  /// would drop exactly the decorations the reuse UI is built on.
   ///
   /// Roles outside the clinical-staff set get `reuse_restriction` with empty
   /// `reasons`/`markers` and the same `status`, so the strip still renders the
