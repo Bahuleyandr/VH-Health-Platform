@@ -1,6 +1,7 @@
 # Staff App - Language Health Report
 
-_Last verified: 2026-09-02 (Malayalam technical-parity lane)._
+_Last verified: 2026-09-05 (OPEN-21 Batch 1 — cath lab linguistic review; the
+96 cath keys of PRs #1004 and #1008 landed after the 2026-09-02 measurement)._
 
 ## How to reproduce every number below
 
@@ -25,24 +26,29 @@ This report is the structural verification of the staff app i18n setup.
 It answers "does every key resolve?" — **not** "is every translation
 clinically approved?" Hindi, Tamil, and Telugu are structurally complete,
 but a large part of each map is an AI first pass. Malayalam has full technical
-key parity: 2,494 explicit entries plus 4,008 generated English-source
+key parity: 2,588 explicit entries plus 4,008 generated English-source
 placeholders. A placeholder is not a Malayalam translation. Nothing in any
 non-English locale has complete fluent clinical review, and all of it still
-requires the relevant human approval before production rollout.
+requires the relevant human approval before production rollout. The first
+reviewed slice is OPEN-21 Batch 1 — the 96 cath lab keys in hi/ta/te/ml,
+reviewed 2026-09-05 and pending owner approval; see
+`docs/TRANSLATION_REVIEW_TRACKER.md`.
 
-## Headline numbers (measured 2026-09-02)
+## Headline numbers (measured 2026-09-05)
 
 | | en | hi | ta | te | ml |
 |---|---:|---:|---:|---:|---:|
-| Keys present | 6,505 | 6,502 | 6,502 | 6,502 | 6,502 |
+| Keys present | 6,601 | 6,596 | 6,596 | 6,596 | 6,596 |
 | Coverage vs en | 100% | 100% | 100% | 100% | 100% technical parity |
 | `// REVIEW:` flags | - | 501 | 954 | 955 | 18 + 4,008 generated placeholders |
 | Length outliers | - | 0 | 8 | 1 | 2 |
-| Identical English heuristic | - | 125 | 132 | 131 | 3,857 |
+| Identical English heuristic | - | 126 | 133 | 132 | 3,858 |
 
-`en` declares 6,505 keys. Three signed-attestation keys are deliberately left
-to the English fallback in every non-English locale (see "Declared English
-fallback" below), so the translatable set is 6,502. These counts are emitted
+`en` declares 6,601 keys. Five keys are deliberately left to English in every
+non-English locale (see "Declared English fallback" below), so the translatable
+set is 6,596. The 96 new keys since 2026-09-02 are the cath lab readiness and
+consumables strings of PRs #1004 and #1008 — the subject of OPEN-21 Batch 1.
+These counts are emitted
 directly by `node apps/staff/scripts/i18n-verify.mjs`; they are not a manual
 estimate.
 
@@ -105,17 +111,25 @@ unreferenced. The other 403 keys are read by live screens.
 
 ## Declared English fallback
 
-Three keys are deliberately **not** translated. Each is a declaration a
-person signs, where the wording is the legal content of the signature and
-must be the deploying hospital's approved text rather than a machine first
-pass. They fall through to English at runtime, and the parity gate skips
-exactly these three and prints them on every run:
+Five keys are deliberately **not** translated. The first three are each a
+declaration a person signs, where the wording is the legal content of the
+signature and must be the deploying hospital's approved text rather than a
+machine first pass. They fall through to English at runtime, and the parity
+gate skips exactly these five and prints them on every run:
 
 | Key | Why |
 |---|---|
 | `clinical_inbox.action.attestation` | First-person attestation the clinician signs against a diagnostic result. |
 | `ed_trauma.continuity.external_attestation` | States what an inter-facility handoff record asserts was confirmed. |
 | `s4.lib.referrals.continue_ownership` | First-person declaration of continuing clinical ownership of a patient. |
+| `continuity.unknown.allergy` | Continuity UNKNOWN marker, pinned English in all five locales by `test/i18n_guard_test.dart:37-46` so clinicians read the same marker whatever their language setting. |
+| `continuity.unknown.code_status` | Same class as `continuity.unknown.allergy`, pinned by the same test. |
+
+The last two differ in kind from the first three: they are **present** in
+every locale map carrying the English text, not absent from it. Declaring
+them records the decision and stops a reviewer "fixing" them; the only
+visible effect on the gate is that the `[loc] N/M` line counts them out of
+M while still counting them in N.
 
 The list lives in `DELIBERATE_ENGLISH_FALLBACK` in
 `apps/staff/scripts/i18n-verify.mjs`, with the reason next to each key. A key
@@ -158,9 +172,11 @@ heuristics, and heuristics do not belong on a path that must not fail.
 ## What's verified
 
 - **English, Hindi, Tamil, Telugu, and Malayalam are at 100% structural key
-  parity** (6,502 translatable keys each). Malayalam reaches that technical
+  parity** (6,596 translatable keys each). Malayalam reaches that technical
   state with 4,008 generated English-source review placeholders. The only
-  implicit runtime fallbacks are the three signed attestations declared above.
+  implicit runtime fallbacks are the three signed attestations declared above
+  (the two `continuity.unknown.*` keys are present in every map carrying the
+  English text, pinned by test).
 
 - **No runtime crashes from orphan calls.** Every `s.foo` /
   `AppStrings.of(context).foo` reference resolves to a declared getter.

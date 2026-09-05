@@ -338,7 +338,7 @@ void main() {
       // "critical": the backend files this as a safety review whose override
       // reason is whatever is typed below.
       expect(
-        find.textContaining('Critical value present: Potassium'),
+        find.textContaining('Critical values present: Potassium'),
         findsOneWidget,
       );
 
@@ -397,12 +397,13 @@ void main() {
       await _chooseStatus(tester, 'labs', 'Pass');
       expect(
         find.text(
-          'A critical value is present. Give a reason for passing this check.',
+          'A critical value is present. Give a reason for marking this '
+          'check as passed despite the critical result.',
         ),
         findsOneWidget,
       );
       // Never the named line with an empty slot in it.
-      expect(find.textContaining('Critical value present:'), findsNothing);
+      expect(find.textContaining('Critical values present:'), findsNothing);
 
       // The gate is the same gate: an unnamed critical value still cannot be
       // passed without a reason.
@@ -445,11 +446,12 @@ void main() {
       await _chooseStatus(tester, 'labs', 'Pass');
       expect(
         find.text(
-          'A critical value is present. Give a reason for passing this check.',
+          'A critical value is present. Give a reason for marking this '
+          'check as passed despite the critical result.',
         ),
         findsOneWidget,
       );
-      expect(find.textContaining('Critical value present:'), findsNothing);
+      expect(find.textContaining('Critical values present:'), findsNothing);
       expect(find.text('Reason'), findsOneWidget);
     },
   );
@@ -666,7 +668,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(sent, isNull);
-      expect(find.text('Choose a result'), findsOneWidget);
+      expect(find.text('A result is required'), findsOneWidget);
       expect(find.byKey(const ValueKey('cath-external-save')), findsOneWidget);
     },
   );
@@ -717,7 +719,7 @@ void main() {
     // The report date drives the freshness rule behind auto-pass, so a blank
     // one must not be silently read as "today".
     expect(sent, isNull);
-    expect(find.text('Choose the report date'), findsOneWidget);
+    expect(find.text('Report date is required'), findsOneWidget);
   });
 
   testWidgets('a quantitative outside result sends the number twice with a '

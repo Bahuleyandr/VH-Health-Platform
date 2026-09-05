@@ -1,0 +1,243 @@
+// apps/staff/scripts/i18n-review-apply.test.mjs
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { applyDecisions, dartString } from './i18n-review-apply.mjs';
+
+// Mirrors the real lib/l10n/app_strings.dart shapes: 6-space entries,
+// `// REVIEW:` flags at 6 spaces, double-quoted literals (8,161 of them in the
+// real file, e.g. line 3017 `"Point the camera at the QR code on the patient's
+// wristband."`), multi-line adjacent-literal continuations at 10 spaces,
+// `\'` escapes inside single-quoted literals (real file lines 4195, 7220), and
+// the `...malayalamTechnicalParityPlaceholders,` spread inside the `ml` block
+// (real file line 37871).
+const FIXTURE = `class AppStrings {
+  static const Map<String, Map<String, String>> _byLang = {
+    'en': {
+      'a.one': 'One',
+      'a.two': 'Two {count}',
+      'a.three': 'Three',
+      'a.four': "It's four",
+      'a.five':
+          "Five {count} item's",
+      'a.six': 'Six\\'s',
+      'a.seven': "Seven's",
+    },
+    'hi': {
+      // REVIEW: AI first-pass
+      'a.one': 'एक',
+      'a.two': 'दो {count}',
+      // REVIEW: security wording
+      // REVIEW: second flag line
+      'a.three': 'तीन',
+      'a.four': "चार's",
+      'a.five':
+          'पाँच {count}'
+          ' वस्तु',
+      'a.six': 'Six\\'s',
+      // REVIEW: quote style
+      'a.seven': "सात's",
+    },
+    'ml': {
+      ...malayalamTechnicalParityPlaceholders,
+      'a.one': 'ഒന്ന്',
+    },
+  };
+}
+`;
+
+function withFixture(fn) {
+  const dir = mkdtempSync(join(tmpdir(), 'i18n-apply-'));
+  const file = join(dir, 'app_strings.dart');
+  writeFileSync(file, FIXTURE);
+  fn(file);
+  return readFileSync(file, 'utf8');
+}
+
+test('dartString escapes quotes, backslashes, dollars and newlines', () => {
+  assert.equal(dartString(`it's \\ $x\nnext`), `'it\\'s \\\\ \\$x\\nnext'`);
+});
+
+test('a confirm removes the REVIEW flag and leaves the value', () => {
+  const out = withFixture((f) => applyDecisions(f, [
+    { key: 'a.one', locale: 'hi', value: 'एक', approved: true, changed: false },
+  ]));
+  assert.ok(!/REVIEW: AI first-pass/.test(out));
+  assert.ok(out.includes(`      'a.one': 'एक',`));
+});
+
+test('a change replaces the value and removes every REVIEW line above it', () => {
+  const out = withFixture((f) => applyDecisions(f, [
+    { key: 'a.three', locale: 'hi', value: "तीन'", approved: true, changed: true },
+  ]));
+  assert.ok(!/REVIEW: security wording/.test(out));
+  assert.ok(!/REVIEW: second flag line/.test(out));
+  assert.ok(out.includes(`      'a.three': 'तीन\\'',`));
+});
+
+test('an approved ml value for a key without an explicit entry is inserted into the ml block', () => {
+  const out = withFixture((f) => applyDecisions(f, [
+    { key: 'a.two', locale: 'ml', value: 'രണ്ട് {count}', approved: true, changed: true },
+  ]));
+  const ml = out.slice(out.indexOf(`'ml': {`), out.indexOf(`  };`));
+  assert.ok(ml.includes(`      'a.two': 'രണ്ട് {count}',`));
+  assert.ok(ml.indexOf(`'a.one'`) < ml.indexOf(`'a.two'`), 'appended after existing entries');
+});
+
+test('placeholders must survive: a value dropping {count} is rejected', () => {
+  assert.throws(() => withFixture((f) => applyDecisions(f, [
+    { key: 'a.two', locale: 'hi', value: 'दो', approved: true, changed: true },
+  ])), /placeholder/);
+});
+
+test('unknown key or locale is rejected and nothing is written', () => {
+  const out = withFixture((f) => {
+    assert.throws(() => applyDecisions(f, [{ key: 'nope', locale: 'hi', value: 'x', approved: true, changed: true }]), /unknown key/);
+  });
+  assert.equal(out, FIXTURE);
+});
+
+test('re-applying the same decisions is a no-op', () => {
+  const decisions = [{ key: 'a.one', locale: 'hi', value: 'एक', approved: true, changed: false }];
+  const once = withFixture((f) => applyDecisions(f, decisions));
+  const twice = withFixture((f) => { applyDecisions(f, decisions); applyDecisions(f, decisions); });
+  assert.equal(once, twice);
+});
+
+// ── Shapes the real app_strings.dart has that the fixture above encodes ──
+
+test('a change to a double-quoted entry is rewritten in double quotes', () => {
+  const out = withFixture((f) => applyDecisions(f, [
+    { key: 'a.four', locale: 'hi', value: "चार का मान", approved: true, changed: true },
+  ]));
+  assert.ok(out.includes(`      'a.four': "चार का मान",`), 'the entry keeps the quote style it had');
+  assert.ok(!out.includes(`"चार's"`), 'the old double-quoted literal is gone');
+  assert.ok(!out.includes(`'चार का मान'`), 'the change is a wording diff only, never also a quoting diff');
+});
+
+test("a change to a double-quoted entry escapes only the double quotes in the new value", () => {
+  const out = withFixture((f) => applyDecisions(f, [
+    { key: 'a.four', locale: 'hi', value: `it's "four"`, approved: true, changed: true },
+  ]));
+  assert.ok(out.includes(`      'a.four': "it's \\"four\\"",`), out.split('\n').find((l) => l.includes('a.four')));
+});
+
+test('a change to a single-quoted entry stays single-quoted', () => {
+  const out = withFixture((f) => applyDecisions(f, [
+    { key: 'a.one', locale: 'hi', value: 'एक इकाई', approved: true, changed: true },
+  ]));
+  assert.ok(out.includes(`      'a.one': 'एक इकाई',`));
+});
+
+test('a multi-line adjacent-literal entry is joined for placeholder checks and collapsed on write', () => {
+  const out = withFixture((f) => applyDecisions(f, [
+    { key: 'a.five', locale: 'hi', value: 'पाँच {count} वस्तुएँ', approved: true, changed: true },
+  ]));
+  assert.ok(out.includes(`      'a.five': 'पाँच {count} वस्तुएँ',`));
+  assert.ok(!out.includes(`          ' वस्तु',`), 'the continuation line is consumed, not orphaned');
+  // The `en` side is itself a multi-line double-quoted literal, so its
+  // placeholder set has to come from the joined value.
+  assert.throws(() => withFixture((f) => applyDecisions(f, [
+    { key: 'a.five', locale: 'hi', value: 'पाँच वस्तुएँ', approved: true, changed: true },
+  ])), /placeholder/);
+});
+
+test("a value containing \\' round-trips: confirming it writes nothing", () => {
+  const out = withFixture((f) => applyDecisions(f, [
+    { key: 'a.six', locale: 'hi', value: "Six's", approved: true, changed: false },
+  ]));
+  assert.equal(out, FIXTURE);
+});
+
+test('the ml spread element is never treated as an entry and survives insertion', () => {
+  const out = withFixture((f) => applyDecisions(f, [
+    { key: 'a.three', locale: 'ml', value: 'മൂന്ന്', approved: true, changed: true },
+  ]));
+  assert.ok(out.includes(`      ...malayalamTechnicalParityPlaceholders,`));
+  const ml = out.slice(out.indexOf(`'ml': {`), out.indexOf(`  };`));
+  assert.ok(ml.indexOf(`...malayalamTechnicalParityPlaceholders`) < ml.indexOf(`'a.three'`),
+    'an approved explicit ml value must come after the spread so it overrides the placeholder');
+});
+
+// ── Confirms must not rewrite quote style (OPEN-21 batch 1: 226 of 371 diff
+// lines were confirm rows whose only change was `"` → `'`) ──
+
+test('a confirm of an existing double-quoted entry leaves that line unchanged', () => {
+  const out = withFixture((f) => applyDecisions(f, [
+    { key: 'a.four', locale: 'hi', value: "चार's", approved: true, changed: false },
+  ]));
+  assert.ok(out.includes(`      'a.four': "चार's",`), 'the double-quoted literal is kept verbatim');
+  assert.ok(!out.includes(`'चार\\'s'`), 'not re-emitted as an escaped single-quoted literal');
+  assert.equal(out, FIXTURE);
+});
+
+test('a confirm of a double-quoted entry under a REVIEW flag strips the flag but keeps the line', () => {
+  const out = withFixture((f) => applyDecisions(f, [
+    { key: 'a.seven', locale: 'hi', value: "सात's", approved: true, changed: false },
+  ]));
+  assert.ok(!/REVIEW: quote style/.test(out));
+  assert.ok(out.includes(`      'a.seven': "सात's",`), 'the double-quoted literal is kept verbatim');
+  assert.ok(!out.includes(`'सात\\'s'`), 'not re-emitted as an escaped single-quoted literal');
+  assert.equal(out, FIXTURE.replace(`      // REVIEW: quote style\n`, ''));
+});
+
+test('a confirm of a multi-line adjacent-literal entry leaves its continuation lines untouched', () => {
+  const out = withFixture((f) => applyDecisions(f, [
+    { key: 'a.five', locale: 'hi', value: 'पाँच {count} वस्तु', approved: true, changed: false },
+  ]));
+  assert.ok(out.includes(`          'पाँच {count}'\n          ' वस्तु',`), 'continuation lines are kept, not collapsed');
+  assert.equal(out, FIXTURE);
+});
+
+// ── English SOURCE rows (`locale: 'en'`): the review may find the source wrong ──
+
+test('an en row rewrites the source when en_old still matches the file', () => {
+  const out = withFixture((f) => applyDecisions(f, [
+    { key: 'a.one', locale: 'en', value: 'First', en_old: 'One', approved: true, changed: true },
+  ]));
+  const en = out.slice(out.indexOf(`'en': {`), out.indexOf(`'hi': {`));
+  assert.ok(en.includes(`      'a.one': 'First',`));
+  assert.ok(out.includes(`      'a.one': 'एक',`), 'the locale rows are untouched by an en-only row');
+});
+
+test('an en row whose en_old does not match the file is rejected and nothing is written', () => {
+  const out = withFixture((f) => {
+    assert.throws(() => applyDecisions(f, [
+      { key: 'a.one', locale: 'en', value: 'First', en_old: 'Uno', approved: true, changed: true },
+    ]), /en_old mismatch/);
+  });
+  assert.equal(out, FIXTURE, 'a moved or re-worded key must not be silently overwritten');
+});
+
+test('an en row without en_old is rejected', () => {
+  const out = withFixture((f) => {
+    assert.throws(() => applyDecisions(f, [
+      { key: 'a.one', locale: 'en', value: 'First', approved: true, changed: true },
+    ]), /must carry en_old/);
+  });
+  assert.equal(out, FIXTURE);
+});
+
+test('locale rows are checked against the NEW English when the same run changes the source', () => {
+  const out = withFixture((f) => applyDecisions(f, [
+    { key: 'a.two', locale: 'en', value: 'Two items', en_old: 'Two {count}', approved: true, changed: true },
+    { key: 'a.two', locale: 'hi', value: 'दो वस्तुएँ', approved: true, changed: true },
+  ]));
+  assert.ok(out.includes(`      'a.two': 'Two items',`));
+  assert.ok(out.includes(`      'a.two': 'दो वस्तुएँ',`));
+  // …and a locale row still carrying the dropped placeholder is the failure.
+  assert.throws(() => withFixture((f) => applyDecisions(f, [
+    { key: 'a.two', locale: 'en', value: 'Two items', en_old: 'Two {count}', approved: true, changed: true },
+    { key: 'a.two', locale: 'hi', value: 'दो {count}', approved: true, changed: false },
+  ])), /placeholder mismatch/);
+});
+
+test('an en source change keeps the entry quote style', () => {
+  const out = withFixture((f) => applyDecisions(f, [
+    { key: 'a.four', locale: 'en', value: 'It is four', en_old: "It's four", approved: true, changed: true },
+  ]));
+  const en = out.slice(out.indexOf(`'en': {`), out.indexOf(`'hi': {`));
+  assert.ok(en.includes(`      'a.four': "It is four",`));
+});
