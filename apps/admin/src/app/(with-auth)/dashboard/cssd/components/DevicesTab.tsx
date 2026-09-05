@@ -36,14 +36,14 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import {
   DEVICE_ACTION_LABEL,
   DeviceActionDialog,
   type DeviceAction,
 } from "./DeviceActions";
-import { StatusPill, fmtDate, humanize, inputClass } from "./helpers";
+import { StatusPill, fmtAge, fmtDate, humanize, inputClass } from "./helpers";
 
 /**
  * The transitions this console offers out of each status. Every entry is a
@@ -74,6 +74,16 @@ const ACTIONS_BY_STATUS: Record<CathDeviceStatus, DeviceAction[]> = {
  */
 const POLICY_TAB_HREF = "/dashboard/quality/cath";
 
+/**
+ * The two queue-only columns the console can sort by. `queued` sorts on
+ * status_changed_at — when the device last MOVED, which the backend derives
+ * from the transition audit trail rather than from updated_at (the
+ * late-reactive exposure sweep moves updated_at without moving the device).
+ * Ascending is oldest first, i.e. longest wait at the top, which is the order
+ * CSSD works in.
+ */
+type SortKey = "facility" | "queued";
+
 export function DevicesTab() {
   const [status, setStatus] = useState<CathDeviceStatus | "">(
     "awaiting_reprocessing",
@@ -81,6 +91,10 @@ export function DevicesTab() {
   const [dialog, setDialog] = useState<{
     device: CathDevice;
     action: DeviceAction;
+  } | null>(null);
+  const [sort, setSort] = useState<{
+    key: SortKey;
+    dir: "asc" | "desc";
   } | null>(null);
 
   const { data, isLoading, error, refetch, isFetching } = useQuery({
@@ -91,7 +105,53 @@ export function DevicesTab() {
         limit: CSSD_DEVICE_LIST_LIMIT,
       }),
   });
-  const devices = data ?? [];
+  // `data ?? []` would mint a new array identity on every render and make the
+  // sort below re-run each time; memoised so the empty case is one stable
+  // value.
+  const devices = useMemo(() => data ?? [], [data]);
+
+  // Unsorted until asked: the backend already orders by the status bucket that
+  // needs work first, and silently re-ordering that would hide it.
+  const rows = useMemo(() => {
+    if (!sort) return devices;
+    const direction = sort.dir === "asc" ? 1 : -1;
+    return [...devices].sort((a, b) => {
+      const cmp =
+        sort.key === "facility"
+          ? (a.facility_name ?? "").localeCompare(b.facility_name ?? "")
+          : Date.parse(a.status_changed_at) - Date.parse(b.status_changed_at);
+      return cmp * direction;
+    });
+  }, [devices, sort]);
+
+  // One `now` for the whole table: computed per row it would drift down a long
+  // list, and two devices queued in the same minute could read differently.
+  const now = Date.now();
+
+  function toggleSort(key: SortKey) {
+    setSort((current) =>
+      current?.key === key
+        ? { key, dir: current.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: "asc" },
+    );
+  }
+
+  function SortHeader({ label, sortKey }: { label: string; sortKey: SortKey }) {
+    const active = sort?.key === sortKey;
+    return (
+      <button
+        type="button"
+        aria-label={`Sort by ${label.toLowerCase()}`}
+        onClick={() => toggleSort(sortKey)}
+        className="inline-flex items-center gap-1 font-medium hover:text-foreground"
+      >
+        {label}
+        <span aria-hidden="true">
+          {active ? (sort?.dir === "asc" ? "↑" : "↓") : "↕"}
+        </span>
+      </button>
+    );
+  }
 
   // The category policy decides which cycle types CSSD may record — and
   // whether it may record one at all. It is read from the SAME cache entry the
@@ -185,13 +245,19 @@ export function DevicesTab() {
                 <th className="p-3 text-left">Device</th>
                 <th className="p-3 text-left">Cycle</th>
                 <th className="p-3 text-left">Status</th>
+                <th className="p-3 text-left">
+                  <SortHeader label="Facility" sortKey="facility" />
+                </th>
+                <th className="p-3 text-left">
+                  <SortHeader label="Time in queue" sortKey="queued" />
+                </th>
                 <th className="p-3 text-left">Exposure</th>
                 <th className="p-3 text-left">Updated</th>
                 <th className="p-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {devices.map((device) => (
+              {rows.map((device) => (
                 <tr key={device.id} className="border-t border-border">
                   <td className="p-3 font-mono text-xs">{device.device_tag}</td>
                   <td className="p-3">
@@ -206,6 +272,13 @@ export function DevicesTab() {
                   </td>
                   <td className="p-3">
                     <StatusPill status={device.status} />
+                  </td>
+                  <td className="p-3 text-xs">{device.facility_name}</td>
+                  <td
+                    className="p-3 text-xs tabular-nums"
+                    title={fmtDate(device.status_changed_at)}
+                  >
+                    {fmtAge(device.status_changed_at, now)}
                   </td>
                   <td className="p-3 text-xs">
                     {device.exposure_flag ? (

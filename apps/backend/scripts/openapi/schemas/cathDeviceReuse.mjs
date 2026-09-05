@@ -99,6 +99,26 @@ const device = {
   }
 };
 
+// ONE ROW OF THE CSSD QUEUE = the device row plus the two columns
+// listDevices joins in and no other device surface returns. Spelled out rather
+// than composed with allOf: every device schema here is
+// additionalProperties:false, and an allOf of two closed objects is a schema
+// nothing can satisfy.
+//
+// status_changed_at is derived, not stored — the register has no such column
+// and updated_at moves on the late-reactive exposure stamp, which changes no
+// status. See DEVICE_QUEUE_SELECT in cathDeviceReuseService.js.
+const queueItem = {
+  type: 'object',
+  additionalProperties: false,
+  required: [...device.required, 'facility_name', 'status_changed_at'],
+  properties: {
+    ...device.properties,
+    facility_name: { type: 'string' },
+    status_changed_at: { type: 'string', format: 'date-time' }
+  }
+};
+
 // getReprocessingSettings() returns the unconfigured default row with every
 // SETTINGS_SELECT column present, so `configured` is the only signal that the
 // tenant has never saved a policy — never a missing key.
@@ -187,6 +207,7 @@ export const ENUMS = {
 
 export const schemas = {
   CathReprocessableDevice: device,
+  CssdDeviceQueueItem: queueItem,
   CathReprocessingSettings: settings,
   CathReprocessingCategoryPolicy: policy,
   CathPostUseOptions: postUseOptions,
@@ -297,7 +318,7 @@ export const schemas = {
     properties: {
       success: { type: 'boolean', example: true },
       message: { type: 'string' },
-      data: { type: 'array', items: { $ref: '#/components/schemas/CathReprocessableDevice' } },
+      data: { type: 'array', items: { $ref: '#/components/schemas/CssdDeviceQueueItem' } },
       requestId: { type: 'string', nullable: true }
     }
   },
@@ -454,7 +475,7 @@ export const operations = {
   },
 
   'GET /api/v1/cssd/devices': {
-    description: 'CSSD reprocessable cath device queue, ordered by the work that is waiting first. Carries no patient data.',
+    description: 'CSSD reprocessable cath device queue, ordered by the work that is waiting first. Each row is the device register row plus the facility it is waiting at and status_changed_at — when the device last MOVED, derived from its transition audit trail rather than from updated_at, which the late-reactive exposure stamp moves without a status change. Carries no patient data.',
     parameters: [
       queryParameter('status', { type: 'string', enum: DEVICE_STATUSES }),
       queryParameter('facility_id', { type: 'integer', minimum: 1 }),

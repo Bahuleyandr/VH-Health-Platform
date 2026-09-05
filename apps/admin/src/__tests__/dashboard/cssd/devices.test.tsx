@@ -75,6 +75,9 @@ const DEVICE = {
   category: "catheter",
   manufacturer: "Synthetic",
   model: "DX-5F",
+  // The two the QUEUE joins in — no other device surface returns them.
+  facility_name: "Nandanam",
+  status_changed_at: "2026-09-04T06:00:00.000Z",
 } as unknown as api.CathDevice;
 
 const QUARANTINED = {
@@ -83,6 +86,9 @@ const QUARANTINED = {
   device_tag: "RP00000002",
   status: "quarantined",
 } as unknown as api.CathDevice;
+
+const hoursAgo = (hours: number, minutes = 0) =>
+  new Date(Date.now() - hours * 3_600_000 - minutes * 60_000).toISOString();
 
 /**
  * GET /cath-reprocessing/policies always answers with one row per category
@@ -463,6 +469,66 @@ describe("CSSD Devices tab", () => {
     // something nobody may put back in a case.
     expect(screen.queryByLabelText("Print label RP00000003")).toBeNull();
     open.mockRestore();
+  });
+
+  it("shows the facility and a humanised time in queue", async () => {
+    // A queue is about waiting: "3h 25m" is the number CSSD works from, and
+    // the facility is what tells one site's tray from another's.
+    jest
+      .mocked(api.listCssdDevices)
+      .mockResolvedValue([
+        { ...DEVICE, status_changed_at: hoursAgo(3, 25) },
+      ] as unknown as api.CathDevice[]);
+    renderTab();
+
+    const row = (await screen.findByText("RP00000001")).closest("tr");
+    expect(within(row!).getByText("Nandanam")).toBeInTheDocument();
+    expect(within(row!).getByText("3h 25m")).toBeInTheDocument();
+  });
+
+  it("sorts by time in queue, longest wait first, and flips on a second click", async () => {
+    jest.mocked(api.listCssdDevices).mockResolvedValue([
+      {
+        ...DEVICE,
+        id: 1,
+        device_tag: "RP00000001",
+        facility_name: "Nandanam",
+        status_changed_at: hoursAgo(2),
+      },
+      {
+        ...DEVICE,
+        id: 2,
+        device_tag: "RP00000002",
+        facility_name: "Adyar",
+        status_changed_at: hoursAgo(50),
+      },
+    ] as unknown as api.CathDevice[]);
+    renderTab();
+    await screen.findByText("RP00000001");
+
+    const tags = () =>
+      screen
+        .getAllByRole("row")
+        .slice(1)
+        .map((row) => within(row).getAllByRole("cell")[0].textContent);
+
+    // The server orders by status bucket then updated_at; the console does not
+    // reorder until asked.
+    expect(tags()).toEqual(["RP00000001", "RP00000002"]);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Sort by time in queue" }),
+    );
+    expect(tags()).toEqual(["RP00000002", "RP00000001"]);
+    expect(screen.getByText("2d 2h")).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Sort by time in queue" }),
+    );
+    expect(tags()).toEqual(["RP00000001", "RP00000002"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Sort by facility" }));
+    expect(tags()).toEqual(["RP00000002", "RP00000001"]);
   });
 
   it("will not send a quarantine without a reason", async () => {

@@ -322,9 +322,72 @@ function normalizeDevice(row) {
     current_usage_id: row.current_usage_id == null ? null : num(row.current_usage_id), cycle_count: Number(row.cycle_count),
     max_cycles_snapshot: Number(row.max_cycles_snapshot), facility_id: Number(row.facility_id), exposure_markers: Array.isArray(row.exposure_markers) ? row.exposure_markers : [] };
 }
+// One queue row: the device columns plus the two the queue joins in. The
+// COALESCE in DEVICE_QUEUE_SELECT makes status_changed_at non-null, so the
+// published contract can require it — but be explicit rather than trusting a
+// SQL expression to stay non-null across an edit.
+function normalizeQueueDevice(row) {
+  const device = normalizeDevice(row);
+  return {
+    ...device,
+    facility_name: row.facility_name ?? null,
+    status_changed_at: row.status_changed_at ?? row.created_at ?? null,
+  };
+}
+// The audit actions that ARE a status change, for the queue's
+// status_changed_at below. `cath_device.exposure_flagged` is deliberately not
+// among them: the late-reactive sweep stamps a marker without moving the
+// device, and counting it would restart the clock on a device that has been
+// waiting in the queue all along.
+const DEVICE_STATUS_AUDIT_ACTIONS = Object.freeze([
+  'cath_device.created',
+  ...Object.keys(DEVICE_ACTIONS).map((action) => `cath_device.${action}`),
+]);
+
+// The CSSD queue reads two things the register itself does not hold.
+//
+// facility_name: joined from `facilities`, tenant-pinned like every other join
+// on this table, so the console can name the site a device is waiting at
+// rather than print its integer id.
+//
+// status_changed_at: THE REGISTER HAS NO SUCH COLUMN, and `updated_at` is not
+// a substitute — flagDeviceExposureTx moves it when the late-reactive sweep
+// stamps an exposure marker, which changes no status at all, so a device that
+// had been queued for a week would read as freshly touched on the day some
+// OTHER patient's result came back. Nor do the per-status columns cover it:
+// discarded_at, quarantined_at and last_reprocessed_at exist, but the status
+// that matters most to a queue — awaiting_reprocessing — has none.
+//
+// So it is derived from the register's own append-only trail: the newest
+// transition audit row for the device. The fallback to created_at is for a
+// device whose audit rows have been pruned; a minted device always has its own
+// `cath_device.created` row, written in the same transaction as the INSERT.
+//
+// audit_logs.created_at is `timestamp WITHOUT time zone` while the register's
+// is TIMESTAMPTZ. The pool pins the session to UTC (prisma.js
+// pinSessionTimeZoneToUrl), so the naive value IS UTC wall time — say so
+// explicitly rather than let COALESCE coerce it under whatever zone the
+// session happens to carry.
+const DEVICE_QUEUE_SELECT = `${DEVICE_SELECT}, f.display_name AS facility_name, COALESCE(t.status_changed_at AT TIME ZONE 'UTC', d.created_at) AS status_changed_at`;
+// $2 is the action list; listDevices pins it so its optional filters can number
+// from $3. Backed by idx_audit_logs_tenant_resource_time
+// (tenant_id, resource, resource_id, created_at DESC, id DESC).
+const DEVICE_QUEUE_FROM = `${DEVICE_FROM}
+  JOIN facilities f ON f.id = d.facility_id AND f.tenant_id = d.tenant_id
+  LEFT JOIN LATERAL (
+    SELECT a.created_at AS status_changed_at
+      FROM audit_logs a
+     WHERE a.tenant_id = d.tenant_id
+       AND a.resource = 'cath_reprocessable_devices'
+       AND a.resource_id = d.id::text
+       AND a.action = ANY($2::text[])
+     ORDER BY a.created_at DESC, a.id DESC
+     LIMIT 1
+  ) t ON TRUE`;
+
 export async function listDevices({ tenantId, status = null, facilityId = null, limit = 100, db = null } = {}) {
   const tid = tenantOr(tenantId);
-  const params = [tid]; const clauses = ['d.tenant_id = $1::uuid'];
+  const params = [tid, [...DEVICE_STATUS_AUDIT_ACTIONS]]; const clauses = ['d.tenant_id = $1::uuid'];
   if (status) { params.push(oneOf(status, DEVICE_STATUSES, 'status')); clauses.push(`d.status = $${params.length}`); }
   // Presence, not truthiness: facility_id is INTEGER, so a bad filter should be
   // a 400 rather than silently listing every facility. 0 is not a valid id and
@@ -335,10 +398,10 @@ export async function listDevices({ tenantId, status = null, facilityId = null, 
   }
   params.push(Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 500));
   const rows = await withTenant(tid, db, (client) => client.$queryRawUnsafe(
-    `SELECT ${DEVICE_SELECT} ${DEVICE_FROM} WHERE ${clauses.join(' AND ')}
+    `SELECT ${DEVICE_QUEUE_SELECT} ${DEVICE_QUEUE_FROM} WHERE ${clauses.join(' AND ')}
       ORDER BY CASE d.status WHEN 'awaiting_reprocessing' THEN 0 WHEN 'in_cssd' THEN 1 WHEN 'quarantined' THEN 2 WHEN 'available' THEN 3 WHEN 'in_case' THEN 4 ELSE 5 END, d.updated_at DESC, d.id DESC
       LIMIT $${params.length}::int`, ...params));
-  return rows.map(normalizeDevice);
+  return rows.map(normalizeQueueDevice);
 }
 export async function deviceByTag({ tenantId, tag, db = null } = {}) {
   const tid = tenantOr(tenantId); const safeTag = normalizeDeviceTag(tag);

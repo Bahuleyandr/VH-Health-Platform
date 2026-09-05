@@ -97,6 +97,59 @@ describe('CathReprocessableDevice mirrors DEVICE_SELECT exactly', () => {
   });
 });
 
+describe('CssdDeviceQueueItem is the device row plus what the queue joins in', () => {
+  const columns = selectColumns('DEVICE_SELECT');
+  const schema = overlay.schemas.CssdDeviceQueueItem;
+
+  it('publishes every device column plus facility_name and status_changed_at', () => {
+    expect(schema.additionalProperties).toBe(false);
+    expect(schema.required).toEqual([...columns, 'facility_name', 'status_changed_at']);
+    expect(Object.keys(schema.properties)).toEqual([...columns, 'facility_name', 'status_changed_at']);
+    // The device columns keep the SAME published shapes — the queue item is
+    // the device row widened, not a second opinion about it.
+    for (const column of columns) {
+      expect(schema.properties[column]).toEqual(overlay.schemas.CathReprocessableDevice.properties[column]);
+    }
+  });
+
+  it('the queue SELECT really returns those two, and only the queue does', () => {
+    expect(SERVICE_SOURCE).toContain('AS facility_name');
+    expect(SERVICE_SOURCE).toContain('AS status_changed_at');
+    // DEVICE_SELECT is what every OTHER device surface reads; widening it
+    // would make CathReprocessableDevice (additionalProperties:false) reject
+    // its own responses.
+    expect(selectColumns('DEVICE_SELECT')).not.toContain('display_name AS facility_name');
+    expect(columns).toHaveLength(31);
+  });
+
+  it('status_changed_at is derived from TRANSITIONS, never the exposure stamp', () => {
+    // The whole reason the column is derived rather than read from
+    // updated_at: flagDeviceExposureTx moves updated_at without moving the
+    // device. Counting cath_device.exposure_flagged here would restart a
+    // queued device's clock on some other patient's lab result.
+    const actions = SERVICE_SOURCE.match(
+      /const DEVICE_STATUS_AUDIT_ACTIONS = Object\.freeze\(\[([\s\S]*?)\]\)/,
+    );
+    expect(actions).not.toBeNull();
+    expect(actions[1]).toContain("'cath_device.created'");
+    expect(actions[1]).not.toContain('exposure_flagged');
+    // ...and the writer really does use that action name, so the exclusion is
+    // excluding something that exists.
+    expect(SERVICE_SOURCE).toContain("action: 'cath_device.exposure_flagged'");
+  });
+
+  it('the queue list response carries the queue item, not the bare device', () => {
+    expect(overlay.schemas.CssdDeviceListResponse.properties.data.items).toEqual({
+      $ref: '#/components/schemas/CssdDeviceQueueItem',
+    });
+    // ...while the single-device transition responses stay the device row:
+    // those handlers return lockDeviceTx's row, which has neither column.
+    expect(overlay.schemas.CssdDeviceResponse.properties.data).toEqual({
+      $ref: '#/components/schemas/CathReprocessableDevice',
+    });
+  });
+});
+
 describe('CssdDeviceLabel mirrors the fields the label actually carries', () => {
   const schema = overlay.schemas.CssdDeviceLabel;
 
