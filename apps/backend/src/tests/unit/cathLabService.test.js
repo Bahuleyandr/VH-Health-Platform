@@ -119,6 +119,7 @@ beforeEach(() => {
   startWorkflowSlaMock.mockClear();
   completeWorkflowSlaMock.mockClear();
   cancelWorkflowSlaMock.mockClear();
+  recordMedicationSafetyReviewsMock.mockClear();
   assertPrivilegeForGateMock.mockClear();
   isGateEnabledMock.mockClear();
   privilegeKeyMock.mockClear();
@@ -474,5 +475,116 @@ describe('updateReadinessCheck metadata handling', () => {
 
     expect(metadataArgumentOf(queryUnsafeMock.mock.calls[2]))
       .toEqual({ auto_managed: true, form_version: 3 });
+  });
+});
+
+describe('updateReadinessCheck critical-value reason gate', () => {
+  // The override reason on the safety review IS the clinical record of why a
+  // flagged value was passed. Without a required reason the service wrote a
+  // boilerplate line, so the record could not distinguish a considered
+  // decision from a reflex tick — and the reason has to be demanded BEFORE
+  // the upsert, or a rejected write still leaves the check flipped.
+  const CRITICAL = { critical_warning: true, critical_items: ['potassium'] };
+
+  function primeUpdate(priorMetadata) {
+    queryUnsafeMock
+      // caseById (FOR UPDATE)
+      .mockResolvedValueOnce([cathCase('readiness_pending')])
+      // prior metadata (FOR UPDATE)
+      .mockResolvedValueOnce([{ metadata: priorMetadata }])
+      // the upsert's RETURNING *
+      .mockResolvedValueOnce([{ id: 3, check_type: 'labs', status: 'pass', metadata: {} }])
+      // readinessForCase
+      .mockResolvedValueOnce(clearedReadinessRows())
+      // the case status update
+      .mockResolvedValueOnce([]);
+  }
+
+  const upsertCalls = () => queryUnsafeMock.mock.calls.filter(
+    call => String(call[0]).includes('INSERT INTO cath_lab_readiness_checks')
+  );
+
+  test.each([
+    ['omitted', undefined],
+    ['null', null],
+    ['empty', ''],
+    ['whitespace only', ' \t\n  ']
+  ])('refuses a labs pass over a critical value when the reason is %s', async (_label, notes) => {
+    primeUpdate(CRITICAL);
+
+    await expect(updateReadinessCheck(
+      42,
+      { tenantId: TENANT, check_type: 'labs', status: 'pass', notes },
+      { actorUid: ACTOR, actorRole: 'CARDIOLOGIST' }
+    )).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'CATH_LAB_READINESS_REASON_REQUIRED'
+    });
+
+    // Thrown before the write: only the two FOR UPDATE reads ran, so the
+    // check is not left flipped by a request that was refused.
+    expect(upsertCalls()).toHaveLength(0);
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
+    expect(recordMedicationSafetyReviewsMock).not.toHaveBeenCalled();
+  });
+
+  test('accepts the pass once a reason is given, and that text is the override reason', async () => {
+    primeUpdate(CRITICAL);
+
+    await updateReadinessCheck(
+      42,
+      {
+        tenantId: TENANT,
+        check_type: 'labs',
+        status: 'pass',
+        notes: '  K+ 6.1 discussed with the consultant, proceeding  '
+      },
+      { actorUid: ACTOR, actorRole: 'CARDIOLOGIST' }
+    );
+
+    expect(upsertCalls()).toHaveLength(1);
+    expect(recordMedicationSafetyReviewsMock).toHaveBeenCalledTimes(1);
+    // Trimmed, and never the boilerplate: the clinician's own words carry.
+    expect(recordMedicationSafetyReviewsMock.mock.calls[0][0].override.reason)
+      .toBe('K+ 6.1 discussed with the consultant, proceeding');
+  });
+
+  test('a labs pass with no critical value stored needs no reason', async () => {
+    primeUpdate({ critical_warning: false, critical_items: [] });
+
+    await updateReadinessCheck(
+      42,
+      { tenantId: TENANT, check_type: 'labs', status: 'pass' },
+      { actorUid: ACTOR, actorRole: 'CARDIOLOGIST' }
+    );
+
+    expect(upsertCalls()).toHaveLength(1);
+    // No override to record, so no safety review either.
+    expect(recordMedicationSafetyReviewsMock).not.toHaveBeenCalled();
+  });
+
+  test('failing the check over a critical value needs no reason: it is not an override', async () => {
+    primeUpdate(CRITICAL);
+
+    await updateReadinessCheck(
+      42,
+      { tenantId: TENANT, check_type: 'labs', status: 'fail' },
+      { actorUid: ACTOR, actorRole: 'CARDIOLOGIST' }
+    );
+
+    expect(upsertCalls()).toHaveLength(1);
+    expect(recordMedicationSafetyReviewsMock).not.toHaveBeenCalled();
+  });
+
+  test('a non-labs pass is never gated, whatever the labs row is carrying', async () => {
+    primeUpdate(CRITICAL);
+
+    await updateReadinessCheck(
+      42,
+      { tenantId: TENANT, check_type: 'consent', status: 'pass' },
+      { actorUid: ACTOR, actorRole: 'CARDIOLOGIST' }
+    );
+
+    expect(upsertCalls()).toHaveLength(1);
   });
 });

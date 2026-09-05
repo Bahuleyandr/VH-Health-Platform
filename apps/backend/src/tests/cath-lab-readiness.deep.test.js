@@ -344,6 +344,32 @@ d('cath lab readiness (deep)', () => {
     // HGB is still stale from the previous test, so automation wants pending.
     const auto = await refreshCaseLabReadiness({ tenantId: TENANT, caseId: CASE_ID, context: ctx() });
     expect(auto.check_status).toBe('pending');
+    // The override reason is demanded at the door. Without it the pass is
+    // refused, and the refusal leaves the check exactly as it stood — the
+    // guard throws inside the transaction, before the upsert.
+    const reviewsBefore = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n
+         FROM medication_safety_reviews
+        WHERE tenant_id = $1::uuid AND review_type = 'cath_lab_readiness'`,
+      TENANT,
+    );
+    await expect(updateReadinessCheck(
+      CASE_ID,
+      { tenantId: TENANT, check_type: 'labs', status: 'pass', notes: '   ' },
+      ctx(),
+    )).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'CATH_LAB_READINESS_REASON_REQUIRED',
+    });
+    expect((await labsCheck()).status).toBe('pending');
+    const reviewsAfterRefusal = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n
+         FROM medication_safety_reviews
+        WHERE tenant_id = $1::uuid AND review_type = 'cath_lab_readiness'`,
+      TENANT,
+    );
+    expect(reviewsAfterRefusal[0].n).toBe(reviewsBefore[0].n);
+
     await updateReadinessCheck(
       CASE_ID,
       { tenantId: TENANT, check_type: 'labs', status: 'pass', notes: 'K reviewed by cardiologist' },

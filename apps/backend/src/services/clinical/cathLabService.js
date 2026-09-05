@@ -1145,6 +1145,24 @@ export async function updateReadinessCheck(caseId, input = {}, context = {}) {
     const priorMetadata = priorRows[0]?.metadata && typeof priorRows[0].metadata === 'object'
       ? priorRows[0].metadata
       : {};
+    // Passing `labs` over a critical value is an override, and the override
+    // lands on the record as a medication safety review below. An override
+    // with no reason is not auditable — and it was previously papered over
+    // with a boilerplate string, so the record could not tell a considered
+    // clinical decision from a reflex tick. Required at the door, decided
+    // from the LOCKED prior row rather than the metadata the request carried,
+    // and thrown before anything is written.
+    if (
+      checkType === 'labs'
+      && status === 'pass'
+      && priorMetadata.critical_warning === true
+      && !cleanText(input.notes)
+    ) {
+      throw AppError.badRequest(
+        'A reason is required to pass the labs check while a critical value is present',
+        'CATH_LAB_READINESS_REASON_REQUIRED'
+      );
+    }
     const requestMetadata = normalizeJson(input.metadata, 'metadata', {});
     const mergedMetadata = checkType === 'labs'
       ? {
@@ -1211,6 +1229,10 @@ export async function updateReadinessCheck(caseId, input = {}, context = {}) {
           warnings: []
         },
         override: {
+          // The guard above makes the fallback unreachable on this path: a
+          // `labs` pass over a critical value cannot get here without notes.
+          // Kept only so a future regression writes SOMETHING rather than a
+          // null override reason into the safety review.
           reason: cleanText(input.notes) || 'Critical lab value acknowledged at readiness',
           approvedBy: maybeUuid(context.actorUid, 'actorUid')
         },
