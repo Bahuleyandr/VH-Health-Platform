@@ -382,7 +382,11 @@ export async function voidMarker({ tenantId, patientUid, markerId, actorUid, rea
 // read rather than pushed at them.
 // ---------------------------------------------------------------------------
 
-const SIGNED_STATUSES = new Set(['final', 'corrected', 'amended', 'verified']);
+// The lab_results.status values this writer treats as signed. Exported so the
+// reconciliation sweep (spec §18) can select exactly the results this hook
+// would have accepted, rather than retyping the set and drifting from it — the
+// sweep's whole job is to find results this writer should already have seen.
+export const SIGNED_STATUSES = new Set(['final', 'corrected', 'amended', 'verified']);
 export const SIGN_OFF_DECISIONS = Object.freeze(['verified', 'corrected', 'amended']);
 
 // One read-compare-write pass over a lab result's active marker slot, run
