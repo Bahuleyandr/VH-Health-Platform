@@ -5,6 +5,7 @@ import {
   computeCheckDecision,
   externalNumericValue,
   isCriticalResult,
+  itemWriteValues,
   orderPriorityForUrgency,
   pendingReasonFor,
   recordExternalLabResult,
@@ -401,6 +402,13 @@ describe('externalNumericValue', () => {
     ['an object', {}, null],
     ['a non-numeric string', 'high', null],
     ['a negative number', -1, null],
+    // value_numeric is NUMERIC(15, 4) in lab_results and in the readiness item
+    // it is copied to: eleven digits ahead of the point. 1e11 overflows the
+    // column, and unchecked it is Postgres that says so -- as a 22003 raised
+    // halfway through the insert, which the ward reads as a 500.
+    ['a number that overflows NUMERIC(15, 4)', 1e11, null],
+    ['a decimal STRING that overflows it', undefined, '100000000000'],
+    ['an overflowing value in either field', 1e15, '1.2'],
   ])('%s is refused', (_label, numeric, text) => {
     expect(refusal(() => externalNumericValue(numeric, text)))
       .toMatchObject({ statusCode: 400, code: 'CATH_LAB_READINESS_VALUE_INVALID' });
@@ -412,6 +420,85 @@ describe('externalNumericValue', () => {
     expect(externalNumericValue('1.2', null)).toBe(1.2);
     // Zero is a legitimate reading when somebody actually sent it.
     expect(externalNumericValue(0, null)).toBe(0);
+  });
+
+  test('the largest value NUMERIC(15, 4) can hold is still accepted', () => {
+    // The bound is the COLUMN's, not a guess at a plausible lab value: the
+    // last value that fits has to pass, or the refusal is refusing real data.
+    expect(externalNumericValue(99999999999.9999, null)).toBe(99999999999.9999);
+    expect(externalNumericValue(undefined, '99999999999.9999')).toBe(99999999999.9999);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// What the UPSERT actually binds: shapes, not just values
+// ---------------------------------------------------------------------------
+describe('itemWriteValues', () => {
+  const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T.*Z$/;
+  const WAIVED_AT = new Date('2026-09-03T06:30:00.000Z');
+  const waived = () => resolveItemState({
+    item: 'hcv',
+    windowDays: 90,
+    asOf: AS_OF,
+    results: [],
+    orders: [],
+    specimens: [],
+    // Shaped as the STORED row the refresh reads its waiver from: the driver
+    // materialises a TIMESTAMPTZ as a Date, which is exactly the shape the
+    // house rule says must never be bound.
+    waiver: {
+      state: 'waived',
+      waived_by: CTX.actorUid,
+      waived_at: WAIVED_AT,
+      waive_reason: 'Repeat HCV from last month on file elsewhere',
+    },
+  });
+
+  test('waived_at is bound as an ISO string, not as a driver Date', () => {
+    const item = waived();
+    expect(item.waived_at).toBeInstanceOf(Date);
+    const values = itemWriteValues(item);
+    expect(typeof values.waived_at).toBe('string');
+    expect(values.waived_at).toMatch(ISO_INSTANT);
+    expect(values.waived_at).toBe(WAIVED_AT.toISOString());
+  });
+
+  test('the ISO string names the SAME instant, so a no-op refresh rewrites nothing', () => {
+    // storedItemMatches compares the stored Date and this value through toMs.
+    // If the conversion moved the instant by so much as a millisecond, every
+    // read of a waived case would rewrite the row and churn refreshed_at.
+    const values = itemWriteValues(waived());
+    expect(Date.parse(values.waived_at)).toBe(WAIVED_AT.getTime());
+  });
+
+  test('every instant it binds is a string or null, on a waived and an unwaived item', () => {
+    const withResult = resolveItemState({
+      item: 'hb',
+      windowDays: 30,
+      asOf: AS_OF,
+      orders: [],
+      specimens: [],
+      results: [{
+        id: 21, test_code: 'HGB', value_text: '11.4', value_numeric: 11.4, unit: 'g/dL',
+        status: 'final', signed_off_at: daysAgo(1), performed_at: daysAgo(1),
+        received_at: daysAgo(1), result_origin: 'analyzer',
+      }],
+    });
+    for (const item of [waived(), withResult]) {
+      const values = itemWriteValues(item);
+      for (const column of ['observed_at', 'ordered_at', 'waived_at']) {
+        const bound = values[column];
+        expect(bound === null || typeof bound === 'string').toBe(true);
+        if (bound !== null) expect(bound).toMatch(ISO_INSTANT);
+      }
+    }
+  });
+
+  test('an item with no waiver binds three explicit nulls', () => {
+    const values = itemWriteValues(resolveItemState({
+      item: 'hcv', windowDays: 90, asOf: AS_OF, results: [], orders: [], specimens: [],
+    }));
+    expect(values).toMatchObject({ waived_by: null, waived_at: null, waive_reason: null });
   });
 });
 

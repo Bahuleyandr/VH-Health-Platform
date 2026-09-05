@@ -801,6 +801,20 @@ d('cath lab readiness (deep)', () => {
       TENANT, CASE_ID,
     ).then((rows) => rows.map((row) => `${row.item_code}:${row.refreshed_at.toISOString()}`));
 
+    // The hcv row waived earlier in this suite is still waived, and it is the
+    // only row whose waived_at reaches the UPSERT from a driver-materialised
+    // Date rather than from an ISO string the resolver built. Asserting it is
+    // here makes the no-op claim below a pin on that conversion too: bind the
+    // instant in a shape that does not compare equal to what Postgres stored,
+    // and this row rewrites itself on every read of the case.
+    const waived = await prisma.$queryRawUnsafe(
+      `SELECT item_code, waived_at FROM cath_case_lab_readiness_items
+        WHERE tenant_id = $1::uuid AND case_id = $2::bigint AND state = 'waived'`,
+      TENANT, CASE_ID,
+    );
+    expect(waived.map((row) => row.item_code)).toEqual(['hcv']);
+    expect(waived[0].waived_at).toBeInstanceOf(Date);
+
     await refreshCaseLabReadiness({ tenantId: TENANT, caseId: CASE_ID, context: ctx() });
     const before = await stamps();
     await refreshCaseLabReadiness({ tenantId: TENANT, caseId: CASE_ID, context: ctx() });

@@ -119,8 +119,11 @@ describe('the outside-lab entry point is reachable from exactly one module', () 
     const service = FILES.find((file) => file.path === 'services/lab/labResultsService.js').text;
     const signature = /export async function recordResultManual\(\{([\s\S]*?)\n\}\)/.exec(service);
     expect(signature).not.toBeNull();
-    // No parameter of its own mentions the escape...
-    expect(signature[1]).not.toMatch(/external/);
+    // No parameter of its own names an external origin -- case-INSENSITIVELY,
+    // because `isExternal`, `allowExternal` and `externalLabName` are exactly
+    // the shapes such a parameter would take, and a case-sensitive /external/
+    // reads straight past the first two.
+    expect(signature[1]).not.toMatch(/external/i);
     // ...and what it forwards to the shared implementation closes it explicitly
     // rather than relying on the default.
     const call = /export async function recordResultManual\([\s\S]*?\n\}\)\s*\{([\s\S]*?)\n\}/

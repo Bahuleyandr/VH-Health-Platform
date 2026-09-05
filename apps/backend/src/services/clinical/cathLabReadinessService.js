@@ -418,14 +418,26 @@ function numericValueOrNull(value) {
   return null;
 }
 
+// lab_results.value_numeric and the readiness item's copy of it are both
+// NUMERIC(15, 4) -- eleven digits ahead of the point, so anything from 1e11 up
+// does not fit the column. Postgres raises that as 22003 halfway through the
+// insert, which reaches the ward as a 500 naming no field at all. The COLUMN's
+// bound is therefore stated here, where the answer is a 400 that names it.
+const VALUE_NUMERIC_EXCLUSIVE_MAX = 1e11;
+
 // The quantitative value an outside entry is filing, or a 400. Exported so the
 // rule can be pinned on its own: it is the difference between "no value was
 // sent" and "a creatinine of 0 was sent", and the second reads as normal.
 export function externalNumericValue(rawNumeric, rawText) {
   const value = numericValueOrNull(rawNumeric) ?? numericValueOrNull(rawText);
-  if (value === null || !Number.isFinite(value) || value < 0) {
+  if (
+    value === null
+    || !Number.isFinite(value)
+    || value < 0
+    || value >= VALUE_NUMERIC_EXCLUSIVE_MAX
+  ) {
     throw AppError.badRequest(
-      'value_numeric must be a non-negative number',
+      'value_numeric must be a non-negative number below 1e11 (NUMERIC(15, 4))',
       'CATH_LAB_READINESS_VALUE_INVALID',
     );
   }
@@ -642,8 +654,10 @@ async function caseRowTx(client, tenantId, caseId, { lock = false } = {}) {
 
 // Exactly what the UPSERT below binds, in one object, so the STORED row can be
 // compared against it column for column and an unchanged item skipped. The
-// widths mirror the lab_results columns migration 766 copies from.
-function itemWriteValues(item) {
+// widths mirror the lab_results columns migration 766 copies from. Exported so
+// the bound SHAPES can be pinned without a database: every column below is cast
+// in SQL, and which JS type reaches that cast is the whole question.
+export function itemWriteValues(item) {
   return {
     required: item.required !== false,
     state: item.state,
@@ -661,7 +675,18 @@ function itemWriteValues(item) {
     specimen_id: int4OrNull(item.specimen_id),
     ordered_at: item.ordered_at ?? null,
     waived_by: item.waived_by ? requireUuid(item.waived_by, 'waived_by') : null,
-    waived_at: item.waived_at ?? null,
+    // The one instant here that does not already arrive as an ISO string: a
+    // waiver is read back off the STORED row, so the driver hands it over as a
+    // Date. Binding that Date is the Prisma 7 session-timezone skew this module
+    // writes instants as strings to avoid, so it is normalised to the shape
+    // observed_at and ordered_at already carry (msToIso). storedItemMatches
+    // compares both sides through toMs, so the round trip still reads equal and
+    // a waived item is still not rewritten by a no-op refresh. A value that is
+    // not an instant at all is passed through untouched: resolveItemState has
+    // already refused a waived item without one, so this is the corrupt-row
+    // path, and nulling it would trade migration 766's waiver CHECK for a
+    // silent loss of who waived and when.
+    waived_at: msToIso(toMs(item.waived_at)) ?? item.waived_at ?? null,
     waive_reason: item.waive_reason ?? null,
   };
 }
