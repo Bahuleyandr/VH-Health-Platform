@@ -1705,7 +1705,16 @@ export async function detectCriticalsForResults({ tenantId, results }) {
 
 // ── Manual entry path (when an analyzer doesn't speak HL7) ────────────
 
-export async function recordResultManual({
+// One implementation, two entry points, and `external` is NOT a caller option.
+// It used to be: recordResultManual took an `allowUnlinkedExternal` flag, and
+// "only the cath checklist may file an outside-laboratory result" was a fact
+// about the call graph rather than about the code -- a convention any new
+// caller would inherit by copying an existing call and flipping a boolean it
+// did not understand. The rule is structural now: the flag is a parameter of
+// this PRIVATE function, and the only way to reach it with `external: true` is
+// recordExternalLabResultRow below, which nothing on a public route imports
+// (pinned by tests/unit/labExternalResultCallSites.test.js).
+async function recordManualLabResultRow({
   tenantId,
   performed_by,
   performed_by_role,
@@ -1714,7 +1723,7 @@ export async function recordResultManual({
   requestBodySha256,
   httpIdempotencyClaimId = null,
   requestId = null,
-  allowUnlinkedExternal = false,
+  external = false,
   qualitative = false,
 }) {
   const fields = [
@@ -1747,15 +1756,16 @@ export async function recordResultManual({
   // 2026-05-08-inpatient-admission-lab-tech-results-final-without-verification
   // 2026-05-08-inpatient-admission-lab-tech-signoff-no-pathologist-tier-check
   const sanitised = { ...result, status: 'preliminary' };
-  // Provenance (migration 766). The public manual route may not choose an
-  // origin — labResultOriginGuard rejects those fields before the request ever
-  // reaches here — so an origin arriving without allowUnlinkedExternal is
-  // overwritten rather than trusted. The cath readiness checklist is the only
-  // caller that may file an outside-laboratory value, and it must name the lab
-  // and the day the lab reported it: an external value that cannot say where
-  // it came from is not evidence.
-  const externalOrigin = allowUnlinkedExternal && sanitised.result_origin === 'external_lab';
-  if (!allowUnlinkedExternal) {
+  // Provenance (migration 766). recordResultManual — the public entry point —
+  // cannot reach this with `external` true, so an origin arriving on that path
+  // is overwritten rather than trusted (labResultOriginGuard already rejects
+  // those fields at the route; this is the second, in-service half of the same
+  // rule). The cath readiness checklist is the only caller that may file an
+  // outside-laboratory value, and it must name the lab and the day the lab
+  // reported it: an external value that cannot say where it came from is not
+  // evidence.
+  const externalOrigin = external && sanitised.result_origin === 'external_lab';
+  if (!external) {
     sanitised.result_origin = 'manual_in_house';
     sanitised.external_lab_name = null;
     sanitised.external_report_ref = null;
@@ -2091,6 +2101,74 @@ export async function recordResultManual({
     }
   }
   return phaseOne.responseData;
+}
+
+/**
+ * Manual result entry -- the PUBLIC path (POST /api/v1/lab/results).
+ *
+ * Always in-house: result_origin is forced to `manual_in_house` and the four
+ * provenance columns to null, whatever the body said. There is no option here
+ * that changes that, which is the point -- see recordExternalLabResultRow. An
+ * abnormal_flag in the body is still honoured (normalised against the supported
+ * vocabulary) exactly as before; no reference range is looked up on this path.
+ */
+export async function recordResultManual({
+  tenantId,
+  performed_by,
+  performed_by_role,
+  result,
+  idempotencyKey,
+  requestBodySha256,
+  httpIdempotencyClaimId = null,
+  requestId = null,
+  qualitative = false,
+}) {
+  return recordManualLabResultRow({
+    tenantId,
+    performed_by,
+    performed_by_role,
+    result,
+    idempotencyKey,
+    requestBodySha256,
+    httpIdempotencyClaimId,
+    requestId,
+    qualitative,
+    external: false,
+  });
+}
+
+/**
+ * Outside-laboratory result entry -- the INTERNAL path.
+ *
+ * Files a lab_results row with no in-house order behind it, on the same
+ * ingest-command / idempotency rail and through the same critical-threshold and
+ * canonical-evidence writes as the manual path. Provenance is REQUIRED:
+ * result_origin `external_lab`, a non-blank external_lab_name and an
+ * external_reported_on, or LAB_RESULT_EXTERNAL_PROVENANCE_REQUIRED. Everything
+ * else about the row is scored exactly as an in-house one is, the governed
+ * threshold assessment included -- which is what makes an outside H mean what
+ * an in-house H means.
+ *
+ * NOT reachable from a route. The only permitted caller is
+ * services/clinical/cathLabReadinessService.js; a test pins that set so a new
+ * import fails the build rather than quietly inheriting the escape.
+ *
+ * @param {Object} input   { tenantId, performed_by, performed_by_role, result, qualitative }
+ * @param {Object} context { idempotencyKey, requestBodySha256, httpIdempotencyClaimId, requestId }
+ */
+export async function recordExternalLabResultRow(input = {}, context = {}) {
+  return recordManualLabResultRow({
+    tenantId: input.tenantId,
+    performed_by: input.performed_by,
+    performed_by_role: input.performed_by_role,
+    result: input.result,
+    qualitative: input.qualitative === true,
+    idempotencyKey: context.idempotencyKey,
+    requestBodySha256: context.requestBodySha256,
+    httpIdempotencyClaimId: context.httpIdempotencyClaimId ?? null,
+    requestId: context.requestId ?? null,
+    external: true,
+  });
 }
 
 // ── Pathologist worklist ──────────────────────────────────────────────

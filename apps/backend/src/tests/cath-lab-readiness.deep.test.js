@@ -8,7 +8,7 @@
 // starts `scheduled` with the seven other readiness checks already cleared, so
 // the `labs` check is the only thing between the case and `ready`.
 import prisma, { ensureTenantRlsRuntimeRoleGrants } from '../lib/prisma.js';
-import { getCase, updateReadinessCheck } from '../services/clinical/cathLabService.js';
+import { createCase, getCase, updateReadinessCheck } from '../services/clinical/cathLabService.js';
 import {
   orderMissingLabs,
   recordExternalLabResult,
@@ -17,7 +17,11 @@ import {
   waiveLabItem,
 } from '../services/clinical/cathLabReadinessService.js';
 import { clinicalDate } from '../services/clinical/bloodborneMarkerRules.js';
-import { recordResultManual } from '../services/lab/labResultsService.js';
+import {
+  recordExternalLabResultRow,
+  recordResultManual,
+  signOffResults,
+} from '../services/lab/labResultsService.js';
 
 const DB_CONFIGURED = Boolean(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -26,6 +30,9 @@ const TENANT = '00000000-0000-4000-8000-000000001ab0';
 const OTHER_TENANT = '00000000-0000-4000-8000-000000001abf';
 const PATIENT = 'cd000000-0000-4000-8000-000000001ab1';
 const ACTOR = 'cd000000-0000-4000-8000-000000001aba';
+// signOffResults gates on canSignOffLabResults, which ACTOR's DOCTOR role does
+// not satisfy; the end-to-end sign-off test signs as this user.
+const PATHOLOGIST = 'cd000000-0000-4000-8000-000000001abd';
 const RLS_ROLE = 'vhhealth_runtime';
 const READINESS_TYPES = [
   'consent', 'labs', 'allergy_renal_risk', 'anticoagulation',
@@ -40,12 +47,29 @@ const PURGE_TABLES = [
   'cath_lab_cases',
   'medication_safety_reviews',
   'patient_bloodborne_markers',
+  // A real sign-off (the post-commit-hook test) writes acknowledgement,
+  // reconciliation and diagnostic-generation receipts, and an outbox row;
+  // several of those tables are append-only, which is why the purge runs
+  // under replica mode.
+  'lab_critical_alert_acknowledgement_receipts',
+  'lab_critical_alert_reconciliation_receipts',
   'lab_critical_alerts',
+  'diagnostic_result_generation_items',
+  'diagnostic_result_generations',
   'lab_pathologist_signoffs',
   'lab_threshold_unmatched_exceptions',
+  'lab_reference_ranges',
   'lab_results',
   'lab_result_ingest_commands',
   'lab_specimens',
+  'event_outbox',
+  // The inpatient-pathway projector's inbox. A lab write that is linked to an
+  // admission publishes a diagnostic-resource-linked event into it, and it is
+  // tenant-bearing: without this the suite left rows behind that outlive the
+  // tenant row deleted last. Found by sweeping every tenant-bearing table for
+  // survivors after a run, not by reading the code — the publisher is three
+  // services down from anything this suite calls by name.
+  'pathway_projector_inbox',
   'investigation_bookings',
   'investigations',
   'tasks',
@@ -55,6 +79,10 @@ const PURGE_TABLES = [
   'clinical_audit_events',
   'audit_log',
   'audit_logs',
+  // Written by trg_pharmacy_patient_safety_version_753, which fires on every
+  // lab_results insert this suite makes. Left behind, its rows outlive the
+  // tenant row the teardown deletes last and the next run starts dirty.
+  'pharmacy_patient_safety_versions',
   'facilities',
   'users',
 ];
@@ -102,8 +130,9 @@ async function seed() {
   await prisma.$executeRawUnsafe(
     `INSERT INTO users (tenant_id, uid, phone, name, role, is_active, status, updated_at)
      VALUES ($1::uuid, $2::uuid, '9011881001', 'Cath Readiness Patient', 'PATIENT', TRUE, 'active', NOW()),
-            ($1::uuid, $3::uuid, '9011881002', 'Dr Cath Readiness', 'DOCTOR', TRUE, 'active', NOW())`,
-    TENANT, PATIENT, ACTOR,
+            ($1::uuid, $3::uuid, '9011881002', 'Dr Cath Readiness', 'DOCTOR', TRUE, 'active', NOW()),
+            ($1::uuid, $4::uuid, '9011881003', 'Dr Cath Path', 'PATHOLOGIST', TRUE, 'active', NOW())`,
+    TENANT, PATIENT, ACTOR, PATHOLOGIST,
   );
   const facilities = await prisma.$queryRawUnsafe(
     `INSERT INTO facilities (tenant_id, facility_code, display_name, status, is_default)
@@ -131,8 +160,6 @@ async function seed() {
   }
 }
 
-const resultIds = [];
-
 async function seedResult({
   code, value, numeric = null, flag = 'N', critical = false, daysAgo = 1, status = 'final',
 }) {
@@ -148,7 +175,6 @@ async function seedResult({
      RETURNING id`,
     TENANT, PATIENT, code, value, numeric, flag, critical, status, ACTOR, daysAgo,
   );
-  resultIds.push(Number(rows[0].id));
   return Number(rows[0].id);
 }
 
@@ -167,6 +193,26 @@ const labResultCount = () => prisma.$queryRawUnsafe(
   `SELECT COUNT(*)::int AS n FROM lab_results WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
   TENANT, PATIENT,
 ).then((rows) => rows[0].n);
+
+// The readiness refresh that a lab write triggers runs post-commit inside the
+// write's own call, so the item has normally moved by the time signOffResults
+// resolves. Polled anyway, briefly, rather than asserted on the first read:
+// the assertion is that the hook fires without anyone asking for a refresh,
+// not that it fires within one event-loop turn.
+async function pollForItem(itemCode, predicate, timeoutMs = 2000) {
+  const deadline = Date.now() + timeoutMs;
+  let row = null;
+  for (;;) {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT state, lab_result_id FROM cath_case_lab_readiness_items
+        WHERE tenant_id = $1::uuid AND case_id = $2::bigint AND item_code = $3`,
+      TENANT, CASE_ID, itemCode,
+    );
+    row = rows[0] || null;
+    if (predicate(row) || Date.now() >= deadline) return row;
+    await new Promise((resolve) => { setTimeout(resolve, 50); });
+  }
+}
 
 async function asRlsRole(tenantId, sql, ...params) {
   return prisma.$transaction(async (tx) => {
@@ -395,6 +441,12 @@ d('cath lab readiness (deep)', () => {
   }, 30000);
 
   test('the public manual path never stores an external origin; the escape needs full provenance', async () => {
+    // The public entry point has no parameter that could ask for one. It used
+    // to: `allowUnlinkedExternal: true` on this same function was the escape,
+    // and the rule that only the cath checklist passed it lived in a comment.
+    // Now the escape is a different function (recordExternalLabResultRow) that
+    // no route imports, so the assertion below is about a shape the public
+    // signature CANNOT express, not about a flag a caller declined to set.
     const inv = await prisma.$queryRawUnsafe(
       `UPDATE investigations SET status = 'REQUESTED'
         WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid AND test_code = 'CBC'
@@ -417,9 +469,12 @@ d('cath lab readiness (deep)', () => {
       idempotencyKey: 'clr-public-1',
       requestBodySha256: 'a'.repeat(64),
     });
-    resultIds.push(Number(stored.result.id));
     expect(stored.result.result_origin).toBe('manual_in_house');
     expect(stored.result.external_lab_name).toBeNull();
+    // A caller that still tries to set the retired flag gets an in-house row,
+    // not an external one: the option no longer exists, so it is an unknown key
+    // on the argument object and the manual path's forcing applies as always.
+    // (It also has no order link, which is what the public path refuses.)
     await expect(recordResultManual({
       tenantId: TENANT,
       performed_by: ACTOR,
@@ -431,6 +486,21 @@ d('cath lab readiness (deep)', () => {
       idempotencyKey: 'clr-public-2',
       requestBodySha256: 'b'.repeat(64),
       allowUnlinkedExternal: true,
+    })).rejects.toMatchObject({ code: 'LAB_RESULT_ORDER_LINK_REQUIRED' });
+
+    // The internal entry point is the only way to an external origin, and it
+    // will not take one without the laboratory's name and report date.
+    await expect(recordExternalLabResultRow({
+      tenantId: TENANT,
+      performed_by: ACTOR,
+      performed_by_role: 'DOCTOR',
+      result: {
+        patient_uid: PATIENT, test_code: 'K', test_name: 'K', value_text: '4.0',
+        result_origin: 'external_lab',
+      },
+    }, {
+      idempotencyKey: 'clr-public-3',
+      requestBodySha256: 'b'.repeat(64),
     })).rejects.toMatchObject({ code: 'LAB_RESULT_EXTERNAL_PROVENANCE_REQUIRED' });
   }, 60000);
 
@@ -562,4 +632,260 @@ d('cath lab readiness (deep)', () => {
     );
     expect(drift[0].seconds).toBeLessThan(1);
   }, 60000);
+
+  // ---- review fixes: consistency, ownership, bookings, write-once ----------
+
+  test('an outside quantitative result stores the number and its unit, as a preliminary external row', async () => {
+    // The creatinine on file is the analyzer's; retire it so the outside value
+    // is the latest and the item resolves from it.
+    await prisma.$executeRawUnsafe(
+      `UPDATE lab_results SET status = 'cancelled'
+        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid AND test_code = 'CREA'`,
+      TENANT, PATIENT,
+    );
+    const out = await recordExternalLabResult(CASE_ID, 'creatinine', {
+      tenantId: TENANT,
+      value_numeric: 1.2,
+      observed_on: istDaysAgo(1),
+      external_lab_name: 'City Path Lab',
+      external_report_ref: 'CPL-9001',
+    }, ctx({ idempotencyKey: 'clr-ext-crea-1' }));
+
+    expect(out.readiness.items.find((row) => row.item_code === 'creatinine')).toMatchObject({
+      state: 'external_recorded', value_numeric: 1.2, unit: 'mg/dL', source: 'external',
+    });
+    const row = await prisma.$queryRawUnsafe(
+      `SELECT value_text, value_numeric, unit, abnormal_flag, result_origin
+         FROM lab_results WHERE id = $1::int`,
+      out.lab_result_id,
+    );
+    expect(row[0]).toMatchObject({
+      value_text: '1.2', unit: 'mg/dL', result_origin: 'external_lab', abnormal_flag: null,
+    });
+    expect(Number(row[0].value_numeric)).toBe(1.2);
+  }, 60000);
+
+  test('an outside value is scored by the SAME governed threshold rail an in-house one is', async () => {
+    // Spec §8.2 asks that an outside numeric value carry the abnormal_flag an
+    // in-house one would. On this platform that is not a lookup the writer
+    // performs: lab_results.abnormal_flag (with reference_range and its two
+    // bounds) is rewritten from the governed threshold assessment right after
+    // the insert, for every writer — the panel path inserts abnormal_flag: null
+    // outright and lets the rail decide. So "the same flag" means "the same
+    // rail", and what this pins is that the outside row went through it and
+    // carries its verdict, rather than a second flag invented on the way in.
+    //
+    // A lab_reference_ranges row is seeded precisely to prove it is NOT the
+    // authority here: giving an outside creatinine an H that the in-house one
+    // for the same analyte would not carry is the inconsistency §8.2 exists to
+    // prevent.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO lab_reference_ranges
+         (tenant_id, test_code, test_name, unit, range_low, range_high, critical_high, is_active)
+       VALUES ($1::uuid, 'CREA', 'Serum Creatinine', 'mg/dL', 0.6, 1.3, 4.0, TRUE)`,
+      TENANT,
+    );
+    const out = await recordExternalLabResult(CASE_ID, 'creatinine', {
+      tenantId: TENANT,
+      value_numeric: 2.4,
+      observed_on: istDaysAgo(0),
+      external_lab_name: 'City Path Lab',
+      external_report_ref: 'CPL-9002',
+    }, ctx({ idempotencyKey: 'clr-ext-crea-2' }));
+
+    const row = await prisma.$queryRawUnsafe(
+      `SELECT abnormal_flag, criticality_status, threshold_evaluated_at, is_critical
+         FROM lab_results WHERE id = $1::int`,
+      out.lab_result_id,
+    );
+    // The rail ran (it stamped its verdict and the time it reached it) and, this
+    // tenant having no governed policy for CREA, it owns the flag as null.
+    expect(row[0].criticality_status).toBe('threshold_unavailable');
+    expect(row[0].threshold_evaluated_at).not.toBeNull();
+    expect(row[0].abnormal_flag).toBeNull();
+    expect(row[0].is_critical).toBe(false);
+    // ...and the checklist item reports exactly what the row says, never a
+    // second opinion computed beside it.
+    expect(out.readiness.items.find((row2) => row2.item_code === 'creatinine'))
+      .toMatchObject({ abnormal_flag: null, is_critical: false, value_numeric: 2.4 });
+  }, 60000);
+
+  test('createCase returns a lab-readiness block: the refresh runs on the transaction that inserted the case', async () => {
+    const created = await createCase({
+      tenantId: TENANT,
+      patient_uid: PATIENT,
+      facility_id: FACILITY_ID,
+      requested_procedure: 'Diagnostic CAG',
+    }, ctx());
+    // It used to be null every time: the refresh opened its own transaction and
+    // could not see the case the caller's transaction had not committed yet.
+    expect(created.lab_readiness).not.toBeNull();
+    expect(Number(created.lab_readiness.case_id)).toBe(Number(created.id));
+    expect(created.lab_readiness.items).toHaveLength(7);
+  }, 60000);
+
+  test('the read that flips the check reports ONE answer: readiness, lab_readiness and the gate agree', async () => {
+    // Bring the outside HBsAg back inside its window (the previous test pushed
+    // its report date 200 days back) so every required item is available again.
+    await prisma.$executeRawUnsafe(
+      `UPDATE lab_results
+          SET external_reported_on = (NOW() AT TIME ZONE 'Asia/Kolkata')::date - 2
+        WHERE tenant_id = $1::uuid
+          AND patient_uid = $2::uuid
+          AND test_code = 'HBSAG'
+          AND result_origin = 'external_lab'`,
+      TENANT, PATIENT,
+    );
+    // Hand the check back to automation so THIS read is the one that flips it.
+    await prisma.$executeRawUnsafe(
+      `UPDATE cath_lab_readiness_checks
+          SET status = 'pending', completed_by = NULL, completed_at = NULL,
+              metadata = '{}'::jsonb
+        WHERE tenant_id = $1::uuid AND case_id = $2::bigint AND check_type = 'labs'`,
+      TENANT, CASE_ID,
+    );
+
+    const readCase = await getCase(CASE_ID, { tenantId: TENANT });
+
+    const labs = readCase.readiness.find((row) => row.check_type === 'labs');
+    expect(readCase.lab_readiness.check_status).toBe('pass');
+    // The three used to disagree on the read that flipped the check: the check
+    // rows and the gate were read BEFORE the refresh, so one response carried
+    // "labs pending, gate not ready, lab_readiness pass".
+    expect(labs.status).toBe(readCase.lab_readiness.check_status);
+    expect(readCase.readiness_gate.ready).toBe(true);
+    expect(readCase.readiness_gate.blocking).toEqual([]);
+    expect(await caseStatus()).toBe('ready');
+  }, 60000);
+
+  test('a human pass keeps its own evidence: a later refresh rewrites neither the owner nor the attachment', async () => {
+    const evidence = () => prisma.$queryRawUnsafe(
+      `SELECT status, evidence_owner, source_name, attachment_ref, completed_by
+         FROM cath_lab_readiness_checks
+        WHERE tenant_id = $1::uuid AND case_id = $2::bigint AND check_type = 'labs'`,
+      TENANT, CASE_ID,
+    ).then((rows) => rows[0]);
+
+    await updateReadinessCheck(CASE_ID, {
+      tenantId: TENANT,
+      check_type: 'labs',
+      status: 'pass',
+      evidence_owner: 'Dr Cath Readiness',
+      source_name: 'consultant review',
+      attachment_ref: 'note:cardiology-review',
+      notes: 'Critical potassium reviewed at the bedside',
+    }, ctx());
+
+    const before = await evidence();
+    expect(before).toMatchObject({
+      status: 'pass',
+      evidence_owner: 'Dr Cath Readiness',
+      source_name: 'consultant review',
+      attachment_ref: 'note:cardiology-review',
+      completed_by: ACTOR,
+    });
+
+    await refreshCaseLabReadiness({ tenantId: TENANT, caseId: CASE_ID, context: ctx() });
+
+    // Automation owns those three columns only on a row it is moving, or one it
+    // already owns. It used to stamp them on every refresh, so the next case
+    // read erased the person who cleared the check and the note they attached.
+    expect(await evidence()).toEqual(before);
+  }, 60000);
+
+  test('a booking with no investigations row is an open order: the item reads ordered and no duplicate is placed', async () => {
+    // Retire every haemoglobin value and every CBC order, so the ONLY evidence
+    // that a count has been asked for is the patient-app booking.
+    await prisma.$executeRawUnsafe(
+      `UPDATE lab_results SET status = 'cancelled'
+        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid AND test_code = 'HGB'`,
+      TENANT, PATIENT,
+    );
+    await prisma.$executeRawUnsafe(
+      `UPDATE investigations SET status = 'CANCELLED'
+        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid AND test_code = 'CBC'`,
+      TENANT, PATIENT,
+    );
+    const cbcCount = () => prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n FROM investigations
+        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
+          AND test_code = 'CBC' AND status <> 'CANCELLED'`,
+      TENANT, PATIENT,
+    ).then((rows) => rows[0].n);
+    expect(await cbcCount()).toBe(0);
+
+    const catalogue = await prisma.$queryRawUnsafe(
+      `SELECT id FROM investigation_test_catalog WHERE code = 'CBC' LIMIT 1`,
+    );
+    const patient = await prisma.$queryRawUnsafe(
+      `SELECT id, phone FROM users WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+      TENANT, PATIENT,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO investigation_bookings
+         (tenant_id, patient_id, patient_name, patient_phone, selected_tests,
+          status, investigation_id)
+       VALUES ($1::uuid, $2::int, 'Cath Readiness Patient', $3, ARRAY[$4::int],
+               'BOOKED', NULL)`,
+      TENANT, Number(patient[0].id), patient[0].phone, Number(catalogue[0].id),
+    );
+
+    const out = await refreshCaseLabReadiness({ tenantId: TENANT, caseId: CASE_ID, context: ctx() });
+    expect(out.items.find((item) => item.item_code === 'hb')).toMatchObject({
+      state: 'ordered_awaiting_sample',
+      // A booking carries no investigations row to point at, and 0 is not an id.
+      investigation_id: null,
+    });
+    expect(out.open_order_codes).toContain('CBC');
+    expect(out.orderable_now).not.toContain('CBC');
+
+    const placed = await orderMissingLabs(
+      CASE_ID, { tenantId: TENANT }, ctx({ idempotencyKey: 'clr-order-booking' }),
+    );
+    expect(placed.created.map((row) => row.code)).not.toContain('CBC');
+    expect(await cbcCount()).toBe(0);
+  }, 120000);
+
+  test('the real sign-off path moves the item to result_final through its post-commit hook, with no refresh call here', async () => {
+    // signOffResults needs the state BEFORE sign-off — a preliminary row linked
+    // to an investigation order, because deriveSignoffEpisode rejects a result
+    // with no order episode. Same fixture recipe as bloodborne-markers.deep.
+    const patient = await prisma.$queryRawUnsafe(
+      `SELECT id, phone FROM users WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+      TENANT, PATIENT,
+    );
+    const orders = await prisma.$queryRawUnsafe(
+      `INSERT INTO investigations
+         (tenant_id, phone, patient_id, patient_uid, test_name, test_type,
+          status, priority, requested_by, requested_at, updated_at)
+       VALUES ($1::uuid, $2, $3::int, $4::uuid, 'HGB', 'blood', 'IN_PROGRESS',
+               'NORMAL', $5::uuid, NOW(), NOW())
+       RETURNING id`,
+      TENANT, patient[0].phone, Number(patient[0].id), PATIENT, ACTOR,
+    );
+    const rows = await prisma.$queryRawUnsafe(
+      `INSERT INTO lab_results
+         (tenant_id, patient_uid, investigation_id, test_code, test_name,
+          value_text, value_numeric, unit, status, performed_at, received_at)
+       VALUES ($1::uuid, $2::uuid, $3::int, 'HGB', 'HGB', '13.1', 13.1, 'g/dL',
+               'preliminary', NOW(), NOW())
+       RETURNING id`,
+      TENANT, PATIENT, Number(orders[0].id),
+    );
+    const resultId = Number(rows[0].id);
+
+    await signOffResults({
+      tenantId: TENANT,
+      signed_off_by: PATHOLOGIST,
+      signed_off_by_role: 'PATHOLOGIST',
+      result_ids: [resultId],
+      decision: 'verified',
+      patient_uid: PATIENT,
+    });
+
+    // Deliberately NO refresh call: the only thing that can have moved the item
+    // is refreshOpenCasesForPatient, fired post-commit from inside the sign-off.
+    const item = await pollForItem('hb', (row) => row?.state === 'result_final');
+    expect(item).toMatchObject({ state: 'result_final', lab_result_id: resultId });
+  }, 120000);
 });

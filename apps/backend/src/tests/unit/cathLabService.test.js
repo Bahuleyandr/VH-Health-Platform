@@ -102,6 +102,7 @@ const {
   evaluateReadinessGate,
   recordProcedureLog,
   transitionCaseStatus,
+  updateReadinessCheck,
   validateCaseTransition,
   validateContrastRadiationInput
 } = await import('../../services/clinical/cathLabService.js');
@@ -368,5 +369,110 @@ describe('transitionCaseStatus SLA lifecycle (SLA-halves G1)', () => {
 
     expect(cancelWorkflowSlaMock).not.toHaveBeenCalled();
     expect(completeWorkflowSlaMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('updateReadinessCheck metadata handling', () => {
+  // The upsert REPLACES metadata with the merged object, so whatever the
+  // request body carries under these keys becomes the row. A client that sent
+  // critical_warning: false over a potassium of 6.9 would silence the
+  // human-pass safety review; one that sent auto_managed: true would hand the
+  // next automated refresh permission to move a pass a person made.
+  const AUTOMATION_KEYS = [
+    'auto_managed',
+    'auto_passed_at',
+    'auto_pending_reason',
+    'critical_warning',
+    'critical_items',
+    'live_evidence',
+    'live_evidence_refreshed_at',
+    'refreshed_at'
+  ];
+
+  function primeUpdate(priorMetadata) {
+    queryUnsafeMock
+      // caseById (FOR UPDATE)
+      .mockResolvedValueOnce([cathCase('readiness_pending')])
+      // prior metadata (FOR UPDATE)
+      .mockResolvedValueOnce([{ metadata: priorMetadata }])
+      // the upsert's RETURNING *
+      .mockResolvedValueOnce([{ id: 3, check_type: 'labs', status: 'pass', metadata: {} }])
+      // readinessForCase
+      .mockResolvedValueOnce(clearedReadinessRows())
+      // the case status update
+      .mockResolvedValueOnce([]);
+  }
+
+  const metadataArgumentOf = call => JSON.parse(call[call.length - 1]);
+
+  test('strips every automation key from the request body and re-merges the stored evidence', async () => {
+    primeUpdate({
+      critical_warning: true,
+      critical_items: ['potassium'],
+      live_evidence: [{ item_code: 'potassium', state: 'result_final' }],
+      auto_managed: true,
+      auto_pending_reason: 'hb stale'
+    });
+
+    await updateReadinessCheck(
+      42,
+      {
+        tenantId: TENANT,
+        check_type: 'labs',
+        status: 'pass',
+        notes: 'reviewed',
+        metadata: {
+          reviewed_by_name: 'Dr A',
+          auto_managed: true,
+          auto_passed_at: '2026-09-04T00:00:00.000Z',
+          auto_pending_reason: 'nothing is missing, honest',
+          critical_warning: false,
+          critical_items: [],
+          live_evidence: [],
+          live_evidence_refreshed_at: '2026-09-04T00:00:00.000Z',
+          refreshed_at: '2026-09-04T00:00:00.000Z'
+        }
+      },
+      { actorUid: ACTOR, actorRole: 'CARDIOLOGIST' }
+    );
+
+    const stored = metadataArgumentOf(queryUnsafeMock.mock.calls[2]);
+    // The one key the request legitimately owns survives.
+    expect(stored.reviewed_by_name).toBe('Dr A');
+    // The three automation still owns come back from the ROW, not the request.
+    expect(stored.critical_warning).toBe(true);
+    expect(stored.critical_items).toEqual(['potassium']);
+    expect(stored.live_evidence).toEqual([{ item_code: 'potassium', state: 'result_final' }]);
+    // Nothing the client sent under an automation key reaches the row.
+    for (const key of AUTOMATION_KEYS) {
+      expect(stored[key]).not.toBe('nothing is missing, honest');
+    }
+    expect(stored).not.toHaveProperty('auto_managed');
+    expect(stored).not.toHaveProperty('auto_passed_at');
+    expect(stored).not.toHaveProperty('auto_pending_reason');
+    expect(stored).not.toHaveProperty('live_evidence_refreshed_at');
+    expect(stored).not.toHaveProperty('refreshed_at');
+    // A hand pass over a critical warning is a clinical decision and lands on
+    // the record through the platform safety-review vehicle — which it can only
+    // do because the stored warning, not the request's `false`, was read.
+    expect(recordMedicationSafetyReviewsMock).toHaveBeenCalled();
+  });
+
+  test('a non-labs check is not filtered: it has no automation to protect', async () => {
+    primeUpdate({});
+
+    await updateReadinessCheck(
+      42,
+      {
+        tenantId: TENANT,
+        check_type: 'consent',
+        status: 'pass',
+        metadata: { auto_managed: true, form_version: 3 }
+      },
+      { actorUid: ACTOR, actorRole: 'CARDIOLOGIST' }
+    );
+
+    expect(metadataArgumentOf(queryUnsafeMock.mock.calls[2]))
+      .toEqual({ auto_managed: true, form_version: 3 });
   });
 });

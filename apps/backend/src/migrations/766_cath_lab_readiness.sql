@@ -1,12 +1,74 @@
 -- 766_cath_lab_readiness.sql
 --
--- Cath-lab pre-procedure lab readiness
--- (docs/superpowers/specs/2026-09-04-cath-pre-procedure-lab-readiness-design.md).
--- The `labs` readiness check on a cath case was a bare human tick: nothing said
--- whether Hb, platelets, creatinine, potassium or serology existed, were never
--- ordered, or were awaiting a result; and a value from an outside laboratory had
--- no home because manual lab entry requires an in-house order and cannot name
--- the external lab (labResultsService.recordResultManual).
+-- Cath-lab pre-procedure lab readiness.
+--
+-- The `labs` readiness check on a cath case was a bare human tick. Nothing on
+-- it said whether the bloods a cath needs existed, had never been ordered, or
+-- were drawn and awaiting a result; and a value from an OUTSIDE laboratory had
+-- no home at all, because manual lab entry requires an in-house order such a
+-- report will never have and had no column to name the laboratory in. These
+-- tables and columns are what let the checklist answer both questions from the
+-- record instead of from a person's memory.
+--
+-- The rules the schema is shaped by, stated here in full so this file does not
+-- depend on a document to be understood (design note, for history and the
+-- wider rationale: docs/superpowers/specs/
+-- 2026-09-04-cath-pre-procedure-lab-readiness-design.md):
+--
+--  1. SEVEN items, and only seven, hang off the one `labs` check: hb, platelets,
+--     creatinine, potassium, hiv, hbsag, hcv. They are rows in
+--     cath_case_lab_readiness_items (one per case per item_code, uniquely), not
+--     eight more check_type values — cath_lab_readiness_checks keeps its eight
+--     types unchanged, so every other consumer of the checklist is untouched.
+--     Which of the seven are REQUIRED is per tenant
+--     (cath_lab_readiness_settings.required_items, at least one enforced by a
+--     named CHECK); the rest are shown and never block.
+--
+--  2. FRESHNESS is per item, not per case. The four analytes age out on the
+--     tenant's cath_lab_readiness_settings.lab_validity_days. The three
+--     blood-borne markers do NOT: their window is
+--     cath_reprocessing_settings.serology_validity_days, the SAME number the
+--     device-reprocessing programme uses (migration 765). A tenant that
+--     shortened HIV/HBsAg/HCV validity for reuse means the same thing here, and
+--     there is deliberately no second serology window in this migration's
+--     settings table to drift from it.
+--
+--  3. AUTOMATION ALTERS ONLY ROWS IT SET. The refresh may move the `labs` check
+--     from pending to pass, and may retract a pass it made, but never touches a
+--     status a person set by hand: it marks its own work in the check's
+--     metadata (auto_managed) and reads that mark before writing. The evidence
+--     columns follow the same rule — evidence_owner / source_name /
+--     attachment_ref are claimed only on a row automation is moving or already
+--     owns, so a consultant's name and attached report survive every later
+--     refresh.
+--
+--  4. A CRITICAL VALUE NEVER BLOCKS. A potassium of 6.9 makes the check WARN
+--     (metadata.critical_warning with the offending items) and is surfaced to
+--     whoever passes the check; it does not hold the case. Stopping a primary
+--     PCI on a number a cardiologist has already seen and decided about is the
+--     more dangerous failure — owner decision. is_critical on the item row is
+--     that warning's evidence, which is why it is stored rather than recomputed.
+--
+--  5. EXTERNAL RESULTS ARE UNVERIFIED, and count only when tenant policy says
+--     so. A value from another laboratory has not been through this hospital's
+--     analyser, QC or pathologist sign-off, so it resolves to its own item state
+--     (external_recorded) and satisfies the check ONLY where
+--     cath_lab_readiness_settings.external_results_count is true. The tenant
+--     that says no still SEES the value; it simply does not clear the gate on it.
+--
+--  6. lab_results ORIGIN COLUMNS, and who sets them. result_origin ('analyzer' |
+--     'manual_in_house' | 'external_lab'), external_lab_name, external_report_ref
+--     and external_reported_on are provenance, all nullable so no legacy row is
+--     disturbed and no backfill is needed. They are NOT a client's choice: the
+--     public manual-result route rejects them outright
+--     (middleware/labResultOriginGuard.js) and its service entry point forces
+--     'manual_in_house' with the three external columns null. The ONLY writer of
+--     an external_lab row is the cath readiness checklist, through a separate
+--     internal service entry point that no route imports. Belt and braces at the
+--     schema: lab_results_external_origin_check refuses an 'external_lab'
+--     row without a non-blank external_lab_name AND an external_reported_on,
+--     because an outside value that cannot say where it came from and when is
+--     not evidence.
 --
 -- Forward-only additions:
 --   * cath_lab_readiness_settings      — per tenant: required items, validity window,
@@ -15,8 +77,6 @@
 --   * lab_results.result_origin / external_lab_name / external_report_ref /
 --     external_reported_on             — provenance for outside-lab values; nullable so
 --                                        legacy rows are untouched
--- The eight cath_lab_readiness_checks.check_type values are unchanged; `labs`
--- remains the single check and its automation writes only to rows it set itself.
 -- No NOT VALID constraints. Every CHECK is named.
 --
 -- Every CHECK is named explicitly, for the reason migrations 764 and 765 record:

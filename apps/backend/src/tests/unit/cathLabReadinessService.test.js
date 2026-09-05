@@ -3,9 +3,16 @@ import {
   ITEM_CODES,
   SETTINGS_DEFAULTS,
   computeCheckDecision,
+  externalNumericValue,
   isCriticalResult,
+  orderPriorityForUrgency,
+  pendingReasonFor,
+  recordExternalLabResult,
   resolveItemState,
 } from '../../services/clinical/cathLabReadinessService.js';
+
+const TENANT = '00000000-0000-4000-8000-0000000c1a00';
+const CTX = { actorUid: '00000000-0000-4000-8000-0000000c1aaa', actorRole: 'DOCTOR' };
 
 const AS_OF = new Date('2026-09-04T10:00:00.000Z');
 const daysAgo = (n) => new Date(AS_OF.getTime() - n * 86_400_000).toISOString();
@@ -373,5 +380,110 @@ describe('computeCheckDecision', () => {
     expect(computeCheckDecision({
       items: allAvailable, settings, check: null, caseRow: caseOpen,
     }).nextStatus).toBe('pass');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// An outside quantitative value: what counts as a value at all
+// ---------------------------------------------------------------------------
+describe('externalNumericValue', () => {
+  const refusal = (fn) => { try { fn(); return null; } catch (err) { return err; } };
+
+  // `Number(x ?? y)` used to stand here. Every one of these reached the record
+  // as a stored number: null, '' and [] as 0, true as 1. A creatinine of 0 is
+  // not a missing value on the screen — it reads as normal and clears the gate.
+  test.each([
+    ['nothing at all', undefined, null],
+    ['an empty value_text', undefined, ''],
+    ['an explicit null', null, null],
+    ['a boolean', true, null],
+    ['an array', [], null],
+    ['an object', {}, null],
+    ['a non-numeric string', 'high', null],
+    ['a negative number', -1, null],
+  ])('%s is refused', (_label, numeric, text) => {
+    expect(refusal(() => externalNumericValue(numeric, text)))
+      .toMatchObject({ statusCode: 400, code: 'CATH_LAB_READINESS_VALUE_INVALID' });
+  });
+
+  test('an explicit number, or a plain decimal string in either field, is accepted', () => {
+    expect(externalNumericValue(1.2, null)).toBe(1.2);
+    expect(externalNumericValue(undefined, '1.2')).toBe(1.2);
+    expect(externalNumericValue('1.2', null)).toBe(1.2);
+    // Zero is a legitimate reading when somebody actually sent it.
+    expect(externalNumericValue(0, null)).toBe(0);
+  });
+});
+
+describe('recordExternalLabResult input refusals (nothing is written)', () => {
+  const entry = (extra) => recordExternalLabResult(1, 'creatinine', {
+    tenantId: TENANT,
+    external_lab_name: 'City Path Lab',
+    observed_on: '2026-01-05',
+    ...extra,
+  }, CTX);
+
+  // These all refuse before the first statement — the case row is not even
+  // read — so the suite needs no database.
+  test.each([
+    ['no value', {}],
+    ['an empty value_text', { value_text: '' }],
+    ['a null value_numeric', { value_numeric: null }],
+    ['a boolean value_numeric', { value_numeric: true }],
+    ['an array value_numeric', { value_numeric: [] }],
+  ])('%s is a 400, not a stored zero', async (_label, extra) => {
+    await expect(entry(extra))
+      .rejects.toMatchObject({ statusCode: 400, code: 'CATH_LAB_READINESS_VALUE_INVALID' });
+  });
+
+  // The shape regex alone accepts 2026-13-45, which then raises 22008 on the
+  // ::date cast in the middle of the write and reaches the ward as a 500.
+  test.each(['2026-13-45', '2026-02-30', '2026-00-10', '2026-01-32'])(
+    'observed_on %s is refused as a 400, not left to the ::date cast',
+    async (observedOn) => {
+      await expect(recordExternalLabResult(1, 'creatinine', {
+        tenantId: TENANT,
+        external_lab_name: 'City Path Lab',
+        observed_on: observedOn,
+        value_numeric: 1.2,
+      }, CTX)).rejects.toMatchObject({
+        statusCode: 400, code: 'CATH_LAB_READINESS_VALUE_INVALID',
+      });
+    },
+  );
+});
+
+describe('orderPriorityForUrgency', () => {
+  // The lab worklist sorts on the SLA clock the priority sets: NORMAL is a
+  // 24-hour target, URGENT 4, STAT 1. A primary-PCI patient's pre-procedure
+  // bloods must not queue behind an elective case's.
+  test.each([
+    ['emergency', 'STAT'],
+    ['urgent', 'URGENT'],
+    ['routine', 'NORMAL'],
+    ['elective', 'NORMAL'],
+    ['EMERGENCY', 'STAT'],
+    [null, 'NORMAL'],
+    ['something new', 'NORMAL'],
+  ])('%s -> %s', (urgency, expected) => {
+    expect(orderPriorityForUrgency(urgency)).toBe(expected);
+  });
+
+  test('every priority it can emit is one createInvestigationOrder accepts', () => {
+    // PRIORITY_LEVELS in src/config/investigationConfig.js.
+    const accepted = new Set(['STAT', 'URGENT', 'HIGH', 'NORMAL', 'LOW']);
+    for (const urgency of ['elective', 'routine', 'urgent', 'emergency', null]) {
+      expect(accepted.has(orderPriorityForUrgency(urgency))).toBe(true);
+    }
+  });
+});
+
+describe('pendingReasonFor', () => {
+  test('names every missing item and its state, and is null when nothing is missing', () => {
+    expect(pendingReasonFor([])).toBeNull();
+    expect(pendingReasonFor([
+      { item: 'hb', state: 'not_ordered' },
+      { item: 'hiv', state: 'sample_sent_awaiting_result' },
+    ])).toBe('hb not ordered; hiv sample sent awaiting result');
   });
 });

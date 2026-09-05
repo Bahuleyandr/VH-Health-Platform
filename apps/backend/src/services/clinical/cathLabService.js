@@ -2,7 +2,7 @@
 
 import { createHash } from 'node:crypto';
 
-import prisma, { setTenantTx } from '../../lib/prisma.js';
+import prisma, { isTenantTransactionClient, setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
@@ -979,7 +979,47 @@ export async function listCases({ tenantId, date = null, status = null, limit = 
   return normalizeRows(rows);
 }
 
+// The context a READ-THROUGH readiness refresh runs under. `requestId` is not
+// available here — getCase takes no request context — so the constant carries
+// only the actor, which is the half that matters: it is what keeps a reader off
+// the case row and out of the automation's audit trail.
+const SYSTEM_READ_THROUGH_CONTEXT = Object.freeze({ actorUid: null, actorRole: 'SYSTEM' });
+
 export async function getCase(caseId, { tenantId, db = prisma } = {}) {
+  // Lab readiness (spec 2026-09-04) runs FIRST, before the case row and the
+  // checks are read. The refresh can flip the `labs` check and the case status,
+  // so reading them first meant a single response could carry three answers to
+  // the same question: readiness[labs].status from before the flip,
+  // lab_readiness.check_status from after it, and a readiness_gate computed
+  // from the stale rows.
+  //
+  // Inside a tenant transaction (createCase's read of the case it has just
+  // inserted) the refresh MUST run on that same client or it cannot see the
+  // uncommitted case — that is why createCase used to return a null
+  // lab_readiness. Outside one it opens its own transaction, because it takes
+  // locks and writes, and `db` here is the read client.
+  const inTransaction = isTenantTransactionClient(db);
+  const labReadiness = await refreshCaseLabReadiness({
+    tenantId: tenantOr(tenantId),
+    caseId,
+    // A READ is not an act. Whoever opened the case is not the person who
+    // cleared its labs, so the refresh runs as the system: actorUid null leaves
+    // cath_lab_cases.updated_by (COALESCE'd in recomputeCaseStatusTx) pointing
+    // at whoever last actually changed the case, and stamps the
+    // cath_lab.readiness.labs.auto_* audit row as SYSTEM rather than putting a
+    // decision the reader never made into their trail.
+    context: SYSTEM_READ_THROUGH_CONTEXT,
+    ...(inTransaction ? { db } : {})
+  }).catch(err => {
+    // A failure degrades to a null block: the case view is what a team reads
+    // before a procedure and must not go dark because a lab lookup did. Inside
+    // a transaction there is nothing to degrade TO — the failed statement has
+    // already aborted it, so every later read here would raise 25P02 — so the
+    // error is left to propagate and name itself.
+    if (inTransaction) throw err;
+    logger.warn(`Lab readiness refresh failed on getCase: ${err?.message}`);
+    return null;
+  });
   const cathCase = await caseById(db, tenantId, caseId);
   const readiness = await readinessForCase(db, tenantId, caseId);
   const procedures = await db.$queryRawUnsafe(
@@ -1038,18 +1078,6 @@ export async function getCase(caseId, { tenantId, db = prisma } = {}) {
     validityDays: caseReuseSettings.serology_validity_days,
     db
   });
-  // Lab readiness (spec 2026-09-04). The refresh opens its OWN tenant
-  // transaction — it locks the case row and may flip the `labs` check — so it
-  // is called outside `db`, which here is the read client. A failure degrades
-  // to a null block: the case view is what a team reads before a procedure and
-  // must not go dark because a lab lookup did.
-  const labReadiness = await refreshCaseLabReadiness({
-    tenantId: tenantOr(tenantId),
-    caseId
-  }).catch(err => {
-    logger.warn(`Lab readiness refresh failed on getCase: ${err?.message}`);
-    return null;
-  });
   const normalizedReadiness = normalizeRows(readiness);
   return normalizeDbValue({
     ...cathCase,
@@ -1064,6 +1092,25 @@ export async function getCase(caseId, { tenantId, db = prisma } = {}) {
     consumable_usage: consumableUsage,
     reuse_restriction: reuseRestriction
   });
+}
+
+// Metadata keys on the `labs` check that only the readiness automation may
+// write. A request body carrying them is not merged with automation's copies —
+// three of them ARE re-merged from the stored row immediately below — it
+// OVERWRITES them, so a client could declare its own critical_warning: false
+// over a potassium of 6.9 and the human-pass safety review would never fire,
+// or plant an auto_managed: true that hands the next refresh permission to move
+// a pass a person made. live_evidence_refreshed_at is stripped with the rest:
+// it is the same automation stamp under its stored name.
+const AUTOMATION_METADATA_KEYS = Object.freeze([
+  'auto_managed', 'auto_passed_at', 'auto_pending_reason', 'critical_warning',
+  'critical_items', 'live_evidence', 'live_evidence_refreshed_at', 'refreshed_at'
+]);
+
+function withoutAutomationMetadata(metadata) {
+  const cleaned = { ...metadata };
+  for (const key of AUTOMATION_METADATA_KEYS) delete cleaned[key];
+  return cleaned;
 }
 
 export async function updateReadinessCheck(caseId, input = {}, context = {}) {
@@ -1101,7 +1148,7 @@ export async function updateReadinessCheck(caseId, input = {}, context = {}) {
     const requestMetadata = normalizeJson(input.metadata, 'metadata', {});
     const mergedMetadata = checkType === 'labs'
       ? {
-        ...requestMetadata,
+        ...withoutAutomationMetadata(requestMetadata),
         critical_warning: priorMetadata.critical_warning ?? false,
         critical_items: priorMetadata.critical_items ?? [],
         live_evidence: priorMetadata.live_evidence ?? []
