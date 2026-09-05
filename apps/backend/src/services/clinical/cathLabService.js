@@ -37,12 +37,17 @@ import {
   markDeviceWastedTx
 } from './cathDeviceReuseService.js';
 import { resolveReuseStatus } from './bloodborneMarkerService.js';
+// The pure rule pieces come from the rules module directly: this service needs
+// the item vocabulary and the availability predicate, not the persistence
+// facade, and suites that mock the facade must not have to re-declare them.
+import {
+  ITEM_CODES as LAB_READINESS_ITEM_CODES,
+  isItemAvailable
+} from './cathLabReadinessRules.js';
 // One direction only: the readiness module never imports this one (it inlines
 // the gate recompute), so this static import is not a cycle.
 import {
-  ITEM_CODES as LAB_READINESS_ITEM_CODES,
   getReadinessSettings,
-  isItemAvailable,
   refreshCaseLabReadiness
 } from './cathLabReadinessService.js';
 
