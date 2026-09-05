@@ -12,6 +12,7 @@ const evaluateCriticalThresholdMock = jest.fn();
 const claimLabResultIngestCommandMock = jest.fn();
 const completeLabResultIngestCommandMock = jest.fn();
 const finaliseHttpIdempotencyInTxMock = jest.fn();
+const scheduleReadinessRefreshMock = jest.fn();
 
 const tx = {
   $queryRawUnsafe: queryRawUnsafeMock,
@@ -61,6 +62,15 @@ jest.unstable_mockModule('../../services/lab/labResultIngestCommandService.js', 
   claimLabResultIngestCommand: claimLabResultIngestCommandMock,
   completeLabResultIngestCommand: completeLabResultIngestCommandMock,
   finaliseHttpIdempotencyInTx: finaliseHttpIdempotencyInTxMock,
+}));
+
+// The cath readiness refresh is SCHEDULED off the panel writer's critical path
+// now, not awaited on it. Mocked here for the same reason every other collaborator
+// above is: the real job would resolve the readiness service and query the shared
+// prisma mock AFTER the test that scheduled it had already returned.
+jest.unstable_mockModule('../../services/clinical/cathLabReadinessHooks.js', () => ({
+  scheduleReadinessRefresh: scheduleReadinessRefreshMock,
+  flushScheduledReadinessRefreshes: jest.fn().mockResolvedValue(0),
 }));
 
 const { recordLabPanel } = await import('../../services/lab/labPanelService.js');
