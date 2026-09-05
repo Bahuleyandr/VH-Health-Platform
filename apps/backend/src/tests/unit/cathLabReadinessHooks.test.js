@@ -11,6 +11,9 @@
  *   - the job runs AFTER the caller's continuation, never inside it;
  *   - identical (tenantId, patientUid) pairs scheduled in one tick collapse to
  *     one refresh (bounded fan-out for an ORU carrying many rows);
+ *   - DISTINCT pairs do not collapse but do not run concurrently either: the
+ *     writer's `await` used to serialise them, and each refresh holds a pool
+ *     connection across ~10-17 statements, so the scheduler serialises them;
  *   - a failing refresh is swallowed and logged, never thrown at the writer;
  *   - `flushScheduledReadinessRefreshes()` awaits every scheduled job, so the
  *     deep tests are deterministic rather than poll-and-hope.
@@ -83,6 +86,70 @@ describe('scheduleReadinessRefresh', () => {
     expect(refreshOpenCasesForPatient).toHaveBeenCalledTimes(2);
     expect(refreshOpenCasesForPatient.mock.calls.map(([arg]) => arg.patientUid).sort())
       .toEqual([PATIENT, OTHER_PATIENT].sort());
+  });
+
+  test('runs jobs for distinct pairs strictly one after another, never concurrently', async () => {
+    // The inline `await` this scheduler replaced serialised the refreshes by
+    // construction. An ORU carrying rows for N patients schedules N jobs in one
+    // tick; without the queue they would all be mid-refresh at once, each
+    // holding a pool connection across its 10-17 statements.
+    const order = [];
+    refreshOpenCasesForPatient.mockImplementation(async ({ patientUid }) => {
+      order.push(`start:${patientUid}`);
+      await new Promise((resolve) => { setTimeout(resolve, 10); });
+      order.push(`end:${patientUid}`);
+      return 1;
+    });
+
+    scheduleReadinessRefresh({ tenantId: TENANT, patientUid: PATIENT });
+    scheduleReadinessRefresh({ tenantId: TENANT, patientUid: OTHER_PATIENT });
+    expect(await flushScheduledReadinessRefreshes()).toBe(2);
+
+    // Interleaved starts would read start,start,end,end.
+    expect(order).toEqual([
+      `start:${PATIENT}`, `end:${PATIENT}`,
+      `start:${OTHER_PATIENT}`, `end:${OTHER_PATIENT}`,
+    ]);
+  });
+
+  test('a pair scheduled while its own job is RUNNING gets a second refresh, after the first', async () => {
+    // The dedupe key is released the instant the job starts, so a lab event that
+    // lands mid-refresh is not folded into a refresh that already read the DB —
+    // and the queue still keeps the two from overlapping.
+    const order = [];
+    let releaseFirst;
+    const firstHeld = new Promise((resolve) => { releaseFirst = resolve; });
+    let announceFirstStarted;
+    const firstStarted = new Promise((resolve) => { announceFirstStarted = resolve; });
+    let calls = 0;
+
+    refreshOpenCasesForPatient.mockImplementation(async () => {
+      calls += 1;
+      const nth = calls;
+      order.push(`start:${nth}`);
+      if (nth === 1) {
+        announceFirstStarted();
+        await firstHeld;
+      }
+      order.push(`end:${nth}`);
+      return 1;
+    });
+
+    expect(scheduleReadinessRefresh({
+      tenantId: TENANT, patientUid: PATIENT, source: 'ingestORU',
+    })).toBe(true);
+    await firstStarted;
+
+    expect(scheduleReadinessRefresh({
+      tenantId: TENANT, patientUid: PATIENT, source: 'signOffResults',
+    })).toBe(true);
+    releaseFirst();
+    await flushScheduledReadinessRefreshes();
+
+    expect(refreshOpenCasesForPatient).toHaveBeenCalledTimes(2);
+    expect(refreshOpenCasesForPatient.mock.calls.map(([arg]) => arg.patientUid))
+      .toEqual([PATIENT, PATIENT]);
+    expect(order).toEqual(['start:1', 'end:1', 'start:2', 'end:2']);
   });
 
   test('a pair scheduled again AFTER its job has started gets its own refresh', async () => {

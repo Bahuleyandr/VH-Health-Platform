@@ -182,6 +182,7 @@ describe('recordLabPanel safety rails', () => {
     claimLabResultIngestCommandMock.mockReset();
     completeLabResultIngestCommandMock.mockReset();
     finaliseHttpIdempotencyInTxMock.mockReset();
+    scheduleReadinessRefreshMock.mockReset();
     recordCanonicalClinicalEventMock.mockResolvedValue({ timeline: { id: 1 }, audit: { id: 2 } });
     sendStaffNotificationsMock.mockResolvedValue({ sent: 1 });
     materializeLabCriticalAlertGenerationMock.mockImplementation(async ({ criticality }) => {
@@ -380,6 +381,12 @@ describe('recordLabPanel safety rails', () => {
 
     expect(recorded.results).toHaveLength(1);
     expect(recorded.criticals_fired).toBe(0);
+
+    // Post-commit cath readiness: SCHEDULED with the tenant and the patient made
+    // explicit and tagged with this writer, never awaited on the panel's path.
+    expect(scheduleReadinessRefreshMock).toHaveBeenCalledWith({
+      tenantId: TENANT, patientUid: PATIENT, source: 'recordLabPanel',
+    });
     expect(labResultCreateMock).toHaveBeenCalledWith({
       data: expect.objectContaining({
         tenant_id: TENANT,
@@ -459,6 +466,9 @@ describe('recordLabPanel safety rails', () => {
     expect(recordCanonicalClinicalEventMock).not.toHaveBeenCalled();
     expect(auditCreateMock).not.toHaveBeenCalled();
     expect(completeLabResultIngestCommandMock).not.toHaveBeenCalled();
+    // A replay wrote nothing, so there is no new lab event for the readiness
+    // projection to catch up to: no refresh is scheduled either.
+    expect(scheduleReadinessRefreshMock).not.toHaveBeenCalled();
     expect(finaliseHttpIdempotencyInTxMock).toHaveBeenCalledWith({
       tx,
       claimId: 501,
