@@ -26,6 +26,17 @@ jest.unstable_mockModule('../../services/clinical/physioService.js', () => ({
 
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   resolveTenantOrThrow: () => '00000000-0000-4000-8000-000000000001',
+  // The router now carries a per-route patient guard, whose accessDecision /
+  // careTeamEnforcement chain imports more of this module. An ESM mock factory
+  // must provide EVERY export the graph imports or the suite fails to LOAD,
+  // which reads like a missing test rather than a missing mock line.
+  requireTenantId: (tenantId) => tenantId,
+  // careTeamEnforcement resolves care_team_enforcement_mode from this row. A
+  // NULL tenant does NOT fall back to shadow — resolveEnforcementModeForTenant
+  // throws CARE_TEAM_MODE_UNAVAILABLE and the guard 500s. A row with no
+  // care_team_enforcement_mode key is what actually reaches the documented
+  // fallback, which is 'shadow'.
+  getTenantById: async (tenantId) => ({ id: tenantId, settings: {} }),
 }));
 
 const { default: physioRoutes } = await import('../../routes/clinical/physioRoutes.js');
