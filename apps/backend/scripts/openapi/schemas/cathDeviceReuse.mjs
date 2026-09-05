@@ -23,6 +23,17 @@ const FUNCTION_CHECKS = ['not_required', 'pass', 'fail'];
 const DISCARD_REASONS = ['max_cycles_reached', 'bloodborne_exposure', 'late_reactive_marker', 'function_check_failed', 'sterilization_failed', 'damaged', 'wasted', 'policy_change', 'other'];
 const POST_USE_DISPOSITIONS = ['sent_for_reprocessing', 'discarded_bloodborne_exposure', 'discarded_max_cycles', 'discarded_wasted', 'discarded_other', 'not_reprocessable'];
 const REUSE_STATUSES = ['restricted', 'unknown', 'clear'];
+const DEVICE_LABEL_FORMATS = ['pdf', 'json'];
+// Everything GET /cssd/devices/{id}/label can refuse with, `code` for `code`.
+// CSSD_DEVICE_LABEL_NOT_PRINTABLE is the 409: a discard is the register's one
+// terminal state, and a sticker is a physical instruction to put the device
+// back on a tray. The other three are the 400/404 the same handler answers.
+const DEVICE_LABEL_ERROR_CODES = [
+  'CATH_LAB_BAD_ID',
+  'CSSD_DEVICE_LABEL_FORMAT_INVALID',
+  'CATH_DEVICE_NOT_FOUND',
+  'CSSD_DEVICE_LABEL_NOT_PRINTABLE'
+];
 const REACTIVE_PATIENT_RULES = ['discard', 'override_allowed'];
 const UNKNOWN_SEROLOGY_RULES = ['warn', 'block_return'];
 
@@ -52,6 +63,16 @@ const idempotencyHeaderParameter = {
   schema: { type: 'string', minLength: 1, maxLength: 200, pattern: '^[A-Za-z0-9_\\-:.]+$' }
 };
 const queryParameter = (name, schema) => ({ name, in: 'query', required: false, schema });
+
+/** One `additionalResponses` entry for the label surface, naming its codes. */
+const labelErrorResponse = (description, codes) => ({
+  description: `${description} \`code\`: ${codes.join(', ')}.`,
+  content: {
+    'application/json': {
+      schema: { $ref: '#/components/schemas/CssdDeviceLabelErrorResponse' }
+    }
+  }
+});
 
 const device = {
   type: 'object',
@@ -95,6 +116,26 @@ const device = {
     category: { type: 'string', enum: CATEGORIES },
     manufacturer: nullableString,
     model: nullableString
+  }
+};
+
+// ONE ROW OF THE CSSD QUEUE = the device row plus the two columns
+// listDevices joins in and no other device surface returns. Spelled out rather
+// than composed with allOf: every device schema here is
+// additionalProperties:false, and an allOf of two closed objects is a schema
+// nothing can satisfy.
+//
+// status_changed_at is derived, not stored — the register has no such column
+// and updated_at moves on the late-reactive exposure stamp, which changes no
+// status. See DEVICE_QUEUE_SELECT in cathDeviceReuseService.js.
+const queueItem = {
+  type: 'object',
+  additionalProperties: false,
+  required: [...device.required, 'facility_name', 'status_changed_at'],
+  properties: {
+    ...device.properties,
+    facility_name: { type: 'string' },
+    status_changed_at: { type: 'string', format: 'date-time' }
   }
 };
 
@@ -173,6 +214,8 @@ const postUseOptions = {
 export const ENUMS = {
   CATEGORIES,
   DEVICE_STATUSES,
+  DEVICE_LABEL_FORMATS,
+  DEVICE_LABEL_ERROR_CODES,
   CYCLE_TYPES,
   FUNCTION_CHECKS,
   DISCARD_REASONS,
@@ -185,6 +228,7 @@ export const ENUMS = {
 
 export const schemas = {
   CathReprocessableDevice: device,
+  CssdDeviceQueueItem: queueItem,
   CathReprocessingSettings: settings,
   CathReprocessingCategoryPolicy: policy,
   CathPostUseOptions: postUseOptions,
@@ -295,7 +339,7 @@ export const schemas = {
     properties: {
       success: { type: 'boolean', example: true },
       message: { type: 'string' },
-      data: { type: 'array', items: { $ref: '#/components/schemas/CathReprocessableDevice' } },
+      data: { type: 'array', items: { $ref: '#/components/schemas/CssdDeviceQueueItem' } },
       requestId: { type: 'string', nullable: true }
     }
   },
@@ -306,6 +350,54 @@ export const schemas = {
       success: { type: 'boolean', example: true },
       message: { type: 'string' },
       data: { $ref: '#/components/schemas/CathReprocessableDevice' },
+      requestId: { type: 'string', nullable: true }
+    }
+  },
+  // The printed CSSD label. Mirrors DEVICE_LABEL_FIELDS in
+  // cathDeviceReuseService.js exactly — device IDENTITY only. The register's
+  // exposure_flag / exposure_markers are deliberately absent: they name a
+  // blood-borne marker a PREVIOUS patient tested reactive for, and this
+  // artefact leaves the department stuck to the device with no role gate in
+  // front of it.
+  CssdDeviceLabel: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['device_tag', 'category', 'catalogue_item', 'reuse_cycle', 'max_cycles', 'facility_name', 'printed_at'],
+    properties: {
+      device_tag: { type: 'string', pattern: DEVICE_TAG_OUT_PATTERN },
+      category: { type: 'string', enum: CATEGORIES },
+      catalogue_item: { type: 'string' },
+      reuse_cycle: { type: 'integer', minimum: 0 },
+      max_cycles: { type: 'integer', minimum: 1 },
+      // facilities.display_name is NOT NULL and the device's
+      // (tenant_id, facility_id) foreign key is RESTRICT, so the inner join
+      // always names a facility.
+      facility_name: { type: 'string' },
+      printed_at: { type: 'string', format: 'date-time' }
+    }
+  },
+  CssdDeviceLabelResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: { $ref: '#/components/schemas/CssdDeviceLabel' },
+      requestId: { type: 'string', nullable: true }
+    }
+  },
+  // The label's failure envelope. `code` sits at the ROOT beside `success` and
+  // `message` (responseHelper.error's topLevel branch lifts an AppError code
+  // there), never under `details`.
+  CssdDeviceLabelErrorResponse: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['success'],
+    properties: {
+      success: { type: 'boolean', enum: [false] },
+      message: { type: 'string' },
+      code: { type: 'string', enum: DEVICE_LABEL_ERROR_CODES },
+      details: { type: 'object', additionalProperties: true },
       requestId: { type: 'string', nullable: true }
     }
   },
@@ -419,13 +511,35 @@ export const operations = {
   },
 
   'GET /api/v1/cssd/devices': {
-    description: 'CSSD reprocessable cath device queue, ordered by the work that is waiting first. Carries no patient data.',
+    description: 'CSSD reprocessable cath device queue, ordered by the work that is waiting first. Each row is the device register row plus the facility it is waiting at and status_changed_at — when the device last MOVED, derived from its transition audit trail rather than from updated_at, which the late-reactive exposure stamp moves without a status change. Carries no patient data.',
     parameters: [
       queryParameter('status', { type: 'string', enum: DEVICE_STATUSES }),
       queryParameter('facility_id', { type: 'integer', minimum: 1 }),
       queryParameter('limit', { type: 'integer', minimum: 1, maximum: 500 })
     ],
     response: 'CssdDeviceListResponse'
+  },
+  'GET /api/v1/cssd/devices/{id}/label': {
+    description:
+      'The printed CSSD label for one device: a 100 x 50 mm PDF carrying the device tag as large monospace text and as a Code 39 barcode, plus the catalogue item, category, cycle counter and facility. ?format=json returns the same seven fields as JSON. A read, so it claims no idempotency key; a reprint is not a second event. Answered Cache-Control: no-store — the label carries the cycle counter, which moves, and a replayed sticker would disagree with the register. A DISCARDED device is refused (409 CSSD_DEVICE_LABEL_NOT_PRINTABLE): a discard is irreversible and a label is a physical instruction to put the device back on a tray. The label carries NO patient data and NO serology — the register exposure columns are deliberately not on it — so this path writes no PHI access log, only a cssd.device.label_printed audit row.',
+    pathParameters: { id: BIGINT_WIRE },
+    parameters: [queryParameter('format', { type: 'string', enum: DEVICE_LABEL_FORMATS, default: 'pdf' })],
+    // Declared through additionalResponses because ONE 200 carries TWO media
+    // types here, and the overlay's `response` key models a single one. The
+    // JSON variant is what the generated clients type; the PDF is the default
+    // the browser opens.
+    additionalResponses: {
+      200: {
+        description: 'The device label, as a PDF by default or as JSON on ?format=json.',
+        content: {
+          'application/pdf': { schema: { type: 'string', format: 'binary' } },
+          'application/json': { schema: { $ref: '#/components/schemas/CssdDeviceLabelResponse' } }
+        }
+      },
+      409: labelErrorResponse(
+        'The device cannot be labelled.', ['CSSD_DEVICE_LABEL_NOT_PRINTABLE']
+      )
+    }
   },
   'POST /api/v1/cssd/devices/{id}/receive': {
     description: 'Receives a device into CSSD (awaiting_reprocessing to in_cssd). Requires Idempotency-Key (scope cssd_device_transition).',

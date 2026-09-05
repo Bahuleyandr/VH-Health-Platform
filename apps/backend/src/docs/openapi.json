@@ -22157,6 +22157,115 @@
           }
         }
       },
+      "CssdDeviceLabel": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "device_tag",
+          "category",
+          "catalogue_item",
+          "reuse_cycle",
+          "max_cycles",
+          "facility_name",
+          "printed_at"
+        ],
+        "properties": {
+          "device_tag": {
+            "type": "string",
+            "pattern": "^RP[0-9]{8,19}$"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "stent",
+              "balloon",
+              "guidewire",
+              "catheter",
+              "sheath",
+              "closure_device",
+              "pacemaker",
+              "lead",
+              "other"
+            ]
+          },
+          "catalogue_item": {
+            "type": "string"
+          },
+          "reuse_cycle": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "max_cycles": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "facility_name": {
+            "type": "string"
+          },
+          "printed_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CssdDeviceLabelErrorResponse": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "CATH_LAB_BAD_ID",
+              "CSSD_DEVICE_LABEL_FORMAT_INVALID",
+              "CATH_DEVICE_NOT_FOUND",
+              "CSSD_DEVICE_LABEL_NOT_PRINTABLE"
+            ]
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "requestId": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "CssdDeviceLabelResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CssdDeviceLabel"
+          },
+          "requestId": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
       "CssdDeviceListResponse": {
         "type": "object",
         "required": [
@@ -22174,7 +22283,7 @@
           "data": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/CathReprocessableDevice"
+              "$ref": "#/components/schemas/CssdDeviceQueueItem"
             }
           },
           "requestId": {
@@ -22190,6 +22299,224 @@
           "note": {
             "type": "string",
             "maxLength": 500
+          }
+        }
+      },
+      "CssdDeviceQueueItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenant_id",
+          "facility_id",
+          "catalog_item_id",
+          "device_tag",
+          "origin_usage_id",
+          "origin_unit_index",
+          "cycle_count",
+          "max_cycles_snapshot",
+          "status",
+          "current_usage_id",
+          "exposure_flag",
+          "exposure_markers",
+          "last_reprocessed_at",
+          "last_reprocessed_by",
+          "last_cycle_type",
+          "last_function_check",
+          "quarantine_reason",
+          "quarantined_at",
+          "discard_reason",
+          "discard_note",
+          "discarded_at",
+          "discarded_by",
+          "created_by",
+          "created_at",
+          "updated_at",
+          "metadata",
+          "item_name",
+          "category",
+          "manufacturer",
+          "model",
+          "facility_name",
+          "status_changed_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "facility_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "catalog_item_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "device_tag": {
+            "type": "string",
+            "pattern": "^RP[0-9]{8,19}$"
+          },
+          "origin_usage_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "origin_unit_index": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "cycle_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "max_cycles_snapshot": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "awaiting_reprocessing",
+              "in_cssd",
+              "available",
+              "in_case",
+              "quarantined",
+              "discarded"
+            ]
+          },
+          "current_usage_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "exposure_flag": {
+            "type": "boolean"
+          },
+          "exposure_markers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "last_reprocessed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "last_reprocessed_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "last_cycle_type": {
+            "type": "string",
+            "enum": [
+              "steam",
+              "eto",
+              "plasma",
+              "dry_heat",
+              "chemical",
+              "other"
+            ],
+            "nullable": true
+          },
+          "last_function_check": {
+            "type": "string",
+            "enum": [
+              "not_required",
+              "pass",
+              "fail"
+            ],
+            "nullable": true
+          },
+          "quarantine_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "quarantined_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "discard_reason": {
+            "type": "string",
+            "enum": [
+              "max_cycles_reached",
+              "bloodborne_exposure",
+              "late_reactive_marker",
+              "function_check_failed",
+              "sterilization_failed",
+              "damaged",
+              "wasted",
+              "policy_change",
+              "other"
+            ],
+            "nullable": true
+          },
+          "discard_note": {
+            "type": "string",
+            "nullable": true
+          },
+          "discarded_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "discarded_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "item_name": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "stent",
+              "balloon",
+              "guidewire",
+              "catheter",
+              "sheath",
+              "closure_device",
+              "pacemaker",
+              "lead",
+              "other"
+            ]
+          },
+          "manufacturer": {
+            "type": "string",
+            "nullable": true
+          },
+          "model": {
+            "type": "string",
+            "nullable": true
+          },
+          "facility_name": {
+            "type": "string"
+          },
+          "status_changed_at": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -120974,7 +121301,7 @@
             }
           }
         },
-        "description": "CSSD reprocessable cath device queue, ordered by the work that is waiting first. Carries no patient data.",
+        "description": "CSSD reprocessable cath device queue, ordered by the work that is waiting first. Each row is the device register row plus the facility it is waiting at and status_changed_at — when the device last MOVED, derived from its transition audit trail rather than from updated_at, which the late-reactive exposure stamp moves without a status change. Carries no patient data.",
         "parameters": [
           {
             "name": "status",
@@ -121075,6 +121402,77 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/cssd/devices/{id}/label": {
+      "get": {
+        "operationId": "get_api_v1_cssd_devices_by_id_label",
+        "tags": [
+          "cssd"
+        ],
+        "responses": {
+          "200": {
+            "description": "The device label, as a PDF by default or as JSON on ?format=json.",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CssdDeviceLabelResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The device cannot be labelled. `code`: CSSD_DEVICE_LABEL_NOT_PRINTABLE.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CssdDeviceLabelErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "The printed CSSD label for one device: a 100 x 50 mm PDF carrying the device tag as large monospace text and as a Code 39 barcode, plus the catalogue item, category, cycle counter and facility. ?format=json returns the same seven fields as JSON. A read, so it claims no idempotency key; a reprint is not a second event. Answered Cache-Control: no-store — the label carries the cycle counter, which moves, and a replayed sticker would disagree with the register. A DISCARDED device is refused (409 CSSD_DEVICE_LABEL_NOT_PRINTABLE): a discard is irreversible and a label is a physical instruction to put the device back on a tray. The label carries NO patient data and NO serology — the register exposure columns are deliberately not on it — so this path writes no PHI access log, only a cssd.device.label_printed audit row.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*$",
+                  "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+                }
+              ]
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pdf",
+                "json"
+              ],
+              "default": "pdf"
+            }
+          }
+        ]
       }
     },
     "/api/v1/cssd/devices/{id}/quarantine": {
