@@ -3444,16 +3444,23 @@ model cath_case_consumable_usage {
   metadata                   Json      @default("{}")
   facility_id                Int?
   inventory_item_id          Int?
+  device_id                  BigInt?
+  reuse_cycle                Int?
+  post_use_disposition       String?   @db.VarChar(32)
+  reuse_screen               Json?
+  post_use_screen            Json?
 
   @@unique([tenant_id, idempotency_key], map: "ux_cath_consumable_usage_idempotency", where: raw("(idempotency_key IS NOT NULL)"))
   @@unique([tenant_id, serial_number], map: "ux_cath_consumable_usage_implant_serial", where: raw("(is_implant AND (serial_number IS NOT NULL))"))
   @@unique([tenant_id, id, case_id, patient_uid], map: "ux_cath_consumable_usage_tenant_origin")
+  @@unique([tenant_id, id], map: "ux_cath_case_consumable_usage_tenant_id")
   @@index([tenant_id, case_id, used_at(sort: Desc)], map: "idx_cath_consumable_usage_case")
   @@index([tenant_id, catalog_item_id, used_at(sort: Desc)], map: "idx_cath_consumable_usage_catalog")
   @@index([tenant_id, inventory_decrement_status, used_at], map: "idx_cath_consumable_usage_inventory_followup", where: raw("((inventory_decrement_status)::text = ANY ((ARRAY['pending'::character varying, 'insufficient_stock'::character varying, 'error'::character varying])::text[]))"))
   @@index([tenant_id, patient_uid, used_at(sort: Desc)], map: "idx_cath_consumable_usage_patient_implants", where: raw("is_implant"))
   @@index([tenant_id, procedure_log_id], map: "idx_cath_consumable_usage_procedure", where: raw("(procedure_log_id IS NOT NULL)"))
   @@index([tenant_id, facility_id, inventory_decrement_status, used_at, id], map: "idx_cath_usage_facility_reconciliation_753")
+  @@index([tenant_id, device_id], map: "idx_cath_consumable_usage_device", where: raw("(device_id IS NOT NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -3531,9 +3538,11 @@ model cath_consumable_catalog {
   updated_at                  DateTime  @default(now()) @db.Timestamptz(6)
   metadata                    Json      @default("{}")
   facility_id                 Int?
+  reused_billing_item_code    String?   @db.VarChar(50)
 
   @@unique([tenant_id, id, batch_tracked, is_implant], map: "ux_cath_consumable_catalog_usage_snapshot")
   @@unique([tenant_id, facility_id, id, inventory_item_id], map: "ux_cath_catalog_facility_item_scope_753")
+  @@unique([tenant_id, id], map: "ux_cath_consumable_catalog_tenant_id")
   @@index([tenant_id, status, category, item_name], map: "idx_cath_consumable_catalog_active")
   @@index([tenant_id, billing_item_code], map: "idx_cath_consumable_catalog_billing_mapping", where: raw("(billing_item_code IS NOT NULL)"))
   @@index([tenant_id, inventory_item_id], map: "idx_cath_consumable_catalog_inventory_item", where: raw("(inventory_item_id IS NOT NULL)"))
@@ -26725,6 +26734,75 @@ model patient_bloodborne_markers {
 
   @@unique([tenant_id, lab_result_id], map: "ux_patient_bloodborne_markers_lab_result", where: raw("((lab_result_id IS NOT NULL) AND (voided_at IS NULL))"))
   @@index([tenant_id, patient_uid, marker, tested_on(sort: Desc), id(sort: Desc)], map: "idx_patient_bloodborne_markers_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model cath_reprocessable_devices {
+  id                  BigInt    @id @default(autoincrement())
+  tenant_id           String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  facility_id         Int
+  catalog_item_id     BigInt
+  device_tag          String?   @default(dbgenerated("('RP'::text || lpad((id)::text, GREATEST(8, length((id)::text)), '0'::text))")) @db.VarChar(24)
+  origin_usage_id     BigInt
+  origin_unit_index   Int       @default(1) @db.SmallInt
+  cycle_count         Int       @default(0)
+  max_cycles_snapshot Int
+  status              String    @default("awaiting_reprocessing") @db.VarChar(32)
+  current_usage_id    BigInt?
+  exposure_flag       Boolean   @default(false)
+  exposure_markers    String[]  @default([])
+  last_reprocessed_at DateTime? @db.Timestamptz(6)
+  last_reprocessed_by String?   @db.Uuid
+  last_cycle_type     String?   @db.VarChar(20)
+  last_function_check String?   @db.VarChar(16)
+  quarantine_reason   String?
+  quarantined_at      DateTime? @db.Timestamptz(6)
+  discard_reason      String?   @db.VarChar(40)
+  discard_note        String?
+  discarded_at        DateTime? @db.Timestamptz(6)
+  discarded_by        String?   @db.Uuid
+  created_by          String    @db.Uuid
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime  @default(now()) @db.Timestamptz(6)
+  metadata            Json      @default("{}")
+
+  @@unique([origin_usage_id, origin_unit_index], map: "ux_cath_reprocessable_devices_origin")
+  @@unique([tenant_id, device_tag], map: "ux_cath_reprocessable_devices_tag")
+  @@unique([tenant_id, id], map: "ux_cath_reprocessable_devices_tenant_id")
+  @@index([tenant_id, catalog_item_id, status], map: "idx_cath_reprocessable_devices_catalog")
+  @@index([tenant_id, facility_id, status], map: "idx_cath_reprocessable_devices_facility")
+  @@index([tenant_id, status], map: "idx_cath_reprocessable_devices_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model cath_reprocessing_category_policies {
+  tenant_id               String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  category                String   @db.VarChar(40)
+  reprocessable           Boolean  @default(false)
+  max_cycles              Int?
+  allowed_cycle_types     String[] @default([])
+  function_check_required Boolean  @default(false)
+  updated_by              String?  @db.Uuid
+  created_at              DateTime @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime @default(now()) @db.Timestamptz(6)
+
+  @@id([tenant_id, category])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model cath_reprocessing_settings {
+  tenant_id              String    @id @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  reactive_patient_rule  String    @default("discard") @db.VarChar(24)
+  unknown_serology_rule  String    @default("warn") @db.VarChar(24)
+  serology_validity_days Int       @default(90)
+  reviewed_by            String?   @db.Uuid
+  reviewed_at            DateTime? @db.Timestamptz(6)
+  updated_by             String?   @db.Uuid
+  created_at             DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime  @default(now()) @db.Timestamptz(6)
 }
 
 enum transplant_organ_type {

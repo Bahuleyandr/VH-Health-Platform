@@ -113,7 +113,13 @@ export const schemas = {
         description:
           "'restricted' whenever any non-voided reactive row exists for any marker, at any age — a reactive result latches and is cleared only by voiding the row. 'clear' requires the latest HIV, HBsAg and HCV rows to all be non-reactive within validity_days. Anything else is 'unknown'."
       },
-      reasons: { type: 'array', minItems: 1, items: { type: 'string' } },
+      // computeReuseStatus always produces at least one reason, but the cath
+      // surfaces project this object by role
+      // (cathDeviceReuseService.projectReuseRestrictionForRole): a caller
+      // outside CLINICAL_STAFF_ROUTE_ROLES gets the status, the window and the
+      // evaluation time with `reasons` and `markers` EMPTIED rather than
+      // dropped. minItems: 1 would make that projection a contract violation.
+      reasons: { type: 'array', items: { type: 'string' } },
       markers: {
         type: 'array',
         items: { $ref: '#/components/schemas/BloodborneReuseMarkerSummary' }

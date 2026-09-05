@@ -17,22 +17,26 @@
 //   components/SetActions     — POST /cssd/sets, GET /cssd/sets/{id}/label
 //   components/LoadActions    — POST /cssd/loads, PATCH /cssd/loads/{id}/status
 //   components/IssueActions   — POST /cssd/issues + the four transitions
+//   components/DevicesTab.tsx — reprocessable cath-device queue
+//   components/DeviceActions  — the five POST /cssd/devices/{id} transitions
 //   components/helpers.tsx    — formatters, status pill, KPI tile, modal shell
 
 import { useState } from "react";
 
 import { BoardTab } from "./components/BoardTab";
+import { DevicesTab } from "./components/DevicesTab";
 import { IssuesTab } from "./components/IssuesTab";
 import { LoadsTab } from "./components/LoadsTab";
 import { SetsTab } from "./components/SetsTab";
 
-type Tab = "board" | "sets" | "loads" | "issues";
+type Tab = "board" | "sets" | "loads" | "issues" | "devices";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "board", label: "Board" },
   { id: "sets", label: "Sets" },
   { id: "loads", label: "Loads" },
   { id: "issues", label: "Issues" },
+  { id: "devices", label: "Devices" },
 ];
 
 export default function CssdPage() {
@@ -64,6 +68,7 @@ export default function CssdPage() {
       {tab === "sets" && <SetsTab />}
       {tab === "loads" && <LoadsTab />}
       {tab === "issues" && <IssuesTab />}
+      {tab === "devices" && <DevicesTab />}
     </div>
   );
 }

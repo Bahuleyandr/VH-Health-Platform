@@ -35,6 +35,27 @@ jest.unstable_mockModule('../../services/cssd/cssdService.js', () => ({
 
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   resolveTenantOrThrow: () => '00000000-0000-4000-8000-000000000001',
+  // cssdRoutes now also mounts the reprocessable-device queue, whose service
+  // resolves its tenant through requireTenantId.
+  requireTenantId: (value) => value,
+}));
+
+// The device queue's service is not under test here (this suite pins wrap()'s
+// AppError wire shape on the instrument-set routes); stub it so the suite does
+// not drag the reuse register's whole dependency graph in.
+jest.unstable_mockModule('../../services/clinical/cathDeviceReuseService.js', () => ({
+  discardDevice: jest.fn(),
+  listDevices: jest.fn(async () => []),
+  markDeviceReprocessed: jest.fn(),
+  quarantineDevice: jest.fn(),
+  receiveDevice: jest.fn(),
+  releaseDevice: jest.fn(),
+}));
+
+jest.unstable_mockModule('../../middleware/idempotencyMiddleware.js', () => ({
+  requireIdempotencyKey: () => function idempotencyMiddleware(_req, _res, next) {
+    return next();
+  },
 }));
 
 const { default: cssdRoutes } = await import('../../routes/cssd/cssdRoutes.js');

@@ -210,6 +210,9 @@ const EMITTERS = Object.freeze({
   // MED-03 753 shortfall notice; its recipient must be backed by a pharmacy
   // facility grant, so it can only ever be staff.
   'services/clinical/cathLabService.js': { queue: ['staff'] },
+  // Blood-borne reuse exposure notice, fanned out over
+  // `users WHERE role = 'INFECTION_CONTROL_OFFICER'` — never the patient.
+  'services/clinical/cathDeviceReuseService.js': { queue: ['staff'] },
   // Clinician delivery obligation, then the overdue recovery escalation — both
   // to the alert's clinical roster.
   'services/clinical/clinicalAlertDeliveryObligationService.js': { queue: ['staff', 'staff'] },

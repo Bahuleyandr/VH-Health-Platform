@@ -34,6 +34,7 @@ import * as users from './openapi/schemas/users.mjs';
 import * as config from './openapi/schemas/config.mjs';
 import * as portal from './openapi/schemas/portal.mjs';
 import * as cathConsumables from './openapi/schemas/cathConsumables.mjs';
+import * as cathDeviceReuse from './openapi/schemas/cathDeviceReuse.mjs';
 import * as bloodborneMarkers from './openapi/schemas/bloodborneMarkers.mjs';
 import * as clinicalInbox from './openapi/schemas/clinicalInbox.mjs';
 import * as hl7 from './openapi/schemas/hl7.mjs';
@@ -88,6 +89,7 @@ const SCHEMA_MODULES = [
   config,
   portal,
   cathConsumables,
+  cathDeviceReuse,
   bloodborneMarkers,
   clinicalInbox,
   hl7,
