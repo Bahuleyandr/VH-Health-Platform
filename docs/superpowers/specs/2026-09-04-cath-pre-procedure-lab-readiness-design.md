@@ -497,6 +497,37 @@ reader, audience or not. Fixed before hand-back (`7dd54906b`);
 `stemiPathwayService.test.js` pins that the activation evidence never carries
 `live_evidence`/`critical_items` while the other metadata keys survive.
 
+**Serology disclosure canary (gate).** The leak class above — a row's
+`metadata` (or an item's values) riding through a generic `Success` schema to
+a role union wider than the serology audience — is not just fixed twice, it is
+now a **gate**. `serologyDisclosureCanary.test.js` poisons `lab_results` (and
+the corresponding stored items plus the `labs` check's own `metadata`) with a
+sentinel serology value, walks the cath, STEMI and governance router stacks to
+enumerate every `GET` route that exists today, and for each one derives its
+**reachable** role set empirically — requesting it, for real, as every one of
+the 87 roles `rolePolicyGraph` knows about — then subtracts the **entitled**
+set: `roleSeesSerologyDetail()` itself (not a second opinion minted in the
+test) applied to those 87 roles and pinned as a written 35-role allow-list, so
+a widened predicate shows up as a reviewed diff rather than a silent side
+effect. For every role left in the remainder, the canary asserts no 2xx body
+carries the sentinel, a serology code in `critical_items`, or a valued or
+critical serology item; a coverage floor and a positive control
+(`CATH_LAB_STAFF` must still read the sentinel) keep the assertion from
+passing by reaching nothing or excluding everyone. Because a reachable set can
+shrink as quietly as it can grow — a rotted fixture or a tightened validator
+narrows it just as a real fix would — each route's reachable set is also
+snapshotted against
+`apps/backend/src/tests/fixtures/serologyDisclosureCanary.reachable.json`, and
+a change in either direction fails, naming whether the set GREW or SHRANK;
+regenerating that snapshot is deliberate, behind the `CANARY_WRITE_SNAPSHOT=1`
+switch documented in the test's header, which rewrites the fixture and then
+fails on purpose so the run can never be left green in CI. Non-GET routes on
+the cath mount get the mirror check: every one must refuse every role the
+mount admits that is outside the entitled set, except the four routes named in
+a `REPORT_AUTHORING_EXCEPTIONS` map — `CATH_REPORT_EDIT_ROLES` deliberately
+includes RECEPTIONIST there for report transcription, and none of those four
+reads, writes or echoes readiness metadata.
+
 ## 10. Client scope (Staff, Flutter)
 
 - `cath_lab_screen.dart` readiness tab: replace the progress-bar-only card with the per-check list. Each of the eight checks shows status and a control that calls the existing status endpoint (no client exists today; cath_lab_api_service.dart:686 only calls evidence refresh). This is required work, not polish.
@@ -665,7 +696,8 @@ Gates: inline-check census static guard (new tables are not baseline-owned; mani
   information the risk above concerns itself with, sitting entirely outside
   the projection that gates it. Unlike the risks above, this one did not ship:
   it was found and closed before hand-back (`7dd54906b`) by stripping the two
-  keys at the source rather than adding a second per-role projection call.
+  keys at the source rather than adding a second per-role projection call —
+  and the class is now gated by the canary (§9).
 
 ## 16. Owner decisions pending
 
