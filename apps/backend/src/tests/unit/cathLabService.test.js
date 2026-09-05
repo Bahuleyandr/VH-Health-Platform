@@ -14,6 +14,7 @@ const recordClinicalAuditEventMock = jest.fn(async () => ({
 const startWorkflowSlaMock = jest.fn();
 const completeWorkflowSlaMock = jest.fn();
 const cancelWorkflowSlaMock = jest.fn(async () => []);
+const recordMedicationSafetyReviewsMock = jest.fn(async () => ([{ id: 1 }]));
 const assertPrivilegeForGateMock = jest.fn(async () => ({ allowed: true }));
 const isGateEnabledMock = jest.fn(key => process.env[key] === 'true');
 const privilegeKeyMock = jest.fn(value => String(value).trim().toLowerCase());
@@ -48,6 +49,7 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
   completeWorkflowSla: completeWorkflowSlaMock,
   recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
   recordClinicalAuditEvent: recordClinicalAuditEventMock,
+  recordMedicationSafetyReviews: recordMedicationSafetyReviewsMock,
   startWorkflowSla: startWorkflowSlaMock
 }));
 
@@ -81,6 +83,15 @@ jest.unstable_mockModule('../../services/clinical/bloodborneMarkerService.js', (
   resolveReuseStatus: jest.fn(async () => ({
     status: 'unknown', reasons: ['HIV not on record'], markers: [], validity_days: 90
   }))
+}));
+// Lab readiness widened the graph once more: cathLabService reads it on
+// getCase, and the readiness service statically imports the investigation
+// order and lab result services, which pull tenantService.getTenantById — an
+// export this suite's tenantService mock deliberately does not provide.
+// The behaviour is covered end to end by cath-lab-readiness.deep.test.js, so
+// stub the boundary rather than loading that graph here.
+jest.unstable_mockModule('../../services/clinical/cathLabReadinessService.js', () => ({
+  refreshCaseLabReadiness: jest.fn(async () => null)
 }));
 
 const {

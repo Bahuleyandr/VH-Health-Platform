@@ -8,22 +8,30 @@
 // passes the check on availability and flips it back only if it set it; a
 // critical value warns and never blocks (owner decision).
 //
-// This file currently holds only the pure resolution/decision rules (Task 2).
-// Task 3 appends persistence, refresh, automation, order-missing, external
-// result entry and waiver, and will add these imports at that point:
-//   prisma, { setTenant, setTenantTx } from '../../lib/prisma.js'
-//   logger from '../../logging/logger.js'
-//   { AppError } from '../../utils/AppError.js'
-//   { requireTenantId } from '../tenant/tenantService.js'
-//   { BLOODBORNE_MARKER_ITEM_CODES, orderCodesCovering } from '../lab/labAnalyteCodes.js'
-//   { recordMarkers, normalizeSerologyValue } from './bloodborneMarkerService.js'
-//   { recordMedicationSafetyReviews } from './canonicalClinicalPlatformService.js'
+// Cycles. This module imports labResultsService (for the manual-entry escape
+// hatch) and orderService; both of those reach back to the readiness refresh
+// through a DYNAMIC import, never a static one. cathLabService imports THIS
+// module for getCase, so this module must not import cathLabService — which is
+// why the readiness gate recompute is inlined below (recomputeCaseStatusTx)
+// rather than borrowed from cathLabService.evaluateReadinessGate.
 
+import { createHash } from 'node:crypto';
+
+import { setTenant, setTenantTx } from '../../lib/prisma.js';
+import logger from '../../logging/logger.js';
+import { AppError } from '../../utils/AppError.js';
+import { requireTenantId } from '../tenant/tenantService.js';
+import { createInvestigationOrder } from '../investigation/orderService.js';
+import { recordResultManual } from '../lab/labResultsService.js';
 import {
+  BLOODBORNE_MARKER_ITEM_CODES,
   LAB_ANALYTE_ITEMS,
   LAB_ANALYTE_ITEM_CODES,
   analyteItemForResult,
+  orderCodesCovering,
 } from '../lab/labAnalyteCodes.js';
+import { recordMarkers } from './bloodborneMarkerService.js';
+import { clinicalDate, normalizeSerologyValue } from './bloodborneMarkerRules.js';
 
 export const ITEM_CODES = LAB_ANALYTE_ITEM_CODES;
 export const ITEM_STATES = Object.freeze([
@@ -177,4 +185,819 @@ export function computeCheckDecision({ items, settings, check, caseRow }) {
     autoPendingReason = missing.map((m) => `${m.item} ${m.state.replace(/_/g, ' ')}`).join('; ');
   }
   return { nextStatus, criticalWarning: criticalItems.length > 0, criticalItems, missing, autoPendingReason };
+}
+
+// ---------------------------------------------------------------------------
+// Shared validation and small helpers
+//
+// Every raw parameter below is bound and cast; nothing is interpolated into a
+// statement. positiveInt is deliberately stricter than Number(): '12abc',
+// ' 12 ' and '1e3' all become 12/1000 under Number and would then be bound to
+// a ::bigint the caller never wrote.
+// ---------------------------------------------------------------------------
+
+const POSTGRES_INT4_MAX = 2_147_483_647;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+
+const tenantOr = (value) => requireTenantId(value);
+
+function requireUuid(value, label) {
+  const text = String(value ?? '').trim();
+  if (!UUID_PATTERN.test(text)) {
+    throw AppError.badRequest(`${label} must be a UUID`, 'CATH_LAB_BAD_UUID');
+  }
+  return text.toLowerCase();
+}
+
+function positiveInt(value, label, max = Number.MAX_SAFE_INTEGER) {
+  const text = String(value ?? '').trim();
+  if (!/^[0-9]+$/.test(text)) {
+    throw AppError.badRequest(`${label} must be a positive integer`, 'CATH_LAB_BAD_ID');
+  }
+  const n = Number(text);
+  if (!Number.isSafeInteger(n) || n <= 0 || n > max) {
+    throw AppError.badRequest(`${label} must be a positive integer`, 'CATH_LAB_BAD_ID');
+  }
+  return n;
+}
+
+// A lab_results / investigations / lab_specimens id copied onto a readiness
+// item. These columns are int4 in both directions; a value that would not
+// survive the ::int cast is dropped rather than bound, because the pointer is
+// an optimisation (the refresh recomputes the item regardless) and a 22003 in
+// the middle of a cath-case read is not.
+function int4OrNull(value) {
+  if (value === null || value === undefined) return null;
+  const n = Number(value);
+  if (!Number.isSafeInteger(n) || n <= 0 || n > POSTGRES_INT4_MAX) return null;
+  return n;
+}
+
+function cleanText(value, max = 2000) {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  return text ? text.slice(0, max) : null;
+}
+
+function num(value) {
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'bigint') return Number(value);
+  if (typeof value?.toNumber === 'function') return value.toNumber();
+  return value;
+}
+
+function withTenant(tenantId, db, fn) {
+  return db ? fn(db) : setTenant(tenantId, fn);
+}
+
+// audit_logs shape mirrors cssdService.js:208 — (tenant_id, uid, role, action,
+// resource, resource_id, metadata, actor_uid, created_at). `role` is
+// VARCHAR(50) and `action`/`resource`/`resource_id` are VARCHAR(100).
+async function recordReadinessAudit(tx, {
+  tenantId, action, resource, resourceId, context = {}, metadata = {},
+}) {
+  await tx.$executeRawUnsafe(
+    `INSERT INTO audit_logs
+       (tenant_id, uid, role, action, resource, resource_id, metadata, actor_uid, created_at)
+     VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7::jsonb, $2::uuid, NOW())`,
+    tenantId,
+    context.actorUid ? requireUuid(context.actorUid, 'actorUid') : null,
+    cleanText(context.actorRole, 50),
+    cleanText(action, 100),
+    cleanText(resource, 100),
+    cleanText(String(resourceId), 100),
+    JSON.stringify(metadata ?? {}),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Settings
+// ---------------------------------------------------------------------------
+
+const SETTINGS_SELECT = 'tenant_id, required_items, lab_validity_days, auto_pass, '
+  + 'external_results_count, updated_by, created_at, updated_at';
+
+export async function getReadinessSettings({ tenantId, db = null } = {}) {
+  const tid = tenantOr(tenantId);
+  const rows = await withTenant(tid, db, (client) => client.$queryRawUnsafe(
+    `SELECT ${SETTINGS_SELECT}
+       FROM cath_lab_readiness_settings
+      WHERE tenant_id = $1::uuid
+      LIMIT 1`,
+    tid,
+  ));
+  const row = rows[0];
+  if (!row) {
+    return {
+      tenant_id: tid,
+      ...SETTINGS_DEFAULTS,
+      required_items: [...SETTINGS_DEFAULTS.required_items],
+      configured: false,
+    };
+  }
+  return {
+    ...row,
+    lab_validity_days: Number(row.lab_validity_days),
+    required_items: Array.isArray(row.required_items) ? row.required_items : [],
+    configured: true,
+  };
+}
+
+export async function upsertReadinessSettings(input = {}, context = {}) {
+  const tid = tenantOr(input.tenantId);
+  const supplied = Array.isArray(input.required_items)
+    ? input.required_items.map((code) => String(code ?? '').trim().toLowerCase())
+    : null;
+  // An explicitly empty set is a 400, not a database error: migration 766's
+  // cath_lab_readiness_settings_items_check requires at least one item, and a
+  // 23514 surfacing as a 500 tells the tenant administrator nothing.
+  if (supplied && supplied.length === 0) {
+    throw AppError.badRequest(
+      'required_items must name at least one item; mark the labs check not required on the case instead',
+      'CATH_LAB_READINESS_ITEMS_EMPTY',
+    );
+  }
+  const requiredItems = [...new Set(supplied ?? [...SETTINGS_DEFAULTS.required_items])];
+  if (requiredItems.some((code) => !ITEM_CODES.includes(code))) {
+    throw AppError.badRequest(
+      `required_items must be within ${ITEM_CODES.join(', ')}`,
+      'CATH_LAB_READINESS_ITEM_UNKNOWN',
+    );
+  }
+  const validity = positiveInt(
+    input.lab_validity_days ?? SETTINGS_DEFAULTS.lab_validity_days,
+    'lab_validity_days',
+    365,
+  );
+  const autoPass = input.auto_pass === undefined ? true : Boolean(input.auto_pass);
+  const externalCount = input.external_results_count === undefined
+    ? true
+    : Boolean(input.external_results_count);
+  const actor = requireUuid(context.actorUid, 'actorUid');
+  return setTenantTx(tid, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `INSERT INTO cath_lab_readiness_settings
+         (tenant_id, required_items, lab_validity_days, auto_pass, external_results_count, updated_by)
+       VALUES ($1::uuid, $2::text[], $3::int, $4::boolean, $5::boolean, $6::uuid)
+       ON CONFLICT (tenant_id) DO UPDATE SET
+         required_items = EXCLUDED.required_items,
+         lab_validity_days = EXCLUDED.lab_validity_days,
+         auto_pass = EXCLUDED.auto_pass,
+         external_results_count = EXCLUDED.external_results_count,
+         updated_by = EXCLUDED.updated_by,
+         updated_at = NOW()
+       RETURNING ${SETTINGS_SELECT}`,
+      tid, requiredItems, validity, autoPass, externalCount, actor,
+    );
+    await recordReadinessAudit(tx, {
+      tenantId: tid,
+      action: 'CATH_LAB_READINESS_SETTINGS_UPDATED',
+      resource: 'cath_lab_readiness_settings',
+      resourceId: tid,
+      context,
+      metadata: {
+        required_items: requiredItems,
+        lab_validity_days: validity,
+        auto_pass: autoPass,
+        external_results_count: externalCount,
+      },
+    });
+    return {
+      ...rows[0],
+      lab_validity_days: Number(rows[0].lab_validity_days),
+      configured: true,
+    };
+  });
+}
+
+// The serology window is the reuse programme's (migration 765), not a second
+// number this feature invents: a tenant that shortened HIV/HBsAg/HCV validity
+// for device reuse means the same thing here. A deployment without that table
+// falls back to the compiled-in default rather than failing the refresh.
+async function serologyValidityDays(tenantId, db) {
+  try {
+    const rows = await db.$queryRawUnsafe(
+      `SELECT serology_validity_days
+         FROM cath_reprocessing_settings
+        WHERE tenant_id = $1::uuid
+        LIMIT 1`,
+      tenantId,
+    );
+    return rows[0] ? Number(rows[0].serology_validity_days) : DEFAULT_SEROLOGY_VALIDITY_DAYS;
+  } catch (err) {
+    const message = String(err?.message || '');
+    if (err?.code === '42P01' || err?.meta?.code === '42P01' || /does not exist/i.test(message)) {
+      return DEFAULT_SEROLOGY_VALIDITY_DAYS;
+    }
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Refresh: resolve the seven items, persist them, apply the check-level rule
+// ---------------------------------------------------------------------------
+
+async function caseRowTx(client, tenantId, caseId, { lock = false } = {}) {
+  const rows = await client.$queryRawUnsafe(
+    `SELECT id, tenant_id, patient_uid, encounter_id, facility_id, status, urgency, actual_start_at
+       FROM cath_lab_cases
+      WHERE tenant_id = $1::uuid
+        AND id = $2::bigint
+      ${lock ? 'FOR UPDATE' : ''}
+      LIMIT 1`,
+    tenantOr(tenantId), positiveInt(caseId, 'case_id'),
+  );
+  const row = rows[0];
+  if (!row) throw AppError.notFound('Cath-lab case not found', 'CATH_LAB_CASE_NOT_FOUND');
+  return { ...row, id: num(row.id) };
+}
+
+async function upsertItemTx(tx, tenantId, caseId, item) {
+  await tx.$executeRawUnsafe(
+    `INSERT INTO cath_case_lab_readiness_items
+       (tenant_id, case_id, item_code, required, state, value_text, value_numeric, unit,
+        abnormal_flag, is_critical, observed_at, source, lab_result_id, investigation_id,
+        specimen_id, ordered_at, waived_by, waived_at, waive_reason, refreshed_at)
+     VALUES ($1::uuid, $2::bigint, $3, $4::boolean, $5, $6, $7::numeric, $8,
+             $9, $10::boolean, $11::timestamptz, $12, $13::int, $14::int,
+             $15::int, $16::timestamptz, $17::uuid, $18::timestamptz, $19, NOW())
+     ON CONFLICT (tenant_id, case_id, item_code) DO UPDATE SET
+       required = EXCLUDED.required,
+       state = EXCLUDED.state,
+       value_text = EXCLUDED.value_text,
+       value_numeric = EXCLUDED.value_numeric,
+       unit = EXCLUDED.unit,
+       abnormal_flag = EXCLUDED.abnormal_flag,
+       is_critical = EXCLUDED.is_critical,
+       observed_at = EXCLUDED.observed_at,
+       source = EXCLUDED.source,
+       lab_result_id = EXCLUDED.lab_result_id,
+       investigation_id = EXCLUDED.investigation_id,
+       specimen_id = EXCLUDED.specimen_id,
+       ordered_at = EXCLUDED.ordered_at,
+       waived_by = EXCLUDED.waived_by,
+       waived_at = EXCLUDED.waived_at,
+       waive_reason = EXCLUDED.waive_reason,
+       refreshed_at = NOW()`,
+    tenantId,
+    caseId,
+    item.item_code,
+    item.required !== false,
+    item.state,
+    // The copy targets mirror the lab_results widths (255 / 40 / 10); clamp
+    // rather than let a widened source column raise 22001 inside a case read.
+    cleanText(item.value_text, 255),
+    item.value_numeric == null ? null : Number(item.value_numeric),
+    cleanText(item.unit, 40),
+    cleanText(item.abnormal_flag, 10),
+    Boolean(item.is_critical),
+    item.observed_at ?? null,
+    item.source ?? null,
+    int4OrNull(item.lab_result_id),
+    int4OrNull(item.investigation_id),
+    int4OrNull(item.specimen_id),
+    item.ordered_at ?? null,
+    item.waived_by ? requireUuid(item.waived_by, 'waived_by') : null,
+    item.waived_at ?? null,
+    item.waive_reason ?? null,
+  );
+}
+
+// The same gate as cathLabService.evaluateReadinessGate, inlined: cathLabService
+// imports this module for getCase, so importing it back would be a static cycle.
+const READINESS_CHECK_TYPES = Object.freeze([
+  'consent', 'labs', 'allergy_renal_risk', 'anticoagulation',
+  'blood_bank', 'equipment', 'implants_device_rep', 'timeout',
+]);
+const READINESS_CLEAR_STATES = new Set(['pass', 'waived', 'not_applicable']);
+
+async function recomputeCaseStatusTx(tx, tenantId, caseId, actorUid) {
+  const checks = await tx.$queryRawUnsafe(
+    `SELECT check_type, status, required
+       FROM cath_lab_readiness_checks
+      WHERE tenant_id = $1::uuid
+        AND case_id = $2::bigint`,
+    tenantId, caseId,
+  );
+  const byType = new Map(checks.map((check) => [check.check_type, check]));
+  const ready = READINESS_CHECK_TYPES.every((type) => {
+    const check = byType.get(type);
+    return Boolean(check) && (check.required === false || READINESS_CLEAR_STATES.has(check.status));
+  });
+  await tx.$executeRawUnsafe(
+    `UPDATE cath_lab_cases
+        SET status = CASE
+              WHEN status IN ('scheduled', 'readiness_pending', 'ready') THEN $3
+              ELSE status
+            END,
+            updated_by = COALESCE($4::uuid, updated_by),
+            updated_at = NOW()
+      WHERE tenant_id = $1::uuid
+        AND id = $2::bigint`,
+    tenantId, caseId, ready ? 'ready' : 'readiness_pending', actorUid,
+  );
+  return ready;
+}
+
+export async function refreshCaseLabReadiness({
+  tenantId, caseId, db = null, context = {},
+} = {}) {
+  const tid = tenantOr(tenantId);
+  const run = db ? (fn) => fn(db) : (fn) => setTenantTx(tid, fn);
+  return run(async (tx) => {
+    const cathCase = await caseRowTx(tx, tid, caseId, { lock: true });
+    const settings = await getReadinessSettings({ tenantId: tid, db: tx });
+    const serologyDays = await serologyValidityDays(tid, tx);
+    const asOf = new Date();
+    // Wide enough that a value which has merely gone stale is still SEEN — the
+    // resolver needs the row to answer 'stale' rather than 'not_ordered'.
+    const lookbackDays = Math.max(settings.lab_validity_days, serologyDays) + 365;
+
+    // lab_results.received_at is NOT NULL, so COALESCE(performed_at,
+    // received_at) is always a real instant: nothing is silently dropped here.
+    const results = await tx.$queryRawUnsafe(
+      `SELECT id, test_code, loinc_code, value_text, value_numeric, unit, abnormal_flag,
+              is_critical, status, signed_off_at, performed_at, received_at, result_origin
+         FROM lab_results
+        WHERE tenant_id = $1::uuid
+          AND patient_uid = $2::uuid
+          AND COALESCE(performed_at, received_at) >= NOW() - ($3::int * INTERVAL '1 day')`,
+      tid, cathCase.patient_uid, lookbackDays,
+    );
+    // investigations.status is the UPPER-case lifecycle from
+    // config/investigationConfig.js (REQUESTED → SCHEDULED → COLLECTED →
+    // IN_PROGRESS → COMPLETED, plus CANCELLED); the column carries no CHECK.
+    const orders = await tx.$queryRawUnsafe(
+      `SELECT i.id, i.test_code, i.status, i.requested_at, i.collected_at, b.id AS booking_id
+         FROM investigations i
+         LEFT JOIN investigation_bookings b
+           ON b.investigation_id = i.id
+          AND b.tenant_id = i.tenant_id
+        WHERE i.tenant_id = $1::uuid
+          AND i.patient_uid = $2::uuid
+          AND i.status NOT IN ('COMPLETED', 'CANCELLED')
+          AND i.requested_at >= NOW() - ($3::int * INTERVAL '1 day')`,
+      tid, cathCase.patient_uid, lookbackDays,
+    );
+    const bookingIds = [...new Set(
+      orders.map((order) => int4OrNull(order.booking_id)).filter((id) => id != null),
+    )];
+    // lab_specimens.status is the LOWER-case vocabulary of
+    // lab_specimens_status_check (ordered/collected/in_transit/received/
+    // processing/rejected/disposed/cancelled).
+    const specimens = bookingIds.length
+      ? await tx.$queryRawUnsafe(
+        `SELECT id, booking_id, status
+           FROM lab_specimens
+          WHERE tenant_id = $1::uuid
+            AND booking_id = ANY($2::int[])
+          ORDER BY id DESC`,
+        tid, bookingIds,
+      )
+      : [];
+    const waivers = await tx.$queryRawUnsafe(
+      `SELECT item_code, waived_by, waived_at, waive_reason
+         FROM cath_case_lab_readiness_items
+        WHERE tenant_id = $1::uuid
+          AND case_id = $2::bigint
+          AND state = 'waived'`,
+      tid, cathCase.id,
+    );
+
+    const items = ITEM_CODES.map((code) => {
+      const windowDays = BLOODBORNE_MARKER_ITEM_CODES.includes(code)
+        ? serologyDays
+        : settings.lab_validity_days;
+      const waiver = waivers.find((row) => row.item_code === code) || null;
+      return {
+        ...resolveItemState({ item: code, results, orders, specimens, waiver, windowDays, asOf }),
+        required: settings.required_items.includes(code),
+      };
+    });
+    for (const item of items) {
+      await upsertItemTx(tx, tid, cathCase.id, item);
+    }
+
+    const checkRows = await tx.$queryRawUnsafe(
+      `SELECT id, status, completed_by, metadata
+         FROM cath_lab_readiness_checks
+        WHERE tenant_id = $1::uuid
+          AND case_id = $2::bigint
+          AND check_type = 'labs'
+        FOR UPDATE`,
+      tid, cathCase.id,
+    );
+    const check = checkRows[0] || null;
+    const decision = computeCheckDecision({
+      items,
+      settings,
+      check: check || { status: 'pending', metadata: {} },
+      caseRow: cathCase,
+    });
+    let checkStatus = check ? check.status : 'pending';
+    let autoManaged = check?.metadata?.auto_managed === true;
+    if (check) {
+      const metadataPatch = {
+        critical_warning: decision.criticalWarning,
+        critical_items: decision.criticalItems,
+        live_evidence: items,
+        live_evidence_refreshed_at: asOf.toISOString(),
+        auto_pending_reason: decision.nextStatus === 'pending'
+          ? decision.autoPendingReason
+          : (decision.nextStatus === 'pass' ? null : check.metadata?.auto_pending_reason ?? null),
+        ...(decision.nextStatus
+          ? {
+            auto_managed: true,
+            auto_passed_at: decision.nextStatus === 'pass' ? asOf.toISOString() : null,
+          }
+          : {}),
+      };
+      await tx.$executeRawUnsafe(
+        `UPDATE cath_lab_readiness_checks
+            SET status = COALESCE($4::text, status),
+                completed_at = CASE
+                  WHEN $4::text = 'pass' THEN NOW()
+                  WHEN $4::text = 'pending' THEN NULL
+                  ELSE completed_at
+                END,
+                completed_by = CASE WHEN $4::text IS NOT NULL THEN NULL ELSE completed_by END,
+                evidence_owner = 'lab_readiness',
+                source_name = 'lab_results',
+                attachment_ref = $5,
+                metadata = COALESCE(metadata, '{}'::jsonb) || $3::jsonb,
+                updated_at = NOW()
+          WHERE tenant_id = $1::uuid
+            AND id = $2::bigint`,
+        tid,
+        num(check.id),
+        JSON.stringify(metadataPatch),
+        decision.nextStatus,
+        `lab_readiness:${cathCase.id}`,
+      );
+      if (decision.nextStatus) {
+        checkStatus = decision.nextStatus;
+        autoManaged = true;
+        await recomputeCaseStatusTx(
+          tx, tid, cathCase.id,
+          context.actorUid ? requireUuid(context.actorUid, 'actorUid') : null,
+        );
+        // The actor on an automation flip is the system, not whoever happened
+        // to open the case: attributing it to a person would put a decision in
+        // their audit trail that they never made.
+        await recordReadinessAudit(tx, {
+          tenantId: tid,
+          action: `cath_lab.readiness.labs.auto_${decision.nextStatus}`,
+          resource: 'cath_lab_readiness_checks',
+          resourceId: num(check.id),
+          context: { actorUid: null, actorRole: 'SYSTEM' },
+          metadata: {
+            case_id: cathCase.id,
+            missing: decision.missing,
+            critical_items: decision.criticalItems,
+            reason: decision.autoPendingReason,
+          },
+        });
+      }
+    }
+    return {
+      case_id: cathCase.id,
+      check_status: checkStatus,
+      auto_managed: autoManaged,
+      critical_warning: decision.criticalWarning,
+      critical_items: decision.criticalItems,
+      items,
+      missing: decision.missing,
+      orderable_now: orderCodesCovering(
+        items
+          .filter((item) => item.required && ['not_ordered', 'stale'].includes(item.state))
+          .map((item) => item.item_code),
+      ),
+      open_order_codes: [...new Set(orders.map((order) => String(order.test_code || '').toUpperCase()))],
+      settings: {
+        lab_validity_days: settings.lab_validity_days,
+        serology_validity_days: serologyDays,
+        auto_pass: settings.auto_pass,
+        external_results_count: settings.external_results_count,
+        required_items: settings.required_items,
+      },
+      case_started: Boolean(cathCase.actual_start_at),
+    };
+  });
+}
+
+// Best-effort, post-commit: refresh every open case of a patient after a lab
+// event. Failures are logged and never propagate into the lab write — a
+// readiness snapshot that is one event behind is repaired by the next refresh;
+// a lab result that failed to commit is not.
+export async function refreshOpenCasesForPatient({ tenantId, patientUid } = {}) {
+  try {
+    const tid = tenantOr(tenantId);
+    const uid = requireUuid(patientUid, 'patientUid');
+    const cases = await setTenant(tid, (client) => client.$queryRawUnsafe(
+      `SELECT id
+         FROM cath_lab_cases
+        WHERE tenant_id = $1::uuid
+          AND patient_uid = $2::uuid
+          AND status IN ('scheduled', 'readiness_pending', 'ready')
+          AND actual_start_at IS NULL`,
+      tid, uid,
+    ));
+    for (const row of cases) {
+      try {
+        await refreshCaseLabReadiness({ tenantId: tid, caseId: num(row.id) });
+      } catch (err) {
+        logger.warn(`Cath lab readiness refresh failed for case ${row.id}: ${err?.message}`);
+      }
+    }
+    return cases.length;
+  } catch (err) {
+    logger.warn(`Cath lab readiness refresh lookup failed: ${err?.message}`);
+    return 0;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Actions: waive, order the missing, record an outside result
+// ---------------------------------------------------------------------------
+
+function requireItem(value) {
+  const item = String(value ?? '').trim().toLowerCase();
+  if (!ITEM_CODES.includes(item)) {
+    throw AppError.badRequest(
+      `item must be one of ${ITEM_CODES.join(', ')}`,
+      'CATH_LAB_READINESS_ITEM_UNKNOWN',
+    );
+  }
+  return item;
+}
+
+export async function waiveLabItem(caseId, itemCode, input = {}, context = {}) {
+  const tid = tenantOr(input.tenantId);
+  const item = requireItem(itemCode);
+  const reason = cleanText(input.reason, 500);
+  if (!reason) {
+    throw AppError.badRequest(
+      'reason is required to waive a lab item',
+      'CATH_LAB_READINESS_VALUE_INVALID',
+    );
+  }
+  const actor = requireUuid(context.actorUid, 'actorUid');
+  return setTenantTx(tid, async (tx) => {
+    const cathCase = await caseRowTx(tx, tid, caseId, { lock: true });
+    await tx.$executeRawUnsafe(
+      `INSERT INTO cath_case_lab_readiness_items
+         (tenant_id, case_id, item_code, required, state, source,
+          waived_by, waived_at, waive_reason, refreshed_at)
+       VALUES ($1::uuid, $2::bigint, $3, TRUE, 'waived', 'waiver', $4::uuid, NOW(), $5, NOW())
+       ON CONFLICT (tenant_id, case_id, item_code) DO UPDATE SET
+         state = 'waived',
+         source = 'waiver',
+         waived_by = EXCLUDED.waived_by,
+         waived_at = NOW(),
+         waive_reason = EXCLUDED.waive_reason,
+         refreshed_at = NOW()`,
+      tid, cathCase.id, item, actor, reason,
+    );
+    await recordReadinessAudit(tx, {
+      tenantId: tid,
+      action: 'cath_lab.readiness.labs.item_waived',
+      resource: 'cath_case_lab_readiness_items',
+      resourceId: `${cathCase.id}:${item}`,
+      context,
+      metadata: { case_id: cathCase.id, item, reason },
+    });
+    return refreshCaseLabReadiness({ tenantId: tid, caseId: cathCase.id, db: tx, context });
+  });
+}
+
+// Catalogue display names for the six orderable codes (migration 102). The
+// codes themselves come from labAnalyteCodes.orderCodesCovering, which stays
+// the single source of truth for WHICH orders cover which items.
+const CATALOGUE_TEST_NAMES = Object.freeze({
+  CBC: 'Complete Blood Count',
+  PLT: 'Platelet Count',
+  CREATININE: 'Serum Creatinine',
+  KFT: 'Kidney Function Test',
+  ELECTROLYTES: 'Serum Electrolytes',
+  HIV: 'HIV 1 & 2 Antibody (ELISA)',
+  HBSAG: 'Hepatitis B Surface Antigen',
+  HCV: 'Hepatitis C Antibody',
+});
+
+export async function orderMissingLabs(caseId, input = {}, context = {}) {
+  const tid = tenantOr(input.tenantId);
+  const actor = requireUuid(context.actorUid, 'actorUid');
+  const before = await refreshCaseLabReadiness({ tenantId: tid, caseId, context });
+  if (before.case_started) {
+    throw AppError.conflict(
+      'The procedure has started; order labs from the case instead',
+      'CATH_LAB_READINESS_CASE_STARTED',
+    );
+  }
+  const codes = before.orderable_now.filter((code) => !before.open_order_codes.includes(code));
+  const patientRows = await setTenant(tid, (client) => client.$queryRawUnsafe(
+    `SELECT u.id
+       FROM users u
+       JOIN cath_lab_cases c
+         ON c.patient_uid = u.uid
+        AND c.tenant_id = u.tenant_id
+      WHERE c.tenant_id = $1::uuid
+        AND c.id = $2::bigint
+      LIMIT 1`,
+    tid, positiveInt(caseId, 'case_id'),
+  ));
+  if (!patientRows[0]) {
+    throw AppError.notFound('Cath-lab case patient not found', 'CATH_LAB_CASE_NOT_FOUND');
+  }
+  const created = [];
+  const skipped = before.orderable_now
+    .filter((code) => before.open_order_codes.includes(code))
+    .map((code) => ({ code, reason: 'already_ordered' }));
+  for (const code of codes) {
+    try {
+      // createInvestigationOrder returns { investigation, patient_name,
+      // duplicate_warning } — the order row is one level in, not the return.
+      const order = await createInvestigationOrder({
+        patient_id: Number(patientRows[0].id),
+        doctor_uid: actor,
+        orderedBy: actor,
+        test_name: CATALOGUE_TEST_NAMES[code] || code,
+        test_code: code,
+        type: 'LAB',
+        priority: 'NORMAL',
+        notes: `Pre-cath lab readiness (case ${before.case_id})`,
+        tenantId: tid,
+        actorRole: context.actorRole || null,
+      });
+      created.push({ code, investigation_id: Number(order.investigation.id) });
+    } catch (err) {
+      throw AppError.internal(
+        `Could not place the ${code} order: ${err?.code || err?.message}`,
+        'CATH_LAB_READINESS_ORDER_FAILED',
+        { code, cause: err?.code || null },
+      );
+    }
+  }
+  await setTenantTx(tid, (tx) => recordReadinessAudit(tx, {
+    tenantId: tid,
+    action: 'cath_lab.readiness.labs.orders_placed',
+    resource: 'cath_lab_cases',
+    resourceId: before.case_id,
+    context,
+    metadata: { created, skipped },
+  }));
+  const after = await refreshCaseLabReadiness({ tenantId: tid, caseId, context });
+  return { created, skipped, readiness: after };
+}
+
+const QUALITATIVE_TOKENS = Object.freeze([
+  'reactive', 'non-reactive', 'nonreactive', 'non reactive',
+  'positive', 'negative', 'indeterminate', 'not detected', 'detected',
+]);
+
+// The fingerprint the ingest-command rail requires. An outside entry has no
+// HTTP body of its own when it arrives through a service call, so the
+// fingerprint is taken over the fields that define the result: the same value
+// twice replays, a corrected value is a new command.
+function externalEntryFingerprint(parts) {
+  return createHash('sha256').update(JSON.stringify(parts)).digest('hex');
+}
+
+export async function recordExternalLabResult(caseId, itemCode, input = {}, context = {}) {
+  const tid = tenantOr(input.tenantId);
+  const item = requireItem(itemCode);
+  const def = LAB_ANALYTE_ITEMS[item];
+  const actor = requireUuid(context.actorUid, 'actorUid');
+  const labName = cleanText(input.external_lab_name, 160);
+  const reportRef = cleanText(input.external_report_ref, 120);
+  const notes = cleanText(input.notes, 2000);
+  const observedOn = String(input.observed_on ?? '').trim();
+  if (!labName) {
+    throw AppError.badRequest('external_lab_name is required', 'CATH_LAB_READINESS_VALUE_INVALID');
+  }
+  // "Today" is the ward's today (Asia/Kolkata), not UTC's: between 18:30 and
+  // midnight IST a same-day report is tomorrow in UTC and would be refused.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(observedOn) || observedOn > clinicalDate(new Date())) {
+    throw AppError.badRequest(
+      'observed_on must be a past or present date (YYYY-MM-DD)',
+      'CATH_LAB_READINESS_VALUE_INVALID',
+    );
+  }
+  const valueText = cleanText(input.value_text, 255);
+  let valueNumeric = null;
+  let unit = cleanText(input.unit, 40) || def.unit;
+  if (def.kind === 'qualitative') {
+    const token = String(valueText || '').toLowerCase();
+    if (!QUALITATIVE_TOKENS.some((allowed) => token === allowed)) {
+      throw AppError.badRequest(
+        `value_text must be one of ${QUALITATIVE_TOKENS.join(', ')}`,
+        'CATH_LAB_READINESS_VALUE_INVALID',
+      );
+    }
+    unit = null;
+  } else {
+    valueNumeric = Number(input.value_numeric ?? valueText);
+    if (!Number.isFinite(valueNumeric) || valueNumeric < 0) {
+      throw AppError.badRequest(
+        'value_numeric must be a non-negative number',
+        'CATH_LAB_READINESS_VALUE_INVALID',
+      );
+    }
+    if (!unit) {
+      throw AppError.badRequest(
+        'unit is required for a quantitative result',
+        'CATH_LAB_READINESS_VALUE_INVALID',
+      );
+    }
+  }
+  const cathCase = await setTenant(tid, (client) => caseRowTx(client, tid, caseId));
+  if (cathCase.actual_start_at) {
+    throw AppError.conflict(
+      'The procedure has started; outside results are recorded on the case, not the checklist',
+      'CATH_LAB_READINESS_CASE_STARTED',
+    );
+  }
+
+  const storedValue = def.kind === 'qualitative' ? valueText : String(valueNumeric);
+  const fingerprint = SHA256_HEX.test(String(context.requestFingerprint || ''))
+    ? String(context.requestFingerprint)
+    : externalEntryFingerprint({
+      case_id: cathCase.id,
+      item,
+      value: storedValue,
+      unit,
+      observed_on: observedOn,
+      external_lab_name: labName,
+      external_report_ref: reportRef,
+    });
+  const idempotencyKey = cleanText(context.idempotencyKey, 200)
+    || `cath-readiness-ext:${cathCase.id}:${item}:${fingerprint.slice(0, 32)}`;
+
+  const recorded = await recordResultManual({
+    tenantId: tid,
+    performed_by: actor,
+    performed_by_role: context.actorRole || null,
+    result: {
+      patient_uid: cathCase.patient_uid,
+      test_code: def.canonicalAnalyteCode,
+      test_name: `${def.canonicalAnalyteCode} (external lab)`,
+      value_text: storedValue,
+      unit,
+      comments: notes,
+      result_origin: 'external_lab',
+      external_lab_name: labName,
+      external_report_ref: reportRef,
+      external_reported_on: observedOn,
+      performed_at: `${observedOn}T00:00:00+05:30`,
+    },
+    idempotencyKey,
+    requestBodySha256: fingerprint,
+    httpIdempotencyClaimId: context.httpIdempotencyClaimId || null,
+    requestId: context.requestId || null,
+    allowUnlinkedExternal: true,
+    qualitative: def.kind === 'qualitative',
+  });
+  const labResult = recorded.result;
+
+  // Serology also lands on the patient's blood-borne marker record (Plan 1's
+  // rail), so the reuse resolver and the cath capture sheet see the outside
+  // value too. `external_report` markers must carry the lab link.
+  if (def.marker) {
+    await recordMarkers({
+      tenantId: tid,
+      patientUid: cathCase.patient_uid,
+      actorUid: actor,
+      entries: [{
+        marker: def.marker,
+        result: normalizeSerologyValue(valueText),
+        tested_on: observedOn,
+        source: 'external_report',
+        lab_result_id: Number(labResult.id),
+        evidence: {
+          external_lab_name: labName,
+          external_report_ref: reportRef,
+          raw_value: valueText,
+        },
+      }],
+    });
+  }
+  await setTenantTx(tid, (tx) => recordReadinessAudit(tx, {
+    tenantId: tid,
+    action: 'CATH_LAB_EXTERNAL_RESULT_RECORDED',
+    resource: 'lab_results',
+    resourceId: Number(labResult.id),
+    context,
+    metadata: {
+      case_id: cathCase.id,
+      item,
+      external_lab_name: labName,
+      external_report_ref: reportRef,
+      observed_on: observedOn,
+    },
+  }));
+  const readiness = await refreshCaseLabReadiness({
+    tenantId: tid, caseId: cathCase.id, context,
+  });
+  return { lab_result_id: Number(labResult.id), item, readiness };
 }

@@ -1203,10 +1203,10 @@ export async function ingestOruMessage(message, {
              hl7_message_id, hl7_segment_index, oru_ingest_message_id,
              loinc_code, test_code, test_name, value_text, value_numeric, unit,
              reference_range, abnormal_flag, status, performed_by_lab,
-             performed_at, raw_obx, analyzer_id)
+             performed_at, raw_obx, analyzer_id, result_origin)
            VALUES ($1::uuid, $2::int, $3::int, $4::int, $5::uuid, $6, $7, $8::int,
                    $9::bigint, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-                   $19, NULL, $20, $21::int)
+                   $19, NULL, $20, $21::int, 'analyzer')
            ON CONFLICT (tenant_id, performed_by_lab, hl7_message_id, hl7_segment_index)
              WHERE performed_by_lab IS NOT NULL
                AND hl7_message_id IS NOT NULL
@@ -1525,6 +1525,25 @@ export async function ingestOruMessage(message, {
     } catch (error) {
       logger.error(`Critical ORU realtime fan-out failed after commit: ${error?.message}`);
     }
+    // Cath-lab readiness (spec 2026-09-04 §6). Post-commit, best-effort and
+    // dynamically imported: the readiness module imports THIS one for the
+    // manual-entry escape hatch, so a static import here would be a cycle. A
+    // refresh that fails leaves the snapshot one event behind — the next
+    // refresh repairs it — and must never unwind a lab write that has already
+    // committed. One message can carry
+    // results for more than one patient, so the loop is over the DISTINCT uids
+    // of the rows this ingest actually wrote.
+    try {
+      const { refreshOpenCasesForPatient } = await import('../clinical/cathLabReadinessService.js');
+      const ingestedPatientUids = [...new Set(
+        (results || []).map((row) => row?.patient_uid).filter(Boolean).map(String),
+      )];
+      for (const patientUid of ingestedPatientUids) {
+        await refreshOpenCasesForPatient({ tenantId, patientUid });
+      }
+    } catch (readinessErr) {
+      logger.warn(`Cath lab readiness refresh after lab event failed (lab write stands): ${readinessErr?.message}`);
+    }
   }
 
   logger.info(`[lab] Ingested ORU ${messageControlId}: ${results.length} results, ${alerts.length} criticals, replayed=${replayed}`);
@@ -1695,12 +1714,16 @@ export async function recordResultManual({
   requestBodySha256,
   httpIdempotencyClaimId = null,
   requestId = null,
+  allowUnlinkedExternal = false,
+  qualitative = false,
 }) {
   const fields = [
     'booking_id', 'investigation_id', 'admission_id', 'patient_uid', 'patient_name', 'loinc_code',
     'test_code', 'test_name', 'value_text', 'unit', 'reference_range',
     'reference_range_low', 'reference_range_high',
     'abnormal_flag', 'status', 'comments',
+    'result_origin', 'external_lab_name', 'external_report_ref', 'external_reported_on',
+    'performed_at',
   ];
   for (const f of ['patient_uid', 'test_code', 'test_name']) {
     if (!result[f]) throw AppError.badRequest(`${f} is required`);
@@ -1724,6 +1747,28 @@ export async function recordResultManual({
   // 2026-05-08-inpatient-admission-lab-tech-results-final-without-verification
   // 2026-05-08-inpatient-admission-lab-tech-signoff-no-pathologist-tier-check
   const sanitised = { ...result, status: 'preliminary' };
+  // Provenance (migration 766). The public manual route may not choose an
+  // origin — labResultOriginGuard rejects those fields before the request ever
+  // reaches here — so an origin arriving without allowUnlinkedExternal is
+  // overwritten rather than trusted. The cath readiness checklist is the only
+  // caller that may file an outside-laboratory value, and it must name the lab
+  // and the day the lab reported it: an external value that cannot say where
+  // it came from is not evidence.
+  const externalOrigin = allowUnlinkedExternal && sanitised.result_origin === 'external_lab';
+  if (!allowUnlinkedExternal) {
+    sanitised.result_origin = 'manual_in_house';
+    sanitised.external_lab_name = null;
+    sanitised.external_report_ref = null;
+    sanitised.external_reported_on = null;
+    sanitised.performed_at = null;
+  } else if (!externalOrigin
+    || !String(sanitised.external_lab_name ?? '').trim()
+    || !sanitised.external_reported_on) {
+    throw AppError.badRequest(
+      'External results must carry result_origin=external_lab, external_lab_name and external_reported_on',
+      'LAB_RESULT_EXTERNAL_PROVENANCE_REQUIRED',
+    );
+  }
   sanitised.abnormal_flag = normalizeManualLabFlag(sanitised.abnormal_flag);
   const numeric = asNumericOrNull(sanitised.value_text);
 
@@ -1733,7 +1778,9 @@ export async function recordResultManual({
   const requestedBookingId = sanitised.booking_id != null
     ? Number(sanitised.booking_id)
     : null;
-  if (requestedInvestigationId == null && requestedBookingId == null) {
+  // An outside-laboratory value has no in-house order to link to — that is the
+  // whole reason it had no home before migration 766.
+  if (!externalOrigin && requestedInvestigationId == null && requestedBookingId == null) {
     throw AppError.badRequest(
       'Manual lab results must be linked to an investigation order or booking before entry',
       'LAB_RESULT_ORDER_LINK_REQUIRED',
@@ -1783,50 +1830,76 @@ export async function recordResultManual({
       return { responseData: replayData, materializations: [], replayed: true };
     }
 
-    const source = await lockAndValidateOrderedResultSource({
-      tx,
-      tenantId,
-      patientUid: sanitised.patient_uid,
-      bookingId: requestedBookingId,
-      investigationId: requestedInvestigationId,
-    });
-    sanitised.investigation_id = source.investigationId;
-    sanitised.admission_id = source.admissionId;
-    sanitised.patient_name = source.patientName;
+    if (externalOrigin) {
+      // No order to lock, so the patient is validated directly: an outside
+      // result still may not be filed against a uid this tenant does not own.
+      const patientRows = await tx.$queryRawUnsafe(
+        `SELECT name FROM users WHERE tenant_id = $1::uuid AND uid = $2::uuid LIMIT 1`,
+        tenantId,
+        sanitised.patient_uid,
+      );
+      if (!patientRows[0]) throw labResultSourceMismatch();
+      sanitised.investigation_id = null;
+      sanitised.admission_id = null;
+      sanitised.patient_name = patientRows[0].name || null;
+    } else {
+      const source = await lockAndValidateOrderedResultSource({
+        tx,
+        tenantId,
+        patientUid: sanitised.patient_uid,
+        bookingId: requestedBookingId,
+        investigationId: requestedInvestigationId,
+      });
+      sanitised.investigation_id = source.investigationId;
+      sanitised.admission_id = source.admissionId;
+      sanitised.patient_name = source.patientName;
+    }
 
     // Guard against duplicate-analyte submission after sign-off. Holding the
     // investigation lock also serializes this check with manual entry for the
-    // same order.
-    const dupRows = await tx.$queryRawUnsafe(
-      `SELECT id, status, value_text
-         FROM lab_results
-        WHERE investigation_id = $1::int
-          AND UPPER(test_code) = UPPER($2)
-          AND tenant_id = $3::uuid
-          AND status IN ('final', 'corrected', 'verified', 'amended')
-        ORDER BY id DESC
-        LIMIT 1`,
-      sanitised.investigation_id,
-      sanitised.test_code,
-      tenantId,
-    );
-    if (dupRows.length > 0) {
-      throw AppError.conflict(
-        `Investigation ${sanitised.investigation_id} already has a verified ${sanitised.test_code} result (id=${dupRows[0].id}, value="${dupRows[0].value_text ?? ''}"). Use the corrected-result workflow to amend or re-issue instead of submitting a duplicate preliminary entry.`,
-        'LAB_RESULT_DUPLICATE_ANALYTE',
-        {
-          investigation_id: sanitised.investigation_id,
-          test_code: sanitised.test_code,
-          existing_result_id: dupRows[0].id,
-          existing_status: dupRows[0].status,
-        },
+    // same order. An external result has no investigation_id, so the guard has
+    // nothing to key on and is skipped: an outside value is allowed to sit
+    // alongside the in-house one for the same analyte — that comparison is
+    // exactly what the pre-cath checklist is for.
+    if (sanitised.investigation_id != null) {
+      const dupRows = await tx.$queryRawUnsafe(
+        `SELECT id, status, value_text
+           FROM lab_results
+          WHERE investigation_id = $1::int
+            AND UPPER(test_code) = UPPER($2)
+            AND tenant_id = $3::uuid
+            AND status IN ('final', 'corrected', 'verified', 'amended')
+          ORDER BY id DESC
+          LIMIT 1`,
+        sanitised.investigation_id,
+        sanitised.test_code,
+        tenantId,
       );
+      if (dupRows.length > 0) {
+        throw AppError.conflict(
+          `Investigation ${sanitised.investigation_id} already has a verified ${sanitised.test_code} result (id=${dupRows[0].id}, value="${dupRows[0].value_text ?? ''}"). Use the corrected-result workflow to amend or re-issue instead of submitting a duplicate preliminary entry.`,
+          'LAB_RESULT_DUPLICATE_ANALYTE',
+          {
+            investigation_id: sanitised.investigation_id,
+            test_code: sanitised.test_code,
+            existing_result_id: dupRows[0].id,
+            existing_status: dupRows[0].status,
+          },
+        );
+      }
     }
 
+    // The $n numbers below follow the FINAL array order: the sixteen original
+    // `fields`, then the five provenance fields appended to `fields`, then the
+    // four pushed extras. performed_by_lab names the outside laboratory for an
+    // external row — it is the "who ran this" column, and for an outside value
+    // that is the outside lab, not the clerk who typed it in.
     const values = fields.map((f) => sanitised[f] ?? null);
     values.push(
       numeric,
-      performed_by ? String(performed_by) : null,
+      sanitised.result_origin === 'external_lab'
+        ? sanitised.external_lab_name
+        : (performed_by ? String(performed_by) : null),
       tenantId,
       commandClaim.command.id,
     );
@@ -1835,17 +1908,23 @@ export async function recordResultManual({
         (booking_id, investigation_id, admission_id, patient_uid, patient_name, loinc_code, test_code,
          test_name, value_text, unit, reference_range,
          reference_range_low, reference_range_high,
-         abnormal_flag, status, comments, value_numeric, performed_by_lab,
+         abnormal_flag, status, comments,
+         result_origin, external_lab_name, external_report_ref, external_reported_on,
+         performed_at, value_numeric, performed_by_lab,
          tenant_id, ingest_command_id)
        VALUES ($1, $2, $3::int, $4::uuid, $5, $6, $7, $8, $9, $10, $11,
                $12::numeric, $13::numeric,
-                $14, $15, $16, $17::numeric, $18, $19::uuid, $20::bigint)
+                $14, $15, $16,
+                $17, $18, $19, $20::date,
+                $21::timestamptz, $22::numeric, $23, $24::uuid, $25::bigint)
        RETURNING id, tenant_id, booking_id, investigation_id, admission_id, patient_uid,
                  patient_name, loinc_code, test_code, test_name, value_text,
                  value_numeric, unit, reference_range, reference_range_low,
                  reference_range_high, abnormal_flag, status, is_critical,
                  performed_by_lab, performed_at, received_at, signed_off_at,
-                 signed_off_by, comments, created_at, updated_at`,
+                 signed_off_by, comments, created_at, updated_at,
+                 result_origin, external_lab_name, external_report_ref,
+                 external_reported_on`,
       ...values,
     );
     const inserted = rows[0];
@@ -1882,14 +1961,26 @@ export async function recordResultManual({
       source: 'lab_result',
     });
 
-    const finalResult = materialized.result;
-    if (!finalResult || Number(finalResult.id) !== Number(inserted.id)) {
+    const materializedResult = materialized.result;
+    if (!materializedResult || Number(materializedResult.id) !== Number(inserted.id)) {
       throw AppError.internal(
         'Manual lab result disappeared during criticality assessment',
         'LAB_RESULT_THRESHOLD_EVIDENCE_MISSING',
       );
     }
-    if (materialized.criticality?.unmatchedReason === 'non_numeric_value') {
+    // The threshold materializer re-reads a fixed column list that predates the
+    // provenance columns, so carry them from the INSERT: a caller must be able
+    // to see the origin that was actually stored, not the one it asked for.
+    const finalResult = {
+      ...materializedResult,
+      result_origin: inserted.result_origin,
+      external_lab_name: inserted.external_lab_name,
+      external_report_ref: inserted.external_report_ref,
+      external_reported_on: inserted.external_reported_on,
+    };
+    // A qualitative serology value ("Non-reactive") is not a failed numeric
+    // parse; only a caller claiming a quantitative analyte is held to one.
+    if (!qualitative && materialized.criticality?.unmatchedReason === 'non_numeric_value') {
       throw AppError.badRequest(
         'value_text must be numeric for the active governed laboratory policy',
         'LAB_RESULT_NUMERIC_VALUE_REQUIRED',
@@ -1982,6 +2073,21 @@ export async function recordResultManual({
       emitLabEvent('result-pending', { tenantId });
     } catch (error) {
       logger.error(`Manual-result realtime fan-out failed after commit: ${error?.message}`);
+    }
+    // Cath-lab readiness (spec 2026-09-04 §6). Post-commit, best-effort and
+    // dynamically imported: the readiness module imports THIS one for the
+    // manual-entry escape hatch, so a static import here would be a cycle. A
+    // refresh that fails leaves the snapshot one event behind — the next
+    // refresh repairs it — and must never unwind a lab write that has already
+    // committed.
+    try {
+      const { refreshOpenCasesForPatient } = await import('../clinical/cathLabReadinessService.js');
+      await refreshOpenCasesForPatient({
+        tenantId,
+        patientUid: phaseOne.responseData.result.patient_uid,
+      });
+    } catch (readinessErr) {
+      logger.warn(`Cath lab readiness refresh after lab event failed (lab write stands): ${readinessErr?.message}`);
     }
   }
   return phaseOne.responseData;
@@ -2485,6 +2591,19 @@ export async function signOffResults({
         error: markerErr?.message,
       });
     }
+  }
+
+  // Cath-lab readiness (spec 2026-09-04 §6). Post-commit, best-effort and
+  // dynamically imported: the readiness module imports THIS one for the
+  // manual-entry escape hatch, so a static import here would be a cycle. A
+  // refresh that fails leaves the snapshot one event behind — the next
+  // refresh repairs it — and must never unwind a lab write that has already
+  // committed.
+  try {
+    const { refreshOpenCasesForPatient } = await import('../clinical/cathLabReadinessService.js');
+    await refreshOpenCasesForPatient({ tenantId: tid, patientUid: resultPatientUid });
+  } catch (readinessErr) {
+    logger.warn(`Cath lab readiness refresh after lab event failed (lab write stands): ${readinessErr?.message}`);
   }
 
   if (CORRECTIVE_SIGNOFF_DECISIONS.has(normalizedDecision)) {

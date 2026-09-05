@@ -1101,12 +1101,13 @@ async function ingestAstmInterfaceMessage({
             test_code, test_name, value_text, value_numeric, unit,
             reference_range, reference_range_low, reference_range_high,
             abnormal_flag, status, performed_by_lab, specimen_id, analyzer_id,
-            raw_obx, received_at, interface_message_id, interface_result_index, loinc_code)
+            raw_obx, received_at, interface_message_id, interface_result_index, loinc_code,
+            result_origin)
          VALUES ($1::uuid, $2::int, $3::int, $4::int, $5::uuid, $6,
                  $7, $8, $9, $10::numeric, $11,
                  $12, $13::numeric, $14::numeric,
                  $15, 'preliminary', $16, $17::int, $18::int,
-                 $19, NOW(), $20::int, $21::int, $22)
+                 $19, NOW(), $20::int, $21::int, $22, 'analyzer')
          RETURNING *`,
         tenantId,
         source.bookingId,

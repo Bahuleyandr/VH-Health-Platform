@@ -21,6 +21,7 @@ import {
 } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
+import { rejectLabResultOriginFields } from '../../middleware/labResultOriginGuard.js';
 
 const router = Router();
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -446,6 +447,10 @@ router.post('/samples/:investigationId/reject', requireStaffOrAdmin, guardInvest
 router.post(
   '/results',
   requireLabResultRecorder,
+  // Provenance is not a client choice on the public route: an outside-lab
+  // value enters through the cath readiness checklist, which is the only
+  // caller that can name the laboratory and the report date.
+  rejectLabResultOriginFields,
   // Guard before the idempotency claim so a request denied in enforce mode
   // never consumes an idempotency slot.
   guardManualResult,

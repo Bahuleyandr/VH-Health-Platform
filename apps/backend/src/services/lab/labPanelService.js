@@ -447,6 +447,9 @@ export async function recordLabPanel({
           // final/corrected; a payload cannot bypass that release rail.
           status: 'preliminary',
           is_critical: false,
+          // Provenance (migration 766): a panel typed at the bench is an
+          // in-house manual result, never an outside-laboratory value.
+          result_origin: 'manual_in_house',
           performed_by_lab: MANUAL_PANEL_SOURCE,
           performed_at: performedAtTs,
           comments: analyte.comments ?? null,
@@ -625,7 +628,7 @@ export async function recordLabPanel({
       requestId,
     });
 
-    return { responseData, criticalNotifications, replayed: false };
+    return { responseData, criticalNotifications, replayed: false, patientUid: source.patientUid };
   });
 
   for (const critical of phaseOne.criticalNotifications) {
@@ -654,6 +657,19 @@ export async function recordLabPanel({
         alertId: critical.alert.id,
         error: err?.message,
       });
+    }
+  }
+
+  // Cath-lab readiness (spec 2026-09-04 §6). Post-commit, best-effort and
+  // dynamically imported — the readiness module imports the lab services, so a
+  // static import here would be a cycle. A refresh failure never unwinds a
+  // panel that has already committed.
+  if (!phaseOne.replayed && phaseOne.patientUid) {
+    try {
+      const { refreshOpenCasesForPatient } = await import('../clinical/cathLabReadinessService.js');
+      await refreshOpenCasesForPatient({ tenantId: tid, patientUid: phaseOne.patientUid });
+    } catch (readinessErr) {
+      logger.warn(`Cath lab readiness refresh after lab event failed (lab write stands): ${readinessErr?.message}`);
     }
   }
 
