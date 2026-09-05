@@ -31,8 +31,12 @@ jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   // must provide EVERY export the graph imports or the suite fails to LOAD,
   // which reads like a missing test rather than a missing mock line.
   requireTenantId: (tenantId) => tenantId,
-  // null falls back to the env/default posture, which is 'shadow'.
-  getTenantById: async () => null,
+  // careTeamEnforcement resolves care_team_enforcement_mode from this row. A
+  // NULL tenant does NOT fall back to shadow — resolveEnforcementModeForTenant
+  // throws CARE_TEAM_MODE_UNAVAILABLE and the guard 500s. A row with no
+  // care_team_enforcement_mode key is what actually reaches the documented
+  // fallback, which is 'shadow'.
+  getTenantById: async (tenantId) => ({ id: tenantId, settings: {} }),
 }));
 
 const { default: physioRoutes } = await import('../../routes/clinical/physioRoutes.js');

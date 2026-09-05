@@ -13,6 +13,27 @@ import { AppError } from '../../utils/AppError.js';
 const recordToothFindingMock = jest.fn();
 const getChartMock = jest.fn();
 
+// This is an ERROR-RELAY unit test, not a PHI authorization test. The route it
+// exercises now carries a per-route patient guard, and that guard resolves the
+// tenant's care-team enforcement mode through a LIVE `tenants` query before it
+// does anything else — so without this mock the suite needs a reachable
+// Postgres and fails 500 'Patient access check failed' without one. Mock it to
+// a pass-through so this suite keeps testing what it is about; the guard's
+// PRESENCE is asserted structurally by mountLevelPatientGuardCensus.test.js.
+jest.unstable_mockModule('../../middleware/phiAccessMiddleware.js', () => ({
+  patientAccessGuard: () => (_req, _res, next) => next(),
+  patientAccessGuardForResource: () => (_req, _res, next) => next(),
+  phiAccessLogger: () => (_req, _res, next) => next(),
+}));
+
+// An ESM mock factory must provide EVERY export the graph imports or the suite
+// fails to LOAD, which reads like a missing test rather than a missing mock.
+jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
+  resolveTenantOrThrow: () => '00000000-0000-4000-8000-000000000001',
+  requireTenantId: (tenantId) => tenantId,
+  getTenantById: async (tenantId) => ({ id: tenantId, settings: {} }),
+}));
+
 jest.unstable_mockModule('../../services/clinical/dentalService.js', () => ({
   recordToothFinding: recordToothFindingMock,
   resolveFinding: jest.fn(),
