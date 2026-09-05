@@ -136,6 +136,7 @@ describe('route census — guarded vs deliberately-not', () => {
       'POST /cases/:id/readiness/labs/order-missing': byId,
       'POST /cases/:id/readiness/labs/:item/external-result': byId,
       'POST /cases/:id/readiness/labs/:item/waive': byId,
+      'POST /cases/:id/readiness/labs/:item/unwaive': byId,
       'POST /cases/:id/order-sets/:slot/apply': byId,
       'POST /cases/:id/status': byId,
       'POST /cases/:id/readiness': byId,
@@ -164,6 +165,7 @@ describe('route census — guarded vs deliberately-not', () => {
     '/cases/:id/readiness/labs/order-missing',
     '/cases/:id/readiness/labs/:item/external-result',
     '/cases/:id/readiness/labs/:item/waive',
+    '/cases/:id/readiness/labs/:item/unwaive',
   ])('POST %s runs the guard BEFORE the idempotency-key claim', (path) => {
     const layer = cathLabRouter.stack.find(
       (l) => l.route && l.route.path === path && l.route.methods.post,
@@ -293,15 +295,17 @@ describe('lab readiness route chains', () => {
     ['/cases/:id/readiness/labs/order-missing', 4],
     ['/cases/:id/readiness/labs/:item/external-result', 5],
     ['/cases/:id/readiness/labs/:item/waive', 5],
+    ['/cases/:id/readiness/labs/:item/unwaive', 5],
   ])('POST %s: workflow gate, case guard, claim, handler', (path, layers) => {
     const stack = layerOf('post', path);
     expect(stack).toHaveLength(layers);
     const refusal = refusalCodeOf(stack[0].handle);
     expect(refusal.status).toBe(403);
-    // All three are WRITES — they place orders, mint an external lab result, or
-    // record a clinical override — so report-read (which admits RECEPTIONIST
-    // and TECHNICIAN) is not enough. The waive route in particular: the plan
-    // that specified these routes left its claim off entirely.
+    // All four are WRITES — they place orders, mint an external lab result, or
+    // record (and withdraw) a clinical override — so report-read (which admits
+    // RECEPTIONIST and TECHNICIAN) is not enough. The waive route in
+    // particular: the plan that specified these routes left its claim off
+    // entirely.
     expect(refusal.code).toContain('CATH_LAB_WORKFLOW_FORBIDDEN');
     expect(stack[1].handle.patientGuardTag).toBe('cath-lab:case-param:id');
     expect(stack[1].handle.patientGuardRecordType).toBe('CLINICAL_WORKFLOW');
@@ -309,8 +313,50 @@ describe('lab readiness route chains', () => {
   });
 
   it.each([
+    ['/cases/:id/readiness/labs/order-missing', 4, 'cath_lab_readiness_order'],
+    ['/cases/:id/readiness/labs/:item/external-result', 5, 'cath_lab_readiness_external'],
+    ['/cases/:id/readiness/labs/:item/waive', 5, 'cath_lab_readiness_waive'],
+    ['/cases/:id/readiness/labs/:item/unwaive', 5, 'cath_lab_readiness_unwaive'],
+  ])('POST %s claims scope %s, required', async (path, layers, scope) => {
+    // The scope is not a property on the middleware, so it is PROBED: a request
+    // with no Idempotency-Key is refused 400 naming the scope it would have
+    // claimed under. That the refusal happens at all is the `required: true`
+    // half; the name is the other half.
+    //
+    // It matters that waive and un-waive claim DIFFERENT scopes. The claim
+    // register keys on (tenant, actor, scope, key), and the Staff panel reuses
+    // one attempt key per item: sharing a scope would make lifting a waiver
+    // replay the waive's recorded 200 instead of running, so the waiver would
+    // appear to be removed and would still be there.
+    const claim = layerOf('post', path)[layers - 2].handle;
+    const res = {
+      statusCode: null,
+      payload: null,
+      req: {},
+      status(code) { this.statusCode = code; return this; },
+      json(body) { this.payload = body; return this; },
+    };
+    let passed = false;
+    await claim({ get: () => undefined, method: 'POST', body: {} }, res, () => { passed = true; });
+    expect({ path, passed }).toEqual({ path, passed: false });
+    expect({ path, status: res.statusCode }).toEqual({ path, status: 400 });
+    expect({ path, scope: res.payload.details?.scope }).toEqual({ path, scope });
+  });
+
+  it('every readiness write claims a scope no other one claims', () => {
+    const scopes = [
+      'cath_lab_readiness_order',
+      'cath_lab_readiness_external',
+      'cath_lab_readiness_waive',
+      'cath_lab_readiness_unwaive',
+    ];
+    expect(new Set(scopes).size).toBe(scopes.length);
+  });
+
+  it.each([
     '/cases/:id/readiness/labs/:item/external-result',
     '/cases/:id/readiness/labs/:item/waive',
+    '/cases/:id/readiness/labs/:item/unwaive',
   ])('POST %s refuses an unknown :item BEFORE a key is burned', (path) => {
     const stack = layerOf('post', path);
     // The service answers 400 CATH_LAB_READINESS_ITEM_UNKNOWN for a code

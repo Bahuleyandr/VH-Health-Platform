@@ -1,9 +1,9 @@
 // apps/backend/scripts/openapi/schemas/cathLabReadiness.mjs
 //
 // Pre-procedure LAB readiness for a cath case: the seven items the checklist
-// resolves from the patient's own lab rows, the three actions that can move
-// them (order the missing, record an outside value, waive), and the tenant
-// policy that decides what "ready" means.
+// resolves from the patient's own lab rows, the four actions that can move
+// them (order the missing, record an outside value, waive, un-waive), and the
+// tenant policy that decides what "ready" means.
 // Spec: docs/superpowers/plans/2026-09-04-cath-lab-readiness.md
 //
 // Every shape here mirrors cathLabReadinessService.js exactly, and is PINNED to
@@ -60,7 +60,8 @@ const ERROR_CODES = [
   'CATH_LAB_READINESS_VALUE_INVALID',
   'CATH_LAB_READINESS_ORDER_FAILED',
   'CATH_LAB_READINESS_CASE_STARTED',
-  'CATH_LAB_READINESS_ITEMS_EMPTY'
+  'CATH_LAB_READINESS_ITEMS_EMPTY',
+  'CATH_LAB_READINESS_NOT_WAIVED'
 ];
 
 /** Exported for the source-pin test, which compares them against the service. */
@@ -241,7 +242,9 @@ const readiness = {
     },
     case_started: {
       type: 'boolean',
-      description: 'True once the procedure has an actual start; the three actions are refused after it.'
+      description:
+        'True once the procedure has an actual start; every write action on this surface is '
+        + 'refused after it.'
     }
   }
 };
@@ -356,6 +359,17 @@ export const schemas = {
     type: 'object',
     additionalProperties: false,
     required: ['reason'],
+    properties: { reason: { type: 'string', minLength: 1, maxLength: 500 } }
+  },
+
+  CathLabReadinessUnwaiveRequest: {
+    type: 'object',
+    additionalProperties: false,
+    description:
+      'Lifting a waiver. `reason` is OPTIONAL and says why the waiver is being withdrawn — '
+      + 'unlike the waiver itself, which must state why a gate was cleared. Withdrawing one '
+      + 'restores the gate, which is the restrictive direction, so it is not held up for prose; '
+      + 'the waiver\'s OWN reason is carried onto the audit row either way.',
     properties: { reason: { type: 'string', minLength: 1, maxLength: 500 } }
   },
 
@@ -494,7 +508,9 @@ export const operations = {
     description:
       'Records a clinical decision to proceed without one item, with who/when/why. The waiver '
       + 'decides the state only — any value already on the item stays, so a waived critical result '
-      + 'still raises the warning. Requires Idempotency-Key (scope cath_lab_readiness_waive).',
+      + 'still raises the warning. Refused once the procedure has started: the pre-procedure '
+      + 'record says what the team knew BEFORE the case and is not editable after it. Requires '
+      + 'Idempotency-Key (scope cath_lab_readiness_waive).',
     pathParameters: { id: BIGINT_WIRE, item: { type: 'string', enum: ITEMS } },
     parameters: [idempotencyHeaderParameter],
     request: 'CathLabReadinessWaiveRequest',
@@ -502,10 +518,39 @@ export const operations = {
     additionalResponses: {
       400: errorResponse(
         'The item code is not one of the seven (refused at the route, before the '
-        + 'Idempotency-Key is claimed), or no reason was given. A waiver is NOT refused after '
-        + 'the procedure starts — proceeding without an item is a decision the team may still '
-        + 'have to record.',
+        + 'Idempotency-Key is claimed), or no reason was given.',
         ['CATH_LAB_READINESS_ITEM_UNKNOWN', 'CATH_LAB_READINESS_VALUE_INVALID']
+      ),
+      409: errorResponse(
+        'The procedure has already started; the pre-procedure record is closed.',
+        ['CATH_LAB_READINESS_CASE_STARTED']
+      )
+    }
+  },
+  'POST /api/v1/cath-lab/cases/{id}/readiness/labs/{item}/unwaive': {
+    summary: 'Remove the waiver on one pre-cath lab item',
+    description:
+      'Withdraws a waiver, so the item is resolved from the patient\'s lab evidence again — '
+      + 'which may leave it missing and take the labs check back off pass. It is a SECOND '
+      + 'decision recorded over the first, not an undo: the waiver and its audit row stand, and '
+      + 'this writes its own row carrying the withdrawn waiver\'s reason. Refused once the '
+      + 'procedure has started, and refused when the item is not waived. Requires '
+      + 'Idempotency-Key (scope cath_lab_readiness_unwaive).',
+    pathParameters: { id: BIGINT_WIRE, item: { type: 'string', enum: ITEMS } },
+    parameters: [idempotencyHeaderParameter],
+    request: 'CathLabReadinessUnwaiveRequest',
+    response: 'CathLabReadinessResponse',
+    additionalResponses: {
+      400: errorResponse(
+        'The item code is not one of the seven (refused at the route, before the '
+        + 'Idempotency-Key is claimed).',
+        ['CATH_LAB_READINESS_ITEM_UNKNOWN']
+      ),
+      409: errorResponse(
+        'The procedure has already started, or the item carries no waiver to remove — decided '
+        + 'from the stored row under the case lock, so a second tap is told so rather than '
+        + 'writing an audit row about a waiver that was already gone.',
+        ['CATH_LAB_READINESS_CASE_STARTED', 'CATH_LAB_READINESS_NOT_WAIVED']
       )
     }
   },

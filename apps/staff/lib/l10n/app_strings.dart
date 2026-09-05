@@ -7904,6 +7904,11 @@ class AppStrings {
       's4.lib.cath_lab.readiness.external_saved': "Outside result recorded",
       's4.lib.cath_lab.readiness.waive': "Waive",
       's4.lib.cath_lab.readiness.waived_done': "Lab item waived",
+      's4.lib.cath_lab.readiness.unwaive': "Remove waiver",
+      's4.lib.cath_lab.readiness.unwaive_confirm':
+          "Remove the waiver on {item}? The item will be resolved from lab "
+          "evidence again.",
+      's4.lib.cath_lab.readiness.unwaived_done': "Waiver removed",
       's4.lib.cath_lab.readiness.waive_title': "Waive {item}?",
       's4.lib.cath_lab.readiness.waive_reason': "Reason for waiving",
       's4.lib.cath_lab.readiness.waive_reason_line': "Waived: {reason}",
@@ -15455,6 +15460,13 @@ class AppStrings {
       's4.lib.cath_lab.readiness.external_saved': "बाहरी परिणाम दर्ज किया गया",
       's4.lib.cath_lab.readiness.waive': "छूट दें",
       's4.lib.cath_lab.readiness.waived_done': "जांच को छूट दी गई",
+      // REVIEW: AI first-pass S4 cath readiness i18n - confirm clinical wording before production.
+      's4.lib.cath_lab.readiness.unwaive': "छूट हटाएँ",
+      // REVIEW: AI first-pass S4 cath readiness i18n - confirm clinical wording before production.
+      's4.lib.cath_lab.readiness.unwaive_confirm':
+          "{item} पर दी गई छूट हटाएँ? यह जांच फिर से लैब साक्ष्य से तय होगी।",
+      // REVIEW: AI first-pass S4 cath readiness i18n - confirm clinical wording before production.
+      's4.lib.cath_lab.readiness.unwaived_done': "छूट हटा दी गई",
       's4.lib.cath_lab.readiness.waive_title': "{item} को छूट दें?",
       's4.lib.cath_lab.readiness.waive_reason': "छूट का कारण",
       's4.lib.cath_lab.readiness.waive_reason_line': "छूट: {reason}",
@@ -24327,6 +24339,14 @@ class AppStrings {
           "வெளி முடிவு பதிவு செய்யப்பட்டது",
       's4.lib.cath_lab.readiness.waive': "விலக்கு",
       's4.lib.cath_lab.readiness.waived_done': "பரிசோதனை விலக்கப்பட்டது",
+      // REVIEW: AI first-pass S4 cath readiness i18n - confirm clinical wording before production.
+      's4.lib.cath_lab.readiness.unwaive': "விலக்கை நீக்கு",
+      // REVIEW: AI first-pass S4 cath readiness i18n - confirm clinical wording before production.
+      's4.lib.cath_lab.readiness.unwaive_confirm':
+          "{item} மீதான விலக்கை நீக்கவா? இந்த உருப்படி மீண்டும் ஆய்வக "
+          "ஆதாரத்திலிருந்து தீர்மானிக்கப்படும்.",
+      // REVIEW: AI first-pass S4 cath readiness i18n - confirm clinical wording before production.
+      's4.lib.cath_lab.readiness.unwaived_done': "விலக்கு நீக்கப்பட்டது",
       's4.lib.cath_lab.readiness.waive_title': "{item} விலக்க வேண்டுமா?",
       's4.lib.cath_lab.readiness.waive_reason': "விலக்கலுக்கான காரணம்",
       's4.lib.cath_lab.readiness.waive_reason_line': "விலக்கு: {reason}",
@@ -33300,6 +33320,14 @@ class AppStrings {
       's4.lib.cath_lab.readiness.external_saved': "బయటి ఫలితం నమోదైంది",
       's4.lib.cath_lab.readiness.waive': "మినహాయించు",
       's4.lib.cath_lab.readiness.waived_done': "ల్యాబ్ అంశం మినహాయించబడింది",
+      // REVIEW: AI first-pass S4 cath readiness i18n - confirm clinical wording before production.
+      's4.lib.cath_lab.readiness.unwaive': "మినహాయింపును తీసివేయి",
+      // REVIEW: AI first-pass S4 cath readiness i18n - confirm clinical wording before production.
+      's4.lib.cath_lab.readiness.unwaive_confirm':
+          "{item}పై మినహాయింపును తీసివేయాలా? ఈ అంశం మళ్లీ ల్యాబ్ "
+          "ఆధారాల నుండి నిర్ధారించబడుతుంది.",
+      // REVIEW: AI first-pass S4 cath readiness i18n - confirm clinical wording before production.
+      's4.lib.cath_lab.readiness.unwaived_done': "మినహాయింపు తీసివేయబడింది",
       's4.lib.cath_lab.readiness.waive_title': "{item} మినహాయించాలా?",
       's4.lib.cath_lab.readiness.waive_reason': "మినహాయింపు కారణం",
       's4.lib.cath_lab.readiness.waive_reason_line': "మినహాయింపు: {reason}",
@@ -39113,6 +39141,14 @@ class AppStrings {
           "പുറത്തുനിന്നുള്ള ഫലം രേഖപ്പെടുത്തി",
       's4.lib.cath_lab.readiness.waive': "ഒഴിവാക്കുക",
       's4.lib.cath_lab.readiness.waived_done': "ലാബ് ഇനം ഒഴിവാക്കി",
+      // REVIEW: AI first-pass S4 cath readiness i18n - confirm clinical wording before production.
+      's4.lib.cath_lab.readiness.unwaive': "ഒഴിവാക്കൽ നീക്കുക",
+      // REVIEW: AI first-pass S4 cath readiness i18n - confirm clinical wording before production.
+      's4.lib.cath_lab.readiness.unwaive_confirm':
+          "{item} എന്ന ഇനത്തിന്റെ ഒഴിവാക്കൽ നീക്കണോ? ഈ ഇനം വീണ്ടും ലാബ് "
+          "തെളിവിൽ നിന്ന് നിർണ്ണയിക്കും.",
+      // REVIEW: AI first-pass S4 cath readiness i18n - confirm clinical wording before production.
+      's4.lib.cath_lab.readiness.unwaived_done': "ഒഴിവാക്കൽ നീക്കി",
       's4.lib.cath_lab.readiness.waive_title': "{item} ഒഴിവാക്കണോ?",
       's4.lib.cath_lab.readiness.waive_reason': "ഒഴിവാക്കാനുള്ള കാരണം",
       's4.lib.cath_lab.readiness.waive_reason_line': "ഒഴിവാക്കൽ: {reason}",

@@ -26,6 +26,7 @@ import {
   orderMissingLabs,
   recordExternalLabResult,
   refreshCaseLabReadiness,
+  unwaiveLabItem,
   waiveLabItem
 } from '../../services/clinical/cathLabReadinessService.js';
 import {
@@ -737,6 +738,32 @@ router.post(
       return success(res, result, 'Lab readiness item waived');
     } catch (err) {
       return handleFailure(res, err, 'waive lab item');
+    }
+  }
+);
+
+// Lifting a waiver is a second clinical decision over the first, not an undo:
+// the item goes back to being resolved from lab evidence and the check can come
+// off pass because of it. Same chain, same order, same claim discipline as the
+// waive above — the guard before the claim so a request that can never succeed
+// (an unknown item, a case the caller may not read) does not burn a key.
+router.post(
+  '/cases/:id/readiness/labs/:item/unwaive',
+  requireCathWorkflow,
+  guardCathCaseById,
+  requireReadinessItemParam,
+  requireIdempotencyKey({ required: true, scope: 'cath_lab_readiness_unwaive' }),
+  async (req, res) => {
+    try {
+      const result = await unwaiveLabItem(
+        req.params.id,
+        req.params.item,
+        { ...req.body, tenantId: tenantOf(req) },
+        contextOf(req)
+      );
+      return success(res, result, 'Lab readiness waiver removed');
+    } catch (err) {
+      return handleFailure(res, err, 'remove lab item waiver');
     }
   }
 );

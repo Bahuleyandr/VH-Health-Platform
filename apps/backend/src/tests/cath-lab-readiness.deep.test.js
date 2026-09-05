@@ -13,6 +13,7 @@ import {
   orderMissingLabs,
   recordExternalLabResult,
   refreshCaseLabReadiness,
+  unwaiveLabItem,
   upsertReadinessSettings,
   waiveLabItem,
 } from '../services/clinical/cathLabReadinessService.js';
@@ -955,4 +956,134 @@ d('cath lab readiness (deep)', () => {
     const item = await pollForItem('hb', (row) => row?.state === 'result_final');
     expect(item).toMatchObject({ state: 'result_final', lab_result_id: resultId });
   }, 120000);
+  test('a waiver may be neither recorded nor lifted once the procedure has started', async () => {
+    // A fresh, signed HCV value, so the item has real evidence to fall back to
+    // when the waiver over it is lifted in the next test. Every earlier HCV row
+    // (in-house and outside) is cancelled first so the resolver has one answer.
+    await prisma.$executeRawUnsafe(
+      `UPDATE lab_results SET status = 'cancelled'
+        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid AND test_code = 'HCV'`,
+      TENANT, PATIENT,
+    );
+    await seedResult({ code: 'HCV', value: 'Non-reactive' });
+    const waived = await waiveLabItem(
+      CASE_ID, 'hcv',
+      { tenantId: TENANT, reason: 'Outside HCV report sighted at the desk' },
+      ctx(),
+    );
+    expect(waived.items.find((row) => row.item_code === 'hcv').state).toBe('waived');
+
+    await prisma.$executeRawUnsafe(
+      `UPDATE cath_lab_cases SET actual_start_at = NOW() WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+      TENANT, CASE_ID,
+    );
+    try {
+      // The record of what the team knew BEFORE the case is not editable after
+      // it — in either direction, and with the same code the order and
+      // outside-result paths already answer with.
+      await expect(waiveLabItem(
+        CASE_ID, 'hiv', { tenantId: TENANT, reason: 'too late to matter' }, ctx(),
+      )).rejects.toMatchObject({
+        statusCode: 409, code: 'CATH_LAB_READINESS_CASE_STARTED',
+      });
+      await expect(unwaiveLabItem(CASE_ID, 'hcv', { tenantId: TENANT }, ctx()))
+        .rejects.toMatchObject({ statusCode: 409, code: 'CATH_LAB_READINESS_CASE_STARTED' });
+      // Neither refusal wrote a row: hiv gained no waiver, hcv kept its one.
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT item_code, state, waive_reason FROM cath_case_lab_readiness_items
+          WHERE tenant_id = $1::uuid AND case_id = $2::bigint AND item_code IN ('hiv', 'hcv')
+          ORDER BY item_code`,
+        TENANT, CASE_ID,
+      );
+      expect(rows.find((row) => row.item_code === 'hiv').state).not.toBe('waived');
+      expect(rows.find((row) => row.item_code === 'hcv')).toMatchObject({
+        state: 'waived',
+        waive_reason: 'Outside HCV report sighted at the desk',
+      });
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `UPDATE cath_lab_cases SET actual_start_at = NULL WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+        TENANT, CASE_ID,
+      );
+    }
+  }, 60000);
+
+  test('lifting a waiver resolves the item from evidence again, and refuses a second lift', async () => {
+    const before = await refreshCaseLabReadiness({ tenantId: TENANT, caseId: CASE_ID, context: ctx() });
+    expect(before.items.find((row) => row.item_code === 'hcv').state).toBe('waived');
+
+    const after = await unwaiveLabItem(
+      CASE_ID, 'hcv', { tenantId: TENANT, reason: 'The in-house HCV came back' }, ctx(),
+    );
+
+    // Not 'not_ordered' and not still 'waived': the refresh that ran on the
+    // same transaction re-resolved the item from the patient's own row, which
+    // is the whole contract of this action.
+    const item = after.items.find((row) => row.item_code === 'hcv');
+    expect(item).toMatchObject({
+      state: 'result_final',
+      source: 'lab_result',
+      waived_by: null,
+      waived_at: null,
+      waive_reason: null,
+    });
+    const persisted = await prisma.$queryRawUnsafe(
+      `SELECT state, source, waived_by, waived_at, waive_reason
+         FROM cath_case_lab_readiness_items
+        WHERE tenant_id = $1::uuid AND case_id = $2::bigint AND item_code = 'hcv'`,
+      TENANT, CASE_ID,
+    );
+    expect(persisted[0]).toMatchObject({
+      state: 'result_final', source: 'lab_result', waived_by: null, waived_at: null, waive_reason: null,
+    });
+
+    const audit = await prisma.$queryRawUnsafe(
+      `SELECT action, metadata FROM audit_logs
+        WHERE tenant_id = $1::uuid AND action = 'cath_lab.readiness.labs.unwaived'
+        ORDER BY created_at DESC LIMIT 1`,
+      TENANT,
+    );
+    expect(audit[0].metadata).toMatchObject({
+      item: 'hcv',
+      reason: 'The in-house HCV came back',
+      // The withdrawn waiver's OWN reason: a log saying an override was lifted
+      // without saying which override is not a trail.
+      previous_reason: 'Outside HCV report sighted at the desk',
+    });
+
+    // A second tap is told the waiver is already gone rather than writing a
+    // second 'unwaived' row about a waiver that was not there.
+    await expect(unwaiveLabItem(CASE_ID, 'hcv', { tenantId: TENANT }, ctx()))
+      .rejects.toMatchObject({ statusCode: 409, code: 'CATH_LAB_READINESS_NOT_WAIVED' });
+  }, 60000);
+
+  test('lifting a waiver over an item with NO evidence puts the case back off ready', async () => {
+    await prisma.$executeRawUnsafe(
+      `UPDATE lab_results SET status = 'cancelled'
+        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid AND test_code = 'HCV'`,
+      TENANT, PATIENT,
+    );
+    const waived = await waiveLabItem(
+      CASE_ID, 'hcv', { tenantId: TENANT, reason: 'Proceeding without HCV' }, ctx(),
+    );
+    expect(waived.missing.map((row) => row.item)).not.toContain('hcv');
+    // Hand the check back to automation before the lift. Earlier tests in this
+    // file leave a HUMAN pass on the row, and automation never retracts one —
+    // so without this the assertion below would be about who owns the check,
+    // not about what lifting a waiver does.
+    await updateReadinessCheck(
+      CASE_ID, { tenantId: TENANT, check_type: 'labs', status: 'pending' }, ctx(),
+    );
+    const autoPassed = await refreshCaseLabReadiness({
+      tenantId: TENANT, caseId: CASE_ID, context: ctx(),
+    });
+    expect(autoPassed).toMatchObject({ check_status: 'pass', auto_managed: true });
+
+    const after = await unwaiveLabItem(CASE_ID, 'hcv', { tenantId: TENANT }, ctx());
+
+    expect(after.items.find((row) => row.item_code === 'hcv').state).toBe('not_ordered');
+    expect(after.missing.map((row) => row.item)).toContain('hcv');
+    expect(after.check_status).toBe('pending');
+    expect(await caseStatus()).toBe('readiness_pending');
+  }, 60000);
 });

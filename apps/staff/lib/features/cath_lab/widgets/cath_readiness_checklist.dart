@@ -29,6 +29,7 @@ class CathReadinessDependencies {
     this.orderMissing,
     this.recordExternal,
     this.waiveItem,
+    this.unwaiveItem,
   });
 
   final CathReadinessLoader? loadReadiness;
@@ -36,6 +37,7 @@ class CathReadinessDependencies {
   final CathReadinessOrderMissing? orderMissing;
   final CathReadinessExternalRecorder? recordExternal;
   final CathReadinessWaiver? waiveItem;
+  final CathReadinessUnwaiver? unwaiveItem;
 }
 
 /// The per-check readiness list for one cath case: the eight
@@ -101,6 +103,8 @@ class _CathReadinessChecklistState extends State<CathReadinessChecklist>
       CathLabApiService.recordExternalLabResult;
   CathReadinessWaiver get _waiveItem =>
       widget.dependencies.waiveItem ?? CathLabApiService.waiveLabItem;
+  CathReadinessUnwaiver get _unwaiveItem =>
+      widget.dependencies.unwaiveItem ?? CathLabApiService.unwaiveLabItem;
 
   @override
   void initState() {
@@ -368,6 +372,7 @@ class _CathReadinessChecklistState extends State<CathReadinessChecklist>
               orderMissing: _orderMissing,
               recordExternal: _recordExternal,
               waiveItem: _waiveItem,
+              unwaiveItem: _unwaiveItem,
               today: widget.today,
             ),
         ],

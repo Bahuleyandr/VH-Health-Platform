@@ -1152,6 +1152,131 @@ void main() {
     expect(find.byKey(const ValueKey('cath-lab-waive-hb')), findsNothing);
   });
 
+  testWidgets('a waived row offers the exit, and a plain row does not', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        CathReadinessDependencies(
+          loadReadiness: (_) async => _readiness(
+            labsStatus: 'pass',
+            items: [
+              {
+                'item_code': 'hcv',
+                'required': true,
+                'state': 'waived',
+                'is_critical': false,
+                'source': 'waiver',
+                'waive_reason': 'Emergency PCI',
+              },
+              {
+                'item_code': 'hb',
+                'required': true,
+                'state': 'result_final',
+                'is_critical': false,
+              },
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('cath-lab-unwaive-hcv')), findsOneWidget);
+    // Not offered where there is no waiver to lift — the action is driven by
+    // the item's own state, not by the server's missing[] (a waived item is
+    // never missing, which is what makes that list the wrong gate here).
+    expect(find.byKey(const ValueKey('cath-lab-unwaive-hb')), findsNothing);
+    // ...and the waive action is not offered on a row that already carries one.
+    expect(find.byKey(const ValueKey('cath-lab-waive-hcv')), findsNothing);
+  });
+
+  testWidgets('removing a waiver confirms first, then calls the dependency '
+      'with an idempotency key', (tester) async {
+    String? unwaivedItem;
+    String? unwaiveKey;
+    var calls = 0;
+    await tester.pumpWidget(
+      _wrap(
+        CathReadinessDependencies(
+          loadReadiness: (_) async => _readiness(
+            labsStatus: 'pass',
+            items: [
+              {
+                'item_code': 'hcv',
+                'required': true,
+                'state': 'waived',
+                'is_critical': false,
+                'source': 'waiver',
+                'waive_reason': 'Emergency PCI',
+              },
+            ],
+          ),
+          unwaiveItem: (caseId, item, {required idempotencyKey}) async {
+            calls += 1;
+            unwaivedItem = item;
+            unwaiveKey = idempotencyKey;
+            return _readiness(labsStatus: 'pending').labs!;
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('cath-lab-unwaive-hcv')));
+    await tester.pumpAndSettle();
+    // The confirmation is not decoration: lifting a waiver moves the start gate
+    // in the RESTRICTIVE direction, so a mis-tap must not do it.
+    expect(
+      find.byKey(const ValueKey('cath-lab-unwaive-dialog')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('cath-lab-unwaive-cancel')));
+    await tester.pumpAndSettle();
+    expect(calls, 0);
+
+    await tester.tap(find.byKey(const ValueKey('cath-lab-unwaive-hcv')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('cath-lab-unwaive-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(calls, 1);
+    expect(unwaivedItem, 'hcv');
+    expect(unwaiveKey, isNotEmpty);
+  });
+
+  testWidgets('a started case offers no way to remove a waiver either', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        CathReadinessDependencies(
+          loadReadiness: (_) async => _readiness(
+            labsStatus: 'pass',
+            caseStarted: true,
+            items: [
+              {
+                'item_code': 'hcv',
+                'required': true,
+                'state': 'waived',
+                'is_critical': false,
+                'source': 'waiver',
+                'waive_reason': 'Emergency PCI',
+              },
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // The backend answers 409 CATH_LAB_READINESS_CASE_STARTED here, and the
+    // panel must not offer the tap that earns it: the pre-procedure record is
+    // what the team knew BEFORE the case, in both directions.
+    expect(find.text('Waived: Emergency PCI'), findsOneWidget);
+    expect(find.byKey(const ValueKey('cath-lab-unwaive-hcv')), findsNothing);
+  });
+
   testWidgets('nothing renders when the case carries no readiness block', (
     tester,
   ) async {

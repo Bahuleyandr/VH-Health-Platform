@@ -338,6 +338,15 @@ describe('the published shapes cover every key the service returns', () => {
     expect(request.properties.value_numeric.minimum).toBe(0);
     expect(schemas.CathLabReadinessWaiveRequest.required).toEqual(['reason']);
     expect(schemas.CathLabReadinessWaiveRequest.properties.reason.maxLength).toBe(500);
+    // Un-waive takes the SAME reason field and does NOT require it: the service
+    // reads `input.reason` through the same cleanText(…, 500) and throws
+    // nothing when it is absent. A contract that required it would refuse a
+    // request the handler accepts.
+    const unwaive = schemas.CathLabReadinessUnwaiveRequest;
+    expect(unwaive.additionalProperties).toBe(false);
+    expect(unwaive.required).toBeUndefined();
+    expect(Object.keys(unwaive.properties)).toEqual(['reason']);
+    expect(unwaive.properties.reason.maxLength).toBe(500);
   });
 });
 
@@ -352,6 +361,7 @@ describe('the seven operations describe the routes that exist', () => {
     [`POST ${CATH}/order-missing`, 'CathLabReadinessOrderMissingResponse', '201'],
     [`POST ${CATH}/{item}/external-result`, 'CathLabReadinessExternalResultResponse', '201'],
     [`POST ${CATH}/{item}/waive`, 'CathLabReadinessResponse', '200'],
+    [`POST ${CATH}/{item}/unwaive`, 'CathLabReadinessResponse', '200'],
     [`PUT ${SETTINGS}`, 'CathLabReadinessSettingsResponse', '200'],
   ];
   const READS = [
@@ -373,7 +383,7 @@ describe('the seven operations describe the routes that exist', () => {
     return document.paths[path][method.toLowerCase()];
   }
 
-  it('covers exactly the four cath routes, evidence-refresh and the two governance routes', () => {
+  it('covers exactly the five cath routes, evidence-refresh and the two governance routes', () => {
     expect(Object.keys(operations).sort()).toEqual(
       [...COMMANDS.map(([key]) => key), ...READS.map(([key]) => key), EVIDENCE].sort(),
     );
@@ -432,6 +442,7 @@ describe('the seven operations describe the routes that exist', () => {
     for (const key of [
       `POST ${CATH}/{item}/external-result`,
       `POST ${CATH}/{item}/waive`,
+      `POST ${CATH}/{item}/unwaive`,
     ]) {
       expect(operations[key].pathParameters.item).toEqual({ type: 'string', enum: ENUMS.ITEMS });
       expect(operations[key].pathParameters.id.oneOf).toEqual(expect.arrayContaining([

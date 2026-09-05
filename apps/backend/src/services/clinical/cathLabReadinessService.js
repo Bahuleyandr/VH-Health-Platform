@@ -1179,7 +1179,7 @@ export async function refreshOpenCasesForPatient({ tenantId, patientUid } = {}) 
 }
 
 // ---------------------------------------------------------------------------
-// Actions: waive, order the missing, record an outside result
+// Actions: waive, un-waive, order the missing, record an outside result
 // ---------------------------------------------------------------------------
 
 function requireItem(value) {
@@ -1191,6 +1191,19 @@ function requireItem(value) {
     );
   }
   return item;
+}
+
+// Once the patient is on the table the pre-procedure record is HISTORY: what
+// the team knew before the case is not editable after it. The same rule the
+// order and outside-result paths already state, and the same code
+// (CATH_LAB_READINESS_CASE_STARTED) — spelled once so the two waiver paths
+// cannot drift from it. The caller passes the row it has ALREADY LOCKED, so
+// the decision is made against a case row no concurrent writer can start
+// underneath it.
+function requireCaseNotStarted(cathCase, message) {
+  if (cathCase?.actual_start_at) {
+    throw AppError.conflict(message, 'CATH_LAB_READINESS_CASE_STARTED');
+  }
 }
 
 export async function waiveLabItem(caseId, itemCode, input = {}, context = {}) {
@@ -1206,6 +1219,10 @@ export async function waiveLabItem(caseId, itemCode, input = {}, context = {}) {
   const actor = requireUuid(context.actorUid, 'actorUid');
   return setTenantTx(tid, async (tx) => {
     const cathCase = await caseRowTx(tx, tid, caseId, { lock: true });
+    requireCaseNotStarted(
+      cathCase,
+      'The procedure has started; the pre-procedure record is closed to new waivers',
+    );
     await tx.$executeRawUnsafe(
       `INSERT INTO cath_case_lab_readiness_items
          (tenant_id, case_id, item_code, required, state, source,
@@ -1227,6 +1244,85 @@ export async function waiveLabItem(caseId, itemCode, input = {}, context = {}) {
       resourceId: `${cathCase.id}:${item}`,
       context,
       metadata: { case_id: cathCase.id, item, reason },
+    });
+    return refreshCaseLabReadiness({ tenantId: tid, caseId: cathCase.id, db: tx, context });
+  });
+}
+
+// Lifting a waiver. The gate is not "undo": the waiver row and its audit trail
+// stay in the log, and this writes a SECOND decision over them — the item goes
+// back to being resolved from the patient's own lab evidence, which may leave
+// it missing again and take the check off pass.
+//
+// The state is not GUESSED here. Clearing the three waiver columns and running
+// the refresh on the SAME transaction is what re-resolves the item, so a
+// lifted waiver reads exactly what it would have read had it never been
+// waived — including the value that was already on the row, which
+// resolveItemState keeps on a waived item. `state` and `source` are set to the
+// no-evidence pair rather than left saying `waived`, because migration 766's
+// cath_case_lab_readiness_items_waiver_check refuses a `waived` row without a
+// who/when/why the statement has just nulled; the refresh below overwrites
+// both from the evidence a statement later.
+export async function unwaiveLabItem(caseId, itemCode, input = {}, context = {}) {
+  const tid = tenantOr(input.tenantId);
+  const item = requireItem(itemCode);
+  // Optional: WHY the waiver is being lifted. A waiver needs a reason because
+  // it clears a gate; lifting one restores the gate, so it is the restrictive
+  // direction and is not held up for prose.
+  const reason = cleanText(input.reason, 500);
+  requireUuid(context.actorUid, 'actorUid');
+  return setTenantTx(tid, async (tx) => {
+    const cathCase = await caseRowTx(tx, tid, caseId, { lock: true });
+    requireCaseNotStarted(
+      cathCase,
+      'The procedure has started; the pre-procedure record is closed to waiver changes',
+    );
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT state, waive_reason
+         FROM cath_case_lab_readiness_items
+        WHERE tenant_id = $1::uuid
+          AND case_id = $2::bigint
+          AND item_code = $3
+        FOR UPDATE`,
+      tid, cathCase.id, item,
+    );
+    const stored = rows[0] || null;
+    // Read under the case lock and asserted from the STORED row, not from what
+    // the caller believes: a second tap that arrives after the first has
+    // already lifted the waiver is told so rather than writing a no-op audit
+    // row saying a waiver was removed.
+    if (!stored || String(stored.state) !== 'waived') {
+      throw AppError.conflict(
+        `The ${item} item is not waived`,
+        'CATH_LAB_READINESS_NOT_WAIVED',
+      );
+    }
+    const previousReason = stored.waive_reason ?? null;
+    await tx.$executeRawUnsafe(
+      `UPDATE cath_case_lab_readiness_items
+          SET state = 'not_ordered',
+              source = NULL,
+              waived_by = NULL,
+              waived_at = NULL,
+              waive_reason = NULL,
+              refreshed_at = NOW()
+        WHERE tenant_id = $1::uuid
+          AND case_id = $2::bigint
+          AND item_code = $3`,
+      tid, cathCase.id, item,
+    );
+    await recordReadinessAudit(tx, {
+      tenantId: tid,
+      action: 'cath_lab.readiness.labs.unwaived',
+      resource: 'cath_case_lab_readiness_items',
+      resourceId: `${cathCase.id}:${item}`,
+      context,
+      // The reason the waiver GAVE is the thing being withdrawn, so it is
+      // carried onto the row that withdraws it: the log otherwise says an
+      // override was lifted without saying which override.
+      metadata: {
+        case_id: cathCase.id, item, reason, previous_reason: previousReason,
+      },
     });
     return refreshCaseLabReadiness({ tenantId: tid, caseId: cathCase.id, db: tx, context });
   });

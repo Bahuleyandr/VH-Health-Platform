@@ -1038,6 +1038,12 @@ void main() {
     expect(keys, contains('s4.lib.cath_lab.readiness.date_required'));
     expect(keys, contains('s4.lib.cath_lab.readiness.waived_on'));
     expect(keys, contains('s4.lib.cath_lab.readiness.header.missing'));
+    // The waiver EXIT (Plan 3 follow-up A): the action, its confirmation and
+    // its receipt. A waiver that can be recorded and not withdrawn is a
+    // one-way door on a pre-procedure record.
+    expect(keys, contains('s4.lib.cath_lab.readiness.unwaive'));
+    expect(keys, contains('s4.lib.cath_lab.readiness.unwaive_confirm'));
+    expect(keys, contains('s4.lib.cath_lab.readiness.unwaived_done'));
     expect(
       _missingLocaleEntries(keys, requiredLocales: 5),
       isEmpty,
@@ -1067,6 +1073,15 @@ void main() {
           'date': '__DATE__',
         }),
         contains('__DATE__'),
+        reason: locale.languageCode,
+      );
+      // A confirmation that drops {item} asks the operator to remove "the
+      // waiver" without saying which one, on a panel showing seven of them.
+      expect(
+        strings.format('s4.lib.cath_lab.readiness.unwaive_confirm', {
+          'item': '__ITEM__',
+        }),
+        contains('__ITEM__'),
         reason: locale.languageCode,
       );
       expect(

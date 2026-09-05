@@ -26,9 +26,18 @@ typedef CathReadinessWaiver = Future<CathLabReadiness> Function(
   required String idempotencyKey,
 });
 
-/// The seven pre-procedure lab items on one case, with the three writes the
+/// Withdrawing a waiver. No reason field: a waiver has to say why a gate was
+/// cleared, but lifting one RESTORES the gate — the restrictive direction — so
+/// the backend takes an optional reason and the panel does not ask for one.
+typedef CathReadinessUnwaiver = Future<CathLabReadiness> Function(
+  int caseId,
+  String item, {
+  required String idempotencyKey,
+});
+
+/// The seven pre-procedure lab items on one case, with the four writes the
 /// team can make against them: order what is missing, enter an outside result,
-/// or waive an item with a reason.
+/// waive an item with a reason, or withdraw a waiver already recorded.
 ///
 /// Every write is idempotent-keyed. The keys are held per action (and, for the
 /// per-item writes, per item) for the life of the panel and are reset ONLY on
@@ -43,6 +52,7 @@ class CathLabReadinessPanel extends StatefulWidget {
     required this.orderMissing,
     required this.recordExternal,
     required this.waiveItem,
+    required this.unwaiveItem,
     this.today,
   });
 
@@ -57,6 +67,7 @@ class CathLabReadinessPanel extends StatefulWidget {
   final CathReadinessOrderMissing orderMissing;
   final CathReadinessExternalRecorder recordExternal;
   final CathReadinessWaiver waiveItem;
+  final CathReadinessUnwaiver unwaiveItem;
 
   /// Injectable "today" for the outside-result sheet's date field.
   final DateTime? today;
@@ -71,6 +82,7 @@ class _CathLabReadinessPanelState extends State<CathLabReadinessPanel> {
   );
   final Map<String, IdempotencyAttempt> _externalAttempts = {};
   final Map<String, IdempotencyAttempt> _waiveAttempts = {};
+  final Map<String, IdempotencyAttempt> _unwaiveAttempts = {};
   bool _busy = false;
 
   @override
@@ -80,6 +92,9 @@ class _CathLabReadinessPanelState extends State<CathLabReadinessPanel> {
       attempt.reset();
     }
     for (final attempt in _waiveAttempts.values) {
+      attempt.reset();
+    }
+    for (final attempt in _unwaiveAttempts.values) {
       attempt.reset();
     }
     super.dispose();
@@ -95,6 +110,12 @@ class _CathLabReadinessPanelState extends State<CathLabReadinessPanel> {
     item,
     () => IdempotencyAttempt('cath-lab-waive-${widget.caseId}-$item'),
   );
+
+  IdempotencyAttempt _unwaiveAttempt(String item) =>
+      _unwaiveAttempts.putIfAbsent(
+        item,
+        () => IdempotencyAttempt('cath-lab-unwaive-${widget.caseId}-$item'),
+      );
 
   void _toast(String message) {
     if (!mounted) return;
@@ -166,6 +187,38 @@ class _CathLabReadinessPanelState extends State<CathLabReadinessPanel> {
       );
       _waiveAttempt(item.itemCode).reset();
       _toast(s.lookup('s4.lib.cath_lab.readiness.waived_done'));
+      return labs;
+    });
+  }
+
+  /// Withdrawing a waiver. Confirmed first, because it moves the start gate in
+  /// the RESTRICTIVE direction: the item goes back to being resolved from lab
+  /// evidence, so a case that read ready can stop reading ready because of this
+  /// tap. There is no reason box — the backend does not require one — so this
+  /// is the plain confirm, not the waive dialog with its field.
+  Future<void> _unwaive(CathLabReadinessItem item) async {
+    final s = AppStrings.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => _UnwaiveConfirmDialog(
+        title: s.lookup('s4.lib.cath_lab.readiness.unwaive'),
+        body: s.format('s4.lib.cath_lab.readiness.unwaive_confirm', {
+          'item': cathReadinessItemLabel(s, item.itemCode),
+        }),
+        cancelLabel: s.actionCancel,
+        confirmLabel: s.lookup('s4.lib.cath_lab.readiness.unwaive'),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await _run(() async {
+      final labs = await widget.unwaiveItem(
+        widget.caseId,
+        item.itemCode,
+        idempotencyKey: _unwaiveAttempt(item.itemCode)
+            .keyFor(const <String, dynamic>{}),
+      );
+      _unwaiveAttempt(item.itemCode).reset();
+      _toast(s.lookup('s4.lib.cath_lab.readiness.unwaived_done'));
       return labs;
     });
   }
@@ -243,6 +296,12 @@ class _CathLabReadinessPanelState extends State<CathLabReadinessPanel> {
         item.required &&
         item.state != 'waived' &&
         labs.missingItemCodes.contains(item.itemCode);
+    // The exit FROM a waiver, offered on exactly the rows that carry one. It is
+    // deliberately NOT gated on the server's `missing[]`: a waived item is
+    // never missing — that is what the waiver did — so reusing the waive rule
+    // here would hide the only way back out of it. Like every other write on
+    // this panel it disappears once the case has started.
+    final canUnwaive = !labs.caseStarted && item.state == 'waived';
     return Padding(
       key: ValueKey('cath-lab-item-${item.itemCode}'),
       padding: const EdgeInsets.symmetric(vertical: 6),
@@ -299,7 +358,7 @@ class _CathLabReadinessPanelState extends State<CathLabReadinessPanel> {
                 style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
               ),
             ),
-          if (canEnterExternal || canWaive)
+          if (canEnterExternal || canWaive || canUnwaive)
             Wrap(
               spacing: 8,
               children: [
@@ -316,6 +375,12 @@ class _CathLabReadinessPanelState extends State<CathLabReadinessPanel> {
                     key: ValueKey('cath-lab-waive-${item.itemCode}'),
                     onPressed: _busy ? null : () => _waive(item),
                     child: Text(s.lookup('s4.lib.cath_lab.readiness.waive')),
+                  ),
+                if (canUnwaive)
+                  TextButton(
+                    key: ValueKey('cath-lab-unwaive-${item.itemCode}'),
+                    onPressed: _busy ? null : () => _unwaive(item),
+                    child: Text(s.lookup('s4.lib.cath_lab.readiness.unwaive')),
                   ),
               ],
             ),
@@ -461,6 +526,45 @@ class _WaiveReasonDialogState extends State<_WaiveReasonDialog> {
             Navigator.of(context).pop(reason);
           },
           child: Text(widget.confirmLabel),
+        ),
+      ],
+    );
+  }
+}
+
+/// The plain confirmation in front of withdrawing a waiver. Stateless on
+/// purpose: it asks one question and carries no field, so there is no
+/// controller whose life has to outlast the route — the lesson
+/// [_WaiveReasonDialog] records does not apply here.
+class _UnwaiveConfirmDialog extends StatelessWidget {
+  const _UnwaiveConfirmDialog({
+    required this.title,
+    required this.body,
+    required this.cancelLabel,
+    required this.confirmLabel,
+  });
+
+  final String title;
+  final String body;
+  final String cancelLabel;
+  final String confirmLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      key: const ValueKey('cath-lab-unwaive-dialog'),
+      title: Text(title),
+      content: Text(body),
+      actions: [
+        TextButton(
+          key: const ValueKey('cath-lab-unwaive-cancel'),
+          onPressed: () => Navigator.of(context).pop(false),
+          child: Text(cancelLabel),
+        ),
+        FilledButton(
+          key: const ValueKey('cath-lab-unwaive-confirm'),
+          onPressed: () => Navigator.of(context).pop(true),
+          child: Text(confirmLabel),
         ),
       ],
     );

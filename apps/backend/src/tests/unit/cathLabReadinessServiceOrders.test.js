@@ -11,7 +11,9 @@
  *   - the priority the orders are placed at, which comes off the case's urgency,
  *   - open_order_codes, which must honour the SAME per-item freshness window
  *     the resolver does or a long-stale order both fails to be evidence and
- *     blocks the re-order that would produce some.
+ *     blocks the re-order that would produce some,
+ *   - the two waiver actions, whose whole content is the order of their
+ *     guards against a locked case row and the statements they then write.
  *
  * The stub answers each statement by its FROM target rather than by call order,
  * so reordering the reads inside the service does not silently feed one query
@@ -28,6 +30,43 @@ const CASE_ID = 77;
 const createInvestigationOrderMock = jest.fn();
 
 let stubRows = {};
+/** Every `$executeRawUnsafe` the service issued, in order. */
+let executed = [];
+
+/**
+ * The two waiver statements, modelled in memory.
+ *
+ * Both the waiver guard and the refresh read `cath_case_lab_readiness_items`,
+ * so a stub that answered the same fixed rows to both would show the refresh a
+ * waiver the statement under test has just cleared — and the assertion would be
+ * about the fixture rather than the service. Applying the two writes to
+ * `stubRows.items` is what lets the refresh see what it would really see.
+ */
+function applyItemWrite(sql, params) {
+  const item = params[2];
+  if (/INSERT INTO cath_case_lab_readiness_items/.test(sql) && /'waived', 'waiver'/.test(sql)) {
+    stubRows.items = [
+      ...stubRows.items.filter((row) => row.item_code !== item),
+      {
+        item_code: item,
+        required: true,
+        state: 'waived',
+        waived_by: params[3],
+        waived_at: new Date().toISOString(),
+        waive_reason: params[4],
+        source: 'waiver',
+      },
+    ];
+    return;
+  }
+  if (/UPDATE cath_case_lab_readiness_items/.test(sql) && /waive_reason = NULL/.test(sql)) {
+    stubRows.items = stubRows.items.map((row) => (row.item_code === item
+      ? {
+        ...row, state: 'not_ordered', source: null, waived_by: null, waived_at: null, waive_reason: null,
+      }
+      : row));
+  }
+}
 
 function stubClient() {
   return {
@@ -47,7 +86,11 @@ function stubClient() {
       if (/FROM cath_lab_readiness_checks/.test(sql)) return stubRows.checks;
       throw new Error(`unstubbed query: ${sql.slice(0, 120)}`);
     },
-    $executeRawUnsafe: async () => 1,
+    $executeRawUnsafe: async (sql, ...params) => {
+      executed.push({ sql, params });
+      applyItemWrite(sql, params);
+      return 1;
+    },
   };
 }
 
@@ -86,9 +129,13 @@ jest.unstable_mockModule('../../services/clinical/bloodborneMarkerService.js', (
   recordMarkers: recordMarkersMock,
 }));
 
-const { orderMissingLabs, recordExternalLabResult, refreshCaseLabReadiness } = await import(
-  '../../services/clinical/cathLabReadinessService.js'
-);
+const {
+  orderMissingLabs,
+  recordExternalLabResult,
+  refreshCaseLabReadiness,
+  unwaiveLabItem,
+  waiveLabItem,
+} = await import('../../services/clinical/cathLabReadinessService.js');
 
 const daysAgo = (n) => new Date(Date.now() - n * 86_400_000).toISOString();
 // Postgres always returns the `<col>_epoch_ms` twin beside a twinned column and
@@ -109,6 +156,7 @@ const CASE_ROW = {
 };
 
 beforeEach(() => {
+  executed = [];
   createInvestigationOrderMock.mockReset();
   recordExternalLabResultRowMock.mockReset();
   recordMarkersMock.mockReset();
@@ -306,5 +354,100 @@ describe('outside-result entries key the lab rail per item', () => {
     const key = keyOf(recordExternalLabResultRowMock.mock.calls[0]);
     expect(key.endsWith(':creatinine')).toBe(true);
     expect(key.length).toBeLessThanOrEqual(200);
+  });
+});
+
+describe('the waiver pair guards a started case and the stored state', () => {
+  const startedCase = () => [{ ...CASE_ROW, actual_start_at: new Date().toISOString() }];
+  const auditActions = () => executed
+    .filter((entry) => /INSERT INTO audit_logs/.test(entry.sql))
+    .map((entry) => entry.params[3]);
+  const itemWrites = () => executed.filter(
+    (entry) => /(INSERT INTO|UPDATE) cath_case_lab_readiness_items/.test(entry.sql),
+  );
+
+  test('waive refuses once the case has started, before it writes anything', async () => {
+    stubRows.cathCase = startedCase();
+
+    await expect(waiveLabItem(
+      CASE_ID, 'hcv', { tenantId: TENANT, reason: 'on file elsewhere' }, ctx,
+    )).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CATH_LAB_READINESS_CASE_STARTED',
+    });
+    // BEFORE anything: not the item row, not the audit row. A refusal that
+    // writes half a waiver is the failure this guard exists to prevent.
+    expect(executed).toEqual([]);
+  });
+
+  test('waive still writes the item and its audit row while the case has not started', async () => {
+    await waiveLabItem(CASE_ID, 'hcv', { tenantId: TENANT, reason: 'on file elsewhere' }, ctx);
+
+    expect(auditActions()).toContain('cath_lab.readiness.labs.item_waived');
+    expect(stubRows.items.find((row) => row.item_code === 'hcv').state).toBe('waived');
+  });
+
+  test('unwaive refuses once the case has started, before it writes anything', async () => {
+    await waiveLabItem(CASE_ID, 'hcv', { tenantId: TENANT, reason: 'on file elsewhere' }, ctx);
+    executed = [];
+    stubRows.cathCase = startedCase();
+
+    await expect(unwaiveLabItem(CASE_ID, 'hcv', { tenantId: TENANT }, ctx))
+      .rejects.toMatchObject({ statusCode: 409, code: 'CATH_LAB_READINESS_CASE_STARTED' });
+    expect(executed).toEqual([]);
+    // ...and the waiver is untouched, which is the point: the pre-procedure
+    // record is not editable after the procedure, in either direction.
+    expect(stubRows.items.find((row) => row.item_code === 'hcv').state).toBe('waived');
+  });
+
+  test('unwaive refuses an item that carries no waiver, and writes nothing', async () => {
+    await expect(unwaiveLabItem(CASE_ID, 'hcv', { tenantId: TENANT }, ctx))
+      .rejects.toMatchObject({ statusCode: 409, code: 'CATH_LAB_READINESS_NOT_WAIVED' });
+    expect(itemWrites()).toEqual([]);
+    expect(auditActions()).toEqual([]);
+  });
+
+  test('unwaive refuses an item resolved from evidence rather than waived', async () => {
+    stubRows.items = [{
+      item_code: 'hcv', required: true, state: 'result_final', source: 'lab_result',
+      waived_by: null, waived_at: null, waive_reason: null,
+    }];
+
+    await expect(unwaiveLabItem(CASE_ID, 'hcv', { tenantId: TENANT }, ctx))
+      .rejects.toMatchObject({ code: 'CATH_LAB_READINESS_NOT_WAIVED' });
+  });
+
+  test('unwaive clears the waiver, audits the reason it withdrew, and re-resolves the item', async () => {
+    await waiveLabItem(
+      CASE_ID, 'hcv', { tenantId: TENANT, reason: 'repeat on file elsewhere' }, ctx,
+    );
+    executed = [];
+
+    const after = await unwaiveLabItem(
+      CASE_ID, 'hcv', { tenantId: TENANT, reason: 'the report arrived' }, ctx,
+    );
+
+    const audit = executed.find((entry) => /INSERT INTO audit_logs/.test(entry.sql));
+    expect(audit.params[3]).toBe('cath_lab.readiness.labs.unwaived');
+    // The WITHDRAWN waiver's own reason rides on the row that withdraws it —
+    // a log saying an override was lifted, without saying which override, is
+    // not a trail.
+    expect(JSON.parse(audit.params[6])).toMatchObject({
+      item: 'hcv',
+      reason: 'the report arrived',
+      previous_reason: 'repeat on file elsewhere',
+    });
+    // The three waiver columns are gone from the stored row...
+    expect(stubRows.items.find((row) => row.item_code === 'hcv')).toMatchObject({
+      waived_by: null, waived_at: null, waive_reason: null,
+    });
+    // ...and the refresh that ran on the SAME transaction re-resolved the item
+    // from evidence, which here is none: it is missing again and the check is
+    // back to pending. That is the whole risk of this action, asserted.
+    const item = after.items.find((row) => row.item_code === 'hcv');
+    expect(item.state).toBe('not_ordered');
+    expect(item.waive_reason).toBeNull();
+    expect(after.missing.map((row) => row.item)).toContain('hcv');
+    expect(after.check_status).toBe('pending');
   });
 });

@@ -993,6 +993,27 @@ class CathLabApiService {
     return CathLabReadiness.fromJson(data);
   }
 
+  /// POST `.../readiness/labs/:item/unwaive` — withdraws a waiver and answers
+  /// the refreshed readiness block itself, exactly as waive does.
+  ///
+  /// A key is REQUIRED, under its OWN scope (`cath_lab_readiness_unwaive`).
+  /// Sharing the waive scope would make a lift under a key the waive already
+  /// used replay the waive's recorded response instead of running — the waiver
+  /// would look removed and still be there.
+  static Future<CathLabReadiness> unwaiveLabItem(
+    int caseId,
+    String item, {
+    required String idempotencyKey,
+  }) async {
+    final response = await ApiClient.post(
+      '/cath-lab/cases/$caseId/readiness/labs/$item/unwaive',
+      body: const {},
+      idempotencyKey: idempotencyKey,
+    );
+    final data = _successfulData(response, 'Failed to remove the waiver');
+    return CathLabReadiness.fromJson(data);
+  }
+
   static CathLabReadiness _readinessFrom(Object? raw) {
     if (raw is! Map) {
       throw Exception('Cath Lab readiness response was malformed');
