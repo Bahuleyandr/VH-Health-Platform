@@ -722,6 +722,32 @@ const ENTITLED_SET = new Set(ENTITLED);
  * files away, and it must not make this canary test LESS by moving a role out
  * of the remainder. So the derived set is compared to this list and the failure
  * names exactly which roles arrived or left.
+ *
+ * WHAT THE LIST MEANS, AND WHAT IT DOES NOT (read before "fixing" it):
+ *
+ * The predicate is membership in CLINICAL_STAFF_ROUTE_ROLES — the platform's
+ * existing answer to "who may read a patient's clinical narrative" — reused
+ * rather than minted. Its ONLY consumers are the cath route projections
+ * (routes/clinical/cathLabRoutes.js) and cathLabReadinessProjection.js. Nothing
+ * under routes/lab or services/lab calls it, so it never gates the lab
+ * surface: a PATHOLOGIST, LAB_INCHARGE or LAB_STAFF reads serology values on
+ * the lab mount under the LAB route roles exactly as before. Their absence
+ * from this list is therefore NOT "pathologists cannot see serology"; it is
+ * "on the cath and STEMI surfaces this canary covers, they are not in the
+ * audience for a patient's blood-borne narrative", which is route-appropriate:
+ *   - on the cath mount the lab roles are in no route's reachable set at all
+ *     (see the snapshot), so the exclusion never bites them there;
+ *   - on the STEMI mount the strip is UNCONDITIONAL
+ *     (stemiPathwayService.readinessWithoutLabEvidence): no role, entitled or
+ *     not, sees live_evidence/critical_items in activation evidence, because a
+ *     STEMI activation is not a lab surface. The lab roles appear in the STEMI
+ *     remainder and the property holds for every role. If STEMI evidence is
+ *     ever made role-projected instead of stripped, THIS is where that
+ *     judgement gets re-examined.
+ * Likewise absent, and correctly so for these surfaces: RECEPTIONIST,
+ * TECHNICIAN, RADIOLOGIST/RADIOLOGY_STAFF, BLOOD_BANK_*, DIALYSIS_TECHNICIAN,
+ * EMERGENCY_RESPONDER, QUALITY_OFFICER and INFECTION_CONTROL_OFFICER (the
+ * governance officers administer policy, not patients).
  */
 const ENTITLED_ALLOW_LIST = [
   'ADMIN',
