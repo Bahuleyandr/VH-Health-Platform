@@ -2,14 +2,16 @@
 
 ## Execution notes (as built)
 
-Tasks 1–6 are executed (commits below); Task 7's gate sweep and hand-back are in
-progress. Implementation worktree: `feat/cath-lab-readiness`, final at
-`84ded1b04`, with `main` merged in at `13e885d98`; the PR is **#TBD** (draft,
-merge authority stays with the coordinating session). Every task went through a
-review loop — implementer, spec review, code-quality review, fix commit(s),
-re-review — which is why several tasks carry more than one commit, and why the
-commit order below is not the task order (the loops interleaved; `84ded1b04`, a
-Task 3 fix, is the branch tip).
+Tasks 1–7 are executed (commits below); the gate sweep is complete and the PR
+is open as a draft. Implementation worktree: `feat/cath-lab-readiness`, final
+at `1bcbebd3a` (an empty `[full-ci]` trigger commit; `78a8e8dd7` is the last
+substantive one), with `main` merged in at `13e885d98`, `a98b46fbe` (#1006) and
+`518259326` (#1007); the PR is **#1008** (draft, merge authority stays with the
+coordinating session). Every task went through a review loop — implementer,
+spec review, code-quality review, fix commit(s), re-review — which is why
+several tasks carry more than one commit, and why the commit order below is
+not the task order (the loops interleaved; `7dd54906b` and `78a8e8dd7`, fixes
+found in the pre-hand-back gate sweep, land after every task's own commits).
 
 The spec (`docs/superpowers/specs/2026-09-04-cath-pre-procedure-lab-readiness-design.md`)
 has been amended in place with **As built** paragraphs against §6.2, §6.3, §6.4,
@@ -22,11 +24,11 @@ Commits per task:
 
 - **Task 1** (migration 766): `9a5ded249`, `f18f18a3b`
 - **Task 2** (pure resolution rules): `2eed70f8a`, `4cf9357a2`
-- **Task 3** (refresh, automation, lab hooks, actions): `9b4a3fbd4`, `34d0870ff`, `44cd6006b`, `84ded1b04`, `1c30ba933` (backend reason guard: `CATH_LAB_READINESS_REASON_REQUIRED`)
+- **Task 3** (refresh, automation, lab hooks, actions): `9b4a3fbd4`, `34d0870ff`, `44cd6006b`, `84ded1b04`, `1c30ba933` (backend reason guard: `CATH_LAB_READINESS_REASON_REQUIRED`), `7dd54906b` (final-review fixes: strip lab evidence from STEMI activation readiness rows, gate auto-pass on `actual_start_at` in both directions, per-item lab command keys)
 - **Task 4** (routes, projection, OpenAPI): `3a1abfbda`, `6d4067686`, `2a6893315`, `8fa02df9e`
 - **Task 5** (Staff app): `1133f8dec`, `692b94a35`, `18bde1fbb` (staff follow-ups)
 - **Task 6** (Admin settings editor): `f5d9bd115`, `a7bad8ef5`, `86ec7be38`
-- **Task 7** (gates and hand-back): `main` merges `13e885d98` and `a98b46fbe` (#1006); gate sweep and PR **#TBD**
+- **Task 7** (gates and hand-back): `main` merges `13e885d98`, `a98b46fbe` (#1006) and `518259326` (#1007); gate sweep `78a8e8dd7`; `[full-ci]` trigger `1bcbebd3a`; PR **#1008**
 
 Deviations from this plan, accepted during execution:
 
@@ -2273,9 +2275,10 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ## Task 7: Gates and hand-back
 
-**In progress:** `main` merged into the branch at `13e885d98`; gate sweep
-running; PR **#TBD** (draft). Merge authority stays with the coordinating
-session.
+**Complete:** `main` merged into the branch at `13e885d98`, `a98b46fbe` (#1006)
+and `518259326` (#1007); gate sweep fixes landed in `78a8e8dd7`; the
+`[full-ci]` trigger commit is `1bcbebd3a`; PR **#1008** (draft). Merge
+authority stays with the coordinating session.
 
 Same procedure as Plan 2 Task 8 with branch `feat/cath-lab-readiness`, scratch DB `vh_clr_<initials>`, deep suites `cath-lab-readiness.deep|lab-signoff-safety.deep|lab-panel-critical-path.deep|lab-corrected-signoff-reack.deep|bloodborne-markers.deep`, and a PR body that states: spec path; migration number and the branch check; that the eight `check_type` values are unchanged and automation only alters rows it set; that a critical value never blocks by owner decision; the `lab_results` origin columns and which writers set them; that the public manual route rejects origin fields; the deep suite counts; OpenAPI regeneration; Staff strings pending OPEN-21 review; `Merge Gate` / `Full Merge Gate` by name with the head SHA. End with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`. Draft only; merge authority stays with the coordinating session.
 
@@ -2286,12 +2289,39 @@ as a 500 with `details.created`; that `abnormal_flag` for outside values is
 owned by the governed threshold rail, not derived here; the resultable booking
 statuses and `ordered_at = created_at`; read-through refreshes as the system
 actor with write-on-change and a 60 s evidence stamp; and the Staff decisions
-(no serology or date default, gate-changing statuses confirmed). Follow-ups to
-list: the owner decisions in spec §16, the `RESULT_READY` booking hole (§15),
-`critical_warning` staying true for non-audience roles, the pre-existing OBX-11
-X/W/D collapse to `preliminary`, the case list carrying no readiness summary,
-OPEN-21 on the four non-English locales, and splitting
-`cathLabReadinessService.js` into rules / persistence / actions.
+(no serology or date default, gate-changing statuses confirmed). Also list the
+three final-review fixes in `7dd54906b`, since none is visible from the
+schema: the STEMI activation surface no longer carrying
+`live_evidence`/`critical_items` metadata to an audience the role-projection
+design never reached (spec §9); `computeCheckDecision`'s `!started` guard now
+covering the auto-pass branch as well as the retraction branch (spec §7); and
+the per-item lab command key, so an hiv/hbsag/hcv trio sent under one
+`Idempotency-Key` becomes three lab commands instead of colliding on the
+second (spec §8.2/§11). Follow-ups to list: the owner decisions in spec §16,
+the `RESULT_READY` booking hole (§15), `critical_warning` staying true for
+non-audience roles, the pre-existing OBX-11 X/W/D collapse to `preliminary`,
+the case list carrying no readiness summary, OPEN-21 on the four non-English
+locales, and splitting `cathLabReadinessService.js` into rules / persistence /
+actions.
+
+**As built — the gate sweep found two test-only defects, both in this
+branch's own tests, neither in production code**, fixed in `78a8e8dd7`.
+Running the **full unit corpus** (rather than the readiness suites alone) is
+what caught `cathReportRoutes.test.js` failing to **load**: the branch's new
+readiness imports in `cathLabRoutes.js` reach a tenant-posture resolver that
+calls `getTenantById` at module load, and that suite's `tenantService` factory
+mock exported only `resolveTenantOrThrow`/`requireTenantId` — the added mock
+returns a row whose `settings` carry no enforcement key, so the resolver keeps
+the documented shadow default. **`epochTwinFixtureFidelity.test.js`** is the
+gate that caught the second: 12 violations, all in this branch's own
+readiness fixtures, where `signed_off_at` / `performed_at` / `received_at` /
+`requested_at` / `collected_at` were supplied without their `<col>_epoch_ms`
+twins — a row shape Postgres can no longer produce. Every twin is derived from
+the ISO string beside it, so behaviour is unchanged and the three suites keep
+identical counts (30 / 77 / 12); the one fixture that mattered was the
+window-override case in `cathLabReadinessServiceOrders`, where overriding
+`requested_at` while leaving the 60-day twin in place would have inverted the
+assertion silently.
 
 ---
 

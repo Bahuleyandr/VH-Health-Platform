@@ -268,9 +268,21 @@ so its `investigation_id` on the item is `null`, never `0`.
 Check-level:
 
 - `available(item)` is true for `result_final`, `result_preliminary`, `waived`, and `external_recorded` when `external_results_count` is on.
-- All required items available and `auto_pass` on → if the check is `pending`, or is `pass` with `auto_managed`, set `pass` with the automation fields. If the check is a human `pass` or `waived`, leave it.
+- All required items available, `auto_pass` on and the case has no `actual_start_at` → if the check is `pending`, or is `pass` with `auto_managed`, set `pass` with the automation fields. If the check is a human `pass` or `waived`, leave it.
 - Not all available → if the check is `pass` with `auto_managed` and the case has no `actual_start_at`, set `pending` with `auto_pending_reason` naming the items. Human-set statuses are left alone.
 - `critical_warning` is recomputed every refresh from the items; it is displayed beside the tick regardless of who set the status and is never a reason to change the status.
+
+**As built.** `!started` gates BOTH branches of `computeCheckDecision` —
+automation manages the `labs` check only before `actual_start_at`, in both
+directions. The auto-pass branch above originally lacked the guard the
+retraction branch already had, so merely opening an `in_progress` or
+`completed` case could re-run the resolver and flip a pending check to `pass`
+with `completed_at = NOW()` — a readiness claim stamped after the procedure it
+existed to gate, with an `auto_pass` audit row to match. Fixed before
+hand-back (`7dd54906b`); `cathLabReadinessService.test.js` extends the
+`computeCheckDecision` table with a started case that is never auto-passed,
+and §13's mutation check (delete `!started`, confirm the post-start test goes
+red) covers both branches, not only the retraction one.
 
 Refresh triggers:
 
@@ -367,6 +379,18 @@ Role: the cath router's roles (PHI-logged at app.js:2008). The B-3 rule holds: n
 - The idempotency **key** claimed by the route reaches
   `recordExternalLabResultRow`, but the claim's row id and body hash
   deliberately do not — see §11's note on why.
+- **As built, found in final review.** The key that reaches the lab rail is
+  not the bare header: `recordExternalLabResult` hands it
+  `<caller key>:<item code>`, budgeted inside the rail's 200-character
+  `command_key` limit. `labResultIngestCommandService` keys its command table
+  on `(tenant_id, actor_uid, command_scope, command_key)`, so an hiv/hbsag/hcv
+  trio sent under one `Idempotency-Key` used to collide on the second item and
+  answer `LAB_RESULT_COMMAND_BODY_MISMATCH` (422) — then serve that 422 back
+  from the HTTP claim for the rest of the key's life. The item-code suffix
+  makes the three items three distinct commands while a genuine retry of the
+  SAME item still replays, because both its key and its content fingerprint
+  are unchanged. Fixed in `7dd54906b`; see §11's idempotency note, which this
+  corrects.
 
 ### 8.3 Waive one item
 
@@ -449,6 +473,29 @@ from the `labs` check row's `metadata.critical_items` and
 copy of the same items one key over. `critical_warning` is **left alone**: it
 says a critical value exists on this case without naming it, which is the
 advisory the front desk is admitted for.
+
+**A second leak surface, found in final review.** `GET
+/api/v1/stemi-pathway/activations/:id` is mounted under `STEMI_ROUTE_ROLES` —
+RECEPTIONIST, TECHNICIAN, LAB_STAFF and RADIOLOGIST all reach it, an audience
+at least as wide as cath report-read — and its
+`primary_pci_evidence.readiness_checks` carried every
+`cath_lab_readiness_checks` row of the linked case **verbatim**: the `labs`
+row's `metadata.live_evidence` and `metadata.critical_items` reached every one
+of those roles unprojected, because `cathLabReadinessProjection.js` is wired
+into `cathLabRoutes.js` only — `stemiPathwayService.js` never called it.
+`getActivationTx` now strips exactly those two metadata keys before the bundle
+leaves the transaction (`readinessWithoutLabEvidence`), keeping
+`critical_warning`, `auto_managed`, `auto_pending_reason` and
+`live_evidence_refreshed_at`. This is a **blanket strip, not the per-role
+blank above**: the STEMI activation detail answers the generic `Success`
+schema, not the strict `CathLabReadinessItem` one, so there is no
+`additionalProperties: false` key set to preserve; no client reads either key
+from this surface (the staff app takes `critical_items` from the cath
+readiness endpoint instead); and the PCI evidence bundle only needs to show
+that the check stands and why — never the serology detail behind it, for any
+reader, audience or not. Fixed before hand-back (`7dd54906b`);
+`stemiPathwayService.test.js` pins that the activation evidence never carries
+`live_evidence`/`critical_items` while the other metadata keys survive.
 
 ## 10. Client scope (Staff, Flutter)
 
@@ -553,9 +600,20 @@ claim from inside the lab transaction, so a replay would answer 200 with the lab
 service's payload instead of this route's published 201, and a 5xx raised after
 that transaction commits (the marker write, the audit and the refresh are all
 still to come) could neither release nor re-finalise the claim. The lab rail
-keeps its own content-derived fingerprint, which is also what makes an `hiv`, an
-`hbsag` and an `hcv` entry sent under one `Idempotency-Key` three distinct
-commands rather than one.
+keeps its own content-derived fingerprint as the command body hash.
+
+**As built, found in final review.** The paragraph above originally credited
+that content fingerprint with making an `hiv`, an `hbsag` and an `hcv` entry
+sent under one `Idempotency-Key` three distinct commands. It did not:
+`labResultIngestCommandService` keys its command table on `(tenant_id,
+actor_uid, command_scope, command_key)`, and `command_key` was the bare
+forwarded header — identical across the three items — so the second collided
+with the first and answered `LAB_RESULT_COMMAND_BODY_MISMATCH` (422), then
+served that 422 back from the HTTP claim for the rest of the key's life. The
+route now hands the rail `<caller key>:<item code>` (§8.2), which is what
+makes the three items three distinct commands; the content fingerprint's job
+is to detect a genuine same-item replay's body changing under an unchanged
+key, not to separate items. Fixed in `7dd54906b`.
 
 ## 12. Future consumers
 
@@ -600,6 +658,14 @@ Gates: inline-check census static guard (new tables are not baseline-owned; mani
   value exists without naming it, which is the intended advisory, but a
   receptionist can infer *something* came back critical on a case whose other
   six items are unremarkable.
+- **Resolved during final review, not accepted.** The STEMI activation surface
+  (§9) leaked the same `live_evidence` / `critical_items` detail to a
+  RECEPTIONIST/TECHNICIAN/LAB_STAFF/RADIOLOGIST audience through a route the
+  role-projection design never reached — a second copy of exactly the
+  information the risk above concerns itself with, sitting entirely outside
+  the projection that gates it. Unlike the risks above, this one did not ship:
+  it was found and closed before hand-back (`7dd54906b`) by stripping the two
+  keys at the source rather than adding a second per-role projection call.
 
 ## 16. Owner decisions pending
 
