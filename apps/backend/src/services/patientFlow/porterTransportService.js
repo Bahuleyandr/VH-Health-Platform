@@ -1512,15 +1512,25 @@ export async function assignTransportTask({ tenantId, taskId, actorUid, actorRol
     if (TERMINAL_STATUSES.has(task.status)) {
       throw AppError.conflict('Transport task is already terminal', 'TRANSPORT_TASK_TERMINAL');
     }
+    // staffId and staffUid arrive as INDEPENDENT body fields, so a caller can
+    // send both naming DIFFERENT people. This was an OR with no ordering, so the
+    // winner was whichever row the planner happened to return first, and the
+    // task was then assigned to — and audited against — a porter the request
+    // never unambiguously named.
+    //
+    // Every supplied identifier must now match the same row. Two that disagree
+    // select nothing and the caller below fails closed with
+    // TRANSPORT_STAFF_NOT_FOUND, which is the honest answer to a contradictory
+    // assignment. (Same defect class as PR #1003 in patientByIdOrUid; that one
+    // was a PHI-read bypass, this one is wrong-staff attribution.)
     const users = await tx.$queryRawUnsafe(
       `SELECT id, uid, name, phone, role
          FROM users
         WHERE tenant_id = $1::uuid
           AND COALESCE(is_active, true) = true
-          AND (
-            ($2::int IS NOT NULL AND id = $2::int)
-            OR ($3::uuid IS NOT NULL AND uid = $3::uuid)
-          )
+          AND ($2::int IS NOT NULL OR $3::uuid IS NOT NULL)
+          AND ($2::int IS NULL OR id = $2::int)
+          AND ($3::uuid IS NULL OR uid = $3::uuid)
         LIMIT 1`,
       tid,
       staffId,

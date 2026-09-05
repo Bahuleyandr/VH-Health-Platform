@@ -958,6 +958,81 @@ export async function resolvePatientForResourceAccess(req, {
           LIMIT 1`,
         resourceId,
       );
+    // Resource-keyed PHI routes: the :id addresses a RESOURCE, not a patient, so
+    // a mount-level patientAccessGuard resolves nothing and evaluates no policy.
+    //
+    // Every one of these is a single-row equality join across two unique indexes
+    // (the resource PK, and users_uid_key) with BOTH sides tenant-scoped on $1.
+    // No disjunction and no ordering tiebreak — that combination is what made
+    // patientByIdOrUid steerable (#1003). The patient-side tenant predicate is
+    // load-bearing on its own: none of these tables has a foreign key from
+    // patient_uid to users, so an unconstrained uuid could otherwise resolve a
+    // patient in another tenant.
+    case 'ophthalmology_exam':
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM ophthalmic_exams oe
+           JOIN users p ON p.uid = oe.patient_uid
+          WHERE oe.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND oe.id = $2::int
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
+    // dental_procedures.id is a SEPARATE identity sequence from
+    // dental_tooth_findings.id — procedure #7 and finding #7 can belong to
+    // different patients, so these two must never be collapsed into one case.
+    case 'dental_finding':
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM dental_tooth_findings dtf
+           JOIN users p ON p.uid = dtf.patient_uid
+          WHERE dtf.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND dtf.id = $2::int
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'dental_procedure':
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM dental_procedures dp
+           JOIN users p ON p.uid = dp.patient_uid
+          WHERE dp.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND dp.id = $2::int
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
+    // The dose row's own patient_uid is the PHI subject in BOTH recordDose
+    // branches, so this does not walk into maternity_newborns: the newborn-linked
+    // branch already re-proves that link with COUNT(*)=1 exactness, and a second
+    // weaker copy of an exact check is worse than none.
+    //
+    // NOTE the p.role = 'PATIENT' predicate is stricter than this table's own
+    // writer: paediatricImmunisationService#assertPatientInTenant selects by
+    // uid + tenant with NO role predicate. A dose recorded against a non-PATIENT
+    // subject therefore resolves to nothing here. In shadow that is logged and
+    // harmless; before any tenant is flipped to enforce, reconcile the two.
+    case 'immunisation':
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM patient_immunisations pi
+           JOIN users p ON p.uid = pi.patient_uid
+          WHERE pi.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND pi.id = $2::int
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
     default:
       return null;
   }

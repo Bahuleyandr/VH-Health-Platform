@@ -36,7 +36,22 @@ const requireRadiologySigner = (req, res, next) => {
   });
 };
 
+import { patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
+import { ACCESS_POLICY_CODES } from '../../services/security/accessPolicyRegistry.js';
+
 const router = Router();
+
+// GET /:id returns a named patient's radiology order detail under an ORDER
+// id. The mount guard cannot see :id, so no patient-access policy has ever
+// run on it. The handler calls radiologyService.getOrderDetail(id) against
+// radiology_orders, which is exactly what the existing 'radiology_order'
+// resolver keys on — same referent, so no new SQL is needed here.
+const guardRadiologyOrderById = patientAccessGuardForResource('RADIOLOGY', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_RADIOLOGY_VIEW,
+  resourceType: 'radiology_order',
+  idParam: 'id',
+  careTeamModeGoverned: true,
+});
 
 function actorRole(req) {
   return req.user?.rawRole || req.user?.role || null;
@@ -411,7 +426,7 @@ router.get('/patient/:uid', async (req, res, next) => {
  * GET /radiology/:id
  * Get detail for a single radiology order
  */
-router.get('/:id', async (req, res, next) => {
+router.get('/:id', guardRadiologyOrderById, async (req, res, next) => {
   try {
     const { id } = req.params;
     const order = await radiologyService.getOrderDetail(parseInt(id, 10), {

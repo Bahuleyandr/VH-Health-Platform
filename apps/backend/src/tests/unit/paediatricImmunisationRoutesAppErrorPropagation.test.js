@@ -36,8 +36,30 @@ jest.unstable_mockModule('../../services/paediatric/paediatricImmunisationServic
   recordDose: recordDoseMock,
 }));
 
+// These are ROUTE unit tests — actor context and error propagation — not PHI
+// authorization tests. The router now carries a per-route
+// patientAccessGuardForResource, whose real implementation reaches the database;
+// mock it to a pass-through so these suites keep testing what they are about.
+// The guard's PRESENCE is asserted structurally by
+// mountLevelPatientGuardCensus.test.js, so mocking it here weakens nothing.
+jest.unstable_mockModule('../../middleware/phiAccessMiddleware.js', () => ({
+  patientAccessGuard: () => (_req, _res, next) => next(),
+  patientAccessGuardForResource: () => (_req, _res, next) => next(),
+  phiAccessLogger: () => (_req, _res, next) => next()
+}));
+
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   resolveTenantOrThrow: () => '00000000-0000-4000-8000-000000000001',
+  // requireTenantId is reached through the router's new per-route
+  // patientAccessGuardForResource -> accessDecisionService import chain. An ESM
+  // mock factory must provide EVERY export the graph imports, or the suite fails
+  // to LOAD with "does not provide an export named ..." — which reads like a
+  // missing test rather than a missing mock line.
+  requireTenantId: (tenantId) => tenantId,
+  // careTeamEnforcement reads the tenant to resolve care_team_enforcement_mode.
+  // null makes it fall back to the env/default posture, which is 'shadow' — the
+  // behaviour these suites already assume.
+  getTenantById: async () => null,
 }));
 
 const { default: paediatricRoutes } = await import('../../routes/paediatric/paediatricImmunisationRoutes.js');
