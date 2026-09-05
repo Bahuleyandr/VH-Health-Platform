@@ -2423,11 +2423,33 @@ export async function signOffResults({
           'LAB_SIGNOFF_CORRECTION_PREDECESSOR_REQUIRED',
         );
       }
+      // OVERLAP, not equality. The guard above has already proved every
+      // selected result is signed and in a correctable status, so this query's
+      // only job is to date the generation being corrected — it does not need
+      // to re-prove coverage.
+      //
+      // `result_ids = $2::int[]` demanded that a PRIOR SIGN-OFF COVERED EXACTLY
+      // THIS ID SET, which is a different and much stronger claim. Sign a panel
+      // as one batch and then correct a single analyte, or sign two analytes
+      // separately and then correct them together, and no stored row matched:
+      // the correction failed LAB_SIGNOFF_CORRECTION_PROVENANCE_REQUIRED and no
+      // retry could clear it, because the shape being demanded had never
+      // existed. Both sequences are ordinary pathologist behaviour.
+      //
+      // (Array ORDER is not a factor: normalizeSignoffResultIds sorts and dedupes,
+      // so stored and queried arrays are both ascending.)
+      //
+      // ORDER BY signed_at DESC LIMIT 1 over the overlapping set yields the
+      // most recent sign-off touching any selected result, which is the
+      // conservative baseline — the source must have changed after the LATEST
+      // relevant sign-off, not merely after some older one. FOR SHARE is kept
+      // rather than aggregated away; lab_pathologist_signoffs is append-only,
+      // but the lock is cheap and losing it here would be a silent change.
       const predecessorRows = await tx.$queryRawUnsafe(
         `SELECT id, signed_at, decision
            FROM lab_pathologist_signoffs
           WHERE tenant_id = $1::uuid
-            AND result_ids = $2::int[]
+            AND result_ids && $2::int[]
             AND decision IN ('verified', 'corrected', 'amended')
           ORDER BY signed_at DESC, id DESC
           LIMIT 1
