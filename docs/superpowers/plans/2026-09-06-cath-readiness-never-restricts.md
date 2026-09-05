@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-06-cath-readiness-never-restricts-design.md` (read it first; section numbers below are its).
 
+**One thing is open, and it gates Task 2:** spec **§10.2**, what a procedure log does to a **cancelled** case. `cancelled` is terminal, so the proposed refusal closes the only existing door and needs a companion the owner must choose. Task 0 Step 6 holds the gate and the code for both companions.
+
 ---
 
 ## Conventions
@@ -49,9 +51,11 @@ All of Plan 3's conventions apply (tenant transactions, raw SQL, `AppError`, npm
 
 ---
 
-## Task 0: Branch, worktree, #1018 shape, ledger
+## Task 0: Branch, worktree, #1018 shape, ledger, the owner gate
 
 **Files:** none (verification only).
+
+> **GATE — do not start Task 2 until owner item spec §10.2 is answered.** What a procedure log does to a **cancelled** case is open, not decided. The refusal Task 2 Step 5 ships is a placeholder behind `REFUSE_PROCEDURE_LOG_ON_CANCELLED`; it must not be handed back as the design. If the owner answers **(i)**, add the transition + reason + audit in **Task 2**. If the owner answers **(ii)**, add the record path in **Task 3**. Both branches are written out in full in **Step 6** below — code, consequent edits and the tests each needs — so the executor implements rather than designs. Tasks 1, 3–8 may proceed while the answer is outstanding; Task 2 may not.
 
 - [ ] **Step 1: Cut the branch in a scratchpad worktree**
 
@@ -110,6 +114,118 @@ createdb -h 127.0.0.1 -p 55432 vh_crr_<initials>
 cd "$SCRATCH/wt/rr-impl/apps/backend"
 DATABASE_URL="postgresql://…@127.0.0.1:55432/vh_crr_<initials>" npm run test:db:setup
 ```
+
+- [ ] **Step 6: The owner gate — spec §10.2, the procedure record on a cancelled case**
+
+Confirm with dev-1b that the owner has answered spec §10.2 before starting Task 2. Record the answer here. Verify the dead end still holds before asking:
+
+```bash
+grep -n "cancelled: \[\]" src/services/clinical/cathLabService.js     # terminal today
+grep -n "cathCase.status !== 'in_progress'" -A 12 src/services/clinical/cathLabService.js | head -16   # today's silent un-cancel
+```
+
+**If the answer is "refuse, no companion yet" — STOP and report to dev-1b.** That is a refusal with no in-app alternative and the spec (§1, §10.2) says it is not shippable. Do not proceed on the placeholder.
+
+**If the answer is (i) — reopen through the same start path. Lands in Task 2.**
+
+```js
+// cathLabService.js — CASE_TRANSITIONS. §10.2 companion (i): cancelled stops
+// being terminal. It is NOT a general un-cancel — the only target is
+// in_progress, it is reachable only through startCaseTx, and only with a
+// reason. Consent still blocks, because it is the same door.
+  cancelled: ['in_progress'],
+
+// START_ELIGIBLE_STATUSES is DERIVED from the table, so `cancelled` becomes
+// start-eligible automatically — including on the procedure-log path, which is
+// exempt from the pending-gate reason. It must NOT be exempt here: reopening a
+// cancelled case is itself the exceptional act, so the reason is mandatory on
+// both paths.
+const REOPEN_ELIGIBLE_STATUSES = Object.freeze(['cancelled']);
+
+// in startCaseTx, beside the existing CATH_LAB_START_REASON_REQUIRED guard:
+const reopening = REOPEN_ELIGIBLE_STATUSES.includes(cathCase.status);
+if (reopening && !cleanReason) {
+  throw AppError.badRequest(
+    'A reason is required to record a procedure on a cancelled case',
+    'CATH_LAB_REOPEN_REASON_REQUIRED',
+    { case_status: cathCase.status, via }
+  );
+}
+
+// in startCaseTx's UPDATE — cancelling STAMPS actual_end_at (transitionCaseStatus's
+// `actual_end_at = CASE … IN ('completed','cancelled') …`), and migration 482's
+// cath_lab_cases_actual_time_check is `actual_end_at >= actual_start_at`. Without
+// this line the reopen sets actual_start_at = NOW() after actual_end_at and
+// Postgres raises 23514. Bind `reopening` as $5.
+            actual_end_at = CASE WHEN $5::boolean THEN NULL ELSE actual_end_at END,
+
+// after the UPDATE, beside the started_with_readiness_pending audit — its own
+// action, so the monthly report can tell a reopen from an ordinary start:
+if (reopening) {
+  await recordReadinessAudit(tx, {
+    tenantId: tenantOr(tenantId),
+    action: 'cath_lab.case.reopened_for_procedure_record',
+    resource: 'cath_lab_cases',
+    resourceId: updated.id,
+    context,
+    metadata: {
+      case_id: normalizeDbValue(updated.id),
+      facility_id: updated.facility_id ?? null,
+      reopened_from: 'cancelled',
+      ...snapshot
+    }
+  });
+}
+```
+
+Consequent edits (i) — do all of them or the suites disagree: `buildStartSnapshot` gains `reopened_from` (null on an ordinary start) and `START_SNAPSHOT_KEYS` grows by one, which moves `cathLabReadinessOpenApiSource.test.js`'s `readiness_at_start` key-set assertion, the overlay schema, the Staff `CathReadinessStartSnapshot` model and its parse test; spec §4.1's table and §3 decision 3's "`cancelled` … stay impossible" clause; Task 2 Step 1's `START_ELIGIBLE_STATUSES` test (now four statuses) and its cancelled unit test (now a reopen, not a refusal); the deep test "a log on a `cancelled` case writes nothing" is replaced by "a log on a cancelled case with a reason reopens it, with the reopen audit row and `actual_end_at` cleared"; a Staff affordance on a cancelled case (§4.4 gains a fourth state). The start-path pin is **unchanged** — the reopen goes through `startCaseTx`, which is the whole point of (i).
+
+**If the answer is (ii) — a record path that leaves the case cancelled. Lands in Task 3.**
+
+```js
+// cathLabService.js. §10.2 companion (ii). The case STAYS cancelled: no status
+// write, no actual_start_at, no snapshot, no startCaseTx — and therefore no
+// consent block, which is why the audit row carries the consent status as it
+// stood rather than asserting it.
+const CANCELLED_RECORD_ACTION = 'cath_lab.case.procedure_performed_after_cancellation';
+
+// in recordProcedureLog, replacing the REFUSE_PROCEDURE_LOG_ON_CANCELLED guard.
+// The reason guard runs BEFORE the insert so a refusal writes nothing:
+const cancelledRecord = cathCase.status === 'cancelled';
+const cancelledReason = cleanText(input.start_reason, 500);
+if (cancelledRecord && !cancelledReason) {
+  throw AppError.badRequest(
+    'A reason is required to record a procedure performed on a cancelled case',
+    'CATH_LAB_CANCELLED_RECORD_REASON_REQUIRED',
+    { case_status: 'cancelled' }
+  );
+}
+… insert the log exactly as for any other status, then …
+if (cancelledRecord) {
+  const checks = await readinessForCase(tx, tenantId, cathCase.id);
+  const consent = checks.find((check) => check.check_type === 'consent');
+  await recordReadinessAudit(tx, {
+    tenantId: tenantOr(tenantId),
+    action: CANCELLED_RECORD_ACTION,
+    resource: 'cath_lab_cases',
+    resourceId: cathCase.id,
+    context,
+    metadata: {
+      case_id: normalizeDbValue(cathCase.id),
+      facility_id: cathCase.facility_id ?? null,
+      procedure_log_id: normalizeDbValue(procedure.id),
+      urgency: cathCase.urgency ?? null,
+      reason: cancelledReason,
+      consent_status: consent?.status ?? 'missing'
+    }
+  });
+  // The case is NOT touched: it stays cancelled, actual_start_at stays NULL.
+} else if (START_ELIGIBLE_STATUSES.includes(cathCase.status)) {
+  await startCaseTx(tx, { … });    // unchanged
+}
+```
+
+Consequent edits (ii): the transition table, `START_ELIGIBLE_STATUSES` and the start-path pin are **all unchanged** (nothing new writes `status` or `actual_start_at`) — that is (ii)'s cheapness. What grows is the number of shapes a performed procedure can have: the day list, the timeline and Staff must not read "has a procedure log" as "started", the deep test "a log on a `cancelled` case writes nothing" becomes "writes the log and the audit row and leaves the case cancelled", and `CATH_LAB_CANCELLED_RECORD_REASON_REQUIRED` joins spec §9 and the overlay's prose-only procedure-log operation. **Sub-question for the owner if (ii) is chosen:** the monthly report (§7) is *starts* with checks pending, and a cancelled-case record is not a start — keep Task 5's query on the single action and leave the new action out of the report unless the owner asks for it.
 
 ---
 
@@ -480,6 +596,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Create: `apps/backend/src/tests/unit/cathLabStartPathPin.test.js`
 - Test: `apps/backend/src/tests/unit/cathLabService.test.js`
 
+> **Blocked by the Task 0 gate.** Spec §10.2 (the procedure record on a cancelled case) must be answered before this task starts. If the answer is (i), fold Task 0 Step 6's branch-(i) code into Steps 3–5 and its consequent edits into Step 1's tests.
+
 - [ ] **Step 1: Write the failing unit tests**
 
 In `cathLabService.test.js`, extend the readiness-module mock with `recordReadinessAudit: jest.fn(async () => undefined)` and keep it in a top-level `const recordReadinessAuditMock`. Add to the rules-module import list nothing — `cathLabService` imports `buildStartSnapshot` / `missingLabItemCodes` from `cathLabReadinessRules.js` directly, which this suite does not mock, so the real pure helpers run. Add helpers:
@@ -619,6 +737,11 @@ describe('startCaseTx — the one start path (spec §4)', () => {
       await recordProcedureLog(42, { tenantId: TENANT, procedure_type: 'Primary PCI', status: 'amended' }, { actorUid: ACTOR });
       expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE cath_lab_cases/.test(sql))).toBe(false);
     }
+    // OPEN OWNER ITEM (spec §10.2): the cancelled half is the PROPOSED
+    // behaviour behind REFUSE_PROCEDURE_LOG_ON_CANCELLED, not a decided
+    // default. Companion (i) replaces this with a reopen assertion; companion
+    // (ii) replaces it with "the log and the audit row are written and the
+    // case stays cancelled". Do not treat a green here as the design settled.
     queryUnsafeMock.mockReset();
     queryUnsafeMock.mockResolvedValueOnce([{ ...cathCase('cancelled'), urgency: 'routine', facility_id: 4 }]);
     await expect(recordProcedureLog(42, { tenantId: TENANT, procedure_type: 'Primary PCI' }, { actorUid: ACTOR }))
@@ -801,10 +924,23 @@ Note: `assertReadinessComplete` reads the checks once; `startCaseTx` reads them 
 and delete the `actual_start_at = CASE … END` branch from the generic UPDATE (it is dead for every remaining target). `recordProcedureLog`, inside the transaction:
 
 ```js
+// OPEN OWNER ITEM — spec §10.2. NOT a decided default. `cancelled` is terminal
+// in CASE_TRANSITIONS, so refusing here means a procedure that was actually
+// performed on a cancelled case cannot be recorded in-app by any route; today's
+// silent un-cancel (the force-start UPDATE this task deletes) is the only
+// existing path. The refusal ships behind this flag so the owner's answer is a
+// one-line change plus the branch's own code, not a rewrite of recordProcedureLog.
+// TODO(owner, spec §10.2): remove this flag when the companion lands —
+//   (i) cancelled gains a reason-gated transition through startCaseTx  → Task 0 Step 6, into this task
+//   (ii) a performed-after-cancellation record path that leaves the case cancelled → Task 0 Step 6, into Task 3
+// Do not flip it silently and do not hand the PR back as complete while it stands.
+const REFUSE_PROCEDURE_LOG_ON_CANCELLED = true;
+
     const cathCase = await caseById(tx, tenantId, caseId, { lock: true });
-    // A procedure log never re-animates a cancelled case (decision 12): the
-    // transition table's own error, before anything is written.
-    if (cathCase.status === 'cancelled') validateCaseTransition('cancelled', 'in_progress');
+    if (REFUSE_PROCEDURE_LOG_ON_CANCELLED && cathCase.status === 'cancelled') {
+      // The transition table's own error, before anything is written.
+      validateCaseTransition('cancelled', 'in_progress');
+    }
     // (the assertReadinessComplete line that was here is deleted)
     … insert the log exactly as today …
     const procedure = unwrap(rows);
@@ -853,6 +989,14 @@ Create `apps/backend/src/tests/unit/cathLabStartPathPin.test.js`:
  * leaks. A third start path — a new route, a job, a service that sets
  * in_progress itself — fails here and has to be argued for in a diff.
  *
+ * The call-graph half of that is necessary and not sufficient. A fourth start
+ * path does not have to call anything this lane wrote — it only has to issue a
+ * raw `UPDATE cath_lab_cases SET actual_start_at = NOW()` of its own, and both
+ * caller counts below would stay green while it did. So the third pin reads the
+ * SOURCE TEXT of the SQL: every backtick literal that names cath_lab_cases,
+ * matched for the shapes that start a case, and every hit must be in
+ * startCaseTx. That is the only assertion here that a new raw UPDATE reddens.
+ *
  * Textual, comments stripped, shipping modules only (tests excluded), in the
  * style of labExternalResultCallSites.test.js.
  */
@@ -898,6 +1042,32 @@ function callers(text, callee) {
   return out.sort();
 }
 
+// Raw SQL here lives in backtick template literals passed to $queryRawUnsafe /
+// $executeRawUnsafe. SCOPE THE SHAPES BELOW TO THE LITERALS THAT NAME
+// cath_lab_cases: `status = 'in_progress'` and `actual_start_at =` are ordinary
+// text elsewhere in this tree — dialysis_sessions, housekeeping requests and
+// workflow tasks all carry both — so a tree-wide match would be red on main and
+// would say nothing about the cath case. Scoping by table is what makes the pin
+// TRUE, and a stray `UPDATE cath_lab_cases SET actual_start_at = NOW()` in any
+// other service still lands inside it, which is the whole point.
+function sqlLiterals(file) {
+  return [...file.text.matchAll(/`([^`]*)`/g)]
+    .map((match) => ({ index: match.index, body: match[1] }))
+    .filter((literal) => /\bcath_lab_cases\b/.test(literal.body));
+}
+
+// The functions allowed to assign cath_lab_cases.status AT ALL — parameterised
+// or not. A start path could write `SET status = $3` and bind 'in_progress',
+// which no literal-text match can see; this closes that hole the way
+// labExternalResultCallSites.test.js closes its own — a literal list, never a
+// prefix or a glob, so a fifth writer has to be argued for in a diff.
+const STATUS_WRITERS = Object.freeze([
+  'services/clinical/cathLabReadinessService.js:recomputeCaseStatusTx',
+  'services/clinical/cathLabService.js:startCaseTx',
+  'services/clinical/cathLabService.js:transitionCaseStatus',
+  'services/clinical/cathLabService.js:updateReadinessCheck',
+]);
+
 describe('the cath case has exactly one start path', () => {
   test('the scan found the service', () => {
     expect(FILES.length).toBeGreaterThan(200);
@@ -916,12 +1086,42 @@ describe('the cath case has exactly one start path', () => {
     expect(elsewhere).toEqual([]);
   });
 
-  test('only startCaseTx writes in_progress or actual_start_at on cath_lab_cases', () => {
-    const shipping = FILES.filter((file) => file.path.startsWith('services/'));
-    const writes = (needle) => shipping
-      .flatMap((file) => [...file.text.matchAll(new RegExp(needle, 'g'))].map((m) => `${file.path}:${enclosingFunction(file.text, m.index)}`));
-    expect(writes(String.raw`status = 'in_progress'`)).toEqual([`${SERVICE}:startCaseTx`]);
-    expect(writes(String.raw`actual_start_at = COALESCE\(actual_start_at`)).toEqual([`${SERVICE}:startCaseTx`]);
+  test('only startCaseTx writes in_progress or actual_start_at on a cath_lab_cases statement', () => {
+    const sites = [];
+    for (const file of FILES) {
+      for (const literal of sqlLiterals(file)) {
+        const fn = enclosingFunction(file.text, literal.index);
+        for (const line of literal.body.split('\n')) {
+          if (/actual_start_at\s*=/.test(line) || /status\s*=\s*'in_progress'/.test(line)) {
+            sites.push({ at: `${file.path}:${fn}`, line: line.trim() });
+          }
+        }
+        // A CASE expression can reach 'in_progress' across several lines, which
+        // the two per-line shapes above would walk straight past.
+        if (/SET\s+status\s*=\s*CASE[\s\S]*?'in_progress'[\s\S]*?END/.test(literal.body)) {
+          sites.push({ at: `${file.path}:${fn}`, line: "SET status = CASE … 'in_progress' … END" });
+        }
+      }
+    }
+    sites.sort((a, b) => `${a.at}:${a.line}`.localeCompare(`${b.at}:${b.line}`));
+    // The COUNT of matching lines is pinned, not just the set of functions:
+    // startCaseTx makes exactly two such assignments. A third inside it, or a
+    // first anywhere else, fails here.
+    expect(sites.map((site) => site.at)).toEqual([`${SERVICE}:startCaseTx`, `${SERVICE}:startCaseTx`]);
+    expect(sites.map((site) => site.line)).toEqual([
+      'actual_start_at = COALESCE(actual_start_at, NOW()),',
+      "SET status = 'in_progress',",
+    ]);
+  });
+
+  test('the functions that assign cath_lab_cases.status are a literal list', () => {
+    const writers = new Set();
+    for (const file of FILES) {
+      for (const literal of sqlLiterals(file)) {
+        if (/\bSET\s+status\s*=/.test(literal.body)) writers.add(`${file.path}:${enclosingFunction(file.text, literal.index)}`);
+      }
+    }
+    expect([...writers].sort()).toEqual([...STATUS_WRITERS]);
   });
 
   test('the full-gate code is gone from shipping code', () => {
@@ -929,6 +1129,14 @@ describe('the cath case has exactly one start path', () => {
   });
 });
 ```
+
+Three notes for whoever runs this.
+
+**`localeCompare` ordering** is ICU, not ASCII: `actual_start_at = COALESCE(…)` sorts BEFORE `SET status = 'in_progress',` (base letter `a` < `s`; the capital `S` does not come first). If the assertion fails only on order, read the two lines before touching anything.
+
+**Scope**: `FILES` is all of `apps/backend/src` with `tests/` excluded — services, routes and controllers alike, not `services/` alone. A route or controller that starts a case is exactly the fourth path this pins against, and the table scoping keeps `housekeepingController.js`'s own `SET status = 'in_progress'` (on housekeeping requests) out of it.
+
+**The expected values were measured on the pre-lane tree**, so the failure you should see BEFORE Task 2's implementation lands is informative rather than confusing. Run this probe on the base commit and it reports three sites in two functions — `recordProcedureLog` (`SET status = 'in_progress',` + `actual_start_at = COALESCE(…)`, the force-start this task deletes) and `transitionCaseStatus` (`actual_start_at = CASE`, the dead branch this task deletes) — and `STATUS_WRITERS` with `recordProcedureLog` where the list has `startCaseTx`. Both collapse to the two pinned lines in `startCaseTx` once Step 4 and Step 5 land. If they do not, one of the two deletions was missed.
 
 - [ ] **Step 9: Run the pin**
 
@@ -1984,6 +2192,7 @@ Both runs green with identical counts; record the counts for the PR body.
 9. `afterCaseStartMs` returns `false` → the late-order deep test and the resolver marker table red.
 10. Delete `CASE_START_METADATA_KEYS` stripping → the reserved-key unit test red.
 11. Move the cath-router report registration below `router.get('/reports/:id', …)` → the ADMIN route probe red.
+12. Add a stray `UPDATE cath_lab_cases SET actual_start_at = NOW()` in another service — e.g. a two-line helper in `cathSchedulingRegistryService.js` that calls nothing this lane wrote → `cathLabStartPathPin.test.js`'s `'only startCaseTx writes in_progress or actual_start_at on a cath_lab_cases statement'` red (three sites, not two). **Both caller-count tests stay green**, which is the point: this is the only pin that would have caught a fourth start path. Revert.
 
 - [ ] **Step 5: Staff and Admin gates**
 
@@ -2008,7 +2217,7 @@ gh pr create --repo Bahuleyandr/VH-Health-Platform --draft --base main --head fe
   --body-file "$SCRATCH/rr-pr-body.md"
 ```
 
-The PR body states: the spec path; the owner principle verbatim and the five decisions; **no migration** (the columns relied on, 767 unclaimed); that consent is the one hard block enforced in `assertReadinessComplete` reached only through `startCaseTx`, with the pin; the regime rule in one sentence each for pre- and post-start and the mutation that proves the scope; the two lifted refusals and decision 9's branch as resolved in Task 0; the report on both mounts and why; the two named defaults (`requested` not start-eligible; a log never re-animates a finished or cancelled case); the deep counts from both fresh-DB runs; the canary snapshot diff (two entries); OpenAPI regeneration; Staff strings pending OPEN-21; `Merge Gate` / `Full Merge Gate` by name with the head SHA **from the tier-verifying poller** once the canonical run lands (not `gh run watch`). End with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`. Hand back to dev-1b.
+The PR body states: the spec path; the owner principle verbatim and the five decisions; **no migration** (the columns relied on, 767 unclaimed); that consent is the one hard block enforced in `assertReadinessComplete` reached only through `startCaseTx`, with the pin; the regime rule in one sentence each for pre- and post-start and the mutation that proves the scope; the two lifted refusals and decision 9's branch as resolved in Task 0; the report on both mounts and why; the named default `requested` is not start-eligible; **an "Open owner item: procedure record on a cancelled case" section carrying spec §10.2's dead-end sentence verbatim and the two companions (i)/(ii), with the answer the owner gave and which companion shipped — or, if it is still unanswered, a bold line that the PR is NOT complete**; the deep counts from both fresh-DB runs; the canary snapshot diff (two entries); OpenAPI regeneration; Staff strings pending OPEN-21; `Merge Gate` / `Full Merge Gate` by name with the head SHA **from the tier-verifying poller** once the canonical run lands (not `gh run watch`). End with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`. Hand back to dev-1b.
 
 - [ ] **Step 8: Drop the scratch DBs** — `dropdb -h 127.0.0.1 -p 55432 vh_crr_<initials>` (and `_1`, `_2`).
 
@@ -2016,7 +2225,7 @@ The PR body states: the spec path; the owner principle verbatim and the five dec
 
 ## Self-review against the spec
 
-- §3.1 / §4.3 consent as the one hard block, weakened `assertReadinessComplete`, `CATH_LAB_CONSENT_REQUIRED`, `pass` only, `required` ignored, both paths, hazards (i)/(ii), the pin: Task 2 Steps 3–4, 8–10; deep trio per path: Task 3 Step 7.
+- §3.1 / §4.3 consent as the one hard block, weakened `assertReadinessComplete`, `CATH_LAB_CONSENT_REQUIRED`, `pass` only, `required` ignored, both paths, hazards (i)/(ii), the pin — two caller counts, the SQL-shape count inside `cath_lab_cases` literals, the four-pair `SET status =` allow-list, the absent `CATH_LAB_READINESS_BLOCKED`: Task 2 Steps 3–4, 8–10; the stray-UPDATE mutation: Task 8 Step 4 item 12; deep trio per path: Task 3 Step 7.
 - §3.2 / §4.2 one start path, snapshot, canonical event, audit row with `urgency` + `facility_id`: Task 2 Step 4.
 - §3.3 / §4.1 transitions `scheduled|readiness_pending|ready`, derived `START_ELIGIBLE_STATUSES`, `requested` excluded: Task 2 Step 3.
 - §3.4 reason on the explicit start only: Task 2 Step 4 (the `via === 'status'` guard) and the procedure-log unit/deep tests.
@@ -2025,7 +2234,7 @@ The PR body states: the spec path; the owner principle verbatim and the five dec
 - §3.9 / §5.3 refusals lifted, STAT, audit keys, decision 9: Task 3 Steps 3, 6.
 - §3.10 / §6.4 reason projection + canary: Task 4 Steps 3, 7; report projection: Task 5 Step 3.
 - §3.11 / §7 report on both mounts, role constant, IST month, CSV, OpenAPI, canary snapshot (+2), Admin tab: Task 5; Task 7.
-- §3.12 procedure log on `completed` / `cancelled`: Task 2 Step 5, unit + deep.
+- §4.2 procedure log on `completed` / `in_progress` (an amendment, the case untouched): Task 2 Step 5, unit + deep. §10.2 the `cancelled` case is the **open owner item**, gated in Task 0 Step 6, placeholder refusal behind `REFUSE_PROCEDURE_LOG_ON_CANCELLED` in Task 2 Step 5, both companions' code in Task 0 Step 6.
 - §5.1 refresh predicate: Task 3 Step 4; §5.5 case status untouched: the sign-off deep test.
 - §6.1 contract keys; §6.2 day-list flag; §6.3 Staff banners/chips/gates/start row/consent chooser: Task 4 Steps 5–6; Task 6.
 - §8 no migration, reserved key at create, `caseRowTx` reads the JSON path: Task 0 Step 4; Task 2 Step 6; Task 3 Step 4.
