@@ -13,6 +13,8 @@ const settings = { ...SETTINGS_DEFAULTS };
 
 describe('resolveItemState', () => {
   const base = { item: 'potassium', windowDays: 30, asOf: AS_OF, results: [], orders: [], specimens: [] };
+  // The refusal is the assertion; returning it keeps the code check on one line.
+  const refusal = (fn) => { try { fn(); return null; } catch (err) { return err; } };
 
   test('no result, no order -> not_ordered', () => {
     expect(resolveItemState(base)).toMatchObject({ state: 'not_ordered', lab_result_id: null, investigation_id: null });
@@ -87,6 +89,147 @@ describe('resolveItemState', () => {
     // through to the stale branch (it is still the latest/only candidate and
     // there is no covering order).
     expect(out).toMatchObject({ state: 'stale', lab_result_id: 20, value_text: '4.5' });
+  });
+
+  // ---- freshness has a LOWER bound: nothing dated in the future is evidence --
+  test('a future-dated row never outranks a real one, and on its own resolves as stale', () => {
+    const future = {
+      id: 30, test_code: 'K', value_text: '9.9', abnormal_flag: 'HH', is_critical: true,
+      status: 'final', signed_off_at: daysAgo(-2), performed_at: daysAgo(-2), received_at: daysAgo(-2),
+    };
+    const real = {
+      id: 29, test_code: 'K', value_text: '4.2', status: 'final',
+      signed_off_at: daysAgo(1), performed_at: daysAgo(1), received_at: daysAgo(1),
+    };
+    // The critical value is the newer one by clock, and the lower id: neither
+    // recency nor the id tiebreak may let it win.
+    expect(resolveItemState({ ...base, results: [future, real] }))
+      .toMatchObject({ state: 'result_final', lab_result_id: 29, is_critical: false });
+    // Alone it is still the latest candidate, but it is not fresh, so the item
+    // falls through to stale rather than passing the gate on a future date.
+    expect(resolveItemState({ ...base, results: [future] }))
+      .toMatchObject({ state: 'stale', lab_result_id: 30 });
+  });
+
+  test('exactly windowDays old is fresh; one millisecond older is stale', () => {
+    const at = (ms) => {
+      const iso = new Date(ms).toISOString();
+      return {
+        id: 31, test_code: 'K', value_text: '4.0', status: 'final',
+        signed_off_at: iso, performed_at: iso, received_at: iso,
+      };
+    };
+    const edge = AS_OF.getTime() - 30 * 86_400_000;
+    expect(resolveItemState({ ...base, results: [at(edge)] }).state).toBe('result_final');
+    expect(resolveItemState({ ...base, results: [at(edge - 1)] }).state).toBe('stale');
+  });
+
+  // ---- an outside value is dated from the REPORT, not from data entry --------
+  test('an external result is dated from external_reported_on, not from when it was keyed in', () => {
+    const reportedOn = new Date(AS_OF.getTime() - 200 * 86_400_000).toISOString().slice(0, 10);
+    const out = resolveItemState({ ...base, results: [{
+      id: 32, test_code: 'K', value_text: '4.0', status: 'preliminary', signed_off_at: null,
+      performed_at: daysAgo(0), received_at: daysAgo(0),
+      result_origin: 'external_lab', external_reported_on: reportedOn,
+    }] });
+    // Entered today, reported 200 days ago, 30-day window: stale, not
+    // external_recorded — the patient's value is 200 days old either way.
+    expect(out).toMatchObject({ state: 'stale', source: 'external', lab_result_id: 32 });
+    expect(out.observed_at).toBe(new Date(`${reportedOn}T00:00:00+05:30`).toISOString());
+  });
+
+  test('an epoch-ms twin is preferred over the driver-materialised Date beside it', () => {
+    const ms = AS_OF.getTime() - 200 * 86_400_000;
+    const out = resolveItemState({ ...base, results: [{
+      id: 33, test_code: 'K', value_text: '4.0', status: 'final',
+      // The Dates say two days ago (fresh); the twins say 200 days ago. The
+      // twin is the absolute instant, so the item is stale.
+      signed_off_at: daysAgo(2), performed_at: daysAgo(2), received_at: daysAgo(2),
+      performed_at_epoch_ms: BigInt(ms), received_at_epoch_ms: BigInt(ms),
+    }] });
+    expect(out.state).toBe('stale');
+    expect(out.observed_at).toBe(new Date(ms).toISOString());
+  });
+
+  test('a same-instant tie is broken on id, highest first', () => {
+    const at = daysAgo(1);
+    const row = (id, value) => ({
+      id, test_code: 'K', value_text: value, status: 'final',
+      signed_off_at: at, performed_at: at, received_at: at,
+    });
+    expect(resolveItemState({ ...base, results: [row(40, 'a'), row(41, 'b'), row(39, 'c')] }))
+      .toMatchObject({ lab_result_id: 41, value_text: 'b' });
+  });
+
+  test('completed and cancelled orders are ignored whatever case they arrive in', () => {
+    const order = (id, status) => ({
+      id, test_code: 'ELECTROLYTES', status, requested_at: daysAgo(1), collected_at: null,
+    });
+    for (const status of ['COMPLETED', 'completed', 'CANCELLED', 'cancelled']) {
+      expect(resolveItemState({ ...base, orders: [order(50, status)] }).state).toBe('not_ordered');
+    }
+    expect(resolveItemState({ ...base, orders: [order(51, 'requested')] }).state)
+      .toBe('ordered_awaiting_sample');
+  });
+
+  // ---- an in-flight repeat draw stays visible on an answered item -----------
+  test('a fresh result keeps its state but carries the covering open order pointers', () => {
+    const out = resolveItemState({ ...base,
+      results: [{
+        id: 60, test_code: 'K', value_text: '5.9', status: 'final',
+        signed_off_at: daysAgo(2), performed_at: daysAgo(2), received_at: daysAgo(2),
+      }],
+      orders: [{
+        id: 61, test_code: 'ELECTROLYTES', status: 'REQUESTED',
+        requested_at: daysAgo(0.5), collected_at: null, booking_id: 70,
+      }],
+      specimens: [{ id: 71, booking_id: 70, status: 'collected' }],
+    });
+    expect(out).toMatchObject({
+      state: 'result_final', lab_result_id: 60, investigation_id: 61, specimen_id: 71,
+    });
+    expect(out.ordered_at).toBe(daysAgo(0.5));
+  });
+
+  test('the highest specimen id wins, whatever order the rows arrive in', () => {
+    const out = resolveItemState({ ...base,
+      orders: [{
+        id: 62, test_code: 'ELECTROLYTES', status: 'REQUESTED',
+        requested_at: daysAgo(1), collected_at: null, booking_id: 80,
+      }],
+      specimens: [
+        { id: 90, booking_id: 80, status: 'rejected' },
+        { id: 92, booking_id: 80, status: 'in_transit' },
+        { id: 91, booking_id: 81, status: 'received' },
+      ],
+    });
+    expect(out).toMatchObject({ state: 'sample_sent_awaiting_result', specimen_id: 92 });
+  });
+
+  // ---- waivers -------------------------------------------------------------
+  test('a waiver keeps the value that prompted it, so the item still reads critical', () => {
+    const out = resolveItemState({ ...base,
+      results: [{
+        id: 63, test_code: 'K', value_text: '6.9', value_numeric: 6.9, unit: 'mmol/L',
+        abnormal_flag: 'HH', is_critical: true, status: 'final',
+        signed_off_at: daysAgo(1), performed_at: daysAgo(1), received_at: daysAgo(1),
+      }],
+      waiver: { waived_by: 'u', waived_at: daysAgo(0), waive_reason: 'dialysis patient' },
+    });
+    expect(out).toMatchObject({
+      state: 'waived', source: 'waiver', value_numeric: 6.9, abnormal_flag: 'HH',
+      is_critical: true, lab_result_id: 63,
+    });
+  });
+
+  test('a waiver missing who/when/why is refused; an unwaived item clears all three', () => {
+    expect(refusal(() => resolveItemState({
+      ...base, waiver: { waived_by: 'u', waived_at: null, waive_reason: 'x' },
+    }))).toMatchObject({ code: 'CATH_LAB_READINESS_VALUE_INVALID' });
+    // The three keys are on every item so an UPSERT built from the object
+    // CLEARS a lifted waiver instead of leaving the old one in the row.
+    expect(resolveItemState(base))
+      .toMatchObject({ waived_by: null, waived_at: null, waive_reason: null });
   });
 });
 
@@ -187,5 +330,48 @@ describe('computeCheckDecision', () => {
     expect(out.nextStatus).toBe('pass');
     expect(out.criticalWarning).toBe(true);
     expect(out.criticalItems).toEqual(['hbsag']);
+  });
+
+  // ---- criticality is read across ALL items; `missing` stays required-only ---
+  test('a waived item still reports the critical value that prompted the waiver', () => {
+    const items = allAvailable.map((i) => (i.item_code === 'potassium'
+      ? { ...i, state: 'waived', is_critical: true, abnormal_flag: 'HH' }
+      : i));
+    const out = computeCheckDecision({ items, settings, check: pendingCheck, caseRow: caseOpen });
+    expect(out.nextStatus).toBe('pass');
+    expect(out.criticalWarning).toBe(true);
+    expect(out.criticalItems).toContain('potassium');
+  });
+
+  test('an item nobody required is still named when its value is critical', () => {
+    const items = allAvailable.map((i) => (i.item_code === 'hcv'
+      ? { ...i, required: false, abnormal_flag: 'AA' }
+      : i));
+    const out = computeCheckDecision({ items, settings, check: pendingCheck, caseRow: caseOpen });
+    expect(out.missing).toEqual([]);
+    expect(out.criticalItems).toEqual(['hcv']);
+    expect(out.criticalWarning).toBe(true);
+  });
+
+  // ---- idempotence and the auto_pass boundary ------------------------------
+  test('an auto-managed pass with nothing missing is left alone', () => {
+    expect(computeCheckDecision({
+      items: allAvailable, settings, check: autoPassCheck, caseRow: caseOpen,
+    }).nextStatus).toBeNull();
+  });
+
+  test('auto_pass off still retracts an assertion automation itself made', () => {
+    const items = allAvailable.map((i) => (i.item_code === 'hb' ? { ...i, state: 'not_ordered' } : i));
+    // Turning auto-pass off stops NEW assertions; it does not strand a pass
+    // automation already wrote over evidence that has since gone missing.
+    expect(computeCheckDecision({
+      items, settings: { ...settings, auto_pass: false }, check: autoPassCheck, caseRow: caseOpen,
+    }).nextStatus).toBe('pending');
+  });
+
+  test('a case with no labs check row yet is read as pending', () => {
+    expect(computeCheckDecision({
+      items: allAvailable, settings, check: null, caseRow: caseOpen,
+    }).nextStatus).toBe('pass');
   });
 });

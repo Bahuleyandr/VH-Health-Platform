@@ -483,4 +483,83 @@ d('cath lab readiness (deep)', () => {
     );
     expect(foreignSettings).toHaveLength(0);
   }, 30000);
+
+  test('freshness follows the outside report date, and an in-flight repeat order stays on an answered item', async () => {
+    // (a) The HBsAg row on file is the external one. Move its data-entry clock
+    // to now and its REPORT date 200 days back. Freshness must follow the
+    // report — the patient's serology is 200 days old however recently a clerk
+    // typed it in — so the item goes stale and the gate drops back to pending.
+    await prisma.$executeRawUnsafe(
+      `UPDATE lab_results
+          SET performed_at = NOW(), received_at = NOW(),
+              external_reported_on = (NOW() AT TIME ZONE 'Asia/Kolkata')::date - 200
+        WHERE tenant_id = $1::uuid
+          AND patient_uid = $2::uuid
+          AND result_origin = 'external_lab'`,
+      TENANT, PATIENT,
+    );
+    const stale = await refreshCaseLabReadiness({ tenantId: TENANT, caseId: CASE_ID, context: ctx() });
+    expect(stale.items.find((item) => item.item_code === 'hbsag'))
+      .toMatchObject({ state: 'stale', source: 'external' });
+    expect(stale.check_status).toBe('pending');
+
+    // (b) A repeat electrolytes draw goes back in flight while the potassium
+    // result already on file is still fresh. The result keeps the state; the
+    // order only adds its pointers, so nobody is told to order it again.
+    //
+    // It also pins the zone investigations.requested_at is read in. That column
+    // is TIMESTAMP WITHOUT TIME ZONE, so its stored value means nothing until
+    // you say who wrote it; every app writer is a UTC-pinned Prisma session
+    // (pinSessionTimeZoneToUrl in src/lib/prisma.js), so the naive value is a
+    // UTC wall clock and the refresh reads it back with `AT TIME ZONE 'UTC'`.
+    // Reading it as IST instead would not fail loudly — it would silently
+    // backdate every open order by 5h30m — so the drift is asserted below
+    // rather than left to a state that happens to survive either reading.
+    const repeat = await prisma.$queryRawUnsafe(
+      `UPDATE investigations
+          SET status = 'REQUESTED', requested_at = NOW()
+        WHERE tenant_id = $1::uuid
+          AND patient_uid = $2::uuid
+          AND test_code = 'ELECTROLYTES'
+        RETURNING id`,
+      TENANT, PATIENT,
+    );
+    const after = await refreshCaseLabReadiness({ tenantId: TENANT, caseId: CASE_ID, context: ctx() });
+    const potassium = after.items.find((item) => item.item_code === 'potassium');
+    expect(potassium).toMatchObject({
+      state: 'result_final',
+      is_critical: true,
+      investigation_id: Number(repeat[0].id),
+    });
+    expect(typeof potassium.ordered_at).toBe('string');
+    expect(after.orderable_now).not.toContain('ELECTROLYTES');
+    const persisted = await prisma.$queryRawUnsafe(
+      `SELECT state, investigation_id, observed_at, ordered_at
+         FROM cath_case_lab_readiness_items
+        WHERE tenant_id = $1::uuid AND case_id = $2::bigint AND item_code = 'potassium'`,
+      TENANT, CASE_ID,
+    );
+    expect(persisted[0]).toMatchObject({
+      state: 'result_final',
+      investigation_id: Number(repeat[0].id),
+    });
+    expect(persisted[0].ordered_at).not.toBeNull();
+    expect(persisted[0].observed_at).not.toBeNull();
+    // The persisted TIMESTAMPTZ must be the naive requested_at read as UTC, to
+    // within the millisecond the epoch twin rounds to. A different zone in the
+    // refresh query shows up here as a 19800-second drift.
+    const drift = await prisma.$queryRawUnsafe(
+      `SELECT ABS(EXTRACT(EPOCH FROM (item.ordered_at - (inv.requested_at AT TIME ZONE 'UTC'))))::float8
+                AS seconds
+         FROM cath_case_lab_readiness_items item
+         JOIN investigations inv
+           ON inv.id = item.investigation_id
+          AND inv.tenant_id = item.tenant_id
+        WHERE item.tenant_id = $1::uuid
+          AND item.case_id = $2::bigint
+          AND item.item_code = 'potassium'`,
+      TENANT, CASE_ID,
+    );
+    expect(drift[0].seconds).toBeLessThan(1);
+  }, 60000);
 });

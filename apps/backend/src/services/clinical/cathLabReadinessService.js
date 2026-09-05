@@ -20,6 +20,7 @@ import { createHash } from 'node:crypto';
 import { setTenant, setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { createInvestigationOrder } from '../investigation/orderService.js';
 import { recordResultManual } from '../lab/labResultsService.js';
@@ -38,6 +39,9 @@ export const ITEM_STATES = Object.freeze([
   'result_final', 'result_preliminary', 'external_recorded', 'sample_sent_awaiting_result',
   'ordered_awaiting_sample', 'not_ordered', 'stale', 'waived',
 ]);
+// Migration 766's cath_case_lab_readiness_items_source_check vocabulary, in the
+// order the constraint spells it. Pinned by cathLabReadinessMigration.test.js.
+export const ITEM_SOURCES = Object.freeze(['lab_result', 'external', 'waiver']);
 export const AVAILABLE_STATES = Object.freeze(['result_final', 'result_preliminary', 'waived']);
 export const SETTINGS_DEFAULTS = Object.freeze({
   required_items: [...ITEM_CODES],
@@ -56,18 +60,99 @@ export function isCriticalResult(row) {
   return Boolean(row?.is_critical) || CRITICAL_FLAGS.has(String(row?.abnormal_flag || '').toUpperCase());
 }
 
-function observedAt(row) {
-  return row.performed_at || row.received_at || null;
-}
+const MS_PER_DAY = 86_400_000;
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+// Milliseconds since the epoch from anything a row can carry here: an epoch-ms
+// twin (the driver hands `::bigint` back as a BigInt), a driver-materialised
+// Date, an ISO string, or a plain number. NaN for everything else — every
+// caller tests with Number.isFinite, never with truthiness, because 0 is a
+// legitimate (if absurd) instant and `Number(null)` is also 0.
 function toMs(value) {
-  const ms = value instanceof Date ? value.getTime() : Date.parse(String(value ?? ''));
+  if (value === null || value === undefined) return NaN;
+  if (typeof value === 'bigint') return Number(value);
+  if (typeof value === 'number') return Number.isFinite(value) ? value : NaN;
+  const ms = value instanceof Date ? value.getTime() : Date.parse(String(value));
   return Number.isFinite(ms) ? ms : NaN;
 }
 
+// The house rule for an instant that will be compared against the process
+// clock: read the `<column>_epoch_ms` twin the query selects beside the column
+// (src/utils/dbInstant.js, scripts/check-timestamptz-clock-comparisons.mjs),
+// never the driver-materialised Date, which the pg driver shifts by the
+// DATABASE SESSION timezone. The Date stays as the fallback so this pure
+// resolver still works on the plain ISO rows the unit tests hand it, and on any
+// caller that has not added the twin to its SELECT yet.
+function instantMs(row, field) {
+  const twin = epochMsOrNull(row?.[`${field}_epoch_ms`]);
+  return twin == null ? toMs(row?.[field]) : twin;
+}
+
+// lab_results.external_reported_on is the day the OUTSIDE laboratory reported
+// the value; performed_at on such a row is only when somebody keyed it in here,
+// which can be months later. A DATE carries no time zone, so a string form is
+// read as IST midnight — the ward's day, the convention clinicalDate() uses.
+function externalReportedMs(value) {
+  if (value === null || value === undefined) return NaN;
+  if (value instanceof Date) return toMs(value);
+  const text = String(value).trim();
+  return ISO_DATE.test(text) ? toMs(`${text}T00:00:00+05:30`) : NaN;
+}
+
+// When the value became true of the patient, as an absolute instant.
+function observedMs(row) {
+  if (row?.result_origin === 'external_lab') {
+    const reported = externalReportedMs(row.external_reported_on);
+    if (Number.isFinite(reported)) return reported;
+  }
+  const performed = instantMs(row, 'performed_at');
+  return Number.isFinite(performed) ? performed : instantMs(row, 'received_at');
+}
+
+// observed_at / ordered_at land in TIMESTAMPTZ columns, so they are written
+// from the epoch value — a true instant — rather than from whatever shape
+// (naive timestamp, DATE, driver Date) the source row happened to carry.
+function msToIso(ms) {
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+}
+
+// Fresh means IN THE PAST and no older than the window. The lower bound is the
+// point: a future-dated row is not evidence of anything, so it can never be
+// fresh, and sortMs ranks it last so it never outranks a real value either. A
+// lone future-dated result therefore resolves as `stale` — it is the latest but
+// not fresh — which is the restrictive direction. Open orders inherit the same
+// bound; a future-dated order is dropped and the item reads not_ordered rather
+// than ordered_awaiting_sample, and the check counts both as missing.
 function withinWindow(value, asOf, windowDays) {
   const ms = toMs(value);
-  return Number.isFinite(ms) && (asOf.getTime() - ms) <= windowDays * 86_400_000;
+  const age = toMs(asOf) - ms;
+  return Number.isFinite(ms) && age >= 0 && age <= windowDays * MS_PER_DAY;
+}
+
+// Most-recent-first, ties broken on id descending. Ranks are COMPARED, never
+// subtracted, because an unusable rank is -Infinity and `-Infinity - -Infinity`
+// is NaN — a comparator that returns NaN silently leaves the array unsorted.
+function rankBy(msOf) {
+  return (a, b) => {
+    const am = msOf(a);
+    const bm = msOf(b);
+    if (am !== bm) return bm - am;
+    return Number(b.id) - Number(a.id);
+  };
+}
+
+// The evidence copied off a lab_results row onto the item.
+function resultFields(row) {
+  return {
+    value_text: row.value_text ?? null,
+    value_numeric: row.value_numeric == null ? null : Number(row.value_numeric),
+    unit: row.unit ?? null,
+    abnormal_flag: row.abnormal_flag ?? null,
+    is_critical: isCriticalResult(row),
+    observed_at: msToIso(observedMs(row)),
+    source: row.result_origin === 'external_lab' ? 'external' : 'lab_result',
+    lab_result_id: Number(row.id),
+  };
 }
 
 function matchesItem(item, row) {
@@ -93,71 +178,111 @@ export function resolveItemState({
     item_code: item, state: 'not_ordered', value_text: null, value_numeric: null, unit: null,
     abnormal_flag: null, is_critical: false, observed_at: null, source: null, lab_result_id: null,
     investigation_id: null, specimen_id: null, ordered_at: null,
+    // Present, and null, on EVERY item rather than only on waived ones: the
+    // refresh builds its UPSERT straight from this object, so a lifted waiver
+    // has to arrive as three explicit NULLs or the old waiver survives the
+    // rewrite and the row still names a person who cleared nothing.
+    waived_by: null, waived_at: null, waive_reason: null,
   };
-  if (waiver) {
-    return { ...base, state: 'waived', source: 'waiver', waived_by: waiver.waived_by, waived_at: waiver.waived_at, waive_reason: waiver.waive_reason };
-  }
+  const asOfMs = toMs(asOf);
+  // A row whose instant is unusable OR in the future ranks last, so it never
+  // outranks a real value; ties then break on id descending.
+  const rankResult = (row) => {
+    const ms = observedMs(row);
+    return Number.isFinite(ms) && ms <= asOfMs ? ms : -Infinity;
+  };
+  const rankOrder = (row) => {
+    const ms = instantMs(row, 'requested_at');
+    return Number.isFinite(ms) && ms <= asOfMs ? ms : -Infinity;
+  };
 
+  // The `cancelled` filter is defensive rather than observed: no writer produces
+  // that status today — the HL7 ingest collapses OBX-11 X/W/D to 'preliminary'
+  // upstream, so a retracted outside value arrives here as a preliminary one.
+  // Follow-up: carry the retraction through the ingest, then this starts firing.
   const candidates = results
     .filter((row) => matchesItem(item, row) && String(row.status || '').toLowerCase() !== 'cancelled')
-    .sort((a, b) => (toMs(observedAt(b)) - toMs(observedAt(a))) || (Number(b.id) - Number(a.id)));
+    .sort(rankBy(rankResult));
   const latest = candidates[0] || null;
-  const latestFresh = latest && withinWindow(observedAt(latest), asOf, windowDays) ? latest : null;
+  const latestFresh = latest && withinWindow(observedMs(latest), asOf, windowDays) ? latest : null;
 
-  if (latestFresh) {
-    const status = String(latestFresh.status || '').toLowerCase();
-    const state = latestFresh.result_origin === 'external_lab'
-      ? 'external_recorded'
-      : (SIGNED_STATUSES.has(status) && latestFresh.signed_off_at ? 'result_final' : 'result_preliminary');
-    return {
-      ...base, state,
-      value_text: latestFresh.value_text ?? null,
-      value_numeric: latestFresh.value_numeric == null ? null : Number(latestFresh.value_numeric),
-      unit: latestFresh.unit ?? null,
-      abnormal_flag: latestFresh.abnormal_flag ?? null,
-      is_critical: isCriticalResult(latestFresh),
-      observed_at: observedAt(latestFresh),
-      source: latestFresh.result_origin === 'external_lab' ? 'external' : 'lab_result',
-      lab_result_id: Number(latestFresh.id),
-    };
-  }
-
+  // Open orders are resolved BEFORE the result branch, not instead of it: a
+  // repeat draw already in flight stays visible on the item even when a fresh
+  // result has answered it, so nobody is told to order what is already ordered.
+  // `booking_id` reaches here from the caller's LEFT JOIN with
+  // investigation_bookings — the investigations table carries no such column.
   const openOrders = orders
     .filter((order) => orderCoversItem(item, order)
       && !OPEN_ORDER_STATUSES_EXCLUDED.has(String(order.status || '').toUpperCase())
-      && withinWindow(order.requested_at, asOf, windowDays))
-    .sort((a, b) => toMs(b.requested_at) - toMs(a.requested_at));
-  const order = openOrders[0] || null;
-  if (order) {
-    const specimen = order.booking_id == null
-      ? null
-      : specimens.find((s) => Number(s.booking_id) === Number(order.booking_id)) || null;
+      && withinWindow(instantMs(order, 'requested_at'), asOf, windowDays))
+    .sort(rankBy(rankOrder));
+  const openOrder = openOrders[0] || null;
+  // Deterministic by id — the highest is the latest draw for that booking. The
+  // caller's ORDER BY is not a contract this pure function may lean on.
+  const specimen = openOrder && openOrder.booking_id != null
+    ? specimens
+      .filter((row) => Number(row.booking_id) === Number(openOrder.booking_id))
+      .sort((a, b) => Number(b.id) - Number(a.id))[0] || null
+    : null;
+  const orderPointer = openOrder
+    ? {
+      investigation_id: Number(openOrder.id),
+      specimen_id: specimen ? Number(specimen.id) : null,
+      ordered_at: msToIso(instantMs(openOrder, 'requested_at')),
+    }
+    : {};
+
+  let resolved;
+  if (latestFresh) {
+    const status = String(latestFresh.status || '').toLowerCase();
+    const signed = SIGNED_STATUSES.has(status)
+      && Number.isFinite(instantMs(latestFresh, 'signed_off_at'));
+    // The result decides the state; the in-flight order only adds its pointers.
+    resolved = {
+      ...base,
+      ...resultFields(latestFresh),
+      state: latestFresh.result_origin === 'external_lab'
+        ? 'external_recorded'
+        : (signed ? 'result_final' : 'result_preliminary'),
+      ...orderPointer,
+    };
+  } else if (openOrder) {
     const sent = specimen
       ? SPECIMEN_SENT_STATES.has(String(specimen.status || '').toLowerCase())
-      : Boolean(order.collected_at);
-    return {
+      : Number.isFinite(instantMs(openOrder, 'collected_at'));
+    resolved = {
       ...base,
       state: sent ? 'sample_sent_awaiting_result' : 'ordered_awaiting_sample',
-      investigation_id: Number(order.id),
-      specimen_id: specimen ? Number(specimen.id) : null,
-      ordered_at: order.requested_at,
+      ...orderPointer,
     };
+  } else if (latest) {
+    resolved = { ...base, ...resultFields(latest), state: 'stale' };
+  } else {
+    resolved = base;
   }
 
-  if (latest) {
-    return {
-      ...base, state: 'stale',
-      value_text: latest.value_text ?? null,
-      value_numeric: latest.value_numeric == null ? null : Number(latest.value_numeric),
-      unit: latest.unit ?? null,
-      abnormal_flag: latest.abnormal_flag ?? null,
-      is_critical: isCriticalResult(latest),
-      observed_at: observedAt(latest),
-      source: latest.result_origin === 'external_lab' ? 'external' : 'lab_result',
-      lab_result_id: Number(latest.id),
-    };
+  if (!waiver) return resolved;
+  // Migration 766's cath_case_lab_readiness_items_waiver_check requires all
+  // three of who/when/why on any row in state 'waived'. Refusing here turns a
+  // 23514 raised in the middle of a cath-case read into a 400 that names the
+  // gap; waiveLabItem always supplies them, so this is the corrupt-row path.
+  if (!waiver.waived_by || !waiver.waived_at || !waiver.waive_reason) {
+    throw AppError.badRequest(
+      'a waived lab item needs waived_by, waived_at and waive_reason',
+      'CATH_LAB_READINESS_VALUE_INVALID',
+    );
   }
-  return base;
+  // A waiver decides the STATE, not the evidence: the value that prompted it
+  // stays on the item, so a waived potassium of 6.9 still raises the critical
+  // warning the operator standing at the table needs to see.
+  return {
+    ...resolved,
+    state: 'waived',
+    source: 'waiver',
+    waived_by: waiver.waived_by,
+    waived_at: waiver.waived_at,
+    waive_reason: waiver.waive_reason,
+  };
 }
 
 function isAvailable(item, settings) {
@@ -170,7 +295,12 @@ function isAvailable(item, settings) {
 export function computeCheckDecision({ items, settings, check, caseRow }) {
   const required = items.filter((item) => item.required !== false);
   const missing = required.filter((item) => !isAvailable(item, settings)).map((item) => ({ item: item.item_code, state: item.state }));
-  const criticalItems = required.filter((item) => item.state !== 'waived' && isCriticalResult(item)).map((item) => item.item_code);
+  // Criticality is read across ALL items — required or not, waived or not.
+  // `missing` is the gate and stays required-only; this is the WARNING, and a
+  // potassium of 6.9 is a potassium of 6.9 whether the team waived the item or
+  // never required it. resolveItemState leaves the value on a waived item for
+  // exactly this reason.
+  const criticalItems = items.filter((item) => isCriticalResult(item)).map((item) => item.item_code);
   const autoManaged = check?.metadata?.auto_managed === true;
   const status = String(check?.status || 'pending').toLowerCase();
   const started = Boolean(caseRow?.actual_start_at);
@@ -181,6 +311,9 @@ export function computeCheckDecision({ items, settings, check, caseRow }) {
       nextStatus = status === 'pass' ? null : 'pass';
     }
   } else if (status === 'pass' && autoManaged && !started) {
+    // Deliberately not gated on settings.auto_pass: turning auto-pass off stops
+    // automation making NEW assertions, but retracting one it already made is a
+    // correction, and it moves the gate in the restrictive direction.
     nextStatus = 'pending';
     autoPendingReason = missing.map((m) => `${m.item} ${m.state.replace(/_/g, ' ')}`).join('; ');
   }
@@ -516,9 +649,20 @@ export async function refreshCaseLabReadiness({
 
     // lab_results.received_at is NOT NULL, so COALESCE(performed_at,
     // received_at) is always a real instant: nothing is silently dropped here.
+    //
+    // The three _epoch_ms twins are the house rule for an instant the resolver
+    // compares against the process clock (src/utils/dbInstant.js): the pg driver
+    // materialises a TIMESTAMPTZ in the DATABASE SESSION timezone, the twin is
+    // the absolute instant in every session. external_reported_on is a DATE —
+    // no zone to shift, and it is the day the outside laboratory reported the
+    // value, which is what freshness must be measured from.
     const results = await tx.$queryRawUnsafe(
       `SELECT id, test_code, loinc_code, value_text, value_numeric, unit, abnormal_flag,
-              is_critical, status, signed_off_at, performed_at, received_at, result_origin
+              is_critical, status, signed_off_at, performed_at, received_at, result_origin,
+              external_reported_on,
+              (EXTRACT(EPOCH FROM signed_off_at) * 1000)::bigint AS signed_off_at_epoch_ms,
+              (EXTRACT(EPOCH FROM performed_at) * 1000)::bigint AS performed_at_epoch_ms,
+              (EXTRACT(EPOCH FROM received_at) * 1000)::bigint AS received_at_epoch_ms
          FROM lab_results
         WHERE tenant_id = $1::uuid
           AND patient_uid = $2::uuid
@@ -528,8 +672,19 @@ export async function refreshCaseLabReadiness({
     // investigations.status is the UPPER-case lifecycle from
     // config/investigationConfig.js (REQUESTED → SCHEDULED → COLLECTED →
     // IN_PROGRESS → COMPLETED, plus CANCELLED); the column carries no CHECK.
+    //
+    // requested_at is TIMESTAMP WITHOUT TIME ZONE (collected_at is TIMESTAMPTZ),
+    // so its stored value only means something once you say which zone wrote it.
+    // Every app writer goes through Prisma, whose sessions are pinned to UTC
+    // (pinSessionTimeZoneToUrl in src/lib/prisma.js), so the naive value is a
+    // UTC wall clock and `AT TIME ZONE 'UTC'` is what turns it back into the
+    // instant. Spelled out rather than left to EXTRACT's implicit
+    // treat-naive-as-UTC rule, so the assumption is visible where it is made.
     const orders = await tx.$queryRawUnsafe(
-      `SELECT i.id, i.test_code, i.status, i.requested_at, i.collected_at, b.id AS booking_id
+      `SELECT i.id, i.test_code, i.status, i.requested_at, i.collected_at, b.id AS booking_id,
+              (EXTRACT(EPOCH FROM (i.requested_at AT TIME ZONE 'UTC')) * 1000)::bigint
+                AS requested_at_epoch_ms,
+              (EXTRACT(EPOCH FROM i.collected_at) * 1000)::bigint AS collected_at_epoch_ms
          FROM investigations i
          LEFT JOIN investigation_bookings b
            ON b.investigation_id = i.id
