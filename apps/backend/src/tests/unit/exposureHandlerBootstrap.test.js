@@ -29,6 +29,7 @@ const SRC = path.join(BACKEND, 'src');
 const BOOTSTRAP_PATH = path.join(SRC, 'services/clinical/exposureHandlerBootstrap.js');
 const SCRIPT_PATH = path.join(BACKEND, 'scripts/reconcile-bloodborne-markers.mjs');
 const APP_PATH = path.join(SRC, 'app.js');
+const WWW_PATH = path.join(SRC, 'bin', 'www.js');
 const REGISTRY_PATH = path.join(SRC, 'services/clinical/bloodborneMarkerRules.js');
 
 const read = (file) => fs.readFileSync(file, 'utf8');
@@ -116,5 +117,23 @@ describe('exposure handler bootstrap', () => {
 
   test('src/app.js imports the bootstrap, so the API process is not route-dependent', () => {
     expect(read(APP_PATH)).toContain("import './services/clinical/exposureHandlerBootstrap.js';");
+  });
+
+  test('src/bin/www.js refuses to listen when the registry is empty, measured without registering', () => {
+    const www = read(WWW_PATH);
+    // The guard reads the registry directly. Importing the bootstrap here would
+    // register the handlers itself and make the check a tautology.
+    expect(www).toContain("import { exposureHandlerCount } from '../services/clinical/bloodborneMarkerRules.js';");
+    const bootstrapImportLines = www
+      .split(String.fromCharCode(10))
+      .filter((line) => line.startsWith('import ') && line.includes('exposureHandlerBootstrap'));
+    expect(bootstrapImportLines).toEqual([]);
+    // ...and the refusal sits BEFORE listen, inside the startup promise so the
+    // existing 'startup failed before listen' catch turns it into exit(1).
+    const guard = www.indexOf('registeredExposureHandlers === 0');
+    const listenAt = www.indexOf('server.listen(PORT);');
+    expect(guard).toBeGreaterThan(-1);
+    expect(listenAt).toBeGreaterThan(guard);
+    expect(www).toContain("err.code = 'EXPOSURE_HANDLERS_MISSING';");
   });
 });
