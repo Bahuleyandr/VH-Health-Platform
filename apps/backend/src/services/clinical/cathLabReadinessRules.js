@@ -177,6 +177,19 @@ export function orderCoversItem(item, order) {
 // so a third column would be a copy that can go stale against them, and no
 // migration is needed for a value the read can compute.
 //
+// TRANSACTION-START ordering, not wall-clock ordering. waived_at is the waive
+// UPDATE's own NOW() and actual_start_at is the status transition's (and the
+// procedure log's) COALESCE(actual_start_at, NOW()), and Postgres NOW() is
+// transaction_timestamp() — one instant per transaction, taken when it
+// STARTED and constant inside it — so a waiver whose transaction opened
+// before the start transaction COMMITTED reads false here even though the
+// write landed after the start. That boundary is a documentation one only:
+// what keeps a running case's checklist still is the un-waive route's
+// refusal, a locked STATE check on actual_start_at that this comparison does
+// not feed. Do not swap either instant for a clock to close it — a marker
+// that dated itself from the application clock would drift against the very
+// columns it is derived from.
+//
 // False when the case has not started, when the waiver predates the start, and
 // when either instant is unusable: this key is an ASSERTION that a waiver was
 // documented late, and an unknown is not one.

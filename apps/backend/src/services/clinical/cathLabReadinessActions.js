@@ -151,6 +151,14 @@ export async function waiveLabItem(caseId, itemCode, input = {}, context = {}) {
       // documented-late one, and the log has to be able to tell them apart. The
       // same boolean reaches the ward on the item itself, derived rather than
       // stored.
+      //
+      // Both readings take the start off the LOCKED case row, but they date the
+      // waive differently — this one against the process clock as the statement
+      // runs, the item's twin against waived_at, which is this transaction's own
+      // NOW() (= transaction_timestamp(), taken when the transaction STARTED) — so
+      // at the boundary where a start commits while this transaction is already
+      // open the two can disagree, with the twin reading false; see
+      // waivedAfterStart in cathLabReadinessRules.js.
       metadata: {
         case_id: cathCase.id, item, reason, recorded_after_start: recordedAfterStart,
       },

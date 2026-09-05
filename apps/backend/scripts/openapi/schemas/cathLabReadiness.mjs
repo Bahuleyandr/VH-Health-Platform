@@ -170,7 +170,12 @@ const item = {
         + 'record that it did. LIFTING one after the start is refused — see the unwaive route. '
         + 'DERIVED on every read from waived_at against actual_start_at, not a stored column, so '
         + 'it cannot go stale against either. False on every non-waived item, on a waiver that '
-        + 'predates the start, and on a case that has not started.'
+        + 'predates the start, and on a case that has not started. Both instants are Postgres '
+        + 'NOW() = transaction_timestamp(), taken at the START of their transaction and '
+        + 'constant within it, so this is TRANSACTION-START ordering and reads false for a '
+        + 'waiver whose transaction opened before the start transaction committed — a '
+        + 'documentation boundary only, since what refuses a lift on a running case is the '
+        + 'unwaive route\'s locked state check, not this comparison.'
     }
   }
 };
