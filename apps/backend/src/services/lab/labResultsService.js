@@ -2783,7 +2783,16 @@ export async function signOffResults({
   // partial sign-off of a multi-analyte panel leaves it in progress. Best-
   // effort: failure must not abort the sign-off.
   // Finding: verified lab orders stay IN_PROGRESS after result.
-  if (normalizedDecision === 'verified') {
+  //
+  // Runs for EVERY decision, not just 'verified'. Sign-off writes three
+  // statuses — verified -> 'final', corrected -> 'corrected', amended ->
+  // 'amended' — so an episode whose last outstanding analyte is signed
+  // correctively never reconciled at all, and its order stayed IN_PROGRESS
+  // forever. The UPDATE below is already guarded by
+  // `status NOT IN ('COMPLETED','CANCELLED')`, so running it after a
+  // corrective sign-off on an already-completed order is a no-op rather than a
+  // re-completion.
+  if (SUPPORTED_SIGNOFF_DECISIONS.has(normalizedDecision)) {
     try {
       const invRows = await prisma.$queryRawUnsafe(
         `SELECT DISTINCT investigation_id
@@ -2795,11 +2804,18 @@ export async function signOffResults({
       );
       for (const { investigation_id } of invRows) {
         const pending = await prisma.$queryRawUnsafe(
+          // "Still pending" = not in the signed-off family. This must list
+          // every status sign-off can WRITE, or an order is stranded: the
+          // stamping UPDATE writes verified -> 'final', corrected ->
+          // 'corrected' and amended -> 'amended', and 'verified' is in the
+          // release allow-list elsewhere, so all four belong here. Omitting
+          // 'amended' meant an amended analyte read as pending forever, and a
+          // panel containing one could never reach COMPLETED.
           `SELECT 1 FROM lab_results
             WHERE investigation_id = $1::int
               AND tenant_id = $2::uuid
-              AND status IS DISTINCT FROM 'final'
-              AND status IS DISTINCT FROM 'corrected'
+              AND LOWER(COALESCE(status, '')) NOT IN
+                  ('final', 'corrected', 'amended', 'verified')
             LIMIT 1`,
           investigation_id, tid,
         );
