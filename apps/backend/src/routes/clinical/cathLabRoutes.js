@@ -421,6 +421,18 @@ router.post('/reports/:id/addenda', requireReportSign, guardCathReport, async (r
   }
 });
 
+// The day list. Every case carries `lab_readiness_summary` — the STORED
+// readiness snapshot, never a refresh (see cathLabService.labReadinessSummaries
+// for why, and for how stale it can be).
+//
+// NO serology projection is applied here, and that is a property of the payload
+// rather than an omission: the summary publishes `check_status`,
+// `critical_warning`, `auto_managed`, a count, a list of item CODES and a
+// timestamp. It carries no value, no abnormal flag, no per-item `is_critical`
+// and no `critical_items` — the four things cathLabReadinessProjection exists to
+// withhold from the RECEPTIONIST and TECHNICIAN this report-read gate admits.
+// Adding any of them to the summary means adding the projection here too; the
+// serology canary walks this route as all 87 roles and will say so.
 router.get('/cases', requireReportRead, async (req, res) => {
   try {
     const cases = await listCases({

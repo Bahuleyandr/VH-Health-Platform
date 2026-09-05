@@ -8,7 +8,12 @@
 // starts `scheduled` with the seven other readiness checks already cleared, so
 // the `labs` check is the only thing between the case and `ready`.
 import prisma, { ensureTenantRlsRuntimeRoleGrants } from '../lib/prisma.js';
-import { createCase, getCase, updateReadinessCheck } from '../services/clinical/cathLabService.js';
+import {
+  createCase,
+  getCase,
+  listCases,
+  updateReadinessCheck,
+} from '../services/clinical/cathLabService.js';
 import {
   orderMissingLabs,
   recordExternalLabResult,
@@ -612,9 +617,17 @@ d('cath lab readiness (deep)', () => {
     // Reading it as IST instead would not fail loudly — it would silently
     // backdate every open order by 5h30m — so the drift is asserted below
     // rather than left to a state that happens to survive either reading.
+    // A MINUTE ago, not NOW(). `withinWindow` requires age >= 0 against the
+    // resolver's own `asOf = new Date()`, and the database clock here runs a
+    // millisecond or two ahead of the node process — so an order stamped with
+    // the database's NOW() reads as FUTURE-dated whenever the round trip back
+    // is faster than that skew, and the resolver correctly drops it. That made
+    // this assertion flake about once in three runs on a machine where the two
+    // clocks are not the same clock. The backdate is the fixture being honest
+    // about what it means (an order placed a moment ago), not a widened rule.
     const repeat = await prisma.$queryRawUnsafe(
       `UPDATE investigations
-          SET status = 'REQUESTED', requested_at = NOW()
+          SET status = 'REQUESTED', requested_at = NOW() - INTERVAL '1 minute'
         WHERE tenant_id = $1::uuid
           AND patient_uid = $2::uuid
           AND test_code = 'ELECTROLYTES'
@@ -889,12 +902,18 @@ d('cath lab readiness (deep)', () => {
       `SELECT id, phone FROM users WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
       TENANT, PATIENT,
     );
+    // created_at is written explicitly and BACKDATED a minute rather than left
+    // to the column default: the default is the database's NOW(), whose clock
+    // runs a millisecond or two ahead of the node process, so the booking could
+    // read as future-dated to the resolver's `asOf` and be dropped by
+    // `withinWindow`'s age >= 0 bound. Same flake, same fix, as the repeat
+    // order above.
     await prisma.$executeRawUnsafe(
       `INSERT INTO investigation_bookings
          (tenant_id, patient_id, patient_name, patient_phone, selected_tests,
-          status, investigation_id)
+          status, investigation_id, created_at)
        VALUES ($1::uuid, $2::int, 'Cath Readiness Patient', $3, ARRAY[$4::int],
-               'BOOKED', NULL)`,
+               'BOOKED', NULL, NOW() - INTERVAL '1 minute')`,
       TENANT, Number(patient[0].id), patient[0].phone, Number(catalogue[0].id),
     );
 
@@ -1085,5 +1104,53 @@ d('cath lab readiness (deep)', () => {
     expect(after.missing.map((row) => row.item)).toContain('hcv');
     expect(after.check_status).toBe('pending');
     expect(await caseStatus()).toBe('readiness_pending');
+  }, 60000);
+  test('the case list carries the STORED readiness summary, and refreshes nothing', async () => {
+    // A second case in the same tenant, inserted RAW so nothing has ever
+    // resolved its readiness: it is the "not known" half of this payload.
+    const unread = await prisma.$queryRawUnsafe(
+      `INSERT INTO cath_lab_cases
+         (tenant_id, patient_uid, facility_id, requested_procedure, status, created_by, updated_by)
+       VALUES ($1::uuid, $2::uuid, $4::int, 'Unread PTCA', 'scheduled', $3::uuid, $3::uuid)
+       RETURNING id`,
+      TENANT, PATIENT, ACTOR, FACILITY_ID,
+    );
+    const unreadId = Number(unread[0].id);
+
+    const known = await refreshCaseLabReadiness({
+      tenantId: TENANT, caseId: CASE_ID, context: ctx(),
+    });
+    const cases = await listCases({ tenantId: TENANT, limit: 500 });
+
+    const summary = cases.find((row) => Number(row.id) === CASE_ID).lab_readiness_summary;
+    // Exactly these keys. Every one is a status, a flag, a count, an item CODE
+    // or a timestamp — there is no value, no abnormal flag and no
+    // `critical_items`, which is what lets GET /cases skip the serology
+    // projection the per-case surfaces run.
+    expect(Object.keys(summary).sort()).toEqual([
+      'auto_managed', 'check_status', 'critical_warning',
+      'live_evidence_refreshed_at', 'missing_count', 'missing_items',
+    ]);
+    // ...and it agrees with the refresh that wrote the rows it read.
+    expect(summary.check_status).toBe(known.check_status);
+    expect(summary.critical_warning).toBe(known.critical_warning);
+    expect(summary.missing_items).toEqual(known.missing.map((row) => row.item));
+    expect(summary.missing_count).toBe(known.missing.length);
+    expect(typeof summary.live_evidence_refreshed_at).toBe('string');
+
+    // A case nobody has opened answers null — NOT an empty summary, which the
+    // ward would read as "nothing missing" about a case with no evidence at all.
+    const unreadRow = cases.find((row) => Number(row.id) === unreadId);
+    expect(unreadRow.lab_readiness_summary).toBeNull();
+
+    // And the list did not RESOLVE it into existence: the read-through refresh
+    // is a per-case act, and running it once per card would put a lock and a
+    // write cycle on every poll of a screen that is open all day.
+    const written = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n FROM cath_case_lab_readiness_items
+        WHERE tenant_id = $1::uuid AND case_id = $2::bigint`,
+      TENANT, unreadId,
+    );
+    expect(written[0].n).toBe(0);
   }, 60000);
 });

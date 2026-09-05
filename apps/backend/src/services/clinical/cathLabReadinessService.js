@@ -311,10 +311,16 @@ export function pendingReasonFor(missing = []) {
   return missing.map((row) => `${row.item} ${String(row.state).replace(/_/g, ' ')}`).join('; ');
 }
 
-function isAvailable(item, settings) {
+// Does this item need nothing further from the team? Exported because the case
+// LIST answers the same question over the stored rows without running a
+// refresh, and a second copy of the external-results rule there would be a
+// second thing to keep in step with the tenant setting.
+export function isItemAvailable(item, settings) {
   if (AVAILABLE_STATES.includes(item.state)) return true;
   return item.state === 'external_recorded' && settings.external_results_count === true;
 }
+
+const isAvailable = isItemAvailable;
 
 // What automation may do to the `labs` check row given the items.
 // nextStatus: 'pass' | 'pending' | null (leave the row alone).

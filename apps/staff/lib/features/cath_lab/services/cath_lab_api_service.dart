@@ -26,6 +26,7 @@ class CathLabCaseSummary {
     this.signedReportCount = 0,
     this.reportTatMinutes,
     this.reuseRestriction,
+    this.labReadinessSummary,
   });
 
   final int id;
@@ -50,6 +51,16 @@ class CathLabCaseSummary {
   /// one — the case LIST does not — which is a different fact from `clear`
   /// and must not be rendered as a restriction of unknown status.
   final CathReuseRestriction? reuseRestriction;
+
+  /// The stored pre-procedure lab picture for this case, as the day list
+  /// carries it. Null when the case's readiness has never been resolved — a
+  /// different fact from "nothing is missing", which is why it is nullable
+  /// rather than an empty summary.
+  ///
+  /// [readinessCleared] / [readinessTotal] beside it are counts over the EIGHT
+  /// check rows and say nothing about the lab items: a case can be 8/8 and be
+  /// sitting on a potassium of 6.9.
+  final CathLabReadinessSummary? labReadinessSummary;
 
   double get readinessProgress {
     if (readinessTotal <= 0) return 0;
@@ -80,6 +91,11 @@ class CathLabCaseSummary {
       reuseRestriction: json['reuse_restriction'] is Map
           ? CathReuseRestriction.fromJson(
               Map<String, dynamic>.from(json['reuse_restriction'] as Map),
+            )
+          : null,
+      labReadinessSummary: json['lab_readiness_summary'] is Map
+          ? CathLabReadinessSummary.fromJson(
+              Map<String, dynamic>.from(json['lab_readiness_summary'] as Map),
             )
           : null,
     );

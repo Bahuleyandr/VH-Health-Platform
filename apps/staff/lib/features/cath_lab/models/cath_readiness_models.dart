@@ -312,6 +312,66 @@ class CathLabReadiness {
   }
 }
 
+/// The `lab_readiness_summary` every row of `GET /cath-lab/cases` carries.
+///
+/// It is NOT a small [CathLabReadiness]. The list reads the STORED readiness
+/// snapshot without running the read-through refresh the per-case endpoints
+/// run, so it is as fresh as the last time somebody opened that case —
+/// [liveEvidenceRefreshedAt] is the server's own stamp for exactly that, and
+/// the backend rewrites it at most once a minute while a case is being read.
+///
+/// It also carries no VALUES, no `critical_items` and no per-item criticality:
+/// the day list is cath report-read, which admits the front desk, and naming a
+/// serology item as critical says it came back reactive. [criticalWarning] says
+/// a critical value exists on the case without naming it, which is the advisory
+/// that audience is admitted for.
+///
+/// Null on a case whose readiness has never been resolved. That is "not known",
+/// which the header must never render as "nothing missing".
+class CathLabReadinessSummary {
+  const CathLabReadinessSummary({
+    required this.checkStatus,
+    required this.criticalWarning,
+    required this.autoManaged,
+    required this.missingCount,
+    required this.missingItems,
+    this.liveEvidenceRefreshedAt,
+  });
+
+  /// The stored `labs` check status: `pending | pass | fail | waived |
+  /// not_applicable`.
+  final String checkStatus;
+  final bool criticalWarning;
+  final bool autoManaged;
+
+  /// The server's count of still-missing REQUIRED items. Read from its own key
+  /// rather than from [missingItems].length: the count is what the server
+  /// asserts, and a client that recomputed it would disagree the moment the
+  /// list is ever abridged.
+  final int missingCount;
+
+  /// The missing item codes, in the backend's item order.
+  final List<String> missingItems;
+
+  /// When the snapshot behind this summary was last re-evidenced, or null when
+  /// the check row carries no stamp.
+  final DateTime? liveEvidenceRefreshedAt;
+
+  bool get hasSignal => missingCount > 0 || criticalWarning;
+
+  factory CathLabReadinessSummary.fromJson(Map<String, dynamic> json) {
+    final items = _strings(json['missing_items']);
+    return CathLabReadinessSummary(
+      checkStatus: _text(json['check_status'], fallback: 'pending'),
+      criticalWarning: json['critical_warning'] == true,
+      autoManaged: json['auto_managed'] == true,
+      missingCount: _int(json['missing_count']) ?? items.length,
+      missingItems: items,
+      liveEvidenceRefreshedAt: _date(json['live_evidence_refreshed_at']),
+    );
+  }
+}
+
 /// `GET /cath-lab/cases/:id` projected down to what the checklist renders.
 class CathCaseReadiness {
   const CathCaseReadiness({

@@ -353,9 +353,14 @@ describe('the published shapes cover every key the service returns', () => {
 describe('the seven operations describe the routes that exist', () => {
   const CATH = '/api/v1/cath-lab/cases/{id}/readiness/labs';
   const SETTINGS = '/api/v1/cath-reprocessing/lab-readiness-settings';
-  // Documented in prose only: it predates this overlay and still answers the
-  // generic Success envelope, so it carries a description and nothing else.
+  // Documented in prose only: they predate this overlay and still answer the
+  // generic Success envelope, so each carries a description and nothing else.
   const EVIDENCE = 'POST /api/v1/cath-lab/cases/{id}/readiness/evidence/refresh';
+  // The day list. It is here because it now publishes a READINESS key
+  // (lab_readiness_summary) and this is the file that owns that vocabulary —
+  // not because the overlay claims the case list's shape, which it does not.
+  const DAY_LIST = 'GET /api/v1/cath-lab/cases';
+  const PROSE_ONLY = [EVIDENCE, DAY_LIST];
 
   const COMMANDS = [
     [`POST ${CATH}/order-missing`, 'CathLabReadinessOrderMissingResponse', '201'],
@@ -383,13 +388,13 @@ describe('the seven operations describe the routes that exist', () => {
     return document.paths[path][method.toLowerCase()];
   }
 
-  it('covers exactly the five cath routes, evidence-refresh and the two governance routes', () => {
+  it('covers exactly the five cath routes, the two prose-only ones and the two governance routes', () => {
     expect(Object.keys(operations).sort()).toEqual(
-      [...COMMANDS.map(([key]) => key), ...READS.map(([key]) => key), EVIDENCE].sort(),
+      [...COMMANDS.map(([key]) => key), ...READS.map(([key]) => key), ...PROSE_ONLY].sort(),
     );
   });
 
-  it.each([...COMMANDS.map(([key]) => key), ...READS.map(([key]) => key), EVIDENCE])(
+  it.each([...COMMANDS.map(([key]) => key), ...READS.map(([key]) => key), ...PROSE_ONLY])(
     '%s carries a description',
     (key) => {
       expect(operations[key].description).toEqual(expect.any(String));
@@ -397,16 +402,30 @@ describe('the seven operations describe the routes that exist', () => {
     },
   );
 
-  it('the evidence refresh is documented but still generically typed', () => {
-    // Honesty rather than a shape it does not have: the handler answers
-    // { ...evidence refresh result, labs: CathLabReadiness | null }, and only
-    // the `labs` half has a schema here — so the description says so and the
-    // response stays the generic Success envelope.
-    expect(operations[EVIDENCE]).not.toHaveProperty('response');
-    expect(operations[EVIDENCE]).not.toHaveProperty('request');
-    expect(operations[EVIDENCE].description).toMatch(/labs: null/);
-    expect(generated(EVIDENCE).responses['200'].content['application/json'].schema)
+  it.each(PROSE_ONLY)('%s is documented but still generically typed', (key) => {
+    // Honesty rather than a shape it does not have. The evidence refresh
+    // answers { ...evidence refresh result, labs: CathLabReadiness | null } and
+    // only the `labs` half has a schema here; the day list answers full case
+    // rows this overlay does not describe. Both therefore keep the generic
+    // Success envelope and say what they carry in prose.
+    expect(operations[key]).not.toHaveProperty('response');
+    expect(operations[key]).not.toHaveProperty('request');
+    expect(generated(key).responses['200'].content['application/json'].schema)
       .toEqual({ $ref: '#/components/schemas/Success' });
+  });
+
+  it('the two prose-only operations each name what they actually carry', () => {
+    expect(operations[EVIDENCE].description).toMatch(/labs: null/);
+    // The day list's summary is a documented KEY SET, and the description is
+    // the only place a client can read it — so the keys are pinned here.
+    for (const key of [
+      'lab_readiness_summary', 'check_status', 'critical_warning', 'auto_managed',
+      'missing_count', 'missing_items', 'live_evidence_refreshed_at',
+    ]) {
+      expect(operations[DAY_LIST].description).toContain(key);
+    }
+    // ...and so is the one it deliberately does NOT carry.
+    expect(operations[DAY_LIST].description).toMatch(/NOT included: `critical_items`/);
   });
 
   it.each(COMMANDS)('%s claims an Idempotency-Key and answers %s at %s', (key, response, status) => {

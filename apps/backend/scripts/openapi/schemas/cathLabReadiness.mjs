@@ -438,6 +438,24 @@ export const operations = {
       )
     }
   },
+  'GET /api/v1/cath-lab/cases': {
+    summary: 'The cath day list, with each case\'s stored lab-readiness summary',
+    description:
+      'Every case carries `lab_readiness_summary`: `check_status`, `critical_warning`, '
+      + '`auto_managed`, `missing_count`, `missing_items` (item codes) and '
+      + '`live_evidence_refreshed_at` — or null for a case whose readiness has never been '
+      + 'resolved, which is NOT the same as nothing being missing. It is the STORED snapshot: '
+      + 'the list never runs the read-through refresh (that would be a lock and a write cycle '
+      + 'per card on a screen that is open all day), so it is as fresh as the last time '
+      + 'somebody opened the case, and the refresh\'s own stamp — rewritten at most every 60 '
+      + 'seconds while a case is read — is published beside it so the age is visible rather '
+      + 'than assumed. Deliberately NOT included: `critical_items`, the per-item values and '
+      + 'the per-item `is_critical`. This route is cath report-read, which admits RECEPTIONIST '
+      + 'and TECHNICIAN, and naming a serology item as critical says it came back reactive; '
+      + 'omitting the list is a stronger guarantee than projecting it. Typed here in prose '
+      + 'only, like the evidence refresh below: the day list predates this overlay and still '
+      + 'answers the generic Success envelope.'
+  },
   'POST /api/v1/cath-lab/cases/{id}/readiness/evidence/refresh': {
     summary: 'Re-evidence every readiness check on a cath case',
     description:
